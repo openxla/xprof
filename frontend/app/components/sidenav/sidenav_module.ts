@@ -7,15 +7,14 @@ import {MatFormFieldModule} from '@angular/material/form-field';
 import {MatSelectModule} from '@angular/material/select';
 import {CaptureKernel} from 'org_xprof/frontend/app/components/capture_kernel/capture_kernel';
 import {CaptureProfileModule} from 'org_xprof/frontend/app/components/capture_profile/capture_profile_module';
-import {BufferDetailsModule} from 'org_xprof/frontend/app/components/memory_viewer/buffer_details/buffer_details_module';
 import {OpDetailsModule} from 'org_xprof/frontend/app/components/op_profile/op_details/op_details_module';
 import {PodViewerDetailsModule} from 'org_xprof/frontend/app/components/pod_viewer/pod_viewer_details/pod_viewer_details_module';
 
-import {SideNav} from './sidenav';
+import {DisplayTagNamePipe, SideNav} from './sidenav';
 
 /** A side navigation module. */
 @NgModule({
-  declarations: [SideNav],
+  declarations: [SideNav, DisplayTagNamePipe],
   imports: [
     CommonModule,
     MatButtonModule,
@@ -23,12 +22,11 @@ import {SideNav} from './sidenav';
     MatFormFieldModule,
     MatSelectModule,
     MatOptionModule,
-    BufferDetailsModule,
     CaptureProfileModule,
     CaptureKernel,
     OpDetailsModule,
     PodViewerDetailsModule,
   ],
-  exports: [SideNav],
+  exports: [SideNav, DisplayTagNamePipe],
 })
 export class SideNavModule {}

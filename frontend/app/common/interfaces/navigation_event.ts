@@ -12,6 +12,7 @@ export declare interface NavigationEvent {
   // Graph Viewer crosslink params
   opName?: string;
   moduleName?: string;
+  module_name?: string;
   programId?: string;
   graphType?: string;
   // Memory viewer params

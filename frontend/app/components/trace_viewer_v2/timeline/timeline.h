@@ -207,6 +207,21 @@ class Timeline {
   // This is necessary because MockTimeline in the tests inherits from Timeline.
   virtual ~Timeline() = default;
 
+  struct HeaderAggregateState {
+    bool any_expandable = false;
+    bool all_expanded = true;
+  };
+
+  const HeaderAggregateState& get_header_all_state_for_test() const {
+    return header_all_state_;
+  }
+  const HeaderAggregateState& get_header_hidden_state_for_test() const {
+    return header_hidden_state_;
+  }
+  const HeaderAggregateState& get_header_pinned_state_for_test() const {
+    return header_pinned_state_;
+  }
+
   // For testing only
   float get_copy_notification_timer_for_test() const {
     return copy_notification_timer_;
@@ -577,9 +592,17 @@ class Timeline {
 
   bool DrawHideButton(int group_index, Pixel height, bool is_track_hidden);
   bool DrawPinButton(int group_index, Pixel height, bool is_pinned);
+  bool DrawCollapseExpandAllButton(const Group* header_group, Pixel height,
+                                   bool all_expanded);
+  virtual void DrawCollapseExpandAllIcon(ImDrawList* draw_list, Pixel center_x,
+                                         Pixel center_y, Pixel icon_draw_size,
+                                         ImU32 icon_col, bool all_expanded);
 
  private:
   absl::flat_hash_set<int> matching_event_indices_;
+
+  bool IsGroupExpandable(int group_index,
+                         const FlameChartTimelineData& data) const;
 
   void NavigateToSearchResult(const SearchResult& result);
   void BackfillGroupLevelCount(FlameChartTimelineData& data);
@@ -757,6 +780,10 @@ class Timeline {
   int all_processes_count_ = 0;
   int hidden_processes_count_ = 0;
   int pinned_processes_count_ = 0;
+
+  HeaderAggregateState header_all_state_;
+  HeaderAggregateState header_hidden_state_;
+  HeaderAggregateState header_pinned_state_;
 
   FlameChartTimelineData timeline_data_;
   std::vector<float> utilization_bins_;

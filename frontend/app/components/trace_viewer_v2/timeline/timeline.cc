@@ -247,6 +247,23 @@ int Timeline::FindFirstVisibleAncestorIndex(int start_idx) const {
   return start_idx;
 }
 
+bool Timeline::IsGroupExpandable(int group_index,
+                                 const FlameChartTimelineData& data) const {
+  if (group_index < 0 || group_index >= data.groups.size()) {
+    return false;
+  }
+  const Group& group = data.groups[group_index];
+  const bool has_children =
+      group_index + 1 < data.groups.size() &&
+      data.groups[group_index + 1].nesting_level > group.nesting_level;
+  const int next_group_start_level = GetNextGroupStartLevel(data, group_index);
+  const bool has_multiple_levels =
+      next_group_start_level - group.start_level > 1;
+
+  return group.type == Group::Type::kFlame &&
+         (has_children || has_multiple_levels);
+}
+
 Pixel Timeline::GetGroupTop(const Group* group) const {
   if (group == nullptr) return 0.0f;
   if (group == &header_hidden_) return header_hidden_offset_;
@@ -413,12 +430,23 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
   // Track collapsed status of headers
   bool section_collapsed = false;
 
+  enum class HeaderSection { kNone, kHidden, kPinned, kAll };
+  HeaderSection current_section = HeaderSection::kNone;
+
+  header_all_state_ = HeaderAggregateState{
+    .any_expandable = false, .all_expanded = true};
+  header_hidden_state_ = HeaderAggregateState{
+    .any_expandable = false, .all_expanded = true};
+  header_pinned_state_ = HeaderAggregateState{
+    .any_expandable = false, .all_expanded = true};
+
   for (const Group* group_ptr : flattened_groups_) {
     if (group_ptr->nesting_level == kHeaderNestingLevel) {
       if (group_ptr->name == kAllHeaderName) {
         header_all_offset_ = current_offset;
         section_collapsed = !header_all_expanded_;
         current_offset += kVirtualHeaderHeight;
+        current_section = HeaderSection::kAll;
         continue;
       }
       if (group_ptr->name == kHiddenHeaderName) {
@@ -427,6 +455,7 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
         current_offset += kVirtualHeaderHeight;
         // Reset collapsed ancestor tracker between sections
         hidden_nesting_level = std::numeric_limits<int>::max();
+        current_section = HeaderSection::kHidden;
         continue;
       }
       if (group_ptr->name == kPinnedHeaderName) {
@@ -435,6 +464,7 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
         current_offset += kVirtualHeaderHeight;
         // Reset collapsed ancestor tracker between sections
         hidden_nesting_level = std::numeric_limits<int>::max();
+        current_section = HeaderSection::kPinned;
         continue;
       }
     }
@@ -442,6 +472,27 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
     // Now we are dealing with a standard group track
     const int group_index = group_ptr - &data.groups[0];
     const Group& group = *group_ptr;
+
+    const bool expandable = IsGroupExpandable(group_index, data);
+
+    if (expandable) {
+      if (current_section == HeaderSection::kHidden) {
+        header_hidden_state_.any_expandable = true;
+        if (!group.expanded) {
+          header_hidden_state_.all_expanded = false;
+        }
+      } else if (current_section == HeaderSection::kPinned) {
+        header_pinned_state_.any_expandable = true;
+        if (!group.expanded) {
+          header_pinned_state_.all_expanded = false;
+        }
+      } else if (current_section == HeaderSection::kAll) {
+        header_all_state_.any_expandable = true;
+        if (!group.expanded) {
+          header_all_state_.all_expanded = false;
+        }
+      }
+    }
 
     // If the whole header section is collapsed, this group disappears.
     if (section_collapsed) {
@@ -486,13 +537,6 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
 
     new_group_offsets[group_index] = current_offset;
     has_visible_group = true;
-
-    const bool has_children = group.has_children;
-    const bool has_multiple_levels =
-        next_group_start_level - group.start_level > 1;
-
-    const bool expandable = group.type == Group::Type::kFlame &&
-                            (has_children || has_multiple_levels);
 
     const bool is_collapsed = expandable && !group.expanded;
 
@@ -1102,6 +1146,7 @@ bool Timeline::DrawHeaderRow(const Group* group_ptr,
                              const ImVec2& tracks_start_pos,
                              const ImVec2& tracks_start_screen_pos,
                              Pixel group_top, Pixel group_bottom) {
+  if (group_ptr == nullptr) return false;
   bool needs_layout_update = false;
 
   int header_id = kAllHeaderId;
@@ -1163,6 +1208,33 @@ bool Timeline::DrawHeaderRow(const Group* group_ptr,
   }
   ImGui::TextUnformatted(header_text.c_str());
   ImGui::PopFont();
+
+  // Retrieve cached aggregate expandable/expanded state
+  bool all_relevant_expanded = true;
+  bool any_relevant_expandable = false;
+
+  if (group_ptr->name == kAllHeaderName) {
+    any_relevant_expandable = header_all_state_.any_expandable;
+    all_relevant_expanded = header_all_state_.all_expanded;
+  } else if (group_ptr->name == kHiddenHeaderName) {
+    any_relevant_expandable = header_hidden_state_.any_expandable;
+    all_relevant_expanded = header_hidden_state_.all_expanded;
+  } else if (group_ptr->name == kPinnedHeaderName) {
+    any_relevant_expandable = header_pinned_state_.any_expandable;
+    all_relevant_expanded = header_pinned_state_.all_expanded;
+  }
+
+  // Draw Collapse/Expand All button if any child is expandable
+  if (any_relevant_expandable) {
+    ImGui::SameLine();
+    const Pixel kLargeIconDrawSize = ImGui::GetFontSize() * kIconSizeScale;
+    ImGui::SetCursorPosX(tracks_start_pos.x + label_width_ - kSplitterOffset -
+                         kLargeIconDrawSize - kButtonGap);
+    if (DrawCollapseExpandAllButton(group_ptr, kVirtualHeaderHeight,
+                                    all_relevant_expanded)) {
+      needs_layout_update = true;
+    }
+  }
 
   ImGui::PopClipRect();
   ImGui::PopID();
@@ -2012,14 +2084,7 @@ void Timeline::FindNearestEventEdge(Microseconds time, Microseconds threshold,
     int next_group_start_level =
         GetNextGroupStartLevel(timeline_data_, group_index);
 
-    const bool has_children =
-        group_index + 1 < timeline_data_.groups.size() &&
-        timeline_data_.groups[group_index + 1].nesting_level >
-            group.nesting_level;
-    const bool has_multiple_levels =
-        next_group_start_level - group.start_level > 1;
-    const bool expandable = group.type == Group::Type::kFlame &&
-                            (has_children || has_multiple_levels);
+    const bool expandable = IsGroupExpandable(group_index, timeline_data_);
     const bool is_collapsed = expandable && !group.expanded;
 
     if (is_collapsed) {
@@ -3458,6 +3523,99 @@ bool Timeline::DrawPinButton(int group_index, Pixel height, bool is_pinned) {
   }
   return toggled;
 }
+
+bool Timeline::DrawCollapseExpandAllButton(const Group* header_group,
+                                           Pixel height, bool all_expanded) {
+  // Base size to determine the icon's drawing area and the button's width.
+  const Pixel kLargeIconDrawSize = ImGui::GetFontSize() * kIconSizeScale;
+  const Pixel kButtonVisibleHeight = height;
+
+  ImVec2 p = ImGui::GetCursorScreenPos();
+  const ImVec2 buttonSize(kLargeIconDrawSize, kButtonVisibleHeight);
+
+  bool toggled = false;
+  if (ImGui::InvisibleButton("##collapse_expand_all", buttonSize,
+                             ImGuiButtonFlags_PressedOnClick)) {
+    const bool target_expanded = !all_expanded;
+    auto it = std::find(flattened_groups_.begin(), flattened_groups_.end(),
+                        header_group);
+    if (it != flattened_groups_.end()) {
+      for (auto next_it = it + 1; next_it != flattened_groups_.end();
+           ++next_it) {
+        const Group* next_group = *next_it;
+        if (IsVirtualHeader(next_group)) {
+          break;
+        }
+        const int group_index = next_group - &timeline_data_.groups[0];
+        if (group_index >= 0 &&
+            group_index < static_cast<int>(timeline_data_.groups.size())) {
+          const bool expandable =
+              IsGroupExpandable(group_index, timeline_data_);
+
+          if (expandable) {
+            timeline_data_.groups[group_index].expanded = target_expanded;
+            toggled = true;
+          }
+        }
+      }
+    }
+  }
+
+  // Calculate the center point for drawing the icon.
+  Pixel center_x = p.x + kLargeIconDrawSize * 0.5f;
+  Pixel center_y = p.y + kButtonVisibleHeight * 0.5f;
+
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  ImU32 icon_col = ImGui::GetColorU32(ImGuiCol_Text);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    icon_col = ImGui::GetColorU32(ImGuiCol_ButtonHovered);
+    ImGui::SetTooltip(all_expanded ? kCollapseAllTrackTooltip
+                                   : kExpandAllTrackTooltip);
+  }
+
+  DrawCollapseExpandAllIcon(draw_list, center_x, center_y, kLargeIconDrawSize,
+                            icon_col, all_expanded);
+  return toggled;
+}
+
+void Timeline::DrawCollapseExpandAllIcon(ImDrawList* draw_list, Pixel center_x,
+                                         Pixel center_y, Pixel icon_draw_size,
+                                         ImU32 icon_col, bool all_expanded) {
+  const Pixel h = icon_draw_size * 0.35f;
+  const Pixel w = icon_draw_size * 0.18f;
+  const Pixel shift = icon_draw_size * 0.28f;
+
+  ImVec2 p1(-h, -w);
+  ImVec2 p2(0, w);
+  ImVec2 p3(h, -w);
+
+  auto draw_chevron = [&](Pixel offset_y, bool pointing_down) {
+    const float y_tip = center_y + offset_y + (pointing_down ? w : -w);
+    const float y_base = center_y + offset_y + (pointing_down ? -w : w);
+    draw_list->AddLine(ImVec2(center_x - h, y_base),
+                       ImVec2(center_x, y_tip), icon_col, 1.2f);
+    draw_list->AddLine(ImVec2(center_x, y_tip),
+                       ImVec2(center_x + h, y_base), icon_col, 1.2f);
+  };
+
+  if (!all_expanded) {
+    // Collapsed -> Click to Expand All: draw ^v (pointing outwards)
+    // Top chevron pointing UP shifted UP (-shift)
+    draw_chevron(-shift, /*pointing_down=*/false);
+
+    // // Bottom chevron pointing DOWN shifted DOWN (+shift)
+    draw_chevron(shift, /*pointing_down=*/true);
+  } else {
+    // Expanded -> Click to Collapse All: draw v^ (pointing inwards)
+    // Top chevron pointing DOWN shifted UP (-shift)
+    draw_chevron(-shift, /*pointing_down=*/true);
+
+    // // Bottom chevron pointing UP shifted DOWN (+shift)
+    draw_chevron(shift, /*pointing_down=*/false);
+  }
+}
+
 
 void Timeline::DrawSelectedTimeRanges(Pixel timeline_width,
                                       double px_per_time_unit_val) {

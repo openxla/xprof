@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <iterator>
 #include <limits>
 #include <optional>
@@ -248,41 +249,45 @@ int Timeline::FindFirstVisibleAncestorIndex(int start_idx) const {
 
 Pixel Timeline::GetGroupTop(const Group* group) const {
   if (group == nullptr) return 0.0f;
-  if (IsVirtualHeader(group)) {
-    if (group->name == kHiddenHeaderName) return header_hidden_offset_;
-    if (group->name == kAllHeaderName) return header_all_offset_;
-    return header_pinned_offset_;
-  }
-  if (timeline_data_.groups.empty()) {
+  if (group == &header_hidden_) return header_hidden_offset_;
+  if (group == &header_all_) return header_all_offset_;
+  if (group == &header_pinned_) return header_pinned_offset_;
+
+  if (timeline_data_.groups.empty()) return 0.0f;
+
+  const Group* const data = timeline_data_.groups.data();
+  const size_t size = timeline_data_.groups.size();
+  if (std::less<const Group*>()(group, data) ||
+      std::greater_equal<const Group*>()(group, data + size)) {
     return 0.0f;
   }
-  const int group_index = group - timeline_data_.groups.data();
-  if (group_index < 0 ||
-      group_index >= static_cast<int>(timeline_data_.groups.size())) {
-    return 0.0f;
-  }
+
+  const int group_index = static_cast<int>(group - data);
   return group_offsets_[group_index];
 }
 
 Pixel Timeline::GetGroupBottom(const Group* group) const {
   if (group == nullptr) return 0.0f;
-  if (IsVirtualHeader(group)) {
-    if (group->name == kHiddenHeaderName) {
-      return header_hidden_offset_ + kVirtualHeaderHeight;
-    }
-    if (group->name == kAllHeaderName) {
-      return header_all_offset_ + kVirtualHeaderHeight;
-    }
+  if (group == &header_hidden_) {
+    return header_hidden_offset_ + kVirtualHeaderHeight;
+  }
+  if (group == &header_all_) {
+    return header_all_offset_ + kVirtualHeaderHeight;
+  }
+  if (group == &header_pinned_) {
     return header_pinned_offset_ + kVirtualHeaderHeight;
   }
-  if (timeline_data_.groups.empty()) {
+
+  if (timeline_data_.groups.empty()) return 0.0f;
+
+  const Group* const data = timeline_data_.groups.data();
+  const size_t size = timeline_data_.groups.size();
+  if (std::less<const Group*>()(group, data) ||
+      std::greater_equal<const Group*>()(group, data + size)) {
     return 0.0f;
   }
-  const int group_index = group - timeline_data_.groups.data();
-  if (group_index < 0 ||
-      group_index >= static_cast<int>(timeline_data_.groups.size())) {
-    return 0.0f;
-  }
+
+  const int group_index = static_cast<int>(group - data);
   return group_offsets_[group_index] + group_heights_[group_index];
 }
 

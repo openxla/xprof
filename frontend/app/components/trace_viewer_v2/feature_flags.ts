@@ -20,7 +20,7 @@ const FEATURE_FLAG_CONFIGS = [
     id: 'use_pb',
     name: 'Use Protobuf Pipeline in Trace Viewer',
     description: 'Enable the new protobuf-based data pipeline in Trace Viewer.',
-    default: false,
+    default: true,
   },
   {
     id: 'bookmarks',

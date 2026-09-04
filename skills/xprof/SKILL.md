@@ -192,9 +192,10 @@ Pallas or Mosaic):
     execution times, top operations, and HLO graphs between baseline and
     candidate sessions.
 -   **[Numerical Verification](references/numerical_correctness.md)**: Verify
-    numerical equivalence between baseline and candidate kernels using
-    multi-regime distributions, discrete bounded indices, monotonic segment IDs,
-    boolean masks, and ULP distance metrics.
+    reference grounding (detecting lossy baselines via Float64 Oracle) and
+    refactor equivalence (exact/tight ULP bitwise checks for cleanups and
+    reshapes). *Note*: Do not use as an automated merge gate to block
+    reassociating kernel optimizations ($a + (b + c) \ne (a + b) + c$).
 -   **[Custom Call & LLO Profiling][custom-call-doc]**: Trace custom kernel
     execution, instruction metrics, and register LLO debug info.
 

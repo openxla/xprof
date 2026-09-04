@@ -126,6 +126,9 @@ def verify_numerical_parity(
     max_allowed_ulp: int = 2,
     p99_9_allowed_ulp: int = 1,
     seed: int = 42,
+    regimes: _Sequence[str] | str | None = None,
+    kernel_oracle: _Callable[..., Any] | str | None = None,
+    device_kind: str | None = None,
 ) -> str:
   """Validates numerical parity between two kernels and returns a JSON report.
 
@@ -140,22 +143,53 @@ def verify_numerical_parity(
       elements.
     p99_9_allowed_ulp: Maximum acceptable 99.9th percentile ULP distance.
     seed: PRNG seed for reproducibility.
+    regimes: Optional sequence of regime names (e.g. ['normal']) or
+      comma-separated string. Defaults to 'normal' with automated triage
+      fallback on failure.
+    kernel_oracle: Optional high-precision reference used to report how far
+      `kernel_ref` itself sits from an exact result. Pass a callable (or
+      "module.fn" path) that computes in float64 on the host, or the literal
+      string "auto" to re-run `kernel_ref` with its floating-point arguments
+      promoted to float64. Report-only: it populates `oracle_audit` and never
+      changes the verdict. Without it this tool validates *agreement*, not
+      correctness -- two kernels wrong in the same way agree perfectly.
+    device_kind: Device/backend identifier (e.g. "tpu", "gpu", "cpu").
+      Auto-detected when omitted.
 
   Returns:
     A JSON string containing the validation report:
       - is_numerically_equivalent: Boolean verdict.
+      - correctness_basis: Basis of claim ("AGREEMENT_ONLY" or
+        "AGREEMENT_AND_ORACLE").
+      - run_config: Execution parameters (tier, seed, dtype_str, device_kind,
+        backend, total_batches_count).
       - overall_max_ulp: Peak ULP distance across all batches.
       - failed_batches_count: Number of batches failing ULP criteria.
       - total_batches_count: Total test batches executed.
       - summary_message: High-level diagnostics.
+      - tolerance_audit: Contract tolerance elevation diagnostic details.
+      - oracle_audit: Reference- and candidate-vs-float64 distances.
+      - ulp_context: Statistical and reliability assessment of ULP.
       - batch_results: Detailed per-batch breakdown.
   """
   ref_fn = _resolve_callable(kernel_ref)
   candidate_fn = _resolve_callable(kernel_candidate)
 
+  if kernel_oracle is None or kernel_oracle == "auto":
+    oracle_fn = kernel_oracle
+  else:
+    oracle_fn = _resolve_callable(kernel_oracle)
+
   parsed_shapes: Any = shapes
   if isinstance(shapes, str):
     parsed_shapes = ast.literal_eval(shapes)
+
+  parsed_regimes = regimes
+  if isinstance(regimes, str) and regimes != "all":
+    if "," in regimes:
+      parsed_regimes = [r.strip() for r in regimes.split(",") if r.strip()]
+    elif regimes.startswith("[") or regimes.startswith("("):
+      parsed_regimes = ast.literal_eval(regimes)
 
   try:
     from xprof.cli.internal import numerical_validator
@@ -175,10 +209,15 @@ def verify_numerical_parity(
       max_allowed_ulp=max_allowed_ulp,
       p99_9_allowed_ulp=p99_9_allowed_ulp,
       seed=seed,
+      regimes=parsed_regimes,
+      kernel_oracle=oracle_fn,
+      device_kind=device_kind,
   )
 
   results_dict = {
       "is_numerically_equivalent": report.is_numerically_equivalent,
+      "correctness_basis": report.correctness_basis,
+      "run_config": report.run_config,
       "overall_max_ulp": report.overall_max_ulp,
       "failed_batches_count": report.failed_batches_count,
       "total_batches_count": report.total_batches_count,
@@ -186,6 +225,16 @@ def verify_numerical_parity(
       "tolerance_audit": (
           dataclasses.asdict(report.tolerance_audit)
           if report.tolerance_audit is not None
+          else None
+      ),
+      "oracle_audit": (
+          dataclasses.asdict(report.oracle_audit)
+          if report.oracle_audit is not None
+          else None
+      ),
+      "ulp_context": (
+          dataclasses.asdict(report.ulp_context)
+          if report.ulp_context is not None
           else None
       ),
       "batch_results": [dataclasses.asdict(b) for b in report.batch_results],

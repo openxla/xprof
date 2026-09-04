@@ -235,10 +235,12 @@ inline constexpr char kCounterTooltipFormat[] = "Time: %s\nValue: %.2f";
 inline constexpr char kHiddenHeaderName[] = "Hidden";
 inline constexpr char kHiddenProcessNotificationPrefix[] = "Hidden process: ";
 inline constexpr char kHideTrackTooltip[] = "Hide track";
+inline constexpr char kMovingTrackNotificationPrefix[] = "Moving track ";
 inline constexpr char kPinTrackTooltip[] = "Pin track";
 inline constexpr char kPinnedHeaderName[] = "Pinned";
 inline constexpr char kPinnedProcessNotificationPrefix[] = "Pinned process: ";
 inline constexpr char kProcessHeaderLabel[] = "Process";
+inline constexpr char kReorderTrackTooltip[] = "Reorder track";
 inline constexpr char kUnhiddenProcessNotificationPrefix[] =
     "Unhidden process: ";
 inline constexpr char kUnhideTrackTooltip[] = "Unhide track";

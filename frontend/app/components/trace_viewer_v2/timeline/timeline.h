@@ -253,6 +253,16 @@ class Timeline {
     last_scroll_y_ = scroll_y;
     should_restore_scroll_ = true;
   }
+  Pixel get_sticky_offset_for_test() const { return sticky_offset_; }
+  bool is_group_pinned_for_test(int group_index) const {
+    return group_index >= 0 &&
+           group_index < static_cast<int>(group_is_pinned_.size()) &&
+           group_is_pinned_[group_index];
+  }
+  bool is_level_pinned_for_test(int level) const {
+    return level >= 0 && level < static_cast<int>(level_is_pinned_.size()) &&
+           level_is_pinned_[level];
+  }
 
   // The provided callback is stored and invoked during the lifetime of this
   // `Timeline` instance. Any captured references must outlive the `Timeline`
@@ -784,6 +794,12 @@ class Timeline {
   // Stores whether each group is visible (not hidden by a collapsed parent).
   // Precalculated in UpdateLevelPositions.
   std::vector<bool> group_visible_;
+  // Stores whether each group belongs to the pinned section.
+  std::vector<bool> group_is_pinned_;
+  // Stores whether each level belongs to a pinned group.
+  std::vector<bool> level_is_pinned_;
+  // Cached sticky offset applied to pinned tracks during vertical scroll.
+  Pixel sticky_offset_ = 0.0f;
 
   // The visible time range in microseconds in the timeline. It is initialized
   // to {0, 0} by the `TimeRange` default constructor.

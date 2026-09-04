@@ -448,9 +448,9 @@ cc_library(
     deps = [":imgui"],
 )
 """,
-    sha256 = "81087a74599e5890a07b636887cee73a7dc1a9eb9e1f19a4a0d82a76090bf4c2",
-    strip_prefix = "imgui-1.88",
-    urls = ["https://github.com/ocornut/imgui/archive/v1.88.zip"],
+    sha256 = "c5e2053afc707c70385431ed85c500b108b521784a3f6a7a31ea17583aab89a2",
+    strip_prefix = "imgui-1.92.4-docking",
+    urls = ["https://github.com/ocornut/imgui/archive/refs/tags/v1.92.4-docking.tar.gz"],
 )
 
 http_archive(

@@ -6,7 +6,7 @@ import {
   EventsSelectedData,
   MetricsItem,
 } from './interfaces';
-import {FilterField, FilterOperator} from './trace_viewer_typings';
+import {FilterField, FilterOperator, StackFrame} from './trace_viewer_typings';
 
 function isMetricsItem(item: unknown): item is MetricsItem {
   if (typeof item !== 'object' || item === null) return false;
@@ -209,4 +209,57 @@ export function getProcessNamesFromWasm(
     console.warn('Failed to get process names from WASM:', e);
   }
   return result;
+}
+
+/**
+ * Display label under which the resolved stack frame (for HLO ops, the HLO
+ * expression including input/output tensor shapes) is surfaced in the
+ * selected-event details panel. Matches the "Start Stack Trace" field shown by
+ * the v1 trace viewer.
+ */
+export const STACK_TRACE_ARG_KEY = 'Start Stack Trace';
+
+/**
+ * Resolves the stack frame(s) referenced by an event's `sf` id into a single
+ * newline-joined string, walking the parent chain. Details responses carry
+ * stack frames in a separate `stackFrames` map (keyed by id); for HLO ops this
+ * holds the full HLO expression, which includes the input/output tensor shapes.
+ * Mirrors the v1 "Start Stack Trace" field. Returns undefined when `sf` is
+ * unset, the `stackFrames` map is missing, or no frames resolve.
+ */
+export function resolveStackTrace(
+  sf: number | undefined,
+  stackFrames: {[id: string]: StackFrame} | undefined,
+): string | undefined {
+  if (sf === undefined || !stackFrames) {
+    return undefined;
+  }
+  const lines: string[] = [];
+  const visited = new Set<string>();
+  let frameId: string | undefined = String(sf);
+  while (frameId !== undefined && !visited.has(frameId)) {
+    visited.add(frameId);
+    const frame: StackFrame | undefined = stackFrames[frameId];
+    if (!frame) {
+      break;
+    }
+    lines.push(frame.name);
+    frameId = frame.parent;
+  }
+  return lines.length > 0 ? lines.join('\n') : undefined;
+}
+
+/**
+ * Resolves the stack trace referenced by `sf` and, when present, injects it into
+ * `args` under `STACK_TRACE_ARG_KEY`. Mutates `args` in place.
+ */
+export function applyStackTraceArg(
+  args: {[key: string]: string},
+  sf: number | undefined,
+  stackFrames: {[id: string]: StackFrame} | undefined,
+): void {
+  const stackTrace = resolveStackTrace(sf, stackFrames);
+  if (stackTrace !== undefined) {
+    args[STACK_TRACE_ARG_KEY] = stackTrace;
+  }
 }

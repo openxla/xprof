@@ -180,6 +180,11 @@ export declare interface SelectedEvent {
   uid?: string;
   processName?: string;
   args?: {[key: string]: string};
+  /**
+   * Id referencing an entry in `TraceEventsData.stackFrames`. For HLO ops this
+   * points to the full HLO expression (including input/output tensor shapes).
+   */
+  sf?: number;
   stackTraceLinkHtml?: string;
   rooflineModelLinkHtml?: string;
   hloModule?: string;
@@ -192,4 +197,17 @@ export declare interface SelectedEvent {
  */
 export declare interface TraceEventsData {
   traceEvents: SelectedEvent[];
+  stackFrames?: {[id: string]: StackFrame};
+}
+
+/**
+ * A single stack frame entry, keyed by id in a details response's `stackFrames`
+ * map. `name` holds the frame text (for HLO ops, the full HLO expression, which
+ * includes the input/output tensor shapes); `parent` chains to the enclosing
+ * frame, if any.
+ */
+export declare interface StackFrame {
+  name: string;
+  parent?: string;
+  category?: string;
 }

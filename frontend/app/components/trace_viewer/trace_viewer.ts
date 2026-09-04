@@ -88,10 +88,12 @@ import {
   FilterOperatorType,
   FilterRemoveEvent,
   FlowCategory,
+  StackFrame,
   TraceEventFilter,
   TraceFilters,
 } from './trace_viewer_typings';
 import {
+  applyStackTraceArg,
   getProcessMappingsFromWasm,
   getProcessNamesFromWasm,
   parseEventsSelectedData,
@@ -99,6 +101,7 @@ import {
 
 interface TraceData {
   traceEvents?: Array<{[key: string]: unknown}>;
+  stackFrames?: {[id: string]: StackFrame};
   [key: string]: unknown;
 }
 
@@ -962,6 +965,11 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
           lastEvent['args']
         ) {
           const args = lastEvent['args'] as Record<string, string>;
+          applyStackTraceArg(
+            args,
+            lastEvent['sf'] as number | undefined,
+            traceData.stackFrames,
+          );
           this.eventArgsCache.set(cacheKey, args);
           this.addArgsToSelectedEvent(args);
         }

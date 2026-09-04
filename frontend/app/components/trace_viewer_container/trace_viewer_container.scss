@@ -387,6 +387,11 @@ canvas.emscripten {
       height: 100%;
       padding: 12px;
       border-radius: 8px;
+      // Allow tall content (e.g. the full HLO expression shown in the Start
+      // Stack Trace row) to scroll within the pane. angular-split clips the
+      // host area with overflow:hidden, so the scroll must live on this inner
+      // element which we fully control.
+      overflow-y: auto;
     }
 
     .detail-row {

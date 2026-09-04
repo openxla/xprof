@@ -4667,6 +4667,23 @@ TEST_F(RealTimelineImGuiFixture, ClickEventWithArgsSelectsEvent) {
   EXPECT_EQ(
       std::any_cast<std::string>(event_detail.at(kEventSelectedHloOpName)),
       "test_op");
+
+  ASSERT_TRUE(event_detail.contains(kEventSelectedArgs));
+  const auto* js_args =
+      std::any_cast<EventData>(&event_detail.find(kEventSelectedArgs)->second);
+  ASSERT_NE(js_args, nullptr);
+
+  const auto uid_it = js_args->find("uid");
+  ASSERT_NE(uid_it, js_args->end());
+  EXPECT_EQ(std::any_cast<std::string>(uid_it->second), "12345");
+
+  const auto hlo_module_it = js_args->find(kHloModule);
+  ASSERT_NE(hlo_module_it, js_args->end());
+  EXPECT_EQ(std::any_cast<std::string>(hlo_module_it->second), "test_module");
+
+  const auto hlo_op_it = js_args->find(kHloOp);
+  ASSERT_NE(hlo_op_it, js_args->end());
+  EXPECT_EQ(std::any_cast<std::string>(hlo_op_it->second), "test_op");
 }
 
 TEST_F(RealTimelineImGuiFixture, ClickEventSetsSelectionIndices) {

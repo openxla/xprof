@@ -5,6 +5,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <ios>
 #include <limits>
 #include <map>
@@ -121,6 +123,33 @@ class MockTimeline : public Timeline {
 
   void SetHiddenTrackNames(const absl::flat_hash_set<std::string>& names) {
     hidden_track_names_ = names;
+  }
+
+  ParentInfo CallFindGroupRelatives(Group* target_group) {
+    return FindGroupRelatives(target_group);
+  }
+
+  bool CallHandleTrackDragAndDrop(int group_index, Group& group,
+                                  const ImVec2& tracks_start_pos,
+                                  const ImVec2& tracks_start_screen_pos,
+                                  Pixel group_height,
+                                  Pixel hover_zone_width) {
+    return HandleTrackDragAndDrop(group_index, group, tracks_start_pos,
+                                  tracks_start_screen_pos, group_height,
+                                  hover_zone_width);
+  }
+
+  void CallHandleTrackDragAndDropHoverAndFeedback(
+      int group_index, Group& group, const ImVec2& tracks_start_pos,
+      const ImVec2& tracks_start_screen_pos, Pixel group_height) {
+    HandleTrackDragAndDropHoverAndFeedback(
+        group_index, group, tracks_start_pos, tracks_start_screen_pos,
+        group_height);
+  }
+
+  void CallReorderTrack(int source_org_idx, int target_org_idx,
+                        bool drop_after) {
+    ReorderTrack(source_org_idx, target_org_idx, drop_after);
   }
 
  private:
@@ -11815,6 +11844,911 @@ TEST(TimelineTest, ZoomEmitsViewportChangedWithCorrectRange) {
   EXPECT_DOUBLE_EQ(actual_max, 400.0);
 }
 
+TEST_F(MockTimelineImGuiFixture, FindGroupRelatives_NullGroupReturnsEmptyInfo) {
+  Timeline::ParentInfo info = timeline_.CallFindGroupRelatives(nullptr);
+  EXPECT_EQ(info.parent, nullptr);
+  EXPECT_EQ(info.siblings, nullptr);
+  EXPECT_EQ(info.index_in_siblings, -1);
+}
+
+TEST_F(MockTimelineImGuiFixture, FindGroupRelatives_RootGroupAndChildren) {
+  FlameChartTimelineData data;
+  Group root_a;
+  root_a.name = "Root A";
+  root_a.original_index = 0;
+  root_a.parent_index = -1;
+  root_a.child_indices = {1};
+
+  Group child_a1;
+  child_a1.name = "Child A1";
+  child_a1.original_index = 1;
+  child_a1.parent_index = 0;
+
+  Group root_b;
+  root_b.name = "Root B";
+  root_b.original_index = 2;
+  root_b.parent_index = -1;
+
+  data.groups = {root_a, child_a1, root_b};
+  timeline_.SetTimelineData(data);
+
+  auto& groups = const_cast<FlameChartTimelineData&>(
+      timeline_.timeline_data()).groups;
+  Group* root_a_ptr = &groups[0];
+  Group* child_a1_ptr = &groups[1];
+  Group* root_b_ptr = &groups[2];
+
+  Timeline::ParentInfo info_a = timeline_.CallFindGroupRelatives(root_a_ptr);
+  EXPECT_EQ(info_a.parent, nullptr);
+  EXPECT_EQ(info_a.index_in_siblings, 0);
+
+  Timeline::ParentInfo info_b = timeline_.CallFindGroupRelatives(root_b_ptr);
+  EXPECT_EQ(info_b.parent, nullptr);
+  EXPECT_EQ(info_b.index_in_siblings, 1);
+
+  Timeline::ParentInfo info_child =
+      timeline_.CallFindGroupRelatives(child_a1_ptr);
+  ASSERT_NE(info_child.parent, nullptr);
+  EXPECT_EQ(info_child.parent->name, "Root A");
+  EXPECT_EQ(info_child.index_in_siblings, 0);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       HandleTrackDragAndDropHoverAndFeedback_TrackManagementDisabled) {
+  FlameChartTimelineData data;
+  Group group;
+  group.name = "Test Track";
+  group.original_index = 0;
+  data.groups = {group};
+  timeline_.SetTimelineData(data);
+
+  timeline_.set_track_management_enabled_for_test(false);
+  timeline_.set_group_offsets_for_test({0.0f});
+  timeline_.set_group_heights_for_test({20.0f});
+
+  auto& groups = const_cast<FlameChartTimelineData&>(
+      timeline_.timeline_data()).groups;
+
+  ImGui::NewFrame();
+  ImGui::Begin("Timeline viewer");
+  timeline_.CallHandleTrackDragAndDropHoverAndFeedback(
+      0, groups[0], ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f), 20.0f);
+  ImGui::End();
+
+  ImGuiWindow* tooltip_window = ImGui::FindWindowByName("##Tooltip_00");
+  EXPECT_EQ(tooltip_window, nullptr);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       HandleTrackDragAndDropHoverAndFeedback_TooltipOnHover) {
+  FlameChartTimelineData data;
+  Group group;
+  group.name = "Test Track";
+  group.original_index = 0;
+  group.nesting_level = kThreadNestingLevel;
+  data.groups = {group};
+  timeline_.SetTimelineData(data);
+
+  timeline_.set_track_management_enabled_for_test(true);
+  timeline_.set_label_width_for_test(100.0f);
+  timeline_.set_group_offsets_for_test({10.0f});
+  timeline_.set_group_heights_for_test({20.0f});
+
+  ImGui::GetStyle().WindowPadding = ImVec2(0.0f, 0.0f);
+  ImGui::GetStyle().FramePadding = ImVec2(0.0f, 0.0f);
+
+  auto& groups = const_cast<FlameChartTimelineData&>(
+      timeline_.timeline_data()).groups;
+
+  // FRAME 1: Render item to register bounding box
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(200.0f, 200.0f));
+  ImGui::Begin("Timeline viewer");
+  timeline_.CallHandleTrackDragAndDropHoverAndFeedback(
+      0, groups[0], ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f), 20.0f);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  // FRAME 2: Hover mouse over hover zone
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMousePosEvent(50.0f, 20.0f);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(200.0f, 200.0f));
+  ImGui::Begin("Timeline viewer");
+  timeline_.CallHandleTrackDragAndDropHoverAndFeedback(
+      0, groups[0], ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f), 20.0f);
+  ImGui::End();
+
+  ImGuiWindow* tooltip_window = ImGui::FindWindowByName("##Tooltip_00");
+  ASSERT_NE(tooltip_window, nullptr);
+  EXPECT_TRUE(tooltip_window->Active);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       HandleTrackDragAndDrop_ZeroSizeHandledSafely) {
+  FlameChartTimelineData data;
+  Group group;
+  group.name = "Zero Size Track";
+  group.original_index = 0;
+  data.groups = {group};
+  timeline_.SetTimelineData(data);
+
+  timeline_.set_track_management_enabled_for_test(true);
+  timeline_.set_group_offsets_for_test({0.0f});
+  timeline_.set_group_heights_for_test({0.0f});
+
+  auto& groups = const_cast<FlameChartTimelineData&>(
+      timeline_.timeline_data()).groups;
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(200.0f, 200.0f));
+  ImGui::Begin("Timeline viewer");
+
+  // Zero hover_zone_width should return false and not assert in InvisibleButton
+  EXPECT_FALSE(timeline_.CallHandleTrackDragAndDrop(
+      0, groups[0], ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f), 20.0f, 0.0f));
+
+  // Zero group_height should return false and not assert in InvisibleButton
+  EXPECT_FALSE(timeline_.CallHandleTrackDragAndDrop(
+      0, groups[0], ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f), 0.0f, 50.0f));
+
+  // Hover and feedback with zero height should safely return early
+  timeline_.CallHandleTrackDragAndDropHoverAndFeedback(
+      0, groups[0], ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f), 0.0f);
+
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       Draw_ZeroTrackOffsetsHandledSafely) {
+  FlameChartTimelineData empty_data;
+  timeline_.SetTimelineData(empty_data);
+
+  ImGui::NewFrame();
+  // Draw() should safely handle an empty timeline without invoking
+  // InvisibleButton("##LabelResizer") with zero height.
+  timeline_.Draw();
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       DrawButtons_ZeroHeightHandledSafely) {
+  FlameChartTimelineData data;
+  Group group;
+  group.name = "Test Track";
+  group.original_index = 0;
+  data.groups = {group};
+  timeline_.SetTimelineData(data);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(200.0f, 200.0f));
+  ImGui::Begin("Timeline viewer");
+
+  EXPECT_FALSE(timeline_.CallDrawHideButton(0, 0.0f, false));
+  EXPECT_FALSE(timeline_.CallDrawPinButton(0, 0.0f, false));
+
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleTrackDragAndDrop_HoverDetection) {
+  FlameChartTimelineData data;
+  Group group;
+  group.name = "Test Drag Track";
+  group.original_index = 0;
+  data.groups = {group};
+  timeline_.SetTimelineData(data);
+
+  timeline_.set_group_offsets_for_test({5.0f});
+  timeline_.set_group_heights_for_test({25.0f});
+
+  ImGui::GetStyle().WindowPadding = ImVec2(0.0f, 0.0f);
+  ImGui::GetStyle().FramePadding = ImVec2(0.0f, 0.0f);
+
+  auto& groups = const_cast<FlameChartTimelineData&>(
+      timeline_.timeline_data()).groups;
+
+  // FRAME 1: Register item bounding box
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(200.0f, 200.0f));
+  ImGui::Begin("Timeline viewer");
+  timeline_.CallHandleTrackDragAndDrop(
+      0, groups[0], ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f), 25.0f, 80.0f);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  // FRAME 2: Position mouse hover over it and render again
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMousePosEvent(40.0f, 15.0f);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(200.0f, 200.0f));
+  ImGui::Begin("Timeline viewer");
+  bool hovered = timeline_.CallHandleTrackDragAndDrop(
+      0, groups[0], ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f), 25.0f, 80.0f);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  EXPECT_TRUE(hovered);
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleTrackDragDrop_ProcessBetweenProcesses) {
+  FlameChartTimelineData data;
+
+  Group proc_a;
+  proc_a.name = "Proc A";
+  proc_a.original_index = 0;
+  proc_a.nesting_level = kProcessNestingLevel;
+  proc_a.parent_index = -1;
+
+  Group proc_b;
+  proc_b.name = "Proc B";
+  proc_b.original_index = 1;
+  proc_b.nesting_level = kProcessNestingLevel;
+  proc_b.parent_index = -1;
+
+  data.groups = {proc_a, proc_b};
+  timeline_.SetTimelineData(data);
+
+  timeline_.set_group_offsets_for_test({0.0f, 20.0f});
+  timeline_.set_group_heights_for_test({20.0f, 20.0f});
+
+  auto& groups = const_cast<FlameChartTimelineData&>(
+      timeline_.timeline_data()).groups;
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Warmup Frame: render window so ImGui registers position and hovered window
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(200.0f, 200.0f));
+  ImGui::Begin("Timeline");
+  timeline_.CallHandleTrackDragAndDrop(
+      1, groups[1], ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f), 20.0f, 100.0f);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  // Frame 1: drag Proc A (0) to Proc B (1) below midpoint (y=35)
+  io.AddMousePosEvent(50.0f, 35.0f);
+  io.AddMouseButtonEvent(0, true);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(200.0f, 200.0f));
+  ImGui::Begin("Timeline");
+
+  ImGuiContext& g = *GImGui;
+  g.DragDropActive = true;
+  g.DragDropMouseButton = 0;
+  g.DragDropSourceFrameCount = g.FrameCount;
+  g.DragDropPayload.SourceId = 99999;
+  g.DragDropPayload.DataFrameCount = g.FrameCount;
+  snprintf(g.DragDropPayload.DataType, sizeof(g.DragDropPayload.DataType), "%s",
+           "TRACK_REORDER");
+  Group* source_group_ptr = &groups[0];
+  g.DragDropPayloadBufHeap.resize(sizeof(Group*));
+  g.DragDropPayload.Data = g.DragDropPayloadBufHeap.Data;
+  memcpy(g.DragDropPayload.Data, &source_group_ptr, sizeof(Group*));
+  g.DragDropPayload.DataSize = sizeof(Group*);
+
+  timeline_.CallHandleTrackDragAndDrop(
+      1, groups[1], ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f), 20.0f, 100.0f);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  // Frame 2: release mouse button to drop
+  io.AddMousePosEvent(50.0f, 35.0f);
+  io.AddMouseButtonEvent(0, false);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(200.0f, 200.0f));
+  ImGui::Begin("Timeline");
+
+  g.DragDropActive = true;
+  g.DragDropMouseButton = 0;
+  g.DragDropSourceFrameCount = g.FrameCount;
+  g.DragDropPayload.SourceId = 99999;
+  g.DragDropPayload.DataFrameCount = g.FrameCount;
+  snprintf(g.DragDropPayload.DataType, sizeof(g.DragDropPayload.DataType), "%s",
+           "TRACK_REORDER");
+  g.DragDropPayloadBufHeap.resize(sizeof(Group*));
+  g.DragDropPayload.Data = g.DragDropPayloadBufHeap.Data;
+  memcpy(g.DragDropPayload.Data, &source_group_ptr, sizeof(Group*));
+  g.DragDropPayload.DataSize = sizeof(Group*);
+
+  timeline_.CallHandleTrackDragAndDrop(
+      1, groups[1], ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f), 20.0f, 100.0f);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  EXPECT_EQ(timeline_.get_pending_reorder_source_for_test(), 0);
+  EXPECT_EQ(timeline_.get_pending_reorder_target_for_test(), 1);
+  EXPECT_TRUE(timeline_.get_pending_reorder_drop_after_for_test());
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleTrackDragDrop_ThreadSameProcess) {
+  FlameChartTimelineData data;
+
+  Group proc_a;
+  proc_a.name = "Proc A";
+  proc_a.original_index = 0;
+  proc_a.nesting_level = kProcessNestingLevel;
+  proc_a.parent_index = -1;
+  proc_a.child_indices = {1, 2};
+
+  Group thread_a1;
+  thread_a1.name = "Thread A1";
+  thread_a1.original_index = 1;
+  thread_a1.nesting_level = kThreadNestingLevel;
+  thread_a1.parent_index = 0;
+
+  Group thread_a2;
+  thread_a2.name = "Thread A2";
+  thread_a2.original_index = 2;
+  thread_a2.nesting_level = kThreadNestingLevel;
+  thread_a2.parent_index = 0;
+
+  data.groups = {proc_a, thread_a1, thread_a2};
+  timeline_.SetTimelineData(data);
+
+  timeline_.set_group_offsets_for_test({0.0f, 20.0f, 40.0f});
+  timeline_.set_group_heights_for_test({20.0f, 20.0f, 20.0f});
+
+  auto& groups = const_cast<FlameChartTimelineData&>(
+      timeline_.timeline_data()).groups;
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Warmup Frame
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(200.0f, 200.0f));
+  ImGui::Begin("Timeline");
+  timeline_.CallHandleTrackDragAndDrop(
+      2, groups[2], ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f), 20.0f, 100.0f);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  // Frame 1: Drag Thread A1 (1) to Thread A2 (2) below midpoint (y=55)
+  io.AddMousePosEvent(50.0f, 55.0f);
+  io.AddMouseButtonEvent(0, true);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(200.0f, 200.0f));
+  ImGui::Begin("Timeline");
+
+  ImGuiContext& g = *GImGui;
+  g.DragDropActive = true;
+  g.DragDropMouseButton = 0;
+  g.DragDropSourceFrameCount = g.FrameCount;
+  g.DragDropPayload.SourceId = 99999;
+  g.DragDropPayload.DataFrameCount = g.FrameCount;
+  snprintf(g.DragDropPayload.DataType, sizeof(g.DragDropPayload.DataType), "%s",
+           "TRACK_REORDER");
+  Group* source_group_ptr = &groups[1];
+  g.DragDropPayloadBufHeap.resize(sizeof(Group*));
+  g.DragDropPayload.Data = g.DragDropPayloadBufHeap.Data;
+  memcpy(g.DragDropPayload.Data, &source_group_ptr, sizeof(Group*));
+  g.DragDropPayload.DataSize = sizeof(Group*);
+
+  timeline_.CallHandleTrackDragAndDrop(
+      2, groups[2], ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f), 20.0f, 100.0f);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  // Frame 2
+  io.AddMousePosEvent(50.0f, 55.0f);
+  io.AddMouseButtonEvent(0, false);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(200.0f, 200.0f));
+  ImGui::Begin("Timeline");
+
+  g.DragDropActive = true;
+  g.DragDropMouseButton = 0;
+  g.DragDropSourceFrameCount = g.FrameCount;
+  g.DragDropPayload.SourceId = 99999;
+  g.DragDropPayload.DataFrameCount = g.FrameCount;
+  snprintf(g.DragDropPayload.DataType, sizeof(g.DragDropPayload.DataType), "%s",
+           "TRACK_REORDER");
+  g.DragDropPayloadBufHeap.resize(sizeof(Group*));
+  g.DragDropPayload.Data = g.DragDropPayloadBufHeap.Data;
+  memcpy(g.DragDropPayload.Data, &source_group_ptr, sizeof(Group*));
+  g.DragDropPayload.DataSize = sizeof(Group*);
+
+  timeline_.CallHandleTrackDragAndDrop(
+      2, groups[2], ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f), 20.0f, 100.0f);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  EXPECT_EQ(timeline_.get_pending_reorder_source_for_test(), 1);
+  EXPECT_EQ(timeline_.get_pending_reorder_target_for_test(), 2);
+  EXPECT_TRUE(timeline_.get_pending_reorder_drop_after_for_test());
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleTrackDragDrop_ThreadDifferentProcess) {
+  FlameChartTimelineData data;
+
+  Group proc_a;
+  proc_a.name = "Proc A";
+  proc_a.original_index = 0;
+  proc_a.nesting_level = kProcessNestingLevel;
+  proc_a.parent_index = -1;
+  proc_a.child_indices = {1};
+
+  Group thread_a1;
+  thread_a1.name = "Thread A1";
+  thread_a1.original_index = 1;
+  thread_a1.nesting_level = kThreadNestingLevel;
+  thread_a1.parent_index = 0;
+
+  Group proc_b;
+  proc_b.name = "Proc B";
+  proc_b.original_index = 2;
+  proc_b.nesting_level = kProcessNestingLevel;
+  proc_b.parent_index = -1;
+  proc_b.child_indices = {3};
+
+  Group thread_b1;
+  thread_b1.name = "Thread B1";
+  thread_b1.original_index = 3;
+  thread_b1.nesting_level = kThreadNestingLevel;
+  thread_b1.parent_index = 2;
+
+  data.groups = {proc_a, thread_a1, proc_b, thread_b1};
+  timeline_.SetTimelineData(data);
+
+  timeline_.set_group_offsets_for_test({0.0f, 20.0f, 40.0f, 60.0f});
+  timeline_.set_group_heights_for_test({20.0f, 20.0f, 20.0f, 20.0f});
+
+  auto& groups = const_cast<FlameChartTimelineData&>(
+      timeline_.timeline_data()).groups;
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Warmup Frame
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(200.0f, 200.0f));
+  ImGui::Begin("Timeline");
+  timeline_.CallHandleTrackDragAndDrop(
+      3, groups[3], ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f), 20.0f, 100.0f);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  // Frame 1: Drag Thread A1 (1) to Thread B1 (3)
+  io.AddMousePosEvent(50.0f, 75.0f);
+  io.AddMouseButtonEvent(0, true);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(200.0f, 200.0f));
+  ImGui::Begin("Timeline");
+
+  ImGuiContext& g = *GImGui;
+  g.DragDropActive = true;
+  g.DragDropMouseButton = 0;
+  g.DragDropSourceFrameCount = g.FrameCount;
+  g.DragDropPayload.SourceId = 99999;
+  g.DragDropPayload.DataFrameCount = g.FrameCount;
+  snprintf(g.DragDropPayload.DataType, sizeof(g.DragDropPayload.DataType), "%s",
+           "TRACK_REORDER");
+  Group* source_group_ptr = &groups[1];
+  g.DragDropPayloadBufHeap.resize(sizeof(Group*));
+  g.DragDropPayload.Data = g.DragDropPayloadBufHeap.Data;
+  memcpy(g.DragDropPayload.Data, &source_group_ptr, sizeof(Group*));
+  g.DragDropPayload.DataSize = sizeof(Group*);
+
+  timeline_.CallHandleTrackDragAndDrop(
+      3, groups[3], ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f), 20.0f, 100.0f);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  // Frame 2
+  io.AddMousePosEvent(50.0f, 75.0f);
+  io.AddMouseButtonEvent(0, false);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(200.0f, 200.0f));
+  ImGui::Begin("Timeline");
+
+  g.DragDropActive = true;
+  g.DragDropMouseButton = 0;
+  g.DragDropSourceFrameCount = g.FrameCount;
+  g.DragDropPayload.SourceId = 99999;
+  g.DragDropPayload.DataFrameCount = g.FrameCount;
+  snprintf(g.DragDropPayload.DataType, sizeof(g.DragDropPayload.DataType), "%s",
+           "TRACK_REORDER");
+  g.DragDropPayloadBufHeap.resize(sizeof(Group*));
+  g.DragDropPayload.Data = g.DragDropPayloadBufHeap.Data;
+  memcpy(g.DragDropPayload.Data, &source_group_ptr, sizeof(Group*));
+  g.DragDropPayload.DataSize = sizeof(Group*);
+
+  timeline_.CallHandleTrackDragAndDrop(
+      3, groups[3], ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f), 20.0f, 100.0f);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  // Reorder should NOT happen because parents are different!
+  EXPECT_EQ(timeline_.get_pending_reorder_source_for_test(), -1);
+  EXPECT_EQ(timeline_.get_pending_reorder_target_for_test(), -1);
+}
+
+TEST_F(MockTimelineImGuiFixture, ReorderTrack_SameIndexNoOp) {
+  FlameChartTimelineData data;
+  Group proc_a;
+  proc_a.name = "Proc A";
+  proc_a.original_index = 0;
+  proc_a.nesting_level = kProcessNestingLevel;
+  proc_a.parent_index = -1;
+
+  Group proc_b;
+  proc_b.name = "Proc B";
+  proc_b.original_index = 1;
+  proc_b.nesting_level = kProcessNestingLevel;
+  proc_b.parent_index = -1;
+
+  data.groups = {proc_a, proc_b};
+  timeline_.SetTimelineData(data);
+
+  timeline_.CallReorderTrack(0, 0, false);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_EQ(groups.size(), 2);
+  EXPECT_EQ(groups[0].name, "Proc A");
+  EXPECT_EQ(groups[1].name, "Proc B");
+}
+
+TEST_F(MockTimelineImGuiFixture, ReorderTrack_ProcessTracksDropAfter) {
+  FlameChartTimelineData data;
+  Group proc_a;
+  proc_a.name = "Proc A";
+  proc_a.original_index = 0;
+  proc_a.nesting_level = kProcessNestingLevel;
+  proc_a.parent_index = -1;
+  proc_a.child_indices = {1};
+  proc_a.level_count = 1;
+  proc_a.start_level = 0;
+
+  Group thread_a;
+  thread_a.name = "Thread A";
+  thread_a.original_index = 1;
+  thread_a.nesting_level = kThreadNestingLevel;
+  thread_a.parent_index = 0;
+  thread_a.level_count = 1;
+  thread_a.start_level = 0;
+
+  Group proc_b;
+  proc_b.name = "Proc B";
+  proc_b.original_index = 2;
+  proc_b.nesting_level = kProcessNestingLevel;
+  proc_b.parent_index = -1;
+  proc_b.child_indices = {3};
+  proc_b.level_count = 1;
+  proc_b.start_level = 1;
+
+  Group thread_b;
+  thread_b.name = "Thread B";
+  thread_b.original_index = 3;
+  thread_b.nesting_level = kThreadNestingLevel;
+  thread_b.parent_index = 2;
+  thread_b.level_count = 1;
+  thread_b.start_level = 1;
+
+  data.groups = {proc_a, thread_a, proc_b, thread_b};
+  data.events_by_level.resize(2);
+  timeline_.SetTimelineData(data);
+
+  // Drop Proc A (original_index 0) after Proc B (original_index 2)
+  timeline_.CallReorderTrack(0, 2, /*drop_after=*/true);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_EQ(groups.size(), 4);
+  EXPECT_EQ(groups[0].name, "Proc B");
+  EXPECT_EQ(groups[1].name, "Thread B");
+  EXPECT_EQ(groups[2].name, "Proc A");
+  EXPECT_EQ(groups[3].name, "Thread A");
+
+  // Verify parent-child links
+  EXPECT_EQ(groups[0].parent_index, -1);
+  ASSERT_EQ(groups[0].child_indices.size(), 1);
+  EXPECT_EQ(groups[0].child_indices[0], 1);
+  EXPECT_EQ(groups[1].parent_index, 0);
+
+  EXPECT_EQ(groups[2].parent_index, -1);
+  ASSERT_EQ(groups[2].child_indices.size(), 1);
+  EXPECT_EQ(groups[2].child_indices[0], 3);
+  EXPECT_EQ(groups[3].parent_index, 2);
+}
+
+TEST_F(MockTimelineImGuiFixture, ReorderTrack_ProcessTracksDropBefore) {
+  FlameChartTimelineData data;
+  Group proc_a;
+  proc_a.name = "Proc A";
+  proc_a.original_index = 0;
+  proc_a.nesting_level = kProcessNestingLevel;
+  proc_a.parent_index = -1;
+  proc_a.child_indices = {1};
+  proc_a.level_count = 1;
+  proc_a.start_level = 0;
+
+  Group thread_a;
+  thread_a.name = "Thread A";
+  thread_a.original_index = 1;
+  thread_a.nesting_level = kThreadNestingLevel;
+  thread_a.parent_index = 0;
+  thread_a.level_count = 1;
+  thread_a.start_level = 0;
+
+  Group proc_b;
+  proc_b.name = "Proc B";
+  proc_b.original_index = 2;
+  proc_b.nesting_level = kProcessNestingLevel;
+  proc_b.parent_index = -1;
+  proc_b.child_indices = {3};
+  proc_b.level_count = 1;
+  proc_b.start_level = 1;
+
+  Group thread_b;
+  thread_b.name = "Thread B";
+  thread_b.original_index = 3;
+  thread_b.nesting_level = kThreadNestingLevel;
+  thread_b.parent_index = 2;
+  thread_b.level_count = 1;
+  thread_b.start_level = 1;
+
+  data.groups = {proc_a, thread_a, proc_b, thread_b};
+  data.events_by_level.resize(2);
+  timeline_.SetTimelineData(data);
+
+  // Drop Proc B (original_index 2) before Proc A (original_index 0)
+  timeline_.CallReorderTrack(2, 0, /*drop_after=*/false);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_EQ(groups.size(), 4);
+  EXPECT_EQ(groups[0].name, "Proc B");
+  EXPECT_EQ(groups[1].name, "Thread B");
+  EXPECT_EQ(groups[2].name, "Proc A");
+  EXPECT_EQ(groups[3].name, "Thread A");
+}
+
+TEST_F(MockTimelineImGuiFixture, ReorderTrack_ThreadTracksSameProcess) {
+  FlameChartTimelineData data;
+  Group proc;
+  proc.name = "Proc";
+  proc.original_index = 0;
+  proc.nesting_level = kProcessNestingLevel;
+  proc.parent_index = -1;
+  proc.child_indices = {1, 2, 3};
+  proc.level_count = 3;
+  proc.start_level = 0;
+
+  Group t0;
+  t0.name = "Thread 0";
+  t0.original_index = 1;
+  t0.nesting_level = kThreadNestingLevel;
+  t0.parent_index = 0;
+  t0.level_count = 1;
+  t0.start_level = 0;
+
+  Group t1;
+  t1.name = "Thread 1";
+  t1.original_index = 2;
+  t1.nesting_level = kThreadNestingLevel;
+  t1.parent_index = 0;
+  t1.level_count = 1;
+  t1.start_level = 1;
+
+  Group t2;
+  t2.name = "Thread 2";
+  t2.original_index = 3;
+  t2.nesting_level = kThreadNestingLevel;
+  t2.parent_index = 0;
+  t2.level_count = 1;
+  t2.start_level = 2;
+
+  data.groups = {proc, t0, t1, t2};
+  data.events_by_level.resize(3);
+  timeline_.SetTimelineData(data);
+
+  // Reorder Thread 0 (original_index 1) after Thread 2 (original_index 3)
+  timeline_.CallReorderTrack(1, 3, /*drop_after=*/true);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_EQ(groups.size(), 4);
+  EXPECT_EQ(groups[0].name, "Proc");
+  EXPECT_EQ(groups[1].name, "Thread 1");
+  EXPECT_EQ(groups[2].name, "Thread 2");
+  EXPECT_EQ(groups[3].name, "Thread 0");
+}
+
+TEST_F(MockTimelineImGuiFixture, ReorderTrack_RemapsEventsAndFlows) {
+  FlameChartTimelineData data;
+  Group proc_a;
+  proc_a.name = "Proc A";
+  proc_a.original_index = 0;
+  proc_a.nesting_level = kProcessNestingLevel;
+  proc_a.parent_index = -1;
+  proc_a.child_indices = {1};
+  proc_a.level_count = 1;
+  proc_a.start_level = 0;
+
+  Group thread_a;
+  thread_a.name = "Thread A";
+  thread_a.original_index = 1;
+  thread_a.nesting_level = kThreadNestingLevel;
+  thread_a.parent_index = 0;
+  thread_a.level_count = 1;
+  thread_a.start_level = 0;
+
+  Group proc_b;
+  proc_b.name = "Proc B";
+  proc_b.original_index = 2;
+  proc_b.nesting_level = kProcessNestingLevel;
+  proc_b.parent_index = -1;
+  proc_b.child_indices = {3};
+  proc_b.level_count = 1;
+  proc_b.start_level = 1;
+
+  Group thread_b;
+  thread_b.name = "Thread B";
+  thread_b.original_index = 3;
+  thread_b.nesting_level = kThreadNestingLevel;
+  thread_b.parent_index = 2;
+  thread_b.level_count = 1;
+  thread_b.start_level = 1;
+
+  data.groups = {proc_a, thread_a, proc_b, thread_b};
+  // Event 10 on level 0, Event 20 on level 1
+  data.events_by_level = {{10}, {20}};
+  data.entry_levels = {0, 1};
+
+  FlowLine flow;
+  flow.source_level = 0;
+  flow.target_level = 1;
+  data.flow_lines = {flow};
+
+  timeline_.SetTimelineData(data);
+
+  // Swap Proc A and Proc B
+  timeline_.CallReorderTrack(0, 2, /*drop_after=*/true);
+
+  const auto& new_data = timeline_.timeline_data();
+  // Level 0 now has Event 20 (Thread B), Level 1 has Event 10 (Thread A)
+  ASSERT_EQ(new_data.events_by_level.size(), 2);
+  ASSERT_EQ(new_data.events_by_level[0].size(), 1);
+  EXPECT_EQ(new_data.events_by_level[0][0], 20);
+  ASSERT_EQ(new_data.events_by_level[1].size(), 1);
+  EXPECT_EQ(new_data.events_by_level[1][0], 10);
+
+  // Flow line source/target levels swapped
+  ASSERT_EQ(new_data.flow_lines.size(), 1);
+  EXPECT_EQ(new_data.flow_lines[0].source_level, 1);
+  EXPECT_EQ(new_data.flow_lines[0].target_level, 0);
+}
+
+TEST_F(MockTimelineImGuiFixture, Draw_ExecutesPendingReorder) {
+  FlameChartTimelineData data;
+  Group proc_a;
+  proc_a.name = "Proc A";
+  proc_a.original_index = 0;
+  proc_a.nesting_level = kProcessNestingLevel;
+  proc_a.parent_index = -1;
+
+  Group proc_b;
+  proc_b.name = "Proc B";
+  proc_b.original_index = 1;
+  proc_b.nesting_level = kProcessNestingLevel;
+  proc_b.parent_index = -1;
+
+  data.groups = {proc_a, proc_b};
+  timeline_.SetTimelineData(data);
+
+  timeline_.set_pending_reorder_source_for_test(0);
+  timeline_.set_pending_reorder_target_for_test(1);
+  timeline_.set_pending_reorder_drop_after_for_test(true);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(200.0f, 200.0f));
+  timeline_.Draw();
+  ImGui::Render();
+
+  // Pending reorder should be consumed and reset
+  EXPECT_EQ(timeline_.get_pending_reorder_source_for_test(), -1);
+  EXPECT_EQ(timeline_.get_pending_reorder_target_for_test(), -1);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_EQ(groups.size(), 2);
+  EXPECT_EQ(groups[0].name, "Proc B");
+  EXPECT_EQ(groups[1].name, "Proc A");
+}
+
+TEST_F(MockTimelineImGuiFixture, DragDrop_PreviewLinePosition) {
+  FlameChartTimelineData data;
+  Group proc_a;
+  proc_a.name = "Proc A";
+  proc_a.original_index = 0;
+  proc_a.nesting_level = kProcessNestingLevel;
+  proc_a.parent_index = -1;
+
+  Group proc_b;
+  proc_b.name = "Proc B";
+  proc_b.original_index = 1;
+  proc_b.nesting_level = kProcessNestingLevel;
+  proc_b.parent_index = -1;
+
+  data.groups = {proc_a, proc_b};
+  timeline_.SetTimelineData(data);
+
+  timeline_.set_group_offsets_for_test({0.0f, 30.0f});
+  timeline_.set_group_heights_for_test({30.0f, 30.0f});
+
+  auto& groups = const_cast<FlameChartTimelineData&>(
+      timeline_.timeline_data()).groups;
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Warmup Frame: render window so ImGui registers position and hovered window
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(200.0f, 200.0f));
+  ImGui::Begin("Timeline");
+  timeline_.CallHandleTrackDragAndDrop(
+      1, groups[1], ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f), 30.0f, 100.0f);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  // Frame 1: Hovering top half of Proc B (y=35, midpoint is y=45)
+  io.AddMousePosEvent(50.0f, 35.0f);
+  io.AddMouseButtonEvent(0, true);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(200.0f, 200.0f));
+  ImGui::Begin("Timeline");
+
+  ImGuiContext& g = *GImGui;
+  g.DragDropActive = true;
+  g.DragDropMouseButton = 0;
+  g.DragDropSourceFrameCount = g.FrameCount;
+  g.DragDropPayload.SourceId = 99999;
+  g.DragDropPayload.DataFrameCount = g.FrameCount;
+  snprintf(g.DragDropPayload.DataType, sizeof(g.DragDropPayload.DataType), "%s",
+           "TRACK_REORDER");
+  Group* source_group_ptr = &groups[0];
+  g.DragDropPayloadBufHeap.resize(sizeof(Group*));
+  g.DragDropPayload.Data = g.DragDropPayloadBufHeap.Data;
+  memcpy(g.DragDropPayload.Data, &source_group_ptr, sizeof(Group*));
+  g.DragDropPayload.DataSize = sizeof(Group*);
+
+  timeline_.CallHandleTrackDragAndDrop(
+      1, groups[1], ImVec2(0.0f, 0.0f), ImVec2(0.0f, 0.0f), 30.0f, 100.0f);
+
+  // When hovering top half of Proc B, preview line should be
+  // at top boundary (y=30.0f)
+  EXPECT_FLOAT_EQ(timeline_.get_dnd_preview_line_y_for_test(), 30.0f);
+
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
 // Helpers for concise timeline test data construction and verification.
 Group MakeProcessGroup(absl::string_view name, int start_level = 0,
                        int level_count = 1, bool expanded = true) {
@@ -12771,3 +13705,4 @@ TEST(TimelineTest, SelectionRemapFallbackDisambiguatesByTidAcrossThreads) {
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer
+

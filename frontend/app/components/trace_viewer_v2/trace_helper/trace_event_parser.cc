@@ -356,6 +356,7 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
   emscripten::class_<traceviewer::DataProvider>("DataProvider")
       .function("getFlowCategories",
                 &traceviewer::DataProvider::GetFlowCategories)
+      .function("reset", &traceviewer::DataProvider::Reset)
       .function(
           "getProcessMappings",
           emscripten::optional_override(

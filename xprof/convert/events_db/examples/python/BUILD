@@ -39,3 +39,36 @@ py_test(
         "@pypi//etils",
     ],
 )
+
+py_library(
+    name = "count_zero_self_time_events_lib",
+    srcs = ["count_zero_self_time_events.py"],
+    deps = [
+        "//third_party/py/absl:app",
+        "@org_xprof//xprof/convert/events_db/python:events_db",
+        "@pypi//etils",
+    ],
+)
+
+py_binary(
+    name = "count_zero_self_time_events",
+    srcs = ["count_zero_self_time_events.py"],
+    deps = [
+        ":count_zero_self_time_events_lib",
+    ],
+)
+
+py_test(
+    name = "count_zero_self_time_events_test",
+    srcs = ["count_zero_self_time_events_test.py"],
+    data = ["@org_xprof//xprof/convert/events_db/examples/test_data:test.xplane.pb"],
+    deps = [
+        ":count_zero_self_time_events_lib",
+        "//third_party/py/absl:app",
+        "@absl_py//absl/flags",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:flagsaver",
+        "@pypi//etils",
+        "@rules_python//python/runfiles",
+    ],
+)

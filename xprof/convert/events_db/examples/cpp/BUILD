@@ -41,3 +41,33 @@ cc_test(
         "@xla//xla/tsl/platform:subprocess",
     ],
 )
+
+cc_binary(
+    name = "count_zero_self_time_events",
+    srcs = ["count_zero_self_time_events.cc"],
+    deps = [
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/flags:parse",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/time",
+        "@org_xprof//xprof/convert/events_db:record_consumer",
+        "@org_xprof//xprof/convert/events_db:schema",
+        "@org_xprof//xprof/convert/events_db:xspace_parser",
+        "@tsl//tsl/platform:platform_port",
+    ],
+)
+
+cc_test(
+    name = "count_zero_self_time_events_test",
+    srcs = ["count_zero_self_time_events_test.cc"],
+    data = [":count_zero_self_time_events"],
+    deps = [
+        "//file/base:path",
+        "//net/proto2/contrib/parse_proto:parse_text_proto",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/platform:subprocess",
+    ],
+)

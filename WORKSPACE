@@ -488,9 +488,9 @@ cc_library(
     ],
 )
 """,
-    sha256 = "f49683605487f62e1c9e32ed0d71a3ed3029993f818f5a97f13f8266c39b0004",
-    strip_prefix = "dawn-20250713.025201",
-    urls = ["https://github.com/google/dawn/archive/v20250713.025201.tar.gz"],
+    sha256 = "90cd99cb690319eb9b13682db9bb56de3eecde41eb03a796d7d22837aabd3484",
+    strip_prefix = "dawn-20260831.205016",
+    urls = ["https://github.com/google/dawn/archive/v20260831.205016.tar.gz"],
 )
 
 load("@emsdk//:toolchains.bzl", "register_emscripten_toolchains")

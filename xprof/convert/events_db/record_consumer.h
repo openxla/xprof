@@ -13,6 +13,7 @@ limitations under the License.
 #ifndef THIRD_PARTY_XPROF_CONVERT_EVENTS_DB_RECORD_CONSUMER_H_
 #define THIRD_PARTY_XPROF_CONVERT_EVENTS_DB_RECORD_CONSUMER_H_
 
+#include <string_view>
 #include <type_traits>
 
 #include "absl/status/status.h"
@@ -29,12 +30,30 @@ enum class StepControl {
   kStop,      // Clean early stop requested (e.g. limit reached or match found).
 };
 
+// Returns the string representation of `step_control` (i.e., `"CONTINUE"` and
+// `"STOP"`).
+std::string_view StepControlToString(StepControl step_control);
+
+// Parses a `StepControl` from the string produced by `StepControlToString`
+// (i.e., `"CONTINUE"` and `"STOP"`). Returns `absl::InvalidArgumentError` if
+// `name` is unrecognized.
+absl::StatusOr<StepControl> StepControlFromString(std::string_view name);
+
 // Final outcome of the entire parsing operation.
 enum class ParseStatus {
   kComplete,      // Scanned the entire trace to completion.
   kStoppedEarly,  // Parsing stopped early and cleanly because consumer returned
                   // `kStop`.
 };
+
+// Returns the string representation of `parse_status` (i.e., `"COMPLETE"` and
+// `"STOPPED_EARLY"`).
+std::string_view ParseStatusToString(ParseStatus parse_status);
+
+// Parses a `ParseStatus` from the string produced by `ParseStatusToString`
+// (i.e., `"COMPLETE"` and `"STOPPED_EARLY"`). Returns
+// `absl::InvalidArgumentError` if `name` is unrecognized.
+absl::StatusOr<ParseStatus> ParseStatusFromString(std::string_view name);
 
 // Non-owning view of a record consumer and its completion lifecycle. Functions
 // that receive this reference as an argument must not store it beyond the

@@ -31,6 +31,91 @@ using ::absl_testing::StatusIs;
 using ::testing::Eq;
 using ::testing::Optional;
 
+TEST(StepControlTest, ToString) {
+  EXPECT_EQ(StepControlToString(StepControl::kContinue), "CONTINUE");
+  EXPECT_EQ(StepControlToString(StepControl::kStop), "STOP");
+  EXPECT_EQ(StepControlToString(static_cast<StepControl>(999)), "UNKNOWN");
+}
+
+TEST(StepControlTest, FromStringValid) {
+  EXPECT_THAT(StepControlFromString("CONTINUE"),
+              IsOkAndHolds(Eq(StepControl::kContinue)));
+  EXPECT_THAT(StepControlFromString("STOP"),
+              IsOkAndHolds(Eq(StepControl::kStop)));
+}
+
+TEST(StepControlTest, FromStringInvalid) {
+  EXPECT_THAT(StepControlFromString(""),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(StepControlFromString("invalid"),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(StepControlFromString("StepControl.CONTINUE"),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(StepControlFromString("kContinue"),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(StepControlFromString("continue"),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(StepControlFromString("StepControl.STOP"),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(StepControlFromString("kStop"),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(StepControlFromString("stop"),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(StepControlFromString("UNKNOWN"),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
+TEST(StepControlTest, RoundTrip) {
+  EXPECT_THAT(
+      StepControlFromString(StepControlToString(StepControl::kContinue)),
+      IsOkAndHolds(Eq(StepControl::kContinue)));
+  EXPECT_THAT(StepControlFromString(StepControlToString(StepControl::kStop)),
+              IsOkAndHolds(Eq(StepControl::kStop)));
+}
+
+TEST(ParseStatusTest, ToString) {
+  EXPECT_EQ(ParseStatusToString(ParseStatus::kComplete), "COMPLETE");
+  EXPECT_EQ(ParseStatusToString(ParseStatus::kStoppedEarly), "STOPPED_EARLY");
+  EXPECT_EQ(ParseStatusToString(static_cast<ParseStatus>(999)), "UNKNOWN");
+}
+
+TEST(ParseStatusTest, FromStringValid) {
+  EXPECT_THAT(ParseStatusFromString("COMPLETE"),
+              IsOkAndHolds(Eq(ParseStatus::kComplete)));
+  EXPECT_THAT(ParseStatusFromString("STOPPED_EARLY"),
+              IsOkAndHolds(Eq(ParseStatus::kStoppedEarly)));
+}
+
+TEST(ParseStatusTest, FromStringInvalid) {
+  EXPECT_THAT(ParseStatusFromString(""),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(ParseStatusFromString("invalid"),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(ParseStatusFromString("ParseStatus.COMPLETE"),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(ParseStatusFromString("kComplete"),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(ParseStatusFromString("complete"),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(ParseStatusFromString("ParseStatus.STOPPED_EARLY"),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(ParseStatusFromString("kStoppedEarly"),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(ParseStatusFromString("stopped_early"),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(ParseStatusFromString("UNKNOWN"),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
+TEST(ParseStatusTest, RoundTrip) {
+  EXPECT_THAT(
+      ParseStatusFromString(ParseStatusToString(ParseStatus::kComplete)),
+      IsOkAndHolds(Eq(ParseStatus::kComplete)));
+  EXPECT_THAT(
+      ParseStatusFromString(ParseStatusToString(ParseStatus::kStoppedEarly)),
+      IsOkAndHolds(Eq(ParseStatus::kStoppedEarly)));
+}
+
 TEST(RecordConsumerRefTest, ConsumesViaCallOperator) {
   int call_count = 0;
   auto lambda_consumer = [&](Record&) -> absl::StatusOr<StepControl> {

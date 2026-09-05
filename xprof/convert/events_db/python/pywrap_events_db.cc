@@ -808,17 +808,18 @@ NB_MODULE(pywrap_events_db, m) {
       m, "StepControl",
       "Control-flow decision returned by the record consumer callback after "
       "processing each streamed `Record`.")
-      .value("CONTINUE", StepControl::kContinue,
-             "Continue parsing subsequent events.")
-      .value("STOP", StepControl::kStop,
+      .value(StepControlToString(StepControl::kContinue).data(),
+             StepControl::kContinue, "Continue parsing subsequent events.")
+      .value(StepControlToString(StepControl::kStop).data(), StepControl::kStop,
              "Clean early stop requested (e.g. limit reached or match found).");
 
   // Bind `ParseStatus` enum
   nb::enum_<ParseStatus>(m, "ParseStatus",
                          "Final outcome of the entire parsing operation.")
-      .value("COMPLETE", ParseStatus::kComplete,
-             "Scanned the entire trace to completion.")
-      .value("STOPPED_EARLY", ParseStatus::kStoppedEarly,
+      .value(ParseStatusToString(ParseStatus::kComplete).data(),
+             ParseStatus::kComplete, "Scanned the entire trace to completion.")
+      .value(ParseStatusToString(ParseStatus::kStoppedEarly).data(),
+             ParseStatus::kStoppedEarly,
              "Parsing stopped early and cleanly because consumer returned "
              "`StepControl.STOP`.");
 

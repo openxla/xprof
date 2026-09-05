@@ -220,7 +220,7 @@ TEST(XSpaceToParquetTest, MaxRecordCountStopsEarly) {
            absl::StrCat("--output_path=", output_path), "--max_record_count=0"},
           /*stderr_output=*/nullptr, &stdout_output),
       0);
-  EXPECT_THAT(stdout_output, HasSubstr("ParseStatus.STOPPED_EARLY"));
+  EXPECT_THAT(stdout_output, HasSubstr("with parse status: STOPPED_EARLY"));
 }
 
 TEST(XSpaceToParquetTest, SnappyWithCompressionLevelReturnsError) {

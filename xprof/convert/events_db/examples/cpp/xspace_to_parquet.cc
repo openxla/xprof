@@ -53,17 +53,6 @@ limitations under the License.
 
 namespace {
 
-std::string_view ParseStatusToString(xprof::events_db::ParseStatus status) {
-  switch (status) {
-    case xprof::events_db::ParseStatus::kComplete:
-      return "ParseStatus.COMPLETE";
-    case xprof::events_db::ParseStatus::kStoppedEarly:
-      return "ParseStatus.STOPPED_EARLY";
-    default:
-      return "ParseStatus.UNKNOWN";  // Should never happen.
-  }
-}
-
 absl::StatusOr<std::optional<arrow::Compression::type>> GetCompressionType(
     std::string_view compression_type_str) {
   if (compression_type_str.empty()) return std::nullopt;
@@ -176,7 +165,7 @@ int main(int argc, char* argv[]) {
 
   const absl::Duration elapsed = absl::Now() - start_time;
   std::cout << absl::StrFormat(
-      "Successfully finished parsing in %.2fs with status: %s\n",
+      "Successfully finished parsing in %.2fs with parse status: %s\n",
       absl::ToDoubleSeconds(elapsed), ParseStatusToString(*parse_status));
 
   return 0;

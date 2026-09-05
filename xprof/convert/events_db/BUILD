@@ -104,11 +104,13 @@ cc_library(
 
 cc_library(
     name = "record_consumer",
+    srcs = ["record_consumer.cc"],
     hdrs = ["record_consumer.h"],
     visibility = ["//visibility:public"],
     deps = [
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
     ],
 )
 

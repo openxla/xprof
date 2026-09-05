@@ -93,7 +93,7 @@ TEST(CountZeroSelfTimeEventsTest, CountsZeroSelfTimeEventsWithTestData) {
   EXPECT_THAT(stdout_output,
               HasSubstr("Counting events with zero self_time_ns"));
   EXPECT_THAT(stdout_output, HasSubstr("Successfully finished parsing in"));
-  EXPECT_THAT(stdout_output, HasSubstr("with status: ParseStatus.COMPLETE"));
+  EXPECT_THAT(stdout_output, HasSubstr("with parse status: COMPLETE"));
   EXPECT_THAT(stdout_output, HasSubstr("Total records processed: 2"));
   EXPECT_THAT(stdout_output, HasSubstr("Zero self_time_ns events: 1"));
 }

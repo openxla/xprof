@@ -24,7 +24,6 @@ limitations under the License.
 #include <cstdint>
 #include <iostream>
 #include <string>
-#include <string_view>
 #include <vector>
 
 #include "absl/flags/flag.h"
@@ -37,21 +36,6 @@ limitations under the License.
 #include "xprof/convert/events_db/record_consumer.h"
 #include "xprof/convert/events_db/schema.h"
 #include "xprof/convert/events_db/xspace_parser.h"
-
-namespace {
-
-std::string_view ParseStatusToString(xprof::events_db::ParseStatus status) {
-  switch (status) {
-    case xprof::events_db::ParseStatus::kComplete:
-      return "ParseStatus.COMPLETE";
-    case xprof::events_db::ParseStatus::kStoppedEarly:
-      return "ParseStatus.STOPPED_EARLY";
-    default:
-      return "ParseStatus.UNKNOWN";  // Should never happen.
-  }
-}
-
-}  // namespace
 
 ABSL_FLAG(std::string, input_path, "",
           "Path to input XSpace/trace file (e.g., .xplane.pb).");
@@ -102,7 +86,7 @@ int main(int argc, char* argv[]) {
 
   const absl::Duration elapsed = absl::Now() - start_time;
   std::cout << absl::StrFormat(
-      "Successfully finished parsing in %.2fs with status: %s\n"
+      "Successfully finished parsing in %.2fs with parse status: %s\n"
       "  Total records processed: %llu\n"
       "  Zero self_time_ns events: %llu\n",
       absl::ToDoubleSeconds(elapsed), ParseStatusToString(*parse_status),

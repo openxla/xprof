@@ -1,8 +1,7 @@
 #ifndef THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_IMGUI_WEBGPU_BACKEND_H_
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_IMGUI_WEBGPU_BACKEND_H_
-#include "webgpu/webgpu_cpp.h"
-
 #include "imgui.h"
+#include "webgpu/webgpu_cpp.h"
 
 struct ImGui_ImplWGPU_InitInfo {
   wgpu::Device device;
@@ -27,5 +26,7 @@ IMGUI_IMPL_API void ImGui_ImplWGPU_RenderDrawData(
 
 IMGUI_IMPL_API void ImGui_ImplWGPU_InvalidateDeviceObjects();
 IMGUI_IMPL_API bool ImGui_ImplWGPU_CreateDeviceObjects();
+
+IMGUI_IMPL_API void ImGui_ImplWGPU_UpdateTexture(ImTextureData* tex);
 
 #endif  // THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_IMGUI_WEBGPU_BACKEND_H_

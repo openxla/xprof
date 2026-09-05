@@ -20,9 +20,12 @@ extern ImGuiID ImHashData(const void* data_p, size_t data_size, ImU32 seed = 0);
 // Memory align macro to round up to the nearest multiple of an alignment.
 #define MEMALIGN(_SIZE, _ALIGN) (((_SIZE) + ((_ALIGN) - 1)) & ~((_ALIGN) - 1))
 
+struct ImGui_ImplWGPU_Texture {
+  wgpu::Texture texture;
+  wgpu::TextureView texture_view;
+};
+
 struct RenderResources {
-  wgpu::Texture font_texture;
-  wgpu::TextureView font_texture_view;
   wgpu::Sampler sampler;
   wgpu::Buffer uniforms;
   wgpu::BindGroup common_bind_group;
@@ -187,6 +190,14 @@ void ImGui_ImplWGPU_RenderDrawData(ImDrawData* draw_data,
                                    draw_data->FramebufferScale.y);
   if (fb_width <= 0 || fb_height <= 0 || draw_data->CmdListsCount == 0) return;
 
+  if (draw_data->Textures != nullptr) {
+    for (ImTextureData* tex : *draw_data->Textures) {
+      if (tex->Status != ImTextureStatus_OK) {
+        ImGui_ImplWGPU_UpdateTexture(tex);
+      }
+    }
+  }
+
   ImGui_ImplWGPU_Data* bd = ImGui_ImplWGPU_GetBackendData();
   bd->frame_index = (bd->frame_index + 1) % bd->init_info.num_frames_in_flight;
   FrameResources* frame = &bd->frame_resources[bd->frame_index];
@@ -299,51 +310,102 @@ void ImGui_ImplWGPU_RenderDrawData(ImDrawData* draw_data,
   }
 }
 
-static void CreateFontsTexture() {
-  ImGui_ImplWGPU_Data* bd = ImGui_ImplWGPU_GetBackendData();
-  ImGuiIO& io = ImGui::GetIO();
-  unsigned char* pixels;
-  int i_width, i_height;
-  io.Fonts->GetTexDataAsRGBA32(&pixels, &i_width, &i_height);
-  uint32_t width = static_cast<uint32_t>(i_width);
-  uint32_t height = static_cast<uint32_t>(i_height);
+static void ImGui_ImplWGPU_DestroyTexture(ImTextureData* tex) {
+  if (auto* backend_tex =
+          static_cast<ImGui_ImplWGPU_Texture*>(tex->BackendUserData)) {
+    ImGui_ImplWGPU_Data* bd = ImGui_ImplWGPU_GetBackendData();
+    if (bd) {
+      ImTextureID tex_id = tex->TexID;
+      ImGuiID tex_id_hash = ImHashData(&tex_id, sizeof(tex_id));
+      bd->render_resources.image_bind_groups.erase(tex_id_hash);
+    }
+    backend_tex->texture_view = nullptr;
+    backend_tex->texture = nullptr;
+    delete backend_tex;
 
-  wgpu::TextureDescriptor tex_desc{};
-  tex_desc.label = "Dear ImGui Font Texture";
-  tex_desc.size = {width, height, 1};
-  tex_desc.sampleCount = 1;
-  tex_desc.format = wgpu::TextureFormat::RGBA8Unorm;
-  tex_desc.usage =
-      wgpu::TextureUsage::CopyDst | wgpu::TextureUsage::TextureBinding;
-  bd->render_resources.font_texture = bd->device.CreateTexture(&tex_desc);
-
-  wgpu::TextureViewDescriptor tex_view_desc{};
-  tex_view_desc.dimension = wgpu::TextureViewDimension::e2D;
-  tex_view_desc.aspect = wgpu::TextureAspect::All;
-  bd->render_resources.font_texture_view =
-      bd->render_resources.font_texture.CreateView(&tex_view_desc);
-
-  wgpu::ImageCopyTexture dst_view = {};
-  dst_view.texture = bd->render_resources.font_texture;
-  dst_view.mipLevel = 0;
-  dst_view.origin = {0, 0, 0};
-  dst_view.aspect = wgpu::TextureAspect::All;
-  wgpu::TextureDataLayout layout = {};
-  layout.offset = 0;
-  layout.bytesPerRow = width * 4;
-  layout.rowsPerImage = height;
-  wgpu::Extent3D size = {width, height, 1};
-  bd->default_queue.WriteTexture(&dst_view, pixels, width * 4 * height, &layout,
-                                 &size);
-
-  wgpu::SamplerDescriptor sampler_desc = {};
-  sampler_desc.minFilter = wgpu::FilterMode::Linear;
-  sampler_desc.magFilter = wgpu::FilterMode::Linear;
-  bd->render_resources.sampler = bd->device.CreateSampler(&sampler_desc);
-
-  io.Fonts->SetTexID(reinterpret_cast<ImTextureID>(
-      bd->render_resources.font_texture_view.Get()));
+    tex->SetTexID(ImTextureID_Invalid);
+    tex->BackendUserData = nullptr;
+  }
+  tex->SetStatus(ImTextureStatus_Destroyed);
 }
+
+void ImGui_ImplWGPU_UpdateTexture(ImTextureData* tex) {
+  ImGui_ImplWGPU_Data* bd = ImGui_ImplWGPU_GetBackendData();
+  if (!bd || !bd->device) return;
+
+  if (tex->Status == ImTextureStatus_WantCreate) {
+    CHECK_EQ(tex->TexID, ImTextureID_Invalid);
+    CHECK_EQ(tex->BackendUserData, nullptr);
+    CHECK_EQ(tex->Format, ImTextureFormat_RGBA32);
+    auto* backend_tex = new ImGui_ImplWGPU_Texture();
+
+    wgpu::TextureDescriptor tex_desc{};
+    tex_desc.label = "Dear ImGui Texture";
+    tex_desc.dimension = wgpu::TextureDimension::e2D;
+    tex_desc.size = {static_cast<uint32_t>(tex->Width),
+                     static_cast<uint32_t>(tex->Height), 1};
+    tex_desc.sampleCount = 1;
+    tex_desc.format = wgpu::TextureFormat::RGBA8Unorm;
+    tex_desc.mipLevelCount = 1;
+    tex_desc.usage =
+        wgpu::TextureUsage::CopyDst | wgpu::TextureUsage::TextureBinding;
+    backend_tex->texture = bd->device.CreateTexture(&tex_desc);
+
+    wgpu::TextureViewDescriptor tex_view_desc{};
+    tex_view_desc.format = wgpu::TextureFormat::RGBA8Unorm;
+    tex_view_desc.dimension = wgpu::TextureViewDimension::e2D;
+    tex_view_desc.baseMipLevel = 0;
+    tex_view_desc.mipLevelCount = 1;
+    tex_view_desc.baseArrayLayer = 0;
+    tex_view_desc.arrayLayerCount = 1;
+    tex_view_desc.aspect = wgpu::TextureAspect::All;
+    backend_tex->texture_view = backend_tex->texture.CreateView(&tex_view_desc);
+
+    tex->SetTexID(
+        reinterpret_cast<ImTextureID>(backend_tex->texture_view.Get()));
+    tex->BackendUserData = backend_tex;
+  }
+
+  if (tex->Status == ImTextureStatus_WantCreate ||
+      tex->Status == ImTextureStatus_WantUpdates) {
+    auto* backend_tex =
+        static_cast<ImGui_ImplWGPU_Texture*>(tex->BackendUserData);
+    CHECK_EQ(tex->Format, ImTextureFormat_RGBA32);
+
+    const int upload_x =
+        (tex->Status == ImTextureStatus_WantCreate) ? 0 : tex->UpdateRect.x;
+    const int upload_y =
+        (tex->Status == ImTextureStatus_WantCreate) ? 0 : tex->UpdateRect.y;
+    const int upload_w = (tex->Status == ImTextureStatus_WantCreate)
+                             ? tex->Width
+                             : tex->UpdateRect.w;
+    const int upload_h = (tex->Status == ImTextureStatus_WantCreate)
+                             ? tex->Height
+                             : tex->UpdateRect.h;
+
+    wgpu::ImageCopyTexture dst_view = {};
+    wgpu::TextureDataLayout layout = {};
+    dst_view.texture = backend_tex->texture;
+    dst_view.origin = {static_cast<uint32_t>(upload_x),
+                       static_cast<uint32_t>(upload_y), 0};
+    layout.offset = static_cast<uint64_t>(upload_y * tex->Width + upload_x) *
+                    tex->BytesPerPixel;
+    layout.bytesPerRow = tex->Width * tex->BytesPerPixel;
+    layout.rowsPerImage = upload_h;
+    wgpu::Extent3D size = {static_cast<uint32_t>(upload_w),
+                           static_cast<uint32_t>(upload_h), 1};
+    bd->default_queue.WriteTexture(
+        &dst_view, tex->Pixels,
+        static_cast<uint64_t>(tex->Width * tex->Height * tex->BytesPerPixel),
+        &layout, &size);
+    tex->SetStatus(ImTextureStatus_OK);
+  }
+
+  if (tex->Status == ImTextureStatus_WantDestroy && tex->UnusedFrames > 0) {
+    ImGui_ImplWGPU_DestroyTexture(tex);
+  }
+}
+
 
 static void CreateUniformBuffer() {
   ImGui_ImplWGPU_Data* bd = ImGui_ImplWGPU_GetBackendData();
@@ -460,7 +522,13 @@ bool ImGui_ImplWGPU_CreateDeviceObjects() {
   bd->pipeline_state = bd->device.CreateRenderPipeline(&desc);
   CHECK(bd->pipeline_state) << "Failed to create ImGui render pipeline.";
 
-  CreateFontsTexture();
+  wgpu::SamplerDescriptor sampler_desc = {};
+  sampler_desc.minFilter = wgpu::FilterMode::Linear;
+  sampler_desc.magFilter = wgpu::FilterMode::Linear;
+  bd->render_resources.sampler = bd->device.CreateSampler(&sampler_desc);
+
+
+
   CreateUniformBuffer();
 
   wgpu::BindGroupEntry common_bg_entries[2];
@@ -478,11 +546,8 @@ bool ImGui_ImplWGPU_CreateDeviceObjects() {
   bd->render_resources.common_bind_group =
       bd->device.CreateBindGroup(&common_bg_desc);
 
-  ImGuiID font_tex_id_hash =
-      ImHashData(&bd->render_resources.font_texture_view, sizeof(ImTextureID));
-  bd->render_resources.image_bind_groups[font_tex_id_hash] =
-      CreateImageBindGroup(bd->render_resources.image_bind_group_layout,
-                           bd->render_resources.font_texture_view);
+
+
   return true;
 }
 
@@ -492,8 +557,13 @@ void ImGui_ImplWGPU_InvalidateDeviceObjects() {
 
   bd->pipeline_state = nullptr;
   bd->render_resources = {};
-  ImGuiIO& io = ImGui::GetIO();
-  io.Fonts->SetTexID(nullptr);
+
+  for (ImTextureData* tex : ImGui::GetPlatformIO().Textures) {
+    if (tex->RefCount == 1) {
+      ImGui_ImplWGPU_DestroyTexture(tex);
+    }
+  }
+
   for (auto& frame : bd->frame_resources) {
     frame = {};
   }
@@ -509,6 +579,7 @@ bool ImGui_ImplWGPU_Init(const ImGui_ImplWGPU_InitInfo* init_info) {
   io.BackendRendererUserData = static_cast<void*>(bd);
   io.BackendRendererName = "imgui_impl_wgpu_cpp";
   io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
+  io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
 
   bd->init_info = *init_info;
   bd->device = init_info->device;
@@ -527,12 +598,15 @@ void ImGui_ImplWGPU_Shutdown() {
   CHECK_NE(bd, nullptr)
       << "No renderer backend to shutdown, or already shutdown?";
   ImGuiIO& io = ImGui::GetIO();
+  ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
 
   ImGui_ImplWGPU_InvalidateDeviceObjects();
   bd->frame_resources.clear();
   io.BackendRendererName = nullptr;
   io.BackendRendererUserData = nullptr;
-  io.BackendFlags &= ~ImGuiBackendFlags_RendererHasVtxOffset;
+  io.BackendFlags &= ~(ImGuiBackendFlags_RendererHasVtxOffset |
+                       ImGuiBackendFlags_RendererHasTextures);
+  platform_io.ClearRendererHandlers();
   delete bd;
 
   LOG(INFO) << "ImGui_ImplWGPU_Shutdown: Succeeded.";

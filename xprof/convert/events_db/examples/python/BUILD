@@ -1,0 +1,41 @@
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python//python:py_test.bzl", "py_test")
+
+package(
+    # copybara:uncomment default_applicable_licenses = ["//xprof:license"],
+    default_visibility = ["//visibility:private"],
+    licenses = ["notice"],
+)
+
+py_library(
+    name = "xspace_to_parquet_lib",
+    srcs = ["xspace_to_parquet.py"],
+    deps = [
+        "//third_party/py/absl:app",
+        "@absl_py//absl/flags",
+        "@org_xprof//xprof/convert/events_db/python:events_db",
+        "@pypi//etils",
+    ],
+)
+
+py_binary(
+    name = "xspace_to_parquet",
+    srcs = ["xspace_to_parquet.py"],
+    deps = [
+        ":xspace_to_parquet_lib",
+    ],
+)
+
+py_test(
+    name = "xspace_to_parquet_test",
+    srcs = ["xspace_to_parquet_test.py"],
+    deps = [
+        ":xspace_to_parquet_lib",
+        "//third_party/py/absl:app",
+        "@absl_py//absl/flags",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:flagsaver",
+        "@org_xprof//xprof/convert/events_db/python:events_db",
+        "@pypi//etils",
+    ],
+)

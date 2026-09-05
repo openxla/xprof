@@ -553,6 +553,15 @@ if built_with_embedded():
   _lib.GetLloDebugString.argtypes = [ctypes.c_void_p]
   _lib.GetLloDebugString.restype = ctypes.c_char_p
 
+  _lib.GetNumSourceLines.argtypes = [ctypes.c_void_p]
+  _lib.GetNumSourceLines.restype = ctypes.c_int
+
+  _lib.GetSourceOrdinalAtIndex.argtypes = [ctypes.c_void_p, ctypes.c_int]
+  _lib.GetSourceOrdinalAtIndex.restype = ctypes.c_int
+
+  _lib.GetSourceInfoAtIndex.argtypes = [ctypes.c_void_p, ctypes.c_int]
+  _lib.GetSourceInfoAtIndex.restype = ctypes.c_char_p
+
   _lib.FreeLloAnalysis.argtypes = [ctypes.c_void_p]
   _lib.FreeLloAnalysis.restype = None
 
@@ -566,7 +575,17 @@ if built_with_embedded():
       json_str = _lib.GetLloAnalysisJson(handle, kernel_bytes)
       if not json_str:
         return {"success": False}
-      return json.loads(json_str.decode("utf-8"))
+      result = json.loads(json_str.decode("utf-8"))
+      source_map = {}
+      num_source_lines = _lib.GetNumSourceLines(handle)
+      for i in range(max(num_source_lines, 0)):
+        ordinal = _lib.GetSourceOrdinalAtIndex(handle, i)
+        source_info = _lib.GetSourceInfoAtIndex(handle, i)
+        if ordinal == -1 or source_info is None:
+          continue
+        source_map[str(ordinal)] = source_info.decode("utf-8")
+      result["source_map"] = source_map
+      return result
     finally:
       _lib.FreeLloAnalysis(handle)
 

@@ -1537,6 +1537,13 @@ EventData Timeline::CreateBaseEventData(int event_index, bool is_hover) const {
       if (const auto it = args.find(kHloOp); it != args.end()) {
         event_data.try_emplace(kEventSelectedHloOpName, it->second);
       }
+
+      EventData js_args;
+      js_args.reserve(args.size());
+      for (const auto& [key, value] : args) {
+        js_args.try_emplace(key, value);
+      }
+      event_data.try_emplace(kEventSelectedArgs, std::move(js_args));
     }
   }
   return event_data;

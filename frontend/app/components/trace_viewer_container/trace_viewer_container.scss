@@ -410,6 +410,7 @@ canvas.emscripten {
       .detail-value {
         color: var(--mat-sys-on-surface);
         word-break: break-word;
+        white-space: pre-wrap;
       }
     }
 
@@ -579,8 +580,10 @@ canvas.emscripten {
   border-radius: 24px;
   font-size: 13px;
   font-family: 'Google Sans Text', Roboto, sans-serif;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0,0,0,0.08);
-  border: 1px solid var(--md-sys-color-outline-variant, rgba(0,0,0,0.05));
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.1),
+    0 1px 3px rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--md-sys-color-outline-variant, rgba(0, 0, 0, 0.05));
   pointer-events: none;
   z-index: 10;
   white-space: nowrap;
@@ -614,8 +617,12 @@ canvas.emscripten {
 }
 
 @keyframes fadeIn {
-  0% { opacity: 0; }
-  100% { opacity: 1; }
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
 }
 
 .timeline-status-bar mat-icon {
@@ -646,5 +653,5 @@ canvas.emscripten {
   font-weight: 600;
   padding: 2px 6px;
   line-height: 14px;
-  box-shadow: 0 1px 1px rgba(0,0,0,0.05);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
 }

@@ -121,6 +121,7 @@ export declare interface EntrySelectedEventDetail {
   uid?: string;
   hloModuleName?: string;
   hloOpName?: string;
+  args?: Record<string, string>;
 }
 
 // Type guard for the 'EntrySelected' custom event.

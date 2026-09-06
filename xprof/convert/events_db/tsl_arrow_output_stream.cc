@@ -19,12 +19,12 @@ limitations under the License.
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
-#include "absl/status/status_macros.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "third_party/arrow/result.h"
 #include "third_party/arrow/status.h"
 #include "xla/tsl/platform/env.h"
+#include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/file_system.h"
 #include "xprof/convert/events_db/arrow_utils.h"
 
@@ -43,7 +43,7 @@ absl::StatusOr<std::shared_ptr<TslArrowOutputStream>>
 TslArrowOutputStream::Open(absl::string_view file_path, tsl::Env* env) {
   if (env == nullptr) env = tsl::Env::Default();
   std::unique_ptr<tsl::WritableFile> file;
-  RETURN_IF_ERROR(env->NewWritableFile(std::string(file_path), &file));
+  TF_RETURN_IF_ERROR(env->NewWritableFile(std::string(file_path), &file));
   return std::make_shared<TslArrowOutputStream>(std::move(file));
 }
 

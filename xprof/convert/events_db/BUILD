@@ -382,10 +382,11 @@ cc_library(
         "//third_party/arrow:array_hdrs",
         "//third_party/arrow:util_hdrs",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/meta:type_traits",
         "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@xla//xla/tsl/platform:errors",
     ],
 )
 
@@ -413,10 +414,10 @@ cc_library(
         "//third_party/arrow:arrow_core",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@xla//xla/tsl/platform:env",
+        "@xla//xla/tsl/platform:errors",
     ],
 )
 
@@ -449,11 +450,12 @@ cc_library(
         "//third_party/arrow:util_hdrs",
         "//third_party/parquet_cpp:parquet_cpp2",
         "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@org_xprof//xprof/convert:executor_factory",
         "@org_xprof//xprof/convert:executor_interface",
+        "@xla//xla/tsl/platform:errors",
+        "@xla//xla/tsl/platform:statusor",
     ],
 )
 
@@ -476,5 +478,7 @@ cc_test(
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
         "@org_xprof//xprof/convert:executor_interface",
+        "@xla//xla/tsl/platform:errors",
+        "@xla//xla/tsl/platform:statusor",
     ],
 )

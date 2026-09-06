@@ -26,6 +26,7 @@ limitations under the License.
 #include <vector>
 
 #include "absl/hash/hash.h"
+#include "absl/meta/type_traits.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "third_party/arrow/util/type_fwd.h"
@@ -153,7 +154,7 @@ void BindSequence(nb::module_& m, const char* name, nb::handle abc_sequence) {
 nb::object FieldValueToPyObject(nb::handle parent_py, const FieldValue& val) {
   return std::visit(
       [&](const auto& arg) -> nb::object {
-        using T = std::remove_cvref_t<decltype(arg)>;
+        using T = absl::remove_cvref_t<decltype(arg)>;
         if constexpr (std::is_same_v<T, std::monostate>) {
           return nb::none();
         } else if constexpr (std::is_same_v<T, bool> ||

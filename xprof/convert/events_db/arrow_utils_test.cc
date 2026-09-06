@@ -384,23 +384,25 @@ TEST(ColumnTest, ConcurrentDisjointWrites) {
                           kNumRows);
   Column<bool> bool_col(TypedFieldIndex<bool>{}, "concurrent_bool", kNumRows);
 
-  {
-    std::vector<std::jthread> threads;
-    threads.reserve(kNumThreads);
+  std::vector<std::thread> threads;
+  threads.reserve(kNumThreads);
 
-    for (size_t t = 0; t < kNumThreads; ++t) {
-      threads.emplace_back([&, t]() {
-        for (size_t i = t; i < kNumRows; i += kNumThreads) {
-          if (i % 3 == 0) {
-            int_col.SetNull(i);
-            bool_col.SetNull(i);
-          } else {
-            int_col.SetValue(i, static_cast<int64_t>(i * 10));
-            bool_col.SetValue(i, (i % 2 == 0));
-          }
+  for (size_t t = 0; t < kNumThreads; ++t) {
+    threads.emplace_back([&, t]() {
+      for (size_t i = t; i < kNumRows; i += kNumThreads) {
+        if (i % 3 == 0) {
+          int_col.SetNull(i);
+          bool_col.SetNull(i);
+        } else {
+          int_col.SetValue(i, static_cast<int64_t>(i * 10));
+          bool_col.SetValue(i, (i % 2 == 0));
         }
-      });
-    }
+      }
+    });
+  }
+
+  for (std::thread& thread : threads) {
+    thread.join();
   }
 
   ASSERT_OK_AND_ASSIGN(std::shared_ptr<arrow::Array> array,

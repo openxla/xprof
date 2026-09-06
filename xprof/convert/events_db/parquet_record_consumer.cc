@@ -25,12 +25,13 @@ limitations under the License.
 #include <vector>
 
 #include "absl/status/status.h"
-#include "absl/status/status_macros.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "third_party/arrow/api.h"
 #include "third_party/arrow/io/api.h"  // IWYU pragma: keep
 #include "third_party/parquet_cpp/src2/parquet/arrow/writer.h"
+#include "xla/tsl/platform/errors.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xprof/convert/events_db/arrow_utils.h"
 #include "xprof/convert/events_db/event_utils.h"
 #include "xprof/convert/events_db/record_consumer.h"
@@ -94,7 +95,7 @@ struct Batch {
         status = array.status();
     };
     std::apply([&](const auto&... cols) { (append(cols), ...); }, columns);
-    RETURN_IF_ERROR(status);
+    TF_RETURN_IF_ERROR(status);
     return arrays;
   }
 
@@ -193,7 +194,7 @@ struct ParquetRecordConsumer::Impl {
       executor->Execute([this, &batch] { WriteBatch(batch); });
     }
     executor->JoinAll();
-    RETURN_IF_ERROR(result.status());
+    TF_RETURN_IF_ERROR(result.status());
     // All calls to `WriteBatch` have completed. `write_status` is not being
     // written to by any other threads.
     write_status.Update(internal::ToAbslStatus(file_writer->Close()));
@@ -273,8 +274,8 @@ absl::StatusOr<ParquetRecordConsumer> ParquetRecordConsumer::Build(
   internal::FieldIndices indices(schema);
   std::shared_ptr<arrow::Schema> arrow_schema =
       CreateArrowSchema(CreateColumns(indices, 0));
-  ASSIGN_OR_RETURN(std::shared_ptr<internal::TslArrowOutputStream> outfile,
-                   internal::TslArrowOutputStream::Open(file_path));
+  TF_ASSIGN_OR_RETURN(std::shared_ptr<internal::TslArrowOutputStream> outfile,
+                      internal::TslArrowOutputStream::Open(file_path));
   // `parquet::WriterProperties` is defined in `parquet/properties.h` and
   // provided transitively via `parquet/arrow/writer.h`; suppress
   // `misc-include-cleaner` since `properties.h` is not exported for direct
@@ -288,10 +289,10 @@ absl::StatusOr<ParquetRecordConsumer> ParquetRecordConsumer::Build(
   // NOLINTNEXTLINE(misc-include-cleaner)
   std::shared_ptr<parquet::WriterProperties> writer_properties =
       builder.build();
-  ASSIGN_OR_RETURN(std::unique_ptr<parquet::arrow::FileWriter> file_writer,
-                   internal::ToAbslStatusOr(parquet::arrow::FileWriter::Open(
-                       *arrow_schema, arrow::default_memory_pool(), outfile,
-                       std::move(writer_properties))));
+  TF_ASSIGN_OR_RETURN(std::unique_ptr<parquet::arrow::FileWriter> file_writer,
+                      internal::ToAbslStatusOr(parquet::arrow::FileWriter::Open(
+                          *arrow_schema, arrow::default_memory_pool(), outfile,
+                          std::move(writer_properties))));
   return ParquetRecordConsumer(std::make_unique<Impl>(
       indices, file_path, executor_factory, std::move(options),
       std::move(arrow_schema), std::move(outfile), std::move(file_writer)));

@@ -18,8 +18,8 @@ limitations under the License.
 #include <string>
 #include <vector>
 
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include "file/base/filesystem.h"
 #include "file/base/options.h"
 #include "file/base/path.h"

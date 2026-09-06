@@ -22,8 +22,8 @@
 #include "file/base/filesystem.h"
 #include "file/base/options.h"
 #include "file/base/path.h"
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include "absl/status/status.h"
 #include "xla/tsl/platform/env.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"

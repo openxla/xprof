@@ -18,8 +18,8 @@ limitations under the License.
 #include <string>
 #include <variant>
 
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include "xla/service/hlo.pb.h"
 #include "xla/service/hlo_graph_dumper.h"
 #include "xla/tsl/platform/errors.h"

@@ -25,8 +25,8 @@ limitations under the License.
 #include "file/base/options.h"
 #include "file/base/path.h"
 #include "testing/base/public/benchmark.h"
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include "absl/log/check.h"
 #include "absl/cleanup/cleanup.h"
 #include "absl/status/status.h"

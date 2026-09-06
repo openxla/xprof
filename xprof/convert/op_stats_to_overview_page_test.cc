@@ -15,7 +15,7 @@
 #include "xprof/convert/op_stats_to_overview_page.h"
 #include <memory>
 
-#include "<gtest/gtest.h>"
+#include <gtest/gtest.h>
 #include "xprof/convert/data_table_utils.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/overview_page.pb.h"

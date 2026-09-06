@@ -21,7 +21,7 @@ limitations under the License.
 #include <vector>
 
 #include "net/proto2/contrib/parse_proto/parse_text_proto.h"
-#include "<gtest/gtest.h>"
+#include <gtest/gtest.h>
 #include "absl/strings/str_cat.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"

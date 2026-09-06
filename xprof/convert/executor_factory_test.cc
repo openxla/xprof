@@ -17,7 +17,7 @@ limitations under the License.
 
 #include <memory>
 
-#include "<gtest/gtest.h>"
+#include <gtest/gtest.h>
 #include "xprof/convert/executor.h"
 
 namespace tensorflow::profiler {

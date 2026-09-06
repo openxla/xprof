@@ -22,8 +22,8 @@ limitations under the License.
 #include "file/base/options.h"
 #include "file/base/path.h"
 #include "net/proto2/contrib/parse_proto/parse_text_proto.h"
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"

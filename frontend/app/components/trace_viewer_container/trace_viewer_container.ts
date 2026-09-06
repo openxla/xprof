@@ -229,7 +229,7 @@ declare interface TfTraceViewer {
 
 /** A trace viewer container component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: true,
   schemas: [CUSTOM_ELEMENTS_SCHEMA],
   selector: 'trace-viewer-container',
@@ -256,6 +256,7 @@ declare interface TfTraceViewer {
 export class TraceViewerContainer
   implements OnInit, OnDestroy, AfterViewInit, OnChanges
 {
+  private readonly cdr = inject(ChangeDetectorRef);
   @Input() traceViewerModule: TraceViewerV2Module | null = null;
   @Input() url = '';
   @Input() useTraceViewerV2 = true;
@@ -498,6 +499,7 @@ export class TraceViewerContainer
         } else if (!query) {
           this.searchResultCountText = '';
         }
+        this.cdr.markForCheck();
       });
 
     this.hoveredEventRequest$
@@ -733,11 +735,13 @@ export class TraceViewerContainer
     } else {
       this.traceViewerV2ErrorMessage = event.detail.message;
     }
+    this.cdr.markForCheck();
   };
 
   private readonly mouseModeChangedEventListener = (e: Event) => {
     if (isMouseModeChangedEvent(e)) {
       this.setMouseMode(e.detail.mouseMode);
+      this.cdr.markForCheck();
     }
   };
 
@@ -773,6 +777,7 @@ export class TraceViewerContainer
     } else {
       this.eventSelected.emit(e.detail);
     }
+    this.cdr.markForCheck();
   };
 
   private readonly eventsSelectedEventListener = (e: Event) => {
@@ -859,6 +864,7 @@ export class TraceViewerContainer
       .subscribe(() => {
         this.currentTutorialIndex =
           (this.currentTutorialIndex + 1) % this.tutorials.length;
+        this.cdr.markForCheck();
       });
   }
 
@@ -950,6 +956,7 @@ export class TraceViewerContainer
       // numeric percentage.
       if (typeof size === 'number') {
         this.updateSplitSizes(size);
+        this.cdr.markForCheck();
       }
     }
   }
@@ -992,6 +999,7 @@ export class TraceViewerContainer
     const count = instance.getSearchResultsCount();
     const index = instance.getCurrentSearchResultIndex();
     this.searchResultCountText = `${index === -1 ? 0 : index + 1} / ${count}`;
+    this.cdr.markForCheck();
   }
 
   openCustomizationPanel(): void {

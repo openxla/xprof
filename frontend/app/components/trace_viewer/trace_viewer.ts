@@ -4,6 +4,7 @@ import {PlatformLocation} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   ElementRef,
   inject,
@@ -164,13 +165,14 @@ function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
 
 /** A trace viewer component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: false,
   selector: 'trace-viewer',
   templateUrl: './trace_viewer.ng.html',
   styleUrls: ['./trace_viewer.scss'],
 })
 export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly destroyed = new ReplaySubject<void>(1);
   private isDestroyed = false;
   private isInitializing = false;
@@ -480,6 +482,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         }
         this.navigationEvent = {...params, ...queryParams};
         this.update(this.navigationEvent);
+        this.cdr.markForCheck();
       });
 
     // Event listeners are handled by TraceViewerContainer.
@@ -503,6 +506,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       .pipe(takeUntil(this.destroyed))
       .subscribe((isAvailable) => {
         this.sourceCodeServiceIsAvailable = isAvailable;
+        this.cdr.markForCheck();
       });
   }
 
@@ -554,6 +558,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
           } as MainTraceData);
           this.container?.updateSearchResultCountText();
         }
+        this.cdr.markForCheck();
       });
   }
 
@@ -601,6 +606,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       }
       this.update(this.navigationEvent);
       this.setupColorOnboarding();
+      this.cdr.markForCheck();
     } finally {
       this.isInitializing = false;
     }
@@ -677,6 +683,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
           this.updateFlowCategories();
           this.updateWasmFlowCategories();
           this.updateWasmProcessMappings();
+          this.cdr.markForCheck();
         });
       }
     } else {
@@ -687,6 +694,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       }&is_oss=true&trace_data_url=${encodeURIComponent(
         traceDataUrl,
       )}&source_code_service=${this.sourceCodeServiceIsAvailable}`;
+      this.cdr.markForCheck();
     }
   }
 
@@ -717,6 +725,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     if (this.areDetailsChanged(eventDetails)) {
       this.traceDetails = new Map(eventDetails);
       void this.update(this.navigationEvent);
+      this.cdr.markForCheck();
     }
   };
 
@@ -796,6 +805,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       this.maybeFetchEventArgs({name, startUs, durationUs, uid, pid});
     }
     this.maybeFetchAdjacentNodes();
+    this.cdr.markForCheck();
   }
 
   updateWasmProcessMappings() {
@@ -865,6 +875,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       this.selectedEventProperties = [];
       this.eventDetailColumns = [...DEFAULT_EVENT_DETAIL_COLUMNS];
     }
+    this.cdr.markForCheck();
   }
 
   onSearchEvents(detail: SearchEventsEventDetail): void {
@@ -984,6 +995,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     }
     this.selectedEventProperties = properties;
     this.maybeFetchAdjacentNodes();
+    this.cdr.markForCheck();
   }
 
   private maybeFetchAdjacentNodes(): void {
@@ -1070,6 +1082,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       value: adjacentNodes['consumer_names'].join(', '),
     });
     this.selectedEventProperties = properties;
+    this.cdr.markForCheck();
   }
 
   // END Trace Viewer V2 WASM App Methods
@@ -1442,6 +1455,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
           this.traceViewerModule.SetPalette(result);
         }
         window.localStorage.setItem(COLOR_PALETTE_STORAGE_KEY, result);
+        this.cdr.markForCheck();
       }
     });
   }
@@ -1551,6 +1565,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
           setTimeout(() => {
             if (!this.destroyed.isStopped) {
               this.showColorOnboarding = true;
+              this.cdr.markForCheck();
             }
           }, 2000); // Delay 2 seconds after load complete
           window.removeEventListener(

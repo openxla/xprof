@@ -108,6 +108,7 @@ cc_library(
     hdrs = ["record_consumer.h"],
     visibility = ["//visibility:public"],
     deps = [
+        "@com_google_absl//absl/meta:type_traits",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",

@@ -15,7 +15,9 @@ limitations under the License.
 
 #include <string_view>
 #include <type_traits>
+#include <utility>
 
+#include "absl/meta/type_traits.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 
@@ -55,6 +57,52 @@ std::string_view ParseStatusToString(ParseStatus parse_status);
 // `absl::InvalidArgumentError` if `name` is unrecognized.
 absl::StatusOr<ParseStatus> ParseStatusFromString(std::string_view name);
 
+namespace internal {
+
+template <typename T, typename = void>
+struct HasConsume : std::false_type {};
+template <typename T>
+struct HasConsume<T, std::void_t<decltype(std::declval<T&>().Consume(
+                         std::declval<Record&>()))>> : std::true_type {};
+// Substitution Failure Is Not an Error (SFINAE) trait to detect if `T` has a
+// `Consume(Record&)` method.
+//
+// Note: In C++20 the right-hand-side of this constant can be replaced with
+// `requires(T& t, Record& r) { t.Consume(r); }`.
+template <typename T>
+constexpr bool kHasConsume = HasConsume<T>::value;
+
+template <typename T, typename = void>
+struct HasFinalize : std::false_type {};
+template <typename T>
+struct HasFinalize<T, std::void_t<decltype(std::declval<T&>().Finalize())>>
+    : std::true_type {};
+// Substitution Failure Is Not an Error (SFINAE) trait to detect if `T` has a
+// `Finalize()` method.
+//
+// Note: In C++20 the right-hand-side of this constant can be replaced with
+// `requires(T& t) { t.Finalize(); }`.
+template <typename T>
+constexpr bool kHasFinalize = HasFinalize<T>::value;
+
+template <typename T, typename = void>
+struct HasFinalizeWithResult : std::false_type {};
+template <typename T>
+struct HasFinalizeWithResult<
+    T, std::void_t<decltype(std::declval<T&>().Finalize(
+           std::declval<const absl::StatusOr<ParseStatus>&>()))>>
+    : std::true_type {};
+// Substitution Failure Is Not an Error (SFINAE) trait to detect if `T` has a
+// `Finalize(const absl::StatusOr<ParseStatus>&)` method.
+//
+// Note: In C++20 the right-hand-side of this constant can be replaced with
+// `requires(T& t, const absl::StatusOr<ParseStatus>& result) {
+// t.Finalize(result); }`.
+template <typename T>
+constexpr bool kHasFinalizeWithResult = HasFinalizeWithResult<T>::value;
+
+}  // namespace internal
+
 // Non-owning view of a record consumer and its completion lifecycle. Functions
 // that receive this reference as an argument must not store it beyond the
 // immediate function call.
@@ -85,13 +133,13 @@ absl::StatusOr<ParseStatus> ParseStatusFromString(std::string_view name);
 class RecordConsumerRef {
  public:
   template <typename T, typename = std::enable_if_t<!std::is_same_v<
-                            RecordConsumerRef, std::remove_cvref_t<T>>>>
+                            RecordConsumerRef, absl::remove_cvref_t<T>>>>
   RecordConsumerRef(T&& target) noexcept
       : target_(const_cast<void*>(static_cast<const void*>(&target))),
         consume_fn_([](void* ptr, Record& r) -> absl::StatusOr<StepControl> {
           using RawT = std::remove_reference_t<T>;
           RawT* target = static_cast<RawT*>(ptr);
-          constexpr bool kHasConsume = requires { target->Consume(r); };
+          constexpr bool kHasConsume = internal::kHasConsume<T>;
           static_assert(kHasConsume || std::is_invocable_v<RawT&, Record&>,
                         "RecordConsumerRef requires a consumer with either "
                         "Consume(Record&) or operator()(Record&) "
@@ -108,8 +156,8 @@ class RecordConsumerRef {
               using RawT = std::remove_reference_t<T>;
               RawT* target = static_cast<RawT*>(ptr);
               constexpr bool kHasFinalizeWithResult =
-                  requires { target->Finalize(result); };
-              constexpr bool kHasFinalize = requires { target->Finalize(); };
+                  internal::kHasFinalizeWithResult<T>;
+              constexpr bool kHasFinalize = internal::kHasFinalize<T>;
               if constexpr (kHasFinalizeWithResult) {
                 constexpr bool kIsVoid =
                     std::is_void_v<decltype(target->Finalize(result))>;

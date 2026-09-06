@@ -12768,6 +12768,100 @@ TEST(TimelineTest, SelectionRemapFallbackDisambiguatesByTidAcrossThreads) {
   EXPECT_EQ(timeline.selected_event_index(), 1);
 }
 
+TEST_F(RealTimelineImGuiFixture, TrackManagement_PinnedTrackStickyOffset) {
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 100.0f);
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+  data.entry_total_times.assign(10, 10.0);
+  data.entry_self_times.assign(10, 10.0);
+  data.entry_start_times.assign(10, 0.0);
+  data.entry_names.assign(10, "event");
+  for (int i = 0; i < 10; ++i) {
+    data.groups.push_back({Group::Type::kFlame, absl::StrCat("Process ", i), "",
+                           i, kProcessNestingLevel, true});
+    data.events_by_level.push_back({i});
+  }
+  timeline_.set_track_management_enabled(true);
+  timeline_.pinned_track_names_.insert("Process 1");
+  timeline_.SetTimelineData(data);
+
+  EXPECT_TRUE(timeline_.is_group_pinned_for_test(1));
+  EXPECT_TRUE(timeline_.is_level_pinned_for_test(1));
+  EXPECT_FALSE(timeline_.is_group_pinned_for_test(0));
+  EXPECT_FALSE(timeline_.is_level_pinned_for_test(0));
+
+  // When scroll_y is 0, sticky offset is 0
+  timeline_.set_scroll_offset_for_test(0.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_EQ(timeline_.get_sticky_offset_for_test(), 0.0f);
+
+  // When scrolled past header_pinned_offset (32.0f), sticky offset becomes
+  // active (150.0f - 32.0f = 118.0f).
+  timeline_.set_scroll_offset_for_test(150.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_GT(timeline_.get_sticky_offset_for_test(), 0.0f);
+  EXPECT_FLOAT_EQ(timeline_.get_sticky_offset_for_test(), 118.0f);
+
+  // When unpinned, sticky offset resets to 0
+  timeline_.pinned_track_names_.erase("Process 1");
+  timeline_.SetTimelineData(data);
+  EXPECT_FALSE(timeline_.is_group_pinned_for_test(1));
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_EQ(timeline_.get_sticky_offset_for_test(), 0.0f);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       TrackManagement_StickyOffsetDisabledWhenFeatureFlagOff) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0};
+  data.entry_names = {"event1", "event2"};
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true},
+      {Group::Type::kFlame, "Process B", "", 1, kProcessNestingLevel, true}};
+  data.events_by_level = {{0}, {1}};
+  timeline_.pinned_track_names_.insert("Process B");
+  timeline_.set_track_management_enabled(false);
+  timeline_.SetTimelineData(data);
+
+  timeline_.set_scroll_offset_for_test(200.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_EQ(timeline_.get_sticky_offset_for_test(), 0.0f);
+  EXPECT_FALSE(timeline_.is_group_pinned_for_test(0));
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       TrackManagement_ProcessPendingScrollWithStickyPinnedTrack) {
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 100.0f);
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+  data.entry_total_times.assign(10, 10.0);
+  data.entry_self_times.assign(10, 10.0);
+  data.entry_start_times.assign(10, 0.0);
+  data.entry_names = {"event_pinned"};
+  data.entry_names.resize(10, "event");
+  for (int i = 0; i < 10; ++i) {
+    data.groups.push_back({Group::Type::kFlame, absl::StrCat("Process ", i), "",
+                           i, kProcessNestingLevel, true});
+    data.events_by_level.push_back({i});
+  }
+  timeline_.set_track_management_enabled(true);
+  timeline_.pinned_track_names_.insert("Process 0");
+  timeline_.SetTimelineData(data);
+
+  // Scroll down so pinned track sticks to top
+  timeline_.set_scroll_offset_for_test(150.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_FLOAT_EQ(timeline_.last_scroll_y_for_test(), 150.0f);
+
+  // Reveal pinned event: since it is sticky, it is already visible.
+  timeline_.RevealEvent(0);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_FLOAT_EQ(timeline_.last_scroll_y_for_test(), 150.0f);
+}
+
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer

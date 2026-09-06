@@ -130,7 +130,12 @@ void Timeline::DrawTimelinePlayerSync() {
         double y_ratio =
             value_range == 0 ? 0 : kCounterTrackHeight / value_range;
 
-        Pixel group_y = tracks_start_screen_pos_.y + group_offsets_[idx];
+        const Pixel pin_offset =
+            (idx < group_is_pinned_.size() && group_is_pinned_[idx])
+                ? sticky_offset_
+                : 0.0f;
+        Pixel group_y =
+            tracks_start_screen_pos_.y + group_offsets_[idx] + pin_offset;
         Pixel y_base = group_y + kCounterTrackHeight;
 
         Pixel counter_y = y_base - (val - counter.min_value) * y_ratio;

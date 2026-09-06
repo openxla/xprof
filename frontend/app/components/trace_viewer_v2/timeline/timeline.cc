@@ -305,6 +305,9 @@ void Timeline::BuildFlattenedGroups(const FlameChartTimelineData& data) {
   // raw groups sequence directly to avoid categorization overhead or inserting
   // virtual headers.
   if (!track_management_enabled_) {
+    group_is_pinned_.assign(group_count, false);
+    level_is_pinned_.assign(data.events_by_level.size(), false);
+    sticky_offset_ = 0.0f;
     flattened_groups_.reserve(group_count);
     for (int i = 0; i < group_count; ++i) {
       flattened_groups_.push_back(&data.groups[i]);
@@ -359,6 +362,7 @@ void Timeline::CategorizeGroupsForTrackManagement(
   hidden_groups.reserve(group_count);
   pinned_groups.reserve(group_count);
   all_groups.reserve(group_count);
+  group_is_pinned_.assign(group_count, false);
 
   bool current_process_hidden = false;
   bool current_process_pinned = false;
@@ -381,6 +385,8 @@ void Timeline::CategorizeGroupsForTrackManagement(
       }
     }
 
+    group_is_pinned_[i] = current_process_pinned;
+
     if (current_process_hidden) {
       hidden_groups.push_back(&data.groups[i]);
     } else if (current_process_pinned) {
@@ -402,6 +408,7 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
   std::vector<Pixel> new_group_offsets(group_count + 1, 0.0f);
   std::vector<Pixel> new_group_heights(group_count, 0.0f);
   std::vector<bool> new_group_visible(group_count, true);
+  level_is_pinned_.assign(level_count, false);
 
   Pixel current_offset =
       ImGui::GetCurrentContext() ? ImGui::GetStyle().CellPadding.y : 0.0f;
@@ -442,13 +449,23 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
     // Now we are dealing with a standard group track
     const int group_index = group_ptr - &data.groups[0];
     const Group& group = *group_ptr;
+    const bool is_pinned =
+        group_index >= 0 &&
+        group_index < static_cast<int>(group_is_pinned_.size()) &&
+        group_is_pinned_[group_index];
+    const int next_group_start_level =
+        GetNextGroupStartLevel(data, group_index);
+    for (int level = group.start_level; level < next_group_start_level;
+         ++level) {
+      if (level < level_count) {
+        level_is_pinned_[level] = is_pinned;
+      }
+    }
 
     // If the whole header section is collapsed, this group disappears.
     if (section_collapsed) {
       new_group_offsets[group_index] = current_offset;
       new_group_visible[group_index] = false;
-      const int next_group_start_level =
-          GetNextGroupStartLevel(data, group_index);
       for (int level = group.start_level; level < next_group_start_level;
            ++level) {
         if (level < level_count) {
@@ -462,9 +479,6 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
     if (group.nesting_level <= hidden_nesting_level) {
       hidden_nesting_level = std::numeric_limits<int>::max();
     }
-
-    const int next_group_start_level =
-        GetNextGroupStartLevel(data, group_index);
 
     if (hidden_nesting_level != std::numeric_limits<int>::max()) {
       new_group_offsets[group_index] = current_offset;
@@ -917,46 +931,156 @@ void Timeline::Draw() {
   const Pixel scroll_y = ImGui::GetScrollY();
   const Pixel window_height = ImGui::GetWindowHeight();
 
-  // Find first visible item or item intersecting scroll_y using binary search.
-  auto it = std::lower_bound(flattened_groups_.begin(), flattened_groups_.end(),
-                             scroll_y, [this](const Group* group, Pixel y) {
-                               return this->GetGroupBottom(group) < y;
-                             });
+  const bool is_sticky =
+      track_management_enabled_ && (pinned_processes_count_ > 0) &&
+      (scroll_y > header_pinned_offset_);
+  sticky_offset_ = is_sticky ? (scroll_y - header_pinned_offset_) : 0.0f;
+  const Pixel pinned_section_height =
+      (track_management_enabled_ && pinned_processes_count_ > 0)
+          ? std::max(0.0f, header_all_offset_ - header_pinned_offset_)
+          : 0.0f;
 
-  // Draw visible groups.
-  for (; it != flattened_groups_.end(); ++it) {
-    const Group* group_ptr = *it;
-    const bool is_header = IsVirtualHeader(group_ptr);
-    int group_index = -1;
-    if (!is_header) {
-      group_index = group_ptr - &timeline_data_.groups[0];
-      if (!group_visible_[group_index]) {
+  if (!is_sticky) {
+    // Find first visible item or item intersecting scroll_y using binary
+    // search.
+    auto it =
+        std::lower_bound(flattened_groups_.begin(), flattened_groups_.end(),
+                         scroll_y, [this](const Group* group, Pixel y) {
+                           return this->GetGroupBottom(group) < y;
+                         });
+
+    // Draw visible groups.
+    for (; it != flattened_groups_.end(); ++it) {
+      const Group* group_ptr = *it;
+      const bool is_header = IsVirtualHeader(group_ptr);
+      int group_index = -1;
+      if (!is_header) {
+        group_index = group_ptr - &timeline_data_.groups[0];
+        if (!group_visible_[group_index]) {
+          continue;
+        }
+      }
+
+      const Pixel group_top = GetGroupTop(group_ptr);
+      if (group_top > scroll_y + window_height) {
         continue;
       }
-    }
+      const Pixel group_bottom = GetGroupBottom(group_ptr);
+      if (group_bottom < scroll_y) {
+        // Should not happen with binary search, but serves as a safety check.
+        continue;
+      }
 
-    const Pixel group_top = GetGroupTop(group_ptr);
-    if (group_top > scroll_y + window_height) {
-      continue;
-    }
-    const Pixel group_bottom = GetGroupBottom(group_ptr);
-    if (group_bottom < scroll_y) {
-      // Should not happen with binary search, but serves as a safety check.
-      continue;
-    }
+      if (is_header) {
+        if (DrawHeaderRow(group_ptr, tracks_start_pos, tracks_start_screen_pos,
+                          group_top, group_bottom)) {
+          needs_layout_update = true;
+        }
+        continue;
+      }
 
-    if (is_header) {
-      if (DrawHeaderRow(group_ptr, tracks_start_pos, tracks_start_screen_pos,
-                        group_top, group_bottom)) {
+      if (DrawTrackRow(group_index, tracks_start_pos, tracks_start_screen_pos,
+                       content_region_avail_width, px_per_time_unit_val,
+                       scroll_y, window_height)) {
         needs_layout_update = true;
       }
-      continue;
+    }
+  } else {
+    // Two-pass rendering:
+    // Pass 1 renders scrolling tracks clipped strictly below the docked pinned
+    // section.
+    // Pass 2 renders the sticky pinned section at the top of the viewport.
+    //
+    // Two-pass rendering is necessary due to the immediate-mode Painter's
+    // algorithm in ImGui: drawing the pinned section in Pass 2 guarantees it
+    // renders on top of scrolling tracks (avoiding occlusion), while Pass 1's
+    // clipping rect prevents scrolling events from bleeding into the pinned
+    // header area.
+    const Pixel window_top_screen_y = tracks_start_screen_pos.y + scroll_y;
+    const Pixel pinned_bottom_screen_y =
+        window_top_screen_y + pinned_section_height;
+    const Pixel window_bottom_screen_y = window_top_screen_y + window_height;
+
+    // Pass 1: Draw scrolling tracks below the pinned section.
+    ImGui::PushClipRect(
+        ImVec2(tracks_start_screen_pos.x, pinned_bottom_screen_y),
+        ImVec2(tracks_start_screen_pos.x + content_region_avail_width,
+               window_bottom_screen_y),
+        true);
+
+    auto all_it = std::lower_bound(
+        flattened_groups_.begin(), flattened_groups_.end(),
+        scroll_y + pinned_section_height,
+        [this](const Group* group, Pixel y) {
+          return this->GetGroupBottom(group) < y;
+        });
+
+    for (; all_it != flattened_groups_.end(); ++all_it) {
+      const Group* group_ptr = *all_it;
+      const bool is_header = IsVirtualHeader(group_ptr);
+      int group_index = -1;
+      if (!is_header) {
+        group_index = group_ptr - &timeline_data_.groups[0];
+        if (!group_visible_[group_index]) {
+          continue;
+        }
+      }
+
+      const Pixel group_top = GetGroupTop(group_ptr);
+      if (group_top > scroll_y + window_height) {
+        continue;
+      }
+
+      if (is_header) {
+        if (DrawHeaderRow(group_ptr, tracks_start_pos, tracks_start_screen_pos,
+                          group_top, GetGroupBottom(group_ptr))) {
+          needs_layout_update = true;
+        }
+        continue;
+      }
+
+      if (DrawTrackRow(group_index, tracks_start_pos, tracks_start_screen_pos,
+                       content_region_avail_width, px_per_time_unit_val,
+                       scroll_y, window_height)) {
+        needs_layout_update = true;
+      }
     }
 
-    if (DrawTrackRow(group_index, tracks_start_pos, tracks_start_screen_pos,
-                     content_region_avail_width, px_per_time_unit_val, scroll_y,
-                     window_height)) {
-      needs_layout_update = true;
+    ImGui::PopClipRect();
+
+    // Pass 2: Draw sticky pinned section (Pinned header and pinned groups).
+    auto pinned_it = std::find(flattened_groups_.begin(),
+                               flattened_groups_.end(), &header_pinned_);
+    if (pinned_it != flattened_groups_.end()) {
+      for (auto it = pinned_it; it != flattened_groups_.end(); ++it) {
+        const Group* group_ptr = *it;
+        if (group_ptr == &header_all_) {
+          break;
+        }
+        const bool is_header = IsVirtualHeader(group_ptr);
+        if (is_header) {
+          const Pixel effective_top = header_pinned_offset_ + sticky_offset_;
+          const Pixel effective_bottom =
+              effective_top + kVirtualHeaderHeight;
+          if (DrawHeaderRow(group_ptr, tracks_start_pos,
+                            tracks_start_screen_pos, effective_top,
+                            effective_bottom)) {
+            needs_layout_update = true;
+          }
+          continue;
+        }
+
+        const int group_index = group_ptr - &timeline_data_.groups[0];
+        if (!group_visible_[group_index]) {
+          continue;
+        }
+
+        if (DrawTrackRow(group_index, tracks_start_pos,
+                         tracks_start_screen_pos, content_region_avail_width,
+                         px_per_time_unit_val, scroll_y, window_height)) {
+          needs_layout_update = true;
+        }
+      }
     }
   }
 
@@ -1112,6 +1236,15 @@ bool Timeline::DrawHeaderRow(const Group* group_ptr,
   }
   ImGui::PushID(header_id);
 
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  const Pixel content_region_avail_width =
+      ImGui::GetWindowWidth() - ImGui::GetStyle().ScrollbarSize;
+  draw_list->AddRectFilled(
+      ImVec2(tracks_start_screen_pos.x, tracks_start_screen_pos.y + group_top),
+      ImVec2(tracks_start_screen_pos.x + content_region_avail_width,
+             tracks_start_screen_pos.y + group_bottom),
+      ImGui::GetColorU32(ImGuiCol_ChildBg));
+
   // Limit text clip region to label column
   ImGui::PushClipRect(
       ImVec2(tracks_start_screen_pos.x, tracks_start_screen_pos.y + group_top),
@@ -1246,8 +1379,18 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
   ImGui::PushID(group_index);
 
   // Set cursor to draw the label
-  ImGui::SetCursorPos(ImVec2(tracks_start_pos.x,
-                             tracks_start_pos.y + group_offsets_[group_index]));
+  const Pixel pin_offset =
+      (group_index >= 0 &&
+       group_index < static_cast<int>(group_is_pinned_.size()) &&
+       group_is_pinned_[group_index])
+          ? sticky_offset_
+          : 0.0f;
+  const Pixel effective_group_offset = group_offsets_[group_index] + pin_offset;
+  const Pixel effective_group_next_offset =
+      group_offsets_[group_index + 1] + pin_offset;
+
+  ImGui::SetCursorPos(
+      ImVec2(tracks_start_pos.x, tracks_start_pos.y + effective_group_offset));
 
   ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
@@ -1259,18 +1402,18 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
                              .value_or(kProcessTrackCollapsedColor);
     draw_list->AddRectFilled(
         ImVec2(tracks_start_screen_pos.x,
-               tracks_start_screen_pos.y + group_offsets_[group_index]),
+               tracks_start_screen_pos.y + effective_group_offset),
         ImVec2(tracks_start_screen_pos.x + content_region_avail_width,
-               tracks_start_screen_pos.y + group_offsets_[group_index + 1]),
+               tracks_start_screen_pos.y + effective_group_next_offset),
         bg_color);
   }
 
   // Push clip rect to prevent label text from bleeding into the track area
   ImGui::PushClipRect(
       ImVec2(tracks_start_screen_pos.x,
-             tracks_start_screen_pos.y + group_offsets_[group_index]),
+             tracks_start_screen_pos.y + effective_group_offset),
       ImVec2(tracks_start_screen_pos.x + label_width_ - kSplitterOffset,
-             tracks_start_screen_pos.y + group_offsets_[group_index + 1]),
+             tracks_start_screen_pos.y + effective_group_next_offset),
       true);
 
   const bool has_children = group.has_children;
@@ -1351,8 +1494,9 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
     needs_layout_update = true;
   }
 
-  ImGui::SetCursorPos(ImVec2(tracks_start_pos.x + label_width_,
-                             tracks_start_pos.y + group_offsets_[group_index]));
+  ImGui::SetCursorPos(
+      ImVec2(tracks_start_pos.x + label_width_,
+             tracks_start_pos.y + effective_group_offset));
 
   if (is_collapsed) {
     DrawGroupPreview(group_index, px_per_time_unit_val);
@@ -1990,9 +2134,16 @@ void Timeline::FindNearestEventEdge(Microseconds time, Microseconds threshold,
       }
     }
 
+    const Pixel pin_offset =
+        (group_index >= 0 &&
+         group_index < static_cast<int>(group_is_pinned_.size()) &&
+         group_is_pinned_[group_index])
+            ? sticky_offset_
+            : 0.0f;
     Pixel group_top_y =
-        tracks_start_screen_pos_.y + group_offsets_[group_index];
-    Pixel group_bottom_y = tracks_start_screen_pos_.y + group_bottom_offset;
+        tracks_start_screen_pos_.y + group_offsets_[group_index] + pin_offset;
+    Pixel group_bottom_y =
+        tracks_start_screen_pos_.y + group_bottom_offset + pin_offset;
 
     bool is_group_hovered =
         mouse_pos.y >= group_top_y && mouse_pos.y <= group_bottom_y;
@@ -2026,6 +2177,11 @@ void Timeline::FindNearestEventEdge(Microseconds time, Microseconds threshold,
       continue;
     }
 
+    const Pixel group_pin_offset =
+        (group_index < group_is_pinned_.size() && group_is_pinned_[group_index])
+            ? sticky_offset_
+            : 0.0f;
+
     for (int level = group.start_level; level < next_group_start_level;
          ++level) {
       if (level < 0 || level >= timeline_data_.events_by_level.size() ||
@@ -2033,7 +2189,7 @@ void Timeline::FindNearestEventEdge(Microseconds time, Microseconds threshold,
         continue;
       }
 
-      Pixel y_center = visible_level_offsets_[level];
+      Pixel y_center = visible_level_offsets_[level] + group_pin_offset;
       Pixel y_top = y_center - kEventHeight * 0.5f;
       Pixel y_bottom = y_center + kEventHeight * 0.5f;
 
@@ -2740,7 +2896,13 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val,
         }
       }
       const Pixel level_stride = kEventHeight + kEventPaddingBottom;
-      const Pixel group_offset = group_offsets_[group_index];
+      const Pixel pin_offset =
+          (group_index >= 0 &&
+           group_index < static_cast<int>(group_is_pinned_.size()) &&
+           group_is_pinned_[group_index])
+              ? sticky_offset_
+              : 0.0f;
+      const Pixel group_offset = group_offsets_[group_index] + pin_offset;
 
       int first_visible_level = start_level;
       Pixel relative_scroll_y = scroll_y - group_offset;
@@ -2984,10 +3146,22 @@ void Timeline::DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
     return;
   }
 
-  const Pixel start_y =
-      timeline_y_start + visible_level_offsets_[flow.source_level];
-  const Pixel end_y =
-      timeline_y_start + visible_level_offsets_[flow.target_level];
+  const Pixel source_pin_offset =
+      (flow.source_level < level_is_pinned_.size() &&
+       level_is_pinned_[flow.source_level])
+          ? sticky_offset_
+          : 0.0f;
+  const Pixel target_pin_offset =
+      (flow.target_level < level_is_pinned_.size() &&
+       level_is_pinned_[flow.target_level])
+          ? sticky_offset_
+          : 0.0f;
+  const Pixel start_y = timeline_y_start +
+                        visible_level_offsets_[flow.source_level] +
+                        source_pin_offset;
+  const Pixel end_y = timeline_y_start +
+                      visible_level_offsets_[flow.target_level] +
+                      target_pin_offset;
 
   const Pixel start_x =
       TimeToScreenX(flow.source_ts, timeline_x_start, px_per_time);
@@ -3397,11 +3571,19 @@ bool Timeline::DrawHideButton(int group_index, Pixel height,
 
   const Pixel content_region_avail_width =
       ImGui::GetWindowWidth() - ImGui::GetStyle().ScrollbarSize;
+  const Pixel pin_offset =
+      (group_index >= 0 &&
+       group_index < static_cast<int>(group_is_pinned_.size()) &&
+       group_is_pinned_[group_index])
+          ? sticky_offset_
+          : 0.0f;
   const bool is_row_hovered = ImGui::IsMouseHoveringRect(
       ImVec2(tracks_start_screen_pos_.x,
-             tracks_start_screen_pos_.y + group_offsets_[group_index]),
+             tracks_start_screen_pos_.y + group_offsets_[group_index] +
+                 pin_offset),
       ImVec2(tracks_start_screen_pos_.x + content_region_avail_width,
-             tracks_start_screen_pos_.y + group_offsets_[group_index + 1]));
+             tracks_start_screen_pos_.y + group_offsets_[group_index + 1] +
+                 pin_offset));
 
   if (is_row_hovered || is_track_hidden) {
     DrawHideIcon(draw_list, center_x, center_y, kIconDrawSize, icon_col,
@@ -3445,11 +3627,19 @@ bool Timeline::DrawPinButton(int group_index, Pixel height, bool is_pinned) {
 
   const Pixel content_region_avail_width =
       ImGui::GetWindowWidth() - ImGui::GetStyle().ScrollbarSize;
+  const Pixel pin_offset =
+      (group_index >= 0 &&
+       group_index < static_cast<int>(group_is_pinned_.size()) &&
+       group_is_pinned_[group_index])
+          ? sticky_offset_
+          : 0.0f;
   const bool is_row_hovered = ImGui::IsMouseHoveringRect(
       ImVec2(tracks_start_screen_pos_.x,
-             tracks_start_screen_pos_.y + group_offsets_[group_index]),
+             tracks_start_screen_pos_.y + group_offsets_[group_index] +
+                 pin_offset),
       ImVec2(tracks_start_screen_pos_.x + content_region_avail_width,
-             tracks_start_screen_pos_.y + group_offsets_[group_index + 1]));
+             tracks_start_screen_pos_.y + group_offsets_[group_index + 1] +
+                 pin_offset));
 
   if (is_row_hovered || is_pinned) {
     // Draw the icon using the same base size.
@@ -3670,20 +3860,42 @@ void Timeline::ProcessPendingScroll() {
   // Default target scroll position is current scroll position.
   Pixel target_scroll_y = current_scroll_y;
 
-  // Check if the event is already fully visible.
-  bool is_fully_visible = (y_top >= current_scroll_y) &&
-                          (y_bottom <= current_scroll_y + window_height);
+  const Pixel pinned_height =
+      (track_management_enabled_ && pinned_processes_count_ > 0)
+          ? std::max(0.0f, header_all_offset_ - header_pinned_offset_)
+          : 0.0f;
+  const bool is_level_pinned =
+      level >= 0 && level < static_cast<int>(level_is_pinned_.size()) &&
+      level_is_pinned_[level];
 
-  if (is_fully_visible) {
-    // Event is fully visible, no need to scroll.
-  } else if (y_top < current_scroll_y) {
-    // Case A: Event is above the current viewport, scroll up until top is
-    // visible.
-    target_scroll_y = y_top;
-  } else if (y_bottom > current_scroll_y + window_height) {
-    // Case B: Event is below the current viewport, scroll down until bottom
-    // is visible.
-    target_scroll_y = y_bottom - window_height;
+  if (is_level_pinned) {
+    bool is_fully_visible =
+        (current_scroll_y > header_pinned_offset_) ||
+        ((y_top >= current_scroll_y) &&
+         (y_bottom <= current_scroll_y + window_height));
+    if (!is_fully_visible) {
+      if (y_top < current_scroll_y) {
+        target_scroll_y = y_top;
+      } else if (y_bottom > current_scroll_y + window_height) {
+        target_scroll_y = y_bottom - window_height;
+      }
+    }
+  } else {
+    // Check if the event is already fully visible below the pinned section.
+    bool is_fully_visible = (y_top >= current_scroll_y + pinned_height) &&
+                            (y_bottom <= current_scroll_y + window_height);
+
+    if (is_fully_visible) {
+      // Event is fully visible, no need to scroll.
+    } else if (y_top < current_scroll_y + pinned_height) {
+      // Case A: Event is above the visible area, scroll up until top is
+      // visible below pinned section.
+      target_scroll_y = y_top - pinned_height;
+    } else if (y_bottom > current_scroll_y + window_height) {
+      // Case B: Event is below the current viewport, scroll down until bottom
+      // is visible.
+      target_scroll_y = y_bottom - window_height;
+    }
   }
 
   // Ensure scroll value is not negative.
@@ -4400,13 +4612,19 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
     if (group.type == Group::Type::kFlame) {
       const int start_level = group.start_level;
       int end_level = GetNextGroupStartLevel(timeline_data_, group_index);
+      const Pixel pin_offset =
+          (group_index < group_is_pinned_.size() &&
+           group_is_pinned_[group_index])
+              ? sticky_offset_
+              : 0.0f;
 
       for (int level = start_level; level < end_level; ++level) {
         if (level >= timeline_data_.events_by_level.size()) continue;
 
         const auto& events = timeline_data_.events_by_level[level];
         const Pixel y_top = tracks_start_screen_pos_.y +
-                            visible_level_offsets_[level] - kEventHeight * 0.5f;
+                            visible_level_offsets_[level] + pin_offset -
+                            kEventHeight * 0.5f;
         const Pixel y_bottom = y_top + kEventHeight;
 
         if (y_bottom < selection_rect.Min.y || y_top > selection_rect.Max.y) {
@@ -4450,7 +4668,13 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
         }
       }
     } else if (group.type == Group::Type::kCounter) {
-      Pixel y_top = tracks_start_screen_pos_.y + group_offsets_[group_index];
+      const Pixel pin_offset =
+          (group_index < group_is_pinned_.size() &&
+           group_is_pinned_[group_index])
+              ? sticky_offset_
+              : 0.0f;
+      Pixel y_top = tracks_start_screen_pos_.y + group_offsets_[group_index] +
+                    pin_offset;
       Pixel group_height = kCounterTrackHeight;
       Pixel y_bottom = y_top + group_height;
 

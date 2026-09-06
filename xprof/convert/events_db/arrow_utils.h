@@ -26,13 +26,13 @@ limitations under the License.
 
 #include "absl/log/check.h"
 #include "absl/status/status.h"
-#include "absl/status/status_macros.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "third_party/arrow/api.h"
 #include "third_party/arrow/array/util.h"
 #include "third_party/arrow/type_traits.h"
 #include "third_party/arrow/util/bit_util.h"
+#include "xla/tsl/platform/errors.h"
 #include "xprof/convert/events_db/schema.h"
 
 namespace xprof::events_db::internal {
@@ -221,52 +221,52 @@ class Column {
           {std::move(null_buffer), std::move(values_buffer)}));
     } else if constexpr (std::is_same_v<T, std::string>) {
       arrow::StringBuilder builder(pool);
-      RETURN_IF_ERROR(ToAbslStatus(builder.Reserve(count)));
+      TF_RETURN_IF_ERROR(ToAbslStatus(builder.Reserve(count)));
       const uint8_t* null_data = null_bitmap_.data();
       for (uint64_t i = 0; i < count; ++i) {
         if (arrow::bit_util::GetBit(null_data, i)) {
-          RETURN_IF_ERROR(ToAbslStatus(builder.Append(values_[i])));
+          TF_RETURN_IF_ERROR(ToAbslStatus(builder.Append(values_[i])));
         } else {
-          RETURN_IF_ERROR(ToAbslStatus(builder.AppendNull()));
+          TF_RETURN_IF_ERROR(ToAbslStatus(builder.AppendNull()));
         }
       }
       std::shared_ptr<arrow::Array> array;
-      RETURN_IF_ERROR(ToAbslStatus(builder.Finish(&array)));
+      TF_RETURN_IF_ERROR(ToAbslStatus(builder.Finish(&array)));
       return array;
     } else if constexpr (is_std_vector_v<T>) {
       using ValueType = typename T::value_type;
       std::unique_ptr<arrow::ArrayBuilder> raw_builder;
-      RETURN_IF_ERROR(ToAbslStatus(
+      TF_RETURN_IF_ERROR(ToAbslStatus(
           arrow::MakeBuilder(pool, GetArrowType<T>(), &raw_builder)));
       arrow::ListBuilder* list_builder =
           static_cast<arrow::ListBuilder*>(raw_builder.get());
-      RETURN_IF_ERROR(ToAbslStatus(list_builder->Reserve(count)));
+      TF_RETURN_IF_ERROR(ToAbslStatus(list_builder->Reserve(count)));
 
       auto append_items = [&](auto* val_builder) -> absl::Status {
         const uint8_t* null_data = null_bitmap_.data();
         for (uint64_t i = 0; i < count; ++i) {
           if (arrow::bit_util::GetBit(null_data, i)) {
-            RETURN_IF_ERROR(ToAbslStatus(list_builder->Append()));
+            TF_RETURN_IF_ERROR(ToAbslStatus(list_builder->Append()));
             for (const ValueType& item : values_[i]) {
-              RETURN_IF_ERROR(ToAbslStatus(val_builder->Append(item)));
+              TF_RETURN_IF_ERROR(ToAbslStatus(val_builder->Append(item)));
             }
           } else {
-            RETURN_IF_ERROR(ToAbslStatus(list_builder->AppendNull()));
+            TF_RETURN_IF_ERROR(ToAbslStatus(list_builder->AppendNull()));
           }
         }
         return absl::OkStatus();
       };
 
       if constexpr (std::is_same_v<ValueType, bool>) {
-        RETURN_IF_ERROR(append_items(static_cast<arrow::BooleanBuilder*>(
+        TF_RETURN_IF_ERROR(append_items(static_cast<arrow::BooleanBuilder*>(
             list_builder->value_builder())));
       } else if constexpr (std::is_arithmetic_v<ValueType>) {
         using ArrowType = typename arrow::CTypeTraits<ValueType>::ArrowType;
-        RETURN_IF_ERROR(
+        TF_RETURN_IF_ERROR(
             append_items(static_cast<arrow::NumericBuilder<ArrowType>*>(
                 list_builder->value_builder())));
       } else if constexpr (std::is_same_v<ValueType, std::string>) {
-        RETURN_IF_ERROR(append_items(
+        TF_RETURN_IF_ERROR(append_items(
             static_cast<arrow::StringBuilder*>(list_builder->value_builder())));
       } else {
         static_assert(
@@ -275,7 +275,7 @@ class Column {
       }
 
       std::shared_ptr<arrow::Array> array;
-      RETURN_IF_ERROR(ToAbslStatus(list_builder->Finish(&array)));
+      TF_RETURN_IF_ERROR(ToAbslStatus(list_builder->Finish(&array)));
       return array;
     } else {
       static_assert(always_false_v<T>, "Unsupported type for Parquet export.");

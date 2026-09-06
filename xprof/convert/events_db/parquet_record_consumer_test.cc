@@ -33,6 +33,8 @@ limitations under the License.
 #include "third_party/arrow/io/api.h"  // IWYU pragma: keep
 #include "third_party/arrow/util/type_fwd.h"
 #include "third_party/parquet_cpp/src2/parquet/arrow/reader.h"
+#include "xla/tsl/platform/errors.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xprof/convert/events_db/arrow_utils.h"
 #include "xprof/convert/events_db/event_utils.h"
 #include "xprof/convert/events_db/record_consumer.h"
@@ -52,17 +54,17 @@ absl::StatusOr<std::shared_ptr<arrow::Table>> ReadParquetFile(
   // `arrow::io::ReadableFile` is defined in `arrow/io/file.h` and provided
   // transitively via `arrow/io/api.h`; suppress `misc-include-cleaner` since
   // `file.h` is not exported for direct inclusion.
-  ASSIGN_OR_RETURN(
+  TF_ASSIGN_OR_RETURN(
       std::shared_ptr<arrow::io::ReadableFile>  // NOLINT(misc-include-cleaner)
           infile_res,
       internal::ToAbslStatusOr(
           arrow::io::ReadableFile::Open(  // NOLINT(misc-include-cleaner)
               std::string(file_path))));
-  ASSIGN_OR_RETURN(std::unique_ptr<parquet::arrow::FileReader> reader,
-                   internal::ToAbslStatusOr(parquet::arrow::OpenFile(
-                       infile_res, arrow::default_memory_pool())));
+  TF_ASSIGN_OR_RETURN(std::unique_ptr<parquet::arrow::FileReader> reader,
+                      internal::ToAbslStatusOr(parquet::arrow::OpenFile(
+                          infile_res, arrow::default_memory_pool())));
   std::shared_ptr<arrow::Table> table;
-  RETURN_IF_ERROR(internal::ToAbslStatus(reader->ReadTable(&table)));
+  TF_RETURN_IF_ERROR(internal::ToAbslStatus(reader->ReadTable(&table)));
   return table;
 }
 

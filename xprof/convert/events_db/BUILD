@@ -16,6 +16,7 @@ cc_library(
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/container:node_hash_map",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/meta:type_traits",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/synchronization",
     ],

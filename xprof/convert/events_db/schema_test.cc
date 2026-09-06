@@ -199,34 +199,36 @@ TEST(SchemaTest, ConcurrentRegistration) {
 
   std::vector<std::vector<FieldIndex>> thread_indices(kNumThreads);
 
-  {
-    std::vector<std::jthread> threads;
-    threads.reserve(kNumThreads);
+  std::vector<std::thread> threads;
+  threads.reserve(kNumThreads);
 
-    for (int t = 0; t < kNumThreads; ++t) {
-      threads.emplace_back([&schema, &thread_indices, t]() {
-        thread_indices[t].reserve(2 * kFieldsPerThread);
-        for (int i = 0; i < kFieldsPerThread; ++i) {
-          // Some shared fields across threads
-          std::string shared_field = absl::StrCat("shared_field_", i);
-          FieldIndex index1 = schema.RegisterFieldName(shared_field);
-          EXPECT_TRUE(index1.is_valid());
-          thread_indices[t].push_back(index1);
+  for (int t = 0; t < kNumThreads; ++t) {
+    threads.emplace_back([&schema, &thread_indices, t]() {
+      thread_indices[t].reserve(2 * kFieldsPerThread);
+      for (int i = 0; i < kFieldsPerThread; ++i) {
+        // Some shared fields across threads
+        std::string shared_field = absl::StrCat("shared_field_", i);
+        FieldIndex index1 = schema.RegisterFieldName(shared_field);
+        EXPECT_TRUE(index1.is_valid());
+        thread_indices[t].push_back(index1);
 
-          // Some thread-unique fields
-          std::string unique_field = absl::StrCat("field_", t, "_", i);
-          FieldIndex index2 = schema.RegisterFieldName(unique_field);
-          EXPECT_TRUE(index2.is_valid());
-          thread_indices[t].push_back(index2);
+        // Some thread-unique fields
+        std::string unique_field = absl::StrCat("field_", t, "_", i);
+        FieldIndex index2 = schema.RegisterFieldName(unique_field);
+        EXPECT_TRUE(index2.is_valid());
+        thread_indices[t].push_back(index2);
 
-          std::optional<absl::string_view> name_resolved =
-              schema.GetFieldName(index2);
-          ASSERT_TRUE(name_resolved.has_value());
-          EXPECT_EQ(*name_resolved, unique_field);
-        }
-      });
-    }
-  }  // Automatically joins all threads on scope exit.
+        std::optional<absl::string_view> name_resolved =
+            schema.GetFieldName(index2);
+        ASSERT_TRUE(name_resolved.has_value());
+        EXPECT_EQ(*name_resolved, unique_field);
+      }
+    });
+  }
+
+  for (auto& thread : threads) {
+    thread.join();
+  }
 
   // Verify all shared fields can be looked up
   for (int i = 0; i < kFieldsPerThread; ++i) {

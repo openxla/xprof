@@ -25,6 +25,7 @@ limitations under the License.
 
 #include "absl/base/thread_annotations.h"
 #include "absl/container/node_hash_map.h"
+#include "absl/meta/type_traits.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 
@@ -45,9 +46,12 @@ class FieldIndex {
  public:
   FieldIndex() : id_(kInvalidId) {}
 
-  // C++20 Defaulted Comparison Operators (automatically generates `==`, `!=`,
-  // `<`, `<=`, `>`, and `>=`).
-  auto operator<=>(const FieldIndex& other) const = default;
+  bool operator==(const FieldIndex& other) const { return id_ == other.id_; }
+  bool operator!=(const FieldIndex& other) const { return id_ != other.id_; }
+  bool operator<(const FieldIndex& other) const { return id_ < other.id_; }
+  bool operator<=(const FieldIndex& other) const { return id_ <= other.id_; }
+  bool operator>(const FieldIndex& other) const { return id_ > other.id_; }
+  bool operator>=(const FieldIndex& other) const { return id_ >= other.id_; }
 
   bool is_valid() const { return id_ != kInvalidId; }
 
@@ -86,7 +90,24 @@ class TypedFieldIndex {
 
   explicit TypedFieldIndex(FieldIndex index) : index_(index) {}
 
-  auto operator<=>(const TypedFieldIndex&) const = default;
+  bool operator==(const TypedFieldIndex& other) const {
+    return index_ == other.index_;
+  }
+  bool operator!=(const TypedFieldIndex& other) const {
+    return index_ != other.index_;
+  }
+  bool operator<(const TypedFieldIndex& other) const {
+    return index_ < other.index_;
+  }
+  bool operator<=(const TypedFieldIndex& other) const {
+    return index_ <= other.index_;
+  }
+  bool operator>(const TypedFieldIndex& other) const {
+    return index_ > other.index_;
+  }
+  bool operator>=(const TypedFieldIndex& other) const {
+    return index_ >= other.index_;
+  }
 
   FieldIndex untyped() const { return index_; }
 
@@ -166,6 +187,7 @@ class Record {
   // Two records are considered equal if all set fields have matching values.
   // Unset fields (holding `std::monostate`) do not affect equality.
   bool operator==(const Record& other) const;
+  bool operator!=(const Record& other) const { return !(*this == other); }
 
   // Checks if the field has a set value in the record (i.e. not
   // `std::monostate`).
@@ -241,7 +263,7 @@ class Record {
   template <typename T, typename U = T>
   void Set(TypedFieldIndex<T> field, U&& value) {
     VerifyNonMonostate<T>();
-    if constexpr (std::is_same_v<T, std::remove_cvref_t<U>>)
+    if constexpr (std::is_same_v<T, absl::remove_cvref_t<U>>)
       operator[](field.untyped()) = std::forward<U>(value);
     else
       operator[](field.untyped()) = static_cast<T>(std::forward<U>(value));
@@ -314,8 +336,8 @@ class Record {
 
  private:
   template <typename T>
-  consteval static void VerifyNonMonostate() noexcept {
-    static_assert(!std::is_same_v<std::remove_cvref_t<T>, std::monostate>,
+  static constexpr void VerifyNonMonostate() noexcept {
+    static_assert(!std::is_same_v<absl::remove_cvref_t<T>, std::monostate>,
                   "std::monostate represents missing values and cannot be "
                   "queried as a field type.");
   }

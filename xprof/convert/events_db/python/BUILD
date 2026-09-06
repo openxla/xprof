@@ -1,5 +1,4 @@
-load("@rules_python//python:defs.bzl", "py_library")
-load("@rules_python//python:py_test.bzl", "py_test")
+load("//plugin/xprof/build_utils:pytype.default.bzl", "pytype_library", "pytype_strict_binary", "pytype_strict_contrib_test", "pytype_strict_library")
 load("//third_party/nanobind_abseil/oss:nanobind.bzl", "nanobind_extension")
 
 package(
@@ -26,7 +25,7 @@ nanobind_extension(
     ],
 )
 
-py_library(
+pytype_strict_library(
     name = "events_db",
     srcs = [
         "__init__.py",
@@ -38,7 +37,7 @@ py_library(
     ],
 )
 
-py_test(
+pytype_strict_contrib_test(
     name = "events_db_test",
     srcs = ["events_db_test.py"],
     data = ["test_data/test.xplane.pb"],

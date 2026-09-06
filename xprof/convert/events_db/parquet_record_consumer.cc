@@ -27,6 +27,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
 #include "third_party/arrow/api.h"
 #include "third_party/arrow/io/api.h"  // IWYU pragma: keep
 #include "third_party/parquet_cpp/src2/parquet/arrow/writer.h"
@@ -160,10 +161,11 @@ struct ParquetRecordConsumer::Impl {
 
     // We must wait if we are switching epochs and the previous records in the
     // new epoch have not been written yet.
-    if (next_epoch >= 2) {
-      while (curr_epoch <= next_epoch - 2) {
-        epoch.wait(curr_epoch, std::memory_order_relaxed);
-        curr_epoch = epoch.load(std::memory_order_acquire);
+    if (next_epoch >= 2 && curr_epoch <= next_epoch - 2) {
+      absl::MutexLock lock(epoch_mu_);
+      while ((curr_epoch = epoch.load(std::memory_order_acquire)) <=
+             next_epoch - 2) {
+        epoch_cv_.Wait(&epoch_mu_);
       }
     }
 
@@ -214,7 +216,11 @@ struct ParquetRecordConsumer::Impl {
     // using `memory_order_acquire`. This guarantees that we see updates to
     // `write_status`. Therefore, the next executor thread will see the updated
     // `write_status` as well.
-    epoch.wait(epoch_num - 1, std::memory_order_acquire);
+    if (epoch.load(std::memory_order_acquire) >= epoch_num) return;
+    absl::MutexLock lock(epoch_mu_);
+    while (epoch.load(std::memory_order_acquire) < epoch_num) {
+      epoch_cv_.Wait(&epoch_mu_);
+    }
   }
 
   void WriteBatch(Batch& batch) {
@@ -240,8 +246,11 @@ struct ParquetRecordConsumer::Impl {
       }
     }
     batch.ready_count.store(0, std::memory_order_relaxed);
-    epoch.fetch_add(1, std::memory_order_release);
-    epoch.notify_all();
+    {
+      absl::MutexLock lock(epoch_mu_);
+      epoch.fetch_add(1, std::memory_order_release);
+    }
+    epoch_cv_.SignalAll();
   }
 
   const std::string file_path;
@@ -254,6 +263,13 @@ struct ParquetRecordConsumer::Impl {
 
   std::array<Batch, 2> batches;
   std::atomic<uint64_t> record_count{0};
+  // `epoch_mu_` and `epoch_cv_` are used because third-party/open-source builds
+  // are currently constrained to C++17. In C++20, `std::atomic<uint64_t>::wait`
+  // and `notify_all` offer a cleaner and more efficient solution backed
+  // directly by OS futexes without the overhead of an auxiliary mutex and
+  // condition variable.
+  absl::Mutex epoch_mu_;
+  absl::CondVar epoch_cv_;
   std::atomic<uint64_t> epoch{0};
   std::atomic<bool> failed{false};
   absl::Status write_status = absl::OkStatus();

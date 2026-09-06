@@ -382,6 +382,7 @@ cc_library(
         "//third_party/arrow:array_hdrs",
         "//third_party/arrow:util_hdrs",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/meta:type_traits",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",

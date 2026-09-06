@@ -14,7 +14,6 @@ limitations under the License.
 #define THIRD_PARTY_XPROF_CONVERT_EVENTS_DB_ARROW_UTILS_H_
 
 #include <algorithm>
-#include <atomic>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -24,7 +23,12 @@ limitations under the License.
 #include <variant>
 #include <vector>
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
+
 #include "absl/log/check.h"
+#include "absl/meta/type_traits.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -48,6 +52,39 @@ arrow::Status ToArrowStatus(const absl::Status& status);
 constexpr uint64_t BytesForBits(uint64_t num_bits) {
   return (num_bits >> 3) + ((num_bits & 7u) != 0);
 }
+
+// Atomic bitwise operations on raw memory buffers.
+//
+// We use these compiler intrinsics because xprof open-source builds are
+// restricted to C++17.
+//
+// In C++20, these operations can be written directly using `std::atomic_ref`:
+//   ```cpp
+//   std::atomic_ref<uint8_t>(*byte).fetch_or(mask,std::memory_order_relaxed);
+//   std::atomic_ref<uint8_t>(*byte).fetch_and(~mask,std::memory_order_relaxed);
+//   ```
+#if defined(__GNUC__) || defined(__clang__)
+inline void AtomicBitOr(uint8_t* byte, uint8_t mask) {
+  __atomic_fetch_or(byte, mask, __ATOMIC_RELAXED);
+}
+
+inline void AtomicBitAnd(uint8_t* byte, uint8_t mask) {
+  __atomic_fetch_and(byte, mask, __ATOMIC_RELAXED);
+}
+#elif defined(_MSC_VER)
+#pragma intrinsic(_InterlockedOr8, _InterlockedAnd8)
+inline void AtomicBitOr(uint8_t* byte, uint8_t mask) {
+  _InterlockedOr8(reinterpret_cast<char volatile*>(byte),
+                  static_cast<char>(mask));
+}
+
+inline void AtomicBitAnd(uint8_t* byte, uint8_t mask) {
+  _InterlockedAnd8(reinterpret_cast<char volatile*>(byte),
+                   static_cast<char>(mask));
+}
+#else
+#error "Unsupported compiler: missing atomic bit operations for C++17."
+#endif
 
 // Converts an `arrow::Result<T>` to an `absl::StatusOr<T>`.
 template <typename T>
@@ -80,10 +117,10 @@ constexpr bool always_false_v = false;
 // Events DB.
 template <typename T>
 std::shared_ptr<arrow::DataType> GetArrowType() {
-  using CleanT = std::remove_cvref_t<T>;
+  using CleanT = absl::remove_cvref_t<T>;
   if constexpr (is_std_vector_v<CleanT>) {
     static_assert(
-        !is_std_vector_v<std::remove_cvref_t<typename CleanT::value_type>>,
+        !is_std_vector_v<absl::remove_cvref_t<typename CleanT::value_type>>,
         "Nested vectors are not supported.");
   }
   if constexpr (std::is_same_v<CleanT, std::monostate>)
@@ -155,16 +192,23 @@ class Column {
     DCHECK_LT(index, size_);
     const uint64_t byte_idx = index / 8;
     const uint8_t mask = static_cast<uint8_t>(1u << (index % 8));
-    std::atomic_ref<uint8_t>(null_bitmap_[byte_idx])
-        .fetch_or(mask, std::memory_order_relaxed);
-    if constexpr (!kIsBool)
+    // In C++20, this can be written directly with `std::atomic_ref`:
+    //   std::atomic_ref<uint8_t>(null_bitmap_[byte_idx])
+    //       .fetch_or(mask, std::memory_order_relaxed);
+    AtomicBitOr(&null_bitmap_[byte_idx], mask);
+    if constexpr (!kIsBool) {
       values_[index] = std::move(value);
-    else if (value)
-      std::atomic_ref<uint8_t>(values_[byte_idx])
-          .fetch_or(mask, std::memory_order_relaxed);
-    else
-      std::atomic_ref<uint8_t>(values_[byte_idx])
-          .fetch_and(~mask, std::memory_order_relaxed);
+    } else if (value) {
+      // In C++20:
+      //   std::atomic_ref<uint8_t>(values_[byte_idx])
+      //       .fetch_or(mask, std::memory_order_relaxed);
+      AtomicBitOr(&values_[byte_idx], mask);
+    } else {
+      // In C++20:
+      //   std::atomic_ref<uint8_t>(values_[byte_idx])
+      //       .fetch_and(~mask, std::memory_order_relaxed);
+      AtomicBitAnd(&values_[byte_idx], static_cast<uint8_t>(~mask));
+    }
   }
 
   // Marks the row at `index` as null. Thread-safe.
@@ -172,8 +216,10 @@ class Column {
     DCHECK_LT(index, size_);
     const uint64_t byte_idx = index / 8;
     const uint8_t mask = static_cast<uint8_t>(1u << (index % 8));
-    std::atomic_ref<uint8_t>(null_bitmap_[byte_idx])
-        .fetch_and(~mask, std::memory_order_relaxed);
+    // In C++20, this can be written directly with `std::atomic_ref`:
+    //   std::atomic_ref<uint8_t>(null_bitmap_[byte_idx])
+    //       .fetch_and(~mask, std::memory_order_relaxed);
+    AtomicBitAnd(&null_bitmap_[byte_idx], static_cast<uint8_t>(~mask));
   }
 
   // Sets the value at `index` based on the value in the given `record`.

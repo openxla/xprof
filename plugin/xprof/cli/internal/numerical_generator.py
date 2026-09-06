@@ -170,6 +170,25 @@ def generate_student_t_tensor(
   return t_clipped.astype(profile.numpy_dtype)
 
 
+def generate_normal_tensor(
+    shape: _Sequence[int],
+    dtype_str: str = "bfloat16",
+    seed: int = 42,
+) -> np.ndarray:
+  """Generates standard normal distributed tensor for benign baseline checking."""
+  if dtype_str not in PROFILES:
+    raise KeyError(
+        f"Unsupported dtype_str '{dtype_str}'. Supported:"
+        f" {list(PROFILES.keys())}"
+    )
+  profile = PROFILES[dtype_str]
+  rng = np.random.default_rng(seed)
+  z = rng.standard_normal(shape)
+  max_bound = float(profile.max_finite * 0.95)
+  z_clipped = np.clip(z, -max_bound, max_bound)
+  return z_clipped.astype(profile.numpy_dtype)
+
+
 def generate_outlier_tensor(
     shape: _Sequence[int],
     dtype_str: str = "bfloat16",
@@ -679,7 +698,7 @@ def _generate_procedural_suite(
 
   if dtype_str == "bool":
     suite = []
-    # 1. Causal mask batch
+    # 1. Causal mask batch (default / normal regime)
     causal_tensors = []
     for s in shapes:
       if len(s) >= 2:
@@ -706,7 +725,7 @@ def _generate_procedural_suite(
         "name": "causal_masks",
         "args": tuple(causal_tensors),
         "kwargs": {},
-        "regime": "causal_mask",
+        "regime": "normal",
     })
 
     # 2. Bernoulli sparse mask batches
@@ -754,7 +773,7 @@ def _generate_procedural_suite(
   if dtype_str in INTEGER_PROFILES:
     prof = INTEGER_PROFILES[dtype_str]
     suite = []
-    # 1. Small dynamic range batch (e.g. [-10, 20] or [0, 20])
+    # 1. Small dynamic range batch (default / normal regime)
     low_val = -10 if prof.is_signed else 0
     small_tensors = [
         _convert(
@@ -772,7 +791,7 @@ def _generate_procedural_suite(
         "name": "small_dynamic_range",
         "args": tuple(small_tensors),
         "kwargs": {},
-        "regime": "small_int",
+        "regime": "normal",
     })
 
     # 2. Bounded index batches (e.g. expert IDs / vocab indices [0, 64])
@@ -833,6 +852,16 @@ def _generate_procedural_suite(
     )
 
   suite = []
+  normal_tensors = [
+      _convert(generate_normal_tensor(s, dtype_str, seed=seed + i))
+      for i, s in enumerate(shapes)
+  ]
+  suite.append({
+      "name": "normal_batch_0",
+      "args": tuple(normal_tensors),
+      "kwargs": {},
+      "regime": "normal",
+  })
   for b in range(num_student_t):
     tensors = [
         _convert(

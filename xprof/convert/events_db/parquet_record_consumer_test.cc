@@ -431,21 +431,25 @@ TEST(ParquetRecordConsumerTest, ConcurrentConsume) {
 
   std::vector<absl::StatusOr<StepControl>> thread_statuses(
       kNumThreads, StepControl::kContinue);
-  {
-    std::vector<std::jthread> threads;
-    threads.reserve(kNumThreads);
-    for (int t = 0; t < kNumThreads; ++t) {
-      threads.emplace_back([&, t]() {
-        for (int i = 0; i < kRecordsPerThread; ++i) {
-          Record record;
-          record[indices.kernel_name] = absl::StrCat("kernel_", t, "_", i);
-          record[indices.thread_id] = static_cast<uint64_t>(t);
-          record[indices.start_ns] = static_cast<uint64_t>(t * 1000000 + i);
-          thread_statuses[t] = consumer.Consume(record);
-          if (!thread_statuses[t].ok()) break;
-        }
-      });
-    }
+  // `std::thread` and explicit joining are used because third-party/open-source
+  // builds are currently constrained to C++17. In C++20, `std::jthread` offers
+  // a cleaner RAII-based auto-joining solution.
+  std::vector<std::thread> threads;
+  threads.reserve(kNumThreads);
+  for (int t = 0; t < kNumThreads; ++t) {
+    threads.emplace_back([&, t]() {
+      for (int i = 0; i < kRecordsPerThread; ++i) {
+        Record record;
+        record[indices.kernel_name] = absl::StrCat("kernel_", t, "_", i);
+        record[indices.thread_id] = static_cast<uint64_t>(t);
+        record[indices.start_ns] = static_cast<uint64_t>(t * 1000000 + i);
+        thread_statuses[t] = consumer.Consume(record);
+        if (!thread_statuses[t].ok()) break;
+      }
+    });
+  }
+  for (std::thread& thread : threads) {
+    thread.join();
   }
 
   for (int t = 0; t < kNumThreads; ++t) {

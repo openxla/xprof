@@ -452,6 +452,7 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/synchronization",
         "@org_xprof//xprof/convert:executor_factory",
         "@org_xprof//xprof/convert:executor_interface",
         "@xla//xla/tsl/platform:errors",

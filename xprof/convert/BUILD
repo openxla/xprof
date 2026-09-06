@@ -2465,6 +2465,23 @@ cc_test(
 )
 
 cc_test(
+    name = "op_stats_to_op_profile_test",
+    srcs = ["op_stats_to_op_profile_test.cc"],
+    deps = [
+        ":op_profile_builder",
+        ":op_stats_to_op_profile",
+        "//plugin/xprof/protobuf:hardware_types_proto_cc",
+        "//plugin/xprof/protobuf:op_metrics_proto_cc",
+        "//plugin/xprof/protobuf:op_profile_proto_cc",
+        "//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "hlo_proto_to_graph_view_test",
     size = "small",
     srcs = ["hlo_proto_to_graph_view_test.cc"],

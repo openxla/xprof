@@ -17,11 +17,10 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
-#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
-#include "absl/status/status_macros.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/profiler/utils/group_events.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
@@ -105,7 +104,7 @@ absl::StatusOr<ParseStatus> ParseHostTrace(
                   record);
       internal::ExtractDcnEvent(event_visitor, indices, record);
 
-      ASSIGN_OR_RETURN(const StepControl control, consumer(record));
+      TF_ASSIGN_OR_RETURN(const StepControl control, consumer(record));
       if (control == StepControl::kStop) return ParseStatus::kStoppedEarly;
     }
   }

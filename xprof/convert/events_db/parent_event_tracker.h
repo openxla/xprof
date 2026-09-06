@@ -16,6 +16,7 @@ limitations under the License.
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "absl/status/statusor.h"
@@ -104,6 +105,9 @@ class ParentEventTracker {
 
  private:
   struct StackEntry {
+    StackEntry(Record record, uint64_t start_ns, uint64_t end_ns)
+        : record(std::move(record)), start_ns(start_ns), end_ns(end_ns) {}
+
     Record record;
     uint64_t start_ns;
     uint64_t end_ns;

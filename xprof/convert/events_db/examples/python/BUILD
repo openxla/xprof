@@ -77,7 +77,6 @@ pytype_strict_library(
     srcs = ["zero_self_time_ratio.py"],
     deps = [
         "//third_party/py/absl:app",
-        "@absl_py//absl/flags",
         "@org_xprof//xprof/convert/events_db/python:events_db",
         "@pypi//etils",
     ],

@@ -21,13 +21,14 @@ limitations under the License.
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/status/status.h"
-#include "absl/status/status_macros.h"
 #include "absl/status/status_matchers.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/parser/hlo_parser.h"
+#include "xla/tsl/platform/errors.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/profiler/utils/group_events.h"
 #include "xla/tsl/profiler/utils/trace_utils.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
@@ -62,8 +63,8 @@ class GpuTraceParserTest : public testing::Test {
       uint64_t program_id, absl::string_view hlo_text,
       std::unique_ptr<tensorflow::profiler::HloCostAnalysisWrapper>
           cost_analysis = nullptr) {
-    ASSIGN_OR_RETURN(std::unique_ptr<xla::HloModule> hlo_module,
-                     xla::ParseAndReturnUnverifiedModule(hlo_text));
+    TF_ASSIGN_OR_RETURN(std::unique_ptr<xla::HloModule> hlo_module,
+                        xla::ParseAndReturnUnverifiedModule(hlo_text));
     if (cost_analysis == nullptr) {
       hlo_module_map.try_emplace(program_id, std::move(hlo_module));
     } else {
@@ -77,7 +78,7 @@ class GpuTraceParserTest : public testing::Test {
   absl::StatusOr<std::vector<Record>> Parse(
       const tensorflow::profiler::XPlane& plane) {
     std::vector<Record> records;
-    RETURN_IF_ERROR(
+    TF_RETURN_IF_ERROR(
         ParseGpuTrace(plane, hlo_module_map, group_metadata_map, indices,
                       [&](Record& record) -> absl::StatusOr<StepControl> {
                         records.push_back(std::move(record));

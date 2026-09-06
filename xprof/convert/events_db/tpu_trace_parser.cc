@@ -18,12 +18,11 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
-#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
-#include "absl/status/status_macros.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/tpu_xplane_utils.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
@@ -157,15 +156,17 @@ absl::StatusOr<ParseStatus> ParseTpuTensorCoreTrace(
                                          current_hlo_map, indices, record)) {
         continue;
       }
-      ASSIGN_OR_RETURN(const StepControl control,
-                       parent_tracker.AddRecord(
-                           std::move(record),
-                           static_cast<uint64_t>(event_visitor.TimestampNs()),
-                           static_cast<uint64_t>(event_visitor.DurationNs()),
-                           indices, consumer));
+      TF_ASSIGN_OR_RETURN(
+          const StepControl control,
+          parent_tracker.AddRecord(
+              std::move(record),
+              static_cast<uint64_t>(event_visitor.TimestampNs()),
+              static_cast<uint64_t>(event_visitor.DurationNs()), indices,
+              consumer));
       if (control == StepControl::kStop) return ParseStatus::kStoppedEarly;
     }
-    ASSIGN_OR_RETURN(const StepControl control, parent_tracker.Flush(consumer));
+    TF_ASSIGN_OR_RETURN(const StepControl control,
+                        parent_tracker.Flush(consumer));
     if (control == StepControl::kStop) return ParseStatus::kStoppedEarly;
   }
 
@@ -215,7 +216,7 @@ absl::StatusOr<ParseStatus> ParseTpuSparseCoreTrace(
                         record);
       PopulateSparseCoreEventRecord(line_visitor.Id(), event_visitor, indices,
                                     record);
-      ASSIGN_OR_RETURN(const StepControl control, consumer(record));
+      TF_ASSIGN_OR_RETURN(const StepControl control, consumer(record));
       if (control == StepControl::kStop) return ParseStatus::kStoppedEarly;
     }
   }
@@ -236,7 +237,7 @@ absl::StatusOr<ParseStatus> ParseTpuNonCoreTrace(
       record.clear();
       ExtractCommonInfo(device_name, line_visitor, event_visitor, indices,
                         record);
-      ASSIGN_OR_RETURN(const StepControl control, consumer(record));
+      TF_ASSIGN_OR_RETURN(const StepControl control, consumer(record));
       if (control == StepControl::kStop) return ParseStatus::kStoppedEarly;
     }
   }

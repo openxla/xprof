@@ -14,10 +14,9 @@ limitations under the License.
 
 #include <string>
 
-#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
-#include "absl/status/status_macros.h"
 #include "absl/status/statusor.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
@@ -42,7 +41,7 @@ absl::StatusOr<ParseStatus> ParseCustomTrace(
                         record);
       record[indices.kernel_name] = event_visitor.Name();
 
-      ASSIGN_OR_RETURN(const StepControl control, consumer(record));
+      TF_ASSIGN_OR_RETURN(const StepControl control, consumer(record));
       if (control == StepControl::kStop) return ParseStatus::kStoppedEarly;
     }
   }

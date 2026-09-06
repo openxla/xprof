@@ -19,8 +19,8 @@ limitations under the License.
 #include <vector>
 
 #include "absl/log/check.h"
-#include "absl/status/status_macros.h"
 #include "absl/status/statusor.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xprof/convert/events_db/event_utils.h"
 #include "xprof/convert/events_db/record_consumer.h"
 #include "xprof/convert/events_db/schema.h"
@@ -88,7 +88,8 @@ absl::StatusOr<StepControl> ParentEventTracker::AddRecord(
 
   while (!stack_.empty() && !Encloses(stack_.back().start_ns,
                                       stack_.back().end_ns, start_ns, end_ns)) {
-    ASSIGN_OR_RETURN(const StepControl status, consumer(stack_.back().record));
+    TF_ASSIGN_OR_RETURN(const StepControl status,
+                        consumer(stack_.back().record));
     AddIfHasCapacity(std::move(stack_.back().record), record_buffer_,
                      buffer_capacity_);
     stack_.pop_back();
@@ -96,7 +97,7 @@ absl::StatusOr<StepControl> ParentEventTracker::AddRecord(
   }
 
   if (duration_ns == 0) {
-    ASSIGN_OR_RETURN(const StepControl status, consumer(record));
+    TF_ASSIGN_OR_RETURN(const StepControl status, consumer(record));
     AddIfHasCapacity(std::move(record), record_buffer_, buffer_capacity_);
     return status;
   }
@@ -114,7 +115,8 @@ absl::StatusOr<StepControl> ParentEventTracker::AddRecord(
 absl::StatusOr<StepControl> ParentEventTracker::Flush(
     RecordConsumerRef consumer) {
   while (!stack_.empty()) {
-    ASSIGN_OR_RETURN(const StepControl status, consumer(stack_.back().record));
+    TF_ASSIGN_OR_RETURN(const StepControl status,
+                        consumer(stack_.back().record));
     AddIfHasCapacity(std::move(stack_.back().record), record_buffer_,
                      buffer_capacity_);
     stack_.pop_back();

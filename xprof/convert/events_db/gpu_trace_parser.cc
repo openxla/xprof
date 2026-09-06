@@ -17,12 +17,12 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
-#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
-#include "absl/status/status_macros.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/profiler/utils/group_events.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
@@ -41,8 +41,8 @@ namespace xprof::events_db::internal {
 namespace {
 
 bool IsXlaLine(absl::string_view line_name) {
-  return line_name.starts_with(tsl::profiler::kXlaModuleLineName) ||
-         line_name.starts_with(tsl::profiler::kXlaOpLineName);
+  return absl::StartsWith(line_name, tsl::profiler::kXlaModuleLineName) ||
+         absl::StartsWith(line_name, tsl::profiler::kXlaOpLineName);
 }
 
 template <typename T, typename U>
@@ -63,7 +63,7 @@ absl::StatusOr<StepControl> ParseXlaLineEvent(
     RecordConsumerRef consumer) {
   record.clear();
   internal::ExtractCommonInfo(device_name, line, event, indices, record);
-  if (line.Name().starts_with(tsl::profiler::kXlaModuleLineName)) {
+  if (absl::StartsWith(line.Name(), tsl::profiler::kXlaModuleLineName)) {
     record[indices.kernel_name] = absl::StrCat("HLO Module:", event.Name());
   } else {
     record[indices.kernel_name] = event.Name();
@@ -190,11 +190,11 @@ absl::StatusOr<ParseStatus> ParseGpuTrace(
 
     if (IsXlaLine(line_visitor.Name())) {
       for (const tensorflow::profiler::XEvent& event : line.events()) {
-        ASSIGN_OR_RETURN(const StepControl status,
-                         ParseXlaLineEvent(record, device_name, line_visitor,
-                                           tsl::profiler::XEventVisitor(
-                                               &plane, &line, &event),
-                                           indices, consumer));
+        TF_ASSIGN_OR_RETURN(const StepControl status,
+                            ParseXlaLineEvent(record, device_name, line_visitor,
+                                              tsl::profiler::XEventVisitor(
+                                                  &plane, &line, &event),
+                                              indices, consumer));
         if (status == StepControl::kStop) return ParseStatus::kStoppedEarly;
       }
       continue;
@@ -203,7 +203,7 @@ absl::StatusOr<ParseStatus> ParseGpuTrace(
     if (tsl::profiler::IsDerivedThreadId(line_visitor.Id())) continue;
 
     for (const tensorflow::profiler::XEvent& event : line.events()) {
-      ASSIGN_OR_RETURN(
+      TF_ASSIGN_OR_RETURN(
           const StepControl status,
           ParseDeviceLineEvent(
               record, device_name, line_visitor,

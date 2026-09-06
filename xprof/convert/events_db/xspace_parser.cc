@@ -21,13 +21,13 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
-#include "absl/status/status_macros.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional_ref.h"
 #include "xla/service/hlo.pb.h"
+#include "xla/tsl/platform/errors.h"
 #include "xla/tsl/profiler/utils/device_utils.h"
 #include "xla/tsl/profiler/utils/group_events.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
@@ -130,13 +130,13 @@ absl::StatusOr<ParseStatus> ParseXSpace(
     return absl::InvalidArgumentError("executor_factory returned nullptr.");
   }
 
-  std::atomic_flag stopped_early;
-  std::atomic_flag failure_occurred;
+  std::atomic<bool> stopped_early = false;
+  std::atomic<bool> failure_occurred = false;
   absl::Status failure_status = absl::OkStatus();
 
   const auto wrapped_consumer =
       [&](Record& record) -> absl::StatusOr<StepControl> {
-    if (stopped_early.test(std::memory_order_relaxed)) {
+    if (stopped_early.load(std::memory_order_relaxed)) {
       return StepControl::kStop;
     }
     return consumer(record);
@@ -144,13 +144,13 @@ absl::StatusOr<ParseStatus> ParseXSpace(
 
   const auto run_plane =
       [&](absl::FunctionRef<absl::StatusOr<ParseStatus>()> parse_fn) {
-        if (stopped_early.test(std::memory_order_relaxed)) return;
+        if (stopped_early.load(std::memory_order_relaxed)) return;
         absl::StatusOr<ParseStatus> status = parse_fn();
         if (!status.ok() || *status == ParseStatus::kStoppedEarly) {
-          stopped_early.test_and_set(std::memory_order_relaxed);
+          stopped_early.store(true, std::memory_order_relaxed);
         }
         if (!status.ok() &&
-            !failure_occurred.test_and_set(std::memory_order_relaxed)) {
+            !failure_occurred.exchange(true, std::memory_order_relaxed)) {
           failure_status.Update(status.status());
         }
       };
@@ -184,15 +184,15 @@ absl::StatusOr<ParseStatus> ParseXSpace(
   executor->JoinAll();
 
   absl::StatusOr<ParseStatus> result;
-  if (failure_occurred.test(std::memory_order_relaxed)) {
+  if (failure_occurred.load(std::memory_order_relaxed)) {
     result = std::move(failure_status);
-  } else if (stopped_early.test(std::memory_order_relaxed)) {
+  } else if (stopped_early.load(std::memory_order_relaxed)) {
     result = ParseStatus::kStoppedEarly;
   } else {
     result = ParseStatus::kComplete;
   }
 
-  RETURN_IF_ERROR(consumer.Finalize(result));
+  TF_RETURN_IF_ERROR(consumer.Finalize(result));
   return result;
 }
 
@@ -212,14 +212,13 @@ absl::StatusOr<ParseStatus> ParseXSpace(
 }
 
 absl::StatusOr<ParseStatus> ParseXSpace(
-    absl::string_view file_path, Schema& schema,
-    RecordConsumerRef consumer,
+    absl::string_view file_path, Schema& schema, RecordConsumerRef consumer,
     absl::optional_ref<const tensorflow::profiler::HloModuleMap> hlo_module_map,
     absl::optional_ref<const tsl::profiler::GroupMetadataMap>
         group_metadata_map,
     tensorflow::profiler::ExecutorFactoryRef executor_factory) {
   tensorflow::profiler::XSpace xspace;
-  RETURN_IF_ERROR(xprof::ReadBinaryProto(file_path, &xspace));
+  TF_RETURN_IF_ERROR(xprof::ReadBinaryProto(file_path, &xspace));
   return ParseXSpace(xspace, schema, consumer, hlo_module_map,
                      group_metadata_map, executor_factory);
 }

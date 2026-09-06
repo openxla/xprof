@@ -130,7 +130,7 @@ TEST(PerformanceInfoWrapper, TestMemoryAccessed) {
   std::unique_ptr<PerformanceInfoWrapper> performance_info_wrapper =
       PerformanceInfoWrapper::Create(std::move(performance_info));
 #if defined(PLATFORM_GOOGLE)
-  EXPECT_THAT(performance_info_wrapper->GetMemmoryAccessBreakdown(),
+  EXPECT_THAT(performance_info_wrapper->GetMemoryAccessBreakdown(),
               IgnoringRepeatedFieldOrdering(EqualsProto(R"pb(
                 memory_accessed {
                   operation_type: READ

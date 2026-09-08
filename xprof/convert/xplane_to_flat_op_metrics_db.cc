@@ -25,23 +25,24 @@ limitations under the License.
 
 #include "absl/container/btree_set.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
+#include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
-#include "xla/tsl/profiler/utils/trace_utils.h"
 #include "xla/tsl/profiler/utils/timespan.h"
+#include "xla/tsl/profiler/utils/trace_utils.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "xprof/convert/flat_op_metrics_db_combiner.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 #include "xprof/utils/flat_op_metrics_db_utils.h"
-#include "xprof/utils/op_metrics_db_utils.h"
-#include "xprof/utils/op_utils.h"
-#include "absl/strings/str_cat.h"
-#include "absl/log/log.h"
-#include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xprof/utils/gpu_event_stats.h"
 #include "xprof/utils/hlo_module_map.h"
+#include "xprof/utils/op_metrics_db_utils.h"
+#include "xprof/utils/op_utils.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -138,8 +139,12 @@ void ConvertSparseCoreDeviceTraceXPlaneToFlatOpMetricsDb(
     }
   });
   // Now walk through the events and add them to their proper OpMetricsDb
+  absl::flat_hash_map<std::pair<uint64_t, uint64_t>,
+                      absl::flat_hash_set<absl::string_view>>
+      active_lines_per_key;
   plane.ForEachLine([&](const XLineVisitor& line) {
-    if (line.Name() == tsl::profiler::kSparseCoreOpLineName) {
+    if (line.Name() == tsl::profiler::kSparseCoreOpLineName ||
+        IsSparseCoreTecOpLine(line.Name())) {
       auto module_it = module_timespans.begin();
       line.ForEachEvent([&](const XEventVisitor& event) {
         const tsl::profiler::Timespan timespan = GetDeviceEventTimespan(event);
@@ -153,6 +158,9 @@ void ConvertSparseCoreDeviceTraceXPlaneToFlatOpMetricsDb(
         }
         // Check if the current module_it encapsulates the event.
         if (module_it->timespan.Includes(timespan)) {
+          const std::pair<uint64_t, uint64_t> key_id = {
+              module_it->offload_core_id, module_it->tc_start_id};
+          active_lines_per_key[key_id].insert(line.Name());
           // Insert that event into the stack for that module.
           absl::string_view hlo_name = event.Metadata().HasDisplayName()
                                            ? event.Metadata().DisplayName()
@@ -161,16 +169,20 @@ void ConvertSparseCoreDeviceTraceXPlaneToFlatOpMetricsDb(
           auto module_id = key.program_id.has_value() ? key.program_id.value()
                                                       : module_it->tc_start_id;
           uint64_t op_id = StableOpId(module_id, hlo_name);
-          intermediate_op_metrics_map[{module_it->offload_core_id,
-                                       module_it->tc_start_id}]
-              .event_stack.Push({.event = event,
-                                 .device_timespan = timespan,
-                                 .offload_core_id = module_it->offload_core_id,
-                                 .tc_start_id = module_it->tc_start_id,
-                                 .op_id = op_id,
-                                 .parent_op_id = 0});
+          intermediate_op_metrics_map[key_id].event_stack.Push(
+              {.event = event,
+               .device_timespan = timespan,
+               .offload_core_id = module_it->offload_core_id,
+               .tc_start_id = module_it->tc_start_id,
+               .op_id = op_id,
+               .parent_op_id = 0});
         }
       });
+      // Flush after each line so events from parallel lines do not nest or
+      // subtract from each other's self_time_ps.
+      for (auto& [_, progress] : intermediate_op_metrics_map) {
+        progress.event_stack.Flush();
+      }
     }
   });
   absl::flat_hash_map<std::pair<uint64_t, uint64_t>, uint64_t>
@@ -180,13 +192,14 @@ void ConvertSparseCoreDeviceTraceXPlaneToFlatOpMetricsDb(
                                                   module.tc_start_id};
     if (auto it = intermediate_op_metrics_map.find(key_id);
         it != intermediate_op_metrics_map.end()) {
-      it->second.event_stack.Flush();
       total_duration_map[key_id] += module.timespan.duration_ps();
     }
   }
   for (auto& [key, progress] : intermediate_op_metrics_map) {
+    const uint64_t num_lines =
+        std::max<uint64_t>(1, active_lines_per_key[key].size());
     sparse_core_metrics_map[key] =
-        progress.builder->FinalizeSorted(total_duration_map[key]);
+        progress.builder->FinalizeSorted(total_duration_map[key] * num_lines);
   }
 }
 

@@ -141,10 +141,8 @@ std::string GetDefaultProcessName(ProcessId pid) {
 
 // Compares two tracks (threads or processes) for ordering in the timeline.
 // Tracks are sorted hierarchically:
-// 1. Explicit sort index: Tracks with an explicit sort index precede unindexed
-//    tracks (i.e. having a sort index is ordered before / higher priority than
-//    not having one). If both have sort indices, they are ordered in ascending
-//    order of index value.
+// 1. Sort index: Unindexed tracks default to sort index 0. Tracks are
+//    ordered in ascending order of index value.
 // 2. Name: Tracks with explicit names precede unnamed tracks, ordered
 //    lexicographically.
 // 3. ID: Ordered by ProcessId or ThreadId in ascending order as a tie-breaker.
@@ -154,10 +152,10 @@ bool CompareTrackMetadata(std::optional<uint32_t> sort_index_a,
                           std::optional<absl::string_view> name_a,
                           std::optional<absl::string_view> name_b, IdType id_a,
                           IdType id_b) {
-  if (sort_index_a.has_value() && sort_index_b.has_value()) {
-    if (*sort_index_a != *sort_index_b) return *sort_index_a < *sort_index_b;
-  } else if (sort_index_a.has_value() != sort_index_b.has_value()) {
-    return sort_index_a.has_value();
+  const uint32_t idx_a = sort_index_a.value_or(0);
+  const uint32_t idx_b = sort_index_b.value_or(0);
+  if (idx_a != idx_b) {
+    return idx_a < idx_b;
   }
 
   if (name_a.has_value() && name_b.has_value()) {
@@ -746,17 +744,7 @@ void PopulateAsyncProcessTrack(
     }
   }
 
-  // Populate named async tracks first.
-  ThreadId next_synthetic_tid = 0x80000000;
-  for (const auto& [name, named_events] : async_groups) {
-    PopulateThreadTrack(pid, next_synthetic_tid, named_events, trace_info,
-                        current_level, data, bounds, thread_levels,
-                        process_group_name, default_expanded, expanded_states,
-                        max_observed_levels, parent_index, name);
-    ++next_synthetic_tid;
-  }
-
-  // Populate standard thread tracks.
+  // Populate standard thread tracks first.
   std::vector<ThreadId> sorted_tids;
   sorted_tids.reserve(sync_groups.size());
   for (const auto& [tid, _] : sync_groups) {
@@ -773,6 +761,16 @@ void PopulateAsyncProcessTrack(
                         data, bounds, thread_levels, process_group_name,
                         default_expanded, expanded_states, max_observed_levels,
                         parent_index);
+  }
+
+  // Populate named async tracks.
+  ThreadId next_synthetic_tid = 0x80000000;
+  for (const auto& [name, named_events] : async_groups) {
+    PopulateThreadTrack(pid, next_synthetic_tid, named_events, trace_info,
+                        current_level, data, bounds, thread_levels,
+                        process_group_name, default_expanded, expanded_states,
+                        max_observed_levels, parent_index, name);
+    ++next_synthetic_tid;
   }
 }
 
@@ -919,6 +917,23 @@ void PopulateProcessTrack(
                          .expanded = expanded,
                          .parent_index = -1});
 
+  if (has_known_counters) {
+    absl::btree_map<std::string, std::vector<const CounterEvent*>>
+        combined_counters;
+    if (has_counters) {
+      combined_counters = it_counters->second;
+    }
+    for (const std::string& counter_name : it_known_counters->second) {
+      combined_counters.try_emplace(counter_name);
+    }
+    for (const auto& [name, events] : combined_counters) {
+      PopulateCounterTrack(pid, name, events, trace_info, current_level, data,
+                           bounds, process_group_name,
+                           /*default_expanded=*/true, expanded_states,
+                           process_index);
+    }
+  }
+
   if (has_thread_tracks) {
     bool is_async_process = IsAsyncProcess(pid, trace_info);
 
@@ -933,23 +948,6 @@ void PopulateProcessTrack(
           pid, process_group_name, trace_info, current_level, data, bounds,
           thread_levels, /*default_expanded=*/true, expanded_states,
           max_observed_levels, known_threads, process_index);
-    }
-  }
-
-  if (has_known_counters) {
-    absl::btree_map<std::string, std::vector<const CounterEvent*>>
-        combined_counters;
-    if (has_counters) {
-      combined_counters = it_counters->second;
-    }
-    for (const std::string& counter_name : it_known_counters->second) {
-      combined_counters.try_emplace(counter_name);
-    }
-    for (const auto& [name, events] : combined_counters) {
-      PopulateCounterTrack(
-          pid, name, events, trace_info, current_level, data, bounds,
-          process_group_name, /*default_expanded=*/true, expanded_states,
-          process_index);
     }
   }
 
@@ -999,11 +997,6 @@ std::vector<ProcessId> GetSortedProcessIds(
 
   std::vector<ProcessId> pids(pid_set.begin(), pid_set.end());
 
-  absl::flat_hash_map<ProcessId, int> async_process_priorities;
-  for (const ProcessId pid : pids) {
-    async_process_priorities[pid] = GetAsyncProcessPriority(pid, trace_info);
-  }
-
   auto get_process_sort_index = [&](ProcessId pid) -> std::optional<uint32_t> {
     if (const auto it = trace_info.process_sort_indices.find(pid);
         it != trace_info.process_sort_indices.end()) {
@@ -1021,10 +1014,6 @@ std::vector<ProcessId> GetSortedProcessIds(
   };
 
   absl::c_stable_sort(pids, [&](ProcessId a, ProcessId b) {
-    const int priority_a = async_process_priorities.at(a);
-    const int priority_b = async_process_priorities.at(b);
-    if (priority_a != priority_b) return priority_a > priority_b;
-
     return CompareTrackMetadata(get_process_sort_index(a),
                                 get_process_sort_index(b), get_process_name(a),
                                 get_process_name(b), a, b);

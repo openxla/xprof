@@ -10,6 +10,11 @@ from absl.testing import parameterized
 from xprof.cli import xprof_cli
 
 
+def _trace_only_tool(session_id: str):
+  """A tool that is not marked as accepting a compiler dump directory."""
+  return {'session_id': session_id}
+
+
 class XProfCliTest(parameterized.TestCase):
 
   def setUp(self):
@@ -452,6 +457,47 @@ class XProfCliTest(parameterized.TestCase):
     res = wrapped(20260824063312, limit=5)
     self.assertEqual(res['source'], '20260824063312')
     self.assertEqual(res['limit'], 5)
+
+  def _make_compiler_dump_dir(self):
+    """Creates a --xla_jf_dump_to style dir holding only text artifacts."""
+    dump_dir = self.create_tempdir()
+    dump_dir.create_file('mod-register-pressure.txt', content='Peak VREG: 64\n')
+    dump_dir.create_file(
+        'mod-per-bundle-utilization.txt', content='Bundle 0: MXU 100%\n'
+    )
+    return dump_dir.full_path
+
+  def test_get_llo_dump_analysis_cli_accepts_compiler_dump_dir(self):
+    """Compiler dump dirs hold no XPlane protos, so the CLI must not reject."""
+    dump_dir = self._make_compiler_dump_dir()
+
+    raw = self.cli.get_llo_dump_analysis(dump_dir, mode='register_pressure')
+
+    self.assertEqual(json.loads(raw)['mode'], 'register_pressure')
+
+  def test_get_llo_static_analysis_cli_accepts_compiler_dump_dir(self):
+    """The `get_llo_static_analysis` alias behaves like `get_llo_dump_analysis`."""
+    dump_dir = self._make_compiler_dump_dir()
+
+    raw = self.cli.get_llo_static_analysis(dump_dir, mode='register_pressure')
+
+    self.assertEqual(json.loads(raw)['mode'], 'register_pressure')
+
+  def test_get_llo_dump_analysis_cli_rejects_empty_dir(self):
+    """A directory with neither traces nor dump artifacts is still an error."""
+    empty_dir = self.create_tempdir().full_path
+
+    with self.assertRaisesRegex(FileNotFoundError, 'DATA_ABSENT'):
+      self.cli.get_llo_dump_analysis(empty_dir, mode='register_pressure')
+
+  def test_wrap_with_logdir_rejects_dump_dir_for_unmarked_tools(self):
+    """Tools without the marker keep requiring an XPlane or XSpace file."""
+    dump_dir = self._make_compiler_dump_dir()
+
+    wrapped = xprof_cli._wrap_with_logdir(_trace_only_tool)
+
+    with self.assertRaisesRegex(FileNotFoundError, 'DATA_ABSENT'):
+      wrapped(dump_dir)
 
 
 if __name__ == '__main__':

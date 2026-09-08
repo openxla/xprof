@@ -550,6 +550,14 @@ if built_with_embedded():
   _lib.GetLloAnalysisJson.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
   _lib.GetLloAnalysisJson.restype = ctypes.c_char_p
 
+  _lib.GetLloStaticAnalysisJson.argtypes = [
+      ctypes.c_void_p,
+      ctypes.c_char_p,
+      ctypes.c_char_p,
+      ctypes.c_int,
+  ]
+  _lib.GetLloStaticAnalysisJson.restype = ctypes.c_char_p
+
   _lib.GetLloDebugString.argtypes = [ctypes.c_void_p]
   _lib.GetLloDebugString.restype = ctypes.c_char_p
 
@@ -583,6 +591,38 @@ if built_with_embedded():
     finally:
       _lib.FreeLloAnalysis(handle)
 
+  def get_llo_static_analysis_json(
+      xspace_filename: str,
+      mode: str = "region_tree",
+      hlo_op: str = "",
+      bundle: int = 0,
+  ) -> str:
+    """Gets static analysis JSON for an LLO file."""
+    handle = _lib.CreateLloAnalysis(xspace_filename.encode("utf-8"))
+    if not handle:
+      return json.dumps({
+          "status": "ERROR",
+          "semantics": "static_modelled_schedule",
+          "mode": mode,
+          "error": "Could not load XSpace or no LLO modules found.",
+      })
+    try:
+      mode_bytes = mode.encode("utf-8") if mode else b"region_tree"
+      hlo_op_bytes = hlo_op.encode("utf-8") if hlo_op else b""
+      json_str = _lib.GetLloStaticAnalysisJson(
+          handle, mode_bytes, hlo_op_bytes, int(bundle)
+      )
+      if not json_str:
+        return json.dumps({
+            "status": "ERROR",
+            "semantics": "static_modelled_schedule",
+            "mode": mode,
+            "error": "Failed to produce static analysis JSON.",
+        })
+      return json_str.decode("utf-8")
+    finally:
+      _lib.FreeLloAnalysis(handle)
+
   def get_llo_debug_string(xspace_filename: str) -> str:
     """Gets the debug string of an LLO file."""
     handle = _lib.CreateLloAnalysis(xspace_filename.encode("utf-8"))
@@ -603,6 +643,17 @@ else:
   def analyze_llo(xspace_filename: str, kernel: str = "") -> dict[str, Any]:
     del xspace_filename, kernel
     raise NotImplementedError("analyze_llo is not supported in this build")
+
+  def get_llo_static_analysis_json(
+      xspace_filename: str,
+      mode: str = "region_tree",
+      hlo_op: str = "",
+      bundle: int = 0,
+  ) -> str:
+    del xspace_filename, mode, hlo_op, bundle
+    raise NotImplementedError(
+        "get_llo_static_analysis_json is not supported in this build"
+    )
 
   def get_llo_debug_string(xspace_filename: str) -> str:
     del xspace_filename

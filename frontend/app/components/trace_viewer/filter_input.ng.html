@@ -1,0 +1,41 @@
+<div matAutocompleteOrigin #origin="matAutocompleteOrigin" style="display:flex;">
+  <input #inputEl type="text"
+    #optionTrigger="matAutocompleteTrigger"
+    class="filter-input"
+    (input)="onInputChange()"
+    [value]="filterInput"
+    (keyup.enter)="tryAddFilter()"
+    (keyup.escape)="onEscape()"
+    [matAutocomplete]="filterOptionsAuto"
+    placeholder="Add filter..."
+    aria-label="Add filter"/>
+</div>
+
+<mat-autocomplete #filterOptionsAuto class="dense" panelWidth="fit-content" (optionSelected)="onOptionSelected($event)">
+  <!-- option list for filter field and operator -->
+  @if (!isUpdatingValues()) {
+    <div>
+      @for (option of (autoFilterOptions | async); track trackByValue($index, option)) {
+        <mat-option
+          [value]="option.value">
+          {{option.displayName || option.value}}
+        </mat-option>
+      }
+    </div>
+  }
+  <!-- option list for filter values -->
+  @if (isUpdatingValues() && isMultiSelect()) {
+    <div style="display:flex;flex-direction:column;">
+      <button mat-stroked-button color="primary" (click)="onConfirmMultiSelect()" style="margin:10px;">Confirm</button>
+      <mat-option>
+        <mat-checkbox class="example-margin" [checked]="allOptionsSelected" (click)="onOperateAll($event)">{{allOptionsLabel}}</mat-checkbox>
+      </mat-option>
+      @for (option of (autoFilterValues | async); track trackByValue($index, option)) {
+        <mat-option
+          [value]="option.value" >
+          <mat-checkbox class="example-margin" [(ngModel)]="option.checked" (click)="onClickCheckbox($event)">{{option.displayName || option.value}}</mat-checkbox>
+        </mat-option>
+      }
+    </div>
+  }
+</mat-autocomplete>

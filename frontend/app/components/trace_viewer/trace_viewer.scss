@@ -10,10 +10,12 @@
   );
 }
 
-mat-divider {
+.filter-divider,
+.filter-bar md-divider {
   // TODO: create color pallete for consolidated styles in the app
-  border-color: silver;
+  --md-divider-color: silver;
   height: 28px;
+  width: 1px;
   margin: 0 10px;
 }
 

@@ -1,10 +1,11 @@
 import 'org_xprof/frontend/app/common/interfaces/window';
 
-import {PlatformLocation} from '@angular/common';
+import {CommonModule, PlatformLocation} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
+  CUSTOM_ELEMENTS_SCHEMA,
   ElementRef,
   inject,
   Injector,
@@ -13,8 +14,20 @@ import {
   TemplateRef,
   ViewChild,
 } from '@angular/core';
-import {MatDialog, MatDialogRef} from '@angular/material/dialog';
+import {MatButton, MatIconButton} from '@angular/material/button';
+import {MatCheckbox} from '@angular/material/checkbox';
+import {
+  MatDialog,
+  MatDialogActions,
+  MatDialogContent,
+  MatDialogRef,
+  MatDialogTitle,
+} from '@angular/material/dialog';
+import {MatIcon} from '@angular/material/icon';
+import {MatMenu, MatMenuItem, MatMenuTrigger} from '@angular/material/menu';
+import {MatTooltip} from '@angular/material/tooltip';
 import {ActivatedRoute, Router} from '@angular/router';
+import '@material/web/divider/divider.js';
 import {Store} from '@ngrx/store';
 import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
 import {
@@ -26,6 +39,8 @@ import {
   takeUntil,
   tap,
 } from 'rxjs/operators';
+import {FilterChips} from './filter_chips';
+import {FilterInput} from './filter_input';
 
 import {
   API_PREFIX,
@@ -164,11 +179,28 @@ function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
 
 /** A trace viewer component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'trace-viewer',
   templateUrl: './trace_viewer.ng.html',
   styleUrls: ['./trace_viewer.scss'],
+  imports: [
+    CommonModule,
+    FilterChips,
+    FilterInput,
+    MatButton,
+    MatCheckbox,
+    MatDialogActions,
+    MatDialogContent,
+    MatDialogTitle,
+    MatIcon,
+    MatIconButton,
+    MatMenu,
+    MatMenuItem,
+    MatMenuTrigger,
+    MatTooltip,
+    TraceViewerContainer,
+  ],
+  schemas: [CUSTOM_ELEMENTS_SCHEMA],
 })
 export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly destroyed = new ReplaySubject<void>(1);

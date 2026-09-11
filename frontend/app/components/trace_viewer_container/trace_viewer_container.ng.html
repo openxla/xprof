@@ -163,7 +163,15 @@
                         <div
                           class="json-event-details-title"
                           [class.is-sticky]="isJsonTitleStuck">
-                          Event details
+                          <span>Event details</span>
+                          <button
+                            *ngIf="canExpandHlo()"
+                            type="button"
+                            class="hlo-expand-toggle"
+                            (click)="toggleHloExpanded()"
+                            [attr.aria-pressed]="hloFullyExpanded">
+                            {{hloFullyExpanded ? 'Collapse HLO' : 'Expand HLO'}}
+                          </button>
                         </div>
                         <ngx-json-viewer [json]="selectedEventJson" [depth]="3">
                         </ngx-json-viewer>

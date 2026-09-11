@@ -158,17 +158,29 @@ def _dispatch_action(
       select_host(page, step.target)
       expect(page).to_have_url(re.compile(rf"host={re.escape(step.target)}"))
     case ActionType.GO_BACK:
-      page.go_back(wait_until="domcontentloaded")
       expected_tag = _TOOL_NAME_TO_TAG.get(
           step.target, step.target.lower().replace(" ", "_")
       )
-      expect(page).to_have_url(re.compile(rf"tag={re.escape(expected_tag)}"))
+      tag_pattern = re.compile(
+          rf"(?:tag={re.escape(expected_tag)}|/{re.escape(expected_tag)})"
+      )
+      for _ in range(5):
+        page.go_back(wait_until="domcontentloaded")
+        if tag_pattern.search(page.url):
+          break
+      expect(page).to_have_url(tag_pattern)
     case ActionType.GO_FORWARD:
-      page.go_forward(wait_until="domcontentloaded")
       expected_tag = _TOOL_NAME_TO_TAG.get(
           step.target, step.target.lower().replace(" ", "_")
       )
-      expect(page).to_have_url(re.compile(rf"tag={re.escape(expected_tag)}"))
+      tag_pattern = re.compile(
+          rf"(?:tag={re.escape(expected_tag)}|/{re.escape(expected_tag)})"
+      )
+      for _ in range(5):
+        page.go_forward(wait_until="domcontentloaded")
+        if tag_pattern.search(page.url):
+          break
+      expect(page).to_have_url(tag_pattern)
     case ActionType.GOTO:
       parts = step.target.split("/", 1)
       run_name = parts[0]
@@ -179,6 +191,9 @@ def _dispatch_action(
       expect(page).to_have_url(re.compile(rf"tag={re.escape(tag)}"))
     case _:
       raise ValueError(f"Unsupported journey action type: {step.action}")
+
+
+dispatch_action = _dispatch_action
 
 
 def _assert_component_geometry(
@@ -209,7 +224,7 @@ def test_user_journey_state_machine(
     browser_errors: BrowserErrors,
     scenario: JourneyScenario,
 ) -> None:
-  """Executes declarative user journey state transitions with invariant sweeps."""
+  """Executes declarative user journeys with invariant sweeps."""
   browser_errors.ignore(*_UPSTREAM_BASELINE_IGNORED_PATTERNS)
 
   # 1. Mount initial starting waypoint

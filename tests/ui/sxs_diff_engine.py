@@ -3,6 +3,7 @@
 import collections
 import dataclasses
 import difflib
+import functools
 import hashlib
 import io
 import json
@@ -10,16 +11,13 @@ import pathlib
 import re
 import urllib.parse
 
-# pylint: disable=g-import-not-at-top
-try:
-  from PIL import Image
-  from PIL import ImageChops
+from PIL import Image
+from PIL import ImageChops
 
-  _HAS_PIL = True
-except ImportError:
-  Image = None  # pyrefly: ignore[assignment]
-  ImageChops = None  # pyrefly: ignore[assignment]
-  _HAS_PIL = False
+# Minimum 8-bit per-channel delta treated as a real divergence. Sub-pixel font
+# hinting and GPU antialiasing routinely shift channels by a few levels between
+# otherwise identical renders, so smaller deltas are noise rather than signal.
+_MIN_CHANNEL_DELTA = 10
 
 
 @dataclasses.dataclass
@@ -29,7 +27,7 @@ class VisualDiff:
   diff_ratio: float
   total_pixels: int
   diff_pixels: int
-  composite_png_bytes: bytes | None = None
+  heatmap_png_bytes: bytes | None = None
   dimension_mismatch: str | None = None
   base_png_bytes: bytes | None = None
   candidate_png_bytes: bytes | None = None
@@ -43,6 +41,9 @@ class DomDiff:
   unified_diff: str
   added_lines: int
   deleted_lines: int
+  # Digest of the whole delta. unified_diff is capped for display, so it cannot
+  # stand in for the delta's identity.
+  diff_digest: str
 
 
 @dataclasses.dataclass
@@ -86,22 +87,18 @@ class WaypointDiff:
 class SxsDiffEngine:
   """Computes visual, structural DOM, and network deltas between Master and CL."""
 
-  def __init__(
-      self,
-      approved_manifest_path: str | None = None,
-      pixel_threshold: float = 0.001,
-  ):
-    self.approved_manifest_path = approved_manifest_path
-    self.pixel_threshold = pixel_threshold
+  def __init__(self, approved_manifest_path: str | None = None):
     self.approved_manifest: dict[str, dict[str, str]] = {}
-    if approved_manifest_path and pathlib.Path(approved_manifest_path).exists():
+    if approved_manifest_path:
       try:
-        data = json.loads(
+        manifest = json.loads(
             pathlib.Path(approved_manifest_path).read_text(encoding="utf-8")
         )
-        self.approved_manifest = data.get("approved_diffs", {})
+        self.approved_manifest = manifest.get("approved_diffs", {})
       except (json.JSONDecodeError, OSError):
-        self.approved_manifest = {}
+        # A missing or unreadable manifest approves nothing, which keeps every
+        # waypoint gated on a reviewer.
+        pass
 
   def compute_visual_diff(
       self,
@@ -110,21 +107,13 @@ class SxsDiffEngine:
       background_color: tuple[int, int, int, int] = (255, 255, 255, 255),
   ) -> VisualDiff:
     """Computes perceptual pixel difference between two PNG screenshots."""
-    if not _HAS_PIL or Image is None or ImageChops is None:
-      is_same = img_bytes_a == img_bytes_b
-      return VisualDiff(
-          diff_ratio=0.0 if is_same else 1.0,
-          total_pixels=max(len(img_bytes_a), len(img_bytes_b)),
-          diff_pixels=0 if is_same else max(len(img_bytes_a), len(img_bytes_b)),
-          composite_png_bytes=img_bytes_a if is_same else None,
-          base_png_bytes=img_bytes_a,
-          candidate_png_bytes=img_bytes_b,
-      )
-
     try:
       img_a = Image.open(io.BytesIO(img_bytes_a)).convert("RGBA")
       img_b = Image.open(io.BytesIO(img_bytes_b)).convert("RGBA")
-    except (OSError, Exception) as e:  # pylint: disable=broad-exception-caught
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      # Pillow signals malformed payloads with OSError, UnidentifiedImageError,
+      # or ValueError depending on where decoding fails. A corrupt screenshot
+      # is a divergence to report, never a reason to abort the whole run.
       total_bytes = max(len(img_bytes_a), len(img_bytes_b))
       return VisualDiff(
           diff_ratio=1.0,
@@ -135,49 +124,58 @@ class SxsDiffEngine:
           candidate_png_bytes=img_bytes_b,
       )
 
-    if img_a.size != img_b.size:
-      max_pixels = max(img_a.width * img_a.height, img_b.width * img_b.height)
-      return VisualDiff(
-          diff_ratio=1.0,
-          total_pixels=max_pixels,
-          diff_pixels=max_pixels,
-          dimension_mismatch=f"{img_a.size} vs {img_b.size}",
-          base_png_bytes=img_bytes_a,
-          candidate_png_bytes=img_bytes_b,
-      )
-
-    bg = Image.new("RGBA", img_a.size, background_color)
-    flat_a = Image.alpha_composite(bg, img_a)
-    flat_b = Image.alpha_composite(bg, img_b)
-
-    diff = ImageChops.difference(flat_a, flat_b)
-    threshold = (
-        int(self.pixel_threshold * 255)
-        if self.pixel_threshold < 1.0
-        else int(self.pixel_threshold)
+    dimension_mismatch = (
+        f"{img_a.size} vs {img_b.size}" if img_a.size != img_b.size else None
     )
-    threshold = max(threshold, 10)
-    mask = diff.convert("L").point(lambda p: 255 if p > threshold else 0)
+    # Screenshots leave transparent pixels wherever the page did not paint, and
+    # two runs may differ in extent. Flattening both onto identically sized
+    # opaque canvases makes alpha and trailing padding comparable pixel-wise.
+    target_size = (
+        max(img_a.width, img_b.width),
+        max(img_a.height, img_b.height),
+    )
+    flat_a = Image.new("RGBA", target_size, background_color)
+    flat_a.alpha_composite(img_a)
+    flat_b = Image.new("RGBA", target_size, background_color)
+    flat_b.alpha_composite(img_b)
+
+    # Deliberately not convert("L"): that weights the channels by luminance
+    # (0.299R + 0.587G + 0.114B), which scales a blue-only delta down by ~8.8x
+    # and pushes a 31% blue shift below the noise floor. The floor is a
+    # per-channel one, so the largest single channel decides.
+    channel_max = functools.reduce(
+        ImageChops.lighter, ImageChops.difference(flat_a, flat_b).split()
+    )
+    mask = channel_max.point(
+        lambda level: 255 if level > _MIN_CHANNEL_DELTA else 0
+    )
+
+    # Measured over the union canvas even when the extents differ. Both renders
+    # were already composited onto it, so the region present in only one of them
+    # is compared against the background and counted. Saturating the ratio to
+    # 1.0 on any geometry change, as this previously did, painted the whole page
+    # red and told the reviewer nothing about what moved. The extent change
+    # still fails the waypoint: it travels in dimension_mismatch.
+    total_pixels = target_size[0] * target_size[1]
     diff_pixels = mask.tobytes().count(255)
-    total_pixels = img_a.width * img_a.height
-    diff_ratio = diff_pixels / float(total_pixels) if total_pixels > 0 else 0.0
+    diff_ratio = diff_pixels / total_pixels if total_pixels else 0.0
 
-    diff_overlay = flat_b.copy()
-    red_highlight = Image.new("RGBA", img_b.size, (235, 50, 50, 200))
-    diff_overlay.paste(red_highlight, (0, 0), mask=mask)
-
-    composite = Image.new("RGBA", (img_a.width * 3, img_a.height))
-    composite.paste(flat_a, (0, 0))
-    composite.paste(flat_b, (img_a.width, 0))
-    composite.paste(diff_overlay, (img_a.width * 2, 0))
+    # The candidate render with every diverging pixel painted over in red. The
+    # card that displays this already shows the baseline and the candidate
+    # themselves, so pasting them alongside the overlay would inline a second
+    # copy of both screenshots and render each panel at a third of the width.
+    heatmap = flat_b.copy()
+    red_highlight = Image.new("RGBA", target_size, (235, 50, 50, 200))
+    heatmap.paste(red_highlight, (0, 0), mask=mask)
     buf = io.BytesIO()
-    composite.save(buf, format="PNG")
+    heatmap.save(buf, format="PNG")
 
     return VisualDiff(
         diff_ratio=diff_ratio,
         total_pixels=total_pixels,
         diff_pixels=diff_pixels,
-        composite_png_bytes=buf.getvalue(),
+        heatmap_png_bytes=buf.getvalue(),
+        dimension_mismatch=dimension_mismatch,
         base_png_bytes=img_bytes_a,
         candidate_png_bytes=img_bytes_b,
     )
@@ -222,11 +220,15 @@ class SxsDiffEngine:
     deleted = sum(
         1 for l in diff_lines if l.startswith("-") and not l.startswith("---")
     )
+    full_diff = "".join(diff_lines)
     return DomDiff(
         has_changes=bool(diff_lines),
+        # Capped: the report renders this inside a fixed-height scroll box, and
+        # a whole-page delta would otherwise inline megabytes of markup.
         unified_diff="".join(diff_lines[:100]),
         added_lines=added,
         deleted_lines=deleted,
+        diff_digest=hashlib.sha256(full_diff.encode("utf-8")).hexdigest(),
     )
 
   def compute_network_diff(
@@ -241,15 +243,17 @@ class SxsDiffEngine:
           f"Request count mismatch: {len(requests_a)} vs {len(requests_b)}"
       )
 
-    def _canonical_sig(req: dict[str, object]) -> tuple[str, str, int]:
-      status_val = req.get("status")
-      if isinstance(status_val, (int, float, str)):
-        try:
-          status_int = int(status_val)
-        except ValueError:
-          status_int = 200
-      else:
-        status_int = 200
+    def _canonical_sig(req: dict[str, object]) -> tuple[str, str, str]:
+      raw_status = req.get("status")
+      # 200 and "200" describe the same response, so numeric statuses are
+      # rendered canonically. An unparseable status is kept verbatim rather
+      # than coerced, otherwise it would collapse onto a real 200 and hide the
+      # very divergence this function exists to surface.
+      status = (
+          str(int(raw_status))
+          if isinstance(raw_status, (int, float))
+          else str(raw_status)
+      )
       parsed = urllib.parse.urlsplit(str(req.get("url", "")))
       normalized_query = urllib.parse.urlencode(
           sorted(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
@@ -257,11 +261,7 @@ class SxsDiffEngine:
       normalized_url = urllib.parse.urlunsplit(
           parsed._replace(query=normalized_query)
       )
-      return (
-          str(req.get("method", "GET")),
-          normalized_url,
-          status_int,
-      )
+      return (str(req.get("method", "GET")), normalized_url, status)
 
     counts_a = collections.Counter(_canonical_sig(r) for r in requests_a)
     counts_b = collections.Counter(_canonical_sig(r) for r in requests_b)
@@ -301,13 +301,17 @@ class SxsDiffEngine:
 
     hasher = hashlib.sha256()
     hasher.update(f"{journey_name}:{waypoint_name}:".encode("utf-8"))
-    hasher.update(dom.unified_diff.encode("utf-8"))
+    hasher.update(dom.diff_digest.encode("utf-8"))
     if visual.diff_pixels > 0:
       diff_sig = (
           f"diff_pixels:{visual.diff_pixels}:ratio:{visual.diff_ratio:.6f}"
       )
       hasher.update(diff_sig.encode("utf-8"))
-    elif visual.dimension_mismatch:
+    if visual.dimension_mismatch:
+      # Not an elif. A geometry change can measure zero diverging pixels when
+      # what it added was blank, and two different geometry changes can measure
+      # the same count, so without the extents an approval for "grew taller"
+      # would also cover "grew wider".
       hasher.update(visual.dimension_mismatch.encode("utf-8"))
     for mismatch in network.status_mismatches:
       hasher.update(mismatch.encode("utf-8"))

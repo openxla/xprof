@@ -5,6 +5,7 @@ load("//defs:defs.bzl", "ts_library")
 # load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
 
 package(default_visibility = [
+    "@org_xprof//frontend/app/components/trace_viewer:__pkg__",
     "@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__",
 ])
 

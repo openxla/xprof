@@ -1,5 +1,6 @@
-<div [className]="maxHeap.length ? 'auto-height' : 'hidden-content'">
+<div [className]="maxHeap.length ? 'auto-height' : 'hidden-content'" (mouseenter)="isHovered = true" (mouseleave)="onMouseLeave()" (mousemove)="onMouseMove($event)">
   <div class="mat-headline">{{title}} ({{maxHeap?.length}})</div>
-  <div class="description">Hover over a bar for buffer details to appear on the left.</div>
+  <div class="description">Hover over a bar for buffer details to appear on the left. Use WASD keys to zoom and pan.</div>
   <div class="chart" #chart></div>
 </div>
+

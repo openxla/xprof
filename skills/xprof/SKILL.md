@@ -27,6 +27,10 @@ the `xprof` package.
 xprof <subcommand> [flags]
 ```
 
+All `xprof` subcommands emit **JSON** to stdout. There is no output-format flag;
+pipe the output to `jq` or redirect it to a file if you need another
+representation.
+
 ## Discovery of Workflows
 
 **CRITICAL for Agents**: Many advanced workflows (like diffing sessions,

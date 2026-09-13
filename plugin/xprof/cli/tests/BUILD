@@ -148,6 +148,7 @@ pytype_strict_contrib_test(
     deps = [
         "//plugin/xprof/cli:xprof_cli_lib",
         "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
     ],
 )
 

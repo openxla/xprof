@@ -422,6 +422,7 @@ class XprofDataTest(absltest.TestCase):
             "device_type": "TPU v5p",
             "peak_flop_rate": "1234.5",
             "peak_hbm_bw": "678",
+            "peak_vmem_bw": "910",
             "ridge_point": "not_a_number",
         }
     }]).encode("utf-8")
@@ -432,8 +433,18 @@ class XprofDataTest(absltest.TestCase):
 
     self.assertEqual(result_json["device_type"], "TPU v5p")
     self.assertEqual(result_json["peak_flop_rate"], 1234.5)
-    self.assertEqual(result_json["peak_hbm_bw"], 678.0)
+    # Bandwidth fields are renamed with an explicit `_gibs` suffix; the raw
+    # unsuffixed names must no longer be present.
+    self.assertEqual(result_json["peak_hbm_bw_gibs"], 678.0)
+    self.assertEqual(result_json["peak_vmem_bw_gibs"], 910.0)
+    self.assertNotIn("peak_hbm_bw", result_json)
+    self.assertNotIn("peak_vmem_bw", result_json)
     self.assertEqual(result_json["ridge_point"], "not_a_number")
+    # A `units` metadata dict documents the bandwidth units unambiguously.
+    self.assertEqual(
+        result_json["units"],
+        {"peak_hbm_bw_gibs": "GiB/s", "peak_vmem_bw_gibs": "GiB/s"},
+    )
 
   def test_get_device_information_error(self):
     self.mock_client.fetch.side_effect = Exception("RPC Fail")

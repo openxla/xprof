@@ -10,6 +10,17 @@ from xprof.cli.internal.oss import xprof_client
 from xprof.protobuf import op_profile_pb2
 
 
+# Bandwidth fields in the Roofline Model DataTable are reported in GiB/s (binary
+# gibibytes per second), not decimal GB/s. Rename them with an explicit `_gibs`
+# suffix and attach a `units` metadata dict so consumers cannot misread the
+# magnitude -- a GB/s vs GiB/s mix-up shifts the arithmetic-intensity ridge
+# point by ~7.4%.
+_DEVICE_INFO_BANDWIDTH_RENAMES = {
+    "peak_hbm_bw": "peak_hbm_bw_gibs",
+    "peak_vmem_bw": "peak_vmem_bw_gibs",
+}
+
+
 @decorators.cached(expire=86400)
 def get_profile_summary(
     session_id: str,
@@ -765,7 +776,17 @@ def get_device_information(
         value = float(value)
       except (ValueError, TypeError):
         pass
-      device_info[key] = value
+      device_info[_DEVICE_INFO_BANDWIDTH_RENAMES.get(key, key)] = value
+
+    # Attach a `units` metadata dict for the renamed bandwidth fields that are
+    # actually present, so consumers know these values are in GiB/s.
+    units = {
+        renamed: "GiB/s"
+        for renamed in _DEVICE_INFO_BANDWIDTH_RENAMES.values()
+        if renamed in device_info
+    }
+    if units:
+      device_info["units"] = units
 
     return json.dumps(device_info, indent=2)
 

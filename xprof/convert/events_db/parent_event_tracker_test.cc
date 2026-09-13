@@ -101,6 +101,75 @@ TEST(ParentEventTrackerTest, InstantEventsAreEmittedImmediately) {
   EXPECT_EQ(emitted[1][indices.self_time_ns], 200);
 }
 
+TEST(ParentEventTrackerTest, InstantEventFollowedByNonInstantAtSameTimestamp) {
+  Schema schema;
+  FieldIndices indices(schema);
+  ParentEventTracker tracker;
+  std::vector<Record> emitted;
+
+  auto consumer = [&](Record& r) -> absl::StatusOr<StepControl> {
+    emitted.push_back(r);
+    return StepControl::kContinue;
+  };
+
+  Record instant_record = CreateTestRecord(indices, "instant", 100, 0);
+  EXPECT_THAT(
+      tracker.AddRecord(std::move(instant_record), 100, 0, indices, consumer),
+      IsOkAndHolds(StepControl::kContinue));
+
+  Record next_record = CreateTestRecord(indices, "next", 100, 200);
+  EXPECT_THAT(
+      tracker.AddRecord(std::move(next_record), 100, 200, indices, consumer),
+      IsOkAndHolds(StepControl::kContinue));
+
+  EXPECT_THAT(tracker.Flush(consumer), IsOkAndHolds(StepControl::kContinue));
+  ASSERT_EQ(emitted.size(), 2);
+  EXPECT_EQ(emitted[0][indices.kernel_name], "instant");
+  EXPECT_EQ(emitted[0][indices.self_time_ns], 0);
+  EXPECT_EQ(emitted[1][indices.kernel_name], "next");
+  EXPECT_EQ(emitted[1][indices.self_time_ns], 200);
+}
+
+TEST(ParentEventTrackerTest,
+     InstantEventInterleavedBetweenNonInstantAtSameTimestamp) {
+  Schema schema;
+  FieldIndices indices(schema);
+  ParentEventTracker tracker;
+  std::vector<Record> emitted;
+
+  auto consumer = [&](Record& r) -> absl::StatusOr<StepControl> {
+    emitted.push_back(r);
+    return StepControl::kContinue;
+  };
+
+  // Parent event: [100, 600)
+  Record parent_record = CreateTestRecord(indices, "parent", 100, 500);
+  EXPECT_THAT(
+      tracker.AddRecord(std::move(parent_record), 100, 500, indices, consumer),
+      IsOkAndHolds(StepControl::kContinue));
+
+  // Interleaved instant event: [100, 100) -> emitted immediately
+  Record instant_record = CreateTestRecord(indices, "instant", 100, 0);
+  EXPECT_THAT(
+      tracker.AddRecord(std::move(instant_record), 100, 0, indices, consumer),
+      IsOkAndHolds(StepControl::kContinue));
+  ASSERT_EQ(emitted.size(), 1);
+  EXPECT_EQ(emitted[0][indices.kernel_name], "instant");
+
+  // Child event at same start_ns: [100, 400) -> nested within parent
+  Record child_record = CreateTestRecord(indices, "child", 100, 300);
+  EXPECT_THAT(
+      tracker.AddRecord(std::move(child_record), 100, 300, indices, consumer),
+      IsOkAndHolds(StepControl::kContinue));
+
+  EXPECT_THAT(tracker.Flush(consumer), IsOkAndHolds(StepControl::kContinue));
+  ASSERT_EQ(emitted.size(), 3);
+  EXPECT_EQ(emitted[1][indices.kernel_name], "child");
+  EXPECT_EQ(emitted[1][indices.self_time_ns], 300);
+  EXPECT_EQ(emitted[2][indices.kernel_name], "parent");
+  EXPECT_EQ(emitted[2][indices.self_time_ns], 200);  // 500 - 300 = 200
+}
+
 TEST(ParentEventTrackerTest, NonOverlappingSequentialEvents) {
   Schema schema;
   FieldIndices indices(schema);

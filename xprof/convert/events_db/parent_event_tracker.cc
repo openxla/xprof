@@ -75,12 +75,15 @@ absl::StatusOr<StepControl> ParentEventTracker::AddRecord(
 #ifndef NDEBUG
   if (last_start_ns_.has_value()) {
     DCHECK_LE(*last_start_ns_, start_ns);
-    if (*last_start_ns_ == start_ns) {
+    if (*last_start_ns_ == start_ns && last_duration_ns_ > 0) {
       DCHECK_LE(duration_ns, last_duration_ns_);
     }
   }
+  if (!last_start_ns_.has_value() || *last_start_ns_ != start_ns ||
+      duration_ns > 0) {
+    last_duration_ns_ = duration_ns;
+  }
   last_start_ns_ = start_ns;
-  last_duration_ns_ = duration_ns;
 #endif
 
   const uint64_t end_ns = start_ns + duration_ns;

@@ -72,7 +72,9 @@ class ParentEventTracker {
   // Callers must pass events in chronological order by `start_ns` time. If
   // multiple events share the exact same `start_ns` time, they must be ordered
   // by `duration_ns` in descending order so that larger enclosing parent events
-  // are processed before their nested children.
+  // are processed before their nested children. Instant events
+  // (`duration_ns == 0`) do not enclose subsequent events and may be followed
+  // by events starting at the same timestamp.
   //
   // Returns:
   // - `StepControl::kContinue`: Ingestion should proceed normally.

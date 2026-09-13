@@ -74,11 +74,14 @@ import {
   FILTER_OPERATORS,
   FILTER_PROPERTY_SEPARATOR,
   FILTER_SEPARATOR,
+  getConnectedStepGroupLinkText,
+  getSingleStepGroupLinkText,
   NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
   NAV_PAN_SPEED_STORAGE_KEY,
   NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY,
   PALETTE_PREVIEWS,
   SettingsTab,
+  TRACE_VIEWER_TOOL_NAME,
 } from './constants';
 import {AdjacentNodesResponse} from './interfaces';
 import {
@@ -184,6 +187,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
 
   url = '';
+  sessionId = '';
   pathPrefix = '';
   sourceCodeServiceIsAvailable = false;
   hostList: string[] = [];
@@ -607,6 +611,11 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   update(event: NavigationEvent): void {
+    if (event.run) {
+      this.sessionId = event.run;
+    } else if ((event as Record<string, string>)['sessionId']) {
+      this.sessionId = (event as Record<string, string>)['sessionId'];
+    }
     const isStreaming = event.tag === 'trace_viewer@';
     const run = event.run || '';
     const tag = event.tag || '';
@@ -794,6 +803,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
     if (uid) {
       this.maybeFetchEventArgs({name, startUs, durationUs, uid, pid});
+    } else if (event.args) {
+      this.addArgsToSelectedEvent(event.args);
     }
     this.maybeFetchAdjacentNodes();
   }
@@ -993,7 +1004,77 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     // TraceViewerContainer.buildSelectedEventJson).
     event.args = Object.assign({}, event.args, args);
     this.selectedEvent = Object.assign({}, event);
+    this.createCrossToolLinks();
     this.maybeFetchAdjacentNodes();
+  }
+
+  private createCrossToolLink(
+    toolName: string,
+    toolLabel: string,
+    params: {[key: string]: string},
+    text: string,
+  ): string {
+    const toolLinkHref = this.dataService.createToolUrl({
+      toolName,
+      sessionId: this.sessionId,
+      params,
+    });
+    if (!toolLinkHref) {
+      return `<div>${toolLabel}: Error creating link</div>`;
+    }
+    return `<div>${toolLabel}: <a href="${
+      toolLinkHref
+    }" target="_blank" rel="noopener noreferrer">${text}</a></div>`;
+  }
+
+  private createCrossToolLinks() {
+    if (!this.selectedEvent || !this.selectedEvent.args) return;
+    this.createStepGroupLink();
+  }
+
+  private createStepGroupLink() {
+    if (!this.sessionId || !this.selectedEvent?.args) {
+      return;
+    }
+    const args = this.selectedEvent.args as Record<string, string>;
+    const connectedGroupIds = args['connected_group_ids'];
+    const groupId = args['group_id'];
+
+    const hasConnectedGroupIds =
+      connectedGroupIds !== undefined &&
+      connectedGroupIds !== null &&
+      connectedGroupIds !== '';
+    const hasGroupId =
+      groupId !== undefined && groupId !== null && groupId !== '';
+
+    if (!hasConnectedGroupIds && !hasGroupId) {
+      return;
+    }
+
+    const params: Record<string, string> = {};
+    const selectedHosts = this.filterSelectedHosts;
+    if (selectedHosts.length > 0) {
+      params['hosts'] = selectedHosts.join(',');
+    }
+
+    if (hasConnectedGroupIds) {
+      params['selected_group_ids'] = String(connectedGroupIds);
+      const displayGroupId = hasGroupId ? groupId : connectedGroupIds;
+      this.selectedEvent.stepGroupLinkHtml = this.createCrossToolLink(
+        TRACE_VIEWER_TOOL_NAME[0],
+        TRACE_VIEWER_TOOL_NAME[1],
+        params,
+        getConnectedStepGroupLinkText(displayGroupId),
+      );
+    } else if (hasGroupId) {
+      params['selected_group_ids'] = String(groupId);
+      this.selectedEvent.stepGroupLinkHtml = this.createCrossToolLink(
+        TRACE_VIEWER_TOOL_NAME[0],
+        TRACE_VIEWER_TOOL_NAME[1],
+        params,
+        getSingleStepGroupLinkText(groupId),
+      );
+    }
   }
 
   private maybeFetchAdjacentNodes(): void {

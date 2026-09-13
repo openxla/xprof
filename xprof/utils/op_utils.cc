@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xprof/utils/op_utils.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 

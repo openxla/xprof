@@ -1,8 +1,26 @@
-import {Component, inject, Input, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
+import {NgFor, NgIf} from '@angular/common';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  Input,
+  OnDestroy,
+} from '@angular/core';
+import {MatButton} from '@angular/material/button';
+import {
+  MatExpansionPanel,
+  MatExpansionPanelHeader,
+  MatExpansionPanelTitle,
+} from '@angular/material/expansion';
+import {MatProgressBar} from '@angular/material/progress-bar';
+import {MatTooltip} from '@angular/material/tooltip';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {GRAPH_TYPE_DEFAULT} from 'org_xprof/frontend/app/common/constants/constants';
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
-import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {
+  DATA_SERVICE_INTERFACE_TOKEN,
+  DataServiceV2Interface,
+} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
@@ -27,10 +45,20 @@ const TOGGLE_BUTTON_ITEMS: ToggleButtonItems[] = [
 
 /** An Hlo text view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'hlo-text-view',
   templateUrl: './hlo_text_view.ng.html',
   styleUrls: ['./hlo_text_view.scss'],
+  imports: [
+    MatButton,
+    MatExpansionPanel,
+    MatExpansionPanelHeader,
+    MatExpansionPanelTitle,
+    MatProgressBar,
+    MatTooltip,
+    NgFor,
+    NgIf,
+  ],
 })
 export class HloTextView implements OnDestroy {
   /** The graph type. */
@@ -46,8 +74,9 @@ export class HloTextView implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
   private readonly throbber = new Throbber('hlo_text_view');
-  private readonly dataService: DataServiceV2Interface =
-      inject(DATA_SERVICE_INTERFACE_TOKEN);
+  private readonly dataService: DataServiceV2Interface = inject(
+    DATA_SERVICE_INTERFACE_TOKEN,
+  );
 
   hloText = '';
   loading = false;
@@ -56,7 +85,7 @@ export class HloTextView implements OnDestroy {
     graphType: GRAPH_TYPE_DEFAULT,
     moduleName: '',
     showMetadata: false,
-    textType: '',  // SHORT_TEXT | LONG_TEXT
+    textType: '', // SHORT_TEXT | LONG_TEXT
   };
 
   downloadHloText(type: string) {
@@ -64,25 +93,25 @@ export class HloTextView implements OnDestroy {
     this.hloText = '';
     this.throbber.start();
     this.dataService
-        .downloadHloProto(
-            this.sessionId,
-            this.graphType,
-            this.moduleName,
-            type,
-            this.showMetadata,
-            )
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((data) => {
-          this.throbber.stop();
-          this.loading = false;
-          this.hloText = data as string;
-          this.downloadedTextParams = {
-            graphType: this.graphType,
-            moduleName: this.moduleName,
-            showMetadata: this.showMetadata,
-            textType: type,
-          };
-        });
+      .downloadHloProto(
+        this.sessionId,
+        this.graphType,
+        this.moduleName,
+        type,
+        this.showMetadata,
+      )
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((data) => {
+        this.throbber.stop();
+        this.loading = false;
+        this.hloText = data as string;
+        this.downloadedTextParams = {
+          graphType: this.graphType,
+          moduleName: this.moduleName,
+          showMetadata: this.showMetadata,
+          textType: type,
+        };
+      });
   }
 
   getDownloadStatusMessage() {
@@ -90,9 +119,10 @@ export class HloTextView implements OnDestroy {
       ? 'with metadata '
       : '';
     return `(Loaded: hlo ${this.downloadedTextParams.textType} ${
-        metadataMessage}for module ${
-        this.downloadedTextParams.moduleName}) of graph type ${
-        this.downloadedTextParams.graphType}`;
+      metadataMessage
+    }for module ${this.downloadedTextParams.moduleName}) of graph type ${
+      this.downloadedTextParams.graphType
+    }`;
   }
 
   setLoadingMessage(type: string, showMetadata: boolean) {

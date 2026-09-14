@@ -23,7 +23,6 @@ xprof_ng_module(
     name = "kernel_stats",
     srcs = [
         "kernel_stats.ts",
-        "kernel_stats_module.ts",
     ],
     assets = [
         ":kernel_stats_css",

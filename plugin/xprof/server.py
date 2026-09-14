@@ -255,6 +255,7 @@ def get_abs_path(logdir: str) -> str:
 _CLI_SUBCOMMANDS = frozenset({
     "aggregate_xplane_events",
     "check_host_boundness",
+    "check_kernel_profiling",
     "compute_utilization",
     "detect_layout_mismatch_copies",
     "detect_unfused_reshapes",
@@ -283,8 +284,10 @@ _CLI_SUBCOMMANDS = frozenset({
     "get_top_hlo_ops",
     "get_utilization_viewer",
     "get_xspace_proto",
+    "inspect_capture",
     "list_hlo_modules",
     "list_xplane_events",
+    "list_xplane_lines",
     "upload_trace",
     "verify_numerical_parity",
 })

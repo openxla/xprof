@@ -33,6 +33,7 @@ pytype_strict_library(
         "//plugin/xprof/cli/tools/oss:get_kernel_utilization_tool",
         "//plugin/xprof/cli/tools/oss:upload_trace_tool",
         "@absl_py//absl/flags",
+        "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
         "@pypi//absl_py",
         "@pypi//fire",
     ],

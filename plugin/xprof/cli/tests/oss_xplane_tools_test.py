@@ -1,12 +1,13 @@
-"""Unit tests for OSS xplane_tools.iter_planes.
+"""Unit tests for OSS xplane_tools.
 
-These tests verify the fixes for the two review comments on cl/954632105:
-1. Non-existent absolute paths raise FileNotFoundError instead of silently
-   bypassing the XProf server fallback.
-2. Directory globs search for both .xplane.pb and .xspace.pb files, matching
-   the behavior of xprof_client.get_xspace_paths.
+Covers `iter_planes` (including the fixes for the two review comments on
+cl/954632105: non-existent absolute paths raise FileNotFoundError instead of
+silently bypassing the XProf server fallback, and directory globs search for
+both .xplane.pb and .xspace.pb files) and `inspect_capture`, whose 1P
+counterpart is tested in tests/google/xplane_tools_test.py.
 """
 
+import json
 import pathlib
 import tempfile
 from unittest import mock
@@ -14,6 +15,38 @@ from unittest import mock
 from absl.testing import absltest
 from xprof.cli.internal import decorators
 from xprof.cli.internal.oss import xplane_tools
+
+
+class _FakeEvent:
+
+  def __init__(self, name, start_ns=0, duration_ns=10, stats=None):
+    self.name = name
+    self.start_ns = start_ns
+    self.duration_ns = duration_ns
+    self.stats = stats or []
+
+
+class _FakeLine:
+
+  def __init__(self, name, events=None):
+    self.name = name
+    self.display_name = ""
+    self.events = events or []
+
+
+class _FakeStatMetadata:
+
+  def __init__(self, name):
+    self.name = name
+
+
+class _FakePlane:
+
+  def __init__(self, name, lines=None):
+    self.name = name
+    self.lines = lines or []
+    self.stats = []
+    self.stat_metadata = {}
 
 
 class IterPlanesTest(absltest.TestCase):
@@ -98,26 +131,6 @@ class IterPlanesTest(absltest.TestCase):
   def test_list_xplane_events_max_events_negative_one_returns_all(self):
     """Verifies max_events=-1 or 0 is treated as unlimited."""
 
-    class _FakeEvent:
-
-      def __init__(self, name, start_ns=0, duration_ns=10, stats=None):
-        self.name = name
-        self.start_ns = start_ns
-        self.duration_ns = duration_ns
-        self.stats = stats or []
-
-    class _FakeLine:
-
-      def __init__(self, name, events=None):
-        self.name = name
-        self.events = events or []
-
-    class _FakePlane:
-
-      def __init__(self, name, lines=None):
-        self.name = name
-        self.lines = lines or []
-
     fake_event1 = _FakeEvent("event1", 0, 10)
     fake_event2 = _FakeEvent("event2", 10, 10)
     fake_line = _FakeLine("line1", [fake_event1, fake_event2])
@@ -137,6 +150,56 @@ class IterPlanesTest(absltest.TestCase):
       res_one = xplane_tools.list_xplane_events("test_session", max_events=1)
       self.assertIn("event1", res_one)
       self.assertNotIn("event2", res_one)
+
+
+class InspectCaptureTest(absltest.TestCase):
+  """Mirrors tests/google/xplane_tools_test.py so 1P and 3P stay in sync."""
+
+  def test_inspect_capture_gates(self):
+    fake_plane = _FakePlane(
+        "/device:TPU:0",
+        lines=[
+            _FakeLine("XLA Ops", [_FakeEvent("e0")]),
+            _FakeLine("Pallas Primitives", [_FakeEvent("e1")]),
+            _FakeLine("TC Stats", [_FakeEvent("e2")]),
+        ],
+    )
+
+    with mock.patch.object(
+        xplane_tools, "iter_planes", return_value=[fake_plane]
+    ):
+      res = json.loads(xplane_tools.inspect_capture("session_inspect"))
+
+    self.assertTrue(res["capture_valid_for_device_analysis"])
+    self.assertTrue(res["capture_valid_for_llo_analysis"])
+    self.assertTrue(res["capture_valid_for_counter_sampling"])
+    self.assertLen(res["planes"], 1)
+    self.assertEqual(res["planes"][0]["total_events"], 3)
+
+  def test_inspect_capture_host_metadata_llo_proto(self):
+    fake_plane = _FakePlane("/host:metadata")
+    fake_plane.stat_metadata = {1: _FakeStatMetadata("llo_proto")}
+
+    with mock.patch.object(
+        xplane_tools, "iter_planes", return_value=[fake_plane]
+    ):
+      res = json.loads(xplane_tools.inspect_capture("session_llo_meta"))
+
+    self.assertFalse(res["capture_valid_for_device_analysis"])
+    self.assertTrue(res["capture_valid_for_llo_analysis"])
+    self.assertFalse(res["capture_valid_for_counter_sampling"])
+
+  def test_inspect_capture_host_metadata_llo_proto_plane_stat(self):
+    """`llo_proto` carried as a plane-level stat also gates LLO analysis."""
+    fake_plane = _FakePlane("/host:metadata")
+    fake_plane.stats = [("llo_proto", b"")]
+
+    with mock.patch.object(
+        xplane_tools, "iter_planes", return_value=[fake_plane]
+    ):
+      res = json.loads(xplane_tools.inspect_capture("session_llo_stat"))
+
+    self.assertTrue(res["capture_valid_for_llo_analysis"])
 
 
 if __name__ == "__main__":

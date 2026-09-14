@@ -266,7 +266,7 @@ pytype_strict_contrib_test(
         "//plugin/xprof/cli/tools/oss:get_kernel_utilization_tool",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
-        "@tsl//tsl/profiler/protobuf:xplane_py_pb2",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_py_proto",
     ],
 )
 

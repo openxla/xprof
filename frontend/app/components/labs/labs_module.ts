@@ -12,7 +12,6 @@ import {MatSnackBarModule} from '@angular/material/snack-bar';
 import {LabsComponent} from './labs';
 
 @NgModule({
-  declarations: [LabsComponent],
   imports: [
     CommonModule,
     FormsModule,
@@ -24,6 +23,7 @@ import {LabsComponent} from './labs';
     MatIconModule,
     MatInputModule,
     MatSnackBarModule,
+    LabsComponent,
   ],
   exports: [LabsComponent],
 })

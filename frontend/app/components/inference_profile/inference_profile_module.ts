@@ -18,8 +18,9 @@ import {InferenceProfile} from './inference_profile';
     MatSidenavModule,
     MatProgressBarModule,
     DiagnosticsViewModule,
+    InferenceProfile,
   ],
-  declarations: [InferenceProfile],
+
   exports: [InferenceProfile],
 })
 export class InferenceProfileModule {}

@@ -11,7 +11,6 @@ import {StringFilter} from './string_filter';
 
 /** A string filter module. */
 @NgModule({
-  declarations: [StringFilter],
   imports: [
     CommonModule,
     MatButtonModule,
@@ -19,6 +18,7 @@ import {StringFilter} from './string_filter';
     MatIconModule,
     MatInputModule,
     MatTooltipModule,
+    StringFilter,
   ],
   exports: [StringFilter],
 })

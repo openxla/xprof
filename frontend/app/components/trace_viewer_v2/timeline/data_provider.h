@@ -23,6 +23,9 @@ class DataProvider {
   // Returns process mappings (pid -> hostname).
   absl::flat_hash_map<ProcessId, std::string> GetProcessMappings() const;
 
+  // Returns process names (pid -> process name).
+  const absl::flat_hash_map<ProcessId, std::string>& GetProcessNames() const;
+
   // Processes vectors of TraceEvent structs.
   void ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
                           Timeline& timeline);

@@ -442,9 +442,9 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   get processList() {
-    const processes: string[] = [];
-    for (const arr of Object.values(this.processes)) {
-      processes.push(...arr);
+    const processes = Object.values(this.processes).flat();
+    if (this.useTraceViewerV2) {
+      return processes.length > 0 ? processes : this.processesListFromJson;
     }
     return this.processesListFromJson.length > 0
       ? this.processesListFromJson
@@ -452,6 +452,15 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   constructor() {
+    window.addEventListener('message', (event) => {
+      if (event.origin !== window.location.origin) return;
+      if (
+        event.data.type === 'processes-list' ||
+        event.data.type === 'process-list'
+      ) {
+        this.processesListFromJson = event.data.data;
+      }
+    });
     if (
       String(this.platformLocation.pathname).includes(API_PREFIX + PLUGIN_NAME)
     ) {
@@ -816,7 +825,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
           if (!hostToProcessList[host]) {
             hostToProcessList[host] = new Set<string>();
           }
-          hostToProcessList[host].add(`${host} ${processName} (pid ${pid})`);
+          const formattedName = processName.startsWith(host)
+            ? processName
+            : `${host} ${processName}`;
+          hostToProcessList[host].add(`${formattedName} (pid: ${pid})`);
         }
       }
     }

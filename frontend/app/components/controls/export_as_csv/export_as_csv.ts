@@ -1,4 +1,5 @@
 import {ChangeDetectionStrategy, Component, inject, Input} from '@angular/core';
+import {MatIcon} from '@angular/material/icon';
 import {
   DATA_SERVICE_INTERFACE_TOKEN,
   DataServiceV2Interface,
@@ -9,10 +10,10 @@ import {
  */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'export-as-csv',
   templateUrl: './export_as_csv.ng.html',
   styleUrls: ['./export_as_csv.scss'],
+  imports: [MatIcon],
 })
 export class ExportAsCsv {
   @Input() tool = '';

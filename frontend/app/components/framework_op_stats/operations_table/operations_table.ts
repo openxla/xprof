@@ -1,26 +1,34 @@
-import {Component, Input, OnChanges, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  Input,
+  OnChanges,
+  SimpleChanges,
+} from '@angular/core';
 import {OpExecutor} from 'org_xprof/frontend/app/common/constants/enums';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {type FrameworkOpStatsData} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
+import {Chart} from '../../chart/chart';
 import {OperationsTableDataProvider} from './operations_table_data_provider';
 
 /** An operations table view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'operations-table',
   templateUrl: './operations_table.ng.html',
-  styleUrls: ['./operations_table.scss']
+  styleUrls: ['./operations_table.scss'],
+  imports: [Chart],
 })
 export class OperationsTable implements OnChanges {
   /**
    * The tensorflow stats data.
    *  TODO(tf-profiler) rename to "frameworkOpStatsData"
    */
-  @Input() tensorflowStatsData: FrameworkOpStatsData|null = null;
+  @Input() tensorflowStatsData: FrameworkOpStatsData | null = null;
 
   /** The tensorflow stats data for diff. */
-  @Input() diffData: FrameworkOpStatsData|null = null;
+  @Input() diffData: FrameworkOpStatsData | null = null;
 
   /** Whether to use diff. */
   @Input() hasDiff = false;

@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "memory_timeline_graph",
     srcs = [
         "memory_timeline_graph.ts",
-        "memory_timeline_graph_module.ts",
     ],
     assets = [
         ":memory_timeline_graph_css",

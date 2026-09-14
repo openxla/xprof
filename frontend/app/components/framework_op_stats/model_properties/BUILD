@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "model_properties",
     srcs = [
         "model_properties.ts",
-        "model_properties_module.ts",
     ],
     assets = [
         ":model_properties_css",

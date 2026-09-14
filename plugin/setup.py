@@ -112,6 +112,14 @@ def parse_requirements(
 PROJECT_NAME = 'xprof'
 VERSION = version.__version__
 REQUIRED_PACKAGES = parse_requirements()
+# Dependencies required only to run the test suite. Declared as the `[test]`
+# extra so a clean environment can install them via `pip install xprof[test]`;
+# without these, tests error out on missing `jax`, `pandas`, and `ml_dtypes`.
+TEST_PACKAGES = [
+    'jax',
+    'ml_dtypes',
+    'pandas',
+]
 PACKAGE_DATA = {
     'xprof': [
         'static/**',
@@ -176,6 +184,7 @@ if __name__ == '__main__':
       python_requires='>= 3.10',
       install_requires=REQUIRED_PACKAGES,
       tests_require=REQUIRED_PACKAGES,
+      extras_require={'test': TEST_PACKAGES},
       # PyPI package information.
       classifiers=[
           'Intended Audience :: Developers',

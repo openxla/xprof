@@ -1,16 +1,41 @@
 <div class="approval-card" id="approval-card">
-  <div class="approval-title">Reviewer Certification & Approval Portal</div>
-  <p style="font-size: 13px; color: #5f6368; margin-bottom: 12px;">
-    Unapproved visual or structural deltas detected. Reviewers may certify intentional changes below.
+  <div class="approval-title">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+    Reviewer Certification & Approval Portal
+  </div>
+  <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+    Unapproved visual or structural deltas detected. Certify whether this diff is an intended improvement or an unintentional regression.
   </p>
-  <textarea id="rationale-input" style="width:100%; min-height:60px; padding:8px; border:1px solid #dadce0; border-radius:4px; font-size:13px;" placeholder="Rationale: e.g. Updated Step-Time formatting per RFC #42"></textarea>
-  <div style="margin-top:12px; display:flex; justify-content:flex-end;">
-    <button class="btn-approve" onclick="signApproval()">Approve & Generate Manifest Entry</button>
+
+  <div class="approval-options">
+    <label class="radio-label">
+      <input type="radio" name="approval_choice" id="choice-intentional" value="intentional" checked>
+      <div>
+        <strong>Mark as INTENTIONAL Improvement (Approve Change)</strong>
+        <div style="font-size: 12px; color: var(--text-muted);">The visual change matches product design specs and improves user experience.</div>
+      </div>
+    </label>
+
+    <textarea id="rationale-input" class="rationale-box" placeholder="Required Rationale: e.g., Updated UI layout per RFC #42 UX design specifications."></textarea>
+
+    <label class="radio-label" style="margin-top: 6px;">
+      <input type="radio" name="approval_choice" id="choice-regression" value="regression">
+      <div>
+        <strong>Flag as UNINTENTIONAL Regression (Withhold Approval)</strong>
+        <div style="font-size: 12px; color: var(--text-muted);">The layout shift or text change was accidental and must be fixed in the CL.</div>
+      </div>
+    </label>
+  </div>
+
+  <div class="action-row">
+    <button type="button" class="btn-reject" onclick="flagRegression()">Reject & Request Rework</button>
+    <button type="button" class="btn-approve" onclick="signApproval()">Approve & Sign Manifest</button>
   </div>
 </div>
-<div class="certified-banner" id="certified-banner">
-  <h4>✅ Presubmit Certified: Approved as Intentional Change</h4>
-  <p style="font-size: 13px; margin: 8px 0 4px 0;">Add this configuration to <code>approved_manifest.json</code> to register approval:</p>
-  <pre id="manifest-code" style="background:#282c34; color:#abb2bf; padding:12px; border-radius:6px; font-family:monospace; font-size:12px; overflow-x:auto; white-space:pre; margin-bottom:8px;"></pre>
-  <button class="btn-approve" onclick="copyManifestJson()" style="padding:6px 12px; font-size:12px;">Copy JSON to Clipboard</button>
+
+<div class="certified-banner" id="certified-banner" style="display:none;">
+  <h4>Approval entries generated &mdash; not yet applied</h4>
+  <p style="font-size: 13px; margin: 8px 0 4px 0;">This run is still failing and nothing has been written. Merge the entries below into the existing <code>"approved_diffs"</code> object in <code>tests/ui/approved_manifest.json</code>, keeping the entries already there, and commit that file. The gate re-evaluates on the next run.</p>
+  <pre id="manifest-code" class="manifest-code-block"></pre>
+  <button type="button" class="btn-approve" onclick="copyManifestJson()" style="padding:6px 14px; font-size:12px; margin-top:8px;">Copy Manifest JSON to Clipboard</button>
 </div>

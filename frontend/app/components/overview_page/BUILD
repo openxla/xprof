@@ -2,6 +2,15 @@ load("//defs:defs.bzl", "sass_binary", "xprof_ng_module")
 
 package(default_visibility = ["//frontend:internal"])
 
+filegroup(
+    name = "overview_page_assets",
+    srcs = [
+        "overview_page.ng.html",
+        "overview_page.scss",
+    ],
+    visibility = ["//xprof:__subpackages__"],
+)
+
 xprof_ng_module(
     name = "overview_page",
     srcs = [

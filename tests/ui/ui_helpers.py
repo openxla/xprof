@@ -52,6 +52,10 @@ def _select_sidenav_dropdown_option(
   sync_api.expect(page.locator(".cdk-overlay-pane")).to_have_count(
       0, timeout=5000
   )
+  try:
+    page.mouse.move(0, 0)
+  except sync_api.Error:
+    pass
 
 
 def switch_tool(page: sync_api.Page, tool_name: str) -> None:

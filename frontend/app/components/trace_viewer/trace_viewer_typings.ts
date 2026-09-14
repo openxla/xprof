@@ -1,3 +1,15 @@
+import {CrossToolLink} from 'org_xprof/frontend/app/common/interfaces/cross_tool_link';
+
+// The cross-tool link types live in the shared interfaces package because the
+// trace viewer container renders them and cannot depend on this package.
+// Re-exported here so that callers can import every trace viewer type from
+// one place.
+export {
+  type CrossToolLink,
+  type CrossToolLinkId,
+  type CrossToolLinkSpec,
+} from 'org_xprof/frontend/app/common/interfaces/cross_tool_link';
+
 /** Enum for a filter operator type. */
 export enum FilterOperatorType {
   EXACT = '=',
@@ -185,11 +197,21 @@ export declare interface SelectedEvent {
    * points to the full HLO expression (including input/output tensor shapes).
    */
   sf?: number;
-  stackTraceLinkHtml?: string;
-  rooflineModelLinkHtml?: string;
+  /** Links to other XProf tools for this event, in display order. */
+  crossToolLinks?: readonly CrossToolLink[];
+  /**
+   * What the cross-tool links point at, e.g. `fusion.1 · jit_train_step`. Shown
+   * once above the links so that the individual chips can stay short.
+   */
+  crossToolContext?: string;
+  /**
+   * `crossToolContext` including the HLO module id. Shown on hover, because the
+   * id is long enough to break the layout but is needed to tell two runs of the
+   * same module apart.
+   */
+  crossToolContextFull?: string;
   hloModule?: string;
   hloOpName?: string;
-  graphViewerLinkHtml?: string;
 }
 
 /**

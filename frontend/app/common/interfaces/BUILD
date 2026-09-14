@@ -90,6 +90,7 @@ ts_library(
     srcs = [
         "buffer_allocation_info.ts",
         "capture_profile.ts",
+        "cross_tool_link.ts",
         "data_table.ts",
         "diagnostics.ts",
         "graph_viewer.ts",

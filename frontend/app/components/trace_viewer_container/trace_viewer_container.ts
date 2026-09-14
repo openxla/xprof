@@ -36,6 +36,7 @@ import {ActivatedRoute} from '@angular/router';
 import {AngularSplitModule} from 'angular-split';
 
 import {NgxJsonViewerModule} from 'ngx-json-viewer';
+import {CrossToolLink} from 'org_xprof/frontend/app/common/interfaces/cross_tool_link';
 import {formatHloArgsForJsonTree} from './hlo_pretty_printer';
 import {TimelinePlayer} from 'org_xprof/frontend/app/components/timeline_player/timeline_player';
 import {getDefaultFeatureFlag} from 'org_xprof/frontend/app/components/trace_viewer_v2/feature_flags';
@@ -61,6 +62,19 @@ const DEPRECATED_STORAGE_KEYS = ['trace_viewer_timing_prompted'];
 
 /** Default height percentage for the drawer (bottom panel). */
 export const DEFAULT_DRAWER_SIZE_PERCENT = 30;
+
+/** Header shown above the links from the selected event to other XProf tools. */
+export const CROSS_TOOL_LINKS_HEADER = 'Explore this op in';
+
+/**
+ * Tooltip on the cross-tool links header. Spells out the two things users
+ * cannot infer from the chips themselves: where they land, and whether they
+ * lose the trace they are looking at.
+ */
+export const CROSS_TOOL_LINKS_HELP =
+  'Each link opens the selected operation in another XProf tool, in a new ' +
+  'browser tab. This trace, your selection and your zoom level stay as they ' +
+  'are here.';
 
 /**
  * Minimum height percentage for the drawer (bottom panel) to ensure the drag
@@ -160,9 +174,12 @@ export interface SelectedEvent {
   durationUs?: number;
   startUsFormatted?: string;
   durationUsFormatted?: string;
-  stackTraceLinkHtml?: string;
-  rooflineModelLinkHtml?: string;
-  graphViewerLinkHtml?: string;
+  /** Links to other XProf tools for this event, in display order. */
+  crossToolLinks?: readonly CrossToolLink[];
+  /** What the cross-tool links point at, e.g. `fusion.1 · jit_train_step`. */
+  crossToolContext?: string;
+  /** `crossToolContext` including the HLO module id; shown on hover. */
+  crossToolContextFull?: string;
   hloModule?: string;
   hloOpName?: string;
   args?: Record<string, unknown>;
@@ -405,6 +422,12 @@ export class TraceViewerContainer
   ];
   counterColumns = ['counter', 'series', 'time', 'value'];
 
+  /** Header shown above the links to other XProf tools. */
+  readonly crossToolLinksHeader = CROSS_TOOL_LINKS_HEADER;
+
+  /** Tooltip explaining what the links to other XProf tools do. */
+  readonly crossToolLinksHelp = CROSS_TOOL_LINKS_HELP;
+
   @Input() set selectedEventProperties(data: SelectedEventProperty[]) {
     this.selectedEventPropertiesDataSource.data = data;
 
@@ -427,6 +450,12 @@ export class TraceViewerContainer
   trackByProperty(index: number, prop: SelectedEventProperty): string {
     return `${prop.property ?? ''}:${prop.value ?? ''}`;
   }
+
+  /** Identifies a cross-tool link across change detection runs. */
+  trackByCrossToolLink(index: number, link: CrossToolLink): string {
+    return link.id;
+  }
+
   @Output()
   readonly eventSelected = new EventEmitter<EntrySelectedEventDetail | null>();
   @Output()

@@ -18,6 +18,7 @@ limitations under the License.
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
 #include <type_traits>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -491,6 +492,37 @@ TEST(RecordTest, ClearRemovesAllFields) {
   EXPECT_EQ(record.size(), 0);
   EXPECT_FALSE(record.HasField(field1_index));
   EXPECT_FALSE(record.HasField(field2_index));
+}
+
+TEST(RecordTest, SwapExchangesFields) {
+  static_assert(std::is_nothrow_swappable_v<Record>);
+
+  Schema schema;
+  FieldIndex field1_index = schema.RegisterFieldName("field1");
+  FieldIndex field2_index = schema.RegisterFieldName("field2");
+
+  Record r1;
+  r1.SetInt32(field1_index, 42);
+
+  Record r2;
+  r2.SetString(field2_index, "test");
+
+  const Record r1_expected = r1;
+  const Record r2_expected = r2;
+
+  using std::swap;
+  swap(r1, r2);
+
+  EXPECT_EQ(r1, r2_expected);
+  EXPECT_EQ(r2, r1_expected);
+
+  EXPECT_FALSE(r1.HasField(field1_index));
+  EXPECT_TRUE(r1.HasField(field2_index));
+  EXPECT_EQ(std::get<std::string>(r1[field2_index]), "test");
+
+  EXPECT_TRUE(r2.HasField(field1_index));
+  EXPECT_FALSE(r2.HasField(field2_index));
+  EXPECT_EQ(std::get<int32_t>(r2[field1_index]), 42);
 }
 
 TEST(RecordTest, EqualityComparison) {

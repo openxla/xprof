@@ -334,6 +334,11 @@ class Record {
     operator[](field) = std::move(value);
   }
 
+  friend void swap(Record& a, Record& b) noexcept {
+    using std::swap;
+    swap(a.fields_, b.fields_);
+  }
+
  private:
   template <typename T>
   static constexpr void VerifyNonMonostate() noexcept {

@@ -216,6 +216,21 @@ class Timeline {
   // This is necessary because MockTimeline in the tests inherits from Timeline.
   virtual ~Timeline() = default;
 
+  struct HeaderAggregateState {
+    bool any_expandable = false;
+    bool all_expanded = true;
+  };
+
+  const HeaderAggregateState& get_header_all_state_for_test() const {
+    return header_all_data_.aggregate_state;
+  }
+  const HeaderAggregateState& get_header_hidden_state_for_test() const {
+    return header_hidden_data_.aggregate_state;
+  }
+  const HeaderAggregateState& get_header_pinned_state_for_test() const {
+    return header_pinned_data_.aggregate_state;
+  }
+
   // For testing only
   float get_copy_notification_timer_for_test() const {
     return copy_notification_timer_;
@@ -562,7 +577,7 @@ class Timeline {
     }
   }
   void set_header_all_expanded_for_test(bool expanded) {
-    header_all_expanded_ = expanded;
+    header_all_data_.expanded = expanded;
   }
   const Group& header_hidden_for_test() const { return header_hidden_; }
   const Group& header_pinned_for_test() const { return header_pinned_; }
@@ -623,9 +638,17 @@ class Timeline {
 
   bool DrawHideButton(int group_index, Pixel height, bool is_track_hidden);
   bool DrawPinButton(int group_index, Pixel height, bool is_pinned);
+  bool DrawCollapseExpandAllButton(const Group* header_group, Pixel height,
+                                   bool all_expanded);
+  virtual void DrawCollapseExpandAllIcon(ImDrawList* draw_list, Pixel center_x,
+                                         Pixel center_y, Pixel icon_draw_size,
+                                         ImU32 icon_col, bool all_expanded);
 
  private:
   absl::flat_hash_set<int> matching_event_indices_;
+
+  bool IsGroupExpandable(int group_index,
+                         const FlameChartTimelineData& data) const;
 
   void NavigateToSearchResult(const SearchResult& result);
   void BackfillGroupLevelCount(FlameChartTimelineData& data);
@@ -809,18 +832,45 @@ class Timeline {
                        .nesting_level = kHeaderNestingLevel};
   Group header_pinned_{.name = kPinnedHeaderName,
                        .nesting_level = kHeaderNestingLevel};
-  // Y coordinate offsets of section headers cached from layout computation.
-  Pixel header_all_offset_ = 0.0f;
-  Pixel header_hidden_offset_ = 0.0f;
-  Pixel header_pinned_offset_ = 0.0f;
-  // Persistent expansion/collapse states of section headers.
-  bool header_hidden_expanded_ = false;
-  bool header_all_expanded_ = true;
-  bool header_pinned_expanded_ = true;
-  // Caching counts of unhidden, hidden, and pinned process tracks.
-  int all_processes_count_ = 0;
-  int hidden_processes_count_ = 0;
-  int pinned_processes_count_ = 0;
+
+  struct VirtualHeaderData {
+    // Y coordinate offset of the header cached from layout computation.
+    Pixel offset = 0.0f;
+
+    // Persistent expansion/collapse states of section headers.
+    bool expanded = false;
+
+    // Caching counts of process tracks in the section.
+    int process_count = 0;
+
+    // Whether the header is collapsed.
+    HeaderAggregateState aggregate_state = HeaderAggregateState();
+
+    // Header identifier.
+    int header_id;
+  };
+  // Virtual header data for each header section.
+  VirtualHeaderData header_all_data_{.offset = 0.0f,
+                                     .expanded = true,
+                                     .process_count = 0,
+                                     .header_id = kAllHeaderId};
+  VirtualHeaderData header_hidden_data_{.offset = 0.0f,
+                                        .expanded = false,
+                                        .process_count = 0,
+                                        .header_id = kHiddenHeaderId};
+  VirtualHeaderData header_pinned_data_{.offset = 0.0f,
+                                        .expanded = true,
+                                        .process_count = 0,
+                                        .header_id = kPinnedHeaderId};
+
+  // Mapping of section label to virtual header data.
+  absl::flat_hash_map<std::string, VirtualHeaderData*>
+      label_to_virtual_header_section_ =
+      {
+          {kAllHeaderName, &header_all_data_},
+          {kHiddenHeaderName, &header_hidden_data_},
+          {kPinnedHeaderName, &header_pinned_data_},
+      };
 
   FlameChartTimelineData timeline_data_;
   std::vector<float> utilization_bins_;

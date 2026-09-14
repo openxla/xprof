@@ -74,6 +74,10 @@ class MockTimeline : public Timeline {
                double px_per_time_unit, int level_in_group, const ImVec2& pos,
                const ImVec2& max, Pixel event_height, Pixel padding_bottom),
               (override));
+  MOCK_METHOD(void, DrawCollapseExpandAllIcon,
+              (ImDrawList * draw_list, Pixel center_x, Pixel center_y,
+               Pixel icon_draw_size, ImU32 icon_col, bool all_expanded),
+              (override));
 
   // Helpers to call base class protected methods from tests/lambdas.
   void DrawGroupBase(int group_index, double px_per_time_unit_val,
@@ -89,6 +93,12 @@ class MockTimeline : public Timeline {
     Timeline::DrawEventsForLevel(group_index, event_indices, px_per_time_unit,
                                  level_in_group, pos, max, event_height,
                                  padding_bottom);
+  }
+  void DrawCollapseExpandAllIconBase(ImDrawList* draw_list, Pixel center_x,
+                                     Pixel center_y, Pixel icon_draw_size,
+                                     ImU32 icon_col, bool all_expanded) {
+    Timeline::DrawCollapseExpandAllIcon(draw_list, center_x, center_y,
+                                        icon_draw_size, icon_col, all_expanded);
   }
 
   int CallFindFirstVisibleAncestorIndex(int start_idx) const {
@@ -107,6 +117,15 @@ class MockTimeline : public Timeline {
 
   bool CallDrawHideButton(int group_index, Pixel height, bool is_track_hidden) {
     return DrawHideButton(group_index, height, is_track_hidden);
+  }
+
+  bool CallDrawCollapseExpandAllButton(const Group* header_group, Pixel height,
+                                       bool all_expanded) {
+    return DrawCollapseExpandAllButton(header_group, height, all_expanded);
+  }
+
+  const std::vector<const Group*>& GetFlattenedGroups() const {
+    return flattened_groups_;
   }
 
   const absl::flat_hash_set<std::string>& GetPinnedTrackNames() const {
@@ -164,6 +183,14 @@ class MockTimeline : public Timeline {
           this->DrawEventsForLevelBase(group_index, event_indices,
                                        px_per_time_unit, level_in_group, pos,
                                        max, event_height, padding_bottom);
+        });
+    ON_CALL(*this, DrawCollapseExpandAllIcon)
+        .WillByDefault([this](ImDrawList* draw_list, Pixel center_x,
+                              Pixel center_y, Pixel icon_draw_size,
+                              ImU32 icon_col, bool all_expanded) {
+          this->DrawCollapseExpandAllIconBase(draw_list, center_x, center_y,
+                                              icon_draw_size, icon_col,
+                                              all_expanded);
         });
   }
 
@@ -1627,8 +1654,7 @@ TEST_F(MockTimelineImGuiFixture, HandleKeyboard_KeyD_PansRight) {
   SimulateFrame();
 }
 
-TEST_F(MockTimelineImGuiFixture,
-       HandleKeyboard_LeftArrow_PansWhenNoSelection) {
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_LeftArrow_PansWhenNoSelection) {
   timeline_.RevealEvent(-1);  // Ensure no event is selected
   ImGui::GetIO().AddKeyEvent(ImGuiKey_LeftArrow, true);
   EXPECT_CALL(timeline_, Pan(FloatEq(-timeline_.panning_speed() *
@@ -8829,6 +8855,428 @@ TEST_F(RealTimelineImGuiFixture, ExpandHiddenHeaderShowsHiddenGroups) {
   EXPECT_TRUE(timeline_.group_visible()[0]);
 }
 
+TEST_F(RealTimelineImGuiFixture, CollapseExpandAllButton_Expand) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0};
+  data.entry_names = {"event1", "event2"};
+
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
+      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, false},
+      {Group::Type::kFlame, "Thread A2", "", 1, kThreadNestingLevel, false}};
+  data.events_by_level = {{0}, {1}};
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  // Initially Process A is collapsed, so the child is not visible.
+  EXPECT_FALSE(timeline_.group_visible()[1]);
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Click on "All" header collapse/expand all button.
+  // "All" header is at Y ~ 111 screen.
+  // The collapse/expand all button is at X ~ 236.0f.
+  io.MousePos = ImVec2(236.0f, 111.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Click
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Verify Process A became expanded, so the child is visible.
+  EXPECT_TRUE(timeline_.group_visible()[1]);
+}
+
+TEST_F(RealTimelineImGuiFixture, CollapseExpandAllButton_Collapse) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0};
+  data.entry_names = {"event1", "event2"};
+
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true},
+      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, false},
+      {Group::Type::kFlame, "Thread A2", "", 1, kThreadNestingLevel, false}};
+  data.events_by_level = {{0}, {1}};
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  // Initially Process A is expanded, so the child is visible.
+  EXPECT_TRUE(timeline_.group_visible()[1]);
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Click on "All" header collapse/expand all button.
+  io.MousePos = ImVec2(236.0f, 111.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Click
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Verify Process A became collapsed, so the child is not visible.
+  EXPECT_FALSE(timeline_.group_visible()[1]);
+}
+
+TEST_F(RealTimelineImGuiFixture, CollapseExpandAllButton_MultipleGroupsExpand) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1, 2, 3};
+  data.entry_total_times = {10.0, 10.0, 10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0, 10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0, 0.0, 0.0};
+  data.entry_names = {"event1", "event2", "event3", "event4"};
+
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
+      {Group::Type::kFlame, "Process B", "", 2, kProcessNestingLevel, false}};
+  data.events_by_level = {{0}, {1}, {2}, {3}};
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  // Initially both are collapsed.
+  EXPECT_FALSE(timeline_.timeline_data().groups[0].expanded);
+  EXPECT_FALSE(timeline_.timeline_data().groups[1].expanded);
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Click on "All" header collapse/expand all button.
+  io.MousePos = ImVec2(236.0f, 111.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Click
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Verify BOTH Process A and Process B became expanded.
+  EXPECT_TRUE(timeline_.timeline_data().groups[0].expanded);
+  EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       CollapseExpandAllButton_MultipleGroupsCollapse) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1, 2, 3};
+  data.entry_total_times = {10.0, 10.0, 10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0, 10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0, 0.0, 0.0};
+  data.entry_names = {"event1", "event2", "event3", "event4"};
+
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true},
+      {Group::Type::kFlame, "Process B", "", 2, kProcessNestingLevel, true}};
+  data.events_by_level = {{0}, {1}, {2}, {3}};
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  // Initially both are expanded.
+  EXPECT_TRUE(timeline_.timeline_data().groups[0].expanded);
+  EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Click on "All" header collapse/expand all button.
+  io.MousePos = ImVec2(236.0f, 111.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Click
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Verify BOTH Process A and Process B became collapsed.
+  EXPECT_FALSE(timeline_.timeline_data().groups[0].expanded);
+  EXPECT_FALSE(timeline_.timeline_data().groups[1].expanded);
+}
+
+TEST_F(RealTimelineImGuiFixture, CollapseExpandAllButton_PinnedSectionExpand) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1, 2, 3};
+  data.entry_total_times = {10.0, 10.0, 10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0, 10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0, 0.0, 0.0};
+  data.entry_names = {"event1", "event2", "event3", "event4"};
+
+  data.groups = {
+      {.type = Group::Type::kFlame,
+       .name = "Process A",
+       .nesting_level = kProcessNestingLevel,
+       .expanded = false,
+       .has_children = true},
+      {.type = Group::Type::kFlame,
+       .name = "Thread A1",
+       .nesting_level = kThreadNestingLevel,
+       .expanded = false},
+      {.type = Group::Type::kFlame,
+       .name = "Process B",
+       .nesting_level = kProcessNestingLevel,
+       .expanded = false,
+       .has_children = true},
+      {.type = Group::Type::kFlame,
+       .name = "Thread B1",
+       .nesting_level = kThreadNestingLevel,
+       .expanded = false}};
+  data.events_by_level = {{0}, {1}, {2}, {3}};
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.pinned_track_names_ = {"Process A"};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  // Initially Process A is collapsed, so Thread A1 is not visible.
+  EXPECT_FALSE(timeline_.group_visible()[1]);
+  // Process B is in "All" and collapsed, so Thread B1 is not visible.
+  EXPECT_FALSE(timeline_.group_visible()[3]);
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Click on "Pinned" header collapse/expand all button
+  // (Y ~ 83 screen, X ~ 236).
+  io.MousePos = ImVec2(236.0f, 83.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Click
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Verify Process A became expanded, so Thread A1 is visible.
+  EXPECT_TRUE(timeline_.group_visible()[1]);
+  // Verify Process B in "All" was unaffected and remains collapsed.
+  EXPECT_FALSE(timeline_.group_visible()[3]);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       CollapseExpandAllButton_PinnedSectionCollapse) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1, 2, 3};
+  data.entry_total_times = {10.0, 10.0, 10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0, 10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0, 0.0, 0.0};
+  data.entry_names = {"event1", "event2", "event3", "event4"};
+
+  data.groups = {
+      {.type = Group::Type::kFlame,
+       .name = "Process A",
+       .nesting_level = kProcessNestingLevel,
+       .expanded = true,
+       .has_children = true},
+      {.type = Group::Type::kFlame,
+       .name = "Thread A1",
+       .nesting_level = kThreadNestingLevel,
+       .expanded = false},
+      {.type = Group::Type::kFlame,
+       .name = "Process B",
+       .nesting_level = kProcessNestingLevel,
+       .expanded = true,
+       .has_children = true},
+      {.type = Group::Type::kFlame,
+       .name = "Thread B1",
+       .nesting_level = kThreadNestingLevel,
+       .expanded = false}};
+  data.events_by_level = {{0}, {1}, {2}, {3}};
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.pinned_track_names_ = {"Process A"};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  // Initially Process A is expanded, so Thread A1 is visible.
+  EXPECT_TRUE(timeline_.group_visible()[1]);
+  // Process B is in "All" and expanded, so Thread B1 is visible.
+  EXPECT_TRUE(timeline_.group_visible()[3]);
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Click on "Pinned" header collapse/expand all button
+  // (Y ~ 83 screen, X ~ 236).
+  io.MousePos = ImVec2(236.0f, 83.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Click
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Verify Process A became collapsed, so Thread A1 is not visible.
+  EXPECT_FALSE(timeline_.group_visible()[1]);
+  // Verify Process B in "All" was unaffected and remains expanded.
+  EXPECT_TRUE(timeline_.group_visible()[3]);
+}
+
+TEST_F(RealTimelineImGuiFixture, CollapseExpandAllButton_HiddenSectionExpand) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1, 2, 3};
+  data.entry_total_times = {10.0, 10.0, 10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0, 10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0, 0.0, 0.0};
+  data.entry_names = {"event1", "event2", "event3", "event4"};
+
+  data.groups = {
+      {.type = Group::Type::kFlame,
+       .name = "Process A",
+       .nesting_level = kProcessNestingLevel,
+       .expanded = false,
+       .has_children = true},
+      {.type = Group::Type::kFlame,
+       .name = "Thread A1",
+       .nesting_level = kThreadNestingLevel,
+       .expanded = false},
+      {.type = Group::Type::kFlame,
+       .name = "Process B",
+       .nesting_level = kProcessNestingLevel,
+       .expanded = false,
+       .has_children = true},
+      {.type = Group::Type::kFlame,
+       .name = "Thread B1",
+       .nesting_level = kThreadNestingLevel,
+       .expanded = false}};
+  data.events_by_level = {{0}, {1}, {2}, {3}};
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.hidden_track_names_ = {"Process A"};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  // Hidden section is collapsed by default. First click arrow on "Hidden"
+  // header at (15.0f, 51.0f) to expand the "Hidden" section.
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(15.0f, 51.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Hidden section is now open. Process A is collapsed, so Thread A1 is
+  // not visible.
+  EXPECT_FALSE(timeline_.group_visible()[1]);
+  // Process B is in "All" and collapsed.
+  EXPECT_FALSE(timeline_.group_visible()[3]);
+
+  // Click on "Hidden" header collapse/expand all button
+  // (Y ~ 51 screen, X ~ 236).
+  io.MousePos = ImVec2(236.0f, 51.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Click
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Verify Process A became expanded, so Thread A1 is visible.
+  EXPECT_TRUE(timeline_.group_visible()[1]);
+  // Verify Process B in "All" was unaffected and remains collapsed.
+  EXPECT_FALSE(timeline_.group_visible()[3]);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       CollapseExpandAllButton_HiddenSectionCollapse) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1, 2, 3};
+  data.entry_total_times = {10.0, 10.0, 10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0, 10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0, 0.0, 0.0};
+  data.entry_names = {"event1", "event2", "event3", "event4"};
+
+  data.groups = {
+      {.type = Group::Type::kFlame,
+       .name = "Process A",
+       .nesting_level = kProcessNestingLevel,
+       .expanded = true,
+       .has_children = true},
+      {.type = Group::Type::kFlame,
+       .name = "Thread A1",
+       .nesting_level = kThreadNestingLevel,
+       .expanded = false},
+      {.type = Group::Type::kFlame,
+       .name = "Process B",
+       .nesting_level = kProcessNestingLevel,
+       .expanded = true,
+       .has_children = true},
+      {.type = Group::Type::kFlame,
+       .name = "Thread B1",
+       .nesting_level = kThreadNestingLevel,
+       .expanded = false}};
+  data.events_by_level = {{0}, {1}, {2}, {3}};
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.hidden_track_names_ = {"Process A"};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  // Hidden section is collapsed by default. First click arrow on "Hidden"
+  // header at (15.0f, 51.0f) to expand the "Hidden" section.
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(15.0f, 51.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Hidden section is open. Process A is expanded, so Thread A1 is visible.
+  EXPECT_TRUE(timeline_.group_visible()[1]);
+  // Process B is in "All" and expanded.
+  EXPECT_TRUE(timeline_.group_visible()[3]);
+
+  // Click on "Hidden" header collapse/expand all button
+  // (Y ~ 51 screen, X ~ 236).
+  io.MousePos = ImVec2(236.0f, 51.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Click
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Verify Process A became collapsed, so Thread A1 is not visible.
+  EXPECT_FALSE(timeline_.group_visible()[1]);
+  // Verify Process B in "All" was unaffected and remains expanded.
+  EXPECT_TRUE(timeline_.group_visible()[3]);
+}
+
 TEST_F(RealTimelineImGuiFixture, ClickUnhideButtonOnHiddenTrackUnhidesIt) {
   FlameChartTimelineData data;
   data.entry_levels = {0};
@@ -13516,6 +13964,518 @@ TEST(TimelineTest, SelectionRemapFallbackDisambiguatesByTidAcrossThreads) {
   timeline.SetTimelineData(std::move(update_data));
 
   EXPECT_EQ(timeline.selected_event_index(), 1);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       CollapseExpandAllButton_NotDrawnWhenNothingIsExpandable) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Flame_SingleLevel",
+                         .start_level = 0,
+                         .nesting_level = 1,
+                         .expanded = false,
+                         .level_count = 1});
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = "Counter_Group",
+                         .start_level = 0,
+                         .nesting_level = 1,
+                         .expanded = false,
+                         .level_count = 1});
+  data.events_by_level.resize(1);
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(std::move(data));
+
+  EXPECT_FALSE(timeline_.get_header_all_state_for_test().any_expandable);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(1000.0f, 1000.0f));
+  ImGui::Begin("TestWindow");
+
+  const auto& flattened = timeline_.GetFlattenedGroups();
+  auto it =
+      std::find_if(flattened.begin(), flattened.end(),
+                   [](const Group* g) { return g->name == kAllHeaderName; });
+  ASSERT_NE(it, flattened.end());
+
+  ImGui::SetCursorScreenPos(ImVec2(100.0f, 100.0f));
+  timeline_.CallDrawCollapseExpandAllButton(*it, 20.0f, /*all_expanded=*/false);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMousePosEvent(105.0f, 105.0f);
+  io.AddMouseButtonEvent(0, true);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(1000.0f, 1000.0f));
+  ImGui::Begin("TestWindow");
+  ImGui::SetCursorScreenPos(ImVec2(100.0f, 100.0f));
+
+  bool toggled = timeline_.CallDrawCollapseExpandAllButton(
+      *it, 20.0f, /*all_expanded=*/false);
+  EXPECT_FALSE(toggled);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  io.AddMouseButtonEvent(0, false);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       CollapseExpandAllButton_MixedStateExpandsAllAndDrivesIconAndTooltip) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Flame0",
+                         .nesting_level = 1,
+                         .expanded = true,
+                         .has_children = true});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Flame1",
+                         .nesting_level = 2,
+                         .expanded = true});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Flame2",
+                         .nesting_level = 1,
+                         .expanded = false,
+                         .has_children = true});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Flame3",
+                         .nesting_level = 2,
+                         .expanded = false});
+  data.events_by_level.resize(4);
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(std::move(data));
+
+  EXPECT_TRUE(timeline_.get_header_all_state_for_test().any_expandable);
+  EXPECT_FALSE(timeline_.get_header_all_state_for_test().all_expanded);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(1000.0f, 1000.0f));
+  ImGui::Begin("TestWindow");
+
+  const auto& flattened = timeline_.GetFlattenedGroups();
+  auto it =
+      std::find_if(flattened.begin(), flattened.end(),
+                   [](const Group* g) { return g->name == kAllHeaderName; });
+  ASSERT_NE(it, flattened.end());
+
+  EXPECT_CALL(timeline_, DrawCollapseExpandAllIcon(_, _, _, _, _,
+                                                   /*all_expanded=*/false))
+      .Times(2);
+
+  ImGui::SetCursorScreenPos(ImVec2(100.0f, 100.0f));
+  timeline_.CallDrawCollapseExpandAllButton(*it, 20.0f, /*all_expanded=*/false);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMousePosEvent(105.0f, 105.0f);
+  io.AddMouseButtonEvent(0, true);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(1000.0f, 1000.0f));
+  ImGui::Begin("TestWindow");
+
+  ImGui::SetCursorScreenPos(ImVec2(100.0f, 100.0f));
+  bool toggled = timeline_.CallDrawCollapseExpandAllButton(
+      *it, 20.0f, /*all_expanded=*/false);
+  EXPECT_TRUE(toggled);
+
+  EXPECT_TRUE(timeline_.timeline_data().groups[0].expanded);
+  EXPECT_TRUE(timeline_.timeline_data().groups[2].expanded);
+
+  ImGui::End();
+  ImGui::EndFrame();
+
+  io.AddMouseButtonEvent(0, false);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       CollapseExpandAllButton_AlwaysVisibleWithoutHover) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Flame0",
+                         .nesting_level = 1,
+                         .expanded = true,
+                         .has_children = true});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Flame1",
+                         .nesting_level = 2,
+                         .expanded = true});
+  data.events_by_level.resize(2);
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(std::move(data));
+
+  EXPECT_CALL(timeline_, DrawCollapseExpandAllIcon(_, _, _, _, _,
+                                                   /*all_expanded=*/true))
+      .Times(1);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(1000.0f, 1000.0f));
+  ImGui::Begin("TestWindow");
+
+  // Position mouse far away from header row.
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMousePosEvent(900.0f, 900.0f);
+
+  timeline_.Draw();
+
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       CollapseExpandAllButton_HasMultipleLevelsIsExpandable) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "FlameGroup",
+                         .start_level = 0,
+                         .nesting_level = 1,
+                         .expanded = false,
+                         .level_count = 2});
+  data.events_by_level.resize(2);
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(std::move(data));
+
+  EXPECT_TRUE(timeline_.get_header_all_state_for_test().any_expandable);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       CollapseExpandAllButton_SectionBoundaryAndNonFlameGroups) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "HiddenFlame",
+                         .nesting_level = 1,
+                         .expanded = false,
+                         .has_children = true});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "HiddenFlameChild",
+                         .nesting_level = 2,
+                         .expanded = false});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "PinnedFlame",
+                         .nesting_level = 1,
+                         .expanded = false,
+                         .has_children = true});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "PinnedFlameChild",
+                         .nesting_level = 2,
+                         .expanded = false});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "AllFlame",
+                         .nesting_level = 1,
+                         .expanded = false,
+                         .has_children = true});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "AllFlameChild",
+                         .nesting_level = 2,
+                         .expanded = false});
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = "AllCounter",
+                         .nesting_level = 1,
+                         .expanded = false});
+  data.events_by_level.resize(7);
+
+  timeline_.set_track_management_enabled(true);
+
+  timeline_.SetHiddenTrackNames({"HiddenFlame"});
+  timeline_.SetPinnedTrackNames({"PinnedFlame"});
+
+  timeline_.SetTimelineData(std::move(data));
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(1000.0f, 1000.0f));
+  ImGui::Begin("TestWindow");
+
+  const auto& flattened = timeline_.GetFlattenedGroups();
+  auto it =
+      std::find_if(flattened.begin(), flattened.end(),
+                   [](const Group* g) { return g->name == kAllHeaderName; });
+  ASSERT_NE(it, flattened.end());
+
+  ImGui::SetCursorScreenPos(ImVec2(100.0f, 100.0f));
+  timeline_.CallDrawCollapseExpandAllButton(*it, 20.0f, /*all_expanded=*/false);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMousePosEvent(105.0f, 105.0f);
+  io.AddMouseButtonEvent(0, true);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(1000.0f, 1000.0f));
+  ImGui::Begin("TestWindow");
+
+  ImGui::SetCursorScreenPos(ImVec2(100.0f, 100.0f));
+  bool toggled = timeline_.CallDrawCollapseExpandAllButton(
+      *it, 20.0f, /*all_expanded=*/false);
+  EXPECT_TRUE(toggled);
+
+  EXPECT_TRUE(timeline_.timeline_data().groups[4].expanded);
+  EXPECT_FALSE(timeline_.timeline_data().groups[6].expanded);
+  EXPECT_FALSE(timeline_.timeline_data().groups[0].expanded);
+  EXPECT_FALSE(timeline_.timeline_data().groups[2].expanded);
+
+  ImGui::End();
+  ImGui::EndFrame();
+
+  io.AddMouseButtonEvent(0, false);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       CollapseExpandAllButton_PinnedSectionBoundary) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "HiddenFlame",
+                         .nesting_level = 1,
+                         .expanded = false,
+                         .has_children = true});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "HiddenFlameChild",
+                         .nesting_level = 2,
+                         .expanded = false});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "PinnedFlame",
+                         .nesting_level = 1,
+                         .expanded = false,
+                         .has_children = true});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "PinnedFlameChild",
+                         .nesting_level = 2,
+                         .expanded = false});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "AllFlame",
+                         .nesting_level = 1,
+                         .expanded = false,
+                         .has_children = true});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "AllFlameChild",
+                         .nesting_level = 2,
+                         .expanded = false});
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = "AllCounter",
+                         .nesting_level = 1,
+                         .expanded = false});
+  data.events_by_level.resize(7);
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetHiddenTrackNames({"HiddenFlame"});
+  timeline_.SetPinnedTrackNames({"PinnedFlame"});
+  timeline_.SetTimelineData(std::move(data));
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(1000.0f, 1000.0f));
+  ImGui::Begin("TestWindow");
+
+  const auto& flattened = timeline_.GetFlattenedGroups();
+  auto it =
+      std::find_if(flattened.begin(), flattened.end(),
+                   [](const Group* g) { return g->name == kPinnedHeaderName; });
+  ASSERT_NE(it, flattened.end());
+
+  ImGui::SetCursorScreenPos(ImVec2(100.0f, 100.0f));
+  timeline_.CallDrawCollapseExpandAllButton(*it, 20.0f, /*all_expanded=*/false);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMousePosEvent(105.0f, 105.0f);
+  io.AddMouseButtonEvent(0, true);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(1000.0f, 1000.0f));
+  ImGui::Begin("TestWindow");
+
+  ImGui::SetCursorScreenPos(ImVec2(100.0f, 100.0f));
+  bool toggled = timeline_.CallDrawCollapseExpandAllButton(
+      *it, 20.0f, /*all_expanded=*/false);
+  EXPECT_TRUE(toggled);
+
+  EXPECT_TRUE(timeline_.timeline_data().groups[2].expanded);
+  EXPECT_FALSE(timeline_.timeline_data().groups[0].expanded);
+  EXPECT_FALSE(timeline_.timeline_data().groups[4].expanded);
+  EXPECT_FALSE(timeline_.timeline_data().groups[6].expanded);
+
+  ImGui::End();
+  ImGui::EndFrame();
+
+  io.AddMouseButtonEvent(0, false);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       CollapseExpandAllButton_HiddenSectionBoundary) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "HiddenFlame",
+                         .nesting_level = 1,
+                         .expanded = false,
+                         .has_children = true});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "HiddenFlameChild",
+                         .nesting_level = 2,
+                         .expanded = false});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "PinnedFlame",
+                         .nesting_level = 1,
+                         .expanded = false,
+                         .has_children = true});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "PinnedFlameChild",
+                         .nesting_level = 2,
+                         .expanded = false});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "AllFlame",
+                         .nesting_level = 1,
+                         .expanded = false,
+                         .has_children = true});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "AllFlameChild",
+                         .nesting_level = 2,
+                         .expanded = false});
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = "AllCounter",
+                         .nesting_level = 1,
+                         .expanded = false});
+  data.events_by_level.resize(7);
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetHiddenTrackNames({"HiddenFlame"});
+  timeline_.SetPinnedTrackNames({"PinnedFlame"});
+  timeline_.SetTimelineData(std::move(data));
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(1000.0f, 1000.0f));
+  ImGui::Begin("TestWindow");
+
+  const auto& flattened = timeline_.GetFlattenedGroups();
+  auto it =
+      std::find_if(flattened.begin(), flattened.end(),
+                   [](const Group* g) { return g->name == kHiddenHeaderName; });
+  ASSERT_NE(it, flattened.end());
+
+  ImGui::SetCursorScreenPos(ImVec2(100.0f, 100.0f));
+  timeline_.CallDrawCollapseExpandAllButton(*it, 20.0f, /*all_expanded=*/false);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMousePosEvent(105.0f, 105.0f);
+  io.AddMouseButtonEvent(0, true);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(1000.0f, 1000.0f));
+  ImGui::Begin("TestWindow");
+
+  ImGui::SetCursorScreenPos(ImVec2(100.0f, 100.0f));
+  bool toggled = timeline_.CallDrawCollapseExpandAllButton(
+      *it, 20.0f, /*all_expanded=*/false);
+  EXPECT_TRUE(toggled);
+
+  EXPECT_TRUE(timeline_.timeline_data().groups[0].expanded);
+  EXPECT_FALSE(timeline_.timeline_data().groups[2].expanded);
+  EXPECT_FALSE(timeline_.timeline_data().groups[4].expanded);
+  EXPECT_FALSE(timeline_.timeline_data().groups[6].expanded);
+
+  ImGui::End();
+  ImGui::EndFrame();
+
+  io.AddMouseButtonEvent(0, false);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       DrawCollapseExpandAllIcon_DrawsChevronsWithExpectedGeometry) {
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(1000.0f, 1000.0f));
+  ImGui::Begin("TestWindow");
+
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  const Pixel center_x = 100.0f;
+  const Pixel center_y = 100.0f;
+  const Pixel icon_draw_size = 20.0f;
+  const ImU32 icon_col = 0xFFFFFFFF;
+
+  const Pixel expected_h = icon_draw_size * 0.35f;      // 7.0f
+  const Pixel expected_w = icon_draw_size * 0.18f;      // 3.6f
+  const Pixel expected_shift = icon_draw_size * 0.28f;  // 5.6f
+
+  struct IconMetrics {
+    float min_x = 1e9f, max_x = -1e9f;
+    float min_y = 1e9f, max_y = -1e9f;
+    float center_tip_top_y = 1e9f;
+    float center_tip_bottom_y = -1e9f;
+  };
+
+  auto measure_icon = [&](bool all_expanded) {
+    IconMetrics m;
+    const int start_vtx = draw_list->VtxBuffer.Size;
+    timeline_.DrawCollapseExpandAllIconBase(draw_list, center_x, center_y,
+                                            icon_draw_size, icon_col,
+                                            all_expanded);
+    const int end_vtx = draw_list->VtxBuffer.Size;
+    EXPECT_GT(end_vtx, start_vtx);
+
+    for (int i = start_vtx; i < end_vtx; ++i) {
+      const auto& vtx = draw_list->VtxBuffer[i];
+      m.min_x = std::min(m.min_x, vtx.pos.x);
+      m.max_x = std::max(m.max_x, vtx.pos.x);
+      m.min_y = std::min(m.min_y, vtx.pos.y);
+      m.max_y = std::max(m.max_y, vtx.pos.y);
+      if (std::abs(vtx.pos.x - (center_x + 0.5f)) < 0.6f) {
+        m.center_tip_top_y = std::min(m.center_tip_top_y, vtx.pos.y);
+        m.center_tip_bottom_y = std::max(m.center_tip_bottom_y, vtx.pos.y);
+      }
+    }
+    return m;
+  };
+
+  // 1. Collapsed state (!all_expanded): chevrons point outwards (^ v)
+  {
+    IconMetrics m = measure_icon(/*all_expanded=*/false);
+    EXPECT_NEAR(m.max_x - m.min_x, 2.0f * expected_h + 1.58f, 0.2f);
+    EXPECT_NEAR(m.min_x, center_x - expected_h - 0.29f, 0.2f);
+    EXPECT_NEAR(m.max_x, center_x + expected_h + 1.29f, 0.2f);
+
+    EXPECT_NEAR(m.max_y - m.min_y,
+                2.0f * (expected_shift + expected_w) + 1.27f, 0.3f);
+
+    // Tips point outward: top tip is at the top, bottom tip is at the bottom
+    EXPECT_NEAR(m.center_tip_top_y,
+                center_y - expected_shift - expected_w + 0.5f, 0.5f);
+    EXPECT_NEAR(m.center_tip_bottom_y,
+                center_y + expected_shift + expected_w + 0.5f, 0.5f);
+  }
+
+  // 2. Expanded state (all_expanded): chevrons point inwards (v ^)
+  {
+    IconMetrics m = measure_icon(/*all_expanded=*/true);
+    EXPECT_NEAR(m.max_x - m.min_x, 2.0f * expected_h + 1.58f, 0.2f);
+    EXPECT_NEAR(m.min_x, center_x - expected_h - 0.29f, 0.2f);
+    EXPECT_NEAR(m.max_x, center_x + expected_h + 1.29f, 0.2f);
+
+    // Inward-pointing tips are near the center
+    EXPECT_NEAR(m.center_tip_top_y,
+                center_y - expected_shift + expected_w + 0.5f, 0.5f);
+    EXPECT_NEAR(m.center_tip_bottom_y,
+                center_y + expected_shift - expected_w + 0.5f, 0.5f);
+  }
+
+  ImGui::End();
+  ImGui::EndFrame();
 }
 
 }  // namespace

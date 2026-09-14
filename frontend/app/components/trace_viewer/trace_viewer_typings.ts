@@ -190,6 +190,7 @@ export declare interface SelectedEvent {
   hloModule?: string;
   hloOpName?: string;
   graphViewerLinkHtml?: string;
+  stepGroupLinkHtml?: string;
 }
 
 /**

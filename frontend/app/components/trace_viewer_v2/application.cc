@@ -68,7 +68,9 @@ EMSCRIPTEN_KEEPALIVE void SetPalette(const std::string& palette_name) {
 
   absl::Status status = palette.FromPreset(palette_name);
   if (!status.ok()) {
-    palette = ColorPalette::Preset::Default();
+    if (!palette.FromPreset("Catapult").ok()) {
+      palette = ColorPalette::Preset::Default();
+    }
   }
 
   Application::Instance().RequestRedraw();
@@ -211,10 +213,13 @@ void Application::Initialize() {
       palette_name = item.as<std::string>();
     }
   }
-  absl::Status status = palette_.FromPreset(palette_name);
-  if (!status.ok()) {
-    palette_ = ColorPalette::Preset::Default();
-    LOG(ERROR) << "Failed to load palette name: " << palette_name;
+  if (palette_name.empty()) {
+    palette_name = "Catapult";
+  }
+  if (!palette_.FromPreset(palette_name).ok()) {
+    if (!palette_.FromPreset("Catapult").ok()) {
+      palette_ = ColorPalette::Preset::Default();
+    }
   }
   // TODO: b/450584482 - Add a dark theme for the timeline.
   ImGuiStyle& style = ImGui::GetStyle();

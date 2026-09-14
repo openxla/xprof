@@ -178,6 +178,11 @@ export const VIEWPORT_CHANGED_EVENT_NAME = 'viewport-changed';
 export const COLOR_PALETTE_STORAGE_KEY = 'trace_viewer_palette';
 
 /**
+ * The default palette name when no user preference is stored.
+ */
+export const DEFAULT_PALETTE = 'Catapult';
+
+/**
  * The key to store whether the user has been prompted about the new color palette.
  */
 export const COLOR_PALETTE_PROMPTED_STORAGE_KEY =

@@ -144,5 +144,27 @@ TEST(ColorPaletteTest, SetTraceColors_ExceedingMaxColorsFails) {
               StatusIs(absl::StatusCode::kInvalidArgument));
 }
 
+TEST(ColorPaletteTest, FromPreset_LoadsCatapult) {
+  ColorPalette palette = ColorPalette::Default();
+  EXPECT_OK(palette.FromPreset("Catapult"));
+  EXPECT_EQ(palette.GetCurrentPresetName(), "Catapult");
+  EXPECT_EQ(palette.GetTraceColors().size(), 23);
+  EXPECT_EQ(palette.GetTraceColors()[0], 0xFFA1A1FF);
+}
+
+TEST(ColorPaletteTest, FromPreset_LoadsDefault) {
+  ColorPalette palette = ColorPalette::Default();
+  EXPECT_OK(palette.FromPreset("Catapult"));
+  EXPECT_OK(palette.FromPreset("Default"));
+  EXPECT_EQ(palette.GetCurrentPresetName(), "Default");
+  EXPECT_EQ(palette.GetTraceColors().size(), 7);
+}
+
+TEST(ColorPaletteTest, FromPreset_NotFoundForUnknownPreset) {
+  ColorPalette palette = ColorPalette::Default();
+  EXPECT_THAT(palette.FromPreset("NonExistentPreset"),
+              StatusIs(absl::StatusCode::kNotFound));
+}
+
 }  // namespace
 }  // namespace traceviewer

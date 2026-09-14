@@ -10,6 +10,7 @@ namespace traceviewer {
 
 inline const absl::flat_hash_map<std::string, ColorPalette::Preset>
     kPresetPalettes = {
+        {"Default", ColorPalette::Preset::Default()},
         {"Material",
          {
              .background = 0xFF383226,          // dark_teal #263238
@@ -131,7 +132,7 @@ inline const absl::flat_hash_map<std::string, ColorPalette::Preset>
                              0xFFEC85FF, 0xFFDEDA80, 0xFF81C0D7, 0xFFFF91E6,
                              0xFF9FDE91, 0xFFAC9BFF, 0xFFFFC88E},
          }},
-};
+    };
 
 }  // namespace traceviewer
 

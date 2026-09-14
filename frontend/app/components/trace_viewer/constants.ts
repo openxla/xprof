@@ -1,4 +1,5 @@
 import {
+  CrossToolLinkSpec,
   FilterField,
   FilterFieldCategory,
   FilterOperator,
@@ -124,16 +125,31 @@ export const MPMD_PIPELINE_VIEW_PARAM = 'mpmd_pipeline_view';
 export const USE_TRACE_VIEWER_V2_KEY = 'use_trace_viewer_v2';
 
 /**
- * Tool name and label for stack trace page for cross-links.
+ * Opens the Python source that produced the op, next to the IR it compiled
+ * into.
  */
-export const STACK_TRACE_TOOL_NAME = [
-  'stack_trace_page',
-  'Source Code Snippet with IR Text',
-];
-/**
- * Tool name and label for roofline model for cross-links.
- */
-export const ROOFLINE_MODEL_TOOL_NAME = ['roofline_model', 'Roofline Model'];
+export const SOURCE_AND_IR_LINK_SPEC: CrossToolLinkSpec = {
+  id: 'source_and_ir',
+  toolName: 'stack_trace_page',
+  label: 'Source Code & IR',
+  icon: 'code',
+};
+
+/** Opens the op's position relative to the compute and memory rooflines. */
+export const ROOFLINE_LINK_SPEC: CrossToolLinkSpec = {
+  id: 'roofline',
+  toolName: 'roofline_model',
+  label: 'Roofline analysis',
+  icon: 'speed',
+};
+
+/** Opens the op inside the HLO graph of the module it belongs to. */
+export const HLO_GRAPH_LINK_SPEC: CrossToolLinkSpec = {
+  id: 'hlo_graph',
+  toolName: 'graph_viewer',
+  label: 'HLO graph',
+  icon: 'hub',
+};
 
 /**
  * Separates event filter properties in the string representation of the filter

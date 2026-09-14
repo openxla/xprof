@@ -184,10 +184,32 @@
                       <span class="detail-label">{{prop.property}}:</span>
                       <span class="detail-value">{{prop.value}}</span>
                     </div>
-                    <div class="cross-tool-links">
-                      <div *ngIf="selectedEvent.stackTraceLinkHtml" [innerHTML]="selectedEvent.stackTraceLinkHtml"></div>
-                      <div *ngIf="selectedEvent.rooflineModelLinkHtml" [innerHTML]="selectedEvent.rooflineModelLinkHtml"></div>
-                      <div *ngIf="selectedEvent.graphViewerLinkHtml" [innerHTML]="selectedEvent.graphViewerLinkHtml"></div>
+                    <div class="cross-tool-links" *ngIf="selectedEvent.crossToolLinks?.length">
+                      <div class="cross-tool-links-header">
+                        <span class="cross-tool-links-title">{{crossToolLinksHeader}}</span>
+                        <mat-icon class="cross-tool-links-help" [matTooltip]="crossToolLinksHelp" aria-hidden="false" [attr.aria-label]="crossToolLinksHelp">help_outline</mat-icon>
+                        <span *ngIf="selectedEvent.crossToolContext" class="cross-tool-links-context" [title]="selectedEvent.crossToolContextFull || selectedEvent.crossToolContext">
+                          {{selectedEvent.crossToolContext}}
+                        </span>
+                      </div>
+                      <div class="cross-tool-links-row">
+                        <ng-container *ngFor="let link of selectedEvent.crossToolLinks; trackBy: trackByCrossToolLink">
+                          <a *ngIf="link.href; else disabledCrossToolLink" mat-flat-button class="cross-tool-link" [href]="link.href" [matTooltip]="link.description" target="_blank" rel="noopener noreferrer" [attr.aria-label]="link.description" [attr.data-test-id]="'cross-tool-link-' + link.id">
+                            <mat-icon class="cross-tool-link-icon">{{link.icon}}</mat-icon>
+                            {{link.label}}
+                            <mat-icon class="cross-tool-link-open-icon" iconPositionEnd aria-hidden="true">open_in_new</mat-icon>
+                          </a>
+                          <!-- Wrapped in a span because a disabled button does not emit the pointer events matTooltip listens for. -->
+                          <ng-template #disabledCrossToolLink>
+                            <span class="cross-tool-link-disabled-wrapper" [matTooltip]="link.disabledReason">
+                              <button type="button" mat-flat-button class="cross-tool-link" disabled [attr.aria-label]="link.disabledReason" [attr.data-test-id]="'cross-tool-link-' + link.id">
+                                <mat-icon class="cross-tool-link-icon">{{link.icon}}</mat-icon>
+                                {{link.label}}
+                              </button>
+                            </span>
+                          </ng-template>
+                        </ng-container>
+                      </div>
                     </div>
                   </div>
                 </as-split-area>

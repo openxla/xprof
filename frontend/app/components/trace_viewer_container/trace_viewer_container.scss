@@ -529,36 +529,128 @@ canvas.emscripten {
       }
     }
 
+    // The links to other tools are the main call to action in this drawer, so
+    // they get a tinted band that separates them from the property rows above
+    // and the code snippet below.
     .cross-tool-links {
       margin-top: 16px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      align-items: baseline;
-      font-size: 12px;
+      padding: 12px 14px 14px;
+      border-radius: 12px;
+      background: var(--mat-sys-surface-container-low);
 
-      ::ng-deep div {
-        display: inline-flex;
+      .cross-tool-links-header {
+        display: flex;
         align-items: center;
-        gap: 4px;
-        white-space: nowrap;
-        font-size: 12px;
+        gap: 6px;
+        min-width: 0;
+      }
+
+      .cross-tool-links-title {
+        flex-shrink: 0;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.6px;
+        text-transform: uppercase;
         color: var(--mat-sys-on-surface-variant);
       }
 
-      ::ng-deep a {
-        display: inline-block;
-        padding: 4px 8px;
-        border-radius: 4px;
-        background-color: var(--mat-sys-primary-container);
-        color: var(--mat-sys-on-primary-container);
-        text-decoration: none;
+      .cross-tool-links-help {
+        flex-shrink: 0;
+        font-size: 14px;
+        width: 14px;
+        height: 14px;
+        color: var(--mat-sys-outline);
+        cursor: help;
+      }
+
+      // The op and module names come from the profile, so they can be
+      // arbitrarily long; clip them here and keep the full value, including
+      // the module id, in the `title` attribute.
+      .cross-tool-links-context {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-family: 'Roboto Mono', monospace;
+        font-size: 11px;
+        color: var(--mat-sys-on-surface-variant);
+      }
+
+      .cross-tool-links-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      // Shape and type only; the colours live in the `a.cross-tool-link`
+      // rules below. Component stylesheets must not redefine the custom
+      // properties Angular Material reads, so everything here is a plain CSS
+      // property chosen to out-specify the stock filled-button rules.
+      .cross-tool-link {
+        height: 32px;
+        padding: 0 14px;
+        border-radius: 999px;
         font-size: 12px;
         font-weight: 500;
+        letter-spacing: 0.2px;
         white-space: nowrap;
+        transition:
+          box-shadow 150ms ease,
+          transform 150ms ease;
 
         &:hover {
-          text-decoration: underline;
+          box-shadow: var(--mat-sys-level2, 0 1px 3px 0 rgb(0 0 0 / 25%));
+          transform: translateY(-1px);
+        }
+
+        &:active {
+          transform: none;
+        }
+      }
+
+      // One tonal treatment for all three. An earlier revision gave each
+      // destination its own accent, but `tertiary-container` resolves to
+      // near-white in this theme, so that chip read as unstyled next to its
+      // neighbours. The three are equal-weight actions anyway; the icon and
+      // label already tell them apart.
+      //
+      // Only anchors are recoloured. A chip that is rendered as a disabled
+      // `button` keeps the stock Material disabled palette, which already
+      // reads as unavailable in both themes.
+      a.cross-tool-link {
+        background-color: var(--mat-sys-primary-container);
+        color: var(--mat-sys-on-primary-container);
+      }
+
+      .cross-tool-link .cross-tool-link-icon {
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
+        margin: 0 6px 0 -2px;
+      }
+
+      // Present but deliberately quiet: it marks every chip as leaving the
+      // page without competing with the label.
+      .cross-tool-link .cross-tool-link-open-icon {
+        font-size: 13px;
+        width: 13px;
+        height: 13px;
+        margin: 0 -2px 0 6px;
+        opacity: 0.55;
+      }
+
+      .cross-tool-link:hover .cross-tool-link-open-icon {
+        opacity: 1;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .cross-tool-links .cross-tool-link {
+        transition: none;
+
+        &:hover {
+          transform: none;
         }
       }
     }

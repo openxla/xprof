@@ -19,6 +19,12 @@
 /** Indentation unit used for each nesting level of pretty-printed HLO. */
 const INDENT = '  ';
 
+/** Default number of bracket levels expanded before collapsing to `...`. */
+export const HLO_DEFAULT_EXPAND_DEPTH = 1;
+
+/** `maxExpandDepth` value that fully expands every nested bracket group. */
+export const HLO_FULL_EXPAND_DEPTH = Number.MAX_SAFE_INTEGER;
+
 /** A pending bracket group tracked on the parser stack. */
 interface BracketFrame {
   /** The opening bracket character (`(`, `[` or `{`). */
@@ -70,10 +76,14 @@ function closeIndex(s: string, pos: number): number {
 
 /**
  * Pretty-prints a single HLO instruction, expanding operand lists and attribute
- * dictionaries onto multiple indented lines. Shapes (`[...]`) and layouts
- * (`{...}` following a shape) always stay inline.
+ * dictionaries up to `maxExpandDepth` levels deep; groups nested deeper are
+ * shown collapsed as `...`. Shapes (`[...]`) and layouts (`{...}` following a
+ * shape) always stay inline.
  */
-export function prettyPrintHloOp(input: string): string {
+export function prettyPrintHloOp(
+  input: string,
+  maxExpandDepth = HLO_DEFAULT_EXPAND_DEPTH,
+): string {
   const s = input.trim().replace(/\s+/g, ' ');
   const stack: BracketFrame[] = [];
   let result = '';
@@ -135,6 +145,18 @@ export function prettyPrintHloOp(input: string): string {
         // Keep empty groups inline, e.g. `custom-call()`.
         if (s.substring(i + 1, close).trim() === '') {
           result += ch + s[close];
+          i = close + 1;
+          continue;
+        }
+        // Beyond the expansion depth, collapse the group to `...`.
+        if (depth + 1 > maxExpandDepth) {
+          result +=
+            ch +
+            '\n' +
+            INDENT.repeat(depth + 1) +
+            '...\n' +
+            INDENT.repeat(depth) +
+            s[close];
           i = close + 1;
           continue;
         }
@@ -200,10 +222,15 @@ export function prettyPrintHloOp(input: string): string {
  * (single-line) HLO expression. Each HLO line is formatted independently and
  * lines that do not look like HLO instructions are returned unchanged.
  */
-export function prettyPrintHloStackTrace(value: string): string {
+export function prettyPrintHloStackTrace(
+  value: string,
+  maxExpandDepth = HLO_DEFAULT_EXPAND_DEPTH,
+): string {
   return value
     .split('\n')
-    .map((line) => (line.includes(' = ') ? prettyPrintHloOp(line) : line))
+    .map((line) =>
+      line.includes(' = ') ? prettyPrintHloOp(line, maxExpandDepth) : line,
+    )
     .join('\n');
 }
 
@@ -215,6 +242,14 @@ export function prettyPrintHloStackTrace(value: string): string {
 const STACK_TRACE_ARG_KEY = 'Start Stack Trace';
 
 /**
+ * Returns whether `args` contains an HLO stack trace string that the JSON tree
+ * can pretty-print (and therefore expand/collapse).
+ */
+export function hasHloStackTrace(args: Record<string, unknown>): boolean {
+  return typeof args[STACK_TRACE_ARG_KEY] === 'string';
+}
+
+/**
  * Returns a shallow copy of `args` with the HLO stack trace value pretty-printed
  * for display in the JSON tree. Returns the original `args` reference unchanged
  * when there is no string stack trace to format, so no allocation happens for
@@ -222,6 +257,7 @@ const STACK_TRACE_ARG_KEY = 'Start Stack Trace';
  */
 export function formatHloArgsForJsonTree(
   args: Record<string, unknown>,
+  maxExpandDepth = HLO_DEFAULT_EXPAND_DEPTH,
 ): Record<string, unknown> {
   const stackTrace = args[STACK_TRACE_ARG_KEY];
   if (typeof stackTrace !== 'string') {
@@ -229,6 +265,6 @@ export function formatHloArgsForJsonTree(
   }
   return {
     ...args,
-    [STACK_TRACE_ARG_KEY]: prettyPrintHloStackTrace(stackTrace),
+    [STACK_TRACE_ARG_KEY]: prettyPrintHloStackTrace(stackTrace, maxExpandDepth),
   };
 }

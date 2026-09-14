@@ -295,6 +295,15 @@ EXPORT_C const char* GetLloAnalysisJson(LloAnalysisHandle handle,
 EXPORT_C const char* GetLloDebugString(LloAnalysisHandle handle) {
   return GetLloDebugStringImpl(handle);
 }
+EXPORT_C int GetNumSourceLines(LloAnalysisHandle handle) {
+  return GetNumSourceLinesImpl(handle);
+}
+EXPORT_C int GetSourceOrdinalAtIndex(LloAnalysisHandle handle, int index) {
+  return GetSourceOrdinalAtIndexImpl(handle, index);
+}
+EXPORT_C const char* GetSourceInfoAtIndex(LloAnalysisHandle handle, int index) {
+  return GetSourceInfoAtIndexImpl(handle, index);
+}
 EXPORT_C void FreeLloAnalysis(LloAnalysisHandle handle) {
   FreeLloAnalysisImpl(handle);
 }

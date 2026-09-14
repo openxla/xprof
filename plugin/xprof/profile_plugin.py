@@ -1406,7 +1406,9 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
               if f.endswith('.hlo_proto.pb') and (name := _parse_filename(f)[0])
           ]
 
-      return ','.join(module_list)
+      # `_get_all_basenames` returns filesystem order, which varies between
+      # hosts and runs; clients default to the first entry, so sort here.
+      return ','.join(sorted(module_list))
     except OSError as e:
       logger.warning('Cannot read asset directory: %s, OpError %r', run_dir, e)
       return ''

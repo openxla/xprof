@@ -1281,5 +1281,38 @@ class GenerateCacheImplTest(parameterized.TestCase):
     self.assertCountEqual(kwargs['tool_list'], expected_submitted_tools)
 
 
+class HloModuleListImplTest(absltest.TestCase):
+  """Tests the ordering of the HLO module list returned to the frontend."""
+
+  def test_hlo_module_list_impl_sorts_module_names(self):
+    plugin = utils.create_profile_plugin(
+        self.create_tempdir().full_path,
+        plugin_event_multiplexer.EventMultiplexer(),
+    )
+    # Mimics a directory listing that is not in lexicographic order.
+    basenames = [
+        'jit_train_step(4869159985936022652).hlo_proto.pb',
+        'jit_add(8254229641153238180).hlo_proto.pb',
+        'jit__where(2141868631891211743).hlo_proto.pb',
+        'jit_add(3326385976583000095).hlo_proto.pb',
+    ]
+
+    with mock.patch.object(
+        plugin, '_run_dir', return_value='/fake/run_dir', autospec=True
+    ), mock.patch.object(
+        plugin, '_get_all_basenames', return_value=basenames, autospec=True
+    ):
+      request = wrappers.Request.from_values(query_string='run=test_run')
+      response = plugin.hlo_module_list_impl(request)
+
+    self.assertEqual(
+        response,
+        'jit__where(2141868631891211743),'
+        'jit_add(3326385976583000095),'
+        'jit_add(8254229641153238180),'
+        'jit_train_step(4869159985936022652)',
+    )
+
+
 if __name__ == '__main__':
   absltest.main()

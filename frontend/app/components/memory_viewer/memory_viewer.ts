@@ -119,7 +119,9 @@ export class MemoryViewer implements OnDestroy {
         .pipe(takeUntil(this.destroyed))
         .subscribe((moduleList: string) => {
           if (moduleList) {
-            this.moduleList = moduleList.split(',');
+            // `getModuleList` has more than one server-side implementation and
+            // not all of them sort, so order the list before defaulting to [0].
+            this.moduleList = moduleList.split(',').sort();
             // No need to regenerate modules.
             this.dataService.disableCacheRegeneration();
             this.resolveSelectedModuleAndMemorySpace();

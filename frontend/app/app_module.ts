@@ -1,5 +1,5 @@
 import {HttpClientModule} from '@angular/common/http';
-import {NgModule, provideZoneChangeDetection} from '@angular/core';
+import {ErrorHandler, Injectable, NgModule, provideZoneChangeDetection} from '@angular/core';
 import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {BrowserModule} from '@angular/platform-browser';
 import {BrowserAnimationsModule} from '@angular/platform-browser/animations';
@@ -14,6 +14,16 @@ import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/servic
 import {RootStoreModule} from 'org_xprof/frontend/app/store/store_module';
 
 import {App} from './app';
+
+/** Custom ErrorHandler preserving full error message and stack trace. */
+@Injectable()
+export class XProfErrorHandler implements ErrorHandler {
+  handleError(error: unknown): void {
+    const message =
+        error instanceof Error ? (error.stack || error.message) : String(error);
+    console.error('XProf Error:', message, error);
+  }
+}
 
 /** The root component module. */
 @NgModule({
@@ -30,6 +40,7 @@ import {App} from './app';
   ],
   providers: [
     provideZoneChangeDetection(),
+    {provide: ErrorHandler, useClass: XProfErrorHandler},
     DataDispatcher,
     DataServiceV2,
     {provide: DATA_SERVICE_INTERFACE_TOKEN, useClass: DataServiceV2},

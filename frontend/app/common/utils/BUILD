@@ -28,6 +28,16 @@ ts_library(
 )
 
 ts_library(
+    name = "chart_utils",
+    srcs = [
+        "chart_utils.ts",
+    ],
+    deps = [
+        "//:node_modules/@types/google.visualization",
+    ],
+)
+
+ts_library(
     name = "tests",
     testonly = True,
     srcs = [

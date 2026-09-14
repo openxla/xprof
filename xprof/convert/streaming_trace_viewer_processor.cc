@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
@@ -20,6 +21,8 @@
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/file_system.h"
 #include "xla/tsl/platform/statusor.h"
+
+#include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/platform/cpu_info.h"
 #include "tsl/platform/path.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
@@ -30,6 +33,7 @@
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/trace_view_options.h"
 #include "xprof/convert/trace_viewer/delta_series/trace_data_to_compressed_delta_series_proto.h"
+#include "xprof/convert/trace_viewer/lite_trace_events.h"
 #include "xprof/convert/trace_viewer/trace_events.h"
 #include "xprof/convert/trace_viewer/trace_events_to_json.h"
 #include "xprof/convert/trace_viewer/trace_options.h"
@@ -41,12 +45,15 @@
 namespace xprof {
 
 using ::tensorflow::profiler::GetTraceViewOption;
+using ::tensorflow::profiler::ConvertLiteTraceEventToFullTraceEvent;
 using ::tensorflow::profiler::IOBufferAdapter;
 using ::tensorflow::profiler::JsonTraceOptions;
 using ::tensorflow::profiler::RawData;
 using ::tensorflow::profiler::SessionSnapshot;
+using ::tensorflow::profiler::StoreLiteEventsAsLevelDbTables;
 using ::tensorflow::profiler::ToolOptions;
 using ::tensorflow::profiler::TraceDeviceType;
+using ::tensorflow::profiler::TraceEventLiteContainer;
 using ::tensorflow::profiler::TraceEventsContainer;
 using ::tensorflow::profiler::TraceEventsLevelDbFilePaths;
 using ::tensorflow::profiler::TraceOptionsFromToolOptions;
@@ -104,9 +111,9 @@ absl::Status StreamingTraceViewerProcessor::ProcessSession(
         ProcessMegascaleDcn(xspace);
       }
 
-      TraceEventsContainer trace_container;
-      ConvertXSpaceToTraceEventsContainer(host_name, *xspace,
-                                          &trace_container);
+      TraceEventLiteContainer lite_container;
+      ConvertXSpaceToLiteTraceEventsContainer(host_name, *xspace,
+                                              &lite_container);
       std::unique_ptr<tsl::WritableFile> trace_events_file;
       TF_RETURN_IF_ERROR(tsl::Env::Default()->NewWritableFile(
           *trace_events_sstable_path, &trace_events_file));
@@ -117,11 +124,20 @@ absl::Status StreamingTraceViewerProcessor::ProcessSession(
       TF_RETURN_IF_ERROR(tsl::Env::Default()->NewWritableFile(
           *trace_events_prefix_trie_sstable_path,
           &trace_events_prefix_trie_file));
-      TF_RETURN_IF_ERROR(trace_container.StoreAsLevelDbTables(
-          std::move(trace_events_file),
-          std::move(trace_events_metadata_file),
-          std::move(trace_events_prefix_trie_file)
-      ));
+      auto converter_fn =
+          [&](const tsl::profiler::XEventVisitor& event_visitor,
+              const tensorflow::profiler::TraceEventLite& lite_event,
+              absl::flat_hash_map<uint64_t, std::string>* local_name_table,
+              tensorflow::profiler::TraceEvent* full_event,
+              google::protobuf::Arena* arena) -> absl::Status {
+        ConvertLiteTraceEventToFullTraceEvent(event_visitor, lite_event,
+                                              lite_container, local_name_table,
+                                              full_event, arena);
+        return absl::OkStatus();
+      };
+      TF_RETURN_IF_ERROR(StoreLiteEventsAsLevelDbTables(
+          &lite_container, converter_fn, trace_events_file,
+          trace_events_metadata_file, trace_events_prefix_trie_file));
       LOG(INFO) << "Preprocessing done for host " << i
                 << ". Duration: " << absl::Now() - preprocess_start_time
                 << " session_id: " << session_id;
@@ -214,9 +230,9 @@ absl::StatusOr<std::string> StreamingTraceViewerProcessor::Map(
       tensorflow::profiler::ProcessMegascaleDcn(&temp_xspace);
     }
 
-    TraceEventsContainer trace_container;
-    tensorflow::profiler::ConvertXSpaceToTraceEventsContainer(
-        hostname, temp_xspace, &trace_container);
+    TraceEventLiteContainer lite_container;
+    ConvertXSpaceToLiteTraceEventsContainer(hostname, temp_xspace,
+                                            &lite_container);
     std::unique_ptr<tsl::WritableFile> trace_events_file;
     TF_RETURN_IF_ERROR(tsl::Env::Default()->NewWritableFile(
         *trace_events_sstable_path, &trace_events_file));
@@ -227,9 +243,20 @@ absl::StatusOr<std::string> StreamingTraceViewerProcessor::Map(
     TF_RETURN_IF_ERROR(tsl::Env::Default()->NewWritableFile(
         *trace_events_prefix_trie_sstable_path,
         &trace_events_prefix_trie_file));
-    TF_RETURN_IF_ERROR(trace_container.StoreAsLevelDbTables(
-        std::move(trace_events_file), std::move(trace_events_metadata_file),
-        std::move(trace_events_prefix_trie_file)));
+    auto converter_fn =
+        [&](const tsl::profiler::XEventVisitor& event_visitor,
+            const tensorflow::profiler::TraceEventLite& lite_event,
+            absl::flat_hash_map<uint64_t, std::string>* local_name_table,
+            tensorflow::profiler::TraceEvent* full_event,
+            google::protobuf::Arena* arena) -> absl::Status {
+      ConvertLiteTraceEventToFullTraceEvent(event_visitor, lite_event,
+                                            lite_container, local_name_table,
+                                            full_event, arena);
+      return absl::OkStatus();
+    };
+    TF_RETURN_IF_ERROR(StoreLiteEventsAsLevelDbTables(
+        &lite_container, converter_fn, trace_events_file,
+        trace_events_metadata_file, trace_events_prefix_trie_file));
   }
   return *trace_events_sstable_path;
 }

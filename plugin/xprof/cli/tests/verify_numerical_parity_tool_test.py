@@ -1,6 +1,7 @@
 """Tests for verify_numerical_parity_tool CLI interface and resolution."""
 
 import json
+import re
 from absl.testing import absltest
 from absl.testing import parameterized
 import numpy as np
@@ -145,6 +146,35 @@ class VerifyNumericalParityToolTest(parameterized.TestCase):
           max_allowed_ulp=12,  # Hard ceiling for bfloat16 is 8
       )
     self.assertIn("exceeds immutable safety ceiling", str(ctx.exception))
+
+  def test_verify_nan_output_produces_strict_rfc8259_json(self):
+    """Verifies that NaN outputs produce valid RFC 8259 JSON with nulls."""
+    def nan_candidate_fn(x: np.ndarray) -> np.ndarray:
+      out = np.array(x * 2.0)
+      out[0, 0] = np.nan
+      return out
+
+    report_json = verify_numerical_parity_tool.verify_numerical_parity(
+        kernel_ref=sample_ref_fn,
+        kernel_candidate=nan_candidate_fn,
+        shapes=[(8, 8)],
+        dtype_str="float32",
+        tier="fast_agent",
+    )
+
+    def _reject_non_standard_constants(val: str) -> None:
+      raise ValueError(f"Encountered non-standard JSON token: {val}")
+
+    parsed = json.loads(
+        report_json, parse_constant=_reject_non_standard_constants
+    )
+    self.assertFalse(parsed["is_numerically_equivalent"])
+    self.assertGreater(parsed["failed_batches_count"], 0)
+    # Ensure no bare unquoted non-standard tokens exist in JSON value positions.
+    self.assertIsNone(
+        re.search(r":\s*(?:NaN|Infinity|-Infinity)\b", report_json)
+    )
+    self.assertIsNone(parsed["ulp_context"]["p50"])
 
 
 if __name__ == "__main__":

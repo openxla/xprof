@@ -4,6 +4,36 @@ import {bytesToGiBs} from 'org_xprof/frontend/app/common/utils/utils';
 
 const DATA_TABLE_OPERATION_INDEX = 0;
 
+/** Set of uninitialized or null-like sentinel string tokens. */
+export const NULL_TOKENS = new Set([
+  '(null)',
+  '<null>',
+  'null',
+  'nullptr',
+  'invalid',
+  'undefined',
+  'none',
+]);
+
+/**
+ * Sanitizes a table cell value against uninitialized sentinel tokens.
+ *
+ * @param val The cell string value to sanitize.
+ * @param fallback The default fallback string if val is null, empty, or sentinel.
+ * @return The trimmed value or fallback string.
+ */
+export function cleanCellToken(
+  val: string | null | undefined,
+  fallback: string,
+): string {
+  if (!val) return fallback;
+  const trimmed = val.trim();
+  if (!trimmed || NULL_TOKENS.has(trimmed.toLowerCase())) {
+    return fallback;
+  }
+  return trimmed;
+}
+
 /** A memory breakdown table view component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,standalone: false,
@@ -78,13 +108,13 @@ export class MemoryBreakdownTable implements OnChanges, OnInit {
         continue;
       }
       this.dataTable.addRow([
-        metadata.tfOpName,
+        cleanCellToken(metadata.tfOpName, 'System Reserved'),
         bytesToGiBs(metadata.allocationBytes),
         bytesToGiBs(metadata.requestedBytes),
         Number(activeAllocations[i].numOccurrences),
-        metadata.regionType,
-        metadata.dataType,
-        metadata.tensorShape,
+        cleanCellToken(metadata.regionType, 'Unallocated'),
+        cleanCellToken(metadata.dataType, 'N/A'),
+        cleanCellToken(metadata.tensorShape, 'N/A'),
       ]);
     }
 
@@ -164,6 +194,7 @@ export class MemoryBreakdownTable implements OnChanges, OnInit {
       setTimeout(() => {
         this.loadGoogleChart();
       }, 100);
+      return;
     }
 
     google.charts.safeLoad({'packages': ['table']});

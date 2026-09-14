@@ -1,4 +1,4 @@
-"""Tests that setup.py correctly parses requirements.in and configures packaging."""
+"""Tests that setup.py parses requirements.in and configures packaging."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -92,6 +92,67 @@ class SetupTest(absltest.TestCase):
     readme = setup.get_readme()
     self.assertIsInstance(readme, str)
     self.assertNotEmpty(readme)
+
+  def test_package_data_contains_skills(self):
+    self.assertIn('xprof', setup.PACKAGE_DATA)
+    self.assertIn('skills/**', setup.PACKAGE_DATA['xprof'])
+
+  def test_skills_markdown_files_present_in_source_tree(self):
+    skills_dir = os.path.join(
+        os.path.dirname(__file__), '..', 'skills', 'xprof'
+    )
+    skill_md = os.path.join(skills_dir, 'SKILL.md')
+    roofline_md = os.path.join(
+        skills_dir, 'references', 'get_roofline_model.md'
+    )
+    collect_md = os.path.join(skills_dir, 'references', 'collect_profile.md')
+    self.assertTrue(os.path.isfile(skill_md), f'Missing {skill_md}')
+    self.assertTrue(os.path.isfile(roofline_md), f'Missing {roofline_md}')
+    self.assertTrue(os.path.isfile(collect_md), f'Missing {collect_md}')
+    with open(roofline_md, 'r', encoding='utf-8') as f:
+      content = f.read()
+    self.assertNotIn('/google/bin/releases', content)
+    self.assertNotIn('.par', content)
+    self.assertIn('"program":', content)
+    self.assertIn('"device_info":', content)
+    self.assertIn('"top_operations":', content)
+
+    with open(collect_md, 'r', encoding='utf-8') as f:
+      collect_content = f.read()
+    self.assertNotIn('/google/bin/releases', collect_content)
+    self.assertNotIn('.par', collect_content)
+    self.assertNotIn('.trace.json.gz', collect_content)
+    self.assertNotIn('torch.profiler', collect_content)
+    self.assertIn('jax.profiler', collect_content)
+    self.assertIn('torch_xla', collect_content)
+    self.assertIn('xp.start_trace', collect_content)
+    self.assertIn('tensorflow', collect_content)
+
+  def test_oss_tools_package_files_present_in_source_tree(self):
+    oss_tools_dir = os.path.join(
+        os.path.dirname(__file__),
+        'xprof',
+        'cli',
+        'tools',
+        'oss',
+    )
+    init_py = os.path.join(oss_tools_dir, '__init__.py')
+    graph_viewer_py = os.path.join(oss_tools_dir, 'get_graph_viewer_tool.py')
+    kernel_utilization_py = os.path.join(
+        oss_tools_dir, 'get_kernel_utilization_tool.py'
+    )
+    upload_trace_py = os.path.join(oss_tools_dir, 'upload_trace_tool.py')
+    self.assertTrue(os.path.isfile(init_py), f'Missing {init_py}')
+    self.assertTrue(
+        os.path.isfile(graph_viewer_py), f'Missing {graph_viewer_py}'
+    )
+    self.assertTrue(
+        os.path.isfile(kernel_utilization_py),
+        f'Missing {kernel_utilization_py}',
+    )
+    self.assertTrue(
+        os.path.isfile(upload_trace_py), f'Missing {upload_trace_py}'
+    )
 
 
 if __name__ == '__main__':

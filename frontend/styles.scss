@@ -3,17 +3,34 @@
 
 :root {
   // Google Material 3 (GM3) Design Tokens.
-  --md-sys-color-on-secondary-container: #004A77;
-  --md-sys-color-on-surface: #1f1f1f;
-  --md-sys-color-on-surface-variant: #444746;
-  --md-sys-color-outline-variant: #c4c7c5;
-  --md-sys-color-primary-container: #d3e3fd;
-  --md-sys-color-primary: #0b57d0;
-  --md-sys-color-secondary-container: #c2e7ff;
-  --md-sys-color-surface-container-highest: #dde3ea;
-  --md-sys-color-surface-container-low: #f8fafd;
-  --md-sys-color-surface-container: #f0f4f9;
-  --md-sys-color-surface: #fff;
+  // stylelint-disable ng-components/use-material-overrides -- Application-level Material 3 design tokens
+  --mat-sys-on-primary: #fff;
+  --mat-sys-on-secondary-container: #004a77;
+  --mat-sys-on-surface-variant: #444746;
+  --mat-sys-on-surface: #1f1f1f;
+  --mat-sys-outline-variant: #c4c7c5;
+  --mat-sys-primary-container: #d3e3fd;
+  --mat-sys-primary: #0b57d0;
+  --mat-sys-secondary-container: #c2e7ff;
+  --mat-sys-surface-container-highest: #dde3ea;
+  --mat-sys-surface-container-low: #f8fafd;
+  --mat-sys-surface-container: #f0f4f9;
+  --mat-sys-surface: #fff;
+  // stylelint-enable ng-components/use-material-overrides
+
+  // Backward-compatibility aliases for Material Web components.
+  --md-sys-color-on-primary: var(--mat-sys-on-primary);
+  --md-sys-color-on-secondary-container: var(--mat-sys-on-secondary-container);
+  --md-sys-color-on-surface-variant: var(--mat-sys-on-surface-variant);
+  --md-sys-color-on-surface: var(--mat-sys-on-surface);
+  --md-sys-color-outline-variant: var(--mat-sys-outline-variant);
+  --md-sys-color-primary-container: var(--mat-sys-primary-container);
+  --md-sys-color-primary: var(--mat-sys-primary);
+  --md-sys-color-secondary-container: var(--mat-sys-secondary-container);
+  --md-sys-color-surface-container-highest: var(--mat-sys-surface-container-highest);
+  --md-sys-color-surface-container-low: var(--mat-sys-surface-container-low);
+  --md-sys-color-surface-container: var(--mat-sys-surface-container);
+  --md-sys-color-surface: var(--mat-sys-surface);
 }
 
 $typography-config: mat.m2-define-typography-config();

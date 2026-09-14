@@ -1,0 +1,63 @@
+<div class="timeline-player-container">
+  <div class="progress-bar-container">
+     <div class="loop-region" *ngIf="loopState === 'ACTIVE'"
+          [style.left.%]="duration() ? (loopStart! / duration()) * 100 : 0"
+          [style.width.%]="duration() ? ((loopEnd! - loopStart!) / duration()) * 100 : 0"></div>
+
+     <div class="loop-marker start" *ngIf="loopState !== 'INACTIVE'"
+          [style.left.%]="duration() ? (loopStart! / duration()) * 100 : 0"
+          (pointerdown)="onStartMarkerPointerDown($event)">
+          <span class="loop-flag">A</span>
+     </div>
+
+     <div class="loop-marker end" *ngIf="loopState === 'ACTIVE'"
+          [style.left.%]="duration() ? (loopEnd! / duration()) * 100 : 0"
+          (pointerdown)="onEndMarkerPointerDown($event)">
+          <span class="loop-flag">B</span>
+     </div>
+     <div class="progress-fill" [style.width.%]="duration() ? (currentTime() / duration()) * 100 : 0"></div>
+     <input type="range" class="progress-bar"
+            [min]="0" [max]="duration()" step="any"
+            [value]="currentTime()"
+            (pointerdown)="onScrubStart()"
+            (pointerup)="onScrubEnd($event)"
+            (pointercancel)="onScrubEnd($event)"
+            (input)="onSeek($event)">
+  </div>
+
+  <div class="controls-container">
+    <div class="left-controls">
+      <button mat-icon-button class="control-button loop-button"
+              [ngClass]="getLoopClass()"
+              (click)="toggleLoop()"
+              [matTooltip]="getLoopTitle()">
+        <mat-icon>repeat</mat-icon>
+      </button>
+
+      <button mat-icon-button class="control-button" (click)="stepBackward()" matTooltip="Step Backward ({{ stepAmount() | timeFormat }})">
+        <mat-icon>skip_previous</mat-icon>
+      </button>
+
+      <button mat-icon-button class="control-button" (click)="togglePlay()" matTooltip="{{ isFinished() ? 'Replay' : (isPlaying() ? 'Pause' : 'Play') }}">
+        <mat-icon>{{ isFinished() ? 'replay' : (isPlaying() ? 'pause' : 'play_arrow') }}</mat-icon>
+      </button>
+
+      <button mat-icon-button class="control-button" (click)="stepForward()" matTooltip="Step Forward ({{ stepAmount() | timeFormat }})">
+        <mat-icon>skip_next</mat-icon>
+      </button>
+
+      <div class="time-display">
+        {{ currentTime() | timeFormat }} / {{ duration() | timeFormat }}
+      </div>
+
+      <div class="speed-slider-container">
+        <mat-icon color="primary" class="speed-icon">speed</mat-icon>
+        <span class="speed-label">{{playbackRate()}}x</span>
+        <mat-slider class="speed-slider" [min]="0.25" [max]="2" [step]="0.25" discrete color="primary">
+          <input matSliderThumb [value]="playbackRate()" (valueChange)="onSpeedChange($event)">
+        </mat-slider>
+      </div>
+
+    </div>
+  </div>
+</div>

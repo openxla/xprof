@@ -11,11 +11,11 @@ $search-bar-height: 56px;
   flex: 1;
   min-height: 0;
   position: relative;
-  background: var(--md-sys-color-surface-container-low);
+  background: var(--mat-sys-surface-container-low);
 }
 
 :host:fullscreen {
-  background: var(--md-sys-color-surface-container-low);
+  background: var(--mat-sys-surface-container-low);
   padding: 16px;
   width: 100vw;
   height: 100vh;
@@ -66,9 +66,11 @@ iframe {
   width: 100%;
   height: 100%;
   border-radius: 16px;
-  background: var(--md-sys-color-surface);
+  background: var(--mat-sys-surface);
   overflow: hidden;
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 canvas {
@@ -78,15 +80,19 @@ canvas {
   border-style: unset;
 }
 
+canvas.emscripten {
+  flex: 1;
+  min-height: 0;
+}
+
 .hovered-source-code-tooltip {
   position: absolute;
   z-index: 100;
   pointer-events: none;
-  background: var(--md-sys-color--surface, white);
-  // border: 1px solid var(--md-sys-color--outline, #ccc);
+  background: var(--mat-sys-surface, white);
+  // border: 1px solid var(--mat-sys-outline, #ccc);
   border-radius: 4px;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-  // padding: 8px;
   max-width: 90%;
   max-height: 300px;
   overflow: hidden;
@@ -102,7 +108,7 @@ canvas {
 .search-container {
   display: flex;
   align-items: center;
-  background-color: var(--md-sys-color-surface-container);
+  background-color: var(--mat-sys-surface-container);
   border-radius: 24px;
   height: 40px;
   padding: 0 12px;
@@ -122,13 +128,13 @@ canvas {
       display: flex;
       align-items: center;
       height: 28px;
-      background-color: var(--md-sys-color-surface);
+      background-color: var(--mat-sys-surface);
       border-radius: 24px;
       padding: 0 12px 0 0;
       box-sizing: border-box;
 
       &:focus-within {
-        outline: 2px solid var(--md-sys-color-primary);
+        outline: 2px solid var(--mat-sys-primary);
         outline-offset: 2px;
       }
     }
@@ -168,7 +174,7 @@ canvas {
         font-size: 20px;
         width: 20px;
         height: 20px;
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--mat-sys-on-surface-variant);
       }
     }
 
@@ -176,8 +182,8 @@ canvas {
       padding: 0;
       height: 28px;
       font-size: 13px;
-      color: var(--md-sys-color-on-surface);
-      caret-color: var(--md-sys-color-primary);
+      color: var(--mat-sys-on-surface);
+      caret-color: var(--mat-sys-primary);
       background: transparent;
     }
   }
@@ -185,7 +191,7 @@ canvas {
 
 .search-result-count {
   display: inline-block;
-  color: rgba(0, 0, 0, 0.54);
+  color: var(--mat-sys-on-surface-variant);
   font-size: 12px;
   font-weight: 400;
   white-space: nowrap;
@@ -201,7 +207,7 @@ canvas {
 .search-divider {
   width: 1px;
   height: 16px;
-  background-color: var(--md-sys-color-outline-variant);
+  background-color: var(--mat-sys-outline-variant);
   margin: 0 4px;
 }
 
@@ -214,7 +220,7 @@ canvas {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(0, 0, 0, 0.54);
+  color: var(--mat-sys-on-surface-variant);
 
   mat-icon {
     font-size: 16px;
@@ -234,7 +240,7 @@ canvas {
     padding: 0;
     min-width: unset;
     border-radius: 4px;
-    color: var(--md-sys-color-on-surface-variant);
+    color: var(--mat-sys-on-surface-variant);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -249,13 +255,13 @@ canvas {
 
     &:hover,
     &:focus-visible {
-      background-color: var(--md-sys-color-primary-container);
+      background-color: var(--mat-sys-primary-container);
       outline: none;
     }
 
     &.active {
-      background-color: var(--md-sys-color-primary-container);
-      color: var(--md-sys-color-primary);
+      background-color: var(--mat-sys-primary-container);
+      color: var(--mat-sys-primary);
     }
 
     mat-icon,
@@ -276,7 +282,7 @@ canvas {
   height: calc(100% - 16px);
   margin-top: 8px;
   margin-bottom: 8px;
-  background-color: var(--md-sys-color-surface);
+  background-color: var(--mat-sys-surface);
   box-sizing: border-box;
   overflow: auto;
   border-radius: 16px;
@@ -285,6 +291,17 @@ canvas {
     width: 100%;
     padding: 24px 10px 10px 10px;
     box-sizing: border-box;
+
+    // When the single-event details panel is shown, give this wrapper a
+    // definite height. angular-split's host and (horizontal) areas are all
+    // height:100%, which only resolves to a bounded height if every ancestor
+    // has a definite height; this wrapper was the missing link, so the split
+    // sized to its content and got clipped by the host's overflow:hidden,
+    // leaving only a tiny scroll. Scoped with :has() so the multi-event table
+    // branch keeps its natural, content-driven height.
+    &:has(.single-event-details) {
+      height: 100%;
+    }
   }
 
   table.mat-mdc-table {
@@ -306,7 +323,7 @@ canvas {
 
     tr.mat-mdc-header-row,
     tr.mat-mdc-footer-row {
-      background-color: var(--md-sys-color-surface-container);
+      background-color: var(--mat-sys-surface-container);
     }
 
     th.mat-mdc-header-cell,
@@ -315,7 +332,7 @@ canvas {
     }
 
     th.mat-mdc-header-cell {
-      background-color: var(--md-sys-color-surface-container);
+      background-color: var(--mat-sys-surface-container);
     }
 
     tr.mat-mdc-header-row {
@@ -343,16 +360,116 @@ canvas {
   }
 
   .single-event-details {
+    // Give the panel a definite height so the nested angular-split resolves.
+    // angular-split's host and (horizontal) areas are all height:100%, which
+    // only resolves to a bounded height if every ancestor has a definite
+    // height. This panel previously had none, so the split sized to its
+    // content and overflowed the drawer, producing a second scrollbar on the
+    // drawer in addition to the inner one. Filling the drawer height (with
+    // box-sizing folding the padding in, and no bottom margin) makes
+    // .split-area-inner the single scroll container for tall content.
+    height: 100%;
+    box-sizing: border-box;
     padding: 16px;
     border-radius: 8px;
-    background-color: var(--md-sys-color-surface);
-    margin-bottom: 16px;
+    background-color: var(--mat-sys-surface);
+    margin-bottom: 0;
     border: none;
+
+    // Trace Viewer v2 auto-traversed JSON view of the selected event. Themes
+    // the vendored ngx-json-viewer via its CSS custom properties (which cascade
+    // into the component) mapped to GM3 system tokens.
+    .json-event-details {
+      // Positioning context for the sticky-header sentinel
+      // (.json-sticky-sentinel), which is absolutely positioned at the top of
+      // this scrolling content so an IntersectionObserver can detect when the
+      // title becomes stuck.
+      position: relative;
+      --ngx-json-font-size: 13px;
+      --ngx-json-key: var(--mat-sys-primary);
+      --ngx-json-value: var(--mat-sys-on-surface);
+      --ngx-json-string: var(--mat-sys-on-surface);
+      --ngx-json-number: var(--mat-sys-secondary);
+      --ngx-json-boolean: var(--mat-sys-secondary);
+      --ngx-json-separator: var(--mat-sys-on-surface-variant);
+      --ngx-json-toggler: var(--mat-sys-on-surface-variant);
+      --ngx-json-array: var(--mat-sys-on-surface-variant);
+      --ngx-json-object: var(--mat-sys-on-surface-variant);
+
+      // Zero-visual-impact marker at the very top of the scroll content. Once
+      // it scrolls out of the .split-area-inner viewport the title has become
+      // stuck, and an IntersectionObserver toggles .is-sticky on the title (see
+      // trace_viewer_container.ts). A small non-zero height keeps the observer
+      // reliable; the 4px acts as the scroll threshold before the shadow shows.
+      .json-sticky-sentinel {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      // Pin the title to the top of the scroll container (.split-area-inner)
+      // so it stays visible while the JSON tree scrolls. The opaque background
+      // matches the panel surface so scrolled content does not show through.
+      .json-event-details-title {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        // Full-bleed opaque header: the scroll container drops its top padding
+        // (see .split-area-left .split-area-inner) so the pinned title sits
+        // flush at the very top, while the negative side margins cancel the
+        // container's 12px side padding so the opaque background (and the
+        // stuck-state divider and shadow) span edge-to-edge. The matching
+        // padding restores the text alignment with the JSON tree below and
+        // keeps the tree from peeking through around the title while scrolling.
+        margin: 0 -12px 12px;
+        padding: 12px;
+        background-color: var(--mat-sys-surface);
+        font-weight: 600;
+        font-size: 14px;
+        color: var(--mat-sys-on-surface);
+        // Elevate the header only once it is stuck (i.e. JSON has scrolled
+        // beneath it). .is-sticky is toggled off the Angular zone by the
+        // IntersectionObserver, so scrolling never triggers change detection.
+        // The transparent border is reserved up-front so toggling its color
+        // does not shift the layout.
+        border-bottom: 1px solid transparent;
+        transition:
+          box-shadow 0.2s ease,
+          border-color 0.2s ease;
+
+        &.is-sticky {
+          border-bottom-color: var(--mat-sys-outline-variant);
+          box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        }
+      }
+
+      // ngx-json-viewer's root section defaults to height:100%; overflow:hidden.
+      // Once the drawer gives this panel a definite height (see
+      // .single-event-details), that height resolves and clips tall JSON,
+      // making it unscrollable. Let the viewer grow with its content so the
+      // outer .split-area-inner stays the single scroll container.
+      ::ng-deep .ngx-json-viewer {
+        height: auto;
+        overflow: visible;
+      }
+
+      // Allow the long HLO expression (resolved stack trace) to wrap instead
+      // of overflowing the panel, and preserve the line breaks added by the
+      // HLO pretty-printer so each operand/attribute stays on its own line.
+      ::ng-deep .ngx-json-viewer .segment-value {
+        word-break: break-word;
+        white-space: pre-wrap;
+      }
+    }
 
     h3 {
       margin-top: 0;
       margin-bottom: 12px;
-      color: var(--md-sys-color-on-surface);
+      color: var(--mat-sys-on-surface);
     }
 
     .split-area-left {
@@ -361,7 +478,11 @@ canvas {
       overflow: visible;
 
       .split-area-inner {
-        background-color: var(--md-sys-color-surface);
+        background-color: var(--mat-sys-surface);
+        // Drop the top padding so the sticky "Event details" title (a
+        // descendant) can sit flush against the top edge of this scroll
+        // container.
+        padding-top: 0;
       }
     }
 
@@ -371,7 +492,8 @@ canvas {
       overflow: visible;
 
       .split-area-inner {
-        background-color: var(--md-sys-color-surface-container);
+        background-color: var(--mat-sys-surface-container);
+        padding: 8px;
       }
     }
 
@@ -380,6 +502,11 @@ canvas {
       height: 100%;
       padding: 12px;
       border-radius: 8px;
+      // Allow tall content (e.g. the full HLO expression shown in the Start
+      // Stack Trace row) to scroll within the pane. angular-split clips the
+      // host area with overflow:hidden, so the scroll must live on this inner
+      // element which we fully control.
+      overflow-y: auto;
     }
 
     .detail-row {
@@ -392,12 +519,13 @@ canvas {
         font-weight: 600;
         width: 150px;
         flex-shrink: 0;
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--mat-sys-on-surface-variant);
       }
 
       .detail-value {
-        color: var(--md-sys-color-on-surface);
+        color: var(--mat-sys-on-surface);
         word-break: break-word;
+        white-space: pre-wrap;
       }
     }
 
@@ -405,14 +533,25 @@ canvas {
       margin-top: 16px;
       display: flex;
       flex-wrap: wrap;
-      gap: 12px;
+      gap: 8px;
+      align-items: baseline;
+      font-size: 12px;
+
+      ::ng-deep div {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
+        font-size: 12px;
+        color: var(--mat-sys-on-surface-variant);
+      }
 
       ::ng-deep a {
         display: inline-block;
-        padding: 6px 12px;
+        padding: 4px 8px;
         border-radius: 4px;
-        background-color: var(--md-sys-color-primary-container);
-        color: var(--md-sys-color-on-primary-container);
+        background-color: var(--mat-sys-primary-container);
+        color: var(--mat-sys-on-primary-container);
         text-decoration: none;
         font-size: 12px;
         font-weight: 500;
@@ -441,7 +580,7 @@ canvas {
   justify-content: center;
   align-items: center;
   z-index: 1000;
-  background-color: var(--md-sys-color-surface);
+  background-color: var(--mat-sys-surface);
   color: red;
 
   mat-icon {
@@ -457,7 +596,7 @@ canvas {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  background-color: rgba(255, 255, 255, 0.5);
+  background-color: color-mix(in srgb, var(--mat-sys-surface) 50%, transparent);
   z-index: 1000;
 
   .loading-status,
@@ -498,8 +637,8 @@ canvas {
   top: 40px;
   right: 0;
   width: 250px;
-  background: var(--md-sys-color-surface);
-  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--mat-sys-surface);
+  border: 1px solid var(--mat-sys-outline-variant);
   border-radius: 8px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
   padding: 12px;
@@ -510,13 +649,13 @@ canvas {
 .coach-mark-title {
   font-size: 14px;
   font-weight: 500;
-  color: var(--md-sys-color-on-surface);
+  color: var(--mat-sys-on-surface);
   margin-bottom: 6px;
 }
 
 .coach-mark-content {
   font-size: 12px;
-  color: var(--md-sys-color-on-surface-variant);
+  color: var(--mat-sys-on-surface-variant);
   line-height: 1.4;
   margin-bottom: 10px;
 }
@@ -536,12 +675,140 @@ canvas {
   right: 12px;
   width: 10px;
   height: 10px;
-  background: var(--md-sys-color-surface);
-  border-left: 1px solid var(--md-sys-color-outline-variant);
-  border-top: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--mat-sys-surface);
+  border-left: 1px solid var(--mat-sys-outline-variant);
+  border-top: 1px solid var(--mat-sys-outline-variant);
   transform: rotate(45deg);
 }
 
 .source-code-snippet-wrapper {
   margin-top: 10px;
+}
+
+.timeline-status-bar .status-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  // Fade animation when switching states inside the container
+  animation: fadeIn 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes fadeIn {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.timeline-status-bar mat-icon {
+  font-size: 18px;
+  width: 18px;
+  height: 18px;
+  color: var(--md-sys-color-primary, #0b57d0);
+  margin-right: 2px;
+}
+
+.timeline-status-bar .divider {
+  display: inline-block;
+  width: 1px;
+  height: 14px;
+  margin: 0 8px;
+  background-color: var(--md-sys-color-outline-variant, #c4c7c5);
+}
+
+.timeline-status-bar kbd {
+  display: inline-block;
+  background-color: var(--md-sys-color-surface, #fff);
+  border: 1px solid var(--md-sys-color-outline-variant, #c4c7c5);
+  border-radius: 4px;
+  border-bottom-width: 2px;
+  color: var(--md-sys-color-on-surface, #1f1f1f);
+  font-family: 'Roboto Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  line-height: 14px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
+}
+
+.mouse-mode-hints {
+  display: flex;
+  align-items: center;
+  font-family: 'Google Sans Text', Roboto, sans-serif;
+  pointer-events: none;
+  white-space: nowrap;
+  margin-left: 20px;
+  margin-right: 12px;
+
+  .status-content {
+    display: flex;
+    align-items: center;
+    animation: gentleFadeIn 0.2s ease-out forwards;
+  }
+
+  .hint-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 4px;
+  }
+
+  .hint-desc {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--md-sys-color-on-surface-variant, #444746);
+  }
+
+  .keys-container {
+    display: flex;
+    align-items: center;
+  }
+
+  .key-sep {
+    color: var(--md-sys-color-outline, #70757a);
+    font-size: 12px;
+    font-weight: 500;
+    margin: 0 4px;
+    font-family: 'Roboto Mono', monospace;
+  }
+
+  kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--md-sys-color-surface, #fff);
+    border: 1px solid var(--md-sys-color-outline-variant, #c4c7c5);
+    border-radius: 4px;
+    border-bottom: 2px solid var(--md-sys-color-outline-variant, #c4c7c5);
+    color: var(--md-sys-color-on-surface, #1f1f1f);
+    font-family: 'Roboto Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 6px;
+    line-height: 16px;
+    min-width: 14px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  }
+
+  .divider {
+    display: inline-block;
+    width: 1px;
+    height: 14px;
+    margin: 0 16px;
+    background-color: var(--md-sys-color-outline-variant, #dadce0);
+  }
+}
+
+@keyframes gentleFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

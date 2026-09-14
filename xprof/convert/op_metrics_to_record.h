@@ -18,11 +18,15 @@ limitations under the License.
 
 #include <cstdint>
 #include <string>
+#include <tuple>
 #include <vector>
 
+#include "absl/algorithm/container.h"
 #include "absl/log/check.h"
 #include "absl/strings/string_view.h"
+#include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
+#include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
@@ -30,8 +34,67 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
-std::vector<const OpMetrics*> SortedOpMetricsDb(const OpMetricsDb& metrics_db,
-                                                int max_records = -1);
+inline const auto& GetMetricsList(const OpMetricsDb& db) {
+  return db.metrics_db();
+}
+inline const auto& GetMetricsList(const FlatOpMetricsDb& db) {
+  return db.op_instances();
+}
+inline absl::string_view GetMetricsName(const FlatOpMetrics& metrics) {
+  return metrics.hlo_name();
+}
+inline absl::string_view GetMetricsName(const OpMetrics& metrics) {
+  return metrics.name();
+}
+inline absl::string_view GetMetricsCategory(const FlatOpMetrics& metrics) {
+  constexpr absl::string_view kUnknownLower = "unknown";
+  constexpr absl::string_view kUnknownCap = "Unknown";
+  if (!metrics.category().empty() && metrics.category() != kUnknownLower &&
+      metrics.category() != kUnknownCap) {
+    return metrics.category();
+  }
+  if (xla::StringToHloOpcode(metrics.hlo_name()).ok()) {
+    return metrics.hlo_name();
+  }
+  return metrics.category().empty() ? kUnknownLower
+                                    : absl::string_view(metrics.category());
+}
+inline absl::string_view GetMetricsCategory(const OpMetrics& metrics) {
+  constexpr absl::string_view kUnknownLower = "unknown";
+  constexpr absl::string_view kUnknownCap = "Unknown";
+  if (!metrics.category().empty() && metrics.category() != kUnknownLower &&
+      metrics.category() != kUnknownCap) {
+    return metrics.category();
+  }
+  if (xla::StringToHloOpcode(metrics.name()).ok()) {
+    return metrics.name();
+  }
+  return metrics.category().empty() ? kUnknownLower : metrics.category();
+}
+
+template <typename MetricsDbT>
+auto SortedOpMetricsDb(const MetricsDbT& metrics_db, int max_records = -1) {
+  using MetricsT = std::decay_t<decltype(*GetMetricsList(metrics_db).begin())>;
+  std::vector<const MetricsT*> result;
+  const auto& list = GetMetricsList(metrics_db);
+  result.reserve(list.size());
+  for (const MetricsT& metrics : list) {
+    result.push_back(&metrics);
+  }
+
+  auto comp = [](const MetricsT* a, const MetricsT* b) {
+    return std::make_tuple(a->self_time_ps(), GetMetricsName(*b)) >
+           std::make_tuple(b->self_time_ps(), GetMetricsName(*a));
+  };
+  int result_size = result.size();
+  if (max_records != -1 && result_size > max_records) {
+    absl::c_partial_sort(result, result.begin() + max_records, comp);
+    result.resize(max_records);
+  } else {
+    absl::c_sort(result, comp);
+  }
+  return result;
+}
 
 template <typename Metrics>
 inline double GigaFlopsPerSecondPerCore(const Metrics& metrics) {

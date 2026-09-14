@@ -367,11 +367,41 @@ class CheckHostBoundnessToolTest(absltest.TestCase):
 
   def test_error_handling_when_overview_empty(self):
     self.mock_client.fetch.return_value = ("application/json", b"")
-    result = json.loads(
-        check_host_boundness_tool.check_host_boundness("sess_missing")
-    )
-    self.assertEqual(result["status"], "UNKNOWN")
-    self.assertIn("error", result)
+    with self.assertRaises(FileNotFoundError):
+      check_host_boundness_tool.check_host_boundness("sess_missing")
+
+  def test_bypass_cache_plumbing(self):
+    high_dc_overview = [
+        {"p": {"device_duty_cycle_percent": "98.3%"}},
+        {"p": {"steptime_ms_average": "100.0"}, "rows": [{}] * 10},
+        {"p": {"device_core_count": "8", "host_count": "1"}},
+    ]
+    self.mock_client.fetch.side_effect = [
+        ("application/json", json.dumps(high_dc_overview)),
+        ("application/json", b"{}"),
+        ("application/json", b"{}"),
+    ]
+    self.mock_client.get_hosts.return_value = []
+    with mock.patch.object(
+        get_utilization_viewer_tool,
+        "get_utilization_viewer",
+        return_value=json.dumps({
+            "idleness_percent": 90.0,
+            "hbm_bandwidth_utilization_percent": 10.0,
+            "ici_read_utilization_percent": 5.0,
+            "ici_write_utilization_percent": 5.0,
+        }),
+    ) as mock_util:
+      check_host_boundness_tool.check_host_boundness(
+          "test-session", bypass_cache=True
+      )
+      self.mock_client.fetch.assert_any_call(
+          tool_name="overview_page.json",
+          session_id="test-session",
+          format="json",
+          bypass_cache=True,
+      )
+      mock_util.assert_called_with("test-session", host=0, bypass_cache=True)
 
   def test_func_name_argument_support(self):
     low_dc_overview = [

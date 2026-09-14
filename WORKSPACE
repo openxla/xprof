@@ -18,6 +18,163 @@ http_archive(
 )
 
 http_archive(
+    name = "arrow",
+    build_file = "//third_party:arrow.BUILD",
+    sha256 = "46d72113d776592195162ebd9f0b181ed224cdc3262f78508a0e7ef72e08cf74",
+    strip_prefix = "arrow-ee4d09ebef61c663c1efbfa4c18e518a03b798be",
+    urls = ["https://github.com/apache/arrow/archive/ee4d09ebef61c663c1efbfa4c18e518a03b798be.zip"],
+)
+
+http_archive(
+    name = "rapidjson",
+    build_file_content = """
+cc_library(
+    name = "rapidjson",
+    hdrs = glob(["include/rapidjson/**/*.h"]),
+    includes = ["include"],
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "b9290a9a6d444c8e049bd589ab804e0ccf2b05dc5984a19ed5ae75d090064806",
+    strip_prefix = "rapidjson-232389d4f1012dddec4ef84861face2d2ba85709",
+    urls = [
+        "https://github.com/Tencent/rapidjson/archive/232389d4f1012dddec4ef84861face2d2ba85709.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "boost_predef",
+    build_file_content = """
+cc_library(
+    name = "predef",
+    hdrs = glob(["include/boost/**/*.h"]),
+    includes = ["include"],
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "7791fe4065d04950bb60bd0004860da3322ab7abc7847e34feb38d9cf51f8c8d",
+    strip_prefix = "predef-boost-1.84.0",
+    urls = [
+        "https://github.com/boostorg/predef/archive/refs/tags/boost-1.84.0.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "thrift",
+    build_file_content = """
+genrule(
+    name = "config_h",
+    outs = ["lib/cpp/src/thrift/config.h"],
+    cmd = \"\"\"cat << 'CFG' > $@
+#ifndef CONFIG_H
+#define CONFIG_H
+#define ARITHMETIC_RIGHT_SHIFT 1
+#define SIGNED_RIGHT_SHIFT_IS 1
+#define HAVE_STDINT_H 1
+#define HAVE_INTTYPES_H 1
+#define HAVE_SYS_TYPES_H 1
+#define PACKAGE_VERSION "0.22.0"
+#ifndef _WIN32
+#define HAVE_NETINET_IN_H 1
+#define HAVE_ARPA_INET_H 1
+#define HAVE_STRERROR_R 1
+#define STRERROR_R_CHAR_P 1
+#endif
+#endif
+CFG
+\"\"\",
+)
+
+genrule(
+    name = "boost_cast_h",
+    outs = ["lib/cpp/src/boost/numeric/conversion/cast.hpp"],
+    cmd = \"\"\"cat << 'CFG' > $@
+#pragma once
+namespace boost {
+template <typename To, typename From>
+To numeric_cast(From from) {
+  return static_cast<To>(from);
+}
+}
+CFG
+\"\"\",
+)
+
+cc_library(
+    name = "thrift",
+    srcs = [
+        "lib/cpp/src/thrift/TApplicationException.cpp",
+        "lib/cpp/src/thrift/TOutput.cpp",
+        "lib/cpp/src/thrift/protocol/TProtocol.cpp",
+        "lib/cpp/src/thrift/transport/TBufferTransports.cpp",
+        "lib/cpp/src/thrift/transport/TTransportException.cpp",
+    ],
+    hdrs = glob([
+        "lib/cpp/src/thrift/**/*.h",
+    ]) + [
+        "lib/cpp/src/thrift/config.h",
+        "lib/cpp/src/boost/numeric/conversion/cast.hpp",
+    ],
+    textual_hdrs = glob([
+        "lib/cpp/src/thrift/**/*.tcc",
+    ]),
+    includes = ["lib/cpp/src"],
+    linkopts = select({
+        "@platforms//os:windows": ["ws2_32.lib"],
+        "//conditions:default": [],
+    }),
+    visibility = ["//visibility:public"],
+    deps = [
+        "@boost_predef//:predef",
+    ],
+)
+""",
+    sha256 = "c4649c5879dd56c88f1e7a1c03e0fbfcc3b2a2872fb81616bffba5aa8a225a37",
+    strip_prefix = "thrift-0.22.0",
+    urls = [
+        "https://github.com/apache/thrift/archive/refs/tags/v0.22.0.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "zstd",
+    build_file_content = """
+cc_library(
+    name = "zstd",
+    srcs = glob([
+        "lib/common/*.c",
+        "lib/common/*.h",
+        "lib/compress/*.c",
+        "lib/compress/*.h",
+        "lib/decompress/*.c",
+        "lib/decompress/*.h",
+        "lib/dictBuilder/*.c",
+        "lib/dictBuilder/*.h",
+    ]) + select({
+        "@platforms//cpu:x86_64": ["lib/decompress/huf_decompress_amd64.S"],
+        "//conditions:default": [],
+    }),
+    hdrs = glob([
+        "lib/*.h",
+        "lib/common/*.h",
+        "lib/dictBuilder/*.h",
+    ]),
+    local_defines = select({
+        "@platforms//cpu:x86_64": [],
+        "//conditions:default": ["ZSTD_DISABLE_ASM=1"],
+    }),
+    includes = ["lib", "lib/common", "lib/dictBuilder"],
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "37d7284556b20954e56e1ca85b80226768902e2edabd3b649e9e72c0c9012ee3",
+    strip_prefix = "zstd-1.5.7",
+    urls = [
+        "https://github.com/facebook/zstd/archive/refs/tags/v1.5.7.tar.gz",
+    ],
+)
+
+http_archive(
     name = "nlohmann_json",
     build_file_content = """
 cc_library(
@@ -86,10 +243,10 @@ http_archive(
 # Details: https://github.com/google-ml-infra/rules_ml_toolchain
 http_archive(
     name = "rules_ml_toolchain",
-    sha256 = "40963e4bc262dfa9a43146f610140af0068b023ace8f3c50f1705a7b50de0830",
-    strip_prefix = "rules_ml_toolchain-cad1047facbac4fb3c1124da68bf2cb36c7eb9ac",
+    sha256 = "c9d0b6fd6fbd3e2a548e320890ae886198778c697186cee9956eba29fcb1d552",
+    strip_prefix = "rules_ml_toolchain-f9ab31989af8be3b729eb37bf9e4833eb62ddda7",
     urls = [
-        "https://github.com/google-ml-infra/rules_ml_toolchain/archive/cad1047facbac4fb3c1124da68bf2cb36c7eb9ac.tar.gz",
+        "https://github.com/google-ml-infra/rules_ml_toolchain/archive/f9ab31989af8be3b729eb37bf9e4833eb62ddda7.tar.gz",
     ],
 )
 
@@ -119,11 +276,56 @@ http_archive(
     name = "xla",
     patch_args = ["-p1"],
     patches = ["//third_party:xla.patch"],
-    sha256 = "ac6dc34c07cf1e155927762997c8116641d7b7a42f91eb6d0773ec8581aca754",
-    strip_prefix = "xla-c520e3fb3f00ce8330d5088c08ee1a6f6067339f",
+    sha256 = "445fcda34044166cd145cd0c764ba437ac55da4f7c1c47edd9f7629af369fae9",
+    strip_prefix = "xla-0e4e6b63d1d41fad4dccf2dcd9e84535b1ede2f0",
     urls = [
-        "https://github.com/openxla/xla/archive/c520e3fb3f00ce8330d5088c08ee1a6f6067339f.tar.gz",
+        "https://github.com/openxla/xla/archive/0e4e6b63d1d41fad4dccf2dcd9e84535b1ede2f0.zip",
     ],
+)
+
+# Initialize XLA's external dependencies (phases 4 and 3).
+load("@xla//:workspace4.bzl", "xla_workspace4")
+
+xla_workspace4()
+
+load("@xla//:workspace3.bzl", "xla_workspace3")
+
+xla_workspace3()
+
+load("@bazel_features//:deps.bzl", "bazel_features_deps")
+
+bazel_features_deps()
+
+_GRPC_PATCHES = [
+    "@xla//third_party/grpc:grpc.patch",
+    "//third_party:grpc.patch",
+]
+
+_GRPC_SHA256 = "41b695614b26652ff9e97ce50cfd4a6c7a3d45a9fe598d1454407746499bbf2c"
+
+_GRPC_STRIP_PREFIX = "grpc-1.81.0"
+
+_GRPC_URLS = ["https://github.com/grpc/grpc/archive/refs/tags/v1.81.0.tar.gz"]
+
+http_archive(
+    name = "com_github_grpc_grpc",
+    patch_args = ["-p1"],
+    patches = _GRPC_PATCHES,
+    sha256 = _GRPC_SHA256,
+    strip_prefix = _GRPC_STRIP_PREFIX,
+    urls = _GRPC_URLS,
+)
+
+http_archive(
+    name = "grpc",
+    patch_args = ["-p1"],
+    patches = _GRPC_PATCHES,
+    repo_mapping = {
+        "@com_github_grpc_grpc": "@grpc",
+    },
+    sha256 = _GRPC_SHA256,
+    strip_prefix = _GRPC_STRIP_PREFIX,
+    urls = _GRPC_URLS,
 )
 
 load("@xla//third_party/py:python_init_rules.bzl", "python_init_rules")
@@ -168,15 +370,7 @@ load("@pypi//:requirements.bzl", "install_deps")
 
 install_deps()
 
-# Initialize XLA's external dependencies.
-load("@xla//:workspace4.bzl", "xla_workspace4")
-
-xla_workspace4()
-
-load("@xla//:workspace3.bzl", "xla_workspace3")
-
-xla_workspace3()
-
+# Initialize XLA's external dependencies (phases 2, 1, 0).
 load("@xla//:workspace2.bzl", "xla_workspace2")
 
 xla_workspace2()
@@ -188,6 +382,25 @@ xla_workspace1()
 load("@xla//:workspace0.bzl", "xla_workspace0")
 
 xla_workspace0()
+
+load(
+    "@io_bazel_rules_closure//closure:repositories.bzl",
+    "rules_closure_dependencies",
+    "rules_closure_toolchains",
+)
+
+rules_closure_dependencies(
+    omit_bazel_skylib = True,
+    omit_com_google_protobuf = True,
+    omit_rules_cc = True,
+    omit_rules_java = True,
+    omit_rules_jvm_external = True,
+    omit_rules_proto = True,
+    omit_rules_python = True,
+    omit_zlib = True,
+)
+
+rules_closure_toolchains()
 
 load(
     "@xla//third_party/py:python_wheel.bzl",
@@ -311,8 +524,6 @@ load("@npm//:repositories.bzl", "npm_repositories")
 
 npm_repositories()
 
-
-
 http_archive(
     name = "org_tensorflow_tensorboard",
     patch_args = ["-p1"],
@@ -395,9 +606,9 @@ cc_library(
     deps = [":imgui"],
 )
 """,
-    sha256 = "81087a74599e5890a07b636887cee73a7dc1a9eb9e1f19a4a0d82a76090bf4c2",
-    strip_prefix = "imgui-1.88",
-    urls = ["https://github.com/ocornut/imgui/archive/v1.88.zip"],
+    sha256 = "c5e2053afc707c70385431ed85c500b108b521784a3f6a7a31ea17583aab89a2",
+    strip_prefix = "imgui-1.92.4-docking",
+    urls = ["https://github.com/ocornut/imgui/archive/refs/tags/v1.92.4-docking.tar.gz"],
 )
 
 http_archive(

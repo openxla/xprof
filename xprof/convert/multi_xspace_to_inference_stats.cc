@@ -352,6 +352,11 @@ void AddBatchDetails(const tensorflow::profiler::BatchDetail& batch,
   row->AddNumberCell(PicoToMilli(batch.batch_delay_ps()));
   row->AddTextCell(throughput);
   row->AddNumberCell(PicoToMilli(batch.device_time_ps()));
+  if (batch.program_ids().empty()) {
+    row->AddTextCell("N/A");
+  } else {
+    row->AddTextCell(absl::StrJoin(batch.program_ids(), ", "));
+  }
   row->AddTextCell(Linkify(
       GenerateTraceViewerUrl(session_id, batch.batch_id(), batch.host_id(),
                              batch.related_request_ids()),
@@ -378,6 +383,7 @@ DataTable CreateBatchDataTable(
       {"batching_delay_us", "number", "Batching delay"},
       {"throughput", "string", "Throughput"},
       {"device_compute", "number", "Device compute"},
+      {"program_id", "string", "Program ID(s)"},
       {"trace_viewer_url", "string", "Trace Viewer URL"}};
 
   for (const auto& column : kColumns) {

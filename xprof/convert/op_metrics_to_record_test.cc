@@ -15,7 +15,7 @@ limitations under the License.
 
 #include "xprof/convert/op_metrics_to_record.h"
 
-#include "<gtest/gtest.h>"
+#include <gtest/gtest.h>
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 
 namespace tensorflow {

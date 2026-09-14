@@ -99,8 +99,10 @@ EM_BOOL HandleKeyDown(int, const EmscriptenKeyboardEvent* event, void*) {
     return false;
   }
 
-  // Always let the browser/Angular handle Slash for search box focus toggle.
-  if (absl::string_view(event->code) == "Slash") {
+  // Always let the browser/Angular handle Slash for search box focus toggle
+  // and Semicolon for settings dialog toggle.
+  if (absl::string_view(event->code) == "Slash" ||
+      absl::string_view(event->code) == "Semicolon") {
     return false;
   }
 
@@ -123,8 +125,10 @@ EM_BOOL HandleKeyUp(int, const EmscriptenKeyboardEvent* event, void*) {
     return false;
   }
 
-  // Always let the browser/Angular handle Slash for search box focus toggle.
-  if (absl::string_view(event->code) == "Slash") {
+  // Always let the browser/Angular handle Slash for search box focus toggle
+  // and Semicolon for settings dialog toggle.
+  if (absl::string_view(event->code) == "Slash" ||
+      absl::string_view(event->code) == "Semicolon") {
     return false;
   }
 

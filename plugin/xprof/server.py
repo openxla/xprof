@@ -14,6 +14,7 @@
 # ==============================================================================
 """Utilities to start up a standalone webserver."""
 
+import argparse
 import collections
 import dataclasses
 import logging
@@ -73,13 +74,23 @@ def make_wsgi_app(plugin):
 
   prefix = "/data/plugin/profile"
 
+  def _not_found_handler(environ, start_response):
+    del environ  # Unused.
+    start_response("404 Not Found", [("Content-Type", "text/plain")])
+    return [b"Not Found"]
+
   def application(environ, start_response):
     path = environ["PATH_INFO"]
     if path.startswith(prefix):
       path = path[len(prefix) :]
     if path != "/" and path.endswith("/"):
       path = path[:-1]
-    handler = apps.get(path, plugin.default_handler)
+    if path in apps:
+      handler = apps[path]
+    elif path in ("", "/"):
+      handler = plugin.default_handler
+    else:
+      handler = _not_found_handler
     return handler(environ, start_response)
 
   return application
@@ -233,3 +244,146 @@ def get_abs_path(logdir: str) -> str:
     return logdir
 
   return str(epath.Path(logdir).expanduser().resolve())
+
+
+# CLI subcommands introduced in xprof-nightly >= 2.24.0. Stable xprof wheels
+# (<= 2.23.1) shipped zero CLI subcommands and routed the `xprof` console script
+# to the TensorBoard-style server, whose argument parser rejects these tokens
+# with an opaque "unrecognized arguments" error. `main` intercepts them and
+# prints an actionable upgrade message instead. This mirrors the public (OSS)
+# tools registered in `xprof.cli.xprof_cli.cli_main`.
+_CLI_SUBCOMMANDS = frozenset({
+    "aggregate_xplane_events",
+    "check_host_boundness",
+    "compute_utilization",
+    "detect_layout_mismatch_copies",
+    "detect_unfused_reshapes",
+    "detect_unfused_updates",
+    "detect_unnecessary_convert_dynamic_scale",
+    "detect_unnecessary_convert_reduce",
+    "get_avg_step_time",
+    "get_device_information",
+    "get_graph_viewer",
+    "get_hlo_module_content",
+    "get_hlo_neighborhood",
+    "get_hlo_op_profile",
+    "get_hlo_stats",
+    "get_hlo_text",
+    "get_hosts",
+    "get_kernel_stats",
+    "get_kernel_utilization",
+    "get_kpi_metrics",
+    "get_llo_analysis",
+    "get_llo_debug_string",
+    "get_memory_profile",
+    "get_overview",
+    "get_peak_allocations",
+    "get_profile_summary",
+    "get_roofline_model",
+    "get_top_hlo_ops",
+    "get_utilization_viewer",
+    "get_xspace_proto",
+    "list_hlo_modules",
+    "list_xplane_events",
+    "upload_trace",
+    "verify_numerical_parity",
+})
+
+
+def cli_subcommand_required_message(subcommand: str) -> str:
+  """Returns the upgrade message shown when a CLI subcommand hits the server.
+
+  Args:
+    subcommand: The CLI subcommand the user attempted to run (e.g.
+      `get_overview`).
+
+  Returns:
+    An actionable, single-line error message directing the user to install
+    xprof-nightly (or upgrade to xprof >= 2.24.0).
+  """
+  return (
+      f"Error: 'xprof {subcommand}' CLI tools require xprof-nightly >= 2.24.0."
+      " Please run 'pip install -U xprof-nightly' or upgrade to xprof >="
+      " 2.24.0. For TensorBoard server usage, run 'xprof --help'."
+  )
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+  """Console entry point for the standalone XProf server.
+
+  Intercepts CLI subcommands (introduced in xprof-nightly >= 2.24.0) that would
+  otherwise fall through to the server argument parser and fail with an opaque
+  "unrecognized arguments" error, printing an actionable upgrade message
+  instead. Any other arguments are parsed as standard server flags and used to
+  launch the web server.
+
+  Args:
+    argv: Command-line arguments excluding the program name. Defaults to
+      `sys.argv[1:]`.
+
+  Returns:
+    A process exit code: 0 on a normal server launch, 2 when a CLI subcommand is
+    intercepted.
+  """
+  argv = sys.argv[1:] if argv is None else list(argv)
+
+  if argv and argv[0] in _CLI_SUBCOMMANDS:
+    sys.stderr.write(cli_subcommand_required_message(argv[0]) + "\n")
+    return 2
+
+  parser = argparse.ArgumentParser(
+      prog="xprof", description="Start the standalone XProf web server."
+  )
+  parser.add_argument(
+      "--logdir", default=None, help="Directory containing profile data."
+  )
+  parser.add_argument(
+      "--port", type=int, default=8791, help="Port for the web server."
+  )
+  parser.add_argument(
+      "--grpc_port",
+      type=int,
+      default=_DEFAULT_GRPC_PORT,
+      help="Port for the gRPC worker service.",
+  )
+  parser.add_argument(
+      "--worker_service_address",
+      default=None,
+      help="Address of the gRPC worker service.",
+  )
+  parser.add_argument(
+      "--src_prefix", default=None, help="Source path prefix for the server."
+  )
+  parser.add_argument(
+      "--max_concurrent_worker_requests",
+      type=int,
+      default=1,
+      help="Maximum number of concurrent worker requests.",
+  )
+  parser.add_argument(
+      "--hide_capture_profile_button",
+      action="store_true",
+      help="Hide the capture-profile button in the UI.",
+  )
+  parser.add_argument(
+      "--enable_tab_name_label",
+      action="store_true",
+      help="Enable the tab-name label in the UI.",
+  )
+  args = parser.parse_args(argv)
+
+  start_server(
+      logdir=args.logdir,
+      port=args.port,
+      hide_capture_profile_button=args.hide_capture_profile_button,
+      enable_tab_name_label=args.enable_tab_name_label,
+      worker_service_address=args.worker_service_address,
+      grpc_port=args.grpc_port,
+      src_prefix=args.src_prefix,
+      max_concurrent_worker_requests=args.max_concurrent_worker_requests,
+  )
+  return 0
+
+
+if __name__ == "__main__":
+  sys.exit(main())

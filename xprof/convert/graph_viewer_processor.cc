@@ -73,8 +73,6 @@ absl::StatusOr<xla::HloProto> GetHloProto(
   return hlo_proto;
 }
 
-}  // namespace
-
 absl::StatusOr<std::string> ConvertHloProtoToGraphViewer(
     const xla::HloProto& hlo_proto, const ToolOptions& options) {
   TF_ASSIGN_OR_RETURN(GraphViewerParams params,
@@ -101,6 +99,8 @@ absl::StatusOr<std::string> ConvertHloProtoToGraphViewer(
                                        params.show_metadata);
   }
 }
+
+}  // namespace
 
 absl::Status GraphViewerProcessor::ProcessSession(
     const SessionSnapshot& session_snapshot, const ToolOptions& options) {

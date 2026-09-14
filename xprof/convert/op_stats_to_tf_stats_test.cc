@@ -20,7 +20,8 @@ limitations under the License.
 #include <string>
 #include <utility>
 
-#include "gtest/gtest.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "xla/hlo/ir/hlo_module.h"

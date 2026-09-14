@@ -26,6 +26,7 @@ limitations under the License.
 #include "absl/base/call_once.h"
 #include "absl/base/no_destructor.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/flags/declare.h"
 #include "absl/flags/flag.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
@@ -42,6 +43,7 @@ limitations under the License.
 
 ABSL_FLAG(bool, use_profile_processor, true,
           "Use ProfileProcessor for tool data conversion");
+ABSL_DECLARE_FLAG(bool, enable_unified_xprof);
 
 static const absl::NoDestructor<absl::flat_hash_set<std::string>>
     kProfileProcessorSupportedTools({
@@ -60,13 +62,6 @@ static const absl::NoDestructor<absl::flat_hash_set<std::string>>
         "trace_viewer",
         "trace_viewer@",
         "op_profile",
-        // TODO(b/537521030): Route utilization_viewer to the legacy
-        // ConvertMultiXSpacesToToolData path until ProfileProcessor supports
-        // single-host XSpace preprocessing (step grouping and derived
-        // timelines). Routing to ProfileProcessor currently causes
-        // utilization_viewer.json to return null on counter-bearing traces.
-        // "utilization_viewer",
-        "perf_counters",
     });
 
 namespace xprof {
@@ -97,10 +92,24 @@ absl::StatusOr<std::pair<std::string, bool>> SessionSnapshotToToolsData(
 
   absl::StatusOr<std::string> status_or_tool_data;
   bool use_profile_processor = absl::GetFlag(FLAGS_use_profile_processor);
-  bool is_supported_tool = kProfileProcessorSupportedTools->contains(tool_name);
-  if (use_profile_processor && is_supported_tool) {
+  bool enable_unified_xprof = absl::GetFlag(FLAGS_enable_unified_xprof);
+
+  if (enable_unified_xprof ||
+      (use_profile_processor &&
+       kProfileProcessorSupportedTools->contains(tool_name))) {
     status_or_tool_data = ConvertMultiXSpacesToToolDataWithProfileProcessor(
         status_or_session_snapshot.value(), tool_name, tool_options);
+    if (!status_or_tool_data.ok() && (status_or_tool_data.status().code() ==
+                                          absl::StatusCode::kInvalidArgument ||
+                                      status_or_tool_data.status().code() ==
+                                          absl::StatusCode::kUnimplemented)) {
+      LOG(WARNING) << "ProfileProcessor not available for tool: " << tool_name
+                   << " (" << status_or_tool_data.status().message()
+                   << "), falling back to legacy "
+                   << "ConvertMultiXSpacesToToolData.";
+      status_or_tool_data = ConvertMultiXSpacesToToolData(
+          status_or_session_snapshot.value(), tool_name, tool_options);
+    }
   } else {
     status_or_tool_data = ConvertMultiXSpacesToToolData(
         status_or_session_snapshot.value(), tool_name, tool_options);

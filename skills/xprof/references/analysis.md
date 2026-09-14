@@ -1,144 +1,197 @@
-# XProf Analysis Reference
+# 7-Phase Performance Analysis Protocol
 
-This reference provides a comprehensive guide for analyzing XLA module
-performance, HLO operations, and timeline events from XProf trace sessions.
+This reference provides the authoritative 7-phase procedure for analyzing XProf
+profiling sessions (Phases 1-6 for bottleneck diagnosis and verification, and
+Phase 7 for artifact closure). Follow this protocol whenever investigating
+compute, memory, host, or step-time bottlenecks.
 
-## 1. Extract Module & Kernel Step Times
+## Tool Execution
 
-You can extract step times (such as `jit_update`, `jit_prefill`, and
-`jit_generate`) directly using the `xprof` CLI on any logdir or trace file:
+All examples use the open-source `xprof` CLI. Install it via pip (use
+`xprof-nightly` to access experimental subcommands such as
+`verify_numerical_parity`):
 
 ```bash
-# Get overall execution breakdown and step time
-xprof get_overview /path/to/logdir
-
-# Get detailed kernel execution statistics and step durations
-xprof get_kernel_stats /path/to/logdir --include_summary=True
-
-# Filter statistics for a specific JIT module
-xprof get_kernel_stats /path/to/logdir --kernel_name="jit_update"
+pip install xprof-nightly
 ```
 
-### Common XLA Modules
-
-Module         | Description
-:------------- | :-----------------------------------
-`jit_update`   | Training step time
-`jit_prefill`  | Prefill / prompt processing time
-`jit_generate` | Autoregressive token generation time
-
---------------------------------------------------------------------------------
-
-## 2. HLO Module & Op Analysis
-
-Use the HLO inspection tools in `xprof` to discover compiled modules, inspect
-top operations by execution time, and navigate graph neighborhoods.
+All tools accept a `<logdir>` (or a direct run folder / `.xplane.pb` file) as a
+positional argument:
 
 ```bash
-# List all HLO modules compiled in the trace session
-xprof list_hlo_modules /path/to/logdir
-
-# Get the top N most expensive HLO operations by self-time
-xprof get_hlo_op_profile /path/to/logdir --top_n=15
-
-# Get the full HLO code for a specific module
-xprof get_hlo_module_content /path/to/logdir --module_name=<module_name>
-
-# Get HLO code with Python source mapping metadata
-xprof get_hlo_module_content /path/to/logdir --module_name=<module_name> --print_metadata=True
-
-# Inspect the neighborhood of a specific HLO instruction (e.g., fusion.123)
-xprof get_hlo_neighborhood /path/to/logdir --instruction_name=<instr_name> --radius=2
-
-# Retrieve the full HLO module content as raw text
-xprof get_hlo_text /path/to/logdir --module_name=<module_name>
-
-# Retrieve the focused HLO neighborhood of a specific operation
-xprof get_hlo_text /path/to/logdir --module_name=<module_name> --op_name=<op_name>
-
-# Save HLO text directly to a local file
-xprof get_hlo_text /path/to/logdir --module_name=<module_name> --path=/tmp/module.hlo
+xprof <subcommand> <logdir> [flags]
 ```
 
 --------------------------------------------------------------------------------
 
-## 3. Timeline Event Analysis (XPlane)
+## Phase 1: Turn-1 Parallel Triage Dispatch
 
-Query and aggregate low-level events across hardware and host timelines:
+To eliminate turn latency and avoid circular searches, agents **MUST issue
+parallel tool calls in Turn 1**:
 
 ```bash
-# Search for specific events in the XPlane timeline (e.g., all Fusion events on device planes)
-xprof list_xplane_events /path/to/logdir \
-  --plane_regex="Device.*" --event_regex="Fusion.*" --max_events=200000
-
-# Aggregate statistics for matching timeline events
-xprof aggregate_xplane_events /path/to/logdir \
-  --plane_regex="Device.*" --event_regex="Fusion.*"
+# Executed concurrently in Turn 1:
+xprof get_overview <logdir>
+xprof get_roofline_model <logdir> --top_n=10
+xprof check_host_boundness <logdir>
 ```
 
-> [!TIP] **Timeline Query Efficiency**: If you already know the target event
-> name (e.g., `'Fusion'`), do not run `list_xplane_events` first to locate
-> instances. Run `aggregate_xplane_events` directly to compute event statistics
-> in a single step and prevent context bloat.
+### Triage Decision Matrix
+
+Evaluate the consolidated outputs against the following four gates:
+
+| Diagnostic State        | Trigger Conditions      | Action                  |
+| :---------------------- | :---------------------- | :---------------------- |
+| **Host / Infeed Bound** | `check_host_boundness`  | Proceed to Phase 3 (EIC |
+:                         : returns `HOST_BOUND`    : Calculation) & Phase 4  :
+:                         : (Idle Time Ratio >      : (Input Pipeline         :
+:                         : 10.0%, MXU Idleness >   : Proposal)               :
+:                         : 70.0%, HBM BW < 30.0%,  :                         :
+:                         : ICI < 30.0%)            :                         :
+| **Memory-Bound**        | `bound_by == "HBM"`,    | Proceed to Phase 2      |
+:                         : Operational Intensity < : (Macro-to-Micro HLO     :
+:                         : Ridge Point (e.g. <     : Drilldown)              :
+:                         : 279.1 FLOP/Byte on TPU  :                         :
+:                         : v5e)                    :                         :
+| **Compute-Bound**       | `bound_by ==            | Proceed to Phase 2      |
+:                         : "Compute"`, Operational : (Macro-to-Micro HLO     :
+:                         : Intensity > Ridge       : Drilldown)              :
+:                         : Point, high MXU compute :                         :
+:                         : efficiency              :                         :
+| **Communication-Bound** | High collective time    | Proceed to Phase 2      |
+:                         : (`all-reduce`,          : (Communication Category :
+:                         : `all-gather`,           : Drilldown)              :
+:                         : `all-reduce-scatter     :                         :
+:                         : fusion`) in op profile  :                         :
+:                         : or timeline stalls      :                         :
 
 --------------------------------------------------------------------------------
 
-## 4. Analysis Workflows & Best Practices
+## Phase 2: Macro-to-Micro Op Drilldown
 
-### Bottleneck Analysis Workflow
+If compute, memory, or communication bound, execute progressive macro-to-micro
+drilldown:
 
-1.  **Overview Check:** Run `get_overview` to check the high-level breakdown
-    (Compute vs. Host vs. Communication).
-2.  **Verify Roofline & KPIs:** Run `get_kpi_metrics` to inspect compute
-    utilization, memory bandwidth, and step times.
-3.  **Find Expensive Ops:** If compute-bound, run `get_hlo_op_profile` or
-    `get_top_hlo_ops` to identify long-running operations.
-4.  **Inspect HLO Neighborhoods:** Run `get_hlo_neighborhood` around expensive
-    fusions to diagnose layout transformations, copies, or fusion blockers.
-5.  **Root-Cause Debugging:** Run `get_graph_viewer` with
-    `--module_name=<module_name>` to trace compiled instructions back to exact
-    Python source line numbers.
+### Step 2.1: Macro Category Summary
 
-### Core Rules for Agents
+```bash
+xprof get_hlo_op_profile <logdir> --view=category
+```
 
-*   **Rule 1: Discover Modules Before Querying**
-    *   **ALWAYS** run `list_hlo_modules` first to discover the exact module
-        name (e.g., `jit_convert_element_type(5275733382363401132)`). Module
-        names often contain unique hash suffixes.
-*   **Rule 2: Avoid Full HLO Dump Loops on Truncated Files**
-    *   Large HLO modules are truncated to prevent context window bloat and
-        latency.
-    *   **DO NOT** attempt full HLO text dumps of large modules unless
-        explicitly needed. Use `get_hlo_neighborhood` with `--instruction_name`
-        to inspect target operations directly.
-*   **Rule 3: Prefer Clean Text for Static Analysis**
-    *   Use `get_hlo_module_content` when reviewing compiled HLO graphs or
-        tensor layout definitions.
-    *   Use `get_graph_viewer` when you need source-to-HLO line mappings
-        (`FileLocations` and `StackFrames`).
-*   **Rule 4: Prefer Graph Viewer for Root-Cause Debugging**
-    *   Use `get_graph_viewer` with `--module_name=<name>` to trace an
-        instruction back to the Python source file and function that generated
-        it.
-*   **Rule 5: Minimize CLI Invocations to Prevent Timeouts**
-    *   Do not query tools in circular loops or repeatedly list modules if you
-        already have the names. Jump directly to `get_hlo_op_profile` or target
-        operations.
+Identify the dominant category with highest fraction of total execution time
+(`convolution fusion`, `loop fusion`, `custom-call`, `data formatting`).
+
+### Step 2.2: Category Drilldown & Source Attribution
+
+```bash
+xprof get_hlo_op_profile <logdir> --category="<dominant_category>"
+```
+
+Isolate leaf operations, their self-time, FLOPs, bytes accessed, and source code
+mapping (`source_file` and `source_line`).
+
+> ⚠️ **STRICT ANTI-PATTERN**: Do NOT dump raw `.hlo` text or protobuf files. Use
+> `get_hlo_neighborhood` with `--op_name` if subgraph inspection is required.
 
 --------------------------------------------------------------------------------
 
-## 5. Concepts: XSpace, XPlane, XLine, and Events
+## Phase 3: Headroom & Resource Waste Quantification
 
-A single XProf session captures structured hierarchy across hosts and devices:
+Quantify optimization potential and hardware waste:
 
-*   **XSpace**: A single `XSpace` proto represents all profiling data for the
-    trace session.
-*   **XPlane**: An `XSpace` contains multiple `XPlane` protos. Each `XPlane`
-    represents data from a specific profiling source (e.g., host CPU, TPU
-    device, or GPU).
-*   **XLine**: An `XPlane` contains parallel timelines called `XLines`.
-*   **Events (`XEvents`)**: Each `XLine` contains events representing timed
-    activities with a name, start time, and duration.
+<!-- disableFinding(LINE_OVER_80) -->
 
-> [!TIP] If a trace is large, filter to a single device or host using
-> `--plane_regex` in `list_xplane_events` or `aggregate_xplane_events`.
+### 1. Roofline Headroom Percentage
+
+$$\text{Headroom \%} = 100.0\% - \text{Roofline Efficiency \%}$$
+
+### 2. Theoretical Step Latency Reduction ($\Delta \text{ms}$)
+
+$$\Delta \text{Step Latency (ms)} = \text{Op Self Time (ms)} \times \left(\frac{\text{Headroom \%}}{100.0\%}\right)$$
+
+### 3. Equivalent Idle Chips (EIC) (for Host / Infeed Stalls)
+
+$$\text{EIC} = \text{Total TPU Cores} \times \left(\frac{\text{Idle Time Ratio}}{1.0 + \text{Idle Time Ratio}}\right)$$
+
+<!-- endDisableFinding(LINE_OVER_80) -->
+
+--------------------------------------------------------------------------------
+
+## Phase 4: Actionable Code Optimization Proposal
+
+Agents MUST provide concrete, line-level code or configuration modifications:
+
+-   **Memory-Bound Optimization**:
+    -   Fuse layout conversions and reshapes using `jnp.einsum`.
+    -   Eliminate unnecessary fp32 upcasting in reduction operations (enforce
+        `dtype=jnp.bfloat16` or `astype(x.dtype)`).
+    -   Eliminate intermediate memory materializations.
+-   **Compute-Bound Optimization**:
+    -   Tune kernel block sizes / tiling dimensions via autotuning sweeps over
+        candidate block-size and tiling configurations.
+    -   Reorder operations or apply Split-K matrix decomposition.
+-   **Host / Infeed-Bound Optimization**:
+    -   Apply `tf.data.AUTOTUNE` and `.prefetch()`.
+    -   Enable host software offload or parallel data loading workers.
+
+--------------------------------------------------------------------------------
+
+## Phase 5: Empirical Validation Execution
+
+Agents MUST formulate a copy-pasteable, deterministic execution command to
+benchmark performance. Use standard reproduction commands, for example:
+
+```bash
+# Run a standalone benchmark script with a fixed reproduction config.
+python -m benchmark_script --config=repro_config.py
+
+# Or execute a performance regression test.
+pytest tests/test_perf.py
+
+# Or run a Bazel benchmark target in optimized mode.
+bazel run -c opt //path/to:benchmark_target -- --config=repro_config.py
+```
+
+-   Assert post-refactoring step latency, verify speedup, and check for
+    throughput regressions.
+
+--------------------------------------------------------------------------------
+
+## Phase 6: Numerical Correctness & Parity Verification
+
+Never recommend or merge performance changes without enforcing numerical
+correctness contracts:
+
+```bash
+xprof verify_numerical_parity \
+  --reference_kernel="module.ref_func" \
+  --candidate_kernel="module.cand_func" \
+  --shape="(32, 2048)" \
+  --dtype="bfloat16" \
+  --max_allowed_ulp=2
+```
+
+### Mandatory Parity Guardrails:
+
+1.  **Multi-Regime Testing**: Evaluate normal distribution, extreme boundary
+    values ($0$, $\pm \infty$), and heavy-tailed / activation overflow regimes.
+2.  **Tolerance Contracts**:
+    -   Elementwise / direct fusions: $\text{max\_allowed\_ulp} \le 2$.
+    -   Split-K non-associative reductions: $\text{max\_allowed\_ulp} \le 4$.
+    -   Discrete indices & masks: $\text{discrete\_delta} = 0$,
+        $\text{mismatch\_count} = 0$.
+3.  **Safety Ceiling**: Reject tolerance abuse (hard ceiling of 8 ULP for
+    bfloat16).
+
+--------------------------------------------------------------------------------
+
+## Phase 7: Artifact Closure
+
+Conclude analysis with concrete operational deliverables:
+
+-   Produce a ready-to-submit Git commit message / pull request summary
+    describing the optimization and measured speedup.
+-   Share execution logs and findings as a Markdown report (e.g. a Gist or
+    attached artifact).
+-   Provide the local or cluster rerun command required to reproduce the
+    verification results.

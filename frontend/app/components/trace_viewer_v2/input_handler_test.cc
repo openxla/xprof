@@ -3,7 +3,7 @@
 #include <emscripten/em_js.h>
 #include <emscripten/html5.h>
 
-#include "<gtest/gtest.h>"
+#include <gtest/gtest.h>
 #include "imgui.h"
 
 namespace traceviewer {
@@ -148,6 +148,14 @@ TEST_F(InputHandlerTest, HandleKeyDownSlashReturnsFalse) {
   EmscriptenKeyboardEvent event;
   memset(&event, 0, sizeof(event));
   strncpy(event.code, "Slash", sizeof(event.code) - 1);
+
+  EXPECT_FALSE(HandleKeyDown(0, &event, nullptr));
+}
+
+TEST_F(InputHandlerTest, HandleKeyDownSemicolonReturnsFalse) {
+  EmscriptenKeyboardEvent event;
+  memset(&event, 0, sizeof(event));
+  strncpy(event.code, "Semicolon", sizeof(event.code) - 1);
 
   EXPECT_FALSE(HandleKeyDown(0, &event, nullptr));
 }

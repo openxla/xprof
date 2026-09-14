@@ -241,6 +241,11 @@ def xspace_to_tool_data(
     json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = json_data
+  elif tool == 'kernel_utilization':
+    options.update(params)
+    json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
+    if success:
+      data = json_data
   elif tool == 'utilization_viewer':
     json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:

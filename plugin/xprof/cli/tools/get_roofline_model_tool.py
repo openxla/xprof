@@ -87,9 +87,8 @@ def get_roofline_model(
 
     roofline_data = json.loads(data)
     if not isinstance(roofline_data, list) or not roofline_data:
-      return json.dumps(
-          dict(error="Unexpected roofline model data format: expected list"),
-          indent=2,
+      raise ValueError(
+          "Unexpected roofline model data format: expected non-empty list"
       )
 
     table_data = roofline_data[0]
@@ -228,10 +227,19 @@ def get_roofline_model(
       source_info_raw = r_dict.get("source_info", "")
       cleaned_source = _strip_html_tags(source_info_raw)
 
+      op_name = r_dict.get("operation") or r_dict.get("hlo_name", "")
+      op_category = r_dict.get("category") or r_dict.get("hlo_category", "")
+      bound_by_val = r_dict.get("bound_by") or "Unknown"
+      if bound_by_val == "Unknown" and (
+          op_name.startswith("custom-call")
+          or op_category.lower() in ("custom-call", "custom_call")
+      ):
+        bound_by_val = "CustomCall (opaque)"
+
       op_records.append({
           "rank": int(safe_float(r_dict.get("rank"))),
-          "name": r_dict.get("operation") or r_dict.get("hlo_name", ""),
-          "category": r_dict.get("category") or r_dict.get("hlo_category", ""),
+          "name": op_name,
+          "category": op_category,
           "total_self_time_ms": round(self_time_us / 1000.0, 3),
           "total_self_time_percent": to_percent_str(
               r_dict.get("total_self_time_percent")
@@ -255,7 +263,7 @@ def get_roofline_model(
               safe_float(r_dict.get("optimal_flop_rate")), 2
           ),
           "dma_stall_percent": to_percent_str(r_dict.get("dma_stall_percent")),
-          "bound_by": r_dict.get("bound_by", "Unknown"),
+          "bound_by": bound_by_val,
           "hlo_module_id": str(r_dict.get("hlo_module_id", "")),
           "source_info": cleaned_source,
       })
@@ -272,24 +280,33 @@ def get_roofline_model(
     unique_op_records.sort(key=lambda x: x["total_self_time_ms"], reverse=True)
     top_ops = unique_op_records[:top_n]
 
-    output = {
+    has_custom_call = any(
+        op.get("bound_by") == "CustomCall (opaque)" for op in top_ops
+    )
+    if has_custom_call:
+      if program_metrics.get("bound_by") in ("Unknown", "", None):
+        program_metrics["bound_by"] = "CustomCall (opaque)"
+
+    output: dict[str, Any] = {
         "program": program_metrics,
         "device_info": device_info,
         "top_operations": top_ops,
         "total_operations_analyzed": len(unique_op_records),
     }
+    if has_custom_call:
+      output["guidance"] = (
+          "Op-level metrics unavailable for custom calls. Use"
+          " get_llo_analysis, get_llo_debug_string, and aggregate_xplane_events"
+          " for Pallas kernels."
+      )
 
     return json.dumps(output, indent=2)
 
+  except (FileNotFoundError, ValueError):
+    raise
   except Exception as e:  # pylint: disable=broad-exception-caught
-    logging.exception("Error fetching roofline model")
-    return json.dumps(
-        dict(
-            error=(
-                "Error fetching roofline model:"
-                f" {''.join(traceback.format_exception_only(e)).strip()}"
-            ),
-            traceback=traceback.format_exc(),
-        ),
-        indent=2,
+    logging.exception(
+        "Error fetching roofline model for session %s", session_id
     )
+    error_msg = "".join(traceback.format_exception_only(type(e), e)).strip()
+    raise RuntimeError(f"Error fetching roofline model: {error_msg}") from e

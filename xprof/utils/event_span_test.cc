@@ -1,7 +1,7 @@
 #include "xprof/utils/event_span.h"
 
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 
 namespace tensorflow {

@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include "<gtest/gtest.h>"
+#include <gtest/gtest.h>
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "xprof/convert/trace_viewer/delta_series/zstd_compression.h"

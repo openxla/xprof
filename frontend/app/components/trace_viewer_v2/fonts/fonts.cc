@@ -27,13 +27,9 @@ void LoadFonts(float pixel_ratio) {
   io.Fonts->Clear();
 
   ImFontConfig config;
-  // RasterizerDensity scales the font rasterization without affecting font
-  // metrics. This is the correct way to handle DPI scaling for fonts without
-  // changing the overall UI layout. RasterizerMultiply adjusts the
-  // brightness/alpha of the rasterized glyphs. While RasterizerDensity is the
-  // primary scaling factor, setting RasterizerMultiply to pixel_ratio can also
-  // enhance visibility at higher resolutions by making the font appear slightly
-  // bolder/brighter.
+  // RasterizerMultiply adjusts the brightness/alpha of the rasterized glyphs.
+  // A fixed value of 1.0f preserves default font appearance.
+  config.RasterizerMultiply = 1.0f;
 
   static const ImWchar kRangesBasic[] = {
       0x0020, 0x00FF,  // Basic Latin + Latin Supplement

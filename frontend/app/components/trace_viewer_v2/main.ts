@@ -149,6 +149,13 @@ declare global {
   SetZoomSpeed?(speed: number): void;
   SetMouseWheelZoomSpeed?(speed: number): void;
   SetCustomTraceColors?(colors: number[]): void;
+  RequestRedraw?(): void;
+  SetPlaybackState?(
+    isPlaying: boolean,
+    currentTime: number,
+    playSpeed: number,
+  ): void;
+  GetPresetPalettes?(): Array<{name: string; previewColors: string[]}>;
   canvas: HTMLCanvasElement;
   callMain(args: string[]): void;
   preinitializedWebGPUDevice: GPUDevice | null;
@@ -213,6 +220,7 @@ declare global {
       setMouseMode(mode: number): void;
       setVisibleFlowCategory(categoryId: number): void;
       setVisibleFlowCategories(categoryIds: number[]): void;
+      scheduleForcedRedraw(): void;
     };
   };
 }
@@ -364,7 +372,7 @@ async function getWebGpuDevice(): Promise<GPUDevice> {
 }
 
 function configureCanvas(canvas: HTMLCanvasElement, device: GPUDevice) {
-  const context = canvas.getContext('webgpu');
+  const context = canvas.getContext('webgpu') as GPUCanvasContext | null;
   if (!context) {
     throw new Error('Context not found for canvas.');
   }

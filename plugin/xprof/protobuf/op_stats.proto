@@ -13,7 +13,8 @@ import "plugin/xprof/protobuf/steps_db.proto";
 import "plugin/xprof/protobuf/tf_function.proto";
 import "plugin/xprof/protobuf/topology.proto";
 
-// Performance environment, e.g. the peak performance capabilities of the device.
+// Performance environment, e.g. the peak performance capabilities of the
+// device.
 message PerfEnv {
   // Peak performance of a TPU core or a GPU in TFLOP/s.
   double peak_tera_flops_per_second = 1;
@@ -35,6 +36,10 @@ message PerfEnv {
   bool has_merged_vmem = 7;
   // Whether megacore is used.
   bool has_megacore = 8;
+  // Peak performance of a sparse core in TFLOP/s.
+  double peak_sc_tera_flops_per_second = 9;
+  // Number of sparse core tiles.
+  int32 num_sparse_core_tiles = 10;
 }
 
 // Result proto for host-independent job information.

@@ -5,6 +5,7 @@ package(default_visibility = ["//frontend:internal"])
 xprof_ng_module(
     name = "trace_viewer_container",
     srcs = [
+        "hlo_pretty_printer.ts",
         "trace_viewer_container.ts",
         "trace_viewer_utils.ts",
     ],
@@ -18,6 +19,7 @@ xprof_ng_module(
         "//:node_modules/@angular/forms",
         "//:node_modules/@angular/router",
         "//:node_modules/angular-split",
+        "//:node_modules/ngx-json-viewer",
         "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/angular:angular_material_button",
         "@org_xprof//frontend/app/common/angular:angular_material_checkbox",
@@ -33,6 +35,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
         "@org_xprof//frontend/app/common/constants",
         "@org_xprof//frontend/app/common/interfaces",
+        "@org_xprof//frontend/app/components/timeline_player",
         "@org_xprof//frontend/app/components/trace_viewer_v2:app_bundle_ts",
         "@org_xprof//frontend/app/pipes",
     ],
@@ -41,15 +44,20 @@ xprof_ng_module(
 xprof_ng_module(
     name = "trace_viewer_container_tests",
     testonly = True,
-    srcs = ["trace_viewer_container_test.ts"],
+    srcs = [
+        "hlo_pretty_printer_test.ts",
+        "trace_viewer_container_test.ts",
+    ],
     deps = [
         ":trace_viewer_container",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        # ksf,
         "//:node_modules/@angular/platform-browser",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "//:node_modules/@angular/router",
         "//:node_modules/rxjs",
-        "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
-        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/components/timeline_player",
         "@org_xprof//frontend/app/components/trace_viewer_v2:app_bundle_ts",
     ],
 )

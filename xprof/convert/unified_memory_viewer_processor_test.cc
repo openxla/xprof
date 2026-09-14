@@ -18,8 +18,8 @@ limitations under the License.
 #include <string>
 
 #include "net/proto2/contrib/parse_proto/parse_text_proto.h"
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "google/protobuf/arena.h"

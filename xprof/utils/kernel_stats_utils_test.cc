@@ -17,7 +17,7 @@ limitations under the License.
 
 #include <string>
 
-#include "testing/base/public/gmock.h"
+#include <gmock/gmock.h>
 #include "absl/strings/string_view.h"
 #include "xla/backends/profiler/gpu/cupti_buffer_events.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"

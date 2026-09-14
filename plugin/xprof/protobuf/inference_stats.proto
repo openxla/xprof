@@ -104,7 +104,7 @@ message RequestDetail {
 }
 
 // Detail of a batch.
-// Next ID: 13
+// Next ID: 14
 message BatchDetail {
   // Batch id.
   optional int64 batch_id = 1 [default = -1];
@@ -144,6 +144,12 @@ message BatchDetail {
 
   // Total time in picosecs in this batch spent on device.
   optional uint64 device_time_ps = 12 [default = 0];
+
+  // The compiled HLO program_ids (XLA module fingerprints) that executed this
+  // batch on device. Multiple IDs can be present due to collisions. Allows
+  // downstream consumers to join batch metadata (model_name, batch_size) with
+  // per-program device performance data.
+  repeated uint64 program_ids = 13;
 }
 
 // Per-host data for inference analysis.

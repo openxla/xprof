@@ -3,7 +3,6 @@
 import json
 import logging
 import re
-import traceback
 from typing import Any
 
 from xprof.cli.internal import decorators
@@ -194,7 +193,7 @@ def _get_avg_barrier_cores_time_per_event(
 
 
 def _get_utilization_metrics(
-    session_id: str, host_count: int
+    session_id: str, host_count: int, bypass_cache: bool = False
 ) -> dict[str, float]:
   """Fetches utilization metrics with multi-host fallback."""
   idleness_percent = 0.0
@@ -206,7 +205,7 @@ def _get_utilization_metrics(
   for h in range(max_hosts):
     try:
       util_str = get_utilization_viewer_tool.get_utilization_viewer(
-          session_id, host=h
+          session_id, host=h, bypass_cache=bypass_cache
       )
       util_data = _parse_json_safely(util_str)
       if not util_data:
@@ -254,7 +253,11 @@ def _get_utilization_metrics(
 
 
 @decorators.cached(expire=86400)
-def check_host_boundness(session_id: str, func_name: str | None = None) -> str:
+def check_host_boundness(
+    session_id: str,
+    func_name: str | None = None,
+    bypass_cache: bool = False,
+) -> str:
   """Diagnoses if a TPU workload is host-bound using canonical multi-source telemetry.
 
   Evaluates data across overview, HLO op profile, trace viewer (barrier cores),
@@ -263,11 +266,17 @@ def check_host_boundness(session_id: str, func_name: str | None = None) -> str:
   Args:
       session_id: The unique XProf session ID.
       func_name: Optional name of the main step function for API compatibility.
+      bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
       A JSON-formatted string containing 'status' ('HOST_BOUND',
       'NOT_HOST_BOUND', 'UNKNOWN', or 'INSUFFICIENT_DATA'), numerical 'metrics',
       'reasons', and actionable 'recommendations'.
+
+  Raises:
+      FileNotFoundError: If no overview data is returned for the session.
+      ValueError: If overview data is in an unexpected format.
+      RuntimeError: If fetching or processing host boundness telemetry fails.
   """
   session_id = str(session_id)
   client = xprof_client.get_client()
@@ -278,6 +287,7 @@ def check_host_boundness(session_id: str, func_name: str | None = None) -> str:
         tool_name="overview_page.json",
         session_id=session_id,
         format="json",
+        bypass_cache=bypass_cache,
     )
     if isinstance(overview_raw, tuple) and len(overview_raw) == 2:
       _, overview_output = overview_raw
@@ -285,12 +295,8 @@ def check_host_boundness(session_id: str, func_name: str | None = None) -> str:
       overview_output = overview_raw
 
     if not overview_output:
-      return json.dumps(
-          {
-              "status": "UNKNOWN",
-              "error": f"No overview data returned for session {session_id}",
-          },
-          indent=2,
+      raise FileNotFoundError(
+          f"No overview data returned for session {session_id}"
       )
 
     if isinstance(overview_output, bytes):
@@ -347,14 +353,8 @@ def check_host_boundness(session_id: str, func_name: str | None = None) -> str:
           or 0
       )
     else:
-      return json.dumps(
-          {
-              "status": "UNKNOWN",
-              "error": (
-                  f"Unexpected overview data format for session {session_id}"
-              ),
-          },
-          indent=2,
+      raise ValueError(
+          f"Unexpected overview data format for session {session_id}"
       )
 
     duty_cycle_str = str(overview_p.get("device_duty_cycle_percent", "0.0%"))
@@ -408,6 +408,7 @@ def check_host_boundness(session_id: str, func_name: str | None = None) -> str:
           tool_name="hlo_op_profile.json",
           session_id=session_id,
           group_by="category",
+          bypass_cache=bypass_cache,
       )
       if isinstance(hlo_raw, tuple) and len(hlo_raw) == 2:
         _, hlo_output = hlo_raw
@@ -479,7 +480,9 @@ def check_host_boundness(session_id: str, func_name: str | None = None) -> str:
     equivalent_idle_chips = core_count * absolute_idle_fraction
 
     # --- 5. Hardware Subsystem Utilization ---
-    util_metrics = _get_utilization_metrics(session_id, host_count)
+    util_metrics = _get_utilization_metrics(
+        session_id, host_count, bypass_cache=bypass_cache
+    )
     idleness_percent = util_metrics["idleness_percent"]
     hbm_bw_util = util_metrics["hbm_bandwidth_utilization_percent"]
     ici_read_util = util_metrics["ici_read_utilization_percent"]
@@ -598,17 +601,10 @@ def check_host_boundness(session_id: str, func_name: str | None = None) -> str:
         indent=2,
     )
 
-  except Exception:  # pylint: disable=broad-exception-caught
+  except (FileNotFoundError, ValueError):
+    raise
+  except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception(
         "Error checking host boundness for session %s", session_id
     )
-    return json.dumps(
-        {
-            "status": "UNKNOWN",
-            "error": (
-                "Error during host boundness check:"
-                f" {traceback.format_exc().strip()}"
-            ),
-        },
-        indent=2,
-    )
+    raise RuntimeError(f"Error during host boundness check: {e}") from e

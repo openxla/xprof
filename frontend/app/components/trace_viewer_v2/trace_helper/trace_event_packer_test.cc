@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include "<gtest/gtest.h>"
+#include <gtest/gtest.h>
 #include "absl/types/span.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 

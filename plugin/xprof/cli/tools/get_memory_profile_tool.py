@@ -3,7 +3,6 @@
 import dataclasses
 import json
 import logging
-import traceback
 from typing import Any
 
 from xprof.cli.internal import decorators
@@ -149,6 +148,11 @@ def get_memory_profile(
 
   Returns:
       A JSON-formatted string containing memory profile details.
+
+  Raises:
+      FileNotFoundError: If the trace or session files do not exist.
+      ValueError: If memory profile data is malformed or invalid.
+      RuntimeError: If fetching or processing memory profile fails.
   """
   session_id = str(session_id)
   client = xprof_client.get_client()
@@ -254,7 +258,9 @@ def get_memory_profile(
 
     if parsed is None:
       if last_error:
-        return json.dumps(dict(error=last_error), indent=2)
+        if "Failed to parse JSON" in last_error or "Value error" in last_error:
+          raise ValueError(last_error)
+        raise RuntimeError(last_error)
       return json.dumps(default_output, indent=2)
 
     # Calculate metrics with -1.0 fallback
@@ -308,14 +314,10 @@ def get_memory_profile(
         },
     }
     return json.dumps(output, indent=2)
+  except (FileNotFoundError, ValueError):
+    raise
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception(
         "Error fetching memory profile for session %s", session_id
     )
-    return json.dumps(
-        dict(
-            error=f"Error fetching memory profile: {e}",
-            traceback=traceback.format_exc(),
-        ),
-        indent=2,
-    )
+    raise RuntimeError(f"Error fetching memory profile: {e}") from e

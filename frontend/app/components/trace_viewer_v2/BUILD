@@ -197,6 +197,7 @@ ts_library(
         "feature_flags.ts",
         "help_dialog.ts",
         "main.ts",
+        "shortcuts.ts",
     ],
     visibility = ["//frontend:__subpackages__"],
     deps = [

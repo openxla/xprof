@@ -30,6 +30,7 @@ limitations under the License.
 #include "absl/base/macros.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/strings/ascii.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
@@ -219,14 +220,16 @@ void UpdateEventTimestamps(
   // Note: Timestamp updates for batch analysis is not supported yet.
 }
 
-void UpdateBatchEvents(const GroupMetadataMap& group_metadata_map,
-                       absl::Span<const EventTypeSpan> events, int64_t group_id,
-                       BatchEventsMap* batch_events_map) {
+BatchEvents* UpdateBatchEvents(absl::Span<const EventTypeSpan> events,
+                               int64_t group_id,
+                               BatchEventsMap* batch_events_map) {
   // Update BatchEvents that are directly associated with <group_id>.
   if (auto batch_events = FindOrNull(*batch_events_map, group_id)) {
     batch_events->events.insert(batch_events->events.end(), events.begin(),
                                 events.end());
+    return batch_events;
   }
+  return nullptr;
 }
 
 // Updates RequestEvents using ReadFromDevice, WriteToDevice and DeviceRun.
@@ -418,7 +421,7 @@ void UpdateTpuDataTransferEventsInTpuSystem(
                             request_events_map);
       }
       if (batch_events_map != nullptr) {
-        UpdateBatchEvents(group_metadata_map, event_to_update,
+        UpdateBatchEvents(event_to_update,
                           events[0]->GetStat(StatType::kGroupId)->IntValue(),
                           batch_events_map);
       }
@@ -472,8 +475,7 @@ void BuildTPUDeviceEvents(const std::vector<XPlane*>& device_traces,
                               request_events_map);
         }
         if (batch_events_map != nullptr) {
-          UpdateBatchEvents(group_metadata_map, event_to_update, group_id,
-                            batch_events_map);
+          UpdateBatchEvents(event_to_update, group_id, batch_events_map);
         }
       }
     }
@@ -502,6 +504,10 @@ void BuildTPUDeviceEvents(const std::vector<XPlane*>& device_traces,
         std::optional<XStatVisitor> group_id =
             event.GetStat(StatType::kGroupId);
         if (!group_id) return;
+        // Read program_id from the same device event for batch -> program
+        // linking.
+        std::optional<XStatVisitor> program_id =
+            event.GetEventOrMetadataStat(StatType::kProgramId);
         // TPU compute does not specify 32bit or 16bit, use
         // DEVICE_COMPUTE_32 to annotate this is a compute event.
         event_to_update[0] = {EventType::DEVICE_COMPUTE_32,
@@ -511,8 +517,16 @@ void BuildTPUDeviceEvents(const std::vector<XPlane*>& device_traces,
                               group_id->IntValue(), request_events_map);
         }
         if (batch_events_map != nullptr) {
-          UpdateBatchEvents(group_metadata_map, event_to_update,
-                            group_id->IntValue(), batch_events_map);
+          BatchEvents* batch_events = UpdateBatchEvents(
+              event_to_update, group_id->IntValue(), batch_events_map);
+          if (program_id.has_value() && batch_events != nullptr) {
+            auto& batch_detail = batch_events->batch_detail_proto;
+            uint64_t pid = program_id->IntOrUintValue();
+            // Append to program_ids list if not already present.
+            if (!absl::c_linear_search(batch_detail.program_ids(), pid)) {
+              batch_detail.add_program_ids(pid);
+            }
+          }
         }
       });
     });
@@ -598,8 +612,7 @@ void BuildGPUDeviceEvents(const StepEvents& nonoverlapped_step_events,
   }
   if (batch_events_map != nullptr) {
     for (const auto& [step_id, step_details] : nonoverlapped_step_events) {
-      UpdateBatchEvents(group_metadata_map, step_details.Events(), step_id,
-                        batch_events_map);
+      UpdateBatchEvents(step_details.Events(), step_id, batch_events_map);
     }
   }
 }
@@ -1072,18 +1085,31 @@ std::string GenerateTensorPattern(
   std::vector<std::string> sub_patterns;
   sub_patterns.reserve(tensor_events.size());
   for (const XEventVisitor* tensor_event : tensor_events) {
-    std::optional<XStatVisitor> shape =
-        tensor_event->GetStat(StatType::kTensorShapes);
-    if (!shape.has_value()) return "";
+    if (tensor_event == nullptr) return "";
+    std::string shape_str;
+    if (std::optional<XStatVisitor> shape =
+            tensor_event->GetStat(StatType::kTensorShapes)) {
+      shape_str = shape->StrOrRefValue();
+    } else if (std::optional<XStatVisitor> dims =
+                   tensor_event->GetStat(StatType::kDimensions)) {
+      if (std::optional<XStatVisitor> type =
+              tensor_event->GetStat(StatType::kType)) {
+        shape_str = absl::StrCat(absl::AsciiStrToLower(type->StrOrRefValue()),
+                                 dims->StrOrRefValue());
+      } else {
+        shape_str = dims->StrOrRefValue();
+      }
+    }
+    if (shape_str.empty()) return "";
+
     std::optional<XStatVisitor> layout =
         tensor_event->GetStat(StatType::kTensorLayout);
     if (!layout.has_value()) return "";
-    sub_patterns.push_back(absl::StrCat(tensor_event->Name(), " ",
-                                        shape->StrOrRefValue(), " ",
-                                        layout->StrOrRefValue()));
+    sub_patterns.push_back(absl::StrCat(tensor_event->Name(), " ", shape_str,
+                                        " ", layout->StrOrRefValue()));
   }
   // Sort the sub patterns to get a deterministic result.
-  std::sort(sub_patterns.begin(), sub_patterns.end());
+  absl::c_sort(sub_patterns);
   // The final tensor pattern is generated as the concatenation of all sub
   // patterns. Use <br> as separator so it can be displayed properly in
   // frontend.

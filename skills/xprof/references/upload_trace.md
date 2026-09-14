@@ -7,7 +7,7 @@ directory structure for analysis using XProf tools.
 
 `xprof` tools can analyze profile data in two ways:
 
-1.  **Direct Path**: Pass an individual `.xplane.pb` or `.trace.json.gz` file
+1.  **Direct Path**: Pass an individual `.xplane.pb` or `.xspace.pb` file
     directly to any `xprof` CLI command.
 2.  **Logdir Import (`upload_trace`)**: Import raw trace files into a structured
     xprof logdir directory (`<logdir>/plugins/profile/<run_name>/`), making them

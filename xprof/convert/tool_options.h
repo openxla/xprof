@@ -18,9 +18,11 @@ limitations under the License.
 
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <variant>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 
@@ -62,10 +64,38 @@ std::optional<T> GetParam(const ToolOptions& options,
   }
 
   const T* result = std::get_if<T>(&iter->second);
-  if (!result) {
-    return std::nullopt;
+  if (result) {
+    return *result;
   }
-  return *result;
+
+  // Gracefully handle strings parsed from HTTPQueryParams
+  if constexpr (std::is_same_v<T, int>) {
+    if (const std::string* str_val = std::get_if<std::string>(&iter->second)) {
+      int parsed_val;
+      if (absl::SimpleAtoi(*str_val, &parsed_val)) {
+        return parsed_val;
+      }
+    }
+  } else if constexpr (std::is_same_v<T, bool>) {
+    if (const std::string* str_val = std::get_if<std::string>(&iter->second)) {
+      bool parsed_val;
+      if (absl::SimpleAtob(*str_val, &parsed_val)) {
+        return parsed_val;
+      }
+      int parsed_int;
+      if (absl::SimpleAtoi(*str_val, &parsed_int)) {
+        return parsed_int != 0;
+      }
+    }
+  } else if constexpr (std::is_same_v<T, std::string>) {
+    if (const int* int_val = std::get_if<int>(&iter->second)) {
+      return absl::StrCat(*int_val);
+    } else if (const bool* bool_val = std::get_if<bool>(&iter->second)) {
+      return *bool_val ? "true" : "false";
+    }
+  }
+
+  return std::nullopt;
 }
 
 // Helper function to get parameter from tool options with default value.

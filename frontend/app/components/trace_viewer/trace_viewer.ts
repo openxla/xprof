@@ -5,6 +5,7 @@ import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   inject,
   Injector,
   OnDestroy,
@@ -12,9 +13,20 @@ import {
   TemplateRef,
   ViewChild,
 } from '@angular/core';
-import {MatDialog, MatDialogConfig} from '@angular/material/dialog';
+import {MatDialog, MatDialogRef} from '@angular/material/dialog';
 import {ActivatedRoute, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
+import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
+import {
+  catchError,
+  debounceTime,
+  distinctUntilChanged,
+  finalize,
+  switchMap,
+  takeUntil,
+  tap,
+} from 'rxjs/operators';
+
 import {
   API_PREFIX,
   PLUGIN_NAME,
@@ -31,6 +43,8 @@ import {
 import {
   FeatureFlag,
   getFeatureFlags,
+  getStoredFeatureFlag,
+  saveFeatureFlag,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/feature_flags';
 import {
   DETAILS_RECEIVED_EVENT_NAME,
@@ -48,29 +62,23 @@ import {
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
-import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
-import {
-  catchError,
-  debounceTime,
-  distinctUntilChanged,
-  finalize,
-  switchMap,
-  takeUntil,
-  tap,
-} from 'rxjs/operators';
 import {
   COLOR_PALETTE_PROMPTED_STORAGE_KEY,
   COLOR_PALETTE_STORAGE_KEY,
   COLOR_PALETTES,
   CUSTOM_COLORS_STORAGE_KEY,
   CUSTOM_PALETTE_NAME,
-  FEATURE_FLAG_STORAGE_PREFIX,
   FILTER_CONFIG,
   FILTER_FIELD_EVENT_DURATION,
   FILTER_FIELDS,
   FILTER_OPERATORS,
   FILTER_PROPERTY_SEPARATOR,
   FILTER_SEPARATOR,
+  NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
+  NAV_PAN_SPEED_STORAGE_KEY,
+  NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY,
+  PALETTE_PREVIEWS,
+  SettingsTab,
 } from './constants';
 import {AdjacentNodesResponse} from './interfaces';
 import {
@@ -80,10 +88,12 @@ import {
   FilterOperatorType,
   FilterRemoveEvent,
   FlowCategory,
+  StackFrame,
   TraceEventFilter,
   TraceFilters,
 } from './trace_viewer_typings';
 import {
+  applyStackTraceArg,
   getProcessMappingsFromWasm,
   getProcessNamesFromWasm,
   parseEventsSelectedData,
@@ -91,6 +101,7 @@ import {
 
 interface TraceData {
   traceEvents?: Array<{[key: string]: unknown}>;
+  stackFrames?: {[id: string]: StackFrame};
   [key: string]: unknown;
 }
 
@@ -142,28 +153,13 @@ function parseHostsList(hosts: unknown): string[] {
   return Array.isArray(hosts) ? hosts : [];
 }
 
-/**
- * Loads feature flags from local storage.
- */
 function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
-  try {
-    return getFeatureFlags().map((flag): FeatureFlagWithValue => {
-      const storedValue = window.localStorage.getItem(
-        FEATURE_FLAG_STORAGE_PREFIX + flag.id,
-      );
-      return {
-        ...flag,
-        value: storedValue === null ? flag.default : storedValue === 'true',
-      };
-    });
-  } catch {
-    return getFeatureFlags().map(
-      (flag): FeatureFlagWithValue => ({
-        ...flag,
-        value: flag.default,
-      }),
-    );
-  }
+  return getFeatureFlags().map(
+    (flag): FeatureFlagWithValue => ({
+      ...flag,
+      value: getStoredFeatureFlag(flag.id),
+    }),
+  );
 }
 
 /** A trace viewer component. */
@@ -223,18 +219,24 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private queryString = '';
   searching = false;
   private readonly searchQuery = new ReplaySubject<string>(1);
-  /** Returns whether compressed protobuf trace format (.pb) is enabled via query/localStorage. */
   get usePb(): boolean {
+    if (!this.useTraceViewerV2) {
+      return false;
+    }
+    const searchParams = new URLSearchParams(window.location.search);
+    const isJsonFormat =
+      searchParams.get('format') === 'json' ||
+      searchParams.get('use_pb') === 'false';
+    if (isJsonFormat) {
+      return false;
+    }
     const isPbFormat =
-      new URLSearchParams(window.location.search).get('format') === 'pb';
+      searchParams.get('format') === 'pb' ||
+      searchParams.get('use_pb') === 'true';
     if (isPbFormat) {
       return true;
     }
-    try {
-      return window.localStorage.getItem('use_pb_format') === 'true';
-    } catch {
-      return false;
-    }
+    return getStoredFeatureFlag('use_pb');
   }
   /** @export */
   get searchQueryForTesting(): Observable<string> {
@@ -248,11 +250,18 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild(TraceViewerContainer, {static: false})
   container?: TraceViewerContainer;
 
-  @ViewChild('paletteDialog', {static: true})
+  @ViewChild('settingsDialog', {static: false})
+  settingsDialog!: TemplateRef<{}>;
+
+  @ViewChild('paletteDialog', {static: false})
   paletteDialog!: TemplateRef<{}>;
 
-  @ViewChild('featureFlagsDialog', {static: true})
+  @ViewChild('featureFlagsDialog', {static: false})
   featureFlagsDialog!: TemplateRef<{}>;
+
+  @ViewChild('settingsButton') settingsButton!: ElementRef<HTMLButtonElement>;
+
+  settingsDialogRef: MatDialogRef<unknown> | null = null;
 
   selectedFilters: FilterEntry[] = [];
   validFilterFields = FILTER_FIELDS;
@@ -260,10 +269,20 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   processesListFromJson: string[] = [];
   isUploadMode = false;
   fileUploaded = false;
+
+  readonly SettingsTab = SettingsTab;
+  activeSettingsTab: SettingsTab = SettingsTab.GENERAL;
+  palettePreviews: Record<string, string[]> = PALETTE_PREVIEWS;
+
   selectedPalette = 'Default';
   COLOR_PALETTES = COLOR_PALETTES;
   readonly CUSTOM_PALETTE_NAME = CUSTOM_PALETTE_NAME;
   customColors: string[] = [];
+
+  panningSpeed = 1.0;
+  keyboardZoomSpeed = 1.0;
+  wheelZoomSpeed = 1.0;
+
   flowCategories: FlowCategory[] = [];
   allFlowCategories: FlowCategory[] = [];
   selectedFlowCategoryIds = new Set<number>();
@@ -300,15 +319,15 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
    * Saves the current feature flag values to local storage and reloads the page.
    */
   saveFeatureFlags(): void {
-    for (const f of this.featureFlags) {
-      const key = FEATURE_FLAG_STORAGE_PREFIX + f.id;
-      if (f.value === f.default) {
-        window.localStorage.removeItem(key);
-      } else {
-        window.localStorage.setItem(key, f.value ? 'true' : 'false');
-      }
+    for (const flag of this.featureFlags) {
+      saveFeatureFlag(flag.id, flag.value, flag.default);
     }
     this.dialog.closeAll();
+    this.reload();
+  }
+
+  /** @visibleForTesting */
+  reload(): void {
     window.location.reload();
   }
 
@@ -340,20 +359,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
    * Opens the feature flags settings dialog and captures initial state.
    */
   openFeatureFlagsSettings(): void {
-    // Reset this.featureFlags to the values currently in local storage.
-    // This ensures that if a user made changes and canceled previously,
-    // the dialog reopens with the persisted state.
-    this.featureFlags = loadFeatureFlagsFromStorage();
-
-    // Capture the initial state after resetting from local storage.
-    const newInitialFeatureFlags = new Map<string, boolean>();
-    for (const f of this.featureFlags) {
-      newInitialFeatureFlags.set(f.id, f.value);
-    }
-    this.initialFeatureFlags = newInitialFeatureFlags;
-    this.dialog.open(this.featureFlagsDialog, {
-      width: '400px',
-    });
+    this.openSettings(SettingsTab.FLAGS);
   }
 
   get filterSelectedHosts(): string[] {
@@ -502,6 +508,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   ngOnInit(): void {
     this.loadCustomColors();
+    this.loadGeneralSettings();
     this.searchQuery
       .pipe(
         takeUntil(this.destroyed),
@@ -567,6 +574,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         return;
       }
 
+      this.loadPresetPalettes();
+
       let savedPalette: string | null = null;
       try {
         savedPalette = window.localStorage.getItem(COLOR_PALETTE_STORAGE_KEY);
@@ -579,6 +588,9 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         this.selectedPalette = savedPalette;
         this.traceViewerModule.SetPalette(savedPalette);
       }
+
+      this.loadGeneralSettings();
+      this.applyNavigationSpeeds();
 
       if (
         this.traceViewerModule &&
@@ -945,6 +957,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         ) {
           return;
         }
+        // TODO: Once fully migrated to Trace Viewer v2, refactor this to return
+        // a single event details object instead of returning an entire Catapult
+        // TraceData array where the slice event is implicitly assumed to be the
+        // last element.
         const lastEvent =
           traceData.traceEvents[traceData.traceEvents.length - 1];
         if (
@@ -953,6 +969,11 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
           lastEvent['args']
         ) {
           const args = lastEvent['args'] as Record<string, string>;
+          applyStackTraceArg(
+            args,
+            lastEvent['sf'] as number | undefined,
+            traceData.stackFrames,
+          );
           this.eventArgsCache.set(cacheKey, args);
           this.addArgsToSelectedEvent(args);
         }
@@ -960,12 +981,18 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private addArgsToSelectedEvent(args: Record<string, string>): void {
-    if (!this.selectedEvent) return;
+    const event = this.selectedEvent;
+    if (!event) return;
     const properties = [...this.selectedEventProperties];
     for (const key of Object.keys(args)) {
       properties.push({property: key, value: args[key]});
     }
     this.selectedEventProperties = properties;
+    // Expose the resolved args on the event and reassign it so Trace Viewer
+    // v2 can render them as an auto-traversed JSON tree (see
+    // TraceViewerContainer.buildSelectedEventJson).
+    event.args = Object.assign({}, event.args, args);
+    this.selectedEvent = Object.assign({}, event);
     this.maybeFetchAdjacentNodes();
   }
 
@@ -1273,15 +1300,149 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   // START Support of color palettes selection
 
-  openColorPaletteSettings() {
-    this.loadCustomColors();
-    const config: MatDialogConfig = {
-      maxWidth: 450,
-      disableClose: true,
-    };
-    const dialogRef = this.dialog.open(this.paletteDialog, config);
+  get isNavigationSpeedDefault(): boolean {
+    return (
+      this.panningSpeed === 1.0 &&
+      this.keyboardZoomSpeed === 1.0 &&
+      this.wheelZoomSpeed === 1.0
+    );
+  }
 
-    dialogRef.afterClosed().subscribe((result: string | undefined) => {
+  applyNavigationSpeeds(): void {
+    if (this.traceViewerModule) {
+      this.traceViewerModule.SetPanningSpeed?.(1000 * this.panningSpeed);
+      this.traceViewerModule.SetZoomSpeed?.(1.5 * this.keyboardZoomSpeed);
+      this.traceViewerModule.SetMouseWheelZoomSpeed?.(
+        0.2 * this.wheelZoomSpeed,
+      );
+    }
+  }
+
+  resetNavigationSpeed(): void {
+    this.panningSpeed = 1.0;
+    this.keyboardZoomSpeed = 1.0;
+    this.wheelZoomSpeed = 1.0;
+    window.localStorage.setItem(NAV_PAN_SPEED_STORAGE_KEY, '1.0');
+    window.localStorage.setItem(NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY, '1.0');
+    window.localStorage.setItem(NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY, '1.0');
+    this.applyNavigationSpeeds();
+  }
+
+  onPanningSpeedChange(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.panningSpeed = Number(input.value);
+    window.localStorage.setItem(
+      NAV_PAN_SPEED_STORAGE_KEY,
+      this.panningSpeed.toString(),
+    );
+    this.applyNavigationSpeeds();
+  }
+
+  onKeyboardZoomSpeedChange(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.keyboardZoomSpeed = Number(input.value);
+    window.localStorage.setItem(
+      NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
+      this.keyboardZoomSpeed.toString(),
+    );
+    this.applyNavigationSpeeds();
+  }
+
+  onWheelZoomSpeedChange(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.wheelZoomSpeed = Number(input.value);
+    window.localStorage.setItem(
+      NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY,
+      this.wheelZoomSpeed.toString(),
+    );
+    this.applyNavigationSpeeds();
+  }
+
+  setSettingsTab(tab: SettingsTab): void {
+    this.activeSettingsTab = tab;
+  }
+
+  private loadGeneralSettings(): void {
+    try {
+      const panSpeed = window.localStorage.getItem(NAV_PAN_SPEED_STORAGE_KEY);
+      if (panSpeed !== null) {
+        this.panningSpeed = Number(panSpeed) || 1.0;
+      }
+      const kbZoom = window.localStorage.getItem(
+        NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
+      );
+      if (kbZoom !== null) {
+        this.keyboardZoomSpeed = Number(kbZoom) || 1.0;
+      }
+      const wheelZoom = window.localStorage.getItem(
+        NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY,
+      );
+      if (wheelZoom !== null) {
+        this.wheelZoomSpeed = Number(wheelZoom) || 1.0;
+      }
+    } catch {
+      // Ignore storage errors.
+    }
+  }
+
+  toggleSettings(tab: SettingsTab = SettingsTab.GENERAL): void {
+    if (this.settingsDialogRef) {
+      this.settingsDialogRef.close();
+      this.settingsDialogRef = null;
+      return;
+    }
+    this.openSettings(tab);
+  }
+
+  loadPresetPalettes(): void {
+    if (this.traceViewerModule?.GetPresetPalettes) {
+      const presets = this.traceViewerModule.GetPresetPalettes();
+      if (presets && presets.length > 0) {
+        this.COLOR_PALETTES = presets.map((p) => p.name);
+        const previews: Record<string, string[]> = {};
+        for (const p of presets) {
+          previews[p.name] = p.previewColors;
+        }
+        this.palettePreviews = previews;
+      }
+    }
+  }
+
+  openSettings(tab: SettingsTab = SettingsTab.GENERAL): void {
+    if (this.settingsDialogRef) {
+      this.setSettingsTab(tab);
+      return;
+    }
+
+    this.activeSettingsTab = tab;
+    this.loadPresetPalettes();
+    this.loadGeneralSettings();
+    this.loadCustomColors();
+
+    const savedPalette = window.localStorage.getItem(COLOR_PALETTE_STORAGE_KEY);
+    if (savedPalette) {
+      this.selectedPalette = savedPalette;
+    }
+
+    this.featureFlags = loadFeatureFlagsFromStorage();
+    const newInitialFeatureFlags = new Map<string, boolean>();
+    for (const f of this.featureFlags) {
+      newInitialFeatureFlags.set(f.id, f.value);
+    }
+    this.initialFeatureFlags = newInitialFeatureFlags;
+
+    const dialogTemplate =
+      this.settingsDialog || this.paletteDialog || this.featureFlagsDialog;
+    const dialogRef = this.dialog.open(dialogTemplate, {
+      width: '760px',
+      maxWidth: '95vw',
+      panelClass: 'settings-dialog-mat-dialog-container',
+      disableClose: false,
+    });
+    this.settingsDialogRef = dialogRef;
+
+    dialogRef?.afterClosed().subscribe((result: string | undefined) => {
+      this.settingsDialogRef = null;
       if (result && this.traceViewerModule) {
         this.selectedPalette = result;
         if (result === CUSTOM_PALETTE_NAME) {
@@ -1293,6 +1454,23 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         window.localStorage.setItem(COLOR_PALETTE_STORAGE_KEY, result);
       }
     });
+  }
+
+  saveColorSettings(): void {
+    if (this.selectedPalette === CUSTOM_PALETTE_NAME) {
+      this.saveCustomColors();
+      this.applyCustomColors();
+    } else if (this.traceViewerModule) {
+      this.traceViewerModule.SetPalette(this.selectedPalette);
+    }
+    window.localStorage.setItem(
+      COLOR_PALETTE_STORAGE_KEY,
+      this.selectedPalette,
+    );
+  }
+
+  openColorPaletteSettings() {
+    this.openSettings(SettingsTab.COLOR);
   }
 
   onPaletteChange(palette: string) {
@@ -1395,7 +1573,6 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       );
     }
   }
-
   dismissColorOnboarding() {
     this.showColorOnboarding = false;
     try {

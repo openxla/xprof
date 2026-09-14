@@ -1,6 +1,7 @@
 import {AfterViewInit, Component, ElementRef, HostListener, Input, OnChanges, SimpleChanges, ViewChild, ChangeDetectionStrategy, EventEmitter, Output} from '@angular/core';
 import {STACK_CHART_FILL_COLORS} from 'org_xprof/frontend/app/common/constants/constants';
 import {type InputPipelineAnalysis} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {clampDataTableNumericValues} from 'org_xprof/frontend/app/common/utils/chart_utils';
 
 const MAX_CHART_WIDTH = 800;
 const COLORS_FOR_GPU = [
@@ -84,6 +85,8 @@ export class StepTimeGraph implements AfterViewInit, OnChanges {
       i++;
     }
 
+    clampDataTableNumericValues(dataTable, /* startCol= */ 1);
+
     const showTextEvery =
         Math.max(1, Math.floor(dataTable.getNumberOfRows() / 10));
     const options = {
@@ -97,6 +100,7 @@ export class StepTimeGraph implements AfterViewInit, OnChanges {
       vAxis: {
         format: '###.####',
         minValue: 0,
+        viewWindow: {min: 0},
         textStyle: {bold: true},
       },
       chartArea: {left: 50, width: '60%'},
@@ -112,6 +116,7 @@ export class StepTimeGraph implements AfterViewInit, OnChanges {
       setTimeout(() => {
         this.loadGoogleChart();
       }, 100);
+      return;
     }
 
     google.charts.safeLoad({'packages': ['corechart']});

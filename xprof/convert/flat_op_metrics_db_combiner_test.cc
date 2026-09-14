@@ -19,7 +19,7 @@ limitations under the License.
 #include <string>
 
 #include "net/proto2/contrib/parse_proto/parse_text_proto.h"
-#include "<gtest/gtest.h>"
+#include <gtest/gtest.h>
 #include "absl/strings/str_cat.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 

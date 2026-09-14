@@ -4,7 +4,9 @@ import functools
 import inspect
 import json
 import pathlib
+import re
 import sys
+import traceback
 from typing import Any
 
 from absl import app
@@ -17,7 +19,6 @@ from xprof.cli.internal.oss import hlo_tools
 from xprof.cli.internal.oss import xplane_tools
 from xprof.cli.internal.oss import xprof_client
 from xprof.cli.tools import check_host_boundness_tool
-from xprof.cli.tools import get_graph_viewer_tool
 from xprof.cli.tools import get_hlo_stats_tool
 from xprof.cli.tools import get_kernel_stats_tool
 from xprof.cli.tools import get_kpi_metrics_tool
@@ -30,6 +31,9 @@ from xprof.cli.tools import get_roofline_model_tool
 from xprof.cli.tools import get_top_hlo_ops_tool
 from xprof.cli.tools import get_utilization_viewer_tool
 from xprof.cli.tools import verify_numerical_parity_tool
+from xprof.cli.tools.oss import get_graph_viewer_tool
+from xprof.cli.tools.oss import get_kernel_utilization_tool
+from xprof.cli.tools.oss import upload_trace_tool
 
 
 def cli_main() -> dict[str, Any]:
@@ -39,10 +43,11 @@ def cli_main() -> dict[str, Any]:
     A dictionary of tool names to functions.
   """
   return {
-      # 26 Core Tools (Available in both 1P and 3P):
+      # 28 Core Tools (Available in both 1P and 3P):
       # keep-sorted start
       "aggregate_xplane_events": xplane_tools.aggregate_xplane_events,
       "check_host_boundness": check_host_boundness_tool.check_host_boundness,
+      "compute_utilization": get_kernel_utilization_tool.get_kernel_utilization,
       "get_avg_step_time": get_kernel_stats_tool.get_avg_step_time,
       "get_device_information": xprof_data.get_device_information,
       "get_graph_viewer": get_graph_viewer_tool.get_graph_viewer,
@@ -53,6 +58,9 @@ def cli_main() -> dict[str, Any]:
       "get_hlo_text": hlo_tools.get_hlo_text,
       "get_hosts": xprof_data.get_hosts,
       "get_kernel_stats": get_kernel_stats_tool.get_kernel_stats,
+      "get_kernel_utilization": (
+          get_kernel_utilization_tool.get_kernel_utilization
+      ),
       "get_kpi_metrics": get_kpi_metrics_tool.get_kpi_metrics,
       "get_llo_analysis": get_llo_analysis_tool.get_llo_analysis,
       "get_llo_debug_string": get_llo_debug_string_tool.get_llo_debug_string,
@@ -68,6 +76,7 @@ def cli_main() -> dict[str, Any]:
       "get_xspace_proto": xplane_tools.get_xspace_proto,
       "list_hlo_modules": hlo_tools.list_hlo_modules,
       "list_xplane_events": xplane_tools.list_xplane_events,
+      "upload_trace": upload_trace_tool.upload_trace,
       "verify_numerical_parity": (
           verify_numerical_parity_tool.verify_numerical_parity
       ),
@@ -123,6 +132,12 @@ def _wrap_with_logdir(tool_func):
     if isinstance(logdir, bool):
       raise fire.core.FireError("The --logdir flag requires a value.")
 
+    # Reject empty session_id when --logdir is given or as positional arg
+    if args and not args[0]:
+      raise ValueError("session_id cannot be an empty string.")
+    if "session_id" in kwargs and not kwargs["session_id"]:
+      raise ValueError("session_id cannot be an empty string.")
+
     target_path = None
     if logdir is not None:
       target_path = str(logdir)
@@ -133,12 +148,13 @@ def _wrap_with_logdir(tool_func):
       ):
         target_path = first_arg
 
-    if target_path is not None and _is_oss():
+    if target_path is not None:
       if (
           "destination" not in sig.parameters
           and "run_name" not in sig.parameters
       ):
-        if not target_path.startswith("gs://"):
+        skip_local_check = target_path.startswith("gs://")
+        if not skip_local_check:
           p = pathlib.Path(target_path).expanduser()
           if not p.exists():
             raise FileNotFoundError(
@@ -161,6 +177,47 @@ def _wrap_with_logdir(tool_func):
             and not args
         ):
           kwargs["session_id"] = str(logdir)
+        elif (
+            "source" in sig.parameters
+            and "source" not in kwargs
+            and not args
+        ):
+          kwargs["source"] = str(logdir)
+
+    args_list = list(args)
+    for i, p in enumerate(sig.parameters.values()):
+      if i < len(args_list) and p.name in {
+          "session_id",
+          "source",
+          "baseline_session_id",
+          "optimized_session_id",
+          "run_name",
+          "module_name",
+          "instruction_name",
+          "func_name",
+          "kernel_name",
+          "host_name",
+          "host",
+      }:
+        if isinstance(args_list[i], (int, float)):
+          args_list[i] = str(args_list[i])
+    args = tuple(args_list)
+
+    for k in (
+        "session_id",
+        "source",
+        "baseline_session_id",
+        "optimized_session_id",
+        "run_name",
+        "module_name",
+        "instruction_name",
+        "func_name",
+        "kernel_name",
+        "host_name",
+        "host",
+    ):
+      if k in kwargs and isinstance(kwargs[k], (int, float)):
+        kwargs[k] = str(kwargs[k])
 
     if "bypass_cache" not in sig.parameters:
       if not (
@@ -171,34 +228,6 @@ def _wrap_with_logdir(tool_func):
         kwargs.pop("bypass_cache", None)
 
     res = tool_func(*args, **kwargs)
-
-    # Inspect JSON result for DATA_ABSENT or CORRUPT_TRACE
-    if (
-        isinstance(res, str)
-        and res.strip().startswith("{")
-        and res.strip().endswith("}")
-    ):
-      try:
-        data = json.loads(res)
-        if isinstance(data, dict) and "error" in data:
-          err_msg = str(data["error"])
-          err_lower = err_msg.lower()
-          if (
-              "no .xplane.pb or .xspace.pb files found" in err_lower
-              or "data_absent" in err_lower
-          ):
-            raise FileNotFoundError(err_msg)
-          if (
-              "corrupt" in err_lower
-              or "invalid wire type" in err_lower
-              or "error parsing message" in err_lower
-              or "failed to parse" in err_lower
-              or "cannot load hlo proto" in err_lower
-              or "no overview data returned for the session" in err_lower
-          ):
-            raise ValueError(f"CORRUPT_TRACE: {err_msg}")
-      except (json.JSONDecodeError, KeyError):
-        pass
 
     # Enforce volume spill guard (X-6) if output exceeds 10 MB.
     if isinstance(res, (str, bytes)):
@@ -358,16 +387,113 @@ def _check_xprof_version() -> None:
     pass
 
 
-def _emit_error(reason: str, message: str, exit_code: int) -> None:
+def _emit_error(
+    reason: str,
+    message: str,
+    exit_code: int,
+    traceback_str: str | None = None,
+) -> None:
   """Emits structured JSON on stdout and human-readable header on stderr."""
   payload = {
       "status": "ERROR",
       "reason": reason,
       "error": message,
   }
+  if traceback_str:
+    payload["traceback"] = traceback_str
   sys.stdout.write(json.dumps(payload, indent=2) + "\n")
   sys.stderr.write(f"{reason}: {message}\n")
+  if traceback_str:
+    sys.stderr.write(f"\n{traceback_str}\n")
   sys.exit(exit_code)
+
+
+_UNDERSCORE_NUM_PATTERN = re.compile(r"^\d+(_\d+)+$")
+
+# Session-directory alias flags. Autonomous agents frequently invoke tools with
+# these named flags instead of the first positional argument. They are all
+# normalized to the first positional argument, which _wrap_with_logdir() routes
+# to whichever parameter (session_id/source) a tool declares. See b/555254723.
+_SESSION_ALIAS_FLAGS = ("--session_dir", "--session_path", "--source")
+
+
+def _quote_if_timestamp(token: str) -> str:
+  """Quotes underscore timestamp tokens so Fire keeps them as strings."""
+  if _UNDERSCORE_NUM_PATTERN.match(token) and not (
+      token.startswith(('"', "'")) and token.endswith(('"', "'"))
+  ):
+    return f'"{token}"'
+  return token
+
+
+def _preprocess_argv(argv: list[str] | None) -> list[str] | None:
+  """Preprocesses CLI args for robustness against common agent invocations.
+
+  Two normalizations are applied so autonomous agents and humans can use
+  intuitive flags without triggering Python Fire argument errors:
+
+    1. Session-directory alias flags (``--session_dir``, ``--session_path``,
+       ``--source``) are rewritten to the first positional argument.
+    2. Timestamp session IDs containing underscores are quoted so Fire does not
+       interpret them as PEP 515 numeric literals.
+
+  The CLI always emits JSON; there is no output-format flag.
+
+  Args:
+    argv: The raw argument vector (excluding the program name), or None.
+
+  Returns:
+    The normalized argument vector, or the original value if it was empty.
+  """
+  if not argv:
+    return argv
+
+  # Phase 1: extract any session-dir alias value, collecting the remaining
+  # tokens (argv[0] is the subcommand name).
+  tokens: list[str] = []
+  alias_value: str | None = None
+  skip_next = False
+  n = len(argv)
+  for i, arg in enumerate(argv):
+    if skip_next:
+      skip_next = False
+      continue
+    if arg.startswith("-") and "=" in arg:
+      flag, val = arg.split("=", 1)
+    else:
+      flag, val = arg, None
+
+    if flag in _SESSION_ALIAS_FLAGS:
+      if val is None:
+        if i + 1 < n and not argv[i + 1].startswith("-"):
+          val = argv[i + 1]
+          skip_next = True
+        else:
+          val = ""
+      alias_value = val
+      continue
+
+    tokens.append(arg)
+
+  # Phase 2: re-inject the alias value as the first positional argument, so
+  # _wrap_with_logdir() routes it to whichever positional the tool declares.
+  if alias_value is not None:
+    if tokens:
+      tokens = [tokens[0], alias_value] + tokens[1:]
+    else:
+      tokens = [alias_value]
+
+  # Phase 3: preserve underscore-timestamp tokens as strings.
+  processed = []
+  for arg in tokens:
+    if arg.startswith("--") and "=" in arg:
+      key, val = arg.split("=", 1)
+      processed.append(f"{key}={_quote_if_timestamp(val)}")
+    elif arg.startswith("-"):
+      processed.append(arg)
+    else:
+      processed.append(_quote_if_timestamp(arg))
+  return processed
 
 
 def main(argv=None) -> None:
@@ -376,17 +502,28 @@ def main(argv=None) -> None:
 
   _check_xprof_version()
 
+  if argv is None:
+    argv = sys.argv
+
+  processed_command = _preprocess_argv(argv[1:] if argv else None)
   try:
-    fire.Fire(XProfCli(), command=argv[1:] if argv else None, name="xprof")
+    fire.Fire(XProfCli(), command=processed_command, name="xprof")
   except (fire.core.FireError, TypeError) as e:
     _emit_error("USAGE_ERROR", str(e), 2)
-  except FileNotFoundError as e:
+  except OSError as e:
     _emit_error("PATH_ERROR", str(e), 3)
   except ValueError as e:
     _emit_error("INVALID_VALUE", str(e), 4)
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception("Unhandled defect in xprof_cli")
-    _emit_error("INTERNAL_ERROR", f"{e}\nPlease report to b/547935083", 1)
+    tb = traceback.format_exc().strip()
+    report_target = "https://github.com/openxla/xprof/issues"
+    _emit_error(
+        "INTERNAL_ERROR",
+        f"{e}\nPlease report to {report_target}",
+        1,
+        traceback_str=tb,
+    )
 
 
 if __name__ == "__main__":

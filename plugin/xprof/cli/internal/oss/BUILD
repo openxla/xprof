@@ -7,7 +7,7 @@ pytype_library(
     srcs = ["hlo_tools.py"],
     # strict_deps = False,
     deps = [
-        ":xprof_client",
+        ":xprof_client",  # buildcleaner: keep
         "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/convert:raw_to_tool_data",
     ],
@@ -18,7 +18,7 @@ pytype_library(
     srcs = ["xplane_tools.py"],
     # strict_deps = False,
     deps = [
-        ":xprof_client",
+        ":xprof_client",  # buildcleaner: keep
         "//plugin/xprof:profile_data",
         "//plugin/xprof/cli/internal:decorators",
     ],
@@ -28,10 +28,7 @@ pytype_library(
     name = "kernel_stats_tools",
     srcs = ["kernel_stats_tools.py"],
     # strict_deps = False,
-    deps = [
-        ":xplane_tools",
-        "//plugin/xprof:profile_data",
-    ],
+    deps = [":xplane_tools"],
 )
 
 pytype_library(
@@ -49,18 +46,12 @@ pytype_library(
     name = "smart_suggestion_tools",
     srcs = ["smart_suggestion_tools.py"],
     # strict_deps = False,
-    deps = [
-        ":xprof_client",
-    ],
+    deps = [":xprof_client"],  # buildcleaner: keep
 )
 
 pytype_library(
     name = "llo_parser",
     srcs = ["llo_parser.py"],
-    # strict_deps = False,
-    deps = [
-        "//plugin/xprof:profile_data",
-    ],
 )
 
 pytype_library(
@@ -72,7 +63,5 @@ pytype_library(
     name = "llo_report_generator",
     srcs = ["llo_report_generator.py"],
     # strict_deps = False,
-    deps = [
-        ":llo_detectors",
-    ],
+    deps = [":llo_detectors"],
 )

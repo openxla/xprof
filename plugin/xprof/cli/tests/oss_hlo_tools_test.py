@@ -20,14 +20,6 @@ class OssHloToolsTest(absltest.TestCase):
     self.test_dir.cleanup()
     super().tearDown()
 
-  def test_debug_info_collection_container(self):
-    """Verifies fallback _DebugInfoCollection structure."""
-    container = hlo_tools._DebugInfoCollection(
-        hlo_proto=["proto1"], program_id=["prog1"]
-    )
-    self.assertEqual(container.hlo_proto, ["proto1"])
-    self.assertEqual(container.program_id, ["prog1"])
-
   def test_list_hlo_modules_empty(self):
     """Verifies list_hlo_modules returns friendly message when no files exist."""
     with mock.patch.object(hlo_tools, "_get_hlo_proto_files", return_value=[]):
@@ -91,6 +83,43 @@ class OssHloToolsTest(absltest.TestCase):
       self.assertIn("%mul", neighborhood)
       self.assertIn("%x", neighborhood)
       self.assertIn("%w", neighborhood)
+
+  def test_get_hlo_neighborhood_op_name_alias(self):
+    """Verifies get_hlo_neighborhood supports op_name alias."""
+    f1 = self.session_dir / "module_0001.jit_compute.hlo_proto.pb"
+    mock_client = mock.MagicMock()
+    hlo_graph = (
+        "%entry (\n"
+        "  %x = f32[10] parameter(0)\n"
+        "  %w = f32[10] parameter(1)\n"
+        "  %mul = f32[10] multiply(%x, %w)\n"
+        "  %add = f32[10] add(%mul, %x)\n"
+        "  ROOT %neg = f32[10] negate(%add)\n"
+        ")\n"
+    )
+    mock_client.fetch.return_value = (None, hlo_graph.encode("utf-8"))
+
+    with (
+        mock.patch.object(hlo_tools, "_get_hlo_proto_files", return_value=[f1]),
+        mock.patch.object(xprof_client, "get_client", return_value=mock_client),
+    ):
+      neighborhood = hlo_tools.get_hlo_neighborhood(
+          str(self.session_dir), op_name="mul", radius=1
+      )
+      self.assertIn("%mul", neighborhood)
+      self.assertIn("%x", neighborhood)
+
+  def test_get_hlo_neighborhood_missing_name_raises_value_error(self):
+    """Verifies ValueError when neither instruction_name nor op_name given."""
+    with self.assertRaises(ValueError):
+      hlo_tools.get_hlo_neighborhood(str(self.session_dir))
+
+  def test_get_hlo_neighborhood_conflicting_names_raises_value_error(self):
+    """Verifies ValueError when instruction_name and op_name conflict."""
+    with self.assertRaisesRegex(ValueError, "Conflicting arguments"):
+      hlo_tools.get_hlo_neighborhood(
+          str(self.session_dir), instruction_name="mul", op_name="add"
+      )
 
   def test_get_hlo_text_file_export(self):
     """Verifies get_hlo_text saves output to file path when requested."""

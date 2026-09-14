@@ -10,10 +10,8 @@ from typing import Any
 
 # pylint: disable=g-import-not-at-top
 try:
-  from xprof.cli.internal import decorators  # pyrefly: ignore[missing-import]
   from xprof.convert import raw_to_tool_data as convert  # pyrefly: ignore[missing-import]
 except ImportError:
-  from xprof.cli.internal import decorators  # pyrefly: ignore[missing-import]
   from xprof.convert import raw_to_tool_data as convert  # pyrefly: ignore[missing-import]
 
 
@@ -34,6 +32,7 @@ KNOWN_TOOLS: frozenset[str] = frozenset({
     "inference_profile",
     "perf_counters",
     "utilization_viewer",
+    "kernel_utilization",
     "smart_suggestion",
     "trace_viewer",
     "trace_viewer@",
@@ -207,8 +206,11 @@ class LocalXprofClient:
 
     fetch_params = dict(kwargs)
     bypass_cache = fetch_params.pop("bypass_cache", False)
+    try:
+      from xprof.cli.internal import decorators  # pyrefly: ignore[missing-import]
+    except ImportError:
+      from xprof.cli.internal import decorators  # pyrefly: ignore[missing-import]
 
-    current_fp = None
     if xspace_paths:
       try:
         current_fp = decorators.compute_path_fingerprint(

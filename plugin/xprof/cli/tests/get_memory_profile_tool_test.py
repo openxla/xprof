@@ -238,11 +238,8 @@ class GetMemoryProfileToolTest(parameterized.TestCase):
   def test_get_memory_profile_invalid_json(self):
     self.mock_client.fetch.return_value = b"invalid json data"
 
-    result_json = get_memory_profile_tool.get_memory_profile("test_session")
-    result = json.loads(result_json)
-
-    self.assertIn("error", result)
-    self.assertTrue(result["error"].startswith("Failed to parse JSON"))
+    with self.assertRaises(ValueError):
+      get_memory_profile_tool.get_memory_profile("test_session")
 
 
 if __name__ == "__main__":

@@ -1,10 +1,13 @@
 #include "xprof/convert/xplane_to_tools_data_with_profile_processor.h"
 
+#include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <variant>
 #include <vector>
 
+#include "absl/flags/declare.h"
 #include "absl/flags/flag.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
@@ -17,9 +20,9 @@
 #include "grpcpp/support/status.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/platform/threadpool.h"
 #include "tsl/platform/path.h"
-#include "absl/flags/declare.h"
 #include "xprof/convert/profile_processor.h"
 #include "xprof/convert/profile_processor_factory.h"
 #include "xprof/convert/repository.h"
@@ -180,6 +183,27 @@ absl::Status RunUnifiedMapReduce(const SessionSnapshot& session_snapshot,
   return reduce_status;
 }
 
+absl::StatusOr<std::optional<std::string>> TryRunUnifiedProcessor(
+    const SessionSnapshot& session_snapshot, absl::string_view tool_name,
+    const ToolOptions& options) {
+  xprof::RegisterUnifiedToolRegistrations();
+  std::unique_ptr<UnifiedProfileProcessor> unified_processor =
+      xprof::UnifiedProfileProcessorFactory::GetInstance().Create(tool_name,
+                                                                  options);
+  if (!unified_processor) {
+    return std::nullopt;
+  }
+  LOG(INFO) << "Using unified workflow for tool: " << tool_name;
+  if (unified_processor->ShouldUseWorkerService(session_snapshot, options)) {
+    TF_RETURN_IF_ERROR(RunUnifiedMapReduce(session_snapshot, tool_name,
+                                           unified_processor.get(), options));
+  } else {
+    TF_RETURN_IF_ERROR(
+        unified_processor->ProcessSession(session_snapshot, options));
+  }
+  return unified_processor->GetData();
+}
+
 }  // namespace
 
 absl::StatusOr<std::string> ConvertMultiXSpacesToToolDataWithProfileProcessor(
@@ -192,54 +216,49 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolDataWithProfileProcessor(
             << " session_id: " << session_id;
 
   absl::Time start_time = absl::Now();
+  const bool enable_unified = absl::GetFlag(FLAGS_enable_unified_xprof);
 
-  if (absl::GetFlag(FLAGS_enable_unified_xprof)) {
-    xprof::RegisterUnifiedToolRegistrations();
-    auto unified_processor =
-        xprof::UnifiedProfileProcessorFactory::GetInstance().Create(
-            tool_name, options);
-    if (!unified_processor) {
-      LOG(WARNING) << "Unified processor not found for tool: " << tool_name
-                   << ", falling back to legacy.";
+  if (enable_unified) {
+    TF_ASSIGN_OR_RETURN(
+        std::optional<std::string> unified_result,
+        TryRunUnifiedProcessor(session_snapshot, tool_name, options));
+    if (unified_result.has_value()) {
+      return *std::move(unified_result);
+    }
+    LOG(WARNING) << "Unified processor not found for tool: " << tool_name
+                 << ", falling back to legacy.";
+  }
+
+  std::unique_ptr<xprof::ProfileProcessor> processor =
+      xprof::ProfileProcessorFactory::GetInstance().Create(tool_name, options);
+  if (processor) {
+    if (processor->ShouldUseWorkerService(session_snapshot, options)) {
+      LOG(INFO) << "Using worker service for tool: " << tool_name;
+      TF_RETURN_IF_ERROR(
+          RunMapReduce(session_snapshot, tool_name, processor.get(), options));
     } else {
-      LOG(INFO) << "Using unified workflow for tool: " << tool_name;
-      if (unified_processor->ShouldUseWorkerService(session_snapshot,
-                                                    options)) {
-        TF_RETURN_IF_ERROR(RunUnifiedMapReduce(session_snapshot, tool_name,
-                                               unified_processor.get(),
-                                               options));
-      } else {
-        TF_RETURN_IF_ERROR(
-            unified_processor->ProcessSession(session_snapshot, options));
-      }
-      return unified_processor->GetData();
+      LOG(INFO) << "Using local processing for tool: " << tool_name;
+      TF_RETURN_IF_ERROR(
+          ProcessSession(processor.get(), session_snapshot, options));
+    }
+
+    LOG(INFO) << "Total time for tool " << tool_name << ": "
+              << absl::Now() - start_time << " session_id: " << session_id;
+    return processor->GetData();
+  }
+
+  if (!enable_unified) {
+    TF_ASSIGN_OR_RETURN(
+        std::optional<std::string> unified_result,
+        TryRunUnifiedProcessor(session_snapshot, tool_name, options));
+    if (unified_result.has_value()) {
+      return *std::move(unified_result);
     }
   }
 
-  auto processor =
-      xprof::ProfileProcessorFactory::GetInstance().Create(tool_name, options);
-  if (!processor) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("Can not find tool: ", tool_name,
-                     ". Please update to the latest version of Tensorflow."));
-  }
-
-  if (processor->ShouldUseWorkerService(session_snapshot, options)) {
-    // This branch is for the Map/Reduce flow, potentially distributed in the
-    // future.
-    LOG(INFO) << "Using worker service for tool: " << tool_name;
-    TF_RETURN_IF_ERROR(
-        RunMapReduce(session_snapshot, tool_name, processor.get(), options));
-  } else {
-    // This branch is for processing the session directly.
-    LOG(INFO) << "Using local processing for tool: " << tool_name;
-    TF_RETURN_IF_ERROR(
-        ProcessSession(processor.get(), session_snapshot, options));
-  }
-
-  LOG(INFO) << "Total time for tool " << tool_name << ": "
-            << absl::Now() - start_time << " session_id: " << session_id;
-  return processor->GetData();
+  return absl::InvalidArgumentError(
+      absl::StrCat("Can not find tool: ", tool_name,
+                   ". Please update to the latest version of Tensorflow."));
 }
 
 }  // namespace profiler

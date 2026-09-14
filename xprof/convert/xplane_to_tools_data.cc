@@ -15,11 +15,13 @@ limitations under the License.
 
 #include "xprof/convert/xplane_to_tools_data.h"
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
 #include <utility>
 
+#include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -35,6 +37,8 @@ limitations under the License.
 #include "xla/tsl/platform/file_system.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/profiler/convert/xplane_to_trace_events.h"
+
+#include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/framework_op_stats_processor.h"
 #include "xprof/convert/hlo_stats_processor.h"
@@ -53,6 +57,7 @@ limitations under the License.
 #include "xprof/convert/smart_suggestion_processor.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/trace_view_options.h"
+#include "xprof/convert/trace_viewer/lite_trace_events.h"
 #include "xprof/convert/trace_viewer/trace_events.h"
 #include "xprof/convert/trace_viewer/trace_events_to_json.h"
 #include "xprof/convert/trace_viewer/trace_options.h"
@@ -123,10 +128,9 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
       if (profiler_trace_options.enable_legacy_dcn) {
         ProcessMegascaleDcn(xspace);
       }
-      TraceEventsContainer trace_container;
-      // No-op method which will be deprecated in the future, thus added
-      // /*host_id=*/1 as a placeholder for now.
-      ConvertXSpaceToTraceEventsContainer(host_name, *xspace, &trace_container);
+      TraceEventLiteContainer lite_container;
+      ConvertXSpaceToLiteTraceEventsContainer(host_name, *xspace,
+                                              &lite_container);
       std::unique_ptr<tsl::WritableFile> trace_events_file;
       TF_RETURN_IF_ERROR(tsl::Env::Default()->NewWritableFile(
           *trace_events_sstable_path, &trace_events_file));
@@ -137,11 +141,20 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
       TF_RETURN_IF_ERROR(tsl::Env::Default()->NewWritableFile(
           *trace_events_prefix_trie_sstable_path,
           &trace_events_prefix_trie_file));
-      TF_RETURN_IF_ERROR(trace_container.StoreAsLevelDbTables(
-          std::move(trace_events_file),
-          std::move(trace_events_metadata_file),
-          std::move(trace_events_prefix_trie_file)
-      ));
+      auto converter_fn =
+          [&](const tsl::profiler::XEventVisitor& event_visitor,
+              const tensorflow::profiler::TraceEventLite& lite_event,
+              absl::flat_hash_map<uint64_t, std::string>* local_name_table,
+              tensorflow::profiler::TraceEvent* full_event,
+              google::protobuf::Arena* arena) -> absl::Status {
+        ConvertLiteTraceEventToFullTraceEvent(event_visitor, lite_event,
+                                              lite_container, local_name_table,
+                                              full_event, arena);
+        return absl::OkStatus();
+      };
+      TF_RETURN_IF_ERROR(StoreLiteEventsAsLevelDbTables(
+          &lite_container, converter_fn, trace_events_file,
+          trace_events_metadata_file, trace_events_prefix_trie_file));
     }
     TraceEventsLevelDbFilePaths file_paths;
     file_paths.trace_events_file_path = *trace_events_sstable_path;
@@ -367,6 +380,22 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolData(
     tool_data = ConvertMultiXSpacesToInferenceStats(session_snapshot, options);
   } else if (tool_name == "smart_suggestion") {
     tool_data = ConvertMultiXSpacesToSmartSuggestion(session_snapshot, options);
+  } else if (tool_name == "kernel_utilization") {
+    if (session_snapshot.XSpaceSize() != 1) {
+      tool_data = absl::InvalidArgumentError(absl::StrCat(
+          "Kernel utilization tool expects only 1 XSpace path but gets ",
+          session_snapshot.XSpaceSize()));
+    } else {
+      google::protobuf::Arena arena;
+      auto xspace = session_snapshot.GetXSpace(0, &arena);
+      if (xspace.ok()) {
+        PreprocessSingleHostXSpace(*xspace, /*step_grouping=*/true,
+                                   /*derived_timeline=*/true);
+        tool_data = xprof::ConvertXSpaceToKernelUtilization(**xspace, options);
+      } else {
+        tool_data = xspace.status();
+      }
+    }
   } else if (tool_name == "utilization_viewer") {
     if (session_snapshot.XSpaceSize() != 1) {
       tool_data = absl::InvalidArgumentError(absl::StrCat(

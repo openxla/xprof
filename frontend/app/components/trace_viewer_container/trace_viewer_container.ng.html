@@ -106,12 +106,33 @@
         </svg>
       </button>
     </div>
+    <div class="mouse-mode-hints" *ngIf="currentMouseModeConfig as config">
+      <ng-container *ngFor="let mode of [currentMouseMode]">
+        <div class="status-content">
+          <ng-container *ngFor="let hint of config.hints; let last = last">
+            <span class="hint-group">
+              <span class="hint-desc">{{ hint.description }}</span>
+              <span class="keys-container">
+                <ng-container *ngFor="let key of hint.keys; let keyLast = last">
+                  <kbd>{{ key }}</kbd><span class="key-sep" *ngIf="!keyLast">{{ hint.separator ?? '/' }}</span>
+                </ng-container>
+              </span>
+            </span>
+            <span *ngIf="!last" class="divider"></span>
+          </ng-container>
+        </div>
+      </ng-container>
+    </div>
     <div class="spacer"></div>
     <trace-viewer-customization-panel></trace-viewer-customization-panel>
     <button *ngIf="useTraceViewerV2 && showHelpButton" type="button" mat-icon-button (click)="openHelpDialog()" title="Keyboard Shortcuts & Controls" aria-label="Keyboard Shortcuts & Controls">
       <mat-icon>help_outline</mat-icon>
     </button>
     <trace-viewer-help-dialog></trace-viewer-help-dialog>
+    <button *ngIf="useTraceViewerV2" type="button" mat-icon-button (click)="openHelpDialog()" title="Shortcuts Guide" aria-label="Shortcuts Guide">
+      <mat-icon>keyboard</mat-icon>
+    </button>
+    <trace-viewer-shortcuts-dialog></trace-viewer-shortcuts-dialog>
     <div class="incremental-loading" *ngIf="searching || (!isInitialLoading && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR)">
       <div class="loading-status">Loading more data...</div>
       <mat-progress-spinner mode="indeterminate" diameter="24"></mat-progress-spinner>
@@ -122,20 +143,39 @@
       <as-split-area [size]="timelineHeightPercent">
         <div class="canvas-container" #canvasContainer>
           <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" (mousedown)="blurActiveElement()"></canvas>
+          <timeline-player *ngIf="enableTimelinePlayer" (play)="onPlay()" (pause)="onPause()" (seek)="onSeek($event)" (speedChange)="onSpeedChange($event)" style="flex-shrink: 0;"></timeline-player>
         </div>
       </as-split-area>
-      <as-split-area [size]="detailHeightPercent" [visible]="!!selectedEvent">
+      <as-split-area [size]="detailHeightPercent" [minSize]="selectedEvent ? minDrawerSizePercent : 0" [visible]="!!selectedEvent">
         <div *ngIf="selectedEvent" #drawer class="drawer">
           <div class="event-detail-table-container">
             <div *ngIf="isSingleEventTable()" class="single-event-details">
               <as-split direction="horizontal" style="min-height: 150px; width: 100%;">
                 <as-split-area [size]="60" class="split-area-left">
                   <div class="split-area-inner">
-                    <h3>{{selectedEvent.name}}</h3>
-                    <div class="detail-row" *ngFor="let prop of leftSideProperties; trackBy: trackByProperty">
-                      <span class="detail-label">{{prop.property}}:</span>
-                      <span class="detail-value">{{prop.value}}</span>
-                    </div>
+                    <ng-container
+                      *ngIf="useTraceViewerV2 && selectedEventJson; else flatLeftDetails">
+                      <div class="json-event-details">
+                        <div
+                          #jsonStickySentinel
+                          class="json-sticky-sentinel"
+                          aria-hidden="true"></div>
+                        <div
+                          class="json-event-details-title"
+                          [class.is-sticky]="isJsonTitleStuck">
+                          Event details
+                        </div>
+                        <ngx-json-viewer [json]="selectedEventJson" [depth]="3">
+                        </ngx-json-viewer>
+                      </div>
+                    </ng-container>
+                    <ng-template #flatLeftDetails>
+                      <h3>{{selectedEvent.name}}</h3>
+                      <div class="detail-row" *ngFor="let prop of leftSideProperties; trackBy: trackByProperty">
+                        <span class="detail-label">{{prop.property}}:</span>
+                        <span class="detail-value">{{prop.value}}</span>
+                      </div>
+                    </ng-template>
                   </div>
                 </as-split-area>
                 <as-split-area [size]="40" class="split-area-right">

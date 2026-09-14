@@ -1,5 +1,7 @@
 """Tests for the XProf server."""
 
+import contextlib
+import io
 import os
 from unittest import mock
 
@@ -10,7 +12,7 @@ from absl.testing import absltest
 from xprof import server
 
 
-class ServerTest(absltest.TestCase, parameterized.TestCase):
+class ServerTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -167,6 +169,46 @@ class ServerTest(absltest.TestCase, parameterized.TestCase):
     with self.assertRaisesRegex(ValueError, expected_error_regex):
       server.start_server(**mock_args_dict)
     self.mock_launch_server.assert_not_called()
+
+  @parameterized.named_parameters(
+      ('get_overview', 'get_overview'),
+      ('get_roofline_model', 'get_roofline_model'),
+      ('check_host_boundness', 'check_host_boundness'),
+      ('get_top_hlo_ops', 'get_top_hlo_ops'),
+  )
+  def test_main_intercepts_cli_subcommand(self, subcommand):
+    # Act
+    stderr = io.StringIO()
+    with contextlib.redirect_stderr(stderr):
+      exit_code = server.main([subcommand, '/path/to/trace'])
+
+    # Assert: an actionable upgrade message is printed and the server is not
+    # launched.
+    self.assertEqual(exit_code, 2)
+    message = stderr.getvalue()
+    self.assertIn('xprof-nightly >= 2.24.0', message)
+    self.assertIn(subcommand, message)
+    self.mock_launch_server.assert_not_called()
+
+  def test_main_launches_server(self):
+    # Arrange
+    self.mock_path_exists_return = True
+
+    # Act
+    exit_code = server.main(['--logdir', '/tmp/log', '--port', '1234'])
+
+    # Assert
+    self.assertEqual(exit_code, 0)
+    self.mock_launch_server.assert_called_once()
+
+  def test_cli_subcommand_required_message(self):
+    message = server.cli_subcommand_required_message('get_overview')
+    self.assertEqual(
+        message,
+        "Error: 'xprof get_overview' CLI tools require xprof-nightly >= 2.24.0."
+        " Please run 'pip install -U xprof-nightly' or upgrade to xprof >="
+        " 2.24.0. For TensorBoard server usage, run 'xprof --help'.",
+    )
 
 
 if __name__ == '__main__':

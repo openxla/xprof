@@ -23,7 +23,7 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
-#include "<gtest/gtest.h>"
+#include <gtest/gtest.h>
 #include "absl/base/config.h"  // IWYU pragma: keep
 #include "absl/synchronization/notification.h"
 

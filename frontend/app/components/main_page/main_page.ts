@@ -46,10 +46,12 @@ export class MainPage implements OnDestroy {
   pluginVersion = '';
 
   constructor() {
-    window.sessionStorage.setItem(
-      'searchParams',
-      new URLSearchParams(window.location.search).toString(),
-    );
+    const searchParams = new URLSearchParams(window.location.search);
+    searchParams.delete('use_pb');
+    if (searchParams.toString()) {
+      window.sessionStorage.setItem('searchParams', searchParams.toString());
+      this.dataService.setSearchParams(searchParams);
+    }
     this.store
       .select(getLoadingState)
       .pipe(takeUntil(this.destroyed))

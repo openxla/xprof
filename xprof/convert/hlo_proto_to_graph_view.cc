@@ -36,7 +36,7 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_print_options.h"
 #include "xla/tsl/platform/statusor.h"
 #ifdef PLATFORM_GOOGLE
-#include "tensorflow/compiler/mlir/lite/experimental/google/tooling/hlo_adapter/direct_hlo_to_json_graph_convert.h"
+#include "third_party/odml/model_explorer/backend/adapters/hlo/direct_hlo_to_json_graph_convert.h"
 #endif  // PLATFORM_GOOGLE
 #include "nlohmann/json_fwd.hpp"  // from @com_github_nlohmann_json
 #include "nlohmann/json.hpp"
@@ -146,10 +146,10 @@ absl::StatusOr<std::string> PlotMe(std::unique_ptr<HloModule> module,
 // b/360874576: Enable when the adapter is open sourced.
 #ifdef PLATFORM_GOOGLE
   if (comp) {
-    graph_handle = tooling::visualization_client::HloGraphAdapter(*comp);
+    graph_handle = ::model_explorer::adapter::HloGraphAdapter(*comp);
   } else {
     graph_handle =
-        tooling::visualization_client::HloGraphAdapter(*instr, graph_width);
+        ::model_explorer::adapter::HloGraphAdapter(*instr, graph_width);
   }
 #endif  // PLATFORM_GOOGLE
   if (graph_handle.ok()) {

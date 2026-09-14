@@ -65,6 +65,28 @@ struct CounterData {
   std::string event_stats;
 };
 
+// Represents a stable key for identifying a group/track across data reloads.
+struct GroupKey {
+  int nesting_level = 0;
+  std::string name;
+  std::string parent_name;
+
+  bool operator==(const GroupKey& other) const {
+    return nesting_level == other.nesting_level && name == other.name &&
+           parent_name == other.parent_name;
+  }
+
+  bool operator<(const GroupKey& other) const {
+    return std::tie(nesting_level, name, parent_name) <
+           std::tie(other.nesting_level, other.name, other.parent_name);
+  }
+
+  template <typename H>
+  friend H AbslHashValue(H h, const GroupKey& k) {
+    return H::combine(std::move(h), k.nesting_level, k.name, k.parent_name);
+  }
+};
+
 // Represents a grouping of timeline tracks, such as processes, threads, or
 // counters.
 struct Group {
@@ -78,6 +100,27 @@ struct Group {
   int start_level = 0;
   int nesting_level = 0;
   bool expanded = false;
+
+  // Parent index in groups vector, or -1 for top-level processes.
+  int parent_index = -1;
+  // List of child process/thread indices in the groups vector.
+  // Typically 2-10 children per process group.
+  std::vector<int> child_indices = {};
+
+  // Stable index in the original sequential order.
+  int original_index = -1;
+
+  // Number of timeline event levels occupied by this track.
+  int level_count = 0;
+  // Indicates if this group has nested child tracks.
+  bool has_children = false;
+
+  // Cached layout offset (screen Y coordinate in pixels).
+  mutable Pixel offset = 0.0f;
+  // Cached full height (in pixels) of the track based on level count.
+  mutable Pixel height = 0.0f;
+  // Indicates if the track is visible (not hidden by a collapsed parent).
+  mutable bool visible = true;
 };
 
 struct FlowLine {
@@ -133,6 +176,17 @@ struct FlameChartTimelineData {
 // zooming, panning, and rendering of events grouped into lanes.
 class Timeline {
  public:
+  void SetPlaybackState(bool is_playing, double current_progress_us,
+                        double play_speed) {
+    if (!timeline_player_enabled_) return;
+    is_playing_ = is_playing;
+    if (current_progress_us >= 0) {
+      current_play_time_ = visible_range().start() + current_progress_us;
+    }
+    play_speed_ = play_speed;
+    if (redraw_callback_) redraw_callback_();
+  }
+
   struct SearchResult {
     EventId event_id;
     int level;
@@ -142,6 +196,12 @@ class Timeline {
     ThreadId tid;
     std::string name;
     int loaded_index = -1;
+  };
+
+  struct GroupRelativeInfo {
+    Group* parent = nullptr;
+    std::vector<Group>* siblings = nullptr;
+    int index_in_siblings = -1;
   };
   // A callback function to handle events from the timeline. The first argument
   // is the event type string. The second argument, EventData, is the payload
@@ -198,10 +258,47 @@ class Timeline {
   // Applies a deterministic vertical scroll offset (in pixels) for tests,
   // reusing the production scroll-restore path so the offset takes effect
   // on the next Draw().
-  void set_scroll_offset_for_test(float scroll_y) {
+  void set_scroll_offset_for_test(Pixel scroll_y) {
     last_scroll_y_ = scroll_y;
     should_restore_scroll_ = true;
   }
+  int get_pending_reorder_source_for_test() const {
+    return pending_reorder_source_;
+  }
+  void set_pending_reorder_source_for_test(int source) {
+    pending_reorder_source_ = source;
+  }
+  int get_pending_reorder_target_for_test() const {
+    return pending_reorder_target_;
+  }
+  void set_pending_reorder_target_for_test(int target) {
+    pending_reorder_target_ = target;
+  }
+  bool get_pending_reorder_drop_after_for_test() const {
+    return pending_reorder_drop_after_;
+  }
+  void set_pending_reorder_drop_after_for_test(bool drop_after) {
+    pending_reorder_drop_after_ = drop_after;
+  }
+  Pixel get_reorder_preview_line_y_for_test() const {
+    return reorder_preview_line_y_;
+  }
+  void set_reorder_preview_line_y_for_test(Pixel y) {
+    reorder_preview_line_y_ = y;
+  }
+  void set_group_offsets_for_test(const std::vector<Pixel>& offsets) {
+    group_offsets_ = offsets;
+  }
+  void set_group_heights_for_test(const std::vector<Pixel>& heights) {
+    group_heights_ = heights;
+  }
+  void set_label_width_for_test(Pixel width) {
+    label_width_ = width;
+  }
+  void set_track_management_enabled_for_test(bool enabled) {
+    track_management_enabled_ = enabled;
+  }
+
 
   // The provided callback is stored and invoked during the lifetime of this
   // `Timeline` instance. Any captured references must outlive the `Timeline`
@@ -311,6 +408,10 @@ class Timeline {
     track_management_enabled_ = enabled;
   }
   bool track_management_enabled() const { return track_management_enabled_; }
+  void set_timeline_player_enabled(bool enabled) {
+    timeline_player_enabled_ = enabled;
+  }
+  bool timeline_player_enabled() const { return timeline_player_enabled_; }
 
   void set_panning_speed(float speed) { panning_speed_ = speed; }
   float panning_speed() const { return panning_speed_; }
@@ -346,6 +447,11 @@ class Timeline {
 
   void UpdateLevelPositions(const FlameChartTimelineData& data);
   void BuildFlattenedGroups(const FlameChartTimelineData& data);
+  void CategorizeGroupsForTrackManagement(
+      const FlameChartTimelineData& data,
+      std::vector<const Group*>& hidden_groups,
+      std::vector<const Group*>& pinned_groups,
+      std::vector<const Group*>& all_groups);
 
   // Expands the minimum necessary tracks to make the event visible.
   void ExpandRelatedTracks(int event_index);
@@ -415,6 +521,12 @@ class Timeline {
                                            float end_x, float end_y,
                                            ImVec2& cp0, ImVec2& cp1);
 
+  // Gets the starting level index of the group immediately following the group
+  // at the given index. If the given group is the last one, returns the total
+  // number of levels.
+  static int GetNextGroupStartLevel(const FlameChartTimelineData& data,
+                                    int group_index);
+
   // Checks if the visible time range is close to the edge of the loaded data
   // range. If the user pans or zooms to an area where data might soon be
   // needed (i.e., outside the `preserve` range), this function triggers a data
@@ -424,6 +536,8 @@ class Timeline {
   void MaybeRequestData();
   double px_per_time_unit() const;
   double px_per_time_unit(Pixel timeline_width) const;
+  void DrawTimelinePlayerSync();
+
 
   // Calculates the layout for the delete button and its hover area.
   // Exposed for testing.
@@ -433,6 +547,31 @@ class Timeline {
                                            const ImRect& full_range_rect) const;
 
   const ColorPalette& GetPalette() const { return palette_; }
+
+  // ---------------------------------------------------------------------------
+  // Accessors for testing
+  // ---------------------------------------------------------------------------
+  Pixel last_scroll_y_for_test() const { return last_scroll_y_; }
+  void set_last_scroll_y_for_test(Pixel y) { last_scroll_y_ = y; }
+  void set_selected_event_index_for_test(int idx) {
+    selected_event_index_ = idx;
+  }
+  void set_group_visible_for_test(int idx, bool visible) {
+    if (idx >= 0 && idx < static_cast<int>(group_visible_.size())) {
+      group_visible_[idx] = visible;
+    }
+  }
+  void set_header_all_expanded_for_test(bool expanded) {
+    header_all_expanded_ = expanded;
+  }
+  const Group& header_hidden_for_test() const { return header_hidden_; }
+  const Group& header_pinned_for_test() const { return header_pinned_; }
+  void set_search_results_for_test(std::vector<SearchResult> results) {
+    search_results_ = std::move(results);
+  }
+  void set_current_search_result_index_for_test(int idx) {
+    current_search_result_index_ = idx;
+  }
 
  protected:
   // Virtual method to allow mocking in tests.
@@ -489,6 +628,7 @@ class Timeline {
   absl::flat_hash_set<int> matching_event_indices_;
 
   void NavigateToSearchResult(const SearchResult& result);
+  void BackfillGroupLevelCount(FlameChartTimelineData& data);
 
   // Applies snapping to selected time ranges for the given range.
   void ApplySnapping(TimeRange& range);
@@ -509,6 +649,10 @@ class Timeline {
   void EmitMouseModeChanged();
   void ShowNavigationWarningNotification(absl::string_view message);
 
+ protected:
+  GroupRelativeInfo FindGroupRelatives(Group* target_group);
+
+ private:
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
   void DrawRulerUI(const TickInfo& info, Pixel timeline_width);
 
@@ -528,6 +672,20 @@ class Timeline {
                     Pixel content_region_avail_width,
                     double px_per_time_unit_val, Pixel scroll_y,
                     Pixel window_height);
+
+ protected:
+  // Handles drag-and-drop source/target and
+  // item hover check for a track label row.
+  bool HandleTrackDragAndDrop(int group_index, Group& group,
+                              const ImVec2& tracks_start_pos,
+                              const ImVec2& tracks_start_screen_pos,
+                              Pixel group_height, Pixel hover_zone_width);
+  // Handles track hover, drag-and-drop, and reorder tooltip for a track row.
+  void HandleTrackDragAndDropHoverAndFeedback(
+      int group_index, Group& group, const ImVec2& tracks_start_pos,
+      const ImVec2& tracks_start_screen_pos, Pixel group_height);
+
+ private:
   // Draws vertical grid lines across the background of the tracks.
   // `viewport_bottom` is the y-coordinate of the bottom of the viewport, used
   // to draw vertical grid lines across the tracks.
@@ -613,6 +771,11 @@ class Timeline {
   // Helper to handle selection or time range addition upon mouse release.
   // Returns true if a selection was made or a time range was added.
   bool HandleSelectionOrTimeRangeAddition();
+
+  // Computes the bounding time range of the active selection, handling either
+  // multiple selection (via selected_event_indices_) or single selection
+  // (via selected_event_index_). Returns std::nullopt if no event is selected.
+  std::optional<TimeRange> GetSelectionTimeRange() const;
 
   void FindSelectedEvents(const ImRect& selection_rect);
   void CalculateAndEmitMetrics();
@@ -743,6 +906,7 @@ class Timeline {
   int last_reported_hovered_event_index_ = -1;
   bool bookmarks_enabled_ = false;
   bool track_management_enabled_ = false;
+  bool timeline_player_enabled_ = false;
 
   float panning_speed_ = kPanningSpeed;
   float zoom_speed_ = kZoomSpeed;
@@ -773,6 +937,11 @@ class Timeline {
   // doesn't cover the full requested range).
   TimeRange last_fetch_request_range_ = TimeRange::Zero();
 
+  Pixel reorder_preview_line_y_ = -1.0f;
+  int pending_reorder_source_ = -1;
+  int pending_reorder_target_ = -1;
+  bool pending_reorder_drop_after_ = false;
+
   std::string search_query_lower_;
   std::vector<SearchResult> search_results_;
   int current_search_result_index_ = -1;
@@ -793,6 +962,16 @@ class Timeline {
   // Current color palette.
   ColorPalette& palette_;
 
+  // Timeline Player states
+
+  bool is_playing_ = false;
+
+  Microseconds current_play_time_ = -1.0;
+  double previous_play_time_ = -2.0;
+  double previous_visible_start_ = -2.0;
+  double previous_visible_duration_ = -2.0;
+
+  double play_speed_ = 1.0;
   bool show_grid_ = true;
 
  protected:
@@ -801,6 +980,9 @@ class Timeline {
 
   // Flattened sequence of virtual headers and group tracks.
   // Pre-calculated in UpdateLevelPositions to avoid CPU overhead in Draw().
+  // This is the primary data structure used for rendering data as it
+  // currently appears in the timeline, including collapsed groups and hidden
+  // tracks.
   std::vector<const Group*> flattened_groups_;
 };
 

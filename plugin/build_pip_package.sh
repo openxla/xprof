@@ -103,6 +103,13 @@ mkdir -p utils
 cp "${ROOT_RUNFILE_DIR}/xprof/utils/tpu_counter_ids_v7x.h" utils/
 cp "${ROOT_RUNFILE_DIR}/xprof/utils/tpu_counter_ids_v6e.h" utils/
 
+# Copy skill files.
+if [ -d "${ROOT_RUNFILE_DIR}/skills" ]; then
+  mkdir -p skills
+  touch skills/__init__.py
+  cp -LR "${ROOT_RUNFILE_DIR}/skills/xprof" skills/
+fi
+
 mkdir -p static
 cd static
 cp "$PLUGIN_RUNFILE_DIR/xprof/static/index.html" .

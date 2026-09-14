@@ -151,26 +151,19 @@ class GetPeakAllocationsToolTest(parameterized.TestCase):
   def test_get_peak_allocations_empty_data_variants(
       self, fetch_return, expected_error
   ):
+    del expected_error
     self.mock_client.fetch.return_value = fetch_return
 
-    result = get_peak_allocations_tool.get_peak_allocations("session_123")
-
-    parsed_result = json.loads(result)
-    self.assertIn("error", parsed_result)
-    self.assertEqual(expected_error, parsed_result["error"])
+    with self.assertRaises(ValueError):
+      get_peak_allocations_tool.get_peak_allocations("session_123")
 
   def test_get_peak_allocations_error_markdown(self):
     self.mock_client.fetch.return_value = b""
 
-    result = get_peak_allocations_tool.get_peak_allocations(
-        "session_123", output_format="markdown"
-    )
-
-    expected_markdown = (
-        "# Error\nFailed to get peak allocations for session session_123:"
-        " ValueError: No memory viewer data returned for the session\n"
-    )
-    self.assertEqual(expected_markdown, result)
+    with self.assertRaises(ValueError):
+      get_peak_allocations_tool.get_peak_allocations(
+          "session_123", output_format="markdown"
+      )
 
   def test_get_peak_allocations_aggregation(self):
 
@@ -511,14 +504,11 @@ class GetPeakAllocationsToolTest(parameterized.TestCase):
     )
 
   def test_missing_memory_returns_clean_diagnostic(self):
-    """Verifies peak_allocations returns clean diagnostic on missing memory data."""
+    """Verifies peak_allocations raises ValueError on missing memory data."""
     self.mock_client.fetch.return_value = ("application/json", "")
-    res = get_peak_allocations_tool.get_peak_allocations(
-        "session_without_memory"
-    )
-    data = json.loads(res)
-    self.assertIn("error", data)
-    self.assertIn("Failed to get peak allocations", data["error"])
+    with self.assertRaises(ValueError) as cm:
+      get_peak_allocations_tool.get_peak_allocations("session_without_memory")
+    self.assertIn("No memory viewer data returned", str(cm.exception))
 
 
 class InternalFunctionsTest(parameterized.TestCase):

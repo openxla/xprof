@@ -1,2 +1,4 @@
 include README.md
 include requirements.in
+recursive-include xprof/skills *.md
+recursive-include skills *.md

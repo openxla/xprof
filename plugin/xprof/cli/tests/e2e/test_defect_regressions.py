@@ -1,22 +1,30 @@
-"""Tier D: Defect Regressions Test Suite (D-01 to D-13).
+"""Tier D: Defect Regressions Test Suite (D-01 to D-17).
 
-Guarantees that all 13 discovered defects from the E2E Trace Analysis
+Guarantees that all 17 discovered defects from the E2E Trace Analysis
 specification remain permanently resolved.
 """
 
 import json
 import os
+import pathlib
 import shutil
 import tempfile
+from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 
 # pylint: disable=g-import-not-at-top
 try:
   from absl.testing import absltest
+  from tensorflow.tsl.profiler.protobuf import xplane_pb2  # pylint: disable=g-direct-tensorflow-import
+  from google3.third_party.xprof.embedded.llo_analysis import llo_lite_pb2
+  from xprof.cli import xprof_cli
   from xprof.cli.internal import decorators
+  from xprof.cli.internal import xprof_data
+  from xprof.cli.internal.oss import hlo_tools
   from xprof.cli.internal.oss import xplane_tools
   from xprof.cli.internal.oss import xprof_client
+  from xprof.cli.tools import get_hlo_stats_tool
   from xprof.cli.tools import get_kernel_stats_tool
   from xprof.cli.tools import get_llo_analysis_tool
   from xprof.cli.tools import get_llo_debug_string_tool
@@ -24,10 +32,16 @@ try:
   from xprof.cli.tools import get_roofline_model_tool
   from xprof.cli.tools import get_top_hlo_ops_tool
   from xprof.cli.tools import get_utilization_viewer_tool
+  from xprof.cli.tools.oss import upload_trace_tool
 except ImportError:
+  absltest = None
+  from xprof.cli import xprof_cli
   from xprof.cli.internal import decorators
+  from xprof.cli.internal import xprof_data
+  from xprof.cli.internal.oss import hlo_tools
   from xprof.cli.internal.oss import xplane_tools
   from xprof.cli.internal.oss import xprof_client
+  from xprof.cli.tools import get_hlo_stats_tool
   from xprof.cli.tools import get_kernel_stats_tool
   from xprof.cli.tools import get_llo_analysis_tool
   from xprof.cli.tools import get_llo_debug_string_tool
@@ -35,6 +49,7 @@ except ImportError:
   from xprof.cli.tools import get_roofline_model_tool
   from xprof.cli.tools import get_top_hlo_ops_tool
   from xprof.cli.tools import get_utilization_viewer_tool
+  from xprof.cli.tools.oss import upload_trace_tool
 
 
 def _get_fixture_path(rel_path: str) -> str:
@@ -186,7 +201,12 @@ class DefectRegressionsTest(parameterized.TestCase):
   def test_d14_llo_tools_unavailable_status(self):
     """D-14: LLO tools return UNAVAILABLE status in standard builds."""
     try:
-      from xprof.convert import _pywrap_profiler_plugin  # pylint: disable=g-import-not-at-top
+      try:
+        # pylint: disable=g-import-not-at-top
+        from xprof.convert import _pywrap_profiler_plugin
+      except ImportError:
+        from xprof.convert import _pywrap_profiler_plugin
+        # pylint: enable=g-import-not-at-top
 
       built_with_embedded = _pywrap_profiler_plugin.built_with_embedded()
     except (ImportError, AttributeError):
@@ -230,6 +250,165 @@ class DefectRegressionsTest(parameterized.TestCase):
     if top_ops:
       ranks = [op.get("rank") for op in top_ops if "rank" in op]
       self.assertEqual(len(ranks), len(set(ranks)))
+
+  def test_d16_perf_counters_non_null_payload(self):
+    """D-16: perf_counters returns valid DataTable JSON payload, never null."""
+    client = xprof_client.get_client()
+    content_type, data = client.fetch(
+        "perf_counters", self.t1_path, bypass_cache=True
+    )
+    self.assertEqual(content_type, "application/json")
+    self.assertIsNotNone(data)
+    self.assertNotEqual(data, "")
+    self.assertNotEqual(data, "null")
+
+    res = json.loads(data)
+    self.assertIsInstance(res, dict)
+    self.assertIn("cols", res)
+    self.assertIn("rows", res)
+    col_ids = [c.get("id") or c.get("label") for c in res["cols"]]
+    self.assertIn("Host", col_ids)
+    self.assertIn("Chip", col_ids)
+    self.assertIn("Kernel", col_ids)
+    self.assertIn("Counter", col_ids)
+
+  def test_d17_llo_analysis_opcode_resolution_and_multi_module(self):
+    """D-17: LLO analysis resolves string opcodes and handles multi-modules."""
+    try:
+      try:
+        # pylint: disable=g-import-not-at-top
+        from xprof.convert import _pywrap_profiler_plugin
+      except ImportError:
+        from xprof.convert import _pywrap_profiler_plugin
+        # pylint: enable=g-import-not-at-top
+
+      built_with_embedded = _pywrap_profiler_plugin.built_with_embedded()
+    except (ImportError, AttributeError):
+      built_with_embedded = False
+
+    if not built_with_embedded:
+      self.skipTest("Embedded LLO analysis is required for D-17.")
+
+    # 1. Test against trace without LLO data (t1_path)
+    res_raw = get_llo_analysis_tool.get_llo_analysis(self.t1_path)
+    res = json.loads(res_raw)
+    self.assertIsInstance(res, dict)
+    self.assertEqual(res.get("status"), "UNAVAILABLE")
+    self.assertIn("not available", res.get("error", ""))
+
+    # 2. Test against synthetic trace with LLO module data
+    if "xplane_pb2" in globals() and "llo_lite_pb2" in globals():
+      temp_dir = tempfile.mkdtemp()
+      self.addCleanup(lambda: shutil.rmtree(temp_dir, ignore_errors=True))
+      synth_file = os.path.join(temp_dir, "synth_llo.xplane.pb")
+
+      xspace = xplane_pb2.XSpace()
+      plane = xspace.planes.add()
+      plane.name = "/device:TPU:0"
+      line = plane.lines.add()
+      line.name = "Steps"
+      event_meta = plane.event_metadata[1]
+      event_meta.id = 1
+      event_meta.name = "pallas_matmul_kernel"
+      event = line.events.add()
+      event.metadata_id = 1
+
+      llo_mod = llo_lite_pb2.LloModuleProto()
+      llo_mod.hlo_instruction_name = "pallas_matmul_hlo"
+      member1 = llo_mod.top_region.members.add()
+      member1.instruction.opcode = 321  # VECTOR_ADD_F32
+      member2 = llo_mod.top_region.members.add()
+      member2.instruction.opcode = 185  # VECTOR_MATMUL
+      member3 = llo_mod.top_region.members.add()
+      member3.instruction.opcode = 99999  # Unknown opcode
+
+      stat_meta = plane.stat_metadata[1]
+      stat_meta.name = "llo_bundle"
+      stat_meta.id = 1
+
+      stat = event.stats.add()
+      stat.metadata_id = 1
+      stat.bytes_value = llo_mod.SerializeToString()
+
+      with open(synth_file, "wb") as f:
+        f.write(xspace.SerializeToString())
+
+      res_synth_raw = get_llo_analysis_tool.get_llo_analysis(synth_file)
+      res_synth = json.loads(res_synth_raw)
+      self.assertTrue(res_synth.get("success", False))
+      self.assertEqual(res_synth.get("total_modules"), 1)
+      self.assertLen(res_synth.get("modules", []), 1)
+
+      mod = res_synth["modules"][0]
+      self.assertEqual(mod.get("kernel_name"), "pallas_matmul_kernel")
+      self.assertIn("OPCODE_VECTOR_ADD_F32", mod.get("opcode_histogram", {}))
+      self.assertIn("OPCODE_VECTOR_MATMUL", mod.get("opcode_histogram", {}))
+      self.assertIn("OPCODE_UNKNOWN_99999", mod.get("opcode_histogram", {}))
+      self.assertEqual(mod["opcode_histogram"]["OPCODE_VECTOR_ADD_F32"], 1)
+      self.assertEqual(mod["opcode_histogram"]["OPCODE_VECTOR_MATMUL"], 1)
+      self.assertEqual(mod["opcode_histogram"]["OPCODE_UNKNOWN_99999"], 1)
+
+      exec_units = mod.get("execution_unit_summary", {})
+      self.assertIn("VALU", exec_units)
+      self.assertIn("MXU", exec_units)
+      self.assertIn("OTHER", exec_units)
+      self.assertEqual(exec_units["VALU"], 1)
+      self.assertEqual(exec_units["MXU"], 1)
+      self.assertEqual(exec_units["OTHER"], 1)
+
+      # Test kernel filtering
+      res_filtered_raw = get_llo_analysis_tool.get_llo_analysis(
+          synth_file, kernel="non_existent_kernel"
+      )
+      res_filtered = json.loads(res_filtered_raw)
+      self.assertEqual(res_filtered.get("status"), "UNAVAILABLE")
+
+      res_matched_raw = get_llo_analysis_tool.get_llo_analysis(
+          synth_file, kernel="pallas_matmul"
+      )
+      res_matched = json.loads(res_matched_raw)
+      self.assertTrue(res_matched.get("success", False))
+      self.assertEqual(res_matched.get("total_modules"), 1)
+
+  def test_d23_get_hlo_neighborhood_default_mode_bfs_expansion(self):
+    """D-23: get_hlo_neighborhood expands BFS in default mode (short_txt)."""
+    session_dir = tempfile.mkdtemp()
+    proto_file = (
+        pathlib.Path(session_dir) / "module_0001.jit_compute.hlo_proto.pb"
+    )
+
+    # short_txt output (print_metadata=False): operands carry NO '%' prefix.
+    short_txt_graph = (
+        "ENTRY entry {\n"
+        "  x = f32[10] parameter(0)\n"
+        "  w = f32[10] parameter(1)\n"
+        "  mul = f32[10] multiply(x, w)\n"
+        "  ROOT neg = f32[10] negate(mul)\n"
+        "}\n"
+    )
+    mock_client = mock.create_autospec(
+        xprof_client.LocalXprofClient, instance=True
+    )
+    mock_client.fetch.return_value = (None, short_txt_graph.encode("utf-8"))
+
+    with mock.patch.object(
+        hlo_tools,
+        "_get_hlo_proto_files",
+        return_value=[proto_file],
+        autospec=True,
+    ), mock.patch.object(
+        xprof_client, "get_client", return_value=mock_client, autospec=True
+    ):
+      neighborhood = hlo_tools.get_hlo_neighborhood(
+          session_dir, instruction_name="mul", radius=2, bypass_cache=True
+      )
+
+    # BFS must expand beyond the center: 'mul' has operands x, w and user neg.
+    self.assertContainsInOrder(["[dist=1]", "neg", "w", "x"], neighborhood)
+    # The computation label must be resolved from the bare "ENTRY entry {"
+    # header (short_txt carries no "%" prefix), not fall back to "[unknown]".
+    self.assertIn("[entry]", neighborhood)
+    self.assertNotIn("[unknown]", neighborhood)
 
   def test_fingerprint_stability_and_cache_warmup(self):
     """Criteria 1 & 2: Consecutive calls produce stable fingerprint and sub-second warm execution."""
@@ -345,6 +524,244 @@ class DefectRegressionsTest(parameterized.TestCase):
 
     fp = decorators.compute_path_fingerprint(temp_dir)
     self.assertEqual(fp, "NO_TRACE_INPUTS")
+
+  def test_d16_llo_remediation_when_absent(self):
+    """D-16: LLO tools return actionable remediation when LLO data is absent."""
+    mock_client = mock.MagicMock()
+    mock_client.resolve_session_and_host.return_value = (
+        "test_session",
+        "host1",
+    )
+    mock_client.get_hosts.return_value = ["host1"]
+    mock_client.get_serialized_xspace.return_value = b"dummy_xspace"
+
+    with mock.patch.object(
+        get_llo_analysis_tool.xprof_client,
+        "get_client",
+        return_value=mock_client,
+    ), mock.patch.object(
+        get_llo_analysis_tool._pywrap_profiler_plugin,  # pylint: disable=protected-access
+        "built_with_embedded",
+        return_value=True,
+    ), mock.patch.object(
+        get_llo_analysis_tool._pywrap_profiler_plugin,  # pylint: disable=protected-access
+        "analyze_llo",
+        return_value={"success": False},
+    ):
+      res_raw = get_llo_analysis_tool.get_llo_analysis(
+          self.t1_path, bypass_cache=True
+      )
+      res = json.loads(res_raw)
+      self.assertIsInstance(res, dict)
+      self.assertEqual(res.get("status"), "UNAVAILABLE")
+      self.assertEqual(res.get("reason"), "LLO_DATA_ABSENT")
+      self.assertIn("remediation", res)
+      self.assertIn("LIBTPU_INIT_ARGS", res["remediation"])
+      self.assertIn(
+          "--xla_xprof_enable_custom_call_tracing=true", res["remediation"]
+      )
+      self.assertIn("Python 3.11+", res["remediation"])
+      self.assertIn("JAX >= 0.11.0", res["remediation"])
+      self.assertIn("xprof-nightly", res["remediation"])
+
+    with mock.patch.object(
+        get_llo_debug_string_tool.xprof_client,
+        "get_client",
+        return_value=mock_client,
+    ), mock.patch.object(
+        get_llo_debug_string_tool._pywrap_profiler_plugin,  # pylint: disable=protected-access
+        "built_with_embedded",
+        return_value=True,
+    ), mock.patch.object(
+        get_llo_debug_string_tool._pywrap_profiler_plugin,  # pylint: disable=protected-access
+        "get_llo_debug_string",
+        return_value="",
+    ):
+      res_dbg_raw = get_llo_debug_string_tool.get_llo_debug_string(
+          self.t1_path, bypass_cache=True
+      )
+      res_dbg = json.loads(res_dbg_raw)
+      self.assertIsInstance(res_dbg, dict)
+      self.assertEqual(res_dbg.get("status"), "UNAVAILABLE")
+      self.assertEqual(res_dbg.get("reason"), "LLO_DATA_ABSENT")
+      self.assertIn("remediation", res_dbg)
+      self.assertIn("LIBTPU_INIT_ARGS", res_dbg["remediation"])
+      self.assertIn("xprof-nightly", res_dbg["remediation"])
+
+  def test_d18_standardized_cli_error_codes(self):
+    """D-18: Standardized POSIX exit codes and structured JSON errors on failure."""
+    # 1. PATH_ERROR -> Exit code 3
+    with (
+        mock.patch("sys.stdout"),
+        mock.patch("sys.stderr"),
+        self.assertRaises(SystemExit) as cm_path,
+    ):
+      xprof_cli.main(["xprof", "get_overview", "/nonexistent/path/to/trace"])
+    self.assertEqual(cm_path.exception.code, 3)
+
+    # 2. INVALID_VALUE -> Exit code 4
+    with (
+        mock.patch("sys.stdout"),
+        mock.patch("sys.stderr"),
+        self.assertRaises(SystemExit) as cm_val,
+    ):
+      xprof_cli.main(
+          ["xprof", "get_graph_viewer", "--session_id=s", "--symbol_id=sym"]
+      )
+    self.assertEqual(cm_val.exception.code, 4)
+
+    # 3. USAGE_ERROR -> Exit code 2
+    with (
+        mock.patch("sys.stdout"),
+        mock.patch("sys.stderr"),
+        self.assertRaises(SystemExit) as cm_usage,
+    ):
+      xprof_cli.main(["xprof", "get_overview", "--invalid_flag_xyz=123"])
+    self.assertEqual(cm_usage.exception.code, 2)
+
+  def test_d19_hlo_op_profile_exception_contracts(self):
+    """D-19: Exception contracts for get_hlo_op_profile invalid inputs."""
+    # 1. Nonexistent category -> FileNotFoundError
+    with self.assertRaises(FileNotFoundError):
+      xprof_data.get_hlo_op_profile(
+          self.t1_path, category="completely_nonexistent_category_xyz"
+      )
+
+    # 2. Nonexistent tree path -> FileNotFoundError
+    with self.assertRaises(FileNotFoundError):
+      xprof_data.get_hlo_op_profile(
+          self.t1_path, view="tree", path="nonexistent/tree/path/xyz"
+      )
+
+    # 3. Invalid view -> ValueError
+    with self.assertRaises(ValueError):
+      xprof_data.get_hlo_op_profile(
+          self.t1_path, view="invalid_unsupported_view"
+      )
+
+    # 4. Invalid sort_by -> ValueError
+    with self.assertRaises(ValueError):
+      xprof_data.get_hlo_op_profile(self.t1_path, sort_by="invalid_sort_key")
+
+  def test_d20_hlo_stats_datatable_schema_fidelity(self):
+    """D-20: get_hlo_stats parses production DataTable schema without corrupt trace error."""
+    # 1. Test live execution on real v6e trace (t1_path)
+    res_raw = get_hlo_stats_tool.get_hlo_stats(self.t1_path, limit=10)
+    records = json.loads(res_raw)
+    self.assertIsInstance(records, list)
+    self.assertNotEmpty(records)
+
+    top_record = records[0]
+    self.assertIn("rank", top_record)
+    self.assertIn("program_id", top_record)
+    self.assertIn("category", top_record)
+    self.assertIn("op_name", top_record)
+    self.assertIn("total_self_time_us", top_record)
+    self.assertIn("self_time_percent", top_record)
+    self.assertIn("measured_flop_rate", top_record)
+    self.assertIn("measured_memory_bw_gbs", top_record)
+    self.assertIn("bound_by", top_record)
+    self.assertIn("source_file", top_record)
+    self.assertIn("source_line", top_record)
+
+    # 2. Test bypass_cache parameter
+    res_bypass_raw = get_hlo_stats_tool.get_hlo_stats(
+        self.t1_path, limit=5, bypass_cache=True
+    )
+    records_bypass = json.loads(res_bypass_raw)
+    self.assertLen(records_bypass, 5)
+
+    # 3. Test sorting
+    res_sort_raw = get_hlo_stats_tool.get_hlo_stats(
+        self.t1_path, limit=5, sort_by="total_time"
+    )
+    records_sort = json.loads(res_sort_raw)
+    self.assertLen(records_sort, 5)
+    self.assertGreaterEqual(
+        records_sort[0]["total_time_us"], records_sort[1]["total_time_us"]
+    )
+
+  def test_d21_cache_collision_prevention_across_distinct_logdirs_with_same_session_id(
+      self,
+  ):
+    """D-21: Distinct logdirs sharing a session ID do not collide in SQLite cache."""
+    temp_dir = tempfile.mkdtemp()
+    self.addCleanup(lambda: shutil.rmtree(temp_dir, ignore_errors=True))
+
+    dir_a = os.path.join(temp_dir, "dir_a")
+    dir_c = os.path.join(temp_dir, "dir_c")
+    sid = "2026_08_24_06_33_12"
+
+    os.makedirs(os.path.join(dir_a, "plugins", "profile", sid), exist_ok=True)
+    os.makedirs(os.path.join(dir_c, "plugins", "profile", sid), exist_ok=True)
+
+    trace_a = os.path.join(dir_a, "plugins", "profile", sid, "trace.xplane.pb")
+    trace_c = os.path.join(dir_c, "plugins", "profile", sid, "trace.xplane.pb")
+
+    shutil.copyfile(self.t1_path, trace_a)
+    shutil.copyfile(self.t2_path, trace_c)
+
+    # 1. Content fingerprints must be distinct despite identical subpaths or
+    # filenames.
+    fp_a = decorators.compute_path_fingerprint(os.path.dirname(trace_a))
+    fp_c = decorators.compute_path_fingerprint(os.path.dirname(trace_c))
+    self.assertNotEqual(fp_a, fp_c)
+
+    # 2. Query dir_a vs dir_c via XProfCli wrapper with logdir
+    cli = xprof_cli.XProfCli()
+    res_a_raw = cli.get_overview(sid, logdir=dir_a)
+    res_a = json.loads(res_a_raw) if isinstance(res_a_raw, str) else res_a_raw
+
+    res_c_raw = cli.get_overview(sid, logdir=dir_c)
+    res_c = json.loads(res_c_raw) if isinstance(res_c_raw, str) else res_c_raw
+
+    self.assertNotEqual(
+        res_a,
+        res_c,
+        msg="Traces in dir_a and dir_c must not collide on shared session_id",
+    )
+
+  def test_d22_empty_session_id_rejection(self):
+    """D-22: Empty string session ID is rejected with ValueError."""
+    cli = xprof_cli.XProfCli()
+    with self.assertRaises(ValueError):
+      cli.get_overview("")
+
+  def test_d23_upload_trace_import_roundtrip(self):
+    """D-23: upload_trace imports a bare trace into a queryable logdir.
+
+    Regression guard for the OSS defect where `upload_trace` was gated 1P-only
+    and therefore absent from the exported OSS CLI, so the shipped reference doc
+    (`upload_trace.md`) documented a command that did not exist. Verifies the
+    OSS
+    tool imports a raw trace under a run_name and that the resulting run is
+    readable by a core analysis tool.
+    """
+    temp_dir = tempfile.mkdtemp()
+    self.addCleanup(lambda: shutil.rmtree(temp_dir, ignore_errors=True))
+
+    logdir = os.path.join(temp_dir, "logdir")
+    run_name = "imported_step_100"
+    xprof_client.get_client().set_logdir(logdir)
+
+    res_raw = upload_trace_tool.upload_trace(
+        file_path=self.t1_path, run_name=run_name
+    )
+    res = json.loads(res_raw) if isinstance(res_raw, str) else res_raw
+
+    # 1. The import must succeed (not the stale-doc "unknown command" failure).
+    self.assertEqual(res.get("status"), "success", msg=res)
+    self.assertTrue(os.path.isdir(res["run_path"]))
+    self.assertTrue(os.path.exists(res["imported_file"]))
+    self.assertEqual(
+        os.path.basename(res["imported_file"]), os.path.basename(self.t1_path)
+    )
+
+    # 2. Round-trip: the imported run is analyzable via a core tool.
+    cli = xprof_cli.XProfCli()
+    ov_raw = cli.get_overview(run_name, logdir=logdir)
+    ov = json.loads(ov_raw) if isinstance(ov_raw, str) else ov_raw
+    self.assertIsNotNone(ov)
 
 
 if __name__ == "__main__":

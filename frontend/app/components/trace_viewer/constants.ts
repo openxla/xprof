@@ -210,3 +210,42 @@ export const CUSTOM_PALETTE_NAME = 'Custom';
  * Local storage key for persisting custom trace colors as a JSON array of hex strings.
  */
 export const CUSTOM_COLORS_STORAGE_KEY = 'trace_viewer_custom_colors';
+
+/**
+ * Local storage key for persisting panning navigation speed.
+ */
+export const NAV_PAN_SPEED_STORAGE_KEY = 'trace_viewer_nav_pan_speed';
+
+/**
+ * Local storage key for persisting keyboard zoom navigation speed.
+ */
+export const NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY =
+  'trace_viewer_nav_keyboard_zoom_speed';
+
+/**
+ * Local storage key for persisting mouse wheel zoom navigation speed.
+ */
+export const NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY =
+  'trace_viewer_nav_wheel_zoom_speed';
+
+/**
+ * Palette preview dot colors for Trace Viewer settings.
+ */
+export const PALETTE_PREVIEWS: Record<string, string[]> = {
+  'Default': ['#c597ff', '#80da88', '#a1c9ff'],
+  'Material': ['#82aaff', '#c3e88d', '#c792ea'],
+  'Dracula': ['#268bd2', '#50fa7b', '#bd93f9'],
+  'Monokai': ['#66d9ef', '#a6e22e', '#ff4689'],
+  'Solarized Dark': ['#268bd2', '#859900', '#b58900'],
+  'Solarized Light': ['#268bd2', '#859900', '#b58900'],
+  'Catapult': ['#ffa1a1', '#96c1ff', '#b1d284'],
+};
+
+/**
+ * Tab options available in the Settings dialog.
+ */
+export enum SettingsTab {
+  GENERAL = 'general',
+  COLOR = 'color',
+  FLAGS = 'flags',
+}

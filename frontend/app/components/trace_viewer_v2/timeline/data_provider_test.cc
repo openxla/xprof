@@ -6,8 +6,8 @@
 #include <utility>
 #include <vector>
 
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include "absl/algorithm/container.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/match.h"
@@ -16,6 +16,7 @@
 #include "imgui.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
@@ -24,7 +25,9 @@ namespace traceviewer {
 
 namespace {
 
+using ::testing::Contains;
 using ::testing::ElementsAre;
+using ::testing::Eq;
 using ::testing::Ge;
 using ::testing::IsEmpty;
 using ::testing::Not;
@@ -1246,11 +1249,15 @@ TEST_F(DataProviderTest, ProcessSingleCounterEvent) {
 
   EXPECT_EQ(data.groups[0].name, "Process_1");
   EXPECT_EQ(data.groups[0].nesting_level, 1);
+  EXPECT_EQ(data.groups[0].level_count, 1);
+  EXPECT_TRUE(data.groups[0].has_children);
+  EXPECT_THAT(data.groups[0].child_indices, ElementsAre(1));
 
   EXPECT_EQ(data.groups[1].name, "Counter A");
   EXPECT_EQ(data.groups[1].type, Group::Type::kCounter);
   EXPECT_EQ(data.groups[1].nesting_level, 2);
   EXPECT_TRUE(data.groups[1].expanded);
+  EXPECT_EQ(data.groups[1].parent_index, 0);
 
   ASSERT_TRUE(data.counter_data_by_group_index.count(1));
 
@@ -1442,14 +1449,25 @@ TEST_F(DataProviderTest, CounterTrackIncrementsLevel) {
 
   ASSERT_THAT(data.groups, SizeIs(5));
 
+  EXPECT_EQ(data.groups[0].level_count, 2);
+  EXPECT_TRUE(data.groups[0].has_children);
+  EXPECT_THAT(data.groups[0].child_indices, ElementsAre(1, 2));
+
   EXPECT_EQ(data.groups[1].name, "Thread_1");
   EXPECT_EQ(data.groups[1].start_level, 0);
+  EXPECT_EQ(data.groups[1].parent_index, 0);
 
   EXPECT_EQ(data.groups[2].name, "CounterA");
   EXPECT_EQ(data.groups[2].start_level, 1);
+  EXPECT_EQ(data.groups[2].parent_index, 0);
+
+  EXPECT_EQ(data.groups[3].level_count, 1);
+  EXPECT_TRUE(data.groups[3].has_children);
+  EXPECT_THAT(data.groups[3].child_indices, ElementsAre(4));
 
   EXPECT_EQ(data.groups[4].name, "Thread_2");
   EXPECT_EQ(data.groups[4].start_level, 2);
+  EXPECT_EQ(data.groups[4].parent_index, 3);
 }
 
 TEST_F(DataProviderTest, ProcessCounterEventReservesCapacityCorrectly) {
@@ -2820,9 +2838,9 @@ TEST_F(DataProviderTest, ProcessTraceEventsPreservesExpandedState) {
   EXPECT_TRUE(timeline_.timeline_data()
                   .groups[2]
                   .expanded);  // Process 2 (PRESERVED true)
-  EXPECT_TRUE(timeline_.timeline_data()
-                  .groups[3]
-                  .expanded);  // Thread 201 (FORCED TRUE, single-level)
+  EXPECT_FALSE(timeline_.timeline_data()
+                   .groups[3]
+                   .expanded);  // Thread 201 (PRESERVED false, single-level)
 }
 
 TEST_F(DataProviderTest, ProcessTraceEventsForcesExpansionForOneLineThreads) {
@@ -2856,10 +2874,10 @@ TEST_F(DataProviderTest, ProcessTraceEventsForcesExpansionForOneLineThreads) {
   // Reload same data (simulate update)
   provider.ProcessTraceEvents(parsed_events, timeline_);
 
-  // One-line threads should be expanded by default on initial load, but
-  // even if collapsed by user, the current implementation overrides it to true
+  // One-line threads should be expanded by default on initial load, and
+  // if collapsed by user, that collapse preference should be preserved
   // upon reload.
-  EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);
+  EXPECT_FALSE(timeline_.timeline_data().groups[1].expanded);
 }
 
 TEST_F(DataProviderTest,
@@ -2921,9 +2939,9 @@ TEST_F(DataProviderTest,
   EXPECT_FALSE(timeline_.timeline_data()
                    .groups[0]
                    .expanded);  // Process 1 (PRESERVED false)
-  EXPECT_TRUE(timeline_.timeline_data()
-                  .groups[1]
-                  .expanded);  // Thread 101 (FORCED TRUE)
+  EXPECT_FALSE(timeline_.timeline_data()
+                   .groups[1]
+                   .expanded);  // Thread 101 (PRESERVED false)
   EXPECT_TRUE(timeline_.timeline_data()
                   .groups[2]
                   .expanded);  // Test Counter (FORCED TRUE)
@@ -3976,6 +3994,7 @@ TEST_F(DataProviderTest, ProcessNamesClearedBetweenRuns) {
        .ts = 100.0,
        .dur = 50.0}};
 
+  data_provider_.Reset();
   data_provider_.ProcessTraceEvents({second_trace, {}}, timeline_);
   const absl::flat_hash_map<ProcessId, std::string> second_mappings =
       data_provider_.GetProcessMappings();
@@ -4045,6 +4064,945 @@ TEST_F(DataProviderTest, InvalidSortIndexBoundsIgnored) {
   EXPECT_EQ(data.groups[0].name, "ProcessD");
   EXPECT_EQ(data.groups[1].name, "ThreadB");
   EXPECT_EQ(data.groups[2].name, "ThreadA");
+}
+
+TEST_F(DataProviderTest, ExpandedState_PreservedAcrossParentIndexVariations) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Process 1"),
+      CreateThreadEvent(1, 101, "Worker"),
+      CreateCompleteEvent(1, 101, "task", 100.0, 50.0),
+  };
+
+  struct TestCase {
+    absl::string_view description;
+    std::vector<Group> initial_groups;
+  };
+
+  const std::vector<TestCase> test_cases = {
+      {
+          .description = "Parent differs from preceding process",
+          .initial_groups =
+              {
+                  Group{
+                      .name = "Process 1",
+                      .nesting_level = kProcessNestingLevel,
+                      .expanded = true,
+                      .parent_index = -1,
+                  },
+                  Group{
+                      .name = "Process 2",
+                      .nesting_level = kProcessNestingLevel,
+                      .expanded = true,
+                      .parent_index = -1,
+                  },
+                  Group{
+                      .name = "Worker",
+                      .nesting_level = kThreadNestingLevel,
+                      .expanded = false,
+                      .parent_index = 0,
+                  },
+              },
+      },
+      {
+          .description = "Parent index unset (-1)",
+          .initial_groups =
+              {
+                  Group{
+                      .name = "Process 1",
+                      .nesting_level = kProcessNestingLevel,
+                      .expanded = true,
+                      .parent_index = -1,
+                  },
+                  Group{
+                      .name = "Worker",
+                      .nesting_level = kThreadNestingLevel,
+                      .expanded = false,
+                      .parent_index = -1,
+                  },
+              },
+      },
+      {
+          .description = "Parent index at exact out-of-bounds boundary (size)",
+          .initial_groups =
+              {
+                  Group{
+                      .name = "Process 1",
+                      .nesting_level = kProcessNestingLevel,
+                      .expanded = true,
+                      .parent_index = -1,
+                  },
+                  Group{
+                      .name = "Worker",
+                      .nesting_level = kThreadNestingLevel,
+                      .expanded = false,
+                      .parent_index = 2,
+                  },
+              },
+      },
+      {
+          .description = "Parent index far out-of-bounds",
+          .initial_groups =
+              {
+                  Group{
+                      .name = "Process 1",
+                      .nesting_level = kProcessNestingLevel,
+                      .expanded = true,
+                      .parent_index = -1,
+                  },
+                  Group{
+                      .name = "Worker",
+                      .nesting_level = kThreadNestingLevel,
+                      .expanded = false,
+                      .parent_index = 999,
+                  },
+              },
+      },
+  };
+
+  for (const TestCase& test_case : test_cases) {
+    SCOPED_TRACE(test_case.description);
+    timeline_.SetTimelineData(
+        FlameChartTimelineData{.groups = test_case.initial_groups});
+    data_provider_.ProcessTraceEvents(ParsedTraceEvents{.flame_events = events},
+                                      timeline_);
+    ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(2));
+    EXPECT_FALSE(timeline_.timeline_data().groups[1].expanded);
+  }
+}
+
+TEST_F(DataProviderTest, ProcessMetadata_RetainedAcrossEmptyChunks) {
+  const std::vector<TraceEvent> slice1_events = {
+      CreateProcessEvent(1, "HostProcess device"),
+      CreateThreadEvent(1, 1, "Worker"),
+      CreateCompleteEvent(1, 1, "task1", 100.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice1_events}, timeline_);
+  ASSERT_EQ(data_provider_.GetProcessMappings()[1], "HostProcess");
+
+  // Ingest Slice 2 with 0 metadata events.
+  const std::vector<TraceEvent> slice2_events = {
+      CreateCompleteEvent(1, 1, "task2", 200.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice2_events}, timeline_);
+  EXPECT_EQ(data_provider_.GetProcessMappings()[1], "HostProcess");
+}
+
+TEST_F(DataProviderTest,
+       MonotonicLevelCount_RetainedAcrossDenseToSparseSlices) {
+  // 6 overlapping events requiring 6 levels.
+  const std::vector<TraceEvent> dense_events = {
+      CreateProcessEvent(1, "Process"),
+      CreateThreadEvent(1, 1, "Worker"),
+      CreateCompleteEvent(1, 1, "task1", 100.0, 100.0),
+      CreateCompleteEvent(1, 1, "task2", 105.0, 90.0),
+      CreateCompleteEvent(1, 1, "task3", 110.0, 80.0),
+      CreateCompleteEvent(1, 1, "task4", 115.0, 70.0),
+      CreateCompleteEvent(1, 1, "task5", 120.0, 60.0),
+      CreateCompleteEvent(1, 1, "task6", 125.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = dense_events}, timeline_);
+
+  int worker_index = -1;
+  for (size_t i = 0; i < timeline_.timeline_data().groups.size(); ++i) {
+    if (timeline_.timeline_data().groups[i].name == "Worker") {
+      worker_index = static_cast<int>(i);
+      break;
+    }
+  }
+  ASSERT_NE(worker_index, -1);
+  ASSERT_EQ(timeline_.timeline_data().groups[worker_index].level_count, 6);
+
+  // Ingest Slice 2 for same thread with 1 event.
+  const std::vector<TraceEvent> sparse_events = {
+      CreateCompleteEvent(1, 1, "sparse_task", 300.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = sparse_events}, timeline_);
+
+  int reloaded_worker_index = -1;
+  for (size_t i = 0; i < timeline_.timeline_data().groups.size(); ++i) {
+    if (timeline_.timeline_data().groups[i].name == "Worker") {
+      reloaded_worker_index = static_cast<int>(i);
+      break;
+    }
+  }
+  ASSERT_NE(reloaded_worker_index, -1);
+  EXPECT_EQ(timeline_.timeline_data().groups[reloaded_worker_index].level_count,
+            6);
+}
+
+TEST_F(DataProviderTest, EmptyTrackPlaceholders_RetainedWhenEventsZero) {
+  // Ingest Slice 1 with events in Thread A and Thread B.
+  const std::vector<TraceEvent> slice1_events = {
+      CreateProcessEvent(1, "Process"),
+      CreateThreadEvent(1, 1, "Thread A"),
+      CreateThreadEvent(1, 2, "Thread B"),
+      CreateCompleteEvent(1, 1, "taskA1", 100.0, 50.0),
+      CreateCompleteEvent(1, 2, "taskB1", 100.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice1_events}, timeline_);
+
+  bool found_thread_b_slice1 = false;
+  for (const Group& group : timeline_.timeline_data().groups) {
+    if (group.name == "Thread B") {
+      found_thread_b_slice1 = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(found_thread_b_slice1);
+
+  // Ingest Slice 2 where Thread B has 0 events.
+  const std::vector<TraceEvent> slice2_events = {
+      CreateCompleteEvent(1, 1, "taskA2", 200.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice2_events}, timeline_);
+
+  bool found_thread_b_slice2 = false;
+  for (const Group& group : timeline_.timeline_data().groups) {
+    if (group.name == "Thread B") {
+      found_thread_b_slice2 = true;
+      EXPECT_EQ(group.type, Group::Type::kFlame);
+      EXPECT_GE(group.level_count, 1);
+      break;
+    }
+  }
+  EXPECT_TRUE(found_thread_b_slice2);
+}
+
+TEST_F(DataProviderTest,
+       EmptyTrackPlaceholders_RetainMaxObservedLevelsAndZeroEvents) {
+  // Slice 1: Thread A (1 event) and Thread B (5 overlapping events = 5 levels).
+  const std::vector<TraceEvent> slice1_events = {
+      CreateProcessEvent(1, "Process"),
+      CreateThreadEvent(1, 1, "Thread A"),
+      CreateThreadEvent(1, 2, "Thread B"),
+      CreateCompleteEvent(1, 1, "taskA1", 100.0, 50.0),
+      CreateCompleteEvent(1, 2, "taskB1", 100.0, 50.0),
+      CreateCompleteEvent(1, 2, "taskB2", 105.0, 40.0),
+      CreateCompleteEvent(1, 2, "taskB3", 110.0, 30.0),
+      CreateCompleteEvent(1, 2, "taskB4", 115.0, 20.0),
+      CreateCompleteEvent(1, 2, "taskB5", 120.0, 10.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice1_events}, timeline_);
+
+  int thread_b_idx = -1;
+  for (size_t i = 0; i < timeline_.timeline_data().groups.size(); ++i) {
+    if (timeline_.timeline_data().groups[i].name == "Thread B") {
+      thread_b_idx = static_cast<int>(i);
+      break;
+    }
+  }
+  ASSERT_NE(thread_b_idx, -1);
+  ASSERT_EQ(timeline_.timeline_data().groups[thread_b_idx].level_count, 5);
+
+  // Slice 2: Thread B has 0 events, Thread A has 1 event.
+  const std::vector<TraceEvent> slice2_events = {
+      CreateCompleteEvent(1, 1, "taskA2", 200.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice2_events}, timeline_);
+
+  int thread_b_reloaded_idx = -1;
+  for (size_t i = 0; i < timeline_.timeline_data().groups.size(); ++i) {
+    if (timeline_.timeline_data().groups[i].name == "Thread B") {
+      thread_b_reloaded_idx = static_cast<int>(i);
+      break;
+    }
+  }
+  ASSERT_NE(thread_b_reloaded_idx, -1);
+  const Group& thread_b_group =
+      timeline_.timeline_data().groups[thread_b_reloaded_idx];
+  EXPECT_EQ(thread_b_group.level_count, 5);
+  // Verify that for all levels of Thread B in Slice 2, events_by_level is
+  // empty.
+  const int start_level = thread_b_group.start_level;
+  for (int lvl = start_level; lvl < start_level + thread_b_group.level_count;
+       ++lvl) {
+    EXPECT_TRUE(timeline_.timeline_data().events_by_level[lvl].empty());
+  }
+}
+
+TEST_F(DataProviderTest,
+       EmptyTrackPlaceholders_CounterTrackRetainedWhenEventsZero) {
+  // Slice 1: Process 1 has Counter "MemoryUsage" and Thread 1.
+  const std::vector<TraceEvent> slice1_flame = {
+      CreateProcessEvent(1, "Process"),
+      CreateThreadEvent(1, 1, "Worker"),
+      CreateCompleteEvent(1, 1, "task1", 100.0, 50.0),
+  };
+  const std::vector<CounterEvent> slice1_counters = {
+      CreateCounterEvent(1, "MemoryUsage", {100.0, 150.0}, {10.0, 20.0}),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice1_flame,
+                        .counter_events = slice1_counters},
+      timeline_);
+
+  bool found_counter_slice1 = false;
+  for (const Group& group : timeline_.timeline_data().groups) {
+    if (group.name == "MemoryUsage") {
+      found_counter_slice1 = true;
+      EXPECT_EQ(group.type, Group::Type::kCounter);
+      EXPECT_EQ(group.level_count, 1);
+      break;
+    }
+  }
+  ASSERT_TRUE(found_counter_slice1);
+
+  // Slice 2: 0 counter events.
+  const std::vector<TraceEvent> slice2_flame = {
+      CreateCompleteEvent(1, 1, "task2", 200.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice2_flame}, timeline_);
+
+  bool found_counter_slice2 = false;
+  for (const Group& group : timeline_.timeline_data().groups) {
+    if (group.name == "MemoryUsage") {
+      found_counter_slice2 = true;
+      EXPECT_EQ(group.type, Group::Type::kCounter);
+      EXPECT_EQ(group.level_count, 1);
+      break;
+    }
+  }
+  EXPECT_TRUE(found_counter_slice2);
+}
+
+TEST_F(DataProviderTest,
+       EmptyTrackPlaceholders_AsyncTrackRetainedWhenEventsZero) {
+  // Slice 1: Async process with 3 overlapping events on "FetchData".
+  const std::vector<TraceEvent> slice1_events = {
+      CreateProcessEvent(1, "Async Process"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 10,
+       .name = "FetchData",
+       .ts = 100.0,
+       .dur = 50.0,
+       .is_async = true},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 10,
+       .name = "FetchData",
+       .ts = 105.0,
+       .dur = 40.0,
+       .is_async = true},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 10,
+       .name = "FetchData",
+       .ts = 110.0,
+       .dur = 30.0,
+       .is_async = true},
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice1_events}, timeline_);
+
+  int async_idx_slice1 = -1;
+  for (size_t i = 0; i < timeline_.timeline_data().groups.size(); ++i) {
+    if (timeline_.timeline_data().groups[i].name == "FetchData") {
+      async_idx_slice1 = static_cast<int>(i);
+      break;
+    }
+  }
+  ASSERT_NE(async_idx_slice1, -1);
+  ASSERT_EQ(timeline_.timeline_data().groups[async_idx_slice1].level_count, 3);
+
+  // Slice 2: Async track has 0 events, only a sync thread has events.
+  const std::vector<TraceEvent> slice2_events = {
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 20,
+       .name = "SyncTask",
+       .ts = 200.0,
+       .dur = 50.0,
+       .is_async = false},
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice2_events}, timeline_);
+
+  int async_idx_slice2 = -1;
+  for (size_t i = 0; i < timeline_.timeline_data().groups.size(); ++i) {
+    if (timeline_.timeline_data().groups[i].name == "FetchData") {
+      async_idx_slice2 = static_cast<int>(i);
+      break;
+    }
+  }
+  ASSERT_NE(async_idx_slice2, -1);
+  EXPECT_EQ(timeline_.timeline_data().groups[async_idx_slice2].level_count, 3);
+}
+
+TEST_F(DataProviderTest, ProcessPriority_InvariantAcrossEmptySlices) {
+  // Process 1: regular sync process.
+  // Process 2: contains an "Async XLA Ops" thread (priority 2).
+  const std::vector<TraceEvent> slice1_events = {
+      CreateProcessEvent(1, "Process 1"),
+      CreateThreadEvent(1, 1, "Thread1"),
+      CreateCompleteEvent(1, 1, "task1", 100.0, 50.0),
+      CreateProcessEvent(2, "Process 2"),
+      CreateThreadEvent(2, 2, "Async XLA Ops"),
+      CreateCompleteEvent(2, 2, "async_task", 100.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice1_events}, timeline_);
+
+  // Process 2 (priority 2) should be sorted before Process 1 (priority 0).
+  const std::vector<std::string> group_names_slice1 =
+      GetGroupNames(timeline_.timeline_data());
+  const auto it_p2_s1 = std::find(group_names_slice1.begin(),
+                                  group_names_slice1.end(), "Process 2");
+  const auto it_p1_s1 = std::find(group_names_slice1.begin(),
+                                  group_names_slice1.end(), "Process 1");
+  ASSERT_NE(it_p2_s1, group_names_slice1.end());
+  ASSERT_NE(it_p1_s1, group_names_slice1.end());
+  ASSERT_LT(it_p2_s1, it_p1_s1);
+
+  // Slice 2: Process 2 has 0 events, Process 1 has 1 event.
+  const std::vector<TraceEvent> slice2_events = {
+      CreateCompleteEvent(1, 1, "task1_new", 200.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice2_events}, timeline_);
+
+  // Process 2 must STILL be sorted before Process 1 (order invariant).
+  const std::vector<std::string> group_names_slice2 =
+      GetGroupNames(timeline_.timeline_data());
+  const auto it_p2_s2 = std::find(group_names_slice2.begin(),
+                                  group_names_slice2.end(), "Process 2");
+  const auto it_p1_s2 = std::find(group_names_slice2.begin(),
+                                  group_names_slice2.end(), "Process 1");
+  ASSERT_NE(it_p2_s2, group_names_slice2.end());
+  ASSERT_NE(it_p1_s2, group_names_slice2.end());
+  EXPECT_LT(it_p2_s2, it_p1_s2);
+}
+
+TEST_F(DataProviderTest,
+       EmptyTrackPlaceholders_AllTracksRetainedInFullyEmptySlice) {
+  const std::vector<TraceEvent> slice1_events = {
+      CreateProcessEvent(1, "Process 1"),
+      CreateThreadEvent(1, 1, "Worker 1"),
+      CreateThreadEvent(1, 2, "Worker 2"),
+      CreateCompleteEvent(1, 1, "task1", 100.0, 50.0),
+      CreateCompleteEvent(1, 2, "task2", 100.0, 50.0),
+  };
+  const std::vector<CounterEvent> slice1_counters = {
+      CreateCounterEvent(1, "Counter1", {100.0, 150.0}, {1.0, 2.0}),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice1_events,
+                        .counter_events = slice1_counters},
+      timeline_);
+  const size_t initial_group_count = timeline_.timeline_data().groups.size();
+  ASSERT_GT(initial_group_count, 0);
+
+  // Ingest Slice 2 with completely empty parsed events (0 events everywhere).
+  data_provider_.ProcessTraceEvents(ParsedTraceEvents{}, timeline_);
+  EXPECT_EQ(timeline_.timeline_data().groups.size(), initial_group_count);
+}
+
+TEST_F(DataProviderTest, Reset_ClearsAllSessionRegistries) {
+  const std::vector<TraceEvent> trace1_events = {
+      CreateProcessEvent(1, "Trace1 Process"),
+      CreateThreadEvent(1, 10, "Trace1 Thread"),
+      CreateCompleteEvent(1, 10, "task", 100.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = trace1_events}, timeline_);
+  EXPECT_EQ(data_provider_.GetProcessMappings()[1], "Trace1");
+
+  data_provider_.Reset();
+  EXPECT_TRUE(data_provider_.GetProcessMappings().empty());
+
+  const std::vector<TraceEvent> trace2_events = {
+      CreateProcessEvent(2, "Trace2 Process"),
+      CreateThreadEvent(2, 20, "Trace2 Thread"),
+      CreateCompleteEvent(2, 20, "task2", 200.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = trace2_events}, timeline_);
+
+  const absl::flat_hash_map<ProcessId, std::string> mappings =
+      data_provider_.GetProcessMappings();
+  EXPECT_FALSE(mappings.contains(1));
+  EXPECT_TRUE(mappings.contains(2));
+
+  const std::vector<std::string> names =
+      GetGroupNames(timeline_.timeline_data());
+  EXPECT_EQ(std::find(names.begin(), names.end(), "Trace1 Process"),
+            names.end());
+  EXPECT_EQ(std::find(names.begin(), names.end(), "Trace1 Thread"),
+            names.end());
+  EXPECT_NE(std::find(names.begin(), names.end(), "Trace2 Process"),
+            names.end());
+}
+
+TEST_F(DataProviderTest, EmptyProcessOnlyMetadataNoTracksIgnored) {
+  // A process with only process name metadata and no tracks/events should be
+  // ignored (early return).
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Empty Process"),
+  };
+  data_provider_.ProcessTraceEvents(ParsedTraceEvents{.flame_events = events},
+                                    timeline_);
+  EXPECT_TRUE(timeline_.timeline_data().groups.empty());
+}
+
+TEST_F(DataProviderTest,
+       EmptySliceWithOnlyKnownAsyncTracksRetainsTrackPlaceholders) {
+  // Slice 1: Process has only async flame events (no sync threads, no
+  // counters).
+  const std::vector<TraceEvent> slice1_events = {
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 10,
+       .name = "AsyncOp",
+       .ts = 100.0,
+       .dur = 50.0,
+       .is_async = true},
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice1_events}, timeline_);
+
+  const size_t group_count_slice1 = timeline_.timeline_data().groups.size();
+  ASSERT_GT(group_count_slice1, 0);
+
+  // Slice 2: Empty slice.
+  // In PopulateProcessTrack, has_events=false, has_named_threads=false,
+  // has_known_threads=false, but has_known_async=true.
+  data_provider_.ProcessTraceEvents(ParsedTraceEvents{}, timeline_);
+  EXPECT_EQ(timeline_.timeline_data().groups.size(), group_count_slice1);
+}
+
+TEST_F(DataProviderTest,
+       EmptySliceWithOnlyKnownCountersRetainsTrackPlaceholders) {
+  // Slice 1: Process has only counter events (no threads, no async tracks).
+  const std::vector<CounterEvent> slice1_counters = {
+      CreateCounterEvent(1, "Counter1", {100.0, 150.0}, {1.0, 2.0}),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.counter_events = slice1_counters}, timeline_);
+
+  const size_t group_count_slice1 = timeline_.timeline_data().groups.size();
+  ASSERT_GT(group_count_slice1, 0);
+
+  // Slice 2: Empty slice.
+  // In PopulateProcessTrack, has_events=false, has_named_threads=false,
+  // has_known_threads=false, has_known_async=false, but
+  // has_known_counters=true.
+  data_provider_.ProcessTraceEvents(ParsedTraceEvents{}, timeline_);
+  EXPECT_EQ(timeline_.timeline_data().groups.size(), group_count_slice1);
+}
+
+TEST_F(DataProviderTest, EmptySliceWithUnnamedThreadRetainsTrackPlaceholders) {
+  // Slice 1: Process has an unnamed thread with complete events (no thread
+  // metadata event).
+  const std::vector<TraceEvent> slice1_events = {
+      CreateCompleteEvent(1, 42, "unnamed_task", 100.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice1_events}, timeline_);
+
+  const size_t group_count_slice1 = timeline_.timeline_data().groups.size();
+  ASSERT_GT(group_count_slice1, 0);
+
+  // Slice 2: Empty slice.
+  // In PopulateProcessTrack, has_events=false, has_named_threads=false,
+  // but has_known_threads=true (unnamed thread registered in known_threads).
+  data_provider_.ProcessTraceEvents(ParsedTraceEvents{}, timeline_);
+  EXPECT_EQ(timeline_.timeline_data().groups.size(), group_count_slice1);
+}
+
+TEST_F(DataProviderTest,
+       AsyncProcessWithSyncEventsPopulatesEventsOnThreadTrack) {
+  // Process has both async operations and synchronous thread events.
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Async Process"),
+      CreateThreadEvent(1, 10, "Worker Thread"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 20,
+       .name = "AsyncOp",
+       .ts = 100.0,
+       .dur = 50.0,
+       .is_async = true},
+      CreateCompleteEvent(1, 10, "SyncOp", 120.0, 30.0),
+  };
+  data_provider_.ProcessTraceEvents(ParsedTraceEvents{.flame_events = events},
+                                    timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  EXPECT_THAT(data.entry_names, Contains(Eq("SyncOp")));
+}
+
+TEST_F(DataProviderTest, ThreadTrack_LevelCountMatchesOverlappingEventLevels) {
+  // 3 overlapping events requiring 3 levels.
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Process"),
+      CreateThreadEvent(1, 1, "Worker"),
+      CreateCompleteEvent(1, 1, "task1", 100.0, 100.0),
+      CreateCompleteEvent(1, 1, "task2", 105.0, 50.0),
+      CreateCompleteEvent(1, 1, "task3", 110.0, 20.0),
+  };
+  data_provider_.ProcessTraceEvents(ParsedTraceEvents{.flame_events = events},
+                                    timeline_);
+
+  int worker_index = -1;
+  const std::vector<Group>& groups = timeline_.timeline_data().groups;
+  for (size_t i = 0; i < groups.size(); ++i) {
+    if (groups[i].name == "Worker") {
+      worker_index = static_cast<int>(i);
+      break;
+    }
+  }
+  ASSERT_NE(worker_index, -1);
+  EXPECT_EQ(groups[worker_index].level_count, 3);
+}
+
+TEST_F(DataProviderTest,
+       MultipleAsyncTracks_EachReceivesUniqueSyntheticTidForFlowLines) {
+  // Track 1: async flame event with synthetic tid base 0x80000000.
+  // Track 2: async flame event with synthetic tid 0x80000001.
+  const std::vector<TraceEvent> flame_events = {
+      CreateProcessEvent(1, "Async Process"),
+      {.ph = Phase::kComplete,
+       .event_id = 101,
+       .pid = 1,
+       .tid = 0x80000000,
+       .name = "AsyncTrack1",
+       .ts = 100.0,
+       .dur = 50.0,
+       .is_async = true},
+      {.ph = Phase::kComplete,
+       .event_id = 102,
+       .pid = 1,
+       .tid = 0x80000001,
+       .name = "AsyncTrack2",
+       .ts = 200.0,
+       .dur = 50.0,
+       .is_async = true},
+  };
+  const std::vector<TraceEvent> flow_events = {
+      CreateFlowEvent(Phase::kFlowStart, 101, 1, 0x80000000, "flow1", 100.0),
+      CreateFlowEvent(Phase::kFlowEnd, 102, 1, 0x80000001, "flow1", 200.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = flame_events,
+                        .flow_events = flow_events},
+      timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(1));
+  EXPECT_EQ(data.flow_lines[0].source_level, 0);
+  EXPECT_EQ(data.flow_lines[0].target_level, 1);
+}
+
+TEST_F(DataProviderTest, ProcessSortIndex_PersistsAcrossSlices) {
+  // Slice 1: Process 1 (sort index 200) and Process 2 (sort index 100).
+  const std::vector<TraceEvent> slice1_events = {
+      CreateProcessEvent(1, "Process 1"),
+      CreateProcessSortIndexEvent(1, "200"),
+      CreateCompleteEvent(1, 1, "task1", 100.0, 50.0),
+      CreateProcessEvent(2, "Process 2"),
+      CreateProcessSortIndexEvent(2, "100"),
+      CreateCompleteEvent(2, 1, "task2", 100.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice1_events}, timeline_);
+
+  // Slice 2: Process 1 and Process 2 receive events with no metadata.
+  const std::vector<TraceEvent> slice2_events = {
+      CreateCompleteEvent(1, 1, "task1_slice2", 200.0, 50.0),
+      CreateCompleteEvent(2, 1, "task2_slice2", 200.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice2_events}, timeline_);
+
+  const std::vector<std::string> group_names =
+      GetGroupNames(timeline_.timeline_data());
+  const auto it_p2 =
+      std::find(group_names.begin(), group_names.end(), "Process 2");
+  const auto it_p1 =
+      std::find(group_names.begin(), group_names.end(), "Process 1");
+  ASSERT_NE(it_p2, group_names.end());
+  ASSERT_NE(it_p1, group_names.end());
+  EXPECT_LT(it_p2, it_p1);
+}
+
+TEST_F(DataProviderTest, ThreadSortIndex_PersistsAcrossSlices) {
+  // Slice 1: Thread 1 (sort index 200) and Thread 2 (sort index 100).
+  const std::vector<TraceEvent> slice1_events = {
+      CreateProcessEvent(1, "Process 1"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 1, "200"),
+      CreateThreadEvent(1, 1, "Thread 1"),
+      CreateCompleteEvent(1, 1, "task1", 100.0, 50.0),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 2, "100"),
+      CreateThreadEvent(1, 2, "Thread 2"),
+      CreateCompleteEvent(1, 2, "task2", 100.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice1_events}, timeline_);
+
+  // Slice 2: Thread 1 and Thread 2 receive events with no metadata.
+  const std::vector<TraceEvent> slice2_events = {
+      CreateCompleteEvent(1, 1, "task1_slice2", 200.0, 50.0),
+      CreateCompleteEvent(1, 2, "task2_slice2", 200.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice2_events}, timeline_);
+
+  const std::vector<std::string> group_names =
+      GetGroupNames(timeline_.timeline_data());
+  const auto it_t2 =
+      std::find(group_names.begin(), group_names.end(), "Thread 2");
+  const auto it_t1 =
+      std::find(group_names.begin(), group_names.end(), "Thread 1");
+  ASSERT_NE(it_t2, group_names.end());
+  ASSERT_NE(it_t1, group_names.end());
+  EXPECT_LT(it_t2, it_t1);
+}
+
+TEST_F(DataProviderTest,
+       XlaModulesThreadId_PersistsAcrossSlicesForHloOpDecoration) {
+  // Slice 1: Register thread named "XLA Modules" on PID 1, TID 42 and "XLA Ops"
+  // on TID 1.
+  const std::vector<TraceEvent> slice1_events = {
+      CreateProcessEvent(1, "Compute Process"),
+      CreateThreadEvent(1, 42, std::string(kXlaModules)),
+      CreateCompleteEvent(1, 42, "init_module", 50.0, 10.0),
+      CreateThreadEvent(1, 1, std::string(kXlaOps)),
+      CreateCompleteEvent(1, 1, "init_op", 50.0, 10.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice1_events}, timeline_);
+
+  // Slice 2: Module event on TID 42, and HLO op event on worker TID 1 with no
+  // thread metadata in this slice.
+  const TraceEvent hlo_op = CreateCompleteEvent(1, 1, "custom_op", 110.0, 20.0);
+  const std::vector<TraceEvent> slice2_events = {
+      CreateCompleteEvent(1, 42, "module_persisted", 100.0, 50.0),
+      hlo_op,
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice2_events}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  bool found_decorated_op = false;
+  for (size_t i = 0; i < data.entry_names.size(); ++i) {
+    if (data.entry_names[i] == "custom_op") {
+      const auto it = data.entry_args[i].find(std::string(kHloModule));
+      if (it != data.entry_args[i].end() && it->second == "module_persisted") {
+        found_decorated_op = true;
+      }
+    }
+  }
+  EXPECT_TRUE(found_decorated_op);
+}
+
+TEST_F(DataProviderTest, ProcessNames_PersistsAcrossSlices) {
+  // Slice 1: Metadata specifies custom process name.
+  const std::vector<TraceEvent> slice1_events = {
+      CreateProcessEvent(1, "PersistentComputeHost"),
+      CreateCompleteEvent(1, 1, "task1", 100.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice1_events}, timeline_);
+
+  // Slice 2: Event on PID 1 without process metadata.
+  const std::vector<TraceEvent> slice2_events = {
+      CreateCompleteEvent(1, 1, "task2", 200.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice2_events}, timeline_);
+
+  const absl::flat_hash_map<ProcessId, std::string> mappings =
+      data_provider_.GetProcessMappings();
+  const auto it = mappings.find(1);
+  ASSERT_NE(it, mappings.end());
+  EXPECT_EQ(it->second, "PersistentComputeHost");
+  EXPECT_THAT(GetGroupNames(timeline_.timeline_data()),
+              Contains(Eq("PersistentComputeHost")));
+}
+
+TEST_F(DataProviderTest, AsyncProcessPriority_PersistsAcrossSlices) {
+  // Slice 1: PID 2 has an async event (priority 1), PID 1 has a regular sync
+  // event (priority 0).
+  TraceEvent async_event = CreateCompleteEvent(2, 1, "AsyncOp", 100.0, 50.0);
+  async_event.is_async = true;
+  const std::vector<TraceEvent> slice1_events = {
+      async_event,
+      CreateCompleteEvent(1, 1, "task1", 100.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice1_events}, timeline_);
+
+  // Slice 2: Both PID 1 and PID 2 receive regular sync events (is_async=false).
+  const std::vector<TraceEvent> slice2_events = {
+      CreateCompleteEvent(1, 1, "task1_new", 200.0, 50.0),
+      CreateCompleteEvent(2, 1, "task2_new", 200.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice2_events}, timeline_);
+
+  const std::vector<std::string> group_names =
+      GetGroupNames(timeline_.timeline_data());
+  const auto it_p2 =
+      std::find(group_names.begin(), group_names.end(), "Process_2");
+  const auto it_p1 =
+      std::find(group_names.begin(), group_names.end(), "Process_1");
+  ASSERT_NE(it_p2, group_names.end());
+  ASSERT_NE(it_p1, group_names.end());
+  EXPECT_LT(it_p2, it_p1);
+}
+
+TEST_F(DataProviderTest, AsyncTracks_PersistsAcrossSlices) {
+  // Slice 1: PID 1 has an async event creating an async track.
+  TraceEvent async_event = CreateCompleteEvent(1, 1, "AsyncOp", 100.0, 50.0);
+  async_event.is_async = true;
+  const std::vector<TraceEvent> slice1_events = {
+      CreateProcessEvent(1, "Process 1"),
+      async_event,
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice1_events}, timeline_);
+
+  EXPECT_THAT(GetGroupNames(timeline_.timeline_data()),
+              Contains(Eq("AsyncOp")));
+
+  // Slice 2: PID 2 receives an event, while PID 1 receives no events or
+  // metadata.
+  const std::vector<TraceEvent> slice2_events = {
+      CreateProcessEvent(2, "Process 2"),
+      CreateCompleteEvent(2, 1, "task2", 200.0, 50.0),
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = slice2_events}, timeline_);
+
+  // PID 1 and its async track "AsyncOp" must persist across slices.
+  const std::vector<std::string> group_names =
+      GetGroupNames(timeline_.timeline_data());
+  EXPECT_THAT(group_names, Contains(Eq("Process 1")));
+  EXPECT_THAT(group_names, Contains(Eq("AsyncOp")));
+}
+
+TEST_F(DataProviderTest, ChildThreadTracksInitializedAsExpandedInDataProvider) {
+  // Create events with two processes: Process 1 (first) and Process 2 (second),
+  // each with multiple levels of events (nested complete events) so the thread
+  // is collapsible.
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Process 1"),
+      CreateCompleteEvent(1, 10, "ParentOp1", 100.0, 100.0),
+      CreateCompleteEvent(1, 10, "ChildOp1", 110.0, 50.0),
+
+      CreateProcessEvent(2, "Process 2"),
+      CreateCompleteEvent(2, 20, "ParentOp2", 200.0, 100.0),
+      CreateCompleteEvent(2, 20, "ChildOp2", 210.0, 50.0),
+  };
+
+  data_provider_.ProcessTraceEvents(ParsedTraceEvents{.flame_events = events},
+                                    timeline_);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_THAT(groups, SizeIs(4));
+
+  // Top-level Process 1 is expanded by default (first process).
+  EXPECT_EQ(groups[0].name, "Process 1");
+  EXPECT_EQ(groups[0].nesting_level, kProcessNestingLevel);
+  EXPECT_TRUE(groups[0].expanded);
+
+  // Thread under Process 1 is expanded by default.
+  EXPECT_EQ(groups[1].nesting_level, kThreadNestingLevel);
+  EXPECT_TRUE(groups[1].expanded);
+
+  // Top-level Process 2 is collapsed on initial load to keep layout clean.
+  EXPECT_EQ(groups[2].name, "Process 2");
+  EXPECT_EQ(groups[2].nesting_level, kProcessNestingLevel);
+  EXPECT_FALSE(groups[2].expanded);
+
+  // Child thread under Process 2 is initialized as expanded, so all events and
+  // flame graph levels are immediately visible when Process 2 is expanded.
+  EXPECT_EQ(groups[3].nesting_level, kThreadNestingLevel);
+  EXPECT_TRUE(groups[3].expanded);
+}
+
+TEST_F(DataProviderTest, IncrementalStreamingPreservingUserManualCollapse) {
+  const std::vector<TraceEvent> initial_events = {
+      CreateProcessEvent(1, "Process 1"),
+      CreateCompleteEvent(1, 10, "ParentOp1", 100.0, 100.0),
+      CreateCompleteEvent(1, 10, "ChildOp1", 110.0, 50.0),
+
+      CreateProcessEvent(2, "Process 2"),
+      CreateCompleteEvent(2, 20, "ParentOp2", 200.0, 100.0),
+      CreateCompleteEvent(2, 20, "ChildOp2", 210.0, 50.0),
+  };
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = initial_events}, timeline_);
+
+  ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(4));
+  EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);
+  EXPECT_TRUE(timeline_.timeline_data().groups[3].expanded);
+
+  // User manually collapses both child threads.
+  {
+    FlameChartTimelineData data = timeline_.timeline_data();
+    data.groups[1].expanded = false;
+    data.groups[3].expanded = false;
+    timeline_.SetTimelineData(std::move(data));
+  }
+
+  // Next chunk of events arrives incrementally.
+  const std::vector<TraceEvent> next_events = {
+      CreateCompleteEvent(1, 10, "NewOp1", 300.0, 50.0),
+      CreateCompleteEvent(2, 20, "NewOp2", 300.0, 50.0),
+  };
+  std::vector<TraceEvent> all_events = initial_events;
+  all_events.insert(all_events.end(), next_events.begin(), next_events.end());
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = all_events}, timeline_);
+
+  // User manual collapse must be preserved across incremental streaming.
+  ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(4));
+  EXPECT_FALSE(timeline_.timeline_data().groups[1].expanded);
+  EXPECT_FALSE(timeline_.timeline_data().groups[3].expanded);
+}
+
+TEST_F(DataProviderTest,
+       ChildCounterTrackUnderNonFirstProcessIsDefaultExpanded) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Process 1"),
+      CreateCompleteEvent(1, 10, "Op1", 100.0, 50.0),
+      CreateProcessEvent(2, "Process 2"),
+  };
+  const std::vector<CounterEvent> counter_events = {
+      CreateCounterEvent(2, "Counter 2", {10.0, 20.0}, {1.0, 2.0}),
+  };
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = events,
+                        .counter_events = counter_events},
+      timeline_);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_THAT(groups, SizeIs(4));
+  // Process 1 (group 0, expanded)
+  EXPECT_EQ(groups[0].name, "Process 1");
+  EXPECT_TRUE(groups[0].expanded);
+  // Thread 10 (group 1, expanded)
+  EXPECT_TRUE(groups[1].expanded);
+  // Process 2 (group 2, collapsed by default)
+  EXPECT_EQ(groups[2].name, "Process 2");
+  EXPECT_FALSE(groups[2].expanded);
+  // Counter 2 under Process 2 (group 3, default_expanded=true)
+  EXPECT_EQ(groups[3].name, "Counter 2");
+  EXPECT_EQ(groups[3].type, Group::Type::kCounter);
+  EXPECT_TRUE(groups[3].expanded);
 }
 
 }  // namespace

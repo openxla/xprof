@@ -19,6 +19,7 @@
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -26,6 +27,7 @@
 #include "frontend/app/components/trace_viewer_v2/animation.h"
 #include "frontend/app/components/trace_viewer_v2/canvas_state.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
+#include "frontend/app/components/trace_viewer_v2/color/palettes.h"
 #include "frontend/app/components/trace_viewer_v2/event_data.h"
 #include "frontend/app/components/trace_viewer_v2/event_manager.h"
 #include "frontend/app/components/trace_viewer_v2/fonts/fonts.h"
@@ -40,7 +42,7 @@ namespace {
 
 const char* const kWindowTarget = EMSCRIPTEN_EVENT_TARGET_WINDOW;
 const char* const kCanvasTarget = "#canvas";
-constexpr float kScrollbarSize = 10.0f;
+constexpr float kScrollbarSize = 7.0f;
 
 EM_JS(bool, GetFeatureFlagFromJS, (const char* name), {
   if (window.getFeatureFlag) {
@@ -116,6 +118,48 @@ EMSCRIPTEN_KEEPALIVE void SetCustomTraceColors(
   Application::Instance().RequestRedraw();
 }
 
+void RequestRedraw() { Application::Instance().RequestRedraw(); }
+
+void SetPlaybackState(bool is_playing, double current_time, double play_speed) {
+  Application::Instance().SetPlaybackState(is_playing, current_time,
+                                           play_speed);
+}
+
+EMSCRIPTEN_KEEPALIVE emscripten::val GetPresetPalettes() {
+  emscripten::val result = emscripten::val::array();
+
+  auto add_palette = [&result](absl::string_view name,
+                               const ColorPalette::Preset& preset) {
+    emscripten::val palette_obj = emscripten::val::object();
+    palette_obj.set("name", std::string(name));
+    emscripten::val preview_colors = emscripten::val::array();
+    for (size_t i = 0; i < std::min<size_t>(3, preset.trace_colors.size());
+         ++i) {
+      ImU32 c = preset.trace_colors[i];
+      uint32_t r = c & 0xFF;
+      uint32_t g = (c >> 8) & 0xFF;
+      uint32_t b = (c >> 16) & 0xFF;
+      preview_colors.call<void>("push",
+                                absl::StrFormat("#%02x%02x%02x", r, g, b));
+    }
+    palette_obj.set("previewColors", preview_colors);
+    result.call<void>("push", palette_obj);
+  };
+
+  add_palette("Default", ColorPalette::Preset::Default());
+
+  const std::vector<std::string> preset_names = {
+      "Material",       "Dracula",         "Monokai",
+      "Solarized Dark", "Solarized Light", "Catapult"};
+  for (const auto& name : preset_names) {
+    auto it = kPresetPalettes.find(name);
+    if (it != kPresetPalettes.end()) {
+      add_palette(name, it->second);
+    }
+  }
+  return result;
+}
+
 EMSCRIPTEN_BINDINGS(traceviewer) {
   emscripten::function("SetPalette", &SetPalette);
   emscripten::function("SetColor", &SetColor);
@@ -123,6 +167,9 @@ EMSCRIPTEN_BINDINGS(traceviewer) {
   emscripten::function("SetZoomSpeed", &SetZoomSpeed);
   emscripten::function("SetMouseWheelZoomSpeed", &SetMouseWheelZoomSpeed);
   emscripten::function("SetCustomTraceColors", &SetCustomTraceColors);
+  emscripten::function("RequestRedraw", &RequestRedraw);
+  emscripten::function("SetPlaybackState", &SetPlaybackState);
+  emscripten::function("GetPresetPalettes", &GetPresetPalettes);
 }
 
 EMSCRIPTEN_BINDINGS(colors) {
@@ -199,6 +246,8 @@ void Application::Initialize() {
   timeline_ = std::make_unique<Timeline>(palette_);
   timeline_->set_track_management_enabled(
       IsFeatureEnabled("enable_track_management"));
+  timeline_->set_timeline_player_enabled(
+      IsFeatureEnabled("enable_timeline_player"));
   timeline_->set_bookmarks_enabled(IsFeatureEnabled("bookmarks"));
   timeline_->set_event_callback(
       [](absl::string_view type, const EventData& event_data) {
@@ -399,17 +448,11 @@ bool Application::IsFeatureEnabled(const std::string& name) {
 }
 
 void Application::Resize(float dpr, int width, int height) {
-  float old_dpr = CanvasState::Current().device_pixel_ratio();
-
   CanvasState::SetState(dpr, width, height);
   const CanvasState& canvas_state = CanvasState::Current();
   platform_->ResizeSurface(canvas_state);
 
   UpdateImGuiDisplaySize(canvas_state);
-
-  if (dpr != old_dpr) {
-    fonts::LoadFonts(canvas_state.device_pixel_ratio());
-  }
 
   if (frame_active_) {
     // If a frame draw is already active (re-entrant call during drawing),

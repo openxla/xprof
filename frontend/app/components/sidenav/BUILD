@@ -49,6 +49,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "//:node_modules/@angular/router",
         "//third_party/javascript/angular_components:cdk_testing_catalyst",
+        "@org_xprof//frontend/app/common/angular:angular_material_checkbox",
         "@org_xprof//frontend/app/common/angular:angular_material_select_testing",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",

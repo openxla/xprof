@@ -19,8 +19,8 @@ limitations under the License.
 #include <vector>
 
 #include "net/proto2/contrib/parse_proto/parse_text_proto.h"
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"

@@ -32,9 +32,18 @@ import {MatSort, MatSortModule} from '@angular/material/sort';
 import {MatTableDataSource, MatTableModule} from '@angular/material/table';
 import {MatTabsModule} from '@angular/material/tabs';
 import {MatTooltipModule} from '@angular/material/tooltip';
-import {AngularSplitModule} from 'angular-split';
 import {ActivatedRoute} from '@angular/router';
+import {AngularSplitModule} from 'angular-split';
+
+import {NgxJsonViewerModule} from 'ngx-json-viewer';
+import {formatHloArgsForJsonTree} from './hlo_pretty_printer';
+import {TimelinePlayer} from 'org_xprof/frontend/app/components/timeline_player/timeline_player';
 import {getDefaultFeatureFlag} from 'org_xprof/frontend/app/components/trace_viewer_v2/feature_flags';
+import {
+  getMouseModeStatusConfig,
+  MouseMode,
+  MouseModeStatusConfig,
+} from 'org_xprof/frontend/app/components/trace_viewer_v2/shortcuts';
 
 import {
   isSearchEventsEvent,
@@ -49,6 +58,15 @@ import {fromEvent, interval, ReplaySubject, Subject, Subscription} from 'rxjs';
 import {debounceTime, distinctUntilChanged, takeUntil} from 'rxjs/operators';
 
 const DEPRECATED_STORAGE_KEYS = ['trace_viewer_timing_prompted'];
+
+/** Default height percentage for the drawer (bottom panel). */
+export const DEFAULT_DRAWER_SIZE_PERCENT = 30;
+
+/**
+ * Minimum height percentage for the drawer (bottom panel) to ensure the drag
+ * handle remains permanently visible and interactive.
+ */
+export const MIN_DRAWER_SIZE_PERCENT = 10;
 
 function clearDeprecatedStorageKeys(): void {
   for (const key of DEPRECATED_STORAGE_KEYS) {
@@ -114,6 +132,7 @@ export declare interface EntrySelectedEventDetail {
   uid?: string;
   hloModuleName?: string;
   hloOpName?: string;
+  args?: Record<string, string>;
 }
 
 // Type guard for the 'EntrySelected' custom event.
@@ -159,17 +178,6 @@ export declare interface SelectedEventProperty {
   property?: string;
   value?: string | number;
   [key: string]: string | number | undefined;
-}
-
-/**
- * Mouse modes for trace viewer interaction.
- * Must match the values in C++ MouseMode enum.
- */
-export enum MouseMode {
-  SELECT = 1,
-  PAN = 2,
-  ZOOM = 3,
-  TIMING = 4,
 }
 
 /** Event name for mouse mode changes. */
@@ -245,6 +253,7 @@ declare interface TfTraceViewer {
     MatIconModule,
     MatProgressBarModule,
     PipesModule,
+    TimelinePlayer,
     FormsModule,
     MatButtonModule,
     MatFormFieldModule,
@@ -254,6 +263,7 @@ declare interface TfTraceViewer {
     MatTableModule,
     MatTabsModule,
     MatTooltipModule,
+    NgxJsonViewerModule,
   ],
 })
 export class TraceViewerContainer
@@ -264,7 +274,22 @@ export class TraceViewerContainer
   @Input() useTraceViewerV2 = true;
   @Input() showHelpButton = false;
   @Input() selectedEvent?: SelectedEvent | null;
+  /**
+   * The selected event rendered as an auto-traversed JSON tree in Trace
+   * Viewer v2 (identity, timing and the full args map, with the stack trace
+   * already resolved into args). Derived from `selectedEvent` whenever it
+   * changes; `undefined` until the event's args are available.
+   */
+  selectedEventJson?: Record<string, unknown>;
   @Input() searching = false;
+
+  /** Whether the timeline player applies */
+  enableTimelinePlayer = false;
+
+  private handleTimelineRedrawRequest = () => {
+    if (!this.traceViewerModule) return;
+    this.traceViewerModule.application.instance().scheduleForcedRedraw();
+  };
 
   hoveredEvent?: SelectedEvent | null;
   hoveredEventMouseX = 0;
@@ -282,16 +307,20 @@ export class TraceViewerContainer
   /** Whether the component is currently in fullscreen mode. */
   isFullscreen = false;
 
-  get enableSourceCodeTooltip(): boolean {
+  private readFeatureFlag(flagName: string): boolean {
     try {
-      const stored = window.localStorage.getItem('xprof_ff_enable_source_code_tooltip');
+      const stored = window.localStorage.getItem(`xprof_ff_${flagName}`);
       if (stored !== null) {
         return stored === 'true';
       }
     } catch {
       // ignore
     }
-    return getDefaultFeatureFlag('enable_source_code_tooltip');
+    return getDefaultFeatureFlag(flagName);
+  }
+
+  get enableSourceCodeTooltip(): boolean {
+    return this.readFeatureFlag('enable_source_code_tooltip');
   }
 
   /** Toggles the fullscreen mode for the trace viewer component. */
@@ -405,17 +434,16 @@ export class TraceViewerContainer
     new EventEmitter<EventsSelectedEventDetail | null>();
   @Output() readonly searchEvents = new EventEmitter<SearchEventsEventDetail>();
   @Output() readonly initializeWasm = new EventEmitter<void>();
+  @Output() readonly toggleSettings = new EventEmitter<void>();
 
   @Output() readonly requestHoveredEventArgs =
     new EventEmitter<SelectedEvent>();
   @Input() set hoveredEventArgs(args: Record<string, string> | null) {
-    if (this.hoveredEvent && args) {
-      if (!this.hoveredEvent.args) {
-        this.hoveredEvent.args = {};
-      }
-      this.hoveredEvent.args = {...this.hoveredEvent.args, ...args};
-      this.cdRef.markForCheck();
+    if (!this.hoveredEvent || !args) {
+      return;
     }
+    this.hoveredEvent.args = {...this.hoveredEvent.args, ...args};
+    this.cdRef.markForCheck();
   }
 
   getTotal(
@@ -442,12 +470,61 @@ export class TraceViewerContainer
     }
   }
 
+  /**
+   * Whether the JSON "Event details" title is currently stuck to the top of its
+   * scroll container. Drives the elevation shadow and divider on the sticky
+   * header (see the .is-sticky styles in the stylesheet).
+   */
+  isJsonTitleStuck = false;
+
+  /** Watches the sticky-header sentinel to toggle {@link isJsonTitleStuck}. */
+  private stickyTitleObserver?: IntersectionObserver;
+
+  /**
+   * Observes a sentinel at the top of the JSON scroll content to detect when the
+   * "Event details" title becomes stuck. The JSON view is rendered behind an
+   * *ngIf, so this setter runs whenever the sentinel is added or removed: it
+   * (re)creates the observer when the sentinel is present and tears it down
+   * otherwise. The observer runs outside the Angular zone and only triggers
+   * change detection when the stuck state actually flips, so scrolling never
+   * runs app-wide change detection.
+   */
+  @ViewChild('jsonStickySentinel')
+  set jsonStickySentinel(sentinel: ElementRef<HTMLElement> | undefined) {
+    this.stickyTitleObserver?.disconnect();
+    this.stickyTitleObserver = undefined;
+    this.isJsonTitleStuck = false;
+
+    const sentinelEl = sentinel?.nativeElement;
+    const scrollRoot = sentinelEl?.closest('.split-area-inner') ?? null;
+    if (!sentinelEl || !scrollRoot) return;
+
+    this.ngZone.runOutsideAngular(() => {
+      this.stickyTitleObserver = new IntersectionObserver(
+        (entries) => {
+          const entry = entries[0];
+          if (!entry) return;
+          const stuck = !entry.isIntersecting;
+          if (stuck === this.isJsonTitleStuck) return;
+          this.isJsonTitleStuck = stuck;
+          this.cdRef.detectChanges();
+        },
+        {root: scrollRoot, threshold: 0},
+      );
+      this.stickyTitleObserver.observe(sentinelEl);
+    });
+  }
+
   readonly TraceViewerV2LoadingStatus = TraceViewerV2LoadingStatus;
   traceViewerV2LoadingStatus: TraceViewerV2LoadingStatus =
     TraceViewerV2LoadingStatus.IDLE;
   traceViewerV2ErrorMessage?: string;
   readonly MouseMode = MouseMode;
   currentMouseMode = MouseMode.PAN;
+
+  get currentMouseModeConfig(): MouseModeStatusConfig | undefined {
+    return getMouseModeStatusConfig(this.currentMouseMode);
+  }
   showTimingOnboarding = false;
   private readonly TIMING_PROMPTED_STORAGE_KEY =
     'trace_viewer_timing_prompted_v2';
@@ -459,7 +536,8 @@ export class TraceViewerContainer
   readonly tutorials = TUTORIALS;
   currentTutorialIndex = 0;
   tutorialSubscription?: Subscription;
-  drawerSizePercent = 30;
+  drawerSizePercent = DEFAULT_DRAWER_SIZE_PERCENT;
+  readonly minDrawerSizePercent = MIN_DRAWER_SIZE_PERCENT;
   timelineHeightPercent = 100;
   detailHeightPercent = 0;
 
@@ -502,6 +580,14 @@ export class TraceViewerContainer
 
     clearDeprecatedStorageKeys();
 
+    this.enableTimelinePlayer = this.readFeatureFlag('enable_timeline_player');
+
+    this.handleTimelineRedrawRequest =
+      this.handleTimelineRedrawRequest.bind(this);
+    window.addEventListener(
+      'timeline-player-redraw-request',
+      this.handleTimelineRedrawRequest,
+    );
     window.addEventListener(
       LOADING_STATUS_UPDATE_EVENT_NAME,
       this.loadingStatusUpdateEventListener,
@@ -543,6 +629,11 @@ export class TraceViewerContainer
   }
 
   ngOnDestroy() {
+    this.stickyTitleObserver?.disconnect();
+    window.removeEventListener(
+      'timeline-player-redraw-request',
+      this.handleTimelineRedrawRequest,
+    );
     window.removeEventListener(
       LOADING_STATUS_UPDATE_EVENT_NAME,
       this.loadingStatusUpdateEventListener,
@@ -584,7 +675,35 @@ export class TraceViewerContainer
   ngOnChanges(changes: SimpleChanges) {
     if (changes['selectedEvent']) {
       this.updateSplitSizes();
+      this.selectedEventJson = this.buildSelectedEventJson();
     }
+  }
+
+  /**
+   * Builds the object rendered by the JSON tree view in the v2 details panel
+   * from the selected event: its identity, timing and, once resolved, the full
+   * args map (the stack trace is already resolved into args by the parent
+   * component). The object is built as soon as an event is selected, so the
+   * JSON tree renders immediately with the identity/timing fields and simply
+   * gains an `args` node once args are fetched, avoiding a jarring switch from
+   * the flat property rows to the tree view.
+   * Returns `undefined` only when there is no selected event.
+   */
+  private buildSelectedEventJson(): Record<string, unknown> | undefined {
+    const event = this.selectedEvent;
+    if (!event) {
+      return undefined;
+    }
+    const json: Record<string, unknown> = {
+      'name': event.name,
+      'startUs': event.startUs,
+      'durationUs': event.durationUs,
+      'pid': event.pid,
+    };
+    if (event.args && Object.keys(event.args).length > 0) {
+      json['args'] = formatHloArgsForJsonTree(event.args);
+    }
+    return json;
   }
 
   private readonly keyDownEventListener = (event: KeyboardEvent) => {
@@ -605,6 +724,16 @@ export class TraceViewerContainer
       event.preventDefault();
     } else if (event.key === '?') {
       this.openHelpDialog();
+      event.preventDefault();
+    } else if (
+      event.key === ' ' &&
+      this.enableTimelinePlayer &&
+      this.timelinePlayer
+    ) {
+      this.timelinePlayer.togglePlay();
+      event.preventDefault();
+    } else if (event.key === ';') {
+      this.toggleSettings.emit();
       event.preventDefault();
     }
   }
@@ -635,6 +764,43 @@ export class TraceViewerContainer
       default:
         break;
     }
+  }
+  @ViewChild(TimelinePlayer) timelinePlayer?: TimelinePlayer;
+
+  onPlay() {
+    if (!this.traceViewerModule || !this.timelinePlayer) return;
+    this.traceViewerModule.SetPlaybackState?.(
+      true,
+      this.timelinePlayer.currentTime(),
+      this.timelinePlayer.playbackRate(),
+    );
+  }
+
+  onPause() {
+    if (!this.traceViewerModule || !this.timelinePlayer) return;
+    this.traceViewerModule.SetPlaybackState?.(
+      false,
+      this.timelinePlayer.currentTime(),
+      this.timelinePlayer.playbackRate(),
+    );
+  }
+
+  onSeek(time: number) {
+    if (!this.traceViewerModule || !this.timelinePlayer) return;
+    this.traceViewerModule.SetPlaybackState?.(
+      this.timelinePlayer.isPlaying(),
+      time,
+      this.timelinePlayer.playbackRate(),
+    );
+  }
+
+  onSpeedChange(speed: number) {
+    if (!this.traceViewerModule || !this.timelinePlayer) return;
+    this.traceViewerModule.SetPlaybackState?.(
+      this.timelinePlayer.isPlaying(),
+      this.timelinePlayer.currentTime(),
+      speed,
+    );
   }
 
   private readonly mouseUpEventListener = (event: Event) => {
@@ -735,7 +901,12 @@ export class TraceViewerContainer
    */
   private updateSplitSizes(drawerSizePercent?: number) {
     if (drawerSizePercent !== undefined) {
-      this.drawerSizePercent = drawerSizePercent;
+      this.drawerSizePercent = Math.max(
+        drawerSizePercent,
+        this.minDrawerSizePercent,
+      );
+    } else if (this.drawerSizePercent < this.minDrawerSizePercent) {
+      this.drawerSizePercent = DEFAULT_DRAWER_SIZE_PERCENT;
     }
 
     // If an event is selected, the timeline height is reduced to accommodate
@@ -879,7 +1050,7 @@ export class TraceViewerContainer
       // '*' represents a wildcard size (null). We ignore it because we need a
       // numeric percentage.
       if (typeof size === 'number') {
-        this.updateSplitSizes(size);
+        this.updateSplitSizes(Math.max(size, this.minDrawerSizePercent));
       }
     }
   }
@@ -934,14 +1105,28 @@ export class TraceViewerContainer
   openHelpDialog(): void {
     const dialog = this.el.nativeElement.querySelector(
       'trace-viewer-help-dialog',
-    ) as (HTMLElement & {openDialog?: () => void; open?: boolean}) | null;
-    // Call openDialog() on the upgraded Lit web component instance if available;
-    // fallback to setting the `open` property directly if custom element definition
+    ) as
+      | (HTMLElement & {
+          openDialog?: () => void;
+          closeDialog?: () => void;
+          open?: boolean;
+        })
+      | null;
+    // Call openDialog() or closeDialog() on the upgraded Lit web component instance if available;
+    // fallback to setting the \`open\` property directly if custom element definition
     // upgrade is still pending.
-    if (dialog?.openDialog) {
-      dialog.openDialog();
-    } else if (dialog) {
-      dialog.open = true;
+    if (dialog?.open) {
+      if (dialog.closeDialog) {
+        dialog.closeDialog();
+      } else {
+        dialog.open = false;
+      }
+    } else {
+      if (dialog?.openDialog) {
+        dialog.openDialog();
+      } else if (dialog) {
+        dialog.open = true;
+      }
     }
   }
 }

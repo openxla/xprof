@@ -17,53 +17,14 @@ from xprof.cli.internal import decorators
 
 from . import xprof_client
 
-try:
-  from google3.perftools.accelerators.xprof.service import hlo_proto_dump_pb2  # pyrefly: ignore[missing-import]
-  from tensorflow.compiler.xla.service import hlo_pb2  # pyrefly: ignore[missing-import]
-except ImportError:
-  try:
-    from tensorflow.compiler.xla.service import hlo_pb2  # pyrefly: ignore[missing-import]
-  except ImportError:
-    hlo_pb2 = None
-  hlo_proto_dump_pb2 = None
-
 # Pre-compile regexes to improve performance.
-_COMP_NAME_RE = re.compile(r"%?([a-zA-Z0-9._-]+)\s*\(")
+# Computation header: "ENTRY entry {" (short_txt) or "%fused_computation (..) {"
+# (long_txt). short_txt emits bare names with no leading "%"; anchoring on the
+# trailing "{" reliably distinguishes headers from instruction/module lines.
+_COMP_NAME_RE = re.compile(r"(?:ENTRY\s+)?%?([a-zA-Z0-9._-]+)\b.*\{\s*$")
 _INSTR_RE = re.compile(r"%?([a-zA-Z0-9._-]+)\s*=(.*)")
 _METADATA_RE = re.compile(r"metadata={.*?}", re.DOTALL)
-_OPERAND_RE = re.compile(r"%([a-zA-Z0-9._-]+)")
-
-
-class _DebugInfoCollection:
-  """Container for HLO protos matching DebugInfoCollection interface."""
-
-  def __init__(self, hlo_proto=None, program_id=None):
-    self.hlo_proto = list(hlo_proto or [])
-    self.program_id = list(program_id or [])
-
-
-def fetch_debug_info(session_id: str):
-  """Compatibility helper for OSS detectors to load HloProto collection."""
-  proto_files = _get_hlo_proto_files(session_id)
-  debug_info = (
-      hlo_proto_dump_pb2.DebugInfoCollection()
-      if hlo_proto_dump_pb2 is not None
-      else _DebugInfoCollection()
-  )
-  for p in proto_files:
-    try:
-      with open(p, "rb") as f:
-        if hlo_pb2 is not None:
-          proto = hlo_pb2.HloProto()
-          proto.ParseFromString(f.read())
-          debug_info.hlo_proto.append(proto)
-          debug_info.program_id.append(p.stem)
-    except Exception as e:  # pylint: disable=broad-exception-caught
-      logging.warning("Failed to parse HLO proto file %s: %s", p, e)
-  return debug_info
-
-
-_fetch_debug_info = fetch_debug_info
+_OPERAND_RE = re.compile(r"(?:^|[\s,(])%?([a-zA-Z0-9._-]+)(?=[\s,)]|$)")
 
 
 def generate_hlo_protos(session_id: str) -> str:
@@ -283,10 +244,11 @@ def get_hlo_text(
 @decorators.cached(expire=86_400)
 def get_hlo_neighborhood(
     session_id: str,
-    instruction_name: str,
+    instruction_name: str | None = None,
     radius: int = 2,
     module_name: str | None = None,
     *,
+    op_name: str | None = None,
     print_metadata: bool = False,
 ) -> str:
   """Returns the neighborhood of a specific HLO instruction (BFS traversal).
@@ -302,15 +264,29 @@ def get_hlo_neighborhood(
     radius: How many steps to traverse up (operands) and down (users). Default
       is 2.
     module_name: Optional name of the module to search in.
+    op_name: Alias for instruction_name for backwards compatibility.
     print_metadata: Whether to include op metadata in output.
 
   Returns:
     A textual description of the neighborhood with high-fidelity formatting.
   """
-  try:
-    if instruction_name.startswith("%"):
-      instruction_name = instruction_name[1:]
+  if instruction_name is not None and op_name is not None:
+    if instruction_name != op_name:
+      raise ValueError(
+          f"Conflicting arguments: instruction_name='{instruction_name}'"
+          f" and op_name='{op_name}' cannot both be specified with"
+          " different values."
+      )
+  target_instr = instruction_name or op_name
+  if not target_instr:
+    raise ValueError(
+        "Either instruction_name or op_name must be provided to"
+        " get_hlo_neighborhood."
+    )
+  if target_instr.startswith("%"):
+    target_instr = target_instr[1:]
 
+  try:
     files = _get_hlo_proto_files(session_id)
     if not files:
       return "No HLO proto found."
@@ -350,13 +326,16 @@ def get_hlo_neighborhood(
     current_comp = "unknown"
 
     for line in full_text.splitlines():
-      if line.startswith("%"):
-        m = _COMP_NAME_RE.match(line)
-        if m:
-          current_comp = m.group(1)
+      stripped = line.strip()
+
+      # Detect computation headers in both renderers. short_txt emits bare names
+      # (e.g. "ENTRY entry {") with no leading "%", so header detection must not
+      # gate on "%". Instruction lines contain "=" and are handled below.
+      m_comp = _COMP_NAME_RE.match(stripped)
+      if m_comp and "=" not in stripped and not stripped.startswith("ROOT "):
+        current_comp = m_comp.group(1)
         continue
 
-      stripped = line.strip()
       clean_line = stripped[5:] if stripped.startswith("ROOT ") else stripped
 
       m = _INSTR_RE.fullmatch(clean_line)
@@ -373,16 +352,16 @@ def get_hlo_neighborhood(
         for op in operands:
           users_by_name[op].append(instr_name)
 
-    if instruction_name not in line_by_name:
-      msg = f"Instruction '{instruction_name}' not found in HLO module."
+    if target_instr not in line_by_name:
+      msg = f"Instruction '{target_instr}' not found in HLO module."
       top_instrs = list(line_by_name.keys())[:10]
       if top_instrs:
         msg += f" Suggestions: {', '.join(top_instrs)}"
       return msg
 
     # 2. Perform BFS.
-    visited = {instruction_name}
-    queue = collections.deque([(instruction_name, 0)])
+    visited = {target_instr}
+    queue = collections.deque([(target_instr, 0)])
     neighborhood = []
 
     while queue:
@@ -390,10 +369,10 @@ def get_hlo_neighborhood(
       neighborhood.append((dist, curr_name))
 
       if dist < radius:
-        for op_name in operands_by_name.get(curr_name, []):
-          if op_name not in visited and op_name in line_by_name:
-            visited.add(op_name)
-            queue.append((op_name, dist + 1))
+        for operand_name in operands_by_name.get(curr_name, []):
+          if operand_name not in visited and operand_name in line_by_name:
+            visited.add(operand_name)
+            queue.append((operand_name, dist + 1))
         for user_name in users_by_name.get(curr_name, []):
           if user_name not in visited and user_name in line_by_name:
             visited.add(user_name)
@@ -402,7 +381,7 @@ def get_hlo_neighborhood(
     # 3. Format the output.
     # Unpack tuples using operator.itemgetter for sorting.
     neighborhood.sort(key=operator.itemgetter(0, 1))
-    output_lines = [f"Neighborhood of '{instruction_name}' (radius={radius}):"]
+    output_lines = [f"Neighborhood of '{target_instr}' (radius={radius}):"]
 
     for dist, name in neighborhood:
       prefix = "  " * (dist + 1)

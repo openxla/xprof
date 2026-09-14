@@ -1,17 +1,19 @@
 """Default (OSS) build versions of Python pytype rules."""
 
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+
 # Placeholder to use until bazel supports pytype_library.
 def pytype_library(name, **kwargs):
-    native.py_library(name = name, **kwargs)
+    py_library(name = name, **kwargs)
 
 # Placeholder to use until bazel supports pytype_strict_binary.
 def pytype_strict_binary(name, **kwargs):
-    native.py_binary(name = name, **kwargs)
+    py_binary(name = name, **kwargs)
 
 # Placeholder to use until bazel supports pytype_strict_library.
 def pytype_strict_library(name, **kwargs):
-    native.py_library(name = name, **kwargs)
+    py_library(name = name, **kwargs)
 
 # Placeholder to use until bazel supports pytype_strict_contrib_test.
 def pytype_strict_contrib_test(name, **kwargs):
-    native.py_test(name = name, **kwargs)
+    py_test(name = name, **kwargs)

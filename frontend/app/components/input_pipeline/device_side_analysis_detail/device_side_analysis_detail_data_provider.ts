@@ -1,4 +1,5 @@
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {clampDataTableNumericValues} from 'org_xprof/frontend/app/common/utils/chart_utils';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
 
 /** A device side analysis detail data provider. */
@@ -16,9 +17,14 @@ export class DeviceSideAnalysisDetailDataProvider extends DefaultDataProvider {
     const dataTable = new google.visualization.DataTable(data);
     const dataView = new google.visualization.DataView(dataTable);
 
-    dataView.setColumns(
-        this.columnIds.map(columnId => dataTable.getColumnIndex(columnId)));
+    const validColumns = this.columnIds
+        .map(columnId => dataTable.getColumnIndex(columnId))
+        .filter(idx => idx >= 0);
+    if (validColumns.length > 0) {
+      dataView.setColumns(validColumns);
+    }
 
     this.dataTable = dataView.toDataTable();
+    clampDataTableNumericValues(this.dataTable);
   }
 }

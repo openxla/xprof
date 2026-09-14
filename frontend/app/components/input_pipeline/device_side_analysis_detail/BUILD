@@ -29,6 +29,7 @@ ts_library(
     ],
     deps = [
         "@org_xprof//frontend/app/common/interfaces",
+        "@org_xprof//frontend/app/common/utils:chart_utils",
         "@org_xprof//frontend/app/components/chart:default_data_provider",
     ],
 )

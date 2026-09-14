@@ -18,7 +18,7 @@ limitations under the License.
 
 #include <string>
 
-#include "testing/base/public/gmock.h"
+#include <gmock/gmock.h>
 #include "absl/status/statusor.h"
 #include "xprof/convert/smart_suggestion/tool_data_provider.h"
 #include "plugin/xprof/protobuf/event_time_fraction_analyzer.pb.h"

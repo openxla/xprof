@@ -99,6 +99,7 @@ py_test(
     srcs = ["get_roofline_model_tool_test.py"],
     visibility = ["//visibility:public"],
     deps = [
+        "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal/oss:xprof_client",
         "//plugin/xprof/cli/tools:get_roofline_model_tool",
         "@absl_py//absl/testing:absltest",
@@ -117,13 +118,12 @@ py_test(
     ],
 )
 
-py_test(
-    name = "get_graph_viewer_tool_test",
-    srcs = ["get_graph_viewer_tool_test.py"],
-    visibility = ["//visibility:public"],
+pytype_strict_contrib_test(
+    name = "oss_graph_viewer_tool_test",
+    srcs = ["oss_graph_viewer_tool_test.py"],
     deps = [
         "//plugin/xprof/cli/internal/oss:xprof_client",
-        "//plugin/xprof/cli/tools:get_graph_viewer_tool",
+        "//plugin/xprof/cli/tools/oss:get_graph_viewer_tool",
         "@absl_py//absl/testing:absltest",
     ],
 )
@@ -148,6 +148,7 @@ pytype_strict_contrib_test(
     deps = [
         "//plugin/xprof/cli:xprof_cli_lib",
         "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
     ],
 )
 
@@ -205,6 +206,29 @@ pytype_strict_contrib_test(
     ],
 )
 
+pytype_strict_contrib_test(
+    name = "oss_upload_trace_tool_test",
+    srcs = ["oss_upload_trace_tool_test.py"],
+    deps = [
+        "//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/tools/oss:upload_trace_tool",
+        "@absl_py//absl/testing:absltest",
+    ],
+)
+
+pytype_strict_contrib_test(
+    name = "oss_kernel_utilization_tool_test",
+    srcs = ["oss_kernel_utilization_tool_test.py"],
+    deps = [
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/tools/oss:get_kernel_utilization_tool",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+        "@tsl//tsl/profiler/protobuf:xplane_py_pb2",
+    ],
+)
+
 py_library(
     name = "oracles",
     srcs = ["e2e/oracles.py"],
@@ -259,6 +283,7 @@ py_test(
 
 py_test(
     name = "test_defect_regressions",
+    timeout = "moderate",
     srcs = ["e2e/test_defect_regressions.py"],
     data = [
         "//xprof:demo_traces",
@@ -267,15 +292,24 @@ py_test(
     deps = [
         "//plugin/xprof/cli:xprof_cli_lib",
         "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal:xprof_data",
+        "//plugin/xprof/cli/internal/oss:hlo_tools",
         "//plugin/xprof/cli/internal/oss:kernel_stats_tools",
         "//plugin/xprof/cli/internal/oss:xplane_tools",
         "//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/tools:get_hlo_stats_tool",
         "//plugin/xprof/cli/tools:get_kernel_stats_tool",
+        "//plugin/xprof/cli/tools:get_llo_analysis_tool",
+        "//plugin/xprof/cli/tools:get_llo_debug_string_tool",
         "//plugin/xprof/cli/tools:get_overview_tool",
         "//plugin/xprof/cli/tools:get_top_hlo_ops_tool",
         "//plugin/xprof/cli/tools:get_utilization_viewer_tool",
+        "//plugin/xprof/cli/tools/oss:upload_trace_tool",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
+        "@org_xprof//xprof/embedded/llo_analysis:llo_lite_py_pb2",
+        "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_py_proto",
     ],
 )
 
@@ -287,6 +321,10 @@ py_test(
     ],
     visibility = ["//visibility:public"],
     deps = [
+        ":oracles",
+        "//plugin/xprof/cli/internal:xprof_data",
+        "//plugin/xprof/cli/internal/oss:xplane_tools",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
         "//plugin/xprof/cli/tools:get_kpi_metrics_tool",
         "//plugin/xprof/cli/tools:get_memory_profile_tool",
         "//plugin/xprof/cli/tools:get_overview_tool",

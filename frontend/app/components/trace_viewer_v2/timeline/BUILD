@@ -32,6 +32,7 @@ wasm_cc_library(
     hdrs = ["time_range.h"],
     deps = [
         "@com_google_absl//absl/log",
+        "@org_xprof//frontend/app/components/trace_viewer_v2:animation",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
     ],
 )
@@ -50,6 +51,7 @@ wasm_cc_library(
     name = "timeline",
     srcs = [
         "timeline.cc",
+        "timeline_player_sync.cc",
     ],
     hdrs = [
         "timeline.h",
@@ -137,6 +139,7 @@ cc_test(
     name = "data_provider_test",
     srcs = ["data_provider_test.cc"],
     deps = [
+        ":constants",
         ":data_provider",
         ":time_range",
         ":timeline",

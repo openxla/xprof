@@ -90,11 +90,8 @@ class GetKpiMetricsToolTest(parameterized.TestCase):
   def test_get_kpi_metrics_overview_error(self):
     self.mock_client.fetch.return_value = (None, b"")
 
-    result_json = get_kpi_metrics_tool.get_kpi_metrics("test_session")
-    result = json.loads(result_json)
-
-    self.assertIn("error", result)
-    self.assertStartsWith(result["error"], "Error in get_overview:")
+    with self.assertRaises(FileNotFoundError):
+      get_kpi_metrics_tool.get_kpi_metrics("test_session")
 
   def test_get_kpi_metrics_memory_error(self):
     def fetch_side_effect(tool_name, *_args, **_kwargs):

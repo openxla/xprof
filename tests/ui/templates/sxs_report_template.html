@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenXLA XProf A/B User Journey Certification Report</title>
+  <style>
+$styles
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div>
+      <h1>OpenXLA XProf A/B User Journey Certification Report</h1>
+      <div class="meta-info">
+        Comparing Candidate vs Baseline | Status: <strong>$summary_text</strong>
+      </div>
+    </div>
+    <div class="badge $badge_class">$badge_text</div>
+  </div>
+  <div class="content-body">
+$cards_html
+$approval_portal_html
+  </div>
+</div>
+<script>
+  const unapprovedWaypoints = $unapproved_json;
+
+  function signApproval() {
+    const rationale = document.getElementById('rationale-input').value.trim();
+    if (!rationale) {
+      alert('Please provide a brief rationale for the intentional change.');
+      return;
+    }
+    const manifestObj = { approved_diffs: {} };
+    unapprovedWaypoints.forEach(item => {
+      manifestObj.approved_diffs[item.key] = {
+        diff_hash: item.diff_hash,
+        rationale: rationale
+      };
+    });
+    const jsonStr = JSON.stringify(manifestObj, null, 2);
+    document.getElementById('manifest-code').textContent = jsonStr;
+    document.getElementById('approval-card').style.display = 'none';
+    document.getElementById('certified-banner').style.display = 'block';
+  }
+
+  function copyManifestJson() {
+    const code = document.getElementById('manifest-code').textContent;
+    navigator.clipboard.writeText(code).then(() => {
+      alert('Copied approved_manifest.json snippet to clipboard!');
+    });
+  }
+</script>
+</body>
+</html>

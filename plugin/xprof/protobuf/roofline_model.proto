@@ -26,7 +26,7 @@ enum RecordType {
 }
 
 // A database of RooflineModel records.
-// Next ID: 17
+// Next ID: 22
 message RooflineModelDatabase {
   // The device type.
   optional string device_type = 1;
@@ -68,6 +68,21 @@ message RooflineModelDatabase {
   // It is calculated by the total time of each op if running on default pstate
   // divided by actual total op time.
   optional double time_scale_multiplier = 16;
+
+  // Number of SparseCore tiles.
+  optional int32 num_sparse_core_tiles = 17;
+
+  // Peak SparseCore flop rate in GFLOP/s.
+  optional double peak_sc_flop_rate = 18;
+
+  // Peak SPMEM read bandwidth in GiB/s.
+  optional double peak_spmem_read_bw = 19;
+
+  // Peak SPMEM write bandwidth in GiB/s.
+  optional double peak_spmem_write_bw = 20;
+
+  // All SparseCore RooflineModel records.
+  repeated ScRooflineModelRecord sc_roofline_model_record = 21;
 
   reserved 3, 4, 6;
 }
@@ -206,8 +221,115 @@ message RooflineModelRecord {
   // Bytes accessed for the record
   optional uint64 bytes_accessed = 37;
 
-  // Infrmation about the corresponding source code.
+  // Information about the corresponding source code.
   optional SourceInfo source_info = 43;
 
   reserved 11, 12, 23;
+}
+
+// There is one ScRooflineModelRecord for each SparseCore operation profiled.
+// Next ID: 35
+message ScRooflineModelRecord {
+  // The record type.
+  optional RecordType record_type = 1;
+
+  // Step number when record type is PER_STEP. Otherwise, invalid.
+  optional int32 step_num = 2;
+
+  // The rank by self time.
+  optional int64 rank = 3;
+
+  // The HLO module ID of the op.
+  optional int64 hlo_module_id = 4;
+
+  // The HLO category name.
+  optional string hlo_category = 5;
+
+  // The HLO operation name.
+  optional string hlo_name = 6;
+
+  // Number of occurrences of the operation.
+  optional int64 occurrences = 7;
+
+  // Total "accumulated" time in micro-seconds that the operation took.
+  optional double total_time_in_us = 8;
+
+  // Total time per core in micro-seconds.
+  optional double total_time_per_core_in_us = 9;
+
+  // Total time as fraction of the total program time.
+  optional double total_time_in_percentage = 10;
+
+  // Average "accumulated" time in micro-seconds that each occurrence of the
+  // operation took.
+  optional double avg_time_in_us = 11;
+
+  // Total "self" time in micro-seconds that the operation took.
+  optional double total_self_time_in_us = 12;
+
+  // Average "self" time in micro-seconds that the operation took.
+  optional double avg_self_time_in_us = 13;
+
+  // Percentage of total "self" time as a fraction of total program time.
+  optional double total_self_time_as_fraction = 14;
+
+  // Cumulative percentage of total "self" time as a fraction.
+  optional double cumulative_total_self_time_as_fraction = 15;
+
+  // Percentage of total time spent in DMA stalls.
+  optional double dma_stall_fraction = 16;
+
+  // Number of total floating-point operations (FLOPs) performed per second.
+  optional double measured_flop_rate = 17;
+
+  // Model floating-point operations (FLOPs) performed per second for the op.
+  optional double model_flop_rate = 18;
+
+  // Total bytes accessed per second.
+  optional double measured_memory_bw = 19;
+
+  // HBM bandwidth in GiB/s.
+  optional double hbm_bw = 20;
+
+  // SPMEM read bandwidth in GiB/s.
+  optional double spmem_read_bw = 21;
+
+  // SPMEM write bandwidth in GiB/s.
+  optional double spmem_write_bw = 22;
+
+  // Overall operational intensity in FLOP/Byte.
+  optional double operational_intensity = 23;
+
+  // Operational intensity based on HBM in FLOP/Byte.
+  optional double hbm_operational_intensity = 24;
+
+  // Operational intensity based on SPMEM read in FLOP/Byte.
+  optional double spmem_read_operational_intensity = 25;
+
+  // Operational intensity based on SPMEM write in FLOP/Byte.
+  optional double spmem_write_operational_intensity = 26;
+
+  // Operational intensity based on the bottleneck resource in FLOP/Byte.
+  optional double bottleneck_operational_intensity = 27;
+
+  // Whether this operation is SparseCore compute, HBM, or SPMEM bound.
+  optional string sc_bound_by = 28;
+
+  // SparseCore roofline efficiency.
+  optional double sc_roofline_efficiency = 29;
+
+  // Whether the record is calculated including infeed and outfeed ops.
+  optional bool include_infeed_outfeed = 30;
+
+  // Information about the corresponding source code.
+  optional SourceInfo source_info = 31;
+
+  // Optimal FLOP rate.
+  optional double optimal_flop_rate = 32;
+
+  // Percentage of measured flop rate relative to the hardware limit.
+  optional double flop_rate_relative_to_hw_limit = 33;
+
+  // Percentage of measured memory bandwidth relative to the hardware limit.
+  optional double memory_bw_relative_to_hw_limit = 34;
 }

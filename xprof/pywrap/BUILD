@@ -83,6 +83,7 @@ py_test(
         ":_pywrap_profiler_plugin",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_py_proto",
     ],
 )
 

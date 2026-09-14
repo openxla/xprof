@@ -1,0 +1,29 @@
+# proto-file: third_party/tensorflow/tsl/profiler/protobuf/xplane.proto
+# proto-message: XSpace
+#
+# Text proto representation of `test.xplane.pb`.
+# Please keep these two files in sync.
+
+planes {
+  name: "/host:CPU"
+  lines {
+    id: 1
+    name: "Thread1"
+    events {
+      metadata_id: 1
+      offset_ps: 1000000
+      duration_ps: 5000000
+    }
+    events {
+      metadata_id: 2
+      offset_ps: 3000000
+      duration_ps: 0
+    }
+  }
+  event_metadata {
+    key: 1
+    value {
+      name: "test_step"
+    }
+  }
+}

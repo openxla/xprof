@@ -20,12 +20,15 @@ from __future__ import print_function
 
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 import concurrent.futures
+import getpass
 import gzip
+import hashlib
 import json
 import logging
 import os
 import re
 import sys
+import tempfile
 import threading
 import time
 from typing import Any, TextIO, TypedDict
@@ -42,7 +45,6 @@ from xprof.convert import raw_to_tool_data as convert
 from xprof.standalone.tensorboard_shim import base_plugin
 from xprof.standalone.tensorboard_shim import plugin_asset_util
 from xprof.convert import _pywrap_profiler_plugin
-
 
 logger = logging.getLogger('tensorboard.plugins.profile')
 logger.setLevel(logging.INFO)
@@ -147,6 +149,7 @@ XPLANE_TOOLS = [
     'megascale_stats',
     'perf_counters',
     'utilization_viewer',
+    'kernel_utilization',
     'smart_suggestion',
 ]
 
@@ -494,7 +497,17 @@ class ToolsCache:
       fs: The file system object to use for file operations.
     """
     self._profile_run_dir = profile_run_dir
-    self._cache_file = self._profile_run_dir / self.CACHE_FILE_NAME
+    run_dir_str = str(profile_run_dir)
+    if re.search(r'(^|/)demo/plugins/profile(/|$)', run_dir_str):
+      cache_key = hashlib.sha256(run_dir_str.encode()).hexdigest()[:16]
+      user_id = os.getuid() if hasattr(os, 'getuid') else getpass.getuser()
+      temp_dir = epath.Path(tempfile.gettempdir()) / f'xprof_{user_id}'
+      temp_dir.mkdir(parents=True, exist_ok=True)
+      self._cache_file = temp_dir / f'xprof_{cache_key}_{self.CACHE_FILE_NAME}'
+      self._cache_fs = profile_io.get_file_system(str(self._cache_file))
+    else:
+      self._cache_file = self._profile_run_dir / self.CACHE_FILE_NAME
+      self._cache_fs = fs
     self._fs = fs
     logger.info('ToolsCache initialized for %s', self._cache_file)
 
@@ -507,7 +520,7 @@ class ToolsCache:
     Returns:
       A list of tool names if the cache is valid, otherwise None.
     """
-    cached_data = self._fs.read_json(str(self._cache_file))
+    cached_data = self._cache_fs.read_json(str(self._cache_file))
     if cached_data is None:
       return None
 
@@ -563,11 +576,11 @@ class ToolsCache:
         'files': current_files_for_cache,
         'tools': tools,
     }
-    self._fs.write_json(str(self._cache_file), new_cache_data)
+    self._cache_fs.write_json(str(self._cache_file), new_cache_data)
 
   def invalidate(self) -> None:
     """Deletes the cache file, forcing regeneration on the next load."""
-    self._fs.delete_file(str(self._cache_file))
+    self._cache_fs.delete_file(str(self._cache_file))
 
 
 class _TfProfiler:
@@ -858,14 +871,23 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
     """Reads contents from a filename.
 
     Args:
-      filename (str): Name of the file.
+      filename: Name of the file.
 
     Returns:
       Contents of the file.
     Raises:
       IOError: File could not be read or found.
     """
-    filepath = os.path.join(os.path.dirname(__file__), 'static', filename)
+    static_dir = os.environ.get('XPROF_STATIC_DIR')
+    if static_dir and os.path.isdir(static_dir):
+      base_dir = static_dir
+    else:
+      base_dir = os.path.join(os.path.dirname(__file__), 'static')
+
+    resolved_base = os.path.realpath(base_dir)
+    filepath = os.path.realpath(os.path.join(resolved_base, filename))
+    if os.path.commonpath([resolved_base, filepath]) != resolved_base:
+      raise IOError('Access denied: path traversal detected.')
 
     try:
       with open(filepath, 'rb') as infile:
@@ -1384,7 +1406,9 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
               if f.endswith('.hlo_proto.pb') and (name := _parse_filename(f)[0])
           ]
 
-      return ','.join(module_list)
+      # `_get_all_basenames` returns filesystem order, which varies between
+      # hosts and runs; clients default to the first entry, so sort here.
+      return ','.join(sorted(module_list))
     except OSError as e:
       logger.warning('Cannot read asset directory: %s, OpError %r', run_dir, e)
       return ''
@@ -1408,8 +1432,8 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
       return respond(str(e), 'text/plain', code=500)
     except ValueError as e:
       return respond(str(e), 'text/plain', code=500)
-    except FileNotFoundError as e:
-      return respond(str(e), 'text/plain', code=500)
+    except (KeyError, FileNotFoundError) as e:
+      return respond(str(e), 'text/plain', code=404)
     except IOError as e:
       return respond(str(e), 'text/plain', code=500)
 

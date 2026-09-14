@@ -86,6 +86,41 @@ class DecoratorsTest(unittest.TestCase):
     fp = decorators._compute_path_fingerprint(empty_dir)
     self.assertEqual(fp, "NO_TRACE_INPUTS")
 
+  def test_content_addressable_fingerprint_relative_vs_absolute(self):
+    """Verifies relative and absolute paths produce identical content signatures."""
+    trace_dir = self.temp_dir / "trace_rel_abs"
+    trace_dir.mkdir()
+    (trace_dir / "trace.xplane.pb").write_bytes(b"TRACE_DATA_12345" * 100)
+
+    fp_abs = decorators._compute_path_fingerprint(str(trace_dir.resolve()))
+    fp_rel = decorators._compute_path_fingerprint(str(trace_dir))
+    self.assertEqual(fp_abs, fp_rel)
+    self.assertNotIn(fp_abs, ("NO_TRACE_INPUTS", "NONEXISTENT"))
+
+  def test_content_addressable_fingerprint_copied_directory(self):
+    """Verifies copied directories with identical content share signatures."""
+    dir1 = self.temp_dir / "dir1"
+    dir2 = self.temp_dir / "dir2_copy"
+    dir1.mkdir()
+    (dir1 / "node.xplane.pb").write_bytes(b"IDENTICAL_DATA" * 500)
+    shutil.copytree(dir1, dir2)
+
+    fp1 = decorators._compute_path_fingerprint(str(dir1))
+    fp2 = decorators._compute_path_fingerprint(str(dir2))
+    self.assertEqual(fp1, fp2)
+
+  def test_content_addressable_fingerprint_in_place_edit(self):
+    """Verifies in-place edits to trace files invalidate the fingerprint."""
+    dir1 = self.temp_dir / "dir_edit"
+    dir1.mkdir()
+    trace_file = dir1 / "node.xplane.pb"
+    trace_file.write_bytes(b"INITIAL_DATA" * 500)
+    fp1 = decorators._compute_path_fingerprint(str(dir1))
+
+    trace_file.write_bytes(b"MODIFIED_DATA" * 500)
+    fp2 = decorators._compute_path_fingerprint(str(dir1))
+    self.assertNotEqual(fp1, fp2)
+
   def test_error_payload_not_cached(self):
     """Verifies error dictionaries are not stored in cache."""
     error_key = "error_key"

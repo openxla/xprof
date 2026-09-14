@@ -165,6 +165,17 @@ cd /tmp/profile-pip
 pip install .
 ```
 
+**Building on macOS (Apple Silicon)**
+
+On macOS the native profiler extension must be built explicitly, pinning the
+SDK and minimum OS version. Building without these flags fails with errors such
+as an `xcrun` SDK `macosx10.11` that cannot be located and undefined symbols
+(`_PyModule_Create2`). The following invocation is verified on Apple Silicon:
+
+```
+bazel build --config=macos --config=public_cache --macos_sdk_version=$(xcrun --show-sdk-version) --macos_minimum_os=13.0 //xprof/pywrap:profiler_plugin_c_api.so
+```
+
 </details>
 
 ## Usage

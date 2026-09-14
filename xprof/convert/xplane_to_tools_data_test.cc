@@ -7,8 +7,8 @@
 #include "file/base/filesystem.h"
 #include "file/base/options.h"
 #include "file/base/path.h"
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include "absl/status/statusor.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"

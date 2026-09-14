@@ -21,6 +21,7 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include "xprof/utils/lazy.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
@@ -30,8 +31,10 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_opcode.h"
+#include "xla/hlo/ir/hlo_print_options.h"
 #include "xla/service/hlo_cost_analysis.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
+#include "tsl/platform/fingerprint.h"
 #include "tsl/platform/path.h"
 #include "tsl/profiler/lib/traceme_encode.h"
 #include "xprof/utils/hlo_cost_analysis_wrapper.h"
@@ -47,6 +50,10 @@ HloInstructionWrapper::HloInstructionWrapper(
     const xla::HloInstruction* instr,
     const HloCostAnalysisWrapper* cost_analysis)
     : instr_(instr),
+      fingerprint_(xprof::ThreadSafeLazy<uint64_t>([instr] {
+        return tsl::Fingerprint64(
+            instr->ToString(xla::HloPrintOptions::Fingerprint()));
+      })),
       op_full_name_(
           tsl::profiler::TraceMeOp(Metadata().op_name(), Metadata().op_type())),
       tf_op_name_(tsl::profiler::TfOpFullname(Metadata().op_type(),
@@ -60,6 +67,19 @@ HloInstructionWrapper::HloInstructionWrapper(
                                                              instr);
     ProcessXlaCostAnalysis(cost_analysis->GetXlaCostAnalysis());
   }
+}
+
+std::vector<std::string> HloInstructionWrapper::InputTensors() const {
+  std::vector<std::string> input_tensors;
+  input_tensors.reserve(instr_->operand_count());
+  for (const xla::HloInstruction* operand : instr_->operands()) {
+    input_tensors.push_back(operand->shape().ToString());
+  }
+  return input_tensors;
+}
+
+std::vector<std::string> HloInstructionWrapper::OutputTensors() const {
+  return {instr_->shape().ToString()};
 }
 
 HloModuleWrapper::HloModuleWrapper(

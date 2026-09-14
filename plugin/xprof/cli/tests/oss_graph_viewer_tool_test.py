@@ -1,12 +1,13 @@
-import json
+"""Unit tests for get_graph_viewer_tool CLI interface in OSS."""
+
 from unittest import mock
 
 from absl.testing import absltest
 from xprof.cli.internal.oss import xprof_client
-from xprof.cli.tools import get_graph_viewer_tool
+from xprof.cli.tools.oss import get_graph_viewer_tool
 
 
-class GetGraphViewerToolTest(absltest.TestCase):
+class OssGraphViewerToolTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -23,21 +24,19 @@ class GetGraphViewerToolTest(absltest.TestCase):
     )
 
   def test_get_graph_viewer_missing_args(self):
-    result = get_graph_viewer_tool.get_graph_viewer()
-    result_json = json.loads(result)
-    self.assertIn("error", result_json)
+    with self.assertRaises(ValueError) as cm:
+      get_graph_viewer_tool.get_graph_viewer()
     self.assertEqual(
-        result_json["error"], "Either session_id or symbol_id must be provided"
+        str(cm.exception), "Either session_id or symbol_id must be provided"
     )
 
   def test_get_graph_viewer_both_args(self):
-    result = get_graph_viewer_tool.get_graph_viewer(
-        session_id="session_123", symbol_id="symbol_123"
-    )
-    result_json = json.loads(result)
-    self.assertIn("error", result_json)
+    with self.assertRaises(ValueError) as cm:
+      get_graph_viewer_tool.get_graph_viewer(
+          session_id="session_123", symbol_id="symbol_123"
+      )
     self.assertEqual(
-        result_json["error"], "Cannot set both session_id and symbol_id"
+        str(cm.exception), "Cannot set both session_id and symbol_id"
     )
 
   def test_get_graph_viewer_with_session_id(self):
@@ -105,17 +104,19 @@ class GetGraphViewerToolTest(absltest.TestCase):
     )
 
   def test_missing_hlo_proto_returns_clean_diagnostic(self):
-    """Verifies graph_viewer returns clean diagnostic when HLO proto is missing."""
+    """Verifies graph_viewer raises FileNotFoundError when HLO proto is missing."""
     self.mock_client.fetch.side_effect = ValueError(
         "Can not load hlo proto from options."
     )
-    res = get_graph_viewer_tool.get_graph_viewer(
-        session_id="session_without_hlo"
-    )
-    data = json.loads(res)
-    self.assertIn("error", data)
-    self.assertEqual(data.get("error"), "NO_HLO_PROTO_IN_PROFILE")
-    self.assertIn("xla_flags", res.lower())
+    with self.assertRaises(FileNotFoundError) as cm:
+      get_graph_viewer_tool.get_graph_viewer(session_id="session_without_hlo")
+    self.assertIn("xla_flags", str(cm.exception).lower())
+
+  def test_empty_graph_viewer_data_raises_file_not_found(self):
+    self.mock_client.fetch.return_value = (81, b"")
+    with self.assertRaises(FileNotFoundError) as cm:
+      get_graph_viewer_tool.get_graph_viewer(session_id="session_empty")
+    self.assertIn("No graph_viewer data found", str(cm.exception))
 
 
 if __name__ == "__main__":

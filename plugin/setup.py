@@ -41,7 +41,7 @@ except ImportError:
 
 
 def _find_requirements_file() -> str:
-  """Locates the requirements.in file across development and packaging environments."""
+  """Locates requirements.in across development and packaging environments."""
   setup_dir = os.path.dirname(os.path.abspath(__file__))
   candidates = [
       os.path.join(setup_dir, 'requirements.in'),
@@ -88,7 +88,7 @@ def _find_requirements_file() -> str:
 def parse_requirements(
     requirements_path: Optional[str] = None,
 ) -> List[str]:
-  """Parses dependencies from a requirements.in file, stripping comments and blanks."""
+  """Parses dependencies from requirements.in, stripping comments."""
   if requirements_path is None:
     requirements_path = _find_requirements_file()
 
@@ -112,6 +112,25 @@ def parse_requirements(
 PROJECT_NAME = 'xprof'
 VERSION = version.__version__
 REQUIRED_PACKAGES = parse_requirements()
+# Dependencies required only to run the test suite. Declared as the `[test]`
+# extra so a clean environment can install them via `pip install xprof[test]`;
+# without these, tests error out on missing `jax`, `pandas`, and `ml_dtypes`.
+TEST_PACKAGES = [
+    'jax',
+    'ml_dtypes',
+    'pandas',
+]
+PACKAGE_DATA = {
+    'xprof': [
+        'static/**',
+        'utils/*.h',
+        'convert/profiler_plugin_c_api.so',
+        'convert/profiler_plugin_c_api.pyd',
+        'convert/profiler_plugin_c_api.dylib',
+        'convert/profiler_plugin_c_api.dll',
+        'skills/**',
+    ],
+}
 
 
 def get_readme() -> str:
@@ -151,16 +170,7 @@ if __name__ == '__main__':
           include=['xprof.*'],
           exclude=['xprof.static'],
       ),
-      package_data={
-          'xprof': [
-              'static/**',
-              'utils/*.h',
-              'convert/profiler_plugin_c_api.so',
-              'convert/profiler_plugin_c_api.pyd',
-              'convert/profiler_plugin_c_api.dylib',
-              'convert/profiler_plugin_c_api.dll',
-          ],
-      },
+      package_data=PACKAGE_DATA,
       entry_points={
           'tensorboard_plugins': [
               'profile = xprof.profile_plugin_loader:ProfilePluginLoader',
@@ -174,6 +184,7 @@ if __name__ == '__main__':
       python_requires='>= 3.10',
       install_requires=REQUIRED_PACKAGES,
       tests_require=REQUIRED_PACKAGES,
+      extras_require={'test': TEST_PACKAGES},
       # PyPI package information.
       classifiers=[
           'Intended Audience :: Developers',

@@ -30,6 +30,8 @@ except ImportError:
   except ImportError:
     import sxs_diff_engine  # pyrefly: ignore[missing-import]
 
+_NETWORK_ITEM_HTML = '<li class="network-item network-item-mismatch">{}</li>'
+
 
 def _get_default_template_dir() -> pathlib.Path:
   """Resolves the report template directory across local and test environments."""
@@ -63,16 +65,35 @@ class _TemplateRegistry:
         self._cache[filename] = f.read()
     return self._cache[filename]
 
+  def get_section(self, filename: str) -> str:
+    """Retrieves a section template, or a placeholder if it cannot be read.
+
+    Report generation runs after the verdict has been decided and printed. An
+    unreadable section template used to raise out of here and take the whole
+    report with it, so a run that had already failed lost the evidence for why.
+    Losing one section is recoverable; losing the report is not.
+
+    Args:
+      filename: Template file name relative to the template directory.
+
+    Returns:
+      The template text, or a self-describing placeholder in its place.
+    """
+    try:
+      return self.get(filename)
+    except OSError as err:
+      return (
+          '<div class="diff-section">Section unavailable'
+          f" ({html.escape(str(err))})</div>"
+      )
+
 
 def _render_dom_diff(
-    templates: _TemplateRegistry,
-    unified_diff: str,
-    added_lines: int,
-    deleted_lines: int,
+    templates: _TemplateRegistry, dom: sxs_diff_engine.DomDiff
 ) -> str:
   """Renders a formatted DOM diff section using template."""
   diff_lines: list[str] = []
-  for line in unified_diff.splitlines():
+  for line in dom.unified_diff.splitlines():
     escaped_line = html.escape(line)
     if line.startswith("+") and not line.startswith("+++"):
       diff_lines.append(f'<span class="diff-added">{escaped_line}</span>')
@@ -81,103 +102,117 @@ def _render_dom_diff(
     else:
       diff_lines.append(escaped_line)
 
-  diff_html = "\n".join(diff_lines)
-  tmpl = string.Template(templates.get("dom_diff_section.html"))
+  tmpl = string.Template(templates.get_section("dom_diff_section.html"))
   return tmpl.substitute(
-      added_lines=str(added_lines),
-      deleted_lines=str(deleted_lines),
-      diff_html=diff_html,
+      added_lines=str(dom.added_lines),
+      deleted_lines=str(dom.deleted_lines),
+      diff_html="\n".join(diff_lines),
   )
+
+
+def _data_uri_payload(png_bytes: bytes | None) -> str:
+  """Encodes PNG bytes for an inline data: URI, or "" when there are none."""
+  return base64.b64encode(png_bytes).decode("ascii") if png_bytes else ""
 
 
 def _render_visual_diff(
     templates: _TemplateRegistry,
-    diff_pixels: int,
-    base_png: bytes | None,
-    candidate_png: bytes | None,
-    composite_png: bytes | None,
+    visual: sxs_diff_engine.VisualDiff,
+    card_id: str,
 ) -> str:
-  """Renders visual side-by-side composite diffs using template."""
-  base_b64 = base64.b64encode(base_png).decode("ascii") if base_png else ""
-  cand_b64 = (
-      base64.b64encode(candidate_png).decode("ascii") if candidate_png else ""
-  )
-  comp_b64 = (
-      base64.b64encode(composite_png).decode("ascii") if composite_png else ""
+  """Renders the side-by-side, swipe slider, and heatmap views of a waypoint."""
+  tmpl = string.Template(templates.get_section("visual_diff_section.html"))
+  return tmpl.substitute(
+      diff_pixels=str(visual.diff_pixels),
+      base_b64=_data_uri_payload(visual.base_png_bytes),
+      cand_b64=_data_uri_payload(visual.candidate_png_bytes),
+      heatmap_b64=_data_uri_payload(visual.heatmap_png_bytes),
+      card_id=card_id,
   )
 
-  tmpl = string.Template(templates.get("visual_diff_section.html"))
-  return tmpl.substitute(
-      diff_pixels=str(diff_pixels),
-      base_b64=base_b64,
-      cand_b64=cand_b64,
-      comp_b64=comp_b64,
-  )
+
+def _render_journey_tabs(
+    templates: _TemplateRegistry,
+    waypoint_diffs: list[sxs_diff_engine.WaypointDiff],
+) -> str:
+  """Renders the navigation tab strip listing every evaluated waypoint."""
+  tmpl = string.Template(templates.get_section("journey_tab.html"))
+  tabs = [
+      tmpl.substitute(
+          active_class=" active" if index == 0 else "",
+          index=str(index),
+          status_class=(
+              "tab-status-pass" if diff.verdict == "SAME" else "tab-status-diff"
+          ),
+          tab_title=(
+              f"{html.escape(diff.journey_name)}:"
+              f" {html.escape(diff.waypoint_name)}"
+              + ("" if diff.verdict == "SAME" else f" ({diff.verdict})")
+          ),
+      )
+      for index, diff in enumerate(waypoint_diffs)
+  ]
+  return "\n".join(tabs)
 
 
 def _render_waypoint_card(
-    templates: _TemplateRegistry, w: sxs_diff_engine.WaypointDiff
+    templates: _TemplateRegistry,
+    waypoint: sxs_diff_engine.WaypointDiff,
+    card_index: int,
 ) -> str:
   """Renders a single waypoint comparison card."""
-  journey_name = html.escape(w.journey_name)
-  waypoint_name = html.escape(w.waypoint_name)
+  card_id = f"wp_{card_index}"
 
-  if w.verdict == "SAME":
+  if waypoint.verdict == "SAME":
     status_html = '<span class="status-pass">PASS (Identical)</span>'
-  elif w.verdict == "APPROVED":
-    rationale = html.escape(w.approval_rationale or "Approved")
+  elif waypoint.verdict == "APPROVED":
+    rationale = html.escape(waypoint.approval_rationale or "Approved")
     status_html = f'<span class="status-approved">APPROVED ({rationale})</span>'
   else:
     status_html = '<span class="status-diff">DIFF DETECTED</span>'
 
   sections: list[str] = []
 
-  if w.dom.unified_diff:
-    sections.append(
-        _render_dom_diff(
-            templates,
-            w.dom.unified_diff,
-            w.dom.added_lines,
-            w.dom.deleted_lines,
-        )
-    )
+  if waypoint.dom.unified_diff:
+    sections.append(_render_dom_diff(templates, waypoint.dom))
 
-  if w.visual.composite_png_bytes:
-    sections.append(
-        _render_visual_diff(
-            templates,
-            w.visual.diff_pixels,
-            w.visual.base_png_bytes,
-            w.visual.candidate_png_bytes,
-            w.visual.composite_png_bytes,
-        )
-    )
-  elif w.visual.dimension_mismatch:
+  # Gated on a measured delta, not on the heatmap existing. The engine builds a
+  # heatmap for every waypoint, including byte-identical ones, so this inlined
+  # five base64 PNGs (baseline and candidate twice each, plus the heatmap) for
+  # waypoints with nothing to show. Across 46 waypoints that was most of a
+  # 28 MB report.
+  if waypoint.visual.diff_pixels or waypoint.visual.dimension_mismatch:
+    sections.append(_render_visual_diff(templates, waypoint.visual, card_id))
+
+  if waypoint.visual.dimension_mismatch:
     mismatch_tmpl = string.Template(
-        templates.get("dimension_mismatch_section.html")
+        templates.get_section("dimension_mismatch_section.html")
     )
     sections.append(
         mismatch_tmpl.substitute(
-            mismatch_text=html.escape(w.visual.dimension_mismatch)
+            mismatch_text=html.escape(waypoint.visual.dimension_mismatch)
         )
     )
 
-  if w.network.status_mismatches:
-    mismatch_items = "\n".join(
-        '    <li class="network-item'
-        f' network-item-mismatch">{html.escape(m)}</li>'
-        for m in w.network.status_mismatches
+  if waypoint.network.status_mismatches:
+    net_tmpl = string.Template(
+        templates.get_section("network_diff_section.html")
     )
-    net_tmpl = string.Template(templates.get("network_diff_section.html"))
-    sections.append(net_tmpl.substitute(network_items=mismatch_items))
+    sections.append(
+        net_tmpl.substitute(
+            network_items="\n".join(
+                _NETWORK_ITEM_HTML.format(html.escape(mismatch))
+                for mismatch in waypoint.network.status_mismatches
+            )
+        )
+    )
 
-  sections_html = "\n" + "\n".join(sections) if sections else ""
-  card_tmpl = string.Template(templates.get("waypoint_card.html"))
+  card_tmpl = string.Template(templates.get_section("waypoint_card.html"))
   return card_tmpl.substitute(
-      journey_name=journey_name,
-      waypoint_name=waypoint_name,
+      journey_name=html.escape(waypoint.journey_name),
+      waypoint_name=html.escape(waypoint.waypoint_name),
       status_html=status_html,
-      sections_html=sections_html,
+      sections_html="\n" + "\n".join(sections) if sections else "",
   )
 
 
@@ -202,11 +237,15 @@ def generate_sxs_html_report(
       else "100% Identical to Baseline"
   )
 
+  tabs_html = _render_journey_tabs(templates, waypoint_diffs)
   cards_html = "\n".join(
-      _render_waypoint_card(templates, w) for w in waypoint_diffs
+      _render_waypoint_card(templates, w, card_index=idx)
+      for idx, w in enumerate(waypoint_diffs)
   )
   approval_portal_html = (
-      templates.get("approval_portal.html") if has_unapproved_diffs else ""
+      templates.get_section("approval_portal.html")
+      if has_unapproved_diffs
+      else ""
   )
 
   unapproved_list = [
@@ -228,6 +267,7 @@ def generate_sxs_html_report(
       summary_text=summary_text,
       badge_class=badge_class,
       badge_text=badge_text,
+      tabs_html=tabs_html,
       cards_html=cards_html,
       approval_portal_html=approval_portal_html,
       unapproved_json=unapproved_json,

@@ -1,17 +1,49 @@
-<div class="diff-section">
-  <div class="diff-title">Visual Divergence ($diff_pixels Pixels Changed)</div>
-  <div class="diff-grid">
-    <div class="image-box">
-      <div class="image-box-title">Baseline Golden</div>
-      <img src="data:image/png;base64,$base_b64" alt="Baseline Golden"/>
+<div class="diff-section" id="visual-sec-$card_id">
+  <div class="diff-header-row">
+    <div class="diff-title">Visual Divergence ($diff_pixels Pixels Changed)</div>
+    <div class="controls">
+      <button type="button" class="btn-toggle active" id="btn-sxs-$card_id" onclick="setVisualMode('$card_id', 'sxs')">Side-by-Side</button>
+      <button type="button" class="btn-toggle" id="btn-slider-$card_id" onclick="setVisualMode('$card_id', 'slider')">Interactive Swipe Slider</button>
+      <button type="button" class="btn-toggle" id="btn-heatmap-$card_id" onclick="setVisualMode('$card_id', 'heatmap')">Diff Heatmap</button>
     </div>
-    <div class="image-box">
-      <div class="image-box-title">Candidate Run</div>
-      <img src="data:image/png;base64,$cand_b64" alt="Candidate Run"/>
+  </div>
+
+  <!-- Side-by-Side View -->
+  <div id="view-sxs-$card_id" class="comparison-container">
+    <div class="comparison-side">
+      <div class="side-label">Baseline Golden</div>
+      <div class="img-wrapper">
+        <img src="data:image/png;base64,$base_b64" alt="Baseline Golden"/>
+      </div>
     </div>
-    <div class="image-box">
-      <div class="image-box-title">Baseline vs Candidate Composite</div>
-      <img src="data:image/png;base64,$comp_b64" alt="Visual Composite"/>
+    <div class="comparison-side">
+      <div class="side-label side-label-cand">Candidate Run</div>
+      <div class="img-wrapper">
+        <img src="data:image/png;base64,$cand_b64" alt="Candidate Run"/>
+      </div>
+    </div>
+  </div>
+
+  <!-- Interactive Swipe Slider View -->
+  <div id="view-slider-$card_id" class="slider-view" style="display: none;">
+    <div class="slider-layer slider-base-layer">
+      <div class="side-label">Baseline Golden</div>
+      <img id="slider-base-img-$card_id" src="data:image/png;base64,$base_b64" alt="Baseline Golden"/>
+    </div>
+    <div id="slider-clip-$card_id" class="slider-layer slider-cand-layer" style="width: 50%;">
+      <div class="side-label side-label-cand">Candidate Run</div>
+      <img id="slider-cand-img-$card_id" src="data:image/png;base64,$cand_b64" alt="Candidate Run"/>
+    </div>
+    <div id="slider-handle-$card_id" class="slider-handle" style="left: 50%;">
+      <div class="slider-handle-circle">↔</div>
+    </div>
+  </div>
+
+  <!-- Diff Heatmap View -->
+  <div id="view-heatmap-$card_id" class="heatmap-view" style="display: none;">
+    <div class="side-label side-label-heatmap">Candidate, Diverging Pixels Highlighted</div>
+    <div class="heatmap-wrapper">
+      <img src="data:image/png;base64,$heatmap_b64" alt="Diff Heatmap"/>
     </div>
   </div>
 </div>

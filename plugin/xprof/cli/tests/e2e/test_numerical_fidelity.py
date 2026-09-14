@@ -17,8 +17,13 @@ try:
   from xprof.cli.tools import get_memory_profile_tool
   from xprof.cli.tools import get_overview_tool
   from xprof.cli.tools import get_roofline_model_tool
+  from xprof.cli.tools import get_step_trace_tool
   from xprof.cli.tools import get_top_hlo_ops_tool
 except ImportError:
+  # `absltest` is google3-only. Bind it to None so the runfiles lookup in
+  # `_get_fixture_path` degrades to the OSS candidates instead of raising
+  # NameError.
+  absltest = None
   try:
     from xprof.cli.tests.e2e import oracles
   except ImportError:
@@ -30,7 +35,9 @@ except ImportError:
   from xprof.cli.tools import get_memory_profile_tool
   from xprof.cli.tools import get_overview_tool
   from xprof.cli.tools import get_roofline_model_tool
+  from xprof.cli.tools import get_step_trace_tool
   from xprof.cli.tools import get_top_hlo_ops_tool
+# pylint: enable=g-import-not-at-top
 
 
 def _get_fixture_path(rel_path: str) -> str:
@@ -166,7 +173,61 @@ class NumericalFidelityTest(parameterized.TestCase):
         overview_step_time, oracle_step_time, delta=0.01 * oracle_step_time
     )
 
+  def test_n04_t1_step_trace_fidelity(self):
+    """N-4: get_step_trace runs on T1 and returns valid breakdown."""
+    res_raw = get_step_trace_tool.get_step_trace(self.t1_path)
+    res = json.loads(res_raw)
+    self.assertIsInstance(res, dict)
+    self.assertNotIn("error", res)
+    self.assertIn("summary", res)
+    self.assertIn("step_breakdown", res)
+    summary = res["summary"]
+    self.assertGreater(summary["total_steps"], 0)
+    self.assertGreater(summary["step_time_ms_average"], 0.0)
+
+    # T1 is a compute-bound training profile: the device is busy ~99% of every
+    # step. The breakdown must reflect that rather than reporting zero compute
+    # and an output bottleneck.
+    o1 = oracles.XSpaceOracle(self.t1_path)
+    oracle_step_time = o1.compute_step_time_ms()
+    self.assertAlmostEqual(
+        summary["step_time_ms_average"],
+        oracle_step_time,
+        delta=0.01 * oracle_step_time,
+    )
+    self.assertGreater(summary["compute_time_ms_average"], 0.0)
+    self.assertGreater(summary["compute_percent"], 95.0)
+    self.assertLessEqual(summary["compute_percent"], 100.0)
+    self.assertEqual(summary["primary_bottleneck"], "Compute")
+    # The residual of the step that is not compute is device idle, so the
+    # categories must add up to the whole step rather than leaving a gap.
+    self.assertGreaterEqual(summary["idle_time_ms_average"], 0.0)
+    self.assertAlmostEqual(
+        summary["compute_time_ms_average"]
+        + summary["communication_time_ms_average"]
+        + summary["infeed_time_ms_average"]
+        + summary["outfeed_time_ms_average"]
+        + summary["idle_time_ms_average"],
+        summary["step_time_ms_average"],
+        delta=0.01 * summary["step_time_ms_average"],
+    )
+    for step in res["step_breakdown"]:
+      self.assertGreater(step["compute_time_ms"], 0.0)
+      self.assertLessEqual(step["compute_time_ms"], step["step_time_ms"])
+      self.assertEqual(step["bottleneck"], "Compute")
+      self.assertGreaterEqual(step["idle_time_ms"], 0.0)
+      self.assertAlmostEqual(
+          step["compute_time_ms"]
+          + step["communication_time_ms"]
+          + step["infeed_time_ms"]
+          + step["outfeed_time_ms"]
+          + step["idle_time_ms"],
+          step["step_time_ms"],
+          delta=0.01 * step["step_time_ms"],
+      )
+
   def test_n05_kpi_metrics_contract(self):
+
     """N-5: get_kpi_metrics returns structured schema with physical bounds."""
     res_raw = get_kpi_metrics_tool.get_kpi_metrics(self.t1_path)
     res = json.loads(res_raw)
@@ -255,9 +316,7 @@ class NumericalFidelityTest(parameterized.TestCase):
 
 
 if __name__ == "__main__":
-  try:
-    from absl.testing import absltest
-
+  if absltest is not None:
     absltest.main()
-  except ImportError:
+  else:
     absltest.main()

@@ -53,6 +53,19 @@ py_test(
 )
 
 py_test(
+    name = "get_step_trace_tool_test",
+    srcs = ["get_step_trace_tool_test.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/tools:get_step_trace_tool",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+py_test(
     name = "get_top_hlo_ops_tool_test",
     srcs = ["get_top_hlo_ops_tool_test.py"],
     visibility = ["//visibility:public"],
@@ -254,6 +267,7 @@ py_test(
         "//plugin/xprof/cli/tools:get_overview_tool",
         "//plugin/xprof/cli/tools:get_peak_allocations_tool",
         "//plugin/xprof/cli/tools:get_roofline_model_tool",
+        "//plugin/xprof/cli/tools:get_step_trace_tool",
         "//plugin/xprof/cli/tools:get_top_hlo_ops_tool",
         "//plugin/xprof/cli/tools:get_utilization_viewer_tool",
         "@absl_py//absl/testing:absltest",

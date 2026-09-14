@@ -174,6 +174,9 @@ Pallas or Mosaic):
     overview (Performance Summary, Run Environment) of an XProf session.
 -   **[Get Memory Profile](references/get_memory_profile.md)**: Get a detailed
     memory profile analysis (Peak/device memory details) of an XProf session.
+-   **[Get Step Trace](references/get_step_trace.md)**: Retrieve step-by-step
+    execution breakdowns (Compute, Communication, Infeed/Outfeed) and timing
+    data across steps to analyze step time variance and communication overhead.
 -   **[Get Peak Allocations](references/get_peak_allocations.md)**: Get HLO
     modules and buffers ordered by memory usage.
 -   **[Get Top HLO Operations](references/get_top_hlo_ops.md)**: Identify top

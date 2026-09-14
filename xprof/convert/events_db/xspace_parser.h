@@ -30,6 +30,28 @@ namespace xprof::events_db {
 // Ingests profiler trace events (host CPU, GPU/TPU devices, custom traces) from
 // `xspace` and streams each parsed `Record` to `consumer`.
 //
+// Precondition:
+// `xspace` must already be preprocessed. This function reads the XSpace as
+// stored and deliberately performs no XSpace preprocessing of its own: it does
+// not convert legacy context stats to TraceMe 2.0 semantics
+// (`tsl::profiler::PreprocessXSpace`), synthesize flows (`AddFlowsToXplane`),
+// or fix HLO metadata (`FixHloMetadataInXSpace`). Events that preprocessing
+// would have synthesized (for example `ThreadpoolListener::Region`) are
+// therefore emitted only if they are already present in `xspace`.
+//
+// Callers holding a raw XSpace -- for example one written directly by
+// `ProfilerSession::CollectData` -- must first call
+// `tensorflow::profiler::PreprocessSingleHostXSpace`, as the other xprof tool
+// processors do.
+//
+// Preprocessing is intentionally left to the caller rather than performed here:
+// it mutates the XSpace (this overload takes it by const reference), and it is
+// not idempotent. In particular the line mutator installed by
+// `tsl::profiler::ThreadpoolLineMutatorFactory` appends a
+// `ThreadpoolListener::Region` event per Start/Stop pair without checking for
+// events already present, so preprocessing an already-preprocessed XSpace
+// duplicates those events.
+//
 // Discovered column names and metadata are registered in `schema`.
 //
 // `group_metadata_map` maps step/group IDs to step metadata (such as step
@@ -63,8 +85,16 @@ absl::StatusOr<ParseStatus> ParseXSpace(
 // `xspace` is modified in-place during event grouping. If `group_metadata_map`
 // is provided, in-place event grouping is skipped.
 //
-// See the overload above for details on `hlo_module_map`, concurrency,
-// thread-safety, early termination, and return values.
+// The grouping performed here is not a substitute for preprocessing: the
+// precondition of the overload above applies unchanged, and preprocessing is
+// expected to have run before grouping. Callers that preprocess should obtain
+// the group metadata map from `PreprocessSingleHostXSpace` and pass it in,
+// which both skips a redundant grouping pass over the whole XSpace and lets
+// them use the `const`-reference overload above.
+//
+// See the overload above for details on the preprocessing precondition,
+// `hlo_module_map`, concurrency, thread-safety, early termination, and return
+// values.
 absl::StatusOr<ParseStatus> ParseXSpace(
     tensorflow::profiler::XSpace& xspace, Schema& schema,
     RecordConsumerRef consumer,

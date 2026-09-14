@@ -91,18 +91,25 @@ def get_kpi_metrics(session_id: str, *, bypass_cache: bool = False) -> str:
         e,
     )
 
-  return json.dumps(
-      {
-          "step_time_ms": perf_summary["steptime_ms_average"],
-          "duty_cycle_percent": perf_summary["device_duty_cycle_percent"],
-          "mxu_utilization_percent": perf_summary["mxu_utilization_percent"],
-          "roofline_utilization": roofline_util,
-          "flops_provenance": flops_provenance,
-          "peak_hbm_gib": peak_hbm["peak_memory_usage_gib"],
-          "accelerator_info": {
-              "device_type": run_env["device_type"],
-              "device_core_count": run_env["device_core_count"],
-          },
+  payload: dict[str, object] = {
+      "step_time_ms": perf_summary["steptime_ms_average"],
+      "duty_cycle_percent": perf_summary["device_duty_cycle_percent"],
+      "mxu_utilization_percent": perf_summary["mxu_utilization_percent"],
+      "roofline_utilization": roofline_util,
+      "flops_provenance": flops_provenance,
+      "peak_hbm_gib": peak_hbm["peak_memory_usage_gib"],
+      "accelerator_info": {
+          "device_type": run_env["device_type"],
+          "device_core_count": run_env["device_core_count"],
       },
+  }
+  if "custom_call_warning" in perf_summary_raw:
+    payload["custom_call_share_pct"] = perf_summary_raw.get(
+        "custom_call_share_pct"
+    )
+    payload["custom_call_warning"] = perf_summary_raw["custom_call_warning"]
+
+  return json.dumps(
+      payload,
       indent=2,
   )

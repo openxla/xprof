@@ -14,6 +14,8 @@
 # ==============================================================================
 """Tests for profiler_wrapper.cc pybind methods."""
 
+import json
+
 from absl.testing import absltest
 from absl.testing import parameterized
 # pylint: disable=g-direct-tensorflow-import
@@ -156,6 +158,56 @@ class ProfilerSessionTest(parameterized.TestCase):
     self.assertEqual(no_match, {"success": False})
     self.assertNotIn("source_map", no_match)
     self.assertNotIn("source_map_by_kernel", no_match)
+
+  def test_run_llo_static_analysis_py_fallback(self):
+    """The pure-Python fallback resolves its imports and serves every mode.
+
+    `_run_llo_static_analysis_py` backs `get_llo_static_analysis_json` on builds
+    without embedded features. Its imports are lazy and wrapped in
+    `except ImportError`, so a missing BUILD dependency degrades silently into
+    an "llo_static_analysis library unavailable" payload instead of failing the
+    build. Call it directly so the check runs regardless of how this test
+    binary was configured.
+    """
+    test_file = self.create_tempfile(
+        content=_create_multi_module_llo_xspace_bytes()
+    ).full_path
+
+    res = json.loads(
+        profiler_wrapper_plugin._run_llo_static_analysis_py(
+            test_file, mode="list_ops"
+        )
+    )
+    self.assertEqual(res["status"], "OK", msg=res.get("error"))
+    self.assertEqual(res["data"]["ops"], ["custom-call.a", "custom-call.b"])
+
+    for mode in (
+        "region_tree",
+        "bundle_util",
+        "opcodes",
+        "register_pressure",
+        "spills",
+        "bdi_stalls",
+        "target_info",
+        "source_for_bundle",
+    ):
+      res = json.loads(
+          profiler_wrapper_plugin._run_llo_static_analysis_py(
+              test_file, mode=mode, hlo_op="custom-call.a"
+          )
+      )
+      self.assertEqual(res["status"], "OK", msg=f"{mode}: {res.get('error')}")
+      self.assertIn("data", res)
+      self.assertNotIn("markdown", res)
+
+  def test_run_llo_static_analysis_py_rejects_unknown_mode(self):
+    res = json.loads(
+        profiler_wrapper_plugin._run_llo_static_analysis_py(
+            self.create_tempfile().full_path, mode="not_a_mode"
+        )
+    )
+    self.assertEqual(res["status"], "ERROR")
+    self.assertIn("Unknown mode", res["error"])
 
   def test_utilization_viewer_conversion(self):
     """Tests that utilization_viewer is supported via fallback."""

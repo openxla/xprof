@@ -252,6 +252,12 @@ xprof_proto_library(
 )
 
 xprof_proto_library(
+    name = "llo_lite_proto",
+    srcs = ["llo_lite.proto"],
+    visibility = ["//visibility:public"],
+)
+
+xprof_proto_library(
     name = "protos_all",
     create_go_proto = False,
     create_java_proto = False,
@@ -266,6 +272,7 @@ xprof_proto_library(
         ":inference_stats_proto",
         ":input_pipeline_proto",
         ":kernel_stats_proto",
+        ":llo_lite_proto",
         ":memory_profile_proto",
         ":memory_viewer_preprocess_proto",
         ":source_info_proto",
@@ -307,6 +314,7 @@ exports_files(
         "inference_stats.proto",
         "input_pipeline.proto",
         "kernel_stats.proto",
+        "llo_lite.proto",
         "memory_profile.proto",
         "memory_viewer_preprocess.proto",
         "op_metrics.proto",

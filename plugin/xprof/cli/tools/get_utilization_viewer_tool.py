@@ -1,14 +1,13 @@
 """Tool to fetch utilization viewer data from XProf."""
 
 import collections
-import csv
-import io
 import json
 import logging
 import re
 from typing import Any
 
 from xprof.cli.internal import decorators
+from xprof.cli.internal import xprof_data
 from xprof.cli.internal.oss import xprof_client
 
 
@@ -115,34 +114,7 @@ def _parse_utilization_data(
     raw_data: str,
 ) -> tuple[list[dict[str, Any]], list[str]]:
   """Parses utilization data from either Google DataTable JSON or CSV string."""
-  raw_trimmed = raw_data.strip()
-  if raw_trimmed.startswith("{"):
-    try:
-      table_json = json.loads(raw_trimmed)
-      if isinstance(table_json, dict) and "cols" in table_json:
-        cols = [
-            c.get("label") or c.get("id", f"col_{i}")
-            for i, c in enumerate(table_json.get("cols", []))
-        ]
-        rows = []
-        for row in table_json.get("rows", []):
-          cells = row.get("c", [])
-          row_dict = {}
-          for i, cell in enumerate(cells):
-            if i < len(cols):
-              val = cell.get("v") if isinstance(cell, dict) else cell
-              row_dict[cols[i]] = val
-          rows.append(row_dict)
-        return rows, cols
-    except (ValueError, TypeError, json.JSONDecodeError):
-      pass
-
-  reader = csv.DictReader(io.StringIO(raw_data), skipinitialspace=True)
-  fieldnames = [f.strip() for f in reader.fieldnames or [] if f]
-  rows = [
-      {k.strip(): str(v).strip() for k, v in row.items() if k} for row in reader
-  ]
-  return rows, fieldnames
+  return xprof_data.gviz_datatable_to_records(raw_data)
 
 
 def _format_utilization_viewer_output(

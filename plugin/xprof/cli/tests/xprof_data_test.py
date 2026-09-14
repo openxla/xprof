@@ -475,6 +475,39 @@ class XprofDataTest(absltest.TestCase):
     with self.assertRaises(FileNotFoundError):
       xprof_data.get_hlo_op_profile("session_missing")
 
+  def test_sanitize_and_bound_json(self):
+    payload = {
+        "a": [1, 2, 3, 4, 5],
+        "nan_val": float("nan"),
+        "inf_val": float("inf"),
+        (1, 2): b"raw_bytes",
+    }
+    bounded, truncated, notes = xprof_data.sanitize_and_bound_json(
+        payload, max_depth=5, max_nodes=3
+    )
+    self.assertTrue(truncated)
+    self.assertTrue(any("max_nodes" in n for n in notes))
+    self.assertIn("a", bounded)
+    bounded_full, truncated_full, _ = xprof_data.sanitize_and_bound_json(
+        payload, max_depth=5, max_nodes=100
+    )
+    self.assertFalse(truncated_full)
+    self.assertIsNone(bounded_full["nan_val"])
+    self.assertIsNone(bounded_full["inf_val"])
+    self.assertEqual(bounded_full["(1, 2)"], "raw_bytes")
+    # Ensure json.dumps succeeds without error on the sanitized output.
+    json.dumps(bounded_full)
+
+  def test_get_profile_summary_bounded_json(self):
+    profile = self._create_mock_profile()
+    self.mock_client.fetch.return_value = (None, profile.SerializeToString())
+    res_str = xprof_data.get_profile_summary("session_summary")
+    res_json = json.loads(res_str)
+    self.assertIn("markdown_summary", res_json)
+    self.assertIn("top_operations", res_json)
+    self.assertIn("truncated", res_json)
+    self.assertFalse(res_json["truncated"])
+
 
 if __name__ == "__main__":
   absltest.main()

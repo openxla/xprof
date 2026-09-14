@@ -130,8 +130,46 @@ class OssKernelStatsToolsTest(unittest.TestCase):
       self.assertEqual(result["total_device_duration_ns"], 1500000)
       self.assertAlmostEqual(result["total_device_duration_us"], 1500.0)
 
+      # Verify per-line and custom-call attribution keys are always present.
+      self.assertIn("by_line_duration_ns", result)
+      self.assertIn("custom_call_duration_us", result)
+      self.assertIn("custom_call_share_pct", result)
+      self.assertEqual(result["by_line_duration_ns"]["XLA Ops"], 1500000)
+      self.assertEqual(result["custom_call_share_pct"], 0.0)
+
       # Verify kernel records present
       self.assertEqual(len(result["kernel_records"]), 2)
+
+  def test_get_kernel_stats_per_line_and_custom_call_attribution(self):
+    """Per-line union and custom-call share are computed without overcounting."""
+    mock_event1 = mock.MagicMock(
+        name="matmul_fwd", duration_ns=1400000, start_ns=0, stats=[]
+    )
+    mock_event1.name = "matmul_fwd"
+    mock_event2 = mock.MagicMock(
+        name="custom-call.1", duration_ns=500000, start_ns=1400000, stats=[]
+    )
+    mock_event2.name = "custom-call.1"
+    mock_line_ops = mock.MagicMock(
+        name="XLA Ops", events=[mock_event1, mock_event2]
+    )
+    mock_line_ops.name = "XLA Ops"
+
+    mock_plane = mock.MagicMock(name="/device:TPU:0", lines=[mock_line_ops])
+    mock_plane.name = "/device:TPU:0"
+
+    with mock.patch.object(
+        xplane_tools, "iter_planes", return_value=[mock_plane]
+    ):
+      result = kernel_stats_tools.get_kernel_stats(
+          "local_logdir", output_format="dict", include_summary=True
+      )
+
+    # Union of [0, 1400000) and [1400000, 1900000) is contiguous: 1900000 ns.
+    self.assertEqual(result["total_device_duration_ns"], 1900000)
+    self.assertEqual(result["by_line_duration_ns"]["XLA Ops"], 1900000)
+    self.assertAlmostEqual(result["custom_call_duration_us"], 500.0)
+    self.assertAlmostEqual(result["custom_call_share_pct"], 26.32)
 
   def test_get_kernel_stats_in_memory_profile_data(self):
     """Tests that in-memory ProfileData objects are accepted as polymorphic input."""

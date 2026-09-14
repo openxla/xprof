@@ -405,7 +405,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
   }
 
   getMeGraphJson(sessionId: string, params: Map<string, string>) {
-    const queryParams = this.getHttpParamsWithPath()
+    let queryParams = this.getHttpParamsWithPath()
       .set('run', sessionId)
       .set('tag', 'graph_viewer')
       .set('module_name', params.get('module_name') || '')
@@ -413,6 +413,12 @@ export class DataServiceV2 implements DataServiceV2Interface {
       .set('node_name', params.get('node_name') || '')
       .set('graph_width', params.get('graph_width') || '')
       .set('type', 'me_graph');
+    if (params.has('extra_nodes')) {
+      queryParams = queryParams.set(
+        'extra_nodes',
+        params.get('extra_nodes') || '',
+      );
+    }
     return this.get(this.pathPrefix + DATA_API, {
       'params': queryParams,
       'responseType': 'text',

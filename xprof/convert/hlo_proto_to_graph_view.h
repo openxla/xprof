@@ -69,7 +69,8 @@ absl::StatusOr<std::string> ConvertHloProtoToGraph(
 // Convert `hlo_proto` to ModelExplorer Graph JSON data.
 absl::StatusOr<std::string> ConvertHloProtoToMeGraph(
     const xla::HloProto& hlo_proto, const std::string& node_name,
-    int graph_width);
+    int graph_width,
+    const absl::flat_hash_set<std::string>& extra_node_names = {});
 
 // Render graph with the provided render options.
 absl::StatusOr<std::string> RenderGraphView(

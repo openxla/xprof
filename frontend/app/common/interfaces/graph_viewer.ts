@@ -15,6 +15,7 @@ export declare interface GraphViewerQueryParams {
   run?: string;
   tag?: string;
   host?: string;
+  extra_nodes?: string;
 }
 
 /** The interface for graph type object for selection */

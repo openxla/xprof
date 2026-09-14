@@ -20,6 +20,7 @@ limitations under the License.
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "google/protobuf/text_format.h"
 #include "xla/service/hlo.pb.h"
 #include "xla/service/hlo_graph_dumper.h"
 #include "xla/tsl/platform/errors.h"
@@ -133,6 +134,215 @@ TEST(GraphViewerParamsTest, OtherTypes) {
                        HasSubstr("Unknown graph viewer type option: abcd")));
 }
 
+TEST(HloProtoToGraphViewTest, GetAdjacentNodesParameterInsideFusion) {
+  xla::HloProto hlo_proto;
+  const std::string hlo_text = R"pb(
+    hlo_module {
+      name: "test_fusion_module"
+      entry_computation_name: "entry"
+      entry_computation_id: 1
+      id: 100
+      computations {
+        id: 2
+        name: "fused_computation"
+        instructions {
+          id: 10
+          name: "fused_param.0"
+          opcode: "parameter"
+          shape {
+            element_type: F32
+            layout { format: DENSE }
+          }
+          parameter_number: 0
+        }
+        instructions {
+          id: 11
+          name: "fused_negate.1"
+          opcode: "negate"
+          shape {
+            element_type: F32
+            layout { format: DENSE }
+          }
+          operand_ids: 10
+        }
+        program_shape {
+          parameters {
+            element_type: F32
+            layout { format: DENSE }
+          }
+          result {
+            element_type: F32
+            layout { format: DENSE }
+          }
+          parameter_names: "fused_param.0"
+        }
+        root_id: 11
+      }
+      computations {
+        id: 1
+        name: "entry"
+        instructions {
+          id: 1
+          name: "input_param.0"
+          opcode: "parameter"
+          shape {
+            element_type: F32
+            layout { format: DENSE }
+          }
+          parameter_number: 0
+        }
+        instructions {
+          id: 2
+          name: "fusion.1"
+          opcode: "fusion"
+          shape {
+            element_type: F32
+            layout { format: DENSE }
+          }
+          operand_ids: 1
+          called_computation_ids: 2
+          fusion_kind: "kCustom"
+        }
+        program_shape {
+          parameters {
+            element_type: F32
+            layout { format: DENSE }
+          }
+          result {
+            element_type: F32
+            layout { format: DENSE }
+          }
+          parameter_names: "input_param.0"
+        }
+        root_id: 2
+      }
+      host_program_shape {
+        parameters {
+          element_type: F32
+          layout { format: DENSE }
+        }
+        result {
+          element_type: F32
+          layout { format: DENSE }
+        }
+        parameter_names: "input_param.0"
+      }
+    }
+  )pb";
+  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(hlo_text, &hlo_proto));
+
+  TF_ASSERT_OK_AND_ASSIGN(std::string adj_json,
+                          GetAdjacentNodes(hlo_proto, "fused_param.0"));
+  EXPECT_THAT(adj_json, HasSubstr("\"operand_names\":[\"input_param.0\"]"));
+  EXPECT_THAT(adj_json, HasSubstr("\"consumer_names\":[\"fused_negate.1\"]"));
+}
+
+TEST(HloProtoToGraphViewTest, ConvertHloProtoToMeGraphWithExtraNodes) {
+  xla::HloProto hlo_proto;
+  const std::string hlo_text = R"pb(
+    hlo_module {
+      name: "test_extra_nodes_module"
+      entry_computation_name: "entry"
+      entry_computation_id: 1
+      id: 101
+      computations {
+        id: 1
+        name: "entry"
+        instructions {
+          id: 1
+          name: "param_a"
+          opcode: "parameter"
+          shape {
+            element_type: F32
+            layout { format: DENSE }
+          }
+          parameter_number: 0
+        }
+        instructions {
+          id: 2
+          name: "param_b"
+          opcode: "parameter"
+          shape {
+            element_type: F32
+            layout { format: DENSE }
+          }
+          parameter_number: 1
+        }
+        instructions {
+          id: 3
+          name: "extra_isolated"
+          opcode: "parameter"
+          shape {
+            element_type: F32
+            layout { format: DENSE }
+          }
+          parameter_number: 2
+        }
+        instructions {
+          id: 4
+          name: "add.1"
+          opcode: "add"
+          shape {
+            element_type: F32
+            layout { format: DENSE }
+          }
+          operand_ids: 1
+          operand_ids: 2
+        }
+        program_shape {
+          parameters {
+            element_type: F32
+            layout { format: DENSE }
+          }
+          parameters {
+            element_type: F32
+            layout { format: DENSE }
+          }
+          parameters {
+            element_type: F32
+            layout { format: DENSE }
+          }
+          result {
+            element_type: F32
+            layout { format: DENSE }
+          }
+          parameter_names: "param_a"
+          parameter_names: "param_b"
+          parameter_names: "extra_isolated"
+        }
+        root_id: 4
+      }
+      host_program_shape {
+        parameters {
+          element_type: F32
+          layout { format: DENSE }
+        }
+        parameters {
+          element_type: F32
+          layout { format: DENSE }
+        }
+        parameters {
+          element_type: F32
+          layout { format: DENSE }
+        }
+        result {
+          element_type: F32
+          layout { format: DENSE }
+        }
+        parameter_names: "param_a"
+        parameter_names: "param_b"
+        parameter_names: "extra_isolated"
+      }
+    }
+  )pb";
+  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(hlo_text, &hlo_proto));
+
+  TF_ASSERT_OK_AND_ASSIGN(
+      std::string graph_json,
+      ConvertHloProtoToMeGraph(hlo_proto, "add.1", 1, {"extra_isolated"}));
+  EXPECT_THAT(graph_json, HasSubstr("extra_isolated"));
+  EXPECT_THAT(graph_json, HasSubstr("add.1"));
+}
 
 }  // namespace
 }  // namespace profiler

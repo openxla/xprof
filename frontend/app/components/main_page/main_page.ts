@@ -1,9 +1,19 @@
+import {NgIf} from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
   inject,
   OnDestroy,
 } from '@angular/core';
+import {MatIcon} from '@angular/material/icon';
+import {MatProgressBar} from '@angular/material/progress-bar';
+import {
+  MatSidenav,
+  MatSidenavContainer,
+  MatSidenavContent,
+} from '@angular/material/sidenav';
+import {MatToolbar} from '@angular/material/toolbar';
+import {RouterOutlet} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
@@ -19,14 +29,27 @@ import {
 import {LoadingState} from 'org_xprof/frontend/app/store/state';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {DiagnosticsView} from '../diagnostics_view/diagnostics_view';
+import {SideNav} from '../sidenav/sidenav';
 
 /** A main page component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'main-page',
   templateUrl: './main_page.ng.html',
   styleUrls: ['./main_page.scss'],
+  imports: [
+    DiagnosticsView,
+    MatIcon,
+    MatProgressBar,
+    MatSidenav,
+    MatSidenavContainer,
+    MatSidenavContent,
+    MatToolbar,
+    NgIf,
+    RouterOutlet,
+    SideNav,
+  ],
 })
 export class MainPage implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */

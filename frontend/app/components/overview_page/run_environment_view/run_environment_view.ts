@@ -1,17 +1,20 @@
-import {Component, Input, ChangeDetectionStrategy} from '@angular/core';
+import {NgIf} from '@angular/common';
+import {ChangeDetectionStrategy, Component, Input} from '@angular/core';
+import {MatCard, MatCardContent, MatCardTitle} from '@angular/material/card';
 import {type RunEnvironment} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 /** A run environment view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'run-environment-view',
   templateUrl: './run_environment_view.ng.html',
-  styleUrls: ['./run_environment_view.scss']
+  styleUrls: ['./run_environment_view.scss'],
+  imports: [MatCard, MatCardContent, MatCardTitle, NgIf],
 })
 export class RunEnvironmentView {
   /** The run environment data. */
   @Input()
-  set runEnvironment(data: RunEnvironment|null) {
+  set runEnvironment(data: RunEnvironment | null) {
     this.deviceCoreCount = this.getProperty('device_core_count', data);
     this.deviceType = this.getProperty('device_type', data);
     this.hostCount = this.getProperty('host_count', data);
@@ -28,7 +31,7 @@ export class RunEnvironmentView {
   profileStartTime = '';
   profileDurationMs = '';
 
-  getProperty(propertyKey: string, data: RunEnvironment|null) {
+  getProperty(propertyKey: string, data: RunEnvironment | null) {
     return data?.p?.[propertyKey] || '';
   }
 }

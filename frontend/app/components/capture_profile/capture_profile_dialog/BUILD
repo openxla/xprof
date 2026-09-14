@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "capture_profile_dialog",
     srcs = [
         "capture_profile_dialog.ts",
-        "capture_profile_dialog_module.ts",
     ],
     assets = [
         ":capture_profile_dialog_css",
@@ -17,7 +16,9 @@ xprof_ng_module(
         "//:node_modules/@angular/core",
         "//:node_modules/@angular/forms",
         "//:node_modules/@angular/platform-browser",
+        "//third_party/javascript/angular_components:cdk_scrolling",
         "@org_xprof//frontend/app/common/angular:angular_material_button",
+        "@org_xprof//frontend/app/common/angular:angular_material_core",
         "@org_xprof//frontend/app/common/angular:angular_material_dialog",
         "@org_xprof//frontend/app/common/angular:angular_material_expansion",
         "@org_xprof//frontend/app/common/angular:angular_material_form_field",

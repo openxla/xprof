@@ -1,9 +1,12 @@
+import {NgIf} from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
   inject,
   OnDestroy,
 } from '@angular/core';
+import {FormsModule} from '@angular/forms';
+import {MatCheckbox} from '@angular/material/checkbox';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -17,14 +20,26 @@ import {
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {Table} from '../chart/table/table';
+import {CategoryFilter} from '../controls/category_filter/category_filter';
+import {ExportAsCsv} from '../controls/export_as_csv/export_as_csv';
+import {StringFilter} from '../controls/string_filter/string_filter';
 
 /** A perf counters component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'perf-counters',
   templateUrl: './perf_counters.ng.html',
   styleUrls: ['./perf_counters.scss'],
+  imports: [
+    CategoryFilter,
+    ExportAsCsv,
+    FormsModule,
+    MatCheckbox,
+    NgIf,
+    StringFilter,
+    Table,
+  ],
 })
 export class PerfCounters extends Dashboard implements OnDestroy {
   tool = 'perf_counters';
@@ -37,17 +52,17 @@ export class PerfCounters extends Dashboard implements OnDestroy {
     DATA_SERVICE_INTERFACE_TOKEN,
   );
 
+  private readonly route = inject(ActivatedRoute);
+  private readonly store: Store<{}> = inject(Store);
+
   sessionId = '';
   showZeroValues = false;
 
   deviceType = '';
 
-  constructor(
-    route: ActivatedRoute,
-    private readonly store: Store<{}>,
-  ) {
+  constructor() {
     super();
-    combineLatest([route.params, route.queryParams])
+    combineLatest([this.route.params, this.route.queryParams])
       .pipe(takeUntil(this.destroyed))
       .subscribe(([params, queryParams]) => {
         this.sessionId = params['sessionId'] || this.sessionId;

@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "memory_breakdown_table",
     srcs = [
         "memory_breakdown_table.ts",
-        "memory_breakdown_table_module.ts",
     ],
     assets = [
         ":memory_breakdown_table_css",

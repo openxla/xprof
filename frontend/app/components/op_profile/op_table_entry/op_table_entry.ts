@@ -1,7 +1,9 @@
+import {NgFor, NgIf} from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
   EventEmitter,
+  forwardRef,
   Input,
   OnChanges,
   OnInit,
@@ -21,10 +23,10 @@ import {takeUntil} from 'rxjs/operators';
 /** An op table entry view component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'op-table-entry',
   templateUrl: './op_table_entry.ng.html',
   styleUrls: ['./op_table_entry.scss'],
+  imports: [forwardRef(() => OpTableEntry), NgFor, NgIf],
 })
 export class OpTableEntry implements OnChanges, OnInit {
   /** Handles on-destroy Subject, used to unsubscribe. */

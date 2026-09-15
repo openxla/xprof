@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "empty_page",
     srcs = [
         "empty_page.ts",
-        "empty_page_module.ts",
     ],
     assets = [
         ":empty_page_css",

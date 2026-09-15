@@ -1,3 +1,4 @@
+import {NgFor, NgIf} from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -29,6 +30,10 @@ import {BaseDiffService} from 'org_xprof/frontend/app/services/data_service_v2/d
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {Chart} from '../chart/chart';
+import {CategoryFilter} from '../controls/category_filter/category_filter';
+import {ExportAsCsv} from '../controls/export_as_csv/export_as_csv';
+import {ViewArchitecture} from '../controls/view_architecture/view_architecture';
 
 const UNIT_CHART_OPTIONS: google.visualization.BarChartOptions = {
   ...BAR_CHART_OPTIONS,
@@ -117,8 +122,14 @@ export function getDeltaInfo(activePct: number, basePct: number): DeltaInfo {
 
 /** Generates the HTML tooltip content. */
 export function getTooltipContent(
-    achieved: number, peak: number, unit: string, activePct: number,
-    hasBaseline: boolean, baseAchieved: number | null, basePeak: number | null): string {
+  achieved: number,
+  peak: number,
+  unit: string,
+  activePct: number,
+  hasBaseline: boolean,
+  baseAchieved: number | null,
+  basePeak: number | null,
+): string {
   let tooltip = `<div>Active Achieved: <b>${achieved.toLocaleString()}</b> ${unit} (Peak: ${peak.toLocaleString()} ${unit})</div>`;
   if (hasBaseline && baseAchieved !== null && basePeak !== null) {
     const basePct = basePeak !== 0 ? (100 * baseAchieved) / basePeak : 0;
@@ -140,11 +151,11 @@ declare interface NodeFilterDataProcessorMap {
  */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'utilization-viewer',
   templateUrl: './utilization_viewer.ng.html',
   styleUrls: ['./utilization_viewer.scss'],
   providers: [BaseDiffService],
+  imports: [CategoryFilter, Chart, ExportAsCsv, NgFor, NgIf, ViewArchitecture],
 })
 export class UtilizationViewer extends Dashboard implements OnDestroy {
   readonly tool = 'utilization_viewer';
@@ -482,7 +493,14 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
             const baseAchieved = data.getValue(row, baselineAchievedCol);
             const basePeak = data.getValue(row, baselinePeakCol);
             return getTooltipContent(
-                achieved, peak, unit, activePct, hasBaseline, baseAchieved, basePeak);
+              achieved,
+              peak,
+              unit,
+              activePct,
+              hasBaseline,
+              baseAchieved,
+              basePeak,
+            );
           },
           type: 'string',
           role: 'tooltip',

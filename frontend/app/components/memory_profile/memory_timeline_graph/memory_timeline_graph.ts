@@ -1,19 +1,51 @@
-import {AfterViewInit, Component, ElementRef, HostListener, Input, OnChanges, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
-import {type HloModule, type MemoryProfileProto, MemoryProfileSnapshot} from 'org_xprof/frontend/app/common/interfaces/data_table';
-import {bytesToGiBs, picoToMilli} from 'org_xprof/frontend/app/common/utils/utils';
+import {NgFor, NgIf} from '@angular/common';
+import {
+  AfterViewInit,
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  HostListener,
+  Input,
+  OnChanges,
+  SimpleChanges,
+  ViewChild,
+} from '@angular/core';
+import {MatButton} from '@angular/material/button';
+import {MatCard, MatCardContent, MatCardTitle} from '@angular/material/card';
+import {MatFormField} from '@angular/material/form-field';
+import {MatInput} from '@angular/material/input';
+import {
+  type HloModule,
+  type MemoryProfileProto,
+  MemoryProfileSnapshot,
+} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {
+  bytesToGiBs,
+  picoToMilli,
+} from 'org_xprof/frontend/app/common/utils/utils';
 
 const MAX_CHART_WIDTH = 1500;
 
 /** A Memory Timeline Graph view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'memory-timeline-graph',
   templateUrl: './memory_timeline_graph.ng.html',
-  styleUrls: ['./memory_timeline_graph.scss']
+  styleUrls: ['./memory_timeline_graph.scss'],
+  imports: [
+    MatButton,
+    MatCard,
+    MatCardContent,
+    MatCardTitle,
+    MatFormField,
+    MatInput,
+    NgFor,
+    NgIf,
+  ],
 })
 export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
   /** The memory profile data. */
-  @Input() memoryProfileProto: MemoryProfileProto|null = null;
+  @Input() memoryProfileProto: MemoryProfileProto | null = null;
 
   /** The selected memory ID to show memory profile for. */
   @Input() memoryId = '';
@@ -23,13 +55,13 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
   title = 'Memory Timeline Graph';
   height = 465;
   width = 0;
-  chart: google.visualization.AreaChart|null = null;
+  chart: google.visualization.AreaChart | null = null;
   minHloStartTimeMs = 0;
   maxHloEndTimeMs = 0;
   allHloModules: HloModule[] = [];
   hloModules: HloModule[] = [];
   timeFilter = '';
-  selectedHloModule: HloModule|null = null;
+  selectedHloModule: HloModule | null = null;
   selectedRowIndex = -1;
   readonly picoToMilli = picoToMilli;
   sortByStartTimeAscending = true;
@@ -43,10 +75,10 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
     this.allHloModules = this.memoryProfileProto?.hloModules || [];
     if (this.allHloModules.length > 0) {
       this.minHloStartTimeMs = Math.min(
-          ...this.allHloModules.map((m) => this.picoToMilli(m.startTimePs)),
+        ...this.allHloModules.map((m) => this.picoToMilli(m.startTimePs)),
       );
       this.maxHloEndTimeMs = Math.max(
-          ...this.allHloModules.map((m) => this.picoToMilli(m.endTimePs)),
+        ...this.allHloModules.map((m) => this.picoToMilli(m.endTimePs)),
       );
     } else {
       this.minHloStartTimeMs = 0;
@@ -65,9 +97,12 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
 
   applyFilter() {
     const filterValue = Number(this.timeFilter);
-    if (this.timeFilter === '' || isNaN(filterValue) ||
-        (filterValue < this.minHloStartTimeMs) ||
-        (filterValue > this.maxHloEndTimeMs)) {
+    if (
+      this.timeFilter === '' ||
+      isNaN(filterValue) ||
+      filterValue < this.minHloStartTimeMs ||
+      filterValue > this.maxHloEndTimeMs
+    ) {
       this.hloModules = [...this.allHloModules];
     } else {
       this.hloModules = this.allHloModules.filter((module) => {
@@ -101,7 +136,7 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
     this.sortByStartTimeAscending = !this.sortByStartTimeAscending;
     this.hloModules.sort((a, b) => {
       const result =
-          (Number(a.startTimePs) || 0) - (Number(b.startTimePs) || 0);
+        (Number(a.startTimePs) || 0) - (Number(b.startTimePs) || 0);
       return this.sortByStartTimeAscending ? result : -result;
     });
   }
@@ -115,24 +150,30 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
   }
 
   drawChart() {
-    if (!this.chartRef || !this.chart || this.memoryId === '' ||
-        !this.memoryProfileProto ||
-        !this.memoryProfileProto.memoryProfilePerAllocator) {
+    if (
+      !this.chartRef ||
+      !this.chart ||
+      this.memoryId === '' ||
+      !this.memoryProfileProto ||
+      !this.memoryProfileProto.memoryProfilePerAllocator
+    ) {
       return;
     }
 
-    this.width =
-        Math.min(MAX_CHART_WIDTH, this.chartRef.nativeElement.offsetWidth);
+    this.width = Math.min(
+      MAX_CHART_WIDTH,
+      this.chartRef.nativeElement.offsetWidth,
+    );
 
     let snapshots =
-        this.memoryProfileProto.memoryProfilePerAllocator[this.memoryId]
-            .memoryProfileSnapshots;
+      this.memoryProfileProto.memoryProfilePerAllocator[this.memoryId]
+        .memoryProfileSnapshots;
     // If version is set to 1, this means the backend is using the new snapshot
     // sampling algorithm, timeline data is stored in sampledTimelineSnapshots.
     if (this.memoryProfileProto.version === 1) {
       snapshots =
-          this.memoryProfileProto.memoryProfilePerAllocator[this.memoryId]
-              .sampledTimelineSnapshots;
+        this.memoryProfileProto.memoryProfilePerAllocator[this.memoryId]
+          .sampledTimelineSnapshots;
     }
 
     if (!snapshots) return;
@@ -168,7 +209,7 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
         picoToMilli(snapshots[i].timeOffsetPs),
         bytesToGiBs(stats.stackReservedBytes),
         bytesToGiBs(stats.heapAllocatedBytes),
-        this.getMetadataTooltip(snapshots[i])
+        this.getMetadataTooltip(snapshots[i]),
       ];
       if (hasFreeMemoryData) {
         row.push(bytesToGiBs(stats.freeMemoryBytes));
@@ -177,9 +218,8 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
       dataTable.addRow(row);
     }
 
-
     const fragmentationProperty = {
-      'targetAxisIndex': 1,  // Using string parameter to prevent renaming.
+      'targetAxisIndex': 1, // Using string parameter to prevent renaming.
       type: 'line',
       lineDashStyle: [4, 4],
     };
@@ -196,7 +236,6 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
       2: fragmentationProperty,
     };
 
-
     const options = {
       curveType: 'none',
       chartArea: {left: 60, right: 60, width: '100%'},
@@ -204,13 +243,14 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
         title: 'Timestamp (ms)',
         textStyle: {bold: true},
         viewWindow:
-            (this.selectedHloModule && this.selectedHloModule.startTimePs &&
-             this.selectedHloModule.endTimePs) ?
-            {
-              min: picoToMilli(this.selectedHloModule.startTimePs),
-              max: picoToMilli(this.selectedHloModule.endTimePs),
-            } :
-            {min: null, max: null},
+          this.selectedHloModule &&
+          this.selectedHloModule.startTimePs &&
+          this.selectedHloModule.endTimePs
+            ? {
+                min: picoToMilli(this.selectedHloModule.startTimePs),
+                max: picoToMilli(this.selectedHloModule.endTimePs),
+              }
+            : {min: null, max: null},
       },
       vAxes: {
         0: {
@@ -225,8 +265,9 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
           textStyle: {bold: true},
         },
       },
-      series: hasFreeMemoryData ? seriesWithFreeMemory :
-                                  seriesWithoutFreeMemory,
+      series: hasFreeMemoryData
+        ? seriesWithFreeMemory
+        : seriesWithoutFreeMemory,
       // tslint:disable-next-line:no-any
       legend: {position: 'top' as any},
       tooltip: {
@@ -237,22 +278,29 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
       isStacked: true,
       explorer: {
         actions: ['dragToZoom', 'rightClickToReset'],
-        maxZoomIn: .001,
+        maxZoomIn: 0.001,
         maxZoomOut: 10,
       },
     };
     this.chart.draw(
-        dataTable, options as google.visualization.AreaChartOptions);
+      dataTable,
+      options as google.visualization.AreaChartOptions,
+    );
     return dataTable;
   }
 
-  getMetadataTooltip(snapshot: MemoryProfileSnapshot|undefined) {
+  getMetadataTooltip(snapshot: MemoryProfileSnapshot | undefined) {
     if (!snapshot) return '';
     const timestampMs = picoToMilli(snapshot.timeOffsetPs);
     const stats = snapshot.aggregationStats;
     const metadata = snapshot.activityMetadata;
-    if (!stats || !metadata || !metadata.requestedBytes ||
-        !metadata.allocationBytes || !metadata.memoryActivity) {
+    if (
+      !stats ||
+      !metadata ||
+      !metadata.requestedBytes ||
+      !metadata.allocationBytes ||
+      !metadata.memoryActivity
+    ) {
       return '';
     }
     let requestedSizeGib = bytesToGiBs(metadata.requestedBytes);
@@ -261,18 +309,17 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
       requestedSizeGib = -requestedSizeGib;
       allocationSizeGib = -allocationSizeGib;
     }
-    const memInUseGib =
-        bytesToGiBs(
-            Number(stats.stackReservedBytes) + Number(stats.heapAllocatedBytes))
-            .toFixed(4);
+    const memInUseGib = bytesToGiBs(
+      Number(stats.stackReservedBytes) + Number(stats.heapAllocatedBytes),
+    ).toFixed(4);
     let metadataTooltip = 'timestamp(ms): ' + timestampMs.toFixed(1);
     metadataTooltip += '\nevent: ' + metadata.memoryActivity.toLowerCase();
     if (Number(metadata.requestedBytes) > 0) {
       metadataTooltip +=
-          '\nrequested_size(GiBs): ' + requestedSizeGib.toFixed(4);
+        '\nrequested_size(GiBs): ' + requestedSizeGib.toFixed(4);
     }
     metadataTooltip +=
-        '\nallocation_size(GiBs): ' + allocationSizeGib.toFixed(4);
+      '\nallocation_size(GiBs): ' + allocationSizeGib.toFixed(4);
     if (metadata.tfOpName) {
       metadataTooltip += '\ntf_op: ' + metadata.tfOpName;
     }
@@ -301,8 +348,9 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
 
     google.charts.safeLoad({'packages': ['corechart']});
     google.charts.setOnLoadCallback(() => {
-      this.chart =
-          new google.visualization.AreaChart(this.chartRef.nativeElement);
+      this.chart = new google.visualization.AreaChart(
+        this.chartRef.nativeElement,
+      );
       this.drawChart();
     });
   }

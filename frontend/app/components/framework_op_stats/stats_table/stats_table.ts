@@ -1,7 +1,19 @@
-import {Component, Input, OnChanges, OnInit, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  Input,
+  OnChanges,
+  OnInit,
+  SimpleChanges,
+} from '@angular/core';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {type FrameworkOpStatsData} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
+import {NgIf} from '@angular/common';
+import {MatFormField, MatLabel, MatSuffix} from '@angular/material/form-field';
+import {MatIcon} from '@angular/material/icon';
+import {MatInput} from '@angular/material/input';
+import {Chart} from '../../chart/chart';
 import {StatsTableDataProvider} from './stats_table_data_provider';
 
 declare interface SortEvent {
@@ -15,20 +27,21 @@ const TABLE_COLUMN_LABEL_OPERATION = 'Operation';
 
 /** A stats table view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'stats-table',
   templateUrl: './stats_table.ng.html',
-  styleUrls: ['./stats_table.scss']
+  styleUrls: ['./stats_table.scss'],
+  imports: [Chart, MatFormField, MatIcon, MatInput, MatLabel, MatSuffix, NgIf],
 })
 export class StatsTable implements OnChanges, OnInit {
   /**
    * The tensorflow stats data.
    *  TODO(tf-profiler) rename to "frameworkOpStatsData"
    */
-  @Input() tensorflowStatsData: FrameworkOpStatsData|null = null;
+  @Input() tensorflowStatsData: FrameworkOpStatsData | null = null;
 
   /** The tensorflow stats data for diff. */
-  @Input() diffData: FrameworkOpStatsData|null = null;
+  @Input() diffData: FrameworkOpStatsData | null = null;
 
   /** Whether to use diff. */
   @Input() hasDiff = false;
@@ -45,9 +58,10 @@ export class StatsTable implements OnChanges, OnInit {
 
   ngOnInit() {
     this.dataProvider.setTotalOperationsChangedEventListener(
-        (totalOperations: string) => {
-          this.totalOperations = totalOperations;
-        });
+      (totalOperations: string) => {
+        this.totalOperations = totalOperations;
+      },
+    );
   }
 
   ngOnChanges(changes: SimpleChanges) {

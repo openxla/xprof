@@ -59,8 +59,7 @@ import {
   TraceViewerV2LoadingStatus,
   type TraceViewerV2Module,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
-
-import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
+import {SafePipe} from 'org_xprof/frontend/app/pipes/safe_pipe';
 import {fromEvent, interval, ReplaySubject, Subject, Subscription} from 'rxjs';
 import {debounceTime, distinctUntilChanged, takeUntil} from 'rxjs/operators';
 
@@ -330,8 +329,8 @@ declare interface TfTraceViewer {
 
 /** A trace viewer container component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   schemas: [CUSTOM_ELEMENTS_SCHEMA],
   selector: 'trace-viewer-container',
   templateUrl: './trace_viewer_container.ng.html',
@@ -355,7 +354,7 @@ declare interface TfTraceViewer {
     CommonModule,
     MatIconModule,
     MatProgressBarModule,
-    PipesModule,
+    SafePipe,
     TimelinePlayer,
     FormsModule,
     MatButtonModule,
@@ -376,7 +375,17 @@ export class TraceViewerContainer
   @Input() url = '';
   @Input() useTraceViewerV2 = true;
   @Input() showHelpButton = false;
-  @Input() selectedEvent?: SelectedEvent | null;
+  private selectedEventInternal?: SelectedEvent | null;
+  @Input()
+  get selectedEvent(): SelectedEvent | null | undefined {
+    return this.selectedEventInternal;
+  }
+  set selectedEvent(value: SelectedEvent | null | undefined) {
+    this.selectedEventInternal = value;
+    this.updateSplitSizes();
+    this.selectedEventJson = this.buildSelectedEventJson();
+    this.cdRef.markForCheck();
+  }
   /**
    * The selected event rendered as an auto-traversed JSON tree in Trace
    * Viewer v2 (identity, timing and the full args map, with the stack trace
@@ -720,6 +729,7 @@ export class TraceViewerContainer
         } else if (!query) {
           this.searchResultCountText = '';
         }
+        this.cdRef.markForCheck();
       });
 
     this.hoveredEventRequest$
@@ -1002,6 +1012,7 @@ export class TraceViewerContainer
     } else {
       this.traceViewerV2ErrorMessage = event.detail.message;
     }
+    this.cdRef.markForCheck();
   };
 
   private readonly mouseModeChangedEventListener = (e: Event) => {
@@ -1117,8 +1128,10 @@ export class TraceViewerContainer
       this.isInitialLoading = false;
     } else {
       // Start the tutorial rotation when loading is in progress.
+      this.isInitialLoading = true;
       this.startTutorialRotation();
     }
+    this.cdRef.markForCheck();
   }
 
   onReload(): void {
@@ -1141,6 +1154,7 @@ export class TraceViewerContainer
       .subscribe(() => {
         this.currentTutorialIndex =
           (this.currentTutorialIndex + 1) % this.tutorials.length;
+        this.cdRef.markForCheck();
       });
   }
 
@@ -1170,6 +1184,7 @@ export class TraceViewerContainer
       this.traceViewerModule.application.instance().setSearchQuery('');
     }
     this.onSearchEvent('');
+    this.cdRef.markForCheck();
   }
 
   dismissTimingOnboarding(): void {
@@ -1197,6 +1212,7 @@ export class TraceViewerContainer
         this.showTimingOnboarding = true;
       }
     }
+    this.cdRef.markForCheck();
     // Sync focus to the corresponding button
     switch (mode) {
       case MouseMode.SELECT:

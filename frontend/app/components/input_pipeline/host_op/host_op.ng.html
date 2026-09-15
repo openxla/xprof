@@ -1,4 +1,4 @@
-<div [hidden]="!hasHostOpTables">
+<div [hidden]="!hasHostOpTables()">
   <div class="mat-headline">Host-vs-TPU step analysis</div>
   <table>
     <tr>
@@ -6,9 +6,11 @@
         Op:
         <mat-form-field>
           <mat-select (selectionChange)="updateHostOpSelection($event.value)">
-            <mat-option *ngFor="let opChoice of allHostOpChoices" [value]="opChoice">
-              {{ opChoice }}
-            </mat-option>
+            @for (opChoice of allHostOpChoices; track opChoice) {
+              <mat-option [value]="opChoice">
+                {{ opChoice }}
+              </mat-option>
+            }
           </mat-select>
         </mat-form-field>
       </td>
@@ -16,9 +18,11 @@
         Hostname:
         <mat-form-field>
           <mat-select (selectionChange)="updateHostnameSelection($event.value)">
-            <mat-option *ngFor="let hostnameChoice of allHostnameChoices" [value]="hostnameChoice">
-              {{ hostnameChoice }}
-            </mat-option>
+            @for (hostnameChoice of allHostnameChoices; track hostnameChoice) {
+              <mat-option [value]="hostnameChoice">
+                {{ hostnameChoice }}
+              </mat-option>
+            }
           </mat-select>
         </mat-form-field>
       </td>
@@ -26,14 +30,16 @@
         Core:
         <mat-form-field>
           <mat-select (selectionChange)="updateCoreSelection($event.value)">
-            <mat-option *ngFor="let coreChoice of allCoreChoices" [value]="coreChoice">
-              {{ coreChoice }}
-            </mat-option>
+            @for (coreChoice of allCoreChoices; track coreChoice) {
+              <mat-option [value]="coreChoice">
+                {{ coreChoice }}
+              </mat-option>
+            }
           </mat-select>
         </mat-form-field>
       </td>
     </tr>
   </table>
-  <chart chartType="ScatterChart" [dataInfo]="dataInfo" [hidden]="!showChart"></chart>
-  <mat-divider></mat-divider>
+  <chart chartType="ScatterChart" [dataInfo]="dataInfo" [hidden]="!showChart" />
+  <mat-divider />
 </div>

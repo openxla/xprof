@@ -1,0 +1,47 @@
+:host {
+  display: inline-flex;
+  align-items: center;
+}
+
+.filter-chip {
+  --mat-chip-container-shape-radius: 8px;
+  --mat-chip-elevated-container-color: #c2e7ff;
+  --mat-chip-flat-container-color: #c2e7ff;
+  --mat-chip-container-color: #c2e7ff;
+  --mat-chip-label-text-color: #001d35;
+  --mat-chip-with-icon-icon-color: #001d35;
+  --mat-chip-with-trailing-icon-trailing-icon-color: #001d35;
+  --mat-chip-trailing-action-icon-color: #001d35;
+  color: #001d35;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 8px 0 12px;
+  margin: 4px 6px 4px 0;
+  border: 1px solid #7cacf8;
+
+  ::ng-deep {
+    .mat-mdc-chip-action-label {
+      color: #001d35;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .mat-mdc-chip-remove {
+      color: #001d35;
+      opacity: 0.8;
+
+      mat-icon {
+        font-size: 18px;
+        width: 18px;
+        height: 18px;
+      }
+
+      &:hover {
+        opacity: 1;
+      }
+    }
+  }
+}

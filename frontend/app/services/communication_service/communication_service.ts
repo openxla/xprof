@@ -1,4 +1,4 @@
-import {EventEmitter, Injectable, Output} from '@angular/core';
+import {EventEmitter, Injectable} from '@angular/core';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 
 /**
@@ -14,8 +14,8 @@ export type ToolQueryParams = NavigationEvent;
  */
 @Injectable({providedIn: 'root'})
 export class CommunicationService {
-  @Output() readonly navigationReady = new EventEmitter();
-  @Output() readonly toolQueryParamsChange = new EventEmitter();
+  readonly navigationReady = new EventEmitter<NavigationEvent>();
+  readonly toolQueryParamsChange = new EventEmitter<ToolQueryParams>();
 
   // Show a navigating status when populating navigation chains
   // eg. tools for selected run

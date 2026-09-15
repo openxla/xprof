@@ -4,10 +4,10 @@ package(default_visibility = ["//frontend:internal"])
 
 xprof_ng_module(
     name = "execution_preview",
-    srcs = ["execution_preview.component.ts"],
+    srcs = ["execution_preview.ts"],
     assets = [
-        "execution_preview.component.css",
-        "execution_preview.component.html",
+        "execution_preview.css",
+        "execution_preview.ng.html",
     ],
     visibility = ["@org_xprof//frontend/app/components/kernel_analysis:__pkg__"],
     deps = [

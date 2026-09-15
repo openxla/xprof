@@ -1,21 +1,29 @@
-<mat-expansion-panel [expanded]="true" *ngIf="loading || processedSuggestions.length > 0">
-  <mat-expansion-panel-header>
-    <mat-panel-title>{{title}}
-    </mat-panel-title>
-  </mat-expansion-panel-header>
-  <div class="progress-smart-suggestion-view" *ngIf="shouldShow && loading">
-    <mat-spinner class="loading-spinner" mode="indeterminate" diameter="40"></mat-spinner>
-    <div class="loading-message">Analyzing the trace to provide performance improvement recommendations...</div>
-  </div>
-  <div *ngIf="!loading">
-    <ul class="suggestion-list">
-      <li *ngFor="let suggestion of processedSuggestions">
-        <div class="suggestion-item-container">
-          <div class="suggestion-text" [innerHTML]="suggestion.htmlContent">
-          </div>
-        </div>
-      </li>
-    </ul>
-  </div>
-</mat-expansion-panel>
+@if (loading || processedSuggestions.length > 0) {
+  <mat-expansion-panel [expanded]="true">
+    <mat-expansion-panel-header>
+      <mat-panel-title>{{title}}
+      </mat-panel-title>
+    </mat-expansion-panel-header>
+    @if (shouldShow && loading) {
+      <div class="progress-smart-suggestion-view">
+        <mat-spinner class="loading-spinner" mode="indeterminate" diameter="40" />
+        <div class="loading-message">Analyzing the trace to provide performance improvement recommendations...</div>
+      </div>
+    }
+    @if (!loading) {
+      <div>
+        <ul class="suggestion-list">
+          @for (suggestion of processedSuggestions; track suggestion) {
+            <li>
+              <div class="suggestion-item-container">
+                <div class="suggestion-text" [innerHTML]="suggestion.htmlContent">
+                </div>
+              </div>
+            </li>
+          }
+        </ul>
+      </div>
+    }
+  </mat-expansion-panel>
+}
 

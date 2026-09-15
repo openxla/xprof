@@ -3,37 +3,43 @@
   <mat-form-field>
     <mat-label>Host/Device</mat-label>
     <input
-           matInput
-           [value]="filterExecutor"
-           (change)="filterExecutor = $event.target.value; updateFilters();">
+      matInput
+      [value]="filterExecutor"
+      (change)="filterExecutor = $event.target.value; updateFilters();">
     <mat-icon matSuffix>search</mat-icon>
   </mat-form-field>
   <mat-form-field>
     <mat-label>Operation Type</mat-label>
     <input
-           matInput
-           [value]="filterType"
-           (change)="filterType = $event.target.value; updateFilters();">
+      matInput
+      [value]="filterType"
+      (change)="filterType = $event.target.value; updateFilters();">
     <mat-icon matSuffix>search</mat-icon>
   </mat-form-field>
   <mat-form-field>
     <mat-label>Operation Name</mat-label>
     <input
-           matInput
-           [value]="filterOperation"
-           (change)="filterOperation = $event.target.value; updateFilters();">
+      matInput
+      [value]="filterOperation"
+      (change)="filterOperation = $event.target.value; updateFilters();">
     <mat-icon matSuffix>search</mat-icon>
   </mat-form-field>
 </div>
-<div *ngIf="totalOperations">
-  Note: To avoid sluggishness, only the 1000 most time-consuming operations out of the total
-  {{totalOperations}} operations are shown in the table below.
-</div>
-<br *ngIf="totalOperations && hasDiff">
-<div *ngIf="hasDiff">
-  Note: For diff tool, the main table is pre-ordered by the Avg. self-time absolute difference (hidden column) in descending order.
-  Each entry is shown as baseline(difference), while difference is converted to percentage w.r.t baseline if applicable.
-  Each numeric column can be sorted against the baseline.
-</div>
-<br>
-<chart class="table" chartType="Table" [dataInfo]="dataInfo"></chart>
+@if (totalOperations) {
+  <div>
+    Note: To avoid sluggishness, only the 1000 most time-consuming operations out of the total
+    {{totalOperations}} operations are shown in the table below.
+  </div>
+}
+@if (totalOperations && hasDiff()) {
+  <br>
+  }
+  @if (hasDiff()) {
+    <div>
+      Note: For diff tool, the main table is pre-ordered by the Avg. self-time absolute difference (hidden column) in descending order.
+      Each entry is shown as baseline(difference), while difference is converted to percentage w.r.t baseline if applicable.
+      Each numeric column can be sorted against the baseline.
+    </div>
+  }
+  <br>
+    <chart class="table" chartType="Table" [dataInfo]="dataInfo" />

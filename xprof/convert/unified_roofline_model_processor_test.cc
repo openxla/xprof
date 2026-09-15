@@ -66,5 +66,34 @@ TEST(UnifiedRooflineModelProcessorTest, MinimalTest) {
   EXPECT_THAT(processor->GetData(), Not(IsEmpty()));
 }
 
+TEST(UnifiedRooflineModelProcessorTest, FlatOpMetricsDbTest) {
+  RegisterUnifiedToolRegistrations();
+  ToolOptions options;
+  options["use_flat_metric"] = true;
+  options["apply_time_scale_multiplier"] = true;
+
+  std::unique_ptr<UnifiedProfileProcessor> processor =
+      UnifiedProfileProcessorFactory::GetInstance().Create("roofline_model",
+                                                           options);
+  ASSERT_NE(processor, nullptr);
+
+  std::string session_dir = tsl::io::JoinPath(
+      testing::TempDir(), "unified_roofline_model_processor_flat_test");
+  ASSERT_OK(tsl::Env::Default()->RecursivelyCreateDir(session_dir));
+  std::string xspace_path =
+      tsl::io::JoinPath(session_dir, "test_host.xplane.pb");
+  XSpace dummy_space;
+  ASSERT_OK(WriteBinaryProto(xspace_path, dummy_space));
+
+  std::vector<std::string> xspace_paths = {xspace_path};
+  ASSERT_OK_AND_ASSIGN(
+      SessionSnapshot session_snapshot,
+      SessionSnapshot::Create(xspace_paths, /*xspaces=*/std::nullopt));
+
+  EXPECT_OK(processor->ProcessSession(session_snapshot, options));
+  EXPECT_EQ(processor->GetContentType(), "application/json");
+  EXPECT_THAT(processor->GetData(), Not(IsEmpty()));
+}
+
 }  // namespace
 }  // namespace xprof

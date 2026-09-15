@@ -4,10 +4,10 @@ package(default_visibility = ["//frontend:internal"])
 
 xprof_ng_module(
     name = "profiler_options",
-    srcs = ["profiler_options.component.ts"],
+    srcs = ["profiler_options.ts"],
     assets = [
-        "profiler_options.component.css",
-        "profiler_options.component.html",
+        "profiler_options.css",
+        "profiler_options.ng.html",
     ],
     visibility = ["@org_xprof//frontend/app/components/kernel_analysis:__pkg__"],
     deps = [
@@ -33,7 +33,7 @@ xprof_ng_module(
     name = "tests",
     testonly = True,
     srcs = [
-        "profiler_options.component_test.ts",
+        "profiler_options_test.ts",
     ],
     deps = [
         ":profiler_options",

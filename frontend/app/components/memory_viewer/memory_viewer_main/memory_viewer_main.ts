@@ -7,7 +7,12 @@ import {
   OnChanges,
   OnDestroy,
 } from '@angular/core';
+import {MatDivider} from '@angular/material/divider';
+import {MatIcon} from '@angular/material/icon';
+import {MatSlideToggle} from '@angular/material/slide-toggle';
+import {MatTooltip} from '@angular/material/tooltip';
 import {Store} from '@ngrx/store';
+import {AngularSplitModule} from 'angular-split';
 import {BufferAllocationInfo} from 'org_xprof/frontend/app/common/interfaces/buffer_allocation_info';
 import {
   type MemoryViewerPreprocessResult,
@@ -25,6 +30,11 @@ import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/servic
 import {setActiveHeapObjectAction} from 'org_xprof/frontend/app/store/actions';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {DiagnosticsView} from '../../diagnostics_view/diagnostics_view';
+import {SourceMapper} from '../../source_mapper/source_mapper';
+import {BufferAllocationTimeline} from '../buffer_allocation_timeline/buffer_allocation_timeline';
+import {MaxHeapChart} from '../max_heap_chart/max_heap_chart';
+import {ProgramOrderChart} from '../program_order_chart/program_order_chart';
 
 interface BufferSpan {
   alloc: number;
@@ -34,10 +44,21 @@ interface BufferSpan {
 /** A memory viewer component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'memory-viewer-main',
   templateUrl: './memory_viewer_main.ng.html',
   styleUrls: ['./memory_viewer_main.scss'],
+  imports: [
+    AngularSplitModule,
+    BufferAllocationTimeline,
+    DiagnosticsView,
+    MatDivider,
+    MatIcon,
+    MatSlideToggle,
+    MatTooltip,
+    MaxHeapChart,
+    ProgramOrderChart,
+    SourceMapper,
+  ],
 })
 export class MemoryViewerMain implements OnDestroy, OnChanges {
   /** Preprocessed result for memory viewer */

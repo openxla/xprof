@@ -1,4 +1,3 @@
-import {CommonModule} from '@angular/common';
 import {
   Component,
   EventEmitter,
@@ -28,9 +27,7 @@ import type {
 /** Component for selecting counters from a categorized list. */
 @Component({
   selector: 'app-counter-selection',
-  standalone: true,
   imports: [
-    CommonModule,
     FormsModule,
     MatExpansionModule,
     MatCheckboxModule,

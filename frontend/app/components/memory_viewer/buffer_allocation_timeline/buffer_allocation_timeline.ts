@@ -12,6 +12,8 @@ import {
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
+import {MatIcon} from '@angular/material/icon';
+import {MatTooltip} from '@angular/material/tooltip';
 import {
   type BufferBlock,
   type BufferBlockProto,
@@ -75,10 +77,10 @@ function getFittingLabel(
  */
 @Component({
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
   selector: 'buffer-allocation-timeline',
   templateUrl: './buffer_allocation_timeline.ng.html',
   styleUrls: ['./buffer_allocation_timeline.scss'],
+  imports: [MatIcon, MatTooltip],
 })
 export class BufferAllocationTimeline
   implements AfterViewInit, OnChanges, OnDestroy
@@ -821,10 +823,7 @@ export class BufferAllocationTimeline
     ) {
       return 'N/A';
     }
-    return (
-      (block.size - block.unpaddedSize) /
-      (1024 * 1024)
-    ).toFixed(2);
+    return ((block.size - block.unpaddedSize) / (1024 * 1024)).toFixed(2);
   }
 
   @HostListener('document:fullscreenchange')

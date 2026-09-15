@@ -9,34 +9,39 @@
           </mat-form-field>
         </form>
       </div>
-      <div *ngIf="filteredGroups.length === 0" class="no-results md-typescale-body-medium">No counters found matching "{{searchText}}"</div>
+      @if (filteredGroups.length === 0) {
+        <div class="no-results md-typescale-body-medium">No counters found matching "{{searchText}}"</div>
+      }
       <mat-accordion multi="true">
-        <mat-expansion-panel *ngFor="let group of filteredGroups" [expanded]="group.expandByDefault">
-          <mat-expansion-panel-header>
-            <mat-panel-title>
-              <mat-checkbox
-                [checked]="isAllSelected(group)"
-                [indeterminate]="isSomeSelected(group)"
-                (click)="$event.stopPropagation()"
-                (change)="toggleGroupSelection(group)"
-                [attr.aria-label]="'Select all counters in ' + group.name">
-              </mat-checkbox>
-              <span class="group-name md-typescale-label-medium">{{group.name}}</span>
-            </mat-panel-title>
-          </mat-expansion-panel-header>
-
-          <div class="counters-grid" [class.list-layout]="layout === 'list'" [class.column-layout]="layout === 'columns'">
-            <div *ngFor="let counter of group.counters" class="counter-item">
-              <mat-checkbox
-                [checked]="isSelected(counter.id)"
-                (change)="toggleSelection(counter.id)">
-                <div class="counter-label-container">
-                  <span class="counter-label md-typescale-body-medium" [matTooltip]="counter.description" matTooltipShowDelay="500">{{counter.label}}</span>
+        @for (group of filteredGroups; track group) {
+          <mat-expansion-panel [expanded]="group.expandByDefault">
+            <mat-expansion-panel-header>
+              <mat-panel-title>
+                <mat-checkbox
+                  [checked]="isAllSelected(group)"
+                  [indeterminate]="isSomeSelected(group)"
+                  (click)="$event.stopPropagation()"
+                  (change)="toggleGroupSelection(group)"
+                  [attr.aria-label]="'Select all counters in ' + group.name">
+                </mat-checkbox>
+                <span class="group-name md-typescale-label-medium">{{group.name}}</span>
+              </mat-panel-title>
+            </mat-expansion-panel-header>
+            <div class="counters-grid" [class.list-layout]="layout === 'list'" [class.column-layout]="layout === 'columns'">
+              @for (counter of group.counters; track counter) {
+                <div class="counter-item">
+                  <mat-checkbox
+                    [checked]="isSelected(counter.id)"
+                    (change)="toggleSelection(counter.id)">
+                    <div class="counter-label-container">
+                      <span class="counter-label md-typescale-body-medium" [matTooltip]="counter.description" matTooltipShowDelay="500">{{counter.label}}</span>
+                    </div>
+                  </mat-checkbox>
                 </div>
-              </mat-checkbox>
+              }
             </div>
-          </div>
-        </mat-expansion-panel>
+          </mat-expansion-panel>
+        }
       </mat-accordion>
     </div>
 
@@ -46,14 +51,18 @@
         <button type="button" mat-button color="primary" (click)="clearAll()" [disabled]="selectedCounters.length === 0">Clear all</button>
       </div>
       <div class="selected-list-container">
-        <div *ngIf="selectedCounters.length === 0" class="no-selections md-typescale-body-medium">No counters selected</div>
+        @if (selectedCounters.length === 0) {
+          <div class="no-selections md-typescale-body-medium">No counters selected</div>
+        }
         <mat-list>
-          <mat-list-item *ngFor="let counter of selectedCounters">
-            <span matListItemTitle class="md-typescale-body-small" [matTooltip]="counter.description" matTooltipShowDelay="500">{{counter.label}}</span>
-            <button type="button" mat-icon-button matListItemMeta (click)="toggleSelection(counter.id)" [attr.aria-label]="'Remove ' + counter.label">
-              <mat-icon aria-hidden="true">close</mat-icon>
-            </button>
-          </mat-list-item>
+          @for (counter of selectedCounters; track counter) {
+            <mat-list-item>
+              <span matListItemTitle class="md-typescale-body-small" [matTooltip]="counter.description" matTooltipShowDelay="500">{{counter.label}}</span>
+              <button type="button" mat-icon-button matListItemMeta (click)="toggleSelection(counter.id)" [attr.aria-label]="'Remove ' + counter.label">
+                <mat-icon aria-hidden="true">close</mat-icon>
+              </button>
+            </mat-list-item>
+          }
         </mat-list>
       </div>
       <div class="actions-footer">

@@ -11,16 +11,18 @@ import {
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
+import {MatCard, MatCardContent, MatCardTitle} from '@angular/material/card';
 import {type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 const MAX_CHART_WIDTH = 800;
 
 /** An inference latency chart view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'inference-latency-chart',
   templateUrl: './inference_latency_chart.ng.html',
   styleUrls: ['./inference_latency_chart.scss'],
+  imports: [MatCard, MatCardContent, MatCardTitle],
 })
 export class InferenceLatencyChart implements AfterViewInit, OnChanges {
   /** The inference latency data. */

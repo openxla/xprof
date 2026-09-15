@@ -5,7 +5,7 @@ package(default_visibility = ["//frontend:internal"])
 xprof_ng_module(
     name = "overview_page",
     srcs = [
-        "overview_page_module.ts",
+        "overview_page.ts",
     ],
     assets = [
         ":overview_page_css",

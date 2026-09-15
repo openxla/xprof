@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "org_chart",
     srcs = [
         "org_chart.ts",
-        "org_chart_module.ts",
     ],
     assets = [
         ":org_chart_css",

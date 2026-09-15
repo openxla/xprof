@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -x
-set -e
+set -eo pipefail
+[[ "${VERBOSE:-false}" == "true" ]] && set -x
 copy="cp"
 
 OUTPUT_DIR="${XPROF_OUTPUT_DIR:-/tmp/profile-pip}"
@@ -77,7 +77,9 @@ fi
 
 # Copy plugin python files.
 cd ${PLUGIN_RUNFILE_DIR}
-find . -name '*.py' -exec ${copy} --parents -Lrpv {} $dest \;
+copy_flags="-Lrp"
+[[ "${VERBOSE:-false}" == "true" ]] && copy_flags="-Lrpv"
+find . -name '*.py' -exec ${copy} --parents ${copy_flags} {} $dest \;
 cd $dest
 chmod -R 755 .
 cp ${build_workspace}/bazel-bin/plugin/xprof/protobuf/*_pb2.py xprof/protobuf/ || echo "Files already exist"

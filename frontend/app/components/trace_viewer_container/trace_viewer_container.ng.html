@@ -1,23 +1,25 @@
-<div [hidden]="!useTraceViewerV2" class="trace-viewer-component">
-  <ng-container *ngIf="traceViewerV2LoadingStatus === TraceViewerV2LoadingStatus.ERROR">
+<div [hidden]="!useTraceViewerV2()" class="trace-viewer-component">
+  @if (traceViewerV2LoadingStatus === TraceViewerV2LoadingStatus.ERROR) {
     <div class="error-overlay">
       <mat-icon>error</mat-icon>
       <div class="error-message">{{'Error, please use the old frontend. ' + (traceViewerV2ErrorMessage ?? '')}}</div>
     </div>
-  </ng-container>
-  <ng-container *ngIf="traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR">
-    <div *ngIf="isInitialLoading" class="loading-overlay">
-      <mat-progress-bar mode="indeterminate" aria-label="Loading trace data"></mat-progress-bar>
-      <div class="loading-status">{{traceViewerV2LoadingStatus}}</div>
-      <div class="tutorial">{{tutorials[currentTutorialIndex]}}</div>
-    </div>
-  </ng-container>
+  }
+  @if (traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR) {
+    @if (isInitialLoading) {
+      <div class="loading-overlay">
+        <mat-progress-bar mode="indeterminate" aria-label="Loading trace data" />
+        <div class="loading-status">{{traceViewerV2LoadingStatus}}</div>
+        <div class="tutorial">{{tutorials[currentTutorialIndex]}}</div>
+      </div>
+    }
+  }
   <div #searchContainer class="search-container">
     <mat-form-field appearance="outline" class="search-form-field">
       <mat-icon matPrefix>search</mat-icon>
       <input matInput #searchBox [value]="searchQuery" placeholder="Search events" aria-label="Search trace events" (input)="onSearchEvent(searchBox.value)" (keydown.enter)="nextSearchResult(searchBox.value)" />
       <div matSuffix class="search-suffix">
-        <ng-container *ngIf="currentSearchQuery">
+        @if (currentSearchQuery) {
           <span class="search-result-count" role="status" aria-live="polite">{{searchResultCountText}}</span>
           <div class="search-divider"></div>
           <button type="button" mat-icon-button aria-label="Previous search result" (click)="prevSearchResult(searchBox.value, $event)" (keydown.enter)="prevSearchResult(searchBox.value)" class="search-arrow-btn">
@@ -29,7 +31,7 @@
           <button type="button" mat-icon-button aria-label="Clear search" (click)="clearSearch($event)" (keydown.enter)="clearSearch()" class="search-clear-btn">
             <mat-icon>close</mat-icon>
           </button>
-        </ng-container>
+        }
       </div>
     </mat-form-field>
     <div class="mouse-mode-container">
@@ -71,205 +73,246 @@
       </button>
       <div class="timing-button-wrapper">
         <button #timingBtn type="button" mat-icon-button [class.active]="currentMouseMode === MouseMode.TIMING" (click)="setMouseMode(MouseMode.TIMING)" title="Measure Mode" aria-label="Measure Mode">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <g clip-path="url(#clip0_71_467)">
-            <path d="M18 16H16.5V4H18V16ZM15 10L12 13L10.9375 11.9375L12.125 10.75H7.875L9.0625 11.9375L8 13L5 10L8 7L9.0625 8.0625L7.875 9.25H12.125L10.9375 8.0625L12 7L15 10ZM3.5 16H2L2 4H3.5L3.5 16Z" fill="#444746"/>
-          </g>
-          <defs>
-            <clipPath id="clip0_71_467">
-              <rect width="20" height="20" fill="white" transform="matrix(0 -1 1 0 0 20)"/>
-            </clipPath>
-          </defs>
-        </svg>
-      </button>
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <g clip-path="url(#clip0_71_467)">
+              <path d="M18 16H16.5V4H18V16ZM15 10L12 13L10.9375 11.9375L12.125 10.75H7.875L9.0625 11.9375L8 13L5 10L8 7L9.0625 8.0625L7.875 9.25H12.125L10.9375 8.0625L12 7L15 10ZM3.5 16H2L2 4H3.5L3.5 16Z" fill="#444746"/>
+            </g>
+            <defs>
+              <clipPath id="clip0_71_467">
+                <rect width="20" height="20" fill="white" transform="matrix(0 -1 1 0 0 20)"/>
+              </clipPath>
+            </defs>
+          </svg>
+        </button>
         <!-- Coach Mark Bubble -->
-        <div *ngIf="showTimingOnboarding" class="coach-mark-bubble">
-          <div class="coach-mark-title">Measure Mode</div>
-          <div class="coach-mark-content">
-            You are now in Measure mode. Click and drag on the timeline to select a time range. You can also use <b>Shift + Drag</b> or <b>Shift + Click</b> in other modes to measure. <br><br>Tip: You can press '4' to quickly enter this mode.
+        @if (showTimingOnboarding) {
+          <div class="coach-mark-bubble">
+            <div class="coach-mark-title">Measure Mode</div>
+            <div class="coach-mark-content">
+              You are now in Measure mode. Click and drag on the timeline to select a time range. You can also use <b>Shift + Drag</b> or <b>Shift + Click</b> in other modes to measure. <br><br>Tip: You can press '4' to quickly enter this mode.
+            </div>
+            <div class="coach-mark-actions">
+              <button type="button" mat-button class="coach-mark-button" (click)="dismissTimingOnboarding()">Got it</button>
+            </div>
+            <!-- Arrow -->
+            <div class="coach-mark-arrow"></div>
           </div>
-          <div class="coach-mark-actions">
-            <button type="button" mat-button class="coach-mark-button" (click)="dismissTimingOnboarding()">Got it</button>
-          </div>
-          <!-- Arrow -->
-          <div class="coach-mark-arrow"></div>
-        </div>
+        }
       </div>
     </div>
     <div class="fullscreen-container">
       <button type="button" mat-icon-button (click)="toggleFullscreen()" [class.active]="isFullscreen" [matTooltip]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen (shows only the Trace Viewer)'" [attr.aria-label]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'">
-        <svg *ngIf="!isFullscreen" width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M7 14H5V19H10V17H7V14ZM5 10H7V7H10V5H5V10ZM17 17H14V19H19V14H17V17ZM14 5V7H17V10H19V5H14Z" fill="#444746"/>
-        </svg>
-        <svg *ngIf="isFullscreen" width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M5 16H8V19H10V14H5V16ZM8 8H5V10H10V5H8V8ZM14 19H16V16H19V14H14V19ZM16 8V5H14V10H19V8H16Z" fill="#444746"/>
-        </svg>
+        @if (!isFullscreen) {
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M7 14H5V19H10V17H7V14ZM5 10H7V7H10V5H5V10ZM17 17H14V19H19V14H17V17ZM14 5V7H17V10H19V5H14Z" fill="#444746"/>
+          </svg>
+        }
+        @if (isFullscreen) {
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M5 16H8V19H10V14H5V16ZM8 8H5V10H10V5H8V8ZM14 19H16V16H19V14H14V19ZM16 8V5H14V10H19V8H16Z" fill="#444746"/>
+          </svg>
+        }
       </button>
     </div>
-    <div class="mouse-mode-hints" *ngIf="currentMouseModeConfig as config">
-      <ng-container *ngFor="let mode of [currentMouseMode]">
+    @if (currentMouseModeConfig; as config) {
+      <div class="mouse-mode-hints">
         <div class="status-content">
-          <ng-container *ngFor="let hint of config.hints; let last = last">
+          @for (hint of config.hints; track hint.description; let last = $last) {
             <span class="hint-group">
               <span class="hint-desc">{{ hint.description }}</span>
               <span class="keys-container">
-                <ng-container *ngFor="let key of hint.keys; let keyLast = last">
-                  <kbd>{{ key }}</kbd><span class="key-sep" *ngIf="!keyLast">{{ hint.separator ?? '/' }}</span>
-                </ng-container>
+                @for (key of hint.keys; track key; let keyLast = $last) {
+                  <kbd>{{ key }}</kbd>@if (!keyLast) {<span class="key-sep">{{ hint.separator ?? '/' }}</span>}
+                }
               </span>
             </span>
-            <span *ngIf="!last" class="divider"></span>
-          </ng-container>
+            @if (!last) {
+              <span class="divider"></span>
+            }
+          }
         </div>
-      </ng-container>
-    </div>
+      </div>
+    }
     <div class="spacer"></div>
-    <trace-viewer-customization-panel></trace-viewer-customization-panel>
-    <button *ngIf="useTraceViewerV2 && showHelpButton" type="button" mat-icon-button (click)="openHelpDialog()" title="Keyboard Shortcuts & Controls" aria-label="Keyboard Shortcuts & Controls">
-      <mat-icon>help_outline</mat-icon>
-    </button>
-    <trace-viewer-help-dialog></trace-viewer-help-dialog>
-    <button *ngIf="useTraceViewerV2" type="button" mat-icon-button (click)="openHelpDialog()" title="Shortcuts Guide" aria-label="Shortcuts Guide">
-      <mat-icon>keyboard</mat-icon>
-    </button>
-    <trace-viewer-shortcuts-dialog></trace-viewer-shortcuts-dialog>
-    <div class="incremental-loading" *ngIf="searching || (!isInitialLoading && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR)">
-      <div class="loading-status">Loading more data...</div>
-      <mat-progress-spinner mode="indeterminate" diameter="24"></mat-progress-spinner>
-    </div>
+    <trace-viewer-customization-panel />
+    @if (useTraceViewerV2() && showHelpButton()) {
+      <button type="button" mat-icon-button (click)="openHelpDialog()" title="Keyboard Shortcuts & Controls" aria-label="Keyboard Shortcuts & Controls">
+        <mat-icon>help_outline</mat-icon>
+      </button>
+    }
+    <trace-viewer-help-dialog />
+    @if (searching() || (!isInitialLoading && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR)) {
+      <div class="incremental-loading">
+        <div class="loading-status">Loading more data...</div>
+        <mat-progress-spinner mode="indeterminate" diameter="24" />
+      </div>
+    }
   </div>
   <div class="main-content-area">
     <as-split direction="vertical" (dragEnd)="onDragEnd($event)">
       <as-split-area [size]="timelineHeightPercent">
         <div class="canvas-container" #canvasContainer>
           <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" (mousedown)="blurActiveElement()"></canvas>
-          <timeline-player *ngIf="enableTimelinePlayer" (play)="onPlay()" (pause)="onPause()" (seek)="onSeek($event)" (speedChange)="onSpeedChange($event)" style="flex-shrink: 0;"></timeline-player>
+          @if (enableTimelinePlayer) {
+            <timeline-player (play)="onPlay()" (pause)="onPause()" (seek)="onSeek($event)" (speedChange)="onSpeedChange($event)" style="flex-shrink: 0;" />
+          }
         </div>
       </as-split-area>
-      <as-split-area [size]="detailHeightPercent" [minSize]="selectedEvent ? minDrawerSizePercent : 0" [visible]="!!selectedEvent">
-        <div *ngIf="selectedEvent" #drawer class="drawer">
-          <div class="event-detail-table-container">
-            <div *ngIf="isSingleEventTable()" class="single-event-details">
-              <as-split direction="horizontal" style="min-height: 150px; width: 100%;">
-                <as-split-area [size]="60" class="split-area-left">
-                  <div class="split-area-inner">
-                    <ng-container
-                      *ngIf="useTraceViewerV2 && selectedEventJson; else flatLeftDetails">
-                      <div class="json-event-details">
-                        <div
-                          #jsonStickySentinel
-                          class="json-sticky-sentinel"
-                          aria-hidden="true"></div>
-                        <div
-                          class="json-event-details-title"
-                          [class.is-sticky]="isJsonTitleStuck">
-                          Event details
+      <as-split-area [size]="detailHeightPercent" [minSize]="selectedEvent() ? minDrawerSizePercent : 0" [visible]="!!selectedEvent()">
+        @if (selectedEvent(); as selectedEvent) {
+          <div #drawer class="drawer">
+            <div class="event-detail-table-container">
+              @if (isSingleEventTable()) {
+                <div class="single-event-details">
+                  <as-split direction="horizontal" style="min-height: 150px; width: 100%;">
+                    <as-split-area [size]="60" class="split-area-left">
+                      <div class="split-area-inner">
+                        @if (useTraceViewerV2() && selectedEventJson) {
+                          <div class="json-event-details">
+                            <div
+                              #jsonStickySentinel
+                              class="json-sticky-sentinel"
+                              aria-hidden="true"></div>
+                            <div
+                              class="json-event-details-title"
+                              [class.is-sticky]="isJsonTitleStuck">
+                              Event details
+                            </div>
+                            <ngx-json-viewer [json]="selectedEventJson" [depth]="3" />
+                          </div>
+                        } @else {
+                          <h3>{{selectedEvent.name}}</h3>
+                          @for (prop of leftSideProperties; track prop.property + ':' + prop.value) {
+                            <div class="detail-row">
+                              <span class="detail-label">{{prop.property}}:</span>
+                              <span class="detail-value">{{prop.value}}</span>
+                            </div>
+                          }
+                        }
+                      </div>
+                    </as-split-area>
+                    <as-split-area [size]="40" class="split-area-right">
+                      <div class="split-area-inner">
+                        @for (prop of rightSideProperties; track prop.property + ':' + prop.value) {
+                          <div class="detail-row">
+                            <span class="detail-label">{{prop.property}}:</span>
+                            <span class="detail-value">{{prop.value}}</span>
+                          </div>
+                        }
+                        <div class="cross-tool-links">
+                          @if (selectedEvent.stackTraceLinkHtml) {
+                            <div [innerHTML]="selectedEvent.stackTraceLinkHtml"></div>
+                          }
+                          @if (selectedEvent.rooflineModelLinkHtml) {
+                            <div [innerHTML]="selectedEvent.rooflineModelLinkHtml"></div>
+                          }
+                          @if (selectedEvent.graphViewerLinkHtml) {
+                            <div [innerHTML]="selectedEvent.graphViewerLinkHtml"></div>
+                          }
                         </div>
-                        <ngx-json-viewer [json]="selectedEventJson" [depth]="3">
-                        </ngx-json-viewer>
                       </div>
+                    </as-split-area>
+                  </as-split>
+                </div>
+              }
+
+              @if (!isSingleEventTable()) {
+                @if (metricsDataSource.data.length > 0 && countersDataSource.data.length > 0) {
+                  <mat-tab-group>
+                    <mat-tab label="Profile Metrics">
+                      <ng-template matTabContent>
+                        <ng-container *ngTemplateOutlet="metricsTable" />
+                      </ng-template>
+                    </mat-tab>
+                    <mat-tab label="Counters">
+                      <ng-template matTabContent>
+                        <ng-container *ngTemplateOutlet="countersTable" />
+                      </ng-template>
+                    </mat-tab>
+                  </mat-tab-group>
+                } @else {
+                  <div>
+                    @if (metricsDataSource.data.length > 0) {
+                      <ng-container *ngTemplateOutlet="metricsTable" />
+                    }
+                    @if (countersDataSource.data.length > 0) {
+                      <ng-container *ngTemplateOutlet="countersTable" />
+                    }
+                  </div>
+                }
+              }
+
+              <ng-template #metricsTable>
+                <table mat-table matSort class="event-detail-table" [dataSource]="metricsDataSource">
+                  @for (col of metricsColumns; track col) {
+                    <ng-container [matColumnDef]="col">
+                      <th mat-header-cell *matHeaderCellDef mat-sort-header style="resize: horizontal; overflow: hidden; padding-right: 16px;">
+                        {{ getColumnHeader(col) }}
+                      </th>
+                      <td mat-cell *matCellDef="let element" style="word-break: break-word;">
+                        {{ getCellContent(element, col) }}
+                      </td>
+                      <td mat-footer-cell *matFooterCellDef>
+                        @if (col === 'name') {
+                          <strong>Totals</strong>
+                        }
+                        @if (col === 'occurrences') {
+                          <strong>{{ getTotal('occurrences', metricsDataSource) }}</strong>
+                        }
+                        @if (col === 'wallDuration') {
+                          <strong>{{ getTotal('wallDuration', metricsDataSource) | number:'1.2-2' }}us</strong>
+                        }
+                        @if (col === 'selfTime') {
+                          <strong>{{ getTotal('selfTime', metricsDataSource) | number:'1.2-2' }}us</strong>
+                        }
+                        @if (col === 'avgWallDuration') {
+                          <strong>{{ (getTotal('wallDuration', metricsDataSource) / (getTotal('occurrences', metricsDataSource) || 1)) | number:'1.2-2' }}us</strong>
+                        }
+                      </td>
                     </ng-container>
-                    <ng-template #flatLeftDetails>
-                      <h3>{{selectedEvent.name}}</h3>
-                      <div class="detail-row" *ngFor="let prop of leftSideProperties; trackBy: trackByProperty">
-                        <span class="detail-label">{{prop.property}}:</span>
-                        <span class="detail-value">{{prop.value}}</span>
-                      </div>
-                    </ng-template>
-                  </div>
-                </as-split-area>
-                <as-split-area [size]="40" class="split-area-right">
-                  <div class="split-area-inner">
-                    <div class="detail-row" *ngFor="let prop of rightSideProperties; trackBy: trackByProperty">
-                      <span class="detail-label">{{prop.property}}:</span>
-                      <span class="detail-value">{{prop.value}}</span>
-                    </div>
-                    <div class="cross-tool-links">
-                      <div *ngIf="selectedEvent.stackTraceLinkHtml" [innerHTML]="selectedEvent.stackTraceLinkHtml"></div>
-                      <div *ngIf="selectedEvent.rooflineModelLinkHtml" [innerHTML]="selectedEvent.rooflineModelLinkHtml"></div>
-                      <div *ngIf="selectedEvent.graphViewerLinkHtml" [innerHTML]="selectedEvent.graphViewerLinkHtml"></div>
-                    </div>
-                  </div>
-                </as-split-area>
-              </as-split>
-            </div>
+                  }
 
-            <div *ngIf="!isSingleEventTable()">
-              <mat-tab-group *ngIf="metricsDataSource.data.length > 0 && countersDataSource.data.length > 0">
-                <mat-tab label="Profile Metrics">
-                  <ng-template matTabContent>
-                    <ng-container *ngTemplateOutlet="metricsTable"></ng-container>
-                  </ng-template>
-                </mat-tab>
-                <mat-tab label="Counters">
-                  <ng-template matTabContent>
-                    <ng-container *ngTemplateOutlet="countersTable"></ng-container>
-                  </ng-template>
-                </mat-tab>
-              </mat-tab-group>
+                  <tr mat-header-row *matHeaderRowDef="metricsColumns; sticky: true"></tr>
+                  <tr mat-row *matRowDef="let row; columns: metricsColumns;"></tr>
+                  <tr mat-footer-row *matFooterRowDef="metricsColumns; sticky: true"></tr>
+                </table>
+              </ng-template>
 
-              <div *ngIf="!(metricsDataSource.data.length > 0 && countersDataSource.data.length > 0)">
-                <ng-container *ngIf="metricsDataSource.data.length > 0">
-                  <ng-container *ngTemplateOutlet="metricsTable"></ng-container>
-                </ng-container>
-                <ng-container *ngIf="countersDataSource.data.length > 0">
-                  <ng-container *ngTemplateOutlet="countersTable"></ng-container>
-                </ng-container>
-              </div>
-            </div>
+              <ng-template #countersTable>
+                <table mat-table matSort class="event-detail-table" [dataSource]="countersDataSource">
+                  @for (col of counterColumns; track col) {
+                    <ng-container [matColumnDef]="col">
+                      <th mat-header-cell *matHeaderCellDef mat-sort-header style="resize: horizontal; overflow: hidden; padding-right: 16px;">
+                        {{ getColumnHeader(col) }}
+                      </th>
+                      <td mat-cell *matCellDef="let element" style="word-break: break-word;">
+                        {{ getCellContent(element, col) }}
+                      </td>
+                    </ng-container>
+                  }
 
-            <ng-template #metricsTable>
-              <table mat-table matSort class="event-detail-table" [dataSource]="metricsDataSource">
-                <ng-container *ngFor="let col of metricsColumns" [matColumnDef]="col">
-                  <th mat-header-cell *matHeaderCellDef mat-sort-header style="resize: horizontal; overflow: hidden; padding-right: 16px;">
-                    {{ getColumnHeader(col) }}
-                  </th>
-                  <td mat-cell *matCellDef="let element" style="word-break: break-word;">
-                    {{ getCellContent(element, col) }}
-                  </td>
-                  <td mat-footer-cell *matFooterCellDef>
-                    <ng-container *ngIf="col === 'name'"><strong>Totals</strong></ng-container>
-                    <ng-container *ngIf="col === 'occurrences'"><strong>{{ getTotal('occurrences', metricsDataSource) }}</strong></ng-container>
-                    <ng-container *ngIf="col === 'wallDuration'"><strong>{{ getTotal('wallDuration', metricsDataSource) | number:'1.2-2' }}us</strong></ng-container>
-                    <ng-container *ngIf="col === 'selfTime'"><strong>{{ getTotal('selfTime', metricsDataSource) | number:'1.2-2' }}us</strong></ng-container>
-                    <ng-container *ngIf="col === 'avgWallDuration'"><strong>{{ (getTotal('wallDuration', metricsDataSource) / (getTotal('occurrences', metricsDataSource) || 1)) | number:'1.2-2' }}us</strong></ng-container>
-                  </td>
-                </ng-container>
+                  <tr mat-header-row *matHeaderRowDef="counterColumns; sticky: true"></tr>
+                  <tr mat-row *matRowDef="let row; columns: counterColumns;"></tr>
+                </table>
+              </ng-template>
 
-                <tr mat-header-row *matHeaderRowDef="metricsColumns; sticky: true"></tr>
-                <tr mat-row *matRowDef="let row; columns: metricsColumns;"></tr>
-                <tr mat-footer-row *matFooterRowDef="metricsColumns; sticky: true"></tr>
-              </table>
-            </ng-template>
-
-            <ng-template #countersTable>
-              <table mat-table matSort class="event-detail-table" [dataSource]="countersDataSource">
-                <ng-container *ngFor="let col of counterColumns" [matColumnDef]="col">
-                  <th mat-header-cell *matHeaderCellDef mat-sort-header style="resize: horizontal; overflow: hidden; padding-right: 16px;">
-                    {{ getColumnHeader(col) }}
-                  </th>
-                  <td mat-cell *matCellDef="let element" style="word-break: break-word;">
-                    {{ getCellContent(element, col) }}
-                  </td>
-                </ng-container>
-
-                <tr mat-header-row *matHeaderRowDef="counterColumns; sticky: true"></tr>
-                <tr mat-row *matRowDef="let row; columns: counterColumns;"></tr>
-              </table>
-            </ng-template>
-
-            <div *ngIf="selectionStartFormat" class="selection-info" style="margin-top: 16px;">
-              Selection Start: {{ selectionStartFormat }}
-            </div>
-            <div *ngIf="selectionExtentFormat" class="selection-info">
-              Selection Extent: {{ selectionExtentFormat }}
+              @if (selectionStartFormat()) {
+                <div class="selection-info" style="margin-top: 16px;">
+                  Selection Start: {{ selectionStartFormat() }}
+                </div>
+              }
+              @if (selectionExtentFormat()) {
+                <div class="selection-info">
+                  Selection Extent: {{ selectionExtentFormat() }}
+                </div>
+              }
             </div>
           </div>
-        </div>
+        }
       </as-split-area>
     </as-split>
   </div>
 </div>
-<div [hidden]="useTraceViewerV2" class="trace-viewer-component">
-  <iframe #tvIframe [src]="url | safe" onload="focus();"></iframe>
+<div [hidden]="useTraceViewerV2()" class="trace-viewer-component">
+  <iframe #tvIframe [src]="url() | safe" onload="focus();"></iframe>
 </div>

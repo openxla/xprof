@@ -1,25 +1,18 @@
 <div class="section-container">
   <div class="row">
-      <category-filter [dataTable]="dataTable" column="Device" (changed)="updateFilters($event)">
-      </category-filter>
-      <category-filter [dataTable]="dataTable" column="Kernel" (changed)="updateFilters($event)">
-      </category-filter>
-      <category-filter [dataTable]="dataTable" column="Chip" (changed)="updateFilters($event)">
-      </category-filter>
-      <category-filter [dataTable]="dataTable" column="Sample" (changed)="updateFilters($event)">
-      </category-filter>
-      <category-filter
-        [dataTable]="dataTable"
-        column="Set"
-        valueSeparator=" "
-        all="all"
-        (changed)="updateFilters($event)"
-      >
-      </category-filter>
-      <string-filter [dataTable]="dataTable" column="Counter" (changed)="updateFilters($event)">
-      </string-filter>
+    <category-filter [dataTable]="dataTable" column="Device" (changed)="updateFilters($event)" />
+    <category-filter [dataTable]="dataTable" column="Kernel" (changed)="updateFilters($event)" />
+    <category-filter [dataTable]="dataTable" column="Chip" (changed)="updateFilters($event)" />
+    <category-filter [dataTable]="dataTable" column="Sample" (changed)="updateFilters($event)" />
+    <category-filter
+      [dataTable]="dataTable"
+      column="Set"
+      valueSeparator=" "
+      all="all"
+      (changed)="updateFilters($event)" />
+    <string-filter [dataTable]="dataTable" column="Counter" (changed)="updateFilters($event)" />
     <div class="flex-space"></div>
-    <export-as-csv [tool]="tool" [sessionId]="sessionId"[additionalParams]="getAdditionalParams()"></export-as-csv>
+    <export-as-csv [tool]="tool" [sessionId]="sessionId" [additionalParams]="getAdditionalParams()" />
   </div>
 </div>
 

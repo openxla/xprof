@@ -1,6 +1,11 @@
 <div class="center-wrapper">
   <div class="message-container">
-    <p class="main-message" *ngIf="title">{{title}}</p>
-    <p class="sub-message" *ngIf="content">{{content}}</p>
+    @if (title()) {
+      <p class="main-message">{{title()}}</p>
+    }
+    @if (content()) {
+      <p class="sub-message">{{content()}}</p>
+    }
   </div>
 </div>
+

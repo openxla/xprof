@@ -1,30 +1,35 @@
 <div class="row">
-  <category-filter [dataTable]="dataTable" column="Include Infeed/Outfeed" (changed)="onUpdateFilters($event)" [initValue]="true"></category-filter>
-  <category-filter [dataTable]="dataTable" column="Category" (changed)="onUpdateFilters($event)" all="All"></category-filter>
-  <category-filter [dataTable]="dataTable" column="Bound by" (changed)="onUpdateFilters($event)" all="All"></category-filter>
-  <string-filter [dataTable]="dataTable" column="Operation" [value]="selectedOp" (changed)="onUpdateFilters($event)" all="All"></string-filter>
-  <div class="control" *ngIf="sourceCodeServiceIsAvailable">
-    <div class="control-title">Show Source Code
-      <mat-icon
-        class="tooltip-icon"
-        matTooltip=
+  <category-filter [dataTable]="dataTable" column="Include Infeed/Outfeed" (changed)="onUpdateFilters($event)" [initValue]="true" />
+  <category-filter [dataTable]="dataTable" column="Category" (changed)="onUpdateFilters($event)" all="All" />
+  <category-filter [dataTable]="dataTable" column="Bound by" (changed)="onUpdateFilters($event)" all="All" />
+  <string-filter [dataTable]="dataTable" column="Operation" [value]="selectedOp()" (changed)="onUpdateFilters($event)" all="All" />
+  @if (sourceCodeServiceIsAvailable()) {
+    <div class="control">
+      <div class="control-title">Show Source Code
+        <mat-icon
+          class="tooltip-icon"
+          matTooltip=
           "Click on the source info text to see snippets of source code around frames of the
           stack trace at the bottom of the page (available only in the new analysis)."
-        matTooltipPosition="above">
-        info
-      </mat-icon>
+          matTooltipPosition="above">
+          info
+        </mat-icon>
+      </div>
+      <mat-slide-toggle [checked]="showStackTrace" (toggleChange)="toggleShowStackTrace()"/>
     </div>
-    <mat-slide-toggle [checked]="showStackTrace" (toggleChange)="toggleShowStackTrace()"/>
-  </div>
+  }
 </div>
 <div class="row">
-  <chart chartType="ScatterChart" [dataInfo]="dataInfoRooflineScatterChart"></chart>
+  <chart chartType="ScatterChart" [dataInfo]="dataInfoRooflineScatterChart" />
   <div class="flex-space"></div>
-  <chart chartType="PieChart" [dataInfo]="dataInfoCategoryPieChart"></chart>
+  <chart chartType="PieChart" [dataInfo]="dataInfoCategoryPieChart" />
 </div>
 <table #table [dataView]="dataView" [showRowNumber]="true"></table>
 
-<stack-trace-snippet
+@if (sourceCodeServiceIsAvailable() && showStackTrace) {
+  <stack-trace-snippet
     [sourceFileAndLineNumber]="sourceFileAndLineNumber"
     [stackTrace]="stackTrace"
-    *ngIf="sourceCodeServiceIsAvailable && showStackTrace"/>
+    />
+}
+

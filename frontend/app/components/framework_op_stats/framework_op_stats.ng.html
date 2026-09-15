@@ -14,118 +14,124 @@
       </div>
     </div>
     <div class="flex-space"></div>
-    <export-as-csv [sessionId]="sessionId" [tool]="tool" [host]="host"></export-as-csv>
+    <export-as-csv [sessionId]="sessionId()" [tool]="tool()" [host]="host()" />
   </div>
 
   <br>
 
-  <div class="mat-title">Include IDLE time in statistics</div>
+    <div class="mat-title">Include IDLE time in statistics</div>
 
-  <mat-menu #idleOptions="matMenu">
-    <button mat-menu-item
-            *ngFor="let option of idleOptionItems"
-            (click)="setIdleOption(option)"
-            [disabled]="idleMenuButtonLabel == option">
-      {{option}}
-    </button>
-  </mat-menu>
+    <mat-menu #idleOptions="matMenu">
+      @for (option of idleOptionItems; track option) {
+        <button mat-menu-item
+          (click)="setIdleOption(option)"
+          [disabled]="idleMenuButtonLabel == option">
+          {{option}}
+        </button>
+      }
+    </mat-menu>
 
-  <div class="idle-button-container">
-    <button mat-raised-button [matMenuTriggerFor]="idleOptions">
-      {{idleMenuButtonLabel}}
-      <mat-icon>arrow_drop_down</mat-icon>
-    </button>
-  </div>
-
-  <br>
-
-  <div class="row" *ngIf="hasDeviceData">
-    <div class="pie-chart">
-      <div class="mat-title">ON DEVICE: TOTAL SELF-TIME (GROUPED BY TYPE)</div>
-      <div class="description">
-        (in microseconds) of a framework operation type
-      </div>
-      <chart chartType="PieChart" [dataInfo]="dataInfoDeviceByType"></chart>
+    <div class="idle-button-container">
+      <button mat-raised-button [matMenuTriggerFor]="idleOptions">
+        {{idleMenuButtonLabel}}
+        <mat-icon>arrow_drop_down</mat-icon>
+      </button>
     </div>
-    <div class="pie-chart" *ngIf="!hasDiff">
-      <div class="mat-title">ON DEVICE: TOTAL SELF-TIME</div>
-      <div class="description">
-        (in microseconds) of a framework operation
+
+    <br>
+
+      @if (hasDeviceData) {
+        <div class="row">
+          <div class="pie-chart">
+            <div class="mat-title">ON DEVICE: TOTAL SELF-TIME (GROUPED BY TYPE)</div>
+            <div class="description">
+              (in microseconds) of a framework operation type
+            </div>
+            <chart [chartType]="ChartType.PIE_CHART" [dataInfo]="dataInfoDeviceByType" />
+          </div>
+          @if (!hasDiff) {
+            <div class="pie-chart">
+              <div class="mat-title">ON DEVICE: TOTAL SELF-TIME</div>
+              <div class="description">
+                (in microseconds) of a framework operation
+              </div>
+              <chart [chartType]="ChartType.PIE_CHART" [dataInfo]="dataInfoDeviceByName" />
+            </div>
+          }
+          @if (showFlopRateChart && !hasDiff) {
+            <flop-rate-chart [data]="selectedData" [xColumn]="flopRateChartXColumn"
+              [yColumn]="flopRateChartYColumn" [opType]="opType" />
+          }
+        </div>
+      }
+
+      <div class="row">
+        <div class="pie-chart">
+          <div class="mat-title">ON HOST: TOTAL SELF-TIME (GROUPED BY TYPE)</div>
+          <div class="description">
+            (in microseconds) of a framework operation type
+          </div>
+          <chart [chartType]="ChartType.PIE_CHART" [dataInfo]="dataInfoHostByType" />
+        </div>
+        @if (!hasDiff) {
+          <div class="pie-chart">
+            <div class="mat-title">ON HOST: TOTAL SELF-TIME</div>
+            <div class="description">
+              (in microseconds) of a framework operation
+            </div>
+            <chart [chartType]="ChartType.PIE_CHART" [dataInfo]="dataInfoHostByName" />
+          </div>
+        }
+        @if (showModelProperties) {
+          <model-properties [architecture]="architecture"
+            [task]="task" />
+        }
       </div>
-      <chart chartType="PieChart" [dataInfo]="dataInfoDeviceByName"></chart>
+
     </div>
-    <flop-rate-chart [data]="selectedData" [xColumn]="flopRateChartXColumn"
-                     [yColumn]="flopRateChartYColumn" [opType]="opType"
-                     *ngIf="showFlopRateChart && !hasDiff">
-    </flop-rate-chart>
-  </div>
 
-  <div class="row">
-    <div class="pie-chart">
-      <div class="mat-title">ON HOST: TOTAL SELF-TIME (GROUPED BY TYPE)</div>
-      <div class="description">
-        (in microseconds) of a framework operation type
-      </div>
-      <chart chartType="PieChart" [dataInfo]="dataInfoHostByType"></chart>
-    </div>
-    <div class="pie-chart" *ngIf="!hasDiff">
-      <div class="mat-title">ON HOST: TOTAL SELF-TIME</div>
-      <div class="description">
-        (in microseconds) of a framework operation
-      </div>
-      <chart chartType="PieChart" [dataInfo]="dataInfoHostByName"></chart>
-    </div>
-    <model-properties [architecture]="architecture"
-                      [task]="task"
-                      *ngIf="showModelProperties">
-    </model-properties>
-  </div>
+    <mat-divider />
 
-</div>
+    <stats-table [tensorflowStatsData]="selectedData"
+      [diffData]="selectedDiffData"
+      [hasDiff]="hasDiff" />
 
-<mat-divider></mat-divider>
+    <mat-divider />
 
-<stats-table [tensorflowStatsData]="selectedData"
-             [diffData]="selectedDiffData"
-             [hasDiff]="hasDiff">
-</stats-table>
-
-<mat-divider></mat-divider>
-
-<div *ngIf="hasDeviceData">
-  <div *ngIf="showPprofLink">
-    <div class="section-container">
-      <div class="mat-headline">Pprof for Device-side framework operations</div>
+    @if (hasDeviceData) {
       <div>
-        If at least one complete step is captured, pprof is generated based on complete steps only.
-        Otherwise, it is generated for the entire session.
+        @if (showPprofLink) {
+          <div>
+            <div class="section-container">
+              <div class="mat-headline">Pprof for Device-side framework operations</div>
+              <div>
+                If at least one complete step is captured, pprof is generated based on complete steps only.
+                Otherwise, it is generated for the entire session.
+              </div>
+              <div [innerHtml]="devicePprofLink"></div>
+            </div>
+            <mat-divider />
+          </div>
+        }
+        <operations-table [tensorflowStatsData]="selectedData"
+          [diffData]="selectedDiffData"
+          [hasDiff]="hasDiff"
+          [opExecutor]="opExecutorDevice" />
+        <mat-divider />
       </div>
-      <div [innerHtml]="devicePprofLink"></div>
-    </div>
+    }
 
-    <mat-divider></mat-divider>
-  </div>
+    @if (showPprofLink) {
+      <div>
+        <div class="section-container">
+          <div class="mat-headline">Pprof for Host-side framework operations</div>
+          <div [innerHtml]="hostPprofLink"></div>
+        </div>
+        <mat-divider />
+      </div>
+    }
 
-  <operations-table [tensorflowStatsData]="selectedData"
-                    [diffData]="selectedDiffData"
-                    [hasDiff]="hasDiff"
-                    [opExecutor]="opExecutorDevice">
-  </operations-table>
-
-  <mat-divider></mat-divider>
-</div>
-
-<div *ngIf="showPprofLink">
-  <div class="section-container">
-    <div class="mat-headline">Pprof for Host-side framework operations</div>
-    <div [innerHtml]="hostPprofLink"></div>
-  </div>
-
-  <mat-divider></mat-divider>
-</div>
-
-<operations-table [tensorflowStatsData]="selectedData"
-                  [diffData]="selectedDiffData"
-                  [hasDiff]="hasDiff"
-                  [opExecutor]="opExecutorHost">
-</operations-table>
+    <operations-table [tensorflowStatsData]="selectedData"
+      [diffData]="selectedDiffData"
+      [hasDiff]="hasDiff"
+      [opExecutor]="opExecutorHost" />

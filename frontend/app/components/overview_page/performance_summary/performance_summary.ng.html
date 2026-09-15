@@ -1,76 +1,106 @@
- <mat-card>
+<mat-card>
   <mat-card-title>{{title}}</mat-card-title>
   <mat-card-content>
-    <div *ngIf="hasBaseline" class="legend-container">
-      <span class="legend-text">Legend: (vs <span class="baseline-data">baseline</span>, <span>change %</span>)</span>
-    </div>
-    <ng-template *ngTemplateOutlet="summaryInfo; context: {$implicit: summaryInfoCombined}">
+    @if (hasBaseline()) {
+      <div class="legend-container">
+        <span class="legend-text">Legend: (vs <span class="baseline-data">baseline</span>, <span>change %</span>)</span>
+      </div>
+    }
+    <ng-template *ngTemplateOutlet="summaryInfo; context: {$implicit: summaryInfoCombined()}">
     </ng-template>
 
     <div class="item-container">
-      <b [style.color]="remarkColor">{{remarkText}}</b>
+      <b [style.color]="remarkColor()">{{remarkText()}}</b>
     </div>
     <p><!-- empty paragraph for bottom margin --></p>
   </mat-card-content>
 </mat-card>
 
 <ng-template #summaryInfo let-infoArray>
-  <div *ngFor="let info of infoArray">
-    <div class="item-container">
-      <table>
-        <!-- Top level metrics row -->
-        <tr>
-          <td>
-            <ng-template *ngTemplateOutlet="titleTooltipDescription; context: {$implicit: info}"></ng-template>
-          </td>
-          <td *ngIf="info.value" class="item-value">
-            <div [style.color]="info.valueColor">
-              {{info.value}}
-              <span *ngIf="info.baselineValue" class="baseline-value">
-                (vs <span class="baseline-data">{{info.baselineValue}}</span>
-                <span *ngIf="info.diffValue" [style.color]="info.diffColor">
-                  , {{info.diffValue}}
-                </span>)
-              </span>
-            </div>
-          </td>
-        </tr>
-        <!-- Nested child metrics rows -->
-        <tr *ngFor="let cInfo of info.childrenInfo">
-          <td><ng-template *ngTemplateOutlet="titleTooltipDescription; context: {$implicit: cInfo}"></ng-template></td>
-          <td *ngIf="cInfo.value" class="child-item-value primary-content">
-            <div [style.color]="cInfo.valueColor">
-              {{cInfo.value}}
-              <span *ngIf="cInfo.baselineValue" class="baseline-value">
-                (vs <span class="baseline-data">{{cInfo.baselineValue}}</span>
-                <span *ngIf="cInfo.diffValue" [style.color]="cInfo.diffColor">
-                  , {{cInfo.diffValue}}
-                </span>)
-              </span>
-            </div>
-          </td>
-        </tr>
-        <tr *ngFor="let value of info.propertyValues">
-          <td *ngIf="value" class="primary-content" [innerHtml]="value"></td>
-        </tr>
-      </table>
-    </div>
-  </div>
-</ng-template>
+  @for (info of infoArray; track info) {
+    <div>
+      <div class="item-container">
+        <table>
+          <!-- Top level metrics row -->
+          <tr>
+            <td>
+              <ng-template *ngTemplateOutlet="titleTooltipDescription; context: {$implicit: info}" />
+            </td>
+            @if (info.value) {
+              <td class="item-value">
+                <div [style.color]="info.valueColor">
+                  {{info.value}}
+                  @if (info.baselineValue) {
+                    <span class="baseline-value">
+                      (vs <span class="baseline-data">{{info.baselineValue}}</span>
+                      @if (info.diffValue) {
+                        <span [style.color]="info.diffColor">
+                          , {{info.diffValue}}
+                        </span>
+                      })
+                      </span>
+                    }
+                  </div>
+                </td>
+              }
+            </tr>
+            <!-- Nested child metrics rows -->
+            @for (cInfo of info.childrenInfo; track cInfo) {
+              <tr>
+                <td><ng-template *ngTemplateOutlet="titleTooltipDescription; context: {$implicit: cInfo}" /></td>
+                @if (cInfo.value) {
+                  <td class="child-item-value primary-content">
+                    <div [style.color]="cInfo.valueColor">
+                      {{cInfo.value}}
+                      @if (cInfo.baselineValue) {
+                        <span class="baseline-value">
+                          (vs <span class="baseline-data">{{cInfo.baselineValue}}</span>
+                          @if (cInfo.diffValue) {
+                            <span [style.color]="cInfo.diffColor">
+                              , {{cInfo.diffValue}}
+                            </span>
+                            })
+                          </span>
+                        }
+                      </div>
+                    </td>
+                  }
+                </tr>
+              }
+              @for (value of info.propertyValues; track value) {
+                <tr>
+                  @if (value) {
+                    <td class="primary-content" [innerHtml]="value"></td>
+                  }
+                </tr>
+              }
+            </table>
+          </div>
+        </div>
+      }
+    </ng-template>
 
-<ng-template #titleTooltipDescription let-info>
-    <b *ngIf="info.level === 1">{{info.title}}</b>
-    <span *ngIf="info.level !== 1" class="primary-content">{{info.title}}</span>
-    <span *ngIf="info.tooltip" class="tooltip-icon-container">
-      <mat-icon
-        class="tooltip-icon"
-        [matTooltip]="info.tooltip"
-        matTooltipPosition="above">
-        info
-      </mat-icon>
-    </span>
-    <div *ngFor="let description of info.descriptions"
-        [ngClass]="{'description': true}">
-    <span [innerHtml]="description"></span>
-    </div>
-</ng-template>
+    <ng-template #titleTooltipDescription let-info>
+      @if (info.level === 1) {
+        <b>{{info.title}}</b>
+      }
+      @if (info.level !== 1) {
+        <span class="primary-content">{{info.title}}</span>
+      }
+      @if (info.tooltip) {
+        <span class="tooltip-icon-container">
+          <mat-icon
+            class="tooltip-icon"
+            [matTooltip]="info.tooltip"
+            matTooltipPosition="above">
+            info
+          </mat-icon>
+        </span>
+      }
+      @for (description of info.descriptions; track description) {
+        <div
+          [ngClass]="{'description': true}">
+          <span [innerHtml]="description"></span>
+        </div>
+      }
+    </ng-template>

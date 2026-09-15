@@ -10,9 +10,11 @@
           <td class="item-value">
             <mat-form-field appearance="outline">
               <mat-select [(value)]="selectedHostId" (selectionChange)="update()">
-                <mat-option *ngFor="let id of hostIds" [value]="id">
-                  {{ id }}
-                </mat-option>
+                @for (id of hostIds; track id) {
+                  <mat-option [value]="id">
+                    {{ id }}
+                  </mat-option>
+                }
               </mat-select>
             </mat-form-field>
           </td>
@@ -29,9 +31,11 @@
           <td class="item-value">
             <mat-form-field appearance="outline">
               <mat-select [(value)]="selectedMemoryId">
-                <mat-option *ngFor="let id of memoryIds" [value]="id">
-                  {{ id }}
-                </mat-option>
+                @for (id of memoryIds; track id) {
+                  <mat-option [value]="id">
+                    {{ id }}
+                  </mat-option>
+                }
               </mat-select>
             </mat-form-field>
           </td>
@@ -39,33 +43,39 @@
       </table>
     </div>
   </div>
-  <div class="progress-container" *ngIf="loading">
-    <div class="loading-message">Loading memory profile data...</div>
-    <!-- TODO(go/progressbar-aria): Replace the aria-label with a better description, e.g. "Fetching user data" -->
-    <mat-progress-bar color="primary" mode="indeterminate" aria-label="Loading"></mat-progress-bar>
-  </div>
-  <div class="error-message" *ngIf="!hasMemoryData && !loading">
-    <span>There is no memory profile to display because there were no memory activity data in the captured
-    duration for host_id = {{ selectedHostId }}.</span><span>To view memory profile, please profile your workload with host_trace_level >= 2.</span>
-  </div>
-  <div *ngIf="hasMemoryData && !loading">
-    <div class="container">
-      <div class="left-column">
-        <memory-profile-summary [data]="data" [memoryId]="selectedMemoryId"></memory-profile-summary>
-      </div>
-      <div class="right-column">
-        <div class="error-message" [hidden]="!hasIncompleteSteps">
-          WARNING: Steps may be incomplete. For accurate result, please try profiling for longer.
-        </div>
-        <memory-timeline-graph
-          [memoryProfileProto]="data"
-          [memoryId]="selectedMemoryId"
-        ></memory-timeline-graph>
-      </div>
-      <div class="full-column">
-        <memory-breakdown-table [memoryProfileData]="data" [memoryId]="selectedMemoryId">
-        </memory-breakdown-table>
-      </div>
+  @if (loading) {
+    <div class="progress-container">
+      <div class="loading-message">Loading memory profile data...</div>
+      <!-- TODO(go/progressbar-aria): Replace the aria-label with a better description, e.g. "Fetching user data" -->
+      <mat-progress-bar color="primary" mode="indeterminate" aria-label="Loading" />
     </div>
+  }
+  @if (!hasMemoryData && !loading) {
+    <div class="error-message">
+      <span>There is no memory profile to display because there were no memory activity data in the captured
+        duration for host_id = {{ selectedHostId }}.</span><span>To view memory profile, please profile your workload with host_trace_level >= 2.</span>
+      </div>
+    }
+    @if (hasMemoryData && !loading) {
+      <div>
+        <div class="container">
+          <div class="left-column">
+            <memory-profile-summary [data]="data" [memoryId]="selectedMemoryId" />
+          </div>
+          <div class="right-column">
+            <div class="error-message" [hidden]="!hasIncompleteSteps">
+              WARNING: Steps may be incomplete. For accurate result, please try profiling for longer.
+            </div>
+            <memory-timeline-graph
+              [memoryProfileProto]="data"
+              [memoryId]="selectedMemoryId" />
+          </div>
+          <div class="full-column">
+            <memory-breakdown-table
+              [memoryProfileData]="data"
+              [memoryId]="selectedMemoryId" />
+          </div>
+        </div>
+      </div>
+    }
   </div>
-</div>

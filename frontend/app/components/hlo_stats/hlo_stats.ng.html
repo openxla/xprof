@@ -17,128 +17,136 @@
       </div>
     </div>
     <div class="flex-space"></div>
-    <export-as-csv [sessionId]="sessionId" [tool]="tool" [host]="host"></export-as-csv>
+    <export-as-csv [sessionId]="sessionId" [tool]="tool" [host]="host" />
   </div>
 
   <br>
-  <mat-expansion-panel
-    [expanded]="showChartSection"
-    (opened)="showChartSection = true"
-    (closed)="showChartSection = false">
-    <mat-expansion-panel-header>
-      <mat-panel-title>
-        Chart Section
-      </mat-panel-title>
-    </mat-expansion-panel-header>
+    <mat-expansion-panel
+      [expanded]="showChartSection"
+      (opened)="showChartSection = true"
+      (closed)="showChartSection = false">
+      <mat-expansion-panel-header>
+        <mat-panel-title>
+          Chart Section
+        </mat-panel-title>
+      </mat-expansion-panel-header>
+      <div class="row">
+        <div class="pie-chart">
+          <div class="mat-title">Time per HLO category</div>
+          <chart chartType="PieChart" [dataInfo]="dataInfoCategoryChart" />
+        </div>
+        <div class="pie-chart">
+          <div class="mat-title">Time per HLO operation</div>
+          <chart chartType="PieChart" [dataInfo]="dataInfoOpChart" />
+        </div>
+        <div class="pie-chart">
+          <div class="mat-title" matTooltip="Time spent on rematerialization in HLO or Framework Ops">Time spent on rematerialization</div>
+          <chart chartType="PieChart" [dataInfo]="dataInfoRematerializationChart" />
+        </div>
+        @if (communicationOps.size) {
+          <div class="pie-chart">
+            <div class="mat-title">Time per HLO by Replica Groups</div>
+            <mat-select [(value)]="selectedCommOp" (selectionChange)="updateOpReplicaGroupChart()">
+              @for (op of communicationOps; track op) {
+                <mat-option [value]="op">
+                  {{op}}
+                </mat-option>
+              }
+            </mat-select>
+            <chart chartType="PieChart" [dataInfo]="dataInfoOpReplicaGroupChart" />
+          </div>
+        }
+      </div>
+
+      <div class="row">
+        <div class="pie-chart">
+          <div class="mat-title">Time spent on rematerialization per HLO category</div>
+          <chart chartType="PieChart" [dataInfo]="dataInfoRematerializationCategoryChart" />
+        </div>
+        <div class="pie-chart">
+          <div class="mat-title">Time spent on outside compilation</div>
+          <chart chartType="PieChart" [dataInfo]="dataInfoOutsideCompilationChart" />
+        </div>
+
+        <flop-rate-chart [data]="data" [xColumn]="flopRateChartXColumn"
+          [yColumn]="flopRateChartYColumn" [opType]="opType" />
+      </div>
+    </mat-expansion-panel>
+  </div>
+
+  <div class="section-container">
     <div class="row">
-      <div class="pie-chart">
-        <div class="mat-title">Time per HLO category</div>
-        <chart chartType="PieChart" [dataInfo]="dataInfoCategoryChart"></chart>
+      <div>
+        @if (tableColumns.length > 0) {
+          <mat-form-field appearance="outline" class="table-columns-control">
+            <mat-label>Visible Columns</mat-label>
+            <mat-select [formControl]="tableColumnsControl" multiple>
+              @for (column of tableColumns; track column) {
+                <mat-option [value]="column.index">{{column.label}}</mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
+        }
       </div>
-      <div class="pie-chart">
-        <div class="mat-title">Time per HLO operation</div>
-        <chart chartType="PieChart" [dataInfo]="dataInfoOpChart"></chart>
-      </div>
-      <div class="pie-chart">
-        <div class="mat-title" matTooltip="Time spent on rematerialization in HLO or Framework Ops">Time spent on rematerialization</div>
-        <chart chartType="PieChart" [dataInfo]="dataInfoRematerializationChart"></chart>
-      </div>
-      <div class="pie-chart" *ngIf="communicationOps.size">
-        <div class="mat-title">Time per HLO by Replica Groups</div>
-        <mat-select [(value)]="selectedCommOp" (selectionChange)="updateOpReplicaGroupChart()">
-          <mat-option *ngFor="let op of communicationOps" [value]="op">
-          {{op}}
-          </mat-option>
-        </mat-select>
-        <chart chartType="PieChart" [dataInfo]="dataInfoOpReplicaGroupChart"></chart>
-      </div>
+      <category-filter [dataTable]="dataTable" column="category"
+        all="All" (changed)="updateFilters($event)" />
+      <string-filter [dataTable]="dataTable" column="program_id"
+        [value]="programIdSelected"
+        all="All" (changed)="updateFilters($event)" />
+      <string-filter [dataTable]="dataTable" column="hlo_op_name"
+        [value]="hloOpNameSelected" [exactMatch]="true" [matchToggle]="true"
+        all="All" (changed)="updateFilters($event)" />
+      <string-filter [dataTable]="dataTable" column="hlo_op_expression"
+        all="All" (changed)="updateFilters($event)" />
+      <string-filter [dataTable]="dataTable" column="tf_op_name"
+        all="All" (changed)="updateFilters($event)" />
+      @if (sourceCodeServiceIsAvailable) {
+        <div class="control">
+          <div class="control-title">Show Source Code
+            <mat-icon
+              class="tooltip-icon"
+              matTooltip=
+              "Click on the source info text to see snippets of source code around frames of the
+              stack trace at the bottom of the page (available only in the new analysis)."
+              matTooltipPosition="above">
+              info
+            </mat-icon>
+          </div>
+          <mat-slide-toggle [checked]="showStackTrace" (toggleChange)="toggleShowStackTrace()"/>
+        </div>
+      }
     </div>
+  </div>
 
+  <div class="section-container">
     <div class="row">
-      <div class="pie-chart">
-        <div class="mat-title">Time spent on rematerialization per HLO category</div>
-        <chart chartType="PieChart" [dataInfo]="dataInfoRematerializationCategoryChart"></chart>
-      </div>
-      <div class="pie-chart">
-        <div class="mat-title">Time spent on outside compilation</div>
-        <chart chartType="PieChart" [dataInfo]="dataInfoOutsideCompilationChart"></chart>
-      </div>
-
-      <flop-rate-chart [data]="data" [xColumn]="flopRateChartXColumn"
-                       [yColumn]="flopRateChartYColumn" [opType]="opType">
-      </flop-rate-chart>
+      <div class="mat-headline">Tensor Core Ops</div>
     </div>
-  </mat-expansion-panel>
-</div>
-
-<div class="section-container">
-  <div class="row">
     <div>
-      <mat-form-field *ngIf="tableColumns.length > 0" appearance="outline" class="table-columns-control">
-        <mat-label>Visible Columns</mat-label>
-        <mat-select [formControl]="tableColumnsControl" multiple>
-          <mat-option *ngFor="let column of tableColumns" [value]="column.index">{{column.label}}</mat-option>
-        </mat-select>
-      </mat-form-field>
+      <chart #table
+        chartType="Table"
+        class="table"
+        [dataInfo]="dataInfoForTable" />
     </div>
-    <category-filter [dataTable]="dataTable" column="category"
-                     all="All" (changed)="updateFilters($event)">
-    </category-filter>
-    <string-filter [dataTable]="dataTable" column="program_id"
-      [value]="programIdSelected"
-      all="All" (changed)="updateFilters($event)">
-    </string-filter>
-    <string-filter [dataTable]="dataTable" column="hlo_op_name"
-      [value]="hloOpNameSelected" [exactMatch]="true" [matchToggle]="true"
-      all="All" (changed)="updateFilters($event)">
-    </string-filter>
-    <string-filter [dataTable]="dataTable" column="hlo_op_expression"
-                   all="All" (changed)="updateFilters($event)">
-    </string-filter>
-    <string-filter [dataTable]="dataTable" column="tf_op_name"
-                   all="All" (changed)="updateFilters($event)">
-    </string-filter>
-    <div class="control" *ngIf="sourceCodeServiceIsAvailable">
-      <div class="control-title">Show Source Code
-        <mat-icon
-          class="tooltip-icon"
-          matTooltip=
-            "Click on the source info text to see snippets of source code around frames of the
-            stack trace at the bottom of the page (available only in the new analysis)."
-          matTooltipPosition="above">
-          info
-        </mat-icon>
+
+    @if (hasSparseCoreData) {
+      <div class="row">
+        <div class="mat-headline">Sparse Core Ops</div>
       </div>
-      <mat-slide-toggle [checked]="showStackTrace" (toggleChange)="toggleShowStackTrace()"/>
-    </div>
-  </div>
-</div>
-
-<div class="section-container">
-  <div class="row">
-    <div class="mat-headline">Tensor Core Ops</div>
-  </div>
-  <div>
-    <chart #table
+    }
+    @if (hasSparseCoreData) {
+      <div>
+        <chart #sparseCoreTable
           chartType="Table"
           class="table"
-          [dataInfo]="dataInfoForTable">
-    </chart>
+          [dataInfo]="dataInfoForSparseCoreTable" />
+      </div>
+    }
   </div>
 
-  <div class="row" *ngIf="hasSparseCoreData">
-    <div class="mat-headline">Sparse Core Ops</div>
-  </div>
-  <div *ngIf="hasSparseCoreData">
-    <chart #sparseCoreTable
-          chartType="Table"
-          class="table"
-          [dataInfo]="dataInfoForSparseCoreTable">
-    </chart>
-  </div>
-</div>
-
-<stack-trace-snippet
-    [sourceFileAndLineNumber]="sourceFileAndLineNumber"
-    [stackTrace]="stackTrace"
-    *ngIf="sourceCodeServiceIsAvailable && showStackTrace"/>
+  @if (sourceCodeServiceIsAvailable && showStackTrace) {
+    <stack-trace-snippet
+      [sourceFileAndLineNumber]="sourceFileAndLineNumber"
+      [stackTrace]="stackTrace"
+      />
+  }

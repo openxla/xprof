@@ -1,57 +1,59 @@
-<diagnostics-view [diagnostics]="diagnostics"></diagnostics-view>
+<diagnostics-view [diagnostics]="diagnostics" />
 <div class="section-container">
   <div class="mat-headline">Pod Viewer</div>
   <div class="control">Selected step: {{selectedStep}}</div>
-  <div *ngIf="minStep != maxStep">
-    <mat-slider
-                [min]="minStep"
-                [max]="maxStep"
-                [step]="1" #ngSlider><input matSliderThumb (change)="updateSelectedStep({source: ngSliderThumb, parent: ngSlider, value: ngSliderThumb.value}.value)" #ngSliderThumb="matSliderThumb" />
-    </mat-slider>
-  </div>
-  <div *ngIf="topology">
-    <topology-graph
-      [channelDb]="channelDb"
-      [coreIdToReplicaIdMap]="coreIdToReplicaIdMap"
-      [metricList]="stepBreakdownEvents"
-      [podStatsPerCore]="podStatsPerCore"
-      [topology]="topology"
-      [deviceType]="deviceType"
-      (selected)="selectedChannelDb($event)">
-    </topology-graph>
-  </div>
-</div>
-
-<div *ngIf="channelDb && channelDb.length">
-  <mat-divider></mat-divider>
-
-  <div class="section-container">
-    <div class="chart-title">Latency of Send and Recv channels</div>
-    <div class="description">(x-axis: channel id, y-axis: time(us))</div>
-    <stack-bar-chart [data]="channelChartData" (selected)="selectedChannelChart($event)">
-    </stack-bar-chart>
-  </div>
-</div>
-
-<div *ngIf="allReduceOpDb && allReduceOpDb.length">
-  <mat-divider></mat-divider>
-
-  <div class="section-container">
-    <div class="chart-title">Duration of all-reduce or all-to-all ops</div>
-    <div class="description">
-      (x-axis: short names for all-reduces ops (a#) or fusion (f#) or all-to-all (l#),
-      y-axis: time(us))
+  @if (minStep != maxStep) {
+    <div>
+      <mat-slider
+        [min]="minStep"
+        [max]="maxStep"
+        [step]="1" #ngSlider><input matSliderThumb (change)="updateSelectedStep({source: ngSliderThumb, parent: ngSlider, value: ngSliderThumb.value}.value)" #ngSliderThumb="matSliderThumb" />
+      </mat-slider>
     </div>
-    <stack-bar-chart [data]="allReduceOpChartData" (selected)="selectedAllReduceOpChart($event)">
-    </stack-bar-chart>
-  </div>
+  }
+  @if (topology) {
+    <div>
+      <topology-graph
+        [channelDb]="channelDb"
+        [coreIdToReplicaIdMap]="coreIdToReplicaIdMap"
+        [metricList]="stepBreakdownEvents"
+        [podStatsPerCore]="podStatsPerCore"
+        [topology]="topology"
+        [deviceType]="deviceType"
+        (selected)="selectedChannelDb($event)" />
+    </div>
+  }
 </div>
 
-<mat-divider></mat-divider>
+@if (channelDb && channelDb.length) {
+  <div>
+    <mat-divider />
+    <div class="section-container">
+      <div class="chart-title">Latency of Send and Recv channels</div>
+      <div class="description">(x-axis: channel id, y-axis: time(us))</div>
+      <stack-bar-chart [data]="channelChartData" (selected)="selectedChannelChart($event)" />
+    </div>
+  </div>
+}
+
+@if (allReduceOpDb && allReduceOpDb.length) {
+  <div>
+    <mat-divider />
+    <div class="section-container">
+      <div class="chart-title">Duration of all-reduce or all-to-all ops</div>
+      <div class="description">
+        (x-axis: short names for all-reduces ops (a#) or fusion (f#) or all-to-all (l#),
+        y-axis: time(us))
+      </div>
+      <stack-bar-chart [data]="allReduceOpChartData" (selected)="selectedAllReduceOpChart($event)" />
+    </div>
+  </div>
+}
+
+<mat-divider />
 
 <div class="section-container">
   <div class="chart-title">Step breakdown</div>
   <div class="description">{{stepBreakdownChartDescription}}</div>
-  <stack-bar-chart [data]="podStatsChartData" (selected)="selectedPodStatsChart($event)">
-  </stack-bar-chart>
+  <stack-bar-chart [data]="podStatsChartData" (selected)="selectedPodStatsChart($event)" />
 </div>

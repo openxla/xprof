@@ -21,7 +21,7 @@
               appearance="fill"
               aria-label="go to graph viewer"
               i18n-aria-label="A button to corresponding graph viewer page">
-             > Graph Viewer
+              > Graph Viewer
             </button>
           </a>
         </div>
@@ -35,7 +35,7 @@
               appearance="fill"
               aria-label="go to custom call text"
               i18n-aria-label="A button to corresponding custom call text page">
-             > Custom Call Text
+              > Custom Call Text
             </button>
           </a>
         </div>
@@ -49,7 +49,7 @@
               appearance="fill"
               aria-label="go to regviz"
               i18n-aria-label="A button to corresponding regviz page">
-             > Regviz
+              > Regviz
             </button>
           </a>
         </div>
@@ -133,10 +133,12 @@
           <div class="title">Long Op Name:</div>
           <code class="expression">{{provenance}}</code>
         </div>
-        <div class="info" *ngIf="xprofKernelMetadata">
-          <div class="title">Xprof Kernel Metadata:</div>
-          <ngx-json-viewer [json]="xprofKernelMetadata"></ngx-json-viewer>
-        </div>
+        @if (xprofKernelMetadata) {
+          <div class="info">
+            <div class="title">Xprof Kernel Metadata:</div>
+            <ngx-json-viewer [json]="xprofKernelMetadata" />
+          </div>
+        }
         <div class="info" [hidden]="!rawTimeMs">
           <div class="title">Total Time Sum:</div>
           <code class="expression">{{rawTimeMs}}</code>
@@ -157,22 +159,24 @@
         </div>
         <div class="info" [hidden]="!hasLayout">
           <div class="title">Layout:</div>
-          <div class="layout" *ngFor="let dimension of dimensions; let i = index">
-            <div>
-              <div class="size-x">
-                <div [hidden]="!i">x</div>
+          @for (dimension of dimensions; track dimension; let i = $index) {
+            <div class="layout">
+              <div>
+                <div class="size-x">
+                  <div [hidden]="!i">x</div>
+                </div>
+              </div>
+              <div>
+                <span class="size">{{dimension.size}}</span>
+                <span class="semantics">{{dimension.semantics}}</span>
+                <span
+                  class="alignment"
+                  [style.background-color]="dimensionColor(dimension)">
+                  {{dimensionHint(dimension)}}
+                </span>
               </div>
             </div>
-            <div>
-              <span class="size">{{dimension.size}}</span>
-              <span class="semantics">{{dimension.semantics}}</span>
-              <span
-                    class="alignment"
-                    [style.background-color]="dimensionColor(dimension)">
-                {{dimensionHint(dimension)}}
-              </span>
-            </div>
-          </div>
+          }
         </div>
         <div class="info" [hidden]="!computationPrimitiveSize">
           <div class="title"> Hardware Computation Size:</div>
@@ -180,7 +184,7 @@
         </div>
         <div selector="[utilWarning]" class="warning" [hidden]="!showUtilizationWarning">
           <p>Utilization may have been capped at 100% as accurate bandwidth could not be determined.</p>
-          <ng-content select="[utilWarningBug]"></ng-content>
+          <ng-content select="[utilWarningBug]" />
         </div>
         <div class="info" [hidden]="!sourceTopLine">
           <div class="title">Source:</div>

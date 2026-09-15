@@ -3,27 +3,32 @@
   <mat-card-content class="primary-content">
     <p>
       <span class="key-label">Is training job</span>:
-      <span>{{isTraining}}</span>
+      <span>{{isTraining()}}</span>
     </p>
-    <p *ngIf="profileStartTime">
-      <span class="key-label">Profile start time (local)</span>:
-      <span>{{profileStartTime}}</span>
+    @if (profileStartTime()) {
+      <p>
+        <span class="key-label">Profile start time (local)</span>:
+        <span>{{profileStartTime()}}</span>
+      </p>
+    }
+    @if (profileDurationMs()) {
+      <p>
+        <span class="key-label">Profile duration (ms)</span>:
+        <span>{{profileDurationMs()}}</span>
+      </p>
+    }
+    <p>
+      <span class="key-label">Number of Hosts used</span>: <span>{{hostCount()}}</span>
     </p>
-    <p *ngIf="profileDurationMs">
-      <span class="key-label">Profile duration (ms)</span>:
-      <span>{{profileDurationMs}}</span>
+    <ng-content select="[taskCount]" />
+    <p>
+      <span class="key-label">Device type</span>: <span>{{deviceType()}}</span>
     </p>
     <p>
-      <span class="key-label">Number of Hosts used</span>: <span>{{hostCount}}</span>
+      <span class="key-label">Number of device cores</span>: <span>{{deviceCoreCount()}}</span>
     </p>
-    <ng-content select="[taskCount]"></ng-content>
-    <p>
-      <span class="key-label">Device type</span>: <span>{{deviceType}}</span>
-    </p>
-    <p>
-      <span class="key-label">Number of device cores</span>: <span>{{deviceCoreCount}}</span>
-    </p>
-    <ng-content select="[jobInformation]"></ng-content>
+    <ng-content select="[jobInformation]" />
     <p><!-- empty paragraph for bottom margin --></p>
   </mat-card-content>
 </mat-card>
+

@@ -1,111 +1,116 @@
 <as-split direction="vertical">
-<as-split-area [size]="80">
+  <as-split-area [size]="80">
 
-<diagnostics-view [diagnostics]="diagnostics"></diagnostics-view>
+    <diagnostics-view [diagnostics]="diagnostics" />
 
-<div class="section-container">
-  <div class="row">
-    <div>
-      <div class="mat-headline">Module Name: {{currentModule}}</div>
-      <div class="sub-title">Peak memory allocation: {{peakHeapSizeMiB}} MiB, {{totalBufferAllocationMiB}} MiB (with fragmentation)</div>
-      <div class="description" [hidden]="!paddingOverhead">
-        {{paddingOverhead}} MiB total padding overhead
-      </div>
-      <div class="description" [hidden]="!totalArgumentSizeBytes">
-        {{totalArgumentSizeBytes}} MiB total argument size
-      </div>
-      <div class="description" [hidden]="!hloTempSizeWithoutFragmentationMiB">
-        {{hloTempSizeWithoutFragmentationMiB}} MiB stack simulated HLO temporary variables
-      </div>
-      <div class="description" [hidden]="!hloTempSizeWithFragmentationMiB">
-        {{hloTempSizeWithFragmentationMiB}} MiB HLO lifetime temporary variables with fragmentation
-        (fragmentation  {{hloTempFragmentation}}%)
-      </div>
-      <div class="description" [hidden]="!maxScopedVmemAllocationMiB || maxScopedVmemAllocationMiB === '0.00'">
-        {{maxScopedVmemAllocationMiB}} MiB max scoped VMEM allocation<span *ngIf="maxScopedVmemInstructionName"> ({{maxScopedVmemInstructionName}})</span>
-      </div>
-      <div class="description">
-        Modifying your model's architecture, batch size and data dimensions may
-        help reduce the memory footprint.
+    <div class="section-container">
+      <div class="row">
+        <div>
+          <div class="mat-headline">Module Name: {{currentModule()}}</div>
+          <div class="sub-title">Peak memory allocation: {{peakHeapSizeMiB}} MiB, {{totalBufferAllocationMiB}} MiB (with fragmentation)</div>
+          <div class="description" [hidden]="!paddingOverhead">
+            {{paddingOverhead}} MiB total padding overhead
+          </div>
+          <div class="description" [hidden]="!totalArgumentSizeBytes">
+            {{totalArgumentSizeBytes}} MiB total argument size
+          </div>
+          <div class="description" [hidden]="!hloTempSizeWithoutFragmentationMiB">
+            {{hloTempSizeWithoutFragmentationMiB}} MiB stack simulated HLO temporary variables
+          </div>
+          <div class="description" [hidden]="!hloTempSizeWithFragmentationMiB">
+            {{hloTempSizeWithFragmentationMiB}} MiB HLO lifetime temporary variables with fragmentation
+            (fragmentation  {{hloTempFragmentation}}%)
+          </div>
+          <div class="description" [hidden]="!maxScopedVmemAllocationMiB || maxScopedVmemAllocationMiB === '0.00'">
+            {{maxScopedVmemAllocationMiB}} MiB max scoped VMEM allocation
+            @if (maxScopedVmemInstructionName) {
+              <span> ({{maxScopedVmemInstructionName}})</span>
+            }
+          </div>
+        <div class="description">
+          Modifying your model's architecture, batch size and data dimensions may
+          help reduce the memory footprint.
+        </div>
       </div>
     </div>
   </div>
-</div>
 
-<program-order-chart
-  *ngIf="heapSizes.length"
-  [heapSizes]="heapSizes"
-  [unpaddedHeapSizes]="unpaddedHeapSizes"
-  [hloInstructionNames]="hloInstructionNames"
-  [peakInfo]="peakInfo"
-  [activeInfo]="activeInfo"
-  [timelineUrl]="timelineUrl"
-  (selectedStep)="setSelectedProgramOrderStep($event)">
-</program-order-chart>
+  @if (heapSizes.length) {
+    <program-order-chart
+      [heapSizes]="heapSizes"
+      [unpaddedHeapSizes]="unpaddedHeapSizes"
+      [hloInstructionNames]="hloInstructionNames"
+      [peakInfo]="peakInfo"
+      [activeInfo]="activeInfo"
+      [timelineUrl]="timelineUrl"
+      (selectedStep)="setSelectedProgramOrderStep($event)" />
+  }
 
-<div *ngIf="memoryViewerPreprocessResult && memoryViewerPreprocessResult.bufferBlocks && memoryViewerPreprocessResult.bufferBlocks.length">
-  <div class="heap-chart-header"><h2>Buffer Allocation Timeline</h2></div>
-  <buffer-allocation-timeline
-      [selectedBlock]="selectedBlock"
-      (selected)="setSelectedBlock($event)"
-      (hovered)="setHoveredBlock($event)"
-      [highlightedStep]="selectedProgramOrderStep !== null ? selectedProgramOrderStep : -1"
-      [bufferBlocks]="memoryViewerPreprocessResult.bufferBlocks"
-      [totalSteps]="memoryViewerPreprocessResult.heapSizes?.length || 0"
-      [totalBytes]="(memoryViewerPreprocessResult.peakHeapMib || 0) * 1024 * 1024">
-  </buffer-allocation-timeline>
-</div>
+  @if (memoryViewerPreprocessResult()?.bufferBlocks?.length) {
+    <div>
+      <div class="heap-chart-header"><h2>Buffer Allocation Timeline</h2></div>
+      <buffer-allocation-timeline
+        [selectedBlock]="selectedBlock"
+        (selected)="setSelectedBlock($event)"
+        (hovered)="setHoveredBlock($event)"
+        [highlightedStep]="selectedProgramOrderStep !== null ? selectedProgramOrderStep : -1"
+        [bufferBlocks]="memoryViewerPreprocessResult()?.bufferBlocks || []"
+        [totalSteps]="memoryViewerPreprocessResult()?.heapSizes?.length || 0"
+        [totalBytes]="(memoryViewerPreprocessResult()?.peakHeapMib || 0) * 1024 * 1024" />
+    </div>
+  }
 
-<div [hidden]="!heapSizes.length">
-  <mat-divider ></mat-divider>
-  <div class="heap-chart-header"><h2>HLO Ops at Peak Memory Allocation Time</h2></div>
-</div>
-
-<max-heap-chart
-   [maxHeap]="maxHeap"
-   [title]="'by Program Order'"
-   [selectedIndex]="selectedIndex"
-   (selected)="setSelectedHeapObject($event)">
-</max-heap-chart>
-
-<max-heap-chart
-  [maxHeap]="maxHeapBySize"
-  [title]="'by Buffer Size'"
-  [selectedIndex]="selectedIndexBySize"
-  (selected)="setSelectedHeapObjectBySize($event)">
-</max-heap-chart>
-
-<max-heap-chart
-  [maxHeap]="maxHeapByPaddingSize"
-  [title]="'by Padding Size'"
-  [selectedIndex] = "selectedIndexByPaddingSize"
-  (selected)="setSelectedHeapObjectByPaddingSize($event)">
-</max-heap-chart>
-
-<div class="section-container" [hidden]="hasTrace">
-  There is no data to display.
-</div>
-
-<div class="control" *ngIf="sourceCodeServiceIsAvailable">
-  <div class="control-title">Show Source Code
-    <mat-icon
-      class="tooltip-icon"
-      matTooltip= "Hover on HLO Ops to see snippets of source code around frames of its stack trace."
-      matTooltipPosition="above">
-      info
-    </mat-icon>
+  <div [hidden]="!heapSizes.length">
+    <mat-divider />
+    <div class="heap-chart-header"><h2>HLO Ops at Peak Memory Allocation Time</h2></div>
   </div>
-  <mat-slide-toggle [checked]="showStackTrace" (toggleChange)="toggleShowStackTrace()"/>
-</div>
+
+  <max-heap-chart
+    [maxHeap]="maxHeap"
+    [title]="'by Program Order'"
+    [selectedIndex]="selectedIndex"
+    (selected)="setSelectedHeapObject($event)" />
+
+  <max-heap-chart
+    [maxHeap]="maxHeapBySize"
+    [title]="'by Buffer Size'"
+    [selectedIndex]="selectedIndexBySize"
+    (selected)="setSelectedHeapObjectBySize($event)" />
+
+  <max-heap-chart
+    [maxHeap]="maxHeapByPaddingSize"
+    [title]="'by Padding Size'"
+    [selectedIndex] = "selectedIndexByPaddingSize"
+    (selected)="setSelectedHeapObjectByPaddingSize($event)" />
+
+  <div class="section-container" [hidden]="hasTrace">
+    There is no data to display.
+  </div>
+
+  @if (sourceCodeServiceIsAvailable) {
+    <div class="control">
+      <div class="control-title">Show Source Code
+        <mat-icon
+          class="tooltip-icon"
+          matTooltip= "Hover on HLO Ops to see snippets of source code around frames of its stack trace."
+          matTooltipPosition="above">
+          info
+        </mat-icon>
+      </div>
+      <mat-slide-toggle [checked]="showStackTrace" (toggleChange)="toggleShowStackTrace()"/>
+    </div>
+  }
 </as-split-area>
 
-<as-split-area [size]="20" *ngIf="sourceCodeServiceIsAvailable && showStackTrace">
-  <source-mapper
-      [sessionId]="currentRun"
+@if (sourceCodeServiceIsAvailable && showStackTrace) {
+  <as-split-area [size]="20">
+    <source-mapper
+      [sessionId]="currentRun()"
       [opName]="selectedOpName"
       [opCategory]="selectedOpCategory"
       [programId]="currentProgramId"
       [sourceFileAndLineNumber]="sourceFileAndLineNumber"
       [stackTrace]="stackTrace" />
-</as-split-area>
+  </as-split-area>
+}
 </as-split>

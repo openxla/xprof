@@ -2,24 +2,32 @@
   <mat-expansion-panel-header>
     <mat-panel-title>{{title}}</mat-panel-title>
   </mat-expansion-panel-header>
-  <div [hidden]="!backgroundInfos.length">
+  <div [hidden]="!backgroundInfos().length">
     <p>
       <b>Background</b>:
     </p>
     <ul>
-      <li *ngFor="let info of backgroundInfos" [innerHtml]="info"></li>
+      @for (info of backgroundInfos(); track info) {
+        <li [innerHtml]="info"></li>
+      }
     </ul>
   </div>
-  <p [hidden]="!totalNapsInfos.length">
+  <p [hidden]="!totalNapsInfos().length">
     <b>Total NAPs/GCUs of the accelerator system profiled</b>:<br/>
-    <span *ngFor="let info of totalNapsInfos">= {{info}}<br/></span>
+    @for (info of totalNapsInfos(); track info) {
+      <span>= {{info}}<br/></span>
+    }
   </p>
-  <p [hidden]="!computeCostInfos.length">
+  <p [hidden]="!computeCostInfos().length">
     <b>Compute Cost</b> (lower is better):<br/>
-    <span *ngFor="let info of computeCostInfos">= {{info}}<br/></span>
+    @for (info of computeCostInfos(); track info) {
+      <span>= {{info}}<br/></span>
+    }
   </p>
-  <p [hidden]="!computeProductivityInfos.length">
+  <p [hidden]="!computeProductivityInfos().length">
     <b>Compute Productivity</b> (higher is better):<br/>
-    <span *ngFor="let info of computeProductivityInfos">= {{info}}<br/></span>
+    @for (info of computeProductivityInfos(); track info) {
+      <span>= {{info}}<br/></span>
+    }
   </p>
 </mat-expansion-panel>

@@ -1,40 +1,46 @@
-<ng-container *ngIf="showErrors && diagnostics?.errors?.length">
-  <div *ngFor="let error of diagnostics.errors; let i = index" class="callout is-critical">
-    <header>
-      <span>Error</span>
-      <button mat-icon-button (click)="dismissError(i)">
-        <mat-icon>close</mat-icon>
-      </button>
-    </header>
-    <ul class="callout-list">
-      <li [innerHtml]="error"></li>
-    </ul>
-  </div>
-</ng-container>
-<ng-container *ngIf="showWarnings && diagnostics?.warnings?.length">
-  <div *ngFor="let warning of diagnostics.warnings; let i = index" class="callout is-important">
-    <header>
-      <span>Warning</span>
-      <button mat-icon-button (click)="dismissWarning(i)">
-        <mat-icon>close</mat-icon>
-      </button>
-    </header>
-    <ul class="callout-list">
-      <li [innerHtml]="warning"></li>
-    </ul>
-  </div>
-</ng-container>
-<ng-container *ngIf="showInfo && diagnostics?.info?.length">
-  <div *ngFor="let info of diagnostics.info; let i = index" class="callout is-helpful">
-    <header>
-      <span>Info</span>
-      <button mat-icon-button (click)="dismissInfo(i)">
-        <mat-icon>close</mat-icon>
-      </button>
-    </header>
-    <ul class="callout-list">
-      <li [innerHtml]="info"></li>
-    </ul>
-  </div>
-</ng-container>
+@if (showErrors && diagnostics()?.errors?.length) {
+  @for (error of diagnostics().errors; track error; let i = $index) {
+    <div class="callout is-critical">
+      <header>
+        <span>Error</span>
+        <button mat-icon-button (click)="dismissError(i)">
+          <mat-icon>close</mat-icon>
+        </button>
+      </header>
+      <ul class="callout-list">
+        <li [innerHtml]="error"></li>
+      </ul>
+    </div>
+  }
+}
+@if (showWarnings && diagnostics()?.warnings?.length) {
+  @for (warning of diagnostics().warnings; track warning; let i = $index) {
+    <div class="callout is-important">
+      <header>
+        <span>Warning</span>
+        <button mat-icon-button (click)="dismissWarning(i)">
+          <mat-icon>close</mat-icon>
+        </button>
+      </header>
+      <ul class="callout-list">
+        <li [innerHtml]="warning"></li>
+      </ul>
+    </div>
+  }
+}
+@if (showInfo && diagnostics()?.info?.length) {
+  @for (info of diagnostics().info; track info; let i = $index) {
+    <div class="callout is-helpful">
+      <header>
+        <span>Info</span>
+        <button mat-icon-button (click)="dismissInfo(i)">
+          <mat-icon>close</mat-icon>
+        </button>
+      </header>
+      <ul class="callout-list">
+        <li [innerHtml]="info"></li>
+      </ul>
+    </div>
+  }
+}
 

@@ -9,9 +9,26 @@
 
 namespace traceviewer {
 
+class DataProvider;
+class Timeline;
+
 ParsedTraceEvents ParseTraceEvents(
     const emscripten::val& trace_data,
     const emscripten::val& visible_range_from_url);
+
+ParsedTraceEvents ParseTraceEvents(
+    const emscripten::val& trace_data,
+    const emscripten::val& visible_range_from_url,
+    absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>&
+        open_async_events);
+
+void ParseAndProcessTraceEvents(const emscripten::val& trace_data,
+                                const emscripten::val& visible_range_from_url);
+
+void ParseAndProcessTraceEvents(const emscripten::val& trace_data,
+                                const emscripten::val& visible_range_from_url,
+                                DataProvider& data_provider,
+                                Timeline& timeline);
 
 // Parses trace data containing search results and updates the timeline.
 void SetSearchResultsInWasm(const emscripten::val& trace_data);

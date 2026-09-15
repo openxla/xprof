@@ -40,6 +40,8 @@ Phase ParsePhase(absl::string_view ph_str) {
         return Phase::kAsyncBegin;
       case static_cast<char>(Phase::kAsyncEnd):
         return Phase::kAsyncEnd;
+      case static_cast<char>(Phase::kAsyncInstant):
+        return Phase::kAsyncInstant;
       case static_cast<char>(Phase::kFlowStart):
         return Phase::kFlowStart;
       case static_cast<char>(Phase::kFlowEnd):
@@ -191,10 +193,9 @@ void ProcessCompleteEvents(const xprof::TraceDataResponse& response,
 }
 
 void ProcessAsyncEvents(const xprof::TraceDataResponse& response,
-                        ParsedTraceEvents& result) {
-  absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>
-      open_async_events;
-
+                        ParsedTraceEvents& result,
+                        absl::flat_hash_map<std::pair<ProcessId, std::string>,
+                                            TraceEvent>& open_async_events) {
   for (const auto& series : response.async_events()) {
     const auto& metadata = series.metadata();
     uint64_t current_ts_ps = 0;
@@ -232,6 +233,9 @@ void ProcessAsyncEvents(const xprof::TraceDataResponse& response,
           ev.ph = Phase::kComplete;
           ev.is_async = true;
           ev.event_id = GenerateEventId(ev.name, ev.ts, ev.dur);
+          if (!ev.id.empty()) {
+            result.flow_events.push_back(ev);
+          }
           result.flame_events.push_back(std::move(ev));
         } else {
           // No duration, assume it's part of a separate Begin/End pair.
@@ -254,6 +258,9 @@ void ProcessAsyncEvents(const xprof::TraceDataResponse& response,
             }
             begin_ev.event_id =
                 GenerateEventId(begin_ev.name, begin_ev.ts, begin_ev.dur);
+            if (!begin_ev.id.empty()) {
+              result.flow_events.push_back(begin_ev);
+            }
             result.flame_events.push_back(std::move(begin_ev));
             open_async_events.erase(it);
           }
@@ -261,6 +268,13 @@ void ProcessAsyncEvents(const xprof::TraceDataResponse& response,
       }
     }
   }
+}
+
+void ProcessAsyncEvents(const xprof::TraceDataResponse& response,
+                        ParsedTraceEvents& result) {
+  absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>
+      open_async_events;
+  ProcessAsyncEvents(response, result, open_async_events);
 }
 
 void ProcessCounterEvents(const xprof::TraceDataResponse& response,

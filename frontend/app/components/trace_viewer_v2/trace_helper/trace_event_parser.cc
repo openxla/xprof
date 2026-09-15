@@ -158,6 +158,23 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
         // issues from stringifying potentially large structures.
       }
     }
+    if (event.hasOwnProperty("z")) {
+      if (event["z"].isNumber()) {
+        ev.args["uid"] = event["z"].call<std::string>("toString");
+      } else if (event["z"].isString()) {
+        ev.args["uid"] = event["z"].as<std::string>();
+      }
+    }
+    if (event.hasOwnProperty("sf")) {
+      if (event["sf"].isNumber()) {
+        ev.args["sf"] = event["sf"].call<std::string>("toString");
+      } else if (event["sf"].isString()) {
+        ev.args["sf"] = event["sf"].as<std::string>();
+      }
+    }
+    if (event.hasOwnProperty("is_async") && event["is_async"].as<bool>()) {
+      ev.is_async = true;
+    }
     // We use Fingerprint64 for a stable event ID because absl::HashOf
     // does not guarantee stability across different executions or binaries,
     // and we need consistency for event associations.
@@ -184,6 +201,9 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
             }
             begin_ev.event_id =
                 GenerateEventId(begin_ev.name, begin_ev.ts, begin_ev.dur);
+            if (!begin_ev.id.empty()) {
+              result.flow_events.push_back(begin_ev);
+            }
             result.flame_events.push_back(std::move(begin_ev));
             open_async_events.erase(it);
           }
@@ -197,8 +217,29 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
         break;
       case Phase::kComplete:
       case Phase::kInstant:
+      case Phase::kAsyncInstant:
+        if (ev.ph == Phase::kAsyncInstant) {
+          ev.is_async = true;
+        }
         if (!ev.id.empty()) {
-          result.flow_events.push_back(ev);
+          const bool has_flow_out =
+              event.hasOwnProperty("flow_out") && event["flow_out"].as<bool>();
+          const bool has_flow_in =
+              event.hasOwnProperty("flow_in") && event["flow_in"].as<bool>();
+          if (has_flow_in || has_flow_out) {
+            if (has_flow_in) {
+              TraceEvent flow_in_ev = ev;
+              flow_in_ev.ph = Phase::kFlowEnd;
+              result.flow_events.push_back(std::move(flow_in_ev));
+            }
+            if (has_flow_out) {
+              TraceEvent flow_out_ev = ev;
+              flow_out_ev.ph = Phase::kFlowStart;
+              result.flow_events.push_back(std::move(flow_out_ev));
+            }
+          } else {
+            result.flow_events.push_back(ev);
+          }
         }
         result.flame_events.push_back(std::move(ev));
         break;
@@ -214,7 +255,9 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
 
 ParsedTraceEvents ParseTraceEvents(
     const emscripten::val& trace_data,
-    const emscripten::val& visible_range_from_url) {
+    const emscripten::val& visible_range_from_url,
+    absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>&
+        open_async_events) {
   ParsedTraceEvents result;
   if (trace_data.isNull() || trace_data.isUndefined() ||
       !trace_data.hasOwnProperty("traceEvents")) {
@@ -234,8 +277,6 @@ ParsedTraceEvents ParseTraceEvents(
   // in number.
   result.flame_events.reserve(js_events.size());
 
-  absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>
-      open_async_events;
   for (const auto& js_event : js_events) {
     ParseAndAppend(js_event, result, open_async_events);
   }
@@ -269,15 +310,24 @@ ParsedTraceEvents ParseTraceEvents(
   return result;
 }
 
+ParsedTraceEvents ParseTraceEvents(
+    const emscripten::val& trace_data,
+    const emscripten::val& visible_range_from_url) {
+  absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>
+      open_async_events;
+  return ParseTraceEvents(trace_data, visible_range_from_url,
+                          open_async_events);
+}
+
 void ParseAndProcessTraceEvents(const emscripten::val& trace_data,
-                                const emscripten::val& visible_range_from_url) {
-  const ParsedTraceEvents parsed_events =
-      ParseTraceEvents(trace_data, visible_range_from_url);
-  Application::Instance().data_provider().ProcessTraceEvents(
-      parsed_events, Application::Instance().timeline());
+                                const emscripten::val& visible_range_from_url,
+                                DataProvider& data_provider,
+                                Timeline& timeline) {
+  const ParsedTraceEvents parsed_events = ParseTraceEvents(
+      trace_data, visible_range_from_url, data_provider.open_async_events());
+  data_provider.ProcessTraceEvents(parsed_events, timeline);
 
   // Set last_fetch_request_range_ correctly to avoid duplicate fetches.
-  Timeline& timeline = Application::Instance().timeline();
   if (!visible_range_from_url.isNull() &&
       !visible_range_from_url.isUndefined() &&
       visible_range_from_url["length"].as<int>() == 2) {
@@ -294,6 +344,13 @@ void ParseAndProcessTraceEvents(const emscripten::val& trace_data,
   // This is necessary because is_incremental_loading_ is initialized to true to
   // prevent duplicate requests during the initial load.
   timeline.set_is_incremental_loading(false);
+}
+
+void ParseAndProcessTraceEvents(const emscripten::val& trace_data,
+                                const emscripten::val& visible_range_from_url) {
+  ParseAndProcessTraceEvents(trace_data, visible_range_from_url,
+                             Application::Instance().data_provider(),
+                             Application::Instance().timeline());
 
   // Redraw the trace viewer to reflect the loaded data. This is necessary
   // because the trace viewer is not redrawn automatically. So every time new
@@ -368,8 +425,10 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
                 return dict;
               }));
 
-  emscripten::function("processTraceEvents",
-                       &traceviewer::ParseAndProcessTraceEvents);
+  emscripten::function(
+      "processTraceEvents",
+      static_cast<void (*)(const emscripten::val&, const emscripten::val&)>(
+          &traceviewer::ParseAndProcessTraceEvents));
 
   emscripten::function("setSearchResultsInWasm",
                        &traceviewer::SetSearchResultsInWasm);

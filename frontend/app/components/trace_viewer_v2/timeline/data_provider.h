@@ -30,6 +30,16 @@ class DataProvider {
   // Clears persistent session metadata and track registries.
   void Reset();
 
+  // Returns open async events spanning chunks.
+  absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>&
+  open_async_events() {
+    return open_async_events_;
+  }
+  const absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>&
+  open_async_events() const {
+    return open_async_events_;
+  }
+
  private:
   // Returns true if any threads, counters, or async tracks are registered.
   bool HasKnownTracks() const;
@@ -46,6 +56,8 @@ class DataProvider {
   absl::btree_map<ProcessId, absl::btree_set<std::string>> known_async_tracks_;
   absl::flat_hash_set<ProcessId> known_async_processes_;
   absl::btree_map<ProcessId, absl::btree_set<std::string>> known_counters_;
+  absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>
+      open_async_events_;
 };
 
 }  // namespace traceviewer

@@ -3,10 +3,12 @@
     <mat-card-content>
       <div class="info-header">{{name}}</div>
       <div class="info-content">
-        <div class="info" *ngFor="let detail of details">
-          <div class="title">{{detail.title}}: </div>
-          <div>{{detail.value}}</div>
-        </div>
+        @for (detail of details; track detail) {
+          <div class="info">
+            <div class="title">{{detail.title}}: </div>
+            <div>{{detail.value}}</div>
+          </div>
+        }
         <div class="info scroll-x-auto" [hidden]="!hloNames">
           <div class="title">Hlo Names</div>
           <code>{{hloNames}}</code>

@@ -1,15 +1,32 @@
-import {ChangeDetectionStrategy, Component, ElementRef, EventEmitter, HostListener, Input, OnChanges, OnInit, Output, SimpleChanges, ViewChild} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  EventEmitter,
+  HostListener,
+  Input,
+  OnChanges,
+  OnInit,
+  Output,
+  SimpleChanges,
+  ViewChild,
+} from '@angular/core';
 import {type BufferAllocationInfo} from 'org_xprof/frontend/app/common/interfaces/buffer_allocation_info';
-import {ChartDataInfo, ChartType} from 'org_xprof/frontend/app/common/interfaces/chart';
+import {
+  ChartDataInfo,
+  ChartType,
+} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
+import {Chart} from '../../chart/chart';
 
 /** A program order chart view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'program-order-chart',
   templateUrl: './program_order_chart.ng.html',
-  styleUrls: ['./program_order_chart.scss']
+  styleUrls: ['./program_order_chart.scss'],
+  imports: [Chart],
 })
 export class ProgramOrderChart implements OnChanges, OnInit {
   /** The heap size list. */
@@ -46,7 +63,7 @@ export class ProgramOrderChart implements OnChanges, OnInit {
   }
 
   @ViewChild('activeChart', {static: false}) activeChartRef!: ElementRef;
-  activeChart: google.visualization.AreaChart|null = null;
+  activeChart: google.visualization.AreaChart | null = null;
 
   maxSize = 0;
   maxOrder = 0;
@@ -162,12 +179,13 @@ export class ProgramOrderChart implements OnChanges, OnInit {
     const hasUnpadded = Boolean(this.unpaddedHeapSizes?.length);
     for (let i = 0; i < this.heapSizes.length; i++) {
       const heapSize = this.heapSizes[i] ?? 0;
-      const unpaddedHeapSize =
-          hasUnpadded ? (this.unpaddedHeapSizes[i] ?? null) : null;
+      const unpaddedHeapSize = hasUnpadded
+        ? (this.unpaddedHeapSizes[i] ?? null)
+        : null;
       this.maxSize = Math.max(this.maxSize, heapSize, unpaddedHeapSize ?? 0);
       const hloName = this.hloInstructionNames?.[i] ?? '';
       const unpaddedText =
-          unpaddedHeapSize !== null ? unpaddedHeapSize.toFixed(1) : 'NA';
+        unpaddedHeapSize !== null ? unpaddedHeapSize.toFixed(1) : 'NA';
       const tooltip = `<div>
         Program Order: ${i}<br>Size: ${heapSize.toFixed(1)}<br>Unpadded Size: ${unpaddedText}<br>HLO instruction: ${hloName}
         </div>`;
@@ -225,8 +243,10 @@ export class ProgramOrderChart implements OnChanges, OnInit {
     }
 
     const peakWidth = Math.max(Math.round(this.maxOrder / 50), 1);
-    const peakAlloc =
-        Math.max(Math.round(this.peakInfo.alloc - peakWidth / 2), 0);
+    const peakAlloc = Math.max(
+      Math.round(this.peakInfo.alloc - peakWidth / 2),
+      0,
+    );
     const peakFree = Math.min(peakAlloc + peakWidth, this.maxOrder);
     const dataTable = new google.visualization.DataTable();
     dataTable.addColumn('number', 'Schedule');
@@ -234,12 +254,14 @@ export class ProgramOrderChart implements OnChanges, OnInit {
     dataTable.addColumn({type: 'string', role: 'tooltip'});
     dataTable.addRows([
       [
-        peakAlloc, this.peakInfo.size,
-        `peak memory allocation: ${this.peakInfo.size}`
+        peakAlloc,
+        this.peakInfo.size,
+        `peak memory allocation: ${this.peakInfo.size}`,
       ],
       [
-        peakFree, this.peakInfo.size,
-        `peak memory allocation: ${this.peakInfo.size}`
+        peakFree,
+        this.peakInfo.size,
+        `peak memory allocation: ${this.peakInfo.size}`,
       ],
     ]);
 

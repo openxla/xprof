@@ -4,10 +4,10 @@ package(default_visibility = ["//frontend:internal"])
 
 xprof_ng_module(
     name = "kernel_analysis",
-    srcs = ["kernel_analysis.component.ts"],
+    srcs = ["kernel_analysis.ts"],
     assets = [
-        "kernel_analysis.component.css",
-        "kernel_analysis.component.html",
+        "kernel_analysis.css",
+        "kernel_analysis.ng.html",
     ],
     deps = [
         "//:node_modules/@angular/common",
@@ -25,7 +25,7 @@ xprof_ng_module(
     name = "tests",
     testonly = True,
     srcs = [
-        "kernel_analysis.component_test.ts",
+        "kernel_analysis_test.ts",
     ],
     deps = [
         ":kernel_analysis",

@@ -59,6 +59,7 @@ import {
   traceViewerV2Main,
   TraceViewerV2Module,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
+import {HLO_OP} from 'org_xprof/frontend/app/components/trace_viewer_v2/trace_helper/event_args_keys';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
@@ -74,6 +75,7 @@ import {
   FILTER_OPERATORS,
   FILTER_PROPERTY_SEPARATOR,
   FILTER_SEPARATOR,
+  HLO_OP_STATS_TOOL_NAME,
   NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
   NAV_PAN_SPEED_STORAGE_KEY,
   NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY,
@@ -992,8 +994,55 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     // v2 can render them as an auto-traversed JSON tree (see
     // TraceViewerContainer.buildSelectedEventJson).
     event.args = Object.assign({}, event.args, args);
+    this.createHloOpStatsLink();
     this.selectedEvent = Object.assign({}, event);
     this.maybeFetchAdjacentNodes();
+  }
+
+  /**
+   * Creates a cross-tool link `<div>` containing an anchor to the given
+   * tool.
+   */
+  private createCrossToolLink(
+    toolName: string,
+    toolLabel: string,
+    params: {[key: string]: string},
+    text: string,
+  ): string {
+    const toolLinkHref = this.dataService.createToolUrl({
+      toolName,
+      sessionId: this.navigationEvent.run ?? '',
+      params,
+    });
+    if (!toolLinkHref) {
+      return `<div>${toolLabel}: Error creating link</div>`;
+    }
+    return `<div>${toolLabel}: <a href="${
+      toolLinkHref
+    }" target="_blank" rel="noopener noreferrer">${text}</a></div>`;
+  }
+
+  /**
+   * Sets the HLO Op Stats cross-tool link on the selected event when it has
+   * an HLO op to filter on. Mirrors the 1p trace viewer so the link is
+   * available for both 1p and 3p users.
+   */
+  private createHloOpStatsLink() {
+    if (!this.selectedEvent?.args) {
+      return;
+    }
+    const args = this.selectedEvent.args as Record<string, string>;
+    const hloOp = args[HLO_OP];
+    // Only generate the link when the event has an HLO op to filter on.
+    if (!hloOp) {
+      return;
+    }
+    this.selectedEvent.hloOpStatsLinkHtml = this.createCrossToolLink(
+      HLO_OP_STATS_TOOL_NAME[0],
+      HLO_OP_STATS_TOOL_NAME[1],
+      {'hlo_op_name': hloOp},
+      `See HLO op stats for ${hloOp}`,
+    );
   }
 
   private maybeFetchAdjacentNodes(): void {

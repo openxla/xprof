@@ -163,6 +163,7 @@ export interface SelectedEvent {
   stackTraceLinkHtml?: string;
   rooflineModelLinkHtml?: string;
   graphViewerLinkHtml?: string;
+  hloOpStatsLinkHtml?: string;
   hloModule?: string;
   hloOpName?: string;
   args?: Record<string, unknown>;

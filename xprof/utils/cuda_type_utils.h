@@ -18,6 +18,7 @@ limitations under the License.
 
 #include <string>
 
+#include "absl/strings/string_view.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
 
 namespace tensorflow {
@@ -32,6 +33,11 @@ double GetSharedMemoryBandwidthPerCore(const DeviceCapabilities& device_cap);
 
 // Microarchitecture family, e.g. "Nvidia GPU (Hopper)".
 std::string GpuModelName(const DeviceCapabilities& device_cap);
+
+// A list of patterns to help determine if a kernel uses Tensor Core.
+// A kernel uses Tensor Core if its kernel name contains any of these patterns.
+// Some examples of kernel names: volta_h884gemm, turing_fp16_s1688cudnn_fp16
+bool IsKernelUsingTensorCore(absl::string_view kernel_name);
 
 }  // namespace cuda
 }  // namespace profiler

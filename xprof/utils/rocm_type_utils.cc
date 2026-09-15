@@ -16,6 +16,7 @@ limitations under the License.
 #include "xprof/utils/rocm_type_utils.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <optional>
 #include <string>
 
@@ -25,6 +26,7 @@ limitations under the License.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/strings/strip.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
 
@@ -32,6 +34,63 @@ namespace tensorflow {
 namespace profiler {
 namespace rocm {
 namespace {
+
+constexpr absl::string_view kMatrixCoreKernelNamePatterns[] = {
+    "gemm_fusion",
+    "Custom_Cijk_",
+    "_xdl",
+    "gtcx",
+    "miopenSp3AsmConvRage",
+    "moe_gemm",
+    "moe_mxgemm",
+    "wmma",
+    "aiter",
+    "FMHA_FWD",
+    "attn_fwd",
+    "bwd_kernel_",
+    "mfma",
+};
+
+constexpr absl::string_view kCkTileMatrixShapeTypes[] = {
+    "TileGemmShape<",    "TileFmhaShape<",     "TileFmhaBwdShape<",
+    "TileFlatmmShape<",  "TileSageAttnShape<",
+};
+
+bool HasCkTileMatrixTileShape(absl::string_view kernel_name) {
+  for (absl::string_view shape : kCkTileMatrixShapeTypes) {
+    if (absl::StrContains(kernel_name, shape)) return true;
+  }
+  return false;
+}
+
+constexpr absl::string_view kNonMatrixCoreKernelNamePatterns[] = {
+    "_odo_",
+    "_dq_convert",
+    "_dq_shuffle",
+    "topksoftmax",
+    "DqAccPrezeroKernel",
+};
+
+bool ConsumeDigits(absl::string_view* s) {
+  size_t n = 0;
+  while (n < s->size() && absl::ascii_isdigit((*s)[n])) ++n;
+  s->remove_prefix(n);
+  return n > 0;
+}
+
+bool HasTensileMatrixInstructionToken(absl::string_view kernel_name) {
+  constexpr absl::string_view kToken = "_MI";
+  for (size_t pos = kernel_name.find(kToken); pos != absl::string_view::npos;
+       pos = kernel_name.find(kToken, pos + kToken.size())) {
+    absl::string_view dims = kernel_name.substr(pos + kToken.size());
+    if (ConsumeDigits(&dims) && absl::ConsumePrefix(&dims, "x") &&
+        ConsumeDigits(&dims) && absl::ConsumePrefix(&dims, "x") &&
+        ConsumeDigits(&dims)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 struct GpuFlopCapabilities {
   struct FlopCapabilityOnPrecisions {
@@ -221,6 +280,20 @@ std::string GpuModelName(const DeviceCapabilities& device_cap) {
     default:
       return "AMD GPU";
   }
+}
+
+bool IsKernelUsingMatrixCore(absl::string_view kernel_name) {
+  for (absl::string_view pattern : kNonMatrixCoreKernelNamePatterns) {
+    if (absl::StrContains(kernel_name, pattern)) return false;
+  }
+  if (HasTensileMatrixInstructionToken(kernel_name)) return true;
+  if (HasCkTileMatrixTileShape(kernel_name)) return true;
+  for (absl::string_view pattern : kMatrixCoreKernelNamePatterns) {
+    if (absl::StrContains(kernel_name, pattern)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace rocm

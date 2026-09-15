@@ -4,6 +4,10 @@ import {
   inject,
   OnDestroy,
 } from '@angular/core';
+import {MatOption} from '@angular/material/core';
+import {MatFormField, MatLabel} from '@angular/material/form-field';
+import {MatProgressBar} from '@angular/material/progress-bar';
+import {MatSelect} from '@angular/material/select';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -20,14 +24,24 @@ import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {Table} from '../chart/table/table';
+import {DiagnosticsView} from '../diagnostics_view/diagnostics_view';
 
 /** An inference profile component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'inference-profile',
   templateUrl: './inference_profile.ng.html',
   styleUrls: ['./inference_profile.scss'],
+  imports: [
+    DiagnosticsView,
+    MatFormField,
+    MatLabel,
+    MatOption,
+    MatProgressBar,
+    MatSelect,
+    Table,
+  ],
 })
 export class InferenceProfile implements OnDestroy {
   tool = 'inference_profile';

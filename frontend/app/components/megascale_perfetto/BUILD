@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "megascale_perfetto",
     srcs = [
         "megascale_perfetto.ts",
-        "megascale_perfetto_module.ts",
     ],
     assets = [
         ":megascale_perfetto_css",

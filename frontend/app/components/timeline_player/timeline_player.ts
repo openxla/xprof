@@ -39,7 +39,6 @@ export interface SyncEventDetail {
 /** Component that renders a timeline player with scrub, play/pause controls. */
 @Component({
   selector: 'timeline-player',
-  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     CommonModule,

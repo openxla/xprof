@@ -8,7 +8,6 @@ xprof_ng_module(
     name = "utilization_viewer",
     srcs = [
         "utilization_viewer.ts",
-        "utilization_viewer_module.ts",
     ],
     assets = [
         ":utilization_viewer_css",

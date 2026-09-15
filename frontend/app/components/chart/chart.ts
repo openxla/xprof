@@ -1,9 +1,25 @@
-import {Component, ElementRef, EventEmitter, Input, NgModule, OnChanges, OnInit, Output, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
-import {ChartClass, type ChartDataInfo, ChartType, CustomChartDataProcessor, DataTableOrDataView} from 'org_xprof/frontend/app/common/interfaces/chart';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  EventEmitter,
+  Input,
+  OnChanges,
+  OnInit,
+  Output,
+  SimpleChanges,
+} from '@angular/core';
+import {
+  ChartClass,
+  type ChartDataInfo,
+  ChartType,
+  CustomChartDataProcessor,
+  DataTableOrDataView,
+} from 'org_xprof/frontend/app/common/interfaces/chart';
 
 /** A common chart component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'chart',
   template: '',
   styles: [':host {display: block;}'],
@@ -16,7 +32,7 @@ export class Chart implements OnChanges, OnInit {
   @Input() dataInfo?: ChartDataInfo;
 
   /** The event for the number of rows of processed data. */
-  @Output() processedNumberOfRows = new EventEmitter<number>();
+  @Output() readonly processedNumberOfRows = new EventEmitter<number>();
 
   /** The event when the selection of the chart is changed. */
   @Output() readonly selected = new EventEmitter<
@@ -49,11 +65,12 @@ export class Chart implements OnChanges, OnInit {
       return;
     }
 
-    const processedData =
-        this.getProcessedData(this.dataInfo.customChartDataProcessor);
+    const processedData = this.getProcessedData(
+      this.dataInfo.customChartDataProcessor,
+    );
 
     const options =
-        this.dataInfo.dataProvider.getOptions() || this.dataInfo.options;
+      this.dataInfo.dataProvider.getOptions() || this.dataInfo.options;
 
     if (processedData) {
       // tslint:disable-next-line:no-any
@@ -61,12 +78,13 @@ export class Chart implements OnChanges, OnInit {
     }
 
     this.processedNumberOfRows.emit(
-        processedData ? processedData.getNumberOfRows() : 0);
+      processedData ? processedData.getNumberOfRows() : 0,
+    );
   }
 
   getProcessedData(
-      customChartDataProcessor: CustomChartDataProcessor|
-      undefined): DataTableOrDataView|null {
+    customChartDataProcessor: CustomChartDataProcessor | undefined,
+  ): DataTableOrDataView | null {
     if (!this.dataInfo || !this.dataInfo.dataProvider) {
       return null;
     }
@@ -101,52 +119,64 @@ export class Chart implements OnChanges, OnInit {
   initChart() {
     switch (this.chartType) {
       case ChartType.AREA_CHART:
-        this.chart =
-            new google.visualization.AreaChart(this.elementRef.nativeElement);
+        this.chart = new google.visualization.AreaChart(
+          this.elementRef.nativeElement,
+        );
         break;
       case ChartType.BAR_CHART:
-        this.chart =
-            new google.visualization.BarChart(this.elementRef.nativeElement);
+        this.chart = new google.visualization.BarChart(
+          this.elementRef.nativeElement,
+        );
         break;
       case ChartType.BUBBLE_CHART:
-        this.chart =
-            new google.visualization.BubbleChart(this.elementRef.nativeElement);
+        this.chart = new google.visualization.BubbleChart(
+          this.elementRef.nativeElement,
+        );
         break;
       case ChartType.CANDLESTICK_CHART:
         this.chart = new google.visualization.CandlestickChart(
-            this.elementRef.nativeElement);
+          this.elementRef.nativeElement,
+        );
         break;
       case ChartType.COLUMN_CHART:
-        this.chart =
-            new google.visualization.ColumnChart(this.elementRef.nativeElement);
+        this.chart = new google.visualization.ColumnChart(
+          this.elementRef.nativeElement,
+        );
         break;
       case ChartType.COMBO_CHART:
-        this.chart =
-            new google.visualization.ComboChart(this.elementRef.nativeElement);
+        this.chart = new google.visualization.ComboChart(
+          this.elementRef.nativeElement,
+        );
         break;
       case ChartType.HISTOGRAM:
-        this.chart =
-            new google.visualization.Histogram(this.elementRef.nativeElement);
+        this.chart = new google.visualization.Histogram(
+          this.elementRef.nativeElement,
+        );
         break;
       case ChartType.LINE_CHART:
-        this.chart =
-            new google.visualization.LineChart(this.elementRef.nativeElement);
+        this.chart = new google.visualization.LineChart(
+          this.elementRef.nativeElement,
+        );
         break;
       case ChartType.PIE_CHART:
-        this.chart =
-            new google.visualization.PieChart(this.elementRef.nativeElement);
+        this.chart = new google.visualization.PieChart(
+          this.elementRef.nativeElement,
+        );
         break;
       case ChartType.SCATTER_CHART:
         this.chart = new google.visualization.ScatterChart(
-            this.elementRef.nativeElement);
+          this.elementRef.nativeElement,
+        );
         break;
       case ChartType.STEPPED_AREA_CHART:
         this.chart = new google.visualization.SteppedAreaChart(
-            this.elementRef.nativeElement);
+          this.elementRef.nativeElement,
+        );
         break;
       case ChartType.TABLE:
-        this.chart =
-            new google.visualization.Table(this.elementRef.nativeElement);
+        this.chart = new google.visualization.Table(
+          this.elementRef.nativeElement,
+        );
         break;
       default:
         this.chart = undefined;
@@ -168,8 +198,4 @@ export class Chart implements OnChanges, OnInit {
       this.draw();
     });
   }
-}
-
-@NgModule({declarations: [Chart], exports: [Chart]})
-export class ChartModule {
 }

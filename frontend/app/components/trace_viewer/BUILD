@@ -3,22 +3,52 @@ load("//defs:defs.bzl", "sass_binary", "xprof_ng_module")
 package(default_visibility = ["//frontend:internal"])
 
 xprof_ng_module(
+    name = "trace_viewer_typings",
+    srcs = ["trace_viewer_typings.ts"],
+)
+
+xprof_ng_module(
+    name = "constants",
+    srcs = ["constants.ts"],
+    deps = [
+        ":trace_viewer_typings",
+    ],
+)
+
+xprof_ng_module(
+    name = "interfaces",
+    srcs = ["interfaces.ts"],
+    deps = [
+        ":trace_viewer_typings",
+        "@org_xprof//frontend/app/components/trace_viewer_container",
+    ],
+)
+
+xprof_ng_module(
+    name = "utils",
+    srcs = ["utils.ts"],
+    deps = [
+        ":constants",
+        ":interfaces",
+        ":trace_viewer_typings",
+        "@org_xprof//frontend/app/components/trace_viewer_v2:app_bundle_ts",
+    ],
+)
+
+xprof_ng_module(
     name = "trace_viewer",
     srcs = [
-        "constants.ts",
-        "filter_chips.ts",
-        "filter_input.ts",
-        "interfaces.ts",
         "trace_viewer.ts",
-        "trace_viewer_module.ts",
-        "trace_viewer_typings.ts",
-        "utils.ts",
     ],
     assets = [
         ":trace_viewer_css",
         "trace_viewer.ng.html",
     ],
     deps = [
+        ":constants",
+        ":interfaces",
+        ":trace_viewer_typings",
+        ":utils",
         "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
         "//:node_modules/@angular/forms",
@@ -30,6 +60,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/angular:angular_material_button",
         "@org_xprof//frontend/app/common/angular:angular_material_checkbox",
         "@org_xprof//frontend/app/common/angular:angular_material_chips",
+        "@org_xprof//frontend/app/common/angular:angular_material_core",
         "@org_xprof//frontend/app/common/angular:angular_material_dialog",
         "@org_xprof//frontend/app/common/angular:angular_material_divider",
         "@org_xprof//frontend/app/common/angular:angular_material_icon",
@@ -39,6 +70,8 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/constants",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/components/diagnostics_view",
+        "@org_xprof//frontend/app/components/trace_viewer/filter_chips",
+        "@org_xprof//frontend/app/components/trace_viewer/filter_input",
         "@org_xprof//frontend/app/components/trace_viewer_container",
         "@org_xprof//frontend/app/components/trace_viewer_v2:app_bundle_ts",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:event_args_keys",
@@ -58,7 +91,11 @@ xprof_ng_module(
         "utils_test.ts",
     ],
     deps = [
+        ":constants",
+        ":interfaces",
         ":trace_viewer",
+        ":trace_viewer_typings",
+        ":utils",
         "//javascript/angular2/testing/catalyst/fake_async",
         # ksf,
         "//:node_modules/@angular/common",
@@ -81,6 +118,6 @@ xprof_ng_module(
 sass_binary(
     name = "trace_viewer_css",
     src = "trace_viewer.scss",
-    # stack = False,
+    # stack = True,
     sourcemap = False,
 )

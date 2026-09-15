@@ -7,7 +7,6 @@ xprof_ng_module(
     srcs = [
         "input_pipeline.ts",
         "input_pipeline_common.ts",
-        "input_pipeline_module.ts",
     ],
     assets = [
         ":input_pipeline_css",

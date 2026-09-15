@@ -59,5 +59,30 @@ TEST(UnifiedOpProfileProcessorTest, MinimalTest) {
   EXPECT_OK(processor->ProcessSession(session_snapshot, options));
 }
 
+TEST(UnifiedOpProfileProcessorTest, FlatOpMetricsDbTest) {
+  RegisterUnifiedToolRegistrations();
+  ToolOptions options;
+  options["use_flat_metric"] = true;
+
+  auto processor = UnifiedProfileProcessorFactory::GetInstance().Create(
+      "op_profile", options);
+  ASSERT_NE(processor, nullptr);
+
+  std::string session_dir = tsl::io::JoinPath(
+      testing::TempDir(), "unified_op_profile_processor_flat_test");
+  ASSERT_OK(tsl::Env::Default()->RecursivelyCreateDir(session_dir));
+  std::string xspace_path =
+      tsl::io::JoinPath(session_dir, "test_host.xplane.pb");
+  XSpace dummy_space;
+  ASSERT_OK(WriteBinaryProto(xspace_path, dummy_space));
+
+  std::vector<std::string> xspace_paths = {xspace_path};
+  ASSERT_OK_AND_ASSIGN(
+      auto session_snapshot,
+      SessionSnapshot::Create(xspace_paths, /*xspaces=*/std::nullopt));
+
+  EXPECT_OK(processor->ProcessSession(session_snapshot, options));
+}
+
 }  // namespace
 }  // namespace xprof

@@ -1,22 +1,27 @@
+import {AsyncPipe} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
   ElementRef,
-  EventEmitter,
-  Input,
+  input,
   OnChanges,
-  Output,
+  output,
   SimpleChange,
   SimpleChanges,
-  ViewChild,
+  viewChild,
 } from '@angular/core';
+import {FormsModule} from '@angular/forms';
 import {
   MAT_AUTOCOMPLETE_DEFAULT_OPTIONS,
   MatAutocomplete,
+  MatAutocompleteOrigin,
   MatAutocompleteSelectedEvent,
   MatAutocompleteTrigger,
 } from '@angular/material/autocomplete';
+import {MatButton} from '@angular/material/button';
+import {MatCheckbox} from '@angular/material/checkbox';
+import {MatOption} from '@angular/material/core';
 import {BehaviorSubject} from 'rxjs';
 import {FILTER_FIELDS, FILTER_OPERATORS} from './constants';
 import {
@@ -33,8 +38,7 @@ import {filterFieldKey, lookupFilterOperator} from './utils';
  * Component to display input field for adding a new filter.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'filter-input',
   viewProviders: [
     {
@@ -42,52 +46,28 @@ import {filterFieldKey, lookupFilterOperator} from './utils';
       useValue: {},
     },
   ],
-  template: `
-    <div matAutocompleteOrigin #origin="matAutocompleteOrigin" style="display:flex;">
-    <input #inputEl type="text"
-                #optionTrigger="matAutocompleteTrigger"
-                class="filter-input"
-                (input)="onInputChange()"
-                [value]="filterInput"
-                (keyup.enter)="tryAddFilter()"
-                (keyup.escape)="onEscape()"
-                [matAutocomplete]="filterOptionsAuto"
-                placeholder="Add filter..."
-                aria-label="Add filter"/>
-    </div>
-
-<mat-autocomplete #filterOptionsAuto class="dense" panelWidth="fit-content" (optionSelected)="onOptionSelected($event)">
-  <!-- option list for filter field and operator -->
-  <div *ngIf="!isUpdatingValues()">
-    <mat-option *ngFor="let option of (autoFilterOptions | async) trackBy:trackByValue"
-              [value]="option.value">
-      {{option.displayName || option.value}}
-    </mat-option>
-  </div>
-  <!-- option list for filter values -->
-  <div *ngIf="isUpdatingValues() && isMultiSelect()" style="display:flex;flex-direction:column;">
-    <button mat-stroked-button color="primary" (click)="onConfirmMultiSelect()" style="margin:10px;">Confirm</button>
-    <mat-option>
-      <mat-checkbox class="example-margin" [checked]="allOptionsSelected" (click)="onOperateAll($event)">{{allOptionsLabel}}</mat-checkbox>
-    </mat-option>
-    <mat-option *ngFor="let option of (autoFilterValues | async) trackBy:trackByValue"
-      [value]="option.value" >
-      <mat-checkbox class="example-margin" [(ngModel)]="option.checked" (click)="onClickCheckbox($event)">{{option.displayName || option.value}}</mat-checkbox>
-    </mat-option>
-  </div>
-</mat-autocomplete>
-`,
+  templateUrl: './filter_input.ng.html',
   styleUrls: ['./trace_viewer.scss'],
+  imports: [
+    AsyncPipe,
+    FormsModule,
+    MatAutocomplete,
+    MatAutocompleteOrigin,
+    MatAutocompleteTrigger,
+    MatButton,
+    MatCheckbox,
+    MatOption,
+  ],
 })
 export class FilterInput implements AfterViewInit, OnChanges {
-  @ViewChild('inputEl') inputEl!: ElementRef;
-  @ViewChild('filterOptionsAuto') filterOptionsAuto!: MatAutocomplete;
-  @ViewChild('optionTrigger') optionTrigger!: MatAutocompleteTrigger;
+  readonly inputEl = viewChild<ElementRef>('inputEl');
+  readonly filterOptionsAuto = viewChild<MatAutocomplete>('filterOptionsAuto');
+  readonly optionTrigger = viewChild<MatAutocompleteTrigger>('optionTrigger');
 
-  @Output() readonly filterAdded = new EventEmitter<FilterEntry>();
-  @Input() validFilterFields: FilterField[] = [];
-  @Input() hosts: string[] = [];
-  @Input() processes: string[] = [];
+  readonly filterAdded = output<FilterEntry>();
+  readonly validFilterFields = input<FilterField[]>([]);
+  readonly hosts = input<string[]>([]);
+  readonly processes = input<string[]>([]);
 
   private filterInputInternal = '';
   /**
@@ -112,8 +92,8 @@ export class FilterInput implements AfterViewInit, OnChanges {
 
   get fieldValueOptions(): {[key: string]: string[]} {
     const valueOptions: {[key: string]: string[]} = {};
-    valueOptions[FilterFieldCategory.HOST] = this.hosts;
-    valueOptions[FilterFieldCategory.PROCESS] = this.processes;
+    valueOptions[FilterFieldCategory.HOST] = this.hosts();
+    valueOptions[FilterFieldCategory.PROCESS] = this.processes();
     return valueOptions;
   }
 
@@ -146,13 +126,14 @@ export class FilterInput implements AfterViewInit, OnChanges {
 
   ngOnChanges(changes: SimpleChanges) {
     if (this.validFilterFieldsChanged(changes['validFilterFields'])) {
-      this.autoFilterFields.next(this.validFilterFields);
+      this.autoFilterFields.next(this.validFilterFields());
       this.updateFilterOptions();
     }
   }
 
   ngAfterViewInit() {
-    if (!(this.optionTrigger instanceof MatAutocompleteTrigger)) {
+    const optionTrigger = this.optionTrigger();
+    if (!optionTrigger || !(optionTrigger instanceof MatAutocompleteTrigger)) {
       throw new Error('@ViewChild "trigger" is required');
     }
   }
@@ -230,7 +211,7 @@ export class FilterInput implements AfterViewInit, OnChanges {
     let currentOptions: FilterOption[] = [];
     switch (this.filterStep) {
       case 0:
-        const filteredNameOptions = this.validFilterFields.filter(
+        const filteredNameOptions = this.validFilterFields().filter(
           (field: FilterField) =>
             field.displayName
               .toLowerCase()
@@ -260,7 +241,7 @@ export class FilterInput implements AfterViewInit, OnChanges {
           }
         } else {
           currentOptions = [];
-          this.optionTrigger.closePanel();
+          this.optionTrigger()?.closePanel();
         }
         break;
       default:
@@ -295,7 +276,7 @@ export class FilterInput implements AfterViewInit, OnChanges {
   // Returns filter name if the string matches one of the display names
   // Otherwise returns undefined.
   private lookupFilterField(fieldValue: string): FilterField | undefined {
-    return this.validFilterFields.find(
+    return this.validFilterFields().find(
       (filterField: FilterField) =>
         filterFieldKey(filterField).toLowerCase() ===
           fieldValue.trim().toLowerCase() ||
@@ -333,8 +314,8 @@ export class FilterInput implements AfterViewInit, OnChanges {
 
   focus() {
     setTimeout(() => {
-      this.inputEl.nativeElement.focus();
-      this.optionTrigger?.openPanel();
+      this.inputEl()?.nativeElement.focus();
+      this.optionTrigger()?.openPanel();
     }, 100);
   }
 
@@ -355,7 +336,10 @@ export class FilterInput implements AfterViewInit, OnChanges {
   }
 
   onInputChange() {
-    this.filterInput = this.inputEl.nativeElement.value;
+    const inputEl = this.inputEl();
+    if (inputEl) {
+      this.filterInput = inputEl.nativeElement.value;
+    }
   }
 
   isValidOperator(field: FilterField, operator: string) {
@@ -376,7 +360,7 @@ export class FilterInput implements AfterViewInit, OnChanges {
         value,
         operator: lookupFilterOperator(operator),
       };
-      this.filterAdded.next(filter);
+      this.filterAdded.emit(filter);
       this.reset();
       return true;
     }
@@ -386,6 +370,6 @@ export class FilterInput implements AfterViewInit, OnChanges {
   private reset() {
     this.filterInput = '';
     this.filterStep = 0;
-    this.optionTrigger?.closePanel();
+    this.optionTrigger()?.closePanel();
   }
 }

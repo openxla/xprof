@@ -1,17 +1,29 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  EventEmitter,
-  Input,
-  Output,
-  ViewChild,
+  input,
+  output,
+  viewChild,
 } from '@angular/core';
-import {MatChipEditedEvent} from '@angular/material/chips';
+import {
+  MatChipEditedEvent,
+  MatChipGrid,
+  MatChipRemove,
+  MatChipRow,
+} from '@angular/material/chips';
 
+import {AsyncPipe} from '@angular/common';
+import {FormsModule} from '@angular/forms';
 import {
   MatAutocomplete,
+  MatAutocompleteOrigin,
   MatAutocompleteTrigger,
 } from '@angular/material/autocomplete';
+import {MatButton} from '@angular/material/button';
+import {MatCheckbox} from '@angular/material/checkbox';
+import {MatOption} from '@angular/material/core';
+import {MatIcon} from '@angular/material/icon';
+import {MatTooltip} from '@angular/material/tooltip';
 import {BehaviorSubject} from 'rxjs';
 import {
   FilterFieldCategory,
@@ -28,61 +40,37 @@ const CHIP_TEXT_MAX_LENGTH = 15;
  * Component to display a list of selected filter chips
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'filter-chips',
-  template: `
-    <mat-chip-grid #chipGrid>
-      <ng-container *ngFor="let filter of filters; let idx = index">
-        <mat-chip-row
-          matAutocompleteOrigin #origin="matAutocompleteOrigin"
-          (removed)="remove(idx)"
-          [editable]="true"
-          (edited)="edit(idx, $event)"
-          [value]="filter.value"
-          [attr.aria-description]="'press enter to edit filter ' + filter.field.displayName"
-          [matTooltip]="getTooltip(filter)"
-          (click)="onClickChip($event, filter, idx)"
-          class="filter-chip">
-            {{getFilterShortenString(filter)}}
-          <button matChipRemove [attr.aria-label]="'remove filter ' + filter.field.displayName">
-            <mat-icon>cancel</mat-icon>
-          </button>
-          <input
-            hidden
-            #optionTrigger="matAutocompleteTrigger"
-            [matAutocompleteConnectedTo]="origin"
-            [matAutocomplete]="chipValueOptionsAuto"
-            [attr.aria-label]="'Filter options for ' + filter.field.displayName"
-            [id]="'chip-dummy-input-' + idx"
-            class="chip-dummy-input" />
-        </mat-chip-row>
-        <mat-autocomplete #chipValueOptionsAuto class="dense" panelWidth="fit-content">
-          <div style="display:flex;flex-direction:column;">
-            <button mat-stroked-button color="primary" (click)="onChipMultiSelectUpdateConfirm()" style="margin:10px;">Confirm</button>
-            <mat-option>
-              <mat-checkbox class="example-margin" [checked]="allOptionsSelected" (click)="onOperateAll($event)">{{allOptionsLabel}}</mat-checkbox>
-            </mat-option>
-            <mat-option *ngFor="let option of (autoChipValueOptions | async) trackBy:trackByValue"
-              [value]="option.value" >
-              <mat-checkbox class="example-margin" [(ngModel)]="option.checked" (click)="onClickChipOption($event)">{{option.value}}</mat-checkbox>
-            </mat-option>
-          </div>
-        </mat-autocomplete>
-      </ng-container>
-    </mat-chip-grid>
-`,
+  templateUrl: './filter_chips.ng.html',
   styleUrls: ['./trace_viewer.scss'],
+  imports: [
+    AsyncPipe,
+    FormsModule,
+    MatAutocomplete,
+    MatAutocompleteOrigin,
+    MatAutocompleteTrigger,
+    MatButton,
+    MatCheckbox,
+    MatChipGrid,
+    MatChipRemove,
+    MatChipRow,
+    MatIcon,
+    MatOption,
+    MatTooltip,
+  ],
 })
 export class FilterChips {
-  @Input() filters: FilterEntry[] = [];
-  @Input() hosts: string[] = [];
-  @Input() processes: string[] = [];
+  readonly filters = input<FilterEntry[]>([]);
+  readonly hosts = input<string[]>([]);
+  readonly processes = input<string[]>([]);
 
-  @Output() readonly filterChanged = new EventEmitter<FilterChangeEvent>();
-  @Output() readonly filterRemoved = new EventEmitter<FilterRemoveEvent>();
-  @ViewChild('chipValueOptionsAuto') chipValueOptionsAuto!: MatAutocomplete;
-  @ViewChild('optionTrigger') optionTrigger?: MatAutocompleteTrigger;
+  readonly filterChanged = output<FilterChangeEvent>();
+  readonly filterRemoved = output<FilterRemoveEvent>();
+  readonly chipValueOptionsAuto = viewChild<MatAutocomplete>(
+    'chipValueOptionsAuto',
+  );
+  readonly optionTrigger = viewChild<MatAutocompleteTrigger>('optionTrigger');
 
   autoChipValueOptions = new BehaviorSubject<FilterValue[]>([]);
   onEditChipIndex = -1;
@@ -111,15 +99,15 @@ export class FilterChips {
 
   onClickChip(e: Event, filter: FilterEntry, index: number) {
     e.stopPropagation();
-    if (this.optionTrigger?.panelOpen) {
+    if (this.optionTrigger()?.panelOpen) {
       this.onEditChipIndex = -1;
-      this.optionTrigger?.closePanel();
+      this.optionTrigger()?.closePanel();
     } else {
       this.onEditChipIndex = index;
       const options = this.getChipOptions(filter);
       if (options.length > 0) {
         this.autoChipValueOptions.next(options);
-        this.optionTrigger?.openPanel();
+        this.optionTrigger()?.openPanel();
       }
     }
   }
@@ -134,11 +122,11 @@ export class FilterChips {
       filter.operator.value === FilterOperatorType.EXACT
     ) {
       if (filter.field.info.category === FilterFieldCategory.HOST) {
-        return this.hosts.map((host) => {
+        return this.hosts().map((host) => {
           return {value: host, checked: filter.value.split(',').includes(host)};
         });
       } else if (filter.field.info.category === FilterFieldCategory.PROCESS) {
-        return this.processes.map((process) => {
+        return this.processes().map((process) => {
           return {value: process, checked: filter.value.includes(process)};
         });
       }
@@ -152,21 +140,21 @@ export class FilterChips {
       .map((option) => option.value)
       .join(',');
     if (this.onEditChipIndex >= 0) {
-      this.filterChanged.next({
+      this.filterChanged.emit({
         value: updatedChipValue,
         index: this.onEditChipIndex,
       });
     }
-    this.optionTrigger?.closePanel();
+    this.optionTrigger()?.closePanel();
     this.onEditChipIndex = -1;
   }
 
   remove(index: number) {
-    this.filterRemoved.next({index});
+    this.filterRemoved.emit({index});
   }
 
   edit(index: number, event: MatChipEditedEvent) {
-    this.filterChanged.next({value: event.value, index});
+    this.filterChanged.emit({value: event.value, index});
   }
 
   getTooltip(filter: FilterEntry) {

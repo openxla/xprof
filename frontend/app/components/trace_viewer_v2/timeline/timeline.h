@@ -673,6 +673,12 @@ class Timeline {
                     double px_per_time_unit_val, Pixel scroll_y,
                     Pixel window_height);
 
+  // Handles clicking on the timeline area of a process track header to
+  // expand/collapse. Returns true if layout update is needed.
+  bool HandleProcessTrackHeaderClick(int group_index, Group& group,
+                                     const ImVec2& tracks_start_screen_pos,
+                                     Pixel content_region_avail_width);
+
  protected:
   // Handles drag-and-drop source/target and
   // item hover check for a track label row.

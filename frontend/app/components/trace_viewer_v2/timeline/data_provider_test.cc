@@ -5005,5 +5005,128 @@ TEST_F(DataProviderTest,
   EXPECT_TRUE(groups[3].expanded);
 }
 
+TEST_F(DataProviderTest, TpuProcessRendersBothSyncThreadsAndAsyncTracks) {
+  // A TPU device process has both sync thread (XLA Ops) and async track
+  // (MemcpyH2D).
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "/device:TPU:0"),
+      CreateThreadEvent(1, 10, "XLA Ops"),
+      CreateCompleteEvent(1, 10, "Op1", 100.0, 50.0),
+      TraceEvent{.ph = Phase::kComplete,
+                 .pid = 1,
+                 .tid = 0,
+                 .name = "MemcpyH2D",
+                 .ts = 110.0,
+                 .dur = 40.0,
+                 .is_async = true},
+  };
+
+  data_provider_.ProcessTraceEvents(ParsedTraceEvents{.flame_events = events},
+                                    timeline_);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_THAT(groups, SizeIs(3));
+
+  // Process group
+  EXPECT_EQ(groups[0].name, "/device:TPU:0");
+  EXPECT_EQ(groups[0].nesting_level, kProcessNestingLevel);
+  EXPECT_TRUE(groups[0].expanded);
+
+  // Both async track and sync thread exist as children
+  EXPECT_EQ(groups[1].name, "MemcpyH2D");
+  EXPECT_EQ(groups[1].nesting_level, kThreadNestingLevel);
+  EXPECT_EQ(groups[1].parent_index, 0);
+
+  EXPECT_EQ(groups[2].name, "XLA Ops");
+  EXPECT_EQ(groups[2].nesting_level, kThreadNestingLevel);
+  EXPECT_EQ(groups[2].parent_index, 0);
+}
+
+TEST_F(DataProviderTest, TpuAndDeviceProcessesDefaultExpanded) {
+  // Even if not the first process, TPU / GPU / device rows are expanded by
+  // default.
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Host Process"),
+      CreateProcessSortIndexEvent(1, "1"),
+      CreateCompleteEvent(1, 10, "HostOp", 100.0, 50.0),
+      CreateProcessEvent(2, "/device:TPU:0"),
+      CreateProcessSortIndexEvent(2, "2"),
+      CreateCompleteEvent(2, 20, "TpuOp", 100.0, 50.0),
+  };
+
+  data_provider_.ProcessTraceEvents(ParsedTraceEvents{.flame_events = events},
+                                    timeline_);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_THAT(groups, SizeIs(4));
+
+  // Process 1 (Host Process, first group -> expanded)
+  EXPECT_EQ(groups[0].name, "Host Process");
+  EXPECT_TRUE(groups[0].expanded);
+
+  // Process 2 (/device:TPU:0, device track -> expanded by default)
+  EXPECT_EQ(groups[2].name, "/device:TPU:0");
+  EXPECT_TRUE(groups[2].expanded);
+}
+
+TEST_F(DataProviderTest, ProcessSortIndexTakesPrecedenceOverAsyncPriority) {
+  // Process 1 has async name ("Async XLA Ops", priority 2), but higher
+  // sort_index (10). Process 2 has normal name ("Host Computation", priority
+  // 0), but lower sort_index (5). Process 2 must appear BEFORE Process 1
+  // because sort_index takes precedence.
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Async XLA Ops"),
+      CreateProcessSortIndexEvent(1, "10"),
+      CreateCompleteEvent(1, 10, "Op1", 100.0, 50.0),
+
+      CreateProcessEvent(2, "Host Computation"),
+      CreateProcessSortIndexEvent(2, "5"),
+      CreateCompleteEvent(2, 20, "Op2", 100.0, 50.0),
+  };
+
+  data_provider_.ProcessTraceEvents(ParsedTraceEvents{.flame_events = events},
+                                    timeline_);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_THAT(groups, SizeIs(4));
+  EXPECT_EQ(groups[0].name, "Host Computation");
+  EXPECT_EQ(groups[2].name, "Async XLA Ops");
+}
+
+TEST_F(DataProviderTest, AsyncEventsConnectedByFlowLines) {
+  // Connect an async event (MemcpyH2D) on Process 1 to a sync event on
+  // Process 2.
+  TraceEvent async_ev{
+      .ph = Phase::kComplete,
+      .pid = 1,
+      .tid = 0,
+      .name = "MemcpyH2D",
+      .ts = 100.0,
+      .dur = 50.0,
+      .id = "flow_42",
+      .is_async = true,
+  };
+  TraceEvent sync_ev = CreateCompleteEvent(2, 20, "KernelLaunch", 200.0, 50.0);
+  sync_ev.id = "flow_42";
+
+  const std::vector<TraceEvent> flame_events = {
+      CreateProcessEvent(1, "Process 1"),
+      async_ev,
+      CreateProcessEvent(2, "Process 2"),
+      sync_ev,
+  };
+  const std::vector<TraceEvent> flow_events = {async_ev, sync_ev};
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = flame_events,
+                        .flow_events = flow_events},
+      timeline_);
+
+  const auto& flow_lines = timeline_.timeline_data().flow_lines;
+  ASSERT_THAT(flow_lines, SizeIs(1));
+  EXPECT_DOUBLE_EQ(flow_lines[0].source_ts, 100.0);
+  EXPECT_DOUBLE_EQ(flow_lines[0].target_ts, 200.0);
+}
+
 }  // namespace
 }  // namespace traceviewer

@@ -136,6 +136,11 @@ export const STACK_TRACE_TOOL_NAME = [
 export const ROOFLINE_MODEL_TOOL_NAME = ['roofline_model', 'Roofline Model'];
 
 /**
+ * Tool name and label for HLO op stats for cross-links.
+ */
+export const HLO_OP_STATS_TOOL_NAME = ['hlo_stats', 'HLO Op Stats'];
+
+/**
  * Separates event filter properties in the string representation of the filter
  * config
  */

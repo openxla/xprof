@@ -41,6 +41,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/components/diagnostics_view",
         "@org_xprof//frontend/app/components/trace_viewer_container",
         "@org_xprof//frontend/app/components/trace_viewer_v2:app_bundle_ts",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:event_args_keys",
         "@org_xprof//frontend/app/pipes",
         "@org_xprof//frontend/app/services/communication_service",
         "@org_xprof//frontend/app/services/data_service_v2",

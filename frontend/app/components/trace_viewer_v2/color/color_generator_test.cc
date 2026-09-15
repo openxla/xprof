@@ -8,6 +8,7 @@
 #include "absl/strings/string_view.h"
 #include "imgui.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
+#include "frontend/app/components/trace_viewer_v2/color/palettes.h"
 
 namespace traceviewer {
 namespace {
@@ -142,6 +143,29 @@ TEST(ColorPaletteTest, SetTraceColors_ExceedingMaxColorsFails) {
 
   EXPECT_THAT(palette.SetTraceColors(too_many_colors),
               StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
+TEST(ColorPaletteTest, FromPreset_LoadsDefaultPaletteCatapult) {
+  ColorPalette palette = ColorPalette::Default();
+  EXPECT_EQ(kDefaultPalette, "Catapult");
+  EXPECT_OK(palette.FromPreset(kDefaultPalette));
+  EXPECT_EQ(palette.GetCurrentPresetName(), kDefaultPalette);
+  EXPECT_EQ(palette.GetTraceColors().size(), 23);
+  EXPECT_EQ(palette.GetTraceColors()[0], 0xFFA1A1FF);
+}
+
+TEST(ColorPaletteTest, FromPreset_LoadsDefault) {
+  ColorPalette palette = ColorPalette::Default();
+  EXPECT_OK(palette.FromPreset(kDefaultPalette));
+  EXPECT_OK(palette.FromPreset("Default"));
+  EXPECT_EQ(palette.GetCurrentPresetName(), "Default");
+  EXPECT_EQ(palette.GetTraceColors().size(), 7);
+}
+
+TEST(ColorPaletteTest, FromPreset_NotFoundForUnknownPreset) {
+  ColorPalette palette = ColorPalette::Default();
+  EXPECT_THAT(palette.FromPreset("NonExistentPreset"),
+              StatusIs(absl::StatusCode::kNotFound));
 }
 
 }  // namespace

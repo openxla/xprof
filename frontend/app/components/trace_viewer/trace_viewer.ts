@@ -69,6 +69,7 @@ import {
   COLOR_PALETTES,
   CUSTOM_COLORS_STORAGE_KEY,
   CUSTOM_PALETTE_NAME,
+  DEFAULT_PALETTE,
   FILTER_CONFIG,
   FILTER_FIELD_EVENT_DURATION,
   FILTER_FIELDS,
@@ -278,7 +279,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   activeSettingsTab: SettingsTab = SettingsTab.GENERAL;
   palettePreviews: Record<string, string[]> = PALETTE_PREVIEWS;
 
-  selectedPalette = 'Default';
+  selectedPalette = DEFAULT_PALETTE;
   COLOR_PALETTES = COLOR_PALETTES;
   readonly CUSTOM_PALETTE_NAME = CUSTOM_PALETTE_NAME;
   customColors: string[] = [];
@@ -584,13 +585,16 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       try {
         savedPalette = window.localStorage.getItem(COLOR_PALETTE_STORAGE_KEY);
       } catch {}
+      // Use '||' instead of '??' so an empty string in localStorage also falls
+      // back to DEFAULT_PALETTE.
+      const activePalette = savedPalette || DEFAULT_PALETTE;
       if (savedPalette === CUSTOM_PALETTE_NAME && this.traceViewerModule) {
         this.selectedPalette = CUSTOM_PALETTE_NAME;
         this.loadCustomColors();
         this.applyCustomColors();
-      } else if (savedPalette && this.traceViewerModule) {
-        this.selectedPalette = savedPalette;
-        this.traceViewerModule.SetPalette(savedPalette);
+      } else if (this.traceViewerModule) {
+        this.selectedPalette = activePalette;
+        this.traceViewerModule?.SetPalette?.(activePalette);
       }
 
       this.loadGeneralSettings();
@@ -1582,9 +1586,9 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     this.loadCustomColors();
 
     const savedPalette = window.localStorage.getItem(COLOR_PALETTE_STORAGE_KEY);
-    if (savedPalette) {
-      this.selectedPalette = savedPalette;
-    }
+    // Use '||' instead of '??' so an empty string in localStorage also falls
+    // back to DEFAULT_PALETTE.
+    this.selectedPalette = savedPalette || DEFAULT_PALETTE;
 
     this.featureFlags = loadFeatureFlagsFromStorage();
     const newInitialFeatureFlags = new Map<string, boolean>();
@@ -1611,7 +1615,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
           this.saveCustomColors();
           this.applyCustomColors();
         } else {
-          this.traceViewerModule.SetPalette(result);
+          this.traceViewerModule?.SetPalette?.(result);
         }
         window.localStorage.setItem(COLOR_PALETTE_STORAGE_KEY, result);
       }
@@ -1623,7 +1627,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       this.saveCustomColors();
       this.applyCustomColors();
     } else if (this.traceViewerModule) {
-      this.traceViewerModule.SetPalette(this.selectedPalette);
+      this.traceViewerModule?.SetPalette?.(this.selectedPalette);
     }
     window.localStorage.setItem(
       COLOR_PALETTE_STORAGE_KEY,

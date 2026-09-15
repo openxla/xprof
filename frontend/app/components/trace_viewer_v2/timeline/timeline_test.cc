@@ -8417,6 +8417,182 @@ TEST_F(RealTimelineImGuiFixture,
   EXPECT_FALSE(timeline_.timeline_data().groups[0].expanded);
 }
 
+TEST_F(RealTimelineImGuiFixture,
+       ClickProcessTrackHeaderTimelineAreaTogglesExpandedState) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  data.groups = {{.type = Group::Type::kFlame,
+                  .name = "Process Group",
+                  .start_level = 0,
+                  .nesting_level = kProcessNestingLevel,
+                  .expanded = true,
+                  .has_children = true}};
+  data.events_by_level = {{0}, {}};
+  timeline_.SetTimelineData(data);
+  timeline_.set_mouse_mode(MouseMode::kSelect);
+
+  SimulateFrame();
+
+  const float click_x = GetTimelineStartX() + 100.0f;
+  const float click_y = 46.0f;
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(click_x, click_y);
+  SimulateFrame();
+
+  // Click to collapse
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_FALSE(timeline_.timeline_data().groups[0].expanded);
+
+  // Click to expand
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.timeline_data().groups[0].expanded);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       DraggingOverProcessTrackHeaderDoesNotToggleExpandedState) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  data.groups = {{.type = Group::Type::kFlame,
+                  .name = "Process Group",
+                  .start_level = 0,
+                  .nesting_level = kProcessNestingLevel,
+                  .expanded = true,
+                  .has_children = true}};
+  data.events_by_level = {{0}, {}};
+  timeline_.SetTimelineData(data);
+  timeline_.set_mouse_mode(MouseMode::kSelect);
+
+  SimulateFrame();
+
+  const float start_x = GetTimelineStartX() + 50.0f;
+  const float track_y = 46.0f;
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(start_x, track_y);
+  SimulateFrame();
+
+  // Mouse down
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // Drag horizontally by 50px
+  // (distance_squared = 2500 > kClickDistanceThresholdSquared = 25).
+  io.MousePos = ImVec2(start_x + 50.0f, track_y);
+  SimulateFrame();
+
+  // Mouse up
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Group should still be expanded
+  EXPECT_TRUE(timeline_.timeline_data().groups[0].expanded);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       NonExpandableProcessTrackHeaderIsNotClickable) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  data.groups = {{.type = Group::Type::kFlame,
+                  .name = "Non-expandable Process",
+                  .start_level = 0,
+                  .nesting_level = kProcessNestingLevel,
+                  .expanded = true,
+                  .has_children = false}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+  timeline_.set_mouse_mode(MouseMode::kSelect);
+
+  SimulateFrame();
+
+  const float click_x = GetTimelineStartX() + 100.0f;
+  const float click_y = 46.0f;
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(click_x, click_y);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.timeline_data().groups[0].expanded);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       ClickProcessTrackHeaderDoesNotDeselectSelectedEvent) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Process",
+                         .start_level = 0,
+                         .nesting_level = kProcessNestingLevel,
+                         .expanded = true,
+                         .child_indices = {1},
+                         .has_children = true});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Thread",
+                         .start_level = 0,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .parent_index = 0});
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("event1");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(0.0);
+  data.entry_total_times.push_back(100.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  SimulateFrame();
+
+  timeline_.set_selected_event_index_for_test(0);
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+
+  const float click_x = GetTimelineStartX() + 100.0f;
+  const float click_y = 46.0f;
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(click_x, click_y);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_FALSE(timeline_.timeline_data().groups[0].expanded);
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+
+  // Click on empty area below the tracks to verify deselection still works
+  io.MousePos = ImVec2(GetTimelineStartX() + 100.0f, 300.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_EQ(timeline_.selected_event_index(), -1);
+}
+
 TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_SelfCollapse) {
   FlameChartTimelineData data;
   data.events_by_level.resize(5);

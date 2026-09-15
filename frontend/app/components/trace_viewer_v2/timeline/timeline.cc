@@ -1369,9 +1369,61 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
   } else {
     DrawGroup(group_index, px_per_time_unit_val, scroll_y, window_height);
   }
+
+  if (HandleProcessTrackHeaderClick(group_index, group, tracks_start_screen_pos,
+                                    content_region_avail_width)) {
+    needs_layout_update = true;
+  }
   ImGui::PopID();
 
   return needs_layout_update;
+}
+
+bool Timeline::HandleProcessTrackHeaderClick(
+    int group_index, Group& group, const ImVec2& tracks_start_screen_pos,
+    Pixel content_region_avail_width) {
+  if (group.nesting_level != kProcessNestingLevel || !group.has_children) {
+    return false;
+  }
+
+  const Pixel timeline_start_x = tracks_start_screen_pos.x + label_width_;
+  const Pixel timeline_end_x =
+      tracks_start_screen_pos.x + content_region_avail_width;
+  if (timeline_start_x >= timeline_end_x) {
+    return false;
+  }
+
+  const ImVec2 header_min(timeline_start_x, tracks_start_screen_pos.y +
+                                                group_offsets_[group_index]);
+  const ImVec2 header_max(timeline_end_x, tracks_start_screen_pos.y +
+                                              group_offsets_[group_index] +
+                                              kProcessTrackHeight);
+
+  if (!ImGui::IsMouseHoveringRect(header_min, header_max)) {
+    return false;
+  }
+
+  // Check for mouse click release. Ignore if Ctrl/Super is held (used for
+  // bookmarks).
+  if (ImGui::IsMouseReleased(0) && !ImGui::GetIO().KeyCtrl &&
+      !ImGui::GetIO().KeySuper) {
+    bool is_click = true;
+    if (selection_start_pos_) {
+      const float dx = ImGui::GetIO().MousePos.x - selection_start_pos_->x;
+      const float dy = ImGui::GetIO().MousePos.y - selection_start_pos_->y;
+      const float distance_squared = dx * dx + dy * dy;
+      if (distance_squared > kClickDistanceThresholdSquared) {
+        is_click = false;
+      }
+    }
+    if (is_click) {
+      group.expanded = !group.expanded;
+      event_clicked_this_frame_ = true;
+      return true;
+    }
+  }
+
+  return false;
 }
 
 EventRect Timeline::CalculateEventRect(

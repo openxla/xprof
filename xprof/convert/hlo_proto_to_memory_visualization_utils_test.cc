@@ -377,6 +377,132 @@ TEST(MemoryViewerTest, TestShareWithChainDisplayName) {
          "chart";
 }
 
+TEST(MemoryViewerTest, NestedTupleShapeResolution) {
+  static constexpr char kHloNestedTuple[] = R"pb(
+    hlo_module {
+      name: "nested_tuple_module"
+      entry_computation_name: "entry"
+      computations {
+        name: "entry"
+        instructions {
+          name: "nested_tuple_op"
+          id: 0
+          shape {
+            element_type: TUPLE
+            tuple_shapes {
+              element_type: TUPLE
+              tuple_shapes {
+                element_type: S32
+                dimensions: 4
+                layout { minor_to_major: 0 }
+              }
+            }
+            tuple_shapes {
+              element_type: TUPLE
+              tuple_shapes {
+                element_type: F32
+                dimensions: 8
+                dimensions: 8
+                layout { minor_to_major: 1 minor_to_major: 0 }
+              }
+              tuple_shapes {
+                element_type: F32
+                dimensions: 16
+                layout { minor_to_major: 0 }
+              }
+              tuple_shapes {
+                element_type: S32
+                dimensions: 32
+                layout { minor_to_major: 0 }
+              }
+            }
+          }
+        }
+      }
+    }
+    buffer_assignment {
+      buffer_allocations {
+        index: 0
+        size: 1024
+        color: 0
+        assigned { logical_buffer_id: 1 offset: 0 size: 16 }
+        assigned { logical_buffer_id: 2 offset: 16 size: 256 }
+        assigned { logical_buffer_id: 3 offset: 272 size: 64 }
+        assigned { logical_buffer_id: 4 offset: 336 size: 128 }
+        assigned { logical_buffer_id: 5 offset: 464 size: 16 }
+      }
+      logical_buffers {
+        id: 1
+        size: 16
+        color: 0
+        defined_at { instruction_id: 0 shape_index: 0 shape_index: 0 }
+      }
+      logical_buffers {
+        id: 2
+        size: 256
+        color: 0
+        defined_at { instruction_id: 0 shape_index: 1 shape_index: 0 }
+      }
+      logical_buffers {
+        id: 3
+        size: 64
+        color: 0
+        defined_at { instruction_id: 0 shape_index: 1 shape_index: 1 }
+      }
+      logical_buffers {
+        id: 4
+        size: 128
+        color: 0
+        defined_at { instruction_id: 0 shape_index: 1 shape_index: 2 }
+      }
+      logical_buffers {
+        id: 5
+        size: 16
+        color: 0
+        defined_at { instruction_id: 0 shape_index: 0 shape_index: 99 }
+      }
+      heap_simulator_traces {
+        events { kind: ALLOC buffer_id: 1 }
+        events { kind: ALLOC buffer_id: 2 }
+        events { kind: ALLOC buffer_id: 3 }
+        events { kind: ALLOC buffer_id: 4 }
+        events { kind: ALLOC buffer_id: 5 }
+        events { kind: FREE buffer_id: 1 }
+        events { kind: FREE buffer_id: 2 }
+        events { kind: FREE buffer_id: 3 }
+        events { kind: FREE buffer_id: 4 }
+        events { kind: FREE buffer_id: 5 }
+      }
+    }
+  )pb";
+
+  xla::HloProto hlo_proto;
+  MemoryViewerOption option;
+  option.small_buffer_size = 0;
+  ASSERT_TRUE(ParseTextFormatFromString(kHloNestedTuple, &hlo_proto).ok());
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult preprocess_result,
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
+
+  ASSERT_EQ(preprocess_result.max_heap_size(), 5);
+  absl::flat_hash_map<std::string, std::string> name_to_shape;
+  for (const auto& obj : preprocess_result.max_heap()) {
+    name_to_shape[obj.instruction_name()] = obj.shape_string();
+  }
+
+  EXPECT_EQ(name_to_shape["nested_tuple_op{0,0}"], "s32[4]{0}");
+  // Branch B regression: index {1,0} has last component 0 which is < top-level
+  // tuple size (2); old code returned top-level element 0 ("(s32[4]{0})").
+  EXPECT_EQ(name_to_shape["nested_tuple_op{1,0}"], "f32[8,8]{1,0}");
+  EXPECT_EQ(name_to_shape["nested_tuple_op{1,1}"], "f32[16]{0}");
+  // Branch A regression: index {1,2} has last component 2 which is >= top-level
+  // tuple size (2); old code returned the entire nested tuple shape.
+  EXPECT_EQ(name_to_shape["nested_tuple_op{1,2}"], "s32[32]{0}");
+  // Out-of-range fallback: index {0,99} degrades gracefully to historical
+  // behavior (last component 99 >= top-level size 2 -> top-level tuple shape).
+  EXPECT_EQ(name_to_shape["nested_tuple_op{0,99}"],
+            "((s32[4]{0}), (f32[8,8]{1,0}, f32[16]{0}, s32[32]{0}))");
+}
+
 struct DoubleRectInfo {
   std::string tooltip;
   double pos_x = 0.0;

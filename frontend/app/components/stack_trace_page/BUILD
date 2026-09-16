@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "stack_trace_page",
     srcs = [
         "stack_trace_page.ts",
-        "stack_trace_page_module.ts",
     ],
     assets = [
         ":stack_trace_page_css",

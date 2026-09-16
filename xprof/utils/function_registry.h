@@ -222,7 +222,6 @@ limitations under the License.
 #include <memory>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -338,7 +337,7 @@ class FunctionRegistry {
 
   struct FunctionWrapper {
     template <typename... Args>
-    typename Function::result_type operator()(Args&&... args) const {
+    decltype(auto) operator()(Args&&... args) const {
       return snapshot->func(std::forward<Args>(args)...);
     }
     std::shared_ptr<const MapValue> snapshot;
@@ -418,4 +417,4 @@ ScopedRegistration(Registry& registry, const typename Registry::Key& key,
 }  // namespace profiler
 }  // namespace tensorflow
 
-#endif  // UTIL_REGISTRATION_FUNCTION_REGISTRY_H_
+#endif  // THIRD_PARTY_XPROF_UTILS_FUNCTION_REGISTRY_H_

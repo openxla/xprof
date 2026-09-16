@@ -1,36 +1,42 @@
 <div class="timeline-player-container">
   <div class="progress-bar-container">
-     <div class="loop-region" *ngIf="loopState === 'ACTIVE'"
-          [style.left.%]="duration() ? (loopStart! / duration()) * 100 : 0"
-          [style.width.%]="duration() ? ((loopEnd! - loopStart!) / duration()) * 100 : 0"></div>
+    @if (loopState === 'ACTIVE') {
+      <div class="loop-region"
+        [style.left.%]="duration() ? (loopStart! / duration()) * 100 : 0"
+      [style.width.%]="duration() ? ((loopEnd! - loopStart!) / duration()) * 100 : 0"></div>
+    }
 
-     <div class="loop-marker start" *ngIf="loopState !== 'INACTIVE'"
-          [style.left.%]="duration() ? (loopStart! / duration()) * 100 : 0"
-          (pointerdown)="onStartMarkerPointerDown($event)">
-          <span class="loop-flag">A</span>
-     </div>
+    @if (loopState !== 'INACTIVE') {
+      <div class="loop-marker start"
+        [style.left.%]="duration() ? (loopStart! / duration()) * 100 : 0"
+        (pointerdown)="onStartMarkerPointerDown($event)">
+        <span class="loop-flag">A</span>
+      </div>
+    }
 
-     <div class="loop-marker end" *ngIf="loopState === 'ACTIVE'"
-          [style.left.%]="duration() ? (loopEnd! / duration()) * 100 : 0"
-          (pointerdown)="onEndMarkerPointerDown($event)">
-          <span class="loop-flag">B</span>
-     </div>
-     <div class="progress-fill" [style.width.%]="duration() ? (currentTime() / duration()) * 100 : 0"></div>
-     <input type="range" class="progress-bar"
-            [min]="0" [max]="duration()" step="any"
-            [value]="currentTime()"
-            (pointerdown)="onScrubStart()"
-            (pointerup)="onScrubEnd($event)"
-            (pointercancel)="onScrubEnd($event)"
-            (input)="onSeek($event)">
+    @if (loopState === 'ACTIVE') {
+      <div class="loop-marker end"
+        [style.left.%]="duration() ? (loopEnd! / duration()) * 100 : 0"
+        (pointerdown)="onEndMarkerPointerDown($event)">
+        <span class="loop-flag">B</span>
+      </div>
+    }
+    <div class="progress-fill" [style.width.%]="duration() ? (currentTime() / duration()) * 100 : 0"></div>
+    <input type="range" class="progress-bar"
+      [min]="0" [max]="duration()" step="any"
+      [value]="currentTime()"
+      (pointerdown)="onScrubStart()"
+      (pointerup)="onScrubEnd($event)"
+      (pointercancel)="onScrubEnd($event)"
+      (input)="onSeek($event)">
   </div>
 
   <div class="controls-container">
     <div class="left-controls">
       <button mat-icon-button class="control-button loop-button"
-              [ngClass]="getLoopClass()"
-              (click)="toggleLoop()"
-              [matTooltip]="getLoopTitle()">
+        [ngClass]="getLoopClass()"
+        (click)="toggleLoop()"
+        [matTooltip]="getLoopTitle()">
         <mat-icon>repeat</mat-icon>
       </button>
 

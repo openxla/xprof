@@ -36,7 +36,6 @@ import {ActivatedRoute} from '@angular/router';
 import {AngularSplitModule} from 'angular-split';
 
 import {NgxJsonViewerModule} from 'ngx-json-viewer';
-import {formatHloArgsForJsonTree} from './hlo_pretty_printer';
 import {TimelinePlayer} from 'org_xprof/frontend/app/components/timeline_player/timeline_player';
 import {getDefaultFeatureFlag} from 'org_xprof/frontend/app/components/trace_viewer_v2/feature_flags';
 import {
@@ -44,6 +43,7 @@ import {
   MouseMode,
   MouseModeStatusConfig,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/shortcuts';
+import {formatHloArgsForJsonTree} from './hlo_pretty_printer';
 
 import {
   isSearchEventsEvent,
@@ -53,7 +53,7 @@ import {
   TraceViewerV2LoadingStatus,
   type TraceViewerV2Module,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
-import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
+import {SafePipe} from 'org_xprof/frontend/app/pipes/safe_pipe';
 import {fromEvent, interval, ReplaySubject, Subject, Subscription} from 'rxjs';
 import {debounceTime, distinctUntilChanged, takeUntil} from 'rxjs/operators';
 
@@ -243,7 +243,6 @@ declare interface TfTraceViewer {
 /** A trace viewer container component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: true,
   schemas: [CUSTOM_ELEMENTS_SCHEMA],
   selector: 'trace-viewer-container',
   templateUrl: './trace_viewer_container.ng.html',
@@ -253,7 +252,7 @@ declare interface TfTraceViewer {
     CommonModule,
     MatIconModule,
     MatProgressBarModule,
-    PipesModule,
+    SafePipe,
     TimelinePlayer,
     FormsModule,
     MatButtonModule,
@@ -270,6 +269,8 @@ declare interface TfTraceViewer {
 export class TraceViewerContainer
   implements OnInit, OnDestroy, AfterViewInit, OnChanges
 {
+  private readonly el = inject(ElementRef);
+
   @Input() traceViewerModule: TraceViewerV2Module | null = null;
   @Input() url = '';
   @Input() useTraceViewerV2 = true;
@@ -546,7 +547,7 @@ export class TraceViewerContainer
   private readonly destroyed = new ReplaySubject<void>(1);
   private readonly ngZone = inject(NgZone);
 
-  constructor(private readonly el: ElementRef) {
+  constructor() {
     this.search$
       .pipe(
         debounceTime(300),

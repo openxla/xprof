@@ -1,12 +1,10 @@
-import {CommonModule} from '@angular/common';
 import {
   Component,
   EventEmitter,
-  Inject,
   Input,
   OnInit,
-  Optional,
   Output,
+  inject,
 } from '@angular/core';
 import {FormsModule} from '@angular/forms';
 import {MatButtonModule} from '@angular/material/button';
@@ -28,9 +26,7 @@ import type {
 /** Component for selecting counters from a categorized list. */
 @Component({
   selector: 'app-counter-selection',
-  standalone: true,
   imports: [
-    CommonModule,
     FormsModule,
     MatExpansionModule,
     MatCheckboxModule,
@@ -45,6 +41,12 @@ import type {
   styleUrls: ['./counter_selection.component.scss'],
 })
 export class CounterSelectionComponent implements OnInit {
+  data = inject(MAT_DIALOG_DATA, {optional: true});
+  dialogRef = inject<MatDialogRef<CounterSelectionComponent> | null>(
+    MatDialogRef<CounterSelectionComponent>,
+    {optional: true},
+  );
+
   @Input() config: CounterSelectionConfig = {groups: []};
   @Input() selectedIds: string[] = [];
   @Input() layout: 'columns' | 'list' = 'columns';
@@ -56,18 +58,9 @@ export class CounterSelectionComponent implements OnInit {
   searchText = '';
   currentSelections = new Set<string>();
 
-  constructor(
-    @Optional()
-    @Inject(MAT_DIALOG_DATA)
-    public data: {
-      config: CounterSelectionConfig;
-      selectedIds: string[];
-      layout: 'columns' | 'list';
-      density: 'comfortable' | 'compact';
-    } | null,
-    @Optional()
-    public dialogRef: MatDialogRef<CounterSelectionComponent> | null,
-  ) {
+  constructor() {
+    const data = this.data;
+
     if (data) {
       this.config = data.config || this.config;
       this.selectedIds = data.selectedIds || this.selectedIds;

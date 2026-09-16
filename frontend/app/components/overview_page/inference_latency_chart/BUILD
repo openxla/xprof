@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "inference_latency_chart",
     srcs = [
         "inference_latency_chart.ts",
-        "inference_latency_chart_module.ts",
     ],
     assets = [
         ":inference_latency_chart_css",

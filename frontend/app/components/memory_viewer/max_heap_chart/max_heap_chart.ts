@@ -1,13 +1,25 @@
-import {Component, ElementRef, EventEmitter, HostListener, Input, OnChanges, OnInit, Output, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  EventEmitter,
+  HostListener,
+  Input,
+  OnChanges,
+  OnInit,
+  Output,
+  SimpleChanges,
+  ViewChild,
+} from '@angular/core';
 import {HeapObject} from 'org_xprof/frontend/app/common/interfaces/heap_object';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 
 /** A max heap chart view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'max-heap-chart',
   templateUrl: './max_heap_chart.ng.html',
-  styleUrls: ['./max_heap_chart.scss']
+  styleUrls: ['./max_heap_chart.scss'],
 })
 export class MaxHeapChart implements OnChanges, OnInit {
   /** The heap object list. */
@@ -24,7 +36,7 @@ export class MaxHeapChart implements OnChanges, OnInit {
 
   @ViewChild('chart', {static: false}) chartRef!: ElementRef;
 
-  chart: google.visualization.ColumnChart|null = null;
+  chart: google.visualization.ColumnChart | null = null;
 
   @HostListener('window:resize')
   onResize() {
@@ -49,18 +61,22 @@ export class MaxHeapChart implements OnChanges, OnInit {
       return;
     }
 
-    const data: Array<string|number> = ([''] as Array<string|number>).concat(this.maxHeap.map(heapObject => {
-      return heapObject ? heapObject.sizeMiB || 0 : 0;
-    }));
-    const chartItemColors = this.maxHeap.map(
-        heapObject => utils.getChartItemColorByIndex(heapObject.color || 0));
-    const headers = [''].concat(this.maxHeap.map(heapObject => {
-      return heapObject ? heapObject.instructionName || '' : '';
-    }));
-    const dataTable = google.visualization.arrayToDataTable([
-      headers,
-      data,
-    ]);
+    const data: Array<string | number> = (
+      [''] as Array<string | number>
+    ).concat(
+      this.maxHeap.map((heapObject) => {
+        return heapObject ? heapObject.sizeMiB || 0 : 0;
+      }),
+    );
+    const chartItemColors = this.maxHeap.map((heapObject) =>
+      utils.getChartItemColorByIndex(heapObject.color || 0),
+    );
+    const headers = [''].concat(
+      this.maxHeap.map((heapObject) => {
+        return heapObject ? heapObject.instructionName || '' : '';
+      }),
+    );
+    const dataTable = google.visualization.arrayToDataTable([headers, data]);
 
     const options = {
       bar: {groupWidth: '100%'},
@@ -80,7 +96,9 @@ export class MaxHeapChart implements OnChanges, OnInit {
     };
 
     this.chart.draw(
-        dataTable, options as google.visualization.ColumnChartOptions);
+      dataTable,
+      options as google.visualization.ColumnChartOptions,
+    );
 
     google.visualization.events.addListener(this.chart, 'click', () => {
       if (this.chart) {
@@ -89,16 +107,18 @@ export class MaxHeapChart implements OnChanges, OnInit {
     });
 
     google.visualization.events.addListener(
-        this.chart, 'onmouseover',
-        (event: google.visualization.ChartSelection) => {
-          event = event || {};
-          const arr = [];
-          arr.push(event);
-          if (this.chart) {
-            this.chart.setSelection(arr);
-          }
-          this.selected.emit((event.column || 0) - 1);
-        });
+      this.chart,
+      'onmouseover',
+      (event: google.visualization.ChartSelection) => {
+        event = event || {};
+        const arr = [];
+        arr.push(event);
+        if (this.chart) {
+          this.chart.setSelection(arr);
+        }
+        this.selected.emit((event.column || 0) - 1);
+      },
+    );
   }
 
   loadGoogleChart() {
@@ -110,8 +130,9 @@ export class MaxHeapChart implements OnChanges, OnInit {
 
     google.charts.safeLoad({'packages': ['corechart']});
     google.charts.setOnLoadCallback(() => {
-      this.chart =
-          new google.visualization.ColumnChart(this.chartRef.nativeElement);
+      this.chart = new google.visualization.ColumnChart(
+        this.chartRef.nativeElement,
+      );
       this.drawChart();
     });
   }

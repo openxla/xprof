@@ -1,110 +1,122 @@
 <div>
   <div class="mat-title">
-    {{deviceType}} {{xDimension}}x{{yDimension}}
+    {{deviceType()}} {{xDimension}}x{{yDimension}}
   </div>
-  <div class="topology-header" *ngIf="(metricList && metricList.length) || (channelDb && channelDb.length)">
-    <div class="control-row-left" >
-      <span class="selected-metric-label control">{{selectedMetricLabel}}</span>
-      <button mat-icon-button [matMenuTriggerFor]="mecticMenu" aria-label="Metric menu">
-        <mat-icon>arrow_drop_down</mat-icon>
-      </button>
-      <mat-menu #mecticMenu="matMenu">
-        <button
-          *ngFor="let metric of metricList"
-          mat-menu-item
-          [ngClass]="{'selected-metric-item': selectedMetric === metric.id}"
-          (click)="selectMetric(metric.id, metric.name)">
-          {{metric.name}}
+  @if ((metricList().length) || (channelDb() && channelDb()!.length)) {
+    <div class="topology-header">
+      <div class="control-row-left" >
+        <span class="selected-metric-label control">{{selectedMetricLabel}}</span>
+        <button mat-icon-button [matMenuTriggerFor]="mecticMenu" aria-label="Metric menu">
+          <mat-icon>arrow_drop_down</mat-icon>
         </button>
-      </mat-menu>
+        <mat-menu #mecticMenu="matMenu">
+          @for (metric of metricList(); track metric) {
+            <button
+              mat-menu-item
+              [ngClass]="{'selected-metric-item': selectedMetric === metric.id}"
+              (click)="selectMetric(metric.id, metric.name)">
+              {{metric.name}}
+            </button>
+          }
+        </mat-menu>
+      </div>
+      <div
+        class="control-row-left "
+        [style.visibility]="channelDb() && channelDb()!.length ? 'visible' : 'hidden'">
+        <span class="control">PLEASE SELECT A CHANNEL ID&nbsp;</span>
+        <mat-slider
+          [min]="0"
+          [max]="channelCount"
+          [step]="1" #ngSlider><input matSliderThumb [value]="selectedChannelIndex" (change)="updateChannelIndex({source: ngSliderThumb, parent: ngSlider, value: ngSliderThumb.value}.value)" #ngSliderThumb="matSliderThumb" />
+        </mat-slider>
+        <mat-form-field class="channel-input" appearance="outline">
+          <mat-label>Channel id</mat-label>
+          <input
+            matInput
+            type="number"
+            [min]="firstChannel"
+            [max]="lastChannel"
+            [step]="1"
+            [value]="selectedChannelId"
+            (change)="updateChannelId($event.target.value)" />
+        </mat-form-field>
+      </div>
     </div>
-    <div
-      class="control-row-left "
-      [style.visibility]="channelDb && channelDb.length ? 'visible' : 'hidden'">
-      <span class="control">PLEASE SELECT A CHANNEL ID&nbsp;</span>
-      <mat-slider
-        [min]="0"
-        [max]="channelCount"
-        [step]="1" #ngSlider><input matSliderThumb [value]="selectedChannelIndex" (change)="updateChannelIndex({source: ngSliderThumb, parent: ngSlider, value: ngSliderThumb.value}.value)" #ngSliderThumb="matSliderThumb" />
-      </mat-slider>
-      <mat-form-field class="channel-input" appearance="outline">
-        <mat-label>Channel id</mat-label>
-        <input
-          matInput
-          type="number"
-          [min]="firstChannel"
-          [max]="lastChannel"
-          [step]="1"
-          [value]="selectedChannelId"
-          (change)="updateChannelId($event.target.value)" />
-      </mat-form-field>
-    </div>
-  </div>
+  }
   <div>
     <pre>The global chip_id is displayed for each chip.</pre>
     <pre>The chips are displayed along the x,y axis. A new row is created for each z axis</pre>
   </div>
-  <div
-    *ngFor="let z_nodes of nodes; let z_axis=index;"
-    class="container"
-    [style.width]="containerWidth + 'px'"
-    [style.height]="containerHeight + 'px'">
-    <p>Z = {{z_axis}}</p>
+  @for (z_nodes of nodes; track z_nodes; let z_axis = $index) {
     <div
-      *ngFor="let label of labels"
-      class="label"
-      [style.top]="label.y + 'px'"
-      [style.left]="label.x + 'px'">
-      <div class="title">{{label.id}}</div>
+      class="container"
+      [style.width]="containerWidth + 'px'"
+      [style.height]="containerHeight + 'px'">
+      <p>Z = {{z_axis}}</p>
+      @for (label of labels; track label) {
+        <div
+          class="label"
+          [style.top]="label.y + 'px'"
+          [style.left]="label.x + 'px'">
+          <div class="title">{{label.id}}</div>
+        </div>
+      }
+      @for (host of hosts; track host) {
+        <div
+          class="host"
+          [style.width]="hostWidth + 'px'"
+          [style.height]="hostHeight + 'px'"
+          [style.top]="host.y + 'px'"
+          [style.left]="host.x + 'px'">
+        </div>
+      }
+      @for (node of z_nodes.nodes; track node) {
+        <div
+          class="node"
+          [id]="node.id"
+          [attr.rid]="node.rid"
+          [style.top]="node.y + 'px'"
+          [style.left]="node.x + 'px'"
+          [style.z-index] = "node.label? 0 : -1"
+          (mouseenter)="showTooltip(node.id, $event)"
+          (mouseleave)="hideTooltip()">
+          <pre>{{node.label}}</pre>
+        </div>
+      }
+      @for (arrow of arrows; track arrow) {
+        <div
+          class="arrow-container"
+          [style.top]="arrow.y + 'px'"
+          [style.left]="arrow.x + 'px'">
+          <svg>
+            <g class="arrow" [style.transform]="'rotate(' + arrow.rotate + 'rad)'">
+              <polygon points="3,0 -6,-5 -6,5" />
+              <polygon
+                points="0,-1.5 -100,-1.5, -100,1.5 0,1.5"
+                [style.transform]="'scaleX(' + arrow.scale + ')'"/>
+            </g>
+          </svg>
+        </div>
+      }
     </div>
-    <div
-      *ngFor="let host of hosts"
-      class="host"
-      [style.width]="hostWidth + 'px'"
-      [style.height]="hostHeight + 'px'"
-      [style.top]="host.y + 'px'"
-      [style.left]="host.x + 'px'">
-    </div>
-    <div
-      *ngFor="let node of z_nodes.nodes"
-      class="node"
-      [id]="node.id"
-      [attr.rid]="node.rid"
-      [style.top]="node.y + 'px'"
-      [style.left]="node.x + 'px'"
-      [style.z-index] = "node.label? 0 : -1"
-      (mouseenter)="showTooltip(node.id, $event)"
-      (mouseleave)="hideTooltip()">
-      <pre>{{node.label}}</pre>
-    </div>
-    <div
-      *ngFor="let arrow of arrows"
-      class="arrow-container"
-      [style.top]="arrow.y + 'px'"
-      [style.left]="arrow.x + 'px'">
-      <svg>
-        <g class="arrow" [style.transform]="'rotate(' + arrow.rotate + 'rad)'">
-          <polygon points="3,0 -6,-5 -6,5" />
-          <polygon
-            points="0,-1.5 -100,-1.5, -100,1.5 0,1.5"
-            [style.transform]="'scaleX(' + arrow.scale + ')'"/>
-        </g>
-      </svg>
-    </div>
-  </div>
+  }
   <div
     class="node-tooltip mat-elevation-z2"
     [style.left]="tooltipX + 'px'"
     [style.top]="tooltipY + 'px'"
     [hidden]="!tooltipText">
-      <pre>{{tooltipText}}</pre>
+    <pre>{{tooltipText}}</pre>
   </div>
 
-  <div class="color-table" *ngIf="podStatsPerCore">
-    <div
-      *ngFor="let colorInfo of colorInfos">
-      <div class="color-cell" [style.backgroundColor]="colorInfo.color"></div>
-      <div class="color-label">≥ {{colorInfo.label}}</div>
+  @if (podStatsPerCore()) {
+    <div class="color-table">
+      @for (colorInfo of colorInfos; track colorInfo) {
+        <div
+          >
+          <div class="color-cell" [style.backgroundColor]="colorInfo.color"></div>
+          <div class="color-label">≥ {{colorInfo.label}}</div>
+        </div>
+      }
     </div>
-  </div>
+  }
 </div>

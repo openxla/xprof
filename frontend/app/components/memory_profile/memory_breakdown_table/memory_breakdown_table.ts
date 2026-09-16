@@ -1,4 +1,16 @@
-import {Component, ElementRef, Input, OnChanges, OnInit, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  Input,
+  OnChanges,
+  OnInit,
+  SimpleChanges,
+  ViewChild,
+} from '@angular/core';
+import {MatFormField, MatSuffix} from '@angular/material/form-field';
+import {MatIcon} from '@angular/material/icon';
+import {MatInput} from '@angular/material/input';
 import {type MemoryProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {bytesToGiBs} from 'org_xprof/frontend/app/common/utils/utils';
 
@@ -36,23 +48,24 @@ export function cleanCellToken(
 
 /** A memory breakdown table view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'memory-breakdown-table',
   templateUrl: './memory_breakdown_table.ng.html',
-  styleUrls: ['./memory_breakdown_table.scss']
+  styleUrls: ['./memory_breakdown_table.scss'],
+  imports: [MatFormField, MatIcon, MatInput, MatSuffix],
 })
 export class MemoryBreakdownTable implements OnChanges, OnInit {
   /** The memory profile proto data. */
-  @Input() memoryProfileData: MemoryProfileProto|null = null;
+  @Input() memoryProfileData: MemoryProfileProto | null = null;
 
   /** The selected memory ID to show memory profile for. */
   @Input() memoryId: string = '';
 
   @ViewChild('table', {static: false}) tableRef!: ElementRef;
 
-  dataTable: google.visualization.DataTable|null = null;
+  dataTable: google.visualization.DataTable | null = null;
   filterOperation: string = '';
-  table: google.visualization.Table|null = null;
+  table: google.visualization.Table | null = null;
 
   ngOnInit() {
     this.loadGoogleChart();
@@ -64,8 +77,12 @@ export class MemoryBreakdownTable implements OnChanges, OnInit {
   }
 
   createDataTable() {
-    if (!this.table || !this.memoryProfileData ||
-        !this.memoryProfileData.memoryProfilePerAllocator || !!this.dataTable) {
+    if (
+      !this.table ||
+      !this.memoryProfileData ||
+      !this.memoryProfileData.memoryProfilePerAllocator ||
+      !!this.dataTable
+    ) {
       return;
     }
 
@@ -79,14 +96,14 @@ export class MemoryBreakdownTable implements OnChanges, OnInit {
     this.dataTable.addColumn('string', 'Shape');
 
     const snapshots =
-        this.memoryProfileData.memoryProfilePerAllocator[this.memoryId]
-            .memoryProfileSnapshots;
+      this.memoryProfileData.memoryProfilePerAllocator[this.memoryId]
+        .memoryProfileSnapshots;
     const activeAllocations =
-        this.memoryProfileData.memoryProfilePerAllocator[this.memoryId]
-            .activeAllocations;
+      this.memoryProfileData.memoryProfilePerAllocator[this.memoryId]
+        .activeAllocations;
     const specialAllocations =
-        this.memoryProfileData.memoryProfilePerAllocator[this.memoryId]
-            .specialAllocations;
+      this.memoryProfileData.memoryProfilePerAllocator[this.memoryId]
+        .specialAllocations;
     if (!snapshots || !activeAllocations || !specialAllocations) {
       return;
     }
@@ -118,8 +135,9 @@ export class MemoryBreakdownTable implements OnChanges, OnInit {
       ]);
     }
 
-    const decimalPtFormatter =
-        new google.visualization.NumberFormat({fractionDigits: 3});
+    const decimalPtFormatter = new google.visualization.NumberFormat({
+      fractionDigits: 3,
+    });
     decimalPtFormatter.format(this.dataTable, 1); /* requested_size */
     decimalPtFormatter.format(this.dataTable, 2); /* allocation_size */
   }
@@ -149,7 +167,7 @@ export class MemoryBreakdownTable implements OnChanges, OnInit {
     this.table.draw(dataView, options as google.visualization.TableOptions);
   }
 
-  getDataView(): google.visualization.DataView|null {
+  getDataView(): google.visualization.DataView | null {
     if (!this.dataTable) {
       this.createDataTable();
     }
@@ -164,7 +182,7 @@ export class MemoryBreakdownTable implements OnChanges, OnInit {
     return dataView;
   }
 
-  getFilteredDataTable(): google.visualization.DataTable|null {
+  getFilteredDataTable(): google.visualization.DataTable | null {
     if (!this.dataTable) {
       return null;
     }

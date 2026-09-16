@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "program_level_analysis",
     srcs = [
         "program_level_analysis.ts",
-        "program_level_analysis_module.ts",
     ],
     assets = [
         ":program_level_analysis_css",

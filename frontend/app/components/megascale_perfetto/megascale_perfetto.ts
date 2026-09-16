@@ -1,4 +1,9 @@
-import {ChangeDetectionStrategy, Component, OnDestroy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  OnDestroy,
+} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -8,16 +13,17 @@ import {
   setCurrentToolStateAction,
   setErrorMessageStateAction,
 } from 'org_xprof/frontend/app/store/actions';
-import {ReplaySubject, combineLatest} from 'rxjs';
+import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {SafePipe} from '../../pipes/safe_pipe';
 
 /** A megascale perfetto viewer component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'megascale-perfetto',
   templateUrl: './megascale_perfetto.ng.html',
   styleUrls: ['./megascale_perfetto.scss'],
+  imports: [SafePipe],
 })
 export class MegascalePerfetto implements OnDestroy {
   readonly tool = 'megascale_perfetto';
@@ -37,11 +43,11 @@ export class MegascalePerfetto implements OnDestroy {
   // tslint:disable-next-line:no-any
   private messageHandler: ((evt: any) => void) | null = null;
 
-  constructor(
-    route: ActivatedRoute,
-    private readonly store: Store<{}>,
-  ) {
-    combineLatest([route.params, route.queryParams])
+  private readonly route = inject(ActivatedRoute);
+  private readonly store: Store<{}> = inject(Store);
+
+  constructor() {
+    combineLatest([this.route.params, this.route.queryParams])
       .pipe(takeUntil(this.destroyed))
       .subscribe(([params, queryParams]) => {
         // TODO(yinzz) ActivatedRoute's params property is Observable<Params>, so

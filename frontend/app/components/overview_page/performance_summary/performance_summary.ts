@@ -1,3 +1,4 @@
+import {NgClass, NgTemplateOutlet} from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -7,6 +8,9 @@ import {
   OnInit,
   SimpleChanges,
 } from '@angular/core';
+import {MatCard, MatCardContent, MatCardTitle} from '@angular/material/card';
+import {MatIcon} from '@angular/material/icon';
+import {MatTooltip} from '@angular/material/tooltip';
 import {
   type GeneralAnalysis,
   type InputPipelineAnalysis,
@@ -230,10 +234,18 @@ const TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
 /** A performance summary view component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'performance-summary',
   templateUrl: './performance_summary.ng.html',
   styleUrls: ['./performance_summary.scss'],
+  imports: [
+    MatCard,
+    MatCardContent,
+    MatCardTitle,
+    MatIcon,
+    MatTooltip,
+    NgClass,
+    NgTemplateOutlet,
+  ],
 })
 export class PerformanceSummary implements OnChanges, OnInit {
   private readonly dataService = inject(DATA_SERVICE_INTERFACE_TOKEN);

@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "graph_viewer",
     srcs = [
         "graph_viewer.ts",
-        "graph_viewer_module.ts",
     ],
     assets = [
         ":graph_viewer_css",

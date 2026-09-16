@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "op_profile",
     srcs = [
         "op_profile.ts",
-        "op_profile_module.ts",
     ],
     assets = [
         ":op_profile_common_css",
@@ -41,7 +40,6 @@ xprof_ng_module(
     name = "op_profile_base",
     srcs = [
         "op_profile_base.ts",
-        "op_profile_base_module.ts",
     ],
     assets = [
         "op_profile_base.ng.html",
@@ -54,6 +52,7 @@ xprof_ng_module(
         "//:node_modules/@ngrx/store",
         "//:node_modules/angular-split",
         "//:node_modules/rxjs",
+        "@org_xprof//frontend/app/common/angular:angular_material_core",
         "@org_xprof//frontend/app/common/angular:angular_material_form_field",
         "@org_xprof//frontend/app/common/angular:angular_material_icon",
         "@org_xprof//frontend/app/common/angular:angular_material_input",

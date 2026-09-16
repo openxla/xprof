@@ -1,17 +1,13 @@
-import {CommonModule} from '@angular/common';
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
-  HostBinding,
+  DestroyRef,
+  effect,
   inject,
-  Input,
-  OnChanges,
-  OnDestroy,
-  OnInit,
-  SimpleChanges,
+  input,
 } from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
-import {MatCardModule} from '@angular/material/card';
 import {MatExpansionModule} from '@angular/material/expansion';
 import {MatIconModule} from '@angular/material/icon';
 import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
@@ -45,23 +41,24 @@ const FEEDBACK_STORAGE_KEY_PREFIX = 'smartSuggestionFeedback';
 
 /** A component for displaying smart suggestions. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'smart-suggestion-view',
   templateUrl: './smart_suggestion_view.ng.html',
   styleUrls: ['./smart_suggestion_view.scss'],
-  standalone: true,
+  host: {
+    '[class.dark-theme]': 'darkTheme()',
+  },
   imports: [
-    CommonModule,
     MatButtonModule,
-    MatCardModule,
     MatExpansionModule,
     MatIconModule,
     MatProgressSpinnerModule,
   ],
 })
-export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
-  @HostBinding('class.dark-theme') @Input() darkTheme = false;
-  @Input() sessionId?: string;
+export class SmartSuggestionView {
+  readonly darkTheme = input(false);
+  readonly sessionId = input<string>();
 
   title = 'Recommendations';
   processedSuggestions: ProcessedSuggestion[] = [];
@@ -75,51 +72,59 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
   private readonly dataService: DataServiceV2Interface = inject(
     DATA_SERVICE_INTERFACE_TOKEN,
   );
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly cdr = inject(ChangeDetectorRef);
 
-  ngOnInit() {
-    this.updateStorageKey();
-    this.loadFeedbackState();
-    this.fetchSuggestions();
-  }
+  constructor() {
+    this.destroyRef.onDestroy(() => {
+      if (this.subscription) {
+        this.subscription.unsubscribe();
+      }
+    });
 
-  ngOnChanges(changes: SimpleChanges) {
-    if (changes['sessionId']) {
+    effect(() => {
+      this.sessionId();
       this.updateStorageKey();
       this.loadFeedbackState();
       this.fetchSuggestions();
-    }
+      this.cdr.markForCheck();
+    });
   }
 
   /** Whether the smart suggestion view should be shown. */
   get shouldShow(): boolean {
-    return !!this.sessionId;
+    return !!this.sessionId();
   }
 
   private fetchSuggestions() {
-    if (this.sessionId === this.lastFetchedSessionId) {
+    const currentSessionId = this.sessionId();
+    if (currentSessionId === this.lastFetchedSessionId) {
       return;
     }
-    this.lastFetchedSessionId = this.sessionId || null;
+    this.lastFetchedSessionId = currentSessionId || null;
 
     if (this.subscription) {
       this.subscription.unsubscribe();
     }
-    if (!this.sessionId) {
+    if (!currentSessionId) {
       this.processedSuggestions = [];
       this.loading = false;
+      this.cdr.markForCheck();
       return;
     }
 
     this.loading = true;
     this.processedSuggestions = [];
     this.throbber.start();
+    this.cdr.markForCheck();
 
     this.subscription = this.dataService
-      .getSmartSuggestions(this.sessionId)
+      .getSmartSuggestions(currentSessionId)
       .pipe(
         finalize(() => {
           this.loading = false;
           this.throbber.stop();
+          this.cdr.detectChanges();
         }),
       )
       .subscribe((report: SmartSuggestionReport | null) => {
@@ -140,11 +145,12 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
         } else {
           this.processedSuggestions = [];
         }
+        this.cdr.detectChanges();
       });
   }
 
   private updateStorageKey() {
-    this.storageKey = `${FEEDBACK_STORAGE_KEY_PREFIX}_${this.sessionId}`;
+    this.storageKey = `${FEEDBACK_STORAGE_KEY_PREFIX}_${this.sessionId() || ''}`;
   }
 
   private hashString(str: string): number {
@@ -233,7 +239,7 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
       gtag('event', 'recommendation_feedback', {
         'event_category': 'Smart Suggestions',
         'event_label': ruleName, // Key to group by
-        'session_id': this.sessionId,
+        'session_id': this.sessionId() || '',
         'event_value': gaValue, // The change in score to be summed by GA
         'feedback_action': this.getFeedbackAction(
           currentFeedbackState,
@@ -254,11 +260,5 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
 
   getFeedbackState(suggestionId: string): FeedbackType | null {
     return this.feedbackState.get(suggestionId) || null;
-  }
-
-  ngOnDestroy() {
-    if (this.subscription) {
-      this.subscription.unsubscribe();
-    }
   }
 }

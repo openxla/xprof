@@ -13,6 +13,30 @@ import {
 import {MatSnackBar} from '@angular/material/snack-bar';
 import {ActivatedRoute, Params, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
+import {NgFor, NgIf} from '@angular/common';
+import {FormsModule} from '@angular/forms';
+import {MatButton} from '@angular/material/button';
+import {MatCheckbox} from '@angular/material/checkbox';
+import {MatChipListbox, MatChipOption} from '@angular/material/chips';
+import {MatOption} from '@angular/material/core';
+import {
+  MatExpansionPanel,
+  MatExpansionPanelContent,
+  MatExpansionPanelHeader,
+  MatExpansionPanelTitle,
+} from '@angular/material/expansion';
+import {MatFormField, MatLabel} from '@angular/material/form-field';
+import {MatIcon} from '@angular/material/icon';
+import {MatInput} from '@angular/material/input';
+import {MatProgressBar} from '@angular/material/progress-bar';
+import {MatProgressSpinner} from '@angular/material/progress-spinner';
+import {MatSelect} from '@angular/material/select';
+import {
+  MatSidenav,
+  MatSidenavContainer,
+  MatSidenavContent,
+} from '@angular/material/sidenav';
+import {MatTooltip} from '@angular/material/tooltip';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {
   GRAPH_CENTER_NODE_COLOR,
@@ -46,6 +70,13 @@ import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_d
 import {combineLatest, firstValueFrom, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 import {locationReplace} from 'safevalues/dom';
+import {SafePipe} from '../../pipes/safe_pipe';
+import {DownloadHlo} from '../controls/download_hlo/download_hlo';
+import {SearchableDropdown} from '../controls/searchable_dropdown/searchable_dropdown';
+import {DiagnosticsView} from '../diagnostics_view/diagnostics_view';
+import {OpDetails} from '../op_profile/op_details/op_details';
+import {SourceMapper} from '../source_mapper/source_mapper';
+import {HloTextView} from './hlo_text_view/hlo_text_view';
 
 const GRAPH_HTML_THRESHOLD = 1000000; // bytes
 const CENTER_NODE_GROUP_KEY = 'centerNode';
@@ -59,10 +90,42 @@ interface DefaultGraphOption {
 /** A graph viewer component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'graph-viewer',
   templateUrl: './graph_viewer.ng.html',
   styleUrls: ['./graph_viewer.scss'],
+  imports: [
+    DiagnosticsView,
+    DownloadHlo,
+    FormsModule,
+    HloTextView,
+    MatButton,
+    MatCheckbox,
+    MatChipListbox,
+    MatChipOption,
+    MatExpansionPanel,
+    MatExpansionPanelContent,
+    MatExpansionPanelHeader,
+    MatExpansionPanelTitle,
+    MatFormField,
+    MatIcon,
+    MatInput,
+    MatLabel,
+    MatOption,
+    MatProgressBar,
+    MatProgressSpinner,
+    MatSelect,
+    MatSidenav,
+    MatSidenavContainer,
+    MatSidenavContent,
+    MatTooltip,
+    ModelGraphVisualizer,
+    NgFor,
+    NgIf,
+    OpDetails,
+    SafePipe,
+    SearchableDropdown,
+    SourceMapper,
+  ],
 })
 export class GraphViewer implements OnDestroy {
   readonly tool = 'graph_viewer';
@@ -121,13 +184,13 @@ export class GraphViewer implements OnDestroy {
   programIdForSourceMapper = '';
   opCategoryForSourceMapper = '';
 
-  constructor(
-    public zone: NgZone,
-    private readonly route: ActivatedRoute,
-    private readonly store: Store<{}>,
-    private readonly router: Router,
-    private readonly snackBar: MatSnackBar,
-  ) {
+  zone = inject(NgZone);
+  private readonly route = inject(ActivatedRoute);
+  private readonly store: Store<{}> = inject(Store);
+  private readonly router = inject(Router);
+  private readonly snackBar = inject(MatSnackBar);
+
+  constructor() {
     combineLatest([this.route.params, this.route.queryParams])
       .pipe(takeUntil(this.destroyed))
       .subscribe(async ([params, queryParams]) => {
@@ -760,10 +823,9 @@ export class GraphViewer implements OnDestroy {
         this.tryRenderGraphvizHtml(searchParams);
       }
     }, 200);
-    this.graphvizUri = this.dataService.getGraphVizUri(
-      this.sessionId,
-      searchParams,
-    ) || 'about:blank';
+    this.graphvizUri =
+      this.dataService.getGraphVizUri(this.sessionId, searchParams) ||
+      'about:blank';
     if (iframe?.contentWindow?.location) {
       locationReplace(iframe.contentWindow?.location, this.graphvizUri!);
     }

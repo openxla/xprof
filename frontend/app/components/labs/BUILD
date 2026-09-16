@@ -8,7 +8,6 @@ xprof_ng_module(
         "curated_tool.ts",
         "curated_tools.service.ts",
         "labs.ts",
-        "labs_module.ts",
     ],
     assets = [
         ":labs_css",

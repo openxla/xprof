@@ -1,4 +1,14 @@
-import {Component, inject, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
+import {NgFor, NgIf} from '@angular/common';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  OnDestroy,
+} from '@angular/core';
+import {MatOption} from '@angular/material/core';
+import {MatFormField} from '@angular/material/form-field';
+import {MatProgressBar} from '@angular/material/progress-bar';
+import {MatSelect} from '@angular/material/select';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -8,13 +18,27 @@ import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {MemoryBreakdownTable} from './memory_breakdown_table/memory_breakdown_table';
+import {MemoryProfileSummary} from './memory_profile_summary/memory_profile_summary';
+import {MemoryTimelineGraph} from './memory_timeline_graph/memory_timeline_graph';
 
 /** A Memory Profile component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'memory-profile',
   templateUrl: './memory_profile.ng.html',
   styleUrls: ['./memory_profile.scss'],
+  imports: [
+    MatFormField,
+    MatOption,
+    MatProgressBar,
+    MatSelect,
+    MemoryBreakdownTable,
+    MemoryProfileSummary,
+    MemoryTimelineGraph,
+    NgFor,
+    NgIf,
+  ],
 })
 export class MemoryProfile extends MemoryProfileBase implements OnDestroy {
   tool = 'memory_profile';
@@ -23,6 +47,9 @@ export class MemoryProfile extends MemoryProfileBase implements OnDestroy {
   private readonly throbber = new Throbber(this.tool);
   private readonly dataService = inject(DATA_SERVICE_INTERFACE_TOKEN);
 
+  private readonly route = inject(ActivatedRoute);
+  private readonly store: Store<{}> = inject(Store);
+
   sessionId = '';
   host = '';
   hostIds: number[] = [];
@@ -30,31 +57,30 @@ export class MemoryProfile extends MemoryProfileBase implements OnDestroy {
   hasIncompleteSteps = false;
   loading = false;
 
-  constructor(
-      route: ActivatedRoute,
-      private readonly store: Store<{}>,
-  ) {
+  constructor() {
     super();
-    combineLatest([route.params, route.queryParams])
-        .pipe(takeUntil(this.destroyed))
-        .subscribe(([params, queryParams]) => {
-          const oldSessionId = this.sessionId;
-          const oldTool = this.tool;
-          const oldHost = this.host;
-          const oldHostId = this.selectedHostId;
+    combineLatest([this.route.params, this.route.queryParams])
+      .pipe(takeUntil(this.destroyed))
+      .subscribe(([params, queryParams]) => {
+        const oldSessionId = this.sessionId;
+        const oldTool = this.tool;
+        const oldHost = this.host;
+        const oldHostId = this.selectedHostId;
 
-          this.sessionId = params['sessionId'] || this.sessionId;
-          this.processQueryParams(queryParams);
-          // Trigger update only if the parameters actually changed.
-          const hasChanged = this.sessionId !== oldSessionId ||
-              this.tool !== oldTool || this.host !== oldHost ||
-              this.selectedHostId !== oldHostId;
-          if (hasChanged) {
-            this.update();
-          }
-        });
+        this.sessionId = params['sessionId'] || this.sessionId;
+        this.processQueryParams(queryParams);
+        // Trigger update only if the parameters actually changed.
+        const hasChanged =
+          this.sessionId !== oldSessionId ||
+          this.tool !== oldTool ||
+          this.host !== oldHost ||
+          this.selectedHostId !== oldHostId;
+        if (hasChanged) {
+          this.update();
+        }
+      });
     this.store.dispatch(
-        setCurrentToolStateAction({currentTool: 'memory_profile'}),
+      setCurrentToolStateAction({currentTool: 'memory_profile'}),
     );
   }
 
@@ -70,21 +96,21 @@ export class MemoryProfile extends MemoryProfileBase implements OnDestroy {
     this.throbber.start();
 
     this.dataService
-        .getData(
-            this.sessionId,
-            this.tool,
-            this.host,
-            new Map([['host_id', this.selectedHostId.toString()]]),
-            )
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((data) => {
-          this.throbber.stop();
-          this.loading = false;
-          this.parseData(data as MemoryProfileProto | null);
-        });
+      .getData(
+        this.sessionId,
+        this.tool,
+        this.host,
+        new Map([['host_id', this.selectedHostId.toString()]]),
+      )
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((data) => {
+        this.throbber.stop();
+        this.loading = false;
+        this.parseData(data as MemoryProfileProto | null);
+      });
   }
 
-  override parseData(data: MemoryProfileProto|null) {
+  override parseData(data: MemoryProfileProto | null) {
     super.parseData(data);
 
     const hostIds = [];
@@ -99,12 +125,12 @@ export class MemoryProfile extends MemoryProfileBase implements OnDestroy {
     let hasIncompleteSteps = false;
     if (this.data) {
       const snapshots =
-          this.data.memoryProfilePerAllocator![this.selectedMemoryId]
-              .sampledTimelineSnapshots!;
+        this.data.memoryProfilePerAllocator![this.selectedMemoryId]
+          .sampledTimelineSnapshots!;
       if (snapshots) {
-        hasIncompleteSteps = snapshots.length === 0 ||
-            Number(snapshots[snapshots.length - 1].activityMetadata!.stepId!) <
-                1;
+        hasIncompleteSteps =
+          snapshots.length === 0 ||
+          Number(snapshots[snapshots.length - 1].activityMetadata!.stepId!) < 1;
       }
     }
     this.hasIncompleteSteps = hasIncompleteSteps;

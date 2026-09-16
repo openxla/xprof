@@ -222,7 +222,6 @@ limitations under the License.
 #include <memory>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -275,7 +274,7 @@ class FunctionRegistry {
   template <typename KeyArg = Key>
   bool Register(
       const KeyArg& key, Function fn) {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     auto insert_result =
         functions_.emplace(key, std::make_shared<MapValue>(std::move(fn)));
 
@@ -298,7 +297,7 @@ class FunctionRegistry {
   // See docs above for more details.
   template <typename KeyArg = Key>
   Function Get(const KeyArg& key) const {
-    absl::ReaderMutexLock lock(&mu_);
+    absl::ReaderMutexLock lock(mu_);
     std::shared_ptr<MapValue> snapshot;
     auto it = functions_.find(key);
     if (it != functions_.end()) {
@@ -311,7 +310,7 @@ class FunctionRegistry {
   //
   // See docs above for more details.
   std::vector<std::pair<Key, Function>> GetAll() const {
-    absl::ReaderMutexLock lock(&mu_);
+    absl::ReaderMutexLock lock(mu_);
     std::vector<std::pair<K, Function>> entries;
     for (const auto& kv : functions_) {
       entries.emplace_back(kv.first, ToFunction(kv.second));
@@ -325,7 +324,7 @@ class FunctionRegistry {
   // See docs above for more details.
   template <typename KeyArg = Key>
   void Unregister(const KeyArg& key) {
-    absl::MutexLock lock(&mu_);
+    absl::MutexLock lock(mu_);
     functions_.erase(key);
   }
 
@@ -338,7 +337,7 @@ class FunctionRegistry {
 
   struct FunctionWrapper {
     template <typename... Args>
-    typename Function::result_type operator()(Args&&... args) const {
+    decltype(auto) operator()(Args&&... args) const {
       return snapshot->func(std::forward<Args>(args)...);
     }
     std::shared_ptr<const MapValue> snapshot;
@@ -418,4 +417,4 @@ ScopedRegistration(Registry& registry, const typename Registry::Key& key,
 }  // namespace profiler
 }  // namespace tensorflow
 
-#endif  // UTIL_REGISTRATION_FUNCTION_REGISTRY_H_
+#endif  // THIRD_PARTY_XPROF_UTILS_FUNCTION_REGISTRY_H_

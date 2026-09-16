@@ -8,7 +8,6 @@ xprof_ng_module(
     name = "max_heap_chart_downloader",
     srcs = [
         "max_heap_chart_downloader.ts",
-        "max_heap_chart_downloader_module.ts",
     ],
     assets = [
         ":max_heap_chart_downloader_css",

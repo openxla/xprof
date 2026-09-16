@@ -1,9 +1,16 @@
+import {NgIf} from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
   inject,
   OnDestroy,
 } from '@angular/core';
+import {MatProgressBar} from '@angular/material/progress-bar';
+import {
+  MatSidenav,
+  MatSidenavContainer,
+  MatSidenavContent,
+} from '@angular/material/sidenav';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -17,14 +24,28 @@ import {
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {BufferDetails} from './buffer_details/buffer_details';
+import {MaxHeapChartDownloader} from './max_heap_chart_downloader/max_heap_chart_downloader';
+import {MemoryViewerControl} from './memory_viewer_control/memory_viewer_control';
+import {MemoryViewerMain} from './memory_viewer_main/memory_viewer_main';
 
 /** A memory viewer component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'memory-viewer',
   templateUrl: './memory_viewer.ng.html',
   styleUrls: ['./memory_viewer.scss'],
+  imports: [
+    BufferDetails,
+    MatProgressBar,
+    MatSidenav,
+    MatSidenavContainer,
+    MatSidenavContent,
+    MaxHeapChartDownloader,
+    MemoryViewerControl,
+    MemoryViewerMain,
+    NgIf,
+  ],
 })
 export class MemoryViewer implements OnDestroy {
   tool = 'memory_viewer';

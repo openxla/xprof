@@ -1,13 +1,15 @@
 import {ChangeDetectionStrategy, Component, Input} from '@angular/core';
+import {MatIconButton} from '@angular/material/button';
+import {MatIcon} from '@angular/material/icon';
 import {type Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 
 /** An diagnostics view component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'diagnostics-view',
   templateUrl: './diagnostics_view.ng.html',
   styleUrls: ['./diagnostics_view.scss'],
+  imports: [MatIcon, MatIconButton],
 })
 export class DiagnosticsView {
   /** Error and warning messages for diagnosing profiling issues */

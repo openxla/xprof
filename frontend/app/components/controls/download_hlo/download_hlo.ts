@@ -1,11 +1,23 @@
-import {Component, inject, Input, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  Input,
+  OnDestroy,
+} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
 import {GRAPH_TYPE_DEFAULT} from 'org_xprof/frontend/app/common/constants/constants';
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
-import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {
+  DATA_SERVICE_INTERFACE_TOKEN,
+  DataServiceV2Interface,
+} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
+import {MatIcon} from '@angular/material/icon';
+import {MatMenu, MatMenuItem, MatMenuTrigger} from '@angular/material/menu';
+import {MatTooltip} from '@angular/material/tooltip';
 import {BlobDownloader} from './blob_downloader';
 
 declare interface DownloadMenuItem {
@@ -22,13 +34,16 @@ const DOWNLOAD_HLO_PROTO_MENU_ITEMS: DownloadMenuItem[] = [
 
 /** A component to download hlo module in proto, text or json formats. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'download-hlo',
   templateUrl: './download_hlo.ng.html',
   styleUrls: ['./download_hlo.scss'],
   providers: [BlobDownloader],
+  imports: [MatIcon, MatMenu, MatMenuItem, MatMenuTrigger, MatTooltip],
 })
 export class DownloadHlo implements OnDestroy {
+  private readonly downloader = inject(BlobDownloader);
+
   /** The hlo module name. */
   @Input() moduleName: string = '';
   /** Includes metadata in the proto. */
@@ -38,14 +53,14 @@ export class DownloadHlo implements OnDestroy {
 
   readonly downloadMenuItems = DOWNLOAD_HLO_PROTO_MENU_ITEMS;
   private readonly destroyed = new ReplaySubject<void>(1);
-  private readonly dataService: DataServiceV2Interface =
-      inject(DATA_SERVICE_INTERFACE_TOKEN);
+  private readonly dataService: DataServiceV2Interface = inject(
+    DATA_SERVICE_INTERFACE_TOKEN,
+  );
   sessionId = '';
 
-  constructor(
-      route: ActivatedRoute,
-      private readonly downloader: BlobDownloader,
-  ) {
+  constructor() {
+    const route = inject(ActivatedRoute);
+
     route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
       this.sessionId = params['sessionId'] || params['run'] || '';
     });
@@ -54,23 +69,21 @@ export class DownloadHlo implements OnDestroy {
   downloadHloProto(type: string) {
     const fileName = this.moduleName + '.' + type;
     this.dataService
-        .downloadHloProto(
-            this.sessionId,
-            this.graphType,
-            this.moduleName,
-            type,
-            this.showMetadata,
-            )!.pipe(takeUntil(this.destroyed))
-        .subscribe((data) => {
-          if (type === FileExtensionType.PROTO_BINARY) {
-            this.downloader.downloadBlob(data as Blob, fileName);
-          } else {
-            this.downloader.downloadString(
-                data as string,
-                fileName,
-            );
-          }
-        });
+      .downloadHloProto(
+        this.sessionId,
+        this.graphType,
+        this.moduleName,
+        type,
+        this.showMetadata,
+      )!
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((data) => {
+        if (type === FileExtensionType.PROTO_BINARY) {
+          this.downloader.downloadBlob(data as Blob, fileName);
+        } else {
+          this.downloader.downloadString(data as string, fileName);
+        }
+      });
   }
 
   ngOnDestroy() {

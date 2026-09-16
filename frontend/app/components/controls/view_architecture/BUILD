@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "view_architecture",
     srcs = [
         "view_architecture.ts",
-        "view_architecture_module.ts",
     ],
     assets = [
         "view_architecture.ng.html",

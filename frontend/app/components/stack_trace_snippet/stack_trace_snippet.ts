@@ -1,15 +1,25 @@
-import {Component, Input, OnChanges, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  Input,
+  OnChanges,
+  SimpleChanges,
+} from '@angular/core';
+import {MatAccordion} from '@angular/material/expansion';
 import {Address} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
+import {Message} from './message';
+import {StackFrameSnippet} from './stack_frame_snippet';
 
 /**
  * A component to display a snippet of source code corresponding to a given
  * stack trace.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'stack-trace-snippet',
   templateUrl: './stack_trace_snippet.ng.html',
   styleUrls: ['./stack_trace_snippet.scss'],
+  imports: [MatAccordion, Message, StackFrameSnippet],
 })
 export class StackTraceSnippet implements OnChanges {
   /**
@@ -25,8 +35,8 @@ export class StackTraceSnippet implements OnChanges {
    *
    *   /full/path/to/file.py:100
    */
-  @Input() sourceFileAndLineNumber: string|undefined = undefined;
-  @Input() stackTrace: string|undefined = undefined;
+  @Input() sourceFileAndLineNumber: string | undefined = undefined;
+  @Input() stackTrace: string | undefined = undefined;
   /**
    * The number of lines to show around the stack frame.
    */
@@ -61,8 +71,9 @@ export class StackTraceSnippet implements OnChanges {
 
   private parseAddresses() {
     this.sourceCodeSnippetAddresses = parseAddresses(
-        this.stackTrace || this.sourceFileAndLineNumber || '',
-        this.sourceContextWindow);
+      this.stackTrace || this.sourceFileAndLineNumber || '',
+      this.sourceContextWindow,
+    );
   }
 }
 

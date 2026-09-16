@@ -2,6 +2,8 @@ import {
   ChangeDetectionStrategy,
   Component,
   EventEmitter,
+  forwardRef,
+  inject,
   Input,
   OnChanges,
   OnInit,
@@ -21,12 +23,14 @@ import {takeUntil} from 'rxjs/operators';
 /** An op table entry view component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'op-table-entry',
   templateUrl: './op_table_entry.ng.html',
   styleUrls: ['./op_table_entry.scss'],
+  imports: [forwardRef(() => OpTableEntry)],
 })
 export class OpTableEntry implements OnChanges, OnInit {
+  private readonly store = inject<Store<{}>>(Store);
+
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
 
@@ -81,7 +85,7 @@ export class OpTableEntry implements OnChanges, OnInit {
   numLeftOut = 0;
   applyScalingFactor = false;
 
-  constructor(private readonly store: Store<{}>) {
+  constructor() {
     this.store
       .select(getOpAnalysisState)
       .pipe(takeUntil(this.destroyed))

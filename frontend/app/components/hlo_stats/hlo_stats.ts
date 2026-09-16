@@ -9,7 +9,18 @@ import {
   Renderer2,
   ViewChild,
 } from '@angular/core';
-import {FormControl} from '@angular/forms';
+import {FormControl, FormsModule, ReactiveFormsModule} from '@angular/forms';
+import {MatOption} from '@angular/material/core';
+import {
+  MatExpansionPanel,
+  MatExpansionPanelHeader,
+  MatExpansionPanelTitle,
+} from '@angular/material/expansion';
+import {MatFormField, MatLabel} from '@angular/material/form-field';
+import {MatIcon} from '@angular/material/icon';
+import {MatSelect} from '@angular/material/select';
+import {MatSlideToggle} from '@angular/material/slide-toggle';
+import {MatTooltip} from '@angular/material/tooltip';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -39,6 +50,11 @@ import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/servic
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {CategoryFilter} from '../controls/category_filter/category_filter';
+import {ExportAsCsv} from '../controls/export_as_csv/export_as_csv';
+import {StringFilter} from '../controls/string_filter/string_filter';
+import {FlopRateChart} from '../framework_op_stats/flop_rate_chart/flop_rate_chart';
+import {StackTraceSnippet} from '../stack_trace_snippet/stack_trace_snippet';
 
 const AVG_TIME_ID = 'avg_time';
 const HLO_REMAT_ID = 'hlo_rematerialization';
@@ -61,12 +77,33 @@ const VDD_ENERGY_ID = 'vdd_energy';
 /** A Hlo Stats component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'hlo-stats',
   templateUrl: './hlo_stats.ng.html',
   styleUrls: ['./hlo_stats.scss'],
+  imports: [
+    CategoryFilter,
+    Chart,
+    ExportAsCsv,
+    FlopRateChart,
+    FormsModule,
+    MatExpansionPanel,
+    MatExpansionPanelHeader,
+    MatExpansionPanelTitle,
+    MatFormField,
+    MatIcon,
+    MatLabel,
+    MatOption,
+    MatSelect,
+    MatSlideToggle,
+    MatTooltip,
+    ReactiveFormsModule,
+    StackTraceSnippet,
+    StringFilter,
+  ],
 })
 export class HloStats extends Dashboard implements OnDestroy {
+  private readonly store = inject<Store<{}>>(Store);
+
   tool = 'hlo_op_stats';
   sessionId = '';
   host = '';
@@ -174,10 +211,9 @@ export class HloStats extends Dashboard implements OnDestroy {
   showStackTrace = false;
   sourceCodeServiceIsAvailable = false;
 
-  constructor(
-    route: ActivatedRoute,
-    private readonly store: Store<{}>,
-  ) {
+  constructor() {
+    const route = inject(ActivatedRoute);
+
     super();
     combineLatest([route.params, route.queryParams])
       .pipe(takeUntil(this.destroyed))
@@ -673,17 +709,17 @@ export class HloStats extends Dashboard implements OnDestroy {
 
     let tensorCoreBaselineData: SimpleDataTable | null = null;
     if (this.baselineData && this.baselineData.cols && this.baselineData.rows) {
-      const baselineCoreTypeIdx =
-        this.baselineData.cols.findIndex((col) => col.id === CORE_TYPE_ID);
+      const baselineCoreTypeIdx = this.baselineData.cols.findIndex(
+        (col) => col.id === CORE_TYPE_ID,
+      );
       let tensorCoreBaselineRows = this.baselineData.rows;
       if (baselineCoreTypeIdx !== -1) {
-        tensorCoreBaselineRows =
-          this.baselineData.rows.filter(
-            (row) =>
-              row.c &&
-              row.c[baselineCoreTypeIdx] &&
-              row.c[baselineCoreTypeIdx]!.v !== SPARSE_CORE_VALUE,
-          );
+        tensorCoreBaselineRows = this.baselineData.rows.filter(
+          (row) =>
+            row.c &&
+            row.c[baselineCoreTypeIdx] &&
+            row.c[baselineCoreTypeIdx]!.v !== SPARSE_CORE_VALUE,
+        );
       }
       tensorCoreBaselineData = {
         ...this.baselineData,
@@ -832,24 +868,23 @@ export class HloStats extends Dashboard implements OnDestroy {
 
     const filtersForRemat = [{column: hloRematIndex, value: 'Yes'}];
 
-    this.dataInfoCategoryChart.customChartDataProcessor =
-      this.tensorCoreBaselineData
-        ? new CategoryDiffTableDataProcessor(
-            this.tensorCoreBaselineData,
-            [],
-            opCategoryIndex,
-            selfTimeIndex,
-          )
-        : new CategoryTableDataProcessor([], opCategoryIndex, selfTimeIndex);
-    this.dataInfoOpChart.customChartDataProcessor =
-      this.tensorCoreBaselineData
-        ? new CategoryDiffTableDataProcessor(
-            this.tensorCoreBaselineData,
-            [],
-            hloOpNameIndex,
-            selfTimeIndex,
-          )
-        : new CategoryTableDataProcessor([], hloOpNameIndex, selfTimeIndex);
+    this.dataInfoCategoryChart.customChartDataProcessor = this
+      .tensorCoreBaselineData
+      ? new CategoryDiffTableDataProcessor(
+          this.tensorCoreBaselineData,
+          [],
+          opCategoryIndex,
+          selfTimeIndex,
+        )
+      : new CategoryTableDataProcessor([], opCategoryIndex, selfTimeIndex);
+    this.dataInfoOpChart.customChartDataProcessor = this.tensorCoreBaselineData
+      ? new CategoryDiffTableDataProcessor(
+          this.tensorCoreBaselineData,
+          [],
+          hloOpNameIndex,
+          selfTimeIndex,
+        )
+      : new CategoryTableDataProcessor([], hloOpNameIndex, selfTimeIndex);
     this.dataInfoRematerializationChart.customChartDataProcessor =
       new CategoryTableDataProcessor([], hloRematIndex, selfTimeIndex, false);
     this.dataInfoRematerializationCategoryChart.customChartDataProcessor =

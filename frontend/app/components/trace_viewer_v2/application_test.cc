@@ -106,5 +106,19 @@ TEST_F(ApplicationTest, EnableCustomizationFlagReadsFromJs) {
   EXPECT_TRUE(app.IsFeatureEnabled("enable_customization"));
 }
 
+TEST_F(ApplicationTest, NavigationMethodsSafeWhenUninitialized) {
+  Application& app = Application::Instance();
+  app.Shutdown();
+
+  EXPECT_FALSE(app.IsInitialized());
+
+  // Calling zoom and pan methods when timeline is uninitialized should be safe
+  // no-ops without crashing.
+  app.ZoomIn();
+  app.ZoomOut();
+  app.Pan(100.0f);
+  app.Pan(-50.0f);
+}
+
 }  // namespace
 }  // namespace traceviewer

@@ -132,6 +132,27 @@ class Application {
     return timeline_->get_current_search_result_index();
   }
 
+  void ZoomIn() {
+    if (timeline_) {
+      timeline_->ZoomIn();
+      RequestRedraw();
+    }
+  }
+
+  void ZoomOut() {
+    if (timeline_) {
+      timeline_->ZoomOut();
+      RequestRedraw();
+    }
+  }
+
+  void Pan(Pixel pixel_amount) {
+    if (timeline_) {
+      timeline_->Pan(pixel_amount);
+      RequestRedraw();
+    }
+  }
+
  private:
   friend class absl::NoDestructor<Application>;
 

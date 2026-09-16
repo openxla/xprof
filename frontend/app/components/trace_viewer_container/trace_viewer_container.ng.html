@@ -96,6 +96,44 @@
         </div>
       </div>
     </div>
+    <div class="toolbar-divider"></div>
+    <div class="navigation-actions-container">
+      <button
+        #zoomOutBtn
+        type="button"
+        mat-button
+        class="toolbar-action-btn"
+        (click)="zoomOut()"
+        matTooltip="Zoom Out (S)"
+        aria-label="Zoom Out (S)">
+        <mat-icon>zoom_out</mat-icon>
+        <span class="btn-label">(S)</span>
+      </button>
+      <button
+        #zoomInBtn
+        type="button"
+        mat-button
+        class="toolbar-action-btn"
+        (click)="zoomIn()"
+        matTooltip="Zoom In (W)"
+        aria-label="Zoom In (W)">
+        <mat-icon>zoom_in</mat-icon>
+        <span class="btn-label">(W)</span>
+      </button>
+      <button
+        #panActionBtn
+        type="button"
+        mat-button
+        class="toolbar-action-btn"
+        [class.active]="currentMouseMode === MouseMode.PAN"
+        [attr.aria-pressed]="currentMouseMode === MouseMode.PAN"
+        (click)="togglePanMode()"
+        matTooltip="Pan Mode (A/D)"
+        aria-label="Pan Mode (A/D)">
+        <mat-icon>pan_tool</mat-icon>
+        <span class="btn-label">(A/D)</span>
+      </button>
+    </div>
     <div class="fullscreen-container">
       <button type="button" mat-icon-button (click)="toggleFullscreen()" [class.active]="isFullscreen" [matTooltip]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen (shows only the Trace Viewer)'" [attr.aria-label]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'">
         <svg *ngIf="!isFullscreen" width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">

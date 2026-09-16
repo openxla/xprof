@@ -465,6 +465,9 @@ export class TraceViewerContainer
   @ViewChild('panBtn') panBtn?: ElementRef<HTMLButtonElement>;
   @ViewChild('zoomBtn') zoomBtn?: ElementRef<HTMLButtonElement>;
   @ViewChild('timingBtn') timingBtn?: ElementRef<HTMLButtonElement>;
+  @ViewChild('zoomOutBtn') zoomOutBtn?: ElementRef<HTMLButtonElement>;
+  @ViewChild('zoomInBtn') zoomInBtn?: ElementRef<HTMLButtonElement>;
+  @ViewChild('panActionBtn') panActionBtn?: ElementRef<HTMLButtonElement>;
   @ViewChild(MatSort) set sort(matSort: MatSort | undefined) {
     if (matSort) {
       this.selectedEventPropertiesDataSource.sort = matSort;
@@ -1033,6 +1036,32 @@ export class TraceViewerContainer
         break;
       default:
         break;
+    }
+  }
+
+  zoomIn(): void {
+    if (this.traceViewerModule?.application) {
+      this.traceViewerModule.application.instance().zoomIn();
+    }
+  }
+
+  zoomOut(): void {
+    if (this.traceViewerModule?.application) {
+      this.traceViewerModule.application.instance().zoomOut();
+    }
+  }
+
+  togglePanMode(): void {
+    if (this.currentMouseMode === MouseMode.PAN) {
+      this.setMouseMode(MouseMode.SELECT);
+    } else {
+      this.setMouseMode(MouseMode.PAN);
+    }
+  }
+
+  pan(pixelAmount: number): void {
+    if (this.traceViewerModule?.application) {
+      this.traceViewerModule.application.instance().pan(pixelAmount);
     }
   }
 

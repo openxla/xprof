@@ -221,6 +221,9 @@ declare global {
       setVisibleFlowCategory(categoryId: number): void;
       setVisibleFlowCategories(categoryIds: number[]): void;
       scheduleForcedRedraw(): void;
+      zoomIn(): void;
+      zoomOut(): void;
+      pan(pixelAmount: number): void;
     };
   };
 }

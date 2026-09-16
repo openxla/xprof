@@ -17,7 +17,10 @@ $styles
         Comparing Candidate vs Baseline | Status: <strong>$summary_text</strong>
       </div>
     </div>
-    <div class="badge $badge_class">$badge_text</div>
+    <div id="overall-badge" class="badge $badge_class">$badge_text</div>
+  </div>
+  <div class="journey-tabs">
+$tabs_html
   </div>
   <div class="content-body">
 $cards_html
@@ -27,29 +30,207 @@ $approval_portal_html
 <script>
   const unapprovedWaypoints = $unapproved_json;
 
+  function setVisualMode(cardId, mode) {
+    const sxs = document.getElementById('view-sxs-' + cardId);
+    const slider = document.getElementById('view-slider-' + cardId);
+    const heatmap = document.getElementById('view-heatmap-' + cardId);
+    const btnSxs = document.getElementById('btn-sxs-' + cardId);
+    const btnSlider = document.getElementById('btn-slider-' + cardId);
+    const btnHeatmap = document.getElementById('btn-heatmap-' + cardId);
+
+    if (!sxs || !slider || !heatmap) return;
+
+    btnSxs.classList.remove('active');
+    btnSlider.classList.remove('active');
+    btnHeatmap.classList.remove('active');
+    sxs.style.display = 'none';
+    slider.style.display = 'none';
+    heatmap.style.display = 'none';
+
+    if (mode === 'sxs') {
+      sxs.style.display = 'flex';
+      btnSxs.classList.add('active');
+    } else if (mode === 'slider') {
+      slider.style.display = 'block';
+      btnSlider.classList.add('active');
+      initSlider(cardId);
+    } else if (mode === 'heatmap') {
+      heatmap.style.display = 'block';
+      btnHeatmap.classList.add('active');
+    }
+  }
+
+  function initSlider(cardId) {
+    const sliderView = document.getElementById('view-slider-' + cardId);
+    const clipLayer = document.getElementById('slider-clip-' + cardId);
+    const handle = document.getElementById('slider-handle-' + cardId);
+    const baseImg = document.getElementById('slider-base-img-' + cardId);
+    const candImg = document.getElementById('slider-cand-img-' + cardId);
+
+    if (!sliderView || !clipLayer || !handle) return;
+
+    function syncImgWidth() {
+      const w = sliderView.clientWidth;
+      if (w > 0) {
+        if (baseImg) baseImg.style.width = w + 'px';
+        if (candImg) candImg.style.width = w + 'px';
+        const maxH = Math.max(
+            baseImg?.clientHeight || 0, candImg?.clientHeight || 0
+        );
+        if (maxH > 0) {
+          sliderView.style.height = maxH + 'px';
+        }
+      }
+    }
+
+    syncImgWidth();
+    if (baseImg && !baseImg.complete) {
+      baseImg.addEventListener('load', syncImgWidth);
+    }
+    if (candImg && !candImg.complete) {
+      candImg.addEventListener('load', syncImgWidth);
+    }
+
+    if (!sliderView.dataset.initialized) {
+      sliderView.dataset.initialized = 'true';
+      window.addEventListener('resize', syncImgWidth);
+
+      let isDragging = false;
+
+      function updatePosition(clientX) {
+        const rect = sliderView.getBoundingClientRect();
+        if (!rect.width) return;
+        let offsetX = clientX - rect.left;
+        if (offsetX < 0) offsetX = 0;
+        if (offsetX > rect.width) offsetX = rect.width;
+        const pct = (offsetX / rect.width) * 100;
+        clipLayer.style.width = pct + '%';
+        handle.style.left = pct + '%';
+      }
+
+      handle.onmousedown = (e) => {
+        isDragging = true;
+        e.preventDefault();
+      };
+      sliderView.onmousedown = (e) => {
+        isDragging = true;
+        updatePosition(e.clientX);
+      };
+      window.addEventListener('mousemove', (e) => {
+        if (isDragging) updatePosition(e.clientX);
+      });
+      window.addEventListener('mouseup', () => {
+        isDragging = false;
+      });
+
+      handle.ontouchstart = () => { isDragging = true; };
+      sliderView.ontouchstart = (e) => {
+        if (e.touches && e.touches[0]) {
+          isDragging = true;
+          updatePosition(e.touches[0].clientX);
+        }
+      };
+      window.addEventListener('touchmove', (e) => {
+        if (isDragging && e.touches && e.touches[0]) {
+          updatePosition(e.touches[0].clientX);
+        }
+      });
+      window.addEventListener('touchend', () => {
+        isDragging = false;
+      });
+    }
+  }
+
+  function switchWaypoint(index) {
+    const cards = document.querySelectorAll('.waypoint-card');
+    const tabs = document.querySelectorAll('.tab');
+    tabs.forEach((tab, i) => {
+      if (i === index) {
+        tab.classList.add('active');
+      } else {
+        tab.classList.remove('active');
+      }
+    });
+    if (cards[index]) {
+      cards[index].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
   function signApproval() {
+    const intentional = document.getElementById('choice-intentional');
+    if (intentional && !intentional.checked) {
+      flagRegression();
+      return;
+    }
     const rationale = document.getElementById('rationale-input').value.trim();
     if (!rationale) {
       alert('Please provide a brief rationale for the intentional change.');
       return;
     }
-    const manifestObj = { approved_diffs: {} };
-    unapprovedWaypoints.forEach(item => {
-      manifestObj.approved_diffs[item.key] = {
+    // Only the entries for the waypoints on this page. This used to emit a
+    // complete { "approved_diffs": ... } document, so a reviewer following the
+    // instruction to paste it into approved_manifest.json silently deleted
+    // every approval anyone else had recorded. A fragment is not a valid
+    // manifest on its own, so that mistake now fails loudly instead.
+    const entries = unapprovedWaypoints.map(item => {
+      const body = JSON.stringify({
         diff_hash: item.diff_hash,
-        rationale: rationale
-      };
-    });
-    const jsonStr = JSON.stringify(manifestObj, null, 2);
-    document.getElementById('manifest-code').textContent = jsonStr;
+        decision: "INTENTIONAL",
+        rationale: rationale,
+        timestamp: new Date().toISOString()
+      }, null, 2).split('\n').join('\n    ');
+      return '    ' + JSON.stringify(item.key) + ': ' + body;
+    }).join(',\n');
+
+    document.getElementById('manifest-code').textContent = entries;
     document.getElementById('approval-card').style.display = 'none';
     document.getElementById('certified-banner').style.display = 'block';
+    // The overall badge is deliberately left red. Nothing has been written:
+    // the manifest on disk is unchanged and the run that produced this report
+    // still failed. Repainting it green here, which is what this did, asserted
+    // an outcome the page has no way to know.
+  }
+
+  function flagRegression() {
+    alert(
+        'Marked as an unintentional regression. No approval token was ' +
+        'generated, so this waypoint stays unapproved and the diff gate ' +
+        'remains red. Fix the regression and re-run the comparison.');
   }
 
   function copyManifestJson() {
     const code = document.getElementById('manifest-code').textContent;
+    const successMsg =
+        'Copied. Merge these entries into the existing "approved_diffs" ' +
+        'object in tests/ui/approved_manifest.json.';
+    function fallbackCopy(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      let ok = false;
+      try {
+        ok = document.execCommand('copy');
+      } catch (e) {
+        ok = false;
+      }
+      document.body.removeChild(ta);
+      if (ok === true) {
+        alert(successMsg);
+      } else {
+        alert('Copy failed. Select the text above and copy it manually.');
+      }
+    }
+    if (!navigator.clipboard || !navigator.clipboard.writeText) {
+      fallbackCopy(code);
+      return;
+    }
     navigator.clipboard.writeText(code).then(() => {
-      alert('Copied approved_manifest.json snippet to clipboard!');
+      alert(successMsg);
+    }).catch(() => {
+      fallbackCopy(code);
     });
   }
 </script>

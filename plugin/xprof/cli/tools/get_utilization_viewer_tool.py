@@ -320,9 +320,25 @@ def get_utilization_viewer(
         tqx="out:csv",
         bypass_cache=bypass_cache,
     )
-  except (FileNotFoundError, ValueError):
+  except FileNotFoundError:
+    return json.dumps(
+        {
+            "status": "NO_DATA",
+            "message": f"No data returned for session {session_id}",
+        },
+        indent=2,
+    )
+  except ValueError:
     raise
   except Exception as e:  # pylint: disable=broad-except
+    if getattr(getattr(e, "response", None), "status_code", None) == 404:
+      return json.dumps(
+          {
+              "status": "NO_DATA",
+              "message": f"No data returned for session {session_id}",
+          },
+          indent=2,
+      )
     logging.exception(
         "Error fetching utilization_viewer.json for session %s", session_id
     )

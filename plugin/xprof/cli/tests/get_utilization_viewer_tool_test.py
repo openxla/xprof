@@ -287,6 +287,47 @@ class GetUtilizationViewerToolTest(parameterized.TestCase):
 
     self.assertEqual(result, expected_result)
 
+  def test_get_utilization_viewer_file_not_found_returns_no_data(self):
+    self.mock_client.fetch.side_effect = FileNotFoundError("Missing trace file")
+    result_str = get_utilization_viewer_tool.get_utilization_viewer(
+        "test-session"
+    )
+    result = json.loads(result_str)
+    self.assertEqual(
+        result,
+        {
+            "status": "NO_DATA",
+            "message": "No data returned for session test-session",
+        },
+    )
+
+  def test_get_utilization_viewer_http_404_returns_no_data(self):
+    mock_response = mock.MagicMock(status_code=404)
+    http_error = Exception("404 Client Error: Not Found")
+    http_error.response = mock_response
+    self.mock_client.fetch.side_effect = http_error
+
+    result_str = get_utilization_viewer_tool.get_utilization_viewer(
+        "test-session"
+    )
+    result = json.loads(result_str)
+    self.assertEqual(
+        result,
+        {
+            "status": "NO_DATA",
+            "message": "No data returned for session test-session",
+        },
+    )
+
+  def test_get_utilization_viewer_other_error_raises(self):
+    mock_response = mock.MagicMock(status_code=500)
+    http_error = Exception("500 Internal Server Error")
+    http_error.response = mock_response
+    self.mock_client.fetch.side_effect = http_error
+
+    with self.assertRaises(RuntimeError):
+      get_utilization_viewer_tool.get_utilization_viewer("test-session")
+
 
 if __name__ == "__main__":
   absltest.main()

@@ -430,6 +430,15 @@ class Timeline {
   void set_mouse_mode(MouseMode mode) { mouse_mode_ = mode; }
   MouseMode mouse_mode() const { return mouse_mode_; }
 
+  // Pans the visible time range by the given pixel amount.
+  // This method is virtual to allow derived classes to customize or extend
+  // panning behavior.
+  virtual void Pan(Pixel pixel_amount);
+
+  // Zooms the visible time range in or out by a discrete factor.
+  virtual void ZoomIn(float zoom_factor = kDiscreteZoomInFactor);
+  virtual void ZoomOut(float zoom_factor = kDiscreteZoomOutFactor);
+
   void set_is_incremental_loading(bool is_incremental_loading) {
     is_incremental_loading_ = is_incremental_loading;
   }
@@ -578,11 +587,6 @@ class Timeline {
   virtual ImVec2 GetTextSize(absl::string_view text) const {
     return ImGui::CalcTextSize(text.data(), text.data() + text.size());
   }
-
-  // Pans the visible time range by the given pixel amount.
-  // This method is virtual to allow derived classes to customize or extend
-  // panning behavior.
-  virtual void Pan(Pixel pixel_amount);
 
   // Scrolls the visible time range by the given pixel amount.
   // This method is virtual to allow derived classes to customize or extend

@@ -398,7 +398,10 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
       .function("setVisibleFlowCategory",
                 &traceviewer::Application::SetVisibleFlowCategory)
       .function("setVisibleFlowCategories",
-                &traceviewer::Application::SetVisibleFlowCategories);
+                &traceviewer::Application::SetVisibleFlowCategories)
+      .function("zoomIn", &traceviewer::Application::ZoomIn)
+      .function("zoomOut", &traceviewer::Application::ZoomOut)
+      .function("pan", &traceviewer::Application::Pan);
 }
 
 }  // namespace traceviewer

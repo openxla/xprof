@@ -13,26 +13,67 @@ import {
   TemplateRef,
   ViewChild,
 } from '@angular/core';
+import {FormsModule} from '@angular/forms';
+import {MatAutocompleteModule} from '@angular/material/autocomplete';
+import {MatButton, MatIconButton} from '@angular/material/button';
+import {MatCheckbox} from '@angular/material/checkbox';
+import {MatChipsModule} from '@angular/material/chips';
 import {MatDialog, MatDialogRef} from '@angular/material/dialog';
+import {MatDivider} from '@angular/material/divider';
+import {MatIcon} from '@angular/material/icon';
+import {MatMenu, MatMenuItem, MatMenuTrigger} from '@angular/material/menu';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {MatTooltip} from '@angular/material/tooltip';
 import {ActivatedRoute, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
-import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
-import {
-  catchError,
-  debounceTime,
-  distinctUntilChanged,
-  finalize,
-  switchMap,
-  takeUntil,
-  tap,
-} from 'rxjs/operators';
-
 import {
   API_PREFIX,
   PLUGIN_NAME,
 } from 'org_xprof/frontend/app/common/constants/constants';
 import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
+import {
+  COLOR_PALETTE_PROMPTED_STORAGE_KEY,
+  COLOR_PALETTE_STORAGE_KEY,
+  COLOR_PALETTES,
+  CUSTOM_COLORS_STORAGE_KEY,
+  CUSTOM_PALETTE_NAME,
+  DEFAULT_PALETTE,
+  FILTER_CONFIG,
+  FILTER_FIELD_EVENT_DURATION,
+  FILTER_FIELDS,
+  FILTER_OPERATORS,
+  FILTER_PROPERTY_SEPARATOR,
+  FILTER_SEPARATOR,
+  HLO_OP_STATS_TOOL_NAME,
+  NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
+  NAV_PAN_SPEED_STORAGE_KEY,
+  NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY,
+  PALETTE_PREVIEWS,
+  ROOFLINE_MODEL_TOOL_NAME,
+  SettingsTab,
+  STACK_TRACE_TOOL_NAME,
+} from 'org_xprof/frontend/app/components/trace_viewer/constants';
+import {FilterChips} from 'org_xprof/frontend/app/components/trace_viewer/filter_chips/filter_chips';
+import {FilterInput} from 'org_xprof/frontend/app/components/trace_viewer/filter_input/filter_input';
+import {AdjacentNodesResponse} from 'org_xprof/frontend/app/components/trace_viewer/interfaces';
+import {
+  FilterChangeEvent,
+  FilterEntry,
+  FilterFieldCategory,
+  FilterOperatorType,
+  FilterRemoveEvent,
+  FlowCategory,
+  StackFrame,
+  TraceEventFilter,
+  TraceFilters,
+} from 'org_xprof/frontend/app/components/trace_viewer/trace_viewer_typings';
+import {
+  applyStackTraceArg,
+  getProcessMappingsFromWasm,
+  getProcessNamesFromWasm,
+  parseEventsSelectedData,
+} from 'org_xprof/frontend/app/components/trace_viewer/utils';
 import {
   EntrySelectedEventDetail,
   EventsSelectedEventDetail,
@@ -59,50 +100,24 @@ import {
   traceViewerV2Main,
   TraceViewerV2Module,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
-import {HLO_MODULE, HLO_OP} from 'org_xprof/frontend/app/components/trace_viewer_v2/trace_helper/event_args_keys';
+import {
+  HLO_MODULE,
+  HLO_OP,
+} from 'org_xprof/frontend/app/components/trace_viewer_v2/trace_helper/event_args_keys';
+import {SafePipe} from 'org_xprof/frontend/app/pipes/safe_pipe';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
+import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
 import {
-  COLOR_PALETTE_PROMPTED_STORAGE_KEY,
-  COLOR_PALETTE_STORAGE_KEY,
-  COLOR_PALETTES,
-  CUSTOM_COLORS_STORAGE_KEY,
-  CUSTOM_PALETTE_NAME,
-  DEFAULT_PALETTE,
-  FILTER_CONFIG,
-  FILTER_FIELD_EVENT_DURATION,
-  FILTER_FIELDS,
-  FILTER_OPERATORS,
-  FILTER_PROPERTY_SEPARATOR,
-  FILTER_SEPARATOR,
-  HLO_OP_STATS_TOOL_NAME,
-  NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
-  NAV_PAN_SPEED_STORAGE_KEY,
-  NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY,
-  PALETTE_PREVIEWS,
-  ROOFLINE_MODEL_TOOL_NAME,
-  SettingsTab,
-  STACK_TRACE_TOOL_NAME,
-} from './constants';
-import {AdjacentNodesResponse} from './interfaces';
-import {
-  FilterChangeEvent,
-  FilterEntry,
-  FilterFieldCategory,
-  FilterOperatorType,
-  FilterRemoveEvent,
-  FlowCategory,
-  StackFrame,
-  TraceEventFilter,
-  TraceFilters,
-} from './trace_viewer_typings';
-import {
-  applyStackTraceArg,
-  getProcessMappingsFromWasm,
-  getProcessNamesFromWasm,
-  parseEventsSelectedData,
-} from './utils';
+  catchError,
+  debounceTime,
+  distinctUntilChanged,
+  finalize,
+  switchMap,
+  takeUntil,
+  tap,
+} from 'rxjs/operators';
 
 interface TraceData {
   traceEvents?: Array<{[key: string]: unknown}>;
@@ -170,10 +185,28 @@ function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
 /** A trace viewer component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'trace-viewer',
   templateUrl: './trace_viewer.ng.html',
   styleUrls: ['./trace_viewer.scss'],
+  imports: [
+    FormsModule,
+    MatAutocompleteModule,
+    MatChipsModule,
+    MatProgressBarModule,
+    SafePipe,
+    FilterChips,
+    FilterInput,
+    MatButton,
+    MatCheckbox,
+    MatDivider,
+    MatIcon,
+    MatIconButton,
+    MatMenu,
+    MatMenuItem,
+    MatMenuTrigger,
+    MatTooltip,
+    TraceViewerContainer,
+  ],
 })
 export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly destroyed = new ReplaySubject<void>(1);

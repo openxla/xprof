@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "buffer_details",
     srcs = [
         "buffer_details.ts",
-        "buffer_details_module.ts",
     ],
     assets = [
         ":buffer_details_css",

@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "memory_profile",
     srcs = [
         "memory_profile.ts",
-        "memory_profile_module.ts",
     ],
     assets = [
         ":memory_profile_css",
@@ -20,6 +19,7 @@ xprof_ng_module(
         "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/angular:angular_material_core",
         "@org_xprof//frontend/app/common/angular:angular_material_divider",
+        "@org_xprof//frontend/app/common/angular:angular_material_form_field",
         "@org_xprof//frontend/app/common/angular:angular_material_icon",
         "@org_xprof//frontend/app/common/angular:angular_material_progress_bar",
         "@org_xprof//frontend/app/common/angular:angular_material_select",

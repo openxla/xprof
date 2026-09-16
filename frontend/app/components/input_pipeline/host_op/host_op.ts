@@ -1,17 +1,29 @@
-import {Component, Input, OnChanges, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  Input,
+  OnChanges,
+  SimpleChanges,
+} from '@angular/core';
+import {MatOption} from '@angular/material/core';
+import {MatDivider} from '@angular/material/divider';
+import {MatFormField} from '@angular/material/form-field';
+import {MatSelect} from '@angular/material/select';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {
   HostOpTable,
   type MetaHostOpTable,
 } from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
+import {Chart} from '../../chart/chart';
 
 /** A host-op view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'host-op',
   templateUrl: './host_op.ng.html',
   styleUrls: ['./host_op.scss'],
+  imports: [Chart, MatDivider, MatFormField, MatOption, MatSelect],
 })
 export class HostOp implements OnChanges {
   /** Whether there are host-op tables */

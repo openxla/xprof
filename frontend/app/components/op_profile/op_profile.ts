@@ -27,18 +27,22 @@ import {
 } from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
 import {combineLatestWith, map, takeUntil} from 'rxjs/operators';
+import {OpDetails} from './op_details/op_details';
+import {OpProfileBase} from './op_profile_base';
 
 const GROUP_BY_RULES = ['program', 'category', 'provenance'];
 
 /** An op profile component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'op-profile',
   templateUrl: './op_profile.ng.html',
   styleUrls: ['./op_profile_common.scss'],
+  imports: [OpDetails, OpProfileBase],
 })
 export class OpProfile implements OnDestroy {
+  private readonly store = inject<Store<{}>>(Store);
+
   private tool = 'hlo_op_profile';
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
@@ -59,10 +63,9 @@ export class OpProfile implements OnDestroy {
   opProfileData: OpProfileProto | null = null;
   groupBy = GROUP_BY_RULES[0]; // Default value
 
-  constructor(
-    route: ActivatedRoute,
-    private readonly store: Store<{}>,
-  ) {
+  constructor() {
+    const route = inject(ActivatedRoute);
+
     combineLatest([route.params, route.queryParams])
       .pipe(takeUntil(this.destroyed))
       .subscribe(([params, queryParams]) => {

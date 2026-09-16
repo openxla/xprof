@@ -128,13 +128,21 @@ std::string GetFittingLabel(absl::string_view label, double width_pts,
 
 Shape ResolveShapeIndex(const xla::ShapeProto& shape_proto,
                         absl::Span<const int64_t> shape_index) {
-  // Choosing the last subshape to maintain historical behavior.
   const xla::ShapeProto* proto = &shape_proto;
-  if (!shape_index.empty()) {
-    int64_t i = shape_index.back();
-    if (i < shape_proto.tuple_shapes_size()) {
-      proto = &shape_proto.tuple_shapes(i);
+  for (int64_t i : shape_index) {
+    if (i < 0 || i >= proto->tuple_shapes_size()) {
+      // If any component is out of range or encounters a non-tuple before the
+      // path is exhausted, fall back to historical behavior (applying only the
+      // last component at the top level if in range, otherwise keeping the
+      // top-level shape) rather than crashing on data-dependent input.
+      proto = &shape_proto;
+      int64_t back = shape_index.back();
+      if (back >= 0 && back < shape_proto.tuple_shapes_size()) {
+        proto = &shape_proto.tuple_shapes(back);
+      }
+      break;
     }
+    proto = &proto->tuple_shapes(i);
   }
   absl::StatusOr<Shape> shape = Shape::FromProto(*proto);
   if (!shape.ok()) {

@@ -1251,17 +1251,19 @@ TEST_F(DataProviderTest, ProcessSingleCounterEvent) {
   EXPECT_EQ(data.groups[0].nesting_level, 1);
   EXPECT_EQ(data.groups[0].level_count, 1);
   EXPECT_TRUE(data.groups[0].has_children);
-  EXPECT_THAT(data.groups[0].child_indices, ElementsAre(1));
+  EXPECT_EQ(data.groups[0].first_child, &data.groups[1]);
+  EXPECT_EQ(data.groups[0].last_child, &data.groups[1]);
 
   EXPECT_EQ(data.groups[1].name, "Counter A");
   EXPECT_EQ(data.groups[1].type, Group::Type::kCounter);
   EXPECT_EQ(data.groups[1].nesting_level, 2);
   EXPECT_TRUE(data.groups[1].expanded);
-  EXPECT_EQ(data.groups[1].parent_index, 0);
+  EXPECT_EQ(data.groups[1].parent, &data.groups[0]);
 
-  ASSERT_TRUE(data.counter_data_by_group_index.count(1));
+  ASSERT_TRUE(data.counter_data_by_group_ptr.count(&data.groups[1]));
 
-  const CounterData& counter_data = data.counter_data_by_group_index.at(1);
+  const CounterData& counter_data =
+      data.counter_data_by_group_ptr.at(&data.groups[1]);
 
   EXPECT_THAT(counter_data.timestamps, ElementsAre(10.0, 20.0, 30.0));
   EXPECT_THAT(counter_data.values, ElementsAre(1.0, 5.0, 2.0));
@@ -1279,8 +1281,9 @@ TEST_F(DataProviderTest, ProcessCounterEventWithNegativeValues) {
   data_provider_.ProcessTraceEvents({{}, events}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_TRUE(data.counter_data_by_group_index.count(1));
-  const CounterData& counter_data = data.counter_data_by_group_index.at(1);
+  ASSERT_TRUE(data.counter_data_by_group_ptr.count(&data.groups[1]));
+  const CounterData& counter_data =
+      data.counter_data_by_group_ptr.at(&data.groups[1]);
 
   EXPECT_DOUBLE_EQ(counter_data.min_value, -5.0);
   EXPECT_DOUBLE_EQ(counter_data.max_value, -1.0);
@@ -1293,8 +1296,9 @@ TEST_F(DataProviderTest, ProcessCounterEventWithSingleValue) {
   data_provider_.ProcessTraceEvents({{}, events}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_TRUE(data.counter_data_by_group_index.count(1));
-  const CounterData& counter_data = data.counter_data_by_group_index.at(1);
+  ASSERT_TRUE(data.counter_data_by_group_ptr.count(&data.groups[1]));
+  const CounterData& counter_data =
+      data.counter_data_by_group_ptr.at(&data.groups[1]);
 
   EXPECT_DOUBLE_EQ(counter_data.min_value, 42.0);
   EXPECT_DOUBLE_EQ(counter_data.max_value, 42.0);
@@ -1307,9 +1311,10 @@ TEST_F(DataProviderTest, ProcessCounterEventWithEmptyValues) {
   data_provider_.ProcessTraceEvents({{}, events}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_EQ(data.counter_data_by_group_index.size(), 1);
-  ASSERT_TRUE(data.counter_data_by_group_index.count(1));
-  const CounterData& counter_data = data.counter_data_by_group_index.at(1);
+  ASSERT_EQ(data.counter_data_by_group_ptr.size(), 1);
+  ASSERT_TRUE(data.counter_data_by_group_ptr.count(&data.groups[1]));
+  const CounterData& counter_data =
+      data.counter_data_by_group_ptr.at(&data.groups[1]);
   EXPECT_TRUE(counter_data.timestamps.empty());
   EXPECT_TRUE(counter_data.values.empty());
 }
@@ -1327,14 +1332,15 @@ TEST_F(DataProviderTest, ProcessMultipleCounterEventsSorted) {
                                        .name = "Complete Event",
                                        .ts = 0.0,
                                        .dur = 10.0}},
-                                     {event1, event2}},
-                                    timeline_);
+                                      {event1, event2}},
+                                     timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
 
-  ASSERT_TRUE(data.counter_data_by_group_index.count(2));
+  ASSERT_TRUE(data.counter_data_by_group_ptr.count(&data.groups[2]));
 
-  const CounterData& counter_data = data.counter_data_by_group_index.at(2);
+  const CounterData& counter_data =
+      data.counter_data_by_group_ptr.at(&data.groups[2]);
 
   EXPECT_THAT(counter_data.timestamps, ElementsAre(50.0, 60.0, 100.0, 110.0));
   EXPECT_THAT(counter_data.values, ElementsAre(5.0, 6.0, 10.0, 11.0));
@@ -1368,9 +1374,10 @@ TEST_F(DataProviderTest, ProcessCounterEventAndCompleteEvent) {
   EXPECT_EQ(data.groups[2].type, Group::Type::kCounter);
   EXPECT_EQ(data.groups[2].nesting_level, 2);
 
-  ASSERT_TRUE(data.counter_data_by_group_index.count(2));
+  ASSERT_TRUE(data.counter_data_by_group_ptr.count(&data.groups[2]));
 
-  const CounterData& counter_data = data.counter_data_by_group_index.at(2);
+  const CounterData& counter_data =
+      data.counter_data_by_group_ptr.at(&data.groups[2]);
 
   EXPECT_THAT(counter_data.timestamps, ElementsAre(10.0, 20.0, 30.0));
   EXPECT_THAT(counter_data.values, ElementsAre(1.0, 5.0, 2.0));
@@ -1391,8 +1398,8 @@ TEST_F(DataProviderTest, ProcessCounterEventAndCompleteEventInDifferentPid) {
                                        .name = "Complete Event",
                                        .ts = 0.0,
                                        .dur = 10.0}},
-                                     {counter_event}},
-                                    timeline_);
+                                      {counter_event}},
+                                     timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
 
@@ -1412,7 +1419,7 @@ TEST_F(DataProviderTest, ProcessCounterEventAndCompleteEventInDifferentPid) {
   EXPECT_EQ(data.groups[3].name, "Thread_1");
   EXPECT_EQ(data.groups[3].nesting_level, 2);
 
-  ASSERT_TRUE(data.counter_data_by_group_index.count(1));
+  ASSERT_TRUE(data.counter_data_by_group_ptr.count(&data.groups[1]));
 }
 
 TEST_F(DataProviderTest, CounterTrackIncrementsLevel) {
@@ -1435,7 +1442,7 @@ TEST_F(DataProviderTest, CounterTrackIncrementsLevel) {
                       .dur = 10.0};
 
   data_provider_.ProcessTraceEvents({{t1_event, t2_event}, {counter_event}},
-                                    timeline_);
+                                     timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
 
@@ -1451,23 +1458,27 @@ TEST_F(DataProviderTest, CounterTrackIncrementsLevel) {
 
   EXPECT_EQ(data.groups[0].level_count, 2);
   EXPECT_TRUE(data.groups[0].has_children);
-  EXPECT_THAT(data.groups[0].child_indices, ElementsAre(1, 2));
+  EXPECT_EQ(data.groups[0].first_child, &data.groups[1]);
+  EXPECT_EQ(data.groups[0].last_child, &data.groups[2]);
 
   EXPECT_EQ(data.groups[1].name, "Thread_1");
   EXPECT_EQ(data.groups[1].start_level, 0);
-  EXPECT_EQ(data.groups[1].parent_index, 0);
+  EXPECT_EQ(data.groups[1].parent, &data.groups[0]);
+  EXPECT_EQ(data.groups[1].next_sibling, &data.groups[2]);
 
   EXPECT_EQ(data.groups[2].name, "CounterA");
   EXPECT_EQ(data.groups[2].start_level, 1);
-  EXPECT_EQ(data.groups[2].parent_index, 0);
+  EXPECT_EQ(data.groups[2].parent, &data.groups[0]);
+  EXPECT_EQ(data.groups[2].prev_sibling, &data.groups[1]);
 
   EXPECT_EQ(data.groups[3].level_count, 1);
   EXPECT_TRUE(data.groups[3].has_children);
-  EXPECT_THAT(data.groups[3].child_indices, ElementsAre(4));
+  EXPECT_EQ(data.groups[3].first_child, &data.groups[4]);
+  EXPECT_EQ(data.groups[3].last_child, &data.groups[4]);
 
   EXPECT_EQ(data.groups[4].name, "Thread_2");
   EXPECT_EQ(data.groups[4].start_level, 2);
-  EXPECT_EQ(data.groups[4].parent_index, 3);
+  EXPECT_EQ(data.groups[4].parent, &data.groups[3]);
 }
 
 TEST_F(DataProviderTest, ProcessCounterEventReservesCapacityCorrectly) {
@@ -1494,9 +1505,10 @@ TEST_F(DataProviderTest, ProcessCounterEventReservesCapacityCorrectly) {
   const FlameChartTimelineData& data = timeline_.timeline_data();
 
   // Group 0 is process, Group 1 is counter.
-  ASSERT_TRUE(data.counter_data_by_group_index.count(1));
+  ASSERT_TRUE(data.counter_data_by_group_ptr.count(&data.groups[1]));
 
-  const CounterData& counter_data = data.counter_data_by_group_index.at(1);
+  const CounterData& counter_data =
+      data.counter_data_by_group_ptr.at(&data.groups[1]);
 
   EXPECT_THAT(counter_data.timestamps, SizeIs(kNumEntries));
 
@@ -2010,8 +2022,9 @@ TEST_F(DataProviderTest,
   data_provider_.ProcessTraceEvents({{}, {event1, event2}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_TRUE(data.counter_data_by_group_index.count(1));
-  const CounterData& counter_data = data.counter_data_by_group_index.at(1);
+  ASSERT_TRUE(data.counter_data_by_group_ptr.count(&data.groups[1]));
+  const CounterData& counter_data =
+      data.counter_data_by_group_ptr.at(&data.groups[1]);
 
   EXPECT_THAT(counter_data.timestamps, SizeIs(kTotalEntries));
 
@@ -4066,7 +4079,7 @@ TEST_F(DataProviderTest, InvalidSortIndexBoundsIgnored) {
   EXPECT_EQ(data.groups[2].name, "ThreadA");
 }
 
-TEST_F(DataProviderTest, ExpandedState_PreservedAcrossParentIndexVariations) {
+TEST_F(DataProviderTest, ExpandedState_PreservedAcrossParentVariations) {
   const std::vector<TraceEvent> events = {
       CreateProcessEvent(1, "Process 1"),
       CreateThreadEvent(1, 101, "Worker"),
@@ -4075,94 +4088,60 @@ TEST_F(DataProviderTest, ExpandedState_PreservedAcrossParentIndexVariations) {
 
   struct TestCase {
     absl::string_view description;
-    std::vector<Group> initial_groups;
+    std::function<FlameChartTimelineData()> create_initial_data;
   };
 
   const std::vector<TestCase> test_cases = {
       {
           .description = "Parent differs from preceding process",
-          .initial_groups =
-              {
-                  Group{
-                      .name = "Process 1",
-                      .nesting_level = kProcessNestingLevel,
-                      .expanded = true,
-                      .parent_index = -1,
-                  },
-                  Group{
-                      .name = "Process 2",
-                      .nesting_level = kProcessNestingLevel,
-                      .expanded = true,
-                      .parent_index = -1,
-                  },
-                  Group{
-                      .name = "Worker",
-                      .nesting_level = kThreadNestingLevel,
-                      .expanded = false,
-                      .parent_index = 0,
-                  },
+          .create_initial_data =
+              []() {
+                FlameChartTimelineData data;
+                data.groups.push_back(Group{
+                    .name = "Process 1",
+                    .nesting_level = kProcessNestingLevel,
+                    .expanded = true,
+                });
+                data.groups.push_back(Group{
+                    .name = "Process 2",
+                    .nesting_level = kProcessNestingLevel,
+                    .expanded = true,
+                });
+                data.groups.push_back(Group{
+                    .name = "Worker",
+                    .nesting_level = kThreadNestingLevel,
+                    .expanded = false,
+                });
+                AppendGroup(data.all_section_group, &data.groups[0]);
+                AppendGroup(data.all_section_group, &data.groups[1]);
+                AppendGroup(&data.groups[0], &data.groups[2]);
+                return data;
               },
       },
       {
-          .description = "Parent index unset (-1)",
-          .initial_groups =
-              {
-                  Group{
-                      .name = "Process 1",
-                      .nesting_level = kProcessNestingLevel,
-                      .expanded = true,
-                      .parent_index = -1,
-                  },
-                  Group{
-                      .name = "Worker",
-                      .nesting_level = kThreadNestingLevel,
-                      .expanded = false,
-                      .parent_index = -1,
-                  },
-              },
-      },
-      {
-          .description = "Parent index at exact out-of-bounds boundary (size)",
-          .initial_groups =
-              {
-                  Group{
-                      .name = "Process 1",
-                      .nesting_level = kProcessNestingLevel,
-                      .expanded = true,
-                      .parent_index = -1,
-                  },
-                  Group{
-                      .name = "Worker",
-                      .nesting_level = kThreadNestingLevel,
-                      .expanded = false,
-                      .parent_index = 2,
-                  },
-              },
-      },
-      {
-          .description = "Parent index far out-of-bounds",
-          .initial_groups =
-              {
-                  Group{
-                      .name = "Process 1",
-                      .nesting_level = kProcessNestingLevel,
-                      .expanded = true,
-                      .parent_index = -1,
-                  },
-                  Group{
-                      .name = "Worker",
-                      .nesting_level = kThreadNestingLevel,
-                      .expanded = false,
-                      .parent_index = 999,
-                  },
+          .description = "Parent pointer unset (nullptr)",
+          .create_initial_data =
+              []() {
+                FlameChartTimelineData data;
+                data.groups.push_back(Group{
+                    .name = "Process 1",
+                    .nesting_level = kProcessNestingLevel,
+                    .expanded = true,
+                });
+                data.groups.push_back(Group{
+                    .name = "Worker",
+                    .nesting_level = kThreadNestingLevel,
+                    .expanded = false,
+                    .parent = nullptr,
+                });
+                return data;
               },
       },
   };
 
   for (const TestCase& test_case : test_cases) {
     SCOPED_TRACE(test_case.description);
-    timeline_.SetTimelineData(
-        FlameChartTimelineData{.groups = test_case.initial_groups});
+    timeline_.SetTimelineData(test_case.create_initial_data());
     data_provider_.ProcessTraceEvents(ParsedTraceEvents{.flame_events = events},
                                       timeline_);
     ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(2));
@@ -4653,7 +4632,7 @@ TEST_F(DataProviderTest, ThreadTrack_LevelCountMatchesOverlappingEventLevels) {
                                     timeline_);
 
   int worker_index = -1;
-  const std::vector<Group>& groups = timeline_.timeline_data().groups;
+  const auto& groups = timeline_.timeline_data().groups;
   for (size_t i = 0; i < groups.size(); ++i) {
     if (groups[i].name == "Worker") {
       worker_index = static_cast<int>(i);

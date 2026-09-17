@@ -216,13 +216,12 @@ std::string FormatHeaderText(absl::string_view name, int count) {
 }  // namespace
 
 int Timeline::GetNextGroupStartLevel(const FlameChartTimelineData& data,
-                                     int group_index) {
-  if (group_index >= 0 && group_index < data.groups.size()) {
-    const auto& group = data.groups[group_index];
-    if (group.has_children && group.nesting_level == kProcessNestingLevel) {
-      return group.start_level;
+                                     const Group* group) {
+  if (group != nullptr) {
+    if (group->has_children && group->nesting_level == kProcessNestingLevel) {
+      return group->start_level;
     }
-    return group.start_level + group.level_count;
+    return group->start_level + group->level_count;
   }
   return static_cast<int>(data.events_by_level.size());
 }
@@ -254,17 +253,9 @@ Pixel Timeline::GetGroupTop(const Group* group) const {
   if (group == &header_all_) return header_all_offset_;
   if (group == &header_pinned_) return header_pinned_offset_;
 
-  if (timeline_data_.groups.empty()) return 0.0f;
+  if (timeline_data_.is_empty()) return 0.0f;
 
-  const Group* const data = timeline_data_.groups.data();
-  const size_t size = timeline_data_.groups.size();
-  if (std::less<const Group*>()(group, data) ||
-      std::greater_equal<const Group*>()(group, data + size)) {
-    return 0.0f;
-  }
-
-  const int group_index = static_cast<int>(group - data);
-  return group_offsets_[group_index];
+  return group->offset;
 }
 
 Pixel Timeline::GetGroupBottom(const Group* group) const {
@@ -279,39 +270,43 @@ Pixel Timeline::GetGroupBottom(const Group* group) const {
     return header_pinned_offset_ + kVirtualHeaderHeight;
   }
 
-  if (timeline_data_.groups.empty()) return 0.0f;
+  if (timeline_data_.is_empty()) return 0.0f;
 
-  const Group* const data = timeline_data_.groups.data();
-  const size_t size = timeline_data_.groups.size();
-  if (std::less<const Group*>()(group, data) ||
-      std::greater_equal<const Group*>()(group, data + size)) {
-    return 0.0f;
-  }
-
-  const int group_index = static_cast<int>(group - data);
-  return group_offsets_[group_index] + group_heights_[group_index];
+  return group->offset + group->height;
 }
 
 void Timeline::BuildFlattenedGroups(const FlameChartTimelineData& data) {
   flattened_groups_.clear();
-  const int group_count = data.groups.size();
 
   all_processes_count_ = 0;
   hidden_processes_count_ = 0;
   pinned_processes_count_ = 0;
 
-  if (data.groups.empty()) return;
+  if (data.is_empty()) {
+    return;
+  }
 
   // Fast-path: when track management (hiding/pinning) is disabled, copy the
   // raw groups sequence directly to avoid categorization overhead or inserting
   // virtual headers.
   if (!track_management_enabled_) {
-    flattened_groups_.reserve(group_count);
-    for (int i = 0; i < group_count; ++i) {
-      flattened_groups_.push_back(&data.groups[i]);
-      if (data.groups[i].nesting_level == kProcessNestingLevel) {
+    std::function<void(const Group*)> add_subtree = [&](const Group* node) {
+      if (!node) return;
+      flattened_groups_.push_back(node);
+      if (node->nesting_level == kProcessNestingLevel) {
         all_processes_count_++;
       }
+      const Group* cur_child = node->first_child;
+      while (cur_child != nullptr) {
+        add_subtree(cur_child);
+        cur_child = cur_child->next_sibling;
+      }
+    };
+    const Group* cur_group =
+        data.all_section_group ? data.all_section_group->first_child : nullptr;
+    while (cur_group != nullptr) {
+      add_subtree(cur_group);
+      cur_group = cur_group->next_sibling;
     }
     return;
   }
@@ -356,43 +351,113 @@ void Timeline::CategorizeGroupsForTrackManagement(
     std::vector<const Group*>& hidden_groups,
     std::vector<const Group*>& pinned_groups,
     std::vector<const Group*>& all_groups) {
-  const int group_count = data.groups.size();
-  hidden_groups.reserve(group_count);
-  pinned_groups.reserve(group_count);
-  all_groups.reserve(group_count);
+  std::vector<const Group*> processes;
+  auto collect_processes = [&](const Group* section) {
+    if (section == nullptr) return;
+    const Group* cur = section->first_child;
+    while (cur != nullptr) {
+      processes.push_back(cur);
+      cur = cur->next_sibling;
+    }
+  };
 
-  bool current_process_hidden = false;
-  bool current_process_pinned = false;
+  collect_processes(data.all_section_group);
+  collect_processes(data.pinned_section_group);
+  collect_processes(data.hidden_section_group);
 
-  // Groups are expected in DFS pre-order: each process is immediately followed
-  // by its child thread/counter tracks.
-  for (int i = 0; i < group_count; ++i) {
-    const Group& group = data.groups[i];
-    if (group.nesting_level == kProcessNestingLevel) {
-      current_process_hidden = hidden_track_names_.contains(group.name);
-      current_process_pinned =
-          !current_process_hidden && pinned_track_names_.contains(group.name);
+  std::function<void(const Group*, std::vector<const Group*>&)> add_children =
+      [&](const Group* node, std::vector<const Group*>& target) {
+    const Group* child = node->first_child;
+    while (child != nullptr) {
+      target.push_back(child);
+      add_children(child, target);
+      child = child->next_sibling;
+    }
+  };
 
-      if (current_process_hidden) {
-        hidden_processes_count_++;
-      } else if (current_process_pinned) {
-        pinned_processes_count_++;
-      } else {
-        all_processes_count_++;
+  for (const Group* proc : processes) {
+    const bool is_hidden = hidden_track_names_.contains(proc->name);
+    const bool is_pinned =
+        !is_hidden && pinned_track_names_.contains(proc->name);
+
+    std::vector<const Group*>& target =
+        is_hidden ? hidden_groups : (is_pinned ? pinned_groups : all_groups);
+
+    if (is_hidden) {
+      hidden_processes_count_++;
+    } else if (is_pinned) {
+      pinned_processes_count_++;
+    } else {
+      all_processes_count_++;
+    }
+
+    target.push_back(proc);
+    add_children(proc, target);
+  }
+}
+
+void Timeline::EnsureTreeStructure(FlameChartTimelineData& data) {
+  if (data.all_section_group == nullptr || data.root_group == nullptr) {
+    data.InitSectionGroups();
+  }
+  if (data.groups.empty()) {
+    return;
+  }
+  if (data.all_section_group->first_child != nullptr ||
+      data.hidden_section_group->first_child != nullptr ||
+      data.pinned_section_group->first_child != nullptr) {
+    for (size_t i = 0; i < data.groups.size(); ++i) {
+      if (data.groups[i].original_index == -1) {
+        data.groups[i].original_index = static_cast<int>(i);
+      }
+      if (data.groups[i].level_count <= 0) {
+        int next_level = (i + 1 < data.groups.size())
+                             ? data.groups[i + 1].start_level
+                             : static_cast<int>(data.events_by_level.size());
+        data.groups[i].level_count =
+            std::max(1, next_level - data.groups[i].start_level);
       }
     }
+    return;
+  }
 
-    if (current_process_hidden) {
-      hidden_groups.push_back(&data.groups[i]);
-    } else if (current_process_pinned) {
-      pinned_groups.push_back(&data.groups[i]);
-    } else {
-      all_groups.push_back(&data.groups[i]);
+  for (size_t i = 0; i < data.groups.size(); ++i) {
+    Group* g = &data.groups[i];
+    g->original_index = static_cast<int>(i);
+    g->first_child = nullptr;
+    g->last_child = nullptr;
+    g->prev_sibling = nullptr;
+    g->next_sibling = nullptr;
+    g->parent = nullptr;
+  }
+
+  std::vector<Group*> stack;
+  for (size_t i = 0; i < data.groups.size(); ++i) {
+    Group* g = &data.groups[i];
+    while (!stack.empty() && stack.back()->nesting_level >= g->nesting_level) {
+      stack.pop_back();
     }
+    if (stack.empty()) {
+      AppendGroup(data.all_section_group, g);
+    } else {
+      AppendGroup(stack.back(), g);
+    }
+    stack.push_back(g);
+  }
+  for (size_t i = 0; i < data.groups.size(); ++i) {
+    Group* g = &data.groups[i];
+    if (g->level_count <= 0) {
+      int next_level = (i + 1 < data.groups.size())
+                           ? data.groups[i + 1].start_level
+                           : static_cast<int>(data.events_by_level.size());
+      g->level_count = std::max(1, next_level - g->start_level);
+    }
+    g->has_children = g->has_children || (g->first_child != nullptr);
   }
 }
 
 void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
+  EnsureTreeStructure(const_cast<FlameChartTimelineData&>(data));
   const int level_count = data.events_by_level.size();
   const int group_count = data.groups.size();
 
@@ -414,15 +479,15 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
   // Track collapsed status of headers
   bool section_collapsed = false;
 
-  for (const Group* group_ptr : flattened_groups_) {
-    if (group_ptr->nesting_level == kHeaderNestingLevel) {
-      if (group_ptr->name == kAllHeaderName) {
+  for (const Group* group : flattened_groups_) {
+    if (group->nesting_level == kHeaderNestingLevel) {
+      if (group->name == kAllHeaderName) {
         header_all_offset_ = current_offset;
         section_collapsed = !header_all_expanded_;
         current_offset += kVirtualHeaderHeight;
         continue;
       }
-      if (group_ptr->name == kHiddenHeaderName) {
+      if (group->name == kHiddenHeaderName) {
         header_hidden_offset_ = current_offset;
         section_collapsed = !header_hidden_expanded_;
         current_offset += kVirtualHeaderHeight;
@@ -430,7 +495,7 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
         hidden_nesting_level = std::numeric_limits<int>::max();
         continue;
       }
-      if (group_ptr->name == kPinnedHeaderName) {
+      if (group->name == kPinnedHeaderName) {
         header_pinned_offset_ = current_offset;
         section_collapsed = !header_pinned_expanded_;
         current_offset += kVirtualHeaderHeight;
@@ -441,16 +506,19 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
     }
 
     // Now we are dealing with a standard group track
-    const int group_index = group_ptr - &data.groups[0];
-    const Group& group = *group_ptr;
+    const int idx = group->original_index;
 
     // If the whole header section is collapsed, this group disappears.
     if (section_collapsed) {
-      new_group_offsets[group_index] = current_offset;
-      new_group_visible[group_index] = false;
+      group->offset = current_offset;
+      group->visible = false;
+      if (idx >= 0 && idx < group_count) {
+        new_group_offsets[idx] = current_offset;
+        new_group_visible[idx] = false;
+      }
       const int next_group_start_level =
-          GetNextGroupStartLevel(data, group_index);
-      for (int level = group.start_level; level < next_group_start_level;
+          GetNextGroupStartLevel(data, group);
+      for (int level = group->start_level; level < next_group_start_level;
            ++level) {
         if (level < level_count) {
           // Point level offset to current header offset
@@ -460,17 +528,21 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
       continue;
     }
 
-    if (group.nesting_level <= hidden_nesting_level) {
+    if (group->nesting_level <= hidden_nesting_level) {
       hidden_nesting_level = std::numeric_limits<int>::max();
     }
 
     const int next_group_start_level =
-        GetNextGroupStartLevel(data, group_index);
+        GetNextGroupStartLevel(data, group);
 
     if (hidden_nesting_level != std::numeric_limits<int>::max()) {
-      new_group_offsets[group_index] = current_offset;
-      new_group_visible[group_index] = false;
-      for (int level = group.start_level; level < next_group_start_level;
+      group->offset = current_offset;
+      group->visible = false;
+      if (idx >= 0 && idx < group_count) {
+        new_group_offsets[idx] = current_offset;
+        new_group_visible[idx] = false;
+      }
+      for (int level = group->start_level; level < next_group_start_level;
            ++level) {
         if (level < level_count) {
           new_visible_level_offsets[level] = hidden_group_center_y;
@@ -480,42 +552,50 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
     }
 
     if (has_visible_group) {
-      current_offset += (group.nesting_level == kProcessNestingLevel)
+      current_offset += (group->nesting_level == kProcessNestingLevel)
                             ? kProcessTrackGap
                             : kThreadTrackGap;
     }
 
-    new_group_offsets[group_index] = current_offset;
+    group->offset = current_offset;
+    group->visible = true;
+    if (idx >= 0 && idx < group_count) {
+      new_group_offsets[idx] = current_offset;
+      new_group_visible[idx] = true;
+    }
     has_visible_group = true;
 
-    const bool has_children = group.has_children;
+    const bool has_children = group->has_children;
     const bool has_multiple_levels =
-        next_group_start_level - group.start_level > 1;
+        next_group_start_level - group->start_level > 1;
 
-    const bool expandable = group.type == Group::Type::kFlame &&
+    const bool expandable = group->type == Group::Type::kFlame &&
                             (has_children || has_multiple_levels);
 
-    const bool is_collapsed = expandable && !group.expanded;
+    const bool is_collapsed = expandable && !group->expanded;
 
     Pixel group_height = kEventHeight;
-    if (group.nesting_level == kProcessNestingLevel) {
+    if (group->nesting_level == kProcessNestingLevel ||
+        (group->nesting_level <= kProcessNestingLevel &&
+         (group->parent == nullptr || IsVirtualHeader(group->parent)))) {
       group_height = kProcessTrackHeight;
     } else if (!is_collapsed) {
-      if (group.type == Group::Type::kCounter) {
+      if (group->type == Group::Type::kCounter) {
         group_height = kCounterTrackHeight;
-      } else if (group.type == Group::Type::kFlame) {
-        group_height = std::max(1, next_group_start_level - group.start_level) *
-                       (kEventHeight + kEventPaddingBottom);
+      } else if (group->type == Group::Type::kFlame) {
+        group_height =
+            std::max(1, next_group_start_level - group->start_level) *
+            (kEventHeight + kEventPaddingBottom);
       }
     }
 
     if (is_collapsed &&
         hidden_nesting_level == std::numeric_limits<int>::max()) {
-      hidden_nesting_level = group.nesting_level;
+      hidden_nesting_level = group->nesting_level;
       hidden_group_center_y = current_offset + group_height * 0.5f;
     }
 
-    const int start_level = group.start_level;
+    const int start_level = group->start_level;
 
     if (is_collapsed) {
       for (int level = start_level; level < next_group_start_level; ++level) {
@@ -535,7 +615,10 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
       }
     }
 
-    new_group_heights[group_index] = group_height;
+    group->height = group_height;
+    if (idx >= 0 && idx < group_count) {
+      new_group_heights[idx] = group_height;
+    }
     current_offset += group_height;
   }
 
@@ -557,21 +640,31 @@ void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
   if (redraw_callback_) redraw_callback_();
 }
 
-void Timeline::BackfillGroupLevelCount(FlameChartTimelineData& data) {
-  // Backfill level_count for tests that only set start_level.
-  for (size_t i = 0; i < data.groups.size(); ++i) {
-    if (data.groups[i].level_count <= 0) {
-      int next_level = (i + 1 < data.groups.size())
-                           ? data.groups[i + 1].start_level
-                           : static_cast<int>(data.events_by_level.size());
-      data.groups[i].level_count =
-          std::max(1, next_level - data.groups[i].start_level);
-    }
+void Timeline::TraverseGroups(
+    const std::function<bool(const Group&)>& callback) const {
+  if (timeline_data_.root_group == nullptr) return;
+  std::function<bool(const Group&)> traverse =
+      [&](const Group& group) -> bool {
+        if (callback(group)) {
+          return true;
+        }
+        const Group* child = group.first_child;
+        while (child != nullptr) {
+          if (traverse(*child)) return true;
+          child = child->next_sibling;
+        }
+        return false;
+      };
+
+  const Group* section = timeline_data_.root_group->first_child;
+  while (section != nullptr) {
+    if (traverse(*section)) break;
+    section = section->next_sibling;
   }
 }
 
 void Timeline::SetTimelineData(FlameChartTimelineData data) {
-  BackfillGroupLevelCount(data);
+  // BackfillGroupLevelCount(data);
 
   // Capture anchor track and local pixel offset prior to updating layout.
   GroupKey anchor_group_key = {};
@@ -605,14 +698,8 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
           ++it;
           continue;
         }
-        const int group_idx = *it - timeline_data_.groups.data();
-        if (group_idx < 0 ||
-            group_idx >= static_cast<int>(timeline_data_.groups.size())) {
-          ++it;
-          continue;
-        }
-        if (group_idx < static_cast<int>(group_visible_.size()) &&
-            !group_visible_[group_idx]) {
+        const Group* group = *it;
+        if (group == nullptr || !group->visible) {
           ++it;
           continue;
         }
@@ -624,10 +711,9 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
         anchor_group_key.nesting_level = anchor_group->nesting_level;
         anchor_group_key.name = anchor_group->name;
         anchor_group_key.parent_name =
-            (anchor_group->parent_index >= 0 &&
-             anchor_group->parent_index <
-                 static_cast<int>(timeline_data_.groups.size()))
-                ? timeline_data_.groups[anchor_group->parent_index].name
+            (anchor_group->parent != nullptr &&
+             !IsVirtualHeader(anchor_group->parent))
+                ? anchor_group->parent->name
                 : "";
         local_pixel_offset =
             std::max(0.0f, last_scroll_y_ - GetGroupTop(anchor_group));
@@ -681,46 +767,46 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
 
   // Execute 4-tier despawn fallback to restore compensated scroll offset.
   if (has_anchor) {
-    int new_group_index = -1;
-
     // Tier 1: Exact GroupKey match.
-    for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
-      const Group& g = timeline_data_.groups[i];
+    const Group* new_group = nullptr;
+    TraverseGroups([&](const Group& group) {
+      if (IsVirtualHeader(&group)) return false;
       const absl::string_view parent =
-          (g.parent_index >= 0 &&
-           g.parent_index < static_cast<int>(timeline_data_.groups.size()))
-              ? absl::string_view(timeline_data_.groups[g.parent_index].name)
+          (group.parent != nullptr && !IsVirtualHeader(group.parent))
+              ? absl::string_view(group.parent->name)
               : "";
-      if (g.nesting_level == anchor_group_key.nesting_level &&
-          g.name == anchor_group_key.name &&
-          parent == anchor_group_key.parent_name) {
-        new_group_index = static_cast<int>(i);
-        break;
+      if (group.nesting_level == anchor_group_key.nesting_level &&
+          group.name == anchor_group_key.name &&
+          (parent == anchor_group_key.parent_name ||
+           anchor_group_key.parent_name.empty())) {
+        new_group = &group;
+        return true;
       }
-    }
+      return false;
+    });
 
     // Tier 2: Match Parent Track if child track despawned.
-    if (new_group_index == -1 && !anchor_group_key.parent_name.empty()) {
-      for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
-        if (timeline_data_.groups[i].nesting_level <
-                anchor_group_key.nesting_level &&
-            timeline_data_.groups[i].name == anchor_group_key.parent_name) {
-          new_group_index = static_cast<int>(i);
+    if (new_group == nullptr && !anchor_group_key.parent_name.empty()) {
+      TraverseGroups([&](const Group& group) {
+        if (!IsVirtualHeader(&group) &&
+            group.nesting_level == anchor_group_key.nesting_level - 1 &&
+            group.name == anchor_group_key.parent_name) {
+          new_group = &group;
           local_pixel_offset = 0.0f;
-          break;
+          return true;
         }
-      }
+        return false;
+      });
     }
 
     // Tier 3: Match Nearest Preceding Surviving Track.
-    if (new_group_index == -1) {
-      for (int i = static_cast<int>(timeline_data_.groups.size()) - 1; i >= 0;
-           --i) {
-        if (i < static_cast<int>(group_visible_.size()) && !group_visible_[i]) {
-          continue;
-        }
-        if (GetGroupTop(&timeline_data_.groups[i]) <= last_scroll_y_) {
-          new_group_index = i;
+    if (new_group == nullptr) {
+      for (auto it = flattened_groups_.rbegin(); it != flattened_groups_.rend();
+           ++it) {
+        const Group* g = *it;
+        if (g != nullptr && !IsVirtualHeader(g) && g->visible &&
+            GetGroupTop(g) <= last_scroll_y_) {
+          new_group = g;
           local_pixel_offset = 0.0f;
           break;
         }
@@ -728,18 +814,18 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
     }
 
     // Tier 4: Apply Compensated Scroll Offset or Clamp to Bounds.
-    if (timeline_data_.groups.empty()) {
+    if (timeline_data_.is_empty()) {
       last_scroll_y_ = 0.0f;
-    } else if (new_group_index != -1) {
-      const Pixel track_height = group_heights_[new_group_index];
+    } else if (new_group != nullptr) {
+      const Pixel track_height = new_group->height;
       local_pixel_offset = std::min(
           local_pixel_offset, std::max(0.0f, track_height - kEventHeight));
-      last_scroll_y_ = GetGroupTop(&timeline_data_.groups[new_group_index]) +
+      last_scroll_y_ = GetGroupTop(new_group) +
                        local_pixel_offset;
     } else {
       last_scroll_y_ = std::max(0.0f, last_scroll_y_);
     }
-  } else if (timeline_data_.groups.empty()) {
+  } else if (timeline_data_.is_empty()) {
     last_scroll_y_ = 0.0f;
   } else {
     last_scroll_y_ = std::max(0.0f, last_scroll_y_);
@@ -926,37 +1012,35 @@ void Timeline::Draw() {
 
   // Draw visible groups.
   for (; it != flattened_groups_.end(); ++it) {
-    const Group* group_ptr = *it;
-    const bool is_header = IsVirtualHeader(group_ptr);
-    int group_index = -1;
+    const Group* group = *it;
+    const bool is_header = IsVirtualHeader(group);;
     if (!is_header) {
-      group_index = group_ptr - &timeline_data_.groups[0];
-      if (!group_visible_[group_index]) {
+      if (!group->visible) {
         continue;
       }
     }
 
-    const Pixel group_top = GetGroupTop(group_ptr);
+    const Pixel group_top = GetGroupTop(group);
     if (group_top > scroll_y + window_height) {
       continue;
     }
-    const Pixel group_bottom = GetGroupBottom(group_ptr);
+    const Pixel group_bottom = GetGroupBottom(group);
     if (group_bottom < scroll_y) {
       // Should not happen with binary search, but serves as a safety check.
       continue;
     }
 
     if (is_header) {
-      if (DrawHeaderRow(group_ptr, tracks_start_pos, tracks_start_screen_pos,
+      if (DrawHeaderRow(group, tracks_start_pos, tracks_start_screen_pos,
                         group_top, group_bottom)) {
         needs_layout_update = true;
       }
       continue;
     }
 
-    if (DrawTrackRow(group_index, tracks_start_pos, tracks_start_screen_pos,
-                     content_region_avail_width, px_per_time_unit_val, scroll_y,
-                     window_height)) {
+    if (DrawTrackRow(const_cast<Group*>(group), tracks_start_pos,
+                     tracks_start_screen_pos, content_region_avail_width,
+                     px_per_time_unit_val, scroll_y, window_height)) {
       needs_layout_update = true;
     }
   }
@@ -1108,16 +1192,16 @@ void Timeline::Draw() {
   }
 }
 
-bool Timeline::DrawHeaderRow(const Group* group_ptr,
+bool Timeline::DrawHeaderRow(const Group* group,
                              const ImVec2& tracks_start_pos,
                              const ImVec2& tracks_start_screen_pos,
                              Pixel group_top, Pixel group_bottom) {
   bool needs_layout_update = false;
 
   int header_id = kAllHeaderId;
-  if (group_ptr->name == kHiddenHeaderName) {
+  if (group->name == kHiddenHeaderName) {
     header_id = kHiddenHeaderId;
-  } else if (group_ptr->name == kPinnedHeaderName) {
+  } else if (group->name == kPinnedHeaderName) {
     header_id = kPinnedHeaderId;
   }
   ImGui::PushID(header_id);
@@ -1134,15 +1218,15 @@ bool Timeline::DrawHeaderRow(const Group* group_ptr,
       ImVec2(tracks_start_pos.x + kIndentSize, tracks_start_pos.y + group_top));
 
   bool toggled = false;
-  if (group_ptr->name == kAllHeaderName) {
+  if (group->name == kAllHeaderName) {
     toggled =
         DrawExpandCollapseButton(header_all_expanded_, kVirtualHeaderHeight,
                                  /*is_virtual_header=*/true);
-  } else if (group_ptr->name == kHiddenHeaderName) {
+  } else if (group->name == kHiddenHeaderName) {
     toggled =
         DrawExpandCollapseButton(header_hidden_expanded_, kVirtualHeaderHeight,
                                  /*is_virtual_header=*/true);
-  } else if (group_ptr->name == kPinnedHeaderName) {
+  } else if (group->name == kPinnedHeaderName) {
     toggled =
         DrawExpandCollapseButton(header_pinned_expanded_, kVirtualHeaderHeight,
                                  /*is_virtual_header=*/true);
@@ -1164,11 +1248,11 @@ bool Timeline::DrawHeaderRow(const Group* group_ptr,
                        std::max(0.0f, vertical_offset));
 
   std::string header_text;
-  if (group_ptr->name == kHiddenHeaderName) {
+  if (group->name == kHiddenHeaderName) {
     header_text = FormatHeaderText(kHiddenHeaderName, hidden_processes_count_);
-  } else if (group_ptr->name == kAllHeaderName) {
+  } else if (group->name == kAllHeaderName) {
     header_text = FormatHeaderText(kAllHeaderName, all_processes_count_);
-  } else if (group_ptr->name == kPinnedHeaderName) {
+  } else if (group->name == kPinnedHeaderName) {
     header_text = FormatHeaderText(kPinnedHeaderName, pinned_processes_count_);
   }
   ImGui::TextUnformatted(header_text.c_str());
@@ -1246,75 +1330,94 @@ void Timeline::DrawTrackLabel(const Group& group, Pixel centereable_height) {
   }
 }
 
-bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
+Group* GetNextGroup(const Group* group) {
+  if (group->first_child) {
+    return group->first_child;
+  }
+  if (group->next_sibling) {
+    return group->next_sibling;
+  }
+  if (group->parent && group->parent->next_sibling) {
+    return group->parent->next_sibling;
+  }
+  return nullptr;
+}
+
+bool Timeline::DrawTrackRow(Group* group, const ImVec2& tracks_start_pos,
                             const ImVec2& tracks_start_screen_pos,
                             Pixel content_region_avail_width,
                             double px_per_time_unit_val, Pixel scroll_y,
                             Pixel window_height) {
   bool needs_layout_update = false;
-  Group& group = timeline_data_.groups[group_index];
-  ImGui::PushID(group_index);
+  ImGui::PushID(group->original_index);
+
+  Pixel group_offset = group->offset;
+  Pixel next_group_offset = group->offset + group->height;
+  const Group* next_group = GetNextGroup(group);
+  if (next_group) {
+    next_group_offset = next_group->offset;
+  }
 
   // Set cursor to draw the label
   ImGui::SetCursorPos(ImVec2(tracks_start_pos.x,
-                             tracks_start_pos.y + group_offsets_[group_index]));
+                             tracks_start_pos.y + group_offset));
 
   ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
-  if (group.nesting_level == kProcessNestingLevel) {
+  if (group->nesting_level == kProcessNestingLevel) {
     ImU32 bg_color =
-        group.expanded ? palette_.GetColor(ColorPalette::Key::kExpandedHeader)
+        group->expanded ? palette_.GetColor(ColorPalette::Key::kExpandedHeader)
                              .value_or(kProcessTrackExpandedColor)
                        : palette_.GetColor(ColorPalette::Key::kCollapsedHeader)
                              .value_or(kProcessTrackCollapsedColor);
     draw_list->AddRectFilled(
         ImVec2(tracks_start_screen_pos.x,
-               tracks_start_screen_pos.y + group_offsets_[group_index]),
+        tracks_start_screen_pos.y + group_offset),
         ImVec2(tracks_start_screen_pos.x + content_region_avail_width,
-               tracks_start_screen_pos.y + group_offsets_[group_index + 1]),
+               tracks_start_screen_pos.y + next_group_offset),
         bg_color);
   }
 
   // Push clip rect to prevent label text from bleeding into the track area
   ImGui::PushClipRect(
       ImVec2(tracks_start_screen_pos.x,
-             tracks_start_screen_pos.y + group_offsets_[group_index]),
+             tracks_start_screen_pos.y + group_offset),
       ImVec2(tracks_start_screen_pos.x + label_width_ - kSplitterOffset,
-             tracks_start_screen_pos.y + group_offsets_[group_index + 1]),
+             tracks_start_screen_pos.y + next_group_offset),
       true);
 
-  const bool has_children = group.has_children;
+  const bool has_children = group->has_children;
   const int next_group_start_level =
-      GetNextGroupStartLevel(timeline_data_, group_index);
+      GetNextGroupStartLevel(timeline_data_, group);
   const bool has_multiple_levels =
-      next_group_start_level - group.start_level > 1;
+      next_group_start_level - group->start_level > 1;
 
-  const bool expandable = group.type == Group::Type::kFlame &&
+  const bool expandable = group->type == Group::Type::kFlame &&
                           (has_children || has_multiple_levels);
 
-  const bool is_collapsed = expandable && !group.expanded;
+  const bool is_collapsed = expandable && !group->expanded;
   Pixel group_height = kEventHeight;
-  if (group.nesting_level == kProcessNestingLevel) {
+  if (group->nesting_level == kProcessNestingLevel) {
     group_height = kProcessTrackHeight;
   } else if (!is_collapsed) {
-    if (group.type == Group::Type::kCounter) {
+    if (group->type == Group::Type::kCounter) {
       group_height = kCounterTrackHeight;
-    } else if (group.type == Group::Type::kFlame) {
+    } else if (group->type == Group::Type::kFlame) {
       const int end_level =
-          GetNextGroupStartLevel(timeline_data_, group_index);
-      group_height = std::max(1, end_level - group.start_level) *
+          GetNextGroupStartLevel(timeline_data_, group);
+      group_height = std::max(1, end_level - group->start_level) *
                      (kEventHeight + kEventPaddingBottom);
     }
   }
 
   const Pixel arrow_size = ImGui::GetFontSize() * kIconSizeScale;
-  Pixel indent_amount = (group.nesting_level + 1) * kIndentSize;
+  Pixel indent_amount = (group->nesting_level + 1) * kIndentSize;
 
   const Pixel label_start_y = ImGui::GetCursorPosY();
   const Pixel centereable_height =
-      group.nesting_level == kProcessNestingLevel
+      group->nesting_level == kProcessNestingLevel
           ? kProcessTrackHeight
-          : (group.type == Group::Type::kFlame ? kEventHeight : group_height);
+          : (group->type == Group::Type::kFlame ? kEventHeight : group_height);
 
   ImGui::Indent(indent_amount);
 
@@ -1327,7 +1430,7 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
   const Pixel text_height_medium = ImGui::GetTextLineHeight();
   ImGui::PopFont();
 
-  const bool has_subtitle = !group.subtitle.empty();
+  const bool has_subtitle = !group->subtitle.empty();
   const Pixel spacing = ImGui::GetStyle().ItemSpacing.y;
   const Pixel total_text_height =
       has_subtitle ? (text_height_large + spacing + text_height_medium)
@@ -1338,39 +1441,39 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
       std::max(0.0f, vertical_offset) + text_height_large * 0.5f;
 
   if (expandable) {
-    if (DrawExpandCollapseButton(group.expanded, centereable_height, false,
+    if (DrawExpandCollapseButton(group->expanded, centereable_height, false,
                                  custom_center_y_offset)) {
       needs_layout_update = true;
     }
     ImGui::SameLine();
-  } else if (group.nesting_level == kProcessNestingLevel) {
+  } else if (group->nesting_level == kProcessNestingLevel) {
     ImGui::Dummy(ImVec2(arrow_size, centereable_height));
     ImGui::SameLine();
   }
 
   ImGui::SetCursorPosX(ImGui::GetCursorPosX() + kLabelPaddingLeft);
 
-  DrawTrackLabel(group, centereable_height);
+  DrawTrackLabel(*group, centereable_height);
 
   ImGui::Unindent(indent_amount);
   ImGui::SetCursorPosY(label_start_y);
   ImGui::PopClipRect();
 
-  if (DrawTrackManagementButtons(group_index, group, tracks_start_pos,
+  if (DrawTrackManagementButtons(group, tracks_start_pos,
                                  centereable_height)) {
     needs_layout_update = true;
   }
 
   ImGui::SetCursorPos(ImVec2(tracks_start_pos.x + label_width_,
-                             tracks_start_pos.y + group_offsets_[group_index]));
+                             tracks_start_pos.y + group_offset));
 
   if (is_collapsed) {
-    DrawGroupPreview(group_index, px_per_time_unit_val);
+    DrawGroupPreview(group, px_per_time_unit_val);
   } else {
-    DrawGroup(group_index, px_per_time_unit_val, scroll_y, window_height);
+    DrawGroup(group, px_per_time_unit_val, scroll_y, window_height);
   }
 
-  if (HandleProcessTrackHeaderClick(group_index, group, tracks_start_screen_pos,
+  if (HandleProcessTrackHeaderClick(*group, tracks_start_screen_pos,
                                     content_region_avail_width)) {
     needs_layout_update = true;
   }
@@ -1380,7 +1483,7 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
 }
 
 bool Timeline::HandleProcessTrackHeaderClick(
-    int group_index, Group& group, const ImVec2& tracks_start_screen_pos,
+    Group& group, const ImVec2& tracks_start_screen_pos,
     Pixel content_region_avail_width) {
   if (group.nesting_level != kProcessNestingLevel || !group.has_children) {
     return false;
@@ -1394,9 +1497,9 @@ bool Timeline::HandleProcessTrackHeaderClick(
   }
 
   const ImVec2 header_min(timeline_start_x, tracks_start_screen_pos.y +
-                                                group_offsets_[group_index]);
+                                                group.offset);
   const ImVec2 header_max(timeline_end_x, tracks_start_screen_pos.y +
-                                              group_offsets_[group_index] +
+                                              group.offset +
                                               kProcessTrackHeight);
 
   if (!ImGui::IsMouseHoveringRect(header_min, header_max)) {
@@ -1617,6 +1720,33 @@ void Timeline::EmitEventSelected(int event_index) {
   event_callback_(kEventSelected, event_data);
 }
 
+const Group* Timeline::SearchForEventHoveredGroup(const Group* group,
+                                                  int event_level) const {
+  if (group == nullptr) return nullptr;
+  const Group* child = group->first_child;
+  while (child != nullptr) {
+    const Group* found = SearchForEventHoveredGroup(child, event_level);
+    if (found != nullptr) return found;
+    child = child->next_sibling;
+  }
+  if (!IsVirtualHeader(group)) {
+    int next_group_start_level = GetNextGroupStartLevel(timeline_data_, group);
+    if (event_level >= group->start_level &&
+        event_level < next_group_start_level) {
+      return group;
+    }
+  }
+  return nullptr;
+}
+
+const Group* Timeline::SearchForEventHoveredGroup(int event_level) const {
+  for (const Group* root : timeline_data_.roots()) {
+    const Group* found = SearchForEventHoveredGroup(root, event_level);
+    if (found != nullptr) return found;
+  }
+  return nullptr;
+}
+
 void Timeline::EmitEventHovered(int event_index, float mouse_x, float mouse_y) {
   if (!event_callback_) return;
   EventData event_data = CreateBaseEventData(event_index, /*is_hover=*/true);
@@ -1627,18 +1757,9 @@ void Timeline::EmitEventHovered(int event_index, float mouse_x, float mouse_y) {
       event_index < timeline_data_.entry_levels.size()) {
     // Find track name (group name)
     int level = timeline_data_.entry_levels[event_index];
-    int group_index = -1;
-    for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
-      int next_group_start_level = GetNextGroupStartLevel(timeline_data_, i);
-      if (level >= timeline_data_.groups[i].start_level &&
-          level < next_group_start_level) {
-        group_index = i;
-        break;
-      }
-    }
-    if (group_index != -1) {
-      event_data.try_emplace("trackName",
-                             timeline_data_.groups[group_index].name);
+    const Group* group = SearchForEventHoveredGroup(level);
+    if (group != nullptr) {
+      event_data.try_emplace("trackName", group->name);
     }
   }
   event_callback_(kEventHovered, event_data);
@@ -1826,31 +1947,17 @@ std::optional<TimeRange> Timeline::GetSelectionTimeRange() const {
 
 void Timeline::ExpandRelatedTracks(int event_index) {
   int level = timeline_data_.entry_levels[event_index];
-  int group_index = -1;
-  for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
-    int next_group_start_level = GetNextGroupStartLevel(timeline_data_, i);
-    if (level >= timeline_data_.groups[i].start_level &&
-        level < next_group_start_level) {
-      group_index = i;
-      break;
-    }
-  }
+  const Group* group = SearchForEventHoveredGroup(level);
 
-  if (group_index != -1) {
+  if (group != nullptr) {
     bool changed = false;
-    if (!timeline_data_.groups[group_index].expanded) {
-      timeline_data_.groups[group_index].expanded = true;
-      changed = true;
-    }
-    int current_nesting = timeline_data_.groups[group_index].nesting_level;
-    for (int i = group_index - 1; i >= 0 && current_nesting > 0; --i) {
-      if (timeline_data_.groups[i].nesting_level < current_nesting) {
-        if (!timeline_data_.groups[i].expanded) {
-          timeline_data_.groups[i].expanded = true;
-          changed = true;
-        }
-        current_nesting = timeline_data_.groups[i].nesting_level;
+    Group* ancestor = const_cast<Group*>(group);
+    while (ancestor != nullptr) {
+      if (!ancestor->expanded) {
+        ancestor->expanded = true;
+        changed = true;
       }
+      ancestor = ancestor->parent;
     }
     if (changed) {
       UpdateLevelPositions(timeline_data_);
@@ -2032,6 +2139,29 @@ void Timeline::ApplySnapping(TimeRange& range) {
   }
 }
 
+const Group* GetNextVisibleGroup(const Group* group) {
+  if (group == nullptr) return nullptr;
+  if (group->expanded && group->first_child != nullptr) {
+    const Group* child = group->first_child;
+    while (child != nullptr) {
+      if (child->visible) return child;
+      child = child->next_sibling;
+    }
+  }
+  const Group* curr = group;
+  while (curr != nullptr) {
+    if (curr->next_sibling != nullptr) {
+      const Group* sibling = curr->next_sibling;
+      while (sibling != nullptr) {
+        if (sibling->visible) return sibling;
+        sibling = sibling->next_sibling;
+      }
+    }
+    curr = curr->parent;
+  }
+  return nullptr;
+}
+
 void Timeline::FindNearestEventEdge(Microseconds time, Microseconds threshold,
                                     Microseconds& best_diff,
                                     Microseconds& snapped_time,
@@ -2043,25 +2173,23 @@ void Timeline::FindNearestEventEdge(Microseconds time, Microseconds threshold,
   Pixel window_height = ImGui::GetWindowHeight();
   ImVec2 mouse_pos = ImGui::GetMousePos();
 
-  for (int group_index = 0; group_index < timeline_data_.groups.size();
-       ++group_index) {
-    if (group_index >= group_visible_.size() || !group_visible_[group_index]) {
-      continue;
+  std::function<bool(const Group&)> find_nearest_event_edge =
+      [this, timeline_data = timeline_data_, current_scroll_y, window_height,
+       mouse_pos, px_per_time, threshold, time, &best_diff, &snapped_time,
+       &snapped](const Group& group) {
+    if (!group.visible || IsVirtualHeader(&group)) {
+      return false;
     }
 
     // Determine the bottom edge of this group by finding the next visible group
-    Pixel group_bottom_offset = group_offsets_.back();
-    for (int next_visible_group = group_index + 1;
-         next_visible_group < group_visible_.size(); ++next_visible_group) {
-      if (group_visible_[next_visible_group]) {
-        group_bottom_offset = group_offsets_[next_visible_group];
-        break;
-      }
-    }
+    const Group* next_visible_group = GetNextVisibleGroup(&group);
 
     Pixel group_top_y =
-        tracks_start_screen_pos_.y + group_offsets_[group_index];
-    Pixel group_bottom_y = tracks_start_screen_pos_.y + group_bottom_offset;
+        tracks_start_screen_pos_.y + group.offset;
+    Pixel group_bottom_y =
+        next_visible_group != nullptr
+            ? tracks_start_screen_pos_.y + next_visible_group->offset
+            : tracks_start_screen_pos_.y + group.offset + group.height;
 
     bool is_group_hovered =
         mouse_pos.y >= group_top_y && mouse_pos.y <= group_bottom_y;
@@ -2074,17 +2202,13 @@ void Timeline::FindNearestEventEdge(Microseconds time, Microseconds threshold,
     // the original track, finding the vertically hovered one is the best we can
     // do.
     if (!is_group_hovered) {
-      continue;
+      return false;
     }
-
-    const Group& group = timeline_data_.groups[group_index];
     int next_group_start_level =
-        GetNextGroupStartLevel(timeline_data_, group_index);
+        GetNextGroupStartLevel(timeline_data_, &group);
 
     const bool has_children =
-        group_index + 1 < timeline_data_.groups.size() &&
-        timeline_data_.groups[group_index + 1].nesting_level >
-            group.nesting_level;
+        group.has_children;
     const bool has_multiple_levels =
         next_group_start_level - group.start_level > 1;
     const bool expandable = group.type == Group::Type::kFlame &&
@@ -2092,7 +2216,7 @@ void Timeline::FindNearestEventEdge(Microseconds time, Microseconds threshold,
     const bool is_collapsed = expandable && !group.expanded;
 
     if (is_collapsed) {
-      continue;
+      return false;
     }
 
     for (int level = group.start_level; level < next_group_start_level;
@@ -2144,7 +2268,10 @@ void Timeline::FindNearestEventEdge(Microseconds time, Microseconds threshold,
         }
       }
     }
-  }
+    return true;
+  };
+
+  TraverseGroups(find_nearest_event_edge);
 }
 
 double Timeline::px_per_time_unit() const {
@@ -2317,7 +2444,7 @@ void Timeline::DrawEventName(absl::string_view event_name,
   }
 }
 
-void Timeline::DrawEvent(int group_index, int event_index,
+void Timeline::DrawEvent(Group* group, int event_index,
                          const EventRect& rect,
                          ImDrawList* absl_nonnull draw_list) {
   // Only draw the rectangle if it has a positive width after clipping.
@@ -2442,7 +2569,7 @@ void Timeline::DrawEvent(int group_index, int event_index,
           }
 
           if (selected_event_index_ != event_index) {
-            selected_group_index_ = group_index;
+            selected_group_ = group;
             selected_event_index_ = event_index;
             // Deselect any selected counter event.
             selected_counter_index_ = -1;
@@ -2492,7 +2619,7 @@ void Timeline::DrawEvent(int group_index, int event_index,
   }
 }
 
-void Timeline::DrawEventsForLevel(int group_index,
+void Timeline::DrawEventsForLevel(Group* group,
                                   absl::Span<const int> event_indices,
                                   double px_per_time_unit, int level_in_group,
                                   const ImVec2& pos, const ImVec2& max,
@@ -2548,11 +2675,11 @@ void Timeline::DrawEventsForLevel(int group_index,
         CalculateEventRect(start, end, pos.x, pos.y, px_per_time_unit,
                            level_in_group, max.x, event_height, padding_bottom);
 
-    DrawEvent(group_index, event_index, rect, draw_list);
+    DrawEvent(group, event_index, rect, draw_list);
   }
 }
 
-void Timeline::DrawCounterTooltip(int group_index, const CounterData& data,
+void Timeline::DrawCounterTooltip(Group* group, const CounterData& data,
                                   double px_per_time_unit_val,
                                   const ImVec2& pos, Pixel height,
                                   float y_ratio, ImDrawList* draw_list) {
@@ -2619,16 +2746,16 @@ void Timeline::DrawCounterTooltip(int group_index, const CounterData& data,
       }
       if (is_click) {
         event_clicked_this_frame_ = true;
-        if (selected_group_index_ != group_index ||
+        if (selected_group_ != group ||
             selected_counter_index_ != index) {
-          selected_group_index_ = group_index;
+          selected_group_ = group;
           selected_counter_index_ = index;
           // Deselect any selected flame event.
           selected_event_index_ = -1;
 
           // Emit an event to notify the application that a counter event was
           // selected.
-          const std::string& name = timeline_data_.groups[group_index].name;
+          const std::string& name = group->name;
           EventData event_data;
           // We pass -1 for the event index to indicate that no flame event is
           // selected.
@@ -2642,7 +2769,7 @@ void Timeline::DrawCounterTooltip(int group_index, const CounterData& data,
   }
 }
 
-void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
+void Timeline::DrawCounterTrack(Group* group, const CounterData& data,
                                 double px_per_time_unit_val, const ImVec2& pos,
                                 Pixel height) {
   // At least two timestamps are required to draw a line segment.
@@ -2703,15 +2830,16 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
   // Draw selected points from rectangle selection.
   auto it_pair = std::equal_range(
       selected_counter_points_.begin(), selected_counter_points_.end(),
-      std::make_pair(group_index, 0),
-      [](const std::pair<int, int>& a, const std::pair<int, int>& b) {
+      std::make_pair(static_cast<const Group*>(group), 0),
+      [](const std::pair<const Group*, int>& a,
+         const std::pair<const Group*, int>& b) {
         return a.first < b.first;
       });
 
   for (auto it = it_pair.first; it != it_pair.second; ++it) {
     size_t p_idx = it->second;
     if (p_idx < data.timestamps.size()) {
-      if (selected_group_index_ == group_index &&
+      if (selected_group_ == group &&
           selected_counter_index_ == p_idx) {
         continue;  // Handled by single selection below.
       }
@@ -2728,7 +2856,7 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
     }
   }
 
-  if (selected_group_index_ == group_index && selected_counter_index_ != -1 &&
+  if (selected_group_ == group && selected_counter_index_ != -1 &&
       selected_counter_index_ < data.timestamps.size()) {
     Microseconds ts = data.timestamps[selected_counter_index_];
     double val = data.values[selected_counter_index_];
@@ -2742,17 +2870,16 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
   }
 
   if (ImGui::IsWindowHovered()) {
-    DrawCounterTooltip(group_index, data, px_per_time_unit_val, pos, height,
+    DrawCounterTooltip(group, data, px_per_time_unit_val, pos, height,
                        y_ratio, draw_list);
   }
 }
 
-void Timeline::DrawGroup(int group_index, double px_per_time_unit_val,
+void Timeline::DrawGroup(Group* group, double px_per_time_unit_val,
                          Pixel scroll_y, Pixel window_height) {
-  const Group& group = timeline_data_.groups[group_index];
-  const int start_level = group.start_level;
-  int end_level = GetNextGroupStartLevel(timeline_data_, group_index);
-  if (group.type == Group::Type::kFlame && !group.expanded) {
+  const int start_level = group->start_level;
+  int end_level = GetNextGroupStartLevel(timeline_data_, group);
+  if (group->type == Group::Type::kFlame && !group->expanded) {
     end_level = start_level;
   }
   // Ensure end_level is not less than start_level, to avoid negative height.
@@ -2764,17 +2891,17 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val,
   // contain any event levels directly.
   // TODO: b/453676716 - Add tests for group height calculation.
   const Pixel group_height =
-      group.type == Group::Type::kCounter
+      group->type == Group::Type::kCounter
           ? kCounterTrackHeight
-          : (group.nesting_level == kProcessNestingLevel
+          : (group->nesting_level == kProcessNestingLevel
                  ? kProcessTrackHeight
                  : std::max(1, end_level - start_level) *
                        (kEventHeight + kEventPaddingBottom));
-  // Groups might have the same name. We add the index of the group to the ID
+  // Groups might have the same name. We add the pointer of the group to the ID
   // to ensure each ImGui::BeginChild call has a unique ID, otherwise ImGui
   // might ignore later calls with the same name.
   const std::string timeline_child_id =
-      absl::StrCat("TimelineChild_", group.name, "_", group_index);
+      absl::StrCat("TimelineChild_", group->name, "_", group->original_index);
 
   const ImVec2 pos = ImGui::GetCursorScreenPos();
 
@@ -2782,26 +2909,25 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val,
                         kTrackFlags)) {
     const ImVec2 max = ImGui::GetContentRegionMax();
 
-    if (group.type == Group::Type::kCounter) {
+    if (group->type == Group::Type::kCounter) {
       const auto it =
-          timeline_data_.counter_data_by_group_index.find(group_index);
-      if (it != timeline_data_.counter_data_by_group_index.end()) {
-        DrawCounterTrack(group_index, it->second, px_per_time_unit_val, pos,
+          timeline_data_.counter_data_by_group_ptr.find(group);
+      if (it != timeline_data_.counter_data_by_group_ptr.end()) {
+        DrawCounterTrack(group, it->second, px_per_time_unit_val, pos,
                          group_height);
       }
-    } else if (group.type == Group::Type::kFlame) {
-      if (group.nesting_level == kProcessNestingLevel) {
+    } else if (group->type == Group::Type::kFlame) {
+      if (group->nesting_level == kProcessNestingLevel) {
         ImDrawList* const draw_list = ImGui::GetWindowDrawList();
         if (draw_list) {
-          // Find the next group that is NOT a child of the current group to
-          // determine the end level for the utilization chart.
-          int proc_end_level = timeline_data_.events_by_level.size();
-          for (size_t i = group_index + 1; i < timeline_data_.groups.size();
-               ++i) {
-            if (timeline_data_.groups[i].nesting_level <= group.nesting_level) {
-              proc_end_level = timeline_data_.groups[i].start_level;
-              break;
-            }
+          int proc_end_level = group->start_level;
+          if (group->last_child != nullptr) {
+            proc_end_level =
+                GetNextGroupStartLevel(timeline_data_, group->last_child);
+          } else if (group->next_sibling != nullptr) {
+            proc_end_level = group->next_sibling->start_level;
+          } else {
+            proc_end_level = timeline_data_.events_by_level.size();
           }
           DrawUtilizationAreaChart(start_level, proc_end_level,
                                    px_per_time_unit_val, pos, group_height,
@@ -2809,7 +2935,7 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val,
         }
       }
       const Pixel level_stride = kEventHeight + kEventPaddingBottom;
-      const Pixel group_offset = group_offsets_[group_index];
+      const Pixel group_offset = group->offset;
 
       int first_visible_level = start_level;
       Pixel relative_scroll_y = scroll_y - group_offset;
@@ -2834,7 +2960,7 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val,
         // events_by_level.
         if (level < timeline_data_.events_by_level.size()) {
           // TODO: b/453676716 - Add boundary test cases for this function.
-          DrawEventsForLevel(group_index, timeline_data_.events_by_level[level],
+          DrawEventsForLevel(group, timeline_data_.events_by_level[level],
                              px_per_time_unit_val,
                              /*level_in_group=*/level - start_level, pos, max,
                              kEventHeight, kEventPaddingBottom);
@@ -2845,27 +2971,28 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val,
   ImGui::EndChild();
 }
 
-void Timeline::DrawGroupPreview(int group_index, double px_per_time_unit_val) {
-  const Group& group = timeline_data_.groups[group_index];
+void Timeline::DrawGroupPreview(const Group* group,
+                                double px_per_time_unit_val) {
   const std::string timeline_child_id =
-      absl::StrCat("TimelineChildPreview_", group.name, "_", group_index);
+      absl::StrCat("TimelineChildPreview_", group->name, "_",
+                   group->original_index);
 
   // Process tracks have a fixed height, other tracks use a single event height
   // for the preview.
-  const Pixel group_height = group.nesting_level == kProcessNestingLevel
+  const Pixel group_height = group->nesting_level == kProcessNestingLevel
                                  ? kProcessTrackHeight
                                  : kEventHeight;
 
   // Calculate level Y positions for the preview.
   const ImVec2 pos = ImGui::GetCursorScreenPos();
-  const int start_level = group.start_level;
-  int end_level = timeline_data_.events_by_level.size();
-  // Find the next group that is NOT a child of the current group.
-  for (size_t i = group_index + 1; i < timeline_data_.groups.size(); ++i) {
-    if (timeline_data_.groups[i].nesting_level <= group.nesting_level) {
-      end_level = timeline_data_.groups[i].start_level;
-      break;
-    }
+  const int start_level = group->start_level;
+  int end_level = start_level;
+  if (group->last_child != nullptr) {
+    end_level = GetNextGroupStartLevel(timeline_data_, group->last_child);
+  } else if (group->next_sibling != nullptr) {
+    end_level = group->next_sibling->start_level;
+  } else {
+    end_level = timeline_data_.events_by_level.size();
   }
   end_level = std::max(start_level, end_level);
 
@@ -2873,15 +3000,15 @@ void Timeline::DrawGroupPreview(int group_index, double px_per_time_unit_val) {
                         kTrackFlags)) {
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
-    if (group.type == Group::Type::kCounter) {
+    if (group->type == Group::Type::kCounter) {
       const auto it =
-          timeline_data_.counter_data_by_group_index.find(group_index);
-      if (it != timeline_data_.counter_data_by_group_index.end()) {
-        DrawCounterTrack(group_index, it->second, px_per_time_unit_val, pos,
-                         group_height);
+          timeline_data_.counter_data_by_group_ptr.find(group);
+      if (it != timeline_data_.counter_data_by_group_ptr.end()) {
+        DrawCounterTrack(const_cast<Group*>(group), it->second,
+                         px_per_time_unit_val, pos, group_height);
       }
-    } else if (group.type == Group::Type::kFlame) {
-      if (group.nesting_level == kProcessNestingLevel) {
+    } else if (group->type == Group::Type::kFlame) {
+      if (group->nesting_level == kProcessNestingLevel) {
         DrawUtilizationAreaChart(start_level, end_level, px_per_time_unit_val,
                                  pos, group_height, draw_list);
       } else {
@@ -3376,11 +3503,12 @@ bool Timeline::DrawCloseButton(ImDrawList* draw_list, const ImVec2& button_pos,
   return clicked;
 }
 
-bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
+bool Timeline::DrawTrackManagementButtons(const Group* group,
                                           const ImVec2& tracks_start_pos,
                                           Pixel centereable_height) {
   if (!track_management_enabled_) return false;
-  if (group.nesting_level != kProcessNestingLevel) return false;
+  if (group == nullptr) return false;
+  if (group->nesting_level != kProcessNestingLevel) return false;
 
   bool needs_layout_update = false;
   const Pixel arrow_size = ImGui::GetFontSize() * kIconSizeScale;
@@ -3389,21 +3517,21 @@ bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
   ImGui::SameLine();
   ImGui::SetCursorPosX(tracks_start_pos.x + label_width_ - kSplitterOffset -
                        arrow_size * 2.0f - kButtonGap);
-  const bool is_pinned = pinned_track_names_.contains(group.name);
-  if (DrawPinButton(group_index, centereable_height, is_pinned)) {
+  const bool is_pinned = pinned_track_names_.contains(group->name);
+  if (DrawPinButton(group, centereable_height, is_pinned)) {
     needs_layout_update = true;
     ShowNavigationWarningNotification(
         is_pinned
-            ? absl::StrCat(kUnpinnedProcessNotificationPrefix, group.name)
-            : absl::StrCat(kPinnedProcessNotificationPrefix, group.name));
+            ? absl::StrCat(kUnpinnedProcessNotificationPrefix, group->name)
+            : absl::StrCat(kPinnedProcessNotificationPrefix, group->name));
   }
 
   // Position and draw Hide button
   ImGui::SameLine();
   ImGui::SetCursorPosX(tracks_start_pos.x + label_width_ - kSplitterOffset -
                        arrow_size);
-  const bool is_track_hidden = hidden_track_names_.contains(group.name);
-  if (DrawHideButton(group_index, centereable_height, is_track_hidden)) {
+  const bool is_track_hidden = hidden_track_names_.contains(group->name);
+  if (DrawHideButton(group, centereable_height, is_track_hidden)) {
     needs_layout_update = true;
     // The state was toggled inside DrawHideButton, so we should check the
     // new state or invert the old state. Since is_track_hidden holds the
@@ -3412,17 +3540,16 @@ bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
     // If it WAS visible (false), it is now HIDDEN.
     ShowNavigationWarningNotification(
         is_track_hidden
-            ? absl::StrCat(kUnhiddenProcessNotificationPrefix, group.name)
-            : absl::StrCat(kHiddenProcessNotificationPrefix, group.name));
+            ? absl::StrCat(kUnhiddenProcessNotificationPrefix, group->name)
+            : absl::StrCat(kHiddenProcessNotificationPrefix, group->name));
   }
 
   return needs_layout_update;
 }
 
-bool Timeline::DrawHideButton(int group_index, Pixel height,
+bool Timeline::DrawHideButton(const Group* group, Pixel height,
                               bool is_track_hidden) {
-  const Group& group = timeline_data_.groups[group_index];
-
+  if (group == nullptr) return false;
   // Base size to determine the icon's drawing area and the button's width.
   // The button size (especially width) directly relates to the icon draw size
   // so that the hit target matches the visual boundary of the hide icon.
@@ -3440,13 +3567,13 @@ bool Timeline::DrawHideButton(int group_index, Pixel height,
   bool toggled = false;
   if (ImGui::InvisibleButton("##hide", buttonSize,
                              ImGuiButtonFlags_PressedOnClick)) {
-    auto it = hidden_track_names_.find(group.name);
+    auto it = hidden_track_names_.find(group->name);
     if (it != hidden_track_names_.end()) {
       hidden_track_names_.erase(it);
       toggled = true;
     } else {
       if (all_processes_count_ > 1) {
-        hidden_track_names_.insert(group.name);
+        hidden_track_names_.insert(group->name);
         toggled = true;
       } else {
         ShowNavigationWarningNotification(kCannotHideLastProcessNotification);
@@ -3471,9 +3598,9 @@ bool Timeline::DrawHideButton(int group_index, Pixel height,
       ImGui::GetWindowWidth() - ImGui::GetStyle().ScrollbarSize;
   const bool is_row_hovered = ImGui::IsMouseHoveringRect(
       ImVec2(tracks_start_screen_pos_.x,
-             tracks_start_screen_pos_.y + group_offsets_[group_index]),
+             tracks_start_screen_pos_.y + group->offset),
       ImVec2(tracks_start_screen_pos_.x + content_region_avail_width,
-             tracks_start_screen_pos_.y + group_offsets_[group_index + 1]));
+             tracks_start_screen_pos_.y + group->offset + group->height));
 
   if (is_row_hovered || is_track_hidden) {
     DrawHideIcon(draw_list, center_x, center_y, kIconDrawSize, icon_col,
@@ -3482,8 +3609,8 @@ bool Timeline::DrawHideButton(int group_index, Pixel height,
   return toggled;
 }
 
-bool Timeline::DrawPinButton(int group_index, Pixel height, bool is_pinned) {
-  const Group& group = timeline_data_.groups[group_index];
+bool Timeline::DrawPinButton(const Group* group, Pixel height, bool is_pinned) {
+  if (group == nullptr) return false;
 
   // Base size to determine the icon's drawing area and the button's width.
   const Pixel kIconDrawSize = ImGui::GetFontSize() * kIconSizeScale;
@@ -3499,9 +3626,9 @@ bool Timeline::DrawPinButton(int group_index, Pixel height, bool is_pinned) {
   if (ImGui::InvisibleButton("##pin", buttonSize,
                              ImGuiButtonFlags_PressedOnClick)) {
     if (is_pinned) {
-      pinned_track_names_.erase(group.name);
+      pinned_track_names_.erase(group->name);
     } else {
-      pinned_track_names_.insert(group.name);
+      pinned_track_names_.insert(group->name);
     }
     toggled = true;
   }
@@ -3522,9 +3649,9 @@ bool Timeline::DrawPinButton(int group_index, Pixel height, bool is_pinned) {
       ImGui::GetWindowWidth() - ImGui::GetStyle().ScrollbarSize;
   const bool is_row_hovered = ImGui::IsMouseHoveringRect(
       ImVec2(tracks_start_screen_pos_.x,
-             tracks_start_screen_pos_.y + group_offsets_[group_index]),
+             tracks_start_screen_pos_.y + group->offset),
       ImVec2(tracks_start_screen_pos_.x + content_region_avail_width,
-             tracks_start_screen_pos_.y + group_offsets_[group_index + 1]));
+             tracks_start_screen_pos_.y + group->offset + group->height));
 
   if (is_row_hovered || is_pinned) {
     // Draw the icon using the same base size.
@@ -3777,7 +3904,7 @@ void Timeline::ProcessPendingScroll() {
 
 void Timeline::HandleEventDeselection() {
   const bool has_single_selection =
-      (selected_event_index_ != -1 || selected_group_index_ != -1);
+      (selected_event_index_ != -1 || selected_group_ != nullptr);
   const bool has_rectangle_selection =
       (!selected_event_indices_.empty() || !selected_counter_points_.empty());
 
@@ -3799,7 +3926,7 @@ void Timeline::HandleEventDeselection() {
     if (is_click) {
       if (has_single_selection) {
         selected_event_index_ = -1;
-        selected_group_index_ = -1;
+        selected_group_ = nullptr;
         selected_counter_index_ = -1;
 
         EventData event_data;
@@ -4467,14 +4594,15 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
   const Pixel screen_x_offset = timeline_area.Min.x;
   const double px_per_time = px_per_time_unit();
 
-  for (size_t group_index = 0; group_index < timeline_data_.groups.size();
-       ++group_index) {
-    const auto& group = timeline_data_.groups[group_index];
-    if (!group.expanded) continue;
+  for (const Group* group : flattened_groups_) {
+    if (group == nullptr || IsVirtualHeader(group) || !group->visible ||
+        !group->expanded) {
+      continue;
+    }
 
-    if (group.type == Group::Type::kFlame) {
-      const int start_level = group.start_level;
-      int end_level = GetNextGroupStartLevel(timeline_data_, group_index);
+    if (group->type == Group::Type::kFlame) {
+      const int start_level = group->start_level;
+      int end_level = GetNextGroupStartLevel(timeline_data_, group);
 
       for (int level = start_level; level < end_level; ++level) {
         if (level >= timeline_data_.events_by_level.size()) continue;
@@ -4524,8 +4652,8 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
           selected_event_indices_.push_back(event_index);
         }
       }
-    } else if (group.type == Group::Type::kCounter) {
-      Pixel y_top = tracks_start_screen_pos_.y + group_offsets_[group_index];
+    } else if (group->type == Group::Type::kCounter) {
+      Pixel y_top = tracks_start_screen_pos_.y + group->offset;
       Pixel group_height = kCounterTrackHeight;
       Pixel y_bottom = y_top + group_height;
 
@@ -4534,8 +4662,8 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
       }
 
       const auto it =
-          timeline_data_.counter_data_by_group_index.find(group_index);
-      if (it == timeline_data_.counter_data_by_group_index.end()) continue;
+          timeline_data_.counter_data_by_group_ptr.find(group);
+      if (it == timeline_data_.counter_data_by_group_ptr.end()) continue;
       const auto& counter_data = it->second;
 
       const double value_range =
@@ -4565,7 +4693,7 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
                       : y_top + group_height / 2.0f;
 
         if (selection_rect.Contains(ImVec2(x, y))) {
-          selected_counter_points_.push_back({group_index, i});
+          selected_counter_points_.push_back({group, i});
         }
       }
     }
@@ -4639,11 +4767,10 @@ void Timeline::CalculateAndEmitMetrics() {
   if (!selected_counter_points_.empty()) {
     std::string counters_json = "[";
     bool first = true;
-    for (const auto& [group_index, point_index] : selected_counter_points_) {
-      const auto& group = timeline_data_.groups[group_index];
+    for (const auto& [group_ptr, point_index] : selected_counter_points_) {
       const auto it =
-          timeline_data_.counter_data_by_group_index.find(group_index);
-      if (it == timeline_data_.counter_data_by_group_index.end()) continue;
+          timeline_data_.counter_data_by_group_ptr.find(group_ptr);
+      if (it == timeline_data_.counter_data_by_group_ptr.end()) continue;
       const auto& counter_data = it->second;
 
       Microseconds ts = counter_data.timestamps[point_index];
@@ -4654,7 +4781,7 @@ void Timeline::CalculateAndEmitMetrics() {
       absl::StrAppendFormat(
           &counters_json,
           R"({"counter":"%s","series":"%s","time":%.1f,"value":%.1f})",
-          group.name, counter_data.event_stats, ts, val);
+          group_ptr->name, counter_data.event_stats, ts, val);
     }
     absl::StrAppend(&counters_json, "]");
 
@@ -4767,64 +4894,56 @@ Timeline::GroupRelativeInfo Timeline::FindGroupRelatives(Group* target_group) {
   GroupRelativeInfo info;
   if (!target_group) return info;
 
-  // Child track (e.g., thread or counter track): belongs to a parent process.
-  // Resolves its parent group and determines its position within the parent's
-  // child_indices list.
-  if (target_group->parent_index != -1) {
-    if (target_group->parent_index >= 0 &&
-        target_group->parent_index < timeline_data_.groups.size()) {
-      info.parent = &timeline_data_.groups[target_group->parent_index];
-      info.siblings = &timeline_data_.groups;
-      const auto& child_indices = info.parent->child_indices;
-      for (size_t i = 0; i < child_indices.size(); ++i) {
-        if (child_indices[i] >= 0 &&
-            child_indices[i] < timeline_data_.groups.size() &&
-            timeline_data_.groups[child_indices[i]].original_index ==
-                target_group->original_index) {
-          info.index_in_siblings = i;
-          break;
-        }
+  Group* p = target_group->parent;
+  if (p != nullptr && p->nesting_level != kHeaderNestingLevel) {
+    info.parent = p;
+  } else {
+    info.parent = nullptr;
+  }
+
+  if (target_group->parent != nullptr) {
+    int idx = 0;
+    const Group* cur = target_group->parent->first_child;
+    while (cur != nullptr) {
+      if (cur == target_group) {
+        info.index_in_siblings = idx;
+        break;
       }
+      idx++;
+      cur = cur->next_sibling;
     }
   } else {
-    // Top-level root track (e.g., process track): parent_index is -1 because it
-    // has no parent. Its siblings are all other root-level tracks in
-    // timeline_data_.groups; determine its relative position among root tracks.
-    info.parent = nullptr;
-    info.siblings = &timeline_data_.groups;
-    int root_count = 0;
-    for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
-      if (timeline_data_.groups[i].parent_index == -1) {
-        if (timeline_data_.groups[i].original_index ==
-            target_group->original_index) {
-          info.index_in_siblings = root_count;
-          break;
-        }
-        root_count++;
+    int idx = 0;
+    const Group* cur = target_group;
+    while (cur->prev_sibling != nullptr) {
+      cur = cur->prev_sibling;
+    }
+    while (cur != nullptr) {
+      if (cur == target_group) {
+        info.index_in_siblings = idx;
+        break;
       }
+      idx++;
+      cur = cur->next_sibling;
     }
   }
   return info;
 }
 
-bool Timeline::HandleTrackDragAndDrop(int group_index, Group& group,
+bool Timeline::HandleTrackDragAndDrop(Group& group,
                                       const ImVec2& tracks_start_pos,
                                       const ImVec2& tracks_start_screen_pos,
                                       Pixel group_height,
                                       Pixel hover_zone_width) {
   const Pixel effective_height =
-      group_height > 0.0f
-          ? group_height
-          : (group_index >= 0 && group_index < group_heights_.size()
-                 ? group_heights_[group_index]
-                 : 0.0f);
+      group_height > 0.0f ? group_height : group.height;
   if (hover_zone_width <= 0.0f || effective_height <= 0.0f) {
     return false;
   }
 
   ImGui::SetCursorPos(
       ImVec2(tracks_start_pos.x,
-             tracks_start_pos.y + group_offsets_[group_index]));
+             tracks_start_pos.y + group.offset));
   ImGui::SetNextItemAllowOverlap();
   ImGui::InvisibleButton(
       "RowLabelHoverZone",
@@ -4833,32 +4952,32 @@ bool Timeline::HandleTrackDragAndDrop(int group_index, Group& group,
       ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenOverlapped);
 
   if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
-    Group* group_ptr_payload = &group;
-    ImGui::SetDragDropPayload("TRACK_REORDER", &group_ptr_payload,
+    Group* group_payload = &group;
+    ImGui::SetDragDropPayload("TRACK_REORDER", &group_payload,
                               sizeof(Group*));
     ImGui::Text("%s%s", kMovingTrackNotificationPrefix, group.name.c_str());
     ImGui::EndDragDropSource();
   }
 
   if (ImGui::BeginDragDropTarget()) {
-    if (const ImGuiPayload* group_ptr_payload = ImGui::AcceptDragDropPayload(
+    if (const ImGuiPayload* group_payload = ImGui::AcceptDragDropPayload(
             "TRACK_REORDER", ImGuiDragDropFlags_AcceptBeforeDelivery |
                              ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
-      if (group_ptr_payload->Data != nullptr &&
-          group_ptr_payload->DataSize >= sizeof(Group*)) {
-        // Dereferencing as *(Group**)group_ptr_payload->Data
+      if (group_payload->Data != nullptr &&
+          group_payload->DataSize >= sizeof(Group*)) {
+        // Dereferencing as *(Group**)group_payload->Data
         // retrieves the original pointer to the source group.
-        Group* source_group = *(Group**)group_ptr_payload->Data;
+        Group* source_group = *(Group**)group_payload->Data;
         Group* target_group = &group;
         if (source_group && target_group) {
           GroupRelativeInfo source_info = FindGroupRelatives(source_group);
           GroupRelativeInfo target_info = FindGroupRelatives(target_group);
           if (source_info.parent == target_info.parent) {
             Pixel line_y =
-                tracks_start_screen_pos.y + group_offsets_[group_index];
+                tracks_start_screen_pos.y + group.offset;
             bool drop_after =
                 ImGui::GetIO().MousePos.y > line_y + group_height * 0.5f;
-            if (group_ptr_payload->IsDelivery()) {
+            if (group_payload->IsDelivery()) {
               pending_reorder_source_ = source_group->original_index;
               pending_reorder_target_ = target_group->original_index;
               pending_reorder_drop_after_ = drop_after;
@@ -4886,7 +5005,7 @@ static Pixel CalculateTrackManagementButtonWidth() {
 }
 
 void Timeline::HandleTrackDragAndDropHoverAndFeedback(
-    int group_index, Group& group, const ImVec2& tracks_start_pos,
+    Group& group, const ImVec2& tracks_start_pos,
     const ImVec2& tracks_start_screen_pos, Pixel group_height) {
   if (!track_management_enabled_) return;
 
@@ -4910,7 +5029,7 @@ void Timeline::HandleTrackDragAndDropHoverAndFeedback(
   }
 
   const bool is_drag_and_drop_action =
-      HandleTrackDragAndDrop(group_index, group, tracks_start_pos,
+      HandleTrackDragAndDrop(group, tracks_start_pos,
                              tracks_start_screen_pos, group_height,
                              hover_zone_width);
 

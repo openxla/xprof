@@ -141,6 +141,36 @@ export const ROOFLINE_MODEL_TOOL_NAME = ['roofline_model', 'Roofline Model'];
 export const HLO_OP_STATS_TOOL_NAME = ['hlo_stats', 'HLO Op Stats'];
 
 /**
+ * Tool name and label for trace viewer for cross-links.
+ */
+export const TRACE_VIEWER_TOOL_NAME = ['trace_viewer', 'Trace Viewer'];
+
+/**
+ * Generates link description for viewing events for a step/group and connected groups.
+ */
+export function getConnectedStepGroupLinkText(
+  displayGroupId: string | number,
+): string {
+  return `see events for step/group ${displayGroupId} and other steps/groups connected to it`;
+}
+
+/**
+ * Generates link description for viewing events ONLY for a specific step/group.
+ */
+export function getSingleStepGroupLinkText(groupId: string | number): string {
+  return `see events ONLY for this step/group ${groupId}`;
+}
+
+/**
+ * UI messages dictionary for step/group cross-links for future i18n work.
+ */
+export const STEP_GROUP_LINK_MESSAGES = {
+  TOOL_LABEL: 'Trace Viewer',
+  connectedGroupsText: getConnectedStepGroupLinkText,
+  onlyGroupText: getSingleStepGroupLinkText,
+};
+
+/**
  * Separates event filter properties in the string representation of the filter
  * config
  */

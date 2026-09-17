@@ -36,7 +36,6 @@ import {ActivatedRoute} from '@angular/router';
 import {AngularSplitModule} from 'angular-split';
 
 import {NgxJsonViewerModule} from 'ngx-json-viewer';
-import {formatHloArgsForJsonTree} from './hlo_pretty_printer';
 import {TimelinePlayer} from 'org_xprof/frontend/app/components/timeline_player/timeline_player';
 import {getDefaultFeatureFlag} from 'org_xprof/frontend/app/components/trace_viewer_v2/feature_flags';
 import {
@@ -44,6 +43,7 @@ import {
   MouseMode,
   MouseModeStatusConfig,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/shortcuts';
+import {formatHloArgsForJsonTree} from './hlo_pretty_printer';
 
 import {
   isSearchEventsEvent,
@@ -164,6 +164,7 @@ export interface SelectedEvent {
   rooflineModelLinkHtml?: string;
   graphViewerLinkHtml?: string;
   hloOpStatsLinkHtml?: string;
+  stepGroupLinkHtml?: string;
   hloModule?: string;
   hloOpName?: string;
   args?: Record<string, unknown>;

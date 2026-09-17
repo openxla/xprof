@@ -59,7 +59,10 @@ import {
   traceViewerV2Main,
   TraceViewerV2Module,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
-import {HLO_MODULE, HLO_OP} from 'org_xprof/frontend/app/components/trace_viewer_v2/trace_helper/event_args_keys';
+import {
+  HLO_MODULE,
+  HLO_OP,
+} from 'org_xprof/frontend/app/components/trace_viewer_v2/trace_helper/event_args_keys';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
@@ -76,6 +79,8 @@ import {
   FILTER_OPERATORS,
   FILTER_PROPERTY_SEPARATOR,
   FILTER_SEPARATOR,
+  getConnectedStepGroupLinkText,
+  getSingleStepGroupLinkText,
   HLO_OP_STATS_TOOL_NAME,
   NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
   NAV_PAN_SPEED_STORAGE_KEY,
@@ -84,6 +89,7 @@ import {
   ROOFLINE_MODEL_TOOL_NAME,
   SettingsTab,
   STACK_TRACE_TOOL_NAME,
+  TRACE_VIEWER_TOOL_NAME,
 } from './constants';
 import {AdjacentNodesResponse} from './interfaces';
 import {
@@ -189,6 +195,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
 
   url = '';
+  sessionId = '';
   pathPrefix = '';
   sourceCodeServiceIsAvailable = false;
   hostList: string[] = [];
@@ -615,6 +622,11 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   update(event: NavigationEvent): void {
+    if (event.run) {
+      this.sessionId = event.run;
+    } else if ((event as Record<string, string>)['sessionId']) {
+      this.sessionId = (event as Record<string, string>)['sessionId'];
+    }
     const isStreaming = event.tag === 'trace_viewer@';
     const run = event.run || '';
     const tag = event.tag || '';
@@ -802,6 +814,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
     if (uid) {
       this.maybeFetchEventArgs({name, startUs, durationUs, uid, pid});
+    } else if (event.args) {
+      this.addArgsToSelectedEvent(event.args);
     }
     this.maybeFetchAdjacentNodes();
   }
@@ -1002,9 +1016,9 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     event.args = Object.assign({}, event.args, args);
     this.createCrossToolLinks();
     this.selectedEvent = Object.assign({}, event);
+    this.createCrossToolLinks();
     this.maybeFetchAdjacentNodes();
   }
-
   /**
    * Creates a cross-tool link `<div>` containing an anchor to the given
    * tool.
@@ -1017,7 +1031,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   ): string {
     const toolLinkHref = this.dataService.createToolUrl({
       toolName,
-      sessionId: this.navigationEvent.run ?? '',
+      sessionId: this.sessionId || this.navigationEvent.run || '',
       params,
     });
     if (!toolLinkHref) {
@@ -1040,6 +1054,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     this.createRooflineModelLink();
     this.createGraphViewerLink();
     this.createHloOpStatsLink();
+    this.createStepGroupLink();
   }
 
   /**
@@ -1160,6 +1175,52 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       {'hlo_op_name': hloOp},
       `See HLO op stats for ${hloOp}`,
     );
+  }
+
+  private createStepGroupLink() {
+    const sessionId = this.sessionId || this.navigationEvent.run || '';
+    if (!sessionId || !this.selectedEvent?.args) {
+      return;
+    }
+    const args = this.selectedEvent.args as Record<string, string>;
+    const connectedGroupIds = args['connected_group_ids'];
+    const groupId = args['group_id'];
+
+    const hasConnectedGroupIds =
+      connectedGroupIds !== undefined &&
+      connectedGroupIds !== null &&
+      connectedGroupIds !== '';
+    const hasGroupId =
+      groupId !== undefined && groupId !== null && groupId !== '';
+
+    if (!hasConnectedGroupIds && !hasGroupId) {
+      return;
+    }
+
+    const params: Record<string, string> = {};
+    const selectedHosts = this.filterSelectedHosts;
+    if (selectedHosts.length > 0) {
+      params['hosts'] = selectedHosts.join(',');
+    }
+
+    if (hasConnectedGroupIds) {
+      params['selected_group_ids'] = String(connectedGroupIds);
+      const displayGroupId = hasGroupId ? groupId : connectedGroupIds;
+      this.selectedEvent.stepGroupLinkHtml = this.createCrossToolLink(
+        TRACE_VIEWER_TOOL_NAME[0],
+        TRACE_VIEWER_TOOL_NAME[1],
+        params,
+        getConnectedStepGroupLinkText(displayGroupId),
+      );
+    } else if (hasGroupId) {
+      params['selected_group_ids'] = String(groupId);
+      this.selectedEvent.stepGroupLinkHtml = this.createCrossToolLink(
+        TRACE_VIEWER_TOOL_NAME[0],
+        TRACE_VIEWER_TOOL_NAME[1],
+        params,
+        getSingleStepGroupLinkText(groupId),
+      );
+    }
   }
 
   private maybeFetchAdjacentNodes(): void {

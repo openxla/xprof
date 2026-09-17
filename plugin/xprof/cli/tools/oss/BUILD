@@ -35,3 +35,14 @@ pytype_strict_library(
     ],
     deps = ["//plugin/xprof/cli/internal/oss:xprof_client"],
 )
+
+pytype_strict_library(
+    name = "events_db_tool",
+    srcs = ["events_db_tool.py"],
+    deps = [
+        "//plugin/xprof:version",
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
+        "@org_xprof//xprof/convert/events_db/python:pywrap_events_db_c_api_py",
+    ],
+)

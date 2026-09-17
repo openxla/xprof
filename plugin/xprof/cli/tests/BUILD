@@ -230,6 +230,22 @@ pytype_strict_contrib_test(
 )
 
 pytype_strict_contrib_test(
+    name = "oss_events_db_tool_test",
+    srcs = ["oss_events_db_tool_test.py"],
+    data = [
+        "//xprof:demo_traces",
+    ],
+    deps = [
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/tools/oss:events_db_tool",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+        "@rules_python//python/runfiles",
+    ],
+)
+
+pytype_strict_contrib_test(
     name = "oss_kernel_utilization_tool_test",
     srcs = ["oss_kernel_utilization_tool_test.py"],
     deps = [

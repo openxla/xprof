@@ -418,6 +418,10 @@ canvas.emscripten {
         position: sticky;
         top: 0;
         z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
         // Full-bleed opaque header: the scroll container drops its top padding
         // (see .split-area-left .split-area-inner) so the pinned title sits
         // flush at the very top, while the negative side margins cancel the
@@ -444,6 +448,24 @@ canvas.emscripten {
         &.is-sticky {
           border-bottom-color: var(--mat-sys-outline-variant);
           box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        }
+
+        // Compact text button to fully expand / collapse the HLO expression.
+        .hlo-expand-toggle {
+          flex-shrink: 0;
+          border: 1px solid var(--mat-sys-outline-variant);
+          border-radius: 4px;
+          padding: 2px 8px;
+          background: transparent;
+          color: var(--mat-sys-primary);
+          font: inherit;
+          font-size: 12px;
+          font-weight: 500;
+          cursor: pointer;
+
+          &:hover {
+            background-color: var(--mat-sys-surface-variant);
+          }
         }
       }
 

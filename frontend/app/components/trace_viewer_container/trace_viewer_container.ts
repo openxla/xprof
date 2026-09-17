@@ -36,7 +36,7 @@ import {ActivatedRoute} from '@angular/router';
 import {AngularSplitModule} from 'angular-split';
 
 import {NgxJsonViewerModule} from 'ngx-json-viewer';
-import {formatHloArgsForJsonTree} from './hlo_pretty_printer';
+import {formatHloArgsForJsonTree, hasHloStackTrace, HLO_DEFAULT_EXPAND_DEPTH, HLO_FULL_EXPAND_DEPTH} from './hlo_pretty_printer';
 import {TimelinePlayer} from 'org_xprof/frontend/app/components/timeline_player/timeline_player';
 import {getDefaultFeatureFlag} from 'org_xprof/frontend/app/components/trace_viewer_v2/feature_flags';
 import {
@@ -282,6 +282,11 @@ export class TraceViewerContainer
    * changes; `undefined` until the event's args are available.
    */
   selectedEventJson?: Record<string, unknown>;
+  /**
+   * Whether the HLO expression in the JSON tree is fully expanded. When false
+   * (the default) deeply nested attribute dicts are collapsed to `...`.
+   */
+  hloFullyExpanded = false;
   @Input() searching = false;
 
   /** Whether the timeline player applies */
@@ -702,9 +707,27 @@ export class TraceViewerContainer
       'pid': event.pid,
     };
     if (event.args && Object.keys(event.args).length > 0) {
-      json['args'] = formatHloArgsForJsonTree(event.args);
+      const maxExpandDepth = this.hloFullyExpanded
+        ? HLO_FULL_EXPAND_DEPTH
+        : HLO_DEFAULT_EXPAND_DEPTH;
+      json['args'] = formatHloArgsForJsonTree(event.args, maxExpandDepth);
     }
     return json;
+  }
+
+  /**
+   * Returns whether the selected event has an HLO expression that can be
+   * expanded or collapsed in the JSON tree.
+   */
+  canExpandHlo(): boolean {
+    const args = this.selectedEvent?.args;
+    return !!args && hasHloStackTrace(args);
+  }
+
+  /** Toggles full expansion of the HLO expression and rebuilds the JSON tree. */
+  toggleHloExpanded() {
+    this.hloFullyExpanded = !this.hloFullyExpanded;
+    this.selectedEventJson = this.buildSelectedEventJson();
   }
 
   private readonly keyDownEventListener = (event: KeyboardEvent) => {

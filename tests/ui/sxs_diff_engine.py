@@ -2,6 +2,7 @@
 
 import argparse
 import collections
+import collections.abc
 import dataclasses
 import datetime
 import difflib
@@ -16,6 +17,7 @@ import pathlib
 import re
 import sys
 import tempfile
+import typing
 import urllib.parse
 
 from PIL import Image
@@ -25,6 +27,14 @@ from PIL import ImageChops
 # hinting and GPU antialiasing routinely shift channels by a few levels between
 # otherwise identical renders, so smaller deltas are noise rather than signal.
 _MIN_CHANNEL_DELTA = 10
+
+# Share of pixels allowed to differ before a waypoint is called changed.
+# Requiring a byte-identical bitmap makes the verdict depend on the GPU and
+# font rasterisation of whichever machine happens to run the suite, which says
+# nothing about the build. A real rendering regression, such as a chart that
+# fails to draw, moves whole percentage points and is still caught.
+_MAX_VISUAL_DIFF_RATIO = 0.001
+MAX_VISUAL_DIFF_RATIO = _MAX_VISUAL_DIFF_RATIO
 
 
 @dataclasses.dataclass
@@ -79,7 +89,7 @@ class WaypointDiff:
   def verdict(self) -> str:
     """Determines top-level A/B certification verdict."""
     if (
-        self.visual.diff_pixels == 0
+        self.visual.diff_ratio <= _MAX_VISUAL_DIFF_RATIO
         and not self.visual.dimension_mismatch
         and not self.dom.has_changes
         and not self.network.has_changes
@@ -88,6 +98,87 @@ class WaypointDiff:
     if self.is_approved:
       return "APPROVED"
     return "CHANGED"
+
+
+def resolve_profile_logdir(logdir: str) -> str:
+  """Unwraps a `<logdir>/plugins/profile` subdirectory when present."""
+  profile_subdir = pathlib.Path(logdir) / "plugins" / "profile"
+  if profile_subdir.is_dir():
+    return str(profile_subdir)
+  return logdir
+
+
+def make_run_resolver(logdir: str) -> collections.abc.Callable[[str], str]:
+  """Returns a resolver mapping a declared run name onto one in the logdir."""
+  resolved_dir = pathlib.Path(resolve_profile_logdir(logdir))
+  available = sorted(
+      entry.name for entry in resolved_dir.iterdir() if entry.is_dir()
+  )
+  # Run directories are named by the capture tooling, which is inconsistent
+  # about separators (e.g. "tpu-training" versus "tpu_training").
+  by_separator = {name.replace("_", "-"): name for name in available}
+
+  def _resolve(declared: str) -> str:
+    if declared in available:
+      return declared
+    if declared in by_separator:
+      return by_separator[declared]
+    if len(available) == 1:
+      return available[0]
+    raise FileNotFoundError(
+        f"Run '{declared}' is not present in logdir {resolved_dir}."
+        f" Available runs: {available}"
+    )
+
+  return _resolve
+
+
+def resolve_scenario_runs(
+    scenario: typing.Any,
+    resolve_run: collections.abc.Callable[[str], str],
+    logdir: str | None = None,
+) -> typing.Any:
+  """Maps every run and host a scenario names onto ones present in the logdir."""
+  current_run = resolve_run(getattr(scenario, "fixture"))
+  resolved_root = (
+      pathlib.Path(resolve_profile_logdir(logdir)) if logdir else None
+  )
+
+  def _resolve_host(run_name: str, declared_host: str) -> str:
+    if resolved_root is None:
+      return declared_host
+    run_dir = resolved_root / run_name
+    if not run_dir.is_dir():
+      return declared_host
+    hosts = sorted(
+        p.name.removesuffix(".xplane.pb") for p in run_dir.glob("*.xplane.pb")
+    )
+    if not hosts or declared_host in hosts:
+      return declared_host
+    return hosts[0]
+
+  steps = []
+  for step in getattr(scenario, "steps"):
+    action_val = getattr(step.action, "value", str(step.action))
+    if action_val == "goto":
+      declared, separator, tool = step.target.partition("/")
+      current_run = resolve_run(declared)
+      steps.append(
+          dataclasses.replace(step, target=f"{current_run}{separator}{tool}")
+      )
+    elif action_val == "select_host":
+      steps.append(
+          dataclasses.replace(
+              step, target=_resolve_host(current_run, step.target)
+          )
+      )
+    else:
+      steps.append(step)
+  return dataclasses.replace(
+      scenario,
+      fixture=resolve_run(getattr(scenario, "fixture")),
+      steps=tuple(steps),
+  )
 
 
 class SxsDiffEngine:
@@ -210,11 +301,11 @@ class SxsDiffEngine:
     cleaned = re.sub(
         r' id="mat-(?:mdc-)?'
         r"(tab-label|tab-content|select|option|input|form-field-label)"
-        r'-[0-9]+(-[0-9]+)?"',
+        r'-[0-9N]+(-[0-9N]+)?"',
         "",
         cleaned,
     )
-    cleaned = re.sub(r' for="mat-input-[0-9]+"', "", cleaned)
+    cleaned = re.sub(r' for="mat-input-[0-9N]+"', "", cleaned)
     cleaned = re.sub(
         r' id="cdk-(describedby-message|overlay|live-announcer)'
         r'(?:-ng)?-[a-zA-Z0-9_-]+"',
@@ -227,12 +318,12 @@ class SxsDiffEngine:
         cleaned,
     )
     cleaned = re.sub(
-        r' aria-controls="mat-(?:mdc-)?tab-content-[0-9]+-[0-9]+"',
+        r' aria-controls="mat-(?:mdc-)?tab-content-[0-9N]+-[0-9N]+"',
         "",
         cleaned,
     )
     cleaned = re.sub(
-        r' aria-owns="mat-(?:mdc-)?select-[0-9]+-panel"', "", cleaned
+        r' aria-owns="mat-(?:mdc-)?select-[0-9N]+-panel"', "", cleaned
     )
     cleaned = re.sub(
         r"<style\b[^>]*>.*?</style>",
@@ -458,7 +549,7 @@ class SxsDiffEngine:
     hasher = hashlib.sha256()
     hasher.update(f"{journey_name}:{waypoint_name}:".encode("utf-8"))
     hasher.update(dom.diff_digest.encode("utf-8"))
-    if visual.diff_pixels > 0:
+    if visual.diff_ratio > _MAX_VISUAL_DIFF_RATIO:
       spatial_sig = visual.spatial_digest or hashlib.sha256(
           visual.heatmap_png_bytes or b""
       ).hexdigest()

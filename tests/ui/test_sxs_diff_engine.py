@@ -1,6 +1,7 @@
 """Unit tests for the multi-modal Side-by-Side (SxS) A/B diff engine."""
 
 import contextlib
+import dataclasses
 import difflib
 import hashlib
 import io
@@ -1337,6 +1338,190 @@ class SxsDiffEngineTest(unittest.TestCase):
     self.assertNotIn("<script>alert", content.split("<script>")[1])
     self.assertIn(r"\u003cscript\u003ealert(1)\u003c/script\u003e", content)
     self.assertIn(r"\u0026", content)
+
+  def test_sub_budget_visual_noise_does_not_alter_diff_hash_or_bloat_report(
+      self,
+  ):
+    """Verifies sub-budget pixel noise keeps diff_hash stable and skips PNGs."""
+    engine = SxsDiffEngine()
+    base_img = Image.new("RGB", (100, 100), (120, 120, 120))
+    noisy_img = base_img.copy()
+    # 1 pixel out of 10,000 = 0.0001 <= 0.001 (_MAX_VISUAL_DIFF_RATIO).
+    noisy_img.putpixel((50, 50), (250, 250, 250))
+
+    buf_a = io.BytesIO()
+    base_img.save(buf_a, format="PNG")
+    buf_b = io.BytesIO()
+    noisy_img.save(buf_b, format="PNG")
+
+    diff_clean = engine.evaluate_waypoint(
+        journey_name="j",
+        waypoint_name="w",
+        img_a=buf_a.getvalue(),
+        img_b=buf_a.getvalue(),
+        html_a="<div>Old</div>",
+        html_b="<div>New</div>",
+        requests_a=[],
+        requests_b=[],
+    )
+    diff_noisy = engine.evaluate_waypoint(
+        journey_name="j",
+        waypoint_name="w",
+        img_a=buf_a.getvalue(),
+        img_b=buf_b.getvalue(),
+        html_a="<div>Old</div>",
+        html_b="<div>New</div>",
+        requests_a=[],
+        requests_b=[],
+    )
+    self.assertEqual(diff_clean.diff_hash, diff_noisy.diff_hash)
+
+    same_noisy = engine.evaluate_waypoint(
+        journey_name="j",
+        waypoint_name="w_same",
+        img_a=buf_a.getvalue(),
+        img_b=buf_b.getvalue(),
+        html_a="<div>Same</div>",
+        html_b="<div>Same</div>",
+        requests_a=[],
+        requests_b=[],
+    )
+    self.assertEqual(same_noisy.verdict, "SAME")
+    with tempfile.TemporaryDirectory() as tmpdir:
+      content = pathlib.Path(
+          generate_sxs_html_report(
+              [same_noisy], os.path.join(tmpdir, "same.html")
+          )
+      ).read_text(encoding="utf-8")
+    self.assertNotIn("data:image/png;base64,", content)
+
+  def test_evaluate_waypoint_allows_small_visual_pixel_budget(self):
+    """Verifies verdicts allow <=0.1% pixel noise without DOM/net diffs."""
+    engine = SxsDiffEngine()
+    base_img = Image.new("RGB", (100, 10), (255, 255, 255))
+    buf_base = io.BytesIO()
+    base_img.save(buf_base, format="PNG")
+
+    # 1 differing pixel out of 1000 (0.001 == _MAX_VISUAL_DIFF_RATIO) -> SAME
+    within_budget_img = base_img.copy()
+    within_budget_img.putpixel((0, 0), (0, 0, 0))
+    buf_within = io.BytesIO()
+    within_budget_img.save(buf_within, format="PNG")
+
+    verdict_within = engine.evaluate_waypoint(
+        journey_name="triage",
+        waypoint_name="overview",
+        img_a=buf_base.getvalue(),
+        img_b=buf_within.getvalue(),
+        html_a="<div>Same</div>",
+        html_b="<div>Same</div>",
+        requests_a=[],
+        requests_b=[],
+    )
+    self.assertEqual(verdict_within.visual.diff_pixels, 1)
+    self.assertEqual(verdict_within.visual.diff_ratio, 0.001)
+    self.assertEqual(verdict_within.verdict, "SAME")
+
+    # Within visual budget but with DOM or network delta -> CHANGED
+    verdict_dom_changed = engine.evaluate_waypoint(
+        journey_name="triage",
+        waypoint_name="overview",
+        img_a=buf_base.getvalue(),
+        img_b=buf_within.getvalue(),
+        html_a="<div>Same</div>",
+        html_b="<div>Changed</div>",
+        requests_a=[],
+        requests_b=[],
+    )
+    self.assertEqual(verdict_dom_changed.verdict, "CHANGED")
+
+    verdict_net_changed = engine.evaluate_waypoint(
+        journey_name="triage",
+        waypoint_name="overview",
+        img_a=buf_base.getvalue(),
+        img_b=buf_within.getvalue(),
+        html_a="<div>Same</div>",
+        html_b="<div>Same</div>",
+        requests_a=[],
+        requests_b=[{"url": "http://localhost/data", "status": 500}],
+    )
+    self.assertEqual(verdict_net_changed.verdict, "CHANGED")
+
+    # 2 differing pixels out of 1000 (0.002 > _MAX_VISUAL_DIFF_RATIO) -> CHANGED
+    over_budget_img = within_budget_img.copy()
+    over_budget_img.putpixel((1, 0), (0, 0, 0))
+    buf_over = io.BytesIO()
+    over_budget_img.save(buf_over, format="PNG")
+
+    verdict_over = engine.evaluate_waypoint(
+        journey_name="triage",
+        waypoint_name="overview",
+        img_a=buf_base.getvalue(),
+        img_b=buf_over.getvalue(),
+        html_a="<div>Same</div>",
+        html_b="<div>Same</div>",
+        requests_a=[],
+        requests_b=[],
+    )
+    self.assertEqual(verdict_over.visual.diff_pixels, 2)
+    self.assertEqual(verdict_over.visual.diff_ratio, 0.002)
+    self.assertEqual(verdict_over.verdict, "CHANGED")
+
+  def test_resolve_scenario_runs_maps_fixture_goto_and_hosts(self):
+    """Verifies run and host resolution across logdir layouts."""
+
+    @dataclasses.dataclass(frozen=True)
+    class _Step:
+      action: str
+      target: str
+      expected_selector: str
+
+    @dataclasses.dataclass(frozen=True)
+    class _Scenario:
+      id: str
+      fixture: str
+      initial_tool: str
+      steps: tuple[_Step, ...]
+
+    with tempfile.TemporaryDirectory() as tmp:
+      run_dir = pathlib.Path(tmp) / "plugins" / "profile" / "tpu_training"
+      run_dir.mkdir(parents=True)
+      (run_dir / "tpu_training.xplane.pb").write_bytes(b"")
+
+      resolver = sxs_diff_engine.make_run_resolver(tmp)
+      self.assertEqual(resolver("tpu-training"), "tpu_training")
+      self.assertEqual(resolver("v6e-4-training"), "tpu_training")
+
+      scenario = _Scenario(
+          id="compiler",
+          fixture="tpu-training",
+          initial_tool="overview_page",
+          steps=(
+              _Step(
+                  action="switch_tool",
+                  target="overview_page",
+                  expected_selector="overview-page",
+              ),
+              _Step(
+                  action="goto",
+                  target="v6e-4-training/hlo_stats",
+                  expected_selector="hlo-stats",
+              ),
+              _Step(
+                  action="select_host",
+                  target="t1v-n-9bfa07b4-w-0",
+                  expected_selector="overview-page",
+              ),
+          ),
+      )
+
+      resolved = sxs_diff_engine.resolve_scenario_runs(
+          scenario, resolver, logdir=tmp
+      )
+      self.assertEqual(resolved.fixture, "tpu_training")
+      self.assertEqual(resolved.steps[0].target, "overview_page")
+      self.assertEqual(resolved.steps[1].target, "tpu_training/hlo_stats")
+      self.assertEqual(resolved.steps[2].target, "tpu_training")
 
 
 if __name__ == "__main__":

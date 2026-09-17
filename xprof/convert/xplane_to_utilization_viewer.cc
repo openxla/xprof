@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xprof/convert/xplane_to_utilization_viewer.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -342,21 +343,71 @@ absl::StatusOr<std::string> ConvertXSpaceToUtilizationViewer(
 
 namespace {
 
-std::string ExtractTimelineKernelName(
+struct TimelineKernelInfo {
+  std::string fallback_name;
+  double fallback_duration_us = 0.0;
+  absl::flat_hash_map<std::string, double> kernel_durations_us;
+};
+
+TimelineKernelInfo ExtractTimelineKernelInfo(
     const tsl::profiler::XPlaneVisitor& visitor) {
-  std::string fallback_kernel_name = "";
+  TimelineKernelInfo info;
+  std::string step_fallback_name;
+  double step_fallback_duration_us = 0.0;
+
   visitor.ForEachLine([&](const tsl::profiler::XLineVisitor& line) {
     absl::string_view lname = line.Name();
-    if (lname == "PALLAS" || lname == "XLA OPS" || lname == "Pallas" ||
-        lname == "XLA Ops") {
+    bool is_kernel_line = (lname == "PALLAS" || lname == "XLA OPS" ||
+                           lname == "Pallas" || lname == "XLA Ops");
+    bool is_step_line = (lname == "Steps");
+
+    if (is_kernel_line) {
       line.ForEachEvent([&](const tsl::profiler::XEventVisitor& ev) {
-        if (!ev.Name().empty() && fallback_kernel_name.empty()) {
-          fallback_kernel_name = std::string(ev.Name());
+        double dur_us = 0.0;
+        if (ev.DurationPs() > 0) {
+          dur_us = ev.DurationNs() / 1000.0;
+        }
+        std::string kname(ev.Name());
+        if (!kname.empty()) {
+          // Prefer positive duration events for initial fallback.
+          if (info.fallback_name.empty() ||
+              (info.fallback_duration_us <= 0.0 && dur_us > 0.0)) {
+            info.fallback_name = kname;
+            info.fallback_duration_us = dur_us;
+          }
+          if (dur_us > info.kernel_durations_us[kname]) {
+            info.kernel_durations_us[kname] = dur_us;
+          }
+        }
+      });
+    } else if (is_step_line) {
+      line.ForEachEvent([&](const tsl::profiler::XEventVisitor& ev) {
+        double dur_us = 0.0;
+        if (ev.DurationPs() > 0) {
+          dur_us = ev.DurationNs() / 1000.0;
+        }
+        std::string sname(ev.Name());
+        if (!sname.empty()) {
+          if (step_fallback_name.empty() ||
+              (step_fallback_duration_us <= 0.0 && dur_us > 0.0)) {
+            step_fallback_name = sname;
+            step_fallback_duration_us = dur_us;
+          }
         }
       });
     }
   });
-  return fallback_kernel_name;
+
+  // Steps track is queried only as secondary fallback when no kernel line had
+  // a positive duration.
+  if (info.fallback_name.empty() || info.fallback_duration_us <= 0.0) {
+    if (!step_fallback_name.empty()) {
+      info.fallback_name = step_fallback_name;
+      info.fallback_duration_us = step_fallback_duration_us;
+    }
+  }
+
+  return info;
 }
 
 absl::flat_hash_map<uint64_t, uint64_t> ParseCountersFromLine(
@@ -365,7 +416,10 @@ absl::flat_hash_map<uint64_t, uint64_t> ParseCountersFromLine(
   double event_max_duration_us = 0.0;
 
   line.ForEachEvent([&](const tsl::profiler::XEventVisitor& event) {
-    double ev_dur = event.DurationNs() / 1000.0;
+    double ev_dur = 0.0;
+    if (event.DurationPs() > 0) {
+      ev_dur = event.DurationNs() / 1000.0;
+    }
     if (ev_dur > event_max_duration_us) event_max_duration_us = ev_dur;
 
     uint64_t counter_id = 0;
@@ -490,8 +544,10 @@ json AggregateKernelMetrics(
   json other_metrics = json::object();
   for (const auto& [metric_name, agg] : other_metrics_map) {
     if (agg.peak > 0) {
-      other_metrics[metric_name] =
-          std::round((agg.achieved / agg.peak) * 10000.0) / 100.0;
+      double pct = (agg.achieved / agg.peak) * 100.0;
+      if (pct > 100.0) pct = 100.0;
+      if (pct < 0.0) pct = 0.0;
+      other_metrics[metric_name] = std::round(pct * 100.0) / 100.0;
     }
   }
   return other_metrics;
@@ -539,7 +595,8 @@ std::optional<json> ProcessDevicePlane(
     device_type_enum = ViewerDeviceType::TPU_V6E;
   }
 
-  std::string fallback_kernel_name = ExtractTimelineKernelName(visitor);
+  TimelineKernelInfo timeline_info = ExtractTimelineKernelInfo(visitor);
+  std::string fallback_kernel_name = timeline_info.fallback_name;
 
   json device_json;
   device_json["device_id"] = device_id;
@@ -570,6 +627,39 @@ std::optional<json> ProcessDevicePlane(
 
     double effective_duration_us =
         (duration_us_param > 0.0) ? duration_us_param : event_max_duration_us;
+    if (effective_duration_us <= 0.0) {
+      auto it = timeline_info.kernel_durations_us.find(kernel_name);
+      if (it != timeline_info.kernel_durations_us.end() && it->second > 0.0) {
+        effective_duration_us = it->second;
+      } else if (timeline_info.fallback_duration_us > 0.0) {
+        effective_duration_us = timeline_info.fallback_duration_us;
+      }
+    }
+    if (effective_duration_us <= 0.0) {
+      double freq_hz = GetTensorCoreFrequencyHz(device_type_enum);
+      if (freq_hz > 0.0) {
+        auto get_counter_value = [&](uint64_t id) -> uint64_t {
+          auto it = counters_map.find(id);
+          return (it != counters_map.end()) ? it->second : 0;
+        };
+        uint64_t cycles = 0;
+        if (device_type_enum == ViewerDeviceType::TPU_V7X) {
+          uint64_t c0 = TpuCounterIdsTpu7x::
+              VF_CHIP_DIE0_PWRMGR_PWRMGR_TC_THROTTLE_CORE_DEBUG_STATS_UNPRIVILEGED_CYCLE_COUNT;  // NOLINT
+          uint64_t c1 = TpuCounterIdsTpu7x::
+              VF_CHIP_DIE1_PWRMGR_PWRMGR_TC_THROTTLE_CORE_DEBUG_STATS_UNPRIVILEGED_CYCLE_COUNT;  // NOLINT
+          cycles = std::max(get_counter_value(c0), get_counter_value(c1));
+        } else if (device_type_enum == ViewerDeviceType::TPU_V6E) {
+          uint64_t c0 = TpuCounterIdsTpu6e::
+              VF_CHIP_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_CYCLES;  // NOLINT
+          cycles = get_counter_value(c0);
+        }
+        if (cycles > 0) {
+          effective_duration_us =
+              static_cast<double>(cycles) / (freq_hz / 1e6);
+        }
+      }
+    }
 
     ScaleNominalCycleCounters(device_type_enum, effective_duration_us,
                               force_duration_override, counters_map);

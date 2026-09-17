@@ -22,6 +22,7 @@ pytype_strict_library(
     ],
     deps = [
         "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:kernel_stats_tools",
         "//plugin/xprof/cli/internal/oss:xprof_client",
         "//plugin/xprof/convert:raw_to_tool_data",
     ],

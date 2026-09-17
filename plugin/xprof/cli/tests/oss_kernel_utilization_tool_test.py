@@ -274,6 +274,179 @@ class OssKernelUtilizationToolTest(parameterized.TestCase):
           bypass_cache=True,
       )
 
+  @mock.patch.object(
+      get_kernel_utilization_tool.kernel_stats_tools,
+      "get_kernel_stats",
+      autospec=True,
+      spec_set=True,
+  )
+  def test_get_kernel_utilization_auto_fallback_to_kernel_stats(
+      self, mock_get_kernel_stats
+  ):
+    zero_response = json.dumps({
+        "status": "SUCCESS",
+        "devices": [{
+            "device_id": 0,
+            "device_type": "TPU v7x",
+            "kernels": [{
+                "kernel_name": "matmul_optimized.1",
+                "duration_us": 0.0,
+                "mxu_utilization": 0.01,
+                "other_metrics": {},
+            }],
+        }],
+    })
+    nonzero_response = json.dumps({
+        "status": "SUCCESS",
+        "devices": [{
+            "device_id": 0,
+            "device_type": "TPU v7x",
+            "kernels": [{
+                "kernel_name": "matmul_optimized.1",
+                "duration_us": 88.445,
+                "mxu_utilization": 25.0,
+                "other_metrics": {},
+            }],
+        }],
+    })
+    self.mock_client.fetch.side_effect = [
+        (None, zero_response.encode("utf-8")),
+        (None, nonzero_response.encode("utf-8")),
+    ]
+    mock_get_kernel_stats.return_value = [{
+        "kernel_name": "matmul_optimized.1",
+        "total_duration_us": 88.445,
+        "avg_duration_us": 88.445,
+        "execution_count": 1,
+    }]
+
+    result = get_kernel_utilization_tool.get_kernel_utilization(
+        session_id="session_v7x",
+        output_format="dict",
+        bypass_cache=True,
+    )
+    self.assertIsInstance(result, dict)
+    assert isinstance(result, dict)
+    self.assertEqual(
+        result["devices"][0]["kernels"][0]["mxu_utilization"], 25.0
+    )
+    self.assertEqual(self.mock_client.fetch.call_count, 2)
+
+  @mock.patch.object(
+      get_kernel_utilization_tool.kernel_stats_tools,
+      "get_kernel_stats",
+      autospec=True,
+      spec_set=True,
+  )
+  def test_get_kernel_utilization_all_zero_raises_runtime_error(
+      self, mock_get_kernel_stats
+  ):
+    zero_response = json.dumps({
+        "status": "SUCCESS",
+        "devices": [{
+            "device_id": 0,
+            "device_type": "TPU v7x",
+            "kernels": [{
+                "kernel_name": "matmul_optimized.1",
+                "duration_us": 0.0,
+                "mxu_utilization": 0.0,
+                "other_metrics": {},
+            }],
+        }],
+    })
+    self.mock_client.fetch.return_value = (
+        None,
+        zero_response.encode("utf-8"),
+    )
+    mock_get_kernel_stats.return_value = []
+
+    with self.assertRaisesRegex(
+        RuntimeError, "Hardware counter duration is 0.0 us"
+    ):
+      get_kernel_utilization_tool.get_kernel_utilization(
+          session_id="session_all_zero",
+          bypass_cache=True,
+      )
+
+  def test_get_kernel_utilization_clamps_metrics(self):
+    unclamped_response = json.dumps({
+        "status": "SUCCESS",
+        "devices": [{
+            "device_id": 0,
+            "device_type": "TPU v6e",
+            "kernels": [{
+                "kernel_name": "run_pallas.1",
+                "duration_us": 5809.5,
+                "mxu_utilization": 150.0,
+                "other_metrics": {
+                    "Avg XLU Busy": {
+                        "utilization_percent": 3021.66,
+                    },
+                    "No MXU Busy": 343327.68,
+                    "No XLU Busy": 9999.0,
+                    "Raw Counter Ratio": 250.0,
+                },
+            }],
+        }],
+    })
+    self.mock_client.fetch.return_value = (
+        None,
+        unclamped_response.encode("utf-8"),
+    )
+    result = get_kernel_utilization_tool.get_kernel_utilization(
+        session_id="session_unclamped",
+        output_format="dict",
+        bypass_cache=True,
+    )
+    self.assertIsInstance(result, dict)
+    assert isinstance(result, dict)
+    kernel = result["devices"][0]["kernels"][0]
+    self.assertEqual(kernel["mxu_utilization"], 100.0)
+    self.assertEqual(
+        kernel["other_metrics"]["Avg XLU Busy"]["utilization_percent"], 100.0
+    )
+    self.assertEqual(kernel["other_metrics"]["No MXU Busy"], 0.0)
+    self.assertEqual(kernel["other_metrics"]["No XLU Busy"], 0.0)
+    self.assertEqual(kernel["other_metrics"]["Raw Counter Ratio"], 100.0)
+
+  def test_get_kernel_utilization_normalizes_idle_complements(self):
+    response = json.dumps({
+        "status": "SUCCESS",
+        "devices": [{
+            "device_id": 0,
+            "device_type": "TPU v7x",
+            "kernels": [{
+                "kernel_name": "matmul_optimized.1",
+                "duration_us": 88.445,
+                "mxu_utilization": 39.0,
+                "other_metrics": {
+                    "Avg XLU Busy": 10.0,
+                    "No MXU Busy": 343327.68,
+                    "No XLU Busy": 5000.0,
+                },
+            }],
+        }],
+    })
+    self.mock_client.fetch.return_value = (
+        None,
+        response.encode("utf-8"),
+    )
+    result = get_kernel_utilization_tool.get_kernel_utilization(
+        session_id="session_complements",
+        output_format="dict",
+        bypass_cache=True,
+    )
+    self.assertIsInstance(result, dict)
+    assert isinstance(result, dict)
+    kernel = result["devices"][0]["kernels"][0]
+    self.assertAlmostEqual(kernel["mxu_utilization"], 39.0, places=2)
+    self.assertAlmostEqual(
+        kernel["other_metrics"]["No MXU Busy"], 61.0, places=2
+    )
+    self.assertAlmostEqual(
+        kernel["other_metrics"]["No XLU Busy"], 90.0, places=2
+    )
+
 
 if __name__ == "__main__":
   absltest.main()

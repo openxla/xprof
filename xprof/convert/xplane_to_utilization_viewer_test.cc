@@ -751,5 +751,112 @@ TEST(ConvertXSpaceToKernelUtilizationTest,
   EXPECT_FALSE(kernel["other_metrics"].contains("HBM Rd+Wr - core 1"));
 }
 
+TEST(ConvertXSpaceToUtilizationViewerTest,
+     TimelineDurationFallbackForZeroDurationCounterEvents) {
+  XSpace space;
+  XPlane* plane = space.add_planes();
+  plane->set_name("/device:TPU:0");
+  XPlaneBuilder builder(plane);
+
+  builder.AddStatValue(
+      *builder.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kDeviceId)), 0);
+  builder.AddStatValue(*builder.GetOrCreateStatMetadata(
+                           GetStatTypeStr(StatType::kDeviceTypeString)),
+                       "TPU v7x");
+
+  // Line 0: Pallas timeline line with non-zero duration kernel event.
+  auto pallas_line = builder.GetOrCreateLine(0);
+  pallas_line.SetName("Pallas");
+  {
+    auto ev = pallas_line.AddEvent(
+        *builder.GetOrCreateEventMetadata("matmul_optimized.1"));
+    ev.SetDurationNs(88445);  // 88.445 us
+  }
+
+  // Line 1: counters_0 line with zero-duration counter events (DurationNs == 0)
+  // and NO hardware cycle counter event, so ScaleNominalCycleCounters relies
+  // on effective_duration_us recovered from the Pallas timeline event.
+  auto counter_line = builder.GetOrCreateLine(1);
+  counter_line.SetName("counters_0");
+
+  using Tpu7x = TpuCounterIdsTpu7x;
+  uint64_t mxu_busy_id = Tpu7x::
+      VF_CHIP_DIE0_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_MXU_BUSY_1;  // NOLINT
+  uint64_t mxu_bf16_id = Tpu7x::
+      VF_CHIP_DIE0_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_MATMUL_VREG_BF16_MXU_0;  // NOLINT
+
+  auto* perf_id_meta = builder.GetOrCreateStatMetadata(
+      GetStatTypeStr(StatType::kPerformanceCounterId));
+  auto* cnt_val_meta =
+      builder.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kCounterValue));
+
+  {
+    auto ev = counter_line.AddEvent(
+        *builder.GetOrCreateEventMetadata("MXU_BUSY"));
+    ev.AddStatValue(*perf_id_meta, mxu_busy_id);
+    ev.AddStatValue(*cnt_val_meta, 50000.0);
+  }
+  {
+    auto ev = counter_line.AddEvent(
+        *builder.GetOrCreateEventMetadata("MXU_BF16"));
+    ev.AddStatValue(*perf_id_meta, mxu_bf16_id);
+    ev.AddStatValue(*cnt_val_meta, 50000.0);
+  }
+
+  ASSERT_OK_AND_ASSIGN(std::string json_str,
+                       ConvertXSpaceToKernelUtilization(space));
+  json result = json::parse(json_str);
+
+  EXPECT_THAT(result["status"], Eq("SUCCESS"));
+  ASSERT_THAT(result["devices"].size(), Eq(1));
+  const auto& kernel = result["devices"][0]["kernels"][0];
+  EXPECT_THAT(kernel["kernel_name"], Eq("matmul_optimized.1"));
+  EXPECT_NEAR(kernel["duration_us"].get<double>(), 88.445, 1e-3);
+  EXPECT_THAT(kernel["mxu_utilization"].get<double>(), Gt(0.0));
+}
+
+TEST(ConvertXSpaceToUtilizationViewerTest,
+     CycleCounterDurationFallbackWhenNoTimelineLine) {
+  XSpace space;
+  XPlane* plane = space.add_planes();
+  plane->set_name("/device:TPU:0");
+  XPlaneBuilder builder(plane);
+
+  builder.AddStatValue(
+      *builder.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kDeviceId)), 0);
+  builder.AddStatValue(*builder.GetOrCreateStatMetadata(
+                           GetStatTypeStr(StatType::kDeviceTypeString)),
+                       "TPU v7x");
+
+  auto counter_line = builder.GetOrCreateLine(0);
+  counter_line.SetName("counters_0");
+
+  using Tpu7x = TpuCounterIdsTpu7x;
+  uint64_t die0_cycles_id = Tpu7x::
+      VF_CHIP_DIE0_PWRMGR_PWRMGR_TC_THROTTLE_CORE_DEBUG_STATS_UNPRIVILEGED_CYCLE_COUNT;  // NOLINT
+
+  auto* perf_id_meta = builder.GetOrCreateStatMetadata(
+      GetStatTypeStr(StatType::kPerformanceCounterId));
+  auto* cnt_val_meta =
+      builder.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kCounterValue));
+
+  {
+    auto ev = counter_line.AddEvent(
+        *builder.GetOrCreateEventMetadata("DIE0_CYCLES"));
+    ev.AddStatValue(*perf_id_meta, die0_cycles_id);
+    // At 1.9 GHz (1900 cycles/us), 190000 cycles = 100.0 us.
+    ev.AddStatValue(*cnt_val_meta, 190000.0);
+  }
+
+  ASSERT_OK_AND_ASSIGN(std::string json_str,
+                       ConvertXSpaceToKernelUtilization(space));
+  json result = json::parse(json_str);
+
+  EXPECT_THAT(result["status"], Eq("SUCCESS"));
+  ASSERT_THAT(result["devices"].size(), Eq(1));
+  const auto& kernel = result["devices"][0]["kernels"][0];
+  EXPECT_NEAR(kernel["duration_us"].get<double>(), 100.0, 1e-3);
+}
+
 }  // namespace
 }  // namespace xprof

@@ -42,6 +42,11 @@ import {PerfCounters} from 'org_xprof/frontend/app/components/perf_counters/perf
 import {PerfCountersModule} from 'org_xprof/frontend/app/components/perf_counters/perf_counters_module';
 import {PodViewer} from 'org_xprof/frontend/app/components/pod_viewer/pod_viewer';
 import {PodViewerModule} from 'org_xprof/frontend/app/components/pod_viewer/pod_viewer_module';
+import {
+  RackNavigationDrawer,
+  RackNavigationGroup,
+  RackNavigationItem,
+} from 'org_xprof/frontend/app/components/rack/navigation/index';
 import {RooflineModel} from 'org_xprof/frontend/app/components/roofline_model/roofline_model';
 import {RooflineModelModule} from 'org_xprof/frontend/app/components/roofline_model/roofline_model_module';
 import {SideNavModule} from 'org_xprof/frontend/app/components/sidenav/sidenav_module';
@@ -103,6 +108,9 @@ export const routes: Routes = [
     MemoryViewerModule,
     OpProfileModule,
     PodViewerModule,
+    RackNavigationDrawer,
+    RackNavigationGroup,
+    RackNavigationItem,
     GraphViewerModule,
     FrameworkOpStatsAdapterModule,
     MegascaleStatsModule,

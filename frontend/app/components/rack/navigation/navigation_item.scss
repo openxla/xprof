@@ -1,0 +1,352 @@
+/**
+ * @license
+ * Copyright 2026 The OpenXLA Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// stylelint-disable declaration-no-important -- Component Rack icon and layout reset shield
+
+:host {
+  display: flex;
+  align-items: center;
+  justify-content: var(--rack-nav-item-justify-content, flex-start);
+  gap: var(--spacing-2, 8px);
+  padding: var(
+    --rack-nav-item-padding,
+    var(--spacing-1, 4px) var(--spacing-2, 8px)
+  );
+  margin: var(--rack-nav-item-margin, 0 var(--spacing-3, 12px));
+  border-radius: var(--rack-nav-item-border-radius, 20px);
+  width: var(--rack-nav-item-width, auto);
+  height: var(--rack-nav-item-height, 40px);
+  min-height: var(--rack-nav-item-height, 40px);
+  flex-shrink: 0 !important;
+  cursor: pointer;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-label-large);
+  letter-spacing: var(--mat-sys-label-large-tracking);
+  transition:
+    max-height var(--motion-duration-short, 150ms)
+      var(--motion-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
+    opacity var(--motion-duration-short, 150ms)
+      var(--motion-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
+    padding var(--motion-duration-short, 150ms)
+      var(--motion-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
+    margin var(--motion-duration-short, 150ms)
+      var(--motion-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
+    width var(--motion-duration-short, 150ms)
+      var(--motion-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
+    height var(--motion-duration-short, 150ms)
+      var(--motion-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
+    background-color var(--motion-duration-short, 150ms),
+    color var(--motion-duration-short, 150ms);
+  overflow: hidden;
+  max-height: var(--rack-nav-item-height, 40px);
+  position: relative;
+  box-sizing: border-box;
+}
+
+:host([disabled]),
+:host(.disabled),
+:host([disabled]) *,
+:host(.disabled) * {
+  cursor: default !important;
+}
+
+:host([disabled]),
+:host(.disabled) {
+  opacity: 0.38;
+  pointer-events: none;
+}
+
+:host(.collapsed-hidden) {
+  display: none !important;
+}
+
+:host(:hover:not([disabled])) {
+  background-color: color-mix(
+    in srgb,
+    var(--mat-sys-on-surface) 8%,
+    transparent
+  );
+}
+
+:host(:active:not([disabled])) {
+  background-color: color-mix(
+    in srgb,
+    var(--mat-sys-on-surface) 12%,
+    transparent
+  );
+  transform: scale(0.99);
+}
+
+// Active state
+:host([active]),
+:host(.active) {
+  background-color: var(--mat-sys-secondary-container);
+  color: var(--mat-sys-on-secondary-container);
+}
+
+// Active hover state
+:host([active]:hover),
+:host(.active:hover) {
+  background-color: color-mix(
+    in srgb,
+    var(--mat-sys-on-secondary-container) 8%,
+    var(--mat-sys-secondary-container)
+  );
+}
+
+// Active active state
+:host([active]:active),
+:host(.active:active) {
+  background-color: color-mix(
+    in srgb,
+    var(--mat-sys-on-secondary-container) 12%,
+    var(--mat-sys-secondary-container)
+  );
+  transform: scale(0.99);
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: var(--rack-nav-item-gap, var(--spacing-3, 12px));
+  flex: var(--rack-nav-item-link-flex, 1);
+  color: inherit;
+  text-decoration: none;
+  min-width: 0;
+  outline: none;
+  width: 100%;
+  height: 100%;
+}
+
+:host(:focus-within) .nav-link:focus-visible {
+  outline: 2px solid var(--mat-sys-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs, 4px);
+}
+
+.nav-icon {
+  font-family:
+    'Material Symbols Outlined', 'Google Symbols', sans-serif !important;
+  font-variation-settings: var(--rack-icon-settings-lg) !important;
+  font-size: var(
+    --rack-nav-item-icon-size,
+    var(--rack-icon-size-lg)
+  ) !important;
+  width: var(--rack-nav-item-icon-size, var(--rack-icon-size-lg)) !important;
+  height: var(--rack-nav-item-icon-size, var(--rack-icon-size-lg)) !important;
+  line-height: var(
+    --rack-nav-item-icon-size,
+    var(--rack-icon-size-lg)
+  ) !important;
+  flex: 0 0 var(--rack-nav-item-icon-size, var(--rack-icon-size-lg)) !important;
+  flex-shrink: 0 !important;
+  font-weight: normal !important;
+  font-synthesis: none !important;
+  font-style: normal;
+  color: inherit;
+  display: inline-block;
+  text-transform: none;
+  letter-spacing: normal;
+  word-wrap: normal;
+  white-space: nowrap;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'liga';
+}
+
+.nav-icon.filled {
+  font-variation-settings: var(--rack-icon-settings-lg-filled) !important;
+}
+
+.nav-text {
+  flex: 1;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  display: var(--rack-nav-item-text-display, inline);
+}
+
+.nav-badge-slot {
+  display: var(--rack-nav-item-badge-display, inline-flex);
+  align-items: center;
+  margin-inline-start: auto;
+  flex-shrink: 0;
+  gap: var(--spacing-1, 4px);
+}
+
+.nav-badge-slot:empty {
+  display: none;
+}
+
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  font: var(--mat-sys-label-small);
+  letter-spacing: var(--mat-sys-label-small-tracking);
+  text-align: center;
+  vertical-align: middle;
+  padding: 0 var(--spacing-1, 4px);
+  border-radius: var(--radius-sm, 8px);
+  height: 16px;
+  min-width: 16px;
+  background-color: var(--mat-sys-primary);
+  color: var(--mat-sys-on-primary);
+  white-space: nowrap;
+}
+
+.nav-badge[data-variant='primary'] {
+  background-color: var(--mat-sys-primary);
+  color: var(--mat-sys-on-primary);
+}
+
+.nav-badge[data-variant='success'] {
+  background-color: var(
+    --mat-sys-success-container,
+    color-mix(in srgb, var(--mat-sys-success) 16%, transparent)
+  );
+  color: var(--mat-sys-on-success-container, var(--mat-sys-success));
+}
+
+// Pin button styling
+.pin-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: var(--rack-nav-item-pin-display, inline-flex);
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition:
+    opacity var(--motion-duration-short, 150ms),
+    color var(--motion-duration-short, 150ms),
+    background-color var(--motion-duration-short, 150ms),
+    transform var(--motion-duration-short, 150ms);
+  color: var(--mat-sys-on-surface-variant);
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  margin-inline-start: var(--spacing-1, 4px);
+}
+
+.pin-btn mat-icon {
+  font-family:
+    'Material Symbols Outlined', 'Google Symbols', sans-serif !important;
+  font-variation-settings: var(--rack-icon-settings-sm) !important;
+  font-size: var(--rack-icon-size-sm) !important;
+  width: var(--rack-icon-size-sm) !important;
+  height: var(--rack-icon-size-sm) !important;
+  line-height: var(--rack-icon-size-sm) !important;
+  font-weight: normal !important;
+  font-synthesis: none !important;
+  font-style: normal;
+}
+
+.pin-btn:hover {
+  background-color: color-mix(
+    in srgb,
+    var(--mat-sys-on-surface) 10%,
+    transparent
+  );
+  color: var(--mat-sys-on-surface);
+}
+
+.pin-btn:active {
+  background-color: color-mix(
+    in srgb,
+    var(--mat-sys-on-surface) 16%,
+    transparent
+  );
+  transform: scale(0.92);
+}
+
+// Show pin button on hover, if pinned, or when focused with keyboard
+:host(:hover) .pin-btn,
+:host([pinned]) .pin-btn,
+:host(.pinned) .pin-btn,
+.pin-btn:focus-visible {
+  opacity: 1;
+}
+
+.pin-btn:focus-visible {
+  outline: 2px solid var(--mat-sys-primary);
+  outline-offset: 1px;
+}
+
+:host([pinned]) .pin-btn,
+:host(.pinned) .pin-btn,
+.pin-btn.pinned {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.pin-icon {
+  font-family:
+    'Material Symbols Outlined', 'Google Symbols', sans-serif !important;
+  font-weight: normal !important;
+  font-synthesis: none !important;
+  font-style: normal;
+}
+
+:host([pinned]) .pin-icon,
+:host(.pinned) .pin-icon,
+.pin-icon.filled {
+  font-variation-settings: var(--rack-icon-settings-sm-filled) !important;
+}
+
+:host([active][pinned]) .pin-btn,
+:host(.active.pinned) .pin-btn,
+:host([active]) .pin-btn.pinned,
+:host(.active) .pin-btn.pinned {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+// Drawer Collapsed (Rail Mode) Styles
+:host(.drawer-collapsed) {
+  justify-content: flex-start !important;
+  padding: 0 var(--spacing-2, 8px) !important;
+  margin: 0 var(--spacing-3, 12px) !important;
+  width: 40px !important;
+  min-width: 40px !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  border-radius: 20px !important;
+  flex-shrink: 0 !important;
+}
+
+:host(.drawer-collapsed) .nav-link {
+  flex: 0 0 auto !important;
+  justify-content: flex-start !important;
+}
+
+:host(.drawer-collapsed) .nav-text {
+  display: none !important;
+}
+
+:host(.drawer-collapsed) .nav-badge-slot {
+  display: none !important;
+}
+
+:host(.drawer-collapsed) .pin-btn {
+  display: none !important;
+}
+
+// stylelint-enable declaration-no-important

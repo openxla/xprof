@@ -6,10 +6,32 @@ mat-sidenav-container {
   background-color: #fff;
 }
 
+// stylelint-disable declaration-no-important -- Override inline margin-left set by MatSidenav
+mat-sidenav-content.new-nav-content {
+  margin-left: 64px !important;
+  transition: margin-left
+    var(
+      --rack-nav-transition,
+      var(--motion-duration-short, 150ms)
+        var(--motion-easing-standard, cubic-bezier(0.2, 0, 0, 1))
+    );
+
+  &.new-nav-expanded {
+    margin-left: 240px !important;
+  }
+}
+// stylelint-enable declaration-no-important
+
 mat-sidenav {
   background: transparent;
   width: 340px;
-  @include common.border-right-gray
+  transition: width
+    var(
+      --rack-nav-transition,
+      var(--motion-duration-short, 150ms)
+        var(--motion-easing-standard, cubic-bezier(0.2, 0, 0, 1))
+    );
+  @include common.border-right-gray;
 }
 
 mat-progress-bar {

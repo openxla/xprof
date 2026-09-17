@@ -1,0 +1,51 @@
+/**
+ * @license
+ * Copyright 2026 The OpenXLA Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// Master Theme Aggregator for Component Rack tokens in XProf.
+
+@forward 'colors_light';
+@forward 'colors_dark';
+@forward 'typography';
+@forward 'spacing';
+@forward 'shape';
+@forward 'elevation';
+@forward 'motion';
+@forward 'icons';
+
+@use 'colors_light';
+@use 'typography';
+@use 'spacing';
+@use 'shape';
+@use 'elevation';
+@use 'motion';
+@use 'icons';
+
+/// Emits non-color design tokens (typography, spacing, shape, elevation, motion, icons) safe for global :root.
+@mixin rack-design-tokens {
+  @include typography.typography-tokens;
+  @include spacing.spacing-tokens;
+  @include shape.shape-tokens;
+  @include elevation.elevation-tokens;
+  @include motion.motion-tokens;
+  @include icons.icon-tokens;
+}
+
+/// Emits all baseline Material 3 design tokens (including full 48-token color palette) for Component Rack hosts.
+@mixin all-theme-tokens {
+  @include colors_light.light-theme-colors;
+  @include rack-design-tokens;
+}

@@ -1,0 +1,90 @@
+/**
+ * @license
+ * Copyright 2026 The OpenXLA Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// Canonical Material 3 Dark Theme Color Tokens for Component Rack.
+// Standardized strictly on the `--mat-sys-*` namespace.
+// Zero hex fallbacks in var() to prevent dark mode poisoning.
+
+/// Emits the canonical Material 3 dark theme color palette.
+/// Defines 48 system color tokens across brand accents, surface container tiers, outlines,
+/// and semantic status 4-token sets (error, info, warning, success).
+@mixin dark-theme-colors {
+  // stylelint-disable ng-components/use-material-overrides -- Application-level Material 3 design tokens
+  // 1. Primary, Secondary & Tertiary Accents (Dark)
+  --mat-sys-primary: #a8c7fa;
+  --mat-sys-on-primary: #041e49;
+  --mat-sys-primary-container: #0842a0;
+  --mat-sys-on-primary-container: #d3e3fd;
+  --mat-sys-inverse-primary: #0b57d0;
+
+  --mat-sys-secondary: #7fcfff;
+  --mat-sys-on-secondary: #003453;
+  --mat-sys-secondary-container: #004b75;
+  --mat-sys-on-secondary-container: #c2e7ff;
+
+  --mat-sys-tertiary: #6ddb7d;
+  --mat-sys-on-tertiary: #003910;
+  --mat-sys-tertiary-container: #00531b;
+  --mat-sys-on-tertiary-container: #c4eed0;
+
+  // 2. Surfaces, Backgrounds & Containers (Dark)
+  --mat-sys-surface: #141218;
+  --mat-sys-on-surface: #e6e1e5;
+  --mat-sys-surface-variant: #49454f;
+  --mat-sys-on-surface-variant: #cac4d0;
+  --mat-sys-background: #141218;
+  --mat-sys-on-background: #e6e1e5;
+  --mat-sys-surface-dim: #111318;
+  --mat-sys-surface-bright: #37393e;
+  --mat-sys-inverse-surface: #e2e2e9;
+  --mat-sys-inverse-on-surface: #2f3033;
+
+  // Surface Container Tiers (Dark)
+  --mat-sys-surface-container-lowest: #0c0e13;
+  --mat-sys-surface-container-low: #191c20;
+  --mat-sys-surface-container: #1e2024;
+  --mat-sys-surface-container-high: #282a2f;
+  --mat-sys-surface-container-highest: #33353a;
+
+  // 3. Outlines, Shadows & Elevation Utilities (Dark)
+  --mat-sys-outline: #8e918f;
+  --mat-sys-outline-variant: #44474e;
+  --mat-sys-shadow: #000;
+  --mat-sys-scrim: #000;
+
+  // 4. Semantic Status 4-Token Sets (Dark)
+  --mat-sys-error: #f2b8b5;
+  --mat-sys-on-error: #601410;
+  --mat-sys-error-container: #8c1d18;
+  --mat-sys-on-error-container: #f9dedc;
+
+  --mat-sys-info: #a8c7fa;
+  --mat-sys-on-info: #035;
+  --mat-sys-info-container: #004b75;
+  --mat-sys-on-info-container: #c2e7ff;
+
+  --mat-sys-warning: #ffb866;
+  --mat-sys-on-warning: #4b2800;
+  --mat-sys-warning-container: #6f3c00;
+  --mat-sys-on-warning-container: #ffdf9e;
+
+  --mat-sys-success: #6ddb7d;
+  --mat-sys-on-success: #003910;
+  --mat-sys-success-container: #00531b;
+  --mat-sys-on-success-container: #c4eed0;
+  // stylelint-enable ng-components/use-material-overrides
+}

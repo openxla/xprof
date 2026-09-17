@@ -360,8 +360,11 @@ class XprofDataTest(absltest.TestCase):
         format="json",
         bypass_cache=False,
     )
-    self.assertIn("Profile Summary", result)
-    self.assertIn("Total Time:", result)
+    parsed = json.loads(result)
+    self.assertEqual(parsed["status"], "SUCCESS")
+    self.assertAlmostEqual(parsed["total_time_s"], 100.0)
+    self.assertIn("Profile Summary", parsed["summary_markdown"])
+    self.assertIn("Total Time:", parsed["summary_markdown"])
 
   def test_get_profile_summary_bypass_cache(self):
     profile = op_profile_pb2.Profile(
@@ -381,7 +384,9 @@ class XprofDataTest(absltest.TestCase):
         format="json",
         bypass_cache=True,
     )
-    self.assertIn("Profile Summary", result)
+    parsed = json.loads(result)
+    self.assertEqual(parsed["status"], "SUCCESS")
+    self.assertIn("Profile Summary", parsed["summary_markdown"])
 
   def test_get_hosts(self):
     self.mock_client.get_hosts.return_value = [

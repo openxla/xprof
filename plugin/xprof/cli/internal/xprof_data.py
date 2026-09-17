@@ -143,16 +143,34 @@ def get_profile_summary(
     lines.append("|---|---|---|")
 
     top_nodes = extract_top_ops(root)
+    top_operations = []
 
     for child in top_nodes:
       name = child.name if child.name else "Unknown"
-      # Escape pipes in name to avoid breaking table
-      name = name.replace("|", "\\|")
       time_s = child.metrics.raw_time / 1e12
       fraction = child.metrics.raw_time / total_time_ps if total_time_ps else 0
-      lines.append(f"| {name} | {time_s:.4f} | {fraction:.1%} |")
+      top_operations.append({
+          "name": name,
+          "self_time_s": round(time_s, 6),
+          "fraction": round(fraction, 6),
+      })
+      # Escape pipes in name to avoid breaking table
+      escaped_name = name.replace("|", "\\|")
+      lines.append(f"| {escaped_name} | {time_s:.4f} | {fraction:.1%} |")
 
-    return "\n".join(lines)
+    summary_markdown = "\n".join(lines)
+    return json.dumps(
+        {
+            "status": "SUCCESS",
+            "session_id": session_id,
+            "total_time_s": (
+                round(total_time_ps / 1e12, 6) if total_time_ps > 0 else 0.0
+            ),
+            "top_operations": top_operations,
+            "summary_markdown": summary_markdown,
+        },
+        indent=2,
+    )
 
   except (FileNotFoundError, ValueError):
     raise

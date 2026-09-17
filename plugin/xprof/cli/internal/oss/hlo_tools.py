@@ -2,6 +2,7 @@
 
 import collections
 from collections.abc import Sequence
+import json
 import logging
 import operator
 import pathlib
@@ -80,27 +81,26 @@ def list_hlo_modules(session_id: str) -> str:
     session_id: The unique XProf session ID.
 
   Returns:
-    A human-readable list of module names.
+    A JSON-formatted string containing the list of module names.
   """
   try:
     files = _get_hlo_proto_files(session_id)
-    if not files:
-      return (
-          "No HLO modules found. Ensure you have run a compilation or imported"
-          " traces with HLO."
-      )
-
-    lines = [f"Found {len(files)} HLO modules:"]
-    for i, f in enumerate(files):
-      # E.g., module_name.hlo_proto.pb -> module_name.
-      module_name = f.name.removesuffix(".hlo_proto.pb")
-      lines.append(f"{i}. {module_name}")
-    return "\n".join(lines)
+    modules = [f.name.removesuffix(".hlo_proto.pb") for f in files]
+    return json.dumps(
+        {
+            "status": "SUCCESS",
+            "count": len(modules),
+            "modules": modules,
+        },
+        indent=2,
+    )
+  except (ValueError, FileNotFoundError):
+    raise
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception(
         "Error listing HLO modules for session_id: %s", session_id
     )
-    return f"Error listing HLO modules: {e!r}"
+    raise RuntimeError(f"Error listing HLO modules: {e!r}") from e
 
 
 @decorators.cached(expire=86_400)
@@ -112,7 +112,7 @@ def get_hlo_module_content(
     *,
     print_metadata: bool = False,
 ) -> str:
-  """Returns the full HLO module content (instruction graph) as text.
+  """Returns the full HLO module content (instruction graph) as a JSON envelope.
 
   **Use this** after `list_hlo_modules` to inspect the full program logic for a
   specific module. This is the primary tool for detailed code review of
@@ -128,18 +128,23 @@ def get_hlo_module_content(
     print_metadata: Whether to include op metadata in output.
 
   Returns:
-    The full HLO text representation for the selected module.
+    A JSON string containing the HLO text representation and metadata.
+
+  Raises:
+    FileNotFoundError: If no HLO proto files are found.
+    ValueError: If module_name is not found or fmt is unsupported.
+    RuntimeError: If fetching HLO content fails.
   """
   try:
     files = _get_hlo_proto_files(session_id)
     if not files:
-      return "No HLO proto found."
+      raise FileNotFoundError("No HLO proto found.")
 
     available_modules = [f.name.removesuffix(".hlo_proto.pb") for f in files]
 
     if module_name:
       if module_name not in available_modules:
-        return (
+        raise ValueError(
             f"Module '{module_name}' not found. Available:"
             f" {', '.join(available_modules)}"
         )
@@ -147,31 +152,45 @@ def get_hlo_module_content(
     else:
       target_module = available_modules[0]
 
-    if fmt == "text":
-      client = xprof_client.get_client()
-      _, raw_text = client.fetch(
-          tool_name="graph_viewer.json",
-          session_id=str(session_id),
-          graph_viewer_options={
-              "type": "long_txt" if print_metadata else "short_txt",
-              "module_name": target_module,
-          },
-      )
-      text = (
-          raw_text.decode("utf-8") if isinstance(raw_text, bytes) else raw_text
-      )
+    if fmt != "text":
+      raise ValueError(f"Unsupported format: {fmt}")
 
-      if max_lines > 0:
-        lines = text.splitlines()
-        if len(lines) > max_lines:
-          truncated_text = "\n".join(lines[:max_lines])
-          truncated_text += (
-              f"\n... (truncated after {max_lines} lines, total {len(lines)})."
-              " Use 'max_lines=-1' to see all)"
-          )
-          return truncated_text
-      return text
-    return f"Unsupported format: {fmt}"
+    client = xprof_client.get_client()
+    _, raw_text = client.fetch(
+        tool_name="graph_viewer.json",
+        session_id=str(session_id),
+        graph_viewer_options={
+            "type": "long_txt" if print_metadata else "short_txt",
+            "module_name": target_module,
+        },
+    )
+    text = (
+        raw_text.decode("utf-8") if isinstance(raw_text, bytes) else raw_text
+    )
+
+    lines = text.splitlines()
+    is_truncated = False
+    if max_lines > 0 and len(lines) > max_lines:
+      is_truncated = True
+      truncated_text = "\n".join(lines[:max_lines])
+      truncated_text += (
+          f"\n... (truncated after {max_lines} lines, total {len(lines)})."
+          " Use 'max_lines=-1' to see all)"
+      )
+      text = truncated_text
+
+    return json.dumps(
+        {
+            "status": "SUCCESS",
+            "module_name": target_module,
+            "line_count": len(lines),
+            "truncated": is_truncated,
+            "content": text,
+        },
+        indent=2,
+    )
+  except (ValueError, FileNotFoundError):
+    raise
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception(
         "Error fetching HLO module content for session_id: %s, module_name: %s,"
@@ -181,7 +200,7 @@ def get_hlo_module_content(
         fmt,
         max_lines,
     )
-    return f"Error fetching HLO module content: {e!r}"
+    raise RuntimeError(f"Error fetching HLO module content: {e!r}") from e
 
 
 def get_hlo_text(
@@ -191,7 +210,7 @@ def get_hlo_text(
     op_name: str | None = None,
     bypass_cache: bool = False,
 ) -> str:
-  """Retrieves HLO module content for static analysis.
+  """Retrieves HLO module content for static analysis as JSON.
 
   Args:
     session_id: XProf session ID.
@@ -201,14 +220,16 @@ def get_hlo_text(
     bypass_cache: Whether to bypass cache.
 
   Returns:
-    The retrieved HLO text content.
+    A JSON string containing the retrieved HLO text content and metadata.
 
   Raises:
+    FileNotFoundError: If no HLO proto is found.
+    ValueError: If the requested module is not found.
     RuntimeError: If fetching HLO module content or neighborhood fails.
   """
   try:
     if op_name:
-      text = get_hlo_neighborhood(
+      raw_output = get_hlo_neighborhood(
           session_id,
           op_name,
           radius=2,
@@ -216,11 +237,19 @@ def get_hlo_text(
           bypass_cache=bypass_cache,
       )
     else:
-      text = get_hlo_module_content(
+      raw_output = get_hlo_module_content(
           session_id,
           module_name=module_name,
           bypass_cache=bypass_cache,
       )
+
+    text = raw_output
+    try:
+      parsed = json.loads(raw_output)
+      if isinstance(parsed, dict) and "content" in parsed:
+        text = parsed["content"]
+    except Exception:  # pylint: disable=broad-exception-caught
+      pass
 
     if path:
       path_obj = pathlib.Path(path)
@@ -228,7 +257,18 @@ def get_hlo_text(
       path_obj.write_text(text, encoding="utf-8")
       logging.info("Saved HLO text to %s", path)
 
-    return text
+    return json.dumps(
+        {
+            "status": "SUCCESS",
+            "module_name": module_name,
+            "op_name": op_name,
+            "saved_to_path": str(path) if path else None,
+            "content": text,
+        },
+        indent=2,
+    )
+  except (ValueError, FileNotFoundError):
+    raise
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception(
         "Error in get_hlo_text for session_id: %s, path: %s, module_name: %s,"

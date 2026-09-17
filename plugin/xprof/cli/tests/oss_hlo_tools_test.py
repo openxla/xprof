@@ -1,5 +1,6 @@
 """Unit tests for OSS hlo_tools in XProf CLI."""
 
+import json
 import pathlib
 import tempfile
 from unittest import mock
@@ -21,25 +22,32 @@ class OssHloToolsTest(absltest.TestCase):
     super().tearDown()
 
   def test_list_hlo_modules_empty(self):
-    """Verifies list_hlo_modules returns friendly message when no files exist."""
+    """Verifies list_hlo_modules returns JSON with count 0 when no files exist."""
     with mock.patch.object(hlo_tools, "_get_hlo_proto_files", return_value=[]):
       result = hlo_tools.list_hlo_modules("empty_session")
-      self.assertIn("No HLO modules found", result)
+      parsed = json.loads(result)
+      self.assertEqual(parsed["status"], "SUCCESS")
+      self.assertEqual(parsed["count"], 0)
+      self.assertEqual(parsed["modules"], [])
 
   def test_list_hlo_modules_success(self):
-    """Verifies list_hlo_modules lists module names cleanly."""
+    """Verifies list_hlo_modules lists module names cleanly in JSON."""
     f1 = self.session_dir / "module_0001.jit_compute.hlo_proto.pb"
     f2 = self.session_dir / "module_0002.jit_eval.hlo_proto.pb"
     with mock.patch.object(
         hlo_tools, "_get_hlo_proto_files", return_value=[f1, f2]
     ):
       result = hlo_tools.list_hlo_modules(str(self.session_dir))
-      self.assertIn("Found 2 HLO modules:", result)
-      self.assertIn("0. module_0001.jit_compute", result)
-      self.assertIn("1. module_0002.jit_eval", result)
+      parsed = json.loads(result)
+      self.assertEqual(parsed["status"], "SUCCESS")
+      self.assertEqual(parsed["count"], 2)
+      self.assertEqual(
+          parsed["modules"],
+          ["module_0001.jit_compute", "module_0002.jit_eval"],
+      )
 
   def test_get_hlo_module_content_success(self):
-    """Verifies get_hlo_module_content retrieves and truncates text."""
+    """Verifies get_hlo_module_content retrieves and wraps text in JSON."""
     f1 = self.session_dir / "module_0001.jit_compute.hlo_proto.pb"
     mock_client = mock.MagicMock()
     sample_hlo = (
@@ -55,8 +63,22 @@ class OssHloToolsTest(absltest.TestCase):
       content = hlo_tools.get_hlo_module_content(
           str(self.session_dir), module_name="module_0001.jit_compute"
       )
-      self.assertIn("HloModule jit_compute", content)
-      self.assertIn("%neg = f32[10] negate(%x)", content)
+      parsed = json.loads(content)
+      self.assertEqual(parsed["status"], "SUCCESS")
+      self.assertEqual(parsed["module_name"], "module_0001.jit_compute")
+      self.assertIn("HloModule jit_compute", parsed["content"])
+      self.assertIn("%neg = f32[10] negate(%x)", parsed["content"])
+
+  def test_get_hlo_module_content_missing_module_raises_value_error(self):
+    """Verifies missing module raises ValueError."""
+    f1 = self.session_dir / "module_0001.jit_compute.hlo_proto.pb"
+    with mock.patch.object(
+        hlo_tools, "_get_hlo_proto_files", return_value=[f1]
+    ):
+      with self.assertRaisesRegex(ValueError, "Module 'nonexistent' not found"):
+        hlo_tools.get_hlo_module_content(
+            str(self.session_dir), module_name="nonexistent"
+        )
 
   def test_get_hlo_neighborhood_bfs(self):
     """Verifies get_hlo_neighborhood traverses operands and users."""
@@ -135,7 +157,9 @@ class OssHloToolsTest(absltest.TestCase):
       content = hlo_tools.get_hlo_text(
           str(self.session_dir), path=str(out_file)
       )
-      self.assertEqual(content, "HloModule test_export\n")
+      parsed = json.loads(content)
+      self.assertEqual(parsed["status"], "SUCCESS")
+      self.assertEqual(parsed["content"], "HloModule test_export\n")
       self.assertTrue(out_file.exists())
       self.assertEqual(
           out_file.read_text(encoding="utf-8"), "HloModule test_export\n"

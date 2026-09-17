@@ -19,6 +19,7 @@ import html
 import json
 import os
 import pathlib
+import shutil
 import string
 
 # pylint: disable=g-import-not-at-top
@@ -302,3 +303,29 @@ def generate_sxs_html_report(
   return output_html_path
 
 
+def publish_report_artifact(
+    report_path: str,
+    outputs_dir: str | None,
+    artifact_name: str = "sxs_report.html",
+) -> str | None:
+  """Copies a generated report into the Bazel undeclared outputs directory.
+
+  The test runner packages everything under TEST_UNDECLARED_OUTPUTS_DIR into
+  outputs.zip, allowing reviewers to inspect report artifacts without a local
+  checkout.
+
+  Args:
+    report_path: Path to the generated HTML report.
+    outputs_dir: Value of TEST_UNDECLARED_OUTPUTS_DIR, or None when the caller
+      is not running under the Bazel test runner.
+    artifact_name: Destination filename inside outputs_dir.
+
+  Returns:
+    The destination path, or None when no outputs directory is available.
+  """
+  if not outputs_dir or not os.path.isdir(outputs_dir):
+    return None
+  destination = os.path.join(outputs_dir, artifact_name)
+  if os.path.abspath(report_path) != os.path.abspath(destination):
+    shutil.copyfile(report_path, destination)
+  return destination

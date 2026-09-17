@@ -1,7 +1,9 @@
 """Multi-modal Side-by-Side (SxS) diff engine for A/B testing."""
 
+import argparse
 import collections
 import dataclasses
+import datetime
 import difflib
 import functools
 import hashlib
@@ -9,8 +11,11 @@ import io
 import json
 import logging
 import math
+import os
 import pathlib
 import re
+import sys
+import tempfile
 import urllib.parse
 
 from PIL import Image
@@ -90,6 +95,8 @@ class SxsDiffEngine:
 
   def __init__(self, approved_manifest_path: str | None = None):
     self.approved_manifest: dict[str, dict[str, str]] = {}
+    if approved_manifest_path is None:
+      approved_manifest_path = str(get_default_manifest_path())
     if approved_manifest_path:
       try:
         manifest = json.loads(
@@ -484,3 +491,131 @@ class SxsDiffEngine:
     )
 
 
+def get_default_manifest_path() -> pathlib.Path:
+  """Resolves the canonical path to approved_manifest.json."""
+  workspace = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
+  if workspace:
+    candidate = (
+        pathlib.Path(workspace)
+        / "third_party/xprof/tests/ui/approved_manifest.json"
+    )
+    if candidate.parent.is_dir():
+      return candidate
+  return pathlib.Path(__file__).resolve().parent / "approved_manifest.json"
+
+
+def approve_waypoint(
+    journey_id: str,
+    waypoint_id: str,
+    diff_hash: str,
+    manifest_path: str | pathlib.Path | None = None,
+    rationale: str = "Approved via CLI",
+) -> pathlib.Path:
+  """Safely updates or merges an approval token into the approved manifest."""
+  if not journey_id or not journey_id.strip():
+    raise ValueError("journey_id must be a non-empty string.")
+  if not waypoint_id or not waypoint_id.strip():
+    raise ValueError("waypoint_id must be a non-empty string.")
+  if not diff_hash or not diff_hash.strip():
+    raise ValueError("diff_hash must be a non-empty string.")
+
+  target_path = (
+      pathlib.Path(manifest_path).resolve()
+      if manifest_path
+      else get_default_manifest_path()
+  )
+  target_path.parent.mkdir(parents=True, exist_ok=True)
+
+  data: dict[str, object] = {"approved_diffs": {}}
+  if target_path.is_file():
+    content = target_path.read_text(encoding="utf-8").strip()
+    if content:
+      try:
+        parsed = json.loads(content)
+        if isinstance(parsed, dict):
+          data = parsed
+      except json.JSONDecodeError as err:
+        raise ValueError(
+            f"Failed to parse existing manifest at {target_path}: {err}"
+        ) from err
+
+  approved_diffs = data.setdefault("approved_diffs", {})
+  if not isinstance(approved_diffs, dict):
+    approved_diffs = {}
+    data["approved_diffs"] = approved_diffs
+
+  key = f"{journey_id.strip()}:{waypoint_id.strip()}"
+  entry = approved_diffs.setdefault(key, {})
+  if not isinstance(entry, dict):
+    entry = {}
+    approved_diffs[key] = entry
+  entry["diff_hash"] = diff_hash.strip()
+  entry["decision"] = "INTENTIONAL"
+  entry["rationale"] = rationale.strip() if rationale else "Approved via CLI"
+  entry["timestamp"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+  formatted = json.dumps(data, indent=2, sort_keys=True) + "\n"
+  with tempfile.NamedTemporaryFile(
+      "w",
+      dir=target_path.parent,
+      prefix=f".{target_path.name}.tmp.",
+      delete=False,
+      encoding="utf-8",
+  ) as tmp_file:
+    tmp_path = pathlib.Path(tmp_file.name)
+    tmp_file.write(formatted)
+  try:
+    os.replace(tmp_path, target_path)
+  finally:
+    if tmp_path.exists():
+      try:
+        tmp_path.unlink()
+      except OSError:
+        pass
+  return target_path
+
+
+def main(argv: list[str] | None = None) -> int:
+  """Main CLI entry point for the SxS diff engine and approval manager."""
+  parser = argparse.ArgumentParser(
+      description="OpenXLA XProf SxS diff engine and approval manifest manager."
+  )
+  subparsers = parser.add_subparsers(dest="command", required=True)
+  approve_parser = subparsers.add_parser(
+      "approve", help="Approve a diff hash for a specific journey waypoint."
+  )
+  approve_parser.add_argument(
+      "--journey", required=True, help="Journey identifier (e.g. triage)."
+  )
+  approve_parser.add_argument(
+      "--waypoint", required=True, help="Waypoint identifier (e.g. overview)."
+  )
+  approve_parser.add_argument(
+      "--hash", required=True, help="16-character diff hash."
+  )
+  approve_parser.add_argument(
+      "--manifest", default=None, help="Path to approved_manifest.json."
+  )
+  approve_parser.add_argument(
+      "--rationale",
+      default="Approved via CLI",
+      help="Rationale explaining why the diff is accepted as intentional.",
+  )
+
+  args = parser.parse_args(argv)
+  out_path = approve_waypoint(
+      journey_id=args.journey,
+      waypoint_id=args.waypoint,
+      diff_hash=args.hash,
+      manifest_path=args.manifest,
+      rationale=args.rationale,
+  )
+  print(
+      f"Successfully approved {args.journey}:{args.waypoint} "
+      f"(hash: {args.hash}) in {out_path}"
+  )
+  return 0
+
+
+if __name__ == "__main__":
+  sys.exit(main())

@@ -1,11 +1,15 @@
 """Unit tests for the multi-modal Side-by-Side (SxS) A/B diff engine."""
 
+import contextlib
+import difflib
+import hashlib
 import io
 import json
 import os
 import pathlib
 import tempfile
 import unittest
+from unittest import mock
 
 from PIL import Image
 
@@ -25,11 +29,58 @@ except ModuleNotFoundError as err:
     import sxs_diff_engine  # pyrefly: ignore[missing-import]
     import sxs_report_generator  # pyrefly: ignore[missing-import]
 
+approve_waypoint = sxs_diff_engine.approve_waypoint
+get_default_manifest_path = sxs_diff_engine.get_default_manifest_path
+sxs_main = sxs_diff_engine.main
+DomDiff = sxs_diff_engine.DomDiff
 NetworkDiff = sxs_diff_engine.NetworkDiff
 SxsDiffEngine = sxs_diff_engine.SxsDiffEngine
 VisualDiff = sxs_diff_engine.VisualDiff
 WaypointDiff = sxs_diff_engine.WaypointDiff
 generate_sxs_html_report = sxs_report_generator.generate_sxs_html_report
+publish_report_artifact = sxs_report_generator.publish_report_artifact
+
+
+def _find_runfile(path: str) -> pathlib.Path | None:
+  """Resolves a runfile path under Bazel or a local/OSS checkout."""
+  rel_path = path.removeprefix("third_party/xprof/")
+  srcdir = os.environ.get("TEST_SRCDIR")
+  workspace = os.environ.get("TEST_WORKSPACE", "")
+  if srcdir:
+    for ws in (workspace, "google3", "__main__", ""):
+      for sub in ("third_party/xprof", ""):
+        candidate = pathlib.Path(srcdir) / ws / sub / rel_path
+        if candidate.exists():
+          return candidate
+
+  for base in (
+      pathlib.Path(__file__).resolve().parent,
+      pathlib.Path.cwd().resolve(),
+  ):
+    direct = base / rel_path.removeprefix("tests/ui/")
+    if direct.exists():
+      return direct
+    for parent in (base, *base.parents):
+      for sub in ("", "third_party/xprof"):
+        candidate = parent / sub / rel_path
+        if candidate.exists():
+          return candidate
+  return None
+
+
+def _format_template_drift_banner(diff: WaypointDiff, report_path: str) -> str:
+  """Builds the failure banner for a template differing from baseline."""
+  return (
+      f"\n{'=' * 80}\n"
+      "  OVERVIEW PAGE TEMPLATE TEXT DIFFERS FROM ITS BASELINE\n"
+      f"  {diff.dom.added_lines} line(s) added,"
+      f" {diff.dom.deleted_lines} removed.\n\n"
+      "  This compares source text, not a render.\n"
+      f"  Report: {report_path}\n"
+      "  To approve: copy overview_page.ng.html over "
+      "goldens/overview_page.ng.html.\n"
+      f"{'=' * 80}"
+  )
 
 
 def _create_test_image(
@@ -368,6 +419,18 @@ class SxsDiffEngineTest(unittest.TestCase):
     self.assertIn("Visible Item", cleaned)
     self.assertIn('data-condition="count > 5"', cleaned)
 
+  def test_sanitize_dom_preserves_unmatched_closing_tag_with_matching_attrs(
+      self,
+  ):
+    """Verifies unmatched closing tags with filter attrs are not stripped."""
+    engine = SxsDiffEngine()
+    dom = (
+        '</script src="https://www.gstatic.com/charts/loader.js">'
+        "<div>keep me</div>"
+    )
+    cleaned = engine.sanitize_dom(dom)
+    self.assertIn("<div>keep me</div>", cleaned)
+
   def test_compute_network_diff_normalizes_query_params(self):
     """Verifies query parameters are normalized order-independently."""
     engine = SxsDiffEngine()
@@ -514,6 +577,23 @@ class SxsDiffEngineTest(unittest.TestCase):
         grew_taller.visual.diff_pixels, grew_wider.visual.diff_pixels
     )
     self.assertNotEqual(grew_taller.diff_hash, grew_wider.diff_hash)
+
+    # Even when added area matches background color (diff_pixels == 0),
+    # dimension_mismatch must still hash to distinct digests.
+    base_white = _create_test_image((255, 255, 255), size=(50, 50))
+    taller_white = _create_test_image((255, 255, 255), size=(50, 80))
+    wider_white = _create_test_image((255, 255, 255), size=(80, 50))
+    w_taller = engine.evaluate_waypoint(
+        "triage", "overview", base_white, taller_white, "<p>S</p>", "<p>S</p>",
+        [], [],
+    )
+    w_wider = engine.evaluate_waypoint(
+        "triage", "overview", base_white, wider_white, "<p>S</p>", "<p>S</p>",
+        [], [],
+    )
+    self.assertEqual(w_taller.visual.diff_pixels, 0)
+    self.assertEqual(w_wider.visual.diff_pixels, 0)
+    self.assertNotEqual(w_taller.diff_hash, w_wider.diff_hash)
 
   def test_manifest_file_loading_and_verdict(self):
     """Verifies SxsDiffEngine loads and enforces approved_manifest.json."""
@@ -820,6 +900,133 @@ class SxsDiffEngineTest(unittest.TestCase):
     self.assertNotIn("ALL JOURNEYS CERTIFIED", content)
     self.assertNotIn("approved_diffs: {}", content)
 
+  def test_publish_report_artifact_writes_to_undeclared_outputs(self):
+    """Verifies the report is copied into the Bazel undeclared outputs dir."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+      source = pathlib.Path(tmpdir) / "report.html"
+      source.write_text("<html></html>", encoding="utf-8")
+      outputs_dir = pathlib.Path(tmpdir) / "outputs"
+      outputs_dir.mkdir()
+
+      published = publish_report_artifact(str(source), str(outputs_dir))
+
+      destination = outputs_dir / "sxs_report.html"
+      self.assertEqual(published, str(destination))
+      self.assertEqual(destination.read_text(encoding="utf-8"), "<html></html>")
+      self.assertEqual(
+          publish_report_artifact(str(destination), str(outputs_dir)),
+          str(destination),
+      )
+
+  def test_publish_report_artifact_skips_unusable_outputs_dir(self):
+    """Verifies publication is skipped when no outputs directory is usable."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+      source = pathlib.Path(tmpdir) / "report.html"
+      source.write_text("<html></html>", encoding="utf-8")
+
+      self.assertIsNone(publish_report_artifact(str(source), None))
+      self.assertIsNone(publish_report_artifact(str(source), ""))
+
+  def test_overview_page_template_text_matches_baseline(self):
+    """Verifies the overview page template text still matches its baseline.
+
+    This is a source-text regression check and nothing else. It compares
+    overview_page.ng.html against a copy checked in under tests/ui/goldens; no
+    browser runs and nothing is rendered. It catches a template edit that lands
+    without its baseline being updated. It does not catch a CSS change, a
+    layout break, a font regression, or a broken binding, because none of those
+    alter these bytes.
+
+    This replaces a version that read the same two files and then built a
+    "candidate screenshot" by copying a Scuba golden and drawing an orange
+    rectangle onto it whenever the template contained a marker string, before
+    detecting the rectangle it had just drawn. That reported as visual coverage
+    while rendering nothing. Real visual coverage needs a live render in a
+    blocking lane, which does not exist for this package today.
+    """
+    candidate_path = _find_runfile(
+        "frontend/app/components/overview_page/overview_page.ng.html"
+    )
+    baseline_path = _find_runfile("tests/ui/goldens/overview_page.ng.html")
+    self.assertIsNotNone(
+        candidate_path, "overview_page.ng.html not found in runfiles"
+    )
+    self.assertIsNotNone(
+        baseline_path,
+        "baseline overview_page.ng.html not found in runfiles",
+    )
+
+    baseline_text = baseline_path.read_text(encoding="utf-8")
+    candidate_text = candidate_path.read_text(encoding="utf-8")
+    has_changes = baseline_text != candidate_text
+    raw_diff = list(
+        difflib.unified_diff(
+            baseline_text.splitlines(),
+            candidate_text.splitlines(),
+            fromfile="baseline/overview_page.ng.html",
+            tofile="candidate/overview_page.ng.html",
+            lineterm="",
+        )
+    )
+    added = sum(
+        1
+        for line in raw_diff
+        if line.startswith("+") and not line.startswith("+++")
+    )
+    deleted = sum(
+        1
+        for line in raw_diff
+        if line.startswith("-") and not line.startswith("---")
+    )
+    digest = (
+        hashlib.sha256("\n".join(raw_diff).encode("utf-8")).hexdigest()
+        if has_changes
+        else ""
+    )
+    dom = DomDiff(
+        has_changes=has_changes,
+        unified_diff="\n".join(raw_diff[:100]),
+        added_lines=added,
+        deleted_lines=deleted,
+        diff_digest=digest,
+    )
+
+    # Only the DOM leg carries a verdict here. The visual and network legs are
+    # constructed empty rather than fabricated, which is what makes the report
+    # below show a text diff and nothing that looks like a rendered comparison.
+    diff = WaypointDiff(
+        journey_name="overview_page",
+        waypoint_name="template_text",
+        visual=VisualDiff(diff_ratio=0.0, total_pixels=0, diff_pixels=0),
+        dom=dom,
+        network=NetworkDiff(
+            has_changes=False, request_count_a=0, request_count_b=0
+        ),
+        diff_hash=dom.diff_digest[:16],
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+      report_path = generate_sxs_html_report(
+          [diff], os.path.join(tmpdir, "overview_page_template_report.html")
+      )
+      published = None
+      if dom.has_changes:
+        published = publish_report_artifact(
+            report_path,
+            os.environ.get("TEST_UNDECLARED_OUTPUTS_DIR"),
+            artifact_name="overview_page_template_report.html",
+        )
+        publish_report_artifact(
+            report_path,
+            os.environ.get("TEST_FAILURE_UNDECLARED_OUTPUTS_DIR"),
+            artifact_name="overview_page_template_report.html",
+        )
+
+      self.assertFalse(
+          dom.has_changes,
+          msg=_format_template_drift_banner(diff, published or report_path),
+      )
+
   def test_spatial_diff_hash_uniqueness(self):
     """Verifies equal-count pixel changes at different positions differ."""
     engine = SxsDiffEngine()
@@ -882,6 +1089,151 @@ class SxsDiffEngineTest(unittest.TestCase):
     )
     self.assertTrue(diff_paths.has_changes)
 
+    # Distinct HTTP methods with identical URL/status are detected and formatted
+    diff_methods = engine.compute_network_diff(
+        [{"method": None, "url": "/a", "status": 200}],
+        [{"method": "POST", "url": "/a", "status": 200}],
+    )
+    self.assertTrue(diff_methods.has_changes)
+    self.assertIn(
+        "Endpoint divergence 'GET /a' (Status 200): 1 in Baseline vs 0 in"
+        " Candidate",
+        diff_methods.status_mismatches,
+    )
+    self.assertIn(
+        "Endpoint divergence 'POST /a' (Status 200): 0 in Baseline vs 1 in"
+        " Candidate",
+        diff_methods.status_mismatches,
+    )
+
+  def test_approve_waypoint_lifecycle(self):
+    """Verifies approve_waypoint creates, merges, and updates entries."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+      manifest_path = os.path.join(tmpdir, "manifest.json")
+
+      # 1. Create new manifest
+      approve_waypoint(
+          "triage",
+          "overview",
+          "hash_111",
+          manifest_path=manifest_path,
+          rationale="Initial spec",
+      )
+      data = json.loads(pathlib.Path(manifest_path).read_text(encoding="utf-8"))
+      entry = data["approved_diffs"]["triage:overview"]
+      self.assertEqual(entry["diff_hash"], "hash_111")
+      self.assertEqual(entry["decision"], "INTENTIONAL")
+      self.assertEqual(entry["rationale"], "Initial spec")
+      self.assertIn("timestamp", entry)
+
+      # 2. Merge additional entry without clobbering existing
+      approve_waypoint(
+          "triage", "hlo_stats", "hash_222", manifest_path=manifest_path
+      )
+      data = json.loads(pathlib.Path(manifest_path).read_text(encoding="utf-8"))
+      self.assertEqual(len(data["approved_diffs"]), 2)
+      self.assertEqual(
+          data["approved_diffs"]["triage:overview"]["diff_hash"], "hash_111"
+      )
+      self.assertEqual(
+          data["approved_diffs"]["triage:hlo_stats"]["diff_hash"], "hash_222"
+      )
+
+      # 3. Update existing entry with new hash and rationale
+      approve_waypoint(
+          "triage",
+          "overview",
+          "hash_333",
+          manifest_path=manifest_path,
+          rationale="Updated spec",
+      )
+      data = json.loads(pathlib.Path(manifest_path).read_text(encoding="utf-8"))
+      self.assertEqual(len(data["approved_diffs"]), 2)
+      self.assertEqual(
+          data["approved_diffs"]["triage:overview"]["diff_hash"], "hash_333"
+      )
+      self.assertEqual(
+          data["approved_diffs"]["triage:overview"]["rationale"], "Updated spec"
+      )
+
+  def test_approve_waypoint_validation_and_recovery(self):
+    """Verifies input validation and recovery on empty or corrupted files."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+      manifest_path = os.path.join(tmpdir, "manifest.json")
+
+      # Rejects blank inputs
+      for j, w, h in [("", "w", "h"), ("j", "", "h"), ("j", "w", "")]:
+        with self.assertRaises(ValueError):
+          approve_waypoint(j, w, h, manifest_path=manifest_path)
+
+      # Rejects corrupted JSON
+      pathlib.Path(manifest_path).write_text("{bad: json", encoding="utf-8")
+      with self.assertRaises(ValueError):
+        approve_waypoint("j", "w", "h", manifest_path=manifest_path)
+
+      # Recovers gracefully from empty file
+      pathlib.Path(manifest_path).write_text("", encoding="utf-8")
+      approve_waypoint("j", "w", "h", manifest_path=manifest_path)
+      data = json.loads(pathlib.Path(manifest_path).read_text(encoding="utf-8"))
+      self.assertEqual(data["approved_diffs"]["j:w"]["diff_hash"], "h")
+
+      # Recovers gracefully from corrupted non-dict entry
+      pathlib.Path(manifest_path).write_text(
+          json.dumps({"approved_diffs": {"j:w": "corrupted_string"}}),
+          encoding="utf-8",
+      )
+      approve_waypoint("j", "w", "new_hash", manifest_path=manifest_path)
+      data = json.loads(pathlib.Path(manifest_path).read_text(encoding="utf-8"))
+      self.assertEqual(data["approved_diffs"]["j:w"]["diff_hash"], "new_hash")
+
+      # Cleans up temporary file when os.replace fails
+      with mock.patch(
+          "os.replace", side_effect=OSError("Simulated replace failure")
+      ):
+        with self.assertRaises(OSError):
+          approve_waypoint("j", "w", "fail_hash", manifest_path=manifest_path)
+      self.assertEqual(list(pathlib.Path(tmpdir).glob(".*.tmp.*")), [])
+
+  def test_get_default_manifest_path_resolves(self):
+    """Verifies default manifest path points to approved_manifest.json."""
+    self.assertEqual(get_default_manifest_path().name, "approved_manifest.json")
+
+  def test_cli_approve(self):
+    """Verifies CLI approve updates manifest or fails on missing args."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+      manifest_path = os.path.join(tmpdir, "cli_manifest.json")
+      buf = io.StringIO()
+      with contextlib.redirect_stdout(buf):
+        exit_code = sxs_main([
+            "approve",
+            "--journey",
+            "cli_journey",
+            "--waypoint",
+            "cli_wp",
+            "--hash",
+            "deadbeef12345678",
+            "--manifest",
+            manifest_path,
+            "--rationale",
+            "Approved in terminal",
+        ])
+      self.assertEqual(exit_code, 0)
+      self.assertIn("Successfully approved cli_journey:cli_wp", buf.getvalue())
+      data = json.loads(pathlib.Path(manifest_path).read_text(encoding="utf-8"))
+      entry = data["approved_diffs"]["cli_journey:cli_wp"]
+      self.assertEqual(entry["diff_hash"], "deadbeef12345678")
+      self.assertEqual(entry["rationale"], "Approved in terminal")
+
+    for missing_args in (
+        [],
+        ["approve", "--waypoint", "cli_wp", "--hash", "deadbeef12345678"],
+        ["approve", "--journey", "cli_journey", "--hash", "deadbeef12345678"],
+        ["approve", "--journey", "cli_journey", "--waypoint", "cli_wp"],
+    ):
+      with contextlib.redirect_stderr(io.StringIO()):
+        with self.assertRaises(SystemExit):
+          sxs_main(missing_args)
+
   def test_sxs_report_3_state_summary_banner(self):
     """Verifies report summary banner supports identical, approved, and diff."""
     engine = SxsDiffEngine()
@@ -922,16 +1274,12 @@ class SxsDiffEngineTest(unittest.TestCase):
           requests_a=[],
           requests_b=[],
       )
-      pathlib.Path(manifest_path).write_text(
-          json.dumps({
-              "approved_diffs": {
-                  "triage:hlo_stats": {
-                      "diff_hash": diff_changed.diff_hash,
-                      "rationale": "Approved update",
-                  }
-              }
-          }),
-          encoding="utf-8",
+      approve_waypoint(
+          "triage",
+          "hlo_stats",
+          diff_changed.diff_hash,
+          manifest_path=manifest_path,
+          rationale="Approved update",
       )
       approved_engine = SxsDiffEngine(approved_manifest_path=manifest_path)
       diff_approved = approved_engine.evaluate_waypoint(

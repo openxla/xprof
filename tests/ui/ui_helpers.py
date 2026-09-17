@@ -1,6 +1,8 @@
 """Shared Playwright UI interaction helpers for XProf frontend tests."""
 
+import logging
 import pathlib
+import re
 import urllib.parse
 from playwright import sync_api
 
@@ -46,12 +48,22 @@ def _select_sidenav_dropdown_option(
   )
   sync_api.expect(dropdown).to_be_visible(timeout=5000)
   dropdown.click()
-  option = page.locator("mat-option").filter(has_text=option_text).first
+  aliases = [option_text]
+  if option_text in ("Op Profile", "HLO Op Profile"):
+    aliases = ["Op Profile", "HLO Op Profile"]
+  pattern = re.compile(
+      rf"^\s*(?:{'|'.join(re.escape(a) for a in aliases)})\s*$"
+  )
+  option = page.locator("mat-option").filter(has_text=pattern).first
   sync_api.expect(option).to_be_visible(timeout=5000)
   option.click()
   sync_api.expect(page.locator(".cdk-overlay-pane")).to_have_count(
       0, timeout=5000
   )
+  try:
+    page.mouse.move(0, 0)
+  except sync_api.Error as err:
+    logging.debug("Ignored mouse reset error after dropdown close: %s", err)
 
 
 def switch_tool(page: sync_api.Page, tool_name: str) -> None:

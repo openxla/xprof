@@ -176,6 +176,80 @@ TEST_F(ConvertMultiXSpaceToInferenceStatsTest,
 }
 
 TEST_F(ConvertMultiXSpaceToInferenceStatsTest,
+       ExtractsProgramIdFromEventNameIfStatMissing) {
+  XSpace xspace;
+
+  // 1. Set up TPU device plane (/device:TPU:0)
+  XPlane* device_plane = xspace.add_planes();
+  device_plane->set_name(absl::StrCat(tsl::profiler::kTpuPlanePrefix, "0"));
+  tsl::profiler::XPlaneBuilder device_builder(device_plane);
+  tsl::profiler::XLineBuilder xla_line = device_builder.GetOrCreateLine(0);
+  xla_line.SetName(tsl::profiler::kXlaModuleLineName);
+
+  // Expected program ID matches the 12345 in the string
+  constexpr uint64_t kExpectedProgramId = 12345ULL;
+  constexpr int64_t kGroupId = 42;
+
+  // Note: kProgramId stat is NOT added; the program ID string format is used
+  // instead.
+  tsl::profiler::XEventMetadata* event_metadata =
+      device_builder.GetOrCreateEventMetadata("my_hlo_module(12345)");
+
+  // Create TPU device event referencing the metadata and carrying kGroupId
+  tsl::profiler::XEventBuilder compute_event =
+      xla_line.AddEvent(*event_metadata);
+  compute_event.SetTimestampNs(1000);
+  compute_event.SetDurationNs(2000);
+  compute_event.AddStatValue(
+      *device_builder.GetOrCreateStatMetadata(
+          tsl::profiler::GetStatTypeStr(tsl::profiler::StatType::kGroupId)),
+      kGroupId);
+
+  // 2. Set up Host CPU plane (/host:CPU) with ProcessBatch event
+  XPlane* host_plane = xspace.add_planes();
+  host_plane->set_name(tsl::profiler::kHostThreadsPlaneName);
+  tsl::profiler::XPlaneBuilder host_builder(host_plane);
+  tsl::profiler::XLineBuilder host_line = host_builder.GetOrCreateLine(0);
+  host_line.SetName("BatchThread");
+
+  tsl::profiler::XEventMetadata* batch_metadata =
+      host_builder.GetOrCreateEventMetadata(tsl::profiler::GetHostEventTypeStr(
+          tsl::profiler::HostEventType::kProcessBatch));
+  tsl::profiler::XEventBuilder batch_event =
+      host_line.AddEvent(*batch_metadata);
+  batch_event.SetTimestampNs(500);
+  batch_event.SetDurationNs(3000);
+  batch_event.AddStatValue(
+      *host_builder.GetOrCreateStatMetadata(
+          tsl::profiler::GetStatTypeStr(tsl::profiler::StatType::kGroupId)),
+      kGroupId);
+
+  // 3. Populate group metadata
+  tsl::profiler::GroupMetadataMap group_metadata_map;
+  group_metadata_map[kGroupId] = tsl::profiler::GroupMetadata();
+
+  // 4. Run GenerateInferenceStats
+  std::vector<tsl::profiler::XPlane*> device_traces = {device_plane};
+  StepEvents nonoverlapped_step_events;
+  InferenceStats inference_stats;
+  GenerateInferenceStats(
+      device_traces, nonoverlapped_step_events, group_metadata_map, xspace,
+      tsl::profiler::DeviceType::kTpu, /*host_id=*/0, &inference_stats);
+
+  // 5. Assert batch_details has program_id populated!
+  EXPECT_THAT(
+      inference_stats.inference_stats_per_host(),
+      testing::Contains(testing::Pair(
+          0, testing::Property(
+                 &PerHostInferenceStats::batch_details,
+                 testing::Contains(testing::AllOf(
+                     testing::Property(&BatchDetail::batch_id, kGroupId),
+                     testing::Property(
+                         &BatchDetail::program_ids,
+                         testing::Contains(kExpectedProgramId))))))));
+}
+
+TEST_F(ConvertMultiXSpaceToInferenceStatsTest,
        AppendsProgramIdOnBatchCollision) {
   XSpace xspace;
 

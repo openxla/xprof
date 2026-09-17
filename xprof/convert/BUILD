@@ -2927,6 +2927,7 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
+        "@org_xprof//xprof/convert/events_db:event_utils",
         "@org_xprof//xprof/utils:event_span",
         "@tsl//tsl/platform:protobuf",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",

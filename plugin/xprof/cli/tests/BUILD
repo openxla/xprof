@@ -14,6 +14,17 @@ py_test(
 )
 
 py_test(
+    name = "hlo_shape_utils_test",
+    srcs = ["hlo_shape_utils_test.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//plugin/xprof/cli/internal:hlo_shape_utils",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+py_test(
     name = "check_host_boundness_tool_test",
     srcs = ["check_host_boundness_tool_test.py"],
     visibility = ["//visibility:public"],

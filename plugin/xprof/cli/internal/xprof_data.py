@@ -6,6 +6,7 @@ import logging
 from google.protobuf import json_format
 
 from xprof.cli.internal import decorators
+from xprof.cli.internal import hlo_shape_utils
 from xprof.cli.internal.oss import xprof_client
 from xprof.protobuf import op_profile_pb2
 
@@ -356,15 +357,58 @@ def get_hlo_op_profile(
             if category_str == "unknown" and name.startswith("%"):
               category_str = name.lstrip("%").split(".")[0].split("_")[0]
 
+          category_lower = category_str.lower()
+          name_lower = full_name.lower()
+          expr_str = (
+              node.xla.expression
+              if (node.HasField("xla") and node.xla.expression)
+              else ""
+          )
+          expr_lower = expr_str.lower()
+          is_custom = (
+              "custom-call" in category_lower
+              or "custom_call" in category_lower
+              or "custom-call" in name_lower
+              or "custom_call" in name_lower
+              or "custom-call" in expr_lower
+              or "custom_call" in expr_lower
+              or "custom_call_target" in expr_lower
+          )
+
           occurrences = metrics.occurrences if metrics.occurrences > 0 else 1
+          op_flops = metrics.raw_flops
+          op_bytes = total_bytes
+          flops_prov = "xla_cost_model"
+
+          if is_custom:
+            if expr_str:
+              derived_flops, derived_bytes, prov = (
+                  hlo_shape_utils.derive_custom_call_flops_and_bytes(
+                      expr_str, category_str, full_name
+                  )
+              )
+              flops_prov = prov
+              if prov == "derived_from_shapes" and derived_flops is not None:
+                op_flops = derived_flops * occurrences
+                if derived_bytes is not None:
+                  op_bytes = derived_bytes * occurrences
+              else:
+                flops_prov = "opaque_custom_call"
+                op_flops = 0.0
+                op_bytes = 0.0
+            else:
+              flops_prov = "opaque_custom_call"
+              op_flops = 0.0
+              op_bytes = 0.0
 
           item = {
               "name": full_name,
               "category": category_str,
               "total_self_time_ms": round(metrics.raw_time / 1e9, 4),
               "occurrences": occurrences,
-              "flops": metrics.raw_flops,
-              "bytes_accessed": total_bytes,
+              "flops": op_flops,
+              "bytes_accessed": op_bytes,
+              "flops_provenance": flops_prov,
           }
           if node.HasField("xla") and node.xla.HasField("source_info"):
             if node.xla.source_info.file_name:

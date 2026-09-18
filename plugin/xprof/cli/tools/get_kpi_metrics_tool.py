@@ -10,6 +10,7 @@ import logging
 
 from xprof.cli.tools import get_memory_profile_tool
 from xprof.cli.tools import get_overview_tool
+from xprof.cli.tools import get_roofline_model_tool
 
 
 def get_kpi_metrics(session_id: str, *, bypass_cache: bool = False) -> str:
@@ -25,6 +26,8 @@ def get_kpi_metrics(session_id: str, *, bypass_cache: bool = False) -> str:
         - duty_cycle_percent: The device duty cycle as a percentage.
         - mxu_utilization_percent: MXU utilization as a percentage.
         - roofline_utilization: Flop rate utilization relative to roofline.
+        - flops_provenance: Provenance of FLOP calculations ('xla_cost_model',
+          'derived_from_shapes', or 'opaque_custom_call').
         - peak_hbm_gib: Peak memory usage in GiB.
         - accelerator_info: Dictionary with device_type and device_core_count.
         - error: (Optional) Error message if the operation failed.
@@ -66,14 +69,35 @@ def get_kpi_metrics(session_id: str, *, bypass_cache: bool = False) -> str:
 
   peak_hbm = collections.defaultdict(lambda: "N/A", peak_hbm_data)
 
+  roofline_util = perf_summary["flop_rate_utilization_relative_to_roofline"]
+  flops_provenance = "xla_cost_model"
+  try:
+    roofline_json = get_roofline_model_tool.get_roofline_model(
+        session_id, bypass_cache=bypass_cache
+    )
+    roofline_data = json.loads(roofline_json)
+    prog_roofline = roofline_data.get("program", {})
+    if prog_roofline.get("flops_provenance"):
+      flops_provenance = prog_roofline["flops_provenance"]
+    if (
+        flops_provenance == "derived_from_shapes"
+        and prog_roofline.get("roofline_efficiency_percent")
+    ):
+      roofline_util = prog_roofline["roofline_efficiency_percent"]
+  except Exception as e:  # pylint: disable=broad-exception-caught
+    logging.debug(
+        "get_roofline_model fallback in get_kpi_metrics failed for %s: %s",
+        session_id,
+        e,
+    )
+
   return json.dumps(
       {
           "step_time_ms": perf_summary["steptime_ms_average"],
           "duty_cycle_percent": perf_summary["device_duty_cycle_percent"],
           "mxu_utilization_percent": perf_summary["mxu_utilization_percent"],
-          "roofline_utilization": perf_summary[
-              "flop_rate_utilization_relative_to_roofline"
-          ],
+          "roofline_utilization": roofline_util,
+          "flops_provenance": flops_provenance,
           "peak_hbm_gib": peak_hbm["peak_memory_usage_gib"],
           "accelerator_info": {
               "device_type": run_env["device_type"],

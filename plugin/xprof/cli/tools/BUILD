@@ -45,7 +45,10 @@ pytype_strict_library(
     srcs = ["get_roofline_model_tool.py"],
     deps = [
         "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal:hlo_shape_utils",
         "//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/protobuf:op_profile_proto_py",
+        "@pypi//protobuf",
     ],
 )
 
@@ -141,6 +144,7 @@ pytype_strict_library(
     deps = [
         ":get_memory_profile_tool",
         ":get_overview_tool",
+        ":get_roofline_model_tool",
     ],
 )
 

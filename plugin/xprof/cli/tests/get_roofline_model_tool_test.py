@@ -257,6 +257,131 @@ class GetRooflineModelToolTest(absltest.TestCase):
         bypass_cache=True,
     )
 
+  def test_get_roofline_model_derives_custom_call_flops_from_shapes(self):
+    roofline_raw_data = [{
+        "cols": [
+            {"id": "step_id", "type": "string"},
+            {"id": "rank", "type": "number"},
+            {"id": "category", "type": "string"},
+            {"id": "operation", "type": "string"},
+            {"id": "occurrences", "type": "number"},
+            {"id": "total_time", "type": "number"},
+            {"id": "total_self_time", "type": "number"},
+            {"id": "total_self_time_percent", "type": "number"},
+            {"id": "measured_flop_rate", "type": "number"},
+            {"id": "model_flop_rate", "type": "number"},
+            {"id": "measured_memory_bw", "type": "number"},
+            {"id": "hbm_bw", "type": "number"},
+            {"id": "operational_intensity", "type": "number"},
+            {"id": "bound_by", "type": "string"},
+            {"id": "roofline_efficiency", "type": "number"},
+            {"id": "compute_efficiency", "type": "number"},
+            {"id": "max_mem_bw_utilization", "type": "number"},
+            {"id": "hlo_module_id", "type": "string"},
+            {"id": "source_info", "type": "string"},
+        ],
+        "p": {
+            "device_type": "TPU v7x",
+            "peak_flop_rate": "918000",
+            "peak_hbm_bw": "1638.0",
+            "hbm_ridge_point": "560.44",
+        },
+        "rows": [
+            {
+                "c": [
+                    {"v": "Total"},
+                    {"v": 0.0},
+                    {"v": "Program"},
+                    {"v": "Program"},
+                    {"v": 1.0},
+                    {"v": 396.32},
+                    {"v": 396.32},
+                    {"v": 1.0},
+                    {"v": 0.0},
+                    {"v": 0.0},
+                    {"v": 77.15},
+                    {"v": 77.15},
+                    {"v": 0.0},
+                    {"v": "HBM"},
+                    {"v": 0.0471},
+                    {"v": 0.0},
+                    {"v": 0.0471},
+                    {"v": "0"},
+                    {"v": ""},
+                ]
+            },
+            {
+                "c": [
+                    {"v": "Total"},
+                    {"v": 1.0},
+                    {"v": "custom-call"},
+                    {"v": "custom-call.1"},
+                    {"v": 1.0},
+                    {"v": 396.32},
+                    {"v": 396.32},
+                    {"v": 1.0},
+                    {"v": 0.0},
+                    {"v": 0.0},
+                    {"v": 77.15},
+                    {"v": 77.15},
+                    {"v": 0.0},
+                    {"v": "Unknown"},
+                    {"v": 0.0471},
+                    {"v": 0.0},
+                    {"v": 0.0471},
+                    {"v": "12345"},
+                    {"v": ""},
+                ]
+            },
+        ],
+    }]
+    op_profile_json = json.dumps({
+        "by_program": {
+            "name": "main",
+            "children": [{
+                "name": "custom-call.1",
+                "xla": {
+                    "expression": (
+                        "%custom-call.1 = bf16[4,4096,4096] custom-call("
+                        "bf16[4,4096,2048] %p0, bf16[2048,4096] %p1)"
+                    )
+                },
+            }],
+        }
+    }).encode("utf-8")
+
+    def fake_fetch(tool_name, session_id, bypass_cache=False):
+      del session_id, bypass_cache
+      if tool_name == "roofline_model.json":
+        return (
+            "application/json",
+            json.dumps(roofline_raw_data).encode("utf-8"),
+        )
+      if tool_name == "hlo_op_profile.json":
+        return ("application/json", op_profile_json)
+      return ("application/json", None)
+
+    self.mock_client.fetch.side_effect = fake_fetch
+
+    result = get_roofline_model_tool.get_roofline_model(
+        "test_session", bypass_cache=True
+    )
+    parsed = json.loads(result)
+
+    self.assertEqual(
+        parsed["program"]["flops_provenance"], "derived_from_shapes"
+    )
+    self.assertEqual(parsed["program"]["bound_by"], "Compute")
+    self.assertEqual(parsed["program"]["compute_efficiency_percent"], "75.55%")
+    self.assertEqual(parsed["program"]["roofline_efficiency_percent"], "75.55%")
+    self.assertLen(parsed["top_operations"], 1)
+    op = parsed["top_operations"][0]
+    self.assertEqual(op["flops_provenance"], "derived_from_shapes")
+    self.assertEqual(op["bound_by"], "Compute")
+    self.assertEqual(op["compute_efficiency_percent"], "75.55%")
+    self.assertEqual(op["roofline_efficiency_percent"], "75.55%")
+
 
 if __name__ == "__main__":
   absltest.main()
+

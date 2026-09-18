@@ -6,8 +6,54 @@ import re
 import traceback
 from typing import Any
 
+from google.protobuf import json_format
 from xprof.cli.internal import decorators
+from xprof.cli.internal import hlo_shape_utils
 from xprof.cli.internal.oss import xprof_client
+from xprof.protobuf import op_profile_pb2
+
+
+def _fetch_op_profile_expressions(
+    session_id: str, client: Any, bypass_cache: bool
+) -> dict[str, str]:
+  """Fetches HLO expression strings from op_profile if available."""
+  expressions_by_name: dict[str, str] = {}
+  try:
+    result = client.fetch(
+        tool_name="hlo_op_profile.json",
+        session_id=session_id,
+        bypass_cache=bypass_cache,
+    )
+    if not result or (isinstance(result, tuple) and not result[1]):
+      result = client.fetch(
+          tool_name="op_profile",
+          session_id=session_id,
+          bypass_cache=bypass_cache,
+      )
+    if isinstance(result, tuple) and len(result) == 2:
+      _, raw_data = result
+    else:
+      raw_data = result
+    if raw_data:
+      if isinstance(raw_data, bytes):
+        raw_data = raw_data.decode("utf-8", errors="replace")
+      profile = op_profile_pb2.Profile()
+      json_format.Parse(raw_data, profile, ignore_unknown_fields=True)
+      if profile.HasField("by_program"):
+        hlo_shape_utils.extract_expressions_from_op_profile_node(
+            profile.by_program, expressions_by_name
+        )
+      if profile.HasField("by_category"):
+        hlo_shape_utils.extract_expressions_from_op_profile_node(
+            profile.by_category, expressions_by_name
+        )
+  except Exception:  # pylint: disable=broad-exception-caught
+    logging.debug(
+        "Could not fetch op_profile expressions for %s",
+        session_id,
+        exc_info=True,
+    )
+  return expressions_by_name
 
 
 def _strip_html_tags(text: str) -> str:
@@ -215,7 +261,14 @@ def get_roofline_model(
         "total_time_ms": round(
             safe_float(prog_dict.get("total_time")) / 1000.0, 3
         ),
+        "flops_provenance": "xla_cost_model",
     }
+
+    peak_flop_rate = safe_float(device_info.get("peak_flop_rate"))
+    ridge_point = safe_float(
+        device_info.get("hbm_ridge_point")
+    ) or safe_float(device_info.get("ridge_point"))
+    expressions_by_name: dict[str, str] | None = None
 
     op_records = []
     for r in rows[1:]:
@@ -230,11 +283,76 @@ def get_roofline_model(
       op_name = r_dict.get("operation") or r_dict.get("hlo_name", "")
       op_category = r_dict.get("category") or r_dict.get("hlo_category", "")
       bound_by_val = r_dict.get("bound_by") or "Unknown"
-      if bound_by_val == "Unknown" and (
+      op_compute_eff = safe_float(r_dict.get("compute_efficiency"))
+      op_roofline_eff = safe_float(r_dict.get("roofline_efficiency"))
+      op_max_mem_eff = safe_float(r_dict.get("max_mem_bw_utilization"))
+      op_intensity = safe_float(r_dict.get("operational_intensity"))
+      provenance = "xla_cost_model"
+      derived_flops: float | None = None
+      derived_bytes: float | None = None
+
+      if expressions_by_name is None:
+        expressions_by_name = _fetch_op_profile_expressions(
+            session_id, client, bypass_cache
+        )
+      expr = (
+          r_dict.get("expression")
+          or r_dict.get("hlo_expression")
+          or (expressions_by_name.get(op_name) if expressions_by_name else "")
+          or (
+              expressions_by_name.get(op_name.lstrip("%"))
+              if expressions_by_name
+              else ""
+          )
+          or op_name
+      )
+      is_custom = (
           op_name.startswith("custom-call")
+          or "custom-call" in op_name.lower()
+          or "custom_call" in op_name.lower()
           or op_category.lower() in ("custom-call", "custom_call")
-      ):
-        bound_by_val = "CustomCall (opaque)"
+          or "custom-call" in expr.lower()
+          or "custom_call" in expr.lower()
+          or "custom_call_target" in expr.lower()
+      )
+      orig_op_flop_rate = safe_float(
+          r_dict.get("measured_flop_rate")
+      ) or safe_float(r_dict.get("model_flop_rate"))
+      orig_op_flops = orig_op_flop_rate * (self_time_us * 1e3)
+
+      if is_custom:
+        derived_flops, derived_bytes, provenance = (
+            hlo_shape_utils.derive_custom_call_flops_and_bytes(
+                expr, op_category, op_name
+            )
+        )
+        if (
+            provenance == "derived_from_shapes"
+            and derived_flops
+            and derived_flops > 0
+        ):
+          op_flop_rate_gflops = derived_flops / (self_time_us * 1e3)
+          if peak_flop_rate > 0:
+            op_compute_eff = op_flop_rate_gflops / peak_flop_rate
+          op_roofline_eff = max(op_compute_eff, op_max_mem_eff)
+          if derived_bytes and derived_bytes > 0:
+            op_intensity = derived_flops / derived_bytes
+          if ridge_point > 0:
+            bound_by_val = "Compute" if op_intensity >= ridge_point else "HBM"
+          elif op_compute_eff >= op_max_mem_eff:
+            bound_by_val = "Compute"
+          else:
+            bound_by_val = "HBM"
+        else:
+          provenance = "opaque_custom_call"
+          bound_by_val = "CustomCall (opaque)"
+          op_compute_eff = 0.0
+          op_roofline_eff = op_max_mem_eff
+          op_intensity = 0.0
+
+      orig_replaced_flops = 0.0
+      if is_custom and (derived_flops or provenance == "opaque_custom_call"):
+        orig_replaced_flops = orig_op_flops
 
       op_records.append({
           "rank": int(safe_float(r_dict.get("rank"))),
@@ -244,28 +362,24 @@ def get_roofline_model(
           "total_self_time_percent": to_percent_str(
               r_dict.get("total_self_time_percent")
           ),
-          "operational_intensity_flop_per_byte": round(
-              safe_float(r_dict.get("operational_intensity")), 4
-          ),
+          "operational_intensity_flop_per_byte": round(op_intensity, 4),
           "bottleneck_operational_intensity_flop_per_byte": round(
               safe_float(r_dict.get("bottleneck_operational_intensity")), 4
           ),
-          "roofline_efficiency_percent": to_percent_str(
-              r_dict.get("roofline_efficiency")
-          ),
-          "compute_efficiency_percent": to_percent_str(
-              r_dict.get("compute_efficiency")
-          ),
-          "max_mem_bw_utilization_percent": to_percent_str(
-              r_dict.get("max_mem_bw_utilization")
-          ),
+          "roofline_efficiency_percent": to_percent_str(op_roofline_eff),
+          "compute_efficiency_percent": to_percent_str(op_compute_eff),
+          "max_mem_bw_utilization_percent": to_percent_str(op_max_mem_eff),
           "optimal_flop_rate_gflops": round(
               safe_float(r_dict.get("optimal_flop_rate")), 2
           ),
           "dma_stall_percent": to_percent_str(r_dict.get("dma_stall_percent")),
           "bound_by": bound_by_val,
+          "flops_provenance": provenance,
           "hlo_module_id": str(r_dict.get("hlo_module_id", "")),
           "source_info": cleaned_source,
+          "_derived_flops": derived_flops or 0.0,
+          "_derived_bytes": derived_bytes or 0.0,
+          "_orig_replaced_flops": orig_replaced_flops,
       })
 
     # Deduplicate operations by (rank, name)
@@ -277,13 +391,82 @@ def get_roofline_model(
         seen_ops.add(op_key)
         unique_op_records.append(op)
 
+    total_derived_flops = sum(
+        op.pop("_derived_flops", 0.0) for op in unique_op_records
+    )
+    total_derived_bytes = sum(
+        op.pop("_derived_bytes", 0.0) for op in unique_op_records
+    )
+    total_orig_replaced_flops = sum(
+        op.pop("_orig_replaced_flops", 0.0) for op in unique_op_records
+    )
+    for op in op_records:
+      op.pop("_derived_flops", None)
+      op.pop("_derived_bytes", None)
+      op.pop("_orig_replaced_flops", None)
+
     unique_op_records.sort(key=lambda x: x["total_self_time_ms"], reverse=True)
     top_ops = unique_op_records[:top_n]
 
-    has_custom_call = any(
-        op.get("bound_by") == "CustomCall (opaque)" for op in top_ops
+    if total_derived_flops > 0:
+      prog_total_time_us = safe_float(prog_dict.get("total_time"))
+      if prog_total_time_us <= 0:
+        prog_total_time_us = sum(
+            op["total_self_time_ms"] * 1000.0 for op in unique_op_records
+        )
+      if prog_total_time_us > 0:
+        orig_prog_flops = safe_float(prog_dict.get("measured_flop_rate")) * (
+            prog_total_time_us * 1e3
+        )
+        new_prog_flops = max(
+            0.0, orig_prog_flops - total_orig_replaced_flops
+        ) + total_derived_flops
+        new_prog_flop_rate = new_prog_flops / (prog_total_time_us * 1e3)
+        prog_compute_eff = (
+            new_prog_flop_rate / peak_flop_rate
+            if peak_flop_rate > 0
+            else safe_float(prog_dict.get("compute_efficiency"))
+        )
+        prog_max_mem_eff = safe_float(prog_dict.get("max_mem_bw_utilization"))
+        prog_roofline_eff = max(prog_compute_eff, prog_max_mem_eff)
+        prog_mem_bw = safe_float(prog_dict.get("measured_memory_bw"))
+        if prog_mem_bw > 0:
+          prog_op_intensity = new_prog_flop_rate / prog_mem_bw
+        elif total_derived_bytes > 0:
+          prog_op_intensity = new_prog_flops / total_derived_bytes
+        else:
+          prog_op_intensity = safe_float(prog_dict.get("operational_intensity"))
+
+        if ridge_point > 0:
+          prog_bound_by = (
+              "Compute" if prog_op_intensity >= ridge_point else "HBM"
+          )
+        elif prog_compute_eff >= prog_max_mem_eff:
+          prog_bound_by = "Compute"
+        else:
+          prog_bound_by = prog_dict.get("bound_by", "Unknown")
+
+        program_metrics["measured_flop_rate_gflops"] = round(
+            new_prog_flop_rate, 2
+        )
+        program_metrics["compute_efficiency_percent"] = to_percent_str(
+            prog_compute_eff
+        )
+        program_metrics["roofline_efficiency_percent"] = to_percent_str(
+            prog_roofline_eff
+        )
+        program_metrics["operational_intensity_flop_per_byte"] = round(
+            prog_op_intensity, 4
+        )
+        program_metrics["bound_by"] = prog_bound_by
+        program_metrics["flops_provenance"] = "derived_from_shapes"
+
+    has_opaque_custom_call = any(
+        op.get("flops_provenance") == "opaque_custom_call" for op in top_ops
     )
-    if has_custom_call:
+    if has_opaque_custom_call and total_derived_flops == 0:
+      if program_metrics.get("flops_provenance") == "xla_cost_model":
+        program_metrics["flops_provenance"] = "opaque_custom_call"
       if program_metrics.get("bound_by") in ("Unknown", "", None):
         program_metrics["bound_by"] = "CustomCall (opaque)"
 
@@ -293,9 +476,9 @@ def get_roofline_model(
         "top_operations": top_ops,
         "total_operations_analyzed": len(unique_op_records),
     }
-    if has_custom_call:
+    if has_opaque_custom_call:
       output["guidance"] = (
-          "Op-level metrics unavailable for custom calls. Use"
+          "Op-level metrics unavailable for opaque custom calls. Use"
           " get_llo_analysis, get_llo_debug_string, and aggregate_xplane_events"
           " for Pallas kernels."
       )

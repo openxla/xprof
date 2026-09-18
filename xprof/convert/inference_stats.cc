@@ -27,7 +27,6 @@ limitations under the License.
 #include <vector>
 
 #include "absl/algorithm/container.h"
-#include "absl/base/macros.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/ascii.h"
@@ -49,6 +48,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/platform/protobuf.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/events_db/event_utils.h"
 #include "plugin/xprof/protobuf/inference_stats.pb.h"
 #include "xprof/utils/event_span.h"
 
@@ -504,10 +504,6 @@ void BuildTPUDeviceEvents(const std::vector<XPlane*>& device_traces,
         std::optional<XStatVisitor> group_id =
             event.GetStat(StatType::kGroupId);
         if (!group_id) return;
-        // Read program_id from the same device event for batch -> program
-        // linking.
-        std::optional<XStatVisitor> program_id =
-            event.GetEventOrMetadataStat(StatType::kProgramId);
         // TPU compute does not specify 32bit or 16bit, use
         // DEVICE_COMPUTE_32 to annotate this is a compute event.
         event_to_update[0] = {EventType::DEVICE_COMPUTE_32,
@@ -517,14 +513,23 @@ void BuildTPUDeviceEvents(const std::vector<XPlane*>& device_traces,
                               group_id->IntValue(), request_events_map);
         }
         if (batch_events_map != nullptr) {
-          BatchEvents* batch_events = UpdateBatchEvents(
-              event_to_update, group_id->IntValue(), batch_events_map);
-          if (program_id.has_value() && batch_events != nullptr) {
-            auto& batch_detail = batch_events->batch_detail_proto;
-            uint64_t pid = program_id->IntOrUintValue();
-            // Append to program_ids list if not already present.
-            if (!absl::c_linear_search(batch_detail.program_ids(), pid)) {
-              batch_detail.add_program_ids(pid);
+          if (BatchEvents* batch_events = UpdateBatchEvents(
+                  event_to_update, group_id->IntValue(), batch_events_map);
+              batch_events != nullptr) {
+            std::optional<XStatVisitor> program_id_stat =
+                event.GetEventOrMetadataStat(StatType::kProgramId);
+            std::optional<uint64_t> program_id =
+                program_id_stat.has_value()
+                    ? std::make_optional(program_id_stat->IntOrUintValue())
+                    : xprof::events_db::internal::GetProgramIdFromHloModuleName(
+                          event.Name());
+            if (program_id.has_value()) {
+              uint64_t pid = *program_id;
+              auto& batch_detail = batch_events->batch_detail_proto;
+              // Append to program_ids list if not already present.
+              if (!absl::c_linear_search(batch_detail.program_ids(), pid)) {
+                batch_detail.add_program_ids(pid);
+              }
             }
           }
         }

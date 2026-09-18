@@ -69,6 +69,7 @@ cc_library(
     name = "event_utils",
     srcs = ["event_utils.cc"],
     hdrs = ["event_utils.h"],
+    visibility = ["//xprof:__subpackages__"],
     deps = [
         ":schema",
         "@com_google_absl//absl/strings",

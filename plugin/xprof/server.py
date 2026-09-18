@@ -286,7 +286,6 @@ _CLI_SUBCOMMANDS = frozenset({
     "list_hlo_modules",
     "list_xplane_events",
     "upload_trace",
-    "verify_numerical_parity",
 })
 
 

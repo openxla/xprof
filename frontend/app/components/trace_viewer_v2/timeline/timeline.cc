@@ -971,18 +971,18 @@ void Timeline::Draw() {
   const Pixel total_tracks_height =
       group_offsets_.empty() ? 0.0f : group_offsets_.back();
   if (total_tracks_height > 0.0f) {
+    if (!group_offsets_.empty() && group_offsets_.back() > 0.0f) {
     ImGui::SetCursorPos(
         ImVec2(0, tracks_start_pos.y + total_tracks_height - 1.0f));
     ImGui::Dummy(ImVec2(content_region_avail_width, 1.0f));
   }
 
-  // Handle label resizing manually since we removed the table
-  if (kSplitterWidth > 0.0f && total_tracks_height > 0.0f) {
-    ImGui::SetCursorPos(
-        ImVec2(tracks_start_pos.x + label_width_ - kSplitterOffset,
-               tracks_start_pos.y));
+    // Handle label resizing manually since we removed the table
+    ImGui::SetCursorPos(ImVec2(
+        tracks_start_pos.x + label_width_ - kSplitterOffset,
+        tracks_start_pos.y));
     ImGui::InvisibleButton("##LabelResizer",
-                           ImVec2(kSplitterWidth, total_tracks_height));
+                           ImVec2(kSplitterWidth, group_offsets_.back()));
     if (ImGui::IsItemActive()) {
       label_width_ += ImGui::GetIO().MouseDelta.x;
       label_width_ = std::max(10.0f, label_width_);

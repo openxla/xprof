@@ -29,7 +29,7 @@ class DtypeProfile:
   outlier_scale_limit: float
 
 
-PROFILES: dict[str, DtypeProfile] = {
+PROFILES: types.MappingProxyType[str, DtypeProfile] = types.MappingProxyType({
     "float32": DtypeProfile(
         dtype_str="float32",
         numpy_dtype=np.float32,
@@ -96,7 +96,7 @@ PROFILES: dict[str, DtypeProfile] = {
         default_df=5.0,
         outlier_scale_limit=100.0,
     ),
-}
+})
 
 
 @dataclasses.dataclass(frozen=True)
@@ -122,8 +122,8 @@ INTEGER_PROFILES: types.MappingProxyType[str, IntegerDtypeProfile] = (
         ),
         "int16": IntegerDtypeProfile("int16", np.int16, -32768, 32767, True),
         "int8": IntegerDtypeProfile("int8", np.int8, -128, 127, True),
-        "uint32": (
-            IntegerDtypeProfile("uint32", np.uint32, 0, 4294967295, False)
+        "uint32": IntegerDtypeProfile(
+            "uint32", np.uint32, 0, 4294967295, False
         ),
         "uint64": IntegerDtypeProfile(
             "uint64", np.uint64, 0, 18446744073709551615, False
@@ -223,6 +223,87 @@ def generate_outlier_tensor(
   outliers = signs * (median_val * scale)
 
   return np.where(mask, outliers, base_fp32).astype(profile.numpy_dtype)
+
+
+def generate_per_channel_outlier_tensor(
+    shape: _Sequence[int],
+    dtype_str: str = "bfloat16",
+    channel_axis: int = -1,
+    outlier_channel_ratio: float = 0.02,
+    outlier_scale: float = 50.0,
+    seed: int = 42,
+) -> np.ndarray:
+  """Generates channel-aligned activation spikes (LLM SmoothQuant/AWQ regime).
+
+  In large transformer models, activation outliers are not uniformly scattered
+  but concentrated in a small fraction (1-2%) of hidden channels across all
+  sequence tokens. This generator amplifies selected channels along
+  `channel_axis` by `outlier_scale`.
+
+  Args:
+    shape: Target tensor shape tuple.
+    dtype_str: Target floating-point dtype string.
+    channel_axis: Axis representing feature/hidden channels (default: -1).
+    outlier_channel_ratio: Fraction of channels to amplify in [0, 1].
+    outlier_scale: Multiplicative scale factor for outlier channels.
+    seed: Random number generator seed.
+
+  Returns:
+    NumPy array with structured per-channel activation outliers.
+
+  Raises:
+    ValueError: If `outlier_channel_ratio` is outside [0.0, 1.0] or
+      `outlier_scale` is not finite and positive.
+    KeyError: If `dtype_str` is not a supported floating-point dtype in
+      `PROFILES`.
+    IndexError: If `channel_axis` is out of bounds for `shape`.
+  """
+  if not (0.0 <= outlier_channel_ratio <= 1.0):
+    raise ValueError(
+        "outlier_channel_ratio must be between 0.0 and 1.0, got"
+        f" {outlier_channel_ratio}"
+    )
+  if not np.isfinite(outlier_scale) or outlier_scale <= 0.0:
+    raise ValueError(
+        f"outlier_scale must be finite and positive, got {outlier_scale}"
+    )
+  if dtype_str not in PROFILES:
+    raise KeyError(
+        f"Unsupported dtype_str '{dtype_str}'. Supported:"
+        f" {list(PROFILES.keys())}"
+    )
+  profile = PROFILES[dtype_str]
+  base = generate_student_t_tensor(shape, dtype_str, seed=seed)
+  if not shape:
+    return base
+  if channel_axis < -len(shape) or channel_axis >= len(shape):
+    raise IndexError(
+        f"channel_axis {channel_axis} out of bounds for shape {shape}"
+    )
+
+  norm_axis = channel_axis % len(shape)
+  num_channels = shape[norm_axis]
+  if num_channels == 0 or outlier_channel_ratio == 0.0:
+    return base
+
+  rng = np.random.default_rng(seed + 20011)
+  num_outlier_channels = max(
+      1, int(np.ceil(num_channels * outlier_channel_ratio))
+  )
+  selected_channels = rng.choice(
+      num_channels, size=min(num_channels, num_outlier_channels), replace=False
+  )
+
+  scale = min(outlier_scale, profile.outlier_scale_limit)
+  channel_multipliers = np.ones(num_channels, dtype=np.float32)
+  channel_multipliers[selected_channels] = scale
+
+  bcast_shape = [1] * len(shape)
+  bcast_shape[norm_axis] = num_channels
+  scaled = base.astype(np.float32) * channel_multipliers.reshape(bcast_shape)
+  max_bound = float(profile.max_finite * 0.95)
+  scaled_clipped = np.clip(scaled, -max_bound, max_bound)
+  return scaled_clipped.astype(profile.numpy_dtype)
 
 
 def generate_cancellation_tensor(
@@ -896,6 +977,24 @@ def _generate_procedural_suite(
         "regime": "outliers",
     })
 
+  per_channel_tensors = [
+      _convert(
+          generate_per_channel_outlier_tensor(
+              s,
+              dtype_str,
+              outlier_scale=50.0,
+              seed=seed + 500 + i,
+          )
+      )
+      for i, s in enumerate(shapes)
+  ]
+  suite.append({
+      "name": "per_channel_outliers_50x",
+      "args": tuple(per_channel_tensors),
+      "kwargs": {},
+      "regime": "per_channel_outliers",
+  })
+
   cancellation_tensors = []
   for s in shapes:
     if not s or s[-1] % 2 != 0:
@@ -1012,7 +1111,7 @@ def generate_test_suite(
       as_jax_arrays=as_jax_arrays,
   )
 
-  if mode in ("auto", "record") and not os.path.exists(path_str):
+  if mode == "record" or (mode == "auto" and not os.path.exists(path_str)):
     try:
       save_test_suite(suite, persisted_path)
     except (OSError, ValueError, KeyError) as e:

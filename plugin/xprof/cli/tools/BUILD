@@ -148,11 +148,3 @@ pytype_strict_library(
         ":get_roofline_model_tool",
     ],
 )
-
-pytype_strict_library(
-    name = "verify_numerical_parity_tool",
-    srcs = ["verify_numerical_parity_tool.py"],
-    deps = [
-        "//plugin/xprof/cli/internal:numerical_validator",
-    ],
-)

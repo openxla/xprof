@@ -7,7 +7,8 @@ from absl.testing import absltest
 from absl.testing import parameterized
 import ml_dtypes
 import numpy as np
-from xprof.cli.internal import numerical_validator
+
+from xprof.xparity import numerical_validator
 
 
 def _ref_mult_two(x: np.ndarray) -> np.ndarray:
@@ -443,9 +444,7 @@ class NumericalValidatorTest(parameterized.TestCase):
     self.assertIn("exceeds immutable safety ceiling", str(ctx.exception))
 
   @parameterized.parameters("bool", "int32", "int64", "uint32", "uint8")
-  def test_discrete_tolerance_override_raises_value_error(
-      self, dtype_str: str
-  ):
+  def test_discrete_tolerance_override_raises_value_error(self, dtype_str: str):
     """Verifies specifying max_allowed_ulp > 0 on discrete dtypes raises ValueError."""
     with self.assertRaises(ValueError) as ctx:
       numerical_validator.validate_kernels(
@@ -1036,6 +1035,7 @@ class NumericalValidatorTest(parameterized.TestCase):
 
   def test_narrow_output_dtype_warning_bfloat16(self):
     """Verifies warning is surfaced when kernel emits narrower dtype than float32."""
+
     def bf16_fn(x: np.ndarray) -> np.ndarray:
       return np.asarray(x).astype(ml_dtypes.bfloat16)
 
@@ -1086,6 +1086,7 @@ class NumericalValidatorTest(parameterized.TestCase):
 
   def test_probe_pin_inert_prefers_signature(self):
     """Verifies pin-inert probing checks explicit precision parameter first."""
+
     def inert_kernel(x: np.ndarray, precision: str = "default") -> np.ndarray:
       del precision
       return np.asarray(x) * 2.0
@@ -1117,6 +1118,7 @@ class NumericalValidatorTest(parameterized.TestCase):
 
   def test_oracle_non_float64_sets_precision_verified_false(self):
     """Verifies f32 oracle against f32 kernel fails for lack of margin."""
+
     def float32_oracle(x: np.ndarray) -> np.ndarray:
       return np.asarray(x, dtype=np.float32) * 2.0
 
@@ -1139,6 +1141,7 @@ class NumericalValidatorTest(parameterized.TestCase):
 
   def test_oracle_pinned_float32_accepted_for_bfloat16_kernel(self):
     """Verifies pinned float32 oracle is precision-verified for bfloat16."""
+
     def float32_pinned_oracle(x: np.ndarray) -> np.ndarray:
       return np.asarray(x, dtype=np.float32) * 2.0
 
@@ -1157,6 +1160,7 @@ class NumericalValidatorTest(parameterized.TestCase):
 
   def test_oracle_unpinned_float32_rejected_due_to_pinning(self):
     """Verifies unpinned oracle triggers NOT PRECISION-PINNED banner."""
+
     def unpinned_oracle(
         x: np.ndarray, precision: str = "default"
     ) -> np.ndarray:
@@ -1196,6 +1200,7 @@ class NumericalValidatorTest(parameterized.TestCase):
 
   def test_oracle_audit_no_contradiction_invariant(self):
     """Invariance: unpinned/unverified oracle must never claim verified."""
+
     def bad_oracle(x: np.ndarray) -> np.ndarray:
       return np.asarray(x, dtype=ml_dtypes.bfloat16)
 
@@ -1213,6 +1218,7 @@ class NumericalValidatorTest(parameterized.TestCase):
 
   def test_tpu_host_float64_oracle_verified_even_if_ref_is_pin_inert(self):
     """Verifies f64 host oracle verified=True if ref is pin-inert on TPU."""
+
     def inert_ref(x: np.ndarray) -> np.ndarray:
       return np.asarray(x) * 2.0
 
@@ -1240,6 +1246,7 @@ class NumericalValidatorTest(parameterized.TestCase):
       self,
   ):
     """Verifies pinned f32 oracle verified=True for bf16 with inert ref."""
+
     def inert_ref(x: np.ndarray) -> np.ndarray:
       return np.asarray(x) * 2.0
 
@@ -1268,6 +1275,7 @@ class NumericalValidatorTest(parameterized.TestCase):
 
   def test_tpu_lack_of_margin_surfaces_banner_without_none(self):
     """Verifies unverified oracle on TPU surfaces explicit banner."""
+
     def float32_oracle(x: np.ndarray) -> np.ndarray:
       return np.asarray(x, dtype=np.float32) * 2.0
 
@@ -1287,6 +1295,7 @@ class NumericalValidatorTest(parameterized.TestCase):
 
   def test_probe_pin_inert_host_numpy_not_flagged_inert_on_tpu(self):
     """Verifies host NumPy function is not flagged pin-inert on TPU."""
+
     def numpy_fn(x: np.ndarray) -> np.ndarray:
       return np.asarray(x) * 2.0
 
@@ -1298,6 +1307,7 @@ class NumericalValidatorTest(parameterized.TestCase):
 
   def test_host_numpy_oracle_verified_on_tpu(self):
     """A host oracle is device-independent: same verdict on CPU and TPU."""
+
     def host_oracle(x: np.ndarray) -> np.ndarray:
       return np.asarray(x, dtype=np.float32) * 2.0
 
@@ -1320,6 +1330,7 @@ class NumericalValidatorTest(parameterized.TestCase):
 
   def test_oracle_probe_diagnostic_surfaced_on_undetermined(self):
     """An oracle whose pinning cannot be observed surfaces its diagnostic."""
+
     def unprobeable(*_args, **_kwargs):
       raise RuntimeError("precision probe not supported by this callable")
 
@@ -1376,6 +1387,7 @@ class NumericalValidatorTest(parameterized.TestCase):
 
   def test_oracle_oom_raises_actionable_chunk_guidance(self):
     """Verifies oracle OOM surfaces actionable chunk_callable guidance."""
+
     def oom_oracle(*_args, **_kwargs):
       raise RuntimeError("RESOURCE_EXHAUSTED: Ran out of memory on HBM")
 
@@ -1408,6 +1420,7 @@ class NumericalValidatorTest(parameterized.TestCase):
 
   def test_oom_guidance_names_the_full_import_path(self):
     """chunk_callable is not exported, so the message must spell out its path."""
+
     def oom_oracle(*_args, **_kwargs):
       raise RuntimeError("RESOURCE_EXHAUSTED: Ran out of memory on HBM")
 
@@ -1421,12 +1434,14 @@ class NumericalValidatorTest(parameterized.TestCase):
             kernel_oracle=oracle,
         )
       self.assertIn(
-          "from xprof.cli.internal.numerical_validator import chunk_callable",
+          "from xprof.xparity"
+          " import chunk_callable",
           str(ctx.exception),
       )
 
   def test_oracle_probe_diagnostic_surfaced_on_unpinned_oracle(self):
     """Verifies unpinned oracle surfaces explicit probe diagnostic."""
+
     def unpinned_oracle(
         x: np.ndarray, precision: str = "default"
     ) -> np.ndarray:
@@ -1451,9 +1466,8 @@ class NumericalValidatorTest(parameterized.TestCase):
 
   def test_reference_unpinned_warning_on_default_path(self):
     """Verifies unpinned reference surfaces warning on default path."""
-    def unpinned_ref(
-        x: np.ndarray, precision: str = "default"
-    ) -> np.ndarray:
+
+    def unpinned_ref(x: np.ndarray, precision: str = "default") -> np.ndarray:
       if precision == "highest":
         return np.asarray(x, dtype=np.float32) * 2.0
       return np.asarray(x, dtype=np.float32) * 2.0 + 1e-3
@@ -1487,6 +1501,53 @@ class NumericalValidatorTest(parameterized.TestCase):
         report.summary_message,
     )
     self.assertFalse(report.run_config.get("reference_is_unpinned", False))
+
+  def test_worst_offender_spatial_attribution(self):
+    """Verifies WorstOffender spatial coordinate and value attribution (G2)."""
+
+    def localized_bug_cand(x: np.ndarray) -> np.ndarray:
+      out = np.array(x * 2.0)
+      out[3, 5] += 10.0
+      return out
+
+    report = numerical_validator.validate_kernels(
+        _ref_mult_two,
+        localized_bug_cand,
+        shapes=(8, 8),
+        dtype_str="float32",
+        tier="fast_agent",
+    )
+    self.assertFalse(report.is_numerically_equivalent)
+    b0 = report.batch_results[0]
+    self.assertIsNotNone(b0.worst_offender)
+    assert b0.worst_offender is not None
+    self.assertEqual(b0.worst_offender.max_ulp_index, (3, 5))
+    self.assertAlmostEqual(b0.worst_offender.abs_diff, 10.0, places=4)
+    self.assertEqual(b0.worst_offender.mismatch_count, 1)
+
+  def test_typed_non_finite_telemetry(self):
+    """Verifies nan_count, inf_count, first_non_finite_index, and finite_max_ulp (G3)."""
+
+    def localized_nan_cand(x: np.ndarray) -> np.ndarray:
+      out = np.array(x * 2.0)
+      out[2, 7] = np.nan
+      out[4, 1] = np.inf
+      return out
+
+    report = numerical_validator.validate_kernels(
+        _ref_mult_two,
+        localized_nan_cand,
+        shapes=(8, 8),
+        dtype_str="float32",
+        tier="fast_agent",
+    )
+    self.assertFalse(report.is_numerically_equivalent)
+    b0 = report.batch_results[0]
+    self.assertTrue(b0.has_nan_or_inf)
+    self.assertEqual(b0.nan_count, 1)
+    self.assertEqual(b0.inf_count, 1)
+    self.assertEqual(b0.first_non_finite_index, (2, 7))
+    self.assertEqual(b0.finite_max_ulp, 0)
 
 
 if __name__ == "__main__":

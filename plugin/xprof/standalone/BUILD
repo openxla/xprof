@@ -3,6 +3,7 @@
 
 load("@rules_python//python:defs.bzl", "py_test")
 load("@rules_python//python:py_library.bzl", "py_library")
+load("//plugin/xprof/build_utils:pytype.default.bzl", "pytype_library", "pytype_strict_binary", "pytype_strict_contrib_test", "pytype_strict_library")
 
 visibility = ["//plugin:internal"]
 
@@ -14,7 +15,6 @@ package(
 py_library(
     name = "tensorboard_shim",
     srcs = ["tensorboard_shim.py"],
-    srcs_version = "PY2AND3",
     # strict_deps = False,
     deps = [
         ":all_libs",
@@ -33,10 +33,9 @@ py_library(
     ],
 )
 
-py_library(
+pytype_library(
     name = "base_plugin",
     srcs = ["base_plugin.py"],
-    srcs_version = "PY2AND3",
     # strict_deps = False,
     deps = [":plugin_event_multiplexer"],
 )
@@ -44,7 +43,6 @@ py_library(
 py_library(
     name = "plugin_event_multiplexer",
     srcs = ["plugin_event_multiplexer.py"],
-    srcs_version = "PY2AND3",
     # strict_deps = False,
     deps = [
         ":plugin_asset_util",
@@ -55,22 +53,17 @@ py_library(
 py_library(
     name = "data_provider",
     srcs = ["data_provider.py"],
-    srcs_version = "PY2AND3",
     # strict_deps = False,
 )
 
 py_library(
     name = "plugin_asset_util",
     srcs = ["plugin_asset_util.py"],
-    srcs_version = "PY2AND3",
 )
 
 py_library(
     name = "context",
     srcs = ["context.py"],
-    srcs_version = "PY2AND3",
-    # strict_deps = False,
-    deps = [],
 )
 
 py_test(

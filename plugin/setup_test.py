@@ -43,6 +43,8 @@ class SetupTest(absltest.TestCase):
         'google-cloud-storage >= 3.12.0',
         'urllib3 >= 2.7.0',
         'fire >= 0.4.0',
+        'ml_dtypes >= 0.2.0',
+        'numpy >= 1.24.0',
     ]
     for dep in expected_deps:
       self.assertIn(
@@ -51,6 +53,17 @@ class SetupTest(absltest.TestCase):
           f'Expected dependency {dep} not found in REQUIRED_PACKAGES:'
           f' {setup.REQUIRED_PACKAGES}',
       )
+
+  def test_console_scripts_entry_points(self):
+    self.assertIn('console_scripts', setup.ENTRY_POINTS)
+    self.assertIn(
+        'xprof = xprof.cli.xprof_cli:main',
+        setup.ENTRY_POINTS['console_scripts'],
+    )
+    self.assertIn(
+        'xparity = xprof.xparity.xparity_cli:main',
+        setup.ENTRY_POINTS['console_scripts'],
+    )
 
   def test_parse_requirements_custom_content(self):
     test_content = (
@@ -127,6 +140,24 @@ class SetupTest(absltest.TestCase):
     self.assertIn('torch_xla', collect_content)
     self.assertIn('xp.start_trace', collect_content)
     self.assertIn('tensorflow', collect_content)
+
+    xparity_skills_dir = os.path.join(
+        os.path.dirname(__file__), '..', 'skills', 'xparity'
+    )
+    xparity_skill_md = os.path.join(xparity_skills_dir, 'SKILL.md')
+    xparity_num_md = os.path.join(
+        xparity_skills_dir, 'references', 'numerical_correctness.md'
+    )
+    self.assertTrue(
+        os.path.isfile(xparity_skill_md), f'Missing {xparity_skill_md}'
+    )
+    self.assertTrue(os.path.isfile(xparity_num_md), f'Missing {xparity_num_md}')
+    for md_path in (xparity_skill_md, xparity_num_md):
+      with open(md_path, 'r', encoding='utf-8') as f:
+        md_content = f.read()
+      self.assertNotIn('/google/bin/releases', md_content)
+      self.assertNotIn('.par', md_content)
+      self.assertNotIn('arca9-local', md_content)
 
   def test_oss_tools_package_files_present_in_source_tree(self):
     oss_tools_dir = os.path.join(

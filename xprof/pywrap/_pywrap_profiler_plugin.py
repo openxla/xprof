@@ -566,7 +566,20 @@ if built_with_embedded():
       json_str = _lib.GetLloAnalysisJson(handle, kernel_bytes)
       if not json_str:
         return {"success": False}
-      return json.loads(json_str.decode("utf-8"))
+      result = json.loads(json_str.decode("utf-8"))
+      modules = result.get("modules")
+      if not isinstance(modules, list):
+        return result
+      result["source_map_by_kernel"] = {
+          (mod.get("kernel_name") or mod.get("hlo_instruction_name", "")): dict(
+              mod.get("source_map", {})
+          )
+          for mod in modules
+          if isinstance(mod, dict) and isinstance(mod.get("source_map"), dict)
+      }
+      if len(modules) == 1 and isinstance(modules[0], dict):
+        result["source_map"] = dict(modules[0].get("source_map", {}))
+      return result
     finally:
       _lib.FreeLloAnalysis(handle)
 

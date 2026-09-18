@@ -91,6 +91,7 @@ cc_library(
             "cpp/src/arrow/c/*.cc",
             "cpp/src/arrow/compute/**/*.cc",
             "cpp/src/arrow/array/**/*.cc",
+            "cpp/src/arrow/json/*.cc",
             "cpp/src/arrow/util/**/*.cc",
             "cpp/src/arrow/util/**/*.h",
             "cpp/src/arrow/vendored/**/*.cpp",
@@ -203,6 +204,11 @@ cc_library(
         "PARQUET_STATIC",
     ],
     includes = [
+        # `compression_snappy.cc` does `#include <snappy.h>`. Neither `@snappy`
+        # nor this target otherwise puts snappy's header root on the system
+        # include path, which only works by accident under toolchains that
+        # pass external repository headers with `-isystem`.
+        "../snappy",
         "cpp/src",
         "cpp/src/generated",
         "cpp/src/arrow/vendored/xxhash",

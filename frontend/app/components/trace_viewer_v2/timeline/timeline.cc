@@ -147,6 +147,9 @@ bool DrawExpandCollapseButton(
   // Draw a smaller arrow button.
   const Pixel arrow_size = ImGui::GetFontSize() * kIconSizeScale;
   const Pixel button_height = height;
+  if (arrow_size <= 0.0f || button_height <= 0.0f) {
+    return false;
+  }
 
   ImVec2 p = ImGui::GetCursorScreenPos();
   // Center the arrow in the button area.
@@ -974,24 +977,24 @@ void Timeline::Draw() {
     ImGui::SetCursorPos(
         ImVec2(0, tracks_start_pos.y + total_tracks_height - 1.0f));
     ImGui::Dummy(ImVec2(content_region_avail_width, 1.0f));
-  }
 
-  // Handle label resizing manually since we removed the table
-  if (kSplitterWidth > 0.0f && total_tracks_height > 0.0f) {
-    ImGui::SetCursorPos(
-        ImVec2(tracks_start_pos.x + label_width_ - kSplitterOffset,
-               tracks_start_pos.y));
-    ImGui::InvisibleButton("##LabelResizer",
-                           ImVec2(kSplitterWidth, total_tracks_height));
-    if (ImGui::IsItemActive()) {
-      label_width_ += ImGui::GetIO().MouseDelta.x;
-      label_width_ = std::max(10.0f, label_width_);
-      is_resizing_label_column_ = true;
-    } else {
-      is_resizing_label_column_ = false;
-    }
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+    // Handle label resizing manually since we removed the table
+    if (kSplitterWidth > 0.0f) {
+      ImGui::SetCursorPos(ImVec2(
+          tracks_start_pos.x + label_width_ - kSplitterOffset,
+          tracks_start_pos.y));
+      ImGui::InvisibleButton("##LabelResizer",
+                             ImVec2(kSplitterWidth, total_tracks_height));
+      if (ImGui::IsItemActive()) {
+        label_width_ += ImGui::GetIO().MouseDelta.x;
+        label_width_ = std::max(10.0f, label_width_);
+        is_resizing_label_column_ = true;
+      } else {
+        is_resizing_label_column_ = false;
+      }
+      if (ImGui::IsItemHovered()) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+      }
     }
   } else {
     is_resizing_label_column_ = false;

@@ -14,6 +14,7 @@ from google.protobuf import json_format
 from google.protobuf import message
 
 from xprof.cli.internal import decorators
+from xprof.cli.internal import hlo_shape_utils
 from xprof.cli.internal.oss import xprof_client
 from xprof.protobuf import op_profile_pb2
 
@@ -21,6 +22,18 @@ DecodeError = message.DecodeError
 
 
 _CUSTOM_CALL_TARGET_RE = re.compile(r'custom_call_target="([^"]+)"')
+
+
+def _is_idle_op(op: dict[str, Any]) -> bool:
+  """Returns True if the operation represents an idle category or node."""
+  category = op.get("category", "").strip().lower()
+  name = op.get("name", "").strip().lower()
+  return (
+      category == "idle"
+      or name == "idle"
+      or name.endswith("/idle")
+      or "/idle/" in name
+  )
 
 
 @decorators.cached(expire=86400)
@@ -148,18 +161,51 @@ def get_top_hlo_ops(
           if current_name_prefix
           else op_label
       )
-      total_bytes = (
-          sum(metrics.raw_bytes_accessed_array)
+      total_bytes: float | None = (
+          float(sum(metrics.raw_bytes_accessed_array))
           if metrics.raw_bytes_accessed_array
-          else 0
+          else 0.0
       )
+      flops_val: float | None = float(metrics.raw_flops)
+      provenance = "xla_cost_model"
+
+      category_lower = category.lower()
+      name_lower = name.lower()
+      expr_str = node.xla.expression if node.xla.expression else ""
+      expr_lower = expr_str.lower()
+      is_custom = (
+          "custom-call" in category_lower
+          or "custom_call" in category_lower
+          or "custom-call" in name_lower
+          or "custom_call" in name_lower
+          or "custom-call" in expr_lower
+          or "custom_call" in expr_lower
+          or "custom_call_target" in expr_lower
+      )
+      if is_custom:
+        derived_flops, derived_bytes, prov = (
+            hlo_shape_utils.derive_custom_call_flops_and_bytes(
+                expr_str, category, name
+            )
+        )
+        if prov == "derived_from_shapes" and derived_flops is not None:
+          flops_val = derived_flops
+          if derived_bytes is not None:
+            total_bytes = derived_bytes
+          provenance = "derived_from_shapes"
+        else:
+          flops_val = None
+          total_bytes = None
+          provenance = "opaque_custom_call"
+
       item = {
           "name": full_name,
           "category": category,
           "total_self_time_ms": metrics.raw_time / 1e9,
           "occurrences": metrics.occurrences,
-          "flops": metrics.raw_flops,
+          "flops": flops_val,
           "bytes_accessed": total_bytes,
+          "flops_provenance": provenance,
       }
       if node.xla.HasField("source_info"):
         item["source_file"] = node.xla.source_info.file_name
@@ -205,27 +251,44 @@ def get_top_hlo_ops(
         indent=2,
     )
 
+  flops_candidates = [
+      op
+      for op in flat_ops
+      if not _is_idle_op(op)
+      and op.get("flops_provenance") != "opaque_custom_call"
+      and op.get("flops") is not None
+  ]
+  bytes_candidates = [
+      op
+      for op in flat_ops
+      if not _is_idle_op(op)
+      and op.get("flops_provenance") != "opaque_custom_call"
+      and op.get("bytes_accessed") is not None
+  ]
+
   if limit > 0:
     top_by_time = heapq.nlargest(
         limit, flat_ops, key=lambda x: x["total_self_time_ms"]
     )
-    top_by_flops = heapq.nlargest(limit, flat_ops, key=lambda x: x["flops"])
+    top_by_flops = heapq.nlargest(
+        limit, flops_candidates, key=lambda x: x["flops"]
+    )
     top_by_bytes = heapq.nlargest(
-        limit, flat_ops, key=lambda x: x["bytes_accessed"]
+        limit, bytes_candidates, key=lambda x: x["bytes_accessed"]
     )
   else:
     top_by_time = sorted(
         flat_ops, key=lambda x: x["total_self_time_ms"], reverse=True
     )
-    top_by_flops = sorted(flat_ops, key=lambda x: x["flops"], reverse=True)
+    top_by_flops = sorted(
+        flops_candidates, key=lambda x: x["flops"], reverse=True
+    )
     top_by_bytes = sorted(
-        flat_ops, key=lambda x: x["bytes_accessed"], reverse=True
+        bytes_candidates, key=lambda x: x["bytes_accessed"], reverse=True
     )
 
-  has_custom_call = any(
-      op.get("category", "").lower() in ("custom-call", "custom_call")
-      or "custom-call" in op.get("name", "").lower()
-      for op in top_by_time + top_by_flops + top_by_bytes
+  has_opaque_custom_call = any(
+      op.get("flops_provenance") == "opaque_custom_call" for op in top_by_time
   )
 
   result_payload: dict[str, Any] = {
@@ -234,10 +297,12 @@ def get_top_hlo_ops(
       "top_by_bytes_accessed": top_by_bytes,
       "total_matched": len(flat_ops),
   }
-  if has_custom_call:
+  if has_opaque_custom_call:
     result_payload["guidance"] = (
-        "Op-level metrics unavailable for custom calls. Use get_llo_analysis,"
-        " get_llo_debug_string, and aggregate_xplane_events for Pallas kernels."
+        "Op-level FLOP/byte metrics are unavailable for opaque custom calls and"
+        " excluded from top_by_flops and top_by_bytes_accessed rankings. Use"
+        " get_llo_analysis, get_llo_debug_string, and aggregate_xplane_events"
+        " for Pallas kernels."
     )
 
   return json.dumps(result_payload, indent=2)

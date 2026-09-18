@@ -185,12 +185,82 @@ class GetTopHloOpsToolTest(parameterized.TestCase):
     self.mock_client.fetch.return_value = (None, profile.SerializeToString())
 
     result = json.loads(
-        get_top_hlo_ops_tool.get_top_hlo_ops("test_session", limit=1)
+        get_top_hlo_ops_tool.get_top_hlo_ops("test_session", limit=5)
     )
     self.assertLen(result["top_by_time"], 1)
-    self.assertEqual(result["top_by_time"][0]["name"], "IDLE [pallas_call]")
+    op = result["top_by_time"][0]
+    self.assertEqual(op["name"], "IDLE [pallas_call]")
+    self.assertIsNone(op["flops"])
+    self.assertIsNone(op["bytes_accessed"])
+    self.assertEqual(op["flops_provenance"], "opaque_custom_call")
+    # Opaque custom calls with None FLOPs/bytes must be excluded from
+    # FLOP/byte rankings.
+    self.assertEmpty(result["top_by_flops"])
+    self.assertEmpty(result["top_by_bytes_accessed"])
     self.assertIn("guidance", result)
-    self.assertIn("Pallas kernels", result["guidance"])
+    self.assertIn("excluded from top_by_flops", result["guidance"])
+
+  def test_get_top_hlo_ops_custom_call_derived_from_shapes(self):
+    profile = op_profile_pb2.Profile()
+    root = profile.by_category
+    root.metrics.raw_time = 1000000000
+
+    child = root.children.add()
+    child.name = "%custom-call.1"
+    child.metrics.raw_time = 1000000000
+    child.metrics.raw_flops = 0
+    child.xla.category = "custom-call"
+    child.xla.expression = (
+        "%custom-call.1 = bf16[4,4096,4096] custom-call("
+        "bf16[4,4096,2048] %p0, bf16[2048,4096] %p1)"
+    )
+
+    self.mock_client.fetch.return_value = (None, profile.SerializeToString())
+
+    result = json.loads(
+        get_top_hlo_ops_tool.get_top_hlo_ops("test_session", limit=5)
+    )
+    self.assertLen(result["top_by_time"], 1)
+    self.assertLen(result["top_by_flops"], 1)
+    self.assertLen(result["top_by_bytes_accessed"], 1)
+    op = result["top_by_flops"][0]
+    self.assertEqual(op["flops_provenance"], "derived_from_shapes")
+    self.assertNotIn("guidance", result)
+
+  def test_get_top_hlo_ops_excludes_idle_from_flops_and_bytes(self):
+    profile = op_profile_pb2.Profile()
+    root = profile.by_category
+    root.metrics.raw_time = 2000000000
+
+    child1 = root.children.add()
+    child1.name = "IDLE"
+    child1.metrics.raw_time = 1500000000
+    child1.metrics.raw_flops = 0
+    child1.metrics.raw_bytes_accessed_array.append(0)
+    child1.xla.category = "idle"
+
+    child2 = root.children.add()
+    child2.name = "%multiply.1"
+    child2.metrics.raw_time = 500000000
+    child2.metrics.raw_flops = 10000
+    child2.metrics.raw_bytes_accessed_array.append(2048)
+    child2.xla.category = "Elementwise"
+
+    self.mock_client.fetch.return_value = (None, profile.SerializeToString())
+
+    result = json.loads(
+        get_top_hlo_ops_tool.get_top_hlo_ops("test_session", limit=5)
+    )
+    time_names = [op["name"] for op in result["top_by_time"]]
+    self.assertIn("IDLE", time_names)
+
+    flop_names = [op["name"] for op in result["top_by_flops"]]
+    self.assertNotIn("IDLE", flop_names)
+    self.assertIn("%multiply.1", flop_names)
+
+    byte_names = [op["name"] for op in result["top_by_bytes_accessed"]]
+    self.assertNotIn("IDLE", byte_names)
+    self.assertIn("%multiply.1", byte_names)
 
   def test_missing_hlo_returns_clean_diagnostic(self):
     """Verifies trace without HLO raises FileNotFoundError."""

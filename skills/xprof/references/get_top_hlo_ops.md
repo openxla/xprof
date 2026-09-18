@@ -42,11 +42,23 @@ which operations are consuming the most resources.
       "occurrences": 432,
       "flops": 5.9e13,
       "bytes_accessed": 7.9e10,
+      "flops_provenance": "xla_cost_model",
       "source_file": "layers/linears.py",
       "source_line": 99,
       "stack_frame": "models/gemma.py:163:14\nlayers/decoders.py:956:17"
     }
     ```
+
+    -   `flops_provenance`: Indicates the source of FLOP and byte calculations:
+        -   `"xla_cost_model"`: Standard XLA static cost model.
+        -   `"derived_from_shapes"`: Contraction FLOPs (`2 * B * M * N * K`) and
+            bytes derived from tensor shape annotations on custom calls (e.g.
+            Pallas or Mosaic matmul kernels).
+        -   `"opaque_custom_call"`: Custom call with unresolvable FLOPs
+            (`flops` and `bytes_accessed` are `null`). Opaque custom calls
+            are retained in `top_by_time` but excluded from `top_by_flops`
+            and `top_by_bytes_accessed` so zero-FLOP placeholders do not
+            pollute top-N rankings.
 
 > [!NOTE] **Compilation Proto Requirement**: If operation profile data is
 > missing from a trace session, ensure compilation was captured with

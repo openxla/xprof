@@ -131,7 +131,8 @@ class CheckHostBoundnessToolTest(absltest.TestCase):
       )
 
     self.assertEqual(result["status"], "HOST_BOUND")
-    self.assertEqual(result["metrics"]["idle_time_ratio_percent"], 100.0)
+    self.assertEqual(result["metrics"]["idle_time_ratio_percent"], 50.0)
+    self.assertEqual(result["metrics"]["idle_to_active_compute_ratio"], 1.0)
     self.assertEqual(result["metrics"]["equivalent_idle_chips"], 4.0)
     self.assertEqual(result["metrics"]["mxu_idleness_percent"], 99.52)
     self.assertEqual(
@@ -189,7 +190,8 @@ class CheckHostBoundnessToolTest(absltest.TestCase):
 
     self.assertEqual(result["status"], "HOST_BOUND")
     self.assertEqual(result["metrics"]["tpu_duty_cycle_percent"], 90.0)
-    self.assertEqual(result["metrics"]["idle_time_ratio_percent"], 100.0)
+    self.assertEqual(result["metrics"]["idle_time_ratio_percent"], 50.0)
+    self.assertEqual(result["metrics"]["idle_to_active_compute_ratio"], 1.0)
     self.assertEqual(result["metrics"]["equivalent_idle_chips"], 4.0)
 
   def test_not_host_bound_by_low_idle_ratio(self):
@@ -234,10 +236,58 @@ class CheckHostBoundnessToolTest(absltest.TestCase):
 
     self.assertEqual(result["status"], "NOT_HOST_BOUND")
     self.assertEqual(result["metrics"]["tpu_duty_cycle_percent"], 90.0)
-    self.assertEqual(result["metrics"]["idle_time_ratio_percent"], 8.7)
+    self.assertEqual(result["metrics"]["idle_time_ratio_percent"], 8.0)
+    self.assertAlmostEqual(
+        result["metrics"]["idle_to_active_compute_ratio"], 0.087, places=3
+    )
     self.assertIn(
         "TPU duty cycle (90.0%) is high and idle ratio is low.",
         result["reasons"][0],
+    )
+
+  def test_idle_time_ratio_percent_bounded_under_extreme_idleness(self):
+    """Verifies idle_time_ratio_percent never exceeds 100% (556.65% bug)."""
+    low_dc_overview = [
+        {"p": {"device_duty_cycle_percent": "15.23%"}},
+        {"p": {"steptime_ms_average": "100.0"}, "rows": [{}]},  # 1 step = 100ms
+        {"p": {"device_core_count": "1", "host_count": "1"}},
+    ]
+    # 15.23 ms active compute out of 100.0 ms -> 84.77 ms pure idle
+    hlo_data = {
+        "byCategory": {
+            "children": [{
+                "name": "matmul",
+                "metrics": {
+                    "occurrences": 1,
+                    "rawTime": 15230000000.0,  # 15.23 ms in ps
+                },
+            }]
+        }
+    }
+    self.mock_client.get_hosts.return_value = []
+    self.mock_client.fetch.side_effect = [
+        ("application/json", json.dumps(low_dc_overview)),
+        ("application/json", json.dumps(hlo_data)),
+        ("application/json", b"{}"),
+    ]
+
+    with mock.patch.object(
+        get_utilization_viewer_tool,
+        "get_utilization_viewer",
+        return_value=json.dumps({
+            "idleness_percent": 95.0,
+            "hbm_bandwidth_utilization_percent": 5.0,
+            "ici_read_utilization_percent": 5.0,
+            "ici_write_utilization_percent": 5.0,
+        }),
+    ):
+      result = json.loads(
+          check_host_boundness_tool.check_host_boundness("test-session")
+      )
+
+    self.assertEqual(result["metrics"]["idle_time_ratio_percent"], 84.77)
+    self.assertAlmostEqual(
+        result["metrics"]["idle_to_active_compute_ratio"], 5.566, places=3
     )
 
   def test_not_host_bound_hbm_bottleneck(self):

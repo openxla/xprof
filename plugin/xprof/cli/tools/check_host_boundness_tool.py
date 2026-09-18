@@ -465,19 +465,30 @@ def check_host_boundness(
     sum_scaled_hlo_ms = (
         scaled_compute_time_ms + scaled_hbm_time_ms + scaled_ici_time_ms
     )
-    idle_time_ms = total_duration_ms - sum_scaled_hlo_ms
-    pure_idle_time_ms = max(0.0, idle_time_ms - scaled_barrier_time_ms)
+    if hlo_data_available:
+      idle_time_ms = total_duration_ms - sum_scaled_hlo_ms
+      pure_idle_time_ms = max(0.0, idle_time_ms - scaled_barrier_time_ms)
 
-    active_compute_ms = total_duration_ms - pure_idle_time_ms
-    idle_time_ratio = (
-        pure_idle_time_ms / active_compute_ms if active_compute_ms > 0 else 0.0
-    )
-    idle_time_ratio_pct = idle_time_ratio * 100.0
+      active_compute_ms = total_duration_ms - pure_idle_time_ms
+      idle_to_active_compute_ratio = (
+          pure_idle_time_ms / active_compute_ms
+          if active_compute_ms > 0
+          else 0.0
+      )
 
-    absolute_idle_fraction = (
-        pure_idle_time_ms / total_duration_ms if total_duration_ms > 0 else 0.0
-    )
-    equivalent_idle_chips = core_count * absolute_idle_fraction
+      absolute_idle_fraction = (
+          min(1.0, max(0.0, pure_idle_time_ms / total_duration_ms))
+          if total_duration_ms > 0
+          else 0.0
+      )
+      idle_time_ratio_pct = absolute_idle_fraction * 100.0
+      equivalent_idle_chips = core_count * absolute_idle_fraction
+    else:
+      idle_time_ms = 0.0
+      pure_idle_time_ms = 0.0
+      idle_to_active_compute_ratio = 0.0
+      idle_time_ratio_pct = 0.0
+      equivalent_idle_chips = 0.0
 
     # --- 5. Hardware Subsystem Utilization ---
     util_metrics = _get_utilization_metrics(
@@ -513,7 +524,7 @@ def check_host_boundness(
       status = "HOST_BOUND"
       reasons.append(
           "Workload is host-bound: Idle Time Ratio exceeds"
-          f" {_IDLE_TIME_RATIO_HIGH_THRESHOLD_PERCENT:.1f}% of active compute."
+          f" {_IDLE_TIME_RATIO_HIGH_THRESHOLD_PERCENT:.1f}% of total step time."
       )
       recommendations.append(
           f"Opportunity Size: Hardware waste = {equivalent_idle_chips:.1f} idle"
@@ -581,6 +592,9 @@ def check_host_boundness(
             "metrics": {
                 "tpu_duty_cycle_percent": round(duty_cycle, 2),
                 "idle_time_ratio_percent": round(idle_time_ratio_pct, 2),
+                "idle_to_active_compute_ratio": round(
+                    idle_to_active_compute_ratio, 4
+                ),
                 "equivalent_idle_chips": round(equivalent_idle_chips, 2),
                 "mxu_idleness_percent": round(idleness_percent, 2),
                 "hbm_bandwidth_utilization_percent": round(hbm_bw_util, 2),

@@ -31,6 +31,25 @@ All `xprof` subcommands emit **JSON** to stdout. There is no output-format flag;
 pipe the output to `jq` or redirect it to a file if you need another
 representation.
 
+> [!NOTE] **10 MB Spill-to-File Guard (`SAVED_TO_FILE`)**: To prevent
+> terminal and agent buffer overflows, any CLI output exceeding **10 MB**
+> (`10,485,760` bytes) is automatically written to a temporary file and
+> replaced on stdout by a compact JSON envelope:
+>
+> ```json
+> {
+>   "status": "SAVED_TO_FILE",
+>   "size_bytes": 15482910,
+>   "size_mib": 14.77,
+>   "file_path": "/tmp/xprof_spill_list_xplane_events_abc123.json",
+>   "message": "Payload (14.77 MB) exceeded 10 MB. Saved to file."
+> }
+> ```
+>
+> When `status == "SAVED_TO_FILE"`, inspect the payload directly from
+> `file_path` using `jq` (e.g., `jq '.events[:10]' <file_path>`) or
+> targeted file reads rather than loading the entire file into memory.
+
 ## Discovery of Workflows
 
 **CRITICAL for Agents**: Many advanced workflows (like diffing sessions,

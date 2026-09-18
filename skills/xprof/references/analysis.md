@@ -22,6 +22,12 @@ positional argument:
 xprof <subcommand> <logdir> [flags]
 ```
 
+If a tool's JSON output exceeds **10 MB**, `xprof` automatically writes the
+full payload to `/tmp/xprof_spill_<tool>_<id>.json` and returns a compact JSON
+envelope with `"status": "SAVED_TO_FILE"` and `"file_path"`. When this occurs,
+query the saved file using `jq` (for example, `jq '.events | length' <path>`)
+instead of re-running the command.
+
 --------------------------------------------------------------------------------
 
 ## Phase 1: Turn-1 Parallel Triage Dispatch

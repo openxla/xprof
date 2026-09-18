@@ -1,0 +1,47 @@
+/**
+ * @license
+ * Copyright 2026 The OpenXLA Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// Canonical Material 3 Motion & Transition Tokens for Component Rack.
+
+/// Emits canonical Material 3 motion and transition tokens.
+@mixin motion-tokens {
+  // 1. Canonical Material 3 Easing Curves
+  --motion-easing-linear: linear;
+  --motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --motion-easing-standard-decelerate: cubic-bezier(0, 0, 0.2, 1);
+  --motion-easing-standard-accelerate: cubic-bezier(0.3, 0, 1, 1);
+  --motion-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --motion-easing-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --motion-easing-emphasized-accelerate: cubic-bezier(0.3, 0, 0.8, 0.15);
+
+  // 2. Granular Millisecond Duration Tiers
+  --motion-duration-short-1: 50ms;
+  --motion-duration-short-2: 100ms;
+  --motion-duration-short-3: 150ms;
+  --motion-duration-short-4: 200ms;
+  --motion-duration-medium-1: 250ms;
+  --motion-duration-medium-2: 300ms;
+  --motion-duration-medium-3: 350ms;
+  --motion-duration-medium-4: 400ms;
+  --motion-duration-long-1: 450ms;
+  --motion-duration-long-2: 500ms;
+
+  // 3. Recommended Standard Duration Aliases
+  --motion-duration-short: 150ms;
+  --motion-duration-medium: 200ms;
+  --motion-duration-long: 300ms;
+}

@@ -27,6 +27,7 @@ bin.ng(
         "//:package_json",
         "//:tsconfig",
         "//frontend/app",
+        "//frontend/app/styles/rack_theme",
         "//plugin/xprof:resources",
     ] + glob([
         "main.ts",
@@ -113,6 +114,7 @@ bin.ng_binary(
         "//:package_json",
         "//:tsconfig",
         "//frontend/app",
+        "//frontend/app/styles/rack_theme",
         "//plugin/xprof:resources",
     ] + glob([
         "main.ts",

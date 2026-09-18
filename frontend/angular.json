@@ -27,7 +27,8 @@
             "tsConfig": "tsconfig.app.json",
             "stylePreprocessorOptions": {
               "includePaths": [
-                "../"
+                "../",
+                "./"
               ]
             },
             "assets": [],

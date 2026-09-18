@@ -104,6 +104,7 @@ copy_to_bin(
         "__init__.py",
         "static/index.html",
         "static/index.js",
+        "static/material_symbols_outlined.woff2",
         "static/materialicons.woff2",
     ],
     visibility = ["//visibility:public"],

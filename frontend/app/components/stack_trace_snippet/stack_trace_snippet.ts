@@ -1,17 +1,21 @@
-import {Component, Input, OnChanges, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
+import {ChangeDetectionStrategy, Component, effect, input} from '@angular/core';
+import {MatAccordion} from '@angular/material/expansion';
 import {Address} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
+import {Message} from './message';
+import {StackFrameSnippet} from './stack_frame_snippet';
 
 /**
  * A component to display a snippet of source code corresponding to a given
  * stack trace.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'stack-trace-snippet',
   templateUrl: './stack_trace_snippet.ng.html',
   styleUrls: ['./stack_trace_snippet.scss'],
+  imports: [MatAccordion, Message, StackFrameSnippet],
 })
-export class StackTraceSnippet implements OnChanges {
+export class StackTraceSnippet {
   /**
    * The source location of the HLO operation.
    *
@@ -25,26 +29,29 @@ export class StackTraceSnippet implements OnChanges {
    *
    *   /full/path/to/file.py:100
    */
-  @Input() sourceFileAndLineNumber: string|undefined = undefined;
-  @Input() stackTrace: string|undefined = undefined;
+  readonly sourceFileAndLineNumber = input<string>();
+  readonly stackTrace = input<string>();
   /**
    * The number of lines to show around the stack frame.
    */
-  @Input() sourceContextWindow = 40;
+  readonly sourceContextWindow = input(40);
   /**
    * The prefix of the source file path.
    *
    * This is used to construct the src link given different repositories that
    * serves the source code.
    */
-  @Input() srcPathPrefix = '';
+  readonly srcPathPrefix = input('');
 
   sourceCodeSnippetAddresses: readonly Address[] = [];
 
-  ngOnChanges(changes: SimpleChanges) {
-    if (changes['sourceFileAndLineNumber'] || changes['stackTrace']) {
+  constructor() {
+    effect(() => {
+      this.sourceFileAndLineNumber();
+      this.stackTrace();
+      this.sourceContextWindow();
       this.parseAddresses();
-    }
+    });
   }
 
   trackByIndex(index: number, item: Address): number {
@@ -56,13 +63,14 @@ export class StackTraceSnippet implements OnChanges {
    * `sourceFileAndLineNumber` is available.
    */
   get usingSourceFileAndLineNumber(): boolean {
-    return !this.stackTrace && !!this.sourceFileAndLineNumber;
+    return !this.stackTrace() && !!this.sourceFileAndLineNumber();
   }
 
   private parseAddresses() {
     this.sourceCodeSnippetAddresses = parseAddresses(
-        this.stackTrace || this.sourceFileAndLineNumber || '',
-        this.sourceContextWindow);
+      this.stackTrace() || this.sourceFileAndLineNumber() || '',
+      this.sourceContextWindow(),
+    );
   }
 }
 

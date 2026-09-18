@@ -1,12 +1,15 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  EventEmitter,
-  Input,
-  OnChanges,
-  Output,
-  SimpleChanges,
+  effect,
+  input,
+  output,
 } from '@angular/core';
+import {MatIconButton} from '@angular/material/button';
+import {MatFormField, MatLabel, MatSuffix} from '@angular/material/form-field';
+import {MatIcon} from '@angular/material/icon';
+import {MatInput} from '@angular/material/input';
+import {MatTooltip} from '@angular/material/tooltip';
 
 /**
  * A string filter component.
@@ -14,62 +17,82 @@ import {
  * If the value is empty, selects all the rows.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'string-filter',
   templateUrl: './string_filter.ng.html',
   styleUrls: ['./string_filter.scss'],
+  imports: [
+    MatFormField,
+    MatIcon,
+    MatIconButton,
+    MatInput,
+    MatLabel,
+    MatSuffix,
+    MatTooltip,
+  ],
 })
-export class StringFilter implements OnChanges {
-  @Input() dataTable?: google.visualization.DataTable;
-  @Input() column: number | string = -1;
-  @Input() value = '';
-  @Input() exactMatch = false;
-  @Input() matchToggle = false;
+export class StringFilter {
+  readonly dataTable = input<google.visualization.DataTable>();
+  readonly column = input<number | string>(-1);
+  readonly valueInput = input('', {alias: 'value'});
+  readonly exactMatchInput = input(false, {alias: 'exactMatch'});
+  readonly matchToggle = input(false);
 
+  filterValue = '';
+  exactMatch = false;
   columnIndex = -1;
   columnLabel = '';
 
-  @Output()
-  changed = new EventEmitter<google.visualization.DataTableCellFilter>();
+  readonly changed = output<google.visualization.DataTableCellFilter>();
+
+  constructor() {
+    effect(() => {
+      this.filterValue = this.valueInput();
+      this.exactMatch = this.exactMatchInput();
+      this.processData();
+    });
+  }
 
   toggleExactMatch() {
     this.exactMatch = !this.exactMatch;
     this.updateFilter();
   }
 
-  ngOnChanges(changes: SimpleChanges) {
-    this.processData();
+  onInputChange(val: string) {
+    this.filterValue = val;
+    this.updateFilter();
   }
 
   processData() {
-    if (!this.dataTable || this.dataTable.getNumberOfRows() === 0) {
+    const dataTable = this.dataTable();
+    if (!dataTable || dataTable.getNumberOfRows() === 0) {
       return;
     }
 
-    this.columnIndex = this.dataTable.getColumnIndex(this.column);
+    this.columnIndex = dataTable.getColumnIndex(this.column());
     if (this.columnIndex !== -1) {
-      this.columnLabel = this.dataTable.getColumnLabel(this.columnIndex);
+      this.columnLabel = dataTable.getColumnLabel(this.columnIndex);
     }
 
     this.updateFilter();
   }
 
   updateFilter() {
-    if (!this.dataTable || this.dataTable.getNumberOfRows() === 0) {
+    const dataTable = this.dataTable();
+    if (!dataTable || dataTable.getNumberOfRows() === 0) {
       return;
     }
 
     const filter: google.visualization.DataTableCellFilter = {
       column: this.columnIndex,
     };
-    if (this.value) {
+    if (this.filterValue) {
       if (this.exactMatch) {
         filter.test = (value: string) =>
-          value.toLowerCase().trim() === this.value.toLowerCase().trim();
+          value.toLowerCase().trim() === this.filterValue.toLowerCase().trim();
       } else {
         filter.test = (value: string) =>
-          value.toLowerCase().indexOf(this.value.toLowerCase()) !== -1;
+          value.toLowerCase().indexOf(this.filterValue.toLowerCase()) !== -1;
       }
     }
 

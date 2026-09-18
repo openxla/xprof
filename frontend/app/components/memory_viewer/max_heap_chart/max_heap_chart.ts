@@ -1,30 +1,51 @@
-import {Component, ElementRef, EventEmitter, HostListener, Input, OnChanges, OnInit, Output, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  HostListener,
+  OnInit,
+  effect,
+  input,
+  output,
+  viewChild,
+} from '@angular/core';
 import {HeapObject} from 'org_xprof/frontend/app/common/interfaces/heap_object';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 
 /** A max heap chart view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'max-heap-chart',
   templateUrl: './max_heap_chart.ng.html',
-  styleUrls: ['./max_heap_chart.scss']
+  styleUrls: ['./max_heap_chart.scss'],
 })
-export class MaxHeapChart implements OnChanges, OnInit {
+export class MaxHeapChart implements OnInit {
   /** The heap object list. */
-  @Input() maxHeap: HeapObject[] = [];
+  readonly maxHeap = input<HeapObject[]>([]);
 
   /** The title of view component. */
-  @Input() title: string = '';
+  readonly title = input<string>('');
 
   /** The selected item index. */
-  @Input() selectedIndex: number = -1;
+  readonly selectedIndex = input<number>(-1);
 
   /** The event when the selection of the chart is changed. */
-  @Output() selected = new EventEmitter<number>();
+  readonly selected = output<number>();
 
-  @ViewChild('chart', {static: false}) chartRef!: ElementRef;
+  readonly chartRef = viewChild<ElementRef>('chart');
 
-  chart: google.visualization.ColumnChart|null = null;
+  chart: google.visualization.ColumnChart | null = null;
+
+  constructor() {
+    effect(() => {
+      this.maxHeap();
+      this.drawChart();
+    });
+    effect(() => {
+      this.selectedIndex();
+      this.updateSelection();
+    });
+  }
 
   @HostListener('window:resize')
   onResize() {
@@ -35,32 +56,28 @@ export class MaxHeapChart implements OnChanges, OnInit {
     this.loadGoogleChart();
   }
 
-  ngOnChanges(changes: SimpleChanges) {
-    if (changes['maxHeap']) {
-      this.drawChart();
-    }
-    if (changes['selectedIndex']) {
-      this.updateSelection();
-    }
-  }
-
   drawChart() {
-    if (!this.chart || !this.maxHeap) {
+    if (!this.chart || !this.maxHeap()) {
       return;
     }
 
-    const data: Array<string|number> = ([''] as Array<string|number>).concat(this.maxHeap.map(heapObject => {
-      return heapObject ? heapObject.sizeMiB || 0 : 0;
-    }));
-    const chartItemColors = this.maxHeap.map(
-        heapObject => utils.getChartItemColorByIndex(heapObject.color || 0));
-    const headers = [''].concat(this.maxHeap.map(heapObject => {
-      return heapObject ? heapObject.instructionName || '' : '';
-    }));
-    const dataTable = google.visualization.arrayToDataTable([
-      headers,
-      data,
-    ]);
+    const maxHeap = this.maxHeap();
+    const data: Array<string | number> = (
+      [''] as Array<string | number>
+    ).concat(
+      maxHeap.map((heapObject) => {
+        return heapObject ? heapObject.sizeMiB || 0 : 0;
+      }),
+    );
+    const chartItemColors = maxHeap.map((heapObject) =>
+      utils.getChartItemColorByIndex(heapObject.color || 0),
+    );
+    const headers = [''].concat(
+      maxHeap.map((heapObject) => {
+        return heapObject ? heapObject.instructionName || '' : '';
+      }),
+    );
+    const dataTable = google.visualization.arrayToDataTable([headers, data]);
 
     const options = {
       bar: {groupWidth: '100%'},
@@ -80,7 +97,9 @@ export class MaxHeapChart implements OnChanges, OnInit {
     };
 
     this.chart.draw(
-        dataTable, options as google.visualization.ColumnChartOptions);
+      dataTable,
+      options as google.visualization.ColumnChartOptions,
+    );
 
     google.visualization.events.addListener(this.chart, 'click', () => {
       if (this.chart) {
@@ -89,16 +108,18 @@ export class MaxHeapChart implements OnChanges, OnInit {
     });
 
     google.visualization.events.addListener(
-        this.chart, 'onmouseover',
-        (event: google.visualization.ChartSelection) => {
-          event = event || {};
-          const arr = [];
-          arr.push(event);
-          if (this.chart) {
-            this.chart.setSelection(arr);
-          }
-          this.selected.emit((event.column || 0) - 1);
-        });
+      this.chart,
+      'onmouseover',
+      (event: google.visualization.ChartSelection) => {
+        event = event || {};
+        const arr = [];
+        arr.push(event);
+        if (this.chart) {
+          this.chart.setSelection(arr);
+        }
+        this.selected.emit((event.column || 0) - 1);
+      },
+    );
   }
 
   loadGoogleChart() {
@@ -110,8 +131,9 @@ export class MaxHeapChart implements OnChanges, OnInit {
 
     google.charts.safeLoad({'packages': ['corechart']});
     google.charts.setOnLoadCallback(() => {
-      this.chart =
-          new google.visualization.ColumnChart(this.chartRef.nativeElement);
+      const chartEl = this.chartRef()?.nativeElement;
+      if (!chartEl) return;
+      this.chart = new google.visualization.ColumnChart(chartEl);
       this.drawChart();
     });
   }
@@ -120,6 +142,6 @@ export class MaxHeapChart implements OnChanges, OnInit {
     if (!this.chart) {
       return;
     }
-    this.chart.setSelection([{row: 0, column: this.selectedIndex + 1}]);
+    this.chart.setSelection([{row: 0, column: this.selectedIndex() + 1}]);
   }
 }

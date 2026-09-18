@@ -1,12 +1,14 @@
+import {NgClass, NgTemplateOutlet} from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  effect,
   inject,
-  Input,
-  OnChanges,
-  OnInit,
-  SimpleChanges,
+  input,
 } from '@angular/core';
+import {MatCard, MatCardContent, MatCardTitle} from '@angular/material/card';
+import {MatIcon} from '@angular/material/icon';
+import {MatTooltip} from '@angular/material/tooltip';
 import {
   type GeneralAnalysis,
   type InputPipelineAnalysis,
@@ -37,32 +39,6 @@ export function parseToNumber(
   const num = Number(cleaned);
   return Number.isNaN(num) ? null : num;
 }
-
-/**
- * Configuration Assumptions:
- * 1. by default, values/sdv values/nested children values all reads from
- * a k-v pair property with field key specified in the config object.
- * 2. It's required that each record in the same config object (eg.
- * NON_TPU_SUMMARY_INFO) should consume the same property (eg.
- * inputPipelineAnalysisProperty).
- * 3. The summary info data is in nested structure, currently consumes 2 levels
- * of metrics (Top layer level 1 + its children layer)
- */
-
-/**
- * Configuration Instructions
- * 1. In this file we chain multiple config objects to display metrics in order:
- * GENERIC_SUMMARY_INFO_BEFORE + TPU_SUMMARY_INFO/NON_TPU_SUMMARY_INFO +
- * GENERIC_SUMMARY_INFO_AFTER
- * 2. Values read from the k-v pair property could be undefined for oss
- * (dependent on backend version). Be sure to add a fallback logic (eg. || '')
- * when reading it in the parseDataFromConfig function call.
- * 3. Values are by default read from k-v pairs, we can also use a custom
- * callback function (eg. getChildValues) to read data into the propertyValues
- * as a string list.
- * 4. If `customInput` is specified when calling `parseDataFromConfig`, it will
- * be used as input to callback function `getValue` or `getChildValues`.
- */
 
 /** Generic summary info, display on top of the list */
 const GENERIC_SUMMARY_INFO_BEFORE: SummaryInfoConfig[] = [
@@ -229,37 +205,51 @@ const TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
 
 /** A performance summary view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'performance-summary',
   templateUrl: './performance_summary.ng.html',
   styleUrls: ['./performance_summary.scss'],
+  imports: [
+    MatCard,
+    MatCardContent,
+    MatCardTitle,
+    MatIcon,
+    MatTooltip,
+    NgClass,
+    NgTemplateOutlet,
+  ],
 })
-export class PerformanceSummary implements OnChanges, OnInit {
+export class PerformanceSummary {
   private readonly dataService = inject(DATA_SERVICE_INTERFACE_TOKEN);
   /** Identify if this is an inference or training session */
-  @Input() isInference?: boolean;
+  readonly isInference = input<boolean>();
 
   /** The general analysis data. */
-  @Input() generalAnalysis?: GeneralAnalysis;
+  readonly generalAnalysis = input<GeneralAnalysis>();
 
   /** The input pipeline analyis data. */
-  @Input() inputPipelineAnalysis?: InputPipelineAnalysis;
+  readonly inputPipelineAnalysis = input<InputPipelineAnalysis>();
 
   /** Inference latency analysis data */
-  @Input() inferenceLatencyData?: GeneralAnalysis;
+  readonly inferenceLatencyData = input<GeneralAnalysis>();
 
-  @Input() sessionId = '';
+  readonly sessionId = input('');
 
   /** Disaggregated serving latency data */
-  @Input() disaggregatedServingLatencyData?: GeneralAnalysis;
-  @Input() baselineGeneralAnalysis?: GeneralAnalysis;
-  @Input() baselineInputPipelineAnalysis?: InputPipelineAnalysis;
-  @Input() baselineInferenceLatencyData?: SimpleDataTable;
-  @Input() baselineDisaggregatedServingLatencyData?: SimpleDataTable;
+  readonly disaggregatedServingLatencyData = input<GeneralAnalysis>();
+  readonly baselineGeneralAnalysis = input<GeneralAnalysis>();
+  readonly baselineInputPipelineAnalysis = input<InputPipelineAnalysis>();
+  readonly baselineInferenceLatencyData = input<SimpleDataTable>();
+  readonly baselineDisaggregatedServingLatencyData = input<SimpleDataTable>();
 
   title = 'Performance Summary';
   summaryInfoCombined: SummaryInfo[] = [];
+
+  constructor() {
+    effect(() => {
+      this.parseSummaryData();
+    });
+  }
 
   get isTpu() {
     return this.inputPipelineProps['hardware_type'] === 'TPU';
@@ -267,53 +257,49 @@ export class PerformanceSummary implements OnChanges, OnInit {
 
   get hasBaseline(): boolean {
     return (
-      !!this.baselineGeneralAnalysis ||
-      !!this.baselineInputPipelineAnalysis ||
-      !!this.baselineInferenceLatencyData ||
-      !!this.baselineDisaggregatedServingLatencyData
+      !!this.baselineGeneralAnalysis() ||
+      !!this.baselineInputPipelineAnalysis() ||
+      !!this.baselineInferenceLatencyData() ||
+      !!this.baselineDisaggregatedServingLatencyData()
     );
   }
 
   get generalProps() {
-    return ((this.generalAnalysis || {}).p as GeneralProps) || {};
+    return ((this.generalAnalysis() || {}).p as GeneralProps) || {};
   }
 
   get inputPipelineProps() {
-    return ((this.inputPipelineAnalysis || {}).p as GeneralProps) || {};
+    return ((this.inputPipelineAnalysis() || {}).p as GeneralProps) || {};
   }
 
   get inferenceLatencyProps() {
-    return ((this.inferenceLatencyData || {}).p as GeneralProps) || {};
+    return ((this.inferenceLatencyData() || {}).p as GeneralProps) || {};
   }
 
   get disaggregatedServingLatencyProps() {
     return (
-      ((this.disaggregatedServingLatencyData || {}).p as GeneralProps) || {}
+      ((this.disaggregatedServingLatencyData() || {}).p as GeneralProps) || {}
     );
   }
 
   get baselineGeneralProps() {
-    return this.baselineGeneralAnalysis
-      ? (this.baselineGeneralAnalysis.p as GeneralProps)
-      : undefined;
+    const data = this.baselineGeneralAnalysis();
+    return data ? (data.p as GeneralProps) : undefined;
   }
 
   get baselineInputPipelineProps() {
-    return this.baselineInputPipelineAnalysis
-      ? (this.baselineInputPipelineAnalysis.p as GeneralProps)
-      : undefined;
+    const data = this.baselineInputPipelineAnalysis();
+    return data ? (data.p as GeneralProps) : undefined;
   }
 
   get baselineInferenceLatencyProps() {
-    return this.baselineInferenceLatencyData
-      ? (this.baselineInferenceLatencyData.p as GeneralProps)
-      : undefined;
+    const data = this.baselineInferenceLatencyData();
+    return data ? (data.p as GeneralProps) : undefined;
   }
 
   get baselineDisaggregatedServingLatencyProps() {
-    return this.baselineDisaggregatedServingLatencyData
-      ? (this.baselineDisaggregatedServingLatencyData.p as GeneralProps)
-      : undefined;
+    const data = this.baselineDisaggregatedServingLatencyData();
+    return data ? (data.p as GeneralProps) : undefined;
   }
 
   get remarkText() {
@@ -322,14 +308,6 @@ export class PerformanceSummary implements OnChanges, OnInit {
 
   get remarkColor() {
     return this.generalProps['remark_color'] || '';
-  }
-
-  ngOnInit() {
-    this.parseSummaryData();
-  }
-
-  ngOnChanges(changes: SimpleChanges) {
-    this.parseSummaryData();
   }
 
   parseSummaryData() {
@@ -380,8 +358,8 @@ export class PerformanceSummary implements OnChanges, OnInit {
     props: GeneralProps,
     options: ParseConfigOptions = {},
   ): SummaryInfo | null {
-    if (config.trainingOnly && this.isInference) return null;
-    if (config.inferenceOnly && !this.isInference) return null;
+    if (config.trainingOnly && this.isInference()) return null;
+    if (config.inferenceOnly && !this.isInference()) return null;
 
     const {customInput, baselineProps, baselineCustomInput, parentGoodMetric} =
       options;
@@ -437,7 +415,7 @@ export class PerformanceSummary implements OnChanges, OnInit {
     }
     // Add dynamic Roofline link with preserved parameters
     if (config.valueKey === 'flop_rate_utilization_relative_to_roofline') {
-      const url = this.dataService.getRooflineModelLink(this.sessionId);
+      const url = this.dataService.getRooflineModelLink(this.sessionId());
       descriptions.push(`see <a href="${url}">roofline_model</a>`);
     }
 

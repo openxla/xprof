@@ -2,12 +2,11 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
-  EventEmitter,
-  Input,
-  OnChanges,
   OnInit,
-  Output,
-  ViewChild,
+  effect,
+  input,
+  output,
+  viewChild,
 } from '@angular/core';
 import {KELLY_COLORS} from 'org_xprof/frontend/app/common/constants/constants';
 import {PrimitiveTypeNumberString} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -17,42 +16,42 @@ const DEFAULT_CHART_WIDTH = 500;
 
 /** A stack bar chart view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'stack-bar-chart',
   templateUrl: './stack_bar_chart.ng.html',
   styleUrls: ['./stack_bar_chart.scss'],
 })
-export class StackBarChart implements OnChanges, OnInit {
+export class StackBarChart implements OnInit {
   /** The data to be display. */
-  @Input() data?: Array<Array<PrimitiveTypeNumberString | undefined>>;
+  readonly data = input<Array<Array<PrimitiveTypeNumberString | undefined>>>();
 
   /** The event when the selection of the chart is changed. */
-  @Output() selected = new EventEmitter<number>();
+  readonly selected = output<number>();
 
-  @ViewChild('chart', {static: false}) chartRef!: ElementRef;
+  readonly chartRef = viewChild<ElementRef>('chart');
 
   chart: google.visualization.BarChart | null = null;
   chartWidth = DEFAULT_CHART_WIDTH;
+
+  constructor() {
+    effect(() => {
+      this.data();
+      this.drawChart();
+    });
+  }
 
   ngOnInit() {
     this.loadGoogleChart();
   }
 
-  ngOnChanges() {
-    this.drawChart();
-  }
-
   drawChart() {
-    if (!this.chart || !this.data) {
+    const data = this.data();
+    if (!this.chart || !data) {
       return;
     }
 
-    this.chartWidth = Math.max(
-      DEFAULT_CHART_WIDTH,
-      this.data.length * BAR_WIDTH,
-    );
-    const dataTable = window.google.visualization.arrayToDataTable(this.data);
+    this.chartWidth = Math.max(DEFAULT_CHART_WIDTH, data.length * BAR_WIDTH);
+    const dataTable = window.google.visualization.arrayToDataTable(data);
 
     const options = {
       backgroundColor: 'transparent',
@@ -89,9 +88,9 @@ export class StackBarChart implements OnChanges, OnInit {
 
     google.charts.safeLoad({'packages': ['corechart']});
     google.charts.setOnLoadCallback(() => {
-      this.chart = new google.visualization.BarChart(
-        this.chartRef.nativeElement,
-      );
+      const chartEl = this.chartRef()?.nativeElement;
+      if (!chartEl) return;
+      this.chart = new google.visualization.BarChart(chartEl);
 
       google.visualization.events.addListener(
         this.chart,

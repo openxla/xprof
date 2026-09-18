@@ -1,4 +1,5 @@
-import {ChangeDetectionStrategy, Component, inject, Input} from '@angular/core';
+import {ChangeDetectionStrategy, Component, inject, input} from '@angular/core';
+import {MatIcon} from '@angular/material/icon';
 import {
   DATA_SERVICE_INTERFACE_TOKEN,
   DataServiceV2Interface,
@@ -8,28 +9,28 @@ import {
  * A 'Export as CSV' button component.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'export-as-csv',
   templateUrl: './export_as_csv.ng.html',
   styleUrls: ['./export_as_csv.scss'],
+  imports: [MatIcon],
 })
 export class ExportAsCsv {
-  @Input() tool = '';
-  @Input() sessionId = '';
-  @Input() host = '';
-  @Input() tqx = '';
-  @Input() additionalParams: Map<string, string> = new Map();
+  readonly tool = input('');
+  readonly sessionId = input('');
+  readonly host = input('');
+  readonly tqx = input('');
+  readonly additionalParams = input<Map<string, string>>(new Map());
 
   dataService: DataServiceV2Interface = inject(DATA_SERVICE_INTERFACE_TOKEN);
 
   exportDataAsCSV() {
     this.dataService.exportDataAsCSV(
-      this.sessionId,
-      this.tool,
-      this.host,
-      this.tqx,
-      this.additionalParams,
+      this.sessionId(),
+      this.tool(),
+      this.host(),
+      this.tqx(),
+      this.additionalParams(),
     );
   }
 }

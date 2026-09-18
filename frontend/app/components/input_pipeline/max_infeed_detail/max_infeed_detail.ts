@@ -1,47 +1,51 @@
 import {
   AfterViewInit,
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
-  Input,
-  OnChanges,
-  SimpleChanges,
-  ViewChild, ChangeDetectionStrategy,
+  effect,
+  input,
+  viewChild,
 } from '@angular/core';
+import {MatDivider} from '@angular/material/divider';
 import {type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 /** A max-infeed-detail view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'max-infeed-detail',
   templateUrl: './max_infeed_detail.ng.html',
   styleUrls: ['./max_infeed_detail.scss'],
+  imports: [MatDivider],
 })
-export class MaxInfeedDetail implements AfterViewInit, OnChanges {
+export class MaxInfeedDetail implements AfterViewInit {
   /** Whether it is a TPU profile. */
-  @Input() isTpu: boolean = false;
+  readonly isTpu = input(false);
 
   /** The table of the core with the maximum infeed at each step. */
-  @Input() maxInfeedCoreTable: SimpleDataTable | null = null;
+  readonly maxInfeedCoreTable = input<SimpleDataTable | null>(null);
 
-  @ViewChild('table', {static: false}) tableRef!: ElementRef;
+  readonly tableRef = viewChild<ElementRef>('table');
 
   table: google.visualization.Table | null = null;
+
+  constructor() {
+    effect(() => {
+      this.maxInfeedCoreTable();
+      this.drawTable();
+    });
+  }
 
   ngAfterViewInit() {
     this.loadGoogleChart();
   }
 
-  ngOnChanges(changes: SimpleChanges) {
-    this.drawTable();
-  }
-
   drawTable() {
-    if (!this.table || !this.maxInfeedCoreTable) {
+    const maxInfeedCoreTable = this.maxInfeedCoreTable();
+    if (!this.table || !maxInfeedCoreTable) {
       return;
     }
-    const dataTable = new google.visualization.DataTable(
-      this.maxInfeedCoreTable,
-    );
+    const dataTable = new google.visualization.DataTable(maxInfeedCoreTable);
     if (dataTable.getNumberOfColumns() < 1) {
       return;
     }
@@ -65,7 +69,9 @@ export class MaxInfeedDetail implements AfterViewInit, OnChanges {
 
     google.charts.safeLoad({'packages': ['table']});
     google.charts.setOnLoadCallback(() => {
-      this.table = new google.visualization.Table(this.tableRef.nativeElement);
+      const tableEl = this.tableRef()?.nativeElement;
+      if (!tableEl) return;
+      this.table = new google.visualization.Table(tableEl);
       this.drawTable();
     });
   }

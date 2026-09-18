@@ -11,9 +11,19 @@ import {
   OnDestroy,
   OnInit,
   TemplateRef,
-  ViewChild,
+  viewChild,
 } from '@angular/core';
+import {FormsModule} from '@angular/forms';
+import {MatAutocompleteModule} from '@angular/material/autocomplete';
+import {MatButton, MatIconButton} from '@angular/material/button';
+import {MatCheckbox} from '@angular/material/checkbox';
+import {MatChipsModule} from '@angular/material/chips';
 import {MatDialog, MatDialogRef} from '@angular/material/dialog';
+import {MatDivider} from '@angular/material/divider';
+import {MatIcon} from '@angular/material/icon';
+import {MatMenu, MatMenuItem, MatMenuTrigger} from '@angular/material/menu';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {MatTooltip} from '@angular/material/tooltip';
 import {ActivatedRoute, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
@@ -63,9 +73,11 @@ import {
   HLO_MODULE,
   HLO_OP,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/trace_helper/event_args_keys';
+import {SafePipe} from 'org_xprof/frontend/app/pipes/safe_pipe';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
+
 import {
   COLOR_PALETTE_PROMPTED_STORAGE_KEY,
   COLOR_PALETTE_STORAGE_KEY,
@@ -91,6 +103,8 @@ import {
   STACK_TRACE_TOOL_NAME,
   TRACE_VIEWER_TOOL_NAME,
 } from './constants';
+import {FilterChips} from './filter_chips/filter_chips';
+import {FilterInput} from './filter_input/filter_input';
 import {AdjacentNodesResponse} from './interfaces';
 import {
   FilterChangeEvent,
@@ -176,10 +190,28 @@ function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
 /** A trace viewer component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'trace-viewer',
   templateUrl: './trace_viewer.ng.html',
   styleUrls: ['./trace_viewer.scss'],
+  imports: [
+    FormsModule,
+    MatAutocompleteModule,
+    MatChipsModule,
+    MatProgressBarModule,
+    SafePipe,
+    FilterChips,
+    FilterInput,
+    MatButton,
+    MatCheckbox,
+    MatDivider,
+    MatIcon,
+    MatIconButton,
+    MatMenu,
+    MatMenuItem,
+    MatMenuTrigger,
+    MatTooltip,
+    TraceViewerContainer,
+  ],
 })
 export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly destroyed = new ReplaySubject<void>(1);
@@ -259,19 +291,17 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   ];
   traceDetails: TraceDetails = new Map();
 
-  @ViewChild(TraceViewerContainer, {static: false})
-  container?: TraceViewerContainer;
+  readonly container = viewChild(TraceViewerContainer);
 
-  @ViewChild('settingsDialog', {static: false})
-  settingsDialog!: TemplateRef<{}>;
+  readonly settingsDialog = viewChild<TemplateRef<{}>>('settingsDialog');
 
-  @ViewChild('paletteDialog', {static: false})
-  paletteDialog!: TemplateRef<{}>;
+  readonly paletteDialog = viewChild<TemplateRef<{}>>('paletteDialog');
 
-  @ViewChild('featureFlagsDialog', {static: false})
-  featureFlagsDialog!: TemplateRef<{}>;
+  readonly featureFlagsDialog =
+    viewChild<TemplateRef<{}>>('featureFlagsDialog');
 
-  @ViewChild('settingsButton') settingsButton!: ElementRef<HTMLButtonElement>;
+  readonly settingsButton =
+    viewChild<ElementRef<HTMLButtonElement>>('settingsButton');
 
   settingsDialogRef: MatDialogRef<unknown> | null = null;
 
@@ -364,7 +394,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   openCustomizationSettings(): void {
-    this.container?.openCustomizationPanel();
+    this.container()?.openCustomizationPanel();
   }
 
   /**
@@ -564,7 +594,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
             ...traceData,
             traceEvents: traceData.traceEvents ?? [],
           } as MainTraceData);
-          this.container?.updateSearchResultCountText();
+          this.container()?.updateSearchResultCountText();
         }
       });
   }
@@ -895,7 +925,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
     const app = this.traceViewerModule.application.instance();
     app.setSearchQuery(query);
-    this.container?.updateSearchResultCountText();
+    this.container()?.updateSearchResultCountText();
     this.searchQuery.next(query);
   }
 
@@ -1659,7 +1689,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     this.initialFeatureFlags = newInitialFeatureFlags;
 
     const dialogTemplate =
-      this.settingsDialog || this.paletteDialog || this.featureFlagsDialog;
+      this.settingsDialog() ||
+      this.paletteDialog() ||
+      this.featureFlagsDialog();
+    if (!dialogTemplate) return;
     const dialogRef = this.dialog.open(dialogTemplate, {
       width: '760px',
       maxWidth: '95vw',

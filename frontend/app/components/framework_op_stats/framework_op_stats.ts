@@ -1,6 +1,15 @@
-import {Component, Input, ChangeDetectionStrategy} from '@angular/core';
+import {ChangeDetectionStrategy, Component, inject, input} from '@angular/core';
+import {MatButton} from '@angular/material/button';
+import {MatDivider} from '@angular/material/divider';
+import {MatIcon} from '@angular/material/icon';
+import {MatMenu, MatMenuItem, MatMenuTrigger} from '@angular/material/menu';
 import {Store} from '@ngrx/store';
-import {IdleOption, OpExecutor, OpKind, OpType} from 'org_xprof/frontend/app/common/constants/enums';
+import {
+  IdleOption,
+  OpExecutor,
+  OpKind,
+  OpType,
+} from 'org_xprof/frontend/app/common/constants/enums';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {FrameworkOpStatsData} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {CategoryDiffTableDataProcessor} from 'org_xprof/frontend/app/components/chart/category_diff_table_data_processor';
@@ -8,6 +17,12 @@ import {CategoryTableDataProcessor} from 'org_xprof/frontend/app/components/char
 import {PIE_CHART_OPTIONS} from 'org_xprof/frontend/app/components/chart/chart_options';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
 import * as selectors from 'org_xprof/frontend/app/store/framework_op_stats/selectors';
+import {Chart} from '../chart/chart';
+import {ExportAsCsv} from '../controls/export_as_csv/export_as_csv';
+import {FlopRateChart} from './flop_rate_chart/flop_rate_chart';
+import {ModelProperties} from './model_properties/model_properties';
+import {OperationsTable} from './operations_table/operations_table';
+import {StatsTable} from './stats_table/stats_table';
 
 const OP_EXECUTOR_ID = 'host_or_device';
 const OP_TYPE_ID = 'type';
@@ -17,19 +32,35 @@ const MEASURED_FLOP_RATE_ID = 'measured_flop_rate';
 
 /** A TensorFlow Stats component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'framework-op-stats',
   templateUrl: './framework_op_stats.ng.html',
-  styleUrls: ['./framework_op_stats.scss']
+  styleUrls: ['./framework_op_stats.scss'],
+  imports: [
+    Chart,
+    ExportAsCsv,
+    FlopRateChart,
+    MatButton,
+    MatDivider,
+    MatIcon,
+    MatMenu,
+    MatMenuItem,
+    MatMenuTrigger,
+    ModelProperties,
+    OperationsTable,
+    StatsTable,
+  ],
 })
 export class FrameworkOpStats {
-  @Input() sessionId = '';
-  @Input() tool = '';
-  @Input() host = '';
-  data: FrameworkOpStatsData[]|null = null;
-  diffData: FrameworkOpStatsData[]|null = null;
-  selectedData: FrameworkOpStatsData|null = null;
-  selectedDiffData: FrameworkOpStatsData|null = null;
+  private readonly store = inject<Store<{}>>(Store);
+
+  readonly sessionId = input('');
+  readonly tool = input('');
+  readonly host = input('');
+  data: FrameworkOpStatsData[] | null = null;
+  diffData: FrameworkOpStatsData[] | null = null;
+  selectedData: FrameworkOpStatsData | null = null;
+  selectedDiffData: FrameworkOpStatsData | null = null;
   idleMenuButtonLabel = IdleOption.NO;
   idleOptionItems = [IdleOption.YES, IdleOption.NO];
   opExecutorDevice = OpExecutor.DEVICE;
@@ -71,41 +102,49 @@ export class FrameworkOpStats {
     options: PIE_CHART_OPTIONS,
   };
 
-  constructor(private readonly store: Store<{}>) {
+  constructor() {
     this.store.select(selectors.getTitleState).subscribe((title: string) => {
       this.title = title || '';
     });
-    this.store.select(selectors.getHasDiffState).subscribe(hasDiff => {
+    this.store.select(selectors.getHasDiffState).subscribe((hasDiff) => {
       this.hasDiff = Boolean(hasDiff);
     });
-    this.store.select(selectors.getShowFlopRateChartState)
-        .subscribe(showFlopRateChart => {
-          this.showFlopRateChart = Boolean(showFlopRateChart);
-        });
-    this.store.select(selectors.getShowModelPropertiesState)
-        .subscribe(showModelProperties => {
-          this.showModelProperties = Boolean(showModelProperties);
-        });
-    this.store.select(selectors.getShowPprofLinkState)
-        .subscribe(showPprofLink => {
-          this.showPprofLink = Boolean(showPprofLink);
-        });
-    this.store.select(selectors.getDiffDataState)
-        .subscribe((diffData: FrameworkOpStatsData[]) => {
-          this.diffData = (diffData || []);
-          this.setIdleOption();
-        });
-    this.store.select(selectors.getDataState)
-        .subscribe((data: FrameworkOpStatsData[]) => {
-          this.data = (data || []);
-          this.setIdleOption();
-        });
+    this.store
+      .select(selectors.getShowFlopRateChartState)
+      .subscribe((showFlopRateChart) => {
+        this.showFlopRateChart = Boolean(showFlopRateChart);
+      });
+    this.store
+      .select(selectors.getShowModelPropertiesState)
+      .subscribe((showModelProperties) => {
+        this.showModelProperties = Boolean(showModelProperties);
+      });
+    this.store
+      .select(selectors.getShowPprofLinkState)
+      .subscribe((showPprofLink) => {
+        this.showPprofLink = Boolean(showPprofLink);
+      });
+    this.store
+      .select(selectors.getDiffDataState)
+      .subscribe((diffData: FrameworkOpStatsData[]) => {
+        this.diffData = diffData || [];
+        this.setIdleOption();
+      });
+    this.store
+      .select(selectors.getDataState)
+      .subscribe((data: FrameworkOpStatsData[]) => {
+        this.data = data || [];
+        this.setIdleOption();
+      });
   }
 
   setIdleOption(option: IdleOption = IdleOption.NO) {
     this.idleMenuButtonLabel = option;
-    if ((!this.data || this.data.length === 0) ||
-        (this.hasDiff && (!this.diffData || this.diffData.length === 0))) {
+    if (
+      !this.data ||
+      this.data.length === 0 ||
+      (this.hasDiff && (!this.diffData || this.diffData.length === 0))
+    ) {
       this.selectedData = null;
       this.selectedDiffData = null;
       return;
@@ -134,35 +173,56 @@ export class FrameworkOpStats {
     let opExecutorIndex = -1;
     if (dataTable && dataTable.getColumnIndex) {
       this.flopRateChartXColumn = dataTable.getColumnIndex(OP_NAME_ID);
-      this.flopRateChartYColumn =
-          dataTable.getColumnIndex(MEASURED_FLOP_RATE_ID);
+      this.flopRateChartYColumn = dataTable.getColumnIndex(
+        MEASURED_FLOP_RATE_ID,
+      );
       opTypeIndex = dataTable.getColumnIndex(OP_TYPE_ID);
       opNameIndex = dataTable.getColumnIndex(OP_NAME_ID);
       selfTimeIndex = dataTable.getColumnIndex(SELF_TIME_ID);
       opExecutorIndex = dataTable.getColumnIndex(OP_EXECUTOR_ID);
     }
 
-    const filtersForDevice =
-        [{column: opExecutorIndex, value: OpExecutor.DEVICE}];
+    const filtersForDevice = [
+      {column: opExecutorIndex, value: OpExecutor.DEVICE},
+    ];
     const filtersForHost = [{column: opExecutorIndex, value: OpExecutor.HOST}];
 
-    this.dataInfoDeviceByType.customChartDataProcessor = this.selectedDiffData ?
-        new CategoryDiffTableDataProcessor(
-            this.selectedDiffData, filtersForDevice, opTypeIndex,
-            selfTimeIndex) :
-        new CategoryTableDataProcessor(
-            filtersForDevice, opTypeIndex, selfTimeIndex);
+    this.dataInfoDeviceByType.customChartDataProcessor = this.selectedDiffData
+      ? new CategoryDiffTableDataProcessor(
+          this.selectedDiffData,
+          filtersForDevice,
+          opTypeIndex,
+          selfTimeIndex,
+        )
+      : new CategoryTableDataProcessor(
+          filtersForDevice,
+          opTypeIndex,
+          selfTimeIndex,
+        );
     this.dataInfoDeviceByName.customChartDataProcessor =
-        new CategoryTableDataProcessor(
-            filtersForDevice, opNameIndex, selfTimeIndex);
-    this.dataInfoHostByType.customChartDataProcessor = this.selectedDiffData ?
-        new CategoryDiffTableDataProcessor(
-            this.selectedDiffData, filtersForHost, opTypeIndex, selfTimeIndex) :
-        new CategoryTableDataProcessor(
-            filtersForHost, opTypeIndex, selfTimeIndex);
+      new CategoryTableDataProcessor(
+        filtersForDevice,
+        opNameIndex,
+        selfTimeIndex,
+      );
+    this.dataInfoHostByType.customChartDataProcessor = this.selectedDiffData
+      ? new CategoryDiffTableDataProcessor(
+          this.selectedDiffData,
+          filtersForHost,
+          opTypeIndex,
+          selfTimeIndex,
+        )
+      : new CategoryTableDataProcessor(
+          filtersForHost,
+          opTypeIndex,
+          selfTimeIndex,
+        );
     this.dataInfoHostByName.customChartDataProcessor =
-        new CategoryTableDataProcessor(
-            filtersForHost, opNameIndex, selfTimeIndex);
+      new CategoryTableDataProcessor(
+        filtersForHost,
+        opNameIndex,
+        selfTimeIndex,
+      );
 
     // Since the DataInfo has not been updated, the notifyCharts function is
     // called to redraw the graph.
@@ -176,7 +236,7 @@ export class FrameworkOpStats {
     }
     this.hasDeviceData = false;
     if (this.selectedData && this.selectedData.rows) {
-      this.hasDeviceData = !!this.selectedData.rows.find(row => {
+      this.hasDeviceData = !!this.selectedData.rows.find((row) => {
         return row && row.c && row.c[1] && row.c[1].v === OpExecutor.DEVICE;
       });
     }

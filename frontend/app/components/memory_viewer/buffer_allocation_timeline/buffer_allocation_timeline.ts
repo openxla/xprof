@@ -3,15 +3,15 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
-  EventEmitter,
   HostListener,
-  Input,
-  OnChanges,
   OnDestroy,
-  Output,
-  SimpleChanges,
-  ViewChild,
+  effect,
+  input,
+  output,
+  viewChild,
 } from '@angular/core';
+import {MatIcon} from '@angular/material/icon';
+import {MatTooltip} from '@angular/material/tooltip';
 import {
   type BufferBlock,
   type BufferBlockProto,
@@ -75,21 +75,19 @@ function getFittingLabel(
  */
 @Component({
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
   selector: 'buffer-allocation-timeline',
   templateUrl: './buffer_allocation_timeline.ng.html',
   styleUrls: ['./buffer_allocation_timeline.scss'],
+  imports: [MatIcon, MatTooltip],
 })
-export class BufferAllocationTimeline
-  implements AfterViewInit, OnChanges, OnDestroy
-{
-  @Input() bufferBlocks: BufferBlockProto[] = [];
-  @Input() totalSteps = 0;
-  @Input() totalBytes = 0;
-  @Input() highlightedStep = -1;
-  @Input() highlightedBlocks: BufferBlock[] = [];
-  @Output() readonly selected = new EventEmitter<BufferBlock | null>();
-  @Output() readonly hovered = new EventEmitter<BufferBlock | null>();
+export class BufferAllocationTimeline implements AfterViewInit, OnDestroy {
+  readonly bufferBlocks = input<BufferBlockProto[]>([]);
+  readonly totalSteps = input(0);
+  readonly totalBytes = input(0);
+  readonly highlightedStep = input(-1);
+  readonly highlightedBlocks = input<BufferBlock[]>([]);
+  readonly selected = output<BufferBlock | null>();
+  readonly hovered = output<BufferBlock | null>();
 
   /**
    * The list of buffer blocks positioned and scaled for rendering.
@@ -98,14 +96,15 @@ export class BufferAllocationTimeline
    */
   private layoutBlocks: BufferBlock[] = [];
 
-  @ViewChild('timelineCanvas', {static: true})
-  canvasRef!: ElementRef<HTMLCanvasElement>;
+  readonly canvasRef =
+    viewChild.required<ElementRef<HTMLCanvasElement>>('timelineCanvas');
 
-  @ViewChild('fullscreenContainer', {static: true})
-  fullscreenContainer!: ElementRef<HTMLDivElement>;
+  readonly fullscreenContainer = viewChild.required<ElementRef<HTMLDivElement>>(
+    'fullscreenContainer',
+  );
 
-  @Input() isFullscreen = false;
-  @Output() readonly isFullscreenChange = new EventEmitter<boolean>();
+  readonly isFullscreen = input(false);
+  readonly isFullscreenChange = output<boolean>();
 
   private resizeObserver?: ResizeObserver;
 
@@ -115,8 +114,8 @@ export class BufferAllocationTimeline
   private matchedSearchBlocks: BufferBlock[] = [];
   private currentSearchMatchIndex = -1;
 
-  @ViewChild('searchInput', {static: false})
-  searchInputEl?: ElementRef<HTMLInputElement>;
+  readonly searchInputEl =
+    viewChild<ElementRef<HTMLInputElement>>('searchInput');
 
   // Zoom/pan state
   scale = 1.0;
@@ -126,7 +125,7 @@ export class BufferAllocationTimeline
   fitScale = 0;
 
   // Selection state
-  @Input() selectedBlock: BufferBlock | null = null;
+  readonly selectedBlock = input<BufferBlock | null>(null);
 
   // Hover state for tooltip
   hoveredBlock: BufferBlock | null = null;
@@ -144,8 +143,29 @@ export class BufferAllocationTimeline
   private canvas!: HTMLCanvasElement;
   private ctx!: CanvasRenderingContext2D;
 
+  constructor() {
+    effect(() => {
+      this.bufferBlocks();
+      this.totalSteps();
+      this.totalBytes();
+      this.computeLayout();
+      this.updateSearchMatches();
+      if (this.ctx) {
+        this.resetZoom();
+        this.draw();
+      }
+    });
+    effect(() => {
+      this.selectedBlock();
+      this.isFullscreen();
+      this.highlightedStep();
+      this.highlightedBlocks();
+      this.draw();
+    });
+  }
+
   ngAfterViewInit() {
-    this.canvas = this.canvasRef.nativeElement;
+    this.canvas = this.canvasRef().nativeElement;
     const context = this.canvas.getContext('2d');
     if (!context) {
       throw new Error('Could not get Canvas 2D context');
@@ -161,8 +181,8 @@ export class BufferAllocationTimeline
       }
     });
     this.resizeObserver.observe(
-      this.canvasRef.nativeElement.parentElement ||
-        this.canvasRef.nativeElement,
+      this.canvasRef().nativeElement.parentElement ||
+        this.canvasRef().nativeElement,
     );
   }
 
@@ -171,19 +191,23 @@ export class BufferAllocationTimeline
   }
 
   computeLayout() {
-    if (!this.bufferBlocks || this.totalSteps <= 0 || this.totalBytes <= 0) {
+    if (
+      !this.bufferBlocks() ||
+      this.totalSteps() <= 0 ||
+      this.totalBytes() <= 0
+    ) {
       this.layoutBlocks = [];
       return;
     }
 
     this.layoutBlocks = [];
-    const scaleX = CANVAS_SIZE / this.totalSteps;
-    const scaleY = CANVAS_SIZE / this.totalBytes;
+    const scaleX = CANVAS_SIZE / this.totalSteps();
+    const scaleY = CANVAS_SIZE / this.totalBytes();
 
     const categoryColorMap = new Map<string, string>();
     let colorIdx = 0;
 
-    for (const proto of this.bufferBlocks) {
+    for (const proto of this.bufferBlocks()) {
       const startStep = proto.startStep ?? 0;
       const endStep = proto.endStep ?? 0;
       const offset = proto.offset ?? 0;
@@ -247,28 +271,6 @@ export class BufferAllocationTimeline
         category: proto.category,
         sourceInfo: proto.sourceInfo,
       });
-    }
-  }
-
-  ngOnChanges(changes: SimpleChanges) {
-    if (
-      changes['bufferBlocks'] ||
-      changes['totalSteps'] ||
-      changes['totalBytes']
-    ) {
-      this.computeLayout();
-      this.updateSearchMatches();
-      if (this.ctx) {
-        this.resetZoom();
-        this.draw();
-      }
-    } else if (
-      changes['selectedBlock'] ||
-      changes['isFullscreen'] ||
-      changes['highlightedStep'] ||
-      changes['highlightedBlocks']
-    ) {
-      this.draw();
     }
   }
 
@@ -403,7 +405,7 @@ export class BufferAllocationTimeline
         continue;
       }
       const isSelected =
-        this.selectedBlock && this.selectedBlock.id === block.id;
+        this.selectedBlock() && this.selectedBlock()!.id === block.id;
       if (isSelected) {
         continue;
       }
@@ -419,17 +421,12 @@ export class BufferAllocationTimeline
     }
 
     // Draw selected block on top of everything
-    if (this.selectedBlock && !this.selectedBlock.isContainer) {
+    const selectedBlock = this.selectedBlock();
+    if (selectedBlock && !selectedBlock.isContainer) {
       if (
-        this.isBlockVisible(
-          this.selectedBlock,
-          minRawX,
-          maxRawX,
-          minRawY,
-          maxRawY,
-        )
+        this.isBlockVisible(selectedBlock, minRawX, maxRawX, minRawY, maxRawY)
       ) {
-        this.drawBlock(this.selectedBlock);
+        this.drawBlock(selectedBlock);
       }
     }
 
@@ -447,7 +444,7 @@ export class BufferAllocationTimeline
         this.drawBlock(this.hoveredBlock);
       }
     }
-    if (this.selectedBlock) {
+    if (selectedBlock) {
       this.updateTooltipPosition();
     }
   }
@@ -480,10 +477,11 @@ export class BufferAllocationTimeline
     const drawW = this.toCanvasLength(block.width);
     const drawH = this.toCanvasLength(block.height);
 
+    const selectedBlock = this.selectedBlock();
     const isSelected = !!(
-      this.selectedBlock &&
+      selectedBlock &&
       !block.isContainer &&
-      this.selectedBlock.logicalBufferId === block.logicalBufferId
+      selectedBlock.logicalBufferId === block.logicalBufferId
     );
 
     const isHovered =
@@ -495,11 +493,12 @@ export class BufferAllocationTimeline
 
     // Determine opacity: dim if selection or search is active, but block doesn't match either
     let opacity = 1.0;
-    const hasSelection = !!this.selectedBlock;
+    const hasSelection = !!selectedBlock;
     const hasSearch = !!this.searchQuery;
-    const hasStepHighlight = this.highlightedStep >= 0;
+    const hasStepHighlight = this.highlightedStep() >= 0;
+    const highlightedBlocks = this.highlightedBlocks();
     const hasBlocksHighlight =
-      !!this.highlightedBlocks && this.highlightedBlocks.length > 0;
+      !!highlightedBlocks && highlightedBlocks.length > 0;
     const hasHighlight = hasStepHighlight || hasBlocksHighlight;
 
     if (hasSelection || hasSearch || hasHighlight) {
@@ -520,12 +519,12 @@ export class BufferAllocationTimeline
       const matchesStep =
         hasStepHighlight &&
         !!block.span &&
-        this.highlightedStep >= block.span[0] &&
-        this.highlightedStep <= block.span[1];
+        this.highlightedStep() >= block.span[0] &&
+        this.highlightedStep() <= block.span[1];
 
       const matchesBlocks =
         hasBlocksHighlight &&
-        this.highlightedBlocks.some(
+        highlightedBlocks.some(
           (b) =>
             b.logicalBufferId === block.logicalBufferId || b.id === block.id,
         );
@@ -654,7 +653,7 @@ export class BufferAllocationTimeline
   }
 
   updateHoverState(mouseX: number, mouseY: number) {
-    if (this.selectedBlock) {
+    if (this.selectedBlock()) {
       this.hoveredBlock = null;
       return;
     }
@@ -701,7 +700,7 @@ export class BufferAllocationTimeline
     let refX = 0;
     let refY = 0;
 
-    if (this.selectedBlock) {
+    if (this.selectedBlock()) {
       refX = this.toCanvasX(block.x);
       refY = this.toCanvasY(block.y);
     } else if (clientX !== undefined && clientY !== undefined) {
@@ -775,15 +774,15 @@ export class BufferAllocationTimeline
       }
     }
 
+    const selectedBlock = this.selectedBlock();
     if (
       clickedBlock &&
-      this.selectedBlock &&
-      clickedBlock.logicalBufferId === this.selectedBlock.logicalBufferId
+      selectedBlock &&
+      clickedBlock.logicalBufferId === selectedBlock.logicalBufferId
     ) {
       clickedBlock = null;
     }
 
-    this.selectedBlock = clickedBlock;
     this.selected.emit(clickedBlock);
     this.draw();
   }
@@ -796,7 +795,7 @@ export class BufferAllocationTimeline
   }
 
   get activeBlock(): BufferBlock | null {
-    return this.selectedBlock || this.hoveredBlock;
+    return this.selectedBlock() || this.hoveredBlock;
   }
 
   getBlockSizeMiB(block: BufferBlock): string {
@@ -821,17 +820,14 @@ export class BufferAllocationTimeline
     ) {
       return 'N/A';
     }
-    return (
-      (block.size - block.unpaddedSize) /
-      (1024 * 1024)
-    ).toFixed(2);
+    return ((block.size - block.unpaddedSize) / (1024 * 1024)).toFixed(2);
   }
 
   @HostListener('document:fullscreenchange')
   onFullscreenChange() {
-    this.isFullscreen =
-      document.fullscreenElement === this.fullscreenContainer.nativeElement;
-    this.isFullscreenChange.emit(this.isFullscreen);
+    const isFullscreen =
+      document.fullscreenElement === this.fullscreenContainer().nativeElement;
+    this.isFullscreenChange.emit(isFullscreen);
     if (this.canvas) {
       setTimeout(() => {
         this.resizeCanvas();
@@ -840,7 +836,7 @@ export class BufferAllocationTimeline
   }
 
   toggleFullscreen() {
-    const element = this.fullscreenContainer.nativeElement;
+    const element = this.fullscreenContainer().nativeElement;
     if (!document.fullscreenElement) {
       element.requestFullscreen().catch((err) => {
         console.error(
@@ -899,23 +895,26 @@ export class BufferAllocationTimeline
     const match = this.matchedSearchBlocks[this.currentSearchMatchIndex];
 
     // Select the matched block
-    this.selectedBlock = match;
     this.selected.emit(match);
 
     // Zoom and center on the matched block
     this.scale = Math.max(this.scale, 5.0);
-    this.centerOnSelectedBlock();
+    this.centerOnBlock(match);
   }
 
   centerOnSelectedBlock() {
-    if (!this.canvas || !this.selectedBlock) return;
+    const selectedBlock = this.selectedBlock();
+    if (!this.canvas || !selectedBlock) return;
+    this.centerOnBlock(selectedBlock);
+  }
+
+  centerOnBlock(block: BufferBlock) {
+    if (!this.canvas || !block) return;
     const viewW = this.canvas.width / (window.devicePixelRatio || 1);
     const viewH = this.canvas.height / (window.devicePixelRatio || 1);
-    this.offsetX =
-      viewW / 2 - this.selectedBlock.x * this.fitScale * this.scale;
+    this.offsetX = viewW / 2 - block.x * this.fitScale * this.scale;
     this.offsetY =
-      viewH / 2 -
-      (CANVAS_SIZE - this.selectedBlock.y) * this.fitScale * this.scale;
+      viewH / 2 - (CANVAS_SIZE - block.y) * this.fitScale * this.scale;
     this.draw();
   }
 
@@ -928,7 +927,7 @@ export class BufferAllocationTimeline
       this.draw();
     } else {
       setTimeout(() => {
-        this.searchInputEl?.nativeElement.focus();
+        this.searchInputEl()?.nativeElement.focus();
       }, 50);
     }
   }

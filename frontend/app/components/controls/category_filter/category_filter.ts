@@ -1,4 +1,13 @@
-import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  effect,
+  input,
+  output,
+} from '@angular/core';
+import {MatOption} from '@angular/material/core';
+import {MatFormField, MatLabel} from '@angular/material/form-field';
+import {MatSelect} from '@angular/material/select';
 
 /**
  * A category filter component.
@@ -9,45 +18,48 @@ import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, Change
  * If all is set, it is used as a value that selects all rows.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'category-filter',
   templateUrl: './category_filter.ng.html',
-  styleUrls: ['./category_filter.scss']
+  styleUrls: ['./category_filter.scss'],
+  imports: [MatFormField, MatLabel, MatOption, MatSelect],
 })
-export class CategoryFilter implements OnChanges {
-  @Input() dataTable?: google.visualization.DataTable;
-  @Input() column: number|string = -1;
-  @Input() valueSeparator = '';
-  @Input() all = '';
-  @Input() initValue: number|string|boolean = '';
+export class CategoryFilter {
+  readonly dataTable = input<google.visualization.DataTable>();
+  readonly column = input<number | string>(-1);
+  readonly valueSeparator = input('');
+  readonly all = input('');
+  readonly initValue = input<number | string | boolean>('');
 
   columnIndex = -1;
   columnLabel = '';
-  options: Array<number|string|boolean> = [];
-  value: number|string|boolean = '';
+  options: Array<number | string | boolean> = [];
+  value: number | string | boolean = '';
 
-  @Output()
-  changed = new EventEmitter<google.visualization.DataTableCellFilter>();
+  readonly changed = output<google.visualization.DataTableCellFilter>();
 
-  ngOnChanges(changes: SimpleChanges) {
-    this.processData();
+  constructor() {
+    effect(() => {
+      this.processData();
+    });
   }
 
   processData() {
-    if (!this.dataTable || this.dataTable.getNumberOfRows() === 0) {
+    const dataTable = this.dataTable();
+    if (!dataTable || dataTable.getNumberOfRows() === 0) {
       return;
     }
 
-    this.columnIndex = this.dataTable.getColumnIndex(this.column);
+    this.columnIndex = dataTable.getColumnIndex(this.column());
     if (this.columnIndex !== -1) {
-      this.columnLabel = this.dataTable.getColumnLabel(this.columnIndex);
-      const values = new Set<number|string>();
-      const numRows = this.dataTable.getNumberOfRows();
+      this.columnLabel = dataTable.getColumnLabel(this.columnIndex);
+      const values = new Set<number | string>();
+      const numRows = dataTable.getNumberOfRows();
       for (let i = 0; i < numRows; ++i) {
-        const v = this.dataTable.getValue(i, this.columnIndex);
+        const v = dataTable.getValue(i, this.columnIndex);
         if (v === null) continue;
-        if (this.valueSeparator) {
-          (v as string).split(this.valueSeparator).forEach(value => {
+        if (this.valueSeparator()) {
+          (v as string).split(this.valueSeparator()).forEach((value) => {
             values.add(value);
           });
         } else {
@@ -55,16 +67,16 @@ export class CategoryFilter implements OnChanges {
         }
       }
       this.options = Array.from(values);
-      if (this.dataTable.getColumnType(this.columnIndex) === 'number') {
+      if (dataTable.getColumnType(this.columnIndex) === 'number') {
         this.options.sort((a, b) => (a as number) - (b as number));
       } else {
-        this.options.sort();
+        this.options.sort((a, b) => String(a).localeCompare(String(b)));
       }
-      if (this.all) {
-        this.options.unshift(this.all);
+      if (this.all()) {
+        this.options.unshift(this.all());
       }
-      if (this.initValue) {
-        this.value = this.initValue;
+      if (this.initValue()) {
+        this.value = this.initValue();
       } else {
         this.value = this.options[0];
       }
@@ -74,20 +86,24 @@ export class CategoryFilter implements OnChanges {
   }
 
   updateFilter() {
-    if (!this.dataTable || this.dataTable.getNumberOfRows() === 0) {
+    const dataTable = this.dataTable();
+    if (!dataTable || dataTable.getNumberOfRows() === 0) {
       return;
     }
 
-    const filter:
-        google.visualization.DataTableCellFilter = {column: this.columnIndex};
-    if (!this.all || this.value !== this.all) {
-      if (this.valueSeparator) {
+    const filter: google.visualization.DataTableCellFilter = {
+      column: this.columnIndex,
+    };
+    if (!this.all() || this.value !== this.all()) {
+      if (this.valueSeparator()) {
         filter.test = (value: string) =>
-            (this.valueSeparator + value + this.valueSeparator)
-                .toLowerCase()
-                .indexOf(
-                    this.valueSeparator + this.value.toString() +
-                    this.valueSeparator) !== -1;
+          (this.valueSeparator() + value + this.valueSeparator())
+            .toLowerCase()
+            .indexOf(
+              this.valueSeparator() +
+                this.value.toString() +
+                this.valueSeparator(),
+            ) !== -1;
       } else {
         filter.value = this.value;
       }

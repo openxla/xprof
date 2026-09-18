@@ -1,60 +1,89 @@
-import {Component, inject, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  OnDestroy,
+} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {PodViewerDatabase} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
-import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {
+  DATA_SERVICE_INTERFACE_TOKEN,
+  DataServiceV2Interface,
+} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setLoadingStateAction} from 'org_xprof/frontend/app/store/actions';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
+import {MatDivider} from '@angular/material/divider';
+import {MatSlider, MatSliderThumb} from '@angular/material/slider';
+import {DiagnosticsView} from '../diagnostics_view/diagnostics_view';
 import {PodViewerCommon} from './pod_viewer_common';
+import {StackBarChart} from './stack_bar_chart/stack_bar_chart';
+import {TopologyGraph} from './topology_graph/topology_graph';
 
 /** A pod viewer component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'pod-viewer',
   templateUrl: './pod_viewer.ng.html',
-  styleUrls: ['./pod_viewer.scss']
+  styleUrls: ['./pod_viewer.scss'],
+  imports: [
+    DiagnosticsView,
+    MatDivider,
+    MatSlider,
+    MatSliderThumb,
+    StackBarChart,
+    TopologyGraph,
+  ],
 })
 export class PodViewer extends PodViewerCommon implements OnDestroy {
+  override readonly store: Store<{}>;
+
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
   private readonly dataService: DataServiceV2Interface = inject(
-      DATA_SERVICE_INTERFACE_TOKEN,
+    DATA_SERVICE_INTERFACE_TOKEN,
   );
 
-  constructor(
-      route: ActivatedRoute,
-      override readonly store: Store<{}>,
-  ) {
+  constructor() {
+    const route = inject(ActivatedRoute);
+    const store = inject<Store<{}>>(Store);
+
     super(store);
+    this.store = store;
+
     route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
       this.update(params as NavigationEvent);
     });
   }
 
   update(event: NavigationEvent) {
-    this.store.dispatch(setLoadingStateAction({
-      loadingState: {
-        loading: true,
-        message: 'Loading data',
-      }
-    }));
+    this.store.dispatch(
+      setLoadingStateAction({
+        loadingState: {
+          loading: true,
+          message: 'Loading data',
+        },
+      }),
+    );
 
     this.dataService
-        .getData(event.run || '', event.tag || 'pod_viewer', event.host || '')
-        .pipe(takeUntil(this.destroyed))
-        .subscribe(data => {
-          this.store.dispatch(setLoadingStateAction({
+      .getData(event.run || '', event.tag || 'pod_viewer', event.host || '')
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((data) => {
+        this.store.dispatch(
+          setLoadingStateAction({
             loadingState: {
               loading: false,
               message: '',
-            }
-          }));
+            },
+          }),
+        );
 
-          this.parseData(data as PodViewerDatabase | null);
-        });
+        this.parseData(data as PodViewerDatabase | null);
+      });
   }
 
   ngOnDestroy() {

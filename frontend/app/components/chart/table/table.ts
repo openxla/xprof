@@ -1,72 +1,100 @@
-import {Component, ElementRef, HostListener, Input, OnChanges, OnInit, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  HostListener,
+  OnInit,
+  effect,
+  input,
+  viewChild,
+} from '@angular/core';
+import {MatOption} from '@angular/material/core';
+import {MatFormField, MatLabel} from '@angular/material/form-field';
+import {MatSelect} from '@angular/material/select';
 
 /** A table view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'table',
   templateUrl: './table.ng.html',
-  styleUrls: ['./table.scss']
+  styleUrls: ['./table.scss'],
+  imports: [MatFormField, MatLabel, MatOption, MatSelect],
 })
-export class Table implements OnChanges, OnInit {
-  @Input() dataView?: google.visualization.DataView;
-  @Input() showRowNumber = false;
-  @Input() page = 'disable';
-  @Input() pageSizeOptions: number[] = [];
-  @Input() pageSize = 10;
+export class Table implements OnInit {
+  readonly dataView = input<google.visualization.DataView>();
+  readonly showRowNumber = input(false);
+  readonly page = input('disable');
+  readonly pageSizeOptions = input<number[]>([]);
+  readonly pageSize = input<number, number | string>(10, {
+    transform: (value: number | string) =>
+      typeof value === 'string' ? Number(value) : value,
+  });
 
   table?: google.visualization.Table;
   height = '150px';
+  selectedPageSize = 10;
 
-  @ViewChild('table', {static: false}) tableRef!: ElementRef;
+  readonly tableRef = viewChild<ElementRef>('table');
+
+  constructor() {
+    effect(() => {
+      const options = this.pageSizeOptions();
+      if (options.length > 0) {
+        this.selectedPageSize = options[0];
+      } else {
+        this.selectedPageSize = this.pageSize();
+      }
+      this.drawTable();
+    });
+  }
 
   ngOnInit() {
     this.loadGoogleChart();
     this.populateDefaultPageSize();
   }
 
-  ngOnChanges(changes: SimpleChanges) {
-    this.drawTable();
-  }
-
   @HostListener('window:resize')
   onResize() {
-    const tableElement = this.tableRef.nativeElement.querySelector('table');
+    const tableElement = this.tableRef()?.nativeElement.querySelector('table');
     if (tableElement) {
       this.height = String(Number(tableElement.clientHeight) + 20) + 'px';
     }
   }
 
   drawTable() {
-    if (!this.table || !this.dataView) {
+    const dataView = this.dataView();
+    if (!this.table || !dataView) {
       return;
     }
 
     const options: google.visualization.TableOptions = {
       allowHtml: true,
       alternatingRowStyle: false,
-      showRowNumber: this.showRowNumber,
-      page: this.page,
-      pageSize: this.pageSize,
+      showRowNumber: this.showRowNumber(),
+      page: this.page(),
+      pageSize: this.selectedPageSize,
       cssClassNames: {
         'headerCell': 'google-chart-table-header-cell',
         'tableCell': 'google-chart-table-table-cell',
       },
     };
 
-    this.table.draw(this.dataView, options);
+    this.table.draw(dataView, options);
 
     this.onResize();
   }
 
   displayPageSizeSelector() {
-    return this.pageSizeOptions.length > 0;
+    return this.pageSizeOptions().length > 0;
   }
 
   populateDefaultPageSize() {
     // when passing pageSizeOptions from parent, pageSize will by default be the
     // 1st element in the list
-    if (this.pageSizeOptions.length > 0) {
-      this.pageSize = this.pageSizeOptions[0];
+    if (this.pageSizeOptions().length > 0) {
+      this.selectedPageSize = this.pageSizeOptions()[0];
+    } else {
+      this.selectedPageSize = this.pageSize();
     }
   }
 
@@ -79,7 +107,9 @@ export class Table implements OnChanges, OnInit {
 
     google.charts.safeLoad({'packages': ['table']});
     google.charts.setOnLoadCallback(() => {
-      this.table = new google.visualization.Table(this.tableRef.nativeElement);
+      const tableEl = this.tableRef()?.nativeElement;
+      if (!tableEl) return;
+      this.table = new google.visualization.Table(tableEl);
       this.drawTable();
     });
   }

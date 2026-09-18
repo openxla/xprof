@@ -1,4 +1,15 @@
-import {Component, ElementRef, Input, OnChanges, OnInit, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  OnInit,
+  effect,
+  input,
+  viewChild,
+} from '@angular/core';
+import {MatFormField, MatSuffix} from '@angular/material/form-field';
+import {MatIcon} from '@angular/material/icon';
+import {MatInput} from '@angular/material/input';
 import {type MemoryProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {bytesToGiBs} from 'org_xprof/frontend/app/common/utils/utils';
 
@@ -12,6 +23,7 @@ export const NULL_TOKENS = new Set([
   'nullptr',
   'invalid',
   'undefined',
+  'none',
   'none',
 ]);
 
@@ -36,36 +48,48 @@ export function cleanCellToken(
 
 /** A memory breakdown table view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'memory-breakdown-table',
   templateUrl: './memory_breakdown_table.ng.html',
-  styleUrls: ['./memory_breakdown_table.scss']
+  styleUrls: ['./memory_breakdown_table.scss'],
+  imports: [MatFormField, MatIcon, MatInput, MatSuffix],
 })
-export class MemoryBreakdownTable implements OnChanges, OnInit {
+export class MemoryBreakdownTable implements OnInit {
   /** The memory profile proto data. */
-  @Input() memoryProfileData: MemoryProfileProto|null = null;
+  readonly memoryProfileData = input<MemoryProfileProto | null>(null);
 
   /** The selected memory ID to show memory profile for. */
-  @Input() memoryId: string = '';
+  readonly memoryId = input<string>('');
 
-  @ViewChild('table', {static: false}) tableRef!: ElementRef;
+  readonly tableRef = viewChild<ElementRef>('table');
 
-  dataTable: google.visualization.DataTable|null = null;
+  dataTable: google.visualization.DataTable | null = null;
   filterOperation: string = '';
-  table: google.visualization.Table|null = null;
+  table: google.visualization.Table | null = null;
+
+  constructor() {
+    effect(() => {
+      this.memoryProfileData();
+      this.memoryId();
+      this.dataTable = null;
+      this.drawTable();
+    });
+  }
 
   ngOnInit() {
     this.loadGoogleChart();
   }
 
-  ngOnChanges(changes: SimpleChanges) {
-    this.dataTable = null;
-    this.drawTable();
-  }
-
   createDataTable() {
-    if (!this.table || !this.memoryProfileData ||
-        !this.memoryProfileData.memoryProfilePerAllocator || !!this.dataTable) {
+    const memoryProfileData = this.memoryProfileData();
+    const memoryId = this.memoryId();
+    if (
+      !this.table ||
+      !memoryProfileData ||
+      !memoryProfileData.memoryProfilePerAllocator ||
+      !memoryProfileData.memoryProfilePerAllocator[memoryId] ||
+      !!this.dataTable
+    ) {
       return;
     }
 
@@ -79,14 +103,12 @@ export class MemoryBreakdownTable implements OnChanges, OnInit {
     this.dataTable.addColumn('string', 'Shape');
 
     const snapshots =
-        this.memoryProfileData.memoryProfilePerAllocator[this.memoryId]
-            .memoryProfileSnapshots;
+      memoryProfileData.memoryProfilePerAllocator[memoryId]
+        .memoryProfileSnapshots;
     const activeAllocations =
-        this.memoryProfileData.memoryProfilePerAllocator[this.memoryId]
-            .activeAllocations;
+      memoryProfileData.memoryProfilePerAllocator[memoryId].activeAllocations;
     const specialAllocations =
-        this.memoryProfileData.memoryProfilePerAllocator[this.memoryId]
-            .specialAllocations;
+      memoryProfileData.memoryProfilePerAllocator[memoryId].specialAllocations;
     if (!snapshots || !activeAllocations || !specialAllocations) {
       return;
     }
@@ -118,14 +140,15 @@ export class MemoryBreakdownTable implements OnChanges, OnInit {
       ]);
     }
 
-    const decimalPtFormatter =
-        new google.visualization.NumberFormat({fractionDigits: 3});
+    const decimalPtFormatter = new google.visualization.NumberFormat({
+      fractionDigits: 3,
+    });
     decimalPtFormatter.format(this.dataTable, 1); /* requested_size */
     decimalPtFormatter.format(this.dataTable, 2); /* allocation_size */
   }
 
   drawTable() {
-    if (!this.table || !this.memoryProfileData) {
+    if (!this.table || !this.memoryProfileData()) {
       return;
     }
 
@@ -149,7 +172,7 @@ export class MemoryBreakdownTable implements OnChanges, OnInit {
     this.table.draw(dataView, options as google.visualization.TableOptions);
   }
 
-  getDataView(): google.visualization.DataView|null {
+  getDataView(): google.visualization.DataView | null {
     if (!this.dataTable) {
       this.createDataTable();
     }
@@ -164,7 +187,7 @@ export class MemoryBreakdownTable implements OnChanges, OnInit {
     return dataView;
   }
 
-  getFilteredDataTable(): google.visualization.DataTable|null {
+  getFilteredDataTable(): google.visualization.DataTable | null {
     if (!this.dataTable) {
       return null;
     }
@@ -199,7 +222,9 @@ export class MemoryBreakdownTable implements OnChanges, OnInit {
 
     google.charts.safeLoad({'packages': ['table']});
     google.charts.setOnLoadCallback(() => {
-      this.table = new google.visualization.Table(this.tableRef.nativeElement);
+      const tableEl = this.tableRef()?.nativeElement;
+      if (!tableEl) return;
+      this.table = new google.visualization.Table(tableEl);
       this.drawTable();
     });
   }

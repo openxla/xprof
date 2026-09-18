@@ -1,42 +1,44 @@
 import {
+  ChangeDetectionStrategy,
   Component,
-  EventEmitter,
-  Input,
-  OnChanges,
   OnInit,
-  Output,
-  SimpleChanges, ChangeDetectionStrategy,
+  effect,
+  input,
+  output,
 } from '@angular/core';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {SCATTER_CHART_OPTIONS} from 'org_xprof/frontend/app/components/chart/chart_options';
 import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
+import {Chart} from '../../chart/chart';
+import {Table} from '../../chart/table/table';
+import {CategoryFilter} from '../../controls/category_filter/category_filter';
 
 type ColumnIdxArr = Array<number | google.visualization.ColumnSpec>;
 
 /** An program level analysis table view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'program-level-analysis',
   templateUrl: './program_level_analysis.ng.html',
   styleUrls: ['./program_level_analysis.scss'],
+  imports: [CategoryFilter, Chart, Table],
 })
-export class ProgramLevelAnalysis
-  extends Dashboard
-  implements OnInit, OnChanges
-{
+export class ProgramLevelAnalysis extends Dashboard implements OnInit {
   /** The roofline model data */
-  @Input() rooflineModelData?: google.visualization.DataTable | null = null;
-  @Input() viewColumns: ColumnIdxArr = [];
+  readonly rooflineModelData = input<google.visualization.DataTable | null>(
+    null,
+  );
+  readonly viewColumns = input<ColumnIdxArr>([]);
   // data for scatter chart, heavey data preprocessing handled in parent
-  @Input() rooflineSeriesData?: google.visualization.DataTable | null = null;
-  @Input() scatterChartOptions: google.visualization.ScatterChartOptions = {};
+  readonly rooflineSeriesData = input<google.visualization.DataTable | null>(
+    null,
+  );
+  readonly scatterChartOptions =
+    input<google.visualization.ScatterChartOptions>({});
 
-  @Output()
-  readonly filterUpdated = new EventEmitter<
-    google.visualization.DataTableCellFilter[]
-  >();
+  readonly filterUpdated = output<google.visualization.DataTableCellFilter[]>();
 
   scatterChartDataProvider = new DefaultDataProvider();
   dataInfoRooflineScatterChart: ChartDataInfo = {
@@ -47,13 +49,16 @@ export class ProgramLevelAnalysis
 
   constructor() {
     super();
+    effect(() => {
+      this.rooflineModelData();
+      this.viewColumns();
+      this.rooflineSeriesData();
+      this.scatterChartOptions();
+      this.update();
+    });
   }
 
   ngOnInit() {
-    this.update();
-  }
-
-  ngOnChanges(changes: SimpleChanges) {
     this.update();
   }
 
@@ -63,19 +68,21 @@ export class ProgramLevelAnalysis
   }
 
   override parseData() {
+    const rooflineModelData = this.rooflineModelData();
     // base data already preprocessed in parent component
-    if (!this.rooflineModelData) {
+    if (!rooflineModelData) {
       return;
     }
 
     // process data for table chart
-    this.columns = this.viewColumns;
-    this.dataTable = this.rooflineModelData;
+    this.columns = this.viewColumns();
+    this.dataTable = rooflineModelData;
 
     // process data for roofline scatter chart
-    if (this.rooflineSeriesData) {
+    const rooflineSeriesData = this.rooflineSeriesData();
+    if (rooflineSeriesData) {
       this.scatterChartDataProvider.parseData(
-        JSON.parse(this.rooflineSeriesData.toJSON()) as SimpleDataTable,
+        JSON.parse(rooflineSeriesData.toJSON()) as SimpleDataTable,
       );
       this.updateAndDrawScatterChart();
     }
@@ -95,11 +102,11 @@ export class ProgramLevelAnalysis
   }
 
   updateAndDrawScatterChart() {
-    if (!this.rooflineSeriesData) return;
+    if (!this.rooflineSeriesData()) return;
     this.dataInfoRooflineScatterChart.options = Object.assign(
-        {},
-        this.dataInfoRooflineScatterChart.options,
-        this.scatterChartOptions,
+      {},
+      this.dataInfoRooflineScatterChart.options,
+      this.scatterChartOptions(),
     );
     this.dataInfoRooflineScatterChart.dataProvider.notifyCharts();
   }

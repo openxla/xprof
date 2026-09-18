@@ -1,20 +1,38 @@
+import {TitleCasePipe} from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
-  EventEmitter,
-  inject,
   Injector,
-  Input,
-  OnChanges,
   OnDestroy,
   OnInit,
-  Output,
-  SimpleChanges,
+  effect,
+  inject,
+  input,
+  output,
 } from '@angular/core';
+import {MatOption} from '@angular/material/core';
+import {MatFormField, MatLabel} from '@angular/material/form-field';
+import {MatIcon} from '@angular/material/icon';
+import {MatInput} from '@angular/material/input';
+import {MatSelect} from '@angular/material/select';
+import {
+  MatSidenav,
+  MatSidenavContainer,
+  MatSidenavContent,
+} from '@angular/material/sidenav';
+import {MatSlideToggle} from '@angular/material/slide-toggle';
+import {MatTooltip} from '@angular/material/tooltip';
 import {Params} from '@angular/router';
 import {Store} from '@ngrx/store';
+import {AngularSplitModule} from 'angular-split';
 import {type OpProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
+import {
+  OpProfileData,
+  OpProfileSummary,
+} from 'org_xprof/frontend/app/components/op_profile/op_profile_data';
+import {OpTable} from 'org_xprof/frontend/app/components/op_profile/op_table/op_table';
+import {SourceMapper} from 'org_xprof/frontend/app/components/source_mapper/source_mapper';
 import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {
@@ -27,20 +45,36 @@ import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_d
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
-import {OpProfileData, OpProfileSummary} from './op_profile_data';
-
 /** Rules to group by. */
 const GROUP_BY_RULES = ['program', 'category', 'provenance'];
 
 /** Base class of Op Profile component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'op-profile-base',
   templateUrl: './op_profile_base.ng.html',
   styleUrls: ['./op_profile_common.scss'],
+  imports: [
+    AngularSplitModule,
+    MatFormField,
+    MatIcon,
+    MatInput,
+    MatLabel,
+    MatOption,
+    MatSelect,
+    MatSidenav,
+    MatSidenavContainer,
+    MatSidenavContent,
+    MatSlideToggle,
+    MatTooltip,
+    OpTable,
+    SourceMapper,
+    TitleCasePipe,
+  ],
 })
-export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
+export class OpProfileBase implements OnDestroy, OnInit {
+  private readonly store = inject<Store<{}>>(Store);
+
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
   private readonly injector = inject(Injector);
@@ -48,7 +82,7 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
   profile: OpProfileProto | null = null;
   rootNode?: Node;
   data = new OpProfileData();
-  @Input() groupBy = GROUP_BY_RULES[0];
+  readonly groupBy = input(GROUP_BY_RULES[0]);
   readonly GROUP_BY_RULES = GROUP_BY_RULES;
   excludeIdle = true;
   byWasted = false;
@@ -66,9 +100,9 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
   showStackTrace = false;
   applyScalingFactor = false;
 
-  @Input() sessionId = '';
-  @Input() opProfileData: OpProfileProto | null = null;
-  @Output() readonly groupByChange = new EventEmitter<string>();
+  readonly sessionId = input('');
+  readonly opProfileData = input<OpProfileProto | null>(null);
+  readonly groupByChange = output<string>();
 
   ngOnInit() {
     // We don't need the source code service to be persistently available.
@@ -95,7 +129,7 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
     this.summary = this.dataService.getOpProfileSummary(this.data);
   }
 
-  constructor(private readonly store: Store<{}>) {
+  constructor() {
     this.store.dispatch(
       setCurrentToolStateAction({currentTool: 'hlo_op_profile'}),
     );
@@ -105,6 +139,19 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
       .subscribe((node: Node | null) => {
         this.updateActiveNode(node);
       });
+
+    effect(() => {
+      const data = this.opProfileData();
+      if (data) {
+        this.parseData(data);
+      }
+    });
+
+    effect(() => {
+      this.groupBy();
+      this.updateRoot();
+      this.data.update(this.rootNode, this.applyScalingFactor);
+    });
   }
 
   // Update state for source info given the active node selection in the
@@ -119,34 +166,26 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
     this.focusedOpCategory = node?.xla?.category || '';
   }
 
-  ngOnChanges(changes: SimpleChanges) {
-    if (changes['opProfileData'] && this.opProfileData) {
-      this.parseData(this.opProfileData);
-    } else if (changes['groupBy']) {
-      this.updateRoot();
-      this.data.update(this.rootNode, this.applyScalingFactor);
-    }
-  }
-
   private updateRoot() {
     if (!this.profile) {
       this.rootNode = undefined;
       return;
     }
 
+    const groupBy = this.groupBy();
     if (this.excludeIdle) {
-      if (this.groupBy === 'category') {
+      if (groupBy === 'category') {
         this.rootNode = this.profile.byCategoryExcludeIdle;
-      } else if (this.groupBy === 'provenance') {
+      } else if (groupBy === 'provenance') {
         this.rootNode = this.profile.byProvenanceExcludeIdle;
       } else {
         // 'program' is default
         this.rootNode = this.profile.byProgramExcludeIdle;
       }
     } else {
-      if (this.groupBy === 'category') {
+      if (groupBy === 'category') {
         this.rootNode = this.profile.byCategory;
-      } else if (this.groupBy === 'provenance') {
+      } else if (groupBy === 'provenance') {
         this.rootNode = this.profile.byProvenance;
       } else {
         // 'program' is default
@@ -180,7 +219,6 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
   }
 
   updateGroupBy(value: string) {
-    this.groupBy = value;
     this.groupByChange.emit(value);
   }
 

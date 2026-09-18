@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "host_op",
     srcs = [
         "host_op.ts",
-        "host_op_module.ts",
     ],
     assets = [
         ":host_op_css",
@@ -14,9 +13,11 @@ xprof_ng_module(
     ],
     # strict_templates = False,
     deps = [
+        "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
         "@org_xprof//frontend/app/common/angular:angular_material_core",
         "@org_xprof//frontend/app/common/angular:angular_material_divider",
+        "@org_xprof//frontend/app/common/angular:angular_material_form_field",
         "@org_xprof//frontend/app/common/angular:angular_material_select",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/interfaces:chart",

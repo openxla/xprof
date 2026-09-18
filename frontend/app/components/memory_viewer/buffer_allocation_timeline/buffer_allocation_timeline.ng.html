@@ -1,25 +1,26 @@
-<div class="timeline-component-wrapper" #fullscreenContainer [class.fullscreen]="isFullscreen">
+<div class="timeline-component-wrapper" #fullscreenContainer [class.fullscreen]="isFullscreen()">
   <div class="timeline-chart-area">
     <div class="y-axis-label">Memory Offset</div>
     <div class="canvas-container">
       <canvas #timelineCanvas
-              (wheel)="onWheel($event)"
-              (mousedown)="onMouseDown($event)"
-              (mousemove)="onMouseMove($event)"
-              (mouseup)="onMouseUp($event)"
-              (mouseleave)="onMouseLeave()"></canvas>
+        (wheel)="onWheel($event)"
+        (mousedown)="onMouseDown($event)"
+        (mousemove)="onMouseMove($event)"
+        (mouseup)="onMouseUp($event)"
+      (mouseleave)="onMouseLeave()"></canvas>
 
       <div class="timeline-controls">
         <div class="search-container" [class.expanded]="showSearchInput">
-          <input type="text"
-                 #searchInput
-                 *ngIf="showSearchInput"
-                 class="search-input"
-                 [value]="searchQuery"
-                 (input)="onSearchInput($event)"
-                 (keydown.enter)="onSearchEnter()"
-                 placeholder="Search Op Name..."
-                 (keydown.escape)="closeSearch()">
+          @if (showSearchInput) {
+            <input type="text"
+              #searchInput
+              class="search-input"
+              [value]="searchQuery"
+              (input)="onSearchInput($event)"
+              (keydown.enter)="onSearchEnter()"
+              placeholder="Search Op Name..."
+              (keydown.escape)="closeSearch()">
+          }
           <button class="control-btn" (click)="toggleSearch()" [matTooltip]="showSearchInput ? 'Close Search' : 'Search'" matTooltipPosition="above">
             <mat-icon>{{showSearchInput ? 'close' : 'search'}}</mat-icon>
           </button>
@@ -29,65 +30,84 @@
           <mat-icon>zoom_out_map</mat-icon>
         </button>
 
-        <button class="control-btn" (click)="toggleFullscreen()" [matTooltip]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'" matTooltipPosition="above">
-          <mat-icon>{{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}}</mat-icon>
+        <button class="control-btn" (click)="toggleFullscreen()" [matTooltip]="isFullscreen() ? 'Exit Fullscreen' : 'Fullscreen'" matTooltipPosition="above">
+          <mat-icon>{{isFullscreen() ? 'fullscreen_exit' : 'fullscreen'}}</mat-icon>
         </button>
       </div>
 
-      <div class="timeline-tooltip"
-           *ngIf="activeBlock"
-           [class.sticky]="!!selectedBlock"
-           [style.left.px]="tooltipLeft"
-           [style.top.px]="tooltipTop">
-        <div class="tooltip-row">
-          <span class="tooltip-title">{{activeBlock.instructionName || activeBlock.label}}</span>
-        </div>
-        <hr class="tooltip-divider">
-        <div class="tooltip-row" *ngIf="activeBlock.logicalBufferId !== undefined">
-          <span class="tooltip-label">Buffer ID:</span>
-          <span class="tooltip-value">{{activeBlock.logicalBufferId}}</span>
-        </div>
-        <div class="tooltip-row">
-          <span class="tooltip-label">Size:</span>
-          <span class="tooltip-value">{{getBlockSizeMiB(activeBlock)}} MiB ({{activeBlock.size}} bytes)</span>
-        </div>
-        <div class="tooltip-row">
-          <span class="tooltip-label">Unpadded:</span>
-          <span class="tooltip-value">{{getBlockUnpaddedSizeMiB(activeBlock)}} MiB<span *ngIf="activeBlock.unpaddedSize !== undefined"> ({{activeBlock.unpaddedSize}} bytes)</span></span>
-        </div>
-        <div class="tooltip-row" *ngIf="getBlockPaddingOverheadMiB(activeBlock) !== 'N/A'">
-          <span class="tooltip-label">Padding Overhead:</span>
-          <span class="tooltip-value">{{getBlockPaddingOverheadMiB(activeBlock)}} MiB</span>
-        </div>
-        <div class="tooltip-row" *ngIf="activeBlock.offset !== undefined">
-          <span class="tooltip-label">Offset:</span>
-          <span class="tooltip-value">{{activeBlock.offset}} bytes ({{getHexOffset(activeBlock.offset)}})</span>
-        </div>
-        <div class="tooltip-row" *ngIf="activeBlock.span">
-          <span class="tooltip-label">Lifetime Span:</span>
-          <span class="tooltip-value">Step {{activeBlock.span[0]}} to Step {{activeBlock.span[1]}}</span>
-        </div>
-        <div class="tooltip-row" *ngIf="activeBlock.category">
-          <span class="tooltip-label">Category:</span>
-          <span class="tooltip-value">{{activeBlock.category}}</span>
-        </div>
-        <div class="tooltip-row" *ngIf="activeBlock.shapeString">
-          <span class="tooltip-label">Shape:</span>
-          <span class="tooltip-value shape-value">{{activeBlock.shapeString}}</span>
-        </div>
-        <div class="tooltip-row" *ngIf="activeBlock.sourceInfo && activeBlock.sourceInfo.fileName">
-          <span class="tooltip-label">Source:</span>
-          <span class="tooltip-value">
+      @if (activeBlock) {
+        <div class="timeline-tooltip"
+          [class.sticky]="!!selectedBlock()"
+          [style.left.px]="tooltipLeft"
+          [style.top.px]="tooltipTop">
+          <div class="tooltip-row">
+            <span class="tooltip-title">{{activeBlock.instructionName || activeBlock.label}}</span>
+          </div>
+          <hr class="tooltip-divider">
+          @if (activeBlock.logicalBufferId !== undefined) {
+            <div class="tooltip-row">
+              <span class="tooltip-label">Buffer ID:</span>
+              <span class="tooltip-value">{{activeBlock.logicalBufferId}}</span>
+            </div>
+          }
+          <div class="tooltip-row">
+            <span class="tooltip-label">Size:</span>
+            <span class="tooltip-value">{{getBlockSizeMiB(activeBlock)}} MiB ({{activeBlock.size}} bytes)</span>
+          </div>
+          <div class="tooltip-row">
+            <span class="tooltip-label">Unpadded:</span>
+            <span class="tooltip-value">{{getBlockUnpaddedSizeMiB(activeBlock)}} MiB@if (activeBlock.unpaddedSize !== undefined) {
+              <span> ({{activeBlock.unpaddedSize}} bytes)</span>
+            }</span>
+          </div>
+          @if (getBlockPaddingOverheadMiB(activeBlock) !== 'N/A') {
+            <div class="tooltip-row">
+              <span class="tooltip-label">Padding Overhead:</span>
+              <span class="tooltip-value">{{getBlockPaddingOverheadMiB(activeBlock)}} MiB</span>
+            </div>
+          }
+          @if (activeBlock.offset !== undefined) {
+            <div class="tooltip-row">
+              <span class="tooltip-label">Offset:</span>
+              <span class="tooltip-value">{{activeBlock.offset}} bytes ({{getHexOffset(activeBlock.offset)}})</span>
+            </div>
+          }
+          @if (activeBlock.span) {
+            <div class="tooltip-row">
+              <span class="tooltip-label">Lifetime Span:</span>
+              <span class="tooltip-value">Step {{activeBlock.span[0]}} to Step {{activeBlock.span[1]}}</span>
+            </div>
+          }
+          @if (activeBlock.category) {
+            <div class="tooltip-row">
+              <span class="tooltip-label">Category:</span>
+              <span class="tooltip-value">{{activeBlock.category}}</span>
+            </div>
+          }
+          @if (activeBlock.shapeString) {
+            <div class="tooltip-row">
+              <span class="tooltip-label">Shape:</span>
+              <span class="tooltip-value shape-value">{{activeBlock.shapeString}}</span>
+            </div>
+          }
+          @if (activeBlock.sourceInfo && activeBlock.sourceInfo.fileName) {
+            <div class="tooltip-row">
+              <span class="tooltip-label">Source:</span>
+              <span class="tooltip-value">
             <a [href]="'http://google3/' + activeBlock.sourceInfo.fileName + ';l=' + activeBlock.sourceInfo.lineNumber" target="_blank">
               {{activeBlock.sourceInfo.fileName}}:{{activeBlock.sourceInfo.lineNumber}}
             </a>
           </span>
         </div>
-        <div class="tooltip-row" *ngIf="activeBlock.tfOpName">
+}
+        @if (activeBlock.tfOpName) {
+<div class="tooltip-row">
           <span class="tooltip-label">Framework Op:</span>
           <span class="tooltip-value">{{activeBlock.tfOpName}}</span>
         </div>
+}
       </div>
+}
     </div>
   </div>
   <div class="x-axis-label">Heap Simulation Time (Program Order)</div>

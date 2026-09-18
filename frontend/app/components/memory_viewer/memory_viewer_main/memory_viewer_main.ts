@@ -1,13 +1,18 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  effect,
   inject,
   Injector,
-  Input,
-  OnChanges,
+  input,
   OnDestroy,
 } from '@angular/core';
+import {MatDivider} from '@angular/material/divider';
+import {MatIcon} from '@angular/material/icon';
+import {MatSlideToggle} from '@angular/material/slide-toggle';
+import {MatTooltip} from '@angular/material/tooltip';
 import {Store} from '@ngrx/store';
+import {AngularSplitModule} from 'angular-split';
 import {BufferAllocationInfo} from 'org_xprof/frontend/app/common/interfaces/buffer_allocation_info';
 import {
   type MemoryViewerPreprocessResult,
@@ -25,6 +30,11 @@ import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/servic
 import {setActiveHeapObjectAction} from 'org_xprof/frontend/app/store/actions';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {DiagnosticsView} from '../../diagnostics_view/diagnostics_view';
+import {SourceMapper} from '../../source_mapper/source_mapper';
+import {BufferAllocationTimeline} from '../buffer_allocation_timeline/buffer_allocation_timeline';
+import {MaxHeapChart} from '../max_heap_chart/max_heap_chart';
+import {ProgramOrderChart} from '../program_order_chart/program_order_chart';
 
 interface BufferSpan {
   alloc: number;
@@ -34,23 +44,34 @@ interface BufferSpan {
 /** A memory viewer component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'memory-viewer-main',
   templateUrl: './memory_viewer_main.ng.html',
   styleUrls: ['./memory_viewer_main.scss'],
+  imports: [
+    AngularSplitModule,
+    BufferAllocationTimeline,
+    DiagnosticsView,
+    MatDivider,
+    MatIcon,
+    MatSlideToggle,
+    MatTooltip,
+    MaxHeapChart,
+    ProgramOrderChart,
+    SourceMapper,
+  ],
 })
-export class MemoryViewerMain implements OnDestroy, OnChanges {
+export class MemoryViewerMain implements OnDestroy {
   /** Preprocessed result for memory viewer */
-  @Input()
-  memoryViewerPreprocessResult: MemoryViewerPreprocessResult | null = null;
+  readonly memoryViewerPreprocessResult =
+    input<MemoryViewerPreprocessResult | null>(null);
 
   /** XLA memory space color */
-  @Input() memorySpaceColor = '0';
+  readonly memorySpaceColor = input('0');
 
   /** Current run, host and hlo module name */
-  @Input() currentRun = '';
-  @Input() currentHost = '';
-  @Input() currentModule = '';
+  readonly currentRun = input('');
+  readonly currentHost = input('');
+  readonly currentModule = input('');
 
   private readonly store: Store<{}> = inject(Store);
   private readonly dataService: DataServiceV2Interface = inject(
@@ -93,6 +114,15 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
   selectedBlock: BufferBlock | null = null;
 
   constructor() {
+    effect(() => {
+      this.memoryViewerPreprocessResult();
+      this.memorySpaceColor();
+      this.currentRun();
+      this.currentHost();
+      this.currentModule();
+      this.update();
+    });
+
     // We don't need the source code service to be persistently available.
     // We temporarily use the service to check if it is available and show
     // UI accordingly.
@@ -106,10 +136,6 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
       .subscribe((isAvailable) => {
         this.sourceCodeServiceIsAvailable = isAvailable;
       });
-  }
-
-  ngOnChanges() {
-    this.update();
   }
 
   ngOnDestroy() {
@@ -173,7 +199,7 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
 
   // Module Name format: module_name_string(program_id)
   get currentProgramId() {
-    return this.currentModule?.split('(')[1]?.split(')')[0];
+    return this.currentModule()?.split('(')[1]?.split(')')[0];
   }
 
   setSelectedHeapObject(selectedIndex: number) {
@@ -277,11 +303,11 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
     const sessionPath = searchParams.get('session_path') || undefined;
     const runPath = searchParams.get('run_path') || undefined;
     this.usage = new MemoryUsage(
-      this.memoryViewerPreprocessResult,
-      Number(this.memorySpaceColor),
-      this.currentRun,
-      this.currentHost,
-      this.currentModule,
+      this.memoryViewerPreprocessResult(),
+      Number(this.memorySpaceColor()),
+      this.currentRun(),
+      this.currentHost(),
+      this.currentModule(),
       sessionPath,
       runPath,
     );

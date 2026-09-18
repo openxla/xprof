@@ -12,12 +12,12 @@
 
 <op-table-entry
   [level]="0"
-  [node]="rootNode"
-  [rootNode]="rootNode"
+  [node]="rootNode()"
+  [rootNode]="rootNode()"
   [selectedNode]="selectedNode"
-  [byWasted]="byWasted"
-  [showP90]="showP90"
-  [childrenCount]="childrenCount"
+  [byWasted]="byWasted()"
+  [showP90]="showP90()"
+  [childrenCount]="childrenCount()"
   (hover)="updateActive($event)"
   (selected)="updateSelected($event); updateActive($event);">
 </op-table-entry>

@@ -437,6 +437,7 @@ TEST(InferenceStatsGroupingTest, TestWithoutModelId) {
                       padding_amount: 0
                       device_time_ps: 0
                       batch_size_after_padding: 192
+                      batching_efficiency: 1
                     }
                     per_batch_size_aggregated_result {
                       batch_size: 128
@@ -463,6 +464,7 @@ TEST(InferenceStatsGroupingTest, TestWithoutModelId) {
                         padding_amount: 0
                         device_time_ps: 0
                         batch_size_after_padding: 128
+                        batching_efficiency: 1
                       }
                       request_throughput: 285714285.71428573
                       batch_throughput: 333333333.33333331
@@ -492,6 +494,7 @@ TEST(InferenceStatsGroupingTest, TestWithoutModelId) {
                         padding_amount: 0
                         device_time_ps: 0
                         batch_size_after_padding: 256
+                        batching_efficiency: 1
                       }
                       request_throughput: 285714285.71428573
                       batch_throughput: 333333333.33333331
@@ -502,6 +505,78 @@ TEST(InferenceStatsGroupingTest, TestWithoutModelId) {
                     batch_average_latency_us: 0.001
                   }
                 })pb"));
+}
+
+TEST(InferenceStatsGroupingTest,
+     PropagatesProgramIdsAndUsesBatchDeviceTimeForSplitRequests) {
+  InferenceStats inference_stats = ParseTextProto<InferenceStats>(R"pb(
+                                     inference_stats_per_host {
+                                       key: 0
+                                       value {
+                                         request_details {
+                                           start_time_ps: 1000
+                                           end_time_ps: 9000
+                                           request_id: 100
+                                           related_batch_ids: 10
+                                           related_batch_ids: 11
+                                           device_time_ps: 6000
+                                         }
+                                         batch_details {
+                                           batch_id: 10
+                                           related_request_ids: 100
+                                           start_time_ps: 1500
+                                           end_time_ps: 6500
+                                           device_time_ps: 5000
+                                           padding_amount: 1
+                                           batch_size_after_padding: 8
+                                           program_ids: 11111
+                                         }
+                                         batch_details {
+                                           batch_id: 11
+                                           related_request_ids: 100
+                                           start_time_ps: 7000
+                                           end_time_ps: 8000
+                                           device_time_ps: 1000
+                                           padding_amount: 0
+                                           batch_size_after_padding: 1
+                                           program_ids: 22222
+                                         }
+                                       }
+                                     }
+                                   )pb")
+                                       .value();
+
+  RegroupInferenceStatsByModel(&inference_stats);
+
+  const auto& model_stats = inference_stats.inference_stats_per_model().at(0);
+  ASSERT_EQ(model_stats.per_batch_size_aggregated_result_size(), 2);
+
+  // Overall aggregated batch efficiency across BS=8 (padding=1) and BS=1
+  // (padding=0) is (9 - 1) / 9 = 8 / 9 (even though integer average padding is
+  // 1 / 2 = 0).
+  EXPECT_EQ(model_stats.aggregated_batch_detail().padding_amount(), 0);
+  EXPECT_NEAR(model_stats.aggregated_batch_detail().batching_efficiency(),
+              8.0 / 9.0, 1e-6);
+
+  // Batch size 1 bucket should have device_time_ps = 1000 (not 6000) and
+  // program_ids = [22222].
+  const auto& bs1 = model_stats.per_batch_size_aggregated_result(0);
+  EXPECT_EQ(bs1.batch_size(), 1);
+  EXPECT_EQ(bs1.aggregated_request_result().device_time_ps(), 1000);
+  EXPECT_EQ(bs1.aggregated_batch_result().device_time_ps(), 1000);
+  EXPECT_THAT(bs1.aggregated_batch_result().program_ids(),
+              ::testing::ElementsAre(22222));
+
+  // Batch size 8 bucket should have device_time_ps = 5000 (not 6000) and
+  // program_ids = [11111].
+  const auto& bs8 = model_stats.per_batch_size_aggregated_result(1);
+  EXPECT_EQ(bs8.batch_size(), 8);
+  EXPECT_EQ(bs8.aggregated_request_result().device_time_ps(), 5000);
+  EXPECT_EQ(bs8.aggregated_batch_result().device_time_ps(), 5000);
+  EXPECT_NEAR(bs8.aggregated_batch_result().batching_efficiency(), 7.0 / 8.0,
+              1e-6);
+  EXPECT_THAT(bs8.aggregated_batch_result().program_ids(),
+              ::testing::ElementsAre(11111));
 }
 
 }  // namespace

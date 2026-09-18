@@ -143,7 +143,7 @@ def load_journey_scenarios(
 JOURNEY_SCENARIOS: list[JourneyScenario] = load_journey_scenarios()
 
 
-def _dispatch_action(
+def dispatch_action(
     page: Page, server_url: str, logdir: str, step: JourneyStep
 ) -> None:
   """Dispatches the UI navigation action corresponding to the journey step."""
@@ -249,7 +249,7 @@ def test_user_journey_state_machine(
     step_context = (
         f"step {idx}/{len(scenario.steps)} ({step.action} -> {step.target})"
     )
-    _dispatch_action(page, server_url, logdir, step)
+    dispatch_action(page, server_url, logdir, step)
     _assert_component_geometry(page, step.expected_selector, step)
     _assert_content_invariants(page, step_context)
 

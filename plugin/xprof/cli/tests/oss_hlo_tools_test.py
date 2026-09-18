@@ -184,6 +184,28 @@ class OssHloToolsTest(absltest.TestCase):
       files = hlo_tools._get_hlo_proto_files(str(self.session_dir))
       self.assertEqual(files, [f1])
 
+  def test_resolve_module_name_base_and_prefix(self):
+    f1 = self.session_dir / "jit_train_step(7216021599878099202).hlo_proto.pb"
+    f2 = self.session_dir / "eval_step(1111111111).hlo_proto.pb"
+    f1.write_bytes(b"dummy")
+    f2.write_bytes(b"dummy")
+
+    with mock.patch.object(
+        hlo_tools, "_get_hlo_proto_files", return_value=[f1, f2]
+    ):
+      self.assertEqual(
+          hlo_tools.resolve_module_name(
+              str(self.session_dir), "jit_train_step"
+          ),
+          "jit_train_step(7216021599878099202)",
+      )
+      self.assertEqual(
+          hlo_tools.resolve_module_name(str(self.session_dir), "eval"),
+          "eval_step(1111111111)",
+      )
+      with self.assertRaises(ValueError):
+        hlo_tools.resolve_module_name(str(self.session_dir), "missing_mod")
+
 
 if __name__ == "__main__":
   absltest.main()

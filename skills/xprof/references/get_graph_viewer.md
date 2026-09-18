@@ -41,7 +41,10 @@ xprof get_graph_viewer <logdir> --module_name=<module_name> --node_name=<node_na
 -   `--symbol_type`: The type of the symbol (optional, e.g.,
     `XDB_COMPILER_METADATA`, `XLA_HLO_MODULE_METADATA`).
 -   `--graph_type`: The type of graph to view. Defaults to `'xla'`.
--   `--module_name`: The name of the module (optional).
+-   `--module_name`: The name of the module (optional). Supports full module
+    names with program IDs (e.g. `jit_train_step(7216021599878099202)`), base
+    names without program IDs (e.g. `jit_train_step`), or unique prefixes (e.g.
+    `jit_train`). If omitted, defaults to the first available module.
 -   `--output_type`: The format of the output or query type. Defaults to
     `'short_txt'`. Supported values include `'short_txt'`, `'module_list'`, and
     `'graph'`.

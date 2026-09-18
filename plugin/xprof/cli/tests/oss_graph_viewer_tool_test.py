@@ -118,6 +118,43 @@ class OssGraphViewerToolTest(absltest.TestCase):
       get_graph_viewer_tool.get_graph_viewer(session_id="session_empty")
     self.assertIn("No graph_viewer data found", str(cm.exception))
 
+  @mock.patch.object(get_graph_viewer_tool.hlo_tools, "resolve_module_name")
+  @mock.patch.object(get_graph_viewer_tool.hlo_tools, "get_hlo_proto_files")
+  def test_short_module_name_resolution(
+      self, mock_get_files, mock_resolve_module
+  ):
+    mock_get_files.return_value = ["jit_train_step(7216021599878099202)"]
+    mock_resolve_module.return_value = "jit_train_step(7216021599878099202)"
+    self.mock_client.fetch.return_value = (81, b"resolved hlo content")
+
+    result = get_graph_viewer_tool.get_graph_viewer(
+        session_id="session_123", module_name="jit_train_step"
+    )
+    self.assertEqual(result, "resolved hlo content")
+    mock_resolve_module.assert_called_once_with("session_123", "jit_train_step")
+    self.mock_client.fetch.assert_called_once_with(
+        tool_name="graph_viewer",
+        session_id="session_123",
+        graph_viewer_options={
+            "graph_type": "xla",
+            "type": "short_txt",
+            "show_metadata": "true",
+            "module_name": "jit_train_step(7216021599878099202)",
+        },
+    )
+
+  def test_internal_path_leak_suppression(self):
+    self.mock_client.fetch.side_effect = RuntimeError(
+        "Failed to open /tmp/xprof_xyz/jit_train_step.hlo_proto.pb: No such"
+        " file or directory"
+    )
+    with self.assertRaises(FileNotFoundError) as cm:
+      get_graph_viewer_tool.get_graph_viewer(
+          session_id="session_123", module_name="jit_train_step"
+      )
+    self.assertNotIn("/tmp/", str(cm.exception))
+    self.assertIn("jit_train_step", str(cm.exception))
+
 
 if __name__ == "__main__":
   absltest.main()

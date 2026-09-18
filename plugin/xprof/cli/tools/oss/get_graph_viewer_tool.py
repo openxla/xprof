@@ -61,11 +61,15 @@ def get_graph_viewer(
 
   if symbol_id:
     session_id = "xsymbol"
-  elif not module_name:
+  else:
     try:
       files = hlo_tools.get_hlo_proto_files(session_id)
       if files:
-        module_name = files[0].name.removesuffix(".hlo_proto.pb")
+        module_name = hlo_tools.resolve_module_name(
+            session_id, module_name or None
+        )
+    except ValueError:
+      raise
     except Exception as e:  # pylint: disable=broad-exception-caught
       logging.warning("Failed to auto-discover HLO module: %s", e)
 
@@ -110,7 +114,20 @@ def get_graph_viewer(
   try:
     result = client.fetch(**params)  # pyrefly: ignore[missing-argument]
   except Exception as e:
-    if "Can not load hlo proto" in str(e) or "No HLO" in str(e):
+    err_str = str(e)
+    if (
+        "Can not load hlo proto" in err_str
+        or "No HLO" in err_str
+        or "No such file or directory" in err_str
+        or ".hlo_proto.pb" in err_str
+    ):
+      if module_name:
+        raise FileNotFoundError(
+            f"Compiled HLO module '{module_name}' not found in profile"
+            " session. Run 'xprof list_hlo_modules' to inspect available"
+            " modules, or export XLA_FLAGS='--xla_dump_to=<logdir>"
+            " --xla_dump_hlo_as_proto' before profiling."
+        ) from e
       raise FileNotFoundError(
           "No compiled HLO module proto found in profile session. To capture"
           " HLO graphs, export XLA_FLAGS='--xla_dump_to=<logdir>"

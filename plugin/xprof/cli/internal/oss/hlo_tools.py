@@ -70,6 +70,67 @@ def get_hlo_proto_files(session_id: str) -> Sequence[pathlib.Path]:
 _get_hlo_proto_files = get_hlo_proto_files
 
 
+def _resolve_from_available_modules(
+    available_modules: Sequence[str], module_name: str | None = None
+) -> str:
+  """Resolves module_name against available_modules (exact, base-name, prefix)."""
+  if not available_modules:
+    raise FileNotFoundError("No HLO proto found.")
+  if not module_name:
+    return available_modules[0]
+  if module_name in available_modules:
+    return module_name
+
+  base_matches = [
+      m for m in available_modules if m.split("(")[0] == module_name
+  ]
+  if len(base_matches) == 1:
+    return base_matches[0]
+  if len(base_matches) > 1:
+    raise ValueError(
+        f"Ambiguous module name '{module_name}'. Matches:"
+        f" {', '.join(base_matches)}"
+    )
+
+  prefix_matches = [m for m in available_modules if m.startswith(module_name)]
+  if len(prefix_matches) == 1:
+    return prefix_matches[0]
+  if len(prefix_matches) > 1:
+    raise ValueError(
+        f"Ambiguous module prefix '{module_name}'. Matches:"
+        f" {', '.join(prefix_matches)}"
+    )
+
+  raise ValueError(
+      f"Module '{module_name}' not found. Available modules:"
+      f" {', '.join(available_modules)}"
+  )
+
+
+def resolve_module_name(
+    session_id: str, module_name: str | None = None
+) -> str:
+  """Resolves a short, prefix, or full module name against available HLO modules.
+
+  Args:
+    session_id: The unique XProf session ID.
+    module_name: Optional module name, base name (without program ID), or
+      prefix.
+
+  Returns:
+    The resolved full module name.
+
+  Raises:
+    FileNotFoundError: If no HLO proto files are found.
+    ValueError: If module_name is not found or ambiguous.
+  """
+  files = _get_hlo_proto_files(session_id)
+  if not files:
+    raise FileNotFoundError("No HLO proto found.")
+  available_modules = [f.name.removesuffix(".hlo_proto.pb") for f in files]
+  return _resolve_from_available_modules(available_modules, module_name)
+
+
 @decorators.cached(expire=86_400)
 def list_hlo_modules(session_id: str) -> str:
   """Lists all HLO modules available in the XProf session.
@@ -136,21 +197,7 @@ def get_hlo_module_content(
     RuntimeError: If fetching HLO content fails.
   """
   try:
-    files = _get_hlo_proto_files(session_id)
-    if not files:
-      raise FileNotFoundError("No HLO proto found.")
-
-    available_modules = [f.name.removesuffix(".hlo_proto.pb") for f in files]
-
-    if module_name:
-      if module_name not in available_modules:
-        raise ValueError(
-            f"Module '{module_name}' not found. Available:"
-            f" {', '.join(available_modules)}"
-        )
-      target_module = module_name
-    else:
-      target_module = available_modules[0]
+    target_module = resolve_module_name(session_id, module_name)
 
     if fmt != "text":
       raise ValueError(f"Unsupported format: {fmt}")
@@ -327,20 +374,12 @@ def get_hlo_neighborhood(
     target_instr = target_instr[1:]
 
   try:
-    files = _get_hlo_proto_files(session_id)
-    if not files:
+    try:
+      target_module = resolve_module_name(session_id, module_name)
+    except FileNotFoundError:
       return "No HLO proto found."
-
-    available_modules = [f.name.removesuffix(".hlo_proto.pb") for f in files]
-    if module_name:
-      if module_name not in available_modules:
-        return (
-            f"Module '{module_name}' not found. Available:"
-            f" {', '.join(available_modules)}"
-        )
-      target_module = module_name
-    else:
-      target_module = available_modules[0]
+    except ValueError as e:
+      return str(e)
 
     # Fetch full text from native graph_viewer.
     client = xprof_client.get_client()

@@ -69,6 +69,8 @@ class BaseOpStatsProcessor : public virtual UnifiedProfileProcessor {
       const tensorflow::profiler::ToolOptions& options) = 0;
 
  protected:
+  virtual bool ToolSupportsFlatMetricDb() const { return false; }
+
   tensorflow::profiler::ToolOptions options_;
 };
 

@@ -329,6 +329,7 @@ cc_library(
     hdrs = ["unified_op_profile_processor.h"],
     deps = [
         ":base_op_stats_processor",
+        ":flat_op_stats_to_op_profile",
         ":op_stats_to_op_profile",
         ":tool_options",
         ":unified_session_snapshot",

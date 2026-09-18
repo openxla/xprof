@@ -67,20 +67,22 @@ mkdir -p "$dest"
 cd "$dest"
 
 # Copy root README for pip package
-cp "$ROOT_RUNFILE_DIR/README.md" README.md
+cp -L "$ROOT_RUNFILE_DIR/README.md" README.md
 
 # Copy requirements.in and MANIFEST.in for pip package
-cp "$ROOT_RUNFILE_DIR/requirements.in" "$dest/requirements.in"
+cp -L "$ROOT_RUNFILE_DIR/requirements.in" "$dest/requirements.in"
 if [ -f "$PLUGIN_RUNFILE_DIR/MANIFEST.in" ]; then
-  cp "$PLUGIN_RUNFILE_DIR/MANIFEST.in" "$dest/MANIFEST.in"
+  cp -L "$PLUGIN_RUNFILE_DIR/MANIFEST.in" "$dest/MANIFEST.in"
 fi
 
 # Copy plugin python files.
 cd ${PLUGIN_RUNFILE_DIR}
 find . -name '*.py' -exec ${copy} --parents -Lrpv {} $dest \;
 cd $dest
-chmod -R 755 .
-cp ${build_workspace}/bazel-bin/plugin/xprof/protobuf/*_pb2.py xprof/protobuf/ || echo "Files already exist"
+chmod -R 755 "$dest"
+cp -fL ${build_workspace}/bazel-bin/plugin/xprof/protobuf/*_pb2.py \
+  xprof/protobuf/ || echo "Files already exist"
+chmod -R 755 "$dest"
 
 find xprof/protobuf -name \*.py -exec sed -i.bak -e '
     s/^from plugin.xprof/from xprof/
@@ -90,18 +92,21 @@ find xprof/protobuf -name \*.py -exec sed -i.bak -e '
 
 find . -name "*.bak" -exec rm -f {} \;
 
-cp ${build_workspace}/bazel-bin/xprof/pywrap/profiler_plugin_c_api.so xprof/convert/
-cp ${ROOT_RUNFILE_DIR}/xprof/pywrap/_pywrap_profiler_plugin.py xprof/convert/
+cp -L ${build_workspace}/bazel-bin/xprof/pywrap/profiler_plugin_c_api.so \
+  xprof/convert/
+cp -L ${ROOT_RUNFILE_DIR}/xprof/pywrap/_pywrap_profiler_plugin.py \
+  xprof/convert/
 
 if [[ "$(uname)" == *MSYS_NT* ]]; then
-  mv xprof/convert/profiler_plugin_c_api.so xprof/convert/profiler_plugin_c_api.pyd
+  mv xprof/convert/profiler_plugin_c_api.so \
+    xprof/convert/profiler_plugin_c_api.pyd
 fi
 
 # Copy static files.
 cd xprof
 mkdir -p utils
-cp "${ROOT_RUNFILE_DIR}/xprof/utils/tpu_counter_ids_v7x.h" utils/
-cp "${ROOT_RUNFILE_DIR}/xprof/utils/tpu_counter_ids_v6e.h" utils/
+cp -L "${ROOT_RUNFILE_DIR}/xprof/utils/tpu_counter_ids_v7x.h" utils/
+cp -L "${ROOT_RUNFILE_DIR}/xprof/utils/tpu_counter_ids_v6e.h" utils/
 
 # Copy skill files.
 if [ -d "${ROOT_RUNFILE_DIR}/skills" ]; then
@@ -112,14 +117,17 @@ fi
 
 mkdir -p static
 cd static
-cp "$PLUGIN_RUNFILE_DIR/xprof/static/index.html" .
-cp "$PLUGIN_RUNFILE_DIR/xprof/static/index.js" .
-cp "$PLUGIN_RUNFILE_DIR/xprof/static/materialicons.woff2" .
-cp "$PLUGIN_RUNFILE_DIR/trace_viewer/trace_viewer_index.html" .
-cp "$PLUGIN_RUNFILE_DIR/trace_viewer/trace_viewer_index.js" .
-cp "$FRONTEND_RUNFILE_DIR/app/components/trace_viewer_v2/trace_viewer_v2_wasm/trace_viewer_v2.js" .
-cp "$FRONTEND_RUNFILE_DIR/app/components/trace_viewer_v2/trace_viewer_v2_wasm/trace_viewer_v2.wasm" .
+cp -L "$PLUGIN_RUNFILE_DIR/xprof/static/index.html" .
+cp -L "$PLUGIN_RUNFILE_DIR/xprof/static/index.js" .
+cp -L "$PLUGIN_RUNFILE_DIR/xprof/static/materialicons.woff2" .
+cp -L "$PLUGIN_RUNFILE_DIR/trace_viewer/trace_viewer_index.html" .
+cp -L "$PLUGIN_RUNFILE_DIR/trace_viewer/trace_viewer_index.js" .
+WASM_DIR="$FRONTEND_RUNFILE_DIR/app/components/trace_viewer_v2"
+WASM_DIR="$WASM_DIR/trace_viewer_v2_wasm"
+cp -L "$WASM_DIR/trace_viewer_v2.js" .
+cp -L "$WASM_DIR/trace_viewer_v2.wasm" .
 cp -LR "$FRONTEND_RUNFILE_DIR/bundle.js" .
 cp -LR "$FRONTEND_RUNFILE_DIR/styles.css" .
 cp -LR "$FRONTEND_RUNFILE_DIR/zone.js" .
 cp -LR "$FRONTEND_RUNFILE_DIR/runtime.js" .
+chmod -R 755 "$dest"

@@ -10,3 +10,4 @@ six >= 1.10.0
 google-cloud-storage >= 3.12.0
 urllib3 >= 2.7.0
 fire >= 0.4.0
+duckdb >= 1.1.0

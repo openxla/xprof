@@ -21,6 +21,7 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "tsl/platform/protobuf.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/flat_op_stats_to_op_profile.h"
 #include "xprof/convert/op_stats_to_op_profile.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/unified_session_snapshot.h"
@@ -40,11 +41,22 @@ absl::Status UnifiedOpProfileProcessor::ProcessCombinedOpStats(
     const OpStats& combined_op_stats,
     const tensorflow::profiler::ToolOptions& options) {
   Profile profile;
-  tensorflow::profiler::ConvertOpStatsToOpProfile(
-      combined_op_stats,
-      ParseHardwareType(combined_op_stats.run_environment().device_type()),
-      profile, /*op_profile_limit=*/100,
-      tensorflow::profiler::GetOpProfileGrouping(options));
+  bool use_flat_metric = tensorflow::profiler::GetParamWithDefault<bool>(
+      options, "use_flat_metric", false);
+  if (use_flat_metric && combined_op_stats.has_flat_device_op_metrics_db() &&
+      combined_op_stats.flat_device_op_metrics_db().op_instances_size() > 0) {
+    tensorflow::profiler::ConvertFlatOpStatsToOpProfile(
+        combined_op_stats,
+        ParseHardwareType(combined_op_stats.run_environment().device_type()),
+        profile, /*op_profile_limit=*/100,
+        tensorflow::profiler::GetOpProfileGrouping(options));
+  } else {
+    tensorflow::profiler::ConvertOpStatsToOpProfile(
+        combined_op_stats,
+        ParseHardwareType(combined_op_stats.run_environment().device_type()),
+        profile, /*op_profile_limit=*/100,
+        tensorflow::profiler::GetOpProfileGrouping(options));
+  }
 
   std::string op_profile_json;
   JsonPrintOptions opts;

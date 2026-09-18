@@ -252,6 +252,7 @@ pytype_strict_contrib_test(
         "//plugin/xprof/cli/tools/oss:events_db_tool",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
+        "@org_xprof//xprof/convert/events_db/python:pywrap_events_db_c_api_py",
         "@rules_python//python/runfiles",
     ],
 )

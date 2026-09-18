@@ -45,5 +45,6 @@ pytype_strict_library(
         "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal/oss:xprof_client",
         "@org_xprof//xprof/convert/events_db/python:pywrap_events_db_c_api_py",
+        "@pypi//duckdb",
     ],
 )

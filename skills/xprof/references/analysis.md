@@ -195,3 +195,15 @@ Conclude analysis with concrete operational deliverables:
     attached artifact).
 -   Provide the local or cluster rerun command required to reproduce the
     verification results.
+
+--------------------------------------------------------------------------------
+
+## Appendix: Raw XSpace Protobuf Inspection (`get_xspace_proto`)
+
+For advanced debugging where high-level tools do not expose raw plane metadata
+or custom event attributes, use `get_xspace_proto` to inspect the JSON-serialized
+`XSpace` protobuf structure (filtered by optional plane or event limits):
+
+```bash
+xprof get_xspace_proto <logdir>
+```

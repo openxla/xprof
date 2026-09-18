@@ -51,3 +51,12 @@ you should:
     xprof get_overview /path/to/logdir
     ```
 2.  Answer the user using that value.
+
+## Related Summary Tool (`get_profile_summary`)
+
+To fetch a concise JSON summary containing top-level session metadata, step time
+breakdowns, and summary text (`summary_text`) without the full overview tables:
+
+```bash
+xprof get_profile_summary <logdir>
+```

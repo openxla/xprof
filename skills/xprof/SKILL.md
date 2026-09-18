@@ -170,17 +170,26 @@ Pallas or Mosaic):
 
 -   **[Get Graph Viewer Data](references/get_graph_viewer.md)**: Get graph
     viewer data (HLO text) and source line mappings from XProf.
--   **[Get Session Overview](references/get_overview.md)**: Get a comprehensive
-    overview (Performance Summary, Run Environment) of an XProf session.
+-   **[Get Session Overview & Summary](references/get_overview.md)**: Get a
+    comprehensive overview (`get_overview`) or concise summary metadata
+    (`get_profile_summary`) of an XProf session.
 -   **[Get Memory Profile](references/get_memory_profile.md)**: Get a detailed
     memory profile analysis (Peak/device memory details) of an XProf session.
--   **[Get Step Trace](references/get_step_trace.md)**: Retrieve step-by-step
-    execution breakdowns (Compute, Communication, Infeed/Outfeed) and timing
-    data across steps to analyze step time variance and communication overhead.
+-   **[Get Step Trace & Average Step Time](references/get_step_trace.md)**:
+    Retrieve step-by-step execution breakdowns (`get_step_trace`) or scalar
+    average step duration (`get_avg_step_time`) to analyze step time variance
+    and communication overhead.
 -   **[Get Peak Allocations](references/get_peak_allocations.md)**: Get HLO
     modules and buffers ordered by memory usage.
 -   **[Get Top HLO Operations](references/get_top_hlo_ops.md)**: Identify top
     HLO operations by time, FLOPs, or bytes accessed.
+-   **[Get HLO Operation Statistics](references/get_hlo_stats.md)**: Fetch
+    per-operation statistics (`get_hlo_stats`) sorted by self time, total time,
+    occurrences, FLOPs, or memory bandwidth.
+-   **[Get Kernel Utilization & Stats](references/get_kernel_utilization.md)**:
+    Fetch hardware unit utilization (`get_kernel_utilization` /
+    `compute_utilization`) and raw kernel execution latencies
+    (`get_kernel_stats`).
 -   **[Get KPI Metrics](references/get_kpi_metrics.md)**: Fetch consolidated KPI
     metrics (step time, duty cycle, MXU utilization, roofline) for a session.
 -   **[Get Roofline Model](references/get_roofline_model.md)**: Identify
@@ -190,7 +199,8 @@ Pallas or Mosaic):
 -   **[Get Utilization Viewer](references/get_utilization_viewer.md)**: Fetch
     utilization metrics filtered by host, device, or node.
 -   **[Analyze XLA Module Performance](references/analysis.md)**: Analyze XLA
-    module performance, inspect HLO operations, and query timeline events.
+    module performance, inspect HLO operations, query timeline events, and
+    inspect raw XSpace protobufs (`get_xspace_proto`).
 -   **[Architecture Mapping](references/architecture_mapping.md)**: Map model
     architecture blocks to the HLO ops and timeline events that implement them.
 -   **[Import Trace File](references/upload_trace.md)**: Import raw trace files

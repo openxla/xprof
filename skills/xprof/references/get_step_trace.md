@@ -88,3 +88,12 @@ session /path/to/logdir?", you should:
 2.  Extract `step_time_ms_average`, `step_time_ms_stddev`, min/max range, and
     `primary_bottleneck` from `summary`.
 3.  Provide a concise summary to the user.
+
+## Related Fast Step Time Tool (`get_avg_step_time`)
+
+To quickly retrieve the scalar average step duration (in milliseconds) without
+fetching the full per-step breakdown:
+
+```bash
+xprof get_avg_step_time <logdir>
+```

@@ -199,6 +199,50 @@ class GetTopHloOpsToolTest(parameterized.TestCase):
       get_top_hlo_ops_tool.get_top_hlo_ops("session_without_hlo")
     self.assertIn("No HLO op_profile found in trace", str(cm.exception))
 
+  def test_get_top_hlo_ops_op_name_filter_before_limit(self):
+    """Verifies op_name filters before limit truncation so low-rank ops return."""
+    real_profile = self._create_fake_profile()
+    fake_bytes = real_profile.SerializeToString()
+    self.mock_client.fetch.return_value = (None, fake_bytes)
+
+    result = json.loads(
+        get_top_hlo_ops_tool.get_top_hlo_ops(
+            "test_session", limit=1, op_name="Op3"
+        )
+    )
+    self.assertEqual(result["total_matched"], 1)
+    self.assertLen(result["top_by_time"], 1)
+    self.assertEqual(result["top_by_time"][0]["name"], "root/Op3")
+
+  def test_get_top_hlo_ops_op_name_base_prefix_and_percent_strip(self):
+    """Verifies op_name matches %-prefixed and .N-suffixed HLO ops with source info."""
+    profile = op_profile_pb2.Profile()
+    root = profile.by_category
+    root.name = "fusion"
+    root.metrics.raw_time = 1000000000
+
+    child = root.children.add()
+    child.name = "%broadcast_select_fusion.4"
+    child.metrics.raw_time = 100000000
+    child.xla.category = "fusion"
+    child.xla.source_info.file_name = "jax/experimental/pallas/ops.py"
+    child.xla.source_info.line_number = 128
+    child.xla.source_info.stack_frame = "run_step -> pallas_call"
+
+    self.mock_client.fetch.return_value = (None, profile.SerializeToString())
+
+    result = json.loads(
+        get_top_hlo_ops_tool.get_top_hlo_ops(
+            "test_session", op_name="broadcast_select_fusion"
+        )
+    )
+    self.assertEqual(result["total_matched"], 1)
+    op = result["top_by_time"][0]
+    self.assertEqual(op["name"], "fusion/%broadcast_select_fusion.4")
+    self.assertEqual(op["source_file"], "jax/experimental/pallas/ops.py")
+    self.assertEqual(op["source_line"], 128)
+    self.assertEqual(op["stack_frame"], "run_step -> pallas_call")
+
 
 if __name__ == "__main__":
   absltest.main()

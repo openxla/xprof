@@ -23,12 +23,37 @@ DecodeError = message.DecodeError
 _CUSTOM_CALL_TARGET_RE = re.compile(r'custom_call_target="([^"]+)"')
 
 
+def _matches_op_name(
+    full_name: str,
+    raw_full_name: str,
+    raw_leaf_name: str,
+    target_op_name: str,
+) -> bool:
+  """Returns True if an HLO op matches target_op_name (exact, %-stripped, suffix, or prefix)."""
+  target = target_op_name.strip()
+  if not target:
+    return True
+  if (
+      full_name == target
+      or full_name.endswith(f"/{target}")
+      or raw_full_name == target
+      or raw_full_name.endswith(f"/{target}")
+  ):
+    return True
+  leaf_clean = raw_leaf_name.strip().lstrip("%")
+  target_clean = target.lstrip("%")
+  if leaf_clean == target_clean or leaf_clean.startswith(f"{target_clean}."):
+    return True
+  return False
+
+
 @decorators.cached(expire=86400)
 def get_top_hlo_ops(
     session_id: str,
     *,
     limit: int = 10,
     category_filter: str | None = None,
+    op_name: str | None = None,
     bypass_cache: bool = False,
 ) -> str:
   """Fetches top HLO operations sorted by Time, FLOPs, and Bytes Accessed.
@@ -38,6 +63,8 @@ def get_top_hlo_ops(
       limit: Number of top operations to return per list (default is 10).
       category_filter: Optional HLO op category name to filter by (e.g.,
         'convolution' or 'fusion').
+      op_name: Optional HLO operation name (exact, '%'-stripped, path suffix, or
+        base prefix before '.<id>') to filter by before top-N truncation.
       bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
@@ -121,7 +148,7 @@ def get_top_hlo_ops(
     metrics = node.metrics
 
     # Only add leaf nodes (instructions) that have XLA info
-    if node.HasField("xla") and metrics.raw_time > 0:
+    if node.HasField("xla") and (metrics.raw_time > 0 or op_name):
       category = node.xla.category
       op_label = name
       if node.xla.provenance:
@@ -148,25 +175,31 @@ def get_top_hlo_ops(
           if current_name_prefix
           else op_label
       )
-      total_bytes = (
-          sum(metrics.raw_bytes_accessed_array)
-          if metrics.raw_bytes_accessed_array
-          else 0
+      raw_full_name = (
+          f"{current_name_prefix}/{name}" if current_name_prefix else name
       )
-      item = {
-          "name": full_name,
-          "category": category,
-          "total_self_time_ms": metrics.raw_time / 1e9,
-          "occurrences": metrics.occurrences,
-          "flops": metrics.raw_flops,
-          "bytes_accessed": total_bytes,
-      }
-      if node.xla.HasField("source_info"):
-        item["source_file"] = node.xla.source_info.file_name
-        item["source_line"] = node.xla.source_info.line_number
-        if node.xla.source_info.stack_frame:
-          item["stack_frame"] = node.xla.source_info.stack_frame
-      yield item
+      if not op_name or _matches_op_name(
+          full_name, raw_full_name, name, op_name
+      ):
+        total_bytes = (
+            sum(metrics.raw_bytes_accessed_array)
+            if metrics.raw_bytes_accessed_array
+            else 0
+        )
+        item = {
+            "name": full_name,
+            "category": category,
+            "total_self_time_ms": metrics.raw_time / 1e9,
+            "occurrences": metrics.occurrences,
+            "flops": metrics.raw_flops,
+            "bytes_accessed": total_bytes,
+        }
+        if node.xla.HasField("source_info"):
+          item["source_file"] = node.xla.source_info.file_name
+          item["source_line"] = node.xla.source_info.line_number
+          if node.xla.source_info.stack_frame:
+            item["stack_frame"] = node.xla.source_info.stack_frame
+        yield item
 
     for child in node.children:
       child_prefix = (

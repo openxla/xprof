@@ -47,6 +47,15 @@ _UPSTREAM_BASELINE_IGNORED_PATTERNS: tuple[str, ...] = (
     "split is not a function",
 )
 
+# How long a navigation assertion waits for the router to publish the new tool
+# in the address bar. XProf loads the tool's data before the router updates the
+# query string, so the address bar lags the click by however long the tool
+# takes to respond -- for the heavier tools, well past Playwright's 5s default
+# on a loaded machine. The assertion is about which tool the app navigated to,
+# not about how quickly it got there, so the bound only needs to be long enough
+# to distinguish a slow load from a navigation that never happened.
+URL_SETTLE_TIMEOUT_MS = 30000
+
 _TOOL_NAME_TO_TAG: dict[str, str] = {
     "Overview Page": "overview_page",
     "Framework Op Stats": "framework_op_stats",
@@ -143,7 +152,7 @@ def load_journey_scenarios(
 JOURNEY_SCENARIOS: list[JourneyScenario] = load_journey_scenarios()
 
 
-def _dispatch_action(
+def dispatch_action(
     page: Page, server_url: str, logdir: str, step: JourneyStep
 ) -> None:
   """Dispatches the UI navigation action corresponding to the journey step."""
@@ -153,10 +162,16 @@ def _dispatch_action(
       expected_tag = _TOOL_NAME_TO_TAG.get(
           step.target, step.target.lower().replace(" ", "_")
       )
-      expect(page).to_have_url(re.compile(rf"tag={re.escape(expected_tag)}"))
+      expect(page).to_have_url(
+          re.compile(rf"tag={re.escape(expected_tag)}"),
+          timeout=URL_SETTLE_TIMEOUT_MS,
+      )
     case ActionType.SELECT_HOST:
       select_host(page, step.target)
-      expect(page).to_have_url(re.compile(rf"host={re.escape(step.target)}"))
+      expect(page).to_have_url(
+          re.compile(rf"host={re.escape(step.target)}"),
+          timeout=URL_SETTLE_TIMEOUT_MS,
+      )
     case ActionType.GO_BACK:
       expected_tag = _TOOL_NAME_TO_TAG.get(
           step.target, step.target.lower().replace(" ", "_")
@@ -171,7 +186,7 @@ def _dispatch_action(
         page.wait_for_timeout(100)
         if tag_pattern.search(page.url) or page.url == prev_url:
           break
-      expect(page).to_have_url(tag_pattern)
+      expect(page).to_have_url(tag_pattern, timeout=URL_SETTLE_TIMEOUT_MS)
     case ActionType.GO_FORWARD:
       expected_tag = _TOOL_NAME_TO_TAG.get(
           step.target, step.target.lower().replace(" ", "_")
@@ -186,7 +201,7 @@ def _dispatch_action(
         page.wait_for_timeout(100)
         if tag_pattern.search(page.url) or page.url == prev_url:
           break
-      expect(page).to_have_url(tag_pattern)
+      expect(page).to_have_url(tag_pattern, timeout=URL_SETTLE_TIMEOUT_MS)
     case ActionType.GOTO:
       parts = step.target.split("/", 1)
       run_name = parts[0]
@@ -194,7 +209,10 @@ def _dispatch_action(
       dest_path = os.path.join(logdir, run_name)
       dest_url = build_tool_url(server_url, dest_path, run_name, tag)
       page.goto(dest_url, wait_until="domcontentloaded")
-      expect(page).to_have_url(re.compile(rf"tag={re.escape(tag)}"))
+      expect(page).to_have_url(
+          re.compile(rf"tag={re.escape(tag)}"),
+          timeout=URL_SETTLE_TIMEOUT_MS,
+      )
     case _:
       raise ValueError(f"Unsupported journey action type: {step.action}")
 
@@ -239,7 +257,8 @@ def test_user_journey_state_machine(
   )
   page.goto(url, wait_until="domcontentloaded")
   expect(page).to_have_url(
-      re.compile(rf"tag={re.escape(scenario.initial_tool)}")
+      re.compile(rf"tag={re.escape(scenario.initial_tool)}"),
+      timeout=URL_SETTLE_TIMEOUT_MS,
   )
   expect(page.locator("body")).to_be_visible()
   _assert_content_invariants(page, f"initial load of {scenario.id}")
@@ -249,7 +268,7 @@ def test_user_journey_state_machine(
     step_context = (
         f"step {idx}/{len(scenario.steps)} ({step.action} -> {step.target})"
     )
-    _dispatch_action(page, server_url, logdir, step)
+    dispatch_action(page, server_url, logdir, step)
     _assert_component_geometry(page, step.expected_selector, step)
     _assert_content_invariants(page, step_context)
 

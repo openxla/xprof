@@ -32,6 +32,9 @@ KNOWN_UPSTREAM_BUGS = [
     "gstatic.com",
     "Cannot set properties of null",  # Standalone iframe reload bug
     "EmptyError",  # RxJS stream termination without defaultIfEmpty
+    # EmptyError's runtime message. Console text carries the message, not the
+    # class name, so the entry above never matches on its own.
+    "no elements in sequence",
     "google.visualization",  # Google charts async initialization race
     "DataTable",
     "net::ERR_CONNECTION_REFUSED",
@@ -91,7 +94,7 @@ def _find_free_port(host: str) -> int:
 
 
 def _is_server_ready(url: str) -> bool:
-  """Polls the HTTP server endpoint until it responds with a 2xx or 3xx status."""
+  """Polls the HTTP server until it responds with a 2xx or 3xx status."""
   try:
     with urllib.request.urlopen(url, timeout=0.5) as resp:
       return resp.status < http.HTTPStatus.INTERNAL_SERVER_ERROR

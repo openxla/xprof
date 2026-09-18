@@ -3,6 +3,7 @@
 # pylint: disable=redefined-outer-name,g-doc-args
 # pylint: disable=g-doc-return-or-yield,g-short-docstring-punctuation
 
+from collections.abc import Callable
 from collections.abc import Iterator
 import dataclasses
 import http
@@ -32,6 +33,9 @@ KNOWN_UPSTREAM_BUGS = [
     "gstatic.com",
     "Cannot set properties of null",  # Standalone iframe reload bug
     "EmptyError",  # RxJS stream termination without defaultIfEmpty
+    # EmptyError's runtime message. Console text carries the message, not the
+    # class name, so the entry above never matches on its own.
+    "no elements in sequence",
     "google.visualization",  # Google charts async initialization race
     "DataTable",
     "net::ERR_CONNECTION_REFUSED",
@@ -59,6 +63,9 @@ def _find_repo_root() -> pathlib.Path:
 def logdir() -> str:
   """Resolves the absolute path to the demo profile dataset directory."""
   if custom_logdir := os.environ.get("XPROF_LOGDIR"):
+    profile_subdir = pathlib.Path(custom_logdir) / "plugins" / "profile"
+    if profile_subdir.is_dir():
+      return str(profile_subdir)
     return custom_logdir
 
   repo_root = os.environ.get("XPROF_REPO_ROOT")
@@ -91,7 +98,7 @@ def _find_free_port(host: str) -> int:
 
 
 def _is_server_ready(url: str) -> bool:
-  """Polls the HTTP server endpoint until it responds with a 2xx or 3xx status."""
+  """Polls the HTTP server until it responds with a 2xx or 3xx status."""
   try:
     with urllib.request.urlopen(url, timeout=0.5) as resp:
       return resp.status < http.HTTPStatus.INTERNAL_SERVER_ERROR
@@ -165,6 +172,37 @@ def server_url(logdir: str) -> Iterator[str]:
       except subprocess.TimeoutExpired:
         server.kill()
     stderr_file.close()
+
+
+@pytest.fixture(scope="session")
+def baseline_server_url(server_url: str) -> str:
+  """Returns the baseline server URL, defaulting to the candidate server."""
+  return os.environ.get("XPROF_BASELINE_SERVER_URL") or server_url
+
+
+@pytest.fixture(scope="session")
+def resolve_run(logdir: str) -> Callable[[str], str]:
+  """Returns a resolver mapping a declared run name onto one in the logdir."""
+  available = sorted(
+      entry.name for entry in pathlib.Path(logdir).iterdir() if entry.is_dir()
+  )
+  # Run directories are named by the capture tooling, which is inconsistent
+  # about separators (e.g. "tpu-training" versus "tpu_training").
+  by_separator = {name.replace("_", "-"): name for name in available}
+
+  def _resolve(declared: str) -> str:
+    if declared in available:
+      return declared
+    if declared in by_separator:
+      return by_separator[declared]
+    if len(available) == 1:
+      return available[0]
+    raise FileNotFoundError(
+        f"Run '{declared}' is not present in logdir {logdir}."
+        f" Available runs: {available}"
+    )
+
+  return _resolve
 
 
 @dataclasses.dataclass

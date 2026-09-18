@@ -143,6 +143,7 @@ cc_library(
             "cpp/src/arrow/ipc/stream_to_file.cc",
             "cpp/src/arrow/ipc/file_to_stream.cc",
             "cpp/src/arrow/ipc/test_common.cc",
+            "cpp/src/arrow/vendored/whereami/**",
             "cpp/src/arrow/vendored/xxhash/**",
             "cpp/src/arrow/vendored/datetime.cpp",
             "cpp/src/arrow/vendored/datetime/**",

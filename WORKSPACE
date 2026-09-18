@@ -78,7 +78,9 @@ genrule(
 #define HAVE_NETINET_IN_H 1
 #define HAVE_ARPA_INET_H 1
 #define HAVE_STRERROR_R 1
+#if !defined(__APPLE__)
 #define STRERROR_R_CHAR_P 1
+#endif
 #endif
 #endif
 CFG

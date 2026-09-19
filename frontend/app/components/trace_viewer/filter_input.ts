@@ -67,7 +67,7 @@ import {filterFieldKey, lookupFilterOperator} from './utils';
   <!-- option list for filter values -->
   <div *ngIf="isUpdatingValues() && isMultiSelect()" style="display:flex;flex-direction:column;">
     <button mat-stroked-button color="primary" (click)="onConfirmMultiSelect()" style="margin:10px;">Confirm</button>
-    <mat-option>
+    <mat-option *ngIf="autoFilterValues.value.length > 0">
       <mat-checkbox class="example-margin" [checked]="allOptionsSelected" (click)="onOperateAll($event)">{{allOptionsLabel}}</mat-checkbox>
     </mat-option>
     <mat-option *ngFor="let option of (autoFilterValues | async) trackBy:trackByValue"
@@ -135,7 +135,10 @@ export class FilterInput implements AfterViewInit, OnChanges {
   }
 
   get allOptionsSelected() {
-    return this.autoFilterValues.value.every((option) => option.checked);
+    return (
+      this.autoFilterValues.value.length > 0 &&
+      this.autoFilterValues.value.every((option) => option.checked)
+    );
   }
 
   get allOptionsLabel() {

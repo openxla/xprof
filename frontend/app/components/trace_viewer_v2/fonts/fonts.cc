@@ -40,7 +40,7 @@ void LoadFonts(float pixel_ratio) {
   };
 
   io.Fonts->AddFontDefault(&config);
-  io.FontDefault = body_large;
+  io.FontDefault = label_large;
 }
 
 }  // namespace traceviewer::fonts

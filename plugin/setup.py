@@ -128,6 +128,10 @@ PACKAGE_DATA = {
         'convert/profiler_plugin_c_api.pyd',
         'convert/profiler_plugin_c_api.dylib',
         'convert/profiler_plugin_c_api.dll',
+        'convert/events_db/python/*pywrap_events_db_c_api*.so',
+        'convert/events_db/python/*pywrap_events_db_c_api*.pyd',
+        'convert/events_db/python/*pywrap_events_db_c_api*.dylib',
+        'convert/events_db/python/*pywrap_events_db_c_api*.dll',
         'skills/**',
     ],
 }

@@ -15,7 +15,7 @@ bazel run //third_party/xprof/plugin/xprof/cli:xprof_cli -- <command> <path_to_t
 
 ## Available Commands
 
-The CLI provides 24 core tools for comprehensive accelerator profile analysis:
+The CLI provides 23 core tools for comprehensive accelerator profile analysis:
 
 ### Overview & Telemetry
 
@@ -66,10 +66,9 @@ The CLI provides 24 core tools for comprehensive accelerator profile analysis:
 *   **`get_llo_analysis`**: Low-level instruction metrics and execution schedules.
 *   **`get_llo_debug_string`**: Raw low-level operator debug disassembly.
 
-### Ingestion & Numerical Correctness
+### Ingestion
 
 *   **`upload_trace`**: Ingests and registers `.xplane.pb` traces into profile run directories.
-*   **`verify_numerical_parity`**: Multi-batch numerical equivalence verification ($f_{\text{ref}} \leftrightarrow f_{\text{cand}}$) with ULP tolerance checking.
 
 ## Kernel Statistics & Disjoint Interval Union
 

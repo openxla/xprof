@@ -527,6 +527,45 @@ canvas.emscripten {
         word-break: break-word;
         white-space: pre-wrap;
       }
+
+      &.hlo-text-row {
+        .detail-label {
+          display: flex;
+          align-items: center;
+        }
+
+        .detail-value {
+          font-family: 'Roboto Mono', monospace;
+          font-size: 12px;
+        }
+
+        .hlo-collapse-btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 20px;
+          height: 20px;
+          margin-left: 4px;
+          padding: 0;
+          border: none;
+          background: transparent;
+          cursor: pointer;
+          color: var(--mat-sys-on-surface-variant);
+          border-radius: 4px;
+
+          &:hover {
+            background-color: var(--mat-sys-surface-variant);
+            color: var(--mat-sys-on-surface);
+          }
+
+          mat-icon {
+            font-size: 16px;
+            width: 16px;
+            height: 16px;
+            line-height: 16px;
+          }
+        }
+      }
     }
 
     .cross-tool-links {

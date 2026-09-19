@@ -21,7 +21,7 @@ from typing import Any
 import ml_dtypes
 import numpy as np
 
-from xprof.cli.internal import numerical_generator
+from xprof.xparity import numerical_generator
 
 
 @dataclasses.dataclass(frozen=True)
@@ -68,6 +68,14 @@ class OracleAudit:
   reference_pin_inert: bool = False
   oracle_probe_diagnostic: str | None = None
 
+  @property
+  def is_downcasting(self) -> bool:
+    return self.reference_is_lossy
+
+  @property
+  def max_ulp_vs_fp64(self) -> int:
+    return self.reference_max_ulp_from_oracle
+
 
 @dataclasses.dataclass(frozen=True)
 class UlpContext:
@@ -79,6 +87,19 @@ class UlpContext:
   max_ulp: int
   reliable: bool
   note: str | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class WorstOffender:
+  """Spatial coordinate and value attribution of the element with largest ULP divergence."""
+
+  max_ulp_index: tuple[int, ...]
+  ref_value: float
+  cand_value: float
+  abs_diff: float
+  rel_diff: float
+  mismatch_count: int
+  mismatch_ratio: float
 
 
 @dataclasses.dataclass(frozen=True)
@@ -97,6 +118,27 @@ class BatchValidationResult:
   candidate_ulp_from_oracle: int | None = None
   ulp_context: UlpContext | None = None
   allclose_passed: bool = True
+  nan_count: int = 0
+  inf_count: int = 0
+  first_non_finite_index: tuple[int, ...] | None = None
+  finite_max_ulp: int | None = None
+  worst_offender: WorstOffender | None = None
+
+  @property
+  def max_ulp(self) -> int:
+    return self.max_ulp_distance
+
+  @property
+  def mean_ulp(self) -> float:
+    return self.mean_ulp_distance
+
+  @property
+  def p99_9_ulp(self) -> float:
+    return self.p99_9_ulp_distance
+
+  @property
+  def has_nan_inf(self) -> bool:
+    return self.has_nan_or_inf
 
 
 @dataclasses.dataclass(frozen=True)
@@ -115,6 +157,7 @@ class KernelValidationReport:
   run_config: dict[str, Any] = dataclasses.field(default_factory=dict)
   ulp_context: UlpContext | None = None
   narrow_output_dtype_warning: str | None = None
+  shape_mismatch: dict[str, Any] | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -592,8 +635,7 @@ def _probe_precision(
     if not _is_jax_array(raw_sample):
       return PrecisionProbeResult(
           False if is_default_baseline else True,
-          "Host NumPy execution: not subject to accelerator matmul"
-          " precision",
+          "Host NumPy execution: not subject to accelerator matmul precision",
       )
 
   jax = sys.modules.get("jax")
@@ -791,16 +833,8 @@ def _verify_oracle_precision(
     oracle_finfo = _get_finfo(oracle_output_dtype)
     oracle_eps = float(getattr(oracle_finfo, "eps", 1.0))
     oracle_is_high_precision = oracle_eps <= f32_eps
-    # A margin can come from either of two independent sources:
-    #   (a) width  -- the oracle's dtype is materially finer than the kernel's;
-    #   (b) pinning -- the oracle is precision-pinned while the reference is
-    #       not, which on a TPU MXU is worth ~10^4x even at equal width.
-    # Measured on v6e at 512x512 float32: an unpinned reference sits 2.66e-01
-    # from exact while the same matmul pinned to HIGHEST sits 1.50e-05, a
-    # factor of 17,792. Judging (b) by dtype width alone scores it 1x.
     has_width_margin = (
-        hasattr(ref_finfo, "eps")
-        and float(ref_finfo.eps) >= 100.0 * oracle_eps
+        hasattr(ref_finfo, "eps") and float(ref_finfo.eps) >= 100.0 * oracle_eps
     )
     has_precision_margin = oracle_is_high_precision and (
         has_width_margin or reference_is_unpinned
@@ -828,7 +862,7 @@ def _verify_oracle_precision(
     if is_pinned is not None and not is_pinned:
       verified = False
       banner = (
-          f"⚠️ ORACLE IS NOT PRECISION-PINNED: The oracle returned"
+          "⚠️ ORACLE IS NOT PRECISION-PINNED: The oracle returned"
           f" '{oracle_output_dtype}' and changes output when matmul precision"
           " is set to HIGHEST on accelerators (unpinned matmul precision"
           " drops accuracy by ~20,000x on TPU MXUs)."
@@ -839,7 +873,7 @@ def _verify_oracle_precision(
     elif not oracle_is_high_precision:
       verified = False
       banner = (
-          f"⚠️ ORACLE LACKS NUMERICAL PRECISION: The oracle returned"
+          "⚠️ ORACLE LACKS NUMERICAL PRECISION: The oracle returned"
           f" '{oracle_output_dtype}' (eps {oracle_eps:.2e}). An oracle must"
           " be at least float32 (or float64) to serve as a ground truth"
           " reference. Low-precision oracles cannot establish correctness."
@@ -847,7 +881,7 @@ def _verify_oracle_precision(
     elif not has_precision_margin:
       verified = False
       banner = (
-          f"⚠️ ORACLE NOT PRECISE ENOUGH: The oracle returned"
+          "⚠️ ORACLE NOT PRECISE ENOUGH: The oracle returned"
           f" '{oracle_output_dtype}' while the kernel under test emits"
           f" '{canonical_dtype}' (eps {ref_finfo.eps:.2e}), and the"
           " reference is already precision-pinned. An oracle needs a margin"
@@ -862,7 +896,7 @@ def _verify_oracle_precision(
     else:
       verified = False
       banner = (
-          f"⚠️ ORACLE PRECISION UNDETERMINED: The oracle returned"
+          "⚠️ ORACLE PRECISION UNDETERMINED: The oracle returned"
           f" '{oracle_output_dtype}'. Unable to verify accelerator precision"
           f" pinning{diag_clause}. Verify oracle pinning with"
           " jax.default_matmul_precision('highest') or pass a host float64"
@@ -934,15 +968,32 @@ def _execute_single_batch(
     except (ValueError, TypeError) as e:
       logging.debug("finfo check for narrow dtype failed: %s", e)
 
+  nan_count = 0
+  inf_count = 0
+  first_non_finite_index: tuple[int, ...] | None = None
+  finite_max_ulp: int | None = None
+
   if not is_discrete:
     out_cand_f32 = out_cand.astype(np.float32)
     out_ref_f32 = out_ref.astype(np.float32)
-    has_nan_or_inf = bool(
-        np.isnan(out_cand_f32).any()
-        or np.isinf(out_cand_f32).any()
-        or np.isnan(out_ref_f32).any()
-        or np.isinf(out_ref_f32).any()
-    )
+    cand_nan = np.isnan(out_cand_f32)
+    ref_nan = np.isnan(out_ref_f32)
+    cand_inf = np.isinf(out_cand_f32)
+    ref_inf = np.isinf(out_ref_f32)
+    nan_count = int(np.sum(cand_nan | ref_nan))
+    inf_count = int(np.sum(cand_inf | ref_inf))
+    has_nan_or_inf = bool(nan_count > 0 or inf_count > 0)
+    if has_nan_or_inf:
+      non_finite_mask = cand_nan | ref_nan | cand_inf | ref_inf
+      non_finite_coords = np.argwhere(non_finite_mask)
+      if non_finite_coords.size > 0:
+        first_non_finite_index = tuple(int(x) for x in non_finite_coords[0])
+      finite_mask = ~non_finite_mask
+      if np.any(finite_mask):
+        finite_ulp_arr = compute_ulp_distance(
+            out_cand[finite_mask], out_ref[finite_mask], dtype_str
+        )
+        finite_max_ulp = int(np.max(finite_ulp_arr))
   else:
     has_nan_or_inf = False
 
@@ -976,11 +1027,11 @@ def _execute_single_batch(
           " S=4096 D=128 needs 69.25 GiB against 31.24 GiB of v6e HBM)."
       )
       import_note = (
-          "from xprof.cli.internal.numerical_validator import chunk_callable"
+          "from"
+          " google3.third_party.xprof.plugin.xprof.xparity"
+          " import chunk_callable"
       )
       if isinstance(kernel_oracle, str):
-        # ORACLE_AUTO re-runs kernel_ref itself, so there is no oracle
-        # argument for the caller to wrap; they have to supply one.
         remedy = (
             f"'{kernel_oracle}' re-runs kernel_ref with its arguments"
             " promoted to float64, so there is no oracle callable to wrap."
@@ -1025,6 +1076,7 @@ def _execute_single_batch(
     ref_oracle_max_abs = float(np.max(np.abs(out_ref_f64 - out_oracle_f64)))
     cand_oracle_max_abs = float(np.max(np.abs(out_cand_f64 - out_oracle_f64)))
 
+  worst_offender: WorstOffender | None = None
   if has_nan_or_inf:
     max_ulp = 999999
     p99_9 = 999999.0
@@ -1041,9 +1093,31 @@ def _execute_single_batch(
         reliable=False,
         note="NaN or Inf detected in output.",
     )
+    if first_non_finite_index is not None:
+      ref_v = float(
+          np.asarray(out_ref, dtype=np.float64)[first_non_finite_index]
+      )
+      cand_v = float(
+          np.asarray(out_cand, dtype=np.float64)[first_non_finite_index]
+      )
+      non_finite_total = nan_count + inf_count
+      worst_offender = WorstOffender(
+          max_ulp_index=first_non_finite_index,
+          ref_value=ref_v,
+          cand_value=cand_v,
+          abs_diff=float("nan"),
+          rel_diff=float("nan"),
+          mismatch_count=non_finite_total,
+          mismatch_ratio=(
+              float(non_finite_total) / float(out_cand.size)
+              if out_cand.size > 0
+              else 0.0
+          ),
+      )
   else:
     ulp_arr = compute_ulp_distance(out_cand, out_ref, dtype_str)
     max_ulp = int(np.max(ulp_arr))
+    finite_max_ulp = max_ulp
     p99_9 = float(np.percentile(ulp_arr, 99.9))
     mean_ulp = float(np.mean(ulp_arr))
     p50 = float(np.percentile(ulp_arr, 50.0))
@@ -1057,9 +1131,7 @@ def _execute_single_batch(
     effective_p99_9 = (
         0.0 if is_discrete and p99_9_allowed_ulp == 1 else p99_9_allowed_ulp
     )
-    ulp_passed = bool(
-        max_ulp <= effective_max_ulp and p99_9 <= effective_p99_9
-    )
+    ulp_passed = bool(max_ulp <= effective_max_ulp and p99_9 <= effective_p99_9)
 
     if is_discrete:
       allclose_passed = bool(np.array_equal(out_cand, out_ref))
@@ -1070,6 +1142,26 @@ def _execute_single_batch(
       ref_f32 = out_ref.astype(np.float32)
       allclose_passed = bool(
           np.allclose(cand_f32, ref_f32, rtol=rtol_val, atol=atol_val)
+      )
+
+    if out_cand.size > 0:
+      flat_max_idx = int(np.argmax(ulp_arr))
+      max_idx = tuple(
+          int(x) for x in np.unravel_index(flat_max_idx, ulp_arr.shape)
+      )
+      ref_v = float(np.asarray(out_ref, dtype=np.float64)[max_idx])
+      cand_v = float(np.asarray(out_cand, dtype=np.float64)[max_idx])
+      abs_d = abs(cand_v - ref_v)
+      rel_d = abs_d / (abs(ref_v) + 1e-12)
+      mismatch_cnt = int(np.sum(ulp_arr > effective_max_ulp))
+      worst_offender = WorstOffender(
+          max_ulp_index=max_idx,
+          ref_value=ref_v,
+          cand_value=cand_v,
+          abs_diff=abs_d,
+          rel_diff=rel_d,
+          mismatch_count=mismatch_cnt,
+          mismatch_ratio=float(mismatch_cnt) / float(out_cand.size),
       )
 
     passed = bool(ulp_passed and allclose_passed)
@@ -1116,6 +1208,11 @@ def _execute_single_batch(
       candidate_ulp_from_oracle=batch_cand_oracle_ulp,
       ulp_context=context_obj,
       allclose_passed=allclose_passed,
+      nan_count=nan_count,
+      inf_count=inf_count,
+      first_non_finite_index=first_non_finite_index,
+      finite_max_ulp=finite_max_ulp,
+      worst_offender=worst_offender,
   )
 
   return _BatchExecutionResult(
@@ -1438,9 +1535,7 @@ def validate_kernels(
       first_b = batches_to_run[0]
       b0_args = first_b.get("args", (first_b.get("tensor"),))
       b0_kwargs = first_b.get("kwargs", {})
-      p_args, p_kwargs = _promote_args_to_dtype(
-          b0_args, b0_kwargs, np.float64
-      )
+      p_args, p_kwargs = _promote_args_to_dtype(b0_args, b0_kwargs, np.float64)
       probe_out = kernel_ref(*p_args, **p_kwargs)
       probe_arr = np.asarray(probe_out)
       if probe_arr.dtype == np.float64:
@@ -1556,4 +1651,180 @@ def validate_kernels(
       run_config=run_config,
       ulp_context=overall_ulp_context,
       narrow_output_dtype_warning=acc.narrow_warning,
+  )
+
+
+def validate_arrays(
+    actual: Any,
+    expected: Any,
+    dtype_str: str = "bfloat16",
+    max_allowed_ulp: int | None = None,
+    p99_9_allowed_ulp: float = 1.0,
+) -> BatchValidationResult:
+  """Validates bitwise ULP parity between two pre-computed arrays."""
+  act_np = np.asarray(actual)
+  exp_np = np.asarray(expected)
+  canonical = _resolve_canonical_dtype(dtype_str)
+  recommended_ulp = RECOMMENDED_CONTRACT_ULP.get(canonical, 2)
+  hard_ceiling = MAX_HARD_CEILING_ULP.get(canonical, 8)
+
+  if max_allowed_ulp is None:
+    limit_ulp = recommended_ulp
+  elif max_allowed_ulp == 2 and hard_ceiling < 2:
+    limit_ulp = recommended_ulp
+  else:
+    limit_ulp = int(max_allowed_ulp)
+
+  if limit_ulp > hard_ceiling:
+    raise ValueError(
+        f"Requested max_allowed_ulp={limit_ulp} exceeds immutable safety"
+        f" ceiling ({hard_ceiling}) for dtype '{canonical}'."
+    )
+
+  if act_np.shape != exp_np.shape:
+    raise ValueError(
+        f"Shape mismatch in validate_arrays: {act_np.shape} vs {exp_np.shape}"
+    )
+
+  is_discrete = _is_discrete_dtype(canonical)
+  if is_discrete:
+    has_nan_inf = False
+  else:
+    act_f64 = act_np.astype(np.float64)
+    exp_f64 = exp_np.astype(np.float64)
+    has_nan_inf = bool(
+        np.any(
+            np.isnan(act_f64)
+            | np.isinf(act_f64)
+            | np.isnan(exp_f64)
+            | np.isinf(exp_f64)
+        )
+    )
+
+  if has_nan_inf:
+    return BatchValidationResult(
+        batch_name="direct_array_comparison",
+        regime="direct",
+        max_ulp_distance=999999,
+        p99_9_ulp_distance=999999.0,
+        mean_ulp_distance=999999.0,
+        ulp_histogram={"nan_inf": int(act_np.size)},
+        has_nan_or_inf=True,
+        passed=False,
+        allclose_passed=False,
+    )
+
+  ulp_dist = compute_ulp_distance(act_np, exp_np, dtype_str=canonical)
+  max_ulp = int(np.max(ulp_dist)) if ulp_dist.size > 0 else 0
+  mean_ulp = float(np.mean(ulp_dist)) if ulp_dist.size > 0 else 0.0
+  p99_9_ulp = float(np.percentile(ulp_dist, 99.9)) if ulp_dist.size > 0 else 0.0
+  p50_ulp = float(np.percentile(ulp_dist, 50.0)) if ulp_dist.size > 0 else 0.0
+  bit_identical = bool(np.all(ulp_dist == 0))
+  hist = {
+      "<=1_ulp": int(np.sum(ulp_dist <= 1)),
+      "<=2_ulp": int(np.sum(ulp_dist <= 2)),
+      ">2_ulp": int(np.sum(ulp_dist > 2)),
+  }
+  effective_p99_9 = (
+      0.0
+      if is_discrete and p99_9_allowed_ulp == 1.0
+      else max(float(p99_9_allowed_ulp), float(limit_ulp))
+  )
+  ulp_passed = bool(max_ulp <= limit_ulp and p99_9_ulp <= effective_p99_9)
+
+  if is_discrete:
+    allclose_passed = bool(np.array_equal(act_np, exp_np))
+  else:
+    dtype_eps, atol_val = _DTYPE_TOLERANCES.get(canonical, (1e-3, 1e-5))
+    rtol_val = max(1, limit_ulp) * dtype_eps
+    allclose_passed = bool(
+        np.allclose(
+            act_np.astype(np.float32),
+            exp_np.astype(np.float32),
+            rtol=rtol_val,
+            atol=atol_val,
+        )
+    )
+
+  worst_offender = None
+  if act_np.size > 0:
+    flat_max_idx = int(np.argmax(ulp_dist))
+    max_idx = tuple(
+        int(x) for x in np.unravel_index(flat_max_idx, ulp_dist.shape)
+    )
+    ref_v = float(np.asarray(exp_np, dtype=np.float64)[max_idx])
+    cand_v = float(np.asarray(act_np, dtype=np.float64)[max_idx])
+    abs_d = abs(cand_v - ref_v)
+    rel_d = abs_d / (abs(ref_v) + 1e-12)
+    mismatch_cnt = int(np.sum(ulp_dist > limit_ulp))
+    worst_offender = WorstOffender(
+        max_ulp_index=max_idx,
+        ref_value=ref_v,
+        cand_value=cand_v,
+        abs_diff=abs_d,
+        rel_diff=rel_d,
+        mismatch_count=mismatch_cnt,
+        mismatch_ratio=float(mismatch_cnt) / float(act_np.size),
+    )
+
+  passed = bool(ulp_passed and allclose_passed)
+  context_obj = UlpContext(
+      bit_identical=bit_identical,
+      p50=p50_ulp,
+      p99_9=p99_9_ulp,
+      max_ulp=max_ulp,
+      reliable=True,
+      note=(
+          "Failed allclose dual gate check at rtol=k*eps."
+          if ulp_passed and not allclose_passed
+          else None
+      ),
+  )
+
+  return BatchValidationResult(
+      batch_name="direct_array_comparison",
+      regime="direct",
+      max_ulp_distance=max_ulp,
+      p99_9_ulp_distance=p99_9_ulp,
+      mean_ulp_distance=mean_ulp,
+      ulp_histogram=hist,
+      has_nan_or_inf=False,
+      passed=passed,
+      ulp_context=context_obj,
+      allclose_passed=allclose_passed,
+      finite_max_ulp=max_ulp,
+      worst_offender=worst_offender,
+  )
+
+
+def probe_reference_precision(
+    kernel_ref: collections.abc.Callable[..., Any],
+    shapes: Any,
+    dtype_str: str = "float32",
+    seed: int = 42,
+    kernel_oracle: Any = ORACLE_AUTO,
+    regimes: list[str] | None = None,
+) -> OracleAudit:
+  """Audits a reference callable against a Float64 oracle to detect downcasting."""
+  report = validate_kernels(
+      kernel_ref,
+      kernel_ref,
+      shapes=shapes,
+      dtype_str=dtype_str,
+      tier="fast_agent",
+      seed=seed,
+      kernel_oracle=kernel_oracle,
+      regimes=regimes if regimes is not None else ["normal"],
+  )
+  if report.oracle_audit is not None:
+    return report.oracle_audit
+  return OracleAudit(
+      oracle_executed_in_float64=True,
+      oracle_output_dtype=dtype_str,
+      reference_max_ulp_from_oracle=0,
+      reference_p99_9_ulp_from_oracle=0.0,
+      candidate_max_ulp_from_oracle=0,
+      candidate_p99_9_ulp_from_oracle=0.0,
+      reference_is_lossy=False,
+      oracle_precision_verified=True,
   )

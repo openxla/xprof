@@ -1,4 +1,4 @@
-# Numerical Correctness Verification in XProf
+# Numerical Correctness Verification in Xparity
 
 This guide provides the complete operational methodology and reference for
 verifying numerical equivalence between baseline reference implementations and
@@ -20,7 +20,7 @@ The numerical capability serves two well-defined, unassailable roles:
     oracle.
 
 > [!WARNING] **NOT an Automated Merge Gate for Optimizations**: Do **NOT** use
-> `verify_numerical_parity` as an automated merge gate to block kernel
+> `xparity verify` as an automated merge gate to block kernel
 > optimizations that alter reduction associativity ($a + (b + c) \ne (a + b) +
 > c$, such as tree reductions vs sequential accumulation). Fused reductions and
 > reassociation naturally cause large ULP deviations (e.g. $8{,}388{,}608\text{
@@ -101,11 +101,11 @@ question is being asked**:
 
 ## 2. Quick Start Workflows
 
-### Workflow A: CLI Tool (`xprof verify_numerical_parity`)
+### Workflow A: CLI Tool (`xparity verify`)
 
 ⚠️ **MANDATORY**: When asked to verify reference grounding or refactor
-equivalence, you **MUST** run the `xprof verify_numerical_parity` CLI command
-(or `xprof_cli verify_numerical_parity`) rather than writing a custom inline
+equivalence, you **MUST** run the `xparity verify` CLI command
+(or `xparity_cli verify`) rather than writing a custom inline
 script.
 
 Always ensure the reference callable passed to `--kernel_ref` is pinned to
@@ -115,7 +115,7 @@ disables TF32) so hardware defaults do not silently truncate reference outputs.
 ```bash
 # Verify parity between two Python callables using the fast_agent tier
 # with pinned reference precision and automatic Float64 Oracle audit enabled
-xprof verify_numerical_parity \
+xparity verify \
   --kernel_ref="my_module.pinned_reference_fn" \
   --kernel_candidate="my_module.optimized_fn" \
   --kernel_oracle="auto" \
@@ -205,7 +205,7 @@ xprof verify_numerical_parity \
 For programmatic integration within Python test harnesses or optimization loops:
 
 ```python
-from xprof.cli.internal import numerical_validator
+from xprof.xparity import numerical_validator
 
 # 1. Define Reference and Candidate Kernels
 # CRITICAL: Always pin reference precision to HIGHEST. On TPU, unpinned jnp.dot
@@ -250,7 +250,7 @@ Tier               | Total Tensors ($m$)      | Composition                     
 ### 3.1 Operating the Float64 Oracle (`kernel_oracle`)
 
 To determine whether the reference itself is mathematically grounded,
-`validate_kernels` and `verify_numerical_parity` accept an optional
+`validate_kernels` and `xparity verify` accept an optional
 `kernel_oracle` parameter:
 
 1.  **Automatic Promotion (`kernel_oracle="auto"`)**: Promotes all
@@ -361,7 +361,7 @@ Property                         | Automatic Promotion (`kernel_oracle="auto"`) 
 **CLI Usage**:
 
 ```bash
-xprof verify_numerical_parity \
+xparity verify \
   --kernel_ref="my_module.reference_fn" \
   --kernel_candidate="my_module.optimized_fn" \
   --kernel_oracle="auto" \
@@ -564,7 +564,7 @@ Generates valid discrete indices strictly bounded in $[0,
 ($0$ and $\text{upper\_bound}-1$) to catch off-by-one errors:
 
 ```python
-from xprof.cli.internal import numerical_generator
+from xprof.xparity import numerical_generator
 
 # Generate expert IDs in [0, 63] for MoE routing
 expert_ids = numerical_generator.generate_index_tensor(

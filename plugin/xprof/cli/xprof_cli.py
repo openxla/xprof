@@ -31,7 +31,6 @@ from xprof.cli.tools import get_roofline_model_tool
 from xprof.cli.tools import get_step_trace_tool
 from xprof.cli.tools import get_top_hlo_ops_tool
 from xprof.cli.tools import get_utilization_viewer_tool
-from xprof.cli.tools import verify_numerical_parity_tool
 from xprof.cli.tools.oss import get_graph_viewer_tool
 from xprof.cli.tools.oss import get_kernel_utilization_tool
 from xprof.cli.tools.oss import upload_trace_tool
@@ -44,7 +43,7 @@ def cli_main() -> dict[str, Any]:
     A dictionary of tool names to functions.
   """
   return {
-      # 30 Core Tools (Available in both 1P and 3P):
+      # 29 Core Tools (Available in both 1P and 3P):
       # keep-sorted start
       "aggregate_xplane_events": xplane_tools.aggregate_xplane_events,
       "check_host_boundness": check_host_boundness_tool.check_host_boundness,
@@ -79,9 +78,6 @@ def cli_main() -> dict[str, Any]:
       "list_hlo_modules": hlo_tools.list_hlo_modules,
       "list_xplane_events": xplane_tools.list_xplane_events,
       "upload_trace": upload_trace_tool.upload_trace,
-      "verify_numerical_parity": (
-          verify_numerical_parity_tool.verify_numerical_parity
-      ),
       # keep-sorted end
   }
 

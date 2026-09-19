@@ -1,7 +1,6 @@
 load("//plugin/xprof/build_utils:pytype.default.bzl", "pytype_library", "pytype_strict_binary", "pytype_strict_contrib_test", "pytype_strict_library")
 
 package(default_visibility = [
-    "//gdm/sys/l2p/exploratory/lumini:__subpackages__",
     "//plugin:internal",
     "@org_xprof//plugin:__subpackages__",
 ])
@@ -28,7 +27,6 @@ pytype_strict_library(
         "//plugin/xprof/cli/tools:get_step_trace_tool",
         "//plugin/xprof/cli/tools:get_top_hlo_ops_tool",
         "//plugin/xprof/cli/tools:get_utilization_viewer_tool",
-        "//plugin/xprof/cli/tools:verify_numerical_parity_tool",
         "//plugin/xprof/cli/tools/oss:get_graph_viewer_tool",
         "//plugin/xprof/cli/tools/oss:get_kernel_utilization_tool",
         "//plugin/xprof/cli/tools/oss:upload_trace_tool",

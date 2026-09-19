@@ -26,36 +26,3 @@ pytype_strict_library(
     srcs = ["decorators.py"],
     deps = ["@absl_py//absl/logging"],
 )
-
-pytype_strict_library(
-    name = "numerical_generator",
-    srcs = ["numerical_generator.py"],
-    visibility = ["//plugin/xprof:__subpackages__"],
-)
-
-pytype_strict_library(
-    name = "numerical_validator",
-    srcs = ["numerical_validator.py"],
-    visibility = ["//plugin/xprof:__subpackages__"],
-    deps = [":numerical_generator"],
-)
-
-pytype_strict_contrib_test(
-    name = "numerical_generator_test",
-    srcs = ["numerical_generator_test.py"],
-    deps = [
-        ":numerical_generator",
-        "@absl_py//absl/testing:absltest",
-        "@absl_py//absl/testing:parameterized",
-    ],
-)
-
-pytype_strict_contrib_test(
-    name = "numerical_validator_test",
-    srcs = ["numerical_validator_test.py"],
-    deps = [
-        ":numerical_validator",
-        "@absl_py//absl/testing:absltest",
-        "@absl_py//absl/testing:parameterized",
-    ],
-)

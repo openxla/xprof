@@ -37,6 +37,7 @@ sh_binary(
         "@org_xprof//plugin/xprof/convert:all_libs",
         "@org_xprof//plugin/xprof/integration_tests/tpu/tensorflow:tpu_tf2_keras_xla",
         "@org_xprof//plugin/xprof/protobuf:protos_all",
+        "@org_xprof//plugin/xprof/xparity:xparity_cli_lib",
         "@org_xprof//plugin/trace_viewer:trace_viewer_index.html",
         "@org_xprof//plugin/trace_viewer:trace_viewer_index.js",
         "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",

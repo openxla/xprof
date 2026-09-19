@@ -130,20 +130,35 @@ class XProfCliTest(parameterized.TestCase):
         and 'google' not in f.parts
     ]
 
-    cli_dict = xprof_cli.cli_main()
+    with mock.patch.object(xprof_cli, '_is_oss', return_value=True):
+      oss_cli_dict = xprof_cli.cli_main()
 
+    multi_tool_modules = {
+        'events_db_tool.py': ('create_events_db', 'query_events_db'),
+    }
     for tool_file in tool_files:
-      tool_name = tool_file.stem
-      if tool_name.endswith('_tool'):
-        tool_name = tool_name[:-5]
-      self.assertIn(
-          tool_name,
-          cli_dict,
-          msg=(
-              f"Tool '{tool_name}' from '{tool_file.name}' is missing"
-              ' registration in cli_main()!'
-          ),
-      )
+      if tool_file.name in multi_tool_modules:
+        expected_names = multi_tool_modules[tool_file.name]
+      else:
+        tool_name = tool_file.stem
+        if tool_name.endswith('_tool'):
+          tool_name = tool_name[:-5]
+        expected_names = (tool_name,)
+      for expected_name in expected_names:
+        self.assertIn(
+            expected_name,
+            oss_cli_dict,
+            msg=(
+                f"Tool '{expected_name}' from '{tool_file.name}' is missing"
+                ' registration in cli_main()!'
+            ),
+        )
+
+    # In 1P mode (_is_oss()=False), OSS-only Parquet tools are not exposed.
+    with mock.patch.object(xprof_cli, '_is_oss', return_value=False):
+      internal_cli_dict = xprof_cli.cli_main()
+    self.assertNotIn('create_events_db', internal_cli_dict)
+    self.assertNotIn('query_events_db', internal_cli_dict)
 
   @mock.patch.object(xprof_cli, '_is_oss', return_value=True)
   def test_wrap_with_logdir_preserves_valid_signature_in_oss(self, _):
@@ -452,6 +467,41 @@ class XProfCliTest(parameterized.TestCase):
     res = wrapped(20260824063312, limit=5)
     self.assertEqual(res['source'], '20260824063312')
     self.assertEqual(res['limit'], 5)
+
+  @mock.patch.object(xprof_cli, '_is_oss', return_value=True)
+  @mock.patch.object(
+      xprof_cli.events_db_tool,
+      'create_events_db',
+      return_value='{"path": "/tmp/events.parquet", "skipped": false}',
+  )
+  def test_oss_create_events_db_cli_dispatch(
+      self, mock_create_events_db, _
+  ):
+    trace_file = pathlib.Path(self.create_tempdir().full_path) / 't.xplane.pb'
+    trace_file.write_bytes(b'test')
+    xprof_cli.main([
+        'xprof',
+        'create_events_db',
+        f'--session_dir={trace_file}',
+        '--bypass_cache',
+    ])
+    mock_create_events_db.assert_called_once_with(
+        str(trace_file), bypass_cache=True
+    )
+
+  @mock.patch.object(xprof_cli, '_is_oss', return_value=True)
+  @mock.patch.object(
+      xprof_cli.events_db_tool,
+      'query_events_db',
+      return_value='{"path": "/tmp/res.json", "skipped": false}',
+  )
+  def test_oss_query_events_db_single_positional_sql_skips_path_check(
+      self, mock_query_events_db, _
+  ):
+    """Ensures SQL with '.' and '/' is not rejected as a missing trace path."""
+    sql = '/* header */ SELECT e.duration_ps / 1000.0 AS us FROM Events AS e'
+    xprof_cli.main(['xprof', 'query_events_db', sql])
+    mock_query_events_db.assert_called_once_with(sql)
 
 
 if __name__ == '__main__':

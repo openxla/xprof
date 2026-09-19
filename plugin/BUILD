@@ -39,6 +39,7 @@ sh_binary(
         "@org_xprof//plugin/xprof/protobuf:protos_all",
         "@org_xprof//plugin/trace_viewer:trace_viewer_index.html",
         "@org_xprof//plugin/trace_viewer:trace_viewer_index.js",
+        "@org_xprof//xprof/convert/events_db/python:pywrap_events_db_c_api_py",
         "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
     ],
     tags = [

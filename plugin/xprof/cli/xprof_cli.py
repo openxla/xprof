@@ -32,6 +32,7 @@ from xprof.cli.tools import get_step_trace_tool
 from xprof.cli.tools import get_top_hlo_ops_tool
 from xprof.cli.tools import get_utilization_viewer_tool
 from xprof.cli.tools import verify_numerical_parity_tool
+from xprof.cli.tools.oss import events_db_tool
 from xprof.cli.tools.oss import get_graph_viewer_tool
 from xprof.cli.tools.oss import get_kernel_utilization_tool
 from xprof.cli.tools.oss import upload_trace_tool
@@ -43,7 +44,7 @@ def cli_main() -> dict[str, Any]:
   Returns:
     A dictionary of tool names to functions.
   """
-  return {
+  tools = {
       # 30 Core Tools (Available in both 1P and 3P):
       # keep-sorted start
       "aggregate_xplane_events": xplane_tools.aggregate_xplane_events,
@@ -83,7 +84,10 @@ def cli_main() -> dict[str, Any]:
           verify_numerical_parity_tool.verify_numerical_parity
       ),
       # keep-sorted end
+      "create_events_db": events_db_tool.create_events_db,
+      "query_events_db": events_db_tool.query_events_db,
   }
+  return tools
 
 
 def _is_oss() -> bool:
@@ -145,8 +149,17 @@ def _wrap_with_logdir(tool_func):
       target_path = str(logdir)
     elif args and "session_id" in sig.parameters:
       first_arg = args[0]
-      if isinstance(first_arg, str) and (
-          "/" in first_arg or "\\" in first_arg or "." in first_arg
+      is_single_positional_sql = (
+          len(args) == 1
+          and "query" in sig.parameters
+          and not kwargs.get("query")
+          and isinstance(first_arg, str)
+          and events_db_tool._is_select_query(first_arg)  # pylint: disable=protected-access
+      )
+      if (
+          not is_single_positional_sql
+          and isinstance(first_arg, str)
+          and ("/" in first_arg or "\\" in first_arg or "." in first_arg)
       ):
         target_path = first_arg
 

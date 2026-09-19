@@ -30,6 +30,11 @@ void ProcessCompleteEvents(const xprof::TraceDataResponse& response,
                            ParsedTraceEvents& result);
 
 void ProcessAsyncEvents(const xprof::TraceDataResponse& response,
+                        ParsedTraceEvents& result,
+                        absl::flat_hash_map<std::pair<ProcessId, std::string>,
+                                            TraceEvent>& open_async_events);
+
+void ProcessAsyncEvents(const xprof::TraceDataResponse& response,
                         ParsedTraceEvents& result);
 
 void ProcessCounterEvents(const xprof::TraceDataResponse& response,

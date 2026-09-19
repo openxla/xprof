@@ -418,6 +418,93 @@ TEST(TraceEventParserCoreTest, GenerateEventIdExactValues) {
   EXPECT_EQ(GenerateEventId("test_event", 1.0, 2.0), 16168300061312540288ULL);
 }
 
+TEST(TraceEventParserCoreTest, ParsePhaseAsyncInstant) {
+  EXPECT_EQ(ParsePhase("n"), Phase::kAsyncInstant);
+}
+
+TEST(TraceEventParserCoreTest, ProcessAsyncEventsWithDurationEmitsFlowEvent) {
+  xprof::TraceDataResponse response;
+  response.add_interned_strings("async_transfer");
+
+  auto* series = response.add_async_events();
+  series->mutable_metadata()->set_name_ref(0);
+  series->mutable_metadata()->set_process_id(1);
+
+  series->add_deltas(1000000);     // 1 us
+  series->add_durations(3000000);  // 3 us
+
+  auto* meta = series->add_event_metadata();
+  meta->set_flow_id(888);
+  meta->set_serial(42);
+
+  ParsedTraceEvents result;
+  ProcessAsyncEvents(response, result);
+
+  ASSERT_EQ(result.flame_events.size(), 1);
+  EXPECT_TRUE(result.flame_events[0].is_async);
+  EXPECT_EQ(result.flame_events[0].id, "888");
+
+  // Flow event must also be emitted for the async event with flow_id.
+  ASSERT_EQ(result.flow_events.size(), 1);
+  EXPECT_EQ(result.flow_events[0].id, "888");
+  EXPECT_EQ(result.flow_events[0].name, "async_transfer");
+}
+
+TEST(TraceEventParserCoreTest, ProcessAsyncEventsMultiChunk) {
+  absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>
+      open_async_events;
+
+  // Chunk 1: Contains only Begin event (dur = 0)
+  xprof::TraceDataResponse chunk1;
+  chunk1.add_interned_strings("MemcpyH2D");
+  auto* series1 = chunk1.add_async_events();
+  series1->mutable_metadata()->set_name_ref(0);
+  series1->mutable_metadata()->set_process_id(2);
+
+  series1->add_deltas(2000000);  // 2 us
+  series1->add_durations(0);
+  auto* meta1 = series1->add_event_metadata();
+  meta1->set_flow_id(999);
+  meta1->set_serial(1001);
+
+  ParsedTraceEvents result1;
+  ProcessAsyncEvents(chunk1, result1, open_async_events);
+
+  EXPECT_EQ(result1.flame_events.size(), 0);
+  EXPECT_EQ(result1.flow_events.size(), 0);
+  EXPECT_EQ(open_async_events.size(), 1);
+
+  // Chunk 2: Contains End event (dur = 0)
+  xprof::TraceDataResponse chunk2;
+  chunk2.add_interned_strings("MemcpyH2D");
+  auto* series2 = chunk2.add_async_events();
+  series2->mutable_metadata()->set_name_ref(0);
+  series2->mutable_metadata()->set_process_id(2);
+
+  series2->add_deltas(7000000);  // 7 us (delta from 0)
+  series2->add_durations(0);
+  auto* meta2 = series2->add_event_metadata();
+  meta2->set_flow_id(999);
+  meta2->set_serial(1002);
+
+  ParsedTraceEvents result2;
+  ProcessAsyncEvents(chunk2, result2, open_async_events);
+
+  EXPECT_EQ(open_async_events.size(), 0);
+  ASSERT_EQ(result2.flame_events.size(), 1);
+  EXPECT_TRUE(result2.flame_events[0].is_async);
+  EXPECT_EQ(result2.flame_events[0].ph, Phase::kComplete);
+  EXPECT_DOUBLE_EQ(result2.flame_events[0].ts, 2.0);
+  EXPECT_DOUBLE_EQ(result2.flame_events[0].dur, 5.0);  // 7 - 2 = 5 us
+  EXPECT_EQ(result2.flame_events[0].name, "MemcpyH2D");
+  EXPECT_EQ(result2.flame_events[0].id, "999");
+  EXPECT_EQ(result2.flame_events[0].args.at("uid"), "1001");
+
+  ASSERT_EQ(result2.flow_events.size(), 1);
+  EXPECT_EQ(result2.flow_events[0].id, "999");
+  EXPECT_EQ(result2.flow_events[0].name, "MemcpyH2D");
+  EXPECT_TRUE(result2.flow_events[0].is_async);
+}
 
 }  // namespace
 }  // namespace traceviewer

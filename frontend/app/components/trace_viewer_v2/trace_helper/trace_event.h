@@ -39,6 +39,7 @@ enum class Phase : char {
   kMetadata = 'M',
   kAsyncBegin = 'b',
   kAsyncEnd = 'e',
+  kAsyncInstant = 'n',
   kFlowStart = 's',
   kFlowEnd = 'f',
   // Instant events use the 'i' phase. Historically, 'I' was also used.

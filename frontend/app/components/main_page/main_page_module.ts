@@ -1,5 +1,6 @@
 import {CommonModule} from '@angular/common';
 import {NgModule} from '@angular/core';
+import {MatButtonModule} from '@angular/material/button';
 import {MatIconModule} from '@angular/material/icon';
 import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {MatSidenavModule} from '@angular/material/sidenav';
@@ -75,6 +76,7 @@ export const routes: Routes = [
   declarations: [MainPage],
   imports: [
     CommonModule,
+    MatButtonModule,
     MatProgressBarModule,
     MatSidenavModule,
     MatToolbarModule,

@@ -3,11 +3,11 @@
 @use 'frontend/app/styles/common';
 
 mat-sidenav-container {
-  background-color: #fff;
+  background-color: var(--mat-sys-surface);
 }
 
 mat-sidenav {
-  background: transparent;
+  background-color: var(--mat-sys-surface-container-low);
   width: 340px;
   @include common.border-right-gray
 }
@@ -24,11 +24,13 @@ mat-progress-bar {
 .loading-message {
   width: fit-content;
   margin: 0 auto;
+  color: var(--mat-sys-on-surface-variant);
 }
 
 .profiler-toolbar {
-  background-color: transparent;
-  border-bottom: solid 1px #eee;
+  background-color: var(--mat-sys-surface-container);
+  color: var(--mat-sys-on-surface);
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
 }
 
 .toolbar-spacer {

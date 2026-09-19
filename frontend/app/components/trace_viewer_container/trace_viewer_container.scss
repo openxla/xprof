@@ -537,7 +537,8 @@ canvas.emscripten {
       align-items: baseline;
       font-size: 12px;
 
-      ::ng-deep div {
+      ::ng-deep div,
+      div {
         display: inline-flex;
         align-items: center;
         gap: 4px;
@@ -546,7 +547,8 @@ canvas.emscripten {
         color: var(--mat-sys-on-surface-variant);
       }
 
-      ::ng-deep a {
+      ::ng-deep a,
+      a {
         display: inline-block;
         padding: 4px 8px;
         border-radius: 4px;

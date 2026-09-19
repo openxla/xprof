@@ -43,7 +43,10 @@ import {
   MouseMode,
   MouseModeStatusConfig,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/shortcuts';
-import {formatHloArgsForJsonTree} from './hlo_pretty_printer';
+import {
+  formatHloArgsForJsonTree,
+  prettyPrintHloStackTrace,
+} from './hlo_pretty_printer';
 
 import {
   isSearchEventsEvent,
@@ -180,6 +183,30 @@ export declare interface SelectedEventProperty {
   property?: string;
   value?: string | number;
   [key: string]: string | number | undefined;
+}
+
+/** Canonical display order for properties shown in the right details pane. */
+export const RIGHT_SIDE_PROPERTY_ORDER: Record<string, number> = {
+  'HLO Text': 1,
+  'Operands': 2,
+  'Consumers': 3,
+};
+
+/**
+ * Returns whether a selected event property represents HLO instruction text.
+ * Matches properties named 'HLO Text' or 'hlo_text', as well as
+ * 'Start Stack Trace' whose value looks like an HLO instruction.
+ */
+export function isHloTextProperty(prop: SelectedEventProperty): boolean {
+  const p = prop['property'];
+  if (p === 'HLO Text' || p === 'hlo_text') {
+    return true;
+  }
+  if (p === 'Start Stack Trace') {
+    const val = typeof prop['value'] === 'string' ? prop['value'] : '';
+    return val.includes(' = ') || val.trim().startsWith('%');
+  }
+  return false;
 }
 
 /** Event name for mouse mode changes. */
@@ -418,12 +445,42 @@ export class TraceViewerContainer
 
     this.leftSideProperties = data.filter((prop) => {
       const p = prop['property'];
-      return p !== 'Operands' && p !== 'Consumers';
+      return p !== 'Operands' && p !== 'Consumers' && !isHloTextProperty(prop);
     });
-    this.rightSideProperties = data.filter((prop) => {
+
+    const seenProperties = new Set<string>();
+    const rightProps: SelectedEventProperty[] = [];
+    for (const prop of data) {
       const p = prop['property'];
-      return p === 'Operands' || p === 'Consumers';
+      if (p === 'Operands' || p === 'Consumers') {
+        rightProps.push(prop);
+      } else if (isHloTextProperty(prop)) {
+        if (!seenProperties.has('HLO Text')) {
+          seenProperties.add('HLO Text');
+          rightProps.push({
+            ...prop,
+            property: 'HLO Text',
+            value:
+              typeof prop['value'] === 'string'
+                ? prettyPrintHloStackTrace(prop['value'])
+                : prop['value'],
+          });
+        }
+      }
+    }
+    rightProps.sort((a, b) => {
+      const orderA = RIGHT_SIDE_PROPERTY_ORDER[a.property ?? ''] ?? 100;
+      const orderB = RIGHT_SIDE_PROPERTY_ORDER[b.property ?? ''] ?? 100;
+      return orderA - orderB;
     });
+    this.rightSideProperties = rightProps;
+    this.isHloTextCollapsed = false;
+  }
+
+  isHloTextCollapsed = false;
+
+  toggleHloTextCollapse() {
+    this.isHloTextCollapsed = !this.isHloTextCollapsed;
   }
 
   trackByProperty(index: number, prop: SelectedEventProperty): string {

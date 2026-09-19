@@ -63,7 +63,7 @@ inline constexpr Microseconds kMinVisibleEventDuration = 1000.0;
 inline constexpr Pixel kButtonGap = 4.0f;
 inline constexpr Pixel kCornerRounding = 0.0f;
 inline constexpr Pixel kDefaultLabelWidth = 250.0f;
-inline constexpr Pixel kEventHeight = 23.0f;
+inline constexpr Pixel kEventHeight = 18.0f;
 inline constexpr Pixel kEventMinimumDrawWidth = 2.0f;
 inline constexpr Pixel kEventPaddingBottom = 1.0f;
 inline constexpr Pixel kEventPaddingRight = 1.0f;
@@ -110,7 +110,7 @@ inline constexpr float kGroupPreviewOpacity = 0.6f;
 // go/keep-sorted start
 inline constexpr ImU32 kProcessTrackCollapsedColor = kInverseOnSurfaceColor;
 inline constexpr ImU32 kProcessTrackExpandedColor = kSecondaryContainerColor;
-inline constexpr Pixel kProcessTrackHeight = 50.0f;
+inline constexpr Pixel kProcessTrackHeight = 36.0f;
 // go/keep-sorted end
 
 // Nesting Level Constants

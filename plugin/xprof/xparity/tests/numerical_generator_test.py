@@ -8,7 +8,7 @@ import types
 from absl.testing import absltest
 from absl.testing import parameterized
 import numpy as np
-from xprof.cli.internal import numerical_generator
+from xprof.xparity import numerical_generator
 
 
 class NumericalGeneratorTest(parameterized.TestCase):
@@ -880,7 +880,9 @@ class NumericalGeneratorTest(parameterized.TestCase):
       self.assertIn("regime", batch)
 
   def test_integer_profiles_is_immutable(self):
-    """Verifies INTEGER_PROFILES is an immutable MappingProxyType."""
+    """Verifies PROFILES and INTEGER_PROFILES are immutable MappingProxyType."""
+    self.assertIsInstance(numerical_generator.PROFILES, types.MappingProxyType)
+    self.assertFalse(hasattr(numerical_generator.PROFILES, "__setitem__"))
     self.assertIsInstance(
         numerical_generator.INTEGER_PROFILES, types.MappingProxyType
     )
@@ -1039,7 +1041,26 @@ class NumericalGeneratorTest(parameterized.TestCase):
       self.assertEqual(arr.flat[0], prof.min_val)
       self.assertEqual(arr.flat[1], prof.max_val)
 
+  @parameterized.parameters("float32", "bfloat16", "float16")
+  def test_generate_per_channel_outlier_tensor(self, dtype_str: str):
+    """Verifies channel-aligned activation outlier generation (G1)."""
+    shape = (16, 100)
+    arr = numerical_generator.generate_per_channel_outlier_tensor(
+        shape=shape,
+        dtype_str=dtype_str,
+        channel_axis=-1,
+        outlier_channel_ratio=0.05,
+        outlier_scale=50.0,
+        seed=42,
+    )
+    self.assertEqual(arr.shape, shape)
+    arr_f32 = arr.astype(np.float32)
+    channel_norms = np.mean(np.abs(arr_f32), axis=0)
+    median_channel_norm = float(np.median(channel_norms))
+    # At least 5 channels (5% of 100) should have norms far above the median
+    num_amplified = int(np.sum(channel_norms > median_channel_norm * 10.0))
+    self.assertGreaterEqual(num_amplified, 3)
+
 
 if __name__ == "__main__":
   absltest.main()
-

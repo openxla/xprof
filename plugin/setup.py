@@ -114,10 +114,9 @@ VERSION = version.__version__
 REQUIRED_PACKAGES = parse_requirements()
 # Dependencies required only to run the test suite. Declared as the `[test]`
 # extra so a clean environment can install them via `pip install xprof[test]`;
-# without these, tests error out on missing `jax`, `pandas`, and `ml_dtypes`.
+# without these, tests error out on missing `jax` and `pandas`.
 TEST_PACKAGES = [
     'jax',
-    'ml_dtypes',
     'pandas',
 ]
 PACKAGE_DATA = {
@@ -129,6 +128,15 @@ PACKAGE_DATA = {
         'convert/profiler_plugin_c_api.dylib',
         'convert/profiler_plugin_c_api.dll',
         'skills/**',
+    ],
+}
+ENTRY_POINTS = {
+    'tensorboard_plugins': [
+        'profile = xprof.profile_plugin_loader:ProfilePluginLoader',
+    ],
+    'console_scripts': [
+        'xprof = xprof.cli.xprof_cli:main',
+        'xparity = xprof.xparity.xparity_cli:main',
     ],
 }
 
@@ -171,14 +179,7 @@ if __name__ == '__main__':
           exclude=['xprof.static'],
       ),
       package_data=PACKAGE_DATA,
-      entry_points={
-          'tensorboard_plugins': [
-              'profile = xprof.profile_plugin_loader:ProfilePluginLoader',
-          ],
-          'console_scripts': [
-              'xprof = xprof.cli.xprof_cli:main',
-          ],
-      },
+      entry_points=ENTRY_POINTS,
       has_ext_modules=lambda: True,
       cmdclass=cmdclass,
       python_requires='>= 3.10',

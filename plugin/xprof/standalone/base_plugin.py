@@ -41,12 +41,15 @@ class TBContext():
 
   def __init__(
       self,
-      logdir: str,
+      logdir: str | None,
       data_provider: plugin_event_multiplexer.DataProvider,
-      flags: dict[str, Any],
+      flags: dict[str, Any] | Flags,
       multiplexer=None,
   ):
     self.logdir = logdir
     self.data_provider = data_provider
     self.flags = flags
     self.multiplexer = multiplexer
+    self.hide_capture_profile_button: bool = False
+    self.enable_tab_name_label: bool = False
+    self.src_prefix: str | None = None

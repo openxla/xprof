@@ -17,7 +17,6 @@ try:
   from xprof.cli.tests.e2e import oracles
   from xprof.cli.tools import get_kpi_metrics_tool
   from xprof.cli.tools import get_overview_tool
-  from xprof.cli.tools import verify_numerical_parity_tool
 except ImportError:
   from xprof.cli.internal.oss import xprof_client
 
@@ -30,7 +29,6 @@ except ImportError:
       import oracles
   from xprof.cli.tools import get_kpi_metrics_tool
   from xprof.cli.tools import get_overview_tool
-  from xprof.cli.tools import verify_numerical_parity_tool
 
 
 def _get_fixture_path(rel_path: str) -> str:
@@ -133,82 +131,6 @@ class NumericalParityAndScaleTest(parameterized.TestCase):
         if tool_duty_cycle > 1.0:
           tool_duty_cycle /= 100.0
       self.assertAlmostEqual(tool_duty_cycle, oracle_duty_cycle, delta=0.01)
-
-  def test_p03_ulp_ground_truth_oracle(self):
-    """P-3: ULP ground-truth oracle validates adjacent float distance exactly."""
-    try:
-      import numpy as np  # pylint: disable=g-import-not-at-top
-    except ImportError:
-      self.skipTest("numpy not available")
-
-    def ref_kernel(x):
-      return x
-
-    def cand_kernel(x):
-      return np.nextafter(x, np.inf, dtype=x.dtype)
-
-    res_raw = verify_numerical_parity_tool.verify_numerical_parity(
-        kernel_ref=ref_kernel,
-        kernel_candidate=cand_kernel,
-        shapes=[(4, 16)],
-        dtype_str="float32",
-        tier="fast_agent",
-        max_allowed_ulp=1,
-    )
-    res = json.loads(res_raw)
-    self.assertEqual(res.get("overall_max_ulp"), 1)
-    self.assertTrue(res.get("is_numerically_equivalent"))
-
-  def test_p05_special_floats_nan_inf(self):
-    """P-5: Validates rejection or safe tracking of NaN/Inf outputs."""
-    try:
-      import numpy as np  # pylint: disable=g-import-not-at-top
-    except ImportError:
-      self.skipTest("numpy not available")
-
-    def ref_kernel(x):
-      return x
-
-    def cand_nan_kernel(x):
-      res = np.copy(x)
-      res[0, 0] = np.nan
-      return res
-
-    res_raw = verify_numerical_parity_tool.verify_numerical_parity(
-        kernel_ref=ref_kernel,
-        kernel_candidate=cand_nan_kernel,
-        shapes=[(4, 16)],
-        dtype_str="float32",
-        tier="fast_agent",
-    )
-    res = json.loads(res_raw)
-    self.assertFalse(res.get("is_numerically_equivalent"))
-    self.assertGreater(res.get("failed_batches_count", 0), 0)
-
-  def test_p06_random_seed_determinism(self):
-    """P-6: Verification runs with identical seed produce identical reports."""
-
-    def ref_kernel(x):
-      return x * 2.0
-
-    def cand_kernel(x):
-      return x + x
-
-    res1 = verify_numerical_parity_tool.verify_numerical_parity(
-        kernel_ref=ref_kernel,
-        kernel_candidate=cand_kernel,
-        shapes=[(8, 32)],
-        dtype_str="float32",
-        seed=12345,
-    )
-    res2 = verify_numerical_parity_tool.verify_numerical_parity(
-        kernel_ref=ref_kernel,
-        kernel_candidate=cand_kernel,
-        shapes=[(8, 32)],
-        dtype_str="float32",
-        seed=12345,
-    )
-    self.assertEqual(res1, res2)
 
   def test_s01_scale_budget_small_trace(self):
     """S-1: Small trace analysis completes under 5 seconds."""

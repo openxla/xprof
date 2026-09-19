@@ -7,9 +7,8 @@ compute, memory, host, or step-time bottlenecks.
 
 ## Tool Execution
 
-All examples use the open-source `xprof` CLI. Install it via pip (use
-`xprof-nightly` to access experimental subcommands such as
-`verify_numerical_parity`):
+All examples use the open-source `xprof` CLI (and the standalone `xparity`
+console script for numerical parity verification). Install both via pip:
 
 ```bash
 pip install xprof-nightly
@@ -166,14 +165,14 @@ bazel run -c opt //path/to:benchmark_target -- --config=repro_config.py
 ## Phase 6: Numerical Correctness & Parity Verification
 
 Never recommend or merge performance changes without enforcing numerical
-correctness contracts:
+correctness contracts via `xparity` (or the `@xparity` skill):
 
 ```bash
-xprof verify_numerical_parity \
-  --reference_kernel="module.ref_func" \
-  --candidate_kernel="module.cand_func" \
-  --shape="(32, 2048)" \
-  --dtype="bfloat16" \
+xparity verify \
+  --kernel_ref="module.ref_func" \
+  --kernel_candidate="module.cand_func" \
+  --shapes="[(32, 2048)]" \
+  --dtype_str="bfloat16" \
   --max_allowed_ulp=2
 ```
 

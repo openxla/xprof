@@ -1,3 +1,4 @@
+import '@material/web/divider/divider.js';
 import 'org_xprof/frontend/app/common/interfaces/window';
 
 import {PlatformLocation} from '@angular/common';

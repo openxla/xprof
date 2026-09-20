@@ -25,6 +25,7 @@ xprof_ng_module(
         "//:node_modules/@angular/router",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
+        "//third_party/javascript/material/web/divider:ts",
         "@org_xprof//frontend/app/common/angular:angular_common_http",
         "@org_xprof//frontend/app/common/angular:angular_material_autocomplete",
         "@org_xprof//frontend/app/common/angular:angular_material_button",

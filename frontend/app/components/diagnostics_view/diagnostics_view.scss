@@ -1,3 +1,8 @@
 /** CSS for a diagnostics view component. */
 
 @use 'frontend/app/styles/common';
+
+header md-icon-button {
+  --md-icon-button-icon-color: #fff;
+  --md-icon-button-hover-icon-color: #fff;
+}

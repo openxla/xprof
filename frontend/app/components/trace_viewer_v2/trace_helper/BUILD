@@ -176,6 +176,7 @@ cc_test(
         ":trace_event",
         ":trace_event_parser_core",
         "//plugin/xprof/protobuf:trace_data_response_proto_cc",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_googletest//:gtest_main",
         "@tsl//tsl/profiler/lib:context_types",
     ],

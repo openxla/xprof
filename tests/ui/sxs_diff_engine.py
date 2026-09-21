@@ -90,6 +90,14 @@ class WaypointDiff:
     return "CHANGED"
 
 
+def resolve_profile_logdir(logdir: str) -> str:
+  """Unwraps a `<logdir>/plugins/profile` subdirectory when present."""
+  profile_subdir = pathlib.Path(logdir) / "plugins" / "profile"
+  if profile_subdir.is_dir():
+    return str(profile_subdir)
+  return logdir
+
+
 class SxsDiffEngine:
   """Computes multi-modal deltas between Master and CL."""
 

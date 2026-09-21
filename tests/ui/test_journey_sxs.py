@@ -47,6 +47,7 @@ try:
   from tests.ui.test_user_journeys import JOURNEY_SCENARIOS
   from tests.ui.test_user_journeys import JourneyScenario
   from tests.ui.test_user_journeys import URL_SETTLE_TIMEOUT_MS
+  from tests.ui.ui_helpers import _DISABLE_ANIMATIONS_JS
   from tests.ui.ui_helpers import build_tool_url
 except ImportError:
   from journey_capture import capture_waypoint
@@ -62,6 +63,7 @@ except ImportError:
   from test_user_journeys import JOURNEY_SCENARIOS
   from test_user_journeys import JourneyScenario
   from test_user_journeys import URL_SETTLE_TIMEOUT_MS
+  from ui_helpers import _DISABLE_ANIMATIONS_JS
   from ui_helpers import build_tool_url
 
 # Directory the combined HTML report is written to. Kokoro points this at
@@ -201,29 +203,7 @@ def _walk_journey(
   )
   # Disable transitions/animations and stabilize scrollbars so container layout
   # is instantaneous and deterministic, eliminating width flapping.
-  context.add_init_script(
-      "(() => {\n"
-      "  const inject = () => {\n"
-      "    const style = document.createElement('style');\n"
-      "    style.textContent = `\n"
-      "      *, *::before, *::after {\n"
-      "        transition-duration: 0s !important;\n"
-      "        animation-duration: 0s !important;\n"
-      "      }\n"
-      "      html {\n"
-      "        scrollbar-gutter: stable !important;\n"
-      "        overflow-y: scroll !important;\n"
-      "      }\n"
-      "    `;\n"
-      "    (document.head || document.documentElement).appendChild(style);\n"
-      "  };\n"
-      "  if (document.readyState === 'loading') {\n"
-      "    document.addEventListener('DOMContentLoaded', inject);\n"
-      "  } else {\n"
-      "    inject();\n"
-      "  }\n"
-      "})();"
-  )
+  context.add_init_script(_DISABLE_ANIMATIONS_JS)
   try:
     page = context.new_page()
     recorder = NetworkRecorder(page)

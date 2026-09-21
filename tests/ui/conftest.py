@@ -22,23 +22,16 @@ import pytest
 
 # pylint: disable=g-import-not-at-top
 try:
-  from google3.third_party.xprof.tests.ui import sxs_diff_engine
-except ModuleNotFoundError as err:
-  if not (err.name or "").startswith("google3"):
-    raise
-  try:
-    from tests.ui import sxs_diff_engine  # pyrefly: ignore[missing-import]
-  except ModuleNotFoundError as err2:
-    if not (err2.name or "").startswith("tests"):
-      raise
-    import sxs_diff_engine  # pyrefly: ignore[missing-import]
-# pylint: enable=g-import-not-at-top
+  from tests.ui.sxs_diff_engine import make_run_resolver
+except ImportError:
+  from sxs_diff_engine import make_run_resolver
 
 # Server configuration
 HOST = os.environ.get("XPROF_HOST", "127.0.0.1")
 STARTUP_TIMEOUT_SECONDS = 15.0
 MAX_STARTUP_ATTEMPTS = 3
 RELATIVE_PROFILE_DATA_DIR = pathlib.Path("demo/plugins/profile")
+
 
 # Known upstream bugs in the unpatched server baseline (tracked in b/552235521).
 # Silenced during baseline test runs so assertions focus on invariant checks.
@@ -197,7 +190,7 @@ def baseline_server_url(server_url: str) -> str:
 @pytest.fixture(scope="session")
 def resolve_run(logdir: str) -> Callable[[str], str]:
   """Returns a resolver mapping a declared run name onto one in the logdir."""
-  return sxs_diff_engine.make_run_resolver(logdir)
+  return make_run_resolver(logdir)
 
 
 @dataclasses.dataclass

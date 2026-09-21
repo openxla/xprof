@@ -401,6 +401,76 @@ class InvariantsTest(unittest.TestCase):
         invariants._DIFF_HEADER_RE.search("Speedup / Improvement")
     )
 
+  def test_poison_tokens(self) -> None:
+    """Verifies poison token detector surfaces invalid/NaN/undefined values."""
+    self.assertEqual(invariants.check_poison_tokens("Clean text 123"), [])
+    self.assertTrue(bool(invariants.check_poison_tokens("Cost: NaN ms")))
+    self.assertTrue(bool(invariants.check_poison_tokens("Status: undefined")))
+    self.assertTrue(bool(invariants.check_poison_tokens("[object Object]")))
+    self.assertTrue(bool(invariants.check_poison_tokens("Result: null")))
+    self.assertTrue(bool(invariants.check_poison_tokens("Error (null)")))
+    self.assertTrue(bool(invariants.check_poison_tokens("Value: INVALID")))
+
+  def test_positive_rendered_content_and_dom_invariants(self) -> None:
+    """Verifies DOM invariants detect collapsed charts and empty cards."""
+
+    class _FakeEl:
+      """Minimal element double for DOM invariant tests."""
+
+      def __init__(self, box=None, text=""):
+        self._box = box
+        self._text = text
+
+      def bounding_box(self):
+        return self._box
+
+      def inner_text(self):
+        return self._text
+
+      def count(self):
+        return 1
+
+      def locator(self, sel):
+        del sel
+        return self
+
+    class _FakePage:
+      """Minimal page double for DOM invariant tests."""
+
+      def __init__(self, charts, cards, tables):
+        self._charts = charts
+        self._cards = cards
+        self._tables = tables
+
+      def locator(self, selector):
+        if "svg" in selector or "canvas" in selector:
+          return type("_L", (), {"all": lambda s: self._charts})()
+        if "card" in selector:
+          return type("_L", (), {"all": lambda s: self._cards})()
+        if "table" in selector:
+          return type("_L", (), {"all": lambda s: self._tables})()
+        return type("_L", (), {"all": lambda s: []})()
+
+    healthy_page = _FakePage(
+        charts=[_FakeEl(box={"width": 100, "height": 100})],
+        cards=[_FakeEl(text="Performance Card")],
+        tables=[_FakeEl()],
+    )
+    self.assertEqual(
+        invariants.check_positive_rendered_content(healthy_page), []
+    )
+    self.assertEqual(invariants.run_dom_invariants(healthy_page), [])
+
+    collapsed_page = _FakePage(
+        charts=[_FakeEl(box={"width": 0, "height": 50})],
+        cards=[_FakeEl(text="  ")],
+        tables=[],
+    )
+    violations = invariants.check_positive_rendered_content(collapsed_page)
+    self.assertEqual(len(violations), 2)
+    self.assertIn("collapsed geometry: 0x50", violations[0])
+    self.assertIn("unexpectedly empty", violations[1])
+
 
 if __name__ == "__main__":
   unittest.main()

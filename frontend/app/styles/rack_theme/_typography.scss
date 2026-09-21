@@ -1,0 +1,130 @@
+/**
+ * @license
+ * Copyright 2026 The OpenXLA Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// Canonical Typography Font Tokens & Text Utilities for Component Rack.
+// Standardizes font families across brand, plain, and code/monospace contexts.
+
+/// Emits canonical typography font family tokens, M3 type scale tokens, and host compatibility aliases.
+@mixin typography-tokens {
+  // stylelint-disable ng-components/use-material-overrides -- Application-level Material 3 design tokens
+  // 1. Core Material 3 Font Stacks
+  --mat-sys-brand-font: 'Google Sans Flex', 'Google Sans', Roboto, sans-serif;
+  --mat-sys-plain-font: 'Google Sans Text', Roboto, sans-serif;
+  --mat-sys-code-font: 'Roboto Mono', ui-monospace, monospace;
+
+  // 2. Material 3 Type Scale Tokens (Title, Label, Body)
+  // Title Scale
+  --mat-sys-title-large-font: var(--mat-sys-brand-font);
+  --mat-sys-title-large-size: 22px;
+  --mat-sys-title-large-line-height: 28px;
+  --mat-sys-title-large-weight: 400;
+  --mat-sys-title-large-tracking: 0px;
+  --mat-sys-title-large: 400 22px / 28px var(--mat-sys-brand-font);
+
+  --mat-sys-title-medium-font: var(--mat-sys-brand-font);
+  --mat-sys-title-medium-size: 16px;
+  --mat-sys-title-medium-line-height: 24px;
+  --mat-sys-title-medium-weight: 500;
+  --mat-sys-title-medium-tracking: 0.15px;
+  --mat-sys-title-medium: 500 16px / 24px var(--mat-sys-brand-font);
+
+  --mat-sys-title-small-font: var(--mat-sys-brand-font);
+  --mat-sys-title-small-size: 14px;
+  --mat-sys-title-small-line-height: 20px;
+  --mat-sys-title-small-weight: 500;
+  --mat-sys-title-small-tracking: 0.1px;
+  --mat-sys-title-small: 500 14px / 20px var(--mat-sys-brand-font);
+
+  // Label Scale (Navigation items, buttons, group headers, badges)
+  --mat-sys-label-large-font: var(--mat-sys-brand-font);
+  --mat-sys-label-large-size: 14px;
+  --mat-sys-label-large-line-height: 20px;
+  --mat-sys-label-large-weight: 500;
+  --mat-sys-label-large-tracking: 0.1px;
+  --mat-sys-label-large: 500 14px / 20px var(--mat-sys-brand-font);
+
+  --mat-sys-label-medium-font: var(--mat-sys-plain-font);
+  --mat-sys-label-medium-size: 12px;
+  --mat-sys-label-medium-line-height: 16px;
+  --mat-sys-label-medium-weight: 500;
+  --mat-sys-label-medium-tracking: 0.1px;
+  --mat-sys-label-medium: 500 12px / 16px var(--mat-sys-plain-font);
+
+  --mat-sys-label-small-font: var(--mat-sys-plain-font);
+  --mat-sys-label-small-size: 11px;
+  --mat-sys-label-small-line-height: 16px;
+  --mat-sys-label-small-weight: 500;
+  --mat-sys-label-small-tracking: 0.1px;
+  --mat-sys-label-small: 500 11px / 16px var(--mat-sys-plain-font);
+
+  // Body Scale
+  --mat-sys-body-large-font: var(--mat-sys-plain-font);
+  --mat-sys-body-large-size: 16px;
+  --mat-sys-body-large-line-height: 24px;
+  --mat-sys-body-large-weight: 400;
+  --mat-sys-body-large-tracking: 0.5px;
+  --mat-sys-body-large: 400 16px / 24px var(--mat-sys-plain-font);
+
+  --mat-sys-body-medium-font: var(--mat-sys-plain-font);
+  --mat-sys-body-medium-size: 14px;
+  --mat-sys-body-medium-line-height: 20px;
+  --mat-sys-body-medium-weight: 400;
+  --mat-sys-body-medium-tracking: 0.25px;
+  --mat-sys-body-medium: 400 14px / 20px var(--mat-sys-plain-font);
+
+  --mat-sys-body-small-font: var(--mat-sys-plain-font);
+  --mat-sys-body-small-size: 12px;
+  --mat-sys-body-small-line-height: 16px;
+  --mat-sys-body-small-weight: 400;
+  --mat-sys-body-small-tracking: 0.4px;
+  --mat-sys-body-small: 400 12px / 16px var(--mat-sys-plain-font);
+
+  // 3. Cross-Repository Compatibility Aliases (for host repos lacking M3 typography mixins)
+  --sys-font-mono: var(--mat-sys-code-font);
+  --Static-Title-Large-Font: 'Google Sans';
+  --Static-Title-Large-Line-Height: 28px;
+  --Static-Title-Large-Size: 22px;
+  --Static-Title-Large-Tracking: 0;
+  // stylelint-enable ng-components/use-material-overrides
+}
+
+// Global font antialiasing & legibility optimization for variable fonts and symbols.
+html,
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+.text-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-wrap {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.code-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mat-sys-code-font, 'Roboto Mono', monospace);
+}

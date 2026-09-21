@@ -120,6 +120,7 @@ cd static
 cp -L "$PLUGIN_RUNFILE_DIR/xprof/static/index.html" .
 cp -L "$PLUGIN_RUNFILE_DIR/xprof/static/index.js" .
 cp -L "$PLUGIN_RUNFILE_DIR/xprof/static/materialicons.woff2" .
+cp -L "$PLUGIN_RUNFILE_DIR/xprof/static/material_symbols_outlined.woff2" .
 cp -L "$PLUGIN_RUNFILE_DIR/trace_viewer/trace_viewer_index.html" .
 cp -L "$PLUGIN_RUNFILE_DIR/trace_viewer/trace_viewer_index.js" .
 WASM_DIR="$FRONTEND_RUNFILE_DIR/app/components/trace_viewer_v2"

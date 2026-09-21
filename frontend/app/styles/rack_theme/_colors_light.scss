@@ -1,0 +1,104 @@
+/**
+ * @license
+ * Copyright 2026 The OpenXLA Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// Canonical Material 3 Light Theme Color Tokens for Component Rack.
+// Standardized strictly on the `--mat-sys-*` namespace.
+// Zero hex fallbacks in var() to prevent dark mode poisoning.
+
+/// Emits the canonical Material 3 light theme color palette.
+/// Defines 48 system color tokens across brand accents, surface container tiers, outlines,
+/// and semantic status 4-token sets (error, info, warning, success).
+@mixin light-theme-colors {
+  // stylelint-disable ng-components/use-material-overrides -- Application-level Material 3 design tokens
+  // 1. Primary, Secondary & Tertiary Accents (Light)
+  --mat-sys-primary: #0b57d0;
+  --mat-sys-on-primary: #fff;
+  --mat-sys-primary-container: #d3e3fd;
+  --mat-sys-on-primary-container: #041e49;
+  --mat-sys-inverse-primary: #a8c7fa;
+
+  --mat-sys-secondary: #00639b;
+  --mat-sys-on-secondary: #fff;
+  --mat-sys-secondary-container: #c2e7ff;
+  --mat-sys-on-secondary-container: #004a77;
+
+  --mat-sys-tertiary: #146c2e;
+  --mat-sys-on-tertiary: #fff;
+  --mat-sys-tertiary-container: #c4eed0;
+  --mat-sys-on-tertiary-container: #072711;
+
+  // 2. Surfaces, Backgrounds & Containers (Light)
+  --mat-sys-surface: #fff;
+  --mat-sys-on-surface: #1f1f1f;
+  --mat-sys-surface-variant: #e1e3e1;
+  --mat-sys-on-surface-variant: #444746;
+  --mat-sys-background: #fff;
+  --mat-sys-on-background: #1f1f1f;
+  --mat-sys-surface-dim: #d8dbe0;
+  --mat-sys-surface-bright: #fff;
+  --mat-sys-inverse-surface: #2f3033;
+  --mat-sys-inverse-on-surface: #f1f0f4;
+
+  // Surface Container Tiers (Light)
+  --mat-sys-surface-container-lowest: #fff;
+  --mat-sys-surface-container-low: #f8fafd;
+  --mat-sys-surface-container: #f0f4f9;
+  --mat-sys-surface-container-high: #e9eef6;
+  --mat-sys-surface-container-highest: #dde3ea;
+
+  // 3. Outlines, Shadows & Elevation Utilities (Light)
+  --mat-sys-outline: #747775;
+  --mat-sys-outline-variant: #c4c7c5;
+  --mat-sys-shadow: #000;
+  --mat-sys-scrim: #000;
+
+  // 4. Semantic Status 4-Token Sets (Light)
+  --mat-sys-error: #b3261e;
+  --mat-sys-on-error: #fff;
+  --mat-sys-error-container: #f9dedc;
+  --mat-sys-on-error-container: #410e0b;
+
+  --mat-sys-info: #0b57d0;
+  --mat-sys-on-info: #fff;
+  --mat-sys-info-container: #c2e7ff;
+  --mat-sys-on-info-container: #001d35;
+
+  --mat-sys-warning: #b06000;
+  --mat-sys-on-warning: #fff;
+  --mat-sys-warning-container: #ffdf9e;
+  --mat-sys-on-warning-container: #2f1400;
+
+  --mat-sys-success: #146c2e;
+  --mat-sys-on-success: #fff;
+  --mat-sys-success-container: #c4eed0;
+  --mat-sys-on-success-container: #072711;
+  // stylelint-enable ng-components/use-material-overrides
+
+  // 5. Backward-Compatibility Aliases for Material Web & Trace Viewer V2
+  --md-sys-color-on-primary: var(--mat-sys-on-primary);
+  --md-sys-color-on-secondary-container: var(--mat-sys-on-secondary-container);
+  --md-sys-color-on-surface-variant: var(--mat-sys-on-surface-variant);
+  --md-sys-color-on-surface: var(--mat-sys-on-surface);
+  --md-sys-color-outline-variant: var(--mat-sys-outline-variant);
+  --md-sys-color-primary-container: var(--mat-sys-primary-container);
+  --md-sys-color-primary: var(--mat-sys-primary);
+  --md-sys-color-secondary-container: var(--mat-sys-secondary-container);
+  --md-sys-color-surface-container-highest: var(--mat-sys-surface-container-highest);
+  --md-sys-color-surface-container-low: var(--mat-sys-surface-container-low);
+  --md-sys-color-surface-container: var(--mat-sys-surface-container);
+  --md-sys-color-surface: var(--mat-sys-surface);
+}

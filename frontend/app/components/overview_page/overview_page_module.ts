@@ -8,7 +8,11 @@ import {
   NgModule,
   OnDestroy,
   Output,
+  ViewEncapsulation,
 } from '@angular/core';
+import {MatButtonModule} from '@angular/material/button';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatInputModule} from '@angular/material/input';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {
@@ -47,6 +51,7 @@ const DISAGGREGATED_SERVING_LATENCY_INDEX = 8;
 /** An overview page component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
+  encapsulation: ViewEncapsulation.None,
   standalone: false,
   selector: 'overview-page',
   templateUrl: './overview_page.ng.html',
@@ -257,6 +262,9 @@ export class OverviewPage implements OnDestroy {
     StepTimeGraphModule,
     InferenceLatencyChartModule,
     SmartSuggestionView,
+    MatButtonModule,
+    MatFormFieldModule,
+    MatInputModule,
   ],
   exports: [OverviewPage],
 })

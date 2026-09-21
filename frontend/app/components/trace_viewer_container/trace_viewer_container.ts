@@ -1077,6 +1077,61 @@ export class TraceViewerContainer
     }
   }
 
+  /**
+   * Handles a double-click event on the canvas or its container.
+   *
+   * If an event is currently hovered or selected, this triggers expanding,
+   * collapsing, or restoring the bottom details panel.
+   */
+  onCanvasDoubleClick(event?: MouseEvent): void {
+    if (event) {
+      event.stopPropagation();
+      if ((event.target as HTMLElement)?.closest('timeline-player')) {
+        return;
+      }
+    }
+    if (this.hoveredEvent || this.selectedEvent) {
+      this.handleEventDoubleClick();
+    }
+  }
+
+  /**
+   * Handles a double-click on an event to expand, minimize, or restore the
+   * bottom details panel.
+   *
+   * If the bottom panel is collapsed or minimized (at or below
+   * `minDrawerSizePercent`), double-clicking any event restores the panel to
+   * `DEFAULT_DRAWER_SIZE_PERCENT`.
+   * If the bottom panel is expanded (greater than `minDrawerSizePercent`),
+   * double-clicking toggles the panel state by minimizing it to
+   * `minDrawerSizePercent`.
+   */
+  handleEventDoubleClick(): void {
+    if (!this.selectedEvent && this.hoveredEvent) {
+      this.selectedEvent = this.hoveredEvent;
+      this.selectedEventJson = this.buildSelectedEventJson();
+      this.eventSelected.emit(
+        this.hoveredEvent as unknown as EntrySelectedEventDetail,
+      );
+    }
+
+    if (!this.selectedEvent) {
+      return;
+    }
+
+    const isCollapsedOrMinimized =
+      this.drawerSizePercent <= this.minDrawerSizePercent ||
+      this.detailHeightPercent <= this.minDrawerSizePercent ||
+      Math.abs(this.drawerSizePercent - this.minDrawerSizePercent) < 0.01;
+
+    if (isCollapsedOrMinimized) {
+      this.updateSplitSizes(DEFAULT_DRAWER_SIZE_PERCENT);
+    } else {
+      this.updateSplitSizes(this.minDrawerSizePercent);
+    }
+    this.cdRef.markForCheck();
+  }
+
   private syncEffectiveSearchQuery(query?: string): void {
     if (!this.traceViewerModule) return;
     const effectiveQuery = query || this.currentSearchQuery;

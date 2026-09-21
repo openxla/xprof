@@ -606,9 +606,13 @@ canvas.emscripten {
     margin-top: 10px;
   }
 
-  mat-progress-bar {
+  md-linear-progress {
     width: 40%;
   }
+}
+
+.incremental-loading-spinner {
+  --md-circular-progress-size: 24px;
 }
 
 .spacer {

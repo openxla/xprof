@@ -2,7 +2,7 @@
   <div class="filter-nav">
     <span>All Filters</span>
   </div>
-  <mat-divider vertical></mat-divider>
+  <md-divider class="filter-divider"></md-divider>
   <span class="filter-content">
     <filter-chips class="filter-chips" [hosts]="hostList" [processes]="processList" [filters]="selectedFilters" (filterChanged)="onFilterEdit($event)" (filterRemoved)="onFilterRemove($event)"></filter-chips>
     <div class="filler-inputs-wrapper">
@@ -29,7 +29,7 @@
       <mat-menu #flowMenu="matMenu">
         <button mat-menu-item (click)="selectAllFlowCategories()">All</button>
         <button mat-menu-item (click)="selectNoneFlowCategories()">None</button>
-        <mat-divider></mat-divider>
+        <md-divider></md-divider>
         <button mat-menu-item *ngFor="let category of flowCategories" (click)="toggleFlowCategory(category)">
           <mat-checkbox [checked]="isSelectedFlowCategory(category)">{{category.name}}</mat-checkbox>
         </button>

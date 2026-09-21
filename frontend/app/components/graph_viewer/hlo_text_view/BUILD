@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "hlo_text_view",
     srcs = [
         "hlo_text_view.ts",
-        "hlo_text_view_module.ts",
     ],
     assets = [
         ":hlo_text_view_css",

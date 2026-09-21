@@ -1,9 +1,12 @@
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   ElementRef,
   EventEmitter,
+  inject,
   Input,
+  NgZone,
   OnChanges,
   OnInit,
   Output,
@@ -17,8 +20,8 @@ const DEFAULT_CHART_WIDTH = 500;
 
 /** A stack bar chart view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'stack-bar-chart',
   templateUrl: './stack_bar_chart.ng.html',
   styleUrls: ['./stack_bar_chart.scss'],
@@ -28,7 +31,9 @@ export class StackBarChart implements OnChanges, OnInit {
   @Input() data?: Array<Array<PrimitiveTypeNumberString | undefined>>;
 
   /** The event when the selection of the chart is changed. */
-  @Output() selected = new EventEmitter<number>();
+  @Output() readonly selected = new EventEmitter<number>();
+  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly ngZone = inject(NgZone);
 
   @ViewChild('chart', {static: false}) chartRef!: ElementRef;
 
@@ -84,6 +89,7 @@ export class StackBarChart implements OnChanges, OnInit {
     if (!google || !google.charts) {
       setTimeout(() => {
         this.loadGoogleChart();
+        this.cdr.markForCheck();
       }, 100);
     }
 
@@ -97,12 +103,16 @@ export class StackBarChart implements OnChanges, OnInit {
         this.chart,
         'onmouseover',
         (event: google.visualization.ChartSelection) => {
-          event = event || {};
-          this.selected.emit(event.row || 0);
+          this.ngZone.run(() => {
+            event = event || {};
+            this.selected.emit(event.row || 0);
+            this.cdr.markForCheck();
+          });
         },
       );
 
       this.drawChart();
+      this.cdr.markForCheck();
     });
   }
 }

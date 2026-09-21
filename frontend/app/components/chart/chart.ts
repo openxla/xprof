@@ -1,12 +1,12 @@
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   ElementRef,
   EventEmitter,
   HostListener,
   inject,
   Input,
-  NgModule,
   OnChanges,
   OnInit,
   Output,
@@ -22,8 +22,8 @@ import {
 
 /** A common chart component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'chart',
   template: '',
   // Below 960px wide charts scroll sideways instead of widening the page. Only
@@ -38,7 +38,7 @@ import {
 })
 export class Chart implements OnChanges, OnInit {
   /** The type of chart. */
-  @Input() chartType?: ChartType;
+  @Input() chartType?: ChartType | `${ChartType}`;
 
   /** The information of chart data. */
   @Input() dataInfo?: ChartDataInfo;
@@ -54,6 +54,7 @@ export class Chart implements OnChanges, OnInit {
   chart?: ChartClass;
 
   private readonly elementRef: ElementRef = inject(ElementRef);
+  private readonly cdr: ChangeDetectorRef = inject(ChangeDetectorRef);
   private isSmallScreen = window.innerWidth < 960;
 
   @HostListener('window:resize')
@@ -138,8 +139,10 @@ export class Chart implements OnChanges, OnInit {
       if (this.chart) {
         google.visualization.events.addListener(this.chart, 'select', () => {
           this.selected.emit(this.chart?.getSelection() || []);
+          this.cdr.markForCheck();
         });
       }
+      this.cdr.markForCheck();
     });
   }
 
@@ -223,9 +226,7 @@ export class Chart implements OnChanges, OnInit {
     this.dataInfo.dataProvider.setFilters(this.dataInfo.filters || []);
     this.dataInfo.dataProvider.setUpdateEventListener(() => {
       this.draw();
+      this.cdr.markForCheck();
     });
   }
 }
-
-@NgModule({declarations: [Chart], exports: [Chart]})
-export class ChartModule {}

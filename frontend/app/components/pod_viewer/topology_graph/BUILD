@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "topology_graph",
     srcs = [
         "topology_graph.ts",
-        "topology_graph_module.ts",
     ],
     assets = [
         ":topology_graph_css",
@@ -39,6 +38,7 @@ xprof_ng_module(
     ],
     deps = [
         ":topology_graph",
+        "//:node_modules/@angular/core_testing",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",

@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "pod_viewer_details",
     srcs = [
         "pod_viewer_details.ts",
-        "pod_viewer_details_module.ts",
     ],
     assets = [
         ":pod_viewer_details_css",

@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "string_filter",
     srcs = [
         "string_filter.ts",
-        "string_filter_module.ts",
     ],
     assets = [
         "string_filter.ng.html",

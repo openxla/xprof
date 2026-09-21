@@ -3,11 +3,12 @@
 // https://angular.io/guide/migration-localize
 import '@angular/localize/init';
 import {enableProdMode} from '@angular/core';
-import {platformBrowserDynamic} from '@angular/platform-browser-dynamic';
+import {bootstrapApplication} from '@angular/platform-browser';
 
-import {AppModule} from './app/app_module';
+import {App} from './app/app';
+import {APP_CONFIG} from './app/app_config';
 
 enableProdMode();
 
-platformBrowserDynamic().bootstrapModule(AppModule)
+bootstrapApplication(App, APP_CONFIG)
   .catch(err => console.error(err));

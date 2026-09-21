@@ -7,7 +7,6 @@ xprof_ng_module(
     srcs = [
         "blob_downloader.ts",
         "download_hlo.ts",
-        "download_hlo_module.ts",
     ],
     assets = [
         ":download_hlo_css",

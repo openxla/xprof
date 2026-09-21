@@ -1,6 +1,7 @@
 import {CommonModule} from '@angular/common';
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   HostBinding,
   inject,
@@ -11,7 +12,6 @@ import {
   SimpleChanges,
 } from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
-import {MatCardModule} from '@angular/material/card';
 import {MatExpansionModule} from '@angular/material/expansion';
 import {MatIconModule} from '@angular/material/icon';
 import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
@@ -45,15 +45,14 @@ const FEEDBACK_STORAGE_KEY_PREFIX = 'smartSuggestionFeedback';
 
 /** A component for displaying smart suggestions. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'smart-suggestion-view',
   templateUrl: './smart_suggestion_view.ng.html',
   styleUrls: ['./smart_suggestion_view.scss'],
-  standalone: true,
   imports: [
     CommonModule,
     MatButtonModule,
-    MatCardModule,
     MatExpansionModule,
     MatIconModule,
     MatProgressSpinnerModule,
@@ -69,6 +68,7 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
   loading = true;
   private readonly throbber = new Throbber('smart_suggestion');
   private storageKey = '';
+  private readonly cdr = inject(ChangeDetectorRef);
   private subscription: Subscription | null = null;
 
   private lastFetchedSessionId: string | null = null;
@@ -120,6 +120,7 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
         finalize(() => {
           this.loading = false;
           this.throbber.stop();
+          this.cdr.markForCheck();
         }),
       )
       .subscribe((report: SmartSuggestionReport | null) => {
@@ -140,6 +141,7 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
         } else {
           this.processedSuggestions = [];
         }
+        this.cdr.markForCheck();
       });
   }
 

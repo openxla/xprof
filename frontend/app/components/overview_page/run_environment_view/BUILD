@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "run_environment_view",
     srcs = [
         "run_environment_view.ts",
-        "run_environment_view_module.ts",
     ],
     assets = [
         ":run_environment_view_css",

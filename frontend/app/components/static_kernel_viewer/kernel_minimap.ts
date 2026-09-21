@@ -12,7 +12,6 @@ import {
   Output,
   ViewChild,
 } from '@angular/core';
-import {MatButtonModule} from '@angular/material/button';
 import {MatIconModule} from '@angular/material/icon';
 import {MatTooltipModule} from '@angular/material/tooltip';
 
@@ -1224,7 +1223,7 @@ function buildMinimapLayout(
   templateUrl: './kernel_minimap.ng.html',
   styleUrls: ['./kernel_minimap.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, MatButtonModule, MatIconModule, MatTooltipModule],
+  imports: [CommonModule, MatIconModule, MatTooltipModule],
 })
 export class KernelMinimap implements AfterViewInit, OnDestroy {
   /** Emits when the user pans, resizes, or zooms the visible bundle range. */

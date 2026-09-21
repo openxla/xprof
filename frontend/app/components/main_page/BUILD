@@ -6,7 +6,7 @@ xprof_ng_module(
     name = "main_page",
     srcs = [
         "main_page.ts",
-        "main_page_module.ts",
+        "routes.ts",
     ],
     assets = [
         ":main_page_css",

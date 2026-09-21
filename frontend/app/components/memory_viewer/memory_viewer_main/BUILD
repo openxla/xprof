@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "memory_viewer_main",
     srcs = [
         "memory_viewer_main.ts",
-        "memory_viewer_main_module.ts",
     ],
     assets = [
         ":memory_viewer_main_css",

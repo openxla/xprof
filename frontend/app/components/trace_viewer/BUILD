@@ -10,7 +10,6 @@ xprof_ng_module(
         "filter_input.ts",
         "interfaces.ts",
         "trace_viewer.ts",
-        "trace_viewer_module.ts",
         "trace_viewer_typings.ts",
         "utils.ts",
     ],

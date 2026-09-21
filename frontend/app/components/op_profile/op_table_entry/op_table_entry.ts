@@ -1,9 +1,14 @@
+import {NgFor, NgIf} from '@angular/common';
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   EventEmitter,
+  forwardRef,
+  inject,
   Input,
   OnChanges,
+  OnDestroy,
   OnInit,
   Output,
   SimpleChanges,
@@ -20,14 +25,16 @@ import {takeUntil} from 'rxjs/operators';
 
 /** An op table entry view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'op-table-entry',
   templateUrl: './op_table_entry.ng.html',
   styleUrls: ['./op_table_entry.scss'],
+  imports: [forwardRef(() => OpTableEntry), NgFor, NgIf],
 })
-export class OpTableEntry implements OnChanges, OnInit {
+export class OpTableEntry implements OnChanges, OnInit, OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly destroyed = new ReplaySubject<void>(1);
 
   /** The depth of node. */
@@ -87,6 +94,7 @@ export class OpTableEntry implements OnChanges, OnInit {
       .pipe(takeUntil(this.destroyed))
       .subscribe((opAnalysisState: OpAnalysisState) => {
         this.applyScalingFactor = opAnalysisState.applyScalingFactor;
+        this.cdr.markForCheck();
       });
   }
 
@@ -357,5 +365,11 @@ export class OpTableEntry implements OnChanges, OnInit {
   toggleExpanded() {
     this.expanded = !this.expanded;
     this.selected.emit(this.node);
+  }
+
+  ngOnDestroy() {
+    // Unsubscribes all pending subscriptions.
+    this.destroyed.next();
+    this.destroyed.complete();
   }
 }

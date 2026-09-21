@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "op_table",
     srcs = [
         "op_table.ts",
-        "op_table_module.ts",
     ],
     assets = [
         ":op_table_css",

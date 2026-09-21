@@ -23,7 +23,6 @@ xprof_ng_module(
     name = "kernel_stats",
     srcs = [
         "kernel_stats.ts",
-        "kernel_stats_module.ts",
     ],
     assets = [
         ":kernel_stats_css",
@@ -32,6 +31,7 @@ xprof_ng_module(
     deps = [
         "//:node_modules/@angular/core",
         "//:node_modules/@ngrx/store",
+        "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/angular:angular_material_divider",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/components/controls/export_as_csv",

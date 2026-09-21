@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "kernel_stats_table",
     srcs = [
         "kernel_stats_table.ts",
-        "kernel_stats_table_module.ts",
     ],
     assets = [
         ":kernel_stats_table_css",

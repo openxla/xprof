@@ -53,7 +53,6 @@ xprof_ng_module(
         "kernel_viewer_tour.ts",
         "kernel_viewer_tour_demo.ts",
         "static_kernel_viewer.ts",
-        "static_kernel_viewer_module.ts",
     ],
     assets = [
         ":kernel_event_tooltip_css",

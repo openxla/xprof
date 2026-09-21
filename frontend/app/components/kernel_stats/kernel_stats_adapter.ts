@@ -1,8 +1,8 @@
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   inject,
-  NgModule,
   OnDestroy,
 } from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
@@ -15,15 +15,16 @@ import {
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
-import {KernelStatsModule} from './kernel_stats_module';
+import {KernelStats} from './kernel_stats';
 
 /** A kernel stats adapter component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'kernel-stats-adapter',
   template:
     '<kernel-stats [sessionId]="sessionId" [tool]="tool" [host]="host"></kernel-stats>',
+  imports: [KernelStats],
 })
 export class KernelStatsAdapter implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
@@ -34,6 +35,7 @@ export class KernelStatsAdapter implements OnDestroy {
 
   private readonly route: ActivatedRoute = inject(ActivatedRoute);
   private readonly store: Store<{}> = inject(Store);
+  private readonly cdr: ChangeDetectorRef = inject(ChangeDetectorRef);
 
   constructor() {
     combineLatest([this.route.params, this.route.queryParams])
@@ -44,6 +46,7 @@ export class KernelStatsAdapter implements OnDestroy {
         }
         this.processQuery({...params, ...queryParams});
         this.update();
+        this.cdr.markForCheck();
       });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
   }
@@ -72,10 +75,3 @@ export class KernelStatsAdapter implements OnDestroy {
     this.destroyed.complete();
   }
 }
-
-@NgModule({
-  declarations: [KernelStatsAdapter],
-  imports: [KernelStatsModule],
-  exports: [KernelStatsAdapter],
-})
-export class KernelStatsAdapterModule {}

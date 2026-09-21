@@ -1,26 +1,31 @@
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   ElementRef,
   EventEmitter,
   HostListener,
+  inject,
   Input,
   OnChanges,
   Output,
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
+import {MatCard, MatCardContent, MatCardTitle} from '@angular/material/card';
 import {type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 const MAX_CHART_WIDTH = 800;
 
 /** An inference latency chart view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'inference-latency-chart',
   templateUrl: './inference_latency_chart.ng.html',
   styleUrls: ['./inference_latency_chart.scss'],
+  imports: [MatCard, MatCardContent, MatCardTitle],
 })
 export class InferenceLatencyChart implements AfterViewInit, OnChanges {
   /** The inference latency data. */
@@ -28,6 +33,7 @@ export class InferenceLatencyChart implements AfterViewInit, OnChanges {
 
   @ViewChild('chart', {static: false}) chartRef!: ElementRef;
   @Output() readonly ready = new EventEmitter<void>();
+  private readonly cdr = inject(ChangeDetectorRef);
 
   title = 'Inference Session Latency Breakdown';
   height = 300;
@@ -110,6 +116,7 @@ export class InferenceLatencyChart implements AfterViewInit, OnChanges {
     if (!google || !google.charts) {
       setTimeout(() => {
         this.loadGoogleChart();
+        this.cdr.markForCheck();
       }, 100);
     }
 
@@ -120,8 +127,10 @@ export class InferenceLatencyChart implements AfterViewInit, OnChanges {
       );
       google.visualization.events.addListener(this.chart, 'ready', () => {
         this.ready.emit();
+        this.cdr.markForCheck();
       });
       this.drawChart();
+      this.cdr.markForCheck();
     });
   }
 }

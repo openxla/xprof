@@ -3665,6 +3665,7 @@ class TestTimeline : public Timeline {
   using Timeline::pinned_track_names_;
 
   using Timeline::group_visible;
+  using Timeline::HandleMouse;
   using Timeline::Pan;
   using Timeline::Scroll;
   using Timeline::Timeline;
@@ -13692,6 +13693,287 @@ TEST(TimelineTest, SelectionRemapFallbackDisambiguatesByTidAcrossThreads) {
   timeline.SetTimelineData(std::move(update_data));
 
   EXPECT_EQ(timeline.selected_event_index(), 1);
+}
+
+TEST(TimelineMinimapTest, MinimapDisabledByDefault) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  EXPECT_FALSE(timeline.minimap_enabled());
+  EXPECT_EQ(timeline.selected_parent_group_index(), -1);
+  timeline.set_minimap_enabled(true);
+  EXPECT_TRUE(timeline.minimap_enabled());
+}
+
+TEST(TimelineMinimapTest, GetEffectiveSelectedParentGroupIndex) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  // Empty data: returns -1
+  EXPECT_EQ(timeline.GetEffectiveSelectedParentGroupIndex(), -1);
+
+  FlameChartTimelineData data;
+  data.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/1),
+      MakeThreadGroup("Thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/1),
+      MakeProcessGroup("Process 2", /*start_level=*/1, /*level_count=*/1),
+  };
+  timeline.SetTimelineData(std::move(data));
+
+  // Defaults to first parent group (Process 1, index 0)
+  EXPECT_EQ(timeline.GetEffectiveSelectedParentGroupIndex(), 0);
+
+  // When explicitly set to Process 2 (index 2)
+  timeline.set_selected_parent_group_index(2);
+  EXPECT_EQ(timeline.GetEffectiveSelectedParentGroupIndex(), 2);
+
+  // Update from group index 1 (Thread 1 with parent_index 0) maps to parent 0
+  timeline.UpdateSelectedParentGroupFromIndex(1);
+  EXPECT_EQ(timeline.selected_parent_group_index(), 0);
+  EXPECT_EQ(timeline.GetEffectiveSelectedParentGroupIndex(), 0);
+
+  // Update from group index 2 (Process 2) sets to 2
+  timeline.UpdateSelectedParentGroupFromIndex(2);
+  EXPECT_EQ(timeline.selected_parent_group_index(), 2);
+  EXPECT_EQ(timeline.GetEffectiveSelectedParentGroupIndex(), 2);
+}
+
+TEST_F(RealTimelineImGuiFixture, MinimapPanDragUpdatesVisibleRange) {
+  FlameChartTimelineData data;
+  data.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/1),
+  };
+  data.events_by_level = {{0}};
+  data.entry_names = {"Event 1"};
+  data.entry_start_times = {0.0};
+  data.entry_total_times = {1000.0};
+  data.entry_levels = {0};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({200.0, 400.0}, /*animate=*/false);
+  timeline_.set_minimap_enabled(true);
+
+  // Initial draw
+  SimulateFrame();
+
+  const TimeRange initial_range = timeline_.visible_range();
+  EXPECT_DOUBLE_EQ(initial_range.start(), 200.0);
+  EXPECT_DOUBLE_EQ(initial_range.end(), 400.0);
+
+  const Pixel track_x1 = timeline_.GetLabelWidth();
+  const Pixel track_w = timeline_.current_timeline_width();
+  const Pixel lens_center_x = track_x1 + 0.3f * track_w;
+  ImVec2 lens_center(lens_center_x, 14.0f);
+
+  // Start dragging lens
+  ImGui::GetIO().MousePos = lens_center;
+  SimulateFrame();
+
+  ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
+
+  EXPECT_EQ(timeline_.minimap_drag_mode_for_test(),
+            Timeline::MinimapDragMode::kPan);
+
+  // Drag mouse right by 0.1 * track_w (+100us)
+  const float delta_px = 0.1f * track_w;
+  ImGui::GetIO().MousePos = ImVec2(lens_center.x + delta_px, lens_center.y);
+  SimulateFrame();
+
+  EXPECT_NEAR(timeline_.visible_range().start(), 300.0, 5.0);
+  EXPECT_NEAR(timeline_.visible_range().end(), 500.0, 5.0);
+
+  // Release mouse
+  ImGui::GetIO().MouseDown[0] = false;
+  SimulateFrame();
+
+  EXPECT_EQ(timeline_.minimap_drag_mode_for_test(),
+            Timeline::MinimapDragMode::kNone);
+}
+
+TEST_F(RealTimelineImGuiFixture, MinimapResizeLeftHandleAdjustsStart) {
+  FlameChartTimelineData data;
+  data.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/1),
+  };
+  data.events_by_level = {{0}};
+  data.entry_names = {"Event 1"};
+  data.entry_start_times = {0.0};
+  data.entry_total_times = {1000.0};
+  data.entry_levels = {0};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({200.0, 400.0}, /*animate=*/false);
+  timeline_.set_minimap_enabled(true);
+
+  SimulateFrame();
+
+  const Pixel track_x1 = timeline_.GetLabelWidth();
+  const Pixel track_w = timeline_.current_timeline_width();
+  const Pixel lens_x1 = track_x1 + 0.2f * track_w;
+  ImVec2 left_handle_pos(lens_x1, 14.0f);
+
+  ImGui::GetIO().MousePos = left_handle_pos;
+  SimulateFrame();
+
+  ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
+
+  EXPECT_EQ(timeline_.minimap_drag_mode_for_test(),
+            Timeline::MinimapDragMode::kResizeLeft);
+
+  // Drag left handle to the left by 0.05 * track_w (-50us)
+  const float delta_px = -0.05f * track_w;
+  ImGui::GetIO().MousePos =
+      ImVec2(left_handle_pos.x + delta_px, left_handle_pos.y);
+  SimulateFrame();
+
+  EXPECT_NEAR(timeline_.visible_range().start(), 150.0, 5.0);
+  EXPECT_NEAR(timeline_.visible_range().end(), 400.0, 5.0);
+
+  ImGui::GetIO().MouseDown[0] = false;
+  SimulateFrame();
+
+  EXPECT_EQ(timeline_.minimap_drag_mode_for_test(),
+            Timeline::MinimapDragMode::kNone);
+}
+
+TEST_F(RealTimelineImGuiFixture, MinimapResizeRightHandleAdjustsEnd) {
+  FlameChartTimelineData data;
+  data.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/1),
+  };
+  data.events_by_level = {{0}};
+  data.entry_names = {"Event 1"};
+  data.entry_start_times = {0.0};
+  data.entry_total_times = {1000.0};
+  data.entry_levels = {0};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({200.0, 400.0}, /*animate=*/false);
+  timeline_.set_minimap_enabled(true);
+
+  SimulateFrame();
+
+  const Pixel track_x1 = timeline_.GetLabelWidth();
+  const Pixel track_w = timeline_.current_timeline_width();
+  const Pixel lens_x2 = track_x1 + 0.4f * track_w;
+  ImVec2 right_handle_pos(lens_x2, 14.0f);
+
+  ImGui::GetIO().MousePos = right_handle_pos;
+  SimulateFrame();
+
+  ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
+
+  EXPECT_EQ(timeline_.minimap_drag_mode_for_test(),
+            Timeline::MinimapDragMode::kResizeRight);
+
+  // Drag right handle to the right by 0.05 * track_w (+50us)
+  const float delta_px = 0.05f * track_w;
+  ImGui::GetIO().MousePos =
+      ImVec2(right_handle_pos.x + delta_px, right_handle_pos.y);
+  SimulateFrame();
+
+  EXPECT_NEAR(timeline_.visible_range().start(), 200.0, 5.0);
+  EXPECT_NEAR(timeline_.visible_range().end(), 450.0, 5.0);
+
+  ImGui::GetIO().MouseDown[0] = false;
+  SimulateFrame();
+
+  EXPECT_EQ(timeline_.minimap_drag_mode_for_test(),
+            Timeline::MinimapDragMode::kNone);
+}
+
+TEST_F(RealTimelineImGuiFixture, MinimapClickOutsideLensCentersViewport) {
+  FlameChartTimelineData data;
+  data.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/1),
+  };
+  data.events_by_level = {{0}};
+  data.entry_names = {"Event 1"};
+  data.entry_start_times = {0.0};
+  data.entry_total_times = {1000.0};
+  data.entry_levels = {0};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({200.0, 400.0}, /*animate=*/false);
+  timeline_.set_minimap_enabled(true);
+
+  SimulateFrame();
+
+  const Pixel track_x1 = timeline_.GetLabelWidth();
+  const Pixel track_w = timeline_.current_timeline_width();
+  const Pixel click_x = track_x1 + 0.8f * track_w;
+  ImVec2 click_pos(click_x, 14.0f);
+
+  ImGui::GetIO().MousePos = click_pos;
+  SimulateFrame();
+
+  ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
+
+  // Should center the 200us lens at 800us -> [700, 900]
+  EXPECT_NEAR(timeline_.visible_range().start(), 700.0, 5.0);
+  EXPECT_NEAR(timeline_.visible_range().end(), 900.0, 5.0);
+
+  ImGui::GetIO().MouseDown[0] = false;
+  SimulateFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, MinimapMouseWheelZoomsViewport) {
+  FlameChartTimelineData data;
+  data.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/1),
+  };
+  data.events_by_level = {{0}};
+  data.entry_names = {"Event 1"};
+  data.entry_start_times = {0.0};
+  data.entry_total_times = {1000.0};
+  data.entry_levels = {0};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({200.0, 400.0}, /*animate=*/false);
+  timeline_.set_minimap_enabled(true);
+
+  SimulateFrame();
+
+  const double initial_duration = timeline_.visible_range().duration();
+
+  // Mouse over minimap track
+  const Pixel track_x1 = timeline_.GetLabelWidth();
+  const Pixel track_w = timeline_.current_timeline_width();
+  ImGui::GetIO().MousePos = ImVec2(track_x1 + 0.3f * track_w, 14.0f);
+  ImGui::GetIO().AddMouseWheelEvent(0.0f, -1.0f);
+  SimulateFrame();
+
+  // Negative MouseWheel with (1.0f + io.MouseWheel * mouse_wheel_zoom_speed_)
+  // zooms in (decreases duration).
+  EXPECT_LT(timeline_.visible_range().duration(), initial_duration);
+}
+
+TEST_F(RealTimelineImGuiFixture, MinimapBlocksTimelineMouseDragging) {
+  FlameChartTimelineData data;
+  data.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/1),
+  };
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_minimap_enabled(true);
+
+  // Set minimap dragging active
+  timeline_.set_minimap_drag_mode_for_test(Timeline::MinimapDragMode::kPan);
+
+  // When minimap_drag_mode is active, HandleMouse returns true early
+  EXPECT_TRUE(timeline_.HandleMouse());
 }
 
 }  // namespace

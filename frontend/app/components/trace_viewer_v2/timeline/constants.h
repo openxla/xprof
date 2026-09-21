@@ -249,6 +249,19 @@ inline constexpr char kUnpinTrackTooltip[] = "Unpin track";
 inline constexpr char kUnpinnedProcessNotificationPrefix[] =
         "Unpinned process: ";
 // go/keep-sorted end
+
+// Minimap Constants
+// go/keep-sorted start
+inline constexpr ImU32 kMinimapHandleColor = kBlueColor;
+inline constexpr ImU32 kMinimapLensBorderColor = kBlueColor;
+inline constexpr ImU32 kMinimapLensColor = IM_COL32(255, 255, 255, 180);
+inline constexpr ImU32 kMinimapMaskColor = IM_COL32(216, 224, 234, 150);
+inline constexpr Pixel kMinimapHandleWidth = 6.0f;
+inline constexpr Pixel kMinimapHeight = 28.0f;
+inline constexpr Pixel kMinimapMinLensWidth = 10.0f;
+inline constexpr char kMinimapOverviewLabel[] = "Overview";
+inline constexpr char kMinimapPrefix[] = "Minimap: ";
+// go/keep-sorted end
 }  // namespace traceviewer
 
 #endif  // THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_CONSTANTS_H_

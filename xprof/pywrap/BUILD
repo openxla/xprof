@@ -73,6 +73,19 @@ py_library(
     name = "_pywrap_profiler_plugin",
     srcs = ["_pywrap_profiler_plugin.py"],
     data = [":profiler_plugin_c_api.so"],
+    deps = [
+        # Imported lazily by _run_llo_static_analysis_py() as the pure-Python
+        # fallback for builds without embedded features.
+        "//plugin/xprof/cli/internal/llo_static_analysis:bdi_stalls",
+        "//plugin/xprof/cli/internal/llo_static_analysis:llo_allocations",
+        "//plugin/xprof/cli/internal/llo_static_analysis:llo_bundle_utilization",
+        "//plugin/xprof/cli/internal/llo_static_analysis:llo_opcode_stats",
+        "//plugin/xprof/cli/internal/llo_static_analysis:llo_region_tree",
+        "//plugin/xprof/cli/internal/llo_static_analysis:llo_source_map",
+        "//plugin/xprof/cli/internal/llo_static_analysis:register_pressure",
+        "//plugin/xprof/cli/internal/llo_static_analysis:target_info",
+        "//plugin/xprof/cli/internal/llo_static_analysis:xspace_llo_reader",
+    ],
 )
 
 py_test(

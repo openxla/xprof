@@ -105,39 +105,7 @@ absl::Status StreamingTraceViewerProcessor::ProcessSession(
       google::protobuf::Arena arena;
       TF_ASSIGN_OR_RETURN(XSpace * xspace,
                           session_snapshot.GetXSpace(i, &arena));
-      PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,
-                                 /*derived_timeline=*/true);
-      if (profiler_trace_options.enable_legacy_dcn) {
-        ProcessMegascaleDcn(xspace);
-      }
-
-      TraceEventLiteContainer lite_container;
-      ConvertXSpaceToLiteTraceEventsContainer(host_name, *xspace,
-                                              &lite_container);
-      std::unique_ptr<tsl::WritableFile> trace_events_file;
-      TF_RETURN_IF_ERROR(tsl::Env::Default()->NewWritableFile(
-          *trace_events_sstable_path, &trace_events_file));
-      std::unique_ptr<tsl::WritableFile> trace_events_metadata_file;
-      TF_RETURN_IF_ERROR(tsl::Env::Default()->NewWritableFile(
-          *trace_events_metadata_sstable_path, &trace_events_metadata_file));
-      std::unique_ptr<tsl::WritableFile> trace_events_prefix_trie_file;
-      TF_RETURN_IF_ERROR(tsl::Env::Default()->NewWritableFile(
-          *trace_events_prefix_trie_sstable_path,
-          &trace_events_prefix_trie_file));
-      auto converter_fn =
-          [&](const tsl::profiler::XEventVisitor& event_visitor,
-              const tensorflow::profiler::TraceEventLite& lite_event,
-              absl::flat_hash_map<uint64_t, std::string>* local_name_table,
-              tensorflow::profiler::TraceEvent* full_event,
-              google::protobuf::Arena* arena) -> absl::Status {
-        ConvertLiteTraceEventToFullTraceEvent(event_visitor, lite_event,
-                                              lite_container, local_name_table,
-                                              full_event, arena);
-        return absl::OkStatus();
-      };
-      TF_RETURN_IF_ERROR(StoreLiteEventsAsLevelDbTables(
-          &lite_container, converter_fn, trace_events_file,
-          trace_events_metadata_file, trace_events_prefix_trie_file));
+      TF_RETURN_IF_ERROR(Map(session_snapshot, host_name, *xspace).status());
       LOG(INFO) << "Preprocessing done for host " << i
                 << ". Duration: " << absl::Now() - preprocess_start_time
                 << " session_id: " << session_id;
@@ -198,7 +166,7 @@ absl::StatusOr<std::string> StreamingTraceViewerProcessor::Map(
 
 absl::StatusOr<std::string> StreamingTraceViewerProcessor::Map(
     const SessionSnapshot& session_snapshot, const std::string& hostname,
-    const XSpace& xspace) {
+    XSpace& xspace) {
   std::optional<std::string> trace_events_sstable_path =
       session_snapshot.MakeHostDataFilePath(
           tensorflow::profiler::StoredDataType::TRACE_LEVELDB, hostname);
@@ -220,18 +188,17 @@ absl::StatusOr<std::string> StreamingTraceViewerProcessor::Map(
   }
 
   if (!tsl::Env::Default()->FileExists(*trace_events_sstable_path).ok()) {
-    XSpace temp_xspace = xspace;
-    tensorflow::profiler::PreprocessSingleHostXSpace(&temp_xspace,
+    tensorflow::profiler::PreprocessSingleHostXSpace(&xspace,
                                                      /*step_grouping=*/true,
                                                      /*derived_timeline=*/true);
     tensorflow::profiler::TraceOptions profiler_trace_options =
         TraceOptionsFromToolOptions(options_);
     if (profiler_trace_options.enable_legacy_dcn) {
-      tensorflow::profiler::ProcessMegascaleDcn(&temp_xspace);
+      tensorflow::profiler::ProcessMegascaleDcn(&xspace);
     }
 
     TraceEventLiteContainer lite_container;
-    ConvertXSpaceToLiteTraceEventsContainer(hostname, temp_xspace,
+    ConvertXSpaceToLiteTraceEventsContainer(hostname, xspace,
                                             &lite_container);
     std::unique_ptr<tsl::WritableFile> trace_events_file;
     TF_RETURN_IF_ERROR(tsl::Env::Default()->NewWritableFile(
@@ -259,6 +226,13 @@ absl::StatusOr<std::string> StreamingTraceViewerProcessor::Map(
         trace_events_metadata_file, trace_events_prefix_trie_file));
   }
   return *trace_events_sstable_path;
+}
+
+absl::StatusOr<std::string> StreamingTraceViewerProcessor::Map(
+    const SessionSnapshot& session_snapshot, const std::string& hostname,
+    const XSpace& xspace) {
+  XSpace temp_xspace = xspace;
+  return Map(session_snapshot, hostname, temp_xspace);
 }
 
 namespace {

@@ -2,8 +2,10 @@
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_TIMELINE_H_
 
 #include <cstdint>
+#include <deque>
 #include <limits>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -101,11 +103,13 @@ struct Group {
   int nesting_level = 0;
   bool expanded = false;
 
-  // Parent index in groups vector, or -1 for top-level processes.
-  int parent_index = -1;
-  // List of child process/thread indices in the groups vector.
-  // Typically 2-10 children per process group.
-  std::vector<int> child_indices = {};
+  Group* parent = nullptr;
+  Group* prev_sibling = nullptr;
+  Group* next_sibling = nullptr;
+
+  Group* first_child = nullptr;
+  // For fast append.
+  Group* last_child = nullptr;
 
   // Stable index in the original sequential order.
   int original_index = -1;
@@ -121,7 +125,79 @@ struct Group {
   mutable Pixel height = 0.0f;
   // Indicates if the track is visible (not hidden by a collapsed parent).
   mutable bool visible = true;
+
+  void AddChild(Group* child);
+  void Unlink();
+  void InsertBefore(Group* child, Group* before);
+  void InsertAfter(Group* child, Group* after);
 };
+
+// Tree manipulation helpers
+inline void AppendGroup(Group* parent, Group* child) {
+  if (parent == nullptr || child == nullptr) return;
+  child->parent = parent;
+  child->prev_sibling = parent->last_child;
+  child->next_sibling = nullptr;
+  if (parent->last_child != nullptr) {
+    parent->last_child->next_sibling = child;
+  } else {
+    parent->first_child = child;
+  }
+  parent->last_child = child;
+  parent->has_children = true;
+}
+
+inline void PopGroup(Group* group) {
+  if (group == nullptr) return;
+  Group* parent = group->parent;
+  if (group->prev_sibling != nullptr) {
+    group->prev_sibling->next_sibling = group->next_sibling;
+  } else if (parent != nullptr && parent->first_child == group) {
+    parent->first_child = group->next_sibling;
+  }
+  if (group->next_sibling != nullptr) {
+    group->next_sibling->prev_sibling = group->prev_sibling;
+  } else if (parent != nullptr && parent->last_child == group) {
+    parent->last_child = group->prev_sibling;
+  }
+  if (parent != nullptr && parent->first_child == nullptr) {
+    parent->has_children = false;
+  }
+  group->parent = nullptr;
+  group->prev_sibling = nullptr;
+  group->next_sibling = nullptr;
+}
+
+inline void Group::AddChild(Group* child) { AppendGroup(this, child); }
+inline void Group::Unlink() { PopGroup(this); }
+inline void Group::InsertBefore(Group* child, Group* before) {
+  if (!child || !before || before->parent != this) return;
+  child->Unlink();
+  child->parent = this;
+  child->next_sibling = before;
+  child->prev_sibling = before->prev_sibling;
+  if (before->prev_sibling) {
+    before->prev_sibling->next_sibling = child;
+  } else {
+    first_child = child;
+  }
+  before->prev_sibling = child;
+  has_children = true;
+}
+inline void Group::InsertAfter(Group* child, Group* after) {
+  if (!child || !after || after->parent != this) return;
+  child->Unlink();
+  child->parent = this;
+  child->prev_sibling = after;
+  child->next_sibling = after->next_sibling;
+  if (after->next_sibling) {
+    after->next_sibling->prev_sibling = child;
+  } else {
+    last_child = child;
+  }
+  after->next_sibling = child;
+  has_children = true;
+}
 
 struct FlowLine {
   Microseconds source_ts = 0.0;
@@ -152,7 +228,154 @@ struct FlameChartTimelineData {
   std::vector<ProcessId> entry_pids;
   std::vector<ThreadId> entry_tids;
   std::vector<absl::flat_hash_map<std::string, std::string>> entry_args;
-  std::vector<Group> groups;
+
+  // Backing storage for groups
+  std::deque<Group> groups;
+
+  // Storage for section headers
+  std::vector<std::unique_ptr<Group>> section_headers_storage;
+
+  Group* all_section_group = nullptr;
+  Group* hidden_section_group = nullptr;
+  Group* pinned_section_group = nullptr;
+
+  // Root group that is used for iterating through the group tree.
+  // Children are the section header groups (pinned, hidden, all).
+  Group* root_group = nullptr;
+
+  FlameChartTimelineData() {
+    InitSectionGroups();
+  }
+
+  FlameChartTimelineData(FlameChartTimelineData&&) noexcept = default;
+  FlameChartTimelineData& operator=(
+      FlameChartTimelineData&&) noexcept = default;
+
+  FlameChartTimelineData(const FlameChartTimelineData& other) {
+    CopyFrom(other);
+  }
+
+  FlameChartTimelineData& operator=(const FlameChartTimelineData& other) {
+    if (this != &other) {
+      CopyFrom(other);
+    }
+    return *this;
+  }
+
+  void InitSectionGroups() {
+    section_headers_storage.clear();
+    section_headers_storage.reserve(4);
+
+    auto root = std::make_unique<Group>();
+    root->name = "Root";
+    root_group = root.get();
+    section_headers_storage.push_back(std::move(root));
+
+    auto hidden = std::make_unique<Group>();
+    hidden->name = kHiddenHeaderName;
+    hidden->nesting_level = kHeaderNestingLevel;
+    hidden->expanded = false;
+    hidden_section_group = hidden.get();
+    section_headers_storage.push_back(std::move(hidden));
+
+    auto pinned = std::make_unique<Group>();
+    pinned->name = kPinnedHeaderName;
+    pinned->nesting_level = kHeaderNestingLevel;
+    pinned->expanded = true;
+    pinned_section_group = pinned.get();
+    section_headers_storage.push_back(std::move(pinned));
+
+    auto all = std::make_unique<Group>();
+    all->name = kAllHeaderName;
+    all->nesting_level = kHeaderNestingLevel;
+    all->expanded = true;
+    all_section_group = all.get();
+    section_headers_storage.push_back(std::move(all));
+
+    AppendGroup(root_group, hidden_section_group);
+    AppendGroup(root_group, pinned_section_group);
+    AppendGroup(root_group, all_section_group);
+  }
+
+  void CopyFrom(const FlameChartTimelineData& other) {
+    entry_levels = other.entry_levels;
+    entry_total_times = other.entry_total_times;
+    entry_self_times = other.entry_self_times;
+    entry_start_times = other.entry_start_times;
+    entry_names = other.entry_names;
+    entry_event_ids = other.entry_event_ids;
+    entry_pids = other.entry_pids;
+    entry_tids = other.entry_tids;
+    entry_args = other.entry_args;
+    events_by_level = other.events_by_level;
+    flow_lines = other.flow_lines;
+    flow_ids_by_event_id = other.flow_ids_by_event_id;
+    flow_lines_by_flow_id = other.flow_lines_by_flow_id;
+
+    groups = other.groups;
+    InitSectionGroups();
+
+    auto map_node = [&](const Group* other_node) -> Group* {
+      if (!other_node) return nullptr;
+      if (other_node == other.root_group) return root_group;
+      if (other_node == other.hidden_section_group) return hidden_section_group;
+      if (other_node == other.pinned_section_group) return pinned_section_group;
+      if (other_node == other.all_section_group) return all_section_group;
+      for (size_t i = 0; i < other.groups.size(); ++i) {
+        if (&other.groups[i] == other_node) {
+          return &groups[i];
+        }
+      }
+      return nullptr;
+    };
+
+    auto remap = [&](Group* node, const Group* other_node) {
+      node->parent = map_node(other_node->parent);
+      node->first_child = map_node(other_node->first_child);
+      node->last_child = map_node(other_node->last_child);
+      node->next_sibling = map_node(other_node->next_sibling);
+      node->prev_sibling = map_node(other_node->prev_sibling);
+    };
+
+    if (other.root_group) remap(root_group, other.root_group);
+    if (other.hidden_section_group) {
+      remap(hidden_section_group, other.hidden_section_group);
+    }
+    if (other.pinned_section_group) {
+      remap(pinned_section_group, other.pinned_section_group);
+    }
+    if (other.all_section_group) {
+      remap(all_section_group, other.all_section_group);
+    }
+    for (size_t i = 0; i < groups.size(); ++i) {
+      remap(&groups[i], &other.groups[i]);
+    }
+
+    counter_data_by_group_ptr.clear();
+    for (const auto& [other_group_ptr, counter_data] :
+         other.counter_data_by_group_ptr) {
+      Group* mapped_group = map_node(other_group_ptr);
+      counter_data_by_group_ptr[mapped_group] = counter_data;
+    }
+  }
+
+  std::array<Group*, 3> roots() {
+    return {hidden_section_group, pinned_section_group, all_section_group};
+  }
+  std::array<const Group*, 3> roots() const {
+    return {hidden_section_group, pinned_section_group, all_section_group};
+  }
+
+  bool is_empty() const {
+    if (!all_section_group || !hidden_section_group || !pinned_section_group) {
+      return groups.empty();
+    }
+    return all_section_group->first_child == nullptr &&
+           hidden_section_group->first_child == nullptr &&
+           pinned_section_group->first_child == nullptr &&
+           groups.empty();
+  }
+
   // A map from level to a list of event indices at that level.
   // This is used to quickly draw events at a given level.
   // Technically, we can calculate this in the Timeline class, but doing it here
@@ -165,11 +388,11 @@ struct FlameChartTimelineData {
   absl::flat_hash_map<EventId, std::vector<std::string>> flow_ids_by_event_id;
   // Map from flow_id to list of flow lines that belong to this flow.
   absl::flat_hash_map<std::string, std::vector<FlowLine>> flow_lines_by_flow_id;
-  // A map from group index to counter data.
-  // We use group index instead of PID as the key because a process (PID) can
-  // have multiple counter tracks associated with it. The group index uniquely
+  // A map from group ptr to counter data.
+  // We use group ptr instead of PID as the key because a process (PID) can
+  // have multiple counter tracks associated with it. The group ptr uniquely
   // identifies each track within the `groups` vector.
-  std::map<int, CounterData> counter_data_by_group_index;
+  std::map<const Group*, CounterData> counter_data_by_group_ptr;
 };
 
 // Renders an interactive timeline visualization for trace events, handling
@@ -288,10 +511,24 @@ class Timeline {
   }
   void set_group_offsets_for_test(const std::vector<Pixel>& offsets) {
     group_offsets_ = offsets;
+    for (size_t i = 0;
+         i < flattened_groups_.size() && i < offsets.size(); ++i) {
+      if (flattened_groups_[i]) {
+        flattened_groups_[i]->offset = offsets[i];
+      }
+    }
   }
   void set_group_heights_for_test(const std::vector<Pixel>& heights) {
     group_heights_ = heights;
+    for (size_t i = 0;
+         i < flattened_groups_.size() && i < heights.size(); ++i) {
+      if (flattened_groups_[i]) {
+        flattened_groups_[i]->height = heights[i];
+      }
+    }
   }
+  const std::vector<Pixel>& group_offsets() const { return group_offsets_; }
+  const std::vector<Pixel>& group_heights() const { return group_heights_; }
   void set_label_width_for_test(Pixel width) {
     label_width_ = width;
   }
@@ -379,7 +616,7 @@ class Timeline {
   const FlameChartTimelineData& timeline_data() const { return timeline_data_; }
 
   int selected_event_index() const { return selected_event_index_; }
-  int selected_group_index() const { return selected_group_index_; }
+  const Group* selected_group() const { return selected_group_; }
   int selected_counter_index() const { return selected_counter_index_; }
 
   const std::vector<Pixel>& GetVisibleLevelOffsets() const {
@@ -525,7 +762,7 @@ class Timeline {
   // at the given index. If the given group is the last one, returns the total
   // number of levels.
   static int GetNextGroupStartLevel(const FlameChartTimelineData& data,
-                                    int group_index);
+                                    const Group* group);
 
   // Checks if the visible time range is close to the edge of the loaded data
   // range. If the user pans or zooms to an area where data might soon be
@@ -560,6 +797,16 @@ class Timeline {
     if (idx >= 0 && idx < static_cast<int>(group_visible_.size())) {
       group_visible_[idx] = visible;
     }
+    if (idx >= 0 && idx < static_cast<int>(flattened_groups_.size()) &&
+        flattened_groups_[idx]) {
+      flattened_groups_[idx]->visible = visible;
+    }
+  }
+  int selected_group_index() const {
+    return selected_group_ ? selected_group_->original_index : -1;
+  }
+  void set_selected_group_for_test(const Group* group) {
+    selected_group_ = group;
   }
   void set_header_all_expanded_for_test(bool expanded) {
     header_all_expanded_ = expanded;
@@ -598,13 +845,13 @@ class Timeline {
   virtual void Zoom(float zoom_factor, Microseconds pivot);
 
  protected:
-  virtual void DrawEventsForLevel(int group_index,
+  virtual void DrawEventsForLevel(Group* group,
                                   absl::Span<const int> event_indices,
                                   double px_per_time_unit, int level_in_group,
                                   const ImVec2& pos, const ImVec2& max,
                                   Pixel event_height, Pixel padding_bottom);
 
-  virtual void DrawGroup(int group_index, double px_per_time_unit_val,
+  virtual void DrawGroup(Group* group, double px_per_time_unit_val,
                          Pixel scroll_y, Pixel window_height);
 
   // Finds the index of the first visible ancestor (or the group itself if it is
@@ -618,17 +865,18 @@ class Timeline {
   // Returns the cached group visibility array.
   const std::vector<bool>& group_visible() const { return group_visible_; }
 
-  void DrawEvent(int group_index, int event_index, const EventRect& rect,
+  void DrawEvent(Group* group, int event_index, const EventRect& rect,
                  ImDrawList* absl_nonnull draw_list);
 
-  bool DrawHideButton(int group_index, Pixel height, bool is_track_hidden);
-  bool DrawPinButton(int group_index, Pixel height, bool is_pinned);
+  bool DrawHideButton(const Group* group, Pixel height, bool is_track_hidden);
+  bool DrawPinButton(const Group* group, Pixel height, bool is_pinned);
 
  private:
   absl::flat_hash_set<int> matching_event_indices_;
 
   void NavigateToSearchResult(const SearchResult& result);
   void BackfillGroupLevelCount(FlameChartTimelineData& data);
+  void EnsureTreeStructure(FlameChartTimelineData& data);
 
   // Applies snapping to selected time ranges for the given range.
   void ApplySnapping(TimeRange& range);
@@ -637,6 +885,22 @@ class Timeline {
   void FindNearestEventEdge(Microseconds time, Microseconds threshold,
                             Microseconds& best_diff, Microseconds& snapped_time,
                             bool& snapped) const;
+
+  // Finds the group that contains the given event level.
+  const Group* SearchForEventHoveredGroup(int event_level) const;
+  const Group* SearchForEventHoveredGroup(const Group* group,
+                                          int event_level) const;
+
+  // Navigates through groups in timeline data, retrieving data based on
+  // contract
+  // in provided callback.
+
+  // We want to be able to retrieve a group for hovered or selected events,
+  // append groups to the flattened render list, retrieve groups by
+  // an anchor group key, etc.
+  // Should use Template metaprogramming to make this generic.
+  void TraverseGroups(const std::function<bool(const Group&)>& callback) const;
+
 
   // Emits an event selected event to JS side.
   void EmitEventSelected(int event_index);
@@ -667,7 +931,7 @@ class Timeline {
 
   // Draws a standard track row in the timeline.
   // Returns true if layout update is needed.
-  bool DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
+  bool DrawTrackRow(Group* group, const ImVec2& tracks_start_pos,
                     const ImVec2& tracks_start_screen_pos,
                     Pixel content_region_avail_width,
                     double px_per_time_unit_val, Pixel scroll_y,
@@ -675,20 +939,20 @@ class Timeline {
 
   // Handles clicking on the timeline area of a process track header to
   // expand/collapse. Returns true if layout update is needed.
-  bool HandleProcessTrackHeaderClick(int group_index, Group& group,
+  bool HandleProcessTrackHeaderClick(Group& group,
                                      const ImVec2& tracks_start_screen_pos,
                                      Pixel content_region_avail_width);
 
  protected:
   // Handles drag-and-drop source/target and
   // item hover check for a track label row.
-  bool HandleTrackDragAndDrop(int group_index, Group& group,
+  bool HandleTrackDragAndDrop(Group& group,
                               const ImVec2& tracks_start_pos,
                               const ImVec2& tracks_start_screen_pos,
                               Pixel group_height, Pixel hover_zone_width);
   // Handles track hover, drag-and-drop, and reorder tooltip for a track row.
   void HandleTrackDragAndDropHoverAndFeedback(
-      int group_index, Group& group, const ImVec2& tracks_start_pos,
+      Group& group, const ImVec2& tracks_start_pos,
       const ImVec2& tracks_start_screen_pos, Pixel group_height);
 
  private:
@@ -702,19 +966,19 @@ class Timeline {
                      ImDrawList* absl_nonnull draw_list,
                      ImU32 text_color) const;
 
-  void DrawCounterTooltip(int group_index, const CounterData& counter_data,
+  void DrawCounterTooltip(Group* group, const CounterData& data,
                           double px_per_time_unit_val, const ImVec2& pos,
                           Pixel height, float y_ratio, ImDrawList* draw_list);
 
-  void DrawCounterTrack(int group_index, const CounterData& counter_data,
+  void DrawCounterTrack(Group* group, const CounterData& data,
                         double px_per_time_unit_val, const ImVec2& pos,
                         Pixel height);
 
-  bool DrawTrackManagementButtons(int group_index, const Group& group,
+  bool DrawTrackManagementButtons(const Group* group,
                                   const ImVec2& tracks_start_pos,
                                   Pixel centereable_height);
 
-  void DrawGroupPreview(int group_index, double px_per_time_unit_val);
+  void DrawGroupPreview(const Group* group, double px_per_time_unit_val);
   void DrawFlameGroupPreview(int start_level, int end_level,
                              double px_per_time_unit_val, const ImVec2& pos,
                              Pixel group_height, ImDrawList* draw_list);
@@ -870,9 +1134,10 @@ class Timeline {
   // panning and zooming.
   TimeRange data_time_range_ = TimeRange::Zero();
 
-  // The index of the group of the currently selected event (flame or counter),
-  // or -1 if no event is selected.
-  int selected_group_index_ = -1;
+  // The pointer of the group of the currently selected event
+  // (flame or counter),
+  // or `nullptr` if no event is selected.
+  const Group* selected_group_ = nullptr;
   // The index of the currently selected event, or -1 if no event is selected.
   int selected_event_index_ = -1;
   // The index of the currently selected counter event in the counter data, or
@@ -929,7 +1194,7 @@ class Timeline {
   std::optional<ImVec2> selection_start_pos_;
   std::optional<ImVec2> selection_end_pos_;
   std::vector<int> selected_event_indices_;
-  std::vector<std::pair<int, int>> selected_counter_points_;
+  std::vector<std::pair<const Group*, int>> selected_counter_points_;
 
   Microseconds drag_start_time_ = 0.0;
   std::optional<TimeRange> current_selected_time_range_;

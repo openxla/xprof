@@ -58,13 +58,19 @@ void Timeline::DrawTimelinePlayerSync() {
     payload["duration"] = (double)visible_duration;
     payload["isPlaying"] = is_playing_;
 
-    std::vector<int> level_to_group(timeline_data_.events_by_level.size(), -1);
-    for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
-      for (int l = timeline_data_.groups[i].start_level;
-           l < level_to_group.size(); ++l) {
-        if (l >= 0) level_to_group[l] = i;
+    std::vector<const Group*> level_to_group(
+        timeline_data_.events_by_level.size(), nullptr);
+    TraverseGroups([&](const Group& g) {
+      if (g.type == Group::Type::kFlame) {
+        int next_start = GetNextGroupStartLevel(timeline_data_, &g);
+        for (int l = g.start_level;
+             l < next_start && l < static_cast<int>(level_to_group.size());
+             ++l) {
+          if (l >= 0) level_to_group[l] = &g;
+        }
       }
-    }
+      return false;
+    });
 
     std::vector<EventData> active_events;
     for (int level = 0; level < timeline_data_.events_by_level.size();
@@ -74,9 +80,9 @@ void Timeline::DrawTimelinePlayerSync() {
         double duration = timeline_data_.entry_total_times[event_idx];
         if (current_play_time_ >= start &&
             current_play_time_ <= start + duration) {
-          int group_index = level_to_group[level];
-          std::string g_name = group_index != -1
-                                   ? timeline_data_.groups[group_index].name
+          const Group* group_ptr = level_to_group[level];
+          std::string g_name = group_ptr != nullptr
+                                   ? group_ptr->name
                                    : "Unknown";
           if (should_broadcast) {
             EventData ev;
@@ -95,8 +101,9 @@ void Timeline::DrawTimelinePlayerSync() {
     payload["events"] = active_events;
 
     std::vector<EventData> active_counters;
-    for (const auto& [idx, counter] :
-         timeline_data_.counter_data_by_group_index) {
+    for (const auto& [group_ptr, counter] :
+         timeline_data_.counter_data_by_group_ptr) {
+      if (!group_ptr) continue;
       if (counter.timestamps.empty()) continue;
 
       // Ensure playhead intersects the valid drawn bounding area of the counter
@@ -118,19 +125,19 @@ void Timeline::DrawTimelinePlayerSync() {
 
       if (should_broadcast) {
         EventData c_data;
-        c_data["name"] = timeline_data_.groups[idx].name;
+        c_data["name"] = group_ptr->name;
         c_data["min"] = counter.min_value;
         c_data["max"] = counter.max_value;
         c_data["value"] = val;
         active_counters.push_back(c_data);
       }
 
-      if (idx < group_visible_.size() && group_visible_[idx]) {
+      if (group_ptr->visible) {
         const double value_range = counter.max_value - counter.min_value;
         double y_ratio =
             value_range == 0 ? 0 : kCounterTrackHeight / value_range;
 
-        Pixel group_y = tracks_start_screen_pos_.y + group_offsets_[idx];
+        Pixel group_y = tracks_start_screen_pos_.y + group_ptr->offset;
         Pixel y_base = group_y + kCounterTrackHeight;
 
         Pixel counter_y = y_base - (val - counter.min_value) * y_ratio;
@@ -145,7 +152,7 @@ void Timeline::DrawTimelinePlayerSync() {
 
           // Render actual value precisely formatted
           std::string text =
-              absl::StrCat(timeline_data_.groups[idx].name, ": ", val);
+              absl::StrCat(group_ptr->name, ": ", val);
           ImVec2 text_size = ImGui::CalcTextSize(text.c_str());
 
           ImVec2 rect_min(x + 8, counter_y - text_size.y / 2.0f - 2);

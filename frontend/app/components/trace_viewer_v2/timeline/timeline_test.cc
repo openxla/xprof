@@ -66,27 +66,27 @@ class MockTimeline : public Timeline {
   MOCK_METHOD(void, Zoom, (float zoom_factor, double pivot), (override));
   MOCK_METHOD(void, Scroll, (Pixel pixel_amount), (override));
   MOCK_METHOD(void, DrawGroup,
-              (int group_index, double px_per_time_unit_val, Pixel scroll_y,
+              (Group* group, double px_per_time_unit_val, Pixel scroll_y,
                Pixel window_height),
               (override));
   MOCK_METHOD(void, DrawEventsForLevel,
-              (int group_index, absl::Span<const int> event_indices,
+              (Group* group, absl::Span<const int> event_indices,
                double px_per_time_unit, int level_in_group, const ImVec2& pos,
                const ImVec2& max, Pixel event_height, Pixel padding_bottom),
               (override));
 
   // Helpers to call base class protected methods from tests/lambdas.
-  void DrawGroupBase(int group_index, double px_per_time_unit_val,
+  void DrawGroupBase(Group* group, double px_per_time_unit_val,
                      Pixel scroll_y, Pixel window_height) {
-    Timeline::DrawGroup(group_index, px_per_time_unit_val, scroll_y,
+    Timeline::DrawGroup(group, px_per_time_unit_val, scroll_y,
                         window_height);
   }
-  void DrawEventsForLevelBase(int group_index,
+  void DrawEventsForLevelBase(Group* group,
                               absl::Span<const int> event_indices,
                               double px_per_time_unit, int level_in_group,
                               const ImVec2& pos, const ImVec2& max,
                               Pixel event_height, Pixel padding_bottom) {
-    Timeline::DrawEventsForLevel(group_index, event_indices, px_per_time_unit,
+    Timeline::DrawEventsForLevel(group, event_indices, px_per_time_unit,
                                  level_in_group, pos, max, event_height,
                                  padding_bottom);
   }
@@ -98,15 +98,43 @@ class MockTimeline : public Timeline {
 
   void CallDrawEvent(int group_index, int event_index, const EventRect& rect,
                      ImDrawList* absl_nonnull draw_list) {
-    DrawEvent(group_index, event_index, rect, draw_list);
+    Group* group =
+        (group_index >= 0 &&
+         group_index < static_cast<int>(timeline_data().groups.size()))
+            ? const_cast<Group*>(&timeline_data().groups[group_index])
+            : nullptr;
+    DrawEvent(group, event_index, rect, draw_list);
+  }
+  void CallDrawEvent(Group* group, int event_index, const EventRect& rect,
+                     ImDrawList* absl_nonnull draw_list) {
+    DrawEvent(group, event_index, rect, draw_list);
   }
 
   bool CallDrawPinButton(int group_index, Pixel height, bool is_pinned) {
-    return DrawPinButton(group_index, height, is_pinned);
+    if (group_index >= 0 &&
+        group_index < static_cast<int>(timeline_data().groups.size())) {
+      return DrawPinButton(&timeline_data().groups[group_index], height,
+                           is_pinned);
+    }
+    static const Group kDefaultGroup{.name = "group"};
+    return DrawPinButton(&kDefaultGroup, height, is_pinned);
+  }
+  bool CallDrawPinButton(const Group* group, Pixel height, bool is_pinned) {
+    return DrawPinButton(group, height, is_pinned);
   }
 
   bool CallDrawHideButton(int group_index, Pixel height, bool is_track_hidden) {
-    return DrawHideButton(group_index, height, is_track_hidden);
+    if (group_index >= 0 &&
+        group_index < static_cast<int>(timeline_data().groups.size())) {
+      return DrawHideButton(&timeline_data().groups[group_index], height,
+                            is_track_hidden);
+    }
+    static const Group kDefaultGroup{.name = "group"};
+    return DrawHideButton(&kDefaultGroup, height, is_track_hidden);
+  }
+  bool CallDrawHideButton(const Group* group, Pixel height,
+                          bool is_track_hidden) {
+    return DrawHideButton(group, height, is_track_hidden);
   }
 
   const absl::flat_hash_set<std::string>& GetPinnedTrackNames() const {
@@ -134,7 +162,7 @@ class MockTimeline : public Timeline {
                                   const ImVec2& tracks_start_screen_pos,
                                   Pixel group_height,
                                   Pixel hover_zone_width) {
-    return HandleTrackDragAndDrop(group_index, group, tracks_start_pos,
+    return HandleTrackDragAndDrop(group, tracks_start_pos,
                                   tracks_start_screen_pos, group_height,
                                   hover_zone_width);
   }
@@ -143,25 +171,25 @@ class MockTimeline : public Timeline {
       int group_index, Group& group, const ImVec2& tracks_start_pos,
       const ImVec2& tracks_start_screen_pos, Pixel group_height) {
     HandleTrackDragAndDropHoverAndFeedback(
-        group_index, group, tracks_start_pos, tracks_start_screen_pos,
+        group, tracks_start_pos, tracks_start_screen_pos,
         group_height);
   }
 
  private:
   void SetupDefaultMockBehavior() {
     ON_CALL(*this, DrawGroup)
-        .WillByDefault([this](int group_index, double px_per_time_unit_val,
+        .WillByDefault([this](Group* group, double px_per_time_unit_val,
                               Pixel scroll_y, Pixel window_height) {
-          this->DrawGroupBase(group_index, px_per_time_unit_val, scroll_y,
+          this->DrawGroupBase(group, px_per_time_unit_val, scroll_y,
                               window_height);
         });
     ON_CALL(*this, DrawEventsForLevel)
-        .WillByDefault([this](int group_index,
+        .WillByDefault([this](Group* group,
                               absl::Span<const int> event_indices,
                               double px_per_time_unit, int level_in_group,
                               const ImVec2& pos, const ImVec2& max,
                               Pixel event_height, Pixel padding_bottom) {
-          this->DrawEventsForLevelBase(group_index, event_indices,
+          this->DrawEventsForLevelBase(group, event_indices,
                                        px_per_time_unit, level_in_group, pos,
                                        max, event_height, padding_bottom);
         });
@@ -221,15 +249,10 @@ TEST(TimelineTest, GetNextGroupStartLevelOutOfBounds) {
   data.groups.push_back(group);
 
   // In-bounds should return start_level + level_count = 3
-  EXPECT_EQ(Timeline::GetNextGroupStartLevel(data, 0), 3);
+  EXPECT_EQ(Timeline::GetNextGroupStartLevel(data, &data.groups[0]), 3);
 
-  // Out-of-bounds (negative index) should safely
-  // return events_by_level size = 5
-  EXPECT_EQ(Timeline::GetNextGroupStartLevel(data, -1), 5);
-
-  // Out-of-bounds (too large index) should safely
-  // return events_by_level size = 5
-  EXPECT_EQ(Timeline::GetNextGroupStartLevel(data, 1), 5);
+  // Out-of-bounds (nullptr) should safely return events_by_level size = 5
+  EXPECT_EQ(Timeline::GetNextGroupStartLevel(data, nullptr), 5);
 }
 
 TEST(TimelineTest, CalculateEventRect_EventCompletelyOutsideLeft) {
@@ -1328,22 +1351,12 @@ class TimelineImGuiTestFixture : public Test {
     io.DeltaTime = 0.1f;
     // The font atlas must be built before ImGui::NewFrame() is called.
     io.Fonts->Build();
-    timeline_.SetTimelineData(
-        {{},  // Pass ColorPalette::Default() to constructor
-         {},
-         {},
-         {},
-         {},
-         {},
-         {},
-         {},
-         {},
-         {{.name = "group",
-           .start_level = 0,
-           .nesting_level = kThreadNestingLevel,
-           .expanded = true}},
-         {},
-         {}});
+    FlameChartTimelineData data;
+    data.groups.push_back(Group{.name = "group",
+                                .start_level = 0,
+                                .nesting_level = kThreadNestingLevel,
+                                .expanded = true});
+    timeline_.SetTimelineData(std::move(data));
   }
 
   void TearDown() override { ImGui::DestroyContext(); }
@@ -3296,7 +3309,7 @@ TEST_F(MockTimelineImGuiFixture,
   ImGuiIO& io = ImGui::GetIO();
 
   // Set up parameters for DrawEventsForLevelBase
-  int group_index = 0;
+  Group* group = const_cast<Group*>(&timeline_.timeline_data().groups[0]);
   std::vector<int> event_indices = {0};
   double px_per = 1.0;
   // Let TimeToScreenX(10.0, pos.x, px_per) = pos.x + 10.0 = 100.0
@@ -3312,7 +3325,7 @@ TEST_F(MockTimelineImGuiFixture,
   ImDrawList* draw_list = window->DrawList;
   const int initial_vtx_size = draw_list->VtxBuffer.Size;
 
-  timeline_.DrawEventsForLevelBase(group_index, event_indices, px_per, 0, pos,
+  timeline_.DrawEventsForLevelBase(group, event_indices, px_per, 0, pos,
                                    max, event_height, padding_bottom);
 
   int hover_mask_vertices = 0;
@@ -3352,7 +3365,7 @@ TEST_F(MockTimelineImGuiFixture,
   timeline_.RevealEvent(0);
 
   // Set up parameters
-  int group_index = 0;
+  Group* group = const_cast<Group*>(&timeline_.timeline_data().groups[0]);
   std::vector<int> event_indices = {0};
   double px_per = 1.0;
   ImVec2 pos(90.0f, 100.0f);
@@ -3378,7 +3391,7 @@ TEST_F(MockTimelineImGuiFixture,
     ImDrawList* draw_list = window->DrawList;
     const int initial_vtx_size = draw_list->VtxBuffer.Size;
 
-    timeline_.DrawEventsForLevelBase(group_index, event_indices, px_per, 0, pos,
+    timeline_.DrawEventsForLevelBase(group, event_indices, px_per, 0, pos,
                                      max, event_height, padding_bottom);
 
     float max_y = -10000.0f;
@@ -3451,18 +3464,18 @@ TEST_F(MockTimelineImGuiFixture,
   // Vertical culling should call DrawGroup and DrawEventsForLevel.
   EXPECT_CALL(timeline_, DrawGroup(_, _, _, _))
       .Times(::testing::AnyNumber())
-      .WillRepeatedly([&](int group_index, double px_per_time_unit_val,
+      .WillRepeatedly([&](Group* group, double px_per_time_unit_val,
                           Pixel scroll_y, Pixel window_height) {
-        timeline_.DrawGroupBase(group_index, px_per_time_unit_val, scroll_y,
+        timeline_.DrawGroupBase(group, px_per_time_unit_val, scroll_y,
                                 window_height);
       });
   EXPECT_CALL(timeline_, DrawEventsForLevel(_, _, _, _, _, _, _, _))
       .Times(::testing::AnyNumber())
-      .WillRepeatedly([&](int group_index, absl::Span<const int> event_indices,
+      .WillRepeatedly([&](Group* group, absl::Span<const int> event_indices,
                           double px_per_time_unit, int level_in_group,
                           const ImVec2& pos, const ImVec2& max,
                           Pixel event_height, Pixel padding_bottom) {
-        timeline_.DrawEventsForLevelBase(group_index, event_indices,
+        timeline_.DrawEventsForLevelBase(group, event_indices,
                                          px_per_time_unit, level_in_group, pos,
                                          max, event_height, padding_bottom);
       });
@@ -3527,9 +3540,9 @@ TEST_F(MockTimelineImGuiFixture,
   // call too.
   EXPECT_CALL(timeline_, DrawGroup(_, _, _, _))
       .Times(::testing::AnyNumber())
-      .WillRepeatedly([&](int group_index, double px_per_time_unit_val,
+      .WillRepeatedly([&](Group* group, double px_per_time_unit_val,
                           Pixel scroll_y, Pixel window_height) {
-        timeline_.DrawGroupBase(group_index, px_per_time_unit_val, scroll_y,
+        timeline_.DrawGroupBase(group, px_per_time_unit_val, scroll_y,
                                 window_height);
       });
   EXPECT_CALL(timeline_, DrawEventsForLevel(_, _, _, _, _, _, _, _))
@@ -4340,7 +4353,7 @@ TEST_F(RealTimelineImGuiFixture, ClickCounterEventSetsSelectionIndices) {
   counter_data.values = {0.0, 10.0, 5.0};
   counter_data.min_value = 0.0;
   counter_data.max_value = 10.0;
-  data.counter_data_by_group_index[0] = std::move(counter_data);
+  data.counter_data_by_group_ptr[&data.groups[0]] = std::move(counter_data);
 
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -4832,7 +4845,7 @@ TEST_F(RealTimelineImGuiFixture, DragOverCounterPointDoesNotSelectEvent) {
   counter_data.values = {0.0, 10.0, 5.0};
   counter_data.min_value = 0.0;
   counter_data.max_value = 10.0;
-  data.counter_data_by_group_index[0] = std::move(counter_data);
+  data.counter_data_by_group_ptr[&data.groups[0]] = std::move(counter_data);
 
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -4926,7 +4939,7 @@ TEST_F(RealTimelineImGuiFixture, DrawCounterTrack) {
   counter_data.values = {0.0, 10.0, 5.0};
   counter_data.min_value = 0.0;
   counter_data.max_value = 10.0;
-  data.counter_data_by_group_index[0] = std::move(counter_data);
+  data.counter_data_by_group_ptr[&data.groups[0]] = std::move(counter_data);
 
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -4966,7 +4979,7 @@ TEST_F(RealTimelineImGuiFixture, DrawCounterTrackConstantValue) {
   counter_data.values = {5.0, 5.0, 5.0};  // Constant value
   counter_data.min_value = 5.0;
   counter_data.max_value = 5.0;
-  data.counter_data_by_group_index[0] = std::move(counter_data);
+  data.counter_data_by_group_ptr[&data.groups[0]] = std::move(counter_data);
 
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -5652,7 +5665,7 @@ TEST_F(RealTimelineImGuiFixture, HoverCounterTrackShowsTooltip) {
   counter_data.values = {0.0, 10.0, 5.0};
   counter_data.min_value = 0.0;
   counter_data.max_value = 10.0;
-  data.counter_data_by_group_index[0] = std::move(counter_data);
+  data.counter_data_by_group_ptr[&data.groups[0]] = std::move(counter_data);
 
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -6230,7 +6243,7 @@ TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
   counter_data.values = {5.0, 5.0};
   counter_data.min_value = 0.0;
   counter_data.max_value = 10.0;
-  data.counter_data_by_group_index[1] = std::move(counter_data);
+  data.counter_data_by_group_ptr[&data.groups[1]] = std::move(counter_data);
 
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -7963,7 +7976,7 @@ TEST_F(TimelineMouseModeSelectTestSuite, FindSelectedEventsSelectsCounters) {
   counter_data.min_value = 1.0;
   counter_data.max_value = 3.0;
 
-  data.counter_data_by_group_index[0] = counter_data;
+  data.counter_data_by_group_ptr[&data.groups[0]] = counter_data;
 
   timeline_.SetTimelineData(std::move(data));
 
@@ -8545,14 +8558,12 @@ TEST_F(RealTimelineImGuiFixture,
                          .start_level = 0,
                          .nesting_level = kProcessNestingLevel,
                          .expanded = true,
-                         .child_indices = {1},
                          .has_children = true});
   data.groups.push_back({.type = Group::Type::kFlame,
                          .name = "Thread",
                          .start_level = 0,
                          .nesting_level = kThreadNestingLevel,
-                         .expanded = true,
-                         .parent_index = 0});
+                         .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -8604,7 +8615,6 @@ TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_SelfCollapse) {
       .start_level = 0,
       .nesting_level = 0,
       .expanded = false,
-      .child_indices = {1},
       .has_children = true,
   });
 
@@ -8615,7 +8625,6 @@ TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_SelfCollapse) {
       .start_level = 1,
       .nesting_level = 1,
       .expanded = true,
-      .parent_index = 0,
       .has_children = true,
   });
 
@@ -8646,7 +8655,6 @@ TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_ParentCollapse) {
       .start_level = 0,
       .nesting_level = 0,
       .expanded = true,
-      .child_indices = {1},
       .has_children = true,
   });
 
@@ -8657,8 +8665,6 @@ TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_ParentCollapse) {
       .start_level = 1,
       .nesting_level = 1,
       .expanded = false,
-      .parent_index = 0,
-      .child_indices = {2},
       .has_children = true,
   });
 
@@ -8669,7 +8675,6 @@ TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_ParentCollapse) {
       .start_level = 2,
       .nesting_level = 2,
       .expanded = true,
-      .parent_index = 1,
       .has_children = false,
   });
 
@@ -8696,7 +8701,6 @@ TEST_F(MockTimelineImGuiFixture,
       .start_level = 0,
       .nesting_level = 0,
       .expanded = true,
-      .child_indices = {1, 3},
       .has_children = true,
   });
 
@@ -8707,8 +8711,6 @@ TEST_F(MockTimelineImGuiFixture,
       .start_level = 1,
       .nesting_level = 1,
       .expanded = false,
-      .parent_index = 0,
-      .child_indices = {2},
       .has_children = true,
   });
 
@@ -8719,7 +8721,6 @@ TEST_F(MockTimelineImGuiFixture,
       .start_level = 2,
       .nesting_level = 2,
       .expanded = true,
-      .parent_index = 1,
       .has_children = false,
   });
 
@@ -8730,7 +8731,6 @@ TEST_F(MockTimelineImGuiFixture,
       .start_level = 3,
       .nesting_level = 1,
       .expanded = true,
-      .parent_index = 0,
       .has_children = false,
   });
 
@@ -9427,19 +9427,9 @@ TEST_F(RealTimelineImGuiFixture, GetGroupTopBottom_RegularGroups) {
   EXPECT_GE(timeline_.GetGroupBottom(group_a), timeline_.GetGroupTop(group_a));
   EXPECT_GE(timeline_.GetGroupTop(group_1), timeline_.GetGroupBottom(group_a));
 
-  // Invalid pointers (null, before start, past the end) should safely return
-  // 0.0f.
+  // Invalid pointers (null) should safely return 0.0f.
   EXPECT_FLOAT_EQ(timeline_.GetGroupTop(nullptr), 0.0f);
   EXPECT_FLOAT_EQ(timeline_.GetGroupBottom(nullptr), 0.0f);
-  EXPECT_FLOAT_EQ(timeline_.GetGroupTop(group_a - 1), 0.0f);
-  EXPECT_FLOAT_EQ(timeline_.GetGroupBottom(group_a - 1), 0.0f);
-  EXPECT_FLOAT_EQ(timeline_.GetGroupTop(groups.data() + groups.size()), 0.0f);
-  EXPECT_FLOAT_EQ(timeline_.GetGroupBottom(groups.data() + groups.size()),
-                  0.0f);
-  EXPECT_FLOAT_EQ(timeline_.GetGroupTop(groups.data() + groups.size() + 5),
-                  0.0f);
-  EXPECT_FLOAT_EQ(timeline_.GetGroupBottom(groups.data() + groups.size() + 5),
-                  0.0f);
 }
 
 class TimelineTimeRangeResizeTest : public RealTimelineImGuiFixture {
@@ -12048,18 +12038,17 @@ TEST_F(MockTimelineImGuiFixture, FindGroupRelatives_RootGroupAndChildren) {
   Group root_a;
   root_a.name = "Root A";
   root_a.original_index = 0;
-  root_a.parent_index = -1;
-  root_a.child_indices = {1};
+  root_a.nesting_level = kProcessNestingLevel;
 
   Group child_a1;
   child_a1.name = "Child A1";
   child_a1.original_index = 1;
-  child_a1.parent_index = 0;
+  child_a1.nesting_level = kThreadNestingLevel;
 
   Group root_b;
   root_b.name = "Root B";
   root_b.original_index = 2;
-  root_b.parent_index = -1;
+  root_b.nesting_level = kProcessNestingLevel;
 
   data.groups = {root_a, child_a1, root_b};
   timeline_.SetTimelineData(data);
@@ -12289,13 +12278,11 @@ TEST_F(MockTimelineImGuiFixture, HandleTrackDragDrop_ProcessBetweenProcesses) {
   proc_a.name = "Proc A";
   proc_a.original_index = 0;
   proc_a.nesting_level = kProcessNestingLevel;
-  proc_a.parent_index = -1;
 
   Group proc_b;
   proc_b.name = "Proc B";
   proc_b.original_index = 1;
   proc_b.nesting_level = kProcessNestingLevel;
-  proc_b.parent_index = -1;
 
   data.groups = {proc_a, proc_b};
   timeline_.SetTimelineData(data);
@@ -12397,13 +12384,11 @@ TEST_F(MockTimelineImGuiFixture,
   proc_a.name = "Proc A";
   proc_a.original_index = 0;
   proc_a.nesting_level = kProcessNestingLevel;
-  proc_a.parent_index = -1;
 
   Group proc_b;
   proc_b.name = "Proc B";
   proc_b.original_index = 1;
   proc_b.nesting_level = kProcessNestingLevel;
-  proc_b.parent_index = -1;
 
   data.groups = {proc_a, proc_b};
   timeline_.SetTimelineData(data);
@@ -12527,20 +12512,16 @@ TEST_F(MockTimelineImGuiFixture, HandleTrackDragDrop_ThreadSameProcess) {
   proc_a.name = "Proc A";
   proc_a.original_index = 0;
   proc_a.nesting_level = kProcessNestingLevel;
-  proc_a.parent_index = -1;
-  proc_a.child_indices = {1, 2};
 
   Group thread_a1;
   thread_a1.name = "Thread A1";
   thread_a1.original_index = 1;
   thread_a1.nesting_level = kThreadNestingLevel;
-  thread_a1.parent_index = 0;
 
   Group thread_a2;
   thread_a2.name = "Thread A2";
   thread_a2.original_index = 2;
   thread_a2.nesting_level = kThreadNestingLevel;
-  thread_a2.parent_index = 0;
 
   data.groups = {proc_a, thread_a1, thread_a2};
   timeline_.SetTimelineData(data);
@@ -12639,27 +12620,21 @@ TEST_F(MockTimelineImGuiFixture, HandleTrackDragDrop_ThreadDifferentProcess) {
   proc_a.name = "Proc A";
   proc_a.original_index = 0;
   proc_a.nesting_level = kProcessNestingLevel;
-  proc_a.parent_index = -1;
-  proc_a.child_indices = {1};
 
   Group thread_a1;
   thread_a1.name = "Thread A1";
   thread_a1.original_index = 1;
   thread_a1.nesting_level = kThreadNestingLevel;
-  thread_a1.parent_index = 0;
 
   Group proc_b;
   proc_b.name = "Proc B";
   proc_b.original_index = 2;
   proc_b.nesting_level = kProcessNestingLevel;
-  proc_b.parent_index = -1;
-  proc_b.child_indices = {3};
 
   Group thread_b1;
   thread_b1.name = "Thread B1";
   thread_b1.original_index = 3;
   thread_b1.nesting_level = kThreadNestingLevel;
-  thread_b1.parent_index = 2;
 
   data.groups = {proc_a, thread_a1, proc_b, thread_b1};
   timeline_.SetTimelineData(data);
@@ -12760,14 +12735,13 @@ Group MakeThreadGroup(absl::string_view name, int parent_index,
           .start_level = start_level,
           .nesting_level = kThreadNestingLevel,
           .expanded = expanded,
-          .parent_index = parent_index,
           .level_count = level_count};
 }
 
 FlameChartTimelineData MakeTimelineData(std::vector<Group> groups,
                                         int num_levels = 1) {
   FlameChartTimelineData data;
-  data.groups = std::move(groups);
+  data.groups.assign(groups.begin(), groups.end());
   data.events_by_level.resize(num_levels);
   return data;
 }
@@ -13360,16 +13334,8 @@ TEST(TimelineTest, GetGroupBoundsNegativePointerOffset) {
   TestTimeline timeline(palette);
   timeline.SetTimelineData(
       MakeTimelineData({MakeProcessGroup("Process A")}, /*num_levels=*/1));
-  const Group* const negative_group =
-      timeline.timeline_data().groups.data() - 1;
-  EXPECT_FLOAT_EQ(timeline.GetGroupTop(negative_group), 0.0f);
-  EXPECT_FLOAT_EQ(timeline.GetGroupBottom(negative_group), 0.0f);
-
-  const Group* const positive_out_of_bounds_group =
-      timeline.timeline_data().groups.data() +
-      timeline.timeline_data().groups.size() + 5;
-  EXPECT_FLOAT_EQ(timeline.GetGroupTop(positive_out_of_bounds_group), 0.0f);
-  EXPECT_FLOAT_EQ(timeline.GetGroupBottom(positive_out_of_bounds_group), 0.0f);
+  EXPECT_FLOAT_EQ(timeline.GetGroupTop(nullptr), 0.0f);
+  EXPECT_FLOAT_EQ(timeline.GetGroupBottom(nullptr), 0.0f);
 }
 
 TEST(TimelineTest, ScrollRestorationOnlyVirtualHeadersInFlattenedGroups) {

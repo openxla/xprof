@@ -237,6 +237,70 @@ class OpcodeStatsTest(absltest.TestCase):
         llo_opcode_stats.coarse_category("OPCODE_DMA_HBM_TO_VMEM"), "dma"
     )
 
+  def test_coarse_category_golden_table(self):
+    """Pins the taxonomy against the C++ reimplementation.
+
+    `llo_analysis.cc` classifies opcodes independently for the embedded C API.
+    The two must agree, so `llo_analysis_test.cc` pins this identical table.
+    """
+    golden = (
+        # MXU ops keep their matrix classification despite the VECTOR_ prefix,
+        # and LOAD_GMR / LOAD_LMR* feed MXU registers rather than moving memory.
+        ("OPCODE_VECTOR_MATMUL", "matrix"),
+        ("OPCODE_VECTOR_MATMUL_PACKED_MSK", "matrix"),
+        ("OPCODE_VECTOR_MATPREP_SUBR", "matrix"),
+        ("OPCODE_VECTOR_MATRES_ADD", "matrix"),
+        ("OPCODE_VECTOR_LATCH2_MSK", "matrix"),
+        ("OPCODE_VECTOR_LOAD_GMR", "matrix"),
+        ("OPCODE_VECTOR_LOAD_LMR_WITH_BF16_CONVERSION", "matrix"),
+        # Vector loads and stores are memory traffic, not vector ALU work.
+        # Counting them as `vector` is what made the vector unit look saturated.
+        ("OPCODE_VECTOR_LOAD", "load_store"),
+        ("OPCODE_VECTOR_LOAD_SUBLANE_SHUFFLE", "load_store"),
+        ("OPCODE_VECTOR_CMEM_LOAD_AND_POP", "load_store"),
+        ("OPCODE_VECTOR_STORE", "load_store"),
+        ("OPCODE_VECTOR_STORE_INDEXED_MASKED", "load_store"),
+        ("OPCODE_SCALAR_LOAD", "load_store"),
+        ("OPCODE_SCALAR_STORE", "load_store"),
+        # ... but a store *fence* is control, not a store.
+        ("OPCODE_VECTOR_STORE_FENCE", "control"),
+        ("OPCODE_SCALAR_BRANCH_REL", "control"),
+        ("OPCODE_SCALAR_HALT_ON_ERROR", "control"),
+        ("OPCODE_VECTOR_SYNC_FLAG_ADD_DONE", "control"),
+        ("OPCODE_SCHEDULING_BARRIER", "control"),
+        ("OPCODE_INLINED_CALL_OPERAND", "control"),
+        ("OPCODE_LOG", "control"),
+        ("OPCODE_EVENT", "control"),
+        ("OPCODE_HLO_START", "control"),
+        # "LOG" as a substring must not drag EUP transcendentals into control.
+        ("OPCODE_VECTOR_LOG2_BF16_AND_POP", "vector"),
+        # Cross-lane / XLU work.
+        ("OPCODE_VECTOR_TRANSPOSE", "crosslane"),
+        ("OPCODE_VECTOR_PERMUTE_SUBLANE", "crosslane"),
+        ("OPCODE_VECTOR_SUBLANE_ROTATE_TZ", "crosslane"),
+        ("OPCODE_VECTOR_ADD_REDUCE_F32", "crosslane"),
+        ("OPCODE_VECTOR_XLANE_RESULT", "crosslane"),
+        ("OPCODE_VECTOR_BROADCAST_LANE", "crosslane"),
+        # Predicate and mask registers.
+        ("OPCODE_PREDICATE_NAND", "predicate"),
+        ("OPCODE_VECTOR_MASK_CONSTANT_PACKED", "predicate"),
+        ("OPCODE_VECTOR_CREATE_SUBLANE_MASK", "predicate"),
+        # DMA.
+        ("OPCODE_DMA_HBM_TO_VMEM", "dma"),
+        ("OPCODE_DMA_DONE_WAIT", "dma"),
+        # Plain ALU.
+        ("OPCODE_VECTOR_ADD_F32", "vector"),
+        ("OPCODE_VECTOR_SELECT", "vector"),
+        ("OPCODE_SCALAR_SELECT", "scalar"),
+        ("OPCODE_SCALAR_CONSTANT_F32", "scalar"),
+        # Unclassifiable.
+        ("OPCODE_TUPLE", "other"),
+        ("OPCODE_NONE", "other"),
+    )
+    for opcode, expected in golden:
+      with self.subTest(opcode=opcode):
+        self.assertEqual(llo_opcode_stats.coarse_category(opcode), expected)
+
   def test_histogram(self):
     m = self._make_opcode_module()
     hist = llo_opcode_stats.opcode_histogram(m)

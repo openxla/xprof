@@ -48,3 +48,25 @@ pytype_strict_library(
         "@pypi//duckdb",
     ],
 )
+
+pytype_strict_library(
+    name = "llo_static_analysis_tool",
+    srcs = [
+        "__init__.py",
+        "llo_static_analysis_tool.py",
+    ],
+    deps = ["@org_xprof//xprof/pywrap:_pywrap_profiler_plugin"],
+)
+
+pytype_strict_library(
+    name = "diff_sessions_tool",
+    srcs = [
+        "__init__.py",
+        "diff_sessions_tool.py",
+    ],
+    deps = [
+        "//plugin/xprof/cli/tools:get_hlo_stats_tool",
+        "//plugin/xprof/cli/tools:get_kernel_stats_tool",
+        "//plugin/xprof/cli/tools:get_kpi_metrics_tool",
+    ],
+)

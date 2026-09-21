@@ -35,29 +35,83 @@ def opcode_name(value: int) -> str:
 def coarse_category(name: str) -> str:
   """Returns a heuristic functional category for an opcode enum name.
 
-  The order of the checks matters: matrix and cross-lane ops are named with a
-  `OPCODE_VECTOR_` prefix, so they must be matched before the generic vector
-  bucket. This is an approximation, not the authoritative ISA classification.
+  This is a heuristic grouping over opcode *names*. The authoritative per-opcode
+  functional-unit classification lives in the TPU ISA catalog, which this proto
+  does not carry, so the result must not be treated as ground truth.
+
+  The rule order is load-bearing and must not be permuted:
+
+    * `control` precedes `load_store`, so OPCODE_VECTOR_STORE_FENCE is a fence
+      rather than a store.
+    * `matrix` precedes `load_store`, so OPCODE_VECTOR_LOAD_GMR and
+      OPCODE_VECTOR_LOAD_LMR* load MXU gain/latch registers rather than
+      counting as memory traffic.
+    * `load_store` precedes `predicate`, so OPCODE_VECTOR_STORE_MASKED is a
+      store rather than a mask operation.
+    * The OPCODE_SCALAR / OPCODE_VECTOR prefix buckets come last, because most
+      categories above are themselves spelled with one of those prefixes.
+
+  OPCODE_LOG and OPCODE_EVENT are matched exactly rather than by substring:
+  OPCODE_VECTOR_LOG2_F32 contains "LOG" but is an EUP transcendental.
 
   Args:
     name: The LLO opcode enum name string.
   """
-  if any(
-      token in name
-      for token in ("MATMUL", "MATPREP", "MATRES", "DONE_WITH_GAINS", "LATCH")
-  ) or name.endswith(("LOAD_GMR", "LOAD_LMR")):
-    return "matrix"
-  if "TRANSPOSE" in name:
-    return "crosslane"
   if name.startswith("OPCODE_DMA"):
     return "dma"
-  if "PREDICATE" in name:
-    return "predicate"
-  if any(
-      token in name
-      for token in ("SYNC", "FENCE", "BARRIER", "EVENT", "FLAG", "HALT")
+  if (
+      name in ("OPCODE_LOG", "OPCODE_EVENT")
+      or name.startswith("OPCODE_HLO_")
+      or any(
+          token in name
+          for token in (
+              "FENCE",
+              "SYNC_FLAG",
+              "BARRIER",
+              "HALT",
+              "BRANCH",
+              "CALL",
+              "TRACE",
+              "INTERRUPT",
+              "DELAY",
+          )
+      )
   ):
     return "control"
+  if any(
+      token in name
+      for token in (
+          "MATMUL",
+          "MATPREP",
+          "MATRES",
+          "LATCH",
+          "DONE_WITH_GAINS",
+          "LOAD_GMR",
+          "LOAD_LMR",
+          "MXU",
+      )
+  ):
+    return "matrix"
+  if any(
+      token in name
+      for token in (
+          "TRANSPOSE",
+          "PERMUTE",
+          "ROTATE",
+          "REDUCE",
+          "XLANE",
+          "CROSS_LANE",
+          "XLU",
+          "BROADCAST",
+          "COMBINE_HIGH",
+          "COMBINE_LOW",
+      )
+  ):
+    return "crosslane"
+  if "LOAD" in name or "STORE" in name:
+    return "load_store"
+  if name.startswith("OPCODE_PREDICATE") or "MASK" in name:
+    return "predicate"
   if name.startswith("OPCODE_SCALAR"):
     return "scalar"
   if name.startswith("OPCODE_VECTOR"):

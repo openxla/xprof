@@ -237,6 +237,70 @@ class OpcodeStatsTest(absltest.TestCase):
         llo_opcode_stats.coarse_category("OPCODE_DMA_HBM_TO_VMEM"), "dma"
     )
 
+  def test_coarse_category_golden_table(self):
+    """Pins the taxonomy against the C++ reimplementation.
+
+    `llo_analysis.cc` classifies opcodes independently for the embedded C API.
+    The two must agree, so `llo_analysis_test.cc` pins this identical table.
+    """
+    golden = (
+        # MXU ops keep their matrix classification despite the VECTOR_ prefix,
+        # and LOAD_GMR / LOAD_LMR* feed MXU registers rather than moving memory.
+        ("OPCODE_VECTOR_MATMUL", "matrix"),
+        ("OPCODE_VECTOR_MATMUL_PACKED_MSK", "matrix"),
+        ("OPCODE_VECTOR_MATPREP_SUBR", "matrix"),
+        ("OPCODE_VECTOR_MATRES_ADD", "matrix"),
+        ("OPCODE_VECTOR_LATCH2_MSK", "matrix"),
+        ("OPCODE_VECTOR_LOAD_GMR", "matrix"),
+        ("OPCODE_VECTOR_LOAD_LMR_WITH_BF16_CONVERSION", "matrix"),
+        # Vector loads and stores are memory traffic, not vector ALU work.
+        # Counting them as `vector` is what made the vector unit look saturated.
+        ("OPCODE_VECTOR_LOAD", "load_store"),
+        ("OPCODE_VECTOR_LOAD_SUBLANE_SHUFFLE", "load_store"),
+        ("OPCODE_VECTOR_CMEM_LOAD_AND_POP", "load_store"),
+        ("OPCODE_VECTOR_STORE", "load_store"),
+        ("OPCODE_VECTOR_STORE_INDEXED_MASKED", "load_store"),
+        ("OPCODE_SCALAR_LOAD", "load_store"),
+        ("OPCODE_SCALAR_STORE", "load_store"),
+        # ... but a store *fence* is control, not a store.
+        ("OPCODE_VECTOR_STORE_FENCE", "control"),
+        ("OPCODE_SCALAR_BRANCH_REL", "control"),
+        ("OPCODE_SCALAR_HALT_ON_ERROR", "control"),
+        ("OPCODE_VECTOR_SYNC_FLAG_ADD_DONE", "control"),
+        ("OPCODE_SCHEDULING_BARRIER", "control"),
+        ("OPCODE_INLINED_CALL_OPERAND", "control"),
+        ("OPCODE_LOG", "control"),
+        ("OPCODE_EVENT", "control"),
+        ("OPCODE_HLO_START", "control"),
+        # "LOG" as a substring must not drag EUP transcendentals into control.
+        ("OPCODE_VECTOR_LOG2_BF16_AND_POP", "vector"),
+        # Cross-lane / XLU work.
+        ("OPCODE_VECTOR_TRANSPOSE", "crosslane"),
+        ("OPCODE_VECTOR_PERMUTE_SUBLANE", "crosslane"),
+        ("OPCODE_VECTOR_SUBLANE_ROTATE_TZ", "crosslane"),
+        ("OPCODE_VECTOR_ADD_REDUCE_F32", "crosslane"),
+        ("OPCODE_VECTOR_XLANE_RESULT", "crosslane"),
+        ("OPCODE_VECTOR_BROADCAST_LANE", "crosslane"),
+        # Predicate and mask registers.
+        ("OPCODE_PREDICATE_NAND", "predicate"),
+        ("OPCODE_VECTOR_MASK_CONSTANT_PACKED", "predicate"),
+        ("OPCODE_VECTOR_CREATE_SUBLANE_MASK", "predicate"),
+        # DMA.
+        ("OPCODE_DMA_HBM_TO_VMEM", "dma"),
+        ("OPCODE_DMA_DONE_WAIT", "dma"),
+        # Plain ALU.
+        ("OPCODE_VECTOR_ADD_F32", "vector"),
+        ("OPCODE_VECTOR_SELECT", "vector"),
+        ("OPCODE_SCALAR_SELECT", "scalar"),
+        ("OPCODE_SCALAR_CONSTANT_F32", "scalar"),
+        # Unclassifiable.
+        ("OPCODE_TUPLE", "other"),
+        ("OPCODE_NONE", "other"),
+    )
+    for opcode, expected in golden:
+      with self.subTest(opcode=opcode):
+        self.assertEqual(llo_opcode_stats.coarse_category(opcode), expected)
+
   def test_histogram(self):
     m = self._make_opcode_module()
     hist = llo_opcode_stats.opcode_histogram(m)
@@ -324,6 +388,112 @@ class BdiStallsTest(absltest.TestCase):
     res = json.loads(raw)
     self.assertEqual(res["total_annotated_instructions"], 0)
     self.assertEmpty(res["code_histogram"])
+
+  def _make_packer_module(self):
+    """Module whose instructions carry numeric bundle-packer indices."""
+    m = llo_lite_pb2.LloModuleProto()
+    m.hlo_instruction_name = "kPacker"
+    top = m.top_region
+    top.name = "top"
+    top.start_bundleno = 0
+    top.limit_bundleno = 100
+    top.ordinal = 1
+
+    # Bound by FIFO at bundle 20, from a point of no return of 4 -> 16 bundles
+    # of stall, then scheduled at 22 -> 2 further bundles of packing slack.
+    i0 = _add_inst(top, ordinal=1, bundle=22)
+    p0 = i0.bundle_packer_info
+    p0.point_of_no_return_index = 4
+    p0.fifo_dep_index = 20
+    p0.operand_latency_dep_index = 9
+    p0.final_bundle_index = 22
+    p0.hoist_distance_cur = 3
+
+    # Bound by operand latency at 7, from 5 -> 2 bundles of stall.
+    i1 = _add_inst(top, ordinal=2, bundle=7)
+    p1 = i1.bundle_packer_info
+    p1.point_of_no_return_index = 5
+    p1.operand_latency_dep_index = 7
+    p1.final_bundle_index = 7
+
+    # No constraint later than the point of no return -> no stall at all.
+    i2 = _add_inst(top, ordinal=3, bundle=8)
+    p2 = i2.bundle_packer_info
+    p2.point_of_no_return_index = 8
+    p2.operand_latency_dep_index = 2
+    p2.final_bundle_index = 8
+    return m
+
+  def test_binding_constraint_picks_the_latest_index(self):
+    m = self._make_packer_module()
+    insts = [mem.instruction for mem in m.top_region.members]
+    self.assertEqual(
+        bdi_stalls.binding_constraint(insts[0].bundle_packer_info), ("F", 20)
+    )
+    self.assertEqual(
+        bdi_stalls.binding_constraint(insts[1].bundle_packer_info), ("O", 7)
+    )
+
+  def test_binding_constraint_breaks_ties_by_priority(self):
+    info = llo_lite_pb2.BundlePackerInfoProto()
+    # Operand latency and FIFO are simultaneously binding; F outranks O.
+    info.operand_latency_dep_index = 11
+    info.fifo_dep_index = 11
+    code, index = bdi_stalls.binding_constraint(info)
+    self.assertEqual((code, index), ("F", 11))
+
+  def test_stall_bundles_and_packing_slack(self):
+    recs = bdi_stalls.iter_packer_records(self._make_packer_module())
+    self.assertLen(recs, 3)
+    first = next(r for r in recs if r["ordinal"] == 1)
+    self.assertEqual(first["binding_code"], "F")
+    self.assertEqual(first["stall_bundles"], 16)
+    self.assertEqual(first["packing_slack"], 2)
+    # A constraint permitting an earlier bundle than P is not a delay.
+    third = next(r for r in recs if r["ordinal"] == 3)
+    self.assertEqual(third["stall_bundles"], 0)
+
+  def test_summarize_stalls_attributes_cost_by_code(self):
+    summary = bdi_stalls.summarize_stalls(self._make_packer_module())
+    assert summary is not None
+    self.assertEqual(summary["total_stall_bundles"], 18)
+    self.assertEqual(summary["by_binding_code"]["F"]["stall_bundles"], 16)
+    self.assertEqual(summary["by_binding_code"]["O"]["stall_bundles"], 2)
+    # F is reported first because the ordering is by cost, not by letter.
+    self.assertEqual(list(summary["by_binding_code"]), ["F", "O"])
+    self.assertAlmostEqual(
+        summary["by_binding_code"]["F"]["share_of_stall_bundles"], 16 / 18, 3
+    )
+    # Two of three instructions were actually delayed.
+    self.assertAlmostEqual(summary["delayed_ratio"], 0.6667, 3)
+    self.assertEqual(summary["hoist"]["instructions_hoisted"], 1)
+    self.assertEqual(summary["hoist"]["max_hoist_distance"], 3)
+
+  def test_absent_packer_info_is_none_not_zero(self):
+    # The annotation-only module has no bundle_packer_info anywhere. Reporting
+    # a zeroed summary would read as "this schedule has no stalls", which is a
+    # different and much stronger claim than "this capture cannot say".
+    self.assertIsNone(bdi_stalls.summarize_stalls(self._make_module()))
+    res = json.loads(bdi_stalls.render_bdi_stalls_json(self._make_module()))
+    self.assertIsNone(res["stall_analysis"])
+    self.assertEmpty(res["top_stalls"])
+
+  def test_top_stalls_ranked_by_cost(self):
+    res = json.loads(
+        bdi_stalls.render_bdi_stalls_json(self._make_packer_module())
+    )
+    self.assertEqual(
+        [r["ordinal"] for r in res["top_stalls"]],
+        [1, 2, 3],
+    )
+    self.assertEqual(res["top_stalls"][0]["stall_bundles"], 16)
+
+  def test_coverage_is_none_without_annotations(self):
+    # No annotated instructions at all, so the annotation-derived denominator
+    # is zero and coverage is undefined rather than 0.0.
+    summary = bdi_stalls.summarize_stalls(self._make_packer_module())
+    assert summary is not None
+    self.assertIsNone(summary["coverage"])
 
 
 class TargetInfoTest(absltest.TestCase):

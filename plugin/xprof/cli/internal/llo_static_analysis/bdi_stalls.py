@@ -1,18 +1,36 @@
-"""BDI (bundle dependency interlock) stall-code analysis for an LLO module.
+"""BDI (bundle dependency interlock) stall analysis for an LLO module.
 
-An `LloInstructionProto` may carry an `annotation_handle` (field 9) that indexes
-into the module's `interned_strings`. The compiler encodes bundle dependency
-interlock (BDI) stall reasons into that annotation string as a
-`bdi:<code>:<detail>,...` fragment. This module recovers those codes directly
-from the proto's metadata plane, so it needs no collector support and no device
-stat stream.
+There are two sources of BDI information in an LLO module, and this module
+reads both because they answer different questions.
 
-The parser scans for the literal `bdi:` prefix, splits the remainder on commas,
-and keeps the single-letter key before the first colon of each part when that
-key is one of the recognized BDI categories. The recognized categories are the
-six letters in `_BDI_CODES` (O, R, A, H, F, B). These are the compiler's raw
-interlock category letters; this module reports them verbatim and does not
-fabricate human-readable descriptions for them.
+The precise source is `LloInstructionProto.bundle_packer_info`. For each
+instruction it records the earliest bundle permitted by each class of
+constraint -- operand latency (O), FIFO (F), register (R), arch register (A),
+source bus (B), and safe hoisting (H) -- alongside `point_of_no_return_index`
+(P, the earliest bundle the instruction could occupy ignoring operands) and
+`final_bundle_index` (E, where it was actually scheduled). From those the
+*binding* constraint and the number of bundles it cost are recoverable:
+
+  binding_index = max over the six constraint indices
+  binding_code  = highest-priority code attaining binding_index
+  stall_bundles = binding_index - P      (delay attributable to dependencies)
+  packing_slack = E - binding_index      (further delay from slot pressure)
+
+Ties are broken by `BDI_PRIORITY_ORDER` (F > B > A > H > R > O), matching the
+precedence the compiler's own tooling uses, so that when several constraints
+are simultaneously binding the most fundamental one is attributed.
+
+The approximate source is the `bdi:<code>:<detail>,...` fragment the compiler
+encodes into the interned annotation string referenced by `annotation_handle`.
+It preserves only the category letters, not the indices, so it supports a
+histogram but not a cost. It remains the fallback for modules captured before
+`bundle_packer_info` was mirrored into the lite proto, and the two are
+cross-checked by `extract_bdi_stalls`, which reports `coverage` -- the fraction
+of annotated instructions for which the precise data is also present.
+
+Callers must distinguish "no stall data" from "no stalls". When no instruction
+carries `bundle_packer_info`, `stall_analysis` is None rather than a zeroed
+summary.
 """
 
 import json
@@ -26,6 +44,23 @@ from xprof.protobuf import llo_lite_pb2
 # Recognized single-letter BDI category keys ("ORAHFB") matching the BDI
 # annotation grammar documented above.
 _BDI_CODES = frozenset("ORAHFB")
+
+# Precedence used to attribute a stall when several constraints are binding at
+# the same bundle. Ordered most to least fundamental: a FIFO or source-bus
+# limit is a hardware structural hazard, whereas an operand-latency wait is a
+# consequence of scheduling choices upstream.
+BDI_PRIORITY_ORDER = ("F", "B", "A", "H", "R", "O")
+
+# Maps each category letter to the `BundlePackerInfoProto` field holding the
+# earliest bundle that constraint permits.
+_BDI_INDEX_FIELDS = {
+    "F": "fifo_dep_index",
+    "B": "source_bus_dep_index",
+    "A": "arch_register_dep_index",
+    "H": "min_safe_hoist_index",
+    "R": "register_dep_index",
+    "O": "operand_latency_dep_index",
+}
 
 
 def annotation_for(
@@ -107,6 +142,130 @@ def bdi_code_histogram(
   return hist
 
 
+def binding_constraint(
+    info: llo_lite_pb2.BundlePackerInfoProto,
+) -> tuple[str, int]:
+  """Returns the (code, index) of the constraint that bound this instruction.
+
+  The binding constraint is the one permitting the latest bundle, since an
+  instruction cannot issue until every constraint is satisfied. When several
+  attain that same latest bundle they are all simultaneously binding, and
+  `BDI_PRIORITY_ORDER` decides which one is attributed.
+
+  Args:
+    info: The bundle-packer record for a single instruction.
+
+  Returns:
+    A (code letter, bundle index) pair.
+  """
+  indices = {
+      code: getattr(info, field) for code, field in _BDI_INDEX_FIELDS.items()
+  }
+  latest = max(indices.values())
+  for code in BDI_PRIORITY_ORDER:
+    if indices[code] == latest:
+      return code, latest
+  # Unreachable: BDI_PRIORITY_ORDER covers every key of _BDI_INDEX_FIELDS.
+  raise AssertionError("no BDI code attained the maximum index")
+
+
+def iter_packer_records(
+    module: llo_lite_pb2.LloModuleProto,
+) -> list[dict[str, Any]]:
+  """Returns one derived stall record per instruction carrying packer info.
+
+  Instructions without `bundle_packer_info` are skipped rather than reported
+  with zeroed fields, so that an empty result means "no data" and not "no
+  stalls".
+
+  Args:
+    module: The LLO module proto whose instructions are inspected.
+  """
+  out: list[dict[str, Any]] = []
+  for _, inst in llo_region_tree.iter_instructions(module):
+    if not inst.HasField("bundle_packer_info"):
+      continue
+    info = inst.bundle_packer_info
+    code, binding_index = binding_constraint(info)
+    earliest = info.point_of_no_return_index
+    out.append({
+        "ordinal": inst.ordinal,
+        "bundle": inst.scheduled_bundleno,
+        "binding_code": code,
+        # Clamped at zero: a constraint permitting an earlier bundle than the
+        # point of no return did not delay anything.
+        "stall_bundles": max(0, binding_index - earliest),
+        "packing_slack": max(0, info.final_bundle_index - binding_index),
+        "hoist_distance_cur": info.hoist_distance_cur,
+        "hoist_distance_prev": info.hoist_distance_prev,
+    })
+  return out
+
+
+def summarize_stalls(
+    module: llo_lite_pb2.LloModuleProto,
+) -> dict[str, Any] | None:
+  """Aggregates per-constraint stall cost, or None when no packer info exists.
+
+  Args:
+    module: The LLO module proto whose instructions are inspected.
+
+  Returns:
+    A summary dict, or None when not a single instruction carries
+    `bundle_packer_info` -- which means the capture predates the field being
+    mirrored, not that the schedule was stall-free.
+  """
+  records = iter_packer_records(module)
+  if not records:
+    return None
+
+  # Values are int counts plus, once computed below, a float share.
+  by_code: dict[str, dict[str, float]] = {}
+
+  for rec in records:
+    entry = by_code.setdefault(
+        rec["binding_code"], {"instructions": 0, "stall_bundles": 0}
+    )
+    entry["instructions"] += 1
+    entry["stall_bundles"] += rec["stall_bundles"]
+
+  total_stall = sum(e["stall_bundles"] for e in by_code.values())
+  for entry in by_code.values():
+    entry["share_of_stall_bundles"] = (
+        round(entry["stall_bundles"] / total_stall, 4) if total_stall else 0.0
+    )
+
+  hoisted = [r for r in records if r["hoist_distance_cur"] > 0]
+  hoist_distances = [r["hoist_distance_cur"] for r in hoisted]
+  avg_hoist = 0.0
+  if hoist_distances:
+    avg_hoist = round(sum(hoist_distances) / len(hoist_distances), 2)
+
+  annotated = len(iter_bdi_instructions(module))
+  return {
+      "instructions_with_packer_info": len(records),
+      "total_stall_bundles": total_stall,
+      "total_packing_slack_bundles": sum(r["packing_slack"] for r in records),
+      "delayed_ratio": round(
+          sum(1 for r in records if r["stall_bundles"] > 0) / len(records), 4
+      ),
+      # How much of the annotation-derived view the precise view also covers.
+      # Below 1.0 means some annotated instructions lack `bundle_packer_info`.
+      "coverage": round(len(records) / annotated, 4) if annotated else None,
+      "by_binding_code": {
+          code: by_code[code]
+          for code in sorted(
+              by_code, key=lambda c: (-by_code[c]["stall_bundles"], c)
+          )
+      },
+      "hoist": {
+          "instructions_hoisted": len(hoisted),
+          "max_hoist_distance": max(hoist_distances, default=0),
+          "avg_hoist_distance": avg_hoist,
+      },
+  }
+
+
 def extract_bdi_stalls(
     module: llo_lite_pb2.LloModuleProto, top_n: int = 50
 ) -> dict[str, Any]:
@@ -127,6 +286,16 @@ def extract_bdi_stalls(
       "total_annotated_instructions": len(records),
       "code_histogram": sorted_hist,
       "instructions": sorted_records,
+      # None when the capture carries no `bundle_packer_info` at all. Absent
+      # cost is not zero cost, so callers must not sum over a missing summary.
+      "stall_analysis": summarize_stalls(module),
+      # Ranked by cost rather than by bundle order: the question this answers
+      # is "what should I look at first", which the ordinal listing above does
+      # not.
+      "top_stalls": sorted(
+          iter_packer_records(module),
+          key=lambda r: (-r["stall_bundles"], r["bundle"], r["ordinal"]),
+      )[:top_n],
   }
 
 

@@ -95,6 +95,18 @@ pytype_strict_library(
 )
 
 pytype_strict_library(
+    name = "llo_static_db",
+    srcs = ["llo_static_db.py"],
+    deps = [
+        ":bdi_stalls",
+        ":llo_allocations",
+        ":llo_bundle_utilization",
+        ":target_info",
+        "//plugin/xprof/protobuf:llo_lite_proto_py",
+    ],
+)
+
+pytype_strict_library(
     name = "llo_test_fixtures",
     testonly = True,
     srcs = ["llo_test_fixtures.py"],
@@ -128,6 +140,16 @@ pytype_strict_contrib_test(
         ":register_pressure",
         ":target_info",
         "//plugin/xprof/protobuf:llo_lite_proto_py",
+        "@absl_py//absl/testing:absltest",
+    ],
+)
+
+pytype_strict_contrib_test(
+    name = "llo_static_db_test",
+    srcs = ["llo_static_db_test.py"],
+    deps = [
+        ":llo_static_db",
+        ":llo_test_fixtures",
         "@absl_py//absl/testing:absltest",
     ],
 )

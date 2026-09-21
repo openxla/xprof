@@ -109,13 +109,14 @@ xprof get_hlo_neighborhood /path/to/candidate_logdir --instruction_name=<op_name
 
 --------------------------------------------------------------------------------
 
-### 6. Numerical Verification (`verify_numerical_parity`)
+### 6. Numerical Verification (`xparity`)
 
 If the optimization changed kernel implementations (e.g. custom Pallas or Triton
-kernels, einsum fusions):
+kernels, einsum fusions), verify numerical parity using `xparity` (from the
+`@xparity` skill):
 
 ```bash
-xprof verify_numerical_parity \
+xparity verify \
   --kernel_ref="module.baseline_fn" \
   --kernel_candidate="module.candidate_fn" \
   --shapes="[(16, 1024), (1024, 1024)]" \

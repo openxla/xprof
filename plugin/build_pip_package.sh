@@ -113,6 +113,9 @@ if [ -d "${ROOT_RUNFILE_DIR}/skills" ]; then
   mkdir -p skills
   touch skills/__init__.py
   cp -LR "${ROOT_RUNFILE_DIR}/skills/xprof" skills/
+  if [ -d "${ROOT_RUNFILE_DIR}/skills/xparity" ]; then
+    cp -LR "${ROOT_RUNFILE_DIR}/skills/xparity" skills/
+  fi
 fi
 
 mkdir -p static

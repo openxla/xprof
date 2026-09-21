@@ -391,7 +391,6 @@ py_test(
         "//plugin/xprof/cli/tools:get_overview_tool",
         "//plugin/xprof/cli/tools:get_roofline_model_tool",
         "//plugin/xprof/cli/tools:get_top_hlo_ops_tool",
-        "//plugin/xprof/cli/tools:verify_numerical_parity_tool",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
     ],

@@ -5,6 +5,7 @@
 
 #include "absl/log/log.h"
 #include "imgui.h"
+#include "frontend/app/components/trace_viewer_v2/fonts/roboto_wdthwght.h"
 
 namespace traceviewer::fonts {
 
@@ -39,7 +40,38 @@ void LoadFonts(float pixel_ratio) {
       0,
   };
 
-  io.Fonts->AddFontDefault(&config);
+  const char* kFontRegular = roboto_wdthwght_compressed_data_base85;
+
+  ImFontConfig config_large = config;
+  // Typography tracking for Label Large: requires +0.1 space, but ImGui removed
+  // ExtraSpacing.
+
+  ImFontConfig config_medium = config;
+  // Typography tracking for Label Medium: requires +0.5 space.
+
+  // TODO: b/444025890 - Get the fonts and sizes from the UX design.
+  auto styles = std::vector{
+      std::tuple(&body_large, kBodyLargeFontSize, kFontRegular, &config),
+      std::tuple(&label_large, kLabelLargeFontSize, kFontRegular,
+                 &config_large),
+      std::tuple(&label_medium, kLabelMediumFontSize, kFontRegular,
+                 &config_medium),
+      std::tuple(&label_small, kLabelSmallFontSize, kFontRegular, &config),
+      std::tuple(&title_small, kLabelSectionHeaderFontSize,
+                 kFontRegular, &config_medium)};
+
+  for (const auto& [font_ptr, base_size, font_data, font_config] : styles) {
+    // We don't multiply the base_size by pixel_ratio because the font sizes are
+    // specified in dips (points). And we
+    *(font_ptr) = io.Fonts->AddFontFromMemoryCompressedBase85TTF(
+        font_data, base_size, font_config, kRangesBasic);
+
+    if (*(font_ptr) == nullptr) {
+      LOG(ERROR) << "Failed to load font size " << base_size
+                 << ". Using default.";
+      *(font_ptr) = io.Fonts->AddFontDefault();
+    }
+  }
   io.FontDefault = body_large;
 }
 

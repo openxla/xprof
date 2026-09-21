@@ -13694,6 +13694,41 @@ TEST(TimelineTest, SelectionRemapFallbackDisambiguatesByTidAcrossThreads) {
   EXPECT_EQ(timeline.selected_event_index(), 1);
 }
 
+TEST(TimelineTest, DrawWithoutDataDoesNotCrash) {
+  ImGui::CreateContext();
+  ImGuiIO& io = ImGui::GetIO();
+  io.DisplaySize = ImVec2(1920, 1080);
+  io.DeltaTime = 0.1f;
+  io.Fonts->Build();
+
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  ImGui::NewFrame();
+  timeline.Draw();
+  ImGui::EndFrame();
+
+  ImGui::DestroyContext();
+}
+
+TEST(TimelineTest, DrawWithEmptyTimelineDataDoesNotCrash) {
+  ImGui::CreateContext();
+  ImGuiIO& io = ImGui::GetIO();
+  io.DisplaySize = ImVec2(1920, 1080);
+  io.DeltaTime = 0.1f;
+  io.Fonts->Build();
+
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.SetTimelineData({});
+
+  ImGui::NewFrame();
+  timeline.Draw();
+  ImGui::EndFrame();
+
+  ImGui::DestroyContext();
+}
+
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer

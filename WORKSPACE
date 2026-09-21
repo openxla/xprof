@@ -1,6 +1,6 @@
 workspace(name = "org_xprof")
 
-load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file")
 load("//:config.bzl", "repository_configuration")
 
 repository_configuration(name = "repository_configuration")
@@ -8,6 +8,15 @@ repository_configuration(name = "repository_configuration")
 load("@repository_configuration//:repository_config.bzl", "HERMETIC_PYTHON_VERSION", "PROFILER_REQUIREMENTS_FILE")
 
 print("Using Python Version = {}".format(HERMETIC_PYTHON_VERSION))
+
+http_file(
+    name = "roboto_font",
+    downloaded_file_path = "Roboto[wdth,wght].ttf",
+    sha256 = "d7598e12c5dbef095ff8272cfc55da0250bd07fbdecbac8a530b9b277872a134",
+    urls = [
+        "https://raw.githubusercontent.com/google/fonts/main/ofl/roboto/Roboto%5Bwdth%2Cwght%5D.ttf",
+    ],
+)
 
 http_archive(
     name = "curl",
@@ -606,6 +615,11 @@ cc_library(
     linkopts = ["-sUSE_FREETYPE=1"],
     visibility = ["//visibility:public"],
     deps = [":imgui"],
+)
+cc_binary(
+    name = "binary_to_compressed_c",
+    srcs = ["misc/fonts/binary_to_compressed_c.cpp"],
+    visibility = ["//visibility:public"],
 )
 """,
     sha256 = "c5e2053afc707c70385431ed85c500b108b521784a3f6a7a31ea17583aab89a2",

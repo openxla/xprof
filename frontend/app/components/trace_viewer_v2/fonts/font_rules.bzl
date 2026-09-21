@@ -60,7 +60,7 @@ imgui_font_headers = rule(
             doc = "A list of command-line arguments to pass to the tool (e.g., ['-base85']).",
         ),
         "_tool": attr.label(
-            default = Label("//third_party/dear_imgui:binary_to_compressed_c"),
+            default = Label("@imgui//:binary_to_compressed_c"),
             executable = True,
             cfg = "exec",
         ),

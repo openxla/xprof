@@ -13,6 +13,24 @@ bzl_library(
     ],
 )
 
+genrule(
+    name = "roboto_ttf",
+    srcs = ["@roboto_font//file"],
+    outs = ["Roboto[wdth,wght].ttf"],
+    cmd = "cp $< $@",
+)
+
+imgui_font_headers(
+    name = "font_headers_fileset",
+    srcs = [":roboto_ttf"],
+    args = ["-base85"],
+)
+
+wasm_cc_library(
+    name = "font_headers",
+    hdrs = [":font_headers_fileset"],
+)
+
 wasm_cc_library(
     name = "fonts",
     srcs = ["fonts.cc"],
@@ -21,6 +39,7 @@ wasm_cc_library(
         "IMGUI_DEFINE_MATH_OPERATORS",
     ],
     deps = [
+        ":font_headers",
         "@com_google_absl//absl/log",
         "@imgui",
     ],

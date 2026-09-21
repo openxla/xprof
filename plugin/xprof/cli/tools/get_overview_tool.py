@@ -7,6 +7,7 @@ from typing import Any
 
 from xprof.cli.internal import decorators
 from xprof.cli.internal.oss import xprof_client
+from xprof.cli.tools import get_roofline_model_tool
 
 # Keys to extract from overview_page.json for performance summary.
 # These keys supplement keys starting with stat_ or sc_.
@@ -74,9 +75,6 @@ def _populate_roofline_fallback(
       not hbm_bw or hbm_bw in ("0.0%", "0%", "0.0", 0, 0.0)
   )
 
-  if not needs_flop and not needs_mem:
-    return
-
   try:
     result = client.fetch(
         tool_name="roofline_model.json",
@@ -126,35 +124,75 @@ def _populate_roofline_fallback(
     bound_by = prog_dict.get("bound_by")
     operational_intensity = safe_float(prog_dict.get("operational_intensity"))
 
-    if roofline_eff is not None:
+    if needs_flop and roofline_eff is not None:
       roofline_str = f"{roofline_eff * 100.0:.2f}%"
       performance_summary["roofline_efficiency_percent"] = roofline_str
-      if needs_flop:
-        performance_summary["flop_rate_utilization_relative_to_roofline"] = (
-            roofline_str
-        )
+      performance_summary["flop_rate_utilization_relative_to_roofline"] = (
+          roofline_str
+      )
 
-    if compute_eff is not None:
+    if needs_flop and compute_eff is not None:
       performance_summary["compute_efficiency_percent"] = (
           f"{compute_eff * 100.0:.2f}%"
       )
 
-    if max_mem_bw is not None:
+    if needs_mem and max_mem_bw is not None:
       max_mem_bw_str = f"{max_mem_bw * 100.0:.2f}%"
       performance_summary["max_mem_bw_utilization_percent"] = max_mem_bw_str
-      if needs_mem:
-        performance_summary["memory_bw_utilization_relative_to_hw_limit"] = (
-            max_mem_bw_str
-        )
-        performance_summary["hbm_bw_utilization_percent"] = max_mem_bw_str
+      performance_summary["memory_bw_utilization_relative_to_hw_limit"] = (
+          max_mem_bw_str
+      )
+      performance_summary["hbm_bw_utilization_percent"] = max_mem_bw_str
 
-    if bound_by:
+    if (needs_flop or needs_mem) and bound_by:
       performance_summary["bound_by"] = bound_by
-    if operational_intensity is not None:
+    if (needs_flop or needs_mem) and operational_intensity is not None:
       performance_summary["operational_intensity_flop_per_byte"] = round(
           operational_intensity, 4
       )
-  except Exception:  # pylint: disable=broad-exception-caught
+
+    custom_call_share_pct = 0.0
+    prog_cells = rows[0].get("c", []) if rows else []
+    prog_vals = [
+        cell.get("v") if isinstance(cell, dict) else cell for cell in prog_cells
+    ]
+    prog_dict = dict(zip(cols, prog_vals))
+    prog_total = safe_float(prog_dict.get("total_self_time_percent"))
+    percent_scale = (
+        100.0 if (prog_total is None or prog_total <= 1.0 + 1e-6) else 1.0
+    )
+    seen_custom_call_keys = set()
+    for row in rows[1:]:
+      row_cells = row.get("c", [])
+      row_vals = [
+          cell.get("v") if isinstance(cell, dict) else cell
+          for cell in row_cells
+      ]
+      row_dict = dict(zip(cols, row_vals))
+      op_name = str(row_dict.get("operation") or row_dict.get("hlo_name", ""))
+      op_category = str(
+          row_dict.get("category") or row_dict.get("hlo_category", "")
+      )
+      op_key = (int(safe_float(row_dict.get("rank")) or 0), op_name)
+      if op_key in seen_custom_call_keys:
+        continue
+      if op_name.startswith("custom-call") or op_category.lower() in (
+          "custom-call",
+          "custom_call",
+      ):
+        seen_custom_call_keys.add(op_key)
+        val = safe_float(row_dict.get("total_self_time_percent"))
+        if val is not None:
+          custom_call_share_pct += val * percent_scale
+    custom_call_share_pct = min(round(custom_call_share_pct, 2), 100.0)
+    if custom_call_share_pct >= 10.0:
+      performance_summary["custom_call_share_pct"] = custom_call_share_pct
+      performance_summary["custom_call_warning"] = (
+          get_roofline_model_tool.format_custom_call_warning(
+              custom_call_share_pct
+          )
+      )
+  except (KeyError, ValueError, TypeError, json.JSONDecodeError, OSError):
     logging.exception("Failed to fetch roofline fallback")
 
 

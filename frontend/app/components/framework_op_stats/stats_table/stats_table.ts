@@ -1,7 +1,17 @@
-import {Component, Input, OnChanges, OnInit, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnInit,
+  effect,
+  input,
+} from '@angular/core';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {type FrameworkOpStatsData} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
+import {MatFormField, MatLabel, MatSuffix} from '@angular/material/form-field';
+import {MatIcon} from '@angular/material/icon';
+import {MatInput} from '@angular/material/input';
+import {Chart} from '../../chart/chart';
 import {StatsTableDataProvider} from './stats_table_data_provider';
 
 declare interface SortEvent {
@@ -15,23 +25,24 @@ const TABLE_COLUMN_LABEL_OPERATION = 'Operation';
 
 /** A stats table view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'stats-table',
   templateUrl: './stats_table.ng.html',
-  styleUrls: ['./stats_table.scss']
+  styleUrls: ['./stats_table.scss'],
+  imports: [Chart, MatFormField, MatIcon, MatInput, MatLabel, MatSuffix],
 })
-export class StatsTable implements OnChanges, OnInit {
+export class StatsTable implements OnInit {
   /**
    * The tensorflow stats data.
    *  TODO(tf-profiler) rename to "frameworkOpStatsData"
    */
-  @Input() tensorflowStatsData: FrameworkOpStatsData|null = null;
+  readonly tensorflowStatsData = input<FrameworkOpStatsData | null>(null);
 
   /** The tensorflow stats data for diff. */
-  @Input() diffData: FrameworkOpStatsData|null = null;
+  readonly diffData = input<FrameworkOpStatsData | null>(null);
 
   /** Whether to use diff. */
-  @Input() hasDiff = false;
+  readonly hasDiff = input(false);
 
   filterExecutor = '';
   filterType = '';
@@ -43,33 +54,40 @@ export class StatsTable implements OnChanges, OnInit {
     dataProvider: this.dataProvider,
   };
 
-  ngOnInit() {
-    this.dataProvider.setTotalOperationsChangedEventListener(
-        (totalOperations: string) => {
-          this.totalOperations = totalOperations;
-        });
+  constructor() {
+    effect(() => {
+      const hasDiff = this.hasDiff();
+      const diffData = this.diffData();
+      const tensorflowStatsData = this.tensorflowStatsData();
+
+      this.dataProvider.hasDiff = hasDiff;
+      if (hasDiff && diffData) {
+        this.dataProvider.setDiffData(diffData);
+      }
+      this.dataInfo = {
+        ...this.dataInfo,
+        data: tensorflowStatsData,
+      };
+    });
   }
 
-  ngOnChanges(changes: SimpleChanges) {
-    this.dataProvider.hasDiff = this.hasDiff;
-    if (this.hasDiff && this.diffData) {
-      this.dataProvider.setDiffData(this.diffData);
-    }
-    this.dataInfo = {
-      ...this.dataInfo,
-      data: this.tensorflowStatsData,
-    };
+  ngOnInit() {
+    this.dataProvider.setTotalOperationsChangedEventListener(
+      (totalOperations: string) => {
+        this.totalOperations = totalOperations;
+      },
+    );
   }
 
   // Use label to choose the index due to lack of id
   getTableColumnIndex(columnLabel: string) {
     switch (columnLabel) {
       case TABLE_COLUMN_LABEL_EXECUTOR:
-        return this.hasDiff && this.diffData ? 0 : 2;
+        return this.hasDiff() && this.diffData() ? 0 : 2;
       case TABLE_COLUMN_LABEL_TYPE:
-        return this.hasDiff && this.diffData ? 1 : 3;
+        return this.hasDiff() && this.diffData() ? 1 : 3;
       case TABLE_COLUMN_LABEL_OPERATION:
-        return this.hasDiff && this.diffData ? 2 : 4;
+        return this.hasDiff() && this.diffData() ? 2 : 4;
       default:
         return -1;
     }

@@ -1,5 +1,12 @@
-import {CommonModule} from '@angular/common';
-import {AfterViewInit, Component, ElementRef, EventEmitter, Input, Output, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {
+  AfterViewInit,
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  input,
+  output,
+  viewChild,
+} from '@angular/core';
 import {FormsModule} from '@angular/forms';
 import {MatOptionModule} from '@angular/material/core';
 import {MatFormFieldModule} from '@angular/material/form-field';
@@ -11,12 +18,11 @@ import {MatSelectModule} from '@angular/material/select';
  * A reusable standalone component for a searchable dropdown.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'app-searchable-dropdown',
   templateUrl: './searchable_dropdown.ng.html',
   styleUrls: ['./searchable_dropdown.scss'],
   imports: [
-    CommonModule,
     FormsModule,
     MatSelectModule,
     MatFormFieldModule,
@@ -26,34 +32,33 @@ import {MatSelectModule} from '@angular/material/select';
   ],
 })
 export class SearchableDropdown implements AfterViewInit {
-  @Input() itemList: string[] = [];
-  @Input() selectedItem = '';
-  @Input() label = '';
-  @Output() readonly selectionChange = new EventEmitter<string>();
-  @ViewChild('searchInput') searchInput!: ElementRef<HTMLInputElement>;
+  readonly itemList = input<string[]>([]);
+  readonly selectedItem = input('');
+  readonly label = input('');
+  readonly selectionChange = output<string>();
+  readonly searchInput = viewChild<ElementRef<HTMLInputElement>>('searchInput');
 
   filterText = '';
 
   get filteredItemList(): string[] {
-    if (!this.itemList) {
+    const list = this.itemList();
+    if (!list) {
       return [];
     }
     if (!this.filterText) {
-      return this.itemList;
+      return list;
     }
     const filter = this.filterText.trim().toLowerCase();
-    return this.itemList.filter(item => item.toLowerCase().includes(filter));
+    return list.filter((item) => item.toLowerCase().includes(filter));
   }
 
   ngAfterViewInit() {
     setTimeout(() => {
-      if (this.searchInput) {
-        this.searchInput.nativeElement.focus();
-      }
+      this.searchInput()?.nativeElement.focus();
     }, 0);
   }
 
-  emitSelectionChange() {
-    this.selectionChange.emit(this.selectedItem);
+  emitSelectionChange(value: string) {
+    this.selectionChange.emit(value);
   }
 }

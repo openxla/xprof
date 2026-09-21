@@ -1,27 +1,33 @@
-import {Component, Input, OnChanges, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
+import {ChangeDetectionStrategy, Component, effect, input} from '@angular/core';
+import {MatOption} from '@angular/material/core';
+import {MatDivider} from '@angular/material/divider';
+import {MatFormField} from '@angular/material/form-field';
+import {MatSelect} from '@angular/material/select';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {
   HostOpTable,
   type MetaHostOpTable,
 } from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
+import {Chart} from '../../chart/chart';
 
 /** A host-op view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'host-op',
   templateUrl: './host_op.ng.html',
   styleUrls: ['./host_op.scss'],
+  imports: [Chart, MatDivider, MatFormField, MatOption, MatSelect],
 })
-export class HostOp implements OnChanges {
+export class HostOp {
   /** Whether there are host-op tables */
-  @Input() hasHostOpTables = false;
+  readonly hasHostOpTables = input(false);
 
   /** The meta host-op table */
-  @Input() metaHostOpTable: MetaHostOpTable | null = null;
+  readonly metaHostOpTable = input<MetaHostOpTable | null>(null);
 
   /** Array of host-op tables */
-  @Input() hostOpTables: HostOpTable[] = [];
+  readonly hostOpTables = input<HostOpTable[]>([]);
 
   allHostOpChoices: string[] = [];
 
@@ -54,10 +60,17 @@ export class HostOp implements OnChanges {
     options: this.options,
   };
 
+  constructor() {
+    effect(() => {
+      this.setupChoicesAndCharts();
+    });
+  }
+
   /** Updates the visability of all charts */
   private updateChartsVisability() {
-    for (let i = 0; i < this.hostOpTables.length; i++) {
-      const prop = this.hostOpTables[i].p;
+    const hostOpTables = this.hostOpTables();
+    for (let i = 0; i < hostOpTables.length; i++) {
+      const prop = hostOpTables[i].p;
       const hostOp = (prop && prop.hostop) || '';
       const hostname = (prop && prop.hostname) || '';
       const core = (prop && prop.value) || '';
@@ -72,7 +85,7 @@ export class HostOp implements OnChanges {
         this.options.title = this.hostOpChartTitle(hostOp, hostname, core);
         this.dataInfo = {
           ...this.dataInfo,
-          data: this.hostOpTables[i],
+          data: hostOpTables[i],
         };
         this.showChart = true;
         return;
@@ -123,22 +136,17 @@ export class HostOp implements OnChanges {
 
   /** Sets up choices and charts */
   private setupChoicesAndCharts() {
-    if (!this.metaHostOpTable) return;
+    const metaHostOpTable = this.metaHostOpTable();
+    if (!metaHostOpTable) return;
 
     // Sets up choices.
-    this.allHostOpChoices = (
-      this.metaHostOpTable.p?.valid_host_ops || ''
-    ).split(',');
-    this.allHostnameChoices = (this.metaHostOpTable.p?.hostnames || '').split(
+    this.allHostOpChoices = (metaHostOpTable.p?.valid_host_ops || '').split(
       ',',
     );
-    this.allCoreChoices = (this.metaHostOpTable.p?.values || '').split(',');
+    this.allHostnameChoices = (metaHostOpTable.p?.hostnames || '').split(',');
+    this.allCoreChoices = (metaHostOpTable.p?.values || '').split(',');
 
     // Updates visability.
     this.updateChartsVisability();
-  }
-
-  ngOnChanges(changes: SimpleChanges) {
-    this.setupChoicesAndCharts();
   }
 }

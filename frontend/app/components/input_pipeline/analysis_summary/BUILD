@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "analysis_summary",
     srcs = [
         "analysis_summary.ts",
-        "analysis_summary_module.ts",
     ],
     assets = [
         ":analysis_summary_css",

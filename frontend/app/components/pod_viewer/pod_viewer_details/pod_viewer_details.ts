@@ -1,7 +1,17 @@
-import {Component, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnDestroy,
+  inject,
+} from '@angular/core';
 import {Store} from '@ngrx/store';
 
-import {AllReduceOpInfo, ChannelInfo, PodStatsRecord} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {MatCard, MatCardContent} from '@angular/material/card';
+import {
+  AllReduceOpInfo,
+  ChannelInfo,
+  PodStatsRecord,
+} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {getActivePodViewerInfoState} from 'org_xprof/frontend/app/store/selectors';
 import {ReplaySubject} from 'rxjs';
@@ -14,31 +24,37 @@ interface DetailInfo {
 
 /** A pod viewer details view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'pod-viewer-details',
   templateUrl: './pod_viewer_details.ng.html',
-  styleUrls: ['./pod_viewer_details.scss']
+  styleUrls: ['./pod_viewer_details.scss'],
+  imports: [MatCard, MatCardContent],
 })
 export class PodViewerDetails implements OnDestroy {
+  private readonly store = inject<Store<{}>>(Store);
+
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
 
-  info?: AllReduceOpInfo|ChannelInfo|PodStatsRecord;
+  info?: AllReduceOpInfo | ChannelInfo | PodStatsRecord;
   name = '';
   details: DetailInfo[] = [];
   hloNames = '';
   replicaGroups = '';
   description = '';
 
-  constructor(private readonly store: Store<{}>) {
-    this.store.select(getActivePodViewerInfoState)
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((info: AllReduceOpInfo|ChannelInfo|PodStatsRecord|null) => {
+  constructor() {
+    this.store
+      .select(getActivePodViewerInfoState)
+      .pipe(takeUntil(this.destroyed))
+      .subscribe(
+        (info: AllReduceOpInfo | ChannelInfo | PodStatsRecord | null) => {
           this.update(info);
-        });
+        },
+      );
   }
 
-  private updateSizeAndLatency(info: AllReduceOpInfo|ChannelInfo) {
+  private updateSizeAndLatency(info: AllReduceOpInfo | ChannelInfo) {
     const dataSize = Number(info.dataSize || '0');
     const latency = Number(info.durationUs || '0');
     this.details.push({
@@ -51,8 +67,9 @@ export class PodViewerDetails implements OnDestroy {
     });
     this.details.push({
       title: 'BW',
-      value: (latency !== 0 ? dataSize / latency / 1073.74 : 0).toFixed(2) +
-          ' GiB/s',
+      value:
+        (latency !== 0 ? dataSize / latency / 1073.74 : 0).toFixed(2) +
+        ' GiB/s',
     });
   }
 
@@ -60,7 +77,7 @@ export class PodViewerDetails implements OnDestroy {
     this.info = info;
     this.name = info.name || '';
     this.updateSizeAndLatency(info);
-    (info.replicaGroups || []).forEach(replicaGroup => {
+    (info.replicaGroups || []).forEach((replicaGroup) => {
       if (replicaGroup.replicaIds && replicaGroup.replicaIds.length > 0) {
         this.replicaGroups += '{' + replicaGroup.replicaIds.join(',') + '} ';
       }
@@ -75,9 +92,9 @@ export class PodViewerDetails implements OnDestroy {
     this.details.push({
       title: 'Send Delay',
       value:
-          utils.bytesToMiB(Number(info.sendDelayUs || '0')).toFixed(2) + ' Us',
+        utils.bytesToMiB(Number(info.sendDelayUs || '0')).toFixed(2) + ' Us',
     });
-    (info.hloNames || []).forEach(hloName => {
+    (info.hloNames || []).forEach((hloName) => {
       if (hloName) {
         this.hloNames += '"' + hloName + '" ';
       }
@@ -106,13 +123,16 @@ export class PodViewerDetails implements OnDestroy {
       const value: number = utils.getPodStatsRecordBreakdownProperty(info, key);
       this.details.push({
         title: key,
-        value: value.toFixed(2) + ' Us (' + (value / total * 100).toFixed(2) +
-            '%)',
+        value:
+          value.toFixed(2) +
+          ' Us (' +
+          ((value / total) * 100).toFixed(2) +
+          '%)',
       });
     });
   }
 
-  update(info: AllReduceOpInfo|ChannelInfo|PodStatsRecord|null) {
+  update(info: AllReduceOpInfo | ChannelInfo | PodStatsRecord | null) {
     this.details = [];
     this.hloNames = '';
     this.replicaGroups = '';

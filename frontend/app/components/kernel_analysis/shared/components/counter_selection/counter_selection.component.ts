@@ -1,12 +1,11 @@
-import {CommonModule} from '@angular/common';
 import {
   Component,
-  EventEmitter,
-  Inject,
-  Input,
   OnInit,
-  Optional,
-  Output,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
 } from '@angular/core';
 import {FormsModule} from '@angular/forms';
 import {MatButtonModule} from '@angular/material/button';
@@ -21,16 +20,14 @@ import {MatTooltipModule} from '@angular/material/tooltip';
 
 import type {
   CounterGroup,
-  CounterOption,
   CounterSelectionConfig,
+  CounterSelectionDialogData,
 } from './types';
 
 /** Component for selecting counters from a categorized list. */
 @Component({
   selector: 'app-counter-selection',
-  standalone: true,
   imports: [
-    CommonModule,
     FormsModule,
     MatExpansionModule,
     MatCheckboxModule,
@@ -45,49 +42,42 @@ import type {
   styleUrls: ['./counter_selection.component.scss'],
 })
 export class CounterSelectionComponent implements OnInit {
-  @Input() config: CounterSelectionConfig = {groups: []};
-  @Input() selectedIds: string[] = [];
-  @Input() layout: 'columns' | 'list' = 'columns';
-  @Input() density: 'comfortable' | 'compact' = 'compact';
+  data = inject<CounterSelectionDialogData | null>(MAT_DIALOG_DATA, {
+    optional: true,
+  });
+  dialogRef = inject<MatDialogRef<CounterSelectionComponent> | null>(
+    MatDialogRef,
+    {optional: true},
+  );
 
-  @Output() readonly applied = new EventEmitter<string[]>();
-  @Output() readonly cancelled = new EventEmitter<void>();
+  readonly config = input<CounterSelectionConfig>(
+    this.data?.config ?? {groups: []},
+  );
+  readonly selectedIds = input<string[]>(this.data?.selectedIds ?? []);
+  readonly layout = input<'columns' | 'list'>(this.data?.layout ?? 'columns');
+  readonly density = input<'comfortable' | 'compact'>(
+    this.data?.density ?? 'compact',
+  );
 
-  searchText = '';
-  currentSelections = new Set<string>();
+  readonly applied = output<string[]>();
+  readonly cancelled = output<void>();
 
-  constructor(
-    @Optional()
-    @Inject(MAT_DIALOG_DATA)
-    public data: {
-      config: CounterSelectionConfig;
-      selectedIds: string[];
-      layout: 'columns' | 'list';
-      density: 'comfortable' | 'compact';
-    } | null,
-    @Optional()
-    public dialogRef: MatDialogRef<CounterSelectionComponent> | null,
-  ) {
-    if (data) {
-      this.config = data.config || this.config;
-      this.selectedIds = data.selectedIds || this.selectedIds;
-      this.layout = data.layout || this.layout;
-      this.density = data.density || this.density;
-    }
-  }
+  readonly searchText = signal('');
+  readonly currentSelections = signal<Set<string>>(new Set());
 
   ngOnInit() {
-    this.currentSelections = new Set(this.selectedIds);
+    this.currentSelections.set(new Set(this.selectedIds()));
   }
 
-  get filteredGroups(): CounterGroup[] {
-    const filter = this.searchText.trim().toLowerCase();
-    if (!filter) return this.config.groups;
+  filteredGroups = computed(() => {
+    const filter = this.searchText().trim().toLowerCase();
+    const config = this.config();
+    if (!filter) return config.groups;
 
     const isPureNumber = /^\d+$/.test(filter);
-    const useExactMatch = this.config.exactMatchForPureNumbers && isPureNumber;
+    const useExactMatch = config.exactMatchForPureNumbers && isPureNumber;
 
-    return this.config.groups
+    return config.groups
       .map((group) => {
         const filteredMetrics = group.counters.filter((metric) => {
           if (useExactMatch) {
@@ -115,45 +105,43 @@ export class CounterSelectionComponent implements OnInit {
         return null;
       })
       .filter((group) => group !== null) as CounterGroup[];
-  }
+  });
 
-  get selectedCounters(): CounterOption[] {
-    const selections = this.currentSelections;
-    const allMetrics = this.config.groups
-      .map((g) => g.counters)
-      .reduce((acc, val) => acc.concat(val), []);
+  selectedCounters = computed(() => {
+    const selections = this.currentSelections();
+    const allMetrics = this.config().groups.flatMap((g) => g.counters);
     return allMetrics.filter((m) => selections.has(m.id));
-  }
+  });
 
   isSelected(id: string): boolean {
-    return this.currentSelections.has(id);
+    return this.currentSelections().has(id);
   }
 
   toggleSelection(id: string) {
-    const newSelections = new Set(this.currentSelections);
+    const newSelections = new Set(this.currentSelections());
     if (newSelections.has(id)) {
       newSelections.delete(id);
     } else {
       newSelections.add(id);
     }
-    this.currentSelections = newSelections;
+    this.currentSelections.set(newSelections);
   }
 
   isAllSelected(group: CounterGroup): boolean {
     return group.counters.every((metric) =>
-      this.currentSelections.has(metric.id),
+      this.currentSelections().has(metric.id),
     );
   }
 
   isSomeSelected(group: CounterGroup): boolean {
     const selectedCount = group.counters.filter((metric) =>
-      this.currentSelections.has(metric.id),
+      this.currentSelections().has(metric.id),
     ).length;
     return selectedCount > 0 && selectedCount < group.counters.length;
   }
 
   toggleGroupSelection(group: CounterGroup) {
-    const newSelections = new Set(this.currentSelections);
+    const newSelections = new Set(this.currentSelections());
     const allSelected = this.isAllSelected(group);
 
     group.counters.forEach((metric) => {
@@ -163,15 +151,15 @@ export class CounterSelectionComponent implements OnInit {
         newSelections.add(metric.id);
       }
     });
-    this.currentSelections = newSelections;
+    this.currentSelections.set(newSelections);
   }
 
   clearAll() {
-    this.currentSelections = new Set();
+    this.currentSelections.set(new Set());
   }
 
   onApply() {
-    const selections = Array.from(this.currentSelections);
+    const selections = Array.from(this.currentSelections());
     this.applied.emit(selections);
     if (this.dialogRef) {
       this.dialogRef.close(selections);

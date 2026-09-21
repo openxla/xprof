@@ -23,3 +23,11 @@ export declare interface Counter {
   name: string;
   val: number;
 }
+
+/** Data passed to the counter selection dialog. */
+export interface CounterSelectionDialogData {
+  config?: CounterSelectionConfig;
+  selectedIds?: string[];
+  layout?: 'columns' | 'list';
+  density?: 'comfortable' | 'compact';
+}

@@ -1,4 +1,15 @@
-import {Component, ElementRef, Input, OnChanges, OnInit, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  OnInit,
+  effect,
+  input,
+  viewChild,
+} from '@angular/core';
+import {MatFormField, MatSuffix} from '@angular/material/form-field';
+import {MatIcon} from '@angular/material/icon';
+import {MatInput} from '@angular/material/input';
 import {type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 declare interface KernelStatsColumn {
@@ -31,16 +42,17 @@ const OP_NAME_COLUMN_ID = 'op_name';
 
 /** A kernel stats table view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'kernel-stats-table',
   templateUrl: './kernel_stats_table.ng.html',
-  styleUrls: ['./kernel_stats_table.scss']
+  styleUrls: ['./kernel_stats_table.scss'],
+  imports: [MatFormField, MatIcon, MatInput, MatSuffix],
 })
-export class KernelStatsTable implements OnChanges, OnInit {
+export class KernelStatsTable implements OnInit {
   /** The kernel stats data. */
-  @Input() kernelStatsData: SimpleDataTable|null = null;
+  readonly kernelStatsData = input<SimpleDataTable | null>(null);
 
-  @ViewChild('table', {static: false}) tableRef!: ElementRef;
+  readonly tableRef = viewChild<ElementRef>('table');
 
   columns: KernelStatsColumn = {
     rank: 0,
@@ -59,34 +71,37 @@ export class KernelStatsTable implements OnChanges, OnInit {
     minDurationUs: 0,
     maxDurationUs: 0,
   };
-  dataTable: google.visualization.DataTable|null = null;
+  dataTable: google.visualization.DataTable | null = null;
   filterKernelName = '';
   filterOpName = '';
   sortAscending = true;
   sortColumn = 0;
-  table: google.visualization.Table|null = null;
+  table: google.visualization.Table | null = null;
 
   loading = true;
+
+  constructor() {
+    effect(() => {
+      this.kernelStatsData();
+      this.dataTable = null;
+      this.drawTable();
+    });
+  }
 
   ngOnInit() {
     this.loadGoogleChart();
   }
 
-  ngOnChanges(changes: SimpleChanges) {
-    this.dataTable = null;
-    this.drawTable();
-  }
-
   createDataTable() {
-    if (!this.table || !this.kernelStatsData || !!this.dataTable) {
+    if (!this.table || !this.kernelStatsData() || !!this.dataTable) {
       return;
     }
 
-    this.dataTable = new google.visualization.DataTable(this.kernelStatsData);
+    this.dataTable = new google.visualization.DataTable(this.kernelStatsData());
   }
 
   drawTable() {
-    if (!this.table || !this.kernelStatsData) {
+    if (!this.table || !this.kernelStatsData()) {
       return;
     }
 
@@ -172,7 +187,7 @@ export class KernelStatsTable implements OnChanges, OnInit {
     }
   }
 
-  getDataView(): google.visualization.DataView|null {
+  getDataView(): google.visualization.DataView | null {
     if (!this.dataTable) {
       this.createDataTable();
       this.enumerateColumns();
@@ -180,7 +195,11 @@ export class KernelStatsTable implements OnChanges, OnInit {
 
     if (this.dataTable) {
       this.dataTable.setProperty(
-          0, this.columns.kernelName, 'style', 'width: 30%');
+        0,
+        this.columns.kernelName,
+        'style',
+        'width: 30%',
+      );
       this.dataTable.setProperty(0, this.columns.opName, 'style', 'width: 25%');
     }
 
@@ -209,7 +228,7 @@ export class KernelStatsTable implements OnChanges, OnInit {
     return dataView;
   }
 
-  getFilteredDataTable(): google.visualization.DataTable|null {
+  getFilteredDataTable(): google.visualization.DataTable | null {
     if (!this.dataTable) {
       return null;
     }
@@ -250,18 +269,23 @@ export class KernelStatsTable implements OnChanges, OnInit {
 
     google.charts.safeLoad({'packages': ['table']});
     google.charts.setOnLoadCallback(() => {
-      this.table = new google.visualization.Table(this.tableRef.nativeElement);
+      const tableEl = this.tableRef()?.nativeElement;
+      if (!tableEl) return;
+      this.table = new google.visualization.Table(tableEl);
       google.visualization.events.addListener(
-          this.table, 'sort', (event: SortEvent) => {
-            this.sortColumn = event.column;
-            this.sortAscending = event.ascending;
-            this.drawTable();
-          });
+        this.table,
+        'sort',
+        (event: SortEvent) => {
+          this.sortColumn = event.column;
+          this.sortAscending = event.ascending;
+          this.drawTable();
+        },
+      );
       this.drawTable();
     });
   }
 
-  sortDataView(): google.visualization.DataView|null {
+  sortDataView(): google.visualization.DataView | null {
     const dataTable = this.getFilteredDataTable();
     if (!dataTable) {
       return null;

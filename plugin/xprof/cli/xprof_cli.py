@@ -1,8 +1,10 @@
 """CLI for XProf tools."""
 
 import functools
+import glob
 import inspect
 import json
+import os
 import pathlib
 import re
 import sys
@@ -37,6 +39,73 @@ from xprof.cli.tools.oss import get_kernel_utilization_tool
 from xprof.cli.tools.oss import upload_trace_tool
 
 
+from xprof.convert import _pywrap_profiler_plugin
+
+
+def _get_llo_static_analysis(
+    session_id: str,
+    mode: str = "region_tree",
+    hlo_op: str = "",
+    bundle: int = 0,
+    host: str = "",
+) -> str:
+  """Dispatches LLO static analysis to 1P tool or OSS C++ C-API."""
+  if host:
+    return json.dumps(
+        {
+            "status": "ERROR",
+            "semantics": "static_modelled_schedule",
+            "mode": mode,
+            "error": "--host filtering is not supported in OSS builds.",
+        },
+        indent=2,
+    )
+  target_path = str(session_id)
+  if os.path.isdir(target_path):
+    xplane_files = sorted(
+        glob.glob(
+            os.path.join(target_path, "**", "*.xplane.pb"), recursive=True
+        )
+    )
+    if not xplane_files:
+      return json.dumps(
+          {
+              "status": "ERROR",
+              "semantics": "static_modelled_schedule",
+              "mode": mode,
+              "error": f"No *.xplane.pb files found in {target_path}.",
+          },
+          indent=2,
+      )
+    target_path = xplane_files[0]
+  try:
+    return _pywrap_profiler_plugin.get_llo_static_analysis_json(
+        target_path, mode=mode, hlo_op=hlo_op, bundle=bundle
+    )
+  except NotImplementedError as e:
+    return json.dumps(
+        {
+            "status": "ERROR",
+            "semantics": "static_modelled_schedule",
+            "mode": mode,
+            "error": str(e),
+        },
+        indent=2,
+    )
+
+
+def _get_device_time_attribution(
+    session_id: str,
+    host: str = "",
+    include_summary: bool = True,
+) -> str:
+  """Returns per-line disjoint-interval device time attribution and kernel stats."""
+  del host
+  return get_kernel_stats_tool.get_kernel_stats(
+      session_id=session_id, include_summary=include_summary
+  )
+
+
 def cli_main() -> dict[str, Any]:
   """Initializes the CLI and returns the available tools.
 
@@ -44,13 +113,16 @@ def cli_main() -> dict[str, Any]:
     A dictionary of tool names to functions.
   """
   return {
-      # 30 Core Tools (Available in both 1P and 3P):
+      # Core Tools (Available in both 1P and 3P):
       # keep-sorted start
       "aggregate_xplane_events": xplane_tools.aggregate_xplane_events,
       "check_host_boundness": check_host_boundness_tool.check_host_boundness,
+      "check_kernel_profiling": xplane_tools.inspect_capture,
       "compute_utilization": get_kernel_utilization_tool.get_kernel_utilization,
+      "export_json": xprof_data.get_profile_summary,
       "get_avg_step_time": get_kernel_stats_tool.get_avg_step_time,
       "get_device_information": xprof_data.get_device_information,
+      "get_device_time_attribution": _get_device_time_attribution,
       "get_graph_viewer": get_graph_viewer_tool.get_graph_viewer,
       "get_hlo_module_content": hlo_tools.get_hlo_module_content,
       "get_hlo_neighborhood": hlo_tools.get_hlo_neighborhood,
@@ -65,6 +137,8 @@ def cli_main() -> dict[str, Any]:
       "get_kpi_metrics": get_kpi_metrics_tool.get_kpi_metrics,
       "get_llo_analysis": get_llo_analysis_tool.get_llo_analysis,
       "get_llo_debug_string": get_llo_debug_string_tool.get_llo_debug_string,
+      "get_llo_dump_analysis": _get_llo_static_analysis,
+      "get_llo_static_analysis": _get_llo_static_analysis,
       "get_memory_profile": get_memory_profile_tool.get_memory_profile,
       "get_overview": get_overview_tool.get_overview,
       "get_peak_allocations": get_peak_allocations_tool.get_peak_allocations,
@@ -76,8 +150,10 @@ def cli_main() -> dict[str, Any]:
           get_utilization_viewer_tool.get_utilization_viewer
       ),
       "get_xspace_proto": xplane_tools.get_xspace_proto,
+      "inspect_capture": xplane_tools.inspect_capture,
       "list_hlo_modules": hlo_tools.list_hlo_modules,
       "list_xplane_events": xplane_tools.list_xplane_events,
+      "list_xplane_lines": xplane_tools.inspect_capture,
       "upload_trace": upload_trace_tool.upload_trace,
       "verify_numerical_parity": (
           verify_numerical_parity_tool.verify_numerical_parity

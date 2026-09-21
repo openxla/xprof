@@ -1,7 +1,11 @@
 """Data fetching tools for XProf MCP."""
 
+import csv
+import io
 import json
 import logging
+import math
+from typing import Any
 
 from google.protobuf import json_format
 
@@ -22,6 +26,113 @@ _DEVICE_INFO_BANDWIDTH_RENAMES = {
 }
 
 
+def gviz_datatable_to_records(
+    table_data: Any,
+) -> tuple[list[dict[str, Any]], list[str]]:
+  """Parses a Google Visualization DataTable JSON/dict or CSV string into records."""
+  if isinstance(table_data, bytes):
+    table_data = table_data.decode("utf-8", errors="replace")
+  if isinstance(table_data, str):
+    raw_trimmed = table_data.strip()
+    if raw_trimmed.startswith("{") or raw_trimmed.startswith("["):
+      try:
+        table_data = json.loads(raw_trimmed)
+      except (ValueError, TypeError, json.JSONDecodeError):
+        pass
+    else:
+      reader = csv.DictReader(io.StringIO(table_data), skipinitialspace=True)
+      fieldnames = [f.strip() for f in reader.fieldnames or [] if f]
+      rows = [
+          {k.strip(): str(v).strip() for k, v in row.items() if k}
+          for row in reader
+      ]
+      return rows, fieldnames
+
+  if isinstance(table_data, list) and table_data:
+    table_data = table_data[0]
+
+  if isinstance(table_data, dict) and "cols" in table_data:
+    cols = [
+        c.get("label") or c.get("id", f"col_{i}")
+        for i, c in enumerate(table_data.get("cols", []))
+    ]
+    rows = []
+    for row in table_data.get("rows", []):
+      cells = row.get("c", [])
+      row_dict = {}
+      for i, cell in enumerate(cells):
+        if i < len(cols):
+          val = cell.get("v") if isinstance(cell, dict) else cell
+          row_dict[cols[i]] = val
+      rows.append(row_dict)
+    return rows, cols
+
+  return [], []
+
+
+def sanitize_and_bound_json(
+    payload: Any,
+    max_depth: int = 25,
+    max_nodes: int = 5000,
+) -> tuple[Any, bool, list[str]]:
+  """Sanitizes and bounds a nested structure for safe JSON serialization."""
+  node_count = 0
+  truncated = False
+  notes: list[str] = []
+
+  def _mark_truncated(reason: str) -> None:
+    nonlocal truncated
+    if not truncated:
+      truncated = True
+      notes.append(reason)
+
+  def _walk(obj: Any, depth: int) -> Any:
+    nonlocal node_count
+    node_count += 1
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+      return None
+    if node_count > max_nodes:
+      _mark_truncated(
+          f"Payload truncated after exceeding max_nodes={max_nodes}."
+      )
+      return "<truncated:max_nodes>"
+    if depth > max_depth:
+      _mark_truncated(
+          f"Payload truncated after exceeding max_depth={max_depth}."
+      )
+      return "<truncated:max_depth>"
+    if isinstance(obj, dict):
+      out = {}
+      for k, v in obj.items():
+        if node_count > max_nodes:
+          _mark_truncated(
+              f"Payload truncated after exceeding max_nodes={max_nodes}."
+          )
+          out["<truncated>"] = "..."
+          break
+        out[str(k)] = _walk(v, depth + 1)
+      return out
+    if isinstance(obj, (list, tuple, set)):
+      out_list = []
+      for item in obj:
+        if node_count > max_nodes:
+          _mark_truncated(
+              f"Payload truncated after exceeding max_nodes={max_nodes}."
+          )
+          out_list.append("<truncated>")
+          break
+        out_list.append(_walk(item, depth + 1))
+      return out_list
+    if isinstance(obj, bytes):
+      return obj.decode("utf-8", errors="replace")
+    if isinstance(obj, (str, int, float, bool)) or obj is None:
+      return obj
+    return str(obj)
+
+  bounded = _walk(payload, 0)
+  return bounded, truncated, notes
+
+
 @decorators.cached(expire=86400)
 def get_profile_summary(
     session_id: str,
@@ -37,7 +148,8 @@ def get_profile_summary(
     bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
-    A executive-level text summary of the profile's performance landscape.
+    A JSON-formatted string containing the bounded profile summary and Markdown
+    report.
 
   Raises:
     FileNotFoundError: If no HLO op_profile data is found in the profile.
@@ -99,21 +211,20 @@ def get_profile_summary(
 
     # Analyze Op Profile
     def extract_top_ops(node, limit=10):
-      # Traverse to find leaf nodes or interesting nodes
       all_nodes = []
 
       def walk(n):
         if len(all_nodes) >= limit:
-          return  # Stop if limit is reached
+          return
 
         if n.metrics.raw_time > 0:
           all_nodes.append(n)
           if len(all_nodes) >= limit:
-            return  # Stop after appending if limit is reached
+            return
 
         for child in n.children:
           if len(all_nodes) >= limit:
-            return  # Stop before recursing if limit is reached
+            return
           walk(child)
 
       walk(node)
@@ -144,34 +255,35 @@ def get_profile_summary(
     lines.append("|---|---|---|")
 
     top_nodes = extract_top_ops(root)
-    top_operations = []
+    top_ops_list = []
 
     for child in top_nodes:
       name = child.name if child.name else "Unknown"
+      escaped_name = name.replace("|", "\\|")
       time_s = child.metrics.raw_time / 1e12
       fraction = child.metrics.raw_time / total_time_ps if total_time_ps else 0
-      top_operations.append({
+      lines.append(f"| {escaped_name} | {time_s:.4f} | {fraction:.1%} |")
+      top_ops_list.append({
           "name": name,
           "self_time_s": round(time_s, 6),
           "fraction": round(fraction, 6),
       })
-      # Escape pipes in name to avoid breaking table
-      escaped_name = name.replace("|", "\\|")
-      lines.append(f"| {escaped_name} | {time_s:.4f} | {fraction:.1%} |")
 
-    summary_markdown = "\n".join(lines)
-    return json.dumps(
-        {
-            "status": "SUCCESS",
-            "session_id": session_id,
-            "total_time_s": (
-                round(total_time_ps / 1e12, 6) if total_time_ps > 0 else 0.0
-            ),
-            "top_operations": top_operations,
-            "summary_markdown": summary_markdown,
-        },
-        indent=2,
-    )
+    markdown_summary = "\n".join(lines)
+    raw_payload = {
+        "status": "SUCCESS",
+        "session_id": str(session_id),
+        "total_time_s": (
+            round(total_time_ps / 1e12, 6) if total_time_ps > 0 else 0.0
+        ),
+        "top_operations": top_ops_list,
+        "summary_markdown": markdown_summary,
+        "markdown_summary": markdown_summary,
+    }
+    bounded_payload, truncated, notes = sanitize_and_bound_json(raw_payload)
+    bounded_payload["truncated"] = truncated
+    bounded_payload["notes"] = notes
+    return json.dumps(bounded_payload, indent=2)
 
   except (FileNotFoundError, ValueError):
     raise

@@ -147,6 +147,10 @@ def get_kernel_stats(
 
     kernel_durations_us = collections.defaultdict(list)
     all_intervals: list[tuple[int, int]] = []
+    line_intervals: dict[str, list[tuple[int, int]]] = collections.defaultdict(
+        list
+    )
+    custom_call_intervals: list[tuple[int, int]] = []
     step_durations_us: list[float] = []
 
     for plane in xplane_tools.iter_planes(source):
@@ -157,6 +161,12 @@ def get_kernel_stats(
 
       for line in plane.lines:
         line_name_upper = line.name.upper()
+        if include_summary:
+          for ev in line.events:
+            s_ns = int(ev.start_ns)
+            e_ns = s_ns + int(ev.duration_ns)
+            line_intervals[line.name].append((s_ns, e_ns))
+
         # Restrict TPU compute events to XLA/Pallas/LLO
         # to avoid timing inflation.
         if is_tpu and not any(
@@ -208,6 +218,14 @@ def get_kernel_stats(
             start_ns = int(event.start_ns)
             end_ns = start_ns + int(event.duration_ns)
             all_intervals.append((start_ns, end_ns))
+            name_lower = name_info.lower()
+            if (
+                name_lower.startswith("custom-call")
+                or "custom_call" in name_lower
+                or "pallas" in name_lower
+                or "PALLAS" in line_name_upper
+            ):
+              custom_call_intervals.append((start_ns, end_ns))
 
     if not kernel_durations_us:
       msg = f"No kernel stats found for session {source}"
@@ -218,6 +236,9 @@ def get_kernel_stats(
             "total_device_duration_ns": 0,
             "total_device_duration_us": 0.0,
             "total_device_duration_ms": 0.0,
+            "by_line_duration_ns": {},
+            "custom_call_duration_us": 0.0,
+            "custom_call_share_pct": 0.0,
             "kernel_records": [],
             "step_durations_us": [],
             "stats": {"mean_us": 0.0, "std_us": 0.0},
@@ -254,20 +275,48 @@ def get_kernel_stats(
       total_ns = compute_disjoint_interval_union_ns(all_intervals)
       total_us = float(total_ns / 1000.0)
       total_ms = float(total_ns / 1_000_000.0)
+      by_line_duration_ns = {
+          ln: compute_disjoint_interval_union_ns(ivs)
+          for ln, ivs in line_intervals.items()
+      }
+      cc_ns = compute_disjoint_interval_union_ns(custom_call_intervals)
+      cc_us = round(float(cc_ns / 1000.0), 4)
+      cc_pct = round((cc_ns / total_ns) * 100.0, 2) if total_ns > 0 else 0.0
       mean_us = total_us if not step_durations_us else (
           sum(step_durations_us) / len(step_durations_us)
       )
       std_us = 0.0
       if len(step_durations_us) > 1:
         std_us = stats_mod.stdev(step_durations_us)
-      summary = {
+      summary: dict[str, Any] = {
           "total_device_duration_ns": total_ns,
           "total_device_duration_us": total_us,
           "total_device_duration_ms": total_ms,
+          "by_line_duration_ns": by_line_duration_ns,
+          "custom_call_duration_us": cc_us,
+          "custom_call_share_pct": cc_pct,
           "kernel_records": records,
           "step_durations_us": step_durations_us,
           "stats": {"mean_us": round(mean_us, 4), "std_us": round(std_us, 4)},
       }
+      if isinstance(source, str):
+        try:
+          import importlib  # pylint: disable=g-import-not-at-top
+
+          try:
+            llo_mod = importlib.import_module(
+                "google3.third_party.xprof.plugin.xprof.cli.tools.get_llo_analysis_tool"
+            )
+          except ImportError:
+            llo_mod = importlib.import_module(
+                "xprof.cli.tools.get_llo_analysis_tool"
+            )
+          llo_json = llo_mod.get_llo_analysis(source)
+          llo_parsed = json.loads(llo_json)
+          if isinstance(llo_parsed, (dict, list)) and llo_parsed:
+            summary["static_llo_census"] = llo_parsed
+        except Exception:  # pylint: disable=broad-exception-caught
+          pass
       if output_format == "dict":
         return summary
       if output_format == "markdown":

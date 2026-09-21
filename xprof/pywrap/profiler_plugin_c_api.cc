@@ -292,6 +292,11 @@ EXPORT_C const char* GetLloAnalysisJson(LloAnalysisHandle handle,
                                         const char* kernel_filter) {
   return GetLloAnalysisJsonImpl(handle, kernel_filter);
 }
+EXPORT_C const char* GetLloStaticAnalysisJson(LloAnalysisHandle handle,
+                                              const char* mode,
+                                              const char* hlo_op, int bundle) {
+  return GetLloStaticAnalysisJsonImpl(handle, mode, hlo_op, bundle);
+}
 EXPORT_C const char* GetLloDebugString(LloAnalysisHandle handle) {
   return GetLloDebugStringImpl(handle);
 }

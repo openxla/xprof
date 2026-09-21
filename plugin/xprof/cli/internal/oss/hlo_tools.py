@@ -255,15 +255,23 @@ def get_hlo_text(
     path: str | None = None,
     module_name: str | None = None,
     op_name: str | None = None,
+    max_lines: int = 2000,
     bypass_cache: bool = False,
 ) -> str:
-  """Retrieves HLO module content for static analysis as JSON.
+  """Retrieves or exports HLO module text with resolved metadata.
+
+  Unlike `get_hlo_module_content` (which returns a raw bounded text view for
+  interactive inspection), `get_hlo_text` resolves the target module name,
+  writes the complete untruncated HLO module text to `path` when specified, and
+  returns a structured JSON envelope with line/byte counts.
 
   Args:
     session_id: XProf session ID.
-    path: Path to save the HLO text file.
-    module_name: Name of the module.
+    path: Optional path to save the full untruncated HLO text file.
+    module_name: Name of the module (auto-resolved if omitted).
     op_name: Name of the operation to focus on (optional).
+    max_lines: Maximum lines to include in `content` when `path` is not set
+      (default 2000; set to -1 for unlimited).
     bypass_cache: Whether to bypass cache.
 
   Returns:
@@ -287,30 +295,73 @@ def get_hlo_text(
       raw_output = get_hlo_module_content(
           session_id,
           module_name=module_name,
+          max_lines=-1,
           bypass_cache=bypass_cache,
       )
 
     text = raw_output
+    resolved_module = module_name
     try:
       parsed = json.loads(raw_output)
-      if isinstance(parsed, dict) and "content" in parsed:
-        text = parsed["content"]
+      if isinstance(parsed, dict):
+        if "content" in parsed:
+          text = parsed["content"]
+        if parsed.get("module_name"):
+          resolved_module = parsed["module_name"]
     except Exception:  # pylint: disable=broad-exception-caught
       pass
+
+    if not resolved_module:
+      try:
+        resolved_module = resolve_module_name(session_id, module_name)
+      except Exception:  # pylint: disable=broad-exception-caught
+        resolved_module = module_name
+
+    lines = text.splitlines()
+    line_count = len(lines)
+    byte_count = len(text.encode("utf-8"))
+    is_truncated = False
+    returned_line_count = line_count
 
     if path:
       path_obj = pathlib.Path(path)
       path_obj.parent.mkdir(parents=True, exist_ok=True)
       path_obj.write_text(text, encoding="utf-8")
       logging.info("Saved HLO text to %s", path)
+      if line_count > 50:
+        is_truncated = True
+        returned_line_count = 50
+        preview_lines = lines[:50]
+        content_field = (
+            "\n".join(preview_lines)
+            + f"\n... [Saved full {line_count} lines ({byte_count} bytes) to"
+            f" {path}] ..."
+        )
+      else:
+        content_field = text
+    elif max_lines > 0 and line_count > max_lines:
+      is_truncated = True
+      returned_line_count = max_lines
+      content_field = (
+          "\n".join(lines[:max_lines])
+          + f"\n... [Truncated to {max_lines} of {line_count} lines"
+          f" ({byte_count} bytes); pass --max_lines=-1 or --path=<file> for"
+          " full HLO] ..."
+      )
+    else:
+      content_field = text
 
     return json.dumps(
         {
             "status": "SUCCESS",
-            "module_name": module_name,
+            "module_name": resolved_module,
             "op_name": op_name,
             "saved_to_path": str(path) if path else None,
-            "content": text,
+            "truncated": is_truncated,
+            "line_count": line_count,
+            "returned_line_count": returned_line_count,
+            "byte_count": byte_count,
+            "content": content_field,
         },
         indent=2,
     )

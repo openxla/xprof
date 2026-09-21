@@ -269,6 +269,71 @@ class GetTopHloOpsToolTest(parameterized.TestCase):
       get_top_hlo_ops_tool.get_top_hlo_ops("session_without_hlo")
     self.assertIn("No HLO op_profile found in trace", str(cm.exception))
 
+  def test_excludes_duplicate_wrapper_nodes_and_preserves_fusion_leaves(self):
+    """Verifies '<op> and its duplicate(s)' wrappers are excluded while children and fusion leaves are emitted."""
+    profile = op_profile_pb2.Profile()
+    root = profile.by_category
+    root.name = "by_category"
+    root.metrics.raw_time = 3_000_000_000
+
+    cat = root.children.add()
+    cat.name = "convolution"
+    cat.metrics.raw_time = 3_000_000_000
+
+    # Grouping wrapper node with xla set and raw_time > 0
+    # (like op_profile_builder.cc:116)
+    dup_wrapper = cat.children.add()
+    dup_wrapper.name = "%convolution.1 and its duplicate(s)"
+    dup_wrapper.xla.SetInParent()
+    dup_wrapper.xla.category = "convolution"
+    dup_wrapper.metrics.raw_time = 2_000_000_000
+    dup_wrapper.metrics.raw_flops = 20_000
+
+    dup_child1 = dup_wrapper.children.add()
+    dup_child1.name = "%convolution.1"
+    dup_child1.xla.SetInParent()
+    dup_child1.xla.category = "convolution"
+    dup_child1.metrics.raw_time = 1_200_000_000
+    dup_child1.metrics.raw_flops = 12_000
+
+    dup_child2 = dup_wrapper.children.add()
+    dup_child2.name = "%convolution.2"
+    dup_child2.xla.SetInParent()
+    dup_child2.xla.category = "convolution"
+    dup_child2.metrics.raw_time = 800_000_000
+    dup_child2.metrics.raw_flops = 8_000
+
+    # Fusion node whose children have raw_time == 0 (must be emitted as leaf)
+    fusion_node = cat.children.add()
+    fusion_node.name = "%fusion.5"
+    fusion_node.xla.SetInParent()
+    fusion_node.xla.category = "fusion"
+    fusion_node.metrics.raw_time = 1_000_000_000
+    fusion_node.metrics.raw_flops = 5_000
+    sub_instr = fusion_node.children.add()
+    sub_instr.name = "%add.1"
+    sub_instr.xla.SetInParent()
+    sub_instr.xla.category = "add"
+    sub_instr.metrics.raw_time = 0
+
+    self.mock_client.fetch.return_value = (None, profile.SerializeToString())
+    result = json.loads(
+        get_top_hlo_ops_tool.get_top_hlo_ops("test_session", limit=10)
+    )
+    names = [op["name"] for op in result["top_by_time"]]
+    self.assertFalse(
+        any("and its duplicate(s)" in n for n in names),
+        f"Expected no 'and its duplicate(s)' rows, got: {names}",
+    )
+    self.assertEqual(
+        names,
+        [
+            "by_category/convolution/%convolution.1",
+            "by_category/convolution/%fusion.5",
+            "by_category/convolution/%convolution.2",
+        ],
+    )
+
 
 if __name__ == "__main__":
   absltest.main()

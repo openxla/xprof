@@ -1,6 +1,8 @@
 """Tool to fetch graph viewer data from XProf in OSS."""
 
+import json
 import logging
+import tempfile
 from typing import Any
 
 from xprof.cli.internal.oss import hlo_tools
@@ -23,6 +25,7 @@ def get_graph_viewer(
     tool: str = "",
     op_profile_limit: int = 0,
     use_xplane: int = 0,
+    max_lines: int = -1,
     bypass_cache: bool = False,
 ) -> str:
   """Gets graph viewer data from XProf in OSS.
@@ -43,6 +46,7 @@ def get_graph_viewer(
     tool: Optional tool name query param.
     op_profile_limit: Optional limit for op profile (e.g., 1).
     use_xplane: Optional flag to use xplane (e.g., 1).
+    max_lines: Optional maximum number of lines to return (-1 for unlimited).
     bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
@@ -154,5 +158,40 @@ def get_graph_viewer(
 
   if isinstance(data, bytes):
     data = data.decode("utf-8", errors="replace")
+
+  if max_lines > 0 and isinstance(data, str):
+    lines = data.splitlines()
+    if len(lines) > max_lines:
+      data = "\n".join(lines[:max_lines]) + (
+          f"\n... [Truncated to {max_lines} of {len(lines)} lines] ..."
+      )
+
+  if isinstance(data, str):
+    byte_len = len(data.encode("utf-8"))
+    if byte_len > 10 * 1024 * 1024:
+      ext = ".html" if output_type == "graph" else ".txt"
+      with tempfile.NamedTemporaryFile(
+          mode="w",
+          encoding="utf-8",
+          delete=False,
+          prefix="xprof_spill_get_graph_viewer_",
+          suffix=ext,
+      ) as spill_tmp:
+        spill_tmp.write(data)
+        spill_path = spill_tmp.name
+      return json.dumps(
+          {
+              "status": "SAVED_TO_FILE",
+              "size_bytes": byte_len,
+              "size_mib": round(byte_len / (1024 * 1024), 2),
+              "file_path": spill_path,
+              "message": (
+                  f"Output payload ({round(byte_len / (1024 * 1024), 2)} MB)"
+                  " exceeded 10 MB threshold. Saved to file to prevent"
+                  " buffer overflow."
+              ),
+          },
+          indent=2,
+      )
 
   return data

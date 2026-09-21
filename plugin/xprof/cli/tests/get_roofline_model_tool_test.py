@@ -132,6 +132,12 @@ class GetRooflineModelToolTest(absltest.TestCase):
 
     self.assertEqual(parsed["device_info"]["device_type"], "TPU v6 Lite")
     self.assertEqual(parsed["device_info"]["peak_flop_rate"], 946700.0)
+    self.assertEqual(parsed["device_info"]["peak_hbm_bw_gibs"], 1525.5)
+    self.assertNotIn("peak_hbm_bw", parsed["device_info"])
+    self.assertEqual(
+        parsed["device_info"]["units"]["peak_hbm_bw_gibs"], "GiB/s"
+    )
+    self.assertNotIn("peak_hbm_bw", parsed["device_info"]["units"])
 
     self.assertLen(parsed["top_operations"], 1)
     op = parsed["top_operations"][0]

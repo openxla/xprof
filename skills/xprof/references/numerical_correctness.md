@@ -243,6 +243,14 @@ Tier               | Total Tensors ($m$)      | Composition                     
 **`presubmit`**    | **$m = 12$**             | 1 Normal + 6 Student-t + 3 Outliers + 1 Cancellation + 1 Boundary  | $\sim 5\text{--}8\text{ s}$   | Automated presubmit before submitting CL
 **`deep_fuzzing`** | **$m = 48$**             | 1 Normal + 30 Student-t + 15 Outliers + 1 Cancellation + 1 Boundary | $\sim 30\text{--}60\text{ s}$ | Compiler pass / custom kernel release qualification
 
+### Metric Selection by Transformation Class
+
+Transformation Class | Primary Metric to Read | Why / Pitfall to Avoid
+:--- | :--- | :---
+**Bitwise / Layout Refactor** (same arithmetic order) | `overall_max_ulp == 0` (`ulp_context.bit_identical == True`) | Must be bit-for-bit identical (`0 ULP`) across all regimes.
+**Reduction Reorder / Split-K / Tree-Summation** | `mean_ulp_distance`, `p99_9_ulp_distance`, and `allclose_passed` | Near-zero sums (`~1e-7` in `float32`) sit across thousands of exponent steps even when absolute difference is `< 1e-7`. Check `NEAR_ZERO_MAX_ULP_OUTLIER` in `ulp_context.note` rather than rejecting on `max_ulp` alone.
+**Intentional Precision Reduction (`f32 -> bf16` / `fp8`)** | `oracle_audit.candidate_max_abs_from_oracle` & relative error (`allclose`) | Truncating mantissa bits (`23 -> 7` bits for `f32 -> bf16`) spans $2^{15}$ `f32` ULPs by construction; evaluate against the target narrower dtype's relative tolerance (`7.8e-3` for `bf16`), not `f32` ULPs.
+
 --------------------------------------------------------------------------------
 
 ## 3. Float64 Oracle Audit & The Three Questions Framework

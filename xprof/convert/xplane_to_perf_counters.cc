@@ -1,5 +1,6 @@
 #include "xprof/convert/xplane_to_perf_counters.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -14,7 +15,7 @@
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/data_table_utils.h"
-#include "xprof/convert/repository.h"
+#include "xprof/convert/unified_session_snapshot.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -99,7 +100,7 @@ void ConvertXSpaceToPerfCounters(const XSpace* space,
 }
 
 absl::StatusOr<std::string> ConvertMultiXSpacesToPerfCounters(
-    const SessionSnapshot& session_snapshot) {
+    const xprof::XprofSessionSnapshot& session_snapshot) {
   DataTable data_table;
 
   // Ensure columns are added even if there are no XSpaces.
@@ -114,7 +115,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToPerfCounters(
     data_table.AddColumn(TableColumn("Set", "string", "Set"));
   }
 
-  for (int i = 0; i < session_snapshot.XSpaceSize(); ++i) {
+  for (size_t i = 0; i < session_snapshot.XSpaceSize(); ++i) {
     google::protobuf::Arena arena;
     auto xspace_or = session_snapshot.GetXSpace(i, &arena);
     if (!xspace_or.ok()) continue;

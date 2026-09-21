@@ -18,7 +18,24 @@ from xprof.protobuf import op_profile_pb2
 # point by ~7.4%.
 _DEVICE_INFO_BANDWIDTH_RENAMES = {
     "peak_hbm_bw": "peak_hbm_bw_gibs",
+    "peak_hbm_read_bw": "peak_hbm_read_bw_gibs",
+    "peak_hbm_write_bw": "peak_hbm_write_bw_gibs",
     "peak_vmem_bw": "peak_vmem_bw_gibs",
+    "peak_vmem_read_bw": "peak_vmem_read_bw_gibs",
+    "peak_vmem_write_bw": "peak_vmem_write_bw_gibs",
+    "peak_cmem_bw": "peak_cmem_bw_gibs",
+    "peak_cmem_read_bw": "peak_cmem_read_bw_gibs",
+    "peak_cmem_write_bw": "peak_cmem_write_bw_gibs",
+}
+
+_DEVICE_INFO_OTHER_UNITS: dict[str, str] = {
+    "peak_flop_rate": "GFLOP/s",
+    "hbm_ridge_point": "FLOP/byte",
+    "vmem_read_ridge_point": "FLOP/byte",
+    "vmem_write_ridge_point": "FLOP/byte",
+    "cmem_read_ridge_point": "FLOP/byte",
+    "cmem_write_ridge_point": "FLOP/byte",
+    "ridge_point": "FLOP/byte",
 }
 
 
@@ -840,13 +857,16 @@ def get_device_information(
         pass
       device_info[_DEVICE_INFO_BANDWIDTH_RENAMES.get(key, key)] = value
 
-    # Attach a `units` metadata dict for the renamed bandwidth fields that are
-    # actually present, so consumers know these values are in GiB/s.
+    # Attach a `units` metadata dict for bandwidth, FLOP rate, and ridge-point
+    # fields that are present so consumers know exact units.
     units = {
         renamed: "GiB/s"
         for renamed in _DEVICE_INFO_BANDWIDTH_RENAMES.values()
         if renamed in device_info
     }
+    for field_name, unit_label in _DEVICE_INFO_OTHER_UNITS.items():
+      if field_name in device_info:
+        units[field_name] = unit_label
     if units:
       device_info["units"] = units
 

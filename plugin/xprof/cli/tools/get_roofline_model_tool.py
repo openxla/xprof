@@ -142,12 +142,41 @@ def get_roofline_model(
     rows = table_data.get("rows", [])
     custom_props = table_data.get("p", {})
 
-    device_info = {}
+    device_info: dict[str, Any] = {}
+    bw_renames = {
+        "peak_hbm_bw": "peak_hbm_bw_gibs",
+        "peak_hbm_read_bw": "peak_hbm_read_bw_gibs",
+        "peak_hbm_write_bw": "peak_hbm_write_bw_gibs",
+        "peak_vmem_bw": "peak_vmem_bw_gibs",
+        "peak_vmem_read_bw": "peak_vmem_read_bw_gibs",
+        "peak_vmem_write_bw": "peak_vmem_write_bw_gibs",
+        "peak_cmem_bw": "peak_cmem_bw_gibs",
+        "peak_cmem_read_bw": "peak_cmem_read_bw_gibs",
+        "peak_cmem_write_bw": "peak_cmem_write_bw_gibs",
+    }
+    units_map: dict[str, str] = {}
     for k, v in custom_props.items():
       try:
-        device_info[k] = float(v)
+        parsed_v: Any = float(v)
       except (ValueError, TypeError):
-        device_info[k] = v
+        parsed_v = v
+      renamed_k = bw_renames.get(k, k)
+      device_info[renamed_k] = parsed_v
+      if k in bw_renames:
+        units_map[renamed_k] = "GiB/s"
+      elif k == "peak_flop_rate":
+        units_map[k] = "GFLOP/s"
+      elif k in (
+          "hbm_ridge_point",
+          "vmem_read_ridge_point",
+          "vmem_write_ridge_point",
+          "cmem_read_ridge_point",
+          "cmem_write_ridge_point",
+          "ridge_point",
+      ):
+        units_map[k] = "FLOP/byte"
+    if units_map:
+      device_info["units"] = units_map
 
     if not rows:
       return json.dumps(
@@ -188,6 +217,13 @@ def get_roofline_model(
         bw = safe_float(prog_dict.get("hbm_bw"))
       peak = 0.0
       for pk in peak_keys:
+        resolved_pk = bw_renames.get(pk, pk)
+        if (
+            resolved_pk in device_info
+            and safe_float(device_info[resolved_pk]) > 0
+        ):
+          peak = safe_float(device_info[resolved_pk])
+          break
         if pk in device_info and safe_float(device_info[pk]) > 0:
           peak = safe_float(device_info[pk])
           break

@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -31,6 +32,8 @@ limitations under the License.
 #include "third_party/jsoncpp/include/json/reader.h"
 #include "third_party/jsoncpp/include/json/value.h"
 #include "google/protobuf/arena.h"
+#include "xla/tsl/profiler/utils/xplane_builder.h"
+#include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/file_utils.h"
 #include "xprof/convert/repository.h"
@@ -51,6 +54,11 @@ using ::testing::IsEmpty;
 using ::testing::Not;
 using ::testing::Return;
 using ::testing::status::StatusIs;
+using ::tsl::profiler::GetStatTypeStr;
+using ::tsl::profiler::StatType;
+using ::tsl::profiler::XEventBuilder;
+using ::tsl::profiler::XLineBuilder;
+using ::tsl::profiler::XPlaneBuilder;
 
 class MockXprofSessionSnapshot : public XprofSessionSnapshot {
  public:
@@ -107,6 +115,60 @@ TEST_F(UnifiedPerfCountersProcessorTest, EmptyXSpaceTest) {
   ASSERT_TRUE(reader.parse(output_str, json));
   ASSERT_TRUE(json.isMember("rows"));
   EXPECT_THAT(json["rows"], IsEmpty());
+}
+
+TEST_F(UnifiedPerfCountersProcessorTest, MultiHostTpuPerfCountersTest) {
+  std::unique_ptr<UnifiedProfileProcessor> processor =
+      UnifiedProfileProcessorFactory::GetInstance().Create("perf_counters",
+                                                           options_);
+  ASSERT_NE(processor, nullptr);
+
+  auto build_tpu_xspace = [](int64_t chip_id, absl::string_view kernel_name,
+                             absl::string_view counter_name, uint64_t val) {
+    XSpace space;
+    XPlaneBuilder device_plane(space.add_planes());
+    device_plane.SetName(std::string(tsl::profiler::kTpuPlanePrefix) + "0");
+    device_plane.AddStatValue(
+        *device_plane.GetOrCreateStatMetadata(
+            GetStatTypeStr(StatType::kGlobalChipId)),
+        chip_id);
+    XLineBuilder line = device_plane.GetOrCreateLine(0);
+    line.SetName(kernel_name);
+    XEventBuilder event =
+        line.AddEvent(*device_plane.GetOrCreateEventMetadata(counter_name));
+    event.AddStatValue(*device_plane.GetOrCreateStatMetadata(
+                           GetStatTypeStr(StatType::kCounterValue)),
+                       val);
+    event.AddStatValue(
+        *device_plane.GetOrCreateStatMetadata(
+            GetStatTypeStr(StatType::kPerformanceCounterDescription)),
+        "TPU TC Counter");
+    event.AddStatValue(*device_plane.GetOrCreateStatMetadata(
+                           GetStatTypeStr(StatType::kPerformanceCounterSets)),
+                       "TPU_TC_SET");
+    return space;
+  };
+
+  std::string host0_path = file::JoinPath(session_dir_, "host0.xplane.pb");
+  std::string host1_path = file::JoinPath(session_dir_, "host1.xplane.pb");
+  CHECK_OK(WriteBinaryProto(
+      host0_path, build_tpu_xspace(0, "fusion.1", "MXU_CYCLES", 255ULL)));
+  CHECK_OK(WriteBinaryProto(
+      host1_path, build_tpu_xspace(1, "fusion.2", "HBM_READ_BYTES", 4096ULL)));
+
+  ASSERT_OK_AND_ASSIGN(
+      SessionSnapshot session_snapshot,
+      SessionSnapshot::Create({host0_path, host1_path}, std::nullopt));
+
+  ASSERT_OK(processor->ProcessSession(session_snapshot, options_));
+  std::string output_str = processor->GetData();
+
+  EXPECT_THAT(output_str, HasSubstr("host0"));
+  EXPECT_THAT(output_str, HasSubstr("host1"));
+  EXPECT_THAT(output_str, HasSubstr("mxu_cycles"));
+  EXPECT_THAT(output_str, HasSubstr("hbm_read_bytes"));
+  EXPECT_THAT(output_str, HasSubstr("0xff"));
+  EXPECT_THAT(output_str, HasSubstr("0x1000"));
 }
 
 TEST_F(UnifiedPerfCountersProcessorTest, NoXSpaceTest) {

@@ -1085,6 +1085,13 @@ def _execute_single_batch(
           "Ill-conditioned regime: subnormal cancellation or dynamic range"
           " boundaries can saturate ULP without mathematical defect."
       )
+    elif not ulp_passed and p99_9 <= effective_p99_9 and allclose_passed:
+      context_note = (
+          "NEAR_ZERO_MAX_ULP_OUTLIER: max_ulp exceeded threshold on"
+          " tail/near-zero elements while p99.9 ULP and relative error"
+          " (allclose) passed. Inspect mean_ulp_distance and"
+          " p99_9_ulp_distance for reduction reorderings."
+      )
     elif ulp_passed and not allclose_passed:
       context_note = "Failed allclose dual gate check at rtol=k*eps."
 
@@ -1519,13 +1526,27 @@ def validate_kernels(
     overall_p99_9 = max(
         (b.p99_9_ulp_distance for b in batch_results), default=0.0
     )
+    overall_note = acc.narrow_warning
+    for b in batch_results:
+      if (
+          b.ulp_context is not None
+          and b.ulp_context.note
+          and "NEAR_ZERO_MAX_ULP_OUTLIER" in b.ulp_context.note
+      ):
+        if overall_note:
+          overall_note = f"{overall_note} {b.ulp_context.note}"
+        else:
+          overall_note = b.ulp_context.note
+        if "NEAR_ZERO_MAX_ULP_OUTLIER" not in summary:
+          summary = f"{summary}\n{b.ulp_context.note}"
+        break
     overall_ulp_context = UlpContext(
         bit_identical=all_bit_identical,
         p50=overall_p50,
         p99_9=overall_p99_9,
         max_ulp=acc.overall_max_ulp,
         reliable=all_reliable,
-        note=acc.narrow_warning,
+        note=overall_note,
     )
 
   run_config = {

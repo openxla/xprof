@@ -27,6 +27,7 @@ from xprof.cli.tools import get_llo_debug_string_tool
 from xprof.cli.tools import get_memory_profile_tool
 from xprof.cli.tools import get_overview_tool
 from xprof.cli.tools import get_peak_allocations_tool
+from xprof.cli.tools import get_perf_counters_tool
 from xprof.cli.tools import get_roofline_model_tool
 from xprof.cli.tools import get_step_trace_tool
 from xprof.cli.tools import get_top_hlo_ops_tool
@@ -44,7 +45,7 @@ def cli_main() -> dict[str, Any]:
     A dictionary of tool names to functions.
   """
   return {
-      # 30 Core Tools (Available in both 1P and 3P):
+      # 31 Core Tools (Available in both 1P and 3P):
       # keep-sorted start
       "aggregate_xplane_events": xplane_tools.aggregate_xplane_events,
       "check_host_boundness": check_host_boundness_tool.check_host_boundness,
@@ -68,6 +69,7 @@ def cli_main() -> dict[str, Any]:
       "get_memory_profile": get_memory_profile_tool.get_memory_profile,
       "get_overview": get_overview_tool.get_overview,
       "get_peak_allocations": get_peak_allocations_tool.get_peak_allocations,
+      "get_perf_counters": get_perf_counters_tool.get_perf_counters,
       "get_profile_summary": xprof_data.get_profile_summary,
       "get_roofline_model": get_roofline_model_tool.get_roofline_model,
       "get_step_trace": get_step_trace_tool.get_step_trace,
@@ -238,19 +240,38 @@ def _wrap_with_logdir(tool_func):
       )
       if byte_len > 10 * 1024 * 1024:
         import tempfile  # pylint: disable=g-import-not-at-top
-        import uuid  # pylint: disable=g-import-not-at-top
 
         tool_name_safe = getattr(tool_func, "__name__", "output")
-        spill_file = (
-            pathlib.Path(tempfile.gettempdir())
-            / f"xprof_spill_{tool_name_safe}_{uuid.uuid4().hex[:8]}.json"
+        text_sample = (
+            res[:128].decode("utf-8", errors="ignore").lstrip()
+            if isinstance(res, bytes)
+            else res[:128].lstrip()
         )
-        if isinstance(res, bytes):
-          with open(spill_file, "wb") as f:
-            f.write(res)
+        if text_sample.startswith(("{", "[")):
+          ext = ".json"
+        elif text_sample.lower().startswith(("<!doctype", "<html")):
+          ext = ".html"
         else:
-          with open(spill_file, "w", encoding="utf-8") as f:
+          ext = ".txt"
+        if isinstance(res, bytes):
+          with tempfile.NamedTemporaryFile(
+              mode="wb",
+              delete=False,
+              prefix=f"xprof_spill_{tool_name_safe}_",
+              suffix=ext,
+          ) as f:
             f.write(res)
+            spill_file = f.name
+        else:
+          with tempfile.NamedTemporaryFile(
+              mode="w",
+              encoding="utf-8",
+              delete=False,
+              prefix=f"xprof_spill_{tool_name_safe}_",
+              suffix=ext,
+          ) as f:
+            f.write(res)
+            spill_file = f.name
         return json.dumps(
             {
                 "status": "SAVED_TO_FILE",

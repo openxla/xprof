@@ -2,6 +2,7 @@ load("//plugin/xprof/build_utils:pytype.default.bzl", "pytype_library", "pytype_
 
 package(default_visibility = [
     "//plugin/xprof:__subpackages__",
+    "@org_xprof//plugin:__pkg__",
 ])
 
 pytype_strict_library(
@@ -106,6 +107,15 @@ pytype_strict_library(
 pytype_strict_library(
     name = "get_utilization_viewer_tool",
     srcs = ["get_utilization_viewer_tool.py"],
+    deps = [
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
+    ],
+)
+
+pytype_strict_library(
+    name = "get_perf_counters_tool",
+    srcs = ["get_perf_counters_tool.py"],
     deps = [
         "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal/oss:xprof_client",

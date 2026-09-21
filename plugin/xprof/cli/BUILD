@@ -24,6 +24,7 @@ pytype_strict_library(
         "//plugin/xprof/cli/tools:get_memory_profile_tool",
         "//plugin/xprof/cli/tools:get_overview_tool",
         "//plugin/xprof/cli/tools:get_peak_allocations_tool",
+        "//plugin/xprof/cli/tools:get_perf_counters_tool",
         "//plugin/xprof/cli/tools:get_roofline_model_tool",
         "//plugin/xprof/cli/tools:get_step_trace_tool",
         "//plugin/xprof/cli/tools:get_top_hlo_ops_tool",

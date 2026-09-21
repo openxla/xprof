@@ -18,10 +18,8 @@ limitations under the License.
 #include <string>
 
 #include "absl/status/status.h"
-#include "google/protobuf/arena.h"
 #include "xla/tsl/platform/statusor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
-#include "xprof/convert/data_table_utils.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/unified_session_snapshot.h"
 #include "xprof/convert/xplane_to_perf_counters.h"
@@ -31,23 +29,15 @@ namespace xprof {
 absl::Status UnifiedPerfCountersProcessor::ProcessSession(
     const XprofSessionSnapshot& session_snapshot,
     const tensorflow::profiler::ToolOptions& /*options*/) {
-  // TODO(b/537521030): Support multiple hosts properly if needed,
-  // or unify the data aggregation logic between 1P and 3P here.
-  // For now, process the first host's XSpace to establish the structure.
   if (session_snapshot.XSpaceSize() == 0) {
     return absl::NotFoundError("No XSpace found in the session.");
   }
 
-  google::protobuf::Arena arena;
-  TF_ASSIGN_OR_RETURN(tensorflow::profiler::XSpace* xspace,
-                      session_snapshot.GetXSpace(0, &arena));
-
-  tensorflow::profiler::DataTable data_table;
-  std::string hostname = session_snapshot.GetHostname(0);
-  tensorflow::profiler::ConvertXSpaceToPerfCounters(xspace, hostname,
-                                                    &data_table);
-
-  SetOutput(data_table.ToJson(), "application/json");
+  TF_ASSIGN_OR_RETURN(
+      std::string json_output,
+      tensorflow::profiler::ConvertMultiXSpacesToPerfCounters(
+          session_snapshot));
+  SetOutput(json_output, "application/json");
   return absl::OkStatus();
 }
 

@@ -142,6 +142,9 @@ class SetupTest(absltest.TestCase):
         oss_tools_dir, 'get_kernel_utilization_tool.py'
     )
     upload_trace_py = os.path.join(oss_tools_dir, 'upload_trace_tool.py')
+    perf_counters_py = os.path.join(
+        os.path.dirname(oss_tools_dir), 'get_perf_counters_tool.py'
+    )
     self.assertTrue(os.path.isfile(init_py), f'Missing {init_py}')
     self.assertTrue(
         os.path.isfile(graph_viewer_py), f'Missing {graph_viewer_py}'
@@ -152,6 +155,9 @@ class SetupTest(absltest.TestCase):
     )
     self.assertTrue(
         os.path.isfile(upload_trace_py), f'Missing {upload_trace_py}'
+    )
+    self.assertTrue(
+        os.path.isfile(perf_counters_py), f'Missing {perf_counters_py}'
     )
 
 

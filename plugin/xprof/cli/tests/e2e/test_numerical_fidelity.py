@@ -258,7 +258,11 @@ class NumericalFidelityTest(parameterized.TestCase):
     self.assertNotIn("error", res)
     dev_info = res.get("device_info", {})
     peak_flops = dev_info.get("peak_flops") or dev_info.get("peak_flop_rate")
-    peak_bw = dev_info.get("peak_hbm_bw") or dev_info.get("peak_memory_bw")
+    peak_bw = (
+        dev_info.get("peak_hbm_bw_gibs")
+        or dev_info.get("peak_hbm_bw")
+        or dev_info.get("peak_memory_bw")
+    )
     ridge = dev_info.get("ridge_point") or dev_info.get("hbm_ridge_point")
     if peak_flops and peak_bw and ridge:
       expected_ridge = oracles.HloRooflineOracle.compute_ridge_point(

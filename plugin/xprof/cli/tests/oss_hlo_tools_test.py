@@ -206,6 +206,28 @@ class OssHloToolsTest(absltest.TestCase):
       with self.assertRaises(ValueError):
         hlo_tools.resolve_module_name(str(self.session_dir), "missing_mod")
 
+  def test_get_hlo_text_truncation_metadata(self):
+    f1 = self.session_dir / "module_1.hlo_proto.pb"
+    f1.write_bytes(b"dummy")
+    full_hlo = "\n".join(f"line_{i}" for i in range(100))
+    mock_client = mock.MagicMock()
+    mock_client.get_run_dir.return_value = self.session_dir
+    mock_client.fetch.return_value = (None, full_hlo.encode("utf-8"))
+
+    with (
+        mock.patch.object(hlo_tools, "_get_hlo_proto_files", return_value=[f1]),
+        mock.patch.object(xprof_client, "get_client", return_value=mock_client),
+    ):
+      content = hlo_tools.get_hlo_text(str(self.session_dir), max_lines=25)
+      parsed = json.loads(content)
+      self.assertEqual(parsed["status"], "SUCCESS")
+      self.assertTrue(parsed["truncated"])
+      self.assertEqual(parsed["line_count"], 100)
+      self.assertEqual(parsed["returned_line_count"], 25)
+      expected_bytes = len(full_hlo.encode("utf-8"))
+      self.assertEqual(parsed["byte_count"], expected_bytes)
+      self.assertIn("[Truncated to 25 of 100 lines", parsed["content"])
+
 
 if __name__ == "__main__":
   absltest.main()

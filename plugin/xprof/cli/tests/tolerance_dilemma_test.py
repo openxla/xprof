@@ -1,45 +1,60 @@
 """Parameterized tests proving Traditional Gaussian failure vs Heavy-Tailed success."""
 
-import jax
-import jax.numpy as jnp
+from typing import Any
 import numpy as np
 from absl.testing import absltest
 from absl.testing import parameterized
 from xprof.cli.internal import numerical_generator
 from xprof.cli.internal import numerical_validator
 
+jax: Any = None
+jnp: Any = None
+try:
+  import jax as _jax  # pylint: disable=g-import-not-at-top
+  import jax.numpy as _jnp  # pylint: disable=g-import-not-at-top
 
-def reference_softmax(x: jax.Array) -> jax.Array:
+  jax = _jax
+  jnp = _jnp
+except ImportError:
+  pass
+
+
+def reference_softmax(x: Any) -> Any:
   """Numerically stable softmax reference."""
   x_max = jnp.max(x, axis=-1, keepdims=True)
   exp_x = jnp.exp(x - x_max)
   return exp_x / jnp.sum(exp_x, axis=-1, keepdims=True)
 
 
-def buggy_softmax(x: jax.Array) -> jax.Array:
+def buggy_softmax(x: Any) -> Any:
   """Buggy softmax omitting x - max(x) subtraction."""
   exp_x = jnp.exp(x)
   return exp_x / jnp.sum(exp_x, axis=-1, keepdims=True)
 
 
-def reference_reduction(a: jax.Array) -> jax.Array:
+def reference_reduction(a: Any) -> Any:
   """Reference summation with high-precision float32 accumulation."""
   return jnp.sum(a.astype(jnp.float32), axis=-1).astype(a.dtype)
 
 
-def buggy_bf16_reduction(a: jax.Array) -> jax.Array:
+def buggy_bf16_reduction(a: Any) -> Any:
   """Buggy summation accumulating sequentially in coarse bfloat16."""
   init = jnp.zeros((a.shape[0],), dtype=a.dtype)
   a_t = jnp.swapaxes(a, 0, -1)
   return jax.lax.scan(lambda acc, x: (acc + x, None), init, a_t)[0]
 
 
-def reference_matmul(a: jax.Array, b: jax.Array) -> jax.Array:
+def reference_matmul(a: Any, b: Any) -> Any:
   """Reference matrix multiplication."""
   return jnp.dot(a, b)
 
 
 class ToleranceDilemmaTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    if jax is None or jnp is None:
+      self.skipTest("jax is not installed in the current environment.")
 
   @parameterized.named_parameters(
       ("loose_1e_1", 1e-1, 1e-1),

@@ -445,10 +445,16 @@ class XprofDataTest(absltest.TestCase):
     self.assertNotIn("peak_hbm_bw", result_json)
     self.assertNotIn("peak_vmem_bw", result_json)
     self.assertEqual(result_json["ridge_point"], "not_a_number")
-    # A `units` metadata dict documents the bandwidth units unambiguously.
+    # A `units` metadata dict documents the bandwidth and compute units
+    # unambiguously.
     self.assertEqual(
         result_json["units"],
-        {"peak_hbm_bw_gibs": "GiB/s", "peak_vmem_bw_gibs": "GiB/s"},
+        {
+            "peak_flop_rate": "GFLOP/s",
+            "peak_hbm_bw_gibs": "GiB/s",
+            "peak_vmem_bw_gibs": "GiB/s",
+            "ridge_point": "FLOP/byte",
+        },
     )
 
   def test_get_device_information_error(self):

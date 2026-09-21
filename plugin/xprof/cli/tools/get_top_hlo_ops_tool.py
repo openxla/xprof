@@ -133,8 +133,18 @@ def get_top_hlo_ops(
     name = node.name
     metrics = node.metrics
 
+    # Grouping nodes (such as '<op> and its duplicate(s)') have children whose
+    # raw_time > 0. Fusion nodes have sub-instruction children with 0 raw_time
+    # and must be treated as leaf instructions.
+    children_time = (
+        sum(c.metrics.raw_time for c in node.children)
+        if node.children
+        else 0
+    )
+    is_leaf_instruction = not (node.children and children_time > 0)
+
     # Only add leaf nodes (instructions) that have XLA info
-    if node.HasField("xla") and metrics.raw_time > 0:
+    if is_leaf_instruction and node.HasField("xla") and metrics.raw_time > 0:
       category = node.xla.category
       op_label = name
       if node.xla.provenance:
@@ -214,11 +224,16 @@ def get_top_hlo_ops(
           item["stack_frame"] = node.xla.source_info.stack_frame
       yield item
 
-    for child in node.children:
-      child_prefix = (
-          f"{current_name_prefix}/{name}" if current_name_prefix else name
-      )
-      yield from traverse(child, child_prefix)
+    if not is_leaf_instruction:
+      is_dup_wrapper = name.endswith(" and its duplicate(s)")
+      if is_dup_wrapper:
+        child_prefix = current_name_prefix
+      elif current_name_prefix:
+        child_prefix = f"{current_name_prefix}/{name}"
+      else:
+        child_prefix = name
+      for child in node.children:
+        yield from traverse(child, child_prefix)
 
   if (
       op_profile.HasField("by_category")

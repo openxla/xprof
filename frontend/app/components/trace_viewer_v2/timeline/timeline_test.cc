@@ -5893,9 +5893,9 @@ TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollRevealsBottom) {
   }
 
   // With dummy event at level 50, the content is tall enough to avoid clamp
-  // limit. Target scroll is calculated exactly to 581.0f based on level 30.
+  // limit. Target scroll is calculated exactly to 426.0f based on level 30.
   // Reduced tolerance to 0.1f to kill mutant at line 2067.
-  EXPECT_NEAR(tracks_window->Scroll.y, 581.0f, 0.1f);
+  EXPECT_NEAR(tracks_window->Scroll.y, 426.0f, 0.1f);
 }
 
 TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollScrollsUp) {
@@ -5957,7 +5957,7 @@ TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollScrollsUp) {
   }
 
   // Expect scroll to go to y_top of level 5.
-  EXPECT_NEAR(tracks_window->Scroll.y, 122.0f, 0.1f);
+  EXPECT_NEAR(tracks_window->Scroll.y, 97.0f, 0.1f);
 }
 
 TEST_F(RealTimelineImGuiFixture, RevealEventClampsToMinFetchDuration) {
@@ -8825,9 +8825,9 @@ TEST_F(MockTimelineImGuiFixture, HideProcessTrack_FeatureFlagToggle) {
   ASSERT_EQ(timeline_.GetVisibleLevelOffsets().size(), 5);
   EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[0], 40.0f);
   EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[1], 40.0f);
-  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[2], 165.5f);
-  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[3], 189.5f);
-  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[4], 213.5f);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[2], 149.0f);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[3], 168.0f);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[4], 187.0f);
 
   ImGui::GetStyle().CellPadding.y = prev_padding_y;
 
@@ -13049,8 +13049,7 @@ TEST(TimelineTest,
   const Pixel new_proc_b_worker_top =
       timeline.GetGroupTop(&timeline.timeline_data().groups[3]);
   EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), new_proc_b_worker_top);
-  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
-                  proc_b_worker_top + 120.0f);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), proc_b_worker_top + 95.0f);
 }
 
 TEST(TimelineTest,
@@ -13424,7 +13423,7 @@ TEST(TimelineTest, ScrollRestorationAnchorGroupOutOfBoundsParentIndex) {
 
   timeline.SetTimelineData(MakeTimelineData(
       {MakeProcessGroup("Process A"), corrupt_group}, /*num_levels=*/2));
-  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 55.0f);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 41.0f);
 }
 
 TEST(TimelineTest, SelectionCaptureAsymmetricSparseEntryArrays) {
@@ -13481,7 +13480,7 @@ TEST(TimelineTest, ScrollRestorationTier2ParentTrackAlsoDespawns) {
       MakeTimelineData({MakeProcessGroup("Process X"),
                         MakeThreadGroup("Thread X.1", /*parent_index=*/999)},
                        /*num_levels=*/2));
-  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 54.0f);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 40.0f);
 }
 
 TEST(TimelineTest, SelectionRemapZeroEventIdAndReusesLazyFallbackMap) {

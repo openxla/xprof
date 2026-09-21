@@ -249,6 +249,9 @@ class Timeline {
   void set_current_timeline_width_for_test(Pixel width) {
     current_timeline_width_ = width;
   }
+  Pixel current_timeline_width() const {
+    return current_timeline_width_;
+  }
   void emit_viewport_changed_for_test(const TimeRange& range) {
     EmitViewportChanged(range);
   }
@@ -412,6 +415,33 @@ class Timeline {
     timeline_player_enabled_ = enabled;
   }
   bool timeline_player_enabled() const { return timeline_player_enabled_; }
+
+  enum class MinimapDragMode {
+    kNone,
+    kPan,
+    kResizeLeft,
+    kResizeRight,
+  };
+
+  void set_minimap_enabled(bool enabled) { minimap_enabled_ = enabled; }
+  bool minimap_enabled() const { return minimap_enabled_; }
+
+  void set_selected_parent_group_index(int group_index) {
+    selected_parent_group_index_ = group_index;
+    RequestRedraw();
+  }
+  int selected_parent_group_index() const {
+    return selected_parent_group_index_;
+  }
+  int GetEffectiveSelectedParentGroupIndex() const;
+  void UpdateSelectedParentGroupFromIndex(int group_index);
+
+  MinimapDragMode minimap_drag_mode_for_test() const {
+    return minimap_drag_mode_;
+  }
+  void set_minimap_drag_mode_for_test(MinimapDragMode mode) {
+    minimap_drag_mode_ = mode;
+  }
 
   void set_panning_speed(float speed) { panning_speed_ = speed; }
   float panning_speed() const { return panning_speed_; }
@@ -651,8 +681,16 @@ class Timeline {
 
  protected:
   GroupRelativeInfo FindGroupRelatives(Group* target_group);
+  bool HandleMouse();
 
  private:
+  // Draws the overview minimap track above the timeline ruler and handles
+  // viewport selection and interactions.
+  void DrawMinimap(Pixel content_region_avail_width);
+  void HandleMinimapInteraction(Pixel track_x1, Pixel track_x2, Pixel track_y1,
+                                Pixel track_y2, const TimeRange& total_range,
+                                Pixel lens_x1, Pixel lens_x2);
+
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
   void DrawRulerUI(const TickInfo& info, Pixel timeline_width);
 
@@ -762,10 +800,6 @@ class Timeline {
 
   // Updates the search results based on the current search query.
   void RecomputeSearchResults();
-
-  // Handles mouse input for creating curtains.
-  // Returns true if any interaction occurred.
-  bool HandleMouse();
 
   void HandleMouseDown(Pixel timeline_origin_x);
   void HandleMouseDrag(Pixel timeline_origin_x);
@@ -913,6 +947,12 @@ class Timeline {
   bool bookmarks_enabled_ = false;
   bool track_management_enabled_ = false;
   bool timeline_player_enabled_ = false;
+  bool minimap_enabled_ = false;
+  int selected_parent_group_index_ = -1;
+  MinimapDragMode minimap_drag_mode_ = MinimapDragMode::kNone;
+  float minimap_drag_start_x_ = 0.0f;
+  TimeRange minimap_initial_visible_range_ = TimeRange::Zero();
+  std::vector<float> minimap_bins_;
 
   float panning_speed_ = kPanningSpeed;
   float zoom_speed_ = kZoomSpeed;

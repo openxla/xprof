@@ -26,7 +26,6 @@ export class MaxHeapChartDownloader {
   /** Heap size sequence. */
   heapSizes: number[] = [];
 
-  private readonly data: string[][] = [];
   sessionId = '';
 
   private getLogicalBufferSpan(index?: number): [number, number] {
@@ -45,11 +44,11 @@ export class MaxHeapChartDownloader {
 
   async downloadMaxHeapChart() {
     const usage = new MemoryUsage(
-      this.memoryViewerPreprocessResult,
-      Number(this.memorySpaceColor),
-      null,
-      null,
-      null,
+        this.memoryViewerPreprocessResult,
+        Number(this.memorySpaceColor),
+        null,
+        null,
+        null,
     );
     if (usage.diagnostics.errors.length > 0) {
       console.error(usage.diagnostics.errors[0]);
@@ -62,7 +61,8 @@ export class MaxHeapChartDownloader {
 
     const moduleName = this.memoryViewerPreprocessResult?.moduleName || '';
     const fileName = moduleName + '.csv';
-    this.data.push([
+    const data: string[][] = [];
+    data.push([
       'InstructionName',
       'UnpaddedSizeMiB',
       'SizeMiB',
@@ -75,7 +75,7 @@ export class MaxHeapChartDownloader {
     ]);
     for (const heapObject of this.heapObjects) {
       const span = this.getLogicalBufferSpan(heapObject.logicalBufferId);
-      this.data.push([
+      data.push([
         heapObject.instructionName || 'UNKNOWN',
         heapObject.unpaddedSizeMiB
           ? heapObject.unpaddedSizeMiB.toString()

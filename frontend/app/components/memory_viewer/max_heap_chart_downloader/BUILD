@@ -31,3 +31,20 @@ sass_binary(
     deps = [
     ],
 )
+
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "max_heap_chart_downloader_test.ts",
+    ],
+    visibility = ["//frontend:internal"],
+    deps = [
+        ":max_heap_chart_downloader",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//javascript/security:safe_downloader",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/interfaces",
+    ],
+)

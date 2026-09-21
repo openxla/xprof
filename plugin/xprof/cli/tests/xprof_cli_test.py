@@ -2,12 +2,21 @@ import inspect
 import json
 import pathlib
 import sys
+import tempfile
 from typing import Any
 from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from xprof import server
 from xprof.cli import xprof_cli
+from xprof.cli.tools import install_skills_tool
+from xprof.cli.tools.oss import diff_sessions_tool
+
+
+def _trace_only_tool(session_id: str):
+  """A tool that is not marked as accepting a compiler dump directory."""
+  return {'session_id': session_id}
 
 
 class XProfCliTest(parameterized.TestCase):
@@ -452,6 +461,120 @@ class XProfCliTest(parameterized.TestCase):
     res = wrapped(20260824063312, limit=5)
     self.assertEqual(res['source'], '20260824063312')
     self.assertEqual(res['limit'], 5)
+
+  def _make_compiler_dump_dir(self):
+    """Creates a --xla_jf_dump_to style dir holding only text artifacts."""
+    dump_dir = self.create_tempdir()
+    dump_dir.create_file('mod-register-pressure.txt', content='Peak VREG: 64\n')
+    dump_dir.create_file(
+        'mod-per-bundle-utilization.txt', content='Bundle 0: MXU 100%\n'
+    )
+    return dump_dir.full_path
+
+  def test_get_llo_dump_analysis_cli_accepts_compiler_dump_dir(self):
+    """Compiler dump dirs hold no XPlane protos, so the CLI must not reject."""
+    dump_dir = self._make_compiler_dump_dir()
+
+    raw = self.cli.get_llo_dump_analysis(dump_dir, mode='register_pressure')
+
+    self.assertEqual(json.loads(raw)['mode'], 'register_pressure')
+
+  def test_get_llo_static_analysis_cli_accepts_compiler_dump_dir(self):
+    """The `get_llo_static_analysis` alias behaves like `get_llo_dump_analysis`."""
+    dump_dir = self._make_compiler_dump_dir()
+
+    raw = self.cli.get_llo_static_analysis(dump_dir, mode='register_pressure')
+
+    self.assertEqual(json.loads(raw)['mode'], 'register_pressure')
+
+  def test_get_llo_dump_analysis_cli_rejects_empty_dir(self):
+    """A directory with neither traces nor dump artifacts is still an error."""
+    empty_dir = self.create_tempdir().full_path
+
+    with self.assertRaisesRegex(FileNotFoundError, 'DATA_ABSENT'):
+      self.cli.get_llo_dump_analysis(empty_dir, mode='register_pressure')
+
+  def test_wrap_with_logdir_rejects_dump_dir_for_unmarked_tools(self):
+    """Tools without the marker keep requiring an XPlane or XSpace file."""
+    dump_dir = self._make_compiler_dump_dir()
+
+    wrapped = xprof_cli._wrap_with_logdir(_trace_only_tool)
+
+    with self.assertRaisesRegex(FileNotFoundError, 'DATA_ABSENT'):
+      wrapped(dump_dir)
+
+  def test_install_skills(self):
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      target = pathlib.Path(tmp_dir) / 'skills' / 'xprof'
+      missing_src = pathlib.Path(tmp_dir) / 'missing_src'
+      res_missing = json.loads(
+          install_skills_tool.install_skills(
+              target_dir=str(target), source_dir=str(missing_src)
+          )
+      )
+      self.assertEqual(res_missing['status'], 'ERROR')
+
+      src_dir = pathlib.Path(tmp_dir) / 'bundled_skills'
+      src_dir.mkdir(parents=True, exist_ok=True)
+      (src_dir / 'SKILL.md').write_text('# Test Skill', encoding='utf-8')
+
+      res_json = install_skills_tool.install_skills(
+          target_dir=str(target), source_dir=str(src_dir)
+      )
+      res = json.loads(res_json)
+      self.assertEqual(res['status'], 'SUCCESS')
+      self.assertTrue(res['installed_files'])
+
+      # Second run without force should skip
+      res2_json = install_skills_tool.install_skills(
+          target_dir=str(target), source_dir=str(src_dir)
+      )
+      res2 = json.loads(res2_json)
+      self.assertTrue(res2['skipped_files'])
+
+      # Force run overwrites
+      res3 = json.loads(
+          install_skills_tool.install_skills(
+              target_dir=str(target), source_dir=str(src_dir), force=True
+          )
+      )
+      self.assertTrue(res3['installed_files'])
+      self.assertEmpty(res3['skipped_files'])
+
+  def test_server_cli_subcommands_cover_oss_tools(self):
+    registered_tools = set(xprof_cli.cli_main().keys())
+    self.assertContainsSubset(server._CLI_SUBCOMMANDS, registered_tools)
+
+  @mock.patch.object(
+      diff_sessions_tool.get_kernel_stats_tool,
+      'get_kernel_stats',
+      autospec=True,
+      spec_set=True,
+  )
+  def test_oss_diff_sessions(self, mock_get_kernel_stats):
+    mock_get_kernel_stats.side_effect = [
+        {
+            'total_device_duration_us': 100.0,
+            'kernel_records': [
+                {'kernel_name': 'matmul', 'total_duration_us': 60.0}
+            ],
+        },
+        {
+            'total_device_duration_us': 80.0,
+            'kernel_records': [
+                {'kernel_name': 'matmul', 'total_duration_us': 40.0}
+            ],
+        },
+    ]
+    res_json = diff_sessions_tool.diff_sessions(
+        baseline_session_id='/tmp/base',
+        optimized_session_id='/tmp/opt',
+    )
+    res = json.loads(res_json)
+    self.assertEqual(res['total_device_duration_delta_us'], -20.0)
+    self.assertEqual(res['total_device_duration_delta_pct'], -20.0)
+    self.assertLen(res['kernel_diffs'], 1)
+    self.assertEqual(res['kernel_diffs'][0]['delta_duration_us'], -20.0)
 
 
 if __name__ == '__main__':

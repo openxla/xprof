@@ -986,7 +986,6 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         const lastEvent =
           traceData.traceEvents[traceData.traceEvents.length - 1];
         if (
-          lastEvent['ph'] === 'X' &&
           this.selectedEvent &&
           lastEvent['args']
         ) {

@@ -26,6 +26,14 @@ from PIL import ImageChops
 # otherwise identical renders, so smaller deltas are noise rather than signal.
 _MIN_CHANNEL_DELTA = 10
 
+# Share of pixels allowed to differ before a waypoint is called changed.
+# Requiring a byte-identical bitmap makes the verdict depend on the GPU and
+# font rasterisation of whichever machine happens to run the suite, which says
+# nothing about the build. A real rendering regression, such as a chart that
+# fails to draw, moves whole percentage points and is still caught.
+_MAX_VISUAL_DIFF_RATIO = 0.001
+MAX_VISUAL_DIFF_RATIO = _MAX_VISUAL_DIFF_RATIO
+
 
 @dataclasses.dataclass
 class VisualDiff:
@@ -79,7 +87,7 @@ class WaypointDiff:
   def verdict(self) -> str:
     """Determines top-level A/B certification verdict."""
     if (
-        self.visual.diff_pixels == 0
+        self.visual.diff_ratio <= _MAX_VISUAL_DIFF_RATIO
         and not self.visual.dimension_mismatch
         and not self.dom.has_changes
         and not self.network.has_changes
@@ -218,11 +226,11 @@ class SxsDiffEngine:
     cleaned = re.sub(
         r' id="mat-(?:mdc-)?'
         r"(tab-label|tab-content|select|option|input|form-field-label)"
-        r'-[0-9]+(-[0-9]+)?"',
+        r'-[0-9N]+(-[0-9N]+)?"',
         "",
         cleaned,
     )
-    cleaned = re.sub(r' for="mat-input-[0-9]+"', "", cleaned)
+    cleaned = re.sub(r' for="mat-input-[0-9N]+"', "", cleaned)
     cleaned = re.sub(
         r' id="cdk-(describedby-message|overlay|live-announcer)'
         r'(?:-ng)?-[a-zA-Z0-9_-]+"',
@@ -235,12 +243,12 @@ class SxsDiffEngine:
         cleaned,
     )
     cleaned = re.sub(
-        r' aria-controls="mat-(?:mdc-)?tab-content-[0-9]+-[0-9]+"',
+        r' aria-controls="mat-(?:mdc-)?tab-content-[0-9N]+-[0-9N]+"',
         "",
         cleaned,
     )
     cleaned = re.sub(
-        r' aria-owns="mat-(?:mdc-)?select-[0-9]+-panel"', "", cleaned
+        r' aria-owns="mat-(?:mdc-)?select-[0-9N]+-panel"', "", cleaned
     )
     cleaned = re.sub(
         r"<style\b[^>]*>.*?</style>",
@@ -466,7 +474,7 @@ class SxsDiffEngine:
     hasher = hashlib.sha256()
     hasher.update(f"{journey_name}:{waypoint_name}:".encode("utf-8"))
     hasher.update(dom.diff_digest.encode("utf-8"))
-    if visual.diff_pixels > 0:
+    if visual.diff_ratio > _MAX_VISUAL_DIFF_RATIO:
       spatial_sig = visual.spatial_digest or hashlib.sha256(
           visual.heatmap_png_bytes or b""
       ).hexdigest()

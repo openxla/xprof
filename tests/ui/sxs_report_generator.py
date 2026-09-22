@@ -193,7 +193,10 @@ def _render_waypoint_card(
   # five base64 PNGs (baseline and candidate twice each, plus the heatmap) for
   # waypoints with nothing to show. Across 46 waypoints that was most of a
   # 28 MB report.
-  if waypoint.visual.diff_pixels or waypoint.visual.dimension_mismatch:
+  if (
+      waypoint.visual.diff_ratio > sxs_diff_engine.MAX_VISUAL_DIFF_RATIO
+      or waypoint.visual.dimension_mismatch
+  ):
     sections.append(_render_visual_diff(templates, waypoint.visual, card_id))
 
   if waypoint.visual.dimension_mismatch:

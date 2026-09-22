@@ -6,6 +6,23 @@ import re
 import urllib.parse
 from playwright import sync_api
 
+# Injected into every new page context to neutralize CSS transitions and
+# requestAnimationFrame loops before first paint.
+_DISABLE_ANIMATIONS_JS = """
+(() => {
+  const style = document.createElement('style');
+  style.textContent = `
+    *, *::before, *::after {
+      transition-duration: 0s !important;
+      transition-delay: 0s !important;
+      animation-duration: 0s !important;
+      animation-delay: 0s !important;
+    }
+  `;
+  document.head.appendChild(style);
+})();
+"""
+
 
 def build_tool_url(
     server_url: str,

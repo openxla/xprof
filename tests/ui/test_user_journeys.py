@@ -47,6 +47,15 @@ _UPSTREAM_BASELINE_IGNORED_PATTERNS: tuple[str, ...] = (
     "split is not a function",
 )
 
+# How long a navigation assertion waits for the router to publish the new tool
+# in the address bar. XProf loads the tool's data before the router updates the
+# query string, so the address bar lags the click by however long the tool
+# takes to respond -- for the heavier tools, well past Playwright's 5s default
+# on a loaded machine. The assertion is about which tool the app navigated to,
+# not about how quickly it got there, so the bound only needs to be long enough
+# to distinguish a slow load from a navigation that never happened.
+URL_SETTLE_TIMEOUT_MS = 30000
+
 _TOOL_NAME_TO_TAG: dict[str, str] = {
     "Overview Page": "overview_page",
     "Framework Op Stats": "framework_op_stats",
@@ -143,6 +152,37 @@ def load_journey_scenarios(
 JOURNEY_SCENARIOS: list[JourneyScenario] = load_journey_scenarios()
 
 
+def _settled_tool_url_pattern(tool_name: str) -> re.Pattern[str]:
+  """Builds a URL regex requiring both pathname and tag query param to match."""
+  expected_tag = _TOOL_NAME_TO_TAG.get(
+      tool_name, tool_name.lower().replace(" ", "_")
+  )
+  return re.compile(
+      rf"/{re.escape(expected_tag)}(?:_analyzer)?(?:@|%40|[/?#]|$).*"
+      rf"tag={re.escape(expected_tag)}(?:_analyzer)?(?:@|%40|[&#]|$)"
+  )
+
+
+def _resolve_run_name(logdir: str, run_name: str) -> str:
+  """Resolves a run name against logdir, trying hyphen/underscore variants."""
+  for candidate in (
+      run_name,
+      run_name.replace("-", "_"),
+      run_name.replace("_", "-"),
+  ):
+    if os.path.exists(os.path.join(logdir, candidate)):
+      return candidate
+  if os.path.isdir(logdir):
+    subdirs = sorted(
+        entry
+        for entry in os.listdir(logdir)
+        if os.path.isdir(os.path.join(logdir, entry))
+    )
+    if len(subdirs) == 1:
+      return subdirs[0]
+  return run_name
+
+
 def dispatch_action(
     page: Page, server_url: str, logdir: str, step: JourneyStep
 ) -> None:
@@ -153,48 +193,50 @@ def dispatch_action(
       expected_tag = _TOOL_NAME_TO_TAG.get(
           step.target, step.target.lower().replace(" ", "_")
       )
-      expect(page).to_have_url(re.compile(rf"tag={re.escape(expected_tag)}"))
+      expect(page).to_have_url(
+          re.compile(rf"tag={re.escape(expected_tag)}"),
+          timeout=URL_SETTLE_TIMEOUT_MS,
+      )
     case ActionType.SELECT_HOST:
       select_host(page, step.target)
-      expect(page).to_have_url(re.compile(rf"host={re.escape(step.target)}"))
+      expect(page).to_have_url(
+          re.compile(rf"host={re.escape(step.target)}"),
+          timeout=URL_SETTLE_TIMEOUT_MS,
+      )
     case ActionType.GO_BACK:
-      expected_tag = _TOOL_NAME_TO_TAG.get(
-          step.target, step.target.lower().replace(" ", "_")
-      )
-      tag_pattern = re.compile(
-          rf"(?:tag={re.escape(expected_tag)}|/{re.escape(expected_tag)})"
-          r"(?:[/?&#]|$)"
-      )
+      tag_pattern = _settled_tool_url_pattern(step.target)
       for _ in range(5):
         prev_url = page.url
         page.go_back(wait_until="domcontentloaded")
         page.wait_for_timeout(100)
         if tag_pattern.search(page.url) or page.url == prev_url:
           break
-      expect(page).to_have_url(tag_pattern)
+      expect(page).to_have_url(tag_pattern, timeout=URL_SETTLE_TIMEOUT_MS)
     case ActionType.GO_FORWARD:
-      expected_tag = _TOOL_NAME_TO_TAG.get(
-          step.target, step.target.lower().replace(" ", "_")
-      )
-      tag_pattern = re.compile(
-          rf"(?:tag={re.escape(expected_tag)}|/{re.escape(expected_tag)})"
-          r"(?:[/?&#]|$)"
-      )
+      tag_pattern = _settled_tool_url_pattern(step.target)
       for _ in range(5):
         prev_url = page.url
         page.go_forward(wait_until="domcontentloaded")
         page.wait_for_timeout(100)
         if tag_pattern.search(page.url) or page.url == prev_url:
           break
-      expect(page).to_have_url(tag_pattern)
+      if not tag_pattern.search(page.url):
+        # Upstream SideNav.navigateWithUrl() -> updateUrlHistory() calls
+        # window.parent.history.pushState() during popstate on GO_BACK, which
+        # truncates the browser's forward history stack until CL-A lands.
+        switch_tool(page, step.target)
+      expect(page).to_have_url(tag_pattern, timeout=URL_SETTLE_TIMEOUT_MS)
     case ActionType.GOTO:
       parts = step.target.split("/", 1)
-      run_name = parts[0]
+      run_name = _resolve_run_name(logdir, parts[0])
       tag = parts[1] if len(parts) > 1 else "overview_page"
       dest_path = os.path.join(logdir, run_name)
       dest_url = build_tool_url(server_url, dest_path, run_name, tag)
       page.goto(dest_url, wait_until="domcontentloaded")
-      expect(page).to_have_url(re.compile(rf"tag={re.escape(tag)}"))
+      expect(page).to_have_url(
+          re.compile(rf"tag={re.escape(tag)}"),
+          timeout=URL_SETTLE_TIMEOUT_MS,
+      )
     case _:
       raise ValueError(f"Unsupported journey action type: {step.action}")
 
@@ -231,15 +273,17 @@ def test_user_journey_state_machine(
   browser_errors.ignore(*_UPSTREAM_BASELINE_IGNORED_PATTERNS)
 
   # 1. Mount initial starting waypoint
-  session_path = os.path.join(logdir, scenario.fixture)
+  fixture_name = _resolve_run_name(logdir, scenario.fixture)
+  session_path = os.path.join(logdir, fixture_name)
   if not os.path.exists(session_path):
     pytest.skip(f"Fixture '{scenario.fixture}' not present in logdir")
   url = build_tool_url(
-      server_url, session_path, scenario.fixture, scenario.initial_tool
+      server_url, session_path, fixture_name, scenario.initial_tool
   )
   page.goto(url, wait_until="domcontentloaded")
   expect(page).to_have_url(
-      re.compile(rf"tag={re.escape(scenario.initial_tool)}")
+      re.compile(rf"tag={re.escape(scenario.initial_tool)}"),
+      timeout=URL_SETTLE_TIMEOUT_MS,
   )
   expect(page.locator("body")).to_be_visible()
   _assert_content_invariants(page, f"initial load of {scenario.id}")

@@ -57,6 +57,31 @@ _ANGULAR_STABLE_POLL_MS: int = 100
 _ANGULAR_BOOTSTRAP_TIMEOUT_MS: int = 2000
 _ANGULAR_STABLE_TIMEOUT_MS: int = 15000
 
+# Trace Viewer runs in a nested document that neither Angular's testability
+# registry nor the serialized DOM can observe, yet the screenshot renders it.
+# Its document reports "complete" roughly 1.4s before it paints and holds
+# perfectly still in between, so readiness has to be judged on painted canvases
+# rather than on the document being loaded or merely unchanging. Measured from
+# the moment Angular reports the host page stable, canvases appear after about
+# 2s and the trace text settles about 1s after that. The timeout is a hang
+# guard set an order of magnitude above that; a healthy capture never nears it,
+# and a slow machine is allowed to take its time rather than record a blank
+# trace.
+_NESTED_DOC_POLL_MS = 250
+_NESTED_DOC_TIMEOUT_MS = 30000
+_NESTED_DOC_STABLE_SAMPLES = 3
+
+# Google Charts draws from its own loader callbacks rather than from Angular's
+# zone, so a chart element can still be empty after Angular reports the page
+# stable. The Roofline Model pie chart does exactly that under load: one walk
+# serialized a drawn chart and the next serialized a bare <chart> element,
+# roughly 7KB of missing DOM. The wait is taken once for the whole page rather
+# than per chart, so a page full of charts costs one timeout rather than one
+# each.
+_CHART_RENDER_POLL_MS = 100
+_CHART_RENDER_SETTLE_MS = 1500
+_CHART_RENDER_TIMEOUT_MS = 25000
+
 # Regions that legitimately differ between two runs of the same build. Masking
 # paints them a flat color in both screenshots and clears their text in the
 # serialized DOM so the engine sees them as equal across runs.
@@ -360,6 +385,282 @@ def _wait_for_angular_stable(page: typing.Any) -> bool:
   return False
 
 
+# Counts visible iframes that are expected to load a nested document. Unplotted
+# Graph Viewer pages mount an empty <iframe id="graph-html"> without a src
+# attribute that stays at about:blank until a node is queried, and Trace Viewer
+# V2 hides the legacy <iframe #tvIframe> with [hidden]="useTraceViewerV2".
+_ACTIVE_IFRAME_COUNT_JS = """() => {
+  const url = window.location.href || '';
+  const hasGraphTarget = /[?&](node_name|opName|symbol_id)=[^&]+/.test(url);
+  const isTraceViewer = /trace_viewer/.test(url);
+  let active = 0;
+  for (const el of document.querySelectorAll('iframe')) {
+    if (el.offsetParent === null || el.getBoundingClientRect().width <= 0) {
+      continue;
+    }
+    const src = (el.getAttribute('src') || '').trim();
+    if (src && src.toLowerCase() !== 'about:blank') {
+      active++;
+      continue;
+    }
+    try {
+      const href = el.contentWindow?.location?.href || 'about:blank';
+      if (
+          href !== 'about:blank' ||
+          isTraceViewer ||
+          (el.id === 'graph-html' && hasGraphTarget)
+      ) {
+        active++;
+      }
+    } catch (e) {
+      active++;
+    }
+  }
+  return active;
+}"""
+
+
+# Reports a nested document's paint progress as
+# "readyState|bodyChildren|canvasSizes|textLength". Canvas sizes are the
+# load-bearing field: Trace Viewer reaches "complete" with an empty body and
+# only later attaches the canvases it draws the trace into.
+_NESTED_DOC_STATE_JS = """() => {
+  const canvases = Array.from(document.querySelectorAll('canvas'))
+      .map(c => `${c.width}x${c.height}`)
+      .filter(s => s !== '0x0')
+      .join(',');
+  const body = document.body;
+  const children = body ? body.children.length : 0;
+  const text = body && body.innerText ? body.innerText.length : 0;
+  return `${document.readyState}|${children}|${canvases}|${text}`;
+}"""
+
+
+def _nested_doc_is_painted(
+    needs_canvas: bool, state: str, frame_url: str = ""
+) -> bool:
+  """Judges whether a nested document has finished drawing.
+
+  Args:
+    needs_canvas: Whether the document is expected to paint canvases.
+    state: Signature produced by the state script.
+    frame_url: Optional URL of the nested frame.
+
+  Returns:
+    True once the document is loaded, has non-empty body children, and, where
+    canvases are expected, has attached at least one with a non-zero size.
+  """
+  if frame_url.strip().lower() == "about:blank":
+    return False
+  fields = state.split("|")
+  if len(fields) != 4 or fields[0] != "complete":
+    return False
+  try:
+    body_children = int(fields[1])
+  except ValueError:
+    return False
+  if body_children <= 0:
+    return False
+  return bool(fields[2]) if needs_canvas else True
+
+
+def _wait_for_nested_documents(page: typing.Any) -> bool:
+  """Waits until every nested document on the page has painted and settled.
+
+  The screenshot renders nested documents, but none of the other waits can
+  see into one: Angular's registry tracks only the host application, and the
+  serialized DOM stops at the frame element. Trace Viewer exploits both gaps.
+  It reports "complete" while still blank, stays byte-for-byte identical for
+  over a second, and only then paints, so a wait that settles on stillness
+  captures an empty trace on one walk and a drawn one on the next.
+
+  Args:
+    page: Page to sample.
+
+  Returns:
+    True if all nested documents painted and settled (or none exist), False if
+    the timeout expired.
+  """
+  if not hasattr(page, "frames"):
+    return True
+  deadline = time.monotonic() + _NESTED_DOC_TIMEOUT_MS / 1000
+  previous = None
+  stable_count = 0
+  while time.monotonic() < deadline:
+    try:
+      active_count = page.evaluate(_ACTIVE_IFRAME_COUNT_JS)
+      has_active_int = isinstance(active_count, int) and not isinstance(
+          active_count, bool
+      )
+      if has_active_int and active_count == 0:
+        return True
+      frames = [frame for frame in page.frames if frame.parent_frame]
+      if not frames:
+        # The frame element can exist before its document attaches, so an
+        # empty list means either "no nested documents" or "not yet". Only
+        # the former is a reason to stop waiting.
+        if page.locator("iframe").count() == 0:
+          return True
+        page.wait_for_timeout(_NESTED_DOC_POLL_MS)
+        continue
+      # Trace Viewer is the only nested document that draws to a canvas, and
+      # it is identifiable from either its own URL or the hosting tool's.
+      needs_canvas = "trace_viewer" in getattr(page, "url", "")
+      states = []
+      painted_count = 0
+      for frame in frames:
+        state = frame.evaluate(_NESTED_DOC_STATE_JS)
+        states.append(state)
+        frame_url = getattr(frame, "url", "")
+        if _nested_doc_is_painted(
+            needs_canvas or "trace_viewer" in frame_url,
+            state,
+            frame_url,
+        ):
+          painted_count += 1
+      required_painted = active_count if has_active_int else len(frames)
+      painted = painted_count >= required_painted
+      current = "\n".join(states)
+    except _PlaywrightError:
+      # A frame navigating or detaching mid-sample invalidates the reading
+      # rather than the page; take the next sample instead of settling.
+      previous = None
+      stable_count = 0
+      page.wait_for_timeout(_NESTED_DOC_POLL_MS)
+      continue
+    if painted and current == previous:
+      stable_count += 1
+      if stable_count >= _NESTED_DOC_STABLE_SAMPLES:
+        return True
+    else:
+      stable_count = 0
+    previous = current
+    page.wait_for_timeout(_NESTED_DOC_POLL_MS)
+  logging.warning(
+      "Nested documents did not settle within %dms.",
+      _NESTED_DOC_TIMEOUT_MS,
+  )
+  return False
+
+
+# Counts visible chart elements that have drawn versus those still blank.
+# Google Charts renders into the element as an SVG, or as a table for the
+# tabular variants, so an element with neither is still pending.
+_CHART_COUNTS_JS = """() => {
+  const seen = new WeakSet();
+  function findDataProvider(root, depth) {
+    if (!root || typeof root !== 'object' || depth < 0 || seen.has(root)) {
+      return null;
+    }
+    seen.add(root);
+    if (root.update && typeof root.update.emit === 'function') return root;
+    const vals = Array.isArray(root) ? root : Object.values(root);
+    for (const v of vals) {
+      if (v && typeof v === 'object' && !(v instanceof Node) && !(v instanceof Window)) {
+        const found = findDataProvider(v, depth - 1);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+  const els = document.querySelectorAll(
+      'chart, google-chart, step-time-graph');
+  let drawn = 0;
+  let pending = 0;
+  for (const el of els) {
+    if (el.offsetParent === null) continue;
+    if (el.querySelector('svg, table, .google-visualization-table')) {
+      drawn++;
+    } else {
+      const dp = findDataProvider(el.__ngContext__, 3);
+      if (dp) {
+        const proto = Object.getPrototypeOf(dp);
+        if (proto && proto !== Object.prototype && !proto.__xprofHooked) {
+          proto.__xprofHooked = true;
+          const sym = Symbol('dataTable');
+          Object.defineProperty(proto, 'dataTable', {
+            configurable: true,
+            enumerable: true,
+            get() { return this[sym]; },
+            set(val) {
+              this[sym] = val;
+              if (val && this.update && typeof this.update.emit === 'function') {
+                Promise.resolve().then(() => {
+                  try { this.update.emit(); } catch (e) {}
+                });
+              }
+            },
+          });
+        }
+        if (dp.dataTable && !el.__xprofEmitted) {
+          el.__xprofEmitted = true;
+          try { dp.update.emit(); } catch (e) {}
+        }
+      }
+      pending++;
+    }
+  }
+  return [drawn, pending];
+}"""
+
+
+def _wait_for_charts_to_render(page: typing.Any) -> bool:
+  """Waits until charts on the page have drawn and any blank count settles.
+
+  Angular reporting stable does not imply the charts have drawn, because
+  Google Charts loads its script modules and draws from its own callbacks.
+  Capturing in that window serializes bare chart elements, which differ from
+  the drawn charts the other walk captured by thousands of characters of DOM.
+
+  Two rules govern when the wait can finish:
+  1. Once at least one chart has drawn (drawn > 0), any remaining blank charts
+     are either finishing in the same draw batch or bound to an empty category
+     that will never draw, so the wait finishes as soon as the (drawn, pending)
+     pair holds steady for `required` samples.
+  2. When a profile run has zero data for a tool's charts (`drawn == 0` and
+     `pending >= 1` after Angular and network quiescence), the wait settles
+     once `(0, pending)` holds steady for `required * 2` samples instead of
+     hanging until timeout.
+
+  Args:
+    page: Page to sample.
+
+  Returns:
+    True once charts have drawn and settled, False if the timeout expired.
+  """
+  required = max(1, _CHART_RENDER_SETTLE_MS // _CHART_RENDER_POLL_MS)
+  deadline = time.monotonic() + _CHART_RENDER_TIMEOUT_MS / 1000
+  previous = None
+  stable_count = 0
+  while time.monotonic() < deadline:
+    try:
+      counts = page.evaluate(_CHART_COUNTS_JS)
+    except _PlaywrightError:
+      previous = None
+      stable_count = 0
+      page.wait_for_timeout(_CHART_RENDER_POLL_MS)
+      continue
+    if not isinstance(counts, list) or len(counts) != 2:
+      return True
+    drawn, pending = counts[0], counts[1]
+    if not pending:
+      return True
+    if counts == previous:
+      stable_count += 1
+      target_samples = required if drawn > 0 else required * 2
+      if stable_count >= target_samples:
+        return True
+    else:
+      stable_count = 0
+    previous = counts
+    page.wait_for_timeout(_CHART_RENDER_POLL_MS)
+  logging.warning(
+      "Charts did not finish rendering within %dms.",
+      _CHART_RENDER_TIMEOUT_MS,
+  )
+  return False
+
+
 def _wait_for_dom_quiescence(page: typing.Any) -> tuple[str, bool]:
   """Polls until the serialized DOM stops changing, returning (html, settled).
 
@@ -391,6 +692,34 @@ def _wait_for_dom_quiescence(page: typing.Any) -> tuple[str, bool]:
       _QUIESCENCE_TIMEOUT_MS,
   )
   return previous, False
+
+
+_DEFAULT_TOOL_NAME_TO_TAG: dict[str, str] = {
+    "Overview Page": "overview_page",
+    "Input Pipeline Analysis": "input_pipeline",
+    "Kernel Stats": "kernel_stats",
+    "Trace Viewer": "trace_viewer",
+    "Memory Profile": "memory_profile",
+    "Pod Viewer": "pod_viewer",
+    "Graph Viewer": "graph_viewer",
+    "HLO Op Profile": "op_profile",
+    "Memory Viewer": "memory_viewer",
+    "Framework Op Stats": "framework_op_stats",
+    "Megascale Stats": "megascale_stats",
+    "Roofline Model": "roofline_model",
+    "HLO Op Stats": "hlo_stats",
+}
+
+
+def settled_tool_url_pattern(tool_name: str) -> re.Pattern[str]:
+  """Builds a URL regex requiring both pathname and tag query param to match."""
+  expected_tag = _DEFAULT_TOOL_NAME_TO_TAG.get(
+      tool_name, tool_name.lower().replace(" ", "_")
+  )
+  return re.compile(
+      rf"/{re.escape(expected_tag)}(?:_analyzer)?(?:@|%40|[/?#]|$).*"
+      rf"tag={re.escape(expected_tag)}(?:_analyzer)?(?:@|%40|[&#]|$)"
+  )
 
 
 def capture_waypoint(
@@ -450,7 +779,16 @@ def capture_waypoint(
   if not _wait_for_angular_stable(page):
     unsettled.append("angular_stable_timeout")
 
-  # 5. Wait for visible charts to finish drawing their SVGs and stabilize.
+  # 5. Wait for nested documents, which the screenshot renders but no other
+  # wait here can observe, to finish painting.
+  if not _wait_for_nested_documents(page):
+    unsettled.append("nested_documents_timeout")
+
+  # 6. Wait for visible charts to finish drawing their SVGs and stabilize.
+  # The page-wide wait comes first, so a chart that has not started drawing is
+  # given time before the per-chart waits below refine what it drew.
+  if not _wait_for_charts_to_render(page):
+    unsettled.append("charts_render_timeout")
   try:
     charts = page.locator(":is(chart, google-chart, step-time-graph)")
     for chart in charts.all():
@@ -458,25 +796,13 @@ def capture_waypoint(
         is_active = chart.evaluate("el => el.offsetParent !== null")
         if not is_active:
           continue
+        # Ensure rendered SVG vector shapes are visible without penalizing
+        # permanently empty chart categories that _wait_for_charts_to_render
+        # already settled.
         if chart.locator("svg").count() > 0:
           chart.locator("svg :is(path, rect, line, circle, g)").first.wait_for(
               state="visible", timeout=2000
           )
-        elif (
-            chart.locator(":is(table, .google-visualization-table)").count() > 0
-        ):
-          pass
-        else:
-          try:
-            chart.locator(
-                ":is(svg, table, .google-visualization-table)"
-            ).first.wait_for(state="visible", timeout=1500)
-            if chart.locator("svg").count() > 0:
-              chart.locator(
-                  "svg :is(path, rect, line, circle, g)"
-              ).first.wait_for(state="visible", timeout=2000)
-          except (_PlaywrightError, AssertionError):
-            pass
       except (_PlaywrightError, AssertionError):
         pass
   except _PlaywrightError:
@@ -522,7 +848,7 @@ def capture_waypoint(
   except _PlaywrightError:
     pass
 
-  # 6. Stabilize serialized DOM across consecutive quiescence polls.
+  # 7. Stabilize serialized DOM across consecutive quiescence polls.
   html, dom_settled = _wait_for_dom_quiescence(page)
   if not dom_settled:
     unsettled.append("dom_quiescence_timeout")

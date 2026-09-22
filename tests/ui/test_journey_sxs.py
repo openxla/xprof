@@ -43,6 +43,7 @@ try:
   from tests.ui.test_user_journeys import dispatch_action
   from tests.ui.test_user_journeys import JOURNEY_SCENARIOS
   from tests.ui.test_user_journeys import JourneyScenario
+  from tests.ui.test_user_journeys import URL_SETTLE_TIMEOUT_MS
   from tests.ui.ui_helpers import build_tool_url
 except ImportError:
   from journey_capture import capture_waypoint
@@ -56,6 +57,7 @@ except ImportError:
   from test_user_journeys import dispatch_action
   from test_user_journeys import JOURNEY_SCENARIOS
   from test_user_journeys import JourneyScenario
+  from test_user_journeys import URL_SETTLE_TIMEOUT_MS
   from ui_helpers import build_tool_url
 
 # Directory the combined HTML report is written to. Kokoro points this at
@@ -229,7 +231,8 @@ def _walk_journey(
     )
     page.goto(url, wait_until="domcontentloaded")
     expect(page).to_have_url(
-        re.compile(rf"tag={re.escape(scenario.initial_tool)}")
+        re.compile(rf"tag={re.escape(scenario.initial_tool)}"),
+        timeout=URL_SETTLE_TIMEOUT_MS,
     )
     init_name = f"00_{scenario.initial_tool}"
     captures.append(capture_waypoint(page, recorder, init_name))

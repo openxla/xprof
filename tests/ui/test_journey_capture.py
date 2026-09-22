@@ -210,6 +210,230 @@ class JourneyCaptureTest(unittest.TestCase):
     # 6. Placeholder about:blank iframes are excluded from iframe bypass.
     self.assertIn("about:blank", journey_capture._ANGULAR_IS_STABLE_JS)
 
+  def test_nested_doc_is_painted_rejects_empty_body_and_about_blank(self):
+    """Verifies empty body children and about:blank are rejected."""
+    self.assertFalse(
+        journey_capture._nested_doc_is_painted(
+            needs_canvas=False, state="complete|0||0"
+        )
+    )
+    self.assertFalse(
+        journey_capture._nested_doc_is_painted(
+            needs_canvas=False, state="complete|2||10", frame_url="about:blank"
+        )
+    )
+    self.assertTrue(
+        journey_capture._nested_doc_is_painted(
+            needs_canvas=False,
+            state="complete|2||10",
+            frame_url="http://localhost:8791/graph_viewer",
+        )
+    )
+    self.assertFalse(
+        journey_capture._nested_doc_is_painted(
+            needs_canvas=True,
+            state="complete|2||10",
+            frame_url="http://localhost:8791/trace_viewer",
+        )
+    )
+    self.assertTrue(
+        journey_capture._nested_doc_is_painted(
+            needs_canvas=True,
+            state="complete|2|800x600|10",
+            frame_url="http://localhost:8791/trace_viewer",
+        )
+    )
+
+  def test_wait_for_nested_documents_skips_idle_iframe_and_settles_active_trace(
+      self,
+  ):
+    """Verifies idle frame skipping, active frame settling, and error recovery."""
+
+    class _FakeFrame:
+      """Fake Playwright child frame returning scripted nested-doc states."""
+
+      def __init__(
+          self,
+          states: list[tuple[str, str | Exception]],
+      ):
+        self.parent_frame = object()
+        self._states = list(states)
+        self.url = states[0][0] if states else "about:blank"
+
+      def evaluate(self, script: str) -> str:
+        del script
+        if len(self._states) > 1:
+          self.url, state = self._states.pop(0)
+        else:
+          self.url, state = self._states[0]
+        if isinstance(state, Exception):
+          raise state
+        return state
+
+    class _FakeNestedPage:
+      """Fake Playwright page with an active iframe count and child frame."""
+
+      def __init__(
+          self,
+          active_count: int | list[int | Exception],
+          frame: _FakeFrame,
+      ):
+        self.url = "http://localhost:8791/#profile/graph_viewer"
+        self.frames = [frame]
+        self._active_counts = (
+            list(active_count)
+            if isinstance(active_count, list)
+            else [active_count]
+        )
+        self.waits: list[int] = []
+
+      def evaluate(self, script: str) -> int:
+        del script
+        if len(self._active_counts) > 1:
+          val = self._active_counts.pop(0)
+        else:
+          val = self._active_counts[0]
+        if isinstance(val, Exception):
+          raise val
+        return val
+
+      def wait_for_timeout(self, ms: int) -> None:
+        self.waits.append(ms)
+
+    # 1. Idle unplotted Graph Viewer iframe (active_count == 0) returns True
+    # immediately even though its child frame is at about:blank.
+    idle_frame = _FakeFrame([("about:blank", "complete|0||0")])
+    idle_page = _FakeNestedPage(active_count=0, frame=idle_frame)
+    self.assertTrue(journey_capture._wait_for_nested_documents(idle_page))
+    self.assertEqual(idle_page.waits, [])
+
+    # 2. Active Trace Viewer iframe transitions from about:blank to painted
+    # canvas and settles across consecutive samples.
+    active_frame = _FakeFrame([
+        ("about:blank", "complete|0||0"),
+        ("http://localhost:8791/trace_viewer", "complete|2|800x600|42"),
+    ])
+    active_page = _FakeNestedPage(active_count=1, frame=active_frame)
+    active_page.url = "http://localhost:8791/#profile/trace_viewer"
+    self.assertTrue(journey_capture._wait_for_nested_documents(active_page))
+    self.assertGreaterEqual(
+        len(active_page.waits), journey_capture._NESTED_DOC_STABLE_SAMPLES
+    )
+
+    # 3. Transient _PlaywrightError on first evaluate call recovers and settles.
+    error_frame = _FakeFrame([
+        (
+            "http://localhost:8791/trace_viewer",
+            journey_capture._PlaywrightError("Frame detached mid-sample"),
+        ),
+        ("http://localhost:8791/trace_viewer", "complete|2|800x600|42"),
+    ])
+    error_page = _FakeNestedPage(active_count=1, frame=error_frame)
+    error_page.url = "http://localhost:8791/#profile/trace_viewer"
+    self.assertTrue(journey_capture._wait_for_nested_documents(error_page))
+    self.assertEqual(
+        len(error_page.waits), journey_capture._NESTED_DOC_STABLE_SAMPLES + 1
+    )
+
+    # 4. Mid-sequence error invalidates prior matching samples and resets
+    # previous and stable_count.
+    flaky_frame = _FakeFrame([
+        ("http://localhost:8791/trace_viewer", "complete|2|800x600|42"),
+        ("http://localhost:8791/trace_viewer", "complete|2|800x600|42"),
+        (
+            "http://localhost:8791/trace_viewer",
+            journey_capture._PlaywrightError("Frame detached mid-sample"),
+        ),
+        ("http://localhost:8791/trace_viewer", "complete|2|800x600|42"),
+    ])
+    flaky_page = _FakeNestedPage(active_count=1, frame=flaky_frame)
+    flaky_page.url = "http://localhost:8791/#profile/trace_viewer"
+    self.assertTrue(journey_capture._wait_for_nested_documents(flaky_page))
+    self.assertEqual(
+        len(flaky_page.waits), journey_capture._NESTED_DOC_STABLE_SAMPLES + 3
+    )
+
+    # 5. Page evaluate error (e.g. navigation destroying context) recovers
+    # cleanly.
+    page_error_frame = _FakeFrame([
+        ("http://localhost:8791/trace_viewer", "complete|2|800x600|42"),
+    ])
+    page_error_page = _FakeNestedPage(
+        active_count=[
+            journey_capture._PlaywrightError("Context destroyed"),
+            1,
+        ],
+        frame=page_error_frame,
+    )
+    page_error_page.url = "http://localhost:8791/#profile/trace_viewer"
+    self.assertTrue(journey_capture._wait_for_nested_documents(page_error_page))
+    self.assertEqual(
+        len(page_error_page.waits),
+        journey_capture._NESTED_DOC_STABLE_SAMPLES + 1,
+    )
+
+    # 6. Page without frames attribute returns True immediately.
+    self.assertTrue(journey_capture._wait_for_nested_documents(object()))
+
+  def test_wait_for_charts_to_render_settles_when_drawn_and_pending_stabilize(
+      self,
+  ):
+    """Verifies chart wait holds on [0, pending] and settles once drawn > 0 holds steady."""
+
+    class _FakeChartPage:
+      """Fake Playwright page returning a sequence of [drawn, pending] counts."""
+
+      def __init__(self, counts_sequence: list[list[int]]):
+        self._seq = list(counts_sequence)
+        self.waits: list[int] = []
+
+      def evaluate(self, script: str) -> list[int]:
+        del script
+        if len(self._seq) > 1:
+          return self._seq.pop(0)
+        return self._seq[0]
+
+      def wait_for_timeout(self, ms: int) -> None:
+        self.waits.append(ms)
+
+    page = _FakeChartPage([[0, 3], [2, 1]])
+    self.assertTrue(journey_capture._wait_for_charts_to_render(page))
+    self.assertGreaterEqual(len(page.waits), 2)
+
+    zero_data_page = _FakeChartPage([[0, 2]])
+    self.assertTrue(journey_capture._wait_for_charts_to_render(zero_data_page))
+    self.assertGreaterEqual(len(zero_data_page.waits), 4)
+    js = journey_capture._CHART_COUNTS_JS
+    self.assertIn("proto !== Object.prototype", js)
+    self.assertNotIn("Object.defineProperty(Object.prototype", js)
+
+  def test_settled_tool_url_pattern_rejects_mismatched_pathname_and_tag(self):
+    """Verifies settled_tool_url_pattern rejects premature updateUrlHistory URLs."""
+    mem_pattern = journey_capture.settled_tool_url_pattern("Memory Profile")
+    self.assertIsNone(
+        mem_pattern.search(
+            "http://localhost:8791/overview_page?run=r1&tag=memory_profile"
+        )
+    )
+    self.assertIsNone(
+        mem_pattern.search(
+            "http://localhost:8791/memory_profile?run=r1&tag=overview_page"
+        )
+    )
+    self.assertIsNotNone(
+        mem_pattern.search(
+            "http://localhost:8791/memory_profile?run=r1&tag=memory_profile"
+        )
+    )
+    inp_pattern = journey_capture.settled_tool_url_pattern(
+        "Input Pipeline Analysis"
+    )
+    self.assertIsNotNone(
+        inp_pattern.search(
+            "http://localhost:8791/input_pipeline_analyzer?run=r1&tag=input_pipeline_analyzer@"
+        )
+    )
+
 
 if __name__ == "__main__":
   unittest.main()

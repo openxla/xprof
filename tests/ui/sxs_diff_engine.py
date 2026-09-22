@@ -23,6 +23,15 @@ import urllib.parse
 from PIL import Image
 from PIL import ImageChops
 
+# pylint: disable=g-import-not-at-top
+try:
+  from google3.third_party.xprof.tests.ui import journey_capture
+except ImportError:
+  try:
+    from tests.ui import journey_capture  # type: ignore[no-redef]
+  except ImportError:
+    import journey_capture  # type: ignore[no-redef]
+
 # Minimum 8-bit per-channel delta treated as a real divergence. Sub-pixel font
 # hinting and GPU antialiasing routinely shift channels by a few levels between
 # otherwise identical renders, so smaller deltas are noise rather than signal.
@@ -296,8 +305,11 @@ class SxsDiffEngine:
 
   def sanitize_dom(self, html: str) -> str:
     """Strips non-deterministic Angular and Material IDs from DOM."""
+    cleaned = journey_capture.normalize_generated_attr_ids(html)
     cleaned = re.sub(
-        r'\s*_ng(content|host)-[a-zA-Z0-9_-]+(=["\'][^"\']*["\'])?', "", html
+        r'\s*_ng(content|host)-[a-zA-Z0-9_-]+(=["\'][^"\']*["\'])?',
+        "",
+        cleaned,
     )
     cleaned = re.sub(
         r' id="mat-(?:mdc-)?'

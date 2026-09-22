@@ -51,10 +51,10 @@ _QUIESCENCE_TIMEOUT_MS: int = 8000
 # within the timeout (Roofline Model is slowest at ~4.7s). Tools hosted inside
 # an iframe (Trace Viewer, Graph Viewer) or running a background tutorial timer
 # (Trace Viewer's interval(3000)) are short-circuited once the host shell and
-# iframe mount, while _ANGULAR_BOOTSTRAP_TIMEOUT_MS waits for Angular to
-# register window.getAllAngularTestabilities() right after page.goto().
+# iframe mount, while unbootstrapped XProf pages (<app> present before
+# window.getAllAngularTestabilities() is registered) return false and continue
+# polling under _ANGULAR_STABLE_TIMEOUT_MS.
 _ANGULAR_STABLE_POLL_MS: int = 100
-_ANGULAR_BOOTSTRAP_TIMEOUT_MS: int = 2000
 _ANGULAR_STABLE_TIMEOUT_MS: int = 15000
 
 # Trace Viewer runs in a nested document that neither Angular's testability
@@ -265,11 +265,12 @@ _NORMALIZED_HTML_JS = """(maskSelectors) => {
               /\\b(google-visualization-errors(?:-all)?-)[0-9]+\\b/g, '$1N'
           )
           .replace(
-              /\\b((?:mat|cdk)-[a-z0-9-]+?-)[0-9]+(-[0-9]+)\\b/g, '$1N$2'
+              /\\b((?:mat-(?:mdc-)?tab-(?:label|content)|mat-tab-group|cdk-stepper)-)[0-9]+(-(?:(?:label|content)-)?[0-9]+)\\b/g,
+              '$1N$2'
           )
           .replace(
-              /\\b((?:mat|cdk)-(?![a-z0-9-]+-N-[0-9]+\\b)[a-z0-9-]+-)[0-9]+\\b/g,
-              '$1N'
+              /\\b((?:mat|cdk)-[a-z0-9-]+?)(?:-[0-9]+)+\\b/g,
+              '$1-N'
           );
       if (norm !== val) el.setAttribute(attr, norm);
     }
@@ -280,10 +281,11 @@ _NORMALIZED_HTML_JS = """(maskSelectors) => {
 
 _GVIS_ID_RE = re.compile(r"\b(google-visualization-errors(?:-all)?-)[0-9]+\b")
 _MAT_TWO_COUNTER_ID_RE = re.compile(
-    r"\b((?:mat|cdk)-[a-z0-9-]+?-)[0-9]+(-[0-9]+)\b"
+    r"\b((?:mat-(?:mdc-)?tab-(?:label|content)|mat-tab-group|cdk-stepper)-)"
+    r"[0-9]+(-(?:(?:label|content)-)?[0-9]+)\b"
 )
 _MAT_SINGLE_COUNTER_ID_RE = re.compile(
-    r"\b((?:mat|cdk)-(?![a-z0-9-]+-N-[0-9]+\b)[a-z0-9-]+-)[0-9]+\b"
+    r"\b((?:mat|cdk)-[a-z0-9-]+?)(?:-[0-9]+)+\b"
 )
 
 
@@ -291,7 +293,7 @@ def normalize_generated_attr_ids(value: str) -> str:
   """Normalizes page-global counters in Material/CDK and Google Charts IDs."""
   norm = _GVIS_ID_RE.sub(r"\1N", value)
   norm = _MAT_TWO_COUNTER_ID_RE.sub(r"\1N\2", norm)
-  return _MAT_SINGLE_COUNTER_ID_RE.sub(r"\1N", norm)
+  return _MAT_SINGLE_COUNTER_ID_RE.sub(r"\1-N", norm)
 
 
 def _normalized_html(page: typing.Any) -> str:
@@ -301,7 +303,8 @@ def _normalized_html(page: typing.Any) -> str:
 
 
 # Reports whether every Angular testability on the page has drained its pending
-# work, or null when Angular has not yet finished bootstrapping. When an
+# work, false when an XProf <app> host element is present but Angular has not
+# yet finished bootstrapping, or null on non-Angular pages. When an
 # iframe-hosted tool (Trace Viewer, Graph Viewer) has mounted its visible
 # iframe and no host loading indicator is active, host stability is treated as
 # reached so Trace Viewer's in-zone interval(3000) tutorial rotation does not
@@ -311,9 +314,13 @@ def _normalized_html(page: typing.Any) -> str:
 # because a timer scheduled here would itself be a pending task in whichever
 # zone it lands in and could keep the page from ever reporting stable.
 _ANGULAR_IS_STABLE_JS = """() => {
-  if (typeof window.getAllAngularTestabilities !== 'function') return null;
+  if (typeof window.getAllAngularTestabilities !== 'function') {
+    return document.querySelector('app') !== null ? false : null;
+  }
   const testabilities = window.getAllAngularTestabilities();
-  if (testabilities.length === 0) return null;
+  if (testabilities.length === 0) {
+    return document.querySelector('app') !== null ? false : null;
+  }
   if (testabilities.every(t => t.isStable())) return true;
   const hasVisibleSourcedIframe = Array.from(document.querySelectorAll('iframe')).some(
       f => {
@@ -349,12 +356,10 @@ def _wait_for_angular_stable(page: typing.Any) -> bool:
     page: Page to sample.
 
   Returns:
-    True if Angular reported stable (or the page is non-Angular after the
-    bootstrap window), False if the stability timeout expired.
+    True if Angular reported stable (or the page is non-Angular), False if the
+    stability timeout expired.
   """
-  start = time.monotonic()
-  bootstrap_deadline = start + _ANGULAR_BOOTSTRAP_TIMEOUT_MS / 1000
-  deadline = start + _ANGULAR_STABLE_TIMEOUT_MS / 1000
+  deadline = time.monotonic() + _ANGULAR_STABLE_TIMEOUT_MS / 1000
   stable_count = 0
   while time.monotonic() < deadline:
     try:
@@ -364,11 +369,7 @@ def _wait_for_angular_stable(page: typing.Any) -> bool:
       page.wait_for_timeout(_ANGULAR_STABLE_POLL_MS)
       continue
     if is_stable is None:
-      stable_count = 0
-      if time.monotonic() >= bootstrap_deadline:
-        return True
-      page.wait_for_timeout(_ANGULAR_STABLE_POLL_MS)
-      continue
+      return True
     if is_stable:
       # Two consecutive samples, so a momentary lull between two asynchronous
       # stages of a tool load is not mistaken for the end of the load.
@@ -694,26 +695,31 @@ def _wait_for_dom_quiescence(page: typing.Any) -> tuple[str, bool]:
   return previous, False
 
 
-_DEFAULT_TOOL_NAME_TO_TAG: dict[str, str] = {
+TOOL_NAME_TO_TAG: dict[str, str] = {
     "Overview Page": "overview_page",
+    "Framework Op Stats": "framework_op_stats",
     "Input Pipeline Analysis": "input_pipeline",
-    "Kernel Stats": "kernel_stats",
-    "Trace Viewer": "trace_viewer",
     "Memory Profile": "memory_profile",
     "Pod Viewer": "pod_viewer",
-    "Graph Viewer": "graph_viewer",
+    "Op Profile": "op_profile",
     "HLO Op Profile": "op_profile",
     "Memory Viewer": "memory_viewer",
-    "Framework Op Stats": "framework_op_stats",
-    "Megascale Stats": "megascale_stats",
-    "Roofline Model": "roofline_model",
+    "Graph Viewer": "graph_viewer",
     "HLO Op Stats": "hlo_stats",
+    "Inference Profile": "inference_profile",
+    "Roofline Model": "roofline_model",
+    "Kernel Stats": "kernel_stats",
+    "Trace Viewer": "trace_viewer",
+    "Megascale Stats": "megascale_stats",
+    "Megascale Viewer": "megascale_stats",
+    "Perf Counters": "perf_counters",
+    "Utilization Viewer": "utilization_viewer",
 }
 
 
 def settled_tool_url_pattern(tool_name: str) -> re.Pattern[str]:
   """Builds a URL regex requiring both pathname and tag query param to match."""
-  expected_tag = _DEFAULT_TOOL_NAME_TO_TAG.get(
+  expected_tag = TOOL_NAME_TO_TAG.get(
       tool_name, tool_name.lower().replace(" ", "_")
   )
   return re.compile(

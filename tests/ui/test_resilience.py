@@ -12,12 +12,12 @@ from playwright.sync_api import Page
 # pylint: disable=g-import-not-at-top
 try:
   from tests.ui.conftest import BrowserErrors
-  from tests.ui.invariants import run_content_invariants
+  from tests.ui.ui_helpers import assert_healthy
   from tests.ui.ui_helpers import build_tool_url
   from tests.ui.ui_helpers import switch_tool
 except ImportError:
   from conftest import BrowserErrors
-  from invariants import run_content_invariants
+  from ui_helpers import assert_healthy
   from ui_helpers import build_tool_url
   from ui_helpers import switch_tool
 
@@ -110,9 +110,7 @@ def test_empty_session_directory_clean_fallback(
     expect(
         page.locator("button:has-text('CAPTURE PROFILE')").first
     ).to_be_visible()
-    violations = run_content_invariants(page.inner_text("body"))
-    assert not violations, f"Poison tokens detected: {violations}"
-    browser_errors.assert_clean()
+    assert_healthy(page, browser_errors, "empty session")
 
 
 def test_rapid_tool_switching_concurrency(
@@ -137,6 +135,4 @@ def test_rapid_tool_switching_concurrency(
   expect(page.locator("overview-page, overview-viewer")).to_be_visible(
       timeout=20000
   )
-  violations = run_content_invariants(page.inner_text("body"))
-  assert not violations, f"Poison tokens detected: {violations}"
-  browser_errors.assert_clean()
+  assert_healthy(page, browser_errors, "rapid tool switching")

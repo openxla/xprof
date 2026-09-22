@@ -6,6 +6,27 @@ import re
 import urllib.parse
 from playwright import sync_api
 
+# pylint: disable=g-import-not-at-top
+try:
+  from tests.ui.invariants import run_content_invariants
+except ImportError:
+  from invariants import run_content_invariants
+
+
+def assert_healthy(
+    page: sync_api.Page,
+    browser_errors: object = None,
+    context: str = "",
+) -> None:
+  """Asserts that page renders non-empty body, no poison tokens, and clean logs."""
+  text = page.inner_text("body")
+  ctx = f" at {context}" if context else ""
+  assert text.strip(), f"Empty page body rendered{ctx}"
+  violations = run_content_invariants(text)
+  assert not violations, f"Poison tokens detected{ctx}: {violations}"
+  if browser_errors is not None and hasattr(browser_errors, "assert_clean"):
+    browser_errors.assert_clean(context)
+
 
 def build_tool_url(
     server_url: str,

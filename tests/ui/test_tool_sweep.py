@@ -7,10 +7,14 @@ import os
 # pylint: disable=g-import-not-at-top
 try:
   from tests.ui.conftest import BrowserErrors
-  from tests.ui.invariants import run_content_invariants
+  from tests.ui.ui_helpers import assert_healthy
+  from tests.ui.ui_helpers import build_tool_url
+  from tests.ui.ui_helpers import switch_tool
 except ImportError:
   from conftest import BrowserErrors
-  from invariants import run_content_invariants
+  from ui_helpers import assert_healthy
+  from ui_helpers import build_tool_url
+  from ui_helpers import switch_tool
 from playwright.sync_api import expect
 from playwright.sync_api import Page
 import pytest
@@ -46,9 +50,8 @@ def test_tool_navigation_shell(
 ):
   """Verifies that navigation to the application root loads the shell."""
   session_path = os.path.join(logdir, "tpu-training")
-  url = (
-      f"{server_url}/?session_path={session_path}&run=tpu-training"
-      "&tag=overview_page"
+  url = build_tool_url(
+      server_url, session_path, "tpu-training", "overview_page"
   )
   page.goto(url, wait_until="domcontentloaded")
 
@@ -80,7 +83,9 @@ def test_individual_tool_loads(
 ):
   """Verifies that deep-linking to each tool mounts its specific component view."""
   session_path = os.path.join(logdir, run)
-  url = f"{server_url}/?session_path={session_path}&run={run}&tag={tag}"
+  if not os.path.exists(session_path):
+    pytest.skip(f"Fixture '{run}' not present in logdir")
+  url = build_tool_url(server_url, session_path, run, tag)
   page.goto(url, wait_until="domcontentloaded")
 
   # Assert the specific tool view mounted
@@ -94,10 +99,20 @@ def test_individual_tool_loads(
       bbox["width"] > 0 and bbox["height"] > 0
   ), f"Tool component '{tag}' collapsed: {bbox}"
 
-  # Assert DOM invariant health (no poison tokens)
-  violations = run_content_invariants(page.inner_text("body"))
-  assert not violations, f"Poison tokens detected in {tag}: {violations}"
-  browser_errors.assert_clean()
+  # Assert child visualization element is rendered with positive dimensions
+  child_vis = tool_view.locator(
+      "svg, canvas, table, mat-card, .mat-mdc-card, iframe, :scope > *"
+  ).first
+  expect(child_vis).to_be_visible(timeout=20000)
+  child_bbox = child_vis.bounding_box()
+  assert (
+      child_bbox is not None
+      and child_bbox["width"] > 0
+      and child_bbox["height"] > 0
+  ), f"Tool '{tag}' child visualization collapsed: {child_bbox}"
+
+  # Assert DOM invariant health (non-empty body and no poison tokens)
+  assert_healthy(page, browser_errors, tag)
 
 
 def test_unavailable_tool_fallback_redirection(
@@ -110,10 +125,7 @@ def test_unavailable_tool_fallback_redirection(
   session_path = os.path.join(logdir, "tpu-training")
 
   # 'kernel_stats' is only for GPU runs; on TPU it should fallback
-  url = (
-      f"{server_url}/?session_path={session_path}&run=tpu-training"
-      "&tag=kernel_stats"
-  )
+  url = build_tool_url(server_url, session_path, "tpu-training", "kernel_stats")
   page.goto(url, wait_until="domcontentloaded")
 
   # Must gracefully route to overview page without crashing the shell
@@ -130,23 +142,15 @@ def test_tool_dropdown_selection(
 ):
   """Verifies selecting a tool from the sidebar dropdown loads that tool view."""
   session_path = os.path.join(logdir, "tpu-training")
-  url = (
-      f"{server_url}/?session_path={session_path}&run=tpu-training"
-      "&tag=overview_page"
+  url = build_tool_url(
+      server_url, session_path, "tpu-training", "overview_page"
   )
   page.goto(url, wait_until="domcontentloaded")
   expect(
       page.locator("overview-page mat-card, overview-viewer mat-card").first
   ).to_be_visible(timeout=20000)
 
-  # Open the Tools dropdown and select Op Profile
-  tool_dropdown = page.locator(
-      "sidenav .item-container:has-text('Tools') mat-select"
-  )
-  tool_dropdown.click()
-  page.locator("mat-option").filter(has_text="Op Profile").first.click()
-
-  # Verify Op Profile mounts
+  switch_tool(page, "Op Profile")
   expect(page.locator("op-profile, op-profile-base").first).to_be_visible(
       timeout=20000
   )

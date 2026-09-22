@@ -685,6 +685,10 @@ button:not(.checked) .settings-switch-icon {
   font-size: 12px;
   color: #80868b;
   cursor: not-allowed;
+  white-space: nowrap;
+  flex-shrink: 0;
+  width: auto;
+  min-width: max-content;
   transition: all 0.2s;
 
   &.active {

@@ -274,6 +274,45 @@ canvas.emscripten {
   }
 }
 
+button.shortcuts-guide-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  min-width: unset;
+  border-radius: 4px;
+  color: var(--mat-sys-on-surface-variant);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  ::ng-deep {
+    [class*='mat-mdc-button-persistent-ripple'],
+    [class*='mat-mdc-focus-indicator'],
+    [class*='mat-ripple'] {
+      display: none;
+    }
+  }
+
+  &:hover,
+  &:focus-visible {
+    background-color: var(--mat-sys-primary-container);
+    outline: none;
+  }
+
+  &.active {
+    background-color: var(--mat-sys-primary-container);
+    color: var(--mat-sys-primary);
+  }
+
+  mat-icon,
+  svg {
+    width: 24px;
+    height: 24px;
+    font-size: 24px;
+    vertical-align: middle;
+  }
+}
+
 .spacer {
   flex-grow: 1;
 }

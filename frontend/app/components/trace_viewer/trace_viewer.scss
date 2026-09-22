@@ -200,6 +200,27 @@ mat-divider {
 .settings-button-wrapper {
   position: relative;
   display: inline-block;
+
+  > button {
+    color: #5f6368;
+
+    &:hover,
+    &:focus-visible {
+      background-color: rgba(60, 64, 67, 0.08);
+    }
+
+    &.active {
+      background-color: rgba(60, 64, 67, 0.12);
+      color: #1a73e8;
+    }
+
+    mat-icon,
+    svg {
+      width: 24px;
+      height: 24px;
+      font-size: 24px;
+    }
+  }
 }
 
 .coach-mark-bubble {
@@ -481,6 +502,11 @@ mat-divider {
   height: 20px;
   line-height: 20px;
   color: inherit;
+
+  svg {
+    width: 20px;
+    height: 20px;
+  }
 }
 
 .settings-nav-label {

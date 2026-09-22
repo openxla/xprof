@@ -427,6 +427,13 @@ class Timeline {
   }
   float mouse_wheel_zoom_speed() const { return mouse_wheel_zoom_speed_; }
 
+  // Zooms the visible time range by the given zoom factor, centered around the
+  // mouse position, or the center of the visible range if the mouse is outside
+  // the trace events area.
+  // This method is virtual to allow derived classes to customize or extend
+  // zooming behavior.
+  virtual void Zoom(float zoom_factor);
+
   void set_mouse_mode(MouseMode mode) { mouse_mode_ = mode; }
   MouseMode mouse_mode() const { return mouse_mode_; }
 
@@ -589,12 +596,10 @@ class Timeline {
   // panning behavior.
   virtual void Scroll(Pixel pixel_amount);
 
-  // Zooms the visible time range by the given zoom factor, centered around the
-  // mouse position, or the center of the visible range if the mouse is outside
-  // the trace events area.
-  // These methods are virtual to allow derived classes to customize or extend
+  // Zooms the visible time range by the given zoom factor around the specified
+  // pivot timestamp.
+  // This method is virtual to allow derived classes to customize or extend
   // zooming behavior.
-  virtual void Zoom(float zoom_factor);
   virtual void Zoom(float zoom_factor, Microseconds pivot);
 
  protected:

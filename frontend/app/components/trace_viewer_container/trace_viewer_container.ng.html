@@ -96,32 +96,34 @@
         </div>
       </div>
     </div>
-    <div class="fullscreen-container">
-      <button type="button" mat-icon-button (click)="toggleFullscreen()" [class.active]="isFullscreen" [matTooltip]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen (shows only the Trace Viewer)'" [attr.aria-label]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'">
-        <svg *ngIf="!isFullscreen" width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M7 14H5V19H10V17H7V14ZM5 10H7V7H10V5H5V10ZM17 17H14V19H19V14H17V17ZM14 5V7H17V10H19V5H14Z" fill="#444746"/>
-        </svg>
-        <svg *ngIf="isFullscreen" width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M5 16H8V19H10V14H5V16ZM8 8H5V10H10V5H8V8ZM14 19H16V16H19V14H14V19ZM16 8V5H14V10H19V8H16Z" fill="#444746"/>
-        </svg>
-      </button>
-    </div>
-    <div class="mouse-mode-hints" *ngIf="currentMouseModeConfig as config">
-      <ng-container *ngFor="let mode of [currentMouseMode]">
-        <div class="status-content">
-          <ng-container *ngFor="let hint of config.hints; let last = last">
-            <span class="hint-group">
-              <span class="hint-desc">{{ hint.description }}</span>
-              <span class="keys-container">
-                <ng-container *ngFor="let key of hint.keys; let keyLast = last">
-                  <kbd>{{ key }}</kbd><span class="key-sep" *ngIf="!keyLast">{{ hint.separator ?? '/' }}</span>
-                </ng-container>
-              </span>
-            </span>
-            <span *ngIf="!last" class="divider"></span>
-          </ng-container>
-        </div>
-      </ng-container>
+    <span class="toolbar-divider" aria-hidden="true"></span>
+    <div class="navigation-actions-container">
+      <button
+        #zoomOutBtn
+        type="button"
+        mat-button
+        class="toolbar-action-btn"
+        (click)="zoomOut()"
+        matTooltip="Zoom Out (S)"
+        aria-label="Zoom Out (S)"><mat-icon>zoom_out</mat-icon><span class="btn-label">(S)</span></button>
+      <button
+        #zoomInBtn
+        type="button"
+        mat-button
+        class="toolbar-action-btn"
+        (click)="zoomIn()"
+        matTooltip="Zoom In (W)"
+        aria-label="Zoom In (W)"><mat-icon>zoom_in</mat-icon><span class="btn-label">(W)</span></button>
+      <button
+        #panActionBtn
+        type="button"
+        mat-button
+        class="toolbar-action-btn"
+        [class.active]="currentMouseMode === MouseMode.PAN"
+        [attr.aria-pressed]="currentMouseMode === MouseMode.PAN"
+        (click)="togglePanMode()"
+        matTooltip="Pan Mode (A/D)"
+        aria-label="Pan Mode (A/D)"><mat-icon class="material-symbols-outlined"><svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentColor"><path d="M402-40q-30,0-56-13.5T303-92L48-465l24-23q19-19 45-22t47,12l116,81V-800q0-17 11.5-28.5T320-840t28.5,11.5T360-800v537L212-367L369-138q5,8 14,13t19,5H541H680q33,0 56.5-23.5T760-200V-760q0-17 11.5-28.5T800-800t28.5,11.5T840-760v560q0,66-47,113T680-40H402Zm38-440V-880q0-17 11.5-28.5T480-920t28.5,11.5T520-880v400H440Zm160,0V-840q0-17 11.5-28.5T640-880t28.5,11.5T680-840v360H600ZM486-300Z"/></svg></mat-icon><span class="btn-label">(A/D)</span></button>
     </div>
     <div class="spacer"></div>
     <trace-viewer-customization-panel></trace-viewer-customization-panel>
@@ -133,6 +135,18 @@
       <mat-icon class="material-symbols-outlined"><svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor"><path d="M160-200q-33 0-56.5-23.5T80-280v-400q0-33 23.5-56.5T160-760h640q33 0 56.5 23.5T880-680v400q0 33-23.5 56.5T800-200H160Zm0-80h640v-400H160v400Zm200-40h240q17 0 28.5-11.5T640-360q0-17-11.5-28.5T600-400H360q-17 0-28.5 11.5T320-360q0 17 11.5 28.5T360-320Zm-200 40v-400 400Zm80-280q17 0 28.5-11.5T280-600q0-17-11.5-28.5T240-640q-17 0-28.5 11.5T200-600q0 17 11.5 28.5T240-560Zm120 0q17 0 28.5-11.5T400-600q0-17-11.5-28.5T360-640q-17 0-28.5 11.5T320-600q0 17 11.5 28.5T360-560Zm120 0q17 0 28.5-11.5T520-600q0-17-11.5-28.5T480-640q-17 0-28.5 11.5T440-600q0 17 11.5 28.5T480-560Zm120 0q17 0 28.5-11.5T640-600q0-17-11.5-28.5T600-640q-17 0-28.5 11.5T560-600q0 17 11.5 28.5T600-560Zm120 0q17 0 28.5-11.5T760-600q0-17-11.5-28.5T720-640q-17 0-28.5 11.5T680-600q0 17 11.5 28.5T720-560ZM240-440q17 0 28.5-11.5T280-480q0-17-11.5-28.5T240-520q-17 0-28.5 11.5T200-480q0 17 11.5 28.5T240-440Zm120 0q17 0 28.5-11.5T400-480q0-17-11.5-28.5T360-520q-17 0-28.5 11.5T320-480q0 17 11.5 28.5T360-440Zm120 0q17 0 28.5-11.5T520-480q0-17-11.5-28.5T480-520q-17 0-28.5 11.5T440-480q0 17 11.5 28.5T480-440Zm120 0q17 0 28.5-11.5T640-480q0-17-11.5-28.5T600-520q-17 0-28.5 11.5T560-480q0 17 11.5 28.5T600-440Zm120 0q17 0 28.5-11.5T760-480q0-17-11.5-28.5T720-520q-17 0-28.5 11.5T680-480q0 17 11.5 28.5T720-440Z"/></svg></mat-icon>
     </button>
     <trace-viewer-shortcuts-dialog></trace-viewer-shortcuts-dialog>
+    <div class="fullscreen-container">
+      <button type="button" mat-icon-button (click)="toggleFullscreen()" [class.active]="isFullscreen" [matTooltip]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen (shows only the Trace Viewer)'" [attr.aria-label]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'">
+        <mat-icon class="material-symbols-outlined">
+          <svg *ngIf="!isFullscreen" xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor">
+            <path d="M120-120v-200h80v120h120v80H120Zm520 0v-80h120v-120h80v200H640ZM120-640v-200h200v80H200v120h-80Zm640 0v-120H640v-80h200v200h-80Z"/>
+          </svg>
+          <svg *ngIf="isFullscreen" xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor">
+            <path d="M240-120v-120H120v-80h200v200h-80Zm400 0v-200h200v80H720v120h-80ZM120-640v-80h120v-120h80v200H120Zm520 0v-200h80v120h120v80H640Z"/>
+          </svg>
+        </mat-icon>
+      </button>
+    </div>
     <div class="incremental-loading" *ngIf="searching || (!isInitialLoading && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR)">
       <div class="loading-status">Loading more data...</div>
       <mat-progress-spinner mode="indeterminate" diameter="24"></mat-progress-spinner>

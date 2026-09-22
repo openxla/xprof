@@ -398,7 +398,17 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
       .function("setVisibleFlowCategory",
                 &traceviewer::Application::SetVisibleFlowCategory)
       .function("setVisibleFlowCategories",
-                &traceviewer::Application::SetVisibleFlowCategories);
+                &traceviewer::Application::SetVisibleFlowCategories)
+      .function(
+          "zoomIn",
+          emscripten::optional_override([](traceviewer::Application& app) {
+            app.timeline().Zoom(traceviewer::kButtonZoomInFactor);
+          }))
+      .function(
+          "zoomOut",
+          emscripten::optional_override([](traceviewer::Application& app) {
+            app.timeline().Zoom(traceviewer::kButtonZoomOutFactor);
+          }));
 }
 
 }  // namespace traceviewer

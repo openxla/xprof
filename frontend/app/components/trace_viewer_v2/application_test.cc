@@ -106,5 +106,17 @@ TEST_F(ApplicationTest, EnableCustomizationFlagReadsFromJs) {
   EXPECT_TRUE(app.IsFeatureEnabled("enable_customization"));
 }
 
+TEST_F(ApplicationTest, NavigationMethodsSafeWhenUninitialized) {
+  Application& app = Application::Instance();
+  app.Shutdown();
+
+  EXPECT_FALSE(app.IsInitialized());
+
+  // Calling search navigation methods when timeline is uninitialized should be
+  // safe no-ops without crashing.
+  app.NavigateToNextSearchResult();
+  app.NavigateToPrevSearchResult();
+}
+
 }  // namespace
 }  // namespace traceviewer

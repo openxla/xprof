@@ -1914,21 +1914,27 @@ void Timeline::Scroll(Pixel pixel_amount) {
 }
 
 void Timeline::Zoom(float zoom_factor) {
-  const ImRect timeline_area = GetTimelineArea();
-  // Use the latest mouse position as the zoom pivot. However, if the mouse is
-  // outside the timeline area, we fallback to using the current visible range
-  // center.
+  ImGuiContext* context = ImGui::GetCurrentContext();
+  // Use the latest mouse position as the zoom pivot if an ImGui window is
+  // active and the mouse is within the timeline area.
   // We use IsMouseHoveringRect solely to check if the mouse position is within
   // the timeline bounds, as we don't rely on the window's hover state.
-  if (ImGui::IsMouseHoveringRect(timeline_area.Min, timeline_area.Max)) {
-    const double px_per_time = px_per_time_unit();
-    const Microseconds pivot =
-        PixelToTime(ImGui::GetMousePos().x - timeline_area.Min.x, px_per_time);
+  // However, if the mouse is outside the timeline area (or outside an active
+  // window context, such as when triggered via external toolbar actions or unit
+  // tests), we fallback to using the current visible range center.
+  if (context != nullptr && context->CurrentWindow != nullptr) {
+    const ImRect timeline_area = GetTimelineArea();
+    if (ImGui::IsMouseHoveringRect(timeline_area.Min, timeline_area.Max)) {
+      const double px_per_time = px_per_time_unit();
+      const Microseconds pivot = PixelToTime(
+          ImGui::GetMousePos().x - timeline_area.Min.x, px_per_time);
 
-    Zoom(zoom_factor, pivot);
-  } else {
-    Zoom(zoom_factor, visible_range_->center());
+      Zoom(zoom_factor, pivot);
+      return;
+    }
   }
+
+  Zoom(zoom_factor, visible_range_->center());
 }
 
 void Timeline::Zoom(float zoom_factor, Microseconds pivot) {

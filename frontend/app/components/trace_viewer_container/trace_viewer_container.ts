@@ -466,6 +466,9 @@ export class TraceViewerContainer
   @ViewChild('panBtn') panBtn?: ElementRef<HTMLButtonElement>;
   @ViewChild('zoomBtn') zoomBtn?: ElementRef<HTMLButtonElement>;
   @ViewChild('timingBtn') timingBtn?: ElementRef<HTMLButtonElement>;
+  @ViewChild('zoomOutBtn') zoomOutBtn?: ElementRef<HTMLButtonElement>;
+  @ViewChild('zoomInBtn') zoomInBtn?: ElementRef<HTMLButtonElement>;
+  @ViewChild('panActionBtn') panActionBtn?: ElementRef<HTMLButtonElement>;
   @ViewChild(MatSort) set sort(matSort: MatSort | undefined) {
     if (matSort) {
       this.selectedEventPropertiesDataSource.sort = matSort;
@@ -527,6 +530,7 @@ export class TraceViewerContainer
   get currentMouseModeConfig(): MouseModeStatusConfig | undefined {
     return getMouseModeStatusConfig(this.currentMouseMode);
   }
+
   showTimingOnboarding = false;
   private readonly TIMING_PROMPTED_STORAGE_KEY =
     'trace_viewer_timing_prompted_v2';
@@ -1034,6 +1038,22 @@ export class TraceViewerContainer
         break;
       default:
         break;
+    }
+  }
+
+  zoomIn(): void {
+    this.traceViewerModule?.application?.instance().zoomIn();
+  }
+
+  zoomOut(): void {
+    this.traceViewerModule?.application?.instance().zoomOut();
+  }
+
+  togglePanMode(): void {
+    if (this.currentMouseMode === MouseMode.PAN) {
+      this.setMouseMode(MouseMode.SELECT);
+    } else {
+      this.setMouseMode(MouseMode.PAN);
     }
   }
 

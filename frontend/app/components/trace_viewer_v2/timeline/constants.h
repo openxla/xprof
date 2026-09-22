@@ -175,6 +175,8 @@ inline constexpr float kClickDistanceThresholdSquared = 25.0f;
 inline constexpr float kAccelerateRate = 10.0f;
 // The delay in seconds before panning/zooming acceleration takes effect.
 inline constexpr float kAccelerateThreshold = 0.1f;
+inline constexpr float kButtonZoomInFactor = 0.8f;
+inline constexpr float kButtonZoomOutFactor = 1.25f;
 // The maximum factor by which the panning/zooming speed can be accelerated.
 inline constexpr float kMaxAccelerateFactor = 30.0f;
 // The minimum allowed zoom factor for the timeline. This prevents zooming in

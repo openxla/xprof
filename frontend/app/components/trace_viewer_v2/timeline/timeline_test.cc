@@ -8280,6 +8280,34 @@ TEST_F(RealTimelineImGuiFixture, ZoomOutOutOfBounds) {
             "Cannot zoom out further: showing the entire trace.");
 }
 
+TEST_F(RealTimelineImGuiFixture, ZoomInDiscreteReducesDurationAroundCenter) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({200.0, 600.0});
+  SimulateFrame();
+
+  timeline_.Zoom(kButtonZoomInFactor);
+
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().duration(),
+                   400.0 * kButtonZoomInFactor);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().center(), 400.0);
+  EXPECT_NEAR(timeline_.visible_range_target().start(), 240.0, 1e-4);
+  EXPECT_NEAR(timeline_.visible_range_target().end(), 560.0, 1e-4);
+}
+
+TEST_F(RealTimelineImGuiFixture, ZoomOutDiscreteIncreasesDurationAroundCenter) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({300.0, 500.0});
+  SimulateFrame();
+
+  timeline_.Zoom(kButtonZoomOutFactor);
+
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().duration(),
+                   200.0 * kButtonZoomOutFactor);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().center(), 400.0);
+  EXPECT_NEAR(timeline_.visible_range_target().start(), 275.0, 1e-4);
+  EXPECT_NEAR(timeline_.visible_range_target().end(), 525.0, 1e-4);
+}
+
 TEST_F(RealTimelineImGuiFixture, PanFullyZoomedOutNoNotification) {
   timeline_.set_data_time_range({0.0, 1000.0});
   // Visible range is already fully zoomed out matching the entire data range

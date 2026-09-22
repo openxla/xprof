@@ -145,6 +145,12 @@ EMSCRIPTEN_KEEPALIVE emscripten::val GetPresetPalettes() {
                                 absl::StrFormat("#%02x%02x%02x", r, g, b));
     }
     palette_obj.set("previewColors", preview_colors);
+    uint32_t bg = preset.background;
+    uint32_t bg_r = bg & 0xFF;
+    uint32_t bg_g = (bg >> 8) & 0xFF;
+    uint32_t bg_b = (bg >> 16) & 0xFF;
+    palette_obj.set("backgroundColor",
+                    absl::StrFormat("#%02x%02x%02x", bg_r, bg_g, bg_b));
     result.call<void>("push", palette_obj);
   };
 

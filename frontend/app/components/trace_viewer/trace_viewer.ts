@@ -73,6 +73,7 @@ import {
   CUSTOM_COLORS_STORAGE_KEY,
   CUSTOM_PALETTE_NAME,
   DEFAULT_PALETTE,
+  DEFAULT_PALETTE_BACKGROUND,
   FILTER_CONFIG,
   FILTER_FIELD_EVENT_DURATION,
   FILTER_FIELDS,
@@ -85,6 +86,7 @@ import {
   NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
   NAV_PAN_SPEED_STORAGE_KEY,
   NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY,
+  PALETTE_BACKGROUNDS,
   PALETTE_PREVIEWS,
   ROOFLINE_MODEL_TOOL_NAME,
   SettingsTab,
@@ -285,6 +287,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   readonly SettingsTab = SettingsTab;
   activeSettingsTab: SettingsTab = SettingsTab.GENERAL;
   palettePreviews: Record<string, string[]> = PALETTE_PREVIEWS;
+  paletteBackgrounds: Record<string, string> = PALETTE_BACKGROUNDS;
 
   selectedPalette = DEFAULT_PALETTE;
   COLOR_PALETTES = COLOR_PALETTES;
@@ -1662,16 +1665,27 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     this.openSettings(tab);
   }
 
+  getPaletteBackgroundColor(palette: string): string {
+    return this.paletteBackgrounds[palette] || DEFAULT_PALETTE_BACKGROUND;
+  }
+
   loadPresetPalettes(): void {
     if (this.traceViewerModule?.GetPresetPalettes) {
       const presets = this.traceViewerModule.GetPresetPalettes();
       if (presets && presets.length > 0) {
         this.COLOR_PALETTES = presets.map((p) => p.name);
         const previews: Record<string, string[]> = {};
+        const backgrounds: Record<string, string> = {
+          ...this.paletteBackgrounds,
+        };
         for (const p of presets) {
           previews[p.name] = p.previewColors;
+          if (p.backgroundColor) {
+            backgrounds[p.name] = p.backgroundColor;
+          }
         }
         this.palettePreviews = previews;
+        this.paletteBackgrounds = backgrounds;
       }
     }
   }

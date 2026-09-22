@@ -282,6 +282,24 @@ export const PALETTE_PREVIEWS: Record<string, string[]> = {
 };
 
 /**
+ * Default background color for theme swatches without a dark or custom background.
+ */
+export const DEFAULT_PALETTE_BACKGROUND = '#ffffff';
+
+/**
+ * Palette preview background container colors for Trace Viewer settings.
+ */
+export const PALETTE_BACKGROUNDS: Record<string, string> = {
+  'Default': '#ffffff',
+  'Material': '#263238',
+  'Dracula': '#282a36',
+  'Monokai': '#272822',
+  'Solarized Dark': '#002b36',
+  'Solarized Light': '#fdf6e3',
+  'Catapult': '#ffffff',
+};
+
+/**
  * Tab options available in the Settings dialog.
  */
 export enum SettingsTab {

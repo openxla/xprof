@@ -243,7 +243,11 @@
                 >
                 <span class="settings-palette-name">{{ palette }}</span>
               </div>
-              <div class="settings-palette-dots" *ngIf="palettePreviews[palette]">
+              <div
+                class="settings-palette-dots"
+                *ngIf="palettePreviews[palette]"
+                [style.background-color]="getPaletteBackgroundColor(palette)"
+              >
                 <span
                   *ngFor="let dotColor of palettePreviews[palette]"
                   class="settings-palette-dot"
@@ -268,7 +272,10 @@
                 >
                 <span class="settings-palette-name">{{ CUSTOM_PALETTE_NAME }}</span>
               </div>
-              <div class="settings-palette-dots">
+              <div
+                class="settings-palette-dots"
+                [style.background-color]="getPaletteBackgroundColor(CUSTOM_PALETTE_NAME)"
+              >
                 <span
                   *ngFor="let dotColor of customColors.slice(0, 3)"
                   class="settings-palette-dot"

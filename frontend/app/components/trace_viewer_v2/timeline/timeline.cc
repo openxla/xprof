@@ -857,8 +857,18 @@ void Timeline::Draw() {
   const double px_per_time_unit_val = px_per_time_unit(current_timeline_width_);
   const TickInfo tick_info = CalculateTickInfo(px_per_time_unit_val);
 
-  const ImVec2 ruler_start_pos = ImGui::GetCursorPos();
-  const ImVec2 ruler_start_screen_pos = ImGui::GetCursorScreenPos();
+  const Pixel minimap_height = minimap_enabled_ ? kMinimapHeight : 0.0f;
+  const ImVec2 start_pos = ImGui::GetCursorPos();
+  const ImVec2 start_screen_pos = ImGui::GetCursorScreenPos();
+
+  if (minimap_enabled_) {
+    DrawMinimap(content_region_avail_width);
+  }
+
+  const ImVec2 ruler_start_pos =
+      ImVec2(start_pos.x, start_pos.y + minimap_height);
+  const ImVec2 ruler_start_screen_pos =
+      ImVec2(start_screen_pos.x, start_screen_pos.y + minimap_height);
   ruler_screen_y_ = ruler_start_screen_pos.y;
 
   // Draw Ruler background anchored to the top (outside the scrollable child
@@ -1374,6 +1384,28 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
                                     content_region_avail_width)) {
     needs_layout_update = true;
   }
+
+  const ImVec2 row_min(tracks_start_screen_pos.x,
+                       tracks_start_screen_pos.y + group_offsets_[group_index]);
+  const ImVec2 row_max(
+      tracks_start_screen_pos.x + content_region_avail_width,
+      tracks_start_screen_pos.y + group_offsets_[group_index + 1]);
+  if (ImGui::IsMouseReleased(0) &&
+      ImGui::IsMouseHoveringRect(row_min, row_max) && !ImGui::GetIO().KeyCtrl &&
+      !ImGui::GetIO().KeySuper) {
+    bool is_click = true;
+    if (selection_start_pos_) {
+      const float dx = ImGui::GetIO().MousePos.x - selection_start_pos_->x;
+      const float dy = ImGui::GetIO().MousePos.y - selection_start_pos_->y;
+      if (dx * dx + dy * dy > kClickDistanceThresholdSquared) {
+        is_click = false;
+      }
+    }
+    if (is_click) {
+      UpdateSelectedParentGroupFromIndex(group_index);
+    }
+  }
+
   ImGui::PopID();
 
   return needs_layout_update;
@@ -1419,6 +1451,7 @@ bool Timeline::HandleProcessTrackHeaderClick(
     if (is_click) {
       group.expanded = !group.expanded;
       event_clicked_this_frame_ = true;
+      selected_parent_group_index_ = group_index;
       return true;
     }
   }
@@ -2180,6 +2213,561 @@ Timeline::TickInfo Timeline::CalculateTickInfo(
   return {tick_interval, major_tick_dist_px, first_tick_time_relative};
 }
 
+int Timeline::GetEffectiveSelectedParentGroupIndex() const {
+  if (timeline_data_.groups.empty()) {
+    return -1;
+  }
+  if (selected_parent_group_index_ >= 0 &&
+      selected_parent_group_index_ <
+          static_cast<int>(timeline_data_.groups.size())) {
+    return selected_parent_group_index_;
+  }
+  // Default to the first group that is a parent process track.
+  for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+    if (timeline_data_.groups[i].nesting_level == kProcessNestingLevel ||
+        timeline_data_.groups[i].parent_index == -1) {
+      return static_cast<int>(i);
+    }
+  }
+  return 0;
+}
+
+void Timeline::UpdateSelectedParentGroupFromIndex(int group_index) {
+  if (group_index < 0 ||
+      group_index >= static_cast<int>(timeline_data_.groups.size())) {
+    return;
+  }
+  const Group& group = timeline_data_.groups[group_index];
+  if (group.nesting_level == kProcessNestingLevel || group.parent_index == -1) {
+    selected_parent_group_index_ = group_index;
+  } else if (group.parent_index >= 0 &&
+             group.parent_index <
+                 static_cast<int>(timeline_data_.groups.size())) {
+    selected_parent_group_index_ = group.parent_index;
+  } else {
+    selected_parent_group_index_ = group_index;
+  }
+}
+
+void Timeline::DrawMinimap(Pixel content_region_avail_width) {
+  const ImVec2 minimap_screen_pos = ImGui::GetCursorScreenPos();
+  const Pixel minimap_height = kMinimapHeight;
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+  // Draw full minimap row background
+  const ImVec2 full_bg_min = minimap_screen_pos;
+  const ImVec2 full_bg_max(minimap_screen_pos.x + content_region_avail_width,
+                           minimap_screen_pos.y + minimap_height);
+  draw_list->AddRectFilled(
+      full_bg_min, full_bg_max,
+      palette_.GetColor(ColorPalette::Key::kMidtone).value_or(kLightGrayColor));
+
+  // Bottom border separating minimap from ruler
+  draw_list->AddLine(ImVec2(full_bg_min.x, full_bg_max.y),
+                     ImVec2(full_bg_max.x, full_bg_max.y),
+                     palette_.GetColor(ColorPalette::Key::kRulerLine)
+                         .value_or(kRulerLineColor),
+                     1.0f);
+
+  // Vertical divider between sidebar and track area
+  const Pixel divider_x = minimap_screen_pos.x + label_width_;
+  draw_list->AddLine(ImVec2(divider_x, full_bg_min.y),
+                     ImVec2(divider_x, full_bg_max.y),
+                     palette_.GetColor(ColorPalette::Key::kRulerLine)
+                         .value_or(kRulerLineColor),
+                     1.0f);
+
+  // Determine active parent row
+  const int parent_idx = GetEffectiveSelectedParentGroupIndex();
+  std::string parent_name = kMinimapOverviewLabel;
+  if (parent_idx >= 0 &&
+      parent_idx < static_cast<int>(timeline_data_.groups.size())) {
+    parent_name = timeline_data_.groups[parent_idx].name;
+  }
+
+  // --- Left Sidebar: "Minimap: <parent_name>" & Duration Stamp ---
+  ImGui::PushClipRect(full_bg_min,
+                      ImVec2(divider_x - kSplitterOffset, full_bg_max.y),
+                      /*intersect_with_current_clip_rect=*/true);
+
+  ImGui::PushFont(traceviewer::fonts::label_medium);
+  const Pixel font_height = ImGui::GetTextLineHeight();
+  const Pixel text_y =
+      minimap_screen_pos.y + (minimap_height - font_height) * 0.5f;
+
+  const std::string duration_str = FormatTime(visible_range().duration());
+  const ImVec2 duration_size = GetTextSize(duration_str);
+  const Pixel duration_badge_w = duration_size.x + 8.0f;
+  const Pixel duration_badge_h = font_height + 2.0f;
+  const bool show_duration_badge = label_width_ > duration_badge_w + 80.0f;
+
+  if (show_duration_badge) {
+    const Pixel badge_x2 = divider_x - kSplitterOffset - 6.0f;
+    const Pixel badge_x1 = badge_x2 - duration_badge_w;
+    const Pixel badge_y1 =
+        minimap_screen_pos.y + (minimap_height - duration_badge_h) * 0.5f;
+    const Pixel badge_y2 = badge_y1 + duration_badge_h;
+
+    draw_list->AddRectFilled(ImVec2(badge_x1, badge_y1),
+                             ImVec2(badge_x2, badge_y2),
+                             IM_COL32(219, 234, 254, 230), 3.0f);
+    draw_list->AddRect(ImVec2(badge_x1, badge_y1), ImVec2(badge_x2, badge_y2),
+                       IM_COL32(191, 219, 254, 255), 3.0f);
+    draw_list->AddText(ImVec2(badge_x1 + 4.0f, badge_y1 + 1.0f),
+                       IM_COL32(30, 64, 175, 255), duration_str.c_str());
+  }
+
+  const Pixel max_title_w =
+      show_duration_badge ? (divider_x - kSplitterOffset - duration_badge_w -
+                             16.0f - (minimap_screen_pos.x + kIndentSize))
+                          : (label_width_ - kIndentSize - kSplitterOffset);
+
+  const std::string full_title = absl::StrCat(kMinimapPrefix, parent_name);
+  const std::string display_title =
+      GetTextForDisplay(full_title, std::max(0.0f, max_title_w));
+
+  ImGui::SetCursorScreenPos(ImVec2(minimap_screen_pos.x + kIndentSize, text_y));
+  const ImU32 text_color =
+      palette_.GetColor(ColorPalette::Key::kForeground).value_or(kBlackColor);
+  ImGui::PushStyleColor(ImGuiCol_Text, text_color);
+  ImGui::TextUnformatted(display_title.c_str());
+  ImGui::PopStyleColor();
+  ImGui::PopFont();
+  ImGui::PopClipRect();
+
+  // --- Right Overview Track Area ---
+  const Pixel track_x1 = divider_x;
+  const Pixel track_x2 = track_x1 + current_timeline_width_;
+  const Pixel track_y1 = minimap_screen_pos.y;
+  const Pixel track_y2 = track_y1 + minimap_height;
+
+  if (current_timeline_width_ <= 0.0f) {
+    return;
+  }
+
+  // Determine total time span for the minimap
+  TimeRange total_range = data_time_range_.duration() > 0
+                              ? data_time_range_
+                              : fetched_data_time_range_;
+  if (total_range.duration() <= 0) {
+    total_range = visible_range();
+  }
+  if (total_range.duration() <= 0) {
+    total_range = TimeRange(0.0, 1000.0);
+  }
+
+  // Render overview density/waveform for the selected parent row across
+  // total_range.
+  if (parent_idx >= 0 &&
+      parent_idx < static_cast<int>(timeline_data_.groups.size())) {
+    const Group& group = timeline_data_.groups[parent_idx];
+    const int start_level = group.start_level;
+    int end_level = GetNextGroupStartLevel(timeline_data_, parent_idx);
+    end_level = std::max(start_level, end_level);
+
+    const int num_bins = static_cast<int>(std::ceil(current_timeline_width_));
+    if (num_bins > 0) {
+      if (minimap_bins_.size() < num_bins) {
+        minimap_bins_.resize(num_bins);
+      }
+      std::fill(minimap_bins_.begin(), minimap_bins_.begin() + num_bins, 0.0f);
+
+      const double total_start = total_range.start();
+      const double total_dur = total_range.duration();
+      const double px_per_us =
+          static_cast<double>(current_timeline_width_) / total_dur;
+
+      for (int level = start_level; level < end_level; ++level) {
+        if (level >= static_cast<int>(timeline_data_.events_by_level.size())) {
+          continue;
+        }
+        const auto& indices = timeline_data_.events_by_level[level];
+        for (int event_index : indices) {
+          const Microseconds start =
+              timeline_data_.entry_start_times[event_index];
+          const Microseconds dur =
+              timeline_data_.entry_total_times[event_index];
+          const Microseconds end = start + dur;
+
+          if (end <= total_start || start >= total_start + total_dur) {
+            continue;
+          }
+
+          Pixel x_start = (start - total_start) * px_per_us;
+          Pixel x_end = (end - total_start) * px_per_us;
+
+          int bin_start = std::max(0, static_cast<int>(std::floor(x_start)));
+          int bin_end = std::min(num_bins - 1,
+                                 static_cast<int>(std::ceil(x_end - kEpsilon)));
+
+          for (int i = bin_start; i <= bin_end; ++i) {
+            Pixel overlap = std::min(x_end, static_cast<Pixel>(i + 1)) -
+                            std::max(x_start, static_cast<Pixel>(i));
+            if (overlap > 0) {
+              minimap_bins_[i] += overlap;
+            }
+          }
+        }
+      }
+
+      Pixel max_util = 0.0f;
+      for (int i = 0; i < num_bins; ++i) {
+        max_util = std::max(max_util, minimap_bins_[i]);
+      }
+      max_util = std::max(1.0f, max_util);
+
+      const Pixel density_max_height = minimap_height - 6.0f;
+      const ImU32 density_color =
+          palette_.GetColor(ColorPalette::Key::kFlameHeader).value_or(kBlue80);
+
+      for (int i = 0; i < num_bins; ++i) {
+        if (minimap_bins_[i] > 0.0f) {
+          Pixel h = (minimap_bins_[i] / max_util) * density_max_height;
+          h = std::max(1.0f, h);
+          draw_list->AddRectFilled(ImVec2(track_x1 + i, track_y2 - 2.0f - h),
+                                   ImVec2(track_x1 + i + 1, track_y2 - 2.0f),
+                                   density_color);
+        }
+      }
+    }
+  }
+
+  // --- Calculate Viewport Indicator (Lens) Bounds ---
+  const double total_start = total_range.start();
+  const double total_dur = total_range.duration();
+
+  double norm_start = (visible_range().start() - total_start) / total_dur;
+  double norm_end = (visible_range().end() - total_start) / total_dur;
+  norm_start = std::clamp(norm_start, 0.0, 1.0);
+  norm_end = std::clamp(norm_end, 0.0, 1.0);
+
+  Pixel lens_x1 = track_x1 + norm_start * current_timeline_width_;
+  Pixel lens_x2 = track_x1 + norm_end * current_timeline_width_;
+  if (lens_x2 - lens_x1 < kMinimapMinLensWidth) {
+    Pixel mid = (lens_x1 + lens_x2) * 0.5f;
+    lens_x1 = std::max(track_x1, mid - kMinimapMinLensWidth * 0.5f);
+    lens_x2 = std::min(track_x2, lens_x1 + kMinimapMinLensWidth);
+  }
+
+  // Draw Soft Unselected Masks (left & right)
+  if (lens_x1 > track_x1) {
+    draw_list->AddRectFilled(ImVec2(track_x1, track_y1),
+                             ImVec2(lens_x1, track_y2), kMinimapMaskColor);
+  }
+  if (lens_x2 < track_x2) {
+    draw_list->AddRectFilled(ImVec2(lens_x2, track_y1),
+                             ImVec2(track_x2, track_y2), kMinimapMaskColor);
+  }
+
+  // Draw Draggable Viewport Selection Lens
+  draw_list->AddRectFilled(ImVec2(lens_x1, track_y1), ImVec2(lens_x2, track_y2),
+                           kMinimapLensColor);
+
+  // Top and bottom border lines for the viewport indicator
+  draw_list->AddLine(ImVec2(lens_x1, track_y1), ImVec2(lens_x2, track_y1),
+                     kMinimapLensBorderColor, 1.5f);
+  draw_list->AddLine(ImVec2(lens_x1, track_y2), ImVec2(lens_x2, track_y2),
+                     kMinimapLensBorderColor, 1.5f);
+
+  // Left & Right Resize Handles
+  const Pixel handle_hw = kMinimapHandleWidth * 0.5f;
+  const ImVec2 left_handle_min(lens_x1 - handle_hw, track_y1);
+  const ImVec2 left_handle_max(lens_x1 + handle_hw, track_y2);
+  const ImVec2 right_handle_min(lens_x2 - handle_hw, track_y1);
+  const ImVec2 right_handle_max(lens_x2 + handle_hw, track_y2);
+
+  draw_list->AddRectFilled(left_handle_min, left_handle_max,
+                           kMinimapHandleColor, 2.0f);
+  draw_list->AddRectFilled(right_handle_min, right_handle_max,
+                           kMinimapHandleColor, 2.0f);
+
+  // Handle grip lines inside handles
+  draw_list->AddLine(ImVec2(lens_x1, track_y1 + 4.0f),
+                     ImVec2(lens_x1, track_y2 - 4.0f), kWhiteColor, 1.0f);
+  draw_list->AddLine(ImVec2(lens_x2, track_y1 + 4.0f),
+                     ImVec2(lens_x2, track_y2 - 4.0f), kWhiteColor, 1.0f);
+
+  // Display the currently selected parent row within the minimap viewport
+  // indicator.
+  const Pixel lens_width = lens_x2 - lens_x1;
+  if (lens_width > 24.0f) {
+    ImGui::PushClipRect(ImVec2(lens_x1 + handle_hw + 1.0f, track_y1),
+                        ImVec2(lens_x2 - handle_hw - 1.0f, track_y2),
+                        /*intersect_with_current_clip_rect=*/true);
+    ImGui::PushFont(traceviewer::fonts::label_medium);
+
+    const Pixel ind_text_height = ImGui::GetTextLineHeight();
+    const ImVec2 ind_text_size = GetTextSize(parent_name);
+    Pixel text_draw_x = lens_x1 + (lens_width - ind_text_size.x) * 0.5f;
+    text_draw_x = std::max(text_draw_x, lens_x1 + handle_hw + 2.0f);
+    const Pixel text_draw_y =
+        track_y1 + (minimap_height - ind_text_height) * 0.5f;
+
+    draw_list->AddText(
+        ImVec2(text_draw_x, text_draw_y),
+        palette_.GetColor(ColorPalette::Key::kForeground).value_or(kBlackColor),
+        parent_name.c_str());
+
+    ImGui::PopFont();
+    ImGui::PopClipRect();
+  }
+
+  // Draw Interactive Drag-Selection Range Preview Band
+  if (minimap_drag_mode_ == MinimapDragMode::kSelectRange &&
+      (minimap_is_selecting_range_ ||
+       std::abs(minimap_selection_current_x_ - minimap_drag_start_x_) > 1.0f)) {
+    const Pixel sel_x1 = std::clamp(
+        std::min(minimap_drag_start_x_, minimap_selection_current_x_), track_x1,
+        track_x2);
+    const Pixel sel_x2 = std::clamp(
+        std::max(minimap_drag_start_x_, minimap_selection_current_x_), track_x1,
+        track_x2);
+    const Pixel sel_w = sel_x2 - sel_x1;
+
+    if (sel_w > 0.0f) {
+      // Draw translucent selection band
+      draw_list->AddRectFilled(ImVec2(sel_x1, track_y1),
+                               ImVec2(sel_x2, track_y2),
+                               kMinimapSelectionBandColor);
+
+      // Top and bottom borders
+      draw_list->AddLine(ImVec2(sel_x1, track_y1), ImVec2(sel_x2, track_y1),
+                         kMinimapSelectionBorderColor, 2.0f);
+      draw_list->AddLine(ImVec2(sel_x1, track_y2), ImVec2(sel_x2, track_y2),
+                         kMinimapSelectionBorderColor, 2.0f);
+
+      // Left and right vertical edge handles
+      draw_list->AddLine(ImVec2(sel_x1, track_y1), ImVec2(sel_x1, track_y2),
+                         kMinimapSelectionBorderColor, 2.0f);
+      draw_list->AddLine(ImVec2(sel_x2, track_y1), ImVec2(sel_x2, track_y2),
+                         kMinimapSelectionBorderColor, 2.0f);
+
+      // Duration badge pill
+      const double sel_ratio = sel_w / current_timeline_width_;
+      const Microseconds sel_dur = sel_ratio * total_range.duration();
+      const std::string sel_dur_str = FormatTime(sel_dur);
+
+      if (sel_w > 36.0f) {
+        ImGui::PushFont(traceviewer::fonts::label_medium);
+        const ImVec2 badge_size = GetTextSize(sel_dur_str);
+        const Pixel badge_w = badge_size.x + 8.0f;
+        const Pixel badge_h = ImGui::GetTextLineHeight() + 2.0f;
+        const Pixel badge_x = sel_x1 + (sel_w - badge_w) * 0.5f;
+        const Pixel badge_y = track_y1 + (minimap_height - badge_h) * 0.5f;
+
+        draw_list->AddRectFilled(ImVec2(badge_x, badge_y),
+                                 ImVec2(badge_x + badge_w, badge_y + badge_h),
+                                 IM_COL32(17, 24, 39, 220), 3.0f);
+        draw_list->AddText(ImVec2(badge_x + 4.0f, badge_y + 1.0f), kWhiteColor,
+                           sel_dur_str.c_str());
+        ImGui::PopFont();
+      }
+    }
+  }
+
+  // --- Interaction Handling ---
+  HandleMinimapInteraction(track_x1, track_x2, track_y1, track_y2, total_range,
+                           lens_x1, lens_x2);
+}
+
+void Timeline::HandleMinimapInteraction(Pixel track_x1, Pixel track_x2,
+                                        Pixel track_y1, Pixel track_y2,
+                                        const TimeRange& total_range,
+                                        Pixel lens_x1, Pixel lens_x2) {
+  const ImVec2 mouse_pos = ImGui::GetMousePos();
+  const Pixel handle_hw = kMinimapHandleWidth * 0.5f;
+
+  const bool mouse_over_track =
+      mouse_pos.x >= track_x1 && mouse_pos.x <= track_x2 &&
+      mouse_pos.y >= track_y1 && mouse_pos.y <= track_y2;
+
+  const bool mouse_over_left_handle =
+      mouse_pos.x >= lens_x1 - handle_hw - 2.0f &&
+      mouse_pos.x <= lens_x1 + handle_hw + 2.0f && mouse_pos.y >= track_y1 &&
+      mouse_pos.y <= track_y2;
+
+  const bool mouse_over_right_handle =
+      mouse_pos.x >= lens_x2 - handle_hw - 2.0f &&
+      mouse_pos.x <= lens_x2 + handle_hw + 2.0f && mouse_pos.y >= track_y1 &&
+      mouse_pos.y <= track_y2;
+
+  const bool mouse_over_lens =
+      mouse_pos.x >= lens_x1 && mouse_pos.x <= lens_x2 &&
+      mouse_pos.y >= track_y1 && mouse_pos.y <= track_y2;
+
+  // Set appropriate mouse cursor
+  if (minimap_drag_mode_ == MinimapDragMode::kSelectRange ||
+      (mouse_over_track &&
+       (mouse_mode_ == MouseMode::kSelect || ImGui::GetIO().KeyShift))) {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+  } else if (minimap_drag_mode_ == MinimapDragMode::kResizeLeft ||
+             minimap_drag_mode_ == MinimapDragMode::kResizeRight ||
+             mouse_over_left_handle || mouse_over_right_handle) {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+  } else if (minimap_drag_mode_ == MinimapDragMode::kPan || mouse_over_lens) {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+  } else if (mouse_over_track) {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+  }
+
+  // Mouse Wheel zooming over the minimap
+  if (mouse_over_track && ImGui::GetIO().MouseWheel != 0.0f) {
+    const float factor =
+        1.0f + ImGui::GetIO().MouseWheel * mouse_wheel_zoom_speed_;
+    const double ratio = std::clamp(
+        static_cast<double>(mouse_pos.x - track_x1) / current_timeline_width_,
+        0.0, 1.0);
+    const Microseconds pivot =
+        total_range.start() + ratio * total_range.duration();
+    Zoom(factor, pivot);
+  }
+
+  // Handle Mouse Down (click / start drag)
+  if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+    if (mouse_over_track &&
+        (mouse_mode_ == MouseMode::kSelect || ImGui::GetIO().KeyShift)) {
+      minimap_drag_mode_ = MinimapDragMode::kSelectRange;
+      minimap_drag_start_x_ = mouse_pos.x;
+      minimap_selection_current_x_ = mouse_pos.x;
+      minimap_is_selecting_range_ = false;
+    } else if (mouse_over_left_handle) {
+      minimap_drag_mode_ = MinimapDragMode::kResizeLeft;
+      minimap_drag_start_x_ = mouse_pos.x;
+      minimap_initial_visible_range_ = visible_range();
+    } else if (mouse_over_right_handle) {
+      minimap_drag_mode_ = MinimapDragMode::kResizeRight;
+      minimap_drag_start_x_ = mouse_pos.x;
+      minimap_initial_visible_range_ = visible_range();
+    } else if (mouse_over_lens) {
+      minimap_drag_mode_ = MinimapDragMode::kPan;
+      minimap_drag_start_x_ = mouse_pos.x;
+      minimap_initial_visible_range_ = visible_range();
+    } else if (mouse_over_track) {
+      // Click outside lens: center lens on clicked position immediately.
+      const double click_ratio = std::clamp(
+          static_cast<double>(mouse_pos.x - track_x1) / current_timeline_width_,
+          0.0, 1.0);
+      const Microseconds click_time =
+          total_range.start() + click_ratio * total_range.duration();
+      const Microseconds cur_duration = visible_range().duration();
+
+      Microseconds new_start = click_time - cur_duration * 0.5;
+      Microseconds new_end = new_start + cur_duration;
+
+      if (new_start < total_range.start()) {
+        new_start = total_range.start();
+        new_end = new_start + cur_duration;
+      }
+      if (new_end > total_range.end()) {
+        new_end = total_range.end();
+        new_start = std::max(total_range.start(), new_end - cur_duration);
+      }
+
+      TimeRange new_range(new_start, new_end);
+      ConstrainTimeRange(new_range);
+      SetVisibleRange(new_range, /*animate=*/false);
+      EmitViewportChanged(new_range);
+
+      // Start kSelectRange so dragging creates a range selection.
+      minimap_drag_mode_ = MinimapDragMode::kSelectRange;
+      minimap_drag_start_x_ = mouse_pos.x;
+      minimap_selection_current_x_ = mouse_pos.x;
+      minimap_is_selecting_range_ = false;
+    }
+  }
+
+  // Handle active dragging
+  if (ImGui::IsMouseDown(ImGuiMouseButton_Left) &&
+      minimap_drag_mode_ != MinimapDragMode::kNone) {
+    const float delta_px = mouse_pos.x - minimap_drag_start_x_;
+    const Microseconds delta_time =
+        (delta_px / current_timeline_width_) * total_range.duration();
+
+    if (minimap_drag_mode_ == MinimapDragMode::kSelectRange) {
+      minimap_selection_current_x_ = mouse_pos.x;
+      if (std::abs(delta_px) > kMinimapDragSelectionThreshold) {
+        minimap_is_selecting_range_ = true;
+      }
+    } else if (minimap_drag_mode_ == MinimapDragMode::kPan) {
+      const Microseconds dur = minimap_initial_visible_range_.duration();
+      Microseconds new_start =
+          minimap_initial_visible_range_.start() + delta_time;
+      Microseconds new_end = new_start + dur;
+
+      if (new_start < total_range.start()) {
+        new_start = total_range.start();
+        new_end = new_start + dur;
+      }
+      if (new_end > total_range.end()) {
+        new_end = total_range.end();
+        new_start = std::max(total_range.start(), new_end - dur);
+      }
+
+      TimeRange new_range(new_start, new_end);
+      ConstrainTimeRange(new_range);
+      SetVisibleRange(new_range, /*animate=*/false);
+      EmitViewportChanged(new_range);
+    } else if (minimap_drag_mode_ == MinimapDragMode::kResizeLeft) {
+      Microseconds new_start =
+          minimap_initial_visible_range_.start() + delta_time;
+      const Microseconds min_end = visible_range().end() - kMinDurationMicros;
+      new_start = std::clamp(new_start, total_range.start(), min_end);
+
+      TimeRange new_range(new_start, visible_range().end());
+      ConstrainTimeRange(new_range);
+      SetVisibleRange(new_range, /*animate=*/false);
+      EmitViewportChanged(new_range);
+    } else if (minimap_drag_mode_ == MinimapDragMode::kResizeRight) {
+      Microseconds new_end = minimap_initial_visible_range_.end() + delta_time;
+      const Microseconds max_start =
+          visible_range().start() + kMinDurationMicros;
+      new_end = std::clamp(new_end, max_start, total_range.end());
+
+      TimeRange new_range(visible_range().start(), new_end);
+      ConstrainTimeRange(new_range);
+      SetVisibleRange(new_range, /*animate=*/false);
+      EmitViewportChanged(new_range);
+    }
+  }
+
+  // Handle Mouse Release
+  if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+    if (minimap_drag_mode_ == MinimapDragMode::kSelectRange &&
+        minimap_is_selecting_range_) {
+      const Pixel sel_x1 = std::clamp(
+          std::min(minimap_drag_start_x_, minimap_selection_current_x_),
+          track_x1, track_x2);
+      const Pixel sel_x2 = std::clamp(
+          std::max(minimap_drag_start_x_, minimap_selection_current_x_),
+          track_x1, track_x2);
+      const double start_ratio =
+          static_cast<double>(sel_x1 - track_x1) / current_timeline_width_;
+      const double end_ratio =
+          static_cast<double>(sel_x2 - track_x1) / current_timeline_width_;
+
+      Microseconds sel_start =
+          total_range.start() + start_ratio * total_range.duration();
+      Microseconds sel_end =
+          total_range.start() + end_ratio * total_range.duration();
+
+      if (sel_end - sel_start < kMinDurationMicros) {
+        const Microseconds mid = (sel_start + sel_end) * 0.5;
+        sel_start =
+            std::max(total_range.start(), mid - kMinDurationMicros * 0.5);
+        sel_end = std::min(total_range.end(), sel_start + kMinDurationMicros);
+      }
+
+      TimeRange new_range(sel_start, sel_end);
+      ConstrainTimeRange(new_range);
+      SetVisibleRange(new_range, /*animate=*/false);
+      EmitViewportChanged(new_range);
+      RequestRedraw();
+    }
+    minimap_drag_mode_ = MinimapDragMode::kNone;
+    minimap_is_selecting_range_ = false;
+  }
+}
+
 // Renders the ruler UI element at the top of the timeline.
 // This is drawn as a table row and includes the background, the main horizontal
 // line, major/minor tick marks, and time labels.
@@ -2444,6 +3032,7 @@ void Timeline::DrawEvent(int group_index, int event_index,
           if (selected_event_index_ != event_index) {
             selected_group_index_ = group_index;
             selected_event_index_ = event_index;
+            UpdateSelectedParentGroupFromIndex(group_index);
             // Deselect any selected counter event.
             selected_counter_index_ = -1;
 
@@ -2623,6 +3212,7 @@ void Timeline::DrawCounterTooltip(int group_index, const CounterData& data,
             selected_counter_index_ != index) {
           selected_group_index_ = group_index;
           selected_counter_index_ = index;
+          UpdateSelectedParentGroupFromIndex(group_index);
           // Deselect any selected flame event.
           selected_event_index_ = -1;
 
@@ -3825,6 +4415,9 @@ void Timeline::HandleEventDeselection() {
 }
 
 bool Timeline::HandleMouse() {
+  if (minimap_drag_mode_ != MinimapDragMode::kNone) {
+    return true;
+  }
   const ImRect timeline_area = GetTimelineArea();
   const bool is_mouse_over_timeline =
       ImGui::IsMouseHoveringRect(timeline_area.Min, timeline_area.Max);
@@ -4094,7 +4687,8 @@ ImRect Timeline::GetTimelineArea() const {
   const ImVec2 window_pos = ImGui::GetWindowPos();
   const ImVec2 content_min = ImGui::GetWindowContentRegionMin();
   const Pixel start_x = window_pos.x + content_min.x + label_width_;
-  const Pixel start_y = window_pos.y + content_min.y;
+  const Pixel minimap_height = minimap_enabled_ ? kMinimapHeight : 0.0f;
+  const Pixel start_y = window_pos.y + content_min.y + minimap_height;
 
   const Pixel end_x = start_x + current_timeline_width_;
   const Pixel end_y = window_pos.y + ImGui::GetWindowHeight();

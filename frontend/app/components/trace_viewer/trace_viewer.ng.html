@@ -353,7 +353,7 @@
       </div>
 
       <!-- Sticky footer for Save/Cancel actions -->
-      <div class="settings-dialog-footer" *ngIf="activeSettingsTab === SettingsTab.COLOR || activeSettingsTab === SettingsTab.FLAGS">
+      <div class="settings-dialog-footer">
         <div class="settings-footer-left">
           <div *ngIf="activeSettingsTab === SettingsTab.FLAGS && hasFeatureFlagChanges" class="feature-flag-warning">
             <mat-icon class="feature-flag-warning-icon">warning</mat-icon>
@@ -361,11 +361,19 @@
           </div>
         </div>
         <div class="settings-actions">
+          <ng-container *ngIf="activeSettingsTab === SettingsTab.GENERAL">
+            <button mat-button (click)="dialogRef.close()">
+              Cancel
+            </button>
+            <button mat-button color="primary" [disabled]="!hasGeneralSettingsChanges" (click)="saveGeneralSettings(); dialogRef.close()">
+              Save
+            </button>
+          </ng-container>
           <ng-container *ngIf="activeSettingsTab === SettingsTab.COLOR">
             <button mat-button (click)="dialogRef.close()">
               Cancel
             </button>
-            <button mat-button color="primary" (click)="saveColorSettings(); dialogRef.close(selectedPalette)">
+            <button mat-button color="primary" [disabled]="!hasColorSettingsChanges" (click)="saveColorSettings(); dialogRef.close(selectedPalette)">
               Save
             </button>
           </ng-container>

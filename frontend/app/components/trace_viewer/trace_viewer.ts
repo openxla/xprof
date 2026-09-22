@@ -295,6 +295,47 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   keyboardZoomSpeed = 1.0;
   wheelZoomSpeed = 1.0;
 
+  /**
+   * Initial state of general navigation speeds to detect changes.
+   */
+  private initialPanningSpeed = 1.0;
+  private initialKeyboardZoomSpeed = 1.0;
+  private initialWheelZoomSpeed = 1.0;
+
+  /**
+   * Returns true if any general navigation speed has been modified.
+   */
+  get hasGeneralSettingsChanges(): boolean {
+    if (this.panningSpeed !== this.initialPanningSpeed) {
+      return true;
+    }
+    if (this.keyboardZoomSpeed !== this.initialKeyboardZoomSpeed) {
+      return true;
+    }
+    return this.wheelZoomSpeed !== this.initialWheelZoomSpeed;
+  }
+
+  /**
+   * Initial state of color settings to detect changes.
+   */
+  private initialSelectedPalette = DEFAULT_PALETTE;
+  private initialCustomColors: string[] = [];
+
+  /**
+   * Returns true if color palette or custom colors have been modified.
+   */
+  get hasColorSettingsChanges(): boolean {
+    if (this.selectedPalette !== this.initialSelectedPalette) {
+      return true;
+    }
+    if (this.customColors.length !== this.initialCustomColors.length) {
+      return true;
+    }
+    return this.customColors.some(
+      (color, index) => color !== this.initialCustomColors[index],
+    );
+  }
+
   flowCategories: FlowCategory[] = [];
   allFlowCategories: FlowCategory[] = [];
   selectedFlowCategoryIds = new Set<number>();
@@ -1549,39 +1590,39 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     this.panningSpeed = 1.0;
     this.keyboardZoomSpeed = 1.0;
     this.wheelZoomSpeed = 1.0;
-    window.localStorage.setItem(NAV_PAN_SPEED_STORAGE_KEY, '1.0');
-    window.localStorage.setItem(NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY, '1.0');
-    window.localStorage.setItem(NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY, '1.0');
-    this.applyNavigationSpeeds();
   }
 
   onPanningSpeedChange(event: Event): void {
     const input = event.target as HTMLInputElement;
     this.panningSpeed = Number(input.value);
-    window.localStorage.setItem(
-      NAV_PAN_SPEED_STORAGE_KEY,
-      this.panningSpeed.toString(),
-    );
-    this.applyNavigationSpeeds();
   }
 
   onKeyboardZoomSpeedChange(event: Event): void {
     const input = event.target as HTMLInputElement;
     this.keyboardZoomSpeed = Number(input.value);
-    window.localStorage.setItem(
-      NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
-      this.keyboardZoomSpeed.toString(),
-    );
-    this.applyNavigationSpeeds();
   }
 
   onWheelZoomSpeedChange(event: Event): void {
     const input = event.target as HTMLInputElement;
     this.wheelZoomSpeed = Number(input.value);
+  }
+
+  saveGeneralSettings(): void {
+    window.localStorage.setItem(
+      NAV_PAN_SPEED_STORAGE_KEY,
+      this.panningSpeed.toFixed(1),
+    );
+    window.localStorage.setItem(
+      NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
+      this.keyboardZoomSpeed.toFixed(1),
+    );
     window.localStorage.setItem(
       NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY,
-      this.wheelZoomSpeed.toString(),
+      this.wheelZoomSpeed.toFixed(1),
     );
+    this.initialPanningSpeed = this.panningSpeed;
+    this.initialKeyboardZoomSpeed = this.keyboardZoomSpeed;
+    this.initialWheelZoomSpeed = this.wheelZoomSpeed;
     this.applyNavigationSpeeds();
   }
 
@@ -1644,12 +1685,18 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     this.activeSettingsTab = tab;
     this.loadPresetPalettes();
     this.loadGeneralSettings();
+    this.initialPanningSpeed = this.panningSpeed;
+    this.initialKeyboardZoomSpeed = this.keyboardZoomSpeed;
+    this.initialWheelZoomSpeed = this.wheelZoomSpeed;
+
     this.loadCustomColors();
 
     const savedPalette = window.localStorage.getItem(COLOR_PALETTE_STORAGE_KEY);
     // Use '||' instead of '??' so an empty string in localStorage also falls
     // back to DEFAULT_PALETTE.
     this.selectedPalette = savedPalette || DEFAULT_PALETTE;
+    this.initialSelectedPalette = this.selectedPalette;
+    this.initialCustomColors = [...this.customColors];
 
     this.featureFlags = loadFeatureFlagsFromStorage();
     const newInitialFeatureFlags = new Map<string, boolean>();
@@ -1680,6 +1727,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         }
         window.localStorage.setItem(COLOR_PALETTE_STORAGE_KEY, result);
       }
+      this.loadGeneralSettings();
+      this.loadCustomColors();
     });
   }
 
@@ -1694,6 +1743,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       COLOR_PALETTE_STORAGE_KEY,
       this.selectedPalette,
     );
+    this.initialSelectedPalette = this.selectedPalette;
+    this.initialCustomColors = [...this.customColors];
   }
 
   openColorPaletteSettings() {

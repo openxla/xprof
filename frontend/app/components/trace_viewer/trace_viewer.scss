@@ -17,6 +17,46 @@ mat-divider {
   margin: 0 10px;
 }
 
+.trace-viewer-header {
+  padding: 14px 24px 8px 24px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-shrink: 0;
+  user-select: none;
+
+  .header-left {
+    display: flex;
+    flex-direction: column;
+
+    h1,
+    .page-title {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 600;
+      color: #202124;
+      letter-spacing: -0.5px;
+    }
+
+    p,
+    .page-description {
+      margin: 4px 0 0 0;
+      font-size: 12px;
+      color: #5f6368;
+      max-width: 768px;
+      line-height: 1.6;
+    }
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+    flex-shrink: 0;
+  }
+}
+
 .filter-bar {
   display: flex;
   justify-content: left;
@@ -68,6 +108,7 @@ mat-divider {
   margin-left: auto;
   display: flex;
   align-items: center;
+  gap: 8px;
 }
 
 .details-button {

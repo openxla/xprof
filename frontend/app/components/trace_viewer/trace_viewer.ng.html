@@ -1,20 +1,12 @@
-<div class="filter-bar" id="filter-bar">
-  <div class="filter-nav">
-    <span>All Filters</span>
+<header class="trace-viewer-header">
+  <div class="header-left">
+    <h1 class="page-title">Trace Viewer</h1>
+    <p class="page-description">
+      Visualize and analyze execution events on your CPU, GPU, and TPU over time.
+    </p>
   </div>
-  <mat-divider vertical></mat-divider>
-  <span class="filter-content">
-    <filter-chips class="filter-chips" [hosts]="hostList" [processes]="processList" [filters]="selectedFilters" (filterChanged)="onFilterEdit($event)" (filterRemoved)="onFilterRemove($event)"></filter-chips>
-    <div class="filler-inputs-wrapper">
-      <filter-input #filterInput
-        [validFilterFields]="validFilterFields"
-        [hosts]="hostList"
-        [processes]="processList"
-        (filterAdded)="onFilterAdd($event)"></filter-input>
-    </div>
-  </span>
   <ng-container *ngIf="useTraceViewerV2">
-    <div class="right-controls">
+    <div class="header-right right-controls">
       <div *ngIf="traceDetails && traceDetails.size > 0">
         <button mat-button class="details-button" [matMenuTriggerFor]="detailsMenu">Details <mat-icon>arrow_drop_down</mat-icon></button>
         <mat-menu #detailsMenu="matMenu" class="details-menu">
@@ -59,12 +51,28 @@
     </div>
   </ng-container>
   <ng-container *ngIf="!useTraceViewerV2">
-    <div class="right-controls">
+    <div class="header-right right-controls">
       <button mat-button (click)="switchVersion()">
         Switch to the new frontend (experimental)
       </button>
     </div>
   </ng-container>
+</header>
+<div class="filter-bar" id="filter-bar">
+  <div class="filter-nav">
+    <span>All Filters</span>
+  </div>
+  <mat-divider vertical></mat-divider>
+  <span class="filter-content">
+    <filter-chips class="filter-chips" [hosts]="hostList" [processes]="processList" [filters]="selectedFilters" (filterChanged)="onFilterEdit($event)" (filterRemoved)="onFilterRemove($event)"></filter-chips>
+    <div class="filler-inputs-wrapper">
+      <filter-input #filterInput
+        [validFilterFields]="validFilterFields"
+        [hosts]="hostList"
+        [processes]="processList"
+        (filterAdded)="onFilterAdd($event)"></filter-input>
+    </div>
+  </span>
 </div>
 
 <trace-viewer-container [url]="url"

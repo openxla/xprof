@@ -9,6 +9,7 @@ pytype_library(
     deps = [
         ":xprof_client",  # buildcleaner: keep
         "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal:hlo_graph_db",
         "//plugin/xprof/convert:raw_to_tool_data",
     ],
 )

@@ -136,6 +136,16 @@ wasm_cc_test(
     ],
 )
 
+wasm_cc_test(
+    name = "trace_event_parser_test",
+    srcs = ["trace_event_parser_test.cc"],
+    deps = [
+        ":trace_event",
+        ":trace_event_parser",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 wasm_cc_library(
     name = "trace_event_tree",
     srcs = ["trace_event_tree.cc"],

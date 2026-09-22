@@ -54,6 +54,37 @@ constexpr char kFullTimespan[] = "fullTimespan";
 //       [1000000.0, 1.0],
 //       [1000001.0, 2.0]
 //     ]
+void ParseFlowField(const emscripten::val& event, const char* field_name,
+                    const TraceEvent& ev, Phase ph,
+                    std::vector<TraceEvent>& flow_events) {
+  if (!event.hasOwnProperty(field_name)) return;
+  emscripten::val val = event[field_name];
+  if (val.isArray()) {
+    const unsigned int len = val["length"].as<unsigned int>();
+    for (unsigned int i = 0; i < len; ++i) {
+      emscripten::val item = val[i];
+      std::string flow_id;
+      if (item.isString()) {
+        flow_id = item.as<std::string>();
+      } else if (item.isNumber()) {
+        flow_id = std::to_string(static_cast<int64_t>(item.as<double>()));
+      }
+      if (!flow_id.empty()) {
+        TraceEvent flow_ev = ev;
+        flow_ev.id = std::move(flow_id);
+        flow_ev.ph = ph;
+        flow_events.push_back(std::move(flow_ev));
+      }
+    }
+  } else if (!val.isNull() && !val.isUndefined() && val.as<bool>()) {
+    if (!ev.id.empty()) {
+      TraceEvent flow_ev = ev;
+      flow_ev.ph = ph;
+      flow_events.push_back(std::move(flow_ev));
+    }
+  }
+}
+
 void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
                     absl::flat_hash_map<std::pair<ProcessId, std::string>,
                                         TraceEvent>& open_async_events) {
@@ -184,6 +215,9 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
             }
             begin_ev.event_id =
                 GenerateEventId(begin_ev.name, begin_ev.ts, begin_ev.dur);
+            if (!begin_ev.id.empty()) {
+              result.flow_events.push_back(begin_ev);
+            }
             result.flame_events.push_back(std::move(begin_ev));
             open_async_events.erase(it);
           }
@@ -195,7 +229,20 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
           result.flow_events.push_back(std::move(ev));
         }
         break;
-      case Phase::kComplete:
+      case Phase::kComplete: {
+        const bool has_flow_in = event.hasOwnProperty("flow_in");
+        const bool has_flow_out = event.hasOwnProperty("flow_out");
+        if (has_flow_in || has_flow_out) {
+          ParseFlowField(event, "flow_in", ev, Phase::kFlowEnd,
+                         result.flow_events);
+          ParseFlowField(event, "flow_out", ev, Phase::kFlowStart,
+                         result.flow_events);
+        } else if (!ev.id.empty()) {
+          result.flow_events.push_back(ev);
+        }
+        result.flame_events.push_back(std::move(ev));
+        break;
+      }
       case Phase::kInstant:
         if (!ev.id.empty()) {
           result.flow_events.push_back(ev);

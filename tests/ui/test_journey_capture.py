@@ -31,10 +31,13 @@ class _FakePage:
   """Minimal Playwright Page double for hermetic unit testing."""
 
   def __init__(
-      self, evaluate_results: collections.abc.Sequence[object] | None = None
+      self,
+      evaluate_results: collections.abc.Sequence[object] | None = None,
+      default_result: object = "drift",
   ):
     self.handlers: dict[str, list[object]] = {}
     self._evaluate_results = list(evaluate_results or [])
+    self._default_result = default_result
     self.waits: list[int] = []
 
   def on(self, event: str, handler: object) -> None:
@@ -48,7 +51,9 @@ class _FakePage:
   def evaluate(self, script: str, arg: object = None) -> object:
     del script, arg
     if not self._evaluate_results:
-      return f"<html>drift-{len(self.waits)}</html>"
+      if self._default_result == "drift":
+        return f"<html>drift-{len(self.waits)}</html>"
+      return self._default_result
     result = self._evaluate_results.pop(0)
     if isinstance(result, Exception):
       raise result
@@ -135,6 +140,75 @@ class JourneyCaptureTest(unittest.TestCase):
       self.assertFalse(settled_timeout)
     finally:
       journey_capture._QUIESCENCE_TIMEOUT_MS = orig_timeout
+
+  def test_normalize_generated_attr_ids_preserves_semantic_tab_index(self):
+    """Verifies two-counter Material IDs preserve tab index."""
+    self.assertEqual(
+        journey_capture.normalize_generated_attr_ids("mat-tab-label-0-1"),
+        "mat-tab-label-N-1",
+    )
+    self.assertEqual(
+        journey_capture.normalize_generated_attr_ids("mat-tab-label-0-2"),
+        "mat-tab-label-N-2",
+    )
+    self.assertEqual(
+        journey_capture.normalize_generated_attr_ids(
+            "cdk-describedby-message-ng-1-14"
+        ),
+        "cdk-describedby-message-ng-N-14",
+    )
+    self.assertEqual(
+        journey_capture.normalize_generated_attr_ids("mat-select-4"),
+        "mat-select-N",
+    )
+    self.assertEqual(
+        journey_capture.normalize_generated_attr_ids(
+            "google-visualization-errors-all-7"
+        ),
+        "google-visualization-errors-all-N",
+    )
+
+  def test_wait_for_angular_stable_handles_bootstrap_errors_and_timeouts(self):
+    """Verifies bootstrap grace window, error retry, and timeout handling."""
+    # 1. Instant settle after two consecutive True samples.
+    instant_page = _FakePage([True, True])
+    self.assertTrue(journey_capture._wait_for_angular_stable(instant_page))
+
+    # 2. Bootstrap delay (None -> None -> False -> True -> True) waits for
+    # Angular rather than exiting early on the first None.
+    bootstrap_page = _FakePage([None, None, False, True, True])
+    self.assertTrue(journey_capture._wait_for_angular_stable(bootstrap_page))
+    self.assertGreaterEqual(len(bootstrap_page.waits), 3)
+
+    # 3. Transient _PlaywrightError during navigation is retried until settled.
+    retry_page = _FakePage(
+        [RuntimeError("context destroyed"), False, True, True]
+    )
+    self.assertTrue(journey_capture._wait_for_angular_stable(retry_page))
+
+    # 4. Non-Angular page (None past _ANGULAR_BOOTSTRAP_TIMEOUT_MS) returns
+    # True.
+    orig_boot = journey_capture._ANGULAR_BOOTSTRAP_TIMEOUT_MS
+    orig_stable = journey_capture._ANGULAR_STABLE_TIMEOUT_MS
+    journey_capture._ANGULAR_BOOTSTRAP_TIMEOUT_MS = 5
+    journey_capture._ANGULAR_STABLE_TIMEOUT_MS = 50
+    try:
+      non_ng_page = _FakePage(default_result=None)
+      self.assertTrue(journey_capture._wait_for_angular_stable(non_ng_page))
+    finally:
+      journey_capture._ANGULAR_BOOTSTRAP_TIMEOUT_MS = orig_boot
+      journey_capture._ANGULAR_STABLE_TIMEOUT_MS = orig_stable
+
+    # 5. Unstable Angular page past _ANGULAR_STABLE_TIMEOUT_MS returns False.
+    journey_capture._ANGULAR_STABLE_TIMEOUT_MS = 5
+    try:
+      hung_page = _FakePage(default_result=False)
+      self.assertFalse(journey_capture._wait_for_angular_stable(hung_page))
+    finally:
+      journey_capture._ANGULAR_STABLE_TIMEOUT_MS = orig_stable
+
+    # 6. Placeholder about:blank iframes are excluded from iframe bypass.
+    self.assertIn("about:blank", journey_capture._ANGULAR_IS_STABLE_JS)
 
 
 if __name__ == "__main__":

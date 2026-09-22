@@ -46,6 +46,17 @@ _API_POLL_MS: int = 50
 _QUIESCENCE_POLL_MS: int = 250
 _QUIESCENCE_TIMEOUT_MS: int = 8000
 
+# Angular reports itself stable once change detection, timers, and zone-tracked
+# requests have all drained. Host Angular components reach this state well
+# within the timeout (Roofline Model is slowest at ~4.7s). Tools hosted inside
+# an iframe (Trace Viewer, Graph Viewer) or running a background tutorial timer
+# (Trace Viewer's interval(3000)) are short-circuited once the host shell and
+# iframe mount, while _ANGULAR_BOOTSTRAP_TIMEOUT_MS waits for Angular to
+# register window.getAllAngularTestabilities() right after page.goto().
+_ANGULAR_STABLE_POLL_MS: int = 100
+_ANGULAR_BOOTSTRAP_TIMEOUT_MS: int = 2000
+_ANGULAR_STABLE_TIMEOUT_MS: int = 15000
+
 # Regions that legitimately differ between two runs of the same build. Masking
 # paints them a flat color in both screenshots and clears their text in the
 # serialized DOM so the engine sees them as equal across runs.
@@ -213,16 +224,140 @@ _NORMALIZED_HTML_JS = """(maskSelectors) => {
           .replace(/(?<=\\bsession_path=)[^&"'\\s<>]*/g, '<masked>');
       el.setAttribute(name, cleanedVal);
     }
+    // Google Charts and Angular Material number generated elements from
+    // page-global counters, so async render order shifts the suffixes across
+    // walks without changing the structure or content of the page. For
+    // two-counter tokens like mat-tab-label-<groupId>-<tabIndex>, normalize
+    // only the page-global group counter while preserving the semantic index.
+    for (const attr of [
+      'id', 'for', 'aria-labelledby', 'aria-controls', 'aria-owns',
+      'aria-describedby',
+    ]) {
+      const val = el.getAttribute(attr);
+      if (!val) continue;
+      const norm = val
+          .replace(
+              /\\b(google-visualization-errors(?:-all)?-)[0-9]+\\b/g, '$1N'
+          )
+          .replace(
+              /\\b((?:mat|cdk)-[a-z0-9-]+?-)[0-9]+(-[0-9]+)\\b/g, '$1N$2'
+          )
+          .replace(
+              /\\b((?:mat|cdk)-(?![a-z0-9-]+-N-[0-9]+\\b)[a-z0-9-]+-)[0-9]+\\b/g,
+              '$1N'
+          );
+      if (norm !== val) el.setAttribute(attr, norm);
+    }
     for (const child of el.children) stack.push(child);
   }
   return clone.outerHTML;
 }"""
+
+_GVIS_ID_RE = re.compile(r"\b(google-visualization-errors(?:-all)?-)[0-9]+\b")
+_MAT_TWO_COUNTER_ID_RE = re.compile(
+    r"\b((?:mat|cdk)-[a-z0-9-]+?-)[0-9]+(-[0-9]+)\b"
+)
+_MAT_SINGLE_COUNTER_ID_RE = re.compile(
+    r"\b((?:mat|cdk)-(?![a-z0-9-]+-N-[0-9]+\b)[a-z0-9-]+-)[0-9]+\b"
+)
+
+
+def normalize_generated_attr_ids(value: str) -> str:
+  """Normalizes page-global counters in Material/CDK and Google Charts IDs."""
+  norm = _GVIS_ID_RE.sub(r"\1N", value)
+  norm = _MAT_TWO_COUNTER_ID_RE.sub(r"\1N\2", norm)
+  return _MAT_SINGLE_COUNTER_ID_RE.sub(r"\1N", norm)
 
 
 def _normalized_html(page: typing.Any) -> str:
   """Returns the document serialized with attributes in a stable order."""
   raw = page.evaluate(_NORMALIZED_HTML_JS, list(MASK_SELECTORS))
   return _SESSION_PATH_RE.sub("<masked>", _LOCALHOST_ORIGIN_RE.sub("", raw))
+
+
+# Reports whether every Angular testability on the page has drained its pending
+# work, or null when Angular has not yet finished bootstrapping. When an
+# iframe-hosted tool (Trace Viewer, Graph Viewer) has mounted its visible
+# iframe and no host loading indicator is active, host stability is treated as
+# reached so Trace Viewer's in-zone interval(3000) tutorial rotation does not
+# block until the 15s timeout.
+#
+# Sampling is driven from Python rather than from a timer inside this snippet,
+# because a timer scheduled here would itself be a pending task in whichever
+# zone it lands in and could keep the page from ever reporting stable.
+_ANGULAR_IS_STABLE_JS = """() => {
+  if (typeof window.getAllAngularTestabilities !== 'function') return null;
+  const testabilities = window.getAllAngularTestabilities();
+  if (testabilities.length === 0) return null;
+  if (testabilities.every(t => t.isStable())) return true;
+  const hasVisibleSourcedIframe = Array.from(document.querySelectorAll('iframe')).some(
+      f => {
+        const src = (f.getAttribute('src') || '').trim();
+        return f.offsetParent !== null &&
+               f.getBoundingClientRect().width > 0 &&
+               Boolean(src) &&
+               src.toLowerCase() !== 'about:blank';
+      }
+  );
+  if (hasVisibleSourcedIframe) {
+    const hasActiveSpinner = document.querySelector(
+        '.mat-mdc-progress-spinner, mat-spinner, .loading-spinner, ' +
+        'mat-progress-bar, .mat-mdc-progress-bar, .loading-message'
+    );
+    if (!hasActiveSpinner) return true;
+  }
+  return false;
+}"""
+
+
+def _wait_for_angular_stable(page: typing.Any) -> bool:
+  """Waits until Angular has no pending change detection, timers, or requests.
+
+  A settled DOM is not sufficient on its own. A tool request finishes, and
+  Angular then spends over a second building its chart data before painting
+  it, during which the DOM is static and the network is silent. Quiescence
+  settles inside that window and captures an empty chart shell, so the same
+  waypoint records a populated table on one walk and an empty one on the next.
+  Angular reports stable only after that work completes.
+
+  Args:
+    page: Page to sample.
+
+  Returns:
+    True if Angular reported stable (or the page is non-Angular after the
+    bootstrap window), False if the stability timeout expired.
+  """
+  start = time.monotonic()
+  bootstrap_deadline = start + _ANGULAR_BOOTSTRAP_TIMEOUT_MS / 1000
+  deadline = start + _ANGULAR_STABLE_TIMEOUT_MS / 1000
+  stable_count = 0
+  while time.monotonic() < deadline:
+    try:
+      is_stable = page.evaluate(_ANGULAR_IS_STABLE_JS)
+    except _PlaywrightError:
+      stable_count = 0
+      page.wait_for_timeout(_ANGULAR_STABLE_POLL_MS)
+      continue
+    if is_stable is None:
+      stable_count = 0
+      if time.monotonic() >= bootstrap_deadline:
+        return True
+      page.wait_for_timeout(_ANGULAR_STABLE_POLL_MS)
+      continue
+    if is_stable:
+      # Two consecutive samples, so a momentary lull between two asynchronous
+      # stages of a tool load is not mistaken for the end of the load.
+      stable_count += 1
+      if stable_count >= 2:
+        return True
+    else:
+      stable_count = 0
+    page.wait_for_timeout(_ANGULAR_STABLE_POLL_MS)
+  logging.warning(
+      "Angular testability did not stabilize within %dms.",
+      _ANGULAR_STABLE_TIMEOUT_MS,
+  )
+  return False
 
 
 def _wait_for_dom_quiescence(page: typing.Any) -> tuple[str, bool]:
@@ -310,7 +445,12 @@ def capture_waypoint(
       )
       unsettled.append("loading_indicators_timeout")
 
-  # 4. Wait for visible charts to finish drawing their SVGs and stabilize.
+  # 4. Wait for Angular to finish rendering the tool's data. This is what
+  # makes the capture deterministic; the waits around it only smooth layout.
+  if not _wait_for_angular_stable(page):
+    unsettled.append("angular_stable_timeout")
+
+  # 5. Wait for visible charts to finish drawing their SVGs and stabilize.
   try:
     charts = page.locator(":is(chart, google-chart, step-time-graph)")
     for chart in charts.all():
@@ -382,7 +522,7 @@ def capture_waypoint(
   except _PlaywrightError:
     pass
 
-  # 5. Stabilize serialized DOM across consecutive quiescence polls.
+  # 6. Stabilize serialized DOM across consecutive quiescence polls.
   html, dom_settled = _wait_for_dom_quiescence(page)
   if not dom_settled:
     unsettled.append("dom_quiescence_timeout")

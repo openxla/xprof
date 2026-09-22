@@ -2,6 +2,7 @@
 
 import argparse
 import collections
+import collections.abc
 import dataclasses
 import datetime
 import difflib
@@ -16,6 +17,7 @@ import pathlib
 import re
 import sys
 import tempfile
+import typing
 import urllib.parse
 
 from PIL import Image
@@ -104,6 +106,80 @@ def resolve_profile_logdir(logdir: str) -> str:
   if profile_subdir.is_dir():
     return str(profile_subdir)
   return logdir
+
+
+def make_run_resolver(logdir: str) -> collections.abc.Callable[[str], str]:
+  """Returns a resolver mapping a declared run name onto one in the logdir."""
+  resolved_dir = pathlib.Path(resolve_profile_logdir(logdir))
+  available = sorted(
+      entry.name for entry in resolved_dir.iterdir() if entry.is_dir()
+  )
+  # Run directories are named by the capture tooling, which is inconsistent
+  # about separators (e.g. "tpu-training" versus "tpu_training").
+  by_normalized = {name.replace("-", "_"): name for name in available}
+
+  def _resolve(declared: str) -> str:
+    if declared in available:
+      return declared
+    normalized = declared.replace("-", "_")
+    if normalized in by_normalized:
+      return by_normalized[normalized]
+    if len(available) == 1:
+      return available[0]
+    raise FileNotFoundError(
+        f"Run '{declared}' is not present in logdir {resolved_dir}."
+        f" Available runs: {available}"
+    )
+
+  return _resolve
+
+
+def resolve_scenario_runs(
+    scenario: typing.Any,
+    resolve_run: collections.abc.Callable[[str], str],
+    logdir: str | None = None,
+) -> typing.Any:
+  """Maps every run and host a scenario names onto ones present in the logdir."""
+  current_run = resolve_run(getattr(scenario, "fixture"))
+  resolved_root = (
+      pathlib.Path(resolve_profile_logdir(logdir)) if logdir else None
+  )
+
+  def _resolve_host(run_name: str, declared_host: str) -> str:
+    if resolved_root is None:
+      return declared_host
+    run_dir = resolved_root / run_name
+    if not run_dir.is_dir():
+      return declared_host
+    hosts = sorted(
+        p.name.removesuffix(".xplane.pb") for p in run_dir.glob("*.xplane.pb")
+    )
+    if not hosts or declared_host in hosts:
+      return declared_host
+    return hosts[0]
+
+  steps = []
+  for step in getattr(scenario, "steps"):
+    action_val = getattr(step.action, "value", str(step.action))
+    if action_val == "goto" and "/" in step.target:
+      declared, separator, tool = step.target.partition("/")
+      current_run = resolve_run(declared)
+      steps.append(
+          dataclasses.replace(step, target=f"{current_run}{separator}{tool}")
+      )
+    elif action_val == "select_host":
+      steps.append(
+          dataclasses.replace(
+              step, target=_resolve_host(current_run, step.target)
+          )
+      )
+    else:
+      steps.append(step)
+  return dataclasses.replace(
+      scenario,
+      fixture=resolve_run(getattr(scenario, "fixture")),
+      steps=tuple(steps),
+  )
 
 
 class SxsDiffEngine:

@@ -1,6 +1,7 @@
 """Unit tests for the multi-modal Side-by-Side (SxS) A/B diff engine."""
 
 import contextlib
+import dataclasses
 import difflib
 import hashlib
 import io
@@ -1465,6 +1466,89 @@ class SxsDiffEngineTest(unittest.TestCase):
     self.assertEqual(verdict_over.visual.diff_pixels, 2)
     self.assertEqual(verdict_over.visual.diff_ratio, 0.002)
     self.assertEqual(verdict_over.verdict, "CHANGED")
+
+  def test_resolve_scenario_runs_maps_fixture_goto_and_hosts(self):
+    """Verifies run and host resolution across logdir layouts."""
+
+    @dataclasses.dataclass(frozen=True)
+    class _Step:
+      action: str
+      target: str
+      expected_selector: str
+
+    @dataclasses.dataclass(frozen=True)
+    class _Scenario:
+      id: str
+      fixture: str
+      initial_tool: str
+      steps: tuple[_Step, ...]
+
+    with tempfile.TemporaryDirectory() as tmp:
+      run_dir = pathlib.Path(tmp) / "plugins" / "profile" / "tpu_training"
+      run_dir.mkdir(parents=True)
+      (run_dir / "tpu_training.xplane.pb").write_bytes(b"")
+
+      resolver = sxs_diff_engine.make_run_resolver(tmp)
+      self.assertEqual(resolver("tpu-training"), "tpu_training")
+      self.assertEqual(resolver("v6e-4-training"), "tpu_training")
+
+      scenario = _Scenario(
+          id="compiler",
+          fixture="tpu-training",
+          initial_tool="overview_page",
+          steps=(
+              _Step(
+                  action="switch_tool",
+                  target="overview_page",
+                  expected_selector="overview-page",
+              ),
+              _Step(
+                  action="goto",
+                  target="v6e-4-training/hlo_stats",
+                  expected_selector="hlo-stats",
+              ),
+              _Step(
+                  action="select_host",
+                  target="t1v-n-9bfa07b4-w-0",
+                  expected_selector="overview-page",
+              ),
+          ),
+      )
+
+      resolved = sxs_diff_engine.resolve_scenario_runs(
+          scenario, resolver, logdir=tmp
+      )
+      self.assertEqual(resolved.fixture, "tpu_training")
+      self.assertEqual(resolved.steps[0].target, "overview_page")
+      self.assertEqual(resolved.steps[1].target, "tpu_training/hlo_stats")
+      self.assertEqual(resolved.steps[2].target, "tpu_training")
+
+      # Verify symmetrical separator normalization when multiple runs exist
+      # (including hyphenated directory on disk queried with underscores) and
+      # goto steps without a slash.
+      hyphen_dir = pathlib.Path(tmp) / "plugins" / "profile" / "gpu-profile"
+      hyphen_dir.mkdir(parents=True)
+      multi_resolver = sxs_diff_engine.make_run_resolver(tmp)
+      self.assertEqual(multi_resolver("gpu_profile"), "gpu-profile")
+      self.assertEqual(multi_resolver("tpu-training"), "tpu_training")
+
+      slashless = _Scenario(
+          id="slashless",
+          fixture="gpu_profile",
+          initial_tool="overview_page",
+          steps=(
+              _Step(
+                  action="goto",
+                  target="overview_page",
+                  expected_selector="overview-page",
+              ),
+          ),
+      )
+      resolved_slashless = sxs_diff_engine.resolve_scenario_runs(
+          slashless, multi_resolver, logdir=tmp
+      )
+      self.assertEqual(resolved_slashless.fixture, "gpu-profile")
+      self.assertEqual(resolved_slashless.steps[0].target, "overview_page")
 
 
 if __name__ == "__main__":

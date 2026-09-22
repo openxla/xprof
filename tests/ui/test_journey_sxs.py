@@ -6,10 +6,11 @@ the same journeys, captures each waypoint, and feeds the captures to the SxS
 diff engine so the engine runs against the real product instead of synthetic
 images.
 
-Two renders of an unchanged build must be identical. That is what is asserted
-here, and it is the precondition for ever gating a build on a visual delta:
-until capture is provably stable, a non-zero diff cannot be attributed to a
-code change.
+Each journey is walked twice: once against the baseline build and once against
+the candidate build, so a non-zero diff is attributable to the change under
+review. Set XPROF_BASELINE_SERVER_URL to the baseline server to enable this.
+When it is unset both walks target the same server, which asserts only that
+capture is stable -- the precondition for gating a build on a visual delta.
 
 Execution:
   - Live browser suite: `pytest tests/ui/test_journey_sxs.py` (invoked in CI by
@@ -18,6 +19,7 @@ Execution:
     tests/ui/test_sxs_diff_engine.py`.
 """
 
+from collections.abc import Callable
 from collections.abc import Iterator
 import getpass
 import hashlib
@@ -36,6 +38,7 @@ try:
   from tests.ui.journey_capture import NetworkRecorder
   from tests.ui.journey_capture import WaypointCapture
   from tests.ui.sxs_diff_engine import resolve_profile_logdir
+  from tests.ui.sxs_diff_engine import resolve_scenario_runs
   from tests.ui.sxs_diff_engine import SxsDiffEngine
   from tests.ui.sxs_diff_engine import WaypointDiff
   from tests.ui.sxs_report_generator import generate_sxs_html_report
@@ -50,6 +53,7 @@ except ImportError:
   from journey_capture import NetworkRecorder
   from journey_capture import WaypointCapture
   from sxs_diff_engine import resolve_profile_logdir
+  from sxs_diff_engine import resolve_scenario_runs
   from sxs_diff_engine import SxsDiffEngine
   from sxs_diff_engine import WaypointDiff
   from sxs_report_generator import generate_sxs_html_report
@@ -287,6 +291,7 @@ def _describe_divergence(
 def _format_failure_banner(
     scenario_id: str,
     diverged: list[str],
+    is_ab_comparison: bool = False,
 ) -> str:
   """Builds a structured failure banner referencing the session HTML report."""
   filename = _get_report_filename()
@@ -314,19 +319,41 @@ def _format_failure_banner(
   abs_report = os.path.abspath(report_path)
   lines.append(f"  • Report Path:           file://{abs_report}")
 
-  lines.extend([
-      "",
-      "How to Review and Take Action (Single-Server Reproducibility Gate):",
-      f"  1. Open '{filename}' after the test session finishes to inspect",
-      "     the swipe slider, DOM unified diff, and network waterfall.",
-      "  2. Because both walks targeted the same build, any diff indicates",
-      "     non-determinism or an unsettled capture:",
-      "     - Mask dynamic regions in journey_capture.MASK_SELECTORS.",
-      "     - Normalize unstable attributes in _NORMALIZED_HTML_JS.",
-      "     - Extend stabilization waits in journey_capture.capture_waypoint.",
-      "=" * 80,
-  ])
+  if is_ab_comparison:
+    lines.extend([
+        "",
+        "How to Review and Take Action (A/B Certification Gate):",
+        f"  1. Open '{filename}' in your browser to inspect the swipe slider,",
+        "     DOM unified diff, and network waterfall.",
+        "  2. If the diff is an unintended regression, fix the UI/backend code",
+        "     and re-run the test.",
+        "  3. If the diff is an intentional UI update, copy the approval JSON",
+        "     from the report into tests/ui/approved_manifest.json.",
+        "=" * 80,
+    ])
+  else:
+    lines.extend([
+        "",
+        "How to Review and Take Action (Single-Server Reproducibility Gate):",
+        f"  1. Open '{filename}' after the test session finishes to inspect",
+        "     the swipe slider, DOM unified diff, and network waterfall.",
+        "  2. Because both walks targeted the same build, any diff indicates",
+        "     non-determinism or an unsettled capture:",
+        "     - Mask dynamic regions in journey_capture.MASK_SELECTORS.",
+        "     - Normalize unstable attributes in _NORMALIZED_HTML_JS.",
+        "     - Extend stabilization waits in capture_waypoint.",
+        "=" * 80,
+    ])
   return "\n".join(lines)
+
+
+def _resolve_scenario_runs(
+    scenario: JourneyScenario,
+    resolve_run: Callable[[str], str],
+    logdir: str | None = None,
+) -> JourneyScenario:
+  """Maps every run and host a scenario names onto ones in the logdir."""
+  return resolve_scenario_runs(scenario, resolve_run, logdir=logdir)
 
 
 # pylint: disable=redefined-outer-name
@@ -334,27 +361,35 @@ def _format_failure_banner(
 def test_journey_capture_is_reproducible(
     browser: Browser,
     server_url: str,
+    baseline_server_url: str,
     logdir: str,
+    resolve_run: Callable[[str], str],
     sxs_collector: list[WaypointDiff],
     scenario: JourneyScenario,
 ) -> None:
-  """Two renders of one build must produce identical waypoints."""
+  """Baseline and candidate builds must produce identical waypoints."""
+  scenario = _resolve_scenario_runs(scenario, resolve_run, logdir=logdir)
   session_path = os.path.join(logdir, scenario.fixture)
   if not os.path.exists(session_path):
     pytest.skip(f"Fixture '{scenario.fixture}' not present in logdir {logdir}")
 
   _clear_tools_cache(logdir)
-  baseline = _walk_journey(browser, server_url, logdir, scenario)
+  baseline = _walk_journey(browser, baseline_server_url, logdir, scenario)
   _clear_tools_cache(logdir)
   candidate = _walk_journey(browser, server_url, logdir, scenario)
   assert len(baseline) == len(candidate), (
-      f"Journey {scenario.id} produced {len(baseline)} waypoints on the first"
-      f" walk and {len(candidate)} on the second"
+      f"Journey {scenario.id} produced {len(baseline)} waypoints on the"
+      f" baseline build and {len(candidate)} on the candidate build"
   )
 
-  # Pass an empty manifest path so approvals cannot silence non-determinism
-  # in single-server reproducibility runs.
-  engine = SxsDiffEngine(approved_manifest_path="")
+  is_ab_comparison = baseline_server_url.rstrip("/") != server_url.rstrip("/")
+  # In single-server reproducibility runs (baseline_server_url == server_url),
+  # pass an empty manifest path so approvals cannot silence non-determinism.
+  engine = (
+      SxsDiffEngine()
+      if is_ab_comparison
+      else SxsDiffEngine(approved_manifest_path="")
+  )
   diffs = [
       engine.evaluate_waypoint(
           journey_name=scenario.id,
@@ -373,7 +408,13 @@ def test_journey_capture_is_reproducible(
   diverged = [
       _describe_divergence(d, before, after)
       for d, before, after in zip(diffs, baseline, candidate, strict=True)
-      if d.verdict != "SAME" or not before.stabilized or not after.stabilized
+      if (d.verdict == "CHANGED" if is_ab_comparison else d.verdict != "SAME")
+      or not before.stabilized
+      or not after.stabilized
   ]
-  banner = _format_failure_banner(scenario.id, diverged) if diverged else ""
+  banner = ""
+  if diverged:
+    banner = _format_failure_banner(
+        scenario.id, diverged, is_ab_comparison=is_ab_comparison
+    )
   assert not diverged, banner

@@ -3,6 +3,7 @@
 # pylint: disable=redefined-outer-name,g-doc-args
 # pylint: disable=g-doc-return-or-yield,g-short-docstring-punctuation
 
+from collections.abc import Callable
 from collections.abc import Iterator
 import dataclasses
 import http
@@ -18,6 +19,20 @@ import urllib.error
 import urllib.request
 from playwright.sync_api import Page
 import pytest
+
+# pylint: disable=g-import-not-at-top
+try:
+  from google3.third_party.xprof.tests.ui import sxs_diff_engine
+except ModuleNotFoundError as err:
+  if not (err.name or "").startswith("google3"):
+    raise
+  try:
+    from tests.ui import sxs_diff_engine  # pyrefly: ignore[missing-import]
+  except ModuleNotFoundError as err2:
+    if not (err2.name or "").startswith("tests"):
+      raise
+    import sxs_diff_engine  # pyrefly: ignore[missing-import]
+# pylint: enable=g-import-not-at-top
 
 # Server configuration
 HOST = os.environ.get("XPROF_HOST", "127.0.0.1")
@@ -62,6 +77,9 @@ def _find_repo_root() -> pathlib.Path:
 def logdir() -> str:
   """Resolves the absolute path to the demo profile dataset directory."""
   if custom_logdir := os.environ.get("XPROF_LOGDIR"):
+    profile_subdir = pathlib.Path(custom_logdir) / "plugins" / "profile"
+    if profile_subdir.is_dir():
+      return str(profile_subdir)
     return custom_logdir
 
   repo_root = os.environ.get("XPROF_REPO_ROOT")
@@ -168,6 +186,18 @@ def server_url(logdir: str) -> Iterator[str]:
       except subprocess.TimeoutExpired:
         server.kill()
     stderr_file.close()
+
+
+@pytest.fixture(scope="session")
+def baseline_server_url(server_url: str) -> str:
+  """Returns the baseline server URL, defaulting to the candidate server."""
+  return os.environ.get("XPROF_BASELINE_SERVER_URL") or server_url
+
+
+@pytest.fixture(scope="session")
+def resolve_run(logdir: str) -> Callable[[str], str]:
+  """Returns a resolver mapping a declared run name onto one in the logdir."""
+  return sxs_diff_engine.make_run_resolver(logdir)
 
 
 @dataclasses.dataclass

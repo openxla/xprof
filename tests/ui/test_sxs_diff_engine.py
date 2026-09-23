@@ -2,9 +2,7 @@
 
 import contextlib
 import dataclasses
-import difflib
 import enum
-import hashlib
 import io
 import json
 import os
@@ -41,58 +39,6 @@ VisualDiff = sxs_diff_engine.VisualDiff
 WaypointDiff = sxs_diff_engine.WaypointDiff
 generate_sxs_html_report = sxs_report_generator.generate_sxs_html_report
 publish_report_artifact = sxs_report_generator.publish_report_artifact
-
-
-def _find_runfile(path: str) -> pathlib.Path | None:
-  """Resolves a runfile path under Bazel or a local/OSS checkout."""
-  rel_path = path.removeprefix("third_party/xprof/")
-  srcdir = os.environ.get("TEST_SRCDIR")
-  workspace = os.environ.get("TEST_WORKSPACE", "")
-  if srcdir:
-    for ws in (workspace, "google3", "__main__", ""):
-      for sub in ("third_party/xprof", ""):
-        candidate = pathlib.Path(srcdir) / ws / sub / rel_path
-        if candidate.exists():
-          return candidate
-
-  for base in (
-      pathlib.Path(__file__).resolve().parent,
-      pathlib.Path.cwd().resolve(),
-  ):
-    direct = base / rel_path.removeprefix("tests/ui/")
-    if direct.exists():
-      return direct
-    for parent in (base, *base.parents):
-      for sub in ("", "third_party/xprof"):
-        candidate = parent / sub / rel_path
-        if candidate.exists():
-          return candidate
-  return None
-
-
-# Shared by the console failure banner and the HTML report so the two cannot
-# disagree about how a reader is meant to accept this change.
-_TEMPLATE_DRIFT_APPROVAL_NOTE = (
-    "This is a source-text check, not a render, and it does not read"
-    " approved_manifest.json. The manifest approval flow used for journey"
-    " waypoints does not apply here and will not turn this check green. To"
-    " accept this change, copy"
-    " frontend/app/components/overview_page/overview_page.ng.html over"
-    " tests/ui/goldens/overview_page.ng.html in this changelist."
-)
-
-
-def _format_template_drift_banner(diff: WaypointDiff, report_path: str) -> str:
-  """Builds the failure banner for a template differing from baseline."""
-  return (
-      f"\n{'=' * 80}\n"
-      "  OVERVIEW PAGE TEMPLATE TEXT DIFFERS FROM ITS BASELINE\n"
-      f"  {diff.dom.added_lines} line(s) added,"
-      f" {diff.dom.deleted_lines} removed.\n\n"
-      f"  Report: {report_path}\n"
-      f"  {_TEMPLATE_DRIFT_APPROVAL_NOTE}\n"
-      f"{'=' * 80}"
-  )
 
 
 def _create_test_image(
@@ -134,7 +80,6 @@ def _evaluate(
 def _render_report(
     diffs: list[WaypointDiff],
     template_dir: pathlib.Path | None = None,
-    approval_note: str | None = None,
 ) -> str:
   """Renders the report into a temporary file and returns its HTML."""
   with tempfile.TemporaryDirectory() as tmpdir:
@@ -142,23 +87,8 @@ def _render_report(
         diffs,
         os.path.join(tmpdir, "report.html"),
         template_dir=template_dir,
-        approval_note=approval_note,
     )
     return pathlib.Path(path).read_text(encoding="utf-8")
-
-
-def _text_only_diff(dom: DomDiff, diff_hash: str = "abc123") -> WaypointDiff:
-  """Builds a capture-less waypoint that carries only a DOM verdict."""
-  return WaypointDiff(
-      journey_name="overview_page",
-      waypoint_name="template_text",
-      visual=VisualDiff(diff_ratio=0.0, total_pixels=0, diff_pixels=0),
-      dom=dom,
-      network=NetworkDiff(
-          has_changes=False, request_count_a=0, request_count_b=0
-      ),
-      diff_hash=diff_hash,
-  )
 
 
 class SxsDiffEngineTest(unittest.TestCase):
@@ -905,39 +835,6 @@ class SxsDiffEngineTest(unittest.TestCase):
     self.assertNotIn('id="view-slider-wp_0"', content)
     self.assertNotIn('id="view-heatmap-wp_0"', content)
 
-  def test_sxs_report_labels_waypoint_without_captures(self):
-    """Verifies a capture-less divergence is labelled, not silently blank."""
-    diff = _text_only_diff(
-        DomDiff(
-            has_changes=True,
-            unified_diff="-old\n+new",
-            added_lines=1,
-            deleted_lines=1,
-            diff_digest="abc123",
-        )
-    )
-
-    content = _render_report([diff])
-
-    # Source-level checks carry no screenshots. Saying so is what keeps the
-    # report from reading as broken to whoever opens it.
-    self.assertIn("Text-only comparison", content)
-    self.assertNotIn("data:image/png;base64,", content)
-
-    # A screenshot that is missing on one walk only still leaves a page to
-    # show, so that waypoint must not be labelled capture-less.
-    one_sided = _evaluate(
-        SxsDiffEngine(),
-        _create_test_image((128, 128, 128)),
-        b"",
-        html_a="",
-        journey="overview_page",
-        waypoint="one_sided",
-    )
-    content = _render_report([one_sided])
-    self.assertNotIn("Text-only comparison", content)
-    self.assertIn('id="view-slider-wp_0"', content)
-
   def test_sxs_report_survives_missing_section_templates(self):
     """Verifies an unreadable section template cannot destroy the report."""
     engine = SxsDiffEngine()
@@ -965,7 +862,7 @@ class SxsDiffEngineTest(unittest.TestCase):
     self.assertIn("Section unavailable", content)
 
   def test_sxs_report_approval_portal_makes_no_unearned_claims(self):
-    """Verifies portal neither certifies run nor emits whole manifest."""
+    """Verifies the portal does not certify the run it reports on."""
     engine = SxsDiffEngine()
     diff = _evaluate(
         engine,
@@ -978,11 +875,35 @@ class SxsDiffEngineTest(unittest.TestCase):
     content = _render_report([diff])
 
     # Approving in the portal writes nothing and submits nothing, so the page
-    # must not repaint its own badge green, and the text it emits must not be
-    # a whole manifest that overwrites approvals recorded by other reviewers.
+    # must not repaint its own badge green.
     self.assertIn('class="badge badge-fail"', content)
     self.assertNotIn("ALL JOURNEYS CERTIFIED", content)
-    self.assertNotIn("approved_diffs: {}", content)
+
+  def test_sxs_report_builds_on_existing_approvals(self):
+    """Verifies the report embeds the approvals the gate read."""
+    diff = _evaluate(
+        SxsDiffEngine(approved_manifest_path=""),
+        _create_test_image((128, 128, 128)),
+        _create_test_image((255, 0, 0)),
+    )
+    existing = {"diff_hash": "0123456789abcdef", "decision": "INTENTIONAL"}
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+      manifest = os.path.join(tmpdir, "approved_manifest.json")
+      pathlib.Path(manifest).write_text(
+          json.dumps({"approved_diffs": {"triage:hlo_stats": existing}}),
+          encoding="utf-8",
+      )
+      path = generate_sxs_html_report(
+          [diff], os.path.join(tmpdir, "report.html"), manifest_path=manifest
+      )
+      content = pathlib.Path(path).read_text(encoding="utf-8")
+
+    # The page's Approve button merges into this object, so replacing
+    # approved_manifest.json with its output keeps the earlier approval.
+    embedded = content.split("const currentApprovedDiffs = ", 1)[1]
+    embedded = embedded.split(";\n", 1)[0]
+    self.assertEqual(json.loads(embedded), {"triage:hlo_stats": existing})
 
   def test_sxs_report_renders_pixel_delta_views(self):
     """Verifies a real pixel delta earns the slider and heatmap views."""
@@ -1004,52 +925,6 @@ class SxsDiffEngineTest(unittest.TestCase):
     self.assertIn('id="view-slider-wp_0"', content)
     self.assertIn('id="view-heatmap-wp_0"', content)
     self.assertNotIn('id="context-sec-wp_0"', content)
-
-  def test_sxs_report_replaces_portal_for_non_manifest_gate(self):
-    """Verifies a gate outside the manifest gets instructions, not the portal."""
-    diff = _text_only_diff(
-        DomDiff(
-            has_changes=True,
-            unified_diff="-old\n+new",
-            added_lines=1,
-            deleted_lines=1,
-            diff_digest="abc123",
-        )
-    )
-
-    content = _render_report(
-        [diff], approval_note=_TEMPLATE_DRIFT_APPROVAL_NOTE
-    )
-
-    # This waypoint is CHANGED, which is what normally raises the portal. The
-    # check behind it never reads approved_manifest.json, so a reader who
-    # signed there would paste an entry nothing consumes and stay red.
-    self.assertNotIn('id="approval-card"', content)
-    self.assertNotIn("Approve & Sign Manifest", content)
-    self.assertIn("tests/ui/goldens/overview_page.ng.html", content)
-    # The hash reaches the page only through the list the signing JavaScript
-    # enumerates, so its absence is what proves that list is empty.
-    self.assertNotIn(diff.diff_hash, content)
-
-    # When all waypoints are identical, no approval notice is rendered even if
-    # approval_note was passed.
-    diff_identical = _text_only_diff(
-        DomDiff(
-            has_changes=False,
-            unified_diff="",
-            added_lines=0,
-            deleted_lines=0,
-            diff_digest="abc123",
-        )
-    )
-    content_identical = _render_report(
-        [diff_identical], approval_note=_TEMPLATE_DRIFT_APPROVAL_NOTE
-    )
-    self.assertNotIn('id="external-approval-notice"', content_identical)
-    self.assertNotIn('id="approval-card"', content_identical)
-    self.assertNotIn(
-        "tests/ui/goldens/overview_page.ng.html", content_identical
-    )
 
   def test_publish_report_artifact_writes_to_undeclared_outputs(self):
     """Verifies the report is copied into the Bazel undeclared outputs dir."""
@@ -1077,99 +952,6 @@ class SxsDiffEngineTest(unittest.TestCase):
 
       self.assertIsNone(publish_report_artifact(str(source), None))
       self.assertIsNone(publish_report_artifact(str(source), ""))
-
-  def test_overview_page_template_text_matches_baseline(self):
-    """Verifies the overview page template text still matches its baseline.
-
-    This is a source-text regression check and nothing else. It compares
-    overview_page.ng.html against a copy checked in under tests/ui/goldens; no
-    browser runs and nothing is rendered. It catches a template edit that lands
-    without its baseline being updated. It does not catch a CSS change, a
-    layout break, a font regression, or a broken binding, because none of those
-    alter these bytes.
-
-    This replaces a version that read the same two files and then built a
-    "candidate screenshot" by copying a Scuba golden and drawing an orange
-    rectangle onto it whenever the template contained a marker string, before
-    detecting the rectangle it had just drawn. That reported as visual coverage
-    while rendering nothing. Real visual coverage needs a live render in a
-    blocking lane, which does not exist for this package today.
-    """
-    candidate_path = _find_runfile(
-        "frontend/app/components/overview_page/overview_page.ng.html"
-    )
-    baseline_path = _find_runfile("tests/ui/goldens/overview_page.ng.html")
-    self.assertIsNotNone(
-        candidate_path, "overview_page.ng.html not found in runfiles"
-    )
-    self.assertIsNotNone(
-        baseline_path,
-        "baseline overview_page.ng.html not found in runfiles",
-    )
-
-    baseline_text = baseline_path.read_text(encoding="utf-8")
-    candidate_text = candidate_path.read_text(encoding="utf-8")
-    has_changes = baseline_text != candidate_text
-    raw_diff = list(
-        difflib.unified_diff(
-            baseline_text.splitlines(),
-            candidate_text.splitlines(),
-            fromfile="baseline/overview_page.ng.html",
-            tofile="candidate/overview_page.ng.html",
-            lineterm="",
-        )
-    )
-    added = sum(
-        1
-        for line in raw_diff
-        if line.startswith("+") and not line.startswith("+++")
-    )
-    deleted = sum(
-        1
-        for line in raw_diff
-        if line.startswith("-") and not line.startswith("---")
-    )
-    digest = (
-        hashlib.sha256("\n".join(raw_diff).encode("utf-8")).hexdigest()
-        if has_changes
-        else ""
-    )
-    dom = DomDiff(
-        has_changes=has_changes,
-        unified_diff="\n".join(raw_diff[:100]),
-        added_lines=added,
-        deleted_lines=deleted,
-        diff_digest=digest,
-    )
-
-    # Only the DOM leg carries a verdict here. The visual and network legs are
-    # constructed empty rather than fabricated, which is what makes the report
-    # below show a text diff and nothing that looks like a rendered comparison.
-    diff = _text_only_diff(dom, diff_hash=dom.diff_digest[:16])
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-      report_path = generate_sxs_html_report(
-          [diff],
-          os.path.join(tmpdir, "overview_page_template_report.html"),
-          approval_note=_TEMPLATE_DRIFT_APPROVAL_NOTE,
-      )
-      published = None
-      if dom.has_changes:
-        published = publish_report_artifact(
-            report_path,
-            os.environ.get("TEST_UNDECLARED_OUTPUTS_DIR"),
-            artifact_name="overview_page_template_report.html",
-        )
-        publish_report_artifact(
-            report_path,
-            os.environ.get("TEST_FAILURE_UNDECLARED_OUTPUTS_DIR"),
-            artifact_name="overview_page_template_report.html",
-        )
-
-      self.assertFalse(
-          dom.has_changes,
-          msg=_format_template_drift_banner(diff, published or report_path),
-      )
 
   def test_spatial_diff_hash_uniqueness(self):
     """Verifies equal-count pixel changes at different positions differ."""

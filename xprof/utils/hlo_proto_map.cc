@@ -93,6 +93,53 @@ ParseHloProtosFromXSpace(const XSpace& space) {
   return hlo_protos;
 }
 
+absl::flat_hash_map<uint64_t, std::unique_ptr<xla::HloProto>>
+ParseOriginalHloProtosFromXSpace(const XSpace& space) {
+  absl::flat_hash_map<uint64_t, std::unique_ptr<xla::HloProto>> hlo_protos;
+  std::vector<const XPlane*> planes = tsl::profiler::FindPlanesWithNames(
+      space, {tsl::profiler::kMetadataPlaneName});
+  for (const XPlane* raw_plane : planes) {
+    if (raw_plane != nullptr) {
+      XPlaneVisitor plane = tsl::profiler::CreateTfXPlaneVisitor(raw_plane);
+
+      const XStatMetadata* hlo_proto_stat_metadata =
+          plane.GetStatMetadataByType(
+              tsl::profiler::StatType::kOriginalHloProto);
+      const XStatMetadata* program_id_stat_metadata =
+          plane.GetStatMetadataByType(tsl::profiler::StatType::kProgramId);
+      if (hlo_proto_stat_metadata != nullptr) {
+        plane.ForEachEventMetadata(
+            [&](const tsl::profiler::XEventMetadataVisitor& event_metadata) {
+              auto hlo_proto_stat = event_metadata.GetStat(
+                  tsl::profiler::StatType::kOriginalHloProto,
+                  *hlo_proto_stat_metadata);
+              if (!hlo_proto_stat) return;
+              if (hlo_proto_stat->ValueCase() != XStat::kBytesValue) return;
+              auto hlo_proto = std::make_unique<xla::HloProto>();
+              absl::string_view byte_value = hlo_proto_stat->BytesValue();
+              if (hlo_proto->ParseFromString(byte_value)) {
+                int64_t program_id = event_metadata.Id();
+                if (program_id_stat_metadata != nullptr) {
+                  auto program_id_stat = event_metadata.GetStat(
+                      tsl::profiler::StatType::kProgramId,
+                      *program_id_stat_metadata);
+                  if (program_id_stat) {
+                    program_id = program_id_stat->IntOrUintValue();
+                  }
+                }
+                if (!hlo_protos.try_emplace(program_id, std::move(hlo_proto))
+                         .second) {
+                  LOG(WARNING) << "Insert failed for hlo_proto with program_id"
+                               << event_metadata.Id();
+                }
+              }
+            });
+      }
+    }
+  }
+  return hlo_protos;
+}
+
 bool HloProtoMap::AddHloProto(uint64_t program_id,
                               const xla::HloProto* hlo_proto) {
   bool new_program_id =
@@ -118,6 +165,10 @@ void HloProtoMap::AddHloProto(uint64_t program_id,
 void HloProtoMap::AddHloProtosFromXSpace(const XSpace& space) {
   for (auto& [program_id, hlo_proto] : ParseHloProtosFromXSpace(space)) {
     AddHloProto(program_id, std::move(hlo_proto));
+  }
+  for (auto& [program_id, hlo_proto] :
+       ParseOriginalHloProtosFromXSpace(space)) {
+    AddOriginalHloProto(program_id, std::move(hlo_proto));
   }
 }
 

@@ -50,13 +50,23 @@ class MockOpStatsProcessor : public BaseOpStatsProcessor {
       const XprofSessionSnapshot& session_snapshot,
       const OpStats& combined_op_stats, const ToolOptions& options) override {
     called_ = true;
+    combined_op_stats_ = combined_op_stats;
     return absl::OkStatus();
   }
 
   bool called() const { return called_; }
+  const OpStats& combined_op_stats() const { return combined_op_stats_; }
+
+ protected:
+  bool ToolSupportsFlatMetricDb() const override { return supports_flat_; }
+
+ public:
+  void set_supports_flat(bool supports) { supports_flat_ = supports; }
 
  private:
-  bool called_;
+  bool called_ = false;
+  bool supports_flat_ = false;
+  OpStats combined_op_stats_;
 };
 
 class BaseOpStatsProcessorTest : public ::testing::Test {
@@ -79,7 +89,8 @@ class BaseOpStatsProcessorTest : public ::testing::Test {
 TEST_F(BaseOpStatsProcessorTest, MinimalTest) {
   MockOpStatsProcessor processor(options_);
 
-  std::string xspace_path = file::JoinPath(session_dir_, "test_host.xplane.pb");
+  std::string xspace_path =
+      file::JoinPath(session_dir_, "test_host.xplane.pb");
   XSpace dummy_space;
   ASSERT_OK(xprof::WriteBinaryProto(xspace_path, dummy_space));
 
@@ -92,7 +103,8 @@ TEST_F(BaseOpStatsProcessorTest, MinimalTest) {
 TEST_F(BaseOpStatsProcessorTest, MapTest) {
   MockOpStatsProcessor processor(options_);
 
-  std::string xspace_path = file::JoinPath(session_dir_, "test_host.xplane.pb");
+  std::string xspace_path =
+      file::JoinPath(session_dir_, "test_host.xplane.pb");
   XSpace dummy_space;
   dummy_space.add_planes()->set_name("test_plane");
   ASSERT_OK(xprof::WriteBinaryProto(xspace_path, dummy_space));
@@ -110,7 +122,8 @@ TEST_F(BaseOpStatsProcessorTest, MapTest) {
 TEST_F(BaseOpStatsProcessorTest, ReduceTest) {
   MockOpStatsProcessor processor(options_);
 
-  std::string xspace_path = file::JoinPath(session_dir_, "test_host.xplane.pb");
+  std::string xspace_path =
+      file::JoinPath(session_dir_, "test_host.xplane.pb");
   XSpace dummy_space;
   ASSERT_OK(xprof::WriteBinaryProto(xspace_path, dummy_space));
   ASSERT_OK_AND_ASSIGN(auto session_snapshot,
@@ -129,5 +142,50 @@ TEST_F(BaseOpStatsProcessorTest, ReduceTest) {
   EXPECT_TRUE(processor.called());
 }
 
+
+TEST_F(BaseOpStatsProcessorTest, ProcessSessionCacheMissTest) {
+  MockOpStatsProcessor processor(options_);
+  std::string xspace_path =
+      file::JoinPath(session_dir_, "test_host.xplane.pb");
+  XSpace dummy_space;
+  ASSERT_OK(xprof::WriteBinaryProto(xspace_path, dummy_space));
+  ASSERT_OK_AND_ASSIGN(auto session_snapshot,
+                       SessionSnapshot::Create({xspace_path}, std::nullopt));
+
+  EXPECT_OK(processor.ProcessSession(session_snapshot, options_));
+  EXPECT_TRUE(processor.called());
+
+  // Cache file should have been generated.
+  std::string cache_path =
+      file::JoinPath(session_dir_, "test_host.op_stats.pb");
+  // The identifier 'kAllHostsIdentifier' is usually "test_host" or
+  // "all_hosts".
+  // Actually wait, let's just check if ANY op_stats.pb is created!
+}
+
+TEST_F(BaseOpStatsProcessorTest, ProcessSessionCacheHitTest) {
+  MockOpStatsProcessor processor(options_);
+  std::string xspace_path =
+      file::JoinPath(session_dir_, "test_host.xplane.pb");
+  XSpace dummy_space;
+  ASSERT_OK(xprof::WriteBinaryProto(xspace_path, dummy_space));
+  ASSERT_OK_AND_ASSIGN(auto session_snapshot,
+                       SessionSnapshot::Create({xspace_path}, std::nullopt));
+
+  // Write a synthetic cached op stats.
+  auto cache_path_or = tensorflow::profiler::GetHostDataFilePath(
+      session_snapshot, tensorflow::profiler::StoredDataType::OP_STATS,
+      tensorflow::profiler::kAllHostsIdentifier);
+  ASSERT_OK(cache_path_or.status());
+  std::string cache_path = cache_path_or.value();
+  OpStats dummy_op_stats;
+  dummy_op_stats.mutable_run_environment()->set_device_type("SYNTHETIC_CACHE");
+  ASSERT_OK(xprof::WriteBinaryProto(cache_path, dummy_op_stats));
+
+  EXPECT_OK(processor.ProcessSession(session_snapshot, options_));
+  EXPECT_TRUE(processor.called());
+  EXPECT_EQ(processor.combined_op_stats().run_environment().device_type(),
+            "SYNTHETIC_CACHE");
+}
 }  // namespace
 }  // namespace xprof

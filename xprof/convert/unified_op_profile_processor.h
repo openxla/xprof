@@ -35,6 +35,9 @@ class UnifiedOpProfileProcessor : public BaseOpStatsProcessor {
       const XprofSessionSnapshot& session_snapshot,
       const tensorflow::profiler::OpStats& combined_op_stats,
       const tensorflow::profiler::ToolOptions& options) override;
+
+ protected:
+  bool ToolSupportsFlatMetricDb() const override { return true; }
 };
 
 }  // namespace xprof

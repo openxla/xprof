@@ -43,20 +43,32 @@ import {filterFieldKey, lookupFilterOperator} from './utils';
     },
   ],
   template: `
-    <div matAutocompleteOrigin #origin="matAutocompleteOrigin" style="display:flex;">
-    <input #inputEl type="text"
-                #optionTrigger="matAutocompleteTrigger"
-                class="filter-input"
-                (input)="onInputChange()"
-                [value]="filterInput"
-                (keyup.enter)="tryAddFilter()"
-                (keyup.escape)="onEscape()"
-                [matAutocomplete]="filterOptionsAuto"
-                placeholder="Add filter..."
-                aria-label="Add filter"/>
+    <button
+      type="button"
+      class="add-filter-button"
+      *ngIf="!isEditing && !filterInput"
+      (click)="startEditing()">
+      + Add filter
+    </button>
+    <div
+      matAutocompleteOrigin
+      #origin="matAutocompleteOrigin"
+      [style.display]="(isEditing || filterInput) ? 'flex' : 'none'">
+      <input
+        #inputEl
+        type="text"
+        #optionTrigger="matAutocompleteTrigger"
+        class="filter-input"
+        (input)="onInputChange()"
+        [value]="filterInput"
+        (keyup.enter)="tryAddFilter()"
+        (keyup.escape)="onEscape()"
+        (blur)="onBlur()"
+        [matAutocomplete]="filterOptionsAuto"
+        aria-label="Add filter" />
     </div>
 
-<mat-autocomplete #filterOptionsAuto class="dense" panelWidth="fit-content" (optionSelected)="onOptionSelected($event)">
+<mat-autocomplete #filterOptionsAuto class="dense" panelWidth="fit-content" (optionSelected)="onOptionSelected($event)" (closed)="onPanelClosed()">
   <!-- option list for filter field and operator -->
   <div *ngIf="!isUpdatingValues()">
     <mat-option *ngFor="let option of (autoFilterOptions | async) trackBy:trackByValue"
@@ -89,6 +101,7 @@ export class FilterInput implements AfterViewInit, OnChanges {
   @Input() hosts: string[] = [];
   @Input() processes: string[] = [];
 
+  isEditing = false;
   private filterInputInternal = '';
   /**
    * Steps of creating a filter will control what dialog will be triggered for user inputs.
@@ -331,7 +344,30 @@ export class FilterInput implements AfterViewInit, OnChanges {
     }
   }
 
+  startEditing() {
+    this.isEditing = true;
+    setTimeout(() => {
+      this.inputEl?.nativeElement.focus();
+      this.optionTrigger?.openPanel();
+    }, 0);
+  }
+
+  onBlur() {
+    setTimeout(() => {
+      if (!this.filterInput && !this.optionTrigger?.panelOpen) {
+        this.isEditing = false;
+      }
+    }, 200);
+  }
+
+  onPanelClosed() {
+    if (!this.filterInput) {
+      this.isEditing = false;
+    }
+  }
+
   focus() {
+    this.isEditing = true;
     setTimeout(() => {
       this.inputEl.nativeElement.focus();
       this.optionTrigger?.openPanel();
@@ -383,9 +419,10 @@ export class FilterInput implements AfterViewInit, OnChanges {
     return false;
   }
 
-  private reset() {
+  reset() {
     this.filterInput = '';
     this.filterStep = 0;
+    this.isEditing = false;
     this.optionTrigger?.closePanel();
   }
 }

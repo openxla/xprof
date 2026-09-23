@@ -60,9 +60,8 @@
 </header>
 <div class="filter-bar" id="filter-bar">
   <div class="filter-nav">
-    <span>All Filters</span>
+    <mat-icon aria-label="Filter">filter_list</mat-icon>
   </div>
-  <mat-divider vertical></mat-divider>
   <span class="filter-content">
     <filter-chips class="filter-chips" [hosts]="hostList" [processes]="processList" [filters]="selectedFilters" (filterChanged)="onFilterEdit($event)" (filterRemoved)="onFilterRemove($event)"></filter-chips>
     <div class="filler-inputs-wrapper">
@@ -73,6 +72,14 @@
         (filterAdded)="onFilterAdd($event)"></filter-input>
     </div>
   </span>
+  <button
+    mat-icon-button
+    class="filter-reset-button"
+    (click)="onFiltersReset()"
+    matTooltip="Reset to default"
+    aria-label="Reset to default">
+    <mat-icon>restart_alt</mat-icon>
+  </button>
 </div>
 
 <trace-viewer-container [url]="url"

@@ -93,6 +93,7 @@ import {
   STACK_TRACE_TOOL_NAME,
   TRACE_VIEWER_TOOL_NAME,
 } from './constants';
+import {FilterInput} from './filter_input';
 import {AdjacentNodesResponse} from './interfaces';
 import {
   FilterChangeEvent,
@@ -274,6 +275,9 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   featureFlagsDialog!: TemplateRef<{}>;
 
   @ViewChild('settingsButton') settingsButton!: ElementRef<HTMLButtonElement>;
+
+  @ViewChild('filterInput', {static: false})
+  filterInput?: FilterInput;
 
   settingsDialogRef: MatDialogRef<unknown> | null = null;
 
@@ -1494,6 +1498,9 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   onFiltersReset() {
     this.selectedFilters = [];
+    if (this.filterInput) {
+      this.filterInput.reset();
+    }
     this.refreshDataAfterFilterChange();
   }
 

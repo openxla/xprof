@@ -233,6 +233,9 @@ Pallas or Mosaic):
     BFS neighborhood of an HLO instruction to identify fusion blockers.
 -   **[Get Utilization Viewer](references/get_utilization_viewer.md)**: Fetch
     utilization metrics filtered by host, device, or node.
+-   **[Query Events Database](references/events_db.md)**: Materialize and query
+    raw XProf event traces via SQL for fine-grained event, timeline, and
+    argument analysis.
 -   **[Analyze XLA Module Performance](references/analysis.md)**: Analyze XLA
     module performance, inspect HLO operations, query timeline events, and
     inspect raw XSpace protobufs (`get_xspace_proto`).

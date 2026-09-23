@@ -205,9 +205,11 @@ Conclude analysis with concrete operational deliverables:
 
 ## Appendix: Raw XSpace Protobuf Inspection (`get_xspace_proto`)
 
-For advanced debugging where high-level tools do not expose raw plane metadata
-or custom event attributes, use `get_xspace_proto` to inspect the JSON-serialized
-`XSpace` protobuf structure (filtered by optional plane or event limits):
+For fine-grained SQL queries over individual trace events, timeline slices, or
+event arguments, see [Query Events Database](events_db.md). For advanced
+debugging where high-level tools or the `Events` table do not expose raw plane
+metadata, use `get_xspace_proto` to inspect the JSON-serialized `XSpace`
+protobuf structure (filtered by optional plane or event limits):
 
 ```bash
 xprof get_xspace_proto <logdir>

@@ -272,22 +272,15 @@
                 >
                 <span class="settings-palette-name">{{ CUSTOM_PALETTE_NAME }}</span>
               </div>
-              <div
-                class="settings-palette-dots"
-                [style.background-color]="getPaletteBackgroundColor(CUSTOM_PALETTE_NAME)"
-              >
-                <span
-                  *ngFor="let dotColor of customColors.slice(0, 3)"
-                  class="settings-palette-dot"
-                  [style.background-color]="dotColor"
-                ></span>
-              </div>
+
             </label>
           </div>
 
           <!-- Custom Color Swatches -->
-          <div *ngIf="selectedPalette === CUSTOM_PALETTE_NAME" class="custom-colors-container">
-            <div class="custom-colors-header">Trace Colors ({{customColors.length}} / 23)</div>
+          <div
+            class="custom-colors-container"
+            [class.disabled]="selectedPalette !== CUSTOM_PALETTE_NAME"
+          >
             <div class="custom-colors-grid">
               <div *ngFor="let color of customColors; let i = index; trackBy: trackByIndex" class="custom-color-item">
                 <input
@@ -297,6 +290,7 @@
                   (change)="onCustomColorChange(i, $event)"
                   class="custom-color-input"
                   [attr.aria-label]="'Custom color ' + (i + 1)"
+                  [disabled]="selectedPalette !== CUSTOM_PALETTE_NAME"
                 >
                 <button
                   *ngIf="customColors.length > 4"
@@ -305,6 +299,7 @@
                   class="custom-color-remove-button"
                   aria-label="Remove color"
                   title="Remove color"
+                  [disabled]="selectedPalette !== CUSTOM_PALETTE_NAME"
                 >
                   <mat-icon class="custom-color-remove-icon">close</mat-icon>
                 </button>
@@ -316,6 +311,8 @@
                 (click)="addCustomColor()"
                 class="custom-color-add-button"
                 aria-label="Add color"
+                title="Add color"
+                [disabled]="selectedPalette !== CUSTOM_PALETTE_NAME"
               >
                 <mat-icon class="custom-color-add-icon">add</mat-icon>
               </button>

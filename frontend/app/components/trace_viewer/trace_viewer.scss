@@ -302,16 +302,14 @@ mat-divider {
 }
 
 .custom-colors-container {
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid #e0e0e0;
-}
+  margin-top: 0;
+  padding-left: 12px;
+  transition: opacity 0.2s ease;
 
-.custom-colors-header {
-  font-weight: 500;
-  font-size: 13px;
-  margin-bottom: 8px;
-  color: #444;
+  &.disabled {
+    opacity: 0.4;
+    pointer-events: none;
+  }
 }
 
 .custom-colors-grid {
@@ -319,7 +317,7 @@ mat-divider {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  padding: 6px 0;
+  padding: 0 0 4px;
 }
 
 .custom-color-item {

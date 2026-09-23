@@ -1,6 +1,7 @@
 #ifndef THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_TIMELINE_H_
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_TIMELINE_H_
 
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <map>
@@ -292,13 +293,10 @@ class Timeline {
   void set_group_heights_for_test(const std::vector<Pixel>& heights) {
     group_heights_ = heights;
   }
-  void set_label_width_for_test(Pixel width) {
-    label_width_ = width;
-  }
+  void set_label_width_for_test(Pixel width) { label_width_ = width; }
   void set_track_management_enabled_for_test(bool enabled) {
     track_management_enabled_ = enabled;
   }
-
 
   // The provided callback is stored and invoked during the lifetime of this
   // `Timeline` instance. Any captured references must outlive the `Timeline`
@@ -392,7 +390,6 @@ class Timeline {
   bool mpmd_pipeline_view_enabled() const {
     return mpmd_pipeline_view_enabled_;
   }
-
 
   void set_bookmarks_enabled(bool enabled) { bookmarks_enabled_ = enabled; }
   bool bookmarks_enabled() const { return bookmarks_enabled_; }
@@ -545,7 +542,6 @@ class Timeline {
   double px_per_time_unit(Pixel timeline_width) const;
   void DrawTimelinePlayerSync();
 
-
   // Calculates the layout for the delete button and its hover area.
   // Exposed for testing.
   DeleteButtonLayout GetDeleteButtonLayout(const ImVec2& text_size,
@@ -568,11 +564,33 @@ class Timeline {
       group_visible_[idx] = visible;
     }
   }
+  enum class HeaderSection { kHidden, kPinned, kAll };
+
+  // Caches aggregate expansion state for all expandable process tracks within a
+  // header section.
+  //
+  // Lifecycle:
+  // - Recomputed in UpdateLevelPositions() during layout pre-computation
+  //   whenever groups or their expansion states change.
+  // - Consumed in DrawHeaderRow() to decide whether to render the
+  //   Collapse/Expand All button (`any_expandable`) and which icon/tooltip
+  //   direction to display (`all_expanded`).
+  struct HeaderAggregateState {
+    bool any_expandable = false;
+    bool all_expanded = true;
+  };
+
   void set_header_all_expanded_for_test(bool expanded) {
     header_all_expanded_ = expanded;
   }
+  const Group& header_all_for_test() const { return header_all_; }
   const Group& header_hidden_for_test() const { return header_hidden_; }
   const Group& header_pinned_for_test() const { return header_pinned_; }
+  const HeaderAggregateState& header_section_state_for_test(
+      HeaderSection section) const {
+    return header_section_states_[static_cast<size_t>(section)];
+  }
+  ImVec2 GetCollapseExpandAllButtonPosForTest(const Group& header_group) const;
   void set_search_results_for_test(std::vector<SearchResult> results) {
     search_results_ = std::move(results);
   }
@@ -617,6 +635,10 @@ class Timeline {
   // terms to allow general usage.
   int FindFirstVisibleAncestorIndex(int start_idx) const;
 
+  // Returns the index of `group` in timeline_data_.groups, or -1 if `group` is
+  // not part of that array (e.g. a virtual header).
+  int GetGroupIndex(const Group* group) const;
+
   Pixel GetGroupTop(const Group* group) const;
   Pixel GetGroupBottom(const Group* group) const;
 
@@ -628,6 +650,11 @@ class Timeline {
 
   bool DrawHideButton(int group_index, Pixel height, bool is_track_hidden);
   bool DrawPinButton(int group_index, Pixel height, bool is_pinned);
+  // Draws the collapse/expand all button for a section of process tracks.
+  // Returns true if any process track's expansion state was toggled.
+  bool DrawCollapseExpandAllButton(
+      absl::Span<const Group* const> section_groups, Pixel height,
+      bool all_expanded, bool is_label_hovered);
 
  private:
   absl::flat_hash_set<int> matching_event_indices_;
@@ -661,9 +688,9 @@ class Timeline {
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
   void DrawRulerUI(const TickInfo& info, Pixel timeline_width);
 
-  // Draws a header row (All or Hidden) in the timeline.
+  // Draws a header row (Hidden, Pinned, or All) in the timeline.
   // Returns true if layout update is needed.
-  bool DrawHeaderRow(const Group* group_ptr, const ImVec2& tracks_start_pos,
+  bool DrawHeaderRow(int flattened_index, const ImVec2& tracks_start_pos,
                      const ImVec2& tracks_start_screen_pos, Pixel group_top,
                      Pixel group_bottom);
 
@@ -832,6 +859,12 @@ class Timeline {
   int all_processes_count_ = 0;
   int hidden_processes_count_ = 0;
   int pinned_processes_count_ = 0;
+
+  // Cached aggregate expansion states for each HeaderSection (indexed by
+  // static_cast<size_t>(HeaderSection)). Recomputed in UpdateLevelPositions().
+  std::array<HeaderAggregateState, 3> header_section_states_;
+
+  static HeaderSection GetHeaderSection(const Group* group);
 
   FlameChartTimelineData timeline_data_;
   std::vector<float> utilization_bins_;

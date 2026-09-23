@@ -61,6 +61,7 @@ inline constexpr ImDrawFlags kImDrawFlags = ImDrawFlags_RoundCornersDefault_;
 inline constexpr ImU32 kDefaultTextColor = kBlackColor;
 inline constexpr Microseconds kMinVisibleEventDuration = 1000.0;
 inline constexpr Pixel kButtonGap = 4.0f;
+inline constexpr Pixel kChevronThickness = 1.2f;
 inline constexpr Pixel kCornerRounding = 0.0f;
 inline constexpr Pixel kDefaultLabelWidth = 250.0f;
 inline constexpr Pixel kEventHeight = 18.0f;
@@ -86,8 +87,12 @@ inline constexpr Pixel kTimelinePaddingRight = 1.0f;
 inline constexpr Pixel kToastCornerRounding = 4.0f;
 inline constexpr Pixel kVirtualHeaderHeight = 30.0f;
 inline constexpr double kEpsilon = 0.001;
+inline constexpr float kChevronGap = 0.28f;
+inline constexpr float kChevronHalfHeight = 0.18f;
+inline constexpr float kChevronHalfWidth = 0.35f;
 // The scale factor applied to the font size to determine the arrow / icon size.
 inline constexpr float kIconSizeScale = 0.7f;
+inline constexpr float kLargeIconSizeScale = 1.0f;
 // go/keep-sorted end
 
 // Highlighting Constants
@@ -234,7 +239,9 @@ inline constexpr double kEventNavigationZoomFactor = 2.5;
 inline constexpr char kAllHeaderName[] = "All";
 inline constexpr char kCannotHideLastProcessNotification[] =
     "Cannot hide the last visible process.";
+inline constexpr char kCollapseAllTrackTooltip[] = "Collapse all tracks";
 inline constexpr char kCounterTooltipFormat[] = "Time: %s\nValue: %.2f";
+inline constexpr char kExpandAllTrackTooltip[] = "Expand all tracks";
 inline constexpr char kHiddenHeaderName[] = "Hidden";
 inline constexpr char kHiddenProcessNotificationPrefix[] = "Hidden process: ";
 inline constexpr char kHideTrackTooltip[] = "Hide track";
@@ -249,7 +256,7 @@ inline constexpr char kUnhiddenProcessNotificationPrefix[] =
 inline constexpr char kUnhideTrackTooltip[] = "Unhide track";
 inline constexpr char kUnpinTrackTooltip[] = "Unpin track";
 inline constexpr char kUnpinnedProcessNotificationPrefix[] =
-        "Unpinned process: ";
+    "Unpinned process: ";
 // go/keep-sorted end
 }  // namespace traceviewer
 

@@ -1,3 +1,106 @@
 {
-  "approved_diffs": {}
+  "approved_diffs": {
+    "compiler.graph_and_multihost_scale:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "425f09c631a9c94e",
+      "rationale": "Approved intentional Overview Page crimson header accent bar for 2-CL SxS UI certification demo.",
+      "timestamp": "2026-09-23T10:40:00Z"
+    },
+    "compiler.graph_and_multihost_scale:03_goto_v6e-4-training/overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "7959b52eecbe05e8",
+      "rationale": "Approved intentional Overview Page crimson header accent bar for 2-CL SxS UI certification demo.",
+      "timestamp": "2026-09-23T10:40:00Z"
+    },
+    "compiler.graph_and_multihost_scale:04_select_host_t1v-n-9bfa07b4-w-0": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "5b113497834763d8",
+      "rationale": "Approved intentional Overview Page crimson header accent bar for 2-CL SxS UI certification demo.",
+      "timestamp": "2026-09-23T10:40:00Z"
+    },
+    "compiler.graph_and_multihost_scale:06_switch_tool_Overview Page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "d5735ee919bb81a6",
+      "rationale": "Approved intentional Overview Page crimson header accent bar for 2-CL SxS UI certification demo.",
+      "timestamp": "2026-09-23T10:40:00Z"
+    },
+    "compute.op_profile_and_stats:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "22517f76b329705e",
+      "rationale": "Approved intentional Overview Page crimson header accent bar for 2-CL SxS UI certification demo.",
+      "timestamp": "2026-09-23T10:40:00Z"
+    },
+    "distributed.host_retention_and_trace:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "118fa1fe26fb7fcc",
+      "rationale": "Approved intentional Overview Page crimson header accent bar for 2-CL SxS UI certification demo.",
+      "timestamp": "2026-09-23T10:40:00Z"
+    },
+    "distributed.host_retention_and_trace:01_select_host_t1v-n-9bfa07b4-w-0": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "c47afd8ba8eb07c2",
+      "rationale": "Approved intentional Overview Page crimson header accent bar for 2-CL SxS UI certification demo.",
+      "timestamp": "2026-09-23T10:40:00Z"
+    },
+    "distributed.host_retention_and_trace:04_switch_tool_Overview Page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "5b8d95d0f1f3338c",
+      "rationale": "Approved intentional Overview Page crimson header accent bar for 2-CL SxS UI certification demo.",
+      "timestamp": "2026-09-23T10:40:00Z"
+    },
+    "full_spectrum.multimodal_endurance:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "d0cb29046cef8bb7",
+      "rationale": "Approved intentional Overview Page crimson header accent bar for 2-CL SxS UI certification demo.",
+      "timestamp": "2026-09-23T10:40:00Z"
+    },
+    "full_spectrum.multimodal_endurance:08_goto_v6e-4-training/overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "ad117ae492ff71ca",
+      "rationale": "Approved intentional Overview Page crimson header accent bar for 2-CL SxS UI certification demo.",
+      "timestamp": "2026-09-23T10:40:00Z"
+    },
+    "memory.cross_hardware_tpu_to_v6e:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "fd8996f138fa2a0e",
+      "rationale": "Approved intentional Overview Page crimson header accent bar for 2-CL SxS UI certification demo.",
+      "timestamp": "2026-09-23T10:40:00Z"
+    },
+    "memory.cross_hardware_tpu_to_v6e:03_goto_v6e-4-training/overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "f81820226d65ce8e",
+      "rationale": "Approved intentional Overview Page crimson header accent bar for 2-CL SxS UI certification demo.",
+      "timestamp": "2026-09-23T10:40:00Z"
+    },
+    "memory.cross_hardware_tpu_to_v6e:06_goto_v6e-4-training/overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "132351318be35106",
+      "rationale": "Approved intentional Overview Page crimson header accent bar for 2-CL SxS UI certification demo.",
+      "timestamp": "2026-09-23T10:40:00Z"
+    },
+    "overview_page:template_text": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "d53000e51204b695",
+      "rationale": "Approved intentional Overview Page template change for 2-CL SxS UI certification demo.",
+      "timestamp": "2026-09-23T10:40:00Z"
+    },
+    "routing.popstate_resilience_loop:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "3035a5e9d2b72f2b",
+      "rationale": "Approved intentional Overview Page crimson header accent bar for 2-CL SxS UI certification demo.",
+      "timestamp": "2026-09-23T10:40:00Z"
+    },
+    "routing.popstate_resilience_loop:02_go_back_Overview Page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "760e04c12c709d14",
+      "rationale": "Approved intentional Overview Page crimson header accent bar for 2-CL SxS UI certification demo.",
+      "timestamp": "2026-09-23T10:40:00Z"
+    },
+    "triage.pipeline_and_hardware_bounds:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "1bceadeceaaf3559",
+      "rationale": "Approved intentional Overview Page crimson header accent bar for 2-CL SxS UI certification demo.",
+      "timestamp": "2026-09-23T10:40:00Z"
+    }
+  }
 }

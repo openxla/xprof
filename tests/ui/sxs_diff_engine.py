@@ -319,6 +319,11 @@ class SxsDiffEngine:
         cleaned,
     )
     cleaned = re.sub(
+        r'\s*cdk-describedby-host=["\'][^"\']*["\']',
+        "",
+        cleaned,
+    )
+    cleaned = re.sub(
         r' aria-controls="mat-(?:mdc-)?tab-content-[0-9N]+-[0-9N]+"',
         "",
         cleaned,
@@ -384,6 +389,34 @@ class SxsDiffEngine:
     )
     cleaned = self._remove_matching_elements(cleaned, "div", _is_unwanted_div)
     cleaned = re.sub(r"\s*mat-form-field-animations-enabled\b", "", cleaned)
+    cleaned = re.sub(
+        r'<script\b[^>]*src=["\']https?://www\.gstatic\.[^"\']*["\'][^>]*>'
+        r"\s*</script>",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"\bcustom-call\.[0-9]+\b", "custom-call.N", cleaned)
+    cleaned = re.sub(
+        r"url\([^)]*#(_ABSTRACT_RENDERER_ID_[0-9]+)\)",
+        r"url(#\1)",
+        cleaned,
+    )
+    cleaned = re.sub(
+        r"(<overview-page[^>]*>)(<div[^>]*>)"
+        r"(<diagnostics-view>.*?</diagnostics-view>)"
+        r'(<div class="container">)',
+        r"\1\n<!-- overview-page-start -->\n<!-- overview-page-root -->\n"
+        r"\2\n<!-- overview-page-body-start -->\n<!-- overview-page-body -->\n"
+        r"\3\n\4\n",
+        cleaned,
+    )
+    cleaned = re.sub(
+        r"^.*?(?=\n<!-- overview-page-start -->)",
+        lambda m: m.group(0).replace("\n", " "),
+        cleaned,
+        flags=re.DOTALL,
+    )
     cleaned = self._renumber_renderer_ids(cleaned)
     return "\n".join(
         line.strip() for line in cleaned.splitlines() if line.strip()

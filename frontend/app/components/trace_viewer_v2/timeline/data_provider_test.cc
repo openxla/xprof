@@ -345,11 +345,11 @@ TEST_F(DataProviderTest, ThreadSorting) {
   const FlameChartTimelineData& data = timeline_.timeline_data();
   ASSERT_THAT(data.groups, SizeIs(4));
   EXPECT_EQ(data.groups[0].name, "Process_1");
-  // Index 5 comes before 10. For Index 5, "A" comes before "B".
-  // Expected: A, B, C
-  EXPECT_EQ(data.groups[1].name, "A");
-  EXPECT_EQ(data.groups[2].name, "B");
-  EXPECT_EQ(data.groups[3].name, "C");
+  // Unindexed thread "C" defaults to sort_index 0, preceding index 5 ("A")
+  // and 10 ("B").
+  EXPECT_EQ(data.groups[1].name, "C");
+  EXPECT_EQ(data.groups[2].name, "A");
+  EXPECT_EQ(data.groups[3].name, "B");
 }
 
 TEST_F(DataProviderTest, ProcessSorting) {
@@ -425,7 +425,8 @@ TEST_F(DataProviderTest, ThreadSortingEqualSortIndicesFallbackToName) {
 TEST_F(DataProviderTest, ThreadSortingOneThreadHasSortIndexPrecedesOneWithout) {
   // Thread 100 has sort_index 10 and name "Zebra".
   // Thread 200 has no sort_index and name "Apple".
-  // Thread with sort index must sort BEFORE thread without sort index.
+  // Unindexed thread defaults to sort_index = 0, so "Apple" (0) precedes
+  // "Zebra" (10).
   const std::vector<TraceEvent> events = {
       CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),
       CreateMetadataEvent(std::string(kThreadName), 1, 100, "Zebra"),
@@ -440,8 +441,8 @@ TEST_F(DataProviderTest, ThreadSortingOneThreadHasSortIndexPrecedesOneWithout) {
   const FlameChartTimelineData& data = timeline_.timeline_data();
   ASSERT_THAT(data.groups, SizeIs(3));
   EXPECT_EQ(data.groups[0].name, "Process_1");
-  EXPECT_EQ(data.groups[1].name, "Zebra");
-  EXPECT_EQ(data.groups[2].name, "Apple");
+  EXPECT_EQ(data.groups[1].name, "Apple");
+  EXPECT_EQ(data.groups[2].name, "Zebra");
 
   // Inverted: Thread 100 has no sort index ("Apple"), Thread 200 has sort index
   // ("Zebra")
@@ -461,8 +462,8 @@ TEST_F(DataProviderTest, ThreadSortingOneThreadHasSortIndexPrecedesOneWithout) {
   const FlameChartTimelineData& data2 = timeline2.timeline_data();
   ASSERT_THAT(data2.groups, SizeIs(3));
   EXPECT_EQ(data2.groups[0].name, "Process_1");
-  EXPECT_EQ(data2.groups[1].name, "Zebra");
-  EXPECT_EQ(data2.groups[2].name, "Apple");
+  EXPECT_EQ(data2.groups[1].name, "Apple");
+  EXPECT_EQ(data2.groups[2].name, "Zebra");
 }
 
 TEST_F(DataProviderTest, ThreadSortingNeitherThreadHasSortIndexFallbackToName) {
@@ -600,10 +601,10 @@ TEST_F(DataProviderTest, ThreadSortingInAsyncProcessTrack) {
   const FlameChartTimelineData& data = timeline_.timeline_data();
   ASSERT_THAT(data.groups, SizeIs(4));
   EXPECT_EQ(data.groups[0].name, "Async Process");
-  EXPECT_EQ(data.groups[1].name, "AsyncOp");
-  // Index 2 ("Thread20") precedes Index 5 ("Thread30")
-  EXPECT_EQ(data.groups[2].name, "Thread20");
-  EXPECT_EQ(data.groups[3].name, "Thread30");
+  // Standard sync threads precede named async tracks:
+  EXPECT_EQ(data.groups[1].name, "Thread20");
+  EXPECT_EQ(data.groups[2].name, "Thread30");
+  EXPECT_EQ(data.groups[3].name, "AsyncOp");
 }
 
 // --- Process Sorting Tests (GetSortedProcessIds) ---
@@ -632,7 +633,8 @@ TEST_F(DataProviderTest, ProcessSortingBothHaveEqualSortIndexFallsBackToName) {
 TEST_F(DataProviderTest, ProcessSortingOneHasSortIndexPrecedesOneWithout) {
   // Process 1 has sort_index 10 and name "Zebra Process".
   // Process 2 has no sort_index and name "Apple Process".
-  // Process with sort index must sort BEFORE process without sort index.
+  // Unindexed process defaults to sort_index = 0, so Process 2 precedes
+  // Process 1.
   const std::vector<TraceEvent> events = {
       CreateMetadataEvent(std::string(kProcessName), 1, 0, "Zebra Process"),
       CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 1, 0, "10"),
@@ -648,10 +650,10 @@ TEST_F(DataProviderTest, ProcessSortingOneHasSortIndexPrecedesOneWithout) {
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
   ASSERT_THAT(data.groups, SizeIs(4));
-  EXPECT_EQ(data.groups[0].name, "Zebra Process");
-  EXPECT_EQ(data.groups[2].name, "Apple Process");
+  EXPECT_EQ(data.groups[0].name, "Apple Process");
+  EXPECT_EQ(data.groups[2].name, "Zebra Process");
 
-  // Inverted: Process 1 has no sort index, Process 2 has sort index
+  // Inverted: Process 1 has no sort index, Process 2 has sort index 10
   Timeline timeline2(palette_);
   DataProvider data_provider2;
   const std::vector<TraceEvent> events2 = {
@@ -669,8 +671,8 @@ TEST_F(DataProviderTest, ProcessSortingOneHasSortIndexPrecedesOneWithout) {
 
   const FlameChartTimelineData& data2 = timeline2.timeline_data();
   ASSERT_THAT(data2.groups, SizeIs(4));
-  EXPECT_EQ(data2.groups[0].name, "Zebra Process");
-  EXPECT_EQ(data2.groups[2].name, "Apple Process");
+  EXPECT_EQ(data2.groups[0].name, "Apple Process");
+  EXPECT_EQ(data2.groups[2].name, "Zebra Process");
 }
 
 TEST_F(DataProviderTest,
@@ -1332,9 +1334,9 @@ TEST_F(DataProviderTest, ProcessMultipleCounterEventsSorted) {
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
 
-  ASSERT_TRUE(data.counter_data_by_group_index.count(2));
+  ASSERT_TRUE(data.counter_data_by_group_index.count(1));
 
-  const CounterData& counter_data = data.counter_data_by_group_index.at(2);
+  const CounterData& counter_data = data.counter_data_by_group_index.at(1);
 
   EXPECT_THAT(counter_data.timestamps, ElementsAre(50.0, 60.0, 100.0, 110.0));
   EXPECT_THAT(counter_data.values, ElementsAre(5.0, 6.0, 10.0, 11.0));
@@ -1361,16 +1363,16 @@ TEST_F(DataProviderTest, ProcessCounterEventAndCompleteEvent) {
   EXPECT_EQ(data.groups[0].name, "Process_1");
   EXPECT_EQ(data.groups[0].nesting_level, 1);
 
-  EXPECT_EQ(data.groups[1].name, "Thread_1");
+  EXPECT_EQ(data.groups[1].name, "Counter A");
+  EXPECT_EQ(data.groups[1].type, Group::Type::kCounter);
   EXPECT_EQ(data.groups[1].nesting_level, 2);
 
-  EXPECT_EQ(data.groups[2].name, "Counter A");
-  EXPECT_EQ(data.groups[2].type, Group::Type::kCounter);
+  EXPECT_EQ(data.groups[2].name, "Thread_1");
   EXPECT_EQ(data.groups[2].nesting_level, 2);
 
-  ASSERT_TRUE(data.counter_data_by_group_index.count(2));
+  ASSERT_TRUE(data.counter_data_by_group_index.count(1));
 
-  const CounterData& counter_data = data.counter_data_by_group_index.at(2);
+  const CounterData& counter_data = data.counter_data_by_group_index.at(1);
 
   EXPECT_THAT(counter_data.timestamps, ElementsAre(10.0, 20.0, 30.0));
   EXPECT_THAT(counter_data.values, ElementsAre(1.0, 5.0, 2.0));
@@ -1453,11 +1455,11 @@ TEST_F(DataProviderTest, CounterTrackIncrementsLevel) {
   EXPECT_TRUE(data.groups[0].has_children);
   EXPECT_THAT(data.groups[0].child_indices, ElementsAre(1, 2));
 
-  EXPECT_EQ(data.groups[1].name, "Thread_1");
+  EXPECT_EQ(data.groups[1].name, "CounterA");
   EXPECT_EQ(data.groups[1].start_level, 0);
   EXPECT_EQ(data.groups[1].parent_index, 0);
 
-  EXPECT_EQ(data.groups[2].name, "CounterA");
+  EXPECT_EQ(data.groups[2].name, "Thread_1");
   EXPECT_EQ(data.groups[2].start_level, 1);
   EXPECT_EQ(data.groups[2].parent_index, 0);
 
@@ -1556,14 +1558,14 @@ TEST_F(DataProviderTest, ProcessesSortedBySortIndex) {
   // 3 processes, each having 1 thread track -> 6 groups total.
   ASSERT_THAT(data.groups, SizeIs(6));
 
-  // Expected order: Process 2 (index 1), Process 1 (index 2), Process 3 (index
-  // 3 / default)
-  // Groups for Process 2 are at indices 0 (process) and 1 (thread)
-  // Groups for Process 1 are at indices 2 (process) and 3 (thread)
-  // Groups for Process 3 are at indices 4 (process) and 5 (thread)
-  EXPECT_EQ(data.groups[0].name, "Process_2");
-  EXPECT_EQ(data.groups[2].name, "Process_1");
-  EXPECT_EQ(data.groups[4].name, "Process_3");
+  // Expected order: Process 3 (unindexed default 0), Process 2 (index 1),
+  // Process 1 (index 2)
+  // Groups for Process 3 are at indices 0 (process) and 1 (thread)
+  // Groups for Process 2 are at indices 2 (process) and 3 (thread)
+  // Groups for Process 1 are at indices 4 (process) and 5 (thread)
+  EXPECT_EQ(data.groups[0].name, "Process_3");
+  EXPECT_EQ(data.groups[2].name, "Process_2");
+  EXPECT_EQ(data.groups[4].name, "Process_1");
 }
 
 TEST_F(DataProviderTest, ProcessesSortedBySortIndexStable) {
@@ -1761,8 +1763,8 @@ TEST_F(DataProviderTest, AsyncProcessesMixedGrouping) {
   ASSERT_THAT(data.groups, SizeIs(3));
 
   EXPECT_EQ(data.groups[0].name, "Mixed Process");
-  EXPECT_EQ(data.groups[1].name, "async-op");
-  EXPECT_EQ(data.groups[2].name, "Thread_55");
+  EXPECT_EQ(data.groups[1].name, "Thread_55");
+  EXPECT_EQ(data.groups[2].name, "async-op");
 }
 
 TEST_F(DataProviderTest, AsyncProcessesConcurrentPacking) {
@@ -1854,12 +1856,11 @@ TEST_F(DataProviderTest, ProcessesSortedWithMalformedAndMissingSortIndex) {
   const FlameChartTimelineData& data = timeline_.timeline_data();
   ASSERT_THAT(data.groups, SizeIs(6));
 
-  // pid 1 -> sort key 1 (fallback)
-  // pid 2 -> sort key 0
-  // pid 3 -> sort key 3 (fallback)
-  // Expected order: 2, 1, 3
-  EXPECT_EQ(data.groups[0].name, "Process_2");
-  EXPECT_EQ(data.groups[2].name, "Process_1");
+  // Missing and malformed sort indices default to 0.
+  // All three have sort_index = 0; sort alphabetically: Process_1, Process_2,
+  // Process_3.
+  EXPECT_EQ(data.groups[0].name, "Process_1");
+  EXPECT_EQ(data.groups[2].name, "Process_2");
   EXPECT_EQ(data.groups[4].name, "Process_3");
 }
 
@@ -2902,20 +2903,18 @@ TEST_F(DataProviderTest,
 
   // Timeline groups will have:
   // 0: Process 1
-  // 1: Thread 101
-  // 2: Test Counter
+  // 1: Test Counter
+  // 2: Thread 101
   ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(3));
   EXPECT_TRUE(timeline_.timeline_data().groups[0].expanded);  // Process 1
-  EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);  // Thread 101
-  // Counter groups are typically expanded by default depending on the
-  // name/process.
-  EXPECT_TRUE(timeline_.timeline_data().groups[2].expanded);  // Counter
+  EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);  // Counter
+  EXPECT_TRUE(timeline_.timeline_data().groups[2].expanded);  // Thread 101
 
   {
     FlameChartTimelineData data = timeline_.timeline_data();
     data.groups[0].expanded = false;  // Manually collapse Process 1
-    data.groups[1].expanded = false;  // Manually collapse single-line thread
-    data.groups[2].expanded = false;  // Manually collapse counter track
+    data.groups[1].expanded = false;  // Manually collapse counter track
+    data.groups[2].expanded = false;  // Manually collapse single-line thread
     timeline_.SetTimelineData(std::move(data));
   }
 
@@ -2939,12 +2938,12 @@ TEST_F(DataProviderTest,
   EXPECT_FALSE(timeline_.timeline_data()
                    .groups[0]
                    .expanded);  // Process 1 (PRESERVED false)
-  EXPECT_FALSE(timeline_.timeline_data()
-                   .groups[1]
-                   .expanded);  // Thread 101 (PRESERVED false)
   EXPECT_TRUE(timeline_.timeline_data()
-                  .groups[2]
+                  .groups[1]
                   .expanded);  // Test Counter (FORCED TRUE)
+  EXPECT_FALSE(timeline_.timeline_data()
+                   .groups[2]
+                   .expanded);  // Thread 101 (PRESERVED false)
 }
 
 TEST_F(DataProviderTest, ProcessesSortedByThreadDmaPriority) {
@@ -3172,11 +3171,12 @@ TEST_F(DataProviderTest, PopulateProcessTrackWithDmaThreadNameIsAsync) {
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
 
-  // Process 2 (has DMA thread) has priority 1.
-  // Process 1 (Normal Process) has priority 0.
-  // So Process 2 should be first!
+  // DMA thread does not artificially prioritize process sorting over named
+  // processes.
+  // "Normal Process" (named) precedes "Process_2" (unnamed).
   ASSERT_THAT(data.groups, Not(IsEmpty()));
-  EXPECT_EQ(data.groups[0].name, "Process_2");
+  EXPECT_EQ(data.groups[0].name, "Normal Process");
+  EXPECT_EQ(data.groups[2].name, "Process_2");
 }
 
 TEST_F(DataProviderTest,
@@ -4057,13 +4057,19 @@ TEST_F(DataProviderTest, InvalidSortIndexBoundsIgnored) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  // Process 4 has valid sort_index 10.0 (Tier 1), sorting before unindexed.
-  // ThreadB has sort_index 1.0 (Tier 1), sorting before ThreadA (invalid
-  // sort_index -> Tier 2).
-  ASSERT_THAT(data.groups, SizeIs(Ge(5)));
-  EXPECT_EQ(data.groups[0].name, "ProcessD");
-  EXPECT_EQ(data.groups[1].name, "ThreadB");
-  EXPECT_EQ(data.groups[2].name, "ThreadA");
+  // ProcessA has valid negative sort_index -100.0, sorting first.
+  // ProcessB ("1e25") and ProcessC ("NaN") have out-of-bounds / invalid
+  // indices, defaulting to 0.
+  // ProcessD has sort_index 10.0, sorting after 0.
+  // Within ProcessD: ThreadA has valid negative sort_index -5.0, sorting
+  // before ThreadB (1.0).
+  ASSERT_THAT(data.groups, SizeIs(Ge(8)));
+  EXPECT_EQ(data.groups[0].name, "ProcessA");
+  EXPECT_EQ(data.groups[2].name, "ProcessB");
+  EXPECT_EQ(data.groups[4].name, "ProcessC");
+  EXPECT_EQ(data.groups[6].name, "ProcessD");
+  EXPECT_EQ(data.groups[7].name, "ThreadA");
+  EXPECT_EQ(data.groups[8].name, "ThreadB");
 }
 
 TEST_F(DataProviderTest, ExpandedState_PreservedAcrossParentIndexVariations) {
@@ -4452,7 +4458,8 @@ TEST_F(DataProviderTest, ProcessPriority_InvariantAcrossEmptySlices) {
   data_provider_.ProcessTraceEvents(
       ParsedTraceEvents{.flame_events = slice1_events}, timeline_);
 
-  // Process 2 (priority 2) should be sorted before Process 1 (priority 0).
+  // Process 1 ("Process 1") precedes Process 2 ("Process 2") alphabetically.
+  // Async XLA Ops thread does not artificially prioritize Process 2.
   const std::vector<std::string> group_names_slice1 =
       GetGroupNames(timeline_.timeline_data());
   const auto it_p2_s1 = std::find(group_names_slice1.begin(),
@@ -4461,7 +4468,7 @@ TEST_F(DataProviderTest, ProcessPriority_InvariantAcrossEmptySlices) {
                                   group_names_slice1.end(), "Process 1");
   ASSERT_NE(it_p2_s1, group_names_slice1.end());
   ASSERT_NE(it_p1_s1, group_names_slice1.end());
-  ASSERT_LT(it_p2_s1, it_p1_s1);
+  ASSERT_LT(it_p1_s1, it_p2_s1);
 
   // Slice 2: Process 2 has 0 events, Process 1 has 1 event.
   const std::vector<TraceEvent> slice2_events = {
@@ -4470,7 +4477,7 @@ TEST_F(DataProviderTest, ProcessPriority_InvariantAcrossEmptySlices) {
   data_provider_.ProcessTraceEvents(
       ParsedTraceEvents{.flame_events = slice2_events}, timeline_);
 
-  // Process 2 must STILL be sorted before Process 1 (order invariant).
+  // Process 1 must STILL be sorted before Process 2 (order invariant).
   const std::vector<std::string> group_names_slice2 =
       GetGroupNames(timeline_.timeline_data());
   const auto it_p2_s2 = std::find(group_names_slice2.begin(),
@@ -4479,7 +4486,7 @@ TEST_F(DataProviderTest, ProcessPriority_InvariantAcrossEmptySlices) {
                                   group_names_slice2.end(), "Process 1");
   ASSERT_NE(it_p2_s2, group_names_slice2.end());
   ASSERT_NE(it_p1_s2, group_names_slice2.end());
-  EXPECT_LT(it_p2_s2, it_p1_s2);
+  EXPECT_LT(it_p1_s2, it_p2_s2);
 }
 
 TEST_F(DataProviderTest,
@@ -4857,7 +4864,7 @@ TEST_F(DataProviderTest, AsyncProcessPriority_PersistsAcrossSlices) {
       std::find(group_names.begin(), group_names.end(), "Process_1");
   ASSERT_NE(it_p2, group_names.end());
   ASSERT_NE(it_p1, group_names.end());
-  EXPECT_LT(it_p2, it_p1);
+  EXPECT_LT(it_p1, it_p2);
 }
 
 TEST_F(DataProviderTest, AsyncTracks_PersistsAcrossSlices) {
@@ -5003,6 +5010,198 @@ TEST_F(DataProviderTest,
   EXPECT_EQ(groups[3].name, "Counter 2");
   EXPECT_EQ(groups[3].type, Group::Type::kCounter);
   EXPECT_TRUE(groups[3].expanded);
+}
+
+TEST_F(DataProviderTest, V1Parity_ProcessSortIndexNumericOrdering) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Pos10"),
+      CreateProcessSortIndexEvent(1, "10"),
+      CreateCompleteEvent(1, 1, "Task"),
+
+      CreateProcessEvent(2, "DefaultZero_B"),
+      CreateCompleteEvent(2, 1, "Task"),
+
+      CreateProcessEvent(4, "ExplicitZero_A"),
+      CreateProcessSortIndexEvent(4, "0"),
+      CreateCompleteEvent(4, 1, "Task"),
+
+      CreateProcessEvent(5, "Pos1"),
+      CreateProcessSortIndexEvent(5, "1"),
+      CreateCompleteEvent(5, 1, "Task"),
+
+      CreateProcessEvent(6, "Pos701"),
+      CreateProcessSortIndexEvent(6, "701"),
+      CreateCompleteEvent(6, 1, "Task"),
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  // Expected process order:
+  // 0: "DefaultZero_B", "ExplicitZero_A" (alphabetical tie-breaker: 'D' < 'E')
+  // 1: "Pos1"
+  // 10: "Pos10"
+  // 701: "Pos701"
+  std::vector<std::string> process_names;
+  for (const auto& group : data.groups) {
+    if (group.nesting_level == kProcessNestingLevel) {
+      process_names.push_back(group.name);
+    }
+  }
+  EXPECT_THAT(process_names, ElementsAre("DefaultZero_B", "ExplicitZero_A",
+                                         "Pos1", "Pos10", "Pos701"));
+}
+
+TEST_F(DataProviderTest, V1Parity_AsyncEventsDoNotScrambleProcessOrder) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "host:0 /device:TPU:0"),
+      CreateThreadEvent(1, 1, "Compute"),
+      CreateCompleteEvent(1, 1, "Step"),
+
+      CreateProcessEvent(2, "host:0 /device:TPU:1"),
+      CreateThreadEvent(2, 1, "Device DMA"),
+      {
+          .ph = Phase::kComplete,
+          .pid = 2,
+          .tid = 1,
+          .name = "dma_op",
+          .ts = 10.0,
+          .dur = 10.0,
+          .is_async = true,
+      },
+
+      CreateProcessEvent(3, "host:0 /device:TPU:2"),
+      CreateThreadEvent(3, 1, "Compute"),
+      CreateCompleteEvent(3, 1, "Step"),
+
+      CreateProcessEvent(4, "host:0 /device:TPU:3"),
+      CreateThreadEvent(4, 1, "Async XLA Ops"),
+      {
+          .ph = Phase::kComplete,
+          .pid = 4,
+          .tid = 1,
+          .name = "async_op",
+          .ts = 10.0,
+          .dur = 10.0,
+          .is_async = true,
+      },
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  std::vector<std::string> process_names;
+  for (const auto& group : data.groups) {
+    if (group.nesting_level == kProcessNestingLevel) {
+      process_names.push_back(group.name);
+    }
+  }
+  EXPECT_THAT(process_names,
+              ElementsAre("host:0 /device:TPU:0", "host:0 /device:TPU:1",
+                          "host:0 /device:TPU:2", "host:0 /device:TPU:3"));
+}
+
+TEST_F(DataProviderTest, V1Parity_ChildTracks_CountersBeforeThreads) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "TPU Core 0"),
+      CreateThreadEvent(1, 10, "Compute Thread"),
+      CreateCompleteEvent(1, 10, "MatMul"),
+  };
+  const std::vector<CounterEvent> counter_events = {
+      CreateCounterEvent(1, "HBM Bandwidth", {0.0, 10.0}, {100.0, 200.0}),
+      CreateCounterEvent(1, "Duty Cycle", {0.0, 10.0}, {50.0, 60.0}),
+  };
+
+  data_provider_.ProcessTraceEvents({events, counter_events}, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  // Child tracks under "TPU Core 0":
+  // Counters first (Duty Cycle, HBM Bandwidth alphabetically), then
+  // threads (Compute Thread)
+  ASSERT_THAT(data.groups, SizeIs(4));
+  EXPECT_EQ(data.groups[0].name, "TPU Core 0");
+  EXPECT_EQ(data.groups[1].name, "Duty Cycle");
+  EXPECT_EQ(data.groups[1].type, Group::Type::kCounter);
+  EXPECT_EQ(data.groups[2].name, "HBM Bandwidth");
+  EXPECT_EQ(data.groups[2].type, Group::Type::kCounter);
+  EXPECT_EQ(data.groups[3].name, "Compute Thread");
+  EXPECT_EQ(data.groups[3].type, Group::Type::kFlame);
+}
+
+TEST_F(DataProviderTest,
+       V1Parity_TPUChildTracks_StandardThreadsBeforeAsyncTracks) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "host:0 /device:TPU:0"),
+      // Standard sync threads: Steps, XLA Modules, XLA Ops
+      CreateThreadEvent(1, 1, "Steps"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 1, "1"),
+      CreateCompleteEvent(1, 1, "0"),
+
+      CreateThreadEvent(1, 2, "XLA Modules"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 2, "2"),
+      CreateCompleteEvent(1, 2, "module_0"),
+
+      CreateThreadEvent(1, 3, "XLA Ops"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 3, "3"),
+      CreateCompleteEvent(1, 3, "op_0"),
+
+      // Async events creating named async tracks: "Memcpy", "ICI"
+      {
+          .ph = Phase::kComplete,
+          .pid = 1,
+          .tid = 10,
+          .name = "Memcpy",
+          .ts = 10.0,
+          .dur = 20.0,
+          .is_async = true,
+      },
+      {
+          .ph = Phase::kComplete,
+          .pid = 1,
+          .tid = 11,
+          .name = "ICI",
+          .ts = 15.0,
+          .dur = 20.0,
+          .is_async = true,
+      },
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  // Child track order:
+  // Standard sync threads: Steps (1), XLA Modules (2), XLA Ops (3)
+  // Named async tracks: ICI, Memcpy (sorted by name)
+  ASSERT_THAT(data.groups, SizeIs(6));
+  EXPECT_EQ(data.groups[0].name, "host:0 /device:TPU:0");
+  EXPECT_EQ(data.groups[1].name, "Steps");
+  EXPECT_EQ(data.groups[2].name, "XLA Modules");
+  EXPECT_EQ(data.groups[3].name, "XLA Ops");
+  EXPECT_EQ(data.groups[4].name, "ICI");
+  EXPECT_EQ(data.groups[5].name, "Memcpy");
+}
+
+TEST_F(DataProviderTest, V1Parity_HostThreadsAlphabeticalWhenUnindexed) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Host Process"),
+      CreateThreadEvent(1, 100, "Zebra Worker"),
+      CreateCompleteEvent(1, 100, "Task"),
+
+      CreateThreadEvent(1, 20, "Alpha Worker"),
+      CreateCompleteEvent(1, 20, "Task"),
+
+      CreateThreadEvent(1, 5, "Beta Worker"),
+      CreateCompleteEvent(1, 5, "Task"),
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  ASSERT_THAT(data.groups, SizeIs(4));
+  EXPECT_EQ(data.groups[0].name, "Host Process");
+  EXPECT_EQ(data.groups[1].name, "Alpha Worker");
+  EXPECT_EQ(data.groups[2].name, "Beta Worker");
+  EXPECT_EQ(data.groups[3].name, "Zebra Worker");
 }
 
 }  // namespace

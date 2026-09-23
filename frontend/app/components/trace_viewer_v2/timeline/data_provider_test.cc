@@ -251,6 +251,21 @@ TEST_F(DataProviderTest, GetProcessMappingsSplitsSpaceTokens) {
   EXPECT_EQ(map.at(2), "hostNameB");
 }
 
+TEST_F(DataProviderTest, GetProcessNamesReturnsFullNames) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0,
+                          "hostNameA /device:TPU:0"),
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "hostNameB")};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const absl::flat_hash_map<ProcessId, std::string>& names =
+      data_provider_.GetProcessNames();
+  EXPECT_EQ(names.size(), 2);
+  EXPECT_EQ(names.at(1), "hostNameA /device:TPU:0");
+  EXPECT_EQ(names.at(2), "hostNameB");
+}
+
 TEST_F(DataProviderTest, ProcessMetadataEventsWithEmptyName) {
   const std::vector<TraceEvent> events = {
       CreateMetadataEvent(std::string(kProcessName), 1, 0, ""),

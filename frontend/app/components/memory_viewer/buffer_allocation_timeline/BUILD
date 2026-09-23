@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "buffer_allocation_timeline",
     srcs = [
         "buffer_allocation_timeline.ts",
-        "buffer_allocation_timeline_module.ts",
     ],
     assets = [
         ":buffer_allocation_timeline_css",

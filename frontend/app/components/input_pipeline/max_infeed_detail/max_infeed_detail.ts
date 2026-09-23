@@ -1,20 +1,23 @@
 import {
   AfterViewInit,
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   Input,
   OnChanges,
   SimpleChanges,
-  ViewChild, ChangeDetectionStrategy,
+  ViewChild,
 } from '@angular/core';
+import {MatDivider} from '@angular/material/divider';
 import {type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 /** A max-infeed-detail view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'max-infeed-detail',
   templateUrl: './max_infeed_detail.ng.html',
   styleUrls: ['./max_infeed_detail.scss'],
+  imports: [MatDivider],
 })
 export class MaxInfeedDetail implements AfterViewInit, OnChanges {
   /** Whether it is a TPU profile. */

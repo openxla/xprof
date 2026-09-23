@@ -7,6 +7,11 @@ import {
   Output,
   SimpleChanges,
 } from '@angular/core';
+import {MatIconButton} from '@angular/material/button';
+import {MatFormField, MatLabel, MatSuffix} from '@angular/material/form-field';
+import {MatIcon} from '@angular/material/icon';
+import {MatInput} from '@angular/material/input';
+import {MatTooltip} from '@angular/material/tooltip';
 
 /**
  * A string filter component.
@@ -15,10 +20,18 @@ import {
  */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'string-filter',
   templateUrl: './string_filter.ng.html',
   styleUrls: ['./string_filter.scss'],
+  imports: [
+    MatFormField,
+    MatIcon,
+    MatIconButton,
+    MatInput,
+    MatLabel,
+    MatSuffix,
+    MatTooltip,
+  ],
 })
 export class StringFilter implements OnChanges {
   @Input() dataTable?: google.visualization.DataTable;

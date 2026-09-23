@@ -105,11 +105,32 @@ disassembly for custom Pallas or Mosaic kernels, export `LIBTPU_INIT_ARGS`
 **before importing JAX**:
 
 ```bash
-export LIBTPU_INIT_ARGS="\
---xla_xprof_enable_custom_call_tracing=true \
---xla_xprof_register_llo_debug_info=true"
+export LIBTPU_INIT_ARGS="--xla_xprof_register_llo_debug_info=true"
 python your_jax_workload.py
 ```
+
+> [!WARNING]
+> **Static LLO analysis vs. runtime intra-kernel tracing:**
+> - For **`get_llo_analysis`**, **`get_llo_debug_string`**, and HLO-level
+>   tools (`get_hlo_stats`, `get_roofline_model`, `get_top_hlo_ops`,
+>   `get_kernel_stats`), pass
+>   **`--xla_xprof_register_llo_debug_info=true` alone**. It registers the
+>   full compile-time LLO proto and source map without adding runtime trace
+>   overhead.
+> - Only add **`--xla_xprof_enable_custom_call_tracing=true`** when you need
+>   runtime intra-kernel timeline spans (`Pallas Primitives`, `LLO Ops`, and
+>   per-unit instruction lanes in Trace Viewer). This flag activates
+>   bundle-level instrumentation (`xla_tpu_bundle_instrumentation_options`
+>   with default `trace_best_effort_frequency=10` and
+>   `trace_guaranteed_frequency=10`), inserting a `vtrace` every 10 VLIW
+>   bundles inside custom calls. On long-running custom calls, the resulting
+>   event volume can overflow the hardware trace buffer and drop the outer
+>   HLO `Begin`/`End` events, causing HLO-level tools (`get_hlo_stats`,
+>   `get_roofline_model`, `get_top_hlo_ops`) to report `IDLE` or `NO_DATA`.
+>   If that happens, either increase `trace_best_effort_frequency` and
+>   `trace_guaranteed_frequency` (e.g., to `50` or `100`) or collect a separate
+>   profile without the flag for HLO-level analysis. See
+>   [custom call profiling](../../../docs/custom_call_profiling.md).
 
 --------------------------------------------------------------------------------
 

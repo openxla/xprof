@@ -311,6 +311,32 @@ def get_top_hlo_ops(
       "top_by_flops": top_by_flops,
       "top_by_bytes_accessed": top_by_bytes,
       "total_matched": len(flat_ops),
+      "metric_semantics": {
+          "source": "op_profile",
+          "total_self_time_ms": (
+              "op_profile raw_time (elapsed core-time) for this node, converted"
+              " from picoseconds. For a leaf HLO instruction this is the time"
+              " the op occupied the core."
+          ),
+          "flops": (
+              "XLA cost-model FLOPs for the op as emitted by op_profile, or"
+              " shape-derived FLOPs for custom calls (see flops_provenance)."
+              " These are NOT the bf16-normalized flops_v2 the roofline model"
+              " uses."
+          ),
+          "bytes_accessed": (
+              "Sum of the op_profile per-memory-space breakdown. The roofline"
+              " model instead uses the raw all-memory-spaces bytes_accessed"
+              " scalar, which also includes spaces with no breakdown entry."
+          ),
+          "comparability_with_get_roofline_model": (
+              "Operational intensity computed from these fields will not match"
+              " get_roofline_model's operational_intensity_flop_per_byte,"
+              " because the two tools read different tables with different"
+              " FLOP and byte definitions. Use get_roofline_model for"
+              " roofline placement and this tool for ranking by time."
+          ),
+      },
   }
   if has_opaque_custom_call:
     result_payload["guidance"] = (

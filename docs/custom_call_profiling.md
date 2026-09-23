@@ -74,27 +74,47 @@ if so_paths:
 
 ## How to Enable Tracing
 
-Set the following canonical XLA flags to compile and trace your workload with
-LLO instrumentation:
+### Recommended default: LLO debug info only
 
-*   `--xla_xprof_enable_custom_call_tracing=true`: Canonical flag that enables
-    custom call tracing and automatically activates instruction bundle
-    instrumentation.
-*   `--xla_xprof_register_llo_debug_info=true`: Registers LLO debug
-    information, opcodes, and metadata for XProf visualization.
+For almost every workflow, register LLO debug info **without** custom call
+tracing. This keeps the full HLO op stream intact, so `get_hlo_stats`,
+`get_roofline_model`, `get_top_hlo_ops` and `get_kernel_stats` all keep working,
+while still producing the complete LLO source map used by `get_llo_analysis`
+and `get_llo_debug_string`.
 
 ```python
 import os
 
 # Flags MUST precede any jax / libtpu import
-os.environ["LIBTPU_INIT_ARGS"] = (
-    "--xla_xprof_enable_custom_call_tracing=true "
-    "--xla_xprof_register_llo_debug_info=true"
-)
+os.environ["LIBTPU_INIT_ARGS"] = "--xla_xprof_register_llo_debug_info=true"
 
 import jax
 # Workload definition and tracing...
 ```
+
+*   `--xla_xprof_register_llo_debug_info=true`: Registers LLO debug
+    information, opcodes, and metadata for XProf visualization.
+
+### Opt-in: runtime intra-kernel bundle tracing
+
+*   `--xla_xprof_enable_custom_call_tracing=true`: Canonical flag that enables
+    runtime intra-kernel timeline spans (`Pallas Primitives`, `LLO Ops`, and
+    per-unit instruction lanes in Trace Viewer) and automatically activates
+    instruction bundle instrumentation (`xla_tpu_bundle_instrumentation_options`
+    with default `trace_best_effort_frequency=10` and
+    `trace_guaranteed_frequency=10`).
+
+WARNING: Adding `--xla_xprof_enable_custom_call_tracing=true` inserts a
+`vtrace` every 10 VLIW bundles inside custom calls. On long-running custom
+calls, the resulting event volume can overflow the hardware trace buffer and
+drop the outer HLO `Begin`/`End` events, leaving only `IDLE` or `NO_DATA` in
+`get_hlo_stats`, `get_roofline_model`, and `get_top_hlo_ops` — while the static
+compile-time LLO source map remains identical to
+`--xla_xprof_register_llo_debug_info=true` alone. Enable it only when you need
+runtime intra-kernel timeline spans, and either increase
+`trace_best_effort_frequency` / `trace_guaranteed_frequency` (see **Advanced
+Parameters** below) or collect a separate profile without the flag for
+HLO-level analysis.
 
 ### Example Trace Viewer
 

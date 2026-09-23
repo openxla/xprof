@@ -25,41 +25,161 @@ def _safe_float(val: Any, default: float = 0.0) -> float:
     return default
 
 
-def _get_percentage_from_rows(rows: list[dict[str, Any]]) -> float | None:
-  """Calculates percentage from utilization viewer rows."""
+# Hardware counters that failed to read back are reported as an all-ones 64-bit
+# value. The backend does not strip these, and a sample where both the busy
+# counter and the cycle counter are sentinels yields a literal "100% idle" row.
+_COUNTER_SENTINEL = float(0xFFFFFFFFFFFFFFFF)
+_COUNTER_SENTINEL_FLOOR = _COUNTER_SENTINEL * 0.999
+
+
+def _is_sentinel(val: float) -> bool:
+  """Returns True for unreadable counter values (all-ones 64-bit sentinel)."""
+  return val >= _COUNTER_SENTINEL_FLOOR
+
+
+def _aggregate_rows(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+  """Aggregates utilization rows for a single metric across counter samples.
+
+  The backend emits one row per counter-sampling interval (the ``Sample``
+  column), per metric, per node. ``Achieved`` and ``Peak`` are raw counts over
+  that interval in the same unit, so the only correct aggregation is
+  cycle-weighted: ``sum(Achieved) / sum(Peak)``. Averaging the per-sample
+  ratios instead gives an idle interval the same weight as a busy one.
+
+  Args:
+    rows: Rows for one metric name, already filtered to a single host/device/
+      node.
+
+  Returns:
+    A dict with the weighted percentage over the whole capture window, the
+    busiest single sample, and the sample count; or None when no usable row
+    remains.
+  """
   if not rows:
     return None
-  rows_with_peak = [r for r in rows if _safe_float(r.get("Peak"), 0.0) > 0]
-  if rows_with_peak:
-    pcts = [
-        _safe_float(r.get("Achieved"), 0.0)
-        * 100
-        / _safe_float(r.get("Peak"), 1.0)
-        for r in rows_with_peak
+
+  total_achieved = 0.0
+  total_peak = 0.0
+  sample_percents: list[float] = []
+  usable = 0
+  for row in rows:
+    achieved = _safe_float(row.get("Achieved"))
+    peak = _safe_float(row.get("Peak"))
+    if _is_sentinel(achieved) or _is_sentinel(peak) or peak < 0:
+      continue
+    usable += 1
+    total_achieved += achieved
+    total_peak += peak
+    if peak > 0:
+      sample_percents.append(achieved * 100.0 / peak)
+
+  if not usable:
+    return None
+  if total_peak <= 0:
+    # Every usable sample had a zero denominator. Only a genuine all-zero
+    # numerator lets us claim 0%; anything else is unmeasurable.
+    if total_achieved == 0:
+      return {"percent": 0.0, "peak_sample_percent": 0.0, "samples": usable}
+    return None
+
+  return {
+      "percent": round(total_achieved * 100.0 / total_peak, 2),
+      "peak_sample_percent": (
+          round(max(sample_percents), 2) if sample_percents else 0.0
+      ),
+      "samples": usable,
+  }
+
+
+def _get_percentage_from_rows(rows: list[dict[str, Any]]) -> float | None:
+  """Returns the cycle-weighted utilization percentage for one metric."""
+  agg = _aggregate_rows(rows)
+  return None if agg is None else agg["percent"]
+
+
+def _rows_for_metric(
+    node_rows: list[dict[str, Any]], *metric_names: str
+) -> list[dict[str, Any]]:
+  """Selects rows whose Name equals, or is a per-core variant of, a metric.
+
+  The backend suffixes some metric names with the core they belong to (for
+  example ``HBM Rd+Wr - core 0``), so an exact-match lookup silently returns
+  nothing. Matching the ``"<metric> - core N"`` form as well keeps those
+  metrics reachable.
+
+  Args:
+    node_rows: All rows for the selected host/device/node.
+    *metric_names: Accepted metric names, in priority order.
+
+  Returns:
+    The matching rows, or an empty list.
+  """
+  for metric_name in metric_names:
+    prefix = f"{metric_name} - core "
+    matched = [
+        r
+        for r in node_rows
+        if r.get("Name") == metric_name or str(r.get("Name", "")).startswith(
+            prefix
+        )
     ]
-    return round(sum(pcts) / len(pcts), 2)
-  if all(_safe_float(r.get("Achieved"), 0.0) == 0 for r in rows):
-    return 0.0
-  return None
+    if matched:
+      return matched
+  return []
 
 
 def _get_metric_percentage(
-    node_rows: list[dict[str, Any]], metric_name: str
+    node_rows: list[dict[str, Any]], *metric_names: str
 ) -> float | None:
   """Calculates the percentage for a specific metric."""
-  return _get_percentage_from_rows(
-      [r for r in node_rows if r.get("Name") == metric_name]
-  )
+  return _get_percentage_from_rows(_rows_for_metric(node_rows, *metric_names))
+
+
+def _measurement_window_note(samples: int) -> dict[str, Any]:
+  """Describes the window the reported percentages are averaged over.
+
+  The utilization_viewer backend applies no time window, no step filter and no
+  kernel filter: the denominator is the free-running TensorCore cycle counter,
+  which keeps advancing while the device is idle. Every percentage here is
+  therefore a fraction of the *entire capture*, not of kernel execution time. A
+  short kernel inside a long capture reads as near-zero utilization even when
+  it saturates the machine while it runs, so the numbers must not be read as
+  "how efficient is my kernel".
+
+  Args:
+    samples: Number of usable counter-sampling intervals per metric.
+
+  Returns:
+    A dict describing the aggregation basis and pointing at the kernel-scoped
+    tool.
+  """
+  return {
+      "basis": "whole_capture",
+      "samples_per_metric": samples,
+      "aggregation": "cycle_weighted_sum_achieved_over_sum_peak",
+      "note": (
+          "Percentages are averaged over the whole profiling capture, "
+          "including idle time between kernels: the counter denominator is "
+          "the free-running TensorCore clock, which is not gated on kernel "
+          "execution. A kernel that saturates the device for a small "
+          "fraction of the capture will still report near-zero utilization "
+          "here, under-reporting by roughly capture_duration / "
+          "kernel_duration."
+      ),
+      "for_per_kernel_utilization_use": "get_kernel_utilization",
+      "peak_sample_percent_note": (
+          "peak_sample_percent is the busiest single sampling interval for "
+          "each metric and is a closer proxy for in-kernel utilization than "
+          "the capture-wide average."
+      ),
+  }
 
 
 def _calculate_hbm_utilization(node_rows: list[dict[str, Any]]) -> float | None:
   """Calculates HBM bandwidth utilization."""
-  hbm_rows = [
-      r
-      for r in node_rows
-      if r.get("Name") in ("HBM Rd+Wr (per chip)", "HBM Rd+Wr")
-  ]
-  return _get_percentage_from_rows(hbm_rows)
+  return _get_metric_percentage(
+      node_rows, "HBM Rd+Wr (per chip)", "HBM Rd+Wr"
+  )
 
 
 def _calculate_xlu_utilization(node_rows: list[dict[str, Any]]) -> float | None:
@@ -92,7 +212,7 @@ def _calculate_idleness_percentage(
     node_rows: list[dict[str, Any]],
 ) -> float | None:
   """Calculates device idleness percentage."""
-  no_mxu_busy_rows = [r for r in node_rows if r.get("Name") == "No MXU Busy"]
+  no_mxu_busy_rows = _rows_for_metric(node_rows, "No MXU Busy")
   if no_mxu_busy_rows:
     return _get_percentage_from_rows(no_mxu_busy_rows)
 
@@ -235,8 +355,10 @@ def _format_utilization_viewer_output(
     ici_write_utilization = _get_metric_percentage(node_rows, "ICI (Write)")
     vector_alu_utilization = _get_metric_percentage(node_rows, "Vector ALUs")
     scalar_unit_utilization = _get_metric_percentage(node_rows, "Scalar Unit")
+    # The backend emits "Vmem Stores"; "Vmem/Cmem Stores" never matched. The
+    # legacy name is kept as a fallback for older traces.
     vmem_cmem_stores_utilization = _get_metric_percentage(
-        node_rows, "Vmem/Cmem Stores"
+        node_rows, "Vmem Stores", "Vmem/Cmem Stores"
     )
     vmem_loads_utilization = _get_metric_percentage(node_rows, "Vmem Loads")
     cmem_loads_utilization = _get_metric_percentage(node_rows, "Cmem Loads")
@@ -246,6 +368,8 @@ def _format_utilization_viewer_output(
     idleness_percentage = _calculate_idleness_percentage(node_rows)
 
     metrics = {}
+    peak_sample_percents = {}
+    sample_counts = set()
     rows_by_name = collections.defaultdict(list)
     for r in node_rows:
       name = r.get("Name")
@@ -253,9 +377,11 @@ def _format_utilization_viewer_output(
         rows_by_name[name].append(r)
 
     for name, named_rows in rows_by_name.items():
-      pct = _get_percentage_from_rows(named_rows)
-      if pct is not None:
-        metrics[name] = pct
+      agg = _aggregate_rows(named_rows)
+      if agg is not None:
+        metrics[name] = agg["percent"]
+        peak_sample_percents[name] = agg["peak_sample_percent"]
+        sample_counts.add(agg["samples"])
 
     results = {
         "hbm_bandwidth_utilization_percent": hbm_bandwidth_utilization,
@@ -272,8 +398,15 @@ def _format_utilization_viewer_output(
     }
 
     filtered_results = {k: v for k, v in results.items() if v is not None}
+    # pyrefly: ignore[unsupported-operation]
+    filtered_results["measurement_window"] = _measurement_window_note(
+        max(sample_counts) if sample_counts else 0
+    )
     if metrics:
       filtered_results["metrics"] = metrics  # pyrefly: ignore[unsupported-operation]
+    if peak_sample_percents:
+      # pyrefly: ignore[unsupported-operation]
+      filtered_results["peak_sample_percent"] = peak_sample_percents
     if warnings:
       filtered_results["warnings"] = warnings  # pyrefly: ignore[unsupported-operation]
 
@@ -302,6 +435,15 @@ def get_utilization_viewer(
 ) -> str:
   """Fetches and returns key metrics from utilization_viewer data.
 
+  Every percentage is a cycle-weighted average over the *whole* profiling
+  capture, including the idle gaps between kernels, because the underlying
+  hardware counters are normalized by the free-running TensorCore clock rather
+  than by kernel execution time. Short kernels inside a long capture therefore
+  report near-zero utilization even when they saturate the device. The
+  ``measurement_window`` block in the result states this, and
+  ``peak_sample_percent`` gives the busiest single sampling interval per
+  metric. For utilization scoped to a kernel, use ``get_kernel_utilization``.
+
   Args:
       session_id: The XProf session ID.
       host: The host ID to filter by (default is 0).
@@ -310,7 +452,9 @@ def get_utilization_viewer(
       bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
-      A JSON string containing key utilization metrics or an error message.
+      A JSON string containing key utilization metrics, the
+      ``measurement_window`` disclosure, per-metric ``metrics`` and
+      ``peak_sample_percent`` maps, or a ``NO_DATA`` envelope.
   """
   client = xprof_client.get_client()
   try:

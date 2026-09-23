@@ -11,13 +11,19 @@ from xprof.cli.internal.oss import xplane_tools
 
 _DEVICE_PLANE_RE = re.compile(r"^/device:.*")
 
-# Standard device line inclusion filters for active hardware compute events.
-# These lines represent actual device execution (compute + transfers).
-_DEVICE_LINE_INCLUDE = (
-    "XLA OPS",
-    "PALLAS",
-    "LLO OPS",
-)
+# Exact XLine names carrying *top-level* device kernels. Substring matching is
+# unsafe here: with --xla_xprof_enable_custom_call_tracing=true the TPU tracer
+# adds "Pallas Primitives" and "LLO Ops" lines holding the regions *inside* a
+# kernel, and a substring test for "PALLAS" / "LLO OPS" matches those too,
+# promoting every intra-kernel region to a top-level kernel. This mirrors the
+# exact-name check already used by the kernel utilization converter.
+_TPU_KERNEL_LINES = frozenset(("XLA OPS", "PALLAS"))
+
+# Exact XLine names (and a suffix) carrying regions *within* a kernel. These
+# overlap their containing kernel, so reporting them alongside it double counts
+# and can rank a region above the kernel that contains it.
+_TPU_INTRA_KERNEL_LINES = frozenset(("LLO OPS", "PALLAS PRIMITIVES"))
+_TPU_INTRA_KERNEL_LINE_SUFFIX = " INSTRUCTIONS"
 
 # Standard device line exclusion filters for non-computational metadata.
 _DEVICE_LINE_EXCLUDE = (
@@ -27,6 +33,26 @@ _DEVICE_LINE_EXCLUDE = (
     "SYNC FLAG",
     "SENSOR",
 )
+
+
+def classify_tpu_line(line_name: str) -> str:
+  """Classifies a TPU device XLine by the granularity of events it carries.
+
+  Args:
+    line_name: The XLine name, in any case.
+
+  Returns:
+    'kernel' for top-level kernel lines, 'intra_kernel' for lines holding
+    regions inside a kernel, and 'other' for everything else.
+  """
+  upper = line_name.upper()
+  if upper in _TPU_KERNEL_LINES:
+    return "kernel"
+  if upper in _TPU_INTRA_KERNEL_LINES or upper.endswith(
+      _TPU_INTRA_KERNEL_LINE_SUFFIX
+  ):
+    return "intra_kernel"
+  return "other"
 
 
 def compute_disjoint_interval_union_ns(intervals: list[tuple[int, int]]) -> int:
@@ -100,6 +126,7 @@ def get_kernel_stats(
     include_summary: bool = False,
     device_to_use: str | None = "TPU:0",  # pylint: disable=unused-argument
     trace_matchers: tuple[str, ...] | None = None,
+    include_intra_kernel_regions: bool = False,
     bypass_cache: bool = False,
 ) -> Any:
   """Computes performance metrics for operations from local XPlanes in OSS.
@@ -120,6 +147,11 @@ def get_kernel_stats(
       Disjoint Interval Union alongside per-kernel records.
     device_to_use: Device plane to target (e.g., "TPU:0").
     trace_matchers: Optional tuple of event name matchers for filtering.
+    include_intra_kernel_regions: If True, also emits events from TPU lines that
+      carry regions *inside* a kernel ("LLO Ops", "Pallas Primitives",
+      "<unit> Instructions"). These overlap the kernel that contains them, so
+      they are excluded by default to keep the ranking over top-level kernels
+      only. Included records are tagged with is_intra_kernel_region=True.
     bypass_cache: Whether to bypass cache.
 
   Returns:
@@ -148,6 +180,7 @@ def get_kernel_stats(
     kernel_durations_us = collections.defaultdict(list)
     all_intervals: list[tuple[int, int]] = []
     step_durations_us: list[float] = []
+    excluded_region_lines: set[str] = set()
 
     for plane in xplane_tools.iter_planes(source):
       if not _DEVICE_PLANE_RE.search(plane.name):
@@ -157,20 +190,23 @@ def get_kernel_stats(
 
       for line in plane.lines:
         line_name_upper = line.name.upper()
-        # Restrict TPU compute events to XLA/Pallas/LLO
-        # to avoid timing inflation.
-        if is_tpu and not any(
-            w in line_name_upper for w in _DEVICE_LINE_INCLUDE
-        ):
-          # Still check XLA Modules for step durations if include_summary.
-          if include_summary and "XLA MODULES" in line_name_upper:
-            for event in line.events:
-              step_durations_us.append(float(event.duration_ns) / 1000.0)
-          continue
-        elif not is_tpu and any(
-            w in line_name_upper
-            for w in _DEVICE_LINE_EXCLUDE
-        ):
+        is_region_line = False
+        if is_tpu:
+          line_kind = classify_tpu_line(line.name)
+          if line_kind == "intra_kernel":
+            # Regions inside a kernel overlap their container, so they are not
+            # top-level kernels and must not be ranked against one.
+            if not include_intra_kernel_regions:
+              excluded_region_lines.add(line.name)
+              continue
+            is_region_line = True
+          elif line_kind != "kernel":
+            # Still check XLA Modules for step durations if include_summary.
+            if include_summary and "XLA MODULES" in line_name_upper:
+              for event in line.events:
+                step_durations_us.append(float(event.duration_ns) / 1000.0)
+            continue
+        elif any(w in line_name_upper for w in _DEVICE_LINE_EXCLUDE):
           continue
 
         for event in line.events:
@@ -202,9 +238,11 @@ def get_kernel_stats(
               continue
 
           dur_us = float(event.duration_ns) / 1000.0
-          kernel_durations_us[name_info].append(dur_us)
+          kernel_durations_us[(name_info, is_region_line)].append(dur_us)
 
-          if include_summary:
+          # Region intervals are nested inside kernel intervals, so including
+          # them would not change the union but would blur its meaning.
+          if include_summary and not is_region_line:
             start_ns = int(event.start_ns)
             end_ns = start_ns + int(event.duration_ns)
             all_intervals.append((start_ns, end_ns))
@@ -229,7 +267,7 @@ def get_kernel_stats(
       return json.dumps({"info": msg}, indent=2)
 
     records = []
-    for name, dur_list in kernel_durations_us.items():
+    for (name, is_region), dur_list in kernel_durations_us.items():
       count = len(dur_list)
       total_us = sum(dur_list)
       avg_us = total_us / count if count > 0 else 0.0
@@ -244,6 +282,7 @@ def get_kernel_stats(
           "total_duration_us": round(total_us, 4),
           "execution_count": count,
           "avg_duration_us": round(avg_us, 4),
+          "is_intra_kernel_region": is_region,
       })
 
     records.sort(key=lambda x: x["total_duration_us"], reverse=True)
@@ -260,7 +299,7 @@ def get_kernel_stats(
       std_us = 0.0
       if len(step_durations_us) > 1:
         std_us = stats_mod.stdev(step_durations_us)
-      summary = {
+      summary: dict[str, Any] = {
           "total_device_duration_ns": total_ns,
           "total_device_duration_us": total_us,
           "total_device_duration_ms": total_ms,
@@ -268,6 +307,17 @@ def get_kernel_stats(
           "step_durations_us": step_durations_us,
           "stats": {"mean_us": round(mean_us, 4), "std_us": round(std_us, 4)},
       }
+      if excluded_region_lines:
+        summary["excluded_intra_kernel_region_lines"] = sorted(
+            excluded_region_lines
+        )
+        summary["note"] = (
+            "Events on intra-kernel region lines were excluded because they"
+            " overlap the kernel that contains them and would otherwise be"
+            " ranked as top-level kernels. Pass"
+            " include_intra_kernel_regions=True to include them, tagged with"
+            " is_intra_kernel_region."
+        )
       if output_format == "dict":
         return summary
       if output_format == "markdown":

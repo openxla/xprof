@@ -239,12 +239,20 @@ class DefectRegressionsTest(parameterized.TestCase):
     self.assertIn("bottleneck_operational_intensity_flop_per_byte", prog)
     self.assertIn("optimal_flop_rate_gflops", prog)
     self.assertIn("dma_stall_percent", prog)
-    self.assertIn("hbm_read_bw_utilization_percent", prog)
-    self.assertIn("hbm_write_bw_utilization_percent", prog)
+    # The backend has no HBM read/write split: there is no proto field and no
+    # column for it, so the old hbm_read_/hbm_write_ keys both fell back to the
+    # same combined number. Only the combined figure is reported now.
+    self.assertIn("hbm_bw_utilization_percent", prog)
+    self.assertNotIn("hbm_read_bw_utilization_percent", prog)
+    self.assertNotIn("hbm_write_bw_utilization_percent", prog)
     self.assertIn("vmem_read_bw_utilization_percent", prog)
     self.assertIn("vmem_write_bw_utilization_percent", prog)
     self.assertIn("cmem_read_bw_utilization_percent", prog)
     self.assertIn("cmem_write_bw_utilization_percent", prog)
+    # bound_by must be checkable against the ridge point it was decided
+    # against, not against the all-memory-spaces operational intensity.
+    self.assertIn("bound_by_ridge_point_flop_per_byte", prog)
+    self.assertIn("metric_semantics", prog)
 
     top_ops = res.get("top_operations", [])
     if top_ops:

@@ -213,6 +213,89 @@ class OssKernelStatsToolsTest(unittest.TestCase):
       )
       self.assertIn("fusion_1", md_res)
 
+  def test_classify_tpu_line(self):
+    self.assertEqual(kernel_stats_tools.classify_tpu_line("XLA Ops"), "kernel")
+    self.assertEqual(kernel_stats_tools.classify_tpu_line("Pallas"), "kernel")
+    self.assertEqual(
+        kernel_stats_tools.classify_tpu_line("Pallas Primitives"),
+        "intra_kernel",
+    )
+    self.assertEqual(
+        kernel_stats_tools.classify_tpu_line("LLO Ops"), "intra_kernel"
+    )
+    self.assertEqual(
+        kernel_stats_tools.classify_tpu_line("VPU Instructions"),
+        "intra_kernel",
+    )
+    self.assertEqual(
+        kernel_stats_tools.classify_tpu_line("XLA Modules"), "other"
+    )
+
+  def _pallas_plane_with_regions(self):
+    """Builds a TPU plane where a region outlives the kernel containing it."""
+    kernel_event = mock.MagicMock(duration_ns=1_556_600, start_ns=0, stats=[])
+    kernel_event.name = "_at_pallas_rowblock.1"
+    kernel_line = mock.MagicMock(events=[kernel_event])
+    kernel_line.name = "Pallas"
+
+    # PallasTracker merges consecutive spans of the same primitive across
+    # invocations, so a region can report a longer duration than its container.
+    region_event = mock.MagicMock(duration_ns=4_661_300, start_ns=0, stats=[])
+    region_event.name = "reduce_sum.1"
+    region_line = mock.MagicMock(events=[region_event])
+    region_line.name = "Pallas Primitives"
+
+    plane = mock.MagicMock(lines=[kernel_line, region_line])
+    plane.name = "/device:TPU:0"
+    return plane
+
+  def test_intra_kernel_regions_excluded_by_default(self):
+    plane = self._pallas_plane_with_regions()
+    with mock.patch.object(
+        xplane_tools, "iter_planes", return_value=[plane]
+    ):
+      records = kernel_stats_tools.get_kernel_stats(
+          "local_logdir", output_format="dict"
+      )
+
+    self.assertEqual(len(records), 1)
+    self.assertEqual(records[0]["kernel_name"], "_at_pallas_rowblock.1")
+    self.assertFalse(records[0]["is_intra_kernel_region"])
+
+  def test_intra_kernel_regions_opt_in_are_tagged(self):
+    plane = self._pallas_plane_with_regions()
+    with mock.patch.object(
+        xplane_tools, "iter_planes", return_value=[plane]
+    ):
+      records = kernel_stats_tools.get_kernel_stats(
+          "local_logdir",
+          output_format="dict",
+          include_intra_kernel_regions=True,
+      )
+
+    by_name = {r["kernel_name"]: r for r in records}
+    self.assertCountEqual(
+        by_name, ["_at_pallas_rowblock.1", "reduce_sum.1"]
+    )
+    self.assertTrue(by_name["reduce_sum.1"]["is_intra_kernel_region"])
+    self.assertFalse(by_name["_at_pallas_rowblock.1"]["is_intra_kernel_region"])
+
+  def test_summary_excludes_region_intervals_and_explains_why(self):
+    plane = self._pallas_plane_with_regions()
+    with mock.patch.object(
+        xplane_tools, "iter_planes", return_value=[plane]
+    ):
+      summary = kernel_stats_tools.get_kernel_stats(
+          "local_logdir", output_format="dict", include_summary=True
+      )
+
+    # Only the top-level kernel interval feeds the disjoint interval union.
+    self.assertEqual(summary["total_device_duration_ns"], 1_556_600)
+    self.assertEqual(
+        summary["excluded_intra_kernel_region_lines"], ["Pallas Primitives"]
+    )
+    self.assertIn("include_intra_kernel_regions", summary["note"])
+
 
 if __name__ == "__main__":
   unittest.main()

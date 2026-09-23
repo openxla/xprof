@@ -143,7 +143,10 @@ def list_xplane_events(
     bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
-    A JSON-formatted list of matching timeline events.
+    A JSON-formatted object (not a bare list) with the shape
+    ``{"events": [...], "returned": int, "total_matched": int,
+    "truncated": bool}``. Each event is
+    ``{"plane", "line_id", "event", "offset_ps", "duration_ps"}``.
 
   Raises:
     FileNotFoundError: If path or session run is not found.

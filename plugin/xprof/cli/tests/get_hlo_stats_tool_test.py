@@ -512,13 +512,16 @@ class GetHloStatsToolTest(parameterized.TestCase):
     self.assertEqual(records[0]["source_file"], "transformer.py")
     self.assertEqual(records[0]["source_line"], 5841)
 
-  def test_error_empty_records(self):
+  def test_empty_records_returns_no_data_envelope(self):
     db = hlo_stats_pb2.HloStatsDatabase()
     self.mock_client.fetch.return_value = (None, db.SerializeToString())
 
-    with self.assertRaises(FileNotFoundError) as cm:
-      get_hlo_stats_tool.get_hlo_stats("session_123")
-    self.assertIn("No HLO stats records found", str(cm.exception))
+    payload = json.loads(get_hlo_stats_tool.get_hlo_stats("session_123"))
+
+    self.assertEqual(payload["status"], "NO_DATA")
+    self.assertEmpty(payload["records"])
+    self.assertIn("No HLO stats records found", payload["message"])
+    self.assertIn("custom_call_tracing", payload["guidance"].replace("-", "_"))
 
 
 if __name__ == "__main__":

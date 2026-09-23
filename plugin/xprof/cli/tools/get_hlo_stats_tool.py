@@ -364,10 +364,12 @@ def get_hlo_stats(
     bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
-    A JSON-formatted string representing the list of HLO operation statistics.
+    A JSON-formatted string. On success this is a list of HLO operation
+    statistics. When the trace parses but contains no HLO-level operations,
+    a Tier 2 envelope ``{"status": "NO_DATA", "records": [], ...}`` is
+    returned instead, with exit code 0.
 
   Raises:
-    FileNotFoundError: If no HLO stats records are found for the session.
     RuntimeError: If fetching or parsing HLO stats fails.
   """
   fetch_errors: list[type[Exception]] = [ValueError, OSError, RuntimeError]
@@ -408,7 +410,33 @@ def get_hlo_stats(
   )
 
   if not extracted_records:
-    raise FileNotFoundError("No HLO stats records found")
+    # An empty HLO stats table is a valid data outcome, not a path failure.
+    # Raising FileNotFoundError here surfaces as PATH_ERROR (exit 3) and makes
+    # agents pointlessly retry a path that is already readable.
+    message = f"No HLO stats records found for session {session_id!r}."
+    if category_filter:
+      message += f" No operation matched category filter {category_filter!r}."
+    return json.dumps(
+        {
+            "status": "NO_DATA",
+            "message": message,
+            "records": [],
+            "guidance": (
+                "The trace parsed successfully but contains no HLO-level"
+                " operations. On traces captured with"
+                " --xla_xprof_enable_custom_call_tracing=true, periodic bundle"
+                " vtraces inside long-running custom calls can overflow the"
+                " hardware trace buffer and drop the outer HLO Begin/End"
+                " events. Either recapture with"
+                " --xla_xprof_register_llo_debug_info=true alone, increase"
+                " trace_best_effort_frequency / trace_guaranteed_frequency in"
+                " xla_tpu_bundle_instrumentation_options, or use"
+                " get_llo_analysis, get_llo_debug_string, and"
+                " aggregate_xplane_events to analyze the kernel."
+            ),
+        },
+        indent=2,
+    )
 
   # Sort the records
   sort_key_map = {

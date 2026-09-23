@@ -17,6 +17,7 @@ def compute_kernel_stats(
     include_summary: bool = False,
     device_to_use: str | None = "TPU:0",
     trace_matchers: tuple[str, ...] | None = None,
+    include_intra_kernel_regions: bool = False,
     bypass_cache: bool = False,
 ) -> Any:
   """Unconditional real-time evaluation without caching or rate limiting.
@@ -37,6 +38,10 @@ def compute_kernel_stats(
         Interval Union alongside per-kernel records.
       device_to_use: Device plane to target (e.g., "TPU:0").
       trace_matchers: Optional tuple of event name matchers for filtering.
+      include_intra_kernel_regions: If True, also emits events from TPU lines
+        holding regions *inside* a kernel ("LLO Ops", "Pallas Primitives",
+        "<unit> Instructions"). Excluded by default because they overlap the
+        kernel that contains them.
       bypass_cache: Whether to bypass cache.
 
   Returns:
@@ -59,6 +64,7 @@ def compute_kernel_stats(
       include_summary=include_summary,
       device_to_use=device_to_use,
       trace_matchers=trace_matchers,
+      include_intra_kernel_regions=include_intra_kernel_regions,
       bypass_cache=bypass_cache,
   )
 
@@ -74,6 +80,7 @@ def get_kernel_stats(
     include_summary: bool = False,
     device_to_use: str | None = "TPU:0",
     trace_matchers: tuple[str, ...] | None = None,
+    include_intra_kernel_regions: bool = False,
     bypass_cache: bool = False,
 ) -> Any:
   """Fetches performance metrics for operations from XProf or local traces.
@@ -94,6 +101,10 @@ def get_kernel_stats(
         Interval Union alongside per-kernel records.
       device_to_use: Device plane to target (e.g., "TPU:0").
       trace_matchers: Optional tuple of event name matchers for filtering.
+      include_intra_kernel_regions: If True, also emits events from TPU lines
+        holding regions *inside* a kernel ("LLO Ops", "Pallas Primitives",
+        "<unit> Instructions"). Excluded by default because they overlap the
+        kernel that contains them.
       bypass_cache: Whether to bypass cache.
 
   Returns:
@@ -116,6 +127,7 @@ def get_kernel_stats(
       include_summary=include_summary,
       device_to_use=device_to_use,
       trace_matchers=trace_matchers,
+      include_intra_kernel_regions=include_intra_kernel_regions,
       bypass_cache=bypass_cache,
   )
 

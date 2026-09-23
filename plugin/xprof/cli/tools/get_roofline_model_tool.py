@@ -143,14 +143,13 @@ def get_roofline_model(
     custom_props = table_data.get("p", {})
 
     device_info: dict[str, Any] = {}
+    # Only the keys the backend actually emits in the DataTable's custom
+    # properties. There is no HBM read/write split (hbm_bw is combined R+W),
+    # and there is no aggregate peak_vmem_bw / peak_cmem_bw.
     bw_renames = {
         "peak_hbm_bw": "peak_hbm_bw_gibs",
-        "peak_hbm_read_bw": "peak_hbm_read_bw_gibs",
-        "peak_hbm_write_bw": "peak_hbm_write_bw_gibs",
-        "peak_vmem_bw": "peak_vmem_bw_gibs",
         "peak_vmem_read_bw": "peak_vmem_read_bw_gibs",
         "peak_vmem_write_bw": "peak_vmem_write_bw_gibs",
-        "peak_cmem_bw": "peak_cmem_bw_gibs",
         "peak_cmem_read_bw": "peak_cmem_read_bw_gibs",
         "peak_cmem_write_bw": "peak_cmem_write_bw_gibs",
     }
@@ -213,8 +212,6 @@ def get_roofline_model(
       if val is not None and safe_float(val) > 0:
         return to_percent_str(val)
       bw = safe_float(prog_dict.get(bw_key))
-      if bw == 0.0 and bw_key.startswith("hbm_"):
-        bw = safe_float(prog_dict.get("hbm_bw"))
       peak = 0.0
       for pk in peak_keys:
         resolved_pk = bw_renames.get(pk, pk)
@@ -233,8 +230,30 @@ def get_roofline_model(
         return to_percent_str(val)
       return "N/A"
 
+    # The ridge point that `bound_by` is actually decided against. The backend
+    # picks the bottleneck as the argmax over per-memory-space utilizations,
+    # which is algebraically a ridge test on the *bottleneck* operational
+    # intensity for that space -- not on the all-spaces `operational_intensity`.
+    bound_by_ridge_keys = {
+        "HBM": "hbm_ridge_point",
+        "CMEM Read": "cmem_read_ridge_point",
+        "CMEM Write": "cmem_write_ridge_point",
+        "VMEM Read": "vmem_read_ridge_point",
+        "VMEM Write": "vmem_write_ridge_point",
+    }
+
+    def ridge_point_for(bound_by_val: str) -> float | None:
+      key = bound_by_ridge_keys.get(str(bound_by_val))
+      if key is None:
+        return None
+      val = device_info.get(key)
+      return None if val is None else round(safe_float(val), 4)
+
+    prog_bound_by = prog_dict.get("bound_by", "Unknown")
+
     program_metrics = {
-        "bound_by": prog_dict.get("bound_by", "Unknown"),
+        "bound_by": prog_bound_by,
+        "bound_by_ridge_point_flop_per_byte": ridge_point_for(prog_bound_by),
         "operational_intensity_flop_per_byte": round(
             safe_float(prog_dict.get("operational_intensity")), 4
         ),
@@ -264,46 +283,57 @@ def get_roofline_model(
             safe_float(prog_dict.get("measured_memory_bw")), 2
         ),
         "hbm_bw_gibs": round(safe_float(prog_dict.get("hbm_bw")), 2),
-        "hbm_read_bw_utilization_percent": calc_mem_util_str(
-            "hbm_read_bw_utilization",
-            "hbm_read_bw",
-            ["peak_hbm_read_bw", "peak_hbm_bw"],
-        ),
-        "hbm_write_bw_utilization_percent": calc_mem_util_str(
-            "hbm_write_bw_utilization",
-            "hbm_write_bw",
-            ["peak_hbm_write_bw", "peak_hbm_bw"],
+        "hbm_bw_utilization_percent": calc_mem_util_str(
+            "hbm_bw_utilization", "hbm_bw", ["peak_hbm_bw"]
         ),
         "cmem_read_bw_utilization_percent": calc_mem_util_str(
-            "cmem_read_bw_utilization",
-            "cmem_read_bw",
-            ["peak_cmem_read_bw", "peak_cmem_bw"],
+            "cmem_read_bw_utilization", "cmem_read_bw", ["peak_cmem_read_bw"]
         ),
         "cmem_write_bw_utilization_percent": calc_mem_util_str(
-            "cmem_write_bw_utilization",
-            "cmem_write_bw",
-            ["peak_cmem_write_bw", "peak_cmem_bw"],
+            "cmem_write_bw_utilization", "cmem_write_bw", ["peak_cmem_write_bw"]
         ),
         "vmem_read_bw_utilization_percent": calc_mem_util_str(
-            "vmem_read_bw_utilization",
-            "vmem_read_bw",
-            ["peak_vmem_read_bw", "peak_vmem_bw"],
+            "vmem_read_bw_utilization", "vmem_read_bw", ["peak_vmem_read_bw"]
         ),
         "vmem_write_bw_utilization_percent": calc_mem_util_str(
-            "vmem_write_bw_utilization",
-            "vmem_write_bw",
-            ["peak_vmem_write_bw", "peak_vmem_bw"],
+            "vmem_write_bw_utilization", "vmem_write_bw", ["peak_vmem_write_bw"]
         ),
         "total_time_ms": round(
             safe_float(prog_dict.get("total_time")) / 1000.0, 3
         ),
         "flops_provenance": "xla_cost_model",
+        "metric_semantics": {
+            "measured_memory_bw_gibs": (
+                "Total bytes across ALL memory spaces (HBM + CMEM + VMEM +"
+                " bytes with no memory space attributed, such as SparseCore)"
+                " divided by total op time. It is NOT an HBM figure and may"
+                " legitimately exceed peak_hbm_bw_gibs. Compare hbm_bw_gibs"
+                " against peak_hbm_bw_gibs instead."
+            ),
+            "max_mem_bw_utilization_percent": (
+                "Maximum over the per-memory-space utilizations"
+                " (hbm_bw/peak_hbm_bw, cmem_read, cmem_write, vmem_read,"
+                " vmem_write). It is NOT measured_memory_bw_gibs divided by"
+                " peak_hbm_bw_gibs."
+            ),
+            "operational_intensity_flop_per_byte": (
+                "FLOPs (bf16-normalized) divided by bytes across ALL memory"
+                " spaces. Because the denominator includes non-HBM bytes it is"
+                " always <= bottleneck_operational_intensity_flop_per_byte,"
+                " and comparing it against a single-space ridge point"
+                " overstates memory boundness."
+            ),
+            "bound_by": (
+                "Argmax over resource utilizations (Compute wins ties)."
+                " Verify it with"
+                " bottleneck_operational_intensity_flop_per_byte against"
+                " bound_by_ridge_point_flop_per_byte, not with"
+                " operational_intensity_flop_per_byte."
+            ),
+        },
     }
 
     peak_flop_rate = safe_float(device_info.get("peak_flop_rate"))
-    ridge_point = safe_float(
-        device_info.get("hbm_ridge_point")
-    ) or safe_float(device_info.get("ridge_point"))
     expressions_by_name: dict[str, str] | None = None
 
     op_records = []
@@ -356,6 +386,8 @@ def get_roofline_model(
       ) or safe_float(r_dict.get("model_flop_rate"))
       orig_op_flops = orig_op_flop_rate * (self_time_us * 1e3)
 
+      backend_bound_by = str(r_dict.get("bound_by") or "Unknown")
+
       if is_custom:
         derived_flops, derived_bytes, provenance = (
             hlo_shape_utils.derive_custom_call_flops_and_bytes(
@@ -373,10 +405,15 @@ def get_roofline_model(
           op_roofline_eff = max(op_compute_eff, op_max_mem_eff)
           if derived_bytes and derived_bytes > 0:
             op_intensity = derived_flops / derived_bytes
-          if ridge_point > 0:
-            bound_by_val = "Compute" if op_intensity >= ridge_point else "HBM"
-          elif op_compute_eff >= op_max_mem_eff:
+          # Mirror the backend rule: the bottleneck is the argmax over
+          # resource utilizations, and Compute wins ties. Comparing
+          # `op_intensity` (FLOPs over ALL memory spaces) against the HBM-only
+          # ridge point mixes denominators and over-reports memory boundness.
+          if op_compute_eff >= op_max_mem_eff:
             bound_by_val = "Compute"
+          elif backend_bound_by not in ("Compute", "Unknown", ""):
+            # Keep whichever memory space the backend identified.
+            bound_by_val = backend_bound_by
           else:
             bound_by_val = "HBM"
         else:
@@ -473,14 +510,16 @@ def get_roofline_model(
         else:
           prog_op_intensity = safe_float(prog_dict.get("operational_intensity"))
 
-        if ridge_point > 0:
-          prog_bound_by = (
-              "Compute" if prog_op_intensity >= ridge_point else "HBM"
-          )
-        elif prog_compute_eff >= prog_max_mem_eff:
+        # Mirror the backend rule (argmax over resource utilizations, Compute
+        # wins ties) rather than testing the all-memory-spaces intensity
+        # against the HBM-only ridge point.
+        backend_prog_bound_by = str(prog_dict.get("bound_by") or "Unknown")
+        if prog_compute_eff >= prog_max_mem_eff:
           prog_bound_by = "Compute"
+        elif backend_prog_bound_by not in ("Compute", "Unknown", ""):
+          prog_bound_by = backend_prog_bound_by
         else:
-          prog_bound_by = prog_dict.get("bound_by", "Unknown")
+          prog_bound_by = "HBM"
 
         program_metrics["measured_flop_rate_gflops"] = round(
             new_prog_flop_rate, 2
@@ -495,6 +534,12 @@ def get_roofline_model(
             prog_op_intensity, 4
         )
         program_metrics["bound_by"] = prog_bound_by
+        program_metrics["bound_by_ridge_point_flop_per_byte"] = (
+            ridge_point_for(prog_bound_by)
+        )
+        program_metrics["bound_by_provenance"] = (
+            "recomputed_from_derived_custom_call_flops"
+        )
         program_metrics["flops_provenance"] = "derived_from_shapes"
 
     has_opaque_custom_call = any(

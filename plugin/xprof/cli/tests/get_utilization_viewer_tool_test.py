@@ -273,6 +273,61 @@ class GetUtilizationViewerToolTest(parameterized.TestCase):
               ],
           },
       ),
+      dict(
+          # One busy sample against one long idle sample with a much larger
+          # peak. Cycle-weighted: 90 / 1000 = 9%.
+          testcase_name="cycle_weighted_across_samples",
+          payload="""Host,Device,Sample,Node,Name,Achieved,Peak,Unit
+0,0,0,0,Vector ALUs,90.0,100.0,instructions
+0,0,1,0,Vector ALUs,0.0,900.0,instructions
+""",
+          kwargs={},
+          # Unweighted mean of the per-sample ratios would be 45%.
+          expected_result={
+              "vector_alu_utilization_percent": 9.0,
+              "idleness_percent": 100.0,
+              "metrics": {"Vector ALUs": 9.0},
+              "peak_sample_percent": {"Vector ALUs": 90.0},
+          },
+      ),
+      dict(
+          # Unreadable counters come back as all-ones and must not be
+          # reported as a literal 100%.
+          testcase_name="sentinel_counters_filtered",
+          payload="""Host,Device,Sample,Node,Name,Achieved,Peak,Unit
+0,0,0,0,No MXU Busy,18446744073709551615,18446744073709551615,instructions
+0,0,1,0,No MXU Busy,10.0,100.0,instructions
+""",
+          kwargs={},
+          expected_result={
+              "idleness_percent": 10.0,
+              "metrics": {"No MXU Busy": 10.0},
+              "peak_sample_percent": {"No MXU Busy": 10.0},
+          },
+      ),
+      dict(
+          # The backend suffixes HBM with the core it belongs to, and emits
+          # "Vmem Stores" rather than "Vmem/Cmem Stores".
+          testcase_name="per_core_and_corrected_metric_names",
+          payload="""Host,Device,Sample,Node,Name,Achieved,Peak,Unit
+0,0,0,0,HBM Rd+Wr - core 0,8.0,16.0,bytes
+0,0,0,0,Vmem Stores,3.0,6.0,instructions
+""",
+          kwargs={},
+          expected_result={
+              "hbm_bandwidth_utilization_percent": 50.0,
+              "vmem_cmem_stores_utilization_percent": 50.0,
+              "idleness_percent": 100.0,
+              "metrics": {
+                  "HBM Rd+Wr - core 0": 50.0,
+                  "Vmem Stores": 50.0,
+              },
+              "peak_sample_percent": {
+                  "HBM Rd+Wr - core 0": 50.0,
+                  "Vmem Stores": 50.0,
+              },
+          },
+      ),
   )
   def test_get_utilization_viewer(self, payload, kwargs, expected_result):
     if payload is None:
@@ -284,6 +339,22 @@ class GetUtilizationViewerToolTest(parameterized.TestCase):
         "test-session", **kwargs
     )
     result = json.loads(result_str)
+
+    window = result.pop("measurement_window", None)
+    if "metrics" in expected_result:
+      self.assertIsNotNone(window)
+      self.assertEqual(window["basis"], "whole_capture")
+      self.assertEqual(
+          window["for_per_kernel_utilization_use"], "get_kernel_utilization"
+      )
+      expected_result = dict(expected_result)
+      # Most fixtures carry a single counter sample per metric, so the
+      # busiest sample equals the capture-wide average.
+      expected_result.setdefault(
+          "peak_sample_percent", expected_result["metrics"]
+      )
+    else:
+      self.assertIsNone(window)
 
     self.assertEqual(result, expected_result)
 

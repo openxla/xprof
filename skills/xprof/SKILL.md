@@ -145,7 +145,7 @@ Pallas or Mosaic):
     **strictly before `import jax`**:
 
     ```bash
-    export LIBTPU_INIT_ARGS="--xla_xprof_enable_custom_call_tracing=true --xla_xprof_register_llo_debug_info=true"
+    export LIBTPU_INIT_ARGS="--xla_xprof_register_llo_debug_info=true"
     python your_jax_workload.py
     ```
 3.  **Hardware Compatibility**:
@@ -166,10 +166,26 @@ Pallas or Mosaic):
     ```
 5.  **Canonical Flags**:
 
+    *   `--xla_xprof_register_llo_debug_info=true`: Registers compile-time LLO
+        debug info, disassembly, and source map in XProf traces. **This is the
+        default you want** — on its own it provides the complete LLO source map
+        for `get_llo_analysis` and `get_llo_debug_string` without adding
+        runtime trace overhead, keeping the HLO op stream intact.
     *   `--xla_xprof_enable_custom_call_tracing=true`: Canonical flag
-        (reconciles legacy `--xla_enable_custom_call_region_trace=true`).
-    *   `--xla_xprof_register_llo_debug_info=true`: Registers LLO debug info and
-        disassembly in XProf traces.
+        (reconciles legacy `--xla_enable_custom_call_region_trace=true`). **Add
+        it only when you need runtime intra-kernel timeline lanes** (`Pallas
+        Primitives`, `LLO Ops`, and per-unit instruction lanes in Trace Viewer).
+        It activates bundle-level instrumentation
+        (`xla_tpu_bundle_instrumentation_options` with default
+        `trace_best_effort_frequency=10` and `trace_guaranteed_frequency=10`),
+        inserting a `vtrace` every 10 VLIW bundles inside custom calls. On
+        long-running custom calls, the extra event volume can overflow the
+        hardware trace buffer and drop the outer HLO `Begin`/`End` events, so
+        HLO-level tools (`get_hlo_stats`, `get_roofline_model`,
+        `get_top_hlo_ops`) report `IDLE` or `NO_DATA`. If that happens,
+        increase `trace_best_effort_frequency` and `trace_guaranteed_frequency`
+        (e.g., to `50` or `100`) or collect a second profile without the flag.
+        See [custom call profiling](../../docs/custom_call_profiling.md).
 6.  **Analysis Execution & Metrics Interpretation**:
 
     *   `xprof get_llo_analysis <logdir_or_session_id>`: Extracts instruction

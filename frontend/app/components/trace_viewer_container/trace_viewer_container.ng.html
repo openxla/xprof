@@ -194,9 +194,21 @@
                 </as-split-area>
                 <as-split-area [size]="40" class="split-area-right">
                   <div class="split-area-inner">
-                    <div class="detail-row" *ngFor="let prop of rightSideProperties; trackBy: trackByProperty">
-                      <span class="detail-label">{{prop.property}}:</span>
-                      <span class="detail-value">{{prop.value}}</span>
+                    <div class="detail-row" *ngFor="let prop of rightSideProperties; trackBy: trackByProperty" [class.hlo-text-row]="prop.property === 'HLO Text'" [class.collapsed]="prop.property === 'HLO Text' && isHloTextCollapsed">
+                      <span class="detail-label">
+                        {{prop.property}}:
+                        <button
+                          *ngIf="prop.property === 'HLO Text'"
+                          type="button"
+                          class="hlo-collapse-btn"
+                          (click)="toggleHloTextCollapse()"
+                          [attr.aria-label]="isHloTextCollapsed ? 'Expand HLO text' : 'Collapse HLO text'"
+                          [title]="isHloTextCollapsed ? 'Expand HLO text' : 'Collapse HLO text'">
+                          <mat-icon>{{isHloTextCollapsed ? 'keyboard_arrow_down' : 'keyboard_arrow_up'}}</mat-icon>
+                        </button>
+                      </span>
+                      <span class="detail-value hlo-preview" *ngIf="prop.property === 'HLO Text' && isHloTextCollapsed">{{getHloTextPreview(prop.value)}}</span>
+                      <span class="detail-value" *ngIf="prop.property !== 'HLO Text' || !isHloTextCollapsed">{{prop.value}}</span>
                     </div>
                     <div class="cross-tool-links">
                       <div *ngIf="selectedEvent.stackTraceLinkHtml" [innerHTML]="selectedEvent.stackTraceLinkHtml"></div>

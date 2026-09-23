@@ -5,7 +5,6 @@ import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
-  ElementRef,
   inject,
   Injector,
   OnDestroy,
@@ -276,8 +275,6 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   @ViewChild('featureFlagsDialog', {static: false})
   featureFlagsDialog!: TemplateRef<{}>;
-
-  @ViewChild('settingsButton') settingsButton!: ElementRef<HTMLButtonElement>;
 
   @ViewChild('filterInput', {static: false})
   filterInput?: FilterInput;
@@ -1940,6 +1937,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
           setTimeout(() => {
             if (!this.destroyed.isStopped) {
               this.showColorOnboarding = true;
+              this.container?.settingsButton?.nativeElement.focus();
             }
           }, 2000); // Delay 2 seconds after load complete
           window.removeEventListener(

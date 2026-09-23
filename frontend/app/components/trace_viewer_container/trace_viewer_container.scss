@@ -1133,10 +1133,15 @@ button.toolbar-action-btn.mat-mdc-icon-button {
 
 .navigation-actions-container,
 .toolbar-trailing-actions,
+.settings-container,
 .fullscreen-container {
   display: flex;
   align-items: center;
   flex-shrink: 0;
+}
+
+.settings-container {
+  position: relative;
 }
 
 .navigation-actions-container {

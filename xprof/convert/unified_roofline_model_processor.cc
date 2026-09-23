@@ -35,11 +35,22 @@ using ::tensorflow::profiler::ToolOptions;
 absl::Status UnifiedRooflineModelProcessor::ProcessCombinedOpStats(
     const XprofSessionSnapshot& session_snapshot,
     const OpStats& combined_op_stats, const ToolOptions& options) {
+  bool apply_time_scale_multiplier =
+      tensorflow::profiler::GetParamWithDefault<bool>(
+          options, "apply_time_scale_multiplier", false);
   RooflineModelDatabase result = ConvertOpStatsToRooflineModel(
-      combined_op_stats, {.include_infeed_outfeed = true});
+      combined_op_stats,
+      {.include_infeed_outfeed = true,
+       .apply_time_scale_multiplier = apply_time_scale_multiplier,
+       .use_flat_op_metrics_db =
+           combined_op_stats.has_flat_device_op_metrics_db()});
   RooflineModelDatabase result_without_infeed_outfeed =
-      ConvertOpStatsToRooflineModel(combined_op_stats,
-                                    {.include_infeed_outfeed = false});
+      ConvertOpStatsToRooflineModel(
+          combined_op_stats,
+          {.include_infeed_outfeed = false,
+           .apply_time_scale_multiplier = apply_time_scale_multiplier,
+           .use_flat_op_metrics_db =
+               combined_op_stats.has_flat_device_op_metrics_db()});
 
   result.mutable_roofline_model_record()->MergeFrom(
       result_without_infeed_outfeed.roofline_model_record());

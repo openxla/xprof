@@ -797,6 +797,51 @@ export class TraceViewerContainer
     return json;
   }
 
+  /** Returns whether any modal dialog or panel is currently open. */
+  isModalOpen(excludeSettingsDialog = false): boolean {
+    if (
+      !excludeSettingsDialog &&
+      document.querySelector('.mat-mdc-dialog-container, .mat-dialog-container')
+    ) {
+      return true;
+    }
+    const ariaModals = document.querySelectorAll(
+      'dialog[open], [aria-modal="true"]',
+    );
+    for (const modal of Array.from(ariaModals)) {
+      if (
+        excludeSettingsDialog &&
+        (modal.classList.contains('mat-mdc-dialog-container') ||
+          modal.classList.contains('mat-dialog-container') ||
+          modal.closest('.mat-mdc-dialog-container, .mat-dialog-container'))
+      ) {
+        continue;
+      }
+      return true;
+    }
+    const helpDialogs = document.querySelectorAll('trace-viewer-help-dialog');
+    for (const helpDialog of Array.from(helpDialogs)) {
+      const dialog = helpDialog as HTMLElement & {open?: boolean};
+      if (dialog.open || dialog.hasAttribute('open')) {
+        return true;
+      }
+      if (dialog.shadowRoot?.querySelector('md-dialog[open], dialog[open]')) {
+        return true;
+      }
+    }
+    const customPanels = document.querySelectorAll(
+      'trace-viewer-customization-panel',
+    );
+    for (const customPanel of Array.from(customPanels)) {
+      if (
+        customPanel.shadowRoot?.querySelector('md-dialog[open], dialog[open]')
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private readonly keyDownEventListener = (event: KeyboardEvent) => {
     if (this.useTraceViewerV2) {
       this.handleV2KeyDown(event);
@@ -806,8 +851,29 @@ export class TraceViewerContainer
   };
 
   private handleV2KeyDown(event: KeyboardEvent): void {
-    const el = event.target as HTMLElement;
-    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return;
+    const target = (event.composedPath?.()[0] ??
+      event.target) as HTMLElement | null;
+    if (target) {
+      const tagName = target.tagName ? target.tagName.toUpperCase() : '';
+      if (
+        tagName === 'INPUT' ||
+        tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+    }
+
+    if (event.key === ';') {
+      // Semicolon toggles settings dialog. Suppress only if another modal
+      // (like the help dialog or customization panel) is open.
+      if (this.isModalOpen(/*excludeSettingsDialog=*/ true)) return;
+      this.toggleSettings.emit();
+      event.preventDefault();
+      return;
+    }
+
+    if (this.isModalOpen()) return;
 
     if (event.key === '/') {
       this.searchBox?.nativeElement?.focus();
@@ -823,16 +889,25 @@ export class TraceViewerContainer
     ) {
       this.timelinePlayer.togglePlay();
       event.preventDefault();
-    } else if (event.key === ';') {
-      this.toggleSettings.emit();
-      event.preventDefault();
     }
   }
 
   private handleV1KeyDown(event: KeyboardEvent): void {
-    // Disable hotkey listening when typing in the input box
-    const el = event.target as HTMLInputElement;
-    if (el.type === 'text') return;
+    if (this.isModalOpen()) return;
+
+    const target = (event.composedPath?.()[0] ??
+      event.target) as HTMLElement | null;
+    if (target) {
+      const tagName = target.tagName ? target.tagName.toUpperCase() : '';
+      if (
+        tagName === 'INPUT' ||
+        tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+    }
+
     switch (event.key) {
       case 'a':
       case 'd':

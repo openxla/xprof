@@ -69,7 +69,7 @@ export const DEFAULT_DRAWER_SIZE_PERCENT = 30;
  * Minimum height percentage for the drawer (bottom panel) to ensure the drag
  * handle remains permanently visible and interactive.
  */
-export const MIN_DRAWER_SIZE_PERCENT = 10;
+export const MIN_DRAWER_SIZE_PERCENT = 0;
 
 function clearDeprecatedStorageKeys(): void {
   for (const key of DEPRECATED_STORAGE_KEYS) {
@@ -996,7 +996,7 @@ export class TraceViewerContainer
         drawerSizePercent,
         this.minDrawerSizePercent,
       );
-    } else if (this.drawerSizePercent < this.minDrawerSizePercent) {
+    } else if (this.drawerSizePercent <= this.minDrawerSizePercent) {
       this.drawerSizePercent = DEFAULT_DRAWER_SIZE_PERCENT;
     }
 

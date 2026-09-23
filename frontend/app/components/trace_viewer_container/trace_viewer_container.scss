@@ -41,16 +41,24 @@ $search-bar-height: 56px;
   box-sizing: border-box;
 }
 
-:host ::ng-deep as-split > .as-split-gutter.as-split-gutter.as-split-gutter {
+:host ::ng-deep as-split[direction='horizontal'] > .as-split-gutter.as-split-gutter.as-split-gutter {
   background-color: transparent;
 }
 
 :host ::ng-deep as-split[direction='vertical'] > .as-split-gutter {
+  background-color: var(--mat-sys-surface);
+  border-radius: 16px 16px 0 0;
+  cursor: row-resize;
+  margin-top: 8px;
   overflow: visible;
 
   .as-split-gutter-icon {
-    transform: translateY(20px);
+    transform: none;
   }
+}
+
+:host ::ng-deep as-split > .drawer-split-area {
+  overflow: hidden;
 }
 
 iframe {
@@ -480,17 +488,17 @@ button.shortcuts-guide-btn {
 }
 
 .drawer {
-  height: calc(100% - 16px);
-  margin-top: 8px;
+  height: calc(100% - 8px);
+  margin-top: 0;
   margin-bottom: 8px;
   background-color: var(--mat-sys-surface);
   box-sizing: border-box;
   overflow: auto;
-  border-radius: 16px;
+  border-radius: 0 0 16px 16px;
 
   .event-detail-table-container {
     width: 100%;
-    padding: 24px 10px 10px 10px;
+    padding: 8px 10px 10px 10px;
     box-sizing: border-box;
 
     // When the single-event details panel is shown, give this wrapper a

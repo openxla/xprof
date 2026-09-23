@@ -5,7 +5,6 @@ import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
-  ElementRef,
   inject,
   Injector,
   OnDestroy,
@@ -113,10 +112,12 @@ import {
 import {
   EventDetails,
   extractFastModeFromQueryParams,
+  FullscreenModalOpener,
   getEventDetailsArgs,
   getEventDetailsCacheKey,
   getProcessMappingsFromWasm,
   getProcessNamesFromWasm,
+  isEditableElement,
   parseEventDetails,
   parseEventsSelectedData,
   RawTraceEvent,
@@ -289,12 +290,11 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild('featureFlagsDialog', {static: false})
   featureFlagsDialog!: TemplateRef<{}>;
 
-  @ViewChild('settingsButton') settingsButton!: ElementRef<HTMLButtonElement>;
-
   @ViewChild('filterInput', {static: false})
   filterInput?: FilterInput;
 
   settingsDialogRef: MatDialogRef<unknown> | null = null;
+  private readonly settingsModalOpener = new FullscreenModalOpener();
 
   selectedFilters: FilterEntry[] = [];
   validFilterFields = FILTER_FIELDS;
@@ -1813,7 +1813,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   toggleSettings(tab: SettingsTab = SettingsTab.GENERAL): void {
     // The settings dialog is modal and is only dismissed via Cancel or Save.
-    if (this.settingsDialogRef) {
+    if (this.settingsDialogRef || this.settingsModalOpener.isPending) {
       return;
     }
     this.openSettings(tab);
@@ -1845,7 +1845,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   openSettings(tab: SettingsTab = SettingsTab.GENERAL): void {
-    if (this.settingsDialogRef) {
+    if (this.settingsDialogRef || this.settingsModalOpener.isPending) {
       this.setSettingsTab(tab);
       return;
     }
@@ -1875,6 +1875,20 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     }
     this.initialFeatureFlags = newInitialFeatureFlags;
 
+    // Exit fullscreen so the modal overlay is not hidden behind the fullscreen
+    // top layer.
+    void this.settingsModalOpener.open(
+      () => !this.destroyed.isStopped && !this.settingsDialogRef,
+      () => {
+        this.openSettingsDialog();
+      },
+    );
+  }
+
+  private openSettingsDialog() {
+    if (this.showColorOnboarding) {
+      this.dismissColorOnboarding();
+    }
     const dialogTemplate =
       this.settingsDialog || this.paletteDialog || this.featureFlagsDialog;
     const dialogRef = this.dialog.open(dialogTemplate, {
@@ -1989,7 +2003,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   // END Support of color palettes selection
 
-  setupColorOnboarding() {
+  setupColorOnboarding(): void {
     // Show onboarding coach mark for new color palette if not prompted yet
     let prompted: string | null = null;
     try {
@@ -2005,8 +2019,16 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
           customEvent.detail.status === TraceViewerV2LoadingStatus.IDLE
         ) {
           setTimeout(() => {
-            if (!this.destroyed.isStopped) {
+            if (
+              !this.destroyed.isStopped &&
+              this.useTraceViewerV2 &&
+              !this.settingsDialogRef &&
+              !this.settingsModalOpener.isPending
+            ) {
               this.showColorOnboarding = true;
+              if (!isEditableElement(document.activeElement)) {
+                this.container?.focusSettingsButton();
+              }
             }
           }, 2000); // Delay 2 seconds after load complete
           window.removeEventListener(

@@ -209,6 +209,33 @@
         <mat-icon fontSet="material-symbols-outlined" aria-hidden="true">keyboard</mat-icon>
       </button>
       <trace-viewer-shortcuts-dialog></trace-viewer-shortcuts-dialog>
+      <div class="settings-container" *ngIf="useTraceViewerV2 && showSettingsButton">
+        <button
+          #settingsButton
+          type="button"
+          mat-icon-button
+          class="toolbar-action-btn settings-btn"
+          (click)="toggleSettings.emit()"
+          matTooltip="Settings (;)"
+          [matTooltipDisabled]="showColorOnboarding"
+          aria-label="Settings"
+          i18n-aria-label="Settings">
+          <mat-icon fontSet="material-symbols-outlined" aria-hidden="true">settings</mat-icon>
+        </button>
+        <!-- Coach Mark Bubble -->
+        <div *ngIf="showColorOnboarding" class="coach-mark-bubble" role="dialog" aria-labelledby="color-coach-mark-title">
+          <div class="coach-mark-title" id="color-coach-mark-title">Updated Trace Colors</div>
+          <div class="coach-mark-content">
+            We’ve refreshed the Trace Viewer colors for better clarity. If you’re a fan of the V1 classics, you can easily toggle them back in Settings.
+          </div>
+          <div class="coach-mark-actions">
+            <button type="button" mat-button class="coach-mark-button open-color-settings-btn" (click)="openColorSettings.emit()">Open Settings</button>
+            <button type="button" mat-button class="coach-mark-button dismiss-color-onboarding-btn" (click)="dismissColorOnboarding.emit()">Got it</button>
+          </div>
+          <!-- Arrow -->
+          <div class="coach-mark-arrow"></div>
+        </div>
+      </div>
       <div class="fullscreen-container">
         <button type="button" mat-icon-button class="toolbar-action-btn" (click)="toggleFullscreen()" [class.active]="isFullscreen" [matTooltip]="isFullscreen ? 'Exit full screen' : 'Full screen'" [attr.aria-label]="isFullscreen ? 'Exit full screen' : 'Full screen'">
           <mat-icon fontSet="material-symbols-outlined" aria-hidden="true">{{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}}</mat-icon>

@@ -220,15 +220,7 @@ def _render_waypoint_card(
   # diverged only on DOM or network gets the two-image side-by-side instead:
   # the reviewer still sees both pages, at a fifth of the payload.
   if waypoint.verdict != "SAME":
-    has_captures = bool(
-        waypoint.visual.base_png_bytes or waypoint.visual.candidate_png_bytes
-    )
-    if not has_captures:
-      notice_tmpl = string.Template(
-          templates.get_section("no_capture_notice.html")
-      )
-      sections.append(notice_tmpl.safe_substitute(card_id=card_id))
-    elif (
+    if (
         waypoint.visual.diff_ratio > sxs_diff_engine.MAX_VISUAL_DIFF_RATIO
         or waypoint.visual.dimension_mismatch
     ):
@@ -270,11 +262,21 @@ def _render_waypoint_card(
   )
 
 
+def _script_json(value: object) -> str:
+  """Serializes value as JSON that is safe to inline in a <script> block."""
+  return (
+      json.dumps(value, indent=4)
+      .replace("<", "\\u003c")
+      .replace(">", "\\u003e")
+      .replace("&", "\\u0026")
+  )
+
+
 def generate_sxs_html_report(
     waypoint_diffs: list[sxs_diff_engine.WaypointDiff],
     output_html_path: str,
     template_dir: pathlib.Path | None = None,
-    approval_note: str | None = None,
+    manifest_path: str | None = None,
 ) -> str:
   """Renders and writes standalone HTML diff report.
 
@@ -282,9 +284,8 @@ def generate_sxs_html_report(
     waypoint_diffs: Evaluated waypoints to render.
     output_html_path: Destination path for the generated HTML.
     template_dir: Template directory override, for tests.
-    approval_note: Acceptance instructions for a caller whose gate is not
-      governed by approved_manifest.json. When set, the manifest signing
-      portal is replaced by this text. See the portal branch below.
+    manifest_path: Approved manifest the report builds on. Defaults to the one
+      the gate reads.
 
   Returns:
     The path the report was written to.
@@ -317,22 +318,10 @@ def generate_sxs_html_report(
       _render_waypoint_card(templates, w, card_index=idx)
       for idx, w in enumerate(waypoint_diffs)
   )
-  # The signing portal mints entries for approved_manifest.json, which only
-  # the journey SxS gate reads. A caller that gates on something else (the
-  # template drift guard compares source text against a golden file) passes
-  # approval_note, and gets that instruction instead: offering the portal
-  # would hand the reader a JSON entry no check consumes, so they would
-  # paste it, re-run, and still be red.
   unapproved_list: list[dict[str, str]] = []
+  approved_diffs: dict[str, dict[str, str]] = {}
   if not has_unapproved_diffs:
     approval_portal_html = ""
-  elif approval_note is not None:
-    notice_tmpl = string.Template(
-        templates.get_section("external_approval_notice.html")
-    )
-    approval_portal_html = notice_tmpl.safe_substitute(
-        approval_text=html.escape(approval_note)
-    )
   else:
     approval_portal_html = templates.get_section("approval_portal.html")
     unapproved_list = [
@@ -343,13 +332,10 @@ def generate_sxs_html_report(
         for w in waypoint_diffs
         if w.verdict == "CHANGED"
     ]
+    approved_diffs = sxs_diff_engine.SxsDiffEngine(
+        manifest_path
+    ).approved_manifest
 
-  unapproved_json = (
-      json.dumps(unapproved_list, indent=4)
-      .replace("<", "\\u003c")
-      .replace(">", "\\u003e")
-      .replace("&", "\\u0026")
-  )
   styles = templates.get("report_styles.css")
 
   main_tmpl = string.Template(templates.get("sxs_report_template.html"))
@@ -361,7 +347,8 @@ def generate_sxs_html_report(
       tabs_html=tabs_html,
       cards_html=cards_html,
       approval_portal_html=approval_portal_html,
-      unapproved_json=unapproved_json,
+      unapproved_json=_script_json(unapproved_list),
+      approved_json=_script_json(approved_diffs),
   )
 
   os.makedirs(os.path.dirname(os.path.abspath(output_html_path)), exist_ok=True)

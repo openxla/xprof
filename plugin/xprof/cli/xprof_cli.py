@@ -36,7 +36,24 @@ from xprof.cli.tools import verify_numerical_parity_tool
 from xprof.cli.tools.oss import events_db_tool
 from xprof.cli.tools.oss import get_graph_viewer_tool
 from xprof.cli.tools.oss import get_kernel_utilization_tool
+from xprof.cli.tools.oss import llo_static_analysis_tool
 from xprof.cli.tools.oss import upload_trace_tool
+
+# Compiler dump directories produced by --xla_jf_dump_to contain only text
+# artifacts and never XPlane/XSpace protos, so `_wrap_with_logdir` must accept
+# such a directory instead of requiring a trace file. These patterns mirror the
+# ones parsed by `llo_static_analysis_tool._analyze_compiler_dump_dir`.
+_COMPILER_DUMP_GLOBS = (
+    "*-register-pressure.txt",
+    "*-memory-space-assignment-*info.txt",
+    "*-per-bundle-utilization.txt",
+)
+
+# CLI subcommands that accept a compiler dump directory in addition to a trace.
+_COMPILER_DUMP_TOOL_NAMES = frozenset({
+    "get_llo_dump_analysis",
+    "get_llo_static_analysis",
+})
 
 
 def cli_main() -> dict[str, Any]:
@@ -46,7 +63,7 @@ def cli_main() -> dict[str, Any]:
     A dictionary of tool names to functions.
   """
   return {
-      # 31 Core Tools (Available in both 1P and 3P):
+      # 33 Core Tools (Available in both 1P and 3P):
       # keep-sorted start
       "aggregate_xplane_events": xplane_tools.aggregate_xplane_events,
       "check_host_boundness": check_host_boundness_tool.check_host_boundness,
@@ -67,6 +84,10 @@ def cli_main() -> dict[str, Any]:
       "get_kpi_metrics": get_kpi_metrics_tool.get_kpi_metrics,
       "get_llo_analysis": get_llo_analysis_tool.get_llo_analysis,
       "get_llo_debug_string": get_llo_debug_string_tool.get_llo_debug_string,
+      "get_llo_dump_analysis": llo_static_analysis_tool.get_llo_static_analysis,
+      "get_llo_static_analysis": (
+          llo_static_analysis_tool.get_llo_static_analysis
+      ),
       "get_memory_profile": get_memory_profile_tool.get_memory_profile,
       "get_overview": get_overview_tool.get_overview,
       "get_peak_allocations": get_peak_allocations_tool.get_peak_allocations,
@@ -97,8 +118,17 @@ def _is_oss() -> bool:
   return True
 
 
-def _wrap_with_logdir(tool_func):
-  """Wraps a tool to natively accept logdir and bypass_cache in Fire."""
+def _wrap_with_logdir(tool_func, accepts_compiler_dump_dir: bool = False):
+  """Wraps a tool to natively accept logdir and bypass_cache in Fire.
+
+  Args:
+    tool_func: The tool function to wrap.
+    accepts_compiler_dump_dir: Whether a directory holding only --xla_jf_dump_to
+      text artifacts (no XPlane/XSpace protos) is valid input.
+
+  Returns:
+    The wrapped tool function.
+  """
   sig = inspect.signature(tool_func)
 
   params = []
@@ -172,7 +202,18 @@ def _wrap_with_logdir(tool_func):
             has_trace = any(p.glob("**/*.xplane.pb")) or any(
                 p.glob("**/*.xspace.pb")
             )
+            if not has_trace and accepts_compiler_dump_dir:
+              has_trace = any(
+                  any(p.glob(f"**/{pattern}"))
+                  for pattern in _COMPILER_DUMP_GLOBS
+              )
             if not has_trace:
+              if accepts_compiler_dump_dir:
+                raise FileNotFoundError(
+                    "No .xplane.pb or .xspace.pb trace files and no"
+                    " --xla_jf_dump_to text artifacts found in directory"
+                    f" '{target_path}' (DATA_ABSENT)."
+                )
               raise FileNotFoundError(
                   "No .xplane.pb or .xspace.pb files found in directory"
                   f" '{target_path}' (DATA_ABSENT)."
@@ -395,7 +436,16 @@ class XProfCli:
 
 
 for _name, _tool in cli_main().items():
-  setattr(XProfCli, _name, staticmethod(_wrap_with_logdir(_tool)))
+  setattr(
+      XProfCli,
+      _name,
+      staticmethod(
+          _wrap_with_logdir(
+              _tool,
+              accepts_compiler_dump_dir=_name in _COMPILER_DUMP_TOOL_NAMES,
+          )
+      ),
+  )
 
 
 def _check_xprof_version() -> None:

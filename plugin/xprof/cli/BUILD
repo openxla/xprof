@@ -10,11 +10,15 @@ pytype_strict_library(
     name = "xprof_cli_lib",
     srcs = ["xprof_cli.py"],
     deps = [
+        "@pypi//absl_py",
+        "@absl_py//absl/flags",
+        "@pypi//fire",
         "//plugin/xprof:server",
         "//plugin/xprof/cli/internal:xprof_data",
         "//plugin/xprof/cli/internal/oss:hlo_tools",
         "//plugin/xprof/cli/internal/oss:xplane_tools",
         "//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/tools/oss:upload_trace_tool",
         "//plugin/xprof/cli/tools:check_host_boundness_tool",
         "//plugin/xprof/cli/tools:get_hlo_stats_tool",
         "//plugin/xprof/cli/tools:get_kernel_stats_tool",
@@ -29,14 +33,14 @@ pytype_strict_library(
         "//plugin/xprof/cli/tools:get_step_trace_tool",
         "//plugin/xprof/cli/tools:get_top_hlo_ops_tool",
         "//plugin/xprof/cli/tools:get_utilization_viewer_tool",
-        "//plugin/xprof/cli/tools:verify_numerical_parity_tool",
-        "//plugin/xprof/cli/tools/oss:events_db_tool",
         "//plugin/xprof/cli/tools/oss:get_graph_viewer_tool",
         "//plugin/xprof/cli/tools/oss:get_kernel_utilization_tool",
-        "//plugin/xprof/cli/tools/oss:upload_trace_tool",
-        "@absl_py//absl/flags",
-        "@pypi//absl_py",
-        "@pypi//fire",
+        # Copybara rewrites `/oss:` to `/oss:` in BUILD files, so this must
+        # stay outside the strip block below for the OSS wheel to ship
+        # `cli/tools/oss/llo_static_analysis_tool.py`.
+        "//plugin/xprof/cli/tools/oss:llo_static_analysis_tool",
+        "//plugin/xprof/cli/tools:verify_numerical_parity_tool",
+        "//plugin/xprof/cli/tools/oss:events_db_tool",
     ],
 )
 

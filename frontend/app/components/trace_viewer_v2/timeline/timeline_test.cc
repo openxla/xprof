@@ -13756,6 +13756,180 @@ TEST(TimelineTest, DrawWithEmptyTimelineDataDoesNotCrash) {
   ImGui::DestroyContext();
 }
 
+TEST_F(MockTimelineImGuiFixture,
+       LabelResizer_IdleState_RendersDefaultBorderAndNoTooltip) {
+  // Move mouse away from resizer handle.
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMousePosEvent(10.0f, 10.0f);
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  EXPECT_FALSE(timeline_.get_is_resizing_label_column_for_test());
+  EXPECT_NE(ImGui::GetMouseCursor(), ImGuiMouseCursor_ResizeEW);
+
+  // Tooltip should not be active.
+  ImGuiWindow* tooltip_window = ImGui::FindWindowByName("##Tooltip_00");
+  EXPECT_TRUE(tooltip_window == nullptr || !tooltip_window->Active);
+
+  // SelectionOverlay should draw splitter with default border color,
+  // not kSplitterHoverColor or kSplitterActiveColor.
+  ImGuiWindow* overlay_window = nullptr;
+  ImGuiWindow* timeline_window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(timeline_window, nullptr);
+  for (ImGuiWindow* child : timeline_window->DC.ChildWindows) {
+    if (absl::StrContains(child->Name, "SelectionOverlay")) {
+      overlay_window = child;
+      break;
+    }
+  }
+  ASSERT_NE(overlay_window, nullptr);
+
+  bool has_hover_color = false;
+  bool has_active_color = false;
+  bool has_default_border = false;
+  const ImU32 default_border_col =
+      ImGui::GetColorU32(ImGuiCol_TableBorderLight);
+  for (const auto& vtx : overlay_window->DrawList->VtxBuffer) {
+    if (vtx.col == kSplitterHoverColor) {
+      has_hover_color = true;
+    }
+    if (vtx.col == kSplitterActiveColor) {
+      has_active_color = true;
+    }
+    if (vtx.col == default_border_col) {
+      has_default_border = true;
+    }
+  }
+  EXPECT_FALSE(has_hover_color);
+  EXPECT_FALSE(has_active_color);
+  EXPECT_TRUE(has_default_border);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       LabelResizer_HoverState_ShowsTooltipChangesCursorAndHighlights) {
+  // Produce one frame to initialize window layout.
+  SimulateFrame();
+
+  ImGuiWindow* window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(window, nullptr);
+  float win_x = window->Pos.x;
+  float win_y = window->DC.CursorStartPos.y;
+
+  float resize_handle_x = win_x + GetTimelineStartX() - 2.0f;
+  float resize_handle_y = win_y + 46.0f;
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMousePosEvent(resize_handle_x, resize_handle_y);
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  EXPECT_FALSE(timeline_.get_is_resizing_label_column_for_test());
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_ResizeEW);
+
+  // Tooltip should be displayed.
+  ImGuiWindow* tooltip_window = ImGui::FindWindowByName("##Tooltip_00");
+  ASSERT_NE(tooltip_window, nullptr);
+  EXPECT_TRUE(tooltip_window->Active);
+
+  // SelectionOverlay should draw splitter with kSplitterHoverColor.
+  ImGuiWindow* overlay_window = nullptr;
+  ImGuiWindow* timeline_window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(timeline_window, nullptr);
+  for (ImGuiWindow* child : timeline_window->DC.ChildWindows) {
+    if (absl::StrContains(child->Name, "SelectionOverlay")) {
+      overlay_window = child;
+      break;
+    }
+  }
+  ASSERT_NE(overlay_window, nullptr);
+
+  bool has_hover_color = false;
+  bool has_active_color = false;
+  float min_x = std::numeric_limits<float>::max();
+  float max_x = std::numeric_limits<float>::lowest();
+  for (const auto& vtx : overlay_window->DrawList->VtxBuffer) {
+    if (vtx.col == kSplitterHoverColor) {
+      has_hover_color = true;
+      min_x = std::min(min_x, vtx.pos.x);
+      max_x = std::max(max_x, vtx.pos.x);
+    }
+    if (vtx.col == kSplitterActiveColor) {
+      has_active_color = true;
+    }
+  }
+  EXPECT_TRUE(has_hover_color);
+  EXPECT_FALSE(has_active_color);
+  EXPECT_GE(max_x - min_x, kSplitterHoverThickness - 0.2f);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       LabelResizer_DraggingState_SetsResizingAndHighlights) {
+  // Produce one frame to initialize window layout.
+  SimulateFrame();
+
+  ImGuiWindow* window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(window, nullptr);
+  float win_x = window->Pos.x;
+  float win_y = window->DC.CursorStartPos.y;
+
+  float resize_handle_x = win_x + GetTimelineStartX() - 2.0f;
+  float resize_handle_y = win_y + 46.0f;
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMousePosEvent(resize_handle_x, resize_handle_y);
+  SimulateFrame();
+
+  // Mouse button down to start dragging.
+  io.AddMouseButtonEvent(0, true);
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  EXPECT_TRUE(timeline_.get_is_resizing_label_column_for_test());
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_ResizeEW);
+
+  // Tooltip should be suppressed during active dragging.
+  ImGuiWindow* tooltip_window = ImGui::FindWindowByName("##Tooltip_00");
+  EXPECT_TRUE(tooltip_window == nullptr || !tooltip_window->Active);
+
+  // SelectionOverlay should draw splitter with kSplitterActiveColor.
+  ImGuiWindow* overlay_window = nullptr;
+  ImGuiWindow* timeline_window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(timeline_window, nullptr);
+  for (ImGuiWindow* child : timeline_window->DC.ChildWindows) {
+    if (absl::StrContains(child->Name, "SelectionOverlay")) {
+      overlay_window = child;
+      break;
+    }
+  }
+  ASSERT_NE(overlay_window, nullptr);
+
+  bool has_active_color = false;
+  float min_x = std::numeric_limits<float>::max();
+  float max_x = std::numeric_limits<float>::lowest();
+  for (const auto& vtx : overlay_window->DrawList->VtxBuffer) {
+    if (vtx.col == kSplitterActiveColor) {
+      has_active_color = true;
+      min_x = std::min(min_x, vtx.pos.x);
+      max_x = std::max(max_x, vtx.pos.x);
+    }
+  }
+  EXPECT_TRUE(has_active_color);
+  EXPECT_GE(max_x - min_x, kSplitterHoverThickness - 0.2f);
+
+  ImGui::EndFrame();
+
+  // Release mouse button.
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+}
+
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer

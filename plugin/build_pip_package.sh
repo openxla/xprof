@@ -97,9 +97,19 @@ cp -L ${build_workspace}/bazel-bin/xprof/pywrap/profiler_plugin_c_api.so \
 cp -L ${ROOT_RUNFILE_DIR}/xprof/pywrap/_pywrap_profiler_plugin.py \
   xprof/convert/
 
+mkdir -p xprof/convert/events_db/python
+touch xprof/convert/events_db/__init__.py
+touch xprof/convert/events_db/python/__init__.py
+cp -L ${build_workspace}/bazel-bin/xprof/convert/events_db/python/libpywrap_events_db_c_api.so \
+  xprof/convert/events_db/python/
+cp -L ${ROOT_RUNFILE_DIR}/xprof/convert/events_db/python/pywrap_events_db_c_api.py \
+  xprof/convert/events_db/python/
+
 if [[ "$(uname)" == *MSYS_NT* ]]; then
   mv xprof/convert/profiler_plugin_c_api.so \
     xprof/convert/profiler_plugin_c_api.pyd
+  mv xprof/convert/events_db/python/libpywrap_events_db_c_api.so \
+    xprof/convert/events_db/python/libpywrap_events_db_c_api.pyd
 fi
 
 # Copy static files.

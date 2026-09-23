@@ -33,6 +33,7 @@ from xprof.cli.tools import get_step_trace_tool
 from xprof.cli.tools import get_top_hlo_ops_tool
 from xprof.cli.tools import get_utilization_viewer_tool
 from xprof.cli.tools import verify_numerical_parity_tool
+from xprof.cli.tools.oss import events_db_tool
 from xprof.cli.tools.oss import get_graph_viewer_tool
 from xprof.cli.tools.oss import get_kernel_utilization_tool
 from xprof.cli.tools.oss import upload_trace_tool
@@ -85,6 +86,9 @@ def cli_main() -> dict[str, Any]:
           verify_numerical_parity_tool.verify_numerical_parity
       ),
       # keep-sorted end
+      # 2 Tools Gated in 3P (Third Party Only):
+      "create_events_db": events_db_tool.create_events_db,
+      "query_events_db": events_db_tool.query_events_db,
   }
 
 

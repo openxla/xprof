@@ -1,11 +1,25 @@
-import {Component, ElementRef, HostListener, Input, OnChanges, OnInit, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  HostListener,
+  Input,
+  OnChanges,
+  OnInit,
+  SimpleChanges,
+  ViewChild,
+} from '@angular/core';
+import {MatOption} from '@angular/material/core';
+import {MatFormField, MatLabel} from '@angular/material/form-field';
+import {MatSelect} from '@angular/material/select';
 
 /** A table view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'table',
   templateUrl: './table.ng.html',
-  styleUrls: ['./table.scss']
+  styleUrls: ['./table.scss'],
+  imports: [MatFormField, MatLabel, MatOption, MatSelect],
 })
 export class Table implements OnChanges, OnInit {
   @Input() dataView?: google.visualization.DataView;

@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "operation_level_analysis",
     srcs = [
         "operation_level_analysis.ts",
-        "operation_level_analysis_module.ts",
     ],
     assets = [
         ":operation_level_analysis_css",

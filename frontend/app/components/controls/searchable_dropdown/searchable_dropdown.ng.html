@@ -5,19 +5,21 @@
     [(value)]="selectedItem"
     [disabled]="!itemList.length"
     (selectionChange)="emitSelectionChange()"
-  >
-      <div class="search-box">
-          <mat-icon class="search-icon">search</mat-icon>
-          <input matInput
-                 #searchInput
-                 type="text"
-                 placeholder="Filter"
-                 [(ngModel)]="filterText"
-                 class="search-input"
-                 autocomplete="off">
-      </div>
-    <mat-option *ngFor="let item of filteredItemList" [value]="item">
-      {{ item }}
-    </mat-option>
+    >
+    <div class="search-box">
+      <mat-icon class="search-icon">search</mat-icon>
+      <input matInput
+        #searchInput
+        type="text"
+        placeholder="Filter"
+        [(ngModel)]="filterText"
+        class="search-input"
+        autocomplete="off">
+    </div>
+    @for (item of filteredItemList; track item) {
+      <mat-option [value]="item">
+        {{ item }}
+      </mat-option>
+    }
   </mat-select>
 </mat-form-field>

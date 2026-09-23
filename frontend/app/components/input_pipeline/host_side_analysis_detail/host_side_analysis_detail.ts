@@ -1,28 +1,51 @@
-import {Component, Input, OnChanges, OnInit, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  Input,
+  OnChanges,
+  OnInit,
+  SimpleChanges,
+} from '@angular/core';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
-import {DEFAULT_SIMPLE_DATA_TABLE, type InputPipelineHostAnalysis, type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {
+  DEFAULT_SIMPLE_DATA_TABLE,
+  type InputPipelineHostAnalysis,
+  type SimpleDataTable,
+} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {TABLE_OPTIONS} from 'org_xprof/frontend/app/components/chart/chart_options';
 import {ArrayDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
 
+import {
+  MatExpansionPanel,
+  MatExpansionPanelHeader,
+  MatExpansionPanelTitle,
+} from '@angular/material/expansion';
+import {Chart} from '../../chart/chart';
 import {HostSideAnalysisDetailTableDataProvider} from './host_side_analysis_detail_table_data_provider';
 
 /** A host-side analysis detail view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'host-side-analysis-detail',
   templateUrl: './host_side_analysis_detail.ng.html',
-  styleUrls: ['./host_side_analysis_detail.scss']
+  styleUrls: ['./host_side_analysis_detail.scss'],
+  imports: [
+    Chart,
+    MatExpansionPanel,
+    MatExpansionPanelHeader,
+    MatExpansionPanelTitle,
+  ],
 })
 export class HostSideAnalysisDetail implements OnInit, OnChanges {
   /** The input pipeline host anaysis data. */
-  @Input() hostAnalysis: InputPipelineHostAnalysis|null = null;
+  @Input() hostAnalysis: InputPipelineHostAnalysis | null = null;
 
   /** The recommendation data. */
   @Input()
-  set recommendation(data: SimpleDataTable|null) {
+  set recommendation(data: SimpleDataTable | null) {
     data = data || DEFAULT_SIMPLE_DATA_TABLE;
     data.rows = data.rows || [];
-    data.rows.forEach(row => {
+    data.rows.forEach((row) => {
       if (row.c && row.c[0] && row.c[0].v) {
         this.recommendations.push(String(row.c[0].v));
       }
@@ -60,11 +83,12 @@ export class HostSideAnalysisDetail implements OnInit, OnChanges {
 
   ngOnInit() {
     this.dataProviderForTable.setHasHostOpsChangedEventListener(
-        (hasHostOps: boolean) => {
-          Promise.resolve().then(() => {
-            this.hasHostOps = hasHostOps;
-          });
+      (hasHostOps: boolean) => {
+        Promise.resolve().then(() => {
+          this.hasHostOps = hasHostOps;
         });
+      },
+    );
   }
 
   ngOnChanges(changes: SimpleChanges) {
@@ -75,7 +99,7 @@ export class HostSideAnalysisDetail implements OnInit, OnChanges {
     };
   }
 
-  parseColumnChartData(hostAnalysis: InputPipelineHostAnalysis|null) {
+  parseColumnChartData(hostAnalysis: InputPipelineHostAnalysis | null) {
     if (!hostAnalysis) {
       this.hasHostOps = false;
       return;
@@ -85,7 +109,7 @@ export class HostSideAnalysisDetail implements OnInit, OnChanges {
     const kUsPerMs = 1000.0;
     const p = hostAnalysis.p || {};
     const unclassifiedNonEnqueueMs =
-        Number(p['unclassified_nonequeue_us']) / kUsPerMs;
+      Number(p['unclassified_nonequeue_us']) / kUsPerMs;
     const demandedFileReadMs = Number(p['demanded_file_read_us']) / kUsPerMs;
     const advancedFileReadMs = Number(p['advanced_file_read_us']) / kUsPerMs;
     const preprocessingMs = Number(p['preprocessing_us']) / kUsPerMs;

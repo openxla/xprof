@@ -1,26 +1,31 @@
 import {
+  ChangeDetectionStrategy,
   Component,
   EventEmitter,
   Input,
   OnChanges,
   OnInit,
   Output,
-  SimpleChanges, ChangeDetectionStrategy,
+  SimpleChanges,
 } from '@angular/core';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {SCATTER_CHART_OPTIONS} from 'org_xprof/frontend/app/components/chart/chart_options';
 import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
+import {Chart} from '../../chart/chart';
+import {Table} from '../../chart/table/table';
+import {CategoryFilter} from '../../controls/category_filter/category_filter';
 
 type ColumnIdxArr = Array<number | google.visualization.ColumnSpec>;
 
 /** An program level analysis table view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'program-level-analysis',
   templateUrl: './program_level_analysis.ng.html',
   styleUrls: ['./program_level_analysis.scss'],
+  imports: [CategoryFilter, Chart, Table],
 })
 export class ProgramLevelAnalysis
   extends Dashboard
@@ -97,9 +102,9 @@ export class ProgramLevelAnalysis
   updateAndDrawScatterChart() {
     if (!this.rooflineSeriesData) return;
     this.dataInfoRooflineScatterChart.options = Object.assign(
-        {},
-        this.dataInfoRooflineScatterChart.options,
-        this.scatterChartOptions,
+      {},
+      this.dataInfoRooflineScatterChart.options,
+      this.scatterChartOptions,
     );
     this.dataInfoRooflineScatterChart.dataProvider.notifyCharts();
   }

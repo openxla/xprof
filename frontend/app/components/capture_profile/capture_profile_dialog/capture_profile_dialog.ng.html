@@ -8,7 +8,7 @@
         required
         [(ngModel)]="serviceAddr"
         (ngModelChange)="serviceAddrChanged($event)"
-      />
+        />
     </mat-form-field>
   </div>
 
@@ -18,7 +18,7 @@
       i18n-aria-label="Radio buttons to select address type"
       [(ngModel)]="addressType"
       (ngModelChange)="addressTypeChanged($event)"
-    >
+      >
       Address Type:
       <mat-radio-button value="ip">IP Address</mat-radio-button>
       <mat-radio-button value="tpu">TPU Name</mat-radio-button>
@@ -34,7 +34,7 @@
         matInput
         type="number"
         [(ngModel)]="duration"
-      />
+        />
     </mat-form-field>
   </div>
 
@@ -45,7 +45,7 @@
         matTooltip="{{ hostTracerTooltip }}"
         matTooltipPosition="above"
         [(ngModel)]="hostTracerLevel"
-      >
+        >
         <mat-option value="0">disable</mat-option>
         <mat-option value="1">critical</mat-option>
         <mat-option value="2">info</mat-option>
@@ -82,7 +82,7 @@
           matInput
           placeholder="List of IPs, e.g. 10.4.1.2:8466,10.4.1.3:8466"
           [(ngModel)]="workerList"
-        />
+          />
       </mat-form-field>
     </div>
   </div>
@@ -102,7 +102,7 @@
             matInput
             type="number"
             [(ngModel)]="numRetry"
-          />
+            />
         </mat-form-field>
       </div>
 
@@ -113,21 +113,23 @@
             matInput
             type="number"
             [(ngModel)]="delay"
-          />
+            />
         </mat-form-field>
       </div>
 
       <div>
         Extra Options:
-        <div *ngFor="let option of extraOptions; let i = index">
-          <mat-form-field>
-            <input matInput placeholder="Key" aria-label="Key" [(ngModel)]="option.key" />
-          </mat-form-field>
-          <mat-form-field>
-            <input matInput placeholder="Value" aria-label="Value" [(ngModel)]="option.value" />
-          </mat-form-field>
-          <button mat-button (click)="removeExtraOption(i)">Remove</button>
-        </div>
+        @for (option of extraOptions; track option; let i = $index) {
+          <div>
+            <mat-form-field>
+              <input matInput placeholder="Key" aria-label="Key" [(ngModel)]="option.key" />
+            </mat-form-field>
+            <mat-form-field>
+              <input matInput placeholder="Value" aria-label="Value" [(ngModel)]="option.value" />
+            </mat-form-field>
+            <button mat-button (click)="removeExtraOption(i)">Remove</button>
+          </div>
+        }
         <button mat-button (click)="addExtraOption()">Add Option</button>
       </div>
     </mat-expansion-panel>

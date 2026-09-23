@@ -90,6 +90,7 @@ import {filterFieldKey, lookupFilterOperator} from './utils';
 </mat-autocomplete>
 `,
   styleUrls: ['./trace_viewer.scss'],
+  styles: [':host { background: transparent !important; }'],
 })
 export class FilterInput implements AfterViewInit, OnChanges {
   @ViewChild('inputEl') inputEl!: ElementRef;

@@ -12,7 +12,8 @@
 #include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
-#include "absl/functional/any_invocable.h"
+#include "absl/functional/any_invocable.h"'
+#include "absl/functional/function_ref.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "imgui.h"
@@ -101,6 +102,14 @@ struct Group {
   int nesting_level = 0;
   bool expanded = false;
 
+  Group* parent = nullptr;
+  Group* prev_sibling = nullptr;
+  Group* next_sibling = nullptr;
+
+  Group* first_child = nullptr;
+  // For fast append.
+  Group* last_child = nullptr;
+
   // Parent index in groups vector, or -1 for top-level processes.
   int parent_index = -1;
   // List of child process/thread indices in the groups vector.
@@ -121,8 +130,43 @@ struct Group {
   mutable Pixel height = 0.0f;
   // Indicates if the track is visible (not hidden by a collapsed parent).
   mutable bool visible = true;
+
+  void AddChild(Group* child);
+  void Unlink();
 };
 
+inline void Group::AddChild(Group* child) {
+  if (child == nullptr) return;
+  child->parent = this;
+  child->prev_sibling = last_child;
+  child->next_sibling = nullptr;
+  if (last_child != nullptr) {
+    last_child->next_sibling = child;
+  } else {
+    first_child = child;
+  }
+  last_child = child;
+  has_children = true;
+}
+
+inline void Group::Unlink() {
+  if (prev_sibling != nullptr) {
+    prev_sibling->next_sibling = next_sibling;
+  } else if (parent != nullptr && parent->first_child == this) {
+    parent->first_child = next_sibling;
+  }
+  if (next_sibling != nullptr) {
+    next_sibling->prev_sibling = prev_sibling;
+  } else if (parent != nullptr && parent->last_child == this) {
+    parent->last_child = prev_sibling;
+  }
+  if (parent != nullptr && parent->first_child == nullptr) {
+    parent->has_children = false;
+  }
+  parent = nullptr;
+  prev_sibling = nullptr;
+  next_sibling = nullptr;
+}
 struct FlowLine {
   Microseconds source_ts = 0.0;
 
@@ -134,6 +178,65 @@ struct FlowLine {
 
   uint32_t color = traceviewer::kBlackColor;
   tsl::profiler::ContextType category = tsl::profiler::ContextType::kGeneric;
+};
+
+// Manages the tree structure of timeline groups, section headers, and
+// associated counter data, providing copy and move semantics
+// with pointer remapping.
+class GroupTree {
+ public:
+  GroupTree();
+  GroupTree(const GroupTree& other);
+  GroupTree& operator=(const GroupTree& other);
+  GroupTree(GroupTree&& other) noexcept;
+  GroupTree& operator=(GroupTree&& other) noexcept;
+  ~GroupTree() = default;
+
+  void InitSectionGroups();
+  void Clear();
+
+  // Returns the three root section header groups: hidden, pinned, and all.
+  std::array<Group*, 3> roots() {
+    return {hidden_section_group, pinned_section_group, all_section_group};
+  }
+  std::array<const Group*, 3> roots() const {
+    return {hidden_section_group, pinned_section_group, all_section_group};
+  }
+
+  // Returns true if no non-header group is attached to any section.
+  bool is_empty() const {
+    if (!all_section_group || !hidden_section_group || !pinned_section_group) {
+      return groups.empty();
+    }
+    return all_section_group->first_child == nullptr &&
+           hidden_section_group->first_child == nullptr &&
+           pinned_section_group->first_child == nullptr;
+  }
+
+  // Backing storage for groups. deque (not vector) because Group* links below
+  // must stay stable as groups are appended. Invariant: elements may only be
+  // pushed or popped at ends, never inserted or erased in the middle.
+  std::deque<Group> groups;
+
+  // Storage for section headers
+  std::vector<std::unique_ptr<Group>> section_headers_storage;
+
+  Group* all_section_group = nullptr;
+  Group* hidden_section_group = nullptr;
+  Group* pinned_section_group = nullptr;
+
+  // Root group that is used for iterating through the group tree.
+  // Children are the section header groups (pinned, hidden, all).
+  Group* root_group = nullptr;
+
+  // A map from group ptr to counter data.
+  // We use group ptr instead of PID as the key because a process (PID) can
+  // have multiple counter tracks associated with it. The group ptr uniquely
+  // identifies each track within the `groups` vector.
+  absl::flat_hash_map<const Group*, CounterData> counter_data_by_group_ptr;
+
+ private:
+  void CopyFrom(const GroupTree& other);
 };
 
 // Holds all the data required to render a flame chart and counter lines,
@@ -152,7 +255,13 @@ struct FlameChartTimelineData {
   std::vector<ProcessId> entry_pids;
   std::vector<ThreadId> entry_tids;
   std::vector<absl::flat_hash_map<std::string, std::string>> entry_args;
+
+  // List of groups in the timeline to be deprecated once tree structure is
+  // fully supported.
   std::vector<Group> groups;
+
+  // Tree structure of groups.
+  GroupTree group_tree;
   // A map from level to a list of event indices at that level.
   // This is used to quickly draw events at a given level.
   // Technically, we can calculate this in the Timeline class, but doing it here
@@ -165,6 +274,19 @@ struct FlameChartTimelineData {
   absl::flat_hash_map<EventId, std::vector<std::string>> flow_ids_by_event_id;
   // Map from flow_id to list of flow lines that belong to this flow.
   absl::flat_hash_map<std::string, std::vector<FlowLine>> flow_lines_by_flow_id;
+
+  FlameChartTimelineData() = default;
+  FlameChartTimelineData(FlameChartTimelineData&&) noexcept = default;
+  FlameChartTimelineData& operator=(
+      FlameChartTimelineData&&) noexcept = default;
+  FlameChartTimelineData(const FlameChartTimelineData&) = default;
+  FlameChartTimelineData& operator=(const FlameChartTimelineData&) = default;
+  ~FlameChartTimelineData() = default;
+
+  std::array<Group*, 3> roots() { return group_tree.roots(); }
+  std::array<const Group*, 3> roots() const { return group_tree.roots(); }
+  bool is_empty() const { return group_tree.is_empty(); }
+
   // A map from group index to counter data.
   // We use group index instead of PID as the key because a process (PID) can
   // have multiple counter tracks associated with it. The group index uniquely
@@ -377,6 +499,10 @@ class Timeline {
 
   void SetTimelineData(FlameChartTimelineData data);
   const FlameChartTimelineData& timeline_data() const { return timeline_data_; }
+
+  // Reconstructs tree structure from nesting_level heuristics for tests that
+  // hand-build groups without links.
+  static void BuildTreeForTest(FlameChartTimelineData& data);
 
   int selected_event_index() const { return selected_event_index_; }
   int selected_group_index() const { return selected_group_index_; }
@@ -629,11 +755,18 @@ class Timeline {
   bool DrawHideButton(int group_index, Pixel height, bool is_track_hidden);
   bool DrawPinButton(int group_index, Pixel height, bool is_pinned);
 
+  // Traverses all groups depth-first in timeline data.
+  // Calls `callback` for each group. The callback should return true to stop
+  // traversal early (e.g. when the desired group is found), or false to
+  // continue traversal.
+  void TraverseGroups(absl::FunctionRef<bool(const Group&)> callback) const;
+
  private:
   absl::flat_hash_set<int> matching_event_indices_;
 
   void NavigateToSearchResult(const SearchResult& result);
   void BackfillGroupLevelCount(FlameChartTimelineData& data);
+  static void EnsureTreeStructure(FlameChartTimelineData& data);
 
   // Applies snapping to selected time ranges for the given range.
   void ApplySnapping(TimeRange& range);
@@ -642,6 +775,11 @@ class Timeline {
   void FindNearestEventEdge(Microseconds time, Microseconds threshold,
                             Microseconds& best_diff, Microseconds& snapped_time,
                             bool& snapped) const;
+
+  // Finds the group that contains the given event level.
+  const Group* SearchForEventHoveredGroup(int event_level) const;
+  const Group* SearchForEventHoveredGroup(const Group* group,
+                                          int event_level) const;
 
   // Emits an event selected event to JS side.
   void EmitEventSelected(int event_index);

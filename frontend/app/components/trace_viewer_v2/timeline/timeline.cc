@@ -16,6 +16,7 @@
 #include "absl/algorithm/container.h"
 #include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/functional/function_ref.h"
 #include "absl/log/log.h"
 #include "absl/strings/ascii.h"
 #include "absl/strings/match.h"
@@ -38,6 +39,161 @@
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
+
+GroupTree::GroupTree() {
+  InitSectionGroups();
+}
+
+GroupTree::GroupTree(const GroupTree& other) {
+  CopyFrom(other);
+}
+
+GroupTree& GroupTree::operator=(const GroupTree& other) {
+  if (this != &other) {
+    CopyFrom(other);
+  }
+  return *this;
+}
+
+GroupTree::GroupTree(GroupTree&& other) noexcept
+    : groups(std::move(other.groups)),
+      section_headers_storage(std::move(other.section_headers_storage)),
+      all_section_group(other.all_section_group),
+      hidden_section_group(other.hidden_section_group),
+      pinned_section_group(other.pinned_section_group),
+      root_group(other.root_group),
+      counter_data_by_group_ptr(std::move(other.counter_data_by_group_ptr)) {
+  other.InitSectionGroups();
+}
+
+GroupTree& GroupTree::operator=(GroupTree&& other) noexcept {
+  if (this != &other) {
+    groups = std::move(other.groups);
+    section_headers_storage = std::move(other.section_headers_storage);
+    all_section_group = other.all_section_group;
+    hidden_section_group = other.hidden_section_group;
+    pinned_section_group = other.pinned_section_group;
+    root_group = other.root_group;
+    counter_data_by_group_ptr = std::move(other.counter_data_by_group_ptr);
+
+    other.InitSectionGroups();
+  }
+  return *this;
+}
+
+void GroupTree::Clear() {
+  groups.clear();
+  counter_data_by_group_ptr.clear();
+  InitSectionGroups();
+}
+
+void GroupTree::InitSectionGroups() {
+  section_headers_storage.clear();
+  section_headers_storage.reserve(kSectionHeaderCount);
+
+  auto root = std::make_unique<Group>();
+  root->name = kRootHeaderName;
+  root_group = root.get();
+  section_headers_storage.push_back(std::move(root));
+
+  auto hidden = std::make_unique<Group>();
+  hidden->name = kHiddenHeaderName;
+  hidden->nesting_level = kHeaderNestingLevel;
+  hidden->expanded = false;
+  hidden_section_group = hidden.get();
+  section_headers_storage.push_back(std::move(hidden));
+
+  auto pinned = std::make_unique<Group>();
+  pinned->name = kPinnedHeaderName;
+  pinned->nesting_level = kHeaderNestingLevel;
+  pinned->expanded = true;
+  pinned_section_group = pinned.get();
+  section_headers_storage.push_back(std::move(pinned));
+
+  auto all = std::make_unique<Group>();
+  all->name = kAllHeaderName;
+  all->nesting_level = kHeaderNestingLevel;
+  all->expanded = true;
+  all_section_group = all.get();
+  section_headers_storage.push_back(std::move(all));
+
+  root_group->AddChild(hidden_section_group);
+  root_group->AddChild(pinned_section_group);
+  root_group->AddChild(all_section_group);
+}
+
+void GroupTree::CopyFrom(const GroupTree& other) {
+  groups = other.groups;
+  InitSectionGroups();
+
+  absl::flat_hash_map<const Group*, Group*> node_map;
+  node_map.reserve(other.groups.size() + other.section_headers_storage.size());
+  if (other.root_group) node_map[other.root_group] = root_group;
+  if (other.hidden_section_group) {
+    node_map[other.hidden_section_group] = hidden_section_group;
+  }
+  if (other.pinned_section_group) {
+    node_map[other.pinned_section_group] = pinned_section_group;
+  }
+  if (other.all_section_group) {
+    node_map[other.all_section_group] = all_section_group;
+  }
+  for (size_t i = 4; i < other.section_headers_storage.size(); ++i) {
+    auto copy = std::make_unique<Group>(*other.section_headers_storage[i]);
+    node_map[other.section_headers_storage[i].get()] = copy.get();
+    section_headers_storage.push_back(std::move(copy));
+  }
+  for (size_t i = 0; i < other.groups.size(); ++i) {
+    node_map[&other.groups[i]] = &groups[i];
+  }
+
+  auto map_node = [&](const Group* other_node) -> Group* {
+    if (!other_node) return nullptr;
+    auto it = node_map.find(other_node);
+    return it != node_map.end() ? it->second : nullptr;
+  };
+
+  auto copy_and_remap = [&](Group* node, const Group* other_node) {
+    if (!node || !other_node) return;
+    *node = *other_node;
+    node->parent = map_node(other_node->parent);
+    node->first_child = map_node(other_node->first_child);
+    node->last_child = map_node(other_node->last_child);
+    node->next_sibling = map_node(other_node->next_sibling);
+    node->prev_sibling = map_node(other_node->prev_sibling);
+  };
+
+  if (other.root_group) copy_and_remap(root_group, other.root_group);
+  if (other.hidden_section_group) {
+    copy_and_remap(hidden_section_group, other.hidden_section_group);
+  }
+  if (other.pinned_section_group) {
+    copy_and_remap(pinned_section_group, other.pinned_section_group);
+  }
+  if (other.all_section_group) {
+    copy_and_remap(all_section_group, other.all_section_group);
+  }
+  for (size_t i = 4; i < section_headers_storage.size(); ++i) {
+    copy_and_remap(section_headers_storage[i].get(),
+                   other.section_headers_storage[i].get());
+  }
+  for (size_t i = 0; i < groups.size(); ++i) {
+    groups[i].parent = map_node(other.groups[i].parent);
+    groups[i].first_child = map_node(other.groups[i].first_child);
+    groups[i].last_child = map_node(other.groups[i].last_child);
+    groups[i].next_sibling = map_node(other.groups[i].next_sibling);
+    groups[i].prev_sibling = map_node(other.groups[i].prev_sibling);
+  }
+
+  counter_data_by_group_ptr.clear();
+  counter_data_by_group_ptr.reserve(other.counter_data_by_group_ptr.size());
+  for (const auto& [other_group_ptr, counter_data] :
+       other.counter_data_by_group_ptr) {
+    Group* mapped_group = map_node(other_group_ptr);
+    counter_data_by_group_ptr[mapped_group] = counter_data;
+  }
+}
+
 namespace {
 
 using FallbackKey = std::tuple<ProcessId, ThreadId, absl::string_view>;
@@ -211,6 +367,76 @@ bool IsVirtualHeader(const Group* group) {
 // Formats the header text with the process count.
 std::string FormatHeaderText(absl::string_view name, int count) {
   return absl::StrCat(name, " (", count, ")");
+}
+
+// Returns the next group in pre-order traversal. If visible_only is true, only
+// considers visible groups (descending into expanded groups).
+const Group* NextInPreOrder(const Group* group, bool visible_only = false) {
+  if (group == nullptr) return nullptr;
+  if (!visible_only || group->expanded) {
+    const Group* child = group->first_child;
+    while (child != nullptr) {
+      if (!visible_only || child->visible) return child;
+      child = child->next_sibling;
+    }
+  }
+  const Group* curr = group;
+  while (curr != nullptr) {
+    const Group* sibling = curr->next_sibling;
+    while (sibling != nullptr) {
+      if (!visible_only || sibling->visible) return sibling;
+      sibling = sibling->next_sibling;
+    }
+    curr = curr->parent;
+  }
+  return nullptr;
+}
+
+const Group* GetNextGroup(const Group* group) {
+  return NextInPreOrder(group, /*visible_only=*/false);
+}
+
+const Group* GetNextVisibleGroup(const Group* group) {
+  return NextInPreOrder(group, /*visible_only=*/true);
+}
+
+void AddGroupSubtree(const Group* node,
+                     std::vector<const Group*>& flattened_groups,
+                     int& all_processes_count) {
+  if (node == nullptr) return;
+  flattened_groups.push_back(node);
+  if (node->nesting_level == kProcessNestingLevel) {
+    all_processes_count++;
+  }
+  const Group* cur_child = node->first_child;
+  while (cur_child != nullptr) {
+    AddGroupSubtree(cur_child, flattened_groups, all_processes_count);
+    cur_child = cur_child->next_sibling;
+  }
+}
+
+void AddGroupChildren(const Group* node,
+                      std::vector<const Group*>& target) {
+  if (node == nullptr) return;
+  const Group* child = node->first_child;
+  while (child != nullptr) {
+    target.push_back(child);
+    AddGroupChildren(child, target);
+    child = child->next_sibling;
+  }
+}
+
+bool TraverseGroupSubtree(const Group& group,
+                          absl::FunctionRef<bool(const Group&)> callback) {
+  if (callback(group)) {
+    return true;
+  }
+  const Group* child = group.first_child;
+  while (child != nullptr) {
+    if (TraverseGroupSubtree(*child, callback)) return true;
+    child = child->next_sibling;
+  }
+  return false;
 }
 
 }  // namespace
@@ -392,6 +618,71 @@ void Timeline::CategorizeGroupsForTrackManagement(
   }
 }
 
+void Timeline::EnsureTreeStructure(FlameChartTimelineData& data) {
+  if (data.group_tree.all_section_group == nullptr ||
+      data.group_tree.root_group == nullptr) {
+    data.group_tree.InitSectionGroups();
+  }
+  if (data.group_tree.groups.empty()) {
+    return;
+  }
+  if (data.group_tree.all_section_group->first_child != nullptr ||
+      data.group_tree.hidden_section_group->first_child != nullptr ||
+      data.group_tree.pinned_section_group->first_child != nullptr) {
+    for (size_t i = 0; i < data.group_tree.groups.size(); ++i) {
+      if (data.group_tree.groups[i].original_index == -1) {
+        data.group_tree.groups[i].original_index = static_cast<int>(i);
+      }
+      if (data.group_tree.groups[i].level_count <= 0) {
+        int next_level = (i + 1 < data.group_tree.groups.size())
+                             ? data.group_tree.groups[i + 1].start_level
+                             : static_cast<int>(data.events_by_level.size());
+        data.group_tree.groups[i].level_count =
+            std::max(1, next_level - data.group_tree.groups[i].start_level);
+      }
+    }
+    return;
+  }
+
+  for (size_t i = 0; i < data.group_tree.groups.size(); ++i) {
+    Group* g = &data.group_tree.groups[i];
+    g->original_index = static_cast<int>(i);
+    g->first_child = nullptr;
+    g->last_child = nullptr;
+    g->prev_sibling = nullptr;
+    g->next_sibling = nullptr;
+    g->parent = nullptr;
+  }
+
+  std::vector<Group*> stack;
+  for (size_t i = 0; i < data.group_tree.groups.size(); ++i) {
+    Group* g = &data.group_tree.groups[i];
+    while (!stack.empty() && stack.back()->nesting_level >= g->nesting_level) {
+      stack.pop_back();
+    }
+    if (stack.empty()) {
+      data.group_tree.all_section_group->AddChild(g);
+    } else {
+      stack.back()->AddChild(g);
+    }
+    stack.push_back(g);
+  }
+  for (size_t i = 0; i < data.group_tree.groups.size(); ++i) {
+    Group* g = &data.group_tree.groups[i];
+    if (g->level_count <= 0) {
+      int next_level = (i + 1 < data.group_tree.groups.size())
+                           ? data.group_tree.groups[i + 1].start_level
+                           : static_cast<int>(data.events_by_level.size());
+      g->level_count = std::max(1, next_level - g->start_level);
+    }
+    g->has_children = g->has_children || (g->first_child != nullptr);
+  }
+}
+
+void Timeline::BuildTreeForTest(FlameChartTimelineData& data) {
+  EnsureTreeStructure(data);
+}
+
 void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
   const int level_count = data.events_by_level.size();
   const int group_count = data.groups.size();
@@ -567,6 +858,17 @@ void Timeline::BackfillGroupLevelCount(FlameChartTimelineData& data) {
       data.groups[i].level_count =
           std::max(1, next_level - data.groups[i].start_level);
     }
+  }
+}
+
+void Timeline::TraverseGroups(
+    absl::FunctionRef<bool(const Group&)> callback) const {
+  if (timeline_data_.group_tree.root_group == nullptr) return;
+
+  const Group* section = timeline_data_.group_tree.root_group->first_child;
+  while (section != nullptr) {
+    if (TraverseGroupSubtree(*section, callback)) break;
+    section = section->next_sibling;
   }
 }
 
@@ -1615,6 +1917,33 @@ void Timeline::EmitEventSelected(int event_index) {
   if (!event_callback_) return;
   EventData event_data = CreateBaseEventData(event_index, /*is_hover=*/false);
   event_callback_(kEventSelected, event_data);
+}
+
+const Group* Timeline::SearchForEventHoveredGroup(const Group* group,
+                                                  int event_level) const {
+  if (group == nullptr) return nullptr;
+  const Group* child = group->first_child;
+  while (child != nullptr) {
+    const Group* found = SearchForEventHoveredGroup(child, event_level);
+    if (found != nullptr) return found;
+    child = child->next_sibling;
+  }
+  if (!IsVirtualHeader(group)) {
+    int next_group_start_level = GetNextGroupStartLevel(timeline_data_, group);
+    if (event_level >= group->start_level &&
+        event_level < next_group_start_level) {
+      return group;
+    }
+  }
+  return nullptr;
+}
+
+const Group* Timeline::SearchForEventHoveredGroup(int event_level) const {
+  for (const Group* root : timeline_data_.roots()) {
+    const Group* found = SearchForEventHoveredGroup(root, event_level);
+    if (found != nullptr) return found;
+  }
+  return nullptr;
 }
 
 void Timeline::EmitEventHovered(int event_index, float mouse_x, float mouse_y) {

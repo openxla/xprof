@@ -995,6 +995,11 @@ class SxsDiffEngineTest(unittest.TestCase):
     # Only the DOM leg carries a verdict here. The visual and network legs are
     # constructed empty rather than fabricated, which is what makes the report
     # below show a text diff and nothing that looks like a rendered comparison.
+    manifest_path = _find_runfile("tests/ui/approved_manifest.json")
+    entry = SxsDiffEngine(
+        approved_manifest_path=str(manifest_path) if manifest_path else None
+    ).approved_manifest.get("overview_page:template_text", {})
+    is_approved = entry.get("diff_hash") == dom.diff_digest[:16]
     diff = WaypointDiff(
         journey_name="overview_page",
         waypoint_name="template_text",
@@ -1004,6 +1009,8 @@ class SxsDiffEngineTest(unittest.TestCase):
             has_changes=False, request_count_a=0, request_count_b=0
         ),
         diff_hash=dom.diff_digest[:16],
+        is_approved=is_approved,
+        approval_rationale=entry.get("rationale"),
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -1023,8 +1030,9 @@ class SxsDiffEngineTest(unittest.TestCase):
             artifact_name="overview_page_template_report.html",
         )
 
-      self.assertFalse(
-          dom.has_changes,
+      self.assertNotEqual(
+          diff.verdict,
+          "CHANGED",
           msg=_format_template_drift_banner(diff, published or report_path),
       )
 

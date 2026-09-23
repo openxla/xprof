@@ -6,6 +6,7 @@
 #include "absl/log/log.h"
 #include "imgui.h"
 #include "frontend/app/components/trace_viewer_v2/fonts/roboto_wdthwght.h"
+#include "frontend/app/components/trace_viewer_v2/fonts/trace_viewer_icons.h"
 
 namespace traceviewer::fonts {
 
@@ -70,7 +71,17 @@ void LoadFonts(float pixel_ratio) {
       LOG(ERROR) << "Failed to load font size " << base_size
                  << ". Using default.";
       *(font_ptr) = io.Fonts->AddFontDefault();
+      continue;
     }
+
+    // Merge custom icon glyphs into the successfully loaded base font.
+    ImFontConfig icons_config = *font_config;
+    icons_config.MergeMode = true;
+    icons_config.PixelSnapH = true;
+    static const ImWchar icons_ranges[] = {0xe000, 0xe050, 0};
+    io.Fonts->AddFontFromMemoryCompressedBase85TTF(
+        trace_viewer_icons_compressed_data_base85, base_size, &icons_config,
+        icons_ranges);
   }
   io.FontDefault = label_large;
 }

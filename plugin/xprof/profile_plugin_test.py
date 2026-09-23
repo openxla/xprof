@@ -845,6 +845,23 @@ class ProfilePluginTest(absltest.TestCase):
       contents = self.plugin._read_static_file_impl('bundle.js')
       self.assertEqual(contents, b'console.log("xprof");')
 
+  def test_read_static_file_serves_symlinked_asset(self):
+    """Verifies static assets symlinked outside the serving directory are served."""
+    temp_dir = self.create_tempdir().full_path
+    source_dir = os.path.join(temp_dir, 'source')
+    serving_dir = os.path.join(temp_dir, 'runfiles', 'static')
+    os.makedirs(source_dir)
+    os.makedirs(serving_dir)
+
+    source_file = os.path.join(source_dir, 'bundle.js')
+    with open(source_file, 'wb') as f:
+      f.write(b'console.log("symlinked");')
+    os.symlink(source_file, os.path.join(serving_dir, 'bundle.js'))
+
+    with mock.patch.dict(os.environ, {'XPROF_STATIC_DIR': serving_dir}):
+      contents = self.plugin._read_static_file_impl('bundle.js')
+      self.assertEqual(contents, b'console.log("symlinked");')
+
   def test_read_static_file_path_traversal_rejected(self):
     """Verifies path traversal attempts raise IOError with access denied message."""
     temp_dir = self.create_tempdir().full_path

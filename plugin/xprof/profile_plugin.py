@@ -886,8 +886,8 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
     else:
       base_dir = os.path.join(os.path.dirname(__file__), 'static')
 
-    resolved_base = os.path.realpath(base_dir)
-    filepath = os.path.realpath(os.path.join(resolved_base, filename))
+    resolved_base = os.path.abspath(base_dir)
+    filepath = os.path.abspath(os.path.join(resolved_base, filename))
     if os.path.commonpath([resolved_base, filepath]) != resolved_base:
       raise IOError('Access denied: path traversal detected.')
 

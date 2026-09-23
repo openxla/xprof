@@ -260,7 +260,7 @@ class _BatchExecutionResult:
   narrow_warning: str | None = None
 
 
-# The dtype tables and ULP arithmetic live in `ulp`, which has no google3
+# The dtype tables and ULP arithmetic live in `ulp`, which has no package
 # dependencies so that standalone benchmark scripts can carry it inline. These
 # names are re-exported so that callers of this module keep working.
 RECOMMENDED_CONTRACT_ULP = ulp.RECOMMENDED_CONTRACT_ULP

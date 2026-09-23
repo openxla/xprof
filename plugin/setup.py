@@ -119,6 +119,14 @@ TEST_PACKAGES = [
     'jax',
     'pandas',
 ]
+# Dependencies required only by the XLoop Engine, which executes JAX functions
+# and Pallas kernels. Declared as the `[xloop]` extra rather than a hard
+# dependency: the rest of XProf reads profiles that some other process
+# produced, and should stay installable without a JAX toolchain. Install with
+# `pip install xprof[xloop]`, plus the appropriate `jax[tpu]` for the host.
+XLOOP_PACKAGES = [
+    'jax',
+]
 PACKAGE_DATA = {
     'xprof': [
         'static/**',
@@ -130,6 +138,7 @@ PACKAGE_DATA = {
         'convert/events_db/python/libpywrap_events_db_c_api.so',
         'convert/events_db/python/libpywrap_events_db_c_api.pyd',
         'skills/**',
+        'xloop/testdata/*.jsonl',
         'cli/internal/oss/hlo_descriptor_set.pb',
     ],
 }
@@ -141,6 +150,7 @@ ENTRY_POINTS = {
         'xprof = xprof.cli.xprof_cli:main',
         'xprof-install-skills = xprof.cli.tools.install_skills_tool:main',
         'xparity = xprof.xparity.xparity_cli:main',
+        'xloop = xprof.xloop.xloop_cli:main',
     ],
 }
 
@@ -189,7 +199,7 @@ if __name__ == '__main__':
       python_requires='>= 3.10',
       install_requires=REQUIRED_PACKAGES,
       tests_require=REQUIRED_PACKAGES,
-      extras_require={'test': TEST_PACKAGES},
+      extras_require={'test': TEST_PACKAGES, 'xloop': XLOOP_PACKAGES},
       # PyPI package information.
       classifiers=[
           'Intended Audience :: Developers',

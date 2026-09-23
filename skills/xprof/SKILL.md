@@ -1,7 +1,7 @@
 ---
 name: xprof
 description: >-
-  Central entry point for ALL XProf operations and analyses. Use this skill first for any task involving XProf traces, performance, memory, HLO ops, collecting/triggering XProf profiles, or numerical correctness verification.
+  Central entry point for ALL XProf operations and analyses. Use this skill first for any task involving XProf traces, performance, memory, HLO ops, or collecting/triggering XProf profiles. Don't use for standalone numerical parity verification (use xparity).
 ---
 
 > ⚠️ **CRITICAL RULES** * **Path & Session Resolution**: Pass the log directory
@@ -128,7 +128,7 @@ analysis:
 
 > ⚠️ **EXPERIMENTAL FEATURE**: Low Level Optimizer (LLO) analysis and custom
 > call profiling are **experimental**. To access these features and all CLI
-> subcommands (`verify_numerical_parity`, `get_kernel_stats`,
+> subcommands (`get_kernel_stats`,
 > `get_llo_analysis`, `get_llo_debug_string`), users **MUST install
 > `xprof-nightly`** (`pip install xprof-nightly` or `uv pip install
 > xprof-nightly 'jax[tpu]'`), as the main `xprof` PyPI release (2.23.1) lacks
@@ -246,11 +246,6 @@ Pallas or Mosaic):
 -   **[Diff Sessions](references/diff_session.md)**: Compare performance, kernel
     execution times, top operations, and HLO graphs between baseline and
     candidate sessions.
--   **[Numerical Verification](references/numerical_correctness.md)**: Verify
-    reference grounding (detecting lossy baselines via Float64 Oracle) and
-    refactor equivalence (exact/tight ULP bitwise checks for cleanups and
-    reshapes). *Note*: Do not use as an automated merge gate to block
-    reassociating kernel optimizations ($a + (b + c) \ne (a + b) + c$).
 -   **[Custom Call & LLO Profiling][custom-call-doc]**: Trace custom kernel
     execution, instruction metrics, and register LLO debug info.
 

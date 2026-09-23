@@ -1,6 +1,4 @@
-"""Tool to verify numerical parity between reference and candidate kernels."""
-
-# pylint: disable=g-import-not-at-top
+"""Tool and CLI functions for Xparity numerical accuracy and parity verification."""
 
 import ast
 import builtins
@@ -10,6 +8,9 @@ import importlib
 import json
 import math
 from typing import Any
+
+from xprof.xparity import numerical_generator
+from xprof.xparity import numerical_validator
 
 _Callable = collections.abc.Callable
 _Sequence = collections.abc.Sequence
@@ -128,11 +129,19 @@ def _resolve_callable(target: _Callable[..., Any] | str) -> _Callable[..., Any]:
       raise ImportError(
           f"Package '{root_pkg}' is not installed in current environment. "
           f"To verify '{target_str}', please install {root_pkg} separately "
-          f"(e.g. 'pip install {root_pkg}'). Note: {root_pkg} is not bundled "
-          "in xprof to prevent cyclic dependencies (jax <--> xprof)."
+          f"(e.g. 'pip install {root_pkg}')."
       ) from e
 
   raise ImportError(f"Could not import module from '{target_str}'")
+
+
+def _parse_shapes(
+    shapes: _Sequence[int] | _Sequence[_Sequence[int]] | str,
+) -> Any:
+  """Parses a shape tuple, list of shapes, or string literal."""
+  if isinstance(shapes, str):
+    return ast.literal_eval(shapes)
+  return shapes
 
 
 def verify_numerical_parity(
@@ -147,6 +156,7 @@ def verify_numerical_parity(
     regimes: _Sequence[str] | str | None = None,
     kernel_oracle: _Callable[..., Any] | str | None = None,
     device_kind: str | None = None,
+    strict_shape_error: bool = False,
 ) -> str:
   """Validates numerical parity between two kernels and returns a JSON report.
 
@@ -169,38 +179,15 @@ def verify_numerical_parity(
       "module.fn" path) that computes in float64 on the host, or the literal
       string "auto" to re-run `kernel_ref` with its floating-point arguments
       promoted to float64. Report-only: it populates `oracle_audit` and never
-      changes the verdict. Without it this tool validates *agreement*, not
-      correctness -- two kernels wrong in the same way agree perfectly.
+      changes the verdict.
     device_kind: Device/backend identifier (e.g. "tpu", "gpu", "cpu").
       Auto-detected when omitted.
+    strict_shape_error: If True, raises ValueError on output shape mismatch
+      instead of returning a structured failure JSON report.
 
   Returns:
-    A JSON string containing the validation report:
-      - is_numerically_equivalent: Boolean verdict.
-      - correctness_basis: Basis of claim ("AGREEMENT_ONLY" or
-        "AGREEMENT_AND_ORACLE").
-      - run_config: Execution parameters (tier, seed, dtype_str, device_kind,
-        backend, total_batches_count).
-      - overall_max_ulp: Peak ULP distance across all batches.
-      - failed_batches_count: Number of batches failing ULP criteria.
-      - total_batches_count: Total test batches executed.
-      - summary_message: High-level diagnostics.
-      - tolerance_audit: Contract tolerance elevation diagnostic details.
-      - oracle_audit: Reference- and candidate-vs-float64 distances.
-      - ulp_context: Statistical and reliability assessment of ULP.
-      - narrow_output_dtype_warning: Warning if kernel emits dtype narrower than
-        float32.
-      - batch_results: Detailed per-batch breakdown.
+    A JSON string containing the validation report.
   """
-  try:
-    from xprof.cli.internal import numerical_validator
-  except ModuleNotFoundError as e:
-    raise ImportError(
-        "Required numerical dependencies are not installed in current"
-        f" environment: {e}. Please install numpy and ml_dtypes (e.g. 'pip"
-        " install numpy ml_dtypes') to use verify_numerical_parity."
-    ) from e
-
   ref_fn = _resolve_callable(kernel_ref)
   candidate_fn = _resolve_callable(kernel_candidate)
 
@@ -209,9 +196,7 @@ def verify_numerical_parity(
   else:
     oracle_fn = _resolve_callable(kernel_oracle)
 
-  parsed_shapes: Any = shapes
-  if isinstance(shapes, str):
-    parsed_shapes = ast.literal_eval(shapes)
+  parsed_shapes = _parse_shapes(shapes)
 
   parsed_regimes = regimes
   if isinstance(regimes, str) and regimes != "all":
@@ -220,19 +205,49 @@ def verify_numerical_parity(
     elif regimes.startswith("[") or regimes.startswith("("):
       parsed_regimes = ast.literal_eval(regimes)
 
-  report = numerical_validator.validate_kernels(
-      kernel_ref=ref_fn,
-      kernel_candidate=candidate_fn,
-      shapes=parsed_shapes,
-      dtype_str=dtype_str,
-      tier=tier,
-      max_allowed_ulp=max_allowed_ulp,
-      p99_9_allowed_ulp=p99_9_allowed_ulp,
-      seed=seed,
-      regimes=parsed_regimes,
-      kernel_oracle=oracle_fn,
-      device_kind=device_kind,
-  )
+  try:
+    report = numerical_validator.validate_kernels(
+        kernel_ref=ref_fn,
+        kernel_candidate=candidate_fn,
+        shapes=parsed_shapes,
+        dtype_str=dtype_str,
+        tier=tier,
+        max_allowed_ulp=max_allowed_ulp,
+        p99_9_allowed_ulp=p99_9_allowed_ulp,
+        seed=seed,
+        regimes=parsed_regimes,
+        kernel_oracle=oracle_fn,
+        device_kind=device_kind,
+    )
+  except ValueError as e:
+    msg = str(e)
+    if not strict_shape_error and (
+        "Shape mismatch in batch" in msg
+        or "Oracle shape mismatch in batch" in msg
+    ):
+      mismatch_payload = {
+          "is_numerically_equivalent": False,
+          "correctness_basis": "SHAPE_MISMATCH",
+          "run_config": {
+              "tier": tier,
+              "seed": seed,
+              "dtype_str": dtype_str,
+              "device_kind": device_kind or "auto",
+              "total_batches_count": 0,
+          },
+          "overall_max_ulp": 999999,
+          "failed_batches_count": 1,
+          "total_batches_count": 1,
+          "summary_message": f"FAILED: {msg}",
+          "tolerance_audit": None,
+          "oracle_audit": None,
+          "ulp_context": None,
+          "narrow_output_dtype_warning": None,
+          "shape_mismatch": {"error": msg},
+          "batch_results": [],
+      }
+      return json.dumps(mismatch_payload, indent=2, allow_nan=False)
+    raise
 
   results_dict = {
       "is_numerically_equivalent": report.is_numerically_equivalent,
@@ -258,7 +273,128 @@ def verify_numerical_parity(
           else None
       ),
       "narrow_output_dtype_warning": report.narrow_output_dtype_warning,
+      "shape_mismatch": report.shape_mismatch,
       "batch_results": [dataclasses.asdict(b) for b in report.batch_results],
   }
   sanitized_results = _sanitize_for_json(results_dict)
   return json.dumps(sanitized_results, indent=2, allow_nan=False)
+
+
+def generate_suite(
+    shapes: _Sequence[int] | _Sequence[_Sequence[int]] | str,
+    output_path: str,
+    dtype_str: str = "bfloat16",
+    tier: str = "presubmit",
+    seed: int = 42,
+) -> str:
+  """Generates a multi-regime test suite and saves it to a .npz file.
+
+  Args:
+    shapes: Single shape tuple, sequence of shapes, or string literal.
+    output_path: Destination .npz path to write the generated suite.
+    dtype_str: Target data type string.
+    tier: Operational testing tier ("fast_agent", "presubmit", "deep_fuzzing").
+    seed: PRNG seed.
+
+  Returns:
+    A JSON summary of the generated test suite.
+  """
+  parsed_shapes = _parse_shapes(shapes)
+  suite = numerical_generator.generate_test_suite(
+      parsed_shapes,
+      dtype_str=dtype_str,
+      tier=tier,
+      seed=seed,
+      persisted_path=output_path,
+      mode="record",
+  )
+  summary = {
+      "output_path": output_path,
+      "dtype_str": dtype_str,
+      "tier": tier,
+      "seed": seed,
+      "num_batches": len(suite),
+      "batches": [
+          {
+              "name": b["name"],
+              "regime": b["regime"],
+              "arg_shapes": [list(a.shape) for a in b.get("args", ())],
+          }
+          for b in suite
+      ],
+  }
+  return json.dumps(summary, indent=2)
+
+
+def inspect_suite(source_path: str) -> str:
+  """Inspects a persisted .npz test suite and returns its batch metadata.
+
+  Args:
+    source_path: Path to the .npz suite file.
+
+  Returns:
+    JSON summary of the batches, shapes, dtypes, and regimes in the suite.
+  """
+  suite = numerical_generator.load_test_suite(source_path)
+  summary = {
+      "source_path": source_path,
+      "num_batches": len(suite),
+      "batches": [
+          {
+              "name": b["name"],
+              "regime": b["regime"],
+              "args": [
+                  {"shape": list(a.shape), "dtype": str(a.dtype)}
+                  for a in b.get("args", ())
+              ],
+          }
+          for b in suite
+      ],
+  }
+  return json.dumps(summary, indent=2)
+
+
+def probe_precision(
+    kernel_fn: _Callable[..., Any] | str,
+    shapes: _Sequence[int] | _Sequence[_Sequence[int]] | str,
+    dtype_str: str = "float32",
+    device_kind: str = "cpu",
+    seed: int = 42,
+) -> str:
+  """Probes a callable for accelerator matmul precision pinning and inertness.
+
+  Args:
+    kernel_fn: Callable or module-qualified string path.
+    shapes: Shape tuple or list of shapes.
+    dtype_str: Input tensor dtype string.
+    device_kind: Target device ('cpu', 'tpu', 'gpu').
+    seed: PRNG seed for probe inputs.
+
+  Returns:
+    JSON report with precision pinning and pin-inertness probe results.
+  """
+  fn = _resolve_callable(kernel_fn)
+  parsed_shapes = _parse_shapes(shapes)
+  suite = numerical_generator.generate_test_suite(
+      parsed_shapes, dtype_str=dtype_str, tier="fast_agent", seed=seed
+  )
+  first_b = suite[0]
+  args = first_b.get("args", ())
+  kwargs = first_b.get("kwargs", {})
+
+  given_probe = numerical_validator._probe_precision(  # pylint: disable=protected-access
+      fn, args, kwargs, baseline="given", device_kind=device_kind
+  )
+  inert_probe = numerical_validator._probe_precision(  # pylint: disable=protected-access
+      fn, args, kwargs, baseline="default", device_kind=device_kind
+  )
+  return json.dumps(
+      {
+          "is_pinned_at_highest": given_probe.is_pinned,
+          "pinned_diagnostic": given_probe.diagnostic,
+          "reference_pin_inert": bool(inert_probe.is_pinned),
+          "inert_diagnostic": inert_probe.diagnostic,
+          "device_kind": device_kind,
+      },
+      indent=2,
+  )

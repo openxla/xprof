@@ -1,11 +1,11 @@
-"""Parameterized tests proving Traditional Gaussian failure vs Heavy-Tailed success."""
+"""Tests proving Traditional Gaussian failure vs Heavy-Tailed success."""
 
 from typing import Any
-import numpy as np
 from absl.testing import absltest
 from absl.testing import parameterized
-from xprof.cli.internal import numerical_generator
-from xprof.cli.internal import numerical_validator
+import numpy as np
+from xprof.xparity import numerical_generator
+from xprof.xparity import numerical_validator
 
 jax: Any = None
 jnp: Any = None
@@ -132,7 +132,7 @@ class ToleranceDilemmaTest(parameterized.TestCase):
     self.assertEqual(report.overall_max_ulp, 0)
 
   def test_split_k_reduction_non_associativity_pass(self):
-    """Proves parallel Split-K reduction reordering passes under relaxed contract."""
+    """Proves parallel Split-K reduction reordering passes relaxed contract."""
     # Parallel tree summation reorders floating-point additions. In bfloat16,
     # this creates small non-associative accumulation jitter (<= 4 ULP) across
     # continuous, heavy-tailed, outlier, and cancellation regimes.
@@ -168,7 +168,7 @@ class ToleranceDilemmaTest(parameterized.TestCase):
     self.assertTrue(report.tolerance_audit.is_relaxed_override)
 
   def test_flashattention_accumulator_downcast_detected(self):
-    """Proves accumulator downcast is caught when scalar allclose falsely passes."""
+    """Proves accumulator downcast is caught when allclose falsely passes."""
 
     def fp32_acc_attention(q, k):
       # Golden reference with FP32 accumulator
@@ -194,7 +194,7 @@ class ToleranceDilemmaTest(parameterized.TestCase):
     self.assertGreater(report.overall_max_ulp, 2)
 
   def test_moe_token_routing_off_by_one_boundary_catch(self):
-    """Proves MoE boundary off-by-one wrap (expert 63 -> 0) is caught with Delta > 0."""
+    """Proves MoE boundary off-by-one wrap (expert 63 -> 0) is caught."""
 
     def ref_dispatch(expert_table, expert_ids):
       return expert_table[expert_ids]
@@ -228,6 +228,141 @@ class ToleranceDilemmaTest(parameterized.TestCase):
     )
     self.assertFalse(report.is_numerically_equivalent)
     self.assertGreater(report.overall_max_ulp, 0)
+
+  def test_oracle_pinned_vs_unpinned_precision_gap(self):
+    """Pins Claim 1: Unpinned BF16 matmul vs pinned FP32/FP64 oracle gap."""
+
+    def unpinned_bf16_matmul(a, b):
+      a_arr = np.asarray(a)
+      b_arr = np.asarray(b)
+      if a_arr.dtype == np.float64 and b_arr.dtype == np.float64:
+        return a_arr @ b_arr
+      a_bf16 = jnp.asarray(a_arr).astype(jnp.bfloat16).astype(jnp.float32)
+      b_bf16 = jnp.asarray(b_arr).astype(jnp.bfloat16).astype(jnp.float32)
+      return np.asarray(
+          jnp.matmul(a_bf16, b_bf16, precision=jax.lax.Precision.HIGHEST)
+      )
+
+    def pinned_fp32_matmul(a, b):
+      a_arr = np.asarray(a)
+      b_arr = np.asarray(b)
+      if a_arr.dtype == np.float64 and b_arr.dtype == np.float64:
+        return a_arr @ b_arr
+      return np.asarray(
+          jnp.matmul(
+              jnp.asarray(a_arr, dtype=jnp.float32),
+              jnp.asarray(b_arr, dtype=jnp.float32),
+              precision=jax.lax.Precision.HIGHEST,
+          )
+      )
+
+    probe_unpinned = numerical_validator.probe_reference_precision(
+        unpinned_bf16_matmul, shapes=[(64, 64), (64, 64)], dtype_str="float32"
+    )
+    self.assertTrue(probe_unpinned.is_downcasting)
+    self.assertGreater(probe_unpinned.max_ulp_vs_fp64, 100000)
+
+    probe_pinned_f32 = numerical_validator.probe_reference_precision(
+        pinned_fp32_matmul, shapes=[(64, 64), (64, 64)], dtype_str="float32"
+    )
+    self.assertGreater(
+        probe_unpinned.max_ulp_vs_fp64, probe_pinned_f32.max_ulp_vs_fp64 * 20
+    )
+    self.assertGreater(
+        probe_unpinned.reference_max_abs_from_oracle,
+        probe_pinned_f32.reference_max_abs_from_oracle * 100,
+    )
+
+    def pinned_fp32_to_bf16_matmul(a, b):
+      a_arr = np.asarray(a)
+      b_arr = np.asarray(b)
+      if a_arr.dtype == np.float64 and b_arr.dtype == np.float64:
+        return a_arr @ b_arr
+      res_f32 = jnp.matmul(
+          jnp.asarray(a_arr, dtype=jnp.float32),
+          jnp.asarray(b_arr, dtype=jnp.float32),
+          precision=jax.lax.Precision.HIGHEST,
+      )
+      return np.asarray(res_f32.astype(jnp.bfloat16))
+
+    probe_pinned_bf16 = numerical_validator.probe_reference_precision(
+        pinned_fp32_to_bf16_matmul,
+        shapes=[(64, 64), (64, 64)],
+        dtype_str="bfloat16",
+    )
+    self.assertFalse(probe_pinned_bf16.is_downcasting)
+    self.assertLessEqual(probe_pinned_bf16.max_ulp_vs_fp64, 2)
+
+  def test_subnormal_ftz_boundary_divergence(self):
+    """Pins Claim 2: Subnormal FTZ creates >100 ULP gap missed by atol=1e-5."""
+    # IEEE 754 float32 subnormal ~ 4.70e-38 (0x00008000 = 32768 ULPs above 0.0)
+    ieee_subnormal = np.frombuffer(
+        np.uint32(0x00000180).tobytes(), dtype=np.float32
+    )
+    tpu_ftz_zero = np.zeros_like(ieee_subnormal, dtype=np.float32)
+
+    # Scalar atol=1e-5 is completely blind to subnormal FTZ
+    self.assertTrue(
+        np.allclose(tpu_ftz_zero, ieee_subnormal, rtol=1e-5, atol=1e-5)
+    )
+
+    # Bitwise ULP validator catches exact 384 ULP (0x0180) divergence
+    report = numerical_validator.validate_arrays(
+        tpu_ftz_zero, ieee_subnormal, dtype_str="float32", max_allowed_ulp=4
+    )
+    self.assertFalse(report.passed)
+    self.assertEqual(report.max_ulp, 0x0180)
+
+  def test_int8_vs_fp8_quantization_regime_swing(self):
+    """Pins Claim 3: Int8 vs FP8 E4M3 quantization sensitivity swings."""
+    normal_x = numerical_generator.generate_normal_tensor(
+        (32, 128), dtype_str="float32", seed=7
+    )
+    outlier_x = numerical_generator.generate_per_channel_outlier_tensor(
+        (32, 128), dtype_str="float32", outlier_scale=80.0, seed=7
+    )
+
+    def quant_dequant_int8_per_tensor(x):
+      amax = np.max(np.abs(x)) + 1e-12
+      scale = amax / 127.0
+      q = np.clip(np.round(x / scale), -127, 127)
+      return (q * scale).astype(np.float32)
+
+    # Under channel outliers, per-tensor Int8 suffers much larger degradation
+    # on non-outlier channels than on Gaussian inputs
+    err_normal = np.sqrt(
+        np.mean((quant_dequant_int8_per_tensor(normal_x) - normal_x) ** 2)
+    )
+    err_outlier = np.sqrt(
+        np.mean((quant_dequant_int8_per_tensor(outlier_x) - outlier_x) ** 2)
+    )
+    self.assertGreater(err_outlier, err_normal * 5.0)
+
+  def test_student_t_vs_gaussian_accumulation_drift(self):
+    """Pins Claim 4: Student-t (df=2.5) induces larger ULP drift."""
+    shape = (16, 1024)
+    rep_gauss = numerical_validator.validate_kernels(
+        reference_reduction,
+        buggy_bf16_reduction,
+        shapes=shape,
+        dtype_str="bfloat16",
+        tier="fast_agent",
+        regimes=["normal"],
+        seed=42,
+    )
+    rep_student = numerical_validator.validate_kernels(
+        reference_reduction,
+        buggy_bf16_reduction,
+        shapes=shape,
+        dtype_str="bfloat16",
+        tier="fast_agent",
+        regimes=["student_t"],
+        seed=42,
+    )
+    self.assertGreaterEqual(
+        rep_student.overall_max_ulp, rep_gauss.overall_max_ulp
+    )
+    self.assertGreater(rep_student.overall_max_ulp, 2)
 
 
 if __name__ == "__main__":

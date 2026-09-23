@@ -8,7 +8,7 @@ information.
 
 > ⚠️ **EXPERIMENTAL FEATURE**: Low Level Optimizer (LLO) analysis and custom
 > call profiling are **experimental**. To access these features and all CLI
-> analysis tools (`verify_numerical_parity`, `get_kernel_stats`,
+> analysis tools (`get_kernel_stats`,
 > `get_llo_analysis`, `get_llo_debug_string`), **install `xprof-nightly`**.
 > The standard `xprof` PyPI release (2.23.1) lacks these subcommands.
 
@@ -252,9 +252,10 @@ Viewer.*
 
 ### Best Practices & Field Gotchas
 
--   **Use `xprof-nightly`**: Standard `xprof` 2.23.1 lacks `get_kernel_stats`,
-    `verify_numerical_parity`, and LLO CLI subcommands. In non-Google3
-    environments, always install `xprof-nightly`.
+-   **Use `xprof-nightly`**: Standard `xprof` 2.23.1 lacks `get_kernel_stats`
+    and LLO CLI subcommands (as well as the standalone `xparity` console script
+    for numerical parity verification). In non-Google3 environments, always
+    install `xprof-nightly`.
 -   **Metrics Interpretation for Pallas Kernels (Roofline Blind Spot)**:
     XLA has no cost model for `tpu_custom_call`. Therefore,
     `get_roofline_model` and `get_overview` will report `0.0 GFLOP/s`,

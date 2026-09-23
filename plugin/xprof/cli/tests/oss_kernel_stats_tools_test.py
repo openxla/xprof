@@ -1,7 +1,9 @@
 """Unit tests for OSS hermetic kernel_stats_tools."""
 
 import json
+import pathlib
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -295,6 +297,50 @@ class OssKernelStatsToolsTest(unittest.TestCase):
         summary["excluded_intra_kernel_region_lines"], ["Pallas Primitives"]
     )
     self.assertIn("include_intra_kernel_regions", summary["note"])
+
+  def test_get_kernel_stats_logdir_root_equals_latest_run(self):
+    """get_kernel_stats on a logdir root matches its latest run directory."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+      logdir = pathlib.Path(tmpdir) / "logs"
+      old_run = logdir / "plugins" / "profile" / "2026_09_16_10_00_00"
+      latest_run = logdir / "plugins" / "profile" / "2026_09_16_12_00_00"
+      old_run.mkdir(parents=True)
+      latest_run.mkdir(parents=True)
+      (old_run / "host.xplane.pb").write_bytes(b"old_bytes")
+      (latest_run / "host.xplane.pb").write_bytes(b"latest_bytes")
+
+      def make_plane(kernel_name, duration_ns):
+        ev = mock.MagicMock(duration_ns=duration_ns, start_ns=0, stats=[])
+        ev.name = kernel_name
+        line = mock.MagicMock(events=[ev])
+        line.name = "XLA Ops"
+        plane = mock.MagicMock(lines=[line])
+        plane.name = "/device:TPU:0"
+        return plane
+
+      def fake_from_serialized(raw_bytes):
+        pd = mock.MagicMock()
+        if raw_bytes == b"old_bytes":
+          pd.planes = [make_plane("old_kernel", 9_000_000)]
+        else:
+          pd.planes = [make_plane("latest_kernel", 2_000_000)]
+        return pd
+
+      with mock.patch.object(
+          xplane_tools.profiler.ProfileData,
+          "from_serialized_xspace",
+          side_effect=fake_from_serialized,
+      ):
+        res_logdir = kernel_stats_tools.get_kernel_stats(
+            str(logdir), output_format="dict"
+        )
+        res_latest = kernel_stats_tools.get_kernel_stats(
+            str(latest_run), output_format="dict"
+        )
+
+      self.assertEqual(res_logdir, res_latest)
+      self.assertEqual(len(res_logdir), 1)
+      self.assertEqual(res_logdir[0]["kernel_name"], "latest_kernel")
 
 
 if __name__ == "__main__":

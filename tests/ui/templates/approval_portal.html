@@ -34,8 +34,8 @@
 </div>
 
 <div class="certified-banner" id="certified-banner" style="display:none;">
-  <h4>Approval entries generated &mdash; not yet applied</h4>
-  <p style="font-size: 13px; margin: 8px 0 4px 0;">This run is still failing and nothing has been written. Merge the entries below into the existing <code>"approved_diffs"</code> object in <code>tests/ui/approved_manifest.json</code>, keeping the entries already there, and commit that file. The gate re-evaluates on the next run.</p>
+  <h4>approved_manifest.json generated &mdash; not yet applied</h4>
+  <p style="font-size: 13px; margin: 8px 0 4px 0;">This run is still failing and nothing has been written. Replace <code>tests/ui/approved_manifest.json</code> in your CL with the file below and upload; the gate re-evaluates on the next run. It is the manifest this run read plus the new entries, so the CL diff should only add or update entries for the waypoints on this page. If other entries disappear, the manifest changed after this run: use the report from a newer run.</p>
   <pre id="manifest-code" class="manifest-code-block"></pre>
-  <button type="button" class="btn-approve" onclick="copyManifestJson()" style="padding:6px 14px; font-size:12px; margin-top:8px;">Copy Manifest JSON to Clipboard</button>
+  <button type="button" class="btn-approve" onclick="copyManifestJson()" style="padding:6px 14px; font-size:12px; margin-top:8px;">Copy approved_manifest.json to Clipboard</button>
 </div>

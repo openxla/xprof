@@ -123,6 +123,7 @@ export const PRIMARY_TOOL_ENDPOINTS = new Set([
   'input_pipeline_analyzer',
   'input_pipeline',
   'kernel_stats',
+  'kernel_viewer',
   'kpi_metrics',
   'memory_profile',
   'memory_viewer',

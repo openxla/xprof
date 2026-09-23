@@ -8,7 +8,10 @@ import {RouterModule, Routes} from '@angular/router';
 import {DiagnosticsViewModule} from 'org_xprof/frontend/app/components/diagnostics_view/diagnostics_view_module';
 import {EmptyPage} from 'org_xprof/frontend/app/components/empty_page/empty_page';
 import {EmptyPageModule} from 'org_xprof/frontend/app/components/empty_page/empty_page_module';
-import {FrameworkOpStatsAdapter, FrameworkOpStatsAdapterModule} from 'org_xprof/frontend/app/components/framework_op_stats/framework_op_stats_adapter';
+import {
+  FrameworkOpStatsAdapter,
+  FrameworkOpStatsAdapterModule,
+} from 'org_xprof/frontend/app/components/framework_op_stats/framework_op_stats_adapter';
 import {GraphViewer} from 'org_xprof/frontend/app/components/graph_viewer/graph_viewer';
 import {GraphViewerModule} from 'org_xprof/frontend/app/components/graph_viewer/graph_viewer_module';
 import {HloStats} from 'org_xprof/frontend/app/components/hlo_stats/hlo_stats';
@@ -17,7 +20,10 @@ import {InferenceProfile} from 'org_xprof/frontend/app/components/inference_prof
 import {InferenceProfileModule} from 'org_xprof/frontend/app/components/inference_profile/inference_profile_module';
 import {InputPipeline} from 'org_xprof/frontend/app/components/input_pipeline/input_pipeline';
 import {InputPipelineModule} from 'org_xprof/frontend/app/components/input_pipeline/input_pipeline_module';
-import {KernelStatsAdapter, KernelStatsAdapterModule} from 'org_xprof/frontend/app/components/kernel_stats/kernel_stats_adapter';
+import {
+  KernelStatsAdapter,
+  KernelStatsAdapterModule,
+} from 'org_xprof/frontend/app/components/kernel_stats/kernel_stats_adapter';
 import {MegascalePerfetto} from 'org_xprof/frontend/app/components/megascale_perfetto/megascale_perfetto';
 import {MegascalePerfettoModule} from 'org_xprof/frontend/app/components/megascale_perfetto/megascale_perfetto_module';
 import {MegascaleStats} from 'org_xprof/frontend/app/components/megascale_stats/megascale_stats';
@@ -28,7 +34,10 @@ import {MemoryViewer} from 'org_xprof/frontend/app/components/memory_viewer/memo
 import {MemoryViewerModule} from 'org_xprof/frontend/app/components/memory_viewer/memory_viewer_module';
 import {OpProfile} from 'org_xprof/frontend/app/components/op_profile/op_profile';
 import {OpProfileModule} from 'org_xprof/frontend/app/components/op_profile/op_profile_module';
-import {OverviewPage, OverviewPageModule} from 'org_xprof/frontend/app/components/overview_page/overview_page_module';
+import {
+  OverviewPage,
+  OverviewPageModule,
+} from 'org_xprof/frontend/app/components/overview_page/overview_page_module';
 import {PerfCounters} from 'org_xprof/frontend/app/components/perf_counters/perf_counters';
 import {PerfCountersModule} from 'org_xprof/frontend/app/components/perf_counters/perf_counters_module';
 import {PodViewer} from 'org_xprof/frontend/app/components/pod_viewer/pod_viewer';
@@ -38,6 +47,8 @@ import {RooflineModelModule} from 'org_xprof/frontend/app/components/roofline_mo
 import {SideNavModule} from 'org_xprof/frontend/app/components/sidenav/sidenav_module';
 import {StackTracePage} from 'org_xprof/frontend/app/components/stack_trace_page/stack_trace_page';
 import {StackTracePageModule} from 'org_xprof/frontend/app/components/stack_trace_page/stack_trace_page_module';
+import {StaticKernelViewer} from 'org_xprof/frontend/app/components/static_kernel_viewer/static_kernel_viewer';
+import {StaticKernelViewerModule} from 'org_xprof/frontend/app/components/static_kernel_viewer/static_kernel_viewer_module';
 import {TraceViewer} from 'org_xprof/frontend/app/components/trace_viewer/trace_viewer';
 import {TraceViewerModule} from 'org_xprof/frontend/app/components/trace_viewer/trace_viewer_module';
 import {UtilizationViewer} from 'org_xprof/frontend/app/components/utilization_viewer/utilization_viewer';
@@ -51,6 +62,8 @@ export const routes: Routes = [
   {path: 'overview_page', component: OverviewPage},
   {path: 'input_pipeline_analyzer', component: InputPipeline},
   {path: 'kernel_stats', component: KernelStatsAdapter},
+  {path: 'kernel_viewer', component: StaticKernelViewer},
+  {path: 'kernel_viewer/:sessionId', component: StaticKernelViewer},
   {path: 'memory_profile', component: MemoryProfile},
   {path: 'memory_viewer', component: MemoryViewer},
   {path: 'op_profile', component: OpProfile},
@@ -85,6 +98,7 @@ export const routes: Routes = [
     OverviewPageModule,
     InputPipelineModule,
     KernelStatsAdapterModule,
+    StaticKernelViewerModule,
     MemoryProfileModule,
     MemoryViewerModule,
     OpProfileModule,
@@ -102,7 +116,6 @@ export const routes: Routes = [
     RouterModule.forRoot(routes),
     StackTracePageModule,
   ],
-  exports: [MainPage]
+  exports: [MainPage],
 })
-export class MainPageModule {
-}
+export class MainPageModule {}

@@ -1592,14 +1592,13 @@ EventData Timeline::CreateBaseEventData(int event_index, bool is_hover) const {
     if (const auto it = args.find("uid"); it != args.end()) {
       event_data.try_emplace(kEventSelectedUid, it->second);
     }
+    if (const auto it = args.find(kHloModule); it != args.end()) {
+      event_data.try_emplace(kEventSelectedHloModuleName, it->second);
+    }
+    if (const auto it = args.find(kHloOp); it != args.end()) {
+      event_data.try_emplace(kEventSelectedHloOpName, it->second);
+    }
     if (!is_hover) {
-      if (const auto it = args.find(kHloModule); it != args.end()) {
-        event_data.try_emplace(kEventSelectedHloModuleName, it->second);
-      }
-      if (const auto it = args.find(kHloOp); it != args.end()) {
-        event_data.try_emplace(kEventSelectedHloOpName, it->second);
-      }
-
       EventData js_args;
       js_args.reserve(args.size());
       for (const auto& [key, value] : args) {

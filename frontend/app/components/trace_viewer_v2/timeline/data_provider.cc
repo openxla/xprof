@@ -92,6 +92,7 @@ struct TraceInformation {
   absl::btree_map<std::string, std::vector<const TraceEvent*>>
       flow_events_by_id;
   absl::flat_hash_map<ProcessId, ThreadId> xla_modules_tids;
+  absl::flat_hash_map<ProcessId, ThreadId> xla_ops_tids;
   absl::flat_hash_set<ProcessId> async_processes_by_events;
   bool is_mpmd = false;
 };
@@ -209,6 +210,8 @@ void HandleMetadataEvent(const TraceEvent& event,
       trace_info.thread_names[{event.pid, event.tid}] = it->second;
       if (it->second == kXlaModules) {
         trace_info.xla_modules_tids[event.pid] = event.tid;
+      } else if (it->second == kXlaOps) {
+        trace_info.xla_ops_tids[event.pid] = event.tid;
       }
     }
   } else if (event.name == kProcessName) {
@@ -456,15 +459,34 @@ void AppendEventToTimelineData(
 
   auto cur_args = event->args;
   bool is_xla_ops_thread = thread_name == kXlaOps;
+  bool is_source_thread = thread_name == "Source code";
   bool is_data_motion_layer = thread_name == kComputeUtilization ||
                               thread_name == kDataMotionLayersUtilization;
   bool has_hlo_in_args = event->args.count(*kHloOpStr) > 0 &&
                          event->args.count(*kHloModuleStr) > 0;
-  if (is_xla_ops_thread || is_data_motion_layer || has_hlo_in_args) {
+  if (is_xla_ops_thread || is_source_thread || is_data_motion_layer ||
+      has_hlo_in_args) {
     if (is_data_motion_layer) {
       auto it_name = event->args.find("Name");
       if (it_name != event->args.end()) {
         cur_args[*kHloOpStr] = it_name->second;
+      }
+    } else if (is_source_thread && !event->args.count(*kHloOpStr)) {
+      auto it_op_tid = trace_info.xla_ops_tids.find(event->pid);
+      if (it_op_tid != trace_info.xla_ops_tids.end()) {
+        auto it_events = trace_info.events_by_pid_tid.find(event->pid);
+        if (it_events != trace_info.events_by_pid_tid.end()) {
+          auto it_thread_events = it_events->second.find(it_op_tid->second);
+          if (it_thread_events != it_events->second.end()) {
+            for (const TraceEvent* op_event : it_thread_events->second) {
+              if (op_event->ts <= event->ts &&
+                  op_event->ts + op_event->dur >= event->ts) {
+                cur_args[*kHloOpStr] = op_event->name;
+                break;
+              }
+            }
+          }
+        }
       }
     } else if (!event->args.count(*kHloOpStr)) {
       cur_args[*kHloOpStr] = event->name;

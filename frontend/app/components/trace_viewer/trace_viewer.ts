@@ -220,6 +220,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   })();
   traceViewerModule: TraceViewerV2Module | null = null;
   selectedEvent: SelectedEvent | null = null;
+  hoveredEventArgs: Record<string, string> | null = null;
   selectedEventProperties: SelectedEventProperty[] = [];
   eventDetailColumns = [...DEFAULT_EVENT_DETAIL_COLUMNS];
 
@@ -954,6 +955,64 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private readonly pidToHostMap = new Map<number, string>();
+
+  onRequestHoveredEventArgs(event: SelectedEvent | null): void {
+    if (!event) {
+      this.hoveredEventArgs = null;
+      return;
+    }
+    const {name, startUs, durationUs, uid, pid} = event;
+    if (!uid || startUs === undefined || durationUs === undefined || !name) {
+      return;
+    }
+    const cacheKey = `${name}:${startUs}`;
+    const cached = this.eventArgsCache.get(cacheKey);
+    if (cached) {
+      this.hoveredEventArgs = {...cached};
+      return;
+    }
+    const params = new Map<string, string>();
+    params.set('event_name', name);
+    params.set('start_time_ms', (startUs / 1000).toString());
+    params.set('duration_ms', (durationUs / 1000).toString());
+    const sanitizedUid = uid.includes('.')
+      ? Math.floor(Number(uid)).toString()
+      : uid;
+    params.set('unique_id', sanitizedUid);
+    let host = '';
+    if (pid !== undefined) {
+      host = this.pidToHostMap.get(pid) ?? '';
+    }
+    if (!host) {
+      host = this.getCurrentHost();
+    }
+    this.dataService
+      .getData(
+        this.navigationEvent.run ?? this.sessionId ?? '',
+        this.navigationEvent.tag ?? 'trace_viewer',
+        host,
+        params,
+      )
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((data) => {
+        const traceData = data as TraceData;
+        if (!traceData?.traceEvents?.length) {
+          return;
+        }
+        const lastEvent =
+          traceData.traceEvents[traceData.traceEvents.length - 1];
+        if (lastEvent['ph'] === 'X' && lastEvent['args']) {
+          const args = lastEvent['args'] as Record<string, string>;
+          applyStackTraceArg(
+            args,
+            lastEvent['sf'] as number | undefined,
+            traceData.stackFrames,
+          );
+          this.eventArgsCache.set(cacheKey, args);
+          this.hoveredEventArgs = {...args};
+        }
+      });
+  }
 
   private maybeFetchEventArgs({
     name,

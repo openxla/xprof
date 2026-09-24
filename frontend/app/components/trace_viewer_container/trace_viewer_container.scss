@@ -135,6 +135,7 @@ canvas.emscripten {
     background: #282a2e;
     border-bottom: 1px solid #3c4043;
     min-width: 0;
+    flex-shrink: 0;
   }
 
   .tooltip-file-info {
@@ -243,13 +244,14 @@ canvas.emscripten {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 6px 12px;
+    gap: 10px;
+    padding: 7px 12px;
     background: #25262a;
     border-top: 1px solid #3c4043;
     font-family: 'Google Sans Text', Roboto, sans-serif;
-    font-size: 11px;
+    font-size: 11.5px;
     color: #9aa0a6;
+    flex-shrink: 0;
   }
 
   .footer-track strong {
@@ -257,10 +259,85 @@ canvas.emscripten {
     font-weight: 500;
   }
 
+  .footer-shortcut-prompt {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #bdc1c6;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    white-space: nowrap;
+
+    .keyboard-prompt-icon {
+      color: #8ab4f8;
+      flex-shrink: 0;
+    }
+  }
+
   .footer-hint {
     color: #8ab4f8;
     font-weight: 500;
     margin-left: auto;
+  }
+
+  .footer-shortcuts {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+
+  .shortcut-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(138, 180, 248, 0.12);
+    border: 1px solid rgba(138, 180, 248, 0.3);
+    color: #e8eaed;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .shortcut-press-prefix {
+    color: #9aa0a6;
+    font-size: 10.5px;
+    font-weight: 500;
+  }
+
+  .shortcut-label {
+    color: #e8eaed;
+    font-weight: 600;
+  }
+
+  .shortcut-external-icon {
+    color: #8ab4f8;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .shortcut-kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 19px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 4px;
+    background: linear-gradient(180deg, #f8f9fa 0%, #e8eaed 100%);
+    border: 1px solid #fff;
+    border-bottom: 2px solid #80868b;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+    color: #202124;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1;
+    box-sizing: border-box;
   }
 
   &.light-tooltip {
@@ -324,8 +401,42 @@ canvas.emscripten {
       color: #202124;
     }
 
+    .footer-shortcut-prompt {
+      color: #3c4043;
+
+      .keyboard-prompt-icon {
+        color: #1967d2;
+      }
+    }
+
     .footer-hint {
       color: #1967d2;
+    }
+
+    .shortcut-pill {
+      background: #e8f0fe;
+      border-color: #d2e3fc;
+      color: #202124;
+    }
+
+    .shortcut-press-prefix {
+      color: #5f6368;
+    }
+
+    .shortcut-label {
+      color: #174ea6;
+    }
+
+    .shortcut-external-icon {
+      color: #1967d2;
+    }
+
+    .shortcut-kbd {
+      background: linear-gradient(180deg, #fff 0%, #f1f3f4 100%);
+      border-color: #bdc1c6;
+      border-bottom-color: #80868b;
+      box-shadow: 0 1px 1px rgba(60, 64, 67, 0.2);
+      color: #202124;
     }
   }
 }

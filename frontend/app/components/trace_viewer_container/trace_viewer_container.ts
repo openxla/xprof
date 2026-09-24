@@ -635,8 +635,9 @@ export class TraceViewerContainer
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
   private readonly ngZone = inject(NgZone);
+  private readonly el: ElementRef = inject(ElementRef);
 
-  constructor(private readonly el: ElementRef) {
+  constructor() {
     this.search$
       .pipe(
         debounceTime(300),

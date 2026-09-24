@@ -3,6 +3,7 @@
 import collections.abc
 import dataclasses
 import unittest
+from unittest import mock
 
 # pylint: disable=g-import-not-at-top
 try:
@@ -142,7 +143,7 @@ class JourneyCaptureTest(unittest.TestCase):
       journey_capture._QUIESCENCE_TIMEOUT_MS = orig_timeout
 
   def test_normalize_generated_attr_ids_preserves_semantic_tab_index(self):
-    """Verifies two-counter Material IDs preserve tab index."""
+    """Verifies two-counter Material IDs preserve tab index and CDK counter collapses."""
     self.assertEqual(
         journey_capture.normalize_generated_attr_ids("mat-tab-label-0-1"),
         "mat-tab-label-N-1",
@@ -153,13 +154,57 @@ class JourneyCaptureTest(unittest.TestCase):
     )
     self.assertEqual(
         journey_capture.normalize_generated_attr_ids(
+            "mat-tab-group-0-label-1"
+        ),
+        "mat-tab-group-N-label-1",
+    )
+    self.assertEqual(
+        journey_capture.normalize_generated_attr_ids(
+            "mat-tab-group-2-content-0"
+        ),
+        "mat-tab-group-N-content-0",
+    )
+    self.assertEqual(
+        journey_capture.normalize_generated_attr_ids("cdk-stepper-0-label-2"),
+        "cdk-stepper-N-label-2",
+    )
+    self.assertEqual(
+        journey_capture.normalize_generated_attr_ids(
             "cdk-describedby-message-ng-1-14"
         ),
-        "cdk-describedby-message-ng-N-14",
+        "cdk-describedby-message-ng-N",
+    )
+    self.assertEqual(
+        journey_capture.normalize_generated_attr_ids(
+            "mat-mdc-tab-label-0-1"
+        ),
+        "mat-mdc-tab-label-N-1",
+    )
+    self.assertEqual(
+        journey_capture.normalize_generated_attr_ids(
+            "mat-tab-content-0-1"
+        ),
+        "mat-tab-content-N-1",
+    )
+    self.assertEqual(
+        journey_capture.normalize_generated_attr_ids(
+            "cdk-stepper-0-content-1"
+        ),
+        "cdk-stepper-N-content-1",
+    )
+    self.assertEqual(
+        journey_capture.normalize_generated_attr_ids(
+            "cdk-describedby-message-ng-5-999"
+        ),
+        "cdk-describedby-message-ng-N",
     )
     self.assertEqual(
         journey_capture.normalize_generated_attr_ids("mat-select-4"),
         "mat-select-N",
+    )
+    self.assertEqual(
+        journey_capture.normalize_generated_attr_ids("mat-select-4-panel"),
+        "mat-select-N-panel",
     )
     self.assertEqual(
         journey_capture.normalize_generated_attr_ids(
@@ -169,43 +214,54 @@ class JourneyCaptureTest(unittest.TestCase):
     )
 
   def test_wait_for_angular_stable_handles_bootstrap_errors_and_timeouts(self):
-    """Verifies bootstrap grace window, error retry, and timeout handling."""
+    """Verifies <app> bootstrap polling, non-Angular exit, error retry, and timeout."""
     # 1. Instant settle after two consecutive True samples.
     instant_page = _FakePage([True, True])
     self.assertTrue(journey_capture._wait_for_angular_stable(instant_page))
 
-    # 2. Bootstrap delay (None -> None -> False -> True -> True) waits for
-    # Angular rather than exiting early on the first None.
-    bootstrap_page = _FakePage([None, None, False, True, True])
+    # 2. Unbootstrapped <app> host page (False -> False -> True -> True) polls
+    # under the main stability deadline until Angular testabilities settle.
+    bootstrap_page = _FakePage([False, False, True, True])
     self.assertTrue(journey_capture._wait_for_angular_stable(bootstrap_page))
     self.assertGreaterEqual(len(bootstrap_page.waits), 3)
+    self.assertIn(
+        "document.querySelector('app') !== null ? false : null",
+        journey_capture._ANGULAR_IS_STABLE_JS,
+    )
 
     # 3. Transient _PlaywrightError during navigation is retried until settled.
     retry_page = _FakePage(
-        [RuntimeError("context destroyed"), False, True, True]
+        [
+            journey_capture._PlaywrightError("context destroyed"),
+            False,
+            True,
+            True,
+        ]
     )
     self.assertTrue(journey_capture._wait_for_angular_stable(retry_page))
 
-    # 4. Non-Angular page (None past _ANGULAR_BOOTSTRAP_TIMEOUT_MS) returns
-    # True.
-    orig_boot = journey_capture._ANGULAR_BOOTSTRAP_TIMEOUT_MS
-    orig_stable = journey_capture._ANGULAR_STABLE_TIMEOUT_MS
-    journey_capture._ANGULAR_BOOTSTRAP_TIMEOUT_MS = 5
-    journey_capture._ANGULAR_STABLE_TIMEOUT_MS = 50
-    try:
-      non_ng_page = _FakePage(default_result=None)
-      self.assertTrue(journey_capture._wait_for_angular_stable(non_ng_page))
-    finally:
-      journey_capture._ANGULAR_BOOTSTRAP_TIMEOUT_MS = orig_boot
-      journey_capture._ANGULAR_STABLE_TIMEOUT_MS = orig_stable
+    # 4. Non-Angular page (None when <app> is absent) returns True immediately.
+    non_ng_page = _FakePage([None])
+    self.assertTrue(journey_capture._wait_for_angular_stable(non_ng_page))
+    self.assertEqual(len(non_ng_page.waits), 0)
 
-    # 5. Unstable Angular page past _ANGULAR_STABLE_TIMEOUT_MS returns False.
-    journey_capture._ANGULAR_STABLE_TIMEOUT_MS = 5
-    try:
-      hung_page = _FakePage(default_result=False)
+    # 5. Unstable or unbootstrapped <app> page past _ANGULAR_STABLE_TIMEOUT_MS
+    # returns False so "angular_stable_timeout" is recorded. A clock advanced
+    # only by the page's own waits pins the budget exactly: 1000ms polled 100ms
+    # at a time is ten samples, so a deadline armed too early or too late
+    # changes the count, which a bare assertFalse cannot see.
+    hung_page = _FakePage(default_result=False)
+    with (
+        mock.patch.object(
+            journey_capture.time,
+            "monotonic",
+            lambda: sum(hung_page.waits) / 1000,
+        ),
+        mock.patch.object(journey_capture, "_ANGULAR_STABLE_TIMEOUT_MS", 1000),
+        mock.patch.object(journey_capture, "_ANGULAR_STABLE_POLL_MS", 100),
+    ):
       self.assertFalse(journey_capture._wait_for_angular_stable(hung_page))
-    finally:
-      journey_capture._ANGULAR_STABLE_TIMEOUT_MS = orig_stable
+    self.assertEqual(len(hung_page.waits), 10)
 
     # 6. Placeholder about:blank iframes are excluded from iframe bypass.
     self.assertIn("about:blank", journey_capture._ANGULAR_IS_STABLE_JS)

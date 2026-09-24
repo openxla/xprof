@@ -14,6 +14,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "imgui.h"
+#include "third_party/tcmalloc/malloc_extension.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
@@ -1502,11 +1503,18 @@ TEST_F(DataProviderTest, ProcessCounterEventReservesCapacityCorrectly) {
 
   EXPECT_THAT(counter_data.timestamps, SizeIs(kNumEntries));
 
-  // Verify that capacity matches size, implying reserve was called with correct
-  // size. Without reserve, capacity would likely be the next power of 2 (e.g.,
-  // 128 for 100 elements).
-  EXPECT_EQ(counter_data.timestamps.capacity(), kNumEntries);
-  EXPECT_EQ(counter_data.values.capacity(), kNumEntries);
+  // Verify that reserve was called with the correct size. With size-returning
+  // new, capacity may round up to the TCMalloc size class.
+  EXPECT_GE(counter_data.timestamps.capacity(), kNumEntries);
+  EXPECT_LE(counter_data.timestamps.capacity(),
+            tcmalloc::MallocExtension::GetEstimatedAllocatedSize(
+                kNumEntries * sizeof(double)) /
+                sizeof(double));
+  EXPECT_GE(counter_data.values.capacity(), kNumEntries);
+  EXPECT_LE(counter_data.values.capacity(),
+            tcmalloc::MallocExtension::GetEstimatedAllocatedSize(
+                kNumEntries * sizeof(double)) /
+                sizeof(double));
 }
 
 TEST_F(DataProviderTest, ProcessesSortedBySortIndex) {
@@ -2016,19 +2024,18 @@ TEST_F(DataProviderTest,
 
   EXPECT_THAT(counter_data.timestamps, SizeIs(kTotalEntries));
 
-  // If reserve(65) is called, capacity should be 65 (or slightly more if
-  // implementation rounds up, but typically exact for reserve on empty).
-  // If reserve(0) is called:
-  // Insert 64 -> Cap 64.
-  // Insert 1 -> Realloc -> Cap 128 (usually).
-  // So we expect Cap == 65.
-  // Note: This test assumes std::vector doubles capacity.
-  // To be safe, we can check that capacity is NOT >= 128 if we expect strict
-  // reservation. Or better, just check it equals TotalEntries.
-  // However, std::vector::reserve(n) might reserve more.
-  // But usually it reserves exactly n if vector is empty.
-  EXPECT_EQ(counter_data.timestamps.capacity(), kTotalEntries);
-  EXPECT_EQ(counter_data.values.capacity(), kTotalEntries);
+  // If reserve(65) is called, capacity should be at least 65, bounded by
+  // the TCMalloc size class.
+  EXPECT_GE(counter_data.timestamps.capacity(), kTotalEntries);
+  EXPECT_LE(counter_data.timestamps.capacity(),
+            tcmalloc::MallocExtension::GetEstimatedAllocatedSize(
+                kTotalEntries * sizeof(double)) /
+                sizeof(double));
+  EXPECT_GE(counter_data.values.capacity(), kTotalEntries);
+  EXPECT_LE(counter_data.values.capacity(),
+            tcmalloc::MallocExtension::GetEstimatedAllocatedSize(
+                kTotalEntries * sizeof(double)) /
+                sizeof(double));
 }
 
 TEST_F(DataProviderTest, ProcessFlowEvents) {

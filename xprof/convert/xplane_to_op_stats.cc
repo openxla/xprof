@@ -807,10 +807,11 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
     uint64_t busy_time_hc_ps = duty_cycle_hc_combiner.GetTotalActiveTimePs();
     uint64_t idle_time_hc_ps = duty_cycle_hc_combiner.GetTotalIdleTimePs();
     if (use_flat_op_metrics_db) {
-      op_stats.mutable_flat_device_op_metrics_db()->set_idle_time_ps(
-          idle_time_ps);
-      op_stats.mutable_flat_device_op_metrics_db()->set_busy_time_ps(
-          busy_time_ps);
+      FlatOpMetricsDb* flat_db = op_stats.mutable_flat_device_op_metrics_db();
+      flat_db->set_idle_time_ps(idle_time_ps);
+      flat_db->set_busy_time_ps(busy_time_ps);
+      flat_db->set_busy_time_high_confidence_ps(busy_time_hc_ps);
+      flat_db->set_idle_time_high_confidence_ps(idle_time_hc_ps);
     } else {
       op_stats.mutable_device_op_metrics_db()->set_idle_time_ps(idle_time_ps);
       op_stats.mutable_device_op_metrics_db()->set_busy_time_ps(busy_time_ps);

@@ -583,6 +583,11 @@ uint64_t IdleTimePs(const FlatOpMetricsDb& db) {
   return db.total_time_ps() - db.total_op_time_ps();
 }
 
+double IdleTimeRatio(const FlatOpMetricsDb& db) {
+  return 1.0 -
+         tsl::profiler::SafeDivide(db.total_op_time_ps(), db.total_time_ps());
+}
+
 void SetIdleOp(uint64_t idle_time_ps, FlatOpMetrics& idle_op) {
   idle_op.set_hlo_name(kIdle);
   idle_op.set_category(kIdle);

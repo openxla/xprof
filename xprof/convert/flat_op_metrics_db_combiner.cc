@@ -142,6 +142,10 @@ void FlatOpMetricsDbCombiner::Combine(const FlatOpMetricsDb& src,
   dst->set_total_op_time_ps(src.total_op_time_ps() + dst->total_op_time_ps());
   dst->set_idle_time_ps(src.idle_time_ps() + dst->idle_time_ps());
   dst->set_busy_time_ps(src.busy_time_ps() + dst->busy_time_ps());
+  dst->set_idle_time_high_confidence_ps(src.idle_time_high_confidence_ps() +
+                                        dst->idle_time_high_confidence_ps());
+  dst->set_busy_time_high_confidence_ps(src.busy_time_high_confidence_ps() +
+                                        dst->busy_time_high_confidence_ps());
   dst->set_normalized_total_op_time_ps(src.normalized_total_op_time_ps() +
                                        dst->normalized_total_op_time_ps());
 

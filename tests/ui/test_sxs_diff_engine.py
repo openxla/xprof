@@ -3,6 +3,7 @@
 import contextlib
 import dataclasses
 import difflib
+import enum
 import hashlib
 import io
 import json
@@ -1549,6 +1550,84 @@ class SxsDiffEngineTest(unittest.TestCase):
       )
       self.assertEqual(resolved_slashless.fixture, "gpu-profile")
       self.assertEqual(resolved_slashless.steps[0].target, "overview_page")
+
+  def test_waypoint_names_are_identical_across_environments(self):
+    """Waypoint names must not vary with the runs present in the logdir."""
+
+    class _Action(enum.Enum):
+      GOTO = "goto"
+      SELECT_HOST = "select_host"
+      SWITCH_TOOL = "switch_tool"
+
+    @dataclasses.dataclass(frozen=True)
+    class _Step:
+      action: _Action
+      target: str
+
+    @dataclasses.dataclass(frozen=True)
+    class _Scenario:
+      id: str
+      fixture: str
+      initial_tool: str
+      steps: tuple[_Step, ...]
+
+    scenario = _Scenario(
+        id="compiler.graph_and_multihost_scale",
+        fixture="tpu-training",
+        initial_tool="overview_page",
+        steps=(
+            _Step(action=_Action.SWITCH_TOOL, target="HLO Op Stats"),
+            _Step(action=_Action.GOTO, target="v6e-4-training/overview_page"),
+            _Step(action=_Action.SELECT_HOST, target="t1v-n-9bfa07b4-w-0"),
+        ),
+    )
+    expected = [
+        "00_overview_page",
+        "01_switch_tool_HLO Op Stats",
+        "02_goto_v6e-4-training/overview_page",
+        "03_select_host_t1v-n-9bfa07b4-w-0",
+    ]
+    self.assertEqual(sxs_diff_engine.waypoint_names(scenario), expected)
+
+    def _resolve_in_env(
+        runs: tuple[str, ...], hosts: tuple[str, ...]
+    ) -> _Scenario:
+      """Resolves the journey against a logdir holding exactly these runs."""
+      with tempfile.TemporaryDirectory() as tmp:
+        for run in runs:
+          run_dir = pathlib.Path(tmp) / "plugins" / "profile" / run
+          run_dir.mkdir(parents=True)
+          for host in hosts:
+            (run_dir / f"{host}.xplane.pb").write_bytes(b"")
+        return sxs_diff_engine.resolve_scenario_runs(
+            scenario, sxs_diff_engine.make_run_resolver(tmp), logdir=tmp
+        )
+
+    # CI carries a single `tpu_training` run; a workstation additionally
+    # carries `v6e-4-training` and a second host, so the same journey resolves
+    # to different targets in the two environments.
+    ci_resolved = _resolve_in_env(("tpu_training",), ("tpu_training",))
+    workstation_resolved = _resolve_in_env(
+        ("tpu_training", "v6e-4-training"),
+        ("t1v-n-9bfa07b4-w-0", "t1v-n-9bfa07b4-w-1"),
+    )
+
+    # `_walk_journey` labels its captures from the declared scenario, so the
+    # approval keys are `expected` above in both environments. The assertions
+    # below show that is a real property and not a tautology: naming from the
+    # resolved scenario, which is what this replaced, genuinely diverges.
+    self.assertNotEqual(
+        sxs_diff_engine.waypoint_names(ci_resolved),
+        sxs_diff_engine.waypoint_names(workstation_resolved),
+    )
+    self.assertEqual(
+        sxs_diff_engine.waypoint_names(ci_resolved)[2],
+        "02_goto_tpu_training/overview_page",
+    )
+    self.assertEqual(
+        sxs_diff_engine.waypoint_names(workstation_resolved)[2],
+        "02_goto_v6e-4-training/overview_page",
+    )
 
 
 if __name__ == "__main__":

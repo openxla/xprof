@@ -182,6 +182,30 @@ def resolve_scenario_runs(
   )
 
 
+def waypoint_names(scenario: typing.Any) -> list[str]:
+  """Builds the environment-independent waypoint names for a journey.
+
+  Call this on the journey *as declared*, before `resolve_scenario_runs`
+  substitutes locally available runs and hosts. A workstation logdir may hold
+  `v6e-4-training` while CI holds only `tpu_training`, so a name built from a
+  resolved target differs between the two. Waypoint names become the approval
+  keys in `approved_manifest.json`, and an approval minted in one environment
+  has to keep matching in the other.
+
+  Args:
+    scenario: Journey declaring an `initial_tool` and a sequence of `steps`.
+
+  Returns:
+    One name per waypoint, in visit order: the initial tool first, then one per
+    declared step.
+  """
+  names = [f"00_{getattr(scenario, 'initial_tool')}"]
+  for idx, step in enumerate(getattr(scenario, "steps"), start=1):
+    action_val = getattr(step.action, "value", str(step.action))
+    names.append(f"{idx:02d}_{action_val}_{step.target}")
+  return names
+
+
 class SxsDiffEngine:
   """Computes multi-modal deltas between Master and CL."""
 

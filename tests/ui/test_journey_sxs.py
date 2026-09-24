@@ -40,6 +40,7 @@ try:
   from tests.ui.sxs_diff_engine import resolve_profile_logdir
   from tests.ui.sxs_diff_engine import resolve_scenario_runs
   from tests.ui.sxs_diff_engine import SxsDiffEngine
+  from tests.ui.sxs_diff_engine import waypoint_names
   from tests.ui.sxs_diff_engine import WaypointDiff
   from tests.ui.sxs_report_generator import generate_sxs_html_report
   from tests.ui.sxs_report_generator import publish_report_artifact
@@ -55,6 +56,7 @@ except ImportError:
   from sxs_diff_engine import resolve_profile_logdir
   from sxs_diff_engine import resolve_scenario_runs
   from sxs_diff_engine import SxsDiffEngine
+  from sxs_diff_engine import waypoint_names
   from sxs_diff_engine import WaypointDiff
   from sxs_report_generator import generate_sxs_html_report
   from sxs_report_generator import publish_report_artifact
@@ -173,7 +175,11 @@ def sxs_collector(logdir: str) -> Iterator[list[WaypointDiff]]:
 
 
 def _walk_journey(
-    browser: Browser, server_url: str, logdir: str, scenario: JourneyScenario
+    browser: Browser,
+    server_url: str,
+    logdir: str,
+    scenario: JourneyScenario,
+    names: list[str],
 ) -> list[WaypointCapture]:
   """Drives one journey end to end in a cold context, capturing every waypoint.
 
@@ -186,7 +192,11 @@ def _walk_journey(
     browser: Playwright browser used to open an isolated context.
     server_url: Base URL of the XProf server to drive.
     logdir: Directory holding the profile fixtures.
-    scenario: Journey to walk.
+    scenario: Journey to walk, with runs and hosts already resolved onto ones
+      present in `logdir`.
+    names: Labels for the captures, from `sxs_diff_engine.waypoint_names`
+      applied to the *declared* scenario. Passed in because `scenario` here
+      carries run names already resolved against the local logdir.
 
   Returns:
     One capture per waypoint, in visit order.
@@ -238,7 +248,7 @@ def _walk_journey(
         re.compile(rf"tag={re.escape(scenario.initial_tool)}"),
         timeout=URL_SETTLE_TIMEOUT_MS,
     )
-    init_name = f"00_{scenario.initial_tool}"
+    init_name = names[0]
     captures.append(capture_waypoint(page, recorder, init_name))
     print(f"  [{scenario.id}] Captured {init_name}", flush=True)
 
@@ -249,7 +259,7 @@ def _walk_journey(
       expect(
           page.locator(f":is({step.expected_selector}):visible").first
       ).to_be_visible(timeout=20000)
-      step_name = f"{idx:02d}_{step.action.value}_{step.target}"
+      step_name = names[idx]
       captures.append(capture_waypoint(page, recorder, step_name))
       print(f"  [{scenario.id}] Captured {step_name}", flush=True)
 
@@ -368,15 +378,20 @@ def test_journey_capture_is_reproducible(
     scenario: JourneyScenario,
 ) -> None:
   """Baseline and candidate builds must produce identical waypoints."""
+  # Names are taken before resolution so the approval keys they become do not
+  # depend on which runs happen to exist in this environment's logdir.
+  names = waypoint_names(scenario)
   scenario = _resolve_scenario_runs(scenario, resolve_run, logdir=logdir)
   session_path = os.path.join(logdir, scenario.fixture)
   if not os.path.exists(session_path):
     pytest.skip(f"Fixture '{scenario.fixture}' not present in logdir {logdir}")
 
   _clear_tools_cache(logdir)
-  baseline = _walk_journey(browser, baseline_server_url, logdir, scenario)
+  baseline = _walk_journey(
+      browser, baseline_server_url, logdir, scenario, names
+  )
   _clear_tools_cache(logdir)
-  candidate = _walk_journey(browser, server_url, logdir, scenario)
+  candidate = _walk_journey(browser, server_url, logdir, scenario, names)
   assert len(baseline) == len(candidate), (
       f"Journey {scenario.id} produced {len(baseline)} waypoints on the"
       f" baseline build and {len(candidate)} on the candidate build"

@@ -207,13 +207,14 @@ xprof query_events_db <logdir> --query="
 ```bash
 xprof query_events_db <logdir> --query="
   SELECT
+    device,
     step,
     (MAX(end_ns) - MIN(start_ns)) / 1e6 AS step_span_ms,
     COUNT(*) AS num_events
   FROM Events
   WHERE step IS NOT NULL
-  GROUP BY step
-  ORDER BY step
+  GROUP BY device, step
+  ORDER BY device, step
 "
 ```
 
@@ -267,10 +268,17 @@ xprof query_events_db <logdir> --query="
     `"XLA Ops"`, etc.). Filtering `WHERE category = 'XLA Ops'` avoids
     double-counting parent module spans (`"XLA Modules"`) or step markers
     (`"Steps"`).
-2.  **Use `IS NOT NULL` for Unset Fields**: Unset fields on an event are stored
+2.  **Group or Filter by `device` Across Multi-Plane Traces**: A single
+    `.xplane.pb` file often contains multiple `XPlane`s (for example, `"cpu:0"`
+    plus `"TPU:0"`..`"TPU:3"` or `"gpu:0"`..`"gpu:7"`). Because step counters
+    (`step`) are numbered per plane and identical steps across cores do not
+    start or end at the exact same timestamp, always include `device` in
+    `GROUP BY device, step` (or filter to a single core such as
+    `WHERE device = 'TPU:0'`) when computing step spans or per-core counts.
+3.  **Use `IS NOT NULL` for Unset Fields**: Unset fields on an event are stored
     as SQL `NULL` rather than empty strings (`''`). Always filter with
     `WHERE <column> IS NOT NULL` (for example, `WHERE hlo_op IS NOT NULL` or
     `WHERE step IS NOT NULL`).
-3.  **Multi-Worker Directories**: If `create_events_db` or `query_events_db`
+4.  **Multi-Worker Directories**: If `create_events_db` or `query_events_db`
     raises `NotImplementedError: Multiple (N) trace files found`, pass one of
     the listed `.xplane.pb` file paths directly as the first argument.

@@ -362,6 +362,17 @@ class SxsDiffEngine:
         cleaned,
         flags=re.IGNORECASE,
     )
+    # Scripts fetched from an external origin are attached and detached by
+    # index.html's Google Charts loader fail-over as hosts answer or time out,
+    # so their presence reflects external network timing rather than the build
+    # under test. `journey_capture.capture_waypoint` waits for that chain to
+    # settle; this is the backstop for anything that still slips through.
+    cleaned = re.sub(
+        r'<script\b[^>]*\bsrc=["\']https?://[^"\']*["\'][^>]*>\s*</script>',
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
     cleaned = re.sub(r'\s*ng-version=["\'][^"\']*["\']', "", cleaned)
     cleaned = re.sub(
         r'\s*ng-reflect-[a-zA-Z0-9_-]+(=["\'][^"\']*["\'])?', "", cleaned

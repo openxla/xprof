@@ -1629,6 +1629,46 @@ class SxsDiffEngineTest(unittest.TestCase):
         "02_goto_v6e-4-training/overview_page",
     )
 
+  def test_sanitize_dom_drops_external_scripts_but_keeps_app_bundles(self):
+    """External loader scripts are timing noise; the app's own bundles are not."""
+    engine = SxsDiffEngine(approved_manifest_path="")
+
+    # What the two walks actually serialize when the gstatic fail-over lands
+    # differently: one still holds the primary loader, the other has failed
+    # over to the backup host.
+    primary = (
+        "<body><app></app>"
+        '<script src="https://www.gstatic.com/charts/loader.js"></script>'
+        '<script src="runtime.js"></script>'
+        '<script src="bundle.js"></script>'
+        "</body>"
+    )
+    failed_over = (
+        "<body><app></app>"
+        '<script src="https://www.gstatic.cn/charts/loader.js"></script>'
+        '<script src="runtime.js"></script>'
+        '<script src="bundle.js"></script>'
+        "</body>"
+    )
+    self.assertEqual(
+        engine.sanitize_dom(primary), engine.sanitize_dom(failed_over)
+    )
+
+    # The application's own bundles are relative, belong to the build under
+    # test, and must survive so that dropping or renaming one is still caught.
+    sanitized = engine.sanitize_dom(primary)
+    self.assertIn('src="runtime.js"', sanitized)
+    self.assertIn('src="bundle.js"', sanitized)
+    self.assertNotIn("gstatic", sanitized)
+
+    # A genuine change to the app's own script wiring must still diff.
+    without_bundle = primary.replace(
+        '<script src="bundle.js"></script>', ""
+    )
+    self.assertNotEqual(
+        engine.sanitize_dom(primary), engine.sanitize_dom(without_bundle)
+    )
+
 
 if __name__ == "__main__":
   unittest.main()

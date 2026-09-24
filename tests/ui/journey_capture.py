@@ -82,6 +82,13 @@ _CHART_RENDER_POLL_MS = 100
 _CHART_RENDER_SETTLE_MS = 1500
 _CHART_RENDER_TIMEOUT_MS = 25000
 
+# Settles the external Google Charts loader; see
+# `_wait_for_chart_loader_settled`. The timeout sits above the 2500ms bundle
+# fallback in index.html with room for a slow external failure.
+_CHART_LOADER_POLL_MS = 100
+_CHART_LOADER_SETTLE_MS = 300
+_CHART_LOADER_TIMEOUT_MS = 15000
+
 # Regions that legitimately differ between two runs of the same build. Masking
 # paints them a flat color in both screenshots and clears their text in the
 # serialized DOM so the engine sees them as equal across runs.
@@ -605,6 +612,63 @@ _CHART_COUNTS_JS = """() => {
 }"""
 
 
+_CHART_LOADER_STATE_JS = """() => {
+  const pending = document.querySelectorAll(
+      'script[src*="/charts/loader.js"]').length;
+  const ready = !!(window.google && window.google.charts);
+  return [pending, ready];
+}"""
+
+
+def _wait_for_chart_loader_settled(page: typing.Any) -> bool:
+  """Waits until the external Google Charts loader reaches a terminal state.
+
+  `index.html` appends a loader `<script>` for one external host, and on error
+  removes it and appends one for a fallback host, removing that in turn if it
+  also fails. Until that chain finishes, the set of `<script>` nodes in the
+  document depends on how quickly an external host answered, so two walks of
+  the same build serialize different DOM and may disagree on whether charts
+  can draw at all.
+
+  Terminal means either the loader has published `window.google.charts`, or no
+  loader script remains attached because every host failed. Either outcome is
+  stable, and both walks reach the same one; only the transitional states
+  differ between walks.
+
+  Args:
+    page: Page to sample.
+
+  Returns:
+    True once the loader has settled, False if the timeout expired.
+  """
+  required = max(1, _CHART_LOADER_SETTLE_MS // _CHART_LOADER_POLL_MS)
+  deadline = time.monotonic() + _CHART_LOADER_TIMEOUT_MS / 1000
+  stable_count = 0
+  while time.monotonic() < deadline:
+    try:
+      state = page.evaluate(_CHART_LOADER_STATE_JS)
+    except _PlaywrightError:
+      # A navigation tore the execution context down mid-poll; resample.
+      stable_count = 0
+      page.wait_for_timeout(_CHART_LOADER_POLL_MS)
+      continue
+    if not isinstance(state, list) or len(state) != 2:
+      return True
+    pending, ready = state[0], state[1]
+    if ready or not pending:
+      stable_count += 1
+      if stable_count >= required:
+        return True
+    else:
+      stable_count = 0
+    page.wait_for_timeout(_CHART_LOADER_POLL_MS)
+  logging.warning(
+      "Google Charts loader did not settle within %dms.",
+      _CHART_LOADER_TIMEOUT_MS,
+  )
+  return False
+
+
 def _wait_for_charts_to_render(page: typing.Any) -> bool:
   """Waits until charts on the page have drawn and any blank count settles.
 
@@ -785,7 +849,13 @@ def capture_waypoint(
   if not _wait_for_nested_documents(page):
     unsettled.append("nested_documents_timeout")
 
-  # 6. Wait for visible charts to finish drawing their SVGs and stabilize.
+  # 6. Let the external Google Charts loader finish failing over or succeeding.
+  # Until it does, the attached <script> nodes and whether charts can draw at
+  # all both depend on external timing rather than on the build under test.
+  if not _wait_for_chart_loader_settled(page):
+    unsettled.append("chart_loader_timeout")
+
+  # 7. Wait for visible charts to finish drawing their SVGs and stabilize.
   # The page-wide wait comes first, so a chart that has not started drawing is
   # given time before the per-chart waits below refine what it drew.
   if not _wait_for_charts_to_render(page):
@@ -849,7 +919,7 @@ def capture_waypoint(
   except _PlaywrightError:
     pass
 
-  # 7. Stabilize serialized DOM across consecutive quiescence polls.
+  # 8. Stabilize serialized DOM across consecutive quiescence polls.
   html, dom_settled = _wait_for_dom_quiescence(page)
   if not dom_settled:
     unsettled.append("dom_quiescence_timeout")

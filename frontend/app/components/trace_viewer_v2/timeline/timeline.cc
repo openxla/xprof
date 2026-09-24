@@ -827,6 +827,7 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
 void Timeline::Draw() {
   hovered_event_index_ = -1;
   event_clicked_this_frame_ = false;
+  bool is_resizer_hovered = false;
   bool needs_layout_update = false;
 
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -990,7 +991,13 @@ void Timeline::Draw() {
     } else {
       is_resizing_label_column_ = false;
     }
-    if (ImGui::IsItemHovered()) {
+    is_resizer_hovered = ImGui::IsItemHovered();
+    if (is_resizer_hovered) {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+      if (!is_resizing_label_column_) {
+        ImGui::SetTooltip("%s", kDragToResizeTooltip);
+      }
+    } else if (is_resizing_label_column_) {
       ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
     }
   } else {
@@ -1070,10 +1077,20 @@ void Timeline::Draw() {
   // Drawn last inside SelectionOverlay so it sits on top of other elements,
   // and extends upwards to the beginning of the ruler.
   Pixel split_x = std::floor(ruler_start_screen_pos.x + label_width_) + 0.5f;
+  ImU32 splitter_col = ImGui::GetColorU32(ImGuiCol_TableBorderLight);
+  Pixel splitter_thickness = kSplitterDefaultThickness;
+  if (is_resizing_label_column_) {
+    splitter_col = kSplitterActiveColor;
+    splitter_thickness = kSplitterHoverThickness;
+  } else if (is_resizer_hovered) {
+    splitter_col = kSplitterHoverColor;
+    splitter_thickness = kSplitterHoverThickness;
+  }
+
   ImGui::GetWindowDrawList()->AddLine(
       ImVec2(split_x, ruler_start_screen_pos.y),
       ImVec2(split_x, ruler_start_screen_pos.y + ImGui::GetWindowHeight()),
-      ImGui::GetColorU32(ImGuiCol_TableBorderLight), 1.0f);
+      splitter_col, splitter_thickness);
 
   ImGui::EndChild();
 

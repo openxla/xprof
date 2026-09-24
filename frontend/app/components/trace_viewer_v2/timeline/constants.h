@@ -44,7 +44,7 @@ inline constexpr ImU32 kRulerLineColor = kOutlineVariantColor;
 inline constexpr ImU32 kRulerTextColor = kOutlineColor;
 inline constexpr ImU32 kTraceVerticalLineColor = kInverseOnSurfaceColor;
 inline constexpr Pixel kMinTickDistancePx = 80.0f;
-inline constexpr Pixel kRulerHeight = 36.0f;
+inline constexpr Pixel kRulerHeight = 24.0f;
 // The height of the minor ticks on the ruler. Major ticks span the full height
 // of the ruler.
 inline constexpr Pixel kRulerMinorTickHeight = 8.0f;

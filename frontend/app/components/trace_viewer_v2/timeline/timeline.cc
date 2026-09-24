@@ -38,6 +38,161 @@
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
+
+GroupTree::GroupTree() {
+  InitSectionGroups();
+}
+
+GroupTree::GroupTree(const GroupTree& other) {
+  CopyFrom(other);
+}
+
+GroupTree& GroupTree::operator=(const GroupTree& other) {
+  if (this != &other) {
+    CopyFrom(other);
+  }
+  return *this;
+}
+
+GroupTree::GroupTree(GroupTree&& other) noexcept
+    : groups(std::move(other.groups)),
+      section_headers_storage(std::move(other.section_headers_storage)),
+      all_section_group(other.all_section_group),
+      hidden_section_group(other.hidden_section_group),
+      pinned_section_group(other.pinned_section_group),
+      root_group(other.root_group),
+      counter_data_by_group_ptr(std::move(other.counter_data_by_group_ptr)) {
+  other.InitSectionGroups();
+}
+
+GroupTree& GroupTree::operator=(GroupTree&& other) noexcept {
+  if (this != &other) {
+    groups = std::move(other.groups);
+    section_headers_storage = std::move(other.section_headers_storage);
+    all_section_group = other.all_section_group;
+    hidden_section_group = other.hidden_section_group;
+    pinned_section_group = other.pinned_section_group;
+    root_group = other.root_group;
+    counter_data_by_group_ptr = std::move(other.counter_data_by_group_ptr);
+
+    other.InitSectionGroups();
+  }
+  return *this;
+}
+
+void GroupTree::Clear() {
+  groups.clear();
+  counter_data_by_group_ptr.clear();
+  InitSectionGroups();
+}
+
+void GroupTree::InitSectionGroups() {
+  section_headers_storage.clear();
+  section_headers_storage.reserve(kSectionHeaderCount);
+
+  auto root = std::make_unique<Group>();
+  root->name = kRootHeaderName;
+  root_group = root.get();
+  section_headers_storage.push_back(std::move(root));
+
+  auto hidden = std::make_unique<Group>();
+  hidden->name = kHiddenHeaderName;
+  hidden->nesting_level = kHeaderNestingLevel;
+  hidden->expanded = false;
+  hidden_section_group = hidden.get();
+  section_headers_storage.push_back(std::move(hidden));
+
+  auto pinned = std::make_unique<Group>();
+  pinned->name = kPinnedHeaderName;
+  pinned->nesting_level = kHeaderNestingLevel;
+  pinned->expanded = true;
+  pinned_section_group = pinned.get();
+  section_headers_storage.push_back(std::move(pinned));
+
+  auto all = std::make_unique<Group>();
+  all->name = kAllHeaderName;
+  all->nesting_level = kHeaderNestingLevel;
+  all->expanded = true;
+  all_section_group = all.get();
+  section_headers_storage.push_back(std::move(all));
+
+  root_group->AddChild(hidden_section_group);
+  root_group->AddChild(pinned_section_group);
+  root_group->AddChild(all_section_group);
+}
+
+void GroupTree::CopyFrom(const GroupTree& other) {
+  groups = other.groups;
+  InitSectionGroups();
+
+  absl::flat_hash_map<const Group*, Group*> node_map;
+  node_map.reserve(other.groups.size() + other.section_headers_storage.size());
+  if (other.root_group) node_map[other.root_group] = root_group;
+  if (other.hidden_section_group) {
+    node_map[other.hidden_section_group] = hidden_section_group;
+  }
+  if (other.pinned_section_group) {
+    node_map[other.pinned_section_group] = pinned_section_group;
+  }
+  if (other.all_section_group) {
+    node_map[other.all_section_group] = all_section_group;
+  }
+  for (size_t i = 4; i < other.section_headers_storage.size(); ++i) {
+    auto copy = std::make_unique<Group>(*other.section_headers_storage[i]);
+    node_map[other.section_headers_storage[i].get()] = copy.get();
+    section_headers_storage.push_back(std::move(copy));
+  }
+  for (size_t i = 0; i < other.groups.size(); ++i) {
+    node_map[&other.groups[i]] = &groups[i];
+  }
+
+  auto map_node = [&](const Group* other_node) -> Group* {
+    if (!other_node) return nullptr;
+    auto it = node_map.find(other_node);
+    return it != node_map.end() ? it->second : nullptr;
+  };
+
+  auto copy_and_remap = [&](Group* node, const Group* other_node) {
+    if (!node || !other_node) return;
+    *node = *other_node;
+    node->parent = map_node(other_node->parent);
+    node->first_child = map_node(other_node->first_child);
+    node->last_child = map_node(other_node->last_child);
+    node->next_sibling = map_node(other_node->next_sibling);
+    node->prev_sibling = map_node(other_node->prev_sibling);
+  };
+
+  if (other.root_group) copy_and_remap(root_group, other.root_group);
+  if (other.hidden_section_group) {
+    copy_and_remap(hidden_section_group, other.hidden_section_group);
+  }
+  if (other.pinned_section_group) {
+    copy_and_remap(pinned_section_group, other.pinned_section_group);
+  }
+  if (other.all_section_group) {
+    copy_and_remap(all_section_group, other.all_section_group);
+  }
+  for (size_t i = 4; i < section_headers_storage.size(); ++i) {
+    copy_and_remap(section_headers_storage[i].get(),
+                   other.section_headers_storage[i].get());
+  }
+  for (size_t i = 0; i < groups.size(); ++i) {
+    groups[i].parent = map_node(other.groups[i].parent);
+    groups[i].first_child = map_node(other.groups[i].first_child);
+    groups[i].last_child = map_node(other.groups[i].last_child);
+    groups[i].next_sibling = map_node(other.groups[i].next_sibling);
+    groups[i].prev_sibling = map_node(other.groups[i].prev_sibling);
+  }
+
+  counter_data_by_group_ptr.clear();
+  counter_data_by_group_ptr.reserve(other.counter_data_by_group_ptr.size());
+  for (const auto& [other_group_ptr, counter_data] :
+       other.counter_data_by_group_ptr) {
+    Group* mapped_group = map_node(other_group_ptr);
+    counter_data_by_group_ptr[mapped_group] = counter_data;
+  }
+}
+
 namespace {
 
 using FallbackKey = std::tuple<ProcessId, ThreadId, absl::string_view>;

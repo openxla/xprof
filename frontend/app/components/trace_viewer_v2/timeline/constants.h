@@ -127,6 +127,7 @@ inline constexpr Pixel kTrackManagementButtonMargin = 8.0f;
 inline constexpr int kAllHeaderId = 100000;
 inline constexpr int kHiddenHeaderId = 200000;
 inline constexpr int kPinnedHeaderId = 300000;
+inline constexpr size_t kSectionHeaderCount = 4;
 // go/keep-sorted end
 
 // Time Range Selection Constants
@@ -244,6 +245,7 @@ inline constexpr char kPinnedHeaderName[] = "Pinned";
 inline constexpr char kPinnedProcessNotificationPrefix[] = "Pinned process: ";
 inline constexpr char kProcessHeaderLabel[] = "Process";
 inline constexpr char kReorderTrackTooltip[] = "Reorder track";
+inline constexpr char kRootHeaderName[] = "Root";
 inline constexpr char kUnhiddenProcessNotificationPrefix[] =
     "Unhidden process: ";
 inline constexpr char kUnhideTrackTooltip[] = "Unhide track";

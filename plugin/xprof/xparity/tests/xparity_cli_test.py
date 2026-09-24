@@ -28,6 +28,16 @@ class XparityCliTest(parameterized.TestCase):
     self.assertIn("inspect_suite", cmds)
     self.assertIn("probe_precision", cmds)
 
+  def test_bug_link_matches_build_variant(self):
+    """The reported bug target differs between the 1P and OSS builds.
+
+    `xparity_cli.py` is exported to github.com/openxla/xprof, where a `go/`
+    shortlink is unresolvable, so the constant is copybara-replaced. Without
+    this assertion the replacement branch is never executed by any test.
+    """
+    expected_bug_link = "https://github.com/openxla/xprof/issues"
+    self.assertEqual(xparity_cli._BUG_LINK, expected_bug_link)  # pylint: disable=protected-access
+
   def test_verify_with_direct_callables_pass(self):
     """Verifies tool with direct Python callable functions."""
     report_json = xparity_tool.verify_numerical_parity(

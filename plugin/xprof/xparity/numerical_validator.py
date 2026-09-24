@@ -11,6 +11,7 @@ Public API:
 
 import collections.abc
 import dataclasses
+import functools
 import importlib
 import inspect
 import logging
@@ -206,49 +207,64 @@ def _get_finfo(dtype: Any) -> Any:
     return ml_dtypes.finfo(np_dtype)
 
 
+def _narrow_bits(
+    arr: np.ndarray, target: Any, view_dtype: Any
+) -> np.ndarray:
+  """Reinterprets `arr` as `target`, avoiding a cast when already that type."""
+  if arr.dtype == target:
+    return arr.view(view_dtype).astype(np.int64)
+  return arr.astype(target).view(view_dtype).astype(np.int64)
+
+
+# Canonical dtype -> (ml_dtypes/numpy scalar type, unsigned view type,
+# sign bit mask, magnitude mask). Keyed on canonical names only; callers must
+# route through `resolve_canonical_dtype` first.
+_ULP_BIT_LAYOUT: types.MappingProxyType[str, tuple[Any, Any, int, int]] = (
+    types.MappingProxyType({
+        "float32": (np.float32, np.uint32, 0x80000000, 0x7FFFFFFF),
+        "float16": (np.float16, np.uint16, 0x8000, 0x7FFF),
+        "bfloat16": (ml_dtypes.bfloat16, np.uint16, 0x8000, 0x7FFF),
+        "float8_e4m3fn": (ml_dtypes.float8_e4m3fn, np.uint8, 0x80, 0x7F),
+        "float8_e5m2": (ml_dtypes.float8_e5m2, np.uint8, 0x80, 0x7F),
+    })
+)
+
+
 def _sign_magnitude_to_continuous_int(
     arr: np.ndarray, dtype_str: str
 ) -> np.ndarray:
-  """Converts floating-point sign-magnitude bits to continuous int64 index."""
-  if dtype_str == "float32":
-    raw = arr.astype(np.float32).view(np.uint32).astype(np.int64)
-    sign_mask = 0x80000000
-    mag_mask = 0x7FFFFFFF
-  elif dtype_str == "bfloat16":
-    if arr.dtype == ml_dtypes.bfloat16:
-      raw = arr.view(np.uint16).astype(np.int64)
-    else:
-      raw = arr.astype(ml_dtypes.bfloat16).view(np.uint16).astype(np.int64)
-    sign_mask = 0x8000
-    mag_mask = 0x7FFF
-  elif dtype_str == "float16":
-    raw = arr.astype(np.float16).view(np.uint16).astype(np.int64)
-    sign_mask = 0x8000
-    mag_mask = 0x7FFF
-  elif dtype_str == "float64":
+  """Converts floating-point sign-magnitude bits to continuous int64 index.
+
+  Args:
+    arr: The tensor to reinterpret.
+    dtype_str: A canonical or aliased dtype name. Aliases (``fp8_e4m3``,
+      ``bf16``, ``ml_dtypes.float8_e4m3fn``, ...) are resolved before lookup,
+      so every spelling accepted by `resolve_canonical_dtype` works here.
+
+  Returns:
+    An int64 array whose values are ordered consistently with the real line,
+    so that a difference of 1 corresponds to one representable step.
+  """
+  canonical = resolve_canonical_dtype(dtype_str)
+
+  if canonical == "float64":
     raw = arr.astype(np.float64).view(np.uint64)
     sign_mask_u64 = np.uint64(0x8000000000000000)
     mag_mask_u64 = np.uint64(0x7FFFFFFFFFFFFFFF)
     is_negative = (raw & sign_mask_u64) != 0
     magnitude = (raw & mag_mask_u64).astype(np.int64)
     return np.where(is_negative, -magnitude, magnitude)
-  elif dtype_str == "fp8_e4m3":
-    if arr.dtype == ml_dtypes.float8_e4m3fn:
-      raw = arr.view(np.uint8).astype(np.int64)
-    else:
-      raw = arr.astype(ml_dtypes.float8_e4m3fn).view(np.uint8).astype(np.int64)
-    sign_mask = 0x80
-    mag_mask = 0x7F
-  elif dtype_str == "fp8_e5m2":
-    if arr.dtype == ml_dtypes.float8_e5m2:
-      raw = arr.view(np.uint8).astype(np.int64)
-    else:
-      raw = arr.astype(ml_dtypes.float8_e5m2).view(np.uint8).astype(np.int64)
-    sign_mask = 0x80
-    mag_mask = 0x7F
-  else:
-    raise ValueError(f"Unsupported dtype for ULP conversion: {dtype_str}")
 
+  layout = _ULP_BIT_LAYOUT.get(canonical)
+  if layout is None:
+    raise ValueError(
+        f"Unsupported dtype for ULP conversion: '{dtype_str}' (resolved to"
+        f" '{canonical}'). Supported floating-point dtypes:"
+        f" {sorted(list(_ULP_BIT_LAYOUT) + ['float64'])}."
+    )
+
+  target, view_dtype, sign_mask, mag_mask = layout
+  raw = _narrow_bits(arr, target, view_dtype)
   is_negative = (raw & sign_mask) != 0
   magnitude = raw & mag_mask
   return np.where(is_negative, -magnitude, magnitude)
@@ -325,25 +341,157 @@ _DTYPE_TOLERANCES: types.MappingProxyType[str, tuple[float, float]] = (
 )
 
 
-def _resolve_canonical_dtype(dtype_str: str) -> str:
-  """Normalizes dtype strings (e.g. fp8_e4m3, bfloat16, int32)."""
-  dtype_map = {
-      "fp8_e4m3": "float8_e4m3fn",
-      "float8_e4m3": "float8_e4m3fn",
-      "fp8_e5m2": "float8_e5m2",
-      "float8_e5m2": "float8_e5m2",
-      "bf16": "bfloat16",
-      "fp16": "float16",
-      "fp32": "float32",
-      "fp64": "float64",
-  }
-  return dtype_map.get(dtype_str, dtype_str)
+_DTYPE_ALIASES: types.MappingProxyType[str, str] = types.MappingProxyType({
+    "fp8_e4m3": "float8_e4m3fn",
+    "float8_e4m3": "float8_e4m3fn",
+    "float8_e4m3fn": "float8_e4m3fn",
+    "fp8_e5m2": "float8_e5m2",
+    "float8_e5m2": "float8_e5m2",
+    "fp4_e2m1": "float4_e2m1fn",
+    "float4_e2m1": "float4_e2m1fn",
+    "bf16": "bfloat16",
+    "fp16": "float16",
+    "half": "float16",
+    "fp32": "float32",
+    "single": "float32",
+    "fp64": "float64",
+    "double": "float64",
+})
+
+# Prefixes stripped before alias lookup so that `str(some_array.dtype)` and
+# module-qualified names resolve identically. KernelBench and Rosetta both
+# pass `str(arr.dtype)`, which for ml_dtypes renders as e.g.
+# "float8_e4m3fn" and for module-qualified references as
+# "ml_dtypes.float8_e4m3fn".
+_DTYPE_PREFIXES: tuple[str, ...] = ("ml_dtypes.", "np.", "numpy.", "jnp.")
+
+
+def resolve_canonical_dtype(dtype_str: Any) -> str:
+  """Normalizes any accepted dtype spelling to its canonical name.
+
+  Accepts canonical names ("float8_e4m3fn"), short aliases ("fp8_e4m3",
+  "bf16"), module-qualified names ("ml_dtypes.float8_e4m3fn"), and NumPy or
+  ml_dtypes dtype objects. Every public entry point routes through this so
+  that the contract tables, the ULP bit layouts, and the generator all agree
+  on a single vocabulary.
+
+  Args:
+    dtype_str: A dtype name or a dtype-like object.
+
+  Returns:
+    The canonical dtype name. Unrecognized inputs are returned unchanged so
+    that callers can raise a domain-specific error with the original text.
+  """
+  if not isinstance(dtype_str, str):
+    dtype_str = getattr(dtype_str, "name", None) or str(dtype_str)
+  name = dtype_str.strip()
+  for prefix in _DTYPE_PREFIXES:
+    if name.startswith(prefix):
+      name = name[len(prefix) :]
+      break
+  return _DTYPE_ALIASES.get(name, name)
+
+
+# Deprecated private alias retained for in-flight callers.
+_resolve_canonical_dtype = resolve_canonical_dtype
+
+
+def get_contract(dtype_str: Any) -> tuple[int, int]:
+  """Returns the (recommended_ulp, hard_ceiling_ulp) contract for a dtype.
+
+  Args:
+    dtype_str: Any spelling accepted by `resolve_canonical_dtype`.
+
+  Returns:
+    A tuple of the recommended golden contract and the immutable hard safety
+    ceiling. Unknown dtypes fall back to the conservative float default.
+  """
+  canonical = resolve_canonical_dtype(dtype_str)
+  return (
+      RECOMMENDED_CONTRACT_ULP.get(canonical, 2),
+      MAX_HARD_CEILING_ULP.get(canonical, 8),
+  )
 
 
 def _is_discrete_dtype(dtype_str: str) -> bool:
   """True if dtype is discrete (bool, integer, unsigned integer)."""
-  canonical = _resolve_canonical_dtype(dtype_str)
+  canonical = resolve_canonical_dtype(dtype_str)
   return canonical == "bool" or canonical in _INTEGER_DTYPES
+
+
+def _as_compare_float(arr: np.ndarray) -> np.ndarray:
+  """Returns `arr` in a dtype NumPy's allclose accepts, avoiding copies.
+
+  float32 and wider are already comparable, so they are returned as-is.
+  Narrow types (bfloat16, the float8 formats, float16) are widened to
+  float32, which is lossless for all of them.
+
+  Args:
+    arr: Input array to convert for comparison.
+
+  Returns:
+    An array with dtype float32 or wider suitable for NumPy's allclose.
+  """
+  if arr.dtype in (np.float32, np.float64):
+    return arr
+  return arr.astype(np.float32)
+
+
+@functools.lru_cache(maxsize=None)
+def _rel_diff_floor(canonical: str) -> float:
+  """Smallest normal magnitude for a dtype, used to guard relative division."""
+  try:
+    return float(_get_finfo(np.dtype(canonical)).smallest_normal)
+  except (TypeError, ValueError, AttributeError) as e:
+    logging.debug("No finfo for dtype %s: %s", canonical, e)
+    return float(np.finfo(np.float32).smallest_normal)
+
+
+def _relative_diff(abs_diff: float, ref_value: float, canonical: str) -> float:
+  """Computes a relative difference guarded by the dtype's own scale.
+
+  The previous guard added a fixed 1e-12 to the denominator. That constant is
+  many orders of magnitude larger than the smallest representable value of
+  every narrow dtype -- bfloat16's smallest normal is ~1.18e-38 -- so for any
+  reference value near the bottom of the range the guard dominated the
+  denominator and drove the reported ratio toward zero. A kernel that was
+  100% wrong at a small magnitude was reported as having ~1e-26 relative
+  error, which reads as a pass.
+
+  Flooring the denominator at the dtype's own smallest normal keeps the ratio
+  meaningful across the entire representable range while still preventing
+  division by zero.
+
+  Args:
+    abs_diff: The absolute difference at the element of interest.
+    ref_value: The reference value at that element.
+    canonical: The canonical dtype name.
+
+  Returns:
+    The guarded relative difference.
+  """
+  denom = max(abs(ref_value), _rel_diff_floor(canonical))
+  return abs_diff / denom
+
+
+@functools.lru_cache(maxsize=None)
+def _magnitude_index(threshold: float, dtype_str: str) -> int:
+  """Returns the sign-magnitude integer index of a positive scalar magnitude.
+
+  Lets magnitude comparisons run in the integer domain against the same
+  continuous index space `_sign_magnitude_to_continuous_int` produces, so the
+  caller never has to materialize float64 copies of its tensors.
+
+  Args:
+    threshold: A positive magnitude in real units.
+    dtype_str: Any spelling accepted by `resolve_canonical_dtype`.
+
+  Returns:
+    The integer index corresponding to `threshold`. Values at or above this
+    index have magnitude at or above `threshold`.
+  """
+  scalar = np.asarray([abs(threshold)])
+  return int(_sign_magnitude_to_continuous_int(scalar, dtype_str)[0])
 
 
 def compute_ulp_distance(
@@ -391,38 +539,56 @@ def compute_ulp_distance(
     )
     return diff
 
-  act_f64 = np.asarray(actual, dtype=np.float64)
-  exp_f64 = np.asarray(expected, dtype=np.float64)
   int_act = _sign_magnitude_to_continuous_int(actual, dtype_str)
   int_exp = _sign_magnitude_to_continuous_int(expected, dtype_str)
   raw_ulp = np.abs(int_act - int_exp)
 
-  # Check for opposite-sign values below the zero_threshold
-  cross_zero_mask = (
-      (act_f64 * exp_f64 < 0)
-      & (np.abs(act_f64) < zero_threshold)
-      & (np.abs(exp_f64) < zero_threshold)
+  # Zero-crossing mitigation. Opposite-sign values whose magnitudes are both
+  # tiny sit on either side of the sign-magnitude discontinuity, where the raw
+  # bit distance jumps by ~2^(mantissa+exponent bits) despite the values being
+  # numerically adjacent.
+  #
+  # The predicate is ordered cheapest-first. A sign disagreement is necessary
+  # for mitigation and is a single pass over booleans, so testing it first
+  # lets the common case -- no element straddles zero -- skip the magnitude
+  # comparisons entirely.
+  sign_differs = (int_act < 0) != (int_exp < 0)
+  if not sign_differs.any():
+    return raw_ulp
+
+  # Compare against the threshold's own bit pattern rather than calling
+  # np.abs, which would allocate a full int64 temporary per operand.
+  threshold_idx = _magnitude_index(zero_threshold, dtype_str)
+  mitigate_mask = (
+      sign_differs
+      & (int_act < threshold_idx)
+      & (int_act > -threshold_idx)
+      & (int_exp < threshold_idx)
+      & (int_exp > -threshold_idx)
+      # Only the sign-magnitude jump itself needs rescaling; a genuine small
+      # distance across zero is already correct.
+      & (raw_ulp > 10)
   )
 
-  if np.any(cross_zero_mask):
-    canonical_d = _resolve_canonical_dtype(dtype_str)
-    if canonical_d in _DTYPE_TOLERANCES:
-      eps = _DTYPE_TOLERANCES[canonical_d][0]
-    elif dtype_str.startswith("fp8"):
-      eps = 0.125
-    else:
-      eps = 1e-3
+  if not mitigate_mask.any():
+    return raw_ulp
 
-    scaled_diff = np.abs(act_f64 - exp_f64) / eps
-    # Only replace if raw bit distance exhibits the sign-magnitude jump (> 10)
-    mitigate_mask = cross_zero_mask & (raw_ulp > 10)
-    return np.where(
-        mitigate_mask,
-        np.ceil(scaled_diff).astype(np.int64),
-        raw_ulp,
-    )
+  canonical_d = resolve_canonical_dtype(dtype_str)
+  if canonical_d in _DTYPE_TOLERANCES:
+    eps = _DTYPE_TOLERANCES[canonical_d][0]
+  elif canonical_d.startswith("float8"):
+    eps = 0.125
+  else:
+    eps = 1e-3
 
-  return raw_ulp
+  # Restrict the float64 work to the affected elements.
+  idx = np.nonzero(mitigate_mask)
+  act_sel = np.asarray(actual, dtype=np.float64)[idx]
+  exp_sel = np.asarray(expected, dtype=np.float64)[idx]
+  scaled = np.ceil(np.abs(act_sel - exp_sel) / eps).astype(np.int64)
+  out = raw_ulp.copy()
+  out[idx] = scaled
+  return out
 
 
 ORACLE_AUTO = "auto"
@@ -1401,7 +1567,14 @@ def validate_kernels(
           )
       ]
       if not batches_to_run:
-        batches_to_run = list(full_suite)
+        available = sorted({
+            str(b.get("regime")) for b in full_suite if b.get("regime")
+        })
+        raise ValueError(
+            f"No test batches matched regimes {sorted(allowed_regimes)}."
+            f" Available regimes for dtype '{canonical_dtype}': {available}."
+            " Pass regimes='all' to run the full suite."
+        )
   else:
     if test_suite is not None:
       batches_to_run = list(full_suite)
@@ -1684,16 +1857,28 @@ def validate_arrays(
     max_allowed_ulp: int | None = None,
     p99_9_allowed_ulp: float = 1.0,
 ) -> BatchValidationResult:
-  """Validates bitwise ULP parity between two pre-computed arrays."""
+  """Validates bitwise ULP parity between two pre-computed arrays.
+
+  Args:
+    actual: The candidate tensor.
+    expected: The reference tensor.
+    dtype_str: Any spelling accepted by `resolve_canonical_dtype`.
+    max_allowed_ulp: Per-element ULP gate. Defaults to the dtype's recommended
+      contract; may not exceed its immutable hard safety ceiling.
+    p99_9_allowed_ulp: Gate on the 99.9th percentile of the ULP distribution.
+
+  Returns:
+    A BatchValidationResult. When either tensor contains non-finite values the
+    result carries the structural taxonomy (`nan_count`, `inf_count`,
+    `first_non_finite_index`) alongside `finite_max_ulp` computed over the
+    finite subset, rather than a sentinel magnitude.
+  """
   act_np = np.asarray(actual)
   exp_np = np.asarray(expected)
-  canonical = _resolve_canonical_dtype(dtype_str)
-  recommended_ulp = RECOMMENDED_CONTRACT_ULP.get(canonical, 2)
-  hard_ceiling = MAX_HARD_CEILING_ULP.get(canonical, 8)
+  canonical = resolve_canonical_dtype(dtype_str)
+  recommended_ulp, hard_ceiling = get_contract(canonical)
 
   if max_allowed_ulp is None:
-    limit_ulp = recommended_ulp
-  elif max_allowed_ulp == 2 and hard_ceiling < 2:
     limit_ulp = recommended_ulp
   else:
     limit_ulp = int(max_allowed_ulp)
@@ -1710,50 +1895,69 @@ def validate_arrays(
     )
 
   is_discrete = _is_discrete_dtype(canonical)
-  if is_discrete:
-    has_nan_inf = False
-  else:
-    act_f64 = act_np.astype(np.float64)
-    exp_f64 = exp_np.astype(np.float64)
-    has_nan_inf = bool(
-        np.any(
-            np.isnan(act_f64)
-            | np.isinf(act_f64)
-            | np.isnan(exp_f64)
-            | np.isinf(exp_f64)
-        )
-    )
 
-  if has_nan_inf:
-    return BatchValidationResult(
-        batch_name="direct_array_comparison",
-        regime="direct",
-        max_ulp_distance=999999,
-        p99_9_ulp_distance=999999.0,
-        mean_ulp_distance=999999.0,
-        ulp_histogram={"nan_inf": int(act_np.size)},
-        has_nan_or_inf=True,
-        passed=False,
-        allclose_passed=False,
-    )
+  # Non-finite detection runs in the native dtype. ml_dtypes registers isnan
+  # and isinf ufuncs for bfloat16 and the float8 formats, so upcasting to
+  # float64 first -- which costs 8 bytes per element for each of the two
+  # tensors -- buys nothing.
+  nan_count = 0
+  inf_count = 0
+  first_non_finite_index = None
+  non_finite_mask = None
+  if not is_discrete:
+    nan_mask = np.isnan(act_np) | np.isnan(exp_np)
+    inf_mask = np.isinf(act_np) | np.isinf(exp_np)
+    nan_count = int(np.count_nonzero(nan_mask))
+    inf_count = int(np.count_nonzero(inf_mask))
+    if nan_count or inf_count:
+      non_finite_mask = nan_mask | inf_mask
+      flat_first = int(np.argmax(non_finite_mask))
+      first_non_finite_index = tuple(
+          int(x) for x in np.unravel_index(flat_first, act_np.shape)
+      )
+
+  has_nan_inf = bool(nan_count or inf_count)
 
   ulp_dist = compute_ulp_distance(act_np, exp_np, dtype_str=canonical)
-  max_ulp = int(np.max(ulp_dist)) if ulp_dist.size > 0 else 0
-  mean_ulp = float(np.mean(ulp_dist)) if ulp_dist.size > 0 else 0.0
-  p99_9_ulp = float(np.percentile(ulp_dist, 99.9)) if ulp_dist.size > 0 else 0.0
-  p50_ulp = float(np.percentile(ulp_dist, 50.0)) if ulp_dist.size > 0 else 0.0
-  bit_identical = bool(np.all(ulp_dist == 0))
+
+  # Metrics over the finite subset so that a single NaN does not erase all
+  # diagnostic signal from the rest of the tensor.
+  if non_finite_mask is not None:
+    finite_ulp = ulp_dist[~non_finite_mask]
+  else:
+    finite_ulp = ulp_dist
+
+  if finite_ulp.size > 0:
+    max_ulp = int(np.max(finite_ulp))
+    mean_ulp = float(np.mean(finite_ulp))
+    # A single sort serves both percentiles; two np.percentile calls sort the
+    # array twice.
+    p50_ulp, p99_9_ulp = (
+        float(v) for v in np.percentile(finite_ulp, [50.0, 99.9])
+    )
+  else:
+    max_ulp, mean_ulp, p50_ulp, p99_9_ulp = 0, 0.0, 0.0, 0.0
+
+  bit_identical = bool(not has_nan_inf and max_ulp == 0)
+  total = int(ulp_dist.size)
+  le_1 = int(np.count_nonzero(ulp_dist <= 1))
+  le_2 = int(np.count_nonzero(ulp_dist <= 2))
   hist = {
-      "<=1_ulp": int(np.sum(ulp_dist <= 1)),
-      "<=2_ulp": int(np.sum(ulp_dist <= 2)),
-      ">2_ulp": int(np.sum(ulp_dist > 2)),
+      "<=1_ulp": le_1,
+      "<=2_ulp": le_2,
+      ">2_ulp": total - le_2,
   }
+
   effective_p99_9 = (
       0.0
       if is_discrete and p99_9_allowed_ulp == 1.0
       else max(float(p99_9_allowed_ulp), float(limit_ulp))
   )
-  ulp_passed = bool(max_ulp <= limit_ulp and p99_9_ulp <= effective_p99_9)
+  ulp_passed = bool(
+      not has_nan_inf
+      and max_ulp <= limit_ulp
+      and p99_9_ulp <= effective_p99_9
+  )
 
   if is_discrete:
     allclose_passed = bool(np.array_equal(act_np, exp_np))
@@ -1762,10 +1966,11 @@ def validate_arrays(
     rtol_val = max(1, limit_ulp) * dtype_eps
     allclose_passed = bool(
         np.allclose(
-            act_np.astype(np.float32),
-            exp_np.astype(np.float32),
+            _as_compare_float(act_np),
+            _as_compare_float(exp_np),
             rtol=rtol_val,
             atol=atol_val,
+            equal_nan=False,
         )
     )
 
@@ -1775,11 +1980,13 @@ def validate_arrays(
     max_idx = tuple(
         int(x) for x in np.unravel_index(flat_max_idx, ulp_dist.shape)
     )
-    ref_v = float(np.asarray(exp_np, dtype=np.float64)[max_idx])
-    cand_v = float(np.asarray(act_np, dtype=np.float64)[max_idx])
+    # Index first, convert second. Converting the whole tensor to float64 to
+    # read a single element allocates 8 bytes per element for each operand.
+    ref_v = float(exp_np[max_idx])
+    cand_v = float(act_np[max_idx])
     abs_d = abs(cand_v - ref_v)
-    rel_d = abs_d / (abs(ref_v) + 1e-12)
-    mismatch_cnt = int(np.sum(ulp_dist > limit_ulp))
+    rel_d = _relative_diff(abs_d, ref_v, canonical)
+    mismatch_cnt = int(np.count_nonzero(ulp_dist > limit_ulp))
     worst_offender = WorstOffender(
         max_ulp_index=max_idx,
         ref_value=ref_v,
@@ -1791,17 +1998,22 @@ def validate_arrays(
     )
 
   passed = bool(ulp_passed and allclose_passed)
+  note = None
+  if has_nan_inf:
+    note = (
+        f"Non-finite values present: {nan_count} NaN, {inf_count} Inf."
+        " Reported ULP statistics cover the finite subset only."
+    )
+  elif ulp_passed and not allclose_passed:
+    note = "Failed allclose dual gate check at rtol=k*eps."
+
   context_obj = UlpContext(
       bit_identical=bit_identical,
       p50=p50_ulp,
       p99_9=p99_9_ulp,
       max_ulp=max_ulp,
-      reliable=True,
-      note=(
-          "Failed allclose dual gate check at rtol=k*eps."
-          if ulp_passed and not allclose_passed
-          else None
-      ),
+      reliable=not has_nan_inf,
+      note=note,
   )
 
   return BatchValidationResult(
@@ -1811,10 +2023,13 @@ def validate_arrays(
       p99_9_ulp_distance=p99_9_ulp,
       mean_ulp_distance=mean_ulp,
       ulp_histogram=hist,
-      has_nan_or_inf=False,
+      has_nan_or_inf=has_nan_inf,
       passed=passed,
       ulp_context=context_obj,
       allclose_passed=allclose_passed,
+      nan_count=nan_count,
+      inf_count=inf_count,
+      first_non_finite_index=first_non_finite_index,
       finite_max_ulp=max_ulp,
       worst_offender=worst_offender,
   )

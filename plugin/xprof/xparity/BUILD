@@ -44,8 +44,8 @@ pytype_strict_library(
     name = "xparity_cli_lib",
     srcs = ["xparity_cli.py"],
     deps = [
-        ":xparity",
         ":xparity_tool",
+        "@absl_py//absl/flags",
         "@pypi//absl_py",
         "@pypi//fire",
     ],

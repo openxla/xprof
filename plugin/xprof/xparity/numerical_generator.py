@@ -139,6 +139,53 @@ ALL_SUPPORTED_DTYPES: frozenset[str] = frozenset(
     set(PROFILES.keys()) | INTEGER_DTYPES | BOOLEAN_DTYPES
 )
 
+# The authoritative tier ladder: tier name -> (student_t batches, outlier
+# batches). Declared once here so the CLI, the skill documentation, and the
+# generator cannot drift apart.
+TIER_BATCH_COUNTS: types.MappingProxyType[str, tuple[int, int]] = (
+    types.MappingProxyType({
+        "fast_agent": (2, 1),
+        "presubmit": (6, 3),
+        "deep_fuzzing": (30, 15),
+    })
+)
+SUPPORTED_TIERS: frozenset[str] = frozenset(TIER_BATCH_COUNTS.keys())
+
+# Every accepted spelling of a dtype, mapped to its key in PROFILES /
+# INTEGER_PROFILES. Callers may pass a canonical OCP name, a short alias, a
+# module-qualified name, or `str(array.dtype)`.
+_DTYPE_SYNONYMS: types.MappingProxyType[str, str] = types.MappingProxyType({
+    "float8_e4m3fn": "fp8_e4m3",
+    "float8_e4m3": "fp8_e4m3",
+    "ml_dtypes.float8_e4m3fn": "fp8_e4m3",
+    "float8_e5m2": "fp8_e5m2",
+    "ml_dtypes.float8_e5m2": "fp8_e5m2",
+    "ml_dtypes.bfloat16": "bfloat16",
+    "bf16": "bfloat16",
+    "fp16": "float16",
+    "half": "float16",
+    "fp32": "float32",
+    "single": "float32",
+    "fp64": "float64",
+    "double": "float64",
+})
+
+
+def resolve_dtype(dtype_str: Any) -> str:
+  """Normalizes any accepted dtype spelling to its profile key.
+
+  Args:
+    dtype_str: A dtype name or dtype-like object.
+
+  Returns:
+    The profile key. Unrecognized names are returned unchanged so that the
+    caller can raise a KeyError naming the original input.
+  """
+  if not isinstance(dtype_str, str):
+    dtype_str = getattr(dtype_str, "name", None) or str(dtype_str)
+  name = dtype_str.strip()
+  return _DTYPE_SYNONYMS.get(name, name)
+
 
 def generate_student_t_tensor(
     shape: _Sequence[int],
@@ -151,6 +198,7 @@ def generate_student_t_tensor(
     raise ValueError(
         f"degrees_of_freedom must be finite and positive, got {df}"
     )
+  dtype_str = resolve_dtype(dtype_str)
   if dtype_str not in PROFILES:
     raise KeyError(
         f"Unsupported dtype_str '{dtype_str}'. Supported:"
@@ -176,6 +224,7 @@ def generate_normal_tensor(
     seed: int = 42,
 ) -> np.ndarray:
   """Generates standard normal distributed tensor for benign baseline checking."""
+  dtype_str = resolve_dtype(dtype_str)
   if dtype_str not in PROFILES:
     raise KeyError(
         f"Unsupported dtype_str '{dtype_str}'. Supported:"
@@ -205,6 +254,7 @@ def generate_outlier_tensor(
     raise ValueError(
         f"outlier_scale must be finite and positive, got {outlier_scale}"
     )
+  dtype_str = resolve_dtype(dtype_str)
   if dtype_str not in PROFILES:
     raise KeyError(
         f"Unsupported dtype_str '{dtype_str}'. Supported:"
@@ -267,6 +317,7 @@ def generate_per_channel_outlier_tensor(
     raise ValueError(
         f"outlier_scale must be finite and positive, got {outlier_scale}"
     )
+  dtype_str = resolve_dtype(dtype_str)
   if dtype_str not in PROFILES:
     raise KeyError(
         f"Unsupported dtype_str '{dtype_str}'. Supported:"
@@ -323,6 +374,7 @@ def generate_cancellation_tensor(
         f"reduction_axis {reduction_axis} dimension length {dim_len} must be"
         " even for alternating cancellation pairs."
     )
+  dtype_str = resolve_dtype(dtype_str)
   if dtype_str not in PROFILES:
     raise KeyError(
         f"Unsupported dtype_str '{dtype_str}'. Supported:"
@@ -358,6 +410,7 @@ def generate_boundary_probe_tensor(
     tile_stride: int = 128,
 ) -> np.ndarray:
   """Generates boundary probes distributed across TPU VMEM tile strides."""
+  dtype_str = resolve_dtype(dtype_str)
   if dtype_str not in PROFILES:
     raise KeyError(
         f"Unsupported dtype_str '{dtype_str}'. Supported:"
@@ -583,6 +636,7 @@ def generate_integer_tensor(
   Raises:
     KeyError: If dtype_str is not in INTEGER_PROFILES.
   """
+  dtype_str = resolve_dtype(dtype_str)
   if dtype_str not in INTEGER_PROFILES:
     raise KeyError(
         f"Unsupported integer dtype_str '{dtype_str}'. Supported:"
@@ -765,12 +819,12 @@ def _generate_procedural_suite(
     as_jax_arrays: bool = False,
 ) -> list[dict[str, Any]]:
   """Generates procedural test suite using statistical distributions."""
-  if tier == "fast_agent":
-    num_student_t, num_outliers = 2, 1
-  elif tier == "deep_fuzzing":
-    num_student_t, num_outliers = 30, 15
-  else:  # presubmit default
-    num_student_t, num_outliers = 6, 3
+  if tier not in TIER_BATCH_COUNTS:
+    raise ValueError(
+        f"Unknown tier '{tier}'. Supported tiers:"
+        f" {sorted(TIER_BATCH_COUNTS)}."
+    )
+  num_student_t, num_outliers = TIER_BATCH_COUNTS[tier]
 
   def _convert(arr: np.ndarray) -> Any:
     if as_jax_arrays:
@@ -927,6 +981,7 @@ def _generate_procedural_suite(
     })
     return suite
 
+  dtype_str = resolve_dtype(dtype_str)
   if dtype_str not in PROFILES:
     raise KeyError(
         f"Unsupported dtype_str '{dtype_str}'. Supported:"
@@ -1059,6 +1114,7 @@ def generate_test_suite(
     RuntimeError: If mode is 'read_only' and persisted_path does not exist.
     KeyError: If dtype_str is not supported.
   """
+  dtype_str = resolve_dtype(dtype_str)
   if dtype_str not in ALL_SUPPORTED_DTYPES:
     raise KeyError(
         f"Unsupported dtype_str '{dtype_str}'. Supported:"

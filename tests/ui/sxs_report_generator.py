@@ -137,6 +137,30 @@ def _render_visual_diff(
   )
 
 
+def _render_screenshot_context(
+    templates: _TemplateRegistry,
+    waypoint: sxs_diff_engine.WaypointDiff,
+    card_id: str,
+) -> str:
+  """Renders the baseline and candidate pages without the pixel-delta views."""
+  reasons = []
+  if waypoint.dom.has_changes:
+    reasons.append("DOM changed")
+  if waypoint.network.has_changes:
+    reasons.append("network changed")
+  reasons.append("pixels within noise budget")
+
+  tmpl = string.Template(
+      templates.get_section("screenshot_context_section.html")
+  )
+  return tmpl.safe_substitute(
+      base_b64=_data_uri_payload(waypoint.visual.base_png_bytes),
+      cand_b64=_data_uri_payload(waypoint.visual.candidate_png_bytes),
+      context_reason=html.escape("; ".join(reasons)),
+      card_id=card_id,
+  )
+
+
 def _render_journey_tabs(
     templates: _TemplateRegistry,
     waypoint_diffs: list[sxs_diff_engine.WaypointDiff],
@@ -188,16 +212,31 @@ def _render_waypoint_card(
   if waypoint.dom.unified_diff:
     sections.append(_render_dom_diff(templates, waypoint.dom))
 
-  # Gated on a measured delta, not on the heatmap existing. The engine builds a
-  # heatmap for every waypoint, including byte-identical ones, so this inlined
-  # five base64 PNGs (baseline and candidate twice each, plus the heatmap) for
-  # waypoints with nothing to show. Across 46 waypoints that was most of a
-  # 28 MB report.
-  if (
-      waypoint.visual.diff_ratio > sxs_diff_engine.MAX_VISUAL_DIFF_RATIO
-      or waypoint.visual.dimension_mismatch
-  ):
-    sections.append(_render_visual_diff(templates, waypoint.visual, card_id))
+  # A waypoint that did not come back SAME is one a reviewer has to make a
+  # call on, so the rendered pages are always shown. The full visual section
+  # carries five base64 PNGs (baseline and candidate twice each, plus the
+  # heatmap), which across 46 waypoints was most of a 28 MB report, so it is
+  # reserved for waypoints with a measured pixel delta. A waypoint that
+  # diverged only on DOM or network gets the two-image side-by-side instead:
+  # the reviewer still sees both pages, at a fifth of the payload.
+  if waypoint.verdict != "SAME":
+    has_captures = bool(
+        waypoint.visual.base_png_bytes or waypoint.visual.candidate_png_bytes
+    )
+    if not has_captures:
+      notice_tmpl = string.Template(
+          templates.get_section("no_capture_notice.html")
+      )
+      sections.append(notice_tmpl.safe_substitute(card_id=card_id))
+    elif (
+        waypoint.visual.diff_ratio > sxs_diff_engine.MAX_VISUAL_DIFF_RATIO
+        or waypoint.visual.dimension_mismatch
+    ):
+      sections.append(_render_visual_diff(templates, waypoint.visual, card_id))
+    else:
+      sections.append(
+          _render_screenshot_context(templates, waypoint, card_id)
+      )
 
   if waypoint.visual.dimension_mismatch:
     mismatch_tmpl = string.Template(
@@ -235,8 +274,21 @@ def generate_sxs_html_report(
     waypoint_diffs: list[sxs_diff_engine.WaypointDiff],
     output_html_path: str,
     template_dir: pathlib.Path | None = None,
+    approval_note: str | None = None,
 ) -> str:
-  """Renders and writes standalone HTML diff report."""
+  """Renders and writes standalone HTML diff report.
+
+  Args:
+    waypoint_diffs: Evaluated waypoints to render.
+    output_html_path: Destination path for the generated HTML.
+    template_dir: Template directory override, for tests.
+    approval_note: Acceptance instructions for a caller whose gate is not
+      governed by approved_manifest.json. When set, the manifest signing
+      portal is replaced by this text. See the portal branch below.
+
+  Returns:
+    The path the report was written to.
+  """
   dir_path = template_dir or _get_default_template_dir()
   templates = _TemplateRegistry(dir_path)
 
@@ -265,20 +317,33 @@ def generate_sxs_html_report(
       _render_waypoint_card(templates, w, card_index=idx)
       for idx, w in enumerate(waypoint_diffs)
   )
-  approval_portal_html = (
-      templates.get_section("approval_portal.html")
-      if has_unapproved_diffs
-      else ""
-  )
+  # The signing portal mints entries for approved_manifest.json, which only
+  # the journey SxS gate reads. A caller that gates on something else (the
+  # template drift guard compares source text against a golden file) passes
+  # approval_note, and gets that instruction instead: offering the portal
+  # would hand the reader a JSON entry no check consumes, so they would
+  # paste it, re-run, and still be red.
+  unapproved_list: list[dict[str, str]] = []
+  if not has_unapproved_diffs:
+    approval_portal_html = ""
+  elif approval_note is not None:
+    notice_tmpl = string.Template(
+        templates.get_section("external_approval_notice.html")
+    )
+    approval_portal_html = notice_tmpl.safe_substitute(
+        approval_text=html.escape(approval_note)
+    )
+  else:
+    approval_portal_html = templates.get_section("approval_portal.html")
+    unapproved_list = [
+        {
+            "key": f"{w.journey_name}:{w.waypoint_name}",
+            "diff_hash": w.diff_hash,
+        }
+        for w in waypoint_diffs
+        if w.verdict == "CHANGED"
+    ]
 
-  unapproved_list = [
-      {
-          "key": f"{w.journey_name}:{w.waypoint_name}",
-          "diff_hash": w.diff_hash,
-      }
-      for w in waypoint_diffs
-      if w.verdict == "CHANGED"
-  ]
   unapproved_json = (
       json.dumps(unapproved_list, indent=4)
       .replace("<", "\\u003c")

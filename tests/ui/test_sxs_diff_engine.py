@@ -70,6 +70,18 @@ def _find_runfile(path: str) -> pathlib.Path | None:
   return None
 
 
+# Shared by the console failure banner and the HTML report so the two cannot
+# disagree about how a reader is meant to accept this change.
+_TEMPLATE_DRIFT_APPROVAL_NOTE = (
+    "This is a source-text check, not a render, and it does not read"
+    " approved_manifest.json. The manifest approval flow used for journey"
+    " waypoints does not apply here and will not turn this check green. To"
+    " accept this change, copy"
+    " frontend/app/components/overview_page/overview_page.ng.html over"
+    " tests/ui/goldens/overview_page.ng.html in this changelist."
+)
+
+
 def _format_template_drift_banner(diff: WaypointDiff, report_path: str) -> str:
   """Builds the failure banner for a template differing from baseline."""
   return (
@@ -77,10 +89,8 @@ def _format_template_drift_banner(diff: WaypointDiff, report_path: str) -> str:
       "  OVERVIEW PAGE TEMPLATE TEXT DIFFERS FROM ITS BASELINE\n"
       f"  {diff.dom.added_lines} line(s) added,"
       f" {diff.dom.deleted_lines} removed.\n\n"
-      "  This compares source text, not a render.\n"
       f"  Report: {report_path}\n"
-      "  To approve: copy overview_page.ng.html over "
-      "goldens/overview_page.ng.html.\n"
+      f"  {_TEMPLATE_DRIFT_APPROVAL_NOTE}\n"
       f"{'=' * 80}"
   )
 
@@ -838,6 +848,102 @@ class SxsDiffEngineTest(unittest.TestCase):
     self.assertIn("PASS (Identical)", same_only)
     self.assertIn("data:image/png;base64,", with_change)
 
+  def test_sxs_report_shows_rendered_pages_without_pixel_delta(self):
+    """Verifies a DOM/network-only divergence still shows both rendered pages."""
+    engine = SxsDiffEngine()
+    img = _create_test_image((128, 128, 128))
+    diff = engine.evaluate_waypoint(
+        journey_name="triage",
+        waypoint_name="overview",
+        img_a=img,
+        img_b=img,
+        html_a="<div>Baseline</div>",
+        html_b="<div>Candidate</div>",
+        requests_a=[],
+        requests_b=[{"method": "GET", "url": "/data", "status": 200}],
+    )
+    self.assertEqual(diff.verdict, "CHANGED")
+    self.assertLessEqual(
+        diff.visual.diff_ratio, sxs_diff_engine.MAX_VISUAL_DIFF_RATIO
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+      content = pathlib.Path(
+          generate_sxs_html_report(
+              [diff], os.path.join(tmpdir, "dom_only.html")
+          )
+      ).read_text(encoding="utf-8")
+
+    # A reviewer asked to approve this waypoint has to be able to see it, so
+    # both pages are rendered even though no pixel moved beyond the budget.
+    # The heading says why the pixel-delta views are absent.
+    self.assertIn(
+        "Rendered Pages (DOM changed; network changed; pixels within noise"
+        " budget)",
+        content,
+    )
+    self.assertIn("Baseline Golden", content)
+    self.assertIn("Candidate Run", content)
+    self.assertEqual(content.count("data:image/png;base64,"), 2)
+    # The pixel-delta views stay gated: no swipe slider and no heatmap. The
+    # report shell builds the same ID prefixes in JavaScript, so this checks
+    # for the rendered elements rather than the prefixes.
+    self.assertIn('id="context-sec-wp_0"', content)
+    self.assertNotIn('id="view-slider-wp_0"', content)
+    self.assertNotIn('id="view-heatmap-wp_0"', content)
+
+  def test_sxs_report_labels_waypoint_without_captures(self):
+    """Verifies a capture-less divergence is labelled, not silently blank."""
+    diff = WaypointDiff(
+        journey_name="overview_page",
+        waypoint_name="template_text",
+        visual=VisualDiff(diff_ratio=0.0, total_pixels=0, diff_pixels=0),
+        dom=DomDiff(
+            has_changes=True,
+            unified_diff="-old\n+new",
+            added_lines=1,
+            deleted_lines=1,
+            diff_digest="abc123",
+        ),
+        network=NetworkDiff(
+            has_changes=False, request_count_a=0, request_count_b=0
+        ),
+        diff_hash="abc123",
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+      content = pathlib.Path(
+          generate_sxs_html_report(
+              [diff], os.path.join(tmpdir, "no_capture.html")
+          )
+      ).read_text(encoding="utf-8")
+
+    # Source-level checks carry no screenshots. Saying so is what keeps the
+    # report from reading as broken to whoever opens it.
+    self.assertIn("Text-only comparison", content)
+    self.assertNotIn("data:image/png;base64,", content)
+
+    # A screenshot that is missing on one walk only still leaves a page to
+    # show, so that waypoint must not be labelled capture-less.
+    one_sided = SxsDiffEngine().evaluate_waypoint(
+        journey_name="overview_page",
+        waypoint_name="one_sided",
+        img_a=_create_test_image((128, 128, 128)),
+        img_b=b"",
+        html_a="",
+        html_b="",
+        requests_a=[],
+        requests_b=[],
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+      content = pathlib.Path(
+          generate_sxs_html_report(
+              [one_sided], os.path.join(tmpdir, "one_sided.html")
+          )
+      ).read_text(encoding="utf-8")
+    self.assertNotIn("Text-only comparison", content)
+    self.assertIn('id="view-slider-wp_0"', content)
+
   def test_sxs_report_survives_missing_section_templates(self):
     """Verifies an unreadable section template cannot destroy the report."""
     engine = SxsDiffEngine()
@@ -901,6 +1007,107 @@ class SxsDiffEngineTest(unittest.TestCase):
     self.assertIn('class="badge badge-fail"', content)
     self.assertNotIn("ALL JOURNEYS CERTIFIED", content)
     self.assertNotIn("approved_diffs: {}", content)
+
+  def test_sxs_report_renders_pixel_delta_views(self):
+    """Verifies a real pixel delta earns the slider and heatmap views."""
+    engine = SxsDiffEngine()
+    diff = engine.evaluate_waypoint(
+        journey_name="triage",
+        waypoint_name="overview",
+        img_a=_create_test_image((128, 128, 128)),
+        img_b=_create_test_image((255, 0, 0)),
+        html_a="<div>Same</div>",
+        html_b="<div>Same</div>",
+        requests_a=[],
+        requests_b=[],
+    )
+    self.assertGreater(
+        diff.visual.diff_ratio, sxs_diff_engine.MAX_VISUAL_DIFF_RATIO
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+      content = pathlib.Path(
+          generate_sxs_html_report(
+              [diff], os.path.join(tmpdir, "pixel_delta.html")
+          )
+      ).read_text(encoding="utf-8")
+
+    # The DOM-only test asserts these same IDs are absent. Pinning them here
+    # keeps that assertion honest: if the ID scheme is ever renamed, this
+    # fails rather than letting the absence check pass against nothing.
+    self.assertIn('id="view-slider-wp_0"', content)
+    self.assertIn('id="view-heatmap-wp_0"', content)
+    self.assertNotIn('id="context-sec-wp_0"', content)
+
+  def test_sxs_report_replaces_portal_for_non_manifest_gate(self):
+    """Verifies a gate outside the manifest gets instructions, not the portal."""
+    diff = WaypointDiff(
+        journey_name="overview_page",
+        waypoint_name="template_text",
+        visual=VisualDiff(diff_ratio=0.0, total_pixels=0, diff_pixels=0),
+        dom=DomDiff(
+            has_changes=True,
+            unified_diff="-old\n+new",
+            added_lines=1,
+            deleted_lines=1,
+            diff_digest="abc123",
+        ),
+        network=NetworkDiff(
+            has_changes=False, request_count_a=0, request_count_b=0
+        ),
+        diff_hash="abc123",
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+      content = pathlib.Path(
+          generate_sxs_html_report(
+              [diff],
+              os.path.join(tmpdir, "drift.html"),
+              approval_note=_TEMPLATE_DRIFT_APPROVAL_NOTE,
+          )
+      ).read_text(encoding="utf-8")
+
+    # This waypoint is CHANGED, which is what normally raises the portal. The
+    # check behind it never reads approved_manifest.json, so a reader who
+    # signed there would paste an entry nothing consumes and stay red.
+    self.assertNotIn('id="approval-card"', content)
+    self.assertNotIn("Approve & Sign Manifest", content)
+    self.assertIn("tests/ui/goldens/overview_page.ng.html", content)
+    # The hash reaches the page only through the list the signing JavaScript
+    # enumerates, so its absence is what proves that list is empty.
+    self.assertNotIn(diff.diff_hash, content)
+
+    # When all waypoints are identical, no approval notice is rendered even if
+    # approval_note was passed.
+    diff_identical = WaypointDiff(
+        journey_name="overview_page",
+        waypoint_name="template_text",
+        visual=VisualDiff(diff_ratio=0.0, total_pixels=0, diff_pixels=0),
+        dom=DomDiff(
+            has_changes=False,
+            unified_diff="",
+            added_lines=0,
+            deleted_lines=0,
+            diff_digest="abc123",
+        ),
+        network=NetworkDiff(
+            has_changes=False, request_count_a=0, request_count_b=0
+        ),
+        diff_hash="abc123",
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+      content_identical = pathlib.Path(
+          generate_sxs_html_report(
+              [diff_identical],
+              os.path.join(tmpdir, "identical.html"),
+              approval_note=_TEMPLATE_DRIFT_APPROVAL_NOTE,
+          )
+      ).read_text(encoding="utf-8")
+    self.assertNotIn('id="external-approval-notice"', content_identical)
+    self.assertNotIn('id="approval-card"', content_identical)
+    self.assertNotIn(
+        "tests/ui/goldens/overview_page.ng.html", content_identical
+    )
 
   def test_publish_report_artifact_writes_to_undeclared_outputs(self):
     """Verifies the report is copied into the Bazel undeclared outputs dir."""
@@ -1009,7 +1216,9 @@ class SxsDiffEngineTest(unittest.TestCase):
 
     with tempfile.TemporaryDirectory() as tmpdir:
       report_path = generate_sxs_html_report(
-          [diff], os.path.join(tmpdir, "overview_page_template_report.html")
+          [diff],
+          os.path.join(tmpdir, "overview_page_template_report.html"),
+          approval_note=_TEMPLATE_DRIFT_APPROVAL_NOTE,
       )
       published = None
       if dom.has_changes:

@@ -288,6 +288,16 @@ body {
   height: auto;
 }
 
+.no-capture-notice {
+  background: #fef7e0;
+  border: 1px solid #f9ab00;
+  border-radius: 6px;
+  padding: 12px 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #6b4b00;
+}
+
 /* Interactive Swipe Slider View */
 .slider-view {
   position: relative;

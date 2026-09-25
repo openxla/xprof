@@ -31,7 +31,10 @@ import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
 import {MatSort, MatSortModule} from '@angular/material/sort';
 import {MatTableDataSource, MatTableModule} from '@angular/material/table';
 import {MatTabsModule} from '@angular/material/tabs';
-import {MatTooltipModule} from '@angular/material/tooltip';
+import {
+  MAT_TOOLTIP_DEFAULT_OPTIONS,
+  MatTooltipModule,
+} from '@angular/material/tooltip';
 import {ActivatedRoute} from '@angular/router';
 import {AngularSplitModule} from 'angular-split';
 
@@ -191,7 +194,7 @@ export declare interface TooltipStat {
   value: string;
   /** Optional secondary text rendered after the value in a muted style. */
   detail?: string;
-  /** Explanation shown on hover. */
+  /** Explanation shown on hover when the tooltip is pinned. */
   title: string;
 }
 
@@ -314,6 +317,20 @@ declare interface TfTraceViewer {
   selector: 'trace-viewer-container',
   templateUrl: './trace_viewer_container.ng.html',
   styleUrls: ['./trace_viewer_container.scss'],
+  providers: [
+    {
+      // Let the pointer pass through Material tooltips. Otherwise moving onto
+      // a tooltip shown from inside the pinned source code tooltip counts as
+      // leaving it (the overlay lives outside this component) and unpins it.
+      provide: MAT_TOOLTIP_DEFAULT_OPTIONS,
+      useValue: {
+        showDelay: 0,
+        hideDelay: 0,
+        touchendHideDelay: 1500,
+        disableTooltipInteractivity: true,
+      },
+    },
+  ],
   imports: [
     AngularSplitModule,
     CommonModule,
@@ -956,17 +973,21 @@ export class TraceViewerContainer
       e.detail &&
       e.detail.eventIndex !== undefined
     ) {
-      if (e.detail.eventIndex === -1) {
-        this.hoveredEvent = null;
-        this.cdRef.markForCheck();
-        return;
-      }
-      this.hoveredEvent = e.detail as SelectedEvent;
-      this.hoveredEventMouseX = e.detail.mouse_x || 0;
-      this.hoveredEventMouseY = e.detail.mouse_y || 0;
-      this.cdRef.markForCheck();
+      this.applyHoveredEventDetail(e.detail as SelectedEvent);
     }
   };
+
+  private applyHoveredEventDetail(detail: SelectedEvent) {
+    if (detail.eventIndex === -1) {
+      this.hoveredEvent = null;
+      this.cdRef.markForCheck();
+      return;
+    }
+    this.hoveredEvent = detail;
+    this.hoveredEventMouseX = Number(detail['mouse_x']) || 0;
+    this.hoveredEventMouseY = Number(detail['mouse_y']) || 0;
+    this.cdRef.markForCheck();
+  }
 
   private readonly eventSelectedEventListener = (e: Event) => {
     if (!isEntrySelectedEvent(e)) {

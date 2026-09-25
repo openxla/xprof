@@ -294,6 +294,42 @@ canvas.emscripten {
     color: var(--tt-text);
   }
 
+  // Segmented Source / HLO toggle.
+  .view-toggle {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 7px;
+    background: var(--tt-surface-chip);
+
+    .view-toggle-btn {
+      height: 20px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--tt-text-muted);
+      font-family: var(--tt-label-font);
+      font-size: 11.5px;
+      font-weight: 500;
+      cursor: pointer;
+
+      &:hover {
+        color: var(--tt-text);
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--tt-primary);
+        outline-offset: -2px;
+      }
+
+      &.active {
+        background: var(--tt-surface-chip-strong);
+        color: var(--tt-text);
+      }
+    }
+  }
+
   // Metrics of the hovered op followed by those of its source line. The pills
   // grow to fill each row so wrapping never leaves an empty gap; line metrics
   // are tinted with the accent of the inline chip in the code below.
@@ -613,6 +649,10 @@ canvas.emscripten {
     --tt-shadow:
       0 16px 36px rgba(60, 64, 67, 0.2),
       0 3px 8px rgba(60, 64, 67, 0.12);
+
+    .view-toggle .view-toggle-btn.active {
+      box-shadow: 0 1px 2px rgba(60, 64, 67, 0.2);
+    }
   }
 }
 

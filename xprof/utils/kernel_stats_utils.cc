@@ -22,7 +22,6 @@ limitations under the License.
 #include <vector>
 
 #include "absl/algorithm/container.h"
-#include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
@@ -30,7 +29,10 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "xla/tsl/platform/logging.h"
 #include "xla/tsl/platform/types.h"
+#include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "plugin/xprof/protobuf/kernel_stats.pb.h"
+#include "xprof/utils/cuda_type_utils.h"
+#include "xprof/utils/rocm_type_utils.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -39,30 +41,6 @@ namespace {
 
 // The maximum number of Kernels displayed on Kernel Stats page.
 const int kMaxNumOfKernels = 1000;
-
-// A list of patterns to help determine if a kernel uses Tensor Core.
-// A kernel uses Tensor Core if its kernel name contains any of these patterns.
-// Some examples of kernel names: volta_h884gemm, turing_fp16_s1688cudnn_fp16
-constexpr absl::string_view kTensorCoreKernelNamePatterns[] = {
-    "16816",
-    "c1688",
-    "conv1x1",
-    "conv2d_c1_k1",
-    "dgrad_1x1_stride_2x2",
-    "direct_group",
-    "first_layer_wgrad_kernel",
-    "h1688",
-    "h884",
-    "hmma",
-    "i16832",
-    "i8816",
-    "s884",
-    "s1688",
-    "xmma_gemm",
-    "xmma_implicit_gemm",
-    "xmma_sparse_conv",
-    "xmma_sparse_gemm",
-    "xmma_warp_specialized_implicit_gemm"};
 
 }  // namespace
 
@@ -119,13 +97,17 @@ void ParseKernelLaunchParams(absl::string_view xstat_kernel_details,
   }
 }
 
-bool IsKernelUsingTensorCore(absl::string_view kernel_name) {
+bool IsKernelUsingTensorCore(absl::string_view kernel_name,
+                             absl::string_view device_vendor) {
   VLOG(1) << "kernel name: " << kernel_name;
-  for (absl::string_view pattern : kTensorCoreKernelNamePatterns) {
-    if (absl::StrContains(kernel_name, pattern)) {
-      return true;
-    }
+  if (device_vendor == tsl::profiler::kDeviceVendorNvidia) {
+    return cuda::IsKernelUsingTensorCore(kernel_name);
   }
+  if (device_vendor == tsl::profiler::kDeviceVendorAMD) {
+    return rocm::IsKernelUsingMatrixCore(kernel_name);
+  }
+  // Several patterns are not vendor-specific strings, so report false rather
+  // than matching a name against another vendor's patterns.
   return false;
 }
 
@@ -154,7 +136,10 @@ bool IsOpTensorCoreEligible(absl::string_view tf_op_name) {
       || absl::StrContains(tf_op_name, "CudnnRNNBackprop")
       // Special cases.
       || absl::EndsWith(tf_op_name, "XlaDot")
-      || absl::EndsWith(tf_op_name, "XlaDotV2");
+      || absl::EndsWith(tf_op_name, "XlaDotV2")
+      // XLA/HLO ops.
+      || absl::StrContains(tf_op_name, "dot_general")
+      || absl::StrContains(tf_op_name, "conv_general_dilated");
   // clang-format on
 }
 
@@ -336,10 +321,9 @@ KernelStatsByOpName GroupKernelReportsByOpName(
     } else {
       // Not inserted. Aggregate kernel stats to op level.
       OpLevelKernelStats& stats = ret.first->second;
-      // Verifies operations with the same name have the same TensorCore
-      // eligibility.
-      DCHECK_EQ(stats.is_op_tensor_core_eligible,
-                kernel_report.is_op_tensor_core_eligible());
+      stats.is_op_tensor_core_eligible =
+          stats.is_op_tensor_core_eligible ||
+          kernel_report.is_op_tensor_core_eligible();
       stats.total_duration_ns += kernel_report.total_duration_ns();
       if (kernel_report.is_kernel_using_tensor_core()) {
         stats.tensor_core_duration_ns += kernel_report.total_duration_ns();

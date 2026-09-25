@@ -56,6 +56,17 @@ def _fetch_op_profile_expressions(
   return expressions_by_name
 
 
+def format_custom_call_warning(share_pct: float) -> str:
+  """Returns the standard warning string for significant CustomCall self-time."""
+  return (
+      f"CustomCalls account for {share_pct:.2f}% of device self-time. XLA"
+      " assigns 0 FLOPs to opaque custom calls (FLOPs are invisible to the XLA"
+      " roofline model, not zero). Do NOT interpret 0 FLOP/s as idle compute;"
+      " use `get_kernel_utilization` or `get_llo_static_analysis` to inspect"
+      " Pallas/CustomCall hardware utilization and static schedule efficiency."
+  )
+
+
 def _strip_html_tags(text: str) -> str:
   """Strips HTML tags like <div ...>...</div> from text."""
   if not text or not isinstance(text, str):
@@ -542,8 +553,35 @@ def get_roofline_model(
         )
         program_metrics["flops_provenance"] = "derived_from_shapes"
 
+    prog_total = safe_float(prog_dict.get("total_self_time_percent"), 1.0)
+    percent_scale = 100.0 if prog_total <= 1.0 + 1e-6 else 1.0
+    custom_call_share_pct = 0.0
+    seen_custom_call_keys = set()
+    for r in rows[1:]:
+      r_dict = row_to_dict(r.get("c", []))
+      op_name = str(r_dict.get("operation") or r_dict.get("hlo_name", ""))
+      op_category = str(
+          r_dict.get("category") or r_dict.get("hlo_category", "")
+      )
+      op_key = (int(safe_float(r_dict.get("rank"))), op_name)
+      if op_key in seen_custom_call_keys:
+        continue
+      if op_name.startswith("custom-call") or op_category.lower() in (
+          "custom-call",
+          "custom_call",
+      ):
+        seen_custom_call_keys.add(op_key)
+        val = safe_float(r_dict.get("total_self_time_percent"))
+        custom_call_share_pct += val * percent_scale
+    custom_call_share_pct = min(round(custom_call_share_pct, 2), 100.0)
+
     has_opaque_custom_call = any(
         op.get("flops_provenance") == "opaque_custom_call" for op in top_ops
+    )
+    has_custom_call = (
+        has_opaque_custom_call
+        or any(op.get("bound_by") == "CustomCall (opaque)" for op in top_ops)
+        or custom_call_share_pct >= 10.0
     )
     if has_opaque_custom_call and total_derived_flops == 0:
       if program_metrics.get("flops_provenance") == "xla_cost_model":
@@ -557,7 +595,11 @@ def get_roofline_model(
         "top_operations": top_ops,
         "total_operations_analyzed": len(unique_op_records),
     }
-    if has_opaque_custom_call:
+    if has_custom_call:
+      output["custom_call_share_pct"] = custom_call_share_pct
+      output["custom_call_warning"] = format_custom_call_warning(
+          custom_call_share_pct
+      )
       output["guidance"] = (
           "Op-level metrics unavailable for opaque custom calls. Use"
           " get_llo_analysis, get_llo_debug_string, and aggregate_xplane_events"

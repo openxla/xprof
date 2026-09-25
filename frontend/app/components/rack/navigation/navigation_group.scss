@@ -1,0 +1,138 @@
+/**
+ * @license
+ * Copyright 2026 The OpenXLA Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// stylelint-disable declaration-no-important -- Component Rack icon and layout reset shield
+
+:host {
+  display: block;
+  flex-shrink: 0;
+}
+
+:host([empty]),
+:host(.empty) {
+  display: none !important;
+}
+
+.group-header {
+  width: calc(100% - 32px);
+  margin: var(
+    --rack-nav-group-header-margin,
+    var(--spacing-4, 16px) var(--spacing-4, 16px) 0 var(--spacing-4, 16px)
+  );
+  padding: var(--rack-nav-group-header-padding, 6px var(--spacing-2, 8px));
+  height: var(--rack-nav-group-header-height, auto);
+  background: var(--rack-nav-group-header-bg, none);
+  border: none;
+  cursor: pointer;
+  color: var(--mat-sys-on-surface-variant);
+  border-radius: var(--radius-xs, 4px);
+  font-family: var(--mat-sys-brand-font);
+  transition:
+    background-color var(--motion-duration-short, 150ms),
+    margin var(--motion-duration-short, 150ms),
+    padding var(--motion-duration-short, 150ms),
+    height var(--motion-duration-short, 150ms),
+    display var(--motion-duration-short, 150ms);
+  display: var(--rack-nav-group-header-display, flex);
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+}
+
+.group-divider {
+  display: var(--rack-nav-group-divider-display, block);
+  height: 1px;
+  width: var(--rack-nav-group-divider-width, auto);
+  background-color: var(
+    --rack-nav-group-divider-bg,
+    var(--mat-sys-outline-variant)
+  );
+  margin: var(
+    --rack-nav-group-divider-margin,
+    var(--spacing-1, 4px) var(--spacing-4, 16px) var(--spacing-2, 8px)
+      var(--spacing-4, 16px)
+  );
+  transition:
+    margin var(--motion-duration-short, 150ms),
+    width var(--motion-duration-short, 150ms),
+    display var(--motion-duration-short, 150ms);
+}
+
+.group-header:hover {
+  background-color: var(
+    --rack-nav-group-header-hover-bg,
+    color-mix(in srgb, var(--mat-sys-on-surface-variant) 4%, transparent)
+  );
+}
+
+.group-title {
+  font: var(--mat-sys-label-medium);
+  letter-spacing: var(--mat-sys-label-medium-tracking);
+  display: var(--rack-nav-group-title-display, inline);
+}
+
+.expand-icon {
+  font-family:
+    'Material Symbols Outlined', 'Google Symbols', sans-serif !important;
+  font-variation-settings: var(--rack-icon-settings-md) !important;
+  font-size: var(--rack-icon-size-md) !important;
+  width: var(--rack-icon-size-md) !important;
+  height: var(--rack-icon-size-md) !important;
+  line-height: var(--rack-icon-size-md) !important;
+  font-weight: normal !important;
+  font-synthesis: none !important;
+  font-style: normal;
+  transition: transform var(--motion-duration-short, 150ms)
+    var(--motion-easing-standard, cubic-bezier(0.2, 0, 0, 1));
+  display: var(--rack-nav-group-expand-icon-display, inline-block);
+  text-transform: none;
+  letter-spacing: normal;
+  word-wrap: normal;
+  white-space: nowrap;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'liga';
+}
+
+.group-content {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+// Drawer Collapsed (Rail Mode) Styles
+:host(.drawer-collapsed) .group-header,
+:host([drawer-collapsed]) .group-header {
+  display: none !important;
+}
+
+:host(.drawer-collapsed) .group-divider,
+:host([drawer-collapsed]) .group-divider {
+  width: 32px !important;
+  margin: 8px 16px !important;
+}
+
+:host(.drawer-collapsed:first-of-type) .group-divider,
+:host([drawer-collapsed]:first-of-type) .group-divider {
+  display: none !important;
+}
+
+// stylelint-enable declaration-no-important

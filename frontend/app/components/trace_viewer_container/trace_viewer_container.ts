@@ -185,6 +185,16 @@ export declare interface SelectedEventProperty {
   [key: string]: string | number | undefined;
 }
 
+/** A labeled value shown in the metrics strip of the source code tooltip. */
+export declare interface TooltipStat {
+  label: string;
+  value: string;
+  /** Optional secondary text rendered after the value in a muted style. */
+  detail?: string;
+  /** Explanation shown on hover. */
+  title: string;
+}
+
 /** Canonical display order for properties shown in the right details pane. */
 export const RIGHT_SIDE_PROPERTY_ORDER: Record<string, number> = {
   'HLO Text': 1,

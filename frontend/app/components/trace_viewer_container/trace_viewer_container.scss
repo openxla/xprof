@@ -98,24 +98,50 @@ canvas.emscripten {
 }
 
 .hovered-source-code-tooltip {
+  // Palette. The light theme only redefines these variables, which keeps the
+  // two themes in lockstep.
+  --tt-surface: #1f2023;
+  --tt-surface-raised: #26282c;
+  --tt-surface-chip: rgba(255, 255, 255, 0.07);
+  --tt-surface-chip-strong: #3c4043;
+  --tt-outline: rgba(255, 255, 255, 0.08);
+  --tt-outline-strong: rgba(255, 255, 255, 0.16);
+  --tt-text: #e8eaed;
+  --tt-text-muted: #9aa0a6;
+  --tt-text-subtle: #6f7378;
+  --tt-primary: #8ab4f8;
+  --tt-primary-container: rgba(138, 180, 248, 0.14);
+  --tt-accent: #8ab4f8;
+  --tt-accent-container: rgba(138, 180, 248, 0.14);
+  --tt-accent-border: rgba(138, 180, 248, 0.5);
+  --tt-accent-soft: rgba(138, 180, 248, 0.08);
+  --tt-accent-soft-border: rgba(138, 180, 248, 0.18);
+  --tt-good: #81c995;
+  --tt-warn: #fdd663;
+  --tt-bad: #f28b82;
+  --tt-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.45),
+    0 4px 12px rgba(0, 0, 0, 0.3);
+  --tt-label-font: 'Google Sans Text', 'Google Sans', Roboto, sans-serif;
+  --tt-code-font: 'Roboto Mono', monospace;
+
   position: absolute;
   top: 0;
   left: 0;
   z-index: 100;
   pointer-events: none;
-  background: #1e1f22;
-  color: #e8eaed;
-  border: 1px solid #3c4043;
-  border-radius: 10px;
-  box-shadow:
-    0 14px 34px rgba(0, 0, 0, 0.5),
-    0 4px 12px rgba(0, 0, 0, 0.3);
-  width: clamp(440px, 46vw, 660px);
+  background: var(--tt-surface);
+  color: var(--tt-text);
+  border: 1px solid var(--tt-outline-strong);
+  border-radius: 12px;
+  box-shadow: var(--tt-shadow);
+  width: clamp(500px, 52vw, 760px);
   max-width: calc(100% - 24px);
-  max-height: 320px;
+  max-height: 480px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  font-family: var(--tt-label-font);
   transform-origin: top center;
   contain: layout style paint;
   will-change: transform, opacity, scale;
@@ -126,14 +152,15 @@ canvas.emscripten {
     transform-origin: bottom center;
   }
 
+  // Header: file location on the left, op context chips on the right. The
+  // header and the metrics row share one raised surface.
   .tooltip-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 8px 12px;
-    background: #282a2e;
-    border-bottom: 1px solid #3c4043;
+    gap: 16px;
+    padding: 12px 16px 8px;
+    background: var(--tt-surface-raised);
     min-width: 0;
     flex-shrink: 0;
   }
@@ -141,7 +168,7 @@ canvas.emscripten {
   .tooltip-file-info {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     min-width: 0;
     flex: 1;
   }
@@ -150,21 +177,22 @@ canvas.emscripten {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 2px 6px;
-    border-radius: 4px;
-    background: rgba(138, 180, 248, 0.16);
-    color: #8ab4f8;
-    font-family: 'Roboto Mono', monospace;
+    height: 20px;
+    padding: 0 7px;
+    border-radius: 5px;
+    background: var(--tt-primary-container);
+    color: var(--tt-primary);
+    font-family: var(--tt-code-font);
     font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.3px;
+    letter-spacing: 0.4px;
     flex-shrink: 0;
   }
 
   .file-path-text {
-    font-family: 'Roboto Mono', monospace;
-    font-size: 12px;
-    line-height: 1.3;
+    font-family: var(--tt-code-font);
+    font-size: 12.5px;
+    line-height: 20px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -172,24 +200,69 @@ canvas.emscripten {
   }
 
   .file-dir {
-    color: #9aa0a6;
+    color: var(--tt-text-muted);
   }
 
   .file-name {
-    color: #e8eaed;
-    font-weight: 600;
+    color: var(--tt-text);
+    font-weight: 500;
 
     &.muted {
-      color: #9aa0a6;
+      color: var(--tt-text-muted);
       font-weight: 400;
-      font-family: 'Roboto Mono', monospace;
-      font-size: 12px;
+      font-family: var(--tt-label-font);
+      font-size: 12.5px;
     }
   }
 
   .file-line {
-    color: #f29900;
-    font-weight: 600;
+    color: var(--tt-accent);
+    font-weight: 500;
+  }
+
+  // The header path doubles as the Code Search link.
+  .file-path-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: -2px -6px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    color: inherit;
+    text-decoration: none;
+    cursor: pointer;
+
+    .file-path-inner {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .file-link-icon {
+      flex-shrink: 0;
+      width: 14px;
+      height: 14px;
+      font-size: 14px;
+      line-height: 14px;
+      color: var(--tt-text-muted);
+      transition: color 120ms ease;
+    }
+
+    &:hover,
+    &:focus-visible {
+      background: var(--tt-surface-chip);
+      outline: none;
+
+      .file-name {
+        color: var(--tt-primary);
+        text-decoration: underline;
+        text-underline-offset: 3px;
+      }
+
+      .file-link-icon {
+        color: var(--tt-primary);
+      }
+    }
   }
 
   .tooltip-meta-badges {
@@ -199,13 +272,17 @@ canvas.emscripten {
     flex-shrink: 0;
   }
 
+  // Borderless, filled chips.
   .meta-pill {
     display: inline-flex;
     align-items: center;
-    padding: 2px 8px;
-    border-radius: 5px;
-    font-family: 'Roboto Mono', monospace;
-    font-size: 11px;
+    height: 22px;
+    padding: 0 10px;
+    border-radius: 11px;
+    background: var(--tt-surface-chip);
+    color: var(--tt-text-muted);
+    font-family: var(--tt-label-font);
+    font-size: 11.5px;
     font-weight: 500;
     white-space: nowrap;
     max-width: 180px;
@@ -213,231 +290,243 @@ canvas.emscripten {
     text-overflow: ellipsis;
   }
 
-  .op-pill,
-  .track-pill {
-    background: #35373c;
-    color: #e8eaed;
-    border: 1px solid #4a4d52;
+  .category-pill {
+    color: var(--tt-text);
   }
 
-  .duration-pill {
-    background: rgba(138, 180, 248, 0.15);
-    color: #8ab4f8;
-    border: 1px solid rgba(138, 180, 248, 0.35);
-    font-weight: 600;
+  // Metrics of the hovered op followed by those of its source line. The pills
+  // grow to fill each row so wrapping never leaves an empty gap; line metrics
+  // are tinted with the accent of the inline chip in the code below.
+  .tooltip-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 0 16px 10px;
+    background: var(--tt-surface-raised);
+    border-bottom: 1px solid var(--tt-outline);
+  }
+
+  .tooltip-header:has(+ .tooltip-stats) {
+    padding-bottom: 8px;
+  }
+
+  .tooltip-header:not(:has(+ .tooltip-stats)) {
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--tt-outline);
+  }
+
+  .stat-group,
+  .stat-tiles {
+    display: contents;
+  }
+
+  .stat {
+    display: inline-flex;
+    flex: 1 1 auto;
+    align-items: baseline;
+    gap: 6px;
+    height: 26px;
+    padding: 0 12px;
+    border-radius: 13px;
+    box-sizing: border-box;
+    background: var(--tt-surface-chip);
+    line-height: 26px;
+  }
+
+  .line-group .stat {
+    background: var(--tt-accent-soft);
+    box-shadow: inset 0 0 0 1px var(--tt-accent-soft-border);
+  }
+
+  // Label on the left, value on the right of each pill.
+  .stat-label {
+    margin-right: auto;
+    color: var(--tt-text-muted);
+    font-family: var(--tt-label-font);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .stat-value {
+    color: var(--tt-text);
+    font-family: var(--tt-code-font);
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .stat-detail {
+    color: var(--tt-text-muted);
+    font-family: var(--tt-label-font);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .flops-bar {
+    display: inline-block;
+    align-self: center;
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--tt-surface-chip-strong);
+    overflow: hidden;
+  }
+
+  .flops-bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: 2px;
+
+    &.low {
+      background: var(--tt-bad);
+    }
+
+    &.mid {
+      background: var(--tt-warn);
+    }
+
+    &.high {
+      background: var(--tt-good);
+    }
+  }
+
+  // Enclosing function or class of the hovered line.
+  .tooltip-scope {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 10px 16px 0;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  .scope-prefix {
+    color: var(--tt-text-subtle);
+    font-family: var(--tt-label-font);
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+
+  .scope-text {
+    color: var(--tt-text-muted);
+    font-family: var(--tt-code-font);
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .tooltip-editor-body {
+    position: relative;
     flex: 1;
     min-height: 0;
+    padding: 2px 4px;
     overflow: hidden;
-    background: #1e1e1e;
+    background: var(--tt-surface);
+    outline: none;
+
+    // Fades the last line when the statement continues past the snippet.
+    &.truncated-below::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 32px;
+      background: linear-gradient(to bottom, transparent, var(--tt-surface));
+      pointer-events: none;
+    }
+  }
+
+  .truncated-label {
+    position: absolute;
+    right: 16px;
+    bottom: 6px;
+    z-index: 1;
+    font-size: 11px;
+    font-style: italic;
+    color: var(--tt-text-muted);
+    pointer-events: none;
   }
 
   source-code-editor {
     display: block;
     width: 100%;
     height: 100%;
+    outline: none;
   }
 
   .tooltip-footer {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 7px 12px;
-    background: #25262a;
-    border-top: 1px solid #3c4043;
-    font-family: 'Google Sans Text', Roboto, sans-serif;
+    gap: 16px;
+    min-height: 40px;
+    box-sizing: border-box;
+    padding: 4px 10px 4px 16px;
+    background: var(--tt-surface-raised);
+    border-top: 1px solid var(--tt-outline);
     font-size: 11.5px;
-    color: #9aa0a6;
-    flex-shrink: 0;
-  }
-
-  .footer-track strong {
-    color: #e8eaed;
-    font-weight: 500;
-  }
-
-  .footer-shortcut-prompt {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    color: #bdc1c6;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.2px;
-    white-space: nowrap;
-
-    .keyboard-prompt-icon {
-      color: #8ab4f8;
-      flex-shrink: 0;
-    }
-  }
-
-  .footer-hint {
-    color: #8ab4f8;
-    font-weight: 500;
-    margin-left: auto;
+    color: var(--tt-text-muted);
   }
 
   .footer-shortcuts {
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 8px;
-    margin-left: auto;
+    gap: 14px;
+    min-width: 0;
+    overflow: hidden;
   }
 
-  .shortcut-pill {
+  .shortcut-hint {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    padding: 3px 8px;
-    border-radius: 6px;
-    background: rgba(138, 180, 248, 0.12);
-    border: 1px solid rgba(138, 180, 248, 0.3);
-    color: #e8eaed;
-    font-size: 11px;
-    font-weight: 500;
+    color: var(--tt-text-muted);
     white-space: nowrap;
+    flex-shrink: 0;
   }
 
-  .shortcut-press-prefix {
-    color: #9aa0a6;
-    font-size: 10.5px;
-    font-weight: 500;
-  }
-
-  .shortcut-label {
-    color: #e8eaed;
-    font-weight: 600;
-  }
-
-  .shortcut-external-icon {
-    color: #8ab4f8;
-    font-size: 11px;
-    font-weight: 700;
-    line-height: 1;
-  }
-
-  .shortcut-kbd {
+  kbd {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 19px;
+    min-width: 18px;
     height: 18px;
     padding: 0 5px;
-    border-radius: 4px;
-    background: linear-gradient(180deg, #f8f9fa 0%, #e8eaed 100%);
-    border: 1px solid #fff;
-    border-bottom: 2px solid #80868b;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
-    color: #202124;
-    font-family: 'Roboto Mono', monospace;
-    font-size: 11px;
-    font-weight: 800;
-    line-height: 1;
     box-sizing: border-box;
+    border: 1px solid var(--tt-outline-strong);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    background: var(--tt-surface-chip);
+    font-family: var(--tt-code-font);
+    font-size: 10.5px;
+    font-weight: 500;
+    color: var(--tt-text);
   }
 
   &.light-tooltip {
-    background: #fff;
-    color: #202124;
-    border-color: #dadce0;
-    box-shadow:
-      0 12px 28px rgba(60, 64, 67, 0.22),
-      0 3px 8px rgba(60, 64, 67, 0.14);
-
-    .tooltip-header {
-      background: #f8f9fa;
-      border-bottom-color: #dadce0;
-    }
-
-    .language-badge {
-      background: #e8f0fe;
-      color: #1967d2;
-    }
-
-    .file-dir {
-      color: #5f6368;
-    }
-
-    .file-name {
-      color: #202124;
-
-      &.muted {
-        color: #5f6368;
-      }
-    }
-
-    .file-line {
-      color: #d93025;
-    }
-
-    .op-pill,
-    .track-pill {
-      background: #f1f3f4;
-      color: #3c4043;
-      border-color: #dadce0;
-    }
-
-    .duration-pill {
-      background: #e8f0fe;
-      color: #1967d2;
-      border-color: #d2e3fc;
-    }
-
-    .tooltip-editor-body {
-      background: #fff;
-    }
-
-    .tooltip-footer {
-      background: #f8f9fa;
-      border-top-color: #dadce0;
-      color: #5f6368;
-    }
-
-    .footer-track strong {
-      color: #202124;
-    }
-
-    .footer-shortcut-prompt {
-      color: #3c4043;
-
-      .keyboard-prompt-icon {
-        color: #1967d2;
-      }
-    }
-
-    .footer-hint {
-      color: #1967d2;
-    }
-
-    .shortcut-pill {
-      background: #e8f0fe;
-      border-color: #d2e3fc;
-      color: #202124;
-    }
-
-    .shortcut-press-prefix {
-      color: #5f6368;
-    }
-
-    .shortcut-label {
-      color: #174ea6;
-    }
-
-    .shortcut-external-icon {
-      color: #1967d2;
-    }
-
-    .shortcut-kbd {
-      background: linear-gradient(180deg, #fff 0%, #f1f3f4 100%);
-      border-color: #bdc1c6;
-      border-bottom-color: #80868b;
-      box-shadow: 0 1px 1px rgba(60, 64, 67, 0.2);
-      color: #202124;
-    }
+    --tt-surface: #fff;
+    --tt-surface-raised: #f8f9fa;
+    --tt-surface-chip: rgba(60, 64, 67, 0.07);
+    --tt-surface-chip-strong: #fff;
+    --tt-outline: #e8eaed;
+    --tt-outline-strong: #dadce0;
+    --tt-text: #1f1f1f;
+    --tt-text-muted: #5f6368;
+    --tt-text-subtle: #9aa0a6;
+    --tt-primary: #0b57d0;
+    --tt-primary-container: #d3e3fd;
+    --tt-accent: #0b57d0;
+    --tt-accent-container: #d3e3fd;
+    --tt-accent-border: #a8c7fa;
+    --tt-accent-soft: #f0f4fe;
+    --tt-accent-soft-border: #d3e3fd;
+    --tt-good: #188038;
+    --tt-warn: #e37400;
+    --tt-bad: #d93025;
+    --tt-shadow:
+      0 16px 36px rgba(60, 64, 67, 0.2),
+      0 3px 8px rgba(60, 64, 67, 0.12);
   }
 }
 

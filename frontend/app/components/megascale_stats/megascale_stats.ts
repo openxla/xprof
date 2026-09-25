@@ -21,10 +21,11 @@ const DIAGNOSTICS_INDEX = 1;
 
 /** A Megascale Stats page component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'megascale-stats',
   templateUrl: './megascale_stats.ng.html',
-  styleUrls: ['./megascale_stats.scss']
+  styleUrls: ['./megascale_stats.scss'],
 })
 export class MegascaleStats extends Dashboard implements OnDestroy {
   tool = 'megascale_stats';
@@ -144,7 +145,9 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
     const searchParams = this.dataService.getSearchParams();
     const queryParams: Params = {};
     searchParams.forEach((value, key) => {
-      queryParams[key] = value;
+      if (key !== 'tag' && key !== 'tool') {
+        queryParams[key] = value;
+      }
     });
 
     if (this.host) {

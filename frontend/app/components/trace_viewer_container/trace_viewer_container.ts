@@ -195,6 +195,13 @@ export declare interface TooltipStat {
   title: string;
 }
 
+/** A clickable stack frame entry in the source code tooltip footer. */
+export declare interface TooltipFrameCrumb {
+  index: number;
+  label: string;
+  title: string;
+}
+
 /** Canonical display order for properties shown in the right details pane. */
 export const RIGHT_SIDE_PROPERTY_ORDER: Record<string, number> = {
   'HLO Text': 1,

@@ -10,6 +10,12 @@ pytype_strict_library(
 )
 
 pytype_strict_library(
+    name = "hlo_graph_db",
+    srcs = ["hlo_graph_db.py"],
+    deps = [":hlo_shape_utils"],
+)
+
+pytype_strict_library(
     name = "xprof_data",
     srcs = ["xprof_data.py"],
     deps = [

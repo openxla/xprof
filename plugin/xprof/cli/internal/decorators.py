@@ -23,6 +23,9 @@ _T = TypeVar("_T")
 _UNKNOWN = object()
 
 
+_FINGERPRINT_MEM_CACHE: dict[Any, str] = {}
+
+
 class Cache:
   """A minimal, persistent, SQLite-backed cache.
 
@@ -43,12 +46,26 @@ class Cache:
     self._size_limit = kwargs.get("size_limit")
     self.directory = directory
     self.db_path = directory / "cache.db"
+    self._mem_cache: dict[str, tuple[Any, float | None, float]] = {}
+    self._dirty_rows: dict[str, tuple[str, str, float | None, float]] = {}
+    self._conn: sqlite3.Connection | None = None
     self._init_db()
 
   def _init_db(self):
     """Initializes the SQLite database and table, pruning expired entries."""
+    self._mem_cache.clear()
+    self._dirty_rows.clear()
+    _FINGERPRINT_MEM_CACHE.clear()
+    if self._conn is not None:
+      try:
+        self._conn.close()
+      except sqlite3.Error:
+        pass
+      self._conn = None
     self.directory.mkdir(parents=True, exist_ok=True)
     with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
+      conn.execute("PRAGMA journal_mode=WAL")
+      conn.execute("PRAGMA synchronous=NORMAL")
       conn.execute(textwrap.dedent("""
         CREATE TABLE IF NOT EXISTS cache (
           key TEXT PRIMARY KEY,
@@ -65,80 +82,92 @@ class Cache:
       conn.commit()
 
   def _get_conn(self):
-    """Returns a new SQLite connection.
+    """Returns a SQLite connection configured with WAL mode."""
+    conn = sqlite3.connect(self.db_path)
+    try:
+      conn.execute("PRAGMA synchronous=NORMAL")
+    except sqlite3.Error:
+      pass
+    return conn
 
-    Sqlite3 connections are not thread-safe, so we open a new connection for
-    each operation to prevent issues across multiple threads.
-    """
-    return sqlite3.connect(self.db_path)
+  def _get_persistent_conn(self) -> sqlite3.Connection:
+    """Returns a reusable persistent connection for fast reads/writes."""
+    if self._conn is None or not self.db_path.exists():
+      if not self.db_path.exists():
+        self._init_db()
+      self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+      try:
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
+      except sqlite3.Error:
+        pass
+    return self._conn
+
+  def flush(self) -> None:
+    """Flushes any buffered in-memory writes to the SQLite database."""
+    if not self._dirty_rows:
+      return
+    rows = list(self._dirty_rows.values())
+    self._dirty_rows.clear()
+    try:
+      conn = self._get_persistent_conn()
+      conn.executemany(
+          "INSERT OR REPLACE INTO cache (key, value, expire, set_time)"
+          " VALUES (?, ?, ?, ?)",
+          rows,
+      )
+      conn.commit()
+    except sqlite3.Error:
+      pass
 
   def get(self, key: str, default: Any = _UNKNOWN) -> Any:
-    """Retrieves a value from the cache.
-
-    If the key doesn't exist or is expired, returns the default value.
-
-    Args:
-      key: The cache key to look up.
-      default: Value to return if key is not found or expired. Defaults to
-        Cache.UNKNOWN.
-
-    Returns:
-      The cached Python object, or the default value.
-    """
+    """Retrieves a value from the cache."""
     res, _ = self.get_with_metadata(key, default=default)
     return res
 
   def get_with_metadata(
       self, key: str, default: Any = _UNKNOWN
   ) -> tuple[Any, float | None]:
-    """Retrieves value and set_time metadata from the cache.
+    """Retrieves value and set_time metadata from the cache."""
+    mem_entry = self._mem_cache.get(key)
+    if mem_entry is not None:
+      val, expire, set_time = mem_entry
+      if expire is not None and expire < time.time():
+        self._mem_cache.pop(key, None)
+        self._dirty_rows.pop(key, None)
+      elif self.db_path.exists():
+        return val, set_time
+      else:
+        self._mem_cache.clear()
+        self._dirty_rows.clear()
 
-    Args:
-      key: The cache key to look up.
-      default: Value to return if key is not found or expired. Defaults to
-        Cache.UNKNOWN.
-
-    Returns:
-      A tuple of (cached_value, set_time).
-    """
     try:
-      with contextlib.closing(self._get_conn()) as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT value, expire, set_time FROM cache WHERE key = ?", (key,)
-        )
-        row = cursor.fetchone()
-        if row is None:
-          return default, None
-        value_str, expire, set_time = row
-        if expire is not None and expire < time.time():
-          self.delete(key)
-          return default, None
-        if value_str is None:
-          return default, None
-        try:
-          return json.loads(value_str), set_time
-        except json.JSONDecodeError:
-          self.delete(key)
-          return default, None
+      conn = self._get_persistent_conn()
+      cursor = conn.cursor()
+      cursor.execute(
+          "SELECT value, expire, set_time FROM cache WHERE key = ?", (key,)
+      )
+      row = cursor.fetchone()
+      if row is None:
+        return default, None
+      value_str, expire, set_time = row
+      if expire is not None and expire < time.time():
+        self.delete(key)
+        return default, None
+      if value_str is None:
+        return default, None
+      try:
+        parsed = json.loads(value_str)
+        self._mem_cache[key] = (parsed, expire, set_time)
+        return parsed, set_time
+      except json.JSONDecodeError:
+        self.delete(key)
+        return default, None
     except sqlite3.Error:
       return default, None
 
   def set(self, key: str, value: Any, expire: float | None = None, **kwargs):
-    """Stores a value in the cache.
-
-    Values are JSON-serialized before storage. Storing non-JSON serializable
-    objects (like bytes) will raise a TypeError.
-
-    Args:
-      key: The cache key.
-      value: The Python object to store. Must be JSON serializable.
-      expire: Optional expiration time in seconds from now.
-      **kwargs: Unused parameters absorbed for compatibility.
-
-    Raises:
-      TypeError: If the value is not JSON serializable.
-    """
+    """Stores a value in the cache."""
     del kwargs  # Unused absorbed for compatibility.
     if _is_error_payload(value):
       return
@@ -147,34 +176,33 @@ class Cache:
     val_str = json.dumps(value)
     now = time.time()
     expire_time = now + expire if expire is not None else None
+    self._mem_cache[key] = (value, expire_time, now)
     try:
-      with contextlib.closing(self._get_conn()) as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO cache (key, value, expire, set_time)"
-            " VALUES (?, ?, ?, ?)",
-            (key, val_str, expire_time, now),
-        )
-        conn.commit()
+      conn = self._get_persistent_conn()
+      conn.execute(
+          "INSERT OR REPLACE INTO cache (key, value, expire, set_time)"
+          " VALUES (?, ?, ?, ?)",
+          (key, val_str, expire_time, now),
+      )
+      conn.commit()
     except sqlite3.Error:
-      # Caching is best effort.
       pass
 
   def delete(self, key: str):
-    """Deletes a key from the cache.
-
-    Args:
-      key: The cache key to delete.
-    """
+    """Deletes a key from the cache."""
+    self._mem_cache.pop(key, None)
+    self._dirty_rows.pop(key, None)
     try:
-      with contextlib.closing(self._get_conn()) as conn:
-        conn.execute("DELETE FROM cache WHERE key = ?", (key,))
-        conn.commit()
+      conn = self._get_persistent_conn()
+      conn.execute("DELETE FROM cache WHERE key = ?", (key,))
+      conn.commit()
     except sqlite3.Error:
       pass
 
   @contextlib.contextmanager
   def transact(self):
     """Acquires a transaction lock on the database."""
+    self.flush()
     conn = self._get_conn()
     try:
       conn.execute("BEGIN IMMEDIATE")
@@ -189,7 +217,14 @@ class Cache:
       conn.close()
 
   def close(self) -> None:
-    """Closes the cache (noop for this implementation)."""
+    """Flushes buffered writes and closes the cache connection."""
+    self.flush()
+    if self._conn is not None:
+      try:
+        self._conn.close()
+      except sqlite3.Error:
+        pass
+      self._conn = None
 
 
 def _is_error_payload(value: Any) -> bool:
@@ -214,6 +249,7 @@ def _is_error_payload(value: Any) -> bool:
   return False
 
 
+@functools.lru_cache(maxsize=1)
 def _get_xprof_version() -> str:
   """Retrieves the xprof version string for cache key versioning."""
   try:
@@ -264,8 +300,10 @@ def _resolve_session_path_via_client(val: str) -> pathlib.Path | None:
     except Exception:  # pylint: disable=broad-except
       client = None
 
-    if client and getattr(client, "_logdir", None) and hasattr(
-        client, "get_run_dir"
+    if (
+        client
+        and getattr(client, "_logdir", None)
+        and hasattr(client, "get_run_dir")
     ):
       try:
         resolved = client.get_run_dir(val)
@@ -283,6 +321,27 @@ def _compute_path_fingerprint(
   if not isinstance(val, (str, pathlib.Path)) and not xspace_paths:
     return "NO_TRACE_INPUTS"
 
+  is_nonexistent_str = (
+      not xspace_paths
+      and isinstance(val, str)
+      and bool(val)
+      and not pathlib.Path(val).expanduser().exists()
+  )
+  if is_nonexistent_str:
+    cached_fp = _FINGERPRINT_MEM_CACHE.get(val)
+    if cached_fp is not None:
+      return cached_fp
+
+  res = _compute_path_fingerprint_uncached(val, xspace_paths)
+  if is_nonexistent_str and res in ("NONEXISTENT", "NO_TRACE_INPUTS"):
+    _FINGERPRINT_MEM_CACHE[val] = res
+  return res
+
+
+def _compute_path_fingerprint_uncached(
+    val: Any, xspace_paths: Sequence[str] | None = None
+) -> str:
+  """Computes a fingerprint string for a session path or xspace file list."""
   files: list[pathlib.Path] = []
   if xspace_paths:
     for p in xspace_paths:
@@ -336,8 +395,8 @@ def _compute_path_fingerprint(
             and not f.name.startswith(".")
         ] or [
             f
-            for f in (
-                sorted(p.glob("**/*.json.gz")) + sorted(p.glob("**/*.json"))
+            for f in sorted(p.glob("**/*.json.gz")) + sorted(
+                p.glob("**/*.json")
             )
             if not f.name.startswith(".")
         ]
@@ -459,8 +518,11 @@ def cached(
       }
 
       normalized_args = []
+      fingerprints = []
       for arg in args:
         fp = _compute_path_fingerprint(arg)
+        if fp:
+          fingerprints.append(fp)
         if fp not in ("NO_TRACE_INPUTS", "NONEXISTENT"):
           normalized_args.append(f"trace_sig:{fp}")
         else:
@@ -469,15 +531,14 @@ def cached(
       normalized_kwargs = {}
       for k, v in key_kwargs.items():
         fp = _compute_path_fingerprint(v)
+        if fp:
+          fingerprints.append(fp)
         if fp not in ("NO_TRACE_INPUTS", "NONEXISTENT"):
           normalized_kwargs[k] = f"trace_sig:{fp}"
         else:
           normalized_kwargs[k] = v
 
-      fingerprints = [_compute_path_fingerprint(arg) for arg in args] + [
-          _compute_path_fingerprint(v) for v in key_kwargs.values()
-      ]
-      fingerprint_str = ";".join(f for f in fingerprints if f)
+      fingerprint_str = ";".join(fingerprints)
       try:
         # Sort items to ensure order stability for JSON dict kwargs.
         key_kwargs_sorted = sorted(normalized_kwargs.items())

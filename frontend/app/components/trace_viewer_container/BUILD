@@ -47,6 +47,7 @@ xprof_ng_module(
     srcs = [
         "hlo_pretty_printer_test.ts",
         "trace_viewer_container_test.ts",
+        "trace_viewer_utils_test.ts",
     ],
     deps = [
         ":trace_viewer_container",

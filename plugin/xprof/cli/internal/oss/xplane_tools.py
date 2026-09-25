@@ -74,15 +74,7 @@ def iter_planes(source: Any) -> Iterator[Any]:
       if not os.path.exists(source):
         raise FileNotFoundError(f"Path does not exist: {source!r}")
       if os.path.isdir(source):
-        xplane_paths = []
-        for pattern in ("**/*.xplane.pb", "**/*.xspace.pb"):
-          xplane_paths.extend(pathlib.Path(source).glob(pattern))
-        xplane_paths = sorted(set(xplane_paths))
-        if not xplane_paths:
-          raise FileNotFoundError(
-              "No .xplane.pb or .xspace.pb files found in directory:"
-              f" {source!r}"
-          )
+        xplane_paths = xprof_client.get_client().get_xspace_paths(source)
         for path in xplane_paths:
           with open(path, "rb") as f:
             pd = profiler.ProfileData.from_serialized_xspace(f.read())
@@ -95,8 +87,7 @@ def iter_planes(source: Any) -> Iterator[Any]:
 
     # Otherwise, treat as session_id and fetch from XProf server.
     client = xprof_client.get_client()
-    run_dir = client.get_run_dir(source)
-    xspace_paths = client.get_xspace_paths(run_dir)
+    xspace_paths = client.get_xspace_paths(source)
 
     for path in xspace_paths:
       with open(path, "rb") as f:

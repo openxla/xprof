@@ -415,6 +415,23 @@ def get_cache() -> Cache:
   return _GLOBAL_CACHE
 
 
+def _extract_bypass_cache(
+    args: tuple[Any, ...],
+    kwargs_call: dict[str, Any],
+    bypass_cache_idx: int | None,
+) -> tuple[bool, tuple[Any, ...]]:
+  """Extracts bypass_cache and returns (bypass_cache, args_for_cache_key)."""
+  if bypass_cache_idx is None:
+    return bool(kwargs_call.pop("bypass_cache", False)), args
+  if "bypass_cache" in kwargs_call:
+    return bool(kwargs_call["bypass_cache"]), args
+  if len(args) > bypass_cache_idx:
+    return bool(args[bypass_cache_idx]), (
+        args[:bypass_cache_idx] + args[bypass_cache_idx + 1 :]
+    )
+  return False, args
+
+
 def cached(
     *,
     cache: Cache | None = None,
@@ -439,17 +456,19 @@ def cached(
       import inspect  # pylint: disable=g-import-not-at-top
 
       func_sig = inspect.signature(func)
-      has_bypass_cache = "bypass_cache" in func_sig.parameters
+      params = list(func_sig.parameters.keys())
+      bypass_cache_idx = (
+          params.index("bypass_cache") if "bypass_cache" in params else None
+      )
     except Exception:  # pylint: disable=broad-except
       func_sig = None
-      has_bypass_cache = False
+      bypass_cache_idx = None
 
     @functools.wraps(func)
     def wrapper(*args: Any, **kwargs_call: Any) -> _T:
-      if has_bypass_cache:
-        bypass_cache = kwargs_call.get("bypass_cache", False)
-      else:
-        bypass_cache = kwargs_call.pop("bypass_cache", False)
+      bypass_cache, args_for_key = _extract_bypass_cache(
+          args, kwargs_call, bypass_cache_idx
+      )
 
       # 1. Compute a stable key with path and content signature normalization.
       key_kwargs = {
@@ -459,7 +478,7 @@ def cached(
       }
 
       normalized_args = []
-      for arg in args:
+      for arg in args_for_key:
         fp = _compute_path_fingerprint(arg)
         if fp not in ("NO_TRACE_INPUTS", "NONEXISTENT"):
           normalized_args.append(f"trace_sig:{fp}")
@@ -474,9 +493,9 @@ def cached(
         else:
           normalized_kwargs[k] = v
 
-      fingerprints = [_compute_path_fingerprint(arg) for arg in args] + [
-          _compute_path_fingerprint(v) for v in key_kwargs.values()
-      ]
+      fingerprints = [
+          _compute_path_fingerprint(arg) for arg in args_for_key
+      ] + [_compute_path_fingerprint(v) for v in key_kwargs.values()]
       fingerprint_str = ";".join(f for f in fingerprints if f)
       try:
         # Sort items to ensure order stability for JSON dict kwargs.
@@ -540,7 +559,7 @@ def cached(
       return result
 
     # Add bypass_cache to the signature if not present.
-    if func_sig is not None and not has_bypass_cache:
+    if func_sig is not None and bypass_cache_idx is None:
       try:
         import inspect  # pylint: disable=g-import-not-at-top
 

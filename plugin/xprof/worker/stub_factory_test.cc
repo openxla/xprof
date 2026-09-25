@@ -109,6 +109,25 @@ TEST_F(StubFactoryTest, RetryTestUnknown) {
 
 TEST_F(StubFactoryTest, NoStubs) { EXPECT_EQ(GetNextStub(), nullptr); }
 
+TEST_F(StubFactoryTest, HasWorkerStubsIsFalseBeforeInitialize) {
+  EXPECT_FALSE(HasWorkerStubs());
+}
+
+TEST_F(StubFactoryTest, HasWorkerStubsDoesNotAdvanceRoundRobinCursor) {
+  InitializeStubs("localhost:1234,localhost:5678");
+  EXPECT_TRUE(HasWorkerStubs());
+
+  auto stub1 = GetNextStub();
+  // Probing must not consume a slot, so the next stub is still the second one.
+  EXPECT_TRUE(HasWorkerStubs());
+  EXPECT_TRUE(HasWorkerStubs());
+  auto stub2 = GetNextStub();
+  auto stub3 = GetNextStub();
+
+  EXPECT_NE(stub1, stub2);
+  EXPECT_EQ(stub1, stub3);
+}
+
 TEST_F(StubFactoryTest, InitializeAndGetNextStub) {
   InitializeStubs("localhost:1234,localhost:5678");
   auto stub1 = GetNextStub();

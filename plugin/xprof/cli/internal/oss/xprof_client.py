@@ -136,7 +136,7 @@ class LocalXprofClient:
     """Finds all .xplane.pb or .xspace.pb files in the run directory or path.
 
     Args:
-      run_dir: The directory or file path to search within.
+      run_dir: The session ID, directory, or file path to search within.
 
     Returns:
       A sorted list of paths to the found files.
@@ -149,6 +149,12 @@ class LocalXprofClient:
         p.name.endswith(".xplane.pb") or p.name.endswith(".xspace.pb")
     ):
       return [str(p)]
+    # Everything else (including plain directories) is resolved by
+    # `get_run_dir`, which maps a logdir root to its latest
+    # `plugins/profile/<run>` subdirectory and returns other directories
+    # unchanged. Short-circuiting on `p.is_dir()` here would silently merge
+    # every run under a logdir root.
+    p = self.get_run_dir(str(run_dir))
 
     paths = []
     for pattern in ("**/*.xplane.pb", "**/*.xspace.pb"):
@@ -202,7 +208,7 @@ class LocalXprofClient:
       raise ValueError(f"Unknown XProf tool name: {tool_name!r}")
 
     run_dir = self.get_run_dir(session_id)
-    xspace_paths = self.get_xspace_paths(run_dir)
+    xspace_paths = self.get_xspace_paths(session_id)
 
     fetch_params = dict(kwargs)
     bypass_cache = fetch_params.pop("bypass_cache", False)
@@ -223,8 +229,12 @@ class LocalXprofClient:
 
     fp_dir = decorators.get_cache_dir() / "fingerprints"
     fp_dir.mkdir(parents=True, exist_ok=True)
-    run_dir_hash = hashlib.sha256(str(run_dir).encode("utf-8")).hexdigest()[:16]
-    fp_file = fp_dir / f"{run_dir_hash}.fp"
+    # Key on the resolved trace scope, not just the containing directory.
+    # Sibling ranks of a multi-host capture live in one directory, so a
+    # directory-only key would make rank0 and rank2 share freshness state.
+    scope_key = "|".join([str(run_dir), *xspace_paths])
+    scope_hash = hashlib.sha256(scope_key.encode("utf-8")).hexdigest()[:16]
+    fp_file = fp_dir / f"{scope_hash}.fp"
 
     stored_fp = None
     if fp_file.exists():
@@ -288,8 +298,7 @@ class LocalXprofClient:
         (from `get_run_dir` or `get_xspace_paths`).
     """
     del rpc_deadline_s  # Ignored in local mode.
-    run_dir = self.get_run_dir(session_id)
-    xspace_paths = self.get_xspace_paths(run_dir)
+    xspace_paths = self.get_xspace_paths(session_id)
 
     hosts = []
     for path in xspace_paths:
@@ -323,8 +332,7 @@ class LocalXprofClient:
       NotImplementedError: If multiple XSpace files are found for the host.
     """
     del kwargs
-    run_dir = self.get_run_dir(session_id)
-    xspace_paths = self.get_xspace_paths(run_dir)
+    xspace_paths = self.get_xspace_paths(session_id)
     if not xspace_paths:
       raise FileNotFoundError(f"No traces found for session {session_id!r}")
 

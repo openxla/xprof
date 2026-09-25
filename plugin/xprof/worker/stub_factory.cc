@@ -186,6 +186,12 @@ void InitializeStubs(const std::string& worker_service_addresses) {
   gStubsInitialized.store(true, std::memory_order_release);
 }
 
+bool HasWorkerStubs() {
+  absl::MutexLock lock(gStubsMutex);
+  return gStubsInitialized.load(std::memory_order_acquire) &&
+         !gStubs->empty();
+}
+
 std::shared_ptr<XprofAnalysisWorkerService::Stub> GetNextStub() {
   absl::MutexLock lock(gStubsMutex);
   if (!gStubsInitialized.load(std::memory_order_acquire) || gStubs->empty()) {

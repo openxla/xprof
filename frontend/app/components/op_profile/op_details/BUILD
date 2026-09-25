@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "op_details",
     srcs = [
         "op_details.ts",
-        "op_details_module.ts",
     ],
     assets = [
         ":op_details_css",

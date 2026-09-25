@@ -1,7 +1,17 @@
-import {Component, Input, OnChanges, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  Input,
+  OnChanges,
+  SimpleChanges,
+} from '@angular/core';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
-import {DEFAULT_SIMPLE_DATA_TABLE, type InputPipelineDeviceAnalysis} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {
+  DEFAULT_SIMPLE_DATA_TABLE,
+  type InputPipelineDeviceAnalysis,
+} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
+import {Chart} from '../../chart/chart';
 import {DeviceSideAnalysisDetailDataProvider} from './device_side_analysis_detail_data_provider';
 
 const INFEED_COLUMN_IDS = [
@@ -30,11 +40,7 @@ const STEPTIME_COLUMN_IDS_FOR_GPU = [
   'otherTimeMs',
   'tooltip',
 ];
-const COLORS_FOR_TPU = [
-  'green',
-  'crimson',
-  'blue',
-];
+const COLORS_FOR_TPU = ['green', 'crimson', 'blue'];
 const COLORS_FOR_GPU = [
   '#9CCC65',
   '#FFEB3B',
@@ -56,15 +62,16 @@ interface DeviceSideAnalysisMetrics {
 
 /** A device-side analysis detail view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
   selector: 'device-side-analysis-detail',
   templateUrl: './device_side_analysis_detail.ng.html',
-  styleUrls: ['./device_side_analysis_detail.scss']
+  styleUrls: ['./device_side_analysis_detail.scss'],
+  imports: [Chart],
 })
 export class DeviceSideAnalysisDetail implements OnChanges {
   /** The input pipeline device analysis data. */
   @Input()
-  set deviceAnalysis(analysis: InputPipelineDeviceAnalysis|null) {
+  set deviceAnalysis(analysis: InputPipelineDeviceAnalysis | null) {
     this.inputPipelineDeviceAnalysis = analysis;
     analysis = analysis || DEFAULT_SIMPLE_DATA_TABLE;
     analysis.p = analysis.p || {};
@@ -76,14 +83,14 @@ export class DeviceSideAnalysisDetail implements OnChanges {
     this.steptimeMsMetrics.max = analysis.p['steptime_ms_maximum'] || '';
     this.steptimeMsMetrics.min = analysis.p['steptime_ms_minimum'] || '';
     this.steptimeMsMetrics.stddev =
-        analysis.p['steptime_ms_standard_deviation'] || '';
+      analysis.p['steptime_ms_standard_deviation'] || '';
 
     this.infeedPercentMetrics.average =
-        analysis.p['infeed_percent_average'] || '';
+      analysis.p['infeed_percent_average'] || '';
     this.infeedPercentMetrics.max = analysis.p['infeed_percent_maximum'] || '';
     this.infeedPercentMetrics.min = analysis.p['infeed_percent_minimum'] || '';
     this.infeedPercentMetrics.stddev =
-        analysis.p['infeed_percent_standard_deviation'] || '';
+      analysis.p['infeed_percent_standard_deviation'] || '';
   }
 
   /** The default column ids. */
@@ -93,11 +100,11 @@ export class DeviceSideAnalysisDetail implements OnChanges {
   @Input() columnColors = COLORS_FOR_TPU;
 
   isTpu = true;
-  inputPipelineDeviceAnalysis: InputPipelineDeviceAnalysis|null = null;
+  inputPipelineDeviceAnalysis: InputPipelineDeviceAnalysis | null = null;
   infeedPercentMetrics: DeviceSideAnalysisMetrics = {};
   steptimeMsMetrics: DeviceSideAnalysisMetrics = {};
-  areaChart: google.visualization.AreaChart|null = null;
-  lineChart: google.visualization.LineChart|null = null;
+  areaChart: google.visualization.AreaChart | null = null;
+  lineChart: google.visualization.LineChart | null = null;
   dataProviderForAreaChart = new DeviceSideAnalysisDetailDataProvider();
   dataInfoForAreaChart: ChartDataInfo = {
     data: null,
@@ -124,7 +131,12 @@ export class DeviceSideAnalysisDetail implements OnChanges {
     dataProvider: this.dataProviderForLineChart,
     options: {
       hAxis: {title: 'Step Number'},
-      vAxis: {title: '% of step time', format: '###.###\'%\'', minValue: 0, viewWindow: {min: 0, max: 100}},
+      vAxis: {
+        title: '% of step time',
+        format: "###.###'%'",
+        minValue: 0,
+        viewWindow: {min: 0, max: 100},
+      },
       chartArea: {
         left: 100,
         top: 10,
@@ -142,7 +154,8 @@ export class DeviceSideAnalysisDetail implements OnChanges {
 
   ngOnChanges(changes: SimpleChanges) {
     this.dataProviderForAreaChart.setColumnIds(
-        this.isTpu ? this.columnIds : STEPTIME_COLUMN_IDS_FOR_GPU);
+      this.isTpu ? this.columnIds : STEPTIME_COLUMN_IDS_FOR_GPU,
+    );
     this.dataInfoForAreaChart = {
       ...this.dataInfoForAreaChart,
       data: this.inputPipelineDeviceAnalysis,

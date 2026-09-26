@@ -113,7 +113,7 @@ absl::StatusOr<std::string> OpStatsProcessor::Map(
 
 absl::StatusOr<std::string> OpStatsProcessor::Map(
     const SessionSnapshot& session_snapshot, const std::string& hostname,
-    const XSpace& xspace) {
+    XSpace& xspace) {
   std::string cache_file_path = GetCacheFilePath(session_snapshot, hostname);
 
   // TODO: Check if use_saved_result is true before using cache.
@@ -123,9 +123,7 @@ absl::StatusOr<std::string> OpStatsProcessor::Map(
   }
 
   VLOG(1) << "Map output cache miss for host: " << hostname;
-  // TODO : Avoid copying XSpace here.
-  XSpace temp_xspace = xspace;
-  PreprocessSingleHostXSpace(&temp_xspace, /*step_grouping=*/true,
+  PreprocessSingleHostXSpace(&xspace, /*step_grouping=*/true,
                              /*derived_timeline=*/true);
   OpStatsOptions options;
   options.generate_op_metrics_db = true;
@@ -134,10 +132,17 @@ absl::StatusOr<std::string> OpStatsProcessor::Map(
   // TF_ASSIGN_OR_RETURN propagates the error if ConvertXSpaceToOpStats fails.
   // This ensures that we fail fast and don't cache an empty/invalid OpStats.
   TF_ASSIGN_OR_RETURN(OpStats op_stats,
-                      ConvertXSpaceToOpStats(temp_xspace, options));
+                      ConvertXSpaceToOpStats(xspace, options));
   TF_RETURN_IF_ERROR(WriteBinaryProto(
       session_snapshot, StoredDataType::OP_STATS, hostname, op_stats));
   return cache_file_path;
+}
+
+absl::StatusOr<std::string> OpStatsProcessor::Map(
+    const SessionSnapshot& session_snapshot, const std::string& hostname,
+    const XSpace& xspace) {
+  XSpace temp_xspace = xspace;
+  return Map(session_snapshot, hostname, temp_xspace);
 }
 
 absl::Status OpStatsProcessor::Reduce(

@@ -107,31 +107,29 @@ absl::StatusOr<SessionSnapshot> SessionSnapshot::Create(
 
 absl::StatusOr<XSpace*> SessionSnapshot::GetXSpaceFromRiegeli(
     absl::string_view path, google::protobuf::Arena* arena) const {
-  std::string contents;
-  TF_RETURN_IF_ERROR(
-      tsl::ReadFileToString(tsl::Env::Default(), path, &contents));
-
-  riegeli::RecordReaderBase::Options reader_options;
-  reader_options.set_recovery([](const riegeli::SkippedRegion&,
-                                 riegeli::RecordReaderBase&) { return true; });
-
-  riegeli::RecordReader<riegeli::StringReader<>> reader{
-      riegeli::StringReader<>(std::move(contents)), reader_options};
   XSpace* merged_xspace = google::protobuf::Arena::Create<XSpace>(arena);
-  XSpace current_record;
-  bool is_first_record = true;
-  while (reader.ReadRecord(current_record)) {
-    if (is_first_record) {
-      merged_xspace->Swap(&current_record);
-      is_first_record = false;
-    } else {
-      auto chunk_up = std::make_unique<XSpace>();
-      chunk_up->Swap(&current_record);
-      ::tsl::profiler::MergeXSpace(std::move(chunk_up), merged_xspace);
+  {
+    std::string contents;
+    TF_RETURN_IF_ERROR(
+        tsl::ReadFileToString(tsl::Env::Default(), path, &contents));
+
+    riegeli::RecordReaderBase::Options reader_options;
+    reader_options.set_recovery(
+        [](const riegeli::SkippedRegion&, riegeli::RecordReaderBase&) {
+          return true;
+        });
+
+    riegeli::RecordReader<riegeli::StringReader<>> reader{
+        riegeli::StringReader<>(std::move(contents)), reader_options};
+    if (reader.ReadRecord(*merged_xspace)) {
+      while (true) {
+        auto chunk_up = std::make_unique<XSpace>();
+        if (!reader.ReadRecord(*chunk_up)) break;
+        ::tsl::profiler::MergeXSpace(std::move(chunk_up), merged_xspace);
+      }
     }
-    current_record.Clear();
+    if (!reader.Close()) return reader.status();
   }
-  if (!reader.Close()) return reader.status();
   xprof::FixHloMetadataInXSpace(merged_xspace);
   return merged_xspace;
 }

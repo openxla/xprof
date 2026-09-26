@@ -64,11 +64,10 @@ namespace {
 
 using ::tsl::string;
 using ::xla::BufferAllocationProto;
+using ::xla::BufferValueProto;
 using ::xla::HeapSimulatorTrace;
 using ::xla::HloInstructionProto;
 using ::xla::HloProto;
-using ::xla::LayoutUtil;
-using ::xla::LogicalBufferProto;
 using ::xla::Shape;
 using ::xla::ShapeUtil;
 using ::xla::StackFrameIndexProto;
@@ -196,7 +195,7 @@ class BufferAllocationStruct {
 };
 
 struct LogicalBufferStruct {
-  LogicalBufferStruct(const LogicalBufferProto& p,
+  LogicalBufferStruct(const BufferValueProto& p,
                       const BufferAllocationStruct& b,
                       const ::xla::HloInstructionProto& i, uint64_t offset,
                       int64_t unpadded_size)
@@ -251,7 +250,7 @@ struct LogicalBufferStruct {
         span ? span->second : -1);
   }
 
-  const LogicalBufferProto& proto;
+  const BufferValueProto& proto;
   const BufferAllocationStruct& buffer_allocation;
   const ::xla::HloInstructionProto& hlo_instruction;
   uint64_t offset;  // within the buffer allocation;
@@ -349,11 +348,11 @@ class HloProtoBufferWrapper {
       }
     }
 
-    absl::flat_hash_map<int64_t, const LogicalBufferProto*>
-        id_to_logical_buffer_proto;
+    absl::flat_hash_map<int64_t, const BufferValueProto*>
+        id_to_buffer_value_proto;
     for (const auto& logical_buffer :
          hlo_proto_.buffer_assignment().logical_buffers()) {
-      id_to_logical_buffer_proto[logical_buffer.id()] = &logical_buffer;
+      id_to_buffer_value_proto[logical_buffer.id()] = &logical_buffer;
     }
 
     absl::StatusOr<absl::flat_hash_map<int64_t, int64_t>>
@@ -369,11 +368,11 @@ class HloProtoBufferWrapper {
           std::make_unique<BufferAllocationStruct>(buffer_allocation);
       for (const auto& assigned : buffer_allocation.assigned()) {
         const auto id = assigned.logical_buffer_id();
-        if (!id_to_logical_buffer_proto.contains(id)) {
+        if (!id_to_buffer_value_proto.contains(id)) {
           LOG(DFATAL) << "logical_buffer_id " << id << " not found.";
           continue;
         }
-        const auto* logical_buffer = id_to_logical_buffer_proto.at(id);
+        const auto* logical_buffer = id_to_buffer_value_proto.at(id);
         int64_t inst_id = logical_buffer->defined_at().instruction_id();
         if (!unique_id_to_hlo.contains(inst_id)) {
           LOG(DFATAL) << "instruction_id " << inst_id << " not found.";

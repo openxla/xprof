@@ -106,6 +106,17 @@ class Application {
     }
   }
 
+  void SetMinimapEnabled(bool enabled) {
+    if (timeline_) {
+      timeline_->set_minimap_enabled(enabled);
+      RequestRedraw();
+    }
+  }
+
+  bool minimap_enabled() const {
+    return timeline_ ? timeline_->minimap_enabled() : false;
+  }
+
   void NavigateToNextSearchResult() {
     if (timeline_) {
       timeline_->NavigateToNextSearchResult();

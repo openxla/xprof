@@ -97,6 +97,10 @@ EMSCRIPTEN_KEEPALIVE void SetMouseWheelZoomSpeed(float speed) {
   Application::Instance().SetMouseWheelZoomSpeed(speed);
 }
 
+EMSCRIPTEN_KEEPALIVE void SetMinimapEnabled(bool enabled) {
+  Application::Instance().SetMinimapEnabled(enabled);
+}
+
 EMSCRIPTEN_KEEPALIVE void SetCustomTraceColors(
     const emscripten::val& colors_val) {
   if (!colors_val.isArray()) {
@@ -174,6 +178,7 @@ EMSCRIPTEN_BINDINGS(traceviewer) {
   emscripten::function("SetPanningSpeed", &SetPanningSpeed);
   emscripten::function("SetZoomSpeed", &SetZoomSpeed);
   emscripten::function("SetMouseWheelZoomSpeed", &SetMouseWheelZoomSpeed);
+  emscripten::function("SetMinimapEnabled", &SetMinimapEnabled);
   emscripten::function("SetCustomTraceColors", &SetCustomTraceColors);
   emscripten::function("RequestRedraw", &RequestRedraw);
   emscripten::function("SetPlaybackState", &SetPlaybackState);
@@ -260,6 +265,7 @@ void Application::Initialize() {
   timeline_->set_timeline_player_enabled(
       IsFeatureEnabled("enable_timeline_player"));
   timeline_->set_bookmarks_enabled(IsFeatureEnabled("bookmarks"));
+  timeline_->set_minimap_enabled(IsFeatureEnabled("enable_minimap"));
   timeline_->set_event_callback(
       [](absl::string_view type, const EventData& event_data) {
         EventManager::Instance().DispatchEvent(type, event_data);

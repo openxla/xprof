@@ -54,6 +54,13 @@ const FEATURE_FLAG_CONFIGS = [
     description: 'Enable the timeline player component for trace playback.',
     default: false,
   },
+  {
+    id: 'enable_minimap',
+    name: 'Enable Interactive Minimap',
+    description:
+      'Enable the interactive minimap overview track for viewport selection and navigation.',
+    default: false,
+  },
 ] as const;
 
 /**

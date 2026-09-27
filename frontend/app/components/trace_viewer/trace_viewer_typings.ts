@@ -170,7 +170,7 @@ export declare interface SelectedEvent {
   name: string;
   ph: string;
   pid: number;
-  tid: number;
+  tid?: number;
   ts: number;
   dur: number;
   startUs?: number;
@@ -192,6 +192,11 @@ export declare interface SelectedEvent {
   graphViewerLinkHtml?: string;
   hloOpStatsLinkHtml?: string;
   stepGroupLinkHtml?: string;
+  /**
+   * The event as returned by the backend event details response, rendered as
+   * is in the details panel.
+   */
+  rawEvent?: {[key: string]: unknown};
 }
 
 /**

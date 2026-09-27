@@ -26,9 +26,18 @@ imgui_font_headers(
     args = ["-base85"],
 )
 
+imgui_font_headers(
+    name = "trace_viewer_icons_header",
+    srcs = ["trace_viewer_icons.ttf"],
+    args = ["-base85"],
+)
+
 wasm_cc_library(
     name = "font_headers",
-    hdrs = [":font_headers_fileset"],
+    hdrs = [
+        ":font_headers_fileset",
+        ":trace_viewer_icons_header",
+    ],
 )
 
 wasm_cc_library(

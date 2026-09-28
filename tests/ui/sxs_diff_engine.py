@@ -488,11 +488,16 @@ class SxsDiffEngine:
     added = sum(1 for l in diff_lines[2:] if l.startswith("+"))
     deleted = sum(1 for l in diff_lines[2:] if l.startswith("-"))
     full_diff = "".join(diff_lines)
+    # sanitize_dom strips trailing whitespace, so the final line lacks a
+    # newline; normalize display lines only so diff_digest stays unchanged.
+    display_lines = [
+        l if l.endswith("\n") else f"{l}\n" for l in diff_lines[:100]
+    ]
     return DomDiff(
         has_changes=bool(diff_lines),
         # Capped: the report renders this inside a fixed-height scroll box, and
         # a whole-page delta would otherwise inline megabytes of markup.
-        unified_diff="".join(diff_lines[:100]),
+        unified_diff="".join(display_lines),
         added_lines=added,
         deleted_lines=deleted,
         diff_digest=hashlib.sha256(full_diff.encode("utf-8")).hexdigest(),

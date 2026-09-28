@@ -87,7 +87,10 @@ def make_wsgi_app(plugin):
       path = path[:-1]
     if path in apps:
       handler = apps[path]
-    elif path in ("", "/"):
+    elif "." not in path.rsplit("/", 1)[-1]:
+      # The root, or a frontend route such as /overview_page, which the browser
+      # requests when a tool page is reloaded. The frontend reads the route
+      # from the URL.
       handler = plugin.default_handler
     else:
       handler = _not_found_handler

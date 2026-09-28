@@ -4,7 +4,77 @@ import logging
 import pathlib
 import re
 import urllib.parse
-from playwright import sync_api
+
+# pylint: disable=g-import-not-at-top
+try:
+  from google3.third_party.xprof.tests.ui import invariants
+except ImportError:
+  try:
+    from tests.ui import invariants  # pyrefly: ignore[missing-import]
+  except ImportError:
+    import invariants  # pyrefly: ignore[missing-import]
+# pylint: enable=g-import-not-at-top
+
+# invariants owns the optional Playwright import and its hermetic stub.
+sync_api = invariants.sync_api
+
+# Genuine rendered visualization and data-bearing elements inside XProf tools.
+# Deliberately excludes wrappers that exist before anything is drawn (e.g.
+# :scope > *, div, the <chart> host) and the decorative svgs Angular Material
+# marks focusable="false" or aria-hidden="true" (select arrows, icons,
+# spinners, switches), so child geometry checks cannot pass on page chrome.
+# An iframe counts once it is visible; its document is not inspected, so an
+# iframe that has not drawn anything yet (Graph Viewer's graph) still counts.
+VISUALIZATION_SELECTOR = (
+    "svg:not([focusable='false'], [aria-hidden='true']), canvas, table,"
+    " mat-card, .mat-mdc-card, iframe, op-table-entry .row"
+)
+
+
+def assert_component_geometry(
+    page: sync_api.Page,
+    selector: str,
+    context: str = "",
+) -> None:
+  """Asserts that a component and its visualization have positive geometry."""
+  ctx = f" at {context}" if context else ""
+  comp = page.locator(f":is({selector}):visible").first
+  sync_api.expect(comp).to_be_visible(timeout=20000)
+  bbox = comp.bounding_box()
+  assert (
+      bbox is not None and bbox["width"] > 0 and bbox["height"] > 0
+  ), f"Component {selector!r} collapsed{ctx}: {bbox}"
+
+  vis_selector = (
+      f":is({selector}):is({VISUALIZATION_SELECTOR}):visible, "
+      f":is({selector}) :is({VISUALIZATION_SELECTOR}):visible"
+  )
+  child = page.locator(vis_selector).first
+  sync_api.expect(child).to_be_visible(timeout=20000)
+  child_bbox = child.bounding_box()
+  assert (
+      child_bbox is not None
+      and child_bbox["width"] > 0
+      and child_bbox["height"] > 0
+  ), f"Component {selector!r} child visualization collapsed{ctx}: {child_bbox}"
+
+
+def assert_healthy(
+    page: sync_api.Page,
+    browser_errors: object = None,
+    context: str = "",
+) -> None:
+  """Asserts a non-empty body, clean page invariants and clean browser logs."""
+  ctx = f" at {context}" if context else ""
+  body = page.locator("body")
+  sync_api.expect(body).to_contain_text(re.compile(r"\S"), timeout=20000)
+  text = body.inner_text()
+  assert text.strip(), f"Empty page body rendered{ctx}"
+  violations = invariants.run_content_invariants(text)
+  assert not violations, f"Poison tokens detected{ctx}: {violations}"
+  invariants.assert_page_invariants(page)
+  if browser_errors is not None and hasattr(browser_errors, "assert_clean"):
+    browser_errors.assert_clean(context)
 
 
 def build_tool_url(
@@ -62,7 +132,7 @@ def _select_sidenav_dropdown_option(
   )
   try:
     page.mouse.move(0, 0)
-  except sync_api.Error as err:
+  except invariants.PlaywrightError as err:
     logging.debug("Ignored mouse reset error after dropdown close: %s", err)
 
 

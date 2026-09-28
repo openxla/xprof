@@ -106,6 +106,61 @@ def _create_test_image(
   return buf.getvalue()
 
 
+def _evaluate(
+    engine: SxsDiffEngine,
+    img_a: bytes,
+    img_b: bytes | None = None,
+    *,
+    html_a: str = "<div>Same</div>",
+    html_b: str | None = None,
+    requests_a: list[dict[str, object]] | None = None,
+    requests_b: list[dict[str, object]] | None = None,
+    journey: str = "triage",
+    waypoint: str = "overview",
+) -> WaypointDiff:
+  """Evaluates a waypoint whose B side defaults to A and requests to none."""
+  return engine.evaluate_waypoint(
+      journey_name=journey,
+      waypoint_name=waypoint,
+      img_a=img_a,
+      img_b=img_a if img_b is None else img_b,
+      html_a=html_a,
+      html_b=html_a if html_b is None else html_b,
+      requests_a=[] if requests_a is None else requests_a,
+      requests_b=[] if requests_b is None else requests_b,
+  )
+
+
+def _render_report(
+    diffs: list[WaypointDiff],
+    template_dir: pathlib.Path | None = None,
+    approval_note: str | None = None,
+) -> str:
+  """Renders the report into a temporary file and returns its HTML."""
+  with tempfile.TemporaryDirectory() as tmpdir:
+    path = generate_sxs_html_report(
+        diffs,
+        os.path.join(tmpdir, "report.html"),
+        template_dir=template_dir,
+        approval_note=approval_note,
+    )
+    return pathlib.Path(path).read_text(encoding="utf-8")
+
+
+def _text_only_diff(dom: DomDiff, diff_hash: str = "abc123") -> WaypointDiff:
+  """Builds a capture-less waypoint that carries only a DOM verdict."""
+  return WaypointDiff(
+      journey_name="overview_page",
+      waypoint_name="template_text",
+      visual=VisualDiff(diff_ratio=0.0, total_pixels=0, diff_pixels=0),
+      dom=dom,
+      network=NetworkDiff(
+          has_changes=False, request_count_a=0, request_count_b=0
+      ),
+      diff_hash=diff_hash,
+  )
+
+
 class SxsDiffEngineTest(unittest.TestCase):
   """Tests for SxS Diff Engine and HTML report generation."""
 
@@ -404,6 +459,26 @@ class SxsDiffEngineTest(unittest.TestCase):
     self.assertIn("<div>After</div>", clean)
     self.assertIn("<svg><rect></rect></svg>", clean)
 
+  def test_sanitize_dom_keeps_partially_hidden_divs(self):
+    """Verifies one hiding signal alone keeps a div, but cdk overlays go."""
+    engine = SxsDiffEngine()
+    clean = engine.sanitize_dom(
+        '<div aria-hidden="true">aria-only</div>'
+        '<div style="position: absolute">chart-wrapper</div>'
+        '<div class="cdk-overlay-container">overlay</div>'
+    )
+    self.assertIn("aria-only", clean)
+    self.assertIn("chart-wrapper", clean)
+    self.assertNotIn("overlay", clean)
+
+  def test_compute_dom_diff_separates_changed_final_line(self):
+    """Verifies a changed final DOM line renders as separate -/+ lines."""
+    engine = SxsDiffEngine()
+    diff = engine.compute_dom_diff(
+        "<p>head</p>\n<div>A</div>", "<p>head</p>\n<div>B</div>"
+    )
+    self.assertIn("-<div>A</div>\n+<div>B</div>\n", diff.unified_diff)
+
   def test_sanitize_dom_filter_regex_does_not_cross_filter_tags(self):
     """Verifies <filter> regex removes blur filters without crossing tags."""
     engine = SxsDiffEngine()
@@ -412,9 +487,7 @@ class SxsDiffEngineTest(unittest.TestCase):
         "<filter id='f2'><feGaussianBlur stdDeviation='2'/></filter></svg>"
     )
     cleaned = engine.sanitize_dom(dom)
-    self.assertIn(
-        "<filter id='f1'><feOffset dx='1' dy='1'/></filter>", cleaned
-    )
+    self.assertIn("<filter id='f1'><feOffset dx='1' dy='1'/></filter>", cleaned)
     self.assertNotIn("feGaussianBlur", cleaned)
     self.assertNotIn("f2", cleaned)
 
@@ -456,6 +529,13 @@ class SxsDiffEngineTest(unittest.TestCase):
     self.assertFalse(diff.has_changes)
     self.assertEqual(diff.status_mismatches, [])
 
+    # A blank value is still part of the request, so it is not dropped.
+    diff_blank = engine.compute_network_diff(
+        [{"method": "GET", "url": "/data?host=&run=foo", "status": 200}],
+        [{"method": "GET", "url": "/data?run=foo", "status": 200}],
+    )
+    self.assertTrue(diff_blank.has_changes)
+
   def test_compute_network_diff_flags_unparseable_status(self):
     """Verifies a non-numeric status never compares equal to a real HTTP 200."""
     engine = SxsDiffEngine()
@@ -479,15 +559,15 @@ class SxsDiffEngineTest(unittest.TestCase):
     dom = "<html><body><div>Hello</div></body></html>"
 
     # Identical waypoint -> SAME
-    waypoint_diff = engine.evaluate_waypoint(
-        journey_name="journey_1",
-        waypoint_name="waypoint_1",
-        img_a=img_a,
-        img_b=img_b,
+    waypoint_diff = _evaluate(
+        engine,
+        img_a,
+        img_b,
         html_a=dom,
-        html_b=dom,
         requests_a=[{"method": "GET", "url": "/data", "status": 200}],
         requests_b=[{"method": "GET", "url": "/data", "status": 200}],
+        journey="journey_1",
+        waypoint="waypoint_1",
     )
     self.assertEqual(waypoint_diff.visual.diff_pixels, 0)
     self.assertFalse(waypoint_diff.dom.has_changes)
@@ -496,27 +576,25 @@ class SxsDiffEngineTest(unittest.TestCase):
     self.assertEqual(waypoint_diff.verdict, "SAME")
 
     # Network status mismatch (200 -> 500) -> CHANGED
-    waypoint_net_diff = engine.evaluate_waypoint(
-        journey_name="journey_1",
-        waypoint_name="waypoint_1",
-        img_a=img_a,
-        img_b=img_b,
+    waypoint_net_diff = _evaluate(
+        engine,
+        img_a,
+        img_b,
         html_a=dom,
-        html_b=dom,
         requests_a=[{"method": "GET", "url": "/data", "status": 200}],
         requests_b=[{"method": "GET", "url": "/data", "status": 500}],
+        journey="journey_1",
+        waypoint="waypoint_1",
     )
     self.assertTrue(waypoint_net_diff.network.has_changes)
     self.assertEqual(waypoint_net_diff.verdict, "CHANGED")
 
     # Out-of-order network requests -> SAME
-    waypoint_reordered_net = engine.evaluate_waypoint(
-        journey_name="journey_1",
-        waypoint_name="waypoint_1",
-        img_a=img_a,
-        img_b=img_b,
+    waypoint_reordered_net = _evaluate(
+        engine,
+        img_a,
+        img_b,
         html_a=dom,
-        html_b=dom,
         requests_a=[
             {"method": "GET", "url": "/endpoint_1", "status": "200"},
             {"method": "GET", "url": "/endpoint_2", "status": 200},
@@ -525,6 +603,8 @@ class SxsDiffEngineTest(unittest.TestCase):
             {"method": "GET", "url": "/endpoint_2", "status": 200},
             {"method": "GET", "url": "/endpoint_1", "status": 200},
         ],
+        journey="journey_1",
+        waypoint="waypoint_1",
     )
     self.assertFalse(waypoint_reordered_net.network.has_changes)
     self.assertEqual(waypoint_reordered_net.verdict, "SAME")
@@ -540,16 +620,7 @@ class SxsDiffEngineTest(unittest.TestCase):
     )
 
     def evaluate(html_b: str):
-      return engine.evaluate_waypoint(
-          journey_name="triage",
-          waypoint_name="overview",
-          img_a=img,
-          img_b=img,
-          html_a=baseline,
-          html_b=html_b,
-          requests_a=[],
-          requests_b=[],
-      )
+      return _evaluate(engine, img, html_a=baseline, html_b=html_b)
 
     clean = evaluate(candidate)
     regressed = evaluate(late_regression)
@@ -571,16 +642,7 @@ class SxsDiffEngineTest(unittest.TestCase):
     wider = _create_test_image((255, 0, 0), size=(80, 50))
 
     def evaluate(candidate: bytes):
-      return engine.evaluate_waypoint(
-          journey_name="triage",
-          waypoint_name="overview",
-          img_a=baseline,
-          img_b=candidate,
-          html_a="<div>Stable</div>",
-          html_b="<div>Stable</div>",
-          requests_a=[],
-          requests_b=[],
-      )
+      return _evaluate(engine, baseline, candidate, html_a="<div>Stable</div>")
 
     grew_taller = evaluate(taller)
     grew_wider = evaluate(wider)
@@ -595,14 +657,8 @@ class SxsDiffEngineTest(unittest.TestCase):
     base_white = _create_test_image((255, 255, 255), size=(50, 50))
     taller_white = _create_test_image((255, 255, 255), size=(50, 80))
     wider_white = _create_test_image((255, 255, 255), size=(80, 50))
-    w_taller = engine.evaluate_waypoint(
-        "triage", "overview", base_white, taller_white, "<p>S</p>", "<p>S</p>",
-        [], [],
-    )
-    w_wider = engine.evaluate_waypoint(
-        "triage", "overview", base_white, wider_white, "<p>S</p>", "<p>S</p>",
-        [], [],
-    )
+    w_taller = _evaluate(engine, base_white, taller_white, html_a="<p>S</p>")
+    w_wider = _evaluate(engine, base_white, wider_white, html_a="<p>S</p>")
     self.assertEqual(w_taller.visual.diff_pixels, 0)
     self.assertEqual(w_wider.visual.diff_pixels, 0)
     self.assertNotEqual(w_taller.diff_hash, w_wider.diff_hash)
@@ -615,15 +671,14 @@ class SxsDiffEngineTest(unittest.TestCase):
     dom_b = "<div>After</div>"
 
     unapproved_engine = SxsDiffEngine()
-    diff = unapproved_engine.evaluate_waypoint(
-        journey_name="test_j",
-        waypoint_name="test_w",
-        img_a=img_a,
-        img_b=img_b,
+    diff = _evaluate(
+        unapproved_engine,
+        img_a,
+        img_b,
         html_a=dom_a,
         html_b=dom_b,
-        requests_a=[],
-        requests_b=[],
+        journey="test_j",
+        waypoint="test_w",
     )
     self.assertEqual(diff.verdict, "CHANGED")
     self.assertFalse(diff.is_approved)
@@ -643,15 +698,14 @@ class SxsDiffEngineTest(unittest.TestCase):
       )
 
       approved_engine = SxsDiffEngine(approved_manifest_path=manifest_path)
-      approved_diff = approved_engine.evaluate_waypoint(
-          journey_name="test_j",
-          waypoint_name="test_w",
-          img_a=img_a,
-          img_b=img_b,
+      approved_diff = _evaluate(
+          approved_engine,
+          img_a,
+          img_b,
           html_a=dom_a,
           html_b=dom_b,
-          requests_a=[],
-          requests_b=[],
+          journey="test_j",
+          waypoint="test_w",
       )
       self.assertEqual(approved_diff.verdict, "APPROVED")
       self.assertTrue(approved_diff.is_approved)
@@ -664,28 +718,19 @@ class SxsDiffEngineTest(unittest.TestCase):
     engine = SxsDiffEngine()
     img_a = _create_test_image((128, 128, 128))
     img_b = _create_test_image((255, 0, 0))
-    dom_a = "<div>Benchmark Original</div>"
-    dom_b = "<div>Benchmark Candidate</div>"
+    dom_a = "<div>Benchmark Original</div>\n<footer></footer>"
+    dom_b = "<div>Benchmark Candidate</div>\n<footer></footer>"
 
-    diff_same = engine.evaluate_waypoint(
-        journey_name="triage",
-        waypoint_name="overview",
-        img_a=img_a,
-        img_b=img_a,
-        html_a=dom_a,
-        html_b=dom_a,
-        requests_a=[],
-        requests_b=[],
-    )
-    diff_changed = engine.evaluate_waypoint(
-        journey_name="triage",
-        waypoint_name="hlo_stats",
-        img_a=img_a,
-        img_b=img_b,
+    diff_same = _evaluate(engine, img_a, html_a=dom_a)
+    diff_changed = _evaluate(
+        engine,
+        img_a,
+        img_b,
         html_a=dom_a,
         html_b=dom_b,
         requests_a=[{"method": "GET", "url": "/hlo", "status": 200}],
         requests_b=[{"method": "GET", "url": "/hlo", "status": 500}],
+        waypoint="hlo_stats",
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -705,6 +750,25 @@ class SxsDiffEngineTest(unittest.TestCase):
       self.assertIn("DIFF DETECTED", content)
       self.assertIn("Reviewer Action Required", content)
       self.assertIn("data:image/png;base64,", content)
+      self.assertIn("DOM Structure Divergence (+1 / -1)", content)
+      self.assertIn(
+          '<span class="diff-added">+&lt;div&gt;Benchmark Candidate'
+          "&lt;/div&gt;</span>",
+          content,
+      )
+      self.assertIn(
+          '<span class="diff-deleted">-&lt;div&gt;Benchmark Original'
+          "&lt;/div&gt;</span>",
+          content,
+      )
+      # The +++/--- file headers are context, not changes.
+      self.assertNotIn('<span class="diff-added">+++', content)
+      self.assertNotIn('<span class="diff-deleted">---', content)
+      self.assertIn(
+          '<li class="network-item network-item-mismatch">Endpoint divergence'
+          " &#x27;GET /hlo&#x27; (Status 500)",
+          content,
+      )
 
   def test_sxs_report_namespaces_element_ids_per_waypoint(self):
     """Verifies each waypoint card gets a distinct element id namespace."""
@@ -712,24 +776,18 @@ class SxsDiffEngineTest(unittest.TestCase):
     img_a = _create_test_image((128, 128, 128))
     img_b = _create_test_image((255, 0, 0))
     diffs = [
-        engine.evaluate_waypoint(
-            journey_name="triage",
-            waypoint_name=name,
-            img_a=img_a,
-            img_b=img_b,
+        _evaluate(
+            engine,
+            img_a,
+            img_b,
             html_a="<div>Baseline</div>",
             html_b="<div>Candidate</div>",
-            requests_a=[],
-            requests_b=[],
+            waypoint=name,
         )
         for name in ("overview", "hlo_stats")
     ]
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-      out_path = os.path.join(tmpdir, "report.html")
-      content = pathlib.Path(
-          generate_sxs_html_report(diffs, out_path)
-      ).read_text(encoding="utf-8")
+    content = _render_report(diffs)
 
     # Both cards render the slider controls, so a shared id namespace would
     # make the second card's handle drag the first card's images.
@@ -743,62 +801,44 @@ class SxsDiffEngineTest(unittest.TestCase):
     engine = SxsDiffEngine()
     img = _create_test_image((128, 128, 128))
     dom = "<div>Stable</div>"
-    same = engine.evaluate_waypoint(
-        journey_name="triage",
-        waypoint_name="overview",
-        img_a=img,
-        img_b=img,
-        html_a=dom,
-        html_b=dom,
-        requests_a=[],
-        requests_b=[],
-    )
-    changed = engine.evaluate_waypoint(
-        journey_name="triage",
-        waypoint_name="hlo_stats",
-        img_a=img,
-        img_b=_create_test_image((255, 0, 0)),
+    same = _evaluate(engine, img, html_a=dom)
+    changed = _evaluate(
+        engine,
+        img,
+        _create_test_image((255, 0, 0)),
         html_a=dom,
         html_b="<div>Shifted</div>",
-        requests_a=[],
-        requests_b=[],
+        waypoint="hlo_stats",
     )
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-      out_path = os.path.join(tmpdir, "report.html")
-      content = pathlib.Path(
-          generate_sxs_html_report([same, changed], out_path)
-      ).read_text(encoding="utf-8")
+    content = _render_report([same, changed])
 
     self.assertIn(
         '<div class="tab active" onclick="switchWaypoint(0)">', content
     )
     self.assertIn('<div class="tab" onclick="switchWaypoint(1)">', content)
-    self.assertIn("tab-status-pass", content)
-    self.assertIn("tab-status-diff", content)
-    self.assertIn("triage: hlo_stats (CHANGED)", content)
+    # The class names alone also appear in the inlined CSS.
+    self.assertIn(
+        '<div class="tab-status-pass"></div> triage: overview\n', content
+    )
+    self.assertIn(
+        '<div class="tab-status-diff"></div> triage: hlo_stats (CHANGED)\n',
+        content,
+    )
 
   def test_sxs_report_renders_dimension_mismatch_banner(self):
     """Verifies the layout-shift banner renders alongside the diff heatmap."""
     engine = SxsDiffEngine()
-    diff = engine.evaluate_waypoint(
-        journey_name="triage",
-        waypoint_name="overview",
-        img_a=_create_test_image((255, 255, 255), size=(50, 50)),
-        img_b=_create_test_image((255, 255, 255), size=(50, 80)),
+    diff = _evaluate(
+        engine,
+        _create_test_image((255, 255, 255), size=(50, 50)),
+        _create_test_image((255, 255, 255), size=(50, 80)),
         html_a="<div>Stable</div>",
-        html_b="<div>Stable</div>",
-        requests_a=[],
-        requests_b=[],
     )
     self.assertIsNotNone(diff.visual.dimension_mismatch)
     self.assertIsNotNone(diff.visual.heatmap_png_bytes)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-      out_path = os.path.join(tmpdir, "report.html")
-      content = pathlib.Path(
-          generate_sxs_html_report([diff], out_path)
-      ).read_text(encoding="utf-8")
+    content = _render_report([diff])
 
     # The banner and the heatmap are complementary, not mutually exclusive:
     # the banner names the geometry delta, the heatmap shows where it landed.
@@ -811,36 +851,17 @@ class SxsDiffEngineTest(unittest.TestCase):
     engine = SxsDiffEngine()
     img = _create_test_image((128, 128, 128))
     dom = "<div>Stable</div>"
-    same = engine.evaluate_waypoint(
-        journey_name="triage",
-        waypoint_name="overview",
-        img_a=img,
-        img_b=img,
+    same = _evaluate(engine, img, html_a=dom)
+    changed = _evaluate(
+        engine,
+        img,
+        _create_test_image((255, 0, 0)),
         html_a=dom,
-        html_b=dom,
-        requests_a=[],
-        requests_b=[],
-    )
-    changed = engine.evaluate_waypoint(
-        journey_name="triage",
-        waypoint_name="hlo_stats",
-        img_a=img,
-        img_b=_create_test_image((255, 0, 0)),
-        html_a=dom,
-        html_b=dom,
-        requests_a=[],
-        requests_b=[],
+        waypoint="hlo_stats",
     )
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-      same_only = pathlib.Path(
-          generate_sxs_html_report([same], os.path.join(tmpdir, "same.html"))
-      ).read_text(encoding="utf-8")
-      with_change = pathlib.Path(
-          generate_sxs_html_report(
-              [same, changed], os.path.join(tmpdir, "both.html")
-          )
-      ).read_text(encoding="utf-8")
+    same_only = _render_report([same])
+    with_change = _render_report([same, changed])
 
     # The engine builds a heatmap unconditionally, so gating on its presence
     # inlined five screenshots per waypoint even where the two walks agreed.
@@ -852,14 +873,11 @@ class SxsDiffEngineTest(unittest.TestCase):
     """Verifies a DOM/network-only divergence still shows both rendered pages."""
     engine = SxsDiffEngine()
     img = _create_test_image((128, 128, 128))
-    diff = engine.evaluate_waypoint(
-        journey_name="triage",
-        waypoint_name="overview",
-        img_a=img,
-        img_b=img,
+    diff = _evaluate(
+        engine,
+        img,
         html_a="<div>Baseline</div>",
         html_b="<div>Candidate</div>",
-        requests_a=[],
         requests_b=[{"method": "GET", "url": "/data", "status": 200}],
     )
     self.assertEqual(diff.verdict, "CHANGED")
@@ -867,12 +885,7 @@ class SxsDiffEngineTest(unittest.TestCase):
         diff.visual.diff_ratio, sxs_diff_engine.MAX_VISUAL_DIFF_RATIO
     )
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-      content = pathlib.Path(
-          generate_sxs_html_report(
-              [diff], os.path.join(tmpdir, "dom_only.html")
-          )
-      ).read_text(encoding="utf-8")
+    content = _render_report([diff])
 
     # A reviewer asked to approve this waypoint has to be able to see it, so
     # both pages are rendered even though no pixel moved beyond the budget.
@@ -894,29 +907,17 @@ class SxsDiffEngineTest(unittest.TestCase):
 
   def test_sxs_report_labels_waypoint_without_captures(self):
     """Verifies a capture-less divergence is labelled, not silently blank."""
-    diff = WaypointDiff(
-        journey_name="overview_page",
-        waypoint_name="template_text",
-        visual=VisualDiff(diff_ratio=0.0, total_pixels=0, diff_pixels=0),
-        dom=DomDiff(
+    diff = _text_only_diff(
+        DomDiff(
             has_changes=True,
             unified_diff="-old\n+new",
             added_lines=1,
             deleted_lines=1,
             diff_digest="abc123",
-        ),
-        network=NetworkDiff(
-            has_changes=False, request_count_a=0, request_count_b=0
-        ),
-        diff_hash="abc123",
+        )
     )
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-      content = pathlib.Path(
-          generate_sxs_html_report(
-              [diff], os.path.join(tmpdir, "no_capture.html")
-          )
-      ).read_text(encoding="utf-8")
+    content = _render_report([diff])
 
     # Source-level checks carry no screenshots. Saying so is what keeps the
     # report from reading as broken to whoever opens it.
@@ -925,58 +926,39 @@ class SxsDiffEngineTest(unittest.TestCase):
 
     # A screenshot that is missing on one walk only still leaves a page to
     # show, so that waypoint must not be labelled capture-less.
-    one_sided = SxsDiffEngine().evaluate_waypoint(
-        journey_name="overview_page",
-        waypoint_name="one_sided",
-        img_a=_create_test_image((128, 128, 128)),
-        img_b=b"",
+    one_sided = _evaluate(
+        SxsDiffEngine(),
+        _create_test_image((128, 128, 128)),
+        b"",
         html_a="",
-        html_b="",
-        requests_a=[],
-        requests_b=[],
+        journey="overview_page",
+        waypoint="one_sided",
     )
-    with tempfile.TemporaryDirectory() as tmpdir:
-      content = pathlib.Path(
-          generate_sxs_html_report(
-              [one_sided], os.path.join(tmpdir, "one_sided.html")
-          )
-      ).read_text(encoding="utf-8")
+    content = _render_report([one_sided])
     self.assertNotIn("Text-only comparison", content)
     self.assertIn('id="view-slider-wp_0"', content)
 
   def test_sxs_report_survives_missing_section_templates(self):
     """Verifies an unreadable section template cannot destroy the report."""
     engine = SxsDiffEngine()
-    diff = engine.evaluate_waypoint(
-        journey_name="triage",
-        waypoint_name="overview",
-        img_a=_create_test_image((128, 128, 128)),
-        img_b=_create_test_image((255, 0, 0)),
+    diff = _evaluate(
+        engine,
+        _create_test_image((128, 128, 128)),
+        _create_test_image((255, 0, 0)),
         html_a="<div>Baseline</div>",
         html_b="<div>Candidate</div>",
-        requests_a=[],
-        requests_b=[],
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
       templates = pathlib.Path(tmpdir) / "templates"
       templates.mkdir()
-      # Only the outer shell exists. Every per-section template is absent,
-      # which previously raised out of generation and lost the verdict for a
-      # run that had already failed.
       (templates / "sxs_report_template.html").write_text(
           "<html>$styles|$summary_text|$badge_class|$badge_text|$tabs_html|"
           "$cards_html|$approval_portal_html|$unapproved_json</html>",
           encoding="utf-8",
       )
       (templates / "report_styles.css").write_text("", encoding="utf-8")
-      content = pathlib.Path(
-          generate_sxs_html_report(
-              [diff],
-              os.path.join(tmpdir, "report.html"),
-              template_dir=templates,
-          )
-      ).read_text(encoding="utf-8")
+      content = _render_report([diff], template_dir=templates)
 
     self.assertIn("DIFF DETECTED", content)
     self.assertIn(diff.diff_hash, content)
@@ -985,21 +967,15 @@ class SxsDiffEngineTest(unittest.TestCase):
   def test_sxs_report_approval_portal_makes_no_unearned_claims(self):
     """Verifies portal neither certifies run nor emits whole manifest."""
     engine = SxsDiffEngine()
-    diff = engine.evaluate_waypoint(
-        journey_name="triage",
-        waypoint_name="overview",
-        img_a=_create_test_image((128, 128, 128)),
-        img_b=_create_test_image((255, 0, 0)),
+    diff = _evaluate(
+        engine,
+        _create_test_image((128, 128, 128)),
+        _create_test_image((255, 0, 0)),
         html_a="<div>Baseline</div>",
         html_b="<div>Candidate</div>",
-        requests_a=[],
-        requests_b=[],
     )
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-      content = pathlib.Path(
-          generate_sxs_html_report([diff], os.path.join(tmpdir, "report.html"))
-      ).read_text(encoding="utf-8")
+    content = _render_report([diff])
 
     # Approving in the portal writes nothing and submits nothing, so the page
     # must not repaint its own badge green, and the text it emits must not be
@@ -1011,26 +987,16 @@ class SxsDiffEngineTest(unittest.TestCase):
   def test_sxs_report_renders_pixel_delta_views(self):
     """Verifies a real pixel delta earns the slider and heatmap views."""
     engine = SxsDiffEngine()
-    diff = engine.evaluate_waypoint(
-        journey_name="triage",
-        waypoint_name="overview",
-        img_a=_create_test_image((128, 128, 128)),
-        img_b=_create_test_image((255, 0, 0)),
-        html_a="<div>Same</div>",
-        html_b="<div>Same</div>",
-        requests_a=[],
-        requests_b=[],
+    diff = _evaluate(
+        engine,
+        _create_test_image((128, 128, 128)),
+        _create_test_image((255, 0, 0)),
     )
     self.assertGreater(
         diff.visual.diff_ratio, sxs_diff_engine.MAX_VISUAL_DIFF_RATIO
     )
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-      content = pathlib.Path(
-          generate_sxs_html_report(
-              [diff], os.path.join(tmpdir, "pixel_delta.html")
-          )
-      ).read_text(encoding="utf-8")
+    content = _render_report([diff])
 
     # The DOM-only test asserts these same IDs are absent. Pinning them here
     # keeps that assertion honest: if the ID scheme is ever renamed, this
@@ -1041,31 +1007,19 @@ class SxsDiffEngineTest(unittest.TestCase):
 
   def test_sxs_report_replaces_portal_for_non_manifest_gate(self):
     """Verifies a gate outside the manifest gets instructions, not the portal."""
-    diff = WaypointDiff(
-        journey_name="overview_page",
-        waypoint_name="template_text",
-        visual=VisualDiff(diff_ratio=0.0, total_pixels=0, diff_pixels=0),
-        dom=DomDiff(
+    diff = _text_only_diff(
+        DomDiff(
             has_changes=True,
             unified_diff="-old\n+new",
             added_lines=1,
             deleted_lines=1,
             diff_digest="abc123",
-        ),
-        network=NetworkDiff(
-            has_changes=False, request_count_a=0, request_count_b=0
-        ),
-        diff_hash="abc123",
+        )
     )
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-      content = pathlib.Path(
-          generate_sxs_html_report(
-              [diff],
-              os.path.join(tmpdir, "drift.html"),
-              approval_note=_TEMPLATE_DRIFT_APPROVAL_NOTE,
-          )
-      ).read_text(encoding="utf-8")
+    content = _render_report(
+        [diff], approval_note=_TEMPLATE_DRIFT_APPROVAL_NOTE
+    )
 
     # This waypoint is CHANGED, which is what normally raises the portal. The
     # check behind it never reads approved_manifest.json, so a reader who
@@ -1079,30 +1033,18 @@ class SxsDiffEngineTest(unittest.TestCase):
 
     # When all waypoints are identical, no approval notice is rendered even if
     # approval_note was passed.
-    diff_identical = WaypointDiff(
-        journey_name="overview_page",
-        waypoint_name="template_text",
-        visual=VisualDiff(diff_ratio=0.0, total_pixels=0, diff_pixels=0),
-        dom=DomDiff(
+    diff_identical = _text_only_diff(
+        DomDiff(
             has_changes=False,
             unified_diff="",
             added_lines=0,
             deleted_lines=0,
             diff_digest="abc123",
-        ),
-        network=NetworkDiff(
-            has_changes=False, request_count_a=0, request_count_b=0
-        ),
-        diff_hash="abc123",
+        )
     )
-    with tempfile.TemporaryDirectory() as tmpdir:
-      content_identical = pathlib.Path(
-          generate_sxs_html_report(
-              [diff_identical],
-              os.path.join(tmpdir, "identical.html"),
-              approval_note=_TEMPLATE_DRIFT_APPROVAL_NOTE,
-          )
-      ).read_text(encoding="utf-8")
+    content_identical = _render_report(
+        [diff_identical], approval_note=_TEMPLATE_DRIFT_APPROVAL_NOTE
+    )
     self.assertNotIn('id="external-approval-notice"', content_identical)
     self.assertNotIn('id="approval-card"', content_identical)
     self.assertNotIn(
@@ -1203,16 +1145,7 @@ class SxsDiffEngineTest(unittest.TestCase):
     # Only the DOM leg carries a verdict here. The visual and network legs are
     # constructed empty rather than fabricated, which is what makes the report
     # below show a text diff and nothing that looks like a rendered comparison.
-    diff = WaypointDiff(
-        journey_name="overview_page",
-        waypoint_name="template_text",
-        visual=VisualDiff(diff_ratio=0.0, total_pixels=0, diff_pixels=0),
-        dom=dom,
-        network=NetworkDiff(
-            has_changes=False, request_count_a=0, request_count_b=0
-        ),
-        diff_hash=dom.diff_digest[:16],
-    )
+    diff = _text_only_diff(dom, diff_hash=dom.diff_digest[:16])
 
     with tempfile.TemporaryDirectory() as tmpdir:
       report_path = generate_sxs_html_report(
@@ -1256,15 +1189,40 @@ class SxsDiffEngineTest(unittest.TestCase):
     buf_br = io.BytesIO()
     img_bottom_right.save(buf_br, format="PNG")
 
-    wp_tl = engine.evaluate_waypoint(
-        "j", "w", base_bytes, buf_tl.getvalue(), "<p>A</p>", "<p>A</p>", [], []
+    wp_tl = _evaluate(
+        engine,
+        base_bytes,
+        buf_tl.getvalue(),
+        html_a="<p>A</p>",
+        journey="j",
+        waypoint="w",
     )
-    wp_br = engine.evaluate_waypoint(
-        "j", "w", base_bytes, buf_br.getvalue(), "<p>A</p>", "<p>A</p>", [], []
+    wp_br = _evaluate(
+        engine,
+        base_bytes,
+        buf_br.getvalue(),
+        html_a="<p>A</p>",
+        journey="j",
+        waypoint="w",
     )
     self.assertEqual(wp_tl.visual.diff_pixels, 1)
     self.assertEqual(wp_br.visual.diff_pixels, 1)
     self.assertNotEqual(wp_tl.diff_hash, wp_br.diff_hash)
+
+    # Sub-threshold candidate noise away from the change keeps the approval.
+    img_noisy = img_top_left.copy()
+    img_noisy.putpixel((10, 10), (8, 8, 8))
+    buf_nz = io.BytesIO()
+    img_noisy.save(buf_nz, format="PNG")
+    wp_noisy = _evaluate(
+        engine,
+        base_bytes,
+        buf_nz.getvalue(),
+        html_a="<p>A</p>",
+        journey="j",
+        waypoint="w",
+    )
+    self.assertEqual(wp_noisy.diff_hash, wp_tl.diff_hash)
 
   def test_network_diff_canonical_sig_edge_cases(self):
     """Verifies canonical_sig handles boolean status, NaN, and None fields."""
@@ -1336,6 +1294,8 @@ class SxsDiffEngineTest(unittest.TestCase):
       self.assertEqual(entry["decision"], "INTENTIONAL")
       self.assertEqual(entry["rationale"], "Initial spec")
       self.assertIn("timestamp", entry)
+      # Sorted keys keep re-approval diffs of the checked-in manifest minimal.
+      self.assertEqual(list(entry), sorted(entry))
 
       # 2. Merge additional entry without clobbering existing
       approve_waypoint(
@@ -1372,8 +1332,15 @@ class SxsDiffEngineTest(unittest.TestCase):
     with tempfile.TemporaryDirectory() as tmpdir:
       manifest_path = os.path.join(tmpdir, "manifest.json")
 
-      # Rejects blank inputs
-      for j, w, h in [("", "w", "h"), ("j", "", "h"), ("j", "w", "")]:
+      # Rejects blank and whitespace-only inputs
+      for j, w, h in [
+          ("", "w", "h"),
+          ("j", "", "h"),
+          ("j", "w", ""),
+          (" ", "w", "h"),
+          ("j", " ", "h"),
+          ("j", "w", " "),
+      ]:
         with self.assertRaises(ValueError):
           approve_waypoint(j, w, h, manifest_path=manifest_path)
 
@@ -1451,39 +1418,21 @@ class SxsDiffEngineTest(unittest.TestCase):
     img_a = _create_test_image((128, 128, 128))
     img_b = _create_test_image((255, 0, 0))
 
-    diff_same = engine.evaluate_waypoint(
-        journey_name="triage",
-        waypoint_name="overview",
-        img_a=img_a,
-        img_b=img_a,
-        html_a="<div>Same</div>",
-        html_b="<div>Same</div>",
-        requests_a=[],
-        requests_b=[],
-    )
+    diff_same = _evaluate(engine, img_a)
 
     with tempfile.TemporaryDirectory() as tmpdir:
-      # 1. State: ALL WAYPOINTS IDENTICAL
-      content_identical = pathlib.Path(
-          generate_sxs_html_report(
-              [diff_same], os.path.join(tmpdir, "rep1.html")
-          )
-      ).read_text(encoding="utf-8")
+      content_identical = _render_report([diff_same])
       self.assertIn("ALL WAYPOINTS IDENTICAL", content_identical)
       self.assertIn("badge badge-pass", content_identical)
       self.assertIn("100% Identical to Baseline", content_identical)
-
-      # 2. State: DIFFS APPROVED
       manifest_path = os.path.join(tmpdir, "approved_manifest.json")
-      diff_changed = engine.evaluate_waypoint(
-          journey_name="triage",
-          waypoint_name="hlo_stats",
-          img_a=img_a,
-          img_b=img_b,
+      diff_changed = _evaluate(
+          engine,
+          img_a,
+          img_b,
           html_a="<div>Base</div>",
           html_b="<div>Cand</div>",
-          requests_a=[],
-          requests_b=[],
+          waypoint="hlo_stats",
       )
       approve_waypoint(
           "triage",
@@ -1493,37 +1442,28 @@ class SxsDiffEngineTest(unittest.TestCase):
           rationale="Approved update",
       )
       approved_engine = SxsDiffEngine(approved_manifest_path=manifest_path)
-      diff_approved = approved_engine.evaluate_waypoint(
-          journey_name="triage",
-          waypoint_name="hlo_stats",
-          img_a=img_a,
-          img_b=img_b,
+      diff_approved = _evaluate(
+          approved_engine,
+          img_a,
+          img_b,
           html_a="<div>Base</div>",
           html_b="<div>Cand</div>",
-          requests_a=[],
-          requests_b=[],
+          waypoint="hlo_stats",
       )
-      content_approved = pathlib.Path(
-          generate_sxs_html_report(
-              [diff_same, diff_approved], os.path.join(tmpdir, "rep2.html")
-          )
-      ).read_text(encoding="utf-8")
+      content_approved = _render_report([diff_same, diff_approved])
       self.assertIn("DIFFS APPROVED", content_approved)
       self.assertIn("badge badge-approved", content_approved)
       self.assertIn("All Diffs Approved", content_approved)
-      self.assertIn("tab-status-approved", content_approved)
+      self.assertIn(
+          '<div class="tab-status-approved"></div>'
+          " triage: hlo_stats (APPROVED)",
+          content_approved,
+      )
       self.assertIn(
           '<span class="status-approved">APPROVED (Approved update)</span>',
           content_approved,
       )
-
-      # 3. State: DIFF DETECTED
-      content_diff = pathlib.Path(
-          generate_sxs_html_report(
-              [diff_same, diff_approved, diff_changed],
-              os.path.join(tmpdir, "rep3.html"),
-          )
-      ).read_text(encoding="utf-8")
+      content_diff = _render_report([diff_same, diff_approved, diff_changed])
       self.assertIn("DIFF DETECTED", content_diff)
       self.assertIn("badge badge-fail", content_diff)
       self.assertIn("Reviewer Action Required", content_diff)
@@ -1531,20 +1471,16 @@ class SxsDiffEngineTest(unittest.TestCase):
   def test_sxs_report_unapproved_json_escapes_script_tags(self):
     """Verifies <script> JSON payload escapes <, >, and & characters."""
     engine = SxsDiffEngine()
-    diff = engine.evaluate_waypoint(
-        journey_name="<script>alert(1)</script>",
-        waypoint_name="tag&test",
-        img_a=_create_test_image((0, 0, 0)),
-        img_b=_create_test_image((255, 255, 255)),
+    diff = _evaluate(
+        engine,
+        _create_test_image((0, 0, 0)),
+        _create_test_image((255, 255, 255)),
         html_a="<div>A</div>",
         html_b="<div>B</div>",
-        requests_a=[],
-        requests_b=[],
+        journey="<script>alert(1)</script>",
+        waypoint="tag&test",
     )
-    with tempfile.TemporaryDirectory() as tmpdir:
-      content = pathlib.Path(
-          generate_sxs_html_report([diff], os.path.join(tmpdir, "report.html"))
-      ).read_text(encoding="utf-8")
+    content = _render_report([diff])
     self.assertNotIn("<script>alert", content.split("<script>")[1])
     self.assertIn(r"\u003cscript\u003ealert(1)\u003c/script\u003e", content)
     self.assertIn(r"\u0026", content)
@@ -1564,45 +1500,34 @@ class SxsDiffEngineTest(unittest.TestCase):
     buf_b = io.BytesIO()
     noisy_img.save(buf_b, format="PNG")
 
-    diff_clean = engine.evaluate_waypoint(
-        journey_name="j",
-        waypoint_name="w",
-        img_a=buf_a.getvalue(),
-        img_b=buf_a.getvalue(),
+    diff_clean = _evaluate(
+        engine,
+        buf_a.getvalue(),
         html_a="<div>Old</div>",
         html_b="<div>New</div>",
-        requests_a=[],
-        requests_b=[],
+        journey="j",
+        waypoint="w",
     )
-    diff_noisy = engine.evaluate_waypoint(
-        journey_name="j",
-        waypoint_name="w",
-        img_a=buf_a.getvalue(),
-        img_b=buf_b.getvalue(),
+    diff_noisy = _evaluate(
+        engine,
+        buf_a.getvalue(),
+        buf_b.getvalue(),
         html_a="<div>Old</div>",
         html_b="<div>New</div>",
-        requests_a=[],
-        requests_b=[],
+        journey="j",
+        waypoint="w",
     )
     self.assertEqual(diff_clean.diff_hash, diff_noisy.diff_hash)
 
-    same_noisy = engine.evaluate_waypoint(
-        journey_name="j",
-        waypoint_name="w_same",
-        img_a=buf_a.getvalue(),
-        img_b=buf_b.getvalue(),
-        html_a="<div>Same</div>",
-        html_b="<div>Same</div>",
-        requests_a=[],
-        requests_b=[],
+    same_noisy = _evaluate(
+        engine,
+        buf_a.getvalue(),
+        buf_b.getvalue(),
+        journey="j",
+        waypoint="w_same",
     )
     self.assertEqual(same_noisy.verdict, "SAME")
-    with tempfile.TemporaryDirectory() as tmpdir:
-      content = pathlib.Path(
-          generate_sxs_html_report(
-              [same_noisy], os.path.join(tmpdir, "same.html")
-          )
-      ).read_text(encoding="utf-8")
+    content = _render_report([same_noisy])
     self.assertNotIn("data:image/png;base64,", content)
 
   def test_evaluate_waypoint_allows_small_visual_pixel_budget(self):
@@ -1618,41 +1543,26 @@ class SxsDiffEngineTest(unittest.TestCase):
     buf_within = io.BytesIO()
     within_budget_img.save(buf_within, format="PNG")
 
-    verdict_within = engine.evaluate_waypoint(
-        journey_name="triage",
-        waypoint_name="overview",
-        img_a=buf_base.getvalue(),
-        img_b=buf_within.getvalue(),
-        html_a="<div>Same</div>",
-        html_b="<div>Same</div>",
-        requests_a=[],
-        requests_b=[],
+    verdict_within = _evaluate(
+        engine, buf_base.getvalue(), buf_within.getvalue()
     )
     self.assertEqual(verdict_within.visual.diff_pixels, 1)
     self.assertEqual(verdict_within.visual.diff_ratio, 0.001)
     self.assertEqual(verdict_within.verdict, "SAME")
 
     # Within visual budget but with DOM or network delta -> CHANGED
-    verdict_dom_changed = engine.evaluate_waypoint(
-        journey_name="triage",
-        waypoint_name="overview",
-        img_a=buf_base.getvalue(),
-        img_b=buf_within.getvalue(),
-        html_a="<div>Same</div>",
+    verdict_dom_changed = _evaluate(
+        engine,
+        buf_base.getvalue(),
+        buf_within.getvalue(),
         html_b="<div>Changed</div>",
-        requests_a=[],
-        requests_b=[],
     )
     self.assertEqual(verdict_dom_changed.verdict, "CHANGED")
 
-    verdict_net_changed = engine.evaluate_waypoint(
-        journey_name="triage",
-        waypoint_name="overview",
-        img_a=buf_base.getvalue(),
-        img_b=buf_within.getvalue(),
-        html_a="<div>Same</div>",
-        html_b="<div>Same</div>",
-        requests_a=[],
+    verdict_net_changed = _evaluate(
+        engine,
+        buf_base.getvalue(),
+        buf_within.getvalue(),
         requests_b=[{"url": "http://localhost/data", "status": 500}],
     )
     self.assertEqual(verdict_net_changed.verdict, "CHANGED")
@@ -1663,16 +1573,7 @@ class SxsDiffEngineTest(unittest.TestCase):
     buf_over = io.BytesIO()
     over_budget_img.save(buf_over, format="PNG")
 
-    verdict_over = engine.evaluate_waypoint(
-        journey_name="triage",
-        waypoint_name="overview",
-        img_a=buf_base.getvalue(),
-        img_b=buf_over.getvalue(),
-        html_a="<div>Same</div>",
-        html_b="<div>Same</div>",
-        requests_a=[],
-        requests_b=[],
-    )
+    verdict_over = _evaluate(engine, buf_base.getvalue(), buf_over.getvalue())
     self.assertEqual(verdict_over.visual.diff_pixels, 2)
     self.assertEqual(verdict_over.visual.diff_ratio, 0.002)
     self.assertEqual(verdict_over.verdict, "CHANGED")
@@ -1732,6 +1633,14 @@ class SxsDiffEngineTest(unittest.TestCase):
       self.assertEqual(resolved.steps[0].target, "overview_page")
       self.assertEqual(resolved.steps[1].target, "tpu_training/hlo_stats")
       self.assertEqual(resolved.steps[2].target, "tpu_training")
+
+      # A declared host that is present is kept, even if it does not sort first.
+      for host in ("t1v-n-0000-w-0", "t1v-n-9bfa07b4-w-0"):
+        (run_dir / f"{host}.xplane.pb").write_bytes(b"")
+      resolved = sxs_diff_engine.resolve_scenario_runs(
+          scenario, resolver, logdir=tmp
+      )
+      self.assertEqual(resolved.steps[2].target, "t1v-n-9bfa07b4-w-0")
 
       # Verify symmetrical separator normalization when multiple runs exist
       # (including hyphenated directory on disk queried with underscores) and
@@ -1871,9 +1780,7 @@ class SxsDiffEngineTest(unittest.TestCase):
     self.assertNotIn("gstatic", sanitized)
 
     # A genuine change to the app's own script wiring must still diff.
-    without_bundle = primary.replace(
-        '<script src="bundle.js"></script>', ""
-    )
+    without_bundle = primary.replace('<script src="bundle.js"></script>', "")
     self.assertNotEqual(
         engine.sanitize_dom(primary), engine.sanitize_dom(without_bundle)
     )

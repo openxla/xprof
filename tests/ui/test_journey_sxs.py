@@ -22,7 +22,6 @@ Execution:
 from collections.abc import Callable
 from collections.abc import Iterator
 import getpass
-import hashlib
 import os
 import pathlib
 import re
@@ -125,22 +124,6 @@ def _clear_tools_cache(logdir: str) -> None:
             child.unlink()
           except OSError:
             pass
-      for candidate_str in (str(run_dir), str(run_dir.resolve())):
-        cache_key = hashlib.sha256(candidate_str.encode("utf-8")).hexdigest()[
-            :16
-        ]
-        user_id = (
-            os.getuid() if hasattr(os, "getuid") else getpass.getuser()
-        )
-        tmp_cache = (
-            pathlib.Path(tempfile.gettempdir())
-            / f"xprof_{user_id}"
-            / f"xprof_{cache_key}_.cached_tools.json"
-        )
-        try:
-          tmp_cache.unlink()
-        except OSError:
-          pass
   user_id = os.getuid() if hasattr(os, "getuid") else getpass.getuser()
   tmp_dir = pathlib.Path(tempfile.gettempdir()) / f"xprof_{user_id}"
   if tmp_dir.is_dir():
@@ -357,15 +340,6 @@ def _format_failure_banner(
   return "\n".join(lines)
 
 
-def _resolve_scenario_runs(
-    scenario: JourneyScenario,
-    resolve_run: Callable[[str], str],
-    logdir: str | None = None,
-) -> JourneyScenario:
-  """Maps every run and host a scenario names onto ones in the logdir."""
-  return resolve_scenario_runs(scenario, resolve_run, logdir=logdir)
-
-
 # pylint: disable=redefined-outer-name
 @pytest.mark.parametrize("scenario", JOURNEY_SCENARIOS, ids=lambda s: s.id)
 def test_journey_capture_is_reproducible(
@@ -381,7 +355,7 @@ def test_journey_capture_is_reproducible(
   # Names are taken before resolution so the approval keys they become do not
   # depend on which runs happen to exist in this environment's logdir.
   names = waypoint_names(scenario)
-  scenario = _resolve_scenario_runs(scenario, resolve_run, logdir=logdir)
+  scenario = resolve_scenario_runs(scenario, resolve_run, logdir=logdir)
   session_path = os.path.join(logdir, scenario.fixture)
   if not os.path.exists(session_path):
     pytest.skip(f"Fixture '{scenario.fixture}' not present in logdir {logdir}")

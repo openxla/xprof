@@ -22,6 +22,7 @@ import subprocess
 import threading
 import traceback
 import unittest
+from unittest import mock
 import urllib.error
 import urllib.request
 from wsgiref import simple_server
@@ -41,6 +42,7 @@ try:
   base_plugin = standalone.base_plugin
   plugin_event_multiplexer = standalone.plugin_event_multiplexer
   from google3.third_party.xprof.tests.ui import invariants
+  from google3.third_party.xprof.tests.ui import ui_helpers
 except ImportError:
   try:
     from xprof import profile_plugin  # pyrefly: ignore[missing-import]
@@ -53,6 +55,7 @@ except ImportError:
         plugin_event_multiplexer,
     )
     from tests.ui import invariants  # pyrefly: ignore[missing-import]
+    from tests.ui import ui_helpers  # pyrefly: ignore[missing-import]
   except ImportError:
     profile_plugin = None  # pyrefly: ignore[assignment]
     profile_plugin_loader = None  # pyrefly: ignore[assignment]
@@ -60,6 +63,7 @@ except ImportError:
     base_plugin = None  # pyrefly: ignore[assignment]
     plugin_event_multiplexer = None  # pyrefly: ignore[assignment]
     import invariants  # pyrefly: ignore[missing-import]
+    import ui_helpers  # pyrefly: ignore[missing-import]
 # pylint: enable=g-import-not-at-top,g-importing-member
 
 
@@ -400,6 +404,179 @@ class InvariantsTest(unittest.TestCase):
     self.assertIsNotNone(
         invariants._DIFF_HEADER_RE.search("Speedup / Improvement")
     )
+
+  def test_poison_tokens(self) -> None:
+    """Verifies poison token detector surfaces invalid/NaN/undefined values."""
+    self.assertEqual(invariants.check_poison_tokens("Clean text 123"), [])
+    self.assertTrue(bool(invariants.check_poison_tokens("Cost: NaN ms")))
+    self.assertTrue(bool(invariants.check_poison_tokens("Status: undefined")))
+    self.assertTrue(bool(invariants.check_poison_tokens("[object Object]")))
+    self.assertTrue(bool(invariants.check_poison_tokens("Result: null")))
+    self.assertTrue(bool(invariants.check_poison_tokens("Error (null)")))
+    self.assertTrue(bool(invariants.check_poison_tokens("Value: INVALID")))
+
+  def test_positive_rendered_content_and_dom_invariants(self) -> None:
+    """Verifies DOM invariants detect collapsed charts and empty cards."""
+
+    class _FakeEl:
+      """Minimal element double for DOM invariant tests."""
+
+      def __init__(self, box=None, text=""):
+        self._box = box
+        self._text = text
+
+      def bounding_box(self):
+        return self._box
+
+      def inner_text(self):
+        return self._text
+
+      def count(self):
+        return 1
+
+      def locator(self, sel):
+        del sel
+        return self
+
+    class _FakePage:
+      """Minimal page double for DOM invariant tests."""
+
+      def __init__(self, charts, cards, tables):
+        self._charts = charts
+        self._cards = cards
+        self._tables = tables
+
+      def locator(self, selector):
+        if "svg" in selector or "canvas" in selector:
+          return type("_L", (), {"all": lambda s: self._charts})()
+        if "card" in selector:
+          return type("_L", (), {"all": lambda s: self._cards})()
+        if "table" in selector:
+          return type("_L", (), {"all": lambda s: self._tables})()
+        return type("_L", (), {"all": lambda s: []})()
+
+    healthy_page = _FakePage(
+        charts=[_FakeEl(box={"width": 100, "height": 100})],
+        cards=[_FakeEl(text="Performance Card")],
+        tables=[_FakeEl()],
+    )
+    self.assertEqual(
+        invariants.check_positive_rendered_content(healthy_page), []
+    )
+    self.assertEqual(invariants.run_dom_invariants(healthy_page), [])
+
+    collapsed_page = _FakePage(
+        charts=[_FakeEl(box={"width": 0, "height": 50})],
+        cards=[_FakeEl(text="  ")],
+        tables=[],
+    )
+    violations = invariants.check_positive_rendered_content(collapsed_page)
+    self.assertEqual(len(violations), 2)
+    self.assertIn("collapsed geometry: 0x50", violations[0])
+    self.assertIn("unexpectedly empty", violations[1])
+
+  def test_visualization_selector_and_component_geometry(self) -> None:
+    """Verifies VISUALIZATION_SELECTOR excludes :scope > * and enforces child geometry."""
+    self.assertNotIn(":scope > *", ui_helpers.VISUALIZATION_SELECTOR)
+    self.assertIn("op-table-entry .row", ui_helpers.VISUALIZATION_SELECTOR)
+    self.assertIn("svg", ui_helpers.VISUALIZATION_SELECTOR)
+    self.assertIn("iframe", ui_helpers.VISUALIZATION_SELECTOR)
+
+    class _BoxLocator:
+      """Locator double returning a fixed bounding box."""
+
+      def __init__(self, box):
+        self._box = box
+
+      @property
+      def first(self):
+        return self
+
+      def bounding_box(self):
+        return self._box
+
+    class _GeometryPage:
+      """Page double dispatching outer and child visualization locators."""
+
+      def __init__(self, comp_box, child_box):
+        self._comp_box = comp_box
+        self._child_box = child_box
+
+      def locator(self, selector):
+        if ui_helpers.VISUALIZATION_SELECTOR in selector:
+          return _BoxLocator(self._child_box)
+        return _BoxLocator(self._comp_box)
+
+    with mock.patch.object(
+        ui_helpers.sync_api, "expect", create=True
+    ):
+      ui_helpers.assert_component_geometry(
+          _GeometryPage(
+              {"width": 800, "height": 600},
+              {"width": 400, "height": 300},
+          ),
+          "input-pipeline",
+          "healthy step",
+      )
+      with self.assertRaisesRegex(
+          AssertionError, "child visualization collapsed"
+      ):
+        ui_helpers.assert_component_geometry(
+            _GeometryPage(
+                {"width": 800, "height": 600},
+                {"width": 0, "height": 300},
+            ),
+            "input-pipeline",
+            "collapsed child step",
+        )
+
+      class _BodyLocator:
+        """Locator double returning fixed body text."""
+
+        def __init__(self, text: str):
+          self._text = text
+
+        def inner_text(self) -> str:
+          return self._text
+
+        def all(self) -> list[object]:
+          return []
+
+      class _HealthyPage:
+        """Page double for assert_healthy tests."""
+
+        url = "about:blank"
+        frames = ()
+
+        def __init__(self, text: str, cells: list[str] | None = None):
+          self._text = text
+          self._cells = cells or []
+
+        def inner_text(self, selector: str) -> str:
+          del selector
+          return self._text
+
+        def evaluate(self, script: str, arg: object = None) -> list[str]:
+          del script, arg
+          return self._cells
+
+        def locator(self, selector: str) -> _BodyLocator:
+          del selector
+          return _BodyLocator(self._text)
+
+      ui_helpers.assert_healthy(
+          _HealthyPage("Overview Page Metrics", ["12.5 ms", "85.0%"]),
+          None,
+          "ok",
+      )
+      with self.assertRaisesRegex(AssertionError, "Empty page body rendered"):
+        ui_helpers.assert_healthy(_HealthyPage("   "), None, "blank")
+      with self.assertRaisesRegex(AssertionError, "Poison tokens detected"):
+        ui_helpers.assert_healthy(_HealthyPage("Value: NaN ms"), None, "nan")
+      with self.assertRaisesRegex(AssertionError, "Negative duration -4.2"):
+        ui_helpers.assert_healthy(
+            _HealthyPage("Overview Page Metrics", ["-4.2 ms"]), None, "cell"
+        )
 
 
 if __name__ == "__main__":

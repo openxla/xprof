@@ -89,14 +89,18 @@ _CHART_LOADER_POLL_MS = 100
 _CHART_LOADER_SETTLE_MS = 300
 _CHART_LOADER_TIMEOUT_MS = 15000
 
-# Regions that legitimately differ between two runs of the same build. Masking
-# paints them a flat color in both screenshots and clears their text in the
-# serialized DOM so the engine sees them as equal across runs.
+# Regions that legitimately differ between two runs of the same build, or
+# between the baseline and candidate builds. Masking paints them a flat color
+# in both screenshots and clears their text in the serialized DOM so the engine
+# sees them as equal across runs.
 MASK_SELECTORS: tuple[str, ...] = (
     # Absolute log directory, which embeds a per-run temporary path.
     "sidenav .session-path",
     # Trace Viewer rotates tutorial tips on a 3s timer while loading.
     ".tutorial",
+    # Plugin version. Nightly versions embed the build date, and the A/B
+    # baseline wheel is cached from an earlier build of master.
+    ".version-label",
 )
 
 # Flat fill painted over masked regions. Chosen to be absent from the XProf
@@ -759,7 +763,7 @@ def _wait_for_dom_quiescence(page: typing.Any) -> tuple[str, bool]:
   return previous, False
 
 
-_DEFAULT_TOOL_NAME_TO_TAG: dict[str, str] = {
+TOOL_NAME_TO_TAG: dict[str, str] = {
     "Overview Page": "overview_page",
     "Input Pipeline Analysis": "input_pipeline",
     "Kernel Stats": "kernel_stats",
@@ -773,12 +777,17 @@ _DEFAULT_TOOL_NAME_TO_TAG: dict[str, str] = {
     "Megascale Stats": "megascale_stats",
     "Roofline Model": "roofline_model",
     "HLO Op Stats": "hlo_stats",
+    "Op Profile": "op_profile",
+    "Inference Profile": "inference_profile",
+    "Megascale Viewer": "megascale_stats",
+    "Perf Counters": "perf_counters",
+    "Utilization Viewer": "utilization_viewer",
 }
 
 
 def settled_tool_url_pattern(tool_name: str) -> re.Pattern[str]:
   """Builds a URL regex requiring both pathname and tag query param to match."""
-  expected_tag = _DEFAULT_TOOL_NAME_TO_TAG.get(
+  expected_tag = TOOL_NAME_TO_TAG.get(
       tool_name, tool_name.lower().replace(" ", "_")
   )
   return re.compile(

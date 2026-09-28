@@ -2,23 +2,29 @@
 
 # pylint: disable=g-doc-args,g-doc-return-or-yield,g-short-docstring-punctuation
 
-import os
+from collections.abc import Callable
+import re
 
 # pylint: disable=g-import-not-at-top
 try:
   from tests.ui.conftest import BrowserErrors
-  from tests.ui.invariants import run_content_invariants
+  from tests.ui.ui_helpers import assert_component_geometry
+  from tests.ui.ui_helpers import assert_healthy
+  from tests.ui.ui_helpers import switch_tool
 except ImportError:
   from conftest import BrowserErrors
-  from invariants import run_content_invariants
+  from ui_helpers import assert_component_geometry
+  from ui_helpers import assert_healthy
+  from ui_helpers import switch_tool
 from playwright.sync_api import expect
 from playwright.sync_api import Page
 import pytest
 
 # Mapping of (run, tool_tag) to the corresponding DOM element selector that
-# MUST mount and render with non-zero geometry when the tool loads.
+# MUST mount and render with non-zero geometry when the tool loads. GPU-only
+# Kernel Stats is left to test_kernel_stats_rendering, which skips unless the
+# logdir has a gpu-training run; neither the demo nor the Kokoro logdir does.
 ACTIVE_TOOL_SPECS: list[tuple[str, str, str]] = [
-    # TPU-specific and shared tools
     ("tpu-training", "overview_page", "overview-page, overview-viewer"),
     ("tpu-training", "trace_viewer", "iframe, #filter-bar, .filter-bar"),
     (
@@ -33,24 +39,26 @@ ACTIVE_TOOL_SPECS: list[tuple[str, str, str]] = [
     ("tpu-training", "roofline_model", "roofline-model, .roofline-container"),
     ("tpu-training", "framework_op_stats", "framework-op-stats"),
     ("tpu-training", "hlo_stats", "hlo-stats"),
-    # GPU-specific tools
-    ("gpu-training", "kernel_stats", "kernel-stats, kernel-stats-adapter"),
 ]
+
+# Tool content that MUST render inside the component, besides the drawn
+# visualization that assert_component_geometry requires. ":scope" (the
+# component itself) for tools without such content.
+TOOL_CONTENT_SELECTORS: dict[str, str] = {
+    "graph_viewer": "iframe, svg, canvas",
+    "op_profile": "text=jit_train_step",
+    "input_pipeline_analyzer": "text=Summary of input-pipeline analysis",
+    "hlo_stats": "google-chart, .google-visualization-table",
+}
 
 
 def test_tool_navigation_shell(
     page: Page,
-    server_url: str,
-    logdir: str,
+    open_tool: Callable[..., str],
     browser_errors: BrowserErrors,
 ):
   """Verifies that navigation to the application root loads the shell."""
-  session_path = os.path.join(logdir, "tpu-training")
-  url = (
-      f"{server_url}/?session_path={session_path}&run=tpu-training"
-      "&tag=overview_page"
-  )
-  page.goto(url, wait_until="domcontentloaded")
+  open_tool("tpu-training", "overview_page")
 
   # Assert toolbar and header branding
   toolbar = page.locator("mat-toolbar")
@@ -71,83 +79,60 @@ def test_tool_navigation_shell(
 @pytest.mark.parametrize("run,tag,selector", ACTIVE_TOOL_SPECS)
 def test_individual_tool_loads(
     page: Page,
-    server_url: str,
-    logdir: str,
+    open_tool: Callable[..., str],
     browser_errors: BrowserErrors,
     run: str,
     tag: str,
     selector: str,
 ):
-  """Verifies that deep-linking to each tool mounts its specific component view."""
-  session_path = os.path.join(logdir, run)
-  url = f"{server_url}/?session_path={session_path}&run={run}&tag={tag}"
-  page.goto(url, wait_until="domcontentloaded")
+  """Verifies that deep-linking to each tool mounts its component view."""
+  open_tool(run, tag)
 
-  # Assert the specific tool view mounted
-  tool_view = page.locator(selector).first
-  expect(tool_view).to_be_visible(timeout=20000)
+  # Assert the specific tool view and its child visualization rendered
+  assert_component_geometry(page, selector, tag)
 
-  # Assert positive layout geometry
-  bbox = tool_view.bounding_box()
-  assert bbox is not None, f"Tool component '{tag}' has no bounding box"
-  assert (
-      bbox["width"] > 0 and bbox["height"] > 0
-  ), f"Tool component '{tag}' collapsed: {bbox}"
+  # Assert the tool's own content rendered inside the component
+  content = TOOL_CONTENT_SELECTORS.get(tag, ":scope")
+  element = page.locator(f":is({selector}):visible").first.locator(content)
+  expect(element.first).to_be_visible(timeout=20000)
+  bbox = element.first.bounding_box()
+  assert bbox and bbox["width"] > 0 and bbox["height"] > 0, (
+      f"{tag} content {content} collapsed: {bbox}"
+  )
 
-  # Assert DOM invariant health (no poison tokens)
-  violations = run_content_invariants(page.inner_text("body"))
-  assert not violations, f"Poison tokens detected in {tag}: {violations}"
-  browser_errors.assert_clean()
+  # Assert DOM invariant health (non-empty body and no poison tokens)
+  assert_healthy(page, browser_errors, tag)
 
 
 def test_unavailable_tool_fallback_redirection(
     page: Page,
-    server_url: str,
-    logdir: str,
+    open_tool: Callable[..., str],
     browser_errors: BrowserErrors,
 ):
-  """Verifies deep-linking to an unsupported tool tag redirects to overview_page."""
-  session_path = os.path.join(logdir, "tpu-training")
-
+  """Verifies deep-linking to an unsupported tool redirects to overview_page."""
   # 'kernel_stats' is only for GPU runs; on TPU it should fallback
-  url = (
-      f"{server_url}/?session_path={session_path}&run=tpu-training"
-      "&tag=kernel_stats"
-  )
-  page.goto(url, wait_until="domcontentloaded")
+  open_tool("tpu-training", "kernel_stats")
 
   # Must gracefully route to overview page without crashing the shell
   overview_view = page.locator("overview-page, overview-viewer").first
   expect(overview_view).to_be_visible(timeout=20000)
-  browser_errors.assert_clean()
+  assert_healthy(page, browser_errors, "unavailable_tool_fallback")
 
 
 def test_tool_dropdown_selection(
     page: Page,
-    server_url: str,
-    logdir: str,
+    open_tool: Callable[..., str],
     browser_errors: BrowserErrors,
 ):
   """Verifies selecting a tool from the sidebar dropdown loads that tool view."""
-  session_path = os.path.join(logdir, "tpu-training")
-  url = (
-      f"{server_url}/?session_path={session_path}&run=tpu-training"
-      "&tag=overview_page"
-  )
-  page.goto(url, wait_until="domcontentloaded")
+  open_tool("tpu-training", "overview_page")
   expect(
       page.locator("overview-page mat-card, overview-viewer mat-card").first
   ).to_be_visible(timeout=20000)
 
-  # Open the Tools dropdown and select Op Profile
-  tool_dropdown = page.locator(
-      "sidenav .item-container:has-text('Tools') mat-select"
-  )
-  tool_dropdown.click()
-  page.locator("mat-option").filter(has_text="Op Profile").first.click()
-
-  # Verify Op Profile mounts
+  switch_tool(page, "Op Profile")
+  expect(page).to_have_url(re.compile(r"tag=op_profile"), timeout=20000)
   expect(page.locator("op-profile, op-profile-base").first).to_be_visible(
       timeout=20000
   )
-  browser_errors.assert_clean()
+  assert_healthy(page, browser_errors, "Op Profile")

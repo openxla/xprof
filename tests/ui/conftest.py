@@ -23,15 +23,18 @@ import pytest
 # pylint: disable=g-import-not-at-top
 try:
   from google3.third_party.xprof.tests.ui import sxs_diff_engine
+  from google3.third_party.xprof.tests.ui import ui_helpers
 except ModuleNotFoundError as err:
   if not (err.name or "").startswith("google3"):
     raise
   try:
     from tests.ui import sxs_diff_engine  # pyrefly: ignore[missing-import]
+    from tests.ui import ui_helpers  # pyrefly: ignore[missing-import]
   except ModuleNotFoundError as err2:
     if not (err2.name or "").startswith("tests"):
       raise
     import sxs_diff_engine  # pyrefly: ignore[missing-import]
+    import ui_helpers  # pyrefly: ignore[missing-import]
 # pylint: enable=g-import-not-at-top
 
 # Server configuration
@@ -46,6 +49,7 @@ KNOWN_UPSTREAM_BUGS = [
     "favicon.ico",
     "gstatic.com",
     "Cannot set properties of null",  # Standalone iframe reload bug
+    "split is not a function",  # Thrown by the app when Trace Viewer opens
     "EmptyError",  # RxJS stream termination without defaultIfEmpty
     # EmptyError's runtime message. Console text carries the message, not the
     # class name, so the entry above never matches on its own.
@@ -73,8 +77,7 @@ def _find_repo_root() -> pathlib.Path:
   return pathlib.Path.cwd()
 
 
-@pytest.fixture(scope="session")
-def logdir() -> str:
+def _source_logdir() -> str:
   """Resolves the absolute path to the demo profile dataset directory."""
   if custom_logdir := os.environ.get("XPROF_LOGDIR"):
     profile_subdir = pathlib.Path(custom_logdir) / "plugins" / "profile"
@@ -102,6 +105,28 @@ def logdir() -> str:
   raise FileNotFoundError(
       f"Could not locate demo profile directory '{RELATIVE_PROFILE_DATA_DIR}'."
   )
+
+
+@pytest.fixture(scope="session")
+def logdir() -> Iterator[str]:
+  """Links the demo traces into a per-session directory the server writes to.
+
+  The server caches converted tool data next to each trace, so serving the
+  checked-in directory would leave those files in the source tree.
+  """
+  source_dir = _source_logdir()
+  if os.environ.get("XPROF_LOGDIR"):
+    # An external server (Kokoro) already serves this directory, so tool URLs
+    # must name its paths rather than those of a copy.
+    yield source_dir
+    return
+  with tempfile.TemporaryDirectory(prefix="xprof_logdir_") as staged_root:
+    staged = pathlib.Path(staged_root, "demo", "plugins", "profile")
+    staged.mkdir(parents=True)
+    for trace in pathlib.Path(source_dir).glob("*/*.xplane.pb"):
+      (staged / trace.parent.name).mkdir(exist_ok=True)
+      (staged / trace.parent.name / trace.name).symlink_to(trace.resolve())
+    yield str(staged)
 
 
 def _find_free_port(host: str) -> int:
@@ -200,6 +225,32 @@ def resolve_run(logdir: str) -> Callable[[str], str]:
   return sxs_diff_engine.make_run_resolver(logdir)
 
 
+@pytest.fixture
+def open_tool(
+    page: Page,
+    server_url: str,
+    logdir: str,
+    resolve_run: Callable[[str], str],
+) -> Callable[..., str]:
+  """Returns a function that deep-links the page to a tool of a demo run.
+
+  The function maps the declared run onto one in the logdir, opens the tool
+  with any extra query parameters, and returns the run it opened.
+  """
+
+  def _open(run: str, tag: str, **params: str) -> str:
+    run = resolve_run(run)
+    page.goto(
+        ui_helpers.build_tool_url(
+            server_url, os.path.join(logdir, run), run, tag, **params
+        ),
+        wait_until="domcontentloaded",
+    )
+    return run
+
+  return _open
+
+
 @dataclasses.dataclass
 class BrowserErrors:
   """Captures unexpected browser console errors and page crashes."""
@@ -225,9 +276,14 @@ class BrowserErrors:
 
 
 @pytest.fixture(autouse=True)
-def browser_errors(page: Page) -> Iterator[BrowserErrors]:
-  """Automatically hooks into browser logs for every test."""
+def browser_errors(request: pytest.FixtureRequest) -> Iterator[BrowserErrors]:
+  """Automatically hooks into browser logs for every Playwright page test."""
   tracker = BrowserErrors()
+  if "page" not in request.fixturenames:
+    yield tracker
+    return
+
+  page: Page = request.getfixturevalue("page")
 
   def on_console(msg):
     if msg.type in ("error", "assert"):

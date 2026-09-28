@@ -254,14 +254,34 @@ export class HloStats extends Dashboard implements OnDestroy {
           active: SimpleDataTable | null;
           baseline: SimpleDataTable | null;
         }) => {
-          this.throbber.stop();
-          setLoadingState(false, this.store);
-          this.baselineData = baseline;
-          this.data = this.mergeTables(active, baseline);
-          this.process(this.data);
-          this.onCheckInputParams();
+          this.whenChartsLoaded(() => {
+            this.throbber.stop();
+            setLoadingState(false, this.store);
+            this.baselineData = baseline;
+            this.data = this.mergeTables(active, baseline);
+            this.process(this.data);
+            this.onCheckInputParams();
+          });
         },
       );
+  }
+
+  /**
+   * Runs `callback` once the Google Charts packages have loaded.
+   *
+   * `process()` and the charts bound to `data` build
+   * `google.visualization.DataTable`s. When HLO Op Stats is the first page
+   * opened, its data can arrive before the packages load.
+   */
+  private whenChartsLoaded(callback: () => void) {
+    if (typeof google.visualization?.DataTable === 'function') {
+      callback();
+      return;
+    }
+    google.charts.safeLoad({'packages': ['corechart', 'table']});
+    google.charts.setOnLoadCallback(() => {
+      this.zone.run(callback);
+    });
   }
 
   private mergeTables(

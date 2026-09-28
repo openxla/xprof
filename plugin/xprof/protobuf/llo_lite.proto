@@ -225,6 +225,19 @@ enum PseudoKindProto {
   PSEUDO_KIND_SPLIT_COPY = 12;
 }
 
+message BundlePackerInfoProto {
+  int32 point_of_no_return_index = 1;
+  int32 operand_latency_dep_index = 2;
+  int32 fifo_dep_index = 3;
+  int32 register_dep_index = 4;
+  int32 arch_register_dep_index = 5;
+  int32 source_bus_dep_index = 6;
+  int32 min_safe_hoist_index = 7;
+  int32 final_bundle_index = 8;
+  int32 hoist_distance_cur = 9;
+  int32 hoist_distance_prev = 10;
+}
+
 message LloInstructionProto {
   int32 ordinal = 1;
   LloOpcodeProto opcode = 2;
@@ -233,6 +246,7 @@ message LloInstructionProto {
   sint32 register_id = 7;
   RegisterTypeProto register_type = 8;
   optional int32 annotation_handle = 9;
+  BundlePackerInfoProto bundle_packer_info = 33;
   oneof metadata {
     PseudoKindProto pseudo_kind = 29;
   }

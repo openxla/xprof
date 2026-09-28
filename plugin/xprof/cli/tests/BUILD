@@ -166,6 +166,15 @@ pytype_strict_contrib_test(
 )
 
 pytype_strict_contrib_test(
+    name = "oss_llo_static_analysis_tool_test",
+    srcs = ["oss_llo_static_analysis_tool_test.py"],
+    deps = [
+        "//plugin/xprof/cli/tools/oss:llo_static_analysis_tool",
+        "@absl_py//absl/testing:absltest",
+    ],
+)
+
+pytype_strict_contrib_test(
     name = "xprof_data_test",
     srcs = ["xprof_data_test.py"],
     visibility = ["//visibility:public"],
@@ -183,7 +192,10 @@ pytype_strict_contrib_test(
     srcs = ["xprof_cli_test.py"],
     visibility = ["//visibility:public"],
     deps = [
+        "//plugin/xprof:server",
         "//plugin/xprof/cli:xprof_cli_lib",
+        "//plugin/xprof/cli/tools:install_skills_tool",
+        "//plugin/xprof/cli/tools/oss:diff_sessions_tool",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
     ],

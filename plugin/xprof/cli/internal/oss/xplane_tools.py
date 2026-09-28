@@ -22,6 +22,21 @@ from xprof.cli.internal import decorators
 
 from . import xprof_client
 
+# XLine names that indicate a capture carries LLO-level detail. Keep in sync
+# with cli/internal/google/xplane_tools.py.
+_LLO_LINE_NAMES = frozenset({
+    "Pallas Primitives",
+    "Source Lines",
+    "Source code",
+    "LLO Instructions",
+    "SALU Instructions",
+    "VALU Instructions",
+    "EUP Instructions",
+    "XLU Instructions",
+    "VLD Instructions",
+    "VST Instructions",
+})
+
 
 def iter_planes(source: Any) -> Iterator[Any]:
   """Yields all XPlanes from a session ID, file path, or in-memory object.
@@ -392,3 +407,79 @@ def get_xspace_proto(
     )
 
   return data
+
+
+def inspect_capture(session_id: str) -> str:
+  """Returns plane/line inventory and capture-verification gate flags as JSON."""
+  planes_inventory = []
+  valid_device = False
+  valid_llo = False
+  valid_counters = False
+
+  for plane in iter_planes(session_id):
+    plane_name = getattr(plane, "name", "") or ""
+    lines_list = []
+    plane_events = 0
+
+    if "/host:metadata" in plane_name:
+      for stat_meta in getattr(plane, "stat_metadata", {}).values():
+        if getattr(stat_meta, "name", "") == "llo_proto":
+          valid_llo = True
+          break
+      # A `ProfilePlane` exposes stats as (name, value) tuples, so unlike the
+      # 1P `XPlane` proto these carry their own names and must be scanned
+      # separately. Keep in sync with cli/internal/google/xplane_tools.py.
+      for stat in getattr(plane, "stats", []) or []:
+        stat_name = (
+            stat[0] if isinstance(stat, tuple) else getattr(stat, "name", "")
+        )
+        if stat_name == "llo_proto":
+          valid_llo = True
+          break
+
+    for line in getattr(plane, "lines", []) or []:
+      line_name = (
+          getattr(line, "display_name", "") or getattr(line, "name", "") or ""
+      )
+      events = getattr(line, "events", []) or []
+      ev_count = len(events)
+      plane_events += ev_count
+      lines_list.append({"name": line_name, "event_count": ev_count})
+
+      if ev_count > 0:
+        if (
+            "/device:" in plane_name
+            or "TPU:" in plane_name
+            or "GPU:" in plane_name
+        ) and line_name in ("XLA Modules", "XLA Ops", "XLA TraceMe"):
+          valid_device = True
+        if (
+            line_name in _LLO_LINE_NAMES
+            or "MXU" in line_name
+            or ("/host:metadata" in plane_name and "llo" in line_name.lower())
+        ):
+          valid_llo = True
+        if (
+            "_counters_" in line_name
+            or "TC Stats" in line_name
+            or "SC Stats" in line_name
+            or "CMN Stats" in line_name
+        ):
+          valid_counters = True
+
+    planes_inventory.append({
+        "name": plane_name,
+        "lines": lines_list,
+        "total_events": plane_events,
+    })
+
+  return json.dumps(
+      {
+          "session_id": str(session_id),
+          "planes": planes_inventory,
+          "capture_valid_for_device_analysis": valid_device,
+          "capture_valid_for_llo_analysis": valid_llo,
+          "capture_valid_for_counter_sampling": valid_counters,
+      },
+      indent=2,
+  )

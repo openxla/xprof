@@ -106,6 +106,14 @@ inline constexpr Pixel kSelectedDataPointRadius = 4.0f;
 inline constexpr float kGroupPreviewOpacity = 0.6f;
 // go/keep-sorted end
 
+// Splitter Highlighting Constants
+// go/keep-sorted start
+inline constexpr ImU32 kSplitterActiveColor = kBlue60;
+inline constexpr ImU32 kSplitterHoverColor = kBlue80;
+inline constexpr Pixel kSplitterDefaultThickness = 1.0f;
+inline constexpr Pixel kSplitterHoverThickness = 2.0f;
+// go/keep-sorted end
+
 // Process Track Constants
 // go/keep-sorted start
 inline constexpr ImU32 kProcessTrackCollapsedColor = kInverseOnSurfaceColor;
@@ -235,6 +243,7 @@ inline constexpr char kAllHeaderName[] = "All";
 inline constexpr char kCannotHideLastProcessNotification[] =
     "Cannot hide the last visible process.";
 inline constexpr char kCounterTooltipFormat[] = "Time: %s\nValue: %.2f";
+inline constexpr char kDragToResizeTooltip[] = "Drag to resize";
 inline constexpr char kHiddenHeaderName[] = "Hidden";
 inline constexpr char kHiddenProcessNotificationPrefix[] = "Hidden process: ";
 inline constexpr char kHideTrackTooltip[] = "Hide track";

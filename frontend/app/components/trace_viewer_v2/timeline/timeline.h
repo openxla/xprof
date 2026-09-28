@@ -295,6 +295,9 @@ class Timeline {
   void set_label_width_for_test(Pixel width) {
     label_width_ = width;
   }
+  bool get_is_resizing_label_column_for_test() const {
+    return is_resizing_label_column_;
+  }
   void set_track_management_enabled_for_test(bool enabled) {
     track_management_enabled_ = enabled;
   }

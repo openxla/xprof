@@ -77,6 +77,7 @@ cc_library(
         "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/log",
+        "@com_google_absl//absl/strings",
         "@xla//xla/tsl/profiler/utils:math_utils",
     ],
 )
@@ -343,15 +344,17 @@ cc_library(
     srcs = ["kernel_stats_utils.cc"],
     hdrs = ["kernel_stats_utils.h"],
     deps = [
+        ":cuda_type_utils",
+        ":rocm_type_utils",
         "//plugin/xprof/protobuf:kernel_stats_proto_cc",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/hash",
         "@com_google_absl//absl/log",
-        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
         "@xla//xla/tsl/platform:logging",
         "@xla//xla/tsl/platform:types",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
     ],
 )
 
@@ -365,6 +368,7 @@ cc_test(
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
         "@xla//xla/backends/profiler/gpu:cupti_buffer_events",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
     ],
 )
 

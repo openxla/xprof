@@ -21,6 +21,8 @@ limitations under the License.
 
 #include "absl/container/btree_map.h"
 #include "absl/log/log.h"
+#include "absl/strings/match.h"
+#include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
 
@@ -28,6 +30,30 @@ namespace tensorflow {
 namespace profiler {
 namespace cuda {
 namespace {
+
+// A list of patterns to help determine if a kernel uses Tensor Core.
+// A kernel uses Tensor Core if its kernel name contains any of these patterns.
+// Some examples of kernel names: volta_h884gemm, turing_fp16_s1688cudnn_fp16
+constexpr absl::string_view kTensorCoreKernelNamePatterns[] = {
+    "16816",
+    "c1688",
+    "conv1x1",
+    "conv2d_c1_k1",
+    "dgrad_1x1_stride_2x2",
+    "direct_group",
+    "first_layer_wgrad_kernel",
+    "h1688",
+    "h884",
+    "hmma",
+    "i16832",
+    "i8816",
+    "s884",
+    "s1688",
+    "xmma_gemm",
+    "xmma_implicit_gemm",
+    "xmma_sparse_conv",
+    "xmma_sparse_gemm",
+    "xmma_warp_specialized_implicit_gemm"};
 
 struct GpuFlopCapabilities {
   struct FlopCapabilityOnPrecisions {
@@ -361,6 +387,15 @@ std::string GpuModelName(const DeviceCapabilities& device_cap) {
     default:
       return "Nvidia GPU";
   }
+}
+
+bool IsKernelUsingTensorCore(absl::string_view kernel_name) {
+  for (absl::string_view pattern : kTensorCoreKernelNamePatterns) {
+    if (absl::StrContains(kernel_name, pattern)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace cuda

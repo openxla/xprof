@@ -34,6 +34,10 @@ TEST(ConvertXplaneToKernelStats, MultiKernels) {
   XSpace space;
   XPlane* device_trace = space.add_planes();
   tsl::profiler::XPlaneBuilder device_trace_builder(device_trace);
+  device_trace_builder.AddStatValue(
+      *device_trace_builder.GetOrCreateStatMetadata(
+          tsl::profiler::GetStatTypeStr(StatType::kDevVendor)),
+      tsl::profiler::kDeviceVendorNvidia);
 
   // Empty default stream
   device_trace_builder.GetOrCreateLine(0);
@@ -133,6 +137,67 @@ occ_pct:25.0)MULTI"},
     EXPECT_TRUE(kernel.is_kernel_using_tensor_core());
     EXPECT_TRUE(kernel.is_op_tensor_core_eligible());
     EXPECT_EQ(kernel.op_name(), "Einsum_80");
+  }
+}
+
+TEST(ConvertXplaneToKernelStats, AmdMatrixCoreKernels) {
+  XSpace space;
+  XPlane* device_trace = space.add_planes();
+  tsl::profiler::XPlaneBuilder device_trace_builder(device_trace);
+  device_trace_builder.AddStatValue(
+      *device_trace_builder.GetOrCreateStatMetadata(
+          tsl::profiler::GetStatTypeStr(StatType::kDevVendor)),
+      tsl::profiler::kDeviceVendorAMD);
+
+  tsl::profiler::XLineBuilder line_builder =
+      device_trace_builder.GetOrCreateLine(0);
+  CreateXEvent(&device_trace_builder, &line_builder,
+               "Cijk_Ailk_Bljk_HHS_BH_MT128x128x16_MI32x32x8x1_SE_K1",
+               /*offset_ps=*/10000, /*duration_ps=*/2000,
+               {{StatType::kTfOp, "mul_786"},
+                {StatType::kKernelDetails, R"MULTI(regs:32
+static_shared:0
+dynamic_shared:16384
+grid:2,1,1
+block:64,1,1
+occ_pct:25.0)MULTI"},
+                {StatType::kEquation, ""}});
+
+  CreateXEvent(&device_trace_builder, &line_builder,
+               "volta_fp16_s884gemm_fp16_128x128_ldg8_f2f_tn",
+               /*offset_ps=*/20000, /*duration_ps=*/1000,
+               {{StatType::kTfOp, "mul_786"},
+                {StatType::kKernelDetails, R"MULTI(regs:32
+static_shared:0
+dynamic_shared:16384
+grid:2,1,1
+block:64,1,1
+occ_pct:25.0)MULTI"},
+                {StatType::kEquation, ""}});
+
+  KernelReportMap reports;
+  ConvertDeviceTraceXPlaneToKernelReports(*device_trace, {}, &reports);
+  KernelStatsDb kernel_stats;
+  CopyTopKDurationKernelReportsToDb(reports, &kernel_stats);
+
+  ASSERT_EQ(kernel_stats.reports_size(), 2);
+
+  {
+    // Tensile's MatrixInstruction token matches, which also promotes the op to
+    // eligible even though "mul_786" is not on the eligibility list.
+    const auto& kernel = kernel_stats.reports().at(0);
+    EXPECT_EQ(kernel.name(),
+              "Cijk_Ailk_Bljk_HHS_BH_MT128x128x16_MI32x32x8x1_SE_K1");
+    EXPECT_TRUE(kernel.is_kernel_using_tensor_core());
+    EXPECT_TRUE(kernel.is_op_tensor_core_eligible());
+  }
+
+  {
+    // The Nvidia patterns are not applied to an AMD plane.
+    const auto& kernel = kernel_stats.reports().at(1);
+    EXPECT_EQ(kernel.name(), "volta_fp16_s884gemm_fp16_128x128_ldg8_f2f_tn");
+    EXPECT_FALSE(kernel.is_kernel_using_tensor_core());
+    EXPECT_FALSE(kernel.is_op_tensor_core_eligible());
   }
 }
 

@@ -18,6 +18,7 @@ limitations under the License.
 
 #include <string>
 
+#include "absl/strings/string_view.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
 
 namespace tensorflow {
@@ -33,6 +34,9 @@ double GetSharedMemoryBandwidthPerCore(const DeviceCapabilities& device_cap);
 
 // GCN architecture, e.g. "AMD GPU - gfx942".
 std::string GpuModelName(const DeviceCapabilities& device_cap);
+
+// True if kernel name matches against known Matrix Core naming patterns.
+bool IsKernelUsingMatrixCore(absl::string_view kernel_name);
 
 }  // namespace rocm
 }  // namespace profiler

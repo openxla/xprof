@@ -179,6 +179,10 @@ def get_kernel_stats(
 
     kernel_durations_us = collections.defaultdict(list)
     all_intervals: list[tuple[int, int]] = []
+    line_intervals: dict[str, list[tuple[int, int]]] = collections.defaultdict(
+        list
+    )
+    custom_call_intervals: list[tuple[int, int]] = []
     step_durations_us: list[float] = []
     excluded_region_lines: set[str] = set()
 
@@ -190,6 +194,12 @@ def get_kernel_stats(
 
       for line in plane.lines:
         line_name_upper = line.name.upper()
+        if include_summary:
+          for event in line.events:
+            start_ns = int(event.start_ns)
+            end_ns = start_ns + int(event.duration_ns)
+            line_intervals[line.name].append((start_ns, end_ns))
+
         is_region_line = False
         if is_tpu:
           line_kind = classify_tpu_line(line.name)
@@ -246,6 +256,14 @@ def get_kernel_stats(
             start_ns = int(event.start_ns)
             end_ns = start_ns + int(event.duration_ns)
             all_intervals.append((start_ns, end_ns))
+            name_lower = name_info.lower()
+            if (
+                name_lower.startswith("custom-call")
+                or "custom_call" in name_lower
+                or "pallas" in name_lower
+                or "PALLAS" in line_name_upper
+            ):
+              custom_call_intervals.append((start_ns, end_ns))
 
     if not kernel_durations_us:
       msg = f"No kernel stats found for session {source}"
@@ -256,6 +274,9 @@ def get_kernel_stats(
             "total_device_duration_ns": 0,
             "total_device_duration_us": 0.0,
             "total_device_duration_ms": 0.0,
+            "by_line_duration_ns": {},
+            "custom_call_duration_us": 0.0,
+            "custom_call_share_pct": 0.0,
             "kernel_records": [],
             "step_durations_us": [],
             "stats": {"mean_us": 0.0, "std_us": 0.0},
@@ -293,6 +314,15 @@ def get_kernel_stats(
       total_ns = compute_disjoint_interval_union_ns(all_intervals)
       total_us = float(total_ns / 1000.0)
       total_ms = float(total_ns / 1_000_000.0)
+      by_line_duration_ns = {
+          line_name: compute_disjoint_interval_union_ns(intervals)
+          for line_name, intervals in line_intervals.items()
+      }
+      custom_call_ns = compute_disjoint_interval_union_ns(custom_call_intervals)
+      custom_call_us = round(float(custom_call_ns / 1000.0), 4)
+      custom_call_pct = (
+          round((custom_call_ns / total_ns) * 100.0, 2) if total_ns > 0 else 0.0
+      )
       mean_us = total_us if not step_durations_us else (
           sum(step_durations_us) / len(step_durations_us)
       )
@@ -303,6 +333,9 @@ def get_kernel_stats(
           "total_device_duration_ns": total_ns,
           "total_device_duration_us": total_us,
           "total_device_duration_ms": total_ms,
+          "by_line_duration_ns": by_line_duration_ns,
+          "custom_call_duration_us": custom_call_us,
+          "custom_call_share_pct": custom_call_pct,
           "kernel_records": records,
           "step_durations_us": step_durations_us,
           "stats": {"mean_us": round(mean_us, 4), "std_us": round(std_us, 4)},
@@ -318,6 +351,24 @@ def get_kernel_stats(
             " include_intra_kernel_regions=True to include them, tagged with"
             " is_intra_kernel_region."
         )
+      if isinstance(source, str):
+        try:
+          import importlib  # pylint: disable=g-import-not-at-top
+
+          try:
+            llo_mod = importlib.import_module(
+                "google3.third_party.xprof.plugin.xprof.cli.tools.get_llo_analysis_tool"
+            )
+          except ImportError:
+            llo_mod = importlib.import_module(
+                "xprof.cli.tools.get_llo_analysis_tool"
+            )
+          llo_json = llo_mod.get_llo_analysis(source)
+          llo_parsed = json.loads(llo_json)
+          if isinstance(llo_parsed, (dict, list)) and llo_parsed:
+            summary["static_llo_census"] = llo_parsed
+        except Exception:  # pylint: disable=broad-exception-caught
+          pass
       if output_format == "dict":
         return summary
       if output_format == "markdown":

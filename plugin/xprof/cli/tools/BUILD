@@ -36,6 +36,7 @@ pytype_strict_library(
     name = "get_overview_tool",
     srcs = ["get_overview_tool.py"],
     deps = [
+        ":get_roofline_model_tool",
         "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal/oss:xprof_client",
     ],
@@ -109,6 +110,7 @@ pytype_strict_library(
     srcs = ["get_utilization_viewer_tool.py"],
     deps = [
         "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal:xprof_data",
         "//plugin/xprof/cli/internal/oss:xprof_client",
     ],
 )
@@ -157,4 +159,10 @@ pytype_strict_library(
         ":get_overview_tool",
         ":get_roofline_model_tool",
     ],
+)
+
+pytype_strict_library(
+    name = "install_skills_tool",
+    srcs = ["install_skills_tool.py"],
+    data = ["//:skills_files"],
 )

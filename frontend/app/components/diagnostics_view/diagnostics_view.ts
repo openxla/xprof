@@ -1,17 +1,30 @@
-import {ChangeDetectionStrategy, Component, Input} from '@angular/core';
+import '@material/web/icon/icon.js';
+import '@material/web/iconbutton/icon-button.js';
+
+import {
+  ChangeDetectionStrategy,
+  Component,
+  CUSTOM_ELEMENTS_SCHEMA,
+  input,
+} from '@angular/core';
 import {type Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 
 /** An diagnostics view component. */
 @Component({
+  standalone: true,
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
   selector: 'diagnostics-view',
   templateUrl: './diagnostics_view.ng.html',
   styleUrls: ['./diagnostics_view.scss'],
+  schemas: [CUSTOM_ELEMENTS_SCHEMA],
 })
 export class DiagnosticsView {
   /** Error and warning messages for diagnosing profiling issues */
-  @Input() diagnostics: Diagnostics = {info: [], warnings: [], errors: []};
+  readonly diagnostics = input<Diagnostics>({
+    info: [],
+    warnings: [],
+    errors: [],
+  });
   showErrors = true;
   showWarnings = true;
   showInfo = true;
@@ -21,18 +34,19 @@ export class DiagnosticsView {
     category: 'errors' | 'warnings' | 'info',
     index: number,
   ): void {
-    if (!this.diagnostics) return;
-    if (category === 'errors' && this.diagnostics.errors) {
-      if (index >= 0 && index < this.diagnostics.errors.length) {
-        this.diagnostics.errors.splice(index, 1);
+    const diag = this.diagnostics();
+    if (!diag) return;
+    if (category === 'errors' && diag.errors) {
+      if (index >= 0 && index < diag.errors.length) {
+        diag.errors.splice(index, 1);
       }
-    } else if (category === 'warnings' && this.diagnostics.warnings) {
-      if (index >= 0 && index < this.diagnostics.warnings.length) {
-        this.diagnostics.warnings.splice(index, 1);
+    } else if (category === 'warnings' && diag.warnings) {
+      if (index >= 0 && index < diag.warnings.length) {
+        diag.warnings.splice(index, 1);
       }
-    } else if (category === 'info' && this.diagnostics.info) {
-      if (index >= 0 && index < this.diagnostics.info.length) {
-        this.diagnostics.info.splice(index, 1);
+    } else if (category === 'info' && diag.info) {
+      if (index >= 0 && index < diag.info.length) {
+        diag.info.splice(index, 1);
       }
     }
   }

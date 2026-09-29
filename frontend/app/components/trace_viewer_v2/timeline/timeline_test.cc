@@ -97,6 +97,11 @@ class MockTimeline : public Timeline {
   }
   const std::vector<bool>& CallGroupVisible() const { return group_visible(); }
 
+  void CallTraverseGroups(
+      absl::FunctionRef<bool(const Group&)> callback) const {
+    TraverseGroups(callback);
+  }
+
   void CallDrawEvent(int group_index, int event_index, const EventRect& rect,
                      ImDrawList* absl_nonnull draw_list) {
     DrawEvent(group_index, event_index, rect, draw_list);
@@ -231,6 +236,331 @@ TEST(TimelineTest, GetNextGroupStartLevelOutOfBounds) {
   // Out-of-bounds (too large index) should safely
   // return events_by_level size = 5
   EXPECT_EQ(Timeline::GetNextGroupStartLevel(data, 1), 5);
+}
+
+TEST(TimelineTest, BuildTreeForTest) {
+  FlameChartTimelineData data;
+  data.group_tree.groups.push_back(Group{
+      .name = "Process 1",
+      .start_level = 0,
+      .nesting_level = kProcessNestingLevel,
+      .expanded = true,
+  });
+  data.group_tree.groups.push_back(Group{
+      .name = "Thread 1",
+      .start_level = 1,
+      .nesting_level = kThreadNestingLevel,
+      .expanded = true,
+  });
+  data.events_by_level.resize(3);
+
+  EXPECT_EQ(data.group_tree.all_section_group->first_child, nullptr);
+
+  Timeline::BuildTreeForTest(data);
+
+  ASSERT_NE(data.group_tree.all_section_group->first_child, nullptr);
+  EXPECT_EQ(data.group_tree.all_section_group->first_child,
+            &data.group_tree.groups[0]);
+  EXPECT_EQ(data.group_tree.groups[0].parent,
+            data.group_tree.all_section_group);
+  EXPECT_EQ(data.group_tree.groups[0].first_child, &data.group_tree.groups[1]);
+  EXPECT_EQ(data.group_tree.groups[1].parent, &data.group_tree.groups[0]);
+  EXPECT_EQ(data.group_tree.groups[0].original_index, 0);
+  EXPECT_EQ(data.group_tree.groups[1].original_index, 1);
+  EXPECT_TRUE(data.group_tree.groups[0].has_children);
+  EXPECT_FALSE(data.group_tree.groups[1].has_children);
+  EXPECT_EQ(data.group_tree.groups[0].level_count, 1);
+  EXPECT_EQ(data.group_tree.groups[1].level_count, 2);
+}
+
+TEST(GroupTest, AddChildAndUnlinkOnlyChild) {
+  Group parent{.name = "Parent"};
+  Group child{.name = "Child"};
+
+  parent.AddChild(&child);
+  EXPECT_TRUE(parent.has_children);
+  EXPECT_EQ(parent.first_child, &child);
+  EXPECT_EQ(parent.last_child, &child);
+  EXPECT_EQ(child.parent, &parent);
+  EXPECT_EQ(child.prev_sibling, nullptr);
+  EXPECT_EQ(child.next_sibling, nullptr);
+
+  child.Unlink();
+  EXPECT_FALSE(parent.has_children);
+  EXPECT_EQ(parent.first_child, nullptr);
+  EXPECT_EQ(parent.last_child, nullptr);
+  EXPECT_EQ(child.parent, nullptr);
+  EXPECT_EQ(child.prev_sibling, nullptr);
+  EXPECT_EQ(child.next_sibling, nullptr);
+}
+
+TEST(GroupTest, AddChildAndUnlinkFirstChild) {
+  Group parent{.name = "Parent"};
+  Group c1{.name = "C1"}, c2{.name = "C2"}, c3{.name = "C3"};
+  parent.AddChild(&c1);
+  parent.AddChild(&c2);
+  parent.AddChild(&c3);
+
+  c1.Unlink();
+  EXPECT_TRUE(parent.has_children);
+  EXPECT_EQ(parent.first_child, &c2);
+  EXPECT_EQ(parent.last_child, &c3);
+  EXPECT_EQ(c2.prev_sibling, nullptr);
+  EXPECT_EQ(c2.next_sibling, &c3);
+  EXPECT_EQ(c3.prev_sibling, &c2);
+  EXPECT_EQ(c3.next_sibling, nullptr);
+  EXPECT_EQ(c1.parent, nullptr);
+}
+
+TEST(GroupTest, AddChildAndUnlinkMiddleChild) {
+  Group parent{.name = "Parent"};
+  Group c1{.name = "C1"}, c2{.name = "C2"}, c3{.name = "C3"};
+  parent.AddChild(&c1);
+  parent.AddChild(&c2);
+  parent.AddChild(&c3);
+
+  c2.Unlink();
+  EXPECT_TRUE(parent.has_children);
+  EXPECT_EQ(parent.first_child, &c1);
+  EXPECT_EQ(parent.last_child, &c3);
+  EXPECT_EQ(c1.prev_sibling, nullptr);
+  EXPECT_EQ(c1.next_sibling, &c3);
+  EXPECT_EQ(c3.prev_sibling, &c1);
+  EXPECT_EQ(c3.next_sibling, nullptr);
+  EXPECT_EQ(c2.parent, nullptr);
+}
+
+TEST(GroupTest, AddChildAndUnlinkLastChild) {
+  Group parent{.name = "Parent"};
+  Group c1{.name = "C1"}, c2{.name = "C2"}, c3{.name = "C3"};
+  parent.AddChild(&c1);
+  parent.AddChild(&c2);
+  parent.AddChild(&c3);
+
+  c3.Unlink();
+  EXPECT_TRUE(parent.has_children);
+  EXPECT_EQ(parent.first_child, &c1);
+  EXPECT_EQ(parent.last_child, &c2);
+  EXPECT_EQ(c1.prev_sibling, nullptr);
+  EXPECT_EQ(c1.next_sibling, &c2);
+  EXPECT_EQ(c2.prev_sibling, &c1);
+  EXPECT_EQ(c2.next_sibling, nullptr);
+  EXPECT_EQ(c3.parent, nullptr);
+}
+
+TEST(GroupTreeTest, CopyConstructorAndAssignmentRemapPointers) {
+  GroupTree tree;
+  tree.groups.push_back(Group{.name = "Process"});
+  tree.groups.push_back(Group{.name = "Thread 1"});
+  tree.groups.push_back(Group{.name = "Thread 2"});
+
+  tree.all_section_group->AddChild(&tree.groups[0]);
+  tree.groups[0].AddChild(&tree.groups[1]);
+  tree.groups[0].AddChild(&tree.groups[2]);
+
+  CounterData counter_data;
+  counter_data.values = {1.0, 2.0, 3.0};
+  tree.counter_data_by_group_ptr[&tree.groups[1]] = counter_data;
+
+  auto assert_no_aliasing = [&](const GroupTree& copied) {
+    auto is_in_source = [&](const Group* ptr) {
+      if (!ptr) return false;
+      for (const auto& g : tree.groups) {
+        if (ptr == &g) return true;
+      }
+      for (const auto& s : tree.section_headers_storage) {
+        if (ptr == s.get()) return true;
+      }
+      return false;
+    };
+    for (const auto& g : copied.groups) {
+      EXPECT_FALSE(is_in_source(g.parent));
+      EXPECT_FALSE(is_in_source(g.first_child));
+      EXPECT_FALSE(is_in_source(g.last_child));
+      EXPECT_FALSE(is_in_source(g.next_sibling));
+      EXPECT_FALSE(is_in_source(g.prev_sibling));
+    }
+    for (const auto& s : copied.section_headers_storage) {
+      EXPECT_FALSE(is_in_source(s->parent));
+      EXPECT_FALSE(is_in_source(s->first_child));
+      EXPECT_FALSE(is_in_source(s->last_child));
+      EXPECT_FALSE(is_in_source(s->next_sibling));
+      EXPECT_FALSE(is_in_source(s->prev_sibling));
+    }
+    for (const auto& [ptr, _] : copied.counter_data_by_group_ptr) {
+      EXPECT_FALSE(is_in_source(ptr));
+    }
+  };
+
+  // 1. Test copy constructor
+  {
+    GroupTree copied(tree);
+    ASSERT_EQ(copied.groups.size(), 3);
+    EXPECT_NE(copied.all_section_group, tree.all_section_group);
+    EXPECT_EQ(copied.all_section_group->first_child, &copied.groups[0]);
+    EXPECT_EQ(copied.all_section_group->last_child, &copied.groups[0]);
+    EXPECT_EQ(copied.groups[0].parent, copied.all_section_group);
+    EXPECT_EQ(copied.groups[0].first_child, &copied.groups[1]);
+    EXPECT_EQ(copied.groups[0].last_child, &copied.groups[2]);
+    EXPECT_EQ(copied.groups[1].parent, &copied.groups[0]);
+    EXPECT_EQ(copied.groups[1].next_sibling, &copied.groups[2]);
+    EXPECT_EQ(copied.groups[2].parent, &copied.groups[0]);
+    EXPECT_EQ(copied.groups[2].prev_sibling, &copied.groups[1]);
+
+    EXPECT_TRUE(copied.counter_data_by_group_ptr.contains(&copied.groups[1]));
+    EXPECT_FALSE(copied.counter_data_by_group_ptr.contains(&tree.groups[1]));
+    EXPECT_EQ(copied.counter_data_by_group_ptr[&copied.groups[1]].values,
+              counter_data.values);
+
+    assert_no_aliasing(copied);
+  }
+
+  // 2. Test copy assignment
+  {
+    GroupTree assigned;
+    assigned = tree;
+    ASSERT_EQ(assigned.groups.size(), 3);
+    EXPECT_NE(assigned.all_section_group, tree.all_section_group);
+    EXPECT_EQ(assigned.all_section_group->first_child, &assigned.groups[0]);
+    EXPECT_EQ(assigned.all_section_group->last_child, &assigned.groups[0]);
+    EXPECT_EQ(assigned.groups[0].parent, assigned.all_section_group);
+    EXPECT_EQ(assigned.groups[0].first_child, &assigned.groups[1]);
+    EXPECT_EQ(assigned.groups[0].last_child, &assigned.groups[2]);
+    EXPECT_EQ(assigned.groups[1].parent, &assigned.groups[0]);
+    EXPECT_EQ(assigned.groups[1].next_sibling, &assigned.groups[2]);
+    EXPECT_EQ(assigned.groups[2].parent, &assigned.groups[0]);
+    EXPECT_EQ(assigned.groups[2].prev_sibling, &assigned.groups[1]);
+
+    EXPECT_TRUE(assigned.counter_data_by_group_ptr.contains(
+        &assigned.groups[1]));
+    EXPECT_FALSE(assigned.counter_data_by_group_ptr.contains(&tree.groups[1]));
+    EXPECT_EQ(assigned.counter_data_by_group_ptr[&assigned.groups[1]].values,
+              counter_data.values);
+
+    assert_no_aliasing(assigned);
+  }
+}
+
+TEST(GroupTreeTest, MoveConstructorAndAssignmentLeaveMovedFromValid) {
+  GroupTree tree;
+  tree.groups.push_back(Group{.name = "Process"});
+  tree.all_section_group->AddChild(&tree.groups[0]);
+  tree.counter_data_by_group_ptr[&tree.groups[0]] = CounterData{};
+
+  // 1. Move constructor
+  GroupTree moved_to(std::move(tree));
+  ASSERT_EQ(moved_to.groups.size(), 1);
+  EXPECT_EQ(moved_to.all_section_group->first_child, &moved_to.groups[0]);
+  EXPECT_EQ(moved_to.groups[0].parent, moved_to.all_section_group);
+  EXPECT_TRUE(moved_to.counter_data_by_group_ptr.contains(&moved_to.groups[0]));
+
+  // Verify moved-from tree is in a valid, empty state with
+  // fresh section headers
+  EXPECT_TRUE(tree.groups.empty());
+  EXPECT_TRUE(tree.counter_data_by_group_ptr.empty());
+  EXPECT_NE(tree.root_group, nullptr);
+  EXPECT_NE(tree.all_section_group, nullptr);
+  EXPECT_NE(tree.hidden_section_group, nullptr);
+  EXPECT_NE(tree.pinned_section_group, nullptr);
+  EXPECT_EQ(tree.all_section_group->first_child, nullptr);
+  EXPECT_TRUE(tree.is_empty());
+
+  // Assert that source does not alias destination section headers
+  EXPECT_NE(tree.root_group, moved_to.root_group);
+  EXPECT_NE(tree.all_section_group, moved_to.all_section_group);
+  EXPECT_NE(tree.hidden_section_group, moved_to.hidden_section_group);
+  EXPECT_NE(tree.pinned_section_group, moved_to.pinned_section_group);
+
+  // 2. Move assignment
+  GroupTree assigned_to;
+  assigned_to = std::move(moved_to);
+  ASSERT_EQ(assigned_to.groups.size(), 1);
+  EXPECT_EQ(assigned_to.all_section_group->first_child, &assigned_to.groups[0]);
+  EXPECT_EQ(assigned_to.groups[0].parent, assigned_to.all_section_group);
+
+  // Verify moved_to is also in a valid, empty state
+  EXPECT_TRUE(moved_to.groups.empty());
+  EXPECT_TRUE(moved_to.counter_data_by_group_ptr.empty());
+  EXPECT_NE(moved_to.root_group, nullptr);
+  EXPECT_NE(moved_to.all_section_group, nullptr);
+  EXPECT_EQ(moved_to.all_section_group->first_child, nullptr);
+  EXPECT_TRUE(moved_to.is_empty());
+
+  EXPECT_NE(moved_to.root_group, assigned_to.root_group);
+  EXPECT_NE(moved_to.all_section_group, assigned_to.all_section_group);
+}
+
+TEST(FlameChartTimelineDataTest, DefaultCopyAndMove) {
+  FlameChartTimelineData original;
+  original.entry_names.push_back("event1");
+  original.entry_start_times.push_back(100.0);
+  original.group_tree.groups.push_back(Group{.name = "Group 1"});
+  original.group_tree.all_section_group->AddChild(
+      &original.group_tree.groups[0]);
+
+  // Copy
+  FlameChartTimelineData copy = original;
+  EXPECT_EQ(copy.entry_names, original.entry_names);
+  EXPECT_EQ(copy.entry_start_times, original.entry_start_times);
+  ASSERT_EQ(copy.group_tree.groups.size(), 1);
+  EXPECT_EQ(copy.group_tree.all_section_group->first_child,
+            &copy.group_tree.groups[0]);
+  EXPECT_EQ(copy.group_tree.groups[0].parent,
+            copy.group_tree.all_section_group);
+  EXPECT_NE(copy.group_tree.groups[0].parent,
+            original.group_tree.all_section_group);
+
+  // Move
+  FlameChartTimelineData moved = std::move(original);
+  EXPECT_THAT(moved.entry_names, ElementsAre("event1"));
+  ASSERT_EQ(moved.entry_start_times.size(), 1);
+  EXPECT_EQ(moved.entry_start_times[0], 100.0);
+  ASSERT_EQ(moved.group_tree.groups.size(), 1);
+  EXPECT_EQ(moved.group_tree.all_section_group->first_child,
+            &moved.group_tree.groups[0]);
+  // original's group_tree was moved from,
+  // so it has fresh headers and empty groups
+  EXPECT_TRUE(original.group_tree.groups.empty());
+  EXPECT_NE(original.group_tree.all_section_group, nullptr);
+  EXPECT_NE(original.group_tree.all_section_group,
+            moved.group_tree.all_section_group);
+}
+
+TEST(FlameChartTimelineDataTest, RootsAndIsEmpty) {
+  FlameChartTimelineData data;
+
+  // Verify roots() returns Hidden, Pinned, and All section headers in order.
+  std::array<Group*, 3> roots = data.roots();
+  ASSERT_NE(roots[0], nullptr);
+  ASSERT_NE(roots[1], nullptr);
+  ASSERT_NE(roots[2], nullptr);
+  EXPECT_EQ(roots[0]->name, kHiddenHeaderName);
+  EXPECT_EQ(roots[1]->name, kPinnedHeaderName);
+  EXPECT_EQ(roots[2]->name, kAllHeaderName);
+  EXPECT_EQ(roots[0], data.group_tree.hidden_section_group);
+  EXPECT_EQ(roots[1], data.group_tree.pinned_section_group);
+  EXPECT_EQ(roots[2], data.group_tree.all_section_group);
+
+  // Const overload
+  const FlameChartTimelineData& const_data = data;
+  std::array<const Group*, 3> const_roots = const_data.roots();
+  EXPECT_EQ(const_roots[0], data.group_tree.hidden_section_group);
+  EXPECT_EQ(const_roots[1], data.group_tree.pinned_section_group);
+  EXPECT_EQ(const_roots[2], data.group_tree.all_section_group);
+
+  // Freshly initialized data is empty.
+  EXPECT_TRUE(data.is_empty());
+  EXPECT_TRUE(const_data.is_empty());
+
+  // Attach a child to all_section_group -> is_empty() becomes false.
+  data.group_tree.groups.push_back(Group{.name = "Track 1"});
+  data.group_tree.all_section_group->AddChild(&data.group_tree.groups[0]);
+  EXPECT_FALSE(data.is_empty());
+  EXPECT_FALSE(const_data.is_empty());
+
+  // Unlink the child -> is_empty() becomes true again.
+  data.group_tree.groups[0].Unlink();
+  EXPECT_TRUE(data.is_empty());
 }
 
 TEST(TimelineTest, CalculateEventRect_EventCompletelyOutsideLeft) {
@@ -1329,22 +1659,13 @@ class TimelineImGuiTestFixture : public Test {
     io.DeltaTime = 0.1f;
     // The font atlas must be built before ImGui::NewFrame() is called.
     io.Fonts->Build();
-    timeline_.SetTimelineData(
-        {{},  // Pass ColorPalette::Default() to constructor
-         {},
-         {},
-         {},
-         {},
-         {},
-         {},
-         {},
-         {},
-         {{.name = "group",
-           .start_level = 0,
-           .nesting_level = kThreadNestingLevel,
-           .expanded = true}},
-         {},
-         {}});
+    FlameChartTimelineData data;
+    data.groups.push_back({.name = "group",
+                           .start_level = 0,
+                           .nesting_level = kThreadNestingLevel,
+                           .expanded = true});
+    data.group_tree.groups.push_back(data.groups.back());
+    timeline_.SetTimelineData(std::move(data));
   }
 
   void TearDown() override { ImGui::DestroyContext(); }
@@ -2722,6 +3043,69 @@ TEST(TimelineTest, SetTimelineDataTriggersRedraw) {
   timeline.SetTimelineData({});
 
   EXPECT_TRUE(redraw_called);
+}
+
+TEST(TimelineTest, TraverseGroupsVisitsAllGroupsDepthFirst) {
+  MockTimeline timeline;
+  FlameChartTimelineData data;
+
+  auto g1 = std::make_unique<Group>();
+  g1->name = "Track A";
+  auto g1_child = std::make_unique<Group>();
+  g1_child->name = "Track A Child";
+  auto g2 = std::make_unique<Group>();
+  g2->name = "Track B";
+
+  data.group_tree.all_section_group->AddChild(g1.get());
+  g1->AddChild(g1_child.get());
+  data.group_tree.all_section_group->AddChild(g2.get());
+
+  data.group_tree.section_headers_storage.push_back(std::move(g1));
+  data.group_tree.section_headers_storage.push_back(std::move(g1_child));
+  data.group_tree.section_headers_storage.push_back(std::move(g2));
+
+  timeline.SetTimelineData(std::move(data));
+
+  std::vector<std::string> visited_names;
+  timeline.CallTraverseGroups([&visited_names](const Group& group) {
+    visited_names.push_back(group.name);
+    return false;  // Continue traversal.
+  });
+
+  EXPECT_THAT(visited_names,
+              ElementsAre("Hidden", "Pinned", "All", "Track A", "Track A Child",
+                          "Track B"));
+}
+
+TEST(TimelineTest, TraverseGroupsStopsEarlyWhenCallbackReturnsTrue) {
+  MockTimeline timeline;
+  FlameChartTimelineData data;
+
+  auto g1 = std::make_unique<Group>();
+  g1->name = "Track A";
+  auto g1_child = std::make_unique<Group>();
+  g1_child->name = "Track A Child";
+  auto g2 = std::make_unique<Group>();
+  g2->name = "Track B";
+
+  data.group_tree.all_section_group->AddChild(g1.get());
+  g1->AddChild(g1_child.get());
+  data.group_tree.all_section_group->AddChild(g2.get());
+
+  data.group_tree.section_headers_storage.push_back(std::move(g1));
+  data.group_tree.section_headers_storage.push_back(std::move(g1_child));
+  data.group_tree.section_headers_storage.push_back(std::move(g2));
+
+  timeline.SetTimelineData(std::move(data));
+
+  std::vector<std::string> visited_names;
+  timeline.CallTraverseGroups([&visited_names](const Group& group) {
+    visited_names.push_back(group.name);
+    return group.name == "Track A";  // Stop traversal at Track A.
+  });
+
+  // Track A Child and Track B should not be visited.
+  EXPECT_THAT(visited_names, ElementsAre("Hidden", "Pinned", "All", "Track A"));
 }
 
 TEST(TimelineTest, SetVisibleFlowCategoriesTriggersRedraw) {

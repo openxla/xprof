@@ -136,7 +136,25 @@ declare global {
   interface Window {
     wasmMemoryBytes: number;
     getFeatureFlag?: (name: string) => boolean;
+    XPROF_BUILD_VERSION?: string;
   }
+}
+
+/**
+ * Returns the trace viewer v2 asset version for cache-busting.
+ */
+export function getTraceViewerV2AssetVersion(wasmVersion?: string): string {
+  if (wasmVersion) {
+    return wasmVersion;
+  }
+  if (
+    typeof window !== 'undefined' &&
+    window.XPROF_BUILD_VERSION &&
+    window.XPROF_BUILD_VERSION !== '{{BUILD_VERSION}}'
+  ) {
+    return window.XPROF_BUILD_VERSION;
+  }
+  return '';
 }
 
   export declare interface TraceViewerV2Module extends EmscriptenModule {
@@ -388,16 +406,33 @@ function configureCanvas(canvas: HTMLCanvasElement, device: GPUDevice) {
   });
 }
 
-async function loadAndStartWasm(
+/**
+ * Loads and initializes the Trace Viewer v2 WASM module on the provided canvas.
+ *
+ * @param canvas The canvas element to render trace events on.
+ * @param device The WebGPU device used for hardware-accelerated rendering.
+ * @param wasmVersion Optional build version string for cache busting.
+ * @return A promise that resolves to the initialized TraceViewerV2Module.
+ */
+export async function loadAndStartWasm(
   canvas: HTMLCanvasElement,
   device: GPUDevice,
+  wasmVersion?: string,
 ): Promise<TraceViewerV2Module> {
+  const v = getTraceViewerV2AssetVersion(wasmVersion);
   const moduleConfig = {
     canvas,
     print: console.log,
     printErr: console.error,
     setStatus: console.debug,
     noInitialRun: true,
+    locateFile: (path: string, prefix: string) => {
+      const fullPath = `${prefix || ''}${path}`;
+      if (path.endsWith('.wasm')) {
+        return v ? `${fullPath}?v=${encodeURIComponent(v)}` : fullPath;
+      }
+      return fullPath;
+    },
   };
 
   performance.mark('wasmLoadStart');
@@ -419,7 +454,15 @@ async function loadAndStartWasm(
   return traceviewerModule;
 }
 
-async function ensureWasmModuleIsLoaded(): Promise<void> {
+/**
+ * Ensures the Trace Viewer v2 JavaScript loader script is loaded into the DOM.
+ *
+ * @param wasmVersion Optional build version string for cache busting.
+ * @return A promise that resolves when the script is loaded.
+ */
+export async function ensureWasmModuleIsLoaded(
+  wasmVersion?: string,
+): Promise<void> {
   // tslint:disable-next-line:no-any
   if (typeof (window as any).loadWasmTraceViewerModule !== 'undefined') {
     return;
@@ -438,7 +481,8 @@ async function ensureWasmModuleIsLoaded(): Promise<void> {
       return;
     }
     const script = document.createElement('script');
-    script.src = 'trace_viewer_v2.js';
+    const v = getTraceViewerV2AssetVersion(wasmVersion);
+    script.src = v ? `/trace_viewer_v2.js?v=${encodeURIComponent(v)}` : '/trace_viewer_v2.js';
     script.onload = () => {
       resolve();
     };
@@ -449,15 +493,17 @@ async function ensureWasmModuleIsLoaded(): Promise<void> {
   });
 }
 
-async function initGpuAndStartWasmApp(): Promise<TraceViewerV2Module> {
-  await ensureWasmModuleIsLoaded();
+async function initGpuAndStartWasmApp(
+  wasmVersion?: string,
+): Promise<TraceViewerV2Module> {
+  await ensureWasmModuleIsLoaded(wasmVersion);
   const canvas = document.querySelector('#canvas') as HTMLCanvasElement;
   if (!canvas) {
     throw new Error('Could not find canvas element with id="canvas"');
   }
   const device = await getWebGpuDevice();
   configureCanvas(canvas, device);
-  return loadAndStartWasm(canvas, device);
+  return loadAndStartWasm(canvas, device, wasmVersion);
 }
 
 /**
@@ -1017,6 +1063,8 @@ export declare interface TraceViewerV2Options {
   // Optional callback to execute when a file is successfully uploaded to the
   // application.
   onFileUploadedToXprof?: () => void;
+  // Optional WASM version override for asset cache-busting.
+  wasmVersion?: string;
 }
 
 /**
@@ -1063,7 +1111,7 @@ export async function traceViewerV2Main(
   let currentLoadingPromise: Promise<void> | null = null;
 
   try {
-    traceviewerModule = await initGpuAndStartWasmApp();
+    traceviewerModule = await initGpuAndStartWasmApp(options?.wasmVersion);
     traceviewerModule.getFeatureFlag = window.getFeatureFlag;
     activeWasmModule = traceviewerModule;
   } catch (e) {

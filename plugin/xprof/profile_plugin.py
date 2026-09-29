@@ -851,7 +851,11 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
   @wrappers.Request.application
   def default_handler(self, _: wrappers.Request) -> wrappers.Response:
     contents = self._read_static_file_impl('index.html')
-    return respond(contents, 'text/html')
+    return respond(
+        contents,
+        'text/html',
+        extra_headers={'Cache-Control': 'no-cache, must-revalidate'},
+    )
 
   # pytype: disable=wrong-arg-types
   @wrappers.Request.application
@@ -919,7 +923,11 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
       contents = self._read_static_file_impl(filename)
     except IOError:
       return respond('Fail to read the files.', 'text/plain', code=404)
-    return respond(contents, mimetype)
+    return respond(
+        contents,
+        mimetype,
+        extra_headers={'Cache-Control': 'no-cache, must-revalidate'},
+    )
 
   # pytype: disable=wrong-arg-types
   @wrappers.Request.application

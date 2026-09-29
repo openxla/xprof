@@ -1225,6 +1225,38 @@ class GenerateCacheImplTest(parameterized.TestCase):
         response.headers.get('Content-Disposition', ''),
     )
 
+  def test_static_file_route_sets_cache_control(self):
+    server = werkzeug_test.Client(
+        self.plugin.static_file_route, wrappers.Response
+    )
+    with mock.patch.object(
+        self.plugin,
+        '_read_static_file_impl',
+        return_value=b'console.log("wasm");',
+        autospec=True,
+    ):
+      response = server.get('/trace_viewer_v2.js')
+      self.assertEqual(response.status_code, 200)
+      self.assertEqual(
+          response.headers.get('Cache-Control'), 'no-cache, must-revalidate'
+      )
+
+  def test_default_handler_sets_cache_control(self):
+    server = werkzeug_test.Client(
+        self.plugin.default_handler, wrappers.Response
+    )
+    with mock.patch.object(
+        self.plugin,
+        '_read_static_file_impl',
+        return_value=b'<html></html>',
+        autospec=True,
+    ):
+      response = server.get('/')
+      self.assertEqual(response.status_code, 200)
+      self.assertEqual(
+          response.headers.get('Cache-Control'), 'no-cache, must-revalidate'
+      )
+
   def test_generate_cache_fails_on_os_error(self):
     """Verifies that an OSError during file listing returns a 500 status code."""
     session_path = self.create_tempdir().full_path

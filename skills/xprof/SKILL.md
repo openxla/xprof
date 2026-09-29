@@ -138,9 +138,12 @@ When capturing or analyzing fine-grained LLO traces for custom kernels (e.g.
 Pallas or Mosaic):
 
 1.  **Toolchain Prerequisites**: Workload VMs must run **Python 3.11+** (Python
-    3.12 recommended via `uv`) and **JAX >= 0.11.0**. (Default Cloud TPU VM
-    images running Python 3.10 cap JAX at 0.6.2 and pull `libtpu` 0.0.17 which
-    lacks LLO flag support and causes `ERROR: Unknown command line flag`).
+    3.12 recommended via `uv`) and **JAX >= 0.11.0** (`libtpu >= 0.0.44`). Note
+    that `--xla_xprof_register_llo_debug_info=true` works on `jax >= 0.10.2`
+    (`libtpu >= 0.0.42`), whereas opt-in custom call tracing requires
+    `jax >= 0.11.0` (`libtpu >= 0.0.44`). (Default Cloud TPU VM images running
+    Python 3.10 cap JAX at 0.6.2 and pull `libtpu` 0.0.17 which lacks LLO flag
+    support and causes `ERROR: Unknown command line flag`).
 2.  **Environment Initialization**: `LIBTPU_INIT_ARGS` must be exported
     **strictly before `import jax`**:
 
@@ -150,8 +153,14 @@ Pallas or Mosaic):
     ```
 3.  **Hardware Compatibility**:
 
-    *   LLO analysis, disassembly, and custom call tracing work on **any
-        supported TPU** (v6e, v5e, v4, etc.) — it is **NOT** gated to v7x.
+    *   LLO analysis and disassembly
+        (`--xla_xprof_register_llo_debug_info=true`) work on **any supported
+        TPU** (v6e, v5e, v4, etc., `libtpu >= 0.0.42`) — **NOT** gated to v7x.
+    *   Opt-in custom call tracing
+        (`--xla_xprof_enable_custom_call_tracing=true`) works on any supported
+        TPU but requires `libtpu >= 0.0.44` (`jax >= 0.11.0`; absent in
+        `libtpu 0.0.42`, where setting it aborts the backend) and is not needed
+        for LLO analysis.
     *   Periodic hardware runtime counters
         (`tpu_enable_periodic_counter_sampling`) require Ironwood TPU7x+.
 4.  **Flag Symbol Verification (Optional Diagnostic)**: Inspect installed
@@ -177,15 +186,17 @@ Pallas or Mosaic):
         Primitives`, `LLO Ops`, and per-unit instruction lanes in Trace Viewer).
         It activates bundle-level instrumentation
         (`xla_tpu_bundle_instrumentation_options` with default
-        `trace_best_effort_frequency=10` and `trace_guaranteed_frequency=10`),
-        inserting a `vtrace` every 10 VLIW bundles inside custom calls. On
-        long-running custom calls, the extra event volume can overflow the
-        hardware trace buffer and drop the outer HLO `Begin`/`End` events, so
-        HLO-level tools (`get_hlo_stats`, `get_roofline_model`,
-        `get_top_hlo_ops`) report `IDLE` or `NO_DATA`. If that happens,
-        increase `trace_best_effort_frequency` and `trace_guaranteed_frequency`
-        (e.g., to `50` or `100`) or collect a second profile without the flag.
-        See [custom call profiling](../../docs/custom_call_profiling.md).
+        `trace_best_effort_frequency=10` and `trace_guaranteed_frequency=10`).
+        On custom calls (observed at ~2.8 ms/call), the resulting event volume
+        inflates traces 6–12× and overflows the hardware trace buffer, dropping
+        or truncating the outer HLO `Begin`/`End` events, so `get_kernel_stats`
+        drops custom-call records into `barrier-cores` on v6e or under-reports
+        kernel duration by 8.8% on v7x, and HLO-level tools (`get_hlo_stats`,
+        `get_roofline_model`, `get_top_hlo_ops`) report `IDLE` or `NO_DATA`. If
+        that happens, increase `trace_best_effort_frequency` and
+        `trace_guaranteed_frequency` (e.g., to `50` or `100`) or collect a
+        second profile without the flag. See
+        [custom call profiling](../../docs/custom_call_profiling.md).
 6.  **Analysis Execution & Metrics Interpretation**:
 
     *   `xprof get_llo_analysis <logdir_or_session_id>`: Extracts instruction

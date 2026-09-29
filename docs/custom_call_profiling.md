@@ -35,8 +35,12 @@ requirements:
     uv pip install --python ~/venvs/v312/bin/python \
         'jax[tpu]>=0.11.0' xprof-nightly numpy ml_dtypes absl-py fire
     ```
-*   **JAX >= 0.11.0**: Required for custom call LLO tracing support and matching
-    `libtpu` runtime binaries (>= 0.0.46).
+*   **JAX >= 0.11.0**: Recommended toolchain version (`libtpu >= 0.0.44`). Note
+    that compile-time LLO debug info
+    (`--xla_xprof_register_llo_debug_info=true`) is supported starting in
+    `jax >= 0.10.2` (`libtpu >= 0.0.42`), while opt-in runtime custom call
+    tracing (`--xla_xprof_enable_custom_call_tracing=true`) requires
+    `jax >= 0.11.0` (`libtpu >= 0.0.44`).
 *   **Strict Environment Ordering**: `LIBTPU_INIT_ARGS` must be exported in the
     shell or configured in `os.environ` **strictly before `import jax`**.
     `libtpu` parses initialization flags upon the very first import of JAX;
@@ -47,8 +51,8 @@ requirements:
 
 | Capability | Hardware Requirement | Notes |
 | :--- | :--- | :--- |
-| **LLO Analysis & Disassembly** (`get_llo_analysis`, `get_llo_debug_string`) | **Any supported TPU** (v6e, v5e, v4, etc.) | Fully supported on TPU v6e and v5e; **not** gated to v7x. |
-| **Custom Call Tracing** (`--xla_xprof_enable_custom_call_tracing=true`) | **Any supported TPU** | Traces Pallas and custom kernel execution boundaries. |
+| **LLO Analysis & Disassembly** (`get_llo_analysis`, `get_llo_debug_string`) | **Any supported TPU** (v6e, v5e, v4, etc.) | Fully supported on TPU v6e and v5e (`libtpu >= 0.0.42`); **not** gated to v7x. |
+| **Custom Call Tracing** (`--xla_xprof_enable_custom_call_tracing=true`) | **Any supported TPU** (`libtpu >= 0.0.44` / `jax >= 0.11.0`) | Optional intra-kernel Trace Viewer spans; **not** needed for LLO analysis. Absent in `libtpu 0.0.42` (`jax 0.10.2`), where setting it aborts the backend. |
 | **Periodic Runtime Counters** (`tpu_enable_periodic_counter_sampling`) | **Ironwood TPU7x+ only** | Hardware performance counters require TPU v7x+. |
 
 ## Flag Availability Diagnostic
@@ -104,17 +108,32 @@ import jax
     with default `trace_best_effort_frequency=10` and
     `trace_guaranteed_frequency=10`).
 
-WARNING: Adding `--xla_xprof_enable_custom_call_tracing=true` inserts a
-`vtrace` every 10 VLIW bundles inside custom calls. On long-running custom
-calls, the resulting event volume can overflow the hardware trace buffer and
-drop the outer HLO `Begin`/`End` events, leaving only `IDLE` or `NO_DATA` in
-`get_hlo_stats`, `get_roofline_model`, and `get_top_hlo_ops` — while the static
-compile-time LLO source map remains identical to
-`--xla_xprof_register_llo_debug_info=true` alone. Enable it only when you need
-runtime intra-kernel timeline spans, and either increase
+WARNING: Adding `--xla_xprof_enable_custom_call_tracing=true` activates
+bundle-level trace instrumentation inside custom calls. On custom calls
+(observed at ~2.8 ms/call), the resulting event volume inflates traces 6–12×
+and overflows the hardware trace buffer, dropping or truncating the outer HLO
+`Begin`/`End` events — corrupting `get_kernel_stats` (dropping custom-call
+kernel records into `barrier-cores` on v6e, or under-reporting kernel duration
+by 8.8% on v7x) and leaving only `IDLE` or `NO_DATA` in `get_hlo_stats`,
+`get_roofline_model`, and `get_top_hlo_ops`, while the static compile-time LLO
+source map remains identical to `--xla_xprof_register_llo_debug_info=true`
+alone:
+
+| Pallas FlashAttention (10 iters, 8×4096×128 bf16) | `--xla_xprof_register_llo_debug_info=true` only | Both flags (`+ --xla_xprof_enable_custom_call_tracing=true`) |
+| :--- | :--- | :--- |
+| **TPU v6e-1 trace size** | 19.8 MB | 127 MB (6.4×) |
+| **TPU v6e-1 `get_llo_analysis`** | 10 modules, 103,224 instr (0.6 s) | Identical (2.7 s) |
+| **TPU v6e-1 `get_hlo_stats` / `get_top_hlo_ops`** | `flash_attention.1`, 10×, 28.4 ms | `NO_DATA` / only `IDLE` |
+| **TPU v6e-1 `get_kernel_stats`** | `flash_attention.1`, 28,363 µs | Custom call dropped; only `barrier-cores` (25,672 µs) |
+| **TPU v7x (2×2×1) trace size** | 115 MB | 1.42 GB (12.3×) |
+| **TPU v7x `get_llo_analysis`** | 10 modules, 103,239 instr (1.9 s) | Identical (33.6 s) |
+| **TPU v7x `get_kernel_stats`** | `flash_attention.1`, 29,725 µs (1.3 s) | `flash_attention.1`, 27,098 µs (−8.8%, 19.0 s) |
+
+Enable `--xla_xprof_enable_custom_call_tracing=true` only when you need runtime
+intra-kernel timeline spans, and either increase
 `trace_best_effort_frequency` / `trace_guaranteed_frequency` (see **Advanced
 Parameters** below) or collect a separate profile without the flag for
-HLO-level analysis.
+HLO-level and kernel-level timing analysis.
 
 ### Example Trace Viewer
 
@@ -220,23 +239,28 @@ Instruction Category                  | (v5e/v5p) | (v6e/v7x)
 Earlier versions of XLA and TPU documentation referenced the legacy flag
 `--xla_enable_custom_call_region_trace=true`.
 
-*   **Canonical Flag**: `--xla_xprof_enable_custom_call_tracing=true`
-    (Recommended). This flag activates custom call tracing while automatically
-    configuring the required instruction bundle instrumentation and trace
-    frequencies (`xla_tpu_bundle_instrumentation_options`).
+*   **Canonical Flag**: `--xla_xprof_enable_custom_call_tracing` (canonical
+    name when runtime intra-kernel bundle timeline spans are wanted; use
+    `--xla_xprof_register_llo_debug_info=true` alone by default). When enabled,
+    it activates custom call tracing while automatically configuring the
+    required instruction bundle instrumentation and trace frequencies
+    (`xla_tpu_bundle_instrumentation_options`).
 *   **Legacy Flag**: `--xla_enable_custom_call_region_trace=true` (Deprecated
-    alias). While still supported by older compiler backends, users should
-    migrate to `--xla_xprof_enable_custom_call_tracing=true`.
+    alias). While still supported by older compiler backends, users needing
+    runtime bundle timeline spans should migrate to
+    `--xla_xprof_enable_custom_call_tracing`.
 
-Example:
+Default capture example (registers LLO debug info while keeping HLO and kernel
+stats intact):
 
 ```bash
-export LIBTPU_INIT_ARGS="--xla_xprof_enable_custom_call_tracing=true --xla_xprof_register_llo_debug_info=true"
+export LIBTPU_INIT_ARGS="--xla_xprof_register_llo_debug_info=true"
 python your_jax_workload.py
 ```
 
-When these flags are enabled, a new **LLO utilization** line will appear in the
-Trace Viewer for each TPU core or device executing the custom call.
+When custom call tracing is enabled alongside LLO debug info, a new **LLO
+utilization** line will appear in the Trace Viewer for each TPU core or device
+executing the custom call.
 
 ### LLO Utilization Line
 

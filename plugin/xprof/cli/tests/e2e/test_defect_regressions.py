@@ -566,7 +566,14 @@ class DefectRegressionsTest(parameterized.TestCase):
       self.assertIn("remediation", res)
       self.assertIn("LIBTPU_INIT_ARGS", res["remediation"])
       self.assertIn(
+          "--xla_xprof_register_llo_debug_info=true", res["remediation"]
+      )
+      self.assertNotIn(
           "--xla_xprof_enable_custom_call_tracing=true", res["remediation"]
+      )
+      self.assertIn(
+          "Do not add --xla_xprof_enable_custom_call_tracing",
+          res["remediation"],
       )
       self.assertIn("Python 3.11+", res["remediation"])
       self.assertIn("JAX >= 0.11.0", res["remediation"])
@@ -594,6 +601,16 @@ class DefectRegressionsTest(parameterized.TestCase):
       self.assertEqual(res_dbg.get("reason"), "LLO_DATA_ABSENT")
       self.assertIn("remediation", res_dbg)
       self.assertIn("LIBTPU_INIT_ARGS", res_dbg["remediation"])
+      self.assertIn(
+          "--xla_xprof_register_llo_debug_info=true", res_dbg["remediation"]
+      )
+      self.assertNotIn(
+          "--xla_xprof_enable_custom_call_tracing=true", res_dbg["remediation"]
+      )
+      self.assertIn(
+          "Do not add --xla_xprof_enable_custom_call_tracing",
+          res_dbg["remediation"],
+      )
       self.assertIn("xprof-nightly", res_dbg["remediation"])
 
   def test_d18_standardized_cli_error_codes(self):

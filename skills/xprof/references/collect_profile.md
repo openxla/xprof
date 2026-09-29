@@ -119,17 +119,19 @@ python your_jax_workload.py
 >   overhead.
 > - Only add **`--xla_xprof_enable_custom_call_tracing=true`** when you need
 >   runtime intra-kernel timeline spans (`Pallas Primitives`, `LLO Ops`, and
->   per-unit instruction lanes in Trace Viewer). This flag activates
->   bundle-level instrumentation (`xla_tpu_bundle_instrumentation_options`
->   with default `trace_best_effort_frequency=10` and
->   `trace_guaranteed_frequency=10`), inserting a `vtrace` every 10 VLIW
->   bundles inside custom calls. On long-running custom calls, the resulting
->   event volume can overflow the hardware trace buffer and drop the outer
->   HLO `Begin`/`End` events, causing HLO-level tools (`get_hlo_stats`,
->   `get_roofline_model`, `get_top_hlo_ops`) to report `IDLE` or `NO_DATA`.
->   If that happens, either increase `trace_best_effort_frequency` and
+>   per-unit instruction lanes in Trace Viewer). This flag requires
+>   `libtpu >= 0.0.44` (`jax >= 0.11.0`) and activates bundle-level
+>   instrumentation (`xla_tpu_bundle_instrumentation_options` with default
+>   `trace_best_effort_frequency=10` and `trace_guaranteed_frequency=10`). On
+>   custom calls (observed at ~2.8 ms/call), the resulting event volume inflates
+>   traces 6–12× and overflows the hardware trace buffer, dropping or
+>   truncating the outer HLO `Begin`/`End` events, causing `get_kernel_stats`
+>   to drop custom-call records into `barrier-cores` on v6e or under-report
+>   kernel duration by 8.8% on v7x, and HLO-level tools (`get_hlo_stats`,
+>   `get_roofline_model`, `get_top_hlo_ops`) to report `IDLE` or `NO_DATA`. If
+>   that happens, either increase `trace_best_effort_frequency` and
 >   `trace_guaranteed_frequency` (e.g., to `50` or `100`) or collect a separate
->   profile without the flag for HLO-level analysis. See
+>   profile without the flag for HLO-level and kernel-level analysis. See
 >   [custom call profiling](../../../docs/custom_call_profiling.md).
 
 --------------------------------------------------------------------------------

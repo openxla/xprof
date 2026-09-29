@@ -22,6 +22,18 @@ _T = TypeVar("_T")
 
 _UNKNOWN = object()
 
+LLO_DATA_ABSENT_REMEDIATION: str = (
+    "To enable LLO tracing, ensure the workload is executed with"
+    ' LIBTPU_INIT_ARGS="--xla_xprof_register_llo_debug_info=true"'
+    " exported strictly BEFORE 'import jax'. Do not add"
+    " --xla_xprof_enable_custom_call_tracing for LLO analysis: it adds no LLO"
+    " data, inflates traces 6-12x, and corrupts get_hlo_stats /"
+    " get_top_hlo_ops / get_kernel_stats on Pallas kernels. Prerequisites:"
+    " Python 3.11+ (Python 3.12 recommended via uv), JAX >= 0.11.0 (default"
+    " Cloud TPU VM images running Python 3.10 cap JAX at 0.6.2 and lack LLO"
+    " flag support), and xprof-nightly."
+)
+
 
 class Cache:
   """A minimal, persistent, SQLite-backed cache.

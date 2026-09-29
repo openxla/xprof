@@ -1074,6 +1074,10 @@ export class TraceViewerContainer
     }
   }
 
+  onReload(): void {
+    window.location.reload();
+  }
+
   /**
    * Starts the tutorial rotation.
    *

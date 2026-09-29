@@ -1508,14 +1508,37 @@ button.shortcuts-guide-btn {
   width: 100%;
   height: calc(100% - $search-bar-height);
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
   z-index: 1000;
   background-color: var(--mat-sys-surface);
-  color: red;
+  gap: 16px;
 
-  mat-icon {
-    margin-right: 10px;
+  .error-header {
+    display: flex;
+    align-items: center;
+    font-size: 18px;
+    font-weight: 500;
+    color: var(--mat-sys-error, #ba1a1a);
+
+    mat-icon {
+      margin-right: 8px;
+    }
+  }
+
+  .error-message {
+    color: var(--mat-sys-on-surface);
+    font-size: 14px;
+    max-width: 600px;
+    text-align: center;
+    line-height: 1.5;
+  }
+
+  .error-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
   }
 }
 

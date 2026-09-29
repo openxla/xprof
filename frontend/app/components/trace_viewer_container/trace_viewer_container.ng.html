@@ -1,8 +1,17 @@
 <div [hidden]="!useTraceViewerV2" class="trace-viewer-component">
   <ng-container *ngIf="traceViewerV2LoadingStatus === TraceViewerV2LoadingStatus.ERROR">
     <div class="error-overlay">
-      <mat-icon>error</mat-icon>
-      <div class="error-message">{{'Error, please use the old frontend. ' + (traceViewerV2ErrorMessage ?? '')}}</div>
+      <div class="error-header">
+        <mat-icon color="warn">error</mat-icon>
+        <span class="error-title">Failed to load trace</span>
+      </div>
+      <div class="error-message">{{traceViewerV2ErrorMessage || 'An unexpected error occurred while loading the trace.'}}</div>
+      <div class="error-actions">
+        <button mat-flat-button color="primary" (click)="onReload()">
+          <mat-icon>refresh</mat-icon>
+          Reload
+        </button>
+      </div>
     </div>
   </ng-container>
   <ng-container *ngIf="traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR">

@@ -350,9 +350,9 @@ export interface GPUDeviceWithLost extends GPUDevice {
 export function monitorDeviceLost(device: GPUDeviceWithLost): void {
   void device.lost
     .then((info) => {
-      const msg = `WebGPU Cannot be initialized - Device has been lost: ${
+      const msg = `WebGPU device was lost: ${
         info?.message ?? 'unknown'
-      }`;
+      }. Please reload the page.`;
       dispatchErrorStatus(msg, new Error(msg));
     })
     .catch(() => {});
@@ -361,16 +361,20 @@ export function monitorDeviceLost(device: GPUDeviceWithLost): void {
 async function getWebGpuDevice(): Promise<GPUDevice> {
   const gpu = navigator.gpu;
   if (!gpu) {
-    throw new Error('WebGPU not supported on this browser.');
+    throw new Error(
+      'WebGPU is not supported on this browser. Please use a WebGPU-compatible browser (e.g. Chrome) and ensure hardware acceleration is enabled.',
+    );
   }
   const adapter = await gpu.requestAdapter();
   if (!adapter) {
-    throw new Error('WebGPU cannot be initialized- adapter not found');
+    throw new Error(
+      'WebGPU cannot be initialized: graphics adapter not found. Please ensure hardware acceleration is enabled in your browser settings (e.g. chrome://settings/system).',
+    );
   }
   const device = await adapter.requestDevice();
   if (!device) {
     throw new Error(
-      'WebGPU cannot be initialized - failed to get WebGPU device.',
+      'WebGPU cannot be initialized: failed to get WebGPU device. Please ensure hardware acceleration is enabled.',
     );
   }
   monitorDeviceLost(device as GPUDeviceWithLost);
@@ -763,6 +767,13 @@ function propagateBrowserTraceOptions(urlObj: URL): void {
   }
 }
 
+function getFetchErrorMessage(response: Response): string {
+  if (response.status === 404) {
+    return 'Trace data not found (404). The profile session may have expired or does not contain trace data.';
+  }
+  return `Failed to load trace data: HTTP error! status: ${response.status}`;
+}
+
 // Fetches JSON data from the given URL. The `response.json()` method returns
 // `any`, so this function returns `unknown`. Validation of the data structure
 // (e.g., using `isTraceData`) is expected to be done by the caller.
@@ -770,7 +781,7 @@ async function loadJsonDataInternal(url: string): Promise<unknown> {
   try {
     const response = await fetch(url);
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      throw new Error(getFetchErrorMessage(response));
     }
     return await response.json();
   } catch (e) {
@@ -785,7 +796,7 @@ async function loadCompressedTraceDataInternal(
   try {
     const response = await fetch(url);
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      throw new Error(getFetchErrorMessage(response));
     }
     return await response.arrayBuffer();
   } catch (e) {

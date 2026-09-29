@@ -39,6 +39,6 @@ import {TraceViewer} from './trace_viewer';
     TraceViewerContainer,
   ],
   providers: [DataServiceV2],
-  exports: [TraceViewer],
+  exports: [TraceViewer, FilterChips, FilterInput],
 })
 export class TraceViewerModule {}

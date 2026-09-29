@@ -54,6 +54,7 @@ xprof_ng_module(
     name = "tests",
     testonly = True,
     srcs = [
+        "filter_input_test.ts",
         "trace_viewer_test.ts",
         "utils_test.ts",
     ],
@@ -65,6 +66,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "//:node_modules/@angular/router",
         "//third_party/javascript/angular_components:cdk_testing_catalyst",
+        "@org_xprof//frontend/app/common/angular:angular_material_core_testing",
         "@org_xprof//frontend/app/common/angular:angular_material_dialog",
         "@org_xprof//frontend/app/common/angular:angular_material_menu_testing",
         "//:node_modules/@ngrx/store",

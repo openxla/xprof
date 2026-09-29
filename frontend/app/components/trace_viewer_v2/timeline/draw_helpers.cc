@@ -3,68 +3,36 @@
 #include "imgui.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
 
+// Define the UTF-8 representations of Unicode PUA codepoints (matching
+// mapping.json).
+#define ICON_PIN_BUTTON "\xee\x80\x81"      // U+E001 (decimal 57345)
+#define ICON_UNPIN_BUTTON "\xee\x80\x82"    // U+E002 (decimal 57346)
+#define ICON_HIDDEN_BUTTON "\xee\x80\x83"   // U+E003 (decimal 57347)
+#define ICON_VISIBLE_BUTTON "\xee\x80\x84"  // U+E004 (decimal 57348)
+
 namespace traceviewer {
 
 void DrawPinIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
                  Pixel icon_draw_size, ImU32 icon_col, bool is_pinned) {
-  float r = icon_draw_size * 0.5f;
+  const char* icon_str = is_pinned ? ICON_UNPIN_BUTTON : ICON_PIN_BUTTON;
+  ImVec2 text_size = ImGui::CalcTextSize(icon_str);
 
-  // Horizontal head bar at the top
-  draw_list->AddLine(ImVec2(center_x - r * 0.6f, center_y - r * 0.6f),
-                     ImVec2(center_x + r * 0.6f, center_y - r * 0.6f), icon_col,
-                     1.2f);
-  // Head connection stem
-  draw_list->AddLine(ImVec2(center_x, center_y - r * 0.6f),
-                     ImVec2(center_x, center_y - r * 0.4f), icon_col, 1.2f);
-  // Body center cylinder (filled if pinned, outline if unpinned)
-  ImVec2 body_min(center_x - r * 0.4f, center_y - r * 0.4f);
-  ImVec2 body_max(center_x + r * 0.4f, center_y + r * 0.2f);
-  if (is_pinned) {
-    draw_list->AddRectFilled(body_min, body_max, icon_col);
-  } else {
-    draw_list->AddRect(body_min, body_max, icon_col, 0.0f, 0, 1.2f);
-  }
-  // Pin point needle pointing down
-  draw_list->AddLine(ImVec2(center_x, center_y + r * 0.2f),
-                     ImVec2(center_x, center_y + r * 0.8f), icon_col, 1.2f);
+  // Center the glyph within the button square
+  ImVec2 pos(center_x - text_size.x * 0.5f, center_y - text_size.y * 0.5f);
+
+  draw_list->AddText(pos, icon_col, icon_str);
 }
 
 void DrawHideIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
                   Pixel icon_draw_size, ImU32 icon_col, bool is_track_hidden) {
-  float r = icon_draw_size * 0.5f;
+  const char* icon_str =
+      is_track_hidden ? ICON_VISIBLE_BUTTON : ICON_HIDDEN_BUTTON;
+  ImVec2 text_size = ImGui::CalcTextSize(icon_str);
 
-  // Curve approximation using segments
-  ImVec2 p0(center_x - r, center_y);
-  ImVec2 p1(center_x - r * 0.5f, center_y - r * 0.45f);
-  ImVec2 p2(center_x, center_y - r * 0.6f);
-  ImVec2 p3(center_x + r * 0.5f, center_y - r * 0.45f);
-  ImVec2 p4(center_x + r, center_y);
+  // Center the glyph within the button square
+  ImVec2 pos(center_x - text_size.x * 0.5f, center_y - text_size.y * 0.5f);
 
-  // Top eye curve
-  draw_list->AddLine(p0, p1, icon_col, 1.0f);
-  draw_list->AddLine(p1, p2, icon_col, 1.0f);
-  draw_list->AddLine(p2, p3, icon_col, 1.0f);
-  draw_list->AddLine(p3, p4, icon_col, 1.0f);
-
-  // Bottom eye curve
-  ImVec2 p5(center_x - r * 0.5f, center_y + r * 0.45f);
-  ImVec2 p6(center_x, center_y + r * 0.6f);
-  ImVec2 p7(center_x + r * 0.5f, center_y + r * 0.45f);
-
-  draw_list->AddLine(p0, p5, icon_col, 1.0f);
-  draw_list->AddLine(p5, p6, icon_col, 1.0f);
-  draw_list->AddLine(p6, p7, icon_col, 1.0f);
-  draw_list->AddLine(p7, p4, icon_col, 1.0f);
-
-  // Pupil (center)
-  draw_list->AddCircleFilled(ImVec2(center_x, center_y), r * 0.25f, icon_col);
-
-  // Slashed line for crossed eye
-  if (is_track_hidden) {
-    draw_list->AddLine(ImVec2(center_x - r * 0.9f, center_y - r * 0.6f),
-                       ImVec2(center_x + r * 0.9f, center_y + r * 0.6f),
-                       icon_col, 1.0f);
-  }
+  draw_list->AddText(pos, icon_col, icon_str);
 }
 
 }  // namespace traceviewer

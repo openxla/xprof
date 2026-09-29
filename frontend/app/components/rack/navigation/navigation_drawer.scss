@@ -1,0 +1,94 @@
+/**
+ * @license
+ * Copyright 2026 The OpenXLA Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// stylelint-disable declaration-no-important -- Component Rack icon and layout reset shield
+
+:host {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--mat-sys-brand-font);
+  width: var(--rack-navigation-drawer-width, 240px);
+  min-width: var(--rack-navigation-drawer-width, 240px);
+  height: 100%;
+  background-color: var(--mat-sys-surface-container-low);
+  transition:
+    width
+      var(
+        --rack-nav-transition,
+        var(--motion-duration-short, 150ms)
+          var(--motion-easing-standard, cubic-bezier(0.2, 0, 0, 1))
+      ),
+    min-width
+      var(
+        --rack-nav-transition,
+        var(--motion-duration-short, 150ms)
+          var(--motion-easing-standard, cubic-bezier(0.2, 0, 0, 1))
+      );
+  box-sizing: border-box;
+  overflow: hidden auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+:host::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.drawer-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: var(--spacing-3, 12px) 0;
+  overflow-y: auto;
+}
+
+.drawer-footer {
+  margin-top: auto;
+  padding: var(--spacing-3, 12px) var(--spacing-4, 16px);
+  border-top: 1px solid var(--mat-sys-outline-variant);
+  display: var(--rack-nav-drawer-footer-display, block);
+}
+
+.drawer-footer:empty {
+  display: none;
+}
+
+// Collapsed State
+:host([collapsed]),
+:host(.collapsed) {
+  width: 64px;
+  min-width: 64px;
+  --rack-nav-drawer-footer-display: none;
+  --rack-nav-group-header-display: none;
+  --rack-nav-group-divider-width: 32px;
+  --rack-nav-group-divider-margin: 6px var(--spacing-4, 16px);
+  --rack-nav-item-pin-display: none !important;
+  --rack-nav-item-badge-display: none !important;
+  --rack-nav-item-text-display: none;
+  --rack-nav-item-justify-content: flex-start;
+  --rack-nav-item-padding: 0 var(--spacing-2, 8px);
+  --rack-nav-item-margin: 0 var(--spacing-3, 12px);
+  --rack-nav-item-width: 40px;
+  --rack-nav-item-height: 40px;
+  --rack-nav-item-border-radius: 20px;
+  --rack-nav-item-link-flex: 0 0 auto;
+}
+
+// stylelint-enable declaration-no-important

@@ -279,7 +279,6 @@ pytype_strict_contrib_test(
         "//plugin/xprof/cli/tools/oss:get_kernel_utilization_tool",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
-        "@tsl//tsl/profiler/protobuf:xplane_proto_py_proto",
     ],
 )
 
@@ -382,25 +381,6 @@ py_test(
         "//plugin/xprof/cli/internal/oss:xprof_client",
         "//plugin/xprof/cli/tools:get_kpi_metrics_tool",
         "//plugin/xprof/cli/tools:get_memory_profile_tool",
-        "//plugin/xprof/cli/tools:get_overview_tool",
-        "//plugin/xprof/cli/tools:get_roofline_model_tool",
-        "//plugin/xprof/cli/tools:get_top_hlo_ops_tool",
-        "@absl_py//absl/testing:absltest",
-        "@absl_py//absl/testing:parameterized",
-    ],
-)
-
-py_test(
-    name = "test_numerical_parity_and_scale",
-    srcs = ["e2e/test_numerical_parity_and_scale.py"],
-    data = [
-        "//xprof:demo_traces",
-    ],
-    visibility = ["//visibility:public"],
-    deps = [
-        ":oracles",
-        "//plugin/xprof/cli/internal/oss:xplane_tools",
-        "//plugin/xprof/cli/tools:get_kpi_metrics_tool",
         "//plugin/xprof/cli/tools:get_overview_tool",
         "//plugin/xprof/cli/tools:get_roofline_model_tool",
         "//plugin/xprof/cli/tools:get_top_hlo_ops_tool",

@@ -975,12 +975,13 @@ class GenerateCacheTaskTest(absltest.TestCase):
     params = {'session_path': session_path}
     self.mock_xspace_to_tool_data.return_value = ('data', 'application/json')
 
-    self.plugin._generate_cache_task(
-        asset_paths=asset_paths,
-        tool_list=tool_list,
-        params=params,
-        session_path=session_path,
-    )
+    with self.assertLogs(profile_plugin.logger, level='INFO') as cm:
+      self.plugin._generate_cache_task(
+          asset_paths=asset_paths,
+          tool_list=tool_list,
+          params=params,
+          session_path=session_path,
+      )
 
     self.mock_write_cache_version_file.assert_called_once_with(
         self.plugin, session_path
@@ -995,6 +996,17 @@ class GenerateCacheTaskTest(absltest.TestCase):
     )
     self.mock_xspace_to_tool_data.assert_has_calls(
         expected_calls, any_order=True
+    )
+    completion_logs = [
+        log
+        for log in cm.output
+        if 'Completed cache generation for session' in log
+    ]
+    self.assertLen(completion_logs, 1)
+    self.assertRegex(
+        completion_logs[0],
+        r'Completed cache generation for session .* in [0-9]+\.[0-9]+s for'
+        r' tools:.*overview_page.*trace_viewer@',
     )
 
   def test_generate_cache_task_continues_on_tool_error(self):
@@ -1296,6 +1308,37 @@ class GenerateCacheImplTest(parameterized.TestCase):
     _, kwargs = self.mock_submit.call_args
     self.assertEqual(kwargs['session_path'], session_path)
     self.assertCountEqual(kwargs['tool_list'], expected_submitted_tools)
+
+  def test_generate_cache_e2e_execution_and_completion_logging(self):
+    session_path = self.create_tempdir().full_path
+    epath.Path(session_path, 'host1.xplane.pb').touch()
+    self.mock_runs_imp.return_value = ['test_run']
+    self.mock_run_tools_imp.return_value = ['overview_page', 'trace_viewer@']
+    self.mock_xspace_to_tool_data.return_value = ('data', 'application/json')
+
+    # Run with a real ThreadPoolExecutor to verify true end-to-end background
+    # execution.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+      self.plugin._cache_generation_pool = pool
+      request = wrappers.Request.from_values(
+          method='POST', query_string=f'session_path={session_path}'
+      )
+      with self.assertLogs(profile_plugin.logger, level='INFO') as cm:
+        response = self.plugin._generate_cache_impl(request)
+        self.assertEqual(response.status_code, 202)
+        pool.shutdown(wait=True)
+
+      completion_logs = [
+          log
+          for log in cm.output
+          if 'Completed cache generation for session' in log
+      ]
+      self.assertLen(completion_logs, 1)
+      self.assertRegex(
+          completion_logs[0],
+          r'Completed cache generation for session .* in [0-9]+\.[0-9]+s for'
+          r' tools:.*overview_page.*trace_viewer@',
+      )
 
 
 class HloModuleListImplTest(absltest.TestCase):

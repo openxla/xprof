@@ -1917,6 +1917,7 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
       params: Additional parameters from the request.
       session_path: The path to the session directory.
     """
+    start_time = time.time()
     logger.info(
         'Background cache generation task started for tools: %s', tool_list
     )
@@ -1956,3 +1957,11 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
             tool,
             session_path,
         )
+
+    total_duration_s = time.time() - start_time
+    logger.info(
+        'Completed cache generation for session %s in %.3fs for tools: %s',
+        session_path,
+        total_duration_s,
+        tool_list,
+    )

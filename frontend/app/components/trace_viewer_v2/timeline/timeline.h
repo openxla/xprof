@@ -101,6 +101,14 @@ struct Group {
   int nesting_level = 0;
   bool expanded = false;
 
+  Group* parent = nullptr;
+  Group* prev_sibling = nullptr;
+  Group* next_sibling = nullptr;
+
+  Group* first_child = nullptr;
+  // For fast append.
+  Group* last_child = nullptr;
+
   // Parent index in groups vector, or -1 for top-level processes.
   int parent_index = -1;
   // List of child process/thread indices in the groups vector.
@@ -121,8 +129,43 @@ struct Group {
   mutable Pixel height = 0.0f;
   // Indicates if the track is visible (not hidden by a collapsed parent).
   mutable bool visible = true;
+
+  void AddChild(Group* child);
+  void Unlink();
 };
 
+inline void Group::AddChild(Group* child) {
+  if (child == nullptr) return;
+  child->parent = this;
+  child->prev_sibling = last_child;
+  child->next_sibling = nullptr;
+  if (last_child != nullptr) {
+    last_child->next_sibling = child;
+  } else {
+    first_child = child;
+  }
+  last_child = child;
+  has_children = true;
+}
+
+inline void Group::Unlink() {
+  if (prev_sibling != nullptr) {
+    prev_sibling->next_sibling = next_sibling;
+  } else if (parent != nullptr && parent->first_child == this) {
+    parent->first_child = next_sibling;
+  }
+  if (next_sibling != nullptr) {
+    next_sibling->prev_sibling = prev_sibling;
+  } else if (parent != nullptr && parent->last_child == this) {
+    parent->last_child = prev_sibling;
+  }
+  if (parent != nullptr && parent->first_child == nullptr) {
+    parent->has_children = false;
+  }
+  parent = nullptr;
+  prev_sibling = nullptr;
+  next_sibling = nullptr;
+}
 struct FlowLine {
   Microseconds source_ts = 0.0;
 

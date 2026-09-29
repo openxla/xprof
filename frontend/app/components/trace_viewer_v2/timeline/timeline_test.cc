@@ -233,6 +233,81 @@ TEST(TimelineTest, GetNextGroupStartLevelOutOfBounds) {
   EXPECT_EQ(Timeline::GetNextGroupStartLevel(data, 1), 5);
 }
 
+TEST(GroupTest, AddChildAndUnlinkOnlyChild) {
+  Group parent{.name = "Parent"};
+  Group child{.name = "Child"};
+
+  parent.AddChild(&child);
+  EXPECT_TRUE(parent.has_children);
+  EXPECT_EQ(parent.first_child, &child);
+  EXPECT_EQ(parent.last_child, &child);
+  EXPECT_EQ(child.parent, &parent);
+  EXPECT_EQ(child.prev_sibling, nullptr);
+  EXPECT_EQ(child.next_sibling, nullptr);
+
+  child.Unlink();
+  EXPECT_FALSE(parent.has_children);
+  EXPECT_EQ(parent.first_child, nullptr);
+  EXPECT_EQ(parent.last_child, nullptr);
+  EXPECT_EQ(child.parent, nullptr);
+  EXPECT_EQ(child.prev_sibling, nullptr);
+  EXPECT_EQ(child.next_sibling, nullptr);
+}
+
+TEST(GroupTest, AddChildAndUnlinkFirstChild) {
+  Group parent{.name = "Parent"};
+  Group c1{.name = "C1"}, c2{.name = "C2"}, c3{.name = "C3"};
+  parent.AddChild(&c1);
+  parent.AddChild(&c2);
+  parent.AddChild(&c3);
+
+  c1.Unlink();
+  EXPECT_TRUE(parent.has_children);
+  EXPECT_EQ(parent.first_child, &c2);
+  EXPECT_EQ(parent.last_child, &c3);
+  EXPECT_EQ(c2.prev_sibling, nullptr);
+  EXPECT_EQ(c2.next_sibling, &c3);
+  EXPECT_EQ(c3.prev_sibling, &c2);
+  EXPECT_EQ(c3.next_sibling, nullptr);
+  EXPECT_EQ(c1.parent, nullptr);
+}
+
+TEST(GroupTest, AddChildAndUnlinkMiddleChild) {
+  Group parent{.name = "Parent"};
+  Group c1{.name = "C1"}, c2{.name = "C2"}, c3{.name = "C3"};
+  parent.AddChild(&c1);
+  parent.AddChild(&c2);
+  parent.AddChild(&c3);
+
+  c2.Unlink();
+  EXPECT_TRUE(parent.has_children);
+  EXPECT_EQ(parent.first_child, &c1);
+  EXPECT_EQ(parent.last_child, &c3);
+  EXPECT_EQ(c1.prev_sibling, nullptr);
+  EXPECT_EQ(c1.next_sibling, &c3);
+  EXPECT_EQ(c3.prev_sibling, &c1);
+  EXPECT_EQ(c3.next_sibling, nullptr);
+  EXPECT_EQ(c2.parent, nullptr);
+}
+
+TEST(GroupTest, AddChildAndUnlinkLastChild) {
+  Group parent{.name = "Parent"};
+  Group c1{.name = "C1"}, c2{.name = "C2"}, c3{.name = "C3"};
+  parent.AddChild(&c1);
+  parent.AddChild(&c2);
+  parent.AddChild(&c3);
+
+  c3.Unlink();
+  EXPECT_TRUE(parent.has_children);
+  EXPECT_EQ(parent.first_child, &c1);
+  EXPECT_EQ(parent.last_child, &c2);
+  EXPECT_EQ(c1.prev_sibling, nullptr);
+  EXPECT_EQ(c1.next_sibling, &c2);
+  EXPECT_EQ(c2.prev_sibling, &c1);
+  EXPECT_EQ(c2.next_sibling, nullptr);
+  EXPECT_EQ(c3.parent, nullptr);
+}
+
 TEST(TimelineTest, CalculateEventRect_EventCompletelyOutsideLeft) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);

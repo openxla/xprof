@@ -8,24 +8,61 @@
   <ng-container *ngIf="useTraceViewerV2">
     <div class="header-right right-controls">
       <div *ngIf="traceDetails && traceDetails.size > 0">
-        <button mat-button class="details-button" [matMenuTriggerFor]="detailsMenu">Details <mat-icon>arrow_drop_down</mat-icon></button>
-        <mat-menu #detailsMenu="matMenu" class="details-menu">
-          <div *ngFor="let detail of availableDetails" (click)="$event.stopPropagation()">
-            <mat-checkbox [checked]="isDetailChecked(detail.key)" (change)="toggleDetail(detail.key, $event.checked)" style="margin: 0 16px;">
+        <button
+          id="details-menu-anchor"
+          mat-button
+          class="details-button"
+          (click)="detailsMenu.open = !detailsMenu.open">
+          Details <mat-icon>arrow_drop_down</mat-icon>
+        </button>
+        <md-menu
+          #detailsMenu
+          anchor="details-menu-anchor"
+          class="details-menu"
+          positioning="fixed"
+          stay-open-on-focusout>
+          <md-menu-item
+            *ngFor="let detail of availableDetails"
+            keep-open
+            (click)="$event.stopPropagation()">
+            <mat-checkbox
+              slot="headline"
+              [checked]="isDetailChecked(detail.key)"
+              (change)="toggleDetail(detail.key, $event.checked)">
               {{detail.label}}
             </mat-checkbox>
-          </div>
-        </mat-menu>
+          </md-menu-item>
+        </md-menu>
       </div>
-      <button mat-button [matMenuTriggerFor]="flowMenu">Flow Events</button>
-      <mat-menu #flowMenu="matMenu">
-        <button mat-menu-item (click)="selectAllFlowCategories()">All</button>
-        <button mat-menu-item (click)="selectNoneFlowCategories()">None</button>
+      <button
+        id="flow-menu-anchor"
+        mat-button
+        (click)="flowMenu.open = !flowMenu.open">
+        Flow Events
+      </button>
+      <md-menu
+        #flowMenu
+        anchor="flow-menu-anchor"
+        positioning="fixed"
+        stay-open-on-focusout>
+        <md-menu-item (click)="selectAllFlowCategories()">
+          <div slot="headline">All</div>
+        </md-menu-item>
+        <md-menu-item (click)="selectNoneFlowCategories()">
+          <div slot="headline">None</div>
+        </md-menu-item>
         <mat-divider></mat-divider>
-        <button mat-menu-item *ngFor="let category of flowCategories" (click)="toggleFlowCategory(category)">
-          <mat-checkbox [checked]="isSelectedFlowCategory(category)">{{category.name}}</mat-checkbox>
-        </button>
-      </mat-menu>
+        <md-menu-item
+          *ngFor="let category of flowCategories"
+          keep-open
+          (click)="toggleFlowCategory(category)">
+          <mat-checkbox
+            slot="headline"
+            [checked]="isSelectedFlowCategory(category)">
+            {{category.name}}
+          </mat-checkbox>
+        </md-menu-item>
+      </md-menu>
       <button mat-button (click)="switchVersion()">
         Switch to the old frontend
       </button>

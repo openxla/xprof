@@ -392,16 +392,40 @@ function configureCanvas(canvas: HTMLCanvasElement, device: GPUDevice) {
   });
 }
 
+/**
+ * Selector for the `<script>` element that loads the Emscripten glue code of
+ * the WASM module.
+ */
+const WASM_GLUE_SCRIPT_SELECTOR = 'script[src*="trace_viewer_v2.js"]';
+
+/**
+ * Returns the query string (e.g. `?v=123`) of the WASM glue script URL, or an
+ * empty string if the script is not found or its URL has no query.
+ */
+function getWasmGlueScriptQuery(): string {
+  const script = document.querySelector<HTMLScriptElement>(
+    WASM_GLUE_SCRIPT_SELECTOR,
+  );
+  return script ? new URL(script.src, document.baseURI).search : '';
+}
+
 async function loadAndStartWasm(
   canvas: HTMLCanvasElement,
   device: GPUDevice,
 ): Promise<TraceViewerV2Module> {
+  // The glue code and the WASM binary must come from the same build, otherwise
+  // the initialization fails with `ASM_CONSTS[code] is not a function`. Fetch
+  // the binary with the same query (e.g. a cache-busting version) as the glue
+  // script, so that browser and intermediary caches serve a matching pair.
+  const glueScriptQuery = getWasmGlueScriptQuery();
   const moduleConfig = {
     canvas,
     print: console.log,
     printErr: console.error,
     setStatus: console.debug,
     noInitialRun: true,
+    locateFile: (path: string, scriptDirectory: string) =>
+      `${scriptDirectory}${path}${glueScriptQuery}`,
   };
 
   performance.mark('wasmLoadStart');
@@ -429,9 +453,7 @@ async function ensureWasmModuleIsLoaded(): Promise<void> {
     return;
   }
   return new Promise((resolve, reject) => {
-    const existingScript = document.querySelector(
-      'script[src*="trace_viewer_v2.js"]',
-    );
+    const existingScript = document.querySelector(WASM_GLUE_SCRIPT_SELECTOR);
     if (existingScript) {
       existingScript.addEventListener('load', () => {
         resolve();

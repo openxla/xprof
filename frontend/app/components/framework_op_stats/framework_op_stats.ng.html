@@ -21,20 +21,26 @@
 
   <div class="mat-title">Include IDLE time in statistics</div>
 
-  <mat-menu #idleOptions="matMenu">
-    <button mat-menu-item
-            *ngFor="let option of idleOptionItems"
-            (click)="setIdleOption(option)"
-            [disabled]="idleMenuButtonLabel == option">
-      {{option}}
-    </button>
-  </mat-menu>
-
   <div class="idle-button-container">
-    <button mat-raised-button [matMenuTriggerFor]="idleOptions">
+    <button
+        id="idle-options-anchor"
+        mat-raised-button
+        (click)="idleOptions.open = !idleOptions.open">
       {{idleMenuButtonLabel}}
       <mat-icon>arrow_drop_down</mat-icon>
     </button>
+    <md-menu
+        #idleOptions
+        anchor="idle-options-anchor"
+        positioning="fixed"
+        stay-open-on-focusout>
+      <md-menu-item
+          *ngFor="let option of idleOptionItems"
+          (click)="setIdleOption(option)"
+          [disabled]="idleMenuButtonLabel === option">
+        <div slot="headline">{{option}}</div>
+      </md-menu-item>
+    </md-menu>
   </div>
 
   <br>

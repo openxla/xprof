@@ -1,3 +1,6 @@
+import '@material/web/menu/menu';
+import '@material/web/menu/menu-item';
+
 import {Component, Input, ChangeDetectionStrategy} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {IdleOption, OpExecutor, OpKind, OpType} from 'org_xprof/frontend/app/common/constants/enums';

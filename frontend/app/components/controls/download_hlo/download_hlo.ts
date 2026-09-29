@@ -1,3 +1,6 @@
+import '@material/web/menu/menu';
+import '@material/web/menu/menu-item';
+
 import {Component, inject, Input, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
 import {GRAPH_TYPE_DEFAULT} from 'org_xprof/frontend/app/common/constants/constants';
@@ -30,9 +33,9 @@ const DOWNLOAD_HLO_PROTO_MENU_ITEMS: DownloadMenuItem[] = [
 })
 export class DownloadHlo implements OnDestroy {
   /** The hlo module name. */
-  @Input() moduleName: string = '';
+  @Input() moduleName = '';
   /** Includes metadata in the proto. */
-  @Input() showMetadata: boolean = false;
+  @Input() showMetadata = false;
   /** The graph type to download. */
   @Input() graphType: string = GRAPH_TYPE_DEFAULT;
 

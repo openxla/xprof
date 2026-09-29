@@ -1,7 +1,6 @@
 import {CommonModule} from '@angular/common';
-import {NgModule} from '@angular/core';
+import {CUSTOM_ELEMENTS_SCHEMA, NgModule} from '@angular/core';
 import {MatIconModule} from '@angular/material/icon';
-import {MatMenuModule} from '@angular/material/menu';
 import {MatTooltipModule} from '@angular/material/tooltip';
 
 import {DownloadHlo} from './download_hlo';
@@ -9,12 +8,12 @@ import {DownloadHlo} from './download_hlo';
 @NgModule({
   imports: [
     CommonModule,
-    MatMenuModule,
     MatIconModule,
     MatTooltipModule,
   ],
   declarations: [DownloadHlo],
   exports: [DownloadHlo],
+  schemas: [CUSTOM_ELEMENTS_SCHEMA],
 })
 export class DownloadHloModule {
 }

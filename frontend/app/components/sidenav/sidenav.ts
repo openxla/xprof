@@ -103,6 +103,11 @@ export function serializeQueryParams(params: {
   return queryString ? `?${queryString}` : '';
 }
 
+const STANDALONE_NON_SIDENAV_ROUTES = [
+  'megascale_perfetto',
+  'stack_trace_page',
+];
+
 /** A side navigation component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
@@ -185,6 +190,12 @@ export class SideNav implements OnInit, OnDestroy {
 
   // Getter for valid tag given url router or user selection.
   get selectedTag() {
+    // For standalone sub-pages (e.g., 'megascale_perfetto'), the route name is
+    // not in this.tags. Returning an empty string prevents falling back to
+    // this.tags[0] ('overview_page') and keeps the sidebar tool dropdown unselected.
+    if (STANDALONE_NON_SIDENAV_ROUTES.includes(this.selectedTagInternal)) {
+      return '';
+    }
     return (
       this.tags.find((validTag) =>
         validTag.startsWith(this.selectedTagInternal),
@@ -192,6 +203,27 @@ export class SideNav implements OnInit, OnDestroy {
       this.tags[0] ||
       ''
     );
+  }
+
+  /**
+   * Extracts the standalone non-sidenav route identifier from the first path segment.
+   *
+   * Standalone routes (e.g., Megascale Perfetto, Stack Trace) are sub-pages with URL
+   * paths structured as:
+   *   - "/megascale_perfetto/<sessionId>?host=<host>" -> extracts "megascale_perfetto"
+   *   - "/stack_trace_page/<sessionId>" -> extracts "stack_trace_page"
+   *
+   * Standard sidebar tools follow the pattern "/<tool_name>?run=...&tag=...",
+   * where the first segment is not in STANDALONE_NON_SIDENAV_ROUTES and returns "".
+   */
+  private getStandaloneNonSidenavRoute(url?: string): string {
+    const rawUrl =
+      url ?? (this.router.url || this.router.routerState?.snapshot?.url || '');
+    const cleanPath = rawUrl.split('?')[0].split('#')[0];
+    const firstSegment = cleanPath.split('/').find(Boolean) || '';
+    return STANDALONE_NON_SIDENAV_ROUTES.includes(firstSegment)
+      ? firstSegment
+      : '';
   }
 
   // Getter for valid host given url router or user selection.
@@ -235,7 +267,16 @@ export class SideNav implements OnInit, OnDestroy {
     return params;
   }
 
-  navigateWithUrl() {
+  navigateWithUrl(url?: string) {
+    const standaloneRoute = this.getStandaloneNonSidenavRoute(url);
+    if (standaloneRoute) {
+      this.selectedTagInternal = standaloneRoute;
+      // Standalone sub-pages manage their own data loading and router lifecycle.
+      // Return early to prevent SideNav from parsing tool route params, triggering
+      // sidebar tool data fetches, or redirecting away from the standalone sub-page.
+      return;
+    }
+
     const parentParams = getParentLocationParams();
     const routeParams = this.mergeRouteParams();
 
@@ -314,11 +355,13 @@ export class SideNav implements OnInit, OnDestroy {
     this.fetchProfilerConfig();
     this.router.events
       ?.pipe(
-        filter((event) => event instanceof NavigationEnd),
+        filter(
+          (event): event is NavigationEnd => event instanceof NavigationEnd,
+        ),
         takeUntil(this.destroyed),
       )
       .subscribe((event) => {
-        this.navigateWithUrl();
+        this.navigateWithUrl(event.urlAfterRedirects || event.url);
       });
   }
 
@@ -626,9 +669,15 @@ export class SideNav implements OnInit, OnDestroy {
     // routing
     // TODO - b/401596855: Deprecate the navigationEvent in route.params as we
     // are subscribing to the queryParams in the components.
-    this.router.navigate([this.selectedTag || 'empty'], {
-      queryParams: navigationEvent,
-    });
+    if (STANDALONE_NON_SIDENAV_ROUTES.includes(this.selectedTagInternal)) {
+      this.router.navigate([this.selectedTagInternal, this.selectedRun], {
+        queryParams: navigationEvent,
+      });
+    } else {
+      this.router.navigate([this.selectedTag || 'empty'], {
+        queryParams: navigationEvent,
+      });
+    }
     delete this.navigationParams['firstLoad'];
     this.updateTitle();
   }

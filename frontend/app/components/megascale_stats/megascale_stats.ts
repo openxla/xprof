@@ -146,6 +146,8 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
     searchParams.forEach((value, key) => {
       queryParams[key] = value;
     });
+    delete queryParams['tag'];
+    delete queryParams['tool'];
 
     if (this.host) {
       queryParams['host'] = this.host;

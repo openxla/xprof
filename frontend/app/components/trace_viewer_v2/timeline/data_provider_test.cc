@@ -4167,8 +4167,9 @@ TEST_F(DataProviderTest, ExpandedState_PreservedAcrossParentIndexVariations) {
 
   for (const TestCase& test_case : test_cases) {
     SCOPED_TRACE(test_case.description);
-    timeline_.SetTimelineData(
-        FlameChartTimelineData{.groups = test_case.initial_groups});
+    FlameChartTimelineData initial_data;
+    initial_data.groups = test_case.initial_groups;
+    timeline_.SetTimelineData(std::move(initial_data));
     data_provider_.ProcessTraceEvents(ParsedTraceEvents{.flame_events = events},
                                       timeline_);
     ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(2));

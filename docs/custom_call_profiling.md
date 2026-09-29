@@ -52,7 +52,7 @@ requirements:
 | Capability | Hardware Requirement | Notes |
 | :--- | :--- | :--- |
 | **LLO Analysis & Disassembly** (`get_llo_analysis`, `get_llo_debug_string`) | **Any supported TPU** (v6e, v5e, v4, etc.) | Fully supported on TPU v6e and v5e (`libtpu >= 0.0.42`); **not** gated to v7x. |
-| **Custom Call Tracing** (`--xla_xprof_enable_custom_call_tracing=true`) | **Any supported TPU** (`libtpu >= 0.0.44` / `jax >= 0.11.0`) | Optional intra-kernel Trace Viewer spans; **not** needed for LLO analysis. Absent in `libtpu 0.0.42` (`jax 0.10.2`), where setting it aborts the backend. |
+| **Custom Call Tracing** (`--xla_xprof_enable_custom_call_tracing=true`) | **Any supported TPU** (`libtpu >= 0.0.44` / `jax >= 0.11.0`) | Captures fine-grained runtime LLO trace details (increases trace size; tune vtrace frequency via [How to Tune](#how-to-tune) if events drop). Absent in `libtpu 0.0.42` (`jax 0.10.2`), where setting it aborts the backend. |
 | **Periodic Runtime Counters** (`tpu_enable_periodic_counter_sampling`) | **Ironwood TPU7x+ only** | Hardware performance counters require TPU v7x+. |
 
 ## Flag Availability Diagnostic
@@ -80,10 +80,11 @@ if so_paths:
 
 ### Recommended default: LLO debug info only
 
-For almost every workflow, register LLO debug info **without** custom call
-tracing. This keeps the full HLO op stream intact, so `get_hlo_stats`,
-`get_roofline_model`, `get_top_hlo_ops` and `get_kernel_stats` all keep working,
-while still producing the complete LLO source map used by `get_llo_analysis`
+For static LLO analysis and HLO/kernel-level profiling, register LLO debug info
+with `--xla_xprof_register_llo_debug_info=true`. This keeps the full HLO op
+stream intact so `get_hlo_stats`, `get_roofline_model`, `get_top_hlo_ops`, and
+`get_kernel_stats` all work without extra runtime trace overhead, while
+producing the complete compile-time LLO source map used by `get_llo_analysis`
 and `get_llo_debug_string`.
 
 ```python
@@ -99,41 +100,37 @@ import jax
 *   `--xla_xprof_register_llo_debug_info=true`: Registers LLO debug
     information, opcodes, and metadata for XProf visualization.
 
-### Opt-in: runtime intra-kernel bundle tracing
+### Fine-grained runtime LLO bundle tracing
 
 *   `--xla_xprof_enable_custom_call_tracing=true`: Canonical flag that enables
-    runtime intra-kernel timeline spans (`Pallas Primitives`, `LLO Ops`, and
-    per-unit instruction lanes in Trace Viewer) and automatically activates
+    fine-grained runtime LLO execution details (`Pallas Primitives`, `LLO Ops`,
+    and per-unit instruction lanes in Trace Viewer) and automatically activates
     instruction bundle instrumentation (`xla_tpu_bundle_instrumentation_options`
     with default `trace_best_effort_frequency=10` and
     `trace_guaranteed_frequency=10`).
 
-WARNING: Adding `--xla_xprof_enable_custom_call_tracing=true` activates
-bundle-level trace instrumentation inside custom calls. On custom calls
-(observed at ~2.8 ms/call), the resulting event volume inflates traces 6–12×
-and overflows the hardware trace buffer, dropping or truncating the outer HLO
-`Begin`/`End` events — corrupting `get_kernel_stats` (dropping custom-call
-kernel records into `barrier-cores` on v6e, or under-reporting kernel duration
-by 8.8% on v7x) and leaving only `IDLE` or `NO_DATA` in `get_hlo_stats`,
-`get_roofline_model`, and `get_top_hlo_ops`, while the static compile-time LLO
-source map remains identical to `--xla_xprof_register_llo_debug_info=true`
-alone:
+NOTE: Because `--xla_xprof_enable_custom_call_tracing=true` records fine-grained
+bundle-level LLO trace points inside custom calls, it expectedly increases the
+trace size. At the default vtrace frequency (`10`), custom calls (observed at
+~2.8 ms/call) can increase trace size 6–12× and overflow the hardware trace
+buffer, dropping or truncating the outer HLO `Begin`/`End` events (`NO_DATA` /
+`IDLE` in `get_hlo_stats`, `get_roofline_model`, and `get_top_hlo_ops`, or
+dropped/truncated custom-call records in `get_kernel_stats`):
 
-| Pallas FlashAttention (10 iters, 8×4096×128 bf16) | `--xla_xprof_register_llo_debug_info=true` only | Both flags (`+ --xla_xprof_enable_custom_call_tracing=true`) |
+| Pallas FlashAttention (10 iters, 8×4096×128 bf16) | `--xla_xprof_register_llo_debug_info=true` only | Both flags (`+ --xla_xprof_enable_custom_call_tracing=true`, default freq=10) |
 | :--- | :--- | :--- |
 | **TPU v6e-1 trace size** | 19.8 MB | 127 MB (6.4×) |
-| **TPU v6e-1 `get_llo_analysis`** | 10 modules, 103,224 instr (0.6 s) | Identical (2.7 s) |
+| **TPU v6e-1 `get_llo_analysis` (static)** | 10 modules, 103,224 instr (0.6 s) | Identical (2.7 s) |
 | **TPU v6e-1 `get_hlo_stats` / `get_top_hlo_ops`** | `flash_attention.1`, 10×, 28.4 ms | `NO_DATA` / only `IDLE` |
 | **TPU v6e-1 `get_kernel_stats`** | `flash_attention.1`, 28,363 µs | Custom call dropped; only `barrier-cores` (25,672 µs) |
 | **TPU v7x (2×2×1) trace size** | 115 MB | 1.42 GB (12.3×) |
-| **TPU v7x `get_llo_analysis`** | 10 modules, 103,239 instr (1.9 s) | Identical (33.6 s) |
+| **TPU v7x `get_llo_analysis` (static)** | 10 modules, 103,239 instr (1.9 s) | Identical (33.6 s) |
 | **TPU v7x `get_kernel_stats`** | `flash_attention.1`, 29,725 µs (1.3 s) | `flash_attention.1`, 27,098 µs (−8.8%, 19.0 s) |
 
-Enable `--xla_xprof_enable_custom_call_tracing=true` only when you need runtime
-intra-kernel timeline spans, and either increase
-`trace_best_effort_frequency` / `trace_guaranteed_frequency` (see **Advanced
-Parameters** below) or collect a separate profile without the flag for
-HLO-level and kernel-level timing analysis.
+When using `--xla_xprof_enable_custom_call_tracing=true`, tune the vtrace
+frequency (`trace_best_effort_frequency` and `trace_guaranteed_frequency` in
+`xla_tpu_bundle_instrumentation_options`; see [How to Tune](#how-to-tune) below)
+if the increased trace size overflows the hardware trace buffer.
 
 ### Example Trace Viewer
 
@@ -154,7 +151,7 @@ parameters.
 These parameters are configured via `xla_tpu_bundle_instrumentation_options`.
 You can control how often traces are packed into instruction bundles.
 
-#### Key Parameters:
+#### Key Parameters
 
 *   **`trace_best_effort_frequency`** (Default: 10): The target interval (in
     bundles) for inserting opportunistic traces packed into existing bundles.
@@ -165,7 +162,7 @@ You can control how often traces are packed into instruction bundles.
     satisfy this by packing traces into existing bundles, we will create a new
     bundle and place a trace there (by itself).
 
-#### How to Tune:
+#### How to Tune
 
 *   **If you see Event Drops**: **Increase** the values (e.g., set to 50 or 100)
     to trace **less frequently**, reducing the volume of trace data generated.

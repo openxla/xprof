@@ -22,16 +22,22 @@ _T = TypeVar("_T")
 
 _UNKNOWN = object()
 
+_CUSTOM_CALL_TUNE_DOC: str = (
+    "https://openxla.org/xprof/custom_call_profiling#how-to-tune"
+)
+
 LLO_DATA_ABSENT_REMEDIATION: str = (
     "To enable LLO tracing, ensure the workload is executed with"
     ' LIBTPU_INIT_ARGS="--xla_xprof_register_llo_debug_info=true"'
-    " exported strictly BEFORE 'import jax'. Do not add"
-    " --xla_xprof_enable_custom_call_tracing for LLO analysis: it adds no LLO"
-    " data, inflates traces 6-12x, and corrupts get_hlo_stats /"
-    " get_top_hlo_ops / get_kernel_stats on Pallas kernels. Prerequisites:"
-    " Python 3.11+ (Python 3.12 recommended via uv), JAX >= 0.11.0 (default"
-    " Cloud TPU VM images running Python 3.10 cap JAX at 0.6.2 and lack LLO"
-    " flag support), and xprof-nightly."
+    " exported strictly BEFORE 'import jax'. Adding"
+    " --xla_xprof_enable_custom_call_tracing=true captures fine-grained"
+    " runtime LLO details and increases trace size; if trace buffer overflow"
+    " drops events, tune the vtrace frequency flag"
+    " (trace_best_effort_frequency / trace_guaranteed_frequency in"
+    f" xla_tpu_bundle_instrumentation_options; see {_CUSTOM_CALL_TUNE_DOC})."
+    " Prerequisites: Python 3.11+ (Python 3.12 recommended via uv),"
+    " JAX >= 0.11.0 (default Cloud TPU VM images running Python 3.10 cap JAX"
+    " at 0.6.2 and lack LLO flag support), and xprof-nightly."
 )
 
 

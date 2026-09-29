@@ -158,9 +158,10 @@ Pallas or Mosaic):
         TPU** (v6e, v5e, v4, etc., `libtpu >= 0.0.42`) — **NOT** gated to v7x.
     *   Opt-in custom call tracing
         (`--xla_xprof_enable_custom_call_tracing=true`) works on any supported
-        TPU but requires `libtpu >= 0.0.44` (`jax >= 0.11.0`; absent in
-        `libtpu 0.0.42`, where setting it aborts the backend) and is not needed
-        for LLO analysis.
+        TPU (`libtpu >= 0.0.44` / `jax >= 0.11.0`; absent in `libtpu 0.0.42`,
+        where setting it aborts the backend) and captures fine-grained runtime
+        LLO trace details (increases trace size; tune vtrace frequency if events
+        drop).
     *   Periodic hardware runtime counters
         (`tpu_enable_periodic_counter_sampling`) require Ironwood TPU7x+.
 4.  **Flag Symbol Verification (Optional Diagnostic)**: Inspect installed
@@ -176,27 +177,26 @@ Pallas or Mosaic):
 5.  **Canonical Flags**:
 
     *   `--xla_xprof_register_llo_debug_info=true`: Registers compile-time LLO
-        debug info, disassembly, and source map in XProf traces. **This is the
-        default you want** — on its own it provides the complete LLO source map
-        for `get_llo_analysis` and `get_llo_debug_string` without adding
-        runtime trace overhead, keeping the HLO op stream intact.
+        debug info, disassembly, and source map in XProf traces. On its own it
+        provides the complete static LLO source map for `get_llo_analysis` and
+        `get_llo_debug_string` without adding runtime trace overhead, keeping
+        the HLO op stream intact.
     *   `--xla_xprof_enable_custom_call_tracing=true`: Canonical flag
-        (reconciles legacy `--xla_enable_custom_call_region_trace=true`). **Add
-        it only when you need runtime intra-kernel timeline lanes** (`Pallas
-        Primitives`, `LLO Ops`, and per-unit instruction lanes in Trace Viewer).
-        It activates bundle-level instrumentation
+        (reconciles legacy `--xla_enable_custom_call_region_trace=true`) that
+        captures fine-grained runtime LLO execution details (`Pallas
+        Primitives`, `LLO Ops`, and per-unit instruction lanes in Trace Viewer)
+        by activating bundle-level instrumentation
         (`xla_tpu_bundle_instrumentation_options` with default
         `trace_best_effort_frequency=10` and `trace_guaranteed_frequency=10`).
-        On custom calls (observed at ~2.8 ms/call), the resulting event volume
-        inflates traces 6–12× and overflows the hardware trace buffer, dropping
-        or truncating the outer HLO `Begin`/`End` events, so `get_kernel_stats`
-        drops custom-call records into `barrier-cores` on v6e or under-reports
-        kernel duration by 8.8% on v7x, and HLO-level tools (`get_hlo_stats`,
-        `get_roofline_model`, `get_top_hlo_ops`) report `IDLE` or `NO_DATA`. If
-        that happens, increase `trace_best_effort_frequency` and
-        `trace_guaranteed_frequency` (e.g., to `50` or `100`) or collect a
-        second profile without the flag. See
-        [custom call profiling](../../docs/custom_call_profiling.md).
+        Because fine-grained LLO tracing increases the trace size (e.g., 6–12×
+        at default frequency 10 on ~2.8 ms custom calls), it can overflow the
+        hardware trace buffer and drop or truncate outer HLO `Begin`/`End`
+        events (`IDLE` or `NO_DATA` in `get_hlo_stats`, `get_roofline_model`,
+        `get_top_hlo_ops`, or dropped/truncated custom-call records in
+        `get_kernel_stats`). When that happens, tune the vtrace frequency by
+        increasing `trace_best_effort_frequency` and
+        `trace_guaranteed_frequency` (e.g., to `50` or `100`). See
+        [custom call profiling](../../docs/custom_call_profiling.md#how-to-tune).
 6.  **Analysis Execution & Metrics Interpretation**:
 
     *   `xprof get_llo_analysis <logdir_or_session_id>`: Extracts instruction

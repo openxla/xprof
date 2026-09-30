@@ -89,14 +89,18 @@ _CHART_LOADER_POLL_MS = 100
 _CHART_LOADER_SETTLE_MS = 300
 _CHART_LOADER_TIMEOUT_MS = 15000
 
-# Regions that legitimately differ between two runs of the same build. Masking
-# paints them a flat color in both screenshots and clears their text in the
-# serialized DOM so the engine sees them as equal across runs.
+# Regions that legitimately differ between two runs of the same build, or
+# between the baseline and candidate builds. Masking paints them a flat color
+# in both screenshots and clears their text in the serialized DOM so the engine
+# sees them as equal across runs.
 MASK_SELECTORS: tuple[str, ...] = (
     # Absolute log directory, which embeds a per-run temporary path.
     "sidenav .session-path",
     # Trace Viewer rotates tutorial tips on a 3s timer while loading.
     ".tutorial",
+    # Plugin version. Nightly versions embed the build date, and the A/B
+    # baseline wheel is cached from an earlier build of master.
+    ".version-label",
 )
 
 # Flat fill painted over masked regions. Chosen to be absent from the XProf

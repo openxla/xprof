@@ -211,5 +211,50 @@ class ServerTest(parameterized.TestCase):
     )
 
 
+def _respond_with(body):
+  """Returns a WSGI app that answers every request with 200 and `body`."""
+
+  def app(environ, start_response):
+    del environ  # Unused.
+    start_response('200 OK', [('Content-Type', 'text/plain')])
+    return [body]
+
+  return app
+
+
+class MakeWsgiAppTest(parameterized.TestCase):
+
+  def _get(self, path):
+    """Returns the status and body the standalone app serves for `path`."""
+    plugin = mock.Mock()
+    plugin.get_plugin_apps.return_value = {'/runs': _respond_with(b'runs')}
+    plugin.default_handler = _respond_with(b'index')
+    statuses = []
+    body = server.make_wsgi_app(plugin)(
+        {'PATH_INFO': path}, lambda status, headers: statuses.append(status)
+    )
+    return statuses, b''.join(body)
+
+  @parameterized.parameters(
+      ('/', b'index'),
+      ('/data/plugin/profile/', b'index'),
+      ('/data/plugin/profile/overview_page', b'index'),
+      ('/data/plugin/profile/kernel_viewer/session_1', b'index'),
+      ('/data/plugin/profile/runs', b'runs'),
+      ('/data/plugin/profile/runs/', b'runs'),
+  )
+  def test_serves_plugin_and_frontend_routes(self, path, expected_body):
+    self.assertEqual(self._get(path), (['200 OK'], expected_body))
+
+  @parameterized.parameters(
+      '/data/plugin/profile/missing.js',
+      '/favicon.ico',
+      '/overview_page',
+      '/data/plugin/profilez/overview_page',
+  )
+  def test_unknown_path_is_not_found(self, path):
+    self.assertEqual(self._get(path), (['404 Not Found'], b'Not Found'))
+
+
 if __name__ == '__main__':
   absltest.main()

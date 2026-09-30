@@ -81,13 +81,19 @@ def make_wsgi_app(plugin):
 
   def application(environ, start_response):
     path = environ["PATH_INFO"]
-    if path.startswith(prefix):
+    under_prefix = path == prefix or path.startswith(prefix + "/")
+    if under_prefix:
       path = path[len(prefix) :]
     if path != "/" and path.endswith("/"):
       path = path[:-1]
     if path in apps:
       handler = apps[path]
-    elif path in ("", "/"):
+    elif path in ("", "/") or (
+        under_prefix and "." not in path.rsplit("/", 1)[-1]
+    ):
+      # The root, or a frontend route under the prefix such as /overview_page,
+      # which the browser requests when a tool page is reloaded. The frontend
+      # reads the route from the URL.
       handler = plugin.default_handler
     else:
       handler = _not_found_handler

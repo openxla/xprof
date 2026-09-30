@@ -40,6 +40,11 @@ from xprof.cli.tools.oss import get_kernel_utilization_tool
 from xprof.cli.tools.oss import llo_static_analysis_tool
 from xprof.cli.tools.oss import upload_trace_tool
 
+try:
+  from google3.net.rpc.python import pywraprpc  # pylint: disable=g-import-not-at-top
+except ImportError:
+  pywraprpc = None
+
 # Compiler dump directories produced by --xla_jf_dump_to contain only text
 # artifacts and never XPlane/XSpace protos, so `_wrap_with_logdir` must accept
 # such a directory instead of requiring a trace file. These patterns mirror the
@@ -235,11 +240,7 @@ def _wrap_with_logdir(tool_func, accepts_compiler_dump_dir: bool = False):
             and not args
         ):
           kwargs["session_id"] = str(logdir)
-        elif (
-            "source" in sig.parameters
-            and "source" not in kwargs
-            and not args
-        ):
+        elif "source" in sig.parameters and "source" not in kwargs and not args:
           kwargs["source"] = str(logdir)
 
     args_list = list(args)
@@ -477,6 +478,13 @@ def _check_xprof_version() -> None:
     pass
 
 
+EXIT_CODE_INTERNAL_ERROR = 1
+EXIT_CODE_USAGE_ERROR = 2
+EXIT_CODE_PATH_ERROR = 3
+EXIT_CODE_INVALID_VALUE = 4
+EXIT_CODE_RPC_ERROR = 5
+
+
 def _emit_error(
     reason: str,
     message: str,
@@ -496,6 +504,86 @@ def _emit_error(
   if traceback_str:
     sys.stderr.write(f"\n{traceback_str}\n")
   sys.exit(exit_code)
+
+
+def _find_rpc_exception(exc: BaseException) -> Any | None:
+  """Walks __cause__ and __context__ chains to find a pywraprpc.RPCException."""
+  stack = [exc]
+  visited = set()
+  while stack:
+    curr = stack.pop()
+    if curr is None or id(curr) in visited:
+      continue
+    visited.add(id(curr))
+    if (pywraprpc is not None and isinstance(curr, pywraprpc.RPCException)) or (
+        curr.__class__.__name__ == "RPCException"
+    ):
+      return curr
+    cause = curr.__cause__
+    if cause is not None:
+      stack.append(cause)
+    context = curr.__context__
+    if context is not None:
+      stack.append(context)
+  return None
+
+
+def _get_rpc_status_code(rpc_exc: Any) -> int | None:
+  """Extracts the integer status code from an RPC exception if available."""
+  app_err = getattr(rpc_exc, "application_error", None)
+  if isinstance(app_err, int) and app_err != 0:
+    return app_err
+
+  util_status = getattr(rpc_exc, "util_status", None)
+  if util_status is not None:
+    for method_name in ("CanonicalCode", "code_int", "code", "error_code"):
+      fn = getattr(util_status, method_name, None)
+      if callable(fn):
+        try:
+          code = fn()
+          if isinstance(code, int):
+            return code
+          if hasattr(code, "value") and isinstance(code.value, int):
+            return code.value
+        except Exception:  # pylint: disable=broad-exception-caught
+          pass
+      elif isinstance(fn, int):
+        return fn
+    if pywraprpc is not None and hasattr(pywraprpc, "GetApplicationErrorCode"):
+      try:
+        app_code = pywraprpc.GetApplicationErrorCode(util_status)
+        if isinstance(app_code, int) and app_code != 0:
+          return app_code
+      except Exception:  # pylint: disable=broad-exception-caught
+        pass
+
+  for attr in ("status_code", "code"):
+    val = getattr(rpc_exc, attr, None)
+    if callable(val):
+      try:
+        val = val()
+      except Exception:  # pylint: disable=broad-exception-caught
+        continue
+    if isinstance(val, int):
+      return val
+    if hasattr(val, "value") and isinstance(val.value, int):
+      return val.value
+
+  return None
+
+
+def _is_not_found_rpc(rpc_exc: Any) -> bool:
+  """Detects whether an RPC exception has status code NOT_FOUND (integer 5)."""
+  code = _get_rpc_status_code(rpc_exc)
+  if code == 5:
+    return True
+  exc_str = str(rpc_exc).upper()
+  if "NOT_FOUND" in exc_str:
+    return True
+  util_status = getattr(rpc_exc, "util_status", None)
+  if util_status is not None and "NOT_FOUND" in str(util_status).upper():
+    return True
+  return False
 
 
 _UNDERSCORE_NUM_PATTERN = re.compile(r"^\d+(_\d+)+$")
@@ -596,20 +684,27 @@ def main(argv=None) -> None:
   processed_command = _preprocess_argv(argv[1:] if argv else None)
   try:
     fire.Fire(XProfCli(), command=processed_command, name="xprof")
-  except (fire.core.FireError, TypeError) as e:
-    _emit_error("USAGE_ERROR", str(e), 2)
-  except OSError as e:
-    _emit_error("PATH_ERROR", str(e), 3)
-  except ValueError as e:
-    _emit_error("INVALID_VALUE", str(e), 4)
   except Exception as e:  # pylint: disable=broad-exception-caught
+    rpc_exc = _find_rpc_exception(e)
+    if rpc_exc is not None:
+      msg = str(rpc_exc) if str(rpc_exc) else str(e)
+      if _is_not_found_rpc(rpc_exc):
+        _emit_error("PATH_ERROR", msg, EXIT_CODE_PATH_ERROR)
+      else:
+        _emit_error("RPC_ERROR", msg, EXIT_CODE_RPC_ERROR)
+    if isinstance(e, (fire.core.FireError, TypeError)):
+      _emit_error("USAGE_ERROR", str(e), EXIT_CODE_USAGE_ERROR)
+    if isinstance(e, OSError):
+      _emit_error("PATH_ERROR", str(e), EXIT_CODE_PATH_ERROR)
+    if isinstance(e, ValueError):
+      _emit_error("INVALID_VALUE", str(e), EXIT_CODE_INVALID_VALUE)
     logging.exception("Unhandled defect in xprof_cli")
     tb = traceback.format_exc().strip()
     report_target = "https://github.com/openxla/xprof/issues"
     _emit_error(
         "INTERNAL_ERROR",
         f"{e}\nPlease report to {report_target}",
-        1,
+        EXIT_CODE_INTERNAL_ERROR,
         traceback_str=tb,
     )
 

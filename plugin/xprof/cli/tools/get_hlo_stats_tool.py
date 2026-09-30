@@ -13,11 +13,6 @@ from xprof.cli.internal import decorators
 from xprof.cli.internal.oss import xprof_client
 from xprof.protobuf import hlo_stats_pb2
 
-try:
-  from google3.net.rpc.python import pywraprpc  # pylint: disable=g-import-not-at-top  # pyrefly: ignore[missing-module-attribute]
-except ImportError:
-  pywraprpc = None
-
 _OP_NAME_REGEX = re.compile(r"%([^%=]+) =")
 
 
@@ -373,8 +368,6 @@ def get_hlo_stats(
     RuntimeError: If fetching or parsing HLO stats fails.
   """
   fetch_errors: list[type[Exception]] = [ValueError, OSError, RuntimeError]
-  if pywraprpc is not None:
-    fetch_errors.append(pywraprpc.RPCException)
 
   client = xprof_client.get_client()
   fetch_kwargs: dict[str, Any] = dict(

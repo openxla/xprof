@@ -79,6 +79,7 @@ export class HloStats extends Dashboard implements OnDestroy {
   private readonly zone = inject(NgZone);
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
+  private isDestroyed = false;
   private readonly throbber = new Throbber(this.tool);
   data: SimpleDataTable | null = null;
   baselineData: SimpleDataTable | null = null;
@@ -254,14 +255,38 @@ export class HloStats extends Dashboard implements OnDestroy {
           active: SimpleDataTable | null;
           baseline: SimpleDataTable | null;
         }) => {
-          this.throbber.stop();
-          setLoadingState(false, this.store);
-          this.baselineData = baseline;
-          this.data = this.mergeTables(active, baseline);
-          this.process(this.data);
-          this.onCheckInputParams();
+          this.whenChartsLoaded(() => {
+            this.throbber.stop();
+            setLoadingState(false, this.store);
+            this.baselineData = baseline;
+            this.data = this.mergeTables(active, baseline);
+            this.process(this.data);
+            this.onCheckInputParams();
+          });
         },
       );
+  }
+
+  /**
+   * Runs `callback` once the Google Charts packages have loaded.
+   *
+   * `process()` and the charts bound to `data` build
+   * `google.visualization.DataTable`s. When HLO Op Stats is the first page
+   * opened, its data can arrive before the packages load.
+   */
+  private whenChartsLoaded(callback: () => void) {
+    if (typeof google.visualization?.DataTable === 'function') {
+      callback();
+      return;
+    }
+    google.charts.safeLoad({'packages': ['corechart', 'table']});
+    google.charts.setOnLoadCallback(() => {
+      // The page may have been closed while the packages loaded.
+      if (this.isDestroyed) {
+        return;
+      }
+      this.zone.run(callback);
+    });
   }
 
   private mergeTables(
@@ -891,6 +916,7 @@ export class HloStats extends Dashboard implements OnDestroy {
 
   ngOnDestroy() {
     // Unsubscribes all pending subscriptions.
+    this.isDestroyed = true;
     setLoadingState(false, this.store);
     this.destroyed.next();
     this.destroyed.complete();

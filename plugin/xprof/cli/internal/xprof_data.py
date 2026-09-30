@@ -449,9 +449,7 @@ def get_hlo_op_profile(
       # 'X and its duplicate(s)'). Fusion nodes have sub-instruction children
       # that carry 0 raw_time, so they must be treated as leaf nodes.
       children_time = (
-          sum(c.metrics.raw_time for c in node.children)
-          if node.children
-          else 0
+          sum(c.metrics.raw_time for c in node.children) if node.children else 0
       )
       if node.children and children_time > 0:
         for child in node.children:

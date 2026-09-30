@@ -9,21 +9,11 @@ import math
 import statistics
 from typing import Any
 
-pywraprpc = None
-
 from xprof.cli.internal import decorators
 
 from xprof.cli.internal.oss import xprof_client
 
-_FETCH_EXCEPTIONS_LIST: list[type[BaseException]] = [
-    RuntimeError,
-]
-if pywraprpc is not None:
-  _FETCH_EXCEPTIONS_LIST.append(pywraprpc.RPCException)
-
-_FETCH_EXCEPTIONS: tuple[type[BaseException], ...] = tuple(
-    _FETCH_EXCEPTIONS_LIST
-)
+_FETCH_EXCEPTIONS: tuple[type[BaseException], ...] = (RuntimeError,)
 
 _DEFAULT_STEP_LIMIT = 20
 
@@ -711,8 +701,6 @@ def _fetch_tool_data(
         format="json",
         bypass_cache=bypass_cache,
     )
-  except (FileNotFoundError, ValueError):
-    raise
   except _FETCH_EXCEPTIONS:
     logging.warning(
         "Error fetching %s for %s", tool_name, session_id, exc_info=True

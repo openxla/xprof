@@ -32,8 +32,7 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
-MemoryAccessBreakdown PerformanceInfoWrapper::GetMemmoryAccessBreakdown()
-    const {
+MemoryAccessBreakdown PerformanceInfoWrapper::GetMemoryAccessBreakdown() const {
   MemoryAccessBreakdown breakdown;
   for (const auto& m : performance_info_->memory_accessed_breakdown()) {
     auto* memory_access = breakdown.add_memory_accessed();

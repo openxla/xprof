@@ -214,7 +214,61 @@ std::string FormatHeaderText(absl::string_view name, int count) {
   return absl::StrCat(name, " (", count, ")");
 }
 
+void AppendSubtree(const FlameChartTimelineData& data, int group_idx,
+                   std::vector<const Group*>& out) {
+  if (group_idx < 0 || group_idx >= static_cast<int>(data.groups.size())) {
+    return;
+  }
+  out.push_back(&data.groups[group_idx]);
+  if (const GroupNode* node = data.group_tree.NodeAt(group_idx);
+      node != nullptr) {
+    for (int child_idx : node->children_indices) {
+      AppendSubtree(data, child_idx, out);
+    }
+  }
+}
+
+int GetGroupIndex(const FlameChartTimelineData& data, const Group* group) {
+  if (group == nullptr || data.groups.empty()) return -1;
+  if (group->original_index >= 0 &&
+      group->original_index < static_cast<int>(data.groups.size())) {
+    return group->original_index;
+  }
+  const Group* const base = data.groups.data();
+  if (!std::less<const Group*>()(group, base) &&
+      std::less<const Group*>()(group, base + data.groups.size())) {
+    return static_cast<int>(group - base);
+  }
+  return -1;
+}
+
 }  // namespace
+
+void GroupTree::BuildFromGroups(absl::Span<const Group> groups) {
+  top_level_indices_.clear();
+  nodes_by_group_index_.assign(groups.size(), GroupNode{});
+  const int n = static_cast<int>(groups.size());
+  int current_process_idx = -1;
+  for (int i = 0; i < n; ++i) {
+    nodes_by_group_index_[i].group_index = i;
+    int parent_idx = -1;
+    if (groups[i].parent_index != -1) {
+      if (groups[i].parent_index >= 0 && groups[i].parent_index < n) {
+        parent_idx = groups[i].parent_index;
+      }
+    } else if (groups[i].nesting_level > kProcessNestingLevel) {
+      parent_idx = current_process_idx;
+    } else {
+      current_process_idx = i;
+    }
+    nodes_by_group_index_[i].parent_index = parent_idx;
+    if (parent_idx != -1) {
+      nodes_by_group_index_[parent_idx].children_indices.push_back(i);
+    } else {
+      top_level_indices_.push_back(i);
+    }
+  }
+}
 
 int Timeline::GetNextGroupStartLevel(const FlameChartTimelineData& data,
                                      int group_index) {

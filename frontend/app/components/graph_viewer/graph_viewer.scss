@@ -6,11 +6,21 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  background-color: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+}
+
+.control-card {
+  margin: var(--spacing-md) var(--spacing-md) 0;
+  background-color: var(--mat-sys-surface);
+  border-color: var(--mat-sys-outline-variant);
+  border-radius: var(--mat-sys-corner-medium);
+  box-shadow: none;
 }
 
 .item-container {
   display: flex;
-  padding: 20px 20px 0;
+  padding: var(--spacing-md) var(--spacing-md) 0;
   flex: 0 0 auto;
 }
 
@@ -20,12 +30,13 @@
 }
 
 .hlo-download {
-  margin-left: 8px;
+  margin-left: var(--spacing-sm);
   margin-top: 10px; // Align with the top mat-form-field
 }
 
 mat-sidenav {
-  background: transparent;
+  background-color: var(--mat-sys-surface-container-low);
+  border-right: 1px solid var(--mat-sys-outline-variant);
   // set fixed width to avoid weird behavior of mat-sidenav-content width change when collapsing the xprof sidenav.
   width: 350px;
   display: flex;
@@ -34,15 +45,37 @@ mat-sidenav {
 
 mat-sidenav-container {
   flex: 1;
+  background-color: var(--mat-sys-surface);
+}
+
+mat-sidenav-content {
+  display: flex;
+  flex-direction: column;
+  padding: var(--spacing-md);
+  gap: var(--spacing-sm);
+  background-color: var(--mat-sys-surface);
+  box-sizing: border-box;
+}
+
+op-details {
+  display: block;
+  margin: var(--spacing-md);
+
+  ::ng-deep mat-card {
+    background-color: var(--mat-sys-surface);
+    border: 1px solid var(--mat-sys-outline-variant);
+    border-radius: var(--mat-sys-corner-medium);
+    box-shadow: none;
+  }
 }
 
 iframe {
   width: 100%;
-  height: 90%;
+  height: 100%;
   border: none;
 }
 
-mat-progress-bar {
+md-linear-progress {
   width: 300px;
   margin: 0 auto;
 }
@@ -50,9 +83,11 @@ mat-progress-bar {
 .loading-message {
   width: fit-content;
   margin: 0 auto;
+  color: var(--mat-sys-on-surface-variant);
 }
 
 .loading-spinner {
+  --md-circular-progress-size: 20px;
   margin: 0 auto;
   margin-right: 10px;
 }
@@ -68,8 +103,9 @@ mat-progress-bar {
 .progress-container-op-details {
   position: fixed;
   display: flex;
+  align-items: center;
   bottom: 50px;
-  padding: 20px;
+  padding: var(--spacing-lg);
 }
 
 .hlo-text-view-container {
@@ -83,9 +119,11 @@ mat-progress-bar {
 .stack-trace-snippet-panel {
   position: sticky;
   width: 100%;
+  background-color: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
   box-shadow: none;
-  border-bottom: 0.5px solid silver;
-  border-radius: 0;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--mat-sys-corner-medium);
 }
 
 .stack-trace-snippet-container {
@@ -95,35 +133,51 @@ mat-progress-bar {
 }
 
 .graph-container {
+  position: relative;
+  flex: 1;
   width: 100%;
-  height: 100%;
+  min-height: 500px;
+  background-color: var(--mat-sys-surface);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--mat-sys-corner-medium);
+  overflow: hidden;
 }
 
 .default-graph {
-  width: 100%;
-  height: 100%;
-  padding: 20px;
-  font-weight: 100;
-  font-size: 16px;
+  margin: 0;
+  padding: var(--spacing-sm);
+  background-color: var(--mat-sys-surface-container-low);
+  border-color: var(--mat-sys-outline-variant);
+  border-radius: var(--mat-sys-corner-medium);
+  box-shadow: none;
+  font-size: var(--mat-sys-body-large-size, 16px);
+  color: var(--mat-sys-on-surface);
 }
 
 .progress-container-graphviz,
 .graphviz-link {
   position: absolute;
-  padding: 80px 40px;
+  padding: var(--spacing-lg);
   z-index: 1;
 }
 
 .progress-container-graphviz {
   display: flex;
+  align-items: center;
 }
 
 .mat-subheading-2 {
   margin-bottom: 0;
 }
 
-mat-checkbox {
-  padding: 5px 0;
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 4px 0;
+  width: 100%;
+  cursor: pointer;
+  color: var(--mat-sys-on-surface);
 }
 
 .row {
@@ -131,12 +185,9 @@ mat-checkbox {
 }
 
 .actions {
-  padding: 20px 0;
-}
-
-.search-button {
-  // Override the MDC button style (not using palette contrast color somehow)
-  // Seems fixed in higher angular versions
-  // TODO(yinzz) remove this override once it's fixed
-  color: white;
+  padding: var(--spacing-md) 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  align-items: center;
 }

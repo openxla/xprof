@@ -3,7 +3,7 @@ import 'org_xprof/frontend/app/common/interfaces/window';
 import {Component, inject, ChangeDetectionStrategy} from '@angular/core';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {firstValueFrom, ReplaySubject} from 'rxjs';
-import {takeUntil} from 'rxjs/operators';
+import {defaultIfEmpty, takeUntil} from 'rxjs/operators';
 
 /** An empty page component. */
 @Component({
@@ -27,8 +27,10 @@ export class EmptyPage {
   }
 
   async fetchProfilerConfig() {
-    const config = await firstValueFrom(
-        this.dataService.getConfig().pipe(takeUntil(this.destroyed)));
+    // Deep links show this page until SideNav routes to the tool, which can
+    // destroy it before the config arrives.
+    const config = await firstValueFrom(this.dataService.getConfig().pipe(
+        takeUntil(this.destroyed), defaultIfEmpty(null)));
     if (config) {
       this.hideCaptureProfileButton = config.hideCaptureProfileButton;
     }

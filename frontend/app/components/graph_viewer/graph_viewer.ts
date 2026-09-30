@@ -44,7 +44,7 @@ import {
 } from 'org_xprof/frontend/app/store/actions';
 import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 import {combineLatest, firstValueFrom, ReplaySubject} from 'rxjs';
-import {takeUntil} from 'rxjs/operators';
+import {defaultIfEmpty, takeUntil} from 'rxjs/operators';
 import {locationReplace} from 'safevalues/dom';
 
 const GRAPH_HTML_THRESHOLD = 1000000; // bytes
@@ -196,7 +196,7 @@ export class GraphViewer implements OnDestroy {
     const types = await firstValueFrom(
       this.dataService
         .getGraphTypes(this.sessionId)
-        .pipe(takeUntil(this.destroyed)),
+        .pipe(takeUntil(this.destroyed), defaultIfEmpty(null)),
     );
     if (types) {
       this.graphTypes = types;
@@ -211,7 +211,7 @@ export class GraphViewer implements OnDestroy {
       const moduleList = await firstValueFrom(
         this.dataService
           .getModuleList(this.sessionId, this.graphType)
-          .pipe(takeUntil(this.destroyed)),
+          .pipe(takeUntil(this.destroyed), defaultIfEmpty(null)),
       );
       this.throbber.stop();
       if (moduleList) {
@@ -363,7 +363,7 @@ export class GraphViewer implements OnDestroy {
       const data = await firstValueFrom(
         this.dataService
           .getOpProfileData(this.sessionId, this.host, params)
-          .pipe(takeUntil(this.destroyed)),
+          .pipe(takeUntil(this.destroyed), defaultIfEmpty(null)),
       );
       if (data) {
         this.opProfile = data as OpProfileProto | null;

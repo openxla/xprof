@@ -69,6 +69,9 @@ except ImportError:
 # KOKORO_ARTIFACTS_DIR; under Bazel the report additionally lands in
 # TEST_UNDECLARED_OUTPUTS_DIR for test runner output artifacts.
 _REPORT_DIR_ENV = "XPROF_SXS_REPORT_DIR"
+# Where CI publishes the report, shown in the failure banner instead of the
+# local path when set.
+_REPORT_URL_ENV = "XPROF_SXS_REPORT_URL"
 _REPORT_FILENAME = "sxs_report.html"
 
 # Pinned so a capture taken on a workstation is comparable to one taken in CI.
@@ -310,7 +313,8 @@ def _format_failure_banner(
   if undeclared := os.environ.get("TEST_UNDECLARED_OUTPUTS_DIR"):
     lines.append(f"  • Test Outputs Artifact: {undeclared}/{filename}")
   abs_report = os.path.abspath(report_path)
-  lines.append(f"  • Report Path:           file://{abs_report}")
+  report_link = os.environ.get(_REPORT_URL_ENV) or f"file://{abs_report}"
+  lines.append(f"  • Report:                {report_link}")
 
   if is_ab_comparison:
     lines.extend([

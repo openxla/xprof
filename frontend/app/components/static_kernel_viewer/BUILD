@@ -47,6 +47,7 @@ xprof_ng_module(
     srcs = ["static_kernel_viewer_test.ts"],
     deps = [
         ":static_kernel_viewer",
+        "//:node_modules/@angular/common",
         "//:node_modules/@angular/router",
         "//:node_modules/rxjs",
         "//javascript/angular2/testing/catalyst/fake_async",

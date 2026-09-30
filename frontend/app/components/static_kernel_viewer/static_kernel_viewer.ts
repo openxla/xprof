@@ -1,3 +1,4 @@
+import {Location} from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -63,6 +64,7 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
   private readonly dataService: DataServiceV2Interface = inject(
     DATA_SERVICE_INTERFACE_TOKEN,
   );
+  private readonly location = inject(Location, {optional: true});
   private readonly destroyed = new ReplaySubject<void>(1);
 
   constructor(
@@ -107,18 +109,27 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
     combineLatest([this.route.params, this.route.queryParams])
       .pipe(takeUntil(this.destroyed))
       .subscribe(([params, queryParams]: [Params, Params]) => {
+        const searchParams = this.dataService.getSearchParams?.();
+        const getParam = (key: string): string | undefined => {
+          const fromRoute = queryParams[key];
+          if (typeof fromRoute === 'string' && fromRoute) {
+            return fromRoute;
+          }
+          const fromSearch = searchParams?.get(key);
+          return fromSearch ? fromSearch : undefined;
+        };
+
         this.sessionId =
           params['sessionId'] ??
-          queryParams['run'] ??
-          queryParams['sessionId'] ??
+          getParam('run') ??
+          getParam('sessionId') ??
           this.sessionId;
-        this.host = queryParams['host'] ?? DEFAULT_HOST;
-        const requestedModule = queryParams['hlo_module'];
+        this.host = getParam('host') ?? DEFAULT_HOST;
+        const requestedModule = getParam('hlo_module');
         if (requestedModule) {
           this.selectedHloModule = requestedModule;
         }
-        const requestedKernel =
-          queryParams['kernel_name'] ?? queryParams['kernel'];
+        const requestedKernel = getParam('kernel_name') ?? getParam('kernel');
         if (requestedKernel) {
           this.selectedKernel = requestedKernel;
         }
@@ -236,6 +247,7 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
     } else {
       this.selectedKernel = '';
       this.url = '';
+      this.updateUrlQueryParams();
     }
   }
 
@@ -250,6 +262,8 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
 
   onKernelChange(kernel: string): void {
     this.selectedKernel = kernel;
+    this.updateUrlQueryParams();
+
     if (!kernel) {
       this.url = '';
       return;
@@ -271,7 +285,44 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
     );
 
     if (this.traceViewerModule?.loadTraceData) {
+      this.traceViewerModule.application?.instance?.()?.dataProvider?.();
+      this.traceViewerModule.processTraceEvents?.({traceEvents: []});
       void this.traceViewerModule.loadTraceData(this.url);
+    }
+  }
+
+  private updateUrlQueryParams(): void {
+    const applyParams = (params: URLSearchParams) => {
+      if (this.selectedHloModule && this.selectedHloModule !== 'All Modules') {
+        params.set('hlo_module', this.selectedHloModule);
+      } else {
+        params.delete('hlo_module');
+      }
+
+      if (this.selectedKernel) {
+        params.set('kernel_name', this.selectedKernel);
+      } else {
+        params.delete('kernel_name');
+      }
+    };
+
+    if (this.dataService.getSearchParams && this.dataService.setSearchParams) {
+      const searchParams = this.dataService.getSearchParams();
+      applyParams(searchParams);
+      this.dataService.setSearchParams(searchParams);
+    }
+
+    if (this.location) {
+      const url = new URL(this.location.path(), window.location.origin);
+      const searchParams = new URLSearchParams(url.search);
+      applyParams(searchParams);
+      const newSearch = searchParams.toString();
+      const currentSearch = url.search.startsWith('?')
+        ? url.search.slice(1)
+        : url.search;
+      if (currentSearch !== newSearch) {
+        this.location.replaceState(url.pathname, decodeURIComponent(newSearch));
+      }
     }
   }
 

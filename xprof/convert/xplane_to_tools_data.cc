@@ -174,6 +174,10 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
     }
     json_trace_options.details =
         TraceOptionsToDetails(device_type, profiler_trace_options);
+    json_trace_options.mpmd_pipeline_view =
+        profiler_trace_options.mpmd_pipeline_view;
+    json_trace_options.mpmd_single_device_per_stage =
+        profiler_trace_options.mpmd_single_device_per_stage;
     IOBufferAdapter adapter(&content);
     TraceEventsToJson<IOBufferAdapter, TraceEventsContainer, RawData>(
         json_trace_options, trace_container, &adapter);

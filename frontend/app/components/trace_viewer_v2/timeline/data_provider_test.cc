@@ -777,6 +777,62 @@ TEST_F(DataProviderTest, MpmdPreservePrimaryTrackWhenEmptyDuringZoomPan) {
               ElementsAre("TPU_Process", "XLA Modules"));
 }
 
+TEST_F(DataProviderTest, MpmdPreservesSortIndexAcrossIncrementalReloads) {
+  // Device 10 has sort_index 0, Device 20 has sort_index 1, Device 1 (low PID)
+  // has sort_index 2.
+  const std::vector<TraceEvent> initial_events = {
+      CreateProcessEvent(10, "Process 10"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 10, 0, "0"),
+      CreateThreadEvent(10, 1, "XLA Modules"),
+      CreateCompleteEvent(10, 1, "event1", 10.0, 5.0),
+
+      CreateProcessEvent(20, "Process 20"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 20, 0, "1"),
+      CreateThreadEvent(20, 1, "XLA Modules"),
+      CreateCompleteEvent(20, 1, "event2", 10.0, 5.0),
+
+      CreateProcessEvent(1, "Process 1"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 1, 0, "2"),
+      CreateThreadEvent(1, 1, "XLA Modules"),
+      CreateCompleteEvent(1, 1, "event3", 10.0, 5.0),
+  };
+
+  ParsedTraceEvents initial_parsed;
+  initial_parsed.flame_events = initial_events;
+  initial_parsed.mpmd_pipeline_view = true;
+  data_provider_.ProcessTraceEvents(initial_parsed, timeline_);
+
+  const FlameChartTimelineData& initial_data = timeline_.timeline_data();
+  ASSERT_THAT(initial_data.entry_pids, ElementsAre(10, 20, 1));
+
+  // Reload with different sort indices (e.g. Device 1 gets sort_index 0 < pid,
+  // Device 10 gets sort_index 25). The original sort indices must be preserved.
+  const std::vector<TraceEvent> reload_events = {
+      CreateProcessEvent(10, "Process 10"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 10, 0, "25"),
+      CreateThreadEvent(10, 1, "XLA Modules"),
+      CreateCompleteEvent(10, 1, "event1_reloaded", 20.0, 5.0),
+
+      CreateProcessEvent(20, "Process 20"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 20, 0, "1"),
+      CreateThreadEvent(20, 1, "XLA Modules"),
+      CreateCompleteEvent(20, 1, "event2_reloaded", 20.0, 5.0),
+
+      CreateProcessEvent(1, "Process 1"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 1, 0, "0"),
+      CreateThreadEvent(1, 1, "XLA Modules"),
+      CreateCompleteEvent(1, 1, "event3_reloaded", 20.0, 5.0),
+  };
+
+  ParsedTraceEvents reload_parsed;
+  reload_parsed.flame_events = reload_events;
+  reload_parsed.mpmd_pipeline_view = true;
+  data_provider_.ProcessTraceEvents(reload_parsed, timeline_);
+
+  const FlameChartTimelineData& reloaded_data = timeline_.timeline_data();
+  EXPECT_THAT(reloaded_data.entry_pids, ElementsAre(10, 20, 1));
+}
+
 TEST_F(DataProviderTest, MpmdThreadSortingPermutation) {
   const std::vector<TraceEvent> events = {
       CreateProcessEvent(10, "TPU_Process"),

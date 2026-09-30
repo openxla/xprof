@@ -26,6 +26,7 @@ namespace profiler {
 
 struct DeltaSeriesProtoConversionOptions {
   bool mpmd_pipeline_view = false;
+  bool mpmd_single_device_per_stage = false;
   JsonTraceOptions::Details details;
   // Device IDs whose resource threads should omit numerical sort indices,
   // enabling alphabetical sorting by resource name.
@@ -52,6 +53,8 @@ class DeltaSeriesProtoConverter {
                                 xprof::TraceDataResponse* response) &&;
 
  private:
+  bool IsDevicePruned(uint32_t device_id) const;
+
   xprof::TraceMetadata GetTraceMetadata() const;
 
   uint32_t MaybeInternString(absl::string_view str);
@@ -128,7 +131,8 @@ absl::Status DeltaSeriesProtoConverter::GenerateResponse(
     const TraceEventsContainer& container,
     xprof::TraceDataResponse* response) && {
   if (options_.mpmd_pipeline_view) {
-    SortMpmdDevices(container, mpmd_sort_indices_);
+    SortMpmdDevices(container, mpmd_sort_indices_,
+                    options_.mpmd_single_device_per_stage);
   }
   *response->mutable_metadata() = GetTraceMetadata();
 
@@ -149,7 +153,7 @@ absl::Status DeltaSeriesProtoConverter::GenerateResponse(
 
   container.ForAllTracks([this, response](uint32_t pid, TidOrName tid_or_name,
                                           const TraceEventTrack& events) {
-    if (events.empty()) return true;
+    if (events.empty() || IsDevicePruned(pid)) return true;
     if (const uint64_t* tid = std::get_if<uint64_t>(&tid_or_name)) {
       AddCompleteEventTrack(pid, *tid, events, response);
     } else {

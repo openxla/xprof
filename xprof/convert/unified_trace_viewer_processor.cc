@@ -65,8 +65,21 @@ absl::Status UnifiedTraceViewerProcessor::ProcessSession(
 
   std::string format = tensorflow::profiler::GetParamWithDefault<std::string>(
       options, "format", "json");
+  tensorflow::profiler::TraceOptions profiler_trace_options =
+      tensorflow::profiler::TraceOptionsFromToolOptions(options);
   if (format == "pb") {
     tensorflow::profiler::DeltaSeriesProtoConversionOptions proto_options;
+    proto_options.mpmd_pipeline_view =
+        profiler_trace_options.mpmd_pipeline_view;
+    proto_options.mpmd_single_device_per_stage =
+        profiler_trace_options.mpmd_single_device_per_stage;
+    tensorflow::profiler::TraceDeviceType device_type =
+        tensorflow::profiler::TraceDeviceType::kUnknownDevice;
+    if (tensorflow::profiler::IsTpuTrace(trace_container.trace())) {
+      device_type = tensorflow::profiler::TraceDeviceType::kTpu;
+    }
+    proto_options.details = tensorflow::profiler::TraceOptionsToDetails(
+        device_type, profiler_trace_options);
     absl::StatusOr<std::string> compressed_result =
         tensorflow::profiler::ConvertTraceDataToCompressedDeltaSeriesProto(
             proto_options, trace_container);
@@ -87,10 +100,12 @@ absl::Status UnifiedTraceViewerProcessor::ProcessSession(
     if (tensorflow::profiler::IsTpuTrace(trace_container.trace())) {
       device_type = tensorflow::profiler::TraceDeviceType::kTpu;
     }
-    tensorflow::profiler::TraceOptions profiler_trace_options =
-        tensorflow::profiler::TraceOptionsFromToolOptions(options);
     json_trace_options.details = tensorflow::profiler::TraceOptionsToDetails(
         device_type, profiler_trace_options);
+    json_trace_options.mpmd_pipeline_view =
+        profiler_trace_options.mpmd_pipeline_view;
+    json_trace_options.mpmd_single_device_per_stage =
+        profiler_trace_options.mpmd_single_device_per_stage;
     tensorflow::profiler::IOBufferAdapter adapter(&trace_viewer_json);
     tensorflow::profiler::TraceEventsToJson<
         tensorflow::profiler::IOBufferAdapter,

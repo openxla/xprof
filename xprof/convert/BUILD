@@ -621,7 +621,6 @@ cc_library(
         "@xla//xla/tsl/platform:env",
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:statusor",
-        "@xla//xla/tsl/profiler/utils:timespan",
         "@xla//xla/tsl/profiler/utils:xplane_visitor",
     ],
     alwayslink = 1,
@@ -2147,7 +2146,6 @@ cc_library(
         ":xplane_to_trace_container",
         ":xplane_to_utilization_viewer",
         "//plugin/xprof/protobuf:dcn_slack_analysis_proto_cc",
-        "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "//plugin/xprof/protobuf:inference_stats_proto_cc",
         "//plugin/xprof/protobuf:input_pipeline_proto_cc",
@@ -2177,7 +2175,6 @@ cc_library(
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:statusor",
         "@xla//xla/tsl/profiler/convert:xplane_to_trace_events",
-        "@xla//xla/tsl/profiler/utils:timespan",
         "@xla//xla/tsl/profiler/utils:xplane_visitor",
     ],
 )

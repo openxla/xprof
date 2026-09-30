@@ -226,8 +226,12 @@ void HandleMetadataEvent(const TraceEvent& event,
           std::isfinite(sort_index_double) && sort_index_double >= 0.0 &&
           sort_index_double <=
               static_cast<double>(std::numeric_limits<uint32_t>::max())) {
-        trace_info.process_sort_indices[event.pid] =
-            static_cast<uint32_t>(sort_index_double);
+        const uint32_t sort_index = static_cast<uint32_t>(sort_index_double);
+        if (!trace_info.is_mpmd) {
+          trace_info.process_sort_indices[event.pid] = sort_index;
+        } else {
+          trace_info.process_sort_indices.try_emplace(event.pid, sort_index);
+        }
       }
     }
   } else if (event.name == kThreadSortIndex) {

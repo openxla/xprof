@@ -18,7 +18,6 @@ xprof_ng_module(
         "//:node_modules/@angular/forms",
         "//:node_modules/@angular/platform-browser",
         "@org_xprof//frontend/app/common/angular:angular_material_button",
-        "@org_xprof//frontend/app/common/angular:angular_material_dialog",
         "@org_xprof//frontend/app/common/angular:angular_material_expansion",
         "@org_xprof//frontend/app/common/angular:angular_material_form_field",
         "@org_xprof//frontend/app/common/angular:angular_material_input",
@@ -39,7 +38,6 @@ xprof_ng_module(
         ":capture_profile_dialog",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
-        "@org_xprof//frontend/app/common/angular:angular_material_dialog",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
     ],
 )

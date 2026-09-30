@@ -9,5 +9,20 @@
       [style.visibility]="(capturingProfile | async) ? 'visible' : 'hidden'">
     </mat-spinner>
   </button>
+
+  <md-dialog
+    class="capture-profile-dialog-modal"
+    quick
+    [open]="isDialogOpen"
+    (closed)="closeDialog()"
+  >
+    <div slot="content">
+      <capture-profile-dialog
+        *ngIf="isDialogOpen"
+        (captured)="onCaptureProfile($event)"
+        (closed)="closeDialog()"
+      ></capture-profile-dialog>
+    </div>
+  </md-dialog>
 </div>
 

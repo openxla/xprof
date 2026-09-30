@@ -953,11 +953,15 @@ button:not(.checked) .settings-switch-icon {
   margin-top: 2px;
 }
 
-::ng-deep .settings-dialog-mat-dialog-container {
-  .mat-mdc-dialog-container,
-  .mat-dialog-container {
-    padding: 0;
-    border-radius: 28px;
-    overflow: hidden;
-  }
+md-dialog.settings-dialog {
+  --md-dialog-container-color: #fff;
+  --md-dialog-container-shape: 28px;
+  width: 760px;
+  max-width: 95vw;
+  height: 540px;
+  max-height: 95vh;
+}
+
+md-dialog.settings-dialog .settings-dialog-container[slot='content'] {
+  padding: 0;
 }

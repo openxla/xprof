@@ -4,4 +4,18 @@
     (click)="openDialog()">
     {{captureButtonLabel | uppercase}}
   </button>
+
+  <md-dialog
+    class="capture-kernel-dialog-modal"
+    quick
+    [open]="isDialogOpen"
+    (closed)="closeDialog()"
+  >
+    <div slot="content" class="capture-kernel-dialog-slot">
+      <capture-kernel-dialog
+        *ngIf="isDialogOpen"
+        (closed)="closeDialog()"
+      ></capture-kernel-dialog>
+    </div>
+  </md-dialog>
 </div>

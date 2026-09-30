@@ -14,8 +14,8 @@ xprof_ng_module(
     deps = [
         "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
+        "//:node_modules/@material/web",
         "@org_xprof//frontend/app/common/angular:angular_material_button",
-        "@org_xprof//frontend/app/common/angular:angular_material_dialog",
         "@org_xprof//frontend/app/components/capture_kernel/capture_kernel_dialog",
     ],
 )

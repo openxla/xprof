@@ -1,4 +1,4 @@
-<mat-dialog-content>
+<div class="dialog-content">
   <div>
     <mat-form-field>
       <mat-label>Profile Service URL(s) or TPU name</mat-label>
@@ -132,13 +132,13 @@
       </div>
     </mat-expansion-panel>
   </div>
-</mat-dialog-content>
+</div>
 
-<mat-dialog-actions>
+<div class="dialog-actions">
   <button mat-raised-button [disabled]="!serviceAddr" (click)="captureProfile()">
     {{ captureButtonLabel | uppercase }}
   </button>
   <button mat-raised-button (click)="close()">
     {{ closeButtonLabel | uppercase }}
   </button>
-</mat-dialog-actions>
+</div>

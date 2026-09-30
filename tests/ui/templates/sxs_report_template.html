@@ -29,6 +29,7 @@ $approval_portal_html
 </div>
 <script>
   const unapprovedWaypoints = $unapproved_json;
+  const currentApprovedDiffs = $approved_json;
 
   function setVisualMode(cardId, mode) {
     const sxs = document.getElementById('view-sxs-' + cardId);
@@ -167,22 +168,25 @@ $approval_portal_html
       alert('Please provide a brief rationale for the intentional change.');
       return;
     }
-    // Only the entries for the waypoints on this page. This used to emit a
-    // complete { "approved_diffs": ... } document, so a reviewer following the
-    // instruction to paste it into approved_manifest.json silently deleted
-    // every approval anyone else had recorded. A fragment is not a valid
-    // manifest on its own, so that mistake now fails loudly instead.
-    const entries = unapprovedWaypoints.map(item => {
-      const body = JSON.stringify({
-        diff_hash: item.diff_hash,
+    // The whole file: the approvals this run read plus the new entries, with
+    // keys sorted like the approve CLI writes them. Replacing
+    // approved_manifest.json with it keeps every earlier approval.
+    const approvedDiffs = Object.assign({}, currentApprovedDiffs);
+    unapprovedWaypoints.forEach(item => {
+      approvedDiffs[item.key] = {
         decision: "INTENTIONAL",
+        diff_hash: item.diff_hash,
         rationale: rationale,
         timestamp: new Date().toISOString()
-      }, null, 2).split('\n').join('\n    ');
-      return '    ' + JSON.stringify(item.key) + ': ' + body;
-    }).join(',\n');
+      };
+    });
+    const sortedDiffs = {};
+    Object.keys(approvedDiffs).sort().forEach(key => {
+      sortedDiffs[key] = approvedDiffs[key];
+    });
 
-    document.getElementById('manifest-code').textContent = entries;
+    document.getElementById('manifest-code').textContent =
+        JSON.stringify({approved_diffs: sortedDiffs}, null, 2) + '\n';
     document.getElementById('approval-card').style.display = 'none';
     document.getElementById('certified-banner').style.display = 'block';
     // The overall badge is deliberately left red. Nothing has been written:
@@ -201,8 +205,7 @@ $approval_portal_html
   function copyManifestJson() {
     const code = document.getElementById('manifest-code').textContent;
     const successMsg =
-        'Copied. Merge these entries into the existing "approved_diffs" ' +
-        'object in tests/ui/approved_manifest.json.';
+        'Copied. Replace tests/ui/approved_manifest.json in your CL with it.';
     function fallbackCopy(text) {
       const ta = document.createElement('textarea');
       ta.value = text;

@@ -1,5 +1,6 @@
 """Declarative User Journey State Machine Test Engine for OpenXLA XProf."""
 
+from collections.abc import Callable
 import dataclasses
 import enum
 import json
@@ -14,13 +15,23 @@ import pytest
 # pylint: disable=g-import-not-at-top
 try:
   from tests.ui.conftest import BrowserErrors
-  from tests.ui.invariants import run_content_invariants
+  from tests.ui.journey_capture import settled_tool_url_pattern
+  from tests.ui.journey_capture import TOOL_NAME_TO_TAG
+  from tests.ui.sxs_diff_engine import make_run_resolver
+  from tests.ui.sxs_diff_engine import resolve_scenario_runs
+  from tests.ui.ui_helpers import assert_component_geometry
+  from tests.ui.ui_helpers import assert_healthy
   from tests.ui.ui_helpers import build_tool_url
   from tests.ui.ui_helpers import select_host
   from tests.ui.ui_helpers import switch_tool
 except ImportError:
   from conftest import BrowserErrors
-  from invariants import run_content_invariants
+  from journey_capture import settled_tool_url_pattern
+  from journey_capture import TOOL_NAME_TO_TAG
+  from sxs_diff_engine import make_run_resolver
+  from sxs_diff_engine import resolve_scenario_runs
+  from ui_helpers import assert_component_geometry
+  from ui_helpers import assert_healthy
   from ui_helpers import build_tool_url
   from ui_helpers import select_host
   from ui_helpers import switch_tool
@@ -44,7 +55,6 @@ _UPSTREAM_BASELINE_IGNORED_PATTERNS: tuple[str, ...] = (
     "trace_viewer",
     "streaming trace",
     "Cannot read properties of undefined",
-    "split is not a function",
 )
 
 # How long a navigation assertion waits for the router to publish the new tool
@@ -55,26 +65,6 @@ _UPSTREAM_BASELINE_IGNORED_PATTERNS: tuple[str, ...] = (
 # not about how quickly it got there, so the bound only needs to be long enough
 # to distinguish a slow load from a navigation that never happened.
 URL_SETTLE_TIMEOUT_MS = 30000
-
-_TOOL_NAME_TO_TAG: dict[str, str] = {
-    "Overview Page": "overview_page",
-    "Framework Op Stats": "framework_op_stats",
-    "Input Pipeline Analysis": "input_pipeline",
-    "Memory Profile": "memory_profile",
-    "Pod Viewer": "pod_viewer",
-    "Op Profile": "op_profile",
-    "HLO Op Profile": "op_profile",
-    "Memory Viewer": "memory_viewer",
-    "Graph Viewer": "graph_viewer",
-    "HLO Op Stats": "hlo_stats",
-    "Inference Profile": "inference_profile",
-    "Roofline Model": "roofline_model",
-    "Kernel Stats": "kernel_stats",
-    "Trace Viewer": "trace_viewer",
-    "Megascale Viewer": "megascale_stats",
-    "Perf Counters": "perf_counters",
-    "Utilization Viewer": "utilization_viewer",
-}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -152,35 +142,41 @@ def load_journey_scenarios(
 JOURNEY_SCENARIOS: list[JourneyScenario] = load_journey_scenarios()
 
 
-def _settled_tool_url_pattern(tool_name: str) -> re.Pattern[str]:
-  """Builds a URL regex requiring both pathname and tag query param to match."""
-  expected_tag = _TOOL_NAME_TO_TAG.get(
-      tool_name, tool_name.lower().replace(" ", "_")
-  )
-  return re.compile(
-      rf"/{re.escape(expected_tag)}(?:_analyzer)?(?:@|%40|[/?#]|$).*"
-      rf"tag={re.escape(expected_tag)}(?:_analyzer)?(?:@|%40|[&#]|$)"
-  )
-
-
 def _resolve_run_name(logdir: str, run_name: str) -> str:
-  """Resolves a run name against logdir, trying hyphen/underscore variants."""
-  for candidate in (
-      run_name,
-      run_name.replace("-", "_"),
-      run_name.replace("_", "-"),
-  ):
-    if os.path.exists(os.path.join(logdir, candidate)):
-      return candidate
-  if os.path.isdir(logdir):
-    subdirs = sorted(
-        entry
-        for entry in os.listdir(logdir)
-        if os.path.isdir(os.path.join(logdir, entry))
-    )
-    if len(subdirs) == 1:
-      return subdirs[0]
-  return run_name
+  """Maps a run name onto one in the logdir, keeping it when none matches."""
+  try:
+    return make_run_resolver(logdir)(run_name)
+  except OSError:
+    return run_name
+
+
+def step_history(page: Page, tool_name: str, forward: bool = False) -> None:
+  """Steps browser history back, or forward, until `tool_name` is shown.
+
+  A tool switch can push an intermediate history entry, so a single step may
+  stop between two tools. Stepping ends once the URL settles on `tool_name` or
+  stops changing.
+
+  Args:
+    page: Page whose history is stepped.
+    tool_name: Display name of the tool the step has to reach.
+    forward: Steps forward instead of back.
+  """
+  tag_pattern = settled_tool_url_pattern(tool_name)
+  nav = page.go_forward if forward else page.go_back
+  for _ in range(5):
+    prev_url = page.url
+    nav(wait_until="domcontentloaded")
+    page.wait_for_timeout(100)
+    if tag_pattern.search(page.url) or page.url == prev_url:
+      break
+  if forward and not tag_pattern.search(page.url):
+    # Upstream SideNav.navigateWithUrl() -> updateUrlHistory() calls
+    # window.parent.history.pushState() during popstate on GO_BACK, which
+    # truncates the browser's forward history stack. The xfail
+    # test_browser_forward_navigation reports that bug without this fallback.
+    switch_tool(page, tool_name)
+  expect(page).to_have_url(tag_pattern, timeout=URL_SETTLE_TIMEOUT_MS)
 
 
 def dispatch_action(
@@ -190,7 +186,7 @@ def dispatch_action(
   match step.action:
     case ActionType.SWITCH_TOOL:
       switch_tool(page, step.target)
-      expected_tag = _TOOL_NAME_TO_TAG.get(
+      expected_tag = TOOL_NAME_TO_TAG.get(
           step.target, step.target.lower().replace(" ", "_")
       )
       expect(page).to_have_url(
@@ -203,29 +199,8 @@ def dispatch_action(
           re.compile(rf"host={re.escape(step.target)}"),
           timeout=URL_SETTLE_TIMEOUT_MS,
       )
-    case ActionType.GO_BACK:
-      tag_pattern = _settled_tool_url_pattern(step.target)
-      for _ in range(5):
-        prev_url = page.url
-        page.go_back(wait_until="domcontentloaded")
-        page.wait_for_timeout(100)
-        if tag_pattern.search(page.url) or page.url == prev_url:
-          break
-      expect(page).to_have_url(tag_pattern, timeout=URL_SETTLE_TIMEOUT_MS)
-    case ActionType.GO_FORWARD:
-      tag_pattern = _settled_tool_url_pattern(step.target)
-      for _ in range(5):
-        prev_url = page.url
-        page.go_forward(wait_until="domcontentloaded")
-        page.wait_for_timeout(100)
-        if tag_pattern.search(page.url) or page.url == prev_url:
-          break
-      if not tag_pattern.search(page.url):
-        # Upstream SideNav.navigateWithUrl() -> updateUrlHistory() calls
-        # window.parent.history.pushState() during popstate on GO_BACK, which
-        # truncates the browser's forward history stack until CL-A lands.
-        switch_tool(page, step.target)
-      expect(page).to_have_url(tag_pattern, timeout=URL_SETTLE_TIMEOUT_MS)
+    case ActionType.GO_BACK | ActionType.GO_FORWARD:
+      step_history(page, step.target, step.action == ActionType.GO_FORWARD)
     case ActionType.GOTO:
       parts = step.target.split("/", 1)
       run_name = _resolve_run_name(logdir, parts[0])
@@ -241,31 +216,13 @@ def dispatch_action(
       raise ValueError(f"Unsupported journey action type: {step.action}")
 
 
-def _assert_component_geometry(
-    page: Page, selector: str, step: JourneyStep
-) -> None:
-  """Asserts that the component is mounted with positive geometry."""
-  comp = page.locator(f":is({selector}):visible").first
-  expect(comp).to_be_visible(timeout=20000)
-  bbox = comp.bounding_box()
-  assert (
-      bbox is not None and bbox["width"] > 0 and bbox["height"] > 0
-  ), f"Component {selector} collapsed at step {step}"
-
-
-def _assert_content_invariants(page: Page, context_msg: str) -> None:
-  """Sweeps DOM text for poison tokens (raw template variables, error dumps)."""
-  violations = run_content_invariants(page.inner_text("body"))
-  assert (
-      not violations
-  ), f"Poison tokens detected at {context_msg}: {violations}"
-
-
 @pytest.mark.parametrize("scenario", JOURNEY_SCENARIOS, ids=lambda s: s.id)
 def test_user_journey_state_machine(
     page: Page,
     server_url: str,
     logdir: str,
+    resolve_run: Callable[[str], str],
+    open_tool: Callable[..., str],
     browser_errors: BrowserErrors,
     scenario: JourneyScenario,
 ) -> None:
@@ -273,20 +230,14 @@ def test_user_journey_state_machine(
   browser_errors.ignore(*_UPSTREAM_BASELINE_IGNORED_PATTERNS)
 
   # 1. Mount initial starting waypoint
-  fixture_name = _resolve_run_name(logdir, scenario.fixture)
-  session_path = os.path.join(logdir, fixture_name)
-  if not os.path.exists(session_path):
-    pytest.skip(f"Fixture '{scenario.fixture}' not present in logdir")
-  url = build_tool_url(
-      server_url, session_path, fixture_name, scenario.initial_tool
-  )
-  page.goto(url, wait_until="domcontentloaded")
+  scenario = resolve_scenario_runs(scenario, resolve_run, logdir=logdir)
+  open_tool(scenario.fixture, scenario.initial_tool)
   expect(page).to_have_url(
       re.compile(rf"tag={re.escape(scenario.initial_tool)}"),
       timeout=URL_SETTLE_TIMEOUT_MS,
   )
   expect(page.locator("body")).to_be_visible()
-  _assert_content_invariants(page, f"initial load of {scenario.id}")
+  assert_healthy(page, context=f"initial load of {scenario.id}")
 
   # 2. Iterate through declarative state machine steps
   for idx, step in enumerate(scenario.steps, start=1):
@@ -294,8 +245,8 @@ def test_user_journey_state_machine(
         f"step {idx}/{len(scenario.steps)} ({step.action} -> {step.target})"
     )
     dispatch_action(page, server_url, logdir, step)
-    _assert_component_geometry(page, step.expected_selector, step)
-    _assert_content_invariants(page, step_context)
+    assert_component_geometry(page, step.expected_selector, f"step {step}")
+    assert_healthy(page, context=step_context)
 
   # 3. Verify clean console log state
   browser_errors.assert_clean(f"Scenario {scenario.id}")

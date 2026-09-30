@@ -2,6 +2,7 @@
 
 import collections.abc
 import dataclasses
+import re
 import unittest
 from unittest import mock
 
@@ -211,6 +212,19 @@ class JourneyCaptureTest(unittest.TestCase):
             "google-visualization-errors-all-7"
         ),
         "google-visualization-errors-all-N",
+    )
+
+  def test_normalized_html_js_id_regexes_match_python(self):
+    """Verifies the in-page ID regexes mirror normalize_generated_attr_ids."""
+    js = journey_capture._NORMALIZED_HTML_JS
+    block = js[js.index("const norm = val") : js.index("if (norm !== val)")]
+    self.assertEqual(
+        re.findall(r"\.replace\(\s*/(.+?)/g,", block, re.DOTALL),
+        [
+            journey_capture._GVIS_ID_RE.pattern,
+            journey_capture._MAT_TWO_COUNTER_ID_RE.pattern,
+            journey_capture._MAT_SINGLE_COUNTER_ID_RE.pattern,
+        ],
     )
 
   def test_wait_for_angular_stable_handles_bootstrap_errors_and_timeouts(self):
@@ -436,27 +450,11 @@ class JourneyCaptureTest(unittest.TestCase):
   ):
     """Verifies chart wait holds on [0, pending] and settles once drawn > 0 holds steady."""
 
-    class _FakeChartPage:
-      """Fake Playwright page returning a sequence of [drawn, pending] counts."""
-
-      def __init__(self, counts_sequence: list[list[int]]):
-        self._seq = list(counts_sequence)
-        self.waits: list[int] = []
-
-      def evaluate(self, script: str) -> list[int]:
-        del script
-        if len(self._seq) > 1:
-          return self._seq.pop(0)
-        return self._seq[0]
-
-      def wait_for_timeout(self, ms: int) -> None:
-        self.waits.append(ms)
-
-    page = _FakeChartPage([[0, 3], [2, 1]])
+    page = _FakePage([[0, 3]], default_result=[2, 1])
     self.assertTrue(journey_capture._wait_for_charts_to_render(page))
     self.assertGreaterEqual(len(page.waits), 2)
 
-    zero_data_page = _FakeChartPage([[0, 2]])
+    zero_data_page = _FakePage(default_result=[0, 2])
     self.assertTrue(journey_capture._wait_for_charts_to_render(zero_data_page))
     self.assertGreaterEqual(len(zero_data_page.waits), 4)
     js = journey_capture._CHART_COUNTS_JS
@@ -466,22 +464,6 @@ class JourneyCaptureTest(unittest.TestCase):
   def test_wait_for_chart_loader_settled_waits_out_the_failover_chain(self):
     """Verifies the loader wait holds until the gstatic chain reaches a terminal state."""
 
-    class _FakeLoaderPage:
-      """Fake page returning a sequence of [pending_scripts, charts_ready]."""
-
-      def __init__(self, states: list[list[object]]):
-        self._states = list(states)
-        self.waits: list[int] = []
-
-      def evaluate(self, script: str) -> list[object]:
-        del script
-        if len(self._states) > 1:
-          return self._states.pop(0)
-        return self._states[0]
-
-      def wait_for_timeout(self, ms: int) -> None:
-        self.waits.append(ms)
-
     settle_polls = max(
         1,
         journey_capture._CHART_LOADER_SETTLE_MS
@@ -490,19 +472,19 @@ class JourneyCaptureTest(unittest.TestCase):
 
     # The primary host is still attached and unresolved for three polls, then
     # the fail-over detaches it and the fallback publishes window.google.charts.
-    failover = _FakeLoaderPage([[1, False], [1, False], [1, False], [0, True]])
+    failover = _FakePage([[1, False]] * 3, default_result=[0, True])
     self.assertTrue(journey_capture._wait_for_chart_loader_settled(failover))
     # Three polls spent unresolved, then `settle_polls` consecutive terminal
     # samples with a sleep between them but not after the last.
     self.assertEqual(len(failover.waits), 3 + settle_polls - 1)
 
     # Every host failed, so no loader script remains. That is terminal too.
-    exhausted = _FakeLoaderPage([[0, False]])
+    exhausted = _FakePage(default_result=[0, False])
     self.assertTrue(journey_capture._wait_for_chart_loader_settled(exhausted))
 
     # The usual success: the loader published window.google.charts while its
     # <script> is still attached. That is terminal even though a node remains.
-    loaded = _FakeLoaderPage([[1, True]])
+    loaded = _FakePage(default_result=[1, True])
     self.assertTrue(journey_capture._wait_for_chart_loader_settled(loaded))
     self.assertEqual(len(loaded.waits), settle_polls - 1)
 
@@ -511,34 +493,17 @@ class JourneyCaptureTest(unittest.TestCase):
   ):
     """Verifies the loader wait stops at its deadline and needs consecutive samples."""
 
-    class _ClockedLoaderPage:
-      """Loader page whose own waits advance the clock the wait function reads."""
-
-      def __init__(self, states: list[list[object]]):
-        self._states = list(states)
-        self.now = 0.0
-        self.waits: list[int] = []
-
-      def monotonic(self) -> float:
-        return self.now
-
-      def evaluate(self, script: str) -> list[object]:
-        del script
-        if len(self._states) > 1:
-          return self._states.pop(0)
-        return self._states[0]
-
-      def wait_for_timeout(self, ms: int) -> None:
-        self.waits.append(ms)
-        self.now += ms / 1000
-
     # A loader stuck mid-chain must spend exactly its budget: 1000ms polled
     # 125ms at a time is eight samples. Both values are exact in binary, so the
     # count is not decided by float drift. Pinning it catches a deadline armed
     # too early or too late, neither of which a bare assertFalse can see.
-    stuck = _ClockedLoaderPage([[1, False]])
+    stuck = _FakePage(default_result=[1, False])
     with (
-        mock.patch.object(journey_capture.time, "monotonic", stuck.monotonic),
+        mock.patch.object(
+            journey_capture.time,
+            "monotonic",
+            lambda: sum(stuck.waits) / 1000,
+        ),
         mock.patch.object(journey_capture, "_CHART_LOADER_TIMEOUT_MS", 1000),
         mock.patch.object(journey_capture, "_CHART_LOADER_POLL_MS", 125),
         mock.patch.object(journey_capture, "_CHART_LOADER_SETTLE_MS", 375),
@@ -550,11 +515,15 @@ class JourneyCaptureTest(unittest.TestCase):
     # flickers back to pending has not settled, so the counter must restart;
     # otherwise the wait would declare the page settled one sample early and
     # capture a DOM that is still mutating.
-    flicker = _ClockedLoaderPage(
-        [[0, True], [1, False], [0, True], [0, True], [0, True]]
+    flicker = _FakePage(
+        [[0, True], [1, False], [0, True], [0, True]], default_result=[0, True]
     )
     with (
-        mock.patch.object(journey_capture.time, "monotonic", flicker.monotonic),
+        mock.patch.object(
+            journey_capture.time,
+            "monotonic",
+            lambda: sum(flicker.waits) / 1000,
+        ),
         mock.patch.object(journey_capture, "_CHART_LOADER_TIMEOUT_MS", 10000),
         mock.patch.object(journey_capture, "_CHART_LOADER_POLL_MS", 125),
         mock.patch.object(journey_capture, "_CHART_LOADER_SETTLE_MS", 375),

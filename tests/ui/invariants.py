@@ -6,22 +6,28 @@ import importlib
 import re
 
 try:
-  _pw_sync = importlib.import_module("playwright.sync_api")
-  PlaywrightError = _pw_sync.Error
-  Locator = _pw_sync.Locator
-  Page = _pw_sync.Page
+  sync_api = importlib.import_module("playwright.sync_api")
+  PlaywrightError = sync_api.Error
 except ImportError:
+
   class PlaywrightError(Exception):
-    """Fallback error when playwright is not available in hermetic env."""
+    """Fallback error when playwright is absent in hermetic unit tests."""
 
   class _DynamicStub:
-    """Fallback stub when playwright is not available in hermetic env."""
+    """Fallback stub when playwright is absent in hermetic unit tests."""
 
     def __getattr__(self, name: str):
-      return None
+      del name
+      return _DynamicStub()
 
-  Locator = _DynamicStub
-  Page = _DynamicStub
+    def __call__(self, *args, **kwargs):
+      del args, kwargs
+      return _DynamicStub()
+
+  _DynamicStub.Page = _DynamicStub
+  sync_api = _DynamicStub()
+
+Page = sync_api.Page
 
 POISON_PATTERNS: dict[str, str] = {
     "NaN": r"\bNaN\b",
@@ -51,10 +57,17 @@ _SVG_GEOMETRY_ATTRS = (
 )
 
 # Header words that mark a column as a comparison against a baseline.
-_DIFF_HEADER_TERMS = ("diff", "delta", "vs", "change", "improvement")
 _DIFF_HEADER_RE = re.compile(
     r"(?:^|[^a-zA-Z0-9])(?:diff|delta|vs\.?|change|improvement)"
     r"(?:$|[^a-zA-Z0-9])",
+    re.IGNORECASE,
+)
+# Roofline Model columns that divide a measured rate by the hardware limit.
+# They can exceed 100%: the backend notes it for asynchronous copies, and custom
+# calls such as Pallas kernels report their own cost estimates, which can
+# overstate the work.
+_HW_LIMIT_HEADER_RE = re.compile(
+    r"roofline efficiency|flop rate / peak|max memory bw utilization",
     re.IGNORECASE,
 )
 _PERCENT_RE = re.compile(
@@ -131,9 +144,13 @@ def check_no_layout_collapse(
 def check_table_has_data_rows(page: Page, min_rows: int = 1) -> list[str]:
   """Flags data tables with headers but no data rows."""
   violations = []
+  # Excludes the off-screen copy of each chart's data that Google Charts keeps
+  # for screen readers (a table inside an aria-labelled div): an empty chart,
+  # such as outside compilation on a JAX profile, leaves it with headers only.
   for i, table in enumerate(
       page.locator(
-          "table:has(th, .mat-header-cell), mat-table:has(th, .mat-header-cell)"
+          "table:has(th, .mat-header-cell):not([aria-label] > table),"
+          " mat-table:has(th, .mat-header-cell)"
       ).all()
   ):
     rows = table.locator("tr:has(td), mat-row, tr[mat-row]").count()
@@ -155,6 +172,64 @@ def _build_svg_non_finite_selector() -> str:
 
 
 _SVG_NON_FINITE_SELECTOR = _build_svg_non_finite_selector()
+
+# Collects the text of every non-comparison table cell in a single round trip.
+# Reading the cells through locators costs two round trips per cell, which is
+# minutes on the larger tool tables. Like a locator, it also searches open
+# shadow roots, which is where the Trace Viewer page renders its help table.
+_EXTRACT_NON_DIFF_CELLS_JS = """
+([maxCells, diffPattern]) => {
+  const diffRe = new RegExp(diffPattern, 'i');
+  const out = [];
+  const roots = [document];
+  for (let i = 0; i < roots.length; i++) {
+    for (const el of roots[i].querySelectorAll('*')) {
+      if (el.shadowRoot) roots.push(el.shadowRoot);
+    }
+  }
+  const tables = roots.flatMap(r => [...r.querySelectorAll('table, mat-table')]);
+  for (const table of tables) {
+    if (out.length >= maxCells) break;
+    let headers = table.querySelectorAll(
+      'thead tr:last-child :is(th, .mat-header-cell, [mat-header-cell], .mat-mdc-header-cell), ' +
+      'mat-header-row:last-of-type :is(mat-header-cell, .mat-header-cell, [mat-header-cell], .mat-mdc-header-cell)'
+    );
+    if (!headers.length) {
+      headers = table.querySelectorAll(
+        'tr:first-child :is(th, .mat-header-cell, [mat-header-cell], .mat-mdc-header-cell)'
+      );
+    }
+    const diffCols = new Set();
+    let col = 0;
+    for (const th of headers) {
+      // colSpan is 1 when colspan is absent or invalid, and at most 1000.
+      const span = th.colSpan || 1;
+      if (diffRe.test(th.innerText || '')) {
+        for (let k = 0; k < span; k++) diffCols.add(col + k);
+      }
+      col += span;
+    }
+    const rows = table.querySelectorAll('tr, mat-row, .mat-row, [mat-row], .mat-mdc-row');
+    for (const row of rows) {
+      if (out.length >= maxCells) break;
+      if (row.tagName === 'TR' && !row.querySelector('td') && !row.hasAttribute('mat-row')) continue;
+      const cells = row.querySelectorAll('td, th, mat-cell, [mat-cell], .mat-cell, .mat-mdc-cell');
+      let c = 0;
+      for (const cell of cells) {
+        if (out.length >= maxCells) break;
+        const span = cell.colSpan || 1;
+        let isDiff = false;
+        for (let k = 0; k < span; k++) {
+          if (diffCols.has(c + k)) { isDiff = true; break; }
+        }
+        c += span;
+        if (!isDiff) out.push(cell.innerText || '');
+      }
+    }
+  }
+  return out;
+}
+"""
 
 
 def check_svg_geometry_deep(page: Page) -> list[str]:
@@ -187,101 +262,53 @@ def check_svg_geometry_deep(page: Page) -> list[str]:
   return violations
 
 
-def _diff_column_indices(table: Locator) -> set[int]:
-  """Returns indices of columns whose header marks them as a comparison."""
-  diff_indices: set[int] = set()
-  try:
-    header_locators = table.locator(
-        "thead tr:last-child :is(th, .mat-header-cell, [mat-header-cell],"
-        " .mat-mdc-header-cell), mat-header-row:last-of-type"
-        " :is(mat-header-cell, .mat-header-cell, [mat-header-cell],"
-        " .mat-mdc-header-cell)"
-    ).all()
-    if not header_locators:
-      header_locators = table.locator(
-          "tr:first-child :is(th, .mat-header-cell, [mat-header-cell],"
-          " .mat-mdc-header-cell)"
-      ).all()
-    current_col = 0
-    for th in header_locators:
-      colspan_str = th.get_attribute("colspan") or "1"
-      try:
-        colspan = max(1, int(colspan_str))
-      except ValueError:
-        colspan = 1
-      text = th.inner_text()
-      if _DIFF_HEADER_RE.search(text):
-        for offset in range(colspan):
-          diff_indices.add(current_col + offset)
-      current_col += colspan
-  except PlaywrightError:
-    return set()
-  return diff_indices
-
-
 def run_content_invariants(text: str) -> list[str]:
   """Runs text invariants safe to execute against the whole page."""
   return check_poison_tokens(text)
 
 
 def run_cell_invariants(page: Page, max_cells: int = 4000) -> list[str]:
-  """Runs numeric invariants scoped to table cells, skipping comparison columns.
+  """Runs numeric invariants scoped to table cells, skipping unbounded columns.
 
   A column that reports a delta against a baseline legitimately holds negative
-  durations and percentages far above 100, so the range checks are applied only
-  to the remaining columns. Cells are read one row at a time so that a ragged
-  row or a colspan cannot shift the column index of every row after it. Poison
-  tokens are not checked here because `run_content_invariants` already covers
-  the whole page.
+  durations and percentages far above 100, and a Roofline Model ratio to the
+  hardware limit can exceed 100%, so the range checks are applied only to the
+  remaining columns. Cells are read one row at a time so that a ragged row or a
+  colspan cannot shift the column index of every row after it. Poison tokens
+  are not checked here because `run_content_invariants` already covers the
+  whole page.
   """
   violations = []
-  remaining = max_cells
-  try:
-    tables = page.locator("table, mat-table").all()
-  except PlaywrightError:
-    return violations
-  for table in tables:
-    if remaining <= 0:
-      break
-    diff_columns = _diff_column_indices(table)
+  for text in page.evaluate(
+      _EXTRACT_NON_DIFF_CELLS_JS,
+      [max_cells, f"{_DIFF_HEADER_RE.pattern}|{_HW_LIMIT_HEADER_RE.pattern}"],
+  ):
+    violations.extend(check_percentages(text))
+    violations.extend(check_durations_non_negative(text))
+  return violations
+
+
+def check_positive_rendered_content(page: Page) -> list[str]:
+  """Verifies rendered charts have positive geometry and cards have text."""
+  violations = []
+  for i, chart in enumerate(page.locator("svg, canvas").all()):
     try:
-      rows = table.locator(
-          "tr:has(td), mat-row, .mat-row, tr[mat-row], .mat-mdc-row"
-      ).all()
+      box = chart.bounding_box()
     except PlaywrightError:
       continue
-    for row in rows:
-      if remaining <= 0:
-        break
-      try:
-        cells = row.locator(
-            "td, th, mat-cell, [mat-cell], .mat-cell, .mat-mdc-cell"
-        ).all()
-      except PlaywrightError:
-        continue
-      current_col = 0
-      for cell in cells:
-        if remaining <= 0:
-          break
-        remaining -= 1
-        try:
-          colspan_str = cell.get_attribute("colspan") or "1"
-          try:
-            colspan = max(1, int(colspan_str))
-          except ValueError:
-            colspan = 1
-          text = cell.inner_text()
-        except PlaywrightError:
-          current_col += 1
-          continue
-        is_diff = any(
-            (current_col + offset) in diff_columns for offset in range(colspan)
-        )
-        current_col += colspan
-        if is_diff:
-          continue
-        violations.extend(check_percentages(text))
-        violations.extend(check_durations_non_negative(text))
+    if box and (box["width"] <= 0 or box["height"] <= 0):
+      violations.append(
+          f"Chart[{i}] collapsed geometry: {box['width']}x{box['height']}"
+      )
+  for i, card in enumerate(
+      page.locator("mat-card, .dashboard-card, .metric-card").all()
+  ):
+    try:
+      text = card.inner_text()
+    except PlaywrightError:
+      continue
+    if not text.strip():
+      violations.append(f"Card[{i}] is unexpectedly empty")
   return violations
 
 
@@ -293,6 +320,7 @@ def run_dom_invariants(
   for sel in collapse_selectors or []:
     violations.extend(check_no_layout_collapse(page, sel))
   violations.extend(check_table_has_data_rows(page))
+  violations.extend(check_positive_rendered_content(page))
   return violations
 
 

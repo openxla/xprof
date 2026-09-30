@@ -759,7 +759,7 @@ def _wait_for_dom_quiescence(page: typing.Any) -> tuple[str, bool]:
   return previous, False
 
 
-_DEFAULT_TOOL_NAME_TO_TAG: dict[str, str] = {
+TOOL_NAME_TO_TAG: dict[str, str] = {
     "Overview Page": "overview_page",
     "Input Pipeline Analysis": "input_pipeline",
     "Kernel Stats": "kernel_stats",
@@ -773,12 +773,17 @@ _DEFAULT_TOOL_NAME_TO_TAG: dict[str, str] = {
     "Megascale Stats": "megascale_stats",
     "Roofline Model": "roofline_model",
     "HLO Op Stats": "hlo_stats",
+    "Op Profile": "op_profile",
+    "Inference Profile": "inference_profile",
+    "Megascale Viewer": "megascale_stats",
+    "Perf Counters": "perf_counters",
+    "Utilization Viewer": "utilization_viewer",
 }
 
 
 def settled_tool_url_pattern(tool_name: str) -> re.Pattern[str]:
   """Builds a URL regex requiring both pathname and tag query param to match."""
-  expected_tag = _DEFAULT_TOOL_NAME_TO_TAG.get(
+  expected_tag = TOOL_NAME_TO_TAG.get(
       tool_name, tool_name.lower().replace(" ", "_")
   )
   return re.compile(

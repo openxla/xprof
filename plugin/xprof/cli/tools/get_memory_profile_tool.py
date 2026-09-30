@@ -202,6 +202,8 @@ def get_memory_profile(
       logging.warning("Value error during parsing for host %s: %r", host, e)
       return None, str(e)
     except Exception as e:  # pylint: disable=broad-exception-caught
+      if decorators.is_rpc_exception(e):
+        raise
       logging.exception("Unexpected error for host %s", host)
       return None, f"Error fetching memory profile: {e!r}"
 
@@ -218,6 +220,8 @@ def get_memory_profile(
     try:
       hosts = client.get_hosts(session_id, with_metadata=True)
     except Exception as e:  # pylint: disable=broad-exception-caught
+      if decorators.is_rpc_exception(e):
+        raise
       logging.exception("Failed to get hosts: %r", e)
       return best_parsed, f"Failed to get hosts: {e!r}"
 
@@ -317,6 +321,8 @@ def get_memory_profile(
   except (FileNotFoundError, ValueError):
     raise
   except Exception as e:  # pylint: disable=broad-exception-caught
+    if decorators.is_rpc_exception(e):
+      raise
     logging.exception(
         "Error fetching memory profile for session %s", session_id
     )

@@ -78,6 +78,11 @@ def llo_data_absent_response(error: str) -> dict[str, Any]:
   )
 
 
+def is_rpc_exception(exception: BaseException) -> bool:
+  """Returns True if `exception` is a Stubby RPCException."""
+  return exception.__class__.__name__ == "RPCException"
+
+
 _FINGERPRINT_CACHE_MAXSIZE = 1024
 _FINGERPRINT_MEM_CACHE: collections.OrderedDict[Any, str] = (
     collections.OrderedDict()

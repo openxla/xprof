@@ -16,6 +16,8 @@ from absl import app
 from absl import flags
 import fire
 
+pywraprpc = None
+from xprof.cli.internal import decorators
 from xprof.cli.internal import trace_selection
 
 
@@ -614,6 +616,13 @@ def _check_xprof_version() -> None:
     pass
 
 
+EXIT_CODE_INTERNAL_ERROR = 1
+EXIT_CODE_USAGE_ERROR = 2
+EXIT_CODE_PATH_ERROR = 3
+EXIT_CODE_INVALID_VALUE = 4
+EXIT_CODE_RPC_ERROR = 5
+
+
 def _emit_error(
     reason: str,
     message: str,
@@ -633,6 +642,78 @@ def _emit_error(
   if traceback_str:
     sys.stderr.write(f"\n{traceback_str}\n")
   sys.exit(exit_code)
+
+
+def _find_rpc_exception(exception: BaseException) -> Any | None:
+  """Walks __cause__ and __context__ chains to find a pywraprpc.RPCException."""
+  stack = [exception]
+  visited = set()
+  while stack:
+    current_exception = stack.pop()
+    if current_exception is None or id(current_exception) in visited:
+      continue
+    visited.add(id(current_exception))
+    if (
+        pywraprpc is not None
+        and isinstance(current_exception, pywraprpc.RPCException)
+    ) or decorators.is_rpc_exception(current_exception):
+      return current_exception
+    cause = current_exception.__cause__
+    if cause is not None:
+      stack.append(cause)
+    context = current_exception.__context__
+    if context is not None:
+      stack.append(context)
+  return None
+
+
+def _get_rpc_status_code(rpc_exception: Any) -> int | None:
+  """Extracts the integer status code from an RPC exception if available."""
+  util_status = None
+  try:
+    util_status = rpc_exception.util_status
+  except AttributeError:
+    pass
+
+  canonical_code = None
+  if util_status is not None:
+    try:
+      code = util_status.CanonicalCode()
+      if isinstance(code, int):
+        if code not in (0, 2):
+          return code
+        canonical_code = code
+    except (AttributeError, TypeError, ValueError):
+      pass
+
+    try:
+      code = util_status.code_int()
+      if isinstance(code, int) and code != 0:
+        return code
+    except (AttributeError, TypeError, ValueError):
+      pass
+
+    if pywraprpc is not None:
+      try:
+        application_code = pywraprpc.GetApplicationErrorCode(util_status)
+        if isinstance(application_code, int) and application_code != 0:
+          return application_code
+      except (AttributeError, TypeError, ValueError):
+        pass
+
+  try:
+    application_error = rpc_exception.application_error
+    if isinstance(application_error, int) and application_error != 0:
+      return application_error
+  except AttributeError:
+    pass
+
+  return canonical_code
+
+
+def _is_not_found_rpc(rpc_exception: Any) -> bool:
+  """Detects whether an RPC exception has status code NOT_FOUND (integer 5)."""
+  return _get_rpc_status_code(rpc_exception) == 5
 
 
 _UNDERSCORE_NUM_PATTERN = re.compile(r"^\d+(_\d+)+$")
@@ -733,20 +814,27 @@ def main(argv=None) -> None:
   processed_command = _preprocess_argv(argv[1:] if argv else None)
   try:
     fire.Fire(XProfCli(), command=processed_command, name="xprof")
-  except (fire.core.FireError, TypeError) as e:
-    _emit_error("USAGE_ERROR", str(e), 2)
-  except OSError as e:
-    _emit_error("PATH_ERROR", str(e), 3)
-  except ValueError as e:
-    _emit_error("INVALID_VALUE", str(e), 4)
   except Exception as e:  # pylint: disable=broad-exception-caught
+    rpc_exception = _find_rpc_exception(e)
+    if rpc_exception is not None:
+      msg = str(rpc_exception) if str(rpc_exception) else str(e)
+      if _is_not_found_rpc(rpc_exception):
+        _emit_error("PATH_ERROR", msg, EXIT_CODE_PATH_ERROR)
+      else:
+        _emit_error("RPC_ERROR", msg, EXIT_CODE_RPC_ERROR)
+    if isinstance(e, (fire.core.FireError, TypeError)):
+      _emit_error("USAGE_ERROR", str(e), EXIT_CODE_USAGE_ERROR)
+    if isinstance(e, OSError):
+      _emit_error("PATH_ERROR", str(e), EXIT_CODE_PATH_ERROR)
+    if isinstance(e, ValueError):
+      _emit_error("INVALID_VALUE", str(e), EXIT_CODE_INVALID_VALUE)
     logging.exception("Unhandled defect in xprof_cli")
     tb = traceback.format_exc().strip()
     report_target = "https://github.com/openxla/xprof/issues"
     _emit_error(
         "INTERNAL_ERROR",
         f"{e}\nPlease report to {report_target}",
-        1,
+        EXIT_CODE_INTERNAL_ERROR,
         traceback_str=tb,
     )
 

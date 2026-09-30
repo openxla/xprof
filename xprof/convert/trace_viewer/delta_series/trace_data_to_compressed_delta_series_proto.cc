@@ -8,6 +8,7 @@
 #include "absl/strings/string_view.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "xprof/convert/trace_viewer/trace_events.h"
+#include "xprof/convert/trace_viewer/trace_utils.h"
 #include "plugin/xprof/protobuf/trace_data_response.pb.h"
 
 namespace tensorflow {
@@ -36,18 +37,40 @@ uint32_t DeltaSeriesProtoConverter::MaybeInternString(absl::string_view str) {
   return interned_string_id;
 }
 
+bool DeltaSeriesProtoConverter::IsDevicePruned(uint32_t device_id) const {
+  if (!options_.mpmd_pipeline_view || mpmd_sort_indices_.empty()) {
+    return false;
+  }
+  if (mpmd_sort_indices_.contains(device_id)) {
+    return false;
+  }
+  const auto it = trace_->devices().find(device_id);
+  if (it == trace_->devices().end()) {
+    return false;
+  }
+  return IsTpuCoreDeviceName(it->second.name());
+}
+
 xprof::TraceMetadata DeltaSeriesProtoConverter::GetTraceMetadata() const {
   xprof::TraceMetadata metadata;
   for (const auto& [device_id, device] : trace_->devices()) {
+    if (IsDevicePruned(device_id)) {
+      continue;
+    }
     xprof::Process* process = metadata.add_processes();
     process->set_id(device_id);
     if (device.has_name()) {
       process->set_name(device.name());
     }
     uint32_t sort_index = device_id;
-    if (auto it = mpmd_sort_indices_.find(device_id);
-        it != mpmd_sort_indices_.end()) {
-      sort_index = it->second;
+    if (options_.mpmd_pipeline_view) {
+      if (const auto it = mpmd_sort_indices_.find(device_id);
+          it != mpmd_sort_indices_.end()) {
+        sort_index = it->second;
+      } else {
+        sort_index =
+            static_cast<uint32_t>(mpmd_sort_indices_.size()) + device_id;
+      }
     }
     process->set_sort_index(sort_index);
     for (const auto& [resource_id, resource] : device.resources()) {

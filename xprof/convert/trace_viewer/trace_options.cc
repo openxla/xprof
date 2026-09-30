@@ -69,6 +69,9 @@ TraceOptions TraceOptionsFromToolOptions(const ToolOptions& tool_options) {
       tool_options, kEnableLegacyDcn, options.enable_legacy_dcn);
   options.mpmd_pipeline_view = GetParamWithDefault<bool>(
       tool_options, kMpmdPipelineView, options.mpmd_pipeline_view);
+  options.mpmd_single_device_per_stage =
+      GetParamWithDefault<bool>(tool_options, kMpmdSingleDevicePerStage,
+                                options.mpmd_single_device_per_stage);
   return options;
 }
 
@@ -77,6 +80,10 @@ JsonTraceOptions::Details TraceOptionsToDetails(TraceDeviceType device_type,
   JsonTraceOptions::Details details = {
       {kMpmdPipelineView, options.mpmd_pipeline_view},
   };
+  if (options.mpmd_pipeline_view) {
+    details.push_back(
+        {kMpmdSingleDevicePerStage, options.mpmd_single_device_per_stage});
+  }
   if (device_type == TraceDeviceType::kTpu) {
     details.push_back({kFullDma, options.full_dma});
   }

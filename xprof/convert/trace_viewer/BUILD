@@ -64,6 +64,7 @@ cc_library(
     hdrs = ["trace_events_to_json.h"],
     deps = [
         ":trace_events_util",
+        ":trace_utils",
         ":trace_viewer_color",
         "//plugin/xprof/protobuf:task_proto_cc",
         "//plugin/xprof/protobuf:trace_events_proto_cc",

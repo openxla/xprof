@@ -21,9 +21,11 @@ limitations under the License.
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -37,6 +39,7 @@ limitations under the License.
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/strings/match.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
@@ -48,6 +51,7 @@ limitations under the License.
 #include "tsl/platform/protobuf.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "xprof/convert/trace_viewer/trace_events_util.h"
+#include "xprof/convert/trace_viewer/trace_utils.h"
 #include "xprof/convert/trace_viewer/trace_viewer_color.h"
 #include "plugin/xprof/protobuf/task.pb.h"
 #include "plugin/xprof/protobuf/trace_events.pb.h"
@@ -58,150 +62,122 @@ namespace profiler {
 
 namespace internal {
 
-// Extracts the minimum layer ID for each program on each device.
-// Returns: device_id -> {program_name -> min_layer}
-template <typename TraceEventsContainer>
-absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>
-ExtractDeviceProgramLayers(const TraceEventsContainer& events) {
-  const Trace& trace = events.trace();
-  absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>
-      device_program_min_layer;
-  // Regex to extract layer ID and program name from event names.
-  // Example: p2_layer_0_1.inc_prefill_step_2k(18163508075296385240)
-  // -> layer_id: 0, program_name: inc_prefill_step_2k
-  static constexpr LazyRE2 kLayerRegex = {
-      "_layer_(\\d+)(?:_\\d+)?\\.([^\\(]+)"};
-
-  events.ForAllEvents([&](const TraceEvent& event) {
-    const std::string& event_name =
-        event.has_name_ref() ? trace.name_table().at(event.name_ref())
-                             : event.name();
-    std::string program_name;
-    int layer_id;
-    if (RE2::PartialMatch(event_name, *kLayerRegex, &layer_id, &program_name)) {
-      auto& program_map = device_program_min_layer[event.device_id()];
-      auto [it, inserted] = program_map.try_emplace(program_name, layer_id);
-      if (!inserted) {
-        it->second = std::min(it->second, layer_id);
-      }
-    }
-  });
-  return device_program_min_layer;
-}
-
-// Represents the dependencies between devices.
-struct MpmdDependencyGraph {
-  // Adjacency list: device_id -> set of dependent device_ids
-  absl::flat_hash_map<uint32_t, absl::btree_set<uint32_t>> adj;
-  // In-degree: device_id -> number of incoming edges.
-  // btree_map for deterministic iteration.
-  absl::btree_map<uint32_t, int> in_degree;
+// MPMD module information extracted from an event name.
+struct MpmdModuleInfo {
+  std::string program_key;
+  int group_id = 0;
+  int loop_id = 0;
+  int min_layer = 0;
+  bool has_explicit_layer = false;
 };
 
-// Builds the dependency graph based on program layer execution order.
-// An edge u -> v means device u (running an earlier layer) must be sorted
-// before device v (running a later layer). Marked inline to prevent ODR
-// violations when included in multiple files.
-inline MpmdDependencyGraph BuildMpmdDependencyGraph(
-    const absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>&
-        device_program_min_layer) {
-  MpmdDependencyGraph graph;
-
-  // Group devices by program and layer ID.
-  // program_name -> {layer_id -> list of device_ids}
-  absl::flat_hash_map<std::string, absl::btree_map<int, std::vector<uint32_t>>>
-      program_layer_devices;
-  for (const auto& [device_id, program_map] : device_program_min_layer) {
-    for (const auto& [program_name, layer_id] : program_map) {
-      program_layer_devices[program_name][layer_id].push_back(device_id);
-    }
-  }
-
-  // Initialize in-degrees for all devices.
-  for (const auto& [device_id, _] : device_program_min_layer) {
-    graph.in_degree[device_id] = 0;
-  }
-
-  // Build adjacency list and in-degrees.
-  for (const auto& [program_name, layers_map] : program_layer_devices) {
-    // layers_map is sorted by layer_id (key of btree_map).
-    const std::vector<uint32_t>* prev_devices = nullptr;
-    for (const auto& [layer_id, devices] : layers_map) {
-      if (prev_devices != nullptr) {
-        for (uint32_t u : *prev_devices) {
-          for (uint32_t v : devices) {
-            if (u == v) continue;
-            // Add edge u -> v, if not already present.
-            if (graph.adj[u].insert(v).second) {
-              graph.in_degree[v]++;
-            }
-          }
-        }
-      }
-      prev_devices = &devices;
-    }
-  }
-  return graph;
+// Normalizes an MPMD raw program name by stripping dynamic sequence-length
+// bucket suffixes (e.g. "_bucket_128k", "_bucket_512k").
+inline std::string NormalizeMpmdProgramKey(absl::string_view raw_program) {
+  static const LazyRE2 kBucketSuffixRe = {R"((_bucket_[A-Za-z0-9_]+)$)"};
+  std::string normalized(raw_program);
+  RE2::Replace(&normalized, *kBucketSuffixRe, "");
+  return normalized;
 }
 
-// Performs a topological sort to determine device order.
-// Devices with cyclic dependencies are appended at the end.
-// Marked inline to prevent ODR violations when included in multiple files.
-inline void PerformMpmdTopologicalSort(
-    const absl::flat_hash_map<uint32_t, absl::btree_set<uint32_t>>& adj,
-    absl::btree_map<uint32_t, int> in_degree,
-    const absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>&
-        device_program_min_layer,
-    absl::flat_hash_map<uint32_t, uint32_t>& device_to_sort_index) {
-  // Initial queue for nodes with no incoming edges.
-  std::vector<uint32_t> queue;
-  for (const auto& [device_id, degree] : in_degree) {
-    if (degree == 0) {
-      queue.push_back(device_id);
+// Extracts MPMD module information from an event name.
+// Supports both Shardy "XLA Modules" naming conventions and legacy patterns.
+inline std::optional<MpmdModuleInfo> ExtractMpmdModuleInfo(
+    absl::string_view event_name) {
+  // First check general Shardy "XLA Modules" format:
+  // Examples:
+  //   p0_loop_0_layer_0_0.inc_prefill_step_32k_chunk_4096(12345)
+  //   p24_loop_1_layer_24_24.inc_prefill_step_32k_chunk_4096(12345)
+  //   p1_inferred.inc_prefill_session_32k(12345)
+  //   p0_inferred.inc_prefill_final_32k(12345)
+  //   p0_stage0.inc_prefill_step_4k_bucket_128k(12345)
+  static const LazyRE2 kShardyModuleRe = {
+      R"(^p(\d+)_([A-Za-z0-9_]*?)\.+([^\.\(]+)(?:\(|$))"};
+  std::string group_str;
+  std::string descriptor;
+  std::string raw_program;
+  if (RE2::PartialMatch(event_name, *kShardyModuleRe, &group_str, &descriptor,
+                        &raw_program)) {
+    MpmdModuleInfo info;
+    if (!absl::SimpleAtoi(group_str, &info.group_id)) {
+      return std::nullopt;
     }
-  }
-  // Sort for deterministic starting order.
-  absl::c_sort(queue);
+    info.program_key = NormalizeMpmdProgramKey(raw_program);
 
-  uint32_t index = 0;
-  for (size_t head = 0; head < queue.size(); ++head) {
-    uint32_t u = queue[head];
-    device_to_sort_index[u] = index++;
+    // Extract loop_id from descriptor if present, e.g. "loop_0" or "_loop_0".
+    static const LazyRE2 kLoopRe = {R"((?:^|_)loop_(\d+))"};
+    int loop_id = 0;
+    if (RE2::PartialMatch(descriptor, *kLoopRe, &loop_id)) {
+      info.loop_id = loop_id;
+    } else {
+      info.loop_id = 0;
+    }
 
-    auto adj_it = adj.find(u);
-    if (adj_it == adj.end()) continue;
-
-    // Collect nodes that will have their in-degree decremented to 0.
-    absl::btree_set<uint32_t> next_nodes_sorted;
-    for (uint32_t v : adj_it->second) {
-      auto it = in_degree.find(v);
-      // BuildMpmdDependencyGraph ensures that any device in adj is also in
-      // in_degree.
-      DCHECK(it != in_degree.end());
-      it->second--;
-      if (it->second == 0) {
-        next_nodes_sorted.insert(v);
+    // Check for layer or stage in descriptor.
+    static const LazyRE2 kLayerRangeRe = {
+        R"((?:^|_)(?:layer_(\d+)_(\d+)|layer_(\d+)|stage(\d+)))"};
+    std::string layer1_str;
+    std::string layer2_str;
+    std::string single_layer_str;
+    std::string stage_str;
+    if (RE2::PartialMatch(descriptor, *kLayerRangeRe, &layer1_str, &layer2_str,
+                          &single_layer_str, &stage_str)) {
+      info.has_explicit_layer = true;
+      if (!layer1_str.empty() && !layer2_str.empty()) {
+        int l1 = 0;
+        int l2 = 0;
+        absl::SimpleAtoi(layer1_str, &l1);
+        absl::SimpleAtoi(layer2_str, &l2);
+        info.min_layer = std::min(l1, l2);
+      } else if (!single_layer_str.empty()) {
+        absl::SimpleAtoi(single_layer_str, &info.min_layer);
+      } else if (!stage_str.empty()) {
+        absl::SimpleAtoi(stage_str, &info.min_layer);
       }
+    } else {
+      // Non-layer Shardy programs (e.g. p1_inferred.inc_prefill_session_32k).
+      info.has_explicit_layer = false;
+      info.min_layer = info.group_id;
     }
-    // Add newly unblocked nodes to the queue in sorted order.
-    queue.insert(queue.end(), next_nodes_sorted.begin(),
-                 next_nodes_sorted.end());
+    return info;
   }
 
-  // Handle cycles: Assign indices to any remaining devices.
-  if (device_to_sort_index.size() < device_program_min_layer.size()) {
-    std::vector<uint32_t> remaining_devices;
-    for (const auto& [device_id, _] : device_program_min_layer) {
-      if (!device_to_sort_index.contains(device_id)) {
-        remaining_devices.push_back(device_id);
+  // Fallback: check legacy _stage(\d+) or _layer_(\d+)(?:_(\d+))? anywhere in
+  // event_name for backward compatibility with synthetic unit tests.
+  static const LazyRE2 kLegacyRe = {
+      R"((?:^|_)(?:layer_(\d+)(?:_(\d+))?|stage(\d+))(?:\.([^\(\)]+))?)"};
+  std::string legacy_l1;
+  std::string legacy_l2;
+  std::string legacy_stage;
+  std::string legacy_prog;
+  if (RE2::PartialMatch(event_name, *kLegacyRe, &legacy_l1, &legacy_l2,
+                        &legacy_stage, &legacy_prog)) {
+    MpmdModuleInfo info;
+    info.has_explicit_layer = true;
+    info.loop_id = 0;
+    if (!legacy_prog.empty()) {
+      info.program_key = NormalizeMpmdProgramKey(legacy_prog);
+    } else {
+      info.program_key = "";
+    }
+    if (!legacy_l1.empty()) {
+      int l1 = 0;
+      absl::SimpleAtoi(legacy_l1, &l1);
+      if (!legacy_l2.empty()) {
+        int l2 = 0;
+        absl::SimpleAtoi(legacy_l2, &l2);
+        info.min_layer = std::min(l1, l2);
+      } else {
+        info.min_layer = l1;
       }
+    } else if (!legacy_stage.empty()) {
+      absl::SimpleAtoi(legacy_stage, &info.min_layer);
     }
-    // Sort for deterministic order of remaining devices.
-    absl::c_sort(remaining_devices);
-    for (uint32_t device_id : remaining_devices) {
-      device_to_sort_index[device_id] = index++;
-    }
+    info.group_id = info.min_layer;
+    return info;
   }
+
+  return std::nullopt;
 }
 
 }  // namespace internal
@@ -228,6 +204,7 @@ struct JsonTraceOptions {
   bool generate_stack_frames = true;
   bool use_new_backend = false;
   bool mpmd_pipeline_view = false;
+  bool mpmd_single_device_per_stage = false;
   std::string code_link;
   // The absolute walltime timestamp in nanoseconds used as the baseline for
   // this snapshot's trace events (computed via `xprof::GetHostStartNs`). This
@@ -755,19 +732,164 @@ void WriteTraceFullTimespan(const Trace* trace, IOBuffer* output) {
 template <typename TraceEventsContainer>
 void SortMpmdDevices(
     const TraceEventsContainer& events,
-    absl::flat_hash_map<uint32_t, uint32_t>& device_to_sort_index) {
-  absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>
-      device_program_min_layer = internal::ExtractDeviceProgramLayers(events);
-  if (device_program_min_layer.empty()) {
+    absl::flat_hash_map<uint32_t, uint32_t>& device_to_sort_index,
+    bool single_device_per_stage = false) {
+  device_to_sort_index.clear();
+
+  const Trace& trace = events.trace();
+  absl::flat_hash_set<std::pair<uint32_t, uint64_t>> xla_modules_resources;
+  bool has_any_xla_modules_resource = false;
+  for (const auto& [device_id, device] : trace.devices()) {
+    for (const auto& [resource_id, resource] : device.resources()) {
+      if (resource.name() == "XLA Modules") {
+        xla_modules_resources.insert({device_id, resource_id});
+        has_any_xla_modules_resource = true;
+      }
+    }
+  }
+
+  // Per-device statistics per (program_key, has_explicit_layer).
+  struct DeviceProgramStats {
+    uint64_t min_timestamp_ps = std::numeric_limits<uint64_t>::max();
+    std::pair<int, int> min_stage = {std::numeric_limits<int>::max(),
+                                     std::numeric_limits<int>::max()};
+  };
+
+  using ProgramKeyTier = std::pair<std::string, bool>;
+  absl::flat_hash_map<uint32_t,
+                      absl::flat_hash_map<ProgramKeyTier, DeviceProgramStats>>
+      device_program_stats;
+  absl::flat_hash_map<ProgramKeyTier, uint64_t> global_program_min_timestamp_ps;
+
+  events.ForAllEvents([&](const TraceEvent& event) {
+    if (has_any_xla_modules_resource &&
+        !xla_modules_resources.contains(
+            {event.device_id(), event.resource_id()})) {
+      return;
+    }
+    const std::string& event_name =
+        event.has_name_ref() ? trace.name_table().at(event.name_ref())
+                             : event.name();
+    const std::optional<internal::MpmdModuleInfo> module_info =
+        internal::ExtractMpmdModuleInfo(event_name);
+    if (!module_info.has_value()) {
+      return;
+    }
+
+    const ProgramKeyTier key_tier{module_info->program_key,
+                                  module_info->has_explicit_layer};
+    const uint64_t ts = event.timestamp_ps();
+    const std::pair<int, int> stage{module_info->loop_id,
+                                    module_info->min_layer};
+
+    DeviceProgramStats& dev_stats =
+        device_program_stats[event.device_id()][key_tier];
+    dev_stats.min_timestamp_ps = std::min(dev_stats.min_timestamp_ps, ts);
+    dev_stats.min_stage = std::min(dev_stats.min_stage, stage);
+
+    const auto global_it = global_program_min_timestamp_ps.find(key_tier);
+    if (global_it == global_program_min_timestamp_ps.end()) {
+      global_program_min_timestamp_ps[key_tier] = ts;
+    } else {
+      global_it->second = std::min(global_it->second, ts);
+    }
+  });
+
+  if (device_program_stats.empty()) {
     return;
   }
 
-  internal::MpmdDependencyGraph graph =
-      internal::BuildMpmdDependencyGraph(device_program_min_layer);
+  // Device entry used for final sorting.
+  struct DeviceSortEntry {
+    uint64_t global_program_min_timestamp_ps = 0;
+    std::string program_key;
+    int loop_id = 0;
+    int min_layer = 0;
+    uint32_t device_id = 0;
+    int tier = 0;
+  };
 
-  internal::PerformMpmdTopologicalSort(graph.adj, std::move(graph.in_degree),
-                                       device_program_min_layer,
-                                       device_to_sort_index);
+  std::vector<DeviceSortEntry> sorted_devices;
+  sorted_devices.reserve(device_program_stats.size());
+
+  for (const auto& [device_id, program_map] : device_program_stats) {
+    bool has_tier1 = false;
+    for (const auto& [key_tier, _] : program_map) {
+      if (key_tier.second) {
+        has_tier1 = true;
+        break;
+      }
+    }
+
+    const ProgramKeyTier* best_key_tier = nullptr;
+    const DeviceProgramStats* best_stats = nullptr;
+
+    for (const auto& [key_tier, stats] : program_map) {
+      if (has_tier1 && !key_tier.second) {
+        continue;
+      }
+      if (best_stats == nullptr ||
+          stats.min_timestamp_ps < best_stats->min_timestamp_ps ||
+          (stats.min_timestamp_ps == best_stats->min_timestamp_ps &&
+           key_tier.first < best_key_tier->first)) {
+        best_key_tier = &key_tier;
+        best_stats = &stats;
+      }
+    }
+
+    if (best_key_tier != nullptr && best_stats != nullptr) {
+      DeviceSortEntry entry;
+      entry.device_id = device_id;
+      entry.program_key = best_key_tier->first;
+      entry.loop_id = best_stats->min_stage.first;
+      entry.min_layer = best_stats->min_stage.second;
+      entry.tier = best_key_tier->second ? 1 : 2;
+      const auto it = global_program_min_timestamp_ps.find(*best_key_tier);
+      if (it != global_program_min_timestamp_ps.end()) {
+        entry.global_program_min_timestamp_ps = it->second;
+      }
+      sorted_devices.push_back(entry);
+    }
+  }
+
+  absl::c_sort(sorted_devices,
+               [](const DeviceSortEntry& a, const DeviceSortEntry& b) {
+                 if (a.global_program_min_timestamp_ps !=
+                     b.global_program_min_timestamp_ps) {
+                   return a.global_program_min_timestamp_ps <
+                          b.global_program_min_timestamp_ps;
+                 }
+                 if (a.program_key != b.program_key) {
+                   return a.program_key < b.program_key;
+                 }
+                 if (a.loop_id != b.loop_id) {
+                   return a.loop_id < b.loop_id;
+                 }
+                 if (a.min_layer != b.min_layer) {
+                   return a.min_layer < b.min_layer;
+                 }
+                 return a.device_id < b.device_id;
+               });
+
+  absl::flat_hash_set<std::tuple<int, std::string, int, int>> seen_stages;
+  uint32_t sort_index = 0;
+  for (const DeviceSortEntry& ranked : sorted_devices) {
+    if (single_device_per_stage) {
+      const auto [it, inserted] = seen_stages.emplace(
+          ranked.tier, ranked.program_key, ranked.loop_id, ranked.min_layer);
+      if (!inserted) continue;
+    }
+    device_to_sort_index[ranked.device_id] = sort_index;
+    ++sort_index;
+  }
+}
+
+template <typename TraceEventsContainer>
+inline absl::flat_hash_map<uint32_t, uint32_t> SortMpmdDevices(
+    const TraceEventsContainer& events, bool single_device_per_stage = false) {
+  absl::flat_hash_map<uint32_t, uint32_t> device_to_sort_index;
+  SortMpmdDevices(events, device_to_sort_index, single_device_per_stage);
+  return device_to_sort_index;
 }
 
 template <typename IOBuffer, typename TraceEventsContainer,
@@ -793,7 +915,8 @@ void TraceEventsToJson(const JsonTraceOptions& options,
     output->Append(
         absl::StrFormat(R"("mpmdPipelineView": %s,)",
                         options.mpmd_pipeline_view ? "true" : "false"));
-    SortMpmdDevices(events, device_to_sort_index);
+    SortMpmdDevices(events, device_to_sort_index,
+                    options.mpmd_single_device_per_stage);
   }
 
   WriteDetails(options.details, output);
@@ -812,9 +935,22 @@ void TraceEventsToJson(const JsonTraceOptions& options,
   output->Append(R"("traceEvents":[)");
   JsonSeparator<IOBuffer> separator(output);
   // Write metadata events.
+  absl::flat_hash_set<uint32_t> pruned_device_ids;
+  if (options.mpmd_pipeline_view && !device_to_sort_index.empty()) {
+    for (const auto& [device_id, device] : trace.devices()) {
+      if (!device_to_sort_index.contains(device_id) &&
+          IsTpuCoreDeviceName(device.name())) {
+        pruned_device_ids.insert(device_id);
+      }
+    }
+  }
+
   absl::btree_map<uint32_t, Device> ordered_devices(trace.devices().begin(),
                                                     trace.devices().end());
   for (const auto& [device_id, device] : ordered_devices) {
+    if (pruned_device_ids.contains(device_id)) {
+      continue;
+    }
     if (device.has_name()) {
       separator.Add();
       output->Append(R"({"args":{"name":)", JsonEscape(device.name()),
@@ -824,9 +960,13 @@ void TraceEventsToJson(const JsonTraceOptions& options,
     separator.Add();
     uint32_t sort_index = device_id;
     if (options.mpmd_pipeline_view) {
-      // Sort the devices by layer id if mpmd view is enabled.
-      auto it = device_to_sort_index.find(device_id);
-      if (it != device_to_sort_index.end()) sort_index = it->second;
+      if (const auto it = device_to_sort_index.find(device_id);
+          it != device_to_sort_index.end()) {
+        sort_index = it->second;
+      } else {
+        sort_index =
+            static_cast<uint32_t>(device_to_sort_index.size()) + device_id;
+      }
     }
     output->Append(R"({"args":{"sort_index":)", sort_index,
                    R"(},"name":"process_sort_index","ph":"M","pid":)",
@@ -859,6 +999,9 @@ void TraceEventsToJson(const JsonTraceOptions& options,
                                                 output);
   bool prev_was_counter = false;
   events.ForAllEvents([&](const TraceEvent& event) {
+    if (pruned_device_ids.contains(event.device_id())) {
+      return;
+    }
     bool is_counter_event = !event.has_resource_id() && !event.has_flow_id();
     if ((prev_was_counter && !is_counter_event) ||
         (!writer.isMatchingLastCounterEvent(event) && is_counter_event &&

@@ -5,6 +5,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/container/flat_hash_map.h"
 #include "absl/strings/string_view.h"
 #include "xprof/convert/trace_viewer/delta_series/zstd_compression.h"
 #include "xprof/convert/trace_viewer/trace_events.h"
@@ -511,6 +512,203 @@ TEST(DeltaSeriesProtoConverterTest, SuppressesSortIndexForCustomSortResources) {
 
   EXPECT_TRUE(found_device5);
   EXPECT_TRUE(found_device6);
+}
+
+TEST(DeltaSeriesProtoConverterTest, MpmdPipelineViewDeviceOrderingAndPruning) {
+  Trace trace;
+  // Device 0: Active TPU 0 (stage 0)
+  Device device0;
+  device0.set_name("host0 /device:TPU:0");
+  Resource resource0;
+  resource0.set_name("XLA Modules");
+  (*device0.mutable_resources())[1] = resource0;
+  (*trace.mutable_devices())[0] = device0;
+
+  // Device 1: Active TPU 1 (stage 1)
+  Device device1;
+  device1.set_name("host0 /device:TPU:1");
+  Resource resource1;
+  resource1.set_name("XLA Modules");
+  (*device1.mutable_resources())[1] = resource1;
+  (*trace.mutable_devices())[1] = device1;
+
+  // Device 2: TPU 2 without MPMD stage events (should be pruned)
+  Device device2;
+  device2.set_name("host0 /device:TPU:2");
+  Resource resource2;
+  resource2.set_name("XLA Modules");
+  (*device2.mutable_resources())[1] = resource2;
+  (*trace.mutable_devices())[2] = device2;
+
+  // Device 10: Host CPU
+  Device device10;
+  device10.set_name("/host:CPU:0");
+  Resource resource10;
+  resource10.set_name("Host Thread");
+  (*device10.mutable_resources())[1] = resource10;
+  (*trace.mutable_devices())[10] = device10;
+
+  TraceEvent event0;
+  event0.set_device_id(0);
+  event0.set_resource_id(1);
+  event0.set_name("p0_stage0.program(1)");
+  event0.set_timestamp_ps(1000);
+  event0.set_duration_ps(500);
+
+  TraceEvent event1;
+  event1.set_device_id(1);
+  event1.set_resource_id(1);
+  event1.set_name("p1_stage1.program(1)");
+  event1.set_timestamp_ps(2000);
+  event1.set_duration_ps(500);
+
+  TraceEvent event2;
+  event2.set_device_id(2);
+  event2.set_resource_id(1);
+  event2.set_name("non_mpmd_compute");
+  event2.set_timestamp_ps(2500);
+  event2.set_duration_ps(500);
+
+  TestTraceEventsContainer container(trace);
+  container.AddCompleteEvent(0, 1, &event0);
+  container.AddCompleteEvent(1, 1, &event1);
+  container.AddCompleteEvent(2, 1, &event2);
+
+  DeltaSeriesProtoConversionOptions options;
+  options.mpmd_pipeline_view = true;
+
+  ASSERT_OK_AND_ASSIGN(
+      std::string compressed_result,
+      ConvertTraceDataToCompressedDeltaSeriesProto(options, container));
+
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
+
+  xprof::TraceDataResponse response;
+  ASSERT_TRUE(response.ParseFromString(decompressed));
+
+  // Device 2 (host0 /device:TPU:2) must be pruned. Total processes: 3 (0, 1,
+  // 10).
+  ASSERT_EQ(response.metadata().processes_size(), 3);
+
+  absl::flat_hash_map<uint32_t, uint32_t> process_sort_indices;
+  for (const xprof::Process& process : response.metadata().processes()) {
+    process_sort_indices[process.id()] = process.sort_index();
+  }
+
+  EXPECT_TRUE(process_sort_indices.contains(0));
+  EXPECT_TRUE(process_sort_indices.contains(1));
+  EXPECT_FALSE(process_sort_indices.contains(2));
+  EXPECT_TRUE(process_sort_indices.contains(10));
+
+  EXPECT_EQ(process_sort_indices.at(0), 0);
+  EXPECT_EQ(process_sort_indices.at(1), 1);
+  // Device 10 gets fallback sort_index: 2 (K=2) + 10 = 12.
+  EXPECT_EQ(process_sort_indices.at(10), 12);
+
+  // Verify that events on pruned device 2 were not emitted.
+  for (const auto& series : response.complete_events()) {
+    EXPECT_NE(series.metadata().process_id(), 2);
+  }
+}
+
+TEST(DeltaSeriesProtoConverterTest,
+     MpmdSingleDevicePerStageDeduplicatesStages) {
+  Trace trace;
+  // Device 0: TPU 0 running stage 0 (representative).
+  Device device0;
+  device0.set_name("host0 /device:TPU:0");
+  Resource resource0;
+  resource0.set_name("XLA Modules");
+  (*device0.mutable_resources())[1] = resource0;
+  (*trace.mutable_devices())[0] = device0;
+
+  // Device 1: TPU 1 running stage 0 (duplicate, should be pruned).
+  Device device1;
+  device1.set_name("host0 /device:TPU:1");
+  Resource resource1;
+  resource1.set_name("XLA Modules");
+  (*device1.mutable_resources())[1] = resource1;
+  (*trace.mutable_devices())[1] = device1;
+
+  // Device 2: TPU 2 running stage 1 (representative).
+  Device device2;
+  device2.set_name("host0 /device:TPU:2");
+  Resource resource2;
+  resource2.set_name("XLA Modules");
+  (*device2.mutable_resources())[1] = resource2;
+  (*trace.mutable_devices())[2] = device2;
+
+  // Device 10: Host CPU.
+  Device device10;
+  device10.set_name("/host:CPU:0");
+  Resource resource10;
+  resource10.set_name("Host Thread");
+  (*device10.mutable_resources())[1] = resource10;
+  (*trace.mutable_devices())[10] = device10;
+
+  TraceEvent event0;
+  event0.set_device_id(0);
+  event0.set_resource_id(1);
+  event0.set_name("p0_stage0.program(1)");
+  event0.set_timestamp_ps(1000);
+  event0.set_duration_ps(500);
+
+  TraceEvent event1;
+  event1.set_device_id(1);
+  event1.set_resource_id(1);
+  event1.set_name("p0_stage0.program(1)");
+  event1.set_timestamp_ps(1000);
+  event1.set_duration_ps(500);
+
+  TraceEvent event2;
+  event2.set_device_id(2);
+  event2.set_resource_id(1);
+  event2.set_name("p1_stage1.program(1)");
+  event2.set_timestamp_ps(2000);
+  event2.set_duration_ps(500);
+
+  TestTraceEventsContainer container(trace);
+  container.AddCompleteEvent(0, 1, &event0);
+  container.AddCompleteEvent(1, 1, &event1);
+  container.AddCompleteEvent(2, 1, &event2);
+
+  DeltaSeriesProtoConversionOptions options;
+  options.mpmd_pipeline_view = true;
+  options.mpmd_single_device_per_stage = true;
+
+  ASSERT_OK_AND_ASSIGN(
+      std::string compressed_result,
+      ConvertTraceDataToCompressedDeltaSeriesProto(options, container));
+
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
+
+  xprof::TraceDataResponse response;
+  ASSERT_TRUE(response.ParseFromString(decompressed));
+
+  // Duplicate Device 1 must be pruned. Total processes: 3 (0, 2, 10).
+  ASSERT_EQ(response.metadata().processes_size(), 3);
+
+  absl::flat_hash_map<uint32_t, uint32_t> process_sort_indices;
+  for (const xprof::Process& process : response.metadata().processes()) {
+    process_sort_indices[process.id()] = process.sort_index();
+  }
+
+  EXPECT_TRUE(process_sort_indices.contains(0));
+  EXPECT_FALSE(process_sort_indices.contains(1));
+  EXPECT_TRUE(process_sort_indices.contains(2));
+  EXPECT_TRUE(process_sort_indices.contains(10));
+
+  EXPECT_EQ(process_sort_indices.at(0), 0);
+  EXPECT_EQ(process_sort_indices.at(2), 1);
+  // Device 10 gets fallback sort_index: 2 (K=2) + 10 = 12.
+  EXPECT_EQ(process_sort_indices.at(10), 12);
+
+  // Verify that events on duplicate device 1 were not emitted.
+  for (const auto& series : response.complete_events()) {
+    EXPECT_NE(series.metadata().process_id(), 1);
+  }
 }
 
 }  // namespace

@@ -27,7 +27,7 @@
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/unified_profile_processor.h"
 
-ABSL_FLAG(bool, enable_unified_xprof, false, "Enable unified Xprof workflow");
+ABSL_FLAG(bool, enable_unified_xprof, true, "Enable unified Xprof workflow");
 
 namespace xprof {
 

@@ -33,12 +33,12 @@ xprof_ng_module(
     # strict_templates = False,
     deps = [
         "//:node_modules/@angular/core",
+        "//:node_modules/@material/web",
         "//:node_modules/@ngrx/store",
         "//:node_modules/@types/google.visualization",
         "@org_xprof//frontend/app/common/angular:angular_material_button",
         "@org_xprof//frontend/app/common/angular:angular_material_divider",
         "@org_xprof//frontend/app/common/angular:angular_material_icon",
-        "@org_xprof//frontend/app/common/angular:angular_material_menu",
         "@org_xprof//frontend/app/common/constants",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/interfaces:chart",

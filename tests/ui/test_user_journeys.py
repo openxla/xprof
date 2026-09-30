@@ -153,8 +153,9 @@ def _resolve_run_name(logdir: str, run_name: str) -> str:
 def step_history(page: Page, tool_name: str, forward: bool = False) -> None:
   """Steps browser history back, or forward, until `tool_name` is shown.
 
-  A tool switch can push an intermediate history entry, so a single step may
-  stop between two tools. Stepping ends once the URL settles on `tool_name` or
+  Servers built before SideNav stopped pushing a second history entry per tool
+  switch, such as the SxS baseline until that change lands, may stop a single
+  step between two tools. Stepping ends once the URL settles on `tool_name` or
   stops changing.
 
   Args:
@@ -171,10 +172,8 @@ def step_history(page: Page, tool_name: str, forward: bool = False) -> None:
     if tag_pattern.search(page.url) or page.url == prev_url:
       break
   if forward and not tag_pattern.search(page.url):
-    # Upstream SideNav.navigateWithUrl() -> updateUrlHistory() calls
-    # window.parent.history.pushState() during popstate on GO_BACK, which
-    # truncates the browser's forward history stack. The xfail
-    # test_browser_forward_navigation reports that bug without this fallback.
+    # Those servers also drop the forward entries when they handle back.
+    # test_browser_forward_navigation checks forward without this fallback.
     switch_tool(page, tool_name)
   expect(page).to_have_url(tag_pattern, timeout=URL_SETTLE_TIMEOUT_MS)
 

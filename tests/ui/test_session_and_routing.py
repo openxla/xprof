@@ -21,7 +21,6 @@ except ImportError:
   from ui_helpers import switch_tool
 from playwright.sync_api import expect
 from playwright.sync_api import Page
-import pytest
 
 
 def test_deep_link_parameter_preservation(
@@ -83,13 +82,6 @@ def test_browser_back_navigation(
   assert_healthy(page, browser_errors, "browser_back_navigation")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "SideNav.navigateTools() calls history.pushState() while it handles"
-        " popstate, which drops the forward history entries"
-    ),
-)
 def test_browser_forward_navigation(
     page: Page,
     open_tool: Callable[..., str],

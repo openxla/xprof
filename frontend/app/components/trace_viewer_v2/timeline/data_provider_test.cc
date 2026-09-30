@@ -1886,6 +1886,26 @@ TEST_F(DataProviderTest, MpmdPipelineViewEnabledPropagated) {
   EXPECT_FALSE(timeline_.mpmd_pipeline_view_enabled());
 }
 
+TEST_F(DataProviderTest, TimeAxisUnitPropagated) {
+  ParsedTraceEvents events;
+  events.time_axis_unit = TimeAxisUnit::kUnitless;
+  // Add a dummy event to prevent early return.
+  events.flame_events.push_back({.ph = Phase::kComplete,
+                                 .pid = 1,
+                                 .tid = 1,
+                                 .name = "Event",
+                                 .ts = 0.0,
+                                 .dur = 1.0});
+
+  data_provider_.ProcessTraceEvents(events, timeline_);
+  EXPECT_EQ(timeline_.time_axis_unit(), TimeAxisUnit::kUnitless);
+
+  // Loading a regular (time-based) trace afterwards resets the unit.
+  events.time_axis_unit = TimeAxisUnit::kTime;
+  data_provider_.ProcessTraceEvents(events, timeline_);
+  EXPECT_EQ(timeline_.time_axis_unit(), TimeAxisUnit::kTime);
+}
+
 TEST_F(DataProviderTest, ProcessTraceEventsWithFullTimespan) {
   const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
                                            .pid = 1,

@@ -2190,11 +2190,26 @@ Timeline::TickInfo Timeline::CalculateTickInfo(
     double px_per_time_unit_val) const {
   const Microseconds min_time_interval =
       kMinTickDistancePx / px_per_time_unit_val;
-  const Microseconds tick_interval = CalculateNiceInterval(min_time_interval);
+  Microseconds tick_interval = CalculateNiceInterval(min_time_interval);
+  const bool unitless = time_axis_unit_ == TimeAxisUnit::kUnitless;
+  if (unitless) {
+    // A unitless axis (e.g. scheduled bundle numbers) is discrete, so major
+    // ticks are never placed at fractional positions.
+    tick_interval = std::max(tick_interval, 1.0);
+  }
   const Pixel major_tick_dist_px = tick_interval * px_per_time_unit_val;
 
   const Microseconds view_start = visible_range().start();
   const Microseconds trace_start = data_time_range_.start();
+
+  if (unitless) {
+    // Align ticks to absolute positions (rather than positions relative to the
+    // trace start) so that ruler labels match the positions reported for
+    // events, even if the trace does not start at 0.
+    const Microseconds first_tick_time =
+        std::floor(view_start / tick_interval) * tick_interval;
+    return {tick_interval, major_tick_dist_px, first_tick_time - trace_start};
+  }
 
   const Microseconds view_start_relative = view_start - trace_start;
   const Microseconds first_tick_time_relative =
@@ -2236,6 +2251,14 @@ void Timeline::DrawRulerUI(const TickInfo& info, Pixel timeline_width) {
 
     const Pixel minor_tick_dist_px =
         major_tick_dist_px / static_cast<float>(kMinorTickDivisions);
+    // On a unitless (discrete) axis, only draw minor ticks when they fall on
+    // whole-number positions.
+    const Microseconds minor_tick_interval =
+        tick_interval / kMinorTickDivisions;
+    const bool draw_minor_ticks =
+        time_axis_unit_ != TimeAxisUnit::kUnitless ||
+        (minor_tick_interval >= 1.0 &&
+         std::floor(minor_tick_interval) == minor_tick_interval);
 
     Microseconds t_relative = first_tick_time_relative;
     Pixel x = TimeToScreenX(t_relative + trace_start, pos.x + label_width_,
@@ -2251,12 +2274,14 @@ void Timeline::DrawRulerUI(const TickInfo& info, Pixel timeline_width) {
         draw_list->AddLine(ImVec2(x, pos.y), ImVec2(x, line_y),
                            ruler_line_color);
 
-        const std::string time_label_text = FormatTime(t_relative);
+        const std::string time_label_text = FormatRulerLabel(t_relative);
         ImGui::PushFont(fonts::label_small);
         draw_list->AddText(ImVec2(x + kRulerTextPadding, pos.y),
                            ruler_text_color, time_label_text.c_str());
         ImGui::PopFont();
       }
+
+      if (!draw_minor_ticks) continue;
 
       // Draw minor ticks for the current interval.
       for (int i = 1; i < kMinorTickDivisions; ++i) {
@@ -2272,6 +2297,19 @@ void Timeline::DrawRulerUI(const TickInfo& info, Pixel timeline_width) {
       }
     }
   }
+}
+
+std::string Timeline::FormatRulerLabel(Microseconds time_relative) const {
+  switch (time_axis_unit_) {
+    case TimeAxisUnit::kUnitless:
+      // Show the absolute position as a plain integer (e.g. a bundle number),
+      // without any time unit.
+      return absl::StrCat(
+          std::llround(time_relative + data_time_range_.start()));
+    case TimeAxisUnit::kTime:
+      break;
+  }
+  return FormatTime(time_relative);
 }
 
 // Draws vertical grid lines that extend from the ruler down across all tracks.

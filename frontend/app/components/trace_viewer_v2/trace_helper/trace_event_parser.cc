@@ -25,6 +25,19 @@ namespace traceviewer {
 namespace {
 
 constexpr char kFullTimespan[] = "fullTimespan";
+// Optional top-level string key specifying the unit of the trace's x-axis.
+// Missing or unrecognized values default to time.
+constexpr char kTimeAxisUnit[] = "timeAxisUnit";
+// Value of `kTimeAxisUnit` for a unitless sequence (e.g. scheduled bundle
+// numbers) instead of time.
+constexpr char kTimeAxisUnitUnitless[] = "unitless";
+
+TimeAxisUnit ParseTimeAxisUnit(const emscripten::val& value) {
+  if (value.isString() && value.as<std::string>() == kTimeAxisUnitUnitless) {
+    return TimeAxisUnit::kUnitless;
+  }
+  return TimeAxisUnit::kTime;
+}
 
 // Helper function to convert emscripten::val to TraceEvent
 // Processes trace data from a JSON object.
@@ -270,6 +283,10 @@ ParsedTraceEvents ParseTraceEvents(
 
   if (trace_data.hasOwnProperty("mpmdPipelineView")) {
     result.mpmd_pipeline_view = trace_data["mpmdPipelineView"].as<bool>();
+  }
+
+  if (trace_data.hasOwnProperty(kTimeAxisUnit)) {
+    result.time_axis_unit = ParseTimeAxisUnit(trace_data[kTimeAxisUnit]);
   }
 
   emscripten::val events = trace_data["traceEvents"];

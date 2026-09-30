@@ -90,6 +90,15 @@ enum class ParsingStatus {
   kFailed = 1,
 };
 
+// The unit of the timeline x-axis, which determines how the ruler is labeled.
+enum class TimeAxisUnit {
+  // Wall-clock time. Ruler labels are formatted as durations (e.g. "1.5 ms").
+  kTime = 0,
+  // An abstract, unitless sequence (e.g. compiler-scheduled bundle numbers of a
+  // static kernel schedule). Ruler labels are plain integer positions.
+  kUnitless = 1,
+};
+
 struct ParsedTraceEvents {
   std::vector<TraceEvent> flame_events;
   std::vector<CounterEvent> counter_events;
@@ -101,6 +110,8 @@ struct ParsedTraceEvents {
   std::optional<std::pair<Milliseconds, Milliseconds>> visible_range_from_url;
 
   bool mpmd_pipeline_view = false;
+  // The unit of the trace's x-axis.
+  TimeAxisUnit time_axis_unit = TimeAxisUnit::kTime;
   ParsingStatus parsing_status = ParsingStatus::kSuccess;
 };
 

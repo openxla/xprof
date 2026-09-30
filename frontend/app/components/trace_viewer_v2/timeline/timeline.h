@@ -400,6 +400,11 @@ class Timeline {
     return mpmd_pipeline_view_enabled_;
   }
 
+  // The unit of the x-axis. For `TimeAxisUnit::kUnitless` (e.g. scheduled
+  // bundle numbers), the ruler shows integer positions instead of times.
+  void set_time_axis_unit(TimeAxisUnit unit) { time_axis_unit_ = unit; }
+  TimeAxisUnit time_axis_unit() const { return time_axis_unit_; }
+
 
   void set_bookmarks_enabled(bool enabled) { bookmarks_enabled_ = enabled; }
   bool bookmarks_enabled() const { return bookmarks_enabled_; }
@@ -529,6 +534,11 @@ class Timeline {
 
   // Calculates tick information based on current zoom level (px_per_time_unit).
   TickInfo CalculateTickInfo(double px_per_time_unit_val) const;
+
+  // Formats the label for a major ruler tick at `time_relative` (relative to
+  // the trace start). Returns a time string (e.g. "1.5 ms") normally, or the
+  // absolute position as a plain integer (e.g. "40") on a unitless axis.
+  std::string FormatRulerLabel(Microseconds time_relative) const;
 
   // Calculates the control points for a cubic Bezier curve used to draw flows.
   static void CalculateBezierControlPoints(float start_x, float start_y,
@@ -931,6 +941,7 @@ class Timeline {
   float mouse_wheel_zoom_speed_ = kMouseWheelZoomSpeed;
 
   bool mpmd_pipeline_view_enabled_ = false;
+  TimeAxisUnit time_axis_unit_ = TimeAxisUnit::kTime;
 
   // The index of the event to scroll to in the next Draw call.
   int event_index_to_scroll_to_ = -1;

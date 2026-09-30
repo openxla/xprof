@@ -1117,6 +1117,7 @@ void DataProvider::Reset() {
 void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
                                       Timeline& timeline) {
   timeline.set_mpmd_pipeline_view_enabled(parsed_events.mpmd_pipeline_view);
+  timeline.set_time_axis_unit(parsed_events.time_axis_unit);
   if (parsed_events.flame_events.empty() &&
       parsed_events.counter_events.empty() &&
       parsed_events.flow_events.empty() && !HasKnownTracks()) {

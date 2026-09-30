@@ -512,6 +512,56 @@ TEST(TimelineTest, CalculateTickInfoZoomedIn) {
   EXPECT_DOUBLE_EQ(info.first_tick_time_relative, 105.0);
 }
 
+TEST(TimelineTest, CalculateTickInfoUnitlessClampsIntervalToOne) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_time_axis_unit(TimeAxisUnit::kUnitless);
+  timeline.set_data_time_range({0.0, 100.0});
+  timeline.SetVisibleRange({10.0, 11.0});
+
+  // 1000 pixels per unit: min_time_interval = 80 / 1000 = 0.08, which would
+  // normally round to 0.1. A unitless axis never goes below 1.
+  const double px_per_unit = 1000.0;
+  Timeline::TickInfo info = timeline.CalculateTickInfo(px_per_unit);
+
+  EXPECT_DOUBLE_EQ(info.tick_interval, 1.0);
+  EXPECT_DOUBLE_EQ(info.major_tick_dist_px, 1000.0);
+  EXPECT_DOUBLE_EQ(info.first_tick_time_relative, 10.0);
+}
+
+TEST(TimelineTest, CalculateTickInfoUnitlessAlignsToAbsolutePositions) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_time_axis_unit(TimeAxisUnit::kUnitless);
+  // Trace does not start at 0.
+  timeline.set_data_time_range({3.0, 1003.0});
+  timeline.SetVisibleRange({105.0, 150.0});
+
+  // min_time_interval = 80 / 10 = 8 -> interval 10.
+  const double px_per_unit = 10.0;
+  Timeline::TickInfo info = timeline.CalculateTickInfo(px_per_unit);
+
+  EXPECT_DOUBLE_EQ(info.tick_interval, 10.0);
+  // First tick at absolute position floor(105 / 10) * 10 = 100, i.e. 97
+  // relative to the trace start.
+  EXPECT_DOUBLE_EQ(info.first_tick_time_relative, 97.0);
+  EXPECT_EQ(timeline.FormatRulerLabel(info.first_tick_time_relative), "100");
+  EXPECT_EQ(timeline.FormatRulerLabel(info.first_tick_time_relative +
+                                      info.tick_interval),
+            "110");
+}
+
+TEST(TimelineTest, FormatRulerLabelUsesTimeByDefault) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 100000.0});
+
+  EXPECT_EQ(timeline.FormatRulerLabel(1500.0), FormatTime(1500.0));
+
+  timeline.set_time_axis_unit(TimeAxisUnit::kUnitless);
+  EXPECT_EQ(timeline.FormatRulerLabel(1500.0), "1500");
+}
+
 TEST(TimelineTest, ConstrainTimeRange_EndAfterDataRange) {
   // Data Range: [=====================]
   // Range:                  {--------------}

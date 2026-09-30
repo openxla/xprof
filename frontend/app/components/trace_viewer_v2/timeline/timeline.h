@@ -176,6 +176,10 @@ struct FlameChartTimelineData {
 // zooming, panning, and rendering of events grouped into lanes.
 class Timeline {
  public:
+  void CalculateAndEmitMetrics_for_test() { CalculateAndEmitMetrics(); }
+  std::vector<int>& selected_event_indices_for_test() {
+    return selected_event_indices_;
+  }
   void SetPlaybackState(bool is_playing, double current_progress_us,
                         double play_speed) {
     if (!timeline_player_enabled_) return;

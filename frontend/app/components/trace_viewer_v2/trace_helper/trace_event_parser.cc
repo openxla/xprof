@@ -455,7 +455,12 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
           "zoomOut",
           emscripten::optional_override([](traceviewer::Application& app) {
             app.timeline().Zoom(traceviewer::kButtonZoomOutFactor);
-          }));
+          }))
+      .function("selectEvent",
+                emscripten::optional_override(
+                    [](traceviewer::Application& app, int event_index) {
+                      app.timeline().ZoomEvent(event_index);
+                    }));
 }
 
 }  // namespace traceviewer

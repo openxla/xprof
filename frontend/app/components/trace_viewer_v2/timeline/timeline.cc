@@ -18,6 +18,7 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
 #include "absl/strings/ascii.h"
+#include "absl/strings/escaping.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
@@ -4650,12 +4651,30 @@ void Timeline::CalculateAndEmitMetrics() {
       absl::StrAppendFormat(
           &metrics_json,
           R"({"name":"%s","count":%d,"wallTimeUs":%.1f,"selfTimeUs":%.1f,"avgWallDurationUs":%.1f})",
-          name, metrics.count, metrics.wall_time, metrics.self_time,
-          metrics.wall_time / metrics.count);
+          absl::CEscape(name), metrics.count, metrics.wall_time,
+          metrics.self_time, metrics.wall_time / metrics.count);
     }
     absl::StrAppend(&metrics_json, "]");
 
     absl::StrAppend(&json, R"(,"metrics":)", metrics_json);
+
+    std::string raw_events_json = "[";
+    int raw_event_count = 0;
+    constexpr int kMaxRawEvents = 1000;
+    for (const int event_index : selected_event_indices_) {
+      if (raw_event_count >= kMaxRawEvents) break;
+      if (raw_event_count > 0) absl::StrAppend(&raw_events_json, ",");
+      const std::string& name = timeline_data_.entry_names[event_index];
+      Microseconds start_us = timeline_data_.entry_start_times[event_index];
+      Microseconds duration_us = timeline_data_.entry_total_times[event_index];
+      absl::StrAppendFormat(
+          &raw_events_json,
+          R"({"name":"%s","eventIndex":%d,"startUs":%.2f,"durationUs":%.2f})",
+          absl::CEscape(name), event_index, start_us, duration_us);
+      raw_event_count++;
+    }
+    absl::StrAppend(&raw_events_json, "]");
+    absl::StrAppend(&json, R"(,"rawEvents":)", raw_events_json);
   }
 
   if (!selected_counter_points_.empty()) {

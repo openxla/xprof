@@ -221,6 +221,7 @@ declare global {
       navigateToPrevSearchResult(): void;
       resize(dpr: number, width: number, height: number): void;
       setSearchQuery(query: string): void;
+      selectEvent(eventIndex: number): void;
       setMouseMode(mode: number): void;
       setVisibleFlowCategory(categoryId: number): void;
       setVisibleFlowCategories(categoryIds: number[]): void;

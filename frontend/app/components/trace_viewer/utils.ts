@@ -1,3 +1,4 @@
+import {RawEventItem} from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
 import {TraceViewerV2Module} from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
 import {FILTER_OPERATORS} from './constants';
 import {
@@ -31,6 +32,17 @@ function isCounterSelectionItem(item: unknown): item is CounterSelectionItem {
   );
 }
 
+function isRawEventItem(item: unknown): item is RawEventItem {
+  if (typeof item !== 'object' || item === null) return false;
+  const record = item as Record<string, unknown>;
+  return (
+    typeof record['name'] === 'string' &&
+    typeof record['eventIndex'] === 'number' &&
+    typeof record['startUs'] === 'number' &&
+    typeof record['durationUs'] === 'number'
+  );
+}
+
 function isEventsSelectedData(data: unknown): data is EventsSelectedData {
   if (typeof data !== 'object' || data === null) return false;
   const record = data as Record<string, unknown>;
@@ -40,6 +52,11 @@ function isEventsSelectedData(data: unknown): data is EventsSelectedData {
 
   const counters = record['counters'];
   if (Array.isArray(counters) && !counters.every(isCounterSelectionItem)) {
+    return false;
+  }
+
+  const rawEvents = record['rawEvents'];
+  if (Array.isArray(rawEvents) && !rawEvents.every(isRawEventItem)) {
     return false;
   }
 
@@ -62,6 +79,7 @@ function isMetricsItemArray(data: unknown): data is MetricsItem[] {
  */
 export function parseEventsSelectedData(dataString: string): {
   properties: AggregatedEventProperty[];
+  rawEvents?: RawEventItem[];
   selectionStartFormat?: string;
   selectionExtentFormat?: string;
   isCounter?: boolean;
@@ -69,6 +87,7 @@ export function parseEventsSelectedData(dataString: string): {
   const properties: AggregatedEventProperty[] = [];
   let selectionStartFormat: string | undefined;
   let selectionExtentFormat: string | undefined;
+  let rawEventsData: RawEventItem[] | undefined;
   let isCounter = false;
 
   try {
@@ -84,6 +103,7 @@ export function parseEventsSelectedData(dataString: string): {
     } else if (isEventsSelectedData(data)) {
       metricsData = (data['metrics'] as MetricsItem[]) ?? [];
       countersData = (data['counters'] as CounterSelectionItem[]) ?? [];
+      rawEventsData = data['rawEvents'] as RawEventItem[] | undefined;
       selectionStartUs = data['selectionStartUs'] as number | undefined;
       selectionExtentUs = data['selectionExtentUs'] as number | undefined;
     } else {
@@ -128,7 +148,13 @@ export function parseEventsSelectedData(dataString: string): {
     throw e;
   }
 
-  return {properties, selectionStartFormat, selectionExtentFormat, isCounter};
+  return {
+    properties,
+    rawEvents: rawEventsData,
+    selectionStartFormat,
+    selectionExtentFormat,
+    isCounter,
+  };
 }
 
 /**

@@ -59,6 +59,7 @@ import {
   TraceViewerV2LoadingStatus,
   type TraceViewerV2Module,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
+
 import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
 import {fromEvent, interval, ReplaySubject, Subject, Subscription} from 'rxjs';
 import {debounceTime, distinctUntilChanged, takeUntil} from 'rxjs/operators';
@@ -186,6 +187,14 @@ export declare interface SelectedEventProperty {
   property?: string;
   value?: string | number;
   [key: string]: string | number | undefined;
+}
+
+/** Represents a single trace event parsed from WASM rawEvents responses for Drill-down. */
+export declare interface RawEventItem {
+  name: string;
+  eventIndex: number;
+  startUs: number;
+  durationUs: number;
 }
 
 /** A labeled value shown in the metrics strip of the source code tooltip. */
@@ -548,6 +557,13 @@ export class TraceViewerContainer
   trackByProperty(index: number, prop: SelectedEventProperty): string {
     return `${prop.property ?? ''}:${prop.value ?? ''}`;
   }
+  @Input() set rawEvents(data: RawEventItem[] | null | undefined) {
+    this.rawEventsDataSource.data = data ?? [];
+  }
+  @Input() tool?: string;
+  rawEventsDataSource = new MatTableDataSource<RawEventItem>();
+  @Output()
+  readonly drillDownEvent = new EventEmitter<number>();
   @Output()
   readonly eventSelected = new EventEmitter<EntrySelectedEventDetail | null>();
   @Output()

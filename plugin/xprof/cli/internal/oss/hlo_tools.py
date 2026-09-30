@@ -45,7 +45,8 @@ def generate_hlo_protos(session_id: str) -> str:
   ):
     return "Skipped: Already exist."
 
-  convert.xspace_to_tool_names(client.get_xspace_paths(run_dir))
+  xspace_paths = client.get_xspace_paths(session_id)
+  convert.xspace_to_tool_names(xspace_paths)
   return "Generated HLO protos."
 
 

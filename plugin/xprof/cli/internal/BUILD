@@ -26,3 +26,9 @@ pytype_strict_library(
     srcs = ["decorators.py"],
     deps = ["@absl_py//absl/logging"],
 )
+
+pytype_strict_library(
+    name = "trace_selection",
+    srcs = ["trace_selection.py"],
+    deps = ["@pypi//fire"],
+)

@@ -63,7 +63,7 @@ class OssXprofClientTest(unittest.TestCase):
   def test_compute_fingerprint_uses_exact_xspace_paths(self):
     """Verifies fingerprint covers input traces only and ignores generated artifacts."""
     run_dir = pathlib.Path(self.temp_dir) / 'run1'
-    nested_dir = run_dir / 'plugins' / 'profile' / '2026_08_20'
+    nested_dir = run_dir / 'nested'
     nested_dir.mkdir(parents=True, exist_ok=True)
 
     trace1 = run_dir / 'host.xplane.pb'
@@ -152,16 +152,35 @@ class OssXprofClientTest(unittest.TestCase):
         msg='Trace directory must not contain .xprof_trace_fingerprint',
     )
 
-    # Assert external fingerprint file exists
-    run_dir_hash = hashlib.sha256(
-        str(run_dir).encode('utf-8')
-    ).hexdigest()[:16]
-    fp_file = (
-        decorators._get_cache_dir() / 'fingerprints' / f'{run_dir_hash}.fp'
-    )
+    # Assert external fingerprint file exists, keyed on the resolved scope.
+    scope_key = '|'.join([str(run_dir), str(trace)])
+    scope_hash = hashlib.sha256(scope_key.encode('utf-8')).hexdigest()[:16]
+    fp_file = decorators._get_cache_dir() / 'fingerprints' / f'{scope_hash}.fp'
     self.assertTrue(
         fp_file.exists(), msg='External fingerprint file must exist'
     )
+
+  def test_sibling_ranks_do_not_share_fingerprint_state(self):
+    """Verifies each rank in a shared directory gets its own freshness key."""
+    run_dir = pathlib.Path(self.temp_dir) / 'multi_host_fp'
+    run_dir.mkdir()
+    rank0 = run_dir / 'rank0.xplane.pb'
+    rank0.write_bytes(b'rank0_trace_data')
+    rank2 = run_dir / 'rank2.xplane.pb'
+    rank2.write_bytes(b'rank2_trace_data')
+
+    client = xprof_client.LocalXprofClient()
+    client.fetch('overview_page.json', str(rank0))
+    client.fetch('overview_page.json', str(rank2))
+
+    fp_dir = decorators._get_cache_dir() / 'fingerprints'
+    hashes = set()
+    for trace in (rank0, rank2):
+      scope_key = '|'.join([str(run_dir), str(trace)])
+      hashes.add(hashlib.sha256(scope_key.encode('utf-8')).hexdigest()[:16])
+    self.assertEqual(len(hashes), 2)
+    for scope_hash in hashes:
+      self.assertTrue((fp_dir / f'{scope_hash}.fp').exists())
 
   def test_fetch_readonly_trace_dir(self):
     """Verifies fetch() succeeds on read-only trace directories."""
@@ -198,7 +217,144 @@ class OssXprofClientTest(unittest.TestCase):
     call_kwargs = self.mock_converter.call_args[1]
     self.assertEqual(call_kwargs['params']['use_saved_result'], '0')
 
+  def test_single_file_in_multi_host_dir_preserves_file_scope(self):
+    """Verifies passing a single .xplane.pb file in a multi-host dir does not glob siblings."""
+    run_dir = pathlib.Path(self.temp_dir) / 'multi_host_run'
+    run_dir.mkdir()
+    rank0 = run_dir / 'rank0_node0.xplane.pb'
+    rank0.write_bytes(b'rank0_trace_data')
+    rank2 = run_dir / 'rank2_node0.xplane.pb'
+    rank2.write_bytes(b'rank2_trace_data')
+
+    client = xprof_client.LocalXprofClient()
+    hosts = client.get_hosts(str(rank0), with_metadata=True)
+    self.assertEqual(hosts, [{'hostname': 'rank0_node0'}])
+
+    client.fetch('overview_page.json', str(rank0))
+    call_kwargs = self.mock_converter.call_args[1]
+    self.assertEqual(call_kwargs['xspace_paths'], [str(rank0)])
+
+  def test_logdir_root_resolves_to_latest_run_only(self):
+    """Verifies a logdir root selects its latest run instead of merging runs."""
+    logdir = pathlib.Path(self.temp_dir) / 'logs'
+    profile_dir = logdir / 'plugins' / 'profile'
+    old_run = profile_dir / '2026_09_16_21_05_30'
+    latest_run = profile_dir / '2026_09_17_09_12_44'
+    old_run.mkdir(parents=True)
+    latest_run.mkdir(parents=True)
+    (old_run / 'host.xplane.pb').write_bytes(b'old_trace')
+    latest_trace = latest_run / 'host.xplane.pb'
+    latest_trace.write_bytes(b'latest_trace')
+
+    client = xprof_client.LocalXprofClient()
+    self.assertEqual(client.get_xspace_paths(str(logdir)), [str(latest_trace)])
+
+    client.fetch('overview_page.json', str(logdir))
+    call_kwargs = self.mock_converter.call_args[1]
+    self.assertEqual(call_kwargs['xspace_paths'], [str(latest_trace)])
+
+  def _make_two_rank_run(self) -> tuple[pathlib.Path, str, str]:
+    run_dir = pathlib.Path(self.temp_dir) / 'two_rank_run'
+    run_dir.mkdir()
+    rank0 = run_dir / 'rank0_node0.xplane.pb'
+    rank0.write_bytes(b'rank0')
+    rank2 = run_dir / 'rank2_node0.xplane.pb'
+    rank2.write_bytes(b'rank2')
+    return run_dir, str(rank0), str(rank2)
+
+  def test_describe_capture_file_lists_siblings_without_warning(self):
+    run_dir, rank0, _ = self._make_two_rank_run()
+    client = xprof_client.LocalXprofClient()
+    capture = client.describe_capture(rank0, combine='summed')
+    self.assertEqual(capture['run'], run_dir.name)
+    self.assertEqual(capture['files_used'], ['rank0_node0'])
+    self.assertEqual(capture['files_available'], ['rank0_node0', 'rank2_node0'])
+    self.assertFalse(capture['combined'])
+    self.assertEqual(capture['warnings'], [])
+
+  def test_describe_capture_dir_warns_per_combine_mode(self):
+    run_dir, _, _ = self._make_two_rank_run()
+    client = xprof_client.LocalXprofClient()
+    summed = client.describe_capture(str(run_dir), combine='summed')
+    self.assertTrue(summed['combined'])
+    self.assertEqual(len(summed['warnings']), 1)
+    self.assertIn('summed for counts and durations', summed['warnings'][0])
+    merged = client.describe_capture(str(run_dir), combine='merged')
+    self.assertIn('all-hosts view', merged['warnings'][0])
+    none = client.describe_capture(str(run_dir), combine='none')
+    self.assertEqual(none['warnings'], [])
+
+  def test_describe_capture_logdir_root_warns_about_ignored_runs(self):
+    logdir = pathlib.Path(self.temp_dir) / 'logs'
+    profile_dir = logdir / 'plugins' / 'profile'
+    for run in ('2026_09_16_21_05_30', '2026_09_17_09_12_44'):
+      (profile_dir / run).mkdir(parents=True)
+      (profile_dir / run / 'host.xplane.pb').write_bytes(b'trace')
+    client = xprof_client.LocalXprofClient()
+    capture = client.describe_capture(str(logdir))
+    self.assertEqual(capture['run'], '2026_09_17_09_12_44')
+    self.assertEqual(len(capture['warnings']), 1)
+    self.assertIn("'2026_09_16_21_05_30'", capture['warnings'][0])
+
+  def test_resolve_host_path_matches_stem_and_host_name(self):
+    run_dir, rank0, _ = self._make_two_rank_run()
+    client = xprof_client.LocalXprofClient()
+    self.assertEqual(
+        client.resolve_host_path(str(run_dir), 'rank0_node0'), rank0
+    )
+    self.assertEqual(client.resolve_host_path(rank0, 'rank0_node0'), rank0)
+
+  def test_resolve_host_path_unknown_lists_available(self):
+    run_dir, _, _ = self._make_two_rank_run()
+    client = xprof_client.LocalXprofClient()
+    with self.assertRaisesRegex(ValueError, r'(?s)nope.*rank0_node0.*rank2'):
+      client.resolve_host_path(str(run_dir), 'nope')
+
+  def test_resolve_host_path_conflicting_file_raises(self):
+    _, rank0, _ = self._make_two_rank_run()
+    client = xprof_client.LocalXprofClient()
+    with self.assertRaisesRegex(ValueError, 'Conflicting selection'):
+      client.resolve_host_path(rank0, 'rank2_node0')
+
+  def test_fetch_filters_by_host_and_hosts(self):
+    run_dir, rank0, rank2 = self._make_two_rank_run()
+    client = xprof_client.LocalXprofClient()
+    client.fetch('overview_page.json', str(run_dir), host='rank2_node0')
+    self.assertEqual(self.mock_converter.call_args[1]['xspace_paths'], [rank2])
+    client.fetch(
+        'overview_page.json', str(run_dir), hosts='rank0_node0,rank2_node0'
+    )
+    self.assertEqual(
+        self.mock_converter.call_args[1]['xspace_paths'], [rank0, rank2]
+    )
+    with self.assertRaisesRegex(ValueError, 'Unknown host'):
+      client.fetch('overview_page.json', str(run_dir), host='nope')
+
+  def test_fetch_single_host_tool_rejects_multiple_traces(self):
+    run_dir, _, _ = self._make_two_rank_run()
+    client = xprof_client.LocalXprofClient()
+    with self.assertRaisesRegex(
+        ValueError, r'(?s)memory_profile needs exactly one trace.*rank2_node0'
+    ):
+      client.fetch('memory_profile.json', str(run_dir))
+    self.mock_converter.assert_not_called()
+
+  def test_get_xspace_paths_collapses_symlinked_duplicates(self):
+    run_dir, rank0, _ = self._make_two_rank_run()
+    os.symlink(rank0, run_dir / 'zz_link.xplane.pb')
+    client = xprof_client.LocalXprofClient()
+    self.assertEqual(len(client.get_xspace_paths(str(run_dir))), 2)
+
+  def test_get_serialized_xspace_multi_trace_raises_value_error(self):
+    run_dir, _, _ = self._make_two_rank_run()
+    client = xprof_client.LocalXprofClient()
+    with self.assertRaisesRegex(ValueError, 'needs exactly one trace'):
+      client.get_serialized_xspace(str(run_dir))
+    self.assertEqual(
+        client.get_serialized_xspace(str(run_dir), host='rank2_node0'),
+        b'rank2',
+    )
+
 
 if __name__ == '__main__':
   unittest.main()
-

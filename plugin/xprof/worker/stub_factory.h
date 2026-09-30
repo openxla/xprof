@@ -28,6 +28,11 @@ namespace profiler {
 // This must be called once before calling GetNextStub().
 void InitializeStubs(const std::string& worker_service_addresses);
 
+// Returns true if at least one worker stub is configured. Unlike
+// `GetNextStub()`, this does not advance the round-robin cursor, so it is safe
+// to use as an availability probe.
+bool HasWorkerStubs();
+
 // Returns the next stub in a round-robin fashion.
 std::shared_ptr<xprof::pywrap::grpc::XprofAnalysisWorkerService::Stub>
 GetNextStub();

@@ -194,7 +194,8 @@ absl::StatusOr<std::optional<std::string>> TryRunUnifiedProcessor(
     return std::nullopt;
   }
   LOG(INFO) << "Using unified workflow for tool: " << tool_name;
-  if (unified_processor->ShouldUseWorkerService(session_snapshot, options)) {
+  if (unified_processor->ShouldUseWorkerService(session_snapshot, options) &&
+      ::xprof::profiler::HasWorkerStubs()) {
     TF_RETURN_IF_ERROR(RunUnifiedMapReduce(session_snapshot, tool_name,
                                            unified_processor.get(), options));
   } else {
@@ -232,7 +233,8 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolDataWithProfileProcessor(
   std::unique_ptr<xprof::ProfileProcessor> processor =
       xprof::ProfileProcessorFactory::GetInstance().Create(tool_name, options);
   if (processor) {
-    if (processor->ShouldUseWorkerService(session_snapshot, options)) {
+    if (processor->ShouldUseWorkerService(session_snapshot, options) &&
+        ::xprof::profiler::HasWorkerStubs()) {
       LOG(INFO) << "Using worker service for tool: " << tool_name;
       TF_RETURN_IF_ERROR(
           RunMapReduce(session_snapshot, tool_name, processor.get(), options));

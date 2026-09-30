@@ -3,6 +3,7 @@
 import functools
 import inspect
 import json
+import logging
 import pathlib
 import re
 import sys
@@ -14,6 +15,7 @@ from absl import flags
 import fire
 
 from xprof import server
+from xprof.cli.internal import trace_selection
 from xprof.cli.internal import xprof_data
 from xprof.cli.internal.oss import hlo_tools
 from xprof.cli.internal.oss import xplane_tools
@@ -93,6 +95,9 @@ def _is_oss() -> bool:
   return True
 
 
+_SPILL_THRESHOLD_BYTES = 10 * 1024 * 1024
+
+
 def _wrap_with_logdir(tool_func):
   """Wraps a tool to natively accept logdir and bypass_cache in Fire."""
   sig = inspect.signature(tool_func)
@@ -123,6 +128,11 @@ def _wrap_with_logdir(tool_func):
             annotation=bool,
         )
     )
+
+  selector = trace_selection.TraceSelector(
+      getattr(tool_func, "__name__", ""), sig, xprof_client.get_client
+  )
+  params = selector.extend_params(params)
 
   if kwargs_param is not None:
     params.append(kwargs_param)
@@ -231,6 +241,8 @@ def _wrap_with_logdir(tool_func):
       ):
         kwargs.pop("bypass_cache", None)
 
+    args, kwargs, capture = selector.resolve(args, kwargs)
+
     res = tool_func(*args, **kwargs)
 
     # Enforce volume spill guard (X-6) if output exceeds 10 MB.
@@ -238,7 +250,7 @@ def _wrap_with_logdir(tool_func):
       byte_len = (
           len(res) if isinstance(res, bytes) else len(res.encode("utf-8"))
       )
-      if byte_len > 10 * 1024 * 1024:
+      if byte_len > _SPILL_THRESHOLD_BYTES:
         import tempfile  # pylint: disable=g-import-not-at-top
 
         tool_name_safe = getattr(tool_func, "__name__", "output")
@@ -272,21 +284,23 @@ def _wrap_with_logdir(tool_func):
           ) as f:
             f.write(res)
             spill_file = f.name
-        return json.dumps(
-            {
-                "status": "SAVED_TO_FILE",
-                "size_bytes": byte_len,
-                "size_mib": round(byte_len / (1024 * 1024), 2),
-                "file_path": str(spill_file),
-                "message": (
-                    f"Output payload ({round(byte_len / (1024 * 1024), 2)} MB)"
-                    " exceeded 10 MB threshold. Saved to file to prevent"
-                    " terminal buffer overflow."
-                ),
-            },
-            indent=2,
-        )
+        envelope: dict[str, Any] = {
+            "status": "SAVED_TO_FILE",
+            "size_bytes": byte_len,
+            "size_mib": round(byte_len / (1024 * 1024), 2),
+            "file_path": str(spill_file),
+            "message": (
+                f"Output payload ({round(byte_len / (1024 * 1024), 2)} MB)"
+                " exceeded 10 MB threshold. Saved to file to prevent"
+                " terminal buffer overflow."
+            ),
+        }
+        if capture is not None:
+          envelope["capture"] = capture
+        return json.dumps(envelope, indent=2)
 
+    if capture is not None:
+      return trace_selection.attach_capture(res, capture)
     return res
 
   wrapper.__signature__ = sig.replace(parameters=params)  # pyrefly: ignore[missing-attribute]
@@ -521,8 +535,6 @@ def _preprocess_argv(argv: list[str] | None) -> list[str] | None:
 
 def main(argv=None) -> None:
   """Main function for the xprof CLI."""
-  import logging  # pylint: disable=g-import-not-at-top
-
   _check_xprof_version()
 
   if argv is None:

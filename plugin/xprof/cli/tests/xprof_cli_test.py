@@ -454,5 +454,215 @@ class XProfCliTest(parameterized.TestCase):
     self.assertEqual(res['limit'], 5)
 
 
+class MultiTraceSelectionTest(absltest.TestCase):
+  """Tests capture reporting and host selection for multi-trace runs."""
+
+  def setUp(self):
+    super().setUp()
+    self.run_dir = pathlib.Path(self.create_tempdir().full_path) / 'run'
+    self.run_dir.mkdir()
+    self.rank0 = self.run_dir / 'rank0_node0.xplane.pb'
+    self.rank0.write_bytes(b'rank0')
+    self.rank2 = self.run_dir / 'rank2_node0.xplane.pb'
+    self.rank2.write_bytes(b'rank2')
+    self.calls: list[dict[str, Any]] = []
+
+  def _tool(self, name: str, native_host: bool = False, result: Any = None):
+    """Builds a fake tool named `name` that records its arguments."""
+    calls = self.calls
+    payload = result if result is not None else json.dumps({'value': 1})
+
+    if native_host:
+
+      def tool(session_id: str, host: str = '') -> Any:
+        calls.append({'session_id': session_id, 'host': host})
+        return payload
+
+    else:
+
+      def tool(session_id: str) -> Any:
+        calls.append({'session_id': session_id})
+        return payload
+
+    tool.__name__ = name
+    return xprof_cli._wrap_with_logdir(tool)
+
+  def test_signature_exposes_host(self):
+    sig = inspect.signature(self._tool('get_overview'))
+    self.assertEqual(
+        sig.parameters['host'].kind, inspect.Parameter.KEYWORD_ONLY
+    )
+
+  def test_directory_attaches_capture_with_sum_warning(self):
+    out = json.loads(self._tool('get_kernel_stats')(str(self.run_dir)))
+    self.assertEqual(out['value'], 1)
+    capture = out['capture']
+    self.assertEqual(capture['files_used'], ['rank0_node0', 'rank2_node0'])
+    self.assertTrue(capture['combined'])
+    self.assertLen(capture['warnings'], 1)
+    self.assertIn('summed', capture['warnings'][0])
+
+  def test_file_attaches_capture_without_warning(self):
+    out = json.loads(self._tool('get_overview')(str(self.rank0)))
+    capture = out['capture']
+    self.assertEqual(capture['files_used'], ['rank0_node0'])
+    self.assertEqual(capture['files_available'], ['rank0_node0', 'rank2_node0'])
+    self.assertEqual(capture['warnings'], [])
+
+  def test_host_routes_directory_to_one_file(self):
+    out = json.loads(
+        self._tool('get_kernel_stats')(str(self.run_dir), host='rank0_node0')
+    )
+    self.assertEqual(self.calls, [{'session_id': str(self.rank0)}])
+    self.assertEqual(out['capture']['files_used'], ['rank0_node0'])
+    self.assertEqual(out['capture']['warnings'], [])
+
+  def test_unknown_host_raises(self):
+    with self.assertRaisesRegex(ValueError, r'(?s)nope.*rank0_node0'):
+      self._tool('get_kernel_stats')(str(self.run_dir), host='nope')
+    self.assertEqual(self.calls, [])
+
+  def test_single_host_tool_rejects_directory(self):
+    with self.assertRaisesRegex(
+        ValueError,
+        r'(?s)get_memory_profile needs exactly one trace.*rank0_node0'
+        r'.*rank2_node0.*--host',
+    ):
+      self._tool('get_memory_profile')(str(self.run_dir))
+    self.assertEqual(self.calls, [])
+
+  def test_single_host_tool_accepts_host(self):
+    self._tool('get_memory_profile')(str(self.run_dir), host='rank2_node0')
+    self.assertEqual(self.calls, [{'session_id': str(self.rank2)}])
+
+  def test_native_host_is_normalized(self):
+    self._tool('get_llo_analysis', native_host=True)(
+        str(self.run_dir), host='rank2_node0'
+    )
+    self.assertEqual(
+        self.calls, [{'session_id': str(self.rank2), 'host': 'rank2_node0'}]
+    )
+
+  @mock.patch('sys.stderr')
+  def test_non_json_result_writes_capture_to_stderr(self, mock_stderr):
+    res = self._tool('get_hlo_text', result='HloModule m')(str(self.rank0))
+    self.assertEqual(res, 'HloModule m')
+    written = ''.join(c[0][0] for c in mock_stderr.write.call_args_list)
+    self.assertIn('xprof-capture: ', written)
+    self.assertIn('rank0_node0', written)
+
+  @mock.patch('sys.stderr')
+  def test_source_and_session_id_alias_signature(self, mock_stderr):
+    calls = self.calls
+
+    def get_kernel_stats(
+        source: Any = None, session_id: str | None = None, *, limit: int = 10
+    ) -> str:
+      calls.append({'source': source, 'session_id': session_id})
+      del limit
+      return json.dumps([{'kernel': 'k'}])
+
+    wrapped = xprof_cli._wrap_with_logdir(get_kernel_stats)
+    res = wrapped(str(self.run_dir), host='rank0_node0')
+    self.assertEqual(json.loads(res), [{'kernel': 'k'}])
+    self.assertEqual(
+        self.calls, [{'source': str(self.rank0), 'session_id': None}]
+    )
+    written = ''.join(c[0][0] for c in mock_stderr.write.call_args_list)
+    self.assertIn('"files_used": ["rank0_node0"]', written)
+
+  def test_host_rejected_for_remote_session(self):
+    client = xprof_cli.xprof_client.get_client()
+    with mock.patch.object(
+        type(client), 'is_local_session', return_value=False
+    ):
+      with self.assertRaisesRegex(ValueError, 'only for local trace paths'):
+        self._tool('get_overview')('remote-session-1', host='h1')
+      res = self._tool('get_overview')('remote-session-1')
+    self.assertNotIn('capture', json.loads(res))
+
+  def _fire(self, wrapped: Any, *command: str) -> Any:
+    """Runs `wrapped` through Fire, as the CLI does."""
+    with mock.patch('sys.stdout'):
+      return xprof_cli.fire.Fire(wrapped, command=list(command))
+
+  def test_fire_native_host_bogus_is_rejected(self):
+    wrapped = self._tool('get_llo_analysis', native_host=True)
+    with self.assertRaisesRegex(ValueError, r'(?s)bogus.*rank0_node0'):
+      self._fire(wrapped, str(self.run_dir), '--host=bogus')
+    self.assertEqual(self.calls, [])
+
+  def test_fire_native_host_conflicting_file_is_rejected(self):
+    wrapped = self._tool('get_llo_analysis', native_host=True)
+    with self.assertRaisesRegex(ValueError, 'Conflicting selection'):
+      self._fire(wrapped, str(self.rank0), '--host=rank2_node0')
+    self.assertEqual(self.calls, [])
+
+  def test_fire_native_host_selects_file(self):
+    wrapped = self._tool('get_llo_analysis', native_host=True)
+    self._fire(wrapped, str(self.run_dir), '--host=rank2_node0')
+    self.assertEqual(
+        self.calls, [{'session_id': str(self.rank2), 'host': 'rank2_node0'}]
+    )
+
+  def test_fire_omitted_native_host_uses_tool_default(self):
+    wrapped = self._tool('get_llo_analysis', native_host=True)
+    self._fire(wrapped, str(self.rank0))
+    self.assertEqual(self.calls, [{'session_id': str(self.rank0), 'host': ''}])
+
+  def test_fire_empty_host_is_rejected(self):
+    for native in (True, False):
+      wrapped = self._tool('get_llo_analysis', native_host=native)
+      with self.assertRaises(SystemExit):
+        with mock.patch('sys.stderr'):
+          self._fire(wrapped, str(self.rank0), '--host=')
+    self.assertEqual(self.calls, [])
+
+  @mock.patch('sys.stderr')
+  def test_fire_hosts_list_selects_files(self, mock_stderr):
+    del mock_stderr
+    calls = self.calls
+
+    def get_perf_counters(
+        session_id: str, hosts: list[str] | None = None
+    ) -> str:
+      calls.append({'session_id': session_id, 'hosts': hosts})
+      return json.dumps({'rows': []})
+
+    wrapped = xprof_cli._wrap_with_logdir(get_perf_counters)
+    res = self._fire(wrapped, str(self.run_dir), '--hosts=[rank2_node0]')
+    self.assertEqual(json.loads(res)['capture']['files_used'], ['rank2_node0'])
+    self.assertEqual(calls[0]['hosts'], ['rank2_node0'])
+
+  def test_hosts_unparsed_list_string_is_accepted(self):
+    # Fire leaves `--hosts=[a-b,c]` as a string when names contain hyphens.
+    client = xprof_cli.xprof_client.get_client()
+    paths = client.select_paths(
+        str(self.run_dir), hosts='[rank2_node0, "rank0_node0"]'
+    )
+    self.assertEqual(
+        [pathlib.Path(p).name for p in paths],
+        [self.rank0.name, self.rank2.name],
+    )
+
+  def test_capture_is_first_key(self):
+    out = json.loads(self._tool('get_overview')(str(self.rank0)))
+    self.assertEqual(next(iter(out)), 'capture')
+
+  def test_merged_warning_says_totals(self):
+    out = json.loads(self._tool('get_overview')(str(self.run_dir)))
+    self.assertIn('totals across hosts', out['capture']['warnings'][0])
+
+  def test_list_events_warning_says_listed(self):
+    out = json.loads(self._tool('list_xplane_events')(str(self.run_dir)))
+    self.assertIn('Events listed from 2', out['capture']['warnings'][0])
+
+  @mock.patch('sys.stderr')
+  def test_hlo_text_has_no_combine_warning(self, mock_stderr):
+    self._tool('get_hlo_text', result='HloModule m')(str(self.run_dir))
+    written = ''.join(c[0][0] for c in mock_stderr.write.call_args_list)
+    self.assertIn('"warnings": []', written)
+
+
 if __name__ == '__main__':
   absltest.main()

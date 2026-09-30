@@ -89,6 +89,46 @@ skill's markdown files but are NOT visible by running `xprof -h`.
     xprof get_overview --logdir=/path/to/logdir --session_id=2026_08_17_22_58_50
     ```
 
+### Multi-host and multi-rank captures
+
+A run directory may contain one `.xplane.pb` per host or per rank (JAX
+multi-host, vLLM/Ray ranks, Pathways client and workers).
+
+-   A **file** analyzes that host/rank only.
+-   A **run directory** combines every trace in it. `get_kernel_stats`,
+    `get_avg_step_time` and `aggregate_xplane_events` sum counts and
+    durations; `list_xplane_events` mixes rows from every host/rank; other
+    XProf tools show the all-hosts view, where times and counts are totals
+    across hosts, not per-host values. HLO text tools (`get_hlo_text`,
+    `get_hlo_module_content`, `get_hlo_neighborhood`) are not combined.
+-   A **logdir root** uses the latest run only.
+-   To analyze one host/rank, pass its file or `--host=<name>`, where `<name>`
+    is a file stem from `capture.files_available` or a name from
+    `xprof get_hosts <dir>`. An unknown or empty name fails and lists the valid
+    ones. `get_utilization_viewer` takes an integer `--host` index instead;
+    pass it a file path to pick a host/rank.
+-   `get_memory_profile`, `get_kernel_utilization` / `compute_utilization`,
+    `get_utilization_viewer`, `get_llo_analysis`, `get_llo_debug_string`,
+    `get_xspace_proto`, and `create_events_db` need exactly one trace. On a
+    multi-trace directory they fail and list the files.
+
+For local traces, every JSON result carries a `capture` block (other outputs
+print it to stderr as one `xprof-capture: {...}` line):
+
+```json
+"capture": {
+  "input": "/path/to/run",
+  "run": "run",
+  "files_used": ["rank0_host", "rank2_host"],
+  "files_available": ["rank0_host", "rank2_host"],
+  "combined": true,
+  "warnings": ["Values combined across 2 traces (summed for counts and durations). ..."]
+}
+```
+
+Always check `capture.files_used` and `capture.warnings` before reporting
+numbers: when `combined` is true, values cover several hosts/ranks.
+
 ## Best Practices
 
 -   **Asynchronous Execution**: Some operations (such as processing large traces

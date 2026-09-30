@@ -138,6 +138,33 @@ class IterPlanesTest(absltest.TestCase):
       self.assertIn("event1", res_one)
       self.assertNotIn("event2", res_one)
 
+  def test_logdir_root_resolves_to_latest_run_only(self):
+    """iter_planes on a logdir root should yield planes only from the latest run."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+      logdir = pathlib.Path(tmpdir) / "logs"
+      old_run = logdir / "plugins" / "profile" / "2026_09_16_10_00_00"
+      latest_run = logdir / "plugins" / "profile" / "2026_09_16_12_00_00"
+      old_run.mkdir(parents=True)
+      latest_run.mkdir(parents=True)
+      (old_run / "host.xplane.pb").write_bytes(b"old_bytes")
+      (latest_run / "host.xplane.pb").write_bytes(b"latest_bytes")
+
+      def fake_from_serialized(raw_bytes):
+        pd = mock.MagicMock()
+        pd.planes = (
+            ["old_plane"] if raw_bytes == b"old_bytes" else ["latest_plane"]
+        )
+        return pd
+
+      with mock.patch.object(
+          xplane_tools.profiler.ProfileData,
+          "from_serialized_xspace",
+          side_effect=fake_from_serialized,
+      ):
+        planes = list(xplane_tools.iter_planes(str(logdir)))
+
+      self.assertEqual(planes, ["latest_plane"])
+
 
 if __name__ == "__main__":
   absltest.main()

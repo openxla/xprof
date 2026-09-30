@@ -10,6 +10,7 @@ pytype_strict_library(
     srcs = ["xprof_cli.py"],
     deps = [
         "//plugin/xprof:server",
+        "//plugin/xprof/cli/internal:trace_selection",
         "//plugin/xprof/cli/internal:xprof_data",
         "//plugin/xprof/cli/internal/oss:hlo_tools",
         "//plugin/xprof/cli/internal/oss:xplane_tools",

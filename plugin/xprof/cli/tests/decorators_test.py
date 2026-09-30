@@ -127,6 +127,77 @@ class DecoratorsTest(unittest.TestCase):
     self.cache.set(error_key, {"error": "Trace file not found"})
     self.assertIs(self.cache.get(error_key), decorators.Cache.UNKNOWN)
 
+  def test_extract_bypass_cache_positional_and_keyword(self):
+    """Verifies bypass_cache is read from either position or keyword."""
+    # Signature: (session_id, limit, bypass_cache) -> index 2.
+    idx = 2
+
+    kwargs = {}
+    bypass, args_for_key = decorators._extract_bypass_cache(
+        ("run", 10, True), kwargs, idx
+    )
+    self.assertTrue(bypass)
+    self.assertEqual(args_for_key, ("run", 10))
+    self.assertEqual(kwargs, {})
+
+    bypass, args_for_key = decorators._extract_bypass_cache(
+        ("run", 10, False), {}, idx
+    )
+    self.assertFalse(bypass)
+    self.assertEqual(args_for_key, ("run", 10))
+
+    # A declared bypass_cache parameter must stay in kwargs so the wrapped
+    # function still receives it.
+    kwargs = {"bypass_cache": True}
+    bypass, args_for_key = decorators._extract_bypass_cache(
+        ("run", 10), kwargs, idx
+    )
+    self.assertTrue(bypass)
+    self.assertEqual(args_for_key, ("run", 10))
+    self.assertEqual(kwargs, {"bypass_cache": True})
+
+    # Omitted entirely.
+    bypass, args_for_key = decorators._extract_bypass_cache(
+        ("run", 10), {}, idx
+    )
+    self.assertFalse(bypass)
+    self.assertEqual(args_for_key, ("run", 10))
+
+  def test_extract_bypass_cache_undeclared_param_is_popped(self):
+    """Verifies bypass_cache is stripped when the function does not accept it."""
+    kwargs = {"bypass_cache": True, "limit": 5}
+    bypass, args_for_key = decorators._extract_bypass_cache(
+        ("run",), kwargs, None
+    )
+    self.assertTrue(bypass)
+    self.assertEqual(args_for_key, ("run",))
+    self.assertEqual(kwargs, {"limit": 5})
+
+  def test_cached_key_is_stable_across_bypass_cache_forms(self):
+    """Verifies positional, keyword and default bypass_cache share a cache key."""
+    calls = []
+
+    @decorators.cached(cache=self.cache)
+    def tool(session_id: str, bypass_cache: bool = False) -> str:
+      calls.append((session_id, bypass_cache))
+      return f"result:{session_id}"
+
+    # Populate the cache.
+    self.assertEqual(tool("run"), "result:run")
+    self.assertEqual(len(calls), 1)
+
+    # Cache hit: bypass_cache=False in either form must reuse the same key.
+    tool("run", False)
+    tool("run", bypass_cache=False)
+    self.assertEqual(len(calls), 1)
+
+    # Bypass in either form re-invokes and forwards the flag unchanged.
+    tool("run", True)
+    self.assertEqual(calls[-1], ("run", True))
+    tool("run", bypass_cache=True)
+    self.assertEqual(calls[-1], ("run", True))
+    self.assertEqual(len(calls), 3)
+
 
 if __name__ == "__main__":
   unittest.main()

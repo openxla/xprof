@@ -166,6 +166,15 @@ pytype_strict_contrib_test(
 )
 
 pytype_strict_contrib_test(
+    name = "oss_llo_static_analysis_tool_test",
+    srcs = ["oss_llo_static_analysis_tool_test.py"],
+    deps = [
+        "//plugin/xprof/cli/tools/oss:llo_static_analysis_tool",
+        "@absl_py//absl/testing:absltest",
+    ],
+)
+
+pytype_strict_contrib_test(
     name = "xprof_data_test",
     srcs = ["xprof_data_test.py"],
     visibility = ["//visibility:public"],

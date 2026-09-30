@@ -32,6 +32,7 @@ pytype_strict_library(
         "//plugin/xprof/cli/tools/oss:events_db_tool",
         "//plugin/xprof/cli/tools/oss:get_graph_viewer_tool",
         "//plugin/xprof/cli/tools/oss:get_kernel_utilization_tool",
+        "//plugin/xprof/cli/tools/oss:llo_static_analysis_tool",
         "//plugin/xprof/cli/tools/oss:upload_trace_tool",
         "@absl_py//absl/flags",
         "@pypi//absl_py",

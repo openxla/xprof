@@ -36,12 +36,52 @@ def _is_idle_op(op: dict[str, Any]) -> bool:
   )
 
 
+def _matches_op_name(
+    full_name: str,
+    raw_full_name: str,
+    raw_leaf_name: str,
+    target_op_name: str,
+) -> bool:
+  """Returns True if an HLO op matches target_op_name.
+
+  An op matches if the target equals the full name, is a `/`-separated suffix
+  of it, or names the base of a numbered instruction (`fusion` matches
+  `fusion.12`). A leading `%` on either side is optional, and `-` and `_` are
+  treated interchangeably.
+
+  Args:
+    full_name: Normalized full HLO name.
+    raw_full_name: Full HLO name as reported by XProf.
+    raw_leaf_name: Trailing component of the raw full name.
+    target_op_name: Op name to match against.
+  """
+  target = target_op_name.strip()
+  if not target:
+    return True
+  leaf_clean = raw_leaf_name.strip().lstrip("%")
+  for candidate in dict.fromkeys(
+      (target, target.replace("_", "-"), target.replace("-", "_"))
+  ):
+    if (
+        full_name == candidate
+        or full_name.endswith(f"/{candidate}")
+        or raw_full_name == candidate
+        or raw_full_name.endswith(f"/{candidate}")
+    ):
+      return True
+    cand_clean = candidate.lstrip("%")
+    if leaf_clean == cand_clean or leaf_clean.startswith(f"{cand_clean}."):
+      return True
+  return False
+
+
 @decorators.cached(expire=86400)
 def get_top_hlo_ops(
     session_id: str,
     *,
     limit: int = 10,
     category_filter: str | None = None,
+    op_name: str | None = None,
     bypass_cache: bool = False,
 ) -> str:
   """Fetches top HLO operations sorted by Time, FLOPs, and Bytes Accessed.
@@ -51,6 +91,10 @@ def get_top_hlo_ops(
       limit: Number of top operations to return per list (default is 10).
       category_filter: Optional HLO op category name to filter by (e.g.,
         'convolution' or 'fusion').
+      op_name: Optional HLO instruction name to filter by, applied before top-N
+        truncation. A leading '%' is optional. Matches the exact name, a
+        '/'-separated path suffix, or a base name that covers all numbered
+        variants ('fusion' matches 'fusion.12').
       bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
@@ -144,7 +188,11 @@ def get_top_hlo_ops(
     is_leaf_instruction = not (node.children and children_time > 0)
 
     # Only add leaf nodes (instructions) that have XLA info
-    if is_leaf_instruction and node.HasField("xla") and metrics.raw_time > 0:
+    if (
+        is_leaf_instruction
+        and node.HasField("xla")
+        and (metrics.raw_time > 0 or op_name)
+    ):
       category = node.xla.category
       op_label = name
       if node.xla.provenance:
@@ -170,6 +218,9 @@ def get_top_hlo_ops(
           f"{current_name_prefix}/{op_label}"
           if current_name_prefix
           else op_label
+      )
+      raw_full_name = (
+          f"{current_name_prefix}/{name}" if current_name_prefix else name
       )
       total_bytes: float | None = (
           float(sum(metrics.raw_bytes_accessed_array))
@@ -208,21 +259,24 @@ def get_top_hlo_ops(
           total_bytes = None
           provenance = "opaque_custom_call"
 
-      item = {
-          "name": full_name,
-          "category": category,
-          "total_self_time_ms": metrics.raw_time / 1e9,
-          "occurrences": metrics.occurrences,
-          "flops": flops_val,
-          "bytes_accessed": total_bytes,
-          "flops_provenance": provenance,
-      }
-      if node.xla.HasField("source_info"):
-        item["source_file"] = node.xla.source_info.file_name
-        item["source_line"] = node.xla.source_info.line_number
-        if node.xla.source_info.stack_frame:
-          item["stack_frame"] = node.xla.source_info.stack_frame
-      yield item
+      if not op_name or _matches_op_name(
+          full_name, raw_full_name, name, op_name
+      ):
+        item = {
+            "name": full_name,
+            "category": category,
+            "total_self_time_ms": metrics.raw_time / 1e9,
+            "occurrences": metrics.occurrences,
+            "flops": flops_val,
+            "bytes_accessed": total_bytes,
+            "flops_provenance": provenance,
+        }
+        if node.xla.HasField("source_info"):
+          item["source_file"] = node.xla.source_info.file_name
+          item["source_line"] = node.xla.source_info.line_number
+          if node.xla.source_info.stack_frame:
+            item["stack_frame"] = node.xla.source_info.stack_frame
+        yield item
 
     if not is_leaf_instruction:
       is_dup_wrapper = name.endswith(" and its duplicate(s)")

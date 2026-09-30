@@ -114,13 +114,62 @@ struct Group {
   int level_count = 0;
   // Indicates if this group has nested child tracks.
   bool has_children = false;
+};
 
-  // Cached layout offset (screen Y coordinate in pixels).
-  mutable Pixel offset = 0.0f;
-  // Cached full height (in pixels) of the track based on level count.
-  mutable Pixel height = 0.0f;
-  // Indicates if the track is visible (not hidden by a collapsed parent).
-  mutable bool visible = true;
+struct GroupNode {
+  int group_index = -1;
+  int parent_index = -1;
+  std::vector<int> children_indices;  // In display order.
+};
+
+// Built once by the data provider or Timeline and owned by
+// FlameChartTimelineData.
+class GroupTree {
+ public:
+  GroupTree() = default;
+  GroupTree(const GroupTree&) = default;
+  GroupTree& operator=(const GroupTree&) = default;
+  GroupTree(GroupTree&&) noexcept = default;
+  GroupTree& operator=(GroupTree&&) noexcept = default;
+  ~GroupTree() = default;
+
+  // Top-level group indices, in the user's display order.
+  const std::vector<int>& top_level_indices() const {
+    return top_level_indices_;
+  }
+  std::vector<int>& mutable_top_level_indices() { return top_level_indices_; }
+
+  // Builds the tree and group-index lookup table from a flat list of groups
+  // ordered in DFS pre-order.
+  void BuildFromGroups(absl::Span<const Group> groups);
+
+  // Returns the GroupNode corresponding to `groups[group_index]`, or nullptr if
+  // out of range.
+  const GroupNode* NodeAt(int group_index) const {
+    if (group_index < 0 ||
+        group_index >= static_cast<int>(nodes_by_group_index_.size())) {
+      return nullptr;
+    }
+    return &nodes_by_group_index_[group_index];
+  }
+  GroupNode* NodeAt(int group_index) {
+    if (group_index < 0 ||
+        group_index >= static_cast<int>(nodes_by_group_index_.size())) {
+      return nullptr;
+    }
+    return &nodes_by_group_index_[group_index];
+  }
+
+  absl::Span<const GroupNode> nodes_by_group_index() const {
+    return nodes_by_group_index_;
+  }
+
+  bool empty() const { return nodes_by_group_index_.empty(); }
+
+ private:
+  std::vector<int> top_level_indices_;
+  // Indexed by Group's index in `FlameChartTimelineData::groups`.
+  std::vector<GroupNode> nodes_by_group_index_;
 };
 
 struct FlowLine {
@@ -170,6 +219,7 @@ struct FlameChartTimelineData {
   // have multiple counter tracks associated with it. The group index uniquely
   // identifies each track within the `groups` vector.
   std::map<int, CounterData> counter_data_by_group_index;
+  GroupTree group_tree;
 };
 
 // Renders an interactive timeline visualization for trace events, handling

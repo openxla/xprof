@@ -228,6 +228,67 @@ class OssHloToolsTest(absltest.TestCase):
       self.assertEqual(parsed["byte_count"], expected_bytes)
       self.assertIn("[Truncated to 25 of 100 lines", parsed["content"])
 
+  def test_oss_query_hlo_graph_and_directional_neighborhood(self):
+    f1 = self.session_dir / "module_0001.jit_compute.hlo_proto.pb"
+    mock_client = mock.MagicMock()
+    hlo_graph = (
+        "%fused_comp (\n"
+        "  %p0 = bf16[4,128] parameter(0)\n"
+        "  ROOT %sub_add = bf16[4,128] add(bf16[4,128] %p0, bf16[4,128] %p0)\n"
+        ")\n\n"
+        "ENTRY %main (\n"
+        "  %x = bf16[4,128] parameter(0)\n"
+        "  %bc = bf16[4,128] bitcast(bf16[4,128] %x)\n"
+        "  %fus = bf16[4,128] fusion(bf16[4,128] %bc),"
+        " kind=kLoop, calls=%fused_comp\n"
+        "  ROOT %out = bf16[4,128] custom-call(bf16[4,128] %fus)\n"
+        ")\n"
+    )
+    mock_client.fetch.return_value = (None, hlo_graph.encode("utf-8"))
+
+    with (
+        mock.patch.object(hlo_tools, "_get_hlo_proto_files", return_value=[f1]),
+        mock.patch.object(xprof_client, "get_client", return_value=mock_client),
+    ):
+      blockers = json.loads(
+          hlo_tools.query_hlo_graph(
+              str(self.session_dir), mode="fusion_blockers"
+          )
+      )
+      self.assertEqual(blockers["status"], "SUCCESS")
+      self.assertEqual(blockers["fusion_blockers"][0]["blocker_name"], "bc")
+
+      path_res = json.loads(
+          hlo_tools.query_hlo_graph(
+              str(self.session_dir),
+              mode="shortest_path",
+              src_op="x",
+              dst_op="out",
+          )
+      )
+      self.assertTrue(path_res["found"])
+      self.assertEqual(path_res["distance"], 3)
+
+      nb_up = hlo_tools.get_hlo_neighborhood(
+          str(self.session_dir),
+          instruction_name="fus",
+          radius=1,
+          direction="operands",
+          detect_fusion_blockers=True,
+          follow_calls=True,
+      )
+      self.assertIn("[FUSION_BLOCKER: bitcast]", nb_up)
+      self.assertIn("sub_add", nb_up)
+      self.assertNotIn("%out =", nb_up)
+
+      transitions = json.loads(
+          hlo_tools.query_hlo_graph(
+              str(self.session_dir), mode="layout_transitions"
+          )
+      )
+      self.assertEqual(transitions["status"], "SUCCESS")
+      self.assertGreaterEqual(transitions["count"], 1)
+
 
 if __name__ == "__main__":
   absltest.main()

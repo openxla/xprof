@@ -80,6 +80,7 @@ def cli_main() -> dict[str, Any]:
       "get_xspace_proto": xplane_tools.get_xspace_proto,
       "list_hlo_modules": hlo_tools.list_hlo_modules,
       "list_xplane_events": xplane_tools.list_xplane_events,
+      "query_hlo_graph": hlo_tools.query_hlo_graph,
       "upload_trace": upload_trace_tool.upload_trace,
       # keep-sorted end
       # 2 Tools Gated in 3P (Third Party Only):

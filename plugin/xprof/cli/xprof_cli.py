@@ -68,6 +68,7 @@ def cli_main() -> dict[str, Any]:
       # keep-sorted start
       "aggregate_xplane_events": xplane_tools.aggregate_xplane_events,
       "check_host_boundness": check_host_boundness_tool.check_host_boundness,
+      "check_kernel_profiling": xplane_tools.inspect_capture,
       "compute_utilization": get_kernel_utilization_tool.get_kernel_utilization,
       "get_avg_step_time": get_kernel_stats_tool.get_avg_step_time,
       "get_device_information": xprof_data.get_device_information,
@@ -101,8 +102,10 @@ def cli_main() -> dict[str, Any]:
           get_utilization_viewer_tool.get_utilization_viewer
       ),
       "get_xspace_proto": xplane_tools.get_xspace_proto,
+      "inspect_capture": xplane_tools.inspect_capture,
       "list_hlo_modules": hlo_tools.list_hlo_modules,
       "list_xplane_events": xplane_tools.list_xplane_events,
+      "list_xplane_lines": xplane_tools.inspect_capture,
       "upload_trace": upload_trace_tool.upload_trace,
       # keep-sorted end
       # 2 Tools Gated in 3P (Third Party Only):

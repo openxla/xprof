@@ -36,6 +36,7 @@ pytype_strict_library(
     name = "get_overview_tool",
     srcs = ["get_overview_tool.py"],
     deps = [
+        ":get_roofline_model_tool",
         "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal/oss:xprof_client",
     ],

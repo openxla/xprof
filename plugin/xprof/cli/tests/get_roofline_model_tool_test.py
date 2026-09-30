@@ -238,6 +238,9 @@ class GetRooflineModelToolTest(absltest.TestCase):
     self.assertEqual(
         parsed["top_operations"][0]["bound_by"], "CustomCall (opaque)"
     )
+    self.assertEqual(parsed["custom_call_share_pct"], 100.0)
+    self.assertIn("custom_call_warning", parsed)
+    self.assertIn("0 FLOPs", parsed["custom_call_warning"])
     self.assertIn("guidance", parsed)
     self.assertIn("Pallas kernels", parsed["guidance"])
 
@@ -390,4 +393,3 @@ class GetRooflineModelToolTest(absltest.TestCase):
 
 if __name__ == "__main__":
   absltest.main()
-

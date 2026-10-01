@@ -60,7 +60,7 @@ const CHIP_TEXT_MAX_LENGTH = 15;
         <mat-autocomplete #chipValueOptionsAuto class="dense" panelWidth="fit-content">
           <div style="display:flex;flex-direction:column;">
             <button mat-stroked-button color="primary" (click)="onChipMultiSelectUpdateConfirm()" style="margin:10px;">Confirm</button>
-            <mat-option>
+            <mat-option *ngIf="autoChipValueOptions.value.length > 0">
               <mat-checkbox class="example-margin" [checked]="allOptionsSelected" (click)="onOperateAll($event)">{{allOptionsLabel}}</mat-checkbox>
             </mat-option>
             <mat-option *ngFor="let option of (autoChipValueOptions | async) trackBy:trackByValue"
@@ -88,7 +88,10 @@ export class FilterChips {
   onEditChipIndex = -1;
 
   get allOptionsSelected() {
-    return this.autoChipValueOptions.value.every((option) => option.checked);
+    return (
+      this.autoChipValueOptions.value.length > 0 &&
+      this.autoChipValueOptions.value.every((option) => option.checked)
+    );
   }
 
   get allOptionsLabel() {

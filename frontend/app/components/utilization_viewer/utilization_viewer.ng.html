@@ -1,39 +1,46 @@
 <div class="section-container">
   <div class="row">
     <div>
-      <category-filter [dataTable]="dataTable" column="Host" (changed)="updateFilters($event)">
-      </category-filter>
-      <category-filter [dataTable]="dataTable" column="Device" (changed)="updateFilters($event)">
-      </category-filter>
-      <category-filter [dataTable]="dataTable" column="Sample" (changed)="updateFilters($event)">
-      </category-filter>
+      <category-filter [dataTable]="dataTable" column="Host" (changed)="updateFilters($event)" />
+      <category-filter [dataTable]="dataTable" column="Device" (changed)="updateFilters($event)" />
+      <category-filter [dataTable]="dataTable" column="Sample" (changed)="updateFilters($event)" />
     </div>
     <div class="flex-space"></div>
-    <export-as-csv [tool]="tool" [sessionId]="sessionId"></export-as-csv>
-    <view-architecture *ngIf="dataService.isGraphvizAvailable()" [sessionId]="sessionId"></view-architecture>
+    <export-as-csv [tool]="tool" [sessionId]="sessionId" />
+    @if (dataService.isGraphvizAvailable()) {
+      <view-architecture [sessionId]="sessionId" />
+    }
   </div>
 </div>
 <!-- dummy chart node to initialize gviz in chart  -->
-<chart [chartType]="ChartType.BAR_CHART" style="display:none;"></chart>
+<chart [chartType]="ChartType.BAR_CHART" style="display:none;" />
 <div class="section-container">
-  <div class="row" *ngFor="let index of coreIndexes">
-    <div class="bar-chart">
-      <div class="mat-title">Tensor Node {{ index }} - Unit Utilization</div>
-      <chart chartType="BarChart" [dataInfo]="dataInfoTensorNodesUnit[index]"></chart>
+  @for (index of coreIndexes; track index) {
+    <div class="row">
+      <div class="bar-chart">
+        <div class="mat-title">Tensor Node {{ index }} - Unit Utilization</div>
+        <chart chartType="BarChart" [dataInfo]="dataInfoTensorNodesUnit[index]" />
+      </div>
     </div>
-  </div>
+  }
 </div>
-<div class="section-container" *ngIf="hbmCoreIndexes.length > 0">
-  <div class="row" *ngFor="let index of hbmCoreIndexes">
-    <div class="mat-title">Node {{ index }} - HBM Rd/Wr Ratio</div>
-    <chart chartType="PieChart" [dataInfo]="dataInfoHBMRatio[index]"></chart>
+@if (hbmCoreIndexes.length > 0) {
+  <div class="section-container">
+    @for (index of hbmCoreIndexes; track index) {
+      <div class="row">
+        <div class="mat-title">Node {{ index }} - HBM Rd/Wr Ratio</div>
+        <chart chartType="PieChart" [dataInfo]="dataInfoHBMRatio[index]" />
+      </div>
+    }
   </div>
-</div>
+}
 <div class="section-container">
-  <div class="row" *ngFor="let index of coreIndexes">
-    <div class="bar-chart">
-      <div class="mat-title">Tensor Node {{ index }} - Bandwidth Utilization</div>
-      <chart chartType="BarChart" [dataInfo]="dataInfoTensorNodesBandwidth[index]"></chart>
+  @for (index of coreIndexes; track index) {
+    <div class="row">
+      <div class="bar-chart">
+        <div class="mat-title">Tensor Node {{ index }} - Bandwidth Utilization</div>
+        <chart chartType="BarChart" [dataInfo]="dataInfoTensorNodesBandwidth[index]" />
+      </div>
     </div>
-  </div>
+  }
 </div>

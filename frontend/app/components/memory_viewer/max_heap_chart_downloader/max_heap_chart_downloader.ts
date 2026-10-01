@@ -1,23 +1,26 @@
-import {Component, Input, ChangeDetectionStrategy} from '@angular/core';
+import {ChangeDetectionStrategy, Component, input} from '@angular/core';
+import {MatButton} from '@angular/material/button';
 import {type MemoryViewerPreprocessResult} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {HeapObject} from 'org_xprof/frontend/app/common/interfaces/heap_object';
 import {MemoryUsage} from 'org_xprof/frontend/app/components/memory_viewer/memory_usage/memory_usage';
 
 /** A component to download hlo module in proto, text or json formats. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'max-heap-chart-downloader',
   templateUrl: './max_heap_chart_downloader.ng.html',
   styleUrls: ['./max_heap_chart_downloader.scss'],
   providers: [],
+  imports: [MatButton],
 })
 export class MaxHeapChartDownloader {
   /** Preprocessed result for memory viewer */
-  @Input()
-  memoryViewerPreprocessResult: MemoryViewerPreprocessResult | null = null;
+  readonly memoryViewerPreprocessResult =
+    input<MemoryViewerPreprocessResult | null>(null);
 
   /** XLA memory space color */
-  @Input() memorySpaceColor = '0';
+  readonly memorySpaceColor = input('0');
 
   /** Heap objects to download. */
   heapObjects: HeapObject[] = [];
@@ -44,11 +47,11 @@ export class MaxHeapChartDownloader {
 
   async downloadMaxHeapChart() {
     const usage = new MemoryUsage(
-        this.memoryViewerPreprocessResult,
-        Number(this.memorySpaceColor),
-        null,
-        null,
-        null,
+      this.memoryViewerPreprocessResult(),
+      Number(this.memorySpaceColor()),
+      null,
+      null,
+      null,
     );
     if (usage.diagnostics.errors.length > 0) {
       console.error(usage.diagnostics.errors[0]);
@@ -59,7 +62,7 @@ export class MaxHeapChartDownloader {
     this.logicalBufferSpans = usage.logicalBufferSpans || {};
     this.heapSizes = usage.heapSizes || [];
 
-    const moduleName = this.memoryViewerPreprocessResult?.moduleName || '';
+    const moduleName = this.memoryViewerPreprocessResult()?.moduleName || '';
     const fileName = moduleName + '.csv';
     const data: string[][] = [];
     data.push([

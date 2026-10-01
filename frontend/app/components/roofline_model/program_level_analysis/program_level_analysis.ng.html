@@ -1,5 +1,5 @@
 <div class="row">
-  <category-filter [dataTable]="dataTable" column="Include Infeed/Outfeed" (changed)="onUpdateFilters($event)" [initValue]="true"></category-filter>
+  <category-filter [dataTable]="dataTable" column="Include Infeed/Outfeed" (changed)="onUpdateFilters($event)" [initValue]="true" />
 </div>
-<chart chartType="ScatterChart" [dataInfo]="dataInfoRooflineScatterChart"></chart>
+<chart chartType="ScatterChart" [dataInfo]="dataInfoRooflineScatterChart" />
 <table [dataView]="dataView" [showRowNumber]="true"></table>

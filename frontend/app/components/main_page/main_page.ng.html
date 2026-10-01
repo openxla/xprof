@@ -1,38 +1,44 @@
 <mat-toolbar class="profiler-toolbar">
   <button
-      mat-icon-button
-      aria-label="Menu icon"
-      i18n-aria-label="A button to open the side menu."
-      class="sidenav-toggle-button"
-      (click)="isSideNavOpen = !isSideNavOpen">
+    mat-icon-button
+    aria-label="Menu icon"
+    i18n-aria-label="A button to open the side menu."
+    class="sidenav-toggle-button"
+    (click)="isSideNavOpen = !isSideNavOpen">
     <mat-icon>menu</mat-icon>
   </button>
   <span>XProf</span>
-  <span class="version-label" *ngIf="pluginVersion">
-    v{{pluginVersion}}
-  </span>
+  @if (pluginVersion) {
+    <span class="version-label">
+      v{{pluginVersion}}
+    </span>
+  }
   <span class="toolbar-spacer"></span>
 </mat-toolbar>
 
 <!-- toolbar has a height of 64px, adding inline style to overwrite the fullscreen styles -->
 <mat-sidenav-container fullscreen style="top:64px;">
   <mat-sidenav mode="side" [opened]="isSideNavOpen">
-    <sidenav></sidenav>
+    <sidenav />
   </mat-sidenav>
   <mat-sidenav-content>
-    <diagnostics-view [diagnostics]="diagnostics"></diagnostics-view>
-    <div class="progress-container" *ngIf="loading">
-      <div class="loading-message">{{loadingMessage}}</div>
-      <!-- TODO(go/progressbar-aria): Replace the aria-label with a better description, e.g. "Fetching user data" -->
-      <mat-progress-bar color="primary" mode="indeterminate" aria-label="Loading"></mat-progress-bar>
-    </div>
-    <div class="progress-container" *ngIf="!navigationReady">
-      <div class="loading-message">Navigating. First-time session loads may take up to a few minutes.</div>
-      <!-- TODO(go/progressbar-aria): Replace the aria-label with a better description, e.g. "Fetching user data" -->
-      <mat-progress-bar color="primary" mode="indeterminate" aria-label="Loading"></mat-progress-bar>
-    </div>
+    <diagnostics-view [diagnostics]="diagnostics" />
+    @if (loading) {
+      <div class="progress-container">
+        <div class="loading-message">{{loadingMessage}}</div>
+        <!-- TODO(go/progressbar-aria): Replace the aria-label with a better description, e.g. "Fetching user data" -->
+        <mat-progress-bar color="primary" mode="indeterminate" aria-label="Loading" />
+      </div>
+    }
+    @if (!navigationReady) {
+      <div class="progress-container">
+        <div class="loading-message">Navigating. First-time session loads may take up to a few minutes.</div>
+        <!-- TODO(go/progressbar-aria): Replace the aria-label with a better description, e.g. "Fetching user data" -->
+        <mat-progress-bar color="primary" mode="indeterminate" aria-label="Loading" />
+      </div>
+    }
     <div [className]="(loading || !navigationReady) ? 'hidden-content' : 'full-height'">
-      <router-outlet></router-outlet>
+      <router-outlet />
     </div>
   </mat-sidenav-content>
 </mat-sidenav-container>

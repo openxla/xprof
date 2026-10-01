@@ -20,7 +20,6 @@ const TIME_UNITS: readonly TimeUnitConfig[] = [
  */
 @Pipe({
   name: 'timeFormat',
-  standalone: true,
 })
 export class TimeFormatPipe implements PipeTransform {
   transform(value: number | undefined | null): string {

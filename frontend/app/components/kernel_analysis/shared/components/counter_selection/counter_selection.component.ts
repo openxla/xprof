@@ -27,8 +27,8 @@ import type {
 
 /** Component for selecting counters from a categorized list. */
 @Component({
-  selector: 'app-counter-selection',
   standalone: true,
+  selector: 'app-counter-selection',
   imports: [
     CommonModule,
     FormsModule,

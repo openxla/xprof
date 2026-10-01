@@ -61,10 +61,18 @@ def _populate_roofline_fallback(
   flop_roofline = performance_summary.get(
       "flop_rate_utilization_relative_to_roofline"
   )
+  mxu_util = performance_summary.get("mxu_utilization_percent")
   mem_bw = performance_summary.get("memory_bw_utilization_relative_to_hw_limit")
   hbm_bw = performance_summary.get("hbm_bw_utilization_percent")
 
   needs_flop = not flop_roofline or flop_roofline in (
+      "0.0%",
+      "0%",
+      "0.0",
+      0,
+      0.0,
+  )
+  needs_mxu = not mxu_util or mxu_util in (
       "0.0%",
       "0%",
       "0.0",
@@ -133,6 +141,10 @@ def _populate_roofline_fallback(
 
     if needs_flop and compute_eff is not None:
       performance_summary["compute_efficiency_percent"] = (
+          f"{compute_eff * 100.0:.2f}%"
+      )
+    if needs_mxu and compute_eff:
+      performance_summary["mxu_utilization_percent"] = (
           f"{compute_eff * 100.0:.2f}%"
       )
 

@@ -171,14 +171,43 @@ export class BufferAllocationTimeline
   }
 
   computeLayout() {
-    if (!this.bufferBlocks || this.totalSteps <= 0 || this.totalBytes <= 0) {
+    if (!this.bufferBlocks || this.bufferBlocks.length === 0) {
+      this.layoutBlocks = [];
+      return;
+    }
+
+    let computedMaxBytes = 0;
+    let computedMaxSteps = 0;
+    for (const block of this.bufferBlocks) {
+      const offset = block.offset ?? 0;
+      const size = block.size ?? 0;
+      if (offset + size > computedMaxBytes) {
+        computedMaxBytes = offset + size;
+      }
+      const endStep = block.endStep ?? 0;
+      if (endStep > computedMaxSteps) {
+        computedMaxSteps = endStep;
+      }
+    }
+
+    let totalBytes = this.totalBytes;
+    let totalSteps = this.totalSteps;
+
+    if (totalBytes <= 0 || totalBytes < computedMaxBytes) {
+      totalBytes = computedMaxBytes;
+    }
+    if (totalSteps <= 0 || totalSteps < computedMaxSteps) {
+      totalSteps = computedMaxSteps;
+    }
+
+    if (totalSteps <= 0 || totalBytes <= 0) {
       this.layoutBlocks = [];
       return;
     }
 
     this.layoutBlocks = [];
-    const scaleX = CANVAS_SIZE / this.totalSteps;
-    const scaleY = CANVAS_SIZE / this.totalBytes;
+    const scaleX = CANVAS_SIZE / totalSteps;
+    const scaleY = CANVAS_SIZE / totalBytes;
 
     const categoryColorMap = new Map<string, string>();
     let colorIdx = 0;
@@ -821,10 +850,7 @@ export class BufferAllocationTimeline
     ) {
       return 'N/A';
     }
-    return (
-      (block.size - block.unpaddedSize) /
-      (1024 * 1024)
-    ).toFixed(2);
+    return ((block.size - block.unpaddedSize) / (1024 * 1024)).toFixed(2);
   }
 
   @HostListener('document:fullscreenchange')

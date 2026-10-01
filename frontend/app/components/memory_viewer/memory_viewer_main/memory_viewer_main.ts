@@ -92,6 +92,19 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
   sourceCodeServiceIsAvailable = false;
   selectedBlock: BufferBlock | null = null;
 
+  get timelineTotalBytes(): number {
+    if (!this.memoryViewerPreprocessResult?.bufferBlocks) return 0;
+    let maxBytes = 0;
+    for (const block of this.memoryViewerPreprocessResult.bufferBlocks) {
+      const offset = block.offset ?? 0;
+      const size = block.size ?? 0;
+      if (offset + size > maxBytes) {
+        maxBytes = offset + size;
+      }
+    }
+    return maxBytes;
+  }
+
   constructor() {
     // We don't need the source code service to be persistently available.
     // We temporarily use the service to check if it is available and show

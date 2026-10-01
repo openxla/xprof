@@ -175,18 +175,26 @@ mat-divider {
 }
 
 .filter-chip {
-  --mdc-chip-container-shape-radius: 8px;
-  --mdc-chip-elevated-container-color: var(
+  --mat-chip-container-shape-radius: 8px;
+  --mat-chip-elevated-container-color: var(
     --mat-sys-secondary-container,
     #c2e7ff
   );
-  --mdc-chip-flat-container-color: var(--mat-sys-secondary-container, #c2e7ff);
-  --mdc-chip-label-text-color: var(--mat-sys-on-secondary-container, #001d35);
-  --mdc-chip-with-icon-icon-color: var(
+  --mat-chip-flat-container-color: var(--mat-sys-secondary-container, #c2e7ff);
+  --mat-chip-container-color: var(--mat-sys-secondary-container, #c2e7ff);
+  --mat-chip-label-text-color: var(--mat-sys-on-secondary-container, #001d35);
+  --mat-chip-with-icon-icon-color: var(
     --mat-sys-on-secondary-container,
     #001d35
   );
-  background-color: var(--mat-sys-secondary-container, #c2e7ff) !important;
+  --mat-chip-with-trailing-icon-trailing-icon-color: var(
+    --mat-sys-on-secondary-container,
+    #001d35
+  );
+  --mat-chip-trailing-action-icon-color: var(
+    --mat-sys-on-secondary-container,
+    #001d35
+  );
   color: var(--mat-sys-on-secondary-container, #001d35) !important;
   border-radius: 8px !important;
   font-size: 13px;
@@ -195,7 +203,7 @@ mat-divider {
   min-height: 32px;
   padding: 0 8px 0 12px;
   margin: 4px 6px 4px 0;
-  border: none;
+  border: 1px solid var(--mat-sys-outline-variant, #7cacf8);
 
   ::ng-deep {
     .mat-mdc-chip-action-label {

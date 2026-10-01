@@ -10,6 +10,23 @@ from xprof.cli.internal import hlo_shape_utils
 from xprof.cli.internal.oss import xprof_client
 from xprof.protobuf import op_profile_pb2
 
+try:
+  from google3.net.rpc.python import pywraprpc  # pylint: disable=g-import-not-at-top
+except ImportError:
+  pywraprpc = None
+
+if pywraprpc is not None:
+  _PROPAGATE_EXCEPTIONS: tuple[type[Exception], ...] = (
+      FileNotFoundError,
+      ValueError,
+      pywraprpc.RPCException,
+  )
+else:
+  _PROPAGATE_EXCEPTIONS: tuple[type[Exception], ...] = (
+      FileNotFoundError,
+      ValueError,
+  )
+
 
 # Bandwidth fields in the Roofline Model DataTable are reported in GiB/s (binary
 # gibibytes per second), not decimal GB/s. Rename them with an explicit `_gibs`
@@ -190,7 +207,7 @@ def get_profile_summary(
         indent=2,
     )
 
-  except (FileNotFoundError, ValueError):
+  except _PROPAGATE_EXCEPTIONS:
     raise
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception("Error analyzing profile for session %s", session_id)
@@ -333,9 +350,7 @@ def get_hlo_op_profile(
       # 'X and its duplicate(s)'). Fusion nodes have sub-instruction children
       # that carry 0 raw_time, so they must be treated as leaf nodes.
       children_time = (
-          sum(c.metrics.raw_time for c in node.children)
-          if node.children
-          else 0
+          sum(c.metrics.raw_time for c in node.children) if node.children else 0
       )
       if node.children and children_time > 0:
         for child in node.children:
@@ -745,7 +760,7 @@ def get_hlo_op_profile(
     }
     return json.dumps(result, indent=2)
 
-  except (FileNotFoundError, ValueError):
+  except _PROPAGATE_EXCEPTIONS:
     raise
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception(
@@ -785,7 +800,7 @@ def get_hosts(
       raise FileNotFoundError(f"No hosts found for session {session_id}.")
 
     return json.dumps(dict(hosts=hosts_data), indent=2)
-  except (FileNotFoundError, ValueError):
+  except _PROPAGATE_EXCEPTIONS:
     raise
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception("Error fetching hosts for session %s", session_id)
@@ -872,7 +887,7 @@ def get_device_information(
 
     return json.dumps(device_info, indent=2)
 
-  except (FileNotFoundError, ValueError):
+  except _PROPAGATE_EXCEPTIONS:
     raise
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception(

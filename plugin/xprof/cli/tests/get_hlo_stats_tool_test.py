@@ -6,6 +6,7 @@ formatting, and has proper error response paths.
 """
 
 import json
+import unittest
 from unittest import mock
 
 from google.protobuf import json_format
@@ -16,6 +17,11 @@ from xprof.cli.internal import decorators
 from xprof.cli.internal.oss import xprof_client
 from xprof.cli.tools import get_hlo_stats_tool
 from xprof.protobuf import hlo_stats_pb2
+
+try:
+  from google3.net.rpc.python import pywraprpc  # pylint: disable=g-import-not-at-top
+except ImportError:
+  pywraprpc = None
 
 
 class GetHloStatsToolTest(parameterized.TestCase):
@@ -522,6 +528,17 @@ class GetHloStatsToolTest(parameterized.TestCase):
     self.assertEmpty(payload["records"])
     self.assertIn("No HLO stats records found", payload["message"])
     self.assertIn("custom_call_tracing", payload["guidance"].replace("-", "_"))
+
+  @unittest.skipIf(pywraprpc is None, "pywraprpc not available in OSS")
+  def test_get_hlo_stats_propagates_rpc_exception(self):
+    if pywraprpc is None:
+      raise unittest.SkipTest("pywraprpc not available in OSS")
+    rpc = pywraprpc.RPC()
+    rpc.set_status(pywraprpc.RPC.UNREACHABLE)
+    self.mock_client.fetch.side_effect = pywraprpc.RPCException(rpc)
+
+    with self.assertRaises(pywraprpc.RPCException):
+      get_hlo_stats_tool.get_hlo_stats("session_123")
 
 
 if __name__ == "__main__":

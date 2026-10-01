@@ -3,6 +3,7 @@
 # pylint: disable=g-redundant-test-module-docstring
 
 import json
+import unittest
 from unittest import mock
 
 from absl.testing import absltest
@@ -10,6 +11,11 @@ from xprof.cli.internal import decorators
 from xprof.cli.internal import xprof_data
 from xprof.cli.internal.oss import xprof_client
 from xprof.protobuf import op_profile_pb2
+
+try:
+  from google3.net.rpc.python import pywraprpc  # pylint: disable=g-import-not-at-top
+except ImportError:
+  pywraprpc = None
 
 
 class XprofDataTest(absltest.TestCase):
@@ -480,6 +486,50 @@ class XprofDataTest(absltest.TestCase):
 
     with self.assertRaises(FileNotFoundError):
       xprof_data.get_hlo_op_profile("session_missing")
+
+  @unittest.skipIf(pywraprpc is None, "pywraprpc not available in OSS")
+  def test_get_profile_summary_propagates_rpc_exception(self):
+    if pywraprpc is None:
+      raise unittest.SkipTest("pywraprpc not available in OSS")
+    rpc = pywraprpc.RPC()
+    rpc.set_status(pywraprpc.RPC.UNREACHABLE)
+    self.mock_client.fetch.side_effect = pywraprpc.RPCException(rpc)
+
+    with self.assertRaises(pywraprpc.RPCException):
+      xprof_data.get_profile_summary("session_rpc")
+
+  @unittest.skipIf(pywraprpc is None, "pywraprpc not available in OSS")
+  def test_get_hlo_op_profile_propagates_rpc_exception(self):
+    if pywraprpc is None:
+      raise unittest.SkipTest("pywraprpc not available in OSS")
+    rpc = pywraprpc.RPC()
+    rpc.set_status(pywraprpc.RPC.UNREACHABLE)
+    self.mock_client.fetch.side_effect = pywraprpc.RPCException(rpc)
+
+    with self.assertRaises(pywraprpc.RPCException):
+      xprof_data.get_hlo_op_profile("session_rpc")
+
+  @unittest.skipIf(pywraprpc is None, "pywraprpc not available in OSS")
+  def test_get_device_information_propagates_rpc_exception(self):
+    if pywraprpc is None:
+      raise unittest.SkipTest("pywraprpc not available in OSS")
+    rpc = pywraprpc.RPC()
+    rpc.set_status(pywraprpc.RPC.UNREACHABLE)
+    self.mock_client.fetch.side_effect = pywraprpc.RPCException(rpc)
+
+    with self.assertRaises(pywraprpc.RPCException):
+      xprof_data.get_device_information("session_rpc")
+
+  @unittest.skipIf(pywraprpc is None, "pywraprpc not available in OSS")
+  def test_get_hosts_propagates_rpc_exception(self):
+    if pywraprpc is None:
+      raise unittest.SkipTest("pywraprpc not available in OSS")
+    rpc = pywraprpc.RPC()
+    rpc.set_status(pywraprpc.RPC.UNREACHABLE)
+    self.mock_client.get_hosts.side_effect = pywraprpc.RPCException(rpc)
+
+    with self.assertRaises(pywraprpc.RPCException):
+      xprof_data.get_hosts("session_rpc")
 
 
 if __name__ == "__main__":

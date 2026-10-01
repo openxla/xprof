@@ -24,7 +24,6 @@ xprof_ng_module(
     name = "framework_op_stats",
     srcs = [
         "framework_op_stats.ts",
-        "framework_op_stats_module.ts",
     ],
     assets = [
         ":framework_op_stats_css",

@@ -1,3 +1,4 @@
+import {NgClass} from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -8,6 +9,9 @@ import {
   signal,
 } from '@angular/core';
 import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatIconModule} from '@angular/material/icon';
+import {MatInputModule} from '@angular/material/input';
 import {MatSnackBar} from '@angular/material/snack-bar';
 import {ActivatedRoute, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
@@ -44,11 +48,12 @@ type Category = (typeof CATEGORIES)[number];
  * and data playground exploration.
  */
 @Component({
+  standalone: true,
   selector: 'xprof-labs',
   templateUrl: './labs.ng.html',
   styleUrls: ['./labs.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [MatFormFieldModule, MatIconModule, MatInputModule, NgClass],
 })
 export class LabsComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);

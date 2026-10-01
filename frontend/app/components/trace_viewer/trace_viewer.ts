@@ -107,14 +107,19 @@ import {
   TraceFilters,
 } from './trace_viewer_typings';
 import {
-  applyStackTraceArg,
+  EventDetails,
+  getEventDetailsArgs,
+  getEventDetailsCacheKey,
   getProcessMappingsFromWasm,
   getProcessNamesFromWasm,
+  parseEventDetails,
   parseEventsSelectedData,
+  RawTraceEvent,
+  sanitizeUid,
 } from './utils';
 
 interface TraceData {
-  traceEvents?: Array<{[key: string]: unknown}>;
+  traceEvents?: RawTraceEvent[];
   stackFrames?: {[id: string]: StackFrame};
   [key: string]: unknown;
 }
@@ -226,7 +231,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   selectionStartFormat?: string;
   selectionExtentFormat?: string;
-  private readonly eventArgsCache = new Map<string, Record<string, string>>();
+  private readonly eventArgsCache = new Map<string, EventDetails>();
   private readonly hloAdjacentNodesCache = new Map<
     string,
     AdjacentNodesResponse
@@ -968,19 +973,17 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     if (!uid || startUs === undefined || durationUs === undefined || !name) {
       return;
     }
-    const cacheKey = `${name}:${startUs}`;
+    const sanitizedUid = sanitizeUid(uid);
+    const cacheKey = getEventDetailsCacheKey(sanitizedUid, name, startUs);
     const cached = this.eventArgsCache.get(cacheKey);
     if (cached) {
-      this.hoveredEventArgs = {...cached};
+      this.hoveredEventArgs = {...cached.rawEvent.args};
       return;
     }
     const params = new Map<string, string>();
     params.set('event_name', name);
     params.set('start_time_ms', (startUs / 1000).toString());
     params.set('duration_ms', (durationUs / 1000).toString());
-    const sanitizedUid = uid.includes('.')
-      ? Math.floor(Number(uid)).toString()
-      : uid;
     params.set('unique_id', sanitizedUid);
     let host = '';
     if (pid !== undefined) {
@@ -998,21 +1001,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       )
       .pipe(takeUntil(this.destroyed))
       .subscribe((data) => {
-        const traceData = data as TraceData;
-        if (!traceData?.traceEvents?.length) {
-          return;
-        }
-        const lastEvent =
-          traceData.traceEvents[traceData.traceEvents.length - 1];
-        if (lastEvent['ph'] === 'X' && lastEvent['args']) {
-          const args = lastEvent['args'] as Record<string, string>;
-          applyStackTraceArg(
-            args,
-            lastEvent['sf'] as number | undefined,
-            traceData.stackFrames,
-          );
-          this.eventArgsCache.set(cacheKey, args);
-          this.hoveredEventArgs = {...args};
+        const details = parseEventDetails(data as TraceData | null);
+        if (details) {
+          this.eventArgsCache.set(cacheKey, details);
+          this.hoveredEventArgs = {...details.rawEvent.args};
         }
       });
   }
@@ -1030,34 +1022,18 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     uid: string;
     pid?: number;
   }): void {
-    let cachedArgs: Record<string, string> | undefined;
-    for (const [k, args] of this.eventArgsCache.entries()) {
-      const lastColon = k.lastIndexOf(':');
-      if (lastColon !== -1 && k.substring(0, lastColon) === name) {
-        const cachedStartUs = Number(k.substring(lastColon + 1));
-        if (Math.abs(cachedStartUs - startUs) < 50000) {
-          cachedArgs = args;
-          break;
-        }
-      }
-    }
-
-    if (cachedArgs) {
-      if (this.selectedEvent) {
-        this.addArgsToSelectedEvent(cachedArgs);
-      }
+    const sanitizedUid = sanitizeUid(uid);
+    const cacheKey = getEventDetailsCacheKey(sanitizedUid, name, startUs);
+    const cached = this.eventArgsCache.get(cacheKey);
+    if (cached) {
+      this.applyEventDetails(cached);
       return;
     }
-
-    const cacheKey = `${name}:${startUs}`;
 
     const params = new Map<string, string>();
     params.set('event_name', name);
     params.set('start_time_ms', (startUs / 1000).toString());
     params.set('duration_ms', (durationUs / 1000).toString());
-    const sanitizedUid = uid.includes('.')
-      ? Math.floor(Number(uid)).toString()
-      : uid;
     params.set('unique_id', sanitizedUid);
 
     let host = '';
@@ -1081,35 +1057,22 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       )
       .pipe(takeUntil(this.destroyed))
       .subscribe((data) => {
-        const traceData = data as TraceData;
-        if (
-          !traceData ||
-          !traceData.traceEvents ||
-          traceData.traceEvents.length === 0
-        ) {
-          return;
-        }
-        // TODO: Once fully migrated to Trace Viewer v2, refactor this to return
-        // a single event details object instead of returning an entire Catapult
-        // TraceData array where the slice event is implicitly assumed to be the
-        // last element.
-        const lastEvent =
-          traceData.traceEvents[traceData.traceEvents.length - 1];
-        if (
-          lastEvent['ph'] === 'X' &&
-          this.selectedEvent &&
-          lastEvent['args']
-        ) {
-          const args = lastEvent['args'] as Record<string, string>;
-          applyStackTraceArg(
-            args,
-            lastEvent['sf'] as number | undefined,
-            traceData.stackFrames,
-          );
-          this.eventArgsCache.set(cacheKey, args);
-          this.addArgsToSelectedEvent(args);
+        const details = parseEventDetails(data as TraceData | null);
+        if (details) {
+          this.eventArgsCache.set(cacheKey, details);
+          this.applyEventDetails(details);
         }
       });
+  }
+
+  /**
+   * Shows the event details returned by the backend in the details panel: the
+   * raw event as is, and its args with the resolved stack trace.
+   */
+  private applyEventDetails(details: EventDetails): void {
+    if (!this.selectedEvent) return;
+    this.selectedEvent.rawEvent = details.rawEvent;
+    this.addArgsToSelectedEvent(getEventDetailsArgs(details));
   }
 
   private addArgsToSelectedEvent(args: Record<string, string>): void {

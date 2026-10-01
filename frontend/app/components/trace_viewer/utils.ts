@@ -7,7 +7,12 @@ import {
   EventsSelectedData,
   MetricsItem,
 } from './interfaces';
-import {FilterField, FilterOperator, StackFrame} from './trace_viewer_typings';
+import {
+  FilterField,
+  FilterOperator,
+  SelectedEvent,
+  StackFrame,
+} from './trace_viewer_typings';
 
 function isMetricsItem(item: unknown): item is MetricsItem {
   if (typeof item !== 'object' || item === null) return false;
@@ -275,17 +280,101 @@ export function resolveStackTrace(
   return lines.length > 0 ? lines.join('\n') : undefined;
 }
 
+/** A trace event of a backend response, as is. */
+export type RawTraceEvent = SelectedEvent & {[key: string]: unknown};
+
 /**
- * Resolves the stack trace referenced by `sf` and, when present, injects it into
- * `args` under `STACK_TRACE_ARG_KEY`. Mutates `args` in place.
+ * The backend event details fetched for a hovered or selected event.
+ *
+ * The event is the last one of the response. Its stack trace is not part of the
+ * event but referenced by `sf` from the response-level `stackFrames` map, e.g.:
+ *
+ * ```
+ * {
+ *   "traceEvents": [
+ *     ...,  // Metadata (`ph: 'M'`) events.
+ *     {
+ *       "pid": 3, "tid": 3, "name": "fusion.1", "ts": 10051071.979,
+ *       "dur": 19.721429, "ph": "X", "args": {"hlo_category": "loop fusion"},
+ *       "sf": 1
+ *     }
+ *   ],
+ *   "stackFrames": {
+ *     "1": {"name": "%fusion.1 = f32[576,8,128]{2,1,0} fusion(...)"}
+ *   }
+ * }
+ * ```
+ *
+ * Only the resolved stack trace is kept, since `stackFrames` may hold frames of
+ * other events as well.
  */
-export function applyStackTraceArg(
-  args: {[key: string]: string},
-  sf: number | undefined,
-  stackFrames: {[id: string]: StackFrame} | undefined,
-): void {
-  const stackTrace = resolveStackTrace(sf, stackFrames);
+export interface EventDetails {
+  /** The event as returned by the backend, left unmodified. */
+  rawEvent: RawTraceEvent;
+  /** The stack trace referenced by `rawEvent.sf`, if any. */
+  stackTrace?: string;
+}
+
+/**
+ * Parses an event details response. Returns undefined if the response has no
+ * complete (`ph: 'X'`) event with args.
+ */
+export function parseEventDetails(
+  data: {
+    traceEvents?: RawTraceEvent[];
+    stackFrames?: {[id: string]: StackFrame};
+  } | null,
+): EventDetails | undefined {
+  const traceEvents = data?.traceEvents;
+  if (!traceEvents?.length) {
+    return undefined;
+  }
+  // TODO: Once fully migrated to Trace Viewer v2, refactor this to return
+  // a single event details object instead of returning an entire Catapult
+  // TraceData array where the slice event is implicitly assumed to be the
+  // last element.
+  const rawEvent = traceEvents[traceEvents.length - 1];
+  if (rawEvent.ph !== 'X' || !rawEvent.args) {
+    return undefined;
+  }
+  return {
+    rawEvent,
+    stackTrace: resolveStackTrace(rawEvent.sf, data?.stackFrames),
+  };
+}
+
+/**
+ * Returns the args of an event to show in the details panel: the raw args with
+ * the resolved stack trace under `STACK_TRACE_ARG_KEY`.
+ */
+export function getEventDetailsArgs({
+  rawEvent,
+  stackTrace,
+}: EventDetails): {[key: string]: string} {
+  const args = {...rawEvent.args};
   if (stackTrace !== undefined) {
     args[STACK_TRACE_ARG_KEY] = stackTrace;
   }
+  return args;
+}
+
+/** Truncates a uid formatted as a float by WASM, e.g. "12.0", to an integer. */
+export function sanitizeUid(uid: string): string {
+  return uid.includes('.') && !Number.isNaN(Number(uid))
+    ? Math.floor(Number(uid)).toString()
+    : uid;
+}
+
+/**
+ * Returns the key under which the details of an event are cached. Shared by the
+ * hover and selection paths, so the details fetched by one are reused by the
+ * other. Includes the uid, since events with the same name and start time,
+ * e.g. the same HLO op on different devices, have different details.
+ */
+export function getEventDetailsCacheKey(
+  sanitizedUid: string,
+  name: string,
+  startUs: number,
+): string {
+  return `${sanitizedUid}:${name}:${startUs}`;
 }

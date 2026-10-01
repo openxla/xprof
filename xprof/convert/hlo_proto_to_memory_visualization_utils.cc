@@ -292,6 +292,11 @@ class HloProtoBufferWrapper {
       if (iter.second->proto().color() != memory_color) continue;
       buffer_allocations.push_back(iter.second.get());
     }
+    std::sort(
+        buffer_allocations.begin(), buffer_allocations.end(),
+        [](const BufferAllocationStruct* a, const BufferAllocationStruct* b) {
+          return a->proto().index() < b->proto().index();
+        });
     return buffer_allocations;
   }
 
@@ -658,8 +663,12 @@ struct HeapSimulatorStats {
           "Heap size should be non-negative, but get: ", heap_size_bytes));
     }
     unpadded_heap_size_bytes -= canonical_logical_buffer->unpadded_size();
-    // Mark the end of this buffer.
-    if (canonical_logical_buffer->span) {
+    // Mark the end of this buffer if its memory was not transferred to a
+    // re-animating sharer.
+    auto it = canonical_to_display_id.find(canonical_buffer_id);
+    bool superseded = it != canonical_to_display_id.end() &&
+                      it->second != canonical_buffer_id;
+    if (canonical_logical_buffer->span && !superseded) {
       canonical_logical_buffer->span->second =
           heap_size_bytes_timeline.size() - 1;
     }
@@ -814,6 +823,7 @@ absl::Status ProcessHeapSimulatorTrace(const HloProtoBufferWrapper& wrapper,
     }
   }
   TF_RETURN_IF_ERROR(stats->FinalizeMemoryUsage());
+
   return absl::OkStatus();
 }
 
@@ -1038,8 +1048,8 @@ void ConvertAllocationTimeline(const HloProtoBufferWrapper& wrapper,
       const LogicalBufferStruct* logical_buffer =
           wrapper.GetLogicalBuffer(assigned.logical_buffer_id());
       if (logical_buffer == nullptr) continue;
-      // Exclude non-canonical logical buffers.
-      if (!logical_buffer->span || logical_buffer->canonical_buffer) continue;
+      // Exclude logical buffers without span.
+      if (!logical_buffer->span) continue;
       size_t width = logical_buffer->span->second - logical_buffer->span->first;
       size_t y = buffer_allocation_offset + logical_buffer->offset;
       size_t height = logical_buffer->size();

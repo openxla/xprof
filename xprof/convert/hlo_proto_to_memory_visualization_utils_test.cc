@@ -16,13 +16,14 @@ limitations under the License.
 #include "xprof/convert/hlo_proto_to_memory_visualization_utils.h"
 
 #include <algorithm>
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
 #include "absl/container/flat_hash_map.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
@@ -965,9 +966,9 @@ TEST(MemoryViewerTest, TestConvertAllocationTimeline_BufferBlocks) {
                           ConvertHloProtoToPreprocessResult(hlo_proto, option));
 
   // Verify that buffer_blocks is populated correctly.
-  // There is 1 container block (index 0) and 1 canonical logical buffer
-  // block (index 1).
-  ASSERT_EQ(preprocess_result.buffer_blocks_size(), 2);
+  // There is 1 container block (index 0) and 2 logical buffer blocks
+  // (canonical buffer 1 and re-animating sharer buffer 2).
+  ASSERT_EQ(preprocess_result.buffer_blocks_size(), 3);
 
   // Verify container block
   const auto& container = preprocess_result.buffer_blocks(0);
@@ -978,15 +979,25 @@ TEST(MemoryViewerTest, TestConvertAllocationTimeline_BufferBlocks) {
   EXPECT_EQ(container.end_step(), 4);
   EXPECT_EQ(container.color(), "#ffffff");
 
-  // Verify logical buffer block
+  // Verify canonical logical buffer block
   const auto& block = preprocess_result.buffer_blocks(1);
   EXPECT_EQ(block.logical_buffer_id(), 1);
   EXPECT_EQ(block.name(), "fusion.1{0}");
   EXPECT_EQ(block.offset(), 0);
   EXPECT_EQ(block.size(), 524288);
   EXPECT_EQ(block.start_step(), 0);
-  EXPECT_EQ(block.end_step(), 3);
+  EXPECT_EQ(block.end_step(), 1);
   EXPECT_EQ(block.category(), "Temporary");
+
+  // Verify re-animating sharer logical buffer block
+  const auto& block2 = preprocess_result.buffer_blocks(2);
+  EXPECT_EQ(block2.logical_buffer_id(), 2);
+  EXPECT_EQ(block2.name(), "fusion.2{0}");
+  EXPECT_EQ(block2.offset(), 524288);
+  EXPECT_EQ(block2.size(), 524288);
+  EXPECT_EQ(block2.start_step(), 2);
+  EXPECT_EQ(block2.end_step(), 3);
+  EXPECT_EQ(block2.category(), "Temporary");
 }
 
 TEST(MemoryViewerTest, TestAllocationTimelineLabels) {
@@ -1229,6 +1240,205 @@ TEST(MemoryViewerTest, TestAllocationTimelineFontSizeScaling) {
   // Small buffer: size 1000, rect_h = 4.096.
   // Font size = 4.096 * 0.6 = 2.46 -> clamped to 8.0.
   EXPECT_NEAR(rects[2].fontsize, 8.0, 0.01);
+}
+
+TEST(MemoryViewerTest, TestShareWithDoesNotOverwriteCanonicalLifespan) {
+  // Buffer 1 is allocated at step 0 and freed at step 1.
+  // Buffer 2 shares with canonical buffer 1 at step 2 and is freed at step 3.
+  // The canonical buffer 1's lifespan should end at step 1, not be overwritten
+  // to step 3 when buffer 2 is freed.
+  static constexpr char kHeapSimulatorTrace[] = R"pb(
+    events { kind: ALLOC buffer_id: 1 }
+    events { kind: FREE buffer_id: 1 }
+    events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 }
+    events { kind: FREE buffer_id: 2 }
+  )pb";
+  std::string hlo_string = absl::StrFormat(kHLOBase, kHeapSimulatorTrace);
+  xla::HloProto hlo_proto;
+  MemoryViewerOption option;
+  option.small_buffer_size = 0;
+  ASSERT_TRUE(ParseTextFormatFromString(hlo_string, &hlo_proto).ok());
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult preprocess_result,
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
+
+  ASSERT_EQ(preprocess_result.buffer_blocks_size(), 3);
+  const auto& block = preprocess_result.buffer_blocks(1);
+  EXPECT_EQ(block.logical_buffer_id(), 1);
+  EXPECT_EQ(block.start_step(), 0);
+  EXPECT_EQ(block.end_step(), 1);
+
+  const auto& block2 = preprocess_result.buffer_blocks(2);
+  EXPECT_EQ(block2.logical_buffer_id(), 2);
+  EXPECT_EQ(block2.start_step(), 2);
+  EXPECT_EQ(block2.end_step(), 3);
+}
+
+// Reproduction for b/556388024.
+//
+// One temporary allocation whose bytes are handed out three times:
+//   step 0  ALLOC        lb1   (fusion.1)
+//   step 1  FREE         lb1   -> the bytes are now free
+//   step 2  ALLOC        lb3   (fusion.3) reuses the same bytes
+//   step 3  FREE         lb3
+//   step 4  SHARE_WITH   lb2 -> lb1  (fusion.2) re-animates lb1's canonical
+//   step 5  FREE         lb2
+//
+// lb1 is dead over steps 2 and 3, which is exactly when lb3 owns the bytes.
+// Nothing here is simultaneous, so no two blocks may share bytes and steps.
+static constexpr char kHLOReanimatedBuffer[] = R"pb(
+  hlo_module {
+    name: "test_module"
+    entry_computation_name: "test_computation"
+    computations {
+      name: "test_computation"
+      instructions {
+        name: "fusion.1"
+        id: 0
+        shape { tuple_shapes { element_type: U64 } }
+      }
+      instructions {
+        name: "fusion.2"
+        id: 1
+        shape { tuple_shapes { element_type: U64 } }
+      }
+      instructions {
+        name: "fusion.3"
+        id: 2
+        shape { tuple_shapes { element_type: U64 } }
+      }
+    }
+  }
+  buffer_assignment {
+    buffer_allocations {
+      index: 0
+      size: 524288
+      color: 0
+      assigned { logical_buffer_id: 1 offset: 0 size: 524288 }
+      assigned { logical_buffer_id: 2 offset: 0 size: 524288 }
+      assigned { logical_buffer_id: 3 offset: 0 size: 524288 }
+    }
+    logical_buffers {
+      id: 1
+      size: 524288
+      color: 0
+      defined_at { instruction_id: 0 shape_index: 0 }
+    }
+    logical_buffers {
+      id: 2
+      size: 524288
+      color: 0
+      defined_at { instruction_id: 1 shape_index: 0 }
+    }
+    logical_buffers {
+      id: 3
+      size: 524288
+      color: 0
+      defined_at { instruction_id: 2 shape_index: 0 }
+    }
+    heap_simulator_traces {
+      events { kind: ALLOC buffer_id: 1 }
+      events { kind: FREE buffer_id: 1 }
+      events { kind: ALLOC buffer_id: 3 }
+      events { kind: FREE buffer_id: 3 }
+      events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 }
+      events { kind: FREE buffer_id: 2 }
+    }
+  }
+)pb";
+
+absl::StatusOr<PreprocessResult> RunReanimatedBufferCase() {
+  xla::HloProto hlo_proto;
+  MemoryViewerOption option;
+  option.small_buffer_size = 0;
+  option.timeline_option.render_timeline = true;
+  if (auto status = ParseTextFormatFromString(kHLOReanimatedBuffer, &hlo_proto);
+      !status.ok()) {
+    return status;
+  }
+  return ConvertHloProtoToPreprocessResult(hlo_proto, option);
+}
+
+// Case 1: every logical buffer must be drawn over the steps where it is live,
+// and only those steps.
+TEST(MemoryViewerTest, TestReanimatedBufferSpanStopsAtItsOwnFree) {
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result, RunReanimatedBufferCase());
+
+  absl::flat_hash_map<int32_t, const BufferBlockProto*> by_id;
+  for (const auto& block : result.buffer_blocks()) {
+    if (block.logical_buffer_id() < 0) continue;  // container
+    by_id[block.logical_buffer_id()] = &block;
+  }
+
+  ASSERT_TRUE(by_id.contains(1)) << "lb1 (fusion.1) was not drawn";
+  EXPECT_EQ(by_id[1]->start_step(), 0);
+  EXPECT_EQ(by_id[1]->end_step(), 1)
+      << "lb1 is freed at step 1 and is dead until the SHARE_WITH at step 4";
+
+  ASSERT_TRUE(by_id.contains(3)) << "lb3 (fusion.3) was not drawn";
+  EXPECT_EQ(by_id[3]->start_step(), 2);
+  EXPECT_EQ(by_id[3]->end_step(), 3);
+
+  ASSERT_TRUE(by_id.contains(2))
+      << "lb2 (fusion.2) owns the bytes over steps 4..5 and must be drawn";
+  EXPECT_EQ(by_id[2]->start_step(), 4);
+  EXPECT_EQ(by_id[2]->end_step(), 5);
+}
+
+// Case 2: the same property stated as an invariant over buffer_blocks, which
+// is what the Angular canvas renders. Two blocks may not share bytes and
+// steps at the same time.
+TEST(MemoryViewerTest, TestReanimatedBufferBlocksDoNotOverlap) {
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result, RunReanimatedBufferCase());
+
+  std::vector<const BufferBlockProto*> blocks;
+  for (const auto& block : result.buffer_blocks()) {
+    if (block.logical_buffer_id() < 0) continue;  // container
+    blocks.push_back(&block);
+  }
+  ASSERT_GT(blocks.size(), 1);
+
+  for (size_t i = 0; i < blocks.size(); ++i) {
+    for (size_t j = i + 1; j < blocks.size(); ++j) {
+      const BufferBlockProto& a = *blocks[i];
+      const BufferBlockProto& b = *blocks[j];
+      bool bytes_overlap = a.offset() < b.offset() + b.size() &&
+                           b.offset() < a.offset() + a.size();
+      bool steps_overlap =
+          a.start_step() <= b.end_step() && b.start_step() <= a.end_step();
+      EXPECT_FALSE(bytes_overlap && steps_overlap)
+          << "Blocks overlap:\n"
+          << "  " << a.name() << " bytes [" << a.offset() << ","
+          << a.offset() + a.size() << ") steps [" << a.start_step() << ","
+          << a.end_step() << "]\n"
+          << "  " << b.name() << " bytes [" << b.offset() << ","
+          << b.offset() + b.size() << ") steps [" << b.start_step() << ","
+          << b.end_step() << "]";
+    }
+  }
+}
+
+// Case 3: the same input run through the existing DOT-based overlap check
+// used by TestLogicalBuffersDoNotOverlap.
+TEST(MemoryViewerTest, TestReanimatedBufferDotRectsDoNotOverlap) {
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result, RunReanimatedBufferCase());
+  ASSERT_FALSE(result.allocation_timeline().empty());
+
+  std::vector<DoubleRectInfo> rects =
+      ParseLogicalBuffersFromDot(result.allocation_timeline());
+  ASSERT_GT(rects.size(), 1);
+
+  for (size_t i = 0; i < rects.size(); ++i) {
+    for (size_t j = i + 1; j < rects.size(); ++j) {
+      EXPECT_FALSE(RectsOverlap(rects[i], rects[j]))
+          << "Overlap detected between:\n"
+          << "Rect " << i << ": " << rects[i].tooltip
+          << " (pos: " << rects[i].pos_x << "," << rects[i].pos_y
+          << " size: " << rects[i].width << "x" << rects[i].height << ")\n"
+          << "Rect " << j << ": " << rects[j].tooltip
+          << " (pos: " << rects[j].pos_x << "," << rects[j].pos_y
+          << " size: " << rects[j].width << "x" << rects[j].height << ")";
+    }
+  }
 }
 
 }  // namespace

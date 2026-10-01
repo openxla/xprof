@@ -16,12 +16,12 @@ limitations under the License.
 #include "xprof/convert/op_metrics_db_combiner.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <utility>
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/check.h"
 #include "xla/tsl/platform/logging.h"
-#include "xla/tsl/platform/types.h"
 #include "tsl/platform/protobuf.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/source_info.pb.h"
@@ -35,6 +35,31 @@ using OperationType = OpMetrics::MemoryAccessed::OperationType;
 void CombinePrecisionStats(const PrecisionStats& src, PrecisionStats* dst) {
   dst->set_compute_16bit_ps(src.compute_16bit_ps() + dst->compute_16bit_ps());
   dst->set_compute_32bit_ps(src.compute_32bit_ps() + dst->compute_32bit_ps());
+}
+
+// Combines `src_children` into `dst->children()`, matching child ops by
+// (hlo_module_id, name). Children are aggregated like top-level ops, so nested
+// metrics (e.g. SparseCore ops under a TensorCore offload op) are summed across
+// cores instead of keeping only the first core's copy.
+void CombineChildren(const OpMetricsDb& src_children, OpMetrics* dst,
+                     bool update_num_cores) {
+  if (!dst->has_children()) {
+    *dst->mutable_children() = src_children;
+    return;
+  }
+  const bool has_precision_stats = dst->children().has_precision_stats() ||
+                                   src_children.has_precision_stats();
+  // OpMetricsDbCombiner only indexes ops it inserts itself, so rebuild the
+  // children from the existing dst children plus src. Combining into an empty
+  // db is an exact copy, so the existing values are preserved.
+  OpMetricsDb combined_children;
+  OpMetricsDbCombiner children_combiner(&combined_children);
+  children_combiner.Combine(dst->children(), update_num_cores);
+  children_combiner.Combine(src_children, update_num_cores);
+  // Combine() always creates precision_stats; don't add an empty one that
+  // neither input had.
+  if (!has_precision_stats) combined_children.clear_precision_stats();
+  *dst->mutable_children() = std::move(combined_children);
 }
 
 }  // namespace
@@ -60,9 +85,6 @@ void CopyOpMetricsMetadata(const OpMetrics& src, OpMetrics* dst) {
   }
   if (!dst->has_layout() && src.has_layout()) {
     *dst->mutable_layout() = src.layout();
-  }
-  if (!dst->has_children() && src.has_children()) {
-    *dst->mutable_children() = src.children();
   }
   if (!dst->has_source_info() && src.has_source_info()) {
     *dst->mutable_source_info() = src.source_info();
@@ -157,6 +179,9 @@ void OpMetricsDbCombiner::Combine(const OpMetricsDb& src,
                                                    src_metrics.name());
     CopyOpMetricsMetadata(src_metrics, dst_metrics);
     CombineOpMetrics(src_metrics, dst_metrics, update_num_cores);
+    if (src_metrics.has_children()) {
+      CombineChildren(src_metrics.children(), dst_metrics, update_num_cores);
+    }
   }
 }
 

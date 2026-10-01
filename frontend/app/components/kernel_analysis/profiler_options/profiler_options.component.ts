@@ -1,5 +1,6 @@
 import {CommonModule} from '@angular/common';
 import {
+  CUSTOM_ELEMENTS_SCHEMA,
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
@@ -11,12 +12,12 @@ import {FormGroup, ReactiveFormsModule} from '@angular/forms';
 import {MatButtonModule} from '@angular/material/button';
 import {MatButtonToggleModule} from '@angular/material/button-toggle';
 import {MatCheckboxModule} from '@angular/material/checkbox';
-import {MatDialog, MatDialogModule} from '@angular/material/dialog';
 import {MatDividerModule} from '@angular/material/divider';
 import {MatIconModule} from '@angular/material/icon';
 import {MatInputModule} from '@angular/material/input';
 import {MatRadioModule} from '@angular/material/radio';
 import {MatSelectModule} from '@angular/material/select';
+import '@material/web/dialog/dialog.js';
 import {
   DATA_SERVICE_INTERFACE_TOKEN,
   type DataServiceV2Interface,
@@ -43,7 +44,7 @@ import {
   imports: [
     CommonModule,
     ReactiveFormsModule,
-    MatDialogModule,
+    CounterSelectionComponent,
     MatRadioModule,
     MatInputModule,
     MatCheckboxModule,
@@ -53,6 +54,7 @@ import {
     MatSelectModule,
     MatDividerModule,
   ],
+  schemas: [CUSTOM_ELEMENTS_SCHEMA],
   templateUrl: './profiler_options.component.html',
   styleUrls: ['./profiler_options.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -63,10 +65,13 @@ export class ProfilerOptionsComponent implements OnInit {
   selectedComponent: 'tc' | 'scs' | 'sctc' | 'sctd' | 'cmn' | 'icr' = 'tc';
   tpuGenerations = TPU_GENERATIONS;
 
+  activeCustomizeGroup: string | null = null;
+  customizeConfig: CounterSelectionConfig = {groups: []};
+  customizeSelectedIds: string[] = [];
+
   private readonly dataService: DataServiceV2Interface = inject(
     DATA_SERVICE_INTERFACE_TOKEN,
   );
-  private readonly dialog = inject(MatDialog);
   private readonly cdr = inject(ChangeDetectorRef);
   allCounters: Counter[] = [];
 
@@ -187,24 +192,57 @@ export class ProfilerOptionsComponent implements OnInit {
     const currentSelections = group?.get('indices')?.value || [];
     const selectedIds = currentSelections.map((v: number) => String(v));
 
-    const dialogRef = this.dialog.open(CounterSelectionComponent, {
-      width: '1150px',
-      maxWidth: 'none',
-      height: '650px',
-      data: {
-        config,
-        selectedIds,
-      },
-    });
-
-    dialogRef.afterClosed().subscribe((result: string[]) => {
-      if (result) {
-        const numericIndices = result
-          .map((id) => Number(id))
-          .sort((a, b) => a - b);
-        group?.get('indices')?.setValue(numericIndices);
-        this.cdr.markForCheck();
+    this.customizeConfig = config;
+    this.customizeSelectedIds = selectedIds;
+    this.activeCustomizeGroup = groupName;
+    this.cdr.markForCheck();
+    const dialogEl = document.querySelector(
+      'md-dialog.counter-selection-dialog',
+    );
+    if (dialogEl) {
+      Object.defineProperty(dialogEl, 'isAtScrollTop', {
+        get: () => true,
+        set: () => {},
+        configurable: true,
+      });
+      Object.defineProperty(dialogEl, 'isAtScrollBottom', {
+        get: () => true,
+        set: () => {},
+        configurable: true,
+      });
+      if (
+        dialogEl.shadowRoot &&
+        !dialogEl.shadowRoot.querySelector('#top-layer-backdrop-style')
+      ) {
+        const style = document.createElement('style');
+        style.id = 'top-layer-backdrop-style';
+        style.textContent = `
+          dialog::backdrop {
+            background: rgba(0, 0, 0, 0.32);
+          }
+          .scrim {
+            display: none !important;
+          }
+        `;
+        dialogEl.shadowRoot.appendChild(style);
       }
-    });
+    }
+  }
+
+  onCustomizeApplied(result: string[]) {
+    const groupName = this.activeCustomizeGroup;
+    if (groupName && result && this.formGroup) {
+      const group = this.formGroup.get(groupName);
+      const numericIndices = result
+        .map((id) => Number(id))
+        .sort((a, b) => a - b);
+      group?.get('indices')?.setValue(numericIndices);
+    }
+    this.closeCustomizeDialog();
+  }
+
+  closeCustomizeDialog() {
+    this.activeCustomizeGroup = null;
+    this.cdr.markForCheck();
   }
 }

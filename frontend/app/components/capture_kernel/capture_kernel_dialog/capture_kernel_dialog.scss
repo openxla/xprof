@@ -1,11 +1,23 @@
 @use 'frontend/app/styles/common';
 
-mat-dialog-content {
-  max-height: none; // Override default max-height
+:host {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
 }
 
-mat-dialog-actions {
+.dialog-content {
+  flex: 1;
+  overflow: auto;
+  max-height: none; // Override default max-height
+  padding: 20px 24px;
+}
+
+.dialog-actions {
+  display: flex;
   justify-content: flex-end;
+  padding: 8px 24px 20px;
 }
 
 .mat-mdc-raised-button {

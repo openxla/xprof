@@ -4,17 +4,17 @@ import {PlatformLocation} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   ElementRef,
   inject,
   Injector,
   OnDestroy,
   OnInit,
-  TemplateRef,
   ViewChild,
 } from '@angular/core';
-import {MatDialog, MatDialogRef} from '@angular/material/dialog';
 import {ActivatedRoute, Router} from '@angular/router';
+import '@material/web/dialog/dialog.js';
 import {Store} from '@ngrx/store';
 import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
 import {
@@ -191,7 +191,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private navigationEvent: NavigationEvent = {};
   private readonly injector = inject(Injector);
   private readonly store = inject(Store<{}>);
-  private readonly dialog = inject(MatDialog);
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly router = inject(Router);
   private readonly dataService = inject(DataServiceV2);
   private readonly platformLocation = inject(PlatformLocation);
@@ -266,21 +266,12 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild(TraceViewerContainer, {static: false})
   container?: TraceViewerContainer;
 
-  @ViewChild('settingsDialog', {static: false})
-  settingsDialog!: TemplateRef<{}>;
-
-  @ViewChild('paletteDialog', {static: false})
-  paletteDialog!: TemplateRef<{}>;
-
-  @ViewChild('featureFlagsDialog', {static: false})
-  featureFlagsDialog!: TemplateRef<{}>;
-
   @ViewChild('settingsButton') settingsButton!: ElementRef<HTMLButtonElement>;
 
   @ViewChild('filterInput', {static: false})
   filterInput?: FilterInput;
 
-  settingsDialogRef: MatDialogRef<unknown> | null = null;
+  isSettingsDialogOpen = false;
 
   selectedFilters: FilterEntry[] = [];
   validFilterFields = FILTER_FIELDS;
@@ -383,7 +374,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     for (const flag of this.featureFlags) {
       saveFeatureFlag(flag.id, flag.value, flag.default);
     }
-    this.dialog.closeAll();
+    this.closeSettingsDialog();
     this.reload();
   }
 
@@ -1726,9 +1717,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   toggleSettings(tab: SettingsTab = SettingsTab.GENERAL): void {
-    if (this.settingsDialogRef) {
-      this.settingsDialogRef.close();
-      this.settingsDialogRef = null;
+    if (this.isSettingsDialogOpen) {
+      this.closeSettingsDialog();
       return;
     }
     this.openSettings(tab);
@@ -1760,7 +1750,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   openSettings(tab: SettingsTab = SettingsTab.GENERAL): void {
-    if (this.settingsDialogRef) {
+    if (this.isSettingsDialogOpen) {
       this.setSettingsTab(tab);
       return;
     }
@@ -1788,31 +1778,44 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     }
     this.initialFeatureFlags = newInitialFeatureFlags;
 
-    const dialogTemplate =
-      this.settingsDialog || this.paletteDialog || this.featureFlagsDialog;
-    const dialogRef = this.dialog.open(dialogTemplate, {
-      width: '760px',
-      maxWidth: '95vw',
-      panelClass: 'settings-dialog-mat-dialog-container',
-      disableClose: false,
-    });
-    this.settingsDialogRef = dialogRef;
-
-    dialogRef?.afterClosed().subscribe((result: string | undefined) => {
-      this.settingsDialogRef = null;
-      if (result && this.traceViewerModule) {
-        this.selectedPalette = result;
-        if (result === CUSTOM_PALETTE_NAME) {
-          this.saveCustomColors();
-          this.applyCustomColors();
-        } else {
-          this.traceViewerModule?.SetPalette?.(result);
-        }
-        window.localStorage.setItem(COLOR_PALETTE_STORAGE_KEY, result);
+    this.isSettingsDialogOpen = true;
+    this.cdr.detectChanges();
+    const dialogEl = document.querySelector('md-dialog.settings-dialog');
+    if (dialogEl) {
+      Object.defineProperty(dialogEl, 'isAtScrollTop', {
+        get: () => true,
+        set: () => {},
+        configurable: true,
+      });
+      Object.defineProperty(dialogEl, 'isAtScrollBottom', {
+        get: () => true,
+        set: () => {},
+        configurable: true,
+      });
+      if (
+        dialogEl.shadowRoot &&
+        !dialogEl.shadowRoot.querySelector('#top-layer-backdrop-style')
+      ) {
+        const style = document.createElement('style');
+        style.id = 'top-layer-backdrop-style';
+        style.textContent = `
+          dialog::backdrop {
+            background: rgba(0, 0, 0, 0.32);
+          }
+          .scrim {
+            display: none !important;
+          }
+        `;
+        dialogEl.shadowRoot.appendChild(style);
       }
-      this.loadGeneralSettings();
-      this.loadCustomColors();
-    });
+    }
+  }
+
+  closeSettingsDialog(): void {
+    this.isSettingsDialogOpen = false;
+    this.cdr.detectChanges();
+    this.loadGeneralSettings();
+    this.loadCustomColors();
   }
 
   saveColorSettings(): void {

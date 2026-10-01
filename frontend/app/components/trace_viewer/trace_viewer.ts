@@ -845,6 +845,9 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
     this.selectedEvent = {
       name,
+      pid,
+      ts: startUs,
+      dur: durationUs,
       startUsFormatted,
       durationUsFormatted,
     };

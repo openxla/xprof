@@ -176,7 +176,16 @@ export interface SelectedEvent {
   hloOpName?: string;
   args?: Record<string, unknown>;
   pid?: number;
+  tid?: number;
+  ts?: number;
+  dur?: number;
+  ph?: string;
   uid?: string;
+  /**
+   * The event as returned by the backend event details response, rendered as
+   * is in the details panel.
+   */
+  rawEvent?: {[key: string]: unknown};
   [key: string]: unknown;
 }
 
@@ -217,8 +226,9 @@ export declare interface TooltipFrameCrumb {
 /** Canonical display order for properties shown in the right details pane. */
 export const RIGHT_SIDE_PROPERTY_ORDER: Record<string, number> = {
   'HLO Text': 1,
-  'Operands': 2,
-  'Consumers': 3,
+  'Stack Trace': 2,
+  'Operands': 3,
+  'Consumers': 4,
 };
 
 /**
@@ -509,7 +519,12 @@ export class TraceViewerContainer
 
     this.leftSideProperties = data.filter((prop) => {
       const p = prop['property'];
-      return p !== 'Operands' && p !== 'Consumers' && !isHloTextProperty(prop);
+      return (
+        p !== 'Operands' &&
+        p !== 'Consumers' &&
+        p !== 'Start Stack Trace' &&
+        !isHloTextProperty(prop)
+      );
     });
 
     const seenProperties = new Set<string>();
@@ -530,6 +545,8 @@ export class TraceViewerContainer
                 : prop['value'],
           });
         }
+      } else if (p === 'Start Stack Trace') {
+        rightProps.push({...prop, property: 'Stack Trace'});
       }
     }
     rightProps.sort((a, b) => {
@@ -823,12 +840,13 @@ export class TraceViewerContainer
 
   /**
    * Builds the object rendered by the JSON tree view in the v2 details panel
-   * from the selected event: its identity, timing and, once resolved, the full
-   * args map (the stack trace is already resolved into args by the parent
-   * component). The object is built as soon as an event is selected, so the
-   * JSON tree renders immediately with the identity/timing fields and simply
-   * gains an `args` node once args are fetched, avoiding a jarring switch from
-   * the flat property rows to the tree view.
+   * from the selected event. The object is built as soon as an event is
+   * selected, so the JSON tree renders immediately with the basic info from
+   * WASM (pid, name, ts, dur, ph) and is then replaced by the backend event
+   * details response as is once it is fetched, avoiding a jarring switch from
+   * the flat property rows to the tree view. Data derived by the parent
+   * component (e.g. the resolved stack trace, Operands and Consumers) is shown
+   * in the right side instead.
    * Returns `undefined` only when there is no selected event.
    */
   private buildSelectedEventJson(): Record<string, unknown> | undefined {
@@ -836,13 +854,26 @@ export class TraceViewerContainer
     if (!event) {
       return undefined;
     }
-    const json: Record<string, unknown> = {
-      'name': event.name,
-      'startUs': event.startUs,
-      'durationUs': event.durationUs,
-      'pid': event.pid,
-    };
-    if (event.args && Object.keys(event.args).length > 0) {
+    if (event.rawEvent) {
+      return {...event.rawEvent};
+    }
+    // Uses the field names and order of the backend response. Fields that are
+    // not known yet (e.g. `tid`) are omitted.
+    const fields: Array<[string, unknown]> = [
+      ['pid', event.pid],
+      ['tid', event.tid],
+      ['name', event.name],
+      ['ts', event.ts],
+      ['dur', event.dur],
+      ['ph', event.ph],
+    ];
+    const json: Record<string, unknown> = {};
+    for (const [key, value] of fields) {
+      if (value !== undefined) {
+        json[key] = value;
+      }
+    }
+    if (event.args) {
       json['args'] = formatHloArgsForJsonTree(event.args);
     }
     return json;

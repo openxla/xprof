@@ -5,7 +5,9 @@ correctly, handles sorting by different metrics, supports Markdown and JSON
 formatting, and has proper error response paths.
 """
 
+import io
 import json
+import sys
 from unittest import mock
 
 from google.protobuf import json_format
@@ -511,6 +513,7 @@ class GetHloStatsToolTest(parameterized.TestCase):
     self.assertEqual(records[0]["bound_by"], "Compute")
     self.assertEqual(records[0]["source_file"], "transformer.py")
     self.assertEqual(records[0]["source_line"], 5841)
+    self.assertEqual(records[0]["core_type"], "TensorCore")
 
   def test_empty_records_returns_no_data_envelope(self):
     db = hlo_stats_pb2.HloStatsDatabase()
@@ -522,6 +525,134 @@ class GetHloStatsToolTest(parameterized.TestCase):
     self.assertEmpty(payload["records"])
     self.assertIn("No HLO stats records found", payload["message"])
     self.assertIn("custom_call_tracing", payload["guidance"].replace("-", "_"))
+
+  def _create_database_with_nested(self) -> hlo_stats_pb2.HloStatsDatabase:
+    """Mirrors ConvertOpStatsToHloStats output for a SparseCore offload."""
+    db = hlo_stats_pb2.HloStatsDatabase()
+    parent = db.hlo_stats_record.add()
+    parent.rank = 1
+    parent.hlo_category = "async-done"
+    parent.hlo_expression = "%reduce-scatter.1.call-done = f32[8] async-done()"
+    parent.occurrences = 2
+    parent.total_self_time_in_us = 800.0
+    parent.total_self_time_as_fraction = 0.8
+    parent.core_type = "TensorCore"
+    # Child SparseCore op: unranked, fraction 0; its time is on the SparseCore.
+    child = db.hlo_stats_record.add()
+    child.rank = 0
+    child.hlo_category = "reduce-scatter"
+    child.hlo_expression = "%reduce-scatter.1 = f32[8] reduce-scatter()"
+    child.occurrences = 1
+    child.total_self_time_in_us = 500.0
+    child.core_type = "SparseCore"
+    child.parent_op_name = "reduce-scatter.1.call-done"
+    other = db.hlo_stats_record.add()
+    other.rank = 2
+    other.hlo_category = "fusion"
+    other.hlo_expression = "%fusion.2 = f32[8] fusion()"
+    other.occurrences = 1
+    other.total_self_time_in_us = 200.0
+    other.total_self_time_as_fraction = 0.2
+    other.core_type = "TensorCore"
+    return db
+
+  def test_nested_operations_hidden_by_default(self):
+    db = self._create_database_with_nested()
+    self.mock_client.fetch.return_value = (None, db.SerializeToString())
+
+    with mock.patch.object(sys, "stderr", new_callable=io.StringIO) as stderr:
+      records = json.loads(get_hlo_stats_tool.get_hlo_stats("session_123"))
+
+    self.assertEqual(
+        [r["op_name"] for r in records],
+        ["reduce-scatter.1.call-done", "fusion.2"],
+    )
+    self.assertEqual([r["rank"] for r in records], [1, 2])
+    self.assertEqual(records[0]["core_type"], "TensorCore")
+    self.assertEqual(records[0]["parent_op_name"], "")
+    self.assertIn("xprof-note: hid 1 nested operation(s)", stderr.getvalue())
+    self.assertIn("--include_nested=True", stderr.getvalue())
+
+  def test_include_nested_marks_child_rows(self):
+    db = self._create_database_with_nested()
+    self.mock_client.fetch.return_value = (None, db.SerializeToString())
+
+    with mock.patch.object(sys, "stderr", new_callable=io.StringIO) as stderr:
+      records = json.loads(
+          get_hlo_stats_tool.get_hlo_stats("session_123", include_nested=True)
+      )
+
+    self.assertNotIn("xprof-note", stderr.getvalue())
+    self.assertEqual(
+        [r["op_name"] for r in records],
+        ["reduce-scatter.1.call-done", "reduce-scatter.1", "fusion.2"],
+    )
+    child = records[1]
+    self.assertEqual(child["rank"], 0)
+    self.assertEqual(child["self_time_percent"], 0.0)
+    self.assertEqual(child["core_type"], "SparseCore")
+    self.assertEqual(child["parent_op_name"], "reduce-scatter.1.call-done")
+
+  def test_only_nested_match_returns_no_data_with_hint(self):
+    db = self._create_database_with_nested()
+    self.mock_client.fetch.return_value = (None, db.SerializeToString())
+
+    payload = json.loads(
+        get_hlo_stats_tool.get_hlo_stats(
+            "session_123", category_filter="reduce-scatter"
+        )
+    )
+
+    self.assertEqual(payload["status"], "NO_DATA")
+    self.assertEmpty(payload["records"])
+    self.assertIn("--include_nested=True", payload["message"])
+
+  def test_datatable_nested_row_hidden_by_default(self):
+    datatable_json = {
+        "cols": [
+            {"id": "rank", "type": "number"},
+            {"id": "category", "type": "string"},
+            {"id": "hlo_op_expression", "type": "string"},
+            {"id": "total_self_time", "type": "number"},
+            {"id": "core_type", "type": "string"},
+            {"id": "parent_op_name", "type": "string"},
+        ],
+        "rows": [
+            {
+                "c": [
+                    {"v": 1},
+                    {"v": "async-done"},
+                    {"v": "%rs.1.call-done = f32[8] async-done()"},
+                    {"v": 800.0},
+                    {"v": "TensorCore"},
+                    {"v": ""},
+                ]
+            },
+            {
+                "c": [
+                    {"v": 0},
+                    {"v": "reduce-scatter"},
+                    {"v": "%rs.1 = f32[8] reduce-scatter()"},
+                    {"v": 500.0},
+                    {"v": "SparseCore"},
+                    {"v": "rs.1.call-done"},
+                ]
+            },
+        ],
+    }
+    self.mock_client.fetch.return_value = (
+        None,
+        json.dumps(datatable_json).encode("utf-8"),
+    )
+
+    records = json.loads(get_hlo_stats_tool.get_hlo_stats("session_dt"))
+    self.assertEqual([r["op_name"] for r in records], ["rs.1.call-done"])
+
+    records = json.loads(
+        get_hlo_stats_tool.get_hlo_stats("session_dt", include_nested=True)
+    )
+    self.assertEqual(records[1]["parent_op_name"], "rs.1.call-done")
+    self.assertEqual(records[1]["core_type"], "SparseCore")
 
 
 if __name__ == "__main__":

@@ -18,7 +18,8 @@ Run the CLI command with optional sorting, filtering, and row limits:
 xprof get_hlo_stats <logdir> \
    [--limit=<LIMIT>] \
    [--sort_by=<METRIC>] \
-   [--category_filter=<CATEGORY>]
+   [--category_filter=<CATEGORY>] \
+   [--include_nested=True]
 ```
 
 ### Arguments
@@ -31,8 +32,33 @@ xprof get_hlo_stats <logdir> \
     and `'bandwidth'` (default: `'self_time'`).
 -   `--category_filter` (optional): Substring filter on `hlo_category` (e.g.
     `'custom-call'`, `'convolution fusion'`, `'loop fusion'`).
+-   `--include_nested` (optional): Also return nested operations (default:
+    `False`). See [Nested operations](#nested-operations).
 -   `--bypass_cache` (optional): Recompute metrics without reading from cache
     (default: `False`).
+
+## Output
+
+A JSON list of operations. Each row includes `rank`, `self_time_percent`,
+`core_type` (`TensorCore` or `SparseCore`) and `parent_op_name`.
+
+### Nested operations
+
+On TPUs with SparseCore offload (e.g. v7x collectives), a TensorCore offload op
+starts work on a SparseCore (e.g. `reduce-scatter.542` under
+`reduce-scatter.543.cloned.1.call-start`). The SparseCore op is listed as a
+nested op: it has a non-empty `parent_op_name`, `core_type: SparseCore`,
+`rank: 0` and `self_time_percent: 0`. Its time is SparseCore time, not part of
+the TensorCore device time that top-level rows are ranked against, so it is not
+ranked and must never be added to top-level rows. Whether the parent's
+`async-done`/`call-done` also covers that time depends on whether the
+TensorCore waits for the SparseCore; it can be far shorter than the nested op.
+
+Nested ops are hidden by default, so the default output does not show
+SparseCore busy time. stderr gets one `xprof-note: hid N nested operation(s)`
+line when any were hidden. Pass `--include_nested=True` to see them. With
+`--include_nested=True`, nested rows count against `--limit`, so raise `--limit`
+if you still need the full top-N of top-level ops.
 
 ## Example Usage
 
@@ -46,4 +72,10 @@ xprof get_hlo_stats <logdir> \
 
     ```bash
     xprof get_hlo_stats /path/to/logdir --category_filter="custom-call" --sort_by=bandwidth
+    ```
+
+3.  **SparseCore Collectives Inside Offload Ops**:
+
+    ```bash
+    xprof get_hlo_stats /path/to/logdir --include_nested=True --category_filter="reduce-scatter"
     ```

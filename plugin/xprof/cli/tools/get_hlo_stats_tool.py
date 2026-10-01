@@ -4,6 +4,7 @@ import dataclasses
 import json
 import logging
 import re
+import sys
 from typing import Any
 
 from google.protobuf import json_format
@@ -26,7 +27,8 @@ class HloOperationStats:
   """Statistics for an HLO operation.
 
   Attributes:
-    rank: The rank of the operation.
+    rank: The rank of the operation by self time among top-level operations.
+      Nested operations (see `parent_op_name`) are not ranked and have rank 0.
     program_id: Program ID for the operation.
     category: HLO category.
     op_name: Extracted HLO operation name.
@@ -34,13 +36,18 @@ class HloOperationStats:
     occurrences: Number of occurrences.
     total_time_us: Total accumulated time in microseconds.
     total_self_time_us: Total self time in microseconds.
-    self_time_percent: Self time as a percentage.
+    self_time_percent: Self time as a percentage of total device time. Always 0
+      for nested operations, whose time is on another core (e.g. SparseCore).
     measured_flop_rate: Measured FLOP rate.
     flops: Number of FLOPs.
     measured_memory_bw_gbs: Measured memory bandwidth in GiB/s.
     bound_by: Bottleneck resource according to Roofline model.
     source_file: Source file path if available.
     source_line: Source line number if available.
+    core_type: TPU core type ("TensorCore" or "SparseCore"), if known.
+    parent_op_name: For a nested operation (e.g. a SparseCore op inside a
+      TensorCore offload op), the name of the enclosing operation. Empty for
+      top-level operations.
   """
 
   rank: int
@@ -58,6 +65,13 @@ class HloOperationStats:
   bound_by: str
   source_file: str
   source_line: int
+  core_type: str = ""
+  parent_op_name: str = ""
+
+  @property
+  def is_nested(self) -> bool:
+    """Whether this is an unranked child of another operation."""
+    return bool(self.parent_op_name) and self.rank == 0
 
 
 def _extract_records_from_proto(
@@ -103,6 +117,8 @@ def _extract_records_from_proto(
             bound_by=row.bound_by,
             source_file=source_file,
             source_line=source_line,
+            core_type=row.core_type,
+            parent_op_name=row.parent_op_name,
         )
     )
   return extracted_records
@@ -287,6 +303,10 @@ def _parse_hlo_stats_datatable(
           source_line = int(parts[1])
       elif source_info:
         source_file = source_info
+    core_type = str(_get_cell_val(cells, col_indices, "core_type", default=""))
+    parent_op_name = str(
+        _get_cell_val(cells, col_indices, "parent_op_name", default="")
+    )
 
     records.append(
         HloOperationStats(
@@ -305,6 +325,8 @@ def _parse_hlo_stats_datatable(
             bound_by=bound_by,
             source_file=source_file,
             source_line=source_line,
+            core_type=core_type.strip(),
+            parent_op_name=parent_op_name.strip(),
         )
     )
   return records
@@ -351,9 +373,16 @@ def get_hlo_stats(
     limit: int = 20,
     sort_by: str = "self_time",
     category_filter: str | None = None,
+    include_nested: bool = False,
     bypass_cache: bool = False,
 ) -> str:
   """Fetches detailed performance statistics for HLO operations.
+
+  By default only top-level operations are returned. Nested operations, such
+  as SparseCore ops inside a TensorCore offload op, have `rank` 0,
+  `self_time_percent` 0 and a non-empty `parent_op_name`. Their time is spent
+  on the SparseCore, not the TensorCore, so it is not part of the device time
+  that top-level rows are ranked against; never add it to top-level rows.
 
   Args:
     session_id: The unique XProf session ID.
@@ -361,6 +390,8 @@ def get_hlo_stats(
     sort_by: The metric to sort by. Options: 'self_time', 'total_time',
       'occurrences', 'flops', 'bandwidth'. Defaults to 'self_time'.
     category_filter: Optional category name to filter operations.
+    include_nested: Whether to also return nested operations, sorted together
+      with top-level ones and marked by `parent_op_name`. Defaults to False.
     bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
@@ -408,6 +439,31 @@ def get_hlo_stats(
   extracted_records = _parse_hlo_stats_payload(
       data, category_filter=category_filter
   )
+  num_nested = sum(1 for record in extracted_records if record.is_nested)
+  if not include_nested and num_nested:
+    top_level = [record for record in extracted_records if not record.is_nested]
+    if not top_level:
+      return json.dumps(
+          {
+              "status": "NO_DATA",
+              "message": (
+                  f"Only nested operations ({num_nested}) matched for session"
+                  f" {session_id!r}. Nested operations (e.g. SparseCore ops"
+                  " inside a TensorCore offload op) are hidden by default;"
+                  " pass --include_nested=True to list them."
+              ),
+              "records": [],
+          },
+          indent=2,
+      )
+    extracted_records = top_level
+    # The result is a plain list, so report hidden rows on stderr, in the
+    # same style as the `xprof-capture:` line, instead of changing its shape.
+    sys.stderr.write(
+        f"xprof-note: hid {num_nested} nested operation(s) (e.g. SparseCore"
+        " ops inside a TensorCore offload op; their time is SparseCore time,"
+        " not TensorCore time). Pass --include_nested=True to list them.\n"
+    )
 
   if not extracted_records:
     # An empty HLO stats table is a valid data outcome, not a path failure.

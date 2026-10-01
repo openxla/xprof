@@ -502,7 +502,8 @@ TEST_F(DataProviderTest, ThreadSortingEqualNamesFallbackToTidTieBreaker) {
   EXPECT_EQ(data.groups[0].name, "Process_1");
   EXPECT_EQ(data.groups[1].name, "Worker");
   EXPECT_EQ(data.groups[2].name, "Worker");
-  ASSERT_THAT(data.entry_tids, ElementsAre(50, 100));
+  EXPECT_EQ(data.groups[1].tid, 50);
+  EXPECT_EQ(data.groups[2].tid, 100);
 }
 
 TEST_F(DataProviderTest, ThreadSorting_NaturalNumericalTidWhenUnnamed) {
@@ -605,6 +606,67 @@ TEST_F(DataProviderTest, ThreadSortingInAsyncProcessTrack) {
   EXPECT_EQ(data.groups[1].name, "Thread20");
   EXPECT_EQ(data.groups[2].name, "Thread30");
   EXPECT_EQ(data.groups[3].name, "AsyncOp");
+}
+
+TEST_F(DataProviderTest,
+       AsyncProcessSameTidDoesNotOverwriteSyncThreadFlowLevel) {
+  const std::vector<TraceEvent> flame_events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Async Process"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 55, "SyncThread55"),
+      CreateSortIndexMetadataEvent(std::string(kThreadSortIndex), 1, 55, "1"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 56, "SyncThread56"),
+      CreateSortIndexMetadataEvent(std::string(kThreadSortIndex), 1, 56, "2"),
+      // Flow source on SyncThread55 (level 0)
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 55,
+       .name = "FlowSrc",
+       .ts = 100.0,
+       .dur = 50.0},
+      // Flow target on SyncThread56 (level 1)
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 56,
+       .name = "FlowDst",
+       .ts = 300.0,
+       .dur = 50.0},
+      // Async event reusing tid 55 and name "AsyncTrack"
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 55,
+       .name = "AsyncTrack",
+       .ts = 500.0,
+       .dur = 50.0,
+       .id = "AsyncTrack",
+       .is_async = true},
+  };
+
+  const std::vector<TraceEvent> flow_events = {
+      CreateFlowEvent(Phase::kFlowStart, 1, 1, 55, "flow_s", 120.0, "999"),
+      CreateFlowEvent(Phase::kFlowEnd, 2, 1, 56, "flow_f", 320.0, "999"),
+  };
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = flame_events,
+                        .flow_events = flow_events},
+      timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  // Expect groups: Process (level 0), SyncThread55 (level 0), SyncThread56
+  // (level 1), AsyncTrack (level 2)
+  ASSERT_GE(data.groups.size(), 4u);
+  EXPECT_EQ(data.groups[1].name, "SyncThread55");
+  EXPECT_EQ(data.groups[1].start_level, 0);
+  EXPECT_EQ(data.groups[2].name, "SyncThread56");
+  EXPECT_EQ(data.groups[2].start_level, 1);
+  EXPECT_EQ(data.groups[3].name, "AsyncTrack");
+  EXPECT_EQ(data.groups[3].start_level, 2);
+
+  // Verify flow line connecting FlowSrc to FlowDst has source_level == 0 and
+  // target_level == 1
+  ASSERT_EQ(data.flow_lines.size(), 1u);
+  EXPECT_EQ(data.flow_lines[0].source_level, 0);
+  EXPECT_EQ(data.flow_lines[0].target_level, 1);
 }
 
 // --- Process Sorting Tests (GetSortedProcessIds) ---
@@ -713,7 +775,8 @@ TEST_F(DataProviderTest,
   ASSERT_THAT(data.groups, SizeIs(4));
   EXPECT_EQ(data.groups[0].name, "Node");
   EXPECT_EQ(data.groups[2].name, "Node");
-  ASSERT_THAT(data.entry_pids, ElementsAre(20, 50));
+  EXPECT_EQ(data.groups[0].pid, 20);
+  EXPECT_EQ(data.groups[2].pid, 50);
 }
 
 TEST_F(DataProviderTest, MpmdSuppressEmptyTracks) {
@@ -965,10 +1028,8 @@ TEST_F(DataProviderTest, ProcessCompleteEvents) {
   EXPECT_THAT(data.entry_levels, ElementsAre(0, 1));
   EXPECT_THAT(data.entry_names, ElementsAre("Event 1", "Event 2"));
 
-  ASSERT_THAT(data.events_by_level, SizeIs(2));
-
-  EXPECT_THAT(data.events_by_level[0], ElementsAre(0));
-  EXPECT_THAT(data.events_by_level[1], ElementsAre(1));
+  ASSERT_THAT(data.level_offsets, ElementsAre(0, 1, 2));
+  EXPECT_THAT(data.level_event_indices, ElementsAre(0, 1));
 
   EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 1000.0);
   EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 1400.0);
@@ -1013,11 +1074,8 @@ TEST_F(DataProviderTest, ProcessNestedCompleteEvents) {
   EXPECT_THAT(data.entry_levels, ElementsAre(0, 1, 2));
   EXPECT_THAT(data.entry_names, ElementsAre("Event A", "Event B", "Event C"));
 
-  ASSERT_THAT(data.events_by_level, SizeIs(3));
-
-  EXPECT_THAT(data.events_by_level[0], ElementsAre(0));
-  EXPECT_THAT(data.events_by_level[1], ElementsAre(1));
-  EXPECT_THAT(data.events_by_level[2], ElementsAre(2));
+  ASSERT_THAT(data.level_offsets, ElementsAre(0, 1, 2, 3));
+  EXPECT_THAT(data.level_event_indices, ElementsAre(0, 1, 2));
 
   EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 100.0);
   EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 200.0);
@@ -3659,22 +3717,6 @@ TEST_F(DataProviderTest, CounterSortingWithEmptyTimestamps) {
   ASSERT_THAT(data.groups, Not(IsEmpty()));
 }
 
-TEST_F(DataProviderTest, SyncProcessWithAsyncEventsRetainsOriginalTids) {
-  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
-                                           .pid = 1,
-                                           .tid = 101,
-                                           .name = "AsyncOp",
-                                           .ts = 100.0,
-                                           .dur = 50.0,
-                                           .is_async = true}};
-
-  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
-
-  const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.entry_tids, Not(IsEmpty()));
-  EXPECT_EQ(data.entry_tids[0], 101);
-  EXPECT_LT(data.entry_tids[0], 0x80000000);
-}
 
 TEST_F(DataProviderTest, HloModuleDecorationChecksProcessId) {
   TraceEvent t1 = {.ph = Phase::kMetadata,
@@ -3838,7 +3880,8 @@ TEST_F(DataProviderTest, ProcessLargeIds) {
   EXPECT_EQ(data.groups[1].name, "Thread_4294967297");
   EXPECT_EQ(data.groups[2].name, "Thread_8589934593");
 
-  EXPECT_THAT(data.entry_tids, ElementsAre(tid1, tid2));
+  EXPECT_EQ(data.groups[1].tid, tid1);
+  EXPECT_EQ(data.groups[2].tid, tid2);
 }
 
 TEST_F(DataProviderTest, VerifyEventsByLevelSorting) {
@@ -3912,16 +3955,8 @@ TEST_F(DataProviderTest, VerifyEventsByLevelSorting) {
   //   Index 5: F -> ts=260, level=1
   EXPECT_THAT(data.entry_levels, ElementsAre(0, 1, 1, 2, 0, 1));
 
-  ASSERT_THAT(data.events_by_level, SizeIs(3));
-
-  // Level 0 should contain A (0) and E (4).
-  EXPECT_THAT(data.events_by_level[0], ElementsAre(0, 4));
-
-  // Level 1 should contain B (1), C (2), and F (5), sorted by start time.
-  EXPECT_THAT(data.events_by_level[1], ElementsAre(1, 2, 5));
-
-  // Level 2 should contain D (3).
-  EXPECT_THAT(data.events_by_level[2], ElementsAre(3));
+  ASSERT_THAT(data.level_offsets, ElementsAre(0, 2, 5, 6));
+  EXPECT_THAT(data.level_event_indices, ElementsAre(0, 4, 1, 2, 5, 3));
 }
 
 TEST_F(DataProviderTest, PopulateSyncThreadTrackWithOverlapPreserved) {
@@ -4350,7 +4385,7 @@ TEST_F(DataProviderTest,
   const int start_level = thread_b_group.start_level;
   for (int lvl = start_level; lvl < start_level + thread_b_group.level_count;
        ++lvl) {
-    EXPECT_TRUE(timeline_.timeline_data().events_by_level[lvl].empty());
+    EXPECT_TRUE(timeline_.timeline_data().level_events(lvl).empty());
   }
 }
 
@@ -5224,5 +5259,150 @@ TEST_F(DataProviderTest, V1Parity_HostThreadsAlphabeticalWhenUnindexed) {
   EXPECT_EQ(data.groups[3].name, "Zebra Worker");
 }
 
+TEST_F(DataProviderTest, SyncProcessWithAsyncEventsRetainsOriginalTids) {
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 101,
+                                           .name = "AsyncOp",
+                                           .ts = 100.0,
+                                           .dur = 50.0,
+                                           .is_async = true}};
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(2));
+  EXPECT_EQ(data.groups[1].tid, 101);
+  EXPECT_LT(data.groups[1].tid, 0x80000000);
+}
+
+TEST_F(DataProviderTest, ProcessTraceEventIgnoresOverflowLevel) {
+  std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Process_2"),
+      CreateMetadataEvent(std::string(kThreadName), 2, 201, "Thread_201"),
+      CreateMetadataEvent(std::string(kThreadName), 2, 202, "Thread_202"),
+      CreateMetadataEvent(std::string(kThreadName), 2, 203, "Thread_203"),
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 201,
+       .name = "MaxValidEvent",
+       .ts = 1000.0,
+       .dur = 100.0},
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 202,
+       .name = "OverflowEvent65535",
+       .ts = 1000.0,
+       .dur = 100.0},
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 203,
+       .name = "OverflowEvent65536",
+       .ts = 1000.0,
+       .dur = 100.0}};
+
+  std::vector<CounterEvent> counters;
+  counters.reserve(65534);
+  for (int i = 0; i < 65534; ++i) {
+    CounterEvent counter;
+    counter.pid = 1;
+    counter.name = absl::StrCat("Counter_", i);
+    counters.push_back(std::move(counter));
+  }
+
+  data_provider_.ProcessTraceEvents({events, counters}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  EXPECT_THAT(data.entry_levels, ElementsAre(65534));
+}
+
+TEST_F(DataProviderTest, CounterTrackPreservesPid) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 42, 0, "Process_42"),
+  };
+  const std::vector<CounterEvent> counter_events = {
+      {.pid = 42,
+       .name = "CounterTrack",
+       .timestamps = {100.0},
+       .values = {10.0}},
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = events,
+                        .counter_events = counter_events},
+      timeline_);
+  const std::vector<Group>& groups = timeline_.timeline_data().groups;
+  const auto it = absl::c_find_if(
+      groups, [](const Group& g) { return g.type == Group::Type::kCounter; });
+  ASSERT_NE(it, groups.end());
+  EXPECT_EQ(it->pid, 42);
+}
+
+TEST_F(DataProviderTest, CsrLevelSortingWithEqualTimestampsAndEmptyLevels) {
+  // Pass NegDurB before ZeroDurA to verify that PackTraceEvents and CSR layout
+  // order by start time ascending and duration descending when timestamps are
+  // equal.
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "P1"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 10, "T10"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 10,
+       .name = "NegDurB",
+       .ts = 100.0,
+       .dur = -1.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 10,
+       .name = "ZeroDurA",
+       .ts = 100.0,
+       .dur = 0.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 10,
+       .name = "LateEvent",
+       .ts = 200.0,
+       .dur = 10.0},
+  };
+  const std::vector<CounterEvent> counter_events = {
+      {.pid = 1,
+       .name = "CounterTrack",
+       .timestamps = {100.0},
+       .values = {10.0}},
+  };
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = events,
+                        .counter_events = counter_events},
+      timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  const absl::Span<const int> lvl0 = data.level_events(0);
+  EXPECT_TRUE(lvl0.empty());
+
+  const absl::Span<const int> lvl1 = data.level_events(1);
+  ASSERT_EQ(lvl1.size(), 3);
+  EXPECT_EQ(data.entry_names[lvl1[0]], "ZeroDurA");
+  EXPECT_EQ(data.entry_names[lvl1[1]], "NegDurB");
+  EXPECT_EQ(data.entry_names[lvl1[2]], "LateEvent");
+  EXPECT_EQ(data.entry_total_times[lvl1[0]], 0.0);
+  EXPECT_EQ(data.entry_total_times[lvl1[1]], -1.0);
+  EXPECT_EQ(data.entry_total_times[lvl1[2]], 10.0);
+}
+
+TEST_F(DataProviderTest, NegativeLevelDroppedSafelyWithoutOverflow) {
+  FlameChartTimelineData data;
+  TraceEvent event{
+      .ph = Phase::kComplete,
+      .pid = 1,
+      .tid = 1,
+      .name = "NegativeLevelEvent",
+      .ts = 100.0,
+      .dur = 50.0,
+  };
+  internal::AppendTraceEventForTesting(&event, -1, data);
+  EXPECT_TRUE(data.entry_levels.empty());
+  EXPECT_TRUE(data.entry_start_times.empty());
+
+  internal::AppendTraceEventForTesting(&event, 0, data);
+  ASSERT_EQ(data.entry_levels.size(), 1);
+  EXPECT_EQ(data.entry_levels[0], 0);
+}
 }  // namespace
 }  // namespace traceviewer

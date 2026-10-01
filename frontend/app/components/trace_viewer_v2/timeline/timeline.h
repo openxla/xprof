@@ -100,7 +100,6 @@ struct Group {
   int start_level = 0;
   int nesting_level = 0;
   bool expanded = false;
-
   // Parent index in groups vector, or -1 for top-level processes.
   int parent_index = -1;
   // List of child process/thread indices in the groups vector.
@@ -121,6 +120,9 @@ struct Group {
   mutable Pixel height = 0.0f;
   // Indicates if the track is visible (not hidden by a collapsed parent).
   mutable bool visible = true;
+
+  ProcessId pid = 0;
+  ThreadId tid = 0;
 };
 
 struct FlowLine {
@@ -140,26 +142,19 @@ struct FlowLine {
 // including event timing, grouping information, and mappings between levels
 // and events.
 struct FlameChartTimelineData {
-  std::vector<int> entry_levels;
+  // Global cumulative flame chart row index across all process, counter,
+  // thread, and async tracks. Capped at 65,534; events at level < 0 or
+  // level >= std::numeric_limits<uint16_t>::max() (65,535) are dropped.
+  std::vector<uint16_t> entry_levels;
   std::vector<Microseconds> entry_total_times;
   std::vector<Microseconds> entry_self_times;
   std::vector<Microseconds> entry_start_times;
   std::vector<std::string> entry_names;
   std::vector<EventId> entry_event_ids;
-  // TODO: b/474668991 - Check if we can fetch PID and entry args from backend
-  // instead of storing them here, to reduce memory usage.
-  // Compare latency from network to memory-heavy local storage.
-  std::vector<ProcessId> entry_pids;
-  std::vector<ThreadId> entry_tids;
   std::vector<absl::flat_hash_map<std::string, std::string>> entry_args;
   std::vector<Group> groups;
-  // A map from level to a list of event indices at that level.
-  // This is used to quickly draw events at a given level.
-  // Technically, we can calculate this in the Timeline class, but doing it here
-  // saves us from traversing all the events 2 times, though the time complexity
-  // are the same. But given there might be tens of thousands events, this
-  // optimization is worth it.
-  std::vector<std::vector<int>> events_by_level;
+  std::vector<int> level_event_indices;
+  std::vector<size_t> level_offsets;
   std::vector<FlowLine> flow_lines;
   // Map from event_id to list of flow ids that connect to this event.
   absl::flat_hash_map<EventId, std::vector<std::string>> flow_ids_by_event_id;
@@ -170,6 +165,43 @@ struct FlameChartTimelineData {
   // have multiple counter tracks associated with it. The group index uniquely
   // identifies each track within the `groups` vector.
   std::map<int, CounterData> counter_data_by_group_index;
+
+  // Returns a pointer to the group containing the given level, or nullptr if
+  // the level falls outside all group intervals.
+  const Group* FindGroupForLevel(int level) const {
+    if (level < 0 || groups.empty()) {
+      return nullptr;
+    }
+    auto it = std::upper_bound(
+        groups.begin(), groups.end(), level,
+        [](int lvl, const Group& g) { return lvl < g.start_level; });
+    if (it == groups.begin()) {
+      return nullptr;
+    }
+    const auto& grp = *std::prev(it);
+    if (grp.level_count > 0 && level >= grp.start_level + grp.level_count) {
+      return nullptr;
+    }
+    return &grp;
+  }
+
+  int total_levels() const {
+    return level_offsets.empty() ? 0
+                                 : static_cast<int>(level_offsets.size() - 1);
+  }
+
+  absl::Span<const int> level_events(int level) const {
+    if (level < 0 || level >= total_levels()) {
+      return {};
+    }
+    const size_t start = level_offsets[level];
+    const size_t end = level_offsets[level + 1];
+    if (end < start || end > level_event_indices.size()) {
+      return {};
+    }
+    return absl::Span<const int>(level_event_indices.data() + start,
+                                 end - start);
+  }
 };
 
 // Renders an interactive timeline visualization for trace events, handling

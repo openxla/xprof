@@ -48,6 +48,11 @@ class DataProvider {
   absl::btree_map<ProcessId, absl::btree_set<std::string>> known_counters_;
 };
 
+namespace internal {
+void AppendTraceEventForTesting(const TraceEvent* event, int level,
+                                FlameChartTimelineData& data);
+}  // namespace internal
+
 }  // namespace traceviewer
 
 #endif  // THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_DATA_PROVIDER_H_

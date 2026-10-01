@@ -49,10 +49,15 @@ absl::flat_hash_map<FallbackKey, std::vector<int>> BuildFallbackMap(
   absl::flat_hash_map<FallbackKey, std::vector<int>> fallback_map;
   fallback_map.reserve(num_loaded);
   for (int i = 0; i < num_loaded; ++i) {
-    const ProcessId loaded_pid =
-        (i < timeline_data.entry_pids.size()) ? timeline_data.entry_pids[i] : 0;
-    const ThreadId loaded_tid =
-        (i < timeline_data.entry_tids.size()) ? timeline_data.entry_tids[i] : 0;
+    ProcessId loaded_pid = 0;
+    ThreadId loaded_tid = 0;
+    if (i < timeline_data.entry_levels.size()) {
+      if (const Group* grp =
+              timeline_data.FindGroupForLevel(timeline_data.entry_levels[i])) {
+        loaded_pid = grp->pid;
+        loaded_tid = grp->tid;
+      }
+    }
     const absl::string_view loaded_name =
         (i < timeline_data.entry_names.size())
             ? absl::string_view(timeline_data.entry_names[i])
@@ -225,7 +230,7 @@ int Timeline::GetNextGroupStartLevel(const FlameChartTimelineData& data,
     }
     return group.start_level + group.level_count;
   }
-  return static_cast<int>(data.events_by_level.size());
+  return data.total_levels();
 }
 
 // Finds the index of the first visible ancestor (or the group itself if it is
@@ -394,7 +399,7 @@ void Timeline::CategorizeGroupsForTrackManagement(
 }
 
 void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
-  const int level_count = data.events_by_level.size();
+  const int level_count = data.total_levels();
   const int group_count = data.groups.size();
 
   // Populate flattened_groups_ based on data
@@ -564,7 +569,7 @@ void Timeline::BackfillGroupLevelCount(FlameChartTimelineData& data) {
     if (data.groups[i].level_count <= 0) {
       int next_level = (i + 1 < data.groups.size())
                            ? data.groups[i + 1].start_level
-                           : static_cast<int>(data.events_by_level.size());
+                           : data.total_levels();
       data.groups[i].level_count =
           std::max(1, next_level - data.groups[i].start_level);
     }
@@ -655,14 +660,14 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
          static_cast<int>(timeline_data_.entry_event_ids.size()))
             ? timeline_data_.entry_event_ids[selected_event_index_]
             : 0;
-    selected_pid = (selected_event_index_ <
-                    static_cast<int>(timeline_data_.entry_pids.size()))
-                       ? timeline_data_.entry_pids[selected_event_index_]
-                       : 0;
-    selected_tid = (selected_event_index_ <
-                    static_cast<int>(timeline_data_.entry_tids.size()))
-                       ? timeline_data_.entry_tids[selected_event_index_]
-                       : 0;
+    if (selected_event_index_ <
+        static_cast<int>(timeline_data_.entry_levels.size())) {
+      if (const Group* grp = timeline_data_.FindGroupForLevel(
+              timeline_data_.entry_levels[selected_event_index_])) {
+        selected_pid = grp->pid;
+        selected_tid = grp->tid;
+      }
+    }
     selected_name = timeline_data_.entry_names[selected_event_index_];
     selected_start =
         (selected_event_index_ <
@@ -1599,10 +1604,13 @@ EventData Timeline::CreateBaseEventData(int event_index, bool is_hover) const {
         kEventSelectedDurationFormatted,
         FormatTime(timeline_data_.entry_total_times[event_index]));
   }
-  if (event_index < timeline_data_.entry_pids.size()) {
-    event_data.try_emplace(
-        kEventSelectedPid,
-        static_cast<double>(timeline_data_.entry_pids[event_index]));
+  if (event_index < timeline_data_.entry_levels.size()) {
+    ProcessId pid = 0;
+    if (const Group* grp = timeline_data_.FindGroupForLevel(
+            timeline_data_.entry_levels[event_index])) {
+      pid = grp->pid;
+    }
+    event_data.try_emplace(kEventSelectedPid, static_cast<double>(pid));
   }
   if (event_index < timeline_data_.entry_args.size()) {
     const absl::flat_hash_map<std::string, std::string>& args =
@@ -1763,18 +1771,17 @@ void Timeline::ZoomEvent(int event_index) {
 
 void Timeline::SelectPreviousEvent() {
   if (timeline_data_.entry_levels.empty() ||
-      timeline_data_.events_by_level.empty() ||
-      selected_event_index_ < 0 ||
+      timeline_data_.total_levels() == 0 || selected_event_index_ < 0 ||
       selected_event_index_ >= timeline_data_.entry_levels.size()) {
     return;
   }
 
   int level = timeline_data_.entry_levels[selected_event_index_];
-  if (level < 0 || level >= timeline_data_.events_by_level.size()) {
+  if (level >= timeline_data_.total_levels()) {
     return;
   }
 
-  const auto& events_on_level = timeline_data_.events_by_level[level];
+  const auto events_on_level = timeline_data_.level_events(level);
   auto it = std::find(events_on_level.begin(), events_on_level.end(),
                       selected_event_index_);
   if (it != events_on_level.end() && it != events_on_level.begin()) {
@@ -1784,18 +1791,17 @@ void Timeline::SelectPreviousEvent() {
 
 void Timeline::SelectNextEvent() {
   if (timeline_data_.entry_levels.empty() ||
-      timeline_data_.events_by_level.empty() ||
-      selected_event_index_ < 0 ||
+      timeline_data_.total_levels() == 0 || selected_event_index_ < 0 ||
       selected_event_index_ >= timeline_data_.entry_levels.size()) {
     return;
   }
 
   int level = timeline_data_.entry_levels[selected_event_index_];
-  if (level < 0 || level >= timeline_data_.events_by_level.size()) {
+  if (level >= timeline_data_.total_levels()) {
     return;
   }
 
-  const auto& events_on_level = timeline_data_.events_by_level[level];
+  const auto events_on_level = timeline_data_.level_events(level);
   auto it = std::find(events_on_level.begin(), events_on_level.end(),
                       selected_event_index_);
   if (it != events_on_level.end() && (it + 1) != events_on_level.end()) {
@@ -2118,10 +2124,10 @@ void Timeline::FindNearestEventEdge(Microseconds time, Microseconds threshold,
       continue;
     }
 
+    const int total_levels = timeline_data_.total_levels();
     for (int level = group.start_level; level < next_group_start_level;
          ++level) {
-      if (level < 0 || level >= timeline_data_.events_by_level.size() ||
-          level >= visible_level_offsets_.size()) {
+      if (level >= total_levels || level >= visible_level_offsets_.size()) {
         continue;
       }
 
@@ -2134,7 +2140,7 @@ void Timeline::FindNearestEventEdge(Microseconds time, Microseconds threshold,
         continue;
       }
 
-      const auto& indices = timeline_data_.events_by_level[level];
+      absl::Span<const int> indices = timeline_data_.level_events(level);
       if (indices.empty()) continue;
 
       auto it = std::lower_bound(
@@ -2856,7 +2862,7 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val,
         if (draw_list) {
           // Find the next group that is NOT a child of the current group to
           // determine the end level for the utilization chart.
-          int proc_end_level = timeline_data_.events_by_level.size();
+          int proc_end_level = timeline_data_.total_levels();
           for (size_t i = group_index + 1; i < timeline_data_.groups.size();
                ++i) {
             if (timeline_data_.groups[i].nesting_level <= group.nesting_level) {
@@ -2887,19 +2893,16 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val,
       }
 
       first_visible_level = std::max(start_level, first_visible_level);
-      last_visible_level = std::min(end_level, last_visible_level);
+      last_visible_level = std::min(
+          {end_level, last_visible_level, timeline_data_.total_levels()});
 
       for (int level = first_visible_level; level < last_visible_level;
            ++level) {
-        // This is a sanity check to ensure the level is within the bounds of
-        // events_by_level.
-        if (level < timeline_data_.events_by_level.size()) {
-          // TODO: b/453676716 - Add boundary test cases for this function.
-          DrawEventsForLevel(group_index, timeline_data_.events_by_level[level],
-                             px_per_time_unit_val,
-                             /*level_in_group=*/level - start_level, pos, max,
-                             kEventHeight, kEventPaddingBottom);
-        }
+        // TODO: b/453676716 - Add boundary test cases for this function.
+        absl::Span<const int> indices = timeline_data_.level_events(level);
+        DrawEventsForLevel(group_index, indices, px_per_time_unit_val,
+                           /*level_in_group=*/level - start_level, pos, max,
+                           kEventHeight, kEventPaddingBottom);
       }
     }
   }
@@ -2920,7 +2923,7 @@ void Timeline::DrawGroupPreview(int group_index, double px_per_time_unit_val) {
   // Calculate level Y positions for the preview.
   const ImVec2 pos = ImGui::GetCursorScreenPos();
   const int start_level = group.start_level;
-  int end_level = timeline_data_.events_by_level.size();
+  int end_level = timeline_data_.total_levels();
   // Find the next group that is NOT a child of the current group.
   for (size_t i = group_index + 1; i < timeline_data_.groups.size(); ++i) {
     if (timeline_data_.groups[i].nesting_level <= group.nesting_level) {
@@ -2967,8 +2970,7 @@ void Timeline::DrawFlameGroupPreview(int start_level, int end_level,
   ImU32 last_color = 0;
 
   for (int level = start_level; level < end_level; ++level) {
-    if (level >= timeline_data_.events_by_level.size()) continue;
-    const auto& indices = timeline_data_.events_by_level[level];
+    absl::Span<const int> indices = timeline_data_.level_events(level);
 
     // Find the first event that ends after the visible start.
     // Since events in the same level are non-overlapping and sorted by
@@ -3033,8 +3035,7 @@ void Timeline::DrawUtilizationAreaChart(int start_level, int end_level,
             0.0f);
 
   for (int level = start_level; level < end_level; ++level) {
-    if (level >= timeline_data_.events_by_level.size()) continue;
-    const auto& indices = timeline_data_.events_by_level[level];
+    absl::Span<const int> indices = timeline_data_.level_events(level);
 
     auto it = std::lower_bound(
         indices.begin(), indices.end(), visible_start,
@@ -4271,8 +4272,12 @@ void Timeline::RecomputeSearchResults() {
       const int level = timeline_data_.entry_levels[i];
       const Microseconds start_time = timeline_data_.entry_start_times[i];
       const Microseconds total_time = timeline_data_.entry_total_times[i];
-      const ProcessId pid = timeline_data_.entry_pids[i];
-      const ThreadId tid = timeline_data_.entry_tids[i];
+      ProcessId pid = 0;
+      ThreadId tid = 0;
+      if (const Group* grp = timeline_data_.FindGroupForLevel(level)) {
+        pid = grp->pid;
+        tid = grp->tid;
+      }
       search_results_.push_back(SearchResult{.event_id = event_id,
                                              .level = level,
                                              .start_time = start_time,
@@ -4386,20 +4391,25 @@ void Timeline::SetSearchResults(const ParsedTraceEvents& search_results) {
   }
 
   absl::flat_hash_map<std::pair<ProcessId, ThreadId>, int> pid_tid_to_min_level;
-  for (int i = 0; i < num_loaded; ++i) {
-    const ProcessId pid = (i < timeline_data_.entry_pids.size())
-                              ? timeline_data_.entry_pids[i]
-                              : 0;
-    const ThreadId tid = (i < timeline_data_.entry_tids.size())
-                             ? timeline_data_.entry_tids[i]
-                             : 0;
-    const int level = (i < timeline_data_.entry_levels.size())
-                          ? timeline_data_.entry_levels[i]
-                          : -1;
-    if (level != -1) {
-      auto [it, inserted] = pid_tid_to_min_level.try_emplace({pid, tid}, level);
-      if (level < it->second) {
-        it->second = level;
+  for (const auto& grp : timeline_data_.groups) {
+    if (grp.nesting_level == kProcessNestingLevel ||
+        grp.type == Group::Type::kCounter) {
+      continue;
+    }
+    if (grp.pid != 0 || grp.tid != 0) {
+      auto [it, inserted] =
+          pid_tid_to_min_level.try_emplace({grp.pid, grp.tid}, grp.start_level);
+      if (grp.start_level < it->second) {
+        it->second = grp.start_level;
+      }
+    }
+  }
+  for (const auto& res : search_results_) {
+    if (res.level != -1) {
+      auto [it, inserted] =
+          pid_tid_to_min_level.try_emplace({res.pid, res.tid}, res.level);
+      if (res.level < it->second) {
+        it->second = res.level;
       }
     }
   }
@@ -4535,12 +4545,12 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
 
     if (group.type == Group::Type::kFlame) {
       const int start_level = group.start_level;
-      int end_level = GetNextGroupStartLevel(timeline_data_, group_index);
+      const int end_level =
+          std::min(GetNextGroupStartLevel(timeline_data_, group_index),
+                   timeline_data_.total_levels());
 
       for (int level = start_level; level < end_level; ++level) {
-        if (level >= timeline_data_.events_by_level.size()) continue;
-
-        const auto& events = timeline_data_.events_by_level[level];
+        absl::Span<const int> events = timeline_data_.level_events(level);
         const Pixel y_top = tracks_start_screen_pos_.y +
                             visible_level_offsets_[level] - kEventHeight * 0.5f;
         const Pixel y_bottom = y_top + kEventHeight;

@@ -45,14 +45,14 @@
       <div class="description">
         (in microseconds) of a framework operation type
       </div>
-      <chart chartType="PieChart" [dataInfo]="dataInfoDeviceByType"></chart>
+      <chart [chartType]="ChartType.PIE_CHART" [dataInfo]="dataInfoDeviceByType"></chart>
     </div>
     <div class="pie-chart" *ngIf="!hasDiff">
       <div class="mat-title">ON DEVICE: TOTAL SELF-TIME</div>
       <div class="description">
         (in microseconds) of a framework operation
       </div>
-      <chart chartType="PieChart" [dataInfo]="dataInfoDeviceByName"></chart>
+      <chart [chartType]="ChartType.PIE_CHART" [dataInfo]="dataInfoDeviceByName"></chart>
     </div>
     <flop-rate-chart [data]="selectedData" [xColumn]="flopRateChartXColumn"
                      [yColumn]="flopRateChartYColumn" [opType]="opType"
@@ -66,14 +66,14 @@
       <div class="description">
         (in microseconds) of a framework operation type
       </div>
-      <chart chartType="PieChart" [dataInfo]="dataInfoHostByType"></chart>
+      <chart [chartType]="ChartType.PIE_CHART" [dataInfo]="dataInfoHostByType"></chart>
     </div>
     <div class="pie-chart" *ngIf="!hasDiff">
       <div class="mat-title">ON HOST: TOTAL SELF-TIME</div>
       <div class="description">
         (in microseconds) of a framework operation
       </div>
-      <chart chartType="PieChart" [dataInfo]="dataInfoHostByName"></chart>
+      <chart [chartType]="ChartType.PIE_CHART" [dataInfo]="dataInfoHostByName"></chart>
     </div>
     <model-properties [architecture]="architecture"
                       [task]="task"

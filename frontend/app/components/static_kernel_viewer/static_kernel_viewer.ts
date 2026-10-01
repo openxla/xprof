@@ -1,5 +1,6 @@
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   inject,
   OnDestroy,
@@ -32,7 +33,7 @@ declare interface KernelListResponse {
 
 /** Component for the Static Kernel Viewer tool page. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: false,
   selector: 'static-kernel-viewer',
   templateUrl: './static_kernel_viewer.ng.html',
@@ -51,7 +52,14 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
   selectedKernel = '';
   url = '';
   loadingKernels = false;
-  filterQuery = '';
+  private filterQueryInternal = '';
+  get filterQuery(): string {
+    return this.filterQueryInternal;
+  }
+  set filterQuery(value: string) {
+    this.filterQueryInternal = value;
+    this.cdr.markForCheck();
+  }
 
   isRailPinned = true;
   isRailHovered = false;
@@ -60,6 +68,7 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
   private isInitializing = false;
   private isDestroyed = false;
 
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly dataService: DataServiceV2Interface = inject(
     DATA_SERVICE_INTERFACE_TOKEN,
   );
@@ -80,12 +89,14 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
 
   togglePin(): void {
     this.isRailPinned = !this.isRailPinned;
+    this.cdr.markForCheck();
     this.notifyResize();
   }
 
   onMouseEnter(): void {
     if (!this.isRailHovered) {
       this.isRailHovered = true;
+      this.cdr.markForCheck();
       if (!this.isRailPinned) {
         this.notifyResize();
       }
@@ -95,6 +106,7 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
   onMouseLeave(): void {
     if (this.isRailHovered) {
       this.isRailHovered = false;
+      this.cdr.markForCheck();
       if (!this.isRailPinned) {
         this.notifyResize();
       }
@@ -122,6 +134,7 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
         if (requestedKernel) {
           this.selectedKernel = requestedKernel;
         }
+        this.cdr.markForCheck();
         void this.loadKernelList();
       });
   }
@@ -151,10 +164,12 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
       } else if (this.url && this.traceViewerModule?.loadTraceData) {
         void this.traceViewerModule.loadTraceData(this.url);
       }
+      this.cdr.markForCheck();
     } catch (error) {
       console.error('Failed to initialize Trace Viewer V2 WASM module:', error);
     } finally {
       this.isInitializing = false;
+      this.cdr.markForCheck();
     }
   }
 
@@ -163,6 +178,7 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
       return;
     }
     this.loadingKernels = true;
+    this.cdr.markForCheck();
     try {
       const response = await firstValueFrom(
         this.dataService.getData(
@@ -199,12 +215,14 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
       this.url = '';
     } finally {
       this.loadingKernels = false;
+      this.cdr.markForCheck();
     }
   }
 
   onHloModuleChange(moduleName: string): void {
     this.selectedHloModule = moduleName;
     this.updateFilteredKernels();
+    this.cdr.markForCheck();
   }
 
   updateFilteredKernels(): void {
@@ -237,6 +255,7 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
       this.selectedKernel = '';
       this.url = '';
     }
+    this.cdr.markForCheck();
   }
 
   applyFilter(): void {
@@ -250,6 +269,7 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
 
   onKernelChange(kernel: string): void {
     this.selectedKernel = kernel;
+    this.cdr.markForCheck();
     if (!kernel) {
       this.url = '';
       return;
@@ -273,6 +293,7 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
     if (this.traceViewerModule?.loadTraceData) {
       void this.traceViewerModule.loadTraceData(this.url);
     }
+    this.cdr.markForCheck();
   }
 
   /**

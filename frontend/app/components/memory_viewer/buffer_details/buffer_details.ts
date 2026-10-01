@@ -1,19 +1,33 @@
-import {Component, inject, Input, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  inject,
+  Input,
+  OnDestroy,
+} from '@angular/core';
+import {MatButton} from '@angular/material/button';
+import {MatCard, MatCardContent} from '@angular/material/card';
 import {Store} from '@ngrx/store';
 import {HeapObject} from 'org_xprof/frontend/app/common/interfaces/heap_object';
 import {SourceInfo} from 'org_xprof/frontend/app/common/interfaces/source_info.jsonpb_decls.d';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
-import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {
+  DATA_SERVICE_INTERFACE_TOKEN,
+  DataServiceV2Interface,
+} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {getActiveHeapObjectState} from 'org_xprof/frontend/app/store/selectors';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 /** A buffer details view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'buffer-details',
   templateUrl: './buffer_details.ng.html',
-  styleUrls: ['./buffer_details.scss']
+  styleUrls: ['./buffer_details.scss'],
+  imports: [MatButton, MatCard, MatCardContent],
 })
 export class BufferDetails implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
@@ -24,10 +38,12 @@ export class BufferDetails implements OnDestroy {
   /** The session id */
   @Input() sessionId = '';
 
-  private readonly dataService: DataServiceV2Interface =
-      inject(DATA_SERVICE_INTERFACE_TOKEN);
+  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly dataService: DataServiceV2Interface = inject(
+    DATA_SERVICE_INTERFACE_TOKEN,
+  );
 
-  heapObject: HeapObject|null = null;
+  heapObject: HeapObject | null = null;
   instructionName?: string;
   opcode?: string;
   size?: string;
@@ -40,12 +56,15 @@ export class BufferDetails implements OnDestroy {
   color?: string;
   sourceInfo?: SourceInfo;
 
-  constructor(private readonly store: Store<{}>) {
-    this.store.select(getActiveHeapObjectState)
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((heapObject: HeapObject|null) => {
-          this.update(heapObject);
-        });
+  private readonly store: Store<{}> = inject(Store);
+
+  constructor() {
+    this.store
+      .select(getActiveHeapObjectState)
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((heapObject: HeapObject | null) => {
+        this.update(heapObject);
+      });
   }
 
   hasValidGraphViewerLink() {
@@ -54,12 +73,17 @@ export class BufferDetails implements OnDestroy {
 
   getGraphViewerLink() {
     return this.dataService.getGraphViewerLink(
-        this.sessionId, this.selectedModule, this.instructionName || '', '');
+      this.sessionId,
+      this.selectedModule,
+      this.instructionName || '',
+      '',
+    );
   }
 
-  update(heapObject: HeapObject|null) {
+  update(heapObject: HeapObject | null) {
     this.heapObject = heapObject;
     if (!heapObject) {
+      this.cdr.markForCheck();
       return;
     }
     const sizeMiB = heapObject.sizeMiB || 0;
@@ -88,6 +112,7 @@ export class BufferDetails implements OnDestroy {
       this.expansion = '';
       this.color = 'rgb(192,192,192)';
     }
+    this.cdr.markForCheck();
   }
 
   /**
@@ -99,9 +124,12 @@ export class BufferDetails implements OnDestroy {
    * returns `file.h`).
    */
   get sourceTopLine(): string {
-    return utils.convertToSourceTopLine(
-               this.sourceInfo?.fileName, this.sourceInfo?.lineNumber) ||
-        '';
+    return (
+      utils.convertToSourceTopLine(
+        this.sourceInfo?.fileName,
+        this.sourceInfo?.lineNumber,
+      ) || ''
+    );
   }
 
   /**

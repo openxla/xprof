@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "capture_profile",
     srcs = [
         "capture_profile.ts",
-        "capture_profile_module.ts",
     ],
     assets = [
         ":capture_profile_css",

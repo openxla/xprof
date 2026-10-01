@@ -1,16 +1,15 @@
 <div>
-  <diagnostics-view [diagnostics]="diagnostics"></diagnostics-view>
-  <analysis-summary [deviceAnalysis]="deviceAnalysis"></analysis-summary>
-  <mat-divider></mat-divider>
+  <diagnostics-view [diagnostics]="diagnostics" />
+  <analysis-summary [deviceAnalysis]="deviceAnalysis" />
+  <mat-divider />
   <div [className]="hasDiviceAanlysisRows ? 'auto-height' : 'hidden-content'">
     <device-side-analysis-detail
       [deviceAnalysis]="deviceAnalysis"
       [columnIds]="columnIds"
-      [columnColors]="columnColors">
-    </device-side-analysis-detail>
-    <mat-divider></mat-divider>
+      [columnColors]="columnColors" />
+    <mat-divider />
   </div>
-  <max-infeed-detail [isTpu]="isTpu" [maxInfeedCoreTable]="maxInfeedCoreTable"></max-infeed-detail>
-  <host-op [hasHostOpTables]="hasHostOpTables" [metaHostOpTable]="metaHostOpTable" [hostOpTables]="hostOpTables"></host-op>
-  <host-side-analysis-detail [hostAnalysis]="hostAnalysis" [recommendation]="recommendation"></host-side-analysis-detail>
+  <max-infeed-detail [isTpu]="isTpu" [maxInfeedCoreTable]="maxInfeedCoreTable" />
+  <host-op [hasHostOpTables]="hasHostOpTables" [metaHostOpTable]="metaHostOpTable" [hostOpTables]="hostOpTables" />
+  <host-side-analysis-detail [hostAnalysis]="hostAnalysis" [recommendation]="recommendation" />
 </div>

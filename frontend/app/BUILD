@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "app",
     srcs = [
         "app.ts",
-        "app_module.ts",
     ],
     assets = [
         ":app_css",
@@ -47,9 +46,12 @@ xprof_ng_module(
         "//:node_modules/rxjs",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/angular:angular_common_http",
         "@org_xprof//frontend/app/common/angular:angular_common_http_testing",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/services/data_dispatcher",
         "@org_xprof//frontend/app/services/data_service_v2",
+        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
         "@org_xprof//frontend/app/store",
     ],
 )

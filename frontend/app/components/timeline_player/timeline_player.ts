@@ -7,13 +7,13 @@ import {
   NgZone,
   OnDestroy,
   OnInit,
+  computed,
+  inject,
   model,
   output,
-  computed,
 } from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
 import {MatIconModule} from '@angular/material/icon';
-import {MatMenuModule} from '@angular/material/menu';
 import {MatSliderModule} from '@angular/material/slider';
 import {MatTooltipModule} from '@angular/material/tooltip';
 import {TimeFormatPipe} from './time_format.pipe';
@@ -38,14 +38,13 @@ export interface SyncEventDetail {
 
 /** Component that renders a timeline player with scrub, play/pause controls. */
 @Component({
-  selector: 'timeline-player',
   standalone: true,
+  selector: 'timeline-player',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     CommonModule,
     MatButtonModule,
     MatIconModule,
-    MatMenuModule,
     MatSliderModule,
     MatTooltipModule,
     TimeFormatPipe,
@@ -54,6 +53,9 @@ export interface SyncEventDetail {
   styleUrls: ['timeline_player.scss'],
 })
 export class TimelinePlayer implements OnInit, OnDestroy {
+  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly ngZone = inject(NgZone);
+
   readonly currentTime = model(0);
   readonly duration = model(100);
   readonly isPlaying = model(false);
@@ -72,11 +74,6 @@ export class TimelinePlayer implements OnInit, OnDestroy {
   loopStart: number | null = null;
   loopEnd: number | null = null;
   loopState: 'INACTIVE' | 'A_SET' | 'ACTIVE' = 'INACTIVE';
-
-  constructor(
-    private readonly cdr: ChangeDetectorRef,
-    private readonly ngZone: NgZone,
-  ) {}
 
   ngOnInit() {
     window.addEventListener(

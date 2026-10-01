@@ -1,4 +1,4 @@
-<diagnostics-view [diagnostics]="diagnostics"></diagnostics-view>
+<diagnostics-view [diagnostics]="diagnostics" />
 
 <!-- Model selection. -->
 <div class="section-container">
@@ -10,13 +10,14 @@
         panelClass="panel-override"
         [(value)]="selectedIndex"
         (selectionChange)="updateView()"
-      >
-        <mat-option
-          *ngFor="let id of allModelIds; let indexOfElement = index"
-          [value]="indexOfElement"
         >
-          {{ id }}
-        </mat-option>
+        @for (id of allModelIds; track id; let indexOfElement = $index) {
+          <mat-option
+            [value]="indexOfElement"
+            >
+            {{ id }}
+          </mat-option>
+        }
       </mat-select>
     </mat-form-field>
   </div>
@@ -40,96 +41,109 @@
       <p>Request details table, percentile is calculated based on column: </p>
       <mat-form-field appearance="outline">
         <mat-select [(value)]="requestPercentileIndex" (selectionChange)="update()" name="request-percentile-index">
-          <mat-option
-            *ngFor="let column of requestPercentileColumns; let indexOfElement = index"
-            [value]="indexOfElement"
-          >
-            {{ column }}
-          </mat-option>
+          @for (column of requestPercentileColumns; track column; let indexOfElement = $index) {
+            <mat-option
+              [value]="indexOfElement"
+              >
+              {{ column }}
+            </mat-option>
+          }
         </mat-select>
       </mat-form-field>
       <!-- TODO(go/progressbar-aria): Replace the aria-label with a better description, e.g. "Fetching user data" -->
-      <mat-progress-bar color="primary" mode="indeterminate" *ngIf="loading" aria-label="Loading"></mat-progress-bar>
-      <table *ngIf="!loading" [dataView]="requestView" page="enable" pageSize="1000"></table>
+      @if (loading) {
+        <mat-progress-bar color="primary" mode="indeterminate" aria-label="Loading" />
+      }
+      @if (!loading) {
+        <table [dataView]="requestView" page="enable" pageSize="1000"></table>
+      }
     </div>
   </div>
 </div>
 
 <!-- Batch level analysis is added if inference batching is enabled. -->
-<div class="section-container" *ngIf="hasBatching">
-  <h2 class="section-title">Batch level analysis</h2>
-  <div class="section-content">
-    <!-- Batch properties. -->
-    <div class="session_text">
-      <b>Batch throughput: {{ allBatchProperties[selectedIndex]?.throughput }} batches/sec</b>
-    </div>
-    <div class="session_text">
-      <b>Batch average Latency: {{ allBatchProperties[selectedIndex]?.averageLatencyMs }} ms</b>
-    </div>
-
-    <!-- Batch parameters. -->
-    <div
-      class="session_text"
-      *ngIf="allBatchProperties[selectedIndex]?.hasBatchingParam === 'true'"
-    >
-      <b>This model is controlled by the following batching parameters:</b><br />
-      <ul>
-        <li>
-          <b>Number of batching threads: </b>
-          <b>{{ allBatchProperties[selectedIndex]?.batchingParamNumBatchThreads }}</b>
-        </li>
-
-        <li>
-          <b>Batch timeout in microseconds: </b>
-          <b>{{ allBatchProperties[selectedIndex]?.batchingParamBatchTimeoutMicros }}</b>
-        </li>
-
-        <li>
-          <b>Maximum size of a batch: </b>
-          <b>{{ allBatchProperties[selectedIndex]?.batchingParamMaxBatchSize }}</b>
-        </li>
-
-        <li>
-          <b>Maximum number of enqueued batches: </b>
-          <b>{{ allBatchProperties[selectedIndex]?.batchingParamMaxEnqueuedBatches }}</b>
-        </li>
-
-        <li>
-          <b>Sizes that are allowed to form a batch: </b>
-          <b>{{ allBatchProperties[selectedIndex]?.batchingParamAllowedBatchSizes }}</b>
-        </li>
-      </ul>
-    </div>
-
-    <!-- Batch table. -->
-    <div>
-      <p>Batch details table, percentile is calculated based on column: </p>
-      <mat-form-field appearance="outline">
-        <mat-select [(value)]="batchPercentileIndex" (selectionChange)="update()" name="batch-percentile-index">
-          <mat-option
-            *ngFor="let column of batchPercentileColumns; let indexOfElement = index"
-            [value]="indexOfElement"
+@if (hasBatching) {
+  <div class="section-container">
+    <h2 class="section-title">Batch level analysis</h2>
+    <div class="section-content">
+      <!-- Batch properties. -->
+      <div class="session_text">
+        <b>Batch throughput: {{ allBatchProperties[selectedIndex]?.throughput }} batches/sec</b>
+      </div>
+      <div class="session_text">
+        <b>Batch average Latency: {{ allBatchProperties[selectedIndex]?.averageLatencyMs }} ms</b>
+      </div>
+      <!-- Batch parameters. -->
+      @if (allBatchProperties[selectedIndex]?.hasBatchingParam === 'true') {
+        <div
+          class="session_text"
           >
-            {{ column }}
-          </mat-option>
-        </mat-select>
-      </mat-form-field>
-      <!-- TODO(go/progressbar-aria): Replace the aria-label with a better description, e.g. "Fetching user data" -->
-      <mat-progress-bar color="primary" mode="indeterminate" *ngIf="loading" aria-label="Loading"></mat-progress-bar>
-      <table *ngIf="!loading" [dataView]="batchView" page="enable" pageSize="1000"></table>
+          <b>This model is controlled by the following batching parameters:</b><br />
+          <ul>
+            <li>
+              <b>Number of batching threads: </b>
+              <b>{{ allBatchProperties[selectedIndex]?.batchingParamNumBatchThreads }}</b>
+            </li>
+            <li>
+              <b>Batch timeout in microseconds: </b>
+              <b>{{ allBatchProperties[selectedIndex]?.batchingParamBatchTimeoutMicros }}</b>
+            </li>
+            <li>
+              <b>Maximum size of a batch: </b>
+              <b>{{ allBatchProperties[selectedIndex]?.batchingParamMaxBatchSize }}</b>
+            </li>
+            <li>
+              <b>Maximum number of enqueued batches: </b>
+              <b>{{ allBatchProperties[selectedIndex]?.batchingParamMaxEnqueuedBatches }}</b>
+            </li>
+            <li>
+              <b>Sizes that are allowed to form a batch: </b>
+              <b>{{ allBatchProperties[selectedIndex]?.batchingParamAllowedBatchSizes }}</b>
+            </li>
+          </ul>
+        </div>
+      }
+      <!-- Batch table. -->
+      <div>
+        <p>Batch details table, percentile is calculated based on column: </p>
+        <mat-form-field appearance="outline">
+          <mat-select [(value)]="batchPercentileIndex" (selectionChange)="update()" name="batch-percentile-index">
+            @for (column of batchPercentileColumns; track column; let indexOfElement = $index) {
+              <mat-option
+                [value]="indexOfElement"
+                >
+                {{ column }}
+              </mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+        <!-- TODO(go/progressbar-aria): Replace the aria-label with a better description, e.g. "Fetching user data" -->
+        @if (loading) {
+          <mat-progress-bar color="primary" mode="indeterminate" aria-label="Loading" />
+        }
+        @if (!loading) {
+          <table [dataView]="batchView" page="enable" pageSize="1000"></table>
+        }
+      </div>
     </div>
   </div>
-</div>
+}
 
 <!-- Tensor pattern analysis is added if tensor patterns are recorded. -->
-<div class="section-container" *ngIf="hasTensorPattern">
-  <h2 class="section-title">Tensor transfer analysis</h2>
-  <div class="section-content">
-    <div>
-      <!-- TODO(go/progressbar-aria): Replace the aria-label with a better description, e.g. "Fetching user data" -->
-      <mat-progress-bar color="primary" mode="indeterminate" *ngIf="loading" aria-label="Loading"></mat-progress-bar>
-      <table *ngIf="!loading" [dataView]="tensorPatternView" page="enable" pageSize="1000"></table>
+@if (hasTensorPattern) {
+  <div class="section-container">
+    <h2 class="section-title">Tensor transfer analysis</h2>
+    <div class="section-content">
+      <div>
+        <!-- TODO(go/progressbar-aria): Replace the aria-label with a better description, e.g. "Fetching user data" -->
+        @if (loading) {
+          <mat-progress-bar color="primary" mode="indeterminate" aria-label="Loading" />
+        }
+        @if (!loading) {
+          <table [dataView]="tensorPatternView" page="enable" pageSize="1000"></table>
+        }
+      </div>
     </div>
   </div>
-</div>
+}
 <table></table>

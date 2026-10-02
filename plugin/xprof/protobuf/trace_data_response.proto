@@ -9,6 +9,7 @@ message TraceEventSeriesMetadata {
   uint32 process_id = 1;
   uint32 thread_id = 2;
   uint32 name_ref = 3;
+  optional uint32 event_stats_ref = 4;
 }
 
 // Metadata for a specific occurrence of a trace event.

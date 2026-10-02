@@ -30,8 +30,6 @@ void BuildOpProfileNodeTreeAlter(const OpStats& op_stats,
                                  OpProfileGrouping group_by,
                                  bool exclude_idle_ops, int op_profile_limit,
                                  Node* root) {
-  if (op_stats.flat_device_op_metrics_db().op_instances().empty()) return;
-
   OpProfileOptions options = {group_by,
                               /*group_by_deduplicated_name=*/true,
                               /*children_per_node=*/op_profile_limit};

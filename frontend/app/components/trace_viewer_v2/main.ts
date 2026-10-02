@@ -165,7 +165,7 @@ declare global {
   preinitializedWebGPUDevice: GPUDevice | null;
   processTraceEvents(
     data: TraceData,
-    timeRangeFromUrl?: [number, number],
+    timeRangeFromUrl: [number, number] | undefined,
   ): void;
   /**
    * Passes compressed protobuf trace events from a memory buffer in the WASM heap.

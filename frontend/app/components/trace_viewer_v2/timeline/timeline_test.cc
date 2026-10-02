@@ -1361,6 +1361,31 @@ TEST(TimelineTest, MaybeRequestDataRefetchesWhenZoomedInDespiteRangeCoverage) {
       MicrosToMillis(5000600.0));
 }
 
+TEST(TimelineTest, MaybeRequestDataSkipsRefetchWhenTimeAxisUnitIsUnitless) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_time_axis_unit(TimeAxisUnit::kUnitless);
+  timeline.set_data_time_range({0.0, 8470.0});
+  timeline.set_fetched_data_time_range({0.0, 8470.0});
+  timeline.InitializeLastFetchRequestRange({0.0, 8470.0});
+  timeline.set_is_incremental_loading(false);
+
+  bool request_triggered = false;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+        }
+      });
+
+  // Zoom in to a small bundle window that would otherwise exceed
+  // kRefetchZoomRatio (8470 / 1000 > 8.0).
+  timeline.SetVisibleRange({100.0, 200.0});
+  timeline.MaybeRequestData();
+
+  EXPECT_FALSE(request_triggered);
+}
+
 TEST(TimelineTest, MaybeRequestDataSetsIsLoadingToTrue) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);

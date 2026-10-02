@@ -2547,15 +2547,17 @@ void Timeline::DrawEvent(int group_index, int event_index,
       }
     }
 
-    const ImU32 on_surface_color =
-        palette_.GetColor(ColorPalette::Key::kOnSurface)
-            .value_or(kOnSurfaceColor);
-    const ImU32 inverse_on_surface_color =
-        palette_.GetColor(ColorPalette::Key::kInverseOnSurface)
-            .value_or(kInverseOnSurfaceColor);
-    const ImU32 text_color = GetTextColorForContrast(
-        event_color, on_surface_color, inverse_on_surface_color);
-    DrawEventName(event_name, rect, draw_list, text_color);
+    if (rect.right - rect.left >= kMinTextWidth) {
+      const ImU32 on_surface_color =
+          palette_.GetColor(ColorPalette::Key::kOnSurface)
+              .value_or(kOnSurfaceColor);
+      const ImU32 inverse_on_surface_color =
+          palette_.GetColor(ColorPalette::Key::kInverseOnSurface)
+              .value_or(kInverseOnSurfaceColor);
+      const ImU32 text_color = GetTextColorForContrast(
+          event_color, on_surface_color, inverse_on_surface_color);
+      DrawEventName(event_name, rect, draw_list, text_color);
+    }
   }
 }
 
@@ -4178,8 +4180,12 @@ void Timeline::InitializeLastFetchRequestRange(const TimeRange& visible_range) {
 }
 
 void Timeline::MaybeRequestData() {
-  // Don't request more data if a request is already in flight.
-  if (is_incremental_loading_) return;
+  // Don't request more data if a request is already in flight or if the trace
+  // uses a unitless axis (e.g. Static Kernel Viewer schedules, which are
+  // always loaded in full).
+  if (is_incremental_loading_ || time_axis_unit_ == TimeAxisUnit::kUnitless) {
+    return;
+  }
 
   // We have several ranges of interest for incremental loading:
   //

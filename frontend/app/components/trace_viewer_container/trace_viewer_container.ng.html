@@ -348,5 +348,5 @@
   </div>
 </div>
 <div [hidden]="useTraceViewerV2" class="trace-viewer-component">
-  <iframe #tvIframe [src]="url | safe" onload="focus();"></iframe>
+  <iframe #tvIframe [src]="(useTraceViewerV2 ? '' : url) | safe" onload="focus();"></iframe>
 </div>

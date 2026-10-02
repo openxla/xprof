@@ -90,20 +90,24 @@ void ParseAndProcessCompressedTraceEvents(
     uintptr_t data_ptr, size_t data_size,
     const emscripten::val& visible_range_from_url, DataProvider& data_provider,
     Timeline& timeline) {
+  const bool is_initial_load =
+      (timeline.last_fetch_request_range() == TimeRange::Zero());
   const ParsedTraceEvents parsed_events =
       ParseCompressedTraceEvents(data_ptr, data_size, visible_range_from_url);
   data_provider.ProcessTraceEvents(parsed_events, timeline);
 
-  if (!visible_range_from_url.isNull() &&
-      !visible_range_from_url.isUndefined() &&
-      visible_range_from_url["length"].as<int>() == 2) {
-    Milliseconds start = visible_range_from_url[0].as<Milliseconds>();
-    Milliseconds end = visible_range_from_url[1].as<Milliseconds>();
+  if (is_initial_load) {
+    if (!visible_range_from_url.isNull() &&
+        !visible_range_from_url.isUndefined() &&
+        visible_range_from_url["length"].as<int>() == 2) {
+      Milliseconds start = visible_range_from_url[0].as<Milliseconds>();
+      Milliseconds end = visible_range_from_url[1].as<Milliseconds>();
 
-    timeline.InitializeLastFetchRequestRange(
-        {MillisToMicros(start), MillisToMicros(end)});
-  } else {
-    timeline.InitializeLastFetchRequestRange(timeline.data_time_range());
+      timeline.InitializeLastFetchRequestRange(
+          {MillisToMicros(start), MillisToMicros(end)});
+    } else {
+      timeline.InitializeLastFetchRequestRange(timeline.data_time_range());
+    }
   }
 
   timeline.set_is_incremental_loading(false);

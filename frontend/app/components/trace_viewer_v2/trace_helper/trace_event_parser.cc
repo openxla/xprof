@@ -335,23 +335,29 @@ ParsedTraceEvents ParseTraceEvents(
 
 void ParseAndProcessTraceEvents(const emscripten::val& trace_data,
                                 const emscripten::val& visible_range_from_url) {
+  Timeline& timeline = Application::Instance().timeline();
+  const bool is_initial_load =
+      (timeline.last_fetch_request_range() == TimeRange::Zero());
   const ParsedTraceEvents parsed_events =
       ParseTraceEvents(trace_data, visible_range_from_url);
-  Application::Instance().data_provider().ProcessTraceEvents(
-      parsed_events, Application::Instance().timeline());
+  Application::Instance().data_provider().ProcessTraceEvents(parsed_events,
+                                                             timeline);
 
-  // Set last_fetch_request_range_ correctly to avoid duplicate fetches.
-  Timeline& timeline = Application::Instance().timeline();
-  if (!visible_range_from_url.isNull() &&
-      !visible_range_from_url.isUndefined() &&
-      visible_range_from_url["length"].as<int>() == 2) {
-    Milliseconds start = visible_range_from_url[0].as<Milliseconds>();
-    Milliseconds end = visible_range_from_url[1].as<Milliseconds>();
+  // Set last_fetch_request_range_ on initial load to avoid duplicate fetches.
+  // On incremental fetches, MaybeRequestData() has already set
+  // last_fetch_request_range_ to the expanded fetch window.
+  if (is_initial_load) {
+    if (!visible_range_from_url.isNull() &&
+        !visible_range_from_url.isUndefined() &&
+        visible_range_from_url["length"].as<int>() == 2) {
+      Milliseconds start = visible_range_from_url[0].as<Milliseconds>();
+      Milliseconds end = visible_range_from_url[1].as<Milliseconds>();
 
-    timeline.InitializeLastFetchRequestRange(
-        {MillisToMicros(start), MillisToMicros(end)});
-  } else {
-    timeline.InitializeLastFetchRequestRange(timeline.data_time_range());
+      timeline.InitializeLastFetchRequestRange(
+          {MillisToMicros(start), MillisToMicros(end)});
+    } else {
+      timeline.InitializeLastFetchRequestRange(timeline.data_time_range());
+    }
   }
 
   // Reset the loading flag to allow subsequent data requests (e.g. on panning).

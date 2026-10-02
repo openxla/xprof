@@ -30,14 +30,34 @@ struct RenderResources {
   wgpu::Buffer uniforms;
   wgpu::BindGroup common_bind_group;
   wgpu::BindGroupLayout image_bind_group_layout;
+  wgpu::BindGroupLayout flame_batch_bind_group_layout;
   std::unordered_map<ImGuiID, wgpu::BindGroup> image_bind_groups;
 };
+
+struct alignas(256) FlameBatchUniforms {
+  float visible_start_hi = 0.0f;
+  float visible_start_lo = 0.0f;
+  float px_per_us = 0.0f;
+  float screen_x_offset = 0.0f;
+  float timeline_right = 0.0f;
+  float y_top = 0.0f;
+  float y_bottom = 0.0f;
+  float min_width_px = 1.0f;
+  float padding_right_px = 0.5f;
+  float alpha_multiplier = 1.0f;
+  float pad[54] = {};
+};
+static_assert(sizeof(FlameBatchUniforms) == 256,
+              "FlameBatchUniforms must be 256-byte aligned for dynamic offset");
 
 struct FrameResources {
   wgpu::Buffer index_buffer;
   wgpu::Buffer vertex_buffer;
   std::vector<ImDrawIdx> index_buffer_host;
   std::vector<ImDrawVert> vertex_buffer_host;
+  wgpu::Buffer flame_batch_uniform_buffer;
+  wgpu::BindGroup flame_batch_bind_group;
+  std::vector<FlameBatchUniforms> flame_batch_host;
 };
 
 // Shader uniform data
@@ -53,6 +73,11 @@ struct ImGui_ImplWGPU_Data {
   wgpu::Queue default_queue;
   wgpu::Queue queue;
   wgpu::RenderPipeline pipeline_state;
+  wgpu::RenderPipeline flame_pipeline_state;
+  wgpu::Buffer flame_instance_buffer;
+  size_t flame_instance_capacity = 0;
+  size_t flame_instance_count = 0;
+  std::vector<ImGui_ImplWGPU_FlameBatchParams> pending_flame_batches;
 
   RenderResources render_resources;
   std::vector<FrameResources> frame_resources;
@@ -65,6 +90,8 @@ static ImGui_ImplWGPU_Data* ImGui_ImplWGPU_GetBackendData() {
                    ImGui::GetIO().BackendRendererUserData)
              : nullptr;
 }
+
+static void FlameBatchCallback(const ImDrawList*, const ImDrawCmd*) {}
 
 // TODO(nancyly): Move shaders to separate .wgsl files.
 static const char kShaderVertWgsl[] = R"(
@@ -113,6 +140,80 @@ fn main(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 )";
 
+static const char kFlameShaderVertWgsl[] = R"(
+struct InstanceInput {
+    @location(0) start_hi: f32,
+    @location(1) start_lo: f32,
+    @location(2) duration: f32,
+    @location(3) color: vec4<f32>,
+};
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+};
+struct Uniforms {
+    mvp: mat4x4<f32>,
+    gamma: f32,
+};
+struct FlameBatchUniforms {
+    visible_start_hi: f32,
+    visible_start_lo: f32,
+    px_per_us: f32,
+    screen_x_offset: f32,
+    timeline_right: f32,
+    y_top: f32,
+    y_bottom: f32,
+    min_width_px: f32,
+    padding_right_px: f32,
+    alpha_multiplier: f32,
+};
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(1) @binding(0) var<uniform> batch: FlameBatchUniforms;
+@vertex
+fn main(@builtin(vertex_index) vid: u32, in: InstanceInput) -> VertexOutput {
+    var out: VertexOutput;
+    let dt = (in.start_hi - batch.visible_start_hi) + (in.start_lo - batch.visible_start_lo);
+    let raw_left = batch.screen_x_offset + dt * batch.px_per_us;
+    var raw_right = raw_left + in.duration * batch.px_per_us;
+    raw_right = max(raw_right, raw_left + batch.min_width_px) - batch.padding_right_px;
+    let left = clamp(raw_left, batch.screen_x_offset, batch.timeline_right);
+    let right = clamp(raw_right, batch.screen_x_offset, batch.timeline_right);
+    if (right <= left) {
+        out.position = vec4<f32>(-2.0, -2.0, 0.0, 1.0);
+        out.color = vec4<f32>(0.0);
+        return out;
+    }
+    var x = left;
+    if (vid == 1u || vid == 2u || vid == 4u) {
+        x = right;
+    }
+    var y = batch.y_top;
+    if (vid == 2u || vid == 4u || vid == 5u) {
+        y = batch.y_bottom;
+    }
+    out.position = uniforms.mvp * vec4<f32>(x, y, 0.0, 1.0);
+    out.color = vec4<f32>(in.color.rgb, in.color.a * batch.alpha_multiplier);
+    return out;
+}
+)";
+
+static const char kFlameShaderFragWgsl[] = R"(
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+};
+struct Uniforms {
+    mvp: mat4x4<f32>,
+    gamma: f32,
+};
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@fragment
+fn main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let corrected_color = pow(in.color.rgb, vec3<f32>(uniforms.gamma));
+    return vec4<f32>(corrected_color, in.color.a);
+}
+)";
+
 static wgpu::ShaderModule CreateShaderModule(const char* wgsl_source) {
   ImGui_ImplWGPU_Data* bd = ImGui_ImplWGPU_GetBackendData();
   wgpu::ShaderModuleWGSLDescriptor wgsl_descriptor;
@@ -137,34 +238,35 @@ static wgpu::BindGroup CreateImageBindGroup(wgpu::BindGroupLayout layout,
 
 static void SetupRenderState(ImDrawData* draw_data,
                              wgpu::RenderPassEncoder pass_encoder,
-                             FrameResources* frame) {
+                             FrameResources* frame,
+                             bool write_uniforms = true) {
   ImGui_ImplWGPU_Data* bd = ImGui_ImplWGPU_GetBackendData();
-  {
+  if (write_uniforms) {
     float left = draw_data->DisplayPos.x;
     float right = draw_data->DisplayPos.x + draw_data->DisplaySize.x;
     float top = draw_data->DisplayPos.y;
     float bottom = draw_data->DisplayPos.y + draw_data->DisplaySize.y;
-    const float mvp[4][4] = {
-        {2.0f / (right - left), 0.0f, 0.0f, 0.0f},
-        {0.0f, 2.0f / (top - bottom), 0.0f, 0.0f},
-        {0.0f, 0.0f, 0.5f, 0.0f},
-        {(right + left) / (left - right), (top + bottom) / (bottom - top), 0.5f,
-         1.0f},
+    Uniforms u = {
+        .mvp =
+            {
+                {2.0f / (right - left), 0.0f, 0.0f, 0.0f},
+                {0.0f, 2.0f / (top - bottom), 0.0f, 0.0f},
+                {0.0f, 0.0f, 0.5f, 0.0f},
+                {(right + left) / (left - right),
+                 (top + bottom) / (bottom - top), 0.5f, 1.0f},
+            },
+        .gamma = 1.0f,
     };
-    bd->default_queue.WriteBuffer(bd->render_resources.uniforms,
-                                  offsetof(Uniforms, mvp), &mvp, sizeof(mvp));
-    float gamma = 1.0f;
     switch (bd->init_info.target_format) {
       case wgpu::TextureFormat::BGRA8UnormSrgb:
       case wgpu::TextureFormat::RGBA8UnormSrgb:
-        gamma = 2.2f;
+        u.gamma = 2.2f;
         break;
       default:
         break;
     }
-    bd->default_queue.WriteBuffer(bd->render_resources.uniforms,
-                                  offsetof(Uniforms, gamma), &gamma,
-                                  sizeof(gamma));
+    bd->default_queue.WriteBuffer(bd->render_resources.uniforms, 0, &u,
+                                  sizeof(Uniforms));
   }
   pass_encoder.SetViewport(
       0, 0, draw_data->FramebufferScale.x * draw_data->DisplaySize.x,
@@ -251,7 +353,57 @@ void ImGui_ImplWGPU_RenderDrawData(ImDrawData* draw_data,
   bd->default_queue.WriteBuffer(frame->index_buffer, 0,
                                 frame->index_buffer_host.data(), ib_write_size);
 
-  SetupRenderState(draw_data, pass_encoder, frame);
+  if (!bd->pending_flame_batches.empty() && bd->flame_pipeline_state &&
+      bd->flame_instance_buffer &&
+      bd->render_resources.flame_batch_bind_group_layout) {
+    const size_t num_batches = bd->pending_flame_batches.size();
+    if (!frame->flame_batch_uniform_buffer ||
+        frame->flame_batch_host.size() < num_batches) {
+      const size_t new_cap = std::max<size_t>(num_batches + 64, 256);
+      frame->flame_batch_host.resize(new_cap);
+      wgpu::BufferDescriptor batch_ub_desc{};
+      batch_ub_desc.label = "Dear ImGui Flame Batch Uniform buffer";
+      batch_ub_desc.usage =
+          wgpu::BufferUsage::CopyDst | wgpu::BufferUsage::Uniform;
+      batch_ub_desc.size = new_cap * sizeof(FlameBatchUniforms);
+      frame->flame_batch_uniform_buffer =
+          bd->device.CreateBuffer(&batch_ub_desc);
+      CHECK(frame->flame_batch_uniform_buffer)
+          << "Failed to create flame batch uniform buffer.";
+
+      wgpu::BindGroupEntry batch_bg_entry{};
+      batch_bg_entry.binding = 0;
+      batch_bg_entry.buffer = frame->flame_batch_uniform_buffer;
+      batch_bg_entry.offset = 0;
+      batch_bg_entry.size = sizeof(FlameBatchUniforms);
+      wgpu::BindGroupDescriptor batch_bg_desc{};
+      batch_bg_desc.layout = bd->render_resources.flame_batch_bind_group_layout;
+      batch_bg_desc.entryCount = 1;
+      batch_bg_desc.entries = &batch_bg_entry;
+      frame->flame_batch_bind_group =
+          bd->device.CreateBindGroup(&batch_bg_desc);
+    }
+    for (size_t i = 0; i < num_batches; ++i) {
+      const auto& src = bd->pending_flame_batches[i];
+      FlameBatchUniforms& dst = frame->flame_batch_host[i];
+      dst.visible_start_hi = static_cast<float>(src.visible_start_us);
+      dst.visible_start_lo = static_cast<float>(
+          src.visible_start_us - static_cast<double>(dst.visible_start_hi));
+      dst.px_per_us = src.px_per_us;
+      dst.screen_x_offset = src.screen_x_offset;
+      dst.timeline_right = src.screen_x_offset + src.timeline_width;
+      dst.y_top = src.y_top;
+      dst.y_bottom = src.y_bottom;
+      dst.min_width_px = src.min_width_px;
+      dst.padding_right_px = src.padding_right_px;
+      dst.alpha_multiplier = src.alpha_multiplier;
+    }
+    bd->default_queue.WriteBuffer(frame->flame_batch_uniform_buffer, 0,
+                                  frame->flame_batch_host.data(),
+                                  num_batches * sizeof(FlameBatchUniforms));
+  }
+
+  SetupRenderState(draw_data, pass_encoder, frame, /*write_uniforms=*/true);
 
   int global_vtx_offset = 0;
   int global_idx_offset = 0;
@@ -263,7 +415,54 @@ void ImGui_ImplWGPU_RenderDrawData(ImDrawData* draw_data,
       const ImDrawCmd* pcmd = &cmd_list->CmdBuffer[cmd_i];
       if (pcmd->UserCallback) {
         if (pcmd->UserCallback == ImDrawCallback_ResetRenderState) {
-          SetupRenderState(draw_data, pass_encoder, frame);
+          SetupRenderState(draw_data, pass_encoder, frame,
+                           /*write_uniforms=*/false);
+        } else if (pcmd->UserCallback == FlameBatchCallback) {
+          const size_t batch_idx =
+              reinterpret_cast<uintptr_t>(pcmd->UserCallbackData);
+          if (batch_idx < bd->pending_flame_batches.size() &&
+              bd->flame_pipeline_state && bd->flame_instance_buffer &&
+              frame->flame_batch_bind_group) {
+            const auto& batch = bd->pending_flame_batches[batch_idx];
+            if (batch.instance_count > 0 &&
+                static_cast<uint64_t>(batch.first_instance) +
+                        batch.instance_count <=
+                    bd->flame_instance_count) {
+              ImVec2 clip_min((pcmd->ClipRect.x - clip_off.x) * clip_scale.x,
+                              (pcmd->ClipRect.y - clip_off.y) * clip_scale.y);
+              ImVec2 clip_max((pcmd->ClipRect.z - clip_off.x) * clip_scale.x,
+                              (pcmd->ClipRect.w - clip_off.y) * clip_scale.y);
+              if (clip_min.x < 0.0f) clip_min.x = 0.0f;
+              if (clip_min.y < 0.0f) clip_min.y = 0.0f;
+              if (clip_max.x > fb_width) {
+                clip_max.x = static_cast<float>(fb_width);
+              }
+              if (clip_max.y > fb_height) {
+                clip_max.y = static_cast<float>(fb_height);
+              }
+              if (clip_max.x > clip_min.x && clip_max.y > clip_min.y) {
+                pass_encoder.SetScissorRect(
+                    static_cast<uint32_t>(clip_min.x),
+                    static_cast<uint32_t>(clip_min.y),
+                    static_cast<uint32_t>(clip_max.x - clip_min.x),
+                    static_cast<uint32_t>(clip_max.y - clip_min.y));
+                pass_encoder.SetPipeline(bd->flame_pipeline_state);
+                pass_encoder.SetBindGroup(
+                    0, bd->render_resources.common_bind_group);
+                uint32_t dynamic_offset = static_cast<uint32_t>(
+                    batch_idx * sizeof(FlameBatchUniforms));
+                pass_encoder.SetBindGroup(1, frame->flame_batch_bind_group, 1,
+                                          &dynamic_offset);
+                pass_encoder.SetVertexBuffer(
+                    0, bd->flame_instance_buffer,
+                    static_cast<uint64_t>(batch.first_instance) *
+                        sizeof(ImGui_ImplWGPU_FlameInstance),
+                    static_cast<uint64_t>(batch.instance_count) *
+                        sizeof(ImGui_ImplWGPU_FlameInstance));
+                pass_encoder.Draw(6, batch.instance_count, 0, 0);
+              }
+            }
+          }
         } else {
           pcmd->UserCallback(cmd_list, pcmd);
         }
@@ -309,6 +508,7 @@ void ImGui_ImplWGPU_RenderDrawData(ImDrawData* draw_data,
     global_idx_offset += cmd_list->IdxBuffer.Size;
     global_vtx_offset += cmd_list->VtxBuffer.Size;
   }
+  bd->pending_flame_batches.clear();
 }
 
 void ImGui_ImplWGPU_DestroyTexture(ImTextureData* tex) {
@@ -525,6 +725,80 @@ bool ImGui_ImplWGPU_CreateDeviceObjects() {
   bd->pipeline_state = bd->device.CreateRenderPipeline(&desc);
   CHECK(bd->pipeline_state) << "Failed to create ImGui render pipeline.";
 
+  wgpu::BindGroupLayoutEntry flame_batch_bgl_entry{};
+  flame_batch_bgl_entry.binding = 0;
+  flame_batch_bgl_entry.visibility = wgpu::ShaderStage::Vertex;
+  flame_batch_bgl_entry.buffer.type = wgpu::BufferBindingType::Uniform;
+  flame_batch_bgl_entry.buffer.hasDynamicOffset = true;
+  flame_batch_bgl_entry.buffer.minBindingSize = sizeof(FlameBatchUniforms);
+  wgpu::BindGroupLayoutDescriptor flame_batch_bgl_desc{};
+  flame_batch_bgl_desc.entryCount = 1;
+  flame_batch_bgl_desc.entries = &flame_batch_bgl_entry;
+  bd->render_resources.flame_batch_bind_group_layout =
+      bd->device.CreateBindGroupLayout(&flame_batch_bgl_desc);
+
+  std::vector<wgpu::BindGroupLayout> flame_bg_layouts = {
+      common_bgl, bd->render_resources.flame_batch_bind_group_layout};
+  wgpu::PipelineLayoutDescriptor flame_layout_desc{};
+  flame_layout_desc.bindGroupLayoutCount =
+      static_cast<uint32_t>(flame_bg_layouts.size());
+  flame_layout_desc.bindGroupLayouts = flame_bg_layouts.data();
+  wgpu::PipelineLayout flame_pipeline_layout =
+      bd->device.CreatePipelineLayout(&flame_layout_desc);
+
+  wgpu::ShaderModule flame_vs_module = CreateShaderModule(kFlameShaderVertWgsl);
+  wgpu::ShaderModule flame_fs_module = CreateShaderModule(kFlameShaderFragWgsl);
+
+  wgpu::VertexAttribute flame_attrs[4];
+  flame_attrs[0].format = wgpu::VertexFormat::Float32;
+  flame_attrs[0].offset =
+      static_cast<uint64_t>(offsetof(ImGui_ImplWGPU_FlameInstance, start_hi));
+  flame_attrs[0].shaderLocation = 0;
+  flame_attrs[1].format = wgpu::VertexFormat::Float32;
+  flame_attrs[1].offset =
+      static_cast<uint64_t>(offsetof(ImGui_ImplWGPU_FlameInstance, start_lo));
+  flame_attrs[1].shaderLocation = 1;
+  flame_attrs[2].format = wgpu::VertexFormat::Float32;
+  flame_attrs[2].offset =
+      static_cast<uint64_t>(offsetof(ImGui_ImplWGPU_FlameInstance, duration));
+  flame_attrs[2].shaderLocation = 2;
+  flame_attrs[3].format = wgpu::VertexFormat::Unorm8x4;
+  flame_attrs[3].offset =
+      static_cast<uint64_t>(offsetof(ImGui_ImplWGPU_FlameInstance, color));
+  flame_attrs[3].shaderLocation = 3;
+
+  wgpu::VertexBufferLayout flame_vb_layout{};
+  flame_vb_layout.arrayStride = sizeof(ImGui_ImplWGPU_FlameInstance);
+  flame_vb_layout.stepMode = wgpu::VertexStepMode::Instance;
+  flame_vb_layout.attributeCount = 4;
+  flame_vb_layout.attributes = flame_attrs;
+
+  wgpu::VertexState flame_vertex_state{};
+  flame_vertex_state.module = flame_vs_module;
+  flame_vertex_state.entryPoint = "main";
+  flame_vertex_state.bufferCount = 1;
+  flame_vertex_state.buffers = &flame_vb_layout;
+
+  wgpu::FragmentState flame_fragment_state{};
+  flame_fragment_state.module = flame_fs_module;
+  flame_fragment_state.entryPoint = "main";
+  flame_fragment_state.targetCount = 1;
+  flame_fragment_state.targets = &color_target_state;
+
+  wgpu::RenderPipelineDescriptor flame_desc{};
+  flame_desc.layout = flame_pipeline_layout;
+  flame_desc.vertex = flame_vertex_state;
+  flame_desc.fragment = &flame_fragment_state;
+  flame_desc.primitive.topology = wgpu::PrimitiveTopology::TriangleList;
+  flame_desc.multisample = bd->init_info.multisample_state;
+  if (bd->init_info.depth_stencil_format != wgpu::TextureFormat::Undefined) {
+    flame_desc.depthStencil = &depth_stencil_state;
+  }
+
+  bd->flame_pipeline_state = bd->device.CreateRenderPipeline(&flame_desc);
+  CHECK(bd->flame_pipeline_state)
+      << "Failed to create ImGui flame instance render pipeline.";
+
   wgpu::SamplerDescriptor sampler_desc = {};
   sampler_desc.minFilter = wgpu::FilterMode::Linear;
   sampler_desc.magFilter = wgpu::FilterMode::Linear;
@@ -555,6 +829,11 @@ void ImGui_ImplWGPU_InvalidateDeviceObjects() {
   if (!bd || !bd->device) return;
 
   bd->pipeline_state = nullptr;
+  bd->flame_pipeline_state = nullptr;
+  bd->flame_instance_buffer = nullptr;
+  bd->flame_instance_capacity = 0;
+  bd->flame_instance_count = 0;
+  bd->pending_flame_batches.clear();
   bd->render_resources = {};
 
   for (ImTextureData* tex : ImGui::GetPlatformIO().Textures) {
@@ -617,6 +896,56 @@ void ImGui_ImplWGPU_NewFrame() {
   if (!bd->pipeline_state) {
     ImGui_ImplWGPU_CreateDeviceObjects();
   }
+  bd->pending_flame_batches.clear();
+}
+
+bool ImGui_ImplWGPU_HasFlameInstanceBuffer() {
+  ImGui_ImplWGPU_Data* bd = ImGui_ImplWGPU_GetBackendData();
+  return bd != nullptr && bd->device && bd->flame_instance_buffer &&
+         bd->flame_instance_count > 0;
+}
+
+void ImGui_ImplWGPU_UploadFlameInstances(
+    const ImGui_ImplWGPU_FlameInstance* instances, size_t count) {
+  ImGui_ImplWGPU_Data* bd = ImGui_ImplWGPU_GetBackendData();
+  if (!bd || !bd->device) return;
+  if (count == 0 || instances == nullptr) {
+    bd->flame_instance_count = 0;
+    return;
+  }
+  if (!bd->flame_instance_buffer || bd->flame_instance_capacity < count) {
+    const size_t new_cap = std::max(count, bd->flame_instance_capacity * 3 / 2);
+    wgpu::BufferDescriptor desc{};
+    desc.label = "Dear ImGui Flame Instance buffer";
+    desc.usage = wgpu::BufferUsage::CopyDst | wgpu::BufferUsage::Vertex;
+    desc.size = new_cap * sizeof(ImGui_ImplWGPU_FlameInstance);
+    bd->flame_instance_buffer = bd->device.CreateBuffer(&desc);
+    if (!bd->flame_instance_buffer) {
+      bd->flame_instance_capacity = 0;
+      bd->flame_instance_count = 0;
+      return;
+    }
+    bd->flame_instance_capacity = new_cap;
+  }
+  bd->default_queue.WriteBuffer(bd->flame_instance_buffer, 0, instances,
+                                count * sizeof(ImGui_ImplWGPU_FlameInstance));
+  bd->flame_instance_count = count;
+}
+
+void ImGui_ImplWGPU_AddFlameBatch(
+    ImDrawList* draw_list, const ImGui_ImplWGPU_FlameBatchParams& params) {
+  if (!draw_list || params.instance_count == 0) return;
+  ImGui_ImplWGPU_Data* bd = ImGui_ImplWGPU_GetBackendData();
+  if (!bd || !bd->flame_instance_buffer ||
+      static_cast<uint64_t>(params.first_instance) + params.instance_count >
+          bd->flame_instance_count) {
+    return;
+  }
+  const size_t batch_idx = bd->pending_flame_batches.size();
+  bd->pending_flame_batches.push_back(params);
+  draw_list->AddCallback(FlameBatchCallback,
+                         reinterpret_cast<void*>(batch_idx));
+  draw_list->AddCallback(ImDrawCallback_ResetRenderState, nullptr);
 }
 
 #endif  // #ifndef IMGUI_DISABLE

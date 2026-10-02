@@ -476,6 +476,29 @@ class Timeline {
   void SetTimelineData(FlameChartTimelineData data);
   const FlameChartTimelineData& timeline_data() const { return timeline_data_; }
 
+  void ReleaseEntryMemoryBeforeUpdate() {
+    if (!stash_full_overview_on_next_update_ && !is_full_overview_data_ &&
+        selected_event_index_ < 0) {
+      ReleaseEntryMemory(timeline_data_);
+    }
+  }
+
+  void MarkCurrentDataAsFullOverview() { is_full_overview_data_ = true; }
+  void PrepareForFilteredRefetch() {
+    if (is_full_overview_data_ && !saved_full_overview_.has_value()) {
+      stash_full_overview_on_next_update_ = true;
+    }
+  }
+  bool HasSavedFullOverview() const {
+    return saved_full_overview_.has_value();
+  }
+  bool RestoreSavedFullOverview();
+  void ClearSavedFullOverview() {
+    saved_full_overview_.reset();
+    is_full_overview_data_ = false;
+    stash_full_overview_on_next_update_ = false;
+  }
+
   int selected_event_index() const { return selected_event_index_; }
   int selected_group_index() const { return selected_group_index_; }
   int selected_counter_index() const { return selected_counter_index_; }
@@ -914,6 +937,10 @@ class Timeline {
   ImRect GetTimelineArea() const;
 
   void RebuildEntryColors();
+  void BuildLevelMipPyramids();
+  void CompactTimelineDataToMipOverview();
+  static void ReleaseEntryMemory(FlameChartTimelineData& d);
+  void UploadGpuFlameInstances();
   ImU32 GetEventColor(int event_index) const;
 
   // Private static constants.
@@ -948,6 +975,60 @@ class Timeline {
   std::vector<ImU32> entry_colors_;
   uint64_t cached_trace_colors_version_ = std::numeric_limits<uint64_t>::max();
   std::vector<float> utilization_bins_;
+
+  struct LevelMipTile {
+    Microseconds min_start = 0.0;
+    Microseconds max_end = 0.0;
+    Microseconds total_occupied_dur = 0.0;
+    int dominant_event_index = -1;
+    uint32_t count = 0;
+    ImU32 blended_color = 0;
+  };
+  struct LevelMipLevel {
+    Microseconds bin_width_us = 0.0;
+    std::vector<LevelMipTile> tiles;
+    uint32_t gpu_instance_offset = 0;
+  };
+  struct LevelMipPyramid {
+    static constexpr int kNumMipLevels = 3;
+    LevelMipLevel levels[kNumMipLevels];
+    uint32_t raw_gpu_instance_offset = UINT32_MAX;
+  };
+  std::vector<LevelMipPyramid> level_mip_pyramids_;
+
+  struct ProcessUtilizationMip {
+    Microseconds min_ts = 0.0;
+    Microseconds bin_width_us = 0.0;
+    std::vector<float> occupied_us_bins;
+  };
+  struct ProcessUtilizationPyramid {
+    int start_level = -1;
+    int end_level = -1;
+    ProcessUtilizationMip levels[LevelMipPyramid::kNumMipLevels];
+  };
+  std::vector<ProcessUtilizationPyramid> process_utilization_pyramids_;
+
+  struct CachedGpuFlameInstance {
+    float start_hi = 0.0f;
+    float start_lo = 0.0f;
+    float duration = 0.0f;
+    uint32_t color = 0;
+  };
+  std::vector<CachedGpuFlameInstance> gpu_flame_instances_;
+
+  struct SavedFullOverview {
+    FlameChartTimelineData data;
+    std::vector<ImU32> entry_colors;
+    uint64_t cached_trace_colors_version =
+        std::numeric_limits<uint64_t>::max();
+    std::vector<LevelMipPyramid> level_mip_pyramids;
+    std::vector<ProcessUtilizationPyramid> process_utilization_pyramids;
+    std::vector<CachedGpuFlameInstance> gpu_flame_instances;
+    TimeRange fetched_data_time_range = TimeRange::Zero();
+  };
+  std::optional<SavedFullOverview> saved_full_overview_;
+  bool is_full_overview_data_ = false;
+  bool stash_full_overview_on_next_update_ = false;
 
   // TODO - b/444026851: Set the label width based on the real screen width.
   Pixel label_width_ = kDefaultLabelWidth;

@@ -1062,8 +1062,9 @@ TEST_F(TracePbEventParserTest,
       const auto it = counters.find(
           static_cast<int>(&group - timeline_.timeline_data().groups.data()));
       ASSERT_NE(it, counters.end());
+      EXPECT_EQ(it->second.values.size(), 2);
       EXPECT_DOUBLE_EQ(it->second.min_value, 10.0);
-      EXPECT_DOUBLE_EQ(it->second.max_value, 20.0);
+      EXPECT_DOUBLE_EQ(it->second.max_value, 999.0);
     }
   }
   EXPECT_TRUE(found_counter);

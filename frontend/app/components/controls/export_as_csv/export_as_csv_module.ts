@@ -6,12 +6,7 @@ import {ExportAsCsv} from './export_as_csv';
 
 /** A export-to-csv button module. */
 @NgModule({
-  declarations: [ExportAsCsv],
-  imports: [
-    CommonModule,
-    MatIconModule,
-  ],
+  imports: [CommonModule, MatIconModule, ExportAsCsv],
   exports: [ExportAsCsv],
 })
-export class ExportAsCsvModule {
-}
+export class ExportAsCsvModule {}

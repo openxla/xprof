@@ -14569,6 +14569,107 @@ TEST_F(MockTimelineImGuiFixture, GetEventSelected_EmptyGroups) {
   ASSERT_NE(it, received_data.end());
   EXPECT_EQ(std::any_cast<double>(it->second), 0.0);
 }
+
+TEST_F(RealTimelineImGuiFixture,
+       CollapsedEmptyChildSubtrackConsumesZeroHeightAndIsInvisible) {
+  FlameChartTimelineData data;
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Process 1",
+      .start_level = 0,
+      .nesting_level = kProcessNestingLevel,
+      .expanded = true,
+      .level_count = 1,
+      .has_children = true,
+  });
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Empty Subtrack",
+      .start_level = 0,
+      .nesting_level = kThreadNestingLevel,
+      .expanded = false,
+      .parent_index = 0,
+      .level_count = 1,
+      .has_children = false,
+      .is_empty = true,
+      .num_events = 0,
+  });
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Active Subtrack",
+      .start_level = 1,
+      .nesting_level = kThreadNestingLevel,
+      .expanded = true,
+      .parent_index = 0,
+      .level_count = 1,
+      .has_children = false,
+      .is_empty = false,
+      .num_events = 1,
+  });
+  data.groups[0].child_indices = {1, 2};
+  data.level_offsets.assign(3, 0);
+
+  timeline_.SetTimelineData(std::move(data));
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.group_visible().size(), 3);
+  EXPECT_TRUE(timeline_.group_visible()[0]);
+  EXPECT_FALSE(timeline_.group_visible()[1]);
+  EXPECT_TRUE(timeline_.group_visible()[2]);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  const Group* process_group = &groups[0];
+  const Group* empty_subtrack = &groups[1];
+  const Group* active_subtrack = &groups[2];
+
+  EXPECT_FLOAT_EQ(timeline_.GetGroupBottom(empty_subtrack) -
+                      timeline_.GetGroupTop(empty_subtrack),
+                  0.0f);
+  EXPECT_FLOAT_EQ(timeline_.GetGroupTop(active_subtrack),
+                  timeline_.GetGroupBottom(process_group) + kThreadTrackGap);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       ExpandingEmptyChildSubtrackRestoresVisibilityAndRowHeight) {
+  FlameChartTimelineData data;
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Process 1",
+      .start_level = 0,
+      .nesting_level = kProcessNestingLevel,
+      .expanded = true,
+      .level_count = 1,
+      .has_children = true,
+  });
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Empty Subtrack",
+      .start_level = 0,
+      .nesting_level = kThreadNestingLevel,
+      .expanded = true,
+      .parent_index = 0,
+      .level_count = 1,
+      .has_children = false,
+      .is_empty = true,
+      .num_events = 0,
+  });
+  data.groups[0].child_indices = {1};
+  data.level_offsets.assign(2, 0);
+
+  timeline_.SetTimelineData(std::move(data));
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.group_visible().size(), 2);
+  EXPECT_TRUE(timeline_.group_visible()[0]);
+  EXPECT_TRUE(timeline_.group_visible()[1]);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  const Group* empty_subtrack = &groups[1];
+  const Pixel track_height = timeline_.GetGroupBottom(empty_subtrack) -
+                             timeline_.GetGroupTop(empty_subtrack);
+  EXPECT_GT(track_height, 0.0f);
+  EXPECT_FLOAT_EQ(track_height, kEventHeight + kEventPaddingBottom);
+}
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer

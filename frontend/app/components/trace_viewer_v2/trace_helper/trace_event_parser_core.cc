@@ -1,8 +1,10 @@
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event_parser_core.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <utility>
 
@@ -21,6 +23,17 @@ EventId GenerateEventId(absl::string_view name, Microseconds ts,
                         Microseconds dur) {
   const int64_t ts_ps = static_cast<int64_t>(std::round(ts * 1000000.0));
   const int64_t dur_ps = static_cast<int64_t>(std::round(dur * 1000000.0));
+  char buf[512];
+  if (name.size() + 44 <= sizeof(buf)) {
+    std::memcpy(buf, name.data(), name.size());
+    char* p = buf + name.size();
+    *p++ = ':';
+    p = std::to_chars(p, buf + sizeof(buf), ts_ps).ptr;
+    *p++ = ':';
+    p = std::to_chars(p, buf + sizeof(buf), dur_ps).ptr;
+    return tsl::Fingerprint64(
+        absl::string_view(buf, static_cast<size_t>(p - buf)));
+  }
   return tsl::Fingerprint64(absl::StrCat(name, ":", ts_ps, ":", dur_ps));
 }
 
@@ -157,6 +170,11 @@ void ProcessMetadataEvents(const xprof::TraceDataResponse& response,
 
 void ProcessCompleteEvents(const xprof::TraceDataResponse& response,
                            ParsedTraceEvents& result) {
+  size_t total_deltas = 0;
+  for (const auto& series : response.complete_events()) {
+    total_deltas += series.deltas_size();
+  }
+  result.flame_events.reserve(result.flame_events.size() + total_deltas);
   for (const auto& series : response.complete_events()) {
     const auto& metadata = series.metadata();
     uint64_t current_ts_ps = 0;

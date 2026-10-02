@@ -134,4 +134,48 @@ TEST_F(TracePbEventParserTest, ValidTraceDataWithInvalidTimespan) {
       compressed_buffer.size(), visible_range, data_provider_, timeline_);
 }
 
+TEST_F(TracePbEventParserTest, IncrementalLoadPreservesLastFetchRequestRange) {
+  xprof::TraceDataResponse response;
+  response.add_interned_strings("");
+  response.add_interned_strings("op");
+  response.set_full_timespan_start_ps(0);
+  response.set_full_timespan_end_ps(10000000000ULL);  // 10 ms
+  auto* series = response.add_complete_events();
+  series->mutable_metadata()->set_process_id(1);
+  series->mutable_metadata()->set_thread_id(1);
+  series->add_deltas(1000000000ULL);     // 1 ms
+  series->add_durations(1000000000ULL);  // 1 ms
+  series->add_name_refs(1);
+  series->add_event_metadata();
+
+  std::string serialized_proto;
+  ASSERT_TRUE(response.SerializeToString(&serialized_proto));
+  const std::string compressed_buffer =
+      *tensorflow::profiler::ZstdCompression::Compress(serialized_proto);
+
+  // Initial load initializes last_fetch_request_range_ to full data_time_range_
+  ParseAndProcessCompressedTraceEvents(
+      reinterpret_cast<uintptr_t>(compressed_buffer.data()),
+      compressed_buffer.size(), emscripten::val::undefined(), data_provider_,
+      timeline_);
+  EXPECT_EQ(timeline_.last_fetch_request_range(), TimeRange(0.0, 10000.0));
+
+  // Simulate MaybeRequestData setting last_fetch_request_range_ to an expanded
+  // fetch window [2000 us, 5000 us] (2.0 ms to 5.0 ms) before incremental load.
+  timeline_.InitializeLastFetchRequestRange(TimeRange(3000.0, 4000.0));
+  const TimeRange expected_fetch_range = timeline_.last_fetch_request_range();
+  ASSERT_EQ(expected_fetch_range, TimeRange(2000.0, 5000.0));
+
+  emscripten::val fetch_range_ms = emscripten::val::array();
+  fetch_range_ms.call<void>("push", emscripten::val(2.0));
+  fetch_range_ms.call<void>("push", emscripten::val(5.0));
+
+  ParseAndProcessCompressedTraceEvents(
+      reinterpret_cast<uintptr_t>(compressed_buffer.data()),
+      compressed_buffer.size(), fetch_range_ms, data_provider_, timeline_);
+
+  // Incremental load must not re-scale [2.0 ms, 5.0 ms] by kFetchRatio again.
+  EXPECT_EQ(timeline_.last_fetch_request_range(), expected_fetch_range);
+}
+
 }  // namespace traceviewer

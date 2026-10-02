@@ -123,7 +123,8 @@ class MockTimeline : public Timeline {
   }
 
   MOCK_METHOD(ImVec2, GetTextSize, (absl::string_view text), (const, override));
-  MOCK_METHOD(void, Pan, (Pixel pixel_amount), (override));
+  MOCK_METHOD(void, Pan, (Pixel pixel_amount, bool warn_at_boundary),
+              (override));
   MOCK_METHOD(void, Zoom, (float zoom_factor, double pivot), (override));
   MOCK_METHOD(void, Scroll, (Pixel pixel_amount), (override));
   MOCK_METHOD(void, DrawGroup,
@@ -2801,21 +2802,24 @@ TEST_F(MockTimelineImGuiFixture, HandleKeyboard_EmptyCallback_DoesNotCrash) {
 TEST_F(MockTimelineImGuiFixture, HandleKeyboard_KeyE_PansRight) {
   ImGui::GetIO().AddKeyEvent(ImGuiKey_E, true);
   EXPECT_CALL(timeline_, Pan(FloatEq(timeline_.panning_speed() *
-                                     ImGui::GetIO().DeltaTime)));
+                                     ImGui::GetIO().DeltaTime),
+                             _));
   SimulateFrame();
 }
 
 TEST_F(MockTimelineImGuiFixture, HandleKeyboard_KeyA_PansLeft) {
   ImGui::GetIO().AddKeyEvent(ImGuiKey_A, true);
   EXPECT_CALL(timeline_, Pan(FloatEq(-timeline_.panning_speed() *
-                                     ImGui::GetIO().DeltaTime)));
+                                     ImGui::GetIO().DeltaTime),
+                             _));
   SimulateFrame();
 }
 
 TEST_F(MockTimelineImGuiFixture, HandleKeyboard_KeyD_PansRight) {
   ImGui::GetIO().AddKeyEvent(ImGuiKey_D, true);
   EXPECT_CALL(timeline_, Pan(FloatEq(timeline_.panning_speed() *
-                                     ImGui::GetIO().DeltaTime)));
+                                     ImGui::GetIO().DeltaTime),
+                             _));
   SimulateFrame();
 }
 
@@ -2824,7 +2828,8 @@ TEST_F(MockTimelineImGuiFixture,
   timeline_.RevealEvent(-1);  // Ensure no event is selected
   ImGui::GetIO().AddKeyEvent(ImGuiKey_LeftArrow, true);
   EXPECT_CALL(timeline_, Pan(FloatEq(-timeline_.panning_speed() *
-                                     ImGui::GetIO().DeltaTime)));
+                                     ImGui::GetIO().DeltaTime),
+                             _));
   SimulateFrame();
 }
 
@@ -2833,7 +2838,8 @@ TEST_F(MockTimelineImGuiFixture,
   timeline_.RevealEvent(-1);  // Ensure no event is selected
   ImGui::GetIO().AddKeyEvent(ImGuiKey_RightArrow, true);
   EXPECT_CALL(timeline_, Pan(FloatEq(timeline_.panning_speed() *
-                                     ImGui::GetIO().DeltaTime)));
+                                     ImGui::GetIO().DeltaTime),
+                             _));
   SimulateFrame();
 }
 
@@ -4764,7 +4770,7 @@ TEST_F(MockTimelineImGuiFixture, ClickAndPressShiftMidDragContinuesPanning) {
   io.MousePos = ImVec2(GetTimelineStartX() + 50.0f, 50.0f);
   io.AddMouseButtonEvent(0, true);
 
-  EXPECT_CALL(timeline_, Pan(0.0f));
+  EXPECT_CALL(timeline_, Pan(0.0f, _));
   EXPECT_CALL(timeline_, Scroll(0.0f));
   SimulateFrame();
 
@@ -4775,7 +4781,7 @@ TEST_F(MockTimelineImGuiFixture, ClickAndPressShiftMidDragContinuesPanning) {
   // Move from 300 to 200 (-100px).
   io.MousePos = ImVec2(GetTimelineStartX() - 50.0f, 50.0f);
 
-  EXPECT_CALL(timeline_, Pan(FloatEq(100.0f)));
+  EXPECT_CALL(timeline_, Pan(FloatEq(100.0f), _));
   EXPECT_CALL(timeline_, Scroll(FloatEq(0.0f)));
   SimulateFrame();
 
@@ -5117,7 +5123,7 @@ TEST_F(MockTimelineImGuiFixture, HandleWheel_DiagonalScroll) {
   // Expect standard behavior:
   // MouseWheelH (X) -> Pan
   // MouseWheel (Y) -> Scroll
-  EXPECT_CALL(timeline_, Pan(FloatEq(1.0f)));
+  EXPECT_CALL(timeline_, Pan(FloatEq(1.0f), false));
   EXPECT_CALL(timeline_, Scroll(FloatEq(2.0f)));
 
   SimulateFrame();
@@ -5136,7 +5142,7 @@ TEST_F(MockTimelineImGuiFixture, HandleWheel_Shift_DiagonalScroll) {
   // Expect swapped behavior:
   // MouseWheel (Y) -> Pan
   // MouseWheelH (X) -> Scroll
-  EXPECT_CALL(timeline_, Pan(FloatEq(2.0f)));
+  EXPECT_CALL(timeline_, Pan(FloatEq(2.0f), false));
   EXPECT_CALL(timeline_, Scroll(FloatEq(1.0f)));
 
   timeline_.Draw();
@@ -5339,7 +5345,7 @@ TEST_F(MockTimelineImGuiFixture, PanLeftWithAKey) {
   // No acceleration is applied because io.DeltaTime (0.1f) <
   // kAccelerateThreshold (0.25f).
   EXPECT_CALL(timeline_,
-              Pan(FloatEq(-kPanningSpeed * ImGui::GetIO().DeltaTime)));
+              Pan(FloatEq(-kPanningSpeed * ImGui::GetIO().DeltaTime), _));
 
   SimulateFrame();
 }
@@ -5351,8 +5357,9 @@ TEST_F(MockTimelineImGuiFixture, PanLeftWithAKey_Accelerated) {
   // accelerated_time = 1.0f - 0.1f = 0.9f
   // multiplier = 0.9f * kAccelerateRate (10.0f) = 9.0f
   // total multiplier = 1.0f + std::min(9.0f, kMaxAccelerateFactor) = 10.0f
-  EXPECT_CALL(timeline_,
-              Pan(FloatEq(-kPanningSpeed * ImGui::GetIO().DeltaTime * 10.0f)));
+  EXPECT_CALL(
+      timeline_,
+      Pan(FloatEq(-kPanningSpeed * ImGui::GetIO().DeltaTime * 10.0f), _));
 
   SimulateFrame();
 }
@@ -5360,7 +5367,7 @@ TEST_F(MockTimelineImGuiFixture, PanLeftWithAKey_Accelerated) {
 TEST_F(MockTimelineImGuiFixture, PanLeftWithHorizontalMouseWheel) {
   ImGui::GetIO().AddMouseWheelEvent(-1.0f, 0.0f);
 
-  EXPECT_CALL(timeline_, Pan(FloatEq(-1.0f)));
+  EXPECT_CALL(timeline_, Pan(FloatEq(-1.0f), false));
 
   SimulateFrame();
 }
@@ -5370,7 +5377,7 @@ TEST_F(MockTimelineImGuiFixture, PanLeftWithShiftAndMouseWheel) {
   io.AddMouseWheelEvent(0.0f, -1.0f);
   io.AddKeyEvent(ImGuiMod_Shift, true);
 
-  EXPECT_CALL(timeline_, Pan(FloatEq(-1.0f)));
+  EXPECT_CALL(timeline_, Pan(FloatEq(-1.0f), false));
 
   SimulateFrame();
 }
@@ -5381,7 +5388,7 @@ TEST_F(MockTimelineImGuiFixture, PanRightWithDKey) {
   // No acceleration is applied because io.DeltaTime (0.1f) <
   // kAccelerateThreshold (0.25f).
   EXPECT_CALL(timeline_,
-              Pan(FloatEq(kPanningSpeed * ImGui::GetIO().DeltaTime)));
+              Pan(FloatEq(kPanningSpeed * ImGui::GetIO().DeltaTime), _));
 
   SimulateFrame();
 }
@@ -5395,7 +5402,8 @@ TEST_F(MockTimelineImGuiFixture, PanRightWithDKey_MaxAccelerated) {
   // total multiplier = 1.0f + std::min(57.5f, kMaxAccelerateFactor (30.0f))
   //                  = 1.0f + 30.0f = 31.0f
   EXPECT_CALL(timeline_,
-              Pan(FloatEq(kPanningSpeed * ImGui::GetIO().DeltaTime * 31.0f)));
+              Pan(FloatEq(kPanningSpeed * ImGui::GetIO().DeltaTime * 31.0f),
+                  _));
 
   SimulateFrame();
 }
@@ -5406,7 +5414,8 @@ TEST_F(MockTimelineImGuiFixture, PanLeftWithAKey_ShiftAccelerated) {
   io.AddKeyEvent(ImGuiMod_Shift, true);
 
   EXPECT_CALL(timeline_, Pan(FloatEq(-kPanningSpeed * io.DeltaTime *
-                                     kShiftPanAccelerateFactor)));
+                                     kShiftPanAccelerateFactor),
+                             _));
 
   SimulateFrame();
 }
@@ -5417,7 +5426,8 @@ TEST_F(MockTimelineImGuiFixture, PanRightWithDKey_ShiftAccelerated) {
   io.AddKeyEvent(ImGuiMod_Shift, true);
 
   EXPECT_CALL(timeline_, Pan(FloatEq(kPanningSpeed * io.DeltaTime *
-                                     kShiftPanAccelerateFactor)));
+                                     kShiftPanAccelerateFactor),
+                             _));
 
   SimulateFrame();
 }
@@ -5425,7 +5435,7 @@ TEST_F(MockTimelineImGuiFixture, PanRightWithDKey_ShiftAccelerated) {
 TEST_F(MockTimelineImGuiFixture, PanRightWithHorizontalMouseWheel) {
   ImGui::GetIO().AddMouseWheelEvent(1.0f, 0.0f);
 
-  EXPECT_CALL(timeline_, Pan(FloatEq(1.0f)));
+  EXPECT_CALL(timeline_, Pan(FloatEq(1.0f), false));
 
   SimulateFrame();
 }
@@ -5435,7 +5445,7 @@ TEST_F(MockTimelineImGuiFixture, PanRightWithShiftAndMouseWheel) {
   io.AddMouseWheelEvent(0.0f, 1.0f);
   io.AddKeyEvent(ImGuiMod_Shift, true);
 
-  EXPECT_CALL(timeline_, Pan(FloatEq(1.0f)));
+  EXPECT_CALL(timeline_, Pan(FloatEq(1.0f), false));
 
   SimulateFrame();
 }
@@ -5451,7 +5461,7 @@ TEST_F(MockTimelineImGuiFixture, PanWithMouseDrag) {
   io.AddMouseButtonEvent(0, true);
 
   // In the first frame of a drag, MouseDelta will be zero.
-  EXPECT_CALL(timeline_, Pan(0.0f));
+  EXPECT_CALL(timeline_, Pan(0.0f, _));
   EXPECT_CALL(timeline_, Scroll(0.0f));
 
   SimulateFrame();  // This will call HandleMouse and set is_dragging_ to true
@@ -5459,7 +5469,7 @@ TEST_F(MockTimelineImGuiFixture, PanWithMouseDrag) {
   // Drag the mouse.
   io.AddMousePosEvent(GetTimelineStartX() + 60.0f, 60.0f);
 
-  EXPECT_CALL(timeline_, Pan(FloatEq(-10.0f)));
+  EXPECT_CALL(timeline_, Pan(FloatEq(-10.0f), _));
   EXPECT_CALL(timeline_, Scroll(FloatEq(-10.0f)));
 
   SimulateFrame();
@@ -5727,7 +5737,7 @@ TEST_F(MockTimelineImGuiFixture, PanningDisabledDuringLabelColumnResizing) {
   ImGuiIO& io = ImGui::GetIO();
 
   // Panning should not occur!
-  EXPECT_CALL(timeline_, Pan(_)).Times(0);
+  EXPECT_CALL(timeline_, Pan(_, _)).Times(0);
   EXPECT_CALL(timeline_, Scroll(_)).Times(0);
 
   SimulateLabelColumnResizeDragStart();
@@ -5975,7 +5985,7 @@ TEST_F(MockTimelineImGuiFixture, ConfigurablePanningSpeed) {
   timeline_.set_panning_speed(500.0f);
   ImGui::GetIO().AddKeyEvent(ImGuiKey_D, true);
 
-  EXPECT_CALL(timeline_, Pan(FloatEq(500.0f * ImGui::GetIO().DeltaTime)));
+  EXPECT_CALL(timeline_, Pan(FloatEq(500.0f * ImGui::GetIO().DeltaTime), _));
 
   SimulateFrame();
 }
@@ -11465,7 +11475,7 @@ TEST_F(RealTimelineImGuiFixture, PanLeftOutOfBounds) {
   bool redraw_called = false;
   timeline_.set_redraw_callback([&redraw_called]() { redraw_called = true; });
 
-  timeline_.Pan(-2000.0f);
+  timeline_.Pan(-2000.0f, /*warn_at_boundary=*/true);
 
   EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 2.0f);
   EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
@@ -11478,9 +11488,38 @@ TEST_F(RealTimelineImGuiFixture, PanRightOutOfBounds) {
   timeline_.SetVisibleRange({900.0, 990.0});
   SimulateFrame();
 
-  timeline_.Pan(2000.0f);
+  timeline_.Pan(2000.0f, /*warn_at_boundary=*/true);
 
   EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 2.0f);
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            "Cannot pan further right: reached the end of the trace.");
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       HandleWheel_PanAtTraceBoundaryDoesNotTriggerWarning) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({910.0, 1000.0});
+  SimulateFrame();
+
+  // Horizontal wheel event panning right past trace boundary.
+  ImGui::GetIO().AddMouseWheelEvent(5.0f, 0.0f);
+  SimulateFrame();
+
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
+  EXPECT_TRUE(timeline_.get_bounds_notification_message_for_test().empty());
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       HandleKeyboard_PanAtTraceBoundaryTriggersWarning) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({910.0, 1000.0});
+  SimulateFrame();
+
+  // Press Key 'D' to pan right past trace boundary.
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_D, true);
+  SimulateFrame();
+
+  EXPECT_GT(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
   EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
             "Cannot pan further right: reached the end of the trace.");
 }
@@ -11545,14 +11584,16 @@ TEST_F(RealTimelineImGuiFixture, PanFullyZoomedOutNoNotification) {
   timeline_.SetVisibleRange({0.0, 1000.0});
   SimulateFrame();
 
-  timeline_.Pan(-500.0f);  // Try to pan left while fully zoomed out
+  // Try to pan left while fully zoomed out
+  timeline_.Pan(-500.0f, /*warn_at_boundary=*/true);
 
   // Notification should NOT be triggered since we are already showing the
   // entire trace.
   EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
   EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(), "");
 
-  timeline_.Pan(500.0f);  // Try to pan right while fully zoomed out
+  // Try to pan right while fully zoomed out
+  timeline_.Pan(500.0f, /*warn_at_boundary=*/true);
 
   EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
   EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(), "");
@@ -11564,7 +11605,7 @@ TEST_F(RealTimelineImGuiFixture, DrawNotificationToastFades) {
   SimulateFrame();
 
   // Pan out of bounds to trigger
-  timeline_.Pan(-2000.0f);
+  timeline_.Pan(-2000.0f, /*warn_at_boundary=*/true);
 
   // Verify notification is active
   EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 2.0f);

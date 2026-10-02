@@ -1041,9 +1041,14 @@ class Timeline {
   }
 
   // Pans the visible time range by the given pixel amount.
+  // When `warn_at_boundary` is true (e.g. keyboard navigation and mouse drag),
+  // a boundary toast notification is displayed if panning attempts to move
+  // beyond the trace data boundary. When false (e.g. mouse wheel or trackpad
+  // scroll drift), the visible range is clamped to the trace boundary without
+  // displaying a toast notification.
   // This method is virtual to allow derived classes to customize or extend
   // panning behavior.
-  virtual void Pan(Pixel pixel_amount);
+  virtual void Pan(Pixel pixel_amount, bool warn_at_boundary);
 
   // Scrolls the visible time range by the given pixel amount.
   // This method is virtual to allow derived classes to customize or extend

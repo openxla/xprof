@@ -481,9 +481,9 @@ TEST(TimelineTest, CalculateEventTextRect_EmptyText) {
 
   ImVec2 text_pos = timeline.CalculateEventTextRect(event_name, event_rect);
 
-  float event_width = event_rect.right - event_rect.left;
-  float expected_left = event_rect.left + event_width * 0.5f;
-  float expected_top = (kEventHeight - fake_text_size.y) * 0.5f;
+  float expected_left = std::floor(event_rect.left + kEventTextPaddingLeft);
+  float expected_top =
+      std::floor(event_rect.top + (kEventHeight - fake_text_size.y) * 0.5f);
 
   EXPECT_FLOAT_EQ(text_pos.x, expected_left);
   EXPECT_FLOAT_EQ(text_pos.y, expected_top);
@@ -500,10 +500,11 @@ TEST(TimelineTest, CalculateEventTextRect_NarrowEvent) {
 
   ImVec2 text_pos = timeline.CalculateEventTextRect(event_name, event_rect);
 
-  float expected_top = (kEventHeight - fake_text_size.y) * 0.5f;
+  float expected_left = std::floor(event_rect.left + kEventTextPaddingLeft);
+  float expected_top =
+      std::floor(event_rect.top + (kEventHeight - fake_text_size.y) * 0.5f);
 
-  // Text is wider than the event, so it should start at the event's left edge.
-  EXPECT_FLOAT_EQ(text_pos.x, event_rect.left);
+  EXPECT_FLOAT_EQ(text_pos.x, expected_left);
   EXPECT_FLOAT_EQ(text_pos.y, expected_top);
 }
 
@@ -518,10 +519,9 @@ TEST(TimelineTest, CalculateEventTextRect_SpecialCharacters) {
 
   ImVec2 text_pos = timeline.CalculateEventTextRect(event_name, event_rect);
 
-  float event_width = event_rect.right - event_rect.left;
-  float expected_left =
-      event_rect.left + (event_width - fake_text_size.x) * 0.5f;
-  float expected_top = (kEventHeight - fake_text_size.y) * 0.5f;
+  float expected_left = std::floor(event_rect.left + kEventTextPaddingLeft);
+  float expected_top =
+      std::floor(event_rect.top + (kEventHeight - fake_text_size.y) * 0.5f);
 
   EXPECT_FLOAT_EQ(text_pos.x, expected_left);
   EXPECT_FLOAT_EQ(text_pos.y, expected_top);
@@ -538,10 +538,9 @@ TEST(TimelineTest, CalculateEventTextRect_TextFits) {
 
   ImVec2 text_pos = timeline.CalculateEventTextRect(event_name, event_rect);
 
-  float event_width = event_rect.right - event_rect.left;
-  float expected_left =
-      event_rect.left + (event_width - fake_text_size.x) * 0.5f;
-  float expected_top = (kEventHeight - fake_text_size.y) * 0.5f;
+  float expected_left = std::floor(event_rect.left + kEventTextPaddingLeft);
+  float expected_top =
+      std::floor(event_rect.top + (kEventHeight - fake_text_size.y) * 0.5f);
 
   EXPECT_FLOAT_EQ(text_pos.x, expected_left);
   EXPECT_FLOAT_EQ(text_pos.y, expected_top);
@@ -558,10 +557,110 @@ TEST(TimelineTest, CalculateEventTextRect_TextWiderThanRect) {
 
   ImVec2 text_pos = timeline.CalculateEventTextRect(event_name, event_rect);
 
-  float expected_top = (kEventHeight - fake_text_size.y) * 0.5f;
+  float expected_left = std::floor(event_rect.left + kEventTextPaddingLeft);
+  float expected_top =
+      std::floor(event_rect.top + (kEventHeight - fake_text_size.y) * 0.5f);
 
-  EXPECT_FLOAT_EQ(text_pos.x, event_rect.left);
+  EXPECT_FLOAT_EQ(text_pos.x, expected_left);
   EXPECT_FLOAT_EQ(text_pos.y, expected_top);
+}
+
+TEST(TimelineTest, CalculateEventTextRect_StationaryDuringZoomWidthChanges) {
+  MockTimeline timeline;
+  std::string event_name = "OpName";
+  ImVec2 fake_text_size = {40.0f, kEventHeight};
+  EXPECT_CALL(timeline, GetTextSize(event_name))
+      .Times(3)
+      .WillRepeatedly(Return(fake_text_size));
+
+  // Zooming in expands right boundary while left boundary remains fixed.
+  EventRect rect_zoom1 = {20.0f, 0.0f, 50.0f, kEventHeight};
+  EventRect rect_zoom2 = {20.0f, 0.0f, 150.0f, kEventHeight};
+  EventRect rect_zoom3 = {20.0f, 0.0f, 500.0f, kEventHeight};
+
+  ImVec2 pos1 = timeline.CalculateEventTextRect(event_name, rect_zoom1);
+  ImVec2 pos2 = timeline.CalculateEventTextRect(event_name, rect_zoom2);
+  ImVec2 pos3 = timeline.CalculateEventTextRect(event_name, rect_zoom3);
+
+  EXPECT_FLOAT_EQ(pos1.x, pos2.x);
+  EXPECT_FLOAT_EQ(pos2.x, pos3.x);
+  EXPECT_FLOAT_EQ(pos1.x, std::floor(20.0f + kEventTextPaddingLeft));
+}
+
+TEST(TimelineTest, CalculateEventTextRect_StationaryOffsetDuringPanning) {
+  MockTimeline timeline;
+  std::string event_name = "OpName";
+  ImVec2 fake_text_size = {40.0f, kEventHeight};
+  EXPECT_CALL(timeline, GetTextSize(event_name))
+      .Times(3)
+      .WillRepeatedly(Return(fake_text_size));
+
+  // Panning shifts left position across frames.
+  const float offsets[] = {100.0f, 85.0f, 70.0f};
+  for (float left : offsets) {
+    EventRect rect = {left, 0.0f, left + 200.0f, kEventHeight};
+    ImVec2 pos = timeline.CalculateEventTextRect(event_name, rect);
+    EXPECT_FLOAT_EQ(pos.x, std::floor(left + kEventTextPaddingLeft));
+  }
+}
+
+TEST(TimelineTest,
+     CalculateEventTextRect_StickyLeftEdgeWhenPartiallyOffscreen) {
+  MockTimeline timeline;
+  std::string event_name = "LongRunningKernel";
+  ImVec2 fake_text_size = {80.0f, kEventHeight};
+  EXPECT_CALL(timeline, GetTextSize(event_name))
+      .WillOnce(Return(fake_text_size));
+
+  // Event whose left edge was clipped to viewport left at 0.0f
+  EventRect clipped_rect = {0.0f, 0.0f, 300.0f, kEventHeight};
+  ImVec2 pos = timeline.CalculateEventTextRect(event_name, clipped_rect);
+
+  EXPECT_FLOAT_EQ(pos.x, std::floor(0.0f + kEventTextPaddingLeft));
+  EXPECT_FLOAT_EQ(pos.y,
+                  std::floor(clipped_rect.top +
+                             (kEventHeight - fake_text_size.y) * 0.5f));
+}
+
+TEST(TimelineTest, CalculateEventTextRect_SubpixelSnapping) {
+  MockTimeline timeline;
+  std::string event_name = "OpName";
+  ImVec2 fake_text_size = {30.0f, kEventHeight};
+  EXPECT_CALL(timeline, GetTextSize(event_name))
+      .Times(2)
+      .WillRepeatedly(Return(fake_text_size));
+
+  EventRect rect_subpixel1 = {10.3f, 2.7f, 100.0f, 2.7f + kEventHeight};
+  EventRect rect_subpixel2 = {10.8f, 2.2f, 100.0f, 2.2f + kEventHeight};
+
+  ImVec2 pos1 = timeline.CalculateEventTextRect(event_name, rect_subpixel1);
+  ImVec2 pos2 = timeline.CalculateEventTextRect(event_name, rect_subpixel2);
+
+  EXPECT_FLOAT_EQ(pos1.x, std::floor(10.3f + kEventTextPaddingLeft));
+  EXPECT_FLOAT_EQ(pos1.y,
+                  std::floor(2.7f + (kEventHeight - fake_text_size.y) * 0.5f));
+
+  EXPECT_FLOAT_EQ(pos2.x, std::floor(10.8f + kEventTextPaddingLeft));
+  EXPECT_FLOAT_EQ(pos2.y,
+                  std::floor(2.2f + (kEventHeight - fake_text_size.y) * 0.5f));
+}
+
+TEST(TimelineTest, CalculateEventTextRect_DecoupledFromTruncationLength) {
+  MockTimeline timeline;
+  std::string short_text = "Op...";
+  std::string long_text = "OperationLongName";
+  EventRect rect = {50.0f, 0.0f, 120.0f, kEventHeight};
+
+  EXPECT_CALL(timeline, GetTextSize(short_text))
+      .WillOnce(Return(ImVec2(20.0f, kEventHeight)));
+  EXPECT_CALL(timeline, GetTextSize(long_text))
+      .WillOnce(Return(ImVec2(90.0f, kEventHeight)));
+
+  ImVec2 short_pos = timeline.CalculateEventTextRect(short_text, rect);
+  ImVec2 long_pos = timeline.CalculateEventTextRect(long_text, rect);
+
+  EXPECT_FLOAT_EQ(short_pos.x, long_pos.x);
+  EXPECT_FLOAT_EQ(short_pos.x, std::floor(rect.left + kEventTextPaddingLeft));
 }
 
 TEST(TimelineTest, CalculateTickInfo) {

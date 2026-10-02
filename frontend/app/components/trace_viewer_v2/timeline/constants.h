@@ -67,6 +67,8 @@ inline constexpr Pixel kEventHeight = 18.0f;
 inline constexpr Pixel kEventMinimumDrawWidth = 2.0f;
 inline constexpr Pixel kEventPaddingBottom = 1.0f;
 inline constexpr Pixel kEventPaddingRight = 1.0f;
+// Left padding for event slice label text to maintain stationary positioning.
+inline constexpr Pixel kEventTextPaddingLeft = 4.0f;
 // The size of the visual indent for nested groups in the timeline, indicating
 // their nesting level.
 inline constexpr Pixel kIndentSize = 10.0f;

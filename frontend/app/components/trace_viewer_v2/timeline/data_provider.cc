@@ -1383,6 +1383,7 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   const std::vector<ProcessId> sorted_pids = GetSortedProcessIds(
       trace_info, known_threads_, known_counters_, known_async_tracks_);
 
+  timeline.ReleaseEntryMemoryBeforeUpdate();
   timeline.SetTimelineData(CreateTimelineData(
       trace_info, sorted_pids, GetTop5FlowCategories(flow_category_counts),
       time_bounds, expanded_states, timeline.GetPalette(), max_observed_levels_,

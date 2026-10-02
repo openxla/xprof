@@ -3137,10 +3137,31 @@ void Timeline::DrawUtilizationAreaChart(int start_level, int end_level,
 }
 
 void Timeline::DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
-                              Pixel timeline_y_start, double px_per_time,
-                              ImDrawList* draw_list) {
+                              Pixel timeline_width, Pixel timeline_y_start,
+                              double px_per_time, ImDrawList* draw_list) {
+  if (timeline_width <= 0 || px_per_time <= 0) {
+    return;
+  }
   if (flow.source_level >= visible_level_offsets_.size() ||
       flow.target_level >= visible_level_offsets_.size()) {
+    return;
+  }
+
+  const Microseconds flow_min_ts = std::min(flow.source_ts, flow.target_ts);
+  const Microseconds flow_max_ts = std::max(flow.source_ts, flow.target_ts);
+  if (flow_max_ts < visible_range().start() ||
+      flow_min_ts > visible_range().end()) {
+    return;
+  }
+
+  const Pixel timeline_x_end = timeline_x_start + timeline_width;
+  const Pixel start_x =
+      TimeToScreenX(flow.source_ts, timeline_x_start, px_per_time);
+  const Pixel end_x =
+      TimeToScreenX(flow.target_ts, timeline_x_start, px_per_time);
+
+  if (std::max(start_x, end_x) < timeline_x_start ||
+      std::min(start_x, end_x) > timeline_x_end) {
     return;
   }
 
@@ -3149,21 +3170,33 @@ void Timeline::DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
   const Pixel end_y =
       timeline_y_start + visible_level_offsets_[flow.target_level];
 
-  const Pixel start_x =
-      TimeToScreenX(flow.source_ts, timeline_x_start, px_per_time);
-  const Pixel end_x =
-      TimeToScreenX(flow.target_ts, timeline_x_start, px_per_time);
+  const bool source_visible =
+      start_x >= timeline_x_start && start_x <= timeline_x_end;
+  const bool target_visible =
+      end_x >= timeline_x_start && end_x <= timeline_x_end;
 
-  const ImVec2 p0(start_x, start_y);
-  const ImVec2 p1(end_x, end_y);
+  const Pixel clamped_start_x =
+      std::clamp(start_x, timeline_x_start, timeline_x_end);
+  const Pixel clamped_end_x =
+      std::clamp(end_x, timeline_x_start, timeline_x_end);
+  if (clamped_start_x == clamped_end_x && start_y == end_y) {
+    return;
+  }
+
+  const ImVec2 p0(clamped_start_x, start_y);
+  const ImVec2 p1(clamped_end_x, end_y);
 
   ImVec2 cp0, cp1;
-  Timeline::CalculateBezierControlPoints(start_x, start_y, end_x, end_y, cp0,
-                                         cp1);
+  Timeline::CalculateBezierControlPoints(clamped_start_x, start_y,
+                                         clamped_end_x, end_y, cp0, cp1);
 
   draw_list->AddBezierCubic(p0, cp0, cp1, p1, flow.color, 1.0f);
-  draw_list->AddCircleFilled(p0, kPointRadius, flow.color);
-  draw_list->AddCircleFilled(p1, kPointRadius, flow.color);
+  if (source_visible) {
+    draw_list->AddCircleFilled(p0, kPointRadius, flow.color);
+  }
+  if (target_visible) {
+    draw_list->AddCircleFilled(p1, kPointRadius, flow.color);
+  }
 }
 
 void Timeline::SetVisibleFlowCategories(const std::vector<int>& category_ids) {
@@ -3214,8 +3247,8 @@ void Timeline::DrawFlows(Pixel timeline_width, Pixel timeline_y_start) {
         auto it_lines = timeline_data_.flow_lines_by_flow_id.find(flow_id);
         if (it_lines != timeline_data_.flow_lines_by_flow_id.end()) {
           for (const auto& flow : it_lines->second) {
-            DrawSingleFlow(flow, timeline_x_start, timeline_y_start,
-                           px_per_time, draw_list);
+            DrawSingleFlow(flow, timeline_x_start, timeline_width,
+                           timeline_y_start, px_per_time, draw_list);
           }
         }
       }
@@ -3223,8 +3256,8 @@ void Timeline::DrawFlows(Pixel timeline_width, Pixel timeline_y_start) {
   } else {
     for (const auto& flow : timeline_data_.flow_lines) {
       if (visible_flow_categories_.contains(static_cast<int>(flow.category))) {
-        DrawSingleFlow(flow, timeline_x_start, timeline_y_start, px_per_time,
-                       draw_list);
+        DrawSingleFlow(flow, timeline_x_start, timeline_width,
+                       timeline_y_start, px_per_time, draw_list);
       }
     }
   }

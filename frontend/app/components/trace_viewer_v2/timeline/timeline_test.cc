@@ -5814,6 +5814,152 @@ TEST_F(RealTimelineImGuiFixture, DrawFlowsWithZeroViewDuration) {
   ImGui::EndFrame();
 }
 
+TEST_F(RealTimelineImGuiFixture, DrawFlowsWithSourceOffscreenLeft) {
+  timeline_.SetTimelineData(GetTestFlowData());
+  // Visible range [30.0, 60.0]: flow1 source (12.0) is offscreen left,
+  // target (52.0) is visible.
+  timeline_.SetVisibleRange({30.0, 60.0});
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGeneric)});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  ASSERT_FALSE(draw_list->VtxBuffer.empty());
+
+  bool found_flow1_color = false;
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) found_flow1_color = true;
+  }
+  EXPECT_TRUE(found_flow1_color);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawFlowsWithTargetOffscreenRight) {
+  timeline_.SetTimelineData(GetTestFlowData());
+  // Visible range [0.0, 40.0]: flow1 source (12.0) is visible,
+  // target (52.0) is offscreen right.
+  timeline_.SetVisibleRange({0.0, 40.0});
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGeneric)});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  ASSERT_FALSE(draw_list->VtxBuffer.empty());
+
+  bool found_flow1_color = false;
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) found_flow1_color = true;
+  }
+  EXPECT_TRUE(found_flow1_color);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       DrawFlowsWithBothEndpointsOffscreenSpanningViewport) {
+  timeline_.SetTimelineData(GetTestFlowData());
+  // Visible range [20.0, 40.0]: flow1 source (12.0) is offscreen left,
+  // target (52.0) is offscreen right. The flow spans the viewport.
+  timeline_.SetVisibleRange({20.0, 40.0});
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGeneric)});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  ASSERT_FALSE(draw_list->VtxBuffer.empty());
+
+  bool found_flow1_color = false;
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) found_flow1_color = true;
+  }
+  EXPECT_TRUE(found_flow1_color);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawFlowsCompletelyOffscreen) {
+  timeline_.SetTimelineData(GetTestFlowData());
+  // Visible range [60.0, 100.0]: flow1 (12.0 to 52.0) and flow2 (15.0 to 55.0)
+  // are completely to the left of the viewport.
+  timeline_.SetVisibleRange({60.0, 100.0});
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGeneric),
+       static_cast<int>(tsl::profiler::ContextType::kGpuLaunch)});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  bool found_flow1_color = false;
+  bool found_flow2_color = false;
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) found_flow1_color = true;
+    if (vtx.col == 0xFF00FF00) found_flow2_color = true;
+  }
+  EXPECT_FALSE(found_flow1_color);
+  EXPECT_FALSE(found_flow2_color);
+
+  ImGui::EndFrame();
+
+  // Also test completely to the right of the viewport: [0.0, 10.0].
+  timeline_.SetVisibleRange({0.0, 10.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  draw_list = ImGui::GetForegroundDrawList();
+
+  found_flow1_color = false;
+  found_flow2_color = false;
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) found_flow1_color = true;
+    if (vtx.col == 0xFF00FF00) found_flow2_color = true;
+  }
+  EXPECT_FALSE(found_flow1_color);
+  EXPECT_FALSE(found_flow2_color);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       DrawFlowsForSelectedEventWithOffscreenEndpoint) {
+  timeline_.SetTimelineData(GetTestFlowData());
+  // Select event 0 (id 1000), which connects flow1 (source 12.0, target 52.0).
+  timeline_.RevealEvent(0);
+  // Set visible range to [0.0, 30.0], so target (52.0) is offscreen right.
+  timeline_.SetVisibleRange({0.0, 30.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  ASSERT_FALSE(draw_list->VtxBuffer.empty());
+
+  bool found_flow1_color = false;
+  bool found_flow2_color = false;
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) found_flow1_color = true;
+    if (vtx.col == 0xFF00FF00) found_flow2_color = true;
+  }
+  EXPECT_TRUE(found_flow1_color);
+  EXPECT_FALSE(found_flow2_color);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, CurrentTimelineWidth) {
+  ImGui::NewFrame();
+  timeline_.Draw();
+  EXPECT_GT(timeline_.current_timeline_width(), 0.0f);
+  ImGui::EndFrame();
+}
+
 TEST_F(RealTimelineImGuiFixture, DrawProcessTrackUtilizationAreaChart) {
   FlameChartTimelineData data;
   // Group 0: Process track at nesting level 0

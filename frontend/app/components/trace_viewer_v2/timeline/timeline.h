@@ -341,6 +341,7 @@ class Timeline {
   void set_selection_start_pos_for_test(std::optional<ImVec2> pos) {
     selection_start_pos_ = pos;
   }
+  Pixel current_timeline_width() const { return current_timeline_width_; }
   void set_current_timeline_width_for_test(Pixel width) {
     current_timeline_width_ = width;
   }
@@ -837,8 +838,8 @@ class Timeline {
 
   // Draws a single flow line.
   void DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
-                      Pixel timeline_y_start, double px_per_time,
-                      ImDrawList* draw_list);
+                      Pixel timeline_width, Pixel timeline_y_start,
+                      double px_per_time, ImDrawList* draw_list);
 
   // Draws flow lines connecting events. Each flow line is rendered as a Bezier
   // curve connecting a start point (time and level) to an end point (time and

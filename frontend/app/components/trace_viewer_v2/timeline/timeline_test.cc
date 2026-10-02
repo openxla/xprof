@@ -5457,6 +5457,51 @@ TEST_F(RealTimelineImGuiFixture, DrawCounterTrackConstantValue) {
   ImGui::EndFrame();
 }
 
+TEST_F(RealTimelineImGuiFixture,
+       DrawCounterTrack_UniformValueRendersAtMidHeight) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = "Counter Group",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+
+  CounterData counter_data;
+  counter_data.timestamps = {10.0, 20.0, 30.0};
+  counter_data.values = {5.0, 5.0, 5.0};  // Constant positive value
+  counter_data.min_value = 5.0;
+  counter_data.max_value = 5.0;
+  data.counter_data_by_group_index[0] = std::move(counter_data);
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* counter_window = nullptr;
+  const std::string child_id = "TimelineChild_Counter Group_0";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id) != std::string::npos) {
+      counter_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(counter_window, nullptr);
+  ASSERT_FALSE(counter_window->DrawList->VtxBuffer.empty());
+
+  float min_y = std::numeric_limits<float>::max();
+  float max_y = std::numeric_limits<float>::lowest();
+  for (const auto& vert : counter_window->DrawList->VtxBuffer) {
+    min_y = std::min(min_y, vert.pos.y);
+    max_y = std::max(max_y, vert.pos.y);
+  }
+  // For uniform value > 0, height of the bar is height * 0.5f (i.e. 20.0f).
+  EXPECT_NEAR(max_y - min_y, kCounterTrackHeight * 0.5f, 0.1f);
+
+  ImGui::EndFrame();
+}
+
 TEST_F(RealTimelineImGuiFixture, DrawUtilizationAreaChartLastBinOnly) {
   FlameChartTimelineData data;
   data.groups.push_back(

@@ -1,6 +1,7 @@
 #ifndef THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_DATA_PROVIDER_H_
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_DATA_PROVIDER_H_
 
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -14,6 +15,11 @@
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
+
+struct CounterBounds {
+  double min_value = std::numeric_limits<double>::max();
+  double max_value = std::numeric_limits<double>::lowest();
+};
 
 class DataProvider {
  public:
@@ -46,6 +52,8 @@ class DataProvider {
   absl::btree_map<ProcessId, absl::btree_set<std::string>> known_async_tracks_;
   absl::flat_hash_set<ProcessId> known_async_processes_;
   absl::btree_map<ProcessId, absl::btree_set<std::string>> known_counters_;
+  absl::flat_hash_map<std::pair<ProcessId, std::string>, CounterBounds>
+      counter_bounds_;
 };
 
 namespace internal {

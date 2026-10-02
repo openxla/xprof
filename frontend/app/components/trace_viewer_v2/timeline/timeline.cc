@@ -2683,6 +2683,7 @@ void Timeline::DrawCounterTooltip(int group_index, const CounterData& data,
     double val = data.values[index];
 
     const Pixel y_base = pos.y + height;
+    const double value_range = data.max_value - data.min_value;
 
     if (index + 1 < data.timestamps.size()) {
       const double t1 = data.timestamps[index];
@@ -2696,13 +2697,19 @@ void Timeline::DrawCounterTooltip(int group_index, const CounterData& data,
       // Highlight the entire bar under hover.
       const Pixel x1 = TimeToScreenX(t1, pos.x, px_per_time_unit_val);
       const Pixel x2 = TimeToScreenX(t2, pos.x, px_per_time_unit_val);
-      const Pixel y = y_base - (v1 - data.min_value) * y_ratio;
+      const Pixel y = value_range > 0
+                          ? y_base - (v1 - data.min_value) * y_ratio
+                          : (data.min_value > 0.0 ? y_base - height * 0.5f
+                                                  : y_base - 1.0f);
       draw_list->AddRect(ImVec2(x1, y), ImVec2(x2, y_base), kCounterHoverColor,
                          0.0f, 0, kCounterHoverThickness);
     }
 
     const Pixel x = mouse_pos.x;
-    const Pixel y = y_base - (val - data.min_value) * y_ratio;
+    const Pixel y = value_range > 0
+                        ? y_base - (val - data.min_value) * y_ratio
+                        : (data.min_value > 0.0 ? y_base - height * 0.5f
+                                                : y_base - 1.0f);
 
     // Draw circle
     draw_list->AddCircleFilled(ImVec2(x, y), kPointRadius, kWhiteColor);
@@ -2768,43 +2775,40 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
   }
 
   const Pixel y_base = pos.y + height;
+  const float y_ratio = value_range > 0 ? height / value_range : 0.0f;
 
-  // If all counter values are the same, draw a 1px thin rectangle
-  // at the base to avoid division by zero.
   if (value_range == 0) {
-    const Pixel y = y_base - 1.0f;
+    const Pixel y =
+        data.min_value > 0.0 ? y_base - height * 0.5f : y_base - 1.0f;
     const Pixel x_start =
         TimeToScreenX(data.timestamps.front(), pos.x, px_per_time_unit_val);
     const Pixel x_end =
         TimeToScreenX(data.timestamps.back(), pos.x, px_per_time_unit_val);
     draw_list->AddRectFilled(ImVec2(x_start, y), ImVec2(x_end, y_base),
                              kCounterTrackColor);
-    return;
-  }
+  } else {
+    for (size_t i = 0; i < data.timestamps.size() - 1; ++i) {
+      Pixel x1 = TimeToScreenX(data.timestamps[i], pos.x, px_per_time_unit_val);
+      Pixel x2 =
+          TimeToScreenX(data.timestamps[i + 1], pos.x, px_per_time_unit_val);
+      Pixel y = y_base - (data.values[i] - data.min_value) * y_ratio;
 
-  const float y_ratio = height / value_range;
+      // Add a minimum 1px height so that a value equal to min_value is still
+      // visible as a thin line instead of completely disappearing.
+      y = std::min(y, y_base - 1.0f);
 
-  for (size_t i = 0; i < data.timestamps.size() - 1; ++i) {
-    Pixel x1 = TimeToScreenX(data.timestamps[i], pos.x, px_per_time_unit_val);
-    Pixel x2 =
-        TimeToScreenX(data.timestamps[i + 1], pos.x, px_per_time_unit_val);
-    Pixel y = y_base - (data.values[i] - data.min_value) * y_ratio;
+      draw_list->AddRectFilled(ImVec2(x1, y), ImVec2(x2, y_base),
+                               kCounterTrackColor);
+    }
 
-    // Add a minimum 1px height so that a value equal to min_value is still
-    // visible as a thin line instead of completely disappearing.
-    y = std::min(y, y_base - 1.0f);
-
-    draw_list->AddRectFilled(ImVec2(x1, y), ImVec2(x2, y_base),
-                             kCounterTrackColor);
-  }
-
-  // For the last point, draw a 1px wide bar to show its value.
-  if (!data.timestamps.empty()) {
-    Pixel x =
-        TimeToScreenX(data.timestamps.back(), pos.x, px_per_time_unit_val);
-    Pixel y = y_base - (data.values.back() - data.min_value) * y_ratio;
-    draw_list->AddRectFilled(ImVec2(x, y), ImVec2(x + 1.0f, y_base),
-                             kCounterTrackColor);
+    // For the last point, draw a 1px wide bar to show its value.
+    if (!data.timestamps.empty()) {
+      Pixel x =
+          TimeToScreenX(data.timestamps.back(), pos.x, px_per_time_unit_val);
+      Pixel y = y_base - (data.values.back() - data.min_value) * y_ratio;
+      draw_list->AddRectFilled(ImVec2(x, y), ImVec2(x + 1.0f, y_base),
+                               kCounterTrackColor);
+    }
   }
 
   // Draw selected points from rectangle selection.
@@ -2825,7 +2829,10 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
       Microseconds ts = data.timestamps[p_idx];
       double val = data.values[p_idx];
       Pixel x = TimeToScreenX(ts, pos.x, px_per_time_unit_val);
-      Pixel y = pos.y + height - (val - data.min_value) * y_ratio;
+      Pixel y = value_range > 0
+                    ? pos.y + height - (val - data.min_value) * y_ratio
+                    : (data.min_value > 0.0 ? y_base - height * 0.5f
+                                            : y_base - 1.0f);
 
       draw_list->AddCircleFilled(ImVec2(x, y), kSelectedDataPointRadius,
                                  kBlue60);
@@ -2840,7 +2847,10 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
     Microseconds ts = data.timestamps[selected_counter_index_];
     double val = data.values[selected_counter_index_];
     Pixel x = TimeToScreenX(ts, pos.x, px_per_time_unit_val);
-    Pixel y = pos.y + height - (val - data.min_value) * y_ratio;
+    Pixel y = value_range > 0
+                  ? pos.y + height - (val - data.min_value) * y_ratio
+                  : (data.min_value > 0.0 ? y_base - height * 0.5f
+                                          : y_base - 1.0f);
 
     draw_list->AddCircleFilled(ImVec2(x, y), kPointRadius, kWhiteColor);
     draw_list->AddCircle(ImVec2(x, y), kPointRadius, kSelectedBorderColor,
@@ -4662,7 +4672,9 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
         Pixel y = (value_range > 0)
                       ? y_top + group_height -
                             (val - counter_data.min_value) * y_ratio
-                      : y_top + group_height / 2.0f;
+                      : (counter_data.min_value > 0.0
+                             ? y_top + group_height * 0.5f
+                             : y_top + group_height - 1.0f);
 
         if (selection_rect.Contains(ImVec2(x, y))) {
           selected_counter_points_.push_back({group_index, i});

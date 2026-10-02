@@ -6,8 +6,12 @@ import {CategoryFilterModule} from 'org_xprof/frontend/app/components/controls/c
 import {ProgramLevelAnalysis} from './program_level_analysis';
 
 @NgModule({
-  declarations: [ProgramLevelAnalysis],
-  imports: [CategoryFilterModule, TableModule, ChartModule],
+  imports: [
+    CategoryFilterModule,
+    TableModule,
+    ChartModule,
+    ProgramLevelAnalysis,
+  ],
   exports: [ProgramLevelAnalysis],
 })
 export class ProgramLevelAnalysisModule {}

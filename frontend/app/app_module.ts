@@ -1,5 +1,10 @@
 import {HttpClientModule} from '@angular/common/http';
-import {ErrorHandler, Injectable, NgModule, provideZoneChangeDetection} from '@angular/core';
+import {
+  ErrorHandler,
+  Injectable,
+  NgModule,
+  provideZoneChangeDetection,
+} from '@angular/core';
 import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {BrowserModule} from '@angular/platform-browser';
 import {BrowserAnimationsModule} from '@angular/platform-browser/animations';
@@ -20,14 +25,13 @@ import {App} from './app';
 export class XProfErrorHandler implements ErrorHandler {
   handleError(error: unknown): void {
     const message =
-        error instanceof Error ? (error.stack || error.message) : String(error);
+      error instanceof Error ? error.stack || error.message : String(error);
     console.error('XProf Error:', message, error);
   }
 }
 
 /** The root component module. */
 @NgModule({
-  declarations: [App],
   imports: [
     BrowserModule,
     HttpClientModule,
@@ -37,6 +41,7 @@ export class XProfErrorHandler implements ErrorHandler {
     BrowserAnimationsModule,
     PipesModule,
     RootStoreModule,
+    App,
   ],
   providers: [
     provideZoneChangeDetection(),
@@ -49,7 +54,6 @@ export class XProfErrorHandler implements ErrorHandler {
       useClass: SourceCodeService,
     },
   ],
-  bootstrap: [App],
+  exports: [App],
 })
-export class AppModule {
-}
+export class AppModule {}

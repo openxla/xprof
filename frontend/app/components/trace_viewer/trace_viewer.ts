@@ -1,9 +1,10 @@
 import 'org_xprof/frontend/app/common/interfaces/window';
 
-import {PlatformLocation} from '@angular/common';
+import {NgFor, NgIf, PlatformLocation} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   ElementRef,
   inject,
@@ -13,7 +14,17 @@ import {
   TemplateRef,
   ViewChild,
 } from '@angular/core';
+import {FormsModule} from '@angular/forms';
+import {MatAutocompleteModule} from '@angular/material/autocomplete';
+import {MatButton, MatIconButton} from '@angular/material/button';
+import {MatCheckbox} from '@angular/material/checkbox';
+import {MatChipsModule} from '@angular/material/chips';
 import {MatDialog, MatDialogRef} from '@angular/material/dialog';
+import {MatDivider} from '@angular/material/divider';
+import {MatIcon} from '@angular/material/icon';
+import {MatMenu, MatMenuItem, MatMenuTrigger} from '@angular/material/menu';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {MatTooltip} from '@angular/material/tooltip';
 import {ActivatedRoute, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
@@ -63,9 +74,11 @@ import {
   HLO_MODULE,
   HLO_OP,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/trace_helper/event_args_keys';
+import {SafePipe} from 'org_xprof/frontend/app/pipes/safe_pipe';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
+
 import {
   COLOR_PALETTE_PROMPTED_STORAGE_KEY,
   COLOR_PALETTE_STORAGE_KEY,
@@ -93,7 +106,8 @@ import {
   STACK_TRACE_TOOL_NAME,
   TRACE_VIEWER_TOOL_NAME,
 } from './constants';
-import {FilterInput} from './filter_input';
+import {FilterChips} from './filter_chips/filter_chips';
+import {FilterInput} from './filter_input/filter_input';
 import {AdjacentNodesResponse} from './interfaces';
 import {
   FilterChangeEvent,
@@ -178,11 +192,32 @@ function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
 
 /** A trace viewer component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'trace-viewer',
   templateUrl: './trace_viewer.ng.html',
   styleUrls: ['./trace_viewer.scss'],
+  imports: [
+    FormsModule,
+    MatAutocompleteModule,
+    MatChipsModule,
+    MatProgressBarModule,
+    SafePipe,
+    FilterChips,
+    FilterInput,
+    MatButton,
+    MatCheckbox,
+    MatDivider,
+    MatIcon,
+    MatIconButton,
+    MatMenu,
+    MatMenuItem,
+    MatMenuTrigger,
+    MatTooltip,
+    NgFor,
+    NgIf,
+    TraceViewerContainer,
+  ],
 })
 export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly destroyed = new ReplaySubject<void>(1);
@@ -196,13 +231,22 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly dataService = inject(DataServiceV2);
   private readonly platformLocation = inject(PlatformLocation);
   private readonly route = inject(ActivatedRoute);
+  private readonly cdRef = inject(ChangeDetectorRef);
 
   url = '';
   sessionId = '';
   pathPrefix = '';
   sourceCodeServiceIsAvailable = false;
-  hostList: string[] = [];
-  useTraceViewerV2 = (() => {
+  private hostListInternal: string[] = [];
+  get hostList(): string[] {
+    return this.hostListInternal;
+  }
+  set hostList(list: string[]) {
+    this.hostListInternal = list;
+    this.cdRef.markForCheck();
+  }
+
+  private useTraceViewerV2Internal = (() => {
     try {
       return (
         new URLSearchParams(window.location.search).get(
@@ -218,10 +262,34 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       );
     }
   })();
+  get useTraceViewerV2(): boolean {
+    return this.useTraceViewerV2Internal;
+  }
+  set useTraceViewerV2(val: boolean) {
+    this.useTraceViewerV2Internal = val;
+    this.cdRef.markForCheck();
+  }
+
   traceViewerModule: TraceViewerV2Module | null = null;
-  selectedEvent: SelectedEvent | null = null;
+  private selectedEventInternal: SelectedEvent | null = null;
+  get selectedEvent(): SelectedEvent | null {
+    return this.selectedEventInternal;
+  }
+  set selectedEvent(event: SelectedEvent | null) {
+    this.selectedEventInternal = event;
+    this.cdRef.markForCheck();
+  }
+
   hoveredEventArgs: Record<string, string> | null = null;
-  selectedEventProperties: SelectedEventProperty[] = [];
+  private selectedEventPropertiesInternal: SelectedEventProperty[] = [];
+  get selectedEventProperties(): SelectedEventProperty[] {
+    return this.selectedEventPropertiesInternal;
+  }
+  set selectedEventProperties(props: SelectedEventProperty[]) {
+    this.selectedEventPropertiesInternal = props;
+    this.cdRef.markForCheck();
+  }
+
   eventDetailColumns = [...DEFAULT_EVENT_DETAIL_COLUMNS];
 
   selectionStartFormat?: string;
@@ -267,13 +335,13 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   container?: TraceViewerContainer;
 
   @ViewChild('settingsDialog', {static: false})
-  settingsDialog!: TemplateRef<{}>;
+  settingsDialog!: TemplateRef<unknown>;
 
   @ViewChild('paletteDialog', {static: false})
-  paletteDialog!: TemplateRef<{}>;
+  paletteDialog!: TemplateRef<unknown>;
 
   @ViewChild('featureFlagsDialog', {static: false})
-  featureFlagsDialog!: TemplateRef<{}>;
+  featureFlagsDialog!: TemplateRef<unknown>;
 
   @ViewChild('settingsButton') settingsButton!: ElementRef<HTMLButtonElement>;
 
@@ -282,7 +350,15 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   settingsDialogRef: MatDialogRef<unknown> | null = null;
 
-  selectedFilters: FilterEntry[] = [];
+  private selectedFiltersInternal: FilterEntry[] = [];
+  get selectedFilters(): FilterEntry[] {
+    return this.selectedFiltersInternal;
+  }
+  set selectedFilters(filters: FilterEntry[]) {
+    this.selectedFiltersInternal = filters;
+    this.cdRef.markForCheck();
+  }
+
   validFilterFields = FILTER_FIELDS;
   processes: {[host: string]: string[]} = {};
   processesListFromJson: string[] = [];
@@ -1576,6 +1652,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   refreshDataAfterFilterChange() {
+    this.cdRef.markForCheck();
     void this.update(this.navigationEvent);
   }
 

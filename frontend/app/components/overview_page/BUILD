@@ -4,7 +4,9 @@ package(default_visibility = ["//frontend:internal"])
 
 filegroup(
     name = "overview_page_assets",
-    srcs = ["overview_page.ng.html"],
+    srcs = [
+        "overview_page.ng.html",
+    ],
     visibility = [
         "//frontend:internal",
         "//plugin:internal",
@@ -14,6 +16,7 @@ filegroup(
 xprof_ng_module(
     name = "overview_page",
     srcs = [
+        "overview_page.ts",
         "overview_page_module.ts",
     ],
     assets = [

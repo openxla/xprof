@@ -5,8 +5,12 @@ import {MatTooltipModule} from '@angular/material/tooltip';
 import {BufferAllocationTimeline} from './buffer_allocation_timeline';
 
 @NgModule({
-  declarations: [BufferAllocationTimeline],
-  imports: [CommonModule, MatIconModule, MatTooltipModule],
+  imports: [
+    CommonModule,
+    MatIconModule,
+    MatTooltipModule,
+    BufferAllocationTimeline,
+  ],
   exports: [BufferAllocationTimeline],
 })
 export class BufferAllocationTimelineModule {}

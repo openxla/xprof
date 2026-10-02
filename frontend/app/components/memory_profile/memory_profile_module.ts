@@ -13,7 +13,6 @@ import {MemoryProfile} from './memory_profile';
 
 /** A memory profile module. */
 @NgModule({
-  declarations: [MemoryProfile],
   imports: [
     CommonModule,
     MatDividerModule,
@@ -24,8 +23,8 @@ import {MemoryProfile} from './memory_profile';
     MemoryTimelineGraphModule,
     MemoryBreakdownTableModule,
     MatProgressBarModule,
+    MemoryProfile,
   ],
   exports: [MemoryProfile],
 })
-export class MemoryProfileModule {
-}
+export class MemoryProfileModule {}

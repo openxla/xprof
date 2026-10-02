@@ -23,8 +23,8 @@ import type {TpuGeneration} from '../data/data_tpu_generations';
  *  This is the last step in the kernel analysis workflow.
  */
 @Component({
-  selector: 'app-execution-preview',
   standalone: true,
+  selector: 'app-execution-preview',
   imports: [
     CommonModule,
     MatButtonModule,
@@ -33,8 +33,8 @@ import type {TpuGeneration} from '../data/data_tpu_generations';
     MatFormFieldModule,
     MatInputModule,
   ],
-  templateUrl: './execution_preview.component.html',
-  styleUrls: ['./execution_preview.component.css'],
+  templateUrl: './execution_preview.ng.html',
+  styleUrls: ['./execution_preview.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExecutionPreviewComponent {

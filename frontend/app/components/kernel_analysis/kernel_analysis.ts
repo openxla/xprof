@@ -42,8 +42,8 @@ export declare interface KernelFormValue {
 }
 
 import {TPU_GENERATIONS, TpuGeneration} from './data/data_tpu_generations';
-import {ExecutionPreviewComponent} from './execution_preview/execution_preview.component';
-import {ProfilerOptionsComponent} from './profiler_options/profiler_options.component';
+import {ExecutionPreviewComponent} from './execution_preview/execution_preview';
+import {ProfilerOptionsComponent} from './profiler_options/profiler_options';
 
 function createSamplingGroup(fb: FormBuilder) {
   return fb.group({
@@ -66,8 +66,8 @@ function createSamplingGroup(fb: FormBuilder) {
  * the generated command before execution.
  */
 @Component({
-  selector: 'app-kernel-analysis',
   standalone: true,
+  selector: 'app-kernel-analysis',
   imports: [
     CommonModule,
     ReactiveFormsModule,
@@ -76,8 +76,8 @@ function createSamplingGroup(fb: FormBuilder) {
     ProfilerOptionsComponent,
     ExecutionPreviewComponent,
   ],
-  templateUrl: './kernel_analysis.component.html',
-  styleUrls: ['./kernel_analysis.component.css'],
+  templateUrl: './kernel_analysis.ng.html',
+  styleUrls: ['./kernel_analysis.scss'],
   encapsulation: ViewEncapsulation.None,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

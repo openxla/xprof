@@ -6,12 +6,25 @@ import {
   Output,
   ViewChild,
 } from '@angular/core';
-import {MatChipEditedEvent} from '@angular/material/chips';
+import {
+  MatChipEditedEvent,
+  MatChipGrid,
+  MatChipRemove,
+  MatChipRow,
+} from '@angular/material/chips';
 
+import {AsyncPipe, NgFor} from '@angular/common';
+import {FormsModule} from '@angular/forms';
 import {
   MatAutocomplete,
+  MatAutocompleteOrigin,
   MatAutocompleteTrigger,
 } from '@angular/material/autocomplete';
+import {MatButton} from '@angular/material/button';
+import {MatCheckbox} from '@angular/material/checkbox';
+import {MatOption} from '@angular/material/core';
+import {MatIcon} from '@angular/material/icon';
+import {MatTooltip} from '@angular/material/tooltip';
 import {BehaviorSubject} from 'rxjs';
 import {
   FilterFieldCategory,
@@ -20,7 +33,7 @@ import {
   type FilterEntry,
   type FilterRemoveEvent,
   type FilterValue,
-} from './trace_viewer_typings';
+} from '../trace_viewer_typings';
 
 const CHIP_TEXT_MAX_LENGTH = 15;
 
@@ -28,8 +41,8 @@ const CHIP_TEXT_MAX_LENGTH = 15;
  * Component to display a list of selected filter chips
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'filter-chips',
   template: `
     <mat-chip-grid #chipGrid>
@@ -72,7 +85,23 @@ const CHIP_TEXT_MAX_LENGTH = 15;
       </ng-container>
     </mat-chip-grid>
 `,
-  styleUrls: ['./trace_viewer.scss'],
+  styleUrls: ['./filter_chips.scss'],
+  imports: [
+    AsyncPipe,
+    FormsModule,
+    MatAutocomplete,
+    MatAutocompleteOrigin,
+    MatAutocompleteTrigger,
+    MatButton,
+    MatCheckbox,
+    MatChipGrid,
+    MatChipRemove,
+    MatChipRow,
+    MatIcon,
+    MatOption,
+    MatTooltip,
+    NgFor,
+  ],
 })
 export class FilterChips {
   @Input() filters: FilterEntry[] = [];

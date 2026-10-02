@@ -4,11 +4,7 @@ import {ChartModule} from 'org_xprof/frontend/app/components/chart/chart';
 import {ProgramOrderChart} from './program_order_chart';
 
 @NgModule({
-  declarations: [ProgramOrderChart],
-  imports: [
-    ChartModule,
-  ],
-  exports: [ProgramOrderChart]
+  imports: [ChartModule, ProgramOrderChart],
+  exports: [ProgramOrderChart],
 })
-export class ProgramOrderChartModule {
-}
+export class ProgramOrderChartModule {}

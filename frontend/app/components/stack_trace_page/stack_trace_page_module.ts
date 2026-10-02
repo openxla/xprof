@@ -6,12 +6,7 @@ import {StackTracePage} from './stack_trace_page';
 
 /** The stack trace page module. */
 @NgModule({
-  declarations: [StackTracePage],
-  imports: [
-    CommonModule,
-    SourceMapperModule,
-  ],
+  imports: [CommonModule, SourceMapperModule, StackTracePage],
   exports: [StackTracePage],
 })
-export class StackTracePageModule {
-}
+export class StackTracePageModule {}

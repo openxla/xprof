@@ -5,7 +5,7 @@
         <ng-template matStepLabel>Profiler<br>Options</ng-template>
         <app-profiler-options [formGroup]="kernelForm"></app-profiler-options>
         <div class="stepper-actions">
-          <button mat-flat-button color="primary" matStepperNext>Next</button>
+          <button type="button" mat-flat-button color="primary" matStepperNext>Next</button>
         </div>
       </mat-step>
 
@@ -24,7 +24,7 @@
             [icrSampling]="formValue['icr_sampling']">
         </app-execution-preview>
         <div class="stepper-actions">
-          <button mat-button matStepperPrevious>Back</button>
+          <button type="button" mat-button matStepperPrevious>Back</button>
         </div>
       </mat-step>
     </mat-stepper>

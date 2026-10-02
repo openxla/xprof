@@ -1,3 +1,4 @@
+import {NgIf} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
@@ -12,6 +13,8 @@ import {
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
+import {MatIcon} from '@angular/material/icon';
+import {MatTooltip} from '@angular/material/tooltip';
 import {
   type BufferBlock,
   type BufferBlockProto,
@@ -74,11 +77,12 @@ function getFittingLabel(
  * Angular component for rendering decoupled memory viewer buffer allocations timeline using HTML5 Canvas.
  */
 @Component({
+  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
   selector: 'buffer-allocation-timeline',
   templateUrl: './buffer_allocation_timeline.ng.html',
   styleUrls: ['./buffer_allocation_timeline.scss'],
+  imports: [MatIcon, MatTooltip, NgIf],
 })
 export class BufferAllocationTimeline
   implements AfterViewInit, OnChanges, OnDestroy

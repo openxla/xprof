@@ -5,8 +5,8 @@ import {MatButtonModule} from '@angular/material/button';
 import {MaxHeapChartDownloader} from './max_heap_chart_downloader';
 
 @NgModule({
-  imports: [CommonModule, MatButtonModule],
-  declarations: [MaxHeapChartDownloader],
+  imports: [CommonModule, MatButtonModule, MaxHeapChartDownloader],
+
   exports: [MaxHeapChartDownloader],
 })
 export class MaxHeapChartDownloaderModule {}

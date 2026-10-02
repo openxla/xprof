@@ -10,7 +10,6 @@ import {CaptureProfileDialogModule} from './capture_profile_dialog/capture_profi
 
 /** A capture profile view module. */
 @NgModule({
-  declarations: [CaptureProfile],
   imports: [
     CommonModule,
     MatButtonModule,
@@ -18,8 +17,8 @@ import {CaptureProfileDialogModule} from './capture_profile_dialog/capture_profi
     MatProgressSpinnerModule,
     CaptureProfileDialogModule,
     MatSnackBarModule,
+    CaptureProfile,
   ],
-  exports: [CaptureProfile]
+  exports: [CaptureProfile],
 })
-export class CaptureProfileModule {
-}
+export class CaptureProfileModule {}

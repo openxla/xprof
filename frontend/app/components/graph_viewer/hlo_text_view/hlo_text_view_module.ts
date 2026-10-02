@@ -16,8 +16,9 @@ import {HloTextView} from './hlo_text_view';
     MatButtonModule,
     MatProgressBarModule,
     MatFormFieldModule,
+    HloTextView,
   ],
-  declarations: [HloTextView],
+
   exports: [HloTextView],
 })
 export class HloTextViewModule {}

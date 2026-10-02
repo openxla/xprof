@@ -14,7 +14,6 @@ import {TraceViewerContainer} from 'org_xprof/frontend/app/components/trace_view
 import {StaticKernelViewer} from './static_kernel_viewer';
 
 @NgModule({
-  declarations: [StaticKernelViewer],
   imports: [
     CommonModule,
     FormsModule,
@@ -28,6 +27,7 @@ import {StaticKernelViewer} from './static_kernel_viewer';
     MatSidenavModule,
     MatTooltipModule,
     TraceViewerContainer,
+    StaticKernelViewer,
   ],
   exports: [StaticKernelViewer],
 })

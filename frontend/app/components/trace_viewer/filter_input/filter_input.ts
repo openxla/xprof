@@ -1,3 +1,4 @@
+import {AsyncPipe, NgFor, NgIf} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
@@ -11,14 +12,19 @@ import {
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
+import {FormsModule} from '@angular/forms';
 import {
   MAT_AUTOCOMPLETE_DEFAULT_OPTIONS,
   MatAutocomplete,
+  MatAutocompleteOrigin,
   MatAutocompleteSelectedEvent,
   MatAutocompleteTrigger,
 } from '@angular/material/autocomplete';
+import {MatButton} from '@angular/material/button';
+import {MatCheckbox} from '@angular/material/checkbox';
+import {MatOption} from '@angular/material/core';
 import {BehaviorSubject} from 'rxjs';
-import {FILTER_FIELDS, FILTER_OPERATORS} from './constants';
+import {FILTER_FIELDS, FILTER_OPERATORS} from '../constants';
 import {
   FilterEntry,
   FilterField,
@@ -26,15 +32,15 @@ import {
   FilterOperatorType,
   FilterOption,
   FilterValue,
-} from './trace_viewer_typings';
-import {filterFieldKey, lookupFilterOperator} from './utils';
+} from '../trace_viewer_typings';
+import {filterFieldKey, lookupFilterOperator} from '../utils';
 
 /**
  * Component to display input field for adding a new filter.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'filter-input',
   viewProviders: [
     {
@@ -43,32 +49,20 @@ import {filterFieldKey, lookupFilterOperator} from './utils';
     },
   ],
   template: `
-    <button
-      type="button"
-      class="add-filter-button"
-      *ngIf="!isEditing && !filterInput"
-      (click)="startEditing()">
-      + Add filter
-    </button>
-    <div
-      matAutocompleteOrigin
-      #origin="matAutocompleteOrigin"
-      [style.display]="(isEditing || filterInput) ? 'flex' : 'none'">
-      <input
-        #inputEl
-        type="text"
-        #optionTrigger="matAutocompleteTrigger"
-        class="filter-input"
-        (input)="onInputChange()"
-        [value]="filterInput"
-        (keyup.enter)="tryAddFilter()"
-        (keyup.escape)="onEscape()"
-        (blur)="onBlur()"
-        [matAutocomplete]="filterOptionsAuto"
-        aria-label="Add filter" />
+    <div matAutocompleteOrigin #origin="matAutocompleteOrigin" style="display:flex;">
+    <input #inputEl type="text"
+                #optionTrigger="matAutocompleteTrigger"
+                class="filter-input"
+                (input)="onInputChange()"
+                [value]="filterInput"
+                (keyup.enter)="tryAddFilter()"
+                (keyup.escape)="onEscape()"
+                [matAutocomplete]="filterOptionsAuto"
+                placeholder="Add filter..."
+                aria-label="Add filter"/>
     </div>
 
-<mat-autocomplete #filterOptionsAuto class="dense" panelWidth="fit-content" (optionSelected)="onOptionSelected($event)" (closed)="onPanelClosed()">
+<mat-autocomplete #filterOptionsAuto class="dense" panelWidth="fit-content" (optionSelected)="onOptionSelected($event)">
   <!-- option list for filter field and operator -->
   <div *ngIf="!isUpdatingValues()">
     <mat-option *ngFor="let option of (autoFilterOptions | async) trackBy:trackByValue"
@@ -89,7 +83,19 @@ import {filterFieldKey, lookupFilterOperator} from './utils';
   </div>
 </mat-autocomplete>
 `,
-  styleUrls: ['./trace_viewer.scss'],
+  styleUrls: ['./filter_input.scss'],
+  imports: [
+    AsyncPipe,
+    FormsModule,
+    MatAutocomplete,
+    MatAutocompleteOrigin,
+    MatAutocompleteTrigger,
+    MatButton,
+    MatCheckbox,
+    MatOption,
+    NgFor,
+    NgIf,
+  ],
 })
 export class FilterInput implements AfterViewInit, OnChanges {
   @ViewChild('inputEl') inputEl!: ElementRef;
@@ -101,7 +107,6 @@ export class FilterInput implements AfterViewInit, OnChanges {
   @Input() hosts: string[] = [];
   @Input() processes: string[] = [];
 
-  isEditing = false;
   private filterInputInternal = '';
   /**
    * Steps of creating a filter will control what dialog will be triggered for user inputs.
@@ -344,30 +349,7 @@ export class FilterInput implements AfterViewInit, OnChanges {
     }
   }
 
-  startEditing() {
-    this.isEditing = true;
-    setTimeout(() => {
-      this.inputEl?.nativeElement.focus();
-      this.optionTrigger?.openPanel();
-    }, 0);
-  }
-
-  onBlur() {
-    setTimeout(() => {
-      if (!this.filterInput && !this.optionTrigger?.panelOpen) {
-        this.isEditing = false;
-      }
-    }, 200);
-  }
-
-  onPanelClosed() {
-    if (!this.filterInput) {
-      this.isEditing = false;
-    }
-  }
-
   focus() {
-    this.isEditing = true;
     setTimeout(() => {
       this.inputEl.nativeElement.focus();
       this.optionTrigger?.openPanel();
@@ -422,7 +404,6 @@ export class FilterInput implements AfterViewInit, OnChanges {
   reset() {
     this.filterInput = '';
     this.filterStep = 0;
-    this.isEditing = false;
     this.optionTrigger?.closePanel();
   }
 }

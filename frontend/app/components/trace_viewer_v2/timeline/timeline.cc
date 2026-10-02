@@ -2246,22 +2246,10 @@ Timeline::TickInfo Timeline::CalculateTickInfo(
   const Pixel major_tick_dist_px = tick_interval * px_per_time_unit_val;
 
   const Microseconds view_start = visible_range().start();
-  const Microseconds trace_start = data_time_range_.start();
+  const Microseconds first_tick_time =
+      std::floor(view_start / tick_interval) * tick_interval;
 
-  if (unitless) {
-    // Align ticks to absolute positions (rather than positions relative to the
-    // trace start) so that ruler labels match the positions reported for
-    // events, even if the trace does not start at 0.
-    const Microseconds first_tick_time =
-        std::floor(view_start / tick_interval) * tick_interval;
-    return {tick_interval, major_tick_dist_px, first_tick_time - trace_start};
-  }
-
-  const Microseconds view_start_relative = view_start - trace_start;
-  const Microseconds first_tick_time_relative =
-      std::floor(view_start_relative / tick_interval) * tick_interval;
-
-  return {tick_interval, major_tick_dist_px, first_tick_time_relative};
+  return {tick_interval, major_tick_dist_px, first_tick_time};
 }
 
 // Renders the ruler UI element at the top of the timeline.
@@ -2292,8 +2280,7 @@ void Timeline::DrawRulerUI(const TickInfo& info, Pixel timeline_width) {
 
     const Microseconds tick_interval = info.tick_interval;
     const Pixel major_tick_dist_px = info.major_tick_dist_px;
-    const Microseconds first_tick_time_relative = info.first_tick_time_relative;
-    const Microseconds trace_start = data_time_range_.start();
+    const Microseconds first_tick_time = info.first_tick_time;
 
     const Pixel minor_tick_dist_px =
         major_tick_dist_px / static_cast<float>(kMinorTickDivisions);
@@ -2306,11 +2293,10 @@ void Timeline::DrawRulerUI(const TickInfo& info, Pixel timeline_width) {
         (minor_tick_interval >= 1.0 &&
          std::floor(minor_tick_interval) == minor_tick_interval);
 
-    Microseconds t_relative = first_tick_time_relative;
-    Pixel x = TimeToScreenX(t_relative + trace_start, pos.x + label_width_,
-                            px_per_time_unit_val);
+    Microseconds t = first_tick_time;
+    Pixel x = TimeToScreenX(t, pos.x + label_width_, px_per_time_unit_val);
 
-    for (;; t_relative += tick_interval, x += major_tick_dist_px) {
+    for (;; t += tick_interval, x += major_tick_dist_px) {
       if (x > pos.x + label_width_ + timeline_width + kRulerScreenBuffer) {
         break;
       }
@@ -2320,7 +2306,7 @@ void Timeline::DrawRulerUI(const TickInfo& info, Pixel timeline_width) {
         draw_list->AddLine(ImVec2(x, pos.y), ImVec2(x, line_y),
                            ruler_line_color);
 
-        const std::string time_label_text = FormatRulerLabel(t_relative);
+        const std::string time_label_text = FormatRulerLabel(t);
         ImGui::PushFont(fonts::label_small);
         draw_list->AddText(ImVec2(x + kRulerTextPadding, pos.y),
                            ruler_text_color, time_label_text.c_str());
@@ -2345,17 +2331,16 @@ void Timeline::DrawRulerUI(const TickInfo& info, Pixel timeline_width) {
   }
 }
 
-std::string Timeline::FormatRulerLabel(Microseconds time_relative) const {
+std::string Timeline::FormatRulerLabel(Microseconds time) const {
   switch (time_axis_unit_) {
     case TimeAxisUnit::kUnitless:
       // Show the absolute position as a plain integer (e.g. a bundle number),
       // without any time unit.
-      return absl::StrCat(
-          std::llround(time_relative + data_time_range_.start()));
+      return absl::StrCat(std::llround(time));
     case TimeAxisUnit::kTime:
       break;
   }
-  return FormatTime(time_relative);
+  return FormatTime(time);
 }
 
 // Draws vertical grid lines that extend from the ruler down across all tracks.
@@ -2374,15 +2359,12 @@ void Timeline::DrawVerticalGridLines(const TickInfo& info, Pixel timeline_width,
 
   const Microseconds tick_interval = info.tick_interval;
   const Pixel major_tick_dist_px = info.major_tick_dist_px;
-  const Microseconds first_tick_time_relative = info.first_tick_time_relative;
+  const Microseconds first_tick_time = info.first_tick_time;
 
-  const Microseconds trace_start = data_time_range_.start();
+  Microseconds t = first_tick_time;
+  Pixel x = TimeToScreenX(t, timeline_x_start, px_per_time_unit_val);
 
-  Microseconds t_relative = first_tick_time_relative;
-  Pixel x = TimeToScreenX(t_relative + trace_start, timeline_x_start,
-                          px_per_time_unit_val);
-
-  for (;; t_relative += tick_interval, x += major_tick_dist_px) {
+  for (;; t += tick_interval, x += major_tick_dist_px) {
     if (x > timeline_x_start + timeline_width + kRulerScreenBuffer) {
       break;
     }

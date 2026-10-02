@@ -581,9 +581,9 @@ TEST(TimelineTest, CalculateTickInfo) {
   EXPECT_DOUBLE_EQ(info.tick_interval, 100.0);
   EXPECT_DOUBLE_EQ(info.major_tick_dist_px, 100.0);
 
-  // view_start_relative = 1100 - 1000 = 100.
-  // first_tick_time_relative = floor(100 / 100) * 100 = 100.
-  EXPECT_DOUBLE_EQ(info.first_tick_time_relative, 100.0);
+  // view_start = 1100.
+  // first_tick_time = floor(1100 / 100) * 100 = 1100.
+  EXPECT_DOUBLE_EQ(info.first_tick_time, 1100.0);
 }
 
 TEST(TimelineTest, CalculateTickInfoOffset) {
@@ -601,9 +601,9 @@ TEST(TimelineTest, CalculateTickInfoOffset) {
   // CalculateNiceInterval(8) should return 10.
   EXPECT_DOUBLE_EQ(info.tick_interval, 10.0);
 
-  // view_start_relative = 1105 - 1000 = 105.
-  // first_tick_time_relative = floor(105 / 10) * 10 = 100.
-  EXPECT_DOUBLE_EQ(info.first_tick_time_relative, 100.0);
+  // view_start = 1105.
+  // first_tick_time = floor(1105 / 10) * 10 = 1100.
+  EXPECT_DOUBLE_EQ(info.first_tick_time, 1100.0);
 }
 
 // Constants for CalculateEventRect tests
@@ -623,9 +623,9 @@ TEST(TimelineTest, CalculateTickInfoZoomedIn) {
   EXPECT_DOUBLE_EQ(info.tick_interval, 1.0);
   EXPECT_DOUBLE_EQ(info.major_tick_dist_px, 100.0);
 
-  // view_start_relative = 1105 - 1000 = 105.
-  // first_tick_time_relative = floor(105 / 1) * 1 = 105.
-  EXPECT_DOUBLE_EQ(info.first_tick_time_relative, 105.0);
+  // view_start = 1105.
+  // first_tick_time = floor(1105 / 1) * 1 = 1105.
+  EXPECT_DOUBLE_EQ(info.first_tick_time, 1105.0);
 }
 
 TEST(TimelineTest, CalculateTickInfoUnitlessClampsIntervalToOne) {
@@ -642,7 +642,7 @@ TEST(TimelineTest, CalculateTickInfoUnitlessClampsIntervalToOne) {
 
   EXPECT_DOUBLE_EQ(info.tick_interval, 1.0);
   EXPECT_DOUBLE_EQ(info.major_tick_dist_px, 1000.0);
-  EXPECT_DOUBLE_EQ(info.first_tick_time_relative, 10.0);
+  EXPECT_DOUBLE_EQ(info.first_tick_time, 10.0);
 }
 
 TEST(TimelineTest, CalculateTickInfoUnitlessAlignsToAbsolutePositions) {
@@ -658,11 +658,10 @@ TEST(TimelineTest, CalculateTickInfoUnitlessAlignsToAbsolutePositions) {
   Timeline::TickInfo info = timeline.CalculateTickInfo(px_per_unit);
 
   EXPECT_DOUBLE_EQ(info.tick_interval, 10.0);
-  // First tick at absolute position floor(105 / 10) * 10 = 100, i.e. 97
-  // relative to the trace start.
-  EXPECT_DOUBLE_EQ(info.first_tick_time_relative, 97.0);
-  EXPECT_EQ(timeline.FormatRulerLabel(info.first_tick_time_relative), "100");
-  EXPECT_EQ(timeline.FormatRulerLabel(info.first_tick_time_relative +
+  // First tick at absolute position floor(105 / 10) * 10 = 100.
+  EXPECT_DOUBLE_EQ(info.first_tick_time, 100.0);
+  EXPECT_EQ(timeline.FormatRulerLabel(info.first_tick_time), "100");
+  EXPECT_EQ(timeline.FormatRulerLabel(info.first_tick_time +
                                       info.tick_interval),
             "110");
 }
@@ -670,12 +669,58 @@ TEST(TimelineTest, CalculateTickInfoUnitlessAlignsToAbsolutePositions) {
 TEST(TimelineTest, FormatRulerLabelUsesTimeByDefault) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
-  timeline.set_data_time_range({0.0, 100000.0});
+  timeline.set_data_time_range({1000.0, 100000.0});
 
   EXPECT_EQ(timeline.FormatRulerLabel(1500.0), FormatTime(1500.0));
 
   timeline.set_time_axis_unit(TimeAxisUnit::kUnitless);
   EXPECT_EQ(timeline.FormatRulerLabel(1500.0), "1500");
+}
+
+TEST(TimelineTest,
+     RulerTicksAlignWithAbsoluteEventTimestampWhenTraceDoesNotStartAtZero) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  // Trace start is offset at 196.6 ms (196600.0 us).
+  const Microseconds trace_start = 196600.0;
+  timeline.set_data_time_range({trace_start, 5000000.0});
+
+  // Event start timestamp at 3021429.2704 us (~3.021s).
+  const Microseconds event_start = 3021429.2704;
+
+  // View centered around the event.
+  timeline.SetVisibleRange({3000000.0, 3100000.0});
+
+  // px_per_unit = 0.01 -> min_interval = 80 / 0.01 = 8000 ->
+  // nice interval 10000.
+  const double px_per_unit = 0.01;
+  Timeline::TickInfo info = timeline.CalculateTickInfo(px_per_unit);
+
+  EXPECT_DOUBLE_EQ(info.tick_interval, 10000.0);
+  // First tick at floor(3000000 / 10000) * 10000 = 3000000.0 (absolute time).
+  EXPECT_DOUBLE_EQ(info.first_tick_time, 3000000.0);
+
+  // Ruler tick label for the tick immediately preceding the event
+  // (3020000.0 us) reflects absolute timestamp (~3.02s) rather than relative
+  // offset (2823400.0 us / ~2.82s).
+  const Microseconds tick_near_event = 3020000.0;
+  EXPECT_EQ(timeline.FormatRulerLabel(tick_near_event),
+            FormatTime(tick_near_event));
+  EXPECT_NE(timeline.FormatRulerLabel(tick_near_event),
+            FormatTime(tick_near_event - trace_start));
+
+  // Verify tick screen position and event position align with absolute time.
+  const Pixel screen_x_offset = 200.0;
+  const Pixel tick_screen_x =
+      timeline.TimeToScreenX(tick_near_event, screen_x_offset, px_per_unit);
+  const Pixel event_screen_x =
+      timeline.TimeToScreenX(event_start, screen_x_offset, px_per_unit);
+
+  // The visual distance between tick and event corresponds to their absolute
+  // time delta.
+  const Pixel expected_pixel_distance =
+      (event_start - tick_near_event) * px_per_unit;
+  EXPECT_NEAR(event_screen_x - tick_screen_x, expected_pixel_distance, 1e-4);
 }
 
 TEST(TimelineTest, ConstrainTimeRange_EndAfterDataRange) {

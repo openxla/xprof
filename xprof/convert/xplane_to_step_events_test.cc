@@ -199,6 +199,94 @@ TEST(ConvertXPlaneToStepEvents, TpuDevicePlaneToStepEvents) {
   EXPECT_EQ(step_2.Markers().size(), 1);
 }
 
+TEST(ConvertXPlaneToStepEvents, TpuDevicePlaneToStepEvents_SkipOpMetrics) {
+  XPlane raw_plane;
+  XPlaneBuilder plane(&raw_plane);
+  int64_t device_id = 1;
+  plane.SetId(device_id);
+  plane.SetName("/device:TPU:0");
+  XLineBuilder op_line = plane.GetOrCreateLine(0);
+  op_line.SetName(tsl::profiler::kXlaOpLineName);
+  const XStatMetadata& program_id_stat =
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kProgramId));
+  const XStatMetadata& symbol_id_stat =
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kSymbolId));
+  const XStatMetadata& group_id_stat =
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kGroupId));
+  {
+    XEventMetadata* event_metadata =
+        plane.GetOrCreateEventMetadata("op_long_name");
+    event_metadata->set_display_name("op_name");
+    XStatsBuilder<XEventMetadata> stats(event_metadata, &plane);
+    stats.AddStatValue(program_id_stat, 1);
+    stats.AddStatValue(symbol_id_stat, 1);
+    {
+      XEventBuilder event = op_line.AddEvent(*event_metadata);
+      event.SetOffsetPs(0);
+      event.SetDurationPs(50);
+      event.AddStatValue(group_id_stat, 1);
+    }
+    {
+      XEventBuilder event = op_line.AddEvent(*event_metadata);
+      event.SetOffsetPs(100);
+      event.SetDurationPs(50);
+      event.AddStatValue(group_id_stat, 2);
+    }
+  }
+  {
+    XEventMetadata* event_metadata =
+        plane.GetOrCreateEventMetadata("op_long_name2");
+    event_metadata->set_display_name("op_name2");
+    XStatsBuilder<XEventMetadata> stats(event_metadata, &plane);
+    stats.AddStatValue(program_id_stat, 1);
+    stats.AddStatValue(symbol_id_stat, 2);
+    XEventBuilder event = op_line.AddEvent(*event_metadata);
+    event.SetOffsetPs(50);
+    event.SetDurationPs(50);
+    event.AddStatValue(group_id_stat, 1);
+  }
+  XLineBuilder step_line = plane.GetOrCreateLine(1);
+  step_line.SetName(tsl::profiler::kStepLineName);
+  {
+    XEventMetadata* event_metadata = plane.CreateEventMetadata();
+    XStatsBuilder<XEventMetadata> stats(event_metadata, &plane);
+    {
+      XEventBuilder event = step_line.AddEvent(*event_metadata);
+      event.SetOffsetPs(0);
+      event.SetDurationPs(100);
+      event.AddStatValue(group_id_stat, 1);
+    }
+    {
+      XEventBuilder event = step_line.AddEvent(*event_metadata);
+      event.SetOffsetPs(100);
+      event.SetDurationPs(100);
+      event.AddStatValue(group_id_stat, 2);
+    }
+  }
+
+  StepEvents step_events = ConvertDeviceTraceXPlaneToStepEventsWithOptions(
+      raw_plane, DeviceStepEventsOptions{.collect_op_metrics = false});
+  EXPECT_EQ(step_events.size(), 2);
+  EXPECT_TRUE(step_events.contains(1));
+  StepDetails step_1 = step_events[/*group_id=*/1];
+  EXPECT_TRUE(step_1.PerCoreOpMetricsDb().empty());
+  EXPECT_EQ(step_1.Markers().size(), 1);
+  EXPECT_EQ(step_1.StepTime(), tsl::profiler::Timespan(0, 100));
+
+  EXPECT_TRUE(step_events.contains(2));
+  StepDetails step_2 = step_events[/*group_id=*/2];
+  EXPECT_TRUE(step_2.PerCoreOpMetricsDb().empty());
+  EXPECT_EQ(step_2.Markers().size(), 1);
+  EXPECT_EQ(step_2.StepTime(), tsl::profiler::Timespan(100, 100));
+
+  // Also verify ConvertDeviceTraceXPlaneToStepMarkers produces equivalent
+  // results.
+  StepEvents marker_events = ConvertDeviceTraceXPlaneToStepMarkers(raw_plane);
+  EXPECT_EQ(marker_events.size(), 2);
+  EXPECT_TRUE(marker_events[1].PerCoreOpMetricsDb().empty());
+  EXPECT_EQ(marker_events[1].StepTime(), tsl::profiler::Timespan(0, 100));
+}
+
 TEST(ConvertXPlaneToStepEvents, SparseCoreShouldHaveStepMarkers) {
   XSpace space;
   XPlane* sc_plane =
@@ -235,6 +323,45 @@ TEST(ConvertXPlaneToStepEvents, SparseCoreShouldHaveStepMarkers) {
   EXPECT_EQ(sparse_core_op->time_ps(), 880);
   EXPECT_EQ(sparse_core_op->self_time_ps(), 880);
   EXPECT_EQ(sparse_core_op->hlo_module_id(), 1);
+}
+
+TEST(ConvertXPlaneToStepEvents, SparseCoreShouldHaveStepMarkers_SkipOpMetrics) {
+  XSpace space;
+  XPlane* sc_plane =
+      tsl::profiler::GetOrCreateTpuXPlane(&space, 0, "TPUv3", 0, 0, 1);
+  XPlaneBuilder sc_plane_builder(sc_plane);
+  sc_plane_builder.SetId(1);
+  XLineBuilder step_line = sc_plane_builder.GetOrCreateLine(0);
+  step_line.SetName(tsl::profiler::kSparseCoreStepLineName);
+  tsl::profiler::CreateXEventMetadata(&sc_plane_builder, "Step 1");
+  tsl::profiler::CreateXEvent(&sc_plane_builder, &step_line,
+                              /*event_name=*/"Step 1",
+                              /*offset_ps=*/0, /*duration_ps=*/1000,
+                              {{StatType::kGroupId, int64_t{1}}});
+  XLineBuilder op_line = sc_plane_builder.GetOrCreateLine(1);
+  op_line.SetName(tsl::profiler::kSparseCoreOpLineName);
+  tsl::profiler::CreateXEventMetadata(
+      &sc_plane_builder, "sparse_op",
+      {{StatType::kProgramId, int64_t{1}}, {StatType::kSymbolId, int64_t{1}}});
+  tsl::profiler::CreateXEvent(&sc_plane_builder, &op_line,
+                              /*event_name=*/"sparse_op",
+                              /*offset_ps=*/100, /*duration_ps=*/880,
+                              {{StatType::kGroupId, int64_t{1}}});
+  StepEvents step_events = ConvertDeviceTraceXPlaneToStepEventsWithOptions(
+      *sc_plane, DeviceStepEventsOptions{.collect_op_metrics = false});
+  EXPECT_EQ(step_events.size(), 1);
+  EXPECT_TRUE(step_events.contains(1));
+  StepDetails step_1 = step_events[/*group_id=*/1];
+  EXPECT_EQ(step_1.Markers().size(), 1);
+  EXPECT_EQ(step_1.StepTime(), tsl::profiler::Timespan(0, 1000));
+  EXPECT_TRUE(step_1.PerCoreOpMetricsDb().empty());
+
+  // Also verify ConvertDeviceTraceXPlaneToStepMarkers produces equivalent
+  // results.
+  StepEvents marker_events = ConvertDeviceTraceXPlaneToStepMarkers(*sc_plane);
+  EXPECT_EQ(marker_events.size(), 1);
+  EXPECT_TRUE(marker_events[1].PerCoreOpMetricsDb().empty());
+  EXPECT_EQ(marker_events[1].StepTime(), tsl::profiler::Timespan(0, 1000));
 }
 
 TEST(ConvertXPlaneToStepEvents, TpuDevicePlaneNoStepLine) {

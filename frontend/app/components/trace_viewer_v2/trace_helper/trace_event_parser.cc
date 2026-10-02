@@ -67,11 +67,9 @@ TimeAxisUnit ParseTimeAxisUnit(const emscripten::val& value) {
 //       [1000000.0, 1.0],
 //       [1000001.0, 2.0]
 //     ]
-void ParseFlowField(const emscripten::val& event, const char* field_name,
-                    const TraceEvent& ev, Phase ph,
+void ParseFlowField(const emscripten::val& val, const TraceEvent& ev, Phase ph,
                     std::vector<TraceEvent>& flow_events) {
-  if (!event.hasOwnProperty(field_name)) return;
-  emscripten::val val = event[field_name];
+  if (val.isUndefined() || val.isNull()) return;
   if (val.isArray()) {
     const unsigned int len = val["length"].as<unsigned int>();
     for (unsigned int i = 0; i < len; ++i) {
@@ -89,7 +87,7 @@ void ParseFlowField(const emscripten::val& event, const char* field_name,
         flow_events.push_back(std::move(flow_ev));
       }
     }
-  } else if (!val.isNull() && !val.isUndefined() && val.as<bool>()) {
+  } else if (val.as<bool>()) {
     if (!ev.id.empty()) {
       TraceEvent flow_ev = ev;
       flow_ev.ph = ph;
@@ -98,29 +96,40 @@ void ParseFlowField(const emscripten::val& event, const char* field_name,
   }
 }
 
-void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
+void ParseAndAppend(const emscripten::val& event,
+                    const emscripten::val& object_class,
+                    const emscripten::val& json_class,
+                    ParsedTraceEvents& result,
                     absl::flat_hash_map<std::pair<ProcessId, std::string>,
                                         TraceEvent>& open_async_events) {
-  if (!event.hasOwnProperty("ph")) {
+  emscripten::val ph_val = event["ph"];
+  if (ph_val.isUndefined() || ph_val.isNull()) {
     return;
   }
 
-  std::string ph_str = event["ph"].as<std::string>();
+  std::string ph_str = ph_val.as<std::string>();
   Phase ph = ParsePhase(ph_str);
 
   if (ph == Phase::kCounter) {
-    if (!event.hasOwnProperty("entries")) {
+    emscripten::val entries = event["entries"];
+    if (entries.isUndefined() || entries.isNull()) {
       // Discard counter events without entries.
       return;
     }
     CounterEvent ev;
-    if (event.hasOwnProperty("pid"))
-      ev.pid = static_cast<ProcessId>(event["pid"].as<double>());
-    if (event.hasOwnProperty("name")) ev.name = event["name"].as<std::string>();
-    if (event.hasOwnProperty("event_stats"))
-      ev.event_stats = event["event_stats"].as<std::string>();
+    emscripten::val pid_val = event["pid"];
+    if (!pid_val.isUndefined() && !pid_val.isNull()) {
+      ev.pid = static_cast<ProcessId>(pid_val.as<double>());
+    }
+    emscripten::val name_val = event["name"];
+    if (!name_val.isUndefined() && !name_val.isNull()) {
+      ev.name = name_val.as<std::string>();
+    }
+    emscripten::val stats_val = event["event_stats"];
+    if (!stats_val.isUndefined() && !stats_val.isNull()) {
+      ev.event_stats = stats_val.as<std::string>();
+    }
 
-    emscripten::val entries = event["entries"];
     // Avoid converting the entry to a vector or intermediate objects to
     // reduce memory allocation and GC pressure.
     // We can access array elements by index directly.
@@ -148,53 +157,71 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
     // Parse non-counter events, such as complete or metadata events.
     TraceEvent ev;
     ev.ph = ph;
-    if (event.hasOwnProperty("pid"))
-      ev.pid = static_cast<ProcessId>(event["pid"].as<double>());
-    if (event.hasOwnProperty("tid"))
-      ev.tid = static_cast<ThreadId>(event["tid"].as<double>());
-    if (event.hasOwnProperty("name")) ev.name = event["name"].as<std::string>();
-    if (event.hasOwnProperty("ts")) ev.ts = event["ts"].as<Microseconds>();
-    if (event.hasOwnProperty("dur")) ev.dur = event["dur"].as<Microseconds>();
-    if (event.hasOwnProperty("cat")) {
-      emscripten::val cat = event["cat"];
+    emscripten::val pid_val = event["pid"];
+    if (!pid_val.isUndefined() && !pid_val.isNull()) {
+      ev.pid = static_cast<ProcessId>(pid_val.as<double>());
+    }
+    emscripten::val tid_val = event["tid"];
+    if (!tid_val.isUndefined() && !tid_val.isNull()) {
+      ev.tid = static_cast<ThreadId>(tid_val.as<double>());
+    }
+    emscripten::val name_val = event["name"];
+    if (!name_val.isUndefined() && !name_val.isNull()) {
+      ev.name = name_val.as<std::string>();
+    }
+    emscripten::val ts_val = event["ts"];
+    if (!ts_val.isUndefined() && !ts_val.isNull()) {
+      ev.ts = ts_val.as<Microseconds>();
+    }
+    emscripten::val dur_val = event["dur"];
+    if (!dur_val.isUndefined() && !dur_val.isNull()) {
+      ev.dur = dur_val.as<Microseconds>();
+    }
+    emscripten::val cat = event["cat"];
+    if (!cat.isUndefined() && !cat.isNull()) {
       if (cat.isNumber()) {
         ev.category = tsl::profiler::GetSafeContextType(cat.as<uint32_t>());
       } else if (cat.isString()) {
         ev.category = GetContextTypeFromString(cat.as<std::string>());
       }
     }
-    if (event.hasOwnProperty("id")) {
-      if (event["id"].isString()) {
-        ev.id = event["id"].as<std::string>();
+    emscripten::val id_val = event["id"];
+    if (!id_val.isUndefined() && !id_val.isNull()) {
+      if (id_val.isString()) {
+        ev.id = id_val.as<std::string>();
       } else {
-        ev.id = std::to_string((int64_t)event["id"].as<double>());
+        ev.id = std::to_string(static_cast<int64_t>(id_val.as<double>()));
       }
-    } else if (event.hasOwnProperty("bind_id")) {
-      if (event["bind_id"].isString()) {
-        ev.id = event["bind_id"].as<std::string>();
-      } else {
-        ev.id = std::to_string((int64_t)event["bind_id"].as<double>());
+    } else {
+      emscripten::val bind_id_val = event["bind_id"];
+      if (!bind_id_val.isUndefined() && !bind_id_val.isNull()) {
+        if (bind_id_val.isString()) {
+          ev.id = bind_id_val.as<std::string>();
+        } else {
+          ev.id =
+              std::to_string(static_cast<int64_t>(bind_id_val.as<double>()));
+        }
       }
     }
-    if (event.hasOwnProperty("args")) {
-      emscripten::val args_val = event["args"];
+    emscripten::val args_val = event["args"];
+    if (!args_val.isUndefined() && !args_val.isNull()) {
       emscripten::val keys =
-          emscripten::val::global("Object").call<emscripten::val>("keys",
-                                                                  args_val);
+          object_class.call<emscripten::val>("keys", args_val);
       int length = keys["length"].as<int>();
       for (int i = 0; i < length; ++i) {
         std::string key = keys[i].as<std::string>();
-        if (args_val[key].isString()) {
-          ev.args[key] = args_val[key].as<std::string>();
-        } else if (args_val[key].isNumber()) {
-          ev.args[key] = args_val[key].call<std::string>("toString");
-        } else if (!args_val[key].isNull() && !args_val[key].isUndefined() &&
-                   !(args_val[key].isTrue() || args_val[key].isFalse())) {
+        emscripten::val val = args_val[key];
+        if (val.isString()) {
+          ev.args[std::move(key)] = val.as<std::string>();
+        } else if (val.isNumber()) {
+          ev.args[std::move(key)] = val.call<std::string>("toString");
+        } else if (!val.isNull() && !val.isUndefined() &&
+                   !(val.isTrue() || val.isFalse())) {
           // Stringify specific object/array arguments. "kernel_details" can
           // contain useful information in a nested JSON structure.
           if (key == "kernel_details") {
-            ev.args[key] = emscripten::val::global("JSON").call<std::string>(
-                "stringify", args_val[key]);
+            ev.args[std::move(key)] =
+                json_class.call<std::string>("stringify", val);
           }
         }
         // Other types such as boolean are currently ignored.
@@ -243,13 +270,13 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
         }
         break;
       case Phase::kComplete: {
-        const bool has_flow_in = event.hasOwnProperty("flow_in");
-        const bool has_flow_out = event.hasOwnProperty("flow_out");
+        emscripten::val flow_in = event["flow_in"];
+        emscripten::val flow_out = event["flow_out"];
+        const bool has_flow_in = !flow_in.isUndefined() && !flow_in.isNull();
+        const bool has_flow_out = !flow_out.isUndefined() && !flow_out.isNull();
         if (has_flow_in || has_flow_out) {
-          ParseFlowField(event, "flow_in", ev, Phase::kFlowEnd,
-                         result.flow_events);
-          ParseFlowField(event, "flow_out", ev, Phase::kFlowStart,
-                         result.flow_events);
+          ParseFlowField(flow_in, ev, Phase::kFlowEnd, result.flow_events);
+          ParseFlowField(flow_out, ev, Phase::kFlowStart, result.flow_events);
         } else if (!ev.id.empty()) {
           result.flow_events.push_back(ev);
         }
@@ -290,18 +317,20 @@ ParsedTraceEvents ParseTraceEvents(
   }
 
   emscripten::val events = trace_data["traceEvents"];
-  const std::vector<emscripten::val> js_events =
-      emscripten::vecFromJSArray<emscripten::val>(events);
+  const int num_events = events["length"].as<int>();
   // Reserve space for the most common event type (flame events) to avoid
   // reallocations.
   // We don't reserve space for counter events as they are significantly fewer
   // in number.
-  result.flame_events.reserve(js_events.size());
+  result.flame_events.reserve(num_events);
 
+  const emscripten::val object_class = emscripten::val::global("Object");
+  const emscripten::val json_class = emscripten::val::global("JSON");
   absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>
       open_async_events;
-  for (const auto& js_event : js_events) {
-    ParseAndAppend(js_event, result, open_async_events);
+  for (int i = 0; i < num_events; ++i) {
+    ParseAndAppend(events[i], object_class, json_class, result,
+                   open_async_events);
   }
   // Reclaim unused memory.
   result.flame_events.shrink_to_fit();

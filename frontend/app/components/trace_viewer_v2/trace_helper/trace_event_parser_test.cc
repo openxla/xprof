@@ -213,5 +213,42 @@ TEST(TraceEventParserTest, EdgeCaseFlowInWithoutMatchingFlowOut) {
   EXPECT_EQ(result.flow_events[0].id, "unmatched_999");
 }
 
+TEST(TraceEventParserTest, ParsesEventArgsAndUnitlessTimeAxisUnit) {
+  emscripten::val trace_data = ParseJson(R"({
+    "timeAxisUnit": "unitless",
+    "traceEvents": [
+      {
+        "ph": "X",
+        "name": "vector_matmul",
+        "pid": 1,
+        "tid": 2,
+        "ts": 42.0,
+        "dur": 1.0,
+        "args": {
+          "ordinal": 10,
+          "bundle": 42,
+          "opcode": "vector_matmul",
+          "unit": "MXU",
+          "ignored_bool": true,
+          "kernel_details": {"registers": 16}
+        }
+      }
+    ]
+  })");
+
+  ParsedTraceEvents result =
+      ParseTraceEvents(trace_data, emscripten::val::null());
+
+  EXPECT_EQ(result.time_axis_unit, TimeAxisUnit::kUnitless);
+  ASSERT_EQ(result.flame_events.size(), 1);
+  const TraceEvent& ev = result.flame_events[0];
+  EXPECT_EQ(ev.args.at("ordinal"), "10");
+  EXPECT_EQ(ev.args.at("bundle"), "42");
+  EXPECT_EQ(ev.args.at("opcode"), "vector_matmul");
+  EXPECT_EQ(ev.args.at("unit"), "MXU");
+  EXPECT_FALSE(ev.args.contains("ignored_bool"));
+  EXPECT_EQ(ev.args.at("kernel_details"), R"({"registers":16})");
+}
+
 }  // namespace
 }  // namespace traceviewer

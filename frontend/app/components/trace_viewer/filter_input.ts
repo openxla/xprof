@@ -78,13 +78,12 @@ import {filterFieldKey, lookupFilterOperator} from './utils';
   </div>
   <!-- option list for filter values -->
   <div *ngIf="isUpdatingValues() && isMultiSelect()" style="display:flex;flex-direction:column;">
-    <button mat-stroked-button color="primary" (click)="onConfirmMultiSelect()" style="margin:10px;">Confirm</button>
     <mat-option>
       <mat-checkbox class="example-margin" [checked]="allOptionsSelected" (click)="onOperateAll($event)">{{allOptionsLabel}}</mat-checkbox>
     </mat-option>
     <mat-option *ngFor="let option of (autoFilterValues | async) trackBy:trackByValue"
       [value]="option.value" >
-      <mat-checkbox class="example-margin" [(ngModel)]="option.checked" (click)="onClickCheckbox($event)">{{option.displayName || option.value}}</mat-checkbox>
+      <mat-checkbox class="example-margin" [(ngModel)]="option.checked" (ngModelChange)="applyMultiSelect()" (click)="onClickCheckbox($event)">{{option.displayName || option.value}}</mat-checkbox>
     </mat-option>
   </div>
 </mat-autocomplete>
@@ -187,12 +186,19 @@ export class FilterInput implements AfterViewInit, OnChanges {
     return this.multiSelectEnabled(filterField);
   }
 
-  onConfirmMultiSelect() {
+  applyMultiSelect() {
     this.currentFilterValue = this.autoFilterValues.value
       .filter((value) => value.checked)
       .map((value) => value.value)
       .join(',');
-    this.filterInput = `${this.currentFilterField}${this.currentFilterOperator}${this.currentFilterValue}`;
+    this.filterInputInternal = `${this.currentFilterField}${this.currentFilterOperator}${this.currentFilterValue}`;
+    if (this.inputEl?.nativeElement) {
+      this.inputEl.nativeElement.value = this.filterInputInternal;
+    }
+  }
+
+  onConfirmMultiSelect() {
+    this.applyMultiSelect();
     this.tryAddFilter();
   }
 
@@ -206,6 +212,7 @@ export class FilterInput implements AfterViewInit, OnChanges {
     this.autoFilterValues.value.forEach((option) => {
       option.checked = !allOptionsSelected;
     });
+    this.applyMultiSelect();
   }
 
   trackByValue(index: number, option: FilterOption): string {
@@ -361,6 +368,9 @@ export class FilterInput implements AfterViewInit, OnChanges {
   }
 
   onPanelClosed() {
+    if (this.isMultiSelect() && this.currentFilterValue) {
+      this.tryAddFilter();
+    }
     if (!this.filterInput) {
       this.isEditing = false;
     }
@@ -384,6 +394,14 @@ export class FilterInput implements AfterViewInit, OnChanges {
         break;
       case 2:
         this.currentFilterValue = '';
+        this.filterInputInternal = `${this.currentFilterField}${this.currentFilterOperator}`;
+        if (this.inputEl?.nativeElement) {
+          this.inputEl.nativeElement.value = this.filterInputInternal;
+        }
+        this.autoFilterValues.value.forEach((option) => {
+          option.checked = false;
+        });
+        this.optionTrigger?.closePanel();
         break;
       default:
         break;

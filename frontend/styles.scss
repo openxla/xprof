@@ -1,4 +1,3 @@
-@use 'sass:map';
 @use '@angular/material' as mat;
 @use './app/styles/rack_theme/index' as rack-theme;
 
@@ -13,47 +12,30 @@ html.dark,
   @include rack-theme.dark-theme-colors;
 }
 
-$typography-config: mat.m2-define-typography-config();
-
-@include mat.all-component-typographies($typography-config);
-@include mat.core();
-@include mat.typography-hierarchy($typography-config);
-
-$primary: mat.m2-define-palette(mat.$m2-orange-palette, 600);
-$accent: mat.m2-define-palette(mat.$m2-orange-palette, 600, 100, 700);
-$warn: mat.m2-define-palette(mat.$m2-red-palette, 600);
-$theme: mat.m2-define-light-theme(
+$theme: mat.define-theme(
   (
     color: (
-      primary: $primary,
-      accent: $accent,
-      warn: $warn,
+      theme-type: light,
+      primary: mat.$orange-palette,
+      tertiary: mat.$orange-palette,
     ),
-    density: 0,
-    typography: $typography-config,
+    typography: (
+      brand-family: 'Roboto',
+      plain-family: 'Roboto',
+    ),
+    density: (
+      scale: 0,
+    ),
   )
 );
 
-@include mat.all-component-themes($theme);
-@include mat.fab-theme($theme);
-@include mat.button-theme($theme);
-@include mat.icon-button-theme($theme);
-@include mat.card-theme($theme);
-@include mat.autocomplete-theme($theme);
-@include mat.core-theme($theme);
-@include mat.input-theme($theme);
-@include mat.form-field-theme($theme);
-@include mat.checkbox-theme($theme);
-@include mat.select-theme($theme);
-@include mat.menu-theme($theme);
-@include mat.dialog-theme($theme);
-@include mat.progress-spinner-theme($theme);
-@include mat.progress-bar-theme($theme);
-@include mat.slide-toggle-theme(map.merge($theme, (density: -5)));
-@include mat.radio-theme($theme);
-@include mat.snack-bar-theme($theme);
-@include mat.slider-theme($theme);
-@include mat.tooltip-theme($theme);
+@include mat.core();
+@include mat.typography-hierarchy($theme);
+
+html {
+  @include mat.all-component-themes($theme);
+  @include mat.slide-toggle-density(-5);
+}
 
 html, body {
   height: 100%;
@@ -99,7 +81,7 @@ body {
 overview recommendation-result-view .bottleneck-tips li a,
 overview recommendation-result-view .documentation-tips li a,
 input-pipeline host-side-analysis-detail .recommendations a {
-  color: mat.m2-get-color-from-palette($primary, default);
+  color: var(--mat-sys-primary);
   cursor: pointer;
   text-decoration: underline;
 }
@@ -116,7 +98,7 @@ sidenav mat-form-field.mat-primary .mat-form-field-infix {
 }
 
 sidenav mat-form-field.mat-focused .mat-form-field-infix {
-  border: 2px solid mat.m2-get-color-from-palette($primary, default);
+  border: 2px solid var(--mat-sys-primary);
   border-bottom: none;
 }
 

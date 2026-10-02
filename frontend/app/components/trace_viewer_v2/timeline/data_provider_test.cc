@@ -1964,6 +1964,37 @@ TEST_F(DataProviderTest, TimeAxisUnitPropagated) {
   EXPECT_EQ(timeline_.time_axis_unit(), TimeAxisUnit::kTime);
 }
 
+TEST_F(DataProviderTest, UnitlessTraceSwitchResetsVisibleRangeAndTracks) {
+  ParsedTraceEvents small_kernel;
+  small_kernel.time_axis_unit = TimeAxisUnit::kUnitless;
+  small_kernel.flame_events.push_back({.ph = Phase::kComplete,
+                                       .pid = 1,
+                                       .tid = 1,
+                                       .name = "small_op",
+                                       .ts = 0.0,
+                                       .dur = 5.0});
+
+  data_provider_.ProcessTraceEvents(small_kernel, timeline_);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 0.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 5.0);
+
+  ParsedTraceEvents large_kernel;
+  large_kernel.time_axis_unit = TimeAxisUnit::kUnitless;
+  large_kernel.flame_events.push_back({.ph = Phase::kComplete,
+                                       .pid = 1,
+                                       .tid = 2,
+                                       .name = "large_op",
+                                       .ts = 0.0,
+                                       .dur = 8470.0});
+
+  data_provider_.ProcessTraceEvents(large_kernel, timeline_);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 0.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 8470.0);
+  // Process group + tid 2 group only; stale tid 1 track is cleared.
+  ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(2));
+  EXPECT_EQ(timeline_.timeline_data().groups[1].tid, 2);
+}
+
 TEST_F(DataProviderTest, ProcessTraceEventsWithFullTimespan) {
   const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
                                            .pid = 1,

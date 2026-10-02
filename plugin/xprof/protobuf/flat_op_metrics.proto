@@ -159,6 +159,12 @@ message FlatOpMetricsDb {
   // Device is busy if any core is busy.
   uint64 busy_time_ps = 6;
 
+  // Idle time for high confidence duty cycle.
+  uint64 idle_time_high_confidence_ps = 9;
+
+  // For duty cycle high confidence, including all custom calls.
+  uint64 busy_time_high_confidence_ps = 10;
+
   // Weighted average total op time if running on default pstate.
   uint64 normalized_total_op_time_ps = 7;
 

@@ -866,6 +866,31 @@ TEST(FinalizeSortedTest, HandlesOrphanNodes) {
   EXPECT_EQ(db.total_op_time_ps(), 500);
 }
 
+TEST(FlatOpMetricsDbTest, IdleTimeRatio) {
+  constexpr double kMaxError = 1E-10;
+
+  // The ratio is relative to total_time_ps, not total_op_time_ps.
+  FlatOpMetricsDb db_0;
+  db_0.set_total_time_ps(100000000);
+  db_0.set_total_op_time_ps(60000000);
+  EXPECT_NEAR(0.4, IdleTimeRatio(db_0), kMaxError);
+
+  FlatOpMetricsDb db_1;
+  db_1.set_total_time_ps(200000000);
+  db_1.set_total_op_time_ps(150000000);
+  EXPECT_NEAR(0.25, IdleTimeRatio(db_1), kMaxError);
+
+  // Fully busy: no idle time.
+  FlatOpMetricsDb db_2;
+  db_2.set_total_time_ps(100000000);
+  db_2.set_total_op_time_ps(100000000);
+  EXPECT_NEAR(0.0, IdleTimeRatio(db_2), kMaxError);
+
+  // Empty db: SafeDivide(0, 0) is 0, so the db is reported as fully idle.
+  FlatOpMetricsDb db_3;
+  EXPECT_NEAR(1.0, IdleTimeRatio(db_3), kMaxError);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

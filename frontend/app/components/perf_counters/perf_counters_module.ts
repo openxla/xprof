@@ -11,7 +11,6 @@ import {PerfCounters} from './perf_counters';
 
 /** A perf counters module. */
 @NgModule({
-  declarations: [PerfCounters],
   imports: [
     CommonModule,
     StringFilterModule,
@@ -20,8 +19,8 @@ import {PerfCounters} from './perf_counters';
     TableModule,
     MatCheckboxModule,
     FormsModule,
+    PerfCounters,
   ],
   exports: [PerfCounters],
 })
-export class PerfCountersModule {
-}
+export class PerfCountersModule {}

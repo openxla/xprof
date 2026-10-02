@@ -10,7 +10,6 @@ import {MaxInfeedDetailModule} from 'org_xprof/frontend/app/components/input_pip
 import {InputPipeline} from './input_pipeline';
 
 @NgModule({
-  declarations: [InputPipeline],
   imports: [
     AnalysisSummaryModule,
     DeviceSideAnalysisDetailModule,
@@ -19,8 +18,8 @@ import {InputPipeline} from './input_pipeline';
     HostOpModule,
     MatDividerModule,
     MaxInfeedDetailModule,
+    InputPipeline,
   ],
   exports: [InputPipeline],
 })
-export class InputPipelineModule {
-}
+export class InputPipelineModule {}

@@ -3138,7 +3138,7 @@ void Timeline::DrawUtilizationAreaChart(int start_level, int end_level,
 
 void Timeline::DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
                               Pixel timeline_y_start, double px_per_time,
-                              ImDrawList* draw_list) {
+                              ImDrawList* draw_list, bool highlighted) {
   if (flow.source_level >= visible_level_offsets_.size() ||
       flow.target_level >= visible_level_offsets_.size()) {
     return;
@@ -3161,9 +3161,54 @@ void Timeline::DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
   Timeline::CalculateBezierControlPoints(start_x, start_y, end_x, end_y, cp0,
                                          cp1);
 
-  draw_list->AddBezierCubic(p0, cp0, cp1, p1, flow.color, 1.0f);
-  draw_list->AddCircleFilled(p0, kPointRadius, flow.color);
-  draw_list->AddCircleFilled(p1, kPointRadius, flow.color);
+  const Pixel dx = end_x - start_x;
+  if (highlighted) {
+    // Draw red halo underlay.
+    draw_list->AddBezierCubic(p0, cp0, cp1, p1, kHighlightedFlowHaloColor,
+                              kHighlightedFlowHaloThickness);
+    draw_list->AddCircleFilled(p0, kHighlightedFlowPointRadius + 1.0f,
+                               kHighlightedFlowHaloColor);
+    if (dx > kHighlightedFlowArrowWidth) {
+      draw_list->AddTriangleFilled(
+          ImVec2(end_x, end_y),
+          ImVec2(end_x - kHighlightedFlowArrowWidth,
+                 end_y - kHighlightedFlowArrowHeight),
+          ImVec2(end_x - kHighlightedFlowArrowWidth,
+                 end_y + kHighlightedFlowArrowHeight),
+          kHighlightedFlowHaloColor);
+    } else {
+      draw_list->AddCircleFilled(p1, kHighlightedFlowPointRadius + 1.0f,
+                                 kHighlightedFlowHaloColor);
+    }
+
+    // Draw foreground flow stroke.
+    draw_list->AddBezierCubic(p0, cp0, cp1, p1, flow.color,
+                              kHighlightedFlowLineThickness);
+    draw_list->AddCircleFilled(p0, kHighlightedFlowPointRadius, flow.color);
+    if (dx > kFlowArrowWidth) {
+      draw_list->AddTriangleFilled(
+          ImVec2(end_x, end_y),
+          ImVec2(end_x - kFlowArrowWidth, end_y - kFlowArrowHeight),
+          ImVec2(end_x - kFlowArrowWidth, end_y + kFlowArrowHeight),
+          flow.color);
+    } else {
+      draw_list->AddCircleFilled(p1, kHighlightedFlowPointRadius, flow.color);
+    }
+  } else {
+    // Draw default flow stroke.
+    draw_list->AddBezierCubic(p0, cp0, cp1, p1, flow.color,
+                              kFlowLineThickness);
+    draw_list->AddCircleFilled(p0, kFlowPointRadius, flow.color);
+    if (dx > kFlowArrowWidth) {
+      draw_list->AddTriangleFilled(
+          ImVec2(end_x, end_y),
+          ImVec2(end_x - kFlowArrowWidth, end_y - kFlowArrowHeight),
+          ImVec2(end_x - kFlowArrowWidth, end_y + kFlowArrowHeight),
+          flow.color);
+    } else {
+      draw_list->AddCircleFilled(p1, kFlowPointRadius, flow.color);
+    }
+  }
 }
 
 void Timeline::SetVisibleFlowCategories(const std::vector<int>& category_ids) {
@@ -3215,7 +3260,7 @@ void Timeline::DrawFlows(Pixel timeline_width, Pixel timeline_y_start) {
         if (it_lines != timeline_data_.flow_lines_by_flow_id.end()) {
           for (const auto& flow : it_lines->second) {
             DrawSingleFlow(flow, timeline_x_start, timeline_y_start,
-                           px_per_time, draw_list);
+                           px_per_time, draw_list, /*highlighted=*/true);
           }
         }
       }
@@ -3224,7 +3269,7 @@ void Timeline::DrawFlows(Pixel timeline_width, Pixel timeline_y_start) {
     for (const auto& flow : timeline_data_.flow_lines) {
       if (visible_flow_categories_.contains(static_cast<int>(flow.category))) {
         DrawSingleFlow(flow, timeline_x_start, timeline_y_start, px_per_time,
-                       draw_list);
+                       draw_list, /*highlighted=*/false);
       }
     }
   }

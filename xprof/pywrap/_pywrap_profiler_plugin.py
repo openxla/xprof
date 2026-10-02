@@ -222,9 +222,13 @@ def trace(
   """
   packed = _pack_options(options)
   err = _lib.Trace(
-      service_addr.encode() if service_addr else None,
-      logdir.encode() if logdir else None,
-      worker_list.encode() if worker_list else None,
+      # Marshal absent values to an empty C string, not NULL: the C side
+      # strlen()s these, so a None (-> NULL char*) segfaults. worker_list is
+      # empty by default for a single-host capture, which is how the "Capture
+      # Profile" UI reaches this call.
+      (service_addr or "").encode(),
+      (logdir or "").encode(),
+      (worker_list or "").encode(),
       include_dataset_ops,
       duration_ms,
       num_tracing_attempts,
@@ -269,7 +273,7 @@ def monitor(
   """
   content_ptr = ctypes.c_void_p()
   err = _lib.Monitor(
-      service_addr.encode() if service_addr else None,
+      (service_addr or "").encode(),
       duration_ms,
       monitoring_level,
       display_timestamp,
@@ -308,7 +312,7 @@ def start_continuous_profiling(
   """
   packed = _pack_options(options)
   err = _lib.StartContinuousProfiling(
-      service_addr.encode() if service_addr else None,
+      (service_addr or "").encode(),
       packed.keys,
       packed.string_vals,
       packed.int_vals,
@@ -327,7 +331,7 @@ _lib.StopContinuousProfiling.restype = ctypes.c_void_p
 
 def stop_continuous_profiling(service_addr: str) -> None:
   err = _lib.StopContinuousProfiling(
-      service_addr.encode() if service_addr else None
+      (service_addr or "").encode()
   )
   _check_error(err)
 
@@ -338,8 +342,8 @@ _lib.GetSnapshot.restype = ctypes.c_void_p
 
 def get_snapshot(service_addr: str, logdir: str) -> None:
   err = _lib.GetSnapshot(
-      service_addr.encode() if service_addr else None,
-      logdir.encode() if logdir else None,
+      (service_addr or "").encode(),
+      (logdir or "").encode(),
   )
   _check_error(err)
 
@@ -392,7 +396,7 @@ def xspace_to_tools_data(
   err = _lib.XSpaceToToolsData(
       c_paths,
       len(xspace_paths),
-      tool_name.encode() if tool_name else None,
+      (tool_name or "").encode(),
       packed.keys,
       packed.string_vals,
       packed.int_vals,
@@ -479,7 +483,7 @@ def xspace_to_tools_data_from_byte_string(
       c_sizes,
       c_paths,
       num_xspaces,
-      tool_name.encode() if tool_name else None,
+      (tool_name or "").encode(),
       packed.keys,
       packed.string_vals,
       packed.int_vals,
@@ -517,7 +521,7 @@ _lib.InitializeStubs.restype = None
 
 def initialize_stubs(worker_service_addresses: str) -> None:
   _lib.InitializeStubs(
-      worker_service_addresses.encode() if worker_service_addresses else None
+      (worker_service_addresses or "").encode()
   )
 
 _lib.BuiltWithEmbedded.argtypes = []

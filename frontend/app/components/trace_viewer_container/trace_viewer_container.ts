@@ -234,18 +234,40 @@ export const RIGHT_SIDE_PROPERTY_ORDER: Record<string, number> = {
 /**
  * Returns whether a selected event property represents HLO instruction text.
  * Matches properties named 'HLO Text' or 'hlo_text', as well as
- * 'Start Stack Trace' whose value looks like an HLO instruction.
+ * 'Start Stack Trace', 'Stack Trace', or 'stack_trace' whose value looks like
+ * an HLO instruction.
  */
 export function isHloTextProperty(prop: SelectedEventProperty): boolean {
   const p = prop['property'];
   if (p === 'HLO Text' || p === 'hlo_text') {
     return true;
   }
-  if (p === 'Start Stack Trace') {
+  if (p === 'Start Stack Trace' || p === 'Stack Trace' || p === 'stack_trace') {
     const val = typeof prop['value'] === 'string' ? prop['value'] : '';
     return val.includes(' = ') || val.trim().startsWith('%');
   }
   return false;
+}
+
+/**
+ * Returns a short single-line preview of a stack trace with ellipsis
+ * when collapsed in the details panel.
+ */
+export function getStackTracePreview(value: string, maxLength = 60): string {
+  if (!value) return '';
+  const singleLine = value.replace(/\s+/g, ' ').trim();
+  if (singleLine.length <= maxLength) {
+    return `${singleLine} ...`;
+  }
+  let cutIndex = singleLine.lastIndexOf(', ', maxLength);
+  if (cutIndex >= 20) {
+    return `${singleLine.slice(0, cutIndex + 1).trim()} ...`;
+  }
+  cutIndex = singleLine.lastIndexOf(' ', maxLength);
+  if (cutIndex >= 20) {
+    return `${singleLine.slice(0, cutIndex).trim()} ...`;
+  }
+  return `${singleLine.slice(0, maxLength).trim()} ...`;
 }
 
 /**
@@ -523,6 +545,8 @@ export class TraceViewerContainer
         p !== 'Operands' &&
         p !== 'Consumers' &&
         p !== 'Start Stack Trace' &&
+        p !== 'Stack Trace' &&
+        p !== 'stack_trace' &&
         !isHloTextProperty(prop)
       );
     });
@@ -545,8 +569,15 @@ export class TraceViewerContainer
                 : prop['value'],
           });
         }
-      } else if (p === 'Start Stack Trace') {
-        rightProps.push({...prop, property: 'Stack Trace'});
+      } else if (
+        p === 'Start Stack Trace' ||
+        p === 'Stack Trace' ||
+        p === 'stack_trace'
+      ) {
+        if (!seenProperties.has('Stack Trace')) {
+          seenProperties.add('Stack Trace');
+          rightProps.push({...prop, property: 'Stack Trace'});
+        }
       }
     }
     rightProps.sort((a, b) => {
@@ -556,12 +587,18 @@ export class TraceViewerContainer
     });
     this.rightSideProperties = rightProps;
     this.isHloTextCollapsed = false;
+    this.isStackTraceCollapsed = false;
   }
 
   isHloTextCollapsed = false;
+  isStackTraceCollapsed = false;
 
   toggleHloTextCollapse() {
     this.isHloTextCollapsed = !this.isHloTextCollapsed;
+  }
+
+  toggleStackTraceCollapse() {
+    this.isStackTraceCollapsed = !this.isStackTraceCollapsed;
   }
 
   getHloTextPreview(value: unknown): string {
@@ -569,6 +606,33 @@ export class TraceViewerContainer
       return '';
     }
     return getHloTextPreview(value);
+  }
+
+  getStackTracePreview(value: unknown): string {
+    if (typeof value !== 'string') {
+      return '';
+    }
+    return getStackTracePreview(value);
+  }
+
+  isPropCollapsed(prop: SelectedEventProperty): boolean {
+    if (prop.property === 'HLO Text') {
+      return this.isHloTextCollapsed;
+    }
+    if (prop.property === 'Stack Trace') {
+      return this.isStackTraceCollapsed;
+    }
+    return false;
+  }
+
+  getPropPreview(prop: SelectedEventProperty): string {
+    if (prop.property === 'HLO Text') {
+      return this.getHloTextPreview(prop.value);
+    }
+    if (prop.property === 'Stack Trace') {
+      return this.getStackTracePreview(prop.value);
+    }
+    return '';
   }
 
   trackByProperty(index: number, prop: SelectedEventProperty): string {

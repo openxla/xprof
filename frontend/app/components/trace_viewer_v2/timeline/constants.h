@@ -39,6 +39,18 @@ inline constexpr ImU32 kCounterTrackColor = kBlue80;
 inline constexpr Pixel kCounterTrackHeight = 40.0f;
 // go/keep-sorted end
 
+// Flow Constants
+// go/keep-sorted start
+inline constexpr ImU32 kHighlightedFlowHaloColor = kRedColor;
+inline constexpr Pixel kFlowArrowHeight = 4.0f;
+inline constexpr Pixel kFlowArrowWidth = 6.0f;
+inline constexpr Pixel kFlowLineThickness = 1.0f;
+inline constexpr Pixel kHighlightedFlowArrowHeight = 5.5f;
+inline constexpr Pixel kHighlightedFlowArrowWidth = 8.0f;
+inline constexpr Pixel kHighlightedFlowHaloThickness = 3.5f;
+inline constexpr Pixel kHighlightedFlowLineThickness = 2.0f;
+// go/keep-sorted end
+
 // Ruler Constants
 // These constants are used for drawing the timeline ruler.
 // go/keep-sorted start
@@ -437,7 +449,7 @@ inline constexpr char kUnhiddenProcessNotificationPrefix[] =
 inline constexpr char kUnhideTrackTooltip[] = "Unhide track";
 inline constexpr char kUnpinTrackTooltip[] = "Unpin track";
 inline constexpr char kUnpinnedProcessNotificationPrefix[] =
-        "Unpinned process: ";
+    "Unpinned process: ";
 // go/keep-sorted end
 }  // namespace traceviewer
 

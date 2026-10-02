@@ -384,16 +384,13 @@ class Timeline {
   void set_group_heights_for_test(const std::vector<Pixel>& heights) {
     group_heights_ = heights;
   }
-  void set_label_width_for_test(Pixel width) {
-    label_width_ = width;
-  }
+  void set_label_width_for_test(Pixel width) { label_width_ = width; }
   bool get_is_resizing_label_column_for_test() const {
     return is_resizing_label_column_;
   }
   void set_track_management_enabled_for_test(bool enabled) {
     track_management_enabled_ = enabled;
   }
-
 
   // The provided callback is stored and invoked during the lifetime of this
   // `Timeline` instance. Any captured references must outlive the `Timeline`
@@ -477,8 +474,7 @@ class Timeline {
   const TimeRange& data_time_range() const { return data_time_range_; }
 
   void SetTimelineData(FlameChartTimelineData data);
-  void UpdateTimelineData(
-      absl::FunctionRef<FlameChartTimelineData()> builder);
+  void UpdateTimelineData(absl::FunctionRef<FlameChartTimelineData()> builder);
   const FlameChartTimelineData& timeline_data() const { return timeline_data_; }
 
   void set_max_uncompacted_overview_entries_for_test(size_t max_entries) {
@@ -527,7 +523,6 @@ class Timeline {
     }
   }
   TimeAxisUnit time_axis_unit() const { return time_axis_unit_; }
-
 
   void set_bookmarks_enabled(bool enabled) { bookmarks_enabled_ = enabled; }
   bool bookmarks_enabled() const { return bookmarks_enabled_; }
@@ -807,7 +802,6 @@ class Timeline {
   double px_per_time_unit() const;
   double px_per_time_unit(Pixel timeline_width) const;
   void DrawTimelinePlayerSync();
-
 
   // Calculates the layout for the delete button and its hover area.
   // Exposed for testing.
@@ -1204,7 +1198,8 @@ class Timeline {
   // Draws a single flow line.
   void DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
                       Pixel timeline_width, Pixel timeline_y_start,
-                      double px_per_time, ImDrawList* draw_list);
+                      double px_per_time, ImDrawList* draw_list,
+                      bool highlighted = false);
 
   // Draws flow lines connecting events. Each flow line is rendered as a Bezier
   // curve connecting a start point (time and level) to an end point (time and

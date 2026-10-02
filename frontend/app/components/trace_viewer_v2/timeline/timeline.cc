@@ -535,6 +535,33 @@ class ScopedBodyLargeFont {
  private:
   const bool pushed_;
 };
+
+// Draws a cubic Bezier curve representing a flow connection between p0 and p1,
+// with optional filled endpoint circles and a target arrowhead pointing towards
+// p1. Suppresses the source/target markers if the respective endpoint is
+// off-screen, and only renders the arrowhead if the horizontal span dx exceeds
+// arrow_width.
+void DrawFlowStroke(ImDrawList* draw_list, const ImVec2& p0, const ImVec2& cp0,
+                    const ImVec2& cp1, const ImVec2& p1, ImU32 color,
+                    Pixel line_thickness, Pixel point_radius,
+                    bool source_visible, bool target_visible,
+                    Pixel arrow_width = 0.0f, Pixel arrow_height = 0.0f) {
+  draw_list->AddBezierCubic(p0, cp0, cp1, p1, color, line_thickness);
+  if (source_visible) {
+    draw_list->AddCircleFilled(p0, point_radius, color);
+  }
+  if (target_visible) {
+    const Pixel dx = p1.x - p0.x;
+    if (arrow_width > 0.0f && dx > arrow_width) {
+      draw_list->AddTriangleFilled(
+          p1, ImVec2(p1.x - arrow_width, p1.y - arrow_height),
+          ImVec2(p1.x - arrow_width, p1.y + arrow_height), color);
+    } else {
+      draw_list->AddCircleFilled(p1, point_radius, color);
+    }
+  }
+}
+
 }  // namespace
 
 Pixel Timeline::CalculateTrackManagementButtonWidth(int button_count) {
@@ -2612,15 +2639,15 @@ void Timeline::Draw() {
       group_offsets_.empty() ? 0.0f : group_offsets_.back();
   if (total_tracks_height > 0.0f) {
     if (!group_offsets_.empty() && group_offsets_.back() > 0.0f) {
-    ImGui::SetCursorPos(
-        ImVec2(0, tracks_start_pos.y + total_tracks_height - 1.0f));
-    ImGui::Dummy(ImVec2(content_region_avail_width, 1.0f));
-  }
+      ImGui::SetCursorPos(
+          ImVec2(0, tracks_start_pos.y + total_tracks_height - 1.0f));
+      ImGui::Dummy(ImVec2(content_region_avail_width, 1.0f));
+    }
 
     // Handle label resizing manually since we removed the table
-    ImGui::SetCursorPos(ImVec2(
-        tracks_start_pos.x + label_width_ - kSplitterOffset,
-        tracks_start_pos.y));
+    ImGui::SetCursorPos(
+        ImVec2(tracks_start_pos.x + label_width_ - kSplitterOffset,
+               tracks_start_pos.y));
     ImGui::InvisibleButton("##LabelResizer",
                            ImVec2(kSplitterWidth, group_offsets_.back()));
     if (ImGui::IsItemActive()) {
@@ -4143,10 +4170,9 @@ Timeline::TickInfo Timeline::CalculateTickInfo(
     const std::string sample_label =
         FormatRulerLabel(sample_time, tick_interval);
     ImGui::PushFont(fonts::label_small);
-    const Pixel min_dist =
-        std::max(kMinTickDistancePx,
-                 ImGui::CalcTextSize(sample_label.c_str()).x +
-                     2.0f * kRulerTextPadding);
+    const Pixel min_dist = std::max(
+        kMinTickDistancePx,
+        ImGui::CalcTextSize(sample_label.c_str()).x + 2.0f * kRulerTextPadding);
     ImGui::PopFont();
     if (min_dist > kMinTickDistancePx) {
       tick_interval = CalculateNiceInterval(min_dist / px_per_time_unit_val);
@@ -4365,10 +4391,10 @@ void Timeline::DrawEvent(int group_index, int event_index,
           ImVec2(rect.left + kInstantEventChevronHalfWidth,
                  rect.top + kInstantEventChevronHeight));
     } else {
-      is_hovered = ImGui::IsMouseHoveringRect(
-          ImVec2(rect.left, rect.top),
-          ImVec2(rect.right + kEventPaddingRight,
-                 rect.bottom + kEventPaddingBottom));
+      is_hovered =
+          ImGui::IsMouseHoveringRect(ImVec2(rect.left, rect.top),
+                                     ImVec2(rect.right + kEventPaddingRight,
+                                            rect.bottom + kEventPaddingBottom));
     }
 
     const Pixel corner_rounding =
@@ -4588,9 +4614,8 @@ void Timeline::DrawEventsForLevel(int group_index,
     }
     if (global_level < 0) {
       const int sample_idx = event_indices.front();
-      if (sample_idx >= 0 &&
-          static_cast<size_t>(sample_idx) <
-              timeline_data_.entry_levels.size()) {
+      if (sample_idx >= 0 && static_cast<size_t>(sample_idx) <
+                                 timeline_data_.entry_levels.size()) {
         global_level = timeline_data_.entry_levels[sample_idx];
       }
     }
@@ -4601,8 +4626,7 @@ void Timeline::DrawEventsForLevel(int group_index,
          visible_count > kMinVisibleEventsForMipDraw)) {
       const LevelMipPyramid& pyramid = level_mip_pyramids_[global_level];
       const Microseconds us_per_px = 1.0 / px_per_time_unit;
-      int selected_mip =
-          pyramid.SelectMipLevel(kMaxMipBinWidthPx * us_per_px);
+      int selected_mip = pyramid.SelectMipLevel(kMaxMipBinWidthPx * us_per_px);
       if (selected_mip < 0 && pyramid.raw_events_compacted) {
         for (int m = 0; m < LevelMipPyramid::kNumMipLevels; ++m) {
           if (!pyramid.levels[m].tiles.empty()) {
@@ -4944,15 +4968,13 @@ void Timeline::DrawEventsForLevel(int group_index,
 
     const bool is_instant = dur <= 1e-06;
     const bool is_selected = (selected_event_index_ == event_index);
-    const bool matches_search =
-        !search_query_lower_.empty() &&
-        matching_event_indices_.contains(event_index);
+    const bool matches_search = !search_query_lower_.empty() &&
+                                matching_event_indices_.contains(event_index);
 
     if (!is_instant && !is_selected && !matches_search) {
       const Pixel raw_left = TimeToScreenX(start, pos.x, px_per_time_unit);
       const Pixel raw_right = TimeToScreenX(end, pos.x, px_per_time_unit);
-      if (raw_left < last_drawn_right &&
-          raw_right <= last_drawn_right + 0.5f) {
+      if (raw_left < last_drawn_right && raw_right <= last_drawn_right + 0.5f) {
         continue;
       }
     }
@@ -5020,10 +5042,9 @@ void Timeline::DrawCounterTooltip(int group_index, const CounterData& data,
 
     if (event_tooltip_enabled_) {
       // Draw tooltip for current counter point's value and timestamp
-      ImGui::SetTooltip(
-          "%s",
-          FormatCounterTooltip(time_axis_unit_, mouse_time, val, data.unit)
-              .c_str());
+      ImGui::SetTooltip("%s", FormatCounterTooltip(time_axis_unit_, mouse_time,
+                                                   val, data.unit)
+                                  .c_str());
     } else if (hovered_event_index_ == -1 && mouse_time >= 0.0) {
       hovered_group_index_ = group_index;
       hovered_bundle_ = static_cast<int64_t>(std::floor(mouse_time));
@@ -5764,7 +5785,8 @@ void Timeline::DrawUtilizationAreaChart(int group_index, int start_level,
 
 void Timeline::DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
                               Pixel timeline_width, Pixel timeline_y_start,
-                              double px_per_time, ImDrawList* draw_list) {
+                              double px_per_time, ImDrawList* draw_list,
+                              bool highlighted) {
   if (flow.source_level >= visible_level_offsets_.size() ||
       flow.target_level >= visible_level_offsets_.size()) {
     return;
@@ -5805,13 +5827,24 @@ void Timeline::DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
   Timeline::CalculateBezierControlPoints(clamped_start_x, start_y,
                                          clamped_end_x, end_y, cp0, cp1);
 
-  draw_list->AddBezierCubic(p0, cp0, cp1, p1, flow.color, 1.0f);
-  if (source_visible) {
-    draw_list->AddCircleFilled(p0, kPointRadius, flow.color);
+  if (highlighted) {
+    // 1. Draw a wider highlight halo underlay around the flow curve and target
+    // arrowhead using the highlight color.
+    DrawFlowStroke(draw_list, p0, cp0, cp1, p1, kHighlightedFlowHaloColor,
+                   kHighlightedFlowHaloThickness, kPointRadius + 1.0f,
+                   source_visible, target_visible, kHighlightedFlowArrowWidth,
+                   kHighlightedFlowArrowHeight);
   }
-  if (target_visible) {
-    draw_list->AddCircleFilled(p1, kPointRadius, flow.color);
-  }
+
+  // 2. Draw the core flow stroke (with thicker line and target arrowhead when
+  // highlighted, or standard line thickness and circular marker when not).
+  const Pixel line_thickness =
+      highlighted ? kHighlightedFlowLineThickness : kFlowLineThickness;
+  const Pixel arrow_width = highlighted ? kFlowArrowWidth : 0.0f;
+  const Pixel arrow_height = highlighted ? kFlowArrowHeight : 0.0f;
+  DrawFlowStroke(draw_list, p0, cp0, cp1, p1, flow.color, line_thickness,
+                 kPointRadius, source_visible, target_visible, arrow_width,
+                 arrow_height);
 }
 
 void Timeline::SetVisibleFlowCategories(const std::vector<int>& category_ids) {
@@ -5863,7 +5896,8 @@ void Timeline::DrawFlows(Pixel timeline_width, Pixel timeline_y_start) {
         if (it_lines != timeline_data_.flow_lines_by_flow_id.end()) {
           for (const auto& flow : it_lines->second) {
             DrawSingleFlow(flow, timeline_x_start, timeline_width,
-                           timeline_y_start, px_per_time, draw_list);
+                           timeline_y_start, px_per_time, draw_list,
+                           /*highlighted=*/true);
           }
         }
       }
@@ -5872,7 +5906,7 @@ void Timeline::DrawFlows(Pixel timeline_width, Pixel timeline_y_start) {
     for (const auto& flow : timeline_data_.flow_lines) {
       if (visible_flow_categories_.contains(static_cast<int>(flow.category))) {
         DrawSingleFlow(flow, timeline_x_start, timeline_width, timeline_y_start,
-                       px_per_time, draw_list);
+                       px_per_time, draw_list, /*highlighted=*/false);
       }
     }
   }
@@ -6251,9 +6285,8 @@ bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
     needs_layout_update = true;
     minimap_schedule_dirty_ = true;
     ShowNavigationWarningNotification(
-        is_pinned
-            ? absl::StrCat(kUnpinnedProcessNotificationPrefix, group.name)
-            : absl::StrCat(kPinnedProcessNotificationPrefix, group.name));
+        is_pinned ? absl::StrCat(kUnpinnedProcessNotificationPrefix, group.name)
+                  : absl::StrCat(kPinnedProcessNotificationPrefix, group.name));
   }
 
   // Position and draw Hide button
@@ -6397,8 +6430,7 @@ bool Timeline::HandleKeyboard() {
       (selected_event_index_ == -1 && ImGui::IsKeyDown(ImGuiKey_LeftArrow))) {
     ImGuiKey key =
         ImGui::IsKeyDown(ImGuiKey_A) ? ImGuiKey_A : ImGuiKey_LeftArrow;
-    float multiplier =
-        GetSpeedMultiplier(io, key, kShiftPanAccelerateFactor);
+    float multiplier = GetSpeedMultiplier(io, key, kShiftPanAccelerateFactor);
     Pan(-panning_speed_ * io.DeltaTime * multiplier);
     is_interacting = true;
   }

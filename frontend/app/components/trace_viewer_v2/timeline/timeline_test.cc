@@ -6318,6 +6318,197 @@ TEST_F(RealTimelineImGuiFixture,
 
   ImGui::EndFrame();
 }
+TEST_F(RealTimelineImGuiFixture,
+       DrawFlowsForSelectedEventHighlightsConnectedFlows) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.level_offsets = {0, 4};
+  data.level_event_indices = {0, 1, 2, 3};
+  data.entry_names = {"event0", "event1", "event2", "event3"};
+  data.entry_event_ids = {1000, 2000, 3000, 4000};
+  data.entry_levels = {0, 0, 0, 0};
+  data.entry_start_times = {10.0, 40.0, 70.0, 80.0};
+  data.entry_total_times = {5.0, 5.0, 5.0, 5.0};
+  data.entry_args = {{}, {}, {}, {}};
+
+  constexpr ImU32 kInboundFlowColor = 0xFF00FF00;    // Green
+  constexpr ImU32 kOutboundFlowColor = 0xFF00FFFF;   // Yellow
+  constexpr ImU32 kUnrelatedFlowColor = 0xFFFF00FF;  // Magenta
+
+  FlowLine inbound_flow = {.source_ts = 12.0,
+                           .target_ts = 42.0,
+                           .source_level = 0,
+                           .target_level = 0,
+                           .color = kInboundFlowColor,
+                           .category = tsl::profiler::ContextType::kGeneric};
+  FlowLine outbound_flow = {.source_ts = 43.0,
+                            .target_ts = 72.0,
+                            .source_level = 0,
+                            .target_level = 0,
+                            .color = kOutboundFlowColor,
+                            .category = tsl::profiler::ContextType::kGeneric};
+  FlowLine unrelated_flow = {.source_ts = 82.0,
+                             .target_ts = 90.0,
+                             .source_level = 0,
+                             .target_level = 0,
+                             .color = kUnrelatedFlowColor,
+                             .category = tsl::profiler::ContextType::kGeneric};
+
+  data.flow_lines = {inbound_flow, outbound_flow, unrelated_flow};
+  data.flow_ids_by_event_id = {
+      {1000, {"flow_in"}},
+      {2000, {"flow_in", "flow_out"}},
+      {3000, {"flow_out"}},
+      {4000, {"flow_unrelated"}},
+  };
+  data.flow_lines_by_flow_id = {
+      {"flow_in", {inbound_flow}},
+      {"flow_out", {outbound_flow}},
+      {"flow_unrelated", {unrelated_flow}},
+  };
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGeneric)});
+
+  // 1. When event1 (id 2000) is selected, only its inbound and outbound flows
+  // must be emitted, both rendered with the highlight style (halo color).
+  timeline_.RevealEvent(1);
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+  ASSERT_FALSE(draw_list->VtxBuffer.empty());
+
+  bool found_inbound = false;
+  bool found_outbound = false;
+  bool found_unrelated = false;
+  bool found_halo = false;
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == kInboundFlowColor) found_inbound = true;
+    if (vtx.col == kOutboundFlowColor) found_outbound = true;
+    if (vtx.col == kUnrelatedFlowColor) found_unrelated = true;
+    if (vtx.col == kHighlightedFlowHaloColor) found_halo = true;
+  }
+  EXPECT_TRUE(found_inbound);
+  EXPECT_TRUE(found_outbound);
+  EXPECT_FALSE(found_unrelated);
+  EXPECT_TRUE(found_halo);
+  ImGui::EndFrame();
+
+  // 2. When no event is selected, flows are drawn with normal style (no halo).
+  timeline_.set_selected_event_index_for_test(-1);
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  draw_list = ImGui::GetForegroundDrawList();
+  ASSERT_FALSE(draw_list->VtxBuffer.empty());
+
+  found_inbound = false;
+  found_outbound = false;
+  found_unrelated = false;
+  found_halo = false;
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == kInboundFlowColor) found_inbound = true;
+    if (vtx.col == kOutboundFlowColor) found_outbound = true;
+    if (vtx.col == kUnrelatedFlowColor) found_unrelated = true;
+    if (vtx.col == kHighlightedFlowHaloColor) found_halo = true;
+  }
+  EXPECT_TRUE(found_inbound);
+  EXPECT_TRUE(found_outbound);
+  EXPECT_TRUE(found_unrelated);
+  EXPECT_FALSE(found_halo);
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawFlowsRendersArrowheadAtTarget) {
+  FlameChartTimelineData data = GetTestFlowData();
+  timeline_.SetTimelineData(std::move(data));
+
+  // Event 0 (id 1000) has flow1: source 12.0 us, target 52.0 us.
+  timeline_.RevealEvent(0);
+
+  const float timeline_x_start = GetTimelineStartX();
+  const float timeline_x_end = ImGui::GetIO().DisplaySize.x -
+                               ImGui::GetStyle().ScrollbarSize -
+                               kTimelinePaddingRight;
+
+  // 1. When target is visible on-screen ([0.0, 100.0]), target arrowhead is
+  // drawn at the target point (52.0 us). Its apex is at target_x and base is
+  // behind it (to the left), never extending past target_x.
+  timeline_.SetVisibleRange({0.0, 100.0});
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  const float target_x = timeline_.TimeToScreenX(52.0, timeline_x_start,
+                                                 timeline_.px_per_time_unit());
+
+  bool found_target_apex = false;
+  bool found_target_halo_base = false;
+  float max_flow_x = std::numeric_limits<float>::lowest();
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000 || vtx.col == kHighlightedFlowHaloColor) {
+      max_flow_x = std::max(max_flow_x, vtx.pos.x);
+      if (std::abs(vtx.pos.x - target_x) < 0.5f) {
+        found_target_apex = true;
+      }
+      if (vtx.col == kHighlightedFlowHaloColor &&
+          std::abs(vtx.pos.x - (target_x - kHighlightedFlowArrowWidth)) <
+              1.5f) {
+        found_target_halo_base = true;
+      }
+    }
+  }
+  EXPECT_TRUE(found_target_apex);
+  EXPECT_TRUE(found_target_halo_base);
+  // Arrowhead points right to target_x and does not extend beyond target_x
+  // (within 1.5px to account for stroke width and subpixel anti-aliasing).
+  EXPECT_NEAR(max_flow_x, target_x, 1.5f);
+  ImGui::EndFrame();
+
+  // 2. When target is off-screen right ([0.0, 40.0]), target marker/arrowhead
+  // is suppressed and endpoint is clamped to timeline_x_end.
+  timeline_.SetVisibleRange({0.0, 40.0});
+  ImGui::NewFrame();
+  timeline_.Draw();
+  draw_list = ImGui::GetForegroundDrawList();
+
+  max_flow_x = std::numeric_limits<float>::lowest();
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000 || vtx.col == kHighlightedFlowHaloColor) {
+      max_flow_x = std::max(max_flow_x, vtx.pos.x);
+    }
+  }
+  // Clamped at timeline_x_end with arrowhead suppressed (no vertices past
+  // timeline_x_end).
+  EXPECT_NEAR(max_flow_x, timeline_x_end, 0.5f);
+  ImGui::EndFrame();
+
+  // 3. Unselected flows draw target circle (which extends to target_x +
+  // kPointRadius).
+  timeline_.set_selected_event_index_for_test(-1);
+  timeline_.SetVisibleRange({0.0, 100.0});
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGeneric)});
+  ImGui::NewFrame();
+  timeline_.Draw();
+  draw_list = ImGui::GetForegroundDrawList();
+
+  max_flow_x = std::numeric_limits<float>::lowest();
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) {
+      max_flow_x = std::max(max_flow_x, vtx.pos.x);
+    }
+  }
+  // Target circle extends past target_x by kPointRadius (within 1.5px for AA).
+  EXPECT_NEAR(max_flow_x, target_x + kPointRadius, 1.5f);
+  ImGui::EndFrame();
+}
 
 TEST_F(RealTimelineImGuiFixture, DrawFlowsWithEmptyFlowLinesButSelectedEvent) {
   FlameChartTimelineData data = GetTestFlowData();

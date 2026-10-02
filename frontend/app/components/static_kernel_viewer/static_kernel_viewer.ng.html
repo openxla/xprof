@@ -1,126 +1,229 @@
-<mat-sidenav-container class="static-kernel-viewer-container">
-  <mat-sidenav
-    mode="side"
-    opened
-    class="sidebar"
-    [class.expanded]="isRailExpanded"
-    [class.pinned]="isRailPinned"
-    (mouseenter)="onMouseEnter()"
-    (mouseleave)="onMouseLeave()"
-  >
-    <!-- Collapsed Rail Bar -->
-    <div class="collapsed-rail-bar" *ngIf="!isRailExpanded">
-      <mat-icon class="rail-icon">memory</mat-icon>
-      <span class="rail-badge" *ngIf="kernelList.length > 0">
-        {{ filteredKernels.length }}
-      </span>
-      <button
-        mat-icon-button
-        class="rail-pin-btn"
-        (click)="togglePin()"
-        matTooltip="Expand panel"
-        matTooltipPosition="after"
-        aria-label="Expand panel"
-      >
-        <svg class="panel-icon" xmlns="http://www.w3.org/2000/svg" height="28px" viewBox="0 -960 960 960" width="28px" fill="currentColor">
-          <path d="M300-640v320l160-160-160-160ZM200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm440-80h120v-560H640v560Zm-80 0v-560H200v560h360Zm80 0h120-120Z"/>
-        </svg>
-      </button>
-    </div>
-
-    <!-- Expanded Rail Content -->
-    <div class="sidebar-header" *ngIf="isRailExpanded">
-      <div class="header-title">
-        <mat-icon class="header-icon">memory</mat-icon>
-        <span class="title-text">Pallas Primitives</span>
-        <span class="count-badge" *ngIf="kernelList.length > 0">
-          ({{ filteredKernels.length }})
-        </span>
-        <span class="spacer"></span>
+<div class="skv-layout" [class.rail-pinned]="isRailPinned" (focusin)="onLayoutFocusIn($event)">
+  <div class="rail-slot">
+    <nav
+      class="kernel-rail"
+      [class.expanded]="isRailExpanded"
+      [class.pinned]="isRailPinned"
+      (mouseenter)="onRailMouseEnter()"
+      (mouseleave)="onRailMouseLeave()"
+      (focusin)="onRailFocusIn($event)"
+      (focusout)="onRailFocusOut($event)"
+      aria-label="Kernels"
+    >
+      <div class="rail-header">
         <button
           mat-icon-button
-          class="pin-btn"
-          [class.active]="isRailPinned"
+          class="pin-button"
+          type="button"
           (click)="togglePin()"
-          [matTooltip]="isRailPinned ? 'Collapse panel' : 'Expand panel'"
+          [matTooltip]="isRailPinned ? 'Collapse kernel list' : 'Keep kernel list open'"
           matTooltipPosition="below"
-          [attr.aria-label]="isRailPinned ? 'Collapse panel' : 'Expand panel'"
+          [attr.aria-label]="isRailPinned ? 'Collapse kernel list' : 'Keep kernel list open'"
+          [attr.aria-pressed]="isRailPinned"
         >
-          <svg class="panel-icon" xmlns="http://www.w3.org/2000/svg" height="28px" viewBox="0 -960 960 960" width="28px" fill="currentColor">
-            <path d="M460-320v-320L300-480l160 160ZM200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm440-80h120v-560H640v560Zm-80 0v-560H200v560h360Zm80 0h120-120Z"/>
-          </svg>
+          <mat-icon>{{ isRailPinned ? 'left_panel_close' : 'left_panel_open' }}</mat-icon>
+        </button>
+        <span class="rail-title">Kernels</span>
+        <span *ngIf="entries.length > 0" class="rail-count">
+          {{ isFiltering ? visibleCount + ' of ' + entries.length : entries.length }}
+        </span>
+      </div>
+
+      <div class="rail-search">
+        <label class="search-field">
+          <mat-icon class="search-icon">search</mat-icon>
+          <input
+            #searchInput
+            class="search-input"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Search kernels or modules"
+            [value]="filterQuery"
+            (input)="onFilterChange(searchInput.value)"
+            (keydown)="onSearchKeydown($event)"
+            aria-label="Search kernels or modules"
+          />
+          <kbd *ngIf="!filterQuery" class="search-shortcut" aria-hidden="true">K</kbd>
+        </label>
+        <button
+          *ngIf="filterQuery"
+          mat-icon-button
+          class="clear-search-button"
+          type="button"
+          (click)="clearFilter(); searchInput.focus()"
+          aria-label="Clear search"
+        >
+          <mat-icon>close</mat-icon>
         </button>
       </div>
 
-      <div class="module-filter-box">
-        <mat-form-field appearance="outline" class="module-field">
-          <mat-label>JIT Module</mat-label>
-          <mat-select
-            [ngModel]="selectedHloModule"
-            (selectionChange)="onHloModuleChange($event.value)"
-            [disabled]="loadingKernels || hloModules.length === 0"
-          >
-            <mat-option value="All Modules">All Modules</mat-option>
-            <mat-option *ngFor="let mod of hloModules" [value]="mod">
-              {{ mod }}
-            </mat-option>
-          </mat-select>
-        </mat-form-field>
-      </div>
-
-      <div class="filter-box">
-        <mat-form-field appearance="outline" class="filter-field">
-          <mat-icon matPrefix class="search-icon">search</mat-icon>
-          <input
-            matInput
-            placeholder="Search primitives..."
-            [(ngModel)]="filterQuery"
-            (input)="applyFilter()"
-            autocomplete="off"
-            aria-label="Search primitives"
-          />
-          <button
-            *ngIf="filterQuery"
-            mat-icon-button
-            matSuffix
-            (click)="clearFilter()"
-            aria-label="Clear search"
-          >
-            <mat-icon>close</mat-icon>
-          </button>
-        </mat-form-field>
-      </div>
-    </div>
-
-    <div class="sidebar-content" *ngIf="isRailExpanded">
-      <div *ngIf="loadingKernels" class="loading-state">
-        <mat-spinner diameter="32"></mat-spinner>
-        <span>Loading Pallas primitives...</span>
-      </div>
-
-      <div *ngIf="!loadingKernels && filteredKernels.length === 0" class="empty-state">
-        <mat-icon class="empty-icon">info</mat-icon>
-        <span>No matching Pallas primitives</span>
-      </div>
-
-      <mat-nav-list *ngIf="!loadingKernels && filteredKernels.length > 0" class="primitive-list">
-        <a
-          mat-list-item
-          *ngFor="let kernel of filteredKernels"
-          [class.active]="kernel === selectedKernel"
-          (click)="onKernelChange(kernel)"
-          [matTooltip]="kernel"
-          [matTooltipPosition]="'after'"
-          [matTooltipShowDelay]="400"
+      <div class="rail-body" (scroll)="onRailScroll()">
+        <div *ngIf="loadingKernels" class="rail-state" role="status">
+          <mat-spinner diameter="20"></mat-spinner>
+          <span class="rail-state-text">Loading kernels…</span>
+        </div>
+        <div *ngIf="!loadingKernels && loadFailed" class="rail-state error" role="alert">
+          <mat-icon>error_outline</mat-icon>
+          <span class="rail-state-text">Couldn't load kernels</span>
+        </div>
+        <div
+          *ngIf="!loadingKernels && !loadFailed && entries.length === 0"
+          class="rail-state"
         >
-          <mat-icon matListItemIcon class="primitive-icon">extension</mat-icon>
-          <span matListItemTitle class="primitive-name">{{ kernel }}</span>
-        </a>
-      </mat-nav-list>
-    </div>
-  </mat-sidenav>
+          <mat-icon>memory</mat-icon>
+          <span class="rail-state-text">No kernels in this profile</span>
+        </div>
+        <div *ngIf="isFiltering && visibleCount === 0" class="rail-state">
+          <mat-icon>search_off</mat-icon>
+          <span class="rail-state-text">No kernels match "{{ filterQuery.trim() }}"</span>
+        </div>
 
-  <mat-sidenav-content class="main-content">
+        <section
+          *ngFor="let group of visibleGroups; trackBy: trackByModule"
+          class="kernel-group"
+          [style.--group-color]="group.color"
+        >
+          <button
+            *ngIf="group.module"
+            class="group-header"
+            type="button"
+            [class.collapsed]="!isGroupExpanded(group)"
+            (click)="toggleGroup(group)"
+            [attr.aria-expanded]="isGroupExpanded(group)"
+            [attr.aria-label]="group.module + ', ' + group.entries.length + ' kernels'"
+          >
+            <span class="group-marker" aria-hidden="true"></span>
+            <mat-icon class="group-chevron" aria-hidden="true">expand_more</mat-icon>
+            <span class="group-name">{{ group.module }}</span>
+            <span class="group-count" aria-hidden="true">{{ group.entries.length }}</span>
+          </button>
+          <ng-container *ngIf="isGroupExpanded(group)">
+            <button
+              *ngFor="let entry of group.entries; trackBy: trackByEntry"
+              class="kernel-row"
+              type="button"
+              [class.active]="entry === selectedEntry"
+              [class.open]="isEntryOpen(entry)"
+              (click)="onKernelRowClick(entry, $event)"
+              (auxclick)="onKernelRowAuxClick(entry, $event)"
+              (mousedown)="onMouseDown($event)"
+              (mouseenter)="onKernelRowHover(entry, $event)"
+              (mouseleave)="hideCardSoon()"
+              (focus)="onKernelRowHover(entry, $event)"
+              (blur)="hideCard()"
+              [attr.aria-current]="entry === selectedEntry ? 'true' : null"
+              [attr.aria-label]="isEntryOpen(entry) ? entry.description + ', open in a tab' : entry.description"
+            >
+              <span class="kernel-monogram" aria-hidden="true">{{ entry.monogram }}</span>
+              <span class="kernel-name">{{ entry.kernel }}</span>
+            </button>
+          </ng-container>
+        </section>
+      </div>
+    </nav>
+  </div>
+
+  <div class="skv-main">
+    <div class="kernel-bar">
+      <div *ngIf="activeTab; else kernelStatus" class="tab-strip">
+        <div class="tab-list" role="list" aria-label="Open kernels" (scroll)="onTabListScroll()">
+          <div
+            *ngFor="let tab of tabs; trackBy: trackByTab"
+            class="kernel-tab"
+            role="listitem"
+            [class.active]="tab === activeTab"
+            [class.highlighted]="tab === highlightedTab"
+            [style.--group-color]="tab.entry.color"
+            (mouseenter)="onTabHover(tab, $event)"
+            (mouseleave)="hideCardSoon()"
+            (mousedown)="onMouseDown($event)"
+            (auxclick)="onTabAuxClick(tab, $event)"
+          >
+            <button
+              class="tab-button"
+              type="button"
+              (click)="onTabClick(tab)"
+              (focus)="onTabHover(tab, $event)"
+              (blur)="hideCard()"
+              [attr.aria-current]="tab === activeTab ? 'true' : null"
+              [attr.aria-label]="tab.entry.description"
+            >
+              <span class="kernel-monogram" aria-hidden="true">{{ tab.entry.monogram }}</span>
+              <span class="tab-text">
+                <span class="tab-name">{{ tab.entry.kernel }}</span>
+                <span *ngIf="tab.entry.subtitle" class="tab-subtitle">{{ tab.entry.subtitle }}</span>
+              </span>
+            </button>
+            <button
+              *ngIf="tabs.length > 1"
+              class="close-tab-button"
+              type="button"
+              (click)="onCloseTabClick(tab)"
+              [attr.aria-label]="'Close ' + tab.entry.kernel"
+            >
+              <mat-icon>close</mat-icon>
+            </button>
+          </div>
+        </div>
+        <button
+          mat-icon-button
+          class="new-tab-button"
+          type="button"
+          (click)="focusSearch()"
+          matTooltip="Open a kernel (K)"
+          aria-label="Open a kernel"
+        >
+          <mat-icon>add</mat-icon>
+        </button>
+      </div>
+      <ng-template #kernelStatus>
+        <span class="kernel-bar-status">
+          {{ loadingKernels ? 'Loading kernels…' : loadFailed ? "Couldn't load kernels" : 'No kernel selected' }}
+        </span>
+      </ng-template>
+      <span class="visually-hidden" role="status">{{ selectedEntry?.kernel }}</span>
+
+      <div class="kernel-stepper" role="group" aria-label="Step through kernels">
+        <button
+          mat-icon-button
+          class="step-button"
+          type="button"
+          [disabled]="entries.length < 2"
+          (click)="stepKernel(-1)"
+          matTooltip="Previous kernel"
+          aria-label="Previous kernel"
+        >
+          <mat-icon>chevron_left</mat-icon>
+        </button>
+        <span class="kernel-position">{{ selectedPosition }} / {{ entries.length }}</span>
+        <button
+          mat-icon-button
+          class="step-button"
+          type="button"
+          [disabled]="entries.length < 2"
+          (click)="stepKernel(1)"
+          matTooltip="Next kernel"
+          aria-label="Next kernel"
+        >
+          <mat-icon>chevron_right</mat-icon>
+        </button>
+      </div>
+      <button
+        *ngIf="canCopyLink"
+        mat-icon-button
+        class="copy-link-button"
+        type="button"
+        [class.copied]="linkCopied"
+        [disabled]="!selectedEntry"
+        (click)="copyKernelLink()"
+        [matTooltip]="linkCopied ? 'Link copied' : 'Copy link to this kernel'"
+        [attr.aria-label]="linkCopied ? 'Link copied' : 'Copy link to this kernel'"
+      >
+        <mat-icon>{{ linkCopied ? 'check' : 'link' }}</mat-icon>
+      </button>
+    </div>
+
     <trace-viewer-container
       [url]="url"
       [traceViewerModule]="traceViewerModule"
@@ -128,5 +231,33 @@
       (initializeWasm)="onInitializeWasm()"
     >
     </trace-viewer-container>
-  </mat-sidenav-content>
-</mat-sidenav-container>
+  </div>
+
+  <div
+    *ngIf="hoverCard as card"
+    class="kernel-card"
+    [class.from-rail]="card.source === 'rail'"
+    [class.from-tab]="card.source === 'tab'"
+    [style.--group-color]="card.entry.color"
+    [style.left.px]="card.left"
+    [style.top.px]="card.top"
+    [style.bottom.px]="card.bottom"
+    aria-hidden="true"
+  >
+    <div class="card-header">
+      <span class="kernel-monogram">{{ card.entry.monogram }}</span>
+      <div class="card-title">
+        <span class="card-kernel">
+          <ng-container *ngFor="let part of card.entry.nameParts">{{ part }}<wbr /></ng-container>
+        </span>
+        <span *ngIf="card.entry.module" class="card-module">
+          <span class="module-dot"></span>
+          {{ card.entry.module }}
+        </span>
+      </div>
+    </div>
+    <div *ngIf="card.hint" class="card-hint">
+      <ng-container *ngFor="let part of card.hintParts"><kbd *ngIf="part.isKey; else hintText" class="hint-key">{{ part.text }}</kbd><ng-template #hintText>{{ part.text }}</ng-template></ng-container>
+    </div>
+  </div>
+</div>

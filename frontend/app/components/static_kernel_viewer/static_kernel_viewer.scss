@@ -1,3 +1,66 @@
+// Kernel rail geometry. The rail transition must take RAIL_TRANSITION_MS, see
+// static_kernel_viewer.ts.
+$rail-collapsed-width: 56px;
+$rail-expanded-width: 352px;
+$rail-transition: 200ms var(--motion-easing-emphasized);
+$group-margin: 6px;
+$group-padding: 4px;
+$bar-height: 52px;
+$row-height: 32px;
+$monogram-width: 28px;
+$monogram-height: 20px;
+// Centers the monograms in the collapsed rail, and keeps them in place while
+// the rail expands into grouped module cards.
+$row-start-padding: (
+    $rail-collapsed-width - 2 * ($group-margin + $group-padding) -
+      $monogram-width
+  ) *
+  0.5;
+// Must match TAB_HIGHLIGHT_MS and CARD_WIDTH, see static_kernel_viewer.ts.
+$tab-highlight-duration: 900ms;
+$card-width: 320px;
+
+// Hides text that only fits in the expanded rail, and slides it into place as
+// the rail opens.
+@mixin reveal-when-expanded {
+  opacity: 0;
+  transform: translateX(-4px);
+  transition:
+    opacity 100ms var(--motion-easing-standard),
+    transform 120ms var(--motion-easing-standard);
+
+  .kernel-rail.expanded & {
+    opacity: 1;
+    transform: translateX(0);
+    transition-delay: 45ms;
+    transition-duration: 160ms;
+  }
+}
+
+@mixin focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: -2px;
+  }
+}
+
+// Sizes a Material icon button. The explicit padding overrides the app's
+// global icon button padding, which would push the icon off center.
+@mixin compact-icon-button($size, $icon-size) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: $size;
+  height: $size;
+  padding: 0;
+
+  mat-icon {
+    width: $icon-size;
+    height: $icon-size;
+    font-size: $icon-size;
+  }
+}
+
 :host {
   display: block;
   height: 100%;
@@ -5,221 +68,1007 @@
   overflow: hidden;
 }
 
-.static-kernel-viewer-container {
+.skv-layout {
+  position: relative;
+  display: flex;
   height: 100%;
   width: 100%;
-  background-color: #fff;
+  // Keeps the z-index of the kernel rail local to this component.
+  isolation: isolate;
+}
+
+// Reserves the width of the rail in the layout: the collapsed width, or the
+// expanded width while the rail is pinned. The hover-expanded rail overflows
+// the slot and floats over the timeline, so hovering never resizes it.
+.rail-slot {
+  position: relative;
+  flex: 0 0 $rail-collapsed-width;
+  transition: flex-basis $rail-transition;
+
+  .skv-layout.rail-pinned & {
+    flex-basis: $rail-expanded-width;
+  }
+}
+
+.kernel-rail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
+  width: $rail-collapsed-width;
   overflow: hidden;
+  background: linear-gradient(
+    180deg,
+    var(--mat-sys-surface-container-low) 0%,
+    var(--mat-sys-surface-container) 100%
+  );
+  // An inset shadow instead of a border keeps the full width for content.
+  box-shadow: inset -1px 0 0
+    color-mix(in srgb, var(--mat-sys-outline-variant) 75%, transparent);
+  transition:
+    width $rail-transition,
+    border-radius $rail-transition,
+    box-shadow $rail-transition;
 
-  mat-sidenav.sidebar {
-    position: relative;
-    transform: none;
-    flex: 0 0 auto;
-    width: 56px;
-    max-width: 400px;
-    background-color: #f8f9fa;
-    border-right: 1px solid #e0e0e0;
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    transition: width 200ms cubic-bezier(0.4, 0, 0.2, 1);
-    overflow: hidden;
-    box-sizing: border-box;
-
-    &.expanded {
-      width: 320px;
-    }
+  &.expanded {
+    width: $rail-expanded-width;
   }
 
-  mat-sidenav-content.main-content {
-    margin-left: 0;
-    flex: 1 1 0%;
-    min-width: 0;
-    width: 0;
-    height: 100%;
-    overflow: hidden;
-    position: relative;
-    display: flex;
-    flex-direction: column;
-
-    trace-viewer-container {
-      display: flex;
-      flex: 1;
-      width: 100%;
-      height: 100%;
-      min-width: 0;
-      min-height: 0;
-    }
+  &.expanded:not(.pinned) {
+    border-start-end-radius: var(--mat-sys-corner-large);
+    border-end-end-radius: var(--mat-sys-corner-large);
+    box-shadow:
+      inset -1px 0 0
+        color-mix(in srgb, var(--mat-sys-outline-variant) 75%, transparent),
+      14px 0 36px -6px
+        color-mix(in srgb, var(--mat-sys-shadow) 16%, transparent),
+      4px 0 12px -2px color-mix(in srgb, var(--mat-sys-shadow) 8%, transparent);
   }
 }
 
-.collapsed-rail-bar {
+.rail-header {
   display: flex;
-  flex-direction: column;
+  flex: none;
   align-items: center;
-  padding: 16px 0;
-  gap: 12px;
-  width: 56px;
+  gap: var(--spacing-2);
+  height: $bar-height;
+  // Centers the pin button in the collapsed rail.
+  padding: 0 var(--spacing-3) 0 var(--spacing-1);
+  white-space: nowrap;
+}
 
-  .rail-icon {
-    color: #1a73e8;
-    font-size: 24px;
-    width: 24px;
-    height: 24px;
+.pin-button {
+  color: var(--mat-sys-on-surface-variant);
+  transition:
+    background-color 150ms var(--motion-easing-standard),
+    color 150ms var(--motion-easing-standard),
+    transform 150ms var(--motion-easing-standard);
+
+  &:hover {
+    color: var(--mat-sys-on-surface);
   }
 
-  .rail-badge {
-    font-size: 11px;
-    font-weight: 500;
-    color: #1a73e8;
-    background-color: #e8f0fe;
-    padding: 2px 6px;
-    border-radius: 10px;
-  }
-
-  .rail-pin-btn {
-    margin-top: auto;
-    color: #5f6368;
-
-    &:hover {
-      color: #202124;
-    }
+  &[aria-pressed='true'] {
+    background: color-mix(in srgb, var(--mat-sys-primary) 14%, transparent);
+    color: var(--mat-sys-primary);
   }
 }
 
-.sidebar-header {
-  padding: 16px 16px 8px 16px;
-  border-bottom: 1px solid #e0e0e0;
-  background-color: #fff;
+.rail-title {
+  @include reveal-when-expanded;
+  color: var(--mat-sys-on-surface);
+  font: 600 14px / 20px var(--mat-sys-brand-font);
+  letter-spacing: -0.1px;
+}
+
+.rail-count {
+  @include reveal-when-expanded;
+  padding: 2px var(--spacing-2);
+  border-radius: 999px;
+  background: color-mix(
+    in srgb,
+    var(--mat-sys-primary) 12%,
+    var(--mat-sys-surface-container-high)
+  );
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--mat-sys-primary) 18%, transparent);
+  color: var(--mat-sys-on-primary-container);
+  font: 600 11px / 16px var(--mat-sys-plain-font);
+  font-variant-numeric: tabular-nums;
+}
+
+.rail-search {
+  position: relative;
+  flex: none;
+  padding: 0 var(--spacing-2) 10px;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--mat-sys-outline-variant) 55%, transparent);
+}
+
+// Collapses to a round search button in the collapsed rail.
+.search-field {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
+  align-items: center;
+  gap: var(--spacing-2);
+  height: 40px;
+  padding: 0 var(--spacing-3) 0 10px;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-radius: 20px;
+  background: var(--mat-sys-surface-container-lowest);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--mat-sys-shadow) 5%, transparent),
+    inset 0 0 0 1px
+      color-mix(in srgb, var(--mat-sys-outline-variant) 70%, transparent);
+  color: var(--mat-sys-on-surface-variant);
+  cursor: text;
+  transition:
+    background-color 150ms var(--motion-easing-standard),
+    box-shadow 150ms var(--motion-easing-standard);
 
-  .header-title {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 15px;
-    font-weight: 500;
-    color: #202124;
-
-    .header-icon {
-      color: #1a73e8;
-    }
-
-    .count-badge {
-      font-size: 13px;
-      color: #5f6368;
-      font-weight: 400;
-    }
-
-    .spacer {
-      flex: 1;
-    }
-
-    .pin-btn {
-      color: #5f6368;
-      width: 40px;
-      height: 40px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-
-      &.active {
-        color: #1a73e8;
-        background-color: #e8f0fe;
-      }
-    }
+  &:hover {
+    box-shadow:
+      0 2px 5px color-mix(in srgb, var(--mat-sys-shadow) 8%, transparent),
+      inset 0 0 0 1px var(--mat-sys-outline);
   }
 
-  .filter-field {
-    width: 100%;
-    margin-bottom: -1.25em;
+  &:focus-within {
+    box-shadow:
+      0 2px 8px color-mix(in srgb, var(--mat-sys-primary) 16%, transparent),
+      inset 0 0 0 2px var(--mat-sys-primary);
 
     .search-icon {
-      color: #5f6368;
+      color: var(--mat-sys-primary);
     }
   }
 }
 
-.sidebar-content {
+.search-icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  font-size: 20px;
+  transition: color 150ms var(--motion-easing-standard);
+}
+
+.search-input {
+  @include reveal-when-expanded;
   flex: 1;
-  overflow-y: auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-body-medium);
 
-  .primitive-list {
-    padding-top: 4px;
-    padding-bottom: 8px;
+  &::placeholder {
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
 
-    a[mat-list-item] {
-      height: 40px;
-      cursor: pointer;
-      border-left: 3px solid transparent;
-      transition:
-        background-color 150ms ease,
-        border-color 150ms ease;
+.search-shortcut {
+  @include reveal-when-expanded;
+  flex: none;
+  min-width: 20px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--mat-sys-surface-container-low);
+  color: var(--mat-sys-on-surface-variant);
+  font: 600 10.5px / 16px var(--mat-sys-code-font);
+  text-align: center;
+}
 
-      &:hover {
-        background-color: #f1f3f4;
-      }
+.clear-search-button {
+  @include compact-icon-button(32px, 18px);
+  position: absolute;
+  top: 4px;
+  right: calc(var(--spacing-2) + 4px);
+  color: var(--mat-sys-on-surface-variant);
+}
 
-      &.active {
-        background-color: #e8f0fe;
-        color: #1967d2;
-        border-left-color: #1a73e8;
+.rail-body {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 0 var(--spacing-3);
+  overflow: hidden auto;
+  // A scrollbar would push the monograms off center in the collapsed rail.
+  scrollbar-width: none;
 
-        .primitive-icon {
-          color: #1a73e8;
-        }
+  .kernel-rail.expanded & {
+    scrollbar-width: thin;
+  }
+}
 
-        .primitive-name {
-          font-weight: 500;
-        }
-      }
+.rail-state {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  min-height: $row-height;
+  padding: var(--spacing-2) var(--spacing-3) var(--spacing-2) 16px;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  white-space: nowrap;
 
-      .primitive-icon {
-        color: #5f6368;
-        font-size: 20px;
-        width: 20px;
-        height: 20px;
-      }
-
-      .primitive-name {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-size: 13px;
-        color: #3c4043;
-      }
-    }
+  &.error {
+    color: var(--mat-sys-error);
   }
 
-  .loading-state,
-  .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 32px 16px;
-    gap: 12px;
-    color: #5f6368;
-    font-size: 14px;
+  mat-icon {
+    flex: none;
+  }
 
-    .empty-icon {
-      font-size: 36px;
-      width: 36px;
-      height: 36px;
-      color: #9aa0a6;
+  mat-spinner {
+    flex: none;
+    margin: 0 2px;
+  }
+}
+
+.rail-state-text {
+  @include reveal-when-expanded;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+// Each HLO module forms a subtle card when the rail is expanded, while staying
+// transparent in the collapsed rail so the monograms stay centered.
+.kernel-group {
+  margin: 2px $group-margin;
+  padding: 1px $group-padding;
+  border-radius: var(--mat-sys-corner-medium);
+  transition:
+    margin $rail-transition,
+    padding $rail-transition,
+    background-color 160ms var(--motion-easing-standard),
+    box-shadow 160ms var(--motion-easing-standard);
+
+  .kernel-rail.expanded & {
+    margin: 6px $group-margin;
+    padding: 4px $group-padding;
+    background: color-mix(
+      in srgb,
+      var(--mat-sys-surface-container-lowest) 82%,
+      transparent
+    );
+    box-shadow:
+      0 1px 3px color-mix(in srgb, var(--mat-sys-shadow) 4%, transparent),
+      inset 0 0 0 1px
+        color-mix(in srgb, var(--mat-sys-outline-variant) 55%, transparent);
+
+    &:has(.kernel-row.active) {
+      background: var(--mat-sys-surface-container-lowest);
+      box-shadow:
+        0 2px 6px color-mix(in srgb, var(--mat-sys-shadow) 6%, transparent),
+        inset 0 0 0 1px
+          color-mix(
+            in srgb,
+            var(--group-color) 32%,
+            var(--mat-sys-outline-variant)
+          );
     }
   }
 }
 
-.panel-icon {
-  width: 28px;
+.group-header,
+.kernel-row {
+  @include focus-ring;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0 var(--spacing-2) 0 $row-start-padding;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--mat-sys-corner-small);
+  background: transparent;
+  color: var(--mat-sys-on-surface-variant);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.group-header {
+  position: relative;
+  gap: var(--spacing-1);
   height: 28px;
-  min-width: 28px;
-  min-height: 28px;
-  fill: currentColor;
-  display: block;
+  margin-bottom: 2px;
+  transition: background-color 120ms var(--motion-easing-standard);
+
+  &:hover {
+    background: color-mix(in srgb, var(--group-color) 8%, transparent);
+  }
+
+  &.collapsed {
+    margin-bottom: 0;
+  }
+}
+
+// Stands in for the group header in the collapsed rail, like the colored line
+// of a collapsed browser tab group.
+.group-marker {
+  position: absolute;
+  top: 50%;
+  left: $row-start-padding;
+  width: $monogram-width;
+  height: 4px;
+  transform: translateY(-50%);
+  border-radius: 2px;
+  background: var(--group-color);
+  transition:
+    opacity 100ms var(--motion-easing-standard),
+    height 150ms var(--motion-easing-standard);
+
+  .group-header.collapsed & {
+    height: 10px;
+    border-radius: 5px;
+  }
+
+  .kernel-rail.expanded & {
+    opacity: 0;
+  }
+}
+
+.group-chevron {
+  @include reveal-when-expanded;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+  transition:
+    opacity 100ms var(--motion-easing-standard),
+    transform 160ms var(--motion-easing-emphasized);
+
+  .group-header.collapsed & {
+    transform: rotate(-90deg);
+  }
+}
+
+.group-name {
+  @include reveal-when-expanded;
+  min-width: 0;
+  padding: 2px var(--spacing-2);
+  overflow: hidden;
+  border-radius: 6px;
+  background: color-mix(
+    in srgb,
+    var(--group-color) 14%,
+    var(--mat-sys-surface)
+  );
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--group-color) 26%, transparent);
+  color: color-mix(in srgb, var(--group-color) 80%, var(--mat-sys-on-surface));
+  font: 500 12px / 16px var(--mat-sys-code-font);
+  text-overflow: ellipsis;
+}
+
+// Sits next to the module name, so that it does not line up with the schedule
+// lengths of the kernels below.
+.group-count {
+  @include reveal-when-expanded;
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--group-color) 10%, transparent);
+  color: color-mix(
+    in srgb,
+    var(--group-color) 75%,
+    var(--mat-sys-on-surface-variant)
+  );
+  font: 600 10.5px / 16px var(--mat-sys-plain-font);
+  font-variant-numeric: tabular-nums;
+}
+
+.kernel-row {
+  position: relative;
+  gap: var(--spacing-3);
+  height: $row-height;
+  margin-bottom: 1px;
+  transition:
+    background-color 140ms var(--motion-easing-standard),
+    box-shadow 140ms var(--motion-easing-standard),
+    color 140ms var(--motion-easing-standard);
+  animation: row-enter 150ms var(--motion-easing-emphasized-decelerate) both;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+
+  &:hover:not(.active) {
+    background: color-mix(
+      in srgb,
+      var(--group-color) 9%,
+      var(--mat-sys-surface-container-lowest)
+    );
+    color: var(--mat-sys-on-surface);
+
+    .kernel-monogram {
+      transform: scale(1.06);
+      box-shadow: inset 0 0 0 1px
+        color-mix(in srgb, var(--group-color) 38%, transparent);
+    }
+  }
+
+  // Marks the kernels that are open in tabs.
+  &.open::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    inset-inline-start: -2px;
+    width: 3px;
+    height: 14px;
+    transform: translateY(-50%);
+    border-radius: 2px;
+    background: color-mix(
+      in srgb,
+      var(--group-color) 65%,
+      var(--mat-sys-outline)
+    );
+    transition:
+      height 150ms var(--motion-easing-emphasized),
+      background-color 150ms var(--motion-easing-standard);
+  }
+
+  &.open:not(.active):not(:hover) {
+    background: color-mix(in srgb, var(--mat-sys-on-surface) 3.5%, transparent);
+  }
+
+  &.active {
+    background: linear-gradient(
+      90deg,
+      color-mix(
+          in srgb,
+          var(--mat-sys-primary-container) 90%,
+          var(--mat-sys-surface-container-lowest)
+        )
+        0%,
+      color-mix(
+          in srgb,
+          var(--mat-sys-primary-container) 65%,
+          var(--mat-sys-surface-container-lowest)
+        )
+        100%
+    );
+    box-shadow:
+      inset 0 0 0 1px
+        color-mix(in srgb, var(--mat-sys-primary) 26%, transparent),
+      0 1px 2px color-mix(in srgb, var(--mat-sys-primary) 10%, transparent);
+    color: var(--mat-sys-on-primary-container);
+
+    &::before {
+      height: 18px;
+      background: var(--mat-sys-primary);
+    }
+
+    .kernel-monogram {
+      background: var(--group-color);
+      box-shadow: 0 2px 5px
+        color-mix(in srgb, var(--group-color) 38%, transparent);
+      color: var(--mat-sys-surface);
+    }
+
+    .kernel-name {
+      font-weight: 500;
+    }
+  }
+}
+
+@keyframes row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+.kernel-monogram {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: $monogram-width;
+  height: $monogram-height;
+  border-radius: 6px;
+  background: color-mix(
+    in srgb,
+    var(--group-color) 15%,
+    var(--mat-sys-surface)
+  );
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--group-color) 24%, transparent);
+  color: color-mix(in srgb, var(--group-color) 80%, var(--mat-sys-on-surface));
+  font: 600 11px / 1 var(--mat-sys-plain-font);
+  letter-spacing: 0.2px;
+  transition:
+    transform 150ms var(--motion-easing-emphasized),
+    background-color 150ms var(--motion-easing-standard),
+    box-shadow 150ms var(--motion-easing-standard),
+    color 150ms var(--motion-easing-standard);
+}
+
+.kernel-name {
+  @include reveal-when-expanded;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font: 400 12.5px / 16px var(--mat-sys-code-font);
+  text-overflow: ellipsis;
+}
+
+.skv-main {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  // Keeps the stacking contexts of the timeline below the kernel rail.
+  isolation: isolate;
+}
+
+.kernel-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--spacing-2);
+  height: $bar-height;
+  padding: 0 var(--spacing-3) 0 var(--spacing-2);
+  box-sizing: border-box;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--mat-sys-outline-variant) 70%, transparent);
+  background: var(--mat-sys-surface);
+}
+
+// Open kernels, styled like the tab strip of a browser.
+.tab-strip {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  min-width: 0;
+  height: 44px;
+  padding: 0 4px 0 0;
+  box-sizing: border-box;
+  border-radius: 14px;
+  background: var(--mat-sys-surface-container);
+  box-shadow:
+    inset 0 1px 2px color-mix(in srgb, var(--mat-sys-shadow) 5%, transparent),
+    inset 0 0 0 1px
+      color-mix(in srgb, var(--mat-sys-outline-variant) 50%, transparent);
+}
+
+// Holds the 4px inset padding around tabs so `overflow: auto hidden` never
+// clips the elevation shadow of the active tab.
+.tab-list {
+  position: relative;
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  height: 100%;
+  padding: 4px;
+  box-sizing: border-box;
+  overflow: auto hidden;
+  scrollbar-width: none;
+}
+
+.kernel-tab {
+  position: relative;
+  display: flex;
+  flex: 0 1 220px;
+  align-items: center;
+  min-width: 120px;
+  height: 36px;
+  border-radius: 10px;
+  color: var(--mat-sys-on-surface-variant);
+  transition:
+    flex-basis 200ms var(--motion-easing-emphasized),
+    background-color 140ms var(--motion-easing-standard),
+    box-shadow 160ms var(--motion-easing-standard),
+    color 140ms var(--motion-easing-standard);
+  animation: tab-enter 180ms var(--motion-easing-emphasized-decelerate);
+
+  &:hover:not(.active) {
+    background: color-mix(
+      in srgb,
+      var(--mat-sys-surface-container-lowest) 68%,
+      transparent
+    );
+    box-shadow: inset 0 0 0 1px
+      color-mix(in srgb, var(--mat-sys-outline-variant) 40%, transparent);
+    color: var(--mat-sys-on-surface);
+  }
+
+  &.active {
+    flex-basis: 320px;
+    min-width: 180px;
+    background: var(--mat-sys-surface-container-lowest);
+    color: var(--mat-sys-on-surface);
+    box-shadow:
+      0 1px 3px color-mix(in srgb, var(--mat-sys-shadow) 10%, transparent),
+      0 1px 2px color-mix(in srgb, var(--mat-sys-shadow) 6%, transparent),
+      inset 0 0 0 1px
+        color-mix(in srgb, var(--mat-sys-outline-variant) 65%, transparent);
+  }
+
+  &.highlighted:not(.active) {
+    animation: tab-highlight $tab-highlight-duration
+      var(--motion-easing-standard);
+  }
+
+  // Separates inactive tabs, like browser tabs.
+  & + &::before {
+    content: '';
+    position: absolute;
+    top: 10px;
+    inset-inline-start: -2px;
+    width: 1px;
+    height: 16px;
+    background: color-mix(
+      in srgb,
+      var(--mat-sys-outline-variant) 80%,
+      transparent
+    );
+  }
+
+  &.active::before,
+  &.active + &::before,
+  &:hover::before,
+  &:hover + &::before {
+    display: none;
+  }
+}
+
+@keyframes tab-enter {
+  from {
+    opacity: 0;
+    transform: translateY(2px) scale(0.96);
+  }
+}
+
+@keyframes tab-highlight {
+  from {
+    background-color: color-mix(
+      in srgb,
+      var(--mat-sys-primary) 22%,
+      transparent
+    );
+  }
+}
+
+.tab-button {
+  @include focus-ring;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-width: 0;
+  height: 100%;
+  padding: 0 var(--spacing-1) 0 var(--spacing-2);
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+
+  .kernel-monogram {
+    width: 24px;
+    height: 18px;
+    border-radius: 5px;
+    font-size: 10.5px;
+
+    .kernel-tab.active & {
+      background: var(--group-color);
+      box-shadow: 0 1px 4px
+        color-mix(in srgb, var(--group-color) 35%, transparent);
+      color: var(--mat-sys-surface);
+    }
+  }
+}
+
+.tab-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.tab-name {
+  overflow: hidden;
+  font: 400 12.5px / 16px var(--mat-sys-code-font);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  .kernel-tab.active & {
+    font-weight: 500;
+  }
+}
+
+.tab-subtitle {
+  overflow: hidden;
+  color: var(--mat-sys-on-surface-variant);
+  font: 400 11px / 14px var(--mat-sys-plain-font);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// Smaller than a Material icon button, like the close buttons of browser tabs.
+.close-tab-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-inline-end: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--mat-sys-on-surface-variant);
+  cursor: pointer;
+  opacity: 0;
+  transform: scale(0.88);
+  transition:
+    opacity 120ms var(--motion-easing-standard),
+    transform 120ms var(--motion-easing-standard),
+    background-color 120ms var(--motion-easing-standard);
+
+  .kernel-tab:hover &,
+  .kernel-tab.active &,
+  &:focus-visible {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  &:hover {
+    background: color-mix(in srgb, var(--mat-sys-on-surface) 10%, transparent);
+    color: var(--mat-sys-on-surface);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+  }
+
+  mat-icon {
+    width: 15px;
+    height: 15px;
+    font-size: 15px;
+  }
+}
+
+.new-tab-button {
+  @include compact-icon-button(32px, 20px);
+  flex: none;
+  margin-inline-start: var(--spacing-1);
+  color: var(--mat-sys-on-surface-variant);
+  transition:
+    background-color 140ms var(--motion-easing-standard),
+    color 140ms var(--motion-easing-standard),
+    transform 140ms var(--motion-easing-standard);
+
+  &:hover {
+    color: var(--mat-sys-on-surface);
+  }
+}
+
+.kernel-bar-status {
+  flex: 1;
+  padding-inline-start: var(--spacing-2);
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.kernel-stepper {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: 36px;
+  padding: 0 2px;
+  box-sizing: border-box;
+  border: 1px solid
+    color-mix(in srgb, var(--mat-sys-outline-variant) 75%, transparent);
+  border-radius: 18px;
+  background: var(--mat-sys-surface-container-low);
+  box-shadow: 0 1px 2px
+    color-mix(in srgb, var(--mat-sys-shadow) 4%, transparent);
+}
+
+.step-button {
+  @include compact-icon-button(32px, 20px);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.kernel-position {
+  min-width: 64px;
+  color: var(--mat-sys-on-surface);
+  font: 600 12.5px / 18px var(--mat-sys-plain-font);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.copy-link-button {
+  @include compact-icon-button(36px, 19px);
+  border-radius: 50%;
+  color: var(--mat-sys-on-surface-variant);
+  transition:
+    background-color 150ms var(--motion-easing-standard),
+    color 150ms var(--motion-easing-standard);
+
+  &.copied {
+    background: color-mix(
+      in srgb,
+      var(--mat-sys-success-container) 75%,
+      transparent
+    );
+    color: var(--mat-sys-success);
+  }
+}
+
+// Details tooltip card of a hovered kernel row or tab.
+.kernel-card {
+  position: absolute;
+  z-index: 2;
+  width: $card-width;
+  padding: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid
+    color-mix(in srgb, var(--mat-sys-outline-variant) 75%, transparent);
+  border-radius: 14px;
+  background: var(--mat-sys-surface-container-lowest);
+  box-shadow:
+    0 14px 34px -4px color-mix(in srgb, var(--mat-sys-shadow) 18%, transparent),
+    0 4px 12px -2px color-mix(in srgb, var(--mat-sys-shadow) 10%, transparent);
+  color: var(--mat-sys-on-surface);
+  pointer-events: none;
+  transition:
+    top 160ms var(--motion-easing-emphasized),
+    bottom 160ms var(--motion-easing-emphasized),
+    left 160ms var(--motion-easing-emphasized);
+  animation: card-enter-rail 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+
+  &::before {
+    content: '';
+    display: block;
+    height: 3px;
+    background: var(--group-color);
+  }
+
+  &.from-rail {
+    transform-origin: left center;
+    animation-name: card-enter-rail;
+  }
+
+  &.from-tab {
+    transform-origin: top center;
+    animation-name: card-enter-tab;
+  }
+}
+
+@keyframes card-enter-rail {
+  from {
+    opacity: 0;
+    transform: translateX(-8px) scale(0.95);
+  }
+}
+
+@keyframes card-enter-tab {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.95);
+  }
+}
+
+.card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-3);
+  padding: 12px var(--spacing-4);
+  background: linear-gradient(
+    135deg,
+    color-mix(
+        in srgb,
+        var(--group-color) 9%,
+        var(--mat-sys-surface-container-low)
+      )
+      0%,
+    var(--mat-sys-surface-container-low) 100%
+  );
+
+  .kernel-monogram {
+    width: 30px;
+    height: 22px;
+    margin-top: 1px;
+    border-radius: 7px;
+    background: var(--group-color);
+    box-shadow: 0 2px 6px
+      color-mix(in srgb, var(--group-color) 35%, transparent);
+    color: var(--mat-sys-surface);
+    font-size: 11.5px;
+  }
+}
+
+.card-title {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.card-kernel {
+  font: 600 13px / 19px var(--mat-sys-code-font);
+  overflow-wrap: anywhere;
+}
+
+.card-module {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--mat-sys-on-surface-variant);
+  font: 500 11.5px / 16px var(--mat-sys-code-font);
+  overflow-wrap: anywhere;
+}
+
+.module-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--group-color);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--group-color) 20%, transparent);
+}
+
+.card-hint {
+  margin: 0;
+  padding: 8px var(--spacing-4);
+  border-top: 1px solid
+    color-mix(in srgb, var(--mat-sys-outline-variant) 50%, transparent);
+  background: var(--mat-sys-surface-container-low);
+  color: var(--mat-sys-on-surface-variant);
+  font: 400 11.5px / 18px var(--mat-sys-plain-font);
+}
+
+.hint-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin: 0 1px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--mat-sys-surface-container-lowest);
+  color: var(--mat-sys-on-surface);
+  font: 600 10.5px / 15px var(--mat-sys-code-font);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-slot,
+  .kernel-rail,
+  .kernel-group,
+  .kernel-row,
+  .kernel-tab,
+  .kernel-card {
+    transition: none;
+    animation: none;
+  }
 }

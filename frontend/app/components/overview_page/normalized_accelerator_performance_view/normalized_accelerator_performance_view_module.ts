@@ -6,12 +6,11 @@ import {NormalizedAcceleratorPerformanceView} from './normalized_accelerator_per
 
 /** A normalized accelerator performance view module. */
 @NgModule({
-  declarations: [NormalizedAcceleratorPerformanceView],
   imports: [
     CommonModule,
     MatExpansionModule,
+    NormalizedAcceleratorPerformanceView,
   ],
-  exports: [NormalizedAcceleratorPerformanceView]
+  exports: [NormalizedAcceleratorPerformanceView],
 })
-export class NormalizedAcceleratorPerformanceViewModule {
-}
+export class NormalizedAcceleratorPerformanceViewModule {}

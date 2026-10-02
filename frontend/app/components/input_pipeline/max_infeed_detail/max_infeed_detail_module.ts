@@ -3,8 +3,7 @@ import {MatDividerModule} from '@angular/material/divider';
 import {MaxInfeedDetail} from './max_infeed_detail';
 
 @NgModule({
-  declarations: [MaxInfeedDetail],
-  imports: [MatDividerModule],
+  imports: [MatDividerModule, MaxInfeedDetail],
   exports: [MaxInfeedDetail],
 })
 export class MaxInfeedDetailModule {}

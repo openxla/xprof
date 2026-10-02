@@ -14,7 +14,6 @@ import {MegascaleStats} from './megascale_stats';
 
 /** A Megascale Stats module. */
 @NgModule({
-  declarations: [MegascaleStats],
   imports: [
     CommonModule,
     ChartModule,
@@ -26,8 +25,8 @@ import {MegascaleStats} from './megascale_stats';
     MatFormFieldModule,
     MatSelectModule,
     MatOptionModule,
+    MegascaleStats,
   ],
   exports: [MegascaleStats],
 })
-export class MegascaleStatsModule {
-}
+export class MegascaleStatsModule {}

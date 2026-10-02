@@ -137,6 +137,11 @@ std::string GetDefaultThreadName(ThreadId tid) {
   return absl::StrCat("Thread_", tid);
 }
 
+bool IsTecTrack(absl::string_view name) {
+  static const absl::NoDestructor<RE2> kTecRegex(R"(^(?i)\s*TEC\b)");
+  return RE2::PartialMatch(name, *kTecRegex);
+}
+
 std::string GetDefaultProcessName(ProcessId pid) {
   return absl::StrCat("Process_", pid);
 }
@@ -702,7 +707,8 @@ void PopulateThreadTrack(
     const absl::btree_map<GroupKey, bool>& expanded_states,
     absl::flat_hash_map<GroupKey, int>& max_observed_levels,
     int parent_index = -1,
-    std::optional<absl::string_view> custom_name = std::nullopt) {
+    std::optional<absl::string_view> custom_name = std::nullopt,
+    int nesting_level = kThreadNestingLevel) {
   std::string thread_group_name;
   if (custom_name.has_value()) {
     thread_group_name = std::string(*custom_name);
@@ -713,15 +719,21 @@ void PopulateThreadTrack(
                             : it->second;
   }
 
+  const std::string parent_name =
+      (parent_index != -1 &&
+       parent_index < static_cast<int>(data.groups.size()))
+          ? data.groups[parent_index].name
+          : process_group_name;
+
   bool expanded =
-      GetExpandedState(kThreadNestingLevel, thread_group_name,
-                       process_group_name, default_expanded, expanded_states);
+      GetExpandedState(nesting_level, thread_group_name,
+                       parent_name, default_expanded, expanded_states);
 
   int child_index = static_cast<int>(data.groups.size());
   data.groups.push_back({.type = Group::Type::kFlame,
                          .name = thread_group_name,
                          .start_level = current_level,
-                         .nesting_level = kThreadNestingLevel,
+                         .nesting_level = nesting_level,
                          .expanded = expanded,
                          .parent_index = parent_index,
                          .pid = pid,
@@ -738,9 +750,9 @@ void PopulateThreadTrack(
                             trace_info, thread_group_name);
 
   const GroupKey group_key{
-      .nesting_level = kThreadNestingLevel,
+      .nesting_level = nesting_level,
       .name = thread_group_name,
-      .parent_name = process_group_name,
+      .parent_name = parent_name,
   };
 
   const int current_levels = events.empty() ? 1 : (max_level - start_level + 1);
@@ -947,7 +959,22 @@ void PopulateSyncProcessTrack(
 
   const auto it_xla_tid = trace_info.xla_modules_tids.find(pid);
 
+  std::vector<ThreadId> standard_tids;
+  std::vector<ThreadId> tec_tids;
   for (const ThreadId tid : sorted_tids) {
+    const auto it_name = trace_info.thread_names.find({pid, tid});
+    const absl::string_view thread_name =
+        (it_name != trace_info.thread_names.end())
+            ? absl::string_view(it_name->second)
+            : "";
+    if (IsTecTrack(thread_name)) {
+      tec_tids.push_back(tid);
+    } else {
+      standard_tids.push_back(tid);
+    }
+  }
+
+  for (const ThreadId tid : standard_tids) {
     absl::Span<const TraceEvent* const> events;
     if (it_events != trace_info.events_by_pid_tid.end()) {
       const auto it = it_events->second.find(tid);
@@ -973,6 +1000,74 @@ void PopulateSyncProcessTrack(
                         bounds, thread_levels, process_group_name,
                         default_expanded, expanded_states, max_observed_levels,
                         parent_index);
+  }
+
+  if (!tec_tids.empty()) {
+    struct ActiveTecTrack {
+      ThreadId tid;
+      absl::Span<const TraceEvent* const> events;
+    };
+    std::vector<ActiveTecTrack> active_tec_tids;
+    for (const ThreadId tid : tec_tids) {
+      absl::Span<const TraceEvent* const> events;
+      if (it_events != trace_info.events_by_pid_tid.end()) {
+        const auto it = it_events->second.find(tid);
+        if (it != it_events->second.end()) {
+          events = it->second;
+        }
+      }
+      if (trace_info.is_mpmd && events.empty()) {
+        const auto it_name = trace_info.thread_names.find({pid, tid});
+        const absl::string_view thread_name =
+            (it_name != trace_info.thread_names.end())
+                ? absl::string_view(it_name->second)
+                : "";
+        const bool is_primary_mpmd_track =
+            (thread_name == kXlaModules ||
+             (it_xla_tid != trace_info.xla_modules_tids.end() &&
+              it_xla_tid->second == tid));
+        if (!is_primary_mpmd_track) {
+          continue;
+        }
+      }
+      active_tec_tids.push_back({tid, events});
+    }
+
+    if (!active_tec_tids.empty()) {
+      const int tec_start_level = current_level;
+      const int tec_group_index = static_cast<int>(data.groups.size());
+      const bool expanded = GetExpandedState(
+          kThreadNestingLevel, kTecTracksGroupName, process_group_name,
+          default_expanded, expanded_states);
+
+      data.groups.push_back({.type = Group::Type::kFlame,
+                             .name = std::string(kTecTracksGroupName),
+                             .start_level = tec_start_level,
+                             .nesting_level = kThreadNestingLevel,
+                             .expanded = expanded,
+                             .parent_index = parent_index,
+                             .pid = pid,
+                             .tid = 0});
+
+      if (parent_index != -1) {
+        data.groups[parent_index].child_indices.push_back(tec_group_index);
+      }
+
+      for (const auto& [tid, events] : active_tec_tids) {
+        PopulateThreadTrack(pid, tid, events, trace_info, current_level, data,
+                            bounds, thread_levels, process_group_name,
+                            default_expanded, expanded_states,
+                            max_observed_levels,
+                            /*parent_index=*/tec_group_index,
+                            /*custom_name=*/std::nullopt,
+                            /*nesting_level=*/kSubTrackNestingLevel);
+      }
+
+      data.groups[tec_group_index].level_count =
+          current_level - tec_start_level;
+      data.groups[tec_group_index].has_children =
+          !data.groups[tec_group_index].child_indices.empty();
+    }
   }
 }
 

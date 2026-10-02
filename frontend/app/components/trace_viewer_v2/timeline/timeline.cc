@@ -3232,6 +3232,25 @@ void Timeline::DrawFlows(Pixel timeline_width, Pixel timeline_y_start) {
   draw_list->PopClipRect();
 }
 
+void Timeline::DrawSelectedTimeRangeHandle(ImDrawList* draw_list, Pixel edge_x,
+                                           Pixel rect_y_min, Pixel rect_y_max,
+                                           ImU32 color) {
+  if (rect_y_max - rect_y_min < kSelectedTimeRangeHandleHeight) {
+    return;
+  }
+  const Pixel center_y = (rect_y_min + rect_y_max) / 2.0f;
+  const Pixel handle_half_width = kSelectedTimeRangeHandleWidth / 2.0f;
+  const Pixel handle_half_height = kSelectedTimeRangeHandleHeight / 2.0f;
+
+  const ImVec2 handle_min(edge_x - handle_half_width,
+                          center_y - handle_half_height);
+  const ImVec2 handle_max(edge_x + handle_half_width,
+                          center_y + handle_half_height);
+
+  draw_list->AddRectFilled(handle_min, handle_max, color,
+                           kSelectedTimeRangeHandleRounding);
+}
+
 void Timeline::DrawSelectedTimeRange(const TimeRange& range,
                                      Pixel timeline_width,
                                      double px_per_time_unit_val,
@@ -3302,6 +3321,8 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
                          ImVec2(time_range_x_start, rect_y_max),
                          start_edge_color,
                          /*thickness=*/kSelectedTimeRangeThickness);
+      DrawSelectedTimeRangeHandle(draw_list, time_range_x_start, rect_y_min,
+                                  rect_y_max, start_edge_color);
 
       if (is_hovering_start) {
         ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
@@ -3335,6 +3356,8 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
       draw_list->AddLine(ImVec2(time_range_x_end, rect_y_min),
                          ImVec2(time_range_x_end, rect_y_max), end_edge_color,
                          /*thickness=*/kSelectedTimeRangeThickness);
+      DrawSelectedTimeRangeHandle(draw_list, time_range_x_end, rect_y_min,
+                                  rect_y_max, end_edge_color);
 
       if (is_hovering_end) {
         ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
@@ -3980,11 +4003,18 @@ void Timeline::HandleMouseDown(Pixel timeline_origin_x) {
         const Pixel x_end =
             TimeToScreenX(range.end(), timeline_origin_x, px_per_time);
 
-        if (std::abs(io.MousePos.x - x_start) <= kSelectionEdgeThreshold) {
-          time_range_resizing_state_ = {i, /*is_start_edge=*/true};
-          return;
-        } else if (std::abs(io.MousePos.x - x_end) <= kSelectionEdgeThreshold) {
-          time_range_resizing_state_ = {i, /*is_start_edge=*/false};
+        const Pixel hit_threshold =
+            std::max(kSelectionEdgeThreshold,
+                     kSelectedTimeRangeHandleWidth / 2.0f);
+        const float dist_start = std::abs(io.MousePos.x - x_start);
+        const float dist_end = std::abs(io.MousePos.x - x_end);
+
+        if (dist_start <= hit_threshold || dist_end <= hit_threshold) {
+          if (dist_start <= dist_end) {
+            time_range_resizing_state_ = {i, /*is_start_edge=*/true};
+          } else {
+            time_range_resizing_state_ = {i, /*is_start_edge=*/false};
+          }
           return;
         }
       }

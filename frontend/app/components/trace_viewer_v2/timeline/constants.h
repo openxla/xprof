@@ -142,6 +142,9 @@ inline constexpr int kPinnedHeaderId = 300000;
 // A solid blue for the curtain border. #A1C9FFFF at 100% opacity.
 inline constexpr ImU32 kSelectedTimeRangeColor = 0xFFFFC9A1;
 inline constexpr ImU32 kSelectedTimeRangeResizeColor = kRedColor;
+inline constexpr Pixel kSelectedTimeRangeHandleHeight = 36.0f;
+inline constexpr Pixel kSelectedTimeRangeHandleRounding = 3.0f;
+inline constexpr Pixel kSelectedTimeRangeHandleWidth = 6.0f;
 inline constexpr Pixel kSelectedTimeRangeTextBottomPadding = 10.0f;
 inline constexpr Pixel kSelectedTimeRangeTextTopPadding = 5.0f;
 // Default element dimensions

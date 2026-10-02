@@ -2901,7 +2901,7 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val,
         ImDrawList* const draw_list = ImGui::GetWindowDrawList();
         if (draw_list) {
           // Find the next group that is NOT a child of the current group to
-          // determine the end level for the utilization chart.
+          // determine the end level for the event density chart.
           int proc_end_level = timeline_data_.total_levels();
           for (size_t i = group_index + 1; i < timeline_data_.groups.size();
                ++i) {
@@ -3129,8 +3129,7 @@ void Timeline::DrawUtilizationAreaChart(int start_level, int end_level,
       const int bin_idx = static_cast<int>(mouse_pos.x - pos.x);
       if (bin_idx >= 0 && bin_idx < num_bins) {
         float val = utilization_bins_[bin_idx];
-        ImGui::SetTooltip(
-            "Utilization: %.2f\n(Chart height represents event density)", val);
+        ImGui::SetTooltip(kEventDensityTooltipFormat, val);
       }
     }
   }

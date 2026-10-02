@@ -47,6 +47,8 @@ using ::testing::_;
 using ::testing::DoubleEq;
 using ::testing::ElementsAre;
 using ::testing::FloatEq;
+using ::testing::HasSubstr;
+using ::testing::Not;
 using ::testing::Return;
 using ::testing::Test;
 
@@ -212,6 +214,19 @@ constexpr int kLevelInGroup = 0;
 constexpr Pixel kTimelineWidth = 100.0f;
 constexpr float kCharWidth = 10.0f;
 constexpr float kEllipsisWidth = 30.0f;
+
+// =============================================================================
+// Fixture: TimelineConstantsTest
+// =============================================================================
+
+TEST(TimelineConstantsTest, EventDensityTooltipFormatIsCorrect) {
+  EXPECT_STREQ(kEventDensityTooltipFormat,
+               "Event Density: %.2f\n(Chart height represents event density)");
+  EXPECT_THAT(std::string(kEventDensityTooltipFormat),
+              testing::Not(testing::HasSubstr("Utilization")));
+  EXPECT_THAT(std::string(kEventDensityTooltipFormat),
+              testing::HasSubstr("Event Density"));
+}
 
 TEST(TimelineTest, BezierControlPointCalculation) {
   ImVec2 cp0, cp1;
@@ -5505,6 +5520,124 @@ TEST_F(RealTimelineImGuiFixture, DrawUtilizationAreaChartLastBinOnly) {
   }
 
   EXPECT_TRUE(bar_found);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       HoverProcessTrackAreaChartExpandedShowsEventDensityTooltip) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Process Group",
+                         .start_level = 0,
+                         .nesting_level = kProcessNestingLevel,
+                         .expanded = true});
+
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+  data.entry_names.push_back("event");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10.0);
+  data.entry_total_times.push_back(40.0);
+  data.entry_event_ids.push_back(1);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  // Frame 1: Initial layout with mouse elsewhere.
+  ImGui::GetIO().MousePos = ImVec2(-100.0f, -100.0f);
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* tooltip_window = ImGui::FindWindowByName("##Tooltip_00");
+  EXPECT_TRUE(tooltip_window == nullptr || !tooltip_window->Active);
+
+  ImGuiWindow* process_window = nullptr;
+  const std::string child_id = "TimelineChild_Process Group_0";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id) != std::string::npos) {
+      process_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(process_window, nullptr);
+
+  // Target position inside the process track area chart.
+  ImVec2 target_pos = process_window->Pos;
+  target_pos.x += 50.0f;
+  target_pos.y += 10.0f;
+
+  ImGui::EndFrame();
+
+  // Frame 2: Hover over the process track area chart.
+  ImGui::GetIO().MousePos = target_pos;
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  tooltip_window = ImGui::FindWindowByName("##Tooltip_00");
+  ASSERT_NE(tooltip_window, nullptr);
+  EXPECT_TRUE(tooltip_window->Active);
+  EXPECT_FALSE(tooltip_window->DrawList->VtxBuffer.empty());
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       HoverProcessTrackAreaChartCollapsedShowsEventDensityTooltip) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Process Group",
+                         .start_level = 0,
+                         .nesting_level = kProcessNestingLevel,
+                         .expanded = false});
+
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+  data.entry_names.push_back("event");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10.0);
+  data.entry_total_times.push_back(40.0);
+  data.entry_event_ids.push_back(1);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  // Frame 1: Initial layout with mouse elsewhere.
+  ImGui::GetIO().MousePos = ImVec2(-100.0f, -100.0f);
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* tooltip_window = ImGui::FindWindowByName("##Tooltip_00");
+  EXPECT_TRUE(tooltip_window == nullptr || !tooltip_window->Active);
+
+  ImGuiWindow* process_window = nullptr;
+  const std::string child_id = "TimelineChild_Process Group_0";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id) != std::string::npos) {
+      process_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(process_window, nullptr);
+
+  // Target position inside the process track area chart.
+  ImVec2 target_pos = process_window->Pos;
+  target_pos.x += 50.0f;
+  target_pos.y += 10.0f;
+
+  ImGui::EndFrame();
+
+  // Frame 2: Hover over the process track area chart.
+  ImGui::GetIO().MousePos = target_pos;
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  tooltip_window = ImGui::FindWindowByName("##Tooltip_00");
+  ASSERT_NE(tooltip_window, nullptr);
+  EXPECT_TRUE(tooltip_window->Active);
+  EXPECT_FALSE(tooltip_window->DrawList->VtxBuffer.empty());
 
   ImGui::EndFrame();
 }

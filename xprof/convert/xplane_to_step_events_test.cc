@@ -31,6 +31,7 @@ limitations under the License.
 #include "tsl/profiler/lib/context_types.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/source_info.pb.h"
 #include "xprof/utils/derived_timeline.h"
 #include "xprof/utils/event_span.h"
 #include "xprof/utils/op_metrics_db_utils.h"
@@ -433,6 +434,89 @@ TEST(ConvertXPlaneToOpStats, CpuOnlyPyGrainSingleProcessInputPipelineTest) {
   ASSERT_EQ(host_wait_input_events.size(), 1);
   EXPECT_EQ(host_wait_input_events[0]->span, tsl::profiler::Timespan(1, 90));
 }
+
+TEST(ConvertXPlaneToStepEvents,
+     TpuDevicePlaneStepEventsOmitsSourceInfoAndChildren) {
+  XPlane raw_plane;
+  XPlaneBuilder plane(&raw_plane);
+  int64_t device_id = 0;
+  plane.SetId(device_id);
+  plane.SetName("/device:TPU:0");
+  XLineBuilder op_line = plane.GetOrCreateLine(0);
+  op_line.SetName(tsl::profiler::kXlaOpLineName);
+  const XStatMetadata& program_id_stat =
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kProgramId));
+  const XStatMetadata& symbol_id_stat =
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kSymbolId));
+  const XStatMetadata& group_id_stat =
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kGroupId));
+  const XStatMetadata& source_info_stat =
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kSourceInfo));
+  const XStatMetadata& source_stack_stat =
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kSourceStack));
+
+  XEventMetadata* event_metadata =
+      plane.GetOrCreateEventMetadata("op_long_name");
+  event_metadata->set_display_name("op_name");
+  XStatsBuilder<XEventMetadata> stats(event_metadata, &plane);
+  stats.AddStatValue(program_id_stat, 1);
+  stats.AddStatValue(symbol_id_stat, 1);
+  stats.AddStatValue(source_info_stat, "test_file.py:100");
+  stats.AddStatValue(source_stack_stat, "frame1\nframe2");
+
+  XEventMetadata* child_metadata = plane.CreateEventMetadata();
+  child_metadata->set_name("child_metadata");
+  event_metadata->add_child_id(child_metadata->id());
+
+  // First occurrence of op in step 1.
+  {
+    XEventBuilder event = op_line.AddEvent(*event_metadata);
+    event.SetOffsetPs(0);
+    event.SetDurationPs(50);
+    event.AddStatValue(group_id_stat, 1);
+  }
+  // Second occurrence of same op in step 1 (tests in-place accumulation).
+  {
+    XEventBuilder event = op_line.AddEvent(*event_metadata);
+    event.SetOffsetPs(50);
+    event.SetDurationPs(50);
+    event.AddStatValue(group_id_stat, 1);
+  }
+
+  XLineBuilder step_line = plane.GetOrCreateLine(1);
+  step_line.SetName(tsl::profiler::kStepLineName);
+  {
+    XEventMetadata* step_metadata = plane.CreateEventMetadata();
+    XEventBuilder event = step_line.AddEvent(*step_metadata);
+    event.SetOffsetPs(0);
+    event.SetDurationPs(100);
+    event.AddStatValue(group_id_stat, 1);
+  }
+
+  StepEvents step_events = ConvertDeviceTraceXPlaneToStepEvents(raw_plane);
+  ASSERT_EQ(step_events.size(), 1);
+  ASSERT_TRUE(step_events.contains(1));
+  const StepDetails& step_1 = step_events.at(1);
+  ASSERT_TRUE(step_1.PerCoreOpMetricsDb().contains(device_id));
+  const OpMetricsDb& op_db = step_1.PerCoreOpMetricsDb().at(device_id);
+
+  bool found_op = false;
+  for (const OpMetrics& metric : op_db.metrics_db()) {
+    if (metric.name() == "op_name") {
+      found_op = true;
+      EXPECT_EQ(metric.occurrences(), 2);
+      EXPECT_EQ(metric.time_ps(), 100);
+      EXPECT_EQ(metric.self_time_ps(), 100);
+      // SourceInfo and children MUST be omitted to prevent OOM
+      EXPECT_FALSE(metric.has_source_info());
+      EXPECT_TRUE(metric.source_info().file_name().empty());
+      EXPECT_TRUE(metric.source_info().stack_frame().empty());
+      EXPECT_EQ(metric.children().metrics_db_size(), 0);
+    }
+  }
+  EXPECT_TRUE(found_op);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

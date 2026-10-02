@@ -80,6 +80,13 @@ class XEventsOpMetricsDbBuilder {
 
   // Add an OpMetric to the builder based on the provided key.
   void AddOpMetric(const OpMetrics& op_metrics, const OpKey& key);
+  void AddOpMetric(OpMetrics&& op_metrics, const OpKey& key);
+
+  // In-place AddOpMetric directly from XEventVisitor avoiding intermediate
+  // OpMetrics allocations.
+  void AddOpMetric(const tsl::profiler::XEventVisitor& event, const OpKey& key,
+                   uint64_t total_time_ps, uint64_t self_time_ps,
+                   bool include_source_info = true);
 
   // Finalize OpMetricDb and add total time and Idle op.
   OpMetricsDb Finalize(uint64_t total_time);
@@ -95,8 +102,23 @@ class XEventsOpMetricsDbBuilder {
       flat_op_metric_;
 };
 
+// Merges src OpMetrics into dst.
+void MergeOpMetrics(const OpMetrics& src, OpMetrics& dst);
+void MergeOpMetrics(OpMetrics&& src, OpMetrics& dst);
+
+// Populates op metadata from HLO event metadata.
+void SetOpMetadataFromHloEventMetadata(
+    const tsl::profiler::XEventMetadataVisitor& hlo_event_metadata,
+    OpMetrics* op_metrics, bool include_source_info = true);
+
+// Populates op metrics from HLO event.
+void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
+                              OpMetrics* op_metrics,
+                              bool include_source_info = true);
+
 // Constructs an OpMetrics from the provided XEventVisitor.
-OpMetrics FromXEvent(const tsl::profiler::XEventVisitor& xevent);
+OpMetrics FromXEvent(const tsl::profiler::XEventVisitor& xevent,
+                     bool include_source_info = true);
 
 // Returns the OpKey for the provided XEventVisitor.
 XEventsOpMetricsDbBuilder::OpKey GetOpKeyFromXEvent(

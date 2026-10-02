@@ -16,6 +16,7 @@ limitations under the License.
 #include "xprof/utils/op_metrics_db_utils.h"
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "net/proto2/contrib/parse_proto/parse_text_proto.h"
@@ -27,6 +28,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/source_info.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -334,6 +336,127 @@ TEST(OpMetricsDbTest, GetRooflineModelRecordFromOpMetrics) {
   )pb");
   EXPECT_THAT(GetRootOpMetricsFromDb(op_metrics_db).size(), 1);
   EXPECT_THAT(GetRootOpMetricsFromDb(op_metrics_db)[0]->name(), "root");
+}
+
+TEST(OpMetricsDbTest, FromXEventExcludesSourceInfoAndChildrenWhenRequested) {
+  XPlane raw_plane;
+  XPlaneBuilder plane(&raw_plane);
+  XLineBuilder line = plane.GetOrCreateLine(0);
+  XEventMetadata* event_metadata = plane.GetOrCreateEventMetadata("metadata");
+  event_metadata->set_display_name("display_name");
+  XStatsBuilder<XEventMetadata> stats(event_metadata, &plane);
+  stats.AddStatValue(
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kProgramId)), 1);
+  stats.AddStatValue(
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kSymbolId)), 2);
+  stats.AddStatValue(
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kSourceInfo)),
+      "my_file.py:123");
+  stats.AddStatValue(
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kSourceStack)),
+      "my_file.py:123\nmy_other_file.py:456");
+  XEventMetadata* child_metadata = plane.CreateEventMetadata();
+  child_metadata->set_name("child_op");
+  event_metadata->add_child_id(child_metadata->id());
+
+  XEventBuilder event = line.AddEvent(*event_metadata);
+  event.SetOffsetPs(0);
+  event.SetDurationPs(100);
+  tsl::profiler::XPlaneVisitor plane_visitor =
+      tsl::profiler::CreateTfXPlaneVisitor(&raw_plane);
+  tsl::profiler::XEventVisitor event_visitor(
+      &plane_visitor, &raw_plane.lines(0), &raw_plane.lines(0).events(0));
+
+  OpMetrics op_metrics =
+      FromXEvent(event_visitor, /*include_source_info=*/false);
+  EXPECT_FALSE(op_metrics.has_source_info());
+  EXPECT_TRUE(op_metrics.source_info().file_name().empty());
+  EXPECT_TRUE(op_metrics.source_info().stack_frame().empty());
+  EXPECT_EQ(op_metrics.children().metrics_db_size(), 0);
+  EXPECT_EQ(op_metrics.name(), "display_name");
+  EXPECT_EQ(op_metrics.time_ps(), 100);
+}
+
+TEST(OpMetricsDbTest, MergeOpMetricsMove) {
+  OpMetrics src;
+  src.set_occurrences(1);
+  src.set_time_ps(100);
+  src.set_self_time_ps(80);
+  src.set_min_time_ps(100);
+  src.set_name("op1");
+  src.mutable_source_info()->set_file_name("test.py");
+
+  OpMetrics dst;
+  MergeOpMetrics(std::move(src), dst);
+  EXPECT_EQ(dst.occurrences(), 1);
+  EXPECT_EQ(dst.name(), "op1");
+  EXPECT_EQ(dst.source_info().file_name(), "test.py");
+
+  OpMetrics src2;
+  src2.set_occurrences(2);
+  src2.set_time_ps(200);
+  src2.set_self_time_ps(150);
+  src2.set_min_time_ps(90);
+  MergeOpMetrics(std::move(src2), dst);
+  EXPECT_EQ(dst.occurrences(), 3);
+  EXPECT_EQ(dst.time_ps(), 300);
+  EXPECT_EQ(dst.self_time_ps(), 230);
+  EXPECT_EQ(dst.min_time_ps(), 90);
+}
+
+TEST(OpMetricsDbTest, XEventsOpMetricsDbBuilderInPlaceAddOpMetric) {
+  XPlane raw_plane;
+  XPlaneBuilder plane(&raw_plane);
+  XLineBuilder line = plane.GetOrCreateLine(0);
+  XEventMetadata* event_metadata =
+      plane.GetOrCreateEventMetadata("op_long_name");
+  event_metadata->set_display_name("op_name");
+  XStatsBuilder<XEventMetadata> stats(event_metadata, &plane);
+  stats.AddStatValue(
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kProgramId)), 10);
+  stats.AddStatValue(
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kSymbolId)), 20);
+  stats.AddStatValue(
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kSourceInfo)),
+      "my_file.py:123");
+
+  XEventBuilder event1 = line.AddEvent(*event_metadata);
+  event1.SetOffsetPs(0);
+  event1.SetDurationPs(100);
+
+  XEventBuilder event2 = line.AddEvent(*event_metadata);
+  event2.SetOffsetPs(200);
+  event2.SetDurationPs(80);
+
+  tsl::profiler::XPlaneVisitor plane_visitor =
+      tsl::profiler::CreateTfXPlaneVisitor(&raw_plane);
+  tsl::profiler::XEventVisitor ev1(
+      &plane_visitor, &raw_plane.lines(0), &raw_plane.lines(0).events(0));
+  tsl::profiler::XEventVisitor ev2(
+      &plane_visitor, &raw_plane.lines(0), &raw_plane.lines(0).events(1));
+
+  XEventsOpMetricsDbBuilder builder;
+  XEventsOpMetricsDbBuilder::OpKey key{/*program_id=*/10, /*symbol_id=*/20};
+
+  builder.AddOpMetric(ev1, key, /*total_time_ps=*/100, /*self_time_ps=*/70,
+                      /*include_source_info=*/false);
+  builder.AddOpMetric(ev2, key, /*total_time_ps=*/80, /*self_time_ps=*/50,
+                      /*include_source_info=*/false);
+
+  OpMetricsDb db = builder.Finalize();
+  ASSERT_EQ(db.metrics_db_size(), 1);
+  const OpMetrics& metric = db.metrics_db(0);
+  EXPECT_EQ(metric.name(), "op_name");
+  EXPECT_EQ(metric.occurrences(), 2);
+  EXPECT_EQ(metric.time_ps(), 180);
+  EXPECT_EQ(metric.self_time_ps(), 120);
+  EXPECT_EQ(metric.min_time_ps(), 80);
+  EXPECT_FALSE(metric.has_source_info());
+  EXPECT_TRUE(metric.source_info().file_name().empty());
+
+  // Verify flat_op_metric_ was cleared on Finalize.
+  OpMetricsDb db2 = builder.Finalize();
+  EXPECT_EQ(db2.metrics_db_size(), 0);
 }
 
 }  // namespace

@@ -280,7 +280,8 @@ StepEvents ConvertHostThreadsXPlaneToStepEvents(
   plane.ForEachLine([&](const XLineVisitor& line) {
     StepEvents thread_step_events = ConvertHostThreadsXLineToStepEvents(
         line, device_step_events, async_input_pipeline_parents);
-    UnionCombineStepEvents(thread_step_events, &host_step_events);
+    UnionMoveCombineStepEvents(std::move(thread_step_events),
+                               &host_step_events);
   });
   return host_step_events;
 }
@@ -370,16 +371,14 @@ StepEvents ConvertTpuDeviceTraceXLineToStepEvents(const uint64_t device_id,
   tsl::profiler::AncestorStack<ParentRef> event_stack(
       // Adds an OpMetric to the builder based on the provided parent reference.
       [&](const ParentRef& parent) {
-        OpMetrics op_metrics = FromXEvent(parent.event);
         uint64_t total_time_ps = parent.device_timespan.duration_ps();
-        op_metrics.set_time_ps(total_time_ps);
         uint64_t self_time_ps = (total_time_ps > parent.children_duration_ps)
                                     ? (total_time_ps -
                                        parent.children_duration_ps)
                                     : 0;
-        op_metrics.set_self_time_ps(self_time_ps);
         op_metrics_builder[parent.group_id].AddOpMetric(
-            op_metrics, GetOpKeyFromXEvent(parent.event));
+            parent.event, GetOpKeyFromXEvent(parent.event), total_time_ps,
+            self_time_ps, /*include_source_info=*/false);
       },
       // Checks if the child event is a child of the parent event.
       [](const ParentRef& parent, const ParentRef& child) {
@@ -411,6 +410,7 @@ StepEvents ConvertTpuDeviceTraceXLineToStepEvents(const uint64_t device_id,
     // Finalize Without the step time now.
     result[group_id].SetPerCoreOpMetricsDb(builder.Finalize(), device_id);
   }
+  op_metrics_builder.clear();
   return result;
 }
 
@@ -452,12 +452,12 @@ StepEvents ConvertDeviceTraceXPlaneToStepEvents(const XPlane& device_trace) {
         // There may be multiple streams per GPU device so union the results.
         StepEvents stream_step_events =
             ConvertDeviceTraceXLineToStepEvents(plane.Id(), line);
-        UnionCombineStepEvents(stream_step_events, &step_events);
+        UnionMoveCombineStepEvents(std::move(stream_step_events), &step_events);
       }
     }
   });
   if (!step_events.empty()) {
-    IntersectCombineStepEvents(step_markers, &step_events);
+    IntersectMoveCombineStepEvents(std::move(step_markers), &step_events);
   }
   return step_events;
 }

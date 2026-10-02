@@ -71,6 +71,10 @@ struct TraceEvent {
   std::string id;
   tsl::profiler::ContextType category = tsl::profiler::ContextType::kGeneric;
   absl::flat_hash_map<std::string, std::string> args;
+  uint64_t serial = 0;
+  int64_t group_id = 0;
+  bool has_serial = false;
+  bool has_group_id = false;
   bool is_async = false;
 };
 

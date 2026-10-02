@@ -684,6 +684,7 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
   // layout recalculations before saving the newly arrived timeline_data.
   UpdateLevelPositions(data);
   timeline_data_ = std::move(data);
+  RebuildEntryColors();
 
   // Execute 4-tier despawn fallback to restore compensated scroll offset.
   if (has_anchor) {
@@ -755,9 +756,13 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
   // timeline_data_.
   const int num_loaded = timeline_data_.entry_event_ids.size();
   absl::flat_hash_map<EventId, int> event_id_to_loaded_index;
-  event_id_to_loaded_index.reserve(num_loaded);
-  for (int i = 0; i < num_loaded; ++i) {
-    event_id_to_loaded_index.try_emplace(timeline_data_.entry_event_ids[i], i);
+  if (!search_results_.empty() ||
+      (had_selected_event && selected_event_id != 0)) {
+    event_id_to_loaded_index.reserve(num_loaded);
+    for (int i = 0; i < num_loaded; ++i) {
+      event_id_to_loaded_index.try_emplace(timeline_data_.entry_event_ids[i],
+                                           i);
+    }
   }
 
   std::optional<absl::flat_hash_map<FallbackKey, std::vector<int>>>
@@ -830,7 +835,42 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
   if (redraw_callback_) redraw_callback_();
 }
 
+void Timeline::RebuildEntryColors() {
+  const auto& trace_colors = palette_.GetTraceColors();
+  cached_trace_colors_version_ = palette_.GetTraceVersion();
+  const size_t n = timeline_data_.entry_names.size();
+  entry_colors_.resize(n);
+  absl::string_view last_name;
+  ImU32 last_color = 0;
+  bool has_last = false;
+  for (size_t i = 0; i < n; ++i) {
+    const std::string& name = timeline_data_.entry_names[i];
+    if (has_last && name == last_name) {
+      entry_colors_[i] = last_color;
+    } else {
+      last_name = name;
+      last_color = GetColorForId(name, trace_colors);
+      has_last = true;
+      entry_colors_[i] = last_color;
+    }
+  }
+}
+
+ImU32 Timeline::GetEventColor(int event_index) const {
+  if (event_index >= 0 &&
+      static_cast<size_t>(event_index) < entry_colors_.size() &&
+      cached_trace_colors_version_ == palette_.GetTraceVersion()) {
+    return entry_colors_[event_index];
+  }
+  return GetColorForId(timeline_data_.entry_names[event_index],
+                       palette_.GetTraceColors());
+}
+
 void Timeline::Draw() {
+  if (cached_trace_colors_version_ != palette_.GetTraceVersion() ||
+      entry_colors_.size() != timeline_data_.entry_names.size()) {
+    RebuildEntryColors();
+  }
   hovered_event_index_ = -1;
   event_clicked_this_frame_ = false;
   bool is_resizer_hovered = false;
@@ -1612,9 +1652,9 @@ EventData Timeline::CreateBaseEventData(int event_index, bool is_hover) const {
     }
     event_data.try_emplace(kEventSelectedPid, static_cast<double>(pid));
   }
-  if (event_index < timeline_data_.entry_args.size()) {
-    const absl::flat_hash_map<std::string, std::string>& args =
-        timeline_data_.entry_args[event_index];
+  if (timeline_data_.HasEntryArgs(event_index)) {
+    const absl::flat_hash_map<std::string, std::string> args =
+        timeline_data_.GetEntryArgs(event_index);
     if (const auto it = args.find("uid"); it != args.end()) {
       event_data.try_emplace(kEventSelectedUid, it->second);
     }
@@ -2414,7 +2454,7 @@ void Timeline::DrawEvent(int group_index, int event_index,
     const Pixel corner_rounding =
         is_hovered ? kHoverCornerRounding : kCornerRounding;
 
-    ImU32 event_color = GetColorForId(event_name, palette_.GetTraceColors());
+    ImU32 event_color = GetEventColor(event_index);
 
     bool matches_search = false;
     if (!search_query_lower_.empty()) {
@@ -2966,9 +3006,6 @@ void Timeline::DrawFlameGroupPreview(int start_level, int end_level,
   const Microseconds visible_start = visible_range().start();
   const Microseconds visible_end = visible_range().end();
 
-  absl::string_view last_name;
-  ImU32 last_color = 0;
-
   for (int level = start_level; level < end_level; ++level) {
     absl::Span<const int> indices = timeline_data_.level_events(level);
 
@@ -2995,19 +3032,11 @@ void Timeline::DrawFlameGroupPreview(int start_level, int end_level,
       Pixel x_end = TimeToScreenX(end, pos.x, px_per_time_unit_val);
 
       // Draw Logic
-      const std::string& name = timeline_data_.entry_names[event_index];
-      ImU32 color;
-      if (name == last_name) {
-        color = last_color;
-      } else {
-        last_name = name;
-        color = GetColorForId(name, palette_.GetTraceColors());
-        // Render with reduced opacity to show density.
-        color = (color & ~IM_COL32_A_MASK) |
-                (static_cast<ImU32>(kGroupPreviewOpacity * 255.0f)
-                 << IM_COL32_A_SHIFT);
-        last_color = color;
-      }
+      ImU32 color = GetEventColor(event_index);
+      // Render with reduced opacity to show density.
+      color = (color & ~IM_COL32_A_MASK) |
+              (static_cast<ImU32>(kGroupPreviewOpacity * 255.0f)
+               << IM_COL32_A_SHIFT);
 
       if (x_end < x_start) std::swap(x_start, x_end);
       x_end = std::max(x_end, x_start + kEventMinimumDrawWidth);

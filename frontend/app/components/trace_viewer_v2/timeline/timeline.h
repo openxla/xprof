@@ -1,6 +1,7 @@
 #ifndef THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_TIMELINE_H_
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_TIMELINE_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <map>
@@ -13,6 +14,7 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/functional/any_invocable.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "imgui.h"
@@ -165,6 +167,16 @@ struct FlameChartTimelineData {
   // have multiple counter tracks associated with it. The group index uniquely
   // identifies each track within the `groups` vector.
   std::map<int, CounterData> counter_data_by_group_index;
+  static constexpr uint8_t kEntryArgHasUid = 1 << 0;
+  static constexpr uint8_t kEntryArgHasGroupId = 1 << 1;
+  static constexpr uint8_t kEntryArgHloOpFromName = 1 << 2;
+  std::vector<uint64_t> entry_serials;
+  std::vector<uint8_t> entry_arg_flags;
+  std::vector<uint32_t> entry_hlo_module_ids;
+  std::vector<std::string> hlo_module_names;
+  absl::flat_hash_map<size_t, int64_t> sparse_entry_group_ids;
+  absl::flat_hash_map<size_t, absl::flat_hash_map<std::string, std::string>>
+      sparse_entry_args;
 
   // Returns a pointer to the group containing the given level, or nullptr if
   // the level falls outside all group intervals.
@@ -201,6 +213,53 @@ struct FlameChartTimelineData {
     }
     return absl::Span<const int>(level_event_indices.data() + start,
                                  end - start);
+  }
+
+  bool HasEntryArgs(size_t index) const {
+    if (index < entry_args.size()) {
+      return true;
+    }
+    if (sparse_entry_args.contains(index)) {
+      return true;
+    }
+    return index < entry_names.size() && index < entry_arg_flags.size() &&
+           index < entry_serials.size() && index < entry_hlo_module_ids.size();
+  }
+
+  absl::flat_hash_map<std::string, std::string> GetEntryArgs(
+      size_t index) const {
+    if (index < entry_args.size()) {
+      return entry_args[index];
+    }
+    if (auto it = sparse_entry_args.find(index);
+        it != sparse_entry_args.end()) {
+      return it->second;
+    }
+    absl::flat_hash_map<std::string, std::string> args;
+    if (index >= entry_names.size() || index >= entry_arg_flags.size() ||
+        index >= entry_serials.size() || index >= entry_hlo_module_ids.size()) {
+      return args;
+    }
+    const uint8_t flags = entry_arg_flags[index];
+    if ((flags & kEntryArgHasUid) != 0) {
+      args["uid"] = absl::StrCat(entry_serials[index]);
+    }
+    if ((flags & kEntryArgHasGroupId) != 0) {
+      if (auto it = sparse_entry_group_ids.find(index);
+          it != sparse_entry_group_ids.end()) {
+        args["group_id"] = absl::StrCat(it->second);
+      }
+    }
+    if ((flags & kEntryArgHloOpFromName) != 0) {
+      args[std::string(kHloOp)] = entry_names[index];
+    }
+    const uint32_t mod_id = entry_hlo_module_ids[index];
+    if (mod_id == 0 || mod_id > hlo_module_names.size()) {
+      args[std::string(kHloModule)] = std::string(kHloModuleDefault);
+    } else {
+      args[std::string(kHloModule)] = hlo_module_names[mod_id - 1];
+    }
+    return args;
   }
 };
 
@@ -854,6 +913,9 @@ class Timeline {
   // Helper to calculate the timeline area.
   ImRect GetTimelineArea() const;
 
+  void RebuildEntryColors();
+  ImU32 GetEventColor(int event_index) const;
+
   // Private static constants.
   static constexpr ImGuiWindowFlags kImGuiWindowFlags =
       ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse |
@@ -883,6 +945,8 @@ class Timeline {
   int pinned_processes_count_ = 0;
 
   FlameChartTimelineData timeline_data_;
+  std::vector<ImU32> entry_colors_;
+  uint64_t cached_trace_colors_version_ = std::numeric_limits<uint64_t>::max();
   std::vector<float> utilization_bins_;
 
   // TODO - b/444026851: Set the label width based on the real screen width.

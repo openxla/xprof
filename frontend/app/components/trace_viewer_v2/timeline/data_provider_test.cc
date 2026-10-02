@@ -3110,8 +3110,8 @@ TEST_F(DataProviderTest,
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.entry_args, SizeIs(1));
-  EXPECT_EQ(data.entry_args[0].at(std::string(kHloOp)), "HloOpValue");
+  ASSERT_THAT(data.entry_names, SizeIs(1));
+  EXPECT_EQ(data.GetEntryArgs(0).at(std::string(kHloOp)), "HloOpValue");
 }
 
 TEST_F(DataProviderTest,
@@ -3129,11 +3129,11 @@ TEST_F(DataProviderTest,
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.entry_args, SizeIs(1));
+  ASSERT_THAT(data.entry_names, SizeIs(1));
 
   // Normal thread should NOT enter HLO processing block and should NOT create
   // kHloOp if it wasn't there.
-  EXPECT_EQ(data.entry_args[0].count(std::string(kHloOp)), 0);
+  EXPECT_EQ(data.GetEntryArgs(0).count(std::string(kHloOp)), 0);
 }
 
 TEST_F(DataProviderTest, AppendEventToTimelineDataDecoratesHloModule) {
@@ -3151,10 +3151,11 @@ TEST_F(DataProviderTest, AppendEventToTimelineDataDecoratesHloModule) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.entry_args, SizeIs(1));
+  ASSERT_THAT(data.entry_names, SizeIs(1));
 
   // Should be decorated as "ModuleValue(123)"
-  EXPECT_EQ(data.entry_args[0].at(std::string(kHloModule)), "ModuleValue(123)");
+  EXPECT_EQ(data.GetEntryArgs(0).at(std::string(kHloModule)),
+            "ModuleValue(123)");
 }
 
 TEST_F(DataProviderTest, PopulateSyncProcessTrackDoesNotUseAsyncLayout) {
@@ -3466,8 +3467,9 @@ TEST_F(DataProviderTest,
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.entry_args, SizeIs(1));
-  EXPECT_EQ(data.entry_args[0].at(std::string(kHloModule)), "ModuleValue(456)");
+  ASSERT_THAT(data.entry_names, SizeIs(1));
+  EXPECT_EQ(data.GetEntryArgs(0).at(std::string(kHloModule)),
+            "ModuleValue(456)");
 }
 
 TEST_F(DataProviderTest,
@@ -3486,8 +3488,9 @@ TEST_F(DataProviderTest,
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.entry_args, SizeIs(1));
-  EXPECT_EQ(data.entry_args[0].at(std::string(kHloModule)), "ModuleValue(789)");
+  ASSERT_THAT(data.entry_names, SizeIs(1));
+  EXPECT_EQ(data.GetEntryArgs(0).at(std::string(kHloModule)),
+            "ModuleValue(789)");
 }
 
 TEST_F(
@@ -3507,8 +3510,8 @@ TEST_F(
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.entry_args, SizeIs(1));
-  EXPECT_EQ(data.entry_args[0].at(std::string(kHloModule)), "ModuleValue");
+  ASSERT_THAT(data.entry_names, SizeIs(1));
+  EXPECT_EQ(data.GetEntryArgs(0).at(std::string(kHloModule)), "ModuleValue");
 }
 
 TEST_F(DataProviderTest, AppendEventToTimelineDataViaXlaModulesThread) {
@@ -3537,22 +3540,22 @@ TEST_F(DataProviderTest, AppendEventToTimelineDataViaXlaModulesThread) {
   data_provider_.ProcessTraceEvents(parsed_events, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  // We expect 2 entries in entry_args:
+  // We expect 2 entries in entry_names:
   // 1. Task A (which gets decorated from XLA Modules)
   // 2. The module event in XLA Modules thread itself (which does not get
   // decorated, so gets default)
-  ASSERT_THAT(data.entry_args, SizeIs(2));
+  ASSERT_THAT(data.entry_names, SizeIs(2));
 
   // Find which one is for Task A (it has hlo_op).
   int task_a_index = -1;
-  for (size_t i = 0; i < data.entry_args.size(); ++i) {
-    if (data.entry_args[i].count(std::string(kHloOp)) > 0) {
+  for (size_t i = 0; i < data.entry_names.size(); ++i) {
+    if (data.GetEntryArgs(i).count(std::string(kHloOp)) > 0) {
       task_a_index = i;
       break;
     }
   }
   ASSERT_NE(task_a_index, -1);
-  EXPECT_EQ(data.entry_args[task_a_index].at(std::string(kHloModule)),
+  EXPECT_EQ(data.GetEntryArgs(task_a_index).at(std::string(kHloModule)),
             "ModuleValue(789)");
 }
 
@@ -3583,22 +3586,22 @@ TEST_F(DataProviderTest,
   data_provider_.ProcessTraceEvents(parsed_events, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  // We expect 2 entries in entry_args:
+  // We expect 2 entries in entry_names:
   // 1. Task A (should NOT be decorated)
   // 2. The module event in XLA Modules thread itself
-  ASSERT_THAT(data.entry_args, SizeIs(2));
+  ASSERT_THAT(data.entry_names, SizeIs(2));
 
   // Find which one is for Task A (it has hlo_op).
   int task_a_index = -1;
-  for (size_t i = 0; i < data.entry_args.size(); ++i) {
-    if (data.entry_args[i].count(std::string(kHloOp)) > 0) {
+  for (size_t i = 0; i < data.entry_names.size(); ++i) {
+    if (data.GetEntryArgs(i).count(std::string(kHloOp)) > 0) {
       task_a_index = i;
       break;
     }
   }
   ASSERT_NE(task_a_index, -1);
   // Should be default because it ended before Task A started.
-  EXPECT_EQ(data.entry_args[task_a_index].at(std::string(kHloModule)),
+  EXPECT_EQ(data.GetEntryArgs(task_a_index).at(std::string(kHloModule)),
             "default");
 }
 
@@ -3638,8 +3641,8 @@ TEST_F(DataProviderTest,
   data_provider_.ProcessTraceEvents(parsed_events, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.entry_args, SizeIs(1));
-  EXPECT_EQ(data.entry_args[0].at(std::string(kHloOp)), "OpName");
+  ASSERT_THAT(data.entry_names, SizeIs(1));
+  EXPECT_EQ(data.GetEntryArgs(0).at(std::string(kHloOp)), "OpName");
 }
 
 TEST_F(DataProviderTest,
@@ -3657,8 +3660,8 @@ TEST_F(DataProviderTest,
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.entry_args, SizeIs(1));
-  EXPECT_EQ(data.entry_args[0].at(std::string(kHloModule)), "ModuleValue");
+  ASSERT_THAT(data.entry_names, SizeIs(1));
+  EXPECT_EQ(data.GetEntryArgs(0).at(std::string(kHloModule)), "ModuleValue");
 }
 
 TEST_F(DataProviderTest, IgnoredPhaseEvent) {
@@ -4857,8 +4860,9 @@ TEST_F(DataProviderTest,
   bool found_decorated_op = false;
   for (size_t i = 0; i < data.entry_names.size(); ++i) {
     if (data.entry_names[i] == "custom_op") {
-      const auto it = data.entry_args[i].find(std::string(kHloModule));
-      if (it != data.entry_args[i].end() && it->second == "module_persisted") {
+      const auto args = data.GetEntryArgs(i);
+      const auto it = args.find(std::string(kHloModule));
+      if (it != args.end() && it->second == "module_persisted") {
         found_decorated_op = true;
       }
     }
@@ -5403,6 +5407,49 @@ TEST_F(DataProviderTest, NegativeLevelDroppedSafelyWithoutOverflow) {
   internal::AppendTraceEventForTesting(&event, 0, data);
   ASSERT_EQ(data.entry_levels.size(), 1);
   EXPECT_EQ(data.entry_levels[0], 0);
+}
+
+TEST_F(DataProviderTest,
+       AppendEventToTimelineDataColumnarFastPathReconstructsArgs) {
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process A"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 101,
+                          std::string(kXlaOps)),
+      CreateMetadataEvent(std::string(kThreadName), 1, 102,
+                          std::string(kXlaModules)),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 102,
+       .name = "jit_train(42)",
+       .ts = 50.0,
+       .dur = 200.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "fusion.1",
+       .ts = 100.0,
+       .dur = 50.0,
+       .serial = 98765,
+       .group_id = 7,
+       .has_serial = true,
+       .has_group_id = true},
+  };
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  EXPECT_THAT(data.entry_args, IsEmpty());
+  EXPECT_THAT(data.sparse_entry_args, IsEmpty());
+  ASSERT_THAT(data.entry_names, SizeIs(2));
+
+  int op_idx = data.entry_names[0] == "fusion.1" ? 0 : 1;
+  EXPECT_TRUE(data.HasEntryArgs(op_idx));
+  const auto args = data.GetEntryArgs(op_idx);
+  EXPECT_EQ(args.at("uid"), "98765");
+  EXPECT_EQ(args.at("group_id"), "7");
+  EXPECT_EQ(args.at(std::string(kHloOp)), "fusion.1");
+  EXPECT_EQ(args.at(std::string(kHloModule)), "jit_train(42)");
 }
 }  // namespace
 }  // namespace traceviewer

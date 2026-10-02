@@ -179,7 +179,8 @@ void ProcessCompleteEvents(const xprof::TraceDataResponse& response,
         }
       }
 
-      ev.args["uid"] = std::to_string(ev_meta.serial());
+      ev.serial = ev_meta.serial();
+      ev.has_serial = true;
       ev.event_id = GenerateEventId(ev.name, ev.ts, ev.dur);
 
       if (!ev.id.empty()) {
@@ -222,9 +223,11 @@ void ProcessAsyncEvents(const xprof::TraceDataResponse& response,
       ev.name = response.interned_strings(series.metadata().name_ref());
       ev.id = flow_id_str;
       ev.category = category;
-      ev.args["uid"] = std::to_string(ev_meta.serial());
+      ev.serial = ev_meta.serial();
+      ev.has_serial = true;
       if (ev_meta.group_id() != 0) {
-        ev.args["group_id"] = std::to_string(ev_meta.group_id());
+        ev.group_id = ev_meta.group_id();
+        ev.has_group_id = true;
       }
 
       if (dur > 0.0) {
@@ -252,6 +255,10 @@ void ProcessAsyncEvents(const xprof::TraceDataResponse& response,
           begin_ev.is_async = true;
           if (ev.ts > begin_ev.ts) {
             begin_ev.dur = ev.ts - begin_ev.ts;
+          }
+          if (ev.has_group_id && !begin_ev.has_group_id) {
+            begin_ev.group_id = ev.group_id;
+            begin_ev.has_group_id = true;
           }
           if (!ev.args.empty()) {
             begin_ev.args.insert(ev.args.begin(), ev.args.end());

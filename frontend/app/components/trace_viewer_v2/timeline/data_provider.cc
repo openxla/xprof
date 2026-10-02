@@ -436,10 +436,36 @@ void GenerateFlowLines(const TraceInformation& trace_info,
   }
 }
 
+const std::string& LookupHloModuleAtTimestamp(
+    absl::Span<const TraceEvent* const> module_events, Microseconds ts,
+    size_t& cursor, Microseconds& last_ts) {
+  static const absl::NoDestructor<std::string> kHloModuleDefaultStr(
+      kHloModuleDefault);
+  if (module_events.empty()) return *kHloModuleDefaultStr;
+  if (ts < last_ts || cursor >= module_events.size() ||
+      module_events[cursor]->ts > ts) {
+    cursor = 0;
+  }
+  last_ts = ts;
+  while (cursor < module_events.size() &&
+         module_events[cursor]->ts + module_events[cursor]->dur < ts) {
+    ++cursor;
+  }
+  for (size_t i = cursor;
+       i < module_events.size() && module_events[i]->ts <= ts; ++i) {
+    if (module_events[i]->ts + module_events[i]->dur >= ts) {
+      return module_events[i]->name;
+    }
+  }
+  return *kHloModuleDefaultStr;
+}
+
 void AppendEventToTimelineData(
     const TraceEvent* event, int level, FlameChartTimelineData& data,
     TimeBounds& bounds, const TraceInformation& trace_info,
     absl::string_view thread_name,
+    absl::Span<const TraceEvent* const> module_events, size_t& module_cursor,
+    Microseconds& last_module_lookup_ts,
     std::optional<Microseconds> self_time = std::nullopt) {
   static const absl::NoDestructor<std::string> kHloOpStr(kHloOp);
   static const absl::NoDestructor<std::string> kHloModuleStr(kHloModule);
@@ -462,6 +488,7 @@ void AppendEventToTimelineData(
                             << ": exceeds uint16_t flame chart level range";
     return;
   }
+  const size_t entry_idx = data.entry_names.size();
   data.entry_start_times.push_back(event->ts);
   data.entry_total_times.push_back(event->dur);
   data.entry_self_times.push_back(self_time.value_or(event->dur));
@@ -469,11 +496,57 @@ void AppendEventToTimelineData(
   data.entry_names.push_back(event->name);
   data.entry_event_ids.push_back(event->event_id);
 
+  const bool is_xla_ops_thread = thread_name == kXlaOps;
+  const bool is_source_thread = thread_name == "Source code";
+  const bool is_data_motion_layer = thread_name == kComputeUtilization ||
+                                    thread_name == kDataMotionLayersUtilization;
+
+  if (event->args.empty() && !is_source_thread && !is_data_motion_layer) {
+    data.entry_serials.push_back(event->serial);
+    uint8_t flags = 0;
+    if (event->has_serial) {
+      flags |= FlameChartTimelineData::kEntryArgHasUid;
+    }
+    if (event->has_group_id) {
+      flags |= FlameChartTimelineData::kEntryArgHasGroupId;
+      data.sparse_entry_group_ids[entry_idx] = event->group_id;
+    }
+    if (is_xla_ops_thread) {
+      flags |= FlameChartTimelineData::kEntryArgHloOpFromName;
+    }
+    data.entry_arg_flags.push_back(flags);
+
+    absl::string_view hlo_module_str = *kHloModuleDefaultStr;
+    if (is_xla_ops_thread) {
+      hlo_module_str = LookupHloModuleAtTimestamp(
+          module_events, event->ts, module_cursor, last_module_lookup_ts);
+    }
+    uint32_t mod_id = 0;
+    if (hlo_module_str != *kHloModuleDefaultStr) {
+      if (data.hlo_module_names.empty() ||
+          data.hlo_module_names.back() != hlo_module_str) {
+        data.hlo_module_names.push_back(std::string(hlo_module_str));
+      }
+      mod_id = static_cast<uint32_t>(data.hlo_module_names.size());
+    }
+    data.entry_hlo_module_ids.push_back(mod_id);
+
+    bounds.min = std::min(bounds.min, event->ts);
+    bounds.max = std::max(bounds.max, event->ts + event->dur);
+    return;
+  }
+
+  data.entry_serials.push_back(0);
+  data.entry_arg_flags.push_back(0);
+  data.entry_hlo_module_ids.push_back(0);
+
   auto cur_args = event->args;
-  bool is_xla_ops_thread = thread_name == kXlaOps;
-  bool is_source_thread = thread_name == "Source code";
-  bool is_data_motion_layer = thread_name == kComputeUtilization ||
-                              thread_name == kDataMotionLayersUtilization;
+  if (event->has_serial) {
+    cur_args.try_emplace("uid", absl::StrCat(event->serial));
+  }
+  if (event->has_group_id) {
+    cur_args.try_emplace("group_id", absl::StrCat(event->group_id));
+  }
   bool has_hlo_in_args = event->args.count(*kHloOpStr) > 0 &&
                          event->args.count(*kHloModuleStr) > 0;
   if (is_xla_ops_thread || is_source_thread || is_data_motion_layer ||
@@ -530,30 +603,14 @@ void AppendEventToTimelineData(
         }
       }
     } else {
-      // Direct lookup for "XLA Modules" thread per process.
-      auto it_tid = trace_info.xla_modules_tids.find(event->pid);
-      if (it_tid != trace_info.xla_modules_tids.end()) {
-        ThreadId tid = it_tid->second;
-        auto it_events = trace_info.events_by_pid_tid.find(event->pid);
-        if (it_events != trace_info.events_by_pid_tid.end()) {
-          auto it_thread_events = it_events->second.find(tid);
-          if (it_thread_events != it_events->second.end()) {
-            for (const TraceEvent* module_event : it_thread_events->second) {
-              if (module_event->ts <= event->ts &&
-                  module_event->ts + module_event->dur >= event->ts) {
-                hlo_module_str = module_event->name;
-                break;
-              }
-            }
-          }
-        }
-      }
+      hlo_module_str = LookupHloModuleAtTimestamp(
+          module_events, event->ts, module_cursor, last_module_lookup_ts);
     }
     cur_args[*kHloModuleStr] = hlo_module_str;
   } else {
     cur_args[*kHloModuleStr] = *kHloModuleDefaultStr;
   }
-  data.entry_args.push_back(cur_args);
+  data.sparse_entry_args[entry_idx] = std::move(cur_args);
 
   bounds.min = std::min(bounds.min, event->ts);
   bounds.max = std::max(bounds.max, event->ts + event->dur);
@@ -585,6 +642,24 @@ void PopulateThreadTrackEvents(absl::Span<const TraceEvent* const> events,
     }
   }
 
+  absl::Span<const TraceEvent* const> module_events;
+  if (!events.empty()) {
+    const ProcessId pid = events.front()->pid;
+    if (auto it_tid = trace_info.xla_modules_tids.find(pid);
+        it_tid != trace_info.xla_modules_tids.end()) {
+      if (auto it_events = trace_info.events_by_pid_tid.find(pid);
+          it_events != trace_info.events_by_pid_tid.end()) {
+        if (auto it_thread = it_events->second.find(it_tid->second);
+            it_thread != it_events->second.end()) {
+          module_events = it_thread->second;
+        }
+      }
+    }
+  }
+  size_t module_cursor = 0;
+  Microseconds last_module_lookup_ts =
+      std::numeric_limits<Microseconds>::lowest();
+
   std::vector<PackedEvent> packed_events = PackTraceEvents(events);
   for (const PackedEvent& packed : packed_events) {
     const int absolute_level = start_level + packed.level;
@@ -594,7 +669,8 @@ void PopulateThreadTrackEvents(absl::Span<const TraceEvent* const> events,
       self_time = it->second;
     }
     AppendEventToTimelineData(packed.event, absolute_level, data, bounds,
-                              trace_info, thread_group_name, self_time);
+                              trace_info, thread_group_name, module_events,
+                              module_cursor, last_module_lookup_ts, self_time);
   }
 }
 
@@ -1334,8 +1410,12 @@ void AppendTraceEventForTesting(const TraceEvent* event, int level,
                                 FlameChartTimelineData& data) {
   TimeBounds bounds;
   TraceInformation trace_info;
+  size_t module_cursor = 0;
+  Microseconds last_module_lookup_ts =
+      std::numeric_limits<Microseconds>::lowest();
   AppendEventToTimelineData(event, level, data, bounds, trace_info,
-                            /*thread_name=*/"");
+                            /*thread_name=*/"", /*module_events=*/{},
+                            module_cursor, last_module_lookup_ts);
 }
 }  // namespace internal
 

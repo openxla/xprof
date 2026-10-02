@@ -267,7 +267,8 @@ TEST(TraceEventParserCoreTest, ProcessCompleteEvents) {
   EXPECT_DOUBLE_EQ(result.flame_events[0].ts, 1.0);
   EXPECT_DOUBLE_EQ(result.flame_events[0].dur, 5.0);
   EXPECT_EQ(result.flame_events[0].name, "compute_op");
-  EXPECT_EQ(result.flame_events[0].args.at("uid"), "123");
+  EXPECT_TRUE(result.flame_events[0].has_serial);
+  EXPECT_EQ(result.flame_events[0].serial, 123);
   EXPECT_NE(result.flame_events[0].event_id, 0);
   EXPECT_EQ(result.flame_events[0].event_id,
             GenerateEventId("compute_op", 1.0, 5.0));
@@ -275,7 +276,8 @@ TEST(TraceEventParserCoreTest, ProcessCompleteEvents) {
   EXPECT_EQ(result.flame_events[1].ph, Phase::kComplete);
   EXPECT_DOUBLE_EQ(result.flame_events[1].ts, 3.0);
   EXPECT_DOUBLE_EQ(result.flame_events[1].dur, 3.0);
-  EXPECT_EQ(result.flame_events[1].args.at("uid"), "124");
+  EXPECT_TRUE(result.flame_events[1].has_serial);
+  EXPECT_EQ(result.flame_events[1].serial, 124);
   EXPECT_EQ(result.flame_events[1].id, "999");
   EXPECT_EQ(result.flame_events[1].category,
             tsl::profiler::ContextType::kTpuLaunch);
@@ -347,8 +349,10 @@ TEST(TraceEventParserCoreTest, ProcessAsyncEventsWithDuration) {
   EXPECT_DOUBLE_EQ(result.flame_events[0].ts, 1.0);
   EXPECT_DOUBLE_EQ(result.flame_events[0].dur, 5.0);
   EXPECT_EQ(result.flame_events[0].name, "async_op");
-  EXPECT_EQ(result.flame_events[0].args.at("uid"), "42");
-  EXPECT_EQ(result.flame_events[0].args.at("group_id"), "99");
+  EXPECT_TRUE(result.flame_events[0].has_serial);
+  EXPECT_EQ(result.flame_events[0].serial, 42);
+  EXPECT_TRUE(result.flame_events[0].has_group_id);
+  EXPECT_EQ(result.flame_events[0].group_id, 99);
   EXPECT_NE(result.flame_events[0].event_id, 0);
   EXPECT_EQ(result.flame_events[0].event_id,
             GenerateEventId("async_op", 1.0, 5.0));
@@ -383,7 +387,8 @@ TEST(TraceEventParserCoreTest, ProcessAsyncEventsBeginEndPair) {
   EXPECT_DOUBLE_EQ(result.flame_events[0].ts, 1.0);
   EXPECT_DOUBLE_EQ(result.flame_events[0].dur, 4.0);
   EXPECT_EQ(result.flame_events[0].name, "dma_transfer");
-  EXPECT_EQ(result.flame_events[0].args.at("uid"), "101");
+  EXPECT_TRUE(result.flame_events[0].has_serial);
+  EXPECT_EQ(result.flame_events[0].serial, 101);
   EXPECT_NE(result.flame_events[0].event_id, 0);
   EXPECT_EQ(result.flame_events[0].event_id,
             GenerateEventId("dma_transfer", 1.0, 4.0));
@@ -474,7 +479,8 @@ TEST(TraceEventParserCoreTest, ProcessAsyncEventsBeginEndEmitsFlowEvent) {
   EXPECT_TRUE(result.flame_events[0].is_async);
   EXPECT_EQ(result.flame_events[0].id, "999");
   EXPECT_EQ(result.flame_events[0].name, "async_transfer_pair");
-  EXPECT_EQ(result.flame_events[0].args.at("group_id"), "77");
+  EXPECT_TRUE(result.flame_events[0].has_group_id);
+  EXPECT_EQ(result.flame_events[0].group_id, 77);
 
   ASSERT_EQ(result.flow_events.size(), 1);
   EXPECT_EQ(result.flow_events[0].id, "999");
@@ -507,6 +513,7 @@ TEST(TraceEventParserCoreTest,
   ASSERT_EQ(result.flame_events.size(), 1);
   EXPECT_TRUE(result.flame_events[0].is_async);
   EXPECT_TRUE(result.flame_events[0].id.empty());
+  EXPECT_FALSE(result.flame_events[0].has_group_id);
   EXPECT_EQ(result.flame_events[0].args.find("group_id"),
             result.flame_events[0].args.end());
   EXPECT_TRUE(result.flow_events.empty());

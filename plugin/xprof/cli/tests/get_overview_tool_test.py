@@ -116,6 +116,7 @@ class GetOverviewToolTest(absltest.TestCase):
   def test_get_overview_roofline_fallback(self):
     overview_data = [{
         "p": {
+            "mxu_utilization_percent": "0.0%",
             "flop_rate_utilization_relative_to_roofline": "0.0%",
             "memory_bw_utilization_relative_to_hw_limit": "0.0%",
             "device_type": "TPU v6 Lite",
@@ -164,6 +165,7 @@ class GetOverviewToolTest(absltest.TestCase):
     )
     self.assertEqual(perf["roofline_efficiency_percent"], "13.49%")
     self.assertEqual(perf["compute_efficiency_percent"], "0.76%")
+    self.assertEqual(perf["mxu_utilization_percent"], "0.76%")
     self.assertEqual(
         perf["memory_bw_utilization_relative_to_hw_limit"], "13.49%"
     )

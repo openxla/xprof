@@ -1388,11 +1388,21 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
       time_bounds, expanded_states, timeline.GetPalette(), max_observed_levels_,
       known_threads_, known_counters_, known_async_tracks_));
 
-  // Don't need to check for max_time because the TimeRange constructor will
-  // handle any potential issues with max_time.
   if (time_bounds.min < std::numeric_limits<Microseconds>::max()) {
     timeline.set_fetched_data_time_range({time_bounds.min, time_bounds.max});
+  } else if (!HasKnownTracks()) {
+    timeline.set_fetched_data_time_range(TimeRange::Zero());
+  }
 
+  if (parsed_events.full_timespan.has_value()) {
+    Microseconds start = MillisToMicros(parsed_events.full_timespan->first);
+    Microseconds end = MillisToMicros(parsed_events.full_timespan->second);
+    timeline.set_data_time_range({start, end});
+  } else {
+    timeline.set_data_time_range(timeline.fetched_data_time_range());
+  }
+
+  if (time_bounds.min < std::numeric_limits<Microseconds>::max()) {
     // TODO: b/460265076 - Change the logic here for visible range after
     // we decided how to handle the visible range in url.
     if (parsed_events.visible_range_from_url.has_value()) {
@@ -1409,20 +1419,11 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
       // the incremental loading is triggered and we don't want to override the
       // current visible range.
       if (timeline.visible_range() == TimeRange::Zero()) {
-        timeline.SetVisibleRange({time_bounds.min, time_bounds.max});
+        timeline.SetInitialVisibleRange({time_bounds.min, time_bounds.max});
       }
     }
   } else if (!HasKnownTracks()) {
-    timeline.set_fetched_data_time_range(TimeRange::Zero());
     timeline.SetVisibleRange(TimeRange::Zero());
-  }
-
-  if (parsed_events.full_timespan.has_value()) {
-    Microseconds start = MillisToMicros(parsed_events.full_timespan->first);
-    Microseconds end = MillisToMicros(parsed_events.full_timespan->second);
-    timeline.set_data_time_range({start, end});
-  } else {
-    timeline.set_data_time_range(timeline.fetched_data_time_range());
   }
 }
 

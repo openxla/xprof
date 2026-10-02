@@ -563,6 +563,70 @@ void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
   if (redraw_callback_) redraw_callback_();
 }
 
+std::optional<TimeRange> Timeline::GetActiveSliceTimeRange() const {
+  if (timeline_data_.entry_start_times.empty()) {
+    return std::nullopt;
+  }
+  const size_t num_events = std::min(timeline_data_.entry_start_times.size(),
+                                     timeline_data_.entry_total_times.size());
+  if (num_events == 0) {
+    return std::nullopt;
+  }
+  Microseconds min_start = std::numeric_limits<Microseconds>::max();
+  Microseconds max_end = std::numeric_limits<Microseconds>::lowest();
+  for (size_t i = 0; i < num_events; ++i) {
+    const Microseconds start = timeline_data_.entry_start_times[i];
+    Microseconds dur = timeline_data_.entry_total_times[i];
+    if (std::isnan(dur) || dur < 0) {
+      dur = 0.0;
+    }
+    min_start = std::min(min_start, start);
+    max_end = std::max(max_end, start + dur);
+  }
+  if (min_start > max_end) {
+    return std::nullopt;
+  }
+  return TimeRange(min_start, max_end);
+}
+
+TimeRange Timeline::CalculateInitialVisibleRange(
+    const TimeRange& fallback_range) const {
+  const TimeRange total_range =
+      data_time_range_.duration() > 0 ? data_time_range_ : fallback_range;
+  const Microseconds total_duration = total_range.duration();
+
+  const std::optional<TimeRange> active_slice_range = GetActiveSliceTimeRange();
+  if (active_slice_range.has_value() && total_duration > 0) {
+    const Microseconds active_duration = active_slice_range->duration();
+    if (active_duration / total_duration < kSparseTraceThreshold) {
+      Microseconds padding = active_duration * kSparseTracePaddingRatio;
+      if (padding <= 0) {
+        padding = kEventNavigationMinDurationMicros;
+      }
+      const Microseconds trace_start = total_range.start();
+      const Microseconds trace_end = total_range.end();
+      const Microseconds new_start =
+          std::max(trace_start, active_slice_range->start() - padding);
+      const Microseconds new_end =
+          std::min(trace_end, active_slice_range->end() + padding);
+      if (new_end > new_start) {
+        return TimeRange(new_start, new_end);
+      }
+    }
+  }
+
+  return fallback_range;
+}
+
+void Timeline::SetInitialVisibleRange(const TimeRange& fallback_range) {
+  if (visible_range() != TimeRange::Zero()) {
+    return;
+  }
+  TimeRange initial_range = CalculateInitialVisibleRange(fallback_range);
+  ConstrainTimeRange(initial_range);
+  SetVisibleRange(initial_range);
+}
+
 void Timeline::BackfillGroupLevelCount(FlameChartTimelineData& data) {
   // Backfill level_count for tests that only set start_level.
   for (size_t i = 0; i < data.groups.size(); ++i) {

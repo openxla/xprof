@@ -217,6 +217,12 @@ inline constexpr Microseconds kMinDurationMicros = 1e-6;
 // This is to prevent fetching too small chunks of data when the user
 // zooms in very deep.
 inline constexpr Microseconds kMinFetchDurationMicros = 1000.0;
+// Padding ratio applied to active slice event bounds when auto-focusing sparse
+// traces.
+inline constexpr double kSparseTracePaddingRatio = 0.05;
+// Fraction of total trace duration below which slice events are considered
+// sparse.
+inline constexpr double kSparseTraceThreshold = 0.05;
 // The ratio of the viewport width to fetch data for.
 inline constexpr float kFetchRatio = 3.0f;
 // The ratio of the viewport width to keep data loaded for.

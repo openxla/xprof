@@ -5451,5 +5451,201 @@ TEST_F(DataProviderTest,
   EXPECT_EQ(args.at(std::string(kHloOp)), "fusion.1");
   EXPECT_EQ(args.at(std::string(kHloModule)), "jit_train(42)");
 }
+
+TEST_F(DataProviderTest, ProcessTraceEventsComputesActiveDataTimeRange) {
+  const std::vector<TraceEvent> events = {
+      CreateCompleteEvent(/*pid=*/1, /*tid=*/1, "Event 1", /*ts=*/500.0,
+                          /*dur=*/100.0),
+      CreateCompleteEvent(/*pid=*/1, /*tid=*/1, "Event 2", /*ts=*/800.0,
+                          /*dur=*/200.0),
+  };
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  EXPECT_DOUBLE_EQ(timeline_.active_data_time_range().start(), 500.0);
+  EXPECT_DOUBLE_EQ(timeline_.active_data_time_range().end(), 1000.0);
+  EXPECT_DOUBLE_EQ(timeline_.active_data_time_range().duration(), 500.0);
+  EXPECT_EQ(data_provider_.active_data_time_range(),
+            timeline_.active_data_time_range());
+}
+
+TEST_F(DataProviderTest,
+       ProcessTraceEventsActiveDataTimeRangeSparseWhitespaceWithCounters) {
+  // full_timespan is in milliseconds: 0.0ms to 100.0ms = 0.0us to 100000.0us.
+  ParsedTraceEvents parsed_events;
+  parsed_events.full_timespan = std::make_pair(0.0, 100.0);
+
+  // Counter events extending near the edges of the trace.
+  parsed_events.counter_events = {
+      CreateCounterEvent(/*pid=*/1, "Memory", {1000.0, 95000.0}, {10.0, 20.0}),
+  };
+
+  // Flow events spanning a broad range across the trace.
+  parsed_events.flow_events = {
+      CreateFlowEvent(Phase::kFlowStart, /*event_id=*/1, /*pid=*/1, /*tid=*/1,
+                      "flow1", /*ts=*/2000.0, "f1"),
+      CreateFlowEvent(Phase::kFlowEnd, /*event_id=*/2, /*pid=*/1, /*tid=*/1,
+                      "flow1", /*ts=*/90000.0, "f1"),
+  };
+
+  // Instant event at ts=5000.0 with dur=0.0.
+  TraceEvent instant_event{
+      .ph = Phase::kInstant,
+      .pid = 1,
+      .tid = 1,
+      .name = "InstantMarker",
+      .ts = 5000.0,
+      .dur = 0.0,
+  };
+
+  // Active kernel slices clustered between 30000.0us and 50000.0us.
+  TraceEvent kernel_1 = CreateCompleteEvent(/*pid=*/1, /*tid=*/1, "Kernel_1",
+                                            /*ts=*/30000.0, /*dur=*/5000.0);
+  TraceEvent kernel_2 = CreateCompleteEvent(/*pid=*/1, /*tid=*/1, "Kernel_2",
+                                            /*ts=*/40000.0, /*dur=*/10000.0);
+
+  parsed_events.flame_events = {instant_event, kernel_1, kernel_2};
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  // Active data time range should only span active kernel slices
+  // [30000.0, 50000.0].
+  EXPECT_DOUBLE_EQ(timeline_.active_data_time_range().start(), 30000.0);
+  EXPECT_DOUBLE_EQ(timeline_.active_data_time_range().end(), 50000.0);
+  EXPECT_DOUBLE_EQ(timeline_.active_data_time_range().duration(), 20000.0);
+  EXPECT_EQ(data_provider_.active_data_time_range(),
+            timeline_.active_data_time_range());
+
+  // Fetched data time range covers counters and flow events.
+  EXPECT_DOUBLE_EQ(timeline_.fetched_data_time_range().start(), 1000.0);
+  EXPECT_DOUBLE_EQ(timeline_.fetched_data_time_range().end(), 95000.0);
+
+  // Data time range covers the full timespan with leading/trailing whitespace.
+  EXPECT_DOUBLE_EQ(timeline_.data_time_range().start(), 0.0);
+  EXPECT_DOUBLE_EQ(timeline_.data_time_range().end(), 100000.0);
+}
+
+TEST_F(DataProviderTest,
+       ProcessTraceEventsActiveDataTimeRangeIgnoresInstantAndZeroDuration) {
+  const std::vector<TraceEvent> events = {
+      {.ph = Phase::kInstant,
+       .pid = 1,
+       .tid = 1,
+       .name = "Instant1",
+       .ts = 100.0,
+       .dur = 0.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 1,
+       .name = "ZeroDuration",
+       .ts = 200.0,
+       .dur = 0.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 1,
+       .name = "NegativeDuration",
+       .ts = 300.0,
+       .dur = -10.0},
+      CreateCompleteEvent(/*pid=*/1, /*tid=*/1, "ValidSlice1", /*ts=*/500.0,
+                          /*dur=*/50.0),
+      CreateCompleteEvent(/*pid=*/1, /*tid=*/1, "ValidSlice2", /*ts=*/700.0,
+                          /*dur=*/30.0),
+      {.ph = Phase::kInstant,
+       .pid = 1,
+       .tid = 1,
+       .name = "Instant2",
+       .ts = 1000.0,
+       .dur = 0.0},
+  };
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  EXPECT_DOUBLE_EQ(timeline_.active_data_time_range().start(), 500.0);
+  EXPECT_DOUBLE_EQ(timeline_.active_data_time_range().end(), 730.0);
+  EXPECT_DOUBLE_EQ(timeline_.active_data_time_range().duration(), 230.0);
+  EXPECT_EQ(data_provider_.active_data_time_range(),
+            timeline_.active_data_time_range());
+}
+
+TEST_F(DataProviderTest,
+       ProcessTraceEventsActiveDataTimeRangeOnlyCountersReturnsZero) {
+  ParsedTraceEvents parsed_events;
+  parsed_events.counter_events = {
+      CreateCounterEvent(/*pid=*/1, "CounterA", {100.0, 500.0}, {1.0, 2.0}),
+  };
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  EXPECT_EQ(timeline_.active_data_time_range(), TimeRange::Zero());
+  EXPECT_EQ(data_provider_.active_data_time_range(), TimeRange::Zero());
+  // Fetched range still tracks the counter range.
+  EXPECT_DOUBLE_EQ(timeline_.fetched_data_time_range().start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.fetched_data_time_range().end(), 500.0);
+}
+
+TEST_F(DataProviderTest,
+       ProcessTraceEventsActiveDataTimeRangeMultipleTracksAndProcesses) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Process 1"),
+      CreateProcessEvent(2, "Process 2"),
+      CreateCompleteEvent(/*pid=*/1, /*tid=*/1, "P1_T1", /*ts=*/2000.0,
+                          /*dur=*/300.0),
+      CreateCompleteEvent(/*pid=*/1, /*tid=*/2, "P1_T2", /*ts=*/1000.0,
+                          /*dur=*/500.0),
+      CreateCompleteEvent(/*pid=*/2, /*tid=*/1, "P2_T1", /*ts=*/4000.0,
+                          /*dur=*/1000.0),
+  };
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  EXPECT_DOUBLE_EQ(timeline_.active_data_time_range().start(), 1000.0);
+  EXPECT_DOUBLE_EQ(timeline_.active_data_time_range().end(), 5000.0);
+  EXPECT_DOUBLE_EQ(timeline_.active_data_time_range().duration(), 4000.0);
+  EXPECT_EQ(data_provider_.active_data_time_range(),
+            timeline_.active_data_time_range());
+}
+
+TEST_F(DataProviderTest,
+       ProcessTraceEventsEmptyTraceSetsActiveDataTimeRangeZero) {
+  ParsedTraceEvents parsed_events;
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  EXPECT_EQ(timeline_.active_data_time_range(), TimeRange::Zero());
+  EXPECT_EQ(data_provider_.active_data_time_range(), TimeRange::Zero());
+}
+
+TEST_F(DataProviderTest, DataProviderResetClearsActiveDataTimeRange) {
+  const std::vector<TraceEvent> events = {
+      CreateCompleteEvent(/*pid=*/1, /*tid=*/1, "Event", /*ts=*/1000.0,
+                          /*dur=*/500.0),
+  };
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+  EXPECT_EQ(data_provider_.active_data_time_range(),
+            TimeRange(1000.0, 1500.0));
+  EXPECT_EQ(timeline_.active_data_time_range(),
+            TimeRange(1000.0, 1500.0));
+
+  data_provider_.Reset(&timeline_);
+  EXPECT_EQ(data_provider_.active_data_time_range(), TimeRange::Zero());
+  EXPECT_EQ(timeline_.active_data_time_range(), TimeRange::Zero());
+
+  // Also verify Reset() without arguments clears data provider's range.
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+  EXPECT_EQ(data_provider_.active_data_time_range(),
+            TimeRange(1000.0, 1500.0));
+  data_provider_.Reset();
+  EXPECT_EQ(data_provider_.active_data_time_range(), TimeRange::Zero());
+}
+
 }  // namespace
 }  // namespace traceviewer

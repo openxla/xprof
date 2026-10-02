@@ -28,12 +28,17 @@ class DataProvider {
                           Timeline& timeline);
 
   // Clears persistent session metadata and track registries.
-  void Reset();
+  void Reset(Timeline* timeline = nullptr);
+
+  const TimeRange& active_data_time_range() const {
+    return active_data_time_range_;
+  }
 
  private:
   // Returns true if any threads, counters, or async tracks are registered.
   bool HasKnownTracks() const;
 
+  TimeRange active_data_time_range_ = TimeRange::Zero();
   std::vector<int> present_flow_categories_;
   absl::flat_hash_map<ProcessId, std::string> process_names_;
   absl::btree_map<std::pair<ProcessId, ThreadId>, std::string> thread_names_;

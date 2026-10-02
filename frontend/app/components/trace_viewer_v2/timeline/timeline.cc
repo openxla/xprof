@@ -1606,19 +1606,21 @@ void Timeline::ConstrainTimeRange(TimeRange& range) {
     range = {center - kMinDurationMicros / 2.0,
              center + kMinDurationMicros / 2.0};
   }
-  if (range.start() < data_time_range_.start()) {
-    // When shifting the start to data_time_range_.start(), ensure the
-    // new end does not exceed data_time_range_.end().
-    range = {data_time_range_.start(),
-             std::min(range.end() + data_time_range_.start() - range.start(),
-                      data_time_range_.end())};
-  } else if (range.end() > data_time_range_.end()) {
-    // When shifting the end to data_time_range_.end(), ensure the new
-    // start does not go before data_time_range_.start() by taking the
-    // maximum.
-    range = {std::max(range.start() - range.end() + data_time_range_.end(),
-                      data_time_range_.start()),
-             data_time_range_.end()};
+  if (data_time_range_.duration() > 0) {
+    if (range.start() < data_time_range_.start()) {
+      // When shifting the start to data_time_range_.start(), ensure the
+      // new end does not exceed data_time_range_.end().
+      range = {data_time_range_.start(),
+               std::min(range.end() + data_time_range_.start() - range.start(),
+                        data_time_range_.end())};
+    } else if (range.end() > data_time_range_.end()) {
+      // When shifting the end to data_time_range_.end(), ensure the new
+      // start does not go before data_time_range_.start() by taking the
+      // maximum.
+      range = {std::max(range.start() - range.end() + data_time_range_.end(),
+                        data_time_range_.start()),
+               data_time_range_.end()};
+    }
   }
 }
 
@@ -1750,9 +1752,9 @@ void Timeline::RevealEvent(int event_index) {
     event_duration = kMinVisibleEventDuration;
   }
   const Microseconds end = start + event_duration;
-  const Microseconds time_left = visible_range().start();
-  const Microseconds time_right = visible_range().end();
-  const Microseconds current_duration = visible_range().duration();
+  const Microseconds time_left = visible_range_.target().start();
+  const Microseconds time_right = visible_range_.target().end();
+  const Microseconds current_duration = visible_range_.target().duration();
 
   Microseconds min_entry_time_window =
       std::min(event_duration, current_duration);
@@ -1768,10 +1770,14 @@ void Timeline::RevealEvent(int event_index) {
 
   if (time_left > end) {
     double delta = time_left - end + min_entry_time_window;
-    SetVisibleRange({time_left - delta, time_right - delta}, /*animate=*/true);
+    TimeRange new_range = {time_left - delta, time_right - delta};
+    ConstrainTimeRange(new_range);
+    SetVisibleRange(new_range, /*animate=*/true);
   } else if (time_right < start) {
     double delta = start - time_right + min_entry_time_window;
-    SetVisibleRange({time_left + delta, time_right + delta}, /*animate=*/true);
+    TimeRange new_range = {time_left + delta, time_right + delta};
+    ConstrainTimeRange(new_range);
+    SetVisibleRange(new_range, /*animate=*/true);
   }
 
   EmitEventSelected(event_index);
@@ -1997,35 +2003,60 @@ void Timeline::Zoom(float zoom_factor) {
     }
   }
 
-  Zoom(zoom_factor, visible_range_->center());
+  Zoom(zoom_factor, visible_range_.target().center());
 }
 
 void Timeline::Zoom(float zoom_factor, Microseconds pivot) {
   // If the zoom factor is 1, we don't need to zoom.
-  if (zoom_factor == 1.0) return;
+  if (zoom_factor == 1.0f) return;
 
   // Clamp the zoom factor to the minimum value. This prevents the time
-  // durations (mathmatically) become zero or negative.
+  // durations (mathematically) from becoming zero or negative.
   zoom_factor = std::max(zoom_factor, kMinZoomFactor);
 
-  TimeRange new_range = visible_range_.target();
-  new_range.Zoom(zoom_factor, pivot);
+  const Microseconds current_duration = visible_range_.target().duration();
+  constexpr Microseconds kMinDurationTolerance = 1e-11;
 
-  if (zoom_factor < 1.0) {
-    if (new_range.duration() < kMinDurationMicros) {
+  double effective_zoom_factor = zoom_factor;
+
+  // When zooming in (zoom_factor < 1.0f), check whether the timeline is already
+  // at the minimum duration limit (kMinDurationMicros) to return early and
+  // prevent scrolling/drift, or clamp the effective zoom factor to land exactly
+  // on kMinDurationMicros without overshooting.
+  if (zoom_factor < 1.0f) {
+    // If already at or below the minimum zoom duration, do not zoom or pan.
+    if (current_duration <= kMinDurationMicros + kMinDurationTolerance) {
+      ShowNavigationWarningNotification(
+          "Cannot zoom in further: minimum zoom duration reached.");
+      return;
+    }
+
+    // If zooming in would shrink duration past the minimum zoom boundary,
+    // clamp the zoom factor so it reaches exactly kMinDurationMicros centered
+    // on the pivot without overshooting or shifting.
+    if (current_duration * effective_zoom_factor < kMinDurationMicros) {
+      effective_zoom_factor = kMinDurationMicros / current_duration;
       ShowNavigationWarningNotification(
           "Cannot zoom in further: minimum zoom duration reached.");
     }
-  } else if (zoom_factor > 1.0) {
-    TimeRange constrained_range = new_range;
-    ConstrainTimeRange(constrained_range);
-    if (constrained_range.duration() < new_range.duration() ||
-        (visible_range_.target().start() <= data_time_range_.start() &&
-         visible_range_.target().end() >= data_time_range_.end())) {
-      ShowNavigationWarningNotification(
-          "Cannot zoom out further: showing the entire trace.");
+  } else if (zoom_factor > 1.0f) {
+    // When zooming out (zoom_factor > 1.0f), check whether the timeline is
+    // already showing the entire trace (data_time_range_). If so, return early
+    // to prevent redundant computation and avoid pan drift past trace bounds.
+    if (data_time_range_.duration() > 0) {
+      const bool already_showing_entire_trace =
+          visible_range_.target().start() <= data_time_range_.start() &&
+          visible_range_.target().end() >= data_time_range_.end();
+      if (already_showing_entire_trace) {
+        ShowNavigationWarningNotification(
+            "Cannot zoom out further: showing the entire trace.");
+        return;
+      }
     }
   }
+
+  TimeRange new_range = visible_range_.target();
+  new_range.Zoom(effective_zoom_factor, pivot);
 
   ConstrainTimeRange(new_range);
 

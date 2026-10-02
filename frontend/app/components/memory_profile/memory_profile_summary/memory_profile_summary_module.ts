@@ -7,9 +7,13 @@ import {MatTooltipModule} from '@angular/material/tooltip';
 import {MemoryProfileSummary} from './memory_profile_summary';
 
 @NgModule({
-  declarations: [MemoryProfileSummary],
-  imports: [CommonModule, MatCardModule, MatTooltipModule, MatIconModule],
-  exports: [MemoryProfileSummary]
+  imports: [
+    CommonModule,
+    MatCardModule,
+    MatTooltipModule,
+    MatIconModule,
+    MemoryProfileSummary,
+  ],
+  exports: [MemoryProfileSummary],
 })
-export class MemoryProfileSummaryModule {
-}
+export class MemoryProfileSummaryModule {}

@@ -477,6 +477,17 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
                 emscripten::optional_override(
                     [](traceviewer::Application& app, int event_index) {
                       app.timeline().ZoomEvent(event_index);
+                    }))
+      .function("scrollToGroup",
+                emscripten::optional_override(
+                    [](traceviewer::Application& app, int group_index) {
+                      app.ScrollToGroup(group_index);
+                    }))
+      .function("scrollToGroupByName",
+                emscripten::optional_override(
+                    [](traceviewer::Application& app,
+                       const std::string& name) {
+                      return app.ScrollToGroup(name);
                     }));
 }
 

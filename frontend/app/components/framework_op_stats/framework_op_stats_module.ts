@@ -15,7 +15,6 @@ import {FrameworkOpStats} from './framework_op_stats';
 
 /** An op profile module. */
 @NgModule({
-  declarations: [FrameworkOpStats],
   imports: [
     CommonModule,
     MatButtonModule,
@@ -28,8 +27,8 @@ import {FrameworkOpStats} from './framework_op_stats';
     ModelPropertiesModule,
     OperationsTableModule,
     StatsTableModule,
+    FrameworkOpStats,
   ],
-  exports: [FrameworkOpStats]
+  exports: [FrameworkOpStats],
 })
-export class FrameworkOpStatsModule {
-}
+export class FrameworkOpStatsModule {}

@@ -11,7 +11,6 @@ import {MemoryViewer} from './memory_viewer';
 
 /** A memory viewer module. */
 @NgModule({
-  declarations: [MemoryViewer],
   imports: [
     MemoryViewerMainModule,
     MemoryViewerControlModule,
@@ -20,8 +19,8 @@ import {MemoryViewer} from './memory_viewer';
     CommonModule,
     MatProgressBarModule,
     MatSidenavModule,
+    MemoryViewer,
   ],
-  exports: [MemoryViewer]
+  exports: [MemoryViewer],
 })
-export class MemoryViewerModule {
-}
+export class MemoryViewerModule {}

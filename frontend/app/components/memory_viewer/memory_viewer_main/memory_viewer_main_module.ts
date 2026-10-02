@@ -17,7 +17,6 @@ import {MemoryViewerMain} from './memory_viewer_main';
 
 /** A memory viewer module. */
 @NgModule({
-  declarations: [MemoryViewerMain],
   imports: [
     AngularSplitModule,
     BufferAllocationTimelineModule,
@@ -32,6 +31,7 @@ import {MemoryViewerMain} from './memory_viewer_main';
     MatTooltipModule,
     ProgramOrderChartModule,
     SourceMapperModule,
+    MemoryViewerMain,
   ],
   exports: [MemoryViewerMain],
 })

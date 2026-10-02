@@ -8,15 +8,14 @@ import {MatInputModule} from '@angular/material/input';
 import {MemoryTimelineGraph} from './memory_timeline_graph';
 
 @NgModule({
-  declarations: [MemoryTimelineGraph],
   imports: [
     CommonModule,
     MatCardModule,
     MatButtonModule,
     MatFormFieldModule,
     MatInputModule,
+    MemoryTimelineGraph,
   ],
-  exports: [MemoryTimelineGraph]
+  exports: [MemoryTimelineGraph],
 })
-export class MemoryTimelineGraphModule {
-}
+export class MemoryTimelineGraphModule {}

@@ -15,7 +15,6 @@ import {RooflineModel} from './roofline_model';
 
 /** A roofline model module. */
 @NgModule({
-  declarations: [RooflineModel],
   imports: [
     CommonModule,
     TableModule,
@@ -28,8 +27,8 @@ import {RooflineModel} from './roofline_model';
     MatSlideToggleModule,
     MatIconModule,
     MatProgressBarModule,
+    RooflineModel,
   ],
   exports: [RooflineModel],
 })
-export class RooflineModelModule {
-}
+export class RooflineModelModule {}

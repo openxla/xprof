@@ -19,7 +19,6 @@ import {HloStats} from './hlo_stats';
 
 /** An HLO stats module. */
 @NgModule({
-  declarations: [HloStats],
   imports: [
     ChartModule,
     CommonModule,
@@ -37,8 +36,8 @@ import {HloStats} from './hlo_stats';
     MatIconModule,
     MatSlideToggleModule,
     StackTraceSnippetModule,
+    HloStats,
   ],
   exports: [HloStats],
 })
-export class HloStatsModule {
-}
+export class HloStatsModule {}

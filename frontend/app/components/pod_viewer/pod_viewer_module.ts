@@ -10,7 +10,6 @@ import {TopologyGraphModule} from './topology_graph/topology_graph_module';
 
 /** A pod viewer module. */
 @NgModule({
-  declarations: [PodViewer],
   imports: [
     CommonModule,
     DiagnosticsViewModule,
@@ -18,8 +17,8 @@ import {TopologyGraphModule} from './topology_graph/topology_graph_module';
     MatSliderModule,
     StackBarChartModule,
     TopologyGraphModule,
+    PodViewer,
   ],
-  exports: [PodViewer]
+  exports: [PodViewer],
 })
-export class PodViewerModule {
-}
+export class PodViewerModule {}

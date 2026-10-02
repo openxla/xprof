@@ -12,9 +12,9 @@ import {MemoryViewerControl} from './memory_viewer_control';
     MatFormFieldModule,
     MatSelectModule,
     MatOptionModule,
+    MemoryViewerControl,
   ],
-  declarations: [MemoryViewerControl],
+
   exports: [MemoryViewerControl],
 })
-export class MemoryViewerControlModule {
-}
+export class MemoryViewerControlModule {}

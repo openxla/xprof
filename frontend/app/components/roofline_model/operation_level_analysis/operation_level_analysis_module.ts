@@ -11,7 +11,6 @@ import {StackTraceSnippetModule} from 'org_xprof/frontend/app/components/stack_t
 import {OperationLevelAnalysis} from './operation_level_analysis';
 
 @NgModule({
-  declarations: [OperationLevelAnalysis],
   imports: [
     CategoryFilterModule,
     TableModule,
@@ -21,8 +20,8 @@ import {OperationLevelAnalysis} from './operation_level_analysis';
     MatSlideToggleModule,
     StackTraceSnippetModule,
     CommonModule,
+    OperationLevelAnalysis,
   ],
   exports: [OperationLevelAnalysis],
 })
-export class OperationLevelAnalysisModule {
-}
+export class OperationLevelAnalysisModule {}

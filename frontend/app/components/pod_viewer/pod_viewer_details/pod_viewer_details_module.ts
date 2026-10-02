@@ -6,12 +6,7 @@ import {PodViewerDetails} from './pod_viewer_details';
 
 /** A pod viewer details view module. */
 @NgModule({
-  declarations: [PodViewerDetails],
-  imports: [
-    CommonModule,
-    MatCardModule,
-  ],
-  exports: [PodViewerDetails]
+  imports: [CommonModule, MatCardModule, PodViewerDetails],
+  exports: [PodViewerDetails],
 })
-export class PodViewerDetailsModule {
-}
+export class PodViewerDetailsModule {}

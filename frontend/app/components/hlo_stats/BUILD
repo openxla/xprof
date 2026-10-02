@@ -19,6 +19,7 @@ xprof_ng_module(
         "//:node_modules/@angular/router",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
+        "@org_xprof//frontend/app/common/angular:angular_material_core",
         "@org_xprof//frontend/app/common/angular:angular_material_divider",
         "@org_xprof//frontend/app/common/angular:angular_material_expansion",
         "@org_xprof//frontend/app/common/angular:angular_material_form_field",

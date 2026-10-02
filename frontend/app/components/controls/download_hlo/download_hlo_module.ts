@@ -12,9 +12,9 @@ import {DownloadHlo} from './download_hlo';
     MatMenuModule,
     MatIconModule,
     MatTooltipModule,
+    DownloadHlo,
   ],
-  declarations: [DownloadHlo],
+
   exports: [DownloadHlo],
 })
-export class DownloadHloModule {
-}
+export class DownloadHloModule {}

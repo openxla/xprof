@@ -38,8 +38,8 @@ import {
  * Now customized for Periodic Counter Sampling.
  */
 @Component({
-  selector: 'app-profiler-options',
   standalone: true,
+  selector: 'app-profiler-options',
   imports: [
     CommonModule,
     ReactiveFormsModule,
@@ -53,8 +53,8 @@ import {
     MatSelectModule,
     MatDividerModule,
   ],
-  templateUrl: './profiler_options.component.html',
-  styleUrls: ['./profiler_options.component.css'],
+  templateUrl: './profiler_options.ng.html',
+  styleUrls: ['./profiler_options.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ProfilerOptionsComponent implements OnInit {

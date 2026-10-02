@@ -50,8 +50,9 @@ import {GraphViewer} from './graph_viewer';
     SourceMapperModule,
     MatChipsModule,
     MatTooltipModule,
+    GraphViewer,
   ],
-  declarations: [GraphViewer],
+
   exports: [GraphViewer],
 })
 export class GraphViewerModule {}

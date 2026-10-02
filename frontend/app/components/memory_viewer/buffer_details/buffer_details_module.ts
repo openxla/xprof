@@ -6,12 +6,7 @@ import {BufferDetails} from './buffer_details';
 
 /** A buffer details view module. */
 @NgModule({
-  declarations: [BufferDetails],
-  imports: [
-    MatCardModule,
-    MatButtonModule,
-  ],
-  exports: [BufferDetails]
+  imports: [MatCardModule, MatButtonModule, BufferDetails],
+  exports: [BufferDetails],
 })
-export class BufferDetailsModule {
-}
+export class BufferDetailsModule {}

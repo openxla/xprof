@@ -1,13 +1,29 @@
+import {CommonModule} from '@angular/common';
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   inject,
   OnDestroy,
   OnInit,
 } from '@angular/core';
+import {FormsModule} from '@angular/forms';
+import {MatButtonModule} from '@angular/material/button';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatIconModule} from '@angular/material/icon';
+import {MatInputModule} from '@angular/material/input';
+import {MatListModule} from '@angular/material/list';
+import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
+import {MatSelectModule} from '@angular/material/select';
+import {MatSidenavModule} from '@angular/material/sidenav';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
+import {combineLatest, firstValueFrom, ReplaySubject} from 'rxjs';
+import {takeUntil} from 'rxjs/operators';
+
 import {DEFAULT_HOST} from 'org_xprof/frontend/app/common/constants/constants';
+import {TraceViewerContainer} from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
 import {
   shutdownTraceViewerV2,
   traceViewerV2Main,
@@ -18,8 +34,6 @@ import {
   DataServiceV2Interface,
 } from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
-import {combineLatest, firstValueFrom, ReplaySubject} from 'rxjs';
-import {takeUntil} from 'rxjs/operators';
 
 /** Response structure from the Kernel Viewer backend list request. */
 declare interface KernelListResponse {
@@ -32,11 +46,25 @@ declare interface KernelListResponse {
 
 /** Component for the Static Kernel Viewer tool page. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'static-kernel-viewer',
   templateUrl: './static_kernel_viewer.ng.html',
   styleUrls: ['./static_kernel_viewer.scss'],
+  imports: [
+    CommonModule,
+    FormsModule,
+    MatButtonModule,
+    MatFormFieldModule,
+    MatIconModule,
+    MatInputModule,
+    MatListModule,
+    MatProgressSpinnerModule,
+    MatSelectModule,
+    MatSidenavModule,
+    MatTooltipModule,
+    TraceViewerContainer,
+  ],
 })
 export class StaticKernelViewer implements OnInit, OnDestroy {
   readonly tool = 'kernel_viewer';
@@ -51,7 +79,14 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
   selectedKernel = '';
   url = '';
   loadingKernels = false;
-  filterQuery = '';
+  private filterQueryInternal = '';
+  get filterQuery(): string {
+    return this.filterQueryInternal;
+  }
+  set filterQuery(value: string) {
+    this.filterQueryInternal = value;
+    this.cdr.markForCheck();
+  }
 
   isRailPinned = true;
   isRailHovered = false;
@@ -60,6 +95,7 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
   private isInitializing = false;
   private isDestroyed = false;
 
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly dataService: DataServiceV2Interface = inject(
     DATA_SERVICE_INTERFACE_TOKEN,
   );
@@ -80,12 +116,14 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
 
   togglePin(): void {
     this.isRailPinned = !this.isRailPinned;
+    this.cdr.markForCheck();
     this.notifyResize();
   }
 
   onMouseEnter(): void {
     if (!this.isRailHovered) {
       this.isRailHovered = true;
+      this.cdr.markForCheck();
       if (!this.isRailPinned) {
         this.notifyResize();
       }
@@ -95,6 +133,7 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
   onMouseLeave(): void {
     if (this.isRailHovered) {
       this.isRailHovered = false;
+      this.cdr.markForCheck();
       if (!this.isRailPinned) {
         this.notifyResize();
       }
@@ -122,6 +161,7 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
         if (requestedKernel) {
           this.selectedKernel = requestedKernel;
         }
+        this.cdr.markForCheck();
         void this.loadKernelList();
       });
   }
@@ -151,10 +191,12 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
       } else if (this.url && this.traceViewerModule?.loadTraceData) {
         void this.traceViewerModule.loadTraceData(this.url);
       }
+      this.cdr.markForCheck();
     } catch (error) {
       console.error('Failed to initialize Trace Viewer V2 WASM module:', error);
     } finally {
       this.isInitializing = false;
+      this.cdr.markForCheck();
     }
   }
 
@@ -163,6 +205,7 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
       return;
     }
     this.loadingKernels = true;
+    this.cdr.markForCheck();
     try {
       const response = await firstValueFrom(
         this.dataService.getData(
@@ -199,12 +242,14 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
       this.url = '';
     } finally {
       this.loadingKernels = false;
+      this.cdr.markForCheck();
     }
   }
 
   onHloModuleChange(moduleName: string): void {
     this.selectedHloModule = moduleName;
     this.updateFilteredKernels();
+    this.cdr.markForCheck();
   }
 
   updateFilteredKernels(): void {
@@ -237,6 +282,7 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
       this.selectedKernel = '';
       this.url = '';
     }
+    this.cdr.markForCheck();
   }
 
   applyFilter(): void {
@@ -250,6 +296,7 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
 
   onKernelChange(kernel: string): void {
     this.selectedKernel = kernel;
+    this.cdr.markForCheck();
     if (!kernel) {
       this.url = '';
       return;
@@ -273,6 +320,7 @@ export class StaticKernelViewer implements OnInit, OnDestroy {
     if (this.traceViewerModule?.loadTraceData) {
       void this.traceViewerModule.loadTraceData(this.url);
     }
+    this.cdr.markForCheck();
   }
 
   /**

@@ -59,7 +59,7 @@ ConvertXSpaceToEventTimeFractionAnalyzerResults(
       plane_name_to_step_events;
   for (const auto& plane : xspace.planes()) {
     plane_name_to_step_events[plane.name()] =
-        ConvertDeviceTraceXPlaneToStepEvents(plane);
+        ConvertDeviceTraceXPlaneToStepMarkers(plane);
   }
 
   for (const std::string& target_event_name : target_event_names) {

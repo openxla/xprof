@@ -8,13 +8,13 @@ import {ChartModule} from 'org_xprof/frontend/app/components/chart/chart';
 import {HostOp} from './host_op';
 
 @NgModule({
-  declarations: [HostOp],
   imports: [
     CommonModule,
     MatDividerModule,
     MatSelectModule,
     MatOptionModule,
     ChartModule,
+    HostOp,
   ],
   exports: [HostOp],
 })

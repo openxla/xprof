@@ -7,12 +7,7 @@ import {EmptyPage} from './empty_page';
 
 /** An empty page module. */
 @NgModule({
-  declarations: [EmptyPage],
-  imports: [
-    CommonModule,
-    CaptureProfileModule,
-  ],
-  exports: [EmptyPage]
+  imports: [CommonModule, CaptureProfileModule, EmptyPage],
+  exports: [EmptyPage],
 })
-export class EmptyPageModule {
-}
+export class EmptyPageModule {}

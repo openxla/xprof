@@ -3,9 +3,7 @@ import {NgModule} from '@angular/core';
 import {ModelProperties} from './model_properties';
 
 @NgModule({
-  declarations: [ModelProperties],
-  imports: [],
+  imports: [ModelProperties],
   exports: [ModelProperties],
 })
-export class ModelPropertiesModule {
-}
+export class ModelPropertiesModule {}

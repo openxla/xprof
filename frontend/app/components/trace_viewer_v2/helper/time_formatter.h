@@ -9,6 +9,14 @@ namespace traceviewer {
 
 std::string FormatTime(Microseconds time_us);
 
+// Formats `time_us` using the unit scale determined by `tick_interval`.
+// The time unit (s, ms, us, ns, ps) is chosen based on `tick_interval`,
+// ensuring tick labels scale down to microsecond and nanosecond precision
+// on deep zoom.
+// If `tick_interval <= 0` or is non-finite, falls back to
+// `FormatTime(time_us)`.
+std::string FormatTime(Microseconds time_us, Microseconds tick_interval);
+
 // Converts milliseconds to microseconds.
 Microseconds MillisToMicros(double time_ms);
 

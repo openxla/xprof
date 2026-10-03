@@ -914,6 +914,7 @@ class Timeline {
   ImRect GetTimelineArea() const;
 
   void RebuildEntryColors();
+  void BuildLevelMipPyramids();
   ImU32 GetEventColor(int event_index) const;
 
   // Private static constants.
@@ -948,6 +949,36 @@ class Timeline {
   std::vector<ImU32> entry_colors_;
   uint64_t cached_trace_colors_version_ = std::numeric_limits<uint64_t>::max();
   std::vector<float> utilization_bins_;
+
+  struct LevelMipTile {
+    Microseconds min_start = 0.0;
+    Microseconds max_end = 0.0;
+    Microseconds total_occupied_dur = 0.0;
+    int dominant_event_index = -1;
+    uint32_t count = 0;
+    ImU32 blended_color = 0;
+  };
+  struct LevelMipLevel {
+    Microseconds bin_width_us = 0.0;
+    std::vector<LevelMipTile> tiles;
+  };
+  struct LevelMipPyramid {
+    static constexpr int kNumMipLevels = 3;
+    LevelMipLevel levels[kNumMipLevels];
+  };
+  std::vector<LevelMipPyramid> level_mip_pyramids_;
+
+  struct ProcessUtilizationMip {
+    Microseconds min_ts = 0.0;
+    Microseconds bin_width_us = 0.0;
+    std::vector<float> occupied_us_bins;
+  };
+  struct ProcessUtilizationPyramid {
+    int start_level = -1;
+    int end_level = -1;
+    ProcessUtilizationMip levels[LevelMipPyramid::kNumMipLevels];
+  };
+  std::vector<ProcessUtilizationPyramid> process_utilization_pyramids_;
 
   // TODO - b/444026851: Set the label width based on the real screen width.
   Pixel label_width_ = kDefaultLabelWidth;

@@ -625,34 +625,17 @@ void PopulateThreadTrackEvents(absl::Span<const TraceEvent* const> events,
                                FlameChartTimelineData& data, TimeBounds& bounds,
                                const TraceInformation& trace_info,
                                absl::string_view thread_group_name) {
-  TraceEventTree tree = BuildTree(events);
-  absl::flat_hash_map<const TraceEvent*, Microseconds> self_times;
-  self_times.reserve(events.size());
-  std::vector<const TraceEventNode*> node_stack;
-  node_stack.reserve(events.size());
-  for (const auto& root : tree.roots) {
-    node_stack.push_back(root.get());
-  }
-  while (!node_stack.empty()) {
-    const TraceEventNode* node = node_stack.back();
-    node_stack.pop_back();
-    self_times[node->event] = node->self_time;
-    for (const auto& child : node->children) {
-      node_stack.push_back(child.get());
-    }
-  }
+  if (events.empty()) return;
 
   absl::Span<const TraceEvent* const> module_events;
-  if (!events.empty()) {
-    const ProcessId pid = events.front()->pid;
-    if (auto it_tid = trace_info.xla_modules_tids.find(pid);
-        it_tid != trace_info.xla_modules_tids.end()) {
-      if (auto it_events = trace_info.events_by_pid_tid.find(pid);
-          it_events != trace_info.events_by_pid_tid.end()) {
-        if (auto it_thread = it_events->second.find(it_tid->second);
-            it_thread != it_events->second.end()) {
-          module_events = it_thread->second;
-        }
+  const ProcessId pid = events.front()->pid;
+  if (auto it_tid = trace_info.xla_modules_tids.find(pid);
+      it_tid != trace_info.xla_modules_tids.end()) {
+    if (auto it_events = trace_info.events_by_pid_tid.find(pid);
+        it_events != trace_info.events_by_pid_tid.end()) {
+      if (auto it_thread = it_events->second.find(it_tid->second);
+          it_thread != it_events->second.end()) {
+        module_events = it_thread->second;
       }
     }
   }
@@ -660,17 +643,52 @@ void PopulateThreadTrackEvents(absl::Span<const TraceEvent* const> events,
   Microseconds last_module_lookup_ts =
       std::numeric_limits<Microseconds>::lowest();
 
-  std::vector<PackedEvent> packed_events = PackTraceEvents(events);
-  for (const PackedEvent& packed : packed_events) {
-    const int absolute_level = start_level + packed.level;
-    max_level = std::max(max_level, absolute_level);
-    std::optional<Microseconds> self_time = std::nullopt;
-    if (auto it = self_times.find(packed.event); it != self_times.end()) {
-      self_time = it->second;
+  const size_t n = events.size();
+  std::vector<Microseconds> self_times(n);
+  std::vector<int> relative_levels(n);
+  std::vector<size_t> parent_stack;
+  parent_stack.reserve(16);
+  std::vector<Microseconds> row_end_times;
+  row_end_times.reserve(16);
+
+  for (size_t i = 0; i < n; ++i) {
+    const TraceEvent* ev = events[i];
+    self_times[i] = ev->dur;
+
+    while (!parent_stack.empty()) {
+      const size_t p_idx = parent_stack.back();
+      const TraceEvent* p_ev = events[p_idx];
+      if (ev->ts + ev->dur <= p_ev->ts + p_ev->dur) {
+        self_times[p_idx] = std::max(0.0, self_times[p_idx] - ev->dur);
+        break;
+      }
+      parent_stack.pop_back();
     }
-    AppendEventToTimelineData(packed.event, absolute_level, data, bounds,
+    parent_stack.push_back(i);
+
+    int assigned_row = -1;
+    for (size_t r = 0; r < row_end_times.size(); ++r) {
+      if (row_end_times[r] <= ev->ts) {
+        assigned_row = static_cast<int>(r);
+        break;
+      }
+    }
+    if (assigned_row != -1) {
+      row_end_times[assigned_row] = ev->ts + ev->dur;
+    } else {
+      assigned_row = static_cast<int>(row_end_times.size());
+      row_end_times.push_back(ev->ts + ev->dur);
+    }
+    relative_levels[i] = assigned_row;
+  }
+
+  for (size_t i = 0; i < n; ++i) {
+    const int absolute_level = start_level + relative_levels[i];
+    max_level = std::max(max_level, absolute_level);
+    AppendEventToTimelineData(events[i], absolute_level, data, bounds,
                               trace_info, thread_group_name, module_events,
-                              module_cursor, last_module_lookup_ts, self_time);
+                              module_cursor, last_module_lookup_ts,
+                              self_times[i]);
   }
 }
 
@@ -1151,6 +1169,25 @@ FlameChartTimelineData CreateTimelineData(
     const absl::btree_map<ProcessId, absl::btree_set<std::string>>&
         known_async_tracks) {
   FlameChartTimelineData data;
+  if (!trace_info.is_mpmd) {
+    size_t total_events = 0;
+    for (const auto& [_, events_by_tid] : trace_info.events_by_pid_tid) {
+      for (const auto& [__, events] : events_by_tid) {
+        total_events += events.size();
+      }
+    }
+    if (total_events > 0) {
+      data.entry_start_times.reserve(total_events);
+      data.entry_total_times.reserve(total_events);
+      data.entry_self_times.reserve(total_events);
+      data.entry_levels.reserve(total_events);
+      data.entry_names.reserve(total_events);
+      data.entry_event_ids.reserve(total_events);
+      data.entry_serials.reserve(total_events);
+      data.entry_arg_flags.reserve(total_events);
+      data.entry_hlo_module_ids.reserve(total_events);
+    }
+  }
   int current_level = 0;
   absl::btree_map<std::pair<ProcessId, ThreadId>, ThreadLevelInfo>
       thread_levels;

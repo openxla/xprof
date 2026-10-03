@@ -169,6 +169,9 @@ absl::Status ConvertMultiXSpaceToInferenceStats(
 // Calculate batching efficiency.
 double CalculateBatchingEfficiency(
     const tensorflow::profiler::BatchDetail& batch) {
+  if (batch.has_batching_efficiency()) {
+    return batch.batching_efficiency();
+  }
   return tsl::profiler::SafeDivide(
       static_cast<double>(batch.batch_size_after_padding() -
                           batch.padding_amount()),
@@ -357,10 +360,13 @@ void AddBatchDetails(const tensorflow::profiler::BatchDetail& batch,
   } else {
     row->AddTextCell(absl::StrJoin(batch.program_ids(), ", "));
   }
-  row->AddTextCell(Linkify(
-      GenerateTraceViewerUrl(session_id, batch.batch_id(), batch.host_id(),
-                             batch.related_request_ids()),
-      "link"));
+  row->AddTextCell(
+      batch.batch_id() == -1
+          ? "N/A"
+          : Linkify(GenerateTraceViewerUrl(session_id, batch.batch_id(),
+                                           batch.host_id(),
+                                           /*related_ids=*/{}),
+                    "link"));
 }
 
 // Convert batches from proto format to data table.

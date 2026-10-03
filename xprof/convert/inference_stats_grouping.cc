@@ -310,6 +310,12 @@ RequestDetail GetAverageRequestDetails(const RequestDetail& request,
 }
 
 void AggregateBatch(const BatchDetail& input, BatchDetail* result) {
+  if (!result->has_batch_id() && input.has_batch_id()) {
+    result->set_batch_id(input.batch_id());
+    if (input.has_host_id()) {
+      result->set_host_id(input.host_id());
+    }
+  }
   // In aggregated result, start_time is set to 0, and end time is set to the
   // sum of the duration of the input batches.
   result->set_end_time_ps(input.end_time_ps() - input.start_time_ps() +
@@ -319,20 +325,33 @@ void AggregateBatch(const BatchDetail& input, BatchDetail* result) {
   result->set_batch_size_after_padding(result->batch_size_after_padding() +
                                        input.batch_size_after_padding());
   result->set_device_time_ps(result->device_time_ps() + input.device_time_ps());
+  for (uint64_t pid : input.program_ids()) {
+    if (std::find(result->program_ids().begin(), result->program_ids().end(),
+                  pid) == result->program_ids().end()) {
+      result->add_program_ids(pid);
+    }
+  }
 }
 
 BatchDetail GetAverageBatchDetails(const BatchDetail& batch, int64_t size) {
   BatchDetail result;
   if (size == 0) return result;
-  // Average batch detail does not have a batch ID.
-  result.set_batch_id(-1);
+  result.set_batch_id(batch.batch_id());
+  if (batch.has_host_id()) {
+    result.set_host_id(batch.host_id());
+  }
   result.set_start_time_ps(0);
   // Calculating average by dividing aggregated batch by size.
   result.set_end_time_ps(batch.end_time_ps() / size);
   result.set_batch_delay_ps(batch.batch_delay_ps() / size);
   result.set_padding_amount(batch.padding_amount() / size);
   result.set_batch_size_after_padding(batch.batch_size_after_padding() / size);
+  result.set_batching_efficiency(tsl::profiler::SafeDivide(
+      static_cast<double>(batch.batch_size_after_padding() -
+                          batch.padding_amount()),
+      static_cast<double>(batch.batch_size_after_padding())));
   result.set_device_time_ps(batch.device_time_ps() / size);
+  *result.mutable_program_ids() = batch.program_ids();
   return result;
 }
 
@@ -367,7 +386,10 @@ void AggregatePerModelInferenceStats(InferenceStats* inference_stats) {
                 ::tsl::gtl::FindPtrOrNull(batch_id_to_batch, batch_id)) {
           int batch_size = batch->batch_size_after_padding();
           auto& info = per_batch_size_info[batch_size];
-          AggregateRequest(r, info.result.mutable_aggregated_request_result());
+          RequestDetail r_for_batch = r;
+          r_for_batch.set_device_time_ps(batch->device_time_ps());
+          AggregateRequest(r_for_batch,
+                           info.result.mutable_aggregated_request_result());
           info.request_count++;
         }
       }
@@ -388,6 +410,7 @@ void AggregatePerModelInferenceStats(InferenceStats* inference_stats) {
                                  per_model_stats.request_details().size());
     *per_model_stats.mutable_aggregated_batch_detail() = GetAverageBatchDetails(
         aggregated_b, per_model_stats.batch_details().size());
+    per_model_stats.mutable_aggregated_batch_detail()->clear_program_ids();
 
     std::vector<int> sorted_batch_sizes;
     for (const auto& [batch_size, _] : per_batch_size_info) {
@@ -405,6 +428,8 @@ void AggregatePerModelInferenceStats(InferenceStats* inference_stats) {
                                      per_model_stats.request_details_size());
       *result->mutable_aggregated_batch_result() = GetAverageBatchDetails(
           info.result.aggregated_batch_result(), info.batch_count);
+      result->mutable_aggregated_request_result()->set_device_time_ps(
+          result->aggregated_batch_result().device_time_ps());
       result->set_batch_throughput(info.batch_count *
                                    per_model_stats.batch_throughput() /
                                    per_model_stats.batch_details_size());

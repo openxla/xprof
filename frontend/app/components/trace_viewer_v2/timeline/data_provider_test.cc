@@ -5451,5 +5451,196 @@ TEST_F(DataProviderTest,
   EXPECT_EQ(args.at(std::string(kHloOp)), "fusion.1");
   EXPECT_EQ(args.at(std::string(kHloModule)), "jit_train(42)");
 }
+
+const CounterData* FindCounterDataByPidAndName(
+    const FlameChartTimelineData& data, ProcessId pid, absl::string_view name) {
+  for (size_t i = 0; i < data.groups.size(); ++i) {
+    if (data.groups[i].type == Group::Type::kCounter &&
+        data.groups[i].pid == pid && data.groups[i].name == name) {
+      auto it = data.counter_data_by_group_index.find(i);
+      if (it != data.counter_data_by_group_index.end()) {
+        return &it->second;
+      }
+    }
+  }
+  return nullptr;
+}
+
+TEST_F(DataProviderTest, CounterBounds_PersistAcrossIncrementalSlices) {
+  // Slice 1: [10.0, 100.0]
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{
+          .counter_events = {CreateCounterEvent(1, "metric", {10.0, 20.0},
+                                                {10.0, 100.0})}},
+      timeline_);
+  const CounterData* cd1 =
+      FindCounterDataByPidAndName(timeline_.timeline_data(), 1, "metric");
+  ASSERT_NE(cd1, nullptr);
+  EXPECT_DOUBLE_EQ(cd1->min_value, 10.0);
+  EXPECT_DOUBLE_EQ(cd1->max_value, 100.0);
+
+  // Slice 2: [40.0, 50.0] - bounds must NOT shrink.
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{
+          .counter_events = {CreateCounterEvent(1, "metric", {30.0, 40.0},
+                                                {40.0, 50.0})}},
+      timeline_);
+  const CounterData* cd2 =
+      FindCounterDataByPidAndName(timeline_.timeline_data(), 1, "metric");
+  ASSERT_NE(cd2, nullptr);
+  EXPECT_DOUBLE_EQ(cd2->min_value, 10.0);
+  EXPECT_DOUBLE_EQ(cd2->max_value, 100.0);
+}
+
+TEST_F(DataProviderTest, CounterBounds_MonotonicExpansionAcrossSlices) {
+  // Slice 1: [20.0, 80.0]
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{
+          .counter_events = {CreateCounterEvent(1, "metric", {10.0, 20.0},
+                                                {20.0, 80.0})}},
+      timeline_);
+  const CounterData* cd1 =
+      FindCounterDataByPidAndName(timeline_.timeline_data(), 1, "metric");
+  ASSERT_NE(cd1, nullptr);
+  EXPECT_DOUBLE_EQ(cd1->min_value, 20.0);
+  EXPECT_DOUBLE_EQ(cd1->max_value, 80.0);
+
+  // Slice 2: New min [5.0, 70.0] -> expands min to 5.0
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{
+          .counter_events = {CreateCounterEvent(1, "metric", {30.0, 40.0},
+                                                {5.0, 70.0})}},
+      timeline_);
+  const CounterData* cd2 =
+      FindCounterDataByPidAndName(timeline_.timeline_data(), 1, "metric");
+  ASSERT_NE(cd2, nullptr);
+  EXPECT_DOUBLE_EQ(cd2->min_value, 5.0);
+  EXPECT_DOUBLE_EQ(cd2->max_value, 80.0);
+
+  // Slice 3: New max [30.0, 95.0] -> expands max to 95.0
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{
+          .counter_events = {CreateCounterEvent(1, "metric", {50.0, 60.0},
+                                                {30.0, 95.0})}},
+      timeline_);
+  const CounterData* cd3 =
+      FindCounterDataByPidAndName(timeline_.timeline_data(), 1, "metric");
+  ASSERT_NE(cd3, nullptr);
+  EXPECT_DOUBLE_EQ(cd3->min_value, 5.0);
+  EXPECT_DOUBLE_EQ(cd3->max_value, 95.0);
+}
+
+TEST_F(DataProviderTest, CounterBounds_RetainedInEmptySlice) {
+  // Slice 1: Ingest counter values [15.0, 85.0]
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{
+          .counter_events = {CreateCounterEvent(1, "metric", {10.0, 20.0},
+                                                {15.0, 85.0})}},
+      timeline_);
+  const CounterData* cd1 =
+      FindCounterDataByPidAndName(timeline_.timeline_data(), 1, "metric");
+  ASSERT_NE(cd1, nullptr);
+  EXPECT_DOUBLE_EQ(cd1->min_value, 15.0);
+  EXPECT_DOUBLE_EQ(cd1->max_value, 85.0);
+
+  // Slice 2: Empty slice for that track (process present via flame event,
+  // but no counter events for this track).
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{
+          .flame_events = {CreateCompleteEvent(1, 1, "task", 50.0, 10.0)},
+          .counter_events = {}},
+      timeline_);
+  const CounterData* cd2 =
+      FindCounterDataByPidAndName(timeline_.timeline_data(), 1, "metric");
+  ASSERT_NE(cd2, nullptr);
+  EXPECT_TRUE(cd2->values.empty());
+  EXPECT_DOUBLE_EQ(cd2->min_value, 15.0);
+  EXPECT_DOUBLE_EQ(cd2->max_value, 85.0);
+}
+
+TEST_F(DataProviderTest, CounterBounds_ResetClearsCachedBounds) {
+  // Ingest counter values [10.0, 100.0]
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{
+          .counter_events = {CreateCounterEvent(1, "metric", {10.0, 20.0},
+                                                {10.0, 100.0})}},
+      timeline_);
+  const CounterData* cd1 =
+      FindCounterDataByPidAndName(timeline_.timeline_data(), 1, "metric");
+  ASSERT_NE(cd1, nullptr);
+  EXPECT_DOUBLE_EQ(cd1->min_value, 10.0);
+  EXPECT_DOUBLE_EQ(cd1->max_value, 100.0);
+
+  // Reset clears bounds for new trace sessions
+  data_provider_.Reset();
+  timeline_.SetTimelineData({});
+
+  // Ingest new slice with [40.0, 50.0]
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{
+          .counter_events = {CreateCounterEvent(1, "metric", {30.0, 40.0},
+                                                {40.0, 50.0})}},
+      timeline_);
+  const CounterData* cd2 =
+      FindCounterDataByPidAndName(timeline_.timeline_data(), 1, "metric");
+  ASSERT_NE(cd2, nullptr);
+  EXPECT_DOUBLE_EQ(cd2->min_value, 40.0);
+  EXPECT_DOUBLE_EQ(cd2->max_value, 50.0);
+}
+
+TEST_F(DataProviderTest, CounterBounds_DistinctAcrossPidsAndNames) {
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{
+          .counter_events = {
+              CreateCounterEvent(1, "metricA", {10.0, 20.0}, {10.0, 20.0}),
+              CreateCounterEvent(1, "metricB", {10.0, 20.0}, {100.0, 200.0}),
+              CreateCounterEvent(2, "metricA", {10.0, 20.0}, {1000.0, 2000.0}),
+          }},
+      timeline_);
+
+  const auto& data1 = timeline_.timeline_data();
+  const CounterData* cd1_A = FindCounterDataByPidAndName(data1, 1, "metricA");
+  const CounterData* cd1_B = FindCounterDataByPidAndName(data1, 1, "metricB");
+  const CounterData* cd2_A = FindCounterDataByPidAndName(data1, 2, "metricA");
+  ASSERT_NE(cd1_A, nullptr);
+  ASSERT_NE(cd1_B, nullptr);
+  ASSERT_NE(cd2_A, nullptr);
+  EXPECT_DOUBLE_EQ(cd1_A->min_value, 10.0);
+  EXPECT_DOUBLE_EQ(cd1_A->max_value, 20.0);
+  EXPECT_DOUBLE_EQ(cd1_B->min_value, 100.0);
+  EXPECT_DOUBLE_EQ(cd1_B->max_value, 200.0);
+  EXPECT_DOUBLE_EQ(cd2_A->min_value, 1000.0);
+  EXPECT_DOUBLE_EQ(cd2_A->max_value, 2000.0);
+
+  // Ingest second slice with distinct bounds adjustments
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{
+          .counter_events = {
+              CreateCounterEvent(1, "metricA", {30.0, 40.0}, {15.0, 18.0}),
+              CreateCounterEvent(1, "metricB", {30.0, 40.0}, {50.0, 150.0}),
+              CreateCounterEvent(2, "metricA", {30.0, 40.0}, {2500.0, 3000.0}),
+          }},
+      timeline_);
+
+  const auto& data2 = timeline_.timeline_data();
+  const CounterData* cd1_A2 = FindCounterDataByPidAndName(data2, 1, "metricA");
+  const CounterData* cd1_B2 = FindCounterDataByPidAndName(data2, 1, "metricB");
+  const CounterData* cd2_A2 = FindCounterDataByPidAndName(data2, 2, "metricA");
+  ASSERT_NE(cd1_A2, nullptr);
+  ASSERT_NE(cd1_B2, nullptr);
+  ASSERT_NE(cd2_A2, nullptr);
+
+  // metricA on pid 1 stayed [10.0, 20.0]
+  EXPECT_DOUBLE_EQ(cd1_A2->min_value, 10.0);
+  EXPECT_DOUBLE_EQ(cd1_A2->max_value, 20.0);
+
+  // metricB on pid 1 expanded min to 50.0 -> [50.0, 200.0]
+  EXPECT_DOUBLE_EQ(cd1_B2->min_value, 50.0);
+  EXPECT_DOUBLE_EQ(cd1_B2->max_value, 200.0);
+
+  // metricA on pid 2 expanded max to 3000.0 -> [1000.0, 3000.0]
+  EXPECT_DOUBLE_EQ(cd2_A2->min_value, 1000.0);
+  EXPECT_DOUBLE_EQ(cd2_A2->max_value, 3000.0);
+}
 }  // namespace
 }  // namespace traceviewer

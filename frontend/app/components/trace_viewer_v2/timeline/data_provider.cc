@@ -771,6 +771,8 @@ void PopulateCounterTrack(
     FlameChartTimelineData& data, TimeBounds& bounds,
     const std::string& process_group_name, bool default_expanded,
     const absl::btree_map<GroupKey, bool>& expanded_states,
+    absl::flat_hash_map<std::pair<ProcessId, std::string>, CounterBounds>&
+        counter_bounds,
     int parent_index = -1) {
   Group group;
   group.type = Group::Type::kCounter;
@@ -799,6 +801,8 @@ void PopulateCounterTrack(
   counter_data.values.reserve(total_entries);
 
   // Bulk insert all data first.
+  double slice_min = std::numeric_limits<double>::max();
+  double slice_max = std::numeric_limits<double>::lowest();
   for (const CounterEvent* event : events) {
     if (event->timestamps.empty()) continue;
 
@@ -808,9 +812,26 @@ void PopulateCounterTrack(
     counter_data.values.insert(counter_data.values.end(), event->values.begin(),
                                event->values.end());
 
-    // Use pre-calculated min/max values from the event.
-    counter_data.min_value = std::min(counter_data.min_value, event->min_value);
-    counter_data.max_value = std::max(counter_data.max_value, event->max_value);
+    slice_min = std::min(slice_min, event->min_value);
+    slice_max = std::max(slice_max, event->max_value);
+  }
+
+  const auto counter_key = std::make_pair(pid, name);
+  if (!counter_data.values.empty() && slice_min <= slice_max) {
+    auto& cached_bounds = counter_bounds[counter_key];
+    cached_bounds.min_value = std::min(cached_bounds.min_value, slice_min);
+    cached_bounds.max_value = std::max(cached_bounds.max_value, slice_max);
+    counter_data.min_value = cached_bounds.min_value;
+    counter_data.max_value = cached_bounds.max_value;
+  } else {
+    // Slice has no data points for this track; retain previously observed
+    // bounds if known.
+    auto it = counter_bounds.find(counter_key);
+    if (it != counter_bounds.end() &&
+        it->second.min_value <= it->second.max_value) {
+      counter_data.min_value = it->second.min_value;
+      counter_data.max_value = it->second.max_value;
+    }
   }
 
   if (!counter_data.values.empty()) {
@@ -992,7 +1013,9 @@ void PopulateProcessTrack(
     const absl::btree_map<ProcessId, absl::btree_set<std::string>>&
         known_counters,
     const absl::btree_map<ProcessId, absl::btree_set<std::string>>&
-        known_async_tracks) {
+        known_async_tracks,
+    absl::flat_hash_map<std::pair<ProcessId, std::string>, CounterBounds>&
+        counter_bounds) {
   const auto it_events = trace_info.events_by_pid_tid.find(pid);
   const bool has_events = it_events != trace_info.events_by_pid_tid.end() &&
                           !it_events->second.empty();
@@ -1066,7 +1089,7 @@ void PopulateProcessTrack(
       PopulateCounterTrack(pid, name, events, trace_info, current_level, data,
                            bounds, process_group_name,
                            /*default_expanded=*/true, expanded_states,
-                           process_index);
+                           counter_bounds, process_index);
     }
   }
 
@@ -1167,7 +1190,9 @@ FlameChartTimelineData CreateTimelineData(
     const absl::btree_map<ProcessId, absl::btree_set<std::string>>&
         known_counters,
     const absl::btree_map<ProcessId, absl::btree_set<std::string>>&
-        known_async_tracks) {
+        known_async_tracks,
+    absl::flat_hash_map<std::pair<ProcessId, std::string>, CounterBounds>&
+        counter_bounds) {
   FlameChartTimelineData data;
   if (!trace_info.is_mpmd) {
     size_t total_events = 0;
@@ -1197,7 +1222,7 @@ FlameChartTimelineData CreateTimelineData(
     PopulateProcessTrack(pid, trace_info, current_level, data, bounds,
                          thread_levels, default_expanded, expanded_states,
                          max_observed_levels, known_threads, known_counters,
-                         known_async_tracks);
+                         known_async_tracks, counter_bounds);
   }
 
   data.level_offsets.assign(current_level + 1, 0);
@@ -1243,6 +1268,7 @@ void DataProvider::Reset() {
   known_async_tracks_.clear();
   known_async_processes_.clear();
   known_counters_.clear();
+  counter_bounds_.clear();
 }
 
 // Processes a vector of TraceEvent structs.
@@ -1386,7 +1412,8 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   timeline.SetTimelineData(CreateTimelineData(
       trace_info, sorted_pids, GetTop5FlowCategories(flow_category_counts),
       time_bounds, expanded_states, timeline.GetPalette(), max_observed_levels_,
-      known_threads_, known_counters_, known_async_tracks_));
+      known_threads_, known_counters_, known_async_tracks_,
+      counter_bounds_));
 
   // Don't need to check for max_time because the TimeRange constructor will
   // handle any potential issues with max_time.

@@ -16,10 +16,27 @@
 
 <!-- toolbar has a height of 64px, adding inline style to overwrite the fullscreen styles -->
 <mat-sidenav-container fullscreen style="top:64px;">
-  <mat-sidenav mode="side" [opened]="isSideNavOpen">
-    <sidenav></sidenav>
+  <mat-sidenav mode="side" [opened]="isNewNavEnabled ? true : isSideNavOpen" [style.width.px]="isNewNavEnabled ? (isSideNavOpen ? 240 : 64) : null">
+    @if (isNewNavEnabled) {
+      <rack-navigation-drawer [collapsed]="!isSideNavOpen">
+        <rack-navigation-group label="Tools" [expanded]="true">
+          @for (tag of availableTools; track tag) {
+            <rack-navigation-item
+              [icon]="getToolIcon(tag)"
+              [label]="getToolLabel(tag)"
+              [active]="currentTag === tag || (!currentTag && tag === 'overview_page')"
+              (click)="selectTool(tag)">
+              {{getToolLabel(tag)}}
+            </rack-navigation-item>
+          }
+        </rack-navigation-group>
+      </rack-navigation-drawer>
+    }
+    <sidenav [hidden]="isNewNavEnabled"></sidenav>
   </mat-sidenav>
-  <mat-sidenav-content>
+  <mat-sidenav-content
+    [class.new-nav-content]="isNewNavEnabled"
+    [class.new-nav-expanded]="isNewNavEnabled && isSideNavOpen">
     <diagnostics-view [diagnostics]="diagnostics"></diagnostics-view>
     <div class="progress-container" *ngIf="loading">
       <div class="loading-message">{{loadingMessage}}</div>

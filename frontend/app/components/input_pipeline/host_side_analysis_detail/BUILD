@@ -45,6 +45,7 @@ xprof_ng_module(
     ],
     deps = [
         ":host_side_analysis_detail",
+        "//:node_modules/@angular/core_testing",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",

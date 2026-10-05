@@ -79,7 +79,12 @@ wasm_cc_library(
         "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
         "@tsl//tsl/profiler/lib:context_types_hdrs",
-    ],
+    ] + select({
+        "@org_xprof//frontend/app/components/trace_viewer_v2:is_emscripten": [
+            "@org_xprof//frontend/app/components/trace_viewer_v2:imgui_webgpu_backend",
+        ],
+        "//conditions:default": [],
+    }),
 )
 
 cc_test(

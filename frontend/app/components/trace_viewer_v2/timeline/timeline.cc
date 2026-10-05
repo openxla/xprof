@@ -2639,6 +2639,7 @@ void Timeline::DrawEventsForLevel(int group_index,
         return time < timeline_data_.entry_start_times[event_index];
       });
 
+  Pixel last_drawn_right = -std::numeric_limits<Pixel>::infinity();
   for (auto it = first_visible_it; it != last_visible_it; ++it) {
     int event_index = *it;
     if (event_index < 0 ||
@@ -2648,12 +2649,31 @@ void Timeline::DrawEventsForLevel(int group_index,
       continue;
     }
     const Microseconds start = timeline_data_.entry_start_times[event_index];
-    const Microseconds end =
-        start + timeline_data_.entry_total_times[event_index];
+    const Microseconds dur = timeline_data_.entry_total_times[event_index];
+    const Microseconds end = start + dur;
+
+    const bool is_instant = dur <= 1e-06;
+    const bool is_selected = (selected_event_index_ == event_index);
+    const bool matches_search =
+        !search_query_lower_.empty() &&
+        matching_event_indices_.contains(event_index);
+
+    if (!is_instant && !is_selected && !matches_search) {
+      const Pixel raw_left = TimeToScreenX(start, pos.x, px_per_time_unit);
+      const Pixel raw_right = TimeToScreenX(end, pos.x, px_per_time_unit);
+      if (raw_left < last_drawn_right &&
+          raw_right <= last_drawn_right + 0.5f) {
+        continue;
+      }
+    }
 
     const EventRect rect =
         CalculateEventRect(start, end, pos.x, pos.y, px_per_time_unit,
                            level_in_group, max.x, event_height, padding_bottom);
+
+    if (!is_instant && rect.right > rect.left) {
+      last_drawn_right = std::max(last_drawn_right, rect.right);
+    }
 
     DrawEvent(group_index, event_index, rect, draw_list);
   }
@@ -2784,6 +2804,11 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
 
   const float y_ratio = height / value_range;
 
+  Pixel pending_x1 = 0.0f;
+  Pixel pending_x2 = 0.0f;
+  Pixel pending_min_y = y_base;
+  bool has_pending = false;
+
   for (size_t i = 0; i < data.timestamps.size() - 1; ++i) {
     Pixel x1 = TimeToScreenX(data.timestamps[i], pos.x, px_per_time_unit_val);
     Pixel x2 =
@@ -2794,8 +2819,38 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
     // visible as a thin line instead of completely disappearing.
     y = std::min(y, y_base - 1.0f);
 
+    if (x2 - x1 < 0.5f) {
+      if (!has_pending) {
+        pending_x1 = x1;
+        pending_x2 = std::max(x2, x1 + 1.0f);
+        pending_min_y = y;
+        has_pending = true;
+      } else if (x1 <= pending_x2) {
+        pending_x2 = std::max(pending_x2, x2);
+        pending_min_y = std::min(pending_min_y, y);
+      } else {
+        draw_list->AddRectFilled(ImVec2(pending_x1, pending_min_y),
+                                 ImVec2(pending_x2, y_base),
+                                 kCounterTrackColor);
+        pending_x1 = x1;
+        pending_x2 = std::max(x2, x1 + 1.0f);
+        pending_min_y = y;
+      }
+      continue;
+    }
+
+    if (has_pending) {
+      draw_list->AddRectFilled(ImVec2(pending_x1, pending_min_y),
+                               ImVec2(pending_x2, y_base), kCounterTrackColor);
+      has_pending = false;
+    }
+
     draw_list->AddRectFilled(ImVec2(x1, y), ImVec2(x2, y_base),
                              kCounterTrackColor);
+  }
+  if (has_pending) {
+    draw_list->AddRectFilled(ImVec2(pending_x1, pending_min_y),
+                             ImVec2(pending_x2, y_base), kCounterTrackColor);
   }
 
   // For the last point, draw a 1px wide bar to show its value.
@@ -3020,6 +3075,7 @@ void Timeline::DrawFlameGroupPreview(int start_level, int end_level,
           return end <= t;
         });
 
+    Pixel last_drawn_right = -std::numeric_limits<Pixel>::infinity();
     for (; it != indices.end(); ++it) {
       int event_index = *it;
       const Microseconds start = timeline_data_.entry_start_times[event_index];
@@ -3030,6 +3086,10 @@ void Timeline::DrawFlameGroupPreview(int start_level, int end_level,
 
       Pixel x_start = TimeToScreenX(start, pos.x, px_per_time_unit_val);
       Pixel x_end = TimeToScreenX(end, pos.x, px_per_time_unit_val);
+      if (x_end < x_start) std::swap(x_start, x_end);
+      if (x_start < last_drawn_right && x_end <= last_drawn_right + 0.5f) {
+        continue;
+      }
 
       // Draw Logic
       ImU32 color = GetEventColor(event_index);
@@ -3038,8 +3098,8 @@ void Timeline::DrawFlameGroupPreview(int start_level, int end_level,
               (static_cast<ImU32>(kGroupPreviewOpacity * 255.0f)
                << IM_COL32_A_SHIFT);
 
-      if (x_end < x_start) std::swap(x_start, x_end);
       x_end = std::max(x_end, x_start + kEventMinimumDrawWidth);
+      last_drawn_right = std::max(last_drawn_right, x_end);
 
       draw_list->AddRectFilled(ImVec2(x_start, pos.y),
                                ImVec2(x_end, pos.y + group_height), color);
@@ -4262,14 +4322,14 @@ void Timeline::MaybeRequestData() {
   event_data.try_emplace(kFetchDataStart, MicrosToMillis(fetch.start()));
   event_data.try_emplace(kFetchDataEnd, MicrosToMillis(fetch.end()));
 
-  event_callback_(kFetchData, event_data);
-
+  // Update last_fetch_request_range_ and is_incremental_loading_ BEFORE
+  // invoking event_callback_ so synchronous callbacks that call
+  // SetTimelineData / set_fetched_data_time_range / set_is_incremental_loading
+  // are not overwritten afterward.
   last_fetch_request_range_ = fetch;
-
-  // We set is_incremental_loading_ to true to prevent sending duplicate
-  // requests. The flag will be reset to false when the data is received and
-  // processed.
   is_incremental_loading_ = true;
+
+  event_callback_(kFetchData, event_data);
 }
 
 void Timeline::SetSearchQuery(absl::string_view query) {

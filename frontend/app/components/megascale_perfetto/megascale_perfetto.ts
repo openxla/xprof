@@ -8,16 +8,18 @@ import {
   setCurrentToolStateAction,
   setErrorMessageStateAction,
 } from 'org_xprof/frontend/app/store/actions';
-import {ReplaySubject, combineLatest} from 'rxjs';
+import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {SafePipe} from '../../pipes/safe_pipe';
 
 /** A megascale perfetto viewer component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
   selector: 'megascale-perfetto',
   templateUrl: './megascale_perfetto.ng.html',
   styleUrls: ['./megascale_perfetto.scss'],
+  imports: [SafePipe],
 })
 export class MegascalePerfetto implements OnDestroy {
   readonly tool = 'megascale_perfetto';

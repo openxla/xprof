@@ -8,14 +8,13 @@ import {CategoryFilter} from './category_filter';
 
 /** A category filter module. */
 @NgModule({
-  declarations: [CategoryFilter],
   imports: [
     CommonModule,
     MatOptionModule,
     MatFormFieldModule,
     MatSelectModule,
+    CategoryFilter,
   ],
   exports: [CategoryFilter],
 })
-export class CategoryFilterModule {
-}
+export class CategoryFilterModule {}

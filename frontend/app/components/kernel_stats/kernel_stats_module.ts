@@ -7,13 +7,12 @@ import {KernelStats} from './kernel_stats';
 
 /** A kernel stats module. */
 @NgModule({
-  declarations: [KernelStats],
   imports: [
     MatDividerModule,
     ExportAsCsvModule,
     KernelStatsTableModule,
+    KernelStats,
   ],
-  exports: [KernelStats]
+  exports: [KernelStats],
 })
-export class KernelStatsModule {
-}
+export class KernelStatsModule {}

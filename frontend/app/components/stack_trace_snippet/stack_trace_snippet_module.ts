@@ -8,14 +8,13 @@ import {StackTraceSnippet} from './stack_trace_snippet';
 
 /** A module to show code snippets for a stack trace. */
 @NgModule({
-  declarations: [StackTraceSnippet],
   exports: [StackTraceSnippet],
   imports: [
     CommonModule,
     MatExpansionModule,
     StackFrameSnippetModule,
     Message,
-  ]
+    StackTraceSnippet,
+  ],
 })
-export class StackTraceSnippetModule {
-}
+export class StackTraceSnippetModule {}

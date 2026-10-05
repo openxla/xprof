@@ -1,16 +1,27 @@
-"""Utilities for deriving FLOPs and bytes accessed from HLO shape expressions."""
+"""Utilities for deriving FLOPs and bytes from HLO shape expressions."""
 
+import json
 import math
 import re
 from typing import Any
 
 # Element byte widths for XLA primitive types.
-DTYPE_BYTES: dict[str, int] = {
+DTYPE_BYTES: dict[str, int | float] = {
     "pred": 1,
-    "s4": 1,
-    "u4": 1,
+    "s1": 0.125,
+    "u1": 0.125,
+    "s2": 0.25,
+    "u2": 0.25,
+    "s4": 0.5,
+    "u4": 0.5,
+    "f4e2m1fn": 0.5,
+    "f6e3m2fn": 0.75,
+    "f6e2m3fn": 0.75,
     "s8": 1,
     "u8": 1,
+    "f8e4m3": 1,
+    "f8e3m4": 1,
+    "f8e8m0fnu": 1,
     "f8e4m3fn": 1,
     "f8e4m3b11fnuz": 1,
     "f8e4m3fnuz": 1,
@@ -28,12 +39,42 @@ DTYPE_BYTES: dict[str, int] = {
     "s64": 8,
     "u64": 8,
     "c128": 16,
+    "buffer": 0,
 }
 
+_CUSTOM_CALL_TARGET_RE = re.compile(
+    r'custom_call_target="([^"]*)"', re.IGNORECASE
+)
+
+_ANNOTATION_TARGETS = (
+    "analyzelayout",
+    "allocatebuffer",
+    "sharding",
+    "spmd",
+    "x64combine",
+    "x64split",
+    "pinned_host",
+    "annotate",
+    "device_barrier",
+)
+
+_ATTENTION_HINTS = (
+    "attention",
+    "splash",
+    "flash",
+    "sdpa",
+    "mha",
+    "gqa",
+    "paged",
+    "qk",
+    "softmax",
+)
+
 # Matches shapes like "bf16[4,4096,2048]" or "f32[1024,1024]{1,0}".
-_TENSOR_SHAPE_RE = re.compile(
+TENSOR_SHAPE_RE = re.compile(
     r"\b([a-z][a-z0-9_]*)\[([0-9,\s]+)\]", re.IGNORECASE
 )
+_TENSOR_SHAPE_RE = TENSOR_SHAPE_RE
 
 
 def parse_hlo_tensor_shapes(
@@ -56,8 +97,23 @@ def parse_hlo_tensor_shapes(
   lhs_rhs = expression.split("=", 1)
   rhs = lhs_rhs[1].strip()
 
-  # Split at first '(' to separate output shape/opcode from operands.
-  paren_idx = rhs.find("(")
+  # Split at the '(' that starts the operand list (skipping tuple output shapes
+  # like '(bf16[4,4096,4096], s32[4]) custom-call(...)').
+  if rhs.startswith("("):
+    depth = 0
+    tuple_end = -1
+    for idx, ch in enumerate(rhs):
+      if ch == "(":
+        depth += 1
+      elif ch == ")":
+        depth -= 1
+        if depth == 0:
+          tuple_end = idx
+          break
+    paren_idx = rhs.find("(", tuple_end + 1) if tuple_end != -1 else -1
+  else:
+    paren_idx = rhs.find("(")
+
   if paren_idx == -1:
     return None, []
 
@@ -65,14 +121,26 @@ def parse_hlo_tensor_shapes(
   operands_part = rhs[paren_idx:]
 
   out_matches = _TENSOR_SHAPE_RE.findall(header_part)
-  if not out_matches:
-    return None, []
-
-  out_dtype, out_dims_str = out_matches[-1]
-  out_dims = [
-      int(d.strip()) for d in out_dims_str.split(",") if d.strip().isdigit()
-  ]
-  output_shape = (out_dtype.lower(), out_dims)
+  output_shape: tuple[str, list[int]] | None = None
+  if out_matches:
+    if len(out_matches) == 1:
+      out_dtype, out_dims_str = out_matches[0]
+      out_dims = [
+          int(d.strip()) for d in out_dims_str.split(",") if d.strip().isdigit()
+      ]
+      output_shape = (out_dtype.lower(), out_dims)
+    else:
+      parsed_outs: list[tuple[str, list[int]]] = []
+      for dt, dims_str in out_matches:
+        dims = [
+            int(d.strip()) for d in dims_str.split(",") if d.strip().isdigit()
+        ]
+        if dims:
+          parsed_outs.append((dt.lower(), dims))
+      if parsed_outs:
+        output_shape = max(
+            parsed_outs, key=lambda item: (len(item[1]), math.prod(item[1]))
+        )
 
   operand_shapes: list[tuple[str, list[int]]] = []
   for dt, dims_str in _TENSOR_SHAPE_RE.findall(operands_part):
@@ -110,6 +178,35 @@ def _try_match_contraction(
     if k_a == k_b and k_a > 0:
       return k_a
 
+  return None
+
+
+try_match_contraction = _try_match_contraction
+
+
+def _try_parse_cost_estimate(
+    expression: str,
+) -> tuple[float, float] | None:
+  """Extracts (flops, bytes_accessed) from backend_config cost_estimate JSON."""
+  if not expression or "cost_estimate" not in expression:
+    return None
+  m = re.search(
+      r'"cost_estimate"\s*:\s*(\{[^{}]*\})',
+      expression,
+  )
+  if not m:
+    return None
+  try:
+    est = json.loads(m.group(1))
+    if isinstance(est, dict):
+      flops = float(est.get("flops", 0.0) or 0.0) + float(
+          est.get("transcendentals", 0.0) or 0.0
+      )
+      bytes_acc = float(est.get("bytes_accessed", 0.0) or 0.0)
+      if flops > 0.0 or bytes_acc > 0.0:
+        return flops, bytes_acc
+  except (ValueError, TypeError):
+    pass
   return None
 
 
@@ -152,27 +249,84 @@ def derive_custom_call_flops_and_bytes(
   if not is_custom:
     return None, None, "xla_cost_model"
 
+  target_match = _CUSTOM_CALL_TARGET_RE.search(expression or "")
+  target_lower = target_match.group(1).lower() if target_match else ""
+  if any(
+      tok in target_lower or tok in name_lower for tok in _ANNOTATION_TARGETS
+  ):
+    return 0.0, 0.0, "xla_cost_model"
+
+  est = _try_parse_cost_estimate(expression)
+  if est is not None:
+    return est[0], est[1], "xla_cost_model"
+
   output_shape, operand_shapes = parse_hlo_tensor_shapes(expression)
-  if output_shape is not None and len(operand_shapes) >= 2:
+  tensor_operands = [op for op in operand_shapes if len(op[1]) >= 2]
+  if output_shape is None and len(tensor_operands) >= 3:
+    # Pallas/TPU custom-calls returning c64[]/token[] pass output via out_ref;
+    # slice out_ref off tensor_operands so it is not reused as an input operand!
+    output_shape = tensor_operands[-1]
+    tensor_operands = tensor_operands[:-1]
+
+  if output_shape is not None and len(tensor_operands) >= 2:
     _, out_dims = output_shape
     if len(out_dims) >= 2:
-      # Check pairs of operands (typically the first two tensor inputs)
-      for i in range(min(len(operand_shapes), 3)):
-        for j in range(i + 1, min(len(operand_shapes), 4)):
-          _, dims_a = operand_shapes[i]
-          _, dims_b = operand_shapes[j]
+      # 1. Check pairs of 2D+ tensor operands for 2*B*M*N*K contraction
+      max_check = min(len(tensor_operands), 10)
+      for i in range(max_check):
+        for j in range(i + 1, max_check):
+          _, dims_a = tensor_operands[i]
+          _, dims_b = tensor_operands[j]
           k_dim = _try_match_contraction(out_dims, dims_a, dims_b)
           if k_dim is not None:
             batch_elems = math.prod(out_dims[:-2]) if len(out_dims) > 2 else 1
             m_out, n_out = out_dims[-2], out_dims[-1]
             flops = float(2 * batch_elems * m_out * n_out * k_dim)
 
-            all_shapes = [output_shape, operand_shapes[i], operand_shapes[j]]
+            all_shapes = [output_shape, tensor_operands[i], tensor_operands[j]]
             total_bytes = 0.0
             for dt, dims in all_shapes:
               elem_bytes = DTYPE_BYTES.get(dt, 2)
               total_bytes += float(elem_bytes * math.prod(dims))
             return flops, total_bytes, "derived_from_shapes"
+
+      # 2. Check 3-operand Flash/Splash/Paged Attention contraction (Q, K, V)
+      has_attention_hint = any(
+          tok in expr_lower or tok in name_lower for tok in _ATTENTION_HINTS
+      )
+      if has_attention_hint and len(tensor_operands) >= 3:
+        s_q, d_out = out_dims[-2], out_dims[-1]
+        for i in range(max_check):
+          _, dims_q = tensor_operands[i]
+          if dims_q[-2:] != [s_q, d_out]:
+            continue
+          for j in range(max_check):
+            if j == i:
+              continue
+            _, dims_k = tensor_operands[j]
+            if dims_k[-1] != d_out:
+              continue
+            s_kv = dims_k[-2]
+            for m in range(max_check):
+              if m in (i, j):
+                continue
+              _, dims_v = tensor_operands[m]
+              if dims_v[-2:] == [s_kv, d_out]:
+                batch_elems = (
+                    math.prod(out_dims[:-2]) if len(out_dims) > 2 else 1
+                )
+                flops = float(4 * batch_elems * s_q * s_kv * d_out)
+                all_shapes = [
+                    output_shape,
+                    tensor_operands[i],
+                    tensor_operands[j],
+                    tensor_operands[m],
+                ]
+                total_bytes = 0.0
+                for dt, dims in all_shapes:
+                  elem_bytes = DTYPE_BYTES.get(dt, 2)
+                  total_bytes += float(elem_bytes * math.prod(dims))
+                return flops, total_bytes, "derived_from_shapes"
 
   if is_custom:
     return None, None, "opaque_custom_call"

@@ -2,11 +2,10 @@
 
 import collections
 from collections.abc import Sequence
+import hashlib
 import json
 import logging
-import operator
 import pathlib
-import re
 
 # pylint: disable=g-import-not-at-top,g-direct-tensorflow-import
 try:
@@ -15,17 +14,9 @@ except ImportError:
   from xprof.convert import raw_to_tool_data as convert  # pyrefly: ignore[missing-import]
 
 from xprof.cli.internal import decorators
+from xprof.cli.internal import hlo_graph_db
 
 from . import xprof_client
-
-# Pre-compile regexes to improve performance.
-# Computation header: "ENTRY entry {" (short_txt) or "%fused_computation (..) {"
-# (long_txt). short_txt emits bare names with no leading "%"; anchoring on the
-# trailing "{" reliably distinguishes headers from instruction/module lines.
-_COMP_NAME_RE = re.compile(r"(?:ENTRY\s+)?%?([a-zA-Z0-9._-]+)\b.*\{\s*$")
-_INSTR_RE = re.compile(r"%?([a-zA-Z0-9._-]+)\s*=(.*)")
-_METADATA_RE = re.compile(r"metadata={.*?}", re.DOTALL)
-_OPERAND_RE = re.compile(r"(?:^|[\s,(])%?([a-zA-Z0-9._-]+)(?=[\s,)]|$)")
 
 
 def generate_hlo_protos(session_id: str) -> str:
@@ -108,9 +99,7 @@ def _resolve_from_available_modules(
   )
 
 
-def resolve_module_name(
-    session_id: str, module_name: str | None = None
-) -> str:
+def resolve_module_name(session_id: str, module_name: str | None = None) -> str:
   """Resolves a short, prefix, or full module name against available HLO modules.
 
   Args:
@@ -212,9 +201,7 @@ def get_hlo_module_content(
             "module_name": target_module,
         },
     )
-    text = (
-        raw_text.decode("utf-8") if isinstance(raw_text, bytes) else raw_text
-    )
+    text = raw_text.decode("utf-8") if isinstance(raw_text, bytes) else raw_text
 
     lines = text.splitlines()
     is_truncated = False
@@ -380,15 +367,103 @@ def get_hlo_text(
     raise RuntimeError("Error retrieving HLO text") from e
 
 
+_OSS_GRAPH_DB_CACHE_MAXSIZE = 16
+_OSS_GRAPH_DB_CACHE: collections.OrderedDict[
+    tuple[str, str], hlo_graph_db.HloGraphDb
+] = collections.OrderedDict()
+
+_VALID_DIRECTIONS = frozenset({
+    "all",
+    "both",
+    "parents",
+    "up",
+    "upstream",
+    "operands",
+    "producers",
+    "inputs",
+    "children",
+    "down",
+    "downstream",
+    "users",
+    "consumers",
+    "outputs",
+})
+
+
+def _get_cached_oss_graph_db(
+    target_module: str, raw_text: str | bytes
+) -> hlo_graph_db.HloGraphDb:
+  """Builds and caches HloGraphDb keyed by a compact content digest."""
+  raw_bytes = (
+      raw_text.encode("utf-8", errors="ignore")
+      if isinstance(raw_text, str)
+      else bytes(raw_text)
+  )
+  digest = hashlib.blake2b(raw_bytes, digest_size=16).hexdigest()
+  cache_key = (target_module, digest)
+  cached = _OSS_GRAPH_DB_CACHE.get(cache_key)
+  if cached is not None:
+    _OSS_GRAPH_DB_CACHE.move_to_end(cache_key)
+    return cached
+
+  full_text = (
+      raw_text.decode("utf-8", errors="ignore")
+      if isinstance(raw_text, bytes)
+      else raw_text
+  )
+  db = hlo_graph_db.HloGraphDb.from_hlo_text(
+      full_text, module_name=target_module
+  )
+  _OSS_GRAPH_DB_CACHE[cache_key] = db
+  _OSS_GRAPH_DB_CACHE.move_to_end(cache_key)
+  while len(_OSS_GRAPH_DB_CACHE) > _OSS_GRAPH_DB_CACHE_MAXSIZE:
+    _, evicted_db = _OSS_GRAPH_DB_CACHE.popitem(last=False)
+    evicted_db.close()
+  return db
+
+
+def _clear_oss_graph_db_cache() -> None:
+  for db in _OSS_GRAPH_DB_CACHE.values():
+    db.close()
+  _OSS_GRAPH_DB_CACHE.clear()
+
+
+_get_cached_oss_graph_db.cache_clear = _clear_oss_graph_db_cache  # pyrefly: ignore[missing-attribute]
+
+
+def _resolve_oss_graph_db(
+    session_id: str,
+    target_module: str,
+    print_metadata: bool = False,
+) -> hlo_graph_db.HloGraphDb:
+  """Resolves an HloGraphDb from graph_viewer.json."""
+  client = xprof_client.get_client()
+  _, raw_text = client.fetch(
+      tool_name="graph_viewer.json",
+      session_id=str(session_id),
+      graph_viewer_options={
+          "type": "long_txt" if print_metadata else "short_txt",
+          "module_name": target_module,
+      },
+  )
+  return _get_cached_oss_graph_db(target_module, raw_text)
+
+
 @decorators.cached(expire=86_400)
 def get_hlo_neighborhood(
     session_id: str,
     instruction_name: str | None = None,
     radius: int = 2,
     module_name: str | None = None,
+    fmt: str = "text",
     *,
     op_name: str | None = None,
     print_metadata: bool = False,
+    direction: str = "both",
+    follow_calls: bool = False,
+    detect_fusion_blockers: bool = False,
+    opcode_filter: str | None = None,
+    max_nodes: int = 200,
 ) -> str:
   """Returns the neighborhood of a specific HLO instruction (BFS traversal).
 
@@ -403,8 +478,15 @@ def get_hlo_neighborhood(
     radius: How many steps to traverse up (operands) and down (users). Default
       is 2.
     module_name: Optional name of the module to search in.
+    fmt: Desired output format ('text' or 'markdown').
     op_name: Alias for instruction_name for backwards compatibility.
     print_metadata: Whether to include op metadata in output.
+    direction: Traversal direction ('both', 'operands', or 'users').
+    follow_calls: Whether to traverse into called sub-computations.
+    detect_fusion_blockers: Whether to annotate bitcast/copy/reshape/convert ops
+      with [FUSION_BLOCKER].
+    opcode_filter: Optional substring filter on neighbor opcodes.
+    max_nodes: Maximum number of instructions to return (default 200).
 
   Returns:
     A textual description of the neighborhood with high-fidelity formatting.
@@ -425,6 +507,13 @@ def get_hlo_neighborhood(
   if target_instr.startswith("%"):
     target_instr = target_instr[1:]
 
+  dir_norm = (direction or "both").strip().lower()
+  if dir_norm not in _VALID_DIRECTIONS:
+    raise ValueError(
+        f"Invalid direction '{direction}'. Expected one of: 'both',"
+        " 'upstream'/'parents'/'operands', or 'downstream'/'children'/'users'."
+    )
+
   try:
     try:
       target_module = resolve_module_name(session_id, module_name)
@@ -433,97 +522,21 @@ def get_hlo_neighborhood(
     except ValueError as e:
       return str(e)
 
-    # Fetch full text from native graph_viewer.
-    client = xprof_client.get_client()
-    _, full_text = client.fetch(
-        tool_name="graph_viewer.json",
-        session_id=str(session_id),
-        graph_viewer_options={
-            "type": "long_txt" if print_metadata else "short_txt",
-            "module_name": target_module,
-        },
+    db = _resolve_oss_graph_db(
+        session_id, target_module, print_metadata=print_metadata
     )
-    full_text = (
-        full_text.decode("utf-8") if isinstance(full_text, bytes) else full_text
+    return db.get_neighborhood(
+        target_instr,
+        radius=radius,
+        fmt=fmt,
+        print_metadata=print_metadata,
+        direction=direction,
+        follow_calls=follow_calls,
+        detect_fusion_blockers=detect_fusion_blockers,
+        opcode_filter=opcode_filter,
+        oss_style_suggestions=True,
+        max_nodes=max_nodes,
     )
-
-    # 1. Build graph from text.
-    # Map naming convention: X_by_Y.
-    line_by_name = {}
-    operands_by_name = {}
-    users_by_name = collections.defaultdict(list)
-    comp_name_by_instr_name = {}
-
-    current_comp = "unknown"
-
-    for line in full_text.splitlines():
-      stripped = line.strip()
-
-      # Detect computation headers in both renderers. short_txt emits bare names
-      # (e.g. "ENTRY entry {") with no leading "%", so header detection must not
-      # gate on "%". Instruction lines contain "=" and are handled below.
-      m_comp = _COMP_NAME_RE.match(stripped)
-      if m_comp and "=" not in stripped and not stripped.startswith("ROOT "):
-        current_comp = m_comp.group(1)
-        continue
-
-      clean_line = stripped[5:] if stripped.startswith("ROOT ") else stripped
-
-      m = _INSTR_RE.fullmatch(clean_line)
-      if m:
-        instr_name = m.group(1)
-        rhs = m.group(2)
-        line_by_name[instr_name] = line.strip()
-        comp_name_by_instr_name[instr_name] = current_comp
-
-        rhs_no_metadata = _METADATA_RE.sub("", rhs)
-        operands = _OPERAND_RE.findall(rhs_no_metadata)
-
-        operands_by_name[instr_name] = operands
-        for op in operands:
-          users_by_name[op].append(instr_name)
-
-    if target_instr not in line_by_name:
-      msg = f"Instruction '{target_instr}' not found in HLO module."
-      top_instrs = list(line_by_name.keys())[:10]
-      if top_instrs:
-        msg += f" Suggestions: {', '.join(top_instrs)}"
-      return msg
-
-    # 2. Perform BFS.
-    visited = {target_instr}
-    queue = collections.deque([(target_instr, 0)])
-    neighborhood = []
-
-    while queue:
-      curr_name, dist = queue.popleft()
-      neighborhood.append((dist, curr_name))
-
-      if dist < radius:
-        for operand_name in operands_by_name.get(curr_name, []):
-          if operand_name not in visited and operand_name in line_by_name:
-            visited.add(operand_name)
-            queue.append((operand_name, dist + 1))
-        for user_name in users_by_name.get(curr_name, []):
-          if user_name not in visited and user_name in line_by_name:
-            visited.add(user_name)
-            queue.append((user_name, dist + 1))
-
-    # 3. Format the output.
-    # Unpack tuples using operator.itemgetter for sorting.
-    neighborhood.sort(key=operator.itemgetter(0, 1))
-    output_lines = [f"Neighborhood of '{target_instr}' (radius={radius}):"]
-
-    for dist, name in neighborhood:
-      prefix = "  " * (dist + 1)
-      dist_str = f"[dist={dist}]"
-      comp_name = comp_name_by_instr_name.get(name, "unknown")
-      context_str = f" [{comp_name}]"
-      text_line = line_by_name[name]
-
-      output_lines.append(f"{prefix}{dist_str}{context_str} {text_line}")
-
-    return "\n".join(output_lines)
 
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception(
@@ -535,6 +548,65 @@ def get_hlo_neighborhood(
         module_name,
     )
     return f"Error analyzing neighborhood: {e!r}"
+
+
+@decorators.cached(expire=86_400)
+def query_hlo_graph(
+    session_id: str,
+    mode: str = "summary",
+    module_name: str | None = None,
+    *,
+    opcode: str | None = None,
+    category: str | None = None,
+    comp_name: str | None = None,
+    name_pattern: str | None = None,
+    src_op: str | None = None,
+    dst_op: str | None = None,
+    sql: str | None = None,
+    limit: int = 50,
+    sort_by: str = "count",
+) -> str:
+  """Executes relational, structural, or SQL queries against the HLO Graph DB.
+
+  Args:
+    session_id: The unique XProf session ID.
+    mode: Query mode ('summary', 'opcode_stats', 'fusion_blockers',
+      'shortest_path', 'call_tree', 'sql', 'search').
+    module_name: Optional name of the HLO module to query.
+    opcode: Optional opcode filter for 'search'.
+    category: Optional category filter for 'search'.
+    comp_name: Optional computation filter.
+    name_pattern: Optional substring or SQL LIKE pattern for 'search'.
+    src_op: Source instruction name for mode='shortest_path'.
+    dst_op: Destination instruction name for mode='shortest_path'.
+    sql: Custom read-only SQL SELECT query when mode='sql'.
+    limit: Maximum number of rows to return (default 50).
+    sort_by: Sort criterion for 'opcode_stats' ('count', 'flops', 'bytes').
+
+  Returns:
+    A JSON-formatted string containing the structured query results.
+  """
+  try:
+    target_module = resolve_module_name(session_id, module_name)
+    db = _resolve_oss_graph_db(session_id, target_module, print_metadata=False)
+    result = db.query(
+        mode=mode,
+        opcode=opcode,
+        category=category,
+        comp_name=comp_name,
+        name_pattern=name_pattern,
+        src_op=src_op,
+        dst_op=dst_op,
+        sql=sql,
+        limit=limit,
+        sort_by=sort_by,
+    )
+    return json.dumps(result, indent=2)
+  except (ValueError, FileNotFoundError):
+    raise
+  except Exception as e:  # pylint: disable=broad-exception-caught
+    logging.exception("Error querying HLO graph in session %s", session_id)
+    raise RuntimeError(f"Error querying HLO graph: {e!r}") from e
 
 
 def get_hlo_stats(session_id: str) -> str:

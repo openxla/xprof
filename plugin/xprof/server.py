@@ -294,6 +294,7 @@ _CLI_SUBCOMMANDS = frozenset({
     "list_hlo_modules",
     "list_xplane_events",
     "list_xplane_lines",
+    "query_hlo_graph",
     "upload_trace",
 })
 

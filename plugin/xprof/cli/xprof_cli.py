@@ -106,6 +106,7 @@ def cli_main() -> dict[str, Any]:
       "list_hlo_modules": hlo_tools.list_hlo_modules,
       "list_xplane_events": xplane_tools.list_xplane_events,
       "list_xplane_lines": xplane_tools.inspect_capture,
+      "query_hlo_graph": hlo_tools.query_hlo_graph,
       "upload_trace": upload_trace_tool.upload_trace,
       # keep-sorted end
       # 2 Tools Gated in 3P (Third Party Only):

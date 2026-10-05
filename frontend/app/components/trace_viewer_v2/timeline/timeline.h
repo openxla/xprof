@@ -116,6 +116,11 @@ struct Group {
   // Indicates if this group has nested child tracks.
   bool has_children = false;
 
+  // Indicates if this group has no events in the current timeline data.
+  bool is_empty = false;
+  // Number of events in this group.
+  int num_events = 0;
+
   // Cached layout offset (screen Y coordinate in pixels).
   mutable Pixel offset = 0.0f;
   // Cached full height (in pixels) of the track based on level count.

@@ -879,8 +879,8 @@ TEST_F(DataProviderTest, MpmdFirstProcessSuppressedExpansion) {
   EXPECT_THAT(
       Process(events, /*mpmd=*/false).groups,
       ElementsAre(
-          GroupIs("Empty_Process", true), GroupIs("Async_Framework", true),
-          GroupIs("Steps", true), GroupIs("Active_Process", false),
+          GroupIs("Empty_Process", true), GroupIs("Async_Framework", false),
+          GroupIs("Steps", false), GroupIs("Active_Process", false),
           GroupIs("Active_Thread", true), GroupIs("Active_Process_2", false),
           GroupIs("Active_Thread_2", true)));
 }
@@ -5450,6 +5450,68 @@ TEST_F(DataProviderTest,
   EXPECT_EQ(args.at("group_id"), "7");
   EXPECT_EQ(args.at(std::string(kHloOp)), "fusion.1");
   EXPECT_EQ(args.at(std::string(kHloModule)), "jit_train(42)");
+}
+
+TEST_F(DataProviderTest, EmptyChildThreadTracksDefaultToCollapsed) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Process 1"),
+      CreateThreadEvent(1, 10, "Thread A (With Events)"),
+      CreateCompleteEvent(1, 10, "Event 1", 100.0, 50.0),
+      CreateThreadEvent(1, 20, "Thread B (Empty)"),
+  };
+  const FlameChartTimelineData& data = Process(events);
+
+  ASSERT_THAT(data.groups, SizeIs(3));
+  // Group 0: Process 1
+  EXPECT_EQ(data.groups[0].name, "Process 1");
+  EXPECT_EQ(data.groups[0].nesting_level, kProcessNestingLevel);
+  EXPECT_TRUE(data.groups[0].expanded);
+
+  // Group 1: Thread A (With Events) (non-empty child)
+  EXPECT_EQ(data.groups[1].name, "Thread A (With Events)");
+  EXPECT_EQ(data.groups[1].nesting_level, kThreadNestingLevel);
+  EXPECT_FALSE(data.groups[1].is_empty);
+  EXPECT_EQ(data.groups[1].num_events, 1);
+  EXPECT_TRUE(data.groups[1].expanded);
+
+  // Group 2: Thread B (Empty) (empty child track should default to collapsed)
+  EXPECT_EQ(data.groups[2].name, "Thread B (Empty)");
+  EXPECT_EQ(data.groups[2].nesting_level, kThreadNestingLevel);
+  EXPECT_TRUE(data.groups[2].is_empty);
+  EXPECT_EQ(data.groups[2].num_events, 0);
+  EXPECT_FALSE(data.groups[2].expanded);
+}
+
+TEST_F(DataProviderTest, EmptyChildThreadTrackUserExpandedPreferencePreserved) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Process 1"),
+      CreateThreadEvent(1, 10, "Thread A (With Events)"),
+      CreateCompleteEvent(1, 10, "Event 1", 100.0, 50.0),
+      CreateThreadEvent(1, 20, "Thread B (Empty)"),
+  };
+
+  // Initial load: empty thread defaults to collapsed.
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = events}, timeline_);
+  ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(3));
+  EXPECT_EQ(timeline_.timeline_data().groups[2].name, "Thread B (Empty)");
+  EXPECT_FALSE(timeline_.timeline_data().groups[2].expanded);
+
+  // User explicitly expands the empty thread track.
+  {
+    FlameChartTimelineData data = timeline_.timeline_data();
+    data.groups[2].expanded = true;
+    timeline_.SetTimelineData(std::move(data));
+  }
+
+  // Reload with same events: user's expanded preference should be preserved.
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = events}, timeline_);
+  ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(3));
+  EXPECT_EQ(timeline_.timeline_data().groups[2].name, "Thread B (Empty)");
+  EXPECT_TRUE(timeline_.timeline_data().groups[2].expanded);
+  EXPECT_TRUE(timeline_.timeline_data().groups[2].is_empty);
+  EXPECT_EQ(timeline_.timeline_data().groups[2].num_events, 0);
 }
 }  // namespace
 }  // namespace traceviewer

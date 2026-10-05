@@ -225,7 +225,7 @@ int Timeline::GetNextGroupStartLevel(const FlameChartTimelineData& data,
                                      int group_index) {
   if (group_index >= 0 && group_index < data.groups.size()) {
     const auto& group = data.groups[group_index];
-    if (group.has_children && group.nesting_level == kProcessNestingLevel) {
+    if (group.has_children) {
       return group.start_level;
     }
     return group.start_level + group.level_count;
@@ -480,6 +480,23 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
            ++level) {
         if (level < level_count) {
           new_visible_level_offsets[level] = hidden_group_center_y;
+        }
+      }
+      continue;
+    }
+
+    const bool is_collapsed_empty_subtrack =
+        group.type == Group::Type::kFlame &&
+        group.nesting_level > kProcessNestingLevel &&
+        !group.has_children && group.is_empty && !group.expanded;
+
+    if (is_collapsed_empty_subtrack) {
+      new_group_offsets[group_index] = current_offset;
+      new_group_visible[group_index] = false;
+      for (int level = group.start_level; level < next_group_start_level;
+           ++level) {
+        if (level < level_count) {
+          new_visible_level_offsets[level] = current_offset;
         }
       }
       continue;

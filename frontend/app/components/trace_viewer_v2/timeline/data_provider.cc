@@ -713,9 +713,12 @@ void PopulateThreadTrack(
                             : it->second;
   }
 
+  const bool default_track_expanded =
+      events.empty() ? false : default_expanded;
   bool expanded =
       GetExpandedState(kThreadNestingLevel, thread_group_name,
-                       process_group_name, default_expanded, expanded_states);
+                       process_group_name, default_track_expanded,
+                       expanded_states);
 
   int child_index = static_cast<int>(data.groups.size());
   data.groups.push_back({.type = Group::Type::kFlame,
@@ -724,6 +727,8 @@ void PopulateThreadTrack(
                          .nesting_level = kThreadNestingLevel,
                          .expanded = expanded,
                          .parent_index = parent_index,
+                         .is_empty = events.empty(),
+                         .num_events = static_cast<int>(events.size()),
                          .pid = pid,
                          .tid = tid});
 
@@ -759,7 +764,8 @@ void PopulateThreadTrack(
     it->second.end_level = std::max(it->second.end_level, current_level);
   }
 
-  if (max_level == start_level && !expanded_states.contains(group_key)) {
+  if (!events.empty() && max_level == start_level &&
+      !expanded_states.contains(group_key)) {
     data.groups.back().expanded = true;
   }
 }
@@ -790,6 +796,9 @@ void PopulateCounterTrack(
   for (const CounterEvent* event : events) {
     total_entries += event->timestamps.size();
   }
+
+  group.is_empty = events.empty();
+  group.num_events = static_cast<int>(total_entries);
 
   CounterData counter_data;
   if (!events.empty()) {

@@ -137,34 +137,35 @@ static wgpu::BindGroup CreateImageBindGroup(wgpu::BindGroupLayout layout,
 
 static void SetupRenderState(ImDrawData* draw_data,
                              wgpu::RenderPassEncoder pass_encoder,
-                             FrameResources* frame) {
+                             FrameResources* frame,
+                             bool write_uniforms = true) {
   ImGui_ImplWGPU_Data* bd = ImGui_ImplWGPU_GetBackendData();
-  {
+  if (write_uniforms) {
     float left = draw_data->DisplayPos.x;
     float right = draw_data->DisplayPos.x + draw_data->DisplaySize.x;
     float top = draw_data->DisplayPos.y;
     float bottom = draw_data->DisplayPos.y + draw_data->DisplaySize.y;
-    const float mvp[4][4] = {
-        {2.0f / (right - left), 0.0f, 0.0f, 0.0f},
-        {0.0f, 2.0f / (top - bottom), 0.0f, 0.0f},
-        {0.0f, 0.0f, 0.5f, 0.0f},
-        {(right + left) / (left - right), (top + bottom) / (bottom - top), 0.5f,
-         1.0f},
+    Uniforms u = {
+        .mvp =
+            {
+                {2.0f / (right - left), 0.0f, 0.0f, 0.0f},
+                {0.0f, 2.0f / (top - bottom), 0.0f, 0.0f},
+                {0.0f, 0.0f, 0.5f, 0.0f},
+                {(right + left) / (left - right),
+                 (top + bottom) / (bottom - top), 0.5f, 1.0f},
+            },
+        .gamma = 1.0f,
     };
-    bd->default_queue.WriteBuffer(bd->render_resources.uniforms,
-                                  offsetof(Uniforms, mvp), &mvp, sizeof(mvp));
-    float gamma = 1.0f;
     switch (bd->init_info.target_format) {
       case wgpu::TextureFormat::BGRA8UnormSrgb:
       case wgpu::TextureFormat::RGBA8UnormSrgb:
-        gamma = 2.2f;
+        u.gamma = 2.2f;
         break;
       default:
         break;
     }
-    bd->default_queue.WriteBuffer(bd->render_resources.uniforms,
-                                  offsetof(Uniforms, gamma), &gamma,
-                                  sizeof(gamma));
+    bd->default_queue.WriteBuffer(bd->render_resources.uniforms, 0, &u,
+                                  sizeof(Uniforms));
   }
   pass_encoder.SetViewport(
       0, 0, draw_data->FramebufferScale.x * draw_data->DisplaySize.x,
@@ -263,7 +264,8 @@ void ImGui_ImplWGPU_RenderDrawData(ImDrawData* draw_data,
       const ImDrawCmd* pcmd = &cmd_list->CmdBuffer[cmd_i];
       if (pcmd->UserCallback) {
         if (pcmd->UserCallback == ImDrawCallback_ResetRenderState) {
-          SetupRenderState(draw_data, pass_encoder, frame);
+          SetupRenderState(draw_data, pass_encoder, frame,
+                           /*write_uniforms=*/false);
         } else {
           pcmd->UserCallback(cmd_list, pcmd);
         }

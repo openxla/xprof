@@ -1,3 +1,4 @@
+import {Location} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
@@ -348,6 +349,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly dataService: DataServiceV2Interface = inject(
     DATA_SERVICE_INTERFACE_TOKEN,
   );
+  private readonly location = inject(Location, {optional: true});
   private readonly changeDetectorRef = inject(ChangeDetectorRef);
   private readonly elementRef = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly route = inject(ActivatedRoute);
@@ -811,15 +813,32 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private onRouteChange(params: Params, queryParams: Params): void {
+    const searchParams = this.dataService.getSearchParams?.();
+    const getParam = (key: string): string | undefined => {
+      const fromRoute = queryParams[key];
+      if (typeof fromRoute === 'string' && fromRoute) {
+        return fromRoute;
+      }
+      const fromSearch = searchParams?.get(key);
+      return fromSearch ? fromSearch : undefined;
+    };
+
     this.sessionId =
       params['sessionId'] ??
-      queryParams['run'] ??
-      queryParams['sessionId'] ??
+      getParam('run') ??
+      getParam('sessionId') ??
       this.sessionId;
-    this.host = queryParams['host'] ?? DEFAULT_HOST;
-    this.requestedKernel =
-      queryParams['kernel_name'] ?? queryParams['kernel'] ?? '';
-    this.requestedModule = queryParams['hlo_module'] ?? '';
+    this.host = getParam('host') ?? DEFAULT_HOST;
+    const hasRouteKernelOrModule =
+      queryParams['kernel_name'] !== undefined ||
+      queryParams['kernel'] !== undefined ||
+      queryParams['hlo_module'] !== undefined;
+    this.requestedKernel = hasRouteKernelOrModule
+      ? (queryParams['kernel_name'] ?? queryParams['kernel'] ?? '')
+      : (getParam('kernel_name') ?? getParam('kernel') ?? '');
+    this.requestedModule = hasRouteKernelOrModule
+      ? (queryParams['hlo_module'] ?? '')
+      : (getParam('hlo_module') ?? '');
 
     // Only refetch the kernel list when the profile changes. Other query
     // parameter changes at most switch the open kernel.
@@ -843,7 +862,12 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     this.backgroundTabCount = 0;
     this.hideCard();
     this.url = '';
-    this.selectEntry(this.findRequestedEntry() ?? this.entries[0]);
+    const initialEntry = this.findRequestedEntry() ?? this.entries[0];
+    if (initialEntry) {
+      this.selectEntry(initialEntry);
+    } else {
+      this.updateUrlQueryParams();
+    }
   }
 
   private findRequestedEntry(): KernelEntry | undefined {
@@ -866,6 +890,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   /** Loads the trace of `entry` into the timeline. */
   private showEntry(entry: KernelEntry): void {
     this.collapsedModules.delete(entry.module);
+    this.updateUrlQueryParams();
     const queryParamsMap = new Map<string, string>([
       ['request_type', 'trace'],
       ['kernel_name', entry.kernel],
@@ -881,9 +906,48 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       queryParamsMap,
     );
     if (this.traceViewerModule?.loadTraceData) {
+      this.traceViewerModule.application?.instance?.()?.dataProvider?.();
+      this.traceViewerModule.processTraceEvents?.({traceEvents: []});
       void this.traceViewerModule.loadTraceData(this.url);
     }
     this.scrollIntoView('.kernel-row.active', '.kernel-tab.active');
+  }
+
+  private updateUrlQueryParams(): void {
+    const entry = this.selectedEntry;
+    const applyParams = (params: URLSearchParams) => {
+      if (entry?.module) {
+        params.set('hlo_module', entry.module);
+      } else {
+        params.delete('hlo_module');
+      }
+
+      if (entry?.kernel) {
+        params.set('kernel_name', entry.kernel);
+      } else {
+        params.delete('kernel_name');
+      }
+      params.delete('kernel');
+    };
+
+    if (this.dataService.getSearchParams && this.dataService.setSearchParams) {
+      const searchParams = this.dataService.getSearchParams();
+      applyParams(searchParams);
+      this.dataService.setSearchParams(searchParams);
+    }
+
+    if (this.location) {
+      const url = new URL(this.location.path(), window.location.origin);
+      const searchParams = new URLSearchParams(url.search);
+      applyParams(searchParams);
+      const newSearch = searchParams.toString();
+      const currentSearch = url.search.startsWith('?')
+        ? url.search.slice(1)
+        : url.search;
+      if (currentSearch !== newSearch) {
+        this.location.replaceState(url.pathname, decodeURIComponent(newSearch));
+      }
+    }
   }
 
   private closeLeastRecentlyUsedTab(): void {

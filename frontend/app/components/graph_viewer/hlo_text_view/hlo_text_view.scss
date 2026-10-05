@@ -4,25 +4,34 @@
 
 .hlo-text-area {
   position: relative;
-  height: 40vh; /* Viewport-relative units */
+  height: 40vh;
   width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--mat-sys-corner-small, 8px);
+  background-color: var(--mat-sys-surface-container-low);
+  color: var(--mat-sys-on-surface);
+  font-family: var(--mat-sys-code-font, monospace);
+  padding: var(--spacing-3, 12px);
 }
 
 .hlo-text-view-panel {
-  box-shadow: none;
-  border-bottom: 0.5px solid silver;
-  border-radius: 0;
+  background-color: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--mat-sys-corner-medium, 12px);
+  box-shadow: var(--mat-sys-level0, none);
 }
 
 .hlo-text-load-button-container {
-  margin-bottom: 10px;
+  margin-bottom: var(--spacing-3, 12px);
 }
 
 .hlo-text-load-button {
-  margin-right: 10px;
+  margin-right: var(--spacing-2, 8px);
 }
 
-mat-progress-bar {
+md-linear-progress {
   width: 300px;
   margin: 0 auto;
 }
@@ -30,15 +39,19 @@ mat-progress-bar {
 .loading-message {
   width: fit-content;
   margin: 0 auto;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
 }
 
 .progress-container {
   position: absolute;
   width: 100%;
-  margin: 300 0;
+  margin: 300px 0;
   z-index: 1;
 }
 
 .hlo-text-load-status {
-  padding: 10px;
+  padding: var(--spacing-2, 8px) 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
 }

@@ -33,7 +33,7 @@ const selectIcon = html`<svg
   <g clip-path="url(#clip_select)">
     <path
       d="M15.1875 22L12.3125 15.8542L9 20V6L20 15H14.125L17 21.1458L15.1875 22Z"
-      fill="#444746" />
+      fill="var(--mat-sys-on-surface-variant, #444746)" />
   </g>
   <defs>
     <clipPath id="clip_select">
@@ -52,7 +52,7 @@ const panIcon = html`<svg
   <g clip-path="url(#clip_pan)">
     <path
       d="M10 18L6.5 14.5L7.5625 13.4375L9.25 15.125V10.75H4.875L6.5625 12.4375L5.5 13.5L2 10L5.5 6.5L6.5625 7.5625L4.875 9.25H9.25V4.875L7.5625 6.5625L6.5 5.5L10 2L13.5 5.5L12.4375 6.5625L10.75 4.875V9.25H15.125L13.4375 7.5625L14.5 6.5L18 10L14.5 13.5L13.4375 12.4375L15.125 10.75H10.75V15.125L12.4375 13.4375L13.5 14.5L10 18Z"
-      fill="#444746" />
+      fill="var(--mat-sys-on-surface-variant, #444746)" />
   </g>
   <defs>
     <clipPath id="clip_pan">
@@ -71,7 +71,7 @@ const zoomIcon = html`<svg
   <g clip-path="url(#clip_zoom)">
     <path
       d="M10 17L7 14L8.0625 12.9375L9.25 14.125V5.875L8.0625 7.0625L7 6L10 3L13 6L11.9375 7.0625L10.75 5.875V14.125L11.9375 12.9375L13 14L10 17Z"
-      fill="#444746" />
+      fill="var(--mat-sys-on-surface-variant, #444746)" />
   </g>
   <defs>
     <clipPath id="clip_zoom">
@@ -90,7 +90,7 @@ const measureIcon = html`<svg
   <g clip-path="url(#clip_measure)">
     <path
       d="M18 16H16.5V4H18V16ZM15 10L12 13L10.9375 11.9375L12.125 10.75H7.875L9.0625 11.9375L8 13L5 10L8 7L9.0625 8.0625L7.875 9.25H12.125L10.9375 8.0625L12 7L15 10ZM3.5 16H2L2 4H3.5L3.5 16Z"
-      fill="#444746" />
+      fill="var(--mat-sys-on-surface-variant, #444746)" />
   </g>
   <defs>
     <clipPath id="clip_measure">
@@ -111,7 +111,7 @@ const closeXIcon = html`<svg
   xmlns="http://www.w3.org/2000/svg">
   <path
     d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41Z"
-    fill="#5f6368" />
+    fill="var(--mat-sys-on-surface-variant, #5f6368)" />
 </svg>`;
 
 const searchIcon = html`<svg
@@ -123,7 +123,7 @@ const searchIcon = html`<svg
   style="vertical-align: middle; display: inline-block; flex-shrink: 0;">
   <path
     d="M15.5 14H14.71L14.43 13.73C15.41 12.59 16 11.11 16 9.5C16 5.91 13.09 3 9.5 3C5.91 3 3 5.91 3 9.5C3 13.09 5.91 16 9.5 16C11.11 16 12.59 15.41 13.73 14.43L14 14.71V15.5L19 20.49L20.49 19L15.5 14ZM9.5 14C7.01 14 5 11.99 5 9.5C5 7.01 7.01 5 9.5 5C11.99 5 14 7.01 14 9.5C14 11.99 11.99 14 9.5 14Z"
-    fill="#5f6368" />
+    fill="var(--mat-sys-on-surface-variant, #5f6368)" />
 </svg>`;
 
 const clearIcon = html`<svg
@@ -135,7 +135,7 @@ const clearIcon = html`<svg
   style="vertical-align: middle; display: inline-block;">
   <path
     d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41Z"
-    fill="#5f6368" />
+    fill="var(--mat-sys-on-surface-variant, #5f6368)" />
 </svg>`;
 
 // Category Icons (Blue #1a73e8)
@@ -148,7 +148,7 @@ const navCategoryIcon = html`<svg
   style="flex-shrink: 0;">
   <path
     d="M12 2L4.5 20.29L5.21 21L12 18L18.79 21L19.5 20.29L12 2Z"
-    fill="#1a73e8" />
+    fill="var(--mat-sys-primary, #1a73e8)" />
 </svg>`;
 
 const modeCategoryIcon = html`<svg
@@ -160,7 +160,7 @@ const modeCategoryIcon = html`<svg
   style="flex-shrink: 0;">
   <path
     d="M9 11.24V7.5C9 6.12 10.12 5 11.5 5S14 6.12 14 7.5V11.24C15.82 12.18 17 14.1 17 16.5C17 19.54 14.54 22 11.5 22S6 19.54 6 16.5C6 14.1 7.18 12.18 9 11.24ZM11.5 7C11.22 7 11 7.22 11 7.5V13H12V7.5C12 7.22 11.78 7 11.5 7Z"
-    fill="#1a73e8" />
+    fill="var(--mat-sys-primary, #1a73e8)" />
 </svg>`;
 
 const selectionCategoryIcon = html`<svg
@@ -172,7 +172,7 @@ const selectionCategoryIcon = html`<svg
   style="flex-shrink: 0;">
   <path
     d="M3 5H5V3C3.9 3 3 3.9 3 5ZM3 13H5V11H3V13ZM7 21H9V19H7V21ZM3 9H5V7H3V9ZM13 3H11V5H13V3ZM19 3V5H21C21 3.9 20.1 3 19 3ZM5 21V19H3C3 20.1 3.9 21 5 21ZM3 17H5V15H3V17ZM9 3H7V5H9V3ZM11 21H13V19H11V21ZM19 13H21V11H19V13ZM19 21C20.1 21 21 20.1 21 19H19V21ZM19 9H21V7H19V9ZM19 17H21V15H19V17ZM15 21H17V19H15V21ZM15 5H17V3H15V5ZM7 17H17V7H7V17Z"
-    fill="#1a73e8" />
+    fill="var(--mat-sys-primary, #1a73e8)" />
 </svg>`;
 
 const generalCategoryIcon = html`<svg
@@ -184,7 +184,7 @@ const generalCategoryIcon = html`<svg
   style="flex-shrink: 0;">
   <path
     d="M20 5H4C2.9 5 2 5.9 2 7V17C2 18.1 2.9 19 4 19H20C21.1 19 22 18.1 22 17V7C22 5.9 21.1 5 20 5ZM20 17H4V7H20V17ZM5 8H7V10H5V8ZM5 11H7V13H5V11ZM5 14H7V16H5V14ZM8 8H10V10H8V8ZM8 11H10V13H8V11ZM8 14H16V16H8V14ZM11 8H13V10H11V8ZM11 11H13V13H11V11ZM14 8H16V10H14V8ZM14 11H16V13H14V11ZM17 8H19V10H17V8ZM17 11H19V13H17V11ZM17 14H19V16H17V14Z"
-    fill="#1a73e8" />
+    fill="var(--mat-sys-primary, #1a73e8)" />
 </svg>`;
 
 // Mouse Control Icons (Muted Gray #5f6368)
@@ -193,7 +193,7 @@ const mouseScrollIcon = html`<svg
   height="13"
   viewBox="0 0 24 24"
   fill="none"
-  stroke="#5f6368"
+  stroke="var(--mat-sys-on-surface-variant, #5f6368)"
   stroke-width="2"
   stroke-linecap="round"
   stroke-linejoin="round"
@@ -207,7 +207,7 @@ const mouseHandIcon = html`<svg
   height="13"
   viewBox="0 0 24 24"
   fill="none"
-  stroke="#5f6368"
+  stroke="var(--mat-sys-on-surface-variant, #5f6368)"
   stroke-width="2"
   stroke-linecap="round"
   stroke-linejoin="round"
@@ -221,7 +221,7 @@ const mouseClickIcon = html`<svg
   height="13"
   viewBox="0 0 24 24"
   fill="none"
-  stroke="#5f6368"
+  stroke="var(--mat-sys-on-surface-variant, #5f6368)"
   stroke-width="2"
   stroke-linecap="round"
   stroke-linejoin="round"
@@ -239,7 +239,7 @@ const mouseDoubleClickIcon = html`<svg
   height="13"
   viewBox="0 0 24 24"
   fill="none"
-  stroke="#5f6368"
+  stroke="var(--mat-sys-on-surface-variant, #5f6368)"
   stroke-width="2"
   stroke-linecap="round"
   stroke-linejoin="round"
@@ -252,7 +252,7 @@ const mouseRefreshIcon = html`<svg
   height="13"
   viewBox="0 0 24 24"
   fill="none"
-  stroke="#5f6368"
+  stroke="var(--mat-sys-on-surface-variant, #5f6368)"
   stroke-width="2"
   stroke-linecap="round"
   stroke-linejoin="round"
@@ -266,7 +266,7 @@ const mouseTimerIcon = html`<svg
   height="13"
   viewBox="0 0 24 24"
   fill="none"
-  stroke="#5f6368"
+  stroke="var(--mat-sys-on-surface-variant, #5f6368)"
   stroke-width="2"
   stroke-linecap="round"
   stroke-linejoin="round"
@@ -280,7 +280,7 @@ const mouseZoomIcon = html`<svg
   height="13"
   viewBox="0 0 24 24"
   fill="none"
-  stroke="#5f6368"
+  stroke="var(--mat-sys-on-surface-variant, #5f6368)"
   stroke-width="2"
   stroke-linecap="round"
   stroke-linejoin="round"
@@ -296,7 +296,7 @@ const mouseMeasureIcon = html`<svg
   height="13"
   viewBox="0 0 24 24"
   fill="none"
-  stroke="#5f6368"
+  stroke="var(--mat-sys-on-surface-variant, #5f6368)"
   stroke-width="2"
   stroke-linecap="round"
   stroke-linejoin="round"
@@ -320,10 +320,13 @@ export class TraceViewerHelpDialog extends LitElement {
       font-family: Roboto, 'Google Sans', sans-serif;
     }
     md-dialog {
-      --md-dialog-container-color: #ffffff;
-      --md-sys-color-primary: #1a73e8;
-      --md-sys-color-on-surface: #202124;
-      --md-sys-color-on-surface-variant: #5f6368;
+      --md-dialog-container-color: var(--mat-sys-surface, #ffffff);
+      --md-sys-color-primary: var(--mat-sys-primary, #1a73e8);
+      --md-sys-color-on-surface: var(--mat-sys-on-surface, #202124);
+      --md-sys-color-on-surface-variant: var(
+        --mat-sys-on-surface-variant,
+        #5f6368
+      );
       --md-dialog-container-shape: 28px;
       border-radius: 28px;
       --md-dialog-container-min-width: 760px;
@@ -347,7 +350,7 @@ export class TraceViewerHelpDialog extends LitElement {
       align-items: center;
       width: 100%;
       padding: 16px 20px 14px 24px;
-      border-bottom: 1px solid #e0e0e0;
+      border-bottom: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
       box-sizing: border-box;
       font-family: Roboto, 'Google Sans', sans-serif;
     }
@@ -359,7 +362,7 @@ export class TraceViewerHelpDialog extends LitElement {
     .dialog-title {
       font-size: 20px;
       font-weight: 500;
-      color: #202124;
+      color: var(--mat-sys-on-surface, #202124);
       line-height: 28px;
       font-family: Roboto, 'Google Sans', sans-serif;
     }
@@ -368,8 +371,8 @@ export class TraceViewerHelpDialog extends LitElement {
       align-items: center;
       padding: 3px 10px;
       border-radius: 9999px;
-      background-color: #f1f3f4;
-      color: #5f6368;
+      background-color: var(--mat-sys-surface-container, #f1f3f4);
+      color: var(--mat-sys-on-surface-variant, #5f6368);
       font-family: Roboto, 'Google Sans', sans-serif;
       font-size: 12px;
       font-weight: 500;
@@ -388,8 +391,8 @@ export class TraceViewerHelpDialog extends LitElement {
       height: 36px;
       width: 240px;
       padding: 0 12px;
-      background-color: #ffffff;
-      border: 1px solid #1a73e8;
+      background-color: var(--mat-sys-surface, #ffffff);
+      border: 1px solid var(--mat-sys-primary, #1a73e8);
       border-radius: 9999px;
       box-sizing: border-box;
       transition: box-shadow 0.2s;
@@ -406,10 +409,10 @@ export class TraceViewerHelpDialog extends LitElement {
       font-size: 13px;
       font-weight: 400;
       font-family: Roboto, 'Google Sans', sans-serif;
-      color: #202124;
+      color: var(--mat-sys-on-surface, #202124);
     }
     .search-input::placeholder {
-      color: #5f6368;
+      color: var(--mat-sys-on-surface-variant, #5f6368);
       font-family: Roboto, 'Google Sans', sans-serif;
     }
     .clear-search-btn {
@@ -421,14 +424,14 @@ export class TraceViewerHelpDialog extends LitElement {
       padding: 2px;
       cursor: pointer;
       border-radius: 50%;
-      color: #5f6368;
+      color: var(--mat-sys-on-surface-variant, #5f6368);
       line-height: 0;
     }
     .clear-search-btn:hover {
-      background-color: #f1f3f4;
+      background-color: var(--mat-sys-surface-container, #f1f3f4);
     }
     .close-btn {
-      color: #5f6368;
+      color: var(--mat-sys-on-surface-variant, #5f6368);
     }
     .dialog-content {
       width: 100%;
@@ -444,11 +447,11 @@ export class TraceViewerHelpDialog extends LitElement {
       flex: 1;
       display: flex;
       flex-direction: column;
-      border: 1px solid #e0e0e0;
+      border: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
       border-radius: 12px;
       overflow: hidden;
       min-height: 0;
-      background-color: #ffffff;
+      background-color: var(--mat-sys-surface, #ffffff);
       font-family: Roboto, 'Google Sans', sans-serif;
     }
     .table-container {
@@ -466,21 +469,21 @@ export class TraceViewerHelpDialog extends LitElement {
     .shortcuts-table thead {
       position: sticky;
       top: 0;
-      background-color: #ffffff;
+      background-color: var(--mat-sys-surface, #ffffff);
       z-index: 2;
     }
     .shortcuts-table thead th,
     th {
       padding: 12px 16px;
-      border-bottom: 1px solid #e0e0e0;
+      border-bottom: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
       font-family: Roboto, sans-serif;
       font-size: 11px;
       font-weight: 500;
       text-transform: uppercase;
       letter-spacing: 0.8px;
-      color: #5f6368;
+      color: var(--mat-sys-on-surface-variant, #5f6368);
       text-align: left;
-      background-color: #ffffff;
+      background-color: var(--mat-sys-surface, #ffffff);
     }
     .col-label {
       width: 38%;
@@ -492,27 +495,27 @@ export class TraceViewerHelpDialog extends LitElement {
       width: 30%;
     }
     .category-header-row td {
-      background-color: #f0f4f9;
+      background-color: var(--mat-sys-surface-container-low, #f0f4f9);
       padding: 9px 16px;
-      border-bottom: 1px solid #e0e0e0;
+      border-bottom: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
       font-family: Roboto, 'Google Sans', sans-serif;
     }
     .category-header-row:not(:first-child) td {
-      border-top: 1px solid #e0e0e0;
+      border-top: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
     }
     .category-header,
     .category-header-content {
       display: flex;
       align-items: center;
       gap: 8px;
-      color: #1a73e8;
+      color: var(--mat-sys-primary, #1a73e8);
       font-family: Roboto, 'Google Sans', sans-serif;
       font-size: 13px;
       font-weight: 500;
       line-height: 18px;
     }
     .shortcut-table-row {
-      border-bottom: 1px solid #f1f3f4;
+      border-bottom: 1px solid var(--mat-sys-surface-container, #f1f3f4);
       transition: background-color 0.15s ease;
       font-family: Roboto, 'Google Sans', sans-serif;
     }
@@ -520,7 +523,7 @@ export class TraceViewerHelpDialog extends LitElement {
       border-bottom: none;
     }
     .shortcut-table-row:hover {
-      background-color: #f8f9fa;
+      background-color: var(--mat-sys-surface-container-lowest, #f8f9fa);
     }
     td,
     .action-label,
@@ -528,7 +531,7 @@ export class TraceViewerHelpDialog extends LitElement {
       padding: 9px 16px;
       font-family: Roboto, 'Google Sans', sans-serif;
       font-size: 13px;
-      color: #202124;
+      color: var(--mat-sys-on-surface, #202124);
       font-weight: 400;
       vertical-align: middle;
       white-space: nowrap;
@@ -554,12 +557,12 @@ export class TraceViewerHelpDialog extends LitElement {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      color: #5f6368;
+      color: var(--mat-sys-on-surface-variant, #5f6368);
       font-family: Roboto, 'Google Sans', sans-serif;
       font-size: 13px;
     }
     .key-separator {
-      color: #5f6368;
+      color: var(--mat-sys-on-surface-variant, #5f6368);
       font-family: Roboto, 'Google Sans', sans-serif;
       font-size: 12px;
       margin: 0 4px;
@@ -569,11 +572,15 @@ export class TraceViewerHelpDialog extends LitElement {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      background: linear-gradient(180deg, #ffffff 0%, #f1f3f4 100%);
-      border: 1px solid #dadce0;
-      border-bottom: 2px solid #9aa0a6;
+      background: linear-gradient(
+        180deg,
+        var(--mat-sys-surface, #ffffff) 0%,
+        var(--mat-sys-surface-container, #f1f3f4) 100%
+      );
+      border: 1px solid var(--mat-sys-outline-variant, #dadce0);
+      border-bottom: 2px solid var(--mat-sys-outline, #9aa0a6);
       border-radius: 6px;
-      color: #202124;
+      color: var(--mat-sys-on-surface, #202124);
       font-family: Roboto, sans-serif;
       font-size: 12px;
       font-weight: 600;
@@ -582,7 +589,7 @@ export class TraceViewerHelpDialog extends LitElement {
       min-width: 14px;
       box-shadow:
         0 1px 2px rgba(0, 0, 0, 0.06),
-        inset 0 1px 0 #ffffff;
+        inset 0 1px 0 var(--mat-sys-surface, #ffffff);
     }
     .cell-mouse {
       padding: 9px 16px;
@@ -597,13 +604,13 @@ export class TraceViewerHelpDialog extends LitElement {
       align-items: center;
       gap: 6px;
       padding: 3px 10px;
-      background-color: #f8f9fa;
-      border: 1px solid #dadce0;
+      background-color: var(--mat-sys-surface-container-lowest, #f8f9fa);
+      border: 1px solid var(--mat-sys-outline-variant, #dadce0);
       border-radius: 6px;
       font-family: Roboto, 'Google Sans', sans-serif;
       font-size: 12px;
       font-weight: 500;
-      color: #3c4043;
+      color: var(--mat-sys-on-surface-variant, #3c4043);
       white-space: nowrap;
       line-height: 18px;
     }
@@ -622,13 +629,13 @@ export class TraceViewerHelpDialog extends LitElement {
       font-family: Roboto, 'Google Sans', sans-serif;
       font-size: 16px;
       font-weight: 500;
-      color: #202124;
+      color: var(--mat-sys-on-surface, #202124);
       margin-bottom: 8px;
     }
     .empty-search-subtext {
       font-family: Roboto, 'Google Sans', sans-serif;
       font-size: 13px;
-      color: #5f6368;
+      color: var(--mat-sys-on-surface-variant, #5f6368);
       max-width: 380px;
       margin: 0 auto;
       line-height: 20px;

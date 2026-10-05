@@ -7,15 +7,16 @@ import {MatSelectModule} from '@angular/material/select';
 import {CategoryFilter} from './category_filter';
 
 /** A category filter module. */
+// TODO(xprof): Remove this module once all consumers have migrated to importing
+// the standalone component directly.
 @NgModule({
-  declarations: [CategoryFilter],
   imports: [
     CommonModule,
     MatOptionModule,
     MatFormFieldModule,
     MatSelectModule,
+    CategoryFilter,
   ],
   exports: [CategoryFilter],
 })
-export class CategoryFilterModule {
-}
+export class CategoryFilterModule {}

@@ -14,7 +14,6 @@ import {OpProfile} from './op_profile';
 
 /** An op profile module. */
 @NgModule({
-  declarations: [OpProfile],
   imports: [
     MatFormFieldModule,
     MatIconModule,
@@ -26,8 +25,8 @@ import {OpProfile} from './op_profile';
     OpDetailsModule,
     CommonModule,
     OpProfileBaseModule,
+    OpProfile,
   ],
   exports: [OpProfile],
 })
-export class OpProfileModule {
-}
+export class OpProfileModule {}

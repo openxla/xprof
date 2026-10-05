@@ -15,7 +15,6 @@ import {OpTableModule} from './op_table/op_table_module';
 
 /** An op profile module. */
 @NgModule({
-  declarations: [OpProfileBase],
   imports: [
     AngularSplitModule,
     MatFormFieldModule,
@@ -28,8 +27,8 @@ import {OpTableModule} from './op_table/op_table_module';
     MatSidenavModule,
     CommonModule,
     SourceMapperModule,
+    OpProfileBase,
   ],
-  exports: [OpProfileBase]
+  exports: [OpProfileBase],
 })
-export class OpProfileBaseModule {
-}
+export class OpProfileBaseModule {}

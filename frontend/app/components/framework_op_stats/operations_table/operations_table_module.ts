@@ -4,9 +4,7 @@ import {ChartModule} from 'org_xprof/frontend/app/components/chart/chart';
 import {OperationsTable} from './operations_table';
 
 @NgModule({
-  declarations: [OperationsTable],
-  imports: [ChartModule],
+  imports: [ChartModule, OperationsTable],
   exports: [OperationsTable],
 })
-export class OperationsTableModule {
-}
+export class OperationsTableModule {}

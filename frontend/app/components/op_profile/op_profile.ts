@@ -1,5 +1,6 @@
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   EventEmitter,
   inject,
@@ -27,16 +28,19 @@ import {
 } from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
 import {combineLatestWith, map, takeUntil} from 'rxjs/operators';
+import {OpDetails} from './op_details/op_details';
+import {OpProfileBase} from './op_profile_base';
 
 const GROUP_BY_RULES = ['program', 'category', 'provenance'];
 
 /** An op profile component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'op-profile',
   templateUrl: './op_profile.ng.html',
   styleUrls: ['./op_profile_common.scss'],
+  imports: [OpDetails, OpProfileBase],
 })
 export class OpProfile implements OnDestroy {
   private tool = 'hlo_op_profile';
@@ -50,6 +54,7 @@ export class OpProfile implements OnDestroy {
     DATA_SERVICE_INTERFACE_TOKEN,
   );
   private readonly diffService: BaseDiffService = inject(BaseDiffService);
+  private readonly changeDetectorRef = inject(ChangeDetectorRef);
   private readonly opProfileDataCache = new Map<string, OpProfileProto>();
 
   sessionId = '';
@@ -162,6 +167,7 @@ export class OpProfile implements OnDestroy {
         if (moduleList) {
           this.moduleList = moduleList.split(',');
         }
+        this.changeDetectorRef.markForCheck();
         this.ready.emit();
       });
   }
@@ -172,6 +178,7 @@ export class OpProfile implements OnDestroy {
       .subscribe((data) => {
         if (data) {
           this.opProfileData = data;
+          this.changeDetectorRef.markForCheck();
         }
       });
   }
@@ -368,6 +375,7 @@ export class OpProfile implements OnDestroy {
 
   onGroupByChange(newGroupBy: string) {
     this.groupBy = newGroupBy;
+    this.changeDetectorRef.markForCheck();
     this.updateTable();
   }
 

@@ -1,3 +1,100 @@
 {
-  "approved_diffs": {}
+  "approved_diffs": {
+    "compiler.graph_and_multihost_scale:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "755d3648aeb7d769",
+      "rationale": "Intentional Overview Page header accent bar, reviewed in sxs_report.html for the UI SxS certification demo.",
+      "timestamp": "2026-09-30T08:05:08.007874+00:00"
+    },
+    "compiler.graph_and_multihost_scale:03_goto_v6e-4-training/overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "8e078f97140d0b7a",
+      "rationale": "Intentional Overview Page header accent bar, reviewed in sxs_report.html for the UI SxS certification demo.",
+      "timestamp": "2026-09-30T08:05:08.123183+00:00"
+    },
+    "compiler.graph_and_multihost_scale:04_select_host_t1v-n-9bfa07b4-w-0": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "81ed3264021667c5",
+      "rationale": "Intentional Overview Page header accent bar, reviewed in sxs_report.html for the UI SxS certification demo.",
+      "timestamp": "2026-09-30T08:05:08.220036+00:00"
+    },
+    "compiler.graph_and_multihost_scale:06_switch_tool_Overview Page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "c1fd8544a1577602",
+      "rationale": "Intentional Overview Page header accent bar, reviewed in sxs_report.html for the UI SxS certification demo.",
+      "timestamp": "2026-09-30T08:05:08.314526+00:00"
+    },
+    "compute.op_profile_and_stats:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "6e0eda9bf6500743",
+      "rationale": "Intentional Overview Page header accent bar, reviewed in sxs_report.html for the UI SxS certification demo.",
+      "timestamp": "2026-09-30T08:05:08.407385+00:00"
+    },
+    "distributed.host_retention_and_trace:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "d44aa2cb4079db82",
+      "rationale": "Intentional Overview Page header accent bar, reviewed in sxs_report.html for the UI SxS certification demo.",
+      "timestamp": "2026-09-30T08:05:08.687181+00:00"
+    },
+    "distributed.host_retention_and_trace:01_select_host_t1v-n-9bfa07b4-w-0": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "3dc477f6740cd202",
+      "rationale": "Intentional Overview Page header accent bar, reviewed in sxs_report.html for the UI SxS certification demo.",
+      "timestamp": "2026-09-30T08:05:08.781205+00:00"
+    },
+    "distributed.host_retention_and_trace:04_switch_tool_Overview Page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "a15ed0d21f508d94",
+      "rationale": "Intentional Overview Page header accent bar, reviewed in sxs_report.html for the UI SxS certification demo.",
+      "timestamp": "2026-09-30T08:05:08.875320+00:00"
+    },
+    "full_spectrum.multimodal_endurance:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "e41fee9eb242d534",
+      "rationale": "Intentional Overview Page header accent bar, reviewed in sxs_report.html for the UI SxS certification demo.",
+      "timestamp": "2026-09-30T08:05:08.968825+00:00"
+    },
+    "full_spectrum.multimodal_endurance:08_goto_v6e-4-training/overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "1b006f3783773115",
+      "rationale": "Intentional Overview Page header accent bar, reviewed in sxs_report.html for the UI SxS certification demo.",
+      "timestamp": "2026-09-30T08:05:09.068735+00:00"
+    },
+    "memory.cross_hardware_tpu_to_v6e:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "952a2502dc9e09eb",
+      "rationale": "Intentional Overview Page header accent bar, reviewed in sxs_report.html for the UI SxS certification demo.",
+      "timestamp": "2026-09-30T08:05:07.717749+00:00"
+    },
+    "memory.cross_hardware_tpu_to_v6e:03_goto_v6e-4-training/overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "74cc181ffe906020",
+      "rationale": "Intentional Overview Page header accent bar, reviewed in sxs_report.html for the UI SxS certification demo.",
+      "timestamp": "2026-09-30T08:05:07.813811+00:00"
+    },
+    "memory.cross_hardware_tpu_to_v6e:06_goto_v6e-4-training/overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "22786b57ee26fe30",
+      "rationale": "Intentional Overview Page header accent bar, reviewed in sxs_report.html for the UI SxS certification demo.",
+      "timestamp": "2026-09-30T08:05:07.909521+00:00"
+    },
+    "routing.popstate_resilience_loop:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "91f0d41529d3284f",
+      "rationale": "Intentional Overview Page header accent bar, reviewed in sxs_report.html for the UI SxS certification demo.",
+      "timestamp": "2026-09-30T08:05:08.501604+00:00"
+    },
+    "routing.popstate_resilience_loop:02_go_back_Overview Page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "cf11c817b816d314",
+      "rationale": "Intentional Overview Page header accent bar, reviewed in sxs_report.html for the UI SxS certification demo.",
+      "timestamp": "2026-09-30T08:05:08.594901+00:00"
+    },
+    "triage.pipeline_and_hardware_bounds:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "1163295228f2a2aa",
+      "rationale": "Intentional Overview Page header accent bar, reviewed in sxs_report.html for the UI SxS certification demo.",
+      "timestamp": "2026-09-30T08:05:07.624132+00:00"
+    }
+  }
 }

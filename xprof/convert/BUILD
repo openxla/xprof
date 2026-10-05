@@ -2049,6 +2049,10 @@ cc_library(
     name = "xplane_to_perf_counters",
     srcs = ["xplane_to_perf_counters.cc"],
     hdrs = ["xplane_to_perf_counters.h"],
+    copts = select({
+        "//:embedded_features_enabled": ["-DEMBEDDED_FEATURES_ENABLED"],
+        "//conditions:default": [],
+    }),
     deps = [
         ":data_table_utils",
         ":repository",
@@ -2060,7 +2064,12 @@ cc_library(
         "@xla//xla/tsl/profiler/utils:tf_xplane_visitor",
         "@xla//xla/tsl/profiler/utils:xplane_schema",
         "@xla//xla/tsl/profiler/utils:xplane_visitor",
-    ],
+    ] + select({
+        "//:embedded_features_enabled": [
+            "@org_xprof//xprof/embedded/perf_counters:perf_counters_db",
+        ],
+        "//conditions:default": [],
+    }),
 )
 
 cc_test(

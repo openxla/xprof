@@ -16,6 +16,9 @@
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/data_table_utils.h"
 #include "xprof/convert/unified_session_snapshot.h"
+#ifdef EMBEDDED_FEATURES_ENABLED
+#include "xprof/embedded/perf_counters/perf_counters_db.h"
+#endif
 
 namespace tensorflow {
 namespace profiler {
@@ -53,9 +56,12 @@ void ConvertXSpaceToPerfCounters(const XSpace* space,
 
     XPlaneVisitor visitor = CreateTfXPlaneVisitor(&plane);
     int64_t chip_id = -1;
+    absl::string_view device_type;
     visitor.ForEachStat([&](const XStatVisitor& stat) {
       if (stat.Type() == StatType::kGlobalChipId) {
         chip_id = stat.IntOrUintValue();
+      } else if (stat.Type() == StatType::kDeviceTypeString) {
+        device_type = absl::string_view(stat.StrOrRefValue());
       }
     });
     if (chip_id == -1) {
@@ -67,6 +73,11 @@ void ConvertXSpaceToPerfCounters(const XSpace* space,
     }
     if (chip_id == -1) continue;
 
+#ifdef EMBEDDED_FEATURES_ENABLED
+    const xprof::embedded::PerfCounterMap& counter_map =
+        xprof::embedded::GetPerfCounterMapForDevice(device_type);
+#endif
+
     visitor.ForEachLine([&](const XLineVisitor& line) {
       line.ForEachEvent([&](const tsl::profiler::XEventVisitor& event) {
         std::optional<XStatVisitor> counter_value_stat =
@@ -74,26 +85,61 @@ void ConvertXSpaceToPerfCounters(const XSpace* space,
         if (!counter_value_stat) return;
 
         uint64_t value = counter_value_stat->IntOrUintValue();
-        // Assuming we want to show all including zeros unless filtered by
-        // frontend But existing code filtered zeros. Let's keep it consistent
-        // if needed, but frontend usually handles filtering via args. For
-        // now, let's include everything to be safe.
 
-        std::optional<XStatVisitor> description_stat =
-            event.GetStat(StatType::kPerformanceCounterDescription);
-        std::optional<XStatVisitor> set_stat =
-            event.GetStat(StatType::kPerformanceCounterSets);
+        std::optional<XStatVisitor> id_stat =
+            event.GetStat(StatType::kPerformanceCounterId);
+        if (!id_stat) {
+          id_stat = event.Metadata().GetStat(StatType::kPerformanceCounterId);
+        }
+
+        absl::string_view description;
+        absl::string_view counter_sets;
+        absl::string_view counter_name = event.Name();
+#ifdef EMBEDDED_FEATURES_ENABLED
+        if (id_stat) {
+          uint64_t counter_id =
+              static_cast<uint64_t>(id_stat->IntOrUintValue());
+          if (auto it = counter_map.find(counter_id); it != counter_map.end()) {
+            description = it->second.description;
+            counter_sets = it->second.counter_sets;
+          }
+        }
+        // Fallback to read the XStats for the description and counter sets
+        // if they are not found in the embedded database. We can safely
+        // deprecate this in the future.
+#endif
+        if (description.empty()) {
+          std::optional<XStatVisitor> description_stat =
+              event.GetStat(StatType::kPerformanceCounterDescription);
+          if (!description_stat) {
+            description_stat = event.Metadata().GetStat(
+                StatType::kPerformanceCounterDescription);
+          }
+          if (description_stat) {
+            description = description_stat->StrOrRefValue();
+          }
+        }
+        if (counter_sets.empty()) {
+          std::optional<XStatVisitor> set_stat =
+              event.GetStat(StatType::kPerformanceCounterSets);
+          if (!set_stat) {
+            set_stat =
+                event.Metadata().GetStat(StatType::kPerformanceCounterSets);
+          }
+          if (set_stat) {
+            counter_sets = set_stat->StrOrRefValue();
+          }
+        }
 
         data_table->AddRow()
             ->AddTextCell(hostname)
             .AddNumberCell(chip_id)
             .AddTextCell(line.Name())
             .AddNumberCell(line.Id())
-            .AddTextCell(absl::AsciiStrToLower(event.Name()))
+            .AddTextCell(absl::AsciiStrToLower(counter_name))
             .AddHexCell(value)
-            .AddTextCell(description_stat ? description_stat->StrOrRefValue()
-                                          : "")
-            .AddTextCell(set_stat ? set_stat->StrOrRefValue() : "");
+            .AddTextCell(description)
+            .AddTextCell(counter_sets);
       });
     });
   }

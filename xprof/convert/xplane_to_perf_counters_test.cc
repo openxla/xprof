@@ -56,29 +56,54 @@ SessionSnapshot CreateSessionSnapshot() {
   host_plane_builder.SetName("host:0");
 
   XPlaneBuilder device_plane_builder(xspace->add_planes());
-  device_plane_builder.SetName(std::string(tsl::profiler::kGpuPlanePrefix) +
+  device_plane_builder.SetName(std::string(tsl::profiler::kTpuPlanePrefix) +
                                "0");
   device_plane_builder.AddStatValue(
       *device_plane_builder.GetOrCreateStatMetadata(
           GetStatTypeStr(StatType::kGlobalChipId)),
       0);
+  device_plane_builder.AddStatValue(
+      *device_plane_builder.GetOrCreateStatMetadata(
+          GetStatTypeStr(StatType::kDeviceTypeString)),
+      "TPU v7x");
 
   XLineBuilder line_builder = device_plane_builder.GetOrCreateLine(0);
   line_builder.SetName("Stream 1");
 
-  XEventBuilder event_builder = line_builder.AddEvent(
-      *device_plane_builder.GetOrCreateEventMetadata("KernelA"));
+  XEventMetadata* event_metadata =
+      device_plane_builder.GetOrCreateEventMetadata("KernelA");
+  XStat* id_stat = event_metadata->add_stats();
+  id_stat->set_metadata_id(device_plane_builder
+                               .GetOrCreateStatMetadata(GetStatTypeStr(
+                                   StatType::kPerformanceCounterId))
+                               ->id());
+  id_stat->set_uint64_value(2701299720ULL);
+
+  XEventBuilder event_builder = line_builder.AddEvent(*event_metadata);
   event_builder.AddStatValue(*device_plane_builder.GetOrCreateStatMetadata(
                                  GetStatTypeStr(StatType::kCounterValue)),
                              123ULL);
-  event_builder.AddStatValue(
-      *device_plane_builder.GetOrCreateStatMetadata(
+
+  XPlaneBuilder gpu_plane_builder(xspace->add_planes());
+  gpu_plane_builder.SetName(std::string(tsl::profiler::kGpuPlanePrefix) + "0");
+  gpu_plane_builder.AddStatValue(*gpu_plane_builder.GetOrCreateStatMetadata(
+                                     GetStatTypeStr(StatType::kGlobalChipId)),
+                                 1);
+  XLineBuilder gpu_line_builder = gpu_plane_builder.GetOrCreateLine(0);
+  gpu_line_builder.SetName("Stream GPU");
+  XEventBuilder gpu_event_builder = gpu_line_builder.AddEvent(
+      *gpu_plane_builder.GetOrCreateEventMetadata("GpuKernelB"));
+  gpu_event_builder.AddStatValue(*gpu_plane_builder.GetOrCreateStatMetadata(
+                                     GetStatTypeStr(StatType::kCounterValue)),
+                                 456ULL);
+  gpu_event_builder.AddStatValue(
+      *gpu_plane_builder.GetOrCreateStatMetadata(
           GetStatTypeStr(StatType::kPerformanceCounterDescription)),
-      "Description A");
-  event_builder.AddStatValue(
-      *device_plane_builder.GetOrCreateStatMetadata(
+      "Fallback Description B");
+  gpu_event_builder.AddStatValue(
+      *gpu_plane_builder.GetOrCreateStatMetadata(
           GetStatTypeStr(StatType::kPerformanceCounterSets)),
-      "Set A");
+      "Fallback Set B");
 
   std::vector<std::unique_ptr<XSpace>> xspaces;
   xspaces.push_back(std::move(xspace));
@@ -90,15 +115,27 @@ SessionSnapshot CreateSessionSnapshot() {
 
 TEST(XPlaneToPerfCountersTest, ConvertMultiXSpacesToPerfCounters) {
   SessionSnapshot session_snapshot = CreateSessionSnapshot();
-  auto result = ConvertMultiXSpacesToPerfCounters(session_snapshot);
+  absl::StatusOr<std::string> result =
+      ConvertMultiXSpacesToPerfCounters(session_snapshot);
   EXPECT_TRUE(result.ok());
   std::string json = result.value();
 
-  // Basic validation of JSON content
+  // Basic validation of JSON content.
+  // For TPU kernels, we expect the counter description and set to be looked up
+  // from the embedded CSV data.
   EXPECT_THAT(json, testing::HasSubstr("kernela"));
-  EXPECT_THAT(json, testing::HasSubstr("Description A"));
+  EXPECT_THAT(
+      json,
+      testing::HasSubstr(
+          "Insertion counter: incremented by 1 at each insertion to queue"));
+  EXPECT_THAT(json, testing::HasSubstr("insertion queue_stats"));
   // 123.0 -> 0x7B
   EXPECT_THAT(json, testing::HasSubstr("0x7b"));
+
+  // Validation of fallback description/set from XPlane stats.
+  EXPECT_THAT(json, testing::HasSubstr("gpukernelb"));
+  EXPECT_THAT(json, testing::HasSubstr("Fallback Description B"));
+  EXPECT_THAT(json, testing::HasSubstr("Fallback Set B"));
 }
 
 }  // namespace

@@ -306,7 +306,9 @@ void HandleCounterEvent(const CounterEvent& event,
 
 struct TimeBounds {
   Microseconds min = std::numeric_limits<Microseconds>::max();
-  Microseconds max = std::numeric_limits<Microseconds>::min();
+  Microseconds max = std::numeric_limits<Microseconds>::lowest();
+  Microseconds active_min = std::numeric_limits<Microseconds>::max();
+  Microseconds active_max = std::numeric_limits<Microseconds>::lowest();
 };
 
 struct ThreadLevelInfo {
@@ -533,6 +535,10 @@ void AppendEventToTimelineData(
 
     bounds.min = std::min(bounds.min, event->ts);
     bounds.max = std::max(bounds.max, event->ts + event->dur);
+    if (event->dur > 0) {
+      bounds.active_min = std::min(bounds.active_min, event->ts);
+      bounds.active_max = std::max(bounds.active_max, event->ts + event->dur);
+    }
     return;
   }
 
@@ -614,6 +620,10 @@ void AppendEventToTimelineData(
 
   bounds.min = std::min(bounds.min, event->ts);
   bounds.max = std::max(bounds.max, event->ts + event->dur);
+  if (event->dur > 0) {
+    bounds.active_min = std::min(bounds.active_min, event->ts);
+    bounds.active_max = std::max(bounds.active_max, event->ts + event->dur);
+  }
 }
 
 // Packs trace events for a thread track and appends them to data (inout).
@@ -1231,7 +1241,7 @@ bool DataProvider::HasKnownTracks() const {
 
 // Processes a vector of TraceEvent structs.
 // This function is independent of Emscripten types.
-void DataProvider::Reset() {
+void DataProvider::Reset(Timeline* timeline) {
   present_flow_categories_.clear();
   process_names_.clear();
   thread_names_.clear();
@@ -1243,6 +1253,10 @@ void DataProvider::Reset() {
   known_async_tracks_.clear();
   known_async_processes_.clear();
   known_counters_.clear();
+  active_data_time_range_ = TimeRange::Zero();
+  if (timeline != nullptr) {
+    timeline->set_active_data_time_range(TimeRange::Zero());
+  }
 }
 
 // Processes a vector of TraceEvent structs.
@@ -1254,6 +1268,8 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   if (parsed_events.flame_events.empty() &&
       parsed_events.counter_events.empty() &&
       parsed_events.flow_events.empty() && !HasKnownTracks()) {
+    active_data_time_range_ = TimeRange::Zero();
+    timeline.set_active_data_time_range(TimeRange::Zero());
     timeline.SetTimelineData({});
     timeline.set_fetched_data_time_range(TimeRange::Zero());
     timeline.SetVisibleRange(TimeRange::Zero());
@@ -1387,6 +1403,13 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
       trace_info, sorted_pids, GetTop5FlowCategories(flow_category_counts),
       time_bounds, expanded_states, timeline.GetPalette(), max_observed_levels_,
       known_threads_, known_counters_, known_async_tracks_));
+
+  if (time_bounds.active_min < std::numeric_limits<Microseconds>::max()) {
+    active_data_time_range_ = {time_bounds.active_min, time_bounds.active_max};
+  } else {
+    active_data_time_range_ = TimeRange::Zero();
+  }
+  timeline.set_active_data_time_range(active_data_time_range_);
 
   // Don't need to check for max_time because the TimeRange constructor will
   // handle any potential issues with max_time.

@@ -14569,6 +14569,20 @@ TEST_F(MockTimelineImGuiFixture, GetEventSelected_EmptyGroups) {
   ASSERT_NE(it, received_data.end());
   EXPECT_EQ(std::any_cast<double>(it->second), 0.0);
 }
+
+TEST(TimelineTest, ActiveDataTimeRangeDefaultAndSetter) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  EXPECT_DOUBLE_EQ(timeline.active_data_time_range().start(), 0.0);
+  EXPECT_DOUBLE_EQ(timeline.active_data_time_range().end(), 0.0);
+  EXPECT_EQ(timeline.active_data_time_range(), TimeRange::Zero());
+
+  timeline.set_active_data_time_range({1000.0, 2500.0});
+  EXPECT_DOUBLE_EQ(timeline.active_data_time_range().start(), 1000.0);
+  EXPECT_DOUBLE_EQ(timeline.active_data_time_range().end(), 2500.0);
+  EXPECT_DOUBLE_EQ(timeline.active_data_time_range().duration(), 1500.0);
+}
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer

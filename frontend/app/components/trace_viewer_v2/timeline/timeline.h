@@ -473,6 +473,13 @@ class Timeline {
   void set_data_time_range(const TimeRange& range) { data_time_range_ = range; }
   const TimeRange& data_time_range() const { return data_time_range_; }
 
+  void set_active_data_time_range(const TimeRange& range) {
+    active_data_time_range_ = range;
+  }
+  const TimeRange& active_data_time_range() const {
+    return active_data_time_range_;
+  }
+
   void SetTimelineData(FlameChartTimelineData data);
   const FlameChartTimelineData& timeline_data() const { return timeline_data_; }
 
@@ -987,6 +994,7 @@ class Timeline {
   // of the trace is loaded. This is used as the boundaries for constraining
   // panning and zooming.
   TimeRange data_time_range_ = TimeRange::Zero();
+  TimeRange active_data_time_range_ = TimeRange::Zero();
 
   // The index of the group of the currently selected event (flame or counter),
   // or -1 if no event is selected.

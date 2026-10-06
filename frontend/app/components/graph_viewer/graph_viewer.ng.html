@@ -1,108 +1,140 @@
 <mat-sidenav-container>
-  <mat-sidenav mode="side" opened>
-    <div class="item-container">
-      <div class="form-container">
-        <form (ngSubmit)="onSearchGraph()">
-          <mat-form-field *ngIf="graphTypes.length > 0" class="full-width" id="graph-type-selector" appearance="outline">
-            <mat-label>Graph Type</mat-label>
-            <mat-select
-              name="graphType"
-              panelClass="panel-override"
-              [(ngModel)]="graphType"
-              (selectionChange)="onGraphTypeSelectionChange($event.value)"
+  <mat-sidenav mode="side" [opened]="isSideNavOpen">
+    <mat-card appearance="outlined" class="control-card">
+      <mat-card-content class="item-container">
+        <div class="form-container">
+          <form (ngSubmit)="onSearchGraph()">
+            @if (graphTypes.length > 0) {
+              <mat-form-field class="full-width" id="graph-type-selector" appearance="outline">
+                <mat-label>Graph Type</mat-label>
+                <mat-select
+                  name="graphType"
+                  panelClass="panel-override"
+                  [(ngModel)]="graphType"
+                  (selectionChange)="onGraphTypeSelectionChange($event.value)"
+                >
+                  @for (type of graphTypes; track type.value) {
+                    <mat-option [value]="type.value">
+                      {{ type.label }}
+                    </mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+            }
+            <app-searchable-dropdown
+              id="xla-module-list-selector"
+              class="full-width"
+              [itemList]="moduleListOptions"
+              [selectedItem]="selectedModule"
+              (selectionChange)="onModuleSelectionChange($event)"
+              [label]="'XLA Modules (' + (loadingModuleList ? 'loading...' : moduleList.length) + ')'"
             >
-              <mat-option *ngFor="let type of graphTypes" [value]="type.value">
-                {{ type.label }}
-              </mat-option>
-            </mat-select>
-          </mat-form-field>
-          <app-searchable-dropdown
-            id="xla-module-list-selector"
-            class="full-width"
-            [itemList]="moduleListOptions"
-            [selectedItem]="selectedModule"
-            (selectionChange)="onModuleSelectionChange($event)"
-            [label]="'XLA Modules (' + (loadingModuleList ? 'loading...' : moduleList.length) + ')'"
-          >
-          </app-searchable-dropdown>
-          <mat-form-field class="full-width">
-            <mat-label>XLA Op Name</mat-label>
-            <input
-              matInput
-              matTooltip="XLA Op name for the center node."
-              aria-label="op-name"
-              required
-              autocomplete="off"
-              [(ngModel)]="opName"
-              name="opName"
-            />
-          </mat-form-field>
-          <mat-form-field class="full-width">
-            <mat-label>Graph Width</mat-label>
-            <input
-              matInput
-              matTooltip="Graph width from the center node. Suggest < 10."
-              aria-label="graph-width"
-              type="number"
-              min="1"
-              step="1"
-              [(ngModel)]="graphWidth"
-              name="graphWidth"
-            />
-          </mat-form-field>
+            </app-searchable-dropdown>
+            <mat-form-field class="full-width" appearance="outline">
+              <mat-label>XLA Op Name</mat-label>
+              <input
+                matInput
+                matTooltip="XLA Op name for the center node."
+                aria-label="op-name"
+                required
+                autocomplete="off"
+                [(ngModel)]="opName"
+                name="opName"
+              />
+            </mat-form-field>
+            <mat-form-field class="full-width" appearance="outline">
+              <mat-label>Graph Width</mat-label>
+              <input
+                matInput
+                matTooltip="Graph width from the center node. Suggest < 10."
+                aria-label="graph-width"
+                type="number"
+                min="1"
+                step="1"
+                [(ngModel)]="graphWidth"
+                name="graphWidth"
+              />
+            </mat-form-field>
 
-          <mat-checkbox
-            *ngIf="!shouldRenderMeGraph"
-            [(ngModel)]="showMetadata"
-            name="showMetadata"
-            class="full-width"
-            >Show Metadata</mat-checkbox
+            @if (!shouldRenderMeGraph) {
+              <label class="checkbox-label">
+                <md-checkbox
+                  touch-target="wrapper"
+                  [checked]="showMetadata"
+                  (change)="onShowMetadataChange($event)"
+                ></md-checkbox>
+                Show Metadata
+              </label>
+              <label
+                class="checkbox-label"
+                matTooltip="Hide the fusion subcomputations in the rendered graph"
+              >
+                <md-checkbox
+                  touch-target="wrapper"
+                  [checked]="mergeFusion"
+                  (change)="onMergeFusionChange($event)"
+                ></md-checkbox>
+                Merge Fusion
+              </label>
+            }
+            <div class="actions">
+              <md-filled-button
+                name="submit"
+                type="submit"
+                class="search-button"
+                [disabled]="!validToPlot()"
+              >
+                <md-icon slot="icon">search</md-icon> Search Graph
+              </md-filled-button>
+            </div>
+          </form>
+        </div>
+        <div class="hlo-download">
+          <download-hlo
+            [moduleName]="selectedModule"
+            [showMetadata]="showMetadata"
+            [graphType]="graphType"
+          ></download-hlo>
+          <md-icon-button
+            class="sidenav-toggle-button"
+            (click)="toggleSideNav()"
+            matTooltip="Collapse side panel"
+            aria-label="Collapse side panel"
           >
-          <mat-checkbox
-            *ngIf="!shouldRenderMeGraph"
-            [(ngModel)]="mergeFusion"
-            name="mergeFusion"
-            matTooltip="Hide the fusion subcomputations in the rendered graph"
-            class="full-width"
-          >
-            Merge Fusion
-          </mat-checkbox>
-          <div class="actions">
-            <button
-              mat-flat-button
-              extended
-              name="submit"
-              type="submit"
-              color="primary"
-              class="search-button"
-              [disabled]="!validToPlot()"
-            >
-              <mat-icon>search</mat-icon> Search Graph
-            </button>
-          </div>
-        </form>
-      </div>
-      <div class="hlo-download">
-        <download-hlo
-          [moduleName]="selectedModule"
-          [showMetadata]="showMetadata"
-          [graphType]="graphType"
-        ></download-hlo>
-      </div>
-    </div>
+            <md-icon>chevron_left</md-icon>
+          </md-icon-button>
+        </div>
+      </mat-card-content>
+    </mat-card>
     <op-details [sessionId]="sessionId"></op-details>
-    <div class="progress-container-op-details" *ngIf="loadingOpProfile">
-      <mat-spinner class="loading-spinner" color="primary" mode="indeterminate" diameter="20"></mat-spinner>
-      <div class="loading-message">Preparing Op Details ...</div>
-    </div>
+    @if (loadingOpProfile) {
+      <div class="progress-container-op-details">
+        <md-circular-progress class="loading-spinner" indeterminate></md-circular-progress>
+        <div class="loading-message">Preparing Op Details ...</div>
+      </div>
+    }
   </mat-sidenav>
   <mat-sidenav-content>
+    @if (!isSideNavOpen) {
+      <div class="sidenav-expand-container">
+        <md-icon-button
+          class="sidenav-toggle-button"
+          (click)="toggleSideNav()"
+          matTooltip="Expand side panel"
+          aria-label="Expand side panel"
+        >
+          <md-icon>chevron_right</md-icon>
+        </md-icon-button>
+      </div>
+    }
     <diagnostics-view [diagnostics]="diagnostics"></diagnostics-view>
-    <div class="progress-container" *ngIf="loadingGraph">
-      <div class="loading-message">Loading graph...</div>
-      <!-- TODO(go/progressbar-aria): Replace the aria-label with a better description, e.g. "Fetching user data" -->
-      <mat-progress-bar color="primary" mode="indeterminate" aria-label="Loading"></mat-progress-bar>
-    </div>
+    @if (loadingGraph) {
+      <div class="progress-container">
+        <div class="loading-message">Loading graph...</div>
+        <!-- TODO(go/progressbar-aria): Replace the aria-label with a better description, e.g. "Fetching user data" -->
+        <md-linear-progress indeterminate aria-label="Loading"></md-linear-progress>
+      </div>
+    }
     <div class="hlo-text-view-container">
       <hlo-text-view
         [graphType]="graphType"
@@ -111,33 +143,47 @@
         [showMetadata]="showMetadata"
       ></hlo-text-view>
     </div>
-    <mat-expansion-panel class="stack-trace-snippet-panel" *ngIf="sourceCodeServiceIsAvailable">
-      <mat-expansion-panel-header>
-        <mat-panel-title>Source Viewer</mat-panel-title>
-      </mat-expansion-panel-header>
-      <ng-template matExpansionPanelContent>
-        <div class="stack-trace-snippet-container">
-          <source-mapper
-              [sessionId]="sessionId"
-              [programId]="programIdForSourceMapper"
-              [opName]="opNameForSourceMapper"
-              [opCategory]="opCategoryForSourceMapper"
-              [sourceFileAndLineNumber]="sourceFileAndLineNumber"
-              [stackTrace]="stackTrace" />
-        </div>
-      </ng-template>
-    </mat-expansion-panel>
-    <div *ngIf="!hasGraphOrLoading() && showDefaultGraphOptions()" class="default-graph">
-      <div><p>You can select a module and op to draw the graph. </p></div>
-      <div>
-        <p>To quick start, choose from the chips below to view its graph.</p>
-        <mat-chip-listbox multiple aria-label="profile quick options">
-          <mat-chip-option *ngFor="let option of defaultGraphOptions" [matTooltip]="option.tooltip" (click)="onClickDefaultGraphOption(option)" appearance="hairline-filter">{{ defaultGraphOptionLabel(option) }}</mat-chip-option>
-        </mat-chip-listbox>
+    @if (sourceCodeServiceIsAvailable) {
+      <mat-expansion-panel class="stack-trace-snippet-panel">
+        <mat-expansion-panel-header>
+          <mat-panel-title>Source Viewer</mat-panel-title>
+        </mat-expansion-panel-header>
+        <ng-template matExpansionPanelContent>
+          <div class="stack-trace-snippet-container">
+            <source-mapper
+                [sessionId]="sessionId"
+                [programId]="programIdForSourceMapper"
+                [opName]="opNameForSourceMapper"
+                [opCategory]="opCategoryForSourceMapper"
+                [sourceFileAndLineNumber]="sourceFileAndLineNumber"
+                [stackTrace]="stackTrace" />
+          </div>
+        </ng-template>
+      </mat-expansion-panel>
+    }
+    @if (!hasGraphOrLoading() && showDefaultGraphOptions()) {
+      <mat-card appearance="outlined" class="default-graph">
+        <mat-card-content>
+          <div><p>You can select a module and op to draw the graph.</p></div>
+          <div>
+            <p>To quick start, choose from the chips below to view its graph.</p>
+            <md-chip-set aria-label="profile quick options">
+              @for (option of defaultGraphOptions; track option.opName) {
+                <md-filter-chip
+                  [matTooltip]="option.tooltip"
+                  (click)="onClickDefaultGraphOption(option)"
+                  [label]="defaultGraphOptionLabel(option)"
+                ></md-filter-chip>
+              }
+            </md-chip-set>
+          </div>
+        </mat-card-content>
+      </mat-card>
+    }
+    @if (!shouldRenderMeGraph) {
+      <div class="graph-container">
+        <iframe #iframe id="graph-html"></iframe>
       </div>
-    </div>
-    <div *ngIf="!shouldRenderMeGraph" class="graph-container">
-      <iframe #iframe id="graph-html"></iframe>
-    </div>
+    }
   </mat-sidenav-content>
 </mat-sidenav-container>

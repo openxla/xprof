@@ -1,3 +1,8 @@
+import '@material/web/button/outlined-button.js';
+import '@material/web/button/text-button.js';
+import '@material/web/divider/divider.js';
+import '@material/web/icon/icon.js';
+import '@material/web/iconbutton/icon-button.js';
 import 'org_xprof/frontend/app/common/interfaces/window';
 
 import {PlatformLocation} from '@angular/common';

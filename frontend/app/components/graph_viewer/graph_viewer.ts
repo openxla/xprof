@@ -1,8 +1,18 @@
+import '@material/web/button/filled-button.js';
+import '@material/web/button/text-button.js';
+import '@material/web/checkbox/checkbox.js';
+import '@material/web/chips/chip-set.js';
+import '@material/web/chips/filter-chip.js';
+import '@material/web/icon/icon.js';
+import '@material/web/iconbutton/icon-button.js';
+import '@material/web/progress/circular-progress.js';
+import '@material/web/progress/linear-progress.js';
 import 'org_xprof/frontend/app/common/interfaces/window';
 
 import {
   ChangeDetectionStrategy,
   Component,
+  CUSTOM_ELEMENTS_SCHEMA,
   ElementRef,
   inject,
   Injector,
@@ -10,7 +20,25 @@ import {
   OnDestroy,
   ViewChild,
 } from '@angular/core';
+import {FormsModule} from '@angular/forms';
+import {MatCard, MatCardContent} from '@angular/material/card';
+import {MatOption} from '@angular/material/core';
+import {
+  MatExpansionPanel,
+  MatExpansionPanelContent,
+  MatExpansionPanelHeader,
+  MatExpansionPanelTitle,
+} from '@angular/material/expansion';
+import {MatFormField, MatLabel} from '@angular/material/form-field';
+import {MatInput} from '@angular/material/input';
+import {MatSelect} from '@angular/material/select';
+import {
+  MatSidenav,
+  MatSidenavContainer,
+  MatSidenavContent,
+} from '@angular/material/sidenav';
 import {MatSnackBar} from '@angular/material/snack-bar';
+import {MatTooltip} from '@angular/material/tooltip';
 import {ActivatedRoute, Params, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -30,7 +58,14 @@ import {
   GraphViewerQueryParams,
 } from 'org_xprof/frontend/app/common/interfaces/graph_viewer';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
+import {DownloadHloModule} from 'org_xprof/frontend/app/components/controls/download_hlo/download_hlo_module';
+import {SearchableDropdown} from 'org_xprof/frontend/app/components/controls/searchable_dropdown/searchable_dropdown';
+import {DiagnosticsView} from 'org_xprof/frontend/app/components/diagnostics_view/diagnostics_view';
+import {HloTextView} from 'org_xprof/frontend/app/components/graph_viewer/hlo_text_view/hlo_text_view';
+import {OpDetailsModule} from 'org_xprof/frontend/app/components/op_profile/op_details/op_details_module';
 import {OpProfileData} from 'org_xprof/frontend/app/components/op_profile/op_profile_data';
+import {SourceMapperModule} from 'org_xprof/frontend/app/components/source_mapper/source_mapper_module';
+import {SafePipe} from 'org_xprof/frontend/app/pipes/safe_pipe';
 import {
   DATA_SERVICE_INTERFACE_TOKEN,
   DataServiceV2Interface,
@@ -59,10 +94,36 @@ interface DefaultGraphOption {
 /** A graph viewer component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
   selector: 'graph-viewer',
   templateUrl: './graph_viewer.ng.html',
   styleUrls: ['./graph_viewer.scss'],
+  schemas: [CUSTOM_ELEMENTS_SCHEMA],
+  imports: [
+    DiagnosticsView,
+    DownloadHloModule,
+    FormsModule,
+    HloTextView,
+    MatCard,
+    MatCardContent,
+    MatExpansionPanel,
+    MatExpansionPanelContent,
+    MatExpansionPanelHeader,
+    MatExpansionPanelTitle,
+    MatFormField,
+    MatInput,
+    MatLabel,
+    MatOption,
+    MatSelect,
+    MatSidenav,
+    MatSidenavContainer,
+    MatSidenavContent,
+    MatTooltip,
+    OpDetailsModule,
+    SafePipe,
+    SearchableDropdown,
+    SourceMapperModule,
+  ],
 })
 export class GraphViewer implements OnDestroy {
   readonly tool = 'graph_viewer';
@@ -89,6 +150,7 @@ export class GraphViewer implements OnDestroy {
   symbolType = '';
   showMetadata = false;
   mergeFusion = false;
+  isSideNavOpen = true;
   opProfileLimit = 300;
   /** The graphviz url. */
   url = '';
@@ -121,13 +183,13 @@ export class GraphViewer implements OnDestroy {
   programIdForSourceMapper = '';
   opCategoryForSourceMapper = '';
 
-  constructor(
-    public zone: NgZone,
-    private readonly route: ActivatedRoute,
-    private readonly store: Store<{}>,
-    private readonly router: Router,
-    private readonly snackBar: MatSnackBar,
-  ) {
+  readonly zone = inject(NgZone);
+  private readonly route = inject(ActivatedRoute);
+  private readonly store = inject(Store<{}>);
+  private readonly router = inject(Router);
+  private readonly snackBar = inject(MatSnackBar);
+
+  constructor() {
     combineLatest([this.route.params, this.route.queryParams])
       .pipe(takeUntil(this.destroyed))
       .subscribe(async ([params, queryParams]) => {
@@ -550,7 +612,7 @@ export class GraphViewer implements OnDestroy {
     if (!children) return null;
     for (const node of children) {
       // Only looking for xla instruction node, as that is what's visualized in
-      // the grpah. Assumptions: only instruction node has xla field.
+      // the graph. Assumptions: only instruction node has xla field.
       if (
         node.xla &&
         (node.name === name || node.name === `${name} and its duplicate(s)`)
@@ -658,6 +720,18 @@ export class GraphViewer implements OnDestroy {
     this.loadDefaultGraphOptionsFromOpProfile();
   }
 
+  onShowMetadataChange(event: Event) {
+    this.showMetadata = (event.target as HTMLInputElement).checked;
+  }
+
+  onMergeFusionChange(event: Event) {
+    this.mergeFusion = (event.target as HTMLInputElement).checked;
+  }
+
+  toggleSideNav() {
+    this.isSideNavOpen = !this.isSideNavOpen;
+  }
+
   get moduleListOptions() {
     if (this.moduleList.length > 0) {
       return this.moduleList;
@@ -760,10 +834,9 @@ export class GraphViewer implements OnDestroy {
         this.tryRenderGraphvizHtml(searchParams);
       }
     }, 200);
-    this.graphvizUri = this.dataService.getGraphVizUri(
-      this.sessionId,
-      searchParams,
-    ) || 'about:blank';
+    this.graphvizUri =
+      this.dataService.getGraphVizUri(this.sessionId, searchParams) ||
+      'about:blank';
     if (iframe?.contentWindow?.location) {
       locationReplace(iframe.contentWindow?.location, this.graphvizUri!);
     }

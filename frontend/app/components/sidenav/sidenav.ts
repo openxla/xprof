@@ -1,10 +1,20 @@
+import '@material/web/button/filled-button.js';
+import '@material/web/checkbox/checkbox.js';
+import '@material/web/icon/icon.js';
+
 import {
   ChangeDetectionStrategy,
   Component,
+  CUSTOM_ELEMENTS_SCHEMA,
+  inject,
+  Input,
   OnDestroy,
   OnInit,
 } from '@angular/core';
-import {MatCheckboxChange} from '@angular/material/checkbox';
+import {MatOptionModule} from '@angular/material/core';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatSelectModule} from '@angular/material/select';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import {ActivatedRouteSnapshot, NavigationEnd, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {
@@ -13,6 +23,10 @@ import {
 } from 'org_xprof/frontend/app/common/constants/constants';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
+import {CaptureKernel} from 'org_xprof/frontend/app/components/capture_kernel/capture_kernel';
+import {CaptureProfileModule} from 'org_xprof/frontend/app/components/capture_profile/capture_profile_module';
+import {BufferDetailsModule} from 'org_xprof/frontend/app/components/memory_viewer/buffer_details/buffer_details_module';
+import {PodViewerDetailsModule} from 'org_xprof/frontend/app/components/pod_viewer/pod_viewer_details/pod_viewer_details_module';
 import {CommunicationService} from 'org_xprof/frontend/app/services/communication_service/communication_service';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {
@@ -111,12 +125,26 @@ const STANDALONE_NON_SIDENAV_ROUTES = [
 /** A side navigation component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
   selector: 'sidenav',
   templateUrl: './sidenav.ng.html',
   styleUrls: ['./sidenav.scss'],
+  imports: [
+    BufferDetailsModule,
+    CaptureKernel,
+    CaptureProfileModule,
+    MatFormFieldModule,
+    MatOptionModule,
+    MatSelectModule,
+    MatTooltipModule,
+    PodViewerDetailsModule,
+  ],
+  schemas: [CUSTOM_ELEMENTS_SCHEMA],
 })
 export class SideNav implements OnInit, OnDestroy {
+  /** Whether the sidenav is expanded into the full control drawer. */
+  @Input() expanded = true;
+
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
   runToolsMap$: Observable<RunToolsMap>;
@@ -143,14 +171,73 @@ export class SideNav implements OnInit, OnDestroy {
   hideCaptureProfileButton = false;
   enableTabNameLabel = false;
 
-  constructor(
-    private readonly router: Router,
-    // Using DataServiceV2 because methods used in sidenav is not defined in
-    // the interface. (b/423713470)
-    private readonly dataService: DataServiceV2,
-    private readonly communicationService: CommunicationService,
-    private readonly store: Store<{}>,
-  ) {
+  readonly iconMap: {[key: string]: string} = {
+    'overview': 'home',
+    'overview_page': 'home',
+    'trace_viewer': 'view_object_track',
+    'graph_viewer': 'graph_2',
+    'op_profile': 'bar_chart',
+    'hlo_op_profile': 'bar_chart',
+    'hlo_stats': 'query_stats',
+    'hlo_op_stats': 'query_stats',
+    'input_pipeline_analyzer': 'input',
+    'input_pipeline': 'table_chart_view',
+    'kernel_stats': 'memory',
+    'memory_profile': 'monitoring',
+    'memory_viewer': 'overview_key',
+    'roofline_model': 'stacked_line_chart',
+    'pod_viewer': 'hive',
+    'megascale_stats': 'hub',
+    'framework_op_stats': 'pie_chart',
+    'tensorflow_stats': 'data_usage',
+    'inference_profile': 'avg_pace',
+    'perf_counters': 'av_timer',
+    'utilization_viewer': 'bar_chart_4_bars',
+  };
+
+  /** Strips trailing @, #, or ^ suffix characters from a tag name. */
+  cleanTag(tag: string): string {
+    return tag &&
+      tag.length &&
+      (tag[tag.length - 1] === '@' ||
+        tag[tag.length - 1] === '#' ||
+        tag[tag.length - 1] === '^')
+      ? tag.slice(0, -1)
+      : tag || '';
+  }
+
+  /** Whether a Material Symbol icon is mapped for the given tool tag. */
+  hasIcon(tag: string): boolean {
+    const key = this.cleanTag(tag);
+    return Boolean(this.iconMap[key]);
+  }
+
+  /**
+   * Returns the Material Symbol icon name or a 3-letter uppercase abbreviation
+   * for the given tool tag in the GM3 Navigation Rail.
+   */
+  getIcon(tag: string): string {
+    const key = this.cleanTag(tag);
+    if (this.iconMap[key]) {
+      return this.iconMap[key];
+    }
+    const label = this.getDisplayTagName(tag) || key;
+    return label
+      .split(/[\s\-_]+/)
+      .filter((word) => Boolean(word))
+      .map((word) => word.charAt(0).toUpperCase())
+      .join('')
+      .substring(0, 3);
+  }
+
+  private readonly router = inject(Router);
+  // Using DataServiceV2 because methods used in sidenav is not defined in
+  // the interface. (b/423713470)
+  private readonly dataService = inject(DataServiceV2);
+  private readonly communicationService = inject(CommunicationService);
+  private readonly store = inject(Store<{}>);
+
+  constructor() {
     this.runToolsMap$ = this.store
       .select(getRunToolsMap)
       .pipe(takeUntil(this.destroyed));
@@ -367,7 +454,9 @@ export class SideNav implements OnInit, OnDestroy {
 
   async fetchProfilerConfig() {
     const config = await firstValueFrom(
-      this.dataService.getConfig().pipe(takeUntil(this.destroyed), defaultIfEmpty(null)),
+      this.dataService
+        .getConfig()
+        .pipe(takeUntil(this.destroyed), defaultIfEmpty(null)),
     );
     if (config) {
       this.store.dispatch(setProfilerConfigAction({config}));
@@ -597,8 +686,12 @@ export class SideNav implements OnInit, OnDestroy {
     this.updateAllHostsSelectedState();
   }
 
-  onToggleSelectAllHosts(event: MatCheckboxChange) {
-    this.selectedHostsPending = event.checked ? [...this.hosts] : [];
+  onToggleSelectAllHosts(event: Event | {checked?: boolean}) {
+    const checked =
+      'target' in event && event.target
+        ? (event.target as HTMLInputElement).checked
+        : Boolean((event as {checked?: boolean}).checked);
+    this.selectedHostsPending = checked ? [...this.hosts] : [];
     this.updateAllHostsSelectedState();
   }
 

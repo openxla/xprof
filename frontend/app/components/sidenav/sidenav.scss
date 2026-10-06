@@ -2,6 +2,84 @@
 
 @use 'frontend/app/styles/common';
 
+.sidenav-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.tools-list {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0;
+}
+
+.nav-rail-item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  width: 100%;
+  height: 56px;
+  box-sizing: border-box;
+  padding-left: 12px;
+  padding-right: 0;
+  border: none;
+  background: transparent;
+  text-decoration: none;
+  color: var(--mat-sys-on-surface-variant);
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible,
+  &.active {
+    outline: none;
+    color: var(--mat-sys-on-secondary-container);
+    .active-indicator {
+      background-color: var(--mat-sys-secondary-container);
+    }
+  }
+}
+
+.active-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding-left: 16px;
+  box-sizing: border-box;
+  width: 56px;
+  height: 56px;
+  border-radius: 28px;
+  transition:
+    width 0.2s ease-in-out,
+    background-color 0.2s;
+  flex-shrink: 0;
+  overflow: hidden;
+
+  mat-icon,
+  md-icon {
+    --md-icon-font: 'Material Symbols Outlined';
+    font-family: 'Material Symbols Outlined';
+    font-size: 24px;
+    width: 24px;
+    height: 24px;
+    margin: 0;
+    flex-shrink: 0;
+  }
+}
+
+.text-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  font-family: var(--mat-sys-brand-font, 'Google Sans', 'Roboto', sans-serif);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  text-align: center;
+}
+
 .button-container {
   padding: 20px;
 }
@@ -10,11 +88,39 @@
   padding: 20px 20px 0 20px;
 }
 
-.mat-subheading-2 {
-  margin-bottom: 0;
+.selector-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font: var(--mat-sys-label-large);
+  color: var(--mat-sys-on-surface);
+
+  &.disabled {
+    color: var(--mat-sys-on-surface-variant);
+    opacity: 0.6;
+  }
+}
+
+.selector-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border-radius: var(--mat-sys-corner-extra-large, 16px);
+  background-color: var(--mat-sys-secondary-container);
+  color: var(--mat-sys-on-secondary-container);
+  font: var(--mat-sys-label-small);
 }
 
 .select-all-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
   margin-left: -10px;
   padding-left: 16px;
 }
@@ -32,8 +138,8 @@
     top: 0;
     z-index: 1; // Ensures the header stays above the scrolling list of options.
     padding: 8px;
-    background: #fff;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.1); // Visual separator.
+    background: var(--mat-sys-surface-container, #fff);
+    border-bottom: 1px solid var(--mat-sys-outline-variant, rgba(0, 0, 0, 0.1)); // Visual separator.
   }
 
   // Styles for the sticky footer containing the "Apply Host Selection" button.
@@ -43,8 +149,8 @@
     bottom: 0;
     z-index: 1; // Ensures the footer stays below the scrolling list of options.
     padding: 8px;
-    background: #fff;
-    box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.1);
+    background: var(--mat-sys-surface-container, #fff);
+    box-shadow: var(--mat-sys-level1);
   }
 
   // Ensure options remain clickable and are not covered by the sticky button's

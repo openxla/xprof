@@ -1,4 +1,27 @@
+import {CommonModule} from '@angular/common';
+import {FormsModule} from '@angular/forms';
+import {MatButtonModule} from '@angular/material/button';
+import {MatCheckboxModule} from '@angular/material/checkbox';
+import {MatChipsModule} from '@angular/material/chips';
+import {MatOptionModule} from '@angular/material/core';
+import {MatExpansionModule} from '@angular/material/expansion';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatIconModule} from '@angular/material/icon';
+import {MatInputModule} from '@angular/material/input';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
+import {MatSelectModule} from '@angular/material/select';
+import {MatSidenavModule} from '@angular/material/sidenav';
+import {MatSnackBarModule} from '@angular/material/snack-bar';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import 'org_xprof/frontend/app/common/interfaces/window';
+import {DownloadHlo} from 'org_xprof/frontend/app/components/controls/download_hlo/download_hlo';
+import {SearchableDropdown} from 'org_xprof/frontend/app/components/controls/searchable_dropdown/searchable_dropdown';
+import {DiagnosticsView} from 'org_xprof/frontend/app/components/diagnostics_view/diagnostics_view';
+import {HloTextView} from 'org_xprof/frontend/app/components/graph_viewer/hlo_text_view/hlo_text_view';
+import {OpDetails} from 'org_xprof/frontend/app/components/op_profile/op_details/op_details';
+import {SourceMapper} from 'org_xprof/frontend/app/components/source_mapper/source_mapper';
+import {SafePipe} from 'org_xprof/frontend/app/pipes/safe_pipe';
 
 import {
   ChangeDetectionStrategy,
@@ -59,7 +82,32 @@ interface DefaultGraphOption {
 /** A graph viewer component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
+  imports: [
+    CommonModule,
+    DiagnosticsView,
+    FormsModule,
+    MatButtonModule,
+    MatCheckboxModule,
+    MatFormFieldModule,
+    MatIconModule,
+    MatInputModule,
+    MatOptionModule,
+    MatProgressBarModule,
+    MatSelectModule,
+    MatSidenavModule,
+    SafePipe,
+    SearchableDropdown,
+    HloTextView,
+    OpDetails,
+    MatProgressSpinnerModule,
+    MatSnackBarModule,
+    DownloadHlo,
+    MatExpansionModule,
+    SourceMapper,
+    MatChipsModule,
+    MatTooltipModule,
+  ],
   selector: 'graph-viewer',
   templateUrl: './graph_viewer.ng.html',
   styleUrls: ['./graph_viewer.scss'],
@@ -760,10 +808,9 @@ export class GraphViewer implements OnDestroy {
         this.tryRenderGraphvizHtml(searchParams);
       }
     }, 200);
-    this.graphvizUri = this.dataService.getGraphVizUri(
-      this.sessionId,
-      searchParams,
-    ) || 'about:blank';
+    this.graphvizUri =
+      this.dataService.getGraphVizUri(this.sessionId, searchParams) ||
+      'about:blank';
     if (iframe?.contentWindow?.location) {
       locationReplace(iframe.contentWindow?.location, this.graphvizUri!);
     }

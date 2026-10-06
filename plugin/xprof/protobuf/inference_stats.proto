@@ -104,7 +104,7 @@ message RequestDetail {
 }
 
 // Detail of a batch.
-// Next ID: 14
+// Next ID: 15
 message BatchDetail {
   // Batch id.
   optional int64 batch_id = 1 [default = -1];
@@ -150,6 +150,9 @@ message BatchDetail {
   // downstream consumers to join batch metadata (model_name, batch_size) with
   // per-program device performance data.
   repeated uint64 program_ids = 13;
+
+  // Batching efficiency for aggregated batch details.
+  optional double batching_efficiency = 14;
 }
 
 // Per-host data for inference analysis.

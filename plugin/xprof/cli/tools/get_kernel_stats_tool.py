@@ -1,6 +1,8 @@
 """Tool to fetch kernel performance statistics and step times across 1P and 3P."""
 
+import json
 from typing import Any, Literal
+import warnings
 
 from xprof.cli.internal import decorators
 
@@ -32,8 +34,9 @@ def compute_kernel_stats(
       session_id: Alias for source representing an XProf session ID or path.
       kernel_name: Optional specific tf_op_name / kernel name to filter by.
       limit: Number of top kernels to return when kernel_name is not provided.
-      output_format: Output format - 'json' (JSON string), 'markdown' (markdown
-        table string), or 'dict' (raw Python dict/list).
+      output_format: Output format - 'json' (JSON string) or 'markdown'
+        (markdown table string). 'dict' is deprecated and will be removed: it
+        returns the parsed 'json' output.
       include_summary: If True, computes ground-truth timing via Disjoint
         Interval Union alongside per-kernel records.
       device_to_use: Device plane to target (e.g., "TPU:0").
@@ -45,8 +48,8 @@ def compute_kernel_stats(
       bypass_cache: Whether to bypass cache.
 
   Returns:
-      A formatted string representation or dictionary containing kernel
-      statistics.
+      A JSON or markdown string containing kernel statistics, or the parsed
+      JSON for the deprecated 'dict' format.
 
   Raises:
       ValueError: If neither source nor session_id is provided.
@@ -56,17 +59,28 @@ def compute_kernel_stats(
     raise ValueError("Must provide either 'source' or 'session_id'.")
   if isinstance(source, (int, float)):
     source = str(source)
-  return kernel_stats_tools.get_kernel_stats(
+  legacy_dict = output_format == "dict"
+  if legacy_dict:
+    warnings.warn(
+        "output_format='dict' is deprecated; use 'json' and json.loads().",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+  engine_format: Literal["json", "markdown"] = (
+      "markdown" if output_format == "markdown" else "json"
+  )
+  result = kernel_stats_tools.get_kernel_stats(
       source,
       kernel_name=kernel_name,
       limit=limit,
-      output_format=output_format,
+      output_format=engine_format,
       include_summary=include_summary,
       device_to_use=device_to_use,
       trace_matchers=trace_matchers,
       include_intra_kernel_regions=include_intra_kernel_regions,
       bypass_cache=bypass_cache,
   )
+  return json.loads(result) if legacy_dict else result
 
 
 @decorators.cached(expire=86400)
@@ -76,7 +90,7 @@ def get_kernel_stats(
     *,
     kernel_name: str | None = None,
     limit: int = 10,
-    output_format: Literal["json", "markdown", "dict"] = "json",
+    output_format: Literal["json", "markdown"] = "json",
     include_summary: bool = False,
     device_to_use: str | None = "TPU:0",
     trace_matchers: tuple[str, ...] | None = None,
@@ -95,8 +109,8 @@ def get_kernel_stats(
       session_id: Alias for source representing an XProf session ID or path.
       kernel_name: Optional specific tf_op_name / kernel name to filter by.
       limit: Number of top kernels to return when kernel_name is not provided.
-      output_format: Output format - 'json' (JSON string), 'markdown' (markdown
-        table string), or 'dict' (raw Python dict/list).
+      output_format: Output format - 'json' (JSON string) or 'markdown'
+        (markdown table string).
       include_summary: If True, computes ground-truth timing via Disjoint
         Interval Union alongside per-kernel records.
       device_to_use: Device plane to target (e.g., "TPU:0").
@@ -108,8 +122,7 @@ def get_kernel_stats(
       bypass_cache: Whether to bypass cache.
 
   Returns:
-      A formatted string representation or dictionary containing kernel
-      statistics.
+      A JSON or markdown string containing kernel statistics.
 
   Raises:
       ValueError: If neither source nor session_id is provided.

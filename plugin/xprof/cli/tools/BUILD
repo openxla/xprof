@@ -110,6 +110,7 @@ pytype_strict_library(
     srcs = ["get_utilization_viewer_tool.py"],
     deps = [
         "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal:xprof_data",
         "//plugin/xprof/cli/internal/oss:xprof_client",
     ],
 )

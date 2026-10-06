@@ -160,3 +160,9 @@ pytype_strict_library(
         ":get_roofline_model_tool",
     ],
 )
+
+pytype_strict_library(
+    name = "install_skills_tool",
+    srcs = ["install_skills_tool.py"],
+    data = ["//:skills_files"],
+)

@@ -13,8 +13,10 @@ xprof_ng_module(
         "app.ng.html",
     ],
     deps = [
+        "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
         "//:node_modules/@angular/platform-browser",
+        "//:node_modules/@angular/router",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/angular:angular_common_http",

@@ -14,12 +14,18 @@ mat-form-field {
   width: 400px;
 }
 
+.radio-label,
 mat-radio-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   margin-left: 20px;
+  cursor: pointer;
 }
 
 mat-dialog-actions {
   justify-content: flex-end;
+  gap: 8px;
 }
 
 .mat-mdc-raised-button {

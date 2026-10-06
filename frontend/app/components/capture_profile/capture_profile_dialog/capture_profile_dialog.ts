@@ -1,14 +1,22 @@
-import {Component, ChangeDetectionStrategy} from '@angular/core';
+import '@material/web/button/outlined-button.js';
+import '@material/web/button/text-button.js';
+import '@material/web/radio/radio.js';
+
+import {ChangeDetectionStrategy, Component, inject} from '@angular/core';
 import {MatDialogRef} from '@angular/material/dialog';
 
 /** A capture profile dialog component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'capture-profile-dialog',
   templateUrl: './capture_profile_dialog.ng.html',
-  styleUrls: ['./capture_profile_dialog.scss']
+  styleUrls: ['./capture_profile_dialog.scss'],
 })
 export class CaptureProfileDialog {
+  private readonly dialogRef =
+    inject<MatDialogRef<CaptureProfileDialog>>(MatDialogRef);
+
   captureButtonLabel = 'Capture';
   closeButtonLabel = 'Close';
   serviceAddr = '';
@@ -18,16 +26,14 @@ export class CaptureProfileDialog {
   numRetry = 3;
   workerList = '';
   hostTracerLevel = '2';
-  hostTracerTooltip = 'lower trace level to reduce amount of host traces ' +
-      'collected, some tools will not function well when the host tracer ' +
-      'level is less than info';
+  hostTracerTooltip =
+    'lower trace level to reduce amount of host traces ' +
+    'collected, some tools will not function well when the host tracer ' +
+    'level is less than info';
   deviceTracerLevel = '1';
   pythonTracerLevel = '0';
   delay = 0;
-  extraOptions: Array<{key: string, value: string}> = [];
-
-  constructor(private readonly dialogRef:
-                  MatDialogRef<CaptureProfileDialog>) {}
+  extraOptions: Array<{key: string; value: string}> = [];
 
   addressTypeChanged(value: string) {
     this.isTpuName = value === 'tpu';
@@ -38,16 +44,16 @@ export class CaptureProfileDialog {
   }
 
   captureProfile() {
-    const options: {[key: string]: string|number|boolean} = {
-      serviceAddr: this.serviceAddr,
-      isTpuName: this.isTpuName,
-      duration: this.duration,
-      numRetry: this.numRetry,
-      workerList: this.workerList,
-      hostTracerLevel: Number(this.hostTracerLevel),
-      deviceTracerLevel: Number(this.deviceTracerLevel),
-      pythonTracerLevel: Number(this.pythonTracerLevel),
-      delay: this.delay,
+    const options: {[key: string]: string | number | boolean} = {
+      'serviceAddr': this.serviceAddr,
+      'isTpuName': this.isTpuName,
+      'duration': this.duration,
+      'numRetry': this.numRetry,
+      'workerList': this.workerList,
+      'hostTracerLevel': Number(this.hostTracerLevel),
+      'deviceTracerLevel': Number(this.deviceTracerLevel),
+      'pythonTracerLevel': Number(this.pythonTracerLevel),
+      'delay': this.delay,
     };
 
     for (const option of this.extraOptions) {

@@ -1,96 +1,152 @@
-<div *ngIf="!hideCaptureProfileButton" class="button-container horizontal-center">
-  <capture-profile></capture-profile>
-  <capture-kernel></capture-kernel>
-</div>
-
-<!-- TODO(bhupendradubey): Rename internal variables and function names (e.g., `runs`, `selectedRun`, `onRunSelectionChange`) to use `session` instead of `run` for consistency. -->
-<div class="item-container">
-  <div [ngClass]="{'mat-subheading-2': true, 'disabled': !runs.length}">
-    Sessions ({{runs.length}})
-  </div>
-
-  <mat-form-field class="full-width" appearance="outline">
-    <mat-select panelClass="panel-override" [value]="selectedRun" [disabled]="!runs.length" (selectionChange)="onRunSelectionChange($event.value)">
-      <mat-option *ngFor="let run of runs" [value]="run">
-        {{run}}
-      </mat-option>
-    </mat-select>
-  </mat-form-field>
-</div>
-
-<div class="item-container">
-  <div [ngClass]="{'mat-subheading-2': true, 'disabled': !tags.length}">
-    Tools ({{tags.length}})
-  </div>
-
-  <mat-form-field class="full-width" appearance="outline">
-    <mat-select panelClass="panel-override" [value]="selectedTag" [disabled]="!tags.length" (selectionChange)="onTagSelectionChange($event.value)">
-      <mat-option *ngFor="let tag of tags" [value]="tag">
-        {{getDisplayTagName(tag)}}
-      </mat-option>
-    </mat-select>
-  </mat-form-field>
-</div>
-
-<div class="item-container" *ngIf="!isMultiHostsEnabled">
-  <div [ngClass]="{'mat-subheading-2': true, 'disabled': !hosts.length}">
-    Hosts ({{hosts.length}})
-  </div>
-  <mat-form-field class="full-width" appearance="outline">
-    <mat-select #singleSelectHost="matSelect" panelClass="panel-override" [value]="selectedHost" [disabled]="!hosts.length" (selectionChange)="onHostSelectionChange($event.value)">
-      <mat-option *ngFor="let host of hosts" [value]="host">
-        {{host}}
-      </mat-option>
-    </mat-select>
-  </mat-form-field>
-</div>
-
-<div class="item-container" *ngIf="isMultiHostsEnabled">
-  <div [ngClass]="{'mat-subheading-2': true, 'disabled': !hosts.length}">
-    Hosts ({{selectedHostsInternal.length}})
-  </div>
-  <mat-form-field class="full-width" appearance="outline">
-    <mat-select #multiSelectHost="matSelect" panelClass="multi-host-select-panel" [value]="selectedHostsPending" [disabled]="!hosts.length" (selectionChange)="onHostsSelectionChange($event.value)" multiple>
-      <div class="sticky-header" (click)="$event.stopPropagation()">
-        <mat-checkbox class="select-all-checkbox"
-                      [checked]="allHostsSelected"
-                      (change)="onToggleSelectAllHosts($event)">
-          {{ allHostsSelected ? 'De-select All Hosts' : 'Select All Hosts' }}
-        </mat-checkbox>
-      </div>
-      <mat-option *ngFor="let host of hosts" [value]="host">
-        {{host}}
-      </mat-option>
-      <div class="sticky-footer" (click)="$event.stopPropagation()">
-        <button mat-flat-button color="primary" class="full-width" (click)="onSubmitHosts(); multiSelectHost.close()">
-          Apply Host Selection
+@if (!expanded) {
+  <nav
+      class="sidenav-content"
+      role="navigation"
+      aria-label="Main navigation"
+      i18n-aria-label="The main side navigation rail.">
+    <div class="tools-list">
+      @for (tag of tags; track tag) {
+        <button
+            type="button"
+            class="nav-rail-item"
+            [class.active]="selectedTag === tag"
+            [matTooltip]="getDisplayTagName(tag)"
+            matTooltipPosition="right"
+            [attr.aria-label]="getDisplayTagName(tag)"
+            [attr.aria-current]="selectedTag === tag ? 'page' : null"
+            (click)="onTagSelectionChange(tag)">
+          <div class="active-indicator">
+            @if (hasIcon(tag)) {
+              <md-icon aria-hidden="true">{{getIcon(tag)}}</md-icon>
+            } @else {
+              <span class="text-icon" aria-hidden="true">{{getIcon(tag)}}</span>
+            }
+          </div>
         </button>
-      </div>
-    </mat-select>
-  </mat-form-field>
-</div>
+      }
+    </div>
+  </nav>
+}
 
-<!-- TODO(xprof): Remove module selector from sidenav once it's been moved to the memory viewer control. -->
-<div [hidden]="!is_hlo_tool" class="item-container">
-  <div [ngClass]="{'mat-subheading-2': true, 'disabled': !moduleList.length}">
-    Hlo Modules ({{moduleList.length}})
+<div [hidden]="!expanded">
+  @if (!hideCaptureProfileButton) {
+    <div class="button-container horizontal-center">
+      <capture-profile></capture-profile>
+      <capture-kernel></capture-kernel>
+    </div>
+  }
+
+  <!-- TODO(bhupendradubey): Rename internal variables and function names (e.g., `runs`, `selectedRun`, `onRunSelectionChange`) to use `session` instead of `run` for consistency. -->
+  <div class="item-container">
+    <div class="selector-header" [class.disabled]="!runs.length">
+      <span class="selector-label">Sessions</span>
+      <span class="selector-count-badge" aria-label="Session count">{{runs.length}}</span>
+    </div>
+
+    <mat-form-field class="full-width" appearance="outline">
+      <mat-select panelClass="panel-override" [value]="selectedRun" [disabled]="!runs.length" (selectionChange)="onRunSelectionChange($event.value)">
+        @for (run of runs; track run) {
+          <mat-option [value]="run">
+            {{run}}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
   </div>
-  <mat-form-field class="full-width" appearance="outline">
-    <mat-select panelClass="panel-override" [value]="selectedModule" [disabled]="!moduleList.length" (selectionChange)="onModuleSelectionChange($event.value)">
-      <mat-option *ngFor="let module of moduleList" [value]="module">
-        {{module}}
-      </mat-option>
-    </mat-select>
-  </mat-form-field>
-</div>
 
-<!-- TODO(xprof): Remove buffer details from sidenav once it's been moved to the memory viewer control. -->
-<div [hidden]="!selectedTag.startsWith('memory_viewer')">
-  <buffer-details></buffer-details>
-</div>
+  <div class="item-container">
+    <div class="selector-header" [class.disabled]="!tags.length">
+      <span class="selector-label">Tools</span>
+      <span class="selector-count-badge" aria-label="Tool count">{{tags.length}}</span>
+    </div>
 
-<div [hidden]="!selectedTag.startsWith('pod_viewer')">
-  <pod-viewer-details></pod-viewer-details>
-</div>
+    <mat-form-field class="full-width" appearance="outline">
+      <mat-select panelClass="panel-override" [value]="selectedTag" [disabled]="!tags.length" (selectionChange)="onTagSelectionChange($event.value)">
+        @for (tag of tags; track tag) {
+          <mat-option [value]="tag">
+            {{getDisplayTagName(tag)}}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+  </div>
 
-<br>
+  @if (!isMultiHostsEnabled) {
+    <div class="item-container">
+      <div class="selector-header" [class.disabled]="!hosts.length">
+        <span class="selector-label">Hosts</span>
+        <span class="selector-count-badge" aria-label="Host count">{{hosts.length}}</span>
+      </div>
+      <mat-form-field class="full-width" appearance="outline">
+        <mat-select #singleSelectHost="matSelect" panelClass="panel-override" [value]="selectedHost" [disabled]="!hosts.length" (selectionChange)="onHostSelectionChange($event.value)">
+          @for (host of hosts; track host) {
+            <mat-option [value]="host">
+              {{host}}
+            </mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+    </div>
+  }
+
+  @if (isMultiHostsEnabled) {
+    <div class="item-container">
+      <div class="selector-header" [class.disabled]="!hosts.length">
+        <span class="selector-label">Hosts</span>
+        <span class="selector-count-badge" aria-label="Selected host count">{{selectedHostsInternal.length}}</span>
+      </div>
+      <mat-form-field class="full-width" appearance="outline">
+        <mat-select #multiSelectHost="matSelect" panelClass="multi-host-select-panel" [value]="selectedHostsPending" [disabled]="!hosts.length" (selectionChange)="onHostsSelectionChange($event.value)" multiple>
+          <div class="sticky-header" (click)="$event.stopPropagation()">
+            <label class="select-all-checkbox">
+              <md-checkbox
+                  touch-target="wrapper"
+                  [checked]="allHostsSelected"
+                  (change)="onToggleSelectAllHosts($event)">
+              </md-checkbox>
+              {{ allHostsSelected ? 'De-select All Hosts' : 'Select All Hosts' }}
+            </label>
+          </div>
+          @for (host of hosts; track host) {
+            <mat-option [value]="host">
+              {{host}}
+            </mat-option>
+          }
+          <div class="sticky-footer" (click)="$event.stopPropagation()">
+            <md-filled-button class="full-width" (click)="onSubmitHosts(); multiSelectHost.close()">
+              Apply Host Selection
+            </md-filled-button>
+          </div>
+        </mat-select>
+      </mat-form-field>
+    </div>
+  }
+
+  <!-- TODO(xprof): Remove module selector from sidenav once it's been moved to the memory viewer control. -->
+  <div [hidden]="!is_hlo_tool" class="item-container">
+    <div class="selector-header" [class.disabled]="!moduleList.length">
+      <span class="selector-label">Hlo Modules</span>
+      <span class="selector-count-badge" aria-label="HLO module count">{{moduleList.length}}</span>
+    </div>
+    <mat-form-field class="full-width" appearance="outline">
+      <mat-select panelClass="panel-override" [value]="selectedModule" [disabled]="!moduleList.length" (selectionChange)="onModuleSelectionChange($event.value)">
+        @for (module of moduleList; track module) {
+          <mat-option [value]="module">
+            {{module}}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+  </div>
+
+  <!-- TODO(xprof): Remove buffer details from sidenav once it's been moved to the memory viewer control. -->
+  <div [hidden]="!selectedTag.startsWith('memory_viewer')">
+    <buffer-details></buffer-details>
+  </div>
+
+  <div [hidden]="!selectedTag.startsWith('pod_viewer')">
+    <pod-viewer-details></pod-viewer-details>
+  </div>
+
+  <br>
+</div>

@@ -12,17 +12,30 @@
     </mat-form-field>
   </div>
 
-  <div>
-    <mat-radio-group
-      aria-label="address type"
-      i18n-aria-label="Radio buttons to select address type"
-      [(ngModel)]="addressType"
-      (ngModelChange)="addressTypeChanged($event)"
-    >
-      Address Type:
-      <mat-radio-button value="ip">IP Address</mat-radio-button>
-      <mat-radio-button value="tpu">TPU Name</mat-radio-button>
-    </mat-radio-group>
+  <div
+    role="radiogroup"
+    aria-label="address type"
+    i18n-aria-label="Radio buttons to select address type"
+  >
+    Address Type:
+    <label class="radio-label">
+      <md-radio
+        name="address-type"
+        value="ip"
+        [checked]="addressType === 'ip'"
+        (change)="addressType = 'ip'; addressTypeChanged('ip')"
+      ></md-radio>
+      IP Address
+    </label>
+    <label class="radio-label">
+      <md-radio
+        name="address-type"
+        value="tpu"
+        [checked]="addressType === 'tpu'"
+        (change)="addressType = 'tpu'; addressTypeChanged('tpu')"
+      ></md-radio>
+      TPU Name
+    </label>
   </div>
 
   <br />
@@ -126,19 +139,19 @@
           <mat-form-field>
             <input matInput placeholder="Value" aria-label="Value" [(ngModel)]="option.value" />
           </mat-form-field>
-          <button mat-button (click)="removeExtraOption(i)">Remove</button>
+          <md-text-button (click)="removeExtraOption(i)">Remove</md-text-button>
         </div>
-        <button mat-button (click)="addExtraOption()">Add Option</button>
+        <md-text-button (click)="addExtraOption()">Add Option</md-text-button>
       </div>
     </mat-expansion-panel>
   </div>
 </mat-dialog-content>
 
 <mat-dialog-actions>
-  <button mat-raised-button [disabled]="!serviceAddr" (click)="captureProfile()">
+  <md-outlined-button [disabled]="!serviceAddr" (click)="captureProfile()">
     {{ captureButtonLabel | uppercase }}
-  </button>
-  <button mat-raised-button (click)="close()">
+  </md-outlined-button>
+  <md-outlined-button (click)="close()">
     {{ closeButtonLabel | uppercase }}
-  </button>
+  </md-outlined-button>
 </mat-dialog-actions>

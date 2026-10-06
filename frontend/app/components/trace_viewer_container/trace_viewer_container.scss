@@ -132,9 +132,7 @@ canvas.emscripten {
   --tt-good: #81c995;
   --tt-warn: #fdd663;
   --tt-bad: #f28b82;
-  --tt-shadow:
-    0 16px 40px rgba(0, 0, 0, 0.45),
-    0 4px 12px rgba(0, 0, 0, 0.3);
+  --tt-shadow: 0 16px 40px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.3);
   --tt-label-font: 'Google Sans Text', 'Google Sans', Roboto, sans-serif;
   --tt-code-font: 'Roboto Mono', monospace;
 
@@ -281,6 +279,7 @@ canvas.emscripten {
 
     .file-link-icon {
       flex-shrink: 0;
+      --md-icon-size: 14px;
       width: 14px;
       height: 14px;
       font-size: 14px;
@@ -351,7 +350,9 @@ canvas.emscripten {
     white-space: nowrap;
     animation: pinnedIndicatorIn 160ms cubic-bezier(0.2, 0, 0, 1.2);
 
-    mat-icon {
+    mat-icon,
+    md-icon {
+      --md-icon-size: 14px;
       width: 14px;
       height: 14px;
       font-size: 14px;
@@ -640,6 +641,7 @@ canvas.emscripten {
 
   .crumb-sep {
     flex-shrink: 0;
+    --md-icon-size: 14px;
     width: 14px;
     height: 14px;
     font-size: 14px;
@@ -715,6 +717,10 @@ canvas.emscripten {
   }
 
   .footer-action-btn {
+    --md-icon-button-state-layer-width: 28px;
+    --md-icon-button-state-layer-height: 28px;
+    --md-icon-button-icon-size: 16px;
+    --md-icon-button-icon-color: var(--tt-text-muted);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -733,7 +739,9 @@ canvas.emscripten {
       }
     }
 
-    mat-icon {
+    mat-icon,
+    md-icon {
+      --md-icon-size: 16px;
       width: 16px;
       height: 16px;
       font-size: 16px;
@@ -742,12 +750,14 @@ canvas.emscripten {
 
     &:hover,
     &:focus-visible {
+      --md-icon-button-icon-color: var(--tt-primary);
       background: var(--tt-surface-chip);
       color: var(--tt-primary);
       outline: none;
     }
 
     &.copied {
+      --md-icon-button-icon-color: var(--tt-good);
       color: var(--tt-good);
     }
   }
@@ -774,8 +784,7 @@ canvas.emscripten {
     --tt-warn: #e37400;
     --tt-bad: #d93025;
     --tt-shadow:
-      0 16px 36px rgba(60, 64, 67, 0.2),
-      0 3px 8px rgba(60, 64, 67, 0.12);
+      0 16px 36px rgba(60, 64, 67, 0.2), 0 3px 8px rgba(60, 64, 67, 0.12);
 
     .view-toggle .view-toggle-btn.active {
       box-shadow: 0 1px 2px rgba(60, 64, 67, 0.2);
@@ -848,7 +857,9 @@ canvas.emscripten {
       justify-content: center;
       width: 36px;
 
-      mat-icon {
+      mat-icon,
+      md-icon {
+        --md-icon-size: 20px;
         font-size: 20px;
         width: 20px;
         height: 20px;
@@ -891,6 +902,10 @@ canvas.emscripten {
 
 .search-arrow-btn,
 .search-clear-btn {
+  --md-icon-button-state-layer-width: 24px;
+  --md-icon-button-state-layer-height: 24px;
+  --md-icon-button-icon-size: 16px;
+  --md-icon-button-icon-color: var(--mat-sys-on-surface-variant);
   width: 24px;
   height: 24px;
   padding: 0;
@@ -900,7 +915,9 @@ canvas.emscripten {
   justify-content: center;
   color: var(--mat-sys-on-surface-variant);
 
-  mat-icon {
+  mat-icon,
+  md-icon {
+    --md-icon-size: 16px;
     font-size: 16px;
     width: 16px;
     height: 16px;
@@ -912,7 +929,12 @@ canvas.emscripten {
   align-items: center;
   margin-left: 12px;
 
-  button.mat-mdc-icon-button {
+  button.mat-mdc-icon-button,
+  md-icon-button {
+    --md-icon-button-state-layer-width: 32px;
+    --md-icon-button-state-layer-height: 32px;
+    --md-icon-button-icon-size: 20px;
+    --md-icon-button-icon-color: var(--mat-sys-on-surface-variant);
     width: 32px;
     height: 32px;
     padding: 0;
@@ -938,12 +960,15 @@ canvas.emscripten {
     }
 
     &.active {
+      --md-icon-button-icon-color: var(--mat-sys-primary);
       background-color: var(--mat-sys-primary-container);
       color: var(--mat-sys-primary);
     }
 
     mat-icon,
+    md-icon,
     svg {
+      --md-icon-size: 20px;
       width: 20px;
       height: 20px;
       font-size: 20px;
@@ -966,9 +991,22 @@ canvas.emscripten {
   gap: 4px;
   flex-shrink: 0;
 
-  button.toolbar-action-btn {
+  .toolbar-action-btn {
+    --md-text-button-container-height: 32px;
+    --md-text-button-container-shape: 4px;
+    --md-text-button-leading-space: 6px;
+    --md-text-button-trailing-space: 6px;
+    --md-text-button-label-text-color: var(--mat-sys-on-surface-variant);
+    --md-text-button-hover-label-text-color: var(--mat-sys-on-surface-variant);
+    --md-text-button-focus-label-text-color: var(--mat-sys-on-surface-variant);
+    --md-text-button-pressed-label-text-color: var(
+      --mat-sys-on-surface-variant
+    );
+    --md-text-button-label-text-font: 'Google Sans Text', Roboto, sans-serif;
+    --md-text-button-label-text-size: 12px;
+    --md-text-button-label-text-weight: 500;
     height: 32px;
-    padding: 0 6px;
+    padding: 0;
     min-width: unset;
     border-radius: 4px;
     color: var(--mat-sys-on-surface-variant);
@@ -1003,11 +1041,17 @@ canvas.emscripten {
     }
 
     &.active {
+      --md-text-button-label-text-color: var(--mat-sys-primary);
+      --md-text-button-hover-label-text-color: var(--mat-sys-primary);
+      --md-text-button-focus-label-text-color: var(--mat-sys-primary);
+      --md-text-button-pressed-label-text-color: var(--mat-sys-primary);
       background-color: var(--mat-sys-primary-container);
       color: var(--mat-sys-primary);
     }
 
-    mat-icon {
+    mat-icon,
+    md-icon {
+      --md-icon-size: 18px;
       width: 18px;
       height: 18px;
       font-size: 18px;
@@ -1036,12 +1080,16 @@ canvas.emscripten {
 }
 
 @media (max-width: 900px) {
-  .navigation-actions-container button.toolbar-action-btn .btn-label {
+  .navigation-actions-container .toolbar-action-btn .btn-label {
     display: none;
   }
 }
 
-button.shortcuts-guide-btn {
+.shortcuts-guide-btn {
+  --md-icon-button-state-layer-width: 32px;
+  --md-icon-button-state-layer-height: 32px;
+  --md-icon-button-icon-size: 24px;
+  --md-icon-button-icon-color: var(--mat-sys-on-surface-variant);
   width: 32px;
   height: 32px;
   padding: 0;
@@ -1068,11 +1116,14 @@ button.shortcuts-guide-btn {
   }
 
   &.active {
+    --md-icon-button-icon-color: var(--mat-sys-primary);
     background-color: var(--mat-sys-primary-container);
     color: var(--mat-sys-primary);
   }
 
-  mat-icon {
+  mat-icon,
+  md-icon {
+    --md-icon-size: 24px;
     width: 24px;
     height: 24px;
     font-size: 24px;
@@ -1096,7 +1147,12 @@ button.shortcuts-guide-btn {
   align-items: center;
   margin-left: 4px;
 
-  button.mat-mdc-icon-button {
+  button.mat-mdc-icon-button,
+  md-icon-button {
+    --md-icon-button-state-layer-width: 32px;
+    --md-icon-button-state-layer-height: 32px;
+    --md-icon-button-icon-size: 24px;
+    --md-icon-button-icon-color: var(--mat-sys-on-surface-variant);
     width: 32px;
     height: 32px;
     padding: 0;
@@ -1123,11 +1179,14 @@ button.shortcuts-guide-btn {
     }
 
     &.active {
+      --md-icon-button-icon-color: var(--mat-sys-primary);
       background-color: var(--mat-sys-primary-container);
       color: var(--mat-sys-primary);
     }
 
-    mat-icon {
+    mat-icon,
+    md-icon {
+      --md-icon-size: 24px;
       width: 24px;
       height: 24px;
       font-size: 24px;
@@ -1430,6 +1489,10 @@ button.shortcuts-guide-btn {
         }
 
         .hlo-collapse-btn {
+          --md-icon-button-state-layer-width: 20px;
+          --md-icon-button-state-layer-height: 20px;
+          --md-icon-button-icon-size: 16px;
+          --md-icon-button-icon-color: var(--mat-sys-on-surface-variant);
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -1444,11 +1507,14 @@ button.shortcuts-guide-btn {
           border-radius: 4px;
 
           &:hover {
+            --md-icon-button-icon-color: var(--mat-sys-on-surface);
             background-color: var(--mat-sys-surface-variant);
             color: var(--mat-sys-on-surface);
           }
 
-          mat-icon {
+          mat-icon,
+          md-icon {
+            --md-icon-size: 16px;
             font-size: 16px;
             width: 16px;
             height: 16px;
@@ -1522,7 +1588,8 @@ button.shortcuts-guide-btn {
     font-weight: 500;
     color: var(--mat-sys-error, #ba1a1a);
 
-    mat-icon {
+    mat-icon,
+    md-icon {
       margin-right: 8px;
     }
   }
@@ -1558,9 +1625,13 @@ button.shortcuts-guide-btn {
     margin-top: 10px;
   }
 
-  mat-progress-bar {
+  md-linear-progress {
     width: 40%;
   }
+}
+
+.incremental-loading-spinner {
+  --md-circular-progress-size: 24px;
 }
 
 .spacer {
@@ -1657,7 +1728,9 @@ button.shortcuts-guide-btn {
   }
 }
 
-.timeline-status-bar mat-icon {
+.timeline-status-bar mat-icon,
+.timeline-status-bar md-icon {
+  --md-icon-size: 18px;
   font-size: 18px;
   width: 18px;
   height: 18px;

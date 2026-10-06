@@ -4,6 +4,7 @@ import {MatButtonModule} from '@angular/material/button';
 import {MatCardModule} from '@angular/material/card';
 import {MatFormFieldModule} from '@angular/material/form-field';
 import {MatInputModule} from '@angular/material/input';
+import {MatTableModule} from '@angular/material/table';
 
 import {MemoryTimelineGraph} from './memory_timeline_graph';
 
@@ -15,8 +16,8 @@ import {MemoryTimelineGraph} from './memory_timeline_graph';
     MatButtonModule,
     MatFormFieldModule,
     MatInputModule,
+    MatTableModule,
   ],
-  exports: [MemoryTimelineGraph]
+  exports: [MemoryTimelineGraph],
 })
-export class MemoryTimelineGraphModule {
-}
+export class MemoryTimelineGraphModule {}

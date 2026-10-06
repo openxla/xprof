@@ -39,6 +39,14 @@ xparity verify \
   --max_allowed_ulp=2 \
   --kernel_oracle="auto"
 
+# Verify exact bit-pattern equality across all regimes (distinguishes -0.0/+0.0)
+xparity verify \
+  --kernel_ref="my_pkg.kernels:ref_fn" \
+  --kernel_candidate="my_pkg.kernels:cand_fn" \
+  --shapes="[(32, 2048)]" \
+  --dtype_str="bfloat16" \
+  --contract="bitwise"
+
 # Generate and persist a multi-regime .npz stress test suite
 xparity generate_suite \
   --shapes="[(16, 1024)]" \
@@ -52,6 +60,15 @@ xparity probe_precision \
   --shapes="[(128, 128)]" \
   --dtype_str="float32" \
   --device_kind="tpu"
+
+# Replay a saved failing batch (.npz from --dump_failures_to) to verify a fix
+# (pass --verdict_only on verify or replay to emit a compact verdict summary
+# with only failing batches instead of the full per-batch payload)
+xparity replay \
+  --dump_path="/tmp/xparity_failures/xparity_failure_000_student_t_batch_0.npz" \
+  --kernel_ref="my_pkg.kernels:ref_fn" \
+  --kernel_candidate="my_pkg.kernels:cand_fn" \
+  --verdict_only
 ```
 
 ### 2. Python Library API (`xprof.xparity`)
@@ -60,9 +77,15 @@ When validating inline callables inside a test or benchmark script, import
 directly from `xprof.xparity`:
 
 ```python
+from xprof.xparity import CONTRACT_BITWISE
 from xprof.xparity import chunk_callable
+from xprof.xparity import compare_bitwise
+from xprof.xparity import generate_attention_suite
+from xprof.xparity import make_fwd_bwd
 from xprof.xparity import numerical_generator
 from xprof.xparity import numerical_validator
+from xprof.xparity import read_suite_metadata
+from xprof.xparity import replay_failure_dump
 from xprof.xparity import validate_kernels
 
 report = validate_kernels(
@@ -73,6 +96,24 @@ report = validate_kernels(
     tier="presubmit",
     max_allowed_ulp=2,
     kernel_oracle="auto",
+    contract="ulp",  # or CONTRACT_BITWISE for exact bit-pattern equality
+    dump_failures_to="/tmp/xparity_failures",
+    # Optional per-leaf contract overrides for tuple/dict/pytree outputs:
+    # contract_by_leaf={"['out']": "bitwise", "['vjp'][0]": "ulp"},
+)
+
+# Re-run a saved failing batch directly after editing candidate_fn:
+if report.failure_dumps:
+  replay_report = replay_failure_dump(
+      report.failure_dumps[0], reference_fn, candidate_fn
+  )
+
+# Validate both forward output and backward VJP gradients leaf-by-leaf:
+fwd_bwd_report = validate_kernels(
+    kernel_ref=make_fwd_bwd(reference_fn),
+    kernel_candidate=make_fwd_bwd(candidate_fn),
+    shapes=[(32, 2048)],
+    dtype_str="bfloat16",
 )
 ```
 
@@ -90,15 +131,27 @@ Float64 oracle (a **False Red**).
 
 ### Mandatory Verdict-Reading Order (Inverted Order)
 
-1.  **Check `run_config` Provenance First**: Confirm `tier` (`fast_agent` vs
-    `presubmit`), `dtype_str`, `device_kind`, and `total_batches_count`. Never
-    quote a `fast_agent` ULP figure as a final `presubmit` certification.
-2.  **Check `tolerance_audit` Second**: Verify `configured_max_ulp` against
-    `recommended_contract_ulp` (`2 ULP` for `float32`/`bfloat16`/`float16`, `1
-    ULP` for `fp8`, `0 ULP` for discrete `int*`/`bool`) and the immutable
-    `hard_safety_ceiling` (`8 ULP` for `bfloat16`/`float16`, `4 ULP` for
-    `float32`). Any attempt to set `max_allowed_ulp` above `hard_safety_ceiling`
-    raises a `ValueError`.
+1.  **Check `run_config` & `coverage` Provenance First**: Confirm `tier`
+    (`fast_agent` vs `presubmit`), `contract` (`"ulp"` vs `"bitwise"`),
+    `dtype_str`, `device_kind`, `total_batches_count`, and `coverage`
+    (`selection`, `regimes_run`, `regimes_not_run`). By default, `presubmit` and
+    `deep_fuzzing` gate on every regime in the suite (`selection:
+    "full_suite"`), whereas `fast_agent` runs `normal` first with triage on
+    failure (`selection: "normal_first"`). Never quote a `fast_agent` ULP figure
+    or a run with non-empty `regimes_not_run` as a final `presubmit`
+    certification.
+2.  **Check `tolerance_audit` & `tolerance_headroom` Second**: Verify
+    `configured_max_ulp` against `recommended_contract_ulp` (`2 ULP` for
+    `float32`/`bfloat16`/`float16`, `1 ULP` for `fp8`, `0 ULP` for discrete
+    `int*`/`bool`) and the immutable `hard_safety_ceiling` (`8 ULP` for
+    `bfloat16`/`float16`, `4 ULP` for `float32`). Any attempt to set
+    `max_allowed_ulp` above `hard_safety_ceiling` raises a `ValueError`. When a
+    downstream test suite has existing `atol`/`rtol` budgets, pass `atol` and
+    `rtol` (`--atol`, `--rtol`) to populate report-only `tolerance_headroom`
+    (`max_ratio`, `exceeded`, `worst_batch`, `oracle_max_ratio`,
+    `oracle_exceeded`, and per-batch `tolerance_ratio` /
+    `oracle_tolerance_ratio`, where $\le 1.0$ means within `atol + rtol * |ref|`)
+    without altering `is_numerically_equivalent`.
 3.  **Check `oracle_audit` Third (Questions Q2 & Q3)**:
     -   **Q2 (Reference Correctness — `reference_is_lossy`)**: Is
         `reference_max_ulp_from_oracle <= recommended_contract_ulp`? If
@@ -117,10 +170,19 @@ Float64 oracle (a **False Red**).
 4.  **Check `is_numerically_equivalent` & `batch_results` Last (Question Q1 —
     Behavior Alteration)**:
     -   Inspect `worst_offender` (`max_ulp_index`, `ref_value`, `cand_value`,
-        `abs_diff`, `rel_diff`, `mismatch_count`) and non-finite telemetry
-        (`nan_count`, `inf_count`, `first_non_finite_index`, `finite_max_ulp`)
-        to pinpoint localized boundary, causal-diagonal, or gather-index
-        defects.
+        `abs_diff`, `rel_diff`, `mismatch_count`), `bitwise` (`equal`,
+        `diff_count`, `diff_ratio`, `first_diff_index`, `reference_bits`,
+        `candidate_bits`), and non-finite telemetry (`nan_count`, `inf_count`,
+        `first_non_finite_index`, `finite_max_ulp`) to pinpoint localized
+        boundary, sign-of-zero, causal-diagonal, or gather-index defects. When
+        requiring exact bit identity across layout or refactor changes, pass
+        `contract="bitwise"` (do not gate on `overall_max_ulp == 0`, which maps
+        `-0.0` and `+0.0` to the same index and fails on identical `NaN`s).
+    -   For multi-output (pytree) kernels or `make_fwd_bwd` backward-pass
+        checks, inspect `leaf_path` (the first failing leaf or worst-ULP leaf,
+        e.g. `"[0]"`, `"['lse']"`, or `"['vjp'][0]"`) and per-leaf entries in
+        `leaf_results`. Every leaf must pass for the batch to pass; use
+        `contract_by_leaf` (`--contract_by_leaf`) to set per-leaf contracts.
 
 --------------------------------------------------------------------------------
 
@@ -132,7 +194,12 @@ out-of-bounds gather routing. Always use `numerical_generator` regimes matched
 to the kernel's failure modes:
 
 -   **Continuous Float Regimes (`generate_test_suite`)**:
-    -   `normal`: Benign Gaussian baseline.
+    -   `normal` (`generate_normal_tensor`): Benign unit-Gaussian baseline
+        ($\sigma = 1$).
+    -   `scale_sweep` (`generate_normal_tensor(..., scale=sigma)` with
+        `SCALE_SWEEP_SIGMAS = (0.02, 3.0, 10.0)`): Sub-unit and super-unit
+        Gaussian magnitudes to expose scale-dependent softmax/attention and
+        normalization branches that unit-variance inputs miss.
     -   `student_t` (`generate_student_t_tensor`): Heavy-tailed power-law draws
         ($\nu \in [2.5, 4.0]$) bounded at $0.95 \times \text{max\_finite}$.
     -   `outliers` (`generate_outlier_tensor`): Scattered $50\times$ activation
@@ -146,6 +213,17 @@ to the kernel's failure modes:
     -   `boundary` (`generate_boundary_probe_tensor`): `min_normal`,
         `min_subnormal`, `0.0`, and $\pm 10^4$ aligned to 128-byte TPU VMEM tile
         strides.
+-   **Attention Suite Generator (`generate_attention_suite`)**:
+    -   Generates `(q, k, v, mask_or_segment_ids)` batches for MHA/GQA/MQA
+        (`q_shape=(B, H_q, S_q, D)`, `num_kv_heads=H_kv`) across five
+        attention-specific regimes: `attention_normal` (unit $Q, K, V$ with
+        all-True mask), `attention_large_logits` ($\sigma = 8.0$ on $Q, K$ to
+        stress online-softmax rescaling before `exp` overflow),
+        `attention_causal` (lower-triangular mask supporting $S_q \ne S_{kv}$),
+        `attention_padding` (variable sequence-length key padding with a fully
+        unmasked query row), and `attention_segments` (packed-sequence segment
+        equality mask `seg_q == seg_kv`, or raw `(q, k, v, seg_q, seg_kv)` when
+        `pass_segment_ids=True`).
 -   **Discrete & Mask Regimes (`max_allowed_ulp = 0`)**:
     -   `generate_index_tensor(shape, upper_bound, lower_bound=0,
         include_boundaries=True)`: Bounded indices in `[lower_bound,

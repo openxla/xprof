@@ -68,10 +68,16 @@ question is being asked**:
 | **Integer Quantization** | Outputs, with data-derived scale | **Yes — 12x swing** | Int8 per-tensor error: 0.155 (normal) vs 1.865 (outliers) |
 | **Float8 Quantization** | Outputs, with data-derived scale | **No — 1.5x spread** | Exponent bits absorb dynamic range natively |
 
-- **Why Parity is Invariant**: Parity compares outputs. Structural defects
-  (missing instructions, wrong constants, altered precision) cause outputs to
-  diverge on *any* non-zero input, Gaussian included. Running `normal_batch_0`
-  first with failure triage is sound for Q1.
+- **Why `fast_agent` Uses Normal-First Triage vs `presubmit` Full Gate**:
+  Structural defects (missing instructions, wrong constants, altered precision)
+  often diverge on unit-normal inputs, so `tier="fast_agent"` runs `normal`
+  first and runs the remaining regimes only as triage after a failure. However,
+  kernels with magnitude-dependent branches, overflow thresholds, or outlier
+  paths can pass on unit-normal data and fail on heavy tails or boundaries;
+  therefore `tier="presubmit"` and `tier="deep_fuzzing"` gate on **every**
+  regime in the suite by default. Every report includes a `coverage` block
+  (`selection`, `regimes_available`, `regimes_run`, `regimes_not_run`,
+  `batches_available`, `batches_run`).
 - **Why Q3 is Sensitive**: Q3 compares error distributions. Error magnitude is
   governed by input distribution. On Gaussian data, loose bounds (e.g.
   Cauchy-Schwarz max bounds in attention) do not underflow, yielding a passing
@@ -84,8 +90,9 @@ question is being asked**:
 
 | Workload / Domain | Target Operator & Use Case | Verification Approach |
 | :--- | :--- | :--- |
-| **Continuous Floating-Point (Parity)** | MatMul, FlashAttention, RMSNorm | Normal regime first; triage to heavy-tail procedural suite on failure. |
-| **Oracle Audit (Q2 / Q3)** | Reference qualification, accuracy drift | Mandatory execution of all regimes (Student-t, outliers, boundary). |
+| **Continuous Floating-Point (`presubmit` / `deep_fuzzing`)** | MatMul, FlashAttention, RMSNorm | Full multi-regime suite executed by default (`selection: "full_suite"`). |
+| **Continuous Floating-Point (`fast_agent`)** | Quick interactive iteration | Normal regime first; triage to full procedural suite on failure (`selection: "normal_first"`). |
+| **Oracle Audit (Q2 / Q3) & Bitwise Contract** | Reference qualification, accuracy drift, exact refactors | Mandatory execution of all regimes across all tiers. |
 | **Discrete & Integer Quantization** | INT8/INT4 quantization, segment IDs, routing | Mandatory execution of all regimes (extreme boundaries, outliers). |
 | **Float8 Quantization** | FP8 E4M3/E5M2 matmul | Normal regime only (exponent bits absorb dynamic range). |
 
@@ -114,7 +121,9 @@ disables TF32) so hardware defaults do not silently truncate reference outputs.
 
 ```bash
 # Verify parity between two Python callables using the fast_agent tier
-# with pinned reference precision and automatic Float64 Oracle audit enabled
+# with pinned reference precision and automatic Float64 Oracle audit enabled.
+# Pass --verdict_only (or verdict_only=True in MCP/tool calls) to emit a compact
+# verdict summary containing only top-level audit blocks and failing batches.
 xparity verify \
   --kernel_ref="my_module.pinned_reference_fn" \
   --kernel_candidate="my_module.optimized_fn" \
@@ -140,7 +149,8 @@ xparity verify \
     "dtype_str": "bfloat16",
     "device_kind": "tpu_v6e",
     "backend": "tpu",
-    "total_batches_count": 1
+    "total_batches_count": 1,
+    "contract": "ulp"
   },
   "tolerance_audit": {
     "recommended_contract_ulp": 2,
@@ -194,15 +204,36 @@ xparity verify \
         "max_ulp": 1,
         "reliable": true,
         "note": null
+      },
+      "bitwise": {
+        "equal": false,
+        "diff_count": 655,
+        "diff_ratio": 0.04,
+        "first_diff_index": [0, 12],
+        "reference_bits": "0x3f80",
+        "candidate_bits": "0x3f81",
+        "note": null
       }
     }
-  ]
+  ],
+  "failure_dumps": [],
+  "coverage": {
+    "selection": "full_suite",
+    "regimes_available": ["boundary", "cancellation", "normal", "outliers", "per_channel_outliers", "scale_sweep", "student_t"],
+    "regimes_run": ["boundary", "cancellation", "normal", "outliers", "per_channel_outliers", "scale_sweep", "student_t"],
+    "regimes_not_run": [],
+    "batches_available": 18,
+    "batches_run": 18
+  }
 }
 ```
 
-### Workflow B: Python API (`validate_kernels`)
+### Workflow B: Python API (`validate_kernels` & `replay_failure_dump`)
 
-For programmatic integration within Python test harnesses or optimization loops:
+For programmatic integration within Python test harnesses or optimization loops
+(pass `dump_failures_to` to persist failing inputs as `.npz` archives and
+`replay_failure_dump` to re-verify a fix on the exact failing input without
+regenerating the suite):
 
 ```python
 from xprof.xparity import numerical_validator
@@ -216,7 +247,7 @@ def ref_kernel(a, b):
 def candidate_kernel(a, b):
   return custom_refactored_matmul(a, b)
 
-# 2. Validate Parity with Float64 Oracle Audit
+# 2. Validate Parity with Float64 Oracle Audit and failure input dumping
 report = numerical_validator.validate_kernels(
     kernel_ref=ref_kernel,
     kernel_candidate=candidate_kernel,
@@ -226,6 +257,7 @@ report = numerical_validator.validate_kernels(
     tier="presubmit",
     max_allowed_ulp=2,
     p99_9_allowed_ulp=1,
+    dump_failures_to="/tmp/xparity_failures",
 )
 
 if not report.is_numerically_equivalent:
@@ -233,21 +265,57 @@ if not report.is_numerically_equivalent:
   for batch in report.batch_results:
     if not batch.passed:
       print(f"  Batch {batch.batch_name}: Max ULP={batch.max_ulp_distance}")
+  # Re-run the first failing batch directly after fixing candidate_kernel:
+  if report.failure_dumps:
+    replay_report = numerical_validator.replay_failure_dump(
+        report.failure_dumps[0], ref_kernel, candidate_kernel
+    )
+```
+
+### Workflow C: Multi-Output Pytrees & Backward-Pass Validation (`make_fwd_bwd`, `contract_by_leaf`)
+
+Kernels that return tuples, dicts, or registered JAX pytrees (for example,
+attention returning `(out, lse)` or a fused forward+backward pass) are flattened
+automatically via JAX key-path notation (`"[0]"`, `"['lse']"`, `"['vjp'][0]"`).
+Every leaf is validated independently:
+
+-   Each `BatchValidationResult` populates `leaf_results` (mapping key path to
+    its `BatchValidationResult`) and sets `leaf_path` to the first failing leaf
+    (or the leaf with the largest ULP distance when all pass). A batch passes
+    only when every leaf passes.
+-   Use `contract_by_leaf` (`--contract_by_leaf="{'['out']': 'bitwise',
+    '['lse']': 'ulp'}"` on the CLI) to override the contract per leaf.
+-   To validate custom VJP backward rules alongside the forward pass, wrap both
+    callables with `make_fwd_bwd(fn, argnums=..., cotangent_seed=0)`, which
+    returns `{"out": out, "vjp": grads}` using a deterministic `N(0, 1)` output
+    cotangent per leaf:
+
+```python
+from xprof.xparity import make_fwd_bwd
+from xprof.xparity import validate_kernels
+
+report = validate_kernels(
+    kernel_ref=make_fwd_bwd(ref_kernel),
+    kernel_candidate=make_fwd_bwd(candidate_kernel),
+    shapes=[(128, 64), (64, 128)],
+    dtype_str="bfloat16",
+    contract_by_leaf={"['out']": "bitwise", "['vjp'][0]": "ulp"},
+)
 ```
 
 ### Operational Testing Tiers
 
 Tier               | Total Tensors ($m$)      | Composition                                                        | Latency                       | Recommended Use
 :----------------- | :----------------------: | :----------------------------------------------------------------- | :---------------------------: | :--------------
-**`fast_agent`**   | **$m = 6$** (1 executed) | 1 Normal + 2 Student-t + 1 Outlier ($50\times$) + 1 Cancellation + 1 Boundary | $\sim 1\text{--}2\text{ s}$   | Interactive pair-programming iteration by agent
-**`presubmit`**    | **$m = 12$**             | 1 Normal + 6 Student-t + 3 Outliers + 1 Cancellation + 1 Boundary  | $\sim 5\text{--}8\text{ s}$   | Automated presubmit before submitting CL
-**`deep_fuzzing`** | **$m = 48$**             | 1 Normal + 30 Student-t + 15 Outliers + 1 Cancellation + 1 Boundary | $\sim 30\text{--}60\text{ s}$ | Compiler pass / custom kernel release qualification
+**`fast_agent`**   | **$m = 10$** (1 executed first) | 1 Normal + 3 Scale-Sweep ($\sigma \in \{0.02, 3, 10\}$) + 2 Student-t + 1 Outlier ($50\times$) + 1 Per-Channel Outlier + 1 Cancellation + 1 Boundary | $\sim 1\text{--}2\text{ s}$   | Interactive pair-programming iteration by agent
+**`presubmit`**    | **$m = 18$**             | 1 Normal + 3 Scale-Sweep ($\sigma \in \{0.02, 3, 10\}$) + 6 Student-t + 3 Outliers + 3 Per-Channel Outliers + 1 Cancellation + 1 Boundary | $\sim 5\text{--}8\text{ s}$   | Automated presubmit before submitting CL
+**`deep_fuzzing`** | **$m = 66$**             | 1 Normal + 3 Scale-Sweep ($\sigma \in \{0.02, 3, 10\}$) + 30 Student-t + 15 Outliers + 15 Per-Channel Outliers + 1 Cancellation + 1 Boundary | $\sim 30\text{--}60\text{ s}$ | Compiler pass / custom kernel release qualification
 
 ### Metric Selection by Transformation Class
 
 Transformation Class | Primary Metric to Read | Why / Pitfall to Avoid
 :--- | :--- | :---
-**Bitwise / Layout Refactor** (same arithmetic order) | `overall_max_ulp == 0` (`ulp_context.bit_identical == True`) | Must be bit-for-bit identical (`0 ULP`) across all regimes.
+**Bitwise / Layout Refactor** (same arithmetic order) | `contract="bitwise"` verdict (`is_numerically_equivalent`), per-batch `bitwise.first_diff_index` on failure | Must be bit-for-bit identical across all regimes. Do not gate on `overall_max_ulp == 0`: ULP distance treats `-0.0` and `+0.0` as equal and fails batches with identical NaN outputs. The bitwise contract runs the full suite by default.
 **Reduction Reorder / Split-K / Tree-Summation** | `mean_ulp_distance`, `p99_9_ulp_distance`, and `allclose_passed` | Near-zero sums (`~1e-7` in `float32`) sit across thousands of exponent steps even when absolute difference is `< 1e-7`. Check `NEAR_ZERO_MAX_ULP_OUTLIER` in `ulp_context.note` rather than rejecting on `max_ulp` alone.
 **Intentional Precision Reduction (`f32 -> bf16` / `fp8`)** | `oracle_audit.candidate_max_abs_from_oracle` & relative error (`allclose`) | Truncating mantissa bits (`23 -> 7` bits for `f32 -> bf16`) spans $2^{15}$ `f32` ULPs by construction; evaluate against the target narrower dtype's relative tolerance (`7.8e-3` for `bf16`), not `f32` ULPs.
 
@@ -443,7 +511,7 @@ Follow this inverted hierarchy when parsing verification reports:
     and the bulk histogram (`<=1_ulp`, `<=2_ulp`) are well within contract,
     check for near-zero cancellation before assuming failure.
 
-### 3.4 Diagnostic Absolute Deviation vs. Authoritative ULP Gate
+### 3.4 Diagnostic Absolute Deviation & Caller Tolerance Headroom vs. Authoritative ULP Gate
 
 The oracle audit reports `reference_max_abs_from_oracle` and
 `candidate_max_abs_from_oracle` ($\max |y - y_{\text{oracle}}|$):
@@ -455,6 +523,18 @@ The oracle audit reports `reference_max_abs_from_oracle` and
     says nothing about near-zero regions. Relative error metrics are tracked in
     the Phase 2 follow-up queue (F3) and will remain strictly report-only
     diagnostics.
+*   **Caller Tolerance Headroom (`atol`, `rtol` $\to$ `tolerance_headroom`)**:
+    When a caller passes `atol` and/or `rtol` (`--atol`, `--rtol`), Xparity
+    computes the elementwise headroom ratio
+    $$\text{ratio} = \max \frac{|y_{\text{cand}} - y_{\text{ref}}|}
+    {\text{atol} + \text{rtol} \cdot |y_{\text{ref}}|}$$
+    (and against $y_{\text{oracle}}$ when `kernel_oracle` is active), reporting
+    per-batch `tolerance_ratio` / `oracle_tolerance_ratio` and top-level
+    `tolerance_headroom` (`atol`, `rtol`, `max_ratio`, `exceeded`,
+    `worst_batch`, `oracle_max_ratio`, `oracle_exceeded`). A ratio $\le 1.0$
+    means the worst element is within the caller's `allclose` budget. These
+    parameters are **strictly report-only** and never relax the ULP or bitwise
+    contract gate (`is_numerically_equivalent`).
 
 ### 3.5 What This Tool Cannot Tell You
 
@@ -639,6 +719,39 @@ When `dtype_str` is an integer type (`int32`, `int64`, `int16`, `int8`,
     \text{min\_val}, \text{max\_val}`).
 *   `numerical_validator` enforces exact discrete delta $|y - \hat{y}| = 0$ with
     `max_allowed_ulp = 0`.
+
+### 5. Attention Stress Suite (`generate_attention_suite`)
+
+Generic tensor generators cannot synthesize paired $(Q, K, V)$ tensors alongside
+compatible causal, key-padding, or packed-sequence segment masks. Use
+`generate_attention_suite` (and pass the returned `suite_path` or dict to
+`validate_kernels(..., suite_path=...)`) to exercise MHA, GQA, and MQA kernels
+across five attention-specific regimes:
+
+*   `attention_normal`: Unit-normal $Q, K, V$ with an all-True
+    `(B, 1, S_q, S_kv)` mask.
+*   `attention_large_logits`: High-variance $Q, K$ ($\sigma = 8.0$) so
+    pre-softmax logits $\sim \sigma^2 \approx 64$ stress online-softmax
+    max-subtraction and rescaling without triggering `NaN`.
+*   `attention_causal`: Lower-triangular causal mask supporting rectangular
+    cross-attention ($S_q \ne S_{kv}$).
+*   `attention_padding`: Variable key sequence lengths with row 0 guaranteed
+    fully unmasked to prevent `0/0` softmax `NaN`s.
+*   `attention_segments`: Document-packed segment equality mask
+    (`seg_q == seg_kv`), or raw `(q, k, v, seg_q, seg_kv)` tuples when
+    `pass_segment_ids=True`.
+
+```python
+from xprof.xparity import generate_attention_suite
+
+suite = generate_attention_suite(
+    q_shape=(2, 8, 128, 64),
+    kv_seq_len=128,
+    num_kv_heads=2,  # GQA (H_q=8, H_kv=2)
+    dtype_str="bfloat16",
+    output_path="/tmp/attn_suite.npz",
+)
+```
 
 --------------------------------------------------------------------------------
 

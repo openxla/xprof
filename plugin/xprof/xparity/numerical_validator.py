@@ -2,7 +2,13 @@
 
 Public API:
   validate_kernels: Compare a candidate kernel against a reference, optionally
-    auditing the reference itself against a high-precision oracle.
+    auditing the reference itself against a high-precision oracle. Pass
+    `contract=CONTRACT_BITWISE` to require exact bit-pattern equality. Kernels
+    may return pytrees; each leaf is validated, with optional per-leaf
+    contracts via `contract_by_leaf`.
+  compare_bitwise: Exact bit-pattern comparison of two arrays.
+  make_fwd_bwd: Wrap a JAX function so its output also carries its VJP, which
+    puts the backward pass under validation.
   chunk_callable: Wrap an oracle to execute in slices along one axis, for
     shapes whose high-precision intermediates exceed device memory.
   ORACLE_AUTO: `kernel_oracle` sentinel that re-runs the reference with its
@@ -15,6 +21,8 @@ import functools
 import importlib
 import inspect
 import logging
+import os
+import re
 import sys
 from typing import Any
 
@@ -104,8 +112,43 @@ class WorstOffender:
 
 
 @dataclasses.dataclass(frozen=True)
+class BitwiseComparison:
+  """Exact bit-pattern comparison between a candidate and a reference.
+
+  Unlike a 0-ULP gate, this distinguishes `-0.0` from `+0.0` and treats two
+  NaNs with the same payload as equal.
+
+  Attributes:
+    equal: True when every element has the same bit pattern and dtype.
+    diff_count: Number of elements whose bit patterns differ.
+    diff_ratio: `diff_count` divided by the element count.
+    first_diff_index: Index of the first differing element in C order.
+    reference_bits: Hex bit pattern of the reference at `first_diff_index`.
+    candidate_bits: Hex bit pattern of the candidate at `first_diff_index`.
+    note: Explanation when the comparison could not be made element-wise, for
+      example on a dtype mismatch.
+  """
+
+  equal: bool
+  diff_count: int
+  diff_ratio: float
+  first_diff_index: tuple[int, ...] | None = None
+  reference_bits: str | None = None
+  candidate_bits: str | None = None
+  note: str | None = None
+
+
+@dataclasses.dataclass(frozen=True)
 class BatchValidationResult:
-  """Validation metrics and status for a single test batch."""
+  """Validation metrics and status for a single test batch.
+
+  For kernels that return a pytree (tuple, list, dict or registered JAX
+  container), each output leaf is validated on its own and stored in
+  `leaf_results`, keyed by its JAX key path (for example `[0]` or `['lse']`).
+  The batch-level metrics then come from the leaf named in `leaf_path`: the
+  first failing leaf, or the leaf with the largest ULP distance when all pass.
+  `passed` is True only when every leaf passes.
+  """
 
   batch_name: str
   regime: str
@@ -124,6 +167,14 @@ class BatchValidationResult:
   first_non_finite_index: tuple[int, ...] | None = None
   finite_max_ulp: int | None = None
   worst_offender: WorstOffender | None = None
+  bitwise: BitwiseComparison | None = None
+  leaf_path: str | None = None
+  leaf_results: dict[str, "BatchValidationResult"] | None = None
+  # max(|candidate - reference| / (atol + rtol * |reference|)) when the caller
+  # passes atol or rtol; values above 1.0 exceed that tolerance. Report only.
+  tolerance_ratio: float | None = None
+  # The same ratio for candidate against oracle, when an oracle ran.
+  oracle_tolerance_ratio: float | None = None
 
   @property
   def max_ulp(self) -> int:
@@ -159,6 +210,9 @@ class KernelValidationReport:
   ulp_context: UlpContext | None = None
   narrow_output_dtype_warning: str | None = None
   shape_mismatch: dict[str, Any] | None = None
+  failure_dumps: list[str] = dataclasses.field(default_factory=list)
+  coverage: dict[str, Any] = dataclasses.field(default_factory=dict)
+  tolerance_headroom: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -211,6 +265,8 @@ _get_finfo = ulp.get_finfo
 _is_discrete_dtype = ulp.is_discrete_dtype
 _INTEGER_DTYPES = ulp.INTEGER_DTYPES
 _DTYPE_TOLERANCES = ulp.DTYPE_TOLERANCES
+# Used throughout this module; lives in `ulp` so inline harnesses can report it.
+_tolerance_ratio = ulp.tolerance_ratio
 
 
 def _as_compare_float(arr: np.ndarray) -> np.ndarray:
@@ -266,6 +322,92 @@ def _relative_diff(abs_diff: float, ref_value: float, canonical: str) -> float:
   """
   denom = max(abs(ref_value), _rel_diff_floor(canonical))
   return abs_diff / denom
+
+
+# Verdict contracts accepted by `validate_kernels` and `validate_arrays`.
+# CONTRACT_ULP gates on ULP distance and an allclose check. CONTRACT_BITWISE
+# requires every output element to have the same bit pattern as the reference.
+CONTRACT_ULP = "ulp"
+CONTRACT_BITWISE = "bitwise"
+_CONTRACTS = frozenset({CONTRACT_ULP, CONTRACT_BITWISE})
+
+# Tiers that run only the 'normal' regime by default and the other regimes as
+# triage after a failure. Every other tier gates on the full suite.
+_NORMAL_FIRST_TIERS = frozenset({"fast_agent"})
+
+
+def _check_contract(contract: str) -> None:
+  if contract not in _CONTRACTS:
+    raise ValueError(
+        f"Unknown contract '{contract}'; expected one of {sorted(_CONTRACTS)}."
+    )
+
+
+def _hex_bits(element_bytes: np.ndarray) -> str:
+  """Formats the raw bytes of one element as a fixed-width hex integer."""
+  value = int.from_bytes(element_bytes.tobytes(), sys.byteorder)
+  return f"0x{value:0{2 * element_bytes.size}x}"
+
+
+def compare_bitwise(actual: Any, expected: Any) -> BitwiseComparison:
+  """Compares two arrays for exact bit-pattern equality.
+
+  A 0-ULP gate is not a bitwise gate: `compute_ulp_distance` maps `-0.0` and
+  `+0.0` to the same index, and ULP statistics are undefined for NaN. This
+  function compares raw bytes instead, so it is the check to use when a
+  candidate must reproduce a reference exactly.
+
+  Args:
+    actual: The candidate tensor.
+    expected: The reference tensor.
+
+  Returns:
+    A BitwiseComparison. Arrays with different dtypes are reported as unequal
+    in every element, with an explanatory `note`.
+
+  Raises:
+    ValueError: If the shapes differ.
+  """
+  act = np.asarray(actual)
+  exp = np.asarray(expected)
+  if act.shape != exp.shape:
+    raise ValueError(
+        f"Shape mismatch in compare_bitwise: {act.shape} vs {exp.shape}"
+    )
+  size = int(act.size)
+  if act.dtype != exp.dtype:
+    return BitwiseComparison(
+        equal=False,
+        diff_count=size,
+        diff_ratio=1.0 if size else 0.0,
+        note=(
+            f"dtype mismatch: candidate {act.dtype} vs reference {exp.dtype}."
+            " Bitwise equality requires identical output dtypes."
+        ),
+    )
+  if size == 0:
+    return BitwiseComparison(equal=True, diff_count=0, diff_ratio=0.0)
+
+  diff_mask = ulp.bitwise_mismatch_mask(act, exp).reshape(-1)
+  diff_count = int(np.count_nonzero(diff_mask))
+  if diff_count == 0:
+    return BitwiseComparison(equal=True, diff_count=0, diff_ratio=0.0)
+
+  flat_first = int(np.argmax(diff_mask))
+
+  def _element_bytes(arr: np.ndarray) -> np.ndarray:
+    return np.ascontiguousarray(arr).reshape(-1)[flat_first : flat_first + 1]
+
+  return BitwiseComparison(
+      equal=False,
+      diff_count=diff_count,
+      diff_ratio=float(diff_count) / float(size),
+      first_diff_index=tuple(
+          int(x) for x in np.unravel_index(flat_first, act.shape)
+      ),
+      reference_bits=_hex_bits(_element_bytes(exp).view(np.uint8)),
+      candidate_bits=_hex_bits(_element_bytes(act).view(np.uint8)),
+  )
 
 
 ORACLE_AUTO = "auto"
@@ -561,6 +703,77 @@ def _probe_pin_inert(
   )
 
 
+def make_fwd_bwd(
+    fn: collections.abc.Callable[..., Any],
+    argnums: int | collections.abc.Sequence[int] | None = None,
+    cotangent_seed: int = 0,
+) -> collections.abc.Callable[..., dict[str, Any]]:
+  """Wraps a JAX function so that validation covers its backward pass.
+
+  The wrapper returns `{"out": fn(*args), "vjp": grads}`, where `grads` holds
+  one vector-Jacobian product per differentiated argument. The output
+  cotangent is drawn from N(0, 1) with a fixed seed and the shape and dtype of
+  each output leaf, so a reference and a candidate with the same output
+  structure receive the same cotangent. Wrap both kernels and pass them to
+  `validate_kernels`. Each result is then validated as its own leaf (`['out']`,
+  `['vjp'][0]`, ...), and `contract_by_leaf` can set a contract per leaf.
+
+  Args:
+    fn: A function that `jax.vjp` can differentiate.
+    argnums: Positional arguments to differentiate. Defaults to every positional
+      argument with a floating-point or complex dtype.
+    cotangent_seed: Seed for the output cotangent.
+
+  Returns:
+    A callable that takes the same arguments as `fn`.
+  """
+  jax = importlib.import_module("jax")
+  jnp = jax.numpy
+
+  def _is_inexact(value: Any) -> bool:
+    try:
+      return bool(jnp.issubdtype(jnp.asarray(value).dtype, jnp.inexact))
+    except TypeError:
+      return False
+
+  def _cotangent(index: int, leaf: Any) -> Any:
+    if not jnp.issubdtype(leaf.dtype, jnp.inexact):
+      return np.zeros(leaf.shape, dtype=jax.dtypes.float0)
+    rng = np.random.default_rng(cotangent_seed + index)
+    return jnp.asarray(
+        rng.standard_normal(leaf.shape).astype(np.float32), dtype=leaf.dtype
+    )
+
+  @functools.wraps(fn)
+  def fwd_bwd(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    if argnums is None:
+      diff = tuple(i for i, a in enumerate(args) if _is_inexact(a))
+    elif isinstance(argnums, int):
+      diff = (argnums,)
+    else:
+      diff = tuple(argnums)
+    if not diff:
+      raise ValueError(
+          "make_fwd_bwd found no floating-point positional argument to"
+          " differentiate. Pass argnums explicitly."
+      )
+
+    def partial_fn(*diff_args: Any) -> Any:
+      full = list(args)
+      for i, value in zip(diff, diff_args):
+        full[i] = value
+      return fn(*full, **kwargs)
+
+    out, vjp_fn = jax.vjp(partial_fn, *(jnp.asarray(args[i]) for i in diff))
+    leaves, treedef = jax.tree_util.tree_flatten(out)
+    cotangent = jax.tree_util.tree_unflatten(
+        treedef, [_cotangent(i, leaf) for i, leaf in enumerate(leaves)]
+    )
+    return {"out": out, "vjp": tuple(vjp_fn(cotangent))}
+
+  return fwd_bwd
+
+
 def chunk_callable(
     fn: collections.abc.Callable[..., Any],
     chunk_arg_indices: tuple[int, ...] = (0, 1, 2),
@@ -768,6 +981,224 @@ def _verify_oracle_precision(
   )
 
 
+def _flatten_output_fallback(value: Any, path: str) -> list[tuple[str, Any]]:
+  """Flattens tuples, lists, namedtuples and dicts without JAX."""
+  if isinstance(value, dict):
+    pairs = []
+    for key in sorted(value):
+      pairs.extend(_flatten_output_fallback(value[key], f"{path}[{key!r}]"))
+    return pairs
+  if isinstance(value, tuple) and hasattr(value, "_fields"):
+    pairs = []
+    for field in getattr(value, "_fields"):
+      pairs.extend(
+          _flatten_output_fallback(getattr(value, field), f"{path}.{field}")
+      )
+    return pairs
+  if isinstance(value, (tuple, list)):
+    pairs = []
+    for index, item in enumerate(value):
+      pairs.extend(_flatten_output_fallback(item, f"{path}[{index}]"))
+    return pairs
+  if value is None:
+    return []
+  return [(path, value)]
+
+
+def _flatten_output(value: Any) -> list[tuple[str, Any]]:
+  """Flattens a kernel output into `(key_path, leaf)` pairs.
+
+  A bare array yields one pair with an empty path. Containers use JAX key-path
+  notation (`[0]`, `['lse']`, `.field`), so `contract_by_leaf` keys are the
+  same whether or not JAX is loaded. When JAX is loaded, registered custom
+  pytree nodes are flattened as well.
+
+  Args:
+    value: The kernel output.
+
+  Returns:
+    The leaves in deterministic order with their key paths.
+  """
+  jax = sys.modules.get("jax")
+  if jax is not None:
+    tree_util = jax.tree_util
+    pairs = tree_util.tree_flatten_with_path(value)[0]
+    return [(tree_util.keystr(path), leaf) for path, leaf in pairs]
+  return _flatten_output_fallback(value, "")
+
+
+def _is_pytree_output(leaves: list[tuple[str, Any]]) -> bool:
+  return len(leaves) != 1 or bool(leaves[0][0])
+
+
+def _leaf_selector(
+    fn: collections.abc.Callable[..., Any],
+    index: int,
+    cached_args: tuple[Any, ...] | None = None,
+    cached_kwargs: dict[str, Any] | None = None,
+    cached_leaf: Any = None,
+) -> collections.abc.Callable[..., Any]:
+  """Returns a callable that yields leaf `index` of `fn`'s output.
+
+  The call that produced `cached_leaf` is not repeated: when the arguments are
+  the same objects as `cached_args`/`cached_kwargs`, the cached leaf is
+  returned. Any other call (for example the float64-promoted oracle re-run)
+  executes `fn` and selects the leaf.
+
+  Args:
+    fn: The kernel whose output is a pytree.
+    index: Position of the leaf in `_flatten_output` order.
+    cached_args: Positional arguments of the cached call, if any.
+    cached_kwargs: Keyword arguments of the cached call.
+    cached_leaf: The leaf returned by the cached call.
+  """
+  cached_kwargs = cached_kwargs or {}
+
+  def _is_cached_call(args: tuple[Any, ...], kwargs: dict[str, Any]) -> bool:
+    if cached_args is None or len(args) != len(cached_args):
+      return False
+    if kwargs.keys() != cached_kwargs.keys():
+      return False
+    return all(a is b for a, b in zip(args, cached_args)) and all(
+        kwargs[k] is cached_kwargs[k] for k in kwargs
+    )
+
+  @functools.wraps(fn)
+  def select(*args: Any, **kwargs: Any) -> Any:
+    if _is_cached_call(args, kwargs):
+      return cached_leaf
+    return _flatten_output(fn(*args, **kwargs))[index][1]
+
+  return select
+
+
+def _primary_leaf_view(
+    fn: collections.abc.Callable[..., Any],
+) -> collections.abc.Callable[..., Any]:
+  """Returns `fn` with pytree outputs reduced to their first leaf.
+
+  Precision probes compare one array before and after pinning. For kernels
+  with several outputs the first leaf is the representative. The wrapper keeps
+  the signature and attributes of `fn` so `precision` detection still works.
+
+  Args:
+    fn: A kernel that may return a pytree.
+  """
+
+  @functools.wraps(fn)
+  def view(*args: Any, **kwargs: Any) -> Any:
+    out = fn(*args, **kwargs)
+    leaves = _flatten_output(out)
+    if not _is_pytree_output(leaves):
+      return out
+    return leaves[0][1] if leaves else out
+
+  return view
+
+
+def _execute_pytree_batch(
+    batch: dict[str, Any],
+    ref_leaves: list[tuple[str, Any]],
+    cand_leaves: list[tuple[str, Any]],
+    kernel_ref: collections.abc.Callable[..., Any],
+    kernel_candidate: collections.abc.Callable[..., Any],
+    kernel_oracle: collections.abc.Callable[..., Any] | str | None,
+    contract: str,
+    contract_by_leaf: collections.abc.Mapping[str, str],
+    **gate_kwargs: Any,
+) -> _BatchExecutionResult:
+  """Validates every leaf of a pytree output and merges the results."""
+  name = batch.get("name")
+  ref_paths = [path for path, _ in ref_leaves]
+  cand_paths = [path for path, _ in cand_leaves]
+  if ref_paths != cand_paths:
+    raise ValueError(
+        f"Output structure mismatch in batch '{name}': candidate leaves"
+        f" {cand_paths} != reference leaves {ref_paths}"
+    )
+  if not ref_paths:
+    raise ValueError(f"Kernel returned no array leaves in batch '{name}'.")
+  unknown = sorted(set(contract_by_leaf) - set(ref_paths))
+  if unknown:
+    raise ValueError(
+        f"contract_by_leaf names unknown output leaves {unknown}. Available"
+        f" leaves: {ref_paths}."
+    )
+
+  args = batch.get("args", (batch.get("tensor"),))
+  kwargs = batch.get("kwargs", {})
+  subs: list[_BatchExecutionResult] = []
+  for index, (path, ref_leaf) in enumerate(ref_leaves):
+    leaf_oracle = kernel_oracle
+    if callable(kernel_oracle):
+      leaf_oracle = _leaf_selector(kernel_oracle, index)
+    sub = _execute_single_batch(
+        batch=batch,
+        kernel_ref=_leaf_selector(kernel_ref, index, args, kwargs, ref_leaf),
+        kernel_candidate=_leaf_selector(
+            kernel_candidate, index, args, kwargs, cand_leaves[index][1]
+        ),
+        kernel_oracle=leaf_oracle,
+        contract=contract_by_leaf.get(path, contract),
+        **gate_kwargs,
+    )
+    subs.append(sub)
+
+  leaf_results = {
+      path: dataclasses.replace(sub.batch_result, leaf_path=path)
+      for path, sub in zip(ref_paths, subs)
+  }
+  worst_index = next(
+      (i for i, sub in enumerate(subs) if not sub.passed),
+      max(range(len(subs)), key=lambda i: subs[i].max_ulp),
+  )
+  passed = all(sub.passed for sub in subs)
+
+  def worst_ratio(field: str) -> float | None:
+    ratios = [getattr(r, field) for r in leaf_results.values()]
+    return max((r for r in ratios if r is not None), default=None)
+
+  batch_res = dataclasses.replace(
+      leaf_results[ref_paths[worst_index]],
+      passed=passed,
+      leaf_results=leaf_results,
+      tolerance_ratio=worst_ratio("tolerance_ratio"),
+      oracle_tolerance_ratio=worst_ratio("oracle_tolerance_ratio"),
+  )
+  oracle_subs = [sub for sub in subs if sub.oracle_ran]
+  return _BatchExecutionResult(
+      batch_result=batch_res,
+      max_ulp=max(sub.max_ulp for sub in subs),
+      passed=passed,
+      oracle_ran=bool(oracle_subs),
+      oracle_in_float64=all(sub.oracle_in_float64 for sub in oracle_subs),
+      oracle_output_dtype=(
+          oracle_subs[0].oracle_output_dtype if oracle_subs else ""
+      ),
+      ref_oracle_max_ulp=max(
+          (sub.ref_oracle_max_ulp for sub in oracle_subs), default=0
+      ),
+      cand_oracle_max_ulp=max(
+          (sub.cand_oracle_max_ulp for sub in oracle_subs), default=0
+      ),
+      ref_oracle_p99_9=max(
+          (sub.ref_oracle_p99_9 for sub in oracle_subs), default=0.0
+      ),
+      cand_oracle_p99_9=max(
+          (sub.cand_oracle_p99_9 for sub in oracle_subs), default=0.0
+      ),
+      ref_oracle_max_abs=max(
+          (sub.ref_oracle_max_abs for sub in oracle_subs), default=0.0
+      ),
+      cand_oracle_max_abs=max(
+          (sub.cand_oracle_max_abs for sub in oracle_subs), default=0.0
+      ),
+      narrow_warning=next(
+          (sub.narrow_warning for sub in subs if sub.narrow_warning), None
+      ),
+  )
+
+
 def _execute_single_batch(
     batch: dict[str, Any],
     kernel_ref: collections.abc.Callable[..., Any],
@@ -778,19 +1209,46 @@ def _execute_single_batch(
     p99_9_allowed_ulp: int,
     recommended_ulp: int,
     kernel_oracle: collections.abc.Callable[..., Any] | str | None = None,
+    contract: str = CONTRACT_ULP,
+    contract_by_leaf: collections.abc.Mapping[str, str] | None = None,
+    user_tolerance: tuple[float, float] | None = None,
 ) -> _BatchExecutionResult:
   """Executes and validates a single batch between reference and candidate."""
   args = batch.get("args", (batch.get("tensor"),))
   kwargs = batch.get("kwargs", {})
 
-  out_ref = np.asarray(kernel_ref(*args, **kwargs))
-  out_cand = np.asarray(kernel_candidate(*args, **kwargs))
+  raw_ref = kernel_ref(*args, **kwargs)
+  raw_cand = kernel_candidate(*args, **kwargs)
+  ref_leaves = _flatten_output(raw_ref)
+  cand_leaves = _flatten_output(raw_cand)
+  if _is_pytree_output(ref_leaves) or _is_pytree_output(cand_leaves):
+    return _execute_pytree_batch(
+        batch=batch,
+        ref_leaves=ref_leaves,
+        cand_leaves=cand_leaves,
+        kernel_ref=kernel_ref,
+        kernel_candidate=kernel_candidate,
+        kernel_oracle=kernel_oracle,
+        contract=contract,
+        contract_by_leaf=contract_by_leaf or {},
+        canonical_dtype=canonical_dtype,
+        dtype_str=dtype_str,
+        actual_max_allowed_ulp=actual_max_allowed_ulp,
+        p99_9_allowed_ulp=p99_9_allowed_ulp,
+        recommended_ulp=recommended_ulp,
+        user_tolerance=user_tolerance,
+    )
+
+  out_ref = np.asarray(raw_ref)
+  out_cand = np.asarray(raw_cand)
 
   if out_cand.shape != out_ref.shape:
     raise ValueError(
         f"Shape mismatch in batch '{batch.get('name')}': candidate shape "
         f"{out_cand.shape} != reference shape {out_ref.shape}"
     )
+
+  bitwise_cmp = compare_bitwise(out_cand, out_ref)
 
   is_discrete = (
       dtype_str == "bool"
@@ -855,6 +1313,7 @@ def _execute_single_batch(
   cand_oracle_p99_9 = 0.0
   ref_oracle_max_abs = 0.0
   cand_oracle_max_abs = 0.0
+  oracle_tolerance_ratio: float | None = None
 
   if kernel_oracle is not None and not is_discrete and not has_nan_or_inf:
     try:
@@ -922,6 +1381,10 @@ def _execute_single_batch(
     out_cand_f64 = out_cand.astype(np.float64)
     ref_oracle_max_abs = float(np.max(np.abs(out_ref_f64 - out_oracle_f64)))
     cand_oracle_max_abs = float(np.max(np.abs(out_cand_f64 - out_oracle_f64)))
+    if user_tolerance is not None:
+      oracle_tolerance_ratio = _tolerance_ratio(
+          out_cand, out_oracle, *user_tolerance
+      )
 
   worst_offender: WorstOffender | None = None
   if has_nan_or_inf:
@@ -932,7 +1395,7 @@ def _execute_single_batch(
     allclose_passed = False
     passed = False
     context_obj = UlpContext(
-        bit_identical=False,
+        bit_identical=bitwise_cmp.equal,
         p50=float("nan"),
         p99_9=float("nan"),
         max_ulp=max_ulp,
@@ -967,7 +1430,7 @@ def _execute_single_batch(
     p99_9 = float(np.percentile(ulp_arr, 99.9))
     mean_ulp = float(np.mean(ulp_arr))
     p50 = float(np.percentile(ulp_arr, 50.0))
-    bit_identical = bool(np.all(ulp_arr == 0))
+    bit_identical = bitwise_cmp.equal
     hist = {
         "<=1_ulp": int(np.sum(ulp_arr <= 1)),
         "<=2_ulp": int(np.sum(ulp_arr <= 2)),
@@ -1048,6 +1511,16 @@ def _execute_single_batch(
         note=context_note,
     )
 
+  if contract == CONTRACT_BITWISE:
+    passed = bitwise_cmp.equal
+    if bitwise_cmp.equal and has_nan_or_inf:
+      # Identical bits are zero distance by definition, including NaN and Inf
+      # positions that ULP statistics cannot measure.
+      max_ulp = 0
+      p99_9 = 0.0
+      mean_ulp = 0.0
+      hist = {"<=1_ulp": out_cand.size, "<=2_ulp": out_cand.size, ">2_ulp": 0}
+
   batch_res = BatchValidationResult(
       batch_name=batch["name"],
       regime=batch.get("regime", "unknown"),
@@ -1066,6 +1539,13 @@ def _execute_single_batch(
       first_non_finite_index=first_non_finite_index,
       finite_max_ulp=finite_max_ulp,
       worst_offender=worst_offender,
+      bitwise=bitwise_cmp,
+      tolerance_ratio=(
+          _tolerance_ratio(out_cand, out_ref, *user_tolerance)
+          if user_tolerance is not None
+          else None
+      ),
+      oracle_tolerance_ratio=oracle_tolerance_ratio,
   )
 
   return _BatchExecutionResult(
@@ -1132,6 +1612,81 @@ class _ValidationAccumulator:
       self.narrow_warning = res.narrow_warning
 
 
+def _dump_failing_batches(
+    failing_batches: collections.abc.Sequence[
+        tuple[dict[str, Any], BatchValidationResult]
+    ],
+    directory: str | os.PathLike[str],
+    run_info: dict[str, Any],
+) -> list[str]:
+  """Saves each failing batch as a one-batch suite and returns the paths."""
+  dir_str = os.fspath(directory)
+  os.makedirs(dir_str, exist_ok=True)
+  leaf_contracts = run_info.get("contract_by_leaf")
+  if leaf_contracts is not None:
+    run_info = dict(run_info, contract_by_leaf=dict(leaf_contracts))
+  paths = []
+  for ordinal, (batch, result) in enumerate(failing_batches):
+    stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", result.batch_name)
+    path = os.path.join(dir_str, f"xparity_failure_{ordinal:03d}_{stem}.npz")
+    failure = {
+        "batch_name": result.batch_name,
+        "regime": result.regime,
+        "max_ulp": result.max_ulp_distance,
+        "leaf_path": result.leaf_path,
+    }
+    numerical_generator.save_test_suite(
+        [batch], path, extra_metadata=dict(run_info, failure=failure)
+    )
+    paths.append(path)
+  return paths
+
+
+def replay_failure_dump(
+    path: str | os.PathLike[str],
+    kernel_ref: collections.abc.Callable[..., Any],
+    kernel_candidate: collections.abc.Callable[..., Any],
+    kernel_oracle: collections.abc.Callable[..., Any] | str | None = None,
+    contract: str | None = None,
+    as_jax_arrays: bool = False,
+) -> KernelValidationReport:
+  """Re-runs a batch saved by `validate_kernels(dump_failures_to=...)`.
+
+  The saved inputs are used as they are, so the replay does not depend on the
+  generator, the seed or the tier. Dtype, gates and per-leaf contracts come
+  from the dump.
+
+  Args:
+    path: A `.npz` file listed in `KernelValidationReport.failure_dumps`.
+    kernel_ref: Reference implementation.
+    kernel_candidate: Candidate implementation, usually after a fix.
+    kernel_oracle: Optional oracle, as in `validate_kernels`.
+    contract: Overrides the contract stored in the dump.
+    as_jax_arrays: If True, the inputs are passed as JAX arrays.
+
+  Returns:
+    A KernelValidationReport for the saved batch.
+  """
+  suite = numerical_generator.load_test_suite(path, as_jax_arrays=as_jax_arrays)
+  info = numerical_generator.read_suite_metadata(path)
+  if not suite or "dtype_str" not in info:
+    raise ValueError(f"{os.fspath(path)} is not an Xparity failure dump.")
+  shapes = [tuple(np.shape(arg)) for arg in suite[0]["args"]]
+  return validate_kernels(
+      kernel_ref,
+      kernel_candidate,
+      shapes=shapes,
+      dtype_str=info["dtype_str"],
+      test_suite=suite,
+      max_allowed_ulp=info["max_allowed_ulp"],
+      p99_9_allowed_ulp=info["p99_9_allowed_ulp"],
+      seed=info["seed"],
+      kernel_oracle=kernel_oracle,
+      contract=contract or info["contract"],
+      contract_by_leaf=info.get("contract_by_leaf"),
+  )
+
+
 def validate_kernels(
     kernel_ref: collections.abc.Callable[..., Any],
     kernel_candidate: collections.abc.Callable[..., Any],
@@ -1148,6 +1703,11 @@ def validate_kernels(
     regimes: collections.abc.Sequence[str] | str | None = None,
     kernel_oracle: collections.abc.Callable[..., Any] | str | None = None,
     device_kind: str | None = None,
+    contract: str = CONTRACT_ULP,
+    contract_by_leaf: collections.abc.Mapping[str, str] | None = None,
+    dump_failures_to: str | os.PathLike[str] | None = None,
+    atol: float | None = None,
+    rtol: float | None = None,
 ) -> KernelValidationReport:
   """Validates candidate kernel against reference implementation.
 
@@ -1158,12 +1718,20 @@ def validate_kernels(
     shapes: Shape or sequence of shapes for the generated test suite.
     dtype_str: Output dtype in whose units every ULP figure is reported.
     test_suite: Pre-generated suite; generated from `shapes` when omitted.
-    tier: Suite size -- "fast_agent", "presubmit" or "deep_fuzzing".
+    tier: Suite size -- "fast_agent", "presubmit" or "deep_fuzzing". Also sets
+      the default regime selection; see `regimes`.
     max_allowed_ulp: Per-element ULP gate, bounded by MAX_HARD_CEILING_ULP.
-    p99_9_allowed_ulp: 99.9th-percentile ULP gate.
+      Ignored for the verdict under CONTRACT_BITWISE.
+    p99_9_allowed_ulp: 99.9th-percentile ULP gate. Ignored for the verdict under
+      CONTRACT_BITWISE.
     seed: PRNG seed for suite generation.
-    regimes: Optional sequence of regime names to filter batches (defaults to
-      'normal' with triage on failure). Pass 'all' to run full suite.
+    regimes: Optional sequence of regime names to filter batches. Pass 'all' to
+      run the full suite. By default "presubmit" and "deep_fuzzing" run the full
+      suite, and "fast_agent" runs 'normal' first and the other regimes only as
+      triage after a failure. The full suite also runs under CONTRACT_BITWISE,
+      with an oracle, for discrete dtypes and for an explicit `test_suite`. FP8
+      dtypes run 'normal' only. The report's `coverage` lists the regimes that
+      ran and those that did not.
     kernel_oracle: Optional high-precision reference used to report how far
       `kernel_ref` itself sits from an exact result. Report-only: it populates
       `oracle_audit` and never changes the pass/fail verdict. Two modes: * An
@@ -1175,15 +1743,51 @@ def validate_kernels(
       for JAX references.
     device_kind: Device/backend identifier (e.g. "tpu", "gpu", "cpu").
       Auto-detected when omitted.
+    contract: CONTRACT_ULP (default) gates on ULP distance and allclose.
+      CONTRACT_BITWISE passes only when every output element of the candidate
+      has the same bit pattern and dtype as the reference. Use it for refactors
+      and reduction-order-controlled rewrites that must be exact.
+    contract_by_leaf: For kernels that return a pytree, overrides `contract` for
+      individual output leaves, keyed by JAX key path (for example `{"[1]":
+      CONTRACT_ULP}` or `{"['lse']": CONTRACT_BITWISE}`). Every leaf is
+      validated; leaves not named here use `contract`. Unknown paths raise
+      ValueError listing the available leaves.
+    dump_failures_to: Optional local directory. When set, the inputs of every
+      failing batch are saved there as one `.npz` file per batch, together with
+      the dtype, gates and contract of this run, and the paths are returned in
+      `failure_dumps`. `replay_failure_dump` re-runs a saved batch exactly,
+      without regenerating the suite.
+    atol: Optional absolute tolerance of an existing test, for example the
+      `atol` of an `assert_allclose` the kernel must keep passing. Report-only:
+      with `rtol`, it fills `tolerance_headroom` with the worst |candidate -
+      reference| / (atol + rtol * |reference|) per regime and never changes the
+      verdict. Defaults to 0 when only `rtol` is set.
+    rtol: Optional relative tolerance; see `atol`. Defaults to 0 when only
+      `atol` is set.
 
   Returns:
-    A KernelValidationReport.
+    A KernelValidationReport. For pytree outputs each batch result carries
+    per-leaf results in `leaf_results`.
   """
+  _check_contract(contract)
+  contract_by_leaf = dict(contract_by_leaf or {})
+  for leaf_contract in contract_by_leaf.values():
+    _check_contract(leaf_contract)
   if isinstance(kernel_oracle, str) and kernel_oracle != ORACLE_AUTO:
     raise ValueError(
         f"Unknown kernel_oracle string '{kernel_oracle}'; expected"
         f" '{ORACLE_AUTO}' or a callable."
     )
+  user_tolerance: tuple[float, float] | None = None
+  if atol is not None or rtol is not None:
+    user_tolerance = (float(atol or 0.0), float(rtol or 0.0))
+    if not all(np.isfinite(t) and t >= 0 for t in user_tolerance):
+      raise ValueError(
+          f"atol and rtol must be finite and non-negative, got atol={atol},"
+          f" rtol={rtol}."
+      )
+    if user_tolerance == (0.0, 0.0):
+      raise ValueError("atol and rtol cannot both be 0; use CONTRACT_BITWISE.")
 
   canonical_dtype = _resolve_canonical_dtype(dtype_str)
   recommended_ulp = RECOMMENDED_CONTRACT_ULP.get(canonical_dtype, 2)
@@ -1230,7 +1834,9 @@ def validate_kernels(
     full_suite = test_suite
 
   run_triage_on_failure = False
+  selection = "full_suite"
   if regimes is not None:
+    selection = "requested"
     if regimes == "all" or regimes == ("all",) or regimes == ["all"]:
       batches_to_run = list(full_suite)
     else:
@@ -1253,37 +1859,41 @@ def validate_kernels(
             " Pass regimes='all' to run the full suite."
         )
   else:
-    if test_suite is not None:
+    any_bitwise = contract == CONTRACT_BITWISE or any(
+        c == CONTRACT_BITWISE for c in contract_by_leaf.values()
+    )
+    normal_batches = [
+        b
+        for b in full_suite
+        if (b.get("regime") == "normal" or b.get("name") == "normal_batch_0")
+    ]
+    if test_suite is not None or any_bitwise:
       batches_to_run = list(full_suite)
     elif kernel_oracle is not None or _is_discrete_dtype(canonical_dtype):
       # Q3 error distribution and integer boundary testing require full suite.
       batches_to_run = list(full_suite)
-      run_triage_on_failure = False
     elif canonical_dtype.startswith("fp8") or canonical_dtype.startswith(
         "float8"
     ):
       # FP8 exponent bits absorb dynamic range natively (1.5x spread).
-      normal_batches = [
-          b
-          for b in full_suite
-          if (b.get("regime") == "normal" or b.get("name") == "normal_batch_0")
-      ]
       batches_to_run = normal_batches or list(full_suite)
-      run_triage_on_failure = False
-    else:
-      # Standard continuous float parity: normal first, triage on failure.
-      normal_batches = [
-          b
-          for b in full_suite
-          if (b.get("regime") == "normal" or b.get("name") == "normal_batch_0")
-      ]
-      batches_to_run = normal_batches or list(full_suite)
+      selection = "normal_only" if normal_batches else selection
+    elif tier in _NORMAL_FIRST_TIERS and normal_batches:
+      # Fast agent loop: normal first, the other regimes only as triage.
+      batches_to_run = normal_batches
+      selection = "normal_first"
       run_triage_on_failure = True
+    else:
+      # Presubmit and deep fuzzing gate on every regime in the suite.
+      batches_to_run = list(full_suite)
 
   detected_device_kind, detected_backend = _detect_device_info()
   effective_device_kind = device_kind or detected_device_kind
   effective_backend = detected_backend
 
+  # Precision probes compare a single array; for pytree outputs they observe
+  # the first leaf.
+  probe_ref = _primary_leaf_view(kernel_ref)
   pin_inert_detected = False
   ref_is_unpinned = False
   if batches_to_run:
@@ -1291,13 +1901,13 @@ def validate_kernels(
     first_args = first_b.get("args", (first_b.get("tensor"),))
     first_kwargs = first_b.get("kwargs", {})
     if _probe_pin_inert(
-        kernel_ref, first_args, first_kwargs, effective_device_kind
+        probe_ref, first_args, first_kwargs, effective_device_kind
     ):
       pin_inert_detected = True
 
     if not _is_discrete_dtype(canonical_dtype):
       ref_probe = _probe_precision(
-          kernel_ref,
+          probe_ref,
           first_args,
           first_kwargs,
           baseline="given",
@@ -1309,6 +1919,7 @@ def validate_kernels(
   acc = _ValidationAccumulator()
   batch_results: list[BatchValidationResult] = []
   executed_batch_ids: set[int] = set()
+  failing_batches: list[tuple[dict[str, Any], BatchValidationResult]] = []
 
   def _process_batch(b: dict[str, Any]) -> None:
     res = _execute_single_batch(
@@ -1321,10 +1932,15 @@ def validate_kernels(
         p99_9_allowed_ulp=p99_9_allowed_ulp,
         recommended_ulp=recommended_ulp,
         kernel_oracle=kernel_oracle,
+        contract=contract,
+        contract_by_leaf=contract_by_leaf,
+        user_tolerance=user_tolerance,
     )
     acc.update(res)
     batch_results.append(res.batch_result)
     executed_batch_ids.add(id(b))
+    if not res.passed:
+      failing_batches.append((b, res.batch_result))
 
   for batch in batches_to_run:
     _process_batch(batch)
@@ -1346,7 +1962,11 @@ def validate_kernels(
         oracle_in_float64=acc.oracle_in_float64,
         oracle_output_dtype=acc.oracle_output_dtype,
         canonical_dtype=canonical_dtype,
-        kernel_oracle=kernel_oracle,
+        kernel_oracle=(
+            _primary_leaf_view(kernel_oracle)
+            if callable(kernel_oracle)
+            else kernel_oracle
+        ),
         probe_args=probe_args,
         probe_kwargs=probe_kwargs,
         effective_device_kind=effective_device_kind,
@@ -1396,10 +2016,10 @@ def validate_kernels(
       b0_args = first_b.get("args", (first_b.get("tensor"),))
       b0_kwargs = first_b.get("kwargs", {})
       p_args, p_kwargs = _promote_args_to_dtype(b0_args, b0_kwargs, np.float64)
-      probe_out = kernel_ref(*p_args, **p_kwargs)
+      probe_out = probe_ref(*p_args, **p_kwargs)
       probe_arr = np.asarray(probe_out)
       if probe_arr.dtype == np.float64:
-        ref_b0 = np.asarray(kernel_ref(*b0_args, **b0_kwargs))
+        ref_b0 = np.asarray(probe_ref(*b0_args, **b0_kwargs))
         probe_ulp = int(
             np.max(compute_ulp_distance(ref_b0, probe_arr, dtype_str=dtype_str))
         )
@@ -1416,7 +2036,36 @@ def validate_kernels(
     except Exception as e:  # pylint: disable=broad-exception-caught
       logging.debug("Zero-ULP lossy baseline probe failed: %s", e)
 
-  if is_equivalent:
+  if contract == CONTRACT_BITWISE:
+    caution_msg = None
+    if is_equivalent:
+      summary = (
+          "PASSED: Candidate is bit-identical to the reference across"
+          f" {len(batch_results)} batches (contract: bitwise)."
+      )
+    else:
+      first_bad = next(b for b in batch_results if not b.passed)
+      bw = first_bad.bitwise
+      leaf = (
+          f" output leaf {first_bad.leaf_path}," if first_bad.leaf_path else ""
+      )
+      if bw is not None and bw.first_diff_index is not None:
+        where = (
+            f" First difference: batch '{first_bad.batch_name}' (regime"
+            f" '{first_bad.regime}'),{leaf} at index {bw.first_diff_index},"
+            f" reference bits {bw.reference_bits}, candidate bits"
+            f" {bw.candidate_bits}; {bw.diff_count} elements differ, max ULP"
+            f" {first_bad.max_ulp_distance}."
+        )
+      else:
+        note = bw.note if bw is not None else "no bitwise detail."
+        where = f" Batch '{first_bad.batch_name}',{leaf} {note}"
+      summary = (
+          "FAILED: Candidate differs bitwise from the reference in"
+          f" {acc.failed_batches}/{len(batch_results)} batches"
+          f" (contract: bitwise).{where}"
+      )
+  elif is_equivalent:
     summary = (
         "PASSED: Kernels are numerically equivalent across"
         f" {len(batch_results)} batches (Max ULP: {acc.overall_max_ulp},"
@@ -1437,6 +2086,80 @@ def validate_kernels(
     summary = f"{oracle_banner}\n{summary}"
   if caution_msg:
     summary = f"{caution_msg}\n{summary}"
+
+  regimes_available = sorted(
+      {str(b.get("regime", "unknown")) for b in full_suite}
+  )
+  regimes_run = sorted({b.regime for b in batch_results})
+  regimes_not_run = [r for r in regimes_available if r not in regimes_run]
+  if selection == "normal_first" and len(batch_results) > len(batches_to_run):
+    selection = "normal_first_with_triage"
+  coverage = {
+      "selection": selection,
+      "regimes_available": regimes_available,
+      "regimes_run": regimes_run,
+      "regimes_not_run": regimes_not_run,
+      "batches_available": len(full_suite),
+      "batches_run": len(batch_results),
+  }
+  if is_equivalent and regimes_not_run:
+    summary = (
+        f"{summary}\nCoverage: passed on regimes {regimes_run} only; not run:"
+        f" {regimes_not_run}. Pass regimes='all' to gate on them."
+    )
+
+  tolerance_headroom: dict[str, Any] = {}
+  if user_tolerance is not None:
+
+    def ratio_by_regime(field: str) -> dict[str, float]:
+      worst: dict[str, float] = {}
+      for b in batch_results:
+        ratio = getattr(b, field)
+        if ratio is not None:
+          worst[b.regime] = max(worst.get(b.regime, 0.0), ratio)
+      return dict(sorted(worst.items()))
+
+    by_regime = ratio_by_regime("tolerance_ratio")
+    over = [r for r, v in by_regime.items() if v > 1.0]
+    tolerance_headroom = {
+        "atol": user_tolerance[0],
+        "rtol": user_tolerance[1],
+        "max_ratio_by_regime": by_regime,
+        "oracle_max_ratio_by_regime": ratio_by_regime("oracle_tolerance_ratio"),
+        "regimes_over_tolerance": over,
+    }
+    if over:
+      worst_regime = max(over, key=lambda r: by_regime[r])
+      within = [r for r in by_regime if r not in over]
+      summary = (
+          f"{summary}\nTolerance headroom (report only): candidate vs"
+          f" reference exceeds atol={user_tolerance[0]:g},"
+          f" rtol={user_tolerance[1]:g} on regimes {over} (worst"
+          f" {by_regime[worst_regime]:.3g}x on '{worst_regime}'); within it on"
+          f" {within}."
+      )
+
+  failure_dumps: list[str] = []
+  if dump_failures_to is not None and failing_batches:
+    failure_dumps = _dump_failing_batches(
+        failing_batches,
+        dump_failures_to,
+        run_info={
+            "dtype_str": dtype_str,
+            "tier": tier,
+            "seed": seed,
+            "max_allowed_ulp": max_allowed_ulp,
+            "p99_9_allowed_ulp": p99_9_allowed_ulp,
+            "contract": contract,
+            "contract_by_leaf": contract_by_leaf,
+        },
+    )
+    summary = (
+        f"{summary}\nFailing inputs saved: {len(failure_dumps)} file(s) in"
+        f" {os.fspath(dump_failures_to)}. Re-run one with"
+        " replay_failure_dump(path, kernel_ref, kernel_candidate) or"
+        " `xparity_cli replay`."
+    )
 
   correctness_basis = (
       "AGREEMENT_AND_ORACLE" if acc.oracle_ran else "AGREEMENT_ONLY"
@@ -1496,14 +2219,17 @@ def validate_kernels(
         note=overall_note,
     )
 
-  run_config = {
+  run_config: dict[str, Any] = {
       "tier": tier,
       "seed": seed,
       "dtype_str": dtype_str,
       "device_kind": effective_device_kind,
       "backend": effective_backend,
       "total_batches_count": len(batch_results),
+      "contract": contract,
   }
+  if contract_by_leaf:
+    run_config["contract_by_leaf"] = contract_by_leaf
   if pin_inert_detected:
     run_config["reference_pin_inert"] = True
   if ref_is_unpinned:
@@ -1524,6 +2250,9 @@ def validate_kernels(
       run_config=run_config,
       ulp_context=overall_ulp_context,
       narrow_output_dtype_warning=acc.narrow_warning,
+      failure_dumps=failure_dumps,
+      coverage=coverage,
+      tolerance_headroom=tolerance_headroom,
   )
 
 
@@ -1533,6 +2262,7 @@ def validate_arrays(
     dtype_str: str = "bfloat16",
     max_allowed_ulp: int | None = None,
     p99_9_allowed_ulp: float = 1.0,
+    contract: str = CONTRACT_ULP,
 ) -> BatchValidationResult:
   """Validates bitwise ULP parity between two pre-computed arrays.
 
@@ -1543,6 +2273,9 @@ def validate_arrays(
     max_allowed_ulp: Per-element ULP gate. Defaults to the dtype's recommended
       contract; may not exceed its immutable hard safety ceiling.
     p99_9_allowed_ulp: Gate on the 99.9th percentile of the ULP distribution.
+    contract: CONTRACT_ULP (default) or CONTRACT_BITWISE. Under CONTRACT_BITWISE
+      `passed` is True only when both arrays have the same dtype and every
+      element has the same bit pattern.
 
   Returns:
     A BatchValidationResult. When either tensor contains non-finite values the
@@ -1550,6 +2283,7 @@ def validate_arrays(
     `first_non_finite_index`) alongside `finite_max_ulp` computed over the
     finite subset, rather than a sentinel magnitude.
   """
+  _check_contract(contract)
   act_np = np.asarray(actual)
   exp_np = np.asarray(expected)
   canonical = resolve_canonical_dtype(dtype_str)
@@ -1615,7 +2349,8 @@ def validate_arrays(
   else:
     max_ulp, mean_ulp, p50_ulp, p99_9_ulp = 0, 0.0, 0.0, 0.0
 
-  bit_identical = bool(not has_nan_inf and max_ulp == 0)
+  bitwise_cmp = compare_bitwise(act_np, exp_np)
+  bit_identical = bitwise_cmp.equal
   total = int(ulp_dist.size)
   le_1 = int(np.count_nonzero(ulp_dist <= 1))
   le_2 = int(np.count_nonzero(ulp_dist <= 2))
@@ -1675,6 +2410,8 @@ def validate_arrays(
     )
 
   passed = bool(ulp_passed and allclose_passed)
+  if contract == CONTRACT_BITWISE:
+    passed = bitwise_cmp.equal
   note = None
   if has_nan_inf:
     note = (
@@ -1709,6 +2446,7 @@ def validate_arrays(
       first_non_finite_index=first_non_finite_index,
       finite_max_ulp=max_ulp,
       worst_offender=worst_offender,
+      bitwise=bitwise_cmp,
   )
 
 

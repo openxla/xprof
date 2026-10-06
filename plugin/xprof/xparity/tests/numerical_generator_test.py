@@ -1061,6 +1061,30 @@ class NumericalGeneratorTest(parameterized.TestCase):
     num_amplified = int(np.sum(channel_norms > median_channel_norm * 10.0))
     self.assertGreaterEqual(num_amplified, 3)
 
+  @parameterized.parameters("float32", "bfloat16", "float16")
+  def test_suite_includes_scale_sweep(self, dtype_str: str):
+    suite = numerical_generator.generate_test_suite(
+        shapes=(64, 64), dtype_str=dtype_str, tier="fast_agent"
+    )
+    sweep = [b for b in suite if b["regime"] == "scale_sweep"]
+    self.assertLen(sweep, len(numerical_generator.SCALE_SWEEP_SIGMAS))
+    for batch, sigma in zip(sweep, numerical_generator.SCALE_SWEEP_SIGMAS):
+      self.assertEqual(batch["name"], f"scale_sweep_sigma_{sigma:g}")
+      std = float(np.std(batch["args"][0].astype(np.float32)))
+      self.assertBetween(std, 0.8 * sigma, 1.2 * sigma)
+
+  def test_normal_tensor_default_scale_is_unchanged(self):
+    np.testing.assert_array_equal(
+        numerical_generator.generate_normal_tensor((4, 4), "float32", seed=3),
+        numerical_generator.generate_normal_tensor(
+            (4, 4), "float32", seed=3, scale=1.0
+        ),
+    )
+
+  def test_normal_tensor_rejects_bad_scale(self):
+    with self.assertRaisesRegex(ValueError, "scale must be finite"):
+      numerical_generator.generate_normal_tensor((2,), "float32", scale=0.0)
+
 
 if __name__ == "__main__":
   absltest.main()

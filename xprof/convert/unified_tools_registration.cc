@@ -29,7 +29,6 @@ limitations under the License.
 #include "xprof/convert/unified_perf_counters_processor.h"
 #include "xprof/convert/unified_profile_processor_factory.h"
 #include "xprof/convert/unified_roofline_model_processor.h"
-#include "xprof/convert/unified_trace_viewer_processor.h"
 #include "xprof/convert/unified_utilization_viewer_processor.h"
 
 namespace xprof {
@@ -56,14 +55,17 @@ void RegisterUnifiedToolRegistrations() {
                                      UnifiedUtilizationViewerProcessor);
   REGISTER_UNIFIED_PROFILE_PROCESSOR("perf_counters",
                                      UnifiedPerfCountersProcessor);
-  static const ::xprof::RegisterUnifiedProfileProcessor
-      register_UnifiedTraceViewerProcessor_streaming(
-          "trace_viewer@",
-          [](const tensorflow::profiler::ToolOptions& options) {
-            return std::make_unique<UnifiedTraceViewerProcessor>(options);
-          });
-  REGISTER_UNIFIED_PROFILE_PROCESSOR("trace_viewer",
-                                     UnifiedTraceViewerProcessor);
+  // NOTE: Neither trace viewer tool is registered here on purpose, so that
+  // both keep being served by their legacy processors.
+  // UnifiedTraceViewerProcessor does not yet honor the contract of either tool:
+  //  - "trace_viewer" consumers (the plugin's
+  //    raw_to_tool_data.process_raw_trace) parse the output as a serialized
+  //    Trace proto, as produced by the legacy TraceViewerProcessor, whereas the
+  //    unified processor emits JSON directly.
+  //  - "trace_viewer@" is a streaming protocol (viewport/resolution/search
+  //    options, LevelDB-backed cached loads and `uid` detail lookups,
+  //    multi-host merging) that the unified processor does not implement.
+  // Register them again only together with the matching consumer changes.
 }
 
 }  // namespace xprof

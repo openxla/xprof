@@ -928,7 +928,10 @@ cc_test(
         "//file/base:options_cc",
         "//file/base:path",
         "//plugin/xprof/protobuf:op_stats_proto_cc",
+        "//plugin/xprof/protobuf:trace_events_old_proto_cc",
         "@com_google_absl//absl/cleanup",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/flags:reflection",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
@@ -937,6 +940,7 @@ cc_test(
         "@tsl//tsl/platform:path",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:env",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
     ],
 )
 
@@ -3496,7 +3500,6 @@ cc_library(
         ":unified_perf_counters_processor",
         ":unified_profile_processor_factory",
         ":unified_roofline_model_processor",
-        ":unified_trace_viewer_processor",
         ":unified_utilization_viewer_processor",
     ],
     alwayslink = 1,

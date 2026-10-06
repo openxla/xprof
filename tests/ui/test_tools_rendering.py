@@ -14,12 +14,14 @@ try:
   from tests.ui.ui_helpers import assert_component_geometry
   from tests.ui.ui_helpers import assert_healthy
   from tests.ui.ui_helpers import ensure_sidenav_open
+  from tests.ui.ui_helpers import select_module
   from tests.ui.ui_helpers import switch_tool
 except ImportError:
   from conftest import BrowserErrors
   from ui_helpers import assert_component_geometry
   from ui_helpers import assert_healthy
   from ui_helpers import ensure_sidenav_open
+  from ui_helpers import select_module
   from ui_helpers import switch_tool
 
 
@@ -191,3 +193,19 @@ def test_tool_switching_cleanup(
   )
   expect(page.locator("op-profile, op-profile-base")).to_have_count(0)
   assert_healthy(page, browser_errors, "tool_switching_cleanup")
+
+
+def test_memory_viewer_shows_the_selected_module(
+    page: Page,
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+) -> None:
+  """Verifies Memory Viewer reloads its summary for the selected module."""
+  open_tool("tpu-training", "memory_viewer")
+  summary = page.locator("memory-viewer-main")
+  # Memory Viewer opens on the first module, not the one picked below.
+  expect(summary).to_contain_text("Module Name: jit__where(", timeout=20000)
+
+  select_module(page, "jit_train_step")
+  expect(summary).to_contain_text("Module Name: jit_train_step(", timeout=20000)
+  assert_healthy(page, browser_errors, "memory_viewer_module_selection")

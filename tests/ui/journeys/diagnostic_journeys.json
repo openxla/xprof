@@ -15,13 +15,43 @@
         "expected_selector": "google-chart, .google-visualization-table, hlo-stats"
       },
       {
+        "action": "select_category_filter",
+        "target": "convolution fusion",
+        "expected_selector": "google-chart, .google-visualization-table, hlo-stats"
+      },
+      {
+        "action": "sort_table_column",
+        "target": "#Occurrences",
+        "expected_selector": "google-chart, .google-visualization-table, hlo-stats"
+      },
+      {
         "action": "switch_tool",
         "target": "Op Profile",
         "expected_selector": "op-profile, op-profile-base"
       },
       {
+        "action": "select_op_profile_group_by",
+        "target": "Category",
+        "expected_selector": "op-profile, op-profile-base"
+      },
+      {
+        "action": "expand_op_profile_row",
+        "target": "convolution fusion",
+        "expected_selector": "op-profile, op-profile-base"
+      },
+      {
+        "action": "expand_op_profile_row",
+        "target": "custom fusion",
+        "expected_selector": "op-profile, op-profile-base"
+      },
+      {
         "action": "switch_tool",
         "target": "Roofline Model",
+        "expected_selector": "roofline-model, .roofline-container"
+      },
+      {
+        "action": "select_category_filter",
+        "target": "convolution fusion",
         "expected_selector": "roofline-model, .roofline-container"
       },
       {
@@ -42,6 +72,16 @@
         "expected_selector": "memory-viewer, memory-profile"
       },
       {
+        "action": "select_memory_id",
+        "target": "1",
+        "expected_selector": "memory-viewer, memory-profile"
+      },
+      {
+        "action": "filter_table_rows",
+        "target": "stack",
+        "expected_selector": "memory-viewer, memory-profile"
+      },
+      {
         "action": "switch_tool",
         "target": "Memory Viewer",
         "expected_selector": "memory-viewer"
@@ -54,6 +94,11 @@
       {
         "action": "switch_tool",
         "target": "Memory Profile",
+        "expected_selector": "memory-viewer, memory-profile"
+      },
+      {
+        "action": "select_memory_id",
+        "target": "1",
         "expected_selector": "memory-viewer, memory-profile"
       },
       {
@@ -81,6 +126,16 @@
       {
         "action": "switch_tool",
         "target": "Graph Viewer",
+        "expected_selector": "graph-viewer, iframe.graph-viewer-iframe, .graph-viewer-container"
+      },
+      {
+        "action": "select_module",
+        "target": "jit_train_step",
+        "expected_selector": "graph-viewer, iframe.graph-viewer-iframe, .graph-viewer-container"
+      },
+      {
+        "action": "plot_graph_node",
+        "target": "fusion.",
         "expected_selector": "graph-viewer, iframe.graph-viewer-iframe, .graph-viewer-container"
       },
       {
@@ -116,13 +171,43 @@
         "expected_selector": "op-profile, op-profile-base"
       },
       {
+        "action": "select_op_profile_group_by",
+        "target": "Provenance",
+        "expected_selector": "op-profile, op-profile-base"
+      },
+      {
+        "action": "select_op_profile_group_by",
+        "target": "Category",
+        "expected_selector": "op-profile, op-profile-base"
+      },
+      {
+        "action": "expand_op_profile_row",
+        "target": "convolution fusion",
+        "expected_selector": "op-profile, op-profile-base"
+      },
+      {
         "action": "switch_tool",
         "target": "Framework Op Stats",
         "expected_selector": "framework-op-stats"
       },
       {
+        "action": "filter_table_rows",
+        "target": "dot_general",
+        "expected_selector": "framework-op-stats"
+      },
+      {
+        "action": "sort_table_column",
+        "target": "#Occurrences",
+        "expected_selector": "framework-op-stats"
+      },
+      {
         "action": "switch_tool",
         "target": "HLO Op Stats",
+        "expected_selector": "google-chart, .google-visualization-table, hlo-stats"
+      },
+      {
+        "action": "filter_table_rows",
+        "target": "all-gather",
         "expected_selector": "google-chart, .google-visualization-table, hlo-stats"
       },
       {
@@ -229,6 +314,16 @@
       {
         "action": "switch_tool",
         "target": "Graph Viewer",
+        "expected_selector": "graph-viewer, iframe.graph-viewer-iframe, .graph-viewer-container"
+      },
+      {
+        "action": "select_module",
+        "target": "jit_train_step",
+        "expected_selector": "graph-viewer, iframe.graph-viewer-iframe, .graph-viewer-container"
+      },
+      {
+        "action": "plot_graph_node",
+        "target": "fusion.",
         "expected_selector": "graph-viewer, iframe.graph-viewer-iframe, .graph-viewer-container"
       },
       {

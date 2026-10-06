@@ -14,6 +14,7 @@
 # ==============================================================================
 """Tests for server HTTP protocol, packaging integrity, and cleanliness."""
 
+from collections.abc import Callable
 import gzip
 import os
 import pathlib
@@ -21,6 +22,7 @@ import re
 import subprocess
 import threading
 import traceback
+from typing import Any
 import unittest
 from unittest import mock
 import urllib.error
@@ -577,6 +579,204 @@ class InvariantsTest(unittest.TestCase):
         ui_helpers.assert_healthy(
             _HealthyPage("Overview Page Metrics", ["-4.2 ms"]), None, "cell"
         )
+
+
+_LogEntry = tuple[str, Any, tuple[Any, ...], dict[str, Any]]
+
+
+class _LoggedAssertions:
+  """Logs the assertions made on one `expect` target."""
+
+  def __init__(self, log: list[_LogEntry], target: Any):
+    self._log = log
+    self._target = target
+
+  def __getattr__(self, name: str) -> Callable[..., None]:
+    return lambda *args, **kwargs: self._log.append(
+        (name, self._target, args, kwargs)
+    )
+
+
+class _LoggingLocator:
+  """Locator double that logs the actions taken on it."""
+
+  def __init__(self, log: list[_LogEntry], selector: str):
+    self.log = log
+    self.selector = selector
+    self.first = self
+
+  def locator(self, selector: str) -> "_LoggingLocator":
+    return _LoggingLocator(self.log, f"{self.selector} {selector}")
+
+  def filter(self, **kwargs: Any) -> "_LoggingLocator":
+    matches = _LoggingLocator(self.log, self.selector)
+    self.log.append(("filter", matches, (self,), kwargs))
+    return matches
+
+  def get_attribute(self, name: str) -> str:
+    del name
+    return "mat-drawer-opened"
+
+  def click(self) -> None:
+    self.log.append(("click", self, (), {}))
+
+  def fill(self, value: str) -> None:
+    self.log.append(("fill", self, (value,), {}))
+
+  def blur(self) -> None:
+    self.log.append(("blur", self, (), {}))
+
+
+class _LoggingPage:
+  """Page double whose locators and mouse write to one log."""
+
+  def __init__(self, log: list[_LogEntry]):
+    self.log = log
+    self.mouse = mock.Mock()
+    self.mouse.move.side_effect = lambda *xy: log.append(("move", None, xy, {}))
+
+  def locator(self, selector: str) -> _LoggingLocator:
+    return _LoggingLocator(self.log, selector)
+
+  frame_locator = locator
+
+
+class UiHelpersTest(unittest.TestCase):
+  """Tests that the interaction helpers check the page around each action."""
+
+  def setUp(self) -> None:
+    super().setUp()
+    self.log: list[_LogEntry] = []
+    self.page = _LoggingPage(self.log)
+    patcher = mock.patch.object(
+        ui_helpers.sync_api,
+        "expect",
+        create=True,
+        side_effect=lambda target: _LoggedAssertions(self.log, target),
+    )
+    patcher.start()
+    self.addCleanup(patcher.stop)
+
+  def _calls(self, name: str) -> list[_LogEntry]:
+    return [entry for entry in self.log if entry[0] == name]
+
+  def _actions(self) -> list[str]:
+    return [entry[0] for entry in self.log if entry[0] != "filter"]
+
+  def test_dropdowns_pick_and_show_whole_option_texts(self) -> None:
+    """Verifies dropdown helpers pick whole option texts and recheck them."""
+    ui_helpers.select_module(self.page, "jit_train_step")
+    ui_helpers.select_memory_id(self.page, "1")
+    ui_helpers.switch_tool(self.page, "Op Profile")
+    ui_helpers.select_op_profile_group_by(self.page, "Category")
+
+    patterns = [entry[3]["has_text"] for entry in self._calls("filter")]
+    module, memory_id, tool, _ = patterns
+    self.assertRegex(" jit_train_step(4869159985936022652) ", module)
+    self.assertNotRegex("jit_train_step_2", module)
+    self.assertNotRegex("prefix_jit_train_step", module)
+    self.assertRegex(" 1 ", memory_id)
+    self.assertNotRegex("10", memory_id)
+    self.assertRegex("HLO Op Profile", tool)
+    self.assertRegex("Op Profile", tool)
+    shown = [entry[2] for entry in self._calls("to_have_text")]
+    self.assertEqual(shown, [(pattern,) for pattern in patterns])
+
+  def test_dropdown_ignores_a_failed_mouse_reset(self) -> None:
+    """Verifies a mouse reset error after the dropdown closes is ignored."""
+    self.page.mouse.move.side_effect = invariants.PlaywrightError("detached")
+    ui_helpers.select_category_filter(self.page, "convolution fusion")
+
+    self.assertEqual(
+        self._actions(),
+        [
+            "to_be_visible",
+            "click",
+            "to_be_visible",
+            "click",
+            "to_have_count",
+            "to_have_text",
+        ],
+    )
+    (closed,) = self._calls("to_have_count")
+    self.assertEqual((closed[1].selector, closed[2]), ("mat-option", (0,)))
+    self.page.mouse.move.assert_called_once_with(0, 0)
+
+  def test_expand_op_profile_row_checks_the_rendered_triangle(self) -> None:
+    """Verifies a row counts as expanded only by its rendered triangle."""
+    ui_helpers.expand_op_profile_row(self.page, "convolution fusion")
+
+    self.assertEqual(
+        self._actions(),
+        ["to_be_visible", "click", "move", "to_have_text", "to_contain_text"],
+    )
+    (triangle,) = self._calls("to_have_text")
+    self.assertEqual(triangle[2], ("\u25bc",))
+    self.assertTrue(triangle[3]["use_inner_text"])
+    (details,) = self._calls("to_contain_text")
+    self.assertEqual(details[2], ("convolution fusion",))
+
+  def test_plot_graph_node_waits_for_the_url_and_the_graph(self) -> None:
+    """Verifies plotting waits for the node in the URL and a drawn node."""
+    ui_helpers.plot_graph_node(self.page, "fusion.")
+
+    self.assertEqual(
+        self._actions(),
+        ["to_be_visible", "click", "to_have_url", "to_be_visible", "move"],
+    )
+    (url_check,) = self._calls("to_have_url")
+    url = url_check[2][0]
+    self.assertRegex("/?run=r&node_name=fusion.12&module_name=m", url)
+    self.assertNotRegex("/?node_name=add.3&module_name=fusion.12", url)
+
+  def test_filter_table_rows_must_hide_rows_and_keep_matches(self) -> None:
+    """Verifies the filter must hide shown rows and keep a matching one."""
+    ui_helpers.filter_table_rows(self.page, "all-gather")
+
+    self.assertEqual(
+        self._actions(),
+        [
+            "to_be_visible",
+            "fill",
+            "blur",
+            "to_have_count",
+            "to_be_visible",
+            "move",
+        ],
+    )
+    (filtering,) = self._calls("filter")
+    others, rows = filtering[1], filtering[2][0]
+    self.assertRegex("%ALL-GATHER.3", filtering[3]["has_not_text"])
+    before, after = self._calls("to_be_visible")
+    self.assertIs(before[1], others)
+    self.assertIs(after[1], rows)
+    (hidden,) = self._calls("to_have_count")
+    self.assertIs(hidden[1], others)
+    self.assertEqual(hidden[2], (0,))
+    (fill,) = self._calls("fill")
+    self.assertEqual(fill[2], ("all-gather",))
+
+  def test_sort_table_column_needs_an_unsorted_header(self) -> None:
+    """Verifies sorting starts from an unsorted header and ends sorted."""
+    ui_helpers.sort_table_column(self.page, "#Occurrences")
+
+    self.assertEqual(
+        self._actions(),
+        [
+            "to_be_visible",
+            "not_to_have_class",
+            "click",
+            "to_have_class",
+            "move",
+        ],
+    )
+    (before,) = self._calls("not_to_have_class")
+    (after,) = self._calls("to_have_class")
+    self.assertEqual(before[2], after[2])
+    sorted_class = after[2][0]
+    self.assertRegex("header-cell sort-ascending", sorted_class)
+    self.assertRegex("header-cell sort-descending", sorted_class)
+    self.assertNotRegex("header-cell", sorted_class)
 
 
 if __name__ == "__main__":

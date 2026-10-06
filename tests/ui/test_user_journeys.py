@@ -22,7 +22,15 @@ try:
   from tests.ui.ui_helpers import assert_component_geometry
   from tests.ui.ui_helpers import assert_healthy
   from tests.ui.ui_helpers import build_tool_url
+  from tests.ui.ui_helpers import expand_op_profile_row
+  from tests.ui.ui_helpers import filter_table_rows
+  from tests.ui.ui_helpers import plot_graph_node
+  from tests.ui.ui_helpers import select_category_filter
   from tests.ui.ui_helpers import select_host
+  from tests.ui.ui_helpers import select_memory_id
+  from tests.ui.ui_helpers import select_module
+  from tests.ui.ui_helpers import select_op_profile_group_by
+  from tests.ui.ui_helpers import sort_table_column
   from tests.ui.ui_helpers import switch_tool
 except ImportError:
   from conftest import BrowserErrors
@@ -33,7 +41,15 @@ except ImportError:
   from ui_helpers import assert_component_geometry
   from ui_helpers import assert_healthy
   from ui_helpers import build_tool_url
+  from ui_helpers import expand_op_profile_row
+  from ui_helpers import filter_table_rows
+  from ui_helpers import plot_graph_node
+  from ui_helpers import select_category_filter
   from ui_helpers import select_host
+  from ui_helpers import select_memory_id
+  from ui_helpers import select_module
+  from ui_helpers import select_op_profile_group_by
+  from ui_helpers import sort_table_column
   from ui_helpers import switch_tool
 
 
@@ -43,6 +59,14 @@ class ActionType(str, enum.Enum):
   GOTO = "goto"
   SWITCH_TOOL = "switch_tool"
   SELECT_HOST = "select_host"
+  SELECT_MODULE = "select_module"
+  SELECT_OP_PROFILE_GROUP_BY = "select_op_profile_group_by"
+  EXPAND_OP_PROFILE_ROW = "expand_op_profile_row"
+  PLOT_GRAPH_NODE = "plot_graph_node"
+  SELECT_MEMORY_ID = "select_memory_id"
+  SELECT_CATEGORY_FILTER = "select_category_filter"
+  FILTER_TABLE_ROWS = "filter_table_rows"
+  SORT_TABLE_COLUMN = "sort_table_column"
   GO_BACK = "go_back"
   GO_FORWARD = "go_forward"
 
@@ -150,6 +174,28 @@ def _resolve_run_name(logdir: str, run_name: str) -> str:
     return run_name
 
 
+def _wait_for_tool_data(page: Page, tool: str) -> None:
+  """Waits until the router shows `tool` and the app stops loading its data.
+
+  Leaving a tool before its data arrives can leave the app-wide loading flag
+  set, and the main page then keeps every later tool collapsed. The URL check
+  comes first because the flag only goes up once the router mounts the tool.
+
+  Args:
+    page: Page that was just pointed at `tool`.
+    tool: Tag or display name of the tool.
+  """
+  expect(page).to_have_url(
+      settled_tool_url_pattern(tool), timeout=URL_SETTLE_TIMEOUT_MS
+  )
+  expect(
+      page.locator(
+          "main-page > mat-sidenav-container > mat-sidenav-content"
+          " > div.full-height"
+      )
+  ).to_be_attached(timeout=URL_SETTLE_TIMEOUT_MS)
+
+
 def step_history(page: Page, tool_name: str, forward: bool = False) -> None:
   """Steps browser history back, or forward, until `tool_name` is shown.
 
@@ -199,6 +245,26 @@ def dispatch_action(
           re.compile(rf"host={re.escape(step.target)}"),
           timeout=URL_SETTLE_TIMEOUT_MS,
       )
+    case ActionType.SELECT_MODULE:
+      select_module(page, step.target)
+      expect(page).to_have_url(
+          re.compile(rf"[?&]moduleName={re.escape(step.target)}\b"),
+          timeout=URL_SETTLE_TIMEOUT_MS,
+      )
+    case ActionType.SELECT_OP_PROFILE_GROUP_BY:
+      select_op_profile_group_by(page, step.target)
+    case ActionType.EXPAND_OP_PROFILE_ROW:
+      expand_op_profile_row(page, step.target)
+    case ActionType.PLOT_GRAPH_NODE:
+      plot_graph_node(page, step.target)
+    case ActionType.SELECT_MEMORY_ID:
+      select_memory_id(page, step.target)
+    case ActionType.SELECT_CATEGORY_FILTER:
+      select_category_filter(page, step.target)
+    case ActionType.FILTER_TABLE_ROWS:
+      filter_table_rows(page, step.target)
+    case ActionType.SORT_TABLE_COLUMN:
+      sort_table_column(page, step.target)
     case ActionType.GO_BACK | ActionType.GO_FORWARD:
       step_history(page, step.target, step.action == ActionType.GO_FORWARD)
     case ActionType.GOTO:
@@ -208,10 +274,7 @@ def dispatch_action(
       dest_path = os.path.join(logdir, run_name)
       dest_url = build_tool_url(server_url, dest_path, run_name, tag)
       page.goto(dest_url, wait_until="domcontentloaded")
-      expect(page).to_have_url(
-          re.compile(rf"tag={re.escape(tag)}"),
-          timeout=URL_SETTLE_TIMEOUT_MS,
-      )
+      _wait_for_tool_data(page, tag)
     case _:
       raise ValueError(f"Unsupported journey action type: {step.action}")
 
@@ -232,10 +295,7 @@ def test_user_journey_state_machine(
   # 1. Mount initial starting waypoint
   scenario = resolve_scenario_runs(scenario, resolve_run, logdir=logdir)
   open_tool(scenario.fixture, scenario.initial_tool)
-  expect(page).to_have_url(
-      re.compile(rf"tag={re.escape(scenario.initial_tool)}"),
-      timeout=URL_SETTLE_TIMEOUT_MS,
-  )
+  _wait_for_tool_data(page, scenario.initial_tool)
   expect(page.locator("body")).to_be_visible()
   assert_healthy(page, context=f"initial load of {scenario.id}")
 

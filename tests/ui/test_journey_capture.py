@@ -217,6 +217,7 @@ class JourneyCaptureTest(unittest.TestCase):
   def test_normalized_html_js_id_regexes_match_python(self):
     """Verifies the in-page ID regexes mirror normalize_generated_attr_ids."""
     js = journey_capture._NORMALIZED_HTML_JS
+    self.assertIn("[hidden]", js)
     block = js[js.index("const norm = val") : js.index("if (norm !== val)")]
     self.assertEqual(
         re.findall(r"\.replace\(\s*/(.+?)/g,", block, re.DOTALL),
@@ -458,6 +459,7 @@ class JourneyCaptureTest(unittest.TestCase):
     self.assertTrue(journey_capture._wait_for_charts_to_render(zero_data_page))
     self.assertGreaterEqual(len(zero_data_page.waits), 4)
     js = journey_capture._CHART_COUNTS_JS
+    self.assertIn("max-heap-chart", js)
     self.assertIn("proto !== Object.prototype", js)
     self.assertNotIn("Object.defineProperty(Object.prototype", js)
 

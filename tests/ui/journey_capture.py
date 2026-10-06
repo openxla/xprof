@@ -236,7 +236,7 @@ _NORMALIZED_HTML_JS = """(maskSelectors) => {
   for (const el of clone.querySelectorAll(
       '.cdk-live-announcer-element, .cdk-describedby-message-container, ' +
       '.cdk-overlay-container, div[style*="display: none"], ' +
-      'div[style*="display:none"]'
+      'div[style*="display:none"], [hidden]'
   )) {
     el.remove();
   }
@@ -576,7 +576,7 @@ _CHART_COUNTS_JS = """() => {
     return null;
   }
   const els = document.querySelectorAll(
-      'chart, google-chart, step-time-graph');
+      'chart, google-chart, step-time-graph, max-heap-chart');
   let drawn = 0;
   let pending = 0;
   for (const el of els) {

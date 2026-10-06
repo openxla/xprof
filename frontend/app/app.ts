@@ -1,4 +1,11 @@
-import {Component, OnInit, ChangeDetectionStrategy} from '@angular/core';
+import '@material/web/progress/linear-progress.js';
+
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  OnInit,
+} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
 import {DataDispatcher} from 'org_xprof/frontend/app/services/data_dispatcher/data_dispatcher';
@@ -8,20 +15,22 @@ import {firstValueFrom} from 'rxjs';
 
 /** The root component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'app',
   templateUrl: './app.ng.html',
   styleUrls: ['./app.scss'],
 })
 export class App implements OnInit {
+  private readonly dataService = inject(DataServiceV2);
+  private readonly store = inject(Store<{}>);
+
   loading = true;
   dataFound = false;
 
-  constructor(
-      // tslint:disable-next-line:no-unused-variable declare to instantiate
-      private readonly dataDispatcher: DataDispatcher,
-      private readonly dataService: DataServiceV2,
-      private readonly store: Store<{}>) {
+  constructor() {
+    // Instantiate DataDispatcher so it subscribes to store actions.
+    inject(DataDispatcher);
     document.addEventListener('tensorboard-reload', () => {
       if (!this.loading) {
         this.initRunsAndTools();

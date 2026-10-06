@@ -1,10 +1,20 @@
+import '@material/web/button/filled-button.js';
+import '@material/web/checkbox/checkbox.js';
+import '@material/web/icon/icon.js';
+
 import {
   ChangeDetectionStrategy,
   Component,
+  CUSTOM_ELEMENTS_SCHEMA,
+  inject,
+  Input,
   OnDestroy,
   OnInit,
 } from '@angular/core';
-import {MatCheckboxChange} from '@angular/material/checkbox';
+import {MatOptionModule} from '@angular/material/core';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatSelectModule} from '@angular/material/select';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import {ActivatedRouteSnapshot, NavigationEnd, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {
@@ -13,6 +23,10 @@ import {
 } from 'org_xprof/frontend/app/common/constants/constants';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
+import {CaptureKernel} from 'org_xprof/frontend/app/components/capture_kernel/capture_kernel';
+import {CaptureProfileModule} from 'org_xprof/frontend/app/components/capture_profile/capture_profile_module';
+import {BufferDetailsModule} from 'org_xprof/frontend/app/components/memory_viewer/buffer_details/buffer_details_module';
+import {PodViewerDetailsModule} from 'org_xprof/frontend/app/components/pod_viewer/pod_viewer_details/pod_viewer_details_module';
 import {CommunicationService} from 'org_xprof/frontend/app/services/communication_service/communication_service';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {
@@ -108,15 +122,56 @@ const STANDALONE_NON_SIDENAV_ROUTES = [
   'stack_trace_page',
 ];
 
+const TOOLS_DISPLAY_MAP = new Map<string, string>([
+  ['overview_page', 'Overview Page'],
+  ['framework_op_stats', 'Framework Op Stats'],
+  ['input_pipeline_analyzer', 'Input Pipeline Analysis'],
+  ['memory_profile', 'Memory Profile'],
+  ['pod_viewer', 'Pod Viewer'],
+  ['op_profile', 'HLO Op Profile'],
+  ['memory_viewer', 'Memory Viewer'],
+  ['graph_viewer', 'Graph Viewer'],
+  ['hlo_stats', 'HLO Op Stats'],
+  ['inference_profile', 'Inference Profile'],
+  ['roofline_model', 'Roofline Model'],
+  ['kernel_stats', 'Kernel Stats'],
+  ['trace_viewer', 'Trace Viewer'],
+  ['megascale_stats', 'Megascale Viewer'],
+  ['perf_counters', 'Perf Counters'],
+  ['utilization_viewer', 'Utilization Viewer'],
+]);
+
+/** Pre-computed display metadata for a tool tag in the navigation rail and selector. */
+export interface NavRailItem {
+  tag: string;
+  label: string;
+  hasIcon: boolean;
+  icon: string;
+}
+
 /** A side navigation component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
   selector: 'sidenav',
   templateUrl: './sidenav.ng.html',
   styleUrls: ['./sidenav.scss'],
+  imports: [
+    BufferDetailsModule,
+    CaptureKernel,
+    CaptureProfileModule,
+    MatFormFieldModule,
+    MatOptionModule,
+    MatSelectModule,
+    MatTooltipModule,
+    PodViewerDetailsModule,
+  ],
+  schemas: [CUSTOM_ELEMENTS_SCHEMA],
 })
 export class SideNav implements OnInit, OnDestroy {
+  /** Whether the sidenav is expanded into the full control drawer. */
+  @Input() expanded = true;
+
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
   runToolsMap$: Observable<RunToolsMap>;
@@ -124,11 +179,14 @@ export class SideNav implements OnInit, OnDestroy {
 
   runToolsMap: RunToolsMap = {};
   runs: string[] = [];
-  tags: string[] = [];
+  private tagsInternal: string[] = [];
   hosts: string[] = [];
   moduleList: string[] = [];
   selectedRunInternal = '';
-  selectedTagInternal = '';
+  private selectedTagInternalValue = '';
+  activeTag = '';
+  navRailItems: NavRailItem[] = [];
+  private readonly iconCache = new Map<string, string>();
   selectedHostInternal = '';
   runPathInternal = '';
   sessionPathInternal = '';
@@ -143,14 +201,119 @@ export class SideNav implements OnInit, OnDestroy {
   hideCaptureProfileButton = false;
   enableTabNameLabel = false;
 
-  constructor(
-    private readonly router: Router,
-    // Using DataServiceV2 because methods used in sidenav is not defined in
-    // the interface. (b/423713470)
-    private readonly dataService: DataServiceV2,
-    private readonly communicationService: CommunicationService,
-    private readonly store: Store<{}>,
-  ) {
+  readonly iconMap: {[key: string]: string} = {
+    'overview': 'home',
+    'overview_page': 'home',
+    'trace_viewer': 'view_object_track',
+    'graph_viewer': 'graph_2',
+    'op_profile': 'bar_chart',
+    'hlo_op_profile': 'bar_chart',
+    'hlo_stats': 'query_stats',
+    'hlo_op_stats': 'query_stats',
+    'input_pipeline_analyzer': 'input',
+    'input_pipeline': 'table_chart_view',
+    'kernel_stats': 'memory',
+    'memory_profile': 'monitoring',
+    'memory_viewer': 'overview_key',
+    'roofline_model': 'stacked_line_chart',
+    'pod_viewer': 'hive',
+    'megascale_stats': 'hub',
+    'framework_op_stats': 'pie_chart',
+    'tensorflow_stats': 'data_usage',
+    'inference_profile': 'avg_pace',
+    'perf_counters': 'av_timer',
+    'utilization_viewer': 'bar_chart_4_bars',
+  };
+
+  /** Strips trailing @, #, or ^ suffix characters from a tag name. */
+  cleanTag(tag: string): string {
+    return tag &&
+      tag.length &&
+      (tag[tag.length - 1] === '@' ||
+        tag[tag.length - 1] === '#' ||
+        tag[tag.length - 1] === '^')
+      ? tag.slice(0, -1)
+      : tag || '';
+  }
+
+  /** Whether a Material Symbol icon is mapped for the given tool tag. */
+  hasIcon(tag: string): boolean {
+    const key = this.cleanTag(tag);
+    return Boolean(this.iconMap[key]);
+  }
+
+  get tags(): string[] {
+    return this.tagsInternal;
+  }
+
+  set tags(value: string[]) {
+    this.tagsInternal = value;
+    this.navRailItems = value.map((tag) => ({
+      tag,
+      label: this.getDisplayTagName(tag),
+      hasIcon: this.hasIcon(tag),
+      icon: this.getIcon(tag),
+    }));
+    this.updateActiveTag();
+  }
+
+  get selectedTagInternal(): string {
+    return this.selectedTagInternalValue;
+  }
+
+  set selectedTagInternal(value: string) {
+    this.selectedTagInternalValue = value;
+    this.updateActiveTag();
+  }
+
+  private updateActiveTag() {
+    // For standalone sub-pages (e.g., 'megascale_perfetto'), the route name is
+    // not in this.tags. Returning an empty string prevents falling back to
+    // this.tags[0] ('overview_page') and keeps the sidebar tool dropdown unselected.
+    if (STANDALONE_NON_SIDENAV_ROUTES.includes(this.selectedTagInternalValue)) {
+      this.activeTag = '';
+      return;
+    }
+    this.activeTag =
+      this.tagsInternal.find((validTag) =>
+        validTag.startsWith(this.selectedTagInternalValue),
+      ) ||
+      this.tagsInternal[0] ||
+      '';
+  }
+
+  /**
+   * Returns the Material Symbol icon name or a 3-letter uppercase abbreviation
+   * for the given tool tag in the GM3 Navigation Rail.
+   */
+  getIcon(tag: string): string {
+    const cached = this.iconCache.get(tag);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const key = this.cleanTag(tag);
+    let icon = this.iconMap[key];
+    if (!icon) {
+      const label = this.getDisplayTagName(tag) || key;
+      icon = label
+        .split(/[\s\-_]+/)
+        .filter((word) => Boolean(word))
+        .map((word) => word.charAt(0).toUpperCase())
+        .join('')
+        .substring(0, 3);
+    }
+    this.iconCache.set(tag, icon);
+    return icon;
+  }
+
+  private readonly router = inject(Router);
+  // Using DataServiceV2 because methods used in sidenav is not defined in
+  // the interface. (b/423713470)
+  private readonly dataService = inject(DataServiceV2);
+  private readonly communicationService = inject(CommunicationService);
+  private readonly store = inject(Store<{}>);
+
+  constructor() {
     this.runToolsMap$ = this.store
       .select(getRunToolsMap)
       .pipe(takeUntil(this.destroyed));
@@ -189,20 +352,8 @@ export class SideNav implements OnInit, OnDestroy {
   }
 
   // Getter for valid tag given url router or user selection.
-  get selectedTag() {
-    // For standalone sub-pages (e.g., 'megascale_perfetto'), the route name is
-    // not in this.tags. Returning an empty string prevents falling back to
-    // this.tags[0] ('overview_page') and keeps the sidebar tool dropdown unselected.
-    if (STANDALONE_NON_SIDENAV_ROUTES.includes(this.selectedTagInternal)) {
-      return '';
-    }
-    return (
-      this.tags.find((validTag) =>
-        validTag.startsWith(this.selectedTagInternal),
-      ) ||
-      this.tags[0] ||
-      ''
-    );
+  get selectedTag(): string {
+    return this.activeTag;
   }
 
   /**
@@ -367,7 +518,9 @@ export class SideNav implements OnInit, OnDestroy {
 
   async fetchProfilerConfig() {
     const config = await firstValueFrom(
-      this.dataService.getConfig().pipe(takeUntil(this.destroyed), defaultIfEmpty(null)),
+      this.dataService
+        .getConfig()
+        .pipe(takeUntil(this.destroyed), defaultIfEmpty(null)),
     );
     if (config) {
       this.store.dispatch(setProfilerConfigAction({config}));
@@ -412,25 +565,7 @@ export class SideNav implements OnInit, OnDestroy {
         ? tag.slice(0, -1)
         : tag || '';
 
-    const toolsDisplayMap = new Map([
-      ['overview_page', 'Overview Page'],
-      ['framework_op_stats', 'Framework Op Stats'],
-      ['input_pipeline_analyzer', 'Input Pipeline Analysis'],
-      ['memory_profile', 'Memory Profile'],
-      ['pod_viewer', 'Pod Viewer'],
-      ['op_profile', 'HLO Op Profile'],
-      ['memory_viewer', 'Memory Viewer'],
-      ['graph_viewer', 'Graph Viewer'],
-      ['hlo_stats', 'HLO Op Stats'],
-      ['inference_profile', 'Inference Profile'],
-      ['roofline_model', 'Roofline Model'],
-      ['kernel_stats', 'Kernel Stats'],
-      ['trace_viewer', 'Trace Viewer'],
-      ['megascale_stats', 'Megascale Viewer'],
-      ['perf_counters', 'Perf Counters'],
-      ['utilization_viewer', 'Utilization Viewer'],
-    ]);
-    return toolsDisplayMap.get(tagName) || tagName;
+    return TOOLS_DISPLAY_MAP.get(tagName) || tagName;
   }
 
   async getToolsForSelectedRun() {
@@ -597,8 +732,12 @@ export class SideNav implements OnInit, OnDestroy {
     this.updateAllHostsSelectedState();
   }
 
-  onToggleSelectAllHosts(event: MatCheckboxChange) {
-    this.selectedHostsPending = event.checked ? [...this.hosts] : [];
+  onToggleSelectAllHosts(event: Event | {checked?: boolean}) {
+    const checked =
+      'target' in event && event.target
+        ? (event.target as HTMLInputElement).checked
+        : Boolean((event as {checked?: boolean}).checked);
+    this.selectedHostsPending = checked ? [...this.hosts] : [];
     this.updateAllHostsSelectedState();
   }
 

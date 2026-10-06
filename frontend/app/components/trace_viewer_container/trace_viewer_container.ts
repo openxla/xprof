@@ -9,42 +9,46 @@ import {
   ChangeDetectorRef,
   Component,
   CUSTOM_ELEMENTS_SCHEMA,
+  effect,
   ElementRef,
   EventEmitter,
   inject,
-  Input,
+  input,
   NgZone,
   OnChanges,
   OnDestroy,
   OnInit,
   Output,
   SimpleChanges,
+  viewChild,
   ViewChild,
 } from '@angular/core';
-import {FormsModule} from '@angular/forms';
 import {MatButtonModule} from '@angular/material/button';
 import {MatFormFieldModule} from '@angular/material/form-field';
 import {MatIconModule} from '@angular/material/icon';
 import {MatInputModule} from '@angular/material/input';
-import {MatProgressBarModule} from '@angular/material/progress-bar';
-import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
 import {MatSort, MatSortModule} from '@angular/material/sort';
 import {MatTableDataSource, MatTableModule} from '@angular/material/table';
-import {MatTabsModule} from '@angular/material/tabs';
 import {
   MAT_TOOLTIP_DEFAULT_OPTIONS,
   MatTooltipModule,
 } from '@angular/material/tooltip';
 import {ActivatedRoute} from '@angular/router';
+import '@material/web/button/filled-button.js';
+import '@material/web/button/text-button.js';
+import '@material/web/icon/icon.js';
+import '@material/web/iconbutton/icon-button.js';
+import '@material/web/progress/circular-progress.js';
+import '@material/web/progress/linear-progress.js';
+import '@material/web/tabs/primary-tab.js';
+import '@material/web/tabs/tabs.js';
 import {AngularSplitModule} from 'angular-split';
-
 import {NgxJsonViewerModule} from 'ngx-json-viewer';
 import {TimelinePlayer} from 'org_xprof/frontend/app/components/timeline_player/timeline_player';
 import {getDefaultFeatureFlag} from 'org_xprof/frontend/app/components/trace_viewer_v2/feature_flags';
 import {
   getMouseModeStatusConfig,
-  MouseMode,
-  MouseModeStatusConfig,
+  type MouseModeStatusConfig,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/shortcuts';
 import {
   formatHloArgsForJsonTree,
@@ -59,8 +63,7 @@ import {
   TraceViewerV2LoadingStatus,
   type TraceViewerV2Module,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
-
-import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
+import {SafePipe} from 'org_xprof/frontend/app/pipes/safe_pipe';
 import {fromEvent, interval, ReplaySubject, Subject, Subscription} from 'rxjs';
 import {debounceTime, distinctUntilChanged, takeUntil} from 'rxjs/operators';
 
@@ -269,6 +272,17 @@ export function getHloTextPreview(value: string, maxLength = 60): string {
   return `${singleLine.slice(0, maxLength).trim()} ...`;
 }
 
+/**
+ * Mouse modes for trace viewer interaction.
+ * Must match the values in C++ MouseMode enum.
+ */
+export enum MouseMode {
+  SELECT = 1,
+  PAN = 2,
+  ZOOM = 3,
+  TIMING = 4,
+}
+
 /** Event name for mouse mode changes. */
 export const MOUSE_MODE_CHANGED_EVENT_NAME = 'mouse_mode_changed';
 
@@ -330,8 +344,8 @@ declare interface TfTraceViewer {
 
 /** A trace viewer container component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   schemas: [CUSTOM_ELEMENTS_SCHEMA],
   selector: 'trace-viewer-container',
   templateUrl: './trace_viewer_container.ng.html',
@@ -353,26 +367,24 @@ declare interface TfTraceViewer {
   imports: [
     AngularSplitModule,
     CommonModule,
-    MatIconModule,
-    MatProgressBarModule,
-    PipesModule,
-    TimelinePlayer,
-    FormsModule,
+    SafePipe,
     MatButtonModule,
     MatFormFieldModule,
+    MatIconModule,
     MatInputModule,
-    MatProgressSpinnerModule,
     MatSortModule,
     MatTableModule,
-    MatTabsModule,
     MatTooltipModule,
     NgxJsonViewerModule,
+    TimelinePlayer,
   ],
 })
 export class TraceViewerContainer
   implements OnInit, OnDestroy, AfterViewInit, OnChanges
 {
-  @Input() traceViewerModule: TraceViewerV2Module | null = null;
+  private readonly el = inject(ElementRef);
+
+  readonly traceViewerModule = input<TraceViewerV2Module | null>(null);
   /**
    * URL of the legacy (v1) `trace_viewer_index.html` page, used as the `src`
    * of the v1 iframe. Under `useTraceViewerV2` that iframe is hidden but still
@@ -380,10 +392,12 @@ export class TraceViewerContainer
    * and feed data via `traceViewerModule.loadTraceData` instead of binding a
    * raw trace-data URL here.
    */
-  @Input() url = '';
-  @Input() useTraceViewerV2 = true;
-  @Input() showHelpButton = false;
-  @Input() selectedEvent?: SelectedEvent | null;
+  readonly url = input<string>('');
+  readonly useTraceViewerV2 = input<boolean>(true);
+  readonly showHelpButton = input<boolean>(false);
+  readonly selectedEvent = input<SelectedEvent | null | undefined>(undefined);
+  readonly searching = input<boolean>(false);
+
   /**
    * The selected event rendered as an auto-traversed JSON tree in Trace
    * Viewer v2 (identity, timing and the full args map, with the stack trace
@@ -391,14 +405,14 @@ export class TraceViewerContainer
    * changes; `undefined` until the event's args are available.
    */
   selectedEventJson?: Record<string, unknown>;
-  @Input() searching = false;
 
   /** Whether the timeline player applies */
   enableTimelinePlayer = false;
 
-  private handleTimelineRedrawRequest = () => {
-    if (!this.traceViewerModule) return;
-    this.traceViewerModule.application.instance().scheduleForcedRedraw();
+  private readonly handleTimelineRedrawRequest = () => {
+    const tvModule = this.traceViewerModule();
+    if (!tvModule) return;
+    tvModule.application.instance().scheduleForcedRedraw();
   };
 
   hoveredEvent?: SelectedEvent | null;
@@ -406,12 +420,14 @@ export class TraceViewerContainer
   hoveredEventMouseY = 0;
 
   isInitialLoading = true;
-  @Input() eventDetailColumns: string[] = [];
-  @Input() selectionStartFormat?: string;
-  @Input() selectionExtentFormat?: string;
+  readonly eventDetailColumns = input<string[]>([]);
+  readonly selectionStartFormat = input<string | undefined>(undefined);
+  readonly selectionExtentFormat = input<string | undefined>(undefined);
 
   private readonly route: ActivatedRoute = inject(ActivatedRoute);
   private readonly cdRef = inject(ChangeDetectorRef);
+  private readonly changeDetectorRef = this.cdRef;
+  private readonly ngZone = inject(NgZone);
   private sessionId: string | undefined = undefined;
 
   /** Whether the component is currently in fullscreen mode. */
@@ -448,7 +464,7 @@ export class TraceViewerContainer
   }
 
   isSingleEventTable(): boolean {
-    return this.eventDetailColumns.length <= 2;
+    return this.eventDetailColumns().length <= 2;
   }
 
   getColumnHeader(col: string): string {
@@ -515,60 +531,13 @@ export class TraceViewerContainer
   ];
   counterColumns = ['counter', 'series', 'time', 'value'];
 
-  @Input() set selectedEventProperties(data: SelectedEventProperty[]) {
-    this.selectedEventPropertiesDataSource.data = data;
-
-    const metrics = data.filter((prop) => prop.hasOwnProperty('occurrences'));
-    const counters = data.filter((prop) => prop.hasOwnProperty('counter'));
-
-    this.metricsDataSource.data = metrics;
-    this.countersDataSource.data = counters;
-
-    this.leftSideProperties = data.filter((prop) => {
-      const p = prop['property'];
-      return (
-        p !== 'Operands' &&
-        p !== 'Consumers' &&
-        p !== 'Start Stack Trace' &&
-        !isHloTextProperty(prop)
-      );
-    });
-
-    const seenProperties = new Set<string>();
-    const rightProps: SelectedEventProperty[] = [];
-    for (const prop of data) {
-      const p = prop['property'];
-      if (p === 'Operands' || p === 'Consumers') {
-        rightProps.push(prop);
-      } else if (isHloTextProperty(prop)) {
-        if (!seenProperties.has('HLO Text')) {
-          seenProperties.add('HLO Text');
-          rightProps.push({
-            ...prop,
-            property: 'HLO Text',
-            value:
-              typeof prop['value'] === 'string'
-                ? prettyPrintHloStackTrace(prop['value'])
-                : prop['value'],
-          });
-        }
-      } else if (p === 'Start Stack Trace') {
-        rightProps.push({...prop, property: 'Stack Trace'});
-      }
-    }
-    rightProps.sort((a, b) => {
-      const orderA = RIGHT_SIDE_PROPERTY_ORDER[a.property ?? ''] ?? 100;
-      const orderB = RIGHT_SIDE_PROPERTY_ORDER[b.property ?? ''] ?? 100;
-      return orderA - orderB;
-    });
-    this.rightSideProperties = rightProps;
-    this.isHloTextCollapsed = false;
-  }
+  readonly selectedEventProperties = input<SelectedEventProperty[]>([]);
 
   isHloTextCollapsed = false;
 
   toggleHloTextCollapse() {
     this.isHloTextCollapsed = !this.isHloTextCollapsed;
+    this.cdRef.markForCheck();
   }
 
   getHloTextPreview(value: unknown): string {
@@ -581,10 +550,8 @@ export class TraceViewerContainer
   trackByProperty(index: number, prop: SelectedEventProperty): string {
     return `${prop.property ?? ''}:${prop.value ?? ''}`;
   }
-  @Input() set rawEvents(data: RawEventItem[] | null | undefined) {
-    this.rawEventsDataSource.data = data ?? [];
-  }
-  @Input() tool?: string;
+  readonly rawEvents = input<RawEventItem[] | null | undefined>(undefined);
+  readonly tool = input<string | undefined>(undefined);
   rawEventsDataSource = new MatTableDataSource<RawEventItem>();
   @Output()
   readonly drillDownEvent = new EventEmitter<number>();
@@ -595,17 +562,11 @@ export class TraceViewerContainer
     new EventEmitter<EventsSelectedEventDetail | null>();
   @Output() readonly searchEvents = new EventEmitter<SearchEventsEventDetail>();
   @Output() readonly initializeWasm = new EventEmitter<void>();
-  @Output() readonly toggleSettings = new EventEmitter<void>();
 
   @Output() readonly requestHoveredEventArgs =
     new EventEmitter<SelectedEvent>();
-  @Input() set hoveredEventArgs(args: Record<string, string> | null) {
-    if (!this.hoveredEvent || !args) {
-      return;
-    }
-    this.hoveredEvent.args = {...this.hoveredEvent.args, ...args};
-    this.cdRef.markForCheck();
-  }
+  @Output() readonly toggleSettings = new EventEmitter<void>();
+  readonly hoveredEventArgs = input<Record<string, string> | null>(null);
 
   getTotal(
     column: string,
@@ -618,21 +579,45 @@ export class TraceViewerContainer
       .reduce((acc, value) => acc + value, 0);
   }
 
-  @ViewChild('tvIframe') tvIframe?: ElementRef<HTMLIFrameElement>;
-  @ViewChild('searchContainer') searchContainer?: ElementRef<HTMLElement>;
-  @ViewChild('searchBox') searchBox?: ElementRef<HTMLInputElement>;
-  @ViewChild('selectBtn') selectBtn?: ElementRef<HTMLButtonElement>;
-  @ViewChild('panBtn') panBtn?: ElementRef<HTMLButtonElement>;
-  @ViewChild('zoomBtn') zoomBtn?: ElementRef<HTMLButtonElement>;
-  @ViewChild('timingBtn') timingBtn?: ElementRef<HTMLButtonElement>;
-  @ViewChild('zoomOutBtn') zoomOutBtn?: ElementRef<HTMLButtonElement>;
-  @ViewChild('zoomInBtn') zoomInBtn?: ElementRef<HTMLButtonElement>;
-  @ViewChild('panActionBtn') panActionBtn?: ElementRef<HTMLButtonElement>;
-  @ViewChild(MatSort) set sort(matSort: MatSort | undefined) {
-    if (matSort) {
-      this.selectedEventPropertiesDataSource.sort = matSort;
+  activeDetailTabIndex = 0;
+
+  get availableDetailTabs(): Array<'metrics' | 'counters' | 'rawEvents'> {
+    const tabs: Array<'metrics' | 'counters' | 'rawEvents'> = [];
+    if (this.metricsDataSource.data.length > 0) {
+      tabs.push('metrics');
+    }
+    if (this.countersDataSource.data.length > 0) {
+      tabs.push('counters');
+    }
+    if (
+      this.rawEventsDataSource.data.length > 0 &&
+      this.tool() === 'raw_trace_viewer'
+    ) {
+      tabs.push('rawEvents');
+    }
+    return tabs;
+  }
+
+  onDetailTabChange(event: Event): void {
+    const tabs = event.target as HTMLElement & {activeTabIndex?: number};
+    if (typeof tabs?.activeTabIndex === 'number') {
+      this.activeDetailTabIndex = tabs.activeTabIndex;
     }
   }
+
+  readonly tvIframe = viewChild<ElementRef<HTMLIFrameElement>>('tvIframe');
+  readonly searchContainer =
+    viewChild<ElementRef<HTMLElement>>('searchContainer');
+  readonly searchBox = viewChild<ElementRef<HTMLInputElement>>('searchBox');
+  readonly selectBtn = viewChild<ElementRef<HTMLElement>>('selectBtn');
+  readonly panBtn = viewChild<ElementRef<HTMLElement>>('panBtn');
+  readonly zoomBtn = viewChild<ElementRef<HTMLElement>>('zoomBtn');
+  readonly timingBtn = viewChild<ElementRef<HTMLElement>>('timingBtn');
+  readonly zoomOutBtn = viewChild<ElementRef<HTMLElement>>('zoomOutBtn');
+  readonly zoomInBtn = viewChild<ElementRef<HTMLElement>>('zoomInBtn');
+  readonly panActionBtn = viewChild<ElementRef<HTMLElement>>('panActionBtn');
+  readonly timelinePlayer = viewChild(TimelinePlayer);
+  readonly sort = viewChild(MatSort);
 
   /**
    * Whether the JSON "Event details" title is currently stuck to the top of its
@@ -708,10 +693,86 @@ export class TraceViewerContainer
 
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
-  private readonly ngZone = inject(NgZone);
-  private readonly el: ElementRef = inject(ElementRef);
 
   constructor() {
+    effect(() => {
+      this.rawEventsDataSource.data = this.rawEvents() ?? [];
+      if (this.activeDetailTabIndex >= this.availableDetailTabs.length) {
+        this.activeDetailTabIndex = 0;
+      }
+      this.cdRef.markForCheck();
+    });
+
+    effect(() => {
+      const data = this.selectedEventProperties();
+      this.selectedEventPropertiesDataSource.data = data;
+
+      const metrics = data.filter((prop) => prop.hasOwnProperty('occurrences'));
+      const counters = data.filter((prop) => prop.hasOwnProperty('counter'));
+
+      this.metricsDataSource.data = metrics;
+      this.countersDataSource.data = counters;
+      if (this.activeDetailTabIndex >= this.availableDetailTabs.length) {
+        this.activeDetailTabIndex = 0;
+      }
+
+      this.leftSideProperties = data.filter((prop) => {
+        const p = prop['property'];
+        return (
+          p !== 'Operands' &&
+          p !== 'Consumers' &&
+          p !== 'Start Stack Trace' &&
+          !isHloTextProperty(prop)
+        );
+      });
+
+      const seenProperties = new Set<string>();
+      const rightProps: SelectedEventProperty[] = [];
+      for (const prop of data) {
+        const p = prop['property'];
+        if (p === 'Operands' || p === 'Consumers') {
+          rightProps.push(prop);
+        } else if (isHloTextProperty(prop)) {
+          if (!seenProperties.has('HLO Text')) {
+            seenProperties.add('HLO Text');
+            rightProps.push({
+              ...prop,
+              property: 'HLO Text',
+              value:
+                typeof prop['value'] === 'string'
+                  ? prettyPrintHloStackTrace(prop['value'])
+                  : prop['value'],
+            });
+          }
+        } else if (p === 'Start Stack Trace') {
+          rightProps.push({...prop, property: 'Stack Trace'});
+        }
+      }
+      rightProps.sort((a, b) => {
+        const orderA = RIGHT_SIDE_PROPERTY_ORDER[a.property ?? ''] ?? 100;
+        const orderB = RIGHT_SIDE_PROPERTY_ORDER[b.property ?? ''] ?? 100;
+        return orderA - orderB;
+      });
+      this.rightSideProperties = rightProps;
+      this.isHloTextCollapsed = false;
+      this.cdRef.markForCheck();
+    });
+
+    effect(() => {
+      const args = this.hoveredEventArgs();
+      if (!this.hoveredEvent || !args) {
+        return;
+      }
+      this.hoveredEvent.args = {...this.hoveredEvent.args, ...args};
+      this.cdRef.markForCheck();
+    });
+
+    effect(() => {
+      const matSort = this.sort();
+      if (matSort) {
+        this.selectedEventPropertiesDataSource.sort = matSort;
+      }
+    });
     this.search$
       .pipe(
         debounceTime(300),
@@ -721,12 +782,14 @@ export class TraceViewerContainer
       .subscribe((query) => {
         this.currentSearchQuery = query;
         this.searchEvents.emit({events_query: query});
-        if (this.traceViewerModule) {
-          this.traceViewerModule.application.instance().setSearchQuery(query);
+        const tvModule = this.traceViewerModule();
+        if (tvModule) {
+          tvModule.application.instance().setSearchQuery(query);
           this.updateSearchResultCountText();
         } else if (!query) {
           this.searchResultCountText = '';
         }
+        this.changeDetectorRef.markForCheck();
       });
 
     this.hoveredEventRequest$
@@ -748,8 +811,6 @@ export class TraceViewerContainer
 
     this.enableTimelinePlayer = this.readFeatureFlag('enable_timeline_player');
 
-    this.handleTimelineRedrawRequest =
-      this.handleTimelineRedrawRequest.bind(this);
     window.addEventListener(
       'timeline-player-redraw-request',
       this.handleTimelineRedrawRequest,
@@ -787,7 +848,7 @@ export class TraceViewerContainer
   ngAfterViewInit() {
 
     window.addEventListener('keydown', this.keyDownEventListener);
-    if (this.useTraceViewerV2) {
+    if (this.useTraceViewerV2()) {
       this.initializeWasm.emit();
     } else {
       window.addEventListener('mouseup', this.mouseUpEventListener);
@@ -829,7 +890,7 @@ export class TraceViewerContainer
       this.eventHoveredEventListener,
     );
     window.removeEventListener('keydown', this.keyDownEventListener);
-    if (!this.useTraceViewerV2) {
+    if (!this.useTraceViewerV2()) {
       window.removeEventListener('mouseup', this.mouseUpEventListener);
     }
     // Unsubscribes all pending subscriptions.
@@ -840,6 +901,7 @@ export class TraceViewerContainer
 
   ngOnChanges(changes: SimpleChanges) {
     if (changes['selectedEvent']) {
+      this.activeDetailTabIndex = 0;
       this.updateSplitSizes();
       this.selectedEventJson = this.buildSelectedEventJson();
     }
@@ -857,7 +919,7 @@ export class TraceViewerContainer
    * Returns `undefined` only when there is no selected event.
    */
   private buildSelectedEventJson(): Record<string, unknown> | undefined {
-    const event = this.selectedEvent;
+    const event = this.selectedEvent();
     if (!event) {
       return undefined;
     }
@@ -887,7 +949,7 @@ export class TraceViewerContainer
   }
 
   private readonly keyDownEventListener = (event: KeyboardEvent) => {
-    if (this.useTraceViewerV2) {
+    if (this.useTraceViewerV2()) {
       this.handleV2KeyDown(event);
     } else {
       this.handleV1KeyDown(event);
@@ -899,8 +961,8 @@ export class TraceViewerContainer
     if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return;
 
     if (event.key === '/') {
-      this.searchBox?.nativeElement?.focus();
-      this.searchBox?.nativeElement?.select();
+      this.searchBox()?.nativeElement?.focus();
+      this.searchBox()?.nativeElement?.select();
       event.preventDefault();
     } else if (event.key === '?') {
       this.openHelpDialog();
@@ -908,9 +970,9 @@ export class TraceViewerContainer
     } else if (
       event.key === ' ' &&
       this.enableTimelinePlayer &&
-      this.timelinePlayer
+      this.timelinePlayer()
     ) {
-      this.timelinePlayer.togglePlay();
+      this.timelinePlayer()?.togglePlay();
       event.preventDefault();
     } else if (event.key === ';') {
       this.toggleSettings.emit();
@@ -927,7 +989,7 @@ export class TraceViewerContainer
       case 'd':
       case 's':
       case 'w':
-        this.tvIframe?.nativeElement?.contentWindow?.focus();
+        this.tvIframe()?.nativeElement?.contentWindow?.focus();
         break;
       case '1':
         this.setMouseMode(MouseMode.SELECT);
@@ -945,47 +1007,54 @@ export class TraceViewerContainer
         break;
     }
   }
-  @ViewChild(TimelinePlayer) timelinePlayer?: TimelinePlayer;
 
   onPlay() {
-    if (!this.traceViewerModule || !this.timelinePlayer) return;
-    this.traceViewerModule.SetPlaybackState?.(
+    const tvModule = this.traceViewerModule();
+    const player = this.timelinePlayer();
+    if (!tvModule || !player) return;
+    tvModule.SetPlaybackState?.(
       true,
-      this.timelinePlayer.currentTime(),
-      this.timelinePlayer.playbackRate(),
+      player.currentTime(),
+      player.playbackRate(),
     );
   }
 
   onPause() {
-    if (!this.traceViewerModule || !this.timelinePlayer) return;
-    this.traceViewerModule.SetPlaybackState?.(
+    const tvModule = this.traceViewerModule();
+    const player = this.timelinePlayer();
+    if (!tvModule || !player) return;
+    tvModule.SetPlaybackState?.(
       false,
-      this.timelinePlayer.currentTime(),
-      this.timelinePlayer.playbackRate(),
+      player.currentTime(),
+      player.playbackRate(),
     );
   }
 
   onSeek(time: number) {
-    if (!this.traceViewerModule || !this.timelinePlayer) return;
-    this.traceViewerModule.SetPlaybackState?.(
-      this.timelinePlayer.isPlaying(),
+    const tvModule = this.traceViewerModule();
+    const player = this.timelinePlayer();
+    if (!tvModule || !player) return;
+    tvModule.SetPlaybackState?.(
+      player.isPlaying(),
       time,
-      this.timelinePlayer.playbackRate(),
+      player.playbackRate(),
     );
   }
 
   onSpeedChange(speed: number) {
-    if (!this.traceViewerModule || !this.timelinePlayer) return;
-    this.traceViewerModule.SetPlaybackState?.(
-      this.timelinePlayer.isPlaying(),
-      this.timelinePlayer.currentTime(),
+    const tvModule = this.traceViewerModule();
+    const player = this.timelinePlayer();
+    if (!tvModule || !player) return;
+    tvModule.SetPlaybackState?.(
+      player.isPlaying(),
+      player.currentTime(),
       speed,
     );
   }
 
   private readonly mouseUpEventListener = (event: Event) => {
     const tfViewer =
-      this.tvIframe?.nativeElement?.contentDocument?.querySelector(
+      this.tvIframe()?.nativeElement?.contentDocument?.querySelector(
         'tf-trace-viewer',
       ) as TfTraceViewer | null;
     const trackView: TrackView | null | undefined =
@@ -1009,6 +1078,7 @@ export class TraceViewerContainer
     } else {
       this.traceViewerV2ErrorMessage = event.detail.message;
     }
+    this.changeDetectorRef.markForCheck();
   };
 
   private readonly mouseModeChangedEventListener = (e: Event) => {
@@ -1019,6 +1089,7 @@ export class TraceViewerContainer
 
   private readonly fullscreenChangeEventListener = () => {
     this.isFullscreen = !!document.fullscreenElement;
+    this.changeDetectorRef.markForCheck();
   };
 
   private readonly eventHoveredEventListener = (e: Event) => {
@@ -1095,10 +1166,12 @@ export class TraceViewerContainer
 
     // If an event is selected, the timeline height is reduced to accommodate
     // the detail view (drawer). Otherwise, the timeline takes the full height.
-    this.timelineHeightPercent = this.selectedEvent
+    this.timelineHeightPercent = this.selectedEvent()
       ? 100 - this.drawerSizePercent
       : 100;
-    this.detailHeightPercent = this.selectedEvent ? this.drawerSizePercent : 0;
+    this.detailHeightPercent = this.selectedEvent()
+      ? this.drawerSizePercent
+      : 0;
   }
 
   /**
@@ -1126,6 +1199,7 @@ export class TraceViewerContainer
       // Start the tutorial rotation when loading is in progress.
       this.startTutorialRotation();
     }
+    this.changeDetectorRef.markForCheck();
   }
 
   onReload(): void {
@@ -1148,6 +1222,7 @@ export class TraceViewerContainer
       .subscribe(() => {
         this.currentTutorialIndex =
           (this.currentTutorialIndex + 1) % this.tutorials.length;
+        this.changeDetectorRef.markForCheck();
       });
   }
 
@@ -1173,8 +1248,9 @@ export class TraceViewerContainer
     event?.stopPropagation();
     this.searchQuery = '';
     this.currentSearchQuery = '';
-    if (this.traceViewerModule) {
-      this.traceViewerModule.application.instance().setSearchQuery('');
+    const tvModule = this.traceViewerModule();
+    if (tvModule) {
+      tvModule.application.instance().setSearchQuery('');
     }
     this.onSearchEvent('');
   }
@@ -1193,8 +1269,9 @@ export class TraceViewerContainer
 
   setMouseMode(mode: MouseMode): void {
     this.currentMouseMode = mode;
-    if (this.traceViewerModule) {
-      this.traceViewerModule.application.instance().setMouseMode(mode);
+    const tvModule = this.traceViewerModule();
+    if (tvModule) {
+      tvModule.application.instance().setMouseMode(mode);
     }
     if (mode === MouseMode.TIMING) {
       const prompted = window.localStorage.getItem(
@@ -1207,28 +1284,29 @@ export class TraceViewerContainer
     // Sync focus to the corresponding button
     switch (mode) {
       case MouseMode.SELECT:
-        this.selectBtn?.nativeElement?.focus();
+        this.selectBtn()?.nativeElement?.focus();
         break;
       case MouseMode.PAN:
-        this.panBtn?.nativeElement?.focus();
+        this.panBtn()?.nativeElement?.focus();
         break;
       case MouseMode.ZOOM:
-        this.zoomBtn?.nativeElement?.focus();
+        this.zoomBtn()?.nativeElement?.focus();
         break;
       case MouseMode.TIMING:
-        this.timingBtn?.nativeElement?.focus();
+        this.timingBtn()?.nativeElement?.focus();
         break;
       default:
         break;
     }
+    this.cdRef.markForCheck();
   }
 
   zoomIn(): void {
-    this.traceViewerModule?.application?.instance().zoomIn();
+    this.traceViewerModule()?.application?.instance().zoomIn();
   }
 
   zoomOut(): void {
-    this.traceViewerModule?.application?.instance().zoomOut();
+    this.traceViewerModule()?.application?.instance().zoomOut();
   }
 
   togglePanMode(): void {
@@ -1246,7 +1324,7 @@ export class TraceViewerContainer
    *     `event.sizes` is `IOutputAreaSizes` from `angular-split`.
    */
   onDragEnd({sizes}: {sizes: Array<number | '*'>}): void {
-    if (this.selectedEvent && sizes.length > 1) {
+    if (this.selectedEvent() && sizes.length > 1) {
       // This assumes the drawer is the second area (index 1). This is safe as
       // long as the template structure remains consistent (Canvas then Drawer).
       const size = sizes[1];
@@ -1260,43 +1338,47 @@ export class TraceViewerContainer
   }
 
   private syncEffectiveSearchQuery(query?: string): void {
-    if (!this.traceViewerModule) return;
+    const tvModule = this.traceViewerModule();
+    if (!tvModule) return;
     const effectiveQuery = query || this.currentSearchQuery;
     if (effectiveQuery !== this.currentSearchQuery) {
       this.currentSearchQuery = effectiveQuery;
       this.searchQuery = effectiveQuery;
       this.searchEvents.emit({events_query: effectiveQuery});
-      this.traceViewerModule.application
-        .instance()
-        .setSearchQuery(effectiveQuery);
+      tvModule.application.instance().setSearchQuery(effectiveQuery);
     }
   }
 
   nextSearchResult(query?: string, event?: Event): void {
     event?.stopPropagation();
-    if (!this.traceViewerModule) return;
+    const tvModule = this.traceViewerModule();
+    if (!tvModule) return;
     this.syncEffectiveSearchQuery(query);
-    this.traceViewerModule.application.instance().navigateToNextSearchResult();
+    tvModule.application.instance().navigateToNextSearchResult();
     this.updateSearchResultCountText();
   }
 
   prevSearchResult(query?: string, event?: Event): void {
     event?.stopPropagation();
-    if (!this.traceViewerModule) return;
+    const tvModule = this.traceViewerModule();
+    if (!tvModule) return;
     this.syncEffectiveSearchQuery(query);
-    this.traceViewerModule.application.instance().navigateToPrevSearchResult();
+    tvModule.application.instance().navigateToPrevSearchResult();
     this.updateSearchResultCountText();
   }
 
   updateSearchResultCountText(): void {
-    if (!this.traceViewerModule || !this.currentSearchQuery) {
+    const tvModule = this.traceViewerModule();
+    if (!tvModule || !this.currentSearchQuery) {
       this.searchResultCountText = '';
+      this.changeDetectorRef.markForCheck();
       return;
     }
-    const instance = this.traceViewerModule.application.instance();
+    const instance = tvModule.application.instance();
     const count = instance.getSearchResultsCount();
     const index = instance.getCurrentSearchResultIndex();
     this.searchResultCountText = `${index === -1 ? 0 : index + 1} / ${count}`;
+    this.changeDetectorRef.markForCheck();
   }
 
   openCustomizationPanel(): void {
@@ -1309,28 +1391,14 @@ export class TraceViewerContainer
   openHelpDialog(): void {
     const dialog = this.el.nativeElement.querySelector(
       'trace-viewer-help-dialog',
-    ) as
-      | (HTMLElement & {
-          openDialog?: () => void;
-          closeDialog?: () => void;
-          open?: boolean;
-        })
-      | null;
-    // Call openDialog() or closeDialog() on the upgraded Lit web component instance if available;
-    // fallback to setting the \`open\` property directly if custom element definition
+    ) as (HTMLElement & {openDialog?: () => void; open?: boolean}) | null;
+    // Call openDialog() on the upgraded Lit web component instance if available;
+    // fallback to setting the `open` property directly if custom element definition
     // upgrade is still pending.
-    if (dialog?.open) {
-      if (dialog.closeDialog) {
-        dialog.closeDialog();
-      } else {
-        dialog.open = false;
-      }
-    } else {
-      if (dialog?.openDialog) {
-        dialog.openDialog();
-      } else if (dialog) {
-        dialog.open = true;
-      }
+    if (dialog?.openDialog) {
+      dialog.openDialog();
+    } else if (dialog) {
+      dialog.open = true;
     }
   }
 }

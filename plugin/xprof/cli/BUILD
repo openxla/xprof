@@ -29,8 +29,6 @@ pytype_strict_library(
         "//plugin/xprof/cli/tools:get_step_trace_tool",
         "//plugin/xprof/cli/tools:get_top_hlo_ops_tool",
         "//plugin/xprof/cli/tools:get_utilization_viewer_tool",
-        "//plugin/xprof/cli/tools:install_skills_tool",
-        "//plugin/xprof/cli/tools/oss:diff_sessions_tool",
         "//plugin/xprof/cli/tools/oss:events_db_tool",
         "//plugin/xprof/cli/tools/oss:get_graph_viewer_tool",
         "//plugin/xprof/cli/tools/oss:get_kernel_utilization_tool",

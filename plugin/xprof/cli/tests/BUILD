@@ -192,10 +192,7 @@ pytype_strict_contrib_test(
     srcs = ["xprof_cli_test.py"],
     visibility = ["//visibility:public"],
     deps = [
-        "//plugin/xprof:server",
         "//plugin/xprof/cli:xprof_cli_lib",
-        "//plugin/xprof/cli/tools:install_skills_tool",
-        "//plugin/xprof/cli/tools/oss:diff_sessions_tool",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
     ],

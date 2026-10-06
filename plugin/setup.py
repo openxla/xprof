@@ -138,7 +138,6 @@ ENTRY_POINTS = {
     ],
     'console_scripts': [
         'xprof = xprof.cli.xprof_cli:main',
-        'xprof-install-skills = xprof.cli.tools.install_skills_tool:main',
         'xparity = xprof.xparity.xparity_cli:main',
     ],
 }

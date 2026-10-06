@@ -1,7 +1,31 @@
+import {CommonModule} from '@angular/common';
+import {FormsModule} from '@angular/forms';
+import {MatButtonModule} from '@angular/material/button';
+import {MatCheckboxModule} from '@angular/material/checkbox';
+import {MatChipsModule} from '@angular/material/chips';
+import {MatOptionModule} from '@angular/material/core';
+import {MatExpansionModule} from '@angular/material/expansion';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatIconModule} from '@angular/material/icon';
+import {MatInputModule} from '@angular/material/input';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
+import {MatSelectModule} from '@angular/material/select';
+import {MatSidenavModule} from '@angular/material/sidenav';
+import {MatSnackBarModule} from '@angular/material/snack-bar';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import 'org_xprof/frontend/app/common/interfaces/window';
+import {DownloadHlo} from 'org_xprof/frontend/app/components/controls/download_hlo/download_hlo';
+import {SearchableDropdown} from 'org_xprof/frontend/app/components/controls/searchable_dropdown/searchable_dropdown';
+import {DiagnosticsView} from 'org_xprof/frontend/app/components/diagnostics_view/diagnostics_view';
+import {HloTextView} from 'org_xprof/frontend/app/components/graph_viewer/hlo_text_view/hlo_text_view';
+import {OpDetails} from 'org_xprof/frontend/app/components/op_profile/op_details/op_details';
+import {SourceMapper} from 'org_xprof/frontend/app/components/source_mapper/source_mapper';
+import {SafePipe} from 'org_xprof/frontend/app/pipes/safe_pipe';
 
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   ElementRef,
   inject,
@@ -58,8 +82,33 @@ interface DefaultGraphOption {
 
 /** A graph viewer component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
+  imports: [
+    CommonModule,
+    DiagnosticsView,
+    FormsModule,
+    MatButtonModule,
+    MatCheckboxModule,
+    MatFormFieldModule,
+    MatIconModule,
+    MatInputModule,
+    MatOptionModule,
+    MatProgressBarModule,
+    MatSelectModule,
+    MatSidenavModule,
+    SafePipe,
+    SearchableDropdown,
+    HloTextView,
+    OpDetails,
+    MatProgressSpinnerModule,
+    MatSnackBarModule,
+    DownloadHlo,
+    MatExpansionModule,
+    SourceMapper,
+    MatChipsModule,
+    MatTooltipModule,
+  ],
   selector: 'graph-viewer',
   templateUrl: './graph_viewer.ng.html',
   styleUrls: ['./graph_viewer.scss'],
@@ -70,6 +119,7 @@ export class GraphViewer implements OnDestroy {
   private readonly dataService: DataServiceV2Interface = inject(
     DATA_SERVICE_INTERFACE_TOKEN,
   );
+  private readonly cdr = inject(ChangeDetectorRef);
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
 
@@ -137,12 +187,16 @@ export class GraphViewer implements OnDestroy {
         // Don't load graph if session id / run is not populated yet.
         // TODO(xprof) apply the same early return logic for other tools, or
         // verify why an empty run string is send through the observable.
-        if (!this.sessionId) return;
+        if (!this.sessionId) {
+          this.cdr.markForCheck();
+          return;
+        }
         this.loadDefaultGraphOptionsFromOpProfile();
         await this.initData();
         // Any graph viewer url query param change should trigger a potential
         // reload
         this.onPlot();
+        this.cdr.markForCheck();
       });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
 
@@ -158,6 +212,7 @@ export class GraphViewer implements OnDestroy {
       .pipe(takeUntil(this.destroyed))
       .subscribe((isAvailable) => {
         this.sourceCodeServiceIsAvailable = isAvailable;
+        this.cdr.markForCheck();
       });
   }
 
@@ -200,6 +255,7 @@ export class GraphViewer implements OnDestroy {
     );
     if (types) {
       this.graphTypes = types;
+      this.cdr.markForCheck();
     }
   }
 
@@ -236,9 +292,11 @@ export class GraphViewer implements OnDestroy {
         }
       }
       this.loadingModuleList = false;
+      this.cdr.markForCheck();
     } catch (error) {
       this.throbber.stop();
       this.loadingModuleList = false;
+      this.cdr.markForCheck();
       // Handle error appropriately
       console.error('Error loading module list:', error);
     }
@@ -347,6 +405,7 @@ export class GraphViewer implements OnDestroy {
             );
           }
           this.loadingOpProfileLight = false;
+          this.cdr.markForCheck();
         });
     } else {
       this.defaultGraphOptions = [];
@@ -386,8 +445,10 @@ export class GraphViewer implements OnDestroy {
       }
       this.loadingOpProfile = false;
       this.injectRuntimeData();
+      this.cdr.markForCheck();
     } catch (error) {
       this.loadingOpProfile = false;
+      this.cdr.markForCheck();
       console.error('Error loading HLO op profile data:', error);
     }
   }
@@ -473,6 +534,7 @@ export class GraphViewer implements OnDestroy {
     this.zone.run(() => {
       this.opName = opName;
       this.onSearchGraph();
+      this.cdr.markForCheck();
     });
   }
 
@@ -482,6 +544,7 @@ export class GraphViewer implements OnDestroy {
         node?.xla?.sourceInfo?.lineNumber || -1
       }`;
       this.stackTrace = node?.xla?.sourceInfo?.stackFrame || '';
+      this.cdr.markForCheck();
     });
   }
 
@@ -760,10 +823,9 @@ export class GraphViewer implements OnDestroy {
         this.tryRenderGraphvizHtml(searchParams);
       }
     }, 200);
-    this.graphvizUri = this.dataService.getGraphVizUri(
-      this.sessionId,
-      searchParams,
-    ) || 'about:blank';
+    this.graphvizUri =
+      this.dataService.getGraphVizUri(this.sessionId, searchParams) ||
+      'about:blank';
     if (iframe?.contentWindow?.location) {
       locationReplace(iframe.contentWindow?.location, this.graphvizUri!);
     }
@@ -821,6 +883,7 @@ export class GraphViewer implements OnDestroy {
       }
       this.installEventListeners();
       this.injectRuntimeData();
+      this.cdr.markForCheck();
     }
   }
 

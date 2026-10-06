@@ -14,21 +14,21 @@
     },
     "compiler.graph_and_multihost_scale:02_switch_tool_Graph Viewer": {
       "decision": "INTENTIONAL",
-      "diff_hash": "072a59e658ebebb1",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:33.961356+00:00"
+      "diff_hash": "676df17442ae9987",
+      "rationale": "Intentional DOM update: migrate MatMenu to Material Web md-menu in download-hlo and framework-op-stats.",
+      "timestamp": "2026-11-04T08:17:15.221942+00:00"
     },
     "compiler.graph_and_multihost_scale:03_select_module_jit_train_step": {
       "decision": "INTENTIONAL",
-      "diff_hash": "96a7d3cff0bfd1fd",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:33.977065+00:00"
+      "diff_hash": "f4bf369618d99ffb",
+      "rationale": "Intentional DOM update: migrate MatMenu to Material Web md-menu in download-hlo and framework-op-stats.",
+      "timestamp": "2026-11-04T08:17:15.221942+00:00"
     },
     "compiler.graph_and_multihost_scale:04_plot_graph_node_fusion.": {
       "decision": "INTENTIONAL",
-      "diff_hash": "7ed98087c9996247",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:33.983014+00:00"
+      "diff_hash": "a4741e45cfaa4e7e",
+      "rationale": "Intentional DOM update: migrate MatMenu to Material Web md-menu in download-hlo and framework-op-stats.",
+      "timestamp": "2026-11-04T08:17:15.221942+00:00"
     },
     "compiler.graph_and_multihost_scale:05_goto_v6e-4-training/overview_page": {
       "decision": "INTENTIONAL",
@@ -86,39 +86,39 @@
     },
     "compute.op_profile_and_stats:05_switch_tool_Framework Op Stats": {
       "decision": "INTENTIONAL",
-      "diff_hash": "75fe1b0d5288a540",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:33.885551+00:00"
+      "diff_hash": "63617e7e1abe28ad",
+      "rationale": "Intentional DOM update: migrate MatMenu to Material Web md-menu in download-hlo and framework-op-stats.",
+      "timestamp": "2026-11-04T08:17:15.221942+00:00"
     },
     "compute.op_profile_and_stats:06_filter_table_rows_dot_general": {
       "decision": "INTENTIONAL",
-      "diff_hash": "4c7de37877574330",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:33.888310+00:00"
+      "diff_hash": "33f6e271164eed7c",
+      "rationale": "Intentional DOM update: migrate MatMenu to Material Web md-menu in download-hlo and framework-op-stats.",
+      "timestamp": "2026-11-04T08:17:15.221942+00:00"
     },
     "compute.op_profile_and_stats:07_sort_table_column_#Occurrences": {
       "decision": "INTENTIONAL",
-      "diff_hash": "9640885b2a9159ab",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:33.891185+00:00"
+      "diff_hash": "10108b4040c5e597",
+      "rationale": "Intentional DOM update: migrate MatMenu to Material Web md-menu in download-hlo and framework-op-stats.",
+      "timestamp": "2026-11-04T08:17:15.221942+00:00"
     },
     "compute.op_profile_and_stats:08_switch_tool_HLO Op Stats": {
       "decision": "INTENTIONAL",
-      "diff_hash": "d0deba60acb1cdbb",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:33.893686+00:00"
+      "diff_hash": "a96fa8969b0d4ec9",
+      "rationale": "Intentional DOM update: migrate MatMenu to Material Web md-menu in download-hlo and framework-op-stats.",
+      "timestamp": "2026-11-04T08:17:15.221942+00:00"
     },
     "compute.op_profile_and_stats:09_filter_table_rows_all-gather": {
       "decision": "INTENTIONAL",
-      "diff_hash": "5e2060e331657921",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:33.896176+00:00"
+      "diff_hash": "136795f30e62ae4c",
+      "rationale": "Intentional DOM update: migrate MatMenu to Material Web md-menu in download-hlo and framework-op-stats.",
+      "timestamp": "2026-11-04T08:17:15.221942+00:00"
     },
     "compute.op_profile_and_stats:10_switch_tool_Roofline Model": {
       "decision": "INTENTIONAL",
-      "diff_hash": "ba6fefe59e2dbcb5",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:33.899035+00:00"
+      "diff_hash": "e10096889fe83519",
+      "rationale": "Intentional DOM update: migrate MatMenu to Material Web md-menu in download-hlo and framework-op-stats.",
+      "timestamp": "2026-11-04T08:17:15.221942+00:00"
     },
     "distributed.host_retention_and_trace:00_overview_page": {
       "decision": "INTENTIONAL",
@@ -188,27 +188,27 @@
     },
     "full_spectrum.multimodal_endurance:06_switch_tool_Graph Viewer": {
       "decision": "INTENTIONAL",
-      "diff_hash": "10ce49998b731213",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:34.100382+00:00"
+      "diff_hash": "ffcffe915e91edff",
+      "rationale": "Intentional DOM update: migrate MatMenu to Material Web md-menu in download-hlo and framework-op-stats.",
+      "timestamp": "2026-11-04T08:17:15.221942+00:00"
     },
     "full_spectrum.multimodal_endurance:07_select_module_jit_train_step": {
       "decision": "INTENTIONAL",
-      "diff_hash": "8b31385a9d7661d9",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:34.116411+00:00"
+      "diff_hash": "2624fec7bbcca65f",
+      "rationale": "Intentional DOM update: migrate MatMenu to Material Web md-menu in download-hlo and framework-op-stats.",
+      "timestamp": "2026-11-04T08:17:15.221942+00:00"
     },
     "full_spectrum.multimodal_endurance:08_plot_graph_node_fusion.": {
       "decision": "INTENTIONAL",
-      "diff_hash": "9753e2c13be5d25b",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:34.122439+00:00"
+      "diff_hash": "ba446bfd198ab64c",
+      "rationale": "Intentional DOM update: migrate MatMenu to Material Web md-menu in download-hlo and framework-op-stats.",
+      "timestamp": "2026-11-04T08:17:15.221942+00:00"
     },
     "full_spectrum.multimodal_endurance:09_switch_tool_Input Pipeline Analysis": {
       "decision": "INTENTIONAL",
-      "diff_hash": "66c3ec69ffe116ac",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:34.130151+00:00"
+      "diff_hash": "e452f382e99615ae",
+      "rationale": "Intentional DOM update: migrate MatMenu to Material Web md-menu in download-hlo and framework-op-stats.",
+      "timestamp": "2026-11-04T08:17:15.221942+00:00"
     },
     "full_spectrum.multimodal_endurance:10_goto_v6e-4-training/overview_page": {
       "decision": "INTENTIONAL",

@@ -65,6 +65,7 @@ wasm_cc_library(
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/functional:any_invocable",
+        "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/hash",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
@@ -79,7 +80,12 @@ wasm_cc_library(
         "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
         "@tsl//tsl/profiler/lib:context_types_hdrs",
-    ],
+    ] + select({
+        "@org_xprof//frontend/app/components/trace_viewer_v2:is_emscripten": [
+            "@org_xprof//frontend/app/components/trace_viewer_v2:imgui_webgpu_backend",
+        ],
+        "//conditions:default": [],
+    }),
 )
 
 cc_test(

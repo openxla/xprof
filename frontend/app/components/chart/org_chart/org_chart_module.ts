@@ -1,12 +1,8 @@
 import {NgModule} from '@angular/core';
-
 import {OrgChart} from './org_chart';
 
-/** An organization chart view module. */
 @NgModule({
-  declarations: [OrgChart],
-  imports: [],
+  imports: [OrgChart],
   exports: [OrgChart],
 })
-export class OrgChartModule {
-}
+export class OrgChartModule {}

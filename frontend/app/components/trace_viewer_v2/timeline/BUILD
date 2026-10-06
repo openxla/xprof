@@ -144,6 +144,7 @@ cc_test(
         ":data_provider",
         ":time_range",
         ":timeline",
+        "//third_party/tcmalloc:malloc_extension",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",

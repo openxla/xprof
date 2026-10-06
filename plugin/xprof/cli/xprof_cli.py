@@ -34,6 +34,8 @@ from xprof.cli.tools import get_roofline_model_tool
 from xprof.cli.tools import get_step_trace_tool
 from xprof.cli.tools import get_top_hlo_ops_tool
 from xprof.cli.tools import get_utilization_viewer_tool
+from xprof.cli.tools import install_skills_tool
+from xprof.cli.tools.oss import diff_sessions_tool
 from xprof.cli.tools.oss import events_db_tool
 from xprof.cli.tools.oss import get_graph_viewer_tool
 from xprof.cli.tools.oss import get_kernel_utilization_tool
@@ -57,6 +59,18 @@ _COMPILER_DUMP_TOOL_NAMES = frozenset({
 })
 
 
+def _get_device_time_attribution(
+    session_id: str,
+    host: str = "",
+    include_summary: bool = True,
+) -> str:
+  """Returns per-line disjoint-interval device time attribution and kernel stats."""
+  del host
+  return get_kernel_stats_tool.get_kernel_stats(
+      session_id=session_id, include_summary=include_summary
+  )
+
+
 def cli_main() -> dict[str, Any]:
   """Initializes the CLI and returns the available tools.
 
@@ -70,8 +84,11 @@ def cli_main() -> dict[str, Any]:
       "check_host_boundness": check_host_boundness_tool.check_host_boundness,
       "check_kernel_profiling": xplane_tools.inspect_capture,
       "compute_utilization": get_kernel_utilization_tool.get_kernel_utilization,
+      "diff_sessions": diff_sessions_tool.diff_sessions,
+      "export_json": xprof_data.get_profile_summary,
       "get_avg_step_time": get_kernel_stats_tool.get_avg_step_time,
       "get_device_information": xprof_data.get_device_information,
+      "get_device_time_attribution": _get_device_time_attribution,
       "get_graph_viewer": get_graph_viewer_tool.get_graph_viewer,
       "get_hlo_module_content": hlo_tools.get_hlo_module_content,
       "get_hlo_neighborhood": hlo_tools.get_hlo_neighborhood,
@@ -103,6 +120,7 @@ def cli_main() -> dict[str, Any]:
       ),
       "get_xspace_proto": xplane_tools.get_xspace_proto,
       "inspect_capture": xplane_tools.inspect_capture,
+      "install_skills": install_skills_tool.install_skills,
       "list_hlo_modules": hlo_tools.list_hlo_modules,
       "list_xplane_events": xplane_tools.list_xplane_events,
       "list_xplane_lines": xplane_tools.inspect_capture,

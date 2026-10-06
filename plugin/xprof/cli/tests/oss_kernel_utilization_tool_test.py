@@ -313,12 +313,12 @@ class OssKernelUtilizationToolTest(parameterized.TestCase):
         (None, zero_response.encode("utf-8")),
         (None, nonzero_response.encode("utf-8")),
     ]
-    mock_get_kernel_stats.return_value = [{
+    mock_get_kernel_stats.return_value = json.dumps([{
         "kernel_name": "matmul_optimized.1",
         "total_duration_us": 88.445,
         "avg_duration_us": 88.445,
         "execution_count": 1,
-    }]
+    }])
 
     result = get_kernel_utilization_tool.get_kernel_utilization(
         session_id="session_v7x",
@@ -358,7 +358,9 @@ class OssKernelUtilizationToolTest(parameterized.TestCase):
         None,
         zero_response.encode("utf-8"),
     )
-    mock_get_kernel_stats.return_value = []
+    mock_get_kernel_stats.return_value = json.dumps(
+        {"info": "No kernel stats found for session session_all_zero"}
+    )
 
     with self.assertRaisesRegex(
         RuntimeError, "Hardware counter duration is 0.0 us"

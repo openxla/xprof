@@ -38,19 +38,26 @@ absl::Status UnifiedRooflineModelProcessor::ProcessCombinedOpStats(
   bool apply_time_scale_multiplier =
       tensorflow::profiler::GetParamWithDefault<bool>(
           options, "apply_time_scale_multiplier", false);
+  // `has_flat_device_op_metrics_db()` is not a reliable signal: the OpStats
+  // combiner always creates the (possibly empty) flat submessage, so relying on
+  // presence alone reads an empty DB whenever the legacy `device_op_metrics_db`
+  // is the one that was populated. Use the flat DB only when it was requested
+  // and is actually populated.
+  bool use_flat_op_metrics_db =
+      tensorflow::profiler::GetParamWithDefault<bool>(
+          options, "use_flat_metric", false) &&
+      combined_op_stats.flat_device_op_metrics_db().op_instances_size() > 0;
   RooflineModelDatabase result = ConvertOpStatsToRooflineModel(
       combined_op_stats,
       {.include_infeed_outfeed = true,
        .apply_time_scale_multiplier = apply_time_scale_multiplier,
-       .use_flat_op_metrics_db =
-           combined_op_stats.has_flat_device_op_metrics_db()});
+       .use_flat_op_metrics_db = use_flat_op_metrics_db});
   RooflineModelDatabase result_without_infeed_outfeed =
       ConvertOpStatsToRooflineModel(
           combined_op_stats,
           {.include_infeed_outfeed = false,
            .apply_time_scale_multiplier = apply_time_scale_multiplier,
-           .use_flat_op_metrics_db =
-               combined_op_stats.has_flat_device_op_metrics_db()});
+           .use_flat_op_metrics_db = use_flat_op_metrics_db});
 
   result.mutable_roofline_model_record()->MergeFrom(
       result_without_infeed_outfeed.roofline_model_record());

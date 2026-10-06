@@ -13,6 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include "xprof/convert/unified_roofline_model_processor.h"
+
 #include <memory>
 #include <optional>
 #include <string>
@@ -30,15 +32,22 @@ limitations under the License.
 #include "xprof/convert/unified_profile_processor.h"
 #include "xprof/convert/unified_profile_processor_factory.h"
 #include "xprof/convert/unified_tools_registration.h"
+#include "plugin/xprof/protobuf/hardware_types.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
 
 namespace xprof {
 namespace {
 
-using ::testing::IsEmpty;
-using ::testing::Not;
+using ::tensorflow::profiler::OpMetrics;
+using ::tensorflow::profiler::OpMetricsDb;
+using ::tensorflow::profiler::OpStats;
 using ::tensorflow::profiler::SessionSnapshot;
 using ::tensorflow::profiler::ToolOptions;
 using ::tensorflow::profiler::XSpace;
+using ::testing::HasSubstr;
+using ::testing::IsEmpty;
+using ::testing::Not;
 
 TEST(UnifiedRooflineModelProcessorTest, MinimalTest) {
   RegisterUnifiedToolRegistrations();
@@ -93,6 +102,50 @@ TEST(UnifiedRooflineModelProcessorTest, FlatOpMetricsDbTest) {
   EXPECT_OK(processor->ProcessSession(session_snapshot, options));
   EXPECT_EQ(processor->GetContentType(), "application/json");
   EXPECT_THAT(processor->GetData(), Not(IsEmpty()));
+}
+
+// The OpStats combiner always creates the flat op metrics submessage, even when
+// flat metrics were not requested and only the legacy `device_op_metrics_db`
+// is populated. The processor must not treat the mere presence of an empty
+// flat DB as a signal to read from it, or every per-op record is dropped.
+TEST(UnifiedRooflineModelProcessorTest,
+     UsesLegacyOpMetricsDbWhenFlatDbIsPresentButEmpty) {
+  ToolOptions options;  // `use_flat_metric` is not requested.
+  UnifiedRooflineModelProcessor processor(options);
+
+  std::string session_dir = tsl::io::JoinPath(
+      testing::TempDir(), "unified_roofline_model_processor_legacy_db_test");
+  ASSERT_OK(tsl::Env::Default()->RecursivelyCreateDir(session_dir));
+  std::string xspace_path =
+      tsl::io::JoinPath(session_dir, "test_host.xplane.pb");
+  XSpace dummy_space;
+  ASSERT_OK(WriteBinaryProto(xspace_path, dummy_space));
+  std::vector<std::string> xspace_paths = {xspace_path};
+  ASSERT_OK_AND_ASSIGN(
+      SessionSnapshot session_snapshot,
+      SessionSnapshot::Create(xspace_paths, /*xspaces=*/std::nullopt));
+
+  OpStats op_stats;
+  op_stats.mutable_run_environment()->set_hardware_type(
+      tensorflow::profiler::TPU);
+  OpMetricsDb* device_op_metrics_db = op_stats.mutable_device_op_metrics_db();
+  device_op_metrics_db->set_total_time_ps(1000);
+  device_op_metrics_db->set_total_op_time_ps(1000);
+  OpMetrics* op_metrics = device_op_metrics_db->add_metrics_db();
+  op_metrics->set_name("fusion.123");
+  op_metrics->set_category("convolution");
+  op_metrics->set_occurrences(1);
+  op_metrics->set_time_ps(1000);
+  op_metrics->set_self_time_ps(1000);
+  op_metrics->set_flops(100);
+  op_metrics->set_bytes_accessed(10);
+  // Present but empty, mirroring the OpStats combiner output.
+  op_stats.mutable_flat_device_op_metrics_db();
+  ASSERT_TRUE(op_stats.has_flat_device_op_metrics_db());
+
+  ASSERT_OK(
+      processor.ProcessCombinedOpStats(session_snapshot, op_stats, options));
+  EXPECT_THAT(processor.GetData(), HasSubstr("fusion.123"));
 }
 
 }  // namespace

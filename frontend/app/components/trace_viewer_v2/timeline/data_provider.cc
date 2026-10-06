@@ -44,6 +44,11 @@ namespace traceviewer {
 
 namespace {
 
+// Base offset for process sort indices of devices not ranked into an MPMD
+// stage. Offsets unranked devices past stage ranks with headroom for PID
+// tie-breaking.
+constexpr uint32_t kMpmdUnrankedSortIndexBase = 1u << 30;
+
 bool GetExpandedState(int nesting_level, absl::string_view name,
                       absl::string_view parent_name, bool default_expanded,
                       const absl::btree_map<GroupKey, bool>& expanded_states) {
@@ -90,6 +95,7 @@ struct TraceInformation {
       thread_sort_indices;
   absl::flat_hash_map<ProcessId, std::string> process_names;
   absl::flat_hash_map<ProcessId, uint32_t> process_sort_indices;
+  absl::flat_hash_map<ProcessId, uint32_t> incoming_process_sort_indices;
   absl::btree_map<std::string, std::vector<const TraceEvent*>>
       flow_events_by_id;
   absl::flat_hash_map<ProcessId, ThreadId> xla_modules_tids;
@@ -227,8 +233,8 @@ void HandleMetadataEvent(const TraceEvent& event,
           std::isfinite(sort_index_double) && sort_index_double >= 0.0 &&
           sort_index_double <=
               static_cast<double>(std::numeric_limits<uint32_t>::max())) {
-        trace_info.process_sort_indices[event.pid] =
-            static_cast<uint32_t>(sort_index_double);
+        const uint32_t sort_index = static_cast<uint32_t>(sort_index_double);
+        trace_info.incoming_process_sort_indices[event.pid] = sort_index;
       }
     }
   } else if (event.name == kThreadSortIndex) {
@@ -240,6 +246,61 @@ void HandleMetadataEvent(const TraceEvent& event,
               static_cast<double>(std::numeric_limits<uint32_t>::max())) {
         trace_info.thread_sort_indices[{event.pid, event.tid}] =
             static_cast<uint32_t>(sort_index_double);
+      }
+    }
+  }
+}
+
+// Counts the number of contiguous 0..K-1 MPMD stage ranks in sort_indices.
+uint32_t CountContiguousMpmdRanks(
+    const absl::flat_hash_map<ProcessId, uint32_t>& sort_indices) {
+  absl::flat_hash_set<uint32_t> values;
+  values.reserve(sort_indices.size());
+  for (const auto& [pid, sort_index] : sort_indices) {
+    values.insert(sort_index);
+  }
+  uint32_t count = 0;
+  while (values.contains(count)) {
+    ++count;
+  }
+  return count;
+}
+
+// Merges incoming process sort indices into trace_info.process_sort_indices.
+// When incoming ranks provide a strictly better stage coverage, existing stage
+// ranks are updated. Fallback indices (>= kMpmdUnrankedSortIndexBase) are only
+// inserted if the process has no existing rank, and valid stage ranks (< Base)
+// overwrite placeholder unranked indices.
+void MergeProcessSortIndices(TraceInformation& trace_info) {
+  if (trace_info.incoming_process_sort_indices.empty()) {
+    return;
+  }
+  if (!trace_info.is_mpmd) {
+    for (const auto& [pid, sort_index] :
+         trace_info.incoming_process_sort_indices) {
+      trace_info.process_sort_indices[pid] = sort_index;
+    }
+    return;
+  }
+
+  const uint32_t existing_ranks =
+      CountContiguousMpmdRanks(trace_info.process_sort_indices);
+  const uint32_t incoming_ranks =
+      CountContiguousMpmdRanks(trace_info.incoming_process_sort_indices);
+
+  const bool should_overwrite = incoming_ranks > existing_ranks;
+
+  for (const auto& [pid, sort_index] :
+       trace_info.incoming_process_sort_indices) {
+    if (sort_index >= kMpmdUnrankedSortIndexBase) {
+      trace_info.process_sort_indices.try_emplace(pid, sort_index);
+    } else if (should_overwrite) {
+      trace_info.process_sort_indices[pid] = sort_index;
+    } else {
+      auto [it, inserted] =
+          trace_info.process_sort_indices.try_emplace(pid, sort_index);
+      if (!inserted && it->second >= kMpmdUnrankedSortIndexBase) {
+        it->second = sort_index;
       }
     }
   }
@@ -946,6 +1007,11 @@ void PopulateSyncProcessTrack(
   });
 
   const auto it_xla_tid = trace_info.xla_modules_tids.find(pid);
+  const auto it_sort = trace_info.process_sort_indices.find(pid);
+  const bool is_unranked_mpmd_process =
+      !trace_info.process_sort_indices.empty() &&
+      (it_sort == trace_info.process_sort_indices.end() ||
+       it_sort->second >= kMpmdUnrankedSortIndexBase);
 
   for (const ThreadId tid : sorted_tids) {
     absl::Span<const TraceEvent* const> events;
@@ -965,7 +1031,7 @@ void PopulateSyncProcessTrack(
           (thread_name == kXlaModules ||
            (it_xla_tid != trace_info.xla_modules_tids.end() &&
             it_xla_tid->second == tid));
-      if (!is_primary_mpmd_track) {
+      if (!is_primary_mpmd_track || is_unranked_mpmd_process) {
         continue;
       }
     }
@@ -1138,7 +1204,9 @@ std::vector<ProcessId> GetSortedProcessIds(
         it != trace_info.process_sort_indices.end()) {
       return it->second;
     }
-    return std::nullopt;
+    return trace_info.is_mpmd
+               ? std::make_optional(std::numeric_limits<uint32_t>::max())
+               : std::nullopt;
   };
   auto get_process_name =
       [&](ProcessId pid) -> std::optional<absl::string_view> {
@@ -1286,6 +1354,8 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
         break;
     }
   }
+
+  MergeProcessSortIndices(trace_info);
 
   absl::btree_map<int, int> flow_category_counts;
   for (const TraceEvent& event : parsed_events.flow_events) {

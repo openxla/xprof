@@ -5,9 +5,11 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/container/flat_hash_map.h"
 #include "absl/strings/string_view.h"
 #include "xprof/convert/trace_viewer/delta_series/zstd_compression.h"
 #include "xprof/convert/trace_viewer/trace_events.h"
+#include "xprof/convert/trace_viewer/trace_events_to_json.h"
 #include "plugin/xprof/protobuf/trace_data_response.pb.h"
 #include "plugin/xprof/protobuf/trace_events.pb.h"
 
@@ -511,6 +513,226 @@ TEST(DeltaSeriesProtoConverterTest, SuppressesSortIndexForCustomSortResources) {
 
   EXPECT_TRUE(found_device5);
   EXPECT_TRUE(found_device6);
+}
+
+TEST(DeltaSeriesProtoConverterTest,
+     MpmdPipelineViewOrdersDevicesWithoutStagesAfterStages) {
+  Trace trace;
+  // Device 0: Active TPU 0 (stage 0).
+  Device device0;
+  device0.set_name("host0 /device:TPU:0");
+  Resource resource0;
+  resource0.set_name("XLA Modules");
+  (*device0.mutable_resources())[1] = resource0;
+  (*trace.mutable_devices())[0] = device0;
+
+  // Device 1: Active TPU 1 (stage 1).
+  Device device1;
+  device1.set_name("host0 /device:TPU:1");
+  Resource resource1;
+  resource1.set_name("XLA Modules");
+  (*device1.mutable_resources())[1] = resource1;
+  (*trace.mutable_devices())[1] = device1;
+
+  // Device 2: TPU 2 without MPMD stage events.
+  Device device2;
+  device2.set_name("host0 /device:TPU:2");
+  Resource resource2;
+  resource2.set_name("XLA Modules");
+  (*device2.mutable_resources())[1] = resource2;
+  (*trace.mutable_devices())[2] = device2;
+
+  // Device 10: Host CPU.
+  Device device10;
+  device10.set_name("/host:CPU:0");
+  Resource resource10;
+  resource10.set_name("Host Thread");
+  (*device10.mutable_resources())[1] = resource10;
+  (*trace.mutable_devices())[10] = device10;
+
+  TraceEvent event0;
+  event0.set_device_id(0);
+  event0.set_resource_id(1);
+  event0.set_name("p0_stage0.program(1)");
+  event0.set_timestamp_ps(1000);
+  event0.set_duration_ps(500);
+
+  TraceEvent event1;
+  event1.set_device_id(1);
+  event1.set_resource_id(1);
+  event1.set_name("p1_stage1.program(1)");
+  event1.set_timestamp_ps(2000);
+  event1.set_duration_ps(500);
+
+  TraceEvent event2;
+  event2.set_device_id(2);
+  event2.set_resource_id(1);
+  event2.set_name("non_mpmd_compute");
+  event2.set_timestamp_ps(2500);
+  event2.set_duration_ps(500);
+
+  TestTraceEventsContainer container(trace);
+  container.AddCompleteEvent(0, 1, &event0);
+  container.AddCompleteEvent(1, 1, &event1);
+  container.AddCompleteEvent(2, 1, &event2);
+
+  DeltaSeriesProtoConversionOptions options;
+  options.mpmd_pipeline_view = true;
+
+  ASSERT_OK_AND_ASSIGN(
+      std::string compressed_result,
+      ConvertTraceDataToCompressedDeltaSeriesProto(options, container));
+
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
+
+  xprof::TraceDataResponse response;
+  ASSERT_TRUE(response.ParseFromString(decompressed));
+
+  // All 4 processes are preserved (0, 1, 2, 10).
+  ASSERT_EQ(response.metadata().processes_size(), 4);
+
+  absl::flat_hash_map<uint32_t, uint32_t> process_sort_indices;
+  for (const xprof::Process& process : response.metadata().processes()) {
+    process_sort_indices[process.id()] = process.sort_index();
+  }
+
+  EXPECT_TRUE(process_sort_indices.contains(0));
+  EXPECT_TRUE(process_sort_indices.contains(1));
+  EXPECT_TRUE(process_sort_indices.contains(2));
+  EXPECT_TRUE(process_sort_indices.contains(10));
+
+  EXPECT_EQ(process_sort_indices.at(0), 0);
+  EXPECT_EQ(process_sort_indices.at(1), 1);
+  EXPECT_EQ(process_sort_indices.at(2), kMpmdUnrankedSortIndexBase + 2);
+  EXPECT_EQ(process_sort_indices.at(10), kMpmdUnrankedSortIndexBase + 10);
+
+  // Verify that events on device 2 are emitted.
+  bool found_device2_event = false;
+  for (const xprof::TraceEventSeries& series : response.complete_events()) {
+    if (series.metadata().process_id() == 2) {
+      found_device2_event = true;
+    }
+  }
+  EXPECT_TRUE(found_device2_event);
+}
+
+TEST(DeltaSeriesProtoConverterTest,
+     MpmdZeroRankedDevicesOmitsProcessSortIndex) {
+  Trace trace;
+  (*trace.mutable_devices())[0].mutable_resources()->operator[](1).set_name(
+      "XLA Modules");
+  (*trace.mutable_devices())[0].set_name("host0 /device:TPU:0");
+  (*trace.mutable_devices())[1].mutable_resources()->operator[](1).set_name(
+      "XLA Modules");
+  (*trace.mutable_devices())[1].set_name("host0 /device:TPU:1");
+
+  TraceEvent event0;
+  event0.set_timestamp_ps(100);
+  event0.set_duration_ps(50);
+  event0.set_name("regular_kernel");
+
+  TestTraceEventsContainer container(trace);
+  container.AddCompleteEvent(0, 1, &event0);
+
+  DeltaSeriesProtoConversionOptions options;
+  options.mpmd_pipeline_view = true;
+
+  ASSERT_OK_AND_ASSIGN(
+      std::string compressed_result,
+      ConvertTraceDataToCompressedDeltaSeriesProto(options, container));
+
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
+
+  xprof::TraceDataResponse response;
+  ASSERT_TRUE(response.ParseFromString(decompressed));
+
+  ASSERT_EQ(response.metadata().processes_size(), 2);
+  for (const xprof::Process& process : response.metadata().processes()) {
+    EXPECT_FALSE(process.has_sort_index());
+  }
+}
+
+TEST(DeltaSeriesProtoConverterTest,
+     MpmdProcessMetadataIndependentOfLoadedWindow) {
+  Trace trace;
+  // Device 0: TPU Core 0 (Stage 0).
+  (*trace.mutable_devices())[0].mutable_resources()->operator[](1).set_name(
+      "XLA Modules");
+  (*trace.mutable_devices())[0].set_name("host0 /device:TPU:0");
+
+  // Device 1: TPU Core 1 (Stage 1).
+  (*trace.mutable_devices())[1].mutable_resources()->operator[](1).set_name(
+      "XLA Modules");
+  (*trace.mutable_devices())[1].set_name("host0 /device:TPU:1");
+
+  // Device 3: Idle TPU Core 3 without module events.
+  (*trace.mutable_devices())[3].mutable_resources()->operator[](1).set_name(
+      "XLA Modules");
+  (*trace.mutable_devices())[3].set_name("host0 /device:TPU:3");
+
+  TraceEvent event0;
+  event0.set_timestamp_ps(100);
+  event0.set_duration_ps(100);
+  event0.set_name("p0_stage0.program(1)");
+
+  TraceEvent event1;
+  event1.set_timestamp_ps(200);
+  event1.set_duration_ps(100);
+  event1.set_name("p0_stage1.program(1)");
+
+  // Full trace (K = 2): both Stage 0 and Stage 1 active.
+  TestTraceEventsContainer full_container(trace);
+  full_container.AddCompleteEvent(0, 1, &event0);
+  full_container.AddCompleteEvent(1, 1, &event1);
+
+  // Windowed trace (K = 1): only Stage 0 active.
+  TestTraceEventsContainer windowed_container(trace);
+  windowed_container.AddCompleteEvent(0, 1, &event0);
+
+  DeltaSeriesProtoConversionOptions options;
+  options.mpmd_pipeline_view = true;
+
+  ASSERT_OK_AND_ASSIGN(
+      std::string full_compressed,
+      ConvertTraceDataToCompressedDeltaSeriesProto(options, full_container));
+  ASSERT_OK_AND_ASSIGN(std::string full_decompressed,
+                       ZstdCompression::Decompress(full_compressed));
+  xprof::TraceDataResponse full_response;
+  ASSERT_TRUE(full_response.ParseFromString(full_decompressed));
+
+  ASSERT_OK_AND_ASSIGN(std::string windowed_compressed,
+                       ConvertTraceDataToCompressedDeltaSeriesProto(
+                           options, windowed_container));
+  ASSERT_OK_AND_ASSIGN(std::string windowed_decompressed,
+                       ZstdCompression::Decompress(windowed_compressed));
+  xprof::TraceDataResponse windowed_response;
+  ASSERT_TRUE(windowed_response.ParseFromString(windowed_decompressed));
+
+  absl::flat_hash_map<uint32_t, uint32_t> full_sort_indices;
+  for (const xprof::Process& process : full_response.metadata().processes()) {
+    full_sort_indices[process.id()] = process.sort_index();
+  }
+
+  absl::flat_hash_map<uint32_t, uint32_t> windowed_sort_indices;
+  for (const xprof::Process& process :
+       windowed_response.metadata().processes()) {
+    windowed_sort_indices[process.id()] = process.sort_index();
+  }
+
+  // In full load (K = 2), device 0 gets 0, device 1 gets 1.
+  EXPECT_EQ(full_sort_indices.at(0), 0);
+  EXPECT_EQ(full_sort_indices.at(1), 1);
+
+  // In windowed load (K = 1), device 0 gets 0, device 1 gets Base + 1.
+  EXPECT_EQ(windowed_sort_indices.at(0), 0);
+  EXPECT_EQ(windowed_sort_indices.at(1), kMpmdUnrankedSortIndexBase + 1);
+
+  // For idle device 3, both full and windowed loads emit the identical
+  // kMpmdUnrankedSortIndexBase + 3 sort index.
+  EXPECT_EQ(full_sort_indices.at(3), kMpmdUnrankedSortIndexBase + 3);
+  EXPECT_EQ(windowed_sort_indices.at(3), kMpmdUnrankedSortIndexBase + 3);
 }
 
 }  // namespace

@@ -57,8 +57,10 @@ cc_test(
         ":zstd_compression",
         "//plugin/xprof/protobuf:trace_data_response_proto_cc",
         "//plugin/xprof/protobuf:trace_events_proto_cc",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest_main",
         "@org_xprof//xprof/convert/trace_viewer:trace_events",
+        "@org_xprof//xprof/convert/trace_viewer:trace_events_to_json",
     ],
 )

@@ -8,6 +8,7 @@
 #include "absl/strings/string_view.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "xprof/convert/trace_viewer/trace_events.h"
+#include "xprof/convert/trace_viewer/trace_events_to_json.h"
 #include "plugin/xprof/protobuf/trace_data_response.pb.h"
 
 namespace tensorflow {
@@ -44,12 +45,14 @@ xprof::TraceMetadata DeltaSeriesProtoConverter::GetTraceMetadata() const {
     if (device.has_name()) {
       process->set_name(device.name());
     }
-    uint32_t sort_index = device_id;
-    if (auto it = mpmd_sort_indices_.find(device_id);
-        it != mpmd_sort_indices_.end()) {
-      sort_index = it->second;
+    if (!options_.mpmd_pipeline_view) {
+      process->set_sort_index(device_id);
+    } else if (!mpmd_sort_indices_.empty()) {
+      const auto it = mpmd_sort_indices_.find(device_id);
+      process->set_sort_index(it != mpmd_sort_indices_.end()
+                                  ? it->second
+                                  : kMpmdUnrankedSortIndexBase + device_id);
     }
-    process->set_sort_index(sort_index);
     for (const auto& [resource_id, resource] : device.resources()) {
       xprof::Thread* thread = process->add_threads();
       thread->set_id(resource_id);

@@ -19,7 +19,6 @@ limitations under the License.
 #include <memory>
 #include <optional>
 #include <string>
-#include <utility>
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
@@ -174,6 +173,8 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
     }
     json_trace_options.details =
         TraceOptionsToDetails(device_type, profiler_trace_options);
+    json_trace_options.mpmd_pipeline_view =
+        profiler_trace_options.mpmd_pipeline_view;
     IOBufferAdapter adapter(&content);
     TraceEventsToJson<IOBufferAdapter, TraceEventsContainer, RawData>(
         json_trace_options, trace_container, &adapter);

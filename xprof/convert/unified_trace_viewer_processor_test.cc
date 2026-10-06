@@ -17,6 +17,7 @@ limitations under the License.
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -119,6 +120,27 @@ TEST(UnifiedTraceViewerProcessorTest, ProcessSessionPbSuccess) {
       SessionSnapshot::Create(xspace_paths, /*xspaces=*/std::nullopt));
 
   EXPECT_OK(processor->ProcessSession(session_snapshot, options));
+  EXPECT_EQ(processor->GetContentType(), "application/octet-stream");
+  EXPECT_THAT(processor->GetData(), Not(IsEmpty()));
+
+  XSpace tpu_space;
+  tensorflow::profiler::XPlane* tpu_plane = tpu_space.add_planes();
+  tpu_plane->set_name("/device:TPU:0");
+  tensorflow::profiler::XLine* line = tpu_plane->add_lines();
+  line->set_id(1);
+  tensorflow::profiler::XEvent* event = line->add_events();
+  event->set_offset_ps(100);
+  event->set_duration_ps(50);
+  std::string tpu_xspace_path =
+      tsl::io::JoinPath(session_dir, "tpu_host.xplane.pb");
+  ASSERT_OK(WriteBinaryProto(tpu_xspace_path, tpu_space));
+
+  std::vector<std::string> tpu_xspace_paths = {tpu_xspace_path};
+  ASSERT_OK_AND_ASSIGN(
+      SessionSnapshot tpu_session_snapshot,
+      SessionSnapshot::Create(tpu_xspace_paths, /*xspaces=*/std::nullopt));
+
+  EXPECT_OK(processor->ProcessSession(tpu_session_snapshot, options));
   EXPECT_EQ(processor->GetContentType(), "application/octet-stream");
   EXPECT_THAT(processor->GetData(), Not(IsEmpty()));
 }

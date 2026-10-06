@@ -649,160 +649,627 @@ TYPED_TEST(JsonEventCounterDeathTest, DestructorLogs) {
   }
 }
 
-TEST(BuildMpmdDependencyGraphTest, NoDependencies) {
-  absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>
-      device_program_min_layer;
-  device_program_min_layer[1] = {{"program1", 0}};
-  device_program_min_layer[2] = {{"program2", 0}};
-
-  const internal::MpmdDependencyGraph graph =
-      internal::BuildMpmdDependencyGraph(device_program_min_layer);
-
-  EXPECT_TRUE(graph.adj.empty());
-  EXPECT_EQ(graph.in_degree.size(), 2);
-  EXPECT_EQ(graph.in_degree.at(1), 0);
-  EXPECT_EQ(graph.in_degree.at(2), 0);
+TEST(NormalizeMpmdProgramKeyTest, StripsBucketSuffixes) {
+  EXPECT_EQ(
+      internal::NormalizeMpmdProgramKey("inc_prefill_step_4k_bucket_128k"),
+      "inc_prefill_step_4k");
+  EXPECT_EQ(
+      internal::NormalizeMpmdProgramKey("inc_prefill_step_4k_bucket_512k"),
+      "inc_prefill_step_4k");
+  EXPECT_EQ(
+      internal::NormalizeMpmdProgramKey("inc_prefill_step_32k_chunk_4096"),
+      "inc_prefill_step_32k_chunk_4096");
 }
 
-TEST(BuildMpmdDependencyGraphTest, SimpleLinearDependencies) {
-  absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>
-      device_program_min_layer;
-  device_program_min_layer[1] = {{"program1", 0}};
-  device_program_min_layer[2] = {{"program1", 1}};
-  device_program_min_layer[3] = {{"program1", 2}};
+TEST(ExtractMpmdModuleInfoTest, ParsesShardyModuleWithLoopAndLayer) {
+  const std::optional<internal::MpmdModuleInfo> info =
+      internal::ExtractMpmdModuleInfo(
+          "p0_loop_0_layer_0_0.inc_prefill_step_32k_chunk_4096(12345)");
+  ASSERT_TRUE(info.has_value());
+  EXPECT_EQ(info->group_id, 0);
+  EXPECT_EQ(info->loop_id, 0);
+  EXPECT_EQ(info->min_layer, 0);
+  EXPECT_TRUE(info->has_explicit_layer);
+  EXPECT_EQ(info->program_key, "inc_prefill_step_32k_chunk_4096");
 
-  const internal::MpmdDependencyGraph graph =
-      internal::BuildMpmdDependencyGraph(device_program_min_layer);
-
-  EXPECT_EQ(graph.adj.size(), 2);
-  EXPECT_THAT(graph.adj.at(1), testing::ElementsAre(2));
-  EXPECT_THAT(graph.adj.at(2), testing::ElementsAre(3));
-  EXPECT_EQ(graph.in_degree.size(), 3);
-  EXPECT_EQ(graph.in_degree.at(1), 0);
-  EXPECT_EQ(graph.in_degree.at(2), 1);
-  EXPECT_EQ(graph.in_degree.at(3), 1);
+  const std::optional<internal::MpmdModuleInfo> info2 =
+      internal::ExtractMpmdModuleInfo(
+          "p24_loop_1_layer_24_24.inc_prefill_step_32k_chunk_4096(12345)");
+  ASSERT_TRUE(info2.has_value());
+  EXPECT_EQ(info2->group_id, 24);
+  EXPECT_EQ(info2->loop_id, 1);
+  EXPECT_EQ(info2->min_layer, 24);
+  EXPECT_TRUE(info2->has_explicit_layer);
+  EXPECT_EQ(info2->program_key, "inc_prefill_step_32k_chunk_4096");
 }
 
-TEST(BuildMpmdDependencyGraphTest, MultipleDependencies) {
-  absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>
-      device_program_min_layer;
-  device_program_min_layer[1] = {{"program1", 0}};
-  device_program_min_layer[2] = {{"program1", 1}};
-  device_program_min_layer[3] = {{"program1", 1}};
-  device_program_min_layer[4] = {{"program1", 2}};
+TEST(ExtractMpmdModuleInfoTest, ParsesShardyModuleWithEllipsisInDescriptor) {
+  const std::optional<internal::MpmdModuleInfo> info =
+      internal::ExtractMpmdModuleInfo(
+          "p0_loop_1_layer_0_3..._fwd.my_prog(123)");
+  ASSERT_TRUE(info.has_value());
+  EXPECT_EQ(info->group_id, 0);
+  EXPECT_EQ(info->loop_id, 1);
+  EXPECT_EQ(info->min_layer, 0);
+  EXPECT_TRUE(info->has_explicit_layer);
+  EXPECT_EQ(info->program_key, "my_prog");
 
-  const internal::MpmdDependencyGraph graph =
-      internal::BuildMpmdDependencyGraph(device_program_min_layer);
-
-  EXPECT_EQ(graph.adj.size(), 3);
-  EXPECT_THAT(graph.adj.at(1), testing::ElementsAre(2, 3));
-  EXPECT_THAT(graph.adj.at(2), testing::ElementsAre(4));
-  EXPECT_THAT(graph.adj.at(3), testing::ElementsAre(4));
-  EXPECT_EQ(graph.in_degree.size(), 4);
-  EXPECT_EQ(graph.in_degree.at(1), 0);
-  EXPECT_EQ(graph.in_degree.at(2), 1);
-  EXPECT_EQ(graph.in_degree.at(3), 1);
-  EXPECT_EQ(graph.in_degree.at(4), 2);
+  const std::optional<internal::MpmdModuleInfo> info2 =
+      internal::ExtractMpmdModuleInfo("p0_foo..._fwd.my_prog(123)");
+  ASSERT_TRUE(info2.has_value());
+  EXPECT_EQ(info2->group_id, 0);
+  EXPECT_EQ(info2->loop_id, 0);
+  EXPECT_EQ(info2->min_layer, 0);
+  EXPECT_FALSE(info2->has_explicit_layer);
+  EXPECT_EQ(info2->program_key, "my_prog");
 }
 
-TEST(PerformMpmdTopologicalSortTest, NoDependencies) {
-  absl::flat_hash_map<uint32_t, absl::btree_set<uint32_t>> adj;
-  absl::btree_map<uint32_t, int> in_degree;
-  in_degree[1] = 0;
-  in_degree[2] = 0;
-  absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>
-      device_program_min_layer;
-  device_program_min_layer[1] = {};
-  device_program_min_layer[2] = {};
+TEST(ExtractMpmdModuleInfoTest, ParsesShardyNonLayerProgram) {
+  const std::optional<internal::MpmdModuleInfo> session_info =
+      internal::ExtractMpmdModuleInfo(
+          "p1_inferred.inc_prefill_session_32k(12345)");
+  ASSERT_TRUE(session_info.has_value());
+  EXPECT_EQ(session_info->group_id, 1);
+  EXPECT_EQ(session_info->loop_id, 0);
+  EXPECT_EQ(session_info->min_layer, 1);
+  EXPECT_FALSE(session_info->has_explicit_layer);
+  EXPECT_EQ(session_info->program_key, "inc_prefill_session_32k");
+
+  const std::optional<internal::MpmdModuleInfo> final_info =
+      internal::ExtractMpmdModuleInfo(
+          "p0_inferred.inc_prefill_final_32k(12345)");
+  ASSERT_TRUE(final_info.has_value());
+  EXPECT_EQ(final_info->group_id, 0);
+  EXPECT_EQ(final_info->loop_id, 0);
+  EXPECT_EQ(final_info->min_layer, 0);
+  EXPECT_FALSE(final_info->has_explicit_layer);
+  EXPECT_EQ(final_info->program_key, "inc_prefill_final_32k");
+}
+
+TEST(ExtractMpmdModuleInfoTest, ParsesShardyStageWithBucket) {
+  const std::optional<internal::MpmdModuleInfo> info =
+      internal::ExtractMpmdModuleInfo(
+          "p2_stage1.inc_prefill_step_4k_bucket_128k(12345)");
+  ASSERT_TRUE(info.has_value());
+  EXPECT_EQ(info->group_id, 2);
+  EXPECT_EQ(info->loop_id, 0);
+  EXPECT_EQ(info->min_layer, 1);
+  EXPECT_TRUE(info->has_explicit_layer);
+  EXPECT_EQ(info->program_key, "inc_prefill_step_4k");
+}
+
+TEST(ExtractMpmdModuleInfoTest, ParsesLegacyPatterns) {
+  const std::optional<internal::MpmdModuleInfo> info =
+      internal::ExtractMpmdModuleInfo("mesh_stage0");
+  ASSERT_TRUE(info.has_value());
+  EXPECT_EQ(info->min_layer, 0);
+  EXPECT_TRUE(info->has_explicit_layer);
+
+  const std::optional<internal::MpmdModuleInfo> info2 =
+      internal::ExtractMpmdModuleInfo("module_layer_2_3.prog");
+  ASSERT_TRUE(info2.has_value());
+  EXPECT_EQ(info2->min_layer, 2);
+  EXPECT_TRUE(info2->has_explicit_layer);
+  EXPECT_EQ(info2->program_key, "prog");
+
+  const std::optional<internal::MpmdModuleInfo> info3 =
+      internal::ExtractMpmdModuleInfo("module_layer_5.my_prog(1)");
+  ASSERT_TRUE(info3.has_value());
+  EXPECT_EQ(info3->min_layer, 5);
+  EXPECT_TRUE(info3->has_explicit_layer);
+  EXPECT_EQ(info3->program_key, "my_prog");
+
+  const std::optional<internal::MpmdModuleInfo> info_overflow =
+      internal::ExtractMpmdModuleInfo("p99999999999999999999_stage0.prog(1)");
+  EXPECT_FALSE(info_overflow.has_value());
+}
+
+TEST(SortMpmdDevicesTest, SortMpmdDevicesByLoopAndLayerWithinProgram) {
+  Trace trace;
+  TraceEventsContainer events;
+
+  auto add_event = [&](uint32_t device_id, const std::string& name,
+                       uint64_t ts) {
+    (*trace.mutable_devices())[device_id]
+        .mutable_resources()
+        ->operator[](1)
+        .set_name("XLA Modules");
+    TraceEvent event;
+    event.set_device_id(device_id);
+    event.set_resource_id(1);
+    event.set_name(name);
+    event.set_timestamp_ps(ts);
+    event.set_duration_ps(1000);
+    events.AddEvent(event);
+  };
+
+  add_event(3, "p2_loop_1_layer_0_0.program(100)", 1000);
+  add_event(2, "p1_loop_0_layer_1_1.program(100)", 1000);
+  add_event(1, "p0_loop_0_layer_0_0.program(100)", 1000);
+  events.SetTrace(trace);
+
   absl::flat_hash_map<uint32_t, uint32_t> device_to_sort_index;
-
-  internal::PerformMpmdTopologicalSort(adj, std::move(in_degree),
-                                       device_program_min_layer,
-                                       device_to_sort_index);
-
-  EXPECT_EQ(device_to_sort_index.size(), 2);
-  EXPECT_EQ(device_to_sort_index[1], 0);
-  EXPECT_EQ(device_to_sort_index[2], 1);
-}
-
-TEST(PerformMpmdTopologicalSortTest, SimpleLinearDependencies) {
-  absl::flat_hash_map<uint32_t, absl::btree_set<uint32_t>> adj;
-  adj[1] = {2};
-  adj[2] = {3};
-  absl::btree_map<uint32_t, int> in_degree;
-  in_degree[1] = 0;
-  in_degree[2] = 1;
-  in_degree[3] = 1;
-  absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>
-      device_program_min_layer;
-  device_program_min_layer[1] = {};
-  device_program_min_layer[2] = {};
-  device_program_min_layer[3] = {};
-  absl::flat_hash_map<uint32_t, uint32_t> device_to_sort_index;
-
-  internal::PerformMpmdTopologicalSort(adj, std::move(in_degree),
-                                       device_program_min_layer,
-                                       device_to_sort_index);
+  SortMpmdDevices(events, device_to_sort_index);
 
   EXPECT_EQ(device_to_sort_index.size(), 3);
-  EXPECT_EQ(device_to_sort_index[1], 0);
-  EXPECT_EQ(device_to_sort_index[2], 1);
-  EXPECT_EQ(device_to_sort_index[3], 2);
+  EXPECT_EQ(device_to_sort_index.at(1), 0);
+  EXPECT_EQ(device_to_sort_index.at(2), 1);
+  EXPECT_EQ(device_to_sort_index.at(3), 2);
 }
 
-TEST(PerformMpmdTopologicalSortTest, MultipleDependencies) {
-  absl::flat_hash_map<uint32_t, absl::btree_set<uint32_t>> adj;
-  adj[1] = {2, 3};
-  adj[2] = {4};
-  adj[3] = {4};
-  absl::btree_map<uint32_t, int> in_degree;
-  in_degree[1] = 0;
-  in_degree[2] = 1;
-  in_degree[3] = 1;
-  in_degree[4] = 2;
-  absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>
-      device_program_min_layer;
-  device_program_min_layer[1] = {};
-  device_program_min_layer[2] = {};
-  device_program_min_layer[3] = {};
-  device_program_min_layer[4] = {};
-  absl::flat_hash_map<uint32_t, uint32_t> device_to_sort_index;
+TEST(SortMpmdDevicesTest, SortMpmdDevicesMultiProgramByEarliestTimestamp) {
+  Trace trace;
+  TraceEventsContainer events;
 
-  internal::PerformMpmdTopologicalSort(adj, std::move(in_degree),
-                                       device_program_min_layer,
-                                       device_to_sort_index);
+  auto add_event = [&](uint32_t device_id, const std::string& name,
+                       uint64_t ts) {
+    (*trace.mutable_devices())[device_id]
+        .mutable_resources()
+        ->operator[](1)
+        .set_name("XLA Modules");
+    TraceEvent event;
+    event.set_device_id(device_id);
+    event.set_resource_id(1);
+    event.set_name(name);
+    event.set_timestamp_ps(ts);
+    event.set_duration_ps(1000);
+    events.AddEvent(event);
+  };
+
+  // Program A (inc_prefill) runs at t = 79 ms on device 10 and 11.
+  add_event(10, "p0_loop_0_layer_0_0.inc_prefill(1)", 79000000000ULL);
+  add_event(11, "p1_loop_0_layer_1_1.inc_prefill(1)", 80000000000ULL);
+
+  // Program B (local_recovery_prefill) runs at t = 5583 ms on device 20 and 21.
+  add_event(20, "p0_loop_0_layer_0_0.local_recovery_prefill(1)",
+            5583000000000ULL);
+  add_event(21, "p1_loop_0_layer_1_1.local_recovery_prefill(1)",
+            5584000000000ULL);
+
+  events.SetTrace(trace);
+
+  absl::flat_hash_map<uint32_t, uint32_t> device_to_sort_index;
+  SortMpmdDevices(events, device_to_sort_index);
 
   EXPECT_EQ(device_to_sort_index.size(), 4);
-  EXPECT_EQ(device_to_sort_index[1], 0);
-  EXPECT_EQ(device_to_sort_index[2], 1);
-  EXPECT_EQ(device_to_sort_index[3], 2);
-  EXPECT_EQ(device_to_sort_index[4], 3);
+  EXPECT_EQ(device_to_sort_index.at(10), 0);
+  EXPECT_EQ(device_to_sort_index.at(11), 1);
+  EXPECT_EQ(device_to_sort_index.at(20), 2);
+  EXPECT_EQ(device_to_sort_index.at(21), 3);
 }
 
-TEST(PerformMpmdTopologicalSortTest, CyclicDependencies) {
-  absl::flat_hash_map<uint32_t, absl::btree_set<uint32_t>> adj;
-  adj[1] = {2};
-  adj[2] = {3};
-  adj[3] = {1};
-  absl::btree_map<uint32_t, int> in_degree;
-  in_degree[1] = 1;
-  in_degree[2] = 1;
-  in_degree[3] = 1;
-  absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>
-      device_program_min_layer;
-  device_program_min_layer[1] = {};
-  device_program_min_layer[2] = {};
-  device_program_min_layer[3] = {};
+TEST(SortMpmdDevicesTest,
+     SortMpmdDevicesMakeSessionAndFinalSharedAndDedicatedDevices) {
+  Trace trace;
+  TraceEventsContainer events;
+
+  auto add_event = [&](uint32_t device_id, const std::string& name,
+                       uint64_t ts) {
+    (*trace.mutable_devices())[device_id]
+        .mutable_resources()
+        ->operator[](1)
+        .set_name("XLA Modules");
+    TraceEvent event;
+    event.set_device_id(device_id);
+    event.set_resource_id(1);
+    event.set_name(name);
+    event.set_timestamp_ps(ts);
+    event.set_duration_ps(1000);
+    events.AddEvent(event);
+  };
+
+  // Dedicated make_session device 5 (Tier 2, starts at t = 10 ms).
+  add_event(5, "p0_inferred.inc_prefill_session_32k(1)", 10000000000ULL);
+
+  // Shared devices 0 and 1 execute make_session (Tier 2 at 62 ms),
+  // then prefill (Tier 1 at 79 ms and 85 ms), then final (Tier 2 at 5000 ms).
+  add_event(0, "p1_inferred.inc_prefill_session_32k(1)", 62000000000ULL);
+  add_event(1, "p1_inferred.inc_prefill_session_32k(1)", 62000000000ULL);
+  add_event(0, "p0_loop_0_layer_0_0.prefill(1)", 79000000000ULL);
+  add_event(1, "p1_loop_0_layer_1_1.prefill(1)", 85000000000ULL);
+  add_event(0, "p0_inferred.inc_prefill_final_32k(1)", 5000000000000ULL);
+  add_event(1, "p0_inferred.inc_prefill_final_32k(1)", 5000000000000ULL);
+
+  // Dedicated final device 6 (Tier 2, starts at t = 9000 ms).
+  add_event(6, "p0_inferred.inc_prefill_final_32k(1)", 9000000000000ULL);
+
+  events.SetTrace(trace);
+
   absl::flat_hash_map<uint32_t, uint32_t> device_to_sort_index;
+  SortMpmdDevices(events, device_to_sort_index);
 
-  internal::PerformMpmdTopologicalSort(adj, std::move(in_degree),
-                                       device_program_min_layer,
-                                       device_to_sort_index);
+  EXPECT_EQ(device_to_sort_index.size(), 4);
+  EXPECT_EQ(device_to_sort_index.at(5), 0);  // Dedicated session.
+  EXPECT_EQ(device_to_sort_index.at(0), 1);  // Shared prefill layer 0.
+  EXPECT_EQ(device_to_sort_index.at(1), 2);  // Shared prefill layer 1.
+  EXPECT_EQ(device_to_sort_index.at(6), 3);  // Dedicated final.
+}
 
-  EXPECT_EQ(device_to_sort_index.size(), 3);
-  EXPECT_EQ(device_to_sort_index[1], 0);
-  EXPECT_EQ(device_to_sort_index[2], 1);
-  EXPECT_EQ(device_to_sort_index[3], 2);
+TEST(SortMpmdDevicesTest,
+     SortMpmdDevicesBucketNormalizationAndAdjacentSameStage) {
+  Trace trace;
+  TraceEventsContainer events;
+
+  auto add_event = [&](uint32_t device_id, const std::string& name,
+                       uint64_t ts) {
+    (*trace.mutable_devices())[device_id]
+        .mutable_resources()
+        ->operator[](1)
+        .set_name("XLA Modules");
+    TraceEvent event;
+    event.set_device_id(device_id);
+    event.set_resource_id(1);
+    event.set_name(name);
+    event.set_timestamp_ps(ts);
+    event.set_duration_ps(1000);
+    events.AddEvent(event);
+  };
+
+  // Device 0 and Device 1 run stage 0 (bucket 128k).
+  add_event(0, "p0_stage0.inc_prefill_step_4k_bucket_128k(1)", 1000);
+  add_event(1, "p0_stage0.inc_prefill_step_4k_bucket_128k(1)", 1000);
+
+  // Device 2 and Device 3 run stage 1 (bucket 512k).
+  add_event(2, "p1_stage1.inc_prefill_step_4k_bucket_512k(1)", 1000);
+  add_event(3, "p1_stage1.inc_prefill_step_4k_bucket_512k(1)", 1000);
+
+  events.SetTrace(trace);
+
+  absl::flat_hash_map<uint32_t, uint32_t> device_to_sort_index;
+  SortMpmdDevices(events, device_to_sort_index);
+
+  EXPECT_EQ(device_to_sort_index.size(), 4);
+  EXPECT_EQ(device_to_sort_index.at(0), 0);
+  EXPECT_EQ(device_to_sort_index.at(1), 1);
+  EXPECT_EQ(device_to_sort_index.at(2), 2);
+  EXPECT_EQ(device_to_sort_index.at(3), 3);
+}
+
+TEST(TraceEventsToJsonTest, UnmatchedDevicesOffsetBehindMpmdStages) {
+  Trace trace;
+  // Device 1: TPU with MPMD stage.
+  (*trace.mutable_devices())[1].mutable_resources()->operator[](1).set_name(
+      "XLA Modules");
+  (*trace.mutable_devices())[1].set_name("/device:TPU:0");
+
+  // Device 10: Host CPU without MPMD events.
+  (*trace.mutable_devices())[10].mutable_resources()->operator[](1).set_name(
+      "Host Thread");
+  (*trace.mutable_devices())[10].set_name("/host:CPU:0");
+
+  TraceEventsContainer events;
+  TraceEvent event;
+  event.set_device_id(1);
+  event.set_resource_id(1);
+  event.set_name("p0_stage0.program(1)");
+  event.set_timestamp_ps(1000);
+  event.set_duration_ps(1000);
+  events.AddEvent(event);
+  events.SetTrace(trace);
+
+  JsonTraceOptions options;
+  options.mpmd_pipeline_view = true;
+
+  std::string output_str;
+  IOBufferAdapter output(&output_str);
+  TraceEventsToJson<IOBufferAdapter, TraceEventsContainer, RawData>(
+      options, events, &output);
+
+  // Device 1 gets MPMD sort_index: 0.
+  // Device 10 gets fallback sort_index: kMpmdUnrankedSortIndexBase + 10.
+  EXPECT_THAT(
+      output_str,
+      HasSubstr(R"({"args":{"sort_index":0},"name":"process_sort_index",)"
+                R"("ph":"M","pid":1})"));
+  EXPECT_THAT(
+      output_str,
+      HasSubstr(
+          R"({"args":{"sort_index":1073741834},"name":"process_sort_index",)"
+          R"("ph":"M","pid":10})"));
+}
+
+TEST(TraceEventsToJsonTest, IdleTpuCoresOrderedAfterMpmdStages) {
+  Trace trace;
+  // Device 0: Active TPU core 0 with hostname prefix.
+  (*trace.mutable_devices())[0].mutable_resources()->operator[](1).set_name(
+      "XLA Modules");
+  (*trace.mutable_devices())[0].set_name("host0 /device:TPU:0");
+
+  // Device 1: TPU core 1 with non-MPMD event and hostname prefix.
+  (*trace.mutable_devices())[1].mutable_resources()->operator[](1).set_name(
+      "XLA Modules");
+  (*trace.mutable_devices())[1].set_name("host0 /device:TPU:1");
+
+  // Device 10: Host CPU without MPMD events.
+  (*trace.mutable_devices())[10].mutable_resources()->operator[](1).set_name(
+      "Host Thread");
+  (*trace.mutable_devices())[10].set_name("/host:CPU:0");
+
+  TraceEventsContainer events;
+  TraceEvent event0;
+  event0.set_device_id(0);
+  event0.set_resource_id(1);
+  event0.set_name("p0_stage0.program(1)");
+  event0.set_timestamp_ps(1000);
+  event0.set_duration_ps(1000);
+  events.AddEvent(event0);
+
+  TraceEvent event1;
+  event1.set_device_id(1);
+  event1.set_resource_id(1);
+  event1.set_name("non_mpmd_compute");
+  event1.set_timestamp_ps(1000);
+  event1.set_duration_ps(1000);
+  events.AddEvent(event1);
+
+  events.SetTrace(trace);
+
+  JsonTraceOptions options;
+  options.mpmd_pipeline_view = true;
+
+  std::string output_str;
+  IOBufferAdapter output(&output_str);
+  TraceEventsToJson<IOBufferAdapter, TraceEventsContainer, RawData>(
+      options, events, &output);
+
+  // Device 0 (active TPU core 0) is ranked at sort_index 0.
+  EXPECT_THAT(output_str, HasSubstr(R"("pid":0)"));
+  EXPECT_THAT(
+      output_str,
+      HasSubstr(R"({"args":{"sort_index":0},"name":"process_sort_index",)"
+                R"("ph":"M","pid":0})"));
+  // Device 1 (TPU core 1 without MPMD module events) is preserved and gets
+  // kMpmdUnrankedSortIndexBase + 1 (1073741825).
+  EXPECT_THAT(output_str, HasSubstr(R"("pid":1)"));
+  EXPECT_THAT(
+      output_str,
+      HasSubstr(
+          R"({"args":{"sort_index":1073741825},"name":"process_sort_index",)"
+          R"("ph":"M","pid":1})"));
+  EXPECT_THAT(output_str, HasSubstr("non_mpmd_compute"));
+  // Device 10 (/host:CPU:0) is preserved and gets
+  // kMpmdUnrankedSortIndexBase + 10 (1073741834).
+  EXPECT_THAT(output_str, HasSubstr(R"("pid":10)"));
+  EXPECT_THAT(
+      output_str,
+      HasSubstr(
+          R"({"args":{"sort_index":1073741834},"name":"process_sort_index",)"
+          R"("ph":"M","pid":10})"));
+}
+
+TEST(TraceEventsToJsonTest, MpmdProcessMetadataIndependentOfLoadedWindow) {
+  Trace trace;
+  // Device 0: TPU Core 0 (Stage 0).
+  (*trace.mutable_devices())[0].mutable_resources()->operator[](1).set_name(
+      "XLA Modules");
+  (*trace.mutable_devices())[0].set_name("host0 /device:TPU:0");
+
+  // Device 1: TPU Core 1 (Stage 1).
+  (*trace.mutable_devices())[1].mutable_resources()->operator[](1).set_name(
+      "XLA Modules");
+  (*trace.mutable_devices())[1].set_name("host0 /device:TPU:1");
+
+  // Device 3: Idle TPU Core 3 without module events.
+  (*trace.mutable_devices())[3].mutable_resources()->operator[](1).set_name(
+      "XLA Modules");
+  (*trace.mutable_devices())[3].set_name("host0 /device:TPU:3");
+
+  TraceEvent event0;
+  event0.set_device_id(0);
+  event0.set_resource_id(1);
+  event0.set_name("p0_stage0.program(1)");
+  event0.set_timestamp_ps(100);
+  event0.set_duration_ps(100);
+
+  TraceEvent event1;
+  event1.set_device_id(1);
+  event1.set_resource_id(1);
+  event1.set_name("p0_stage1.program(1)");
+  event1.set_timestamp_ps(200);
+  event1.set_duration_ps(100);
+
+  // Full trace (K = 2): both Stage 0 and Stage 1 active.
+  TraceEventsContainer full_events;
+  full_events.AddEvent(event0);
+  full_events.AddEvent(event1);
+  full_events.SetTrace(trace);
+
+  // Windowed trace (K = 1): only Stage 0 active.
+  TraceEventsContainer windowed_events;
+  windowed_events.AddEvent(event0);
+  windowed_events.SetTrace(trace);
+
+  JsonTraceOptions options;
+  options.mpmd_pipeline_view = true;
+
+  std::string full_output;
+  IOBufferAdapter full_buffer(&full_output);
+  TraceEventsToJson<IOBufferAdapter, TraceEventsContainer, RawData>(
+      options, full_events, &full_buffer);
+
+  std::string windowed_output;
+  IOBufferAdapter windowed_buffer(&windowed_output);
+  TraceEventsToJson<IOBufferAdapter, TraceEventsContainer, RawData>(
+      options, windowed_events, &windowed_buffer);
+
+  // In full load (K = 2), device 0 gets 0, device 1 gets 1.
+  EXPECT_THAT(
+      full_output,
+      HasSubstr(R"({"args":{"sort_index":0},"name":"process_sort_index",)"
+                R"("ph":"M","pid":0})"));
+  EXPECT_THAT(
+      full_output,
+      HasSubstr(R"({"args":{"sort_index":1},"name":"process_sort_index",)"
+                R"("ph":"M","pid":1})"));
+
+  // In windowed load (K = 1), device 0 gets 0, device 1 gets Base + 1.
+  EXPECT_THAT(
+      windowed_output,
+      HasSubstr(R"({"args":{"sort_index":0},"name":"process_sort_index",)"
+                R"("ph":"M","pid":0})"));
+  EXPECT_THAT(
+      windowed_output,
+      HasSubstr(
+          R"({"args":{"sort_index":1073741825},"name":"process_sort_index",)"
+          R"("ph":"M","pid":1})"));
+
+  // For idle device 3, both full and windowed loads emit the identical
+  // kMpmdUnrankedSortIndexBase + 3 (1073741827) sort index.
+  EXPECT_THAT(
+      full_output,
+      HasSubstr(
+          R"({"args":{"sort_index":1073741827},"name":"process_sort_index",)"
+          R"("ph":"M","pid":3})"));
+  EXPECT_THAT(
+      windowed_output,
+      HasSubstr(
+          R"({"args":{"sort_index":1073741827},"name":"process_sort_index",)"
+          R"("ph":"M","pid":3})"));
+}
+
+TEST(TraceEventsToJsonTest, MpmdPipelineViewDeviceOrderingBranches) {
+  Trace trace;
+  (*trace.mutable_name_table())[1] = "p0_stage0.prog_a(1)";
+
+  // Device 0: TPU 0 with XLA Modules and XLA Ops resources.
+  Device device0;
+  device0.set_name("host0 /device:TPU:0");
+  Resource resource_mod;
+  resource_mod.set_name("XLA Modules");
+  (*device0.mutable_resources())[1] = resource_mod;
+  Resource resource_ops;
+  resource_ops.set_name("XLA Ops");
+  (*device0.mutable_resources())[2] = resource_ops;
+  (*trace.mutable_devices())[0] = device0;
+
+  // Device 1: TPU 1 with XLA Modules resource.
+  Device device1;
+  device1.set_name("host0 /device:TPU:1");
+  (*device1.mutable_resources())[1] = resource_mod;
+  (*trace.mutable_devices())[1] = device1;
+
+  // Device 9: TPU 9 with no MPMD events, but with a non-module event on XLA
+  // Ops.
+  Device device9;
+  device9.set_name("host0 /device:TPU:9");
+  (*device9.mutable_resources())[2] = resource_ops;
+  (*trace.mutable_devices())[9] = device9;
+
+  TraceEventsContainer events;
+
+  // 1. Non-module event on resource 2 (XLA Ops) on device 0 (early return).
+  TraceEvent event_non_mod;
+  event_non_mod.set_device_id(0);
+  event_non_mod.set_resource_id(2);
+  event_non_mod.set_name("op_kernel");
+  event_non_mod.set_timestamp_ps(50);
+  event_non_mod.set_duration_ps(10);
+  events.AddEvent(event_non_mod);
+
+  // 2. Event on device 0 using name_ref (has_name_ref() == true).
+  TraceEvent event_ref;
+  event_ref.set_device_id(0);
+  event_ref.set_resource_id(1);
+  event_ref.set_name_ref(1);
+  event_ref.set_timestamp_ps(1000);
+  event_ref.set_duration_ps(100);
+  events.AddEvent(event_ref);
+
+  // 3. Multiple Tier-1 programs on device 0 to exercise std::tie ordering.
+  TraceEvent event_prog_y;
+  event_prog_y.set_device_id(0);
+  event_prog_y.set_resource_id(1);
+  event_prog_y.set_name("p0_stage0.prog_y(1)");
+  event_prog_y.set_timestamp_ps(1200);
+  event_prog_y.set_duration_ps(50);
+  events.AddEvent(event_prog_y);
+
+  TraceEvent event_prog_z;
+  event_prog_z.set_device_id(0);
+  event_prog_z.set_resource_id(1);
+  event_prog_z.set_name("p0_stage0.prog_z(1)");
+  event_prog_z.set_timestamp_ps(1300);
+  event_prog_z.set_duration_ps(50);
+  events.AddEvent(event_prog_z);
+
+  // 4. Device 1 running prog_b at the same timestamp (ts = 1000).
+  TraceEvent event_prog_b;
+  event_prog_b.set_device_id(1);
+  event_prog_b.set_resource_id(1);
+  event_prog_b.set_name("p0_stage0.prog_b(1)");
+  event_prog_b.set_timestamp_ps(1000);
+  event_prog_b.set_duration_ps(100);
+  events.AddEvent(event_prog_b);
+
+  // 5. Device 9 non-module event on XLA Ops.
+  TraceEvent event_dev9;
+  event_dev9.set_device_id(9);
+  event_dev9.set_resource_id(2);
+  event_dev9.set_name("hbm_transfer");
+  event_dev9.set_timestamp_ps(1100);
+  event_dev9.set_duration_ps(100);
+  events.AddEvent(event_dev9);
+
+  events.SetTrace(trace);
+
+  JsonTraceOptions options;
+  options.mpmd_pipeline_view = true;
+
+  std::string output_str;
+  IOBufferAdapter output(&output_str);
+  TraceEventsToJson<IOBufferAdapter, TraceEventsContainer, RawData>(
+      options, events, &output);
+
+  EXPECT_THAT(output_str, HasSubstr(R"("args":{"name":"host0 /device:TPU:0")"));
+  EXPECT_THAT(output_str, HasSubstr(R"("args":{"name":"host0 /device:TPU:1")"));
+  EXPECT_THAT(output_str, HasSubstr(R"("args":{"name":"host0 /device:TPU:9")"));
+  EXPECT_THAT(
+      output_str,
+      HasSubstr(R"({"args":{"sort_index":0},"name":"process_sort_index",)"
+                R"("ph":"M","pid":0})"));
+  EXPECT_THAT(
+      output_str,
+      HasSubstr(R"({"args":{"sort_index":1},"name":"process_sort_index",)"
+                R"("ph":"M","pid":1})"));
+  EXPECT_THAT(
+      output_str,
+      HasSubstr(
+          R"({"args":{"sort_index":1073741833},"name":"process_sort_index",)"
+          R"("ph":"M","pid":9})"));
+}
+
+TEST(TraceEventsToJsonTest, MpmdZeroRankedDevicesOmitsProcessSortIndex) {
+  Trace trace;
+  (*trace.mutable_devices())[0].mutable_resources()->operator[](1).set_name(
+      "XLA Modules");
+  (*trace.mutable_devices())[0].set_name("host0 /device:TPU:0");
+  (*trace.mutable_devices())[1].mutable_resources()->operator[](1).set_name(
+      "XLA Modules");
+  (*trace.mutable_devices())[1].set_name("host0 /device:TPU:1");
+
+  TraceEventsContainer events;
+  // Non-MPMD event.
+  TraceEvent event0;
+  event0.set_device_id(0);
+  event0.set_resource_id(1);
+  event0.set_name("regular_kernel");
+  event0.set_timestamp_ps(100);
+  event0.set_duration_ps(50);
+  events.AddEvent(event0);
+
+  events.SetTrace(trace);
+
+  JsonTraceOptions options;
+  options.mpmd_pipeline_view = true;
+
+  std::string output_str;
+  IOBufferAdapter output(&output_str);
+  TraceEventsToJson<IOBufferAdapter, TraceEventsContainer, RawData>(
+      options, events, &output);
+
+  // When K = 0 (no ranked MPMD devices), process_sort_index metadata is
+  // omitted.
+  EXPECT_THAT(output_str, Not(HasSubstr(R"("name":"process_sort_index")")));
 }
 
 }  // namespace

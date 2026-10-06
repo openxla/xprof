@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
@@ -34,6 +35,11 @@ using ::testing::IsEmpty;
 using ::testing::Not;
 using ::testing::SizeIs;
 using ::testing::UnorderedElementsAre;
+
+// Base offset for process sort indices of devices not ranked into an MPMD
+// stage. Offsets unranked devices past stage ranks with headroom for PID
+// tie-breaking.
+constexpr uint32_t kMpmdUnrankedSortIndexBase = 1u << 30;
 
 // Creates a metadata trace event with the specified event name and thread or
 // process name argument.
@@ -135,6 +141,17 @@ std::vector<std::string> GetGroupNames(const FlameChartTimelineData& data) {
     names.push_back(group.name);
   }
   return names;
+}
+
+// Returns the list of top-level process IDs from timeline data.
+std::vector<ProcessId> GetProcessPids(const FlameChartTimelineData& data) {
+  std::vector<ProcessId> pids;
+  for (const Group& group : data.groups) {
+    if (group.nesting_level == kProcessNestingLevel) {
+      pids.push_back(group.pid);
+    }
+  }
+  return pids;
 }
 
 // Matches a FlameChartGroup with the specified name and expanded state.
@@ -839,6 +856,400 @@ TEST_F(DataProviderTest, MpmdPreservePrimaryTrackWhenEmptyDuringZoomPan) {
 
   EXPECT_THAT(GetGroupNames(Process(events, /*mpmd=*/true)),
               ElementsAre("TPU_Process", "XLA Modules"));
+}
+
+TEST_F(DataProviderTest, MpmdPreservesSortIndexAcrossIncrementalReloads) {
+  // Device 10 has sort_index 0, Device 20 has sort_index 1, Device 1 (low PID)
+  // has sort_index 2.
+  const std::vector<TraceEvent> initial_events = {
+      CreateProcessEvent(10, "Process 10"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 10, 0, "0"),
+      CreateThreadEvent(10, 1, "XLA Modules"),
+      CreateCompleteEvent(10, 1, "event1", 10.0, 5.0),
+
+      CreateProcessEvent(20, "Process 20"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 20, 0, "1"),
+      CreateThreadEvent(20, 1, "XLA Modules"),
+      CreateCompleteEvent(20, 1, "event2", 10.0, 5.0),
+
+      CreateProcessEvent(1, "Process 1"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 1, 0, "2"),
+      CreateThreadEvent(1, 1, "XLA Modules"),
+      CreateCompleteEvent(1, 1, "event3", 10.0, 5.0),
+  };
+
+  ParsedTraceEvents initial_parsed;
+  initial_parsed.flame_events = initial_events;
+  initial_parsed.mpmd_pipeline_view = true;
+  data_provider_.ProcessTraceEvents(initial_parsed, timeline_);
+
+  const FlameChartTimelineData& initial_data = timeline_.timeline_data();
+  ASSERT_THAT(GetProcessPids(initial_data), ElementsAre(10, 20, 1));
+
+  // Reload with different sort indices (e.g. Device 1 gets sort_index 0 < pid,
+  // Device 10 gets sort_index 25). The original sort indices must be preserved.
+  const std::vector<TraceEvent> reload_events = {
+      CreateProcessEvent(10, "Process 10"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 10, 0, "25"),
+      CreateThreadEvent(10, 1, "XLA Modules"),
+      CreateCompleteEvent(10, 1, "event1_reloaded", 20.0, 5.0),
+
+      CreateProcessEvent(20, "Process 20"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 20, 0, "1"),
+      CreateThreadEvent(20, 1, "XLA Modules"),
+      CreateCompleteEvent(20, 1, "event2_reloaded", 20.0, 5.0),
+
+      CreateProcessEvent(1, "Process 1"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 1, 0, "0"),
+      CreateThreadEvent(1, 1, "XLA Modules"),
+      CreateCompleteEvent(1, 1, "event3_reloaded", 20.0, 5.0),
+  };
+
+  ParsedTraceEvents reload_parsed;
+  reload_parsed.flame_events = reload_events;
+  reload_parsed.mpmd_pipeline_view = true;
+  data_provider_.ProcessTraceEvents(reload_parsed, timeline_);
+
+  const FlameChartTimelineData& reloaded_data = timeline_.timeline_data();
+  EXPECT_THAT(GetProcessPids(reloaded_data), ElementsAre(10, 20, 1));
+}
+
+TEST_F(DataProviderTest, MpmdWindowedFirstLoadDoesNotFreezeSubsetOrder) {
+  // First load is a zoomed-in window containing only a subset of devices (2 and
+  // 3) which receive incoming sort indices 0 and 1.
+  const std::vector<TraceEvent> windowed_events = {
+      CreateProcessEvent(2, "Device 2"),
+      CreateProcessSortIndexEvent(2, "0"),
+      CreateThreadEvent(2, 1, "XLA Modules"),
+      CreateCompleteEvent(2, 1, "event2", 10.0, 5.0),
+
+      CreateProcessEvent(3, "Device 3"),
+      CreateProcessSortIndexEvent(3, "1"),
+      CreateThreadEvent(3, 1, "XLA Modules"),
+      CreateCompleteEvent(3, 1, "event3", 10.0, 5.0),
+  };
+
+  ParsedTraceEvents windowed_parsed;
+  windowed_parsed.flame_events = windowed_events;
+  windowed_parsed.mpmd_pipeline_view = true;
+  data_provider_.ProcessTraceEvents(windowed_parsed, timeline_);
+
+  EXPECT_THAT(GetProcessPids(timeline_.timeline_data()), ElementsAre(2, 3));
+
+  // Second load is full-range containing all devices (0, 1, 2, 3) with full
+  // ranks.
+  const std::vector<TraceEvent> full_events = {
+      CreateProcessEvent(0, "Device 0"),
+      CreateProcessSortIndexEvent(0, "0"),
+      CreateThreadEvent(0, 1, "XLA Modules"),
+      CreateCompleteEvent(0, 1, "event0", 10.0, 5.0),
+
+      CreateProcessEvent(1, "Device 1"),
+      CreateProcessSortIndexEvent(1, "1"),
+      CreateThreadEvent(1, 1, "XLA Modules"),
+      CreateCompleteEvent(1, 1, "event1", 10.0, 5.0),
+
+      CreateProcessEvent(2, "Device 2"),
+      CreateProcessSortIndexEvent(2, "2"),
+      CreateThreadEvent(2, 1, "XLA Modules"),
+      CreateCompleteEvent(2, 1, "event2", 10.0, 5.0),
+
+      CreateProcessEvent(3, "Device 3"),
+      CreateProcessSortIndexEvent(3, "3"),
+      CreateThreadEvent(3, 1, "XLA Modules"),
+      CreateCompleteEvent(3, 1, "event3", 10.0, 5.0),
+  };
+
+  ParsedTraceEvents full_parsed;
+  full_parsed.flame_events = full_events;
+  full_parsed.mpmd_pipeline_view = true;
+  data_provider_.ProcessTraceEvents(full_parsed, timeline_);
+
+  // The full range load must supersede the initial subset order.
+  EXPECT_THAT(GetProcessPids(timeline_.timeline_data()),
+              ElementsAre(0, 1, 2, 3));
+
+  // Third load zooms back into devices 2 and 3 with subset indices 0 and 1.
+  // The established full-range process group order [Device 0..3] must be
+  // preserved.
+  data_provider_.ProcessTraceEvents(windowed_parsed, timeline_);
+  std::vector<std::string> process_names;
+  for (const Group& group : timeline_.timeline_data().groups) {
+    if (group.nesting_level == kProcessNestingLevel) {
+      process_names.push_back(group.name);
+    }
+  }
+  EXPECT_THAT(process_names,
+              ElementsAre("Device 0", "Device 1", "Device 2", "Device 3"));
+
+  // A subsequent load with events across all devices where incoming metadata
+  // only indexes subset devices 2 and 3 must preserve the established
+  // full-range order.
+  const std::vector<TraceEvent> all_devices_subset_indexed = {
+      CreateProcessEvent(0, "Device 0"),
+      CreateCompleteEvent(0, 1, "event0_new", 20.0, 5.0),
+
+      CreateProcessEvent(1, "Device 1"),
+      CreateCompleteEvent(1, 1, "event1_new", 20.0, 5.0),
+
+      CreateProcessEvent(2, "Device 2"),
+      CreateProcessSortIndexEvent(2, "0"),
+      CreateCompleteEvent(2, 1, "event2_new", 20.0, 5.0),
+
+      CreateProcessEvent(3, "Device 3"),
+      CreateProcessSortIndexEvent(3, "1"),
+      CreateCompleteEvent(3, 1, "event3_new", 20.0, 5.0),
+  };
+  ParsedTraceEvents subset_parsed;
+  subset_parsed.flame_events = all_devices_subset_indexed;
+  subset_parsed.mpmd_pipeline_view = true;
+  data_provider_.ProcessTraceEvents(subset_parsed, timeline_);
+  EXPECT_THAT(GetProcessPids(timeline_.timeline_data()),
+              ElementsAre(0, 1, 2, 3));
+}
+
+TEST_F(DataProviderTest,
+       MpmdIdleTpuHiddenAndRankedStageRetainedAcrossZoomAndOverwrite) {
+  // Load 1: Full load (K = 2).
+  // Device 0: Stage 0 (sort_index = 0) with XLA Modules event.
+  // Device 1: Stage 1 (sort_index = 1) with XLA Modules event.
+  // Device 2: Active unranked TPU (sort_index = Base + 2) with XLA Ops event.
+  // Device 3: Genuinely idle TPU core (sort_index = Base + 3) with 0 events.
+  const std::vector<TraceEvent> full_events = {
+      CreateProcessEvent(0, "Stage 0"),
+      CreateProcessSortIndexEvent(0, "0"),
+      CreateThreadEvent(0, 1, "XLA Modules"),
+      CreateCompleteEvent(0, 1, "stage0_op", 10.0, 5.0),
+
+      CreateProcessEvent(1, "Stage 1"),
+      CreateProcessSortIndexEvent(1, "1"),
+      CreateThreadEvent(1, 1, "XLA Modules"),
+      CreateCompleteEvent(1, 1, "stage1_op", 10.0, 5.0),
+
+      CreateProcessEvent(2, "Unranked Active TPU"),
+      CreateProcessSortIndexEvent(2,
+                                  absl::StrCat(kMpmdUnrankedSortIndexBase + 2)),
+      CreateThreadEvent(2, 1, "XLA Modules"),
+      CreateThreadEvent(2, 2, "XLA Ops"),
+      CreateCompleteEvent(2, 2, "compute_op", 10.0, 5.0),
+
+      CreateProcessEvent(3, "Idle TPU"),
+      CreateProcessSortIndexEvent(3,
+                                  absl::StrCat(kMpmdUnrankedSortIndexBase + 3)),
+      CreateThreadEvent(3, 1, "XLA Modules"),
+  };
+
+  ParsedTraceEvents full_parsed;
+  full_parsed.flame_events = full_events;
+  full_parsed.mpmd_pipeline_view = true;
+  data_provider_.ProcessTraceEvents(full_parsed, timeline_);
+
+  // Idle TPU (device 3) has 0 child tracks and is popped (hidden).
+  // Device 2 (unranked active) is displayed with XLA Ops, omitting empty XLA
+  // Modules. Ranked stages 0 and 1 are displayed with XLA Modules.
+  std::vector<std::string> group_names;
+  for (const Group& group : timeline_.timeline_data().groups) {
+    group_names.push_back(group.name);
+  }
+  EXPECT_THAT(group_names,
+              ElementsAre("Stage 0", "XLA Modules", "Stage 1", "XLA Modules",
+                          "Unranked Active TPU", "XLA Ops"));
+  EXPECT_THAT(GetProcessPids(timeline_.timeline_data()), ElementsAre(0, 1, 2));
+
+  // Load 2: Zoomed-in load (K' = 1 < K = 2).
+  // Only Stage 0 has active events; Stage 1 has 0 events and incoming index
+  // >= Base. MergeProcessSortIndices preserves Stage 1's rank (1 < Base),
+  // and PopulateSyncProcessTrack keeps Stage 1's empty XLA Modules track.
+  const std::vector<TraceEvent> zoomed_events = {
+      CreateProcessEvent(0, "Stage 0"),
+      CreateProcessSortIndexEvent(0, "0"),
+      CreateThreadEvent(0, 1, "XLA Modules"),
+      CreateCompleteEvent(0, 1, "stage0_op", 10.0, 5.0),
+
+      CreateProcessEvent(1, "Stage 1"),
+      CreateProcessSortIndexEvent(1,
+                                  absl::StrCat(kMpmdUnrankedSortIndexBase + 1)),
+      CreateThreadEvent(1, 1, "XLA Modules"),
+
+      CreateProcessEvent(2, "Unranked Active TPU"),
+      CreateProcessSortIndexEvent(2,
+                                  absl::StrCat(kMpmdUnrankedSortIndexBase + 2)),
+      CreateThreadEvent(2, 1, "XLA Modules"),
+      CreateThreadEvent(2, 2, "XLA Ops"),
+
+      CreateProcessEvent(3, "Idle TPU"),
+      CreateProcessSortIndexEvent(3,
+                                  absl::StrCat(kMpmdUnrankedSortIndexBase + 3)),
+      CreateThreadEvent(3, 1, "XLA Modules"),
+  };
+
+  ParsedTraceEvents zoomed_parsed;
+  zoomed_parsed.flame_events = zoomed_events;
+  zoomed_parsed.mpmd_pipeline_view = true;
+  data_provider_.ProcessTraceEvents(zoomed_parsed, timeline_);
+
+  std::vector<std::string> zoomed_group_names;
+  for (const Group& group : timeline_.timeline_data().groups) {
+    zoomed_group_names.push_back(group.name);
+  }
+  // Stage 1 is retained despite 0 events in the zoomed slice.
+  // Device 2 and Device 3 are unranked with 0 events and are hidden.
+  EXPECT_THAT(zoomed_group_names,
+              ElementsAre("Stage 0", "XLA Modules", "Stage 1", "XLA Modules"));
+
+  // Load 3: Expanding to wider coverage (K'' = 3 > K = 2).
+  // Incoming has 3 stages (0, 1, 4), where device 0 is reassigned to sort
+  // index 1 (< Base), exercising the `should_overwrite == true` branch for an
+  // existing ranked device.
+  const std::vector<TraceEvent> wider_events = {
+      CreateProcessEvent(0, "Stage 1"),
+      CreateProcessSortIndexEvent(0, "1"),
+      CreateThreadEvent(0, 1, "XLA Modules"),
+      CreateCompleteEvent(0, 1, "stage1_op", 10.0, 5.0),
+
+      CreateProcessEvent(1, "Stage 0"),
+      CreateProcessSortIndexEvent(1, "0"),
+      CreateThreadEvent(1, 1, "XLA Modules"),
+      CreateCompleteEvent(1, 1, "stage0_op", 10.0, 5.0),
+
+      CreateProcessEvent(4, "Stage 2"),
+      CreateProcessSortIndexEvent(4, "2"),
+      CreateThreadEvent(4, 1, "XLA Modules"),
+      CreateCompleteEvent(4, 1, "stage2_op", 10.0, 5.0),
+
+      CreateProcessEvent(2, "Unranked Active TPU"),
+      CreateProcessSortIndexEvent(2,
+                                  absl::StrCat(kMpmdUnrankedSortIndexBase + 2)),
+      CreateThreadEvent(2, 2, "XLA Ops"),
+      CreateCompleteEvent(2, 2, "compute_op", 10.0, 5.0),
+  };
+
+  ParsedTraceEvents wider_parsed;
+  wider_parsed.flame_events = wider_events;
+  wider_parsed.mpmd_pipeline_view = true;
+  data_provider_.ProcessTraceEvents(wider_parsed, timeline_);
+
+  std::vector<std::string> wider_pids;
+  for (const Group& group : timeline_.timeline_data().groups) {
+    if (group.nesting_level == kProcessNestingLevel) {
+      wider_pids.push_back(group.name);
+    }
+  }
+  EXPECT_THAT(wider_pids, ElementsAre("Stage 0", "Stage 1", "Stage 2",
+                                      "Unranked Active TPU"));
+
+  // Also test case where !inserted && !should_overwrite && it->second < Base:
+  // Sub-window load with K = 1 incoming stages where existing has K = 3 stages.
+  // Existing device 0 (rank 1) receives sort index 0 from sub-window with K
+  // = 1. Since should_overwrite is false and it->second (1) < Base, it->second
+  // remains 1.
+  const std::vector<TraceEvent> narrow_events = {
+      CreateProcessEvent(0, "Stage 0"),
+      CreateProcessSortIndexEvent(0, "0"),
+      CreateThreadEvent(0, 1, "XLA Modules"),
+      CreateCompleteEvent(0, 1, "stage0_op", 10.0, 5.0),
+  };
+  ParsedTraceEvents narrow_parsed;
+  narrow_parsed.flame_events = narrow_events;
+  narrow_parsed.mpmd_pipeline_view = true;
+  data_provider_.ProcessTraceEvents(narrow_parsed, timeline_);
+}
+
+TEST_F(
+    DataProviderTest,
+    MpmdSubWindowPanUpgradesPreviouslyUnrankedStageAndMissingIndexSortsLast) {
+  // Load 1: Sub-window 1 (K = 1).
+  // Device 0 is Stage 0. Device 1 has 0 events and receives Base + 1.
+  // Device 5 has events but no sort index metadata (missing index).
+  const std::vector<TraceEvent> subwindow1_events = {
+      CreateProcessEvent(0, "Device 0"),
+      CreateProcessSortIndexEvent(0, "0"),
+      CreateThreadEvent(0, 1, "XLA Modules"),
+      CreateCompleteEvent(0, 1, "stage0_op", 10.0, 5.0),
+
+      CreateProcessEvent(1, "Device 1"),
+      CreateProcessSortIndexEvent(1,
+                                  absl::StrCat(kMpmdUnrankedSortIndexBase + 1)),
+      CreateThreadEvent(1, 1, "XLA Modules"),
+
+      CreateProcessEvent(5, "Device 5 (No Index)"),
+      CreateThreadEvent(5, 1, "Worker Thread"),
+      CreateCompleteEvent(5, 1, "worker_op", 10.0, 5.0),
+  };
+
+  ParsedTraceEvents subwindow1_parsed;
+  subwindow1_parsed.flame_events = subwindow1_events;
+  subwindow1_parsed.mpmd_pipeline_view = true;
+  data_provider_.ProcessTraceEvents(subwindow1_parsed, timeline_);
+
+  // Device 0 (rank 0), Device 1 (rank Base + 1), Device 5 (missing index ->
+  // UINT32_MAX). Device 1 is unranked with 0 events, so it is hidden. Device 5
+  // sorts after ranked stages and Base + id unranked devices.
+  std::vector<std::string> load1_processes;
+  for (const Group& group : timeline_.timeline_data().groups) {
+    if (group.nesting_level == kProcessNestingLevel) {
+      load1_processes.push_back(group.name);
+    }
+  }
+  EXPECT_THAT(load1_processes, ElementsAre("Device 0", "Device 5 (No Index)"));
+
+  // Load 2: Pan to Sub-window 2 (K' = 1).
+  // Device 1 now executes Stage 0 (sort_index = 0 < Base).
+  // Even though incoming_ranks (1) == existing_ranks (1), Device 1 had
+  // sort_index >= Base in existing map, so it is upgraded to 0.
+  // Device 0 receives Base + 0, which does not clobber its existing rank 0.
+  const std::vector<TraceEvent> subwindow2_events = {
+      CreateProcessEvent(0, "Device 0"),
+      CreateProcessSortIndexEvent(0,
+                                  absl::StrCat(kMpmdUnrankedSortIndexBase + 0)),
+      CreateThreadEvent(0, 1, "XLA Modules"),
+
+      CreateProcessEvent(1, "Device 1"),
+      CreateProcessSortIndexEvent(1, "0"),
+      CreateThreadEvent(1, 1, "XLA Modules"),
+      CreateCompleteEvent(1, 1, "stage1_op", 20.0, 5.0),
+  };
+
+  ParsedTraceEvents subwindow2_parsed;
+  subwindow2_parsed.flame_events = subwindow2_events;
+  subwindow2_parsed.mpmd_pipeline_view = true;
+  data_provider_.ProcessTraceEvents(subwindow2_parsed, timeline_);
+
+  std::vector<std::string> load2_processes;
+  for (const Group& group : timeline_.timeline_data().groups) {
+    if (group.nesting_level == kProcessNestingLevel) {
+      load2_processes.push_back(group.name);
+    }
+  }
+  // Both Device 0 and Device 1 are retained because both are ranked stages (<
+  // Base), while Device 5 has 0 events in this window so its group is omitted.
+  EXPECT_THAT(load2_processes, ElementsAre("Device 0", "Device 1"));
+
+  // Also verify that when is_mpmd is false, a process with missing sort index
+  // falls back to std::nullopt and is sorted alphabetically.
+  DataProvider fresh_provider;
+  Timeline fresh_timeline(palette_);
+  const std::vector<TraceEvent> non_mpmd_events = {
+      CreateProcessEvent(9, "Beta"),
+      CreateThreadEvent(9, 1, "T1"),
+      CreateCompleteEvent(9, 1, "e1", 1.0, 1.0),
+
+      CreateProcessEvent(8, "Alpha"),
+      CreateThreadEvent(8, 1, "T1"),
+      CreateCompleteEvent(8, 1, "e2", 1.0, 1.0),
+  };
+  ParsedTraceEvents non_mpmd_parsed;
+  non_mpmd_parsed.flame_events = non_mpmd_events;
+  non_mpmd_parsed.mpmd_pipeline_view = false;
+  fresh_provider.ProcessTraceEvents(non_mpmd_parsed, fresh_timeline);
+
+  std::vector<std::string> non_mpmd_pids;
+  for (const Group& group : fresh_timeline.timeline_data().groups) {
+    if (group.nesting_level == kProcessNestingLevel) {
+      non_mpmd_pids.push_back(group.name);
+    }
+  }
+  EXPECT_THAT(non_mpmd_pids, ElementsAre("Alpha", "Beta"));
 }
 
 TEST_F(DataProviderTest, MpmdThreadSortingPermutation) {

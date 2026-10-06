@@ -37,7 +37,6 @@
 #include "xprof/convert/trace_viewer/trace_events.h"
 #include "xprof/convert/trace_viewer/trace_events_to_json.h"
 #include "xprof/convert/trace_viewer/trace_options.h"
-#include "xprof/convert/trace_viewer/trace_viewer_visibility.h"
 #include "xprof/convert/unified_session_snapshot.h"
 #include "xprof/convert/xplane_to_trace_container.h"
 #include "xprof/convert/xprof_thread_pool_executor.h"
@@ -378,6 +377,8 @@ absl::Status StreamingTraceViewerProcessor::SerializeAndSetOutput(
       device_type = TraceDeviceType::kTpu;
     }
     tensorflow::profiler::DeltaSeriesProtoConversionOptions proto_options;
+    proto_options.mpmd_pipeline_view =
+        profiler_trace_options.mpmd_pipeline_view;
     proto_options.details =
         TraceOptionsToDetails(device_type, profiler_trace_options);
     absl::StatusOr<std::string> compressed_result =
@@ -401,6 +402,8 @@ absl::Status StreamingTraceViewerProcessor::SerializeAndSetOutput(
     }
     json_trace_options.details =
         TraceOptionsToDetails(device_type, profiler_trace_options);
+    json_trace_options.mpmd_pipeline_view =
+        profiler_trace_options.mpmd_pipeline_view;
     IOBufferAdapter adapter(&trace_viewer_json);
     absl::Time json_start_time = absl::Now();
     TraceEventsToJson<IOBufferAdapter, TraceEventsContainer, RawData>(

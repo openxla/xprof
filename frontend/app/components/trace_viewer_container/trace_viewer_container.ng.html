@@ -1,33 +1,35 @@
-<div [hidden]="!useTraceViewerV2" class="trace-viewer-component">
-  <ng-container *ngIf="traceViewerV2LoadingStatus === TraceViewerV2LoadingStatus.ERROR">
+<div [hidden]="!useTraceViewerV2()" class="trace-viewer-component">
+  @if (traceViewerV2LoadingStatus === TraceViewerV2LoadingStatus.ERROR) {
     <div class="error-overlay">
       <div class="error-header">
-        <mat-icon color="warn">error</mat-icon>
+        <md-icon>error</md-icon>
         <span class="error-title">Failed to load trace</span>
       </div>
       <div class="error-message">{{traceViewerV2ErrorMessage || 'An unexpected error occurred while loading the trace.'}}</div>
       <div class="error-actions">
-        <button mat-flat-button color="primary" (click)="onReload()">
-          <mat-icon>refresh</mat-icon>
+        <md-filled-button (click)="onReload()">
+          <md-icon slot="icon">refresh</md-icon>
           Reload
-        </button>
+        </md-filled-button>
       </div>
     </div>
-  </ng-container>
-  <ng-container *ngIf="traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR">
-    <div *ngIf="isInitialLoading" class="loading-overlay">
-      <mat-progress-bar mode="indeterminate" aria-label="Loading trace data"></mat-progress-bar>
-      <div class="loading-status">{{traceViewerV2LoadingStatus}}</div>
-      <div class="tutorial">{{tutorials[currentTutorialIndex]}}</div>
-    </div>
-  </ng-container>
+  }
+  @if (traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR) {
+    @if (isInitialLoading) {
+      <div class="loading-overlay">
+        <md-linear-progress indeterminate aria-label="Loading trace data"></md-linear-progress>
+        <div class="loading-status">{{traceViewerV2LoadingStatus}}</div>
+        <div class="tutorial">{{tutorials[currentTutorialIndex]}}</div>
+      </div>
+    }
+  }
   <div #searchContainer class="search-container" role="toolbar" aria-label="Timeline toolbar">
     <mat-form-field
       appearance="outline"
       class="search-form-field"
       [class.has-query]="!!currentSearchQuery"
       [class.no-results]="hasNoSearchResults">
-      <mat-icon matPrefix>search</mat-icon>
+      <md-icon matPrefix>search</md-icon>
       <input
         matInput
         #searchBox
@@ -41,30 +43,31 @@
         (keydown.shift.enter)="prevSearchResult(searchBox.value, $event)"
         (keydown.escape)="onSearchEscape($event)" />
       <div matSuffix class="search-suffix">
-        <kbd *ngIf="!searchQuery" class="search-shortcut-hint" aria-hidden="true">/</kbd>
-        <ng-container *ngIf="currentSearchQuery">
+        @if (!searchQuery) {
+          <kbd class="search-shortcut-hint" aria-hidden="true">/</kbd>
+        }
+        @if (currentSearchQuery) {
           <span class="search-result-count" role="status" aria-live="polite">{{searchResultCountText}}</span>
           <div class="search-divider"></div>
-          <button type="button" mat-icon-button aria-label="Previous search result" matTooltip="Previous result (Shift+Enter)" [disabled]="hasNoSearchResults" (click)="prevSearchResult(searchBox.value, $event)" (keydown.enter)="prevSearchResult(searchBox.value)" class="search-arrow-btn">
-            <mat-icon>keyboard_arrow_up</mat-icon>
-          </button>
-          <button type="button" mat-icon-button aria-label="Next search result" matTooltip="Next result (Enter)" [disabled]="hasNoSearchResults" (click)="nextSearchResult(searchBox.value, $event)" (keydown.enter)="nextSearchResult(searchBox.value)" class="search-arrow-btn">
-            <mat-icon>keyboard_arrow_down</mat-icon>
-          </button>
-          <button type="button" mat-icon-button aria-label="Clear search" matTooltip="Clear search (Esc)" (click)="clearSearch($event)" (keydown.enter)="clearSearch()" class="search-clear-btn">
-            <mat-icon>close</mat-icon>
-          </button>
-        </ng-container>
+          <md-icon-button type="button" aria-label="Previous search result" matTooltip="Previous result (Shift+Enter)" [disabled]="hasNoSearchResults" (click)="prevSearchResult(searchBox.value, $event)" (keydown.enter)="prevSearchResult(searchBox.value)" class="search-arrow-btn">
+            <md-icon>keyboard_arrow_up</md-icon>
+          </md-icon-button>
+          <md-icon-button type="button" aria-label="Next search result" matTooltip="Next result (Enter)" [disabled]="hasNoSearchResults" (click)="nextSearchResult(searchBox.value, $event)" (keydown.enter)="nextSearchResult(searchBox.value)" class="search-arrow-btn">
+            <md-icon>keyboard_arrow_down</md-icon>
+          </md-icon-button>
+          <md-icon-button type="button" aria-label="Clear search" matTooltip="Clear search (Esc)" (click)="clearSearch($event)" (keydown.enter)="clearSearch()" class="search-clear-btn">
+            <md-icon>close</md-icon>
+          </md-icon-button>
+        }
       </div>
     </mat-form-field>
 
     <span class="toolbar-divider" aria-hidden="true"></span>
 
     <div class="mouse-mode-container" role="radiogroup" aria-label="Pointer mode">
-      <button
+      <md-icon-button
         #selectBtn
         type="button"
-        mat-icon-button
         role="radio"
         class="mode-btn"
         [class.active]="currentMouseMode === MouseMode.SELECT"
@@ -72,12 +75,11 @@
         (click)="setMouseMode(MouseMode.SELECT)"
         matTooltip="Select (1)"
         aria-label="Select mode">
-        <mat-icon fontSet="material-symbols-outlined" aria-hidden="true">arrow_selector_tool</mat-icon>
-      </button>
-      <button
+        <md-icon class="material-symbols-outlined" aria-hidden="true">arrow_selector_tool</md-icon>
+      </md-icon-button>
+      <md-icon-button
         #panBtn
         type="button"
-        mat-icon-button
         role="radio"
         class="mode-btn"
         [class.active]="currentMouseMode === MouseMode.PAN"
@@ -85,12 +87,11 @@
         (click)="setMouseMode(MouseMode.PAN)"
         matTooltip="Pan (2)"
         aria-label="Pan mode">
-        <mat-icon fontSet="material-symbols-outlined" aria-hidden="true">drag_pan</mat-icon>
-      </button>
-      <button
+        <md-icon class="material-symbols-outlined" aria-hidden="true">drag_pan</md-icon>
+      </md-icon-button>
+      <md-icon-button
         #zoomBtn
         type="button"
-        mat-icon-button
         role="radio"
         class="mode-btn"
         [class.active]="currentMouseMode === MouseMode.ZOOM"
@@ -98,14 +99,13 @@
         (click)="setMouseMode(MouseMode.ZOOM)"
         matTooltip="Zoom (3)"
         aria-label="Zoom mode">
-        <mat-icon fontSet="material-symbols-outlined" aria-hidden="true">height</mat-icon>
-      </button>
+        <md-icon class="material-symbols-outlined" aria-hidden="true">height</md-icon>
+      </md-icon-button>
       <div class="timing-button-wrapper">
-        <button
+        <md-icon-button
           #timingBtn
           type="button"
-          mat-icon-button
-          role="radio"
+            role="radio"
           class="mode-btn"
           [class.active]="currentMouseMode === MouseMode.TIMING"
           [attr.aria-checked]="currentMouseMode === MouseMode.TIMING"
@@ -113,21 +113,23 @@
           matTooltip="Measure (4)"
           [matTooltipDisabled]="showTimingOnboarding"
           aria-label="Measure mode">
-          <mat-icon fontSet="material-symbols-outlined" aria-hidden="true">fit_width</mat-icon>
-        </button>
+          <md-icon class="material-symbols-outlined" aria-hidden="true">fit_width</md-icon>
+        </md-icon-button>
         <!-- Coach Mark Bubble -->
-        <div *ngIf="showTimingOnboarding" class="coach-mark-bubble" role="dialog" aria-labelledby="coach-mark-title">
-          <div class="coach-mark-title" id="coach-mark-title">Measure mode</div>
-          <div class="coach-mark-content">
-            Click and drag on the timeline to measure a time range. In other modes, hold <kbd>Shift</kbd> while you drag or click to measure.
-            <br><br>Tip: Press <kbd>4</kbd> to switch to this mode.
+        @if (showTimingOnboarding) {
+          <div class="coach-mark-bubble" role="dialog" aria-labelledby="coach-mark-title">
+            <div class="coach-mark-title" id="coach-mark-title">Measure mode</div>
+            <div class="coach-mark-content">
+              Click and drag on the timeline to measure a time range. In other modes, hold <kbd>Shift</kbd> while you drag or click to measure.
+              <br><br>Tip: Press <kbd>4</kbd> to switch to this mode.
+            </div>
+            <div class="coach-mark-actions">
+              <md-text-button type="button" class="coach-mark-button" (click)="dismissTimingOnboarding()">Got it</md-text-button>
+            </div>
+            <!-- Arrow -->
+            <div class="coach-mark-arrow"></div>
           </div>
-          <div class="coach-mark-actions">
-            <button type="button" mat-button class="coach-mark-button" (click)="dismissTimingOnboarding()">Got it</button>
-          </div>
-          <!-- Arrow -->
-          <div class="coach-mark-arrow"></div>
-        </div>
+        }
       </div>
     </div>
 
@@ -180,13 +182,12 @@
 
     <div class="spacer"></div>
 
-    <div
-      class="incremental-loading"
-      role="status"
-      *ngIf="!isInitialLoading && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR">
-      <mat-progress-spinner mode="indeterminate" diameter="14" strokeWidth="2" aria-hidden="true"></mat-progress-spinner>
-      <span class="loading-status">Loading more data…</span>
-    </div>
+    @if (searching() || (!isInitialLoading && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR)) {
+      <div class="incremental-loading" role="status">
+        <md-circular-progress indeterminate class="incremental-loading-spinner" aria-hidden="true"></md-circular-progress>
+        <span class="loading-status">Loading more data…</span>
+      </div>
+    }
 
     <trace-viewer-customization-panel></trace-viewer-customization-panel>
 
@@ -200,18 +201,22 @@
         aria-label="More options">
         <mat-icon aria-hidden="true">more_vert</mat-icon>
       </button>
-      <button *ngIf="useTraceViewerV2 && showHelpButton" type="button" mat-icon-button class="toolbar-action-btn" (click)="openHelpDialog()" matTooltip="Help" aria-label="Help">
-        <mat-icon fontSet="material-symbols-outlined" aria-hidden="true">help</mat-icon>
-      </button>
+      @if (useTraceViewerV2() && showHelpButton()) {
+        <md-icon-button type="button" class="toolbar-action-btn" (click)="openHelpDialog()" matTooltip="Help" aria-label="Help">
+          <md-icon class="material-symbols-outlined" aria-hidden="true">help</md-icon>
+        </md-icon-button>
+      }
       <trace-viewer-help-dialog></trace-viewer-help-dialog>
-      <button *ngIf="useTraceViewerV2" type="button" mat-icon-button class="toolbar-action-btn shortcuts-guide-btn" (click)="openHelpDialog()" matTooltip="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">
-        <mat-icon fontSet="material-symbols-outlined" aria-hidden="true">keyboard</mat-icon>
-      </button>
+      @if (useTraceViewerV2()) {
+        <md-icon-button type="button" class="toolbar-action-btn shortcuts-guide-btn" (click)="openHelpDialog()" matTooltip="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">
+          <md-icon class="material-symbols-outlined" aria-hidden="true">keyboard</md-icon>
+        </md-icon-button>
+      }
       <trace-viewer-shortcuts-dialog></trace-viewer-shortcuts-dialog>
       <div class="fullscreen-container">
-        <button type="button" mat-icon-button class="toolbar-action-btn" (click)="toggleFullscreen()" [class.active]="isFullscreen" [matTooltip]="isFullscreen ? 'Exit full screen' : 'Full screen'" [attr.aria-label]="isFullscreen ? 'Exit full screen' : 'Full screen'">
-          <mat-icon fontSet="material-symbols-outlined" aria-hidden="true">{{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}}</mat-icon>
-        </button>
+        <md-icon-button type="button" class="toolbar-action-btn" (click)="toggleFullscreen()" [class.active]="isFullscreen" [matTooltip]="isFullscreen ? 'Exit full screen' : 'Full screen'" [attr.aria-label]="isFullscreen ? 'Exit full screen' : 'Full screen'">
+          <md-icon class="material-symbols-outlined" aria-hidden="true">{{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}}</md-icon>
+        </md-icon-button>
       </div>
     </div>
 
@@ -243,159 +248,213 @@
       <as-split-area [size]="timelineHeightPercent">
         <div class="canvas-container" #canvasContainer>
           <ng-content select="[canvasTopBar]"></ng-content>
-          <kernel-minimap
-            *ngIf="enableMinimap && !projectedMinimap"
-            (visibleRangeChange)="onMinimapVisibleRangeChange($event)"
-            (selectEvent)="onMinimapSelectEvent($event)">
-          </kernel-minimap>
+          @if (enableMinimap && !projectedMinimap) {
+            <kernel-minimap
+              (visibleRangeChange)="onMinimapVisibleRangeChange($event)"
+              (selectEvent)="onMinimapSelectEvent($event)">
+            </kernel-minimap>
+          }
           <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" (mousedown)="blurActiveElement()"></canvas>
           <!-- The host can overlay the timeline, e.g. with a tooltip. -->
           <ng-content select="[canvasOverlay]"></ng-content>
-          <timeline-player *ngIf="enableTimelinePlayer" (play)="onPlay()" (pause)="onPause()" (seek)="onSeek($event)" (speedChange)="onSpeedChange($event)" style="flex-shrink: 0;"></timeline-player>
+          @if (enableTimelinePlayer) {
+            <timeline-player (play)="onPlay()" (pause)="onPause()" (seek)="onSeek($event)" (speedChange)="onSpeedChange($event)" style="flex-shrink: 0;"></timeline-player>
+          }
         </div>
       </as-split-area>
       <as-split-area [size]="detailHeightPercent" [minSize]="isDrawerVisible ? minDrawerSizePercent : 0" [visible]="isDrawerVisible">
-        <div [hidden]="!customDrawerOpen" class="custom-drawer-container">
+        <div [hidden]="!customDrawerOpen()" class="custom-drawer-container">
           <ng-content select="[drawerOverlay]"></ng-content>
         </div>
-        <div *ngIf="selectedEvent && !customDrawerOpen" #drawer class="drawer">
-          <div class="event-detail-table-container">
-            <div *ngIf="isSingleEventTable()" class="single-event-details">
-              <as-split direction="horizontal" style="min-height: 150px; width: 100%;">
-                <as-split-area [size]="60" class="split-area-left">
-                  <div class="split-area-inner">
-                    <ng-container
-                      *ngIf="useTraceViewerV2 && selectedEventJson; else flatLeftDetails">
-                      <div class="json-event-details">
-                        <div
-                          #jsonStickySentinel
-                          class="json-sticky-sentinel"
-                          aria-hidden="true"></div>
-                        <div
-                          class="json-event-details-title"
-                          [class.is-sticky]="isJsonTitleStuck">
-                          Event details
+        @if (!customDrawerOpen() && selectedEvent(); as selectedEvent) {
+          <div #drawer class="drawer">
+            <div class="event-detail-table-container">
+              @if (isSingleEventTable()) {
+                <div class="single-event-details">
+                  <as-split direction="horizontal" style="min-height: 150px; width: 100%;">
+                    <as-split-area [size]="60" class="split-area-left">
+                      <div class="split-area-inner">
+                        @if (useTraceViewerV2() && selectedEventJson) {
+                          <div class="json-event-details">
+                            <div
+                              #jsonStickySentinel
+                              class="json-sticky-sentinel"
+                              aria-hidden="true"></div>
+                            <div
+                              class="json-event-details-title"
+                              [class.is-sticky]="isJsonTitleStuck">
+                              Event details
+                            </div>
+                            <ngx-json-viewer [json]="selectedEventJson" [depth]="3">
+                            </ngx-json-viewer>
+                          </div>
+                        } @else {
+                          <h3>{{selectedEvent.name}}</h3>
+                          @for (prop of leftSideProperties; track trackByProperty($index, prop)) {
+                            <div class="detail-row">
+                              <span class="detail-label">{{prop.property}}:</span>
+                              <span class="detail-value">{{prop.value}}</span>
+                            </div>
+                          }
+                        }
+                      </div>
+                    </as-split-area>
+                    <as-split-area [size]="40" class="split-area-right">
+                      <div class="split-area-inner">
+                        @for (prop of rightSideProperties; track trackByProperty($index, prop)) {
+                          <div class="detail-row" [class.hlo-text-row]="prop.property === 'HLO Text'" [class.collapsed]="prop.property === 'HLO Text' && isHloTextCollapsed">
+                            <span class="detail-label">
+                              {{prop.property}}:
+                              @if (prop.property === 'HLO Text') {
+                                <md-icon-button
+                                  type="button"
+                                  class="hlo-collapse-btn"
+                                  (click)="toggleHloTextCollapse()"
+                                  [attr.aria-label]="isHloTextCollapsed ? 'Expand HLO text' : 'Collapse HLO text'"
+                                  [title]="isHloTextCollapsed ? 'Expand HLO text' : 'Collapse HLO text'">
+                                  <md-icon>{{isHloTextCollapsed ? 'keyboard_arrow_down' : 'keyboard_arrow_up'}}</md-icon>
+                                </md-icon-button>
+                              }
+                            </span>
+                            @if (prop.property === 'HLO Text' && isHloTextCollapsed) {
+                              <span class="detail-value hlo-preview">{{getHloTextPreview(prop.value)}}</span>
+                            }
+                            @if (prop.property !== 'HLO Text' || !isHloTextCollapsed) {
+                              <span class="detail-value">{{prop.value}}</span>
+                            }
+                          </div>
+                        }
+                        <div class="cross-tool-links">
+                          @if (selectedEvent.stackTraceLinkHtml) {
+                            <div [innerHTML]="selectedEvent.stackTraceLinkHtml"></div>
+                          }
+                          @if (selectedEvent.rooflineModelLinkHtml) {
+                            <div [innerHTML]="selectedEvent.rooflineModelLinkHtml"></div>
+                          }
+                          @if (selectedEvent.graphViewerLinkHtml) {
+                            <div [innerHTML]="selectedEvent.graphViewerLinkHtml"></div>
+                          }
+                          @if (selectedEvent.hloOpStatsLinkHtml) {
+                            <div [innerHTML]="selectedEvent.hloOpStatsLinkHtml"></div>
+                          }
+                          @if (selectedEvent.kernelViewerLinkHtml) {
+                            <div [innerHTML]="selectedEvent.kernelViewerLinkHtml"></div>
+                          }
+                          @if (selectedEvent.stepGroupLinkHtml) {
+                            <div [innerHTML]="selectedEvent.stepGroupLinkHtml"></div>
+                          }
                         </div>
-                        <ngx-json-viewer [json]="selectedEventJson" [depth]="3">
-                        </ngx-json-viewer>
                       </div>
+                    </as-split-area>
+                  </as-split>
+                </div>
+              }
+
+              @if (!isSingleEventTable()) {
+                @if (availableDetailTabs.length > 1) {
+                  <md-tabs [activeTabIndex]="activeDetailTabIndex" (change)="onDetailTabChange($event)">
+                    @if (showMetricsTable()) {
+                      <md-primary-tab>Profile Metrics</md-primary-tab>
+                    }
+                    @if (countersDataSource.data.length > 0) {
+                      <md-primary-tab>Counters</md-primary-tab>
+                    }
+                  </md-tabs>
+                  @switch (availableDetailTabs[activeDetailTabIndex]) {
+                    @case ('metrics') {
+                      <ng-container *ngTemplateOutlet="metricsTable"></ng-container>
+                    }
+                    @case ('counters') {
+                      <ng-container *ngTemplateOutlet="countersTable"></ng-container>
+                    }
+                    @case ('rawEvents') {
+                      <ng-container *ngTemplateOutlet="rawEventsTable"></ng-container>
+                    }
+                  }
+                }
+                @if (activeMultiEventTableCount() <= 1) {
+                  <div>
+                    @if (showMetricsTable()) {
+                      <ng-container *ngTemplateOutlet="metricsTable"></ng-container>
+                    }
+                    @if (countersDataSource.data.length > 0) {
+                      <ng-container *ngTemplateOutlet="countersTable"></ng-container>
+                    }
+                  </div>
+                }
+              }
+
+              <ng-template #metricsTable>
+                <table mat-table matSort class="event-detail-table" [dataSource]="metricsDataSource">
+                  @for (col of metricsColumns; track col) {
+                    <ng-container [matColumnDef]="col">
+                      <th mat-header-cell *matHeaderCellDef mat-sort-header style="resize: horizontal; overflow: hidden; padding-right: 16px;">
+                        {{ getColumnHeader(col) }}
+                      </th>
+                      <td mat-cell *matCellDef="let element" style="word-break: break-word;">
+                        {{ getCellContent(element, col) }}
+                      </td>
+                      <td mat-footer-cell *matFooterCellDef>
+                        @if (col === 'name') {
+                          <strong>Totals</strong>
+                        }
+                        @if (col === 'occurrences') {
+                          <strong>{{ getTotal('occurrences', metricsDataSource) }}</strong>
+                        }
+                        @if (col === 'wallDuration') {
+                          <strong>{{ getTotal('wallDuration', metricsDataSource) | number:'1.2-2' }}us</strong>
+                        }
+                        @if (col === 'selfTime') {
+                          <strong>{{ getTotal('selfTime', metricsDataSource) | number:'1.2-2' }}us</strong>
+                        }
+                        @if (col === 'avgWallDuration') {
+                          <strong>{{ (getTotal('wallDuration', metricsDataSource) / (getTotal('occurrences', metricsDataSource) || 1)) | number:'1.2-2' }}us</strong>
+                        }
+                      </td>
                     </ng-container>
-                    <ng-template #flatLeftDetails>
-                      <h3>{{selectedEvent.name}}</h3>
-                      <div class="detail-row" *ngFor="let prop of leftSideProperties; trackBy: trackByProperty">
-                        <span class="detail-label">{{prop.property}}:</span>
-                        <span class="detail-value">{{prop.value}}</span>
-                      </div>
-                    </ng-template>
-                  </div>
-                </as-split-area>
-                <as-split-area [size]="40" class="split-area-right">
-                  <div class="split-area-inner">
-                    <div class="detail-row" *ngFor="let prop of rightSideProperties; trackBy: trackByProperty" [class.hlo-text-row]="prop.property === 'HLO Text'" [class.collapsed]="prop.property === 'HLO Text' && isHloTextCollapsed">
-                      <span class="detail-label">
-                        {{prop.property}}:
-                        <button
-                          *ngIf="prop.property === 'HLO Text'"
-                          type="button"
-                          class="hlo-collapse-btn"
-                          (click)="toggleHloTextCollapse()"
-                          [attr.aria-label]="isHloTextCollapsed ? 'Expand HLO text' : 'Collapse HLO text'"
-                          [title]="isHloTextCollapsed ? 'Expand HLO text' : 'Collapse HLO text'">
-                          <mat-icon>{{isHloTextCollapsed ? 'keyboard_arrow_down' : 'keyboard_arrow_up'}}</mat-icon>
-                        </button>
-                      </span>
-                      <span class="detail-value hlo-preview" *ngIf="prop.property === 'HLO Text' && isHloTextCollapsed">{{getHloTextPreview(prop.value)}}</span>
-                      <span class="detail-value" *ngIf="prop.property !== 'HLO Text' || !isHloTextCollapsed">{{prop.value}}</span>
-                    </div>
-                    <div class="cross-tool-links">
-                      <div *ngIf="selectedEvent.stackTraceLinkHtml" [innerHTML]="selectedEvent.stackTraceLinkHtml"></div>
-                      <div *ngIf="selectedEvent.rooflineModelLinkHtml" [innerHTML]="selectedEvent.rooflineModelLinkHtml"></div>
-                      <div *ngIf="selectedEvent.graphViewerLinkHtml" [innerHTML]="selectedEvent.graphViewerLinkHtml"></div>
-                      <div *ngIf="selectedEvent.hloOpStatsLinkHtml" [innerHTML]="selectedEvent.hloOpStatsLinkHtml"></div>
-                      <div *ngIf="selectedEvent.kernelViewerLinkHtml" [innerHTML]="selectedEvent.kernelViewerLinkHtml"></div>
-                      <div *ngIf="selectedEvent.stepGroupLinkHtml" [innerHTML]="selectedEvent.stepGroupLinkHtml"></div>
-                    </div>
-                  </div>
-                </as-split-area>
-              </as-split>
-            </div>
+                  }
 
-            <div *ngIf="!isSingleEventTable()">
-              <mat-tab-group *ngIf="activeMultiEventTableCount() > 1">
-                <mat-tab label="Profile Metrics" *ngIf="showMetricsTable()">
-                  <ng-template matTabContent>
-                    <ng-container *ngTemplateOutlet="metricsTable"></ng-container>
-                  </ng-template>
-                </mat-tab>
-                <mat-tab label="Counters" *ngIf="countersDataSource.data.length > 0">
-                  <ng-template matTabContent>
-                    <ng-container *ngTemplateOutlet="countersTable"></ng-container>
-                  </ng-template>
-                </mat-tab>
-              </mat-tab-group>
+                  <tr mat-header-row *matHeaderRowDef="metricsColumns; sticky: true"></tr>
+                  <tr mat-row *matRowDef="let row; columns: metricsColumns;"></tr>
+                  <tr mat-footer-row *matFooterRowDef="metricsColumns; sticky: true"></tr>
+                </table>
+              </ng-template>
 
-              <div *ngIf="activeMultiEventTableCount() <= 1">
-                <ng-container *ngIf="showMetricsTable()">
-                  <ng-container *ngTemplateOutlet="metricsTable"></ng-container>
-                </ng-container>
-                <ng-container *ngIf="countersDataSource.data.length > 0">
-                  <ng-container *ngTemplateOutlet="countersTable"></ng-container>
-                </ng-container>
-              </div>
-            </div>
+              <ng-template #countersTable>
+                <table mat-table matSort class="event-detail-table" [dataSource]="countersDataSource">
+                  @for (col of counterColumns; track col) {
+                    <ng-container [matColumnDef]="col">
+                      <th mat-header-cell *matHeaderCellDef mat-sort-header style="resize: horizontal; overflow: hidden; padding-right: 16px;">
+                        {{ getColumnHeader(col) }}
+                      </th>
+                      <td mat-cell *matCellDef="let element" style="word-break: break-word;">
+                        {{ getCellContent(element, col) }}
+                      </td>
+                    </ng-container>
+                  }
 
-            <ng-template #metricsTable>
-              <table mat-table matSort class="event-detail-table" [dataSource]="metricsDataSource">
-                <ng-container *ngFor="let col of metricsColumns" [matColumnDef]="col">
-                  <th mat-header-cell *matHeaderCellDef mat-sort-header style="resize: horizontal; overflow: hidden; padding-right: 16px;">
-                    {{ getColumnHeader(col) }}
-                  </th>
-                  <td mat-cell *matCellDef="let element" style="word-break: break-word;">
-                    {{ getCellContent(element, col) }}
-                  </td>
-                  <td mat-footer-cell *matFooterCellDef>
-                    <ng-container *ngIf="col === 'name'"><strong>Totals</strong></ng-container>
-                    <ng-container *ngIf="col === 'occurrences'"><strong>{{ getTotal('occurrences', metricsDataSource) }}</strong></ng-container>
-                    <ng-container *ngIf="col === 'wallDuration'"><strong>{{ getTotal('wallDuration', metricsDataSource) | number:'1.2-2' }}us</strong></ng-container>
-                    <ng-container *ngIf="col === 'selfTime'"><strong>{{ getTotal('selfTime', metricsDataSource) | number:'1.2-2' }}us</strong></ng-container>
-                    <ng-container *ngIf="col === 'avgWallDuration'"><strong>{{ (getTotal('wallDuration', metricsDataSource) / (getTotal('occurrences', metricsDataSource) || 1)) | number:'1.2-2' }}us</strong></ng-container>
-                  </td>
-                </ng-container>
+                  <tr mat-header-row *matHeaderRowDef="counterColumns; sticky: true"></tr>
+                  <tr mat-row *matRowDef="let row; columns: counterColumns;"></tr>
+                </table>
+              </ng-template>
 
-                <tr mat-header-row *matHeaderRowDef="metricsColumns; sticky: true"></tr>
-                <tr mat-row *matRowDef="let row; columns: metricsColumns;"></tr>
-                <tr mat-footer-row *matFooterRowDef="metricsColumns; sticky: true"></tr>
-              </table>
-            </ng-template>
-
-            <ng-template #countersTable>
-              <table mat-table matSort class="event-detail-table" [dataSource]="countersDataSource">
-                <ng-container *ngFor="let col of counterColumns" [matColumnDef]="col">
-                  <th mat-header-cell *matHeaderCellDef mat-sort-header style="resize: horizontal; overflow: hidden; padding-right: 16px;">
-                    {{ getColumnHeader(col) }}
-                  </th>
-                  <td mat-cell *matCellDef="let element" style="word-break: break-word;">
-                    {{ getCellContent(element, col) }}
-                  </td>
-                </ng-container>
-
-                <tr mat-header-row *matHeaderRowDef="counterColumns; sticky: true"></tr>
-                <tr mat-row *matRowDef="let row; columns: counterColumns;"></tr>
-              </table>
-            </ng-template>
-
-            <div *ngIf="selectionStartFormat" class="selection-info" style="margin-top: 16px;">
-              Selection Start: {{ selectionStartFormat }}
-            </div>
-            <div *ngIf="selectionExtentFormat" class="selection-info">
-              Selection Extent: {{ selectionExtentFormat }}
+              @if (selectionStartFormat()) {
+                <div class="selection-info" style="margin-top: 16px;">
+                  Selection Start: {{ selectionStartFormat() }}
+                </div>
+              }
+              @if (selectionExtentFormat()) {
+                <div class="selection-info">
+                  Selection Extent: {{ selectionExtentFormat() }}
+                </div>
+              }
             </div>
           </div>
-        </div>
+        }
       </as-split-area>
     </as-split>
   </div>
 </div>
-<div [hidden]="useTraceViewerV2" class="trace-viewer-component">
-  <iframe #tvIframe [src]="url | safe" onload="focus();"></iframe>
+<div [hidden]="useTraceViewerV2()" class="trace-viewer-component">
+  <iframe #tvIframe [src]="url() | safe" onload="focus();"></iframe>
 </div>

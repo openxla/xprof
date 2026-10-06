@@ -285,6 +285,7 @@ canvas.emscripten {
 
     .file-link-icon {
       flex-shrink: 0;
+      --md-icon-size: 14px;
       width: 14px;
       height: 14px;
       font-size: 14px;
@@ -355,7 +356,9 @@ canvas.emscripten {
     white-space: nowrap;
     animation: pinnedIndicatorIn 160ms cubic-bezier(0.2, 0, 0, 1.2);
 
-    mat-icon {
+    mat-icon,
+    md-icon {
+      --md-icon-size: 14px;
       width: 14px;
       height: 14px;
       font-size: 14px;
@@ -644,6 +647,7 @@ canvas.emscripten {
 
   .crumb-sep {
     flex-shrink: 0;
+    --md-icon-size: 14px;
     width: 14px;
     height: 14px;
     font-size: 14px;
@@ -719,6 +723,10 @@ canvas.emscripten {
   }
 
   .footer-action-btn {
+    --md-icon-button-state-layer-width: 28px;
+    --md-icon-button-state-layer-height: 28px;
+    --md-icon-button-icon-size: 16px;
+    --md-icon-button-icon-color: var(--tt-text-muted);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -737,7 +745,9 @@ canvas.emscripten {
       }
     }
 
-    mat-icon {
+    mat-icon,
+    md-icon {
+      --md-icon-size: 16px;
       width: 16px;
       height: 16px;
       font-size: 16px;
@@ -746,12 +756,14 @@ canvas.emscripten {
 
     &:hover,
     &:focus-visible {
+      --md-icon-button-icon-color: var(--tt-primary);
       background: var(--tt-surface-chip);
       color: var(--tt-primary);
       outline: none;
     }
 
     &.copied {
+      --md-icon-button-icon-color: var(--tt-good);
       color: var(--tt-good);
     }
   }
@@ -880,7 +892,9 @@ canvas.emscripten {
       width: 40px;
       padding: 0;
 
-      mat-icon {
+      mat-icon,
+      md-icon {
+        --md-icon-size: var(--tv-toolbar-icon-size);
         width: var(--tv-toolbar-icon-size);
         height: var(--tv-toolbar-icon-size);
         padding: 0;
@@ -970,7 +984,9 @@ canvas.emscripten {
 }
 
 button.search-arrow-btn.mat-mdc-icon-button,
-button.search-clear-btn.mat-mdc-icon-button {
+button.search-clear-btn.mat-mdc-icon-button,
+md-icon-button.search-arrow-btn,
+md-icon-button.search-clear-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1003,7 +1019,9 @@ button.search-clear-btn.mat-mdc-icon-button {
     color: color-mix(in srgb, var(--mat-sys-on-surface) 38%, transparent);
   }
 
-  mat-icon {
+  mat-icon,
+  md-icon {
+    --md-icon-size: 20px;
     width: 20px;
     height: 20px;
     font-size: 20px;
@@ -1043,7 +1061,9 @@ button.search-clear-btn.mat-mdc-icon-button {
 // view actions. The Material ripple is replaced with a flat state layer so
 // that the buttons fit the 36px toolbar.
 button.mode-btn.mat-mdc-icon-button,
-button.toolbar-action-btn.mat-mdc-icon-button {
+button.toolbar-action-btn.mat-mdc-icon-button,
+md-icon-button.mode-btn,
+md-icon-button.toolbar-action-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1084,7 +1104,9 @@ button.toolbar-action-btn.mat-mdc-icon-button {
     cursor: default;
   }
 
-  mat-icon {
+  mat-icon,
+  md-icon {
+    --md-icon-size: var(--tv-toolbar-icon-size);
     width: var(--tv-toolbar-icon-size);
     height: var(--tv-toolbar-icon-size);
     margin: 0;
@@ -1521,6 +1543,10 @@ button.overflow-menu-btn.mat-mdc-icon-button {
         }
 
         .hlo-collapse-btn {
+          --md-icon-button-state-layer-width: 20px;
+          --md-icon-button-state-layer-height: 20px;
+          --md-icon-button-icon-size: 16px;
+          --md-icon-button-icon-color: var(--mat-sys-on-surface-variant);
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -1535,11 +1561,14 @@ button.overflow-menu-btn.mat-mdc-icon-button {
           border-radius: 4px;
 
           &:hover {
+            --md-icon-button-icon-color: var(--mat-sys-on-surface);
             background-color: var(--mat-sys-surface-variant);
             color: var(--mat-sys-on-surface);
           }
 
-          mat-icon {
+          mat-icon,
+          md-icon {
+            --md-icon-size: 16px;
             font-size: 16px;
             width: 16px;
             height: 16px;
@@ -1613,7 +1642,8 @@ button.overflow-menu-btn.mat-mdc-icon-button {
     font-weight: 500;
     color: var(--mat-sys-error, #ba1a1a);
 
-    mat-icon {
+    mat-icon,
+    md-icon {
       margin-right: 8px;
     }
   }
@@ -1653,9 +1683,13 @@ button.overflow-menu-btn.mat-mdc-icon-button {
     margin-top: 10px;
   }
 
-  mat-progress-bar {
+  md-linear-progress {
     width: 40%;
   }
+}
+
+.incremental-loading-spinner {
+  --md-circular-progress-size: 14px;
 }
 
 // Feature callout shown the first time Measure mode is used.
@@ -1760,7 +1794,9 @@ button.coach-mark-button.mat-mdc-button {
   }
 }
 
-.timeline-status-bar mat-icon {
+.timeline-status-bar mat-icon,
+.timeline-status-bar md-icon {
+  --md-icon-size: 18px;
   font-size: 18px;
   width: 18px;
   height: 18px;

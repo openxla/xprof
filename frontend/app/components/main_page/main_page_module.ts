@@ -1,7 +1,5 @@
 import {CommonModule} from '@angular/common';
-import {NgModule} from '@angular/core';
-import {MatIconModule} from '@angular/material/icon';
-import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {CUSTOM_ELEMENTS_SCHEMA, NgModule} from '@angular/core';
 import {MatSidenavModule} from '@angular/material/sidenav';
 import {MatToolbarModule} from '@angular/material/toolbar';
 import {RouterModule, Routes} from '@angular/router';
@@ -93,10 +91,8 @@ export const routes: Routes = [
   declarations: [MainPage],
   imports: [
     CommonModule,
-    MatProgressBarModule,
     MatSidenavModule,
     MatToolbarModule,
-    MatIconModule,
     EmptyPageModule,
     SideNavModule,
     TraceViewerModule,
@@ -125,5 +121,6 @@ export const routes: Routes = [
     StackTracePageModule,
   ],
   exports: [MainPage],
+  schemas: [CUSTOM_ELEMENTS_SCHEMA],
 })
 export class MainPageModule {}

@@ -131,15 +131,33 @@ mat-option {
   overflow-wrap: break-word;
 }
 
+// Legacy M2 typography class aliases for GM3 migration compatibility.
+.mat-headline {
+  font: var(--mat-sys-headline-small, 400 24px / 32px Roboto, sans-serif);
+  font-family: var(--mat-sys-brand-font, 'Google Sans', Roboto, sans-serif);
+  letter-spacing: var(--mat-sys-headline-small-tracking, 0);
+  margin: 0 0 16px;
+}
+
+.mat-title {
+  font: var(--mat-sys-title-large, 400 22px / 28px Roboto, sans-serif);
+  font-family: var(--mat-sys-brand-font, 'Google Sans', Roboto, sans-serif);
+  letter-spacing: var(--mat-sys-title-large-tracking, 0);
+  margin: 0 0 16px;
+}
+
 // TODO(css-cleanup): Remove redundant styles in component's css files for loading spinner.
-mat-progress-bar {
+mat-progress-bar,
+md-linear-progress {
   width: 200px;
   margin: 0 auto;
 }
 
 .loading-message {
   width: fit-content;
-  margin: 0 auto;
+  margin: 0 auto 8px;
+  font: var(--mat-sys-body-medium, 400 14px / 20px Roboto, sans-serif);
+  color: var(--mat-sys-on-surface, #1f1f1f);
 }
 
 .progress-container {
@@ -213,20 +231,23 @@ mat-progress-bar {
 .callout {
   padding: 0;
   border-left: none;
-  border-radius: 4px;
+  border-radius: var(--mat-sys-corner-small, 8px);
+  box-shadow: var(--mat-sys-level1);
+  overflow: hidden;
 }
 
 .callout header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  color: #fff;
+  color: var(--mat-sys-on-error, #fff);
   line-height: 24px;
   font-weight: 500;
   padding: 8px 16px;
   margin: 0;
   text-transform: uppercase;
-  border-radius: 4px 4px 0 0;
+  border-radius: var(--mat-sys-corner-small, 8px)
+    var(--mat-sys-corner-small, 8px) 0 0;
 }
 
 .callout p {
@@ -252,32 +273,38 @@ mat-progress-bar {
   justify-content: space-between;
   margin-bottom: 5px;
   padding: 5px;
-  background: rgba(25, 118, 210, 0.2);
+  background: var(--mat-sys-info-container, rgba(25, 118, 210, 0.2));
 }
 
 .callout.is-critical {
-  border-color: #dd0031;
-  background: rgba(221, 0, 49, 0.05);
+  border-color: var(--mat-sys-error, #dd0031);
+  background: var(--mat-sys-error-container, rgba(221, 0, 49, 0.05));
+  color: var(--mat-sys-on-error-container, inherit);
 }
 
 .callout.is-critical header {
-  background: #dd0031;
+  background: var(--mat-sys-error, #dd0031);
+  color: var(--mat-sys-on-error, #fff);
 }
 
 .callout.is-important {
-  border-color: #ff9800;
-  background: rgba(255, 152, 0, 0.05);
+  border-color: var(--mat-sys-warning, #ff9800);
+  background: var(--mat-sys-warning-container, rgba(255, 152, 0, 0.05));
+  color: var(--mat-sys-on-warning-container, inherit);
 }
 
 .callout.is-important header {
-  background: #ffa000;
+  background: var(--mat-sys-warning, #ffa000);
+  color: var(--mat-sys-on-warning, #fff);
 }
 
 .callout.is-helpful {
-  border-color: #1976d2;
-  background: rgba(25, 118, 210, 0.05);
+  border-color: var(--mat-sys-info, #1976d2);
+  background: var(--mat-sys-info-container, rgba(25, 118, 210, 0.05));
+  color: var(--mat-sys-on-info-container, inherit);
 }
 
 .callout.is-helpful header {
-  background: #1976d2;
+  background: var(--mat-sys-info, #1976d2);
+  color: var(--mat-sys-on-info, #fff);
 }

@@ -1,15 +1,24 @@
 /** CSS for the root component. */
 
-mat-progress-bar {
+md-linear-progress {
   width: 300px;
   margin: 0 auto;
+  display: block;
 }
 
 .progress-container {
-  padding: 50px;
+  width: fit-content;
+  margin: 48px auto;
+  padding: 24px 32px;
+  background-color: var(--mat-sys-surface-container-high, #ece6f0);
+  color: var(--mat-sys-on-surface, #1d1b20);
+  border-radius: var(--mat-sys-corner-medium, 12px);
+  box-shadow: var(--mat-sys-level2);
 }
 
 .loading-message {
   width: fit-content;
-  margin: 0 auto;
+  margin: 0 auto 12px;
+  font: var(--mat-sys-body-medium);
+  color: var(--mat-sys-on-surface-variant, #49454f);
 }

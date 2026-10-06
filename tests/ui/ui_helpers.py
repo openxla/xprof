@@ -101,7 +101,7 @@ def ensure_sidenav_open(page: sync_api.Page) -> None:
   sync_api.expect(drawer).to_be_attached(timeout=10000)
   drawer_classes = drawer.get_attribute("class") or ""
   if "mat-drawer-opened" not in drawer_classes:
-    toggle_btn = page.locator("button.sidenav-toggle-button")
+    toggle_btn = page.locator(".sidenav-toggle-button")
     toggle_btn.click()
   sync_api.expect(
       page.locator("mat-sidenav.mat-drawer-opened:has(sidenav)")

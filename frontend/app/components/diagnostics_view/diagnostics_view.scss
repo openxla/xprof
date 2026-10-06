@@ -1,3 +1,43 @@
 /** CSS for a diagnostics view component. */
 
 @use 'frontend/app/styles/common';
+
+.callout {
+  margin: var(--spacing-2, 8px) var(--spacing-4, 16px);
+  box-shadow: var(--mat-sys-level1);
+  border: 1px solid var(--mat-sys-outline-variant, transparent);
+}
+
+.header-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2, 8px);
+}
+
+.diagnostic-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--mat-sys-corner-extra-large, 28px);
+  font: var(--mat-sys-label-small, 500 11px / 16px Roboto, sans-serif);
+  background-color: rgba(255, 255, 255, 0.2);
+  color: inherit;
+}
+
+.callout.is-critical header md-icon-button {
+  --md-icon-button-icon-color: var(--mat-sys-on-error, #fff);
+  --md-icon-button-hover-icon-color: var(--mat-sys-on-error, #fff);
+}
+
+.callout.is-important header md-icon-button {
+  --md-icon-button-icon-color: var(--mat-sys-on-warning, #fff);
+  --md-icon-button-hover-icon-color: var(--mat-sys-on-warning, #fff);
+}
+
+.callout.is-helpful header md-icon-button {
+  --md-icon-button-icon-color: var(--mat-sys-on-info, #fff);
+  --md-icon-button-hover-icon-color: var(--mat-sys-on-info, #fff);
+}

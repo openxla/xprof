@@ -224,8 +224,13 @@
       </button>
     </div>
 
+    <!--
+      `url` is intentionally not bound: it is the `src` of the container's
+      legacy (v1) iframe, which stays in the DOM (hidden) under v2 and would
+      download the whole trace a second time. The WASM viewer is fed via
+      `traceViewerModule.loadTraceData` from this component instead.
+    -->
     <trace-viewer-container
-      [url]="url"
       [traceViewerModule]="traceViewerModule"
       [useTraceViewerV2]="true"
       (initializeWasm)="onInitializeWasm()"

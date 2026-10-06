@@ -373,6 +373,13 @@ export class TraceViewerContainer
   implements OnInit, OnDestroy, AfterViewInit, OnChanges
 {
   @Input() traceViewerModule: TraceViewerV2Module | null = null;
+  /**
+   * URL of the legacy (v1) `trace_viewer_index.html` page, used as the `src`
+   * of the v1 iframe. Under `useTraceViewerV2` that iframe is hidden but still
+   * rendered, so it still navigates to this URL: v2 hosts must leave it unset
+   * and feed data via `traceViewerModule.loadTraceData` instead of binding a
+   * raw trace-data URL here.
+   */
   @Input() url = '';
   @Input() useTraceViewerV2 = true;
   @Input() showHelpButton = false;

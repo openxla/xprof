@@ -851,18 +851,30 @@ class NumericalValidatorTest(parameterized.TestCase):
     self.assertIn("⚠️ REFERENCE IS PIN-INERT", report.summary_message)
 
   def test_default_regimes_normal_and_triage_fallback(self):
-    """Verifies passing kernel runs 1 batch, failing kernel triggers triage."""
-    # 1. Passing run: only normal batch executes
+    """Verifies fast_agent normal-first selection and presubmit full suite."""
+    # 1. Passing fast_agent run: only normal batch executes
     report_pass = numerical_validator.validate_kernels(
+        _identity_fn,
+        _identity_fn,
+        shapes=(16, 16),
+        dtype_str="bfloat16",
+        tier="fast_agent",
+    )
+    self.assertTrue(report_pass.is_numerically_equivalent)
+    self.assertEqual(report_pass.total_batches_count, 1)
+    self.assertEqual(report_pass.batch_results[0].regime, "normal")
+
+    # Presubmit gates on every regime in the suite.
+    report_presubmit = numerical_validator.validate_kernels(
         _identity_fn,
         _identity_fn,
         shapes=(16, 16),
         dtype_str="bfloat16",
         tier="presubmit",
     )
-    self.assertTrue(report_pass.is_numerically_equivalent)
-    self.assertEqual(report_pass.total_batches_count, 1)
-    self.assertEqual(report_pass.batch_results[0].regime, "normal")
+    self.assertTrue(report_presubmit.is_numerically_equivalent)
+    self.assertGreater(report_presubmit.total_batches_count, 1)
+    self.assertEmpty(report_presubmit.coverage["regimes_not_run"])
 
     # 2. Failing run: triggers triage fallback across full procedural suite
     report_fail = numerical_validator.validate_kernels(

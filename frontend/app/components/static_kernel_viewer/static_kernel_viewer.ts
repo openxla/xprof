@@ -417,6 +417,9 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     this.isInitializing = true;
     try {
       this.traceViewerModule = await traceViewerV2Main();
+      // The kernel event tooltip replaces the built-in one, which formats
+      // bundle counts as durations.
+      this.traceViewerModule?.SetEventTooltipEnabled?.(false);
       if (this.isDestroyed) {
         if (this.traceViewerModule !== null) {
           shutdownTraceViewerV2();

@@ -1,0 +1,692 @@
+// Follows the pointer over the timeline. The component moves it with a
+// transform, and shows it with the `visible` class.
+:host {
+  --accent-color: #1a73e8;
+
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  box-sizing: border-box;
+  min-width: 240px;
+  max-width: 460px;
+  color: var(--mat-sys-on-surface);
+  font: 400 12px / 1.4 var(--mat-sys-plain-font);
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+:host(.visible) {
+  visibility: visible;
+}
+
+.tooltip-card {
+  box-sizing: border-box;
+  border: 1px solid var(--mat-sys-surface-variant);
+  border-radius: 14px;
+  background: var(--mat-sys-surface-container-lowest);
+  box-shadow:
+    0 2px 6px color-mix(in srgb, var(--mat-sys-shadow) 8%, transparent),
+    0 12px 32px -4px color-mix(in srgb, var(--mat-sys-shadow) 20%, transparent);
+  overflow: hidden;
+  transform-origin: top left;
+  will-change: transform, opacity;
+
+  // 3px top accent bar matching the rail hover card.
+  &::before {
+    content: '';
+    display: block;
+    height: 3px;
+    background: var(--accent-color);
+    transition: background-color 180ms ease;
+  }
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.code {
+  font-family: var(--mat-sys-code-font);
+  font-size: 11.5px;
+}
+
+.tooltip-header {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 12px 7px;
+  background: linear-gradient(
+    180deg,
+    color-mix(
+        in srgb,
+        var(--accent-color) 6%,
+        var(--mat-sys-surface-container-low)
+      )
+      0%,
+    var(--mat-sys-surface-container-low) 100%
+  );
+}
+
+.header-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.header-identity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.name {
+  font-weight: 600;
+  color: var(--mat-sys-on-surface);
+  line-height: 1.3;
+}
+
+.unit-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: color-mix(
+    in srgb,
+    var(--unit-color) 18%,
+    var(--mat-sys-surface-container-lowest)
+  );
+  color: color-mix(in srgb, var(--unit-color) 45%, var(--mat-sys-on-surface));
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.unit-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--unit-color);
+  transition: background-color 150ms ease;
+}
+
+.bundles {
+  flex: none;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.subtitle-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 11px;
+}
+
+.chip-sep {
+  color: var(--mat-sys-outline);
+}
+
+.header-sub {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+// Not `.description`, which the global styles of the app make italic.
+.details {
+  color: var(--mat-sys-outline);
+  font-size: 11px;
+}
+
+.header-meta {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.meta-ordinal {
+  color: var(--mat-sys-on-surface-variant);
+  font-weight: 600;
+}
+
+.meta-hex {
+  color: var(--mat-sys-outline);
+}
+
+.tooltip-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--mat-sys-surface-variant);
+  background: var(--mat-sys-surface-container-lowest);
+}
+
+.metric-row {
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 10px;
+}
+
+.metric-label {
+  color: var(--mat-sys-outline);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.metric-value {
+  min-width: 0;
+}
+
+// Single-value gauge for counter or process tracks.
+.gauge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gauge-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--mat-sys-surface-container-high);
+  overflow: hidden;
+}
+
+.gauge-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition:
+    width 160ms cubic-bezier(0.2, 0, 0, 1),
+    background-color 160ms ease;
+}
+
+.gauge-text {
+  flex: none;
+  font-weight: 600;
+  color: var(--mat-sys-on-surface);
+}
+
+// VLIW bundle lane strip.
+.bundle-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.lane-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 2.5px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 4px;
+  border: 1px dashed var(--mat-sys-surface-variant);
+  background: transparent;
+  color: var(--mat-sys-outline);
+  font-family: var(--mat-sys-code-font);
+  font-size: 9.5px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+
+.lane-indicator {
+  width: 4px;
+  height: 9px;
+  border-radius: 1px;
+  background: var(--mat-sys-surface-variant);
+  opacity: 0.65;
+  transition:
+    background-color 140ms ease,
+    opacity 140ms ease;
+}
+
+.lane-cell.lane-active {
+  border-style: solid;
+  border-color: color-mix(
+    in srgb,
+    var(--unit-color) 40%,
+    var(--mat-sys-surface-variant)
+  );
+  background: color-mix(
+    in srgb,
+    var(--unit-color) 16%,
+    var(--mat-sys-surface-container-lowest)
+  );
+  color: color-mix(in srgb, var(--unit-color) 50%, var(--mat-sys-on-surface));
+  font-weight: 600;
+
+  .lane-indicator {
+    background: var(--unit-color);
+    opacity: 1;
+  }
+}
+
+.lane-mult {
+  font-weight: 700;
+}
+
+// Static utilization mini bars.
+.util-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  align-items: center;
+}
+
+.util-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.util-unit {
+  font-family: var(--mat-sys-code-font);
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+.util-track {
+  width: 34px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--mat-sys-surface-container-high);
+  overflow: hidden;
+}
+
+.util-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--unit-color);
+  opacity: 0.78;
+  transition:
+    width 160ms cubic-bezier(0.2, 0, 0, 1),
+    background-color 160ms ease,
+    opacity 140ms ease;
+}
+
+.util-pct {
+  font-family: var(--mat-sys-code-font);
+  font-size: 10.5px;
+}
+
+.util-item.util-highlighted {
+  color: var(--mat-sys-on-surface);
+
+  .util-unit,
+  .util-pct {
+    font-weight: 700;
+    color: color-mix(in srgb, var(--unit-color) 45%, var(--mat-sys-on-surface));
+  }
+
+  .util-fill {
+    opacity: 1;
+  }
+}
+
+// Percale-inspired instruction output & hardware property badges.
+.output-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.reg-pill {
+  --reg-color: var(--accent-color);
+
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  border: 1px solid
+    color-mix(in srgb, var(--reg-color) 38%, var(--mat-sys-surface-variant));
+  background: color-mix(
+    in srgb,
+    var(--reg-color) 14%,
+    var(--mat-sys-surface-container-lowest)
+  );
+  color: color-mix(in srgb, var(--reg-color) 55%, var(--mat-sys-on-surface));
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+
+  &[data-reg-kind='vreg'] {
+    --reg-color: #1a73e8;
+  }
+
+  &[data-reg-kind='sreg'] {
+    --reg-color: #1e8e3e;
+  }
+
+  &[data-reg-kind='preg'] {
+    --reg-color: #f29900;
+  }
+
+  &[data-reg-kind='vmreg'] {
+    --reg-color: #00a3bf;
+  }
+}
+
+.prop-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  border: 1px solid var(--mat-sys-surface-variant);
+  background: var(--mat-sys-surface-container-low);
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.mem-badge {
+  color: var(--mat-sys-on-surface);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+// Operands & consumers dataflow chips.
+.dataflow-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 4px;
+}
+
+.dataflow-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 18px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--mat-sys-surface-variant);
+  background: var(--mat-sys-surface-container-low);
+  color: var(--mat-sys-on-surface);
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.operand-idx {
+  padding-right: 4px;
+  border-right: 1px solid var(--mat-sys-surface-variant);
+  color: var(--mat-sys-outline);
+  font-size: 9.5px;
+  font-weight: 600;
+}
+
+.consumer-arrow {
+  color: color-mix(in srgb, var(--accent-color) 65%, var(--mat-sys-on-surface));
+  font-weight: 700;
+}
+
+// Region instruction mix stacked bar and legend.
+.mix-container {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.mix-stacked-bar {
+  display: flex;
+  height: 6px;
+  gap: 1px;
+  border-radius: 3px;
+  background: var(--mat-sys-surface-container-high);
+  overflow: hidden;
+}
+
+.mix-segment {
+  min-width: 3px;
+  height: 100%;
+  transition: flex-grow 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.mix-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.mix-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.mix-swatch {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--unit-color);
+}
+
+.mix-unit {
+  font-family: var(--mat-sys-code-font);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--mat-sys-on-surface);
+}
+
+.mix-pct {
+  color: var(--mat-sys-on-surface-variant);
+  font-family: var(--mat-sys-code-font);
+  font-size: 10.5px;
+}
+
+// Region mean utilization & bottleneck badge.
+.mean-util-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.mean-util-items {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mat-sys-code-font);
+  font-size: 10.5px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.mean-util-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.mean-util-item.mean-util-top {
+  font-weight: 700;
+  color: color-mix(in srgb, var(--unit-color) 45%, var(--mat-sys-on-surface));
+}
+
+.bound-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(
+    in srgb,
+    var(--accent-color) 14%,
+    var(--mat-sys-surface-container)
+  );
+  color: color-mix(in srgb, var(--accent-color) 55%, var(--mat-sys-on-surface));
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+// Region breadcrumb path.
+.region-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  font-family: var(--mat-sys-code-font);
+  font-size: 11px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.region-crumb-leaf {
+  color: var(--mat-sys-on-surface);
+  font-weight: 600;
+}
+
+.crumb-sep {
+  color: var(--mat-sys-outline);
+  font-family: var(--mat-sys-plain-font);
+}
+
+// Schedule position progress bar.
+.position-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.position-track {
+  position: relative;
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--mat-sys-surface-container-high);
+}
+
+.position-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: color-mix(
+    in srgb,
+    var(--accent-color) 65%,
+    var(--mat-sys-primary)
+  );
+  transition:
+    width 160ms cubic-bezier(0.2, 0, 0, 1),
+    background-color 160ms ease;
+}
+
+.position-dot {
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--mat-sys-surface-container-lowest);
+  border-radius: 50%;
+  background: var(--accent-color);
+  transform: translate(-50%, -50%);
+  transition:
+    left 160ms cubic-bezier(0.2, 0, 0, 1),
+    background-color 160ms ease;
+}
+
+.position-text {
+  flex: none;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.position-pct {
+  color: var(--mat-sys-on-surface);
+  font-weight: 600;
+}
+
+.spill-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface-variant);
+  font-family: var(--mat-sys-code-font);
+  font-size: 10.5px;
+  font-weight: 600;
+
+  &.spill-warn {
+    background: color-mix(in srgb, var(--mat-sys-error) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--mat-sys-error) 32%, transparent);
+    color: var(--mat-sys-error);
+  }
+}
+
+// Footer with keyboard/click hints.
+.tooltip-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-top: 1px solid var(--mat-sys-surface-variant);
+  background: var(--mat-sys-surface-container-low);
+  color: var(--mat-sys-outline);
+  font-size: 10.5px;
+}
+
+.footer-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hint-key {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid var(--mat-sys-surface-variant);
+  border-radius: 4px;
+  background: var(--mat-sys-surface-container-lowest);
+  color: var(--mat-sys-on-surface-variant);
+  font-family: var(--mat-sys-code-font);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tooltip-card::before,
+  .unit-chip,
+  .unit-dot,
+  .gauge-fill,
+  .lane-cell,
+  .lane-indicator,
+  .mix-segment,
+  .util-fill,
+  .position-fill,
+  .position-dot {
+    transition: none;
+  }
+}

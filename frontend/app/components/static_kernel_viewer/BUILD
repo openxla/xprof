@@ -7,14 +7,22 @@ sass_binary(
     src = "static_kernel_viewer.scss",
 )
 
+sass_binary(
+    name = "kernel_event_tooltip_css",
+    src = "kernel_event_tooltip.scss",
+)
+
 xprof_ng_module(
     name = "static_kernel_viewer",
     srcs = [
+        "kernel_event_tooltip.ts",
         "static_kernel_viewer.ts",
         "static_kernel_viewer_module.ts",
     ],
     assets = [
+        ":kernel_event_tooltip_css",
         ":static_kernel_viewer_css",
+        "kernel_event_tooltip.ng.html",
         "static_kernel_viewer.ng.html",
     ],
     deps = [
@@ -38,16 +46,23 @@ xprof_ng_module(
 xprof_ng_module(
     name = "tests",
     testonly = True,
-    srcs = ["static_kernel_viewer_test.ts"],
+    srcs = [
+        "kernel_event_tooltip_test.ts",
+        "static_kernel_viewer_test.ts",
+    ],
     deps = [
         ":static_kernel_viewer",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        # ksf,
         "//:node_modules/@angular/common",
+        "//:node_modules/@angular/core",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "//:node_modules/@angular/router",
         "//:node_modules/rxjs",
-        "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
-        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "@org_xprof//frontend/app/common/interfaces",
+        "@org_xprof//frontend/app/components/trace_viewer_container",
+        "@org_xprof//frontend/app/components/trace_viewer_v2:app_bundle_ts",
         "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
         "@org_xprof//frontend/app/store",
     ],

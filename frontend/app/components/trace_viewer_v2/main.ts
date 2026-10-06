@@ -160,6 +160,12 @@ declare global {
     previewColors: string[];
     backgroundColor?: string;
   }>;
+  /**
+   * Shows or hides the built-in tooltip of hovered events. On by default;
+   * hosts that render their own tooltip from the `eventhovered` event turn it
+   * off. Hover highlighting, hover events and selection are unaffected.
+   */
+  SetEventTooltipEnabled?(enabled: boolean): void;
   canvas: HTMLCanvasElement;
   callMain(args: string[]): void;
   preinitializedWebGPUDevice: GPUDevice | null;

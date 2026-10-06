@@ -1,0 +1,282 @@
+@if (content; as tooltip) {
+  <div class="tooltip-card">
+    <div class="tooltip-header">
+      <div class="header-top">
+        <div class="header-identity">
+          @if (tooltip.unit; as unit) {
+            <span class="unit-chip" [style.--unit-color]="unit.color">
+              <span class="unit-dot"></span>{{ unit.label }}
+            </span>
+          }
+          <span class="name" [class.code]="tooltip.isCode">{{ tooltip.name }}</span>
+        </div>
+        <span class="bundles">
+          {{ tooltip.bundlesLabel }}
+          <span class="code tabular">{{ tooltip.bundles }}</span>
+          @if (!tooltip.subtitleChips && tooltip.length) {
+            · {{ tooltip.length }}
+          }
+        </span>
+      </div>
+      @if (tooltip.subtitleChips; as chips) {
+        <div class="subtitle-chips tabular">
+          @for (chip of chips; track $index; let last = $last) {
+            <span>{{ chip }}</span>
+            @if (!last) {
+              <span class="chip-sep">·</span>
+            }
+          }
+        </div>
+      }
+      @if (tooltip.description || tooltip.ordinalLabel || tooltip.hexBundle) {
+        <div class="header-sub">
+          @if (tooltip.description) {
+            <div class="details">{{ tooltip.description }}</div>
+          }
+          @if (tooltip.ordinalLabel || tooltip.hexBundle) {
+            <div class="header-meta code tabular">
+              @if (tooltip.ordinalLabel) {
+                <span class="meta-ordinal">{{ tooltip.ordinalLabel }}</span>
+              }
+              @if (tooltip.ordinalLabel && tooltip.hexBundle) {
+                <span class="chip-sep">·</span>
+              }
+              @if (tooltip.hexBundle) {
+                <span class="meta-hex">{{ tooltip.hexBundle }}</span>
+              }
+            </div>
+          }
+        </div>
+      }
+    </div>
+
+    @if (tooltip.hasBodyRows) {
+      <div class="tooltip-body">
+        @if (tooltip.counterGauge; as gauge) {
+          <div class="metric-row">
+            <span class="metric-label">{{ gauge.label }}</span>
+            <div class="metric-value gauge-row">
+              <div class="gauge-track">
+                <div
+                  class="gauge-fill"
+                  [style.width.%]="gauge.percent"
+                  [style.background]="gauge.color"
+                ></div>
+              </div>
+              <span class="code tabular gauge-text">{{ gauge.formattedValue }}</span>
+            </div>
+          </div>
+        }
+
+        @if (tooltip.bundleStrip; as strip) {
+          <div class="metric-row">
+            <span class="metric-label">In this bundle</span>
+            <div class="metric-value bundle-strip">
+              @for (cell of strip; track cell.unit.label) {
+                <span
+                  class="lane-cell"
+                  [class.lane-active]="cell.active"
+                  [style.--unit-color]="cell.unit.color"
+                >
+                  <span class="lane-indicator"></span>
+                  <span class="lane-name">{{ cell.unit.label }}</span>
+                  @if (cell.count > 1) {
+                    <span class="lane-mult tabular">×{{ cell.count }}</span>
+                  }
+                </span>
+              }
+            </div>
+          </div>
+        }
+
+        @if (tooltip.utilizationBars; as bars) {
+          <div class="metric-row">
+            <span class="metric-label">Utilization</span>
+            <div class="metric-value util-list">
+              @for (bar of bars; track bar.unit.label) {
+                <div
+                  class="util-item"
+                  [class.util-highlighted]="bar.highlighted"
+                  [style.--unit-color]="bar.unit.color"
+                >
+                  <span class="util-unit">{{ bar.unit.label }}</span>
+                  <div class="util-track">
+                    <div class="util-fill" [style.width.%]="bar.percent"></div>
+                  </div>
+                  <span class="util-pct tabular">{{ bar.formattedPercent }}</span>
+                </div>
+              }
+            </div>
+          </div>
+        }
+
+        @if (tooltip.output; as out) {
+          <div class="metric-row">
+            <span class="metric-label">{{ out.rowLabel }}</span>
+            <div class="metric-value output-badges">
+              @if (out.register; as reg) {
+                <span
+                  class="reg-pill code tabular"
+                  [attr.data-reg-kind]="out.registerKind"
+                >
+                  {{ reg }}
+                </span>
+              }
+              @if (out.memorySpace; as space) {
+                <span class="prop-badge mem-badge code">{{ space }}</span>
+              }
+              @if (out.metadata; as meta) {
+                <span class="prop-badge meta-badge">{{ meta }}</span>
+              }
+              @if (out.throughput; as tp) {
+                <span class="prop-badge tabular">{{ tp }}</span>
+              }
+            </div>
+          </div>
+        }
+
+        @if (tooltip.operands; as operands) {
+          <div class="metric-row">
+            <span class="metric-label">Operands</span>
+            <div class="metric-value dataflow-list">
+              @for (op of operands; track op.index) {
+                <span class="dataflow-chip operand-chip code tabular">
+                  <span class="operand-idx">{{ op.index }}</span>
+                  <span class="operand-text">{{ op.text }}</span>
+                </span>
+              }
+            </div>
+          </div>
+        }
+
+        @if (tooltip.consumers; as consumers) {
+          <div class="metric-row">
+            <span class="metric-label">Consumers</span>
+            <div class="metric-value dataflow-list">
+              @for (consumer of consumers; track $index) {
+                <span class="dataflow-chip consumer-chip code">
+                  <span class="consumer-arrow">→</span>
+                  <span>{{ consumer }}</span>
+                </span>
+              }
+            </div>
+          </div>
+        }
+
+        @if (tooltip.instructionMix; as mix) {
+          <div class="metric-row">
+            <span class="metric-label">Instruction mix</span>
+            <div class="metric-value mix-container">
+              <div class="mix-stacked-bar">
+                @for (item of mix; track item.unit.label) {
+                  <div
+                    class="mix-segment"
+                    [style.flex-grow]="item.count"
+                    [style.background]="item.unit.color"
+                  ></div>
+                }
+              </div>
+              <div class="mix-legend">
+                @for (item of mix; track item.unit.label) {
+                  <span class="mix-item" [style.--unit-color]="item.unit.color">
+                    <span class="mix-swatch"></span>
+                    <span class="mix-unit">{{ item.unit.label }}</span>
+                    <span class="mix-pct tabular">{{ item.formattedPercent }}</span>
+                  </span>
+                }
+              </div>
+            </div>
+          </div>
+        }
+
+        @if (tooltip.meanUtilization; as meanUtil) {
+          <div class="metric-row">
+            <span class="metric-label">Mean util</span>
+            <div class="metric-value mean-util-row">
+              <div class="mean-util-items tabular">
+                @for (bar of meanUtil.items; track bar.unit.label; let last = $last) {
+                  <span
+                    class="mean-util-item"
+                    [class.mean-util-top]="bar.highlighted"
+                    [style.--unit-color]="bar.unit.color"
+                  >
+                    <span class="mean-util-unit">{{ bar.unit.label }}</span>
+                    <span class="mean-util-pct">{{ bar.formattedPercent }}</span>
+                  </span>
+                  @if (!last) {
+                    <span class="chip-sep">·</span>
+                  }
+                }
+              </div>
+              @if (meanUtil.boundUnit; as boundUnit) {
+                <span class="bound-badge">→ likely {{ boundUnit }}-bound</span>
+              }
+            </div>
+          </div>
+        }
+
+        @if (tooltip.density; as density) {
+          <div class="metric-row">
+            <span class="metric-label">Density</span>
+            <div class="metric-value code tabular">{{ density }}</div>
+          </div>
+        }
+
+        @if (tooltip.spillsLabel; as spills) {
+          <div class="metric-row">
+            <span class="metric-label">Vector spills</span>
+            <div class="metric-value">
+              <span class="spill-badge tabular" [class.spill-warn]="tooltip.hasSpills">
+                {{ spills }}
+              </span>
+            </div>
+          </div>
+        }
+
+        @if (tooltip.regions; as regions) {
+          <div class="metric-row">
+            <span class="metric-label">{{ tooltip.regionRowLabel }}</span>
+            <div class="metric-value region-crumbs">
+              @for (crumb of regions; track $index; let last = $last) {
+                <span class="region-crumb" [class.region-crumb-leaf]="last">{{
+                  crumb
+                }}</span>
+                @if (!last) {
+                  <span class="crumb-sep">›</span>
+                }
+              }
+            </div>
+          </div>
+        }
+
+        @if (tooltip.schedulePosition; as pos) {
+          <div class="metric-row">
+            <span class="metric-label">Position</span>
+            <div class="metric-value position-row">
+              <div class="position-track">
+                <div class="position-fill" [style.width.%]="pos.percent"></div>
+                <div class="position-dot" [style.left.%]="pos.percent"></div>
+              </div>
+              <span class="position-text tabular">
+                <strong class="position-pct">{{ pos.formattedPercent }}</strong>
+                of {{ pos.totalBundles }}
+              </span>
+            </div>
+          </div>
+        }
+      </div>
+    }
+
+    @if (tooltip.showInteractiveHint) {
+      <div class="tooltip-footer">
+        <span class="footer-hint">
+          <kbd class="hint-key">Click</kbd> select
+        </span>
+        <span class="chip-sep">·</span>
+        <span class="footer-hint">
+          <kbd class="hint-key">Shift+click</kbd> measure
+        </span>
+      </div>
+    }
+  </div>
+}

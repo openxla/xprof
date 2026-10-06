@@ -166,6 +166,8 @@
       <as-split-area [size]="timelineHeightPercent">
         <div class="canvas-container" #canvasContainer>
           <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" (mousedown)="blurActiveElement()"></canvas>
+          <!-- The host can overlay the timeline, e.g. with a tooltip. -->
+          <ng-content select="[canvasOverlay]"></ng-content>
           <timeline-player *ngIf="enableTimelinePlayer" (play)="onPlay()" (pause)="onPause()" (seek)="onSeek($event)" (speedChange)="onSpeedChange($event)" style="flex-shrink: 0;"></timeline-player>
         </div>
       </as-split-area>

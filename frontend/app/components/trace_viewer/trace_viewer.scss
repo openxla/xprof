@@ -10,10 +10,12 @@
   );
 }
 
-mat-divider {
+.filter-divider,
+.filter-bar md-divider {
   // TODO: create color pallete for consolidated styles in the app
-  border-color: silver;
+  --md-divider-color: silver;
   height: 28px;
+  width: 1px;
   margin: 0 10px;
 }
 
@@ -107,7 +109,9 @@ mat-divider {
   margin-right: 8px;
   color: var(--mat-sys-on-surface-variant, #444746);
 
-  mat-icon {
+  mat-icon,
+  md-icon {
+    --md-icon-size: 20px;
     font-size: 20px;
     width: 20px;
     height: 20px;
@@ -130,6 +134,10 @@ mat-divider {
 }
 
 .filter-reset-button {
+  --md-icon-button-state-layer-width: 32px;
+  --md-icon-button-state-layer-height: 32px;
+  --md-icon-button-icon-size: 20px;
+  --md-icon-button-icon-color: var(--mat-sys-on-surface-variant, #444746);
   margin-left: auto;
   flex-shrink: 0;
   color: var(--mat-sys-on-surface-variant, #444746);
@@ -140,7 +148,9 @@ mat-divider {
   align-items: center;
   justify-content: center;
 
-  mat-icon {
+  mat-icon,
+  md-icon {
+    --md-icon-size: 20px;
     font-size: 20px;
     width: 20px;
     height: 20px;
@@ -275,7 +285,9 @@ mat-divider {
   pointer-events: none;
 }
 
-.upload-overlay mat-icon {
+.upload-overlay mat-icon,
+.upload-overlay md-icon {
+  --md-icon-size: 48px;
   font-size: 48px;
   width: 48px;
   height: 48px;
@@ -292,7 +304,9 @@ mat-divider {
   position: relative;
   display: inline-block;
 
-  > button {
+  > button,
+  > md-icon-button {
+    --md-icon-button-icon-color: #5f6368;
     color: #5f6368;
 
     &:hover,
@@ -301,12 +315,15 @@ mat-divider {
     }
 
     &.active {
+      --md-icon-button-icon-color: #1a73e8;
       background-color: rgba(60, 64, 67, 0.12);
       color: #1a73e8;
     }
 
     mat-icon,
+    md-icon,
     svg {
+      --md-icon-size: 24px;
       width: 24px;
       height: 24px;
       font-size: 24px;

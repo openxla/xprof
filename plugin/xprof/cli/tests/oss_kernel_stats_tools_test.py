@@ -93,7 +93,7 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     self.assertEqual(result, 0)
 
   def test_get_kernel_stats_with_include_summary(self):
-    """Tests that include_summary returns ground-truth timing as JSON."""
+    """Tests that include_summary returns enriched dict with ground-truth timing."""
     # Create two overlapping events on the same XLA Ops line
     mock_event1 = mock.MagicMock(
         name="matmul_fwd", duration_ns=1400000, start_ns=0, stats=[]
@@ -116,10 +116,8 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     with mock.patch.object(
         xplane_tools, "iter_planes", return_value=[mock_plane]
     ):
-      result = json.loads(
-          kernel_stats_tools.get_kernel_stats(
-              "local_logdir", include_summary=True
-          )
+      result = kernel_stats_tools.get_kernel_stats(
+          "local_logdir", output_format="dict", include_summary=True
       )
 
       # Verify enriched schema keys
@@ -134,48 +132,8 @@ class OssKernelStatsToolsTest(unittest.TestCase):
       self.assertEqual(result["total_device_duration_ns"], 1500000)
       self.assertAlmostEqual(result["total_device_duration_us"], 1500.0)
 
-      # Verify per-line and custom-call attribution keys are always present.
-      self.assertIn("by_line_duration_ns", result)
-      self.assertIn("custom_call_duration_us", result)
-      self.assertIn("custom_call_share_pct", result)
-      self.assertEqual(result["by_line_duration_ns"]["XLA Ops"], 1500000)
-      self.assertEqual(result["custom_call_share_pct"], 0.0)
-
       # Verify kernel records present
       self.assertEqual(len(result["kernel_records"]), 2)
-
-  def test_get_kernel_stats_per_line_and_custom_call_attribution(self):
-    """Per-line union and custom-call share are computed without overcounting."""
-    mock_event1 = mock.MagicMock(
-        name="matmul_fwd", duration_ns=1400000, start_ns=0, stats=[]
-    )
-    mock_event1.name = "matmul_fwd"
-    mock_event2 = mock.MagicMock(
-        name="custom-call.1", duration_ns=500000, start_ns=1400000, stats=[]
-    )
-    mock_event2.name = "custom-call.1"
-    mock_line_ops = mock.MagicMock(
-        name="XLA Ops", events=[mock_event1, mock_event2]
-    )
-    mock_line_ops.name = "XLA Ops"
-
-    mock_plane = mock.MagicMock(name="/device:TPU:0", lines=[mock_line_ops])
-    mock_plane.name = "/device:TPU:0"
-
-    with mock.patch.object(
-        xplane_tools, "iter_planes", return_value=[mock_plane]
-    ):
-      result = json.loads(
-          kernel_stats_tools.get_kernel_stats(
-              "local_logdir", include_summary=True
-          )
-      )
-
-    # Union of [0, 1400000) and [1400000, 1900000) is contiguous: 1900000 ns.
-    self.assertEqual(result["total_device_duration_ns"], 1900000)
-    self.assertEqual(result["by_line_duration_ns"]["XLA Ops"], 1900000)
-    self.assertAlmostEqual(result["custom_call_duration_us"], 500.0)
-    self.assertAlmostEqual(result["custom_call_share_pct"], 26.32)
 
   def test_get_kernel_stats_in_memory_profile_data(self):
     """Tests that in-memory ProfileData objects are accepted as polymorphic input."""
@@ -198,8 +156,8 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     with mock.patch.object(
         xplane_tools, "iter_planes", return_value=[mock_plane]
     ) as mock_iter:
-      result = json.loads(
-          kernel_stats_tools.get_kernel_stats(mock_profile_data)
+      result = kernel_stats_tools.get_kernel_stats(
+          mock_profile_data, output_format="dict"
       )
       mock_iter.assert_called_once_with(mock_profile_data)
       self.assertEqual(len(result), 1)
@@ -228,10 +186,10 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     with mock.patch.object(
         xplane_tools, "iter_planes", return_value=[mock_plane]
     ):
-      result = json.loads(
-          kernel_stats_tools.get_kernel_stats(
-              "local_logdir", trace_matchers=("matmul",)
-          )
+      result = kernel_stats_tools.get_kernel_stats(
+          "local_logdir",
+          output_format="dict",
+          trace_matchers=("matmul",),
       )
       self.assertEqual(len(result), 1)
       self.assertEqual(result[0]["kernel_name"], "matmul_fwd")
@@ -298,7 +256,9 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     with mock.patch.object(
         xplane_tools, "iter_planes", return_value=[plane]
     ):
-      records = json.loads(kernel_stats_tools.get_kernel_stats("local_logdir"))
+      records = kernel_stats_tools.get_kernel_stats(
+          "local_logdir", output_format="dict"
+      )
 
     self.assertEqual(len(records), 1)
     self.assertEqual(records[0]["kernel_name"], "_at_pallas_rowblock.1")
@@ -309,10 +269,10 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     with mock.patch.object(
         xplane_tools, "iter_planes", return_value=[plane]
     ):
-      records = json.loads(
-          kernel_stats_tools.get_kernel_stats(
-              "local_logdir", include_intra_kernel_regions=True
-          )
+      records = kernel_stats_tools.get_kernel_stats(
+          "local_logdir",
+          output_format="dict",
+          include_intra_kernel_regions=True,
       )
 
     by_name = {r["kernel_name"]: r for r in records}
@@ -327,10 +287,8 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     with mock.patch.object(
         xplane_tools, "iter_planes", return_value=[plane]
     ):
-      summary = json.loads(
-          kernel_stats_tools.get_kernel_stats(
-              "local_logdir", include_summary=True
-          )
+      summary = kernel_stats_tools.get_kernel_stats(
+          "local_logdir", output_format="dict", include_summary=True
       )
 
     # Only the top-level kernel interval feeds the disjoint interval union.
@@ -373,11 +331,11 @@ class OssKernelStatsToolsTest(unittest.TestCase):
           "from_serialized_xspace",
           side_effect=fake_from_serialized,
       ):
-        res_logdir = json.loads(
-            kernel_stats_tools.get_kernel_stats(str(logdir))
+        res_logdir = kernel_stats_tools.get_kernel_stats(
+            str(logdir), output_format="dict"
         )
-        res_latest = json.loads(
-            kernel_stats_tools.get_kernel_stats(str(latest_run))
+        res_latest = kernel_stats_tools.get_kernel_stats(
+            str(latest_run), output_format="dict"
         )
 
       self.assertEqual(res_logdir, res_latest)

@@ -118,10 +118,11 @@ def _lookup_fallback_duration_us(
   records = None
   if kernel_name:
     try:
-      stats = json.loads(
-          kernel_stats_tools.get_kernel_stats(
-              source, kernel_name=kernel_name, bypass_cache=bypass_cache
-          )
+      stats = kernel_stats_tools.get_kernel_stats(
+          source,
+          kernel_name=kernel_name,
+          output_format="dict",
+          bypass_cache=bypass_cache,
       )
     except (RuntimeError, ValueError, KeyError, OSError, TypeError):
       logging.exception(
@@ -136,10 +137,11 @@ def _lookup_fallback_duration_us(
 
   if not records:
     try:
-      stats = json.loads(
-          kernel_stats_tools.get_kernel_stats(
-              source, kernel_name=None, bypass_cache=bypass_cache
-          )
+      stats = kernel_stats_tools.get_kernel_stats(
+          source,
+          kernel_name=None,
+          output_format="dict",
+          bypass_cache=bypass_cache,
       )
     except (RuntimeError, ValueError, KeyError, OSError, TypeError):
       logging.exception("Failed to look up fallback duration from kernel_stats")

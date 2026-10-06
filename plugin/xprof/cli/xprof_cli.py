@@ -57,18 +57,6 @@ _COMPILER_DUMP_TOOL_NAMES = frozenset({
 })
 
 
-def _get_device_time_attribution(
-    session_id: str,
-    host: str = "",
-    include_summary: bool = True,
-) -> str:
-  """Returns per-line disjoint-interval device time attribution and kernel stats."""
-  del host
-  return get_kernel_stats_tool.get_kernel_stats(
-      session_id=session_id, include_summary=include_summary
-  )
-
-
 def cli_main() -> dict[str, Any]:
   """Initializes the CLI and returns the available tools.
 
@@ -82,10 +70,8 @@ def cli_main() -> dict[str, Any]:
       "check_host_boundness": check_host_boundness_tool.check_host_boundness,
       "check_kernel_profiling": xplane_tools.inspect_capture,
       "compute_utilization": get_kernel_utilization_tool.get_kernel_utilization,
-      "export_json": xprof_data.get_profile_summary,
       "get_avg_step_time": get_kernel_stats_tool.get_avg_step_time,
       "get_device_information": xprof_data.get_device_information,
-      "get_device_time_attribution": _get_device_time_attribution,
       "get_graph_viewer": get_graph_viewer_tool.get_graph_viewer,
       "get_hlo_module_content": hlo_tools.get_hlo_module_content,
       "get_hlo_neighborhood": hlo_tools.get_hlo_neighborhood,

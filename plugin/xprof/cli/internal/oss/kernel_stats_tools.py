@@ -122,7 +122,7 @@ def get_kernel_stats(
     *,
     kernel_name: str | None = None,
     limit: int = 10,
-    output_format: Literal["json", "markdown"] = "json",
+    output_format: Literal["json", "markdown", "dict"] = "json",
     include_summary: bool = False,
     device_to_use: str | None = "TPU:0",  # pylint: disable=unused-argument
     trace_matchers: tuple[str, ...] | None = None,
@@ -132,31 +132,30 @@ def get_kernel_stats(
   """Computes performance metrics for operations from local XPlanes in OSS.
 
   Supports polymorphic inputs: session IDs, file paths, bytes, or in-memory
-  ProfileData/XSpace objects. When include_summary=True, the JSON output is an
-  enriched summary object containing ground-truth device durations via Disjoint
-  Interval Union, step durations, and stats.
+  ProfileData/XSpace objects. When include_summary=True (or output_format="dict"
+  with include_summary=True), returns an enriched dict containing ground-truth
+  device durations via Disjoint Interval Union, step durations, and stats.
 
   Args:
     source: XProf session ID, local file/directory path, serialized XSpace
       bytes, in-memory ProfileData/XSpace object, or pre-computed records.
     kernel_name: Optional specific tf_op_name / kernel name to filter by.
     limit: Number of top kernels to return when kernel_name is not provided.
-    output_format: Output format - 'json' (JSON string) or 'markdown' (markdown
-      table string).
+    output_format: Output format - 'json' (JSON string), 'markdown' (markdown
+      table string), or 'dict' (raw Python dict/list).
     include_summary: If True, computes and returns ground-truth timing via
       Disjoint Interval Union alongside per-kernel records.
     device_to_use: Device plane to target (e.g., "TPU:0").
     trace_matchers: Optional tuple of event name matchers for filtering.
     include_intra_kernel_regions: If True, also emits events from TPU lines that
-      carry regions *inside* a kernel ("LLO Ops", "Pallas Primitives", "<unit>
-      Instructions"). These overlap the kernel that contains them, so they are
-      excluded by default to keep the ranking over top-level kernels only.
-      Included records are tagged with is_intra_kernel_region=True.
+      carry regions *inside* a kernel ("LLO Ops", "Pallas Primitives",
+      "<unit> Instructions"). These overlap the kernel that contains them, so
+      they are excluded by default to keep the ranking over top-level kernels
+      only. Included records are tagged with is_intra_kernel_region=True.
     bypass_cache: Whether to bypass cache.
 
   Returns:
-      A JSON string (a list of kernel records, or a summary object when
-      include_summary=True) or a markdown table string.
+      A formatted string, list of dict records, or enriched summary dict.
   """
   del bypass_cache
   if isinstance(source, (int, float)):
@@ -172,16 +171,14 @@ def get_kernel_stats(
         records = [records] if isinstance(records, dict) else []
       if not kernel_name:
         records = records[:limit]
+      if output_format == "dict":
+        return source
       if output_format == "markdown":
         return format_markdown_table(records, kernel_name)
       return json.dumps(source if include_summary else records, indent=2)
 
     kernel_durations_us = collections.defaultdict(list)
     all_intervals: list[tuple[int, int]] = []
-    line_intervals: dict[str, list[tuple[int, int]]] = collections.defaultdict(
-        list
-    )
-    custom_call_intervals: list[tuple[int, int]] = []
     step_durations_us: list[float] = []
     excluded_region_lines: set[str] = set()
 
@@ -193,12 +190,6 @@ def get_kernel_stats(
 
       for line in plane.lines:
         line_name_upper = line.name.upper()
-        if include_summary:
-          for event in line.events:
-            start_ns = int(event.start_ns)
-            end_ns = start_ns + int(event.duration_ns)
-            line_intervals[line.name].append((start_ns, end_ns))
-
         is_region_line = False
         if is_tpu:
           line_kind = classify_tpu_line(line.name)
@@ -255,19 +246,22 @@ def get_kernel_stats(
             start_ns = int(event.start_ns)
             end_ns = start_ns + int(event.duration_ns)
             all_intervals.append((start_ns, end_ns))
-            name_lower = name_info.lower()
-            if (
-                name_lower.startswith("custom-call")
-                or "custom_call" in name_lower
-                or "pallas" in name_lower
-                or "PALLAS" in line_name_upper
-            ):
-              custom_call_intervals.append((start_ns, end_ns))
 
     if not kernel_durations_us:
       msg = f"No kernel stats found for session {source}"
       if kernel_name:
         msg += f" and kernel {kernel_name}"
+      if output_format == "dict" and include_summary:
+        return {
+            "total_device_duration_ns": 0,
+            "total_device_duration_us": 0.0,
+            "total_device_duration_ms": 0.0,
+            "kernel_records": [],
+            "step_durations_us": [],
+            "stats": {"mean_us": 0.0, "std_us": 0.0},
+        }
+      if output_format == "dict":
+        return []
       if output_format == "markdown":
         return f"# Info\n{msg}\n"
       return json.dumps({"info": msg}, indent=2)
@@ -299,15 +293,6 @@ def get_kernel_stats(
       total_ns = compute_disjoint_interval_union_ns(all_intervals)
       total_us = float(total_ns / 1000.0)
       total_ms = float(total_ns / 1_000_000.0)
-      by_line_duration_ns = {
-          line_name: compute_disjoint_interval_union_ns(intervals)
-          for line_name, intervals in line_intervals.items()
-      }
-      custom_call_ns = compute_disjoint_interval_union_ns(custom_call_intervals)
-      custom_call_us = round(float(custom_call_ns / 1000.0), 4)
-      custom_call_pct = (
-          round((custom_call_ns / total_ns) * 100.0, 2) if total_ns > 0 else 0.0
-      )
       mean_us = total_us if not step_durations_us else (
           sum(step_durations_us) / len(step_durations_us)
       )
@@ -318,9 +303,6 @@ def get_kernel_stats(
           "total_device_duration_ns": total_ns,
           "total_device_duration_us": total_us,
           "total_device_duration_ms": total_ms,
-          "by_line_duration_ns": by_line_duration_ns,
-          "custom_call_duration_us": custom_call_us,
-          "custom_call_share_pct": custom_call_pct,
           "kernel_records": records,
           "step_durations_us": step_durations_us,
           "stats": {"mean_us": round(mean_us, 4), "std_us": round(std_us, 4)},
@@ -336,8 +318,14 @@ def get_kernel_stats(
             " include_intra_kernel_regions=True to include them, tagged with"
             " is_intra_kernel_region."
         )
+      if output_format == "dict":
+        return summary
+      if output_format == "markdown":
+        return json.dumps(summary, indent=2)
       return json.dumps(summary, indent=2)
 
+    if output_format == "dict":
+      return records
     if output_format == "markdown":
       return format_markdown_table(records, kernel_name)
     return json.dumps(records, indent=2)

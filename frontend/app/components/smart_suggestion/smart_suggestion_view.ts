@@ -46,10 +46,10 @@ const FEEDBACK_STORAGE_KEY_PREFIX = 'smartSuggestionFeedback';
 /** A component for displaying smart suggestions. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
+  standalone: true,
   selector: 'smart-suggestion-view',
   templateUrl: './smart_suggestion_view.ng.html',
   styleUrls: ['./smart_suggestion_view.scss'],
-  standalone: true,
   imports: [
     CommonModule,
     MatButtonModule,

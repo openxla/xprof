@@ -6,7 +6,7 @@
 <div class="section-container">
   <div class="row">
     <div>
-      <div class="mat-headline">Module Name: {{currentModule}}</div>
+      <div class="mat-headline">Module Name: {{currentModule()}}</div>
       <div class="sub-title">Peak memory allocation: {{peakHeapSizeMiB}} MiB, {{totalBufferAllocationMiB}} MiB (with fragmentation)</div>
       <div class="description" [hidden]="!paddingOverhead">
         {{paddingOverhead}} MiB total padding overhead
@@ -43,15 +43,15 @@
   (selectedStep)="setSelectedProgramOrderStep($event)">
 </program-order-chart>
 
-<div *ngIf="memoryViewerPreprocessResult && memoryViewerPreprocessResult.bufferBlocks && memoryViewerPreprocessResult.bufferBlocks.length">
+<div *ngIf="memoryViewerPreprocessResult()?.bufferBlocks?.length">
   <div class="heap-chart-header"><h2>Buffer Allocation Timeline</h2></div>
   <buffer-allocation-timeline
       [selectedBlock]="selectedBlock"
       (selected)="setSelectedBlock($event)"
       (hovered)="setHoveredBlock($event)"
       [highlightedStep]="selectedProgramOrderStep !== null ? selectedProgramOrderStep : -1"
-      [bufferBlocks]="memoryViewerPreprocessResult.bufferBlocks"
-      [totalSteps]="memoryViewerPreprocessResult.heapSizes?.length || 0"
+      [bufferBlocks]="memoryViewerPreprocessResult()!.bufferBlocks!"
+      [totalSteps]="memoryViewerPreprocessResult()!.heapSizes?.length || 0"
       [totalBytes]="timelineTotalBytes">
   </buffer-allocation-timeline>
 </div>
@@ -101,7 +101,7 @@
 
 <as-split-area [size]="20" *ngIf="sourceCodeServiceIsAvailable && showStackTrace">
   <source-mapper
-      [sessionId]="currentRun"
+      [sessionId]="currentRun()"
       [opName]="selectedOpName"
       [opCategory]="selectedOpCategory"
       [programId]="currentProgramId"

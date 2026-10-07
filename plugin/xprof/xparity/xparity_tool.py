@@ -161,6 +161,8 @@ def verify_numerical_parity(
     contract: str = numerical_validator.CONTRACT_ULP,
     contract_by_leaf: _Mapping[str, str] | str | None = None,
     dump_failures_to: str | None = None,
+    atol: float | None = None,
+    rtol: float | None = None,
 ) -> str:
   """Validates numerical parity between two kernels and returns a JSON report.
 
@@ -198,6 +200,10 @@ def verify_numerical_parity(
     dump_failures_to: Optional local directory for the inputs of failing
       batches, one `.npz` per batch. Paths are listed in `failure_dumps`; run
       `replay` on one to re-check a fix on the exact failing input.
+    atol: Optional absolute tolerance of an existing allclose test. Report
+      only: `tolerance_headroom` lists the worst error as a multiple of atol +
+        rtol * |reference| per regime.
+    rtol: Optional relative tolerance; see `atol`.
 
   Returns:
     A JSON string containing the validation report.
@@ -247,6 +253,8 @@ def verify_numerical_parity(
         contract=contract,
         contract_by_leaf=parsed_contract_by_leaf,
         dump_failures_to=dump_failures_to,
+        atol=atol,
+        rtol=rtol,
     )
   except ValueError as e:
     msg = str(e)
@@ -278,6 +286,7 @@ def verify_numerical_parity(
           "batch_results": [],
           "failure_dumps": [],
           "coverage": {},
+          "tolerance_headroom": {},
       }
       return json.dumps(mismatch_payload, indent=2, allow_nan=False)
     raise
@@ -315,6 +324,7 @@ def _report_to_json(report: numerical_validator.KernelValidationReport) -> str:
       "batch_results": [dataclasses.asdict(b) for b in report.batch_results],
       "failure_dumps": report.failure_dumps,
       "coverage": report.coverage,
+      "tolerance_headroom": report.tolerance_headroom,
   }
   sanitized_results = _sanitize_for_json(results_dict)
   return json.dumps(sanitized_results, indent=2, allow_nan=False)

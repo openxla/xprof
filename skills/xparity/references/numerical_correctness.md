@@ -509,7 +509,7 @@ Follow this inverted hierarchy when parsing verification reports:
     and the bulk histogram (`<=1_ulp`, `<=2_ulp`) are well within contract,
     check for near-zero cancellation before assuming failure.
 
-### 3.4 Diagnostic Absolute Deviation vs. Authoritative ULP Gate
+### 3.4 Diagnostic Absolute Deviation & Caller Tolerance Headroom vs. Authoritative ULP Gate
 
 The oracle audit reports `reference_max_abs_from_oracle` and
 `candidate_max_abs_from_oracle` ($\max |y - y_{\text{oracle}}|$):
@@ -521,6 +521,18 @@ The oracle audit reports `reference_max_abs_from_oracle` and
     says nothing about near-zero regions. Relative error metrics are tracked in
     the Phase 2 follow-up queue (F3) and will remain strictly report-only
     diagnostics.
+*   **Caller Tolerance Headroom (`atol`, `rtol` $\to$ `tolerance_headroom`)**:
+    When a caller passes `atol` and/or `rtol` (`--atol`, `--rtol`), Xparity
+    computes the elementwise headroom ratio
+    $$\text{ratio} = \max \frac{|y_{\text{cand}} - y_{\text{ref}}|}
+    {\text{atol} + \text{rtol} \cdot |y_{\text{ref}}|}$$
+    (and against $y_{\text{oracle}}$ when `kernel_oracle` is active), reporting
+    per-batch `tolerance_ratio` / `oracle_tolerance_ratio` and top-level
+    `tolerance_headroom` (`atol`, `rtol`, `max_ratio`, `exceeded`,
+    `worst_batch`, `oracle_max_ratio`, `oracle_exceeded`). A ratio $\le 1.0$
+    means the worst element is within the caller's `allclose` budget. These
+    parameters are **strictly report-only** and never relax the ULP or bitwise
+    contract gate (`is_numerically_equivalent`).
 
 ### 3.5 What This Tool Cannot Tell You
 

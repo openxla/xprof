@@ -153,6 +153,30 @@ class UlpTest(parameterized.TestCase):
     self.assertEqual(result.candidate_bits, "0x80000000")
     self.assertEqual(result.reference_bits, "0x00000000")
 
+  @parameterized.named_parameters(
+      ("equal", [1.0, 2.0], [1.0, 2.0], 0.0),
+      # |1.1 - 1.0| / (0.0 + 0.1 * 1.0) == 1.0, the allclose boundary.
+      ("at_boundary", [1.1], [1.0], 1.0),
+      ("half_headroom", [1.05], [1.0], 0.5),
+      ("matching_nan_and_inf", [np.nan, np.inf], [np.nan, np.inf], 0.0),
+      ("nan_vs_finite", [np.nan], [1.0], np.inf),
+  )
+  def test_tolerance_ratio(self, candidate, reference, expected):
+    ratio = ulp.tolerance_ratio(
+        np.array(candidate), np.array(reference), atol=0.0, rtol=0.1
+    )
+    self.assertAlmostEqual(ratio, expected, places=6)
+
+  def test_tolerance_ratio_zero_bound_and_empty(self):
+    self.assertEqual(
+        ulp.tolerance_ratio(np.array([1e-9]), np.array([0.0]), 0.0, 0.0),
+        np.inf,
+    )
+    self.assertEqual(ulp.tolerance_ratio(np.zeros(0), np.zeros(0), 0.0, 0.1), 0)
+
+  def test_validator_tolerance_ratio_is_the_ulp_function(self):
+    self.assertIs(numerical_validator._tolerance_ratio, ulp.tolerance_ratio)
+
 
 if __name__ == "__main__":
   absltest.main()

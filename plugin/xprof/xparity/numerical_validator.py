@@ -170,6 +170,11 @@ class BatchValidationResult:
   bitwise: BitwiseComparison | None = None
   leaf_path: str | None = None
   leaf_results: dict[str, "BatchValidationResult"] | None = None
+  # max(|candidate - reference| / (atol + rtol * |reference|)) when the caller
+  # passes atol or rtol; values above 1.0 exceed that tolerance. Report only.
+  tolerance_ratio: float | None = None
+  # The same ratio for candidate against oracle, when an oracle ran.
+  oracle_tolerance_ratio: float | None = None
 
   @property
   def max_ulp(self) -> int:
@@ -207,6 +212,7 @@ class KernelValidationReport:
   shape_mismatch: dict[str, Any] | None = None
   failure_dumps: list[str] = dataclasses.field(default_factory=list)
   coverage: dict[str, Any] = dataclasses.field(default_factory=dict)
+  tolerance_headroom: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -259,6 +265,8 @@ _get_finfo = ulp.get_finfo
 _is_discrete_dtype = ulp.is_discrete_dtype
 _INTEGER_DTYPES = ulp.INTEGER_DTYPES
 _DTYPE_TOLERANCES = ulp.DTYPE_TOLERANCES
+# Used throughout this module; lives in `ulp` so inline harnesses can report it.
+_tolerance_ratio = ulp.tolerance_ratio
 
 
 def _as_compare_float(arr: np.ndarray) -> np.ndarray:
@@ -1145,10 +1153,17 @@ def _execute_pytree_batch(
       max(range(len(subs)), key=lambda i: subs[i].max_ulp),
   )
   passed = all(sub.passed for sub in subs)
+
+  def worst_ratio(field: str) -> float | None:
+    ratios = [getattr(r, field) for r in leaf_results.values()]
+    return max((r for r in ratios if r is not None), default=None)
+
   batch_res = dataclasses.replace(
       leaf_results[ref_paths[worst_index]],
       passed=passed,
       leaf_results=leaf_results,
+      tolerance_ratio=worst_ratio("tolerance_ratio"),
+      oracle_tolerance_ratio=worst_ratio("oracle_tolerance_ratio"),
   )
   oracle_subs = [sub for sub in subs if sub.oracle_ran]
   return _BatchExecutionResult(
@@ -1196,6 +1211,7 @@ def _execute_single_batch(
     kernel_oracle: collections.abc.Callable[..., Any] | str | None = None,
     contract: str = CONTRACT_ULP,
     contract_by_leaf: collections.abc.Mapping[str, str] | None = None,
+    user_tolerance: tuple[float, float] | None = None,
 ) -> _BatchExecutionResult:
   """Executes and validates a single batch between reference and candidate."""
   args = batch.get("args", (batch.get("tensor"),))
@@ -1220,6 +1236,7 @@ def _execute_single_batch(
         actual_max_allowed_ulp=actual_max_allowed_ulp,
         p99_9_allowed_ulp=p99_9_allowed_ulp,
         recommended_ulp=recommended_ulp,
+        user_tolerance=user_tolerance,
     )
 
   out_ref = np.asarray(raw_ref)
@@ -1296,6 +1313,7 @@ def _execute_single_batch(
   cand_oracle_p99_9 = 0.0
   ref_oracle_max_abs = 0.0
   cand_oracle_max_abs = 0.0
+  oracle_tolerance_ratio: float | None = None
 
   if kernel_oracle is not None and not is_discrete and not has_nan_or_inf:
     try:
@@ -1363,6 +1381,10 @@ def _execute_single_batch(
     out_cand_f64 = out_cand.astype(np.float64)
     ref_oracle_max_abs = float(np.max(np.abs(out_ref_f64 - out_oracle_f64)))
     cand_oracle_max_abs = float(np.max(np.abs(out_cand_f64 - out_oracle_f64)))
+    if user_tolerance is not None:
+      oracle_tolerance_ratio = _tolerance_ratio(
+          out_cand, out_oracle, *user_tolerance
+      )
 
   worst_offender: WorstOffender | None = None
   if has_nan_or_inf:
@@ -1518,6 +1540,12 @@ def _execute_single_batch(
       finite_max_ulp=finite_max_ulp,
       worst_offender=worst_offender,
       bitwise=bitwise_cmp,
+      tolerance_ratio=(
+          _tolerance_ratio(out_cand, out_ref, *user_tolerance)
+          if user_tolerance is not None
+          else None
+      ),
+      oracle_tolerance_ratio=oracle_tolerance_ratio,
   )
 
   return _BatchExecutionResult(
@@ -1678,6 +1706,8 @@ def validate_kernels(
     contract: str = CONTRACT_ULP,
     contract_by_leaf: collections.abc.Mapping[str, str] | None = None,
     dump_failures_to: str | os.PathLike[str] | None = None,
+    atol: float | None = None,
+    rtol: float | None = None,
 ) -> KernelValidationReport:
   """Validates candidate kernel against reference implementation.
 
@@ -1727,6 +1757,13 @@ def validate_kernels(
       the dtype, gates and contract of this run, and the paths are returned in
       `failure_dumps`. `replay_failure_dump` re-runs a saved batch exactly,
       without regenerating the suite.
+    atol: Optional absolute tolerance of an existing test, for example the
+      `atol` of an `assert_allclose` the kernel must keep passing. Report-only:
+      with `rtol`, it fills `tolerance_headroom` with the worst |candidate -
+      reference| / (atol + rtol * |reference|) per regime and never changes the
+      verdict. Defaults to 0 when only `rtol` is set.
+    rtol: Optional relative tolerance; see `atol`. Defaults to 0 when only
+      `atol` is set.
 
   Returns:
     A KernelValidationReport. For pytree outputs each batch result carries
@@ -1741,6 +1778,16 @@ def validate_kernels(
         f"Unknown kernel_oracle string '{kernel_oracle}'; expected"
         f" '{ORACLE_AUTO}' or a callable."
     )
+  user_tolerance: tuple[float, float] | None = None
+  if atol is not None or rtol is not None:
+    user_tolerance = (float(atol or 0.0), float(rtol or 0.0))
+    if not all(np.isfinite(t) and t >= 0 for t in user_tolerance):
+      raise ValueError(
+          f"atol and rtol must be finite and non-negative, got atol={atol},"
+          f" rtol={rtol}."
+      )
+    if user_tolerance == (0.0, 0.0):
+      raise ValueError("atol and rtol cannot both be 0; use CONTRACT_BITWISE.")
 
   canonical_dtype = _resolve_canonical_dtype(dtype_str)
   recommended_ulp = RECOMMENDED_CONTRACT_ULP.get(canonical_dtype, 2)
@@ -1887,6 +1934,7 @@ def validate_kernels(
         kernel_oracle=kernel_oracle,
         contract=contract,
         contract_by_leaf=contract_by_leaf,
+        user_tolerance=user_tolerance,
     )
     acc.update(res)
     batch_results.append(res.batch_result)
@@ -2060,6 +2108,37 @@ def validate_kernels(
         f" {regimes_not_run}. Pass regimes='all' to gate on them."
     )
 
+  tolerance_headroom: dict[str, Any] = {}
+  if user_tolerance is not None:
+
+    def ratio_by_regime(field: str) -> dict[str, float]:
+      worst: dict[str, float] = {}
+      for b in batch_results:
+        ratio = getattr(b, field)
+        if ratio is not None:
+          worst[b.regime] = max(worst.get(b.regime, 0.0), ratio)
+      return dict(sorted(worst.items()))
+
+    by_regime = ratio_by_regime("tolerance_ratio")
+    over = [r for r, v in by_regime.items() if v > 1.0]
+    tolerance_headroom = {
+        "atol": user_tolerance[0],
+        "rtol": user_tolerance[1],
+        "max_ratio_by_regime": by_regime,
+        "oracle_max_ratio_by_regime": ratio_by_regime("oracle_tolerance_ratio"),
+        "regimes_over_tolerance": over,
+    }
+    if over:
+      worst_regime = max(over, key=lambda r: by_regime[r])
+      within = [r for r in by_regime if r not in over]
+      summary = (
+          f"{summary}\nTolerance headroom (report only): candidate vs"
+          f" reference exceeds atol={user_tolerance[0]:g},"
+          f" rtol={user_tolerance[1]:g} on regimes {over} (worst"
+          f" {by_regime[worst_regime]:.3g}x on '{worst_regime}'); within it on"
+          f" {within}."
+      )
+
   failure_dumps: list[str] = []
   if dump_failures_to is not None and failing_batches:
     failure_dumps = _dump_failing_batches(
@@ -2173,6 +2252,7 @@ def validate_kernels(
       narrow_output_dtype_warning=acc.narrow_warning,
       failure_dumps=failure_dumps,
       coverage=coverage,
+      tolerance_headroom=tolerance_headroom,
   )
 
 

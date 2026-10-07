@@ -10,6 +10,7 @@ against exactly the contracts that `numerical_validator` uses.
 Public API:
   compute_ulp_distance: Elementwise integer ULP distance between two arrays.
   bitwise_mismatch_mask: Elements whose raw bit patterns differ.
+  tolerance_ratio: Worst error as a multiple of an atol/rtol allowance.
   get_contract: (recommended, hard ceiling) ULP contract for a dtype.
   resolve_canonical_dtype: Normalizes any accepted dtype spelling.
   is_discrete_dtype: True for integer and boolean dtypes.
@@ -397,3 +398,35 @@ def bitwise_mismatch_mask(actual: Any, expected: Any) -> np.ndarray:
   return np.any(_as_byte_rows(act) != _as_byte_rows(exp), axis=1).reshape(
       act.shape
   )
+
+
+def tolerance_ratio(
+    candidate: Any, reference: Any, atol: float, rtol: float
+) -> float:
+  """Returns max(|candidate - reference| / (atol + rtol * |reference|)).
+
+  A result at or below 1.0 means every element passes an allclose check with
+  these tolerances scaled by the reference; how far below 1.0 is the headroom.
+  Equal elements, including matching Inf and NaN positions, count as 0. Any
+  other non-finite difference counts as Inf.
+
+  Args:
+    candidate: Candidate output.
+    reference: Reference output with the same shape.
+    atol: Absolute tolerance.
+    rtol: Relative tolerance.
+  """
+  cand = np.asarray(candidate, dtype=np.float64)
+  ref = np.asarray(reference, dtype=np.float64)
+  if cand.size == 0:
+    return 0.0
+  same = (cand == ref) | (np.isnan(cand) & np.isnan(ref))
+  with np.errstate(invalid="ignore", over="ignore"):
+    diff = np.where(same, 0.0, np.abs(cand - ref))
+  diff = np.where(np.isnan(diff), np.inf, diff)
+  bound = atol + rtol * np.abs(np.where(np.isfinite(ref), ref, 0.0))
+  ratio = np.divide(
+      diff, bound, out=np.full_like(diff, np.inf), where=bound > 0
+  )
+  ratio = np.where(diff == 0.0, 0.0, ratio)
+  return float(np.max(ratio))

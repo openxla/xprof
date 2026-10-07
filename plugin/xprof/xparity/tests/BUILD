@@ -118,3 +118,14 @@ pytype_strict_contrib_test(
         "@absl_py//absl/testing:parameterized",
     ],
 )
+
+pytype_strict_contrib_test(
+    name = "tolerance_headroom_test",
+    srcs = ["tolerance_headroom_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:numerical_validator",
+        "//plugin/xprof/xparity:xparity_tool",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)

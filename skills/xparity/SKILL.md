@@ -137,12 +137,18 @@ Float64 oracle (a **False Red**).
     failure (`selection: "normal_first"`). Never quote a `fast_agent` ULP figure
     or a run with non-empty `regimes_not_run` as a final `presubmit`
     certification.
-2.  **Check `tolerance_audit` Second**: Verify `configured_max_ulp` against
-    `recommended_contract_ulp` (`2 ULP` for `float32`/`bfloat16`/`float16`, `1
-    ULP` for `fp8`, `0 ULP` for discrete `int*`/`bool`) and the immutable
-    `hard_safety_ceiling` (`8 ULP` for `bfloat16`/`float16`, `4 ULP` for
-    `float32`). Any attempt to set `max_allowed_ulp` above `hard_safety_ceiling`
-    raises a `ValueError`.
+2.  **Check `tolerance_audit` & `tolerance_headroom` Second**: Verify
+    `configured_max_ulp` against `recommended_contract_ulp` (`2 ULP` for
+    `float32`/`bfloat16`/`float16`, `1 ULP` for `fp8`, `0 ULP` for discrete
+    `int*`/`bool`) and the immutable `hard_safety_ceiling` (`8 ULP` for
+    `bfloat16`/`float16`, `4 ULP` for `float32`). Any attempt to set
+    `max_allowed_ulp` above `hard_safety_ceiling` raises a `ValueError`. When a
+    downstream test suite has existing `atol`/`rtol` budgets, pass `atol` and
+    `rtol` (`--atol`, `--rtol`) to populate report-only `tolerance_headroom`
+    (`max_ratio`, `exceeded`, `worst_batch`, `oracle_max_ratio`,
+    `oracle_exceeded`, and per-batch `tolerance_ratio` /
+    `oracle_tolerance_ratio`, where $\le 1.0$ means within `atol + rtol * |ref|`)
+    without altering `is_numerically_equivalent`.
 3.  **Check `oracle_audit` Third (Questions Q2 & Q3)**:
     -   **Q2 (Reference Correctness — `reference_is_lossy`)**: Is
         `reference_max_ulp_from_oracle <= recommended_contract_ulp`? If

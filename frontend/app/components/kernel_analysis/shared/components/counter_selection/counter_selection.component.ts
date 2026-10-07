@@ -2,10 +2,9 @@ import {CommonModule} from '@angular/common';
 import {
   Component,
   EventEmitter,
-  Inject,
-  Input,
+  inject,
+  input,
   OnInit,
-  Optional,
   Output,
 } from '@angular/core';
 import {FormsModule} from '@angular/forms';
@@ -45,10 +44,24 @@ import type {
   styleUrls: ['./counter_selection.component.scss'],
 })
 export class CounterSelectionComponent implements OnInit {
-  @Input() config: CounterSelectionConfig = {groups: []};
-  @Input() selectedIds: string[] = [];
-  @Input() layout: 'columns' | 'list' = 'columns';
-  @Input() density: 'comfortable' | 'compact' = 'compact';
+  readonly data = inject<{
+    config: CounterSelectionConfig;
+    selectedIds: string[];
+    layout: 'columns' | 'list';
+    density: 'comfortable' | 'compact';
+  } | null>(MAT_DIALOG_DATA, {optional: true});
+  readonly dialogRef = inject<MatDialogRef<CounterSelectionComponent>>(
+    MatDialogRef,
+    {optional: true},
+  );
+  readonly config = input<CounterSelectionConfig>(
+    this.data?.config ?? {groups: []},
+  );
+  readonly selectedIds = input<string[]>(this.data?.selectedIds ?? []);
+  readonly layout = input<'columns' | 'list'>(this.data?.layout ?? 'columns');
+  readonly density = input<'comfortable' | 'compact'>(
+    this.data?.density ?? 'compact',
+  );
 
   @Output() readonly applied = new EventEmitter<string[]>();
   @Output() readonly cancelled = new EventEmitter<void>();
@@ -56,39 +69,20 @@ export class CounterSelectionComponent implements OnInit {
   searchText = '';
   currentSelections = new Set<string>();
 
-  constructor(
-    @Optional()
-    @Inject(MAT_DIALOG_DATA)
-    public data: {
-      config: CounterSelectionConfig;
-      selectedIds: string[];
-      layout: 'columns' | 'list';
-      density: 'comfortable' | 'compact';
-    } | null,
-    @Optional()
-    public dialogRef: MatDialogRef<CounterSelectionComponent> | null,
-  ) {
-    if (data) {
-      this.config = data.config || this.config;
-      this.selectedIds = data.selectedIds || this.selectedIds;
-      this.layout = data.layout || this.layout;
-      this.density = data.density || this.density;
-    }
-  }
-
   ngOnInit() {
-    this.currentSelections = new Set(this.selectedIds);
+    this.currentSelections = new Set(this.selectedIds());
   }
 
   get filteredGroups(): CounterGroup[] {
     const filter = this.searchText.trim().toLowerCase();
-    if (!filter) return this.config.groups;
+    if (!filter) return this.config().groups;
 
     const isPureNumber = /^\d+$/.test(filter);
-    const useExactMatch = this.config.exactMatchForPureNumbers && isPureNumber;
+    const useExactMatch =
+      this.config().exactMatchForPureNumbers && isPureNumber;
 
-    return this.config.groups
-      .map((group) => {
+    return this.config()
+      .groups.map((group) => {
         const filteredMetrics = group.counters.filter((metric) => {
           if (useExactMatch) {
             return metric.id === filter;
@@ -119,8 +113,8 @@ export class CounterSelectionComponent implements OnInit {
 
   get selectedCounters(): CounterOption[] {
     const selections = this.currentSelections;
-    const allMetrics = this.config.groups
-      .map((g) => g.counters)
+    const allMetrics = this.config()
+      .groups.map((g) => g.counters)
       .reduce((acc, val) => acc.concat(val), []);
     return allMetrics.filter((m) => selections.has(m.id));
   }

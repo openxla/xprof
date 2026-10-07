@@ -62,6 +62,7 @@ pytype_strict_library(
     ],
     deps = [
         "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xplane_tools",
         "//plugin/xprof/cli/internal/oss:xprof_client",
     ],
 )

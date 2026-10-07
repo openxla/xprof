@@ -1,4 +1,4 @@
-"""OSS hermetic backend to compute kernel stats and step times from local XPlane traces."""
+"""OSS hermetic backend to compute kernel stats from local XPlane traces."""
 
 import collections
 import json
@@ -349,52 +349,3 @@ def get_kernel_stats(
         "Error in OSS get_kernel_stats for source %r", source
     )
     raise RuntimeError(f"Failed to get kernel stats: {e}") from e
-
-
-def get_avg_step_time(
-    source: Any,
-    *,
-    func_name: str | None = None,
-    output_format: Literal["json", "dict"] = "json",
-    bypass_cache: bool = False,
-) -> Any:
-  """Computes average step time from local XPlane 'XLA Modules' envelopes in OSS."""
-  del bypass_cache
-  if isinstance(source, (int, float)):
-    source = str(source)
-  try:
-    step_durations_ms = []
-
-    for plane in xplane_tools.iter_planes(source):
-      if not re.search(r"^/device:.*", plane.name):
-        continue
-
-      for line in plane.lines:
-        if "XLA MODULES" not in line.name.upper():
-          continue
-
-        for event in line.events:
-          ev_name = event.name
-          if func_name and func_name not in ev_name:
-            continue
-
-          step_durations_ms.append(float(event.duration_ns) / 1_000_000.0)
-
-    if not step_durations_ms:
-      raise ValueError(
-          f"No steps matching func_name '{func_name}' found in {source}."
-      )
-
-    step_count = len(step_durations_ms)
-    avg_ms = sum(step_durations_ms) / step_count
-    res = {
-        "avg_step_time_ms": round(avg_ms, 4),
-        "step_count": step_count,
-    }
-    return res if output_format == "dict" else json.dumps(res, indent=2)
-
-  except (FileNotFoundError, ValueError):
-    raise
-  except Exception as e:  # pylint: disable=broad-exception-caught
-    logging.exception("Error across OSS get_avg_step_time")
-    raise RuntimeError(f"Failed to get average step time: {e}") from e

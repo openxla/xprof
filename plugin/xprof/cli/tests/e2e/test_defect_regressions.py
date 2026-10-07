@@ -579,6 +579,15 @@ class DefectRegressionsTest(parameterized.TestCase):
       self.assertIn("Python 3.11+", res["remediation"])
       self.assertIn("JAX >= 0.11.0", res["remediation"])
       self.assertIn("xprof-nightly", res["remediation"])
+      self.assertEqual(
+          res["required_flags"], ["--xla_xprof_register_llo_debug_info=true"]
+      )
+      self.assertEqual(
+          res["optional_flags"], ["--xla_xprof_enable_custom_call_tracing=true"]
+      )
+      self.assertNotIn(
+          "--xla_xprof_enable_custom_call_tracing=true", res["required_flags"]
+      )
 
     with mock.patch.object(
         get_llo_debug_string_tool.xprof_client,
@@ -614,6 +623,18 @@ class DefectRegressionsTest(parameterized.TestCase):
       self.assertIn("how-to-tune", res_dbg["remediation"])
       self.assertNotIn("it adds no LLO data", res_dbg["remediation"])
       self.assertIn("xprof-nightly", res_dbg["remediation"])
+      self.assertEqual(
+          res_dbg["required_flags"],
+          ["--xla_xprof_register_llo_debug_info=true"],
+      )
+      self.assertEqual(
+          res_dbg["optional_flags"],
+          ["--xla_xprof_enable_custom_call_tracing=true"],
+      )
+      self.assertNotIn(
+          "--xla_xprof_enable_custom_call_tracing=true",
+          res_dbg["required_flags"],
+      )
 
   def test_d18_standardized_cli_error_codes(self):
     """D-18: Standardized POSIX exit codes and structured JSON errors on failure."""

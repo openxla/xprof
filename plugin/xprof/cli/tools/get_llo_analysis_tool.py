@@ -9,6 +9,11 @@ from xprof.cli.internal import decorators
 from xprof.cli.internal.oss import xprof_client
 from xprof.convert import _pywrap_profiler_plugin
 
+_LLO_DATA_ABSENT_ERROR = (
+    "Failed to analyze LLO from xspace (LLO trace data is not available in"
+    " this session)."
+)
+
 
 @decorators.cached(expire=86400)
 def get_llo_analysis(
@@ -67,15 +72,7 @@ def get_llo_analysis(
       analysis = _pywrap_profiler_plugin.analyze_llo(target_file, kernel=kernel)
       if not analysis.get("success", False):
         return json.dumps(
-            dict(
-                status="UNAVAILABLE",
-                reason="LLO_DATA_ABSENT",
-                error=(
-                    "Failed to analyze LLO from xspace (LLO trace data is not"
-                    " available in this session)."
-                ),
-                remediation=decorators.LLO_DATA_ABSENT_REMEDIATION,
-            ),
+            decorators.llo_data_absent_response(_LLO_DATA_ABSENT_ERROR),
             indent=2,
         )
       return json.dumps(analysis, indent=2)
@@ -107,15 +104,7 @@ def get_llo_analysis(
 
       if not analysis.get("success", False):
         return json.dumps(
-            dict(
-                status="UNAVAILABLE",
-                reason="LLO_DATA_ABSENT",
-                error=(
-                    "Failed to analyze LLO from xspace (LLO trace data is not"
-                    " available in this session)."
-                ),
-                remediation=decorators.LLO_DATA_ABSENT_REMEDIATION,
-            ),
+            decorators.llo_data_absent_response(_LLO_DATA_ABSENT_ERROR),
             indent=2,
         )
 

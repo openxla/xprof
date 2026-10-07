@@ -250,7 +250,13 @@ Pallas or Mosaic):
         for custom calls; use `get_kernel_stats` for latency and
         `get_llo_analysis` for instruction counts).*
     *   **Trace Validation**: Test LLO presence by calling `get_llo_analysis`
-        and reading `success`, not by inspecting trace line names.
+        and reading `success`, not by inspecting trace line names. A trace
+        without LLO data returns `"reason": "LLO_DATA_ABSENT"`; take the
+        re-capture flags from its `required_flags` list, not from the
+        `remediation` prose. Add the flags in `optional_flags` only when the
+        user asks for runtime LLO lanes. Older XProf builds lack
+        `required_flags`; there, the required flag is the one quoted inside
+        `LIBTPU_INIT_ARGS="..."` in the prose.
 
 <h2 id="supported-capabilities--references">Supported Capabilities & References</h2>
 

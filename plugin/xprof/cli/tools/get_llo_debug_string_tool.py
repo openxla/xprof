@@ -9,6 +9,11 @@ from xprof.cli.internal import decorators
 from xprof.cli.internal.oss import xprof_client
 from xprof.convert import _pywrap_profiler_plugin
 
+_LLO_DATA_ABSENT_ERROR = (
+    "Failed to extract LLO debug string (LLO trace data is not available in"
+    " this session)."
+)
+
 
 @decorators.cached(expire=86400)
 def get_llo_debug_string(
@@ -65,15 +70,7 @@ def get_llo_debug_string(
       debug_str = _pywrap_profiler_plugin.get_llo_debug_string(target_file)
       if not debug_str:
         return json.dumps(
-            dict(
-                status="UNAVAILABLE",
-                reason="LLO_DATA_ABSENT",
-                error=(
-                    "Failed to extract LLO debug string (LLO trace data is not"
-                    " available in this session)."
-                ),
-                remediation=decorators.LLO_DATA_ABSENT_REMEDIATION,
-            ),
+            decorators.llo_data_absent_response(_LLO_DATA_ABSENT_ERROR),
             indent=2,
         )
       return json.dumps({"debug_string": debug_str}, indent=2)
@@ -103,15 +100,7 @@ def get_llo_debug_string(
 
       if not debug_str:
         return json.dumps(
-            dict(
-                status="UNAVAILABLE",
-                reason="LLO_DATA_ABSENT",
-                error=(
-                    "Failed to extract LLO debug string (LLO trace data is not"
-                    " available in this session)."
-                ),
-                remediation=decorators.LLO_DATA_ABSENT_REMEDIATION,
-            ),
+            decorators.llo_data_absent_response(_LLO_DATA_ABSENT_ERROR),
             indent=2,
         )
 

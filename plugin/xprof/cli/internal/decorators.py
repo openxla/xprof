@@ -29,11 +29,23 @@ _CUSTOM_CALL_TUNE_DOC: str = (
     "https://openxla.org/xprof/custom_call_profiling#how-to-tune"
 )
 
+# Flags a re-capture needs when LLO data is absent. Exposed as structured
+# fields in LLO_DATA_ABSENT responses so callers do not have to parse the
+# remediation prose to tell the required flag from the optional one.
+LLO_DATA_ABSENT_REQUIRED_FLAGS: tuple[str, ...] = (
+    "--xla_xprof_register_llo_debug_info=true",
+)
+# Optional: adds fine-grained runtime LLO detail but bloats traces and can
+# overflow the trace buffer (see docs/custom_call_profiling.md).
+LLO_DATA_ABSENT_OPTIONAL_FLAGS: tuple[str, ...] = (
+    "--xla_xprof_enable_custom_call_tracing=true",
+)
+
 LLO_DATA_ABSENT_REMEDIATION: str = (
     "To enable LLO tracing, ensure the workload is executed with"
-    ' LIBTPU_INIT_ARGS="--xla_xprof_register_llo_debug_info=true"'
+    f' LIBTPU_INIT_ARGS="{" ".join(LLO_DATA_ABSENT_REQUIRED_FLAGS)}"'
     " exported strictly BEFORE 'import jax'. Adding"
-    " --xla_xprof_enable_custom_call_tracing=true captures fine-grained"
+    f" {' '.join(LLO_DATA_ABSENT_OPTIONAL_FLAGS)} captures fine-grained"
     " runtime LLO details and increases trace size; if trace buffer overflow"
     " drops events, tune the vtrace frequency flag"
     " (trace_best_effort_frequency / trace_guaranteed_frequency in"
@@ -42,6 +54,29 @@ LLO_DATA_ABSENT_REMEDIATION: str = (
     " JAX >= 0.11.0 (default Cloud TPU VM images running Python 3.10 cap JAX"
     " at 0.6.2 and lack LLO flag support), and xprof-nightly."
 )
+
+
+def llo_data_absent_response(error: str) -> dict[str, Any]:
+  """Builds the UNAVAILABLE / LLO_DATA_ABSENT response payload.
+
+  Args:
+    error: Tool-specific description of what failed.
+
+  Returns:
+    A dict with `status`, `reason`, `error`, the prose `remediation`, and the
+    machine-readable `required_flags` / `optional_flags` lists. A re-capture
+    needs exactly `required_flags`; `optional_flags` trade trace size for
+    extra runtime detail.
+  """
+  return dict(
+      status="UNAVAILABLE",
+      reason="LLO_DATA_ABSENT",
+      error=error,
+      remediation=LLO_DATA_ABSENT_REMEDIATION,
+      required_flags=list(LLO_DATA_ABSENT_REQUIRED_FLAGS),
+      optional_flags=list(LLO_DATA_ABSENT_OPTIONAL_FLAGS),
+  )
+
 
 _FINGERPRINT_CACHE_MAXSIZE = 1024
 _FINGERPRINT_MEM_CACHE: collections.OrderedDict[Any, str] = (

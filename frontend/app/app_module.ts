@@ -1,11 +1,16 @@
-import {HttpClientModule} from '@angular/common/http';
-import {ErrorHandler, Injectable, NgModule, provideZoneChangeDetection} from '@angular/core';
-import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {provideHttpClient, withInterceptorsFromDi} from '@angular/common/http';
+import {
+  ApplicationRef,
+  DoBootstrap,
+  ErrorHandler,
+  Injectable,
+  NgModule,
+  provideZoneChangeDetection,
+} from '@angular/core';
 import {BrowserModule} from '@angular/platform-browser';
 import {BrowserAnimationsModule} from '@angular/platform-browser/animations';
-import {EmptyPageModule} from 'org_xprof/frontend/app/components/empty_page/empty_page_module';
-import {MainPageModule} from 'org_xprof/frontend/app/components/main_page/main_page_module';
-import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
+import {RouterModule} from '@angular/router';
+import {routes} from 'org_xprof/frontend/app/components/main_page/routes';
 import {DataDispatcher} from 'org_xprof/frontend/app/services/data_dispatcher/data_dispatcher';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
@@ -20,25 +25,22 @@ import {App} from './app';
 export class XProfErrorHandler implements ErrorHandler {
   handleError(error: unknown): void {
     const message =
-        error instanceof Error ? (error.stack || error.message) : String(error);
+      error instanceof Error ? error.stack || error.message : String(error);
     console.error('XProf Error:', message, error);
   }
 }
 
 /** The root component module. */
 @NgModule({
-  declarations: [App],
   imports: [
+    App,
     BrowserModule,
-    HttpClientModule,
-    MatProgressBarModule,
-    EmptyPageModule,
-    MainPageModule,
+    RouterModule.forRoot(routes),
     BrowserAnimationsModule,
-    PipesModule,
     RootStoreModule,
   ],
   providers: [
+    provideHttpClient(withInterceptorsFromDi()),
     provideZoneChangeDetection(),
     {provide: ErrorHandler, useClass: XProfErrorHandler},
     DataDispatcher,
@@ -49,7 +51,9 @@ export class XProfErrorHandler implements ErrorHandler {
       useClass: SourceCodeService,
     },
   ],
-  bootstrap: [App],
 })
-export class AppModule {
+export class AppModule implements DoBootstrap {
+  ngDoBootstrap(appRef: ApplicationRef) {
+    appRef.bootstrap(App);
+  }
 }

@@ -685,6 +685,7 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
   UpdateLevelPositions(data);
   timeline_data_ = std::move(data);
   RebuildEntryColors();
+  BuildLevelMipPyramids();
 
   // Execute 4-tier despawn fallback to restore compensated scroll offset.
   if (has_anchor) {
@@ -856,6 +857,150 @@ void Timeline::RebuildEntryColors() {
   }
 }
 
+void Timeline::BuildLevelMipPyramids() {
+  const int num_levels = timeline_data_.total_levels();
+  level_mip_pyramids_.clear();
+  level_mip_pyramids_.resize(num_levels);
+  if (num_levels == 0 || timeline_data_.entry_start_times.empty()) {
+    return;
+  }
+
+  constexpr int kMipBinCounts[LevelMipPyramid::kNumMipLevels] = {2048, 512,
+                                                                 128};
+  const auto& start_times = timeline_data_.entry_start_times;
+  const auto& total_times = timeline_data_.entry_total_times;
+
+  for (int lvl = 0; lvl < num_levels; ++lvl) {
+    const absl::Span<const int> indices = timeline_data_.level_events(lvl);
+    if (indices.size() < kMinEventsForMipPyramid) {
+      continue;
+    }
+    const int first_idx = indices.front();
+    const int last_idx = indices.back();
+    if (first_idx < 0 || static_cast<size_t>(first_idx) >= start_times.size() ||
+        last_idx < 0 || static_cast<size_t>(last_idx) >= start_times.size()) {
+      continue;
+    }
+    const Microseconds level_min_ts = start_times[first_idx];
+    const Microseconds level_max_ts =
+        std::max(start_times[first_idx] + total_times[first_idx],
+                 start_times[last_idx] + total_times[last_idx]);
+    const Microseconds span = level_max_ts - level_min_ts;
+    if (span <= 0.0) continue;
+
+    struct MipBuilderState {
+      bool active = false;
+      int num_bins = 0;
+      double inv_bin_width = 0.0;
+      int current_bin = -1;
+      Microseconds dom_dur = -1.0;
+      double weight_sum = 0.0;
+      double r_sum = 0.0;
+      double g_sum = 0.0;
+      double b_sum = 0.0;
+    };
+
+    LevelMipPyramid& pyramid = level_mip_pyramids_[lvl];
+    MipBuilderState states[LevelMipPyramid::kNumMipLevels];
+    bool any_active = false;
+    for (int m = 0; m < LevelMipPyramid::kNumMipLevels; ++m) {
+      const int num_bins = kMipBinCounts[m];
+      if (static_cast<size_t>(num_bins) >= indices.size()) {
+        continue;
+      }
+      const Microseconds bin_width = span / static_cast<double>(num_bins);
+      if (bin_width <= 0.0) continue;
+      states[m].active = true;
+      states[m].num_bins = num_bins;
+      states[m].inv_bin_width = 1.0 / bin_width;
+      pyramid.levels[m].bin_width_us = bin_width;
+      pyramid.levels[m].tiles.reserve(num_bins);
+      any_active = true;
+    }
+    if (!any_active) continue;
+
+    auto finalize_tile = [&](int m) {
+      LevelMipLevel& mip = pyramid.levels[m];
+      if (mip.tiles.empty()) return;
+      LevelMipTile& tile = mip.tiles.back();
+      const MipBuilderState& st = states[m];
+      if (st.weight_sum > 0.0) {
+        const uint32_t r = static_cast<uint32_t>(
+            std::clamp(st.r_sum / st.weight_sum, 0.0, 255.0));
+        const uint32_t g = static_cast<uint32_t>(
+            std::clamp(st.g_sum / st.weight_sum, 0.0, 255.0));
+        const uint32_t b = static_cast<uint32_t>(
+            std::clamp(st.b_sum / st.weight_sum, 0.0, 255.0));
+        tile.blended_color = IM_COL32(r, g, b, 255);
+      } else if (tile.dominant_event_index >= 0) {
+        tile.blended_color = GetEventColor(tile.dominant_event_index);
+      }
+    };
+
+    for (int idx : indices) {
+      if (idx < 0 || static_cast<size_t>(idx) >= start_times.size()) {
+        continue;
+      }
+      const Microseconds s = start_times[idx];
+      const Microseconds d = total_times[idx];
+      const Microseconds e = s + d;
+      const ImU32 c = GetEventColor(idx);
+      const double w = std::max(d, 1e-3);
+      const double cr = static_cast<double>((c >> IM_COL32_R_SHIFT) & 0xFF) * w;
+      const double cg = static_cast<double>((c >> IM_COL32_G_SHIFT) & 0xFF) * w;
+      const double cb = static_cast<double>((c >> IM_COL32_B_SHIFT) & 0xFF) * w;
+      const Microseconds rel_s = s - level_min_ts;
+
+      for (int m = 0; m < LevelMipPyramid::kNumMipLevels; ++m) {
+        MipBuilderState& st = states[m];
+        if (!st.active) continue;
+        LevelMipLevel& mip = pyramid.levels[m];
+        const int bin = std::clamp(static_cast<int>(rel_s * st.inv_bin_width),
+                                   0, st.num_bins - 1);
+        if (bin != st.current_bin) {
+          finalize_tile(m);
+          st.current_bin = bin;
+          st.dom_dur = d;
+          st.weight_sum = w;
+          st.r_sum = cr;
+          st.g_sum = cg;
+          st.b_sum = cb;
+          mip.tiles.push_back(LevelMipTile{
+              .min_start = s,
+              .max_end = e,
+              .total_occupied_dur = std::max(0.0, d),
+              .dominant_event_index = idx,
+              .count = 1,
+              .blended_color = c,
+          });
+        } else {
+          LevelMipTile& tile = mip.tiles.back();
+          const Microseconds prev_end = tile.max_end;
+          tile.max_end = std::max(tile.max_end, e);
+          if (e > prev_end) {
+            tile.total_occupied_dur += (e - std::max(s, prev_end));
+          }
+          tile.count++;
+          st.weight_sum += w;
+          st.r_sum += cr;
+          st.g_sum += cg;
+          st.b_sum += cb;
+          if (d > st.dom_dur) {
+            st.dom_dur = d;
+            tile.dominant_event_index = idx;
+          }
+        }
+      }
+    }
+    for (int m = 0; m < LevelMipPyramid::kNumMipLevels; ++m) {
+      if (states[m].active) {
+        finalize_tile(m);
+        pyramid.levels[m].tiles.shrink_to_fit();
+      }
+    }
+  }
+}
+
 ImU32 Timeline::GetEventColor(int event_index) const {
   if (event_index >= 0 &&
       static_cast<size_t>(event_index) < entry_colors_.size() &&
@@ -870,6 +1015,7 @@ void Timeline::Draw() {
   if (cached_trace_colors_version_ != palette_.GetTraceVersion() ||
       entry_colors_.size() != timeline_data_.entry_names.size()) {
     RebuildEntryColors();
+    BuildLevelMipPyramids();
   }
   hovered_event_index_ = -1;
   event_clicked_this_frame_ = false;
@@ -2639,6 +2785,147 @@ void Timeline::DrawEventsForLevel(int group_index,
         return time < timeline_data_.entry_start_times[event_index];
       });
 
+  const size_t visible_count =
+      static_cast<size_t>(std::distance(first_visible_it, last_visible_it));
+  if (search_query_lower_.empty() &&
+      visible_count > kMinVisibleEventsForMipDraw && px_per_time_unit > 0.0 &&
+      !event_indices.empty()) {
+    int global_level = -1;
+    const int sample_idx = event_indices.front();
+    if (sample_idx >= 0 &&
+        static_cast<size_t>(sample_idx) < timeline_data_.entry_levels.size()) {
+      global_level = timeline_data_.entry_levels[sample_idx];
+    }
+    if (global_level >= 0 &&
+        static_cast<size_t>(global_level) < level_mip_pyramids_.size()) {
+      const LevelMipPyramid& pyramid = level_mip_pyramids_[global_level];
+      const Microseconds us_per_px = 1.0 / px_per_time_unit;
+      const int selected_mip =
+          pyramid.SelectMipLevel(kMaxMipBinWidthPx * us_per_px);
+      if (selected_mip >= 0) {
+        const auto& tiles = pyramid.levels[selected_mip].tiles;
+        auto tile_first =
+            std::lower_bound(tiles.begin(), tiles.end(), visible_start_time,
+                             [](const LevelMipTile& tile, Microseconds time) {
+                               return tile.max_end < time;
+                             });
+        auto tile_last =
+            std::upper_bound(tile_first, tiles.end(), visible_end_time,
+                             [](Microseconds time, const LevelMipTile& tile) {
+                               return time < tile.min_start;
+                             });
+        const size_t visible_tiles =
+            static_cast<size_t>(std::distance(tile_first, tile_last));
+        if (visible_tiles * 2 < visible_count) {
+          const Pixel y_top =
+              pos.y + level_in_group * (event_height + padding_bottom);
+          const Pixel y_bottom = y_top + event_height;
+          const ImVec2 mouse_pos = ImGui::GetMousePos();
+          const bool row_hovered_y =
+              mouse_pos.y >= y_top && mouse_pos.y <= y_bottom;
+
+          Pixel last_mip_right = -std::numeric_limits<Pixel>::infinity();
+          int hovered_dom_idx = -1;
+          Pixel hovered_tile_left = 0.0f;
+          Pixel hovered_tile_right = 0.0f;
+          for (auto it = tile_first; it != tile_last; ++it) {
+            const int dom_idx = it->dominant_event_index;
+            if (dom_idx < 0 || static_cast<size_t>(dom_idx) >=
+                                   timeline_data_.entry_start_times.size()) {
+              continue;
+            }
+            const Microseconds dom_start =
+                timeline_data_.entry_start_times[dom_idx];
+            const Microseconds dom_dur =
+                timeline_data_.entry_total_times[dom_idx];
+            const Microseconds dom_end = dom_start + dom_dur;
+
+            if (dom_idx != selected_event_index_ &&
+                (it->count == 1 ||
+                 (dom_end - dom_start) * px_per_time_unit >= kMinTextWidth)) {
+              const EventRect rect = CalculateEventRect(
+                  dom_start, dom_end, pos.x, pos.y, px_per_time_unit,
+                  level_in_group, max.x, event_height, padding_bottom);
+              if (rect.right > rect.left) {
+                last_mip_right = std::max(last_mip_right, rect.right);
+              }
+              DrawEvent(group_index, dom_idx, rect, draw_list);
+              continue;
+            }
+
+            Pixel left = TimeToScreenX(it->min_start, pos.x, px_per_time_unit);
+            Pixel right = TimeToScreenX(it->max_end, pos.x, px_per_time_unit);
+            if (right < left) std::swap(left, right);
+            right = std::max(right, left + kEventMinimumDrawWidth);
+            if (left < last_mip_right && right <= last_mip_right + 0.5f) {
+              continue;
+            }
+            left = std::max(left, pos.x);
+            right = std::min(right, pos.x + max.x);
+            if (right <= left) continue;
+
+            if (row_hovered_y && mouse_pos.x >= left && mouse_pos.x <= right) {
+              hovered_dom_idx = dom_idx;
+              hovered_tile_left = left;
+              hovered_tile_right = right;
+            }
+
+            last_mip_right = std::max(last_mip_right, right);
+            const ImU32 color = (it->blended_color != 0)
+                                    ? it->blended_color
+                                    : GetEventColor(dom_idx);
+            draw_list->AddRectFilled(ImVec2(left, y_top),
+                                     ImVec2(right, y_bottom), color,
+                                     kCornerRounding, kImDrawFlags);
+          }
+
+          if (selected_event_index_ >= 0 &&
+              static_cast<size_t>(selected_event_index_) <
+                  timeline_data_.entry_levels.size() &&
+              timeline_data_.entry_levels[selected_event_index_] ==
+                  global_level &&
+              static_cast<size_t>(selected_event_index_) <
+                  timeline_data_.entry_start_times.size() &&
+              static_cast<size_t>(selected_event_index_) <
+                  timeline_data_.entry_total_times.size()) {
+            const Microseconds sel_start =
+                timeline_data_.entry_start_times[selected_event_index_];
+            const Microseconds sel_end =
+                sel_start +
+                timeline_data_.entry_total_times[selected_event_index_];
+            if (sel_end >= visible_start_time &&
+                sel_start <= visible_end_time) {
+              EventRect sel_rect = CalculateEventRect(
+                  sel_start, sel_end, pos.x, pos.y, px_per_time_unit,
+                  level_in_group, max.x, event_height, padding_bottom);
+              if (selected_event_index_ == hovered_dom_idx) {
+                sel_rect.left = std::min(sel_rect.left, hovered_tile_left);
+                sel_rect.right = std::max(sel_rect.right, hovered_tile_right);
+              }
+              DrawEvent(group_index, selected_event_index_, sel_rect,
+                        draw_list);
+            }
+          }
+
+          if (hovered_dom_idx >= 0 &&
+              hovered_dom_idx != selected_event_index_) {
+            const Microseconds s =
+                timeline_data_.entry_start_times[hovered_dom_idx];
+            const Microseconds e =
+                s + timeline_data_.entry_total_times[hovered_dom_idx];
+            EventRect rect = CalculateEventRect(
+                s, e, pos.x, pos.y, px_per_time_unit, level_in_group, max.x,
+                event_height, padding_bottom);
+            rect.left = std::min(rect.left, hovered_tile_left);
+            rect.right = std::max(rect.right, hovered_tile_right);
+            DrawEvent(group_index, hovered_dom_idx, rect, draw_list);
+          }
+          return;
+        }
+      }
+    }
+  }
+
   Pixel last_drawn_right = -std::numeric_limits<Pixel>::infinity();
   for (auto it = first_visible_it; it != last_visible_it; ++it) {
     int event_index = *it;
@@ -3062,6 +3349,44 @@ void Timeline::DrawFlameGroupPreview(int start_level, int end_level,
   const Microseconds visible_end = visible_range().end();
 
   for (int level = start_level; level < end_level; ++level) {
+    if (px_per_time_unit_val > 0.0 && level >= 0 &&
+        static_cast<size_t>(level) < level_mip_pyramids_.size()) {
+      const LevelMipPyramid& pyramid = level_mip_pyramids_[level];
+      const Microseconds us_per_px = 1.0 / px_per_time_unit_val;
+      const int selected_mip =
+          pyramid.SelectMipLevel(kMaxPreviewMipBinWidthPx * us_per_px);
+      if (selected_mip >= 0) {
+        const auto& tiles = pyramid.levels[selected_mip].tiles;
+        auto tile_first =
+            std::lower_bound(tiles.begin(), tiles.end(), visible_start,
+                             [](const LevelMipTile& tile, Microseconds t) {
+                               return tile.max_end <= t;
+                             });
+        Pixel last_drawn_right = -std::numeric_limits<Pixel>::infinity();
+        for (auto it = tile_first; it != tiles.end(); ++it) {
+          if (it->min_start >= visible_end) break;
+          Pixel x_start =
+              TimeToScreenX(it->min_start, pos.x, px_per_time_unit_val);
+          Pixel x_end = TimeToScreenX(it->max_end, pos.x, px_per_time_unit_val);
+          if (x_end < x_start) std::swap(x_start, x_end);
+          if (x_start < last_drawn_right && x_end <= last_drawn_right + 0.5f) {
+            continue;
+          }
+          ImU32 color = (it->blended_color != 0)
+                            ? it->blended_color
+                            : GetEventColor(it->dominant_event_index);
+          color = (color & ~IM_COL32_A_MASK) |
+                  (static_cast<ImU32>(kGroupPreviewOpacity * 255.0f)
+                   << IM_COL32_A_SHIFT);
+          x_end = std::max(x_end, x_start + kEventMinimumDrawWidth);
+          last_drawn_right = std::max(last_drawn_right, x_end);
+          draw_list->AddRectFilled(ImVec2(x_start, pos.y),
+                                   ImVec2(x_end, pos.y + group_height), color);
+        }
+        continue;
+      }
+    }
+
     absl::Span<const int> indices = timeline_data_.level_events(level);
 
     // Find the first event that ends after the visible start.

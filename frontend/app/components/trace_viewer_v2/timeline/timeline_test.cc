@@ -14610,6 +14610,122 @@ TEST_F(MockTimelineImGuiFixture, GetEventSelected_EmptyGroups) {
   ASSERT_NE(it, received_data.end());
   EXPECT_EQ(std::any_cast<double>(it->second), 0.0);
 }
+
+TEST_F(MockTimelineImGuiFixture,
+       DrawEventsForLevel_MipPyramidRenderingHoverClickAndSelection) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .level_count = 1});
+
+  constexpr int kNumEvents = 300;
+  data.level_offsets = {0, kNumEvents};
+  data.level_event_indices.reserve(kNumEvents);
+  for (int i = 0; i < kNumEvents; ++i) {
+    data.level_event_indices.push_back(i);
+    data.entry_names.push_back(absl::StrCat("ev_", i));
+    data.entry_levels.push_back(0);
+    // In bin 0 ([0.0, ~23.4)):
+    // i=0: [0.0, 2.0] (non-dominant, dur=2.0)
+    // i=1: [5.0, 9.0] (dominant, dur=4.0)
+    // i=2: [10.0, 11.0] (non-dominant, dur=1.0)
+    double start = i * 10.0;
+    double dur = 1.0;
+    if (i == 0) {
+      start = 0.0;
+      dur = 2.0;
+    } else if (i == 1) {
+      start = 5.0;
+      dur = 4.0;
+    }
+    data.entry_start_times.push_back(start);
+    data.entry_total_times.push_back(dur);
+    data.entry_event_ids.push_back(i + 1);
+    data.entry_args.push_back({});
+  }
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 3000.0});
+  timeline_.SetVisibleRange({0.0, 3000.0});
+
+  std::vector<int> event_indices(kNumEvents);
+  for (int i = 0; i < kNumEvents; ++i) {
+    event_indices[i] = i;
+  }
+
+  const double px_per = 0.05;  // 3000 us -> 150 px (us_per_px = 20.0)
+  const ImVec2 pos(100.0f, 50.0f);
+  const ImVec2 max(150.0f, 500.0f);
+  const float event_height = 16.0f;
+  const float padding_bottom = 1.0f;
+
+  // 1. Verify MIP tiles are clamped to [pos.x, pos.x + max.x] and do not bleed
+  // past the right boundary when kEventMinimumDrawWidth (2px) is applied.
+  // Also verify hovering and clicking on the right half of tile 0 ([100, 102])
+  // at x = 101.8f (where raw event 1 rect [100.25, 101.25] would miss) selects
+  // dominant event 1.
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(101.8f, 58.0f);
+  ImGui::NewFrame();
+  io.MouseReleased[0] = true;
+  ImGui::SetNextWindowPos(ImVec2(0, 0));
+  ImGui::SetNextWindowSize(ImVec2(1000, 500));
+  ImGui::Begin(
+      "TestWindow", nullptr,
+      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+  ImGuiWindow* window = ImGui::GetCurrentWindow();
+
+  ImDrawList* draw_list = window->DrawList;
+  const int initial_vtx_size = draw_list->VtxBuffer.Size;
+  timeline_.DrawEventsForLevelBase(0, event_indices, px_per, 0, pos, max,
+                                   event_height, padding_bottom);
+
+  EXPECT_GT(draw_list->VtxBuffer.Size, initial_vtx_size);
+  for (int i = initial_vtx_size; i < draw_list->VtxBuffer.Size; ++i) {
+    if (draw_list->VtxBuffer[i].col == kSelectedBorderColor) continue;
+    // Allow 0.5px for ImGui's anti-aliased fill fringe, which is still well
+    // below the 2px bleed that would occur without post-min-width clamping.
+    EXPECT_GE(draw_list->VtxBuffer[i].pos.x, pos.x - 0.51f);
+    EXPECT_LE(draw_list->VtxBuffer[i].pos.x, pos.x + max.x + 0.51f);
+  }
+  EXPECT_EQ(timeline_.selected_event_index(), 1);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  // 2. Verify a non-dominant selected event (index 0, merged into tile 0 where
+  // dominant_event_index is 1) still draws its selection border on top of the
+  // MIP tiles.
+  timeline_.RevealEvent(0);
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+  timeline_.SetVisibleRange({0.0, 3000.0});
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowSize(ImVec2(1000, 500));
+  ImGui::Begin(
+      "TestWindow", nullptr,
+      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+  window = ImGui::GetCurrentWindow();
+  io.MousePos = ImVec2(-100.0f, -100.0f);
+  io.MouseClicked[0] = false;
+
+  draw_list = window->DrawList;
+  const int sel_vtx_start = draw_list->VtxBuffer.Size;
+  timeline_.DrawEventsForLevelBase(0, event_indices, px_per, 0, pos, max,
+                                   event_height, padding_bottom);
+
+  bool found_selected_border = false;
+  for (int i = sel_vtx_start; i < draw_list->VtxBuffer.Size; ++i) {
+    if (draw_list->VtxBuffer[i].col == kSelectedBorderColor) {
+      found_selected_border = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_selected_border);
+  ImGui::End();
+  ImGui::EndFrame();
+}
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer

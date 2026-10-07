@@ -922,6 +922,7 @@ class Timeline {
   ImRect GetTimelineArea() const;
 
   void RebuildEntryColors();
+  void BuildLevelMipPyramids();
   ImU32 GetEventColor(int event_index) const;
 
   // Private static constants.
@@ -956,6 +957,38 @@ class Timeline {
   std::vector<ImU32> entry_colors_;
   uint64_t cached_trace_colors_version_ = std::numeric_limits<uint64_t>::max();
   std::vector<float> utilization_bins_;
+
+  struct LevelMipTile {
+    Microseconds min_start = 0.0;
+    Microseconds max_end = 0.0;
+    Microseconds total_occupied_dur = 0.0;
+    int dominant_event_index = -1;
+    uint32_t count = 0;
+    ImU32 blended_color = 0;
+  };
+  struct LevelMipLevel {
+    Microseconds bin_width_us = 0.0;
+    std::vector<LevelMipTile> tiles;
+  };
+  struct LevelMipPyramid {
+    static constexpr int kNumMipLevels = 3;
+    LevelMipLevel levels[kNumMipLevels];
+
+    int SelectMipLevel(Microseconds max_bin_width_us) const {
+      for (int m = kNumMipLevels - 1; m >= 0; --m) {
+        const LevelMipLevel& mip = levels[m];
+        if (!mip.tiles.empty() && mip.bin_width_us <= max_bin_width_us) {
+          return m;
+        }
+      }
+      return -1;
+    }
+  };
+  static constexpr size_t kMinEventsForMipPyramid = 64;
+  static constexpr size_t kMinVisibleEventsForMipDraw = 128;
+  static constexpr double kMaxMipBinWidthPx = 1.25;
+  static constexpr double kMaxPreviewMipBinWidthPx = 2.0;
+  std::vector<LevelMipPyramid> level_mip_pyramids_;
 
   // TODO - b/444026851: Set the label width based on the real screen width.
   Pixel label_width_ = kDefaultLabelWidth;

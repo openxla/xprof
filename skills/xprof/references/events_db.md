@@ -14,12 +14,14 @@ This reference covers:
 
 ## Prerequisites
 
--   You must have a `<logdir>`, a specific run directory, or a direct path to a
-    single `.xplane.pb` / `.xspace.pb` trace file.
--   **Single-trace constraint**: Multi-file Events DB generation is not yet
-    supported. If a run directory contains multiple `.xplane.pb` files (for
-    example, multi-worker traces), pass the path to a specific `.xplane.pb` file
-    directly.
+-   You must have a `<logdir>`, a specific run directory (single-host or
+    multi-host), or a direct path to a `.xplane.pb` / `.xspace.pb` trace file.
+-   **Multi-trace directories**: When given a directory containing multiple
+    `.xplane.pb` files (for example, multi-host or multi-worker captures),
+    `create_events_db` and `query_events_db` automatically convert each trace
+    file into a cached Parquet file and expose their union as a single `Events`
+    view in DuckDB. Use `--host=<name>` or pass a single `.xplane.pb` path to
+    restrict to one host.
 
 --------------------------------------------------------------------------------
 
@@ -279,6 +281,7 @@ xprof query_events_db <logdir> --query="
     as SQL `NULL` rather than empty strings (`''`). Always filter with
     `WHERE <column> IS NOT NULL` (for example, `WHERE hlo_op IS NOT NULL` or
     `WHERE step IS NOT NULL`).
-4.  **Multi-Worker Directories**: If `create_events_db` or `query_events_db`
-    raises `NotImplementedError: Multiple (N) trace files found`, pass one of
-    the listed `.xplane.pb` file paths directly as the first argument.
+4.  **Multi-Worker Directories**: On multi-host directories, the `Events` view
+    unions rows from all `.xplane.pb` files. Pass `--host=<name>` or a single
+    `.xplane.pb` file path if you want to query a single host in isolation.
+

@@ -33,6 +33,8 @@ specific step profiles.
         `step_breakdown` (default: 20). Use 0 for no limit.
     -   `--device_core=<int>`: Filter metrics for a specific device core
         (defaults to averaging across cores).
+    -   `--func_name=<str>`: Optional substring filter on `XLA Modules` event
+        names when computing module-level step time.
     -   `--include_summary=<bool>`: Include aggregate summary statistics across
         steps (default: True).
     -   `--bypass_cache=<bool>`: Bypass cached metrics and recompute from raw
@@ -43,9 +45,26 @@ specific step profiles.
     -   `summary`:
         -   `total_steps`: Number of steps captured (or `null` if individual
             step count is unavailable).
+        -   `full_steps_count`: Number of steady-state full steps after
+            excluding partial boundary steps (`step 0` / last step if `<50%` of
+            median step duration).
         -   `step_time_ms_average`, `step_time_ms_min`, `step_time_ms_max`,
             `step_time_ms_stddev`: Step duration and variance statistics in
-            milliseconds.
+            milliseconds across all captured steps.
+        -   `full_step_time_ms_average`: Mean step duration in milliseconds
+            across steady-state full steps (`full_steps`).
+        -   `step_source`: Source of step timing (`"pod_viewer"`, `"Steps"`,
+            `"input_pipeline"`, `"XLA Modules"`, or `"overview_page"`).
+        -   `step_time_distribution_ms`: Per-core step duration distribution
+            containing:
+            -   `all_steps`: `{count, mean_ms, median_ms, p90_ms, min_ms, max_ms, stddev_ms, cv, iqr_ms, dispersion_assessment, steps}` across all `steps × cores`.
+            -   `full_steps`: Same distribution statistics restricted to
+                full steady-state steps.
+            -   `partial_steps`: Same distribution statistics for partial
+                boundary steps (`null` if no partial boundary steps were
+                detected).
+        -   `dispersion_assessment`: `"HIGH_JITTER"` (when `CV > 0.15`) or
+            `"CONSISTENT"`.
         -   `compute_time_ms_average` and `compute_percent`: Time and
             percentage spent in device compute.
         -   `communication_time_ms_average` and `communication_percent`:
@@ -85,15 +104,7 @@ session /path/to/logdir?", you should:
     ```bash
     xprof get_step_trace /path/to/logdir
     ```
-2.  Extract `step_time_ms_average`, `step_time_ms_stddev`, min/max range, and
+2.  Extract `step_time_ms_average`, `full_step_time_ms_average`,
+    `step_time_distribution_ms`, `dispersion_assessment`, and
     `primary_bottleneck` from `summary`.
 3.  Provide a concise summary to the user.
-
-## Related Fast Step Time Tool (`get_avg_step_time`)
-
-To quickly retrieve the scalar average step duration (in milliseconds) without
-fetching the full per-step breakdown:
-
-```bash
-xprof get_avg_step_time <logdir>
-```

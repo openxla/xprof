@@ -1,13 +1,9 @@
-import {CommonModule} from '@angular/common';
 import {NgModule} from '@angular/core';
-import {MatCardModule} from '@angular/material/card';
-
 import {RunEnvironmentView} from './run_environment_view';
 
+/** @deprecated Import the standalone RunEnvironmentView component directly instead. */
 @NgModule({
-  declarations: [RunEnvironmentView],
-  imports: [MatCardModule, CommonModule],
-  exports: [RunEnvironmentView]
+  imports: [RunEnvironmentView],
+  exports: [RunEnvironmentView],
 })
-export class RunEnvironmentViewModule {
-}
+export class RunEnvironmentViewModule {}

@@ -1,5 +1,6 @@
 import {CommonModule} from '@angular/common';
 import {
+  ChangeDetectionStrategy,
   Component,
   EventEmitter,
   Inject,
@@ -27,6 +28,7 @@ import type {
 
 /** Component for selecting counters from a categorized list. */
 @Component({
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'app-counter-selection',
   standalone: true,
   imports: [

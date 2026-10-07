@@ -14,6 +14,7 @@ xprof_ng_module(
         "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
         "//:node_modules/@angular/forms",
+        "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/angular:angular_material_button",
         "@org_xprof//frontend/app/common/angular:angular_material_button_toggle",
         "@org_xprof//frontend/app/common/angular:angular_material_checkbox",

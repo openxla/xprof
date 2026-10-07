@@ -13,10 +13,11 @@
                  type="text"
                  placeholder="Filter"
                  [(ngModel)]="filterText"
+                 (ngModelChange)="updateFilteredItemList()"
                  class="search-input"
                  autocomplete="off">
       </div>
-    <mat-option *ngFor="let item of filteredItemList" [value]="item">
+    <mat-option *ngFor="let item of filteredItemList; trackBy: trackByItem" [value]="item">
       {{ item }}
     </mat-option>
   </mat-select>

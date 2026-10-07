@@ -1,30 +1,9 @@
-import {CommonModule} from '@angular/common';
 import {NgModule} from '@angular/core';
-import {MatButtonModule} from '@angular/material/button';
-import {MatIconModule} from '@angular/material/icon';
-import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
-import {MatTooltipModule} from '@angular/material/tooltip';
-import {KernelEventTooltip} from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_event_tooltip';
-import {KernelMinimap} from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_minimap';
-import {KernelSelectionPanel} from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_selection_panel';
-import {KernelViewerTour} from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_viewer_tour';
-import {TraceViewerContainer} from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
 import {StaticKernelViewer} from './static_kernel_viewer';
 
+/** @deprecated Import the standalone StaticKernelViewer component directly instead. */
 @NgModule({
-  declarations: [StaticKernelViewer],
-  imports: [
-    CommonModule,
-    KernelEventTooltip,
-    KernelMinimap,
-    KernelSelectionPanel,
-    KernelViewerTour,
-    MatButtonModule,
-    MatIconModule,
-    MatProgressSpinnerModule,
-    MatTooltipModule,
-    TraceViewerContainer,
-  ],
+  imports: [StaticKernelViewer],
   exports: [StaticKernelViewer],
 })
 export class StaticKernelViewerModule {}

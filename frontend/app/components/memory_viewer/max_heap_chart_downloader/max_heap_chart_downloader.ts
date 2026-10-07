@@ -1,11 +1,20 @@
-import {Component, Input, ChangeDetectionStrategy} from '@angular/core';
+import {CommonModule} from '@angular/common';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  Input,
+} from '@angular/core';
+import {MatButtonModule} from '@angular/material/button';
 import {type MemoryViewerPreprocessResult} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {HeapObject} from 'org_xprof/frontend/app/common/interfaces/heap_object';
 import {MemoryUsage} from 'org_xprof/frontend/app/components/memory_viewer/memory_usage/memory_usage';
 
 /** A component to download hlo module in proto, text or json formats. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
+  imports: [CommonModule, MatButtonModule],
   selector: 'max-heap-chart-downloader',
   templateUrl: './max_heap_chart_downloader.ng.html',
   styleUrls: ['./max_heap_chart_downloader.scss'],
@@ -44,11 +53,11 @@ export class MaxHeapChartDownloader {
 
   async downloadMaxHeapChart() {
     const usage = new MemoryUsage(
-        this.memoryViewerPreprocessResult,
-        Number(this.memorySpaceColor),
-        null,
-        null,
-        null,
+      this.memoryViewerPreprocessResult,
+      Number(this.memorySpaceColor),
+      null,
+      null,
+      null,
     );
     if (usage.diagnostics.errors.length > 0) {
       console.error(usage.diagnostics.errors[0]);
@@ -90,4 +99,6 @@ export class MaxHeapChartDownloader {
       ]);
     }
   }
+
+  constructor(private readonly cdr: ChangeDetectorRef) {}
 }

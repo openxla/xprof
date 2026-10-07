@@ -119,7 +119,7 @@
 
       <div>
         Extra Options:
-        <div *ngFor="let option of extraOptions; let i = index">
+        <div *ngFor="let option of extraOptions; let i = index; trackBy: trackByIndex">
           <mat-form-field>
             <input matInput placeholder="Key" aria-label="Key" [(ngModel)]="option.key" />
           </mat-form-field>

@@ -1,9 +1,9 @@
-<mat-expansion-panel class="stack-frame-snippet" [expanded]="!failure && isAtTopOfStack" *ngIf="sourceCodeSnippetAddress">
+<mat-expansion-panel class="stack-frame-snippet" [expanded]="!failure && isAtTopOfStack" *ngIf="sourceCodeSnippetAddress()">
 
   <mat-expansion-panel-header class="address">
     <mat-panel-title>
       <div class="file-line">
-        {{sourceCodeSnippetAddress.fileName}}:{{sourceCodeSnippetAddress.lineNumber}}
+        {{sourceCodeSnippetAddress()?.fileName}}:{{sourceCodeSnippetAddress()?.lineNumber}}
         <mat-icon
           *ngIf="usingSourceFileAndLineNumber"
           class="info-icon"

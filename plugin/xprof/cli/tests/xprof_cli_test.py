@@ -189,8 +189,8 @@ class XProfCliTest(parameterized.TestCase):
       'Fire',
       side_effect=xprof_cli.fire.core.FireError('Invalid flag'),
   )
-  @mock.patch('sys.stdout')
-  @mock.patch('sys.stderr')
+  @mock.patch.object(sys, 'stdout')
+  @mock.patch.object(sys, 'stderr')
   def test_main_fire_usage_error_exit_2(self, mock_stderr, mock_stdout, _):
     with self.assertRaises(SystemExit) as cm:
       xprof_cli.main(['xprof', '--unknown'])
@@ -206,8 +206,8 @@ class XProfCliTest(parameterized.TestCase):
   @mock.patch.object(
       xprof_cli.fire, 'Fire', side_effect=FileNotFoundError('Trace not found')
   )
-  @mock.patch('sys.stdout')
-  @mock.patch('sys.stderr')
+  @mock.patch.object(sys, 'stdout')
+  @mock.patch.object(sys, 'stderr')
   def test_main_file_not_found_exit_3(self, mock_stderr, mock_stdout, _):
     with self.assertRaises(SystemExit) as cm:
       xprof_cli.main(['xprof', 'get_overview', 'non_existent_dir'])
@@ -225,8 +225,8 @@ class XProfCliTest(parameterized.TestCase):
       'Fire',
       side_effect=PermissionError('Permission denied'),
   )
-  @mock.patch('sys.stdout')
-  @mock.patch('sys.stderr')
+  @mock.patch.object(sys, 'stdout')
+  @mock.patch.object(sys, 'stderr')
   def test_main_permission_error_exit_3(self, mock_stderr, mock_stdout, _):
     with self.assertRaises(SystemExit) as cm:
       xprof_cli.main(['xprof', 'upload_trace', 'trace.xplane.pb'])
@@ -244,8 +244,8 @@ class XProfCliTest(parameterized.TestCase):
       'Fire',
       side_effect=OSError(28, 'No space left on device'),
   )
-  @mock.patch('sys.stdout')
-  @mock.patch('sys.stderr')
+  @mock.patch.object(sys, 'stdout')
+  @mock.patch.object(sys, 'stderr')
   def test_main_os_error_disk_full_exit_3(self, mock_stderr, mock_stdout, _):
     with self.assertRaises(SystemExit) as cm:
       xprof_cli.main(['xprof', 'upload_trace', 'trace.xplane.pb'])
@@ -261,8 +261,8 @@ class XProfCliTest(parameterized.TestCase):
   @mock.patch.object(
       xprof_cli.fire, 'Fire', side_effect=IsADirectoryError('Is a directory')
   )
-  @mock.patch('sys.stdout')
-  @mock.patch('sys.stderr')
+  @mock.patch.object(sys, 'stdout')
+  @mock.patch.object(sys, 'stderr')
   def test_main_is_a_directory_exit_3(self, mock_stderr, mock_stdout, _):
     with self.assertRaises(SystemExit) as cm:
       xprof_cli.main(['xprof', 'get_kernel_utilization', '/tmp/some_dir'])
@@ -277,8 +277,8 @@ class XProfCliTest(parameterized.TestCase):
   @mock.patch.object(
       xprof_cli.fire, 'Fire', side_effect=ValueError('Corrupt data')
   )
-  @mock.patch('sys.stdout')
-  @mock.patch('sys.stderr')
+  @mock.patch.object(sys, 'stdout')
+  @mock.patch.object(sys, 'stderr')
   def test_main_value_error_exit_4(self, mock_stderr, mock_stdout, _):
     with self.assertRaises(SystemExit) as cm:
       xprof_cli.main(['xprof', 'get_overview', 'corrupt_dir'])
@@ -294,8 +294,8 @@ class XProfCliTest(parameterized.TestCase):
   @mock.patch.object(
       xprof_cli.fire, 'Fire', side_effect=RuntimeError('Unexpected failure')
   )
-  @mock.patch('sys.stdout')
-  @mock.patch('sys.stderr')
+  @mock.patch.object(sys, 'stdout')
+  @mock.patch.object(sys, 'stderr')
   def test_main_internal_error_exit_1(self, mock_stderr, mock_stdout, _):
     with self.assertRaises(SystemExit) as cm:
       xprof_cli.main(['xprof', 'get_overview', 'broken_dir'])
@@ -309,17 +309,25 @@ class XProfCliTest(parameterized.TestCase):
     self.assertIn('traceback', payload)
     self.assertIn('RuntimeError: Unexpected failure', payload['traceback'])
     mock_stderr.write.assert_called()
-    stderr_output = ''.join(c[0][0] for c in mock_stderr.write.call_args_list)
+    stderr_output = ''.join(
+        call[0][0] for call in mock_stderr.write.call_args_list
+    )
     self.assertIn('INTERNAL_ERROR', stderr_output)
     self.assertIn('RuntimeError: Unexpected failure', stderr_output)
+
+  def test_get_rpc_status_code_ignores_application_error_zero(self):
+    fake_status = mock.Mock()
+    fake_status.CanonicalCode.return_value = 5
+    fake_rpc = mock.Mock(application_error=0, util_status=fake_status)
+    self.assertEqual(xprof_cli._get_rpc_status_code(fake_rpc), 5)
 
   @mock.patch.object(
       xprof_cli.XProfCli,
       'upload_trace',
       side_effect=ValueError("Unsupported file format 'trace.txt'"),
   )
-  @mock.patch('sys.stdout')
-  @mock.patch('sys.stderr')
+  @mock.patch.object(sys, 'stdout')
+  @mock.patch.object(sys, 'stderr')
   def test_main_upload_trace_value_error_exit_4(
       self, mock_stderr, mock_stdout, _
   ):
@@ -336,8 +344,8 @@ class XProfCliTest(parameterized.TestCase):
       'upload_trace',
       side_effect=FileNotFoundError('Source trace file does not exist.'),
   )
-  @mock.patch('sys.stdout')
-  @mock.patch('sys.stderr')
+  @mock.patch.object(sys, 'stdout')
+  @mock.patch.object(sys, 'stderr')
   def test_main_upload_trace_file_not_found_exit_3(
       self, mock_stderr, mock_stdout, _
   ):
@@ -356,8 +364,8 @@ class XProfCliTest(parameterized.TestCase):
           'Failed to upload trace: Unexpected internal state'
       ),
   )
-  @mock.patch('sys.stdout')
-  @mock.patch('sys.stderr')
+  @mock.patch.object(sys, 'stdout')
+  @mock.patch.object(sys, 'stderr')
   def test_main_upload_trace_runtime_error_exit_1(
       self, mock_stderr, mock_stdout, _
   ):
@@ -371,6 +379,7 @@ class XProfCliTest(parameterized.TestCase):
 
   def test_empty_session_id_raises_value_error(self):
     """Ensures empty session_id is rejected with ValueError."""
+
     def dummy_tool(session_id: str):
       return session_id
 
@@ -454,6 +463,7 @@ class XProfCliTest(parameterized.TestCase):
 
   def test_wrap_with_logdir_coerces_int_to_str(self):
     """Ensures int session_id and source parameters are coerced to string."""
+
     def dummy_tool(source: str, limit: int = 10):
       return {'source': source, 'limit': limit}
 
@@ -666,15 +676,15 @@ class MultiTraceSelectionTest(absltest.TestCase):
         self.calls, [{'session_id': str(self.rank2), 'host': 'rank2_node0'}]
     )
 
-  @mock.patch('sys.stderr')
+  @mock.patch.object(sys, 'stderr')
   def test_non_json_result_writes_capture_to_stderr(self, mock_stderr):
     res = self._tool('get_hlo_text', result='HloModule m')(str(self.rank0))
     self.assertEqual(res, 'HloModule m')
-    written = ''.join(c[0][0] for c in mock_stderr.write.call_args_list)
+    written = ''.join(call[0][0] for call in mock_stderr.write.call_args_list)
     self.assertIn('xprof-capture: ', written)
     self.assertIn('rank0_node0', written)
 
-  @mock.patch('sys.stderr')
+  @mock.patch.object(sys, 'stderr')
   def test_source_and_session_id_alias_signature(self, mock_stderr):
     calls = self.calls
 
@@ -691,7 +701,7 @@ class MultiTraceSelectionTest(absltest.TestCase):
     self.assertEqual(
         self.calls, [{'source': str(self.rank0), 'session_id': None}]
     )
-    written = ''.join(c[0][0] for c in mock_stderr.write.call_args_list)
+    written = ''.join(call[0][0] for call in mock_stderr.write.call_args_list)
     self.assertIn('"files_used": ["rank0_node0"]', written)
 
   def test_host_rejected_for_remote_session(self):
@@ -706,7 +716,7 @@ class MultiTraceSelectionTest(absltest.TestCase):
 
   def _fire(self, wrapped: Any, *command: str) -> Any:
     """Runs `wrapped` through Fire, as the CLI does."""
-    with mock.patch('sys.stdout'):
+    with mock.patch.object(sys, 'stdout'):
       return xprof_cli.fire.Fire(wrapped, command=list(command))
 
   def test_fire_native_host_bogus_is_rejected(self):
@@ -737,11 +747,11 @@ class MultiTraceSelectionTest(absltest.TestCase):
     for native in (True, False):
       wrapped = self._tool('get_llo_analysis', native_host=native)
       with self.assertRaises(SystemExit):
-        with mock.patch('sys.stderr'):
+        with mock.patch.object(sys, 'stderr'):
           self._fire(wrapped, str(self.rank0), '--host=')
     self.assertEqual(self.calls, [])
 
-  @mock.patch('sys.stderr')
+  @mock.patch.object(sys, 'stderr')
   def test_fire_hosts_list_selects_files(self, mock_stderr):
     del mock_stderr
     calls = self.calls
@@ -780,10 +790,10 @@ class MultiTraceSelectionTest(absltest.TestCase):
     out = json.loads(self._tool('list_xplane_events')(str(self.run_dir)))
     self.assertIn('Events listed from 2', out['capture']['warnings'][0])
 
-  @mock.patch('sys.stderr')
+  @mock.patch.object(sys, 'stderr')
   def test_hlo_text_has_no_combine_warning(self, mock_stderr):
     self._tool('get_hlo_text', result='HloModule m')(str(self.run_dir))
-    written = ''.join(c[0][0] for c in mock_stderr.write.call_args_list)
+    written = ''.join(call[0][0] for call in mock_stderr.write.call_args_list)
     self.assertIn('"warnings": []', written)
 
 

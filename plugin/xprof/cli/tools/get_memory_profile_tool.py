@@ -171,7 +171,7 @@ def get_memory_profile(
 
   def _try_fetch_and_parse(
       host: str | None = None,
-  ) -> tuple[MemoryProfileMetrics | None, str | None]:
+  ) -> tuple[MemoryProfileMetrics | None, Exception | None]:
     try:
       kwargs: dict[str, Any] = {
           "tool_name": "memory_profile.json",
@@ -195,31 +195,32 @@ def get_memory_profile(
         data = data.decode("utf-8", errors="replace")
 
       return _parse_profile_data(data), None
-    except json.JSONDecodeError as e:
-      logging.exception("JSON decode error for host %s", host)
-      return None, f"Failed to parse JSON for memory profile: {e!r}"
-    except ValueError as e:
-      logging.warning("Value error during parsing for host %s: %r", host, e)
-      return None, str(e)
+    except (json.JSONDecodeError, ValueError) as e:
+      logging.warning("Parsing error for host %s: %r", host, e)
+      return None, e
     except Exception as e:  # pylint: disable=broad-exception-caught
+      if e.__class__.__name__ == "RPCException":
+        raise
       logging.exception("Unexpected error for host %s", host)
-      return None, f"Error fetching memory profile: {e!r}"
+      return None, e
 
   def _try_multi_host_fallback(
       initial_parsed: MemoryProfileMetrics | None,
-      initial_error: str | None,
-  ) -> tuple[MemoryProfileMetrics | None, str | None]:
+      initial_exc: Exception | None,
+  ) -> tuple[MemoryProfileMetrics | None, Exception | None]:
     logging.info(
         "Initial memory profile invalid, empty or missing. Trying multi-host"
         " fallback."
     )
-    best_parsed, last_error = initial_parsed, initial_error
+    best_parsed, last_exc = initial_parsed, initial_exc
 
     try:
       hosts = client.get_hosts(session_id, with_metadata=True)
     except Exception as e:  # pylint: disable=broad-exception-caught
+      if e.__class__.__name__ == "RPCException":
+        raise
       logging.exception("Failed to get hosts: %r", e)
-      return best_parsed, f"Failed to get hosts: {e!r}"
+      return best_parsed, e
 
     for host_info in hosts or []:
       host_name = (
@@ -231,36 +232,39 @@ def get_memory_profile(
         continue
 
       logging.info("Trying to fetch memory profile from host: %s", host_name)
-      host_parsed, host_error = _try_fetch_and_parse(host=host_name)
+      host_parsed, host_exc = _try_fetch_and_parse(host=host_name)
 
       if host_parsed:
         if host_parsed.memory_capacity > 0 and host_parsed.peak_hbm_bytes > 0:
           logging.info("Found valid memory profile on host: %s", host_name)
           return host_parsed, None
         if not best_parsed:
-          best_parsed, last_error = host_parsed, host_error
-      elif host_error:
-        last_error = host_error
+          best_parsed, last_exc = host_parsed, host_exc
+      elif host_exc:
+        last_exc = host_exc
 
-    return best_parsed, last_error
+    return best_parsed, last_exc
 
-  def _get_best_profile() -> tuple[MemoryProfileMetrics | None, str | None]:
+  def _get_best_profile(
+  ) -> tuple[MemoryProfileMetrics | None, Exception | None]:
     # 1. Initial fetch without host
-    parsed, error = _try_fetch_and_parse()
+    parsed, exc = _try_fetch_and_parse()
     if parsed and parsed.memory_capacity > 0 and parsed.peak_hbm_bytes > 0:
       return parsed, None
 
     # 2. Fallback to multi-host if not valid
-    return _try_multi_host_fallback(parsed, error)
+    return _try_multi_host_fallback(parsed, exc)
 
   try:
-    parsed, last_error = _get_best_profile()
+    parsed, last_exc = _get_best_profile()
 
     if parsed is None:
-      if last_error:
-        if "Failed to parse JSON" in last_error or "Value error" in last_error:
-          raise ValueError(last_error)
-        raise RuntimeError(last_error)
+      if last_exc:
+        if isinstance(last_exc, (json.JSONDecodeError, ValueError)):
+          raise ValueError(str(last_exc)) from last_exc
+        raise RuntimeError(
+            f"Error fetching memory profile: {last_exc}"
+        ) from last_exc
       return json.dumps(default_output, indent=2)
 
     # Calculate metrics with -1.0 fallback
@@ -317,6 +321,8 @@ def get_memory_profile(
   except (FileNotFoundError, ValueError):
     raise
   except Exception as e:  # pylint: disable=broad-exception-caught
+    if e.__class__.__name__ == "RPCException":
+      raise
     logging.exception(
         "Error fetching memory profile for session %s", session_id
     )

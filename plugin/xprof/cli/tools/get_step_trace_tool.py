@@ -6,14 +6,18 @@ import dataclasses
 import json
 import logging
 import math
+import os
+import re
 import statistics
 from typing import Any
 
 pywraprpc = None
 
 from xprof.cli.internal import decorators
-
+events_db_tools = None
+google_kernel_stats_tools = None
 from xprof.cli.internal.oss import xprof_client
+from xprof.cli.internal.oss import xplane_tools as oss_xplane_tools
 
 _FETCH_EXCEPTIONS_LIST: list[type[BaseException]] = [
     RuntimeError,
@@ -26,6 +30,15 @@ _FETCH_EXCEPTIONS: tuple[type[BaseException], ...] = tuple(
 )
 
 _DEFAULT_STEP_LIMIT = 20
+_MAX_STEP_EVENTS = 100000
+_HIGH_JITTER_CV_THRESHOLD = 0.15
+_HIGH_JITTER_IQR_RATIO = 0.10
+_DEVICE_PLANE_RE = re.compile(r"^/device:.*")
+_TENSOR_CORE_PLANE_RE = re.compile(
+    r"^/device:(?:TPU|GPU):[0-9]+$", re.IGNORECASE
+)
+_STEPS_LINE_RE = re.compile(r"^steps$", re.IGNORECASE)
+_XLA_MODULES_LINE_RE = re.compile(r"xla modules", re.IGNORECASE)
 
 # `PodStatsRecord.step_breakdown_us` is keyed by `GenericEventType` (see
 # xprof/utils/event_span.h). Protobuf JSON serializes the map keys as strings.
@@ -155,6 +168,14 @@ class SummaryData:
         statistics rather than individual step traces.
       conclusion: Optional summary conclusion or note.
       note: Optional additional note.
+      full_steps_count: Count of non-partial steps (or step-core events).
+      full_step_time_ms_average: Mean duration of full steps in ms.
+      step_source: Underlying source of step timings (e.g., "Steps", "XLA
+        Modules", "input_pipeline", or "overview_page").
+      dispersion_assessment: Qualitative step dispersion assessment
+        ("HIGH_JITTER" or "CONSISTENT").
+      step_time_distribution_ms: Per-core step duration distribution split into
+        all_steps, full_steps, and partial_steps cohorts.
   """
 
   total_steps: int | None
@@ -176,6 +197,11 @@ class SummaryData:
   is_aggregate: bool = False
   conclusion: str | None = None
   note: str | None = None
+  full_steps_count: int | None = None
+  full_step_time_ms_average: float | None = None
+  step_source: str | None = None
+  dispersion_assessment: str | None = None
+  step_time_distribution_ms: dict[str, Any] | None = None
 
 
 def _safe_float(val: Any) -> float:
@@ -193,6 +219,209 @@ def _safe_int(val: Any) -> int | None:
     return result if (result := int(val)) > 0 else None
   except (ValueError, TypeError):
     return None
+
+
+def _percentile(sorted_vals: list[float], pct: float) -> float:
+  """Computes linear-interpolated percentile (matching numpy.percentile)."""
+  if not sorted_vals:
+    return 0.0
+  if len(sorted_vals) == 1:
+    return sorted_vals[0]
+  idx = (len(sorted_vals) - 1) * (pct / 100.0)
+  lo = int(idx)
+  hi = min(lo + 1, len(sorted_vals) - 1)
+  frac = idx - lo
+  return sorted_vals[lo] + (sorted_vals[hi] - sorted_vals[lo]) * frac
+
+
+def _build_cohort_stats(
+    durations_ms: list[float],
+    step_nums: list[int | str] | None = None,
+) -> dict[str, Any]:
+  """Builds summary statistics for a cohort of per-core step durations."""
+  if not durations_ms:
+    return {
+        "count": 0,
+        "mean_ms": 0.0,
+        "median_ms": 0.0,
+        "p90_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0,
+        "stddev_ms": 0.0,
+        "cv": 0.0,
+        "iqr_ms": 0.0,
+        "dispersion_assessment": "CONSISTENT",
+        "steps": [],
+    }
+  sorted_durs = sorted(durations_ms)
+  count = len(sorted_durs)
+  mean_ms = sum(sorted_durs) / count
+  median_ms = statistics.median(sorted_durs)
+  p90_ms = _percentile(sorted_durs, 90.0)
+  q25_ms = _percentile(sorted_durs, 25.0)
+  q75_ms = _percentile(sorted_durs, 75.0)
+  iqr_ms = max(0.0, q75_ms - q25_ms)
+  stddev_ms = statistics.stdev(sorted_durs) if count > 1 else 0.0
+  cv = stddev_ms / mean_ms if mean_ms > 0 else 0.0
+  is_high_jitter = (cv > _HIGH_JITTER_CV_THRESHOLD) or (
+      median_ms > 0 and iqr_ms > _HIGH_JITTER_IQR_RATIO * median_ms
+  )
+  res: dict[str, Any] = {
+      "count": count,
+      "mean_ms": round(mean_ms, 4),
+      "median_ms": round(median_ms, 4),
+      "p90_ms": round(p90_ms, 4),
+      "min_ms": round(sorted_durs[0], 4),
+      "max_ms": round(sorted_durs[-1], 4),
+      "stddev_ms": round(stddev_ms, 4),
+      "cv": round(cv, 4),
+      "iqr_ms": round(iqr_ms, 4),
+      "dispersion_assessment": (
+          "HIGH_JITTER" if is_high_jitter else "CONSISTENT"
+      ),
+  }
+  if step_nums is not None:
+    res["steps"] = step_nums
+  return res
+
+
+def compute_step_time_distribution(
+    step_records: Sequence[tuple[int | str | None, float]],
+) -> dict[str, Any]:
+  """Computes per-core step time distributions across all, full, and partial steps.
+
+  Boundary steps at the start or end of a profiling capture window are often
+  truncated (e.g., step 0 captured mid-execution), which skews the overall mean
+  step time downward. When multiple distinct steps are present, boundary steps
+  whose median duration across cores is less than 50% of the overall median step
+  duration are classified into `partial_steps`, while complete steps are
+  reported in `full_steps`.
+
+  Args:
+    step_records: Sequence of `(step_num, duration_ms)` pairs across all cores.
+
+  Returns:
+    Dictionary containing `all_steps`, `full_steps`, and `partial_steps`
+    cohort statistics.
+  """
+  if not step_records:
+    empty = _build_cohort_stats([])
+    return {
+        "all_steps": empty,
+        "full_steps": dict(empty),
+        "partial_steps": dict(empty),
+    }
+
+  all_durations = [dur for _, dur in step_records]
+  by_step: collections.OrderedDict[int | str, list[float]] = (
+      collections.OrderedDict()
+  )
+  has_step_ids = True
+  for step_id, dur in step_records:
+    if step_id is None:
+      has_step_ids = False
+      break
+    by_step.setdefault(step_id, []).append(dur)
+
+  if has_step_ids and by_step:
+    if all(isinstance(k, int) for k in by_step):
+      ordered_keys: list[int | str] = sorted(by_step.keys())  # type: ignore[arg-type]
+    else:
+      ordered_keys = list(by_step.keys())
+  else:
+    ordered_keys = []
+
+  partial_keys: set[int | str] = set()
+  if len(ordered_keys) >= 2 and all_durations:
+    overall_median = statistics.median(all_durations)
+    if overall_median > 0:
+      for boundary_key in (ordered_keys[0], ordered_keys[-1]):
+        boundary_med = statistics.median(by_step[boundary_key])
+        if boundary_med < 0.5 * overall_median:
+          partial_keys.add(boundary_key)
+
+  if partial_keys and len(partial_keys) >= len(ordered_keys):
+    partial_keys.clear()
+
+  if not ordered_keys:
+    all_stats = _build_cohort_stats(all_durations)
+    return {
+        "all_steps": all_stats,
+        "full_steps": dict(all_stats),
+        "partial_steps": _build_cohort_stats([]),
+    }
+
+  full_keys = [k for k in ordered_keys if k not in partial_keys]
+  partial_key_list = [k for k in ordered_keys if k in partial_keys]
+  full_durations: list[float] = []
+  for k in full_keys:
+    full_durations.extend(by_step[k])
+  partial_durations: list[float] = []
+  for k in partial_key_list:
+    partial_durations.extend(by_step[k])
+
+  return {
+      "all_steps": _build_cohort_stats(all_durations, ordered_keys),
+      "full_steps": _build_cohort_stats(full_durations, full_keys),
+      "partial_steps": _build_cohort_stats(partial_durations, partial_key_list),
+  }
+
+
+def _parse_step_num(event_name: str) -> int | str:
+  """Parses a step identifier as an integer when possible."""
+  stripped = event_name.strip()
+  try:
+    return int(stripped)
+  except ValueError:
+    return stripped
+
+
+def extract_step_records_from_xplane(
+    source: Any,
+    *,
+    func_name: str | None = None,
+) -> tuple[list[tuple[int | str | None, float]], str]:
+  """Extracts per-core `(step_num, duration_ms)` records from XPlane traces.
+
+  When `func_name` is None, prioritizes hardware `Steps` lines on TensorCore /
+  GPU planes (`/device:TPU:0..N`, `/device:GPU:0..N`) so multi-host idle wait
+  time is included and sub-core planes are not mixed in. Falls back to
+  `XLA Modules` envelopes when `func_name` is specified or no `Steps` line is
+  present.
+
+  Args:
+    source: XProf trace source accepted by `oss_xplane_tools.iter_planes`.
+    func_name: Optional XLA module / function substring filter.
+
+  Returns:
+    Tuple of `(step_records, step_source)` where `step_source` is `"Steps"` or
+    `"XLA Modules"`.
+  """
+  steps_records: list[tuple[int | str | None, float]] = []
+  module_records: list[tuple[int | str | None, float]] = []
+
+  for plane in oss_xplane_tools.iter_planes(source):
+    if not _DEVICE_PLANE_RE.search(plane.name):
+      continue
+    if not _TENSOR_CORE_PLANE_RE.match(plane.name):
+      continue
+
+    for line in plane.lines:
+      if func_name is None and _STEPS_LINE_RE.match(line.name.strip()):
+        for event in line.events:
+          dur_ms = float(event.duration_ns) / 1_000_000.0
+          steps_records.append((_parse_step_num(str(event.name)), dur_ms))
+      elif _XLA_MODULES_LINE_RE.search(line.name):
+        for event in line.events:
+          ev_name = str(event.name)
+          if func_name and func_name not in ev_name:
+            continue
+          dur_ms = float(event.duration_ns) / 1_000_000.0
+          module_records.append((None, dur_ms))
+
+  if func_name is None and steps_records:
+    return steps_records, "Steps"
+  return module_records, "XLA Modules"
 
 
 def _build_summary(
@@ -224,6 +453,27 @@ def _build_summary(
   )
 
   conclusion = extra_props.get("summary_conclusion") if extra_props else None
+  per_core_records = (
+      extra_props.get("_per_core_step_records") if extra_props else None
+  )
+  if not per_core_records:
+    per_core_records = [(s.step_num, s.step_time_ms) for s in steps]
+
+  dist = compute_step_time_distribution(per_core_records)
+  full_stats = dist.get("full_steps", {})
+  has_partial = dist.get("partial_steps", {}).get("count", 0) > 0
+  full_step_avg = (
+      full_stats.get("mean_ms", avg_step) if has_partial else avg_step
+  )
+  full_steps_cnt = (
+      len(full_stats.get("steps", []))
+      if full_stats.get("steps")
+      else len(steps)
+  )
+  disp_assessment = full_stats.get(
+      "dispersion_assessment",
+      dist.get("all_steps", {}).get("dispersion_assessment", "CONSISTENT"),
+  )
 
   return SummaryData(
       total_steps=len(steps),
@@ -255,6 +505,13 @@ def _build_summary(
       ),
       primary_bottleneck=primary_b,
       conclusion=conclusion,
+      full_steps_count=full_steps_cnt,
+      full_step_time_ms_average=full_step_avg,
+      step_source=(
+          extra_props.get("_step_source", "Steps") if extra_props else "Steps"
+      ),
+      dispersion_assessment=disp_assessment,
+      step_time_distribution_ms=dist,
   )
 
 
@@ -320,6 +577,7 @@ def _parse_pod_viewer(
     return [], None
 
   steps = []
+  per_core_records: list[tuple[int | str | None, float]] = []
   core_found = False
   for entry in pod_map:
     if not isinstance(entry, dict):
@@ -385,6 +643,11 @@ def _parse_pod_viewer(
       )
       continue
 
+    for c in core_stats:
+      dur_us = _safe_float(c.get("totalDurationUs"))
+      if dur_us > 0:
+        per_core_records.append((s_num, dur_us / 1000.0))
+
     # `stepBreakdownUs` also carries host-side and compile event types that are
     # not modelled as bottleneck categories here, so treat whatever the four
     # categories do not account for as idle/unattributed rather than dropping
@@ -400,7 +663,11 @@ def _parse_pod_viewer(
     idle_pct = round(idle_ms / total_ms * 100, 2) if total_ms > 0 else 0.0
 
     b_list = [
-        str(c.get("bottleneck")) for c in core_stats if c.get("bottleneck")
+        "Compute"
+        if str(c.get("bottleneck")) == "Device compute"
+        else str(c.get("bottleneck"))
+        for c in core_stats
+        if c.get("bottleneck")
     ]
     if b_list:
       bottleneck = collections.Counter(b_list).most_common(1)[0][0]
@@ -443,7 +710,10 @@ def _parse_pod_viewer(
   if device_core is not None and not core_found:
     return [], None
 
-  return steps, None
+  return steps, {
+      "_per_core_step_records": per_core_records,
+      "_step_source": "Steps",
+  }
 
 
 def _sum_columns(
@@ -586,8 +856,9 @@ def _parse_input_pipeline(
     if step_info:
       steps.append(step_info)
 
-  extra_props = step_section.get("p")
-  return steps, extra_props if extra_props else None
+  extra_props = dict(step_section.get("p") or {})
+  extra_props.setdefault("_step_source", "input_pipeline")
+  return steps, extra_props
 
 
 def _parse_overview_page(
@@ -669,14 +940,18 @@ def _parse_overview_page(
         " step count not available)."
     )
 
+  stddev = _safe_float(all_p.get("steptime_ms_standard_deviation"))
+  disp_assessment = (
+      "HIGH_JITTER"
+      if step_time > 0 and (stddev / step_time) > _HIGH_JITTER_CV_THRESHOLD
+      else "CONSISTENT"
+  )
   summary = SummaryData(
       total_steps=total_steps,
       step_time_ms_average=round(step_time, 4),
       step_time_ms_min=round(step_time_min, 4),
       step_time_ms_max=round(step_time_max, 4),
-      step_time_ms_stddev=round(
-          _safe_float(all_p.get("steptime_ms_standard_deviation")), 4
-      ),
+      step_time_ms_stddev=round(stddev, 4),
       compute_time_ms_average=round(comp_avg, 4),
       compute_percent=(
           round(comp_avg / step_time * 100, 2) if step_time > 0 else 0.0
@@ -696,6 +971,10 @@ def _parse_overview_page(
       primary_bottleneck="Input / Infeed" if infeed_pct > 50.0 else "Compute",
       is_aggregate=True,
       note=note,
+      full_steps_count=total_steps,
+      full_step_time_ms_average=round(step_time, 4),
+      step_source="overview_page",
+      dispersion_assessment=disp_assessment,
   )
   return [], summary
 
@@ -784,14 +1063,168 @@ def _fetch_first_available(
   return None
 
 
+def _summary_from_step_records(
+    step_records: Sequence[tuple[int | str | None, float]],
+    step_source: str,
+) -> SummaryData:
+  """Constructs a SummaryData instance from per-core step records."""
+  dist = compute_step_time_distribution(step_records)
+  all_s = dist.get("all_steps", {})
+  full_s = dist.get("full_steps", {})
+  has_partial = dist.get("partial_steps", {}).get("count", 0) > 0
+  avg_ms = float(all_s.get("mean_ms", 0.0))
+  full_avg_ms = float(full_s.get("mean_ms", avg_ms)) if has_partial else avg_ms
+  total_cnt = (
+      len(all_s["steps"]) if all_s.get("steps") else int(all_s.get("count", 0))
+  )
+  full_cnt = (
+      len(full_s["steps"])
+      if full_s.get("steps")
+      else (int(full_s.get("count", total_cnt)) if has_partial else total_cnt)
+  )
+  disp_assessment = str(
+      full_s.get(
+          "dispersion_assessment",
+          all_s.get("dispersion_assessment", "CONSISTENT"),
+      )
+  )
+  return SummaryData(
+      total_steps=total_cnt,
+      step_time_ms_average=round(avg_ms, 4),
+      step_time_ms_min=round(float(all_s.get("min_ms", avg_ms)), 4),
+      step_time_ms_max=round(float(all_s.get("max_ms", avg_ms)), 4),
+      step_time_ms_stddev=round(float(all_s.get("stddev_ms", 0.0)), 4),
+      compute_time_ms_average=round(avg_ms, 4),
+      compute_percent=100.0 if avg_ms > 0 else 0.0,
+      communication_time_ms_average=0.0,
+      communication_percent=0.0,
+      infeed_time_ms_average=0.0,
+      infeed_percent=0.0,
+      outfeed_time_ms_average=0.0,
+      outfeed_percent=0.0,
+      primary_bottleneck="Compute",
+      is_aggregate=True,
+      note=f"Derived from {step_source} events across device planes.",
+      full_steps_count=full_cnt,
+      full_step_time_ms_average=round(full_avg_ms, 4),
+      step_source=step_source,
+      dispersion_assessment=disp_assessment,
+      step_time_distribution_ms=dist,
+  )
+
+
+def _extract_step_records_from_source(
+    source: Any,
+    *,
+    func_name: str | None = None,
+    bypass_cache: bool = False,
+) -> tuple[list[tuple[int | str | None, float]], str]:
+  """Extracts step records from local XPlane traces or 1P F1 Events DB."""
+  if isinstance(source, (int, float)):
+    source = str(source)
+  if (
+      not isinstance(source, str)
+      or os.path.exists(source)
+      or source.startswith("/")
+      or source.startswith("local_")
+  ):
+    return extract_step_records_from_xplane(source, func_name=func_name)
+
+  if events_db_tools is None or google_kernel_stats_tools is None:
+    return [], "XLA Modules"
+
+  root_result = events_db_tools.get_events_db_session_root(
+      source, bypass_cache=bypass_cache
+  )
+  if root_result.status != "success" or not root_result.session_root:
+    logging.debug(
+        "Events DB session root lookup failed for %s: %s",
+        source,
+        getattr(root_result, "error_message", root_result.status),
+    )
+    return [], "XLA Modules"
+
+  clean_func = func_name.removeprefix("jit_") if func_name else ""
+  category_filter = (
+      "category IN ('Steps', 'XLA Modules')"
+      if not func_name
+      else "category = 'XLA Modules'"
+  )
+  kernel_filter = "\n      AND kernel_name LIKE @pattern" if clean_func else ""
+  params = {"pattern": f"%{clean_func}%"} if clean_func else None
+  sql = f"""
+    SELECT category,
+           kernel_name,
+           (end_ns - start_ns) / 1000000.0 AS dur_ms
+    FROM Events
+    WHERE REGEXP_CONTAINS(device, r'^(?i)(?:/device:)?(?:tpu|gpu):[0-9]+$')
+      AND {category_filter}{kernel_filter}
+    ORDER BY start_ns
+    LIMIT {_MAX_STEP_EVENTS};
+  """
+  records = google_kernel_stats_tools.run_f1_sql(
+      root_result.session_root, sql, parameters=params
+  )
+  if not records:
+    return [], "XLA Modules"
+
+  steps_rows: list[tuple[int | str | None, float]] = [
+      (
+          _parse_step_num(str(r.get("step") or r.get("kernel_name", ""))),
+          _safe_float(
+              r.get("dur_ms")
+              if r.get("dur_ms") is not None
+              else r.get("duration_ms")
+          ),
+      )
+      for r in records
+      if str(r.get("category", "")).lower() == "steps"
+  ]
+  if not func_name and steps_rows:
+    return steps_rows, "Steps"
+
+  mod_rows: list[tuple[int | str | None, float]] = [
+      (
+          None,
+          _safe_float(
+              r.get("dur_ms")
+              if r.get("dur_ms") is not None
+              else r.get("duration_ms")
+          ),
+      )
+      for r in records
+      if str(r.get("category", "XLA Modules")).lower() != "steps"
+  ]
+  return mod_rows, "XLA Modules"
+
+
 def _fetch_and_parse_step_data(
     client: Any,
     session_id: str,
     step_num: int | None,
     device_core: int | None,
     bypass_cache: bool = False,
+    func_name: str | None = None,
 ) -> tuple[list[StepInfo], SummaryData | None]:
   """Helper to try fetching and parsing step trace data across tools."""
+  if func_name is not None:
+    try:
+      records, step_source = _extract_step_records_from_source(
+          session_id,
+          func_name=func_name,
+          bypass_cache=bypass_cache,
+      )
+      if records:
+        return [], _summary_from_step_records(records, step_source)
+    except (ValueError, RuntimeError, FileNotFoundError):
+      logging.debug(
+          "Step extraction with func_name=%s returned no data for %s",
+          func_name,
+          session_id,
+          exc_info=True,
+      )
+    return [], None
+
   tools = (
       (
           ("pod_viewer.json", "pod_viewer"),
@@ -807,6 +1240,20 @@ def _fetch_and_parse_step_data(
     if data:
       steps, extra_props = parser(data)
       if steps:
+        if device_core is None and os.path.exists(session_id):
+          try:
+            raw_records, raw_src = extract_step_records_from_xplane(session_id)
+            if raw_src == "Steps" and raw_records:
+              if step_num is not None:
+                raw_records = [(s, d) for s, d in raw_records if s == step_num]
+              if raw_records:
+                extra_props = dict(extra_props) if extra_props else {}
+                extra_props["_per_core_step_records"] = raw_records
+                extra_props["_step_source"] = raw_src
+          except Exception:  # pylint: disable=broad-exception-caught
+            logging.exception(
+                "Failed to extract raw XPlane step records for %s", session_id
+            )
         return steps, _build_summary(steps, extra_props)
 
   # Fallback to aggregate overview_page.json
@@ -815,6 +1262,22 @@ def _fetch_and_parse_step_data(
   )
   if overview_data:
     return _parse_overview_page(overview_data)
+
+  # Fallback to unified step/module timing (e.g. XLA Modules when Steps markers
+  # are absent) so get_step_trace reports step timing consistently.
+  if step_num is None and device_core is None:
+    try:
+      records, step_source = _extract_step_records_from_source(
+          session_id, bypass_cache=bypass_cache
+      )
+      if records:
+        return [], _summary_from_step_records(records, step_source)
+    except (ValueError, RuntimeError, FileNotFoundError):
+      logging.debug(
+          "Step extraction fallback returned no data for %s",
+          session_id,
+          exc_info=True,
+      )
 
   return [], None
 
@@ -827,6 +1290,7 @@ def get_step_trace(
     limit: int = _DEFAULT_STEP_LIMIT,
     device_core: int | None = None,
     include_summary: bool = True,
+    func_name: str | None = None,
     bypass_cache: bool = False,
 ) -> str:
   """Retrieves step execution breakdowns and timing data from an XProf session.
@@ -837,6 +1301,7 @@ def get_step_trace(
       limit: Maximum steps in breakdown (default _DEFAULT_STEP_LIMIT).
       device_core: Optional specific core ID to filter by.
       include_summary: Whether to include aggregate summary (default True).
+      func_name: Optional XLA module or function name substring to filter for.
       bypass_cache: Whether to bypass cache and recompute metrics (default
         False).
 
@@ -847,7 +1312,12 @@ def get_step_trace(
   client = xprof_client.get_client()
 
   steps, summary_data = _fetch_and_parse_step_data(
-      client, session_id, step_num, device_core, bypass_cache
+      client,
+      session_id,
+      step_num,
+      device_core,
+      bypass_cache=bypass_cache,
+      func_name=func_name,
   )
 
   if steps or summary_data:

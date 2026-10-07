@@ -1,34 +1,48 @@
-import {Component, Input, ChangeDetectionStrategy} from '@angular/core';
+import {NgIf} from '@angular/common';
+import {ChangeDetectionStrategy, Component, input} from '@angular/core';
+import {MatCard, MatCardContent, MatCardTitle} from '@angular/material/card';
 import {type RunEnvironment} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 /** A run environment view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'run-environment-view',
   templateUrl: './run_environment_view.ng.html',
-  styleUrls: ['./run_environment_view.scss']
+  styleUrls: ['./run_environment_view.scss'],
+  imports: [MatCard, MatCardContent, MatCardTitle, NgIf],
 })
 export class RunEnvironmentView {
   /** The run environment data. */
-  @Input()
-  set runEnvironment(data: RunEnvironment|null) {
-    this.deviceCoreCount = this.getProperty('device_core_count', data);
-    this.deviceType = this.getProperty('device_type', data);
-    this.hostCount = this.getProperty('host_count', data);
-    this.isTraining = this.getProperty('is_training', data);
-    this.profileStartTime = this.getProperty('profile_start_time', data);
-    this.profileDurationMs = this.getProperty('profile_duration_ms', data);
-  }
+  readonly runEnvironment = input<RunEnvironment | null>(null);
 
   title = 'Run Environment';
-  deviceCoreCount = '';
-  deviceType = '';
-  hostCount = '';
-  isTraining = '';
-  profileStartTime = '';
-  profileDurationMs = '';
 
-  getProperty(propertyKey: string, data: RunEnvironment|null) {
+  get deviceCoreCount() {
+    return this.getProperty('device_core_count', this.runEnvironment());
+  }
+
+  get deviceType() {
+    return this.getProperty('device_type', this.runEnvironment());
+  }
+
+  get hostCount() {
+    return this.getProperty('host_count', this.runEnvironment());
+  }
+
+  get isTraining() {
+    return this.getProperty('is_training', this.runEnvironment());
+  }
+
+  get profileStartTime() {
+    return this.getProperty('profile_start_time', this.runEnvironment());
+  }
+
+  get profileDurationMs() {
+    return this.getProperty('profile_duration_ms', this.runEnvironment());
+  }
+
+  getProperty(propertyKey: string, data: RunEnvironment | null) {
     return data?.p?.[propertyKey] || '';
   }
 }

@@ -24,10 +24,10 @@
         [baselineInputPipelineAnalysis]="baselineInputPipelineAnalysis"
         [baselineInferenceLatencyData]="baselineInferenceLatencyData"
         [baselineDisaggregatedServingLatencyData]="baselineDisaggregatedServingLatencyData"
-        [class]="darkTheme ? 'dark-theme' : ''">
+        [class]="darkTheme() ? 'dark-theme' : ''">
       </performance-summary>
       <ng-content select="[normalizedAcceleratorPerformanceView]"></ng-content>
-      <run-environment-view [runEnvironment]="runEnvironment" [class]="darkTheme ? 'dark-theme' : ''">
+      <run-environment-view [runEnvironment]="runEnvironment" [class]="darkTheme() ? 'dark-theme' : ''">
         <ng-content taskCount select="[taskCount]"></ng-content>
         <ng-content jobInformation select="[jobInformation]"></ng-content>
       </run-environment-view>
@@ -40,19 +40,19 @@
         *ngIf="hasStepTimeGraphData"
         id="step-time-graph"
         [inputPipelineAnalysis]="inputPipelineAnalysis"
-        [class]="darkTheme ? 'dark-theme' : ''"
+        [class]="darkTheme() ? 'dark-theme' : ''"
         (ready)="onChartReady()">
       </step-time-graph>
       <inference-latency-chart
         *ngIf="hasInferenceLatencyData"
         [inferenceLatencyData]="inferenceLatencyData"
-        [class]="darkTheme ? 'dark-theme' : ''"
+        [class]="darkTheme() ? 'dark-theme' : ''"
         (ready)="onChartReady()">
       </inference-latency-chart>
       <smart-suggestion-view
         *ngIf="enableSmartSuggestion"
         [sessionId]="sessionId"
-        [darkTheme]="darkTheme">
+        [darkTheme]="darkTheme()">
       </smart-suggestion-view>
       <ng-content select="[sblView]"></ng-content>
       <ng-content select="[tfDataView]"></ng-content>

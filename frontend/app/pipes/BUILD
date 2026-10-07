@@ -5,7 +5,6 @@ package(default_visibility = ["//frontend:internal"])
 xprof_ng_module(
     name = "pipes",
     srcs = [
-        "pipes_module.ts",
         "safe_pipe.ts",
     ],
     deps = [

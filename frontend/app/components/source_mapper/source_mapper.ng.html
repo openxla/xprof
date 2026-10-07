@@ -12,7 +12,7 @@
       [srcPathPrefix]="srcPathPrefix"
       [sourceFileAndLineNumber]="adaptedSourceFileAndLineNumber"
       [stackTrace]="adaptedStackTrace"
-      [sourceContextWindow]="sourceContextWindow"
+      [sourceContextWindow]="sourceContextWindow()"
     />
   </div>
 
@@ -25,12 +25,12 @@
         </mat-option>
       </mat-select>
     </mat-form-field>
-    <ng-container *ngIf="programId && programId !== '0'; else noProgramId">
+    <ng-container *ngIf="programId() && programId() !== '0'; else noProgramId">
       <mat-expansion-panel class="ir-text-panel" [expanded]="true">
         <mat-expansion-panel-header class="ir-text-header">
           <mat-panel-title>
             <div class="ir-text-header-title">
-              Program ID:{{programId}}
+              Program ID:{{programId()}}
             </div>
             <mat-progress-bar *ngIf="!loaded" mode="indeterminate" class="ir-text-progress-bar"></mat-progress-bar>
             <a

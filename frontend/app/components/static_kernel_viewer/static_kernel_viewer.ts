@@ -915,7 +915,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     );
     if (this.traceViewerModule?.loadTraceData) {
       this.traceViewerModule.application?.instance?.()?.dataProvider?.();
-      this.traceViewerModule.processTraceEvents?.({traceEvents: []});
+      this.traceViewerModule.processTraceEvents?.({traceEvents: []}, undefined);
       void this.traceViewerModule.loadTraceData(this.url);
     }
     this.scrollIntoView('.kernel-row.active', '.kernel-tab.active');

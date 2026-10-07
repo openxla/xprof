@@ -160,6 +160,7 @@ def verify_numerical_parity(
     strict_shape_error: bool = False,
     contract: str = numerical_validator.CONTRACT_ULP,
     contract_by_leaf: _Mapping[str, str] | str | None = None,
+    dump_failures_to: str | None = None,
 ) -> str:
   """Validates numerical parity between two kernels and returns a JSON report.
 
@@ -192,6 +193,9 @@ def verify_numerical_parity(
     contract_by_leaf: Per-leaf contract overrides for pytree outputs, keyed by
       JAX key path, as a mapping or a dict literal string (e.g. "{'[1]':
       'ulp'}").
+    dump_failures_to: Optional local directory for the inputs of failing
+      batches, one `.npz` per batch. Paths are listed in `failure_dumps`; run
+      `replay` on one to re-check a fix on the exact failing input.
 
   Returns:
     A JSON string containing the validation report.
@@ -240,6 +244,7 @@ def verify_numerical_parity(
         device_kind=device_kind,
         contract=contract,
         contract_by_leaf=parsed_contract_by_leaf,
+        dump_failures_to=dump_failures_to,
     )
   except ValueError as e:
     msg = str(e)
@@ -269,10 +274,16 @@ def verify_numerical_parity(
           "narrow_output_dtype_warning": None,
           "shape_mismatch": {"error": msg},
           "batch_results": [],
+          "failure_dumps": [],
       }
       return json.dumps(mismatch_payload, indent=2, allow_nan=False)
     raise
 
+  return _report_to_json(report)
+
+
+def _report_to_json(report: numerical_validator.KernelValidationReport) -> str:
+  """Serializes a KernelValidationReport to RFC 8259 JSON."""
   results_dict = {
       "is_numerically_equivalent": report.is_numerically_equivalent,
       "correctness_basis": report.correctness_basis,
@@ -299,9 +310,43 @@ def verify_numerical_parity(
       "narrow_output_dtype_warning": report.narrow_output_dtype_warning,
       "shape_mismatch": report.shape_mismatch,
       "batch_results": [dataclasses.asdict(b) for b in report.batch_results],
+      "failure_dumps": report.failure_dumps,
   }
   sanitized_results = _sanitize_for_json(results_dict)
   return json.dumps(sanitized_results, indent=2, allow_nan=False)
+
+
+def replay(
+    dump_path: str,
+    kernel_ref: _Callable[..., Any] | str,
+    kernel_candidate: _Callable[..., Any] | str,
+    kernel_oracle: _Callable[..., Any] | str | None = None,
+    contract: str | None = None,
+) -> str:
+  """Re-runs one saved failing batch and returns a JSON report.
+
+  Args:
+    dump_path: A `.npz` file from `failure_dumps` of an earlier run.
+    kernel_ref: The reference implementation (callable or string path).
+    kernel_candidate: The candidate implementation (callable or string path).
+    kernel_oracle: Optional oracle (callable, string path, or "auto").
+    contract: Overrides the contract stored in the dump ("ulp" or "bitwise").
+
+  Returns:
+    A JSON string containing the validation report for the saved batch.
+  """
+  if kernel_oracle is None or kernel_oracle == numerical_validator.ORACLE_AUTO:
+    oracle_fn = kernel_oracle
+  else:
+    oracle_fn = _resolve_callable(kernel_oracle)
+  report = numerical_validator.replay_failure_dump(
+      dump_path,
+      _resolve_callable(kernel_ref),
+      _resolve_callable(kernel_candidate),
+      kernel_oracle=oracle_fn,
+      contract=contract,
+  )
+  return _report_to_json(report)
 
 
 def generate_suite(

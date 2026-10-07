@@ -206,13 +206,17 @@ xparity verify \
         "note": null
       }
     }
-  ]
+  ],
+  "failure_dumps": []
 }
 ```
 
-### Workflow B: Python API (`validate_kernels`)
+### Workflow B: Python API (`validate_kernels` & `replay_failure_dump`)
 
-For programmatic integration within Python test harnesses or optimization loops:
+For programmatic integration within Python test harnesses or optimization loops
+(pass `dump_failures_to` to persist failing inputs as `.npz` archives and
+`replay_failure_dump` to re-verify a fix on the exact failing input without
+regenerating the suite):
 
 ```python
 from xprof.xparity import numerical_validator
@@ -226,7 +230,7 @@ def ref_kernel(a, b):
 def candidate_kernel(a, b):
   return custom_refactored_matmul(a, b)
 
-# 2. Validate Parity with Float64 Oracle Audit
+# 2. Validate Parity with Float64 Oracle Audit and failure input dumping
 report = numerical_validator.validate_kernels(
     kernel_ref=ref_kernel,
     kernel_candidate=candidate_kernel,
@@ -236,6 +240,7 @@ report = numerical_validator.validate_kernels(
     tier="presubmit",
     max_allowed_ulp=2,
     p99_9_allowed_ulp=1,
+    dump_failures_to="/tmp/xparity_failures",
 )
 
 if not report.is_numerically_equivalent:
@@ -243,6 +248,11 @@ if not report.is_numerically_equivalent:
   for batch in report.batch_results:
     if not batch.passed:
       print(f"  Batch {batch.batch_name}: Max ULP={batch.max_ulp_distance}")
+  # Re-run the first failing batch directly after fixing candidate_kernel:
+  if report.failure_dumps:
+    replay_report = numerical_validator.replay_failure_dump(
+        report.failure_dumps[0], ref_kernel, candidate_kernel
+    )
 ```
 
 ### Workflow C: Multi-Output Pytrees & Backward-Pass Validation (`make_fwd_bwd`, `contract_by_leaf`)

@@ -27,6 +27,18 @@ pytype_strict_contrib_test(
 )
 
 pytype_strict_contrib_test(
+    name = "failure_replay_test",
+    srcs = ["failure_replay_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:numerical_generator",
+        "//plugin/xprof/xparity:numerical_validator",
+        "//plugin/xprof/xparity:xparity_cli_lib",
+        "//plugin/xprof/xparity:xparity_tool",
+        "@absl_py//absl/testing:absltest",
+    ],
+)
+
+pytype_strict_contrib_test(
     name = "numerical_generator_test",
     srcs = ["numerical_generator_test.py"],
     deps = [

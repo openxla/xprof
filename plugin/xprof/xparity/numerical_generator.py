@@ -673,12 +673,15 @@ def _resolve_dtype(dtype_str: str) -> np.dtype:
 def save_test_suite(
     suite: list[dict[str, Any]],
     target: str | os.PathLike[str] | BinaryIO,
+    extra_metadata: dict[str, Any] | None = None,
 ) -> None:
   """Serializes a test suite (args, kwargs, metadata) to a compressed archive.
 
   Args:
     suite: List of test batch dicts with 'name', 'args', 'kwargs', and 'regime'.
     target: Destination file path (str/PathLike) or binary stream (BinaryIO).
+    extra_metadata: Optional JSON-serializable context stored with the suite and
+      returned by `read_suite_metadata`.
   """
   batches_meta: list[dict[str, Any]] = []
   arrays_to_save: dict[str, Any] = {}
@@ -719,11 +722,13 @@ def save_test_suite(
     }
     batches_meta.append(b_meta)
 
-  metadata = {
+  metadata: dict[str, Any] = {
       "version": 2,
       "num_batches": len(suite),
       "batches": batches_meta,
   }
+  if extra_metadata:
+    metadata["extra"] = extra_metadata
   arrays_to_save["__metadata__"] = np.array(json.dumps(metadata))
 
   if isinstance(target, (str, os.PathLike)):
@@ -809,6 +814,15 @@ def load_test_suite(
   finally:
     if hasattr(data, "close"):
       data.close()
+
+
+def read_suite_metadata(
+    source: str | os.PathLike[str] | BinaryIO,
+) -> dict[str, Any]:
+  """Returns the `extra_metadata` stored by `save_test_suite`, or {}."""
+  with np.load(source) as data:
+    metadata = json.loads(data["__metadata__"].item())
+  return dict(metadata.get("extra", {}))
 
 
 def _generate_procedural_suite(

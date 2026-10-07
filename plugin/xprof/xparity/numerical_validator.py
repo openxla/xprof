@@ -21,6 +21,8 @@ import functools
 import importlib
 import inspect
 import logging
+import os
+import re
 import sys
 from typing import Any
 
@@ -203,6 +205,7 @@ class KernelValidationReport:
   ulp_context: UlpContext | None = None
   narrow_output_dtype_warning: str | None = None
   shape_mismatch: dict[str, Any] | None = None
+  failure_dumps: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1576,6 +1579,81 @@ class _ValidationAccumulator:
       self.narrow_warning = res.narrow_warning
 
 
+def _dump_failing_batches(
+    failing_batches: collections.abc.Sequence[
+        tuple[dict[str, Any], BatchValidationResult]
+    ],
+    directory: str | os.PathLike[str],
+    run_info: dict[str, Any],
+) -> list[str]:
+  """Saves each failing batch as a one-batch suite and returns the paths."""
+  dir_str = os.fspath(directory)
+  os.makedirs(dir_str, exist_ok=True)
+  leaf_contracts = run_info.get("contract_by_leaf")
+  if leaf_contracts is not None:
+    run_info = dict(run_info, contract_by_leaf=dict(leaf_contracts))
+  paths = []
+  for ordinal, (batch, result) in enumerate(failing_batches):
+    stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", result.batch_name)
+    path = os.path.join(dir_str, f"xparity_failure_{ordinal:03d}_{stem}.npz")
+    failure = {
+        "batch_name": result.batch_name,
+        "regime": result.regime,
+        "max_ulp": result.max_ulp_distance,
+        "leaf_path": result.leaf_path,
+    }
+    numerical_generator.save_test_suite(
+        [batch], path, extra_metadata=dict(run_info, failure=failure)
+    )
+    paths.append(path)
+  return paths
+
+
+def replay_failure_dump(
+    path: str | os.PathLike[str],
+    kernel_ref: collections.abc.Callable[..., Any],
+    kernel_candidate: collections.abc.Callable[..., Any],
+    kernel_oracle: collections.abc.Callable[..., Any] | str | None = None,
+    contract: str | None = None,
+    as_jax_arrays: bool = False,
+) -> KernelValidationReport:
+  """Re-runs a batch saved by `validate_kernels(dump_failures_to=...)`.
+
+  The saved inputs are used as they are, so the replay does not depend on the
+  generator, the seed or the tier. Dtype, gates and per-leaf contracts come
+  from the dump.
+
+  Args:
+    path: A `.npz` file listed in `KernelValidationReport.failure_dumps`.
+    kernel_ref: Reference implementation.
+    kernel_candidate: Candidate implementation, usually after a fix.
+    kernel_oracle: Optional oracle, as in `validate_kernels`.
+    contract: Overrides the contract stored in the dump.
+    as_jax_arrays: If True, the inputs are passed as JAX arrays.
+
+  Returns:
+    A KernelValidationReport for the saved batch.
+  """
+  suite = numerical_generator.load_test_suite(path, as_jax_arrays=as_jax_arrays)
+  info = numerical_generator.read_suite_metadata(path)
+  if not suite or "dtype_str" not in info:
+    raise ValueError(f"{os.fspath(path)} is not an Xparity failure dump.")
+  shapes = [tuple(np.shape(arg)) for arg in suite[0]["args"]]
+  return validate_kernels(
+      kernel_ref,
+      kernel_candidate,
+      shapes=shapes,
+      dtype_str=info["dtype_str"],
+      test_suite=suite,
+      max_allowed_ulp=info["max_allowed_ulp"],
+      p99_9_allowed_ulp=info["p99_9_allowed_ulp"],
+      seed=info["seed"],
+      kernel_oracle=kernel_oracle,
+      contract=contract or info["contract"],
+      contract_by_leaf=info.get("contract_by_leaf"),
+  )
+
+
 def validate_kernels(
     kernel_ref: collections.abc.Callable[..., Any],
     kernel_candidate: collections.abc.Callable[..., Any],
@@ -1594,6 +1672,7 @@ def validate_kernels(
     device_kind: str | None = None,
     contract: str = CONTRACT_ULP,
     contract_by_leaf: collections.abc.Mapping[str, str] | None = None,
+    dump_failures_to: str | os.PathLike[str] | None = None,
 ) -> KernelValidationReport:
   """Validates candidate kernel against reference implementation.
 
@@ -1634,6 +1713,11 @@ def validate_kernels(
       CONTRACT_ULP}` or `{"['lse']": CONTRACT_BITWISE}`). Every leaf is
       validated; leaves not named here use `contract`. Unknown paths raise
       ValueError listing the available leaves.
+    dump_failures_to: Optional local directory. When set, the inputs of every
+      failing batch are saved there as one `.npz` file per batch, together with
+      the dtype, gates and contract of this run, and the paths are returned in
+      `failure_dumps`. `replay_failure_dump` re-runs a saved batch exactly,
+      without regenerating the suite.
 
   Returns:
     A KernelValidationReport. For pytree outputs each batch result carries
@@ -1779,6 +1863,7 @@ def validate_kernels(
   acc = _ValidationAccumulator()
   batch_results: list[BatchValidationResult] = []
   executed_batch_ids: set[int] = set()
+  failing_batches: list[tuple[dict[str, Any], BatchValidationResult]] = []
 
   def _process_batch(b: dict[str, Any]) -> None:
     res = _execute_single_batch(
@@ -1797,6 +1882,8 @@ def validate_kernels(
     acc.update(res)
     batch_results.append(res.batch_result)
     executed_batch_ids.add(id(b))
+    if not res.passed:
+      failing_batches.append((b, res.batch_result))
 
   for batch in batches_to_run:
     _process_batch(batch)
@@ -1943,6 +2030,28 @@ def validate_kernels(
   if caution_msg:
     summary = f"{caution_msg}\n{summary}"
 
+  failure_dumps: list[str] = []
+  if dump_failures_to is not None and failing_batches:
+    failure_dumps = _dump_failing_batches(
+        failing_batches,
+        dump_failures_to,
+        run_info={
+            "dtype_str": dtype_str,
+            "tier": tier,
+            "seed": seed,
+            "max_allowed_ulp": max_allowed_ulp,
+            "p99_9_allowed_ulp": p99_9_allowed_ulp,
+            "contract": contract,
+            "contract_by_leaf": contract_by_leaf,
+        },
+    )
+    summary = (
+        f"{summary}\nFailing inputs saved: {len(failure_dumps)} file(s) in"
+        f" {os.fspath(dump_failures_to)}. Re-run one with"
+        " replay_failure_dump(path, kernel_ref, kernel_candidate) or"
+        " `xparity_cli replay`."
+    )
+
   correctness_basis = (
       "AGREEMENT_AND_ORACLE" if acc.oracle_ran else "AGREEMENT_ONLY"
   )
@@ -2032,6 +2141,7 @@ def validate_kernels(
       run_config=run_config,
       ulp_context=overall_ulp_context,
       narrow_output_dtype_warning=acc.narrow_warning,
+      failure_dumps=failure_dumps,
   )
 
 

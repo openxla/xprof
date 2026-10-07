@@ -11,16 +11,19 @@ CONTRACT_BITWISE = numerical_validator.CONTRACT_BITWISE
 validate_kernels = numerical_validator.validate_kernels
 compare_bitwise = numerical_validator.compare_bitwise
 make_fwd_bwd = numerical_validator.make_fwd_bwd
+replay_failure_dump = numerical_validator.replay_failure_dump
 chunk_callable = numerical_validator.chunk_callable
 compute_ulp_distance = ulp.compute_ulp_distance
 get_contract = ulp.get_contract
 generate_test_suite = numerical_generator.generate_test_suite
 save_test_suite = numerical_generator.save_test_suite
 load_test_suite = numerical_generator.load_test_suite
+read_suite_metadata = numerical_generator.read_suite_metadata
 verify_numerical_parity = xparity_tool.verify_numerical_parity
 generate_suite = xparity_tool.generate_suite
 inspect_suite = xparity_tool.inspect_suite
 probe_precision = xparity_tool.probe_precision
+replay = xparity_tool.replay
 
 __all__ = [
     "CONTRACT_BITWISE",
@@ -38,6 +41,9 @@ __all__ = [
     "numerical_generator",
     "numerical_validator",
     "probe_precision",
+    "read_suite_metadata",
+    "replay",
+    "replay_failure_dump",
     "save_test_suite",
     "ulp",
     "validate_kernels",

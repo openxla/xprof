@@ -60,6 +60,12 @@ xparity probe_precision \
   --shapes="[(128, 128)]" \
   --dtype_str="float32" \
   --device_kind="tpu"
+
+# Replay a saved failing batch (.npz from --dump_failures_to) to verify a fix
+xparity replay \
+  --dump_path="/tmp/xparity_failures/xparity_failure_000_student_t_batch_0.npz" \
+  --kernel_ref="my_pkg.kernels:ref_fn" \
+  --kernel_candidate="my_pkg.kernels:cand_fn"
 ```
 
 ### 2. Python Library API (`xprof.xparity`)
@@ -74,6 +80,8 @@ from xprof.xparity import compare_bitwise
 from xprof.xparity import make_fwd_bwd
 from xprof.xparity import numerical_generator
 from xprof.xparity import numerical_validator
+from xprof.xparity import read_suite_metadata
+from xprof.xparity import replay_failure_dump
 from xprof.xparity import validate_kernels
 
 report = validate_kernels(
@@ -85,9 +93,16 @@ report = validate_kernels(
     max_allowed_ulp=2,
     kernel_oracle="auto",
     contract="ulp",  # or CONTRACT_BITWISE for exact bit-pattern equality
+    dump_failures_to="/tmp/xparity_failures",
     # Optional per-leaf contract overrides for tuple/dict/pytree outputs:
     # contract_by_leaf={"['out']": "bitwise", "['vjp'][0]": "ulp"},
 )
+
+# Re-run a saved failing batch directly after editing candidate_fn:
+if report.failure_dumps:
+  replay_report = replay_failure_dump(
+      report.failure_dumps[0], reference_fn, candidate_fn
+  )
 
 # Validate both forward output and backward VJP gradients leaf-by-leaf:
 fwd_bwd_report = validate_kernels(

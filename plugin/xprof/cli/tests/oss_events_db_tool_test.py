@@ -86,10 +86,11 @@ class OssCreateEventsDbToolTest(parameterized.TestCase):
     self._single_trace = self._single_dir / "trace.xplane.pb"
     self._single_trace.write_bytes(_trace_bytes())
 
-    # 2. Directory with multiple trace files (worker0 invalid, worker1 valid)
+    # 2. Directory with multiple trace files
     self._multi_dir = self._root / "multi_run"
     self._multi_dir.mkdir()
-    (self._multi_dir / "worker0.xplane.pb").write_bytes(b"invalid_proto_bytes")
+    self._multi_worker0 = self._multi_dir / "worker0.xplane.pb"
+    self._multi_worker0.write_bytes(_trace_bytes())
     self._multi_worker1 = self._multi_dir / "worker1.xplane.pb"
     self._multi_worker1.write_bytes(_trace_bytes())
 
@@ -129,58 +130,6 @@ class OssCreateEventsDbToolTest(parameterized.TestCase):
   def tearDown(self) -> None:
     xprof_client.get_client().set_logdir(None)
     super().tearDown()
-
-  @parameterized.named_parameters(
-      dict(
-          testcase_name="below_display_limit",
-          num_files=3,
-          expected_substrings=(
-              "Multiple (3) trace files found in /test/search/dir:",
-              "file_000.xplane.pb",
-              "file_002.xplane.pb",
-              "Multi-file Events DB generation is not supported yet.",
-          ),
-          excluded_substrings=("... and",),
-      ),
-      dict(
-          testcase_name="exact_display_limit",
-          num_files=10,
-          expected_substrings=(
-              "Multiple (10) trace files found in /test/search/dir:",
-              "file_000.xplane.pb",
-              "file_009.xplane.pb",
-              "Multi-file Events DB generation is not supported yet.",
-          ),
-          excluded_substrings=("... and",),
-      ),
-      dict(
-          testcase_name="exceeds_display_limit_truncates",
-          num_files=12,
-          expected_substrings=(
-              "Multiple (12) trace files found in /test/search/dir:",
-              "file_009.xplane.pb",
-              "... and 2 more.",
-          ),
-          excluded_substrings=("file_010.xplane.pb", "file_011.xplane.pb"),
-      ),
-  )
-  def test_create_multi_file_error_formatting(
-      self,
-      num_files: int,
-      expected_substrings: Sequence[str],
-      excluded_substrings: Sequence[str],
-  ) -> None:
-    files = tuple(
-        f"/test/search/dir/file_{i:03d}.xplane.pb" for i in range(num_files)
-    )
-    err = events_db_tool._create_multi_file_error(
-        pathlib.Path("/test/search/dir"), files
-    )
-    msg = str(err)
-
-    self.assertIsInstance(err, NotImplementedError)
-    self.assertContainsInOrder(expected_substrings, msg)
-    self.assertEmpty([s for s in excluded_substrings if s in msg])
 
   @parameterized.named_parameters(
       dict(
@@ -310,13 +259,6 @@ class OssCreateEventsDbToolTest(parameterized.TestCase):
           expected_exception=ValueError,
           expected_regex=r"Logdir not set",
       ),
-      dict(
-          testcase_name="multi_trace_dir_raises_not_implemented_error",
-          source_key="multi_dir",
-          logdir_key="configured",
-          expected_exception=NotImplementedError,
-          expected_regex=r"Multiple \(2\) trace files found",
-      ),
   )
   def test_create_events_db_raises_error(
       self,
@@ -333,6 +275,63 @@ class OssCreateEventsDbToolTest(parameterized.TestCase):
           session_id=session_id,
           bypass_cache=False,
       )
+
+  def test_create_events_db_multi_trace_dir_generates_parquets(self) -> None:
+    expected_path0 = events_db_tool._cache_path_for_create(self._multi_worker0)
+    expected_path1 = events_db_tool._cache_path_for_create(self._multi_worker1)
+    expected_combined = (
+        events_db_tool._multi_cache_dir([expected_path0, expected_path1])
+        / events_db_tool._DB_FILENAME
+    )
+
+    raw_res = events_db_tool.create_events_db(
+        session_id=str(self._multi_dir),
+        bypass_cache=False,
+    )
+    res = json.loads(raw_res)
+
+    self.assertEqual(res[events_db_tool._KEY_PATH], str(expected_combined))
+    self.assertEqual(
+        res[events_db_tool._KEY_PATHS],
+        [str(expected_path0), str(expected_path1)],
+    )
+    self.assertFalse(res[events_db_tool._KEY_SKIPPED])
+    self.assertTrue(expected_combined.is_file())
+    self.assertTrue(expected_path0.is_file())
+    self.assertTrue(expected_path1.is_file())
+
+    with events_db_tool.duckdb.connect(":memory:") as con:
+      row0 = con.execute(
+          f"SELECT count(*) FROM read_parquet('{expected_path0}')"
+      ).fetchone()
+      row1 = con.execute(
+          f"SELECT count(*) FROM read_parquet('{expected_path1}')"
+      ).fetchone()
+      combined_row = con.execute(
+          f"SELECT count(*) FROM read_parquet('{expected_combined}')"
+      ).fetchone()
+    assert row0 is not None and row1 is not None and combined_row is not None
+    self.assertGreater(row0[0], 0)
+    self.assertEqual(combined_row[0], row0[0] + row1[0])
+
+  def test_create_events_db_too_many_trace_files_raises_value_error(
+      self,
+  ) -> None:
+    too_many_paths = tuple(
+        self._root / f"worker_{i}.xplane.pb"
+        for i in range(events_db_tool._MAX_TRACE_FILES + 1)
+    )
+    with mock.patch.object(
+        events_db_tool, "_resolve_input_paths", return_value=too_many_paths
+    ):
+      with self.assertRaisesRegex(ValueError, "Too many trace files"):
+        events_db_tool.create_events_db(session_id=str(self._multi_dir))
+
+  def test_cache_path_for_query_empty_db_paths_raises_value_error(self) -> None:
+    with self.assertRaisesRegex(
+        ValueError, "No Events DB Parquet files resolved"
+    ):
+      events_db_tool._cache_path_for_query([], "SELECT 1")
 
 
 class OssQueryEventsDbToolTest(parameterized.TestCase):
@@ -413,6 +412,30 @@ class OssQueryEventsDbToolTest(parameterized.TestCase):
     self.assertLen(data, 1)
     self.assertIn("total_count", data[0])
     self.assertGreater(data[0]["total_count"], 0)
+
+  def test_query_events_db_multi_trace_dir_combines_events(self) -> None:
+    multi_dir = self._root / "multi_query_run"
+    multi_dir.mkdir()
+    w0 = multi_dir / "w0.xplane.pb"
+    w1 = multi_dir / "w1.xplane.pb"
+    w0.write_bytes(_trace_bytes())
+    w1.write_bytes(_trace_bytes())
+    for p in (w0, w1):
+      cp = events_db_tool._cache_path_for_create(p)
+      cp.parent.mkdir(parents=True, exist_ok=True)
+      cp.write_bytes(_parquet_bytes())
+
+    single_rows = events_db_tool.query_events_db_rows(
+        session_id=str(self._single_trace),
+        query="SELECT count(*) AS total_count FROM Events",
+    )
+    multi_rows = events_db_tool.query_events_db_rows(
+        session_id=str(multi_dir),
+        query="SELECT count(*) AS total_count FROM Events",
+    )
+    self.assertEqual(
+        multi_rows[0]["total_count"], 2 * single_rows[0]["total_count"]
+    )
 
   def test_query_events_db_caches_and_skips_duplicate_query(self) -> None:
     raw_res1 = events_db_tool.query_events_db(

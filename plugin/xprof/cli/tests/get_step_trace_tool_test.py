@@ -761,6 +761,270 @@ class GetStepTraceToolTest(parameterized.TestCase):
     self.assertAlmostEqual(step["idle_percent"], 1.1, places=1)
     self.assertEqual(step["bottleneck"], "Compute")
 
+  def test_get_step_trace_populates_step_time_distribution_and_partial_steps(
+      self,
+  ):
+    """Per-core durations populate step_time_distribution_ms and partial_steps."""
+    pod_viewer_mock_data = {
+        "podStatsSequence": {
+            "podStatsMap": [
+                {
+                    "stepNum": 0,
+                    "podStatsPerCore": {
+                        "0": {
+                            "totalDurationUs": 2000.0,
+                            "highFlopsComputeUs": 1800.0,
+                        },
+                        "1": {
+                            "totalDurationUs": 8000.0,
+                            "highFlopsComputeUs": 7500.0,
+                        },
+                    },
+                },
+                {
+                    "stepNum": 1,
+                    "podStatsPerCore": {
+                        "0": {
+                            "totalDurationUs": 23500.0,
+                            "highFlopsComputeUs": 23000.0,
+                        },
+                        "1": {
+                            "totalDurationUs": 23700.0,
+                            "highFlopsComputeUs": 23200.0,
+                        },
+                    },
+                },
+                {
+                    "stepNum": 2,
+                    "podStatsPerCore": {
+                        "0": {
+                            "totalDurationUs": 23600.0,
+                            "highFlopsComputeUs": 23100.0,
+                        },
+                        "1": {
+                            "totalDurationUs": 23800.0,
+                            "highFlopsComputeUs": 23300.0,
+                        },
+                    },
+                },
+            ]
+        }
+    }
+    self.mock_client.fetch.return_value = (
+        None,
+        json.dumps(pod_viewer_mock_data).encode("utf-8"),
+    )
+
+    result = json.loads(get_step_trace_tool.get_step_trace("test_session"))
+    summary = result["summary"]
+
+    self.assertEqual(summary["total_steps"], 3)
+    self.assertEqual(summary["full_steps_count"], 2)
+    self.assertAlmostEqual(
+        summary["full_step_time_ms_average"], 23.65, places=2
+    )
+    self.assertEqual(summary["step_source"], "Steps")
+
+    dist = summary["step_time_distribution_ms"]
+    self.assertEqual(dist["all_steps"]["count"], 6)
+    self.assertEqual(dist["all_steps"]["steps"], [0, 1, 2])
+    self.assertAlmostEqual(dist["all_steps"]["min_ms"], 2.0, places=2)
+    self.assertAlmostEqual(dist["all_steps"]["max_ms"], 23.8, places=2)
+
+    self.assertEqual(dist["full_steps"]["count"], 4)
+    self.assertEqual(dist["full_steps"]["steps"], [1, 2])
+    self.assertAlmostEqual(dist["full_steps"]["mean_ms"], 23.65, places=2)
+
+    self.assertEqual(dist["partial_steps"]["count"], 2)
+    self.assertEqual(dist["partial_steps"]["steps"], [0])
+    self.assertAlmostEqual(dist["partial_steps"]["mean_ms"], 5.0, places=2)
+    self.assertEqual(dist["full_steps"]["dispersion_assessment"], "CONSISTENT")
+    self.assertEqual(summary["dispersion_assessment"], "CONSISTENT")
+
+  def test_get_step_trace_with_func_name_extracts_module_step_records(self):
+    """Passing func_name extracts step records from XLA Modules and computes dispersion."""
+    self.mock_client.fetch.return_value = (None, b"")
+    with mock.patch.object(
+        get_step_trace_tool,
+        "_extract_step_records_from_source",
+        return_value=(
+            [
+                (0, 15.0),
+                (1, 17.0),
+            ],
+            "XLA Modules",
+        ),
+        autospec=True,
+    ) as mock_extract:
+      result = json.loads(
+          get_step_trace_tool.get_step_trace(
+              "test_session", func_name="train_step"
+          )
+      )
+
+    mock_extract.assert_called_once_with(
+        "test_session",
+        func_name="train_step",
+        bypass_cache=False,
+    )
+    summary = result["summary"]
+    self.assertEqual(summary["total_steps"], 2)
+    self.assertAlmostEqual(summary["step_time_ms_average"], 16.0, places=2)
+    self.assertEqual(summary["step_source"], "XLA Modules")
+    self.assertEqual(
+        summary["step_time_distribution_ms"]["all_steps"]["count"], 2
+    )
+    self.assertEqual(summary["dispersion_assessment"], "CONSISTENT")
+
+  def test_compute_step_time_distribution_high_jitter(self):
+    """High CV (>0.15) is flagged as HIGH_JITTER in compute_step_time_distribution."""
+    records = [
+        (0, 100.0),
+        (1, 100.0),
+        (2, 300.0),
+        (3, 100.0),
+    ]
+    dist = get_step_trace_tool.compute_step_time_distribution(records)
+    self.assertEqual(dist["full_steps"]["dispersion_assessment"], "HIGH_JITTER")
+    self.assertGreater(dist["full_steps"]["cv"], 0.15)
+    self.assertGreater(dist["full_steps"]["iqr_ms"], 0.0)
+
+  def test_summary_from_step_records_uses_distinct_step_counts(self):
+    """_summary_from_step_records counts distinct steps rather than per-core rows."""
+    records = [
+        (0, 2.0),
+        (0, 8.0),
+        (1, 23.5),
+        (1, 23.7),
+        (2, 23.6),
+        (2, 23.8),
+    ]
+    summary = get_step_trace_tool._summary_from_step_records(records, "Steps")
+    self.assertEqual(summary.total_steps, 3)
+    self.assertEqual(summary.full_steps_count, 2)
+    self.assertAlmostEqual(summary.full_step_time_ms_average, 23.65, places=2)
+    self.assertEqual(summary.step_source, "Steps")
+    self.assertEqual(summary.step_time_distribution_ms["all_steps"]["count"], 6)
+
+  def test_extract_step_records_from_source_events_db_handles_null_dur_and_regex(
+      self,
+  ):
+    """Events DB extraction handles NULL dur_ms safely and uses case-insensitive SQL."""
+    mock_root_res = mock.MagicMock()
+    mock_root_res.status = "success"
+    mock_root_res.session_root = "/path/to/test/session"
+    with (
+        mock.patch.object(
+            get_step_trace_tool.events_db_tools,
+            "get_events_db_session_root",
+            return_value=mock_root_res,
+            autospec=True,
+        ),
+        mock.patch.object(
+            get_step_trace_tool.google_kernel_stats_tools,
+            "run_f1_sql",
+            return_value=[
+                {"category": "Steps", "kernel_name": "0", "dur_ms": None},
+                {"category": "Steps", "kernel_name": "1", "dur_ms": 12.5},
+            ],
+            autospec=True,
+        ) as mock_sql,
+    ):
+      rows, src = get_step_trace_tool._extract_step_records_from_source(
+          "remote_session_123"
+      )
+
+    self.assertEqual(src, "Steps")
+    self.assertEqual(rows, [(0, 0.0), (1, 12.5)])
+    called_sql = mock_sql.call_args[0][1]
+    self.assertIn(
+        r"REGEXP_CONTAINS(device, r'^(?i)(?:/device:)?(?:tpu|gpu):[0-9]+$')",
+        called_sql,
+    )
+    self.assertNotIn("LIKE @pattern", called_sql)
+    self.assertIn("LIMIT 100000", called_sql)
+    self.assertIsNone(mock_sql.call_args[1]["parameters"])
+
+  def test_extract_step_records_from_source_events_db_with_func_name_and_error_log(
+      self,
+  ):
+    """Events DB extraction filters by @pattern when func_name is set and logs root errors."""
+    mock_fail_res = mock.MagicMock()
+    mock_fail_res.status = "error"
+    mock_fail_res.session_root = ""
+    mock_fail_res.error_message = "DB unavailable"
+    with (
+        mock.patch.object(
+            get_step_trace_tool.events_db_tools,
+            "get_events_db_session_root",
+            return_value=mock_fail_res,
+            autospec=True,
+        ),
+        self.assertLogs(level="DEBUG") as log_ctx,
+    ):
+      rows, src = get_step_trace_tool._extract_step_records_from_source(
+          "remote_session_err"
+      )
+    self.assertEqual(rows, [])
+    self.assertEqual(src, "XLA Modules")
+    self.assertTrue(
+        any("DB unavailable" in msg for msg in log_ctx.output),
+        f"Expected error log in {log_ctx.output}",
+    )
+
+    mock_ok_res = mock.MagicMock()
+    mock_ok_res.status = "success"
+    mock_ok_res.session_root = "/path/to/test/session"
+    with (
+        mock.patch.object(
+            get_step_trace_tool.events_db_tools,
+            "get_events_db_session_root",
+            return_value=mock_ok_res,
+            autospec=True,
+        ),
+        mock.patch.object(
+            get_step_trace_tool.google_kernel_stats_tools,
+            "run_f1_sql",
+            return_value=[{
+                "category": "XLA Modules",
+                "kernel_name": "jit_train_step",
+                "dur_ms": None,
+                "duration_ms": 18.25,
+            }],
+            autospec=True,
+        ) as mock_sql,
+    ):
+      rows, src = get_step_trace_tool._extract_step_records_from_source(
+          "remote_session_123", func_name="jit_train_step"
+      )
+    self.assertEqual(src, "XLA Modules")
+    self.assertEqual(rows, [(None, 18.25)])
+    self.assertIn("AND kernel_name LIKE @pattern", mock_sql.call_args[0][1])
+    self.assertEqual(
+        mock_sql.call_args[1]["parameters"], {"pattern": "%train_step%"}
+    )
+
+  def test_overview_and_input_pipeline_populate_step_source_and_summary_fields(
+      self,
+  ):
+    """Overview page and input pipeline fallbacks populate step_source and summary fields."""
+    self.mock_client.fetch.side_effect = (
+        _fetch_input_pipeline_fallback_side_effect
+    )
+    ip_res = json.loads(get_step_trace_tool.get_step_trace("ip_session"))
+    self.assertEqual(ip_res["summary"]["step_source"], "input_pipeline")
+    self.assertEqual(ip_res["summary"]["full_steps_count"], 2)
+
+    self.mock_client.fetch.side_effect = (
+        _fetch_overview_page_fallback_side_effect
+    )
+    ov_res = json.loads(get_step_trace_tool.get_step_trace("ov_session"))
+    self.assertEqual(ov_res["summary"]["step_source"], "overview_page")
+    self.assertEqual(ov_res["summary"]["dispersion_assessment"], "CONSISTENT")
+    self.assertAlmostEqual(
+        ov_res["summary"]["full_step_time_ms_average"], 50.0, places=2
+    )
+
 
 if __name__ == "__main__":
   absltest.main()

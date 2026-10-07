@@ -1,29 +1,42 @@
-import {Component, ElementRef, Input, OnChanges, OnInit, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  effect,
+  ElementRef,
+  input,
+  OnInit,
+  ViewChild,
+} from '@angular/core';
 
 /** A organization chart view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'org-chart',
   templateUrl: './org_chart.ng.html',
-  styleUrls: ['./org_chart.scss']
+  styleUrls: ['./org_chart.scss'],
 })
-export class OrgChart implements OnChanges, OnInit {
-  @Input() dataView?: google.visualization.DataView;
+export class OrgChart implements OnInit {
+  readonly dataView = input<google.visualization.DataView>();
 
   chart?: google.visualization.OrgChart;
 
   @ViewChild('chart', {static: false}) chartRef!: ElementRef;
 
+  constructor() {
+    effect(() => {
+      this.dataView();
+      this.drawChart();
+    });
+  }
+
   ngOnInit() {
     this.loadGoogleChart();
   }
 
-  ngOnChanges(changes: SimpleChanges) {
-    this.drawChart();
-  }
-
   drawChart() {
-    if (!this.chart || !this.dataView) {
+    const dataView = this.dataView();
+    if (!this.chart || !dataView) {
       return;
     }
 
@@ -31,7 +44,7 @@ export class OrgChart implements OnChanges, OnInit {
       allowHtml: true,
     };
 
-    this.chart.draw(this.dataView, options);
+    this.chart.draw(dataView, options);
   }
 
   loadGoogleChart() {
@@ -43,8 +56,9 @@ export class OrgChart implements OnChanges, OnInit {
 
     google.charts.safeLoad({'packages': ['orgchart']});
     google.charts.setOnLoadCallback(() => {
-      this.chart =
-          new google.visualization.OrgChart(this.chartRef.nativeElement);
+      const chartEl = this.chartRef?.nativeElement;
+      if (!chartEl) return;
+      this.chart = new google.visualization.OrgChart(chartEl);
       this.drawChart();
     });
   }

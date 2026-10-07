@@ -861,12 +861,11 @@ void Timeline::BuildLevelMipPyramids() {
   const int num_levels = timeline_data_.total_levels();
   level_mip_pyramids_.clear();
   level_mip_pyramids_.resize(num_levels);
+  process_utilization_pyramids_.clear();
   if (num_levels == 0 || timeline_data_.entry_start_times.empty()) {
     return;
   }
 
-  constexpr int kMipBinCounts[LevelMipPyramid::kNumMipLevels] = {2048, 512,
-                                                                 128};
   const auto& start_times = timeline_data_.entry_start_times;
   const auto& total_times = timeline_data_.entry_total_times;
 
@@ -999,6 +998,8 @@ void Timeline::BuildLevelMipPyramids() {
       }
     }
   }
+
+  BuildProcessUtilizationPyramids();
 }
 
 ImU32 Timeline::GetEventColor(int event_index) const {
@@ -1009,6 +1010,123 @@ ImU32 Timeline::GetEventColor(int event_index) const {
   }
   return GetColorForId(timeline_data_.entry_names[event_index],
                        palette_.GetTraceColors());
+}
+
+void Timeline::BuildProcessUtilizationPyramids() {
+  process_utilization_pyramids_.clear();
+  const int num_levels = timeline_data_.total_levels();
+  if (num_levels == 0 || timeline_data_.entry_start_times.empty()) {
+    return;
+  }
+
+  for (size_t g_idx = 0; g_idx < timeline_data_.groups.size(); ++g_idx) {
+    const Group& g = timeline_data_.groups[g_idx];
+    if (g.nesting_level != kProcessNestingLevel ||
+        g.type != Group::Type::kFlame) {
+      continue;
+    }
+
+    int proc_end = num_levels;
+    for (size_t j = g_idx + 1; j < timeline_data_.groups.size(); ++j) {
+      if (timeline_data_.groups[j].nesting_level <= g.nesting_level) {
+        proc_end = std::min(timeline_data_.groups[j].start_level, num_levels);
+        break;
+      }
+    }
+
+    std::optional<ProcessUtilizationPyramid> proc_pyr =
+        BuildProcessUtilizationPyramidForRange(g.start_level, proc_end);
+    if (proc_pyr.has_value()) {
+      process_utilization_pyramids_.push_back(*std::move(proc_pyr));
+    }
+  }
+}
+
+std::optional<Timeline::ProcessUtilizationPyramid>
+Timeline::BuildProcessUtilizationPyramidForRange(int proc_start,
+                                                 int proc_end) const {
+  if (proc_end <= proc_start) return std::nullopt;
+
+  const auto& start_times = timeline_data_.entry_start_times;
+  const auto& total_times = timeline_data_.entry_total_times;
+  Microseconds proc_min_ts = std::numeric_limits<Microseconds>::max();
+  Microseconds proc_max_ts = std::numeric_limits<Microseconds>::lowest();
+  size_t proc_event_count = 0;
+
+  for (int lvl = proc_start; lvl < proc_end; ++lvl) {
+    const absl::Span<const int> indices = timeline_data_.level_events(lvl);
+    if (indices.empty()) continue;
+    proc_event_count += indices.size();
+    const int first_idx = indices.front();
+    if (first_idx >= 0 && static_cast<size_t>(first_idx) < start_times.size()) {
+      proc_min_ts = std::min(proc_min_ts, start_times[first_idx]);
+    }
+    for (int idx : indices) {
+      if (idx >= 0 && static_cast<size_t>(idx) < start_times.size()) {
+        proc_max_ts =
+            std::max(proc_max_ts, start_times[idx] + total_times[idx]);
+      }
+    }
+  }
+
+  if (proc_event_count < kMinEventsForProcessUtilizationPyramid ||
+      proc_max_ts <= proc_min_ts) {
+    return std::nullopt;
+  }
+
+  ProcessUtilizationPyramid proc_pyr;
+  proc_pyr.start_level = proc_start;
+  proc_pyr.end_level = proc_end;
+  const Microseconds proc_span = proc_max_ts - proc_min_ts;
+
+  for (int m = 0; m < LevelMipPyramid::kNumMipLevels; ++m) {
+    PopulateProcessUtilizationMipLevel(proc_start, proc_end, proc_min_ts,
+                                       proc_span, kMipBinCounts[m],
+                                       proc_pyr.levels[m]);
+  }
+  return proc_pyr;
+}
+
+void Timeline::PopulateProcessUtilizationMipLevel(
+    int proc_start, int proc_end, Microseconds proc_min_ts,
+    Microseconds proc_span, int num_bins, ProcessUtilizationMip& pmip) const {
+  if (num_bins <= 0) return;
+  const Microseconds bin_w = proc_span / static_cast<double>(num_bins);
+  if (bin_w <= 0.0) return;
+  const double inv_bin_w = 1.0 / bin_w;
+
+  pmip.min_ts = proc_min_ts;
+  pmip.bin_width_us = bin_w;
+  pmip.occupied_us_bins.assign(num_bins, 0.0f);
+
+  const auto& start_times = timeline_data_.entry_start_times;
+  const auto& total_times = timeline_data_.entry_total_times;
+  const double max_bin_idx = static_cast<double>(num_bins - 1);
+
+  for (int lvl = proc_start; lvl < proc_end; ++lvl) {
+    for (int idx : timeline_data_.level_events(lvl)) {
+      if (idx < 0 || static_cast<size_t>(idx) >= start_times.size()) continue;
+      const Microseconds s = start_times[idx];
+      const Microseconds d = total_times[idx];
+      if (d <= 0.0) continue;
+      const Microseconds e = s + d;
+      const int b0 = static_cast<int>(std::clamp(
+          std::floor((s - proc_min_ts) * inv_bin_w), 0.0, max_bin_idx));
+      const int b1 = static_cast<int>(std::clamp(
+          std::ceil((e - proc_min_ts) * inv_bin_w - 1e-9), 0.0, max_bin_idx));
+      if (b0 == b1) {
+        pmip.occupied_us_bins[b0] += static_cast<float>(d);
+        continue;
+      }
+      for (int b = b0; b <= b1; ++b) {
+        const Microseconds bs = proc_min_ts + b * bin_w;
+        const Microseconds ov = std::min(e, bs + bin_w) - std::max(s, bs);
+        if (ov > 0.0) {
+          pmip.occupied_us_bins[b] += static_cast<float>(ov);
+        }
+      }
+    }
+  }
 }
 
 void Timeline::Draw() {
@@ -3432,77 +3550,213 @@ void Timeline::DrawFlameGroupPreview(int start_level, int end_level,
   }
 }
 
+void Timeline::AccumulateClippedRangeOccupancy(Pixel x_start, Pixel x_end,
+                                               float density, int num_bins) {
+  if (num_bins <= 0 || density <= 0.0f || x_end <= x_start) return;
+  const Pixel max_x = static_cast<Pixel>(num_bins);
+  if (x_end <= 0.0f || x_start >= max_x) return;
+
+  const Pixel clipped_start = std::max(0.0f, x_start);
+  const Pixel clipped_end = std::min(max_x, x_end);
+  const int bin_start =
+      std::max(0, static_cast<int>(std::floor(clipped_start)));
+  const int bin_end = std::min(
+      num_bins - 1, static_cast<int>(std::ceil(clipped_end - kEpsilon)));
+
+  for (int i = bin_start; i <= bin_end; ++i) {
+    const Pixel overlap = std::min(clipped_end, static_cast<Pixel>(i + 1)) -
+                          std::max(clipped_start, static_cast<Pixel>(i));
+    if (overlap > 0.0f) {
+      utilization_bins_[i] += overlap * density;
+    }
+  }
+}
+
+bool Timeline::TryAccumulateProcessUtilization(int start_level, int end_level,
+                                               double px_per_time_unit_val,
+                                               int num_bins) {
+  if (px_per_time_unit_val <= 0.0) return false;
+  const Microseconds us_per_px = 1.0 / px_per_time_unit_val;
+
+  const ProcessUtilizationPyramid* matching_pyr = nullptr;
+  for (const auto& proc_pyr : process_utilization_pyramids_) {
+    if (proc_pyr.start_level == start_level &&
+        proc_pyr.end_level == end_level) {
+      matching_pyr = &proc_pyr;
+      break;
+    }
+  }
+  if (matching_pyr == nullptr) return false;
+
+  const int selected_mip = matching_pyr->SelectMipLevel(
+      kMaxProcessUtilizationMipBinWidthPx * us_per_px);
+  if (selected_mip < 0) return false;
+
+  const ProcessUtilizationMip& pmip = matching_pyr->levels[selected_mip];
+  const int m_bins = static_cast<int>(pmip.occupied_us_bins.size());
+  if (m_bins <= 0 || pmip.bin_width_us <= 0.0) return false;
+
+  const Microseconds visible_start = visible_range().start();
+  const Microseconds visible_end = visible_range().end();
+  const Microseconds pmip_max_ts = pmip.min_ts + m_bins * pmip.bin_width_us;
+  if (visible_end <= pmip.min_ts || visible_start >= pmip_max_ts) {
+    return true;
+  }
+
+  const double inv_bw = 1.0 / pmip.bin_width_us;
+  const double max_bin_idx = static_cast<double>(m_bins - 1);
+  const int b_first = static_cast<int>(std::clamp(
+      std::floor((visible_start - pmip.min_ts) * inv_bw), 0.0, max_bin_idx));
+  const int b_last = static_cast<int>(std::clamp(
+      std::ceil((visible_end - pmip.min_ts) * inv_bw), 0.0, max_bin_idx));
+
+  for (int b = b_first; b <= b_last; ++b) {
+    const float occ_us = pmip.occupied_us_bins[b];
+    if (occ_us <= 0.0f) continue;
+    const Microseconds ts_s = pmip.min_ts + b * pmip.bin_width_us;
+    const Microseconds ts_e = ts_s + pmip.bin_width_us;
+    const Pixel x_start = TimeToPixel(ts_s, px_per_time_unit_val);
+    const Pixel x_end = TimeToPixel(ts_e, px_per_time_unit_val);
+    const Pixel tile_px = x_end - x_start;
+    if (tile_px <= 0.0f) continue;
+    const float occ_px = static_cast<float>(occ_us * px_per_time_unit_val);
+    AccumulateClippedRangeOccupancy(x_start, x_end, occ_px / tile_px, num_bins);
+  }
+  return true;
+}
+
+void Timeline::AccumulateLevelUtilization(int level,
+                                          double px_per_time_unit_val,
+                                          int num_bins) {
+  const Microseconds visible_start = visible_range().start();
+  const Microseconds visible_end = visible_range().end();
+
+  if (px_per_time_unit_val > 0.0 && level >= 0 &&
+      static_cast<size_t>(level) < level_mip_pyramids_.size()) {
+    const LevelMipPyramid& pyramid = level_mip_pyramids_[level];
+    const Microseconds us_per_px = 1.0 / px_per_time_unit_val;
+    const int selected_mip =
+        pyramid.SelectMipLevel(kMaxPreviewMipBinWidthPx * us_per_px);
+    if (selected_mip >= 0) {
+      const auto& tiles = pyramid.levels[selected_mip].tiles;
+      auto tile_first =
+          std::lower_bound(tiles.begin(), tiles.end(), visible_start,
+                           [](const LevelMipTile& tile, Microseconds t) {
+                             return tile.max_end <= t;
+                           });
+      for (auto it = tile_first; it != tiles.end(); ++it) {
+        if (it->min_start >= visible_end) break;
+        const Pixel x_start = TimeToPixel(it->min_start, px_per_time_unit_val);
+        const Pixel x_end = TimeToPixel(it->max_end, px_per_time_unit_val);
+        const Pixel tile_px_span = x_end - x_start;
+        if (tile_px_span <= 0.0f) continue;
+
+        const float occupied_px =
+            static_cast<float>(it->total_occupied_dur * px_per_time_unit_val);
+        const float density = std::min(1.0f, occupied_px / tile_px_span);
+        AccumulateClippedRangeOccupancy(x_start, x_end, density, num_bins);
+      }
+      return;
+    }
+  }
+
+  const absl::Span<const int> indices = timeline_data_.level_events(level);
+  auto it = std::lower_bound(indices.begin(), indices.end(), visible_start,
+                             [&](int event_idx, Microseconds t) {
+                               const Microseconds end =
+                                   timeline_data_.entry_start_times[event_idx] +
+                                   timeline_data_.entry_total_times[event_idx];
+                               return end <= t;
+                             });
+
+  for (; it != indices.end(); ++it) {
+    const int event_index = *it;
+    const Microseconds start = timeline_data_.entry_start_times[event_index];
+    if (start >= visible_end) break;
+    const Microseconds end =
+        start + timeline_data_.entry_total_times[event_index];
+
+    // Calculate pixel coordinates relative to the start of the visible range.
+    const Pixel x_start = TimeToPixel(start, px_per_time_unit_val);
+    const Pixel x_end = TimeToPixel(end, px_per_time_unit_val);
+
+    // Clip events that are partially outside the visible range.
+    // Offset by 0.5 to center the bins on pixels? No, ImGui uses screen
+    // coords.
+    AccumulateClippedRangeOccupancy(x_start, x_end, /*density=*/1.0f, num_bins);
+  }
+}
+
 void Timeline::DrawUtilizationAreaChart(int start_level, int end_level,
                                         double px_per_time_unit_val,
                                         const ImVec2& pos, Pixel group_height,
                                         ImDrawList* draw_list) {
-  const Microseconds visible_start = visible_range().start();
-  const Microseconds visible_end = visible_range().end();
   const Pixel timeline_width = current_timeline_width_;
   if (timeline_width <= 0) return;
 
   const int num_bins = static_cast<int>(std::ceil(timeline_width));
   if (num_bins <= 0) return;
 
-  if (utilization_bins_.size() < num_bins) utilization_bins_.resize(num_bins);
+  if (utilization_bins_.size() < static_cast<size_t>(num_bins)) {
+    utilization_bins_.resize(num_bins);
+  }
   std::fill(utilization_bins_.begin(), utilization_bins_.begin() + num_bins,
             0.0f);
 
-  for (int level = start_level; level < end_level; ++level) {
-    absl::Span<const int> indices = timeline_data_.level_events(level);
-
-    auto it = std::lower_bound(
-        indices.begin(), indices.end(), visible_start,
-        [&](int event_idx, Microseconds t) {
-          const Microseconds end = timeline_data_.entry_start_times[event_idx] +
-                                   timeline_data_.entry_total_times[event_idx];
-          return end <= t;
-        });
-
-    for (; it != indices.end(); ++it) {
-      int event_index = *it;
-      const Microseconds start = timeline_data_.entry_start_times[event_index];
-      if (start >= visible_end) break;
-      const Microseconds end =
-          start + timeline_data_.entry_total_times[event_index];
-
-      // Calculate pixel coordinates relative to the start of the visible range.
-      Pixel x_start = TimeToPixel(start, px_per_time_unit_val);
-      Pixel x_end = TimeToPixel(end, px_per_time_unit_val);
-
-      // Clip events that are partially outside the visible range.
-      // Offset by 0.5 to center the bins on pixels? No, ImGui uses screen
-      // coords.
-      int bin_start = std::max(0, static_cast<int>(std::floor(x_start)));
-      int bin_end =
-          std::min(num_bins - 1, static_cast<int>(std::ceil(x_end - kEpsilon)));
-
-      for (int i = bin_start; i <= bin_end; ++i) {
-        Pixel overlap = std::min(x_end, static_cast<Pixel>(i + 1)) -
-                        std::max(x_start, static_cast<float>(i));
-        if (overlap > 0) {
-          utilization_bins_[i] += overlap;
-        }
-      }
+  if (!TryAccumulateProcessUtilization(start_level, end_level,
+                                       px_per_time_unit_val, num_bins)) {
+    for (int level = start_level; level < end_level; ++level) {
+      AccumulateLevelUtilization(level, px_per_time_unit_val, num_bins);
     }
   }
 
   Pixel max_util = 0.0f;
-  for (Pixel val : utilization_bins_) {
-    max_util = std::max(max_util, val);
+  for (int i = 0; i < num_bins; ++i) {
+    max_util = std::max(max_util, utilization_bins_[i]);
   }
 
   // Normalize by at least one full track of activity.
   max_util = std::max(kMinUtilizationNormalization, max_util);
 
-  // Draw each bin as a bar.
-  for (size_t i = 0; i < utilization_bins_.size(); ++i) {
-    if (utilization_bins_[i] > 0.0f) {
-      Pixel h = (utilization_bins_[i] / max_util) * group_height;
-      draw_list->AddRectFilled(
-          ImVec2(pos.x + i, pos.y + group_height - h),
-          ImVec2(pos.x + i + 1, pos.y + group_height),
-          palette_.GetColor(ColorPalette::Key::kFlameHeader).value_or(kBlue70));
+  const ImU32 bar_color =
+      palette_.GetColor(ColorPalette::Key::kFlameHeader).value_or(kBlue70);
+
+  if (timeline_data_.entry_start_times.size() <= 64) {
+    for (int i = 0; i < num_bins; ++i) {
+      if (utilization_bins_[i] > 0.0f) {
+        const Pixel h = (utilization_bins_[i] / max_util) * group_height;
+        draw_list->AddRectFilled(ImVec2(pos.x + i, pos.y + group_height - h),
+                                 ImVec2(pos.x + i + 1, pos.y + group_height),
+                                 bar_color);
+      }
+    }
+  } else {
+    // Coalesce adjacent bins with identical quantized heights (0.5px steps)
+    // into a single AddRectFilled call.
+    int i = 0;
+    while (i < num_bins) {
+      if (utilization_bins_[i] <= 0.0f) {
+        ++i;
+        continue;
+      }
+      const Pixel raw_h = (utilization_bins_[i] / max_util) * group_height;
+      const Pixel q_h = std::round(raw_h * 2.0f) * 0.5f;
+      if (q_h <= 0.0f) {
+        ++i;
+        continue;
+      }
+      int j = i + 1;
+      while (j < num_bins && utilization_bins_[j] > 0.0f) {
+        const Pixel next_raw_h =
+            (utilization_bins_[j] / max_util) * group_height;
+        const Pixel next_q_h = std::round(next_raw_h * 2.0f) * 0.5f;
+        if (next_q_h != q_h) break;
+        ++j;
+      }
+      draw_list->AddRectFilled(ImVec2(pos.x + i, pos.y + group_height - q_h),
+                               ImVec2(pos.x + j, pos.y + group_height),
+                               bar_color);
+      i = j;
     }
   }
 

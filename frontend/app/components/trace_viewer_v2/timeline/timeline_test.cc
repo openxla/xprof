@@ -5550,6 +5550,146 @@ TEST_F(RealTimelineImGuiFixture, DrawUtilizationAreaChartLastBinOnly) {
   ImGui::EndFrame();
 }
 
+TEST_F(RealTimelineImGuiFixture,
+       DrawUtilizationAreaChart_ShortProcessBurstInLongTraceDoesNotOverflow) {
+  FlameChartTimelineData data;
+  // Pack 800 parallel 100 us events into [0, 100] us so
+  // ProcessUtilizationPyramid MIP level 2 has bin_width_us = 100 / 2048
+  // (inv_bw = 20.48) and total occupancy 80,000 us (~0.66 px at 200 s zoom),
+  // then view a 200 s range ([0, 200e6] us) where
+  // (visible_end - pmip.min_ts) * inv_bw > INT_MAX.
+  constexpr int kNumLevels = 800;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Process Group",
+                         .start_level = 0,
+                         .nesting_level = kProcessNestingLevel,
+                         .expanded = true,
+                         .level_count = kNumLevels});
+
+  data.level_offsets.reserve(kNumLevels + 1);
+  data.level_offsets.push_back(0);
+  data.level_event_indices.reserve(kNumLevels);
+  for (int i = 0; i < kNumLevels; ++i) {
+    data.level_event_indices.push_back(i);
+    data.level_offsets.push_back(i + 1);
+    data.entry_names.push_back("burst");
+    data.entry_levels.push_back(i);
+    data.entry_start_times.push_back(0.0);
+    data.entry_total_times.push_back(100.0);
+    data.entry_event_ids.push_back(i + 1);
+    data.entry_args.push_back({});
+  }
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 200'000'000.0});
+  timeline_.SetVisibleRange({0.0, 200'000'000.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* process_window = nullptr;
+  const std::string child_id = "TimelineChild_Process Group_0";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id) != std::string::npos) {
+      process_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(process_window, nullptr);
+
+  const ImU32 bar_color =
+      color_palette_.GetColor(ColorPalette::Key::kFlameHeader)
+          .value_or(kBlue70);
+  bool bar_found = false;
+  for (const auto& v : process_window->DrawList->VtxBuffer) {
+    if (v.col == bar_color) {
+      bar_found = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(bar_found);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       DrawUtilizationAreaChart_ViewportEdgeMipTileClipsOccupancy) {
+  FlameChartTimelineData data;
+  constexpr int kNumLevels = 4;
+  constexpr int kEventsPerLevel = 512;
+  constexpr double kEventDurUs = 10.0;  // Total span [0, 5120] us
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Process Group",
+                         .start_level = 0,
+                         .nesting_level = kProcessNestingLevel,
+                         .expanded = true,
+                         .level_count = kNumLevels});
+
+  data.level_offsets.push_back(0);
+  int event_id = 0;
+  for (int lvl = 0; lvl < kNumLevels; ++lvl) {
+    for (int i = 0; i < kEventsPerLevel; ++i) {
+      data.level_event_indices.push_back(event_id);
+      data.entry_names.push_back("busy");
+      data.entry_levels.push_back(lvl);
+      data.entry_start_times.push_back(i * kEventDurUs);
+      data.entry_total_times.push_back(kEventDurUs);
+      data.entry_event_ids.push_back(event_id + 1);
+      data.entry_args.push_back({});
+      ++event_id;
+    }
+    data.level_offsets.push_back(event_id);
+  }
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 5120.0});
+
+  const ImU32 bar_color =
+      color_palette_.GetColor(ColorPalette::Key::kFlameHeader)
+          .value_or(kBlue70);
+
+  auto measure_chart_bar_height = [&](double visible_start,
+                                      double visible_end) -> float {
+    timeline_.SetVisibleRange({visible_start, visible_end});
+    ImGui::NewFrame();
+    timeline_.Draw();
+
+    ImGuiWindow* process_window = nullptr;
+    const std::string child_id = "TimelineChild_Process Group_0";
+    for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+      if (std::string(w->Name).find(child_id) != std::string::npos) {
+        process_window = w;
+        break;
+      }
+    }
+    if (process_window == nullptr) {
+      ImGui::EndFrame();
+      return 0.0f;
+    }
+
+    float min_y = std::numeric_limits<float>::max();
+    float max_y = std::numeric_limits<float>::lowest();
+    const float interior_x_limit = process_window->Pos.x + 500.0f;
+    for (const auto& v : process_window->DrawList->VtxBuffer) {
+      if (v.col == bar_color && v.pos.x < interior_x_limit) {
+        min_y = std::min(min_y, v.pos.y);
+        max_y = std::max(max_y, v.pos.y);
+      }
+    }
+    ImGui::EndFrame();
+    return (max_y > min_y) ? (max_y - min_y) : 0.0f;
+  };
+
+  // At MIP level 2, bin_width_us = 5120 / 2048 = 2.5 us. Choose a visible range
+  // where a 2.5 us bin ([1755.0, 1757.5]) starts inside the last pixel column
+  // and extends past visible_end, then compare interior bar height with a
+  // 1.25 us pan offset where it does not.
+  const float h_straddling = measure_chart_bar_height(100.6, 1755.6);
+  const float h_shifted = measure_chart_bar_height(101.85, 1756.85);
+  EXPECT_GT(h_straddling, 0.0f);
+  EXPECT_NEAR(h_straddling, h_shifted, 0.5f);
+}
+
 TEST_F(RealTimelineImGuiFixture, DrawFlameGroupPreview) {
   FlameChartTimelineData data;
   data.groups.push_back({.type = Group::Type::kFlame,

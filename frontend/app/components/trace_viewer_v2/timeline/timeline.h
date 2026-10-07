@@ -842,6 +842,13 @@ class Timeline {
   void DrawUtilizationAreaChart(int start_level, int end_level,
                                 double px_per_time_unit_val, const ImVec2& pos,
                                 Pixel group_height, ImDrawList* draw_list);
+  void AccumulateClippedRangeOccupancy(Pixel x_start, Pixel x_end,
+                                       float density, int num_bins);
+  bool TryAccumulateProcessUtilization(int start_level, int end_level,
+                                       double px_per_time_unit_val,
+                                       int num_bins);
+  void AccumulateLevelUtilization(int level, double px_per_time_unit_val,
+                                  int num_bins);
 
   // Draws a single flow line.
   void DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
@@ -988,7 +995,41 @@ class Timeline {
   static constexpr size_t kMinVisibleEventsForMipDraw = 128;
   static constexpr double kMaxMipBinWidthPx = 1.25;
   static constexpr double kMaxPreviewMipBinWidthPx = 2.0;
+  static constexpr double kMaxProcessUtilizationMipBinWidthPx = 2.5;
+  static constexpr size_t kMinEventsForProcessUtilizationPyramid = 256;
+  static constexpr int kMipBinCounts[LevelMipPyramid::kNumMipLevels] = {
+      2048, 512, 128};
   std::vector<LevelMipPyramid> level_mip_pyramids_;
+
+  struct ProcessUtilizationMip {
+    Microseconds min_ts = 0.0;
+    Microseconds bin_width_us = 0.0;
+    std::vector<float> occupied_us_bins;
+  };
+  struct ProcessUtilizationPyramid {
+    int start_level = -1;
+    int end_level = -1;
+    ProcessUtilizationMip levels[LevelMipPyramid::kNumMipLevels];
+
+    int SelectMipLevel(Microseconds max_bin_width_us) const {
+      for (int m = LevelMipPyramid::kNumMipLevels - 1; m >= 0; --m) {
+        const ProcessUtilizationMip& mip = levels[m];
+        if (!mip.occupied_us_bins.empty() &&
+            mip.bin_width_us <= max_bin_width_us) {
+          return m;
+        }
+      }
+      return -1;
+    }
+  };
+  void BuildProcessUtilizationPyramids();
+  std::optional<ProcessUtilizationPyramid>
+  BuildProcessUtilizationPyramidForRange(int proc_start, int proc_end) const;
+  void PopulateProcessUtilizationMipLevel(int proc_start, int proc_end,
+                                          Microseconds proc_min_ts,
+                                          Microseconds proc_span, int num_bins,
+                                          ProcessUtilizationMip& pmip) const;
+  std::vector<ProcessUtilizationPyramid> process_utilization_pyramids_;
 
   // TODO - b/444026851: Set the label width based on the real screen width.
   Pixel label_width_ = kDefaultLabelWidth;

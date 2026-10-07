@@ -5,6 +5,73 @@ package(default_visibility = ["//plugin/xprof:__subpackages__"])
 licenses(["notice"])
 
 pytype_strict_contrib_test(
+    name = "attention_inputs_test",
+    srcs = ["attention_inputs_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:numerical_generator",
+        "//plugin/xprof/xparity:numerical_validator",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+pytype_strict_contrib_test(
+    name = "bitwise_contract_test",
+    srcs = ["bitwise_contract_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:numerical_generator",
+        "//plugin/xprof/xparity:numerical_validator",
+        "//plugin/xprof/xparity:xparity_tool",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+pytype_strict_contrib_test(
+    name = "compact_verdict_test",
+    srcs = ["compact_verdict_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:xparity_cli_lib",
+        "//plugin/xprof/xparity:xparity_tool",
+        "@absl_py//absl/testing:absltest",
+    ],
+)
+
+pytype_strict_contrib_test(
+    name = "pytree_outputs_test",
+    srcs = ["pytree_outputs_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:numerical_validator",
+        "//plugin/xprof/xparity:xparity_tool",
+        "@absl_py//absl/testing:absltest",
+    ],
+)
+
+pytype_strict_contrib_test(
+    name = "failure_replay_test",
+    srcs = ["failure_replay_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:numerical_generator",
+        "//plugin/xprof/xparity:numerical_validator",
+        "//plugin/xprof/xparity:xparity_cli_lib",
+        "//plugin/xprof/xparity:xparity_tool",
+        "@absl_py//absl/testing:absltest",
+    ],
+)
+
+pytype_strict_contrib_test(
+    name = "regime_coverage_test",
+    srcs = ["regime_coverage_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:numerical_generator",
+        "//plugin/xprof/xparity:numerical_validator",
+        "//plugin/xprof/xparity:xparity_tool",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+pytype_strict_contrib_test(
     name = "numerical_generator_test",
     srcs = ["numerical_generator_test.py"],
     deps = [
@@ -57,6 +124,17 @@ pytype_strict_contrib_test(
     deps = [
         "//plugin/xprof/xparity:numerical_validator",
         "//plugin/xprof/xparity:ulp",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+pytype_strict_contrib_test(
+    name = "tolerance_headroom_test",
+    srcs = ["tolerance_headroom_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:numerical_validator",
+        "//plugin/xprof/xparity:xparity_tool",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
     ],

@@ -9,6 +9,8 @@ against exactly the contracts that `numerical_validator` uses.
 
 Public API:
   compute_ulp_distance: Elementwise integer ULP distance between two arrays.
+  bitwise_mismatch_mask: Elements whose raw bit patterns differ.
+  tolerance_ratio: Worst error as a multiple of an atol/rtol allowance.
   get_contract: (recommended, hard ceiling) ULP contract for a dtype.
   resolve_canonical_dtype: Normalizes any accepted dtype spelling.
   is_discrete_dtype: True for integer and boolean dtypes.
@@ -358,3 +360,73 @@ def compute_ulp_distance(
   out = raw_ulp.copy()
   out[idx] = scaled
   return out
+
+
+def bitwise_mismatch_mask(actual: Any, expected: Any) -> np.ndarray:
+  """Returns a boolean mask of the elements whose raw bit patterns differ.
+
+  A zero ULP distance is not bitwise equality: `compute_ulp_distance` maps
+  `-0.0` and `+0.0` to the same index and says nothing useful about NaN. This
+  compares raw bytes instead, so `-0.0` differs from `+0.0` and two NaNs are
+  equal only when their payloads match.
+
+  Args:
+    actual: The candidate tensor.
+    expected: The reference tensor, with the same shape and dtype.
+
+  Returns:
+    A boolean array shaped like the inputs.
+
+  Raises:
+    ValueError: If the shapes or dtypes differ.
+  """
+  act = np.asarray(actual)
+  exp = np.asarray(expected)
+  if act.shape != exp.shape or act.dtype != exp.dtype:
+    raise ValueError(
+        "bitwise_mismatch_mask needs equal shapes and dtypes, got"
+        f" {act.shape} {act.dtype} vs {exp.shape} {exp.dtype}."
+    )
+  itemsize = act.dtype.itemsize
+  if act.size == 0 or itemsize == 0:
+    return np.zeros(act.shape, dtype=bool)
+
+  def _as_byte_rows(arr: np.ndarray) -> np.ndarray:
+    flat = np.ascontiguousarray(arr).reshape(-1)
+    return flat.view(np.uint8).reshape(-1, itemsize)
+
+  return np.any(_as_byte_rows(act) != _as_byte_rows(exp), axis=1).reshape(
+      act.shape
+  )
+
+
+def tolerance_ratio(
+    candidate: Any, reference: Any, atol: float, rtol: float
+) -> float:
+  """Returns max(|candidate - reference| / (atol + rtol * |reference|)).
+
+  A result at or below 1.0 means every element passes an allclose check with
+  these tolerances scaled by the reference; how far below 1.0 is the headroom.
+  Equal elements, including matching Inf and NaN positions, count as 0. Any
+  other non-finite difference counts as Inf.
+
+  Args:
+    candidate: Candidate output.
+    reference: Reference output with the same shape.
+    atol: Absolute tolerance.
+    rtol: Relative tolerance.
+  """
+  cand = np.asarray(candidate, dtype=np.float64)
+  ref = np.asarray(reference, dtype=np.float64)
+  if cand.size == 0:
+    return 0.0
+  same = (cand == ref) | (np.isnan(cand) & np.isnan(ref))
+  with np.errstate(invalid="ignore", over="ignore"):
+    diff = np.where(same, 0.0, np.abs(cand - ref))
+  diff = np.where(np.isnan(diff), np.inf, diff)
+  bound = atol + rtol * np.abs(np.where(np.isfinite(ref), ref, 0.0))
+  ratio = np.divide(
+      diff, bound, out=np.full_like(diff, np.inf), where=bound > 0
+  )
+  ratio = np.where(diff == 0.0, 0.0, ratio)
+  return float(np.max(ratio))

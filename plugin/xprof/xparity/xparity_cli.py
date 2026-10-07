@@ -34,6 +34,7 @@ def cli_main() -> dict[str, Any]:
       "generate_suite": xparity_tool.generate_suite,
       "inspect_suite": xparity_tool.inspect_suite,
       "probe_precision": xparity_tool.probe_precision,
+      "replay": xparity_tool.replay,
       "verify": xparity_tool.verify_numerical_parity,
       "verify_numerical_parity": xparity_tool.verify_numerical_parity,
       # keep-sorted end

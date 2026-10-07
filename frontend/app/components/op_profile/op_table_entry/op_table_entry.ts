@@ -1,7 +1,11 @@
+import {NgFor, NgIf} from '@angular/common';
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   EventEmitter,
+  forwardRef,
+  inject,
   Input,
   OnChanges,
   OnInit,
@@ -20,11 +24,12 @@ import {takeUntil} from 'rxjs/operators';
 
 /** An op table entry view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'op-table-entry',
   templateUrl: './op_table_entry.ng.html',
   styleUrls: ['./op_table_entry.scss'],
+  imports: [forwardRef(() => OpTableEntry), NgFor, NgIf],
 })
 export class OpTableEntry implements OnChanges, OnInit {
   /** Handles on-destroy Subject, used to unsubscribe. */
@@ -81,12 +86,16 @@ export class OpTableEntry implements OnChanges, OnInit {
   numLeftOut = 0;
   applyScalingFactor = false;
 
-  constructor(private readonly store: Store<{}>) {
+  private readonly store = inject<Store<{}>>(Store);
+  private readonly cdr = inject(ChangeDetectorRef);
+
+  constructor() {
     this.store
       .select(getOpAnalysisState)
       .pipe(takeUntil(this.destroyed))
       .subscribe((opAnalysisState: OpAnalysisState) => {
         this.applyScalingFactor = opAnalysisState.applyScalingFactor;
+        this.cdr.markForCheck();
       });
   }
 

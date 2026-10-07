@@ -217,11 +217,11 @@ xparity verify \
   "failure_dumps": [],
   "coverage": {
     "selection": "full_suite",
-    "regimes_available": ["boundary", "cancellation", "normal", "outliers", "per_channel_outliers", "student_t"],
-    "regimes_run": ["boundary", "cancellation", "normal", "outliers", "per_channel_outliers", "student_t"],
+    "regimes_available": ["boundary", "cancellation", "normal", "outliers", "per_channel_outliers", "scale_sweep", "student_t"],
+    "regimes_run": ["boundary", "cancellation", "normal", "outliers", "per_channel_outliers", "scale_sweep", "student_t"],
     "regimes_not_run": [],
-    "batches_available": 6,
-    "batches_run": 6
+    "batches_available": 18,
+    "batches_run": 18
   }
 }
 ```
@@ -305,9 +305,9 @@ report = validate_kernels(
 
 Tier               | Total Tensors ($m$)      | Composition                                                        | Latency                       | Recommended Use
 :----------------- | :----------------------: | :----------------------------------------------------------------- | :---------------------------: | :--------------
-**`fast_agent`**   | **$m = 6$** (1 executed) | 1 Normal + 2 Student-t + 1 Outlier ($50\times$) + 1 Cancellation + 1 Boundary | $\sim 1\text{--}2\text{ s}$   | Interactive pair-programming iteration by agent
-**`presubmit`**    | **$m = 12$**             | 1 Normal + 6 Student-t + 3 Outliers + 1 Cancellation + 1 Boundary  | $\sim 5\text{--}8\text{ s}$   | Automated presubmit before submitting CL
-**`deep_fuzzing`** | **$m = 48$**             | 1 Normal + 30 Student-t + 15 Outliers + 1 Cancellation + 1 Boundary | $\sim 30\text{--}60\text{ s}$ | Compiler pass / custom kernel release qualification
+**`fast_agent`**   | **$m = 10$** (1 executed first) | 1 Normal + 3 Scale-Sweep ($\sigma \in \{0.02, 3, 10\}$) + 2 Student-t + 1 Outlier ($50\times$) + 1 Per-Channel Outlier + 1 Cancellation + 1 Boundary | $\sim 1\text{--}2\text{ s}$   | Interactive pair-programming iteration by agent
+**`presubmit`**    | **$m = 18$**             | 1 Normal + 3 Scale-Sweep ($\sigma \in \{0.02, 3, 10\}$) + 6 Student-t + 3 Outliers + 3 Per-Channel Outliers + 1 Cancellation + 1 Boundary | $\sim 5\text{--}8\text{ s}$   | Automated presubmit before submitting CL
+**`deep_fuzzing`** | **$m = 66$**             | 1 Normal + 3 Scale-Sweep ($\sigma \in \{0.02, 3, 10\}$) + 30 Student-t + 15 Outliers + 15 Per-Channel Outliers + 1 Cancellation + 1 Boundary | $\sim 30\text{--}60\text{ s}$ | Compiler pass / custom kernel release qualification
 
 ### Metric Selection by Transformation Class
 

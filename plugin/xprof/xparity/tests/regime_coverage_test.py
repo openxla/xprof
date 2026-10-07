@@ -4,6 +4,7 @@ import json
 
 from absl.testing import absltest
 from absl.testing import parameterized
+import ml_dtypes
 import numpy as np
 
 from xprof.xparity import numerical_generator
@@ -104,6 +105,34 @@ class TierSelectionTest(parameterized.TestCase):
         )
     )
     self.assertEqual(payload["coverage"]["regimes_run"], ["normal"])
+
+
+def _rms_norm(eps):
+  def fn(x):
+    x32 = np.asarray(x, dtype=np.float32)
+    ms = np.mean(np.square(x32), axis=-1, keepdims=True)
+    return (x32 / np.sqrt(ms + np.float32(eps))).astype(ml_dtypes.bfloat16)
+
+  return fn
+
+
+class ScaleSweepTest(absltest.TestCase):
+
+  def test_small_scale_exposes_epsilon_mismatch(self):
+    ref, cand = _rms_norm(1e-6), _rms_norm(1e-4)
+    kwargs = dict(shapes=(8, 64), dtype_str="bfloat16", tier="fast_agent")
+
+    normal = numerical_validator.validate_kernels(
+        ref, cand, regimes=["normal"], **kwargs
+    )
+    self.assertTrue(normal.is_numerically_equivalent, normal.summary_message)
+
+    sweep = numerical_validator.validate_kernels(
+        ref, cand, regimes=["scale_sweep"], **kwargs
+    )
+    self.assertFalse(sweep.is_numerically_equivalent)
+    failed = [b.batch_name for b in sweep.batch_results if not b.passed]
+    self.assertEqual(failed, ["scale_sweep_sigma_0.02"])
 
 
 if __name__ == "__main__":

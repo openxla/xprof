@@ -184,7 +184,12 @@ out-of-bounds gather routing. Always use `numerical_generator` regimes matched
 to the kernel's failure modes:
 
 -   **Continuous Float Regimes (`generate_test_suite`)**:
-    -   `normal`: Benign Gaussian baseline.
+    -   `normal` (`generate_normal_tensor`): Benign unit-Gaussian baseline
+        ($\sigma = 1$).
+    -   `scale_sweep` (`generate_normal_tensor(..., scale=sigma)` with
+        `SCALE_SWEEP_SIGMAS = (0.02, 3.0, 10.0)`): Sub-unit and super-unit
+        Gaussian magnitudes to expose scale-dependent softmax/attention and
+        normalization branches that unit-variance inputs miss.
     -   `student_t` (`generate_student_t_tensor`): Heavy-tailed power-law draws
         ($\nu \in [2.5, 4.0]$) bounded at $0.95 \times \text{max\_finite}$.
     -   `outliers` (`generate_outlier_tensor`): Scattered $50\times$ activation

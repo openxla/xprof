@@ -151,6 +151,11 @@ TIER_BATCH_COUNTS: types.MappingProxyType[str, tuple[int, int]] = (
 )
 SUPPORTED_TIERS: frozenset[str] = frozenset(TIER_BATCH_COUNTS.keys())
 
+# Standard deviations of the 'scale_sweep' regime. The 'normal' regime covers
+# sigma = 1; these move the same distribution to initialization-scale values
+# and to large activations, so magnitude-dependent code paths are exercised.
+SCALE_SWEEP_SIGMAS: tuple[float, ...] = (0.02, 3.0, 10.0)
+
 # Every accepted spelling of a dtype, mapped to its key in PROFILES /
 # INTEGER_PROFILES. Callers may pass a canonical OCP name, a short alias, a
 # module-qualified name, or `str(array.dtype)`.
@@ -222,8 +227,11 @@ def generate_normal_tensor(
     shape: _Sequence[int],
     dtype_str: str = "bfloat16",
     seed: int = 42,
+    scale: float = 1.0,
 ) -> np.ndarray:
-  """Generates standard normal distributed tensor for benign baseline checking."""
+  """Generates a normal tensor N(0, scale^2), clipped to the dtype range."""
+  if not np.isfinite(scale) or scale <= 0.0:
+    raise ValueError(f"scale must be finite and positive, got {scale}")
   dtype_str = resolve_dtype(dtype_str)
   if dtype_str not in PROFILES:
     raise KeyError(
@@ -233,6 +241,8 @@ def generate_normal_tensor(
   profile = PROFILES[dtype_str]
   rng = np.random.default_rng(seed)
   z = rng.standard_normal(shape)
+  if scale != 1.0:
+    z = z * scale
   max_bound = float(profile.max_finite * 0.95)
   z_clipped = np.clip(z, -max_bound, max_bound)
   return z_clipped.astype(profile.numpy_dtype)
@@ -1013,6 +1023,21 @@ def _generate_procedural_suite(
       "kwargs": {},
       "regime": "normal",
   })
+  for k, sigma in enumerate(SCALE_SWEEP_SIGMAS):
+    tensors = [
+        _convert(
+            generate_normal_tensor(
+                s, dtype_str, seed=seed + 700 + k * 10 + i, scale=sigma
+            )
+        )
+        for i, s in enumerate(shapes)
+    ]
+    suite.append({
+        "name": f"scale_sweep_sigma_{sigma:g}",
+        "args": tuple(tensors),
+        "kwargs": {},
+        "regime": "scale_sweep",
+    })
   for b in range(num_student_t):
     tensors = [
         _convert(

@@ -1103,6 +1103,47 @@ TEST(TimelineTest, MaybeRequestDataFetchesConstrainedRange) {
       MicrosToMillis(10000000.0));
 }
 
+TEST(TimelineTest, IncrementalFetchEnabledByDefault) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  EXPECT_TRUE(timeline.incremental_fetch_enabled());
+}
+
+TEST(TimelineTest, MaybeRequestDataNotTriggeredWhenIncrementalFetchDisabled) {
+  // Same viewport as MaybeRequestDataFetchesConstrainedRange, which does fetch.
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 10000000.0});
+  timeline.set_fetched_data_time_range({0.0, 2000000.0});
+  timeline.set_is_incremental_loading(false);
+  timeline.set_incremental_fetch_enabled(false);
+
+  bool request_triggered = false;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+        }
+      });
+  const TimeRange last_fetch_before = timeline.last_fetch_request_range();
+
+  // Pan outside the buffered window.
+  timeline.SetVisibleRange({9000000.0, 10000000.0});
+  timeline.MaybeRequestData();
+  // Zoom in >8x relative to the last fetch.
+  timeline.SetVisibleRange({9000000.0, 9001000.0});
+  timeline.MaybeRequestData();
+
+  EXPECT_FALSE(request_triggered);
+  // Nothing was requested, so the fetch bookkeeping is untouched.
+  EXPECT_EQ(timeline.last_fetch_request_range(), last_fetch_before);
+
+  // Re-enabling restores fetching for the same viewport.
+  timeline.set_incremental_fetch_enabled(true);
+  timeline.MaybeRequestData();
+  EXPECT_TRUE(request_triggered);
+}
+
 TEST(TimelineTest, SetTimelineDataPreservesScrollOnIncrementalUpdate) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);

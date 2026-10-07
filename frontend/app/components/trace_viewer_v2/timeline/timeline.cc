@@ -4270,6 +4270,9 @@ void Timeline::MaybeRequestData() {
   // Don't request more data if a request is already in flight.
   if (is_incremental_loading_) return;
 
+  // Hosts whose backend always returns the full dataset opt out entirely.
+  if (!incremental_fetch_enabled_) return;
+
   // We have several ranges of interest for incremental loading:
   //
   // |-----------data_time_range_---------|                  Full trace duration

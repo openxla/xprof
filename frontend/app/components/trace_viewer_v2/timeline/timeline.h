@@ -544,6 +544,14 @@ class Timeline {
     is_incremental_loading_ = is_incremental_loading;
   }
 
+  // Whether MaybeRequestData() may emit `fetch_data` to refetch a time range at
+  // higher resolution. Hosts whose backend ignores the requested range and
+  // always returns the full dataset should turn this off.
+  void set_incremental_fetch_enabled(bool enabled) {
+    incremental_fetch_enabled_ = enabled;
+  }
+  bool incremental_fetch_enabled() const { return incremental_fetch_enabled_; }
+
   Pixel GetLabelWidth() const { return label_width_; }
 
   void SetVisibleFlowCategory(int category_id) {
@@ -1056,6 +1064,8 @@ class Timeline {
   // Initialize to true to prevent sending request in the initial load where
   // JS side is already fetching the data.
   bool is_incremental_loading_ = true;
+
+  bool incremental_fetch_enabled_ = true;
 
   // Stores the last requested data range to prevent redundant refetches when
   // the returned data is empty or sparse (and thus fetched_data_time_range_

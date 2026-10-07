@@ -425,8 +425,13 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
           shutdownTraceViewerV2();
           this.traceViewerModule = null;
         }
-      } else if (this.url && this.traceViewerModule?.loadTraceData) {
-        void this.traceViewerModule.loadTraceData(this.url);
+      } else {
+        // The kernel backend ignores time ranges and always returns the whole
+        // kernel, so incremental refetching would only re-download it.
+        this.traceViewerModule?.SetIncrementalFetchEnabled?.(false);
+        if (this.url && this.traceViewerModule?.loadTraceData) {
+          void this.traceViewerModule.loadTraceData(this.url);
+        }
       }
     } catch (error) {
       console.error('Failed to initialize Trace Viewer V2 WASM module:', error);

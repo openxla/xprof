@@ -106,6 +106,13 @@ class Application {
     }
   }
 
+  // See Timeline::set_incremental_fetch_enabled().
+  void SetIncrementalFetchEnabled(bool enabled) {
+    if (timeline_) {
+      timeline_->set_incremental_fetch_enabled(enabled);
+    }
+  }
+
   void NavigateToNextSearchResult() {
     if (timeline_) {
       timeline_->NavigateToNextSearchResult();

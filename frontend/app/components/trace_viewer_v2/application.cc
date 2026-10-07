@@ -97,6 +97,10 @@ EMSCRIPTEN_KEEPALIVE void SetMouseWheelZoomSpeed(float speed) {
   Application::Instance().SetMouseWheelZoomSpeed(speed);
 }
 
+EMSCRIPTEN_KEEPALIVE void SetIncrementalFetchEnabled(bool enabled) {
+  Application::Instance().SetIncrementalFetchEnabled(enabled);
+}
+
 EMSCRIPTEN_KEEPALIVE void SetCustomTraceColors(
     const emscripten::val& colors_val) {
   if (!colors_val.isArray()) {
@@ -174,6 +178,8 @@ EMSCRIPTEN_BINDINGS(traceviewer) {
   emscripten::function("SetPanningSpeed", &SetPanningSpeed);
   emscripten::function("SetZoomSpeed", &SetZoomSpeed);
   emscripten::function("SetMouseWheelZoomSpeed", &SetMouseWheelZoomSpeed);
+  emscripten::function("SetIncrementalFetchEnabled",
+                       &SetIncrementalFetchEnabled);
   emscripten::function("SetCustomTraceColors", &SetCustomTraceColors);
   emscripten::function("RequestRedraw", &RequestRedraw);
   emscripten::function("SetPlaybackState", &SetPlaybackState);

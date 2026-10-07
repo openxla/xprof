@@ -20,8 +20,12 @@
         </span>
       </span>
       {{name}}
-      <span *ngIf="asDiffNode(node)?.activeOnly" class="diff-badge badge-added">Added</span>
-      <span *ngIf="asDiffNode(node)?.baselineOnly" class="diff-badge badge-removed">Removed</span>
+      @if (asDiffNode(node)?.activeOnly) {
+        <span class="diff-badge badge-added">Added</span>
+      }
+      @if (asDiffNode(node)?.baselineOnly) {
+        <span class="diff-badge badge-removed">Removed</span>
+      }
     </span>
     <span aria-label="Framework Op type:"></span><span class="provenance">{{provenance}}&nbsp;</span>
     <span aria-label="FLOPS:"></span><span
@@ -44,20 +48,23 @@
 </div>
 
 <div [hidden]="!expanded">
-  <op-table-entry
-    *ngFor="let childNode of children"
-    [level]="level + 1"
-    [node]="childNode"
-    [rootNode]="rootNode"
-    [selectedNode]="selectedNode"
-    [byWasted]="byWasted"
-    [showP90]="showP90"
-    [childrenCount]="childrenCount"
-    [applyScalingFactorInternal]="applyScalingFactor"
-    (hover)="hover.emit($event);"
-    (selected)="onSelect($event);">
-  </op-table-entry>
-  <div class="leftout" *ngIf="numLeftOut > 0">
-    <span [style.padding-left]="offset">{{numLeftOut}} categories or ops have been left out.</span>
-  </div>
+  @for (childNode of children; track childNode) {
+    <op-table-entry
+      [level]="level + 1"
+      [node]="childNode"
+      [rootNode]="rootNode"
+      [selectedNode]="selectedNode"
+      [byWasted]="byWasted"
+      [showP90]="showP90"
+      [childrenCount]="childrenCount"
+      [applyScalingFactorInternal]="applyScalingFactor"
+      (hover)="hover.emit($event);"
+      (selected)="onSelect($event);">
+    </op-table-entry>
+  }
+  @if (numLeftOut > 0) {
+    <div class="leftout">
+      <span [style.padding-left]="offset">{{numLeftOut}} categories or ops have been left out.</span>
+    </div>
+  }
 </div>

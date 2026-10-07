@@ -4,9 +4,9 @@ from collections.abc import Sequence
 import hashlib
 import json
 import pathlib
-import pprint
 import tempfile
 import textwrap
+from typing import Any
 
 import duckdb
 
@@ -18,8 +18,9 @@ from xprof.cli.internal.oss import xprof_client
 _CACHE_SUBDIR = "events_db"
 _DB_FILENAME = "events.parquet"
 _KEY_PATH = "path"
+_KEY_PATHS = "paths"
 _KEY_SKIPPED = "skipped"
-_MAX_DISPLAY_FILES = 10
+_MAX_TRACE_FILES = 64
 _VERSION = "1"
 
 
@@ -45,55 +46,60 @@ def _cache_path_for_create(source_path: pathlib.Path) -> pathlib.Path:
   return decorators.get_cache_dir() / _CACHE_SUBDIR / digest / _DB_FILENAME
 
 
-def _cache_path_for_query(parent: pathlib.Path, query: str) -> pathlib.Path:
-  return parent / f"{_digest(query)}.json"
-
-
-def _create_multi_file_error(
-    search_target: pathlib.Path, all_files: Sequence[str]
-) -> NotImplementedError:
-  displayed_files = pprint.pformat(all_files[:_MAX_DISPLAY_FILES], indent=2)
-  truncation_msg = (
-      f"\n... and {len(all_files) - _MAX_DISPLAY_FILES} more."
-      if len(all_files) > _MAX_DISPLAY_FILES
-      else ""
+def _multi_cache_dir(db_paths: Sequence[pathlib.Path]) -> pathlib.Path:
+  """Returns the shared cache directory for a multi-file Events DB set."""
+  combo_digest = _digest(
+      version.__version__,
+      _VERSION,
+      *(str(p.resolve()) for p in db_paths),
   )
-  return NotImplementedError(
-      f"Multiple ({len(all_files)}) trace files found in {search_target}:\n"
-      f"{displayed_files}{truncation_msg}\n"
-      "Multi-file Events DB generation is not supported yet. Please pass a "
-      "single .xplane.pb or .xspace.pb file path directly."
-  )
+  return decorators.get_cache_dir() / _CACHE_SUBDIR / f"multi_{combo_digest}"
 
 
-def _resolve_input_path(
+def _cache_path_for_query(
+    db_paths: Sequence[pathlib.Path] | pathlib.Path, query: str
+) -> pathlib.Path:
+  """Returns the cache path for a SQL query result across one or more DB paths."""
+  if isinstance(db_paths, pathlib.Path):
+    return db_paths / f"{_digest(query)}.json"
+  if not db_paths:
+    raise ValueError("No Events DB Parquet files resolved.")
+  if len(db_paths) == 1:
+    return db_paths[0].parent / f"{_digest(query)}.json"
+  return _multi_cache_dir(db_paths) / f"{_digest(query)}.json"
+
+
+def _resolve_input_paths(
     client: xprof_client.LocalXprofClient,
     source: str | None,
-) -> pathlib.Path:
-  """Resolves the input trace file path for the events DB."""
+) -> tuple[pathlib.Path, ...]:
+  """Resolves all input trace file paths for the events DB."""
   if source and (source_path := pathlib.Path(source).expanduser()).is_file():
     search_target = source_path
   else:
     search_target = client.get_run_dir(source)
 
-  input_path, *must_be_empty = client.get_xspace_paths(search_target)
-  if must_be_empty:
-    raise _create_multi_file_error(search_target, (input_path, *must_be_empty))
-  return pathlib.Path(input_path)
+  raw_paths = client.get_xspace_paths(search_target)
+  return tuple(pathlib.Path(p) for p in raw_paths)
 
 
-def _to_json_str(path: pathlib.Path, skipped: bool) -> str:
-  return json.dumps({_KEY_PATH: str(path), _KEY_SKIPPED: skipped})
+def _to_json_str(
+    path: pathlib.Path,
+    skipped: bool,
+    paths: Sequence[pathlib.Path] | None = None,
+) -> str:
+  payload: dict[str, Any] = {_KEY_PATH: str(path), _KEY_SKIPPED: skipped}
+  if paths is not None and len(paths) > 1:
+    payload[_KEY_PATHS] = [str(p) for p in paths]
+  return json.dumps(payload)
 
 
-def _create_events_db_impl(
-    session_id: str | None = None,
+def _create_single_events_db(
+    source_path: pathlib.Path,
     *,
     bypass_cache: bool = False,
 ) -> tuple[pathlib.Path, bool]:
-  """Implementation of create_events_db."""
-  client = xprof_client.get_client()
-  source_path = _resolve_input_path(client, session_id)
+  """Converts a single XSpace file to an Events DB Parquet file."""
   target_path = _cache_path_for_create(source_path)
   if target_path.exists() and not bypass_cache:
     return (target_path, True)
@@ -123,12 +129,77 @@ def _create_events_db_impl(
   return (target_path, False)
 
 
+def _combine_events_db_parquets(
+    db_paths: Sequence[pathlib.Path],
+    *,
+    bypass_cache: bool = False,
+) -> tuple[pathlib.Path, bool]:
+  """Combines multiple per-host Events DB Parquet files into one Parquet file."""
+  if not db_paths:
+    raise ValueError("No Events DB Parquet files resolved.")
+  target_path = _multi_cache_dir(db_paths) / _DB_FILENAME
+  if target_path.exists() and not bypass_cache:
+    return target_path, True
+
+  target_path.parent.mkdir(parents=True, exist_ok=True)
+  with tempfile.NamedTemporaryFile(
+      dir=target_path.parent,
+      prefix=f".{target_path.name}.",
+      suffix=".tmp",
+      delete=False,
+  ) as tmp_file:
+    tmp_path = pathlib.Path(tmp_file.name)
+
+  escaped_db_paths = [str(p.resolve()).replace("'", "''") for p in db_paths]
+  tmp_path_escaped = str(tmp_path.resolve()).replace("'", "''")
+  joined = ", ".join(f"'{p}'" for p in escaped_db_paths)
+  try:
+    with duckdb.connect(":memory:") as con:
+      con.execute(
+          f"COPY (SELECT * FROM read_parquet([{joined}])) "
+          f"TO '{tmp_path_escaped}' (FORMAT PARQUET, COMPRESSION ZSTD)"
+      )
+    tmp_path.replace(target_path)
+  finally:
+    tmp_path.unlink(missing_ok=True)
+
+  return target_path, False
+
+
+def _create_events_db_multi_impl(
+    session_id: str | None = None,
+    *,
+    bypass_cache: bool = False,
+) -> tuple[tuple[pathlib.Path, ...], bool]:
+  """Creates Events DB Parquet files for all resolved trace files."""
+  client = xprof_client.get_client()
+  source_paths = _resolve_input_paths(client, session_id)
+  if not source_paths:
+    raise ValueError(
+        f"No .xplane.pb trace files found for session_id={session_id!r}."
+    )
+  if len(source_paths) > _MAX_TRACE_FILES:
+    raise ValueError(
+        f"Too many trace files ({len(source_paths)} > {_MAX_TRACE_FILES}); "
+        "specify a single .xplane.pb file path."
+    )
+  db_paths: list[pathlib.Path] = []
+  all_skipped = True
+  for source_path in source_paths:
+    target_path, skipped = _create_single_events_db(
+        source_path, bypass_cache=bypass_cache
+    )
+    db_paths.append(target_path)
+    all_skipped = all_skipped and skipped
+  return tuple(db_paths), all_skipped
+
+
 def create_events_db(
     session_id: str | None = None,
     *,
     bypass_cache: bool = False,
 ) -> str:
-  """Converts an XProf XSpace to an Events DB Parquet file.
+  """Converts an XProf XSpace (or multi-host directory) to Events DB Parquet(s).
 
   Destination path is determined using the input session ID. If it already
   exists and `bypass_cache` is `False`, it is returned immediately with
@@ -142,13 +213,26 @@ def create_events_db(
 
   Returns:
     A JSON-formatted string containing:
-      - path: Path to the generated or existing Parquet file.
-      - skipped: True if creation was skipped because the file already exists.
+      - path: Path to the generated or existing Parquet file (a combined Parquet
+        file across all trace files when multiple `.xplane.pb` files are
+        present).
+      - paths: List of all per-file Parquet files when multiple trace files are
+        present.
+      - skipped: True if creation was skipped because all files already exist.
   """
-  output_path, skipped = _create_events_db_impl(
+  db_paths, skipped = _create_events_db_multi_impl(
       session_id, bypass_cache=bypass_cache
   )
-  return _to_json_str(output_path, skipped)
+  if not db_paths:
+    raise ValueError("No Events DB Parquet files resolved.")
+  if len(db_paths) == 1:
+    return _to_json_str(db_paths[0], skipped)
+  combined_path, combined_skipped = _combine_events_db_parquets(
+      db_paths, bypass_cache=bypass_cache or not skipped
+  )
+  return _to_json_str(
+      combined_path, skipped and combined_skipped, paths=db_paths
+  )
 
 
 def _extract_select_query(query: str | None) -> str:
@@ -200,9 +284,11 @@ def _query_events_db_impl(
     query, session_id = session_id, None
 
   clean_query = _extract_select_query(query)
-  db_path, _ = _create_events_db_impl(session_id, bypass_cache=False)
+  db_paths, _ = _create_events_db_multi_impl(session_id, bypass_cache=False)
+  if not db_paths:
+    raise ValueError("No Events DB Parquet files resolved.")
 
-  target_path = _cache_path_for_query(db_path.parent, clean_query)
+  target_path = _cache_path_for_query(db_paths, clean_query)
   if target_path.exists() and not bypass_cache:
     return target_path, True
 
@@ -215,17 +301,24 @@ def _query_events_db_impl(
   ) as tmp_file:
     tmp_path = pathlib.Path(tmp_file.name)
 
-  db_path_escaped = str(db_path.resolve()).replace("'", "''")
+  escaped_db_paths = [str(p.resolve()).replace("'", "''") for p in db_paths]
   tmp_path_escaped = str(tmp_path.resolve()).replace("'", "''")
+  if len(escaped_db_paths) == 1:
+    parquet_source = f"'{escaped_db_paths[0]}'"
+  else:
+    joined = ", ".join(f"'{p}'" for p in escaped_db_paths)
+    parquet_source = f"[{joined}]"
+  allowed_list = ", ".join(
+      f"'{p}'" for p in [*escaped_db_paths, tmp_path_escaped]
+  )
 
   try:
     with duckdb.connect(":memory:") as con:
       con.execute(
-          "CREATE VIEW Events AS SELECT * FROM"
-          f" read_parquet('{db_path_escaped}')"
+          f"CREATE VIEW Events AS SELECT * FROM read_parquet({parquet_source})"
       )
       con.execute(textwrap.dedent(f"""\
-          SET allowed_paths = ['{db_path_escaped}', '{tmp_path_escaped}'];
+          SET allowed_paths = [{allowed_list}];
           SET enable_external_access = false;
           SET lock_configuration = true;"""))
       # Define a temporary view first rather than interpolating `clean_query`
@@ -246,6 +339,19 @@ def _query_events_db_impl(
     tmp_path.unlink(missing_ok=True)
 
   return target_path, False
+
+
+def query_events_db_rows(
+    session_id: str | None = None,
+    query: str | None = None,
+    *,
+    bypass_cache: bool = False,
+) -> list[dict[str, Any]]:
+  """Executes a SQL query against an Events DB and returns parsed rows."""
+  output_path, _ = _query_events_db_impl(
+      session_id, query, bypass_cache=bypass_cache
+  )
+  return json.loads(output_path.read_text(encoding="utf-8"))
 
 
 def query_events_db(

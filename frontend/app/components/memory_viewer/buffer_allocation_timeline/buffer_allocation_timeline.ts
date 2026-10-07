@@ -1,3 +1,4 @@
+import {CommonModule} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
@@ -5,13 +6,16 @@ import {
   ElementRef,
   EventEmitter,
   HostListener,
-  Input,
+  input,
+  model,
   OnChanges,
   OnDestroy,
   Output,
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
+import {MatIconModule} from '@angular/material/icon';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import {
   type BufferBlock,
   type BufferBlockProto,
@@ -74,8 +78,9 @@ function getFittingLabel(
  * Angular component for rendering decoupled memory viewer buffer allocations timeline using HTML5 Canvas.
  */
 @Component({
+  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [CommonModule, MatIconModule, MatTooltipModule],
   selector: 'buffer-allocation-timeline',
   templateUrl: './buffer_allocation_timeline.ng.html',
   styleUrls: ['./buffer_allocation_timeline.scss'],
@@ -83,11 +88,11 @@ function getFittingLabel(
 export class BufferAllocationTimeline
   implements AfterViewInit, OnChanges, OnDestroy
 {
-  @Input() bufferBlocks: BufferBlockProto[] = [];
-  @Input() totalSteps = 0;
-  @Input() totalBytes = 0;
-  @Input() highlightedStep = -1;
-  @Input() highlightedBlocks: BufferBlock[] = [];
+  readonly bufferBlocks = input<BufferBlockProto[]>([]);
+  readonly totalSteps = input(0);
+  readonly totalBytes = input(0);
+  readonly highlightedStep = input(-1);
+  readonly highlightedBlocks = input<BufferBlock[]>([]);
   @Output() readonly selected = new EventEmitter<BufferBlock | null>();
   @Output() readonly hovered = new EventEmitter<BufferBlock | null>();
 
@@ -104,8 +109,7 @@ export class BufferAllocationTimeline
   @ViewChild('fullscreenContainer', {static: true})
   fullscreenContainer!: ElementRef<HTMLDivElement>;
 
-  @Input() isFullscreen = false;
-  @Output() readonly isFullscreenChange = new EventEmitter<boolean>();
+  readonly isFullscreen = model(false);
 
   private resizeObserver?: ResizeObserver;
 
@@ -126,7 +130,7 @@ export class BufferAllocationTimeline
   fitScale = 0;
 
   // Selection state
-  @Input() selectedBlock: BufferBlock | null = null;
+  readonly selectedBlock = model<BufferBlock | null>(null);
 
   // Hover state for tooltip
   hoveredBlock: BufferBlock | null = null;
@@ -171,14 +175,14 @@ export class BufferAllocationTimeline
   }
 
   computeLayout() {
-    if (!this.bufferBlocks || this.bufferBlocks.length === 0) {
+    if (!this.bufferBlocks() || this.bufferBlocks().length === 0) {
       this.layoutBlocks = [];
       return;
     }
 
     let computedMaxBytes = 0;
     let computedMaxSteps = 0;
-    for (const block of this.bufferBlocks) {
+    for (const block of this.bufferBlocks()) {
       const offset = block.offset ?? 0;
       const size = block.size ?? 0;
       if (offset + size > computedMaxBytes) {
@@ -190,8 +194,8 @@ export class BufferAllocationTimeline
       }
     }
 
-    let totalBytes = this.totalBytes;
-    let totalSteps = this.totalSteps;
+    let totalBytes = this.totalBytes();
+    let totalSteps = this.totalSteps();
 
     if (totalBytes <= 0 || totalBytes < computedMaxBytes) {
       totalBytes = computedMaxBytes;
@@ -212,7 +216,7 @@ export class BufferAllocationTimeline
     const categoryColorMap = new Map<string, string>();
     let colorIdx = 0;
 
-    for (const proto of this.bufferBlocks) {
+    for (const proto of this.bufferBlocks()) {
       const startStep = proto.startStep ?? 0;
       const endStep = proto.endStep ?? 0;
       const offset = proto.offset ?? 0;
@@ -432,7 +436,7 @@ export class BufferAllocationTimeline
         continue;
       }
       const isSelected =
-        this.selectedBlock && this.selectedBlock.id === block.id;
+        this.selectedBlock() && this.selectedBlock()!.id === block.id;
       if (isSelected) {
         continue;
       }
@@ -448,17 +452,17 @@ export class BufferAllocationTimeline
     }
 
     // Draw selected block on top of everything
-    if (this.selectedBlock && !this.selectedBlock.isContainer) {
+    if (this.selectedBlock() && !this.selectedBlock()!.isContainer) {
       if (
         this.isBlockVisible(
-          this.selectedBlock,
+          this.selectedBlock()!,
           minRawX,
           maxRawX,
           minRawY,
           maxRawY,
         )
       ) {
-        this.drawBlock(this.selectedBlock);
+        this.drawBlock(this.selectedBlock()!);
       }
     }
 
@@ -476,7 +480,7 @@ export class BufferAllocationTimeline
         this.drawBlock(this.hoveredBlock);
       }
     }
-    if (this.selectedBlock) {
+    if (this.selectedBlock()) {
       this.updateTooltipPosition();
     }
   }
@@ -510,9 +514,9 @@ export class BufferAllocationTimeline
     const drawH = this.toCanvasLength(block.height);
 
     const isSelected = !!(
-      this.selectedBlock &&
+      this.selectedBlock() &&
       !block.isContainer &&
-      this.selectedBlock.logicalBufferId === block.logicalBufferId
+      this.selectedBlock()!.logicalBufferId === block.logicalBufferId
     );
 
     const isHovered =
@@ -524,11 +528,11 @@ export class BufferAllocationTimeline
 
     // Determine opacity: dim if selection or search is active, but block doesn't match either
     let opacity = 1.0;
-    const hasSelection = !!this.selectedBlock;
+    const hasSelection = !!this.selectedBlock();
     const hasSearch = !!this.searchQuery;
-    const hasStepHighlight = this.highlightedStep >= 0;
+    const hasStepHighlight = this.highlightedStep() >= 0;
     const hasBlocksHighlight =
-      !!this.highlightedBlocks && this.highlightedBlocks.length > 0;
+      !!this.highlightedBlocks() && this.highlightedBlocks().length > 0;
     const hasHighlight = hasStepHighlight || hasBlocksHighlight;
 
     if (hasSelection || hasSearch || hasHighlight) {
@@ -549,12 +553,12 @@ export class BufferAllocationTimeline
       const matchesStep =
         hasStepHighlight &&
         !!block.span &&
-        this.highlightedStep >= block.span[0] &&
-        this.highlightedStep <= block.span[1];
+        this.highlightedStep() >= block.span[0] &&
+        this.highlightedStep() <= block.span[1];
 
       const matchesBlocks =
         hasBlocksHighlight &&
-        this.highlightedBlocks.some(
+        this.highlightedBlocks().some(
           (b) =>
             b.logicalBufferId === block.logicalBufferId || b.id === block.id,
         );
@@ -683,7 +687,7 @@ export class BufferAllocationTimeline
   }
 
   updateHoverState(mouseX: number, mouseY: number) {
-    if (this.selectedBlock) {
+    if (this.selectedBlock()) {
       this.hoveredBlock = null;
       return;
     }
@@ -730,7 +734,7 @@ export class BufferAllocationTimeline
     let refX = 0;
     let refY = 0;
 
-    if (this.selectedBlock) {
+    if (this.selectedBlock()) {
       refX = this.toCanvasX(block.x);
       refY = this.toCanvasY(block.y);
     } else if (clientX !== undefined && clientY !== undefined) {
@@ -806,13 +810,13 @@ export class BufferAllocationTimeline
 
     if (
       clickedBlock &&
-      this.selectedBlock &&
-      clickedBlock.logicalBufferId === this.selectedBlock.logicalBufferId
+      this.selectedBlock() &&
+      clickedBlock.logicalBufferId === this.selectedBlock()!.logicalBufferId
     ) {
       clickedBlock = null;
     }
 
-    this.selectedBlock = clickedBlock;
+    this.selectedBlock.set(clickedBlock);
     this.selected.emit(clickedBlock);
     this.draw();
   }
@@ -825,7 +829,7 @@ export class BufferAllocationTimeline
   }
 
   get activeBlock(): BufferBlock | null {
-    return this.selectedBlock || this.hoveredBlock;
+    return this.selectedBlock() || this.hoveredBlock;
   }
 
   getBlockSizeMiB(block: BufferBlock): string {
@@ -855,9 +859,9 @@ export class BufferAllocationTimeline
 
   @HostListener('document:fullscreenchange')
   onFullscreenChange() {
-    this.isFullscreen =
-      document.fullscreenElement === this.fullscreenContainer.nativeElement;
-    this.isFullscreenChange.emit(this.isFullscreen);
+    this.isFullscreen.set(
+      document.fullscreenElement === this.fullscreenContainer.nativeElement,
+    );
     if (this.canvas) {
       setTimeout(() => {
         this.resizeCanvas();
@@ -925,7 +929,7 @@ export class BufferAllocationTimeline
     const match = this.matchedSearchBlocks[this.currentSearchMatchIndex];
 
     // Select the matched block
-    this.selectedBlock = match;
+    this.selectedBlock.set(match);
     this.selected.emit(match);
 
     // Zoom and center on the matched block
@@ -934,14 +938,14 @@ export class BufferAllocationTimeline
   }
 
   centerOnSelectedBlock() {
-    if (!this.canvas || !this.selectedBlock) return;
+    if (!this.canvas || !this.selectedBlock()) return;
     const viewW = this.canvas.width / (window.devicePixelRatio || 1);
     const viewH = this.canvas.height / (window.devicePixelRatio || 1);
     this.offsetX =
-      viewW / 2 - this.selectedBlock.x * this.fitScale * this.scale;
+      viewW / 2 - this.selectedBlock()!.x * this.fitScale * this.scale;
     this.offsetY =
       viewH / 2 -
-      (CANVAS_SIZE - this.selectedBlock.y) * this.fitScale * this.scale;
+      (CANVAS_SIZE - this.selectedBlock()!.y) * this.fitScale * this.scale;
     this.draw();
   }
 

@@ -1,4 +1,4 @@
-<div *ngIf="formGroup" [formGroup]="formGroup" class="section">
+<div *ngIf="formGroup()" [formGroup]="formGroup()" class="section">
   <!-- Device type -->
   <div class="field-container" style="margin-bottom: var(--spacing-2);">
     <mat-form-field appearance="outline" class="full-width" style="width: 100%;">
@@ -45,7 +45,7 @@
 
   <!-- Template for reusable sampling fields -->
   <ng-template #samplingFields let-groupName="groupName">
-    <div [formGroup]="$any(formGroup.get(groupName))">
+    <div [formGroup]="$any(formGroup().get(groupName))">
       <div class="settings-grid" style="display: flex; flex-direction: column; gap: var(--spacing-4);">
         <!-- Interval / Trigger -->
         <div class="field-container row" style="display: flex; align-items: center; gap: var(--spacing-2);">
@@ -62,7 +62,7 @@
             <mat-label>Scaling</mat-label>
             <input matInput type="number" formControlName="scaling" min="0" max="63">
             <mat-hint>Amount to right shift 64-bit counter values</mat-hint>
-            <mat-error *ngIf="$any(formGroup.get(groupName + '.scaling'))?.hasError('min') || $any(formGroup.get(groupName + '.scaling'))?.hasError('max')">
+            <mat-error *ngIf="$any(formGroup().get(groupName + '.scaling'))?.hasError('min') || $any(formGroup().get(groupName + '.scaling'))?.hasError('max')">
               Must be between 0 and 63
             </mat-error>
           </mat-form-field>

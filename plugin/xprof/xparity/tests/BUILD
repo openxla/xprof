@@ -50,3 +50,14 @@ pytype_strict_contrib_test(
         "@absl_py//absl/testing:parameterized",
     ],
 )
+
+pytype_strict_contrib_test(
+    name = "ulp_test",
+    srcs = ["ulp_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:numerical_validator",
+        "//plugin/xprof/xparity:ulp",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)

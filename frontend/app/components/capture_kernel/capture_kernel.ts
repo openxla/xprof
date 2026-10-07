@@ -1,5 +1,5 @@
 import {CommonModule} from '@angular/common';
-import {ChangeDetectionStrategy, Component} from '@angular/core';
+import {ChangeDetectionStrategy, Component, inject} from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
 import {MatDialog, MatDialogModule} from '@angular/material/dialog';
 import {CaptureKernelDialog} from './capture_kernel_dialog/capture_kernel_dialog';
@@ -16,7 +16,7 @@ import {CaptureKernelDialog} from './capture_kernel_dialog/capture_kernel_dialog
 export class CaptureKernel {
   readonly captureButtonLabel = 'Capture Kernel';
 
-  constructor(private readonly dialog: MatDialog) {}
+  private readonly dialog = inject(MatDialog);
 
   openDialog() {
     this.dialog.open(CaptureKernelDialog, {

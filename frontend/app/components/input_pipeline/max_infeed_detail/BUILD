@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "max_infeed_detail",
     srcs = [
         "max_infeed_detail.ts",
-        "max_infeed_detail_module.ts",
     ],
     assets = [
         ":max_infeed_detail_css",

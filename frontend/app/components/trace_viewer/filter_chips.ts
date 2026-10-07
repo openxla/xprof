@@ -1,3 +1,4 @@
+import {CommonModule} from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -6,7 +7,13 @@ import {
   Output,
   ViewChild,
 } from '@angular/core';
-import {MatChipEditedEvent} from '@angular/material/chips';
+import {FormsModule} from '@angular/forms';
+import {MatAutocompleteModule} from '@angular/material/autocomplete';
+import {MatButtonModule} from '@angular/material/button';
+import {MatCheckboxModule} from '@angular/material/checkbox';
+import {MatChipEditedEvent, MatChipsModule} from '@angular/material/chips';
+import {MatIconModule} from '@angular/material/icon';
+import {MatTooltipModule} from '@angular/material/tooltip';
 
 import {
   MatAutocomplete,
@@ -28,8 +35,18 @@ const CHIP_TEXT_MAX_LENGTH = 15;
  * Component to display a list of selected filter chips
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    CommonModule,
+    FormsModule,
+    MatAutocompleteModule,
+    MatButtonModule,
+    MatCheckboxModule,
+    MatChipsModule,
+    MatIconModule,
+    MatTooltipModule,
+  ],
   selector: 'filter-chips',
   template: `
     <mat-chip-grid #chipGrid>

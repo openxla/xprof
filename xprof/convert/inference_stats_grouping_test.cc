@@ -607,5 +607,42 @@ TEST(InferenceStatsGroupingTest, PropagatesProgramIdsToAggregatedBatchDetails) {
               ::testing::IsEmpty());
 }
 
+TEST(InferenceStatsGroupingTest, IgnoresUnattributedBatchWhenModelIdPresent) {
+  InferenceStats inference_stats = ParseTextProto<InferenceStats>(R"pb(
+                                     inference_stats_per_host {
+                                       key: 0
+                                       value {
+                                         batch_details {
+                                           batch_id: 0
+                                           batch_size_after_padding: 8
+                                           program_ids: 11111
+                                         }
+                                         batch_details {
+                                           batch_id: 1
+                                           model_id_index: 0
+                                           batch_size_after_padding: 8
+                                           program_ids: 22222
+                                         }
+                                       }
+                                     }
+                                     model_id_db {
+                                       ids: "Model-A:1"
+                                       id_to_index { key: "Model-A:1" value: 0 }
+                                     }
+                                   )pb")
+                                       .value();
+
+  RegroupInferenceStatsByModel(&inference_stats);
+
+  const auto& model_stats = inference_stats.inference_stats_per_model().at(0);
+  ASSERT_EQ(model_stats.batch_details_size(), 1);
+  EXPECT_EQ(model_stats.batch_details(0).batch_id(), 1);
+  ASSERT_EQ(model_stats.per_batch_size_aggregated_result_size(), 1);
+  const auto& bs8 = model_stats.per_batch_size_aggregated_result(0);
+  EXPECT_EQ(bs8.aggregated_batch_result().batch_id(), 1);
+  EXPECT_THAT(bs8.aggregated_batch_result().program_ids(),
+              ::testing::ElementsAre(22222));
+}
+
 }  // namespace
 }  // namespace tensorflow::profiler

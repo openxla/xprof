@@ -14,6 +14,7 @@ try:
   from tests.ui.ui_helpers import assert_component_geometry
   from tests.ui.ui_helpers import assert_healthy
   from tests.ui.ui_helpers import ensure_sidenav_open
+  from tests.ui.ui_helpers import select_category_filter
   from tests.ui.ui_helpers import select_module
   from tests.ui.ui_helpers import switch_tool
 except ImportError:
@@ -21,6 +22,7 @@ except ImportError:
   from ui_helpers import assert_component_geometry
   from ui_helpers import assert_healthy
   from ui_helpers import ensure_sidenav_open
+  from ui_helpers import select_category_filter
   from ui_helpers import select_module
   from ui_helpers import switch_tool
 
@@ -107,6 +109,16 @@ def test_kernel_stats_rendering(
   open_tool("gpu-training", "kernel_stats")
 
   selector = "kernel-stats, kernel-stats-adapter"
+  expect(page.locator(selector).first).to_be_visible(timeout=20000)
+  expect(
+      page.locator("main-page mat-sidenav-content > div.full-height")
+  ).to_be_visible(timeout=20000)
+  expect(page).to_have_url(
+      re.compile(r"[?&]run=gpu-training\b"), timeout=10000
+  )
+  expect(
+      page.locator("text=There is no GPU data to display")
+  ).to_be_hidden(timeout=10000)
   assert_component_geometry(page, selector, "kernel_stats")
   rows = page.locator(selector).first.locator(
       "table tr:has(td), table mat-row, mat-row"
@@ -114,6 +126,91 @@ def test_kernel_stats_rendering(
   expect(rows.first).to_be_visible(timeout=10000)
   assert rows.count() >= 1, "Expected kernel stats rows"
   assert_healthy(page, browser_errors, "kernel_stats")
+
+
+def test_roofline_model_operation_piechart_and_filter_redraw(
+    page: Page,
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+) -> None:
+  """Verifies Roofline Model Operation-Level PieChart draws and updates."""
+  open_tool("tpu-training", "overview_page")
+  expect(
+      page.locator("overview-page mat-card, overview-viewer mat-card").first
+  ).to_be_visible(timeout=20000)
+
+  switch_tool(page, "Roofline Model")
+  op_analysis = page.locator("operation-level-analysis")
+  expect(op_analysis).to_be_visible(timeout=20000)
+
+  scatter_svg = op_analysis.locator("chart[charttype='ScatterChart'] svg").first
+  pie_svg = op_analysis.locator("chart[charttype='PieChart'] svg").first
+  expect(scatter_svg).to_be_visible(timeout=20000)
+  expect(pie_svg).to_be_visible(timeout=10000)
+  expect(pie_svg).to_contain_text(
+      "Percentage of self time per HLO op category"
+  )
+
+  pie_box = pie_svg.bounding_box()
+  assert pie_box is not None, "Operation-level PieChart bounding box is None"
+  assert (
+      pie_box["width"] >= 200 and pie_box["height"] >= 200
+  ), f"Operation-level PieChart collapsed: {pie_box}"
+
+  select_category_filter(page, "convolution fusion")
+  expect(pie_svg).to_be_visible(timeout=10000)
+  expect(pie_svg).to_contain_text("convolution")
+  expect(pie_svg).to_contain_text("100%")
+  assert_healthy(page, browser_errors, "roofline_model_operation_piechart")
+
+
+@pytest.mark.parametrize(
+    "viewport_name,width,height",
+    [("tablet", 768, 1024), ("mobile", 375, 812)],
+)
+@pytest.mark.parametrize("tag", ["overview_page", "roofline_model"])
+def test_responsive_viewport_no_horizontal_clipping(
+    page: Page,
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+    viewport_name: str,
+    width: int,
+    height: int,
+    tag: str,
+) -> None:
+  """Verifies Tablet and Mobile viewports do not clip main tool content."""
+  page.set_viewport_size({"width": width, "height": height})
+  open_tool("tpu-training", tag)
+
+  tool_comp = page.locator(
+      "overview-page, overview-viewer, roofline-model"
+  ).first
+  expect(tool_comp).to_be_visible(timeout=20000)
+  expect(
+      page.locator("main-page mat-sidenav-content > div.full-height")
+  ).to_be_visible(timeout=20000)
+
+  content_pane = page.locator("mat-sidenav-content").first
+  expect(content_pane).to_be_visible(timeout=10000)
+  pane_box = content_pane.bounding_box()
+  assert pane_box is not None, f"mat-sidenav-content missing on {viewport_name}"
+  assert pane_box["width"] >= width * 0.6, (
+      f"{viewport_name} ({width}x{height}) {tag}: mat-sidenav-content width"
+      f" {pane_box['width']:.0f}px is squeezed below 60% of viewport width"
+  )
+
+  overflow_px = page.evaluate(
+      """() => {
+        const pane = document.querySelector('mat-sidenav-content');
+        if (!pane) return 0;
+        return pane.scrollWidth - pane.clientWidth;
+      }"""
+  )
+  assert overflow_px <= 16, (
+      f"{viewport_name} ({width}x{height}) {tag}: horizontal chart clipping"
+      f" detected (overflow={overflow_px}px)"
+  )
+  assert_healthy(page, browser_errors, f"responsive_{viewport_name}_{tag}")
 
 
 def test_trace_viewer_mounts_canvas(

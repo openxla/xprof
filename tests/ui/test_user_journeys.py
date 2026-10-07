@@ -30,6 +30,7 @@ try:
   from tests.ui.ui_helpers import select_memory_id
   from tests.ui.ui_helpers import select_module
   from tests.ui.ui_helpers import select_op_profile_group_by
+  from tests.ui.ui_helpers import select_session
   from tests.ui.ui_helpers import sort_table_column
   from tests.ui.ui_helpers import switch_tool
 except ImportError:
@@ -49,6 +50,7 @@ except ImportError:
   from ui_helpers import select_memory_id
   from ui_helpers import select_module
   from ui_helpers import select_op_profile_group_by
+  from ui_helpers import select_session
   from ui_helpers import sort_table_column
   from ui_helpers import switch_tool
 
@@ -58,6 +60,7 @@ class ActionType(str, enum.Enum):
 
   GOTO = "goto"
   SWITCH_TOOL = "switch_tool"
+  SELECT_SESSION = "select_session"
   SELECT_HOST = "select_host"
   SELECT_MODULE = "select_module"
   SELECT_OP_PROFILE_GROUP_BY = "select_op_profile_group_by"
@@ -239,6 +242,14 @@ def dispatch_action(
           re.compile(rf"tag={re.escape(expected_tag)}"),
           timeout=URL_SETTLE_TIMEOUT_MS,
       )
+      _wait_for_tool_data(page, step.target)
+    case ActionType.SELECT_SESSION:
+      run_name = _resolve_run_name(logdir, step.target)
+      select_session(page, run_name)
+      expect(page).to_have_url(
+          re.compile(rf"[?&]run={re.escape(run_name)}\b"),
+          timeout=URL_SETTLE_TIMEOUT_MS,
+      )
     case ActionType.SELECT_HOST:
       select_host(page, step.target)
       expect(page).to_have_url(
@@ -267,6 +278,7 @@ def dispatch_action(
       sort_table_column(page, step.target)
     case ActionType.GO_BACK | ActionType.GO_FORWARD:
       step_history(page, step.target, step.action == ActionType.GO_FORWARD)
+      _wait_for_tool_data(page, step.target)
     case ActionType.GOTO:
       parts = step.target.split("/", 1)
       run_name = _resolve_run_name(logdir, parts[0])

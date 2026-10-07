@@ -3,7 +3,7 @@ import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {DataRequestType} from 'org_xprof/frontend/app/common/constants/enums';
 import {setCurrentToolStateAction, setDataRequestStateAction} from 'org_xprof/frontend/app/store/actions';
-import {ReplaySubject} from 'rxjs';
+import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 import {KernelStatsModule} from './kernel_stats_module';
@@ -23,10 +23,15 @@ export class KernelStatsAdapter implements OnDestroy {
   host = '';
 
   constructor(route: ActivatedRoute, private readonly store: Store<{}>) {
-    route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
-      this.processQuery(params);
-      this.update();
-    });
+    combineLatest([route.params, route.queryParams])
+      .pipe(takeUntil(this.destroyed))
+      .subscribe(([params, queryParams]) => {
+        if (queryParams['tag'] && queryParams['tag'] !== this.tool) {
+          return;
+        }
+        this.processQuery({...params, ...queryParams});
+        this.update();
+      });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
   }
 

@@ -418,7 +418,7 @@ class InvariantsTest(unittest.TestCase):
     self.assertTrue(bool(invariants.check_poison_tokens("Value: INVALID")))
 
   def test_positive_rendered_content_and_dom_invariants(self) -> None:
-    """Verifies DOM invariants detect collapsed charts and empty cards."""
+    """Verifies each DOM invariant detects its failure state."""
 
     class _FakeEl:
       """Minimal element double for DOM invariant tests."""
@@ -476,6 +476,31 @@ class InvariantsTest(unittest.TestCase):
     self.assertEqual(len(violations), 2)
     self.assertIn("collapsed geometry: 0x50", violations[0])
     self.assertIn("unexpectedly empty", violations[1])
+
+    class _BannerAndLockPage:
+      """Page double exposing visible error banners and stuck loading locks."""
+
+      def locator(self, selector: str):
+        if "snack-bar" in selector:
+          return type(
+              "_L", (), {"all": lambda s: [_FakeEl(text="Data fetch failed")]}
+          )()
+        if "hidden-content" in selector:
+          return type("_L", (), {"all": lambda s: [_FakeEl()]})()
+        return type("_L", (), {"all": lambda s: []})()
+
+    banner_page = _BannerAndLockPage()
+    self.assertEqual(
+        invariants.check_no_error_banners(banner_page),
+        ["Visible error banner[0]: 'Data fetch failed'"],
+    )
+    self.assertEqual(
+        invariants.check_no_stuck_loading_lock(banner_page),
+        [
+            "Main page router-outlet is locked inside div.hidden-content (0px"
+            " height)"
+        ],
+    )
 
   def test_visualization_selector_and_component_geometry(self) -> None:
     """Verifies VISUALIZATION_SELECTOR excludes :scope > * and enforces child geometry."""
@@ -665,13 +690,16 @@ class UiHelpersTest(unittest.TestCase):
 
   def test_dropdowns_pick_and_show_whole_option_texts(self) -> None:
     """Verifies dropdown helpers pick whole option texts and recheck them."""
+    ui_helpers.select_session(self.page, "tpu-training")
     ui_helpers.select_module(self.page, "jit_train_step")
     ui_helpers.select_memory_id(self.page, "1")
     ui_helpers.switch_tool(self.page, "Op Profile")
     ui_helpers.select_op_profile_group_by(self.page, "Category")
 
     patterns = [entry[3]["has_text"] for entry in self._calls("filter")]
-    module, memory_id, tool, _ = patterns
+    session, module, memory_id, tool, _ = patterns
+    self.assertRegex(" tpu-training ", session)
+    self.assertNotRegex("tpu-training-2", session)
     self.assertRegex(" jit_train_step(4869159985936022652) ", module)
     self.assertNotRegex("jit_train_step_2", module)
     self.assertNotRegex("prefix_jit_train_step", module)
@@ -726,7 +754,7 @@ class UiHelpersTest(unittest.TestCase):
     )
     (url_check,) = self._calls("to_have_url")
     url = url_check[2][0]
-    self.assertRegex("/?run=r&node_name=fusion.12&module_name=m", url)
+    self.assertRegex("/?node_name=fusion.12&module_name=m", url)
     self.assertNotRegex("/?node_name=add.3&module_name=fusion.12", url)
 
   def test_filter_table_rows_must_hide_rows_and_keep_matches(self) -> None:

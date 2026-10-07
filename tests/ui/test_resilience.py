@@ -12,11 +12,13 @@ from playwright.sync_api import Page
 # pylint: disable=g-import-not-at-top
 try:
   from tests.ui.conftest import BrowserErrors
+  from tests.ui.ui_helpers import assert_component_geometry
   from tests.ui.ui_helpers import assert_healthy
   from tests.ui.ui_helpers import build_tool_url
   from tests.ui.ui_helpers import switch_tool
 except ImportError:
   from conftest import BrowserErrors
+  from ui_helpers import assert_component_geometry
   from ui_helpers import assert_healthy
   from ui_helpers import build_tool_url
   from ui_helpers import switch_tool
@@ -37,6 +39,29 @@ def _mock_api_status(page: Page, status: int) -> Iterator[None]:
   try:
     yield
   finally:
+    page.unroute(route_pattern)
+
+
+@contextlib.contextmanager
+def _hold_overview_data_request(page: Page) -> Iterator[None]:
+  """Holds overview_page data requests in flight until the block exits."""
+  route_pattern = re.compile(
+      r".*/data/plugin/profile/data.*[?&]tag=overview_page\b.*"
+  )
+  held_routes = []
+
+  def _handle_route(route) -> None:
+    held_routes.append(route)
+
+  page.route(route_pattern, _handle_route)
+  try:
+    yield
+  finally:
+    for route in held_routes:
+      try:
+        route.abort()
+      except Exception:  # pylint: disable=broad-exception-caught
+        pass
     page.unroute(route_pattern)
 
 
@@ -120,4 +145,32 @@ def test_rapid_tool_switching_concurrency(
   expect(page.locator("overview-page, overview-viewer")).to_be_visible(
       timeout=20000
   )
+  expect(
+      page.locator("main-page mat-sidenav-content > div.full-height")
+  ).to_be_visible(timeout=20000)
   assert_healthy(page, browser_errors, "rapid tool switching")
+
+
+def test_leaving_overview_page_mid_fetch_clears_loading_state(
+    page: Page,
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+) -> None:
+  """Verifies leaving Overview Page mid-fetch does not lock subsequent tools."""
+  with _hold_overview_data_request(page):
+    open_tool("tpu-training", "overview_page")
+    # Wait for the overview fetch itself, not the first-load "Navigating" text.
+    expect(
+        page.locator(".loading-message", has_text="Loading overview data")
+    ).to_be_visible(timeout=10000)
+    switch_tool(page, "Memory Profile")
+
+  expect(page).to_have_url(re.compile(r"tag=memory_profile"), timeout=20000)
+  expect(page.locator(".loading-message")).to_have_count(0, timeout=10000)
+  expect(
+      page.locator("main-page mat-sidenav-content > div.hidden-content")
+  ).to_have_count(0, timeout=10000)
+  assert_component_geometry(
+      page, "memory-viewer, memory-profile", "leaving_overview_page_mid_fetch"
+  )
+  assert_healthy(page, browser_errors, "leaving_overview_page_mid_fetch")

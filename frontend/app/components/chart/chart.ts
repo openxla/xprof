@@ -6,7 +6,15 @@ import {ChartClass, type ChartDataInfo, ChartType, CustomChartDataProcessor, Dat
   changeDetection: ChangeDetectionStrategy.Default,standalone: false,
   selector: 'chart',
   template: '',
-  styles: [':host {display: block;}'],
+  // Below 960px wide charts scroll sideways instead of widening the page. Only
+  // horizontal overflow scrolls: the off-screen accessibility element Google
+  // Charts adds under each chart would otherwise add a vertical scrollbar.
+  styles: [
+    ':host {display: block;}',
+    `@media (max-width: 959.98px) {
+      :host {max-width: 100%; overflow-x: auto; overflow-y: hidden;}
+    }`,
+  ],
 })
 export class Chart implements OnChanges, OnInit {
   /** The type of chart. */

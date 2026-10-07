@@ -183,6 +183,16 @@ export class DataServiceV2 implements DataServiceV2Interface {
     if (typeof hosts === 'string') {
       searchParams.set('hosts', hosts);
     }
+    const moduleName = parameters.get('module_name');
+    if (
+      typeof moduleName === 'string' &&
+      moduleName &&
+      tag === 'memory_viewer'
+    ) {
+      searchParams.set('moduleName', moduleName);
+    } else if (tag !== 'memory_viewer') {
+      searchParams.delete('moduleName');
+    }
     if (updateSearchParams) {
       this.setSearchParams(searchParams);
     }

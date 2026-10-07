@@ -17,7 +17,6 @@ xprof_ng_module(
     srcs = [
         "kernel_event_tooltip.ts",
         "static_kernel_viewer.ts",
-        "static_kernel_viewer_module.ts",
     ],
     assets = [
         ":kernel_event_tooltip_css",

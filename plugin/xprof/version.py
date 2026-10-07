@@ -15,4 +15,4 @@
 """Version information for tensorboard-plugin-profile."""
 
 # Version format: major.minor.patch
-__version__ = "2.23.2"
+__version__ = "2.23.3"

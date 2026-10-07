@@ -49,28 +49,6 @@ class OssKernelStatsToolsTest(unittest.TestCase):
       self.assertEqual(records[0]["total_duration_us"], 1400.0)
       self.assertEqual(records[0]["execution_count"], 1)
 
-  def test_get_avg_step_time(self):
-    mock_step1 = mock.MagicMock(duration_ns=15000000)
-    mock_step1.name = "jit_train_step"
-    mock_step2 = mock.MagicMock(duration_ns=17000000)
-    mock_step2.name = "jit_train_step"
-    mock_line_mod = mock.MagicMock(events=[mock_step1, mock_step2])
-    mock_line_mod.name = "XLA Modules"
-
-    mock_plane = mock.MagicMock(lines=[mock_line_mod])
-    mock_plane.name = "/device:TPU:0"
-
-    with mock.patch.object(
-        xplane_tools, "iter_planes", return_value=[mock_plane]
-    ):
-      res_str = kernel_stats_tools.get_avg_step_time(
-          "local_logdir", func_name="train_step"
-      )
-      res = json.loads(res_str)
-
-      self.assertEqual(res["step_count"], 2)
-      self.assertAlmostEqual(res["avg_step_time_ms"], 16.0)
-
   def test_compute_disjoint_interval_union_ns(self):
     """Tests that overlapping intervals are correctly merged."""
     # Two overlapping intervals: [0, 100] and [50, 150] -> merged [0, 150] = 150

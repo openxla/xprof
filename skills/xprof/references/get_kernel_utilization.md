@@ -40,8 +40,9 @@ xprof compute_utilization <logdir> [--kernel_name=<NAME>]
 
 -   `xprof get_kernel_stats <logdir>`: Returns raw kernel execution latencies,
     min/max/avg durations, and occurrence counts across device kernels.
--   `xprof get_avg_step_time <logdir>`: Computes the average step duration (in
-    milliseconds) directly from the session's step trace or kernel statistics.
+-   `xprof get_step_trace <logdir>`: Computes step duration breakdowns,
+    per-core step duration distributions (`all_steps`, `full_steps`,
+    `partial_steps`), and step dispersion metrics.
 
 ## Hardware Counter & Fallback Behavior
 

@@ -265,7 +265,6 @@ _CLI_SUBCOMMANDS = frozenset({
     "compute_utilization",
     "diff_sessions",
     "export_json",
-    "get_avg_step_time",
     "get_device_information",
     "get_device_time_attribution",
     "get_graph_viewer",

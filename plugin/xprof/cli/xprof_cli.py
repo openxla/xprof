@@ -78,7 +78,7 @@ def cli_main() -> dict[str, Any]:
     A dictionary of tool names to functions.
   """
   return {
-      # 32 Core Tools (Available in both 1P and 3P):
+      # 31 Core Tools (Available in both 1P and 3P):
       # keep-sorted start
       "aggregate_xplane_events": xplane_tools.aggregate_xplane_events,
       "check_host_boundness": check_host_boundness_tool.check_host_boundness,
@@ -86,7 +86,6 @@ def cli_main() -> dict[str, Any]:
       "compute_utilization": get_kernel_utilization_tool.get_kernel_utilization,
       "diff_sessions": diff_sessions_tool.diff_sessions,
       "export_json": xprof_data.get_profile_summary,
-      "get_avg_step_time": get_kernel_stats_tool.get_avg_step_time,
       "get_device_information": xprof_data.get_device_information,
       "get_device_time_attribution": _get_device_time_attribution,
       "get_graph_viewer": get_graph_viewer_tool.get_graph_viewer,

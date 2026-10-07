@@ -96,7 +96,7 @@ multi-host, vLLM/Ray ranks, Pathways client and workers).
 
 -   A **file** analyzes that host/rank only.
 -   A **run directory** combines every trace in it. `get_kernel_stats`,
-    `get_avg_step_time` and `aggregate_xplane_events` sum counts and
+    `get_step_trace` and `aggregate_xplane_events` sum counts and
     durations; `list_xplane_events` mixes rows from every host/rank; other
     XProf tools show the all-hosts view, where times and counts are totals
     across hosts, not per-host values. HLO text tools (`get_hlo_text`,
@@ -108,9 +108,9 @@ multi-host, vLLM/Ray ranks, Pathways client and workers).
     ones. `get_utilization_viewer` takes an integer `--host` index instead;
     pass it a file path to pick a host/rank.
 -   `get_memory_profile`, `get_kernel_utilization` / `compute_utilization`,
-    `get_utilization_viewer`, `get_llo_analysis`, `get_llo_debug_string`,
-    `get_xspace_proto`, and `create_events_db` need exactly one trace. On a
-    multi-trace directory they fail and list the files.
+    `get_utilization_viewer`, `get_llo_analysis`, `get_llo_debug_string`, and
+    `get_xspace_proto` need exactly one trace. On a multi-trace directory they
+    fail and list the files.
 
 For local traces, every JSON result carries a `capture` block (other outputs
 print it to stderr as one `xprof-capture: {...}` line):
@@ -267,10 +267,10 @@ Pallas or Mosaic):
     (`get_profile_summary`) of an XProf session.
 -   **[Get Memory Profile](references/get_memory_profile.md)**: Get a detailed
     memory profile analysis (Peak/device memory details) of an XProf session.
--   **[Get Step Trace & Average Step Time](references/get_step_trace.md)**:
-    Retrieve step-by-step execution breakdowns (`get_step_trace`) or scalar
-    average step duration (`get_avg_step_time`) to analyze step time variance
-    and communication overhead.
+-   **[Get Step Trace](references/get_step_trace.md)**:
+    Retrieve step-by-step execution breakdowns, per-core step duration
+    distributions, and step dispersion metrics (`get_step_trace`) to analyze
+    step time variance and communication overhead.
 -   **[Get Peak Allocations](references/get_peak_allocations.md)**: Get HLO
     modules and buffers ordered by memory usage.
 -   **[Get Top HLO Operations](references/get_top_hlo_ops.md)**: Identify top

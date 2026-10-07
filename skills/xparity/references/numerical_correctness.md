@@ -706,6 +706,39 @@ When `dtype_str` is an integer type (`int32`, `int64`, `int16`, `int8`,
 *   `numerical_validator` enforces exact discrete delta $|y - \hat{y}| = 0$ with
     `max_allowed_ulp = 0`.
 
+### 5. Attention Stress Suite (`generate_attention_suite`)
+
+Generic tensor generators cannot synthesize paired $(Q, K, V)$ tensors alongside
+compatible causal, key-padding, or packed-sequence segment masks. Use
+`generate_attention_suite` (and pass the returned `suite_path` or dict to
+`validate_kernels(..., suite_path=...)`) to exercise MHA, GQA, and MQA kernels
+across five attention-specific regimes:
+
+*   `attention_normal`: Unit-normal $Q, K, V$ with an all-True
+    `(B, 1, S_q, S_kv)` mask.
+*   `attention_large_logits`: High-variance $Q, K$ ($\sigma = 8.0$) so
+    pre-softmax logits $\sim \sigma^2 \approx 64$ stress online-softmax
+    max-subtraction and rescaling without triggering `NaN`.
+*   `attention_causal`: Lower-triangular causal mask supporting rectangular
+    cross-attention ($S_q \ne S_{kv}$).
+*   `attention_padding`: Variable key sequence lengths with row 0 guaranteed
+    fully unmasked to prevent `0/0` softmax `NaN`s.
+*   `attention_segments`: Document-packed segment equality mask
+    (`seg_q == seg_kv`), or raw `(q, k, v, seg_q, seg_kv)` tuples when
+    `pass_segment_ids=True`.
+
+```python
+from xprof.xparity import generate_attention_suite
+
+suite = generate_attention_suite(
+    q_shape=(2, 8, 128, 64),
+    kv_seq_len=128,
+    num_kv_heads=2,  # GQA (H_q=8, H_kv=2)
+    dtype_str="bfloat16",
+    output_path="/tmp/attn_suite.npz",
+)
+```
+
 --------------------------------------------------------------------------------
 
 ## 6. ULP Interpretation & Root Cause Diagnostics

@@ -624,6 +624,167 @@ def generate_mask_tensor(
     )
 
 
+ATTENTION_REGIMES: tuple[str, ...] = (
+    "attention_normal",
+    "attention_large_logits",
+    "attention_causal",
+    "attention_padding",
+    "attention_segments",
+)
+
+# Target standard deviation of the softmax logits q.k / sqrt(head_dim) in
+# 'attention_large_logits'. About 4% of logits then exceed 88, where float32
+# and bfloat16 exp overflow, so a softmax that does not subtract the running
+# maximum produces inf or NaN even for small shapes.
+_LARGE_LOGIT_STD = 50.0
+
+
+def generate_attention_suite(
+    batch: int,
+    num_heads: int,
+    q_len: int,
+    kv_len: int,
+    head_dim: int,
+    dtype_str: str = "bfloat16",
+    num_kv_heads: int | None = None,
+    num_segments: int = 3,
+    regimes: _Sequence[str] = ATTENTION_REGIMES,
+    seed: int = 42,
+) -> list[dict[str, Any]]:
+  """Generates an attention test suite for `validate_kernels(test_suite=...)`.
+
+  Every batch passes `args=(q, k, v)` with q of shape
+  (batch, num_heads, q_len, head_dim) and k, v of shape
+  (batch, num_kv_heads, kv_len, head_dim). Masks and segment IDs are passed as
+  keyword arguments, so the kernels under test take
+  `(q, k, v, mask=None, q_segment_ids=None, kv_segment_ids=None)`; wrap a
+  kernel with a different signature in a lambda.
+
+  Regimes:
+    attention_normal: N(0, 1) inputs, no mask.
+    attention_large_logits: q and k scaled so the softmax logits
+      q.k / sqrt(head_dim) have a standard deviation of about 50. Catches a
+      softmax without max subtraction.
+    attention_causal: `mask` of shape (batch, 1, q_len, kv_len), True where
+      query i may attend key j <= i.
+    attention_padding: key-padding `mask` with a random valid length in
+      [1, kv_len] per sequence, so no query row is fully masked.
+    attention_segments: sorted `q_segment_ids` (batch, q_len) and
+      `kv_segment_ids` (batch, kv_len) for packed sequences. Requires
+      q_len == kv_len; skipped otherwise.
+
+  Args:
+    batch: Batch size.
+    num_heads: Number of query heads.
+    q_len: Query sequence length.
+    kv_len: Key and value sequence length.
+    head_dim: Head dimension.
+    dtype_str: Floating-point dtype of q, k and v.
+    num_kv_heads: Key and value heads for grouped-query attention. Defaults to
+      `num_heads` and must divide it.
+    num_segments: Packed segments per sequence in 'attention_segments'.
+    regimes: Subset of ATTENTION_REGIMES to generate.
+    seed: Random number generator seed.
+
+  Returns:
+    A list of batch dicts with 'name', 'args', 'kwargs' and 'regime'.
+
+  Raises:
+    ValueError: If a size is not positive, num_kv_heads does not divide
+      num_heads, or a regime is unknown.
+  """
+  num_kv_heads = num_heads if num_kv_heads is None else num_kv_heads
+  sizes = dict(
+      batch=batch,
+      num_heads=num_heads,
+      num_kv_heads=num_kv_heads,
+      q_len=q_len,
+      kv_len=kv_len,
+      head_dim=head_dim,
+  )
+  bad = {k: v for k, v in sizes.items() if v <= 0}
+  if bad:
+    raise ValueError(f"Attention sizes must be positive, got {bad}.")
+  if num_heads % num_kv_heads:
+    raise ValueError(
+        f"num_kv_heads={num_kv_heads} must divide num_heads={num_heads}."
+    )
+  unknown = sorted(set(regimes) - set(ATTENTION_REGIMES))
+  if unknown:
+    raise ValueError(
+        f"Unknown attention regimes {unknown}. Supported: {ATTENTION_REGIMES}."
+    )
+
+  q_shape = (batch, num_heads, q_len, head_dim)
+  kv_shape = (batch, num_kv_heads, kv_len, head_dim)
+
+  def qkv(offset: int, qk_scale: float = 1.0) -> tuple[np.ndarray, ...]:
+    q, k, v = (
+        generate_normal_tensor(
+            shape,
+            dtype_str,
+            seed=seed + offset + i,
+            scale=qk_scale if i < 2 else 1.0,
+        )
+        for i, shape in enumerate((q_shape, kv_shape, kv_shape))
+    )
+    return q, k, v
+
+  suite = []
+  if "attention_normal" in regimes:
+    suite.append({
+        "name": "attention_normal",
+        "args": qkv(0),
+        "kwargs": {},
+        "regime": "attention_normal",
+    })
+  if "attention_large_logits" in regimes:
+    # q.k / sqrt(head_dim) has variance qk_scale**4 for N(0, qk_scale**2)
+    # entries, independent of head_dim.
+    qk_scale = _LARGE_LOGIT_STD**0.5
+    suite.append({
+        "name": f"attention_large_logits_std_{_LARGE_LOGIT_STD:g}",
+        "args": qkv(10, qk_scale=qk_scale),
+        "kwargs": {},
+        "regime": "attention_large_logits",
+    })
+  mask_shape = (batch, 1, q_len, kv_len)
+  if "attention_causal" in regimes:
+    suite.append({
+        "name": "attention_causal",
+        "args": qkv(20),
+        "kwargs": {"mask": generate_mask_tensor(mask_shape, "causal")},
+        "regime": "attention_causal",
+    })
+  if "attention_padding" in regimes:
+    rng = np.random.default_rng(seed + 30)
+    lengths = rng.integers(1, kv_len + 1, size=batch)
+    key_valid = np.arange(kv_len)[None, :] < lengths[:, None]
+    mask = np.broadcast_to(key_valid[:, None, None, :], mask_shape).copy()
+    suite.append({
+        "name": "attention_padding",
+        "args": qkv(30),
+        "kwargs": {"mask": mask},
+        "regime": "attention_padding",
+    })
+  if "attention_segments" in regimes and q_len == kv_len:
+    segments = min(num_segments, q_len)
+    segment_ids = np.stack([
+        generate_segment_ids_tensor((q_len,), segments, seed=seed + 40 + b)
+        for b in range(batch)
+    ])
+    suite.append({
+        "name": f"attention_segments_{segments}",
+        "args": qkv(40),
+        "kwargs": {
+            "q_segment_ids": segment_ids,
+            "kv_segment_ids": segment_ids.copy(),
+        },
+        "regime": "attention_segments",
+    })
+  return suite
+
+
 def generate_integer_tensor(
     shape: _Sequence[int],
     dtype_str: str = "int32",

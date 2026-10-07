@@ -5,6 +5,17 @@ package(default_visibility = ["//plugin/xprof:__subpackages__"])
 licenses(["notice"])
 
 pytype_strict_contrib_test(
+    name = "attention_inputs_test",
+    srcs = ["attention_inputs_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:numerical_generator",
+        "//plugin/xprof/xparity:numerical_validator",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+pytype_strict_contrib_test(
     name = "bitwise_contract_test",
     srcs = ["bitwise_contract_test.py"],
     deps = [

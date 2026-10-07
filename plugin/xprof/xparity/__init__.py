@@ -16,6 +16,7 @@ chunk_callable = numerical_validator.chunk_callable
 compute_ulp_distance = ulp.compute_ulp_distance
 get_contract = ulp.get_contract
 generate_test_suite = numerical_generator.generate_test_suite
+generate_attention_suite = numerical_generator.generate_attention_suite
 save_test_suite = numerical_generator.save_test_suite
 load_test_suite = numerical_generator.load_test_suite
 read_suite_metadata = numerical_generator.read_suite_metadata
@@ -32,6 +33,7 @@ __all__ = [
     "chunk_callable",
     "compare_bitwise",
     "compute_ulp_distance",
+    "generate_attention_suite",
     "generate_suite",
     "generate_test_suite",
     "get_contract",

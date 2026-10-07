@@ -77,6 +77,7 @@ directly from `xprof.xparity`:
 from xprof.xparity import CONTRACT_BITWISE
 from xprof.xparity import chunk_callable
 from xprof.xparity import compare_bitwise
+from xprof.xparity import generate_attention_suite
 from xprof.xparity import make_fwd_bwd
 from xprof.xparity import numerical_generator
 from xprof.xparity import numerical_validator
@@ -203,6 +204,17 @@ to the kernel's failure modes:
     -   `boundary` (`generate_boundary_probe_tensor`): `min_normal`,
         `min_subnormal`, `0.0`, and $\pm 10^4$ aligned to 128-byte TPU VMEM tile
         strides.
+-   **Attention Suite Generator (`generate_attention_suite`)**:
+    -   Generates `(q, k, v, mask_or_segment_ids)` batches for MHA/GQA/MQA
+        (`q_shape=(B, H_q, S_q, D)`, `num_kv_heads=H_kv`) across five
+        attention-specific regimes: `attention_normal` (unit $Q, K, V$ with
+        all-True mask), `attention_large_logits` ($\sigma = 8.0$ on $Q, K$ to
+        stress online-softmax rescaling before `exp` overflow),
+        `attention_causal` (lower-triangular mask supporting $S_q \ne S_{kv}$),
+        `attention_padding` (variable sequence-length key padding with a fully
+        unmasked query row), and `attention_segments` (packed-sequence segment
+        equality mask `seg_q == seg_kv`, or raw `(q, k, v, seg_q, seg_kv)` when
+        `pass_segment_ids=True`).
 -   **Discrete & Mask Regimes (`max_allowed_ulp = 0`)**:
     -   `generate_index_tensor(shape, upper_bound, lower_bound=0,
         include_boundaries=True)`: Bounded indices in `[lower_bound,

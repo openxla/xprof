@@ -12,12 +12,13 @@ import {
   ElementRef,
   EventEmitter,
   inject,
-  Input,
+  input,
   NgZone,
   OnChanges,
   OnDestroy,
   OnInit,
   Output,
+  output,
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
@@ -60,7 +61,7 @@ import {
   type TraceViewerV2Module,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
 
-import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
+import {SafePipe} from 'org_xprof/frontend/app/pipes/safe_pipe';
 import {fromEvent, interval, ReplaySubject, Subject, Subscription} from 'rxjs';
 import {debounceTime, distinctUntilChanged, takeUntil} from 'rxjs/operators';
 
@@ -355,7 +356,7 @@ declare interface TfTraceViewer {
     CommonModule,
     MatIconModule,
     MatProgressBarModule,
-    PipesModule,
+    SafePipe,
     TimelinePlayer,
     FormsModule,
     MatButtonModule,
@@ -372,7 +373,7 @@ declare interface TfTraceViewer {
 export class TraceViewerContainer
   implements OnInit, OnDestroy, AfterViewInit, OnChanges
 {
-  @Input() traceViewerModule: TraceViewerV2Module | null = null;
+  readonly traceViewerModule = input<TraceViewerV2Module | null>(null);
   /**
    * URL of the legacy (v1) `trace_viewer_index.html` page, used as the `src`
    * of the v1 iframe. Under `useTraceViewerV2` that iframe is hidden but still
@@ -380,10 +381,10 @@ export class TraceViewerContainer
    * and feed data via `traceViewerModule.loadTraceData` instead of binding a
    * raw trace-data URL here.
    */
-  @Input() url = '';
-  @Input() useTraceViewerV2 = true;
-  @Input() showHelpButton = false;
-  @Input() selectedEvent?: SelectedEvent | null;
+  readonly url = input('');
+  readonly useTraceViewerV2 = input(true);
+  readonly showHelpButton = input(false);
+  readonly selectedEvent = input<SelectedEvent | null>();
   /**
    * The selected event rendered as an auto-traversed JSON tree in Trace
    * Viewer v2 (identity, timing and the full args map, with the stack trace
@@ -391,14 +392,14 @@ export class TraceViewerContainer
    * changes; `undefined` until the event's args are available.
    */
   selectedEventJson?: Record<string, unknown>;
-  @Input() searching = false;
+  readonly searching = input(false);
 
   /** Whether the timeline player applies */
   enableTimelinePlayer = false;
 
   private handleTimelineRedrawRequest = () => {
-    if (!this.traceViewerModule) return;
-    this.traceViewerModule.application.instance().scheduleForcedRedraw();
+    if (!this.traceViewerModule()) return;
+    this.traceViewerModule()!.application.instance().scheduleForcedRedraw();
   };
 
   hoveredEvent?: SelectedEvent | null;
@@ -406,9 +407,9 @@ export class TraceViewerContainer
   hoveredEventMouseY = 0;
 
   isInitialLoading = true;
-  @Input() eventDetailColumns: string[] = [];
-  @Input() selectionStartFormat?: string;
-  @Input() selectionExtentFormat?: string;
+  readonly eventDetailColumns = input<string[]>([]);
+  readonly selectionStartFormat = input<string>();
+  readonly selectionExtentFormat = input<string>();
 
   private readonly route: ActivatedRoute = inject(ActivatedRoute);
   private readonly cdRef = inject(ChangeDetectorRef);
@@ -448,7 +449,7 @@ export class TraceViewerContainer
   }
 
   isSingleEventTable(): boolean {
-    return this.eventDetailColumns.length <= 2;
+    return this.eventDetailColumns().length <= 2;
   }
 
   getColumnHeader(col: string): string {
@@ -515,7 +516,9 @@ export class TraceViewerContainer
   ];
   counterColumns = ['counter', 'series', 'time', 'value'];
 
-  @Input() set selectedEventProperties(data: SelectedEventProperty[]) {
+  readonly selectedEventProperties = input<SelectedEventProperty[]>([]);
+
+  private updateSelectedEventProperties(data: SelectedEventProperty[]) {
     this.selectedEventPropertiesDataSource.data = data;
 
     const metrics = data.filter((prop) => prop.hasOwnProperty('occurrences'));
@@ -581,25 +584,21 @@ export class TraceViewerContainer
   trackByProperty(index: number, prop: SelectedEventProperty): string {
     return `${prop.property ?? ''}:${prop.value ?? ''}`;
   }
-  @Input() set rawEvents(data: RawEventItem[] | null | undefined) {
-    this.rawEventsDataSource.data = data ?? [];
-  }
-  @Input() tool?: string;
+  readonly rawEvents = input<RawEventItem[] | null | undefined>();
+  readonly tool = input<string>();
   rawEventsDataSource = new MatTableDataSource<RawEventItem>();
   @Output()
   readonly drillDownEvent = new EventEmitter<number>();
-  @Output()
-  readonly eventSelected = new EventEmitter<EntrySelectedEventDetail | null>();
-  @Output()
-  readonly eventsSelected =
-    new EventEmitter<EventsSelectedEventDetail | null>();
-  @Output() readonly searchEvents = new EventEmitter<SearchEventsEventDetail>();
-  @Output() readonly initializeWasm = new EventEmitter<void>();
-  @Output() readonly toggleSettings = new EventEmitter<void>();
+  readonly eventSelected = output<EntrySelectedEventDetail | null>();
+  readonly eventsSelected = output<EventsSelectedEventDetail | null>();
+  readonly searchEvents = output<SearchEventsEventDetail>();
+  readonly initializeWasm = output<void>();
+  readonly toggleSettings = output<void>();
 
-  @Output() readonly requestHoveredEventArgs =
-    new EventEmitter<SelectedEvent>();
-  @Input() set hoveredEventArgs(args: Record<string, string> | null) {
+  readonly requestHoveredEventArgs = output<SelectedEvent>();
+  readonly hoveredEventArgs = input<Record<string, string> | null>(null);
+
+  private updateHoveredEventArgs(args: Record<string, string> | null) {
     if (!this.hoveredEvent || !args) {
       return;
     }
@@ -633,6 +632,7 @@ export class TraceViewerContainer
       this.selectedEventPropertiesDataSource.sort = matSort;
     }
   }
+  @ViewChild(TimelinePlayer) timelinePlayer?: TimelinePlayer;
 
   /**
    * Whether the JSON "Event details" title is currently stuck to the top of its
@@ -644,15 +644,6 @@ export class TraceViewerContainer
   /** Watches the sticky-header sentinel to toggle {@link isJsonTitleStuck}. */
   private stickyTitleObserver?: IntersectionObserver;
 
-  /**
-   * Observes a sentinel at the top of the JSON scroll content to detect when the
-   * "Event details" title becomes stuck. The JSON view is rendered behind an
-   * *ngIf, so this setter runs whenever the sentinel is added or removed: it
-   * (re)creates the observer when the sentinel is present and tears it down
-   * otherwise. The observer runs outside the Angular zone and only triggers
-   * change detection when the stuck state actually flips, so scrolling never
-   * runs app-wide change detection.
-   */
   @ViewChild('jsonStickySentinel')
   set jsonStickySentinel(sentinel: ElementRef<HTMLElement> | undefined) {
     this.stickyTitleObserver?.disconnect();
@@ -721,12 +712,15 @@ export class TraceViewerContainer
       .subscribe((query) => {
         this.currentSearchQuery = query;
         this.searchEvents.emit({events_query: query});
-        if (this.traceViewerModule) {
-          this.traceViewerModule.application.instance().setSearchQuery(query);
+        if (this.traceViewerModule()) {
+          this.traceViewerModule()!
+            .application.instance()
+            .setSearchQuery(query);
           this.updateSearchResultCountText();
         } else if (!query) {
           this.searchResultCountText = '';
         }
+        this.cdRef.detectChanges();
       });
 
     this.hoveredEventRequest$
@@ -787,7 +781,7 @@ export class TraceViewerContainer
   ngAfterViewInit() {
 
     window.addEventListener('keydown', this.keyDownEventListener);
-    if (this.useTraceViewerV2) {
+    if (this.useTraceViewerV2()) {
       this.initializeWasm.emit();
     } else {
       window.addEventListener('mouseup', this.mouseUpEventListener);
@@ -829,7 +823,7 @@ export class TraceViewerContainer
       this.eventHoveredEventListener,
     );
     window.removeEventListener('keydown', this.keyDownEventListener);
-    if (!this.useTraceViewerV2) {
+    if (!this.useTraceViewerV2()) {
       window.removeEventListener('mouseup', this.mouseUpEventListener);
     }
     // Unsubscribes all pending subscriptions.
@@ -842,6 +836,15 @@ export class TraceViewerContainer
     if (changes['selectedEvent']) {
       this.updateSplitSizes();
       this.selectedEventJson = this.buildSelectedEventJson();
+    }
+    if (changes['selectedEventProperties']) {
+      this.updateSelectedEventProperties(this.selectedEventProperties());
+    }
+    if (changes['hoveredEventArgs']) {
+      this.updateHoveredEventArgs(this.hoveredEventArgs());
+    }
+    if (changes['rawEvents']) {
+      this.rawEventsDataSource.data = this.rawEvents() ?? [];
     }
   }
 
@@ -857,7 +860,7 @@ export class TraceViewerContainer
    * Returns `undefined` only when there is no selected event.
    */
   private buildSelectedEventJson(): Record<string, unknown> | undefined {
-    const event = this.selectedEvent;
+    const event = this.selectedEvent();
     if (!event) {
       return undefined;
     }
@@ -887,7 +890,7 @@ export class TraceViewerContainer
   }
 
   private readonly keyDownEventListener = (event: KeyboardEvent) => {
-    if (this.useTraceViewerV2) {
+    if (this.useTraceViewerV2()) {
       this.handleV2KeyDown(event);
     } else {
       this.handleV1KeyDown(event);
@@ -910,7 +913,7 @@ export class TraceViewerContainer
       this.enableTimelinePlayer &&
       this.timelinePlayer
     ) {
-      this.timelinePlayer.togglePlay();
+      this.timelinePlayer?.togglePlay();
       event.preventDefault();
     } else if (event.key === ';') {
       this.toggleSettings.emit();
@@ -945,40 +948,43 @@ export class TraceViewerContainer
         break;
     }
   }
-  @ViewChild(TimelinePlayer) timelinePlayer?: TimelinePlayer;
 
   onPlay() {
-    if (!this.traceViewerModule || !this.timelinePlayer) return;
-    this.traceViewerModule.SetPlaybackState?.(
+    const player = this.timelinePlayer;
+    if (!this.traceViewerModule() || !player) return;
+    this.traceViewerModule()!.SetPlaybackState?.(
       true,
-      this.timelinePlayer.currentTime(),
-      this.timelinePlayer.playbackRate(),
+      player.currentTime(),
+      player.playbackRate(),
     );
   }
 
   onPause() {
-    if (!this.traceViewerModule || !this.timelinePlayer) return;
-    this.traceViewerModule.SetPlaybackState?.(
+    const player = this.timelinePlayer;
+    if (!this.traceViewerModule() || !player) return;
+    this.traceViewerModule()!.SetPlaybackState?.(
       false,
-      this.timelinePlayer.currentTime(),
-      this.timelinePlayer.playbackRate(),
+      player.currentTime(),
+      player.playbackRate(),
     );
   }
 
   onSeek(time: number) {
-    if (!this.traceViewerModule || !this.timelinePlayer) return;
-    this.traceViewerModule.SetPlaybackState?.(
-      this.timelinePlayer.isPlaying(),
+    const player = this.timelinePlayer;
+    if (!this.traceViewerModule() || !player) return;
+    this.traceViewerModule()!.SetPlaybackState?.(
+      player.isPlaying(),
       time,
-      this.timelinePlayer.playbackRate(),
+      player.playbackRate(),
     );
   }
 
   onSpeedChange(speed: number) {
-    if (!this.traceViewerModule || !this.timelinePlayer) return;
-    this.traceViewerModule.SetPlaybackState?.(
-      this.timelinePlayer.isPlaying(),
-      this.timelinePlayer.currentTime(),
+    const player = this.timelinePlayer;
+    if (!this.traceViewerModule() || !player) return;
+    this.traceViewerModule()!.SetPlaybackState?.(
+      player.isPlaying(),
+      player.currentTime(),
       speed,
     );
   }
@@ -1095,10 +1101,12 @@ export class TraceViewerContainer
 
     // If an event is selected, the timeline height is reduced to accommodate
     // the detail view (drawer). Otherwise, the timeline takes the full height.
-    this.timelineHeightPercent = this.selectedEvent
+    this.timelineHeightPercent = this.selectedEvent()
       ? 100 - this.drawerSizePercent
       : 100;
-    this.detailHeightPercent = this.selectedEvent ? this.drawerSizePercent : 0;
+    this.detailHeightPercent = this.selectedEvent()
+      ? this.drawerSizePercent
+      : 0;
   }
 
   /**
@@ -1173,8 +1181,8 @@ export class TraceViewerContainer
     event?.stopPropagation();
     this.searchQuery = '';
     this.currentSearchQuery = '';
-    if (this.traceViewerModule) {
-      this.traceViewerModule.application.instance().setSearchQuery('');
+    if (this.traceViewerModule()) {
+      this.traceViewerModule()!.application.instance().setSearchQuery('');
     }
     this.onSearchEvent('');
   }
@@ -1193,8 +1201,9 @@ export class TraceViewerContainer
 
   setMouseMode(mode: MouseMode): void {
     this.currentMouseMode = mode;
-    if (this.traceViewerModule) {
-      this.traceViewerModule.application.instance().setMouseMode(mode);
+    this.cdRef.markForCheck();
+    if (this.traceViewerModule()) {
+      this.traceViewerModule()!.application.instance().setMouseMode(mode);
     }
     if (mode === MouseMode.TIMING) {
       const prompted = window.localStorage.getItem(
@@ -1224,11 +1233,11 @@ export class TraceViewerContainer
   }
 
   zoomIn(): void {
-    this.traceViewerModule?.application?.instance().zoomIn();
+    this.traceViewerModule()?.application?.instance().zoomIn();
   }
 
   zoomOut(): void {
-    this.traceViewerModule?.application?.instance().zoomOut();
+    this.traceViewerModule()?.application?.instance().zoomOut();
   }
 
   togglePanMode(): void {
@@ -1246,7 +1255,7 @@ export class TraceViewerContainer
    *     `event.sizes` is `IOutputAreaSizes` from `angular-split`.
    */
   onDragEnd({sizes}: {sizes: Array<number | '*'>}): void {
-    if (this.selectedEvent && sizes.length > 1) {
+    if (this.selectedEvent() && sizes.length > 1) {
       // This assumes the drawer is the second area (index 1). This is safe as
       // long as the template structure remains consistent (Canvas then Drawer).
       const size = sizes[1];
@@ -1260,43 +1269,49 @@ export class TraceViewerContainer
   }
 
   private syncEffectiveSearchQuery(query?: string): void {
-    if (!this.traceViewerModule) return;
+    if (!this.traceViewerModule()) return;
     const effectiveQuery = query || this.currentSearchQuery;
     if (effectiveQuery !== this.currentSearchQuery) {
       this.currentSearchQuery = effectiveQuery;
       this.searchQuery = effectiveQuery;
       this.searchEvents.emit({events_query: effectiveQuery});
-      this.traceViewerModule.application
-        .instance()
+      this.traceViewerModule()!
+        .application.instance()
         .setSearchQuery(effectiveQuery);
     }
   }
 
   nextSearchResult(query?: string, event?: Event): void {
     event?.stopPropagation();
-    if (!this.traceViewerModule) return;
+    if (!this.traceViewerModule()) return;
     this.syncEffectiveSearchQuery(query);
-    this.traceViewerModule.application.instance().navigateToNextSearchResult();
+    this.traceViewerModule()!
+      .application.instance()
+      .navigateToNextSearchResult();
     this.updateSearchResultCountText();
   }
 
   prevSearchResult(query?: string, event?: Event): void {
     event?.stopPropagation();
-    if (!this.traceViewerModule) return;
+    if (!this.traceViewerModule()) return;
     this.syncEffectiveSearchQuery(query);
-    this.traceViewerModule.application.instance().navigateToPrevSearchResult();
+    this.traceViewerModule()!
+      .application.instance()
+      .navigateToPrevSearchResult();
     this.updateSearchResultCountText();
   }
 
   updateSearchResultCountText(): void {
-    if (!this.traceViewerModule || !this.currentSearchQuery) {
+    if (!this.traceViewerModule() || !this.currentSearchQuery) {
       this.searchResultCountText = '';
+      this.cdRef.markForCheck();
       return;
     }
-    const instance = this.traceViewerModule.application.instance();
+    const instance = this.traceViewerModule()!.application.instance();
     const count = instance.getSearchResultsCount();
     const index = instance.getCurrentSearchResultIndex();
     this.searchResultCountText = `${index === -1 ? 0 : index + 1} / ${count}`;
+    this.cdRef.markForCheck();
   }
 
   openCustomizationPanel(): void {

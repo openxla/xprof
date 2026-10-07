@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "megascale_stats",
     srcs = [
         "megascale_stats.ts",
-        "megascale_stats_module.ts",
     ],
     assets = [
         ":megascale_stats_css",

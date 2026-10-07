@@ -1,4 +1,12 @@
-import {DEFAULT_SIMPLE_DATA_TABLE, HostOpTable, InputPipelineDataTable, InputPipelineDeviceAnalysis, InputPipelineHostAnalysis, MetaHostOpTable, SimpleDataTable,} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {
+  DEFAULT_SIMPLE_DATA_TABLE,
+  HostOpTable,
+  InputPipelineDataTable,
+  InputPipelineDeviceAnalysis,
+  InputPipelineHostAnalysis,
+  MetaHostOpTable,
+  SimpleDataTable,
+} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {parseDiagnosticsDataTable} from 'org_xprof/frontend/app/common/utils/utils';
 
@@ -28,15 +36,15 @@ const PROPERTIES_HOST_ANALYSIS = [
 
 /** A common class for the input-pipeline component. */
 export class InputPipelineCommon {
-  deviceAnalysis: InputPipelineDeviceAnalysis|null = null;
-  hostAnalysis: InputPipelineHostAnalysis|null = null;
-  recommendation: SimpleDataTable|null = null;
+  deviceAnalysis: InputPipelineDeviceAnalysis | null = null;
+  hostAnalysis: InputPipelineHostAnalysis | null = null;
+  recommendation: SimpleDataTable | null = null;
   hasDiviceAanlysisRows = true;
-  diagnostics: Diagnostics = { info: [], warnings: [], errors: [] };
+  diagnostics: Diagnostics = {info: [], warnings: [], errors: []};
   hasHostOpTables = false;
-  metaHostOpTable: MetaHostOpTable|null = null;
+  metaHostOpTable: MetaHostOpTable | null = null;
   hostOpTables: HostOpTable[] = [];
-  maxInfeedCoreTable: SimpleDataTable|null = null;
+  maxInfeedCoreTable: SimpleDataTable | null = null;
   isTpu = false;
 
   parseHostOpTables(data: InputPipelineDataTable[]) {
@@ -44,29 +52,34 @@ export class InputPipelineCommon {
     for (let i = 0; i < data.length; i++) {
       const analysis = data[i];
       if (!analysis || !analysis.p) continue;
-      const foundMetaHostOpTable =
-          Object.keys(analysis.p)
-              .find(
-                  (property) => property === 'num_host_op_tables',
-              );
+      const foundMetaHostOpTable = Object.keys(analysis.p).find(
+        (property) => property === 'num_host_op_tables',
+      );
       if (!foundMetaHostOpTable) continue;
       this.metaHostOpTable = analysis as MetaHostOpTable;
       const numHostOpTables = Number(
-          this.metaHostOpTable.p?.num_host_op_tables || 0,
+        this.metaHostOpTable.p?.num_host_op_tables || 0,
       );
       if (numHostOpTables <= 0) continue;
       this.hasHostOpTables = true;
+      const hostOpTables: HostOpTable[] = [];
       for (let k = 0; k < numHostOpTables; k++) {
-        this.hostOpTables[k] = data[i + 1 + k] as HostOpTable;
+        hostOpTables.push(data[i + 1 + k] as HostOpTable);
       }
+      this.hostOpTables = hostOpTables;
       return;
     }
   }
 
   findAnalysisData(
-      data: InputPipelineDataTable[], columnId: string,
-      properties: string[] = []): InputPipelineDeviceAnalysis
-      |InputPipelineHostAnalysis|SimpleDataTable|null {
+    data: InputPipelineDataTable[],
+    columnId: string,
+    properties: string[] = [],
+  ):
+    | InputPipelineDeviceAnalysis
+    | InputPipelineHostAnalysis
+    | SimpleDataTable
+    | null {
     if (!data) {
       return DEFAULT_SIMPLE_DATA_TABLE;
     }
@@ -76,15 +89,17 @@ export class InputPipelineCommon {
         continue;
       }
       if (analysis.cols) {
-        const foundCols = analysis.cols.find(column => column.id === columnId);
+        const foundCols = analysis.cols.find(
+          (column) => column.id === columnId,
+        );
         if (!!foundCols) {
           return analysis;
         }
       }
       if (analysis['p']) {
-        const foundProperties =
-          Object.keys(analysis['p'])
-            .find(property => properties.includes(property));
+        const foundProperties = Object.keys(analysis['p']).find((property) =>
+          properties.includes(property),
+        );
         if (!!foundProperties) {
           return analysis;
         }
@@ -101,18 +116,22 @@ export class InputPipelineCommon {
 
   parseCommonInputData(data: InputPipelineDataTable[]) {
     this.deviceAnalysis = this.findAnalysisData(
-      data, COLUMN_ID_DEVICE_ANALYSIS,
-      PROPERTIES_DEVICE_ANALYSIS) as
-      InputPipelineDeviceAnalysis|null;
-    this.hostAnalysis =
-      this.findAnalysisData(
-        data, COLUMN_ID_HOST_ANALYSIS, PROPERTIES_HOST_ANALYSIS) as
-      InputPipelineHostAnalysis;
-    this.recommendation =
-      this.findAnalysisData(data, COLUMN_ID_RECOMMENDATION) as
-      SimpleDataTable|null;
+      data,
+      COLUMN_ID_DEVICE_ANALYSIS,
+      PROPERTIES_DEVICE_ANALYSIS,
+    ) as InputPipelineDeviceAnalysis | null;
+    this.hostAnalysis = this.findAnalysisData(
+      data,
+      COLUMN_ID_HOST_ANALYSIS,
+      PROPERTIES_HOST_ANALYSIS,
+    ) as InputPipelineHostAnalysis;
+    this.recommendation = this.findAnalysisData(
+      data,
+      COLUMN_ID_RECOMMENDATION,
+    ) as SimpleDataTable | null;
     this.diagnostics = parseDiagnosticsDataTable(
-      this.findAnalysisData(data, COLUMN_ID_DIAGNOSTICS));
+      this.findAnalysisData(data, COLUMN_ID_DIAGNOSTICS),
+    );
     this.updateHasDeviceAanlysisRows();
   }
 }

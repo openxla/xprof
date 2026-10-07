@@ -1,5 +1,7 @@
+import {NgFor, NgIf} from '@angular/common';
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   inject,
   OnDestroy,
@@ -14,6 +16,7 @@ import {
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {alignTables} from 'org_xprof/frontend/app/common/utils/diff_utils';
 import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
+import {Chart} from 'org_xprof/frontend/app/components/chart/chart';
 import {
   BAR_CHART_OPTIONS,
   PIE_CHART_OPTIONS,
@@ -21,6 +24,9 @@ import {
 import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
 import {FilterDataProcessor} from 'org_xprof/frontend/app/components/chart/filter_data_processor';
+import {CategoryFilter} from 'org_xprof/frontend/app/components/controls/category_filter/category_filter';
+import {ExportAsCsv} from 'org_xprof/frontend/app/components/controls/export_as_csv/export_as_csv';
+import {ViewArchitecture} from 'org_xprof/frontend/app/components/controls/view_architecture/view_architecture';
 import {
   DATA_SERVICE_INTERFACE_TOKEN,
   DataServiceV2Interface,
@@ -117,8 +123,14 @@ export function getDeltaInfo(activePct: number, basePct: number): DeltaInfo {
 
 /** Generates the HTML tooltip content. */
 export function getTooltipContent(
-    achieved: number, peak: number, unit: string, activePct: number,
-    hasBaseline: boolean, baseAchieved: number | null, basePeak: number | null): string {
+  achieved: number,
+  peak: number,
+  unit: string,
+  activePct: number,
+  hasBaseline: boolean,
+  baseAchieved: number | null,
+  basePeak: number | null,
+): string {
   let tooltip = `<div>Active Achieved: <b>${achieved.toLocaleString()}</b> ${unit} (Peak: ${peak.toLocaleString()} ${unit})</div>`;
   if (hasBaseline && baseAchieved !== null && basePeak !== null) {
     const basePct = basePeak !== 0 ? (100 * baseAchieved) / basePeak : 0;
@@ -139,17 +151,19 @@ declare interface NodeFilterDataProcessorMap {
  * node in a TPU chip.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'utilization-viewer',
   templateUrl: './utilization_viewer.ng.html',
   styleUrls: ['./utilization_viewer.scss'],
   providers: [BaseDiffService],
+  imports: [CategoryFilter, Chart, ExportAsCsv, NgFor, NgIf, ViewArchitecture],
 })
 export class UtilizationViewer extends Dashboard implements OnDestroy {
   readonly tool = 'utilization_viewer';
   readonly ChartType = ChartType;
   /** Handles on-destroy Subject, used to unsubscribe. */
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly destroyed = new ReplaySubject<void>(1);
   private readonly throbber = new Throbber(this.tool);
 
@@ -174,6 +188,7 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
     super();
     route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
       this.sessionId = (params || {})['sessionId'] || '';
+      this.cdr.markForCheck();
     });
     combineLatest([route.params, route.queryParams])
       .pipe(takeUntil(this.destroyed))
@@ -181,6 +196,7 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
         this.sessionId = params['sessionId'] || this.sessionId;
         this.processQueryParams(queryParams);
         this.update();
+        this.cdr.markForCheck();
       });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
   }
@@ -206,6 +222,7 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
             baseline as SimpleDataTable | null,
           ),
         );
+        this.cdr.markForCheck();
       });
   }
 
@@ -482,7 +499,14 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
             const baseAchieved = data.getValue(row, baselineAchievedCol);
             const basePeak = data.getValue(row, baselinePeakCol);
             return getTooltipContent(
-                achieved, peak, unit, activePct, hasBaseline, baseAchieved, basePeak);
+              achieved,
+              peak,
+              unit,
+              activePct,
+              hasBaseline,
+              baseAchieved,
+              basePeak,
+            );
           },
           type: 'string',
           role: 'tooltip',

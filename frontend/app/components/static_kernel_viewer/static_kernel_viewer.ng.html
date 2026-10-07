@@ -105,6 +105,7 @@
               type="button"
               [class.active]="entry === selectedEntry"
               [class.open]="isEntryOpen(entry)"
+              [class.has-spills]="entry.hasSpills"
               (click)="onKernelRowClick(entry, $event)"
               (auxclick)="onKernelRowAuxClick(entry, $event)"
               (mousedown)="onMouseDown($event)"
@@ -117,6 +118,17 @@
             >
               <span class="kernel-monogram" aria-hidden="true">{{ entry.monogram }}</span>
               <span class="kernel-name">{{ entry.kernel }}</span>
+              <span *ngIf="entry.stats" class="kernel-meta" aria-hidden="true">
+                <mat-icon *ngIf="entry.hasSpills" class="spill-icon">warning</mat-icon>
+                <span
+                  *ngIf="entry.busiestUnit"
+                  class="unit-chip"
+                  [style.--unit-color]="entry.busiestUnitColor"
+                >
+                  {{ entry.busiestUnit }}
+                </span>
+                <span class="kernel-bundles">{{ entry.bundlesLabel }}</span>
+              </span>
             </button>
           </ng-container>
         </section>
@@ -154,6 +166,9 @@
                 <span class="tab-name">{{ tab.entry.kernel }}</span>
                 <span *ngIf="tab.entry.subtitle" class="tab-subtitle">{{ tab.entry.subtitle }}</span>
               </span>
+              <mat-icon *ngIf="tab.entry.hasSpills" class="spill-icon" aria-hidden="true">
+                warning
+              </mat-icon>
             </button>
             <button
               *ngIf="tabs.length > 1"
@@ -260,6 +275,26 @@
           <span class="module-dot"></span>
           {{ card.entry.module }}
         </span>
+      </div>
+    </div>
+    <dl *ngIf="card.entry.facts.length > 0" class="card-facts">
+      <ng-container *ngFor="let fact of card.entry.facts">
+        <dt>{{ fact.label }}</dt>
+        <dd [class.warning]="fact.warning">{{ fact.value }}</dd>
+      </ng-container>
+    </dl>
+    <div *ngIf="card.entry.bars.length > 0" class="card-chart">
+      <div class="card-section-title">{{ card.entry.chartTitle }}</div>
+      <div
+        *ngFor="let bar of card.entry.bars"
+        class="unit-bar"
+        [style.--unit-color]="bar.color"
+      >
+        <span class="unit-name">{{ bar.unit }}</span>
+        <span class="unit-track">
+          <span class="unit-fill" [style.width.%]="bar.fraction * 100"></span>
+        </span>
+        <span class="unit-value">{{ bar.label }}</span>
       </div>
     </div>
     <div *ngIf="card.hint" class="card-hint">

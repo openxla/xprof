@@ -592,6 +592,26 @@ $card-width: 320px;
     color 150ms var(--motion-easing-standard);
 }
 
+// Flags kernels that spill vector registers while the rail is collapsed. The
+// expanded rail shows a warning icon instead.
+.kernel-row.has-spills .kernel-monogram::after {
+  content: '';
+  position: absolute;
+  top: -3px;
+  inset-inline-end: -3px;
+  width: 9px;
+  height: 9px;
+  box-sizing: border-box;
+  border: 2px solid var(--mat-sys-surface-container);
+  border-radius: 50%;
+  background: var(--mat-sys-warning);
+  transition: opacity 100ms var(--motion-easing-standard);
+
+  .kernel-rail.expanded & {
+    opacity: 0;
+  }
+}
+
 .kernel-name {
   @include reveal-when-expanded;
   flex: 0 1 auto;
@@ -599,6 +619,48 @@ $card-width: 320px;
   overflow: hidden;
   font: 400 12.5px / 16px var(--mat-sys-code-font);
   text-overflow: ellipsis;
+}
+
+.kernel-meta {
+  @include reveal-when-expanded;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  margin-inline-start: auto;
+}
+
+.spill-icon {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--mat-sys-warning);
+  font-size: 15px;
+}
+
+.unit-chip {
+  --unit-color: var(--mat-sys-primary);
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(
+    in srgb,
+    var(--unit-color) 12%,
+    var(--mat-sys-surface-container-lowest)
+  );
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--unit-color) 25%, transparent);
+  color: color-mix(in srgb, var(--unit-color) 82%, var(--mat-sys-on-surface));
+  font: 600 10px / 14px var(--mat-sys-plain-font);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.1px;
+}
+
+.kernel-bundles {
+  min-width: 34px;
+  color: var(--mat-sys-on-surface-variant);
+  font: 500 11px / 16px var(--mat-sys-code-font);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
 }
 
 .skv-main {
@@ -1034,6 +1096,110 @@ $card-width: 320px;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--group-color) 20%, transparent);
 }
 
+.card-facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px var(--spacing-4);
+  margin: 0;
+  padding: 10px var(--spacing-4);
+  border-top: 1px solid
+    color-mix(in srgb, var(--mat-sys-outline-variant) 50%, transparent);
+  font: var(--mat-sys-body-small);
+
+  dt {
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  dd {
+    margin: 0;
+    color: var(--mat-sys-on-surface);
+    font: 500 12px / 18px var(--mat-sys-code-font);
+    font-variant-numeric: tabular-nums;
+    text-align: end;
+
+    &.warning {
+      justify-self: end;
+      padding: 1px 8px;
+      border-radius: 999px;
+      background: color-mix(
+        in srgb,
+        var(--mat-sys-warning-container) 75%,
+        transparent
+      );
+      box-shadow: inset 0 0 0 1px
+        color-mix(in srgb, var(--mat-sys-warning) 25%, transparent);
+      color: var(--mat-sys-warning);
+      font-weight: 600;
+    }
+  }
+}
+
+.card-chart {
+  margin: 0;
+  padding: 10px var(--spacing-4) 12px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--mat-sys-outline-variant) 45%, transparent);
+}
+
+.card-section-title {
+  margin-bottom: 8px;
+  color: var(--mat-sys-on-surface-variant);
+  font: 600 10.5px / 14px var(--mat-sys-plain-font);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.unit-bar {
+  --unit-color: var(--mat-sys-primary);
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: var(--spacing-2);
+  height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.unit-name {
+  color: color-mix(in srgb, var(--unit-color) 85%, var(--mat-sys-on-surface));
+  font: 600 11px / 16px var(--mat-sys-code-font);
+}
+
+.unit-track {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(
+    in srgb,
+    var(--unit-color) 12%,
+    var(--mat-sys-surface-container-high)
+  );
+}
+
+.unit-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--unit-color);
+  transform-origin: left center;
+  transition:
+    width 220ms var(--motion-easing-emphasized-decelerate),
+    background-color 150ms var(--motion-easing-standard);
+  animation: bar-grow 260ms var(--motion-easing-emphasized-decelerate) both;
+}
+
+@keyframes bar-grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+.unit-value {
+  color: var(--mat-sys-on-surface);
+  font: 500 11px / 16px var(--mat-sys-code-font);
+  text-align: end;
+}
+
 .card-hint {
   margin: 0;
   padding: 8px var(--spacing-4);
@@ -1067,7 +1233,8 @@ $card-width: 320px;
   .kernel-group,
   .kernel-row,
   .kernel-tab,
-  .kernel-card {
+  .kernel-card,
+  .unit-fill {
     transition: none;
     animation: none;
   }

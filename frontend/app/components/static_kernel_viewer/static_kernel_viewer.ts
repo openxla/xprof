@@ -35,6 +35,53 @@ declare interface KernelListResponse {
   readonly kernels?: readonly string[];
 }
 
+/** Statistics of one functional unit in the static schedule of a kernel. */
+export interface UnitStats {
+  /** Timeline lane of the unit, e.g. `MXU`. */
+  readonly unit: string;
+  /** Number of instructions scheduled on the unit. */
+  readonly instructions: number;
+  /** Mean per-bundle utilization between 0 and 1, if known. */
+  readonly utilization?: number;
+}
+
+/**
+ * Summary of the static schedule of a kernel, which the list request reports
+ * in `kernel_stats[module][kernel]`.
+ */
+export interface KernelStats {
+  /** Length of the schedule. */
+  readonly bundles: number;
+  /** Number of scheduled instructions. */
+  readonly instructions: number;
+  /** Functional units with instructions or utilization, busiest first. */
+  readonly units: readonly UnitStats[];
+  /** Whether `units` report utilization, which needs a bundle profile. */
+  readonly hasUtilization: boolean;
+  /** Number of vector register spills, if known. */
+  readonly vectorSpills?: number;
+  /** Number of vector register fills, if known. */
+  readonly vectorFills?: number;
+}
+
+/** A labeled value in the details card of a kernel. */
+export interface KernelFact {
+  readonly label: string;
+  readonly value: string;
+  /** Whether the value points at a likely performance problem. */
+  readonly warning: boolean;
+}
+
+/** A bar of the functional unit chart in the details card of a kernel. */
+export interface UnitBar {
+  readonly unit: string;
+  /** Color of the functional unit. */
+  readonly color: string;
+  /** Length of the bar, between 0 and 1. */
+  readonly fraction: number;
+  readonly label: string;
+}
+
 /** A text or keyboard shortcut token in the footer of a details card. */
 export interface HintPart {
   readonly text: string;
@@ -58,9 +105,27 @@ export interface KernelEntry {
   readonly monogram: string;
   /** Color of the kernel's module group. */
   readonly color: string;
-  /** Module name, shown below the kernel name in its tab. */
+  /** Statistics of the kernel's schedule, if the backend reports them. */
+  readonly stats?: KernelStats;
+  /** Compact schedule length, e.g. `38.4K`, or '' without statistics. */
+  readonly bundlesLabel: string;
+  /** Schedule length, e.g. `38,412 bundles`, or '' without statistics. */
+  readonly bundlesText: string;
+  /** Busiest functional unit and its utilization, e.g. `MXU 82%`, or ''. */
+  readonly busiestUnit: string;
+  /** Color of the busiest functional unit, or ''. */
+  readonly busiestUnitColor: string;
+  /** Whether the schedule spills vector registers to memory. */
+  readonly hasSpills: boolean;
+  /** Module and schedule length, shown below the kernel name in its tab. */
   readonly subtitle: string;
-  /** Accessible description of the kernel. */
+  /** Facts shown in the details card. */
+  readonly facts: readonly KernelFact[];
+  /** Title of the functional unit chart in the details card. */
+  readonly chartTitle: string;
+  /** Functional unit chart in the details card. */
+  readonly bars: readonly UnitBar[];
+  /** Accessible description of the kernel and its statistics. */
   readonly description: string;
 }
 
@@ -109,6 +174,18 @@ const GROUP_COLORS = [
   '#5f6368',
 ];
 
+/** Colors of functional units, matched by uppercase prefix. */
+const UNIT_COLORS: ReadonlyArray<readonly [string, string]> = [
+  ['MXU', '#7c4dff'],
+  ['VPU', '#1a73e8'],
+  ['SALU', '#188038'],
+  ['VLD', '#00838f'],
+  ['VST', '#c2185b'],
+  ['XLU', '#e37400'],
+  ['EUP', '#00796b'],
+  ['DMA', '#e8710a'],
+];
+
 /** Delay before the collapsed kernel rail expands on hover. */
 const RAIL_EXPAND_DELAY_MS = 150;
 
@@ -150,6 +227,19 @@ const IS_APPLE_PLATFORM = /Mac|iPhone|iPad/.test(navigator.userAgent);
 /** Label of the modifier key that opens kernels in background tabs. */
 const BACKGROUND_CLICK_KEY = IS_APPLE_PLATFORM ? '⌘' : 'Ctrl';
 
+const NUMBER_FORMAT = new Intl.NumberFormat();
+const COMPACT_NUMBER_FORMAT = new Intl.NumberFormat(undefined, {
+  notation: 'compact',
+  maximumFractionDigits: 1,
+});
+const RATIO_FORMAT = new Intl.NumberFormat(undefined, {
+  maximumFractionDigits: 1,
+});
+const PERCENT_FORMAT = new Intl.NumberFormat(undefined, {
+  style: 'percent',
+  maximumFractionDigits: 0,
+});
+
 /**
  * Returns a two-letter label for a kernel, built from its first two words,
  * e.g. `add_add_fusion.114` -> `Aa` and `MLA-bd-bq_1` -> `Mb`.
@@ -168,6 +258,108 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function readNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+/**
+ * Parses the schedule summary of a kernel, e.g. `{"bundles": 4,
+ * "instructions": 5, "unit_instructions": {"MXU": 1, "VPU": 4},
+ * "unit_utilization": {"MXU": 0.25}, "vector_spills": 0, "vector_fills": 0}`.
+ * Returns undefined if the summary has no schedule length.
+ */
+export function parseKernelStats(summary: unknown): KernelStats | undefined {
+  if (!isRecord(summary)) {
+    return undefined;
+  }
+  const bundles = readNumber(summary['bundles']);
+  if (bundles === undefined) {
+    return undefined;
+  }
+  const unitInstructions = isRecord(summary['unit_instructions'])
+    ? summary['unit_instructions']
+    : {};
+  const unitUtilization = isRecord(summary['unit_utilization'])
+    ? summary['unit_utilization']
+    : undefined;
+  const unitNames = new Set([
+    ...Object.keys(unitInstructions),
+    ...Object.keys(unitUtilization ?? {}),
+  ]);
+  const units: UnitStats[] = [];
+  for (const unit of unitNames) {
+    const instructions = readNumber(unitInstructions[unit]) ?? 0;
+    const utilization =
+      unitUtilization === undefined
+        ? undefined
+        : (readNumber(unitUtilization[unit]) ?? 0);
+    if (instructions > 0 || (utilization ?? 0) > 0) {
+      units.push({unit, instructions, utilization});
+    }
+  }
+  units.sort(
+    (a, b) =>
+      (b.utilization ?? 0) - (a.utilization ?? 0) ||
+      b.instructions - a.instructions,
+  );
+  return {
+    bundles,
+    instructions: readNumber(summary['instructions']) ?? 0,
+    units,
+    hasUtilization: unitUtilization !== undefined,
+    vectorSpills: readNumber(summary['vector_spills']),
+    vectorFills: readNumber(summary['vector_fills']),
+  };
+}
+
+function formatPercent(fraction: number): string {
+  // Tiny shares would round to 0%, which reads as unused.
+  return fraction > 0 && fraction < 0.005
+    ? `<${PERCENT_FORMAT.format(0.01)}`
+    : PERCENT_FORMAT.format(fraction);
+}
+
+function kernelFacts(stats: KernelStats): KernelFact[] {
+  let instructions = NUMBER_FORMAT.format(stats.instructions);
+  if (stats.bundles > 0) {
+    const perBundle = RATIO_FORMAT.format(stats.instructions / stats.bundles);
+    instructions += ` · ${perBundle} per bundle`;
+  }
+  const facts: KernelFact[] = [
+    {
+      label: 'Bundles',
+      value: NUMBER_FORMAT.format(stats.bundles),
+      warning: false,
+    },
+    {label: 'Instructions', value: instructions, warning: false},
+  ];
+  if (stats.vectorSpills !== undefined || stats.vectorFills !== undefined) {
+    const spills = stats.vectorSpills ?? 0;
+    const fills = stats.vectorFills ?? 0;
+    facts.push({
+      label: 'Vector spills / fills',
+      value:
+        spills + fills > 0
+          ? `${NUMBER_FORMAT.format(spills)} / ${NUMBER_FORMAT.format(fills)}`
+          : 'None',
+      warning: spills + fills > 0,
+    });
+  }
+  return facts;
+}
+
+function unitColor(unit: string): string {
+  const upper = unit.toUpperCase();
+  for (const [prefix, color] of UNIT_COLORS) {
+    if (upper.startsWith(prefix)) {
+      return color;
+    }
+  }
+  return 'var(--mat-sys-primary)';
+}
+
 function buildCardHint(parts: readonly HintPart[]): {
   hint: string;
   hintParts: readonly HintPart[];
@@ -178,12 +370,71 @@ function buildCardHint(parts: readonly HintPart[]): {
   };
 }
 
+/**
+ * Charts the mean utilization of each functional unit if the schedule reports
+ * it, or else the share of instructions of each unit.
+ */
+function unitChart(stats?: KernelStats): {
+  chartTitle: string;
+  bars: readonly UnitBar[];
+} {
+  const units = stats?.units ?? [];
+  const utilized = units.filter((unit) => (unit.utilization ?? 0) > 0);
+  if (utilized.length > 0) {
+    return {
+      chartTitle: 'Mean utilization',
+      bars: utilized.map(({unit, utilization = 0}) => ({
+        unit,
+        color: unitColor(unit),
+        fraction: Math.min(utilization, 1),
+        label: formatPercent(utilization),
+      })),
+    };
+  }
+  const total = units.reduce((sum, unit) => sum + unit.instructions, 0);
+  if (total === 0) {
+    return {chartTitle: '', bars: []};
+  }
+  return {
+    chartTitle: 'Instruction mix',
+    bars: units
+      .filter((unit) => unit.instructions > 0)
+      .map(({unit, instructions}) => ({
+        unit,
+        color: unitColor(unit),
+        fraction: instructions / total,
+        label: formatPercent(instructions / total),
+      })),
+  };
+}
+
 function createEntry(
   module: string,
   kernel: string,
   index: number,
   color: string,
+  stats?: KernelStats,
 ): KernelEntry {
+  const bundlesText = stats
+    ? `${NUMBER_FORMAT.format(stats.bundles)} ${
+        stats.bundles === 1 ? 'bundle' : 'bundles'
+      }`
+    : '';
+  // A busiest unit is only meaningful with utilization from a bundle profile.
+  const busiest = stats?.hasUtilization ? stats.units[0] : undefined;
+  const busiestUnit = busiest?.utilization
+    ? `${busiest.unit} ${formatPercent(busiest.utilization)}`
+    : '';
+  const busiestUnitColor =
+    busiestUnit && busiest ? unitColor(busiest.unit) : '';
+  const hasSpills = (stats?.vectorSpills ?? 0) + (stats?.vectorFills ?? 0) > 0;
+  const description = [
+    kernel,
+    module,
+    bundlesText,
+    busiestUnit ? `busiest unit ${busiestUnit}` : '',
+    hasSpills ? 'spills vector registers' : '',
+  ];
   return {
     module,
     kernel,
@@ -191,45 +442,92 @@ function createEntry(
     index,
     monogram: kernelMonogram(kernel),
     color,
-    subtitle: module,
-    description: [kernel, module].filter(Boolean).join(', '),
+    stats,
+    bundlesLabel: stats ? COMPACT_NUMBER_FORMAT.format(stats.bundles) : '',
+    bundlesText,
+    busiestUnit,
+    busiestUnitColor,
+    hasSpills,
+    subtitle: [module, bundlesText].filter(Boolean).join(' · '),
+    facts: stats ? kernelFacts(stats) : [],
+    ...unitChart(stats),
+    description: description.filter(Boolean).join(', '),
   };
 }
 
-/** Groups the kernels of a list response by HLO module, in response order. */
+/** An HLO module group before its kernels are assigned display indices. */
+interface DraftGroup {
+  readonly module: string;
+  readonly kernels: ReadonlyArray<{
+    readonly kernel: string;
+    readonly stats?: KernelStats;
+  }>;
+  readonly maxBundles: number;
+}
+
+function buildDraftGroup(
+  module: string,
+  kernelNames: readonly string[],
+  moduleStats: unknown,
+): DraftGroup | undefined {
+  if (kernelNames.length === 0) {
+    return undefined;
+  }
+  const statsByKernel = isRecord(moduleStats) ? moduleStats : {};
+  const kernels = kernelNames
+    .map((kernel) => ({
+      kernel,
+      stats: parseKernelStats(statsByKernel[kernel]),
+    }))
+    .sort((a, b) => (b.stats?.bundles ?? -1) - (a.stats?.bundles ?? -1));
+  const maxBundles = kernels[0]?.stats?.bundles ?? -1;
+  return {module, kernels, maxBundles};
+}
+
+/**
+ * Groups the kernels of a list response by HLO module. Kernels within each
+ * module are sorted by descending bundle count, and modules are ranked by the
+ * maximum bundle count of their kernels.
+ */
 function buildKernelGroups(response: unknown): KernelGroup[] {
   const list = (isRecord(response) ? response : {}) as KernelListResponse;
+  const stats =
+    isRecord(response) && isRecord(response['kernel_stats'])
+      ? response['kernel_stats']
+      : {};
   const moduleKernels = list.module_kernels ?? {};
   const modules = new Set([
     ...(list.hlo_modules ?? []),
     ...Object.keys(moduleKernels),
   ]);
-  const groups: KernelGroup[] = [];
+  const namedGroups: DraftGroup[] = [];
   const groupedKernels = new Set<string>();
-  let index = 0;
-  const addGroup = (module: string, kernels: readonly string[]) => {
-    if (kernels.length === 0) {
-      return;
-    }
-    const color = GROUP_COLORS[groups.length % GROUP_COLORS.length];
-    const entries = kernels.map((kernel) =>
-      createEntry(module, kernel, index++, color),
-    );
-    groups.push({module, color, entries});
-  };
   for (const module of modules) {
     const kernels = moduleKernels[module] ?? [];
     for (const kernel of kernels) {
       groupedKernels.add(kernel);
     }
-    addGroup(module, kernels);
+    const group = buildDraftGroup(module, kernels, stats[module]);
+    if (group) {
+      namedGroups.push(group);
+    }
   }
+  namedGroups.sort((a, b) => b.maxBundles - a.maxBundles);
   // Older backends only report a flat list of kernels.
-  addGroup(
+  const ungrouped = buildDraftGroup(
     '',
     (list.kernels ?? []).filter((kernel) => !groupedKernels.has(kernel)),
+    stats[''],
   );
-  return groups;
+  const allGroups = ungrouped ? [...namedGroups, ungrouped] : namedGroups;
+  let index = 0;
+  return allGroups.map((group, groupIndex) => {
+    const color = GROUP_COLORS[groupIndex % GROUP_COLORS.length];
+    const entries = group.kernels.map(({kernel, stats: entryStats}) =>
+      createEntry(group.module, kernel, index++, color, entryStats),
+    );
+    return {module: group.module, color, entries};
+  });
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {

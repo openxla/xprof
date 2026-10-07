@@ -3,8 +3,12 @@
 Public API:
   validate_kernels: Compare a candidate kernel against a reference, optionally
     auditing the reference itself against a high-precision oracle. Pass
-    `contract=CONTRACT_BITWISE` to require exact bit-pattern equality.
+    `contract=CONTRACT_BITWISE` to require exact bit-pattern equality. Kernels
+    may return pytrees; each leaf is validated, with optional per-leaf
+    contracts via `contract_by_leaf`.
   compare_bitwise: Exact bit-pattern comparison of two arrays.
+  make_fwd_bwd: Wrap a JAX function so its output also carries its VJP, which
+    puts the backward pass under validation.
   chunk_callable: Wrap an oracle to execute in slices along one axis, for
     shapes whose high-precision intermediates exceed device memory.
   ORACLE_AUTO: `kernel_oracle` sentinel that re-runs the reference with its
@@ -134,7 +138,15 @@ class BitwiseComparison:
 
 @dataclasses.dataclass(frozen=True)
 class BatchValidationResult:
-  """Validation metrics and status for a single test batch."""
+  """Validation metrics and status for a single test batch.
+
+  For kernels that return a pytree (tuple, list, dict or registered JAX
+  container), each output leaf is validated on its own and stored in
+  `leaf_results`, keyed by its JAX key path (for example `[0]` or `['lse']`).
+  The batch-level metrics then come from the leaf named in `leaf_path`: the
+  first failing leaf, or the leaf with the largest ULP distance when all pass.
+  `passed` is True only when every leaf passes.
+  """
 
   batch_name: str
   regime: str
@@ -154,6 +166,8 @@ class BatchValidationResult:
   finite_max_ulp: int | None = None
   worst_offender: WorstOffender | None = None
   bitwise: BitwiseComparison | None = None
+  leaf_path: str | None = None
+  leaf_results: dict[str, "BatchValidationResult"] | None = None
 
   @property
   def max_ulp(self) -> int:
@@ -673,6 +687,77 @@ def _probe_pin_inert(
   )
 
 
+def make_fwd_bwd(
+    fn: collections.abc.Callable[..., Any],
+    argnums: int | collections.abc.Sequence[int] | None = None,
+    cotangent_seed: int = 0,
+) -> collections.abc.Callable[..., dict[str, Any]]:
+  """Wraps a JAX function so that validation covers its backward pass.
+
+  The wrapper returns `{"out": fn(*args), "vjp": grads}`, where `grads` holds
+  one vector-Jacobian product per differentiated argument. The output
+  cotangent is drawn from N(0, 1) with a fixed seed and the shape and dtype of
+  each output leaf, so a reference and a candidate with the same output
+  structure receive the same cotangent. Wrap both kernels and pass them to
+  `validate_kernels`. Each result is then validated as its own leaf (`['out']`,
+  `['vjp'][0]`, ...), and `contract_by_leaf` can set a contract per leaf.
+
+  Args:
+    fn: A function that `jax.vjp` can differentiate.
+    argnums: Positional arguments to differentiate. Defaults to every positional
+      argument with a floating-point or complex dtype.
+    cotangent_seed: Seed for the output cotangent.
+
+  Returns:
+    A callable that takes the same arguments as `fn`.
+  """
+  jax = importlib.import_module("jax")
+  jnp = jax.numpy
+
+  def _is_inexact(value: Any) -> bool:
+    try:
+      return bool(jnp.issubdtype(jnp.asarray(value).dtype, jnp.inexact))
+    except TypeError:
+      return False
+
+  def _cotangent(index: int, leaf: Any) -> Any:
+    if not jnp.issubdtype(leaf.dtype, jnp.inexact):
+      return np.zeros(leaf.shape, dtype=jax.dtypes.float0)
+    rng = np.random.default_rng(cotangent_seed + index)
+    return jnp.asarray(
+        rng.standard_normal(leaf.shape).astype(np.float32), dtype=leaf.dtype
+    )
+
+  @functools.wraps(fn)
+  def fwd_bwd(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    if argnums is None:
+      diff = tuple(i for i, a in enumerate(args) if _is_inexact(a))
+    elif isinstance(argnums, int):
+      diff = (argnums,)
+    else:
+      diff = tuple(argnums)
+    if not diff:
+      raise ValueError(
+          "make_fwd_bwd found no floating-point positional argument to"
+          " differentiate. Pass argnums explicitly."
+      )
+
+    def partial_fn(*diff_args: Any) -> Any:
+      full = list(args)
+      for i, value in zip(diff, diff_args):
+        full[i] = value
+      return fn(*full, **kwargs)
+
+    out, vjp_fn = jax.vjp(partial_fn, *(jnp.asarray(args[i]) for i in diff))
+    leaves, treedef = jax.tree_util.tree_flatten(out)
+    cotangent = jax.tree_util.tree_unflatten(
+        treedef, [_cotangent(i, leaf) for i, leaf in enumerate(leaves)]
+    )
+    return {"out": out, "vjp": tuple(vjp_fn(cotangent))}
+
+  return fwd_bwd
+
+
 def chunk_callable(
     fn: collections.abc.Callable[..., Any],
     chunk_arg_indices: tuple[int, ...] = (0, 1, 2),
@@ -880,6 +965,217 @@ def _verify_oracle_precision(
   )
 
 
+def _flatten_output_fallback(value: Any, path: str) -> list[tuple[str, Any]]:
+  """Flattens tuples, lists, namedtuples and dicts without JAX."""
+  if isinstance(value, dict):
+    pairs = []
+    for key in sorted(value):
+      pairs.extend(_flatten_output_fallback(value[key], f"{path}[{key!r}]"))
+    return pairs
+  if isinstance(value, tuple) and hasattr(value, "_fields"):
+    pairs = []
+    for field in getattr(value, "_fields"):
+      pairs.extend(
+          _flatten_output_fallback(getattr(value, field), f"{path}.{field}")
+      )
+    return pairs
+  if isinstance(value, (tuple, list)):
+    pairs = []
+    for index, item in enumerate(value):
+      pairs.extend(_flatten_output_fallback(item, f"{path}[{index}]"))
+    return pairs
+  if value is None:
+    return []
+  return [(path, value)]
+
+
+def _flatten_output(value: Any) -> list[tuple[str, Any]]:
+  """Flattens a kernel output into `(key_path, leaf)` pairs.
+
+  A bare array yields one pair with an empty path. Containers use JAX key-path
+  notation (`[0]`, `['lse']`, `.field`), so `contract_by_leaf` keys are the
+  same whether or not JAX is loaded. When JAX is loaded, registered custom
+  pytree nodes are flattened as well.
+
+  Args:
+    value: The kernel output.
+
+  Returns:
+    The leaves in deterministic order with their key paths.
+  """
+  jax = sys.modules.get("jax")
+  if jax is not None:
+    tree_util = jax.tree_util
+    pairs = tree_util.tree_flatten_with_path(value)[0]
+    return [(tree_util.keystr(path), leaf) for path, leaf in pairs]
+  return _flatten_output_fallback(value, "")
+
+
+def _is_pytree_output(leaves: list[tuple[str, Any]]) -> bool:
+  return len(leaves) != 1 or bool(leaves[0][0])
+
+
+def _leaf_selector(
+    fn: collections.abc.Callable[..., Any],
+    index: int,
+    cached_args: tuple[Any, ...] | None = None,
+    cached_kwargs: dict[str, Any] | None = None,
+    cached_leaf: Any = None,
+) -> collections.abc.Callable[..., Any]:
+  """Returns a callable that yields leaf `index` of `fn`'s output.
+
+  The call that produced `cached_leaf` is not repeated: when the arguments are
+  the same objects as `cached_args`/`cached_kwargs`, the cached leaf is
+  returned. Any other call (for example the float64-promoted oracle re-run)
+  executes `fn` and selects the leaf.
+
+  Args:
+    fn: The kernel whose output is a pytree.
+    index: Position of the leaf in `_flatten_output` order.
+    cached_args: Positional arguments of the cached call, if any.
+    cached_kwargs: Keyword arguments of the cached call.
+    cached_leaf: The leaf returned by the cached call.
+  """
+  cached_kwargs = cached_kwargs or {}
+
+  def _is_cached_call(args: tuple[Any, ...], kwargs: dict[str, Any]) -> bool:
+    if cached_args is None or len(args) != len(cached_args):
+      return False
+    if kwargs.keys() != cached_kwargs.keys():
+      return False
+    return all(a is b for a, b in zip(args, cached_args)) and all(
+        kwargs[k] is cached_kwargs[k] for k in kwargs
+    )
+
+  @functools.wraps(fn)
+  def select(*args: Any, **kwargs: Any) -> Any:
+    if _is_cached_call(args, kwargs):
+      return cached_leaf
+    return _flatten_output(fn(*args, **kwargs))[index][1]
+
+  return select
+
+
+def _primary_leaf_view(
+    fn: collections.abc.Callable[..., Any],
+) -> collections.abc.Callable[..., Any]:
+  """Returns `fn` with pytree outputs reduced to their first leaf.
+
+  Precision probes compare one array before and after pinning. For kernels
+  with several outputs the first leaf is the representative. The wrapper keeps
+  the signature and attributes of `fn` so `precision` detection still works.
+
+  Args:
+    fn: A kernel that may return a pytree.
+  """
+
+  @functools.wraps(fn)
+  def view(*args: Any, **kwargs: Any) -> Any:
+    out = fn(*args, **kwargs)
+    leaves = _flatten_output(out)
+    if not _is_pytree_output(leaves):
+      return out
+    return leaves[0][1] if leaves else out
+
+  return view
+
+
+def _execute_pytree_batch(
+    batch: dict[str, Any],
+    ref_leaves: list[tuple[str, Any]],
+    cand_leaves: list[tuple[str, Any]],
+    kernel_ref: collections.abc.Callable[..., Any],
+    kernel_candidate: collections.abc.Callable[..., Any],
+    kernel_oracle: collections.abc.Callable[..., Any] | str | None,
+    contract: str,
+    contract_by_leaf: collections.abc.Mapping[str, str],
+    **gate_kwargs: Any,
+) -> _BatchExecutionResult:
+  """Validates every leaf of a pytree output and merges the results."""
+  name = batch.get("name")
+  ref_paths = [path for path, _ in ref_leaves]
+  cand_paths = [path for path, _ in cand_leaves]
+  if ref_paths != cand_paths:
+    raise ValueError(
+        f"Output structure mismatch in batch '{name}': candidate leaves"
+        f" {cand_paths} != reference leaves {ref_paths}"
+    )
+  if not ref_paths:
+    raise ValueError(f"Kernel returned no array leaves in batch '{name}'.")
+  unknown = sorted(set(contract_by_leaf) - set(ref_paths))
+  if unknown:
+    raise ValueError(
+        f"contract_by_leaf names unknown output leaves {unknown}. Available"
+        f" leaves: {ref_paths}."
+    )
+
+  args = batch.get("args", (batch.get("tensor"),))
+  kwargs = batch.get("kwargs", {})
+  subs: list[_BatchExecutionResult] = []
+  for index, (path, ref_leaf) in enumerate(ref_leaves):
+    leaf_oracle = kernel_oracle
+    if callable(kernel_oracle):
+      leaf_oracle = _leaf_selector(kernel_oracle, index)
+    sub = _execute_single_batch(
+        batch=batch,
+        kernel_ref=_leaf_selector(kernel_ref, index, args, kwargs, ref_leaf),
+        kernel_candidate=_leaf_selector(
+            kernel_candidate, index, args, kwargs, cand_leaves[index][1]
+        ),
+        kernel_oracle=leaf_oracle,
+        contract=contract_by_leaf.get(path, contract),
+        **gate_kwargs,
+    )
+    subs.append(sub)
+
+  leaf_results = {
+      path: dataclasses.replace(sub.batch_result, leaf_path=path)
+      for path, sub in zip(ref_paths, subs)
+  }
+  worst_index = next(
+      (i for i, sub in enumerate(subs) if not sub.passed),
+      max(range(len(subs)), key=lambda i: subs[i].max_ulp),
+  )
+  passed = all(sub.passed for sub in subs)
+  batch_res = dataclasses.replace(
+      leaf_results[ref_paths[worst_index]],
+      passed=passed,
+      leaf_results=leaf_results,
+  )
+  oracle_subs = [sub for sub in subs if sub.oracle_ran]
+  return _BatchExecutionResult(
+      batch_result=batch_res,
+      max_ulp=max(sub.max_ulp for sub in subs),
+      passed=passed,
+      oracle_ran=bool(oracle_subs),
+      oracle_in_float64=all(sub.oracle_in_float64 for sub in oracle_subs),
+      oracle_output_dtype=(
+          oracle_subs[0].oracle_output_dtype if oracle_subs else ""
+      ),
+      ref_oracle_max_ulp=max(
+          (sub.ref_oracle_max_ulp for sub in oracle_subs), default=0
+      ),
+      cand_oracle_max_ulp=max(
+          (sub.cand_oracle_max_ulp for sub in oracle_subs), default=0
+      ),
+      ref_oracle_p99_9=max(
+          (sub.ref_oracle_p99_9 for sub in oracle_subs), default=0.0
+      ),
+      cand_oracle_p99_9=max(
+          (sub.cand_oracle_p99_9 for sub in oracle_subs), default=0.0
+      ),
+      ref_oracle_max_abs=max(
+          (sub.ref_oracle_max_abs for sub in oracle_subs), default=0.0
+      ),
+      cand_oracle_max_abs=max(
+          (sub.cand_oracle_max_abs for sub in oracle_subs), default=0.0
+      ),
+      narrow_warning=next(
+          (sub.narrow_warning for sub in subs if sub.narrow_warning), None
+      ),
+  )
+
+
 def _execute_single_batch(
     batch: dict[str, Any],
     kernel_ref: collections.abc.Callable[..., Any],
@@ -891,13 +1187,35 @@ def _execute_single_batch(
     recommended_ulp: int,
     kernel_oracle: collections.abc.Callable[..., Any] | str | None = None,
     contract: str = CONTRACT_ULP,
+    contract_by_leaf: collections.abc.Mapping[str, str] | None = None,
 ) -> _BatchExecutionResult:
   """Executes and validates a single batch between reference and candidate."""
   args = batch.get("args", (batch.get("tensor"),))
   kwargs = batch.get("kwargs", {})
 
-  out_ref = np.asarray(kernel_ref(*args, **kwargs))
-  out_cand = np.asarray(kernel_candidate(*args, **kwargs))
+  raw_ref = kernel_ref(*args, **kwargs)
+  raw_cand = kernel_candidate(*args, **kwargs)
+  ref_leaves = _flatten_output(raw_ref)
+  cand_leaves = _flatten_output(raw_cand)
+  if _is_pytree_output(ref_leaves) or _is_pytree_output(cand_leaves):
+    return _execute_pytree_batch(
+        batch=batch,
+        ref_leaves=ref_leaves,
+        cand_leaves=cand_leaves,
+        kernel_ref=kernel_ref,
+        kernel_candidate=kernel_candidate,
+        kernel_oracle=kernel_oracle,
+        contract=contract,
+        contract_by_leaf=contract_by_leaf or {},
+        canonical_dtype=canonical_dtype,
+        dtype_str=dtype_str,
+        actual_max_allowed_ulp=actual_max_allowed_ulp,
+        p99_9_allowed_ulp=p99_9_allowed_ulp,
+        recommended_ulp=recommended_ulp,
+    )
+
+  out_ref = np.asarray(raw_ref)
+  out_cand = np.asarray(raw_cand)
 
   if out_cand.shape != out_ref.shape:
     raise ValueError(
@@ -1275,6 +1593,7 @@ def validate_kernels(
     kernel_oracle: collections.abc.Callable[..., Any] | str | None = None,
     device_kind: str | None = None,
     contract: str = CONTRACT_ULP,
+    contract_by_leaf: collections.abc.Mapping[str, str] | None = None,
 ) -> KernelValidationReport:
   """Validates candidate kernel against reference implementation.
 
@@ -1310,11 +1629,20 @@ def validate_kernels(
       CONTRACT_BITWISE passes only when every output element of the candidate
       has the same bit pattern and dtype as the reference. Use it for refactors
       and reduction-order-controlled rewrites that must be exact.
+    contract_by_leaf: For kernels that return a pytree, overrides `contract` for
+      individual output leaves, keyed by JAX key path (for example `{"[1]":
+      CONTRACT_ULP}` or `{"['lse']": CONTRACT_BITWISE}`). Every leaf is
+      validated; leaves not named here use `contract`. Unknown paths raise
+      ValueError listing the available leaves.
 
   Returns:
-    A KernelValidationReport.
+    A KernelValidationReport. For pytree outputs each batch result carries
+    per-leaf results in `leaf_results`.
   """
   _check_contract(contract)
+  contract_by_leaf = dict(contract_by_leaf or {})
+  for leaf_contract in contract_by_leaf.values():
+    _check_contract(leaf_contract)
   if isinstance(kernel_oracle, str) and kernel_oracle != ORACLE_AUTO:
     raise ValueError(
         f"Unknown kernel_oracle string '{kernel_oracle}'; expected"
@@ -1389,7 +1717,10 @@ def validate_kernels(
             " Pass regimes='all' to run the full suite."
         )
   else:
-    if test_suite is not None or contract == CONTRACT_BITWISE:
+    any_bitwise = contract == CONTRACT_BITWISE or any(
+        c == CONTRACT_BITWISE for c in contract_by_leaf.values()
+    )
+    if test_suite is not None or any_bitwise:
       batches_to_run = list(full_suite)
     elif kernel_oracle is not None or _is_discrete_dtype(canonical_dtype):
       # Q3 error distribution and integer boundary testing require full suite.
@@ -1420,6 +1751,9 @@ def validate_kernels(
   effective_device_kind = device_kind or detected_device_kind
   effective_backend = detected_backend
 
+  # Precision probes compare a single array; for pytree outputs they observe
+  # the first leaf.
+  probe_ref = _primary_leaf_view(kernel_ref)
   pin_inert_detected = False
   ref_is_unpinned = False
   if batches_to_run:
@@ -1427,13 +1761,13 @@ def validate_kernels(
     first_args = first_b.get("args", (first_b.get("tensor"),))
     first_kwargs = first_b.get("kwargs", {})
     if _probe_pin_inert(
-        kernel_ref, first_args, first_kwargs, effective_device_kind
+        probe_ref, first_args, first_kwargs, effective_device_kind
     ):
       pin_inert_detected = True
 
     if not _is_discrete_dtype(canonical_dtype):
       ref_probe = _probe_precision(
-          kernel_ref,
+          probe_ref,
           first_args,
           first_kwargs,
           baseline="given",
@@ -1458,6 +1792,7 @@ def validate_kernels(
         recommended_ulp=recommended_ulp,
         kernel_oracle=kernel_oracle,
         contract=contract,
+        contract_by_leaf=contract_by_leaf,
     )
     acc.update(res)
     batch_results.append(res.batch_result)
@@ -1483,7 +1818,11 @@ def validate_kernels(
         oracle_in_float64=acc.oracle_in_float64,
         oracle_output_dtype=acc.oracle_output_dtype,
         canonical_dtype=canonical_dtype,
-        kernel_oracle=kernel_oracle,
+        kernel_oracle=(
+            _primary_leaf_view(kernel_oracle)
+            if callable(kernel_oracle)
+            else kernel_oracle
+        ),
         probe_args=probe_args,
         probe_kwargs=probe_kwargs,
         effective_device_kind=effective_device_kind,
@@ -1533,10 +1872,10 @@ def validate_kernels(
       b0_args = first_b.get("args", (first_b.get("tensor"),))
       b0_kwargs = first_b.get("kwargs", {})
       p_args, p_kwargs = _promote_args_to_dtype(b0_args, b0_kwargs, np.float64)
-      probe_out = kernel_ref(*p_args, **p_kwargs)
+      probe_out = probe_ref(*p_args, **p_kwargs)
       probe_arr = np.asarray(probe_out)
       if probe_arr.dtype == np.float64:
-        ref_b0 = np.asarray(kernel_ref(*b0_args, **b0_kwargs))
+        ref_b0 = np.asarray(probe_ref(*b0_args, **b0_kwargs))
         probe_ulp = int(
             np.max(compute_ulp_distance(ref_b0, probe_arr, dtype_str=dtype_str))
         )
@@ -1563,17 +1902,20 @@ def validate_kernels(
     else:
       first_bad = next(b for b in batch_results if not b.passed)
       bw = first_bad.bitwise
+      leaf = (
+          f" output leaf {first_bad.leaf_path}," if first_bad.leaf_path else ""
+      )
       if bw is not None and bw.first_diff_index is not None:
         where = (
             f" First difference: batch '{first_bad.batch_name}' (regime"
-            f" '{first_bad.regime}') at index {bw.first_diff_index}, reference"
-            f" bits {bw.reference_bits}, candidate bits {bw.candidate_bits};"
-            f" {bw.diff_count} elements differ, max ULP"
+            f" '{first_bad.regime}'),{leaf} at index {bw.first_diff_index},"
+            f" reference bits {bw.reference_bits}, candidate bits"
+            f" {bw.candidate_bits}; {bw.diff_count} elements differ, max ULP"
             f" {first_bad.max_ulp_distance}."
         )
       else:
         note = bw.note if bw is not None else "no bitwise detail."
-        where = f" Batch '{first_bad.batch_name}': {note}"
+        where = f" Batch '{first_bad.batch_name}',{leaf} {note}"
       summary = (
           "FAILED: Candidate differs bitwise from the reference in"
           f" {acc.failed_batches}/{len(batch_results)} batches"
@@ -1659,7 +2001,7 @@ def validate_kernels(
         note=overall_note,
     )
 
-  run_config = {
+  run_config: dict[str, Any] = {
       "tier": tier,
       "seed": seed,
       "dtype_str": dtype_str,
@@ -1668,6 +2010,8 @@ def validate_kernels(
       "total_batches_count": len(batch_results),
       "contract": contract,
   }
+  if contract_by_leaf:
+    run_config["contract_by_leaf"] = contract_by_leaf
   if pin_inert_detected:
     run_config["reference_pin_inert"] = True
   if ref_is_unpinned:

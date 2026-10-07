@@ -13,6 +13,7 @@ from xprof.xparity import numerical_generator
 from xprof.xparity import numerical_validator
 
 _Callable = collections.abc.Callable
+_Mapping = collections.abc.Mapping
 _Sequence = collections.abc.Sequence
 
 
@@ -158,6 +159,7 @@ def verify_numerical_parity(
     device_kind: str | None = None,
     strict_shape_error: bool = False,
     contract: str = numerical_validator.CONTRACT_ULP,
+    contract_by_leaf: _Mapping[str, str] | str | None = None,
 ) -> str:
   """Validates numerical parity between two kernels and returns a JSON report.
 
@@ -183,10 +185,13 @@ def verify_numerical_parity(
       changes the verdict.
     device_kind: Device/backend identifier (e.g. "tpu", "gpu", "cpu").
       Auto-detected when omitted.
-    strict_shape_error: If True, raises ValueError on output shape mismatch
-      instead of returning a structured failure JSON report.
+    strict_shape_error: If True, raises ValueError on output shape or structure
+      mismatch instead of returning a structured failure JSON report.
     contract: "ulp" (default) gates on ULP distance; "bitwise" requires every
       output element to match the reference bit for bit.
+    contract_by_leaf: Per-leaf contract overrides for pytree outputs, keyed by
+      JAX key path, as a mapping or a dict literal string (e.g. "{'[1]':
+      'ulp'}").
 
   Returns:
     A JSON string containing the validation report.
@@ -208,6 +213,18 @@ def verify_numerical_parity(
     elif regimes.startswith("[") or regimes.startswith("("):
       parsed_regimes = ast.literal_eval(regimes)
 
+  parsed_contract_by_leaf: _Mapping[str, str] | None
+  if isinstance(contract_by_leaf, str):
+    literal = ast.literal_eval(contract_by_leaf)
+    if not isinstance(literal, dict):
+      raise ValueError(
+          "contract_by_leaf must be a dict literal mapping leaf paths to"
+          f" contracts, got {contract_by_leaf!r}."
+      )
+    parsed_contract_by_leaf = literal
+  else:
+    parsed_contract_by_leaf = contract_by_leaf
+
   try:
     report = numerical_validator.validate_kernels(
         kernel_ref=ref_fn,
@@ -222,12 +239,14 @@ def verify_numerical_parity(
         kernel_oracle=oracle_fn,
         device_kind=device_kind,
         contract=contract,
+        contract_by_leaf=parsed_contract_by_leaf,
     )
   except ValueError as e:
     msg = str(e)
     if not strict_shape_error and (
         "Shape mismatch in batch" in msg
         or "Oracle shape mismatch in batch" in msg
+        or "Output structure mismatch in batch" in msg
     ):
       mismatch_payload = {
           "is_numerically_equivalent": False,

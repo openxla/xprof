@@ -71,6 +71,7 @@ directly from `xprof.xparity`:
 from xprof.xparity import CONTRACT_BITWISE
 from xprof.xparity import chunk_callable
 from xprof.xparity import compare_bitwise
+from xprof.xparity import make_fwd_bwd
 from xprof.xparity import numerical_generator
 from xprof.xparity import numerical_validator
 from xprof.xparity import validate_kernels
@@ -84,6 +85,16 @@ report = validate_kernels(
     max_allowed_ulp=2,
     kernel_oracle="auto",
     contract="ulp",  # or CONTRACT_BITWISE for exact bit-pattern equality
+    # Optional per-leaf contract overrides for tuple/dict/pytree outputs:
+    # contract_by_leaf={"['out']": "bitwise", "['vjp'][0]": "ulp"},
+)
+
+# Validate both forward output and backward VJP gradients leaf-by-leaf:
+fwd_bwd_report = validate_kernels(
+    kernel_ref=make_fwd_bwd(reference_fn),
+    kernel_candidate=make_fwd_bwd(candidate_fn),
+    shapes=[(32, 2048)],
+    dtype_str="bfloat16",
 )
 ```
 
@@ -137,6 +148,11 @@ Float64 oracle (a **False Red**).
         requiring exact bit identity across layout or refactor changes, pass
         `contract="bitwise"` (do not gate on `overall_max_ulp == 0`, which maps
         `-0.0` and `+0.0` to the same index and fails on identical `NaN`s).
+    -   For multi-output (pytree) kernels or `make_fwd_bwd` backward-pass
+        checks, inspect `leaf_path` (the first failing leaf or worst-ULP leaf,
+        e.g. `"[0]"`, `"['lse']"`, or `"['vjp'][0]"`) and per-leaf entries in
+        `leaf_results`. Every leaf must pass for the batch to pass; use
+        `contract_by_leaf` (`--contract_by_leaf`) to set per-leaf contracts.
 
 --------------------------------------------------------------------------------
 

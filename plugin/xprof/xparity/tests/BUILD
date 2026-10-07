@@ -17,6 +17,16 @@ pytype_strict_contrib_test(
 )
 
 pytype_strict_contrib_test(
+    name = "pytree_outputs_test",
+    srcs = ["pytree_outputs_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:numerical_validator",
+        "//plugin/xprof/xparity:xparity_tool",
+        "@absl_py//absl/testing:absltest",
+    ],
+)
+
+pytype_strict_contrib_test(
     name = "numerical_generator_test",
     srcs = ["numerical_generator_test.py"],
     deps = [

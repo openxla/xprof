@@ -10,6 +10,7 @@ CONTRACT_ULP = numerical_validator.CONTRACT_ULP
 CONTRACT_BITWISE = numerical_validator.CONTRACT_BITWISE
 validate_kernels = numerical_validator.validate_kernels
 compare_bitwise = numerical_validator.compare_bitwise
+make_fwd_bwd = numerical_validator.make_fwd_bwd
 chunk_callable = numerical_validator.chunk_callable
 compute_ulp_distance = ulp.compute_ulp_distance
 get_contract = ulp.get_contract
@@ -33,6 +34,7 @@ __all__ = [
     "get_contract",
     "inspect_suite",
     "load_test_suite",
+    "make_fwd_bwd",
     "numerical_generator",
     "numerical_validator",
     "probe_precision",

@@ -245,6 +245,37 @@ if not report.is_numerically_equivalent:
       print(f"  Batch {batch.batch_name}: Max ULP={batch.max_ulp_distance}")
 ```
 
+### Workflow C: Multi-Output Pytrees & Backward-Pass Validation (`make_fwd_bwd`, `contract_by_leaf`)
+
+Kernels that return tuples, dicts, or registered JAX pytrees (for example,
+attention returning `(out, lse)` or a fused forward+backward pass) are flattened
+automatically via JAX key-path notation (`"[0]"`, `"['lse']"`, `"['vjp'][0]"`).
+Every leaf is validated independently:
+
+-   Each `BatchValidationResult` populates `leaf_results` (mapping key path to
+    its `BatchValidationResult`) and sets `leaf_path` to the first failing leaf
+    (or the leaf with the largest ULP distance when all pass). A batch passes
+    only when every leaf passes.
+-   Use `contract_by_leaf` (`--contract_by_leaf="{'['out']': 'bitwise',
+    '['lse']': 'ulp'}"` on the CLI) to override the contract per leaf.
+-   To validate custom VJP backward rules alongside the forward pass, wrap both
+    callables with `make_fwd_bwd(fn, argnums=..., cotangent_seed=0)`, which
+    returns `{"out": out, "vjp": grads}` using a deterministic `N(0, 1)` output
+    cotangent per leaf:
+
+```python
+from xprof.xparity import make_fwd_bwd
+from xprof.xparity import validate_kernels
+
+report = validate_kernels(
+    kernel_ref=make_fwd_bwd(ref_kernel),
+    kernel_candidate=make_fwd_bwd(candidate_kernel),
+    shapes=[(128, 64), (64, 128)],
+    dtype_str="bfloat16",
+    contract_by_leaf={"['out']": "bitwise", "['vjp'][0]": "ulp"},
+)
+```
+
 ### Operational Testing Tiers
 
 Tier               | Total Tensors ($m$)      | Composition                                                        | Latency                       | Recommended Use

@@ -33,7 +33,7 @@ const CHIP_TEXT_MAX_LENGTH = 15;
   selector: 'filter-chips',
   template: `
     <mat-chip-grid #chipGrid>
-      <ng-container *ngFor="let filter of filters; let idx = index">
+      @for (filter of filters; track filter; let idx = $index) {
         <mat-chip-row
           matAutocompleteOrigin #origin="matAutocompleteOrigin"
           (removed)="remove(idx)"
@@ -44,7 +44,7 @@ const CHIP_TEXT_MAX_LENGTH = 15;
           [matTooltip]="getTooltip(filter)"
           (click)="onClickChip($event, filter, idx)"
           class="filter-chip">
-            {{getFilterShortenString(filter)}}
+          {{getFilterShortenString(filter)}}
           <button matChipRemove [attr.aria-label]="'remove filter ' + filter.field.displayName">
             <mat-icon>cancel</mat-icon>
           </button>
@@ -63,15 +63,17 @@ const CHIP_TEXT_MAX_LENGTH = 15;
             <mat-option>
               <mat-checkbox class="example-margin" [checked]="allOptionsSelected" (click)="onOperateAll($event)">{{allOptionsLabel}}</mat-checkbox>
             </mat-option>
-            <mat-option *ngFor="let option of (autoChipValueOptions | async) trackBy:trackByValue"
-              [value]="option.value" >
-              <mat-checkbox class="example-margin" [(ngModel)]="option.checked" (click)="onClickChipOption($event)">{{option.value}}</mat-checkbox>
-            </mat-option>
+            @for (option of (autoChipValueOptions | async); track option.value) {
+              <mat-option
+                [value]="option.value" >
+                <mat-checkbox class="example-margin" [(ngModel)]="option.checked" (click)="onClickChipOption($event)">{{option.value}}</mat-checkbox>
+              </mat-option>
+            }
           </div>
         </mat-autocomplete>
-      </ng-container>
+      }
     </mat-chip-grid>
-`,
+    `,
   styleUrls: ['./trace_viewer.scss'],
 })
 export class FilterChips {

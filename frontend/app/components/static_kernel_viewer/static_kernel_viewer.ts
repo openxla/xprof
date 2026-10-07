@@ -619,6 +619,9 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   readonly canCopyLink = navigator.clipboard !== undefined;
   linkCopied = false;
 
+  /** Whether to show the Angular kernel event tooltip on the timeline. */
+  enableEventTooltip = false;
+
   traceViewerModule: TraceViewerV2Module | null = null;
 
   @ViewChild('searchInput') searchInput?: ElementRef<HTMLInputElement>;
@@ -715,9 +718,11 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     this.isInitializing = true;
     try {
       this.traceViewerModule = await traceViewerV2Main();
-      // The kernel event tooltip replaces the built-in one, which formats
-      // bundle counts as durations.
-      this.traceViewerModule?.SetEventTooltipEnabled?.(false);
+      if (this.enableEventTooltip) {
+        // The kernel event tooltip replaces the built-in one, which formats
+        // bundle counts as durations.
+        this.traceViewerModule?.SetEventTooltipEnabled?.(false);
+      }
       if (this.isDestroyed) {
         if (this.traceViewerModule !== null) {
           shutdownTraceViewerV2();

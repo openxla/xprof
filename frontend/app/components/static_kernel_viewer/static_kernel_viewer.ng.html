@@ -250,7 +250,10 @@
       [useTraceViewerV2]="true"
       (initializeWasm)="onInitializeWasm()"
     >
-      <kernel-event-tooltip canvasOverlay></kernel-event-tooltip>
+      <kernel-event-tooltip
+        *ngIf="enableEventTooltip"
+        canvasOverlay
+      ></kernel-event-tooltip>
     </trace-viewer-container>
   </div>
 

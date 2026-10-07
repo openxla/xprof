@@ -9,6 +9,7 @@ against exactly the contracts that `numerical_validator` uses.
 
 Public API:
   compute_ulp_distance: Elementwise integer ULP distance between two arrays.
+  bitwise_mismatch_mask: Elements whose raw bit patterns differ.
   get_contract: (recommended, hard ceiling) ULP contract for a dtype.
   resolve_canonical_dtype: Normalizes any accepted dtype spelling.
   is_discrete_dtype: True for integer and boolean dtypes.
@@ -358,3 +359,41 @@ def compute_ulp_distance(
   out = raw_ulp.copy()
   out[idx] = scaled
   return out
+
+
+def bitwise_mismatch_mask(actual: Any, expected: Any) -> np.ndarray:
+  """Returns a boolean mask of the elements whose raw bit patterns differ.
+
+  A zero ULP distance is not bitwise equality: `compute_ulp_distance` maps
+  `-0.0` and `+0.0` to the same index and says nothing useful about NaN. This
+  compares raw bytes instead, so `-0.0` differs from `+0.0` and two NaNs are
+  equal only when their payloads match.
+
+  Args:
+    actual: The candidate tensor.
+    expected: The reference tensor, with the same shape and dtype.
+
+  Returns:
+    A boolean array shaped like the inputs.
+
+  Raises:
+    ValueError: If the shapes or dtypes differ.
+  """
+  act = np.asarray(actual)
+  exp = np.asarray(expected)
+  if act.shape != exp.shape or act.dtype != exp.dtype:
+    raise ValueError(
+        "bitwise_mismatch_mask needs equal shapes and dtypes, got"
+        f" {act.shape} {act.dtype} vs {exp.shape} {exp.dtype}."
+    )
+  itemsize = act.dtype.itemsize
+  if act.size == 0 or itemsize == 0:
+    return np.zeros(act.shape, dtype=bool)
+
+  def _as_byte_rows(arr: np.ndarray) -> np.ndarray:
+    flat = np.ascontiguousarray(arr).reshape(-1)
+    return flat.view(np.uint8).reshape(-1, itemsize)
+
+  return np.any(_as_byte_rows(act) != _as_byte_rows(exp), axis=1).reshape(
+      act.shape
+  )

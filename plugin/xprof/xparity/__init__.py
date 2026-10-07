@@ -6,7 +6,10 @@ from xprof.xparity import ulp
 from xprof.xparity import xparity_tool
 
 ORACLE_AUTO = numerical_validator.ORACLE_AUTO
+CONTRACT_ULP = numerical_validator.CONTRACT_ULP
+CONTRACT_BITWISE = numerical_validator.CONTRACT_BITWISE
 validate_kernels = numerical_validator.validate_kernels
+compare_bitwise = numerical_validator.compare_bitwise
 chunk_callable = numerical_validator.chunk_callable
 compute_ulp_distance = ulp.compute_ulp_distance
 get_contract = ulp.get_contract
@@ -19,8 +22,11 @@ inspect_suite = xparity_tool.inspect_suite
 probe_precision = xparity_tool.probe_precision
 
 __all__ = [
+    "CONTRACT_BITWISE",
+    "CONTRACT_ULP",
     "ORACLE_AUTO",
     "chunk_callable",
+    "compare_bitwise",
     "compute_ulp_distance",
     "generate_suite",
     "generate_test_suite",

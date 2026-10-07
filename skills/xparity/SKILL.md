@@ -39,6 +39,14 @@ xparity verify \
   --max_allowed_ulp=2 \
   --kernel_oracle="auto"
 
+# Verify exact bit-pattern equality across all regimes (distinguishes -0.0/+0.0)
+xparity verify \
+  --kernel_ref="my_pkg.kernels:ref_fn" \
+  --kernel_candidate="my_pkg.kernels:cand_fn" \
+  --shapes="[(32, 2048)]" \
+  --dtype_str="bfloat16" \
+  --contract="bitwise"
+
 # Generate and persist a multi-regime .npz stress test suite
 xparity generate_suite \
   --shapes="[(16, 1024)]" \
@@ -60,7 +68,9 @@ When validating inline callables inside a test or benchmark script, import
 directly from `xprof.xparity`:
 
 ```python
+from xprof.xparity import CONTRACT_BITWISE
 from xprof.xparity import chunk_callable
+from xprof.xparity import compare_bitwise
 from xprof.xparity import numerical_generator
 from xprof.xparity import numerical_validator
 from xprof.xparity import validate_kernels
@@ -73,6 +83,7 @@ report = validate_kernels(
     tier="presubmit",
     max_allowed_ulp=2,
     kernel_oracle="auto",
+    contract="ulp",  # or CONTRACT_BITWISE for exact bit-pattern equality
 )
 ```
 
@@ -91,8 +102,9 @@ Float64 oracle (a **False Red**).
 ### Mandatory Verdict-Reading Order (Inverted Order)
 
 1.  **Check `run_config` Provenance First**: Confirm `tier` (`fast_agent` vs
-    `presubmit`), `dtype_str`, `device_kind`, and `total_batches_count`. Never
-    quote a `fast_agent` ULP figure as a final `presubmit` certification.
+    `presubmit`), `contract` (`"ulp"` vs `"bitwise"`), `dtype_str`,
+    `device_kind`, and `total_batches_count`. Never quote a `fast_agent` ULP
+    figure as a final `presubmit` certification.
 2.  **Check `tolerance_audit` Second**: Verify `configured_max_ulp` against
     `recommended_contract_ulp` (`2 ULP` for `float32`/`bfloat16`/`float16`, `1
     ULP` for `fp8`, `0 ULP` for discrete `int*`/`bool`) and the immutable
@@ -117,10 +129,14 @@ Float64 oracle (a **False Red**).
 4.  **Check `is_numerically_equivalent` & `batch_results` Last (Question Q1 —
     Behavior Alteration)**:
     -   Inspect `worst_offender` (`max_ulp_index`, `ref_value`, `cand_value`,
-        `abs_diff`, `rel_diff`, `mismatch_count`) and non-finite telemetry
-        (`nan_count`, `inf_count`, `first_non_finite_index`, `finite_max_ulp`)
-        to pinpoint localized boundary, causal-diagonal, or gather-index
-        defects.
+        `abs_diff`, `rel_diff`, `mismatch_count`), `bitwise` (`equal`,
+        `diff_count`, `diff_ratio`, `first_diff_index`, `reference_bits`,
+        `candidate_bits`), and non-finite telemetry (`nan_count`, `inf_count`,
+        `first_non_finite_index`, `finite_max_ulp`) to pinpoint localized
+        boundary, sign-of-zero, causal-diagonal, or gather-index defects. When
+        requiring exact bit identity across layout or refactor changes, pass
+        `contract="bitwise"` (do not gate on `overall_max_ulp == 0`, which maps
+        `-0.0` and `+0.0` to the same index and fails on identical `NaN`s).
 
 --------------------------------------------------------------------------------
 

@@ -2,7 +2,9 @@
 
 Public API:
   validate_kernels: Compare a candidate kernel against a reference, optionally
-    auditing the reference itself against a high-precision oracle.
+    auditing the reference itself against a high-precision oracle. Pass
+    `contract=CONTRACT_BITWISE` to require exact bit-pattern equality.
+  compare_bitwise: Exact bit-pattern comparison of two arrays.
   chunk_callable: Wrap an oracle to execute in slices along one axis, for
     shapes whose high-precision intermediates exceed device memory.
   ORACLE_AUTO: `kernel_oracle` sentinel that re-runs the reference with its
@@ -104,6 +106,33 @@ class WorstOffender:
 
 
 @dataclasses.dataclass(frozen=True)
+class BitwiseComparison:
+  """Exact bit-pattern comparison between a candidate and a reference.
+
+  Unlike a 0-ULP gate, this distinguishes `-0.0` from `+0.0` and treats two
+  NaNs with the same payload as equal.
+
+  Attributes:
+    equal: True when every element has the same bit pattern and dtype.
+    diff_count: Number of elements whose bit patterns differ.
+    diff_ratio: `diff_count` divided by the element count.
+    first_diff_index: Index of the first differing element in C order.
+    reference_bits: Hex bit pattern of the reference at `first_diff_index`.
+    candidate_bits: Hex bit pattern of the candidate at `first_diff_index`.
+    note: Explanation when the comparison could not be made element-wise, for
+      example on a dtype mismatch.
+  """
+
+  equal: bool
+  diff_count: int
+  diff_ratio: float
+  first_diff_index: tuple[int, ...] | None = None
+  reference_bits: str | None = None
+  candidate_bits: str | None = None
+  note: str | None = None
+
+
+@dataclasses.dataclass(frozen=True)
 class BatchValidationResult:
   """Validation metrics and status for a single test batch."""
 
@@ -124,6 +153,7 @@ class BatchValidationResult:
   first_non_finite_index: tuple[int, ...] | None = None
   finite_max_ulp: int | None = None
   worst_offender: WorstOffender | None = None
+  bitwise: BitwiseComparison | None = None
 
   @property
   def max_ulp(self) -> int:
@@ -266,6 +296,88 @@ def _relative_diff(abs_diff: float, ref_value: float, canonical: str) -> float:
   """
   denom = max(abs(ref_value), _rel_diff_floor(canonical))
   return abs_diff / denom
+
+
+# Verdict contracts accepted by `validate_kernels` and `validate_arrays`.
+# CONTRACT_ULP gates on ULP distance and an allclose check. CONTRACT_BITWISE
+# requires every output element to have the same bit pattern as the reference.
+CONTRACT_ULP = "ulp"
+CONTRACT_BITWISE = "bitwise"
+_CONTRACTS = frozenset({CONTRACT_ULP, CONTRACT_BITWISE})
+
+
+def _check_contract(contract: str) -> None:
+  if contract not in _CONTRACTS:
+    raise ValueError(
+        f"Unknown contract '{contract}'; expected one of {sorted(_CONTRACTS)}."
+    )
+
+
+def _hex_bits(element_bytes: np.ndarray) -> str:
+  """Formats the raw bytes of one element as a fixed-width hex integer."""
+  value = int.from_bytes(element_bytes.tobytes(), sys.byteorder)
+  return f"0x{value:0{2 * element_bytes.size}x}"
+
+
+def compare_bitwise(actual: Any, expected: Any) -> BitwiseComparison:
+  """Compares two arrays for exact bit-pattern equality.
+
+  A 0-ULP gate is not a bitwise gate: `compute_ulp_distance` maps `-0.0` and
+  `+0.0` to the same index, and ULP statistics are undefined for NaN. This
+  function compares raw bytes instead, so it is the check to use when a
+  candidate must reproduce a reference exactly.
+
+  Args:
+    actual: The candidate tensor.
+    expected: The reference tensor.
+
+  Returns:
+    A BitwiseComparison. Arrays with different dtypes are reported as unequal
+    in every element, with an explanatory `note`.
+
+  Raises:
+    ValueError: If the shapes differ.
+  """
+  act = np.asarray(actual)
+  exp = np.asarray(expected)
+  if act.shape != exp.shape:
+    raise ValueError(
+        f"Shape mismatch in compare_bitwise: {act.shape} vs {exp.shape}"
+    )
+  size = int(act.size)
+  if act.dtype != exp.dtype:
+    return BitwiseComparison(
+        equal=False,
+        diff_count=size,
+        diff_ratio=1.0 if size else 0.0,
+        note=(
+            f"dtype mismatch: candidate {act.dtype} vs reference {exp.dtype}."
+            " Bitwise equality requires identical output dtypes."
+        ),
+    )
+  if size == 0:
+    return BitwiseComparison(equal=True, diff_count=0, diff_ratio=0.0)
+
+  diff_mask = ulp.bitwise_mismatch_mask(act, exp).reshape(-1)
+  diff_count = int(np.count_nonzero(diff_mask))
+  if diff_count == 0:
+    return BitwiseComparison(equal=True, diff_count=0, diff_ratio=0.0)
+
+  flat_first = int(np.argmax(diff_mask))
+
+  def _element_bytes(arr: np.ndarray) -> np.ndarray:
+    return np.ascontiguousarray(arr).reshape(-1)[flat_first : flat_first + 1]
+
+  return BitwiseComparison(
+      equal=False,
+      diff_count=diff_count,
+      diff_ratio=float(diff_count) / float(size),
+      first_diff_index=tuple(
+          int(x) for x in np.unravel_index(flat_first, act.shape)
+      ),
+      reference_bits=_hex_bits(_element_bytes(exp).view(np.uint8)),
+      candidate_bits=_hex_bits(_element_bytes(act).view(np.uint8)),
+  )
 
 
 ORACLE_AUTO = "auto"
@@ -778,6 +890,7 @@ def _execute_single_batch(
     p99_9_allowed_ulp: int,
     recommended_ulp: int,
     kernel_oracle: collections.abc.Callable[..., Any] | str | None = None,
+    contract: str = CONTRACT_ULP,
 ) -> _BatchExecutionResult:
   """Executes and validates a single batch between reference and candidate."""
   args = batch.get("args", (batch.get("tensor"),))
@@ -791,6 +904,8 @@ def _execute_single_batch(
         f"Shape mismatch in batch '{batch.get('name')}': candidate shape "
         f"{out_cand.shape} != reference shape {out_ref.shape}"
     )
+
+  bitwise_cmp = compare_bitwise(out_cand, out_ref)
 
   is_discrete = (
       dtype_str == "bool"
@@ -932,7 +1047,7 @@ def _execute_single_batch(
     allclose_passed = False
     passed = False
     context_obj = UlpContext(
-        bit_identical=False,
+        bit_identical=bitwise_cmp.equal,
         p50=float("nan"),
         p99_9=float("nan"),
         max_ulp=max_ulp,
@@ -967,7 +1082,7 @@ def _execute_single_batch(
     p99_9 = float(np.percentile(ulp_arr, 99.9))
     mean_ulp = float(np.mean(ulp_arr))
     p50 = float(np.percentile(ulp_arr, 50.0))
-    bit_identical = bool(np.all(ulp_arr == 0))
+    bit_identical = bitwise_cmp.equal
     hist = {
         "<=1_ulp": int(np.sum(ulp_arr <= 1)),
         "<=2_ulp": int(np.sum(ulp_arr <= 2)),
@@ -1048,6 +1163,16 @@ def _execute_single_batch(
         note=context_note,
     )
 
+  if contract == CONTRACT_BITWISE:
+    passed = bitwise_cmp.equal
+    if bitwise_cmp.equal and has_nan_or_inf:
+      # Identical bits are zero distance by definition, including NaN and Inf
+      # positions that ULP statistics cannot measure.
+      max_ulp = 0
+      p99_9 = 0.0
+      mean_ulp = 0.0
+      hist = {"<=1_ulp": out_cand.size, "<=2_ulp": out_cand.size, ">2_ulp": 0}
+
   batch_res = BatchValidationResult(
       batch_name=batch["name"],
       regime=batch.get("regime", "unknown"),
@@ -1066,6 +1191,7 @@ def _execute_single_batch(
       first_non_finite_index=first_non_finite_index,
       finite_max_ulp=finite_max_ulp,
       worst_offender=worst_offender,
+      bitwise=bitwise_cmp,
   )
 
   return _BatchExecutionResult(
@@ -1148,6 +1274,7 @@ def validate_kernels(
     regimes: collections.abc.Sequence[str] | str | None = None,
     kernel_oracle: collections.abc.Callable[..., Any] | str | None = None,
     device_kind: str | None = None,
+    contract: str = CONTRACT_ULP,
 ) -> KernelValidationReport:
   """Validates candidate kernel against reference implementation.
 
@@ -1160,10 +1287,14 @@ def validate_kernels(
     test_suite: Pre-generated suite; generated from `shapes` when omitted.
     tier: Suite size -- "fast_agent", "presubmit" or "deep_fuzzing".
     max_allowed_ulp: Per-element ULP gate, bounded by MAX_HARD_CEILING_ULP.
-    p99_9_allowed_ulp: 99.9th-percentile ULP gate.
+      Ignored for the verdict under CONTRACT_BITWISE.
+    p99_9_allowed_ulp: 99.9th-percentile ULP gate. Ignored for the verdict under
+      CONTRACT_BITWISE.
     seed: PRNG seed for suite generation.
-    regimes: Optional sequence of regime names to filter batches (defaults to
-      'normal' with triage on failure). Pass 'all' to run full suite.
+    regimes: Optional sequence of regime names to filter batches. Under
+      CONTRACT_ULP this defaults to 'normal' with triage on failure; under
+      CONTRACT_BITWISE it defaults to the full suite, because bit equality must
+      hold for every input. Pass 'all' to run the full suite.
     kernel_oracle: Optional high-precision reference used to report how far
       `kernel_ref` itself sits from an exact result. Report-only: it populates
       `oracle_audit` and never changes the pass/fail verdict. Two modes: * An
@@ -1175,10 +1306,15 @@ def validate_kernels(
       for JAX references.
     device_kind: Device/backend identifier (e.g. "tpu", "gpu", "cpu").
       Auto-detected when omitted.
+    contract: CONTRACT_ULP (default) gates on ULP distance and allclose.
+      CONTRACT_BITWISE passes only when every output element of the candidate
+      has the same bit pattern and dtype as the reference. Use it for refactors
+      and reduction-order-controlled rewrites that must be exact.
 
   Returns:
     A KernelValidationReport.
   """
+  _check_contract(contract)
   if isinstance(kernel_oracle, str) and kernel_oracle != ORACLE_AUTO:
     raise ValueError(
         f"Unknown kernel_oracle string '{kernel_oracle}'; expected"
@@ -1253,7 +1389,7 @@ def validate_kernels(
             " Pass regimes='all' to run the full suite."
         )
   else:
-    if test_suite is not None:
+    if test_suite is not None or contract == CONTRACT_BITWISE:
       batches_to_run = list(full_suite)
     elif kernel_oracle is not None or _is_discrete_dtype(canonical_dtype):
       # Q3 error distribution and integer boundary testing require full suite.
@@ -1321,6 +1457,7 @@ def validate_kernels(
         p99_9_allowed_ulp=p99_9_allowed_ulp,
         recommended_ulp=recommended_ulp,
         kernel_oracle=kernel_oracle,
+        contract=contract,
     )
     acc.update(res)
     batch_results.append(res.batch_result)
@@ -1416,7 +1553,33 @@ def validate_kernels(
     except Exception as e:  # pylint: disable=broad-exception-caught
       logging.debug("Zero-ULP lossy baseline probe failed: %s", e)
 
-  if is_equivalent:
+  if contract == CONTRACT_BITWISE:
+    caution_msg = None
+    if is_equivalent:
+      summary = (
+          "PASSED: Candidate is bit-identical to the reference across"
+          f" {len(batch_results)} batches (contract: bitwise)."
+      )
+    else:
+      first_bad = next(b for b in batch_results if not b.passed)
+      bw = first_bad.bitwise
+      if bw is not None and bw.first_diff_index is not None:
+        where = (
+            f" First difference: batch '{first_bad.batch_name}' (regime"
+            f" '{first_bad.regime}') at index {bw.first_diff_index}, reference"
+            f" bits {bw.reference_bits}, candidate bits {bw.candidate_bits};"
+            f" {bw.diff_count} elements differ, max ULP"
+            f" {first_bad.max_ulp_distance}."
+        )
+      else:
+        note = bw.note if bw is not None else "no bitwise detail."
+        where = f" Batch '{first_bad.batch_name}': {note}"
+      summary = (
+          "FAILED: Candidate differs bitwise from the reference in"
+          f" {acc.failed_batches}/{len(batch_results)} batches"
+          f" (contract: bitwise).{where}"
+      )
+  elif is_equivalent:
     summary = (
         "PASSED: Kernels are numerically equivalent across"
         f" {len(batch_results)} batches (Max ULP: {acc.overall_max_ulp},"
@@ -1503,6 +1666,7 @@ def validate_kernels(
       "device_kind": effective_device_kind,
       "backend": effective_backend,
       "total_batches_count": len(batch_results),
+      "contract": contract,
   }
   if pin_inert_detected:
     run_config["reference_pin_inert"] = True
@@ -1533,6 +1697,7 @@ def validate_arrays(
     dtype_str: str = "bfloat16",
     max_allowed_ulp: int | None = None,
     p99_9_allowed_ulp: float = 1.0,
+    contract: str = CONTRACT_ULP,
 ) -> BatchValidationResult:
   """Validates bitwise ULP parity between two pre-computed arrays.
 
@@ -1543,6 +1708,9 @@ def validate_arrays(
     max_allowed_ulp: Per-element ULP gate. Defaults to the dtype's recommended
       contract; may not exceed its immutable hard safety ceiling.
     p99_9_allowed_ulp: Gate on the 99.9th percentile of the ULP distribution.
+    contract: CONTRACT_ULP (default) or CONTRACT_BITWISE. Under CONTRACT_BITWISE
+      `passed` is True only when both arrays have the same dtype and every
+      element has the same bit pattern.
 
   Returns:
     A BatchValidationResult. When either tensor contains non-finite values the
@@ -1550,6 +1718,7 @@ def validate_arrays(
     `first_non_finite_index`) alongside `finite_max_ulp` computed over the
     finite subset, rather than a sentinel magnitude.
   """
+  _check_contract(contract)
   act_np = np.asarray(actual)
   exp_np = np.asarray(expected)
   canonical = resolve_canonical_dtype(dtype_str)
@@ -1615,7 +1784,8 @@ def validate_arrays(
   else:
     max_ulp, mean_ulp, p50_ulp, p99_9_ulp = 0, 0.0, 0.0, 0.0
 
-  bit_identical = bool(not has_nan_inf and max_ulp == 0)
+  bitwise_cmp = compare_bitwise(act_np, exp_np)
+  bit_identical = bitwise_cmp.equal
   total = int(ulp_dist.size)
   le_1 = int(np.count_nonzero(ulp_dist <= 1))
   le_2 = int(np.count_nonzero(ulp_dist <= 2))
@@ -1675,6 +1845,8 @@ def validate_arrays(
     )
 
   passed = bool(ulp_passed and allclose_passed)
+  if contract == CONTRACT_BITWISE:
+    passed = bitwise_cmp.equal
   note = None
   if has_nan_inf:
     note = (
@@ -1709,6 +1881,7 @@ def validate_arrays(
       first_non_finite_index=first_non_finite_index,
       finite_max_ulp=max_ulp,
       worst_offender=worst_offender,
+      bitwise=bitwise_cmp,
   )
 
 

@@ -96,6 +96,63 @@ class UlpTest(parameterized.TestCase):
     self.assertTrue(ulp.is_discrete_dtype("bool"))
     self.assertFalse(ulp.is_discrete_dtype("bf16"))
 
+  @parameterized.named_parameters(
+      ("float32", np.float32),
+      ("bfloat16", ml_dtypes.bfloat16),
+      ("float16", np.float16),
+  )
+  def test_bitwise_mask_separates_signed_zero_that_ulp_merges(self, dtype):
+    actual = np.array([0.0, -0.0, 1.0], dtype=dtype)
+    expected = np.array([-0.0, -0.0, 1.0], dtype=dtype)
+    self.assertEqual(
+        ulp.compute_ulp_distance(actual, expected, np.dtype(dtype).name)
+        .tolist(),
+        [0, 0, 0],
+    )
+    self.assertEqual(
+        ulp.bitwise_mismatch_mask(actual, expected).tolist(),
+        [True, False, False],
+    )
+
+  def test_bitwise_mask_compares_nan_payloads(self):
+    quiet = np.array([0x7FC00000], dtype=np.uint32).view(np.float32)
+    payload = np.array([0x7FC00001], dtype=np.uint32).view(np.float32)
+    self.assertEqual(
+        ulp.bitwise_mismatch_mask(quiet, quiet.copy()).tolist(), [False]
+    )
+    self.assertEqual(ulp.bitwise_mismatch_mask(quiet, payload).tolist(), [True])
+
+  def test_bitwise_mask_keeps_shape_and_handles_empty(self):
+    a = np.zeros((2, 3), dtype=np.int8)
+    b = a.copy()
+    b[1, 2] = 1
+    mask = ulp.bitwise_mismatch_mask(a, b)
+    self.assertEqual(mask.shape, (2, 3))
+    self.assertEqual(int(mask.sum()), 1)
+    self.assertTrue(mask[1, 2])
+    empty = np.zeros((0, 4), dtype=np.float32)
+    self.assertEqual(ulp.bitwise_mismatch_mask(empty, empty).shape, (0, 4))
+
+  def test_bitwise_mask_rejects_dtype_or_shape_mismatch(self):
+    with self.assertRaisesRegex(ValueError, "equal shapes and dtypes"):
+      ulp.bitwise_mismatch_mask(
+          np.zeros(2, np.float32), np.zeros(2, np.float16)
+      )
+    with self.assertRaisesRegex(ValueError, "equal shapes and dtypes"):
+      ulp.bitwise_mismatch_mask(np.zeros(2), np.zeros(3))
+
+  def test_validator_compare_bitwise_agrees_with_mask(self):
+    actual = np.array([1.0, -0.0, 2.0], dtype=np.float32)
+    expected = np.array([1.0, 0.0, 2.0], dtype=np.float32)
+    result = numerical_validator.compare_bitwise(actual, expected)
+    self.assertEqual(
+        result.diff_count,
+        int(ulp.bitwise_mismatch_mask(actual, expected).sum()),
+    )
+    self.assertEqual(result.first_diff_index, (1,))
+    self.assertEqual(result.candidate_bits, "0x80000000")
+    self.assertEqual(result.reference_bits, "0x00000000")
+
 
 if __name__ == "__main__":
   absltest.main()

@@ -157,6 +157,7 @@ def verify_numerical_parity(
     kernel_oracle: _Callable[..., Any] | str | None = None,
     device_kind: str | None = None,
     strict_shape_error: bool = False,
+    contract: str = numerical_validator.CONTRACT_ULP,
 ) -> str:
   """Validates numerical parity between two kernels and returns a JSON report.
 
@@ -184,6 +185,8 @@ def verify_numerical_parity(
       Auto-detected when omitted.
     strict_shape_error: If True, raises ValueError on output shape mismatch
       instead of returning a structured failure JSON report.
+    contract: "ulp" (default) gates on ULP distance; "bitwise" requires every
+      output element to match the reference bit for bit.
 
   Returns:
     A JSON string containing the validation report.
@@ -218,6 +221,7 @@ def verify_numerical_parity(
         regimes=parsed_regimes,
         kernel_oracle=oracle_fn,
         device_kind=device_kind,
+        contract=contract,
     )
   except ValueError as e:
     msg = str(e)
@@ -234,6 +238,7 @@ def verify_numerical_parity(
               "dtype_str": dtype_str,
               "device_kind": device_kind or "auto",
               "total_batches_count": 0,
+              "contract": contract,
           },
           "overall_max_ulp": 999999,
           "failed_batches_count": 1,

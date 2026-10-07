@@ -140,7 +140,8 @@ xparity verify \
     "dtype_str": "bfloat16",
     "device_kind": "tpu_v6e",
     "backend": "tpu",
-    "total_batches_count": 1
+    "total_batches_count": 1,
+    "contract": "ulp"
   },
   "tolerance_audit": {
     "recommended_contract_ulp": 2,
@@ -193,6 +194,15 @@ xparity verify \
         "p99_9": 1.0,
         "max_ulp": 1,
         "reliable": true,
+        "note": null
+      },
+      "bitwise": {
+        "equal": false,
+        "diff_count": 655,
+        "diff_ratio": 0.04,
+        "first_diff_index": [0, 12],
+        "reference_bits": "0x3f80",
+        "candidate_bits": "0x3f81",
         "note": null
       }
     }
@@ -247,7 +257,7 @@ Tier               | Total Tensors ($m$)      | Composition                     
 
 Transformation Class | Primary Metric to Read | Why / Pitfall to Avoid
 :--- | :--- | :---
-**Bitwise / Layout Refactor** (same arithmetic order) | `overall_max_ulp == 0` (`ulp_context.bit_identical == True`) | Must be bit-for-bit identical (`0 ULP`) across all regimes.
+**Bitwise / Layout Refactor** (same arithmetic order) | `contract="bitwise"` verdict (`is_numerically_equivalent`), per-batch `bitwise.first_diff_index` on failure | Must be bit-for-bit identical across all regimes. Do not gate on `overall_max_ulp == 0`: ULP distance treats `-0.0` and `+0.0` as equal and fails batches with identical NaN outputs. The bitwise contract runs the full suite by default.
 **Reduction Reorder / Split-K / Tree-Summation** | `mean_ulp_distance`, `p99_9_ulp_distance`, and `allclose_passed` | Near-zero sums (`~1e-7` in `float32`) sit across thousands of exponent steps even when absolute difference is `< 1e-7`. Check `NEAR_ZERO_MAX_ULP_OUTLIER` in `ulp_context.note` rather than rejecting on `max_ulp` alone.
 **Intentional Precision Reduction (`f32 -> bf16` / `fp8`)** | `oracle_audit.candidate_max_abs_from_oracle` & relative error (`allclose`) | Truncating mantissa bits (`23 -> 7` bits for `f32 -> bf16`) spans $2^{15}$ `f32` ULPs by construction; evaluate against the target narrower dtype's relative tolerance (`7.8e-3` for `bf16`), not `f32` ULPs.
 

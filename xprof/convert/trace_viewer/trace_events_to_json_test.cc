@@ -39,6 +39,7 @@ namespace {
 
 using ::testing::HasSubstr;
 using ::testing::Not;
+using ::testing::UnorderedElementsAre;
 
 class TestTraceEventsContainer {
  public:
@@ -1270,6 +1271,152 @@ TEST(TraceEventsToJsonTest, MpmdZeroRankedDevicesOmitsProcessSortIndex) {
   // When K = 0 (no ranked MPMD devices), process_sort_index metadata is
   // omitted.
   EXPECT_THAT(output_str, Not(HasSubstr(R"("name":"process_sort_index")")));
+}
+
+TEST(SortMpmdDevicesTest, SortMpmdDevicesSingleDevicePerStage) {
+  Trace trace;
+  TraceEventsContainer events;
+
+  auto add_event = [&](uint32_t device_id, const std::string& name,
+                       uint64_t ts) {
+    (*trace.mutable_devices())[device_id]
+        .mutable_resources()
+        ->operator[](1)
+        .set_name("XLA Modules");
+    TraceEvent event;
+    event.set_device_id(device_id);
+    event.set_resource_id(1);
+    event.set_name(name);
+    event.set_timestamp_ps(ts);
+    event.set_duration_ps(1000);
+    events.AddEvent(event);
+  };
+
+  // Device 0 and Device 1 both execute Stage 0 of program.
+  add_event(0, "p0_stage0.program(1)", 1000);
+  add_event(1, "p0_stage0.program(1)", 1000);
+
+  // Device 2 executes Stage 1 of program.
+  add_event(2, "p1_stage1.program(1)", 2000);
+
+  events.SetTrace(trace);
+
+  // With single_device_per_stage = false, all 3 devices get sort indices.
+  absl::flat_hash_map<uint32_t, uint32_t> all_indices;
+  SortMpmdDevices(events, all_indices, /*single_device_per_stage=*/false);
+  EXPECT_EQ(all_indices.size(), 3);
+  EXPECT_EQ(all_indices.at(0), 0);
+  EXPECT_EQ(all_indices.at(1), 1);
+  EXPECT_EQ(all_indices.at(2), 2);
+
+  // With single_device_per_stage = true and deduplicated_device_ids = nullptr,
+  // duplicate stage device 1 is omitted without recording deduplicated IDs.
+  absl::flat_hash_map<uint32_t, uint32_t> dedup_indices_no_set;
+  SortMpmdDevices(events, dedup_indices_no_set,
+                  /*single_device_per_stage=*/true,
+                  /*deduplicated_device_ids=*/nullptr);
+  EXPECT_EQ(dedup_indices_no_set.size(), 2);
+  EXPECT_TRUE(dedup_indices_no_set.contains(0));
+  EXPECT_FALSE(dedup_indices_no_set.contains(1));
+  EXPECT_TRUE(dedup_indices_no_set.contains(2));
+  EXPECT_EQ(dedup_indices_no_set.at(0), 0);
+  EXPECT_EQ(dedup_indices_no_set.at(2), 1);
+
+  // With single_device_per_stage = true and non-null deduplicated_device_ids,
+  // deduplicated device 1 is captured in the set.
+  absl::flat_hash_map<uint32_t, uint32_t> dedup_indices;
+  absl::flat_hash_set<uint32_t> deduplicated_device_ids;
+  SortMpmdDevices(events, dedup_indices, /*single_device_per_stage=*/true,
+                  &deduplicated_device_ids);
+  EXPECT_EQ(dedup_indices.size(), 2);
+  EXPECT_TRUE(dedup_indices.contains(0));
+  EXPECT_FALSE(dedup_indices.contains(1));
+  EXPECT_TRUE(dedup_indices.contains(2));
+  EXPECT_EQ(dedup_indices.at(0), 0);
+  EXPECT_EQ(dedup_indices.at(2), 1);
+  EXPECT_THAT(deduplicated_device_ids, UnorderedElementsAre(1));
+}
+
+TEST(TraceEventsToJsonTest,
+     TraceEventsToJsonSingleDevicePerStagePrunesDuplicateStageTpus) {
+  Trace trace;
+  // Device 0: TPU core 0 running stage 0 (representative).
+  (*trace.mutable_devices())[0].mutable_resources()->operator[](1).set_name(
+      "XLA Modules");
+  (*trace.mutable_devices())[0].set_name("host0 /device:TPU:0");
+
+  // Device 1: TPU core 1 running duplicate stage 0 (should be pruned).
+  (*trace.mutable_devices())[1].mutable_resources()->operator[](1).set_name(
+      "XLA Modules");
+  (*trace.mutable_devices())[1].set_name("host0 /device:TPU:1");
+
+  // Device 2: TPU core 2 running stage 1 (representative).
+  (*trace.mutable_devices())[2].mutable_resources()->operator[](1).set_name(
+      "XLA Modules");
+  (*trace.mutable_devices())[2].set_name("host0 /device:TPU:2");
+
+  // Device 10: Host CPU without MPMD events.
+  (*trace.mutable_devices())[10].mutable_resources()->operator[](1).set_name(
+      "Host Thread");
+  (*trace.mutable_devices())[10].set_name("/host:CPU:0");
+
+  TraceEventsContainer events;
+  TraceEvent event0;
+  event0.set_device_id(0);
+  event0.set_resource_id(1);
+  event0.set_name("p0_stage0.program(1)");
+  event0.set_timestamp_ps(1000);
+  event0.set_duration_ps(1000);
+  events.AddEvent(event0);
+
+  TraceEvent event1;
+  event1.set_device_id(1);
+  event1.set_resource_id(1);
+  event1.set_name("p0_stage0.program(1)");
+  event1.set_timestamp_ps(1000);
+  event1.set_duration_ps(1000);
+  events.AddEvent(event1);
+
+  TraceEvent event2;
+  event2.set_device_id(2);
+  event2.set_resource_id(1);
+  event2.set_name("p1_stage1.program(1)");
+  event2.set_timestamp_ps(2000);
+  event2.set_duration_ps(1000);
+  events.AddEvent(event2);
+
+  events.SetTrace(trace);
+
+  JsonTraceOptions options;
+  options.mpmd_pipeline_view = true;
+  options.mpmd_single_device_per_stage = true;
+
+  std::string output_str;
+  IOBufferAdapter output(&output_str);
+  TraceEventsToJson<IOBufferAdapter, TraceEventsContainer, RawData>(
+      options, events, &output);
+
+  // Device 0 and Device 2 are present with sort_index 0 and 1.
+  EXPECT_THAT(
+      output_str,
+      HasSubstr(R"({"args":{"sort_index":0},"name":"process_sort_index",)"
+                R"("ph":"M","pid":0})"));
+  EXPECT_THAT(
+      output_str,
+      HasSubstr(R"({"args":{"sort_index":1},"name":"process_sort_index",)"
+                R"("ph":"M","pid":2})"));
+
+  // Duplicate Device 1 is completely pruned (no metadata and no events).
+  EXPECT_THAT(output_str, Not(HasSubstr(R"("pid":1,)")));
+  EXPECT_THAT(output_str, Not(HasSubstr(R"("pid":1})")));
+
+  // Device 10 (Host CPU) is preserved behind MPMD stages:
+  // kMpmdUnrankedSortIndexBase + 10 = 1073741834.
+  EXPECT_THAT(
+      output_str,
+      HasSubstr(
+          R"({"args":{"sort_index":1073741834},"name":"process_sort_index",)"
+          R"("ph":"M","pid":10})"));
 }
 
 }  // namespace

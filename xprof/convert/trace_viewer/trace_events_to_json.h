@@ -203,6 +203,7 @@ struct JsonTraceOptions {
   bool generate_stack_frames = true;
   bool use_new_backend = false;
   bool mpmd_pipeline_view = false;
+  bool mpmd_single_device_per_stage = false;
   std::string code_link;
   // The absolute walltime timestamp in nanoseconds used as the baseline for
   // this snapshot's trace events (computed via `xprof::GetHostStartNs`). This
@@ -735,8 +736,13 @@ inline constexpr uint32_t kMpmdUnrankedSortIndexBase = 1u << 30;
 template <typename TraceEventsContainer>
 void SortMpmdDevices(
     const TraceEventsContainer& events,
-    absl::flat_hash_map<uint32_t, uint32_t>& device_to_sort_index) {
+    absl::flat_hash_map<uint32_t, uint32_t>& device_to_sort_index,
+    bool single_device_per_stage = false,
+    absl::flat_hash_set<uint32_t>* deduplicated_device_ids = nullptr) {
   device_to_sort_index.clear();
+  if (deduplicated_device_ids != nullptr) {
+    deduplicated_device_ids->clear();
+  }
 
   const Trace& trace = events.trace();
   absl::flat_hash_set<std::pair<uint32_t, uint64_t>> xla_modules_resources;
@@ -805,6 +811,7 @@ void SortMpmdDevices(
     int loop_id = 0;
     int min_layer = 0;
     uint32_t device_id = 0;
+    int tier = 0;
   };
 
   std::vector<DeviceSortEntry> sorted_devices;
@@ -839,6 +846,7 @@ void SortMpmdDevices(
     entry.program_key = best_key_tier->first;
     entry.loop_id = best_stats->min_stage.first;
     entry.min_layer = best_stats->min_stage.second;
+    entry.tier = best_key_tier->second ? 1 : 2;
     entry.global_program_min_timestamp_ps =
         global_program_min_timestamp_ps.at(*best_key_tier);
     sorted_devices.push_back(entry);
@@ -863,9 +871,21 @@ void SortMpmdDevices(
                  return a.device_id < b.device_id;
                });
 
-  for (size_t i = 0; i < sorted_devices.size(); ++i) {
-    device_to_sort_index[sorted_devices[i].device_id] =
-        static_cast<uint32_t>(i);
+  absl::flat_hash_set<std::tuple<int, std::string, int, int>> seen_stages;
+  uint32_t sort_index = 0;
+  for (const DeviceSortEntry& ranked : sorted_devices) {
+    if (single_device_per_stage) {
+      const auto [it, inserted] = seen_stages.emplace(
+          ranked.tier, ranked.program_key, ranked.loop_id, ranked.min_layer);
+      if (!inserted) {
+        if (deduplicated_device_ids != nullptr) {
+          deduplicated_device_ids->insert(ranked.device_id);
+        }
+        continue;
+      }
+    }
+    device_to_sort_index[ranked.device_id] = sort_index;
+    ++sort_index;
   }
 }
 
@@ -888,11 +908,14 @@ void TraceEventsToJson(const JsonTraceOptions& options,
   output->Append(absl::StrFormat(R"("useNewBackend": %s,)",
                                  options.use_new_backend ? "true" : "false"));
   absl::flat_hash_map<uint32_t, uint32_t> device_to_sort_index;
+  absl::flat_hash_set<uint32_t> deduplicated_device_ids;
   if (options.mpmd_pipeline_view) {
     output->Append(
         absl::StrFormat(R"("mpmdPipelineView": %s,)",
                         options.mpmd_pipeline_view ? "true" : "false"));
-    SortMpmdDevices(events, device_to_sort_index);
+    SortMpmdDevices(events, device_to_sort_index,
+                    options.mpmd_single_device_per_stage,
+                    &deduplicated_device_ids);
   }
 
   WriteDetails(options.details, output);
@@ -913,6 +936,9 @@ void TraceEventsToJson(const JsonTraceOptions& options,
   absl::btree_map<uint32_t, Device> ordered_devices(trace.devices().begin(),
                                                     trace.devices().end());
   for (const auto& [device_id, device] : ordered_devices) {
+    if (deduplicated_device_ids.contains(device_id)) {
+      continue;
+    }
     if (device.has_name()) {
       separator.Add();
       output->Append(R"({"args":{"name":)", JsonEscape(device.name()),
@@ -962,6 +988,9 @@ void TraceEventsToJson(const JsonTraceOptions& options,
                                                 output);
   bool prev_was_counter = false;
   events.ForAllEvents([&](const TraceEvent& event) {
+    if (deduplicated_device_ids.contains(event.device_id())) {
+      return;
+    }
     bool is_counter_event = !event.has_resource_id() && !event.has_flow_id();
     if ((prev_was_counter && !is_counter_event) ||
         (!writer.isMatchingLastCounterEvent(event) && is_counter_event &&

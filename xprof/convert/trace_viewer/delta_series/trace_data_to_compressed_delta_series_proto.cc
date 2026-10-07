@@ -40,6 +40,10 @@ uint32_t DeltaSeriesProtoConverter::MaybeInternString(absl::string_view str) {
 xprof::TraceMetadata DeltaSeriesProtoConverter::GetTraceMetadata() const {
   xprof::TraceMetadata metadata;
   for (const auto& [device_id, device] : trace_->devices()) {
+    if (options_.mpmd_single_device_per_stage &&
+        deduplicated_device_ids_.contains(device_id)) {
+      continue;
+    }
     xprof::Process* process = metadata.add_processes();
     process->set_id(device_id);
     if (device.has_name()) {

@@ -379,6 +379,8 @@ absl::Status StreamingTraceViewerProcessor::SerializeAndSetOutput(
     tensorflow::profiler::DeltaSeriesProtoConversionOptions proto_options;
     proto_options.mpmd_pipeline_view =
         profiler_trace_options.mpmd_pipeline_view;
+    proto_options.mpmd_single_device_per_stage =
+        profiler_trace_options.mpmd_single_device_per_stage;
     proto_options.details =
         TraceOptionsToDetails(device_type, profiler_trace_options);
     absl::StatusOr<std::string> compressed_result =
@@ -404,6 +406,8 @@ absl::Status StreamingTraceViewerProcessor::SerializeAndSetOutput(
         TraceOptionsToDetails(device_type, profiler_trace_options);
     json_trace_options.mpmd_pipeline_view =
         profiler_trace_options.mpmd_pipeline_view;
+    json_trace_options.mpmd_single_device_per_stage =
+        profiler_trace_options.mpmd_single_device_per_stage;
     IOBufferAdapter adapter(&trace_viewer_json);
     absl::Time json_start_time = absl::Now();
     TraceEventsToJson<IOBufferAdapter, TraceEventsContainer, RawData>(

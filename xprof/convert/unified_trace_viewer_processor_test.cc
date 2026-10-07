@@ -44,6 +44,7 @@ namespace {
 using ::tensorflow::profiler::SessionSnapshot;
 using ::tensorflow::profiler::ToolOptions;
 using ::tensorflow::profiler::XSpace;
+using ::testing::HasSubstr;
 using ::testing::IsEmpty;
 using ::testing::Not;
 
@@ -95,6 +96,20 @@ TEST(UnifiedTraceViewerProcessorTest, ProcessSessionJsonSuccess) {
   EXPECT_OK(processor->ProcessSession(session_snapshot, options));
   EXPECT_EQ(processor->GetContentType(), "application/json");
   EXPECT_THAT(processor->GetData(), Not(IsEmpty()));
+
+  ToolOptions mpmd_options;
+  mpmd_options["mpmd_pipeline_view"] = true;
+  mpmd_options["mpmd_single_device_per_stage"] = true;
+  std::unique_ptr<UnifiedProfileProcessor> mpmd_processor =
+      UnifiedProfileProcessorFactory::GetInstance().Create("trace_viewer",
+                                                           mpmd_options);
+  ASSERT_NE(mpmd_processor, nullptr);
+  EXPECT_OK(mpmd_processor->ProcessSession(session_snapshot, mpmd_options));
+  EXPECT_EQ(mpmd_processor->GetContentType(), "application/json");
+  const std::string& mpmd_data = mpmd_processor->GetData();
+  EXPECT_THAT(
+      mpmd_data,
+      HasSubstr(R"({"name":"mpmd_single_device_per_stage","value":true})"));
 }
 
 TEST(UnifiedTraceViewerProcessorTest, ProcessSessionPbSuccess) {
@@ -143,6 +158,19 @@ TEST(UnifiedTraceViewerProcessorTest, ProcessSessionPbSuccess) {
   EXPECT_OK(processor->ProcessSession(tpu_session_snapshot, options));
   EXPECT_EQ(processor->GetContentType(), "application/octet-stream");
   EXPECT_THAT(processor->GetData(), Not(IsEmpty()));
+
+  ToolOptions mpmd_options;
+  mpmd_options["format"] = "pb";
+  mpmd_options["mpmd_pipeline_view"] = true;
+  mpmd_options["mpmd_single_device_per_stage"] = true;
+  std::unique_ptr<UnifiedProfileProcessor> mpmd_processor =
+      UnifiedProfileProcessorFactory::GetInstance().Create("trace_viewer",
+                                                           mpmd_options);
+  ASSERT_NE(mpmd_processor, nullptr);
+  EXPECT_OK(mpmd_processor->ProcessSession(tpu_session_snapshot, mpmd_options));
+  EXPECT_EQ(mpmd_processor->GetContentType(), "application/octet-stream");
+  const std::string& mpmd_pb_data = mpmd_processor->GetData();
+  EXPECT_THAT(mpmd_pb_data, Not(IsEmpty()));
 }
 
 TEST(UnifiedTraceViewerProcessorTest, StreamingRegistration) {

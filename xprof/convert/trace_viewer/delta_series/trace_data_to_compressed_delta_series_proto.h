@@ -26,6 +26,7 @@ namespace profiler {
 
 struct DeltaSeriesProtoConversionOptions {
   bool mpmd_pipeline_view = false;
+  bool mpmd_single_device_per_stage = false;
   JsonTraceOptions::Details details;
   // Device IDs whose resource threads should omit numerical sort indices,
   // enabling alphabetical sorting by resource name.
@@ -78,6 +79,7 @@ class DeltaSeriesProtoConverter {
   CounterExtractor counter_extractor_;
   DeltaSeriesProtoConversionOptions options_;
   absl::flat_hash_map<uint32_t, uint32_t> mpmd_sort_indices_;
+  absl::flat_hash_set<uint32_t> deduplicated_device_ids_;
 };
 
 // Converts TraceEventsContainer trace data into the optimized, columnar
@@ -128,7 +130,9 @@ absl::Status DeltaSeriesProtoConverter::GenerateResponse(
     const TraceEventsContainer& container,
     xprof::TraceDataResponse* response) && {
   if (options_.mpmd_pipeline_view) {
-    SortMpmdDevices(container, mpmd_sort_indices_);
+    SortMpmdDevices(container, mpmd_sort_indices_,
+                    options_.mpmd_single_device_per_stage,
+                    &deduplicated_device_ids_);
   }
   *response->mutable_metadata() = GetTraceMetadata();
 
@@ -149,6 +153,10 @@ absl::Status DeltaSeriesProtoConverter::GenerateResponse(
 
   container.ForAllTracks([this, response](uint32_t pid, TidOrName tid_or_name,
                                           const TraceEventTrack& events) {
+    if (options_.mpmd_single_device_per_stage &&
+        deduplicated_device_ids_.contains(pid)) {
+      return true;
+    }
     if (events.empty()) return true;
     if (const uint64_t* tid = std::get_if<uint64_t>(&tid_or_name)) {
       AddCompleteEventTrack(pid, *tid, events, response);

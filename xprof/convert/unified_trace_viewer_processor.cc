@@ -71,6 +71,8 @@ absl::Status UnifiedTraceViewerProcessor::ProcessSession(
     tensorflow::profiler::DeltaSeriesProtoConversionOptions proto_options;
     proto_options.mpmd_pipeline_view =
         profiler_trace_options.mpmd_pipeline_view;
+    proto_options.mpmd_single_device_per_stage =
+        profiler_trace_options.mpmd_single_device_per_stage;
     tensorflow::profiler::TraceDeviceType device_type =
         tensorflow::profiler::TraceDeviceType::kUnknownDevice;
     if (tensorflow::profiler::IsTpuTrace(trace_container.trace())) {
@@ -102,6 +104,8 @@ absl::Status UnifiedTraceViewerProcessor::ProcessSession(
         device_type, profiler_trace_options);
     json_trace_options.mpmd_pipeline_view =
         profiler_trace_options.mpmd_pipeline_view;
+    json_trace_options.mpmd_single_device_per_stage =
+        profiler_trace_options.mpmd_single_device_per_stage;
     tensorflow::profiler::IOBufferAdapter adapter(&trace_viewer_json);
     tensorflow::profiler::TraceEventsToJson<
         tensorflow::profiler::IOBufferAdapter,

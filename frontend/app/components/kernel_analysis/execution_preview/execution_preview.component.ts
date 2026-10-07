@@ -1,6 +1,7 @@
 import {CommonModule} from '@angular/common';
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   EventEmitter,
   Input,
@@ -136,11 +137,15 @@ options.advanced_configuration = ${configStr}`;
     try {
       await navigator.clipboard.writeText(command);
       this.copyState = 'Copied!';
+      this.cdr.markForCheck();
       setTimeout(() => {
         this.copyState = 'Copy';
+        this.cdr.markForCheck();
       }, 2000);
     } catch (err) {
       console.error('Failed to copy command:', err);
     }
   }
+
+  constructor(private readonly cdr: ChangeDetectorRef) {}
 }

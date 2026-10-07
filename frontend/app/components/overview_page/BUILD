@@ -5,6 +5,7 @@ package(default_visibility = ["//frontend:internal"])
 xprof_ng_module(
     name = "overview_page",
     srcs = [
+        "overview_page.ts",
         "overview_page_module.ts",
     ],
     assets = [
@@ -17,13 +18,11 @@ xprof_ng_module(
         "//:node_modules/@angular/core",
         "//:node_modules/@angular/router",
         "//:node_modules/@ngrx/store",
-        "//:node_modules/@types/google.visualization",
         "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/utils",
         "@org_xprof//frontend/app/components/diagnostics_view",
         "@org_xprof//frontend/app/components/overview_page/inference_latency_chart",
-        "@org_xprof//frontend/app/components/overview_page/normalized_accelerator_performance_view",
         "@org_xprof//frontend/app/components/overview_page/performance_summary",
         "@org_xprof//frontend/app/components/overview_page/run_environment_view",
         "@org_xprof//frontend/app/components/overview_page/step_time_graph",

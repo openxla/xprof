@@ -1,9 +1,21 @@
+import {NgFor, NgIf} from '@angular/common';
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   inject,
   OnDestroy,
 } from '@angular/core';
+import {FormsModule} from '@angular/forms';
+import {MatOption} from '@angular/material/core';
+import {
+  MatAccordion,
+  MatExpansionPanel,
+  MatExpansionPanelHeader,
+  MatExpansionPanelTitle,
+} from '@angular/material/expansion';
+import {MatFormField, MatLabel} from '@angular/material/form-field';
+import {MatSelect} from '@angular/material/select';
 import {ActivatedRoute, Params, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -26,17 +38,36 @@ import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {Chart} from '../chart/chart';
+import {ExportAsCsv} from '../controls/export_as_csv/export_as_csv';
+import {DiagnosticsView} from '../diagnostics_view/diagnostics_view';
 
 const MEGASCALE_STATS_INDEX = 0;
 const DIAGNOSTICS_INDEX = 1;
 
 /** A Megascale Stats page component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'megascale-stats',
   templateUrl: './megascale_stats.ng.html',
   styleUrls: ['./megascale_stats.scss'],
+  imports: [
+    NgIf,
+    Chart,
+    DiagnosticsView,
+    ExportAsCsv,
+    FormsModule,
+    MatAccordion,
+    MatExpansionPanel,
+    MatExpansionPanelHeader,
+    MatExpansionPanelTitle,
+    MatFormField,
+    MatLabel,
+    MatOption,
+    MatSelect,
+    NgFor,
+  ],
 })
 export class MegascaleStats extends Dashboard implements OnDestroy {
   tool = 'megascale_stats';
@@ -68,6 +99,7 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
   private readonly route: ActivatedRoute = inject(ActivatedRoute);
   private readonly store: Store<{}> = inject(Store);
   private readonly router: Router = inject(Router);
+  private readonly cdr: ChangeDetectorRef = inject(ChangeDetectorRef);
 
   constructor() {
     super();
@@ -77,6 +109,7 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
         this.sessionId = params['sessionId'] || this.sessionId;
         this.processQueryParams(queryParams);
         this.update();
+        this.cdr.markForCheck();
       });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
     this.store
@@ -92,6 +125,7 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
               ?.hostname || this.hostList[0];
           this.update();
         }
+        this.cdr.markForCheck();
       });
   }
 
@@ -134,6 +168,7 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
             }
           }
         }
+        this.cdr.markForCheck();
       });
   }
 
@@ -151,6 +186,10 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
 
   onPanelClosed() {
     this.isExpanded = false;
+  }
+
+  trackByHost(index: number, host: string): string {
+    return host;
   }
 
   openPerfetto() {

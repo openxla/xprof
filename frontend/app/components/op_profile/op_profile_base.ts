@@ -1,5 +1,6 @@
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   EventEmitter,
   inject,
@@ -27,18 +28,53 @@ import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_d
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
+import {NgFor, NgIf, TitleCasePipe} from '@angular/common';
+import {MatOption} from '@angular/material/core';
+import {MatFormField, MatLabel} from '@angular/material/form-field';
+import {MatIcon} from '@angular/material/icon';
+import {MatInput} from '@angular/material/input';
+import {MatSelect} from '@angular/material/select';
+import {
+  MatSidenav,
+  MatSidenavContainer,
+  MatSidenavContent,
+} from '@angular/material/sidenav';
+import {MatSlideToggle} from '@angular/material/slide-toggle';
+import {MatTooltip} from '@angular/material/tooltip';
+import {AngularSplitModule} from 'angular-split';
+import {SourceMapper} from '../source_mapper/source_mapper';
 import {OpProfileData, OpProfileSummary} from './op_profile_data';
+import {OpTable} from './op_table/op_table';
 
 /** Rules to group by. */
 const GROUP_BY_RULES = ['program', 'category', 'provenance'];
 
 /** Base class of Op Profile component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'op-profile-base',
   templateUrl: './op_profile_base.ng.html',
   styleUrls: ['./op_profile_common.scss'],
+  imports: [
+    AngularSplitModule,
+    MatFormField,
+    MatIcon,
+    MatInput,
+    MatLabel,
+    MatOption,
+    MatSelect,
+    MatSidenav,
+    MatSidenavContainer,
+    MatSidenavContent,
+    MatSlideToggle,
+    MatTooltip,
+    NgFor,
+    NgIf,
+    OpTable,
+    SourceMapper,
+    TitleCasePipe,
+  ],
 })
 export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
   /** Handles on-destroy Subject, used to unsubscribe. */
@@ -83,6 +119,7 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
       .pipe(takeUntil(this.destroyed))
       .subscribe((isAvailable) => {
         this.sourceCodeServiceIsAvailable = isAvailable;
+        this.cdr.markForCheck();
       });
   }
 
@@ -91,11 +128,16 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
   parseData(data: OpProfileProto | null) {
     this.profile = data;
     this.updateRoot();
-    this.data.update(this.rootNode, this.applyScalingFactor);
+    const nextData = new OpProfileData();
+    nextData.update(this.rootNode, this.applyScalingFactor);
+    this.data = nextData;
     this.summary = this.dataService.getOpProfileSummary(this.data);
   }
 
-  constructor(private readonly store: Store<{}>) {
+  constructor(
+    private readonly store: Store<{}>,
+    private readonly cdr: ChangeDetectorRef,
+  ) {
     this.store.dispatch(
       setCurrentToolStateAction({currentTool: 'hlo_op_profile'}),
     );
@@ -104,6 +146,7 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
       .pipe(takeUntil(this.destroyed))
       .subscribe((node: Node | null) => {
         this.updateActiveNode(node);
+        this.cdr.markForCheck();
       });
   }
 
@@ -124,7 +167,9 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
       this.parseData(this.opProfileData);
     } else if (changes['groupBy']) {
       this.updateRoot();
-      this.data.update(this.rootNode, this.applyScalingFactor);
+      const nextData = new OpProfileData();
+      nextData.update(this.rootNode, this.applyScalingFactor);
+      this.data = nextData;
     }
   }
 
@@ -187,7 +232,9 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
   updateExcludeIdle() {
     this.excludeIdle = !this.excludeIdle;
     this.updateRoot();
-    this.data.update(this.rootNode, this.applyScalingFactor);
+    const nextData = new OpProfileData();
+    nextData.update(this.rootNode, this.applyScalingFactor);
+    this.data = nextData;
   }
 
   updateShowStackTrace() {
@@ -209,7 +256,9 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
         applyScalingFactor: this.applyScalingFactor,
       }),
     );
-    this.data.update(this.rootNode, this.applyScalingFactor);
+    const nextData = new OpProfileData();
+    nextData.update(this.rootNode, this.applyScalingFactor);
+    this.data = nextData;
     this.summary = this.dataService.getOpProfileSummary(this.data);
   }
 

@@ -1,10 +1,13 @@
+import {NgIf} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   ElementRef,
   EventEmitter,
   HostListener,
+  inject,
   Input,
   OnChanges,
   OnDestroy,
@@ -12,6 +15,8 @@ import {
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
+import {MatIcon} from '@angular/material/icon';
+import {MatTooltip} from '@angular/material/tooltip';
 import {
   type BufferBlock,
   type BufferBlockProto,
@@ -74,8 +79,9 @@ function getFittingLabel(
  * Angular component for rendering decoupled memory viewer buffer allocations timeline using HTML5 Canvas.
  */
 @Component({
+  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [NgIf, MatIcon, MatTooltip],
   selector: 'buffer-allocation-timeline',
   templateUrl: './buffer_allocation_timeline.ng.html',
   styleUrls: ['./buffer_allocation_timeline.scss'],
@@ -141,6 +147,7 @@ export class BufferAllocationTimeline
   dragStartOffsetY = 0;
   hasDragged = false;
 
+  private readonly cdr = inject(ChangeDetectorRef);
   private canvas!: HTMLCanvasElement;
   private ctx!: CanvasRenderingContext2D;
 
@@ -157,6 +164,7 @@ export class BufferAllocationTimeline
       for (const entry of entries) {
         if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
           this.resizeCanvas();
+          this.cdr.markForCheck();
         }
       }
     });
@@ -861,6 +869,7 @@ export class BufferAllocationTimeline
     if (this.canvas) {
       setTimeout(() => {
         this.resizeCanvas();
+        this.cdr.markForCheck();
       }, 100);
     }
   }

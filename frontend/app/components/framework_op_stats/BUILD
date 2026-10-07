@@ -35,6 +35,7 @@ xprof_ng_module(
         "//:node_modules/@angular/core",
         "//:node_modules/@ngrx/store",
         "//:node_modules/@types/google.visualization",
+        "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/angular:angular_material_button",
         "@org_xprof//frontend/app/common/angular:angular_material_divider",
         "@org_xprof//frontend/app/common/angular:angular_material_icon",

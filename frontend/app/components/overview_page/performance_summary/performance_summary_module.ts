@@ -1,20 +1,9 @@
-import {CommonModule} from '@angular/common';
 import {NgModule} from '@angular/core';
-import {MatIconModule} from '@angular/material/icon';
-import {MatCardModule} from '@angular/material/card';
-import {MatTooltipModule} from '@angular/material/tooltip';
-
 import {PerformanceSummary} from './performance_summary';
 
+/** @deprecated Import the standalone PerformanceSummary component directly instead. */
 @NgModule({
-  declarations: [PerformanceSummary],
-  imports: [
-    CommonModule,
-    MatCardModule,
-    MatIconModule,
-    MatTooltipModule,
-  ],
-  exports: [PerformanceSummary]
+  imports: [PerformanceSummary],
+  exports: [PerformanceSummary],
 })
-export class PerformanceSummaryModule {
-}
+export class PerformanceSummaryModule {}

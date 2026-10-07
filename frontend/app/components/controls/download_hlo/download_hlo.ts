@@ -1,11 +1,25 @@
-import {Component, inject, Input, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  inject,
+  input,
+  OnDestroy,
+} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
 import {GRAPH_TYPE_DEFAULT} from 'org_xprof/frontend/app/common/constants/constants';
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
-import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {
+  DATA_SERVICE_INTERFACE_TOKEN,
+  DataServiceV2Interface,
+} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
+import {NgFor} from '@angular/common';
+import {MatIcon} from '@angular/material/icon';
+import {MatMenu, MatMenuItem, MatMenuTrigger} from '@angular/material/menu';
+import {MatTooltip} from '@angular/material/tooltip';
 import {BlobDownloader} from './blob_downloader';
 
 declare interface DownloadMenuItem {
@@ -22,55 +36,57 @@ const DOWNLOAD_HLO_PROTO_MENU_ITEMS: DownloadMenuItem[] = [
 
 /** A component to download hlo module in proto, text or json formats. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'download-hlo',
   templateUrl: './download_hlo.ng.html',
   styleUrls: ['./download_hlo.scss'],
   providers: [BlobDownloader],
+  imports: [MatIcon, MatMenu, MatMenuItem, MatMenuTrigger, MatTooltip, NgFor],
 })
 export class DownloadHlo implements OnDestroy {
   /** The hlo module name. */
-  @Input() moduleName: string = '';
+  readonly moduleName = input('');
   /** Includes metadata in the proto. */
-  @Input() showMetadata: boolean = false;
+  readonly showMetadata = input(false);
   /** The graph type to download. */
-  @Input() graphType: string = GRAPH_TYPE_DEFAULT;
+  readonly graphType = input(GRAPH_TYPE_DEFAULT);
 
   readonly downloadMenuItems = DOWNLOAD_HLO_PROTO_MENU_ITEMS;
   private readonly destroyed = new ReplaySubject<void>(1);
-  private readonly dataService: DataServiceV2Interface =
-      inject(DATA_SERVICE_INTERFACE_TOKEN);
+  private readonly dataService: DataServiceV2Interface = inject(
+    DATA_SERVICE_INTERFACE_TOKEN,
+  );
+  private readonly route = inject(ActivatedRoute);
+  private readonly downloader = inject(BlobDownloader);
+  private readonly cdRef = inject(ChangeDetectorRef);
   sessionId = '';
 
-  constructor(
-      route: ActivatedRoute,
-      private readonly downloader: BlobDownloader,
-  ) {
-    route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
+  constructor() {
+    this.route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
       this.sessionId = params['sessionId'] || params['run'] || '';
+      this.cdRef.markForCheck();
     });
   }
 
   downloadHloProto(type: string) {
-    const fileName = this.moduleName + '.' + type;
+    const fileName = this.moduleName() + '.' + type;
     this.dataService
-        .downloadHloProto(
-            this.sessionId,
-            this.graphType,
-            this.moduleName,
-            type,
-            this.showMetadata,
-            )!.pipe(takeUntil(this.destroyed))
-        .subscribe((data) => {
-          if (type === FileExtensionType.PROTO_BINARY) {
-            this.downloader.downloadBlob(data as Blob, fileName);
-          } else {
-            this.downloader.downloadString(
-                data as string,
-                fileName,
-            );
-          }
-        });
+      .downloadHloProto(
+        this.sessionId,
+        this.graphType(),
+        this.moduleName(),
+        type,
+        this.showMetadata(),
+      )!
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((data) => {
+        if (type === FileExtensionType.PROTO_BINARY) {
+          this.downloader.downloadBlob(data as Blob, fileName);
+        } else {
+          this.downloader.downloadString(data as string, fileName);
+        }
+      });
   }
 
   ngOnDestroy() {

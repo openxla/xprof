@@ -400,7 +400,11 @@ def _parse_pod_viewer(
     idle_pct = round(idle_ms / total_ms * 100, 2) if total_ms > 0 else 0.0
 
     b_list = [
-        str(c.get("bottleneck")) for c in core_stats if c.get("bottleneck")
+        "Compute"
+        if str(c.get("bottleneck")) == "Device compute"
+        else str(c.get("bottleneck"))
+        for c in core_stats
+        if c.get("bottleneck")
     ]
     if b_list:
       bottleneck = collections.Counter(b_list).most_common(1)[0][0]

@@ -50,8 +50,7 @@ _DEFAULT_TRAITS = ToolTraits()
 TOOL_TRAITS: types.MappingProxyType[str, ToolTraits] = types.MappingProxyType({
     # keep-sorted start
     "aggregate_xplane_events": ToolTraits(combine="summed"),
-    "create_events_db": ToolTraits(single_trace=True),
-    "get_avg_step_time": ToolTraits(combine="summed"),
+    "create_events_db": ToolTraits(combine="listed"),
     "get_hlo_module_content": ToolTraits(combine="none"),
     "get_hlo_neighborhood": ToolTraits(combine="none"),
     "get_hlo_text": ToolTraits(combine="none"),
@@ -64,6 +63,7 @@ TOOL_TRAITS: types.MappingProxyType[str, ToolTraits] = types.MappingProxyType({
     "get_utilization_viewer": ToolTraits(single_trace=True, host_kind="index"),
     "get_xspace_proto": ToolTraits(single_trace=True),
     "list_xplane_events": ToolTraits(combine="listed"),
+    "query_events_db": ToolTraits(combine="listed"),
     # keep-sorted end
 })
 

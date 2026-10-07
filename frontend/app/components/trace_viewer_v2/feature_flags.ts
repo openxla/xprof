@@ -54,6 +54,13 @@ const FEATURE_FLAG_CONFIGS = [
     description: 'Enable the timeline player component for trace playback.',
     default: false,
   },
+  {
+    id: 'enable_hlo_dependency_arrows',
+    name: 'Enable HLO Dependency Arrows',
+    description:
+      'Draw arrows between the selected HLO op and its operands and consumers.',
+    default: false,
+  },
 ] as const;
 
 /**

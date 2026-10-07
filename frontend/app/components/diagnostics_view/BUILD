@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "diagnostics_view",
     srcs = [
         "diagnostics_view.ts",
-        "diagnostics_view_module.ts",
     ],
     assets = [
         ":diagnostics_view_css",

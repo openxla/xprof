@@ -11,6 +11,7 @@
 #include <ios>
 #include <limits>
 #include <map>
+#include <numeric>
 #include <set>
 #include <string>
 #include <utility>
@@ -47,6 +48,7 @@ using ::testing::_;
 using ::testing::DoubleEq;
 using ::testing::ElementsAre;
 using ::testing::FloatEq;
+using ::testing::IsEmpty;
 using ::testing::Return;
 using ::testing::Test;
 
@@ -15671,6 +15673,312 @@ TEST(TimelineTest, EmitsMinimapUpdatedWhenMinimapEnabledWithTimeAxisAndSteps) {
   timeline.SetVisibleRange({1220.0, 1280.0});
   ASSERT_FALSE(minimap_updates.empty());
   EXPECT_FALSE(minimap_updates.back().contains("bins"));
+}
+
+// Builds data for the HLO dependency tests: an "XLA Ops" track with levels 0
+// and 1, followed by an "Other" track with level 2. `events` must be sorted by
+// level, then by start time.
+FlameChartTimelineData MakeDependencyTestData(
+    absl::Span<const EventSpec> events) {
+  FlameChartTimelineData data;
+  data.groups = {MakeThreadGroup("XLA Ops", /*parent_index=*/-1,
+                                 /*start_level=*/0, /*level_count=*/2),
+                 MakeThreadGroup("Other", /*parent_index=*/-1,
+                                 /*start_level=*/2, /*level_count=*/1)};
+  for (const EventSpec& event : events) AddEvents(data, {event});
+  data.level_offsets.assign(/*total_levels=*/3 + 1, 0);
+  for (const uint16_t level : data.entry_levels) {
+    ++data.level_offsets[level + 1];
+  }
+  std::partial_sum(data.level_offsets.begin(), data.level_offsets.end(),
+                   data.level_offsets.begin());
+  data.level_event_indices.resize(data.entry_levels.size());
+  std::iota(data.level_event_indices.begin(), data.level_event_indices.end(),
+            0);
+  return data;
+}
+
+TEST(TimelineTest, SelectedEventDependenciesResolveToClosestEvents) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_hlo_dependency_arrows_enabled(true);
+  timeline.SetTimelineData(MakeDependencyTestData({
+      {.name = "operand", .start = 0.0, .dur = 10.0, .level = 0, .id = 1},
+      {.name = "operand", .start = 20.0, .dur = 10.0, .level = 0, .id = 2},
+      {.name = "selected", .start = 40.0, .dur = 10.0, .level = 0, .id = 3},
+      {.name = "consumer", .start = 60.0, .dur = 10.0, .level = 0, .id = 4},
+      {.name = "consumer", .start = 80.0, .dur = 10.0, .level = 0, .id = 5},
+  }));
+  timeline.set_selected_event_index_for_test(2);
+
+  timeline.SetSelectedEventDependencies({"operand"}, {"consumer"});
+
+  EXPECT_THAT(timeline.producer_event_indices(), ElementsAre(1));
+  EXPECT_THAT(timeline.consumer_event_indices(), ElementsAre(3));
+}
+
+TEST(TimelineTest, SelectedEventDependenciesResolveAcrossLevelsOfTrack) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_hlo_dependency_arrows_enabled(true);
+  timeline.SetTimelineData(MakeDependencyTestData({
+      {.name = "operand", .start = 10.0, .dur = 10.0, .level = 0, .id = 1},
+      {.name = "selected", .start = 40.0, .dur = 10.0, .level = 0, .id = 2},
+      {.name = "consumer", .start = 70.0, .dur = 10.0, .level = 0, .id = 3},
+      {.name = "operand", .start = 20.0, .dur = 10.0, .level = 1, .id = 4},
+      {.name = "consumer", .start = 60.0, .dur = 10.0, .level = 1, .id = 5},
+  }));
+  timeline.set_selected_event_index_for_test(1);
+
+  timeline.SetSelectedEventDependencies({"operand"}, {"consumer"});
+
+  EXPECT_THAT(timeline.producer_event_indices(), ElementsAre(3));
+  EXPECT_THAT(timeline.consumer_event_indices(), ElementsAre(4));
+}
+
+TEST(TimelineTest, SelectedEventDependenciesIgnoreOtherTracks) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_hlo_dependency_arrows_enabled(true);
+  timeline.SetTimelineData(MakeDependencyTestData({
+      {.name = "operand", .start = 0.0, .dur = 10.0, .level = 0, .id = 1},
+      {.name = "selected", .start = 40.0, .dur = 10.0, .level = 0, .id = 2},
+      {.name = "operand", .start = 30.0, .dur = 10.0, .level = 2, .id = 3},
+      {.name = "consumer", .start = 60.0, .dur = 10.0, .level = 2, .id = 4},
+  }));
+  timeline.set_selected_event_index_for_test(1);
+
+  timeline.SetSelectedEventDependencies({"operand"}, {"consumer"});
+
+  EXPECT_THAT(timeline.producer_event_indices(), ElementsAre(0));
+  EXPECT_THAT(timeline.consumer_event_indices(), IsEmpty());
+}
+
+TEST(TimelineTest, SelectedEventDependenciesSkipUnknownAndRepeatedNames) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_hlo_dependency_arrows_enabled(true);
+  timeline.SetTimelineData(MakeDependencyTestData({
+      {.name = "a", .start = 0.0, .dur = 10.0, .level = 0, .id = 1},
+      {.name = "b", .start = 10.0, .dur = 10.0, .level = 0, .id = 2},
+      {.name = "selected", .start = 40.0, .dur = 10.0, .level = 0, .id = 3},
+  }));
+  timeline.set_selected_event_index_for_test(2);
+
+  timeline.SetSelectedEventDependencies({"b", "missing", "a", "b"},
+                                        {"missing"});
+
+  EXPECT_THAT(timeline.producer_event_indices(), ElementsAre(1, 0));
+  EXPECT_THAT(timeline.consumer_event_indices(), IsEmpty());
+}
+
+TEST(TimelineTest, SelectedEventDependenciesExcludeEventsStartingAtSameTime) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_hlo_dependency_arrows_enabled(true);
+  timeline.SetTimelineData(MakeDependencyTestData({
+      {.name = "selected", .start = 40.0, .dur = 10.0, .level = 0, .id = 1},
+      {.name = "child", .start = 40.0, .dur = 5.0, .level = 1, .id = 2},
+  }));
+  timeline.set_selected_event_index_for_test(0);
+
+  timeline.SetSelectedEventDependencies({"child"}, {"child"});
+
+  EXPECT_THAT(timeline.producer_event_indices(), IsEmpty());
+  EXPECT_THAT(timeline.consumer_event_indices(), IsEmpty());
+}
+
+TEST(TimelineTest, SelectedEventDependenciesMatchNamesExactly) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_hlo_dependency_arrows_enabled(true);
+  timeline.SetTimelineData(MakeDependencyTestData({
+      {.name = "fusion.1", .start = 0.0, .dur = 10.0, .level = 0, .id = 1},
+      {.name = "fusion.10", .start = 20.0, .dur = 10.0, .level = 0, .id = 2},
+      {.name = "selected", .start = 40.0, .dur = 10.0, .level = 0, .id = 3},
+  }));
+  timeline.set_selected_event_index_for_test(2);
+
+  timeline.SetSelectedEventDependencies({"fusion.1"}, {});
+
+  EXPECT_THAT(timeline.producer_event_indices(), ElementsAre(0));
+}
+
+TEST(TimelineTest, SelectedEventDependenciesResolveFromNestedLevel) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_hlo_dependency_arrows_enabled(true);
+  timeline.SetTimelineData(MakeDependencyTestData({
+      {.name = "operand", .start = 0.0, .dur = 10.0, .level = 0, .id = 1},
+      {.name = "parent", .start = 30.0, .dur = 30.0, .level = 0, .id = 2},
+      {.name = "consumer", .start = 70.0, .dur = 10.0, .level = 0, .id = 3},
+      {.name = "selected", .start = 40.0, .dur = 10.0, .level = 1, .id = 4},
+  }));
+  timeline.set_selected_event_index_for_test(3);
+
+  timeline.SetSelectedEventDependencies({"operand"}, {"consumer"});
+
+  EXPECT_THAT(timeline.producer_event_indices(), ElementsAre(0));
+  EXPECT_THAT(timeline.consumer_event_indices(), ElementsAre(2));
+}
+
+TEST(TimelineTest, SelectedEventDependenciesIgnoreTracksAboveSelectedEvent) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_hlo_dependency_arrows_enabled(true);
+  timeline.SetTimelineData(MakeDependencyTestData({
+      {.name = "operand", .start = 30.0, .dur = 5.0, .level = 0, .id = 1},
+      {.name = "consumer", .start = 60.0, .dur = 5.0, .level = 1, .id = 2},
+      {.name = "operand", .start = 0.0, .dur = 10.0, .level = 2, .id = 3},
+      {.name = "selected", .start = 40.0, .dur = 10.0, .level = 2, .id = 4},
+  }));
+  timeline.set_selected_event_index_for_test(3);
+
+  timeline.SetSelectedEventDependencies({"operand"}, {"consumer"});
+
+  // Only the "Other" track of the selected event is searched, so the closer
+  // `operand` and the `consumer` on the "XLA Ops" track are not found.
+  EXPECT_THAT(timeline.producer_event_indices(), ElementsAre(2));
+  EXPECT_THAT(timeline.consumer_event_indices(), IsEmpty());
+}
+
+TEST(TimelineTest, SelectedEventDependenciesSkipEventsBeyondSearchLimit) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_hlo_dependency_arrows_enabled(true);
+  // At most 10,000 events per level are checked on each side of the selected
+  // event. With 9,999 other events in between, each `near_*` event is the
+  // 10,000th event on its side and is found, and each `far_*` event is the
+  // 10,001st and is not.
+  constexpr int kEventsInBetween = 9999;
+  std::vector<EventSpec> events;
+  const auto add_event = [&events](absl::string_view name) {
+    const size_t index = events.size();
+    events.push_back({.name = std::string(name),
+                      .start = static_cast<double>(index),
+                      .dur = 0.5,
+                      .id = index + 1});
+  };
+  add_event("far_operand");
+  add_event("near_operand");
+  for (int i = 0; i < kEventsInBetween; ++i) add_event("other");
+  add_event("selected");
+  for (int i = 0; i < kEventsInBetween; ++i) add_event("other");
+  add_event("near_consumer");
+  add_event("far_consumer");
+  timeline.SetTimelineData(MakeDependencyTestData(events));
+  timeline.set_selected_event_index_for_test(kEventsInBetween + 2);
+
+  timeline.SetSelectedEventDependencies({"far_operand", "near_operand"},
+                                        {"near_consumer", "far_consumer"});
+
+  EXPECT_THAT(timeline.producer_event_indices(), ElementsAre(1));
+  EXPECT_THAT(timeline.consumer_event_indices(),
+              ElementsAre(2 * kEventsInBetween + 3));
+}
+
+TEST(TimelineTest, SelectedEventDependenciesAreEmptyForOutOfRangeSelection) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_hlo_dependency_arrows_enabled(true);
+  timeline.SetTimelineData(MakeDependencyTestData({
+      {.name = "operand", .start = 0.0, .dur = 10.0, .level = 0, .id = 1},
+      {.name = "consumer", .start = 60.0, .dur = 10.0, .level = 0, .id = 2},
+  }));
+  timeline.set_selected_event_index_for_test(2);
+
+  timeline.SetSelectedEventDependencies({"operand"}, {"consumer"});
+
+  EXPECT_THAT(timeline.producer_event_indices(), IsEmpty());
+  EXPECT_THAT(timeline.consumer_event_indices(), IsEmpty());
+}
+
+TEST(TimelineTest, SelectedEventDependenciesAreReplacedByLaterCall) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_hlo_dependency_arrows_enabled(true);
+  timeline.SetTimelineData(MakeDependencyTestData({
+      {.name = "old_operand", .start = 0.0, .dur = 10.0, .level = 0, .id = 1},
+      {.name = "new_operand", .start = 20.0, .dur = 10.0, .level = 0, .id = 2},
+      {.name = "selected", .start = 40.0, .dur = 10.0, .level = 0, .id = 3},
+      {.name = "old_consumer", .start = 60.0, .dur = 10.0, .level = 0, .id = 4},
+  }));
+  timeline.set_selected_event_index_for_test(2);
+  timeline.SetSelectedEventDependencies({"old_operand"}, {"old_consumer"});
+
+  timeline.SetSelectedEventDependencies({"new_operand"}, {});
+
+  EXPECT_THAT(timeline.producer_event_indices(), ElementsAre(1));
+  EXPECT_THAT(timeline.consumer_event_indices(), IsEmpty());
+}
+
+TEST(TimelineTest, SelectedEventDependenciesAreIgnoredWhenFlagIsDisabled) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.SetTimelineData(MakeDependencyTestData({
+      {.name = "operand", .start = 0.0, .dur = 10.0, .level = 0, .id = 1},
+      {.name = "selected", .start = 40.0, .dur = 10.0, .level = 0, .id = 2},
+      {.name = "consumer", .start = 60.0, .dur = 10.0, .level = 0, .id = 3},
+  }));
+  timeline.set_selected_event_index_for_test(1);
+
+  timeline.SetSelectedEventDependencies({"operand"}, {"consumer"});
+
+  EXPECT_THAT(timeline.producer_event_indices(), IsEmpty());
+  EXPECT_THAT(timeline.consumer_event_indices(), IsEmpty());
+}
+
+TEST(TimelineTest, SelectedEventDependenciesAreEmptyWithoutSelection) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_hlo_dependency_arrows_enabled(true);
+  timeline.SetTimelineData(MakeDependencyTestData({
+      {.name = "operand", .start = 0.0, .dur = 10.0, .level = 0, .id = 1},
+      {.name = "consumer", .start = 60.0, .dur = 10.0, .level = 0, .id = 2},
+  }));
+
+  timeline.SetSelectedEventDependencies({"operand"}, {"consumer"});
+
+  EXPECT_THAT(timeline.producer_event_indices(), IsEmpty());
+  EXPECT_THAT(timeline.consumer_event_indices(), IsEmpty());
+}
+
+TEST(TimelineTest, SelectedEventDependenciesAreHiddenAfterSelectionChange) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_hlo_dependency_arrows_enabled(true);
+  timeline.SetTimelineData(MakeDependencyTestData({
+      {.name = "operand", .start = 0.0, .dur = 10.0, .level = 0, .id = 1},
+      {.name = "selected", .start = 40.0, .dur = 10.0, .level = 0, .id = 2},
+      {.name = "consumer", .start = 60.0, .dur = 10.0, .level = 0, .id = 3},
+  }));
+  timeline.set_selected_event_index_for_test(1);
+  timeline.SetSelectedEventDependencies({"operand"}, {"consumer"});
+
+  timeline.set_selected_event_index_for_test(0);
+
+  EXPECT_THAT(timeline.producer_event_indices(), IsEmpty());
+  EXPECT_THAT(timeline.consumer_event_indices(), IsEmpty());
+}
+
+TEST(TimelineTest, SelectedEventDependenciesAreResetBySetTimelineData) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_hlo_dependency_arrows_enabled(true);
+  const FlameChartTimelineData data = MakeDependencyTestData({
+      {.name = "operand", .start = 0.0, .dur = 10.0, .level = 0, .id = 1},
+      {.name = "selected", .start = 40.0, .dur = 10.0, .level = 0, .id = 2},
+      {.name = "consumer", .start = 60.0, .dur = 10.0, .level = 0, .id = 3},
+  });
+  timeline.SetTimelineData(data);
+  timeline.set_selected_event_index_for_test(1);
+  timeline.SetSelectedEventDependencies({"operand"}, {"consumer"});
+
+  timeline.SetTimelineData(data);
+
+  EXPECT_EQ(timeline.selected_event_index(), 1);
+  EXPECT_THAT(timeline.producer_event_indices(), IsEmpty());
+  EXPECT_THAT(timeline.consumer_event_indices(), IsEmpty());
 }
 
 }  // namespace

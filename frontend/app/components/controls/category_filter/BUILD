@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "category_filter",
     srcs = [
         "category_filter.ts",
-        "category_filter_module.ts",
     ],
     assets = [
         "category_filter.ng.html",
@@ -19,6 +18,19 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/angular:angular_material_core",
         "@org_xprof//frontend/app/common/angular:angular_material_form_field",
         "@org_xprof//frontend/app/common/angular:angular_material_select",
+    ],
+)
+
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = ["category_filter_test.ts"],
+    deps = [
+        ":category_filter",
+        "//:node_modules/@types/google.visualization",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
     ],
 )
 

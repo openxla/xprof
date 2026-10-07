@@ -31,6 +31,7 @@ xprof_ng_module(
     deps = [
         ":program_order_chart",
         "//:node_modules/@angular/core",
+        "//:node_modules/@angular/core_testing",
         "//:node_modules/@types/google.visualization",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",

@@ -23,6 +23,20 @@ _LLO_LINE_NAMES = {
 }
 _MXU_PATTERN = re.compile(r"^MXU.* Instructions$")
 _TPU_DEVICE_PATTERN = re.compile(r"device:TPU:\d+")
+_TARGET_STAT_NAMES = frozenset({
+    "details",
+    "source_info",
+    "llo_scopes",
+    "pallas_primitive",
+    "source_call_stack",
+    "bundle_number",
+    "instruction_ordinal",
+    "msg",
+    "message",
+    "annotation",
+    "label",
+    "unit_id",
+})
 
 
 def is_llo_line(line_name: str) -> bool:
@@ -97,24 +111,10 @@ def parse_and_load_llo_events(
     # Build stat metadata map for quick lookups within the plane
     stat_metadata_map = {}
     relevant_stat_ids = set()
-    target_stat_names = {
-        "details",
-        "source_info",
-        "llo_scopes",
-        "pallas_primitive",
-        "source_call_stack",
-        "msg",
-        "message",
-        "annotation",
-        "label",
-        "bundle_number",
-        "instruction_ordinal",
-        "unit_id",
-    }
 
     for k, v in plane.stat_metadata.items():
       stat_metadata_map[k] = v.name
-      if v.name in target_stat_names:
+      if v.name in _TARGET_STAT_NAMES:
         relevant_stat_ids.add(k)
 
     metadata_cache = {}
@@ -315,6 +315,15 @@ PREBAKED_QUERIES = {
         FROM llo_events
         ORDER BY duration_ps DESC
         LIMIT 20
+    """
+    ),
+    "source_by_bundle": (
+        """
+        SELECT bundle_number, instruction_ordinal, source_info, event_name,
+               line_name
+        FROM llo_events
+        WHERE source_info IS NOT NULL AND bundle_number IS NOT NULL
+        ORDER BY bundle_number, instruction_ordinal
     """
     ),
 }

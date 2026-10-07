@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "flop_rate_chart",
     srcs = [
         "flop_rate_chart.ts",
-        "flop_rate_chart_module.ts",
     ],
     assets = [
         ":flop_rate_chart_css",

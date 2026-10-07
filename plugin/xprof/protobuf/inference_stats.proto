@@ -131,7 +131,7 @@ message BatchDetail {
   // Model ID of this batch. This is the same model_id as any of the request in
   // this batch. All the requests from the same batch must share the same
   // model_id.
-  optional int32 model_id_index = 8;
+  optional int32 model_id_index = 8 [default = -1];
 
   // Tensor event details.
   optional TensorEventDetail tensor_event_detail = 9;

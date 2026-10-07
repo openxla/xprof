@@ -1,6 +1,7 @@
 import {CommonModule} from '@angular/common';
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   HostBinding,
   inject,
@@ -45,11 +46,11 @@ const FEEDBACK_STORAGE_KEY_PREFIX = 'smartSuggestionFeedback';
 
 /** A component for displaying smart suggestions. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'smart-suggestion-view',
   templateUrl: './smart_suggestion_view.ng.html',
   styleUrls: ['./smart_suggestion_view.scss'],
-  standalone: true,
   imports: [
     CommonModule,
     MatButtonModule,
@@ -72,6 +73,7 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
   private subscription: Subscription | null = null;
 
   private lastFetchedSessionId: string | null = null;
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly dataService: DataServiceV2Interface = inject(
     DATA_SERVICE_INTERFACE_TOKEN,
   );
@@ -107,11 +109,13 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
     if (!this.sessionId) {
       this.processedSuggestions = [];
       this.loading = false;
+      this.cdr.markForCheck();
       return;
     }
 
     this.loading = true;
     this.processedSuggestions = [];
+    this.cdr.markForCheck();
     this.throbber.start();
 
     this.subscription = this.dataService
@@ -120,6 +124,7 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
         finalize(() => {
           this.loading = false;
           this.throbber.stop();
+          this.cdr.markForCheck();
         }),
       )
       .subscribe((report: SmartSuggestionReport | null) => {
@@ -140,6 +145,7 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
         } else {
           this.processedSuggestions = [];
         }
+        this.cdr.markForCheck();
       });
   }
 
@@ -228,6 +234,7 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
     const gaValue = newNumericValue - oldNumericValue;
 
     this.saveFeedbackState();
+    this.cdr.markForCheck();
 
     if (typeof gtag === 'function' && gaValue !== 0) {
       gtag('event', 'recommendation_feedback', {

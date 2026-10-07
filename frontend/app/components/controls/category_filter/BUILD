@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "category_filter",
     srcs = [
         "category_filter.ts",
-        "category_filter_module.ts",
     ],
     assets = [
         "category_filter.ng.html",

@@ -32,7 +32,7 @@
           <div class="control">
           <mat-form-field appearance="outline">
             <mat-label>Group by</mat-label>
-            <mat-select [value]="groupBy" (selectionChange)="updateGroupBy($event.value)">
+            <mat-select [value]="groupBy()" (selectionChange)="updateGroupBy($event.value)">
               <mat-option *ngFor="let rule of GROUP_BY_RULES" [value]="rule">{{rule | titlecase}}</mat-option>
             </mat-select>
           </mat-form-field>
@@ -116,7 +116,7 @@
       <source-mapper
         [sourceFileAndLineNumber]="sourceFileAndLineNumber"
         [stackTrace]="stackTrace"
-        [sessionId]="sessionId"
+        [sessionId]="sessionId()"
         [programId]="focusedOpProgramId"
         [opName]="focusedOpName"
         [opCategory]="focusedOpCategory"/>

@@ -1,8 +1,10 @@
 import {CommonModule} from '@angular/common';
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   EventEmitter,
+  inject,
   Input,
   Output,
 } from '@angular/core';
@@ -38,6 +40,7 @@ import type {TpuGeneration} from '../data/data_tpu_generations';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExecutionPreviewComponent {
+  private readonly cdr = inject(ChangeDetectorRef);
   @Input() estimatedPasses = 1;
   @Input() path = '';
   @Input() deviceName: TpuGeneration | null = null;
@@ -136,8 +139,10 @@ options.advanced_configuration = ${configStr}`;
     try {
       await navigator.clipboard.writeText(command);
       this.copyState = 'Copied!';
+      this.cdr.markForCheck();
       setTimeout(() => {
         this.copyState = 'Copy';
+        this.cdr.markForCheck();
       }, 2000);
     } catch (err) {
       console.error('Failed to copy command:', err);

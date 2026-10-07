@@ -1,9 +1,15 @@
+import {NgFor, NgIf} from '@angular/common';
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   inject,
   OnDestroy,
 } from '@angular/core';
+import {MatOption} from '@angular/material/core';
+import {MatFormField, MatLabel} from '@angular/material/form-field';
+import {MatProgressBar} from '@angular/material/progress-bar';
+import {MatSelect} from '@angular/material/select';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -20,20 +26,34 @@ import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {Table} from '../chart/table/table';
+import {DiagnosticsView} from '../diagnostics_view/diagnostics_view';
 
 /** An inference profile component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'inference-profile',
   templateUrl: './inference_profile.ng.html',
   styleUrls: ['./inference_profile.scss'],
+  imports: [
+    DiagnosticsView,
+    MatFormField,
+    MatLabel,
+    MatOption,
+    MatProgressBar,
+    MatSelect,
+    NgFor,
+    NgIf,
+    Table,
+  ],
 })
 export class InferenceProfile implements OnDestroy {
   tool = 'inference_profile';
   sessionId = '';
   host = '';
   /** Handles on-destroy Subject, used to unsubscribe. */
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly destroyed = new ReplaySubject<void>(1);
   private readonly throbber = new Throbber(this.tool);
   private readonly dataService = inject(DATA_SERVICE_INTERFACE_TOKEN);
@@ -82,6 +102,7 @@ export class InferenceProfile implements OnDestroy {
         this.sessionId = params['sessionId'] || this.sessionId;
         this.processQueryParams(queryParams);
         this.update();
+        this.cdr.markForCheck();
       });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
   }
@@ -242,8 +263,12 @@ export class InferenceProfile implements OnDestroy {
           this.isInitialLoad = false;
         }
         this.loading = false;
-        if (!this.parseData(data as InferenceProfileTable[])) return;
+        if (!this.parseData(data as InferenceProfileTable[])) {
+          this.cdr.markForCheck();
+          return;
+        }
         this.updateView();
+        this.cdr.markForCheck();
       });
   }
 

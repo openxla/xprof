@@ -1,12 +1,34 @@
-import {Component, ChangeDetectionStrategy} from '@angular/core';
-import {MatDialogRef} from '@angular/material/dialog';
+import {CommonModule} from '@angular/common';
+import {ChangeDetectionStrategy, Component} from '@angular/core';
+import {FormsModule} from '@angular/forms';
+import {MatButtonModule} from '@angular/material/button';
+import {MatDialogModule, MatDialogRef} from '@angular/material/dialog';
+import {MatExpansionModule} from '@angular/material/expansion';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatInputModule} from '@angular/material/input';
+import {MatRadioModule} from '@angular/material/radio';
+import {MatSelectModule} from '@angular/material/select';
+import {MatTooltipModule} from '@angular/material/tooltip';
 
 /** A capture profile dialog component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'capture-profile-dialog',
   templateUrl: './capture_profile_dialog.ng.html',
-  styleUrls: ['./capture_profile_dialog.scss']
+  styleUrls: ['./capture_profile_dialog.scss'],
+  imports: [
+    CommonModule,
+    FormsModule,
+    MatButtonModule,
+    MatDialogModule,
+    MatExpansionModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatRadioModule,
+    MatSelectModule,
+    MatTooltipModule,
+  ],
 })
 export class CaptureProfileDialog {
   captureButtonLabel = 'Capture';
@@ -18,16 +40,16 @@ export class CaptureProfileDialog {
   numRetry = 3;
   workerList = '';
   hostTracerLevel = '2';
-  hostTracerTooltip = 'lower trace level to reduce amount of host traces ' +
-      'collected, some tools will not function well when the host tracer ' +
-      'level is less than info';
+  hostTracerTooltip =
+    'lower trace level to reduce amount of host traces ' +
+    'collected, some tools will not function well when the host tracer ' +
+    'level is less than info';
   deviceTracerLevel = '1';
   pythonTracerLevel = '0';
   delay = 0;
-  extraOptions: Array<{key: string, value: string}> = [];
+  extraOptions: Array<{key: string; value: string}> = [];
 
-  constructor(private readonly dialogRef:
-                  MatDialogRef<CaptureProfileDialog>) {}
+  constructor(private readonly dialogRef: MatDialogRef<CaptureProfileDialog>) {}
 
   addressTypeChanged(value: string) {
     this.isTpuName = value === 'tpu';
@@ -38,16 +60,16 @@ export class CaptureProfileDialog {
   }
 
   captureProfile() {
-    const options: {[key: string]: string|number|boolean} = {
-      serviceAddr: this.serviceAddr,
-      isTpuName: this.isTpuName,
-      duration: this.duration,
-      numRetry: this.numRetry,
-      workerList: this.workerList,
-      hostTracerLevel: Number(this.hostTracerLevel),
-      deviceTracerLevel: Number(this.deviceTracerLevel),
-      pythonTracerLevel: Number(this.pythonTracerLevel),
-      delay: this.delay,
+    const options: {[key: string]: string | number | boolean} = {
+      'serviceAddr': this.serviceAddr,
+      'isTpuName': this.isTpuName,
+      'duration': this.duration,
+      'numRetry': this.numRetry,
+      'workerList': this.workerList,
+      'hostTracerLevel': Number(this.hostTracerLevel),
+      'deviceTracerLevel': Number(this.deviceTracerLevel),
+      'pythonTracerLevel': Number(this.pythonTracerLevel),
+      'delay': this.delay,
     };
 
     for (const option of this.extraOptions) {
@@ -62,10 +84,10 @@ export class CaptureProfileDialog {
   }
 
   addExtraOption() {
-    this.extraOptions.push({key: '', value: ''});
+    this.extraOptions = [...this.extraOptions, {key: '', value: ''}];
   }
 
   removeExtraOption(index: number) {
-    this.extraOptions.splice(index, 1);
+    this.extraOptions = this.extraOptions.filter((_, i) => i !== index);
   }
 }

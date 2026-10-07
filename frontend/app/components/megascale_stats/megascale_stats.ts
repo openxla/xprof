@@ -1,4 +1,21 @@
-import {Component, inject, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
+import {NgFor, NgIf} from '@angular/common';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  inject,
+  OnDestroy,
+} from '@angular/core';
+import {FormsModule} from '@angular/forms';
+import {MatOption} from '@angular/material/core';
+import {
+  MatAccordion,
+  MatExpansionPanel,
+  MatExpansionPanelHeader,
+  MatExpansionPanelTitle,
+} from '@angular/material/expansion';
+import {MatFormField, MatLabel} from '@angular/material/form-field';
+import {MatSelect} from '@angular/material/select';
 import {ActivatedRoute, Params, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -6,33 +23,61 @@ import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
-import {parseDiagnosticsDataTable, setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
+import {
+  parseDiagnosticsDataTable,
+  setLoadingState,
+} from 'org_xprof/frontend/app/common/utils/utils';
 import {TABLE_OPTIONS} from 'org_xprof/frontend/app/components/chart/chart_options';
 import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
-import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
-import {setCurrentToolStateAction, } from 'org_xprof/frontend/app/store/actions';
+import {
+  DATA_SERVICE_INTERFACE_TOKEN,
+  DataServiceV2Interface,
+} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {Chart} from '../chart/chart';
+import {ExportAsCsv} from '../controls/export_as_csv/export_as_csv';
+import {DiagnosticsView} from '../diagnostics_view/diagnostics_view';
 
 const MEGASCALE_STATS_INDEX = 0;
 const DIAGNOSTICS_INDEX = 1;
 
 /** A Megascale Stats page component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'megascale-stats',
   templateUrl: './megascale_stats.ng.html',
-  styleUrls: ['./megascale_stats.scss']
+  styleUrls: ['./megascale_stats.scss'],
+  imports: [
+    NgIf,
+    Chart,
+    DiagnosticsView,
+    ExportAsCsv,
+    FormsModule,
+    MatAccordion,
+    MatExpansionPanel,
+    MatExpansionPanelHeader,
+    MatExpansionPanelTitle,
+    MatFormField,
+    MatLabel,
+    MatOption,
+    MatSelect,
+    NgFor,
+  ],
 })
 export class MegascaleStats extends Dashboard implements OnDestroy {
   tool = 'megascale_stats';
   /** Handles on-destroy Subject, used to unsubscribe. */
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly destroyed = new ReplaySubject<void>(1);
   private readonly throbber = new Throbber(this.tool);
-  private readonly dataService: DataServiceV2Interface =
-      inject(DATA_SERVICE_INTERFACE_TOKEN);
+  private readonly dataService: DataServiceV2Interface = inject(
+    DATA_SERVICE_INTERFACE_TOKEN,
+  );
 
   sessionId = '';
   host = '';
@@ -53,18 +98,19 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
   };
 
   constructor(
-      route: ActivatedRoute,
-      private readonly store: Store<{}>,
-      private readonly router: Router,
+    route: ActivatedRoute,
+    private readonly store: Store<{}>,
+    private readonly router: Router,
   ) {
     super();
     combineLatest([route.params, route.queryParams])
-        .pipe(takeUntil(this.destroyed))
-        .subscribe(([params, queryParams]) => {
-          this.sessionId = params['sessionId'] || this.sessionId;
-          this.processQueryParams(queryParams);
-          this.update();
-        });
+      .pipe(takeUntil(this.destroyed))
+      .subscribe(([params, queryParams]) => {
+        this.sessionId = params['sessionId'] || this.sessionId;
+        this.processQueryParams(queryParams);
+        this.update();
+        this.cdr.markForCheck();
+      });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
     this.store
       .select(getHostsState)
@@ -75,11 +121,11 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
 
         if (!this.host && this.hostList.length > 0) {
           this.host =
-            hostsmetadata.find(
-              (hostMetadata) => hostMetadata.hasDeviceTrace,
-            )?.hostname || this.hostList[0];
+            hostsmetadata.find((hostMetadata) => hostMetadata.hasDeviceTrace)
+              ?.hostname || this.hostList[0];
           this.update();
         }
+        this.cdr.markForCheck();
       });
   }
 
@@ -98,30 +144,32 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
 
     this.throbber.start();
 
-    this.dataService.getData(this.sessionId, this.tool, this.host)
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((data) => {
-          this.throbber.stop();
-          setLoadingState(false, this.store);
+    this.dataService
+      .getData(this.sessionId, this.tool, this.host)
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((data) => {
+        this.throbber.stop();
+        setLoadingState(false, this.store);
 
-          if (data) {
-            const d = data as SimpleDataTable[] | null;
-            if (d) {
-              if (d.hasOwnProperty(DIAGNOSTICS_INDEX)) {
-                this.diagnostics = parseDiagnosticsDataTable(
-                    d[DIAGNOSTICS_INDEX],
-                );
-              }
-              if (d.hasOwnProperty(MEGASCALE_STATS_INDEX)) {
-                this.parseData(d[MEGASCALE_STATS_INDEX]);
-                this.dataInfo = {
-                  ...this.dataInfo,
-                  data: d[MEGASCALE_STATS_INDEX],
-                };
-              }
+        if (data) {
+          const d = data as SimpleDataTable[] | null;
+          if (d) {
+            if (d.hasOwnProperty(DIAGNOSTICS_INDEX)) {
+              this.diagnostics = parseDiagnosticsDataTable(
+                d[DIAGNOSTICS_INDEX],
+              );
+            }
+            if (d.hasOwnProperty(MEGASCALE_STATS_INDEX)) {
+              this.parseData(d[MEGASCALE_STATS_INDEX]);
+              this.dataInfo = {
+                ...this.dataInfo,
+                data: d[MEGASCALE_STATS_INDEX],
+              };
             }
           }
-        });
+        }
+        this.cdr.markForCheck();
+      });
   }
 
   override updateView() {
@@ -153,7 +201,9 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
       queryParams['host'] = this.host;
     }
 
-    this.router.navigate(['/megascale_perfetto', this.sessionId], {queryParams});
+    this.router.navigate(['/megascale_perfetto', this.sessionId], {
+      queryParams,
+    });
   }
 
   ngOnDestroy() {

@@ -39,6 +39,18 @@ pytype_strict_contrib_test(
 )
 
 pytype_strict_contrib_test(
+    name = "regime_coverage_test",
+    srcs = ["regime_coverage_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:numerical_generator",
+        "//plugin/xprof/xparity:numerical_validator",
+        "//plugin/xprof/xparity:xparity_tool",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+pytype_strict_contrib_test(
     name = "numerical_generator_test",
     srcs = ["numerical_generator_test.py"],
     deps = [

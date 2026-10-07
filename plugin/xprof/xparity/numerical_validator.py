@@ -206,6 +206,7 @@ class KernelValidationReport:
   narrow_output_dtype_warning: str | None = None
   shape_mismatch: dict[str, Any] | None = None
   failure_dumps: list[str] = dataclasses.field(default_factory=list)
+  coverage: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -321,6 +322,10 @@ def _relative_diff(abs_diff: float, ref_value: float, canonical: str) -> float:
 CONTRACT_ULP = "ulp"
 CONTRACT_BITWISE = "bitwise"
 _CONTRACTS = frozenset({CONTRACT_ULP, CONTRACT_BITWISE})
+
+# Tiers that run only the 'normal' regime by default and the other regimes as
+# triage after a failure. Every other tier gates on the full suite.
+_NORMAL_FIRST_TIERS = frozenset({"fast_agent"})
 
 
 def _check_contract(contract: str) -> None:
@@ -1683,16 +1688,20 @@ def validate_kernels(
     shapes: Shape or sequence of shapes for the generated test suite.
     dtype_str: Output dtype in whose units every ULP figure is reported.
     test_suite: Pre-generated suite; generated from `shapes` when omitted.
-    tier: Suite size -- "fast_agent", "presubmit" or "deep_fuzzing".
+    tier: Suite size -- "fast_agent", "presubmit" or "deep_fuzzing". Also sets
+      the default regime selection; see `regimes`.
     max_allowed_ulp: Per-element ULP gate, bounded by MAX_HARD_CEILING_ULP.
       Ignored for the verdict under CONTRACT_BITWISE.
     p99_9_allowed_ulp: 99.9th-percentile ULP gate. Ignored for the verdict under
       CONTRACT_BITWISE.
     seed: PRNG seed for suite generation.
-    regimes: Optional sequence of regime names to filter batches. Under
-      CONTRACT_ULP this defaults to 'normal' with triage on failure; under
-      CONTRACT_BITWISE it defaults to the full suite, because bit equality must
-      hold for every input. Pass 'all' to run the full suite.
+    regimes: Optional sequence of regime names to filter batches. Pass 'all' to
+      run the full suite. By default "presubmit" and "deep_fuzzing" run the full
+      suite, and "fast_agent" runs 'normal' first and the other regimes only as
+      triage after a failure. The full suite also runs under CONTRACT_BITWISE,
+      with an oracle, for discrete dtypes and for an explicit `test_suite`. FP8
+      dtypes run 'normal' only. The report's `coverage` lists the regimes that
+      ran and those that did not.
     kernel_oracle: Optional high-precision reference used to report how far
       `kernel_ref` itself sits from an exact result. Report-only: it populates
       `oracle_audit` and never changes the pass/fail verdict. Two modes: * An
@@ -1778,7 +1787,9 @@ def validate_kernels(
     full_suite = test_suite
 
   run_triage_on_failure = False
+  selection = "full_suite"
   if regimes is not None:
+    selection = "requested"
     if regimes == "all" or regimes == ("all",) or regimes == ["all"]:
       batches_to_run = list(full_suite)
     else:
@@ -1804,32 +1815,30 @@ def validate_kernels(
     any_bitwise = contract == CONTRACT_BITWISE or any(
         c == CONTRACT_BITWISE for c in contract_by_leaf.values()
     )
+    normal_batches = [
+        b
+        for b in full_suite
+        if (b.get("regime") == "normal" or b.get("name") == "normal_batch_0")
+    ]
     if test_suite is not None or any_bitwise:
       batches_to_run = list(full_suite)
     elif kernel_oracle is not None or _is_discrete_dtype(canonical_dtype):
       # Q3 error distribution and integer boundary testing require full suite.
       batches_to_run = list(full_suite)
-      run_triage_on_failure = False
     elif canonical_dtype.startswith("fp8") or canonical_dtype.startswith(
         "float8"
     ):
       # FP8 exponent bits absorb dynamic range natively (1.5x spread).
-      normal_batches = [
-          b
-          for b in full_suite
-          if (b.get("regime") == "normal" or b.get("name") == "normal_batch_0")
-      ]
       batches_to_run = normal_batches or list(full_suite)
-      run_triage_on_failure = False
-    else:
-      # Standard continuous float parity: normal first, triage on failure.
-      normal_batches = [
-          b
-          for b in full_suite
-          if (b.get("regime") == "normal" or b.get("name") == "normal_batch_0")
-      ]
-      batches_to_run = normal_batches or list(full_suite)
+      selection = "normal_only" if normal_batches else selection
+    elif tier in _NORMAL_FIRST_TIERS and normal_batches:
+      # Fast agent loop: normal first, the other regimes only as triage.
+      batches_to_run = normal_batches
+      selection = "normal_first"
       run_triage_on_failure = True
+    else:
+      # Presubmit and deep fuzzing gate on every regime in the suite.
+      batches_to_run = list(full_suite)
 
   detected_device_kind, detected_backend = _detect_device_info()
   effective_device_kind = device_kind or detected_device_kind
@@ -2030,6 +2039,27 @@ def validate_kernels(
   if caution_msg:
     summary = f"{caution_msg}\n{summary}"
 
+  regimes_available = sorted(
+      {str(b.get("regime", "unknown")) for b in full_suite}
+  )
+  regimes_run = sorted({b.regime for b in batch_results})
+  regimes_not_run = [r for r in regimes_available if r not in regimes_run]
+  if selection == "normal_first" and len(batch_results) > len(batches_to_run):
+    selection = "normal_first_with_triage"
+  coverage = {
+      "selection": selection,
+      "regimes_available": regimes_available,
+      "regimes_run": regimes_run,
+      "regimes_not_run": regimes_not_run,
+      "batches_available": len(full_suite),
+      "batches_run": len(batch_results),
+  }
+  if is_equivalent and regimes_not_run:
+    summary = (
+        f"{summary}\nCoverage: passed on regimes {regimes_run} only; not run:"
+        f" {regimes_not_run}. Pass regimes='all' to gate on them."
+    )
+
   failure_dumps: list[str] = []
   if dump_failures_to is not None and failing_batches:
     failure_dumps = _dump_failing_batches(
@@ -2142,6 +2172,7 @@ def validate_kernels(
       ulp_context=overall_ulp_context,
       narrow_output_dtype_warning=acc.narrow_warning,
       failure_dumps=failure_dumps,
+      coverage=coverage,
   )
 
 

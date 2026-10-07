@@ -172,8 +172,9 @@ class ValidateKernelsContractTest(absltest.TestCase):
     self.assertIn("index (0, 0)", bitwise.summary_message)
 
   def test_bitwise_default_covers_regimes_beyond_normal(self):
-    kwargs = dict(shapes=(16, 16), dtype_str="float32", tier="presubmit")
-    # The default ULP contract runs only the normal regime unless it fails.
+    kwargs = dict(shapes=(16, 16), dtype_str="float32", tier="fast_agent")
+    # Under the ULP contract fast_agent runs only the normal regime unless it
+    # fails.
     ulp = numerical_validator.validate_kernels(
         _identity, _plus_one_ulp_on_large_values, **kwargs
     )

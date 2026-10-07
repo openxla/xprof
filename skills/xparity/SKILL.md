@@ -127,10 +127,15 @@ Float64 oracle (a **False Red**).
 
 ### Mandatory Verdict-Reading Order (Inverted Order)
 
-1.  **Check `run_config` Provenance First**: Confirm `tier` (`fast_agent` vs
-    `presubmit`), `contract` (`"ulp"` vs `"bitwise"`), `dtype_str`,
-    `device_kind`, and `total_batches_count`. Never quote a `fast_agent` ULP
-    figure as a final `presubmit` certification.
+1.  **Check `run_config` & `coverage` Provenance First**: Confirm `tier`
+    (`fast_agent` vs `presubmit`), `contract` (`"ulp"` vs `"bitwise"`),
+    `dtype_str`, `device_kind`, `total_batches_count`, and `coverage`
+    (`selection`, `regimes_run`, `regimes_not_run`). By default, `presubmit` and
+    `deep_fuzzing` gate on every regime in the suite (`selection:
+    "full_suite"`), whereas `fast_agent` runs `normal` first with triage on
+    failure (`selection: "normal_first"`). Never quote a `fast_agent` ULP figure
+    or a run with non-empty `regimes_not_run` as a final `presubmit`
+    certification.
 2.  **Check `tolerance_audit` Second**: Verify `configured_max_ulp` against
     `recommended_contract_ulp` (`2 ULP` for `float32`/`bfloat16`/`float16`, `1
     ULP` for `fp8`, `0 ULP` for discrete `int*`/`bool`) and the immutable

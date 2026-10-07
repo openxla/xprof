@@ -176,8 +176,10 @@ def verify_numerical_parity(
     p99_9_allowed_ulp: Maximum acceptable 99.9th percentile ULP distance.
     seed: PRNG seed for reproducibility.
     regimes: Optional sequence of regime names (e.g. ['normal']) or
-      comma-separated string. Defaults to 'normal' with automated triage
-      fallback on failure.
+      comma-separated string. By default "presubmit" and "deep_fuzzing" run
+      every regime, and "fast_agent" runs 'normal' first with the other regimes
+      as triage after a failure. `coverage` in the report lists the regimes that
+      ran.
     kernel_oracle: Optional high-precision reference used to report how far
       `kernel_ref` itself sits from an exact result. Pass a callable (or
       "module.fn" path) that computes in float64 on the host, or the literal
@@ -275,6 +277,7 @@ def verify_numerical_parity(
           "shape_mismatch": {"error": msg},
           "batch_results": [],
           "failure_dumps": [],
+          "coverage": {},
       }
       return json.dumps(mismatch_payload, indent=2, allow_nan=False)
     raise
@@ -311,6 +314,7 @@ def _report_to_json(report: numerical_validator.KernelValidationReport) -> str:
       "shape_mismatch": report.shape_mismatch,
       "batch_results": [dataclasses.asdict(b) for b in report.batch_results],
       "failure_dumps": report.failure_dumps,
+      "coverage": report.coverage,
   }
   sanitized_results = _sanitize_for_json(results_dict)
   return json.dumps(sanitized_results, indent=2, allow_nan=False)

@@ -68,10 +68,16 @@ question is being asked**:
 | **Integer Quantization** | Outputs, with data-derived scale | **Yes — 12x swing** | Int8 per-tensor error: 0.155 (normal) vs 1.865 (outliers) |
 | **Float8 Quantization** | Outputs, with data-derived scale | **No — 1.5x spread** | Exponent bits absorb dynamic range natively |
 
-- **Why Parity is Invariant**: Parity compares outputs. Structural defects
-  (missing instructions, wrong constants, altered precision) cause outputs to
-  diverge on *any* non-zero input, Gaussian included. Running `normal_batch_0`
-  first with failure triage is sound for Q1.
+- **Why `fast_agent` Uses Normal-First Triage vs `presubmit` Full Gate**:
+  Structural defects (missing instructions, wrong constants, altered precision)
+  often diverge on unit-normal inputs, so `tier="fast_agent"` runs `normal`
+  first and runs the remaining regimes only as triage after a failure. However,
+  kernels with magnitude-dependent branches, overflow thresholds, or outlier
+  paths can pass on unit-normal data and fail on heavy tails or boundaries;
+  therefore `tier="presubmit"` and `tier="deep_fuzzing"` gate on **every**
+  regime in the suite by default. Every report includes a `coverage` block
+  (`selection`, `regimes_available`, `regimes_run`, `regimes_not_run`,
+  `batches_available`, `batches_run`).
 - **Why Q3 is Sensitive**: Q3 compares error distributions. Error magnitude is
   governed by input distribution. On Gaussian data, loose bounds (e.g.
   Cauchy-Schwarz max bounds in attention) do not underflow, yielding a passing
@@ -84,8 +90,9 @@ question is being asked**:
 
 | Workload / Domain | Target Operator & Use Case | Verification Approach |
 | :--- | :--- | :--- |
-| **Continuous Floating-Point (Parity)** | MatMul, FlashAttention, RMSNorm | Normal regime first; triage to heavy-tail procedural suite on failure. |
-| **Oracle Audit (Q2 / Q3)** | Reference qualification, accuracy drift | Mandatory execution of all regimes (Student-t, outliers, boundary). |
+| **Continuous Floating-Point (`presubmit` / `deep_fuzzing`)** | MatMul, FlashAttention, RMSNorm | Full multi-regime suite executed by default (`selection: "full_suite"`). |
+| **Continuous Floating-Point (`fast_agent`)** | Quick interactive iteration | Normal regime first; triage to full procedural suite on failure (`selection: "normal_first"`). |
+| **Oracle Audit (Q2 / Q3) & Bitwise Contract** | Reference qualification, accuracy drift, exact refactors | Mandatory execution of all regimes across all tiers. |
 | **Discrete & Integer Quantization** | INT8/INT4 quantization, segment IDs, routing | Mandatory execution of all regimes (extreme boundaries, outliers). |
 | **Float8 Quantization** | FP8 E4M3/E5M2 matmul | Normal regime only (exponent bits absorb dynamic range). |
 
@@ -207,7 +214,15 @@ xparity verify \
       }
     }
   ],
-  "failure_dumps": []
+  "failure_dumps": [],
+  "coverage": {
+    "selection": "full_suite",
+    "regimes_available": ["boundary", "cancellation", "normal", "outliers", "per_channel_outliers", "student_t"],
+    "regimes_run": ["boundary", "cancellation", "normal", "outliers", "per_channel_outliers", "student_t"],
+    "regimes_not_run": [],
+    "batches_available": 6,
+    "batches_run": 6
+  }
 }
 ```
 

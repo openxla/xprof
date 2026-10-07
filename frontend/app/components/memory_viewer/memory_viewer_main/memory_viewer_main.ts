@@ -1,5 +1,7 @@
+import {CommonModule} from '@angular/common';
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   inject,
   Injector,
@@ -7,7 +9,14 @@ import {
   OnChanges,
   OnDestroy,
 } from '@angular/core';
+import {FormsModule} from '@angular/forms';
+import {MatCheckboxModule} from '@angular/material/checkbox';
+import {MatDividerModule} from '@angular/material/divider';
+import {MatIconModule} from '@angular/material/icon';
+import {MatSlideToggleModule} from '@angular/material/slide-toggle';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import {Store} from '@ngrx/store';
+import {AngularSplitModule} from 'angular-split';
 import {BufferAllocationInfo} from 'org_xprof/frontend/app/common/interfaces/buffer_allocation_info';
 import {
   type MemoryViewerPreprocessResult,
@@ -16,7 +25,12 @@ import {
 import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {HeapObject} from 'org_xprof/frontend/app/common/interfaces/heap_object';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
+import {DiagnosticsView} from 'org_xprof/frontend/app/components/diagnostics_view/diagnostics_view';
+import {BufferAllocationTimeline} from 'org_xprof/frontend/app/components/memory_viewer/buffer_allocation_timeline/buffer_allocation_timeline';
+import {MaxHeapChart} from 'org_xprof/frontend/app/components/memory_viewer/max_heap_chart/max_heap_chart';
 import {MemoryUsage} from 'org_xprof/frontend/app/components/memory_viewer/memory_usage/memory_usage';
+import {ProgramOrderChart} from 'org_xprof/frontend/app/components/memory_viewer/program_order_chart/program_order_chart';
+import {SourceMapper} from 'org_xprof/frontend/app/components/source_mapper/source_mapper';
 import {
   DATA_SERVICE_INTERFACE_TOKEN,
   DataServiceV2Interface,
@@ -33,8 +47,23 @@ interface BufferSpan {
 
 /** A memory viewer component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
+  imports: [
+    AngularSplitModule,
+    BufferAllocationTimeline,
+    CommonModule,
+    DiagnosticsView,
+    FormsModule,
+    MatDividerModule,
+    MaxHeapChart,
+    MatCheckboxModule,
+    MatIconModule,
+    MatSlideToggleModule,
+    MatTooltipModule,
+    ProgramOrderChart,
+    SourceMapper,
+  ],
   selector: 'memory-viewer-main',
   templateUrl: './memory_viewer_main.ng.html',
   styleUrls: ['./memory_viewer_main.scss'],
@@ -57,6 +86,7 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
     DATA_SERVICE_INTERFACE_TOKEN,
   );
   private readonly injector = inject(Injector);
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly destroyed = new ReplaySubject<void>(1);
 
   peakInfo?: BufferAllocationInfo;
@@ -118,6 +148,7 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
       .pipe(takeUntil(this.destroyed))
       .subscribe((isAvailable) => {
         this.sourceCodeServiceIsAvailable = isAvailable;
+        this.cdr.markForCheck();
       });
   }
 

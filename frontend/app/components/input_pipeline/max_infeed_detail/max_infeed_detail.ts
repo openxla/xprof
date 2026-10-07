@@ -1,22 +1,30 @@
 import {
   AfterViewInit,
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   ElementRef,
+  inject,
   Input,
   OnChanges,
   SimpleChanges,
-  ViewChild, ChangeDetectionStrategy,
+  ViewChild,
 } from '@angular/core';
+import {MatDivider} from '@angular/material/divider';
 import {type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 /** A max-infeed-detail view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'max-infeed-detail',
   templateUrl: './max_infeed_detail.ng.html',
   styleUrls: ['./max_infeed_detail.scss'],
+  imports: [MatDivider],
 })
 export class MaxInfeedDetail implements AfterViewInit, OnChanges {
+  private readonly cdr = inject(ChangeDetectorRef);
+
   /** Whether it is a TPU profile. */
   @Input() isTpu: boolean = false;
 
@@ -67,6 +75,7 @@ export class MaxInfeedDetail implements AfterViewInit, OnChanges {
     google.charts.setOnLoadCallback(() => {
       this.table = new google.visualization.Table(this.tableRef.nativeElement);
       this.drawTable();
+      this.cdr.markForCheck();
     });
   }
 }

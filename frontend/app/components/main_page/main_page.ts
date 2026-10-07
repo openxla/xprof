@@ -1,14 +1,27 @@
+import {CommonModule} from '@angular/common';
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   inject,
   OnDestroy,
 } from '@angular/core';
-import {Router} from '@angular/router';
+import {MatIconModule} from '@angular/material/icon';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {MatSidenavModule} from '@angular/material/sidenav';
+import {MatToolbarModule} from '@angular/material/toolbar';
+import {Router, RouterOutlet} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
+import {DiagnosticsView} from 'org_xprof/frontend/app/components/diagnostics_view/diagnostics_view';
+import {
+  RackNavigationDrawer,
+  RackNavigationGroup,
+  RackNavigationItem,
+} from 'org_xprof/frontend/app/components/rack/navigation/index';
+import {SideNav} from 'org_xprof/frontend/app/components/sidenav/sidenav';
 import {CommunicationService} from 'org_xprof/frontend/app/services/communication_service/communication_service';
 import {
   DATA_SERVICE_INTERFACE_TOKEN,
@@ -23,17 +36,32 @@ import {
 import {LoadingState} from 'org_xprof/frontend/app/store/state';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+export {routes} from './routes';
 
 /** A main page component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
+  imports: [
+    CommonModule,
+    MatProgressBarModule,
+    MatSidenavModule,
+    MatToolbarModule,
+    MatIconModule,
+    RackNavigationDrawer,
+    RackNavigationGroup,
+    RackNavigationItem,
+    SideNav,
+    DiagnosticsView,
+    RouterOutlet,
+  ],
   selector: 'main-page',
   templateUrl: './main_page.ng.html',
   styleUrls: ['./main_page.scss'],
 })
 export class MainPage implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly destroyed = new ReplaySubject<void>(1);
   private readonly dataService: DataServiceV2Interface = inject(
     DATA_SERVICE_INTERFACE_TOKEN,
@@ -110,6 +138,7 @@ export class MainPage implements OnDestroy {
       .subscribe((loadingState: LoadingState) => {
         this.loading = loadingState.loading;
         this.loadingMessage = loadingState.message;
+        this.cdr.markForCheck();
       });
     this.store
       .select(getErrorMessage)
@@ -118,19 +147,22 @@ export class MainPage implements OnDestroy {
         if (!errorMessage || this.errorMessages.includes(errorMessage)) {
           return;
         }
-        this.errorMessages.push(errorMessage);
+        this.errorMessages = [...this.errorMessages, errorMessage];
+        this.cdr.markForCheck();
       });
     this.store
       .select(getRunToolsMap)
       .pipe(takeUntil(this.destroyed))
       .subscribe((runTools: RunToolsMap) => {
         this.runToolsMap = runTools || {};
+        this.cdr.markForCheck();
       });
     this.store
       .select(getCurrentRun)
       .pipe(takeUntil(this.destroyed))
       .subscribe((run: string) => {
         this.currentRun = run || '';
+        this.cdr.markForCheck();
       });
     this.communicationService.navigationReady
       .pipe(takeUntil(this.destroyed))
@@ -152,12 +184,14 @@ export class MainPage implements OnDestroy {
           toolsWithSideNav.filter((tool) =>
             navigationEvent?.tag?.startsWith(tool),
           ).length > 0;
+        this.cdr.markForCheck();
       });
     this.dataService
       .getPluginVersion()
       .pipe(takeUntil(this.destroyed))
       .subscribe((version: string | null) => {
         this.pluginVersion = version || '';
+        this.cdr.markForCheck();
       });
   }
 

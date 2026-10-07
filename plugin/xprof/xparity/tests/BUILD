@@ -28,6 +28,16 @@ pytype_strict_contrib_test(
 )
 
 pytype_strict_contrib_test(
+    name = "compact_verdict_test",
+    srcs = ["compact_verdict_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:xparity_cli_lib",
+        "//plugin/xprof/xparity:xparity_tool",
+        "@absl_py//absl/testing:absltest",
+    ],
+)
+
+pytype_strict_contrib_test(
     name = "pytree_outputs_test",
     srcs = ["pytree_outputs_test.py"],
     deps = [

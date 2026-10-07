@@ -62,10 +62,13 @@ xparity probe_precision \
   --device_kind="tpu"
 
 # Replay a saved failing batch (.npz from --dump_failures_to) to verify a fix
+# (pass --verdict_only on verify or replay to emit a compact verdict summary
+# with only failing batches instead of the full per-batch payload)
 xparity replay \
   --dump_path="/tmp/xparity_failures/xparity_failure_000_student_t_batch_0.npz" \
   --kernel_ref="my_pkg.kernels:ref_fn" \
-  --kernel_candidate="my_pkg.kernels:cand_fn"
+  --kernel_candidate="my_pkg.kernels:cand_fn" \
+  --verdict_only
 ```
 
 ### 2. Python Library API (`xprof.xparity`)

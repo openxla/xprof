@@ -163,6 +163,7 @@ def verify_numerical_parity(
     dump_failures_to: str | None = None,
     atol: float | None = None,
     rtol: float | None = None,
+    verdict_only: bool = False,
 ) -> str:
   """Validates numerical parity between two kernels and returns a JSON report.
 
@@ -204,6 +205,11 @@ def verify_numerical_parity(
       only: `tolerance_headroom` lists the worst error as a multiple of atol +
         rtol * |reference| per regime.
     rtol: Optional relative tolerance; see `atol`.
+    verdict_only: If True, returns a compact single-line JSON verdict instead of
+      the full report: the verdict, correctness basis, contract, overall max
+      ULP, batch counts, up to 5 failing batches (name, regime, output leaf, max
+      ULP), regimes not run, regimes over `atol`/`rtol`, failure dump paths and
+      the summary verdict line.
 
   Returns:
     A JSON string containing the validation report.
@@ -288,13 +294,70 @@ def verify_numerical_parity(
           "coverage": {},
           "tolerance_headroom": {},
       }
-      return json.dumps(mismatch_payload, indent=2, allow_nan=False)
+      return _dump_json(mismatch_payload, verdict_only)
     raise
 
-  return _report_to_json(report)
+  return _report_to_json(report, verdict_only=verdict_only)
 
 
-def _report_to_json(report: numerical_validator.KernelValidationReport) -> str:
+# Failing batches listed in the compact verdict; the rest are only counted.
+_VERDICT_MAX_FAILURES = 5
+
+
+def _summary_verdict_line(summary: str) -> str:
+  """Returns the PASSED/FAILED line of a summary, or its first line."""
+  lines = summary.splitlines()
+  return next(
+      (line for line in lines if line.startswith(("PASSED", "FAILED"))),
+      lines[0] if lines else "",
+  )
+
+
+def _compact_verdict(payload: _Mapping[str, Any]) -> dict[str, Any]:
+  """Reduces a full JSON report payload to the fields that decide the verdict."""
+  failures = [
+      {
+          "batch_name": b.get("batch_name"),
+          "regime": b.get("regime"),
+          "leaf_path": b.get("leaf_path"),
+          "max_ulp": b.get("max_ulp_distance"),
+          "has_nan_or_inf": b.get("has_nan_or_inf"),
+      }
+      for b in payload.get("batch_results", [])
+      if not b.get("passed")
+  ]
+  coverage = payload.get("coverage") or {}
+  headroom = payload.get("tolerance_headroom") or {}
+  return {
+      "is_numerically_equivalent": payload["is_numerically_equivalent"],
+      "correctness_basis": payload.get("correctness_basis"),
+      "contract": (payload.get("run_config") or {}).get("contract"),
+      "overall_max_ulp": payload.get("overall_max_ulp"),
+      "failed_batches_count": payload.get("failed_batches_count"),
+      "total_batches_count": payload.get("total_batches_count"),
+      "failures": failures[:_VERDICT_MAX_FAILURES],
+      "failures_omitted": max(0, len(failures) - _VERDICT_MAX_FAILURES),
+      "regimes_not_run": coverage.get("regimes_not_run", []),
+      "regimes_over_tolerance": headroom.get("regimes_over_tolerance", []),
+      "failure_dumps": payload.get("failure_dumps", []),
+      "verdict": _summary_verdict_line(payload.get("summary_message", "")),
+  }
+
+
+def _dump_json(payload: _Mapping[str, Any], verdict_only: bool) -> str:
+  """Serializes a full report payload, or its compact verdict, to JSON."""
+  sanitized = _sanitize_for_json(payload)
+  if verdict_only:
+    return json.dumps(
+        _compact_verdict(sanitized), separators=(",", ":"), allow_nan=False
+    )
+  return json.dumps(sanitized, indent=2, allow_nan=False)
+
+
+def _report_to_json(
+    report: numerical_validator.KernelValidationReport,
+    verdict_only: bool = False,
+) -> str:
   """Serializes a KernelValidationReport to RFC 8259 JSON."""
   results_dict = {
       "is_numerically_equivalent": report.is_numerically_equivalent,
@@ -326,8 +389,7 @@ def _report_to_json(report: numerical_validator.KernelValidationReport) -> str:
       "coverage": report.coverage,
       "tolerance_headroom": report.tolerance_headroom,
   }
-  sanitized_results = _sanitize_for_json(results_dict)
-  return json.dumps(sanitized_results, indent=2, allow_nan=False)
+  return _dump_json(results_dict, verdict_only)
 
 
 def replay(
@@ -336,6 +398,7 @@ def replay(
     kernel_candidate: _Callable[..., Any] | str,
     kernel_oracle: _Callable[..., Any] | str | None = None,
     contract: str | None = None,
+    verdict_only: bool = False,
 ) -> str:
   """Re-runs one saved failing batch and returns a JSON report.
 
@@ -345,6 +408,8 @@ def replay(
     kernel_candidate: The candidate implementation (callable or string path).
     kernel_oracle: Optional oracle (callable, string path, or "auto").
     contract: Overrides the contract stored in the dump ("ulp" or "bitwise").
+    verdict_only: If True, returns the compact verdict described in
+      `verify_numerical_parity` instead of the full report.
 
   Returns:
     A JSON string containing the validation report for the saved batch.
@@ -360,7 +425,7 @@ def replay(
       kernel_oracle=oracle_fn,
       contract=contract,
   )
-  return _report_to_json(report)
+  return _report_to_json(report, verdict_only=verdict_only)
 
 
 def generate_suite(

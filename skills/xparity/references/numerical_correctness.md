@@ -121,7 +121,9 @@ disables TF32) so hardware defaults do not silently truncate reference outputs.
 
 ```bash
 # Verify parity between two Python callables using the fast_agent tier
-# with pinned reference precision and automatic Float64 Oracle audit enabled
+# with pinned reference precision and automatic Float64 Oracle audit enabled.
+# Pass --verdict_only (or verdict_only=True in MCP/tool calls) to emit a compact
+# verdict summary containing only top-level audit blocks and failing batches.
 xparity verify \
   --kernel_ref="my_module.pinned_reference_fn" \
   --kernel_candidate="my_module.optimized_fn" \

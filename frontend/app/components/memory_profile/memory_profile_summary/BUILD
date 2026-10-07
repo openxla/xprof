@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "memory_profile_summary",
     srcs = [
         "memory_profile_summary.ts",
-        "memory_profile_summary_module.ts",
     ],
     assets = [
         ":memory_profile_summary_css",

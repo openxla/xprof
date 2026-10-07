@@ -1414,6 +1414,7 @@ cc_library(
     srcs = ["op_stats_to_pod_stats.cc"],
     hdrs = ["op_stats_to_pod_stats.h"],
     deps = [
+        ":profile_time_breakdown",
         "//plugin/xprof/protobuf:op_stats_proto_cc",
         "//plugin/xprof/protobuf:pod_stats_proto_cc",
         "//plugin/xprof/protobuf:steps_db_proto_cc",

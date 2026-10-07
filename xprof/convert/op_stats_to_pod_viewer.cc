@@ -17,7 +17,6 @@ limitations under the License.
 
 #include <utility>
 
-#include "absl/log/check.h"
 #include "xprof/convert/op_stats_to_pod_stats.h"
 #include "plugin/xprof/protobuf/pod_stats.pb.h"
 #include "plugin/xprof/protobuf/steps_db.pb.h"
@@ -30,6 +29,7 @@ namespace {
 PodStatsSequence ConvertOpStatsToPodStatsSequence(const OpStats& op_stats,
                                                   PodStatsDatabase pod_stats) {
   PodStatsSequence result_db;
+  const auto& core_id_map = op_stats.core_id_to_details();
   // PodStatsDatabase is created using the same iteration order below.
   // Thus, we just need to move one record at a time.
   int i = 0;
@@ -37,9 +37,14 @@ PodStatsSequence ConvertOpStatsToPodStatsSequence(const OpStats& op_stats,
     PodStatsMap* pod_stats_map = result_db.add_pod_stats_map();
     pod_stats_map->set_step_num(step_sequence.step_num());
     for (const auto& entry : step_sequence.step_info_per_core()) {
+      if (!core_id_map.contains(entry.first)) {
+        continue;
+      }
+      if (i >= pod_stats.pod_stats_record_size()) {
+        break;
+      }
       PodStatsRecord& record =
           (*pod_stats_map->mutable_pod_stats_per_core())[entry.first];
-      DCHECK_LE(i, pod_stats.pod_stats_record_size());
       record = std::move(*pod_stats.mutable_pod_stats_record(i++));
     }
   }

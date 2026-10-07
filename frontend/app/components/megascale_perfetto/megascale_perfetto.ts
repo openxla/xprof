@@ -1,4 +1,10 @@
-import {ChangeDetectionStrategy, Component, OnDestroy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  inject,
+  OnDestroy,
+} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -8,20 +14,23 @@ import {
   setCurrentToolStateAction,
   setErrorMessageStateAction,
 } from 'org_xprof/frontend/app/store/actions';
-import {ReplaySubject, combineLatest} from 'rxjs';
+import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {SafePipe} from '../../pipes/safe_pipe';
 
 /** A megascale perfetto viewer component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'megascale-perfetto',
   templateUrl: './megascale_perfetto.ng.html',
   styleUrls: ['./megascale_perfetto.scss'],
+  imports: [SafePipe],
 })
 export class MegascalePerfetto implements OnDestroy {
   readonly tool = 'megascale_perfetto';
   /** Handles on-destroy Subject, used to unsubscribe. */
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly destroyed = new ReplaySubject<void>(1);
   private readonly throbber = new Throbber(this.tool);
 
@@ -53,6 +62,7 @@ export class MegascalePerfetto implements OnDestroy {
         this.groupTinyEvents = (queryParams || {})['group_tiny_events'] || '';
         this.perfettoDataUrl = this.buildPerfettoDataURL();
         this.perfettoUrl = this.buildMegascalePerfettoUrl();
+        this.cdr.markForCheck();
       });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
   }
@@ -92,6 +102,7 @@ export class MegascalePerfetto implements OnDestroy {
       this.throbber.stop();
       setLoadingState(false, this.store);
       this.isLoading = false;
+      this.cdr.markForCheck();
     }
   }
 

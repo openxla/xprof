@@ -12,6 +12,7 @@ export declare interface GraphViewerQueryParams {
   show_me_graph?: boolean;
   session_path?: string;
   run_path?: string;
+  run?: string;
   tag?: string;
   host?: string;
 }

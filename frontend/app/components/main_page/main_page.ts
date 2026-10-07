@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  HostListener,
   inject,
   OnDestroy,
 } from '@angular/core';
@@ -14,6 +15,7 @@ import {
   DATA_SERVICE_INTERFACE_TOKEN,
   DataServiceV2Interface,
 } from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {setErrorMessageStateAction} from 'org_xprof/frontend/app/store/actions';
 import {
   getCurrentRun,
   getErrorMessage,
@@ -45,6 +47,7 @@ export class MainPage implements OnDestroy {
   loading = true;
   loadingMessage = '';
   isSideNavOpen = true;
+  isSmallScreen = window.innerWidth < 960;
   navigationReady = false;
   errorMessages: string[] = [];
   /** The version string of the XProf plugin. */
@@ -138,6 +141,10 @@ export class MainPage implements OnDestroy {
         this.navigationReady = true;
         this.currentRun = navigationEvent.run || this.currentRun;
         this.currentTag = navigationEvent.tag || '';
+        this.errorMessages = [];
+        // The store only emits changed values, so clear the stored error too;
+        // otherwise the same error on the next tool would not be shown.
+        this.store.dispatch(setErrorMessageStateAction({errorMessage: ''}));
         // TODO(fe-unification): Remove this constraint once the sidepanel
         // content of the 3 tools are moved out from sidenav with consolidated
         // templates.
@@ -188,6 +195,10 @@ export class MainPage implements OnDestroy {
     });
   }
 
+  @HostListener('window:resize')
+  onResize() {
+    this.isSmallScreen = window.innerWidth < 960;
+  }
   get diagnostics(): Diagnostics {
     return {
       errors: this.errorMessages,

@@ -31,12 +31,6 @@
   width: 100%;
 }
 
-@media screen and (max-width: 860px) {
-  :host {
-    width: fit-content;
-  }
-}
-
 @media screen and (max-width: 1140px) {
   .left-column,
   .right-column {

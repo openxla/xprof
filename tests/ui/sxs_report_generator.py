@@ -262,10 +262,21 @@ def _render_waypoint_card(
   )
 
 
+def _script_json(value: object) -> str:
+  """Serializes value as JSON that is safe to inline in a <script> block."""
+  return (
+      json.dumps(value, indent=4)
+      .replace("<", "\\u003c")
+      .replace(">", "\\u003e")
+      .replace("&", "\\u0026")
+  )
+
+
 def generate_sxs_html_report(
     waypoint_diffs: list[sxs_diff_engine.WaypointDiff],
     output_html_path: str,
     template_dir: pathlib.Path | None = None,
+    manifest_path: str | None = None,
 ) -> str:
   """Renders and writes standalone HTML diff report.
 
@@ -273,6 +284,8 @@ def generate_sxs_html_report(
     waypoint_diffs: Evaluated waypoints to render.
     output_html_path: Destination path for the generated HTML.
     template_dir: Template directory override, for tests.
+    manifest_path: Approved manifest the report builds on. Defaults to the one
+      the gate reads.
 
   Returns:
     The path the report was written to.
@@ -306,6 +319,7 @@ def generate_sxs_html_report(
       for idx, w in enumerate(waypoint_diffs)
   )
   unapproved_list: list[dict[str, str]] = []
+  approved_diffs: dict[str, dict[str, str]] = {}
   if not has_unapproved_diffs:
     approval_portal_html = ""
   else:
@@ -318,13 +332,10 @@ def generate_sxs_html_report(
         for w in waypoint_diffs
         if w.verdict == "CHANGED"
     ]
+    approved_diffs = sxs_diff_engine.SxsDiffEngine(
+        manifest_path
+    ).approved_manifest
 
-  unapproved_json = (
-      json.dumps(unapproved_list, indent=4)
-      .replace("<", "\\u003c")
-      .replace(">", "\\u003e")
-      .replace("&", "\\u0026")
-  )
   styles = templates.get("report_styles.css")
 
   main_tmpl = string.Template(templates.get("sxs_report_template.html"))
@@ -336,7 +347,8 @@ def generate_sxs_html_report(
       tabs_html=tabs_html,
       cards_html=cards_html,
       approval_portal_html=approval_portal_html,
-      unapproved_json=unapproved_json,
+      unapproved_json=_script_json(unapproved_list),
+      approved_json=_script_json(approved_diffs),
   )
 
   os.makedirs(os.path.dirname(os.path.abspath(output_html_path)), exist_ok=True)

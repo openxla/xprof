@@ -862,7 +862,7 @@ class SxsDiffEngineTest(unittest.TestCase):
     self.assertIn("Section unavailable", content)
 
   def test_sxs_report_approval_portal_makes_no_unearned_claims(self):
-    """Verifies portal neither certifies run nor emits whole manifest."""
+    """Verifies the portal does not certify the run it reports on."""
     engine = SxsDiffEngine()
     diff = _evaluate(
         engine,
@@ -875,11 +875,40 @@ class SxsDiffEngineTest(unittest.TestCase):
     content = _render_report([diff])
 
     # Approving in the portal writes nothing and submits nothing, so the page
-    # must not repaint its own badge green, and the text it emits must not be
-    # a whole manifest that overwrites approvals recorded by other reviewers.
+    # must not repaint its own badge green.
     self.assertIn('class="badge badge-fail"', content)
     self.assertNotIn("ALL JOURNEYS CERTIFIED", content)
-    self.assertNotIn("approved_diffs: {}", content)
+
+  def test_sxs_report_builds_on_existing_approvals(self):
+    """Verifies the report embeds the approvals the gate read."""
+    diff = _evaluate(
+        SxsDiffEngine(approved_manifest_path=""),
+        _create_test_image((128, 128, 128)),
+        _create_test_image((255, 0, 0)),
+    )
+    existing = {
+        "diff_hash": "0123456789abcdef",
+        "decision": "INTENTIONAL",
+        "rationale": "allow </script>&",
+    }
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+      manifest = os.path.join(tmpdir, "approved_manifest.json")
+      pathlib.Path(manifest).write_text(
+          json.dumps({"approved_diffs": {"triage:hlo_stats": existing}}),
+          encoding="utf-8",
+      )
+      path = generate_sxs_html_report(
+          [diff], os.path.join(tmpdir, "report.html"), manifest_path=manifest
+      )
+      content = pathlib.Path(path).read_text(encoding="utf-8")
+
+    # The page's Approve button merges into this object, so replacing
+    # approved_manifest.json with its output keeps the earlier approval.
+    embedded = content.split("const currentApprovedDiffs = ", 1)[1]
+    embedded = embedded.split(";\n", 1)[0]
+    self.assertNotIn("</script>&", embedded)
+    self.assertEqual(json.loads(embedded), {"triage:hlo_stats": existing})
 
   def test_sxs_report_renders_pixel_delta_views(self):
     """Verifies a real pixel delta earns the slider and heatmap views."""

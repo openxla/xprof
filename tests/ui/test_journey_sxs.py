@@ -324,8 +324,9 @@ def _format_failure_banner(
         "     DOM unified diff, and network waterfall.",
         "  2. If the diff is an unintended regression, fix the UI/backend code",
         "     and re-run the test.",
-        "  3. If the diff is an intentional UI update, copy the approval JSON",
-        "     from the report into tests/ui/approved_manifest.json.",
+        "  3. If the diff is an intentional UI update, click Approve in the",
+        "     report and replace tests/ui/approved_manifest.json with the",
+        "     generated file.",
         "=" * 80,
     ])
   else:

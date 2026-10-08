@@ -597,7 +597,9 @@ class Timeline {
                                Pixel timeline_width, Pixel event_height,
                                Pixel padding_bottom) const;
 
-  // Calculates the top-left screen coordinates for the event name text.
+  // Calculates the top-left screen coordinates for the event name text,
+  // left-aligning with fixed padding and integer pixel snapping for visual
+  // stability.
   ImVec2 CalculateEventTextRect(absl::string_view event_name,
                                 const EventRect& event_rect) const;
 

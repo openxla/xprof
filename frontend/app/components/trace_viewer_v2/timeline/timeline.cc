@@ -1847,18 +1847,15 @@ ImVec2 Timeline::CalculateEventTextRect(absl::string_view event_name,
                                         const EventRect& event_rect) const {
   const ImVec2 text_size = GetTextSize(event_name);
 
-  // Center the text within the clipped visible portion of the event.
-  const Pixel clipped_width = event_rect.right - event_rect.left;
-  const Pixel text_x = event_rect.left + (clipped_width - text_size.x) * 0.5f;
+  // Left-align text with fixed padding from the left boundary to keep text
+  // stable during panning and zooming. Snapping coordinates to integer
+  // pixels prevents sub-pixel rendering jitter.
+  const Pixel text_x = std::floor(event_rect.left + kEventTextPaddingLeft);
   const Pixel event_height = event_rect.bottom - event_rect.top;
-  const Pixel text_y = event_rect.top + (event_height - text_size.y) * 0.5f;
+  const Pixel text_y =
+      std::floor(event_rect.top + (event_height - text_size.y) * 0.5f);
 
-  // Ensure the text starts at least at the left boundary of the event rect.
-  // ImGui's PushClipRect in DrawEventName will handle the right boundary
-  // clipping.
-  const Pixel text_x_clipped = std::max(text_x, event_rect.left);
-
-  return ImVec2(text_x_clipped, text_y);
+  return ImVec2(text_x, text_y);
 }
 
 std::string Timeline::GetTextForDisplay(absl::string_view event_name,
@@ -2722,8 +2719,10 @@ void Timeline::DrawEventName(absl::string_view event_name,
   const Pixel available_width = event_rect.right - event_rect.left;
 
   if (available_width >= kMinTextWidth) {
+    const Pixel text_available_width =
+        std::max(0.0f, available_width - kEventTextPaddingLeft);
     const std::string text_display =
-        GetTextForDisplay(event_name, available_width);
+        GetTextForDisplay(event_name, text_available_width);
 
     if (!text_display.empty()) {
       const ImVec2 text_pos = CalculateEventTextRect(text_display, event_rect);

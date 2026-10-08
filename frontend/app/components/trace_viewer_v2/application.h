@@ -113,6 +113,13 @@ class Application {
     }
   }
 
+  // See Timeline::set_event_tooltip_enabled().
+  void SetEventTooltipEnabled(bool enabled) {
+    if (timeline_) {
+      timeline_->set_event_tooltip_enabled(enabled);
+    }
+  }
+
   // Clears all per-dataset state so a different dataset can be loaded into
   // this instance. Call before loadTraceData() when switching datasets.
   void ResetDataset() {

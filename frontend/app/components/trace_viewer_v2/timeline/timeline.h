@@ -552,6 +552,17 @@ class Timeline {
   }
   bool incremental_fetch_enabled() const { return incremental_fetch_enabled_; }
 
+  // Whether hovering a flame-chart event shows the built-in tooltip
+  // (`name (duration)`). Hosts that draw their own tooltip, or that already
+  // paint everything the tooltip would say on the event itself, turn it off.
+  // Hover highlighting, the `eventhovered` callback and click selection are
+  // unaffected, and counter-track tooltips are separate. On by default and
+  // kept by ResetForNewDataset().
+  void set_event_tooltip_enabled(bool enabled) {
+    event_tooltip_enabled_ = enabled;
+  }
+  bool event_tooltip_enabled() const { return event_tooltip_enabled_; }
+
   // Returns the timeline to its pre-first-load state (data, ranges, selection,
   // search, bookmarks, scroll) so a different dataset can be loaded. Host
   // toggles and per-name track preferences are kept.
@@ -1145,6 +1156,8 @@ class Timeline {
   bool is_incremental_loading_ = true;
 
   bool incremental_fetch_enabled_ = true;
+
+  bool event_tooltip_enabled_ = true;
 
   // Stores the last requested data range to prevent redundant refetches when
   // the returned data is empty or sparse (and thus fetched_data_time_range_

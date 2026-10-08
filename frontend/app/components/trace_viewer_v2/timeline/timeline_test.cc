@@ -1172,6 +1172,7 @@ TEST(TimelineTest, ResetForNewDatasetRestoresFreshInstanceState) {
   timeline.AddSelectedTimeRange({10.0, 30.0});
   timeline.set_bookmarks_enabled(true);
   timeline.AddBookmark(42.0);
+  timeline.set_event_tooltip_enabled(false);
   timeline.SetSearchQuery("vadd");
   timeline.set_last_scroll_y_for_test(123.0f);
   ASSERT_EQ(timeline.get_search_results_count(), 1);
@@ -1209,6 +1210,7 @@ TEST(TimelineTest, ResetForNewDatasetRestoresFreshInstanceState) {
   EXPECT_FALSE(timeline.get_should_restore_scroll_for_test());
   // Host-level toggles are not per-dataset state and must survive.
   EXPECT_TRUE(timeline.bookmarks_enabled());
+  EXPECT_FALSE(timeline.event_tooltip_enabled());
 
   // As on a fresh instance, no fetch_data is emitted until the host loads.
   timeline.MaybeRequestData();
@@ -6606,6 +6608,135 @@ TEST_F(RealTimelineImGuiFixture, HoverInstantEventUsesExpandedHitbox) {
   // A fully opaque color alpha is 255.
   ImU8 alpha = (original_opaque_test_color >> IM_COL32_A_SHIFT) & 0xFF;
   EXPECT_EQ(alpha, 255) << "Triangle should be non-transparent when hovered!";
+
+  ImGui::EndFrame();
+}
+
+// Returns the first ImGui window whose name contains `name_part`.
+ImGuiWindow* FindWindowContaining(absl::string_view name_part) {
+  for (ImGuiWindow* window : ImGui::GetCurrentContext()->Windows) {
+    if (absl::StrContains(window->Name, name_part)) {
+      return window;
+    }
+  }
+  return nullptr;
+}
+
+bool HasVertexWithColor(const ImGuiWindow& window, ImU32 color) {
+  for (const ImDrawVert& vtx : window.DrawList->VtxBuffer) {
+    if (vtx.col == color) return true;
+  }
+  return false;
+}
+
+// Returns whether ImGui drew a tooltip in the current (not yet ended) frame.
+bool IsTooltipShown() {
+  ImGuiWindow* tooltip = ImGui::FindWindowByName("##Tooltip_00");
+  return tooltip != nullptr && tooltip->Active;
+}
+
+// One flame event that spans the whole visible range, so any x in the track
+// area hovers it.
+FlameChartTimelineData SingleFullWidthEvent() {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "VPU",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+  data.entry_names = {"vmatmul"};
+  data.entry_levels = {0};
+  data.entry_start_times = {0.0};
+  data.entry_total_times = {100.0};
+  data.entry_event_ids = {0};
+  data.entry_args = {{}};
+  return data;
+}
+
+TEST_F(RealTimelineImGuiFixture, HoverEventShowsTooltipByDefault) {
+  timeline_.SetTimelineData(SingleFullWidthEvent());
+  timeline_.SetVisibleRange({0.0, 100.0});
+  ASSERT_TRUE(timeline_.event_tooltip_enabled());
+
+  // Lay out, then hover.
+  ImGui::GetIO().MousePos = ImVec2(-1000.0f, -1000.0f);
+  SimulateFrame();
+  ImGui::GetIO().MousePos = ImVec2(GetTimelineStartX() + 50.0f, kFirstEventY);
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  EXPECT_TRUE(IsTooltipShown());
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       HoverEventWithTooltipDisabledStillHighlightsAndEmitsHover) {
+  timeline_.SetTimelineData(SingleFullWidthEvent());
+  timeline_.SetVisibleRange({0.0, 100.0});
+  timeline_.set_event_tooltip_enabled(false);
+
+  int hovered_index = -1;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kEventHovered) {
+          hovered_index = std::any_cast<int>(detail.at(kEventSelectedIndex));
+        }
+      });
+
+  ImGui::GetIO().MousePos = ImVec2(-1000.0f, -1000.0f);
+  SimulateFrame();
+  ImGui::GetIO().MousePos = ImVec2(GetTimelineStartX() + 50.0f, kFirstEventY);
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  // Only the tooltip is gone; the hover mask and callback are unchanged.
+  EXPECT_FALSE(IsTooltipShown());
+  ImGuiWindow* track_window = FindWindowContaining("TimelineChild_VPU_0");
+  ASSERT_NE(track_window, nullptr);
+  EXPECT_TRUE(HasVertexWithColor(*track_window, kHoverMaskColor));
+  EXPECT_EQ(hovered_index, 0);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       HoverCounterTrackShowsTooltipWhenEventTooltipDisabled) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = "MXU utilization",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  CounterData counter_data;
+  counter_data.timestamps = {10.0, 20.0, 30.0};
+  counter_data.values = {0.0, 10.0, 5.0};
+  counter_data.min_value = 0.0;
+  counter_data.max_value = 10.0;
+  data.counter_data_by_group_index[0] = std::move(counter_data);
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+  timeline_.set_event_tooltip_enabled(false);
+
+  // Lay out the counter track and pick a point inside it.
+  ImGui::GetIO().MousePos = ImVec2(-1000.0f, -1000.0f);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGuiWindow* counter_window =
+      FindWindowContaining("TimelineChild_MXU utilization_0");
+  ASSERT_NE(counter_window, nullptr);
+  ImVec2 target_pos = counter_window->Pos;
+  target_pos.x += counter_window->Size.x * 0.2f;
+  target_pos.y += counter_window->Size.y * 0.5f;
+  ImGui::EndFrame();
+
+  ImGui::GetIO().MousePos = target_pos;
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  EXPECT_TRUE(IsTooltipShown());
 
   ImGui::EndFrame();
 }

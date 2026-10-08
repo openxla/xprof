@@ -621,7 +621,10 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   readonly canCopyLink = navigator.clipboard !== undefined;
   linkCopied = false;
 
-  /** Whether to show the Angular kernel event tooltip on the timeline. */
+  /**
+   * Whether to show the Angular kernel event tooltip on the timeline. The
+   * built-in Trace Viewer event tooltip is always off (see onInitializeWasm).
+   */
   enableEventTooltip = false;
 
   traceViewerModule: TraceViewerV2Module | null = null;
@@ -739,11 +742,6 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     this.isInitializing = true;
     try {
       this.traceViewerModule = await traceViewerV2Main();
-      if (this.enableEventTooltip) {
-        // The kernel event tooltip replaces the built-in one, which formats
-        // bundle counts as durations.
-        this.traceViewerModule?.SetEventTooltipEnabled?.(false);
-      }
       if (this.isDestroyed) {
         if (this.traceViewerModule !== null) {
           shutdownTraceViewerV2();
@@ -753,6 +751,10 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
         // The kernel backend ignores time ranges and always returns the whole
         // kernel, so incremental refetching would only re-download it.
         this.traceViewerModule?.SetIncrementalFetchEnabled?.(false);
+        // The built-in event tooltip reads `name (duration)`, but kernel
+        // events are measured in bundles, not time, and already show their
+        // name. The counter tooltip (utilization values) is unaffected.
+        this.traceViewerModule?.SetEventTooltipEnabled?.(false);
         this.lastLoadedUrl = '';
         this.lastLoadFailed = false;
         this.loadKernelTrace(this.url);

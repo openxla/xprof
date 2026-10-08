@@ -2826,9 +2826,11 @@ void Timeline::DrawEvent(int group_index, int event_index,
             kHoverMaskColor, corner_rounding, kImDrawFlags);
       }
 
-      ImGui::SetTooltip(
-          "%s (%s)", event_name.c_str(),
-          FormatTime(timeline_data_.entry_total_times[event_index]).c_str());
+      if (event_tooltip_enabled_) {
+        ImGui::SetTooltip(
+            "%s (%s)", event_name.c_str(),
+            FormatTime(timeline_data_.entry_total_times[event_index]).c_str());
+      }
 
       // ImGui uses 0 to represent the left mouse button, as defined in the
       // ImGuiMouseButton enum. We check if the left mouse button was clicked.

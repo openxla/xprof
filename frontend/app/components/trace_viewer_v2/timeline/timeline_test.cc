@@ -3280,6 +3280,222 @@ TEST(TimelineTest, SetSearchQuerySortsResultsByLevel) {
   EXPECT_EQ(timeline.selected_event_index(), 0);  // Event X
 }
 
+TEST(TimelineTest, SetSearchQueryMatchesGroupNames) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Main Track",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true,
+                         .pid = 1,
+                         .tid = 1});
+  data.groups.push_back({.name = "Worker Thread",
+                         .start_level = 1,
+                         .nesting_level = 1,
+                         .expanded = true,
+                         .pid = 1,
+                         .tid = 2});
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 1000.0});
+
+  timeline.SetSearchQuery("Worker");
+  EXPECT_EQ(timeline.get_search_results_count(), 1);
+  const auto& results = timeline.get_search_results_for_test();
+  ASSERT_EQ(results.size(), 1);
+  EXPECT_EQ(results[0].group_index, 1);
+  EXPECT_EQ(results[0].name, "Worker Thread");
+  EXPECT_EQ(results[0].level, 1);
+  EXPECT_EQ(results[0].loaded_index, -1);
+}
+
+TEST(TimelineTest, SetSearchQueryCaseInsensitiveForGroups) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "ComputeEngine",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 1000.0});
+
+  timeline.SetSearchQuery("compute");
+  EXPECT_EQ(timeline.get_search_results_count(), 1);
+
+  timeline.SetSearchQuery("ENGINE");
+  EXPECT_EQ(timeline.get_search_results_count(), 1);
+
+  timeline.SetSearchQuery("uteeng");
+  EXPECT_EQ(timeline.get_search_results_count(), 1);
+
+  timeline.SetSearchQuery("nomatch");
+  EXPECT_EQ(timeline.get_search_results_count(), 0);
+}
+
+TEST(TimelineTest,
+     SetSearchQueryMatchesBothGroupsAndEventsWithCorrectOrdering) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Compute Group",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Compute Thread",
+                         .start_level = 1,
+                         .nesting_level = 1,
+                         .expanded = true});
+
+  // Event at level 0 (same level as Group 0)
+  data.entry_names.push_back("Compute Event A");
+  data.entry_start_times.push_back(100.0);
+  data.entry_levels.push_back(0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_event_ids.push_back(1);
+  data.entry_args.push_back({});
+
+  // Event at level 1 (same level as Group 1)
+  data.entry_names.push_back("Compute Event B");
+  data.entry_start_times.push_back(50.0);
+  data.entry_levels.push_back(1);
+  data.entry_total_times.push_back(10.0);
+  data.entry_event_ids.push_back(2);
+  data.entry_args.push_back({});
+
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 1000.0});
+
+  timeline.SetSearchQuery("Compute");
+  // Expect 4 results: Group 0, Event A, Group 1, Event B
+  const auto& results = timeline.get_search_results_for_test();
+  ASSERT_EQ(results.size(), 4);
+
+  // Level 0: Group header comes before slice event
+  EXPECT_EQ(results[0].group_index, 0);
+  EXPECT_EQ(results[0].name, "Compute Group");
+  EXPECT_EQ(results[0].level, 0);
+
+  EXPECT_EQ(results[1].group_index, -1);
+  EXPECT_EQ(results[1].name, "Compute Event A");
+  EXPECT_EQ(results[1].level, 0);
+
+  // Level 1: Group header comes before slice event
+  EXPECT_EQ(results[2].group_index, 1);
+  EXPECT_EQ(results[2].name, "Compute Thread");
+  EXPECT_EQ(results[2].level, 1);
+
+  EXPECT_EQ(results[3].group_index, -1);
+  EXPECT_EQ(results[3].name, "Compute Event B");
+  EXPECT_EQ(results[3].level, 1);
+}
+
+TEST(TimelineTest, NavigateToNextSearchResultSelectsAndScrollsToGroup) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Alpha Track",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.groups.push_back({.name = "Beta Track",
+                         .start_level = 1,
+                         .nesting_level = 0,
+                         .expanded = true});
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 1000.0});
+
+  timeline.SetSearchQuery("Beta");
+  ASSERT_EQ(timeline.get_search_results_count(), 1);
+
+  timeline.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline.get_current_search_result_index(), 0);
+  EXPECT_EQ(timeline.selected_group_index(), 1);
+  EXPECT_EQ(timeline.selected_event_index(), -1);
+  EXPECT_EQ(timeline.get_group_index_to_scroll_to_for_test(), 1);
+}
+
+TEST(TimelineTest, ScrollToGroupExpandsCollapsedAncestors) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Process",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = false,
+                         .parent_index = -1});
+  data.groups.push_back({.name = "Thread",
+                         .start_level = 1,
+                         .nesting_level = 1,
+                         .expanded = false,
+                         .parent_index = 0});
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_header_all_expanded_for_test(false);
+
+  timeline.ScrollToGroup(1);
+
+  EXPECT_TRUE(timeline.header_all_expanded_for_test());
+  EXPECT_TRUE(timeline.timeline_data().groups[0].expanded);
+  EXPECT_EQ(timeline.selected_group_index(), 1);
+  EXPECT_EQ(timeline.get_group_index_to_scroll_to_for_test(), 1);
+}
+
+TEST(TimelineTest, ScrollToGroupByNameMatchesExactAndCaseInsensitive) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "gpu",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.groups.push_back({.name = "GpuStream",
+                         .start_level = 1,
+                         .nesting_level = 1,
+                         .expanded = true});
+  data.groups.push_back({.name = "GPU",
+                         .start_level = 2,
+                         .nesting_level = 0,
+                         .expanded = true});
+  timeline.SetTimelineData(std::move(data));
+
+  // Exact match selects "gpu" (index 0)
+  EXPECT_TRUE(timeline.ScrollToGroup("gpu"));
+  EXPECT_EQ(timeline.selected_group_index(), 0);
+
+  // Exact match selects "GPU" (index 2)
+  EXPECT_TRUE(timeline.ScrollToGroup("GPU"));
+  EXPECT_EQ(timeline.selected_group_index(), 2);
+
+  // Case-insensitive match for "gpustream" selects "GpuStream" (index 1)
+  EXPECT_TRUE(timeline.ScrollToGroup("gpustream"));
+  EXPECT_EQ(timeline.selected_group_index(), 1);
+
+  // Non-matching returns false
+  EXPECT_FALSE(timeline.ScrollToGroup("cpu"));
+}
+
+TEST(TimelineTest, SearchEmptyGroupWithZeroEvents) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Idle Process",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  // No events added
+  timeline.SetTimelineData(std::move(data));
+
+  timeline.SetSearchQuery("idle");
+  EXPECT_EQ(timeline.get_search_results_count(), 1);
+  const auto& results = timeline.get_search_results_for_test();
+  ASSERT_EQ(results.size(), 1);
+  EXPECT_EQ(results[0].group_index, 0);
+  EXPECT_EQ(results[0].loaded_index, -1);
+  EXPECT_EQ(results[0].name, "Idle Process");
+}
+
 TEST(TimelineTest, SetTimelineData) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
@@ -6889,6 +7105,60 @@ TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollScrollsUp) {
 
   // Expect scroll to go to y_top of level 5.
   EXPECT_NEAR(tracks_window->Scroll.y, 97.0f, 0.1f);
+}
+
+TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollScrollsToGroup) {
+  FlameChartTimelineData data;
+  for (int i = 0; i < 10; ++i) {
+    data.groups.push_back({.name = absl::StrCat("Track ", i),
+                           .start_level = i,
+                           .nesting_level = 0,
+                           .expanded = true});
+    data.entry_names.push_back(absl::StrCat("event_", i));
+    data.entry_levels.push_back(i);
+    data.entry_start_times.push_back(100.0);
+    data.entry_total_times.push_back(1.0);
+    data.entry_args.push_back({});
+  }
+  data.level_offsets.resize(11);
+  data.level_event_indices.resize(10);
+  for (int i = 0; i < 10; ++i) {
+    data.level_offsets[i] = i;
+    data.level_event_indices[i] = i;
+  }
+  data.level_offsets[10] = 10;
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 20000.0});
+
+  SimulateFrame();
+  SimulateFrame();
+
+  // Set small display size to force scrolling.
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 200.0f);
+
+  ImGuiWindow* tracks_window = nullptr;
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (absl::StrContains(std::string(w->Name), "Tracks")) {
+      tracks_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(tracks_window, nullptr);
+
+  tracks_window->Scroll.y = 0.0f;
+
+  // Scroll to track 8 (well below 200px viewport).
+  timeline_.ScrollToGroup(8);
+
+  for (int i = 0; i < 3; ++i) {
+    ImGui::NewFrame();
+    timeline_.Draw();
+    Animation::UpdateAll(ImGui::GetIO().DeltaTime);
+    ImGui::Render();
+  }
+
+  EXPECT_GT(tracks_window->Scroll.y, 0.0f);
 }
 
 TEST_F(RealTimelineImGuiFixture, RevealEventClampsToMinFetchDuration) {

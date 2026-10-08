@@ -155,6 +155,19 @@ class Application {
     return timeline_->get_current_search_result_index();
   }
 
+  void ScrollToGroup(int group_index) {
+    if (timeline_) {
+      timeline_->ScrollToGroup(group_index);
+    }
+  }
+
+  bool ScrollToGroup(const std::string& name) {
+    if (timeline_) {
+      return timeline_->ScrollToGroup(name);
+    }
+    return false;
+  }
+
  private:
   friend class absl::NoDestructor<Application>;
 

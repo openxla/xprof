@@ -283,14 +283,15 @@ class Timeline {
   }
 
   struct SearchResult {
-    EventId event_id;
-    int level;
-    Microseconds start_time;
-    Microseconds duration;
-    ProcessId pid;
-    ThreadId tid;
+    EventId event_id = 0;
+    int level = 0;
+    Microseconds start_time = 0.0;
+    Microseconds duration = 0.0;
+    ProcessId pid = 0;
+    ThreadId tid = 0;
     std::string name;
     int loaded_index = -1;
+    int group_index = -1;
   };
 
   struct GroupRelativeInfo {
@@ -637,6 +638,18 @@ class Timeline {
   void NavigateToNextSearchResult();
   void NavigateToPrevSearchResult();
 
+  // Scrolls the viewport vertically to bring the specified group into view,
+  // expanding any collapsed ancestor groups.
+  void ScrollToGroup(int group_index);
+
+  // Finds a group matching the given name (exact match first, then
+  // case-insensitive) and scrolls to it. Returns true if a match was found.
+  bool ScrollToGroup(absl::string_view name);
+
+  // Expands collapsed ancestor groups of the given group index to ensure it
+  // is visible.
+  void ExpandAncestors(int group_index);
+
   // Information about timeline ticks for drawing ruler and grid lines.
   struct TickInfo {
     // Time duration between major ticks.
@@ -702,6 +715,15 @@ class Timeline {
   }
   void set_header_all_expanded_for_test(bool expanded) {
     header_all_expanded_ = expanded;
+  }
+  bool header_all_expanded_for_test() const {
+    return header_all_expanded_;
+  }
+  int get_group_index_to_scroll_to_for_test() const {
+    return group_index_to_scroll_to_;
+  }
+  void set_group_index_to_scroll_to_for_test(int idx) {
+    group_index_to_scroll_to_ = idx;
   }
   const Group& header_hidden_for_test() const { return header_hidden_; }
   const Group& header_pinned_for_test() const { return header_pinned_; }
@@ -1139,6 +1161,8 @@ class Timeline {
 
   // The index of the event to scroll to in the next Draw call.
   int event_index_to_scroll_to_ = -1;
+  // The index of the group to scroll to in the next Draw call.
+  int group_index_to_scroll_to_ = -1;
 
   std::vector<TimeRange> selected_time_ranges_;
   std::vector<Microseconds> bookmarks_;

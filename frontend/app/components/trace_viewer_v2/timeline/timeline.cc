@@ -771,6 +771,7 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
 
   matching_event_indices_.clear();
   for (SearchResult& result : search_results_) {
+    if (result.group_index != -1) continue;
     if (const auto it = event_id_to_loaded_index.find(result.event_id);
         it != event_id_to_loaded_index.end()) {
       result.loaded_index = it->second;
@@ -806,7 +807,12 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
              current_search_result_index_ < search_results_.size()) {
     const SearchResult& active =
         search_results_.at(current_search_result_index_);
-    selected_event_index_ = active.loaded_index;
+    if (active.group_index != -1) {
+      selected_group_index_ = active.group_index;
+      selected_event_index_ = -1;
+    } else {
+      selected_event_index_ = active.loaded_index;
+    }
   } else if (had_selected_event) {
     // Decouple selection re-indexing without mutating viewport scroll.
     int new_selected_index = -1;
@@ -2234,6 +2240,73 @@ void Timeline::ExpandRelatedTracks(int event_index) {
       if (redraw_callback_) redraw_callback_();
     }
   }
+}
+
+void Timeline::ExpandAncestors(int group_index) {
+  if (group_index < 0 ||
+      group_index >= static_cast<int>(timeline_data_.groups.size())) {
+    return;
+  }
+
+  bool changed = false;
+  if (!header_all_expanded_) {
+    header_all_expanded_ = true;
+    changed = true;
+  }
+
+  int curr = timeline_data_.groups[group_index].parent_index;
+  while (curr >= 0 && curr < static_cast<int>(timeline_data_.groups.size())) {
+    if (!timeline_data_.groups[curr].expanded) {
+      timeline_data_.groups[curr].expanded = true;
+      changed = true;
+    }
+    curr = timeline_data_.groups[curr].parent_index;
+  }
+
+  int current_nesting = timeline_data_.groups[group_index].nesting_level;
+  for (int i = group_index - 1; i >= 0 && current_nesting > 0; --i) {
+    if (timeline_data_.groups[i].nesting_level < current_nesting) {
+      if (!timeline_data_.groups[i].expanded) {
+        timeline_data_.groups[i].expanded = true;
+        changed = true;
+      }
+      current_nesting = timeline_data_.groups[i].nesting_level;
+    }
+  }
+
+  if (changed) {
+    UpdateLevelPositions(timeline_data_);
+  }
+}
+
+void Timeline::ScrollToGroup(int group_index) {
+  if (group_index < 0 ||
+      group_index >= static_cast<int>(timeline_data_.groups.size())) {
+    return;
+  }
+
+  ExpandAncestors(group_index);
+  selected_group_index_ = group_index;
+  selected_event_index_ = -1;
+  selected_counter_index_ = -1;
+  group_index_to_scroll_to_ = group_index;
+  if (redraw_callback_) redraw_callback_();
+}
+
+bool Timeline::ScrollToGroup(absl::string_view name) {
+  for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+    if (timeline_data_.groups[i].name == name) {
+      ScrollToGroup(static_cast<int>(i));
+      return true;
+    }
+  }
+  for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+    if (absl::EqualsIgnoreCase(timeline_data_.groups[i].name, name)) {
+      ScrollToGroup(static_cast<int>(i));
+      return true;
+    }
+  }
+  return false;
 }
 
 void Timeline::HideTrack(absl::string_view name) {
@@ -4510,8 +4583,45 @@ bool Timeline::HandleWheel() {
 }
 
 // Checks if there is a pending request to vertically scroll to a specific
-// event, and sets next window scroll to make it visible if it's out of view.
+// group or event, and sets next window scroll to make it visible if it's out
+// of view.
 void Timeline::ProcessPendingScroll() {
+  if (group_index_to_scroll_to_ >= 0) {
+    const int group_index = group_index_to_scroll_to_;
+    group_index_to_scroll_to_ = -1;
+
+    if (group_index < static_cast<int>(group_offsets_.size()) &&
+        group_index < static_cast<int>(group_heights_.size())) {
+      Pixel y_top = group_offsets_[group_index];
+      Pixel track_height = group_heights_[group_index];
+      Pixel y_bottom = y_top + track_height;
+      Pixel window_height = ImGui::GetWindowHeight();
+      Pixel current_scroll_y = ImGui::GetScrollY();
+
+      Pixel target_scroll_y = current_scroll_y;
+      bool is_fully_visible = (y_top >= current_scroll_y) &&
+                              (y_bottom <= current_scroll_y + window_height);
+
+      if (is_fully_visible) {
+        // Track is fully visible, no need to scroll.
+      } else if (y_top < current_scroll_y) {
+        // Track is above current viewport, scroll up until top is visible.
+        target_scroll_y = y_top;
+      } else if (y_bottom > current_scroll_y + window_height) {
+        // Track is below current viewport, scroll down until bottom is visible
+        // (or top if track is taller than the window).
+        target_scroll_y =
+            (track_height > window_height) ? y_top : (y_bottom - window_height);
+      }
+
+      target_scroll_y = std::max(0.0f, target_scroll_y);
+      if (target_scroll_y != current_scroll_y) {
+        ImGui::SetScrollY(target_scroll_y);
+        if (redraw_callback_) redraw_callback_();
+      }
+    }
+  }
+
   // Check if there is a pending request to scroll to an event.
   if (event_index_to_scroll_to_ < 0) return;
 
@@ -5008,16 +5118,47 @@ void Timeline::RecomputeSearchResults() {
                                              .pid = pid,
                                              .tid = tid,
                                              .name = name,
-                                             .loaded_index = i});
+                                             .loaded_index = i,
+                                             .group_index = -1});
       matching_event_indices_.insert(i);
     }
   }
 
-  // Sort results horizontally by track hierarchy and start time.
+  for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+    const Group& grp = timeline_data_.groups[i];
+    if (absl::StrContainsIgnoreCase(grp.name, search_query_lower_)) {
+      search_results_.push_back(SearchResult{
+          .event_id = 0,
+          .level = grp.start_level,
+          .start_time = 0.0,
+          .duration = 0.0,
+          .pid = grp.pid,
+          .tid = grp.tid,
+          .name = grp.name,
+          .loaded_index = -1,
+          .group_index = static_cast<int>(i),
+      });
+    }
+  }
+
+  // Sort results: by level. If levels equal, group headers precede events.
+  // If both groups, by group_index. If both events, by start_time then
+  // loaded_index.
   absl::c_sort(search_results_,
                [](const SearchResult& a, const SearchResult& b) {
-                 return std::tie(a.level, a.start_time, a.loaded_index) <
-                        std::tie(b.level, b.start_time, b.loaded_index);
+                 if (a.level != b.level) {
+                   return a.level < b.level;
+                 }
+                 const bool a_is_group = (a.group_index != -1);
+                 const bool b_is_group = (b.group_index != -1);
+                 if (a_is_group != b_is_group) {
+                   return a_is_group;
+                 }
+                 if (a_is_group) {
+                   return a.group_index < b.group_index;
+                 }
+                 return std::tie(a.start_time, a.loaded_index) <
+                        std::tie(b.start_time, b.loaded_index);
                });
 
   if (redraw_callback_) redraw_callback_();
@@ -5216,6 +5357,10 @@ void Timeline::SetSearchResults(const ParsedTraceEvents& search_results) {
 }
 
 void Timeline::NavigateToSearchResult(const SearchResult& result) {
+  if (result.group_index != -1) {
+    ScrollToGroup(result.group_index);
+    return;
+  }
   if (result.loaded_index != -1) {
     ZoomEvent(result.loaded_index);
   } else {

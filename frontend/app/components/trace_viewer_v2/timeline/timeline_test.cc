@@ -10617,6 +10617,196 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeCrossoverSnapsToEvents) {
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 100.0);
 }
 
+TEST_F(TimelineTimeRangeResizeTest,
+       SelectedTimeRangeRendersResizeHandlesInIdleState) {
+  AddSelectedTimeRange(50.0, 100.0);
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* overlay_window = nullptr;
+  ImGuiWindow* timeline_window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(timeline_window, nullptr);
+  for (ImGuiWindow* child : timeline_window->DC.ChildWindows) {
+    if (absl::StrContains(child->Name, "SelectionOverlay")) {
+      overlay_window = child;
+      break;
+    }
+  }
+  ASSERT_NE(overlay_window, nullptr);
+  ImDrawList* draw_list = overlay_window->DrawList;
+
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  const float rect_y_min = kRulerHeight;
+  const float rect_y_max = viewport->Pos.y + viewport->Size.y;
+  const float center_y = (rect_y_min + rect_y_max) / 2.0f;
+
+  const float start_edge_x = GetTimelineStartX() + 50.0f * 10.0f;
+  const float end_edge_x = GetTimelineStartX() + 100.0f * 10.0f - 1.0f;
+
+  auto has_handle_vertices = [&](float edge_x, ImU32 expected_color) {
+    bool has_left = false;
+    bool has_right = false;
+    for (const auto& vtx : draw_list->VtxBuffer) {
+      if (vtx.col == expected_color &&
+          std::abs(vtx.pos.y - center_y) <=
+              kSelectedTimeRangeHandleHeight / 2.0f + 1.0f) {
+        if (vtx.pos.x <= edge_x - 2.0f) has_left = true;
+        if (vtx.pos.x >= edge_x + 2.0f) has_right = true;
+      }
+    }
+    return has_left && has_right;
+  };
+
+  EXPECT_TRUE(has_handle_vertices(start_edge_x, kSelectedTimeRangeColor));
+  EXPECT_TRUE(has_handle_vertices(end_edge_x, kSelectedTimeRangeColor));
+
+  ImGui::EndFrame();
+}
+
+TEST_F(TimelineTimeRangeResizeTest,
+       HoveringResizeHandleHighlightsHandleAndSetsCursor) {
+  AddSelectedTimeRange(50.0, 100.0);
+
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  const float rect_y_min = kRulerHeight;
+  const float rect_y_max = viewport->Pos.y + viewport->Size.y;
+  const float center_y = (rect_y_min + rect_y_max) / 2.0f;
+
+  const float start_edge_x = GetTimelineStartX() + 50.0f * 10.0f;
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMousePosEvent(start_edge_x, center_y);
+  SimulateFrame();
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_ResizeEW);
+
+  ImGuiWindow* overlay_window = nullptr;
+  ImGuiWindow* timeline_window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(timeline_window, nullptr);
+  for (ImGuiWindow* child : timeline_window->DC.ChildWindows) {
+    if (absl::StrContains(child->Name, "SelectionOverlay")) {
+      overlay_window = child;
+      break;
+    }
+  }
+  ASSERT_NE(overlay_window, nullptr);
+  ImDrawList* draw_list = overlay_window->DrawList;
+
+  bool has_highlighted_handle = false;
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == kSelectedTimeRangeResizeColor &&
+        std::abs(vtx.pos.y - center_y) <=
+            kSelectedTimeRangeHandleHeight / 2.0f + 1.0f &&
+        std::abs(vtx.pos.x - start_edge_x) >= 2.0f) {
+      has_highlighted_handle = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(has_highlighted_handle);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(TimelineTimeRangeResizeTest, DraggingHandleCenterResizesTimeRange) {
+  AddSelectedTimeRange(50.0, 100.0);
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  const float rect_y_min = kRulerHeight;
+  const float rect_y_max = viewport->Pos.y + viewport->Size.y;
+  const float center_y = (rect_y_min + rect_y_max) / 2.0f;
+
+  // Drag start handle center from 50.0 to 30.0
+  Drag(50.0, 30.0, /*shift=*/false, /*mouse_y=*/center_y);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 30.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 100.0);
+
+  // Drag end handle center from 100.0 to 120.0
+  Drag(100.0, 120.0, /*shift=*/false, /*mouse_y=*/center_y);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 30.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 120.0);
+}
+
+TEST_F(TimelineTimeRangeResizeTest, ResizeHandleNotDrawnWhenEdgeOffscreen) {
+  AddSelectedTimeRange(50.0, 100.0);
+
+  // Set visible range so start edge (50.0) is off-screen to the left.
+  timeline_.SetVisibleRange({60.0, 120.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* overlay_window = nullptr;
+  ImGuiWindow* timeline_window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(timeline_window, nullptr);
+  for (ImGuiWindow* child : timeline_window->DC.ChildWindows) {
+    if (absl::StrContains(child->Name, "SelectionOverlay")) {
+      overlay_window = child;
+      break;
+    }
+  }
+  ASSERT_NE(overlay_window, nullptr);
+  ImDrawList* draw_list = overlay_window->DrawList;
+
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  const float rect_y_min = kRulerHeight;
+  const float rect_y_max = viewport->Pos.y + viewport->Size.y;
+  const float center_y = (rect_y_min + rect_y_max) / 2.0f;
+
+  const float timeline_start_x = GetTimelineStartX();
+  // Start edge is at 50.0us, which would be to the left of timeline_start_x:
+  const float offscreen_start_x =
+      timeline_start_x + (50.0f - 60.0f) * timeline_.px_per_time_unit();
+
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (std::abs(vtx.pos.y - center_y) <=
+        kSelectedTimeRangeHandleHeight / 2.0f + 1.0f) {
+      EXPECT_GT(std::abs(vtx.pos.x - offscreen_start_x),
+                kSelectedTimeRangeHandleWidth);
+    }
+  }
+
+  ImGui::EndFrame();
+
+  // Set visible range so end edge (100.0) is off-screen to the right.
+  timeline_.SetVisibleRange({20.0, 80.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  overlay_window = nullptr;
+  for (ImGuiWindow* child : timeline_window->DC.ChildWindows) {
+    if (absl::StrContains(child->Name, "SelectionOverlay")) {
+      overlay_window = child;
+      break;
+    }
+  }
+  ASSERT_NE(overlay_window, nullptr);
+  draw_list = overlay_window->DrawList;
+
+  // End edge is at 100.0us, which would be to the right of the visible range:
+  const float offscreen_end_x =
+      timeline_start_x + (100.0f - 20.0f) * timeline_.px_per_time_unit();
+
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (std::abs(vtx.pos.y - center_y) <=
+        kSelectedTimeRangeHandleHeight / 2.0f + 1.0f) {
+      EXPECT_GT(std::abs(vtx.pos.x - offscreen_end_x),
+                kSelectedTimeRangeHandleWidth);
+    }
+  }
+
+  ImGui::EndFrame();
+}
+
 TEST_F(MockTimelineImGuiFixture, TriggersZoomWhenNavigatedEventNotPresent) {
   timeline_.SetTimelineData(
       CreateTimelineData({{"root", 0.0, 10000000.0, 0, 1, 1, 0}}));

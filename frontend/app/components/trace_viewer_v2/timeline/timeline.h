@@ -883,6 +883,10 @@ class Timeline {
                              double px_per_time_unit_val,
                              bool show_delete_button = true,
                              std::optional<size_t> range_index = std::nullopt);
+  // Draws a grab handle for resizing a selected time range edge.
+  void DrawSelectedTimeRangeHandle(ImDrawList* draw_list, Pixel edge_x,
+                                   Pixel rect_y_min, Pixel rect_y_max,
+                                   ImU32 color);
   void DrawDeleteButton(ImDrawList* draw_list, const ImVec2& button_pos,
                         const ImRect& hover_rect, const TimeRange& range);
 

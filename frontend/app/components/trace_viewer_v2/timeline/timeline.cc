@@ -225,7 +225,7 @@ int Timeline::GetNextGroupStartLevel(const FlameChartTimelineData& data,
                                      int group_index) {
   if (group_index >= 0 && group_index < data.groups.size()) {
     const auto& group = data.groups[group_index];
-    if (group.has_children && group.nesting_level == kProcessNestingLevel) {
+    if (group.has_children) {
       return group.start_level;
     }
     return group.start_level + group.level_count;

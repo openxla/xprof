@@ -5890,5 +5890,144 @@ TEST_F(DataProviderTest,
   EXPECT_EQ(args.at(std::string(kHloOp)), "fusion.1");
   EXPECT_EQ(args.at(std::string(kHloModule)), "jit_train(42)");
 }
+
+TEST_F(DataProviderTest, GroupTecTracksUnderCollapsibleParent) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Process 1"),
+      CreateThreadEvent(1, 1, "TEC 0"),
+      CreateCompleteEvent(1, 1, "Task 0", 100.0, 50.0),
+      CreateThreadEvent(1, 2, "TEC 1"),
+      CreateCompleteEvent(1, 2, "Task 1", 100.0, 50.0),
+  };
+
+  const FlameChartTimelineData& data = Process(events);
+  ASSERT_THAT(data.groups, SizeIs(4));
+  EXPECT_EQ(data.groups[0].name, "Process 1");
+  EXPECT_EQ(data.groups[0].nesting_level, kProcessNestingLevel);
+  EXPECT_THAT(data.groups[0].child_indices, ElementsAre(1));
+
+  EXPECT_EQ(data.groups[1].name, kTecTracksGroupName);
+  EXPECT_EQ(data.groups[1].type, Group::Type::kFlame);
+  EXPECT_EQ(data.groups[1].nesting_level, kThreadNestingLevel);
+  EXPECT_EQ(data.groups[1].parent_index, 0);
+  EXPECT_TRUE(data.groups[1].has_children);
+  EXPECT_THAT(data.groups[1].child_indices, ElementsAre(2, 3));
+
+  EXPECT_EQ(data.groups[2].name, "TEC 0");
+  EXPECT_EQ(data.groups[2].nesting_level, kSubTrackNestingLevel);
+  EXPECT_EQ(data.groups[2].parent_index, 1);
+
+  EXPECT_EQ(data.groups[3].name, "TEC 1");
+  EXPECT_EQ(data.groups[3].nesting_level, kSubTrackNestingLevel);
+  EXPECT_EQ(data.groups[3].parent_index, 1);
+}
+
+TEST_F(DataProviderTest, GroupTecAndTecTraceMeTracks) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Process 1"),
+      CreateThreadEvent(1, 1, "TEC"),
+      CreateCompleteEvent(1, 1, "Task 0", 100.0, 50.0),
+      CreateThreadEvent(1, 2, "TEC: TraceMe"),
+      CreateCompleteEvent(1, 2, "Task 1", 100.0, 50.0),
+      CreateThreadEvent(1, 3, "tec 0"),
+      CreateCompleteEvent(1, 3, "Task 2", 100.0, 50.0),
+  };
+
+  const FlameChartTimelineData& data = Process(events);
+  ASSERT_THAT(data.groups, SizeIs(5));
+  EXPECT_EQ(data.groups[1].name, kTecTracksGroupName);
+  EXPECT_THAT(data.groups[1].child_indices, ElementsAre(2, 3, 4));
+  EXPECT_EQ(data.groups[2].name, "TEC");
+  EXPECT_EQ(data.groups[2].nesting_level, kSubTrackNestingLevel);
+  EXPECT_EQ(data.groups[3].name, "TEC: TraceMe");
+  EXPECT_EQ(data.groups[3].nesting_level, kSubTrackNestingLevel);
+  EXPECT_EQ(data.groups[4].name, "tec 0");
+  EXPECT_EQ(data.groups[4].nesting_level, kSubTrackNestingLevel);
+}
+
+TEST_F(DataProviderTest, NonTecTracksAreNotGroupedUnderTecHeader) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Process 1"),
+      CreateThreadEvent(1, 1, "Main Thread"),
+      CreateCompleteEvent(1, 1, "Task Main", 100.0, 50.0),
+      CreateThreadEvent(1, 2, "TECTONIC"),
+      CreateCompleteEvent(1, 2, "Task Tectonic", 100.0, 50.0),
+      CreateThreadEvent(1, 3, "TEC 0"),
+      CreateCompleteEvent(1, 3, "Task Tec", 100.0, 50.0),
+  };
+
+  const FlameChartTimelineData& data = Process(events);
+  ASSERT_THAT(data.groups, SizeIs(5));
+  EXPECT_EQ(data.groups[0].name, "Process 1");
+  EXPECT_THAT(data.groups[0].child_indices, ElementsAre(1, 2, 3));
+
+  EXPECT_EQ(data.groups[1].name, "Main Thread");
+  EXPECT_EQ(data.groups[1].nesting_level, kThreadNestingLevel);
+  EXPECT_EQ(data.groups[1].parent_index, 0);
+
+  EXPECT_EQ(data.groups[2].name, "TECTONIC");
+  EXPECT_EQ(data.groups[2].nesting_level, kThreadNestingLevel);
+  EXPECT_EQ(data.groups[2].parent_index, 0);
+
+  EXPECT_EQ(data.groups[3].name, kTecTracksGroupName);
+  EXPECT_EQ(data.groups[3].nesting_level, kThreadNestingLevel);
+  EXPECT_EQ(data.groups[3].parent_index, 0);
+  EXPECT_THAT(data.groups[3].child_indices, ElementsAre(4));
+
+  EXPECT_EQ(data.groups[4].name, "TEC 0");
+  EXPECT_EQ(data.groups[4].nesting_level, kSubTrackNestingLevel);
+  EXPECT_EQ(data.groups[4].parent_index, 3);
+}
+
+TEST_F(DataProviderTest, PreservesRestoredExpandedStateForTecGroup) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Process 1"),
+      CreateThreadEvent(1, 1, "TEC 0"),
+      CreateCompleteEvent(1, 1, "Task 0", 100.0, 50.0),
+      CreateCompleteEvent(1, 1, "Task 0.1", 110.0, 20.0),
+  };
+
+  // Initial load
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+  ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(3));
+  EXPECT_EQ(timeline_.timeline_data().groups[1].name, kTecTracksGroupName);
+  EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);
+  EXPECT_TRUE(timeline_.timeline_data().groups[2].expanded);
+
+  // Manually collapse "TEC Tracks" and "TEC 0"
+  {
+    FlameChartTimelineData data = timeline_.timeline_data();
+    data.groups[1].expanded = false;  // TEC Tracks -> false
+    data.groups[2].expanded = false;  // TEC 0 -> false
+    timeline_.SetTimelineData(std::move(data));
+  }
+
+  // Reload
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+  ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(3));
+  EXPECT_EQ(timeline_.timeline_data().groups[1].name, kTecTracksGroupName);
+  EXPECT_FALSE(timeline_.timeline_data().groups[1].expanded);
+  EXPECT_FALSE(timeline_.timeline_data().groups[2].expanded);
+}
+
+TEST_F(DataProviderTest,
+       MpmdModeSkipsEmptyTecTracksWithoutCreatingEmptyHeader) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Process 1"),
+      CreateThreadEvent(1, 1, "Active Thread"),
+      CreateCompleteEvent(1, 1, "Task 1", 100.0, 50.0),
+      CreateThreadEvent(1, 2, "TEC 0"),
+      CreateThreadEvent(1, 3, "TEC 1"),
+  };
+
+  const FlameChartTimelineData& mpmd_data = Process(events, /*mpmd=*/true);
+  EXPECT_THAT(GetGroupNames(mpmd_data),
+              ElementsAre("Process 1", "Active Thread"));
+
+  const FlameChartTimelineData& non_mpmd_data = Process(events, /*mpmd=*/false);
+  EXPECT_THAT(GetGroupNames(non_mpmd_data),
+              ElementsAre("Process 1", "Active Thread", kTecTracksGroupName,
+                          "TEC 0", "TEC 1"));
+}
 }  // namespace
 }  // namespace traceviewer

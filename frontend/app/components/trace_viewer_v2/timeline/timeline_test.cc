@@ -262,6 +262,28 @@ TEST(TimelineTest, GetNextGroupStartLevelOutOfBounds) {
   EXPECT_EQ(Timeline::GetNextGroupStartLevel(data, 1), 5);
 }
 
+TEST(TimelineTest, GetNextGroupStartLevelIntermediateGroupWithChildren) {
+  FlameChartTimelineData data;
+  data.level_offsets.assign(10, 0);
+
+  Group intermediate_group;
+  intermediate_group.nesting_level = kThreadNestingLevel;
+  intermediate_group.start_level = 2;
+  intermediate_group.level_count = 4;
+  intermediate_group.has_children = true;
+  data.groups.push_back(intermediate_group);
+
+  Group leaf_group;
+  leaf_group.nesting_level = kSubTrackNestingLevel;
+  leaf_group.start_level = 2;
+  leaf_group.level_count = 2;
+  leaf_group.has_children = false;
+  data.groups.push_back(leaf_group);
+
+  EXPECT_EQ(Timeline::GetNextGroupStartLevel(data, 0), 2);
+  EXPECT_EQ(Timeline::GetNextGroupStartLevel(data, 1), 4);
+}
+
 TEST(FlameChartTimelineDataTest, TotalLevelsAndLevelEventsBounds) {
   FlameChartTimelineData data;
   EXPECT_EQ(data.total_levels(), 0);

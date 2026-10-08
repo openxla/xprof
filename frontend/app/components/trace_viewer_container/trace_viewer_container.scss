@@ -132,9 +132,7 @@ canvas.emscripten {
   --tt-good: #81c995;
   --tt-warn: #fdd663;
   --tt-bad: #f28b82;
-  --tt-shadow:
-    0 16px 40px rgba(0, 0, 0, 0.45),
-    0 4px 12px rgba(0, 0, 0, 0.3);
+  --tt-shadow: 0 16px 40px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.3);
   --tt-label-font: 'Google Sans Text', 'Google Sans', Roboto, sans-serif;
   --tt-code-font: 'Roboto Mono', monospace;
 
@@ -774,8 +772,7 @@ canvas.emscripten {
     --tt-warn: #e37400;
     --tt-bad: #d93025;
     --tt-shadow:
-      0 16px 36px rgba(60, 64, 67, 0.2),
-      0 3px 8px rgba(60, 64, 67, 0.12);
+      0 16px 36px rgba(60, 64, 67, 0.2), 0 3px 8px rgba(60, 64, 67, 0.12);
 
     .view-toggle .view-toggle-btn.active {
       box-shadow: 0 1px 2px rgba(60, 64, 67, 0.2);
@@ -1408,7 +1405,8 @@ button.shortcuts-guide-btn {
         white-space: pre-wrap;
       }
 
-      &.hlo-text-row {
+      &.hlo-text-row,
+      &.stack-trace-row {
         align-items: flex-start;
 
         .detail-label {

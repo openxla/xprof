@@ -205,7 +205,7 @@
                 </as-split-area>
                 <as-split-area [size]="40" class="split-area-right">
                   <div class="split-area-inner">
-                    <div class="detail-row" *ngFor="let prop of rightSideProperties; trackBy: trackByProperty" [class.hlo-text-row]="prop.property === 'HLO Text'" [class.collapsed]="prop.property === 'HLO Text' && isHloTextCollapsed">
+                    <div class="detail-row" *ngFor="let prop of rightSideProperties; trackBy: trackByProperty" [class.hlo-text-row]="prop.property === 'HLO Text' || prop.property === 'Stack Trace'" [class.stack-trace-row]="prop.property === 'Stack Trace'" [class.collapsed]="isPropCollapsed(prop)">
                       <span class="detail-label">
                         {{prop.property}}:
                         <button
@@ -217,9 +217,18 @@
                           [title]="isHloTextCollapsed ? 'Expand HLO text' : 'Collapse HLO text'">
                           <mat-icon>{{isHloTextCollapsed ? 'keyboard_arrow_down' : 'keyboard_arrow_up'}}</mat-icon>
                         </button>
+                        <button
+                          *ngIf="prop.property === 'Stack Trace'"
+                          type="button"
+                          class="hlo-collapse-btn stack-trace-collapse-btn"
+                          (click)="toggleStackTraceCollapse()"
+                          [attr.aria-label]="isStackTraceCollapsed ? 'Expand stack trace' : 'Collapse stack trace'"
+                          [title]="isStackTraceCollapsed ? 'Expand stack trace' : 'Collapse stack trace'">
+                          <mat-icon>{{isStackTraceCollapsed ? 'keyboard_arrow_down' : 'keyboard_arrow_up'}}</mat-icon>
+                        </button>
                       </span>
-                      <span class="detail-value hlo-preview" *ngIf="prop.property === 'HLO Text' && isHloTextCollapsed">{{getHloTextPreview(prop.value)}}</span>
-                      <span class="detail-value" *ngIf="prop.property !== 'HLO Text' || !isHloTextCollapsed">{{prop.value}}</span>
+                      <span class="detail-value hlo-preview" *ngIf="isPropCollapsed(prop)">{{getPropPreview(prop)}}</span>
+                      <span class="detail-value" *ngIf="!isPropCollapsed(prop)">{{prop.value}}</span>
                     </div>
                     <div class="cross-tool-links">
                       <div *ngIf="selectedEvent.stackTraceLinkHtml" [innerHTML]="selectedEvent.stackTraceLinkHtml"></div>

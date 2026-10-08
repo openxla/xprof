@@ -205,7 +205,7 @@
                 </as-split-area>
                 <as-split-area [size]="40" class="split-area-right">
                   <div class="split-area-inner">
-                    <div class="detail-row" *ngFor="let prop of rightSideProperties; trackBy: trackByProperty" [class.hlo-text-row]="prop.property === 'HLO Text'" [class.collapsed]="prop.property === 'HLO Text' && isHloTextCollapsed">
+                    <div class="detail-row" *ngFor="let prop of rightSideProperties; trackBy: trackByProperty" [class.hlo-text-row]="prop.property === 'HLO Text' || prop.property === 'Stack Trace'" [class.collapsed]="prop.property === 'HLO Text' && isHloTextCollapsed">
                       <span class="detail-label">
                         {{prop.property}}:
                         <button

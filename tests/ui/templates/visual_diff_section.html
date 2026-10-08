@@ -26,16 +26,20 @@
 
   <!-- Interactive Swipe Slider View -->
   <div id="view-slider-$card_id" class="slider-view" style="display: none;">
-    <div class="slider-layer slider-base-layer">
-      <div class="side-label">Baseline Golden</div>
-      <img id="slider-base-img-$card_id" src="data:image/png;base64,$base_b64" alt="Baseline Golden"/>
+    <div class="slider-header">
+      <div class="side-label side-label-cand">◀ Candidate Run</div>
+      <div class="side-label slider-label-right">Baseline Golden ▶</div>
     </div>
-    <div id="slider-clip-$card_id" class="slider-layer slider-cand-layer" style="width: 50%;">
-      <div class="side-label side-label-cand">Candidate Run</div>
-      <img id="slider-cand-img-$card_id" src="data:image/png;base64,$cand_b64" alt="Candidate Run"/>
-    </div>
-    <div id="slider-handle-$card_id" class="slider-handle" style="left: 50%;">
-      <div class="slider-handle-circle">↔</div>
+    <div id="slider-stage-$card_id" class="slider-stage">
+      <div class="slider-layer slider-base-layer">
+        <img id="slider-base-img-$card_id" src="data:image/png;base64,$base_b64" alt="Baseline Golden"/>
+      </div>
+      <div id="slider-clip-$card_id" class="slider-layer slider-cand-layer" style="width: 50%;">
+        <img id="slider-cand-img-$card_id" src="data:image/png;base64,$cand_b64" alt="Candidate Run"/>
+      </div>
+      <div id="slider-handle-$card_id" class="slider-handle" style="left: 50%;">
+        <div class="slider-handle-circle">↔</div>
+      </div>
     </div>
   </div>
 

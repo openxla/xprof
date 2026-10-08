@@ -1129,6 +1129,56 @@ void Timeline::PopulateProcessUtilizationMipLevel(
   }
 }
 
+void Timeline::ResetForNewDataset() {
+  // Keep MaybeRequestData() silent until the next parse clears this flag.
+  is_incremental_loading_ = true;
+
+  // Selection and hover.
+  selected_event_index_ = -1;
+  selected_group_index_ = -1;
+  selected_counter_index_ = -1;
+  selected_event_indices_.clear();
+  selected_counter_points_.clear();
+  hovered_event_index_ = -1;
+  last_reported_hovered_event_index_ = -1;
+  event_index_to_scroll_to_ = -1;
+
+  // Search.
+  search_query_lower_.clear();
+  search_results_.clear();
+  matching_event_indices_.clear();
+  current_search_result_index_ = -1;
+  pending_navigation_event_id_.reset();
+
+  // Time-range selection, bookmarks and in-progress interaction.
+  selected_time_ranges_.clear();
+  current_selected_time_range_.reset();
+  time_range_resizing_state_.reset();
+  bookmarks_.clear();
+  selection_start_pos_.reset();
+  selection_end_pos_.reset();
+  is_dragging_ = false;
+  is_selecting_ = false;
+
+  // Timeline player.
+  is_playing_ = false;
+  current_play_time_ = -1.0;
+
+  // Data and layout caches.
+  SetTimelineData({});
+  should_restore_scroll_ = false;
+  last_scroll_y_ = 0.0f;
+  // Draw() only rebuilds colors when the entry count changes.
+  entry_colors_.clear();
+
+  // A zero visible range makes the next ProcessTraceEvents fit the new
+  // dataset to width.
+  fetched_data_time_range_ = TimeRange::Zero();
+  data_time_range_ = TimeRange::Zero();
+  last_fetch_request_range_ = TimeRange::Zero();
+  SetVisibleRange(TimeRange::Zero());
+}
+
 void Timeline::Draw() {
   if (cached_trace_colors_version_ != palette_.GetTraceVersion() ||
       entry_colors_.size() != timeline_data_.entry_names.size()) {

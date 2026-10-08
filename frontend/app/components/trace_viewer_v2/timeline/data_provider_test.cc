@@ -239,6 +239,27 @@ TEST_F(DataProviderTest, ProcessEmptyTraceData) {
   EXPECT_THAT(timeline_.timeline_data().entry_start_times, IsEmpty());
 }
 
+TEST_F(DataProviderTest, ResetBetweenDatasetsFitsNewDatasetToWidth) {
+  // Dataset A on a fresh instance opens fit to width.
+  Process({CreateCompleteEvent(1, 1, "A", 1000.0, 100.0)});
+  ASSERT_EQ(timeline_.visible_range(), TimeRange(1000.0, 1100.0));
+  ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(2));  // pid 1, tid 1.
+  timeline_.set_is_incremental_loading(false);
+
+  // The user zooms in.
+  timeline_.SetVisibleRange({1000.0, 1010.0});
+
+  // Same sequence as Application::ResetDataset().
+  data_provider_.Reset();
+  timeline_.ResetForNewDataset();
+
+  // Dataset B opens fit to width and does not inherit dataset A's tracks.
+  Process({CreateCompleteEvent(2, 7, "B", 0.0, 100000.0)});
+  EXPECT_EQ(timeline_.visible_range(), TimeRange(0.0, 100000.0));
+  EXPECT_THAT(timeline_.timeline_data().groups, SizeIs(2));  // pid 2, tid 7.
+  EXPECT_THAT(timeline_.timeline_data().entry_names, ElementsAre("B"));
+}
+
 TEST_F(DataProviderTest, ProcessMetadataEvents) {
   const std::vector<TraceEvent> events = {
       CreateMetadataEvent(std::string(kThreadName), 1, 101, "Thread_A"),

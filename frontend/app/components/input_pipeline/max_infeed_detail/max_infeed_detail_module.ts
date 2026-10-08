@@ -1,10 +1,8 @@
 import {NgModule} from '@angular/core';
-import {MatDividerModule} from '@angular/material/divider';
 import {MaxInfeedDetail} from './max_infeed_detail';
 
 @NgModule({
-  declarations: [MaxInfeedDetail],
-  imports: [MatDividerModule],
+  imports: [MaxInfeedDetail],
   exports: [MaxInfeedDetail],
 })
 export class MaxInfeedDetailModule {}

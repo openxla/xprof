@@ -678,6 +678,41 @@ TEST(TimelineTest, FormatRulerLabelUsesTimeByDefault) {
   EXPECT_EQ(timeline.FormatRulerLabel(1500.0), "1500");
 }
 
+TEST(TimelineTest, FormatRulerLabelWithTickInterval_DeepZoomMicroseconds) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 100000.0});
+
+  // When zoomed in deeply where tick interval is in microseconds scale
+  // (e.g. 5 us), tick labels should format in microseconds instead of
+  // milliseconds.
+  EXPECT_EQ(timeline.FormatRulerLabel(100.0, 5.0), FormatTime(100.0, 5.0));
+  EXPECT_EQ(timeline.FormatRulerLabel(100.0, 5.0), "100\xc2\xa0us");
+  EXPECT_EQ(timeline.FormatRulerLabel(102.5, 5.0), "102.5\xc2\xa0us");
+}
+
+TEST(TimelineTest, FormatRulerLabelWithTickInterval_DeepZoomNanoseconds) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 100000.0});
+
+  // When zoomed in deeply where tick interval is in nanoseconds scale
+  // (e.g. 50 ns = 0.05 us), tick labels should format in nanoseconds.
+  EXPECT_EQ(timeline.FormatRulerLabel(0.15, 0.05), FormatTime(0.15, 0.05));
+  EXPECT_EQ(timeline.FormatRulerLabel(0.15, 0.05), "150\xc2\xa0ns");
+  EXPECT_EQ(timeline.FormatRulerLabel(0.152, 0.05), "152\xc2\xa0ns");
+}
+
+TEST(TimelineTest, FormatRulerLabelUnitlessIgnoresTickInterval) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 100000.0});
+  timeline.set_time_axis_unit(TimeAxisUnit::kUnitless);
+
+  EXPECT_EQ(timeline.FormatRulerLabel(1500.0, 5.0), "1500");
+  EXPECT_EQ(timeline.FormatRulerLabel(100.0, 0.05), "100");
+}
+
 TEST(TimelineTest, ConstrainTimeRange_EndAfterDataRange) {
   // Data Range: [=====================]
   // Range:                  {--------------}

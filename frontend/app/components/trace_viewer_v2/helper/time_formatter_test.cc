@@ -42,6 +42,56 @@ TEST(TimeFormatterTest, FormatTimeNotFiniteOrNegative) {
   EXPECT_EQ(FormatTime(-100.0), "-");
 }
 
+TEST(TimeFormatterTest, FormatTimeWithTickInterval) {
+  // Fallback to FormatTime(time_us) when tick_interval <= 0 or not finite
+  EXPECT_EQ(FormatTime(1500.0, 0.0), FormatTime(1500.0));
+  EXPECT_EQ(FormatTime(1500.0, -1.0), FormatTime(1500.0));
+  EXPECT_EQ(FormatTime(1500.0, std::numeric_limits<double>::infinity()),
+            FormatTime(1500.0));
+  EXPECT_EQ(FormatTime(1500.0, std::numeric_limits<double>::quiet_NaN()),
+            FormatTime(1500.0));
+
+  // Non-finite or negative time
+  EXPECT_EQ(FormatTime(std::numeric_limits<double>::infinity(), 10.0), "-");
+  EXPECT_EQ(FormatTime(-std::numeric_limits<double>::infinity(), 10.0), "-");
+  EXPECT_EQ(FormatTime(std::numeric_limits<double>::quiet_NaN(), 10.0), "-");
+  EXPECT_EQ(FormatTime(-0.5, 10.0), "-");
+  EXPECT_EQ(FormatTime(-1e-10, 10.0), TimeWithUnit("0", "us"));
+
+  // Seconds scale (tick_interval >= 1,000,000 us)
+  EXPECT_EQ(FormatTime(0.0, 1'000'000.0), TimeWithUnit("0", "s"));
+  EXPECT_EQ(FormatTime(1'000'000.0, 1'000'000.0), TimeWithUnit("1", "s"));
+  EXPECT_EQ(FormatTime(1'234'567.0, 2'000'000.0), TimeWithUnit("1.235", "s"));
+  EXPECT_EQ(FormatTime(1'200'000.0, 1'000'000.0), TimeWithUnit("1.2", "s"));
+
+  // Milliseconds scale (tick_interval >= 1,000 us and < 1,000,000 us)
+  EXPECT_EQ(FormatTime(0.0, 1000.0), TimeWithUnit("0", "ms"));
+  EXPECT_EQ(FormatTime(1000.0, 1000.0), TimeWithUnit("1", "ms"));
+  EXPECT_EQ(FormatTime(1234.567, 5000.0), TimeWithUnit("1.235", "ms"));
+  EXPECT_EQ(FormatTime(1200.0, 1000.0), TimeWithUnit("1.2", "ms"));
+  EXPECT_EQ(FormatTime(12000.0, 1000.0), TimeWithUnit("12", "ms"));
+
+  // Microseconds scale (tick_interval >= 1.0 us and < 1,000 us)
+  EXPECT_EQ(FormatTime(0.0, 10.0), TimeWithUnit("0", "us"));
+  EXPECT_EQ(FormatTime(1.0, 1.0), TimeWithUnit("1", "us"));
+  EXPECT_EQ(FormatTime(1.2345, 10.0), TimeWithUnit("1.234", "us"));
+  EXPECT_EQ(FormatTime(100.5, 5.0), TimeWithUnit("100.5", "us"));
+  EXPECT_EQ(FormatTime(12345.0, 2.0), TimeWithUnit("12345", "us"));
+
+  // Nanoseconds scale (tick_interval >= 0.001 us and < 1.0 us)
+  EXPECT_EQ(FormatTime(0.0, 0.05), TimeWithUnit("0", "ns"));
+  EXPECT_EQ(FormatTime(0.001, 0.001), TimeWithUnit("1", "ns"));
+  EXPECT_EQ(FormatTime(0.15, 0.05), TimeWithUnit("150", "ns"));
+  EXPECT_EQ(FormatTime(0.1505, 0.05), TimeWithUnit("150.5", "ns"));
+  EXPECT_EQ(FormatTime(1.5, 0.1), TimeWithUnit("1500", "ns"));
+
+  // Picoseconds scale (tick_interval < 0.001 us)
+  EXPECT_EQ(FormatTime(0.0, 0.0001), TimeWithUnit("0", "ps"));
+  EXPECT_EQ(FormatTime(0.000001, 0.000001), TimeWithUnit("1", "ps"));
+  EXPECT_EQ(FormatTime(0.00006, 0.00002), TimeWithUnit("60", "ps"));
+  EXPECT_EQ(FormatTime(0.0000605, 0.00002), TimeWithUnit("60.5", "ps"));
+}
+
 TEST(TimeFormatterTest, CalculateNiceInterval) {
   EXPECT_DOUBLE_EQ(CalculateNiceInterval(0.0), 1.0);
   EXPECT_DOUBLE_EQ(CalculateNiceInterval(-1.0), 1.0);

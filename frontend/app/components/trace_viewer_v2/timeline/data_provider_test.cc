@@ -5510,6 +5510,407 @@ TEST_F(DataProviderTest,
   EXPECT_TRUE(groups[3].expanded);
 }
 
+TEST_F(DataProviderTest, PopulateProcessTrackUnifiesSyncAndAsyncTracks) {
+  // A TPU device process has both sync thread (XLA Ops) and async track
+  // (MemcpyH2D).
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "/device:TPU:0"),
+      CreateThreadEvent(1, 10, "XLA Ops"),
+      CreateCompleteEvent(1, 10, "Op1", 100.0, 50.0),
+      TraceEvent{.ph = Phase::kComplete,
+                 .pid = 1,
+                 .tid = 0,
+                 .name = "MemcpyH2D",
+                 .ts = 110.0,
+                 .dur = 40.0,
+                 .is_async = true},
+  };
+
+  data_provider_.ProcessTraceEvents(ParsedTraceEvents{.flame_events = events},
+                                    timeline_);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_THAT(groups, SizeIs(3));
+
+  // Process group
+  EXPECT_EQ(groups[0].name, "/device:TPU:0");
+  EXPECT_EQ(groups[0].nesting_level, kProcessNestingLevel);
+  EXPECT_TRUE(groups[0].expanded);
+
+  // Both sync thread and async track exist as children
+  EXPECT_EQ(groups[1].name, "XLA Ops");
+  EXPECT_EQ(groups[1].nesting_level, kThreadNestingLevel);
+  EXPECT_EQ(groups[1].parent_index, 0);
+
+  EXPECT_EQ(groups[2].name, "MemcpyH2D");
+  EXPECT_EQ(groups[2].nesting_level, kThreadNestingLevel);
+  EXPECT_EQ(groups[2].parent_index, 0);
+}
+
+TEST_F(DataProviderTest, MultipleProcessesDefaultExpandedFirstOnly) {
+  // Process tracks adhere strictly to standard default_expanded (the first
+  // process is expanded, subsequent processes like TPU / GPU are collapsed by
+  // default to avoid viewport clutter).
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Host Process"),
+      CreateProcessSortIndexEvent(1, "1"),
+      CreateCompleteEvent(1, 10, "HostOp", 100.0, 50.0),
+      CreateProcessEvent(2, "/device:TPU:0"),
+      CreateProcessSortIndexEvent(2, "2"),
+      CreateCompleteEvent(2, 20, "TpuOp", 100.0, 50.0),
+  };
+
+  data_provider_.ProcessTraceEvents(ParsedTraceEvents{.flame_events = events},
+                                    timeline_);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_THAT(groups, SizeIs(4));
+
+  // Process 1 (Host Process, first group -> expanded)
+  EXPECT_EQ(groups[0].name, "Host Process");
+  EXPECT_TRUE(groups[0].expanded);
+
+  // Process 2 (/device:TPU:0, subsequent process -> collapsed by default)
+  EXPECT_EQ(groups[2].name, "/device:TPU:0");
+  EXPECT_FALSE(groups[2].expanded);
+}
+
+TEST_F(DataProviderTest, PureSyncProcessTrackPopulation) {
+  // A host process with multiple synchronous threads and thread names.
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "host1 CPU"),
+      CreateProcessSortIndexEvent(1, "1"),
+      CreateThreadEvent(1, 10, "Main Thread"),
+      CreateThreadEvent(1, 20, "Worker Thread"),
+      CreateCompleteEvent(1, 10, "Compute1", 100.0, 50.0),
+      CreateCompleteEvent(1, 20, "Compute2", 120.0, 60.0),
+  };
+
+  data_provider_.ProcessTraceEvents(ParsedTraceEvents{.flame_events = events},
+                                    timeline_);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_THAT(groups, SizeIs(3));
+
+  // Process group (Host Process, index 0, first process so default expanded)
+  EXPECT_EQ(groups[0].name, "host1 CPU");
+  EXPECT_EQ(groups[0].nesting_level, kProcessNestingLevel);
+  EXPECT_EQ(groups[0].parent_index, -1);
+  EXPECT_TRUE(groups[0].has_children);
+  EXPECT_THAT(groups[0].child_indices, ElementsAre(1, 2));
+
+  // Sync threads are preserved in order, have thread nesting level and
+  // parent_index 0
+  EXPECT_EQ(groups[1].name, "Main Thread");
+  EXPECT_EQ(groups[1].nesting_level, kThreadNestingLevel);
+  EXPECT_EQ(groups[1].parent_index, 0);
+
+  EXPECT_EQ(groups[2].name, "Worker Thread");
+  EXPECT_EQ(groups[2].nesting_level, kThreadNestingLevel);
+  EXPECT_EQ(groups[2].parent_index, 0);
+}
+
+TEST_F(DataProviderTest, PureAsyncProcessTrackPopulation) {
+  // An async transfer process with multiple named async tracks.
+  // Note: async events often share tid 0 or have arbitrary raw tids, but are
+  // grouped by name into synthetic tracks (>= 0x80000000).
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(2, "Async Streams"),
+      CreateProcessSortIndexEvent(2, "1"),
+      TraceEvent{.ph = Phase::kComplete,
+                 .pid = 2,
+                 .tid = 5,
+                 .name = "MemcpyH2D",
+                 .ts = 100.0,
+                 .dur = 50.0,
+                 .is_async = true},
+      TraceEvent{.ph = Phase::kComplete,
+                 .pid = 2,
+                 .tid = 5,
+                 .name = "MemcpyD2H",
+                 .ts = 200.0,
+                 .dur = 40.0,
+                 .is_async = true},
+      TraceEvent{.ph = Phase::kComplete,
+                 .pid = 2,
+                 .tid = 0,
+                 .name = "AllReduce_DMA",
+                 .ts = 300.0,
+                 .dur = 30.0,
+                 .is_async = true},
+  };
+
+  data_provider_.ProcessTraceEvents(ParsedTraceEvents{.flame_events = events},
+                                    timeline_);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_THAT(groups, SizeIs(4));
+
+  EXPECT_EQ(groups[0].name, "Async Streams");
+  EXPECT_EQ(groups[0].parent_index, -1);
+  EXPECT_THAT(groups[0].child_indices, ElementsAre(1, 2, 3));
+
+  // Named async tracks are grouped alphabetically by track name.
+  EXPECT_EQ(groups[1].name, "AllReduce_DMA");
+  EXPECT_EQ(groups[1].parent_index, 0);
+
+  EXPECT_EQ(groups[2].name, "MemcpyD2H");
+  EXPECT_EQ(groups[2].parent_index, 0);
+
+  EXPECT_EQ(groups[3].name, "MemcpyH2D");
+  EXPECT_EQ(groups[3].parent_index, 0);
+
+  // Verify no raw sync thread (e.g. "Thread 5" or "Thread 0") was created.
+  for (size_t i = 1; i < groups.size(); ++i) {
+    EXPECT_NE(groups[i].name, "Thread 5");
+    EXPECT_NE(groups[i].name, "Thread 0");
+  }
+}
+
+TEST_F(DataProviderTest, MixedSyncAndAsyncOnTpuDevice) {
+  // A TPU device row with both synchronous compute threads and async DMA/ICI
+  // tracks.
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "host1 /device:TPU:0"),
+      CreateProcessSortIndexEvent(1, "1"),
+      CreateThreadEvent(1, 1, "XLA Ops"),
+      CreateThreadEvent(1, 2, "XLA Modules"),
+      CreateCompleteEvent(1, 1, "op_matmul", 100.0, 50.0),
+      CreateCompleteEvent(1, 2, "module_0", 100.0, 500.0),
+      TraceEvent{.ph = Phase::kComplete,
+                 .pid = 1,
+                 .tid = 0,
+                 .name = "MemcpyH2D",
+                 .ts = 50.0,
+                 .dur = 30.0,
+                 .is_async = true},
+      TraceEvent{.ph = Phase::kComplete,
+                 .pid = 1,
+                 .tid = 0,
+                 .name = "ICI Transfer",
+                 .ts = 150.0,
+                 .dur = 80.0,
+                 .is_async = true},
+  };
+
+  data_provider_.ProcessTraceEvents(ParsedTraceEvents{.flame_events = events},
+                                    timeline_);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_THAT(groups, SizeIs(5));
+
+  // TPU device process is default-expanded and tracks hostname subtitle.
+  EXPECT_EQ(groups[0].name, "host1 /device:TPU:0");
+  EXPECT_EQ(groups[0].subtitle, "host1");
+  EXPECT_TRUE(groups[0].expanded);
+  EXPECT_TRUE(groups[0].has_children);
+  EXPECT_THAT(groups[0].child_indices, ElementsAre(1, 2, 3, 4));
+  EXPECT_GE(groups[0].level_count, 4);
+
+  // Sync threads appear first, sorted by CompareThreadsForSort ("XLA Modules"
+  // before "XLA Ops").
+  EXPECT_EQ(groups[1].name, "XLA Modules");
+  EXPECT_EQ(groups[1].parent_index, 0);
+  EXPECT_TRUE(groups[1].expanded);
+
+  EXPECT_EQ(groups[2].name, "XLA Ops");
+  EXPECT_EQ(groups[2].parent_index, 0);
+  EXPECT_TRUE(groups[2].expanded);
+
+  // Named async tracks appear next in alphabetical order.
+  EXPECT_EQ(groups[3].name, "ICI Transfer");
+  EXPECT_EQ(groups[3].parent_index, 0);
+  EXPECT_TRUE(groups[3].expanded);
+
+  EXPECT_EQ(groups[4].name, "MemcpyH2D");
+  EXPECT_EQ(groups[4].parent_index, 0);
+  EXPECT_TRUE(groups[4].expanded);
+}
+
+TEST_F(DataProviderTest, MixedSyncAndAsyncOnHostProcessDefaultCollapsed) {
+  // A non-device (host) process that is not the first process.
+  // Both processes have async events, so priorities tie and sort_index
+  // determines order. Device process (PID 1) sorts first and is expanded. Host
+  // process (PID 2) sorts second and defaults to collapsed even with mixed
+  // tracks.
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "/device:TPU:0"),
+      CreateProcessSortIndexEvent(1, "1"),
+      CreateCompleteEvent(1, 10, "TpuOp", 10.0, 20.0),
+      TraceEvent{.ph = Phase::kComplete,
+                 .pid = 1,
+                 .tid = 0,
+                 .name = "MemcpyH2D",
+                 .ts = 10.0,
+                 .dur = 20.0,
+                 .is_async = true},
+
+      CreateProcessEvent(2, "Host Process"),
+      CreateProcessSortIndexEvent(2, "2"),
+      CreateThreadEvent(2, 10, "Engine Thread"),
+      CreateCompleteEvent(2, 10, "EngineOp", 100.0, 50.0),
+      TraceEvent{.ph = Phase::kComplete,
+                 .pid = 2,
+                 .tid = 0,
+                 .name = "Background Upload",
+                 .ts = 120.0,
+                 .dur = 40.0,
+                 .is_async = true},
+  };
+
+  data_provider_.ProcessTraceEvents(ParsedTraceEvents{.flame_events = events},
+                                    timeline_);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_THAT(groups, SizeIs(6));
+
+  // Process 1 (/device:TPU:0, first process -> expanded)
+  EXPECT_EQ(groups[0].name, "/device:TPU:0");
+  EXPECT_TRUE(groups[0].expanded);
+  EXPECT_THAT(groups[0].child_indices, ElementsAre(1, 2));
+
+  // Process 2 is Host Process, not a device track and not first -> collapsed by
+  // default!
+  EXPECT_EQ(groups[3].name, "Host Process");
+  EXPECT_FALSE(groups[3].expanded);
+  EXPECT_TRUE(groups[3].has_children);
+  EXPECT_THAT(groups[3].child_indices, ElementsAre(4, 5));
+
+  // Both sync and async tracks are present under Process 2.
+  EXPECT_EQ(groups[4].name, "Engine Thread");
+  EXPECT_EQ(groups[4].parent_index, 3);
+
+  EXPECT_EQ(groups[5].name, "Background Upload");
+  EXPECT_EQ(groups[5].parent_index, 3);
+}
+
+TEST_F(DataProviderTest, EmptyAndEdgeCaseTracks) {
+  // Process with a 0-event known sync thread and a counter track.
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Edge Case Process"),
+      CreateThreadEvent(1, 10, "Idle Worker Thread"),  // 0 flame events
+  };
+  const std::vector<CounterEvent> counters = {
+      CreateCounterEvent(1, "Memory Usage", {100.0, 200.0}, {1.0, 2.0}),
+  };
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = events, .counter_events = counters},
+      timeline_);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_THAT(groups, SizeIs(3));
+
+  EXPECT_EQ(groups[0].name, "Edge Case Process");
+  EXPECT_THAT(groups[0].child_indices, ElementsAre(1, 2));
+
+  // Counter track appears before thread tracks
+  EXPECT_EQ(groups[1].name, "Memory Usage");
+  EXPECT_EQ(groups[1].parent_index, 0);
+
+  // 0-event thread still appears because of metadata thread_name
+  EXPECT_EQ(groups[2].name, "Idle Worker Thread");
+  EXPECT_EQ(groups[2].parent_index, 0);
+}
+
+TEST_F(DataProviderTest, MpmdTraceFiltersEmptyNonPrimaryTracks) {
+  // In an MPMD trace, empty non-primary tracks are filtered out while primary
+  // tracks are kept.
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "MPMD Process"),
+      CreateThreadEvent(1, 10, "Idle NonPrimary"),  // 0 events -> filtered out
+      CreateThreadEvent(
+          1, 20, "XLA Modules"),  // 0 events -> kept because primary MPMD track
+      CreateThreadEvent(1, 30, "Active Thread"),
+      CreateCompleteEvent(1, 30, "ActiveOp", 100.0, 50.0),
+  };
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = events, .mpmd_pipeline_view = true},
+      timeline_);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_THAT(groups, SizeIs(3));
+
+  EXPECT_EQ(groups[0].name, "MPMD Process");
+  EXPECT_THAT(groups[0].child_indices, ElementsAre(1, 2));
+
+  // "Active Thread" kept because it has events
+  EXPECT_EQ(groups[1].name, "Active Thread");
+  EXPECT_EQ(groups[1].parent_index, 0);
+
+  // "XLA Modules" kept despite 0 events
+  EXPECT_EQ(groups[2].name, "XLA Modules");
+  EXPECT_EQ(groups[2].parent_index, 0);
+}
+
+TEST_F(
+    DataProviderTest,
+    MpmdTrace_KeepsEmptyTrack_WhenThreadNameIsXlaModules_WithoutXlaModulesTids) {  // NOLINT(whitespace/line_length)
+  // In an MPMD trace with an empty track whose thread name is "XLA Modules",
+  // but xla_modules_tids does NOT contain this tid (no complete event was
+  // parsed on it). Thread 10 is named "XLA Modules", but thread 20 is also
+  // named "XLA Modules", causing xla_modules_tids[1] to store 20 instead of 10.
+  // With '||', thread 10 is kept because thread_name == kXlaModules.
+  // If mutated to '&&', thread 10 is dropped because it_xla_tid->second == tid
+  // is false.
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "MPMD Process"),
+      CreateThreadEvent(1, 10, "XLA Modules"),
+      CreateThreadEvent(1, 20, "XLA Modules"),
+      CreateCompleteEvent(1, 20, "ActiveModuleOp", 100.0, 50.0),
+  };
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = events, .mpmd_pipeline_view = true},
+      timeline_);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_THAT(groups, SizeIs(3));
+
+  EXPECT_EQ(groups[0].name, "MPMD Process");
+  EXPECT_THAT(groups[0].child_indices, ElementsAre(1, 2));
+
+  // Thread 10 ("XLA Modules") kept despite being empty and tid !=
+  // it_xla_tid->second.
+  EXPECT_EQ(groups[1].name, "XLA Modules");
+  EXPECT_EQ(groups[1].parent_index, 0);
+
+  // Thread 20 ("XLA Modules") kept because it has active events.
+  EXPECT_EQ(groups[2].name, "XLA Modules");
+  EXPECT_EQ(groups[2].parent_index, 0);
+}
+
+TEST_F(
+    DataProviderTest,
+    MpmdTrace_KeepsEmptyTrack_WhenTidInXlaModulesTids_EvenIfThreadNameIsNotXlaModules) {  // NOLINT(whitespace/line_length)
+  // In an MPMD trace with an empty track whose tid is in xla_modules_tids,
+  // but its thread name is NOT "XLA Modules" (e.g. "Custom Engine").
+  // Thread 10 is initially registered as "XLA Modules" (setting
+  // xla_modules_tids[1] = 10), and subsequently named "Custom Engine". With
+  // '||', thread 10 is kept because it_xla_tid->second == tid. If mutated to
+  // '&&', thread 10 is dropped because thread_name == kXlaModules is false.
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "MPMD Process"),
+      CreateThreadEvent(1, 10, "XLA Modules"),
+      CreateThreadEvent(1, 10, "Custom Engine"),
+  };
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = events, .mpmd_pipeline_view = true},
+      timeline_);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_THAT(groups, SizeIs(2));
+
+  EXPECT_EQ(groups[0].name, "MPMD Process");
+  EXPECT_THAT(groups[0].child_indices, ElementsAre(1));
+
+  // Thread 10 ("Custom Engine") kept because tid is in xla_modules_tids.
+  EXPECT_EQ(groups[1].name, "Custom Engine");
+  EXPECT_EQ(groups[1].parent_index, 0);
+}
+
 TEST_F(DataProviderTest, V1Parity_ProcessSortIndexNumericOrdering) {
   const std::vector<TraceEvent> events = {
       CreateProcessEvent(1, "Pos10"),

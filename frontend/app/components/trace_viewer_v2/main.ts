@@ -139,11 +139,36 @@ declare global {
   }
 }
 
+/** Represents an Emscripten enum value for `ColorPaletteKey`. */
+export declare interface ColorPaletteKeyValue {
+  readonly value: number;
+}
+
+/**
+ * Keys of the WASM `ColorPalette` exposed via Emscripten embind.
+ *
+ * See `EMSCRIPTEN_BINDINGS(colors)` in `application.cc`.
+ */
+export declare interface ColorPaletteKeyMap {
+  readonly kBackground: ColorPaletteKeyValue;
+  readonly kForeground: ColorPaletteKeyValue;
+  readonly kMidtone: ColorPaletteKeyValue;
+  readonly kFlameHeader: ColorPaletteKeyValue;
+  readonly kCollapsedHeader: ColorPaletteKeyValue;
+  readonly kExpandedHeader: ColorPaletteKeyValue;
+  readonly kSubtitle: ColorPaletteKeyValue;
+  readonly kRulerText: ColorPaletteKeyValue;
+  readonly kRulerLine: ColorPaletteKeyValue;
+  readonly kSelection: ColorPaletteKeyValue;
+}
+
   export declare interface TraceViewerV2Module extends EmscriptenModule {
   HEAPU8: Uint8Array;
   _malloc(size: number): number;
   _free(ptr: number): void;
   getFeatureFlag?(name: string): boolean;
+  ColorPaletteKey?: ColorPaletteKeyMap;
+  SetColor?(key: ColorPaletteKeyValue, color: number): void;
   SetPalette(paletteName: string): void;
   SetPanningSpeed?(speed: number): void;
   SetZoomSpeed?(speed: number): void;
@@ -1061,6 +1086,141 @@ async function handleFetchDataEvent(
 }
 
 /**
+ * Converts a CSS color string (`#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb(...)`,
+ * `rgba(...)`, or `transparent`) into ImGui's `ImU32` format (`0xAABBGGRR`
+ * unsigned 32-bit int).
+ * Returns `undefined` if the color string cannot be parsed.
+ */
+export function cssColorToImU32(cssColor: string): number | undefined {
+  const trimmed = cssColor.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  if (trimmed.toLowerCase() === 'transparent') {
+    return 0;
+  }
+
+  if (trimmed.startsWith('#')) {
+    const hex = trimmed.slice(1);
+    let r = NaN;
+    let g = NaN;
+    let b = NaN;
+    let a = 0xff;
+    if (hex.length === 3) {
+      r = Number('0x' + hex[0] + hex[0]);
+      g = Number('0x' + hex[1] + hex[1]);
+      b = Number('0x' + hex[2] + hex[2]);
+    } else if (hex.length === 6) {
+      r = Number('0x' + hex.slice(0, 2));
+      g = Number('0x' + hex.slice(2, 4));
+      b = Number('0x' + hex.slice(4, 6));
+    } else if (hex.length === 8) {
+      r = Number('0x' + hex.slice(0, 2));
+      g = Number('0x' + hex.slice(2, 4));
+      b = Number('0x' + hex.slice(4, 6));
+      a = Number('0x' + hex.slice(6, 8));
+    }
+    if (
+      Number.isNaN(r) ||
+      Number.isNaN(g) ||
+      Number.isNaN(b) ||
+      Number.isNaN(a)
+    ) {
+      return undefined;
+    }
+    return (
+      (((a & 0xff) << 24) |
+        ((b & 0xff) << 16) |
+        ((g & 0xff) << 8) |
+        (r & 0xff)) >>>
+      0
+    );
+  }
+
+  const rgbMatch = trimmed.match(/^rgba?\((.+)\)$/i);
+  if (rgbMatch) {
+    const parts = rgbMatch[1]
+      .trim()
+      .split(/[\s,/]+/)
+      .filter((p) => p.length > 0);
+    if (parts.length >= 3) {
+      const r = Math.round(Number(parts[0]));
+      const g = Math.round(Number(parts[1]));
+      const b = Math.round(Number(parts[2]));
+      const a =
+        parts.length >= 4
+          ? Math.round(
+              (parts[3].endsWith('%')
+                ? Number(parts[3].slice(0, -1)) / 100
+                : Number(parts[3])) * 255,
+            )
+          : 0xff;
+      if (
+        !Number.isNaN(r) &&
+        !Number.isNaN(g) &&
+        !Number.isNaN(b) &&
+        !Number.isNaN(a) &&
+        r >= 0 &&
+        r <= 255 &&
+        g >= 0 &&
+        g <= 255 &&
+        b >= 0 &&
+        b <= 255 &&
+        a >= 0 &&
+        a <= 255
+      ) {
+        return (
+          (((a & 0xff) << 24) |
+            ((b & 0xff) << 16) |
+            ((g & 0xff) << 8) |
+            (r & 0xff)) >>>
+          0
+        );
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Reads computed GM3 surface CSS custom properties (`--mat-sys-*`) once from
+ * `rootElement` and maps them to the WASM `ColorPalette` via `SetColor`.
+ *
+ * This avoids per-frame DOM/CSS lookups during WebGPU/ImGui rendering of
+ * O(10M+) timeline events.
+ */
+export function syncGm3SurfaceColorsToWasm(
+  wasmModule: TraceViewerV2Module,
+  rootElement: Element | null = typeof document !== 'undefined'
+    ? document.documentElement
+    : null,
+): void {
+  if (!wasmModule.SetColor || !wasmModule.ColorPaletteKey || !rootElement) {
+    return;
+  }
+  const computedStyle = window.getComputedStyle(rootElement);
+  const keys = wasmModule.ColorPaletteKey;
+  const setColor = wasmModule.SetColor.bind(wasmModule);
+  const applyToken = (key: ColorPaletteKeyValue, cssVarName: string) => {
+    const color = cssColorToImU32(computedStyle.getPropertyValue(cssVarName));
+    if (color !== undefined && key) {
+      setColor(key, color);
+    }
+  };
+
+  applyToken(keys.kBackground, '--mat-sys-surface');
+  applyToken(keys.kForeground, '--mat-sys-on-surface');
+  applyToken(keys.kMidtone, '--mat-sys-inverse-on-surface');
+  applyToken(keys.kCollapsedHeader, '--mat-sys-inverse-on-surface');
+  applyToken(keys.kExpandedHeader, '--mat-sys-secondary-container');
+  applyToken(keys.kSubtitle, '--mat-sys-on-secondary-fixed-variant');
+  applyToken(keys.kRulerText, '--mat-sys-outline');
+  applyToken(keys.kRulerLine, '--mat-sys-outline-variant');
+}
+
+/**
  * Options for Trace Viewer v2 initialization.
  */
 export declare interface TraceViewerV2Options {
@@ -1115,6 +1275,28 @@ export async function traceViewerV2Main(
   try {
     traceviewerModule = await initGpuAndStartWasmApp();
     traceviewerModule.getFeatureFlag = window.getFeatureFlag;
+    if (typeof traceviewerModule.SetPalette === 'function') {
+      const originalSetPalette =
+        traceviewerModule.SetPalette.bind(traceviewerModule);
+      traceviewerModule.SetPalette = (paletteName: string) => {
+        originalSetPalette(paletteName);
+        if (paletteName === 'Default' && traceviewerModule) {
+          try {
+            syncGm3SurfaceColorsToWasm(traceviewerModule);
+          } catch (e) {
+            console.warn(
+              'Failed to sync GM3 surface colors during palette switch:',
+              e,
+            );
+          }
+        }
+      };
+    }
+    try {
+      syncGm3SurfaceColorsToWasm(traceviewerModule);
+    } catch (e) {
+      console.warn('Failed to sync GM3 surface colors to WASM palette:', e);
+    }
     activeWasmModule = traceviewerModule;
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e);

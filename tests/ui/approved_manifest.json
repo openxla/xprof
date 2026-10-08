@@ -1,3 +1,88 @@
 {
-  "approved_diffs": {}
+  "approved_diffs": {
+    "compiler.graph_and_multihost_scale:01_switch_tool_HLO Op Stats": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "642170020b45cefd",
+      "rationale": "Intentional Angular <!----> comment anchor shift from migrating string_filter.ng.html to built-in @if/@else control flow (0 visual pixel diff).",
+      "timestamp": "2026-10-08T09:18:57.383042+00:00"
+    },
+    "compute.op_profile_and_stats:08_switch_tool_HLO Op Stats": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "f01cff2899fc84b3",
+      "rationale": "Intentional Angular <!----> comment anchor shift from migrating string_filter.ng.html to built-in @if/@else control flow (0 visual pixel diff).",
+      "timestamp": "2026-10-08T09:18:57.383042+00:00"
+    },
+    "compute.op_profile_and_stats:09_filter_table_rows_all-gather": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "c1cefe316b32280d",
+      "rationale": "Intentional Angular <!----> comment anchor shift from migrating string_filter.ng.html to built-in @if/@else control flow (0 visual pixel diff).",
+      "timestamp": "2026-10-08T09:18:57.383042+00:00"
+    },
+    "compute.op_profile_and_stats:10_switch_tool_Roofline Model": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "0b83ace8ba254f59",
+      "rationale": "Intentional Angular <!----> comment anchor shift from migrating string_filter.ng.html to built-in @if/@else control flow (0 visual pixel diff).",
+      "timestamp": "2026-10-08T09:18:57.383042+00:00"
+    },
+    "distributed.host_retention_and_trace:02_switch_tool_HLO Op Stats": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "8e786148da087b35",
+      "rationale": "Intentional Angular <!----> comment anchor shift from migrating string_filter.ng.html to built-in @if/@else control flow (0 visual pixel diff).",
+      "timestamp": "2026-10-08T09:18:57.383042+00:00"
+    },
+    "full_spectrum.multimodal_endurance:01_switch_tool_Roofline Model": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "2f0d62992bedede6",
+      "rationale": "Intentional Angular <!----> comment anchor shift from migrating string_filter.ng.html to built-in @if/@else control flow (0 visual pixel diff).",
+      "timestamp": "2026-10-08T09:18:57.383042+00:00"
+    },
+    "full_spectrum.multimodal_endurance:04_switch_tool_HLO Op Stats": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "3e8e681e7e9ec30a",
+      "rationale": "Intentional Angular <!----> comment anchor shift from migrating string_filter.ng.html to built-in @if/@else control flow (0 visual pixel diff).",
+      "timestamp": "2026-10-08T09:18:57.383042+00:00"
+    },
+    "full_spectrum.multimodal_endurance:05_goto_v6e-4-training/hlo_stats": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "25c3c587e533cab8",
+      "rationale": "Intentional Angular <!----> comment anchor shift from migrating string_filter.ng.html to built-in @if/@else control flow (0 visual pixel diff).",
+      "timestamp": "2026-10-08T09:18:57.383042+00:00"
+    },
+    "memory.cross_hardware_tpu_to_v6e:08_switch_tool_Roofline Model": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "dbec0809c199a42a",
+      "rationale": "Intentional Angular <!----> comment anchor shift from migrating string_filter.ng.html to built-in @if/@else control flow (0 visual pixel diff).",
+      "timestamp": "2026-10-08T09:18:57.383042+00:00"
+    },
+    "triage.pipeline_and_hardware_bounds:02_switch_tool_HLO Op Stats": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "39e1cb1b439d9b5e",
+      "rationale": "Intentional Angular <!----> comment anchor shift from migrating string_filter.ng.html to built-in @if/@else control flow (0 visual pixel diff).",
+      "timestamp": "2026-10-08T09:18:57.383042+00:00"
+    },
+    "triage.pipeline_and_hardware_bounds:03_select_category_filter_convolution fusion": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "e04f62ad421eab64",
+      "rationale": "Intentional Angular <!----> comment anchor shift from migrating string_filter.ng.html to built-in @if/@else control flow (0 visual pixel diff).",
+      "timestamp": "2026-10-08T09:18:57.383042+00:00"
+    },
+    "triage.pipeline_and_hardware_bounds:04_sort_table_column_#Occurrences": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "c996cbf11ab22367",
+      "rationale": "Intentional Angular <!----> comment anchor shift from migrating string_filter.ng.html to built-in @if/@else control flow (0 visual pixel diff).",
+      "timestamp": "2026-10-08T09:18:57.383042+00:00"
+    },
+    "triage.pipeline_and_hardware_bounds:09_switch_tool_Roofline Model": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "a5ccf7edb4905c56",
+      "rationale": "Intentional Angular <!----> comment anchor shift from migrating string_filter.ng.html to built-in @if/@else control flow (0 visual pixel diff).",
+      "timestamp": "2026-10-08T09:18:57.383042+00:00"
+    },
+    "triage.pipeline_and_hardware_bounds:10_select_category_filter_convolution fusion": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "187b615dadd0f87b",
+      "rationale": "Intentional Angular <!----> comment anchor shift from migrating string_filter.ng.html to built-in @if/@else control flow (0 visual pixel diff).",
+      "timestamp": "2026-10-08T09:18:57.383042+00:00"
+    }
+  }
 }

@@ -113,6 +113,15 @@ class Application {
     }
   }
 
+  // Clears all per-dataset state so a different dataset can be loaded into
+  // this instance. Call before loadTraceData() when switching datasets.
+  void ResetDataset() {
+    if (!timeline_) return;
+    data_provider_.Reset();
+    timeline_->ResetForNewDataset();
+    RequestRedraw();
+  }
+
   void NavigateToNextSearchResult() {
     if (timeline_) {
       timeline_->NavigateToNextSearchResult();

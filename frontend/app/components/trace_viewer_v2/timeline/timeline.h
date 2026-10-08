@@ -552,6 +552,11 @@ class Timeline {
   }
   bool incremental_fetch_enabled() const { return incremental_fetch_enabled_; }
 
+  // Returns the timeline to its pre-first-load state (data, ranges, selection,
+  // search, bookmarks, scroll) so a different dataset can be loaded. Host
+  // toggles and per-name track preferences are kept.
+  void ResetForNewDataset();
+
   Pixel GetLabelWidth() const { return label_width_; }
 
   void SetVisibleFlowCategory(int category_id) {

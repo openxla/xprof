@@ -153,6 +153,11 @@ declare global {
    * when the backend always returns the full dataset.
    */
   SetIncrementalFetchEnabled?(enabled: boolean): void;
+  /**
+   * Clears all per-dataset state (data, viewport, selection, search, track
+   * metadata). Call before `loadTraceData` when switching datasets.
+   */
+  ResetDataset?(): void;
   SetCustomTraceColors?(colors: number[]): void;
   RequestRedraw?(): void;
   SetPlaybackState?(

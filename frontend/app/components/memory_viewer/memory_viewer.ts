@@ -1,15 +1,22 @@
+import {CommonModule} from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
   inject,
   OnDestroy,
 } from '@angular/core';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {MatSidenavModule} from '@angular/material/sidenav';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {MemoryViewerPreprocessResult} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
+import {BufferDetails} from 'org_xprof/frontend/app/components/memory_viewer/buffer_details/buffer_details';
+import {MaxHeapChartDownloader} from 'org_xprof/frontend/app/components/memory_viewer/max_heap_chart_downloader/max_heap_chart_downloader';
+import {MemoryViewerControl} from 'org_xprof/frontend/app/components/memory_viewer/memory_viewer_control/memory_viewer_control';
+import {MemoryViewerMain} from 'org_xprof/frontend/app/components/memory_viewer/memory_viewer_main/memory_viewer_main';
 import {
   DATA_SERVICE_INTERFACE_TOKEN,
   DataServiceV2Interface,
@@ -21,7 +28,16 @@ import {takeUntil} from 'rxjs/operators';
 /** A memory viewer component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
+  imports: [
+    MemoryViewerMain,
+    MemoryViewerControl,
+    BufferDetails,
+    MaxHeapChartDownloader,
+    CommonModule,
+    MatProgressBarModule,
+    MatSidenavModule,
+  ],
   selector: 'memory-viewer',
   templateUrl: './memory_viewer.ng.html',
   styleUrls: ['./memory_viewer.scss'],

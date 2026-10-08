@@ -5,6 +5,29 @@ $filter-bar-height: 50px;
 // 40px + 8(padding)*2
 $search-bar-height: 56px;
 
+@mixin slim-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--mat-sys-outline-variant) transparent;
+
+  &::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    border-radius: 4px;
+    background-color: var(--mat-sys-outline-variant);
+
+    &:hover {
+      background-color: var(--mat-sys-outline);
+    }
+  }
+}
+
 :host {
   display: flex;
   flex-direction: column;
@@ -1158,6 +1181,7 @@ button.shortcuts-guide-btn {
 }
 
 .drawer {
+  @include slim-scrollbar;
   height: calc(100% - 16px);
   margin-top: 8px;
   margin-bottom: 8px;
@@ -1264,12 +1288,18 @@ button.shortcuts-guide-btn {
       // this scrolling content so an IntersectionObserver can detect when the
       // title becomes stuck.
       position: relative;
-      --ngx-json-font-size: 13px;
-      --ngx-json-key: var(--mat-sys-primary);
+      --ngx-json-font-family: var(
+        --mat-sys-plain-font,
+        'Google Sans Text',
+        Roboto,
+        sans-serif
+      );
+      --ngx-json-font-size: 12px;
+      --ngx-json-key: var(--mat-sys-on-surface);
       --ngx-json-value: var(--mat-sys-on-surface);
       --ngx-json-string: var(--mat-sys-on-surface);
-      --ngx-json-number: var(--mat-sys-secondary);
-      --ngx-json-boolean: var(--mat-sys-secondary);
+      --ngx-json-number: var(--mat-sys-on-surface);
+      --ngx-json-boolean: var(--mat-sys-on-surface);
       --ngx-json-separator: var(--mat-sys-on-surface-variant);
       --ngx-json-toggler: var(--mat-sys-on-surface-variant);
       --ngx-json-array: var(--mat-sys-on-surface-variant);
@@ -1307,8 +1337,15 @@ button.shortcuts-guide-btn {
         margin: 0 -12px 12px;
         padding: 12px;
         background-color: var(--mat-sys-surface);
+        font-family: var(
+          --mat-sys-brand-font,
+          'Google Sans',
+          Roboto,
+          sans-serif
+        );
         font-weight: 600;
         font-size: 14px;
+        line-height: 20px;
         color: var(--mat-sys-on-surface);
         // Elevate the header only once it is stuck (i.e. JSON has scrolled
         // beneath it). .is-sticky is toggled off the Angular zone by the
@@ -1334,14 +1371,19 @@ button.shortcuts-guide-btn {
       ::ng-deep .ngx-json-viewer {
         height: auto;
         overflow: visible;
-      }
 
-      // Allow the long HLO expression (resolved stack trace) to wrap instead
-      // of overflowing the panel, and preserve the line breaks added by the
-      // HLO pretty-printer so each operand/attribute stays on its own line.
-      ::ng-deep .ngx-json-viewer .segment-value {
-        word-break: break-word;
-        white-space: pre-wrap;
+        .segment-key {
+          font-weight: 600;
+        }
+
+        // Allow the long HLO expression (resolved stack trace) to wrap instead
+        // of overflowing the panel, and preserve the line breaks added by the
+        // HLO pretty-printer so each operand/attribute stays on its own line.
+        .segment-value {
+          font-weight: 400;
+          word-break: break-word;
+          white-space: pre-wrap;
+        }
       }
     }
 
@@ -1377,6 +1419,7 @@ button.shortcuts-guide-btn {
     }
 
     .split-area-inner {
+      @include slim-scrollbar;
       box-sizing: border-box;
       height: 100%;
       padding: 12px;
@@ -1392,23 +1435,27 @@ button.shortcuts-guide-btn {
       display: flex;
       align-items: flex-start;
       margin-bottom: 8px;
-      font-size: 13px;
-      line-height: 1.4;
+      font-size: 12px;
+      line-height: 20px;
 
       .detail-label {
         font-weight: 600;
         width: 150px;
         flex-shrink: 0;
         color: var(--mat-sys-on-surface-variant);
+        line-height: 20px;
       }
 
       .detail-value {
+        font-weight: 400;
         color: var(--mat-sys-on-surface);
+        line-height: 20px;
         word-break: break-word;
         white-space: pre-wrap;
       }
 
-      &.hlo-text-row {
+      &.hlo-text-row,
+      &.code-text-row {
         align-items: flex-start;
 
         .detail-label {
@@ -1418,7 +1465,12 @@ button.shortcuts-guide-btn {
         }
 
         .detail-value {
-          font-family: 'Roboto Mono', monospace;
+          font-family: var(
+            --mat-sys-code-font,
+            'Roboto Mono',
+            ui-monospace,
+            monospace
+          );
           font-size: 12px;
           line-height: 20px;
 
@@ -1473,23 +1525,31 @@ button.shortcuts-guide-btn {
         gap: 4px;
         white-space: nowrap;
         font-size: 12px;
+        line-height: 20px;
         color: var(--mat-sys-on-surface-variant);
       }
 
       ::ng-deep a,
       a {
         display: inline-block;
-        padding: 4px 8px;
+        padding: 0;
         border-radius: 4px;
-        background-color: var(--mat-sys-primary-container);
-        color: var(--mat-sys-on-primary-container);
+        background-color: transparent;
+        color: var(--mat-sys-primary);
         text-decoration: none;
         font-size: 12px;
         font-weight: 500;
+        line-height: 20px;
         white-space: nowrap;
 
         &:hover {
           text-decoration: underline;
+          color: var(--mat-sys-primary);
+        }
+
+        &:focus-visible {
+          outline: 2px solid var(--mat-sys-primary);
+          outline-offset: 2px;
         }
       }
     }

@@ -6072,6 +6072,169 @@ TEST_F(RealTimelineImGuiFixture, DrawFlowsWithZeroViewDuration) {
   ImGui::EndFrame();
 }
 
+TEST_F(RealTimelineImGuiFixture, HighlightConnectedInboundAndOutboundFlows) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.level_offsets = {0, 3};
+  data.level_event_indices = {0, 1, 2};
+  data.entry_names = {"event0", "event1", "event2"};
+  data.entry_event_ids = {1000, 2000, 3000};
+  data.entry_levels = {0, 0, 0};
+  data.entry_start_times = {10.0, 50.0, 90.0};
+  data.entry_total_times = {5.0, 5.0, 5.0};
+  data.entry_args = {{}, {}, {}};
+
+  constexpr ImU32 kInboundColor = 0xFF112233;
+  constexpr ImU32 kOutboundColor = 0xFF445566;
+  constexpr ImU32 kUnconnectedColor = 0xFF778899;
+
+  FlowLine inbound_flow = {.source_ts = 12.0,
+                           .target_ts = 52.0,
+                           .source_level = 0,
+                           .target_level = 0,
+                           .color = kInboundColor,
+                           .category = tsl::profiler::ContextType::kGeneric};
+  FlowLine outbound_flow = {.source_ts = 54.0,
+                            .target_ts = 92.0,
+                            .source_level = 0,
+                            .target_level = 0,
+                            .color = kOutboundColor,
+                            .category = tsl::profiler::ContextType::kGeneric};
+  FlowLine unconnected_flow = {
+      .source_ts = 13.0,
+      .target_ts = 20.0,
+      .source_level = 0,
+      .target_level = 0,
+      .color = kUnconnectedColor,
+      .category = tsl::profiler::ContextType::kGeneric};
+
+  data.flow_lines = {inbound_flow, outbound_flow, unconnected_flow};
+  data.flow_ids_by_event_id = {{1000, {"flow_in"}},
+                               {2000, {"flow_in", "flow_out"}},
+                               {3000, {"flow_out"}}};
+  data.flow_lines_by_flow_id = {{"flow_in", {inbound_flow}},
+                                {"flow_out", {outbound_flow}},
+                                {"flow_unconnected", {unconnected_flow}}};
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGeneric)});
+
+  // Case 1: No event selected. Visible flows are drawn unhighlighted (no halo).
+  {
+    ImGui::NewFrame();
+    timeline_.Draw();
+    ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+    ASSERT_FALSE(draw_list->VtxBuffer.empty());
+
+    bool found_halo_color = false;
+    for (const auto& vtx : draw_list->VtxBuffer) {
+      if (vtx.col == kHighlightedFlowHaloColor) found_halo_color = true;
+    }
+    EXPECT_FALSE(found_halo_color);
+    ImGui::EndFrame();
+  }
+
+  // Case 2: Select event 1 (id 2000). Both connected inbound and outbound flows
+  // should be highlighted with their foreground colors and the red halo color.
+  // The unconnected flow should not be rendered.
+  {
+    timeline_.RevealEvent(1);
+    ImGui::NewFrame();
+    timeline_.Draw();
+    ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+    ASSERT_FALSE(draw_list->VtxBuffer.empty());
+
+    bool found_inbound_color = false;
+    bool found_outbound_color = false;
+    bool found_unconnected_color = false;
+    bool found_halo_color = false;
+
+    for (const auto& vtx : draw_list->VtxBuffer) {
+      if (vtx.col == kInboundColor) found_inbound_color = true;
+      if (vtx.col == kOutboundColor) found_outbound_color = true;
+      if (vtx.col == kUnconnectedColor) found_unconnected_color = true;
+      if (vtx.col == kHighlightedFlowHaloColor) found_halo_color = true;
+    }
+
+    EXPECT_TRUE(found_inbound_color);
+    EXPECT_TRUE(found_outbound_color);
+    EXPECT_FALSE(found_unconnected_color);
+    EXPECT_TRUE(found_halo_color);
+    ImGui::EndFrame();
+  }
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawFlowsRendersArrowheadAtTarget) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.level_offsets = {0, 2};
+  data.level_event_indices = {0, 1};
+  data.entry_names = {"event0", "event1"};
+  data.entry_event_ids = {1000, 2000};
+  data.entry_levels = {0, 0};
+  data.entry_start_times = {10.0, 80.0};
+  data.entry_total_times = {5.0, 5.0};
+  data.entry_args = {{}, {}};
+
+  constexpr ImU32 kFlowColor = 0xFF55AA22;
+
+  FlowLine flow = {.source_ts = 10.0,
+                   .target_ts = 80.0,
+                   .source_level = 0,
+                   .target_level = 0,
+                   .color = kFlowColor,
+                   .category = tsl::profiler::ContextType::kGeneric};
+
+  data.flow_lines = {flow};
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGeneric)});
+
+  ImGui::NewFrame();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+  draw_list->Flags &= ~ImDrawListFlags_AntiAliasedFill;
+  timeline_.Draw();
+  ASSERT_FALSE(draw_list->VtxBuffer.empty());
+
+  // Verify the arrowhead triangle vertices exist for kFlowColor:
+  // tip at (tip_x, tip_y), and base vertices at
+  // (tip_x - kFlowArrowWidth, tip_y - kFlowArrowHeight) and
+  // (tip_x - kFlowArrowWidth, tip_y + kFlowArrowHeight).
+  bool found_arrowhead = false;
+  for (const auto& tip : draw_list->VtxBuffer) {
+    if (tip.col != kFlowColor) continue;
+    bool has_top = false;
+    bool has_bottom = false;
+    for (const auto& vtx : draw_list->VtxBuffer) {
+      if (vtx.col != kFlowColor) continue;
+      if (std::abs(vtx.pos.x - (tip.pos.x - kFlowArrowWidth)) < 0.1f &&
+          std::abs(vtx.pos.y - (tip.pos.y - kFlowArrowHeight)) < 0.1f) {
+        has_top = true;
+      }
+      if (std::abs(vtx.pos.x - (tip.pos.x - kFlowArrowWidth)) < 0.1f &&
+          std::abs(vtx.pos.y - (tip.pos.y + kFlowArrowHeight)) < 0.1f) {
+        has_bottom = true;
+      }
+    }
+    if (has_top && has_bottom) {
+      found_arrowhead = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_arrowhead);
+
+  ImGui::EndFrame();
+}
+
 TEST_F(RealTimelineImGuiFixture, DrawProcessTrackUtilizationAreaChart) {
   FlameChartTimelineData data;
   // Group 0: Process track at nesting level 0

@@ -869,7 +869,7 @@ class Timeline {
   // Draws a single flow line.
   void DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
                       Pixel timeline_y_start, double px_per_time,
-                      ImDrawList* draw_list);
+                      ImDrawList* draw_list, bool highlighted = false);
 
   // Draws flow lines connecting events. Each flow line is rendered as a Bezier
   // curve connecting a start point (time and level) to an end point (time and

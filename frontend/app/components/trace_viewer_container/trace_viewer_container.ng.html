@@ -29,20 +29,20 @@
         <ng-container *ngIf="currentSearchQuery">
           <span class="search-result-count" role="status" aria-live="polite">{{searchResultCountText}}</span>
           <div class="search-divider"></div>
-          <button type="button" mat-icon-button aria-label="Previous search result" (click)="prevSearchResult(searchBox.value, $event)" (keydown.enter)="prevSearchResult(searchBox.value)" class="search-arrow-btn">
+          <button type="button" mat-icon-button matTooltip="Previous search result (Shift+Enter)" aria-label="Previous search result (Shift+Enter)" (click)="prevSearchResult(searchBox.value, $event)" (keydown.enter)="prevSearchResult(searchBox.value)" class="search-arrow-btn">
             <mat-icon>keyboard_arrow_up</mat-icon>
           </button>
-          <button type="button" mat-icon-button aria-label="Next search result" (click)="nextSearchResult(searchBox.value, $event)" (keydown.enter)="nextSearchResult(searchBox.value)" class="search-arrow-btn">
+          <button type="button" mat-icon-button matTooltip="Next search result (Enter)" aria-label="Next search result (Enter)" (click)="nextSearchResult(searchBox.value, $event)" (keydown.enter)="nextSearchResult(searchBox.value)" class="search-arrow-btn">
             <mat-icon>keyboard_arrow_down</mat-icon>
           </button>
-          <button type="button" mat-icon-button aria-label="Clear search" (click)="clearSearch($event)" (keydown.enter)="clearSearch()" class="search-clear-btn">
+          <button type="button" mat-icon-button matTooltip="Clear search" aria-label="Clear search" (click)="clearSearch($event)" (keydown.enter)="clearSearch()" class="search-clear-btn">
             <mat-icon>close</mat-icon>
           </button>
         </ng-container>
       </div>
     </mat-form-field>
     <div class="mouse-mode-container">
-      <button #selectBtn type="button" mat-icon-button [class.active]="currentMouseMode === MouseMode.SELECT" (click)="setMouseMode(MouseMode.SELECT)" title="Select Mode" aria-label="Select Mode">
+      <button #selectBtn type="button" mat-icon-button [class.active]="currentMouseMode === MouseMode.SELECT" (click)="setMouseMode(MouseMode.SELECT)" matTooltip="Select Mode (1)" aria-label="Select Mode (1)">
         <svg width="20" height="20" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
           <g clip-path="url(#clip0_71_476)">
             <path d="M15.1875 22L12.3125 15.8542L9 20V6L20 15H14.125L17 21.1458L15.1875 22Z" fill="#444746"/>
@@ -54,7 +54,7 @@
           </defs>
         </svg>
       </button>
-      <button #panBtn type="button" mat-icon-button [class.active]="currentMouseMode === MouseMode.PAN" (click)="setMouseMode(MouseMode.PAN)" title="Pan Mode" aria-label="Pan Mode">
+      <button #panBtn type="button" mat-icon-button [class.active]="currentMouseMode === MouseMode.PAN" (click)="setMouseMode(MouseMode.PAN)" matTooltip="Pan Mode (2)" aria-label="Pan Mode (2)">
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
           <g clip-path="url(#clip0_71_473)">
             <path d="M10 18L6.5 14.5L7.5625 13.4375L9.25 15.125V10.75H4.875L6.5625 12.4375L5.5 13.5L2 10L5.5 6.5L6.5625 7.5625L4.875 9.25H9.25V4.875L7.5625 6.5625L6.5 5.5L10 2L13.5 5.5L12.4375 6.5625L10.75 4.875V9.25H15.125L13.4375 7.5625L14.5 6.5L18 10L14.5 13.5L13.4375 12.4375L15.125 10.75H10.75V15.125L12.4375 13.4375L13.5 14.5L10 18Z" fill="#444746"/>
@@ -66,7 +66,7 @@
           </defs>
         </svg>
       </button>
-      <button #zoomBtn type="button" mat-icon-button [class.active]="currentMouseMode === MouseMode.ZOOM" (click)="setMouseMode(MouseMode.ZOOM)" title="Zoom Mode" aria-label="Zoom Mode">
+      <button #zoomBtn type="button" mat-icon-button [class.active]="currentMouseMode === MouseMode.ZOOM" (click)="setMouseMode(MouseMode.ZOOM)" matTooltip="Zoom Mode (3)" aria-label="Zoom Mode (3)">
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
           <g clip-path="url(#clip0_71_470)">
             <path d="M10 17L7 14L8.0625 12.9375L9.25 14.125V5.875L8.0625 7.0625L7 6L10 3L13 6L11.9375 7.0625L10.75 5.875V14.125L11.9375 12.9375L13 14L10 17Z" fill="#444746"/>
@@ -79,7 +79,7 @@
         </svg>
       </button>
       <div class="timing-button-wrapper">
-        <button #timingBtn type="button" mat-icon-button [class.active]="currentMouseMode === MouseMode.TIMING" (click)="setMouseMode(MouseMode.TIMING)" title="Measure Mode" aria-label="Measure Mode">
+        <button #timingBtn type="button" mat-icon-button [class.active]="currentMouseMode === MouseMode.TIMING" (click)="setMouseMode(MouseMode.TIMING)" matTooltip="Measure Mode (4)" aria-label="Measure Mode (4)">
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
           <g clip-path="url(#clip0_71_467)">
             <path d="M18 16H16.5V4H18V16ZM15 10L12 13L10.9375 11.9375L12.125 10.75H7.875L9.0625 11.9375L8 13L5 10L8 7L9.0625 8.0625L7.875 9.25H12.125L10.9375 8.0625L12 7L15 10ZM3.5 16H2L2 4H3.5L3.5 16Z" fill="#444746"/>
@@ -136,11 +136,11 @@
     </div>
     <div class="spacer"></div>
     <trace-viewer-customization-panel></trace-viewer-customization-panel>
-    <button *ngIf="useTraceViewerV2 && showHelpButton" type="button" mat-icon-button (click)="openHelpDialog()" title="Keyboard Shortcuts & Controls" aria-label="Keyboard Shortcuts & Controls">
+    <button *ngIf="useTraceViewerV2 && showHelpButton" type="button" mat-icon-button (click)="openHelpDialog()" matTooltip="Keyboard Shortcuts & Controls (?)" aria-label="Keyboard Shortcuts & Controls (?)">
       <mat-icon>help_outline</mat-icon>
     </button>
     <trace-viewer-help-dialog></trace-viewer-help-dialog>
-    <button *ngIf="useTraceViewerV2" type="button" mat-icon-button class="shortcuts-guide-btn" (click)="openHelpDialog()" title="Shortcuts Guide" aria-label="Shortcuts Guide">
+    <button *ngIf="useTraceViewerV2" type="button" mat-icon-button class="shortcuts-guide-btn" (click)="openHelpDialog()" matTooltip="Shortcuts Guide (?)" aria-label="Shortcuts Guide (?)">
       <mat-icon class="material-symbols-outlined"><svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor"><path d="M160-200q-33 0-56.5-23.5T80-280v-400q0-33 23.5-56.5T160-760h640q33 0 56.5 23.5T880-680v400q0 33-23.5 56.5T800-200H160Zm0-80h640v-400H160v400Zm200-40h240q17 0 28.5-11.5T640-360q0-17-11.5-28.5T600-400H360q-17 0-28.5 11.5T320-360q0 17 11.5 28.5T360-320Zm-200 40v-400 400Zm80-280q17 0 28.5-11.5T280-600q0-17-11.5-28.5T240-640q-17 0-28.5 11.5T200-600q0 17 11.5 28.5T240-560Zm120 0q17 0 28.5-11.5T400-600q0-17-11.5-28.5T360-640q-17 0-28.5 11.5T320-600q0 17 11.5 28.5T360-560Zm120 0q17 0 28.5-11.5T520-600q0-17-11.5-28.5T480-640q-17 0-28.5 11.5T440-600q0 17 11.5 28.5T480-560Zm120 0q17 0 28.5-11.5T640-600q0-17-11.5-28.5T600-640q-17 0-28.5 11.5T560-600q0 17 11.5 28.5T600-560Zm120 0q17 0 28.5-11.5T760-600q0-17-11.5-28.5T720-640q-17 0-28.5 11.5T680-600q0 17 11.5 28.5T720-560ZM240-440q17 0 28.5-11.5T280-480q0-17-11.5-28.5T240-520q-17 0-28.5 11.5T200-480q0 17 11.5 28.5T240-440Zm120 0q17 0 28.5-11.5T400-480q0-17-11.5-28.5T360-520q-17 0-28.5 11.5T320-480q0 17 11.5 28.5T360-440Zm120 0q17 0 28.5-11.5T520-480q0-17-11.5-28.5T480-520q-17 0-28.5 11.5T440-480q0 17 11.5 28.5T480-440Zm120 0q17 0 28.5-11.5T640-480q0-17-11.5-28.5T600-520q-17 0-28.5 11.5T560-480q0 17 11.5 28.5T600-440Zm120 0q17 0 28.5-11.5T760-480q0-17-11.5-28.5T720-520q-17 0-28.5 11.5T680-480q0 17 11.5 28.5T720-440Z"/></svg></mat-icon>
     </button>
     <trace-viewer-shortcuts-dialog></trace-viewer-shortcuts-dialog>

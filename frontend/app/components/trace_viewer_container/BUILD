@@ -56,6 +56,7 @@ xprof_ng_module(
         "//:node_modules/@angular/platform-browser",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "//:node_modules/@angular/router",
+        "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
         "//:node_modules/rxjs",
         "//third_party/javascript/typings/jasmine",
         "@org_xprof//frontend/app/components/timeline_player",

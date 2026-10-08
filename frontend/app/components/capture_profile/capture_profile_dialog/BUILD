@@ -18,6 +18,7 @@ xprof_ng_module(
         "//:node_modules/@angular/forms",
         "//:node_modules/@angular/platform-browser",
         "@org_xprof//frontend/app/common/angular:angular_material_button",
+        "@org_xprof//frontend/app/common/angular:angular_material_core",
         "@org_xprof//frontend/app/common/angular:angular_material_dialog",
         "@org_xprof//frontend/app/common/angular:angular_material_expansion",
         "@org_xprof//frontend/app/common/angular:angular_material_form_field",

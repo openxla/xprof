@@ -349,6 +349,35 @@ TEST(FlameChartTimelineDataTest, FindGroupForLevel) {
   EXPECT_EQ(res->name, "G2");
 }
 
+TEST(FlameChartTimelineDataTest, FindGroupIndexForLevel) {
+  FlameChartTimelineData data;
+  EXPECT_EQ(data.FindGroupIndexForLevel(-1), -1);
+  EXPECT_EQ(data.FindGroupIndexForLevel(0), -1);
+
+  Group g0{
+      .name = "G0", .start_level = 1, .level_count = 2, .pid = 100, .tid = 101};
+  Group g1{
+      .name = "G1", .start_level = 5, .level_count = 3, .pid = 200, .tid = 201};
+  Group g2{.name = "G2",
+           .start_level = 10,
+           .level_count = 0,
+           .pid = 300,
+           .tid = 301};
+  data.groups = {g0, g1, g2};
+
+  EXPECT_EQ(data.FindGroupIndexForLevel(0), -1);
+  EXPECT_EQ(data.FindGroupIndexForLevel(1), 0);
+  EXPECT_EQ(data.FindGroupIndexForLevel(2), 0);
+  EXPECT_EQ(data.FindGroupIndexForLevel(3), -1);
+  EXPECT_EQ(data.FindGroupIndexForLevel(4), -1);
+  EXPECT_EQ(data.FindGroupIndexForLevel(5), 1);
+  EXPECT_EQ(data.FindGroupIndexForLevel(7), 1);
+  EXPECT_EQ(data.FindGroupIndexForLevel(8), -1);
+  EXPECT_EQ(data.FindGroupIndexForLevel(9), -1);
+  EXPECT_EQ(data.FindGroupIndexForLevel(10), 2);
+  EXPECT_EQ(data.FindGroupIndexForLevel(15), 2);
+}
+
 TEST(TimelineTest, CalculateEventRect_EventCompletelyOutsideLeft) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);

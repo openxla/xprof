@@ -480,11 +480,17 @@ void GenerateFlowLines(const TraceInformation& trace_info,
       const ImU32 flow_color =
           GetFlowColorForCategory(u->category, top_5_flow_categories,
                                   palette);  // Use flow category for color
+      const int source_level = GetEventFlameChartLevel(u, thread_levels, data);
+      const int target_level = GetEventFlameChartLevel(v, thread_levels, data);
+      const int source_group_index = data.FindGroupIndexForLevel(source_level);
+      const int target_group_index = data.FindGroupIndexForLevel(target_level);
       FlowLine flow_line{
           .source_ts = u->ts,
           .target_ts = v->ts,
-          .source_level = GetEventFlameChartLevel(u, thread_levels, data),
-          .target_level = GetEventFlameChartLevel(v, thread_levels, data),
+          .source_level = source_level,
+          .target_level = target_level,
+          .source_group_index = source_group_index,
+          .target_group_index = target_group_index,
           .color = flow_color,
           .category = u->category};
       data.flow_lines.push_back(flow_line);

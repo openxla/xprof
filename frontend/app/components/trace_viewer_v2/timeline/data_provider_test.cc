@@ -2661,6 +2661,8 @@ TEST_F(DataProviderTest, ProcessFlowEvents) {
   EXPECT_EQ(data.flow_lines[0].target_ts, 210.0);
   EXPECT_EQ(data.flow_lines[0].source_level, 0);
   EXPECT_EQ(data.flow_lines[0].target_level, 1);
+  EXPECT_EQ(data.flow_lines[0].source_group_index, 1);
+  EXPECT_EQ(data.flow_lines[0].target_group_index, 2);
   EXPECT_EQ(data.flow_lines[0].category,
             tsl::profiler::ContextType::kGpuLaunch);
   EXPECT_EQ(data.flow_lines[0].color, flow1_color);
@@ -2670,6 +2672,8 @@ TEST_F(DataProviderTest, ProcessFlowEvents) {
   EXPECT_EQ(data.flow_lines[1].target_ts, 230.0);
   EXPECT_EQ(data.flow_lines[1].source_level, 1);
   EXPECT_EQ(data.flow_lines[1].target_level, 1);
+  EXPECT_EQ(data.flow_lines[1].source_group_index, 2);
+  EXPECT_EQ(data.flow_lines[1].target_group_index, 2);
   EXPECT_EQ(data.flow_lines[1].category,
             tsl::profiler::ContextType::kGpuLaunch);
   EXPECT_EQ(data.flow_lines[1].color, flow1_color);
@@ -2679,14 +2683,22 @@ TEST_F(DataProviderTest, ProcessFlowEvents) {
   EXPECT_EQ(data.flow_lines[2].target_ts, 380.0);
   EXPECT_EQ(data.flow_lines[2].source_level, 2);
   EXPECT_EQ(data.flow_lines[2].target_level, 2);
+  EXPECT_EQ(data.flow_lines[2].source_group_index, 4);
+  EXPECT_EQ(data.flow_lines[2].target_group_index, 4);
   EXPECT_EQ(data.flow_lines[2].category, tsl::profiler::ContextType::kGeneric);
   EXPECT_EQ(data.flow_lines[2].color, flow2_color);
 
   // Check flow_lines_by_flow_id
   ASSERT_TRUE(data.flow_lines_by_flow_id.contains("1"));
   EXPECT_THAT(data.flow_lines_by_flow_id.at("1"), SizeIs(2));
+  EXPECT_EQ(data.flow_lines_by_flow_id.at("1")[0].source_group_index, 1);
+  EXPECT_EQ(data.flow_lines_by_flow_id.at("1")[0].target_group_index, 2);
+  EXPECT_EQ(data.flow_lines_by_flow_id.at("1")[1].source_group_index, 2);
+  EXPECT_EQ(data.flow_lines_by_flow_id.at("1")[1].target_group_index, 2);
   ASSERT_TRUE(data.flow_lines_by_flow_id.contains("2"));
   EXPECT_THAT(data.flow_lines_by_flow_id.at("2"), SizeIs(1));
+  EXPECT_EQ(data.flow_lines_by_flow_id.at("2")[0].source_group_index, 4);
+  EXPECT_EQ(data.flow_lines_by_flow_id.at("2")[0].target_group_index, 4);
 
   // Check flow_ids_by_event_id for flow events
   EXPECT_THAT(data.flow_ids_by_event_id.at(1), ElementsAre("1"));
@@ -2694,6 +2706,140 @@ TEST_F(DataProviderTest, ProcessFlowEvents) {
   EXPECT_THAT(data.flow_ids_by_event_id.at(3), ElementsAre("1"));
   EXPECT_THAT(data.flow_ids_by_event_id.at(4), ElementsAre("2"));
   EXPECT_THAT(data.flow_ids_by_event_id.at(5), ElementsAre("2"));
+}
+
+TEST_F(DataProviderTest,
+       FlowLinesRetainEndpointsAndGroupIndicesAcrossViewportCulling) {
+  const std::vector<TraceEvent> all_events = {
+      // Process 1, Thread 101
+      {.ph = Phase::kComplete,
+       .event_id = 10,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0},
+      {.ph = Phase::kFlowStart,
+       .event_id = 1,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow1",
+       .ts = 120.0,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+      // Process 1, Thread 102
+      {.ph = Phase::kComplete,
+       .event_id = 11,
+       .pid = 1,
+       .tid = 102,
+       .name = "Task B",
+       .ts = 200.0,
+       .dur = 50.0},
+      {.ph = Phase::kFlowEnd,
+       .event_id = 2,
+       .pid = 1,
+       .tid = 102,
+       .name = "flow1",
+       .ts = 220.0,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+      // Process 2, Thread 201
+      {.ph = Phase::kComplete,
+       .event_id = 12,
+       .pid = 2,
+       .tid = 201,
+       .name = "Task C",
+       .ts = 300.0,
+       .dur = 100.0},
+      {.ph = Phase::kFlowStart,
+       .event_id = 3,
+       .pid = 2,
+       .tid = 201,
+       .name = "flow2",
+       .ts = 310.0,
+       .id = "2",
+       .category = tsl::profiler::ContextType::kGeneric},
+      {.ph = Phase::kFlowEnd,
+       .event_id = 4,
+       .pid = 2,
+       .tid = 201,
+       .name = "flow2",
+       .ts = 380.0,
+       .id = "2",
+       .category = tsl::profiler::ContextType::kGeneric},
+  };
+  std::vector<TraceEvent> flame_events;
+  std::vector<TraceEvent> flow_events;
+  for (const TraceEvent& event : all_events) {
+    if (event.ph == Phase::kComplete) {
+      flame_events.push_back(event);
+    }
+    if (!event.id.empty()) {
+      flow_events.push_back(event);
+    }
+  }
+
+  // Pre-set a visible range (viewport) that culls both endpoints of flow1
+  // (120us and 220us) and flow2 (310us and 380us).
+  timeline_.SetVisibleRange({150.0, 180.0});
+
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = flame_events;
+  parsed_events.flow_events = flow_events;
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  // Verify visible range remains as preset.
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 150.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 180.0);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(2));
+
+  // Flow 1 connects PID 1 TID 101 (level 0, group 1) to PID 1 TID 102
+  // (level 1, group 2).
+  EXPECT_EQ(data.flow_lines[0].source_ts, 120.0);
+  EXPECT_EQ(data.flow_lines[0].target_ts, 220.0);
+  EXPECT_EQ(data.flow_lines[0].source_level, 0);
+  EXPECT_EQ(data.flow_lines[0].target_level, 1);
+  EXPECT_EQ(data.flow_lines[0].source_group_index, 1);
+  EXPECT_EQ(data.flow_lines[0].target_group_index, 2);
+
+  // Flow 2 connects PID 2 TID 201 (level 2, group 4) to PID 2 TID 201
+  // (level 2, group 4).
+  EXPECT_EQ(data.flow_lines[1].source_ts, 310.0);
+  EXPECT_EQ(data.flow_lines[1].target_ts, 380.0);
+  EXPECT_EQ(data.flow_lines[1].source_level, 2);
+  EXPECT_EQ(data.flow_lines[1].target_level, 2);
+  EXPECT_EQ(data.flow_lines[1].source_group_index, 4);
+  EXPECT_EQ(data.flow_lines[1].target_group_index, 4);
+
+  // Verify flow_lines_by_flow_id also retains endpoints and group indices.
+  ASSERT_TRUE(data.flow_lines_by_flow_id.contains("1"));
+  ASSERT_THAT(data.flow_lines_by_flow_id.at("1"), SizeIs(1));
+  EXPECT_EQ(data.flow_lines_by_flow_id.at("1")[0].source_ts, 120.0);
+  EXPECT_EQ(data.flow_lines_by_flow_id.at("1")[0].target_ts, 220.0);
+  EXPECT_EQ(data.flow_lines_by_flow_id.at("1")[0].source_group_index, 1);
+  EXPECT_EQ(data.flow_lines_by_flow_id.at("1")[0].target_group_index, 2);
+
+  ASSERT_TRUE(data.flow_lines_by_flow_id.contains("2"));
+  ASSERT_THAT(data.flow_lines_by_flow_id.at("2"), SizeIs(1));
+  EXPECT_EQ(data.flow_lines_by_flow_id.at("2")[0].source_ts, 310.0);
+  EXPECT_EQ(data.flow_lines_by_flow_id.at("2")[0].target_ts, 380.0);
+  EXPECT_EQ(data.flow_lines_by_flow_id.at("2")[0].source_group_index, 4);
+  EXPECT_EQ(data.flow_lines_by_flow_id.at("2")[0].target_group_index, 4);
+
+  // Changing viewport further does not modify flow line endpoints or group
+  // indices.
+  timeline_.SetVisibleRange({0.0, 50.0});
+  EXPECT_EQ(data.flow_lines[0].source_ts, 120.0);
+  EXPECT_EQ(data.flow_lines[0].target_ts, 220.0);
+  EXPECT_EQ(data.flow_lines[0].source_group_index, 1);
+  EXPECT_EQ(data.flow_lines[0].target_group_index, 2);
+  EXPECT_EQ(data.flow_lines[1].source_ts, 310.0);
+  EXPECT_EQ(data.flow_lines[1].target_ts, 380.0);
+  EXPECT_EQ(data.flow_lines[1].source_group_index, 4);
+  EXPECT_EQ(data.flow_lines[1].target_group_index, 4);
 }
 
 TEST_F(DataProviderTest, FlowEventsAffectTimeRange) {

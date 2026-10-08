@@ -136,6 +136,10 @@ struct FlowLine {
 
   int target_level = 0;
 
+  int source_group_index = -1;
+
+  int target_group_index = -1;
+
   uint32_t color = traceviewer::kBlackColor;
   tsl::profiler::ContextType category = tsl::profiler::ContextType::kGeneric;
 };
@@ -195,6 +199,16 @@ struct FlameChartTimelineData {
       return nullptr;
     }
     return &grp;
+  }
+
+  // Returns the index of the group containing the given level, or -1 if the
+  // level falls outside all group intervals.
+  int FindGroupIndexForLevel(int level) const {
+    const Group* grp = FindGroupForLevel(level);
+    if (grp == nullptr) {
+      return -1;
+    }
+    return static_cast<int>(grp - groups.data());
   }
 
   int total_levels() const {

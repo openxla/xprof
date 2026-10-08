@@ -301,6 +301,10 @@ void ProcessCounterEvents(const xprof::TraceDataResponse& response,
     CounterEvent ev;
     ev.pid = metadata.process_id();
     ev.name = response.interned_strings(metadata.name_ref());
+    if (metadata.has_event_stats_ref() &&
+        metadata.event_stats_ref() < response.interned_strings_size()) {
+      ev.event_stats = response.interned_strings(metadata.event_stats_ref());
+    }
     uint64_t current_ts_ps = 0;
     for (int i = 0; i < series.deltas_size(); ++i) {
       current_ts_ps += series.deltas(i);

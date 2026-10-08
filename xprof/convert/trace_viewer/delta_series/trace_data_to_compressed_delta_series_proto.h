@@ -39,9 +39,11 @@ struct DeltaSeriesProtoConversionOptions {
 class DeltaSeriesProtoConverter {
  public:
   // Extracts counter values (double or uint64) from raw bytes (e.g., serialized
-  // RawData) and populates the corresponding fields in TraceEventMetadata.
+  // RawData) and populates the corresponding fields in TraceEventMetadata,
+  // as well as optional series name.
   using CounterExtractor =
-      absl::AnyInvocable<void(absl::string_view, xprof::TraceEventMetadata*)>;
+      absl::AnyInvocable<void(absl::string_view, xprof::TraceEventMetadata*,
+                              std::string* series_name)>;
 
   explicit DeltaSeriesProtoConverter(
       const Trace* trace, CounterExtractor counter_extractor,
@@ -90,13 +92,17 @@ absl::StatusOr<std::string> ConvertTraceDataToCompressedDeltaSeriesProto(
     const TraceEventsContainer& events) {
   typename TraceEventsContainer::RawDataType raw_data;
   auto extractor = [&raw_data](absl::string_view raw_bytes,
-                               xprof::TraceEventMetadata* metadata) {
+                               xprof::TraceEventMetadata* metadata,
+                               std::string* series_name) {
     if (!raw_data.ParseFromArray(raw_bytes.data(), raw_bytes.size())) {
       LOG(ERROR) << "Failed to parse raw_data for counter event";
       return;
     }
     if (raw_data.has_args() && raw_data.args().arg_size() > 0) {
       const auto& arg = raw_data.args().arg(0);
+      if (series_name != nullptr && arg.has_name()) {
+        *series_name = arg.name();
+      }
       if (arg.has_double_value()) {
         metadata->set_counter_value_double(arg.double_value());
       } else if (arg.has_uint_value()) {

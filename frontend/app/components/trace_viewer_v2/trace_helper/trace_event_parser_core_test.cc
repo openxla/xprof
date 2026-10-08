@@ -321,6 +321,53 @@ TEST(TraceEventParserCoreTest, ProcessCounterEvents) {
 
   EXPECT_DOUBLE_EQ(counter.min_value, 50.2);
   EXPECT_DOUBLE_EQ(counter.max_value, 100.5);
+  EXPECT_EQ(counter.event_stats, "");
+}
+
+TEST(TraceEventParserCoreTest, ProcessCounterEventsWithEventStatsRef) {
+  xprof::TraceDataResponse response;
+  response.add_interned_strings("MemoryUsage");
+  response.add_interned_strings("MiB");
+
+  auto* series = response.add_counter_events();
+  series->mutable_metadata()->set_process_id(1);
+  series->mutable_metadata()->set_name_ref(0);
+  series->mutable_metadata()->set_event_stats_ref(1);
+
+  series->add_deltas(1000000);  // 1 us
+  series->add_event_metadata()->set_counter_value_double(100.5);
+
+  ParsedTraceEvents result;
+  ProcessCounterEvents(response, result);
+
+  ASSERT_EQ(result.counter_events.size(), 1);
+  const auto& counter = result.counter_events[0];
+  EXPECT_EQ(counter.pid, 1);
+  EXPECT_EQ(counter.name, "MemoryUsage");
+  EXPECT_EQ(counter.event_stats, "MiB");
+}
+
+TEST(TraceEventParserCoreTest,
+     ProcessCounterEventsWithOutOfBoundsEventStatsRef) {
+  xprof::TraceDataResponse response;
+  response.add_interned_strings("MemoryUsage");
+
+  auto* series = response.add_counter_events();
+  series->mutable_metadata()->set_process_id(1);
+  series->mutable_metadata()->set_name_ref(0);
+  series->mutable_metadata()->set_event_stats_ref(999);
+
+  series->add_deltas(1000000);  // 1 us
+  series->add_event_metadata()->set_counter_value_double(100.5);
+
+  ParsedTraceEvents result;
+  ProcessCounterEvents(response, result);
+
+  ASSERT_EQ(result.counter_events.size(), 1);
+  const auto& counter = result.counter_events[0];
+  EXPECT_EQ(counter.pid, 1);
+  EXPECT_EQ(counter.name, "MemoryUsage");
+  EXPECT_EQ(counter.event_stats, "");
 }
 
 TEST(TraceEventParserCoreTest, ProcessAsyncEventsWithDuration) {

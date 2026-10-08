@@ -145,6 +145,8 @@ void DeltaSeriesProtoConverter::AddCounterEventTrack(
   series_metadata->set_process_id(pid);
   series_metadata->set_name_ref(MaybeInternString(name));
 
+  bool has_series_name = false;
+  std::string series_name;
   uint64_t last_timestamp = 0;
   for (const auto* event : events) {
     uint64_t current_timestamp = event->timestamp_ps();
@@ -153,7 +155,12 @@ void DeltaSeriesProtoConverter::AddCounterEventTrack(
 
     xprof::TraceEventMetadata* event_metadata = series->add_event_metadata();
     if (event->has_raw_data()) {
-      counter_extractor_(event->raw_data(), event_metadata);
+      counter_extractor_(event->raw_data(), event_metadata,
+                         has_series_name ? nullptr : &series_name);
+      if (!has_series_name && !series_name.empty()) {
+        series_metadata->set_event_stats_ref(MaybeInternString(series_name));
+        has_series_name = true;
+      }
     }
   }
 }

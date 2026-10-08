@@ -181,6 +181,66 @@ TEST(DeltaSeriesProtoConverterTest, ConvertsCounterEvents) {
   ASSERT_EQ(series.event_metadata_size(), 2);
   EXPECT_EQ(series.event_metadata(0).counter_value_uint64(), 1234);
   EXPECT_EQ(series.event_metadata(1).counter_value_uint64(), 5678);
+  EXPECT_FALSE(series.metadata().has_event_stats_ref());
+}
+
+TEST(DeltaSeriesProtoConverterTest, ConvertsCounterEventsWithSeriesName) {
+  Trace trace;
+  Device device;
+  (*trace.mutable_devices())[0] = device;
+
+  TraceEvent event1;
+  event1.set_device_id(0);
+  event1.set_name("MyCounter");
+  event1.set_timestamp_ps(1000);
+
+  RawData raw_data1;
+  auto* arg1 = raw_data1.mutable_args()->add_arg();
+  arg1->set_name("MiB");
+  arg1->set_double_value(12.5);
+  event1.set_raw_data(raw_data1.SerializeAsString());
+
+  TraceEvent event2;
+  event2.set_device_id(0);
+  event2.set_name("MyCounter");
+  event2.set_timestamp_ps(1500);
+
+  RawData raw_data2;
+  auto* arg2 = raw_data2.mutable_args()->add_arg();
+  arg2->set_name("MiB");
+  arg2->set_double_value(25.0);
+  event2.set_raw_data(raw_data2.SerializeAsString());
+
+  TestTraceEventsContainer container(trace);
+  container.AddCounterEvent(0, "MyCounter", &event1);
+  container.AddCounterEvent(0, "MyCounter", &event2);
+
+  ASSERT_OK_AND_ASSIGN(std::string compressed_result,
+                       ConvertTraceDataToCompressedDeltaSeriesProto(
+                           DeltaSeriesProtoConversionOptions{}, container));
+
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
+  xprof::TraceDataResponse response;
+  ASSERT_TRUE(response.ParseFromString(decompressed));
+
+  ASSERT_EQ(response.counter_events_size(), 1);
+  const auto& series = response.counter_events(0);
+
+  EXPECT_EQ(series.metadata().process_id(), 0);
+  EXPECT_TRUE(series.metadata().has_event_stats_ref());
+  ASSERT_LT(series.metadata().event_stats_ref(),
+            response.interned_strings_size());
+  EXPECT_EQ(response.interned_strings(series.metadata().event_stats_ref()),
+            "MiB");
+
+  ASSERT_EQ(series.deltas_size(), 2);
+  EXPECT_EQ(series.deltas(0), 1000);
+  EXPECT_EQ(series.deltas(1), 500);
+
+  ASSERT_EQ(series.event_metadata_size(), 2);
+  EXPECT_DOUBLE_EQ(series.event_metadata(0).counter_value_double(), 12.5);
+  EXPECT_DOUBLE_EQ(series.event_metadata(1).counter_value_double(), 25.0);
 }
 
 TEST(DeltaSeriesProtoConverterTest, ConvertsAsyncEvents) {

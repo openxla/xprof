@@ -1,6 +1,5 @@
 import {HttpClientModule} from '@angular/common/http';
-import {ErrorHandler, Injectable, NgModule, provideZoneChangeDetection} from '@angular/core';
-import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {CUSTOM_ELEMENTS_SCHEMA, ErrorHandler, Injectable, NgModule, provideZoneChangeDetection} from '@angular/core';
 import {BrowserModule} from '@angular/platform-browser';
 import {BrowserAnimationsModule} from '@angular/platform-browser/animations';
 import {EmptyPageModule} from 'org_xprof/frontend/app/components/empty_page/empty_page_module';
@@ -31,7 +30,6 @@ export class XProfErrorHandler implements ErrorHandler {
   imports: [
     BrowserModule,
     HttpClientModule,
-    MatProgressBarModule,
     EmptyPageModule,
     MainPageModule,
     BrowserAnimationsModule,
@@ -50,6 +48,7 @@ export class XProfErrorHandler implements ErrorHandler {
     },
   ],
   bootstrap: [App],
+  schemas: [CUSTOM_ELEMENTS_SCHEMA],
 })
 export class AppModule {
 }

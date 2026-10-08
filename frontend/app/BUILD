@@ -15,10 +15,10 @@ xprof_ng_module(
     deps = [
         "//:node_modules/@angular/core",
         "//:node_modules/@angular/platform-browser",
+        "//:node_modules/@material/web",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/angular:angular_common_http",
-        "@org_xprof//frontend/app/common/angular:angular_material_progress_bar",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "@org_xprof//frontend/app/common/constants",
         "@org_xprof//frontend/app/common/interfaces",

@@ -1,10 +1,15 @@
+import {CommonModule} from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
   OnDestroy,
   OnInit,
 } from '@angular/core';
-import {MatCheckboxChange} from '@angular/material/checkbox';
+import {MatButtonModule} from '@angular/material/button';
+import {MatCheckboxChange, MatCheckboxModule} from '@angular/material/checkbox';
+import {MatOptionModule} from '@angular/material/core';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatSelectModule} from '@angular/material/select';
 import {ActivatedRouteSnapshot, NavigationEnd, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {
@@ -13,6 +18,11 @@ import {
 } from 'org_xprof/frontend/app/common/constants/constants';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
+import {CaptureKernel} from 'org_xprof/frontend/app/components/capture_kernel/capture_kernel';
+import {CaptureProfile} from 'org_xprof/frontend/app/components/capture_profile/capture_profile';
+import {BufferDetails} from 'org_xprof/frontend/app/components/memory_viewer/buffer_details/buffer_details';
+import {OpDetails} from 'org_xprof/frontend/app/components/op_profile/op_details/op_details';
+import {PodViewerDetails} from 'org_xprof/frontend/app/components/pod_viewer/pod_viewer_details/pod_viewer_details';
 import {CommunicationService} from 'org_xprof/frontend/app/services/communication_service/communication_service';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {
@@ -111,7 +121,20 @@ const STANDALONE_NON_SIDENAV_ROUTES = [
 /** A side navigation component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
+  imports: [
+    CommonModule,
+    MatButtonModule,
+    MatCheckboxModule,
+    MatFormFieldModule,
+    MatSelectModule,
+    MatOptionModule,
+    BufferDetails,
+    CaptureProfile,
+    CaptureKernel,
+    OpDetails,
+    PodViewerDetails,
+  ],
   selector: 'sidenav',
   templateUrl: './sidenav.ng.html',
   styleUrls: ['./sidenav.scss'],
@@ -367,7 +390,9 @@ export class SideNav implements OnInit, OnDestroy {
 
   async fetchProfilerConfig() {
     const config = await firstValueFrom(
-      this.dataService.getConfig().pipe(takeUntil(this.destroyed), defaultIfEmpty(null)),
+      this.dataService
+        .getConfig()
+        .pipe(takeUntil(this.destroyed), defaultIfEmpty(null)),
     );
     if (config) {
       this.store.dispatch(setProfilerConfigAction({config}));

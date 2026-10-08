@@ -1,4 +1,24 @@
+import {CommonModule} from '@angular/common';
+import {FormsModule} from '@angular/forms';
+import {MatAutocompleteModule} from '@angular/material/autocomplete';
+import {MatButtonModule} from '@angular/material/button';
+import {MatCheckboxModule} from '@angular/material/checkbox';
+import {MatChipsModule} from '@angular/material/chips';
+import {
+  MatDialogActions,
+  MatDialogClose,
+  MatDialogContent,
+  MatDialogTitle,
+} from '@angular/material/dialog';
+import {MatDividerModule} from '@angular/material/divider';
+import {MatIconModule} from '@angular/material/icon';
+import {MatMenuModule} from '@angular/material/menu';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import 'org_xprof/frontend/app/common/interfaces/window';
+import {SafePipe} from 'org_xprof/frontend/app/pipes/safe_pipe';
+import {FilterChips} from './filter_chips';
+import {FilterInput} from './filter_input';
 
 import {PlatformLocation} from '@angular/common';
 import {
@@ -93,7 +113,6 @@ import {
   STACK_TRACE_TOOL_NAME,
   TRACE_VIEWER_TOOL_NAME,
 } from './constants';
-import {FilterInput} from './filter_input';
 import {AdjacentNodesResponse} from './interfaces';
 import {
   FilterChangeEvent,
@@ -184,7 +203,28 @@ function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
 /** A trace viewer component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
+  imports: [
+    CommonModule,
+    FilterChips,
+    FilterInput,
+    FormsModule,
+    MatAutocompleteModule,
+    MatButtonModule,
+    MatCheckboxModule,
+    MatChipsModule,
+    MatDialogActions,
+    MatDialogClose,
+    MatDialogContent,
+    MatDialogTitle,
+    MatDividerModule,
+    MatIconModule,
+    MatMenuModule,
+    MatProgressBarModule,
+    MatTooltipModule,
+    SafePipe,
+    TraceViewerContainer,
+  ],
   selector: 'trace-viewer',
   templateUrl: './trace_viewer.ng.html',
   styleUrls: ['./trace_viewer.scss'],

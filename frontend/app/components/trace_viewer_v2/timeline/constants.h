@@ -66,7 +66,9 @@ inline constexpr Pixel kDefaultLabelWidth = 250.0f;
 inline constexpr Pixel kEventHeight = 18.0f;
 inline constexpr Pixel kEventMinimumDrawWidth = 2.0f;
 inline constexpr Pixel kEventPaddingBottom = 1.0f;
-inline constexpr Pixel kEventPaddingRight = 1.0f;
+// Padding to the right of each event. Must be 0.0f so consecutive back-to-back
+// events touch seamlessly with no gaps (b/567272741).
+inline constexpr Pixel kEventPaddingRight = 0.0f;
 // The size of the visual indent for nested groups in the timeline, indicating
 // their nesting level.
 inline constexpr Pixel kIndentSize = 10.0f;

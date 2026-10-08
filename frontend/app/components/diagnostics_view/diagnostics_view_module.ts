@@ -5,8 +5,7 @@ import {MatIconModule} from '@angular/material/icon';
 import {DiagnosticsView} from './diagnostics_view';
 
 @NgModule({
-  declarations: [DiagnosticsView],
-  imports: [CommonModule, MatButtonModule, MatIconModule],
+  imports: [CommonModule, MatButtonModule, MatIconModule, DiagnosticsView],
   exports: [DiagnosticsView],
 })
 export class DiagnosticsViewModule {}

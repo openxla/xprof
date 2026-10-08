@@ -9,7 +9,6 @@ import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
 import {MegascalePerfetto} from './megascale_perfetto';
 
 @NgModule({
-  declarations: [MegascalePerfetto],
   imports: [
     CommonModule,
     MatButtonModule,
@@ -17,6 +16,7 @@ import {MegascalePerfetto} from './megascale_perfetto';
     MatProgressBarModule,
     MatSidenavModule,
     PipesModule,
+    MegascalePerfetto,
   ],
   exports: [MegascalePerfetto],
 })

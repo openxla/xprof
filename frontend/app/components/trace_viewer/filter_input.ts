@@ -43,13 +43,14 @@ import {filterFieldKey, lookupFilterOperator} from './utils';
     },
   ],
   template: `
-    <button
-      type="button"
-      class="add-filter-button"
-      *ngIf="!isEditing && !filterInput"
-      (click)="startEditing()">
-      + Add filter
-    </button>
+    @if (!isEditing && !filterInput) {
+      <button
+        type="button"
+        class="add-filter-button"
+        (click)="startEditing()">
+        + Add filter
+      </button>
+    }
     <div
       matAutocompleteOrigin
       #origin="matAutocompleteOrigin"
@@ -68,27 +69,35 @@ import {filterFieldKey, lookupFilterOperator} from './utils';
         aria-label="Add filter" />
     </div>
 
-<mat-autocomplete #filterOptionsAuto class="dense" panelWidth="fit-content" (optionSelected)="onOptionSelected($event)" (closed)="onPanelClosed()">
-  <!-- option list for filter field and operator -->
-  <div *ngIf="!isUpdatingValues()">
-    <mat-option *ngFor="let option of (autoFilterOptions | async) trackBy:trackByValue"
+    <mat-autocomplete #filterOptionsAuto class="dense" panelWidth="fit-content" (optionSelected)="onOptionSelected($event)" (closed)="onPanelClosed()">
+      <!-- option list for filter field and operator -->
+      @if (!isUpdatingValues()) {
+        <div>
+          @for (option of (autoFilterOptions | async); track option.value) {
+            <mat-option
               [value]="option.value">
-      {{option.displayName || option.value}}
-    </mat-option>
-  </div>
-  <!-- option list for filter values -->
-  <div *ngIf="isUpdatingValues() && isMultiSelect()" style="display:flex;flex-direction:column;">
-    <button mat-stroked-button color="primary" (click)="onConfirmMultiSelect()" style="margin:10px;">Confirm</button>
-    <mat-option>
-      <mat-checkbox class="example-margin" [checked]="allOptionsSelected" (click)="onOperateAll($event)">{{allOptionsLabel}}</mat-checkbox>
-    </mat-option>
-    <mat-option *ngFor="let option of (autoFilterValues | async) trackBy:trackByValue"
-      [value]="option.value" >
-      <mat-checkbox class="example-margin" [(ngModel)]="option.checked" (click)="onClickCheckbox($event)">{{option.displayName || option.value}}</mat-checkbox>
-    </mat-option>
-  </div>
-</mat-autocomplete>
-`,
+              {{option.displayName || option.value}}
+            </mat-option>
+          }
+        </div>
+      }
+      <!-- option list for filter values -->
+      @if (isUpdatingValues() && isMultiSelect()) {
+        <div style="display:flex;flex-direction:column;">
+          <button mat-stroked-button color="primary" (click)="onConfirmMultiSelect()" style="margin:10px;">Confirm</button>
+          <mat-option>
+            <mat-checkbox class="example-margin" [checked]="allOptionsSelected" (click)="onOperateAll($event)">{{allOptionsLabel}}</mat-checkbox>
+          </mat-option>
+          @for (option of (autoFilterValues | async); track option.value) {
+            <mat-option
+              [value]="option.value" >
+              <mat-checkbox class="example-margin" [(ngModel)]="option.checked" (click)="onClickCheckbox($event)">{{option.displayName || option.value}}</mat-checkbox>
+            </mat-option>
+          }
+        </div>
+      }
+    </mat-autocomplete>
+    `,
   styleUrls: ['./trace_viewer.scss'],
 })
 export class FilterInput implements AfterViewInit, OnChanges {

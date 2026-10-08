@@ -14,7 +14,9 @@ import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {DEFAULT_HOST} from 'org_xprof/frontend/app/common/constants/constants';
 import {
+  LOADING_STATUS_UPDATE_EVENT_NAME,
   shutdownTraceViewerV2,
+  TraceViewerV2LoadingStatus,
   traceViewerV2Main,
   TraceViewerV2Module,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
@@ -646,6 +648,17 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     undefined;
   private isInitializing = false;
   private isDestroyed = false;
+  // Kernel trace URL currently loaded into the WASM instance.
+  private lastLoadedUrl = '';
+  // Set on a viewer load error so that re-selecting the same kernel retries.
+  private lastLoadFailed = false;
+
+  private readonly loadingStatusUpdateListener = (event: Event) => {
+    const detail = (event as CustomEvent<{status?: unknown}>).detail;
+    if (detail?.status === TraceViewerV2LoadingStatus.ERROR) {
+      this.lastLoadFailed = true;
+    }
+  };
 
   private readonly dataService: DataServiceV2Interface = inject(
     DATA_SERVICE_INTERFACE_TOKEN,
@@ -681,6 +694,10 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
 
   ngOnInit(): void {
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
+    window.addEventListener(
+      LOADING_STATUS_UPDATE_EVENT_NAME,
+      this.loadingStatusUpdateListener,
+    );
 
     combineLatest([this.route.params, this.route.queryParams])
       .pipe(takeUntil(this.destroyed))
@@ -705,6 +722,10 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     clearTimeout(this.linkCopiedTimer);
     this.destroyed.next();
     this.destroyed.complete();
+    window.removeEventListener(
+      LOADING_STATUS_UPDATE_EVENT_NAME,
+      this.loadingStatusUpdateListener,
+    );
     if (this.traceViewerModule !== null) {
       shutdownTraceViewerV2();
       this.traceViewerModule = null;
@@ -732,9 +753,9 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
         // The kernel backend ignores time ranges and always returns the whole
         // kernel, so incremental refetching would only re-download it.
         this.traceViewerModule?.SetIncrementalFetchEnabled?.(false);
-        if (this.url && this.traceViewerModule?.loadTraceData) {
-          void this.traceViewerModule.loadTraceData(this.url);
-        }
+        this.lastLoadedUrl = '';
+        this.lastLoadFailed = false;
+        this.loadKernelTrace(this.url);
       }
     } catch (error) {
       console.error('Failed to initialize Trace Viewer V2 WASM module:', error);
@@ -828,9 +849,9 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  /** Shows the kernel of `tab` in the timeline. */
+  /** Shows the kernel of `tab`; re-activating it only retries a failed load. */
   activateTab(tab: KernelTab | undefined): void {
-    if (!tab || tab === this.activeTab) {
+    if (!tab || (tab === this.activeTab && !this.lastLoadFailed)) {
       return;
     }
     this.activeTab = tab;
@@ -1216,12 +1237,29 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       this.host,
       queryParamsMap,
     );
-    if (this.traceViewerModule?.loadTraceData) {
-      this.traceViewerModule.application?.instance?.()?.dataProvider?.();
-      this.traceViewerModule.processTraceEvents?.({traceEvents: []}, undefined);
-      void this.traceViewerModule.loadTraceData(this.url);
-    }
+    this.loadKernelTrace(this.url);
     this.scrollIntoView('.kernel-row.active', '.kernel-tab.active');
+  }
+
+  /**
+   * Loads `url` into the WASM viewer. Skips a URL that is already loaded
+   * (unless its load failed) and resets the viewer's per-dataset state before
+   * loading a different one.
+   */
+  private loadKernelTrace(url: string): void {
+    const module = this.traceViewerModule;
+    if (!url || !module?.loadTraceData) {
+      return;
+    }
+    if (url === this.lastLoadedUrl && !this.lastLoadFailed) {
+      return;
+    }
+    if (this.lastLoadedUrl) {
+      module.ResetDataset?.();
+    }
+    this.lastLoadedUrl = url;
+    this.lastLoadFailed = false;
+    void module.loadTraceData(url);
   }
 
   private updateUrlQueryParams(): void {

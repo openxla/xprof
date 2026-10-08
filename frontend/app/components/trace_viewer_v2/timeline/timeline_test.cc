@@ -1144,6 +1144,81 @@ TEST(TimelineTest, MaybeRequestDataNotTriggeredWhenIncrementalFetchDisabled) {
   EXPECT_TRUE(request_triggered);
 }
 
+TEST(TimelineTest, ResetForNewDatasetRestoresFreshInstanceState) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  // A loaded dataset the user has zoomed, selected, bookmarked, searched and
+  // scrolled.
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "VPU",
+                         .start_level = 0,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true});
+  data.level_offsets = {0, 2};
+  data.level_event_indices = {0, 1};
+  data.entry_names = {"vadd", "vmul"};
+  data.entry_levels = {0, 0};
+  data.entry_start_times = {0.0, 50.0};
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_event_ids = {1, 2};
+  data.entry_args = {{}, {}};
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 100.0});
+  timeline.set_fetched_data_time_range({0.0, 100.0});
+  timeline.set_is_incremental_loading(false);
+  timeline.SetVisibleRange({0.0, 20.0});
+  timeline.set_selected_event_index_for_test(1);
+  timeline.AddSelectedTimeRange({10.0, 30.0});
+  timeline.set_bookmarks_enabled(true);
+  timeline.AddBookmark(42.0);
+  timeline.SetSearchQuery("vadd");
+  timeline.set_last_scroll_y_for_test(123.0f);
+  ASSERT_EQ(timeline.get_search_results_count(), 1);
+  ASSERT_EQ(timeline.bookmarks().size(), 1);
+  ASSERT_EQ(timeline.last_fetch_request_range(), TimeRange(0.0, 100.0));
+
+  bool request_triggered = false;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+        }
+      });
+
+  timeline.ResetForNewDataset();
+
+  EXPECT_TRUE(timeline.timeline_data().groups.empty());
+  EXPECT_TRUE(timeline.timeline_data().level_event_indices.empty());
+  EXPECT_EQ(timeline.timeline_data().total_levels(), 0);
+  EXPECT_TRUE(timeline.timeline_data().entry_names.empty());
+  EXPECT_EQ(timeline.visible_range(), TimeRange::Zero());
+  EXPECT_EQ(timeline.fetched_data_time_range(), TimeRange::Zero());
+  EXPECT_EQ(timeline.data_time_range(), TimeRange::Zero());
+  EXPECT_EQ(timeline.last_fetch_request_range(), TimeRange::Zero());
+  EXPECT_EQ(timeline.selected_event_index(), -1);
+  EXPECT_EQ(timeline.selected_group_index(), -1);
+  EXPECT_EQ(timeline.selected_counter_index(), -1);
+  EXPECT_TRUE(timeline.selected_time_ranges().empty());
+  EXPECT_FALSE(timeline.current_selected_time_range().has_value());
+  EXPECT_TRUE(timeline.bookmarks().empty());
+  EXPECT_EQ(timeline.get_search_results_count(), 0);
+  EXPECT_EQ(timeline.get_current_search_result_index(), -1);
+  EXPECT_TRUE(timeline.get_matching_event_indices_for_test().empty());
+  EXPECT_EQ(timeline.last_scroll_y_for_test(), 0.0f);
+  EXPECT_FALSE(timeline.get_should_restore_scroll_for_test());
+  // Host-level toggles are not per-dataset state and must survive.
+  EXPECT_TRUE(timeline.bookmarks_enabled());
+
+  // As on a fresh instance, no fetch_data is emitted until the host loads.
+  timeline.MaybeRequestData();
+  EXPECT_FALSE(request_triggered);
+
+  // Fetch bookkeeping re-seeds from the next dataset's range.
+  timeline.set_fetched_data_time_range({0.0, 5000.0});
+  EXPECT_EQ(timeline.last_fetch_request_range(), TimeRange(0.0, 5000.0));
+}
+
 TEST(TimelineTest, SetTimelineDataPreservesScrollOnIncrementalUpdate) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);

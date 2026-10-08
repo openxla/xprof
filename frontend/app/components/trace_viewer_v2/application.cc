@@ -101,6 +101,10 @@ EMSCRIPTEN_KEEPALIVE void SetIncrementalFetchEnabled(bool enabled) {
   Application::Instance().SetIncrementalFetchEnabled(enabled);
 }
 
+EMSCRIPTEN_KEEPALIVE void ResetDataset() {
+  Application::Instance().ResetDataset();
+}
+
 EMSCRIPTEN_KEEPALIVE void SetCustomTraceColors(
     const emscripten::val& colors_val) {
   if (!colors_val.isArray()) {
@@ -180,6 +184,7 @@ EMSCRIPTEN_BINDINGS(traceviewer) {
   emscripten::function("SetMouseWheelZoomSpeed", &SetMouseWheelZoomSpeed);
   emscripten::function("SetIncrementalFetchEnabled",
                        &SetIncrementalFetchEnabled);
+  emscripten::function("ResetDataset", &ResetDataset);
   emscripten::function("SetCustomTraceColors", &SetCustomTraceColors);
   emscripten::function("RequestRedraw", &RequestRedraw);
   emscripten::function("SetPlaybackState", &SetPlaybackState);

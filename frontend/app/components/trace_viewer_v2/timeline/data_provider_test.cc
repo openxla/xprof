@@ -2503,6 +2503,73 @@ TEST_F(DataProviderTest,
   EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 8.0);
 }
 
+TEST_F(DataProviderTest, ProcessTraceEventsSparseTraceAutoFocusesWithoutUrl) {
+  // Trace total duration: 100ms = 100,000us.
+  // Single active slice at 50,000us with duration 1,000us (1% < 5% threshold).
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 1,
+                                           .name = "Kernel",
+                                           .ts = 50000.0,
+                                           .dur = 1000.0}};
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+  parsed_events.full_timespan = std::make_pair(0.0, 100.0);  // 0 to 100,000us
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  // Active slice: [50000, 51000], padding = 1000 * 0.05 = 50us.
+  // Visible range should auto-focus to [49950, 51050].
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 49950.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 51050.0);
+  EXPECT_DOUBLE_EQ(timeline_.fetched_data_time_range().start(), 50000.0);
+  EXPECT_DOUBLE_EQ(timeline_.fetched_data_time_range().end(), 51000.0);
+  EXPECT_DOUBLE_EQ(timeline_.data_time_range().start(), 0.0);
+  EXPECT_DOUBLE_EQ(timeline_.data_time_range().end(), 100000.0);
+}
+
+TEST_F(DataProviderTest, ProcessTraceEventsSparseTraceRespectsUrlViewport) {
+  // Sparse trace with total duration 100ms = 100,000us and active slice
+  // [50000, 51000].
+  // URL specifies visible range [10ms, 20ms] = [10,000us, 20,000us].
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 1,
+                                           .name = "Kernel",
+                                           .ts = 50000.0,
+                                           .dur = 1000.0}};
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+  parsed_events.full_timespan = std::make_pair(0.0, 100.0);
+  parsed_events.visible_range_from_url = std::make_pair(10.0, 20.0);
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  // URL viewport must take precedence over sparse trace auto-focusing.
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 10000.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 20000.0);
+}
+
+TEST_F(DataProviderTest, ProcessTraceEventsSparseTraceSingleInstantEvent) {
+  // Instant event (dur = 0) in 100ms trace.
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 1,
+                                           .name = "InstantEvent",
+                                           .ts = 50000.0,
+                                           .dur = 0.0}};
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+  parsed_events.full_timespan = std::make_pair(0.0, 100.0);
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  // Duration is 0, so padding fallback is kEventNavigationMinDurationMicros
+  // (10us).
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 49990.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 50010.0);
+}
+
 TEST_F(DataProviderTest,
        ProcessMultipleCounterEventsReservesCapacityCorrectly) {
   // Use sizes that trigger reallocation if not reserved upfront.

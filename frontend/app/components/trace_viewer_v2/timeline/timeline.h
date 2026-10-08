@@ -438,6 +438,20 @@ class Timeline {
     return visible_range_.target();
   }
 
+  // Returns the bounding time range [min_start, max_end] of all active slice
+  // events in timeline_data_, or std::nullopt if there are no slice events.
+  std::optional<TimeRange> GetActiveSliceTimeRange() const;
+
+  // Calculates the initial visible range. If active slice events occupy less
+  // than kSparseTraceThreshold (<5%) of the total trace duration, the visible
+  // range is focused on active slice bounds with kSparseTracePaddingRatio
+  // padding, clamped to trace boundaries. Otherwise, returns fallback_range.
+  TimeRange CalculateInitialVisibleRange(const TimeRange& fallback_range) const;
+
+  // Sets the initial visible range using CalculateInitialVisibleRange() if the
+  // current visible range is TimeRange::Zero().
+  void SetInitialVisibleRange(const TimeRange& fallback_range);
+
   void AddSelectedTimeRange(const TimeRange& range) {
     selected_time_ranges_.push_back(range);
   }

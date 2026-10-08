@@ -11,6 +11,7 @@
 #include <ios>
 #include <limits>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
@@ -817,6 +818,176 @@ TEST(TimelineTest, ConstrainTimeRange_StartBeforeDataRangeEndCapped) {
 
   EXPECT_DOUBLE_EQ(range.start(), 10.0);
   EXPECT_DOUBLE_EQ(range.end(), 100.0);
+}
+
+TEST(TimelineTest, GetActiveSliceTimeRange_EmptyData) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  EXPECT_EQ(timeline.GetActiveSliceTimeRange(), std::nullopt);
+}
+
+TEST(TimelineTest, GetActiveSliceTimeRange_SingleEvent) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.entry_start_times = {100.0};
+  data.entry_total_times = {50.0};
+  timeline.SetTimelineData(std::move(data));
+
+  std::optional<TimeRange> range = timeline.GetActiveSliceTimeRange();
+  ASSERT_TRUE(range.has_value());
+  EXPECT_DOUBLE_EQ(range->start(), 100.0);
+  EXPECT_DOUBLE_EQ(range->end(), 150.0);
+}
+
+TEST(TimelineTest, GetActiveSliceTimeRange_MultipleEvents) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.entry_start_times = {500.0, 100.0, 700.0};
+  data.entry_total_times = {50.0, 20.0, 100.0};
+  timeline.SetTimelineData(std::move(data));
+
+  std::optional<TimeRange> range = timeline.GetActiveSliceTimeRange();
+  ASSERT_TRUE(range.has_value());
+  EXPECT_DOUBLE_EQ(range->start(), 100.0);
+  EXPECT_DOUBLE_EQ(range->end(), 800.0);
+}
+
+TEST(TimelineTest, GetActiveSliceTimeRange_InvalidDuration) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.entry_start_times = {200.0, 300.0};
+  data.entry_total_times = {std::numeric_limits<double>::quiet_NaN(), -10.0};
+  timeline.SetTimelineData(std::move(data));
+
+  std::optional<TimeRange> range = timeline.GetActiveSliceTimeRange();
+  ASSERT_TRUE(range.has_value());
+  EXPECT_DOUBLE_EQ(range->start(), 200.0);
+  EXPECT_DOUBLE_EQ(range->end(), 300.0);
+}
+
+TEST(TimelineTest,
+     CalculateInitialVisibleRange_SparseTraceAutoFocusWithPadding) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 100000.0});
+  FlameChartTimelineData data;
+  data.entry_start_times = {50000.0};
+  data.entry_total_times = {1000.0};
+  timeline.SetTimelineData(std::move(data));
+
+  TimeRange fallback(0.0, 100000.0);
+  TimeRange result = timeline.CalculateInitialVisibleRange(fallback);
+  EXPECT_DOUBLE_EQ(result.start(), 49950.0);
+  EXPECT_DOUBLE_EQ(result.end(), 51050.0);
+}
+
+TEST(TimelineTest, CalculateInitialVisibleRange_SparseTraceClampedToStart) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 100000.0});
+  FlameChartTimelineData data;
+  // Active slice [2.0, 102.0], duration = 100 us. Padding = 5 us.
+  // Start 2.0 - 5.0 = -3.0 clamped to 0.0. End = 102.0 + 5.0 = 107.0.
+  data.entry_start_times = {2.0};
+  data.entry_total_times = {100.0};
+  timeline.SetTimelineData(std::move(data));
+
+  TimeRange fallback(0.0, 100000.0);
+  TimeRange result = timeline.CalculateInitialVisibleRange(fallback);
+  EXPECT_DOUBLE_EQ(result.start(), 0.0);
+  EXPECT_DOUBLE_EQ(result.end(), 107.0);
+}
+
+TEST(TimelineTest, CalculateInitialVisibleRange_SparseTraceClampedToEnd) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 100000.0});
+  FlameChartTimelineData data;
+  // Active slice [99898.0, 99998.0], duration = 100 us. Padding = 5 us.
+  // Start = 99893.0. End 99998.0 + 5.0 = 100003.0 clamped to 100000.0.
+  data.entry_start_times = {99898.0};
+  data.entry_total_times = {100.0};
+  timeline.SetTimelineData(std::move(data));
+
+  TimeRange fallback(0.0, 100000.0);
+  TimeRange result = timeline.CalculateInitialVisibleRange(fallback);
+  EXPECT_DOUBLE_EQ(result.start(), 99893.0);
+  EXPECT_DOUBLE_EQ(result.end(), 100000.0);
+}
+
+TEST(TimelineTest, CalculateInitialVisibleRange_NonSparseTraceReturnsFallback) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 1000.0});
+  FlameChartTimelineData data;
+  data.entry_start_times = {100.0};
+  data.entry_total_times = {100.0};
+  timeline.SetTimelineData(std::move(data));
+
+  TimeRange fallback(0.0, 1000.0);
+  TimeRange result = timeline.CalculateInitialVisibleRange(fallback);
+  EXPECT_DOUBLE_EQ(result.start(), 0.0);
+  EXPECT_DOUBLE_EQ(result.end(), 1000.0);
+}
+
+TEST(TimelineTest,
+     CalculateInitialVisibleRange_ZeroDurationEventUsesMinPadding) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 100000.0});
+  FlameChartTimelineData data;
+  data.entry_start_times = {50000.0};
+  data.entry_total_times = {0.0};
+  timeline.SetTimelineData(std::move(data));
+
+  TimeRange fallback(0.0, 100000.0);
+  TimeRange result = timeline.CalculateInitialVisibleRange(fallback);
+  EXPECT_DOUBLE_EQ(result.start(), 50000.0 - kEventNavigationMinDurationMicros);
+  EXPECT_DOUBLE_EQ(result.end(), 50000.0 + kEventNavigationMinDurationMicros);
+}
+
+TEST(TimelineTest, CalculateInitialVisibleRange_NoEventsReturnsFallback) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 100000.0});
+
+  TimeRange fallback(10.0, 20.0);
+  TimeRange result = timeline.CalculateInitialVisibleRange(fallback);
+  EXPECT_DOUBLE_EQ(result.start(), 10.0);
+  EXPECT_DOUBLE_EQ(result.end(), 20.0);
+}
+
+TEST(TimelineTest, SetInitialVisibleRange_SetsCalculatedRangeWhenZero) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 100000.0});
+  FlameChartTimelineData data;
+  data.entry_start_times = {50000.0};
+  data.entry_total_times = {1000.0};
+  timeline.SetTimelineData(std::move(data));
+
+  EXPECT_EQ(timeline.visible_range(), TimeRange::Zero());
+  timeline.SetInitialVisibleRange({0.0, 100000.0});
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 49950.0);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 51050.0);
+}
+
+TEST(TimelineTest, SetInitialVisibleRange_PreservesExistingVisibleRange) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 100000.0});
+  FlameChartTimelineData data;
+  data.entry_start_times = {50000.0};
+  data.entry_total_times = {1000.0};
+  timeline.SetTimelineData(std::move(data));
+
+  timeline.SetVisibleRange({100.0, 200.0});
+  timeline.SetInitialVisibleRange({0.0, 100000.0});
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 200.0);
 }
 
 TEST(TimelineTest, CopyNotificationTimerAndNameInitialization) {

@@ -10,7 +10,6 @@ import {StackFrameSnippet} from './stack_frame_snippet';
 
 /** A module to show code snippets for a stack frame. */
 @NgModule({
-  declarations: [StackFrameSnippet],
   exports: [StackFrameSnippet],
   imports: [
     CommonModule,
@@ -19,7 +18,7 @@ import {StackFrameSnippet} from './stack_frame_snippet';
     MatTooltipModule,
     MatProgressBarModule,
     Message,
+    StackFrameSnippet,
   ],
 })
-export class StackFrameSnippetModule {
-}
+export class StackFrameSnippetModule {}

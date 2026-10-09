@@ -1,15 +1,27 @@
-import {ChangeDetectionStrategy, Component, Input} from '@angular/core';
+import {NgFor, NgIf} from '@angular/common';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  inject,
+  Input,
+} from '@angular/core';
+import {MatIconButton} from '@angular/material/button';
+import {MatIcon} from '@angular/material/icon';
 import {type Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 
 /** An diagnostics view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'diagnostics-view',
   templateUrl: './diagnostics_view.ng.html',
   styleUrls: ['./diagnostics_view.scss'],
+  imports: [MatIcon, MatIconButton, NgFor, NgIf],
 })
 export class DiagnosticsView {
+  private readonly cdRef = inject(ChangeDetectorRef);
+
   /** Error and warning messages for diagnosing profiling issues */
   @Input() diagnostics: Diagnostics = {info: [], warnings: [], errors: []};
   showErrors = true;
@@ -35,6 +47,7 @@ export class DiagnosticsView {
         this.diagnostics.info.splice(index, 1);
       }
     }
+    this.cdRef.markForCheck();
   }
 
   /** Dismisses an individual error message by index. */

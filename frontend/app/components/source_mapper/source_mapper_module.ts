@@ -13,7 +13,6 @@ import {StackTraceSnippetModule} from 'org_xprof/frontend/app/components/stack_t
 import {SourceMapper} from './source_mapper';
 
 @NgModule({
-  declarations: [SourceMapper],
   imports: [
     CommonModule,
     FormsModule,
@@ -25,8 +24,8 @@ import {SourceMapper} from './source_mapper';
     MatTooltipModule,
     Message,
     MatProgressBarModule,
+    SourceMapper,
   ],
   exports: [SourceMapper],
 })
-export class SourceMapperModule {
-}
+export class SourceMapperModule {}

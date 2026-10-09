@@ -9,13 +9,13 @@ import {UtilizationViewer} from './utilization_viewer';
 
 /** Utilization viewer module. */
 @NgModule({
-  declarations: [UtilizationViewer],
   imports: [
     ChartModule,
     CategoryFilterModule,
     ExportAsCsvModule,
     CommonModule,
     ViewArchitectureModule,
+    UtilizationViewer,
   ],
   exports: [UtilizationViewer],
 })

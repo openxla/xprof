@@ -3547,3 +3547,14 @@ cc_test(
         "@xla//xla/tsl/profiler/utils:xplane_schema",
     ],
 )
+
+cc_test(
+    name = "op_metrics_db_combiner_test",
+    srcs = ["op_metrics_db_combiner_test.cc"],
+    deps = [
+        ":op_metrics_db_combiner",
+        "//plugin/xprof/protobuf:op_metrics_proto_cc",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+    ],
+)

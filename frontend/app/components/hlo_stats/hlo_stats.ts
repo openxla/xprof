@@ -1,3 +1,4 @@
+import {CommonModule} from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -9,7 +10,14 @@ import {
   Renderer2,
   ViewChild,
 } from '@angular/core';
-import {FormControl} from '@angular/forms';
+import {FormControl, FormsModule, ReactiveFormsModule} from '@angular/forms';
+import {MatDividerModule} from '@angular/material/divider';
+import {MatExpansionModule} from '@angular/material/expansion';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatIconModule} from '@angular/material/icon';
+import {MatSelectModule} from '@angular/material/select';
+import {MatSlideToggleModule} from '@angular/material/slide-toggle';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -30,6 +38,11 @@ import {
   DefaultDataProvider,
   ReplicaGroupDataProvider,
 } from 'org_xprof/frontend/app/components/chart/default_data_provider';
+import {CategoryFilter} from 'org_xprof/frontend/app/components/controls/category_filter/category_filter';
+import {ExportAsCsv} from 'org_xprof/frontend/app/components/controls/export_as_csv/export_as_csv';
+import {StringFilter} from 'org_xprof/frontend/app/components/controls/string_filter/string_filter';
+import {FlopRateChart} from 'org_xprof/frontend/app/components/framework_op_stats/flop_rate_chart/flop_rate_chart';
+import {StackTraceSnippet} from 'org_xprof/frontend/app/components/stack_trace_snippet/stack_trace_snippet';
 import {
   DATA_SERVICE_INTERFACE_TOKEN,
   DataServiceV2Interface,
@@ -61,7 +74,25 @@ const VDD_ENERGY_ID = 'vdd_energy';
 /** A Hlo Stats component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
+  imports: [
+    Chart,
+    CommonModule,
+    FlopRateChart,
+    CategoryFilter,
+    ExportAsCsv,
+    StringFilter,
+    MatDividerModule,
+    MatSelectModule,
+    MatExpansionModule,
+    MatTooltipModule,
+    MatFormFieldModule,
+    FormsModule,
+    ReactiveFormsModule,
+    MatIconModule,
+    MatSlideToggleModule,
+    StackTraceSnippet,
+  ],
   selector: 'hlo-stats',
   templateUrl: './hlo_stats.ng.html',
   styleUrls: ['./hlo_stats.scss'],
@@ -698,17 +729,17 @@ export class HloStats extends Dashboard implements OnDestroy {
 
     let tensorCoreBaselineData: SimpleDataTable | null = null;
     if (this.baselineData && this.baselineData.cols && this.baselineData.rows) {
-      const baselineCoreTypeIdx =
-        this.baselineData.cols.findIndex((col) => col.id === CORE_TYPE_ID);
+      const baselineCoreTypeIdx = this.baselineData.cols.findIndex(
+        (col) => col.id === CORE_TYPE_ID,
+      );
       let tensorCoreBaselineRows = this.baselineData.rows;
       if (baselineCoreTypeIdx !== -1) {
-        tensorCoreBaselineRows =
-          this.baselineData.rows.filter(
-            (row) =>
-              row.c &&
-              row.c[baselineCoreTypeIdx] &&
-              row.c[baselineCoreTypeIdx]!.v !== SPARSE_CORE_VALUE,
-          );
+        tensorCoreBaselineRows = this.baselineData.rows.filter(
+          (row) =>
+            row.c &&
+            row.c[baselineCoreTypeIdx] &&
+            row.c[baselineCoreTypeIdx]!.v !== SPARSE_CORE_VALUE,
+        );
       }
       tensorCoreBaselineData = {
         ...this.baselineData,
@@ -857,24 +888,23 @@ export class HloStats extends Dashboard implements OnDestroy {
 
     const filtersForRemat = [{column: hloRematIndex, value: 'Yes'}];
 
-    this.dataInfoCategoryChart.customChartDataProcessor =
-      this.tensorCoreBaselineData
-        ? new CategoryDiffTableDataProcessor(
-            this.tensorCoreBaselineData,
-            [],
-            opCategoryIndex,
-            selfTimeIndex,
-          )
-        : new CategoryTableDataProcessor([], opCategoryIndex, selfTimeIndex);
-    this.dataInfoOpChart.customChartDataProcessor =
-      this.tensorCoreBaselineData
-        ? new CategoryDiffTableDataProcessor(
-            this.tensorCoreBaselineData,
-            [],
-            hloOpNameIndex,
-            selfTimeIndex,
-          )
-        : new CategoryTableDataProcessor([], hloOpNameIndex, selfTimeIndex);
+    this.dataInfoCategoryChart.customChartDataProcessor = this
+      .tensorCoreBaselineData
+      ? new CategoryDiffTableDataProcessor(
+          this.tensorCoreBaselineData,
+          [],
+          opCategoryIndex,
+          selfTimeIndex,
+        )
+      : new CategoryTableDataProcessor([], opCategoryIndex, selfTimeIndex);
+    this.dataInfoOpChart.customChartDataProcessor = this.tensorCoreBaselineData
+      ? new CategoryDiffTableDataProcessor(
+          this.tensorCoreBaselineData,
+          [],
+          hloOpNameIndex,
+          selfTimeIndex,
+        )
+      : new CategoryTableDataProcessor([], hloOpNameIndex, selfTimeIndex);
     this.dataInfoRematerializationChart.customChartDataProcessor =
       new CategoryTableDataProcessor([], hloRematIndex, selfTimeIndex, false);
     this.dataInfoRematerializationCategoryChart.customChartDataProcessor =

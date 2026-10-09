@@ -1,4 +1,4 @@
-import {Location} from '@angular/common';
+import {CommonModule, Location} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
@@ -8,11 +8,17 @@ import {
   inject,
   OnDestroy,
   OnInit,
-  ViewChild,
+  viewChild,
 } from '@angular/core';
+import {MatButtonModule} from '@angular/material/button';
+import {MatIconModule} from '@angular/material/icon';
+import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {DEFAULT_HOST} from 'org_xprof/frontend/app/common/constants/constants';
+import {KernelEventTooltip} from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_event_tooltip';
+import {TraceViewerContainer} from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
 import {
   LOADING_STATUS_UPDATE_EVENT_NAME,
   shutdownTraceViewerV2,
@@ -581,8 +587,17 @@ function writeRailPinned(pinned: boolean) {
  * can be pinned open. Kernels open in tabs above the timeline.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    CommonModule,
+    KernelEventTooltip,
+    MatButtonModule,
+    MatIconModule,
+    MatProgressSpinnerModule,
+    MatTooltipModule,
+    TraceViewerContainer,
+  ],
   selector: 'static-kernel-viewer',
   templateUrl: './static_kernel_viewer.ng.html',
   styleUrls: ['./static_kernel_viewer.scss'],
@@ -629,7 +644,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
 
   traceViewerModule: TraceViewerV2Module | null = null;
 
-  @ViewChild('searchInput') searchInput?: ElementRef<HTMLInputElement>;
+  readonly searchInput = viewChild<ElementRef<HTMLInputElement>>('searchInput');
 
   private readonly collapsedModules = new Set<string>();
   private listKey = '';
@@ -1097,8 +1112,8 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   focusSearch(): void {
     this.hideCard();
     this.setRailPeeking(true, 0);
-    this.searchInput?.nativeElement.focus();
-    this.searchInput?.nativeElement.select();
+    this.searchInput()?.nativeElement.focus();
+    this.searchInput()?.nativeElement.select();
   }
 
   /** Copies a link that opens the viewer at the selected kernel. */
@@ -1182,6 +1197,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       void this.loadKernelList();
     } else {
       this.selectEntry(this.findRequestedEntry());
+      this.changeDetectorRef.markForCheck();
     }
   }
 
@@ -1377,7 +1393,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
 
   private dismissRail(): void {
     this.isFocusInRail = false;
-    this.searchInput?.nativeElement.blur();
+    this.searchInput()?.nativeElement.blur();
     this.clearFilter();
     clearTimeout(this.railTimer);
     this.isRailPeeking = false;

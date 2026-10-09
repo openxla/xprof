@@ -4,7 +4,7 @@
       <div class="mat-headline">GPU Kernel Stats</div>
     </div>
     <div class="flex-space"></div>
-    <export-as-csv [sessionId]="sessionId" [tool]="tool" [host]="host"></export-as-csv>
+    <export-as-csv [sessionId]="sessionId()" [tool]="tool()" [host]="host()"></export-as-csv>
   </div>
 </div>
 

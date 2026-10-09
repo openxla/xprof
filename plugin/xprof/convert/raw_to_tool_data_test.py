@@ -15,6 +15,7 @@
 
 """Tests for the raw_to_tool_data module."""
 
+import os
 from unittest import mock
 
 from absl.testing import absltest
@@ -348,6 +349,126 @@ class RawToToolDataTest(absltest.TestCase):
         "graph_viewer",
         {"type": "pb", "use_saved_result": True},
     )
+
+  def test_profile_data_to_tool_data(self):
+    mock_func = self.enter_context(
+        mock.patch.object(
+            _pywrap_profiler_plugin,
+            "xspace_to_tools_data",
+            return_value=(b"result", True),
+            autospec=True,
+        )
+    )
+
+    def fake_export(target_dir):
+      plugins_dir = os.path.join(
+          target_dir, "plugins", "profile", "test_session"
+      )
+      os.makedirs(plugins_dir, exist_ok=True)
+      with open(os.path.join(plugins_dir, "test.xplane.pb"), "w") as f:
+        f.write("dummy")
+
+    mock_profile_data = mock.MagicMock()
+    mock_profile_data.export_profile_data.side_effect = fake_export
+
+    data, content_type = raw_to_tool_data.profile_data_to_tool_data(
+        mock_profile_data,
+        "trace_viewer",
+        {"trace_viewer_options": {"format": "pb"}},
+    )
+
+    self.assertEqual(data, b"result")
+    self.assertEqual(content_type, "application/octet-stream")
+    self.assertTrue(mock_func.called)
+
+  def test_profile_data_to_tool_names(self):
+    mock_func = self.enter_context(
+        mock.patch.object(
+            _pywrap_profiler_plugin,
+            "xspace_to_tools_data",
+            return_value=(b"trace_viewer,op_profile", True),
+            autospec=True,
+        )
+    )
+
+    def fake_export(target_dir):
+      plugins_dir = os.path.join(
+          target_dir, "plugins", "profile", "test_session"
+      )
+      os.makedirs(plugins_dir, exist_ok=True)
+      with open(os.path.join(plugins_dir, "test.xplane.pb"), "w") as f:
+        f.write("dummy")
+
+    mock_session = mock.MagicMock()
+    mock_session.export_profile_data.side_effect = fake_export
+
+    names = raw_to_tool_data.profile_data_to_tool_names(mock_session)
+
+    self.assertEqual(names, ["trace_viewer", "op_profile"])
+    self.assertTrue(mock_func.called)
+
+  def test_profile_data_to_tool_data_riegeli(self):
+    mock_func = self.enter_context(
+        mock.patch.object(
+            _pywrap_profiler_plugin,
+            "xspace_to_tools_data",
+            return_value=(b"result", True),
+            autospec=True,
+        )
+    )
+
+    def fake_export(target_dir):
+      plugins_dir = os.path.join(
+          target_dir, "plugins", "profile", "test_session"
+      )
+      os.makedirs(plugins_dir, exist_ok=True)
+      with open(os.path.join(plugins_dir, "test.xplane.riegeli"), "w") as f:
+        f.write("dummy")
+
+    mock_profile_data = mock.MagicMock()
+    mock_profile_data.export_profile_data.side_effect = fake_export
+
+    data, content_type = raw_to_tool_data.profile_data_to_tool_data(
+        mock_profile_data,
+        "trace_viewer",
+        {"trace_viewer_options": {"format": "pb"}},
+    )
+
+    self.assertEqual(data, b"result")
+    self.assertEqual(content_type, "application/octet-stream")
+    self.assertTrue(mock_func.called)
+    called_paths = mock_func.call_args[0][0]
+    self.assertLen(called_paths, 1)
+    self.assertTrue(called_paths[0].endswith("test.xplane.riegeli"))
+
+  def test_profile_data_to_tool_names_riegeli(self):
+    mock_func = self.enter_context(
+        mock.patch.object(
+            _pywrap_profiler_plugin,
+            "xspace_to_tools_data",
+            return_value=(b"trace_viewer,op_profile", True),
+            autospec=True,
+        )
+    )
+
+    def fake_export(target_dir):
+      plugins_dir = os.path.join(
+          target_dir, "plugins", "profile", "test_session"
+      )
+      os.makedirs(plugins_dir, exist_ok=True)
+      with open(os.path.join(plugins_dir, "test.xplane.riegeli"), "w") as f:
+        f.write("dummy")
+
+    mock_session = mock.MagicMock()
+    mock_session.export_profile_data.side_effect = fake_export
+
+    names = raw_to_tool_data.profile_data_to_tool_names(mock_session)
+
+    self.assertEqual(names, ["trace_viewer", "op_profile"])
+    self.assertTrue(mock_func.called)
+    called_paths = mock_func.call_args[0][0]
+    self.assertLen(called_paths, 1)
+    self.assertTrue(called_paths[0].endswith("test.xplane.riegeli"))
 
 
 if __name__ == "__main__":

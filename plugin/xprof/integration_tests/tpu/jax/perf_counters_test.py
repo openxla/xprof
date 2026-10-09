@@ -23,7 +23,7 @@ class PerfCountersTest(absltest.TestCase):
     except flags.UnrecognizedFlagError:
       pass
 
-    with jax.profiler.trace(logdir):
+    with jax.profiler.trace(logdir) as session:
       # Generate random matrices
       x = jax.random.normal(k1, (128, 128))
       y = jax.random.normal(k2, (128, 128))
@@ -37,20 +37,29 @@ class PerfCountersTest(absltest.TestCase):
       # Check shape and that it ran without error
       self.assertEqual(w.shape, (128, 128))
 
+    self.assertIsNotNone(session.profile_data)
+
+    # Test profile_data_to_tool_data with ProfileSession directly.
+    perf_counters_data, content_type = (
+        raw_to_tool_data.profile_data_to_tool_data(session, 'perf_counters', {})
+    )
+    self.assertEqual(content_type, 'application/json')
+    parsed_data = json.loads(perf_counters_data)
+    self.assertIn('cols', parsed_data)
+    self.assertIn('rows', parsed_data)
+
+    # Verify that file-based conversion also continues to work.
     profile_plugin_root = os.path.join(logdir, 'plugins/profile')
-    # The session exists under a director whose name is time-dependent.
+    # The session exists under a directory whose name is time-dependent.
     profile_session_glob = os.path.join(profile_plugin_root, '*', '*.xplane.pb')
     xplane_files = glob.glob(profile_session_glob)
     self.assertLen(xplane_files, 1)
 
-    perf_counters_data, content_type = raw_to_tool_data.xspace_to_tool_data(
-        xplane_files, 'perf_counters', {}
+    perf_counters_data_file, content_type_file = (
+        raw_to_tool_data.xspace_to_tool_data(xplane_files, 'perf_counters', {})
     )
-    self.assertEqual(content_type, 'application/json')
-
-    parsed_data = json.loads(perf_counters_data)
-    self.assertIn('cols', parsed_data)
-    self.assertIn('rows', parsed_data)
+    self.assertEqual(content_type_file, 'application/json')
+    self.assertEqual(json.loads(perf_counters_data_file), parsed_data)
 
 
 if __name__ == '__main__':

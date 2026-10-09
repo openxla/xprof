@@ -51,8 +51,16 @@ class JaxProfilerTest(absltest.TestCase):
     options = jax.profiler.ProfileOptions()
     logging.info("Starting JAX workload with profiling...")
 
-    with jax.profiler.trace(logdir, profiler_options=options):
+    with jax.profiler.trace(logdir, profiler_options=options) as session:
       run_jax_workload()
+
+    # Verify that ProfileSession captures profile data in memory.
+    self.assertIsNotNone(session.profile_data)
+    plane_names = [plane.name for plane in session.profile_data.planes]
+    logging.info("Captured planes: %s", plane_names)
+    self.assertNotEmpty(
+        plane_names, "Expected at least one plane in profile_data"
+    )
 
     # Verify that .xplane.pb files are generated.
     path = os.path.join(logdir, "plugins", "profile", "*", "*.xplane.pb")
@@ -67,6 +75,33 @@ class JaxProfilerTest(absltest.TestCase):
       size = os.path.getsize(f)
       logging.info("File: %s, size: %d", f, size)
       self.assertGreater(size, 0, f"File {f} is empty")
+
+  def test_in_memory_profile_session(self):
+    """Verifies that in-memory JAX profiling works without writing to disk."""
+    with jax.profiler.trace() as session:
+      run_jax_workload()
+
+    self.assertIsNotNone(session.profile_data)
+    plane_names = [plane.name for plane in session.profile_data.planes]
+    logging.info("Captured in-memory planes: %s", plane_names)
+    self.assertNotEmpty(
+        plane_names, "Expected at least one plane in profile_data"
+    )
+
+  def test_start_and_stop_trace(self):
+    """Verifies that direct start_trace and stop_trace calls work on TPU."""
+    logdir = self.create_tempdir().full_path
+    session = jax.profiler.start_trace(logdir)
+    run_jax_workload()
+    profile_data = jax.profiler.stop_trace()
+
+    self.assertIsNotNone(profile_data)
+    self.assertIs(profile_data, session.profile_data)
+    plane_names = [plane.name for plane in profile_data.planes]
+    logging.info("Captured planes via start_trace/stop_trace: %s", plane_names)
+    self.assertNotEmpty(
+        plane_names, "Expected at least one plane in profile_data"
+    )
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ class HloMetadataTest(absltest.TestCase):
     k2 = jax.random.PRNGKey(1)
     logdir = FLAGS.test_tmpdir
 
-    with jax.profiler.trace(logdir):
+    with jax.profiler.trace(logdir) as session:
       # Generate random matrices
       x = jax.random.normal(k1, (128, 128))
       y = jax.random.normal(k2, (128, 128))
@@ -33,20 +33,29 @@ class HloMetadataTest(absltest.TestCase):
       # Check shape and that it ran without error
       self.assertEqual(w.shape, (128, 128))
 
+    self.assertIsNotNone(session.profile_data)
+
+    # Test profile_data_to_tool_names with ProfileSession directly.
+    result_session = raw_to_tool_data.profile_data_to_tool_names(session)
+    result_session.sort()
+    expected = [
+        'memory_viewer',
+        'graph_viewer',
+    ]
+    expected.sort()
+    self.assertContainsSubset(expected, result_session)
+
+    # Verify that file-based conversion also continues to work.
     profile_plugin_root = os.path.join(logdir, 'plugins/profile')
     # The session exists under a director whose name is time-dependent.
     profile_session_glob = os.path.join(profile_plugin_root, '*', '*.xplane.pb')
     xplane_files = glob.glob(profile_session_glob)
     self.assertLen(xplane_files, 1)
 
-    result = raw_to_tool_data.xspace_to_tool_names(xplane_files)
-    result.sort()
-    expected = [
-        'memory_viewer',
-        'graph_viewer',
-    ]
-    expected.sort()
-    self.assertContainsSubset(expected, result)
+    result_files = raw_to_tool_data.xspace_to_tool_names(xplane_files)
+    result_files.sort()
+    self.assertContainsSubset(expected, result_files)
+    self.assertEqual(result_session, result_files)
 
     print('Test finished successfully')
 

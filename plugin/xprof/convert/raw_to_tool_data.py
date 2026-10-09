@@ -24,7 +24,10 @@ from __future__ import division
 from __future__ import print_function
 
 from collections.abc import Callable, Mapping, Sequence
+import glob
 import logging
+import os
+import tempfile
 from typing import Any
 
 from xprof.convert import csv_writer
@@ -77,15 +80,104 @@ def xspace_to_tools_data_from_byte_string(
   )
 
 
-def xspace_to_tool_names(xspace_paths: Sequence[Any]) -> list[str]:
-  """Converts XSpace to all the available tool names.
+def _is_profile_data_or_session(item: Any) -> bool:
+  if isinstance(item, (str, os.PathLike, bytes)):
+    return False
+  if isinstance(item, (list, tuple)):
+    return any(_is_profile_data_or_session(x) for x in item)
+  return (
+      hasattr(item, 'profile_data')
+      or hasattr(item, 'planes')
+      or hasattr(item, 'export_profile_data')
+  )
+
+
+def profile_data_to_tool_data(
+    profile_data: Any,
+    tool: str,
+    params: Mapping[str, Any] | None = None,
+) -> tuple[Any, str]:
+  """Converts ProfileData or ProfileSession to tool data string.
 
   Args:
-    xspace_paths: A list of XSpace paths.
+    profile_data: A ProfileData or ProfileSession object, or a sequence of them.
+    tool: A string of tool name.
+    params: user input parameters.
+
+  Returns:
+    Returns a string of tool data and the content type for the response.
+  """
+  if params is None:
+    params = {}
+  if not isinstance(profile_data, (list, tuple)):
+    items = [profile_data]
+  else:
+    items = list(profile_data)
+
+  with tempfile.TemporaryDirectory() as temp_dir:
+    for item in items:
+      if hasattr(item, 'export_profile_data') and callable(
+          item.export_profile_data
+      ):
+        item.export_profile_data(temp_dir)
+      else:
+        import jax  # pylint: disable=g-import-not-at-top
+
+        jax.profiler.export_profile_data(item, temp_dir)
+
+    xplane_files = glob.glob(
+        os.path.join(temp_dir, 'plugins', 'profile', '*', '*.xplane.pb')
+    ) + glob.glob(
+        os.path.join(temp_dir, 'plugins', 'profile', '*', '*.xplane.riegeli')
+    )
+    return xspace_to_tool_data(xplane_files, tool, params)
+
+
+def profile_data_to_tool_names(profile_data: Any) -> list[str]:
+  """Converts ProfileData or ProfileSession to all the available tool names.
+
+  Args:
+    profile_data: A ProfileData or ProfileSession object, or a sequence of them.
 
   Returns:
     Returns a list of tool names.
   """
+  if not isinstance(profile_data, (list, tuple)):
+    items = [profile_data]
+  else:
+    items = list(profile_data)
+
+  with tempfile.TemporaryDirectory() as temp_dir:
+    for item in items:
+      if hasattr(item, 'export_profile_data') and callable(
+          item.export_profile_data
+      ):
+        item.export_profile_data(temp_dir)
+      else:
+        import jax  # pylint: disable=g-import-not-at-top
+
+        jax.profiler.export_profile_data(item, temp_dir)
+
+    xplane_files = glob.glob(
+        os.path.join(temp_dir, 'plugins', 'profile', '*', '*.xplane.pb')
+    ) + glob.glob(
+        os.path.join(temp_dir, 'plugins', 'profile', '*', '*.xplane.riegeli')
+    )
+    return xspace_to_tool_names(xplane_files)
+
+
+def xspace_to_tool_names(xspace_paths: Sequence[Any] | Any) -> list[str]:
+  """Converts XSpace to all the available tool names.
+
+  Args:
+    xspace_paths: A list of XSpace paths, or ProfileData/ProfileSession objects.
+
+  Returns:
+    Returns a list of tool names.
+  """
+  if _is_profile_data_or_session(xspace_paths):
+    return profile_data_to_tool_names(xspace_paths)
+
   raw_data, success = _pywrap_profiler_plugin.xspace_to_tools_data(
       xspace_paths, 'tool_names'
   )
@@ -95,7 +187,7 @@ def xspace_to_tool_names(xspace_paths: Sequence[Any]) -> list[str]:
 
 
 def xspace_to_tool_data(
-    xspace_paths: Sequence[Any],
+    xspace_paths: Sequence[Any] | Any,
     tool: str,
     params: Mapping[str, Any],
     xspace_wrapper_func: Callable[..., tuple[Any, bool]] | None = None,
@@ -103,7 +195,7 @@ def xspace_to_tool_data(
   """Converts XSpace to tool data string.
 
   Args:
-    xspace_paths: A list of XSpace paths.
+    xspace_paths: A list of XSpace paths, or ProfileData/ProfileSession objects.
     tool: A string of tool name.
     params: user input parameters.
     xspace_wrapper_func: A callable that takes a list of strings and a tool and
@@ -112,6 +204,9 @@ def xspace_to_tool_data(
   Returns:
     Returns a string of tool data and the content type for the response.
   """
+  if xspace_wrapper_func is None and _is_profile_data_or_session(xspace_paths):
+    return profile_data_to_tool_data(xspace_paths, tool, params)
+
   if xspace_wrapper_func is None:
     xspace_wrapper_func = _pywrap_profiler_plugin.xspace_to_tools_data
   if tool.endswith('^'):

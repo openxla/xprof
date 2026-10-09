@@ -17,8 +17,8 @@ const DEFAULT_CHART_WIDTH = 500;
 
 /** A stack bar chart view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'stack-bar-chart',
   templateUrl: './stack_bar_chart.ng.html',
   styleUrls: ['./stack_bar_chart.scss'],

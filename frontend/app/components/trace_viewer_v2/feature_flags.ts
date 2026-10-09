@@ -61,6 +61,12 @@ const FEATURE_FLAG_CONFIGS = [
       'Draw arrows between the selected HLO op and its operands and consumers.',
     default: false,
   },
+  {
+    id: 'enable_minimap',
+    name: 'Enable Minimap',
+    description: 'Enable the timeline overview minimap bar in Trace Viewer.',
+    default: false,
+  },
 ] as const;
 
 /**

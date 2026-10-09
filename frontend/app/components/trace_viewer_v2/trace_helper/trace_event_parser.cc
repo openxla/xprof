@@ -465,6 +465,7 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
       .function("resize", &traceviewer::Application::Resize)
       .function("setSearchQuery", &traceviewer::Application::SetSearchQuery)
       .function("setMouseMode", &traceviewer::Application::SetMouseMode)
+      .function("setVisibleRange", &traceviewer::Application::SetVisibleRange)
       .function("setVisibleFlowCategory",
                 &traceviewer::Application::SetVisibleFlowCategory)
       .function("setVisibleFlowCategories",

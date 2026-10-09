@@ -66,7 +66,12 @@ class Application {
   void Resize(float dpr, int width, int height);
 
   void SetVisibleRange(Microseconds start, Microseconds end) {
-    timeline_->SetVisibleRange(TimeRange(start, end));
+    if (timeline_) {
+      TimeRange range(start, end);
+      timeline_->ConstrainTimeRange(range);
+      timeline_->SetVisibleRange(range);
+      RequestRedraw();
+    }
   }
 
   void SetSearchQuery(const std::string& query) {

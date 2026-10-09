@@ -15379,6 +15379,300 @@ TEST(TimelineTest, StaticKernelSelectionPopulatesBundleEventsAndRegionStats) {
   EXPECT_EQ(sel_events.size(), 3u);
 }
 
+TEST(TimelineTest, EmitsMinimapUpdatedWhenEventTooltipDisabled) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_event_tooltip_enabled(false);
+
+  FlameChartTimelineData data;
+  // Group 0: Regions (levels 0..1)
+  data.groups.push_back({.name = "Regions",
+                         .start_level = 0,
+                         .nesting_level = 1,
+                         .expanded = true});
+  // Group 1: MXU (level 2)
+  data.groups.push_back(
+      {.name = "MXU", .start_level = 2, .nesting_level = 1, .expanded = true});
+  // Group 2: XLU (level 3)
+  data.groups.push_back(
+      {.name = "XLU", .start_level = 3, .nesting_level = 1, .expanded = true});
+
+  data.entry_names = {"top_region", "loop.body", "matmul_a", "xpose_a"};
+  data.entry_levels = {0, 1, 2, 3};
+  data.entry_start_times = {0.0, 10.0, 10.0, 10.0};
+  data.entry_total_times = {100.0, 40.0, 10.0, 5.0};
+  data.entry_self_times = {100.0, 40.0, 10.0, 5.0};
+  data.entry_args = {{}, {}, {}, {}};
+  data.level_offsets = {0, 1, 2, 3, 4};
+  data.level_event_indices = {0, 1, 2, 3};
+
+  std::vector<EventData> minimap_updates;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kMinimapUpdated) {
+          minimap_updates.push_back(detail);
+        }
+      });
+
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 100.0});
+  timeline.SetVisibleRange({10.0, 50.0});
+
+  ASSERT_FALSE(minimap_updates.empty());
+  const EventData& first_with_bins = minimap_updates.front();
+  EXPECT_DOUBLE_EQ(std::any_cast<double>(first_with_bins.at("dataStartUs")),
+                   0.0);
+  EXPECT_DOUBLE_EQ(std::any_cast<double>(first_with_bins.at("dataEndUs")),
+                   100.0);
+  ASSERT_TRUE(first_with_bins.contains("bins"));
+  const auto& bins =
+      std::any_cast<const std::vector<EventData>&>(first_with_bins.at("bins"));
+  EXPECT_EQ(bins.size(), 160u);
+
+  // Bins around [10, 20) (indices ~16..31) should have MXU as dominant unit.
+  EXPECT_EQ(std::any_cast<std::string>(bins[20].at("unit")), "MXU");
+  EXPECT_TRUE(bins[20].contains("unitColor"));
+  EXPECT_EQ(std::any_cast<std::string>(bins[20].at("secondaryUnit")), "XLU");
+  EXPECT_TRUE(bins[20].contains("secondaryUnitColor"));
+  EXPECT_EQ(std::any_cast<std::string>(bins[20].at("region")), "loop.body");
+
+  ASSERT_TRUE(first_with_bins.contains("theme"));
+  const auto& theme =
+      std::any_cast<const EventData&>(first_with_bins.at("theme"));
+  EXPECT_EQ(std::any_cast<std::string>(theme.at("paletteName")), "Default");
+  EXPECT_EQ(std::any_cast<std::string>(theme.at("background")), "#ffffff");
+  EXPECT_EQ(std::any_cast<std::string>(theme.at("flameHeader")), "#7baaf7");
+
+  ASSERT_TRUE(first_with_bins.contains("regions"));
+  const auto& regions = std::any_cast<const std::vector<EventData>&>(
+      first_with_bins.at("regions"));
+  ASSERT_FALSE(regions.empty());
+  EXPECT_TRUE(regions[0].contains("textColor"));
+
+  // Subsequent viewport change should emit lightweight update without bins.
+  minimap_updates.clear();
+  timeline.SetVisibleRange({20.0, 60.0});
+  ASSERT_EQ(minimap_updates.size(), 1u);
+  EXPECT_FALSE(minimap_updates[0].contains("bins"));
+  EXPECT_DOUBLE_EQ(
+      std::any_cast<double>(minimap_updates[0].at("visibleStartUs")), 20.0);
+  EXPECT_DOUBLE_EQ(std::any_cast<double>(minimap_updates[0].at("visibleEndUs")),
+                   60.0);
+
+  // Switching the canvas ColorPalette preset should trigger a full schedule &
+  // theme update even when the visible range does not change.
+  minimap_updates.clear();
+  ASSERT_TRUE(palette.FromPreset("Dracula").ok());
+  timeline.SetVisibleRange({20.0, 60.0});
+  ASSERT_EQ(minimap_updates.size(), 1u);
+  ASSERT_TRUE(minimap_updates[0].contains("theme"));
+  const auto& dracula_theme =
+      std::any_cast<const EventData&>(minimap_updates[0].at("theme"));
+  EXPECT_EQ(std::any_cast<std::string>(dracula_theme.at("paletteName")),
+            "Dracula");
+  EXPECT_EQ(std::any_cast<std::string>(dracula_theme.at("background")),
+            "#282a36");
+}
+
+TEST(TimelineTest, MinimapAndSelectionHandleJaxSourceCodeAndPallasPrimitives) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_event_tooltip_enabled(false);
+
+  FlameChartTimelineData data;
+  // Group 0: Named Scope (level 0)
+  data.groups.push_back({.name = "Named Scope",
+                         .start_level = 0,
+                         .nesting_level = 1,
+                         .expanded = true});
+  // Group 1: Pallas Primitives (levels 1..2)
+  data.groups.push_back({.name = "Pallas Primitives",
+                         .start_level = 1,
+                         .nesting_level = 1,
+                         .expanded = true});
+  // Group 2: Regions (level 3)
+  data.groups.push_back({.name = "Regions",
+                         .start_level = 3,
+                         .nesting_level = 1,
+                         .expanded = true});
+  // Group 3: MXU (level 4)
+  data.groups.push_back(
+      {.name = "MXU", .start_level = 4, .nesting_level = 1, .expanded = true});
+  // Group 4: XLU (level 5)
+  data.groups.push_back(
+      {.name = "XLU", .start_level = 5, .nesting_level = 1, .expanded = true});
+
+  // Event 0: jit(mla_union_attention)/qkv [0, 100) on level 0 (Named Scope)
+  // Event 1: dot_general [0, 60) on level 1 (Pallas Primitives, depth 0)
+  // Event 2: select_n [0, 100) on level 2 (Pallas Primitives, depth 1)
+  // Event 3: reduce_max [60, 100) on level 1 (Pallas Primitives, depth 0)
+  // Event 4: loop.body [10, 50) on level 3 (Regions)
+  // Event 5: vmat.prep.v [10, 20) on level 4 (MXU)
+  // Event 6: vrot.slane.v [10, 15) on level 5 (XLU)
+  data.entry_names = {"jit(mla_union_attention)/qkv",
+                      "dot_general",
+                      "select_n",
+                      "reduce_max",
+                      "loop.body",
+                      "vmat.prep.v",
+                      "vrot.slane.v"};
+  data.entry_levels = {0, 1, 2, 1, 3, 4, 5};
+  data.entry_start_times = {0.0, 0.0, 0.0, 60.0, 10.0, 10.0, 10.0};
+  data.entry_total_times = {100.0, 60.0, 100.0, 40.0, 40.0, 10.0, 5.0};
+  data.entry_self_times = {100.0, 60.0, 100.0, 40.0, 40.0, 10.0, 5.0};
+  data.entry_args = {{},
+                     {{"source", "attention.py:142"}},
+                     {{"source", "attention.py:188"}},
+                     {{"source", "attention.py:210"}},
+                     {},
+                     {},
+                     {}};
+  data.level_offsets = {0, 1, 3, 4, 5, 6, 7};
+  data.level_event_indices = {0, 1, 3, 2, 4, 5, 6};
+
+  std::vector<EventData> minimap_updates;
+  EventData selected_detail;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kMinimapUpdated) {
+          minimap_updates.push_back(detail);
+        } else if (type == kEventSelected) {
+          selected_detail = detail;
+        }
+      });
+
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 100.0});
+  timeline.SetVisibleRange({0.0, 100.0});
+
+  ASSERT_FALSE(minimap_updates.empty());
+  const EventData& summary = minimap_updates.front();
+  ASSERT_TRUE(summary.contains("bins"));
+  const auto& bins =
+      std::any_cast<const std::vector<EventData>&>(summary.at("bins"));
+  ASSERT_EQ(bins.size(), 160u);
+
+  // Stacked Pallas Primitives / Named Scope spans must NOT overwrite MXU/XLU.
+  EXPECT_EQ(std::any_cast<std::string>(bins[20].at("unit")), "MXU");
+  EXPECT_EQ(std::any_cast<std::string>(bins[20].at("secondaryUnit")), "XLU");
+  EXPECT_EQ(std::any_cast<std::string>(bins[20].at("region")), "loop.body");
+  EXPECT_EQ(std::any_cast<std::string>(bins[20].at("pallasPrimitive")),
+            "dot_general");
+  EXPECT_EQ(std::any_cast<std::string>(bins[20].at("namedScope")),
+            "jit(mla_union_attention)/qkv");
+
+  // Bins outside Regions [10, 50) fall back to namedScope for "region" and
+  // reflect the active row-0 Pallas primitive ("reduce_max" in [60, 100)).
+  EXPECT_EQ(std::any_cast<std::string>(bins[120].at("region")),
+            "jit(mla_union_attention)/qkv");
+  EXPECT_EQ(std::any_cast<std::string>(bins[120].at("pallasPrimitive")),
+            "reduce_max");
+
+  ASSERT_TRUE(summary.contains("pallasPrimitives"));
+  const auto& pallas = std::any_cast<const std::vector<EventData>&>(
+      summary.at("pallasPrimitives"));
+  ASSERT_EQ(pallas.size(), 3u);
+  EXPECT_EQ(std::any_cast<std::string>(pallas[0].at("name")), "dot_general");
+  EXPECT_EQ(std::any_cast<std::string>(pallas[0].at("source")),
+            "attention.py:142");
+  EXPECT_TRUE(pallas[0].contains("color"));
+
+  // Selecting Pallas primitive 1 ("dot_general" [0, 60)) aggregates only
+  // hardware functional unit instructions scheduled inside [0, 60).
+  timeline.RevealEvent(1);
+  ASSERT_TRUE(selected_detail.contains("totalInstructions"));
+  EXPECT_EQ(std::any_cast<int>(selected_detail.at("totalInstructions")), 2);
+}
+
+TEST(TimelineTest, EmitsMinimapUpdatedWhenMinimapEnabledWithTimeAxisAndSteps) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  EXPECT_TRUE(timeline.event_tooltip_enabled());
+  timeline.set_minimap_enabled(true);
+  EXPECT_TRUE(timeline.minimap_enabled());
+
+  FlameChartTimelineData data;
+  // Group 0: Process header (should be skipped)
+  data.groups.push_back({.name = "/device:TPU:0",
+                         .start_level = 0,
+                         .nesting_level = kProcessNestingLevel,
+                         .expanded = true,
+                         .has_children = true});
+  // Group 1: Steps (level 0)
+  data.groups.push_back({.name = "Steps",
+                         .start_level = 0,
+                         .nesting_level = 1,
+                         .expanded = true});
+  // Group 2: XLA Modules (level 1)
+  data.groups.push_back({.name = "XLA Modules",
+                         .start_level = 1,
+                         .nesting_level = 1,
+                         .expanded = true});
+  // Group 3: XLA Ops (level 2)
+  data.groups.push_back({.name = "XLA Ops",
+                         .start_level = 2,
+                         .nesting_level = 1,
+                         .expanded = true});
+
+  data.entry_names = {"Step 0", "jit_train_step", "fusion.1"};
+  data.entry_levels = {0, 1, 2};
+  data.entry_start_times = {1000.0, 1000.0, 1100.0};
+  data.entry_total_times = {1000.0, 800.0, 500.0};
+  data.entry_self_times = {1000.0, 800.0, 500.0};
+  data.entry_args = {{}, {}, {}};
+  data.level_offsets = {0, 1, 2, 3};
+  data.level_event_indices = {0, 1, 2};
+
+  std::vector<EventData> minimap_updates;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kMinimapUpdated) {
+          minimap_updates.push_back(detail);
+        }
+      });
+
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_fetched_data_time_range({1000.0, 2000.0});
+  timeline.set_data_time_range({1000.0, 2000.0});
+  timeline.SetVisibleRange({1000.0, 2000.0});
+
+  ASSERT_FALSE(minimap_updates.empty());
+  const EventData& summary = minimap_updates.front();
+  EXPECT_EQ(std::any_cast<std::string>(summary.at("timeAxisUnit")), "time");
+  EXPECT_DOUBLE_EQ(std::any_cast<double>(summary.at("dataStartUs")), 1000.0);
+  EXPECT_DOUBLE_EQ(std::any_cast<double>(summary.at("dataEndUs")), 2000.0);
+
+  ASSERT_TRUE(summary.contains("regions"));
+  const auto& regions =
+      std::any_cast<const std::vector<EventData>&>(summary.at("regions"));
+  ASSERT_EQ(regions.size(), 1u);
+  EXPECT_EQ(std::any_cast<std::string>(regions[0].at("name")), "Step 0");
+
+  ASSERT_TRUE(summary.contains("pallasPrimitives"));
+  const auto& modules = std::any_cast<const std::vector<EventData>&>(
+      summary.at("pallasPrimitives"));
+  ASSERT_EQ(modules.size(), 1u);
+  EXPECT_EQ(std::any_cast<std::string>(modules[0].at("name")),
+            "jit_train_step");
+
+  ASSERT_TRUE(summary.contains("bins"));
+  const auto& bins =
+      std::any_cast<const std::vector<EventData>&>(summary.at("bins"));
+  ASSERT_EQ(bins.size(), 160u);
+  EXPECT_EQ(std::any_cast<std::string>(bins[30].at("unit")), "XLA Ops");
+
+  // Simulate an incremental zoom-in refetch covering only [1200, 1300]:
+  // SyncMinimapState should preserve the existing full-trace schedule rather
+  // than recomputing bins from the partial slice.
+  minimap_updates.clear();
+  timeline.set_fetched_data_time_range({1200.0, 1300.0});
+  FlameChartTimelineData partial_data;
+  timeline.SetTimelineData(std::move(partial_data));
+  timeline.SetVisibleRange({1220.0, 1280.0});
+  ASSERT_FALSE(minimap_updates.empty());
+  EXPECT_FALSE(minimap_updates.back().contains("bins"));
+}
+
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer

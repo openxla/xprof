@@ -560,6 +560,7 @@ void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
   } else {
     visible_range_.snap_to(range);
   }
+  SyncMinimapState();
   if (redraw_callback_) redraw_callback_();
 }
 
@@ -832,6 +833,9 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
   if (is_incremental_loading_) {
     should_restore_scroll_ = true;
   }
+
+  minimap_schedule_dirty_ = true;
+  SyncMinimapState();
 
   if (redraw_callback_) redraw_callback_();
 }
@@ -1482,6 +1486,8 @@ void Timeline::Draw() {
       EmitEventHovered(hovered_event_index_, mouse_pos.x, mouse_pos.y);
     }
   }
+
+  SyncMinimapState();
 
   ImGui::PopStyleVar();  // ItemSpacing
   ImGui::PopStyleVar();  // CellPadding

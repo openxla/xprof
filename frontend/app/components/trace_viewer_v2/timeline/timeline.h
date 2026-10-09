@@ -470,7 +470,13 @@ class Timeline {
   // logic as MaybeRequestData (scaling, min-bounds, and ConstrainTimeRange).
   void InitializeLastFetchRequestRange(const TimeRange& visible_range);
 
-  void set_data_time_range(const TimeRange& range) { data_time_range_ = range; }
+  void set_data_time_range(const TimeRange& range) {
+    if (data_time_range_ != range) {
+      data_time_range_ = range;
+      minimap_schedule_dirty_ = true;
+      SyncMinimapState();
+    }
+  }
   const TimeRange& data_time_range() const { return data_time_range_; }
 
   void SetTimelineData(FlameChartTimelineData data);
@@ -493,7 +499,13 @@ class Timeline {
 
   // The unit of the x-axis. For `TimeAxisUnit::kUnitless` (e.g. scheduled
   // bundle numbers), the ruler shows integer positions instead of times.
-  void set_time_axis_unit(TimeAxisUnit unit) { time_axis_unit_ = unit; }
+  void set_time_axis_unit(TimeAxisUnit unit) {
+    if (time_axis_unit_ != unit) {
+      time_axis_unit_ = unit;
+      minimap_schedule_dirty_ = true;
+      SyncMinimapState();
+    }
+  }
   TimeAxisUnit time_axis_unit() const { return time_axis_unit_; }
 
 
@@ -515,6 +527,16 @@ class Timeline {
     timeline_player_enabled_ = enabled;
   }
   bool timeline_player_enabled() const { return timeline_player_enabled_; }
+  void set_minimap_enabled(bool enabled) {
+    if (minimap_enabled_ != enabled) {
+      minimap_enabled_ = enabled;
+      if (minimap_enabled_) {
+        minimap_schedule_dirty_ = true;
+        SyncMinimapState();
+      }
+    }
+  }
+  bool minimap_enabled() const { return minimap_enabled_; }
 
   // Whether hovering a flame-chart event shows the built-in tooltip
   // (`name (duration)`). Hosts that draw their own tooltip, or that already
@@ -523,7 +545,13 @@ class Timeline {
   // unaffected, and counter-track tooltips are separate. On by default and
   // kept by ResetForNewDataset().
   void set_event_tooltip_enabled(bool enabled) {
-    event_tooltip_enabled_ = enabled;
+    if (event_tooltip_enabled_ != enabled) {
+      event_tooltip_enabled_ = enabled;
+      if (!event_tooltip_enabled_) {
+        minimap_schedule_dirty_ = true;
+        SyncMinimapState();
+      }
+    }
   }
   bool event_tooltip_enabled() const { return event_tooltip_enabled_; }
 
@@ -803,6 +831,10 @@ class Timeline {
                             EventData& event_data) const;
   void PopulateSelectedScheduleDetails(int group_index, int event_index,
                                        EventData& event_data) const;
+  void SyncMinimapState();
+  void PopulateMinimapScheduleSummary(Microseconds data_start,
+                                      Microseconds data_end,
+                                      EventData& payload) const;
   Microseconds GetScheduleEndBundle() const;
   // Emits viewport changed event to JS side.
   void EmitViewportChanged(const TimeRange& range);
@@ -1163,6 +1195,7 @@ class Timeline {
   bool bookmarks_enabled_ = false;
   bool track_management_enabled_ = false;
   bool timeline_player_enabled_ = false;
+  bool minimap_enabled_ = false;
   // See set_event_tooltip_enabled().
   bool event_tooltip_enabled_ = true;
 
@@ -1234,6 +1267,16 @@ class Timeline {
 
   double play_speed_ = 1.0;
   bool show_grid_ = true;
+
+  bool minimap_schedule_dirty_ = true;
+  bool has_minimap_schedule_ = false;
+  Microseconds last_minimap_data_start_ = -1.0;
+  Microseconds last_minimap_data_end_ = -1.0;
+  Microseconds last_minimap_visible_start_ = -1.0;
+  Microseconds last_minimap_visible_end_ = -1.0;
+  Pixel last_minimap_label_width_ = -1.0f;
+  uint64_t last_minimap_palette_version_ = std::numeric_limits<uint64_t>::max();
+  uint64_t last_minimap_trace_version_ = std::numeric_limits<uint64_t>::max();
 
  protected:
   absl::flat_hash_set<std::string> hidden_track_names_;

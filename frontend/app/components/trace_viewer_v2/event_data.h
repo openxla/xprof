@@ -60,6 +60,9 @@ inline constexpr absl::string_view kViewportChangedMax = "max_ms";
 inline constexpr absl::string_view kMouseModeChanged = "mouse_mode_changed";
 inline constexpr absl::string_view kMouseModeKey = "mouseMode";
 
+// Constants for schedule minimap updated event.
+inline constexpr absl::string_view kMinimapUpdated = "minimap_updated";
+
 }  // namespace traceviewer
 
 #endif  // THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_EVENT_DATA_H_

@@ -15072,6 +15072,206 @@ TEST_F(MockTimelineImGuiFixture,
   ImGui::End();
   ImGui::EndFrame();
 }
+
+TEST(TimelineTest, CompactTimelineDataRemapsAndClearsSparseEntryGroupIds) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_max_uncompacted_overview_entries_for_test(64);
+  timeline.set_is_compacted(true);
+
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .level_count = 1});
+
+  constexpr int kNumEvents = 5000;
+  data.level_offsets = {0, kNumEvents};
+  data.level_event_indices.reserve(kNumEvents);
+  for (int i = 0; i < kNumEvents; ++i) {
+    data.level_event_indices.push_back(i);
+    data.entry_names.push_back(absl::StrCat("ev_", i));
+    data.entry_levels.push_back(0);
+    data.entry_start_times.push_back(static_cast<double>(i));
+    data.entry_total_times.push_back(i == 100 ? 0.9 : 0.2);
+    data.entry_self_times.push_back(i == 100 ? 0.9 : 0.2);
+    data.entry_event_ids.push_back(i + 1);
+    data.entry_serials.push_back(0);
+    data.entry_arg_flags.push_back(
+        (i == 100 || i == 101) ? FlameChartTimelineData::kEntryArgHasGroupId
+                               : 0);
+    data.entry_hlo_module_ids.push_back(0);
+  }
+  data.sparse_entry_group_ids[100] = 42;
+  data.sparse_entry_group_ids[101] = 99;
+
+  timeline.SetTimelineData(std::move(data));
+
+  const FlameChartTimelineData& compacted = timeline.timeline_data();
+  EXPECT_LT(compacted.entry_start_times.size(), 2500u);
+
+  int new_idx_100 = -1;
+  for (int i = 0; i < static_cast<int>(compacted.entry_names.size()); ++i) {
+    if (compacted.entry_names[i] == "ev_100") {
+      new_idx_100 = i;
+      break;
+    }
+  }
+  ASSERT_GE(new_idx_100, 0);
+  EXPECT_LT(new_idx_100, 100);
+  const auto args = compacted.GetEntryArgs(new_idx_100);
+  ASSERT_TRUE(args.contains("group_id"));
+  EXPECT_EQ(args.at("group_id"), "42");
+
+  bool verified_cleared_before_build = false;
+  timeline.UpdateTimelineData([&]() {
+    EXPECT_TRUE(timeline.timeline_data().sparse_entry_group_ids.empty());
+    verified_cleared_before_build = true;
+    return FlameChartTimelineData{};
+  });
+  EXPECT_TRUE(verified_cleared_before_build);
+}
+
+TEST(TimelineTest, CompactTimelineDataSkipsFullLoadsAndCompactsOverviews) {
+  auto make_dense_data = []() {
+    FlameChartTimelineData data;
+    data.groups.push_back({.name = "Group 1",
+                           .start_level = 0,
+                           .nesting_level = kThreadNestingLevel,
+                           .expanded = true,
+                           .level_count = 1});
+    constexpr int kNumEvents = 5000;
+    data.level_offsets = {0, kNumEvents};
+    data.level_event_indices.reserve(kNumEvents);
+    for (int i = 0; i < kNumEvents; ++i) {
+      data.level_event_indices.push_back(i);
+      data.entry_names.push_back(absl::StrCat("ev_", i));
+      data.entry_levels.push_back(0);
+      data.entry_start_times.push_back(static_cast<double>(i));
+      data.entry_total_times.push_back(0.5);
+      data.entry_self_times.push_back(0.5);
+      data.entry_event_ids.push_back(i + 1);
+    }
+    return data;
+  };
+
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_max_uncompacted_overview_entries_for_test(64);
+
+  // Full-resolution load (!is_compacted) must retain all raw events for zoom-in
+  // and SetSearchQuery.
+  timeline.set_is_compacted(false);
+  timeline.set_full_trace_loaded(true);
+  timeline.SetTimelineData(make_dense_data());
+  EXPECT_EQ(timeline.timeline_data().entry_start_times.size(), 5000u);
+  EXPECT_FALSE(timeline.is_compacted());
+  EXPECT_TRUE(timeline.full_trace_loaded());
+
+  // Downsampled overview (is_compacted) must compact to MIP dominant events and
+  // trigger a refetch when zooming in.
+  timeline.set_is_compacted(true);
+  timeline.SetTimelineData(make_dense_data());
+  EXPECT_LT(timeline.timeline_data().entry_start_times.size(), 2500u);
+  EXPECT_TRUE(timeline.is_compacted());
+  EXPECT_FALSE(timeline.full_trace_loaded());
+  EXPECT_FALSE(timeline.window_at_full_resolution());
+
+  bool fetch_requested = false;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData&) {
+        if (type == kFetchData) {
+          fetch_requested = true;
+        }
+      });
+  timeline.set_data_time_range({0.0, 5000.0});
+  timeline.set_fetched_data_time_range({0.0, 5000.0});
+  timeline.set_is_incremental_loading(false);
+  timeline.SetVisibleRange({0.0, 100.0}, /*animate=*/false);
+  timeline.MaybeRequestData();
+  EXPECT_TRUE(fetch_requested);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       WebGpuInstancedFlameBatchesReduceImGuiVerticesInMipAndRawPaths) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Process 1",
+                         .start_level = 0,
+                         .nesting_level = kProcessNestingLevel,
+                         .expanded = true,
+                         .has_children = true,
+                         .pid = 1});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Thread 1",
+                         .start_level = 0,
+                         .nesting_level = 1,
+                         .expanded = true,
+                         .pid = 1});
+
+  constexpr int kNumEvents = 2000;
+  data.level_offsets = {0, kNumEvents};
+  data.level_event_indices.reserve(kNumEvents);
+  for (int i = 0; i < kNumEvents; ++i) {
+    data.level_event_indices.push_back(i);
+    data.entry_names.push_back("kernel_op");
+    data.entry_levels.push_back(0);
+    data.entry_start_times.push_back(static_cast<double>(i) * 10.0);
+    data.entry_total_times.push_back(8.0);
+    data.entry_args.push_back({});
+  }
+
+  timeline_.set_data_time_range({0.0, 20000.0});
+  timeline_.SetVisibleRange({0.0, 20000.0});
+  timeline_.SetTimelineData(std::move(data));
+  EXPECT_GT(timeline_.gpu_flame_instances_count_for_test(),
+            static_cast<size_t>(kNumEvents));
+
+  // 1. Overview (MIP level path): compare CPU fallback vs. GPU instanced mode.
+  timeline_.set_force_gpu_flame_batch_mode_for_test(false);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+  const int cpu_overview_vtx = ImGui::GetDrawData()->TotalVtxCount;
+  const int cpu_overview_idx = ImGui::GetDrawData()->TotalIdxCount;
+  EXPECT_TRUE(timeline_.emitted_gpu_flame_batches_for_test().empty());
+
+  timeline_.set_force_gpu_flame_batch_mode_for_test(true);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+  const int gpu_overview_vtx = ImGui::GetDrawData()->TotalVtxCount;
+  const int gpu_overview_idx = ImGui::GetDrawData()->TotalIdxCount;
+  ASSERT_EQ(timeline_.emitted_gpu_flame_batches_for_test().size(), 1u);
+  EXPECT_GT(timeline_.emitted_gpu_flame_batches_for_test()[0].instance_count,
+            0u);
+  EXPECT_LT(gpu_overview_vtx, cpu_overview_vtx);
+  EXPECT_LT(gpu_overview_idx, cpu_overview_idx);
+
+  // 2. Zoomed-in (raw event path, 100 visible events): compare CPU vs. GPU.
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  timeline_.set_force_gpu_flame_batch_mode_for_test(false);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+  const int cpu_zoomed_vtx = ImGui::GetDrawData()->TotalVtxCount;
+  const int cpu_zoomed_idx = ImGui::GetDrawData()->TotalIdxCount;
+
+  timeline_.set_force_gpu_flame_batch_mode_for_test(true);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+  const int gpu_zoomed_vtx = ImGui::GetDrawData()->TotalVtxCount;
+  const int gpu_zoomed_idx = ImGui::GetDrawData()->TotalIdxCount;
+  ASSERT_EQ(timeline_.emitted_gpu_flame_batches_for_test().size(), 1u);
+  EXPECT_EQ(timeline_.emitted_gpu_flame_batches_for_test()[0].instance_count,
+            101u);
+  // 101 flame rectangles * 4 vertices = 404 fewer vertices and 606 fewer
+  // indices in the ImGui CPU draw list.
+  EXPECT_LE(gpu_zoomed_vtx + 400, cpu_zoomed_vtx);
+  EXPECT_LE(gpu_zoomed_idx + 600, cpu_zoomed_idx);
+}
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer

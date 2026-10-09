@@ -14,6 +14,7 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/functional/any_invocable.h"
+#include "absl/functional/function_ref.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
@@ -474,7 +475,30 @@ class Timeline {
   const TimeRange& data_time_range() const { return data_time_range_; }
 
   void SetTimelineData(FlameChartTimelineData data);
+  void UpdateTimelineData(
+      absl::FunctionRef<FlameChartTimelineData()> builder);
   const FlameChartTimelineData& timeline_data() const { return timeline_data_; }
+
+  void set_max_uncompacted_overview_entries_for_test(size_t max_entries) {
+    max_uncompacted_overview_entries_ = max_entries;
+  }
+  size_t max_uncompacted_overview_entries() const {
+    return max_uncompacted_overview_entries_;
+  }
+
+  void MarkCurrentDataAsFullOverview() { is_full_overview_data_ = true; }
+  void PrepareForFilteredRefetch() {
+    if (is_full_overview_data_ && !saved_full_overview_.has_value()) {
+      stash_full_overview_on_next_update_ = true;
+    }
+  }
+  bool HasSavedFullOverview() const { return saved_full_overview_.has_value(); }
+  bool RestoreSavedFullOverview();
+  void ClearSavedFullOverview() {
+    saved_full_overview_.reset();
+    is_full_overview_data_ = false;
+    stash_full_overview_on_next_update_ = false;
+  }
 
   int selected_event_index() const { return selected_event_index_; }
   int selected_group_index() const { return selected_group_index_; }
@@ -543,6 +567,18 @@ class Timeline {
   void set_is_incremental_loading(bool is_incremental_loading) {
     is_incremental_loading_ = is_incremental_loading;
   }
+  bool is_incremental_loading() const { return is_incremental_loading_; }
+
+  void set_full_trace_loaded(bool full_trace_loaded) {
+    full_trace_loaded_ = full_trace_loaded;
+  }
+  bool full_trace_loaded() const { return full_trace_loaded_; }
+  void set_is_compacted(bool is_compacted) { is_compacted_ = is_compacted; }
+  bool is_compacted() const { return is_compacted_; }
+  void set_window_at_full_resolution(bool window_at_full_resolution) {
+    window_at_full_resolution_ = window_at_full_resolution;
+  }
+  bool window_at_full_resolution() const { return window_at_full_resolution_; }
 
   // Whether MaybeRequestData() may emit `fetch_data` to refetch a time range at
   // higher resolution. Hosts whose backend ignores the requested range and
@@ -712,6 +748,35 @@ class Timeline {
     current_search_result_index_ = idx;
   }
 
+  struct GpuFlameBatch {
+    uint32_t first_instance = 0;
+    uint32_t instance_count = 0;
+    double visible_start_us = 0.0;
+    float px_per_us = 0.0f;
+    float screen_x_offset = 0.0f;
+    float timeline_width = 0.0f;
+    float y_top = 0.0f;
+    float y_bottom = 0.0f;
+    float min_width_px = 1.0f;
+    float padding_right_px = 0.5f;
+    float alpha_multiplier = 1.0f;
+  };
+  void set_force_gpu_flame_batch_mode_for_test(bool enabled) {
+    force_gpu_flame_batch_mode_for_test_ = enabled;
+  }
+  const std::vector<GpuFlameBatch>& emitted_gpu_flame_batches_for_test() const {
+    return emitted_gpu_flame_batches_;
+  }
+  size_t gpu_flame_instances_count_for_test() const {
+    return gpu_flame_instances_.size();
+  }
+  void ExpandAllGroupsForTest() {
+    for (Group& group : timeline_data_.groups) {
+      group.expanded = true;
+    }
+    UpdateLevelPositions(timeline_data_);
+  }
+
  protected:
   // Virtual method to allow mocking in tests.
   virtual ImVec2 GetTextSize(absl::string_view text) const {
@@ -838,6 +903,8 @@ class Timeline {
   void DrawEventName(absl::string_view event_name, const EventRect& rect,
                      ImDrawList* absl_nonnull draw_list,
                      ImU32 text_color) const;
+  void DrawEventTextOnly(int event_index, const EventRect& rect,
+                         ImDrawList* absl_nonnull draw_list) const;
 
   void DrawCounterTooltip(int group_index, const CounterData& counter_data,
                           double px_per_time_unit_val, const ImVec2& pos,
@@ -946,6 +1013,11 @@ class Timeline {
 
   void RebuildEntryColors();
   void BuildLevelMipPyramids();
+  void CompactTimelineDataToMipOverview();
+  static void ReleaseEntryMemory(FlameChartTimelineData& d);
+  void UploadGpuFlameInstances();
+  bool HasGpuFlameInstanceBuffer() const;
+  void AddGpuFlameBatch(ImDrawList* draw_list, const GpuFlameBatch& batch);
   ImU32 GetEventColor(int event_index) const;
 
   // Private static constants.
@@ -992,10 +1064,12 @@ class Timeline {
   struct LevelMipLevel {
     Microseconds bin_width_us = 0.0;
     std::vector<LevelMipTile> tiles;
+    uint32_t gpu_instance_offset = 0;
   };
   struct LevelMipPyramid {
     static constexpr int kNumMipLevels = 3;
     LevelMipLevel levels[kNumMipLevels];
+    uint32_t raw_gpu_instance_offset = UINT32_MAX;
 
     int SelectMipLevel(Microseconds max_bin_width_us) const {
       for (int m = kNumMipLevels - 1; m >= 0; --m) {
@@ -1046,6 +1120,29 @@ class Timeline {
                                           Microseconds proc_span, int num_bins,
                                           ProcessUtilizationMip& pmip) const;
   std::vector<ProcessUtilizationPyramid> process_utilization_pyramids_;
+
+  struct CachedGpuFlameInstance {
+    float start_hi = 0.0f;
+    float start_lo = 0.0f;
+    float duration = 0.0f;
+    uint32_t color = 0;
+  };
+  std::vector<CachedGpuFlameInstance> gpu_flame_instances_;
+  std::vector<GpuFlameBatch> emitted_gpu_flame_batches_;
+  bool force_gpu_flame_batch_mode_for_test_ = false;
+
+  struct SavedFullOverview {
+    FlameChartTimelineData data;
+    std::vector<ImU32> entry_colors;
+    uint64_t cached_trace_colors_version = std::numeric_limits<uint64_t>::max();
+    std::vector<LevelMipPyramid> level_mip_pyramids;
+    std::vector<ProcessUtilizationPyramid> process_utilization_pyramids;
+    std::vector<CachedGpuFlameInstance> gpu_flame_instances;
+    TimeRange fetched_data_time_range = TimeRange::Zero();
+  };
+  std::optional<SavedFullOverview> saved_full_overview_;
+  bool is_full_overview_data_ = false;
+  bool stash_full_overview_on_next_update_ = false;
 
   // TODO - b/444026851: Set the label width based on the real screen width.
   Pixel label_width_ = kDefaultLabelWidth;
@@ -1154,6 +1251,10 @@ class Timeline {
   // Initialize to true to prevent sending request in the initial load where
   // JS side is already fetching the data.
   bool is_incremental_loading_ = true;
+  bool full_trace_loaded_ = false;
+  bool is_compacted_ = false;
+  bool window_at_full_resolution_ = false;
+  size_t max_uncompacted_overview_entries_ = 200000;
 
   bool incremental_fetch_enabled_ = true;
 

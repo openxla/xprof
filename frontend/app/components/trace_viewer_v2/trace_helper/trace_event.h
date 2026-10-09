@@ -37,6 +37,8 @@ enum class Phase : char {
   kComplete = 'X',
   kCounter = 'C',
   kMetadata = 'M',
+  kDurationBegin = 'B',
+  kDurationEnd = 'E',
   kAsyncBegin = 'b',
   kAsyncEnd = 'e',
   kFlowStart = 's',

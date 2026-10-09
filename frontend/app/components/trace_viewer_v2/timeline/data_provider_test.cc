@@ -6291,5 +6291,64 @@ TEST_F(DataProviderTest,
   EXPECT_EQ(args.at(std::string(kHloOp)), "fusion.1");
   EXPECT_EQ(args.at(std::string(kHloModule)), "jit_train(42)");
 }
+
+TEST_F(DataProviderTest, SelectedEventSurvivesProcessTraceEventsUpdate) {
+  ParsedTraceEvents initial_events;
+  initial_events.flame_events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process A"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 101, "Thread 1"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "op_alpha",
+       .ts = 10.0,
+       .dur = 20.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "op_beta",
+       .ts = 50.0,
+       .dur = 40.0},
+  };
+  data_provider_.ProcessTraceEvents(initial_events, timeline_);
+
+  ASSERT_THAT(timeline_.timeline_data().entry_names, SizeIs(2));
+  const int initial_beta_idx =
+      timeline_.timeline_data().entry_names[0] == "op_beta" ? 0 : 1;
+  ASSERT_EQ(timeline_.timeline_data().entry_names[initial_beta_idx], "op_beta");
+  timeline_.RevealEvent(initial_beta_idx);
+  ASSERT_EQ(timeline_.selected_event_index(), initial_beta_idx);
+
+  ParsedTraceEvents updated_events;
+  updated_events.flame_events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process A"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 101, "Thread 1"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "op_zero",
+       .ts = 1.0,
+       .dur = 5.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "op_alpha",
+       .ts = 10.0,
+       .dur = 20.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "op_beta",
+       .ts = 50.0,
+       .dur = 40.0},
+  };
+  data_provider_.ProcessTraceEvents(updated_events, timeline_);
+
+  const int new_selected_idx = timeline_.selected_event_index();
+  ASSERT_GE(new_selected_idx, 0);
+  ASSERT_LT(new_selected_idx,
+            static_cast<int>(timeline_.timeline_data().entry_names.size()));
+  EXPECT_EQ(timeline_.timeline_data().entry_names[new_selected_idx], "op_beta");
+}
 }  // namespace
 }  // namespace traceviewer

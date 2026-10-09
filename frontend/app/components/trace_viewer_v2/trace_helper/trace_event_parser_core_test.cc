@@ -615,5 +615,98 @@ TEST(TraceEventParserCoreTest, ProcessAsyncEventsMultipleSeriesWithFlowEvents) {
             tsl::profiler::ContextType::kGeneric);
 }
 
+TEST(TraceEventParserCoreTest,
+     ProcessCompleteEventSeriesSliceDecodesOpenSpanPhasesAndFiltersRange) {
+  constexpr uint64_t kDurationPhaseBeginBit = 1ULL << 61;
+  constexpr uint64_t kDurationPhaseEndBit = 1ULL << 62;
+
+  std::vector<std::string> interned = {"", "while_loop", "body_op", "late_op"};
+  xprof::TraceEventSeries series;
+  series.mutable_metadata()->set_process_id(1);
+  series.mutable_metadata()->set_thread_id(10);
+
+  // Event 0: open-span begin at 1000 us, partial duration 500 us.
+  series.add_deltas(1000000000ULL);
+  series.add_durations(500000000ULL | kDurationPhaseBeginBit);
+  series.add_name_refs(1);
+  series.add_event_metadata()->set_serial(10);
+
+  // Event 1: complete event at 1100 us, duration 200 us.
+  series.add_deltas(100000000ULL);
+  series.add_durations(200000000ULL);
+  series.add_name_refs(2);
+  series.add_event_metadata()->set_serial(11);
+
+  // Event 2: open-span end at 2500 us, full duration 1500 us.
+  series.add_deltas(1400000000ULL);
+  series.add_durations(1500000000ULL | kDurationPhaseEndBit);
+  series.add_name_refs(1);
+  series.add_event_metadata()->set_serial(12);
+
+  // Event 3: complete event at 5000 us, duration 100 us (outside filter range).
+  series.add_deltas(2500000000ULL);
+  series.add_durations(100000000ULL);
+  series.add_name_refs(3);
+  series.add_event_metadata()->set_serial(13);
+
+  ParsedTraceEvents sliced;
+  uint64_t current_ts_ps = 0;
+  const size_t step1 = ProcessCompleteEventSeriesSlice(series, interned, 0, 2,
+                                                       current_ts_ps, sliced);
+  EXPECT_EQ(step1, 2u);
+  ASSERT_EQ(sliced.flame_events.size(), 2u);
+  EXPECT_EQ(sliced.flame_events[0].ph, Phase::kDurationBegin);
+  EXPECT_DOUBLE_EQ(sliced.flame_events[0].ts, 1000.0);
+  EXPECT_DOUBLE_EQ(sliced.flame_events[0].dur, 500.0);
+  EXPECT_EQ(sliced.flame_events[1].ph, Phase::kComplete);
+
+  const size_t step2 = ProcessCompleteEventSeriesSlice(
+      series, interned, 2, 2, current_ts_ps, sliced,
+      std::make_pair(0ULL, 3000000000ULL));
+  EXPECT_EQ(step2, 2u);
+  ASSERT_EQ(sliced.flame_events.size(), 3u);
+  EXPECT_EQ(sliced.flame_events[2].ph, Phase::kDurationEnd);
+  EXPECT_DOUBLE_EQ(sliced.flame_events[2].ts, 2500.0);
+  EXPECT_DOUBLE_EQ(sliced.flame_events[2].dur, 1500.0);
+}
+
+TEST(TraceEventParserCoreTest,
+     ProcessOverviewSampledSeriesSliceCoalescesDenseLeafBursts) {
+  std::vector<std::string> interned = {"", "parent_step", "sc_sub_us_op"};
+  xprof::TraceEventSeries series;
+  series.mutable_metadata()->set_process_id(2);
+  series.mutable_metadata()->set_thread_id(20);
+
+  // Parent event covering [1000 us, 3000 us] (duration 2000 us).
+  series.add_deltas(1000000000ULL);
+  series.add_durations(2000000000ULL);
+  series.add_name_refs(1);
+  series.add_event_metadata()->set_serial(1);
+
+  // 200 closely packed 0.5 us leaf events inside [1000 us, 1120 us].
+  for (int i = 0; i < 200; ++i) {
+    series.add_deltas(i == 0 ? 0ULL : 600000ULL);  // +0.6 us stride
+    series.add_durations(500000ULL);               // 0.5 us duration
+    series.add_name_refs(2);
+    series.add_event_metadata()->set_serial(static_cast<uint32_t>(100 + i));
+  }
+
+  ParsedTraceEvents result;
+  uint64_t current_ts_ps = 0;
+  bool did_coalesce = false;
+  const size_t processed = ProcessOverviewSampledSeriesSlice(
+      series, interned, 0, static_cast<size_t>(series.deltas_size()),
+      current_ts_ps, result, did_coalesce);
+
+  EXPECT_EQ(processed, 201u);
+  EXPECT_TRUE(did_coalesce);
+  ASSERT_GT(result.flame_events.size(), 2u);
+  EXPECT_LT(result.flame_events.size(), 150u);
+  // Parent event is preserved intact at index 0.
+  EXPECT_EQ(result.flame_events[0].name, "parent_step");
+  EXPECT_DOUBLE_EQ(result.flame_events[0].ts, 1000.0);
+  EXPECT_DOUBLE_EQ(result.flame_events[0].dur, 2000.0);
+}
+
 }  // namespace
 }  // namespace traceviewer

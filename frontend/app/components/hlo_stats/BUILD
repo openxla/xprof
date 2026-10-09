@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "hlo_stats",
     srcs = [
         "hlo_stats.ts",
-        "hlo_stats_module.ts",
     ],
     assets = [
         ":hlo_stats_css",

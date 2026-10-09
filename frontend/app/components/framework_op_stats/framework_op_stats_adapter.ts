@@ -1,26 +1,42 @@
-import {Component, inject, NgModule, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  inject,
+  OnDestroy,
+} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {DataRequestType} from 'org_xprof/frontend/app/common/constants/enums';
-import {FrameworkOpStatsModule} from 'org_xprof/frontend/app/components/framework_op_stats/framework_op_stats_module';
-import {DATA_SERVICE_INTERFACE_TOKEN, type DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
-import {setCurrentToolStateAction, setDataRequestStateAction} from 'org_xprof/frontend/app/store/actions';
+import {
+  DATA_SERVICE_INTERFACE_TOKEN,
+  type DataServiceV2Interface,
+} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {
+  setCurrentToolStateAction,
+  setDataRequestStateAction,
+} from 'org_xprof/frontend/app/store/actions';
 import * as actions from 'org_xprof/frontend/app/store/framework_op_stats/actions';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {FrameworkOpStats} from './framework_op_stats';
 
 /** An overview adapter component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'framework-op-stats-adapter',
   template:
-      '<framework-op-stats [sessionId]="sessionId" [tool]="tool" [host]="host"></framework-op-stats>',
+    '<framework-op-stats [sessionId]="sessionId" [tool]="tool" [host]="host"></framework-op-stats>',
+  imports: [FrameworkOpStats],
 })
 export class FrameworkOpStatsAdapter implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly destroyed = new ReplaySubject<void>(1);
-  private readonly dataService: DataServiceV2Interface =
-      inject(DATA_SERVICE_INTERFACE_TOKEN);
+  private readonly dataService: DataServiceV2Interface = inject(
+    DATA_SERVICE_INTERFACE_TOKEN,
+  );
 
   sessionId = '';
   diffBaseSessionId = '';
@@ -28,36 +44,36 @@ export class FrameworkOpStatsAdapter implements OnDestroy {
   host = '';
 
   constructor(
-      route: ActivatedRoute,
-      private readonly store: Store<{}>,
+    route: ActivatedRoute,
+    private readonly store: Store<{}>,
   ) {
     combineLatest([route.params, route.queryParams])
-        .pipe(takeUntil(this.destroyed))
-        .subscribe(([params, queryParams]) => {
-          this.sessionId = params['sessionId'] || this.sessionId;
-          this.processQueryParams(queryParams);
-          this.store.dispatch(
-              actions.setHasDiffAction(
-                  {hasDiff: Boolean(this.diffBaseSessionId)}),
-          );
-          this.update();
-        });
+      .pipe(takeUntil(this.destroyed))
+      .subscribe(([params, queryParams]) => {
+        this.sessionId = params['sessionId'] || this.sessionId;
+        this.processQueryParams(queryParams);
+        this.store.dispatch(
+          actions.setHasDiffAction({hasDiff: Boolean(this.diffBaseSessionId)}),
+        );
+        this.update();
+        this.cdr.markForCheck();
+      });
     this.store.dispatch(
-        setCurrentToolStateAction({currentTool: 'framework_op_stats'}),
+      setCurrentToolStateAction({currentTool: 'framework_op_stats'}),
     );
     this.store.dispatch(actions.setTitleAction({title: 'Notes'}));
     this.store.dispatch(
-        actions.setShowFlopRateChartAction({showFlopRateChart: true}),
+      actions.setShowFlopRateChartAction({showFlopRateChart: true}),
     );
     this.store.dispatch(
-        actions.setShowModelPropertiesAction({showModelProperties: true}),
+      actions.setShowModelPropertiesAction({showModelProperties: true}),
     );
   }
 
   processQueryParams(params: Params) {
     this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
     this.diffBaseSessionId =
-        this.dataService.getSearchParams().get('diff_base') || '';
+      this.dataService.getSearchParams().get('diff_base') || '';
     this.host = params['host'] || this.host;
   }
 
@@ -72,9 +88,9 @@ export class FrameworkOpStatsAdapter implements OnDestroy {
       sessionId: this.sessionId,
     };
     this.store.dispatch(
-        setDataRequestStateAction({
-          dataRequest: {type: DataRequestType.TENSORFLOW_STATS, params},
-        }),
+      setDataRequestStateAction({
+        dataRequest: {type: DataRequestType.TENSORFLOW_STATS, params},
+      }),
     );
 
     if (Boolean(this.diffBaseSessionId)) {
@@ -83,9 +99,9 @@ export class FrameworkOpStatsAdapter implements OnDestroy {
         sessionId: this.diffBaseSessionId,
       };
       this.store.dispatch(
-          setDataRequestStateAction({
-            dataRequest: {type: DataRequestType.TENSORFLOW_STATS_DIFF, params},
-          }),
+        setDataRequestStateAction({
+          dataRequest: {type: DataRequestType.TENSORFLOW_STATS_DIFF, params},
+        }),
       );
     }
   }
@@ -97,10 +113,4 @@ export class FrameworkOpStatsAdapter implements OnDestroy {
   }
 }
 
-@NgModule({
-  declarations: [FrameworkOpStatsAdapter],
-  imports: [FrameworkOpStatsModule],
-  exports: [FrameworkOpStatsAdapter],
-})
-export class FrameworkOpStatsAdapterModule {
-}
+/** An adapter module for FrameworkOpStats. */

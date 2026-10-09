@@ -6,7 +6,7 @@ import {CaptureKernelDialog} from './capture_kernel_dialog/capture_kernel_dialog
 
 /** A capture kernel view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: true,
   selector: 'capture-kernel',
   templateUrl: './capture_kernel.ng.html',

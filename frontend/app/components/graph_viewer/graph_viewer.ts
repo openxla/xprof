@@ -1,14 +1,38 @@
+import {CommonModule} from '@angular/common';
+import {FormsModule} from '@angular/forms';
+import {MatButtonModule} from '@angular/material/button';
+import {MatCheckboxModule} from '@angular/material/checkbox';
+import {MatChipsModule} from '@angular/material/chips';
+import {MatOptionModule} from '@angular/material/core';
+import {MatExpansionModule} from '@angular/material/expansion';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatIconModule} from '@angular/material/icon';
+import {MatInputModule} from '@angular/material/input';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
+import {MatSelectModule} from '@angular/material/select';
+import {MatSidenavModule} from '@angular/material/sidenav';
+import {MatSnackBarModule} from '@angular/material/snack-bar';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import 'org_xprof/frontend/app/common/interfaces/window';
+import {DownloadHlo} from 'org_xprof/frontend/app/components/controls/download_hlo/download_hlo';
+import {SearchableDropdown} from 'org_xprof/frontend/app/components/controls/searchable_dropdown/searchable_dropdown';
+import {DiagnosticsView} from 'org_xprof/frontend/app/components/diagnostics_view/diagnostics_view';
+import {HloTextView} from 'org_xprof/frontend/app/components/graph_viewer/hlo_text_view/hlo_text_view';
+import {OpDetails} from 'org_xprof/frontend/app/components/op_profile/op_details/op_details';
+import {SourceMapper} from 'org_xprof/frontend/app/components/source_mapper/source_mapper';
+import {SafePipe} from 'org_xprof/frontend/app/pipes/safe_pipe';
 
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   ElementRef,
   inject,
   Injector,
   NgZone,
   OnDestroy,
-  ViewChild,
+  viewChild,
 } from '@angular/core';
 import {MatSnackBar} from '@angular/material/snack-bar';
 import {ActivatedRoute, Params, Router} from '@angular/router';
@@ -58,8 +82,33 @@ interface DefaultGraphOption {
 
 /** A graph viewer component. */
 @Component({
+  standalone: true,
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  imports: [
+    CommonModule,
+    DiagnosticsView,
+    FormsModule,
+    MatButtonModule,
+    MatCheckboxModule,
+    MatFormFieldModule,
+    MatIconModule,
+    MatInputModule,
+    MatOptionModule,
+    MatProgressBarModule,
+    MatSelectModule,
+    MatSidenavModule,
+    SafePipe,
+    SearchableDropdown,
+    HloTextView,
+    OpDetails,
+    MatProgressSpinnerModule,
+    MatSnackBarModule,
+    DownloadHlo,
+    MatExpansionModule,
+    SourceMapper,
+    MatChipsModule,
+    MatTooltipModule,
+  ],
   selector: 'graph-viewer',
   templateUrl: './graph_viewer.ng.html',
   styleUrls: ['./graph_viewer.scss'],
@@ -73,8 +122,7 @@ export class GraphViewer implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
 
-  @ViewChild('iframe', {static: false})
-  graphRef!: ElementRef<HTMLIFrameElement>;
+  readonly graphRef = viewChild<ElementRef<HTMLIFrameElement>>('iframe');
 
   sessionId = '';
   host = '';
@@ -121,13 +169,14 @@ export class GraphViewer implements OnDestroy {
   programIdForSourceMapper = '';
   opCategoryForSourceMapper = '';
 
-  constructor(
-    public zone: NgZone,
-    private readonly route: ActivatedRoute,
-    private readonly store: Store<{}>,
-    private readonly router: Router,
-    private readonly snackBar: MatSnackBar,
-  ) {
+  readonly zone = inject(NgZone);
+  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly route = inject(ActivatedRoute);
+  private readonly store = inject<Store<{}>>(Store);
+  private readonly router = inject(Router);
+  private readonly snackBar = inject(MatSnackBar);
+
+  constructor() {
     combineLatest([this.route.params, this.route.queryParams])
       .pipe(takeUntil(this.destroyed))
       .subscribe(async ([params, queryParams]) => {
@@ -143,6 +192,7 @@ export class GraphViewer implements OnDestroy {
         // Any graph viewer url query param change should trigger a potential
         // reload
         this.onPlot();
+        this.cdr.detectChanges();
       });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
 
@@ -158,6 +208,7 @@ export class GraphViewer implements OnDestroy {
       .pipe(takeUntil(this.destroyed))
       .subscribe((isAvailable) => {
         this.sourceCodeServiceIsAvailable = isAvailable;
+        this.cdr.markForCheck();
       });
   }
 
@@ -200,6 +251,7 @@ export class GraphViewer implements OnDestroy {
     );
     if (types) {
       this.graphTypes = types;
+      this.cdr.detectChanges();
     }
   }
 
@@ -236,9 +288,11 @@ export class GraphViewer implements OnDestroy {
         }
       }
       this.loadingModuleList = false;
+      this.cdr.detectChanges();
     } catch (error) {
       this.throbber.stop();
       this.loadingModuleList = false;
+      this.cdr.detectChanges();
       // Handle error appropriately
       console.error('Error loading module list:', error);
     }
@@ -347,6 +401,7 @@ export class GraphViewer implements OnDestroy {
             );
           }
           this.loadingOpProfileLight = false;
+          this.cdr.markForCheck();
         });
     } else {
       this.defaultGraphOptions = [];
@@ -386,14 +441,16 @@ export class GraphViewer implements OnDestroy {
       }
       this.loadingOpProfile = false;
       this.injectRuntimeData();
+      this.cdr.detectChanges();
     } catch (error) {
       this.loadingOpProfile = false;
+      this.cdr.detectChanges();
       console.error('Error loading HLO op profile data:', error);
     }
   }
 
   installEventListeners() {
-    const doc: Document | null = this.getGraphIframeDocument();
+    const doc = this.getGraphIframeDocument();
     if (!doc) return;
 
     const nodeElements = Array.from(doc.getElementsByClassName('node'));
@@ -602,7 +659,7 @@ export class GraphViewer implements OnDestroy {
     ) {
       return;
     }
-    const doc: Document | null = this.getGraphIframeDocument();
+    const doc = this.getGraphIframeDocument();
     if (!doc) return;
     const nodeElements = Array.from(doc.getElementsByClassName('node'));
     for (const e of nodeElements) {
@@ -760,10 +817,9 @@ export class GraphViewer implements OnDestroy {
         this.tryRenderGraphvizHtml(searchParams);
       }
     }, 200);
-    this.graphvizUri = this.dataService.getGraphVizUri(
-      this.sessionId,
-      searchParams,
-    ) || 'about:blank';
+    this.graphvizUri =
+      this.dataService.getGraphVizUri(this.sessionId, searchParams) ||
+      'about:blank';
     if (iframe?.contentWindow?.location) {
       locationReplace(iframe.contentWindow?.location, this.graphvizUri!);
     }
@@ -772,7 +828,7 @@ export class GraphViewer implements OnDestroy {
   }
 
   getGraphIframeDocument() {
-    return this.graphRef?.nativeElement?.contentDocument;
+    return this.graphRef()?.nativeElement?.contentDocument;
   }
 
   graphIframeLoaded() {
@@ -793,6 +849,7 @@ export class GraphViewer implements OnDestroy {
       errors: [...(diagnostics?.errors || [])],
       warnings: [...(diagnostics?.warnings || [])],
     };
+    this.cdr.detectChanges();
   }
 
   clearGraphIframeHtml() {
@@ -809,7 +866,8 @@ export class GraphViewer implements OnDestroy {
       return;
     } else {
       this.loadingGraph = false;
-      const iframe = this.graphRef?.nativeElement as HTMLIFrameElement;
+      this.cdr.detectChanges();
+      const iframe = this.graphRef()?.nativeElement as HTMLIFrameElement;
       const htmlSize =
         iframe?.contentDocument?.documentElement?.innerHTML?.length || 0;
       if (htmlSize > GRAPH_HTML_THRESHOLD) {

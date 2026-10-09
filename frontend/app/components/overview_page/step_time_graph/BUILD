@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "step_time_graph",
     srcs = [
         "step_time_graph.ts",
-        "step_time_graph_module.ts",
     ],
     assets = [
         ":step_time_graph_css",

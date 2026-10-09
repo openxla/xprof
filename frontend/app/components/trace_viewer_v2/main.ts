@@ -176,6 +176,11 @@ declare global {
    * off. Hover highlighting, hover events and selection are unaffected.
    */
   SetEventTooltipEnabled?(enabled: boolean): void;
+  // Sets the visible time range of the timeline. Both arguments are in
+  // microseconds. Registered as a module-level Emscripten function (see
+  // `SetVisibleRange` in application.cc). Used by the Live Trace Viewer to
+  // auto-follow the newest sliding window as streaming data arrives.
+  setVisibleRange(startUs: number, endUs: number): void;
   canvas: HTMLCanvasElement;
   callMain(args: string[]): void;
   preinitializedWebGPUDevice: GPUDevice | null;

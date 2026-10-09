@@ -1,4 +1,4 @@
-<div class="counter-selection-container" [class.compact]="density === 'compact'">
+<div class="counter-selection-container" [class.compact]="density() === 'compact'">
   <div class="main-layout">
     <div class="scrollable-content selection-pane">
       <div class="search-header">
@@ -25,7 +25,7 @@
             </mat-panel-title>
           </mat-expansion-panel-header>
 
-          <div class="counters-grid" [class.list-layout]="layout === 'list'" [class.column-layout]="layout === 'columns'">
+          <div class="counters-grid" [class.list-layout]="layout() === 'list'" [class.column-layout]="layout() === 'columns'">
             <div *ngFor="let counter of group.counters" class="counter-item">
               <mat-checkbox
                 [checked]="isSelected(counter.id)"

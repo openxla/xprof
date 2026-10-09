@@ -1,5 +1,10 @@
 import {EventEmitter} from '@angular/core';
-import {ChartClass, ChartDataProvider, ChartOptions, DataTableOrDataView} from 'org_xprof/frontend/app/common/interfaces/chart';
+import {
+  ChartClass,
+  ChartDataProvider,
+  ChartOptions,
+  DataTableOrDataView,
+} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 /** A default chart data provider. */
@@ -15,10 +20,11 @@ export class DefaultDataProvider implements ChartDataProvider {
     this.chart = chart;
   }
 
-  parseData(data: SimpleDataTable|Array<Array<(string | number)>>|null) {
-    if (data) {
-      this.dataTable =
-          new google.visualization.DataTable(data as SimpleDataTable);
+  parseData(data: SimpleDataTable | Array<Array<string | number>> | null) {
+    if (data && typeof google !== 'undefined' && google.visualization) {
+      this.dataTable = new google.visualization.DataTable(
+        data as SimpleDataTable,
+      );
     }
   }
 
@@ -34,7 +40,7 @@ export class DefaultDataProvider implements ChartDataProvider {
     this.filters = filters;
   }
 
-  process(): DataTableOrDataView|null {
+  process(): DataTableOrDataView | null {
     if (!this.dataTable) {
       return null;
     }
@@ -56,15 +62,15 @@ export class DefaultDataProvider implements ChartDataProvider {
     return dataView;
   }
 
-  getChart(): ChartClass|null {
+  getChart(): ChartClass | null {
     return this.chart || null;
   }
 
-  getDataTable(): google.visualization.DataTable|null {
+  getDataTable(): google.visualization.DataTable | null {
     return this.dataTable ? this.dataTable : null;
   }
 
-  getOptions(): ChartOptions|null {
+  getOptions(): ChartOptions | null {
     return null;
   }
 
@@ -79,7 +85,9 @@ export class DefaultDataProvider implements ChartDataProvider {
 
 /** A chart data provider that accepts array data. */
 export class ArrayDataProvider extends DefaultDataProvider {
-  override parseData(data: SimpleDataTable|Array<Array<(string | number)>>|null) {
+  override parseData(
+    data: SimpleDataTable | Array<Array<string | number>> | null,
+  ) {
     if (data) {
       /* tslint:disable no-any */
       this.dataTable = google.visualization.arrayToDataTable(data as any[]);
@@ -97,9 +105,9 @@ export class ReplicaGroupDataProvider extends DefaultDataProvider {
   // Ex. all-reduce, all-gather, etc
   communicationOps = new Set();
   // Column indexes
-  opCategoryIndex?: number;  // 'category' column
-  hloOpNameIndex?: number;   // 'hlo_op_expression' column
-  selfTimeIndex?: number;    // 'total_self_time' column
+  opCategoryIndex?: number; // 'category' column
+  hloOpNameIndex?: number; // 'hlo_op_expression' column
+  selfTimeIndex?: number; // 'total_self_time' column
 
   override parseData(data: SimpleDataTable) {
     const rowWithReplicaGroups: google.visualization.DataObjectRow[] = [];
@@ -115,8 +123,11 @@ export class ReplicaGroupDataProvider extends DefaultDataProvider {
       if (data.cols[i].id === 'total_self_time') this.selfTimeIndex = i;
     }
 
-    if (this.opCategoryIndex === undefined ||
-        this.hloOpNameIndex === undefined || this.selfTimeIndex === undefined) {
+    if (
+      this.opCategoryIndex === undefined ||
+      this.hloOpNameIndex === undefined ||
+      this.selfTimeIndex === undefined
+    ) {
       return;
     }
 
@@ -130,8 +141,9 @@ export class ReplicaGroupDataProvider extends DefaultDataProvider {
 
         if (typeof hloOpName !== 'string') return;
 
-        const hasReplicaGroup =
-            hloOpName.match(/replica_groups={({(\d,?)+},?)*}/);
+        const hasReplicaGroup = hloOpName.match(
+          /replica_groups={({(\d,?)+},?)*}/,
+        );
 
         if (hasReplicaGroup !== null) {
           const newRow = {c: [...row.c]};
@@ -149,7 +161,10 @@ export class ReplicaGroupDataProvider extends DefaultDataProvider {
       }
     }
 
-    this.dataTable = new google.visualization.DataTable(
-        {cols: data.cols, rows: rowWithReplicaGroups, p: data.p});
+    this.dataTable = new google.visualization.DataTable({
+      cols: data.cols,
+      rows: rowWithReplicaGroups,
+      p: data.p,
+    });
   }
 }

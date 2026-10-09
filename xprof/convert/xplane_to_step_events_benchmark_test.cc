@@ -1,55 +1,123 @@
-/* Copyright 2025 The TensorFlow Authors. All Rights Reserved.
+#include "xprof/convert/xplane_to_step_events.h"
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-==============================================================================*/
-
-#include "xprof/convert/xspace_to_event_time_fraction_analyzer.h"
-
+#include <algorithm>
 #include <cstdint>
 #include <iterator>
-#include <numeric>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "absl/container/btree_map.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/log/check.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
-#include "google/protobuf/arena.h"
-#include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/timespan.h"
+#include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
-#include "xprof/convert/repository.h"
-#include "xprof/convert/xplane_to_step_events.h"
+#include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/file_utils.h"
+#include "xprof/convert/xspace_to_event_time_fraction_analyzer.h"
 #include "plugin/xprof/protobuf/event_time_fraction_analyzer.pb.h"
 #include "xprof/utils/event_span.h"
 
 namespace tensorflow {
 namespace profiler {
+namespace {
 
-// TODO(zhuruiyang): 1P SS also uses the same logic to process the Xspace to get
-// the event time fraction. We will make 1P reuse this library in the future.
+using ::tsl::profiler::StatType;
+using ::tsl::profiler::XEventBuilder;
+using ::tsl::profiler::XLineBuilder;
+using ::tsl::profiler::XPlaneBuilder;
+using ::tsl::profiler::XStatsBuilder;
+
+// Helper to create a synthetic TPU plane with a step line and an op line.
+XPlane CreateSyntheticTpuPlane(int64_t num_ops, int64_t num_steps = 10) {
+  XPlane raw_plane;
+  XPlaneBuilder plane(&raw_plane);
+  int64_t device_id = 0;
+  plane.SetId(device_id);
+  plane.SetName("/device:TPU:0");
+
+  XLineBuilder step_line = plane.GetOrCreateLine(0);
+  step_line.SetName(tsl::profiler::kStepLineName);
+
+  XLineBuilder op_line = plane.GetOrCreateLine(1);
+  op_line.SetName(tsl::profiler::kXlaOpLineName);
+
+  const XStatMetadata& program_id_stat =
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kProgramId));
+  const XStatMetadata& symbol_id_stat =
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kSymbolId));
+  const XStatMetadata& group_id_stat =
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kGroupId));
+  const XStatMetadata& duration_stat = *plane.GetOrCreateStatMetadata(
+      GetStatTypeStr(StatType::kDeviceDurationPs));
+
+  constexpr uint64_t kStepDurationPs = 100000000ULL;  // 100 us
+  constexpr int kNumDistinctOps = 100;
+  std::vector<XEventMetadata*> op_metadata(kNumDistinctOps);
+  for (int i = 0; i < kNumDistinctOps; ++i) {
+    op_metadata[i] =
+        plane.GetOrCreateEventMetadata(absl::StrCat("op_symbol_", i));
+    op_metadata[i]->set_display_name(absl::StrCat("op_", i));
+    XStatsBuilder<XEventMetadata> stats(op_metadata[i], &plane);
+    stats.AddStatValue(program_id_stat, 1);
+    stats.AddStatValue(symbol_id_stat, i);
+  }
+
+  int64_t ops_per_step = std::max<int64_t>(1, num_ops / num_steps);
+  uint64_t op_duration_ps = kStepDurationPs / ops_per_step;
+
+  for (int64_t step = 1; step <= num_steps; ++step) {
+    uint64_t step_offset_ps = (step - 1) * kStepDurationPs;
+    {
+      XEventMetadata* step_meta = plane.CreateEventMetadata();
+      XEventBuilder step_event = step_line.AddEvent(*step_meta);
+      step_event.SetOffsetPs(step_offset_ps);
+      step_event.SetDurationPs(kStepDurationPs);
+      step_event.AddStatValue(group_id_stat, step);
+    }
+
+    for (int64_t op_idx = 0; op_idx < ops_per_step; ++op_idx) {
+      int meta_idx = op_idx % kNumDistinctOps;
+      XEventBuilder op_event = op_line.AddEvent(*op_metadata[meta_idx]);
+      op_event.SetOffsetPs(step_offset_ps + op_idx * op_duration_ps);
+      op_event.SetDurationPs(op_duration_ps);
+      op_event.AddStatValue(group_id_stat, step);
+      op_event.AddStatValue(duration_stat, op_duration_ps);
+    }
+  }
+
+  return raw_plane;
+}
+
+// Helper to create a synthetic TPU XSpace with multiple TPU cores.
+XSpace CreateSyntheticTpuSpace(int64_t num_ops_per_core, int num_cores = 4) {
+  XSpace space;
+  for (int core = 0; core < num_cores; ++core) {
+    XPlane* plane = space.add_planes();
+    *plane = CreateSyntheticTpuPlane(num_ops_per_core);
+    plane->set_id(core);
+    plane->set_name(absl::StrCat("/device:TPU:", core));
+  }
+  return space;
+}
+
+// Reimplementation of ConvertXSpaceToEventTimeFractionAnalyzerResults before
+// CL 992579135 which parsed full device step events (collect_op_metrics=true).
 absl::StatusOr<EventTimeFractionAnalyzerResults>
-ConvertXSpaceToEventTimeFractionAnalyzerResults(
+ConvertXSpaceToEventTimeFractionAnalyzerResultsBefore(
     const XSpace& xspace, absl::Span<const std::string> target_event_names) {
   if (target_event_names.empty()) {
     std::vector<std::string> wildcard = {""};
-    return ConvertXSpaceToEventTimeFractionAnalyzerResults(xspace, wildcard);
+    return ConvertXSpaceToEventTimeFractionAnalyzerResultsBefore(xspace,
+                                                                 wildcard);
   }
 
   EventTimeFractionAnalyzerResults results_proto;
@@ -58,7 +126,7 @@ ConvertXSpaceToEventTimeFractionAnalyzerResults(
       plane_name_to_step_events;
   for (const auto& plane : xspace.planes()) {
     plane_name_to_step_events[plane.name()] =
-        ConvertDeviceTraceXPlaneToStepMarkers(plane);
+        ConvertDeviceTraceXPlaneToStepEvents(plane);
   }
 
   for (const std::string& target_event_name : target_event_names) {
@@ -102,9 +170,6 @@ ConvertXSpaceToEventTimeFractionAnalyzerResults(
           if (!event_duration.has_value()) return;
 
           auto event_duration_ps = event_duration->UintValue();
-          // TODO(zhuruiyang): Make this check more robust (megacore check).
-          // Add a special check for barrier-cores events, skip when
-          // event_duration_ps is 0 ns or 1.250 ns (dummy value).
           if (target_event_name == "barrier-cores" &&
               (event_duration_ps == 0 || event_duration_ps == 1250)) {
             return;
@@ -117,10 +182,6 @@ ConvertXSpaceToEventTimeFractionAnalyzerResults(
       });
     }
 
-    // Heuristic to remove incomplete steps from the analysis.
-    // If there are at least 3 steps, remove the first and last steps. If there
-    // are exactly 2 steps, remove the shorter step if its duration is less than
-    // step_duration_ratio of the longer step.
     constexpr double kDefaultStepDurationRatioThreshold = 0.01;
     if (step_id_to_plane_fractions.size() >= 3) {
       step_id_to_plane_fractions.erase(step_id_to_plane_fractions.begin());
@@ -152,65 +213,11 @@ ConvertXSpaceToEventTimeFractionAnalyzerResults(
       result_proto.mutable_chip_event_time_fractions()->insert(
           {plane_name, fractions});
     }
-    if (!xspace.hostnames().empty()) {
-      std::string hostname = xspace.hostnames(0);
-      EventTimeFractionPerHost host_fractions;
-      host_fractions.set_hostname(hostname);
-      for (const auto& [step_id, plane_fractions_map] :
-           step_id_to_plane_fractions) {
-        if (plane_fractions_map.empty()) continue;
-        double sum = std::accumulate(
-            plane_fractions_map.begin(), plane_fractions_map.end(), 0.0,
-            [](double acc, const auto& plane_fraction) {
-              return acc + plane_fraction.second;
-            });
-        host_fractions.add_event_time_fractions(
-            sum / static_cast<double>(plane_fractions_map.size()));
-      }
-      result_proto.mutable_host_event_time_fractions()->insert(
-          {hostname, host_fractions});
-    }
     results_proto.mutable_results()->insert({target_event_name, result_proto});
   }
   return results_proto;
 }
 
-absl::StatusOr<EventTimeFractionAnalyzerResults>
-ConvertMultiXSpacesToEventTimeFractionAnalyzerResults(
-    const SessionSnapshot& session_snapshot,
-    absl::Span<const std::string> target_event_names) {
-  EventTimeFractionAnalyzerResults combined_results;
-  for (int i = 0; i < session_snapshot.XSpaceSize(); ++i) {
-    google::protobuf::Arena arena;
-    TF_ASSIGN_OR_RETURN(XSpace * xspace, session_snapshot.GetXSpace(i, &arena));
-    TF_ASSIGN_OR_RETURN(EventTimeFractionAnalyzerResults results,
-                        ConvertXSpaceToEventTimeFractionAnalyzerResults(
-                            *xspace, target_event_names));
-    for (const auto& [target_event_name, result] : results.results()) {
-      auto* combined_result =
-          &(*combined_results.mutable_results())[target_event_name];
-      for (const auto& [chip_id, fractions] :
-           result.chip_event_time_fractions()) {
-        auto& combined_fractions =
-            (*combined_result->mutable_chip_event_time_fractions())[chip_id];
-        combined_fractions.set_id(chip_id);
-        combined_fractions.mutable_event_time_fractions()->Add(
-            fractions.event_time_fractions().begin(),
-            fractions.event_time_fractions().end());
-      }
-      for (const auto& [host_name, fractions] :
-           result.host_event_time_fractions()) {
-        auto& combined_fractions =
-            (*combined_result->mutable_host_event_time_fractions())[host_name];
-        combined_fractions.set_hostname(host_name);
-        combined_fractions.mutable_event_time_fractions()->Add(
-            fractions.event_time_fractions().begin(),
-            fractions.event_time_fractions().end());
-      }
-    }
-  }
-  return combined_results;
-}
-
+}  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

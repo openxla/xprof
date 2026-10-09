@@ -28,7 +28,6 @@ limitations under the License.
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
-#include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/timespan.h"
@@ -414,7 +413,8 @@ StepEvents ConvertTpuDeviceTraceXLineToStepEvents(const uint64_t device_id,
   return result;
 }
 
-StepEvents ConvertDeviceTraceXPlaneToStepEvents(const XPlane& device_trace) {
+StepEvents ConvertDeviceTraceXPlaneToStepEventsWithOptions(
+    const XPlane& device_trace, const DeviceStepEventsOptions& options) {
   XPlaneVisitor plane = tsl::profiler::CreateTfXPlaneVisitor(&device_trace);
   std::optional<int> tpu_core_id = tsl::profiler::GetTensorCoreId(plane.Name());
   std::optional<int> sc_core_id = tsl::profiler::GetSparseCoreId(plane.Name());
@@ -436,7 +436,7 @@ StepEvents ConvertDeviceTraceXPlaneToStepEvents(const XPlane& device_trace) {
       step_markers = ConvertDeviceStepInfoToStepMarkers(line, id);
     } else if (tsl::profiler::IsDerivedThreadId(line_id)) {
       return;
-    } else {
+    } else if (options.collect_op_metrics) {
       if (tpu_core_id.has_value()) {
         if (!tsl::profiler::IsOpLineName(line.Name())) return;
         // There should only be a single OpLine per TPU core.
@@ -456,10 +456,18 @@ StepEvents ConvertDeviceTraceXPlaneToStepEvents(const XPlane& device_trace) {
       }
     }
   });
+  if (!options.collect_op_metrics) {
+    return step_markers;
+  }
   if (!step_events.empty()) {
     IntersectCombineStepEvents(step_markers, &step_events);
   }
   return step_events;
+}
+
+StepEvents ConvertDeviceTraceXPlaneToStepEvents(const XPlane& device_trace) {
+  return ConvertDeviceTraceXPlaneToStepEventsWithOptions(
+      device_trace, DeviceStepEventsOptions());
 }
 
 }  // namespace profiler

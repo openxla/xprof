@@ -49,11 +49,31 @@ StepEvents ConvertHostThreadsXLineToStepEvents(
 StepEvents ConvertHostThreadsXPlaneToStepEvents(
     const XPlane& host_trace, const StepEvents* device_step_events);
 
+// Options for converting device trace XPlane to StepEvents.
+struct DeviceStepEventsOptions {
+  // Whether to collect per-core op metrics (e.g. from TPU OpLines) and GPU
+  // stream events. When false, only step markers and step times are collected,
+  // avoiding heavy OpMetricsDb construction and copying.
+  bool collect_op_metrics = true;
+};
+
 // Convert the device trace in XLine format to StepEvents.
 StepEvents ConvertDeviceTraceXLineToStepEvents(const XLineVisitor& line);
 
 // Convert the device trace in XPlane format to StepEvents.
 StepEvents ConvertDeviceTraceXPlaneToStepEvents(const XPlane& device_trace);
+
+// Convert the device trace in XPlane format to StepEvents with custom options.
+StepEvents ConvertDeviceTraceXPlaneToStepEventsWithOptions(
+    const XPlane& device_trace, const DeviceStepEventsOptions& options);
+
+// Convenience function to extract only step markers and step times from
+// device trace.
+inline StepEvents ConvertDeviceTraceXPlaneToStepMarkers(
+    const XPlane& device_trace) {
+  return ConvertDeviceTraceXPlaneToStepEventsWithOptions(
+      device_trace, DeviceStepEventsOptions{.collect_op_metrics = false});
+}
 
 }  // namespace profiler
 }  // namespace tensorflow

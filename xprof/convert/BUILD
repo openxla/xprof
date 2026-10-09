@@ -1857,6 +1857,35 @@ cc_test(
     ],
 )
 
+cc_test(
+    name = "xplane_to_step_events_benchmark_test",
+    srcs = ["xplane_to_step_events_benchmark_test.cc"],
+    data = [
+        "@org_xprof//xprof/convert/test_xplanes:gpu_training_2.xplane.pb",
+    ],
+    deps = [
+        ":file_utils",
+        ":xplane_to_step_events",
+        ":xspace_to_event_time_fraction_analyzer",
+        "//plugin/xprof/protobuf:event_time_fraction_analyzer_proto_cc",
+        "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//xprof/utils:event_span",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/profiler/utils:tf_xplane_visitor",
+        "@xla//xla/tsl/profiler/utils:timespan",
+        "@xla//xla/tsl/profiler/utils:xplane_builder",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
+        "@xla//xla/tsl/profiler/utils:xplane_visitor",
+    ],
+)
+
 cc_library(
     name = "xplane_to_kernel_stats_db",
     srcs = ["xplane_to_kernel_stats_db.cc"],

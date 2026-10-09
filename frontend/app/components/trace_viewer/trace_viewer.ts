@@ -1,4 +1,18 @@
+import {CommonModule} from '@angular/common';
+import {FormsModule} from '@angular/forms';
+import {MatAutocompleteModule} from '@angular/material/autocomplete';
+import {MatButtonModule} from '@angular/material/button';
+import {MatCheckboxModule} from '@angular/material/checkbox';
+import {MatChipsModule} from '@angular/material/chips';
+import {MatDividerModule} from '@angular/material/divider';
+import {MatIconModule} from '@angular/material/icon';
+import {MatMenuModule} from '@angular/material/menu';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import 'org_xprof/frontend/app/common/interfaces/window';
+import {SafePipe} from 'org_xprof/frontend/app/pipes/safe_pipe';
+import {FilterChips} from './filter_chips';
+import {FilterInput} from './filter_input';
 
 import {PlatformLocation} from '@angular/common';
 import {
@@ -11,7 +25,7 @@ import {
   OnDestroy,
   OnInit,
   TemplateRef,
-  ViewChild,
+  viewChild,
 } from '@angular/core';
 import {MatDialog, MatDialogRef} from '@angular/material/dialog';
 import {ActivatedRoute, Router} from '@angular/router';
@@ -93,7 +107,6 @@ import {
   STACK_TRACE_TOOL_NAME,
   TRACE_VIEWER_TOOL_NAME,
 } from './constants';
-import {FilterInput} from './filter_input';
 import {AdjacentNodesResponse} from './interfaces';
 import {
   FilterChangeEvent,
@@ -183,8 +196,25 @@ function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
 
 /** A trace viewer component. */
 @Component({
+  standalone: true,
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  imports: [
+    CommonModule,
+    FilterChips,
+    FilterInput,
+    FormsModule,
+    MatAutocompleteModule,
+    MatButtonModule,
+    MatCheckboxModule,
+    MatChipsModule,
+    MatDividerModule,
+    MatIconModule,
+    MatMenuModule,
+    MatProgressBarModule,
+    MatTooltipModule,
+    SafePipe,
+    TraceViewerContainer,
+  ],
   selector: 'trace-viewer',
   templateUrl: './trace_viewer.ng.html',
   styleUrls: ['./trace_viewer.scss'],
@@ -268,22 +298,19 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   ];
   traceDetails: TraceDetails = new Map();
 
-  @ViewChild(TraceViewerContainer, {static: false})
-  container?: TraceViewerContainer;
+  readonly container = viewChild(TraceViewerContainer);
 
-  @ViewChild('settingsDialog', {static: false})
-  settingsDialog!: TemplateRef<{}>;
+  readonly settingsDialog = viewChild<TemplateRef<{}>>('settingsDialog');
 
-  @ViewChild('paletteDialog', {static: false})
-  paletteDialog!: TemplateRef<{}>;
+  readonly paletteDialog = viewChild<TemplateRef<{}>>('paletteDialog');
 
-  @ViewChild('featureFlagsDialog', {static: false})
-  featureFlagsDialog!: TemplateRef<{}>;
+  readonly featureFlagsDialog =
+    viewChild<TemplateRef<{}>>('featureFlagsDialog');
 
-  @ViewChild('settingsButton') settingsButton!: ElementRef<HTMLButtonElement>;
+  readonly settingsButton =
+    viewChild<ElementRef<HTMLButtonElement>>('settingsButton');
 
-  @ViewChild('filterInput', {static: false})
-  filterInput?: FilterInput;
+  readonly filterInput = viewChild<FilterInput>('filterInput');
 
   settingsDialogRef: MatDialogRef<unknown> | null = null;
 
@@ -418,7 +445,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   openCustomizationSettings(): void {
-    this.container?.openCustomizationPanel();
+    this.container()?.openCustomizationPanel();
   }
 
   /**
@@ -618,7 +645,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
             ...traceData,
             traceEvents: traceData.traceEvents ?? [],
           } as MainTraceData);
-          this.container?.updateSearchResultCountText();
+          this.container()?.updateSearchResultCountText();
         }
       });
   }
@@ -952,7 +979,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
     const app = this.traceViewerModule.application.instance();
     app.setSearchQuery(query);
-    this.container?.updateSearchResultCountText();
+    this.container()?.updateSearchResultCountText();
     this.searchQuery.next(query);
   }
 
@@ -1523,8 +1550,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   onFiltersReset() {
     this.selectedFilters = [];
-    if (this.filterInput) {
-      this.filterInput.reset();
+    if (this.filterInput()) {
+      this.filterInput()?.reset();
     }
     this.refreshDataAfterFilterChange();
   }
@@ -1752,7 +1779,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     this.initialFeatureFlags = newInitialFeatureFlags;
 
     const dialogTemplate =
-      this.settingsDialog || this.paletteDialog || this.featureFlagsDialog;
+      this.settingsDialog() ||
+      this.paletteDialog() ||
+      this.featureFlagsDialog();
+    if (!dialogTemplate) return;
     const dialogRef = this.dialog.open(dialogTemplate, {
       width: '760px',
       maxWidth: '95vw',

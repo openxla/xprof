@@ -1,10 +1,10 @@
 <mat-form-field appearance="outline" class="full-width">
-  <mat-label>{{label}}</mat-label>
+  <mat-label>{{label()}}</mat-label>
   <mat-select
     panelClass="panel-override"
-    [(value)]="selectedItem"
-    [disabled]="!itemList.length"
-    (selectionChange)="emitSelectionChange()"
+    [value]="selectedItem()"
+    [disabled]="!itemList().length"
+    (selectionChange)="emitSelectionChange($event.value)"
   >
       <div class="search-box">
           <mat-icon class="search-icon">search</mat-icon>

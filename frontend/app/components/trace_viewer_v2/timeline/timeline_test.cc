@@ -14880,53 +14880,6 @@ TEST_F(MockTimelineImGuiFixture,
   SimulateFrame();
 }
 
-TEST(TimelineTest, RawEventsFormattingAndLimiting) {
-  ColorPalette palette = ColorPalette::Default();
-  Timeline timeline(palette);
-  FlameChartTimelineData data;
-  data.entry_names.resize(1005, "my_op");
-  data.entry_start_times.resize(1005, 10.0);
-  data.entry_total_times.resize(1005, 5.0);
-  data.entry_self_times.resize(1005, 5.0);
-  timeline.SetTimelineData(data);
-
-  auto& selected = timeline.selected_event_indices_for_test();
-  for (int i = 0; i < 1005; ++i) {
-    selected.push_back(i);
-  }
-
-  std::string json;
-  timeline.set_event_callback(
-      [&](absl::string_view type, const EventData& data) {
-        auto it = data.find("events_selected_data");
-        if (it != data.end()) {
-          json = std::any_cast<std::string>(it->second);
-        }
-      });
-
-  timeline.CalculateAndEmitMetrics_for_test();
-
-  // We expect exactly 1000 items in the rawEvents JSON array due to
-  // kMaxRawEvents and the items should be separated by commas properly (so 999
-  // commas inside the array).
-  int count_my_op = 0;
-  size_t pos = 0;
-  while ((pos = json.find("my_op", pos)) != std::string::npos) {
-    count_my_op++;
-    pos += 5;
-  }
-  // There should be 1 metrics entry (since all are perfectly aggregated to
-  // 'my_op') and 1000 rawEvents entries.
-  EXPECT_EQ(count_my_op, 1001);
-
-  // Assert that rawEvents array has elements separated by commas.
-  EXPECT_TRUE(absl::StrContains(
-      json, R"(,"rawEvents":[{"name":"my_op","eventIndex":0)"));
-  EXPECT_TRUE(absl::StrContains(
-      json, R"(},{"name":"my_op","eventIndex":999,"startUs":)"));
-  EXPECT_TRUE(absl::EndsWith(json, "}]}"));
-}
-
 TEST_F(MockTimelineImGuiFixture, GetEventSelected_EmptyGroups) {
   FlameChartTimelineData data;
   data.entry_names.push_back("Event A");

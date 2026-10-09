@@ -5395,57 +5395,42 @@ void Timeline::CalculateAndEmitMetrics() {
                       selection_start_us, selection_extent_us);
 
   if (!selected_event_indices_.empty()) {
-    struct Metrics {
-      int count = 0;
-      Microseconds wall_time = 0;
-      Microseconds self_time = 0;
-    };
+    bool include_metrics = true;
+    if (include_metrics) {
+      struct Metrics {
+        int count = 0;
+        Microseconds wall_time = 0;
+        Microseconds self_time = 0;
+      };
 
-    absl::flat_hash_map<std::string, Metrics> aggregated_metrics;
+      absl::flat_hash_map<std::string, Metrics> aggregated_metrics;
 
-    for (const int event_index : selected_event_indices_) {
-      const std::string& name = timeline_data_.entry_names[event_index];
-      Microseconds wall = timeline_data_.entry_total_times[event_index];
-      Microseconds self = timeline_data_.entry_self_times[event_index];
+      for (const int event_index : selected_event_indices_) {
+        const std::string& name = timeline_data_.entry_names[event_index];
+        Microseconds wall = timeline_data_.entry_total_times[event_index];
+        Microseconds self = timeline_data_.entry_self_times[event_index];
 
-      Metrics& m = aggregated_metrics[name];
-      m.count++;
-      m.wall_time += wall;
-      m.self_time += self;
+        Metrics& m = aggregated_metrics[name];
+        m.count++;
+        m.wall_time += wall;
+        m.self_time += self;
+      }
+
+      std::string metrics_json = "[";
+      bool first = true;
+      for (const auto& [name, metrics] : aggregated_metrics) {
+        if (!first) absl::StrAppend(&metrics_json, ",");
+        first = false;
+        absl::StrAppendFormat(
+            &metrics_json,
+            R"({"name":"%s","count":%d,"wallTimeUs":%.1f,"selfTimeUs":%.1f,"avgWallDurationUs":%.1f})",
+            absl::CEscape(name), metrics.count, metrics.wall_time,
+            metrics.self_time, metrics.wall_time / metrics.count);
+      }
+      absl::StrAppend(&metrics_json, "]");
+
+      absl::StrAppend(&json, R"(,"metrics":)", metrics_json);
     }
-
-    std::string metrics_json = "[";
-    bool first = true;
-    for (const auto& [name, metrics] : aggregated_metrics) {
-      if (!first) absl::StrAppend(&metrics_json, ",");
-      first = false;
-      absl::StrAppendFormat(
-          &metrics_json,
-          R"({"name":"%s","count":%d,"wallTimeUs":%.1f,"selfTimeUs":%.1f,"avgWallDurationUs":%.1f})",
-          absl::CEscape(name), metrics.count, metrics.wall_time,
-          metrics.self_time, metrics.wall_time / metrics.count);
-    }
-    absl::StrAppend(&metrics_json, "]");
-
-    absl::StrAppend(&json, R"(,"metrics":)", metrics_json);
-
-    std::string raw_events_json = "[";
-    int raw_event_count = 0;
-    constexpr int kMaxRawEvents = 1000;
-    for (const int event_index : selected_event_indices_) {
-      if (raw_event_count >= kMaxRawEvents) break;
-      if (raw_event_count > 0) absl::StrAppend(&raw_events_json, ",");
-      const std::string& name = timeline_data_.entry_names[event_index];
-      Microseconds start_us = timeline_data_.entry_start_times[event_index];
-      Microseconds duration_us = timeline_data_.entry_total_times[event_index];
-      absl::StrAppendFormat(
-          &raw_events_json,
-          R"({"name":"%s","eventIndex":%d,"startUs":%.2f,"durationUs":%.2f})",
-          absl::CEscape(name), event_index, start_us, duration_us);
-      raw_event_count++;
-    }
-    absl::StrAppend(&raw_events_json, "]");
-    absl::StrAppend(&json, R"(,"rawEvents":)", raw_events_json);
   }
 
   if (!selected_counter_points_.empty()) {

@@ -451,6 +451,17 @@ export class TraceViewerContainer
     return this.eventDetailColumns.length <= 2;
   }
 
+  showMetricsTable(): boolean {
+    return this.metricsDataSource.data.length > 0;
+  }
+
+  activeMultiEventTableCount(): number {
+    return (
+      (this.showMetricsTable() ? 1 : 0) +
+      (this.countersDataSource.data.length > 0 ? 1 : 0) +
+    );
+  }
+
   getColumnHeader(col: string): string {
     if (this.isSingleEventTable()) {
       return '';
@@ -514,6 +525,9 @@ export class TraceViewerContainer
     'avgWallDuration',
   ];
   counterColumns = ['counter', 'series', 'time', 'value'];
+  rawEventColumns = [
+    'name',
+  ];
 
   @Input() set selectedEventProperties(data: SelectedEventProperty[]) {
     this.selectedEventPropertiesDataSource.data = data;
@@ -584,7 +598,6 @@ export class TraceViewerContainer
   @Input() set rawEvents(data: RawEventItem[] | null | undefined) {
     this.rawEventsDataSource.data = data ?? [];
   }
-  @Input() tool?: string;
   rawEventsDataSource = new MatTableDataSource<RawEventItem>();
   @Output()
   readonly drillDownEvent = new EventEmitter<number>();
@@ -631,6 +644,9 @@ export class TraceViewerContainer
   @ViewChild(MatSort) set sort(matSort: MatSort | undefined) {
     if (matSort) {
       this.selectedEventPropertiesDataSource.sort = matSort;
+      this.metricsDataSource.sort = matSort;
+      this.countersDataSource.sort = matSort;
+      this.rawEventsDataSource.sort = matSort;
     }
   }
 

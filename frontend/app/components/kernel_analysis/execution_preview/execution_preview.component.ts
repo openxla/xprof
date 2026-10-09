@@ -1,11 +1,5 @@
 import {CommonModule} from '@angular/common';
-import {
-  ChangeDetectionStrategy,
-  Component,
-  EventEmitter,
-  Input,
-  Output,
-} from '@angular/core';
+import {ChangeDetectionStrategy, Component, input, output} from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
 import {MatFormFieldModule} from '@angular/material/form-field';
 import {MatIconModule} from '@angular/material/icon';
@@ -38,19 +32,19 @@ import type {TpuGeneration} from '../data/data_tpu_generations';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExecutionPreviewComponent {
-  @Input() estimatedPasses = 1;
-  @Input() path = '';
-  @Input() deviceName: TpuGeneration | null = null;
+  readonly estimatedPasses = input<number>(1);
+  readonly path = input<string>('');
+  readonly deviceName = input<TpuGeneration | null>(null);
 
-  @Input() tcSampling: PeriodicCounterSamplingOptions | null = null;
-  @Input() scsSampling: PeriodicCounterSamplingOptions | null = null;
-  @Input() sctcSampling: PeriodicCounterSamplingOptions | null = null;
-  @Input() sctdSampling: PeriodicCounterSamplingOptions | null = null;
-  @Input() cmnSampling: PeriodicCounterSamplingOptions | null = null;
-  @Input() icrSampling: PeriodicCounterSamplingOptions | null = null;
+  readonly tcSampling = input<PeriodicCounterSamplingOptions | null>(null);
+  readonly scsSampling = input<PeriodicCounterSamplingOptions | null>(null);
+  readonly sctcSampling = input<PeriodicCounterSamplingOptions | null>(null);
+  readonly sctdSampling = input<PeriodicCounterSamplingOptions | null>(null);
+  readonly cmnSampling = input<PeriodicCounterSamplingOptions | null>(null);
+  readonly icrSampling = input<PeriodicCounterSamplingOptions | null>(null);
 
-  @Output() readonly pathChange = new EventEmitter<string>();
-  @Output() readonly expandedToggle = new EventEmitter<void>();
+  readonly pathChange = output<string>();
+  readonly expandedToggle = output<void>();
 
   copyState: 'Copy' | 'Copied!' = 'Copy';
 
@@ -86,12 +80,12 @@ export class ExecutionPreviewComponent {
 
   private hasAnySampling(): boolean {
     return [
-      this.tcSampling,
-      this.scsSampling,
-      this.sctcSampling,
-      this.sctdSampling,
-      this.cmnSampling,
-      this.icrSampling,
+      this.tcSampling(),
+      this.scsSampling(),
+      this.sctcSampling(),
+      this.sctdSampling(),
+      this.cmnSampling(),
+      this.icrSampling(),
     ].some((s) => this.isSamplingInUse(s));
   }
 
@@ -99,12 +93,12 @@ export class ExecutionPreviewComponent {
     const samplingConfig: Array<
       [string, PeriodicCounterSamplingOptions | null | undefined]
     > = [
-      ['tpu_tc_perf_counter_sampling_options', this.tcSampling],
-      ['tpu_scs_perf_counter_sampling_options', this.scsSampling],
-      ['tpu_sctc_perf_counter_sampling_options', this.sctcSampling],
-      ['tpu_sctd_perf_counter_sampling_options', this.sctdSampling],
-      ['tpu_cmn_perf_counter_sampling_options', this.cmnSampling],
-      ['tpu_icr_perf_counter_sampling_options', this.icrSampling],
+      ['tpu_tc_perf_counter_sampling_options', this.tcSampling()],
+      ['tpu_scs_perf_counter_sampling_options', this.scsSampling()],
+      ['tpu_sctc_perf_counter_sampling_options', this.sctcSampling()],
+      ['tpu_sctd_perf_counter_sampling_options', this.sctdSampling()],
+      ['tpu_cmn_perf_counter_sampling_options', this.cmnSampling()],
+      ['tpu_icr_perf_counter_sampling_options', this.icrSampling()],
     ];
 
     const configParts: string[] = [];

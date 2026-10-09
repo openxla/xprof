@@ -3,7 +3,7 @@
   <category-filter [dataTable]="dataTable" column="Category" (changed)="onUpdateFilters($event)" all="All"></category-filter>
   <category-filter [dataTable]="dataTable" column="Bound by" (changed)="onUpdateFilters($event)" all="All"></category-filter>
   <string-filter [dataTable]="dataTable" column="Operation" [value]="selectedOp" (changed)="onUpdateFilters($event)" all="All"></string-filter>
-  <div class="control" *ngIf="sourceCodeServiceIsAvailable">
+  <div class="control" *ngIf="sourceCodeServiceIsAvailable()">
     <div class="control-title">Show Source Code
       <mat-icon
         class="tooltip-icon"
@@ -27,4 +27,4 @@
 <stack-trace-snippet
     [sourceFileAndLineNumber]="sourceFileAndLineNumber"
     [stackTrace]="stackTrace"
-    *ngIf="sourceCodeServiceIsAvailable && showStackTrace"/>
+    *ngIf="sourceCodeServiceIsAvailable() && showStackTrace"/>

@@ -1,13 +1,18 @@
+import {NgClass} from '@angular/common';
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   computed,
-  DestroyRef,
   inject,
+  OnDestroy,
   OnInit,
   signal,
 } from '@angular/core';
-import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
+import {MatButtonModule} from '@angular/material/button';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatIconModule} from '@angular/material/icon';
+import {MatInputModule} from '@angular/material/input';
 import {MatSnackBar} from '@angular/material/snack-bar';
 import {ActivatedRoute, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
@@ -15,6 +20,8 @@ import {
   setCurrentToolStateAction,
   setLoadingStateAction,
 } from 'org_xprof/frontend/app/store/actions';
+import {ReplaySubject} from 'rxjs';
+import {takeUntil} from 'rxjs/operators';
 import {trySanitizeUrl} from 'safevalues';
 import {windowOpen} from 'safevalues/dom';
 import {CuratedTool} from './curated_tool';
@@ -44,19 +51,27 @@ type Category = (typeof CATEGORIES)[number];
  * and data playground exploration.
  */
 @Component({
+  standalone: true,
   selector: 'xprof-labs',
   templateUrl: './labs.ng.html',
   styleUrls: ['./labs.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: false,
+  imports: [
+    MatButtonModule,
+    MatFormFieldModule,
+    MatIconModule,
+    MatInputModule,
+    NgClass,
+  ],
 })
-export class LabsComponent implements OnInit {
+export class LabsComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly snackBar = inject(MatSnackBar);
   private readonly store = inject(Store);
   private readonly curatedToolsService = inject(CuratedToolsService);
-  private readonly destroyRef = inject(DestroyRef);
+  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly destroyed = new ReplaySubject<void>(1);
 
   private sessionId = '';
   readonly searchQuery = signal('');
@@ -167,9 +182,10 @@ export class LabsComponent implements OnInit {
 
     this.curatedToolsService
       .getCuratedTools()
-      .pipe(takeUntilDestroyed(this.destroyRef))
+      .pipe(takeUntil(this.destroyed))
       .subscribe((tools) => {
         this.curatedTools.set(tools);
+        this.cdr.markForCheck();
       });
   }
 
@@ -236,6 +252,7 @@ export class LabsComponent implements OnInit {
       this.isPlaygroundRunning.set(false);
       this.playgroundStatusText.set('Completed (0.42s)');
       this.hasPlaygroundChart.set(true);
+      this.cdr.markForCheck();
     }, 1000);
   }
 
@@ -248,7 +265,13 @@ export class LabsComponent implements OnInit {
         `# AI Generated Visualization\nimport xprof\nimport matplotlib.pyplot as plt\n\n# Fetch profile session data\nsession = xprof.get_session('${this.sessionId}')\ntpu_metrics = session.get_tpu_compilation_metrics()\n\nplt.figure(figsize=(10, 6))\nplt.plot(tpu_metrics['timestamps'], tpu_metrics['overhead'], color='#0b57d0')\nplt.title('TPU 0 Instruction Compilation Overhead')\nplt.xlabel('Time (s)')\nplt.ylabel('Overhead (ms)')\nplt.grid(True)\nplt.show()`,
       );
       this.playgroundAiPrompt.set('');
+      this.cdr.markForCheck();
     }, 1500);
+  }
+
+  ngOnDestroy(): void {
+    this.destroyed.next();
+    this.destroyed.complete();
   }
 
   onCodeChange(event: Event): void {

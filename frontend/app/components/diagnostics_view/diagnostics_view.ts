@@ -1,13 +1,17 @@
+import {NgFor, NgIf} from '@angular/common';
 import {ChangeDetectionStrategy, Component, Input} from '@angular/core';
+import {MatIconButton} from '@angular/material/button';
+import {MatIcon} from '@angular/material/icon';
 import {type Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 
 /** An diagnostics view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'diagnostics-view',
   templateUrl: './diagnostics_view.ng.html',
   styleUrls: ['./diagnostics_view.scss'],
+  imports: [MatIcon, MatIconButton, NgFor, NgIf],
 })
 export class DiagnosticsView {
   /** Error and warning messages for diagnosing profiling issues */
@@ -24,15 +28,24 @@ export class DiagnosticsView {
     if (!this.diagnostics) return;
     if (category === 'errors' && this.diagnostics.errors) {
       if (index >= 0 && index < this.diagnostics.errors.length) {
-        this.diagnostics.errors.splice(index, 1);
+        this.diagnostics = {
+          ...this.diagnostics,
+          errors: this.diagnostics.errors.filter((_, i) => i !== index),
+        };
       }
     } else if (category === 'warnings' && this.diagnostics.warnings) {
       if (index >= 0 && index < this.diagnostics.warnings.length) {
-        this.diagnostics.warnings.splice(index, 1);
+        this.diagnostics = {
+          ...this.diagnostics,
+          warnings: this.diagnostics.warnings.filter((_, i) => i !== index),
+        };
       }
     } else if (category === 'info' && this.diagnostics.info) {
       if (index >= 0 && index < this.diagnostics.info.length) {
-        this.diagnostics.info.splice(index, 1);
+        this.diagnostics = {
+          ...this.diagnostics,
+          info: this.diagnostics.info.filter((_, i) => i !== index),
+        };
       }
     }
   }

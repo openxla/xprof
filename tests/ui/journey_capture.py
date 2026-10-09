@@ -257,7 +257,8 @@ _NORMALIZED_HTML_JS = """(maskSelectors) => {
     for (const [name, value] of attrs) {
       const cleanedVal = value
           .replace(/https?:\\/\\/(?:localhost|127\\.0\\.0\\.1):[0-9]+/g, '')
-          .replace(/(?<=\\bsession_path=)[^&"'\\s<>]*/g, '<masked>');
+          .replace(/(?<=\\bsession_path=)[^&"'\\s<>]*/g, '<masked>')
+          .replace(/\\b_ABSTRACT_RENDERER_ID_[0-9]+\\b/g, '_ABSTRACT_RENDERER_ID_N');
       el.setAttribute(name, cleanedVal);
     }
     // Google Charts and Angular Material number generated elements from
@@ -888,9 +889,11 @@ def capture_waypoint(
   except _PlaywrightError:
     pass
 
-  # Eliminate SVG chart dimension flutter and timing races across animation
-  # frames before sampling DOM and screenshot.
+  # Eliminate SVG chart dimension flutter, clear any transient Google Charts
+  # hover tooltips/rings, and settle across animation frames before sampling
+  # DOM and screenshot.
   try:
+    page.mouse.move(0, 0)
     page.evaluate("""() => new Promise(resolve => {
       let timerId = null;
       let rafId = null;
@@ -908,6 +911,22 @@ def capture_waypoint(
         const svgs = Array.from(document.querySelectorAll('svg'));
         if (svgs.length === 0) {
           return done();
+        }
+        for (const svg of svgs) {
+          if (svg.querySelector('.google-visualization-tooltip')) {
+            for (const el of svg.querySelectorAll('path, rect, circle, g')) {
+              el.dispatchEvent(new MouseEvent('mouseout', {
+                bubbles: true,
+                cancelable: true,
+                relatedTarget: document.body,
+              }));
+              el.dispatchEvent(new MouseEvent('mouseleave', {
+                bubbles: false,
+                cancelable: false,
+                relatedTarget: document.body,
+              }));
+            }
+          }
         }
         const sizes = svgs.map(s => {
           const r = s.getBoundingClientRect();

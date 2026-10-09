@@ -219,6 +219,37 @@ std::string FormatHeaderText(absl::string_view name, int count) {
   return absl::StrCat(name, " (", count, ")");
 }
 
+bool MatchesArgsMap(const absl::flat_hash_map<std::string, std::string>& args,
+                    absl::string_view query_lower) {
+  for (const auto& [key, value] : args) {
+    if (key == kHloModule && value == kHloModuleDefault) {
+      continue;
+    }
+    if (absl::StrContainsIgnoreCase(key, query_lower) ||
+        absl::StrContainsIgnoreCase(value, query_lower)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool MatchesSearchQuery(const FlameChartTimelineData& data, int index,
+                        absl::string_view query_lower) {
+  if (absl::StrContainsIgnoreCase(data.entry_names[index], query_lower)) {
+    return true;
+  }
+  if (index < static_cast<int>(data.entry_args.size()) &&
+      MatchesArgsMap(data.entry_args[index], query_lower)) {
+    return true;
+  }
+  if (const auto it = data.sparse_entry_args.find(index);
+      it != data.sparse_entry_args.end() &&
+      MatchesArgsMap(it->second, query_lower)) {
+    return true;
+  }
+  return false;
+}
+
 }  // namespace
 
 int Timeline::GetNextGroupStartLevel(const FlameChartTimelineData& data,
@@ -4990,7 +5021,7 @@ void Timeline::RecomputeSearchResults() {
   const int num_entries = timeline_data_.entry_names.size();
   for (int i = 0; i < num_entries; ++i) {
     const std::string& name = timeline_data_.entry_names[i];
-    if (absl::StartsWithIgnoreCase(name, search_query_lower_)) {
+    if (MatchesSearchQuery(timeline_data_, i, search_query_lower_)) {
       const EventId event_id = timeline_data_.entry_event_ids[i];
       const int level = timeline_data_.entry_levels[i];
       const Microseconds start_time = timeline_data_.entry_start_times[i];

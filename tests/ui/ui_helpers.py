@@ -130,12 +130,12 @@ def _select_option(
   option = page.locator("mat-option").filter(has_text=pattern).first
   sync_api.expect(option).to_be_visible(timeout=5000)
   option.click()
-  sync_api.expect(page.locator("mat-option")).to_have_count(0, timeout=5000)
-  sync_api.expect(dropdown).to_have_text(pattern, timeout=5000)
   try:
     page.mouse.move(0, 0)
   except invariants.PlaywrightError as err:
     logging.debug("Ignored mouse reset error after dropdown close: %s", err)
+  sync_api.expect(page.locator("mat-option")).to_have_count(0, timeout=5000)
+  sync_api.expect(dropdown).to_have_text(pattern, timeout=5000)
 
 
 def _select_sidenav_dropdown_option(

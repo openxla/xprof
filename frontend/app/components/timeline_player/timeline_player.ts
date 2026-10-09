@@ -7,9 +7,9 @@ import {
   NgZone,
   OnDestroy,
   OnInit,
+  computed,
   model,
   output,
-  computed,
 } from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
 import {MatIconModule} from '@angular/material/icon';

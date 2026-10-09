@@ -43,6 +43,25 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = ["megascale_stats_test.ts"],
+    deps = [
+        ":megascale_stats",
+        "//:node_modules/@angular/router",
+        "//:node_modules/@ngrx/store_testing",
+        "//:node_modules/rxjs",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/interfaces",
+        "@org_xprof//frontend/app/common/utils:testing",
+        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
+        "@org_xprof//frontend/app/store",
+    ],
+)
+
 sass_binary(
     name = "megascale_stats_css",
     src = "megascale_stats.scss",

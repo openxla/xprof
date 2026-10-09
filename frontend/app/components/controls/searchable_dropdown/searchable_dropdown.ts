@@ -1,5 +1,16 @@
 import {CommonModule} from '@angular/common';
-import {AfterViewInit, Component, ElementRef, EventEmitter, Input, Output, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {
+  AfterViewInit,
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  ElementRef,
+  EventEmitter,
+  inject,
+  Input,
+  Output,
+  ViewChild,
+} from '@angular/core';
 import {FormsModule} from '@angular/forms';
 import {MatOptionModule} from '@angular/material/core';
 import {MatFormFieldModule} from '@angular/material/form-field';
@@ -11,7 +22,8 @@ import {MatSelectModule} from '@angular/material/select';
  * A reusable standalone component for a searchable dropdown.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'app-searchable-dropdown',
   templateUrl: './searchable_dropdown.ng.html',
   styleUrls: ['./searchable_dropdown.scss'],
@@ -26,6 +38,7 @@ import {MatSelectModule} from '@angular/material/select';
   ],
 })
 export class SearchableDropdown implements AfterViewInit {
+  private readonly cdr = inject(ChangeDetectorRef);
   @Input() itemList: string[] = [];
   @Input() selectedItem = '';
   @Input() label = '';
@@ -42,7 +55,7 @@ export class SearchableDropdown implements AfterViewInit {
       return this.itemList;
     }
     const filter = this.filterText.trim().toLowerCase();
-    return this.itemList.filter(item => item.toLowerCase().includes(filter));
+    return this.itemList.filter((item) => item.toLowerCase().includes(filter));
   }
 
   ngAfterViewInit() {
@@ -50,6 +63,7 @@ export class SearchableDropdown implements AfterViewInit {
       if (this.searchInput) {
         this.searchInput.nativeElement.focus();
       }
+      this.cdr.markForCheck();
     }, 0);
   }
 

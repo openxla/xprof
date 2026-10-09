@@ -1,5 +1,5 @@
 import {CommonModule} from '@angular/common';
-import {ChangeDetectionStrategy, Component} from '@angular/core';
+import {ChangeDetectionStrategy, Component, inject} from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
 import {MatDialogModule, MatDialogRef} from '@angular/material/dialog';
 import {KernelAnalysisComponent} from 'org_xprof/frontend/app/components/kernel_analysis/kernel_analysis.component';
@@ -21,7 +21,8 @@ import {KernelAnalysisComponent} from 'org_xprof/frontend/app/components/kernel_
 export class CaptureKernelDialog {
   closeButtonLabel = 'Close';
 
-  constructor(private readonly dialogRef: MatDialogRef<CaptureKernelDialog>) {}
+  private readonly dialogRef =
+    inject<MatDialogRef<CaptureKernelDialog>>(MatDialogRef);
 
   close() {
     this.dialogRef.close();

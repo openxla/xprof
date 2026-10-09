@@ -1,5 +1,6 @@
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   EventEmitter,
   inject,
@@ -27,20 +28,24 @@ import {
 } from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
 import {combineLatestWith, map, takeUntil} from 'rxjs/operators';
+import {OpDetails} from './op_details/op_details';
+import {OpProfileBase} from './op_profile_base';
 
 const GROUP_BY_RULES = ['program', 'category', 'provenance'];
 
 /** An op profile component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'op-profile',
   templateUrl: './op_profile.ng.html',
   styleUrls: ['./op_profile_common.scss'],
+  imports: [OpDetails, OpProfileBase],
 })
 export class OpProfile implements OnDestroy {
   private tool = 'hlo_op_profile';
   /** Handles on-destroy Subject, used to unsubscribe. */
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly destroyed = new ReplaySubject<void>(1);
   /** EventEmitter that emits when data is loaded and component is ready. */
   @Output() readonly ready = new EventEmitter<void>();
@@ -84,6 +89,7 @@ export class OpProfile implements OnDestroy {
         if (hasChanged) {
           this.update();
         }
+        this.cdr.markForCheck();
       });
   }
 
@@ -163,6 +169,7 @@ export class OpProfile implements OnDestroy {
           this.moduleList = moduleList.split(',');
         }
         this.ready.emit();
+        this.cdr.markForCheck();
       });
   }
 
@@ -173,6 +180,7 @@ export class OpProfile implements OnDestroy {
         if (data) {
           this.opProfileData = data;
         }
+        this.cdr.markForCheck();
       });
   }
 
@@ -368,6 +376,7 @@ export class OpProfile implements OnDestroy {
 
   onGroupByChange(newGroupBy: string) {
     this.groupBy = newGroupBy;
+    this.cdr.markForCheck();
     this.updateTable();
   }
 

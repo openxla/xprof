@@ -60,7 +60,7 @@ import {
   type TraceViewerV2Module,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
 
-import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
+import {SafePipe} from 'org_xprof/frontend/app/pipes/safe_pipe';
 import {fromEvent, interval, ReplaySubject, Subject, Subscription} from 'rxjs';
 import {debounceTime, distinctUntilChanged, takeUntil} from 'rxjs/operators';
 
@@ -330,7 +330,7 @@ declare interface TfTraceViewer {
 
 /** A trace viewer container component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: true,
   schemas: [CUSTOM_ELEMENTS_SCHEMA],
   selector: 'trace-viewer-container',
@@ -355,7 +355,7 @@ declare interface TfTraceViewer {
     CommonModule,
     MatIconModule,
     MatProgressBarModule,
-    PipesModule,
+    SafePipe,
     TimelinePlayer,
     FormsModule,
     MatButtonModule,
@@ -727,6 +727,7 @@ export class TraceViewerContainer
         } else if (!query) {
           this.searchResultCountText = '';
         }
+        this.cdRef.markForCheck();
       });
 
     this.hoveredEventRequest$
@@ -742,6 +743,7 @@ export class TraceViewerContainer
     this.route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
       this.sessionId =
         (params || {})['sessionId'] || (params || {})['run'] || this.sessionId;
+      this.cdRef.markForCheck();
     });
 
     clearDeprecatedStorageKeys();
@@ -1009,6 +1011,7 @@ export class TraceViewerContainer
     } else {
       this.traceViewerV2ErrorMessage = event.detail.message;
     }
+    this.cdRef.markForCheck();
   };
 
   private readonly mouseModeChangedEventListener = (e: Event) => {
@@ -1019,6 +1022,7 @@ export class TraceViewerContainer
 
   private readonly fullscreenChangeEventListener = () => {
     this.isFullscreen = !!document.fullscreenElement;
+    this.cdRef.markForCheck();
   };
 
   private readonly eventHoveredEventListener = (e: Event) => {
@@ -1148,6 +1152,7 @@ export class TraceViewerContainer
       .subscribe(() => {
         this.currentTutorialIndex =
           (this.currentTutorialIndex + 1) % this.tutorials.length;
+        this.cdRef.markForCheck();
       });
   }
 
@@ -1221,6 +1226,7 @@ export class TraceViewerContainer
       default:
         break;
     }
+    this.cdRef.markForCheck();
   }
 
   zoomIn(): void {

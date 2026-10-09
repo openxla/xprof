@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "flop_rate_chart",
     srcs = [
         "flop_rate_chart.ts",
-        "flop_rate_chart_module.ts",
     ],
     assets = [
         ":flop_rate_chart_css",
@@ -33,6 +32,7 @@ xprof_ng_module(
     deps = [
         ":flop_rate_chart",
         "//:node_modules/@angular/core",
+        "//:node_modules/@angular/core_testing",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",

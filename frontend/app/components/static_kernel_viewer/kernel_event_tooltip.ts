@@ -15,7 +15,7 @@ export interface FunctionalUnit {
   /** Name of the unit and of its lane, e.g. `MXU`. */
   readonly label: string;
   /** What the unit does. */
-  readonly description: string;
+  readonly description?: string;
   /** Color of the unit's chip. */
   readonly color: string;
 }
@@ -156,7 +156,7 @@ export interface KernelEventTooltipContent {
   readonly ordinalLabel?: string;
   /** Summary chips shown in the header subtitle (e.g. region length, % of schedule, depth). */
   readonly subtitleChips?: readonly string[];
-  /** Details shown in muted text, e.g. what the functional unit does. */
+  /** Details shown in muted text below the header. */
   readonly description?: string;
   /** Output register and hardware property badges of an instruction. */
   readonly output?: InstructionOutput;
@@ -203,31 +203,15 @@ export const DEFAULT_ACCENT_COLOR = '#1a73e8';
 
 /** Functional units in the Static Kernel Viewer timeline. */
 export const FUNCTIONAL_UNITS: readonly FunctionalUnit[] = [
-  {label: 'MXU', description: 'Matrix multiply unit', color: '#7c4dff'},
-  {
-    label: 'XLU',
-    description: 'Cross-lane unit — transpose / permute / reduce',
-    color: '#f29900',
-  },
-  {
-    label: 'SALU',
-    description: 'Scalar ALU — control flow, addressing, DMA issue',
-    color: '#1e8e3e',
-  },
-  {label: 'VPU', description: 'Vector ALU', color: '#1a73e8'},
-  {
-    label: 'EUP',
-    description: 'Extended unary pipeline — exp, rcp, tanh',
-    color: '#12a4af',
-  },
-  {label: 'VLD', description: 'Vector load — VMEM → vregs', color: '#00a3bf'},
-  {label: 'VST', description: 'Vector store — vregs → VMEM', color: '#d01884'},
-  {label: 'DMA', description: 'DMA engine — HBM ↔ VMEM', color: '#e8710a'},
-  {
-    label: 'Other',
-    description: 'No dedicated functional unit',
-    color: '#5f6368',
-  },
+  {label: 'MXU', color: '#7c4dff'},
+  {label: 'XLU', color: '#f29900'},
+  {label: 'SALU', color: '#1e8e3e'},
+  {label: 'VPU', color: '#1a73e8'},
+  {label: 'EUP', color: '#12a4af'},
+  {label: 'VLD', color: '#00a3bf'},
+  {label: 'VST', color: '#d01884'},
+  {label: 'DMA', color: '#e8710a'},
+  {label: 'Other', color: '#5f6368'},
 ];
 
 /** The 8 primary VLIW hardware lanes shown in the bundle strip. */
@@ -634,11 +618,9 @@ export function buildKernelEventTooltip(
     : FUNCTIONAL_UNITS_BY_LANE.get(event.trackName);
   const accentColor = unit?.color ?? DEFAULT_ACCENT_COLOR;
 
-  let description = unit?.description;
+  let description: string | undefined = undefined;
   if (isCounter) {
-    description = unit
-      ? `${unit.description} — static utilization`
-      : 'Static unit utilization';
+    description = 'Static unit utilization';
   } else if (isProcess) {
     description = 'Bundle activity across all functional unit lanes';
   } else if (!unit && !isRegion && event.trackName) {

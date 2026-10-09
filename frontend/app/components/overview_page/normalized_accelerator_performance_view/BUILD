@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "normalized_accelerator_performance_view",
     srcs = [
         "normalized_accelerator_performance_view.ts",
-        "normalized_accelerator_performance_view_module.ts",
     ],
     assets = [
         ":normalized_accelerator_performance_view_css",

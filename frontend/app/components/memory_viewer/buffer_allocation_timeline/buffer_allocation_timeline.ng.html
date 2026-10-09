@@ -1,4 +1,4 @@
-<div class="timeline-component-wrapper" #fullscreenContainer [class.fullscreen]="isFullscreen">
+<div class="timeline-component-wrapper" #fullscreenContainer [class.fullscreen]="isFullscreen()">
   <div class="timeline-chart-area">
     <div class="y-axis-label">Memory Offset</div>
     <div class="canvas-container">
@@ -29,8 +29,8 @@
           <mat-icon>zoom_out_map</mat-icon>
         </button>
 
-        <button class="control-btn" (click)="toggleFullscreen()" [matTooltip]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'" matTooltipPosition="above">
-          <mat-icon>{{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}}</mat-icon>
+        <button class="control-btn" (click)="toggleFullscreen()" [matTooltip]="isFullscreen() ? 'Exit Fullscreen' : 'Fullscreen'" matTooltipPosition="above">
+          <mat-icon>{{isFullscreen() ? 'fullscreen_exit' : 'fullscreen'}}</mat-icon>
         </button>
       </div>
 

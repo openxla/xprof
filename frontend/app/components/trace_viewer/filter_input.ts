@@ -1,22 +1,24 @@
+import {CommonModule} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
+  effect,
   ElementRef,
-  EventEmitter,
-  Input,
-  OnChanges,
-  Output,
-  SimpleChange,
-  SimpleChanges,
+  input,
+  output,
   ViewChild,
 } from '@angular/core';
+import {FormsModule} from '@angular/forms';
 import {
   MAT_AUTOCOMPLETE_DEFAULT_OPTIONS,
   MatAutocomplete,
+  MatAutocompleteModule,
   MatAutocompleteSelectedEvent,
   MatAutocompleteTrigger,
 } from '@angular/material/autocomplete';
+import {MatButtonModule} from '@angular/material/button';
+import {MatCheckboxModule} from '@angular/material/checkbox';
 import {BehaviorSubject} from 'rxjs';
 import {FILTER_FIELDS, FILTER_OPERATORS} from './constants';
 import {
@@ -33,8 +35,15 @@ import {filterFieldKey, lookupFilterOperator} from './utils';
  * Component to display input field for adding a new filter.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    CommonModule,
+    FormsModule,
+    MatAutocompleteModule,
+    MatButtonModule,
+    MatCheckboxModule,
+  ],
   selector: 'filter-input',
   viewProviders: [
     {
@@ -91,15 +100,15 @@ import {filterFieldKey, lookupFilterOperator} from './utils';
 `,
   styleUrls: ['./trace_viewer.scss'],
 })
-export class FilterInput implements AfterViewInit, OnChanges {
+export class FilterInput implements AfterViewInit {
   @ViewChild('inputEl') inputEl!: ElementRef;
   @ViewChild('filterOptionsAuto') filterOptionsAuto!: MatAutocomplete;
   @ViewChild('optionTrigger') optionTrigger!: MatAutocompleteTrigger;
 
-  @Output() readonly filterAdded = new EventEmitter<FilterEntry>();
-  @Input() validFilterFields: FilterField[] = [];
-  @Input() hosts: string[] = [];
-  @Input() processes: string[] = [];
+  readonly filterAdded = output<FilterEntry>();
+  readonly validFilterFields = input<FilterField[]>([]);
+  readonly hosts = input<string[]>([]);
+  readonly processes = input<string[]>([]);
 
   isEditing = false;
   private filterInputInternal = '';
@@ -119,15 +128,22 @@ export class FilterInput implements AfterViewInit, OnChanges {
   autoFilterOptions = new BehaviorSubject<FilterOption[]>(FILTER_FIELDS);
   autoFilterFields = new BehaviorSubject<FilterField[]>(FILTER_FIELDS);
 
-  get autoFilterValues() {
-    return new BehaviorSubject<FilterValue[]>(this.autoFilterOptions.value);
+  get autoFilterValues(): BehaviorSubject<FilterValue[]> {
+    return this.autoFilterOptions as unknown as BehaviorSubject<FilterValue[]>;
   }
 
   get fieldValueOptions(): {[key: string]: string[]} {
     const valueOptions: {[key: string]: string[]} = {};
-    valueOptions[FilterFieldCategory.HOST] = this.hosts;
-    valueOptions[FilterFieldCategory.PROCESS] = this.processes;
+    valueOptions[FilterFieldCategory.HOST] = this.hosts();
+    valueOptions[FilterFieldCategory.PROCESS] = this.processes();
     return valueOptions;
+  }
+
+  constructor() {
+    effect(() => {
+      this.autoFilterFields.next(this.validFilterFields());
+      this.updateFilterOptions(this.filterInput);
+    });
   }
 
   // The entire filter input string, that the filter field/operator/value are parsed from
@@ -148,7 +164,9 @@ export class FilterInput implements AfterViewInit, OnChanges {
   }
 
   get allOptionsSelected() {
-    return this.autoFilterValues.value.every((option) => option.checked);
+    return (this.autoFilterOptions.value as FilterValue[]).every(
+      (option) => option.checked,
+    );
   }
 
   get allOptionsLabel() {
@@ -157,16 +175,9 @@ export class FilterInput implements AfterViewInit, OnChanges {
       : 'Select All Displayed Options';
   }
 
-  ngOnChanges(changes: SimpleChanges) {
-    if (this.validFilterFieldsChanged(changes['validFilterFields'])) {
-      this.autoFilterFields.next(this.validFilterFields);
-      this.updateFilterOptions();
-    }
-  }
-
   ngAfterViewInit() {
     if (!(this.optionTrigger instanceof MatAutocompleteTrigger)) {
-      throw new Error('@ViewChild "trigger" is required');
+      throw new Error('ViewChild "trigger" is required');
     }
   }
 
@@ -243,7 +254,7 @@ export class FilterInput implements AfterViewInit, OnChanges {
     let currentOptions: FilterOption[] = [];
     switch (this.filterStep) {
       case 0:
-        const filteredNameOptions = this.validFilterFields.filter(
+        const filteredNameOptions = this.validFilterFields().filter(
           (field: FilterField) =>
             field.displayName
               .toLowerCase()
@@ -273,14 +284,20 @@ export class FilterInput implements AfterViewInit, OnChanges {
           }
         } else {
           currentOptions = [];
-          this.optionTrigger.closePanel();
+          this.optionTrigger?.closePanel();
         }
         break;
       default:
         currentOptions = [];
         break;
     }
-    this.autoFilterOptions.next(currentOptions);
+    const previousOptions = this.autoFilterOptions.value;
+    if (
+      previousOptions.length !== currentOptions.length ||
+      previousOptions.some((opt, i) => opt.value !== currentOptions[i]?.value)
+    ) {
+      this.autoFilterOptions.next(currentOptions);
+    }
   }
 
   updateCurrentFilterStep() {
@@ -308,21 +325,12 @@ export class FilterInput implements AfterViewInit, OnChanges {
   // Returns filter name if the string matches one of the display names
   // Otherwise returns undefined.
   private lookupFilterField(fieldValue: string): FilterField | undefined {
-    return this.validFilterFields.find(
+    return this.validFilterFields().find(
       (filterField: FilterField) =>
         filterFieldKey(filterField).toLowerCase() ===
           fieldValue.trim().toLowerCase() ||
         `${filterFieldKey(filterField).toLowerCase()}:` ===
           fieldValue.trim().toLowerCase(),
-    );
-  }
-
-  private validFilterFieldsChanged(change: SimpleChange) {
-    const fieldsStrRepresentation = (fields: FilterField[]) =>
-      fields.map((field: FilterField) => field.displayName).join(',');
-    return (
-      fieldsStrRepresentation(change?.currentValue || []) !==
-      fieldsStrRepresentation(change?.previousValue || [])
     );
   }
 
@@ -412,7 +420,7 @@ export class FilterInput implements AfterViewInit, OnChanges {
         value,
         operator: lookupFilterOperator(operator),
       };
-      this.filterAdded.next(filter);
+      this.filterAdded.emit(filter);
       this.reset();
       return true;
     }

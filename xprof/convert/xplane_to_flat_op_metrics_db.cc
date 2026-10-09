@@ -25,23 +25,23 @@ limitations under the License.
 
 #include "absl/container/btree_set.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
-#include "xla/tsl/profiler/utils/trace_utils.h"
 #include "xla/tsl/profiler/utils/timespan.h"
+#include "xla/tsl/profiler/utils/trace_utils.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "xprof/convert/flat_op_metrics_db_combiner.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 #include "xprof/utils/flat_op_metrics_db_utils.h"
-#include "xprof/utils/op_metrics_db_utils.h"
-#include "xprof/utils/op_utils.h"
-#include "absl/strings/str_cat.h"
-#include "absl/log/log.h"
-#include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xprof/utils/gpu_event_stats.h"
 #include "xprof/utils/hlo_module_map.h"
+#include "xprof/utils/op_metrics_db_utils.h"
+#include "xprof/utils/op_utils.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -317,18 +317,23 @@ namespace {
 
 struct HLOTracker {
   uint64_t duration = 0;
+  uint64_t occurrences = 0;
   double vdd_energy_j = 0.0;
   uint64_t program_id = 0;
   uint64_t group_id = 0;
   bool is_eager;
   const HloInstructionWrapper* hlo_instruction = nullptr;
   std::string hlo_op_name;
+  uint64_t flops = 0;
+  uint64_t bytes_accessed = 0;
+  uint64_t model_flops = 0;
 
   void Reset() {
-    duration = program_id = group_id = 0;
+    duration = program_id = group_id = occurrences = 0;
     vdd_energy_j = 0.0;
     hlo_op_name.clear();
     hlo_instruction = nullptr;
+    flops = bytes_accessed = model_flops = 0;
   }
 };
 
@@ -347,10 +352,14 @@ void AggregateHloFunc(HLOTracker& current,
 
   DeviceFlatOpMetricsDbBuilder::OpData op_data;
   op_data.is_eager = current.is_eager;
-  op_data.occurrences = 1;
+  op_data.occurrences = current.occurrences;
   op_data.time_ps = current.duration;
   op_data.children_time_ps = 0;
   op_data.vdd_energy_j = current.vdd_energy_j;
+  op_data.flops = current.flops;
+  op_data.bytes_accessed = current.bytes_accessed;
+  op_data.model_flops =
+      current.model_flops > 0 ? current.model_flops : current.flops;
   op_data.perf_info = current.hlo_instruction->GetPerformanceInfoWrapper();
 
   builder.EnterOp(op_id, op_data);
@@ -387,20 +396,29 @@ FlatOpMetricsDb ConvertDeviceTraceXPlaneToFlatOpMetricsDb(
               stats.group_id != current.group_id) {
             AggregateHloFunc(current, builder);
           }
-          current.hlo_instruction = hlo_instruction;
-          current.hlo_op_name = stats.hlo_op_names.back();
+          if (current.occurrences == 0) {
+            current.hlo_instruction = hlo_instruction;
+            current.hlo_op_name = stats.hlo_op_names.back();
+            current.program_id = *stats.program_id;
+            if (stats.group_id.has_value()) {
+              current.group_id = *stats.group_id;
+            }
+            current.is_eager = stats.is_eager;
+          }
+          current.occurrences++;
           current.duration += event.DurationPs();
           event.ForEachStat(
               [&current](const tsl::profiler::XStatVisitor& stat) {
                 if (stat.Name() == "vdd_energy_j") {
                   current.vdd_energy_j += stat.DoubleValue();
+                } else if (stat.Name() == "flops") {
+                  current.flops = stat.IntOrUintValue();
+                } else if (stat.Name() == "bytes_accessed") {
+                  current.bytes_accessed = stat.IntOrUintValue();
+                } else if (stat.Name() == "model_flops") {
+                  current.model_flops = stat.IntOrUintValue();
                 }
               });
-          current.is_eager = stats.is_eager;
-          current.program_id = *stats.program_id;
-          if (stats.group_id.has_value()) {
-            current.group_id = *stats.group_id;
-          }
         }
       } else if (stats.IsTfOp()) {
         AggregateHloFunc(current, builder);

@@ -30,6 +30,8 @@
 #include "xprof/convert/unified_profile_processor.h"
 #include "xprof/convert/unified_profile_processor_factory.h"
 #include "xprof/convert/unified_tools_registration.h"
+#include "xprof/convert/xplane_to_hlo.h"
+#include "xprof/convert/xplane_to_tool_names.h"
 #include "plugin/xprof/protobuf/worker_service.pb.h"
 #include "plugin/xprof/worker/grpc_utils.h"
 #include "plugin/xprof/worker/stub_factory.h"
@@ -215,6 +217,13 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolDataWithProfileProcessor(
             << " with options: " << DebugString(options)
             << " using ProfileProcessor"
             << " session_id: " << session_id;
+
+  if (tool_name == "tool_names") {
+    TF_ASSIGN_OR_RETURN(bool hlo_proto_status,
+                        ConvertMultiXSpaceToHloProto(session_snapshot));
+    LOG_IF(WARNING, !hlo_proto_status) << "No HLO proto found in XSpace.";
+    return GetAvailableToolNames(session_snapshot);
+  }
 
   absl::Time start_time = absl::Now();
   const bool enable_unified = absl::GetFlag(FLAGS_enable_unified_xprof);

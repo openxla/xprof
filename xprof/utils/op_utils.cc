@@ -281,13 +281,17 @@ void DeviceFlatOpMetricsDbBuilder::EnterOp(const OpIdentifier& op_id,
 
   // Populate metrics from PerformanceInfoWrapper if available (GPU/Symbol path)
   const auto* perf_info = event_data.perf_info;
-  const int64_t flops =
-      perf_info != nullptr ? perf_info->DeviceFlops() : event_data.flops;
-  const int64_t bytes_accessed = perf_info != nullptr
-                                     ? perf_info->bytes_accessed()
-                                     : event_data.bytes_accessed;
+  const int64_t flops = (perf_info != nullptr && perf_info->DeviceFlops() > 0)
+                            ? perf_info->DeviceFlops()
+                            : event_data.flops;
+  const int64_t bytes_accessed =
+      (perf_info != nullptr && perf_info->bytes_accessed() > 0)
+          ? perf_info->bytes_accessed()
+          : event_data.bytes_accessed;
   const int64_t model_flops =
-      perf_info != nullptr ? perf_info->ModelFlops() : event_data.model_flops;
+      (perf_info != nullptr && perf_info->ModelFlops() > 0)
+          ? perf_info->ModelFlops()
+          : event_data.model_flops;
 
   const tsl::protobuf::RepeatedPtrField<OpMetrics::MemoryAccessed>&
       memory_accessed_breakdown =

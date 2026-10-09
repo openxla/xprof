@@ -2221,6 +2221,8 @@ cc_library(
         ":unified_profile_processor",
         ":unified_profile_processor_factory",
         ":unified_tools_registration",
+        ":xplane_to_hlo",
+        ":xplane_to_tool_names",
         "//plugin/xprof/protobuf:worker_service_proto_cc",
         "//plugin/xprof/worker:grpc_utils",
         "//plugin/xprof/worker:stub_factory",

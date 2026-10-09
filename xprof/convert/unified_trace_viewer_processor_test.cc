@@ -73,12 +73,8 @@ TEST(UnifiedTraceViewerProcessorTest, InvalidArgument) {
 }
 
 TEST(UnifiedTraceViewerProcessorTest, ProcessSessionJsonSuccess) {
-  RegisterUnifiedToolRegistrations();
   ToolOptions options;
-  std::unique_ptr<UnifiedProfileProcessor> processor =
-      UnifiedProfileProcessorFactory::GetInstance().Create("trace_viewer",
-                                                           options);
-  ASSERT_NE(processor, nullptr);
+  UnifiedTraceViewerProcessor processor(options);
 
   std::string session_dir = tsl::io::JoinPath(
       testing::TempDir(), "unified_trace_viewer_processor_test_json");
@@ -113,13 +109,9 @@ TEST(UnifiedTraceViewerProcessorTest, ProcessSessionJsonSuccess) {
 }
 
 TEST(UnifiedTraceViewerProcessorTest, ProcessSessionPbSuccess) {
-  RegisterUnifiedToolRegistrations();
   ToolOptions options;
   options["format"] = "pb";
-  std::unique_ptr<UnifiedProfileProcessor> processor =
-      UnifiedProfileProcessorFactory::GetInstance().Create("trace_viewer",
-                                                           options);
-  ASSERT_NE(processor, nullptr);
+  UnifiedTraceViewerProcessor processor(options);
 
   std::string session_dir = tsl::io::JoinPath(
       testing::TempDir(), "unified_trace_viewer_processor_test_pb");
@@ -134,9 +126,9 @@ TEST(UnifiedTraceViewerProcessorTest, ProcessSessionPbSuccess) {
       SessionSnapshot session_snapshot,
       SessionSnapshot::Create(xspace_paths, /*xspaces=*/std::nullopt));
 
-  EXPECT_OK(processor->ProcessSession(session_snapshot, options));
-  EXPECT_EQ(processor->GetContentType(), "application/octet-stream");
-  EXPECT_THAT(processor->GetData(), Not(IsEmpty()));
+  EXPECT_OK(processor.ProcessSession(session_snapshot, options));
+  EXPECT_EQ(processor.GetContentType(), "application/octet-stream");
+  EXPECT_THAT(processor.GetData(), Not(IsEmpty()));
 
   XSpace tpu_space;
   tensorflow::profiler::XPlane* tpu_plane = tpu_space.add_planes();
@@ -173,13 +165,20 @@ TEST(UnifiedTraceViewerProcessorTest, ProcessSessionPbSuccess) {
   EXPECT_THAT(mpmd_pb_data, Not(IsEmpty()));
 }
 
-TEST(UnifiedTraceViewerProcessorTest, StreamingRegistration) {
+// Neither trace viewer tool may be served by UnifiedTraceViewerProcessor yet:
+// "trace_viewer" consumers parse the legacy serialized Trace proto while the
+// unified processor emits JSON, and "trace_viewer@" is a streaming protocol
+// (viewport, resolution, search, uid lookups) that it does not implement. An
+// unregistered tool makes the dispatcher fall back to the legacy processors.
+TEST(UnifiedTraceViewerProcessorTest, TraceViewerToolsAreNotRegistered) {
   RegisterUnifiedToolRegistrations();
   ToolOptions options;
-  std::unique_ptr<UnifiedProfileProcessor> processor =
-      UnifiedProfileProcessorFactory::GetInstance().Create("trace_viewer@",
-                                                           options);
-  ASSERT_NE(processor, nullptr);
+  EXPECT_EQ(UnifiedProfileProcessorFactory::GetInstance().Create("trace_viewer",
+                                                                 options),
+            nullptr);
+  EXPECT_EQ(UnifiedProfileProcessorFactory::GetInstance().Create(
+                "trace_viewer@", options),
+            nullptr);
 }
 
 }  // namespace

@@ -27,12 +27,16 @@ limitations under the License.
 #include "testing/base/public/benchmark.h"
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include "absl/log/check.h"
 #include "absl/cleanup/cleanup.h"
+#include "absl/flags/declare.h"
+#include "absl/flags/flag.h"
+#include "absl/flags/reflection.h"
+#include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/platform/env.h"
+#include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/file_utils.h"
 #include "xprof/convert/profile_processor_factory.h"
@@ -41,6 +45,9 @@ limitations under the License.
 #include "xprof/convert/unified_session_snapshot.h"
 #include "xprof/convert/xplane_to_tools_data_with_profile_processor.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/trace_events_old.pb.h"
+
+ABSL_DECLARE_FLAG(bool, enable_unified_xprof);
 
 namespace xprof {
 namespace {
@@ -235,6 +242,53 @@ TEST_P(ProfileProcessorTest, ProcessorE2ETest) {
                        ConvertMultiXSpacesToToolDataWithProfileProcessor(
                            session_snapshot, test_param.tool_name, options));
   EXPECT_EQ(*result1, result2);
+}
+
+// The plugin's raw_to_tool_data.process_raw_trace parses the output of the
+// non-streaming "trace_viewer" tool as a serialized Trace proto before turning
+// it into JSON. That contract must hold with --enable_unified_xprof too: the
+// unified trace viewer processor emits JSON directly, so the dispatcher has to
+// keep falling back to the legacy TraceViewerProcessor for this tool.
+TEST(TraceViewerContractTest, UnifiedWorkflowReturnsSerializedTraceProto) {
+  absl::FlagSaver flag_saver;
+  absl::SetFlag(&FLAGS_enable_unified_xprof, true);
+
+  std::string session_dir =
+      file::JoinPath(testing::TempDir(), "trace_viewer_contract_test");
+  ASSERT_OK(file::CreateDir(session_dir, file::Defaults()));
+  auto cleanup = absl::MakeCleanup([&session_dir] {
+    file::RecursivelyDelete(session_dir, file::Defaults()).IgnoreError();
+  });
+
+  XSpace space;
+  tensorflow::profiler::XPlane* plane = space.add_planes();
+  plane->set_name(tsl::profiler::kHostThreadsPlaneName);
+  tensorflow::profiler::XEventMetadata& metadata =
+      (*plane->mutable_event_metadata())[1];
+  metadata.set_id(1);
+  metadata.set_name("test_event");
+  tensorflow::profiler::XLine* line = plane->add_lines();
+  line->set_id(1);
+  line->set_name("test_thread");
+  tensorflow::profiler::XEvent* event = line->add_events();
+  event->set_metadata_id(1);
+  event->set_offset_ps(1000);
+  event->set_duration_ps(500);
+  std::string xspace_path = file::JoinPath(session_dir, "test_host.xplane.pb");
+  ASSERT_OK(xprof::WriteBinaryProto(xspace_path, space));
+
+  ASSERT_OK_AND_ASSIGN(SessionSnapshot session_snapshot,
+                       SessionSnapshot::Create({xspace_path}, std::nullopt));
+
+  ASSERT_OK_AND_ASSIGN(std::string tool_data,
+                       ConvertMultiXSpacesToToolDataWithProfileProcessor(
+                           session_snapshot, "trace_viewer", ToolOptions()));
+
+  xprof::Trace trace;
+  ASSERT_TRUE(trace.ParseFromString(tool_data))
+      << "trace_viewer output is not a serialized Trace proto";
+  EXPECT_THAT(trace.devices(), Not(IsEmpty()));
+  EXPECT_THAT(trace.trace_events(), Not(IsEmpty()));
 }
 
 // Helper to map index to tool name for benchmarks.

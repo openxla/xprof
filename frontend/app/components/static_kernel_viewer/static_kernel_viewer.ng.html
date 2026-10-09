@@ -248,12 +248,19 @@
     <trace-viewer-container
       [traceViewerModule]="traceViewerModule"
       [useTraceViewerV2]="true"
+      [customDrawerOpen]="isSelectionPanelOpen"
       (initializeWasm)="onInitializeWasm()"
     >
       <kernel-event-tooltip
         *ngIf="enableEventTooltip"
         canvasOverlay
       ></kernel-event-tooltip>
+      <kernel-selection-panel
+        drawerOverlay
+        (openChange)="onSelectionPanelOpenChange($event)"
+        (selectEvent)="onSelectTimelineEvent($event)"
+        (searchQuery)="onSearchTimelineQuery($event)"
+      ></kernel-selection-panel>
     </trace-viewer-container>
   </div>
 

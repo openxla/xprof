@@ -13,6 +13,7 @@ import {
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {DEFAULT_HOST} from 'org_xprof/frontend/app/common/constants/constants';
+import {KernelSelectionPanel} from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_selection_panel';
 import {
   LOADING_STATUS_UPDATE_EVENT_NAME,
   shutdownTraceViewerV2,
@@ -628,8 +629,10 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   enableEventTooltip = false;
 
   traceViewerModule: TraceViewerV2Module | null = null;
+  isSelectionPanelOpen = false;
 
   @ViewChild('searchInput') searchInput?: ElementRef<HTMLInputElement>;
+  @ViewChild(KernelSelectionPanel) selectionPanel?: KernelSelectionPanel;
 
   private readonly collapsedModules = new Set<string>();
   private listKey = '';
@@ -1221,8 +1224,28 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     return this.tabs.find((tab) => tab.entry === entry);
   }
 
+  onSelectionPanelOpenChange(isOpen: boolean): void {
+    if (this.isSelectionPanelOpen === isOpen) {
+      return;
+    }
+    this.isSelectionPanelOpen = isOpen;
+    this.changeDetectorRef.markForCheck();
+    this.notifyResize();
+  }
+
+  onSelectTimelineEvent(eventIndex: number): void {
+    this.traceViewerModule?.application
+      ?.instance?.()
+      ?.selectEvent?.(eventIndex);
+  }
+
+  onSearchTimelineQuery(query: string): void {
+    this.traceViewerModule?.application?.instance?.()?.setSearchQuery?.(query);
+  }
+
   /** Loads the trace of `entry` into the timeline. */
   private showEntry(entry: KernelEntry): void {
+    this.selectionPanel?.close();
     this.collapsedModules.delete(entry.module);
     this.updateUrlQueryParams();
     const queryParamsMap = new Map<string, string>([
@@ -1509,6 +1532,9 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     } else if (event.key === 'k' || event.key === 'K') {
       event.preventDefault();
       this.focusSearch();
+      this.changeDetectorRef.markForCheck();
+    } else if (event.key === 'Escape' && this.isSelectionPanelOpen) {
+      this.selectionPanel?.close();
       this.changeDetectorRef.markForCheck();
     }
   }

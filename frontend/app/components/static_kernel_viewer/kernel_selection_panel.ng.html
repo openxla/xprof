@@ -1,0 +1,810 @@
+<div
+  *ngIf="content as c"
+  class="selection-panel"
+  [style.--accent-color]="c.accentColor"
+  role="region"
+  aria-label="Selected kernel event details"
+>
+  <div class="panel-header">
+    <div class="header-main">
+      <div class="header-title-row">
+        <span
+          class="unit-chip"
+          [class.neutral-chip]="!c.unit"
+          [style.--chip-color]="c.unit?.color ?? c.accentColor"
+        >
+          <span *ngIf="c.unit" class="unit-dot" aria-hidden="true"></span>
+          <mat-icon *ngIf="!c.unit" class="chip-icon" aria-hidden="true">{{ c.badgeIcon }}</mat-icon>
+          {{ c.badgeLabel }}
+        </span>
+
+        <span class="event-name" [class.code-name]="c.isCode">{{ c.name }}</span>
+
+        <span *ngIf="c.description" class="unit-description">{{ c.description }}</span>
+
+        <div *ngIf="c.subtitleChips as chips" class="subtitle-chips">
+          <span *ngFor="let chip of chips" class="subtitle-chip">{{ chip }}</span>
+        </div>
+      </div>
+
+      <div *ngIf="c.regionBreadcrumbs as crumbs" class="header-breadcrumb-row">
+        <span class="breadcrumb-label">{{ c.regionRowLabel ?? 'Region' }}</span>
+        <div class="region-breadcrumb">
+          <ng-container *ngFor="let crumb of crumbs; let last = last">
+            <button
+              *ngIf="crumb.eventIndex !== undefined; else staticCrumb"
+              type="button"
+              class="region-crumb interactive-crumb"
+              [class.innermost]="last"
+              (click)="onSelectEventIndex(crumb.eventIndex)"
+              [matTooltip]="
+                'Select region ' +
+                crumb.name +
+                (crumb.bundles ? ' (Bundles ' + crumb.bundles + ' · ' + crumb.durationLabel + ')' : '')
+              "
+              matTooltipPosition="above"
+            >
+              <mat-icon class="crumb-icon" aria-hidden="true">account_tree</mat-icon>
+              <span>{{ crumb.name }}</span>
+            </button>
+            <ng-template #staticCrumb>
+              <span class="region-crumb" [class.innermost]="last">{{ crumb.name }}</span>
+            </ng-template>
+            <span *ngIf="!last" class="region-sep" aria-hidden="true">›</span>
+          </ng-container>
+        </div>
+
+        <button
+          *ngIf="c.kind === 'region' && c.parentRegion as parent"
+          type="button"
+          class="parent-jump-pill"
+          (click)="onSelectEventIndex(parent.eventIndex)"
+          [matTooltip]="
+            'Go up to parent region ' +
+            parent.name +
+            ' (Bundles ' +
+            parent.bundles +
+            ' · ' +
+            parent.durationLabel +
+            ')'
+          "
+          matTooltipPosition="above"
+        >
+          <mat-icon class="parent-jump-icon" aria-hidden="true">north_west</mat-icon>
+          <span>Parent: {{ parent.name }}</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="header-meta-actions">
+      <div class="meta-pills">
+        <span
+          *ngIf="c.spillsLabel as spills"
+          class="spill-pill"
+          [class.warn]="c.hasSpills"
+          matTooltip="Vector register spills / fills in this selection"
+          matTooltipPosition="above"
+        >
+          <mat-icon *ngIf="c.hasSpills" class="spill-pill-icon" aria-hidden="true">warning</mat-icon>
+          <span>{{ spills }}</span>
+        </span>
+
+        <span *ngIf="c.ordinalLabel" class="ordinal-pill">{{ c.ordinalLabel }}</span>
+
+        <span class="bundle-pill">
+          <span class="bundle-pill-label">{{ c.bundlesLabel }}</span>
+          <span class="bundle-pill-value">{{ c.bundles }}</span>
+          <span *ngIf="c.hexBundle" class="hex-bundle">{{ c.hexBundle }}</span>
+          <span *ngIf="c.length && c.mode === 'single'" class="bundle-length">· {{ c.length }}</span>
+        </span>
+      </div>
+
+      <div class="action-buttons" role="group" aria-label="Selection actions">
+        <button
+          *ngIf="canGoBack"
+          type="button"
+          class="panel-action-btn back-history-btn"
+          (click)="goBack()"
+          [matTooltip]="previousSelectionLabel"
+          [attr.aria-label]="previousSelectionLabel"
+          matTooltipPosition="above"
+        >
+          <mat-icon aria-hidden="true">undo</mat-icon>
+        </button>
+
+        <div
+          *ngIf="c.eventIndex !== undefined || c.prevEventIndex !== undefined || c.nextEventIndex !== undefined"
+          class="lane-stepper"
+          role="group"
+          aria-label="Lane navigation"
+        >
+          <button
+            type="button"
+            class="stepper-btn prev-lane-btn"
+            [disabled]="c.prevEventIndex === undefined"
+            (click)="onSelectEventIndex(c.prevEventIndex)"
+            [matTooltip]="
+              c.prevEventIndex !== undefined
+                ? 'Previous on lane (←)'
+                : 'No previous event on lane'
+            "
+            matTooltipPosition="above"
+            aria-label="Previous on lane"
+          >
+            <mat-icon aria-hidden="true">chevron_left</mat-icon>
+          </button>
+          <span class="stepper-divider" aria-hidden="true"></span>
+          <button
+            type="button"
+            class="stepper-btn next-lane-btn"
+            [disabled]="c.nextEventIndex === undefined"
+            (click)="onSelectEventIndex(c.nextEventIndex)"
+            [matTooltip]="
+              c.nextEventIndex !== undefined
+                ? 'Next on lane (→)'
+                : 'No next event on lane'
+            "
+            matTooltipPosition="above"
+            aria-label="Next on lane"
+          >
+            <mat-icon aria-hidden="true">chevron_right</mat-icon>
+          </button>
+        </div>
+
+        <div class="utility-actions">
+          <button
+            *ngIf="c.mode === 'single' && c.kind === 'instruction'"
+            type="button"
+            class="panel-action-btn"
+            (click)="onSearchText(c.name)"
+            [matTooltip]="'Highlight all ' + c.name + ' on timeline'"
+            [attr.aria-label]="'Highlight all ' + c.name + ' on timeline'"
+            matTooltipPosition="above"
+          >
+            <mat-icon aria-hidden="true">search</mat-icon>
+          </button>
+          <button
+            type="button"
+            class="panel-action-btn"
+            [class.copied]="copied"
+            (click)="copySummary()"
+            [matTooltip]="copied ? 'Copied summary' : 'Copy selection summary'"
+            [attr.aria-label]="copied ? 'Copied summary' : 'Copy selection summary'"
+            matTooltipPosition="above"
+          >
+            <mat-icon aria-hidden="true">{{ copied ? 'check' : 'content_copy' }}</mat-icon>
+          </button>
+          <button
+            type="button"
+            class="panel-action-btn close-btn"
+            (click)="close()"
+            matTooltip="Close details panel"
+            aria-label="Close details panel"
+            matTooltipPosition="above"
+          >
+            <mat-icon aria-hidden="true">close</mat-icon>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODE 1: SINGLE INSTRUCTION / COUNTER / PROCESS BUNDLE INSPECTION -->
+  <div *ngIf="c.mode === 'single'" class="panel-grid single-mode-grid">
+    <!-- Column 1: Dataflow & Hardware Properties -->
+    <section class="panel-card">
+      <div class="card-section-header">
+        <span class="section-title">Dataflow &amp; Properties</span>
+        <span *ngIf="c.registerTypeLabel" class="section-badge">{{ c.registerTypeLabel }}</span>
+      </div>
+
+      <div class="card-section-body">
+        <div *ngIf="c.counterGauge as gauge" class="dataflow-row">
+          <span class="dataflow-label">{{ gauge.label }}</span>
+          <div class="gauge-row">
+            <span class="gauge-track" aria-hidden="true">
+              <span
+                class="gauge-fill"
+                [style.width.%]="gauge.percent"
+                [style.background-color]="gauge.color"
+              ></span>
+            </span>
+            <span class="gauge-value">{{ gauge.formattedValue }}</span>
+          </div>
+        </div>
+
+        <div
+          *ngIf="c.output || c.operands || c.consumers || c.spillsLabel || c.sourceInfo || c.sourceStack || c.extraAttributes"
+          class="dataflow-grid"
+        >
+          <div *ngIf="c.output as out" class="dataflow-row">
+            <span class="dataflow-label">{{ out.rowLabel }}</span>
+            <div class="llo-badges">
+              <button
+                *ngIf="out.register"
+                type="button"
+                class="register-pill interactive-pill"
+                [attr.data-kind]="out.registerKind"
+                (click)="onSearchText(out.register)"
+                [matTooltip]="'Search ' + out.register + ' in timeline'"
+                matTooltipPosition="above"
+              >
+                {{ out.register }}
+              </button>
+              <span *ngIf="out.memorySpace" class="memory-pill">{{ out.memorySpace }}</span>
+              <span *ngIf="out.metadata" class="metadata-pill">{{ out.metadata }}</span>
+              <span *ngIf="out.throughput" class="throughput-pill">{{ out.throughput }}</span>
+            </div>
+          </div>
+
+          <div *ngIf="c.operands as operands" class="dataflow-row">
+            <span class="dataflow-label">Operands ({{ operands.length }})</span>
+            <div class="operand-list">
+              <div
+                *ngFor="let op of operands"
+                class="operand-item"
+                [matTooltip]="'Operand ' + op.index + ': ' + op.text"
+                matTooltipPosition="above"
+              >
+                <span class="operand-index">{{ op.index }}</span>
+                <span class="operand-text">{{ op.text }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div *ngIf="c.consumers as consumers" class="dataflow-row">
+            <span class="dataflow-label">Consumers ({{ consumers.length }})</span>
+            <div class="consumer-list">
+              <button
+                *ngFor="let consumer of consumers"
+                type="button"
+                class="consumer-chip interactive-chip"
+                (click)="onSearchText(consumer)"
+                [matTooltip]="'Search ' + consumer + ' in timeline'"
+                matTooltipPosition="above"
+              >
+                <span class="consumer-arrow" aria-hidden="true">→</span>
+                <span class="consumer-text">{{ consumer }}</span>
+              </button>
+            </div>
+          </div>
+
+          <div *ngIf="c.spillsLabel as spills" class="dataflow-row">
+            <span class="dataflow-label">Vector spills</span>
+            <div class="llo-badges">
+              <span class="spill-pill" [class.warn]="c.hasSpills">
+                <mat-icon *ngIf="c.hasSpills" class="spill-pill-icon" aria-hidden="true">warning</mat-icon>
+                <span>{{ spills }}</span>
+              </span>
+            </div>
+          </div>
+
+          <div *ngIf="c.sourceInfo as src" class="dataflow-row">
+            <span class="dataflow-label">Source</span>
+            <div
+              class="source-pill"
+              [matTooltip]="src.raw"
+              matTooltipPosition="above"
+            >
+              <mat-icon class="source-pill-icon" aria-hidden="true">code</mat-icon>
+              <span class="source-pill-file">{{ src.shortLocation }}</span>
+              <span *ngIf="src.directory" class="source-pill-dir">{{ src.directory }}</span>
+            </div>
+          </div>
+
+          <div *ngIf="c.sourceStack as stack" class="dataflow-row">
+            <span class="dataflow-label">Stack ({{ stack.length }})</span>
+            <div class="source-stack-list" role="list" aria-label="Source call stack">
+              <div
+                *ngFor="let frame of stack"
+                role="listitem"
+                class="source-stack-frame"
+                [class.innermost-frame]="frame.isInnermost"
+                [matTooltip]="frame.raw"
+                matTooltipPosition="above"
+              >
+                <span class="frame-index">{{ frame.index }}</span>
+                <span class="frame-file">{{ frame.shortLocation }}</span>
+                <span *ngIf="frame.directory" class="frame-dir">{{ frame.directory }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div *ngIf="c.extraAttributes as attrs" class="dataflow-row">
+            <span class="dataflow-label">Attributes</span>
+            <div class="attr-chip-list">
+              <span
+                *ngFor="let attr of attrs"
+                class="attr-chip"
+                [matTooltip]="attr.key + ': ' + attr.value"
+                matTooltipPosition="above"
+              >
+                <span class="attr-chip-key">{{ attr.key }}:</span>
+                <span class="attr-chip-val">{{ attr.value }}</span>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div
+          *ngIf="!c.output && !c.operands && !c.consumers && !c.spillsLabel && !c.sourceInfo && !c.sourceStack && !c.extraAttributes && !c.counterGauge"
+          class="kv-grid"
+        >
+          <div *ngIf="c.unit" class="kv-row">
+            <span class="kv-key">Functional unit</span>
+            <span class="kv-value">{{ c.unit.label }} — {{ c.unit.description }}</span>
+          </div>
+          <div class="kv-row">
+            <span class="kv-key">{{ c.bundlesLabel }}</span>
+            <span class="kv-value">{{ c.bundles }} {{ c.hexBundle ?? '' }}</span>
+          </div>
+          <div *ngIf="c.length" class="kv-row">
+            <span class="kv-key">Duration</span>
+            <span class="kv-value">{{ c.length }}</span>
+          </div>
+          <div *ngIf="c.schedulePosition as pos" class="kv-row">
+            <span class="kv-key">Schedule offset</span>
+            <span class="kv-value">{{ pos.formattedPercent }} of {{ pos.totalBundles }} bundles</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Column 2: Co-Scheduled in This Bundle -->
+    <section class="panel-card">
+      <div class="card-section-header">
+        <span class="section-title">In This Bundle</span>
+        <span *ngIf="c.activeLanesSummary" class="section-badge">{{ c.activeLanesSummary }}</span>
+      </div>
+
+      <div class="card-section-body">
+        <div *ngIf="c.bundleStrip as strip" class="bundle-strip" role="list" aria-label="VLIW lane occupancy">
+          <span
+            *ngFor="let cell of strip"
+            role="listitem"
+            class="bundle-cell"
+            [class.active]="cell.active"
+            [style.--unit-color]="cell.unit.color"
+            [matTooltip]="
+              cell.unit.label +
+              ' (' +
+              cell.unit.description +
+              '): ' +
+              cell.count +
+              (cell.count === 1 ? ' instruction' : ' instructions') +
+              ' in bundle ' +
+              c.bundles
+            "
+            matTooltipPosition="above"
+          >
+            <span class="bundle-cell-unit">{{ cell.unit.label }}</span>
+            <span *ngIf="cell.count > 1" class="bundle-cell-count">×{{ cell.count }}</span>
+          </span>
+        </div>
+
+        <div *ngIf="c.bundleEvents as events; else noBundleEvents" class="bundle-events-list">
+          <button
+            *ngFor="let item of events"
+            type="button"
+            class="bundle-event-row"
+            [class.is-selected]="item.selected"
+            [style.--row-unit-color]="item.unit?.color ?? c.accentColor"
+            (click)="onSelectEventIndex(item.eventIndex)"
+            [matTooltip]="
+              item.selected
+                ? 'Currently selected instruction (' + item.trackName + ' ' + item.name + ')'
+                : 'Select co-scheduled ' + item.trackName + ' ' + item.name
+            "
+            matTooltipPosition="above"
+          >
+            <span
+              class="row-unit-tag"
+              [style.--unit-color]="item.unit?.color ?? c.accentColor"
+            >
+              <span class="unit-dot" aria-hidden="true"></span>
+              {{ item.trackName }}
+            </span>
+            <span class="row-mnemonic">{{ item.name }}</span>
+            <span
+              *ngIf="item.produces"
+              class="register-pill compact-pill"
+              [attr.data-kind]="item.registerKind"
+            >
+              → {{ item.produces }}
+            </span>
+            <span *ngIf="item.ordinalLabel" class="row-ordinal">{{ item.ordinalLabel }}</span>
+          </button>
+        </div>
+        <ng-template #noBundleEvents>
+          <div class="empty-hint">
+            Single instruction scheduled in bundle {{ c.bundles }}.
+          </div>
+        </ng-template>
+      </div>
+    </section>
+
+    <!-- Column 3: Static Utilization & Schedule Context -->
+    <section class="panel-card">
+      <div class="card-section-header">
+        <span class="section-title">Static Utilization</span>
+        <span *ngIf="c.peakUtilizationLabel" class="section-badge highlight-badge">
+          {{ c.peakUtilizationLabel }}
+        </span>
+      </div>
+
+      <div class="card-section-body">
+        <div *ngIf="c.utilizationBars as bars" class="util-bars-list">
+          <div
+            *ngFor="let bar of bars"
+            class="util-bar-row"
+            [class.highlighted]="bar.highlighted"
+            [matTooltip]="
+              bar.unit.label +
+              ' (' +
+              bar.unit.description +
+              '): ' +
+              bar.formattedPercent +
+              ' static utilization'
+            "
+            matTooltipPosition="above"
+          >
+            <span class="util-unit-label">
+              <span
+                class="unit-dot"
+                [style.background-color]="bar.unit.color"
+                aria-hidden="true"
+              ></span>
+              {{ bar.unit.label }}
+            </span>
+            <span class="util-track" aria-hidden="true">
+              <span
+                class="util-fill"
+                [style.width.%]="bar.percent"
+                [style.background-color]="bar.unit.color"
+              ></span>
+            </span>
+            <span class="util-pct">{{ bar.formattedPercent }}</span>
+          </div>
+        </div>
+      </div>
+
+      <div *ngIf="c.schedulePosition as pos" class="card-section-footer">
+        <div class="position-header-row">
+          <span class="footer-label">Schedule Position</span>
+          <span class="position-caption">
+            <strong>{{ pos.formattedPercent }}</strong> of {{ pos.totalBundles }} bundles
+          </span>
+        </div>
+        <span class="position-track" aria-hidden="true">
+          <span
+            class="position-fill"
+            [style.width.%]="pos.percent"
+          ></span>
+          <span
+            class="position-marker"
+            [style.left.%]="pos.percent"
+          ></span>
+        </span>
+      </div>
+    </section>
+  </div>
+
+  <!-- MODE 2: REGION OR MULTI-EVENT RANGE SELECTION -->
+  <div *ngIf="c.mode === 'range'" class="panel-grid range-mode-grid">
+    <!-- Column 1: Instruction Mix & Density -->
+    <section class="panel-card">
+      <div class="card-section-header">
+        <span class="section-title">Instruction Mix</span>
+        <span *ngIf="c.density" class="section-badge">{{ c.density }}</span>
+      </div>
+
+      <div class="card-section-body">
+        <div *ngIf="c.instructionMix as mix; else noInstructionMix" class="mix-container">
+          <div class="stacked-mix-bar" role="group" aria-label="Instruction mix breakdown">
+            <button
+              *ngFor="let item of mix"
+              type="button"
+              class="stacked-segment"
+              [class.is-hovered]="hoveredMixUnit === item.unit.label"
+              [class.active-filter]="selectedUnitFilter === item.unit.label"
+              [class.is-dimmed]="
+                (selectedUnitFilter && selectedUnitFilter !== item.unit.label) ||
+                (hoveredMixUnit && hoveredMixUnit !== item.unit.label)
+              "
+              [style.width.%]="item.percent"
+              [style.background-color]="item.unit.color"
+              [matTooltip]="
+                item.unit.label +
+                ' (' +
+                item.unit.description +
+                ') — ' +
+                (item.count | number) +
+                ' instr · ' +
+                item.formattedPercent +
+                ' (click to filter)'
+              "
+              matTooltipPosition="above"
+              [attr.aria-label]="
+                item.unit.label + ': ' + (item.count | number) + ' instructions (' + item.formattedPercent + ')'
+              "
+              (mouseenter)="setHoveredMixUnit(item.unit.label)"
+              (mouseleave)="setHoveredMixUnit(undefined)"
+              (click)="toggleUnitFilter(item.unit.label)"
+            ></button>
+          </div>
+
+          <div class="mix-rows-list">
+            <button
+              *ngFor="let item of mix"
+              type="button"
+              class="mix-unit-row"
+              [class.active-filter]="selectedUnitFilter === item.unit.label"
+              [class.is-hovered]="hoveredMixUnit === item.unit.label"
+              (mouseenter)="setHoveredMixUnit(item.unit.label)"
+              (mouseleave)="setHoveredMixUnit(undefined)"
+              (click)="toggleUnitFilter(item.unit.label)"
+              [matTooltip]="
+                'Filter instructions by ' +
+                item.unit.label +
+                ' (' +
+                (item.count | number) +
+                ' instr · ' +
+                item.formattedPercent +
+                ')'
+              "
+              matTooltipPosition="above"
+            >
+              <span class="mix-unit-info">
+                <span
+                  class="unit-dot"
+                  [style.background-color]="item.unit.color"
+                  aria-hidden="true"
+                ></span>
+                <span class="mix-unit-name">{{ item.unit.label }}</span>
+                <span class="mix-unit-count">{{ item.count | number }}</span>
+              </span>
+              <span class="mix-bar-track" aria-hidden="true">
+                <span
+                  class="mix-bar-fill"
+                  [style.width.%]="item.percent"
+                  [style.background-color]="item.unit.color"
+                ></span>
+              </span>
+              <span class="mix-unit-pct">{{ item.formattedPercent }}</span>
+            </button>
+          </div>
+        </div>
+        <ng-template #noInstructionMix>
+          <div class="empty-hint">No instructions scheduled in this range.</div>
+        </ng-template>
+      </div>
+    </section>
+
+    <!-- Column 2: Mean Static Utilization & Region Hierarchy -->
+    <section class="panel-card">
+      <div class="card-section-header">
+        <span class="section-title">Mean Utilization</span>
+        <span
+          *ngIf="c.meanUtilization?.boundUnit as boundUnit"
+          class="section-badge highlight-badge"
+        >
+          → likely {{ boundUnit }}-bound
+        </span>
+      </div>
+
+      <div class="card-section-body">
+        <div
+          *ngIf="c.utilizationBars as bars"
+          class="util-bars-list"
+          [class.compact-util-grid]="!!c.parentRegion || !!c.childRegions"
+        >
+          <div
+            *ngFor="let bar of bars"
+            class="util-bar-row"
+            [class.highlighted]="bar.highlighted"
+            [matTooltip]="
+              bar.unit.label +
+              ' (' +
+              bar.unit.description +
+              '): ' +
+              bar.formattedPercent +
+              ' mean utilization'
+            "
+            matTooltipPosition="above"
+          >
+            <span class="util-unit-label">
+              <span
+                class="unit-dot"
+                [style.background-color]="bar.unit.color"
+                aria-hidden="true"
+              ></span>
+              {{ bar.unit.label }}
+            </span>
+            <span class="util-track" aria-hidden="true">
+              <span
+                class="util-fill"
+                [style.width.%]="bar.percent"
+                [style.background-color]="bar.unit.color"
+              ></span>
+            </span>
+            <span class="util-pct">{{ bar.formattedPercent }}</span>
+          </div>
+        </div>
+
+        <div *ngIf="c.parentRegion || c.childRegions" class="hierarchy-block">
+          <div class="hierarchy-header-row">
+            <span class="footer-label">Region Hierarchy</span>
+            <span *ngIf="c.childRegions as children" class="hierarchy-count">
+              {{ children.length }} {{ children.length === 1 ? 'child' : 'children' }}
+            </span>
+          </div>
+
+          <div class="child-regions-list">
+            <button
+              *ngIf="c.parentRegion as parent"
+              type="button"
+              class="child-region-row parent-region-row"
+              (click)="onSelectEventIndex(parent.eventIndex)"
+              [matTooltip]="
+                'Navigate up to parent region ' +
+                parent.name +
+                ' (Bundles ' +
+                parent.bundles +
+                ' · ' +
+                parent.durationLabel +
+                ')'
+              "
+              matTooltipPosition="above"
+            >
+              <span class="hierarchy-badge parent-badge">
+                <mat-icon class="hierarchy-badge-icon" aria-hidden="true">north_west</mat-icon>
+                Parent
+              </span>
+              <span class="child-region-name">{{ parent.name }}</span>
+              <span class="child-region-meta">{{ parent.durationLabel }}</span>
+            </button>
+
+            <button
+              *ngFor="let child of c.childRegions"
+              type="button"
+              class="child-region-row"
+              (click)="onSelectEventIndex(child.eventIndex)"
+              [matTooltip]="
+                'Drill down into child region ' +
+                child.name +
+                ' (Bundles ' +
+                child.bundles +
+                ' · ' +
+                child.durationLabel +
+                ')'
+              "
+              matTooltipPosition="above"
+            >
+              <span class="hierarchy-badge child-badge">
+                <mat-icon class="hierarchy-badge-icon" aria-hidden="true">subdirectory_arrow_right</mat-icon>
+                Child
+              </span>
+              <span class="child-region-name">{{ child.name }}</span>
+              <span class="child-region-meta">{{ child.durationLabel }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Column 3: Top Instructions / Selected Events -->
+    <section class="panel-card">
+      <div class="card-section-header">
+        <div class="section-tabs">
+          <button
+            *ngIf="c.topInstructions && c.topInstructions.length > 0"
+            type="button"
+            class="tab-pill"
+            [class.active]="rangeTableTab === 'top'"
+            (click)="setRangeTableTab('top')"
+          >
+            Top Instructions ({{ filteredTopInstructions.length }})
+          </button>
+          <button
+            *ngIf="c.selectedEvents && c.selectedEvents.length > 0"
+            type="button"
+            class="tab-pill"
+            [class.active]="rangeTableTab === 'events'"
+            (click)="setRangeTableTab('events')"
+          >
+            Selected Events ({{ filteredSelectedEvents.length }})
+          </button>
+          <span
+            *ngIf="(!c.topInstructions || c.topInstructions.length === 0) && (!c.selectedEvents || c.selectedEvents.length === 0)"
+            class="section-title"
+          >
+            Instructions
+          </span>
+        </div>
+
+        <button
+          *ngIf="selectedUnitFilter"
+          type="button"
+          class="filter-clear-pill"
+          (click)="clearUnitFilter()"
+          [matTooltip]="'Clear ' + selectedUnitFilter + ' filter'"
+          matTooltipPosition="above"
+        >
+          <span>{{ selectedUnitFilter }}</span>
+          <mat-icon aria-hidden="true">close</mat-icon>
+        </button>
+      </div>
+
+      <div class="card-section-body">
+        <div
+          *ngIf="rangeTableTab === 'top' && filteredTopInstructions.length > 0"
+          class="top-instructions-list"
+        >
+          <button
+            *ngFor="let item of filteredTopInstructions"
+            type="button"
+            class="top-instruction-row"
+            [style.--row-unit-color]="item.unit?.color ?? c.accentColor"
+            [style.--share-pct]="item.sharePercent + '%'"
+            (click)="item.firstEventIndex >= 0 ? onSelectEventIndex(item.firstEventIndex) : onSearchText(item.name)"
+            [matTooltip]="
+              (item.firstEventIndex >= 0 ? 'Jump to first ' : 'Highlight ') +
+              item.name +
+              ' (' +
+              (item.count | number) +
+              ' occurrences · ' +
+              item.totalBundlesLabel +
+              ')'
+            "
+            matTooltipPosition="above"
+          >
+            <span
+              *ngIf="item.trackName"
+              class="row-unit-tag"
+              [style.--unit-color]="item.unit?.color ?? c.accentColor"
+            >
+              <span class="unit-dot" aria-hidden="true"></span>
+              {{ item.trackName }}
+            </span>
+            <span class="row-mnemonic">{{ item.name }}</span>
+            <span class="row-count">×{{ item.count | number }}</span>
+            <span class="row-share">{{ item.formattedShare }}</span>
+          </button>
+        </div>
+
+        <div
+          *ngIf="rangeTableTab === 'events' && filteredSelectedEvents.length > 0"
+          class="top-instructions-list"
+        >
+          <button
+            *ngFor="let ev of filteredSelectedEvents"
+            type="button"
+            class="top-instruction-row"
+            [style.--row-unit-color]="ev.unit?.color ?? c.accentColor"
+            (click)="onSelectEventIndex(ev.eventIndex)"
+            [matTooltip]="'Select ' + ev.name + ' at bundle ' + ev.bundleLabel"
+            matTooltipPosition="above"
+          >
+            <span
+              *ngIf="ev.trackName"
+              class="row-unit-tag"
+              [style.--unit-color]="ev.unit?.color ?? c.accentColor"
+            >
+              <span class="unit-dot" aria-hidden="true"></span>
+              {{ ev.trackName }}
+            </span>
+            <span class="row-mnemonic">{{ ev.name }}</span>
+            <span class="row-bundle">&#64; {{ ev.bundleLabel }}</span>
+          </button>
+        </div>
+
+        <div
+          *ngIf="(rangeTableTab === 'top' && filteredTopInstructions.length === 0) || (rangeTableTab === 'events' && filteredSelectedEvents.length === 0)"
+          class="empty-hint"
+        >
+          No matching instructions in this selection.
+        </div>
+      </div>
+    </section>
+  </div>
+</div>

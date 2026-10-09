@@ -585,6 +585,12 @@ export class TraceViewerContainer
     this.rawEventsDataSource.data = data ?? [];
   }
   @Input() tool?: string;
+  @Input() customDrawerOpen = false;
+
+  get isDrawerVisible(): boolean {
+    return Boolean(this.selectedEvent) || this.customDrawerOpen;
+  }
+
   rawEventsDataSource = new MatTableDataSource<RawEventItem>();
   @Output()
   readonly drillDownEvent = new EventEmitter<number>();
@@ -840,8 +846,10 @@ export class TraceViewerContainer
 
   ngOnChanges(changes: SimpleChanges) {
     if (changes['selectedEvent']) {
-      this.updateSplitSizes();
       this.selectedEventJson = this.buildSelectedEventJson();
+    }
+    if (changes['selectedEvent'] || changes['customDrawerOpen']) {
+      this.updateSplitSizes();
     }
   }
 
@@ -1093,12 +1101,12 @@ export class TraceViewerContainer
       this.drawerSizePercent = DEFAULT_DRAWER_SIZE_PERCENT;
     }
 
-    // If an event is selected, the timeline height is reduced to accommodate
-    // the detail view (drawer). Otherwise, the timeline takes the full height.
-    this.timelineHeightPercent = this.selectedEvent
-      ? 100 - this.drawerSizePercent
-      : 100;
-    this.detailHeightPercent = this.selectedEvent ? this.drawerSizePercent : 0;
+    // If an event is selected or a custom drawer is open, the timeline height
+    // is reduced to accommodate the detail view (drawer). Otherwise, the
+    // timeline takes the full height.
+    const isOpen = this.isDrawerVisible;
+    this.timelineHeightPercent = isOpen ? 100 - this.drawerSizePercent : 100;
+    this.detailHeightPercent = isOpen ? this.drawerSizePercent : 0;
   }
 
   /**
@@ -1246,7 +1254,7 @@ export class TraceViewerContainer
    *     `event.sizes` is `IOutputAreaSizes` from `angular-split`.
    */
   onDragEnd({sizes}: {sizes: Array<number | '*'>}): void {
-    if (this.selectedEvent && sizes.length > 1) {
+    if (this.isDrawerVisible && sizes.length > 1) {
       // This assumes the drawer is the second area (index 1). This is safe as
       // long as the template structure remains consistent (Canvas then Drawer).
       const size = sizes[1];

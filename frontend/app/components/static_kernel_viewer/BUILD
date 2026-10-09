@@ -12,17 +12,25 @@ sass_binary(
     src = "kernel_event_tooltip.scss",
 )
 
+sass_binary(
+    name = "kernel_selection_panel_css",
+    src = "kernel_selection_panel.scss",
+)
+
 xprof_ng_module(
     name = "static_kernel_viewer",
     srcs = [
         "kernel_event_tooltip.ts",
+        "kernel_selection_panel.ts",
         "static_kernel_viewer.ts",
         "static_kernel_viewer_module.ts",
     ],
     assets = [
         ":kernel_event_tooltip_css",
+        ":kernel_selection_panel_css",
         ":static_kernel_viewer_css",
         "kernel_event_tooltip.ng.html",
+        "kernel_selection_panel.ng.html",
         "static_kernel_viewer.ng.html",
     ],
     deps = [
@@ -48,6 +56,7 @@ xprof_ng_module(
     testonly = True,
     srcs = [
         "kernel_event_tooltip_test.ts",
+        "kernel_selection_panel_test.ts",
         "static_kernel_viewer_test.ts",
     ],
     deps = [

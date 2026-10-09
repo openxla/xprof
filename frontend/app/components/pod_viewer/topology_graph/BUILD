@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "topology_graph",
     srcs = [
         "topology_graph.ts",
-        "topology_graph_module.ts",
     ],
     assets = [
         ":topology_graph_css",

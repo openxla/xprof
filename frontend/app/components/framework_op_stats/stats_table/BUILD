@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "stats_table",
     srcs = [
         "stats_table.ts",
-        "stats_table_module.ts",
     ],
     assets = [
         ":stats_table_css",

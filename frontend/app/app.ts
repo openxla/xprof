@@ -1,6 +1,16 @@
-import {Component, OnInit, ChangeDetectionStrategy} from '@angular/core';
+import {CommonModule} from '@angular/common';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnInit,
+  inject,
+} from '@angular/core';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {Store} from '@ngrx/store';
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
+import {EmptyPage} from 'org_xprof/frontend/app/components/empty_page/empty_page';
+import {MainPage} from 'org_xprof/frontend/app/components/main_page/main_page';
+import {SafePipe} from 'org_xprof/frontend/app/pipes/safe_pipe';
 import {DataDispatcher} from 'org_xprof/frontend/app/services/data_dispatcher/data_dispatcher';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import * as actions from 'org_xprof/frontend/app/store/actions';
@@ -8,7 +18,9 @@ import {firstValueFrom} from 'rxjs';
 
 /** The root component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.Default,
+  imports: [CommonModule, EmptyPage, MainPage, MatProgressBarModule, SafePipe],
   selector: 'app',
   templateUrl: './app.ng.html',
   styleUrls: ['./app.scss'],
@@ -17,11 +29,11 @@ export class App implements OnInit {
   loading = true;
   dataFound = false;
 
-  constructor(
-      // tslint:disable-next-line:no-unused-variable declare to instantiate
-      private readonly dataDispatcher: DataDispatcher,
-      private readonly dataService: DataServiceV2,
-      private readonly store: Store<{}>) {
+  private readonly dataDispatcher = inject(DataDispatcher);
+  private readonly dataService = inject(DataServiceV2);
+  private readonly store = inject<Store<{}>>(Store);
+
+  constructor() {
     document.addEventListener('tensorboard-reload', () => {
       if (!this.loading) {
         this.initRunsAndTools();
@@ -35,22 +47,25 @@ export class App implements OnInit {
 
   async initRunsAndTools() {
     this.loading = true;
-    const runs = await firstValueFrom(this.dataService.getRuns()) as string[];
+    const runs = (await firstValueFrom(this.dataService.getRuns())) as string[];
     if (runs.length === 0) {
       this.loading = false;
       return;
     }
     this.dataFound = true;
     this.store.dispatch(actions.setCurrentRunAction({currentRun: runs[0]}));
-    const tools =
-        await firstValueFrom(this.dataService.getRunTools(runs[0])) as string[];
+    const tools = (await firstValueFrom(
+      this.dataService.getRunTools(runs[0]),
+    )) as string[];
     const runToolsMap: RunToolsMap = {[runs[0]]: tools};
     for (let i = 1; i < runs.length; i++) {
       runToolsMap[runs[i]] = [];
     }
-    this.store.dispatch(actions.setRunToolsMapAction({
-      runToolsMap,
-    }));
+    this.store.dispatch(
+      actions.setRunToolsMapAction({
+        runToolsMap,
+      }),
+    );
     this.loading = false;
   }
 }

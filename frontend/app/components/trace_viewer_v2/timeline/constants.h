@@ -183,6 +183,9 @@ inline constexpr float kClickDistanceThresholdSquared = 25.0f;
 inline constexpr float kAccelerateRate = 10.0f;
 // The delay in seconds before panning/zooming acceleration takes effect.
 inline constexpr float kAccelerateThreshold = 0.1f;
+// The dominance ratio required to lock movement to a single axis
+// (e.g. 2.5x).
+inline constexpr float kAxisLockRatio = 2.5f;
 inline constexpr float kButtonZoomInFactor = 0.8f;
 inline constexpr float kButtonZoomOutFactor = 1.25f;
 // The maximum factor by which the panning/zooming speed can be accelerated.
@@ -202,6 +205,9 @@ inline constexpr float kShiftPanAccelerateFactor = 0.5f / 0.3f;
 // The multiplier applied to zooming speed when Shift is held down (matches v1
 // ratio: 10 / 1.5).
 inline constexpr float kShiftZoomAccelerateFactor = 10.0f / 1.5f;
+// The deadband threshold in pixels to filter micro-displacements from wheel
+// events.
+inline constexpr float kWheelDeadband = 0.1f;
 // The base speed of timeline zooming, measured in units per second.
 inline constexpr float kZoomSpeed = 1.5f;
 // go/keep-sorted end

@@ -4157,6 +4157,48 @@ TEST_F(MockTimelineImGuiFixture, HandleWheel_Shift_DiagonalScroll) {
   ImGui::EndFrame();
 }
 
+TEST_F(MockTimelineImGuiFixture,
+       HandleWheel_VerticalScrollSuppressesHorizontalDrift) {
+  // Simulate vertical scrolling with a small horizontal drift
+  // (Y=10.0f, X=1.0f).
+  // Dominance ratio: abs(10.0) / abs(1.0) = 10.0 > kAxisLockRatio (2.5).
+  ImGui::GetIO().AddMouseWheelEvent(1.0f, 10.0f);
+
+  // Horizontal pan should be suppressed to 0, so Pan should not be called.
+  // Vertical scroll should proceed.
+  EXPECT_CALL(timeline_, Pan(_)).Times(0);
+  EXPECT_CALL(timeline_, Scroll(FloatEq(10.0f)));
+
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       HandleWheel_HorizontalPanSuppressesVerticalDrift) {
+  // Simulate horizontal panning with a small vertical drift
+  // (X=10.0f, Y=1.0f).
+  // Dominance ratio: abs(10.0) / abs(1.0) = 10.0 > kAxisLockRatio (2.5).
+  ImGui::GetIO().AddMouseWheelEvent(10.0f, 1.0f);
+
+  // Vertical scroll should be suppressed to 0, so Scroll should not be
+  // called.
+  // Horizontal pan should proceed.
+  EXPECT_CALL(timeline_, Pan(FloatEq(10.0f)));
+  EXPECT_CALL(timeline_, Scroll(_)).Times(0);
+
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleWheel_SubDeadbandFiltered) {
+  // Simulate micro-displacement wheel events below kWheelDeadband (0.1f).
+  ImGui::GetIO().AddMouseWheelEvent(0.05f, 0.08f);
+
+  // Both deltas should be filtered out by the deadband threshold.
+  EXPECT_CALL(timeline_, Pan(_)).Times(0);
+  EXPECT_CALL(timeline_, Scroll(_)).Times(0);
+
+  SimulateFrame();
+}
+
 enum class InteractionType {
   kPanRight,
   kPanLeft,
@@ -4393,6 +4435,34 @@ TEST_F(MockTimelineImGuiFixture, PanWithMouseDrag) {
   SimulateFrame();
 
   // Release mouse button.
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       HandleMouseDrag_VerticalDragSuppressesHorizontalDrift) {
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(GetTimelineStartX() + 50.0f, 50.0f);
+  SimulateFrame();  // Establish initial state
+
+  // Press mouse button to start drag.
+  io.AddMouseButtonEvent(0, true);
+
+  // Initial frame when drag begins has delta (0, 0).
+  EXPECT_CALL(timeline_, Pan(0.0f));
+  EXPECT_CALL(timeline_, Scroll(0.0f));
+  SimulateFrame();
+
+  // Drag primarily vertically: delta Y = 30.0f, delta X = 2.0f.
+  // -MouseDelta.y = -30.0f, -MouseDelta.x = -2.0f.
+  // abs_scroll (30.0) > kAxisLockRatio (2.5) * abs_pan (2.0) = 5.0.
+  // Horizontal pan delta is locked to 0.0f.
+  io.AddMousePosEvent(GetTimelineStartX() + 52.0f, 80.0f);
+
+  EXPECT_CALL(timeline_, Pan(0.0f));
+  EXPECT_CALL(timeline_, Scroll(FloatEq(-30.0f)));
+  SimulateFrame();
+
   io.AddMouseButtonEvent(0, false);
   SimulateFrame();
 }
@@ -9149,9 +9219,10 @@ TEST_F(RealTimelineImGuiFixture, PanLeftOutOfBounds) {
 
   timeline_.Pan(-2000.0f);
 
-  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 2.0f);
-  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
-            "Cannot pan further left: reached the beginning of the trace.");
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().start(), 0.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().end(), 90.0);
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
+  EXPECT_TRUE(timeline_.get_bounds_notification_message_for_test().empty());
   EXPECT_TRUE(redraw_called);
 }
 
@@ -9162,9 +9233,59 @@ TEST_F(RealTimelineImGuiFixture, PanRightOutOfBounds) {
 
   timeline_.Pan(2000.0f);
 
-  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 2.0f);
-  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
-            "Cannot pan further right: reached the end of the trace.");
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().start(), 910.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().end(), 1000.0);
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
+  EXPECT_TRUE(timeline_.get_bounds_notification_message_for_test().empty());
+}
+
+TEST_F(RealTimelineImGuiFixture, PanAtBoundaryDoesNotTriggerWarning) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  // Position visible range at the right boundary
+  timeline_.SetVisibleRange({900.0, 1000.0});
+  SimulateFrame();
+
+  // Small pan exceeding right boundary does not trigger warning notification.
+  timeline_.Pan(0.5f);
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
+  EXPECT_TRUE(timeline_.get_bounds_notification_message_for_test().empty());
+
+  // Large pan exceeding right boundary does not trigger warning notification.
+  timeline_.Pan(500.0f);
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
+  EXPECT_TRUE(timeline_.get_bounds_notification_message_for_test().empty());
+
+  // Position visible range at the left boundary
+  timeline_.SetVisibleRange({0.0, 100.0});
+  SimulateFrame();
+
+  // Small pan exceeding left boundary does not trigger warning notification.
+  timeline_.Pan(-0.5f);
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
+  EXPECT_TRUE(timeline_.get_bounds_notification_message_for_test().empty());
+
+  // Large pan exceeding left boundary does not trigger warning notification.
+  timeline_.Pan(-500.0f);
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
+  EXPECT_TRUE(timeline_.get_bounds_notification_message_for_test().empty());
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       HandleWheel_VerticalScrollAtTraceBoundaryDoesNotTriggerWarning) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  // Position visible range at the end of the trace: [900.0, 1000.0]
+  timeline_.SetVisibleRange({900.0, 1000.0});
+  SimulateFrame();
+
+  // Vertical scroll downwards with small horizontal drift
+  // (Y = 10.0f, X = 1.0f).
+  // Axis locking suppresses horizontal drift to 0, preventing bounds
+  // warning.
+  ImGui::GetIO().AddMouseWheelEvent(1.0f, 10.0f);
+  SimulateFrame();
+
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
+  EXPECT_TRUE(timeline_.get_bounds_notification_message_for_test().empty());
 }
 
 TEST_F(RealTimelineImGuiFixture, ZoomInOutOfBounds) {
@@ -9245,8 +9366,8 @@ TEST_F(RealTimelineImGuiFixture, DrawNotificationToastFades) {
   timeline_.SetVisibleRange({10.0, 100.0});
   SimulateFrame();
 
-  // Pan out of bounds to trigger
-  timeline_.Pan(-2000.0f);
+  // Trigger notification directly
+  timeline_.ShowNavigationWarningNotification("Test notification");
 
   // Verify notification is active
   EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 2.0f);

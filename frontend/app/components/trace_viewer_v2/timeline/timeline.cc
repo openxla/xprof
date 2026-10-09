@@ -2261,20 +2261,6 @@ void Timeline::Pan(Pixel pixel_amount) {
   const double time_offset = pixel_amount / px_per_time_unit_val;
   TimeRange new_range = visible_range_.target() + time_offset;
 
-  const bool showing_entire_trace =
-      visible_range_.target().start() <= data_time_range_.start() &&
-      visible_range_.target().end() >= data_time_range_.end();
-
-  if (!showing_entire_trace) {
-    if (pixel_amount < 0.0 && new_range.start() < data_time_range_.start()) {
-      ShowNavigationWarningNotification(
-          "Cannot pan further left: reached the beginning of the trace.");
-    } else if (pixel_amount > 0.0 && new_range.end() > data_time_range_.end()) {
-      ShowNavigationWarningNotification(
-          "Cannot pan further right: reached the end of the trace.");
-    }
-  }
-
   ConstrainTimeRange(new_range);
 
   // Update the target of the animated visible range. The timeline will animate
@@ -4498,10 +4484,27 @@ bool Timeline::HandleWheel() {
     return true;
   }
 
-  const Pixel horizontal_pan_delta =
+  Pixel horizontal_pan_delta =
       io.KeyShift ? io.MouseWheel : io.MouseWheelH;
-  const Pixel vertical_scroll_delta =
+  Pixel vertical_scroll_delta =
       io.KeyShift ? io.MouseWheelH : io.MouseWheel;
+
+  if (std::abs(horizontal_pan_delta) < kWheelDeadband) {
+    horizontal_pan_delta = 0.0f;
+  }
+  if (std::abs(vertical_scroll_delta) < kWheelDeadband) {
+    vertical_scroll_delta = 0.0f;
+  }
+
+  const float abs_pan = std::abs(horizontal_pan_delta);
+  const float abs_scroll = std::abs(vertical_scroll_delta);
+  if (abs_scroll > 0.0f && abs_pan > 0.0f) {
+    if (abs_scroll > kAxisLockRatio * abs_pan) {
+      horizontal_pan_delta = 0.0f;
+    } else if (abs_pan > kAxisLockRatio * abs_scroll) {
+      vertical_scroll_delta = 0.0f;
+    }
+  }
 
   if (horizontal_pan_delta != 0.0f) Pan(horizontal_pan_delta);
   if (vertical_scroll_delta != 0.0f) Scroll(vertical_scroll_delta);
@@ -4756,8 +4759,21 @@ void Timeline::HandleMouseDrag(Pixel timeline_origin_x) {
     } else if (mouse_mode_ == MouseMode::kZoom) {
       Zoom(1.0f + io.MouseDelta.y * 0.01f);
     } else {
-      Pan(-io.MouseDelta.x);
-      Scroll(-io.MouseDelta.y);
+      Pixel pan_delta = -io.MouseDelta.x;
+      Pixel scroll_delta = -io.MouseDelta.y;
+
+      const float abs_pan = std::abs(pan_delta);
+      const float abs_scroll = std::abs(scroll_delta);
+      if (abs_scroll > 0.0f && abs_pan > 0.0f) {
+        if (abs_scroll > kAxisLockRatio * abs_pan) {
+          pan_delta = 0.0f;
+        } else if (abs_pan > kAxisLockRatio * abs_scroll) {
+          scroll_delta = 0.0f;
+        }
+      }
+
+      Pan(pan_delta);
+      Scroll(scroll_delta);
     }
   }
 }

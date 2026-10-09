@@ -1,4 +1,4 @@
-<mat-form-field class="control" *ngIf="columnLabel" appearance="outline">
+<mat-form-field class="control" *ngIf="dataTable() && columnLabel" appearance="outline">
   <mat-label>{{columnLabel}}</mat-label>
   <mat-select (selectionChange)="updateFilter()" [(value)]="value">
     <mat-option *ngFor="let option of options" [value]="option" [title]="option">{{option}}</mat-option>

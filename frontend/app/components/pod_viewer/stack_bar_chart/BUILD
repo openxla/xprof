@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "stack_bar_chart",
     srcs = [
         "stack_bar_chart.ts",
-        "stack_bar_chart_module.ts",
     ],
     assets = [
         ":stack_bar_chart_css",

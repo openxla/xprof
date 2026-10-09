@@ -1,5 +1,5 @@
-<ng-container *ngIf="showErrors && diagnostics?.errors?.length">
-  <div *ngFor="let error of diagnostics.errors; let i = index" class="callout is-critical">
+<ng-container *ngIf="showErrors && diagnostics()?.errors?.length">
+  <div *ngFor="let error of diagnostics()!.errors; let i = index" class="callout is-critical">
     <header>
       <span>Error</span>
       <button mat-icon-button (click)="dismissError(i)">
@@ -11,8 +11,8 @@
     </ul>
   </div>
 </ng-container>
-<ng-container *ngIf="showWarnings && diagnostics?.warnings?.length">
-  <div *ngFor="let warning of diagnostics.warnings; let i = index" class="callout is-important">
+<ng-container *ngIf="showWarnings && diagnostics()?.warnings?.length">
+  <div *ngFor="let warning of diagnostics()!.warnings; let i = index" class="callout is-important">
     <header>
       <span>Warning</span>
       <button mat-icon-button (click)="dismissWarning(i)">
@@ -24,8 +24,8 @@
     </ul>
   </div>
 </ng-container>
-<ng-container *ngIf="showInfo && diagnostics?.info?.length">
-  <div *ngFor="let info of diagnostics.info; let i = index" class="callout is-helpful">
+<ng-container *ngIf="showInfo && diagnostics()?.info?.length">
+  <div *ngFor="let info of diagnostics()!.info; let i = index" class="callout is-helpful">
     <header>
       <span>Info</span>
       <button mat-icon-button (click)="dismissInfo(i)">

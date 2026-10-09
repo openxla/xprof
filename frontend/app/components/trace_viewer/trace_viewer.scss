@@ -1,6 +1,6 @@
 /** CSS for a trace viewer component. */
 
-:host {
+:host(trace-viewer) {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -8,6 +8,11 @@
     --mat-sys-surface-container-low,
     var(--md-sys-color-surface-container-low)
   );
+}
+
+:host(filter-input),
+:host(filter-chips) {
+  background: transparent;
 }
 
 mat-divider {
@@ -96,8 +101,14 @@ mat-divider {
   white-space: nowrap;
 
   &:hover {
-    background-color: var(--mat-sys-surface-variant, rgba(0, 0, 0, 0.04));
+    background: transparent;
     color: var(--mat-sys-on-surface, #1f1f1f);
+  }
+
+  &:focus,
+  &:focus-visible {
+    background: transparent;
+    outline: none;
   }
 }
 

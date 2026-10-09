@@ -3,9 +3,9 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
-  Input,
   OnInit,
   inject,
+  input,
 } from '@angular/core';
 import {FormGroup, ReactiveFormsModule} from '@angular/forms';
 import {MatButtonModule} from '@angular/material/button';
@@ -58,7 +58,7 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ProfilerOptionsComponent implements OnInit {
-  @Input() formGroup?: FormGroup;
+  readonly formGroup = input.required<FormGroup>();
 
   selectedComponent: 'tc' | 'scs' | 'sctc' | 'sctd' | 'cmn' | 'icr' = 'tc';
   tpuGenerations = TPU_GENERATIONS;
@@ -71,10 +71,7 @@ export class ProfilerOptionsComponent implements OnInit {
   allCounters: Counter[] = [];
 
   ngOnInit() {
-    if (!this.formGroup) {
-      throw new Error('formGroup is required');
-    }
-    this.formGroup
+    this.formGroup()
       .get('device_name')
       ?.valueChanges.subscribe((gen: unknown) => {
         const tpuGen = gen as {id: string; name: string} | null;
@@ -83,7 +80,7 @@ export class ProfilerOptionsComponent implements OnInit {
         }
       });
 
-    const initialGen = this.formGroup.get('device_name')?.value;
+    const initialGen = this.formGroup().get('device_name')?.value;
     if (initialGen) {
       this.fetchCounters(initialGen.id);
     }
@@ -147,25 +144,28 @@ export class ProfilerOptionsComponent implements OnInit {
     return [];
   }
   isComponentInUse(groupName: string): boolean {
-    if (!this.formGroup) {
+    const formGroup = this.formGroup();
+    if (!formGroup) {
       return false;
     }
-    const group = this.formGroup.get(groupName);
+    const group = formGroup.get(groupName);
     const indices = group?.get('indices')?.value;
     return Array.isArray(indices) && indices.length > 0;
   }
 
   getSelectedCountersCount(groupName: string): number {
-    if (!this.formGroup) {
+    const formGroup = this.formGroup();
+    if (!formGroup) {
       return 0;
     }
-    const group = this.formGroup.get(groupName);
+    const group = formGroup.get(groupName);
     const indices = group?.get('indices')?.value;
     return Array.isArray(indices) ? indices.length : 0;
   }
 
   openCustomizeDialog(groupName: string) {
-    if (!this.formGroup) {
+    const formGroup = this.formGroup();
+    if (!formGroup) {
       return;
     }
     const counters = this.getCounters(groupName);
@@ -183,7 +183,7 @@ export class ProfilerOptionsComponent implements OnInit {
       ],
     };
 
-    const group = this.formGroup.get(groupName);
+    const group = formGroup.get(groupName);
     const currentSelections = group?.get('indices')?.value || [];
     const selectedIds = currentSelections.map((v: number) => String(v));
 

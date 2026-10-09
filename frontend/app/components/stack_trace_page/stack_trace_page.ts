@@ -1,8 +1,17 @@
-import {Component, inject, Injector, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
+import {NgIf} from '@angular/common';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  inject,
+  Injector,
+  OnDestroy,
+} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {SourceMapper} from '../source_mapper/source_mapper';
 
 /**
  * A stack trace page component.
@@ -17,10 +26,12 @@ import {takeUntil} from 'rxjs/operators';
  * various IR text mapping.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'stack-trace-page',
   templateUrl: './stack_trace_page.ng.html',
   styleUrls: ['./stack_trace_page.scss'],
+  imports: [NgIf, SourceMapper],
 })
 export class StackTracePage implements OnDestroy {
   private readonly injector = inject(Injector);
@@ -41,26 +52,30 @@ export class StackTracePage implements OnDestroy {
   sessionId = '';
   programId = '';
   opCategory = '';
+  private readonly cdr = inject(ChangeDetectorRef);
 
   constructor() {
     // We don't need the source code service to be persistently available.
     // We temporarily use the service to check if it is available and show
     // UI accordingly.
     const sourceCodeService = this.injector.get(
-        SOURCE_CODE_SERVICE_INTERFACE_TOKEN,
-        null,
+      SOURCE_CODE_SERVICE_INTERFACE_TOKEN,
+      null,
     );
-    sourceCodeService?.isAvailable()
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((isAvailable) => {
-          this.sourceCodeServiceIsAvailable = isAvailable;
-        });
+    sourceCodeService
+      ?.isAvailable()
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((isAvailable) => {
+        this.sourceCodeServiceIsAvailable = isAvailable;
+        this.cdr.markForCheck();
+      });
     combineLatest([this.route.params, this.route.queryParams])
-        .pipe(takeUntil(this.destroyed))
-        .subscribe(([params, queryParams]) => {
-          this.sessionId = params['sessionId'] || this.sessionId;
-          this.processQueryParams(queryParams);
-        });
+      .pipe(takeUntil(this.destroyed))
+      .subscribe(([params, queryParams]) => {
+        this.sessionId = params['sessionId'] || this.sessionId;
+        this.processQueryParams(queryParams);
+        this.cdr.markForCheck();
+      });
   }
 
   processQueryParams(params: Params) {

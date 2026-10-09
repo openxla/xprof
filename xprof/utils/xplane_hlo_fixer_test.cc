@@ -65,6 +65,74 @@ TEST(XPlaneHloFixerTest, FixesHloMetadataSuccess) {
   EXPECT_EQ(event_meta_map.at(prog_id).id(), prog_id);
 }
 
+TEST(XPlaneHloFixerTest, FixesHloMetadataSuccessNegativeId) {
+  XSpace space;
+  XPlaneBuilder metadata_plane(space.add_planes());
+  metadata_plane.SetName(kMetadataPlaneName);
+
+  // Add legacy HLO Proto metadata.
+  auto* hlo_metadata = metadata_plane.GetOrCreateStatMetadata("HLO Proto");
+  int64_t hlo_stat_id = hlo_metadata->id();
+
+  // Add event metadata with HLO stat and negative program ID in name.
+  int64_t prog_id = -12345;
+  std::string event_name = "train_step (-12345)";
+  auto* event_meta = metadata_plane.GetOrCreateEventMetadata(event_name);
+  auto* stat = event_meta->add_stats();
+  stat->set_metadata_id(hlo_stat_id);
+  stat->set_str_value("hlo_content");
+  int64_t original_event_id = event_meta->id();
+
+  ASSERT_NE(original_event_id, prog_id);
+
+  FixHloMetadataInXSpace(&space);
+
+  // Verify HLO Proto name is updated.
+  EXPECT_EQ(hlo_metadata->name(), GetStatTypeStr(kHloProto));
+
+  // Verify event metadata ID is updated to program ID.
+  auto event_meta_map = space.planes(0).event_metadata();
+  EXPECT_EQ(event_meta_map.size(), 1);
+  EXPECT_TRUE(event_meta_map.contains(prog_id));
+  EXPECT_EQ(event_meta_map.at(prog_id).name(), event_name);
+  EXPECT_EQ(event_meta_map.at(prog_id).id(), prog_id);
+}
+
+TEST(XPlaneHloFixerTest, FixesHloMetadataSuccessLargeUnsignedId) {
+  XSpace space;
+  XPlaneBuilder metadata_plane(space.add_planes());
+  metadata_plane.SetName(kMetadataPlaneName);
+
+  // Add legacy HLO Proto metadata.
+  auto* hlo_metadata = metadata_plane.GetOrCreateStatMetadata("HLO Proto");
+  int64_t hlo_stat_id = hlo_metadata->id();
+
+  // Add event metadata with HLO stat and large unsigned program ID in name.
+  // 18446744073709551615 is UINT64_MAX, which casts to -1 in int64_t.
+  uint64_t uprog_id = 18446744073709551615ULL;
+  int64_t prog_id = static_cast<int64_t>(uprog_id);
+  std::string event_name = "train_step (18446744073709551615)";
+  auto* event_meta = metadata_plane.GetOrCreateEventMetadata(event_name);
+  auto* stat = event_meta->add_stats();
+  stat->set_metadata_id(hlo_stat_id);
+  stat->set_str_value("hlo_content");
+  int64_t original_event_id = event_meta->id();
+
+  ASSERT_NE(original_event_id, prog_id);
+
+  FixHloMetadataInXSpace(&space);
+
+  // Verify HLO Proto name is updated.
+  EXPECT_EQ(hlo_metadata->name(), GetStatTypeStr(kHloProto));
+
+  // Verify event metadata ID is updated to program ID.
+  auto event_meta_map = space.planes(0).event_metadata();
+  EXPECT_EQ(event_meta_map.size(), 1);
+  EXPECT_TRUE(event_meta_map.contains(prog_id));
+  EXPECT_EQ(event_meta_map.at(prog_id).name(), event_name);
+  EXPECT_EQ(event_meta_map.at(prog_id).id(), prog_id);
+}
+
 TEST(XPlaneHloFixerTest, DoesNotFixIfNoLegacyHloStat) {
   XSpace space;
   XPlaneBuilder metadata_plane(space.add_planes());

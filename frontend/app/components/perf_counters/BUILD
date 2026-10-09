@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "perf_counters",
     srcs = [
         "perf_counters.ts",
-        "perf_counters_module.ts",
     ],
     assets = [
         ":perf_counters_css",

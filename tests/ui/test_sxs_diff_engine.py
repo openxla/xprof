@@ -931,6 +931,27 @@ class SxsDiffEngineTest(unittest.TestCase):
     self.assertIn('id="view-heatmap-wp_0"', content)
     self.assertNotIn('id="context-sec-wp_0"', content)
 
+  def test_sxs_report_side_labels_do_not_overlap_screenshots(self):
+    """Verifies side-label headers sit above screenshots without overlapping."""
+    engine = SxsDiffEngine()
+    diff = _evaluate(
+        engine,
+        _create_test_image((128, 128, 128)),
+        _create_test_image((255, 0, 0)),
+    )
+    content = _render_report([diff])
+
+    side_label_rule = content.split(".side-label {", 1)[1].split("}", 1)[0]
+    self.assertNotIn("position: absolute", side_label_rule)
+    self.assertIn("display: flex", side_label_rule)
+
+    self.assertIn('class="slider-header"', content)
+    self.assertIn('id="slider-stage-wp_0"', content)
+    slider_stage_block = content.split('id="slider-stage-wp_0"', 1)[1].split(
+        "<!-- Diff Heatmap View -->", 1
+    )[0]
+    self.assertNotIn("side-label", slider_stage_block)
+
   def test_publish_report_artifact_writes_to_undeclared_outputs(self):
     """Verifies the report is copied into the Bazel undeclared outputs dir."""
     with tempfile.TemporaryDirectory() as tmpdir:

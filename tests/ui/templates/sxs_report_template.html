@@ -63,15 +63,17 @@ $approval_portal_html
 
   function initSlider(cardId) {
     const sliderView = document.getElementById('view-slider-' + cardId);
+    const sliderStage =
+        document.getElementById('slider-stage-' + cardId) || sliderView;
     const clipLayer = document.getElementById('slider-clip-' + cardId);
     const handle = document.getElementById('slider-handle-' + cardId);
     const baseImg = document.getElementById('slider-base-img-' + cardId);
     const candImg = document.getElementById('slider-cand-img-' + cardId);
 
-    if (!sliderView || !clipLayer || !handle) return;
+    if (!sliderView || !sliderStage || !clipLayer || !handle) return;
 
     function syncImgWidth() {
-      const w = sliderView.clientWidth;
+      const w = sliderStage.clientWidth;
       if (w > 0) {
         if (baseImg) baseImg.style.width = w + 'px';
         if (candImg) candImg.style.width = w + 'px';
@@ -79,7 +81,7 @@ $approval_portal_html
             baseImg?.clientHeight || 0, candImg?.clientHeight || 0
         );
         if (maxH > 0) {
-          sliderView.style.height = maxH + 'px';
+          sliderStage.style.height = maxH + 'px';
         }
       }
     }
@@ -99,7 +101,7 @@ $approval_portal_html
       let isDragging = false;
 
       function updatePosition(clientX) {
-        const rect = sliderView.getBoundingClientRect();
+        const rect = sliderStage.getBoundingClientRect();
         if (!rect.width) return;
         let offsetX = clientX - rect.left;
         if (offsetX < 0) offsetX = 0;
@@ -113,7 +115,7 @@ $approval_portal_html
         isDragging = true;
         e.preventDefault();
       };
-      sliderView.onmousedown = (e) => {
+      sliderStage.onmousedown = (e) => {
         isDragging = true;
         updatePosition(e.clientX);
       };
@@ -125,7 +127,7 @@ $approval_portal_html
       });
 
       handle.ontouchstart = () => { isDragging = true; };
-      sliderView.ontouchstart = (e) => {
+      sliderStage.ontouchstart = (e) => {
         if (e.touches && e.touches[0]) {
           isDragging = true;
           updatePosition(e.touches[0].clientX);

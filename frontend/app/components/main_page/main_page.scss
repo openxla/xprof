@@ -6,10 +6,28 @@ mat-sidenav-container {
   background-color: #fff;
 }
 
+mat-sidenav-content.new-nav-content {
+  transition: margin-left
+    var(
+      --rack-nav-transition,
+      var(--motion-duration-short, 150ms)
+        var(--motion-easing-standard, cubic-bezier(0.2, 0, 0, 1))
+    );
+}
+
 mat-sidenav {
   background: transparent;
   width: 340px;
-  @include common.border-right-gray
+  @include common.border-right-gray;
+
+  &.new-nav-sidenav {
+    transition: width
+      var(
+        --rack-nav-transition,
+        var(--motion-duration-short, 150ms)
+          var(--motion-easing-standard, cubic-bezier(0.2, 0, 0, 1))
+      );
+  }
 }
 
 mat-progress-bar {

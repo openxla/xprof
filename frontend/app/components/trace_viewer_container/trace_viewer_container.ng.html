@@ -234,8 +234,8 @@
             </div>
 
             <div *ngIf="!isSingleEventTable()">
-              <mat-tab-group *ngIf="(metricsDataSource.data.length > 0 ? 1 : 0) + (countersDataSource.data.length > 0 ? 1 : 0) + (rawEventsDataSource.data.length > 0 && tool === 'raw_trace_viewer' ? 1 : 0) > 1">
-                <mat-tab label="Profile Metrics" *ngIf="metricsDataSource.data.length > 0">
+              <mat-tab-group *ngIf="activeMultiEventTableCount() > 1">
+                <mat-tab label="Profile Metrics" *ngIf="showMetricsTable()">
                   <ng-template matTabContent>
                     <ng-container *ngTemplateOutlet="metricsTable"></ng-container>
                   </ng-template>
@@ -245,22 +245,14 @@
                     <ng-container *ngTemplateOutlet="countersTable"></ng-container>
                   </ng-template>
                 </mat-tab>
-                <mat-tab label="Raw Events" *ngIf="rawEventsDataSource.data.length > 0 && tool === 'raw_trace_viewer'">
-                  <ng-template matTabContent>
-                    <ng-container *ngTemplateOutlet="rawEventsTable"></ng-container>
-                  </ng-template>
-                </mat-tab>
               </mat-tab-group>
 
-              <div *ngIf="(metricsDataSource.data.length > 0 ? 1 : 0) + (countersDataSource.data.length > 0 ? 1 : 0) + (rawEventsDataSource.data.length > 0 && tool === 'raw_trace_viewer' ? 1 : 0) <= 1">
-                <ng-container *ngIf="metricsDataSource.data.length > 0">
+              <div *ngIf="activeMultiEventTableCount() <= 1">
+                <ng-container *ngIf="showMetricsTable()">
                   <ng-container *ngTemplateOutlet="metricsTable"></ng-container>
                 </ng-container>
                 <ng-container *ngIf="countersDataSource.data.length > 0">
                   <ng-container *ngTemplateOutlet="countersTable"></ng-container>
-                </ng-container>
-                <ng-container *ngIf="rawEventsDataSource.data.length > 0 && tool === 'raw_trace_viewer'">
-                  <ng-container *ngTemplateOutlet="rawEventsTable"></ng-container>
                 </ng-container>
               </div>
             </div>
@@ -302,38 +294,6 @@
 
                 <tr mat-header-row *matHeaderRowDef="counterColumns; sticky: true"></tr>
                 <tr mat-row *matRowDef="let row; columns: counterColumns;"></tr>
-              </table>
-            </ng-template>
-
-            <ng-template #rawEventsTable>
-              <table mat-table class="event-detail-table" [dataSource]="rawEventsDataSource">
-                <ng-container matColumnDef="name">
-                  <th mat-header-cell *matHeaderCellDef style="resize: horizontal; overflow: hidden; padding-right: 16px;">
-                    Name
-                  </th>
-                  <td mat-cell *matCellDef="let element" style="word-break: break-word; cursor: pointer; color: #1a73e8; text-decoration: underline;" (click)="drillDownEvent.emit(element.eventIndex)">
-                    <span>{{ element.name }}</span>
-                  </td>
-                </ng-container>
-                <ng-container matColumnDef="startUs">
-                  <th mat-header-cell *matHeaderCellDef style="resize: horizontal; overflow: hidden; padding-right: 16px;">
-                    Start (us)
-                  </th>
-                  <td mat-cell *matCellDef="let element" style="word-break: break-word;">
-                    {{ element.startUs | number:'1.2-2' }}
-                  </td>
-                </ng-container>
-                <ng-container matColumnDef="durationUs">
-                  <th mat-header-cell *matHeaderCellDef style="resize: horizontal; overflow: hidden; padding-right: 16px;">
-                    Duration (us)
-                  </th>
-                  <td mat-cell *matCellDef="let element" style="word-break: break-word;">
-                    {{ element.durationUs | number:'1.2-2' }}
-                  </td>
-                </ng-container>
-
-                <tr mat-header-row *matHeaderRowDef="['name', 'startUs', 'durationUs']; sticky: true"></tr>
-                <tr mat-row *matRowDef="let row; columns: ['name', 'startUs', 'durationUs'];" class="clickable-row"></tr>
               </table>
             </ng-template>
 

@@ -501,6 +501,16 @@ export class SideNav implements OnInit, OnDestroy {
     if (!this.tags.length) {
       this.tags = ((await this.getToolsForSelectedRun()) || []) as string[];
     }
+    if (
+      this.selectedTagInternal &&
+      this.tags.length > 0 &&
+      !STANDALONE_NON_SIDENAV_ROUTES.includes(this.selectedTagInternal) &&
+      !this.tags.some((validTag) =>
+        validTag.startsWith(this.selectedTagInternal),
+      )
+    ) {
+      this.selectedTagInternal = this.tags[0];
+    }
     this.afterUpdateTag();
   }
 
@@ -629,8 +639,17 @@ export class SideNav implements OnInit, OnDestroy {
     this.navigateTools();
   }
 
-  updateUrlHistory(): void {
+  /**
+   * Copies the navigation parameters into the embedding page's URL.
+   *
+   * @param replace Replaces the current history entry instead of adding one.
+   */
+  updateUrlHistory(replace = false): void {
     try {
+      // Standalone, the router records the URL in this same history.
+      if (window.parent === window) {
+        return;
+      }
       const navigationEvent = this.getNavigationEvent();
       const queryParams: {
         [key: string]: string | string[] | boolean | undefined;
@@ -654,7 +673,11 @@ export class SideNav implements OnInit, OnDestroy {
       const queryString = serializeQueryParams(queryParams);
       const url = pathname + queryString;
 
-      window.parent?.history?.pushState({}, '', url);
+      if (replace) {
+        window.parent?.history?.replaceState({}, '', url);
+      } else {
+        window.parent?.history?.pushState({}, '', url);
+      }
     } catch (error) {
       console.error('Failed to update URL history:', error);
     }
@@ -664,7 +687,11 @@ export class SideNav implements OnInit, OnDestroy {
     const navigationEvent = this.getNavigationEvent();
     this.communicationService.onNavigateReady(navigationEvent);
 
-    this.updateUrlHistory();
+    // navigateWithUrl() sets firstLoad when it syncs the view to the URL: on
+    // the first load, browser back and forward, or a link. That URL already has
+    // a history entry, so replace it; adding one would drop the forward entries.
+    const replaceUrl = this.navigationParams['firstLoad'] === true;
+    this.updateUrlHistory(replaceUrl);
     // This router.navigate call remains, as it's responsible for Angular
     // routing
     // TODO - b/401596855: Deprecate the navigationEvent in route.params as we
@@ -672,10 +699,12 @@ export class SideNav implements OnInit, OnDestroy {
     if (STANDALONE_NON_SIDENAV_ROUTES.includes(this.selectedTagInternal)) {
       this.router.navigate([this.selectedTagInternal, this.selectedRun], {
         queryParams: navigationEvent,
+        replaceUrl,
       });
     } else {
       this.router.navigate([this.selectedTag || 'empty'], {
         queryParams: navigationEvent,
+        replaceUrl,
       });
     }
     delete this.navigationParams['firstLoad'];

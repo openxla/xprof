@@ -153,14 +153,14 @@ mat-progress-bar {
   /* stylelint-disable-next-line declaration-no-important -- legacy code */
   box-shadow: none !important;
   margin: 8px;
-  @media screen and (max-width: 1140px) {
+  @media screen and (min-width: 600px) and (max-width: 1140px) {
     min-width: 500px;
   }
 }
 
 @mixin overview-card-dark-theme {
   margin: 8px;
-  @media screen and (max-width: 1140px) {
+  @media screen and (min-width: 600px) and (max-width: 1140px) {
     min-width: 500px;
   }
 }

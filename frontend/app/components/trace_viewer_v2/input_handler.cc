@@ -46,6 +46,35 @@ void UpdateModifierKeys(const EmscriptenKeyboardEvent* event) {
 
 }  // namespace
 
+// Returns 1 if any modal dialog (native or custom element) is open in the DOM,
+// 0 otherwise.
+int IsModalDialogOpen() {
+  return EM_ASM_INT({
+    if (document.querySelector('dialog[open], [aria-modal="true"], ' +
+                               '.mat-mdc-dialog-container, ' +
+                               '.mat-dialog-container')) {
+      return 1;
+    }
+    const helpDialog = document.querySelector('trace-viewer-help-dialog');
+    if (helpDialog) {
+      if (helpDialog.open || helpDialog.hasAttribute('open')) {
+        return 1;
+      }
+      if (helpDialog.shadowRoot && helpDialog.shadowRoot.querySelector(
+                                       'md-dialog[open], dialog[open]')) {
+        return 1;
+      }
+    }
+    const customPanel =
+        document.querySelector('trace-viewer-customization-panel');
+    if (customPanel && customPanel.shadowRoot &&
+        customPanel.shadowRoot.querySelector('md-dialog[open], dialog[open]')) {
+      return 1;
+    }
+    return 0;
+  });
+}
+
 // Returns true if an input element has focus or DOM text is selected.
 int HasDOMSelectionOrActiveInput() {
   return EM_ASM_INT({
@@ -59,9 +88,14 @@ int HasDOMSelectionOrActiveInput() {
         return 1;
       }
     }
-    const activeElement = document.activeElement;
+    let activeElement = document.activeElement;
+    while (activeElement && activeElement.shadowRoot &&
+           activeElement.shadowRoot.activeElement) {
+      activeElement = activeElement.shadowRoot.activeElement;
+    }
     if (!activeElement) return 0;
-    const tagName = activeElement.tagName.toLowerCase();
+    const tagName =
+        activeElement.tagName ? activeElement.tagName.toLowerCase() : "";
     return tagName === 'input' || tagName === 'textarea' ||
            activeElement.isContentEditable ? 1 : 0;
   });
@@ -84,18 +118,16 @@ int HasDOMSelectionOrActiveInput() {
 //      other listeners (e.g., browser default behavior).
 
 EM_BOOL HandleKeyDown(int, const EmscriptenKeyboardEvent* event, void*) {
+  if (IsModalDialogOpen() || HasDOMSelectionOrActiveInput()) {
+    return false;
+  }
+
   Scheduler::Instance().RequestRedraw();
   UpdateModifierKeys(event);
 
   // If Cmd/Ctrl modifier shortcuts (e.g. Cmd+R, Cmd+C, Cmd+V, Cmd+F)
   // are pressed, return false to allow browser native behaviors.
   if (event->ctrlKey || event->metaKey) {
-    return false;
-  }
-
-  // If a native input element has focus or DOM text is selected, do not let
-  // ImGui capture the keyboard or trigger canvas redraws.
-  if (HasDOMSelectionOrActiveInput()) {
     return false;
   }
 
@@ -114,14 +146,14 @@ EM_BOOL HandleKeyDown(int, const EmscriptenKeyboardEvent* event, void*) {
 }
 
 EM_BOOL HandleKeyUp(int, const EmscriptenKeyboardEvent* event, void*) {
+  if (IsModalDialogOpen() || HasDOMSelectionOrActiveInput()) {
+    return false;
+  }
+
   Scheduler::Instance().RequestRedraw();
   UpdateModifierKeys(event);
 
   if (event->ctrlKey || event->metaKey) {
-    return false;
-  }
-
-  if (HasDOMSelectionOrActiveInput()) {
     return false;
   }
 
@@ -161,6 +193,10 @@ EM_BOOL HandleMouseUp(int, const EmscriptenMouseEvent* event, void*) {
 }
 
 EM_BOOL HandleWheel(int, const EmscriptenWheelEvent* event, void*) {
+  if (IsModalDialogOpen()) {
+    return false;
+  }
+
   Scheduler::Instance().RequestRedraw();
   ImGuiIO& io = ImGui::GetIO();
 

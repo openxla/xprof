@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "roofline_model",
     srcs = [
         "roofline_model.ts",
-        "roofline_model_module.ts",
     ],
     assets = [
         ":roofline_model_css",

@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "capture_profile",
     srcs = [
         "capture_profile.ts",
-        "capture_profile_module.ts",
     ],
     assets = [
         ":capture_profile_css",
@@ -37,6 +36,7 @@ xprof_ng_module(
     ],
     deps = [
         ":capture_profile",
+        "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",

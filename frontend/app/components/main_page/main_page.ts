@@ -1,12 +1,20 @@
+import {CommonModule} from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
   inject,
   OnDestroy,
 } from '@angular/core';
+import {MatIconModule} from '@angular/material/icon';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {MatSidenavModule} from '@angular/material/sidenav';
+import {MatToolbarModule} from '@angular/material/toolbar';
+import {RouterOutlet} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
+import {DiagnosticsView} from 'org_xprof/frontend/app/components/diagnostics_view/diagnostics_view';
+import {SideNav} from 'org_xprof/frontend/app/components/sidenav/sidenav';
 import {CommunicationService} from 'org_xprof/frontend/app/services/communication_service/communication_service';
 import {
   DATA_SERVICE_INTERFACE_TOKEN,
@@ -19,11 +27,22 @@ import {
 import {LoadingState} from 'org_xprof/frontend/app/store/state';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+export {routes} from './routes';
 
 /** A main page component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
+  imports: [
+    CommonModule,
+    MatProgressBarModule,
+    MatSidenavModule,
+    MatToolbarModule,
+    MatIconModule,
+    SideNav,
+    DiagnosticsView,
+    RouterOutlet,
+  ],
   selector: 'main-page',
   templateUrl: './main_page.ng.html',
   styleUrls: ['./main_page.scss'],

@@ -25,7 +25,7 @@ import setuptools
 from xprof import version
 
 try:
-  from wheel.bdist_wheel import bdist_wheel as _bdist_wheel  # pylint: disable=g-import-not-at-top # pytype: disable=import-error
+  from wheel.bdist_wheel import bdist_wheel as _bdist_wheel  # pylint: disable=g-import-not-at-top  # pyrefly: ignore[missing-import]
 
   class CustomBdistWheel(_bdist_wheel):
 

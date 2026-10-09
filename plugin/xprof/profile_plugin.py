@@ -58,7 +58,7 @@ if not logger.handlers:
   logger.propagate = False
 
 try:
-  import tensorflow.compat.v2 as tf  # pylint: disable=g-import-not-at-top # pytype: disable=import-error
+  import tensorflow.compat.v2 as tf  # pylint: disable=g-import-not-at-top  # pyrefly: ignore[missing-import]
 
   tf.enable_v2_behavior()
 except ImportError:
@@ -845,18 +845,15 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
             CONFIG_ROUTE: self.config_route,
             GENERATE_CACHE_ROUTE: self.generate_cache_route,
         }.items()
-    }  # pytype: disable=bad-return-type
+    }
 
-  # pytype: disable=wrong-arg-types
-  @wrappers.Request.application
+  @wrappers.Request.application  # pyrefly: ignore[bad-argument-type]
   def default_handler(self, _: wrappers.Request) -> wrappers.Response:
     contents = self._read_static_file_impl('index.html')
     return respond(contents, 'text/html')
 
-  # pytype: disable=wrong-arg-types
-  @wrappers.Request.application
+  @wrappers.Request.application  # pyrefly: ignore[bad-argument-type]
   def config_route(self, _: wrappers.Request) -> wrappers.Response:
-    # pytype: enable=wrong-arg-types
     """Returns UI configuration details."""
     config_data = {
         'hideCaptureProfileButton': self.hide_capture_profile_button,
@@ -898,11 +895,9 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
       raise io_error
     return contents
 
-  # pytype: disable=wrong-arg-types
-  @wrappers.Request.application
+  @wrappers.Request.application  # pyrefly: ignore[bad-argument-type]
   def static_file_route(self, request: wrappers.Request) -> wrappers.Response:
     """Handles static files."""
-    # pytype: enable=wrong-arg-types
     filename = os.path.basename(request.path)
     extension = os.path.splitext(filename)[1]
     if extension == '.html':
@@ -921,10 +916,8 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
       return respond('Fail to read the files.', 'text/plain', code=404)
     return respond(contents, mimetype)
 
-  # pytype: disable=wrong-arg-types
-  @wrappers.Request.application
+  @wrappers.Request.application  # pyrefly: ignore[bad-argument-type]
   def runs_route(self, request: wrappers.Request) -> wrappers.Response:
-    # pytype: enable=wrong-arg-types
     runs = self.runs_imp(request)
     return respond(runs, 'application/json')
 
@@ -1025,10 +1018,8 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
       runs = self.generate_runs()
     return sorted(runs, reverse=True)
 
-  # pytype: disable=wrong-arg-types
-  @wrappers.Request.application
+  @wrappers.Request.application  # pyrefly: ignore[bad-argument-type]
   def run_tools_route(self, request: wrappers.Request) -> wrappers.Response:
-    # pytype: enable=wrong-arg-types
     run = request.args.get('run')
     run_tools = self.run_tools_imp(run, request)
     return respond(run_tools, 'application/json')
@@ -1101,17 +1092,14 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
     run_dir = self._run_dir(run, request)
     return self._run_host_impl(run, run_dir, tool)  # pyrefly: ignore[bad-argument-type]
 
-  # pytype: disable=wrong-arg-types
-  @wrappers.Request.application
+  @wrappers.Request.application  # pyrefly: ignore[bad-argument-type]
   def hosts_route(self, request: wrappers.Request) -> wrappers.Response:
-    # pytype: enable=wrong-arg-types
     run = request.args.get('run')
     tool = request.args.get('tag')
     hosts = self.host_impl(run, tool, request)
     return respond(hosts, 'application/json')
 
-  # pytype: disable=wrong-arg-types
-  @wrappers.Request.application
+  @wrappers.Request.application  # pyrefly: ignore[bad-argument-type]
   def hlo_module_list_route(
       self, request: wrappers.Request
   ) -> wrappers.Response:
@@ -1268,7 +1256,7 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
     # Check if the cache file exists and if the cache file version is less
     # than the current plugin version, clear the cache.
     try:
-      with self._epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).open(
+      with self._epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).open(  # pyrefly: ignore[no-matching-overload]
           'r'
       ) as f:
         cache_version = f.read().strip()
@@ -1341,7 +1329,7 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
     _, content_encoding = None, None
     if use_xplane(tool):
       selected_hosts, asset_paths = self._get_valid_hosts(
-          run_dir, run, tool, hosts_param, host
+          run_dir, run, tool, hosts_param, host  # pyrefly: ignore[bad-argument-type]
       )
       if not asset_paths:
         return None, content_type, None
@@ -1367,7 +1355,7 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
 
       # Write cache version file if use_saved_result is False.
       if not use_saved_result:
-        self._write_cache_version_file(run_dir)
+        self._write_cache_version_file(run_dir)  # pyrefly: ignore[bad-argument-type]
 
       return data, content_type, content_encoding
 
@@ -1415,11 +1403,9 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
       logger.warning('Cannot read asset directory: %s, OpError %r', run_dir, e)
       return ''
 
-  # pytype: disable=wrong-arg-types
-  @wrappers.Request.application
+  @wrappers.Request.application  # pyrefly: ignore[bad-argument-type]
   def data_route(self, request: wrappers.Request) -> wrappers.Response:
     """Handlers for data."""
-    # pytype: enable=wrong-arg-types
     # params
     #   request: XMLHTTPRequest.
     try:
@@ -1439,9 +1425,7 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
     except IOError as e:
       return respond(str(e), 'text/plain', code=500)
 
-  # pytype: disable=wrong-arg-types
-  @wrappers.Request.application
-  # pytype: enable=wrong-arg-types
+  @wrappers.Request.application  # pyrefly: ignore[bad-argument-type]
   def data_csv_route(self, request: wrappers.Request) -> wrappers.Response:
     """Retrieves tool data and converts it to CSV before responding."""
     try:
@@ -1480,10 +1464,8 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
       logger.exception('CSV conversion error')
       return respond(str(e), 'text/plain', code=500)
 
-  # pytype: disable=wrong-arg-types
-  @wrappers.Request.application
+  @wrappers.Request.application  # pyrefly: ignore[bad-argument-type]
   def capture_route(self, request: wrappers.Request) -> wrappers.Response:
-    # pytype: enable=wrong-arg-types
     return self.capture_route_impl(request)
 
   def capture_route_impl(self, request: wrappers.Request) -> wrappers.Response:
@@ -1750,12 +1732,10 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
 
     return sorted_tools
 
-  # pytype: disable=wrong-arg-types
-  @wrappers.Request.application
+  @wrappers.Request.application  # pyrefly: ignore[bad-argument-type]
   def generate_cache_route(
       self, request: wrappers.Request
   ) -> wrappers.Response:
-    # pytype: enable=wrong-arg-types
     """Generates tool data cache in the background."""
     return self._generate_cache_impl(request)
 

@@ -2761,8 +2761,10 @@ void Timeline::DrawEvent(int group_index, int event_index,
           ImVec2(rect.left + kInstantEventChevronHalfWidth,
                  rect.top + kInstantEventChevronHeight));
     } else {
-      is_hovered = ImGui::IsMouseHoveringRect(ImVec2(rect.left, rect.top),
-                                              ImVec2(rect.right, rect.bottom));
+      is_hovered = ImGui::IsMouseHoveringRect(
+          ImVec2(rect.left, rect.top),
+          ImVec2(rect.right + kEventPaddingRight,
+                 rect.bottom + kEventPaddingBottom));
     }
 
     const Pixel corner_rounding =
@@ -2992,7 +2994,7 @@ void Timeline::DrawEventsForLevel(int group_index,
           const Pixel y_bottom = y_top + event_height;
           const ImVec2 mouse_pos = ImGui::GetMousePos();
           const bool row_hovered_y =
-              mouse_pos.y >= y_top && mouse_pos.y <= y_bottom;
+              mouse_pos.y >= y_top && mouse_pos.y < y_bottom + padding_bottom;
 
           Pixel last_mip_right = -std::numeric_limits<Pixel>::infinity();
           int hovered_dom_idx = -1;

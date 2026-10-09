@@ -6703,6 +6703,125 @@ TEST_F(RealTimelineImGuiFixture,
 }
 
 TEST_F(RealTimelineImGuiFixture,
+       HoverAcrossHorizontalBorderBetweenContinuousEventsDoesNotBreakHover) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "VPU",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.level_offsets = {0, 2};
+  data.level_event_indices = {0, 1};
+  AddEvents(
+      data,
+      {{.name = "ev0", .start = 0.0, .dur = 50.0, .level = 0, .id = 1},
+       {.name = "ev1", .start = 50.0, .dur = 50.0, .level = 0, .id = 2}});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  std::vector<int> hovered_events;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kEventHovered) {
+          hovered_events.push_back(
+              std::any_cast<int>(detail.at(kEventSelectedIndex)));
+        }
+      });
+
+  ImGui::GetIO().MousePos = ImVec2(-1000.0f, -1000.0f);
+  SimulateFrame();
+
+  ImGuiWindow* track_window = FindWindowContaining("TimelineChild_VPU_0");
+  ASSERT_NE(track_window, nullptr);
+  const float boundary_x = timeline_.TimeToScreenX(
+      50.0, track_window->Pos.x, timeline_.px_per_time_unit());
+
+  // 1. Hover inside the first event.
+  ImGui::GetIO().MousePos = ImVec2(boundary_x - 5.0f, kFirstEventY);
+  SimulateFrame();
+  EXPECT_THAT(hovered_events, ElementsAre(0));
+
+  // 2. Move onto the 1px border between the two events
+  // [boundary_x - kEventPaddingRight, boundary_x). Hover must not drop.
+  ImGui::GetIO().MousePos =
+      ImVec2(boundary_x - 0.5f * kEventPaddingRight, kFirstEventY);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  track_window = FindWindowContaining("TimelineChild_VPU_0");
+  ASSERT_NE(track_window, nullptr);
+  EXPECT_TRUE(HasVertexWithColor(*track_window, kHoverMaskColor));
+  EXPECT_TRUE(IsTooltipShown());
+  EXPECT_THAT(hovered_events, ElementsAre(0));
+  ImGui::EndFrame();
+
+  // 3. Move across the boundary into the second event; hover transitions
+  // directly from 0 to 1 without emitting -1.
+  ImGui::GetIO().MousePos = ImVec2(boundary_x + 0.5f, kFirstEventY);
+  SimulateFrame();
+  EXPECT_THAT(hovered_events, ElementsAre(0, 1));
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       HoverAcrossVerticalBorderBetweenStackedEventsDoesNotBreakHover) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "VPU",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.level_offsets = {0, 1, 2};
+  data.level_event_indices = {0, 1};
+  AddEvents(
+      data,
+      {{.name = "ev_top", .start = 0.0, .dur = 100.0, .level = 0, .id = 1},
+       {.name = "ev_bottom", .start = 0.0, .dur = 100.0, .level = 1, .id = 2}});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  std::vector<int> hovered_events;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kEventHovered) {
+          hovered_events.push_back(
+              std::any_cast<int>(detail.at(kEventSelectedIndex)));
+        }
+      });
+
+  ImGui::GetIO().MousePos = ImVec2(-1000.0f, -1000.0f);
+  SimulateFrame();
+
+  ImGuiWindow* track_window = FindWindowContaining("TimelineChild_VPU_0");
+  ASSERT_NE(track_window, nullptr);
+  const float x = track_window->Pos.x + 50.0f;
+  const float level0_top = track_window->Pos.y;
+  const float border_y =
+      level0_top + kEventHeight + 0.5f * kEventPaddingBottom;
+  const float level1_top = level0_top + kEventHeight + kEventPaddingBottom;
+
+  // 1. Hover inside the level 0 event.
+  ImGui::GetIO().MousePos = ImVec2(x, level0_top + kEventHeight * 0.5f);
+  SimulateFrame();
+  EXPECT_THAT(hovered_events, ElementsAre(0));
+
+  // 2. Move onto the 1px vertical border between level 0 and level 1.
+  // Hover must remain on event 0 without dropping.
+  ImGui::GetIO().MousePos = ImVec2(x, border_y);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  track_window = FindWindowContaining("TimelineChild_VPU_0");
+  ASSERT_NE(track_window, nullptr);
+  EXPECT_TRUE(HasVertexWithColor(*track_window, kHoverMaskColor));
+  EXPECT_TRUE(IsTooltipShown());
+  EXPECT_THAT(hovered_events, ElementsAre(0));
+  ImGui::EndFrame();
+
+  // 3. Move into level 1; hover transitions directly from 0 to 1 without -1.
+  ImGui::GetIO().MousePos = ImVec2(x, level1_top + 1.0f);
+  SimulateFrame();
+  EXPECT_THAT(hovered_events, ElementsAre(0, 1));
+}
+
+TEST_F(RealTimelineImGuiFixture,
        HoverCounterTrackShowsTooltipWhenEventTooltipDisabled) {
   FlameChartTimelineData data;
   data.groups.push_back({.type = Group::Type::kCounter,

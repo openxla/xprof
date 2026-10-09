@@ -6741,6 +6741,183 @@ TEST_F(RealTimelineImGuiFixture,
   ImGui::EndFrame();
 }
 
+TEST_F(RealTimelineImGuiFixture,
+       HoverWithTooltipDisabledPopulatesScheduleAndTrackDetails) {
+  FlameChartTimelineData data;
+  // Group 0: Process header
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "<late-finalization>",
+                         .start_level = 0,
+                         .nesting_level = kProcessNestingLevel,
+                         .expanded = true,
+                         .level_count = 5,
+                         .has_children = true});
+  // Group 1: Regions (levels 0 and 1)
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Regions",
+                         .start_level = 0,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .level_count = 2});
+  // Group 2: MXU (level 2)
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "MXU",
+                         .start_level = 2,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .level_count = 1});
+  // Group 3: VPU (levels 3 and 4)
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "VPU",
+                         .start_level = 3,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .level_count = 2});
+  // Group 4: Counter track
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = "MXU utilization",
+                         .start_level = 5,
+                         .nesting_level = kCounterNestingLevel,
+                         .expanded = true,
+                         .level_count = 1});
+
+  // Events:
+  // 0: top_region [0, 100) on level 0
+  // 1: loop.body [10, 60) on level 1
+  // 2: vector_matmul [20, 30) on level 2 (MXU)
+  // 3: add.f32 [20, 30) on level 3 (VPU)
+  // 4: mul.f32 [20, 30) on level 4 (VPU)
+  data.entry_names = {"top_region", "loop.body", "vector_matmul", "add.f32",
+                      "mul.f32"};
+  data.entry_levels = {0, 1, 2, 3, 4};
+  data.entry_start_times = {0.0, 10.0, 20.0, 20.0, 20.0};
+  data.entry_total_times = {100.0, 50.0, 10.0, 10.0, 10.0};
+  data.entry_args.assign(5, {});
+  data.level_offsets = {0, 1, 2, 3, 4, 5};
+  data.level_event_indices = {0, 1, 2, 3, 4};
+
+  CounterData counter_data;
+  counter_data.timestamps = {10.0, 60.0};
+  counter_data.values = {0.8, 0.0};
+  counter_data.min_value = 0.0;
+  counter_data.max_value = 1.0;
+  data.counter_data_by_group_index[4] = std::move(counter_data);
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 100.0});
+  timeline_.SetVisibleRange({0.0, 100.0});
+  timeline_.set_event_tooltip_enabled(false);
+
+  EventData hovered_event;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kEventHovered) {
+          hovered_event = detail;
+        }
+      });
+
+  // Render an initial frame with mouse off-screen so child windows exist.
+  ImGui::GetIO().MousePos = ImVec2(-1000.0f, -1000.0f);
+  SimulateFrame();
+
+  auto find_child_window = [](absl::string_view prefix) -> ImGuiWindow* {
+    for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+      if (absl::StrContains(w->Name, prefix)) {
+        return w;
+      }
+    }
+    return nullptr;
+  };
+
+  // 1. Hover over MXU instruction at t = 25 (25% of timeline width).
+  ImGuiWindow* mxu_win = find_child_window("TimelineChild_MXU_2");
+  ASSERT_NE(mxu_win, nullptr);
+  ImGui::GetIO().MousePos = ImVec2(mxu_win->Pos.x + mxu_win->Size.x * 0.25f,
+                                   mxu_win->Pos.y + mxu_win->Size.y * 0.5f);
+  SimulateFrame();
+
+  EXPECT_EQ(std::any_cast<int>(hovered_event.at(kEventSelectedIndex)), 2);
+  EXPECT_EQ(std::any_cast<std::string>(hovered_event.at("trackName")), "MXU");
+  EXPECT_DOUBLE_EQ(std::any_cast<double>(hovered_event.at("totalBundles")),
+                   100.0);
+  const auto& instr_counts =
+      std::any_cast<const EventData&>(hovered_event.at("bundleCounts"));
+  EXPECT_EQ(std::any_cast<int>(instr_counts.at("MXU")), 1);
+  EXPECT_EQ(std::any_cast<int>(instr_counts.at("VPU")), 2);
+  const auto& instr_regions = std::any_cast<const std::vector<std::string>&>(
+      hovered_event.at("regions"));
+  ASSERT_EQ(instr_regions.size(), 2);
+  EXPECT_EQ(instr_regions[0], "top_region");
+  EXPECT_EQ(instr_regions[1], "loop.body");
+  const auto& instr_util =
+      std::any_cast<const EventData&>(hovered_event.at("utilization"));
+  EXPECT_DOUBLE_EQ(std::any_cast<double>(instr_util.at("MXU utilization")),
+                   0.8);
+
+  // 2. Hover over loop.body region on level 1 of Regions group at t = 25.
+  ImGuiWindow* reg_win = find_child_window("TimelineChild_Regions_1");
+  ASSERT_NE(reg_win, nullptr);
+  ImGui::GetIO().MousePos = ImVec2(reg_win->Pos.x + reg_win->Size.x * 0.25f,
+                                   reg_win->Pos.y + reg_win->Size.y * 0.75f);
+  SimulateFrame();
+
+  EXPECT_EQ(std::any_cast<int>(hovered_event.at(kEventSelectedIndex)), 1);
+  EXPECT_EQ(std::any_cast<std::string>(hovered_event.at("trackName")),
+            "Regions");
+  EXPECT_EQ(std::any_cast<int>(hovered_event.at("regionDepth")), 1);
+  const auto& parent_regions = std::any_cast<const std::vector<std::string>&>(
+      hovered_event.at("regions"));
+  ASSERT_EQ(parent_regions.size(), 1);
+  EXPECT_EQ(parent_regions[0], "top_region");
+  const auto& region_mix =
+      std::any_cast<const EventData&>(hovered_event.at("bundleCounts"));
+  EXPECT_EQ(std::any_cast<int>(region_mix.at("MXU")), 1);
+  EXPECT_EQ(std::any_cast<int>(region_mix.at("VPU")), 2);
+  const auto& region_util =
+      std::any_cast<const EventData&>(hovered_event.at("utilization"));
+  EXPECT_NEAR(std::any_cast<double>(region_util.at("MXU utilization")), 0.8,
+              1e-5);
+
+  // 3. Hover over counter track at t = 25: ImGui tooltip is shown and emits
+  // counter hover.
+  ImGuiWindow* counter_win =
+      find_child_window("TimelineChild_MXU utilization_4");
+  ASSERT_NE(counter_win, nullptr);
+  ImGui::GetIO().MousePos =
+      ImVec2(counter_win->Pos.x + counter_win->Size.x * 0.25f,
+             counter_win->Pos.y + counter_win->Size.y * 0.5f);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  EXPECT_TRUE(IsTooltipShown());
+  ImGui::EndFrame();
+
+  EXPECT_EQ(std::any_cast<int>(hovered_event.at(kEventSelectedIndex)), -1);
+  EXPECT_EQ(std::any_cast<std::string>(hovered_event.at("trackType")),
+            "counter");
+  EXPECT_EQ(std::any_cast<std::string>(hovered_event.at("trackName")),
+            "MXU utilization");
+  EXPECT_NEAR(std::any_cast<double>(hovered_event.at("counterValue")), 0.8,
+              1e-5);
+
+  // 4. Hover over process header utilization chart at t = 25: ImGui tooltip is
+  // shown and emits process hover.
+  ImGuiWindow* proc_win =
+      find_child_window("TimelineChild_<late-finalization>_0");
+  ASSERT_NE(proc_win, nullptr);
+  ImGui::GetIO().MousePos = ImVec2(proc_win->Pos.x + proc_win->Size.x * 0.25f,
+                                   proc_win->Pos.y + proc_win->Size.y * 0.5f);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  EXPECT_TRUE(IsTooltipShown());
+  ImGui::EndFrame();
+
+  EXPECT_EQ(std::any_cast<int>(hovered_event.at(kEventSelectedIndex)), -1);
+  EXPECT_EQ(std::any_cast<std::string>(hovered_event.at("trackType")),
+            "process");
+  EXPECT_EQ(std::any_cast<std::string>(hovered_event.at("trackName")),
+            "<late-finalization>");
+}
+
 TEST_F(RealTimelineImGuiFixture, PanLeftBeyondDataRangeShouldBeConstrained) {
   timeline_.set_data_time_range({10.0, 100.0});
   timeline_.SetVisibleRange({11.0, 61.0});
@@ -15072,6 +15249,7 @@ TEST_F(MockTimelineImGuiFixture,
   ImGui::End();
   ImGui::EndFrame();
 }
+
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer

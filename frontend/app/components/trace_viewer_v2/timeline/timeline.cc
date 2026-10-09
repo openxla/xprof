@@ -1186,6 +1186,9 @@ void Timeline::Draw() {
     BuildLevelMipPyramids();
   }
   hovered_event_index_ = -1;
+  hovered_group_index_ = -1;
+  hovered_bundle_ = -1;
+  hovered_counter_value_ = 0.0;
   event_clicked_this_frame_ = false;
   bool is_resizer_hovered = false;
   bool needs_layout_update = false;
@@ -1464,8 +1467,16 @@ void Timeline::Draw() {
   DrawToast(bounds_notification_message_, bounds_notification_timer_,
             bounds_toast_offset);
 
-  if (hovered_event_index_ != last_reported_hovered_event_index_) {
+  if (hovered_event_index_ != -1) {
+    hovered_group_index_ = -1;
+    hovered_bundle_ = -1;
+  }
+  if (hovered_event_index_ != last_reported_hovered_event_index_ ||
+      hovered_group_index_ != last_reported_hovered_group_index_ ||
+      hovered_bundle_ != last_reported_hovered_bundle_) {
     last_reported_hovered_event_index_ = hovered_event_index_;
+    last_reported_hovered_group_index_ = hovered_group_index_;
+    last_reported_hovered_bundle_ = hovered_bundle_;
     if (event_callback_) {
       ImVec2 mouse_pos = ImGui::GetMousePos();
       EmitEventHovered(hovered_event_index_, mouse_pos.x, mouse_pos.y);
@@ -2019,6 +2030,9 @@ void Timeline::EmitEventHovered(int event_index, float mouse_x, float mouse_y) {
       event_data.try_emplace("trackName",
                              timeline_data_.groups[group_index].name);
     }
+  }
+  if (!event_tooltip_enabled_) {
+    PopulateEventHoveredScheduleDetails(event_index, event_data);
   }
   event_callback_(kEventHovered, event_data);
 }
@@ -3188,6 +3202,12 @@ void Timeline::DrawCounterTooltip(int group_index, const CounterData& data,
     // Draw tooltip for current counter point's value and timestamp
     ImGui::SetTooltip(kCounterTooltipFormat, FormatTime(mouse_time).c_str(),
                       val);
+    if (!event_tooltip_enabled_ && hovered_event_index_ == -1 &&
+        mouse_time >= 0.0) {
+      hovered_group_index_ = group_index;
+      hovered_bundle_ = static_cast<int64_t>(std::floor(mouse_time));
+      hovered_counter_value_ = val;
+    }
 
     // ImGui uses 0 to represent the left mouse button, as defined in the
     // ImGuiMouseButton enum. We check if the left mouse button was clicked.
@@ -3223,6 +3243,11 @@ void Timeline::DrawCounterTooltip(int group_index, const CounterData& data,
         }
       }
     }
+  } else if (!event_tooltip_enabled_ && hovered_event_index_ == -1 &&
+             mouse_time >= 0.0) {
+    hovered_group_index_ = group_index;
+    hovered_bundle_ = static_cast<int64_t>(std::floor(mouse_time));
+    hovered_counter_value_ = 0.0;
   }
 }
 
@@ -3422,7 +3447,7 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val,
               break;
             }
           }
-          DrawUtilizationAreaChart(start_level, proc_end_level,
+          DrawUtilizationAreaChart(group_index, start_level, proc_end_level,
                                    px_per_time_unit_val, pos, group_height,
                                    draw_list);
         }
@@ -3498,8 +3523,9 @@ void Timeline::DrawGroupPreview(int group_index, double px_per_time_unit_val) {
       }
     } else if (group.type == Group::Type::kFlame) {
       if (group.nesting_level == kProcessNestingLevel) {
-        DrawUtilizationAreaChart(start_level, end_level, px_per_time_unit_val,
-                                 pos, group_height, draw_list);
+        DrawUtilizationAreaChart(group_index, start_level, end_level,
+                                 px_per_time_unit_val, pos, group_height,
+                                 draw_list);
       } else {
         DrawFlameGroupPreview(start_level, end_level, px_per_time_unit_val, pos,
                               group_height, draw_list);
@@ -3739,7 +3765,8 @@ void Timeline::AccumulateLevelUtilization(int level,
   }
 }
 
-void Timeline::DrawUtilizationAreaChart(int start_level, int end_level,
+void Timeline::DrawUtilizationAreaChart(int group_index, int start_level,
+                                        int end_level,
                                         double px_per_time_unit_val,
                                         const ImVec2& pos, Pixel group_height,
                                         ImDrawList* draw_list) {
@@ -3822,6 +3849,15 @@ void Timeline::DrawUtilizationAreaChart(int start_level, int end_level,
         float val = utilization_bins_[bin_idx];
         ImGui::SetTooltip(
             "Utilization: %.2f\n(Chart height represents event density)", val);
+        if (!event_tooltip_enabled_ && hovered_event_index_ == -1) {
+          const double mouse_time =
+              PixelToTime(mouse_pos.x - pos.x, px_per_time_unit_val);
+          if (mouse_time >= 0.0) {
+            hovered_group_index_ = group_index;
+            hovered_bundle_ = static_cast<int64_t>(std::floor(mouse_time));
+            hovered_counter_value_ = val;
+          }
+        }
       }
     }
   }

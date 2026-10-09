@@ -516,6 +516,17 @@ class Timeline {
   }
   bool timeline_player_enabled() const { return timeline_player_enabled_; }
 
+  // Whether hovering a flame-chart event shows the built-in tooltip
+  // (`name (duration)`). Hosts that draw their own tooltip, or that already
+  // paint everything the tooltip would say on the event itself, turn it off.
+  // Hover highlighting, the `eventhovered` callback and click selection are
+  // unaffected, and counter-track tooltips are separate. On by default and
+  // kept by ResetForNewDataset().
+  void set_event_tooltip_enabled(bool enabled) {
+    event_tooltip_enabled_ = enabled;
+  }
+  bool event_tooltip_enabled() const { return event_tooltip_enabled_; }
+
   void set_panning_speed(float speed) { panning_speed_ = speed; }
   float panning_speed() const { return panning_speed_; }
 
@@ -551,17 +562,6 @@ class Timeline {
     incremental_fetch_enabled_ = enabled;
   }
   bool incremental_fetch_enabled() const { return incremental_fetch_enabled_; }
-
-  // Whether hovering a flame-chart event shows the built-in tooltip
-  // (`name (duration)`). Hosts that draw their own tooltip, or that already
-  // paint everything the tooltip would say on the event itself, turn it off.
-  // Hover highlighting, the `eventhovered` callback and click selection are
-  // unaffected, and counter-track tooltips are separate. On by default and
-  // kept by ResetForNewDataset().
-  void set_event_tooltip_enabled(bool enabled) {
-    event_tooltip_enabled_ = enabled;
-  }
-  bool event_tooltip_enabled() const { return event_tooltip_enabled_; }
 
   // Returns the timeline to its pre-first-load state (data, ranges, selection,
   // search, bookmarks, scroll) so a different dataset can be loaded. Host
@@ -780,6 +780,18 @@ class Timeline {
   EventData CreateBaseEventData(int event_index, bool is_hover = false) const;
   // Emits an event hovered event to JS side.
   void EmitEventHovered(int event_index, float mouse_x, float mouse_y);
+  // Populates schedule context (totalBundles, bundleCounts, regions,
+  // utilization, regionDepth) on `event_data` when `event_tooltip_enabled_` is
+  // false.
+  void PopulateEventHoveredScheduleDetails(int event_index,
+                                           EventData& event_data) const;
+  void PopulateHoverScheduleDetails(int group_index, int event_index,
+                                    EventData& event_data) const;
+  // Populates schedule context at a discrete VLIW instruction bundle index on
+  // the timeline x-axis (e.g. when hovering a counter or process track).
+  void PopulateBundleScheduleDetails(Microseconds bundle,
+                                     EventData& event_data) const;
+  Microseconds GetScheduleEndBundle() const;
   // Emits viewport changed event to JS side.
   void EmitViewportChanged(const TimeRange& range);
   // Emits mouse mode changed event to JS side.
@@ -855,7 +867,7 @@ class Timeline {
   void DrawFlameGroupPreview(int start_level, int end_level,
                              double px_per_time_unit_val, const ImVec2& pos,
                              Pixel group_height, ImDrawList* draw_list);
-  void DrawUtilizationAreaChart(int start_level, int end_level,
+  void DrawUtilizationAreaChart(int group_index, int start_level, int end_level,
                                 double px_per_time_unit_val, const ImVec2& pos,
                                 Pixel group_height, ImDrawList* draw_list);
   void AccumulateClippedRangeOccupancy(Pixel x_start, Pixel x_end,
@@ -1126,9 +1138,21 @@ class Timeline {
 
   int hovered_event_index_ = -1;
   int last_reported_hovered_event_index_ = -1;
+  // The index of the hovered counter or process group when no flamechart event
+  // is hovered, or -1 if none is hovered.
+  int hovered_group_index_ = -1;
+  int last_reported_hovered_group_index_ = -1;
+  // Discrete VLIW instruction bundle index (`floor(timestamp_us)`) on the
+  // timeline x-axis when hovering a counter or process track without an active
+  // flamechart slice, or -1 if none is hovered.
+  int64_t hovered_bundle_ = -1;
+  int64_t last_reported_hovered_bundle_ = -1;
+  double hovered_counter_value_ = 0.0;
   bool bookmarks_enabled_ = false;
   bool track_management_enabled_ = false;
   bool timeline_player_enabled_ = false;
+  // See set_event_tooltip_enabled().
+  bool event_tooltip_enabled_ = true;
 
   float panning_speed_ = kPanningSpeed;
   float zoom_speed_ = kZoomSpeed;
@@ -1156,8 +1180,6 @@ class Timeline {
   bool is_incremental_loading_ = true;
 
   bool incremental_fetch_enabled_ = true;
-
-  bool event_tooltip_enabled_ = true;
 
   // Stores the last requested data range to prevent redundant refetches when
   // the returned data is empty or sparse (and thus fetched_data_time_range_

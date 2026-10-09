@@ -52,6 +52,7 @@ wasm_cc_library(
     srcs = [
         "timeline.cc",
         "timeline_player_sync.cc",
+        "timeline_schedule_sync.cc",
     ],
     hdrs = [
         "timeline.h",

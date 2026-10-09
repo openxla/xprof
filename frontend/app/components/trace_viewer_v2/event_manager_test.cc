@@ -3,6 +3,7 @@
 #include <emscripten/val.h>
 
 #include <string>
+#include <vector>
 
 #include <gtest/gtest.h>
 #include "absl/strings/str_format.h"
@@ -132,6 +133,30 @@ TEST_F(EventManagerTest, DispatchEventWithIntegerTypes) {
   EXPECT_EQ(event_detail["uint32_val"].as<uint32_t>(), 42);
   EXPECT_EQ(event_detail["int64_val"].as<double>(), 123456789012345.0);
   EXPECT_EQ(event_detail["uint64_val"].as<double>(), 987654321098765.0);
+}
+
+TEST_F(EventManagerTest, DispatchEventWithStringVector) {
+  const std::string event_name = "string-vector-event";
+
+  SetupEventListener(event_name);
+
+  EventManager& event_manager = EventManager::Instance();
+  EventData detail;
+  detail["regions"] =
+      std::vector<std::string>{"top_region", "loop.body", "<if:predicated>"};
+
+  event_manager.DispatchEvent(event_name, detail);
+
+  emscripten::val results =
+      emscripten::val::global("window")["testResults"][event_name];
+
+  ASSERT_TRUE(results["received"].as<bool>());
+
+  emscripten::val regions = results["detail"]["regions"];
+  EXPECT_EQ(regions["length"].as<int>(), 3);
+  EXPECT_EQ(regions[0].as<std::string>(), "top_region");
+  EXPECT_EQ(regions[1].as<std::string>(), "loop.body");
+  EXPECT_EQ(regions[2].as<std::string>(), "<if:predicated>");
 }
 
 }  // namespace

@@ -4,6 +4,7 @@
 
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/log/log.h"
 #include "absl/strings/string_view.h"
@@ -59,6 +60,14 @@ emscripten::val AnyToVal(const absl::any& any_val) {
     emscripten::val array = emscripten::val::array();
     for (const EventData& e : absl::any_cast<std::vector<EventData>>(any_val)) {
       array.call<void>("push", EventDataToVal(e));
+    }
+    return array;
+  }
+  if (any_val.type() == typeid(std::vector<std::string>)) {
+    emscripten::val array = emscripten::val::array();
+    for (const std::string& s :
+         absl::any_cast<std::vector<std::string>>(any_val)) {
+      array.call<void>("push", emscripten::val(s));
     }
     return array;
   }

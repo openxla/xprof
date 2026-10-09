@@ -1,43 +1,80 @@
-import {Component, inject, Input, OnChanges, OnDestroy, SimpleChanges, ChangeDetectionStrategy, ViewChild} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  inject,
+  Input,
+  OnChanges,
+  OnDestroy,
+  SimpleChanges,
+  ViewChild,
+} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
 import {Metric} from 'org_xprof/frontend/app/common/interfaces/source_stats';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
-import {Address, Content, SOURCE_CODE_SERVICE_INTERFACE_TOKEN, SourceCodeServiceInterface} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
+import {
+  Address,
+  Content,
+  SOURCE_CODE_SERVICE_INTERFACE_TOKEN,
+  SourceCodeServiceInterface,
+} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {Subject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
+import {CommonModule} from '@angular/common';
+import {
+  MatExpansionPanel,
+  MatExpansionPanelHeader,
+  MatExpansionPanelTitle,
+} from '@angular/material/expansion';
+import {MatIcon} from '@angular/material/icon';
+import {MatProgressBar} from '@angular/material/progress-bar';
+import {MatTooltip} from '@angular/material/tooltip';
+import {Message} from './message';
 /**
  * A component to display a snippet of source code corresponding to a given
  * stack frame address.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'stack-frame-snippet',
   templateUrl: './stack_frame_snippet.ng.html',
   styleUrls: ['./stack_frame_snippet.scss'],
+  imports: [
+    CommonModule,
+    MatExpansionPanel,
+    MatExpansionPanelHeader,
+    MatExpansionPanelTitle,
+    MatIcon,
+    MatProgressBar,
+    MatTooltip,
+    Message,
+  ],
 })
 export class StackFrameSnippet implements OnChanges, OnDestroy {
-  @Input() sourceCodeSnippetAddress: Address|undefined = undefined;
-  @Input() topOfStack: boolean|undefined = undefined;
-  @Input() usingSourceFileAndLineNumber: boolean|undefined = undefined;
+  @Input() sourceCodeSnippetAddress: Address | undefined = undefined;
+  @Input() topOfStack: boolean | undefined = undefined;
+  @Input() usingSourceFileAndLineNumber: boolean | undefined = undefined;
   @Input() srcPathPrefix = '';
   private readonly route: ActivatedRoute = inject(ActivatedRoute);
-  private readonly sourceCodeService: SourceCodeServiceInterface =
-      inject(SOURCE_CODE_SERVICE_INTERFACE_TOKEN);
+  private readonly sourceCodeService: SourceCodeServiceInterface = inject(
+    SOURCE_CODE_SERVICE_INTERFACE_TOKEN,
+  );
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly destroy$ = new Subject<void>();
-  private sessionId: string|undefined = undefined;
-  frame: Content|undefined = undefined;
-  failure: string|undefined = undefined;
-  codeSearchLink: string|undefined = undefined;
-  codeSearchLinkTooltip: string|undefined = undefined;
-  lineNumberToMetricMap: Map<number, Metric>|undefined = undefined;
+  private sessionId: string | undefined = undefined;
+  frame: Content | undefined = undefined;
+  failure: string | undefined = undefined;
+  codeSearchLink: string | undefined = undefined;
+  codeSearchLinkTooltip: string | undefined = undefined;
+  lineNumberToMetricMap: Map<number, Metric> | undefined = undefined;
   isCodeFetchEnabled = false;
-
 
   constructor() {
     this.route.params.pipe(takeUntil(this.destroy$)).subscribe((params) => {
-      this.sessionId = (params || {})['sessionId'] || (params || {})['run'] ||
-          this.sessionId;
+      this.sessionId =
+        (params || {})['sessionId'] || (params || {})['run'] || this.sessionId;
       this.reload();
     });
     this.isCodeFetchEnabled = this.sourceCodeService.isCodeFetchEnabled();
@@ -49,9 +86,12 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
   }
 
   ngOnChanges(changes: SimpleChanges) {
-    if (this.areDifferentAddresses(
-            changes['sourceCodeSnippetAddress']?.previousValue,
-            changes['sourceCodeSnippetAddress']?.currentValue)) {
+    if (
+      this.areDifferentAddresses(
+        changes['sourceCodeSnippetAddress']?.previousValue,
+        changes['sourceCodeSnippetAddress']?.currentValue,
+      )
+    ) {
       this.reload();
     }
   }
@@ -60,13 +100,16 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
     return index;
   }
 
-  lineMetric(lineNumber: number): Metric|undefined {
+  lineMetric(lineNumber: number): Metric | undefined {
     return this.lineNumberToMetricMap?.get(lineNumber);
   }
 
   get loaded() {
-    return this.frame !== undefined || this.failure !== undefined ||
-        !this.isCodeFetchEnabled;
+    return (
+      this.frame !== undefined ||
+      this.failure !== undefined ||
+      !this.isCodeFetchEnabled
+    );
   }
 
   get isAtTopOfStack(): boolean {
@@ -76,11 +119,15 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
   }
 
   private areDifferentAddresses(
-      first: Address|undefined, second: Address|undefined): boolean {
-    return first?.fileName !== second?.fileName ||
-        first?.lineNumber !== second?.lineNumber ||
-        first?.linesBefore !== second?.linesBefore ||
-        first?.linesAfter !== second?.linesAfter;
+    first: Address | undefined,
+    second: Address | undefined,
+  ): boolean {
+    return (
+      first?.fileName !== second?.fileName ||
+      first?.lineNumber !== second?.lineNumber ||
+      first?.linesBefore !== second?.linesBefore ||
+      first?.linesAfter !== second?.linesAfter
+    );
   }
 
   private reload() {
@@ -92,41 +139,54 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
       return;
     }
     this.sourceCodeService
-        .loadContent(this.sessionId, this.sourceCodeSnippetAddress)
-        .pipe(takeUntil(this.destroy$))
-        .subscribe({
-          next: (frame) => {
-            this.frame = frame;
-            this.codeSearchLinkTooltip = 'Open in Code Search';
-            this.lineNumberToMetricMap = new Map(frame.metrics.map(
-                lineMetric => [lineMetric.lineNumber, lineMetric.metric]));
-          },
-          error: (err) => {
-            this.codeSearchLinkTooltip =
-                'Try Opening in Code Search (might fail)';
-            if (typeof err === 'object' && typeof err?.error === 'string') {
-              this.failure = err.error;
-            } else if (
-                typeof err === 'object' && typeof err?.message === 'string') {
-              this.failure = err.message;
-            } else {
-              this.failure = 'Unknown Error';
-            }
+      .loadContent(this.sessionId, this.sourceCodeSnippetAddress)
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (frame) => {
+          this.frame = frame;
+          this.codeSearchLinkTooltip = 'Open in Code Search';
+          this.lineNumberToMetricMap = new Map(
+            frame.metrics.map((lineMetric) => [
+              lineMetric.lineNumber,
+              lineMetric.metric,
+            ]),
+          );
+          this.cdr.markForCheck();
+        },
+        error: (err) => {
+          this.codeSearchLinkTooltip =
+            'Try Opening in Code Search (might fail)';
+          if (typeof err === 'object' && typeof err?.error === 'string') {
+            this.failure = err.error;
+          } else if (
+            typeof err === 'object' &&
+            typeof err?.message === 'string'
+          ) {
+            this.failure = err.message;
+          } else {
+            this.failure = 'Unknown Error';
           }
-        });
+          this.cdr.markForCheck();
+        },
+      });
     this.sourceCodeService
-        .codeSearchLink(
-            this.sessionId, this.sourceCodeSnippetAddress.fileName,
-            this.sourceCodeSnippetAddress.lineNumber, this.srcPathPrefix)
-        .pipe(takeUntil(this.destroy$))
-        .subscribe({
-          next: (link) => {
-            this.codeSearchLink = link;
-          },
-          error: (err) => {
-            console.error('Failed to get code search link', err);
-          }
-        });
+      .codeSearchLink(
+        this.sessionId,
+        this.sourceCodeSnippetAddress.fileName,
+        this.sourceCodeSnippetAddress.lineNumber,
+        this.srcPathPrefix,
+      )
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (link) => {
+          this.codeSearchLink = link;
+          this.cdr.markForCheck();
+        },
+        error: (err) => {
+          console.error('Failed to get code search link', err);
+          this.cdr.markForCheck();
+        },
+      });
   }
 
   percent = utils.percent;

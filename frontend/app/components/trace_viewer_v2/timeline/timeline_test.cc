@@ -15250,6 +15250,135 @@ TEST_F(MockTimelineImGuiFixture,
   ImGui::EndFrame();
 }
 
+TEST(TimelineTest, StaticKernelSelectionPopulatesBundleEventsAndRegionStats) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_event_tooltip_enabled(false);
+
+  FlameChartTimelineData data;
+  // Group 0: Regions (levels 0 and 1)
+  data.groups.push_back({.name = "Regions",
+                         .start_level = 0,
+                         .nesting_level = 1,
+                         .expanded = true});
+  // Group 1: MXU (level 2)
+  data.groups.push_back(
+      {.name = "MXU", .start_level = 2, .nesting_level = 1, .expanded = true});
+  // Group 2: VPU (level 3)
+  data.groups.push_back(
+      {.name = "VPU", .start_level = 3, .nesting_level = 1, .expanded = true});
+  // Group 3: MXU utilization counter
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = "MXU utilization",
+                         .start_level = 4,
+                         .nesting_level = 1,
+                         .expanded = true});
+
+  // Event 0: top_region [0, 100) on level 0
+  // Event 1: loop.body [10, 50) on level 1
+  // Event 2: matmul_a [10, 11) on level 2 (MXU)
+  // Event 3: matmul_b [12, 13) on level 2 (MXU)
+  // Event 4: vadd [10, 11) on level 3 (VPU)
+  data.entry_names = {"top_region", "loop.body", "matmul_a", "matmul_b",
+                      "vadd"};
+  data.entry_levels = {0, 1, 2, 2, 3};
+  data.entry_start_times = {0.0, 10.0, 10.0, 12.0, 10.0};
+  data.entry_total_times = {100.0, 40.0, 1.0, 1.0, 1.0};
+  data.entry_self_times = {100.0, 40.0, 1.0, 1.0, 1.0};
+  data.entry_args = {{},
+                     {},
+                     {{"produces", "$v10"}, {"ordinal", "42"}},
+                     {},
+                     {{"produces", "$v11"}}};
+  data.level_offsets = {0, 1, 2, 4, 5};
+  data.level_event_indices = {0, 1, 2, 3, 4};
+
+  CounterData counter;
+  counter.timestamps = {0.0, 10.0, 50.0};
+  counter.values = {20.0, 85.0, 40.0};
+  counter.min_value = 0.0;
+  counter.max_value = 100.0;
+  data.counter_data_by_group_index[3] = std::move(counter);
+
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 100.0});
+
+  EventData selected_detail;
+  EventData multi_detail;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kEventSelected) {
+          selected_detail = detail;
+        } else if (type == kEventsSelected) {
+          multi_detail = detail;
+        }
+      });
+
+  // 1. Select instruction 2 (matmul_a at bundle 10)
+  timeline.RevealEvent(2);
+  ASSERT_TRUE(selected_detail.contains("bundleEvents"));
+  const auto& bundle_events = std::any_cast<const std::vector<EventData>&>(
+      selected_detail.at("bundleEvents"));
+  ASSERT_EQ(bundle_events.size(), 2u);
+  EXPECT_EQ(std::any_cast<std::string>(bundle_events[0].at("name")),
+            "matmul_a");
+  EXPECT_TRUE(std::any_cast<bool>(bundle_events[0].at("selected")));
+  EXPECT_EQ(std::any_cast<std::string>(bundle_events[0].at("produces")),
+            "$v10");
+  EXPECT_EQ(std::any_cast<std::string>(bundle_events[1].at("name")), "vadd");
+  EXPECT_FALSE(std::any_cast<bool>(bundle_events[1].at("selected")));
+  EXPECT_EQ(std::any_cast<int>(selected_detail.at("prevEventIndex")), -1);
+  EXPECT_EQ(std::any_cast<int>(selected_detail.at("nextEventIndex")), 3);
+
+  ASSERT_TRUE(selected_detail.contains("regionAncestors"));
+  const auto& instr_ancestors = std::any_cast<const std::vector<EventData>&>(
+      selected_detail.at("regionAncestors"));
+  ASSERT_EQ(instr_ancestors.size(), 2u);
+  EXPECT_EQ(std::any_cast<int>(instr_ancestors[0].at("eventIndex")), 0);
+  EXPECT_EQ(std::any_cast<std::string>(instr_ancestors[0].at("name")),
+            "top_region");
+  EXPECT_EQ(std::any_cast<int>(instr_ancestors[1].at("eventIndex")), 1);
+  EXPECT_EQ(std::any_cast<std::string>(instr_ancestors[1].at("name")),
+            "loop.body");
+
+  // 2. Select region 0 (top_region [0, 100))
+  timeline.RevealEvent(0);
+  ASSERT_TRUE(selected_detail.contains("childRegions"));
+  const auto& child_regions = std::any_cast<const std::vector<EventData>&>(
+      selected_detail.at("childRegions"));
+  ASSERT_EQ(child_regions.size(), 1u);
+  EXPECT_EQ(std::any_cast<std::string>(child_regions[0].at("name")),
+            "loop.body");
+
+  ASSERT_TRUE(selected_detail.contains("topInstructions"));
+  const auto& top_instructions = std::any_cast<const std::vector<EventData>&>(
+      selected_detail.at("topInstructions"));
+  ASSERT_EQ(top_instructions.size(), 3u);
+  EXPECT_EQ(std::any_cast<int>(selected_detail.at("totalInstructions")), 3);
+
+  // 2b. Select child region 1 (loop.body [10, 50)) and verify parent ancestor
+  timeline.RevealEvent(1);
+  ASSERT_TRUE(selected_detail.contains("regionAncestors"));
+  const auto& region_ancestors = std::any_cast<const std::vector<EventData>&>(
+      selected_detail.at("regionAncestors"));
+  ASSERT_EQ(region_ancestors.size(), 1u);
+  EXPECT_EQ(std::any_cast<int>(region_ancestors[0].at("eventIndex")), 0);
+  EXPECT_EQ(std::any_cast<std::string>(region_ancestors[0].at("name")),
+            "top_region");
+
+  // 3. Multi-event selection via CalculateAndEmitMetrics
+  auto& sel_indices = timeline.selected_event_indices_for_test();
+  sel_indices = {2, 3, 4};
+  timeline.CalculateAndEmitMetrics_for_test();
+  ASSERT_TRUE(multi_detail.contains("totalSelectedEvents"));
+  EXPECT_EQ(std::any_cast<int>(multi_detail.at("totalSelectedEvents")), 3);
+  EXPECT_EQ(std::any_cast<int>(multi_detail.at("totalInstructions")), 3);
+  ASSERT_TRUE(multi_detail.contains("selectedEvents"));
+  const auto& sel_events = std::any_cast<const std::vector<EventData>&>(
+      multi_detail.at("selectedEvents"));
+  EXPECT_EQ(sel_events.size(), 3u);
+}
+
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer

@@ -783,14 +783,26 @@ class Timeline {
   // Populates schedule context (totalBundles, bundleCounts, regions,
   // utilization, regionDepth) on `event_data` when `event_tooltip_enabled_` is
   // false.
+  void PopulateEventSelectedScheduleDetails(int event_index,
+                                            EventData& event_data) const;
+  void PopulateCounterSelectedScheduleDetails(int group_index,
+                                              size_t counter_index,
+                                              EventData& event_data) const;
   void PopulateEventHoveredScheduleDetails(int event_index,
                                            EventData& event_data) const;
+  void PopulateMultiSelectionScheduleDetails(Microseconds selection_start_us,
+                                             Microseconds selection_extent_us,
+                                             EventData& event_data) const;
   void PopulateHoverScheduleDetails(int group_index, int event_index,
                                     EventData& event_data) const;
   // Populates schedule context at a discrete VLIW instruction bundle index on
   // the timeline x-axis (e.g. when hovering a counter or process track).
   void PopulateBundleScheduleDetails(Microseconds bundle,
                                      EventData& event_data) const;
+  void PopulateBundleEvents(Microseconds bundle, int selected_event_index,
+                            EventData& event_data) const;
+  void PopulateSelectedScheduleDetails(int group_index, int event_index,
+                                       EventData& event_data) const;
   Microseconds GetScheduleEndBundle() const;
   // Emits viewport changed event to JS side.
   void EmitViewportChanged(const TimeRange& range);

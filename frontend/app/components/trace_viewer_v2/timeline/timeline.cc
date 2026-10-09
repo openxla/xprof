@@ -2004,6 +2004,9 @@ EventData Timeline::CreateBaseEventData(int event_index, bool is_hover) const {
 void Timeline::EmitEventSelected(int event_index) {
   if (!event_callback_) return;
   EventData event_data = CreateBaseEventData(event_index, /*is_hover=*/false);
+  if (!event_tooltip_enabled_) {
+    PopulateEventSelectedScheduleDetails(event_index, event_data);
+  }
   event_callback_(kEventSelected, event_data);
 }
 
@@ -3238,6 +3241,10 @@ void Timeline::DrawCounterTooltip(int group_index, const CounterData& data,
           // selected.
           event_data.try_emplace(kEventSelectedIndex, -1);
           event_data.try_emplace(kEventSelectedName, name);
+          if (!event_tooltip_enabled_) {
+            PopulateCounterSelectedScheduleDetails(group_index, index,
+                                                   event_data);
+          }
 
           event_callback_(kEventSelected, event_data);
         }
@@ -5513,6 +5520,12 @@ void Timeline::CalculateAndEmitMetrics() {
 
   EventData event_data;
   event_data.try_emplace(kEventsSelectedData, json);
+
+  if (!event_tooltip_enabled_) {
+    PopulateMultiSelectionScheduleDetails(selection_start_us,
+                                          selection_extent_us, event_data);
+  }
+
   event_callback_(kEventsSelected, event_data);
 }
 

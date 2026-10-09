@@ -1,11 +1,11 @@
-<mat-form-field class="control" *ngIf="columnLabel" appearance="outline">
+<mat-form-field class="control" *ngIf="dataTable() && columnLabel" appearance="outline">
   <mat-label>{{columnLabel}}</mat-label>
   <input
     matInput
-    [value]="value"
-    (input)="value = $event.target.value; updateFilter()"
+    [value]="filterValue"
+    (input)="onInputChange($event.target.value)"
   />
-  <div matSuffix style="display: flex; align-items: center;" *ngIf="matchToggle; else plainSearch">
+  <div matSuffix style="display: flex; align-items: center;" *ngIf="matchToggle(); else plainSearch">
     <button
       mat-icon-button
       (click)="toggleExactMatch()"

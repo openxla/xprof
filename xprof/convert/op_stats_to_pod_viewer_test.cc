@@ -15,9 +15,11 @@ limitations under the License.
 
 #include "xprof/convert/op_stats_to_pod_viewer.h"
 
+#include <cstdint>
+
 #include "google/protobuf/any.pb.h"
-#include "xla/tsl/profiler/utils/math_utils.h"
 #include <gtest/gtest.h>
+#include "xla/tsl/profiler/utils/math_utils.h"
 #include "plugin/xprof/protobuf/diagnostics.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/pod_stats.pb.h"
@@ -128,6 +130,51 @@ TEST(OpStatsToPodViewer, DeviceType) {
   op_stats.mutable_run_environment()->set_device_type("GPU");
   PodViewerDatabase pod_viewer_db = ConvertOpStatsToPodViewer(op_stats);
   EXPECT_EQ("GPU", pod_viewer_db.device_type());
+}
+
+TEST(OpStatsToPodViewer, SkipsUnmappedSparseCoreIdsAndHandlesTpuCategories) {
+  OpStats op_stats;
+  op_stats.mutable_run_environment()->set_device_type("TPU v7x");
+  constexpr uint32_t kSparseCoreId = 1000001;
+  PerCoreStepInfo* info = op_stats.mutable_step_db()->add_step_sequence();
+  info->set_step_num(kStepNum);
+
+  StepInfoResult& tc_step = (*info->mutable_step_info_per_core())[kCoreId];
+  tc_step.set_step_num(kStepNum);
+  tc_step.set_duration_ps(1000);
+  GenericStepBreakdown tc_breakdown;
+  (*tc_breakdown.mutable_category_ps())["convolution"] = 600;
+  (*tc_breakdown.mutable_category_ps())["all-reduce"] = 250;
+  (*tc_breakdown.mutable_category_ps())["IDLE"] = 150;
+  tc_step.mutable_step_breakdown()->PackFrom(tc_breakdown);
+
+  // SparseCore step entry that is not present in core_id_to_details.
+  StepInfoResult& sc_step =
+      (*info->mutable_step_info_per_core())[kSparseCoreId];
+  sc_step.set_step_num(kStepNum);
+  sc_step.set_duration_ps(1000);
+  GenericStepBreakdown sc_breakdown;
+  (*sc_breakdown.mutable_category_ps())["IDLE"] = 1000;
+  sc_step.mutable_step_breakdown()->PackFrom(sc_breakdown);
+
+  CoreDetails& details = (*op_stats.mutable_core_id_to_details())[kCoreId];
+  details.set_hostname(kHostname);
+
+  PodViewerDatabase pod_viewer_db = ConvertOpStatsToPodViewer(op_stats);
+  ASSERT_EQ(1, pod_viewer_db.pod_stats_sequence().pod_stats_map_size());
+  const PodStatsMap& pod_stats_map =
+      pod_viewer_db.pod_stats_sequence().pod_stats_map(0);
+  EXPECT_EQ(1, pod_stats_map.pod_stats_per_core_size());
+  EXPECT_FALSE(pod_stats_map.pod_stats_per_core().contains(kSparseCoreId));
+  ASSERT_TRUE(pod_stats_map.pod_stats_per_core().contains(kCoreId));
+  const PodStatsRecord& record = pod_stats_map.pod_stats_per_core().at(kCoreId);
+  EXPECT_NEAR(tsl::profiler::PicoToMicro(600),
+              record.step_breakdown_us().at(kDeviceCompute), kMaxError);
+  EXPECT_NEAR(tsl::profiler::PicoToMicro(250),
+              record.step_breakdown_us().at(kDeviceCollectives), kMaxError);
+  EXPECT_NEAR(tsl::profiler::PicoToMicro(150),
+              record.step_breakdown_us().at(kAllOthers), kMaxError);
+  EXPECT_EQ(GetGenericEventTypeStr(kDeviceCompute), record.bottleneck());
 }
 
 }  // namespace

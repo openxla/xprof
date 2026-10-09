@@ -1414,6 +1414,7 @@ cc_library(
     srcs = ["op_stats_to_pod_stats.cc"],
     hdrs = ["op_stats_to_pod_stats.h"],
     deps = [
+        ":profile_time_breakdown",
         "//plugin/xprof/protobuf:op_stats_proto_cc",
         "//plugin/xprof/protobuf:pod_stats_proto_cc",
         "//plugin/xprof/protobuf:steps_db_proto_cc",
@@ -1422,9 +1423,9 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@org_xprof//xprof/utils:diagnostics",
         "@org_xprof//xprof/utils:event_span",
+        "@org_xprof//xprof/utils:op_metrics_db_utils",
         "@xla//xla/tsl/lib/gtl:map_util",
         "@xla//xla/tsl/platform:logging",
-        "@xla//xla/tsl/platform:types",
         "@xla//xla/tsl/profiler/utils:math_utils",
     ],
 )

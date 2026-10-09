@@ -119,6 +119,67 @@ TEST(OpStatsToPodStats, Diagnostics) {
   EXPECT_EQ(kErrorIncompleteStep, pod_stats_db.diagnostics().warnings(0));
 }
 
+TEST(OpStatsToPodStats, TpuPodStatsFromCategoryBreakdown) {
+  OpStats op_stats;
+  constexpr int kSparseCoreId = 1000001;
+  PerCoreStepInfo* info = op_stats.mutable_step_db()->add_step_sequence();
+  info->set_step_num(kStepNum);
+  StepInfoResult& step_info = (*info->mutable_step_info_per_core())[kCoreId];
+  step_info.set_step_num(kStepNum);
+  step_info.set_duration_ps(kStepTimePs);
+  GenericStepBreakdown breakdown;
+  auto& category_ps = *breakdown.mutable_category_ps();
+  category_ps["convolution"] = 500;
+  category_ps["all-reduce"] = 200;
+  category_ps["infeed"] = 100;
+  category_ps["outfeed"] = 50;
+  category_ps["send"] = 50;
+  category_ps["IDLE"] = 100;
+  step_info.mutable_step_breakdown()->PackFrom(breakdown);
+
+  StepInfoResult& unmapped_sc_step =
+      (*info->mutable_step_info_per_core())[kSparseCoreId];
+  unmapped_sc_step.set_step_num(kStepNum);
+  unmapped_sc_step.set_duration_ps(kStepTimePs);
+  unmapped_sc_step.mutable_step_breakdown()->PackFrom(breakdown);
+
+  PerCoreStepInfo* info2 = op_stats.mutable_step_db()->add_step_sequence();
+  info2->set_step_num(kStepNum + 1);
+  StepInfoResult& non_compute_step =
+      (*info2->mutable_step_info_per_core())[kCoreId];
+  non_compute_step.set_step_num(kStepNum + 1);
+  non_compute_step.set_duration_ps(kStepTimePs);
+  GenericStepBreakdown non_compute_breakdown;
+  (*non_compute_breakdown.mutable_category_ps())["all-reduce"] = 300;
+  (*non_compute_breakdown.mutable_category_ps())["infeed"] = 700;
+  non_compute_step.mutable_step_breakdown()->PackFrom(non_compute_breakdown);
+
+  CoreDetails& details = (*op_stats.mutable_core_id_to_details())[kCoreId];
+  details.set_hostname(kHostname);
+
+  PodStatsDatabase pod_stats_db = ConvertOpStatsToPodStats(op_stats);
+  ASSERT_EQ(2, pod_stats_db.pod_stats_record_size());
+  const PodStatsRecord& record = pod_stats_db.pod_stats_record(0);
+  const auto& step_breakdown = record.step_breakdown_us();
+  EXPECT_NEAR(tsl::profiler::PicoToMicro(500),
+              step_breakdown.at(kDeviceCompute), kMaxError);
+  EXPECT_NEAR(tsl::profiler::PicoToMicro(200),
+              step_breakdown.at(kDeviceCollectives), kMaxError);
+  EXPECT_NEAR(tsl::profiler::PicoToMicro(100), step_breakdown.at(kInput),
+              kMaxError);
+  EXPECT_NEAR(tsl::profiler::PicoToMicro(50), step_breakdown.at(kOutput),
+              kMaxError);
+  EXPECT_NEAR(tsl::profiler::PicoToMicro(50),
+              step_breakdown.at(kDeviceToDevice), kMaxError);
+  EXPECT_NEAR(tsl::profiler::PicoToMicro(100), step_breakdown.at(kAllOthers),
+              kMaxError);
+  EXPECT_EQ(GetGenericEventTypeStr(kDeviceCompute), record.bottleneck());
+
+  const PodStatsRecord& record2 = pod_stats_db.pod_stats_record(1);
+  EXPECT_NEAR(0.0, record2.step_breakdown_us().at(kDeviceCompute), kMaxError);
+  EXPECT_EQ(GetGenericEventTypeStr(kInput), record2.bottleneck());
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

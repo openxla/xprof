@@ -35,6 +35,18 @@ _EVT_DEVICE_COLLECTIVES = "3"
 _EVT_INPUT = "6"
 _EVT_OUTPUT = "7"
 
+_POD_VIEWER_BOTTLENECK_MAP: dict[str, str] = {
+    "Device compute": "Compute",
+    "Device collective communication": "Communication",
+    "Device to device": "Communication",
+    "Input": "Input / Infeed",
+    "Output": "Output / Outfeed",
+    "All others": "Idle / Other",
+    "Host compute": "Idle / Other",
+    "Kernel launch": "Idle / Other",
+    "Compilation": "Idle / Other",
+}
+
 # Step-time breakdown column ids of the `input_pipeline_analyzer` step table,
 # lowercased. The TPU, generic (GPU/CPU) and legacy tables each use their own
 # ids, so every variant is grouped into the category it belongs to. See
@@ -400,7 +412,11 @@ def _parse_pod_viewer(
     idle_pct = round(idle_ms / total_ms * 100, 2) if total_ms > 0 else 0.0
 
     b_list = [
-        str(c.get("bottleneck")) for c in core_stats if c.get("bottleneck")
+        _POD_VIEWER_BOTTLENECK_MAP.get(
+            str(c.get("bottleneck")), str(c.get("bottleneck"))
+        )
+        for c in core_stats
+        if c.get("bottleneck")
     ]
     if b_list:
       bottleneck = collections.Counter(b_list).most_common(1)[0][0]

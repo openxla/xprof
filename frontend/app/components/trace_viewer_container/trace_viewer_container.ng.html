@@ -1,4 +1,4 @@
-<div [hidden]="!useTraceViewerV2" class="trace-viewer-component">
+<div [hidden]="!useTraceViewerV2()" class="trace-viewer-component">
   <ng-container *ngIf="traceViewerV2LoadingStatus === TraceViewerV2LoadingStatus.ERROR">
     <div class="error-overlay">
       <div class="error-header">
@@ -136,11 +136,11 @@
     </div>
     <div class="spacer"></div>
     <trace-viewer-customization-panel></trace-viewer-customization-panel>
-    <button *ngIf="useTraceViewerV2 && showHelpButton" type="button" mat-icon-button (click)="openHelpDialog()" title="Keyboard Shortcuts & Controls" aria-label="Keyboard Shortcuts & Controls">
+    <button *ngIf="useTraceViewerV2() && showHelpButton()" type="button" mat-icon-button (click)="openHelpDialog()" title="Keyboard Shortcuts & Controls" aria-label="Keyboard Shortcuts & Controls">
       <mat-icon>help_outline</mat-icon>
     </button>
     <trace-viewer-help-dialog></trace-viewer-help-dialog>
-    <button *ngIf="useTraceViewerV2" type="button" mat-icon-button class="shortcuts-guide-btn" (click)="openHelpDialog()" title="Shortcuts Guide" aria-label="Shortcuts Guide">
+    <button *ngIf="useTraceViewerV2()" type="button" mat-icon-button class="shortcuts-guide-btn" (click)="openHelpDialog()" title="Shortcuts Guide" aria-label="Shortcuts Guide">
       <mat-icon class="material-symbols-outlined"><svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor"><path d="M160-200q-33 0-56.5-23.5T80-280v-400q0-33 23.5-56.5T160-760h640q33 0 56.5 23.5T880-680v400q0 33-23.5 56.5T800-200H160Zm0-80h640v-400H160v400Zm200-40h240q17 0 28.5-11.5T640-360q0-17-11.5-28.5T600-400H360q-17 0-28.5 11.5T320-360q0 17 11.5 28.5T360-320Zm-200 40v-400 400Zm80-280q17 0 28.5-11.5T280-600q0-17-11.5-28.5T240-640q-17 0-28.5 11.5T200-600q0 17 11.5 28.5T240-560Zm120 0q17 0 28.5-11.5T400-600q0-17-11.5-28.5T360-640q-17 0-28.5 11.5T320-600q0 17 11.5 28.5T360-560Zm120 0q17 0 28.5-11.5T520-600q0-17-11.5-28.5T480-640q-17 0-28.5 11.5T440-600q0 17 11.5 28.5T480-560Zm120 0q17 0 28.5-11.5T640-600q0-17-11.5-28.5T600-640q-17 0-28.5 11.5T560-600q0 17 11.5 28.5T600-560Zm120 0q17 0 28.5-11.5T760-600q0-17-11.5-28.5T720-640q-17 0-28.5 11.5T680-600q0 17 11.5 28.5T720-560ZM240-440q17 0 28.5-11.5T280-480q0-17-11.5-28.5T240-520q-17 0-28.5 11.5T200-480q0 17 11.5 28.5T240-440Zm120 0q17 0 28.5-11.5T400-480q0-17-11.5-28.5T360-520q-17 0-28.5 11.5T320-480q0 17 11.5 28.5T360-440Zm120 0q17 0 28.5-11.5T520-480q0-17-11.5-28.5T480-520q-17 0-28.5 11.5T440-480q0 17 11.5 28.5T480-440Zm120 0q17 0 28.5-11.5T640-480q0-17-11.5-28.5T600-520q-17 0-28.5 11.5T560-480q0 17 11.5 28.5T600-440Zm120 0q17 0 28.5-11.5T760-480q0-17-11.5-28.5T720-520q-17 0-28.5 11.5T680-480q0 17 11.5 28.5T720-440Z"/></svg></mat-icon>
     </button>
     <trace-viewer-shortcuts-dialog></trace-viewer-shortcuts-dialog>
@@ -156,7 +156,7 @@
         </mat-icon>
       </button>
     </div>
-    <div class="incremental-loading" *ngIf="searching || (!isInitialLoading && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR)">
+    <div class="incremental-loading" *ngIf="searching() || (!isInitialLoading && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR)">
       <div class="loading-status">Loading more data...</div>
       <mat-progress-spinner mode="indeterminate" diameter="24"></mat-progress-spinner>
     </div>
@@ -171,15 +171,15 @@
           <timeline-player *ngIf="enableTimelinePlayer" (play)="onPlay()" (pause)="onPause()" (seek)="onSeek($event)" (speedChange)="onSpeedChange($event)" style="flex-shrink: 0;"></timeline-player>
         </div>
       </as-split-area>
-      <as-split-area [size]="detailHeightPercent" [minSize]="selectedEvent ? minDrawerSizePercent : 0" [visible]="!!selectedEvent">
-        <div *ngIf="selectedEvent" #drawer class="drawer">
+      <as-split-area [size]="detailHeightPercent" [minSize]="selectedEvent() ? minDrawerSizePercent : 0" [visible]="!!selectedEvent()">
+        <div *ngIf="selectedEvent()" #drawer class="drawer">
           <div class="event-detail-table-container">
             <div *ngIf="isSingleEventTable()" class="single-event-details">
               <as-split direction="horizontal" style="min-height: 150px; width: 100%;">
                 <as-split-area [size]="60" class="split-area-left">
                   <div class="split-area-inner">
                     <ng-container
-                      *ngIf="useTraceViewerV2 && selectedEventJson; else flatLeftDetails">
+                      *ngIf="useTraceViewerV2() && selectedEventJson; else flatLeftDetails">
                       <div class="json-event-details">
                         <div
                           #jsonStickySentinel
@@ -195,7 +195,7 @@
                       </div>
                     </ng-container>
                     <ng-template #flatLeftDetails>
-                      <h3>{{selectedEvent.name}}</h3>
+                      <h3>{{selectedEvent()?.name}}</h3>
                       <div class="detail-row" *ngFor="let prop of leftSideProperties; trackBy: trackByProperty">
                         <span class="detail-label">{{prop.property}}:</span>
                         <span class="detail-value">{{prop.value}}</span>
@@ -222,11 +222,11 @@
                       <span class="detail-value" *ngIf="prop.property !== 'HLO Text' || !isHloTextCollapsed">{{prop.value}}</span>
                     </div>
                     <div class="cross-tool-links">
-                      <div *ngIf="selectedEvent.stackTraceLinkHtml" [innerHTML]="selectedEvent.stackTraceLinkHtml"></div>
-                      <div *ngIf="selectedEvent.rooflineModelLinkHtml" [innerHTML]="selectedEvent.rooflineModelLinkHtml"></div>
-                      <div *ngIf="selectedEvent.graphViewerLinkHtml" [innerHTML]="selectedEvent.graphViewerLinkHtml"></div>
-                      <div *ngIf="selectedEvent.hloOpStatsLinkHtml" [innerHTML]="selectedEvent.hloOpStatsLinkHtml"></div>
-                      <div *ngIf="selectedEvent.stepGroupLinkHtml" [innerHTML]="selectedEvent.stepGroupLinkHtml"></div>
+                      <div *ngIf="selectedEvent()?.stackTraceLinkHtml" [innerHTML]="selectedEvent()?.stackTraceLinkHtml"></div>
+                      <div *ngIf="selectedEvent()?.rooflineModelLinkHtml" [innerHTML]="selectedEvent()?.rooflineModelLinkHtml"></div>
+                      <div *ngIf="selectedEvent()?.graphViewerLinkHtml" [innerHTML]="selectedEvent()?.graphViewerLinkHtml"></div>
+                      <div *ngIf="selectedEvent()?.hloOpStatsLinkHtml" [innerHTML]="selectedEvent()?.hloOpStatsLinkHtml"></div>
+                      <div *ngIf="selectedEvent()?.stepGroupLinkHtml" [innerHTML]="selectedEvent()?.stepGroupLinkHtml"></div>
                     </div>
                   </div>
                 </as-split-area>
@@ -234,7 +234,7 @@
             </div>
 
             <div *ngIf="!isSingleEventTable()">
-              <mat-tab-group *ngIf="(metricsDataSource.data.length > 0 ? 1 : 0) + (countersDataSource.data.length > 0 ? 1 : 0) + (rawEventsDataSource.data.length > 0 && tool === 'raw_trace_viewer' ? 1 : 0) > 1">
+              <mat-tab-group *ngIf="(metricsDataSource.data.length > 0 ? 1 : 0) + (countersDataSource.data.length > 0 ? 1 : 0) + (rawEventsDataSource.data.length > 0 && tool() === 'raw_trace_viewer' ? 1 : 0) > 1">
                 <mat-tab label="Profile Metrics" *ngIf="metricsDataSource.data.length > 0">
                   <ng-template matTabContent>
                     <ng-container *ngTemplateOutlet="metricsTable"></ng-container>
@@ -245,21 +245,21 @@
                     <ng-container *ngTemplateOutlet="countersTable"></ng-container>
                   </ng-template>
                 </mat-tab>
-                <mat-tab label="Raw Events" *ngIf="rawEventsDataSource.data.length > 0 && tool === 'raw_trace_viewer'">
+                <mat-tab label="Raw Events" *ngIf="rawEventsDataSource.data.length > 0 && tool() === 'raw_trace_viewer'">
                   <ng-template matTabContent>
                     <ng-container *ngTemplateOutlet="rawEventsTable"></ng-container>
                   </ng-template>
                 </mat-tab>
               </mat-tab-group>
 
-              <div *ngIf="(metricsDataSource.data.length > 0 ? 1 : 0) + (countersDataSource.data.length > 0 ? 1 : 0) + (rawEventsDataSource.data.length > 0 && tool === 'raw_trace_viewer' ? 1 : 0) <= 1">
+              <div *ngIf="(metricsDataSource.data.length > 0 ? 1 : 0) + (countersDataSource.data.length > 0 ? 1 : 0) + (rawEventsDataSource.data.length > 0 && tool() === 'raw_trace_viewer' ? 1 : 0) <= 1">
                 <ng-container *ngIf="metricsDataSource.data.length > 0">
                   <ng-container *ngTemplateOutlet="metricsTable"></ng-container>
                 </ng-container>
                 <ng-container *ngIf="countersDataSource.data.length > 0">
                   <ng-container *ngTemplateOutlet="countersTable"></ng-container>
                 </ng-container>
-                <ng-container *ngIf="rawEventsDataSource.data.length > 0 && tool === 'raw_trace_viewer'">
+                <ng-container *ngIf="rawEventsDataSource.data.length > 0 && tool() === 'raw_trace_viewer'">
                   <ng-container *ngTemplateOutlet="rawEventsTable"></ng-container>
                 </ng-container>
               </div>
@@ -337,11 +337,11 @@
               </table>
             </ng-template>
 
-            <div *ngIf="selectionStartFormat" class="selection-info" style="margin-top: 16px;">
-              Selection Start: {{ selectionStartFormat }}
+            <div *ngIf="selectionStartFormat()" class="selection-info" style="margin-top: 16px;">
+              Selection Start: {{ selectionStartFormat() }}
             </div>
-            <div *ngIf="selectionExtentFormat" class="selection-info">
-              Selection Extent: {{ selectionExtentFormat }}
+            <div *ngIf="selectionExtentFormat()" class="selection-info">
+              Selection Extent: {{ selectionExtentFormat() }}
             </div>
           </div>
         </div>
@@ -349,6 +349,6 @@
     </as-split>
   </div>
 </div>
-<div [hidden]="useTraceViewerV2" class="trace-viewer-component">
-  <iframe #tvIframe [src]="url | safe" onload="focus();"></iframe>
+<div [hidden]="useTraceViewerV2()" class="trace-viewer-component">
+  <iframe #tvIframe [src]="url() | safe" onload="focus();"></iframe>
 </div>

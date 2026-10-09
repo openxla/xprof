@@ -1,14 +1,14 @@
-<div [hidden]="!level">
+<div [hidden]="!level()">
   <div
     class="row"
-    [class.removed-text]="asDiffNode(node)?.baselineOnly"
+    [class.removed-text]="asDiffNode(node())?.baselineOnly"
     (click)="toggleExpanded()"
-    (mouseenter)="hover.emit(node)"
-    (mouseleave)="hover.emit(null)"
+    (mouseenter)="hover.emit(node())"
+    (mouseleave)="hover.emit(undefined)"
     role="button" tabindex="0"
     >
     <div class="bar" [style.width]="barWidth"></div>
-    <div class="row-focus" [hidden]="node !== selectedNode"></div>
+    <div class="row-focus" [hidden]="node() !== selectedNode()"></div>
     <span aria-label="Time %:"></span><span class="time">{{percent}}</span>
     <span aria-label="Wasted %:"></span><span class="wasted">{{timeWasted}}</span>
     <span aria-label="HBM %:"></span><span class="hbmFraction">{{hbmFraction}}</span>
@@ -20,8 +20,8 @@
         </span>
       </span>
       {{name}}
-      <span *ngIf="asDiffNode(node)?.activeOnly" class="diff-badge badge-added">Added</span>
-      <span *ngIf="asDiffNode(node)?.baselineOnly" class="diff-badge badge-removed">Removed</span>
+      <span *ngIf="asDiffNode(node())?.activeOnly" class="diff-badge badge-added">Added</span>
+      <span *ngIf="asDiffNode(node())?.baselineOnly" class="diff-badge badge-removed">Removed</span>
     </span>
     <span aria-label="Framework Op type:"></span><span class="provenance">{{provenance}}&nbsp;</span>
     <span aria-label="FLOPS:"></span><span
@@ -46,13 +46,13 @@
 <div [hidden]="!expanded">
   <op-table-entry
     *ngFor="let childNode of children"
-    [level]="level + 1"
+    [level]="level() + 1"
     [node]="childNode"
-    [rootNode]="rootNode"
-    [selectedNode]="selectedNode"
-    [byWasted]="byWasted"
-    [showP90]="showP90"
-    [childrenCount]="childrenCount"
+    [rootNode]="rootNode()"
+    [selectedNode]="selectedNode()"
+    [byWasted]="byWasted()"
+    [showP90]="showP90()"
+    [childrenCount]="childrenCount()"
     [applyScalingFactorInternal]="applyScalingFactor"
     (hover)="hover.emit($event);"
     (selected)="onSelect($event);">

@@ -1,3 +1,394 @@
 {
-  "approved_diffs": {}
+  "approved_diffs": {
+    "compiler.graph_and_multihost_scale:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "f80c84de766f388c",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.937609+00:00"
+    },
+    "compiler.graph_and_multihost_scale:01_switch_tool_HLO Op Stats": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "3881b866364fe1eb",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T10:34:13.556024+00:00"
+    },
+    "compiler.graph_and_multihost_scale:02_switch_tool_Graph Viewer": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "072a59e658ebebb1",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.961356+00:00"
+    },
+    "compiler.graph_and_multihost_scale:03_select_module_jit_train_step": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "96a7d3cff0bfd1fd",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.977065+00:00"
+    },
+    "compiler.graph_and_multihost_scale:04_plot_graph_node_fusion.": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "7ed98087c9996247",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.983014+00:00"
+    },
+    "compiler.graph_and_multihost_scale:05_goto_v6e-4-training/overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "5afb33e6878bddc5",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.989990+00:00"
+    },
+    "compiler.graph_and_multihost_scale:06_select_host_t1v-n-9bfa07b4-w-0": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "f2fb0a6a886267d2",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.996680+00:00"
+    },
+    "compiler.graph_and_multihost_scale:07_switch_tool_Trace Viewer": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "b4051f6492ea93e5",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:34.001615+00:00"
+    },
+    "compiler.graph_and_multihost_scale:08_switch_tool_Overview Page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "38d846e8bc9fdc5c",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:34.023434+00:00"
+    },
+    "compute.op_profile_and_stats:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "ad4a84bee50a2354",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.871883+00:00"
+    },
+    "compute.op_profile_and_stats:01_switch_tool_HLO Op Profile": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "c8c78d19efbf0728",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.874747+00:00"
+    },
+    "compute.op_profile_and_stats:02_select_op_profile_group_by_Provenance": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "11fd0fa78717a3d5",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.877303+00:00"
+    },
+    "compute.op_profile_and_stats:03_select_op_profile_group_by_Category": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "7590ee9304c5ed13",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.879770+00:00"
+    },
+    "compute.op_profile_and_stats:04_expand_op_profile_row_convolution fusion": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "02ab48d29632c253",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.882404+00:00"
+    },
+    "compute.op_profile_and_stats:05_switch_tool_Framework Op Stats": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "75fe1b0d5288a540",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.885551+00:00"
+    },
+    "compute.op_profile_and_stats:06_filter_table_rows_dot_general": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "4c7de37877574330",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.888310+00:00"
+    },
+    "compute.op_profile_and_stats:07_sort_table_column_#Occurrences": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "9640885b2a9159ab",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.891185+00:00"
+    },
+    "compute.op_profile_and_stats:08_switch_tool_HLO Op Stats": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "d0deba60acb1cdbb",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.893686+00:00"
+    },
+    "compute.op_profile_and_stats:09_filter_table_rows_all-gather": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "5e2060e331657921",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.896176+00:00"
+    },
+    "compute.op_profile_and_stats:10_switch_tool_Roofline Model": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "ba6fefe59e2dbcb5",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.899035+00:00"
+    },
+    "distributed.host_retention_and_trace:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "2cf8e533b02e9801",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.919286+00:00"
+    },
+    "distributed.host_retention_and_trace:01_select_host_t1v-n-9bfa07b4-w-0": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "10352121ddecf7b6",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.921801+00:00"
+    },
+    "distributed.host_retention_and_trace:02_switch_tool_HLO Op Stats": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "b671c30a68aa3a5c",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.924303+00:00"
+    },
+    "distributed.host_retention_and_trace:03_switch_tool_Trace Viewer": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "f25d95ed663291b0",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.927861+00:00"
+    },
+    "distributed.host_retention_and_trace:04_switch_tool_Overview Page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "29adc6a35c64ccd3",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.931148+00:00"
+    },
+    "full_spectrum.multimodal_endurance:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "368983e879d3a6e9",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:34.031723+00:00"
+    },
+    "full_spectrum.multimodal_endurance:01_switch_tool_Roofline Model": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "08ac24673dd5de63",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:34.045872+00:00"
+    },
+    "full_spectrum.multimodal_endurance:02_switch_tool_Memory Viewer": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "3868c8cb8130c03a",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T10:34:13.559604+00:00"
+    },
+    "full_spectrum.multimodal_endurance:03_switch_tool_Trace Viewer": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "b9150cf91eec5427",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:34.056831+00:00"
+    },
+    "full_spectrum.multimodal_endurance:04_switch_tool_HLO Op Stats": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "b28f089bf5feb496",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:34.074943+00:00"
+    },
+    "full_spectrum.multimodal_endurance:05_goto_v6e-4-training/hlo_stats": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "ffaffbf47fafd62c",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:34.094586+00:00"
+    },
+    "full_spectrum.multimodal_endurance:06_switch_tool_Graph Viewer": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "10ce49998b731213",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:34.100382+00:00"
+    },
+    "full_spectrum.multimodal_endurance:07_select_module_jit_train_step": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "8b31385a9d7661d9",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:34.116411+00:00"
+    },
+    "full_spectrum.multimodal_endurance:08_plot_graph_node_fusion.": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "9753e2c13be5d25b",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:34.122439+00:00"
+    },
+    "full_spectrum.multimodal_endurance:09_switch_tool_Input Pipeline Analysis": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "66c3ec69ffe116ac",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:34.130151+00:00"
+    },
+    "full_spectrum.multimodal_endurance:10_goto_v6e-4-training/overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "7538cdf0bb113a53",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:34.137160+00:00"
+    },
+    "memory.cross_hardware_tpu_to_v6e:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "216ed9944d736768",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.845351+00:00"
+    },
+    "memory.cross_hardware_tpu_to_v6e:01_switch_tool_Memory Profile": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "42c25938514f62e0",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.847822+00:00"
+    },
+    "memory.cross_hardware_tpu_to_v6e:02_select_memory_id_1": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "2aae83f9c477961f",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.850845+00:00"
+    },
+    "memory.cross_hardware_tpu_to_v6e:03_filter_table_rows_stack": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "02fa7c2cff7fb919",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.853656+00:00"
+    },
+    "memory.cross_hardware_tpu_to_v6e:04_switch_tool_Memory Viewer": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "1549aa8db9aacb7e",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.856114+00:00"
+    },
+    "memory.cross_hardware_tpu_to_v6e:05_goto_v6e-4-training/overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "fdf6dbe42c065914",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.858583+00:00"
+    },
+    "memory.cross_hardware_tpu_to_v6e:06_switch_tool_Memory Profile": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "fd4324d6ad51efc4",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.861376+00:00"
+    },
+    "memory.cross_hardware_tpu_to_v6e:07_select_memory_id_1": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "688729d66df49451",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.863951+00:00"
+    },
+    "memory.cross_hardware_tpu_to_v6e:08_switch_tool_Roofline Model": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "52d26c364f854028",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.866624+00:00"
+    },
+    "memory.cross_hardware_tpu_to_v6e:09_goto_v6e-4-training/overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "7081580404c46dae",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.869161+00:00"
+    },
+    "routing.popstate_resilience_loop:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "bd1f1da026cdc928",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.901380+00:00"
+    },
+    "routing.popstate_resilience_loop:01_switch_tool_Memory Profile": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "176866216aa69b25",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.903574+00:00"
+    },
+    "routing.popstate_resilience_loop:02_go_back_Overview Page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "523f64e6180e449b",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.905806+00:00"
+    },
+    "routing.popstate_resilience_loop:03_go_forward_Memory Profile": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "510fcb1cad62bc78",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.908580+00:00"
+    },
+    "routing.popstate_resilience_loop:04_switch_tool_Input Pipeline Analysis": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "0d37712940953437",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.911360+00:00"
+    },
+    "routing.popstate_resilience_loop:05_go_back_Memory Profile": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "cbc2bbc156cc1f7b",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.913742+00:00"
+    },
+    "routing.popstate_resilience_loop:06_switch_tool_Op Profile": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "542616c885c9e107",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.916306+00:00"
+    },
+    "triage.pipeline_and_hardware_bounds:00_overview_page": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "b30c1d466efe8dc6",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.812002+00:00"
+    },
+    "triage.pipeline_and_hardware_bounds:01_switch_tool_Input Pipeline Analysis": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "dc4eedf8b1b8bdfa",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.815704+00:00"
+    },
+    "triage.pipeline_and_hardware_bounds:02_switch_tool_HLO Op Stats": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "41a163e6b406083d",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.818942+00:00"
+    },
+    "triage.pipeline_and_hardware_bounds:03_select_category_filter_convolution fusion": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "243facc9a9864285",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.821721+00:00"
+    },
+    "triage.pipeline_and_hardware_bounds:04_sort_table_column_#Occurrences": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "7bf48210ebb51a33",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.824074+00:00"
+    },
+    "triage.pipeline_and_hardware_bounds:05_switch_tool_Op Profile": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "98eeb17a9a224d21",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.827279+00:00"
+    },
+    "triage.pipeline_and_hardware_bounds:06_select_op_profile_group_by_Category": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "15ea1aaf2e008ae0",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.829702+00:00"
+    },
+    "triage.pipeline_and_hardware_bounds:07_expand_op_profile_row_convolution fusion": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "8614f51e6e673d9a",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.832149+00:00"
+    },
+    "triage.pipeline_and_hardware_bounds:08_expand_op_profile_row_custom fusion": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "3a4919b8a932cfd3",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.834497+00:00"
+    },
+    "triage.pipeline_and_hardware_bounds:09_switch_tool_Roofline Model": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "d0478685275a3a6f",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.836871+00:00"
+    },
+    "triage.pipeline_and_hardware_bounds:10_select_category_filter_convolution fusion": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "c9ae5a6d97b2c7d4",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.839666+00:00"
+    },
+    "triage.pipeline_and_hardware_bounds:11_switch_tool_Trace Viewer": {
+      "decision": "INTENTIONAL",
+      "diff_hash": "a5cac73ba2be02fc",
+      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
+      "timestamp": "2026-10-08T07:53:33.842550+00:00"
+    }
+  }
 }

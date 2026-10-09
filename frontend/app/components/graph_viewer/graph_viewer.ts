@@ -739,12 +739,16 @@ export class GraphViewer implements OnDestroy {
     const searchParams = this.dataService.getSearchParams();
     const sessionPath = searchParams.get('session_path');
     const runPath = searchParams.get('run_path');
+    const run = this.sessionId || searchParams.get('run');
     const host = searchParams.get('host');
     if (sessionPath) {
       queryParams.session_path = sessionPath;
     }
     if (runPath) {
       queryParams.run_path = runPath;
+    }
+    if (run) {
+      queryParams.run = run;
     }
     queryParams.tag = 'graph_viewer';
     if (host) {

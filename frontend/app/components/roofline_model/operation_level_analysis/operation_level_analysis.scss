@@ -1,5 +1,6 @@
 .row {
   display: flex;
+  flex-wrap: wrap;
 }
 
 .row ::ng-deep .control {

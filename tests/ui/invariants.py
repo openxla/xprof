@@ -312,6 +312,36 @@ def check_positive_rendered_content(page: Page) -> list[str]:
   return violations
 
 
+def check_no_error_banners(page: Page) -> list[str]:
+  """Flags visible diagnostics, snackbar, or Google Visualization errors."""
+  violations = []
+  selector = (
+      "diagnostics-view .callout.is-critical:visible,"
+      " mat-snack-bar-container:visible, .mat-mdc-snack-bar-container:visible,"
+      " [id^='google-visualization-errors-all']:visible"
+  )
+  for i, banner in enumerate(page.locator(selector).all()):
+    try:
+      text = banner.inner_text().strip()
+    except PlaywrightError:
+      continue
+    violations.append(f"Visible error banner[{i}]: {text!r}")
+  return violations
+
+
+def check_no_stuck_loading_lock(page: Page) -> list[str]:
+  """Flags a router-outlet stuck inside a 0px hidden-content loading wrapper."""
+  violations = []
+  for _ in page.locator(
+      "main-page mat-sidenav-content > div.hidden-content"
+  ).all():
+    violations.append(
+        "Main page router-outlet is locked inside div.hidden-content (0px"
+        " height)"
+    )
+  return violations
+
+
 def run_dom_invariants(
     page: Page, collapse_selectors: list[str] | None = None
 ) -> list[str]:
@@ -321,6 +351,8 @@ def run_dom_invariants(
     violations.extend(check_no_layout_collapse(page, sel))
   violations.extend(check_table_has_data_rows(page))
   violations.extend(check_positive_rendered_content(page))
+  violations.extend(check_no_error_banners(page))
+  violations.extend(check_no_stuck_loading_lock(page))
   return violations
 
 

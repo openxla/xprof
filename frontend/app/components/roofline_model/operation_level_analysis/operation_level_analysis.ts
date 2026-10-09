@@ -178,6 +178,7 @@ export class OperationLevelAnalysis extends Dashboard implements OnInit,
             opCategoryIndex,
             opTotalSelfTimeIndex,
         );
+    this.dataInfoCategoryPieChart.dataProvider.notifyCharts();
   }
 
   updateAndDrawScatterChart() {

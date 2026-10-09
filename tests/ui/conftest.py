@@ -126,6 +126,17 @@ def logdir() -> Iterator[str]:
     for trace in pathlib.Path(source_dir).glob("*/*.xplane.pb"):
       (staged / trace.parent.name).mkdir(exist_ok=True)
       (staged / trace.parent.name / trace.name).symlink_to(trace.resolve())
+    gpu_trace = (
+        _find_repo_root()
+        / "convert"
+        / "test_xplanes"
+        / "gpu_training_2.xplane.pb"
+    )
+    if gpu_trace.is_file() and not (staged / "gpu-training").exists():
+      (staged / "gpu-training").mkdir(exist_ok=True)
+      (staged / "gpu-training" / "gpu-node-1.xplane.pb").symlink_to(
+          gpu_trace.resolve()
+      )
     yield str(staged)
 
 
@@ -168,9 +179,15 @@ def server_url(logdir: str) -> Iterator[str]:
 
   for attempt in range(MAX_STARTUP_ATTEMPTS):
     port = _find_free_port(HOST)
+    grpc_port = _find_free_port(HOST)
     url = f"http://{HOST}:{port}"
     server = subprocess.Popen(
-        [binary, f"--logdir={logdir}", f"--port={port}"],
+        [
+            binary,
+            f"--logdir={logdir}",
+            f"--port={port}",
+            f"--grpc_port={grpc_port}",
+        ],
         stdout=subprocess.DEVNULL,
         stderr=stderr_file,
         text=True,

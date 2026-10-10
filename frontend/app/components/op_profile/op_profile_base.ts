@@ -1,5 +1,6 @@
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   EventEmitter,
   inject,
@@ -27,24 +28,60 @@ import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_d
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
+import {NgFor, NgIf, TitleCasePipe} from '@angular/common';
+import {MatOption} from '@angular/material/core';
+import {MatFormField, MatLabel} from '@angular/material/form-field';
+import {MatIcon} from '@angular/material/icon';
+import {MatInput} from '@angular/material/input';
+import {MatSelect} from '@angular/material/select';
+import {
+  MatSidenav,
+  MatSidenavContainer,
+  MatSidenavContent,
+} from '@angular/material/sidenav';
+import {MatSlideToggle} from '@angular/material/slide-toggle';
+import {MatTooltip} from '@angular/material/tooltip';
+import {AngularSplitModule} from 'angular-split';
+import {SourceMapper} from '../source_mapper/source_mapper';
 import {OpProfileData, OpProfileSummary} from './op_profile_data';
+import {OpTable} from './op_table/op_table';
 
 /** Rules to group by. */
 const GROUP_BY_RULES = ['program', 'category', 'provenance'];
 
 /** Base class of Op Profile component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'op-profile-base',
   templateUrl: './op_profile_base.ng.html',
   styleUrls: ['./op_profile_common.scss'],
+  imports: [
+    AngularSplitModule,
+    MatFormField,
+    MatIcon,
+    MatInput,
+    MatLabel,
+    MatOption,
+    MatSelect,
+    MatSidenav,
+    MatSidenavContainer,
+    MatSidenavContent,
+    MatSlideToggle,
+    MatTooltip,
+    NgFor,
+    NgIf,
+    OpTable,
+    SourceMapper,
+    TitleCasePipe,
+  ],
 })
 export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
   private readonly injector = inject(Injector);
   private readonly dataService = inject(DATA_SERVICE_INTERFACE_TOKEN);
+  private readonly changeDetectorRef = inject(ChangeDetectorRef);
   profile: OpProfileProto | null = null;
   rootNode?: Node;
   data = new OpProfileData();
@@ -83,6 +120,7 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
       .pipe(takeUntil(this.destroyed))
       .subscribe((isAvailable) => {
         this.sourceCodeServiceIsAvailable = isAvailable;
+        this.changeDetectorRef.markForCheck();
       });
   }
 
@@ -93,6 +131,7 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
     this.updateRoot();
     this.data.update(this.rootNode, this.applyScalingFactor);
     this.summary = this.dataService.getOpProfileSummary(this.data);
+    this.changeDetectorRef.markForCheck();
   }
 
   constructor(private readonly store: Store<{}>) {
@@ -104,6 +143,7 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
       .pipe(takeUntil(this.destroyed))
       .subscribe((node: Node | null) => {
         this.updateActiveNode(node);
+        this.changeDetectorRef.markForCheck();
       });
   }
 
@@ -125,6 +165,8 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
     } else if (changes['groupBy']) {
       this.updateRoot();
       this.data.update(this.rootNode, this.applyScalingFactor);
+      this.summary = this.dataService.getOpProfileSummary(this.data);
+      this.changeDetectorRef.markForCheck();
     }
   }
 

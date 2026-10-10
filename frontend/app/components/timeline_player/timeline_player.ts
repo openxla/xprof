@@ -7,9 +7,9 @@ import {
   NgZone,
   OnDestroy,
   OnInit,
+  computed,
   model,
   output,
-  computed,
 } from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
 import {MatIconModule} from '@angular/material/icon';
@@ -38,8 +38,8 @@ export interface SyncEventDetail {
 
 /** Component that renders a timeline player with scrub, play/pause controls. */
 @Component({
-  selector: 'timeline-player',
   standalone: true,
+  selector: 'timeline-player',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     CommonModule,

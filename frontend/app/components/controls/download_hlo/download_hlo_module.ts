@@ -6,15 +6,17 @@ import {MatTooltipModule} from '@angular/material/tooltip';
 
 import {DownloadHlo} from './download_hlo';
 
+// TODO(xprof): Remove this module once all consumers have migrated to importing
+// the standalone component directly.
 @NgModule({
   imports: [
     CommonModule,
     MatMenuModule,
     MatIconModule,
     MatTooltipModule,
+    DownloadHlo,
   ],
-  declarations: [DownloadHlo],
+
   exports: [DownloadHlo],
 })
-export class DownloadHloModule {
-}
+export class DownloadHloModule {}

@@ -300,27 +300,12 @@ Pixel Timeline::GetGroupBottom(const Group* group) const {
 
 void Timeline::BuildFlattenedGroups(const FlameChartTimelineData& data) {
   flattened_groups_.clear();
-  const int group_count = data.groups.size();
 
   all_processes_count_ = 0;
   hidden_processes_count_ = 0;
   pinned_processes_count_ = 0;
 
   if (data.groups.empty()) return;
-
-  // Fast-path: when track management (hiding/pinning) is disabled, copy the
-  // raw groups sequence directly to avoid categorization overhead or inserting
-  // virtual headers.
-  if (!track_management_enabled_) {
-    flattened_groups_.reserve(group_count);
-    for (int i = 0; i < group_count; ++i) {
-      flattened_groups_.push_back(&data.groups[i]);
-      if (data.groups[i].nesting_level == kProcessNestingLevel) {
-        all_processes_count_++;
-      }
-    }
-    return;
-  }
 
   // Since a process and all its nested subtracks form a visual block, we
   // propagate the process's status (hidden/pinned) down to its descendant
@@ -1240,21 +1225,19 @@ void Timeline::Draw() {
   ImGui::SetCursorPos(ruler_start_pos);
   DrawRulerUI(tick_info, current_timeline_width_);
 
-  if (track_management_enabled_) {
-    // Draw "Process" header text in the top-left empty label area of
-    // the ruler row.
-    ImGui::SetCursorPos(
-        ImVec2(ruler_start_pos.x + kIndentSize, ruler_start_pos.y));
-    ImGui::PushFont(traceviewer::fonts::label_large);
+  // Draw "Process" header text in the top-left empty label area of
+  // the ruler row.
+  ImGui::SetCursorPos(
+      ImVec2(ruler_start_pos.x + kIndentSize, ruler_start_pos.y));
+  ImGui::PushFont(traceviewer::fonts::label_large);
 
-    // Vertically center "Process" within ruler height
-    const Pixel text_height = ImGui::GetTextLineHeight();
-    const Pixel vertical_offset = (kRulerHeight - text_height) * 0.5f;
-    ImGui::SetCursorPosY(ruler_start_pos.y + std::max(0.0f, vertical_offset));
+  // Vertically center "Process" within ruler height
+  const Pixel text_height = ImGui::GetTextLineHeight();
+  const Pixel vertical_offset = (kRulerHeight - text_height) * 0.5f;
+  ImGui::SetCursorPosY(ruler_start_pos.y + std::max(0.0f, vertical_offset));
 
-    ImGui::TextUnformatted(kProcessHeaderLabel);
-    ImGui::PopFont();
-  }
+  ImGui::TextUnformatted(kProcessHeaderLabel);
+  ImGui::PopFont();
 
   // Now move the cursor below the Ruler to start the Tracks child
   ImGui::SetCursorPos(
@@ -1989,13 +1972,14 @@ EventData Timeline::CreateBaseEventData(int event_index, bool is_hover) const {
     if (const auto it = args.find("uid"); it != args.end()) {
       event_data.try_emplace(kEventSelectedUid, it->second);
     }
-    if (const auto it = args.find(kHloModule); it != args.end()) {
-      event_data.try_emplace(kEventSelectedHloModuleName, it->second);
-    }
-    if (const auto it = args.find(kHloOp); it != args.end()) {
-      event_data.try_emplace(kEventSelectedHloOpName, it->second);
-    }
     if (!is_hover) {
+      if (const auto it = args.find(kHloModule); it != args.end()) {
+        event_data.try_emplace(kEventSelectedHloModuleName, it->second);
+      }
+      if (const auto it = args.find(kHloOp); it != args.end()) {
+        event_data.try_emplace(kEventSelectedHloOpName, it->second);
+      }
+
       EventData js_args;
       js_args.reserve(args.size());
       for (const auto& [key, value] : args) {
@@ -4210,7 +4194,6 @@ bool Timeline::DrawCloseButton(ImDrawList* draw_list, const ImVec2& button_pos,
 bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
                                           const ImVec2& tracks_start_pos,
                                           Pixel centereable_height) {
-  if (!track_management_enabled_) return false;
   if (group.nesting_level != kProcessNestingLevel) return false;
 
   bool needs_layout_update = false;

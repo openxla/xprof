@@ -56,12 +56,13 @@ void RegisterUnifiedToolRegistrations() {
                                      UnifiedUtilizationViewerProcessor);
   REGISTER_UNIFIED_PROFILE_PROCESSOR("perf_counters",
                                      UnifiedPerfCountersProcessor);
-  static const ::xprof::RegisterUnifiedProfileProcessor
-      register_UnifiedTraceViewerProcessor_streaming(
-          "trace_viewer@",
-          [](const tensorflow::profiler::ToolOptions& options) {
-            return std::make_unique<UnifiedTraceViewerProcessor>(options);
-          });
+  // NOTE: The streaming trace viewer ("trace_viewer@") is intentionally not
+  // registered here. UnifiedTraceViewerProcessor is a non-streaming converter:
+  // it ignores the viewport/resolution/search options of the streaming
+  // protocol, has no LevelDB backing for cached loads or `uid` detail lookups,
+  // and handles a single host only. Leaving it unregistered routes
+  // "trace_viewer@" to the legacy StreamingTraceViewerProcessor until a
+  // streaming-capable unified implementation exists.
   REGISTER_UNIFIED_PROFILE_PROCESSOR("trace_viewer",
                                      UnifiedTraceViewerProcessor);
 }

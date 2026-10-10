@@ -173,13 +173,17 @@ TEST(UnifiedTraceViewerProcessorTest, ProcessSessionPbSuccess) {
   EXPECT_THAT(mpmd_pb_data, Not(IsEmpty()));
 }
 
-TEST(UnifiedTraceViewerProcessorTest, StreamingRegistration) {
+// The streaming trace viewer must keep using the legacy
+// StreamingTraceViewerProcessor: the unified processor is non-streaming and
+// does not honor the streaming protocol (viewport, resolution, search, uid
+// lookups). An unregistered tool makes the dispatcher fall back to legacy.
+TEST(UnifiedTraceViewerProcessorTest, StreamingTraceViewerIsNotRegistered) {
   RegisterUnifiedToolRegistrations();
   ToolOptions options;
   std::unique_ptr<UnifiedProfileProcessor> processor =
       UnifiedProfileProcessorFactory::GetInstance().Create("trace_viewer@",
                                                            options);
-  ASSERT_NE(processor, nullptr);
+  EXPECT_EQ(processor, nullptr);
 }
 
 }  // namespace

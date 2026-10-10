@@ -190,6 +190,75 @@ TEST(OpStatsToOpProfileTest, DeduplicationGroupingWithAndWithoutDuplicates) {
   EXPECT_EQ(dense_cat->children(0).children_size(), 0);
 }
 
+TEST(OpStatsToOpProfileTest, EmptyOpStatsHasRootMetricsByCategory) {
+  OpStats op_stats;
+  op_profile::Profile profile;
+  ConvertOpStatsToOpProfile(op_stats, HardwareType::TPU, profile, 100,
+                            OpProfileGrouping::kByCategory);
+
+  ASSERT_TRUE(profile.has_by_category());
+  EXPECT_EQ(profile.by_category().name(), "by_category");
+  EXPECT_TRUE(profile.by_category().has_metrics());
+  EXPECT_DOUBLE_EQ(profile.by_category().metrics().flops(), 0.0);
+  EXPECT_EQ(profile.by_category().metrics().raw_time(), 0);
+  EXPECT_EQ(profile.by_category().metrics().raw_flops(), 0);
+  EXPECT_EQ(profile.by_category().children_size(), 0);
+
+  ASSERT_TRUE(profile.has_by_category_exclude_idle());
+  EXPECT_EQ(profile.by_category_exclude_idle().name(), "by_category");
+  EXPECT_TRUE(profile.by_category_exclude_idle().has_metrics());
+  EXPECT_DOUBLE_EQ(profile.by_category_exclude_idle().metrics().flops(), 0.0);
+  EXPECT_EQ(profile.by_category_exclude_idle().metrics().raw_time(), 0);
+  EXPECT_EQ(profile.by_category_exclude_idle().metrics().raw_flops(), 0);
+  EXPECT_EQ(profile.by_category_exclude_idle().children_size(), 0);
+}
+
+TEST(OpStatsToOpProfileTest, EmptyOpStatsHasRootMetricsByProgram) {
+  OpStats op_stats;
+  op_profile::Profile profile;
+  ConvertOpStatsToOpProfile(op_stats, HardwareType::TPU, profile, 100,
+                            OpProfileGrouping::kByProgram);
+
+  ASSERT_TRUE(profile.has_by_program());
+  EXPECT_EQ(profile.by_program().name(), "by_program");
+  EXPECT_TRUE(profile.by_program().has_metrics());
+  EXPECT_DOUBLE_EQ(profile.by_program().metrics().flops(), 0.0);
+  EXPECT_EQ(profile.by_program().metrics().raw_time(), 0);
+  EXPECT_EQ(profile.by_program().metrics().raw_flops(), 0);
+  EXPECT_EQ(profile.by_program().children_size(), 0);
+
+  ASSERT_TRUE(profile.has_by_program_exclude_idle());
+  EXPECT_EQ(profile.by_program_exclude_idle().name(), "by_program");
+  EXPECT_TRUE(profile.by_program_exclude_idle().has_metrics());
+  EXPECT_DOUBLE_EQ(profile.by_program_exclude_idle().metrics().flops(), 0.0);
+  EXPECT_EQ(profile.by_program_exclude_idle().metrics().raw_time(), 0);
+  EXPECT_EQ(profile.by_program_exclude_idle().metrics().raw_flops(), 0);
+  EXPECT_EQ(profile.by_program_exclude_idle().children_size(), 0);
+}
+
+TEST(OpStatsToOpProfileTest, EmptyOpStatsHasRootMetricsByProvenance) {
+  OpStats op_stats;
+  op_profile::Profile profile;
+  ConvertOpStatsToOpProfile(op_stats, HardwareType::TPU, profile, 100,
+                            OpProfileGrouping::kByProvenance);
+
+  ASSERT_TRUE(profile.has_by_provenance());
+  EXPECT_EQ(profile.by_provenance().name(), "by_provenance");
+  EXPECT_TRUE(profile.by_provenance().has_metrics());
+  EXPECT_DOUBLE_EQ(profile.by_provenance().metrics().flops(), 0.0);
+  EXPECT_EQ(profile.by_provenance().metrics().raw_time(), 0);
+  EXPECT_EQ(profile.by_provenance().metrics().raw_flops(), 0);
+  EXPECT_EQ(profile.by_provenance().children_size(), 0);
+
+  ASSERT_TRUE(profile.has_by_provenance_exclude_idle());
+  EXPECT_EQ(profile.by_provenance_exclude_idle().name(), "by_provenance");
+  EXPECT_TRUE(profile.by_provenance_exclude_idle().has_metrics());
+  EXPECT_DOUBLE_EQ(profile.by_provenance_exclude_idle().metrics().flops(), 0.0);
+  EXPECT_EQ(profile.by_provenance_exclude_idle().metrics().raw_time(), 0);
+  EXPECT_EQ(profile.by_provenance_exclude_idle().metrics().raw_flops(), 0);
+  EXPECT_EQ(profile.by_provenance_exclude_idle().children_size(), 0);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

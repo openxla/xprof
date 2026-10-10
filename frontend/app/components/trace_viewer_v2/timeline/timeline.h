@@ -555,6 +555,40 @@ class Timeline {
   }
   bool event_tooltip_enabled() const { return event_tooltip_enabled_; }
 
+  void set_hlo_dependency_arrows_enabled(bool enabled) {
+    hlo_dependency_arrows_enabled_ = enabled;
+  }
+
+  // Resolves the HLO operands and consumers of the selected event to events
+  // with those names on the same track. An operand resolves to the closest
+  // such event that starts before the selected event, and a consumer to the
+  // closest one that starts after it. Does nothing unless HLO dependency arrows
+  // are enabled.
+  //
+  // The names come from the HLO graph, which is the source of truth for which
+  // ops are the operands and users of an op (the graph viewer's `adj_nodes`
+  // request, see `GetAdjacentNodes` in hlo_proto_to_graph_view.cc). The trace
+  // does not record which run of an operand fed which run of its consumer, so
+  // the closest event with the right name is a best guess. It can miss or be
+  // wrong when:
+  // - the operand or consumer has no event of its own, e.g. a `bitcast`;
+  // - the right event is not loaded, and an event with the same name from
+  //   another module or step is closer.
+  void SetSelectedEventDependencies(
+      absl::Span<const std::string> operand_names,
+      absl::Span<const std::string> consumer_names);
+
+  // The events that the operands and consumers of the selected event resolved
+  // to. Empty if they were set while another event was selected.
+  absl::Span<const int> producer_event_indices() const {
+    if (dependencies_.event_index != selected_event_index_) return {};
+    return dependencies_.producer_indices;
+  }
+  absl::Span<const int> consumer_event_indices() const {
+    if (dependencies_.event_index != selected_event_index_) return {};
+    return dependencies_.consumer_indices;
+  }
+
   void set_panning_speed(float speed) { panning_speed_ = speed; }
   float panning_speed() const { return panning_speed_; }
 
@@ -1198,6 +1232,16 @@ class Timeline {
   bool minimap_enabled_ = false;
   // See set_event_tooltip_enabled().
   bool event_tooltip_enabled_ = true;
+  bool hlo_dependency_arrows_enabled_ = false;
+
+  // The events that the HLO operands and consumers of the event at
+  // `event_index` resolved to.
+  struct EventDependencies {
+    int event_index = -1;
+    std::vector<int> producer_indices;
+    std::vector<int> consumer_indices;
+  };
+  EventDependencies dependencies_;
 
   float panning_speed_ = kPanningSpeed;
   float zoom_speed_ = kZoomSpeed;

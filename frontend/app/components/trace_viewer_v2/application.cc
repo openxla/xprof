@@ -286,6 +286,8 @@ void Application::Initialize() {
       IsFeatureEnabled("enable_timeline_player"));
   timeline_->set_bookmarks_enabled(IsFeatureEnabled("bookmarks"));
   timeline_->set_minimap_enabled(IsFeatureEnabled("enable_minimap"));
+  timeline_->set_hlo_dependency_arrows_enabled(
+      IsFeatureEnabled("enable_hlo_dependency_arrows"));
   timeline_->set_event_callback(
       [](absl::string_view type, const EventData& event_data) {
         EventManager::Instance().DispatchEvent(type, event_data);

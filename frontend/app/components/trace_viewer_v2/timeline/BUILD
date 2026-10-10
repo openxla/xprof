@@ -51,6 +51,7 @@ wasm_cc_library(
     name = "timeline",
     srcs = [
         "timeline.cc",
+        "timeline_hlo_dependencies.cc",
         "timeline_player_sync.cc",
         "timeline_schedule_sync.cc",
     ],

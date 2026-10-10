@@ -685,6 +685,8 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
   // layout recalculations before saving the newly arrived timeline_data.
   UpdateLevelPositions(data);
   timeline_data_ = std::move(data);
+  // Resolved event indices do not apply to the new data.
+  dependencies_ = {};
   RebuildEntryColors();
   BuildLevelMipPyramids();
 

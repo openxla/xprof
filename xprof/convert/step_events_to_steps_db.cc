@@ -211,7 +211,7 @@ StepDatabaseResult ConvertStepEventsToStepDb(
       }
     }
     // The remaining fields in PerCoreStepInfo are not filled.
-    *step_db.add_step_sequence() = per_core_step_info;
+    *step_db.add_step_sequence() = std::move(per_core_step_info);
   }
 
   // If we are using sampling mode and we get enough steps, we would like to

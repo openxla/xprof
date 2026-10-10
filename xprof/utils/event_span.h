@@ -204,6 +204,7 @@ class StepDetails {
 
   // Combines other.
   void Combine(const StepDetails& other);
+  void Combine(StepDetails&& other);
 
   // Equality test.
   bool operator==(const StepDetails& other) const;
@@ -278,9 +279,11 @@ std::string PrintStepEvents(const StepEvents& step_events);
 
 // Unions the map of StepEvents and combines the src StepEvents into dst.
 void UnionCombineStepEvents(const StepEvents& src, StepEvents* dst);
+void UnionMoveCombineStepEvents(StepEvents&& src, StepEvents* dst);
 
 // Intersects the map of StepEvents and combines the src StepEvents into dst.
 void IntersectCombineStepEvents(const StepEvents& src, StepEvents* dst);
+void IntersectMoveCombineStepEvents(StepEvents&& src, StepEvents* dst);
 
 // Converts from overlapped events to non-overlapped events.
 std::vector<EventTypeSpan> ToNonOverlappedEvents(

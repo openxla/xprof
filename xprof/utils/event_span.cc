@@ -234,6 +234,15 @@ void UnionCombineStepEvents(const StepEvents& src, StepEvents* dst) {
   }
 }
 
+void UnionMoveCombineStepEvents(StepEvents&& src, StepEvents* dst) {
+  for (auto& step_details : src) {
+    int64_t step_id = step_details.first;
+    StepDetails& src_details = step_details.second;
+    StepDetails* dst_details = &(*dst)[step_id];
+    dst_details->Combine(std::move(src_details));
+  }
+}
+
 void IntersectCombineStepEvents(const StepEvents& src, StepEvents* dst) {
   if (dst->empty()) {
     *dst = src;
@@ -247,6 +256,25 @@ void IntersectCombineStepEvents(const StepEvents& src, StepEvents* dst) {
       dst->erase(iter++);
     } else {
       iter->second.Combine(src.at(iter->first));
+      iter++;
+    }
+  }
+}
+
+void IntersectMoveCombineStepEvents(StepEvents&& src, StepEvents* dst) {
+  if (dst->empty()) {
+    *dst = std::move(src);
+    return;
+  }
+  auto iter = dst->begin();
+  while (iter != dst->end()) {
+    auto src_it = src.find(iter->first);
+    if (src_it == src.end()) {
+      // This is safe because the post-increment is sequenced after the full
+      // expression that contains it.
+      dst->erase(iter++);
+    } else {
+      iter->second.Combine(std::move(src_it->second));
       iter++;
     }
   }
@@ -398,6 +426,27 @@ void StepDetails::Combine(const StepDetails& other) {
     per_core_flat_op_metrics_db_[core_id] = flat_op_metric_db;
   }
   if (step_name_.empty()) step_name_ = other.step_name_;
+}
+
+void StepDetails::Combine(StepDetails&& other) {
+  markers_.insert(markers_.end(),
+                  std::make_move_iterator(other.markers_.begin()),
+                  std::make_move_iterator(other.markers_.end()));
+  events_.insert(events_.end(),
+                 std::make_move_iterator(other.events_.begin()),
+                 std::make_move_iterator(other.events_.end()));
+  for (auto& [core_id, collective] : other.collectives_) {
+    collectives_.try_emplace(core_id, std::move(collective));
+  }
+  AggregateDeviceMemoryTransfers(other.device_memory_transfers_);
+  for (auto& [core_id, op_metric_db] : other.per_core_op_metrics_db_) {
+    per_core_op_metrics_db_[core_id] = std::move(op_metric_db);
+  }
+  for (auto& [core_id, flat_op_metric_db] :
+       other.per_core_flat_op_metrics_db_) {
+    per_core_flat_op_metrics_db_[core_id] = std::move(flat_op_metric_db);
+  }
+  if (step_name_.empty()) step_name_ = std::move(other.step_name_);
 }
 
 std::string StepDetails::DebugString() const {

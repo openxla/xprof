@@ -8,14 +8,13 @@ import {Table} from './table';
 
 /** A table view module. */
 @NgModule({
-  declarations: [Table],
   imports: [
     CommonModule,
     MatOptionModule,
     MatSelectModule,
     MatFormFieldModule,
+    Table,
   ],
   exports: [Table],
 })
-export class TableModule {
-}
+export class TableModule {}

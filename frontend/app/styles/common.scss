@@ -131,6 +131,21 @@ mat-option {
   overflow-wrap: break-word;
 }
 
+// Legacy M2 typography class aliases for GM3 migration compatibility.
+.mat-headline {
+  font: var(--mat-sys-headline-small, 400 24px / 32px Roboto, sans-serif);
+  font-family: var(--mat-sys-brand-font, 'Google Sans', Roboto, sans-serif);
+  letter-spacing: var(--mat-sys-headline-small-tracking, 0);
+  margin: 0 0 16px;
+}
+
+.mat-title {
+  font: var(--mat-sys-title-large, 400 22px / 28px Roboto, sans-serif);
+  font-family: var(--mat-sys-brand-font, 'Google Sans', Roboto, sans-serif);
+  letter-spacing: var(--mat-sys-title-large-tracking, 0);
+  margin: 0 0 16px;
+}
+
 // TODO(css-cleanup): Remove redundant styles in component's css files for loading spinner.
 mat-progress-bar {
   width: 200px;

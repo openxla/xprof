@@ -681,6 +681,7 @@ dashboard would integrate trace viewer app using iframe.
 
       this._init(this.currentViewportRange);
       this._adjustUI();
+      this._addFlowEventsDropdownLogging();
 
       window.addEventListener('load', function(e) {
         element = document.getElementById('analysis');
@@ -1713,6 +1714,32 @@ dashboard would integrate trace viewer app using iframe.
         const button = buttons[i];
         button.style.cursor = 'pointer';
       }
+    },
+
+    // Logs the option the user clicks in the "Flow events" dropdown. Catapult
+    // recreates the options ("All"/"None" buttons and one checkbox per flow
+    // event category) on every model update, so listen on the dropdown itself.
+    _addFlowEventsDropdownLogging: function() {
+      const dropdown = document.getElementById('flow_event_filter_dropdown');
+      if (!dropdown) return;
+      dropdown.addEventListener('click', (e) => {
+        const target = e.target;
+        // Clicking a checkbox's label also dispatches a click on the checkbox,
+        // so ignore everything but <input> clicks to log each selection once.
+        if (target.tagName !== 'INPUT') return;
+        let option = target.value;
+        if (target.type === 'checkbox') {
+          // The click has already toggled the checkbox, so log its new state.
+          const state = target.checked ? 'on' : 'off';
+          option = `${target.parentElement.textContent}:${state}`;
+        }
+        window.parent.gtag && window.parent.gtag('event', 'tv-flow-events-v1', {
+          'event_category': 'user_interaction',
+          'event_label': option,
+          'screen_name': 'trace viewer',
+          'tool_name': 'trace viewer',
+        });
+      });
     },
 
     _init: async function(initialViewportRange) {

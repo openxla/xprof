@@ -5,6 +5,7 @@ import {MatIconModule} from '@angular/material/icon';
 import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
 import {MatTooltipModule} from '@angular/material/tooltip';
 import {KernelEventTooltip} from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_event_tooltip';
+import {KernelMinimap} from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_minimap';
 import {KernelSelectionPanel} from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_selection_panel';
 import {TraceViewerContainer} from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
 import {StaticKernelViewer} from './static_kernel_viewer';
@@ -14,6 +15,7 @@ import {StaticKernelViewer} from './static_kernel_viewer';
   imports: [
     CommonModule,
     KernelEventTooltip,
+    KernelMinimap,
     KernelSelectionPanel,
     MatButtonModule,
     MatIconModule,

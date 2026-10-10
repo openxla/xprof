@@ -239,6 +239,7 @@ declare global {
       setSearchQuery(query: string): void;
       selectEvent(eventIndex: number): void;
       setMouseMode(mode: number): void;
+      setVisibleRange?(startUs: number, endUs: number): void;
       setVisibleFlowCategory(categoryId: number): void;
       setVisibleFlowCategories(categoryIds: number[]): void;
       scheduleForcedRedraw(): void;

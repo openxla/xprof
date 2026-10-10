@@ -251,6 +251,11 @@
       [customDrawerOpen]="isSelectionPanelOpen"
       (initializeWasm)="onInitializeWasm()"
     >
+      <kernel-minimap
+        canvasTopBar
+        (visibleRangeChange)="onVisibleRangeChange($event)"
+        (selectEvent)="onSelectTimelineEvent($event)"
+      ></kernel-minimap>
       <kernel-event-tooltip
         *ngIf="enableEventTooltip"
         canvasOverlay

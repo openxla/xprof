@@ -1,0 +1,245 @@
+<div
+  *ngIf="state as s"
+  class="minimap-bar"
+  [class.is-dragging]="isDragging"
+  [class.has-pallas]="s.hasPallasPrimitives"
+  [class.has-both-scopes]="s.hasBothScopeRows"
+  [attr.data-palette]="s.theme.paletteName"
+  [style.--minimap-bg]="s.theme.background"
+  [style.--minimap-fg]="s.theme.foreground"
+  [style.--minimap-midtone]="s.theme.midtone"
+  [style.--minimap-flame-header]="s.theme.flameHeader"
+  [style.--minimap-collapsed-header]="s.theme.collapsedHeader"
+  [style.--minimap-expanded-header]="s.theme.expandedHeader"
+  [style.--minimap-subtitle]="s.theme.subtitle"
+  [style.--minimap-ruler-text]="s.theme.rulerText"
+  [style.--minimap-ruler-line]="s.theme.rulerLine"
+  [style.--minimap-selection]="s.theme.selection"
+  [style.--minimap-on-surface]="s.theme.onSurface"
+  [style.--minimap-inverse-on-surface]="s.theme.inverseOnSurface"
+  role="region"
+  aria-label="Schedule overview minimap"
+>
+  <div class="minimap-header" [style.width.px]="s.labelWidthPx">
+    <div class="header-top">
+      <div class="header-actions">
+        <button
+          *ngIf="s.isZoomed"
+          type="button"
+          class="fit-button"
+          (click)="resetZoom($event)"
+          matTooltip="Reset zoom to full schedule (Double-click minimap)"
+          matTooltipPosition="below"
+          aria-label="Reset zoom to full schedule"
+        >
+          <mat-icon aria-hidden="true">fit_screen</mat-icon>
+          <span>Fit</span>
+        </button>
+      </div>
+    </div>
+    <div
+      class="header-range"
+      [attr.aria-label]="(s.isTimeAxis ? 'Visible time range ' : 'Visible bundles ') + s.visibleRangeLabel + ' of ' + s.totalBundlesLabel"
+    >
+      <span class="header-chevron" aria-hidden="true">▾</span>
+      <span class="visible-bundles">{{ s.visibleRangeLabel }}</span>
+      <span class="range-sep">/</span>
+      <span class="total-bundles">{{ s.totalBundlesLabel }}</span>
+      <span *ngIf="!s.isTimeAxis" class="range-unit" aria-hidden="true">bundles</span>
+    </div>
+  </div>
+
+  <div class="minimap-viewport">
+    <div class="minimap-ruler" aria-hidden="true">
+      <div
+        *ngFor="let tick of s.ticks; trackBy: trackByTickBundle"
+        class="ruler-tick"
+        [class.right-edge]="tick.isRightEdge"
+        [style.left.%]="tick.leftPercent"
+      >
+        <span class="tick-mark"></span>
+        <span class="tick-label">{{ tick.label }}</span>
+      </div>
+      <span *ngIf="s.showStandaloneUnitLabel" class="ruler-unit-label">bundles</span>
+    </div>
+
+    <div
+      #trackElement
+      class="minimap-track"
+      [class.dragging-pan]="isDragging && dragMode === 'pan'"
+      [class.dragging-resize]="isDragging && (dragMode === 'resize-left' || dragMode === 'resize-right')"
+      [class.dragging-scrub]="isDragging && dragMode === 'scrub'"
+      (mousedown)="onTrackMouseDown($event)"
+      (dblclick)="onTrackDoubleClick($event)"
+      (wheel)="onTrackWheel($event)"
+      (mousemove)="onTrackMouseMove($event)"
+      (mouseleave)="onTrackMouseLeave()"
+    >
+      <div class="minimap-grid" aria-hidden="true">
+        <div
+          *ngFor="let tick of s.ticks; trackBy: trackByTickBundle"
+          class="minimap-grid-line"
+          [style.left.%]="tick.leftPercent"
+        ></div>
+      </div>
+
+      <div class="minimap-utilization-strip" aria-hidden="true">
+        <div
+          *ngFor="let bin of s.bins; trackBy: trackByBinIndex"
+          class="utilization-col"
+        >
+          <div
+            *ngIf="bin.density > 0"
+            class="utilization-fill"
+            [style.height.%]="bin.density * 100"
+          ></div>
+        </div>
+      </div>
+
+      <div *ngIf="s.pallasPrimitives.length > 0" class="minimap-pallas">
+        <button
+          *ngFor="let marker of s.pallasPrimitives; trackBy: trackByRegionIndex"
+          type="button"
+          class="region-marker pallas-marker"
+          [style.left.%]="marker.leftPercent"
+          [style.width.%]="marker.widthPercent"
+          [style.top.%]="marker.topPercent"
+          [style.height.%]="marker.heightPercent"
+          [style.--region-color]="marker.color"
+          [style.--region-text-color]="marker.textColor"
+          [matTooltip]="marker.name + ' (' + marker.bundlesLabel + (s.isTimeAxis ? '' : ' bundles') + ')' + (marker.source ? ' • ' + marker.source : '')"
+          matTooltipPosition="above"
+          (mousedown)="$event.stopPropagation()"
+          (click)="onRegionMarkerClick(marker, $event)"
+          [attr.aria-label]="'Select Pallas primitive ' + marker.name"
+        >
+          <span class="region-label" aria-hidden="true">{{ marker.name }}</span>
+        </button>
+      </div>
+
+      <div *ngIf="s.regions.length > 0" class="minimap-regions">
+        <button
+          *ngFor="let marker of s.regions; trackBy: trackByRegionIndex"
+          type="button"
+          class="region-marker"
+          [style.left.%]="marker.leftPercent"
+          [style.width.%]="marker.widthPercent"
+          [style.top.%]="marker.topPercent"
+          [style.height.%]="marker.heightPercent"
+          [style.--region-color]="marker.color"
+          [style.--region-text-color]="marker.textColor"
+          [matTooltip]="marker.name + ' (' + marker.bundlesLabel + (s.isTimeAxis ? '' : ' bundles') + ')'"
+          matTooltipPosition="above"
+          (mousedown)="$event.stopPropagation()"
+          (click)="onRegionMarkerClick(marker, $event)"
+          [attr.aria-label]="'Select region ' + marker.name"
+        >
+          <span class="region-label" aria-hidden="true">{{ marker.name }}</span>
+        </button>
+      </div>
+
+      <div class="minimap-bins" aria-hidden="true">
+        <div
+          *ngFor="let bin of s.bins; trackBy: trackByBinIndex"
+          class="minimap-bin"
+          [class.active]="bin.active"
+          [class.has-secondary]="!!bin.secondaryColor"
+          [class.gap-right]="bin.gapRight"
+          [class.secondary-gap-right]="bin.secondaryGapRight"
+          [style.--bin-color]="bin.color"
+          [style.--bin-opacity]="bin.opacity"
+          [style.--bin-top.%]="bin.topPercent"
+          [style.--bin-height.%]="bin.heightPercent"
+          [style.--bin-secondary-color]="bin.secondaryColor || null"
+          [style.--bin-secondary-top.%]="bin.secondaryTopPercent ?? 0"
+          [style.--bin-secondary-height.%]="bin.secondaryHeightPercent ?? 0"
+        ></div>
+      </div>
+
+      <div
+        class="minimap-curtain left-curtain"
+        [style.width.%]="s.lensLeftPercent"
+        aria-hidden="true"
+      ></div>
+      <div
+        class="minimap-curtain right-curtain"
+        [style.left.%]="s.rightCurtainLeftPercent"
+        [style.width.%]="s.rightCurtainWidthPercent"
+        aria-hidden="true"
+      ></div>
+
+      <div
+        class="minimap-lens"
+        [class.dragging]="isDragging && dragMode === 'pan'"
+        [style.left.%]="s.lensLeftPercent"
+        [style.width.%]="s.lensWidthPercent"
+        (mousedown)="onLensMouseDown($event)"
+        role="slider"
+        aria-label="Visible schedule window"
+        [attr.aria-valuemin]="s.dataStartUs"
+        [attr.aria-valuemax]="s.dataEndUs"
+        [attr.aria-valuenow]="s.visibleStartUs"
+        [attr.aria-valuetext]="s.visibleRangeLabel + ' of ' + s.totalBundlesLabel + (s.isTimeAxis ? '' : ' bundles')"
+      >
+        <div
+          class="lens-handle left-handle"
+          (mousedown)="onLeftHandleMouseDown($event)"
+          title="Drag to resize start bundle"
+          aria-hidden="true"
+        >
+          <span class="handle-grip"></span>
+        </div>
+        <div
+          class="lens-handle right-handle"
+          (mousedown)="onRightHandleMouseDown($event)"
+          title="Drag to resize end bundle"
+          aria-hidden="true"
+        >
+          <span class="handle-grip"></span>
+        </div>
+      </div>
+
+      <div
+        *ngIf="hoverInfo as h"
+        class="minimap-hover-playhead"
+        [style.left.%]="h.leftPercent"
+        aria-hidden="true"
+      ></div>
+
+      <div
+        *ngIf="hoverInfo as h"
+        class="minimap-hover-pill"
+        [class.align-left]="h.align === 'left'"
+        [class.align-right]="h.align === 'right'"
+        [style.left.%]="h.leftPercent"
+        aria-hidden="true"
+      >
+        <span class="hover-bundle">{{ s.isTimeAxis ? h.bundleLabel : 'Bundle ' + h.bundleLabel }}</span>
+        <span
+          *ngIf="h.unit as u"
+          class="hover-unit-chip"
+          [style.--unit-color]="u.color"
+        >
+          <span class="unit-dot"></span>
+          {{ u.label }}
+        </span>
+        <span
+          *ngIf="h.secondaryUnit as su"
+          class="hover-unit-chip secondary"
+          [style.--unit-color]="su.color"
+        >
+          +{{ su.label }}
+        </span>
+        <span *ngIf="!h.unit && !h.pallasPrimitive" class="hover-idle">Idle</span>
+        <span
+          *ngIf="h.pallasPrimitive as pp"
+          class="hover-pallas-chip"
+          [style.--pallas-color]="h.pallasColor"
+        >
+          {{ pp }}
+        </span>
+        <span *ngIf="h.region" class="hover-region">{{ h.region }}</span>
+      </div>
+    </div>
+  </div>
+</div>

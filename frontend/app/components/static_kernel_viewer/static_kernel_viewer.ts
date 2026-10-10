@@ -1243,6 +1243,11 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     this.traceViewerModule?.application?.instance?.()?.setSearchQuery?.(query);
   }
 
+  onVisibleRangeChange(range: {startUs: number; endUs: number}): void {
+    this.traceViewerModule?.application
+      ?.instance?.()
+      ?.setVisibleRange?.(range.startUs, range.endUs);
+  }
   /** Loads the trace of `entry` into the timeline. */
   private showEntry(entry: KernelEntry): void {
     this.selectionPanel?.close();

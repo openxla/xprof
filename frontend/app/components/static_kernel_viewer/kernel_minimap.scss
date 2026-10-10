@@ -1,0 +1,597 @@
+:host {
+  display: block;
+  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
+  user-select: none;
+  font-family:
+    Roboto,
+    'Google Sans Text',
+    'Google Sans',
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  color: var(--minimap-fg, var(--mat-sys-on-surface, #222));
+}
+
+.minimap-bar {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  height: 68px;
+  background: var(--minimap-bg, var(--mat-sys-surface, #fff));
+  border-bottom: 1px solid
+    var(--minimap-ruler-line, var(--mat-sys-outline-variant, #ccc));
+  color: var(--minimap-fg, var(--mat-sys-on-surface, #222));
+  box-sizing: border-box;
+
+  &.has-both-scopes {
+    height: 82px;
+
+    .minimap-track {
+      min-height: 65px;
+    }
+
+    .minimap-pallas {
+      top: 8px;
+      height: 16px;
+    }
+
+    .minimap-regions {
+      top: 25px;
+      height: 15px;
+    }
+
+    .minimap-bins {
+      inset: 41px 0 1px;
+    }
+  }
+}
+
+.minimap-header {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: stretch;
+  border-right: 1px solid #666;
+  background: var(--minimap-bg, var(--mat-sys-surface, #fff));
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.header-top {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  height: 16px;
+  padding: 0 8px 0 10px;
+  background: var(--minimap-midtone, var(--mat-sys-surface-container, #ddd));
+  border-bottom: 1px solid
+    var(--minimap-ruler-line, var(--mat-sys-outline-variant, #ccc));
+  box-sizing: border-box;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.fit-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 13px;
+  padding: 0 5px;
+  border-radius: 2px;
+  border: 1px solid
+    var(--minimap-ruler-line, var(--mat-sys-outline-variant, #ccc));
+  background: var(--minimap-bg, var(--mat-sys-surface, #fff));
+  color: var(--minimap-fg, var(--mat-sys-on-surface, #222));
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+
+  mat-icon {
+    width: 10px;
+    height: 10px;
+    font-size: 10px;
+    line-height: 10px;
+  }
+
+  &:hover {
+    background: var(
+      --minimap-collapsed-header,
+      var(--mat-sys-surface-container-high, #ccc)
+    );
+    border-color: var(--minimap-subtitle, var(--mat-sys-outline, #555));
+  }
+}
+
+.header-range {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 8px 0 10px;
+  font-size: 11px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: linear-gradient(
+    to bottom,
+    var(--minimap-expanded-header, #aaa) 0,
+    var(--minimap-expanded-header, #aaa) 7px,
+    transparent 7px
+  );
+}
+
+.header-chevron {
+  font-size: 9px;
+  color: var(--minimap-fg, var(--mat-sys-on-surface, #222));
+  margin-right: 2px;
+}
+
+.visible-bundles {
+  font-weight: 600;
+  color: var(--minimap-fg, var(--mat-sys-on-surface, #222));
+}
+
+.range-sep,
+.total-bundles,
+.range-unit {
+  color: var(--minimap-subtitle, var(--mat-sys-outline, #555));
+  font-size: 10.5px;
+}
+
+.minimap-viewport {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: stretch;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.minimap-ruler {
+  position: relative;
+  width: 100%;
+  height: 16px;
+  flex-shrink: 0;
+  background-color: var(
+    --minimap-midtone,
+    var(--mat-sys-surface-container, #ddd)
+  );
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--minimap-ruler-line, var(--mat-sys-outline-variant, #ccc)) 0,
+    var(--minimap-ruler-line, var(--mat-sys-outline-variant, #ccc)) 1px,
+    transparent 1px,
+    transparent 2%
+  );
+  background-size: 100% 3px;
+  background-position: left bottom;
+  background-repeat: no-repeat;
+  border-bottom: 1px solid
+    var(--minimap-ruler-line, var(--mat-sys-outline-variant, #ccc));
+  box-sizing: border-box;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.ruler-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+
+  &.right-edge {
+    transform: translateX(-100%);
+    flex-direction: row-reverse;
+
+    .tick-label {
+      padding-left: 0;
+      padding-right: 4px;
+    }
+  }
+}
+
+.tick-mark {
+  width: 1px;
+  height: 100%;
+  background: var(--minimap-ruler-line, var(--mat-sys-outline-variant, #ccc));
+  flex-shrink: 0;
+}
+
+.tick-label {
+  padding-left: 4px;
+  font-size: 9.5px;
+  line-height: 1;
+  color: var(--minimap-ruler-text, var(--mat-sys-outline, #222));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ruler-unit-label {
+  position: absolute;
+  right: 4px;
+  top: 3px;
+  font-size: 9.5px;
+  line-height: 1;
+  color: var(--minimap-ruler-text, var(--mat-sys-outline, #222));
+}
+
+.minimap-track {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  min-height: 51px;
+  background-color: var(--minimap-bg, var(--mat-sys-surface, #fff));
+  box-sizing: border-box;
+  cursor: crosshair;
+
+  &.dragging-pan {
+    cursor: grabbing;
+  }
+
+  &.dragging-resize {
+    cursor: ew-resize;
+  }
+
+  &.dragging-scrub {
+    cursor: col-resize;
+  }
+}
+
+.minimap-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.minimap-grid-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--minimap-midtone, var(--mat-sys-surface-container, #ddd));
+}
+
+.minimap-utilization-strip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 7px;
+  display: flex;
+  align-items: stretch;
+  background: var(--minimap-expanded-header, #aaa);
+  border-bottom: 1px solid var(--minimap-bg, var(--mat-sys-surface, #fff));
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.utilization-col {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+}
+
+.utilization-fill {
+  width: 100%;
+  background: var(--minimap-flame-header, #ffa1a1);
+}
+
+.minimap-pallas,
+.minimap-regions {
+  position: absolute;
+  top: 8px;
+  left: 0;
+  right: 0;
+  height: 20px;
+  border-bottom: 1px solid
+    var(--minimap-midtone, var(--mat-sys-surface-container, #ddd));
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 2;
+  overflow: hidden;
+}
+
+.region-marker {
+  --region-color: #96c1ff;
+  --region-text-color: var(--minimap-on-surface, #222);
+
+  position: absolute;
+  padding: 0 1px 1px 0;
+  border: none;
+  border-radius: 0;
+  background: var(--region-color);
+  background-clip: content-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  overflow: hidden;
+  pointer-events: auto;
+  cursor: pointer;
+
+  .region-label {
+    padding: 0 3px;
+    font-size: 8px;
+    line-height: 1;
+    font-weight: 500;
+    color: var(--region-text-color, var(--minimap-on-surface, #222));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: clip;
+  }
+
+  &:hover {
+    outline: 1px solid #00f;
+    outline-offset: -1px;
+    z-index: 3;
+  }
+}
+
+.minimap-bins {
+  position: absolute;
+  inset: 29px 0 1px;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.minimap-bin {
+  flex: 1 1 0;
+  min-width: 0;
+  position: relative;
+
+  &.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: var(--bin-top, 0%);
+    height: var(--bin-height, 100%);
+    border-bottom: 1px solid var(--minimap-bg, var(--mat-sys-surface, #fff));
+    box-sizing: border-box;
+    background: var(--bin-color);
+    opacity: var(--bin-opacity, 0.96);
+  }
+
+  &.active.gap-right::before {
+    right: 1px;
+  }
+
+  &.has-secondary::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: var(--bin-secondary-top, 50%);
+    height: var(--bin-secondary-height, 20%);
+    border-bottom: 1px solid var(--minimap-bg, var(--mat-sys-surface, #fff));
+    box-sizing: border-box;
+    background: var(--bin-secondary-color);
+    opacity: 0.94;
+  }
+
+  &.has-secondary.secondary-gap-right::after {
+    right: 1px;
+  }
+}
+
+.minimap-curtain {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(
+    in srgb,
+    var(--minimap-bg, var(--mat-sys-surface, #fff)) 32%,
+    transparent
+  );
+  pointer-events: none;
+  z-index: 3;
+
+  &.left-curtain {
+    left: 0;
+  }
+}
+
+.minimap-lens {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 8px;
+  border: 1.5px solid var(--mat-sys-primary, #3782fa);
+  border-radius: 0;
+  background: color-mix(
+    in srgb,
+    var(--mat-sys-primary, #3782fa) 10%,
+    transparent
+  );
+  box-sizing: border-box;
+  cursor: grab;
+  z-index: 4;
+  transition:
+    box-shadow 120ms ease,
+    background-color 120ms ease;
+
+  &:hover {
+    background: color-mix(
+      in srgb,
+      var(--mat-sys-primary, #3782fa) 15%,
+      transparent
+    );
+  }
+
+  &.dragging {
+    cursor: grabbing;
+    background: color-mix(
+      in srgb,
+      var(--mat-sys-primary, #3782fa) 18%,
+      transparent
+    );
+  }
+}
+
+.lens-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ew-resize;
+  z-index: 5;
+
+  &.left-handle {
+    left: -4px;
+  }
+
+  &.right-handle {
+    right: -4px;
+  }
+
+  .handle-grip {
+    width: 3px;
+    height: 14px;
+    border-radius: 1px;
+    background: var(--mat-sys-primary, #3782fa);
+    box-shadow: 0 0 0 1px var(--minimap-bg, var(--mat-sys-surface, #fff));
+    transition: transform 120ms ease;
+  }
+
+  &:hover .handle-grip {
+    transform: scaleY(1.2);
+  }
+}
+
+.minimap-hover-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--minimap-fg, var(--mat-sys-on-surface, #222));
+  opacity: 0.65;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.minimap-hover-pill {
+  position: absolute;
+  top: calc(100% + 4px);
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: var(--minimap-bg, var(--mat-sys-surface-container-lowest, #fff));
+  border: 1px solid
+    var(--minimap-ruler-line, var(--mat-sys-outline-variant, #ccc));
+  box-shadow: 0 2px 6px
+    color-mix(in srgb, var(--mat-sys-shadow, #000) 16%, transparent);
+  font-size: 10.5px;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 10;
+
+  &.align-left {
+    transform: translateX(0);
+  }
+
+  &.align-right {
+    transform: translateX(-100%);
+  }
+}
+
+.hover-bundle {
+  font-family: 'Roboto Mono', 'Google Sans Mono', monospace;
+  font-weight: 600;
+  color: var(--minimap-fg, var(--mat-sys-on-surface, #222));
+  font-variant-numeric: tabular-nums;
+}
+
+.hover-unit-chip {
+  --unit-color: #96c1ff;
+
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 15px;
+  padding: 0 5px;
+  border-radius: 2px;
+  background: var(--unit-color);
+  color: var(--minimap-on-surface, #222);
+  font-size: 9.5px;
+  font-weight: 700;
+
+  .unit-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 1px;
+    background: var(--minimap-on-surface, #222);
+    opacity: 0.55;
+  }
+
+  &.secondary {
+    font-weight: 600;
+    opacity: 0.92;
+  }
+}
+
+.hover-idle {
+  font-size: 10px;
+  color: var(--minimap-subtitle, var(--mat-sys-on-surface-variant, #555));
+  font-style: italic;
+}
+
+.hover-pallas-chip {
+  --pallas-color: #b1d284;
+
+  display: inline-flex;
+  align-items: center;
+  height: 15px;
+  padding: 0 5px;
+  border-radius: 2px;
+  background: var(--pallas-color);
+  color: var(--minimap-on-surface, #222);
+  font-family: 'Roboto Mono', 'Google Sans Mono', monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hover-region {
+  font-family: 'Roboto Mono', 'Google Sans Mono', monospace;
+  font-size: 10px;
+  color: var(--minimap-subtitle, var(--mat-sys-on-surface-variant, #555));
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-left: 1px solid
+    var(--minimap-ruler-line, var(--mat-sys-outline-variant, #ccc));
+  padding-left: 6px;
+}

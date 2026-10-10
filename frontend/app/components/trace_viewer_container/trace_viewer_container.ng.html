@@ -165,6 +165,12 @@
     <as-split direction="vertical" (dragEnd)="onDragEnd($event)">
       <as-split-area [size]="timelineHeightPercent">
         <div class="canvas-container" #canvasContainer>
+          <ng-content select="[canvasTopBar]"></ng-content>
+          <kernel-minimap
+            *ngIf="enableMinimap && !projectedMinimap"
+            (visibleRangeChange)="onMinimapVisibleRangeChange($event)"
+            (selectEvent)="onMinimapSelectEvent($event)">
+          </kernel-minimap>
           <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" (mousedown)="blurActiveElement()"></canvas>
           <!-- The host can overlay the timeline, e.g. with a tooltip. -->
           <ng-content select="[canvasOverlay]"></ng-content>

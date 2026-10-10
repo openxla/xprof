@@ -17,6 +17,29 @@ sass_binary(
     src = "kernel_selection_panel.scss",
 )
 
+sass_binary(
+    name = "kernel_minimap_css",
+    src = "kernel_minimap.scss",
+)
+
+xprof_ng_module(
+    name = "kernel_minimap",
+    srcs = [
+        "kernel_minimap.ts",
+    ],
+    assets = [
+        ":kernel_minimap_css",
+        "kernel_minimap.ng.html",
+    ],
+    deps = [
+        "//:node_modules/@angular/common",
+        "//:node_modules/@angular/core",
+        "@org_xprof//frontend/app/common/angular:angular_material_button",
+        "@org_xprof//frontend/app/common/angular:angular_material_icon",
+        "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
+    ],
+)
+
 xprof_ng_module(
     name = "static_kernel_viewer",
     srcs = [
@@ -34,6 +57,7 @@ xprof_ng_module(
         "static_kernel_viewer.ng.html",
     ],
     deps = [
+        ":kernel_minimap",
         "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
         "//:node_modules/@angular/router",
@@ -56,10 +80,12 @@ xprof_ng_module(
     testonly = True,
     srcs = [
         "kernel_event_tooltip_test.ts",
+        "kernel_minimap_test.ts",
         "kernel_selection_panel_test.ts",
         "static_kernel_viewer_test.ts",
     ],
     deps = [
+        ":kernel_minimap",
         ":static_kernel_viewer",
         "//javascript/angular2/testing/catalyst/fake_async",
         # ksf,

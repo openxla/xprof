@@ -8,6 +8,7 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  ContentChild,
   CUSTOM_ELEMENTS_SCHEMA,
   ElementRef,
   EventEmitter,
@@ -39,6 +40,7 @@ import {ActivatedRoute} from '@angular/router';
 import {AngularSplitModule} from 'angular-split';
 
 import {NgxJsonViewerModule} from 'ngx-json-viewer';
+import {KernelMinimap} from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_minimap';
 import {TimelinePlayer} from 'org_xprof/frontend/app/components/timeline_player/timeline_player';
 import {getDefaultFeatureFlag} from 'org_xprof/frontend/app/components/trace_viewer_v2/feature_flags';
 import {
@@ -353,6 +355,7 @@ declare interface TfTraceViewer {
   imports: [
     AngularSplitModule,
     CommonModule,
+    KernelMinimap,
     MatIconModule,
     MatProgressBarModule,
     PipesModule,
@@ -395,6 +398,22 @@ export class TraceViewerContainer
 
   /** Whether the timeline player applies */
   enableTimelinePlayer = false;
+
+  /** Whether the timeline overview minimap bar is enabled via feature flag. */
+  enableMinimap = false;
+
+  /** Projected minimap from hosts like StaticKernelViewer (avoids rendering a duplicate). */
+  @ContentChild(KernelMinimap) projectedMinimap?: KernelMinimap;
+
+  onMinimapVisibleRangeChange(range: {startUs: number; endUs: number}): void {
+    this.traceViewerModule?.application
+      ?.instance()
+      ?.setVisibleRange?.(range.startUs, range.endUs);
+  }
+
+  onMinimapSelectEvent(eventIndex: number): void {
+    this.traceViewerModule?.application?.instance()?.selectEvent?.(eventIndex);
+  }
 
   private handleTimelineRedrawRequest = () => {
     if (!this.traceViewerModule) return;
@@ -753,6 +772,7 @@ export class TraceViewerContainer
     clearDeprecatedStorageKeys();
 
     this.enableTimelinePlayer = this.readFeatureFlag('enable_timeline_player');
+    this.enableMinimap = this.readFeatureFlag('enable_minimap');
 
     this.handleTimelineRedrawRequest =
       this.handleTimelineRedrawRequest.bind(this);

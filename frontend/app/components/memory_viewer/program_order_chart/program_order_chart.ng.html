@@ -1,8 +1,9 @@
-<div [className]="heapSizes.length ? 'auto-height' : 'hidden-content'">
+<div [className]="heapSizes.length ? 'auto-height' : 'hidden-content'" (mouseenter)="isHovered = true" (mouseleave)="onMouseLeave()" (mousemove)="onMouseMove($event)">
   <div class="chart-title-container">
     <h2>Memory Allocation Size (MiB) vs Program Order (HLO Sequence)</h2>
     <div class="timeline-link"><a [href]="timelineUrl" [hidden]="!timelineUrl.length" target="_blank">timeline</a></div>
   </div>
+  <div class="description">Use WASD keys to zoom and pan.</div>
   <div class="chart-container">
     <chart class="chart" #peakChart [chartType]="AREA_CHART" [dataInfo]="peakChartDataInfo"></chart>
     <chart class="chart" #activeChart [chartType]="AREA_CHART" [dataInfo]="activeChartDataInfo"></chart>

@@ -16,7 +16,6 @@ limitations under the License.
 #ifndef THIRD_PARTY_XPROF_CONVERT_SMART_SUGGESTION_ALL_RULES_H_
 #define THIRD_PARTY_XPROF_CONVERT_SMART_SUGGESTION_ALL_RULES_H_
 
-#include "xprof/convert/smart_suggestion/barrier_cores_rule.h"
 #include "xprof/convert/smart_suggestion/collective_bound_rule.h"
 #include "xprof/convert/smart_suggestion/compute_bound_rule.h"
 #include "xprof/convert/smart_suggestion/data_shuffle_bound_rule.h"
@@ -34,7 +33,6 @@ namespace profiler {
 // Registers all smart suggestion rules.
 inline void RegisterAllRules(SmartSuggestionRuleFactory* f) {
   // go/keep-sorted start
-  f->Register<BarrierCoresRule>();
   f->Register<CollectiveBoundRule>();
   f->Register<ComputeBoundRule>();
   f->Register<DataShuffleBoundRule>();
@@ -48,10 +46,8 @@ inline void RegisterAllRules(SmartSuggestionRuleFactory* f) {
 }
 
 // Registers all smart suggestion rules for 3P.
-inline void RegisterAllRulesFor3P(SmartSuggestionRuleFactory* f) {
-  // go/keep-sorted start
-  f->Register<BarrierCoresRule>();
-  // go/keep-sorted end
+inline void RegisterAllRulesFor3P(SmartSuggestionRuleFactory*) {
+  // No 3P-specific smart suggestion rules are currently registered.
 }
 
 }  // namespace profiler

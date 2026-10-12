@@ -16,6 +16,7 @@ limitations under the License.
 #include "xprof/convert/op_stats_to_op_profile.h"
 
 #include <string>
+#include <thread>  // NOLINT(build/c++11)
 #include <vector>
 
 #include "absl/base/nullability.h"
@@ -88,36 +89,42 @@ void ConvertOpStatsToOpProfile(
 
       op_stats.device_op_metrics_db().normalized_total_op_time_ps(),
       op_stats.device_op_metrics_db().total_op_time_ps()));
+  const bool parallelize =
+      op_stats.device_op_metrics_db().metrics_db_size() >= 512;
+  auto build_pair = [&](OpProfileGrouping grouping, Node* with_idle,
+                        Node* without_idle) {
+    if (parallelize) {
+      std::thread t1([&] {
+        BuildOpProfileNodeTree(op_stats, grouping,
+                               /*exclude_idle_ops=*/false, op_profile_limit,
+                               program_serving_metadata, with_idle);
+      });
+      BuildOpProfileNodeTree(op_stats, grouping,
+                             /*exclude_idle_ops=*/true, op_profile_limit,
+                             program_serving_metadata, without_idle);
+      t1.join();
+    } else {
+      BuildOpProfileNodeTree(op_stats, grouping,
+                             /*exclude_idle_ops=*/false, op_profile_limit,
+                             program_serving_metadata, with_idle);
+      BuildOpProfileNodeTree(op_stats, grouping,
+                             /*exclude_idle_ops=*/true, op_profile_limit,
+                             program_serving_metadata, without_idle);
+    }
+  };
   switch (group_by) {
     case OpProfileGrouping::kByCategory:
-      BuildOpProfileNodeTree(op_stats, OpProfileGrouping::kByCategory,
-                             /*exclude_idle_ops=*/false, op_profile_limit,
-                             program_serving_metadata,
-                             profile.mutable_by_category());
-      BuildOpProfileNodeTree(op_stats, OpProfileGrouping::kByCategory,
-                             /*exclude_idle_ops=*/true, op_profile_limit,
-                             program_serving_metadata,
-                             profile.mutable_by_category_exclude_idle());
+      build_pair(OpProfileGrouping::kByCategory, profile.mutable_by_category(),
+                 profile.mutable_by_category_exclude_idle());
       break;
     case OpProfileGrouping::kByProgram:
-      BuildOpProfileNodeTree(op_stats, OpProfileGrouping::kByProgram,
-                             /*exclude_idle_ops=*/false, op_profile_limit,
-                             program_serving_metadata,
-                             profile.mutable_by_program());
-      BuildOpProfileNodeTree(op_stats, OpProfileGrouping::kByProgram,
-                             /*exclude_idle_ops=*/true, op_profile_limit,
-                             program_serving_metadata,
-                             profile.mutable_by_program_exclude_idle());
+      build_pair(OpProfileGrouping::kByProgram, profile.mutable_by_program(),
+                 profile.mutable_by_program_exclude_idle());
       break;
     case OpProfileGrouping::kByProvenance:
-      BuildOpProfileNodeTree(op_stats, OpProfileGrouping::kByProvenance,
-                             /*exclude_idle_ops=*/false, op_profile_limit,
-                             program_serving_metadata,
-                             profile.mutable_by_provenance());
-      BuildOpProfileNodeTree(op_stats, OpProfileGrouping::kByProvenance,
-                             /*exclude_idle_ops=*/true, op_profile_limit,
-                             program_serving_metadata,
-                             profile.mutable_by_provenance_exclude_idle());
+      build_pair(OpProfileGrouping::kByProvenance,
+                 profile.mutable_by_provenance(),
+                 profile.mutable_by_provenance_exclude_idle());
       break;
   }
 }

@@ -15,13 +15,15 @@ limitations under the License.
 
 #include "xprof/utils/hlo_module_map.h"
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "xprof/utils/lazy.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
@@ -33,14 +35,18 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/hlo/ir/hlo_print_options.h"
 #include "xla/service/hlo_cost_analysis.h"
+#include "xla/tsl/platform/env.h"
+#include "xla/tsl/platform/threadpool.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "tsl/platform/fingerprint.h"
 #include "tsl/platform/path.h"
+#include "tsl/platform/protobuf.h"
 #include "tsl/profiler/lib/traceme_encode.h"
 #include "xprof/utils/hlo_cost_analysis_wrapper.h"
 #include "xprof/utils/hlo_module_utils.h"
 #include "xprof/utils/hlo_proto_map.h"
 #include "xprof/utils/hlo_proto_to_module.h"
+#include "xprof/utils/lazy.h"
 #include "xprof/utils/performance_info_wrapper.h"
 
 namespace tensorflow {
@@ -105,11 +111,42 @@ HloModuleWrapper::HloModuleWrapper(
   }
 
   // Populate instructions_by_name_ with module.
+  std::vector<const xla::HloInstruction*> all_instrs;
+  all_instrs.reserve(module_->instruction_count());
   for (const xla::HloComputation* computation : module_->computations()) {
     for (const xla::HloInstruction* instr : computation->instructions()) {
+      all_instrs.push_back(instr);
+    }
+  }
+  const HloCostAnalysisWrapper* raw_cost_analysis = cost_analysis_wrapper.get();
+  instructions_by_name_.reserve(all_instrs.size());
+  if (all_instrs.size() >= 1024) {
+    std::vector<std::optional<HloInstructionWrapper>> temp_wrappers(
+        all_instrs.size());
+    constexpr size_t kNumChunks = 16;
+    const size_t chunk_size = (all_instrs.size() + kNumChunks - 1) / kNumChunks;
+    {
+      tsl::thread::ThreadPool pool(tsl::Env::Default(), "HloInstrWrap",
+                                   kNumChunks);
+      for (size_t c = 0; c < kNumChunks; ++c) {
+        const size_t start = c * chunk_size;
+        if (start >= all_instrs.size()) break;
+        const size_t end = std::min(start + chunk_size, all_instrs.size());
+        pool.Schedule([&, start, end]() {
+          for (size_t i = start; i < end; ++i) {
+            temp_wrappers[i].emplace(all_instrs[i], raw_cost_analysis);
+          }
+        });
+      }
+    }
+    for (size_t i = 0; i < all_instrs.size(); ++i) {
+      instructions_by_name_.try_emplace(all_instrs[i]->name(),
+                                        std::move(*temp_wrappers[i]));
+    }
+  } else {
+    for (const xla::HloInstruction* instr : all_instrs) {
       instructions_by_name_.try_emplace(
-          instr->name(),
-          HloInstructionWrapper(instr, cost_analysis_wrapper.get()));
+          instr->name(), HloInstructionWrapper(instr, raw_cost_analysis));
     }
   }
   // Gather nested fusion instructions.
@@ -178,9 +215,54 @@ void AddHloProto(HloModuleMap& hlo_module_map, uint64_t program_id,
 void ProcessHloModuleMapFromXSpace(
     HloModuleMap& hlo_module_map, const XSpace* space,
     tensorflow::profiler::HloCostAnalysisWrapper::Factory&
-        create_cost_analysis) {
-  for (auto& [program_id, hlo_proto] : ParseHloProtosFromXSpace(*space)) {
-    AddHloProto(hlo_module_map, program_id, *hlo_proto, create_cost_analysis());
+        create_cost_analysis,
+    tsl::protobuf::Map<uint64_t, std::string>* program_id_to_name_map) {
+  auto hlo_protos = ParseHloProtosFromXSpace(*space);
+  if (program_id_to_name_map != nullptr) {
+    for (const auto& [program_id, hlo_proto] : hlo_protos) {
+      (*program_id_to_name_map)[program_id] = hlo_proto->hlo_module().name();
+    }
+  }
+  if (hlo_protos.size() <= 1) {
+    for (auto& [program_id, hlo_proto] : hlo_protos) {
+      AddHloProto(hlo_module_map, program_id, *hlo_proto,
+                  create_cost_analysis());
+    }
+    return;
+  }
+  std::vector<std::pair<uint64_t, std::unique_ptr<const xla::HloProto>>>
+      entries;
+  entries.reserve(hlo_protos.size());
+  for (auto& [program_id, hlo_proto] : hlo_protos) {
+    entries.emplace_back(program_id, std::move(hlo_proto));
+  }
+  std::vector<std::unique_ptr<HloCostAnalysisWrapper>> cost_analyses;
+  cost_analyses.reserve(entries.size());
+  for (size_t i = 0; i < entries.size(); ++i) {
+    cost_analyses.push_back(create_cost_analysis());
+  }
+  std::vector<std::optional<HloModuleWrapper>> wrappers(entries.size());
+  {
+    const int num_threads = std::min<int>(entries.size(), 16);
+    tsl::thread::ThreadPool pool(tsl::Env::Default(), "HloModuleMap",
+                                 num_threads);
+    for (size_t i = 0; i < entries.size(); ++i) {
+      pool.Schedule([&, i]() {
+        auto hlo_module = ConvertHloProtoToModule(*entries[i].second);
+        if (!hlo_module.ok()) {
+          LOG(ERROR) << hlo_module.status();
+          return;
+        }
+        wrappers[i].emplace(std::move(hlo_module).value(),
+                            std::move(cost_analyses[i]));
+      });
+    }
+  }
+  hlo_module_map.reserve(entries.size());
+  for (size_t i = 0; i < entries.size(); ++i) {
+    if (wrappers[i].has_value()) {
+      hlo_module_map.try_emplace(entries[i].first, std::move(*wrappers[i]));
+    }
   }
 }
 

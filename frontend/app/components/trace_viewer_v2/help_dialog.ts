@@ -635,7 +635,7 @@ export class TraceViewerHelpDialog extends LitElement {
     }
   `;
 
-  @property({type: Boolean}) open = false;
+  @property({type: Boolean, reflect: true}) open = false;
   @state() searchQuery = '';
 
   private readonly handleKeyDown = (e: KeyboardEvent) => {
@@ -664,21 +664,20 @@ export class TraceViewerHelpDialog extends LitElement {
       'md-dialog',
     ) as MdDialog | null;
     await dialog?.show();
-    await new Promise((resolve) => {
-      setTimeout(resolve, 50);
-    });
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
-    }
+    const searchInput = this.shadowRoot?.querySelector(
+      '.search-input',
+    ) as HTMLInputElement | null;
+    searchInput?.focus();
+    searchInput?.select();
   }
 
   async closeDialog() {
+    this.open = false;
+    this.searchQuery = '';
     const dialog = this.shadowRoot?.querySelector(
       'md-dialog',
     ) as MdDialog | null;
     await dialog?.close();
-    this.open = false;
-    this.searchQuery = '';
   }
 
   private handleSearchInput(e: Event) {
@@ -687,12 +686,69 @@ export class TraceViewerHelpDialog extends LitElement {
   }
 
   private handleSearchKeyDown(e: KeyboardEvent) {
-    if (e.key === 'Escape' && this.searchQuery) {
+    if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
-      this.clearSearch();
+      if (this.searchQuery) {
+        this.clearSearch();
+      } else {
+        this.closeDialog();
+      }
+      return;
     }
+    // Stop propagation so typing does not bubble to window container shortcuts.
+    e.stopPropagation();
   }
+
+  getFocusableElements(): HTMLElement[] {
+    if (!this.shadowRoot) return [];
+    const selectors = [
+      'input:not([disabled])',
+      'button:not([disabled])',
+      'md-icon-button:not([disabled])',
+      '[tabindex]:not([tabindex="-1"])',
+    ].join(', ');
+    const candidates = Array.from(
+      this.shadowRoot.querySelectorAll<HTMLElement>(selectors),
+    );
+    return candidates.filter((el) => {
+      if (el.hidden) return false;
+      const style = window.getComputedStyle(el);
+      return style.display !== 'none' && style.visibility !== 'hidden';
+    });
+  }
+
+  handleDialogKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Tab') {
+      const focusable = this.getFocusableElements();
+      if (focusable.length === 0) {
+        e.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const currentActive = this.shadowRoot
+        ?.activeElement as HTMLElement | null;
+
+      if (e.shiftKey) {
+        if (
+          currentActive === first ||
+          !focusable.includes(currentActive as HTMLElement)
+        ) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (
+          currentActive === last ||
+          !focusable.includes(currentActive as HTMLElement)
+        ) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+  };
 
   clearSearch() {
     this.searchQuery = '';
@@ -849,6 +905,7 @@ export class TraceViewerHelpDialog extends LitElement {
         ?open=${this.open}
         @closed=${this.closeDialog}
         @cancel=${this.closeDialog}
+        @keydown=${this.handleDialogKeyDown}
         aria-label="Keyboard Shortcuts">
         <div slot="headline" class="dialog-headline">
           <div class="headline-left">
@@ -871,7 +928,8 @@ export class TraceViewerHelpDialog extends LitElement {
                 @keydown=${this.handleSearchKeyDown}
                 aria-label="Search shortcuts"
                 spellcheck="false"
-                autocomplete="off" />
+                autocomplete="off"
+                autofocus />
               ${this.searchQuery
                 ? html`
                     <button
@@ -886,7 +944,6 @@ export class TraceViewerHelpDialog extends LitElement {
             </div>
             <md-icon-button
               class="close-btn"
-              tabindex="-1"
               @click=${this.closeDialog}
               aria-label="Close dialog">
               ${closeXIcon}

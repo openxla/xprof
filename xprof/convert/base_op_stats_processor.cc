@@ -66,7 +66,7 @@ absl::StatusOr<std::string> GetCacheFilePath(
     const tensorflow::profiler::ToolOptions& options,
     bool tool_supports_flat_metric_db) {
   bool use_flat_metric = tensorflow::profiler::GetParamWithDefault<bool>(
-      options, "use_flat_metric", false);
+      options, "use_flat_metric", tool_supports_flat_metric_db);
   StoredDataType cache_type = tool_supports_flat_metric_db && use_flat_metric
                                   ? StoredDataType::FLAT_OP_STATS
                                   : StoredDataType::OP_STATS;
@@ -102,15 +102,12 @@ bool AreAllOpStatsCached(const XprofSessionSnapshot& session_snapshot,
 
 }  // namespace
 
-
-
 absl::StatusOr<std::string> BaseOpStatsProcessor::Map(
     const XprofSessionSnapshot& session_snapshot, absl::string_view hostname,
     const XSpace& xspace) {
-  TF_ASSIGN_OR_RETURN(
-      std::string cache_file_path,
-      GetCacheFilePath(session_snapshot, hostname, options_,
-                       ToolSupportsFlatMetricDb()));
+  TF_ASSIGN_OR_RETURN(std::string cache_file_path,
+                      GetCacheFilePath(session_snapshot, hostname, options_,
+                                       ToolSupportsFlatMetricDb()));
 
   if (tsl::Env::Default()->FileExists(cache_file_path).ok()) {
     return cache_file_path;
@@ -120,7 +117,7 @@ absl::StatusOr<std::string> BaseOpStatsProcessor::Map(
   PreprocessSingleHostXSpace(&temp_xspace, /*step_grouping=*/true,
                              /*derived_timeline=*/true);
   bool use_flat_metric = tensorflow::profiler::GetParamWithDefault<bool>(
-      options_, "use_flat_metric", false);
+      options_, "use_flat_metric", ToolSupportsFlatMetricDb());
   bool use_flat = ToolSupportsFlatMetricDb() && use_flat_metric;
   OpStatsOptions options = {
       .maybe_drop_incomplete_steps = true,
@@ -134,8 +131,8 @@ absl::StatusOr<std::string> BaseOpStatsProcessor::Map(
                       ConvertXSpaceToOpStats(temp_xspace, options));
   StoredDataType cache_type =
       use_flat ? StoredDataType::FLAT_OP_STATS : StoredDataType::OP_STATS;
-  TF_RETURN_IF_ERROR(WriteBinaryProto(
-      session_snapshot, cache_type, hostname, op_stats));
+  TF_RETURN_IF_ERROR(
+      WriteBinaryProto(session_snapshot, cache_type, hostname, op_stats));
   return cache_file_path;
 }
 
@@ -173,14 +170,14 @@ absl::Status BaseOpStatsProcessor::Reduce(
   CombineAllOpStats(all_op_stats_info, step_intersection, &combined_op_stats);
 
   bool use_flat_metric = tensorflow::profiler::GetParamWithDefault<bool>(
-      options_, "use_flat_metric", false);
+      options_, "use_flat_metric", ToolSupportsFlatMetricDb());
   bool use_flat = ToolSupportsFlatMetricDb() && use_flat_metric;
   StoredDataType cache_type =
       use_flat ? StoredDataType::FLAT_OP_STATS : StoredDataType::OP_STATS;
 
-  TF_RETURN_IF_ERROR(WriteBinaryProto(
-      session_snapshot, cache_type,
-      tensorflow::profiler::kAllHostsIdentifier, combined_op_stats));
+  TF_RETURN_IF_ERROR(WriteBinaryProto(session_snapshot, cache_type,
+                                      tensorflow::profiler::kAllHostsIdentifier,
+                                      combined_op_stats));
 
   return ProcessCombinedOpStats(session_snapshot, combined_op_stats, options_);
 }
@@ -189,23 +186,22 @@ absl::Status BaseOpStatsProcessor::ProcessSession(
     const XprofSessionSnapshot& session_snapshot,
     const tensorflow::profiler::ToolOptions& options) {
   bool use_flat_metric = tensorflow::profiler::GetParamWithDefault<bool>(
-      options, "use_flat_metric", false);
+      options, "use_flat_metric", ToolSupportsFlatMetricDb());
   bool use_flat = ToolSupportsFlatMetricDb() && use_flat_metric;
   StoredDataType cache_type =
       use_flat ? StoredDataType::FLAT_OP_STATS : StoredDataType::OP_STATS;
   OpStats combined_op_stats;
 
-  TF_ASSIGN_OR_RETURN(
-      bool has_cache,
-      tensorflow::profiler::HostDataFileExists(
-          session_snapshot, cache_type,
-          tensorflow::profiler::kAllHostsIdentifier));
+  TF_ASSIGN_OR_RETURN(bool has_cache,
+                      tensorflow::profiler::HostDataFileExists(
+                          session_snapshot, cache_type,
+                          tensorflow::profiler::kAllHostsIdentifier));
   if (has_cache) {
     LOG(INFO) << "BaseOpStatsProcessor::ProcessSession: Cache hit, reading "
                  "binary proto";
     TF_RETURN_IF_ERROR(tensorflow::profiler::ReadBinaryProto(
-        session_snapshot, cache_type,
-        tensorflow::profiler::kAllHostsIdentifier, &combined_op_stats));
+        session_snapshot, cache_type, tensorflow::profiler::kAllHostsIdentifier,
+        &combined_op_stats));
   } else {
     LOG(INFO) << "BaseOpStatsProcessor::ProcessSession: Cache miss, calling "
                  "ConvertMultiXSpacesToCombinedOpStats";

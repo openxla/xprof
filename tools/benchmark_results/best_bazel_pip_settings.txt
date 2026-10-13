@@ -1,0 +1,47 @@
+# Best Bazel settings for xprof plugin:build_pip_package (local cold-rebuild matrix)
+# Generated: 2026-07-10T19:50:41Z
+# Host: Darwin arm64 ncpu=10, Bazel 7.4.1, CLT-only (no Xcode.app)
+# Clean level: bazel clean (not --expunge) between attempts
+# Log: /Users/samsi/xprof/tools/benchmark_results/bazel_pip_benchmark_20260710T171145Z.log
+# TSV: /Users/samsi/xprof/tools/benchmark_results/attempts_20260710T171145Z.tsv
+#
+# GameSave-VCS .bazelrc was NOT copied. Measured xprof-relevant axes:
+# public_cache on/off, jobs, spawn strategy/workers, fastbuild.
+#
+# Winner (matrix wall-clock min among exit 0): macos_no_remote_cache
+# Matrix duration: 1107s
+# Confirm re-run (clean): 1028s exit=0
+#
+# Required on this host (CLT, empty auto xcode_config): //tools/xcode:host_xcodes
+# + DEVELOPER_DIR=/Library/Developer/CommandLineTools
+
+BEST_NAME=macos_no_remote_cache
+BEST_DURATION_SEC=1107
+CONFIRM_DURATION_SEC=1028
+CONFIRM_EXIT=0
+
+# Re-run the winning configuration (full flags):
+export DEVELOPER_DIR=/Library/Developer/CommandLineTools
+bazel run --xcode_version_config=//tools/xcode:host_xcodes --action_env=DEVELOPER_DIR=/Library/Developer/CommandLineTools --host_action_env=DEVELOPER_DIR=/Library/Developer/CommandLineTools --config=macos plugin:build_pip_package
+
+# Equivalent one-liner:
+# DEVELOPER_DIR=/Library/Developer/CommandLineTools bazel run \
+#   --xcode_version_config=//tools/xcode:host_xcodes \
+#   --action_env=DEVELOPER_DIR=/Library/Developer/CommandLineTools \
+#   --host_action_env=DEVELOPER_DIR=/Library/Developer/CommandLineTools \
+#   --config=macos \
+#   plugin:build_pip_package
+
+FLAGS=--xcode_version_config=//tools/xcode:host_xcodes --action_env=DEVELOPER_DIR=/Library/Developer/CommandLineTools --host_action_env=DEVELOPER_DIR=/Library/Developer/CommandLineTools --config=macos
+
+# Ranking (matrix only, exit 0, ascending):
+# 1107s  macos_no_remote_cache           --config=macos
+# 1211s  baseline_readme_public_cache    --config=macos --config=public_cache
+# 1294s  public_cache_local_strategy     --config=macos --config=public_cache --jobs=9 --spawn_strategy=local ...
+# 1326s  public_cache_jobs_max           --config=macos --config=public_cache --jobs=10
+# 1380s  public_cache_fastbuild          --config=macos --config=public_cache --jobs=9 -c fastbuild --strip=always
+# 2092s  public_cache_jobs_half          --config=macos --config=public_cache --jobs=5
+#
+# Finding: on this machine, --config=public_cache slowed cold rebuilds vs pure
+# local macos (network cache lookup overhead > hit benefit for this target set).
+# Half jobs was worst; max jobs with public_cache did not beat no-remote.

@@ -23,11 +23,56 @@
   // stylelint-disable ng-components/use-material-overrides -- Application-level Material 3 design tokens
   // 1. Core Material 3 Font Stacks
   --mat-sys-brand-font: 'Google Sans Flex', 'Google Sans', Roboto, sans-serif;
-  --mat-sys-plain-font: 'Google Sans Text', Roboto, sans-serif;
+  --mat-sys-plain-font:
+    'Google Sans Flex', 'Google Sans Text', 'Google Sans', Roboto, sans-serif;
   --mat-sys-code-font: 'Roboto Mono', ui-monospace, monospace;
 
-  // 2. Material 3 Type Scale Tokens (Title, Label, Body)
-  // Title Scale
+  // 2. Material 3 Type Scale Tokens (Display, Headline, Title, Label, Body, Code)
+  // Display Scale (Brand: Google Sans)
+  --mat-sys-display-large-font: var(--mat-sys-brand-font);
+  --mat-sys-display-large-size: 57px;
+  --mat-sys-display-large-line-height: 64px;
+  --mat-sys-display-large-weight: 400;
+  --mat-sys-display-large-tracking: 0px;
+  --mat-sys-display-large: 400 57px / 64px var(--mat-sys-brand-font);
+
+  --mat-sys-display-medium-font: var(--mat-sys-brand-font);
+  --mat-sys-display-medium-size: 45px;
+  --mat-sys-display-medium-line-height: 52px;
+  --mat-sys-display-medium-weight: 400;
+  --mat-sys-display-medium-tracking: 0px;
+  --mat-sys-display-medium: 400 45px / 52px var(--mat-sys-brand-font);
+
+  --mat-sys-display-small-font: var(--mat-sys-brand-font);
+  --mat-sys-display-small-size: 36px;
+  --mat-sys-display-small-line-height: 44px;
+  --mat-sys-display-small-weight: 400;
+  --mat-sys-display-small-tracking: 0px;
+  --mat-sys-display-small: 400 36px / 44px var(--mat-sys-brand-font);
+
+  // Headline Scale (Brand: Google Sans)
+  --mat-sys-headline-large-font: var(--mat-sys-brand-font);
+  --mat-sys-headline-large-size: 32px;
+  --mat-sys-headline-large-line-height: 40px;
+  --mat-sys-headline-large-weight: 400;
+  --mat-sys-headline-large-tracking: 0px;
+  --mat-sys-headline-large: 400 32px / 40px var(--mat-sys-brand-font);
+
+  --mat-sys-headline-medium-font: var(--mat-sys-brand-font);
+  --mat-sys-headline-medium-size: 28px;
+  --mat-sys-headline-medium-line-height: 36px;
+  --mat-sys-headline-medium-weight: 400;
+  --mat-sys-headline-medium-tracking: 0px;
+  --mat-sys-headline-medium: 400 28px / 36px var(--mat-sys-brand-font);
+
+  --mat-sys-headline-small-font: var(--mat-sys-brand-font);
+  --mat-sys-headline-small-size: 24px;
+  --mat-sys-headline-small-line-height: 32px;
+  --mat-sys-headline-small-weight: 400;
+  --mat-sys-headline-small-tracking: 0px;
+  --mat-sys-headline-small: 400 24px / 32px var(--mat-sys-brand-font);
+
+  // Title Scale (TitleLarge uses Brand; TitleMedium & TitleSmall use Plain)
   --mat-sys-title-large-font: var(--mat-sys-brand-font);
   --mat-sys-title-large-size: 22px;
   --mat-sys-title-large-line-height: 28px;
@@ -35,27 +80,27 @@
   --mat-sys-title-large-tracking: 0px;
   --mat-sys-title-large: 400 22px / 28px var(--mat-sys-brand-font);
 
-  --mat-sys-title-medium-font: var(--mat-sys-brand-font);
+  --mat-sys-title-medium-font: var(--mat-sys-plain-font);
   --mat-sys-title-medium-size: 16px;
   --mat-sys-title-medium-line-height: 24px;
   --mat-sys-title-medium-weight: 500;
-  --mat-sys-title-medium-tracking: 0.15px;
-  --mat-sys-title-medium: 500 16px / 24px var(--mat-sys-brand-font);
+  --mat-sys-title-medium-tracking: 0px;
+  --mat-sys-title-medium: 500 16px / 24px var(--mat-sys-plain-font);
 
-  --mat-sys-title-small-font: var(--mat-sys-brand-font);
+  --mat-sys-title-small-font: var(--mat-sys-plain-font);
   --mat-sys-title-small-size: 14px;
   --mat-sys-title-small-line-height: 20px;
   --mat-sys-title-small-weight: 500;
-  --mat-sys-title-small-tracking: 0.1px;
-  --mat-sys-title-small: 500 14px / 20px var(--mat-sys-brand-font);
+  --mat-sys-title-small-tracking: 0px;
+  --mat-sys-title-small: 500 14px / 20px var(--mat-sys-plain-font);
 
-  // Label Scale (Navigation items, buttons, group headers, badges)
-  --mat-sys-label-large-font: var(--mat-sys-brand-font);
+  // Label Scale (Plain: Google Sans Text — navigation items, buttons, group headers, badges)
+  --mat-sys-label-large-font: var(--mat-sys-plain-font);
   --mat-sys-label-large-size: 14px;
   --mat-sys-label-large-line-height: 20px;
   --mat-sys-label-large-weight: 500;
-  --mat-sys-label-large-tracking: 0.1px;
-  --mat-sys-label-large: 500 14px / 20px var(--mat-sys-brand-font);
+  --mat-sys-label-large-tracking: 0px;
+  --mat-sys-label-large: 500 14px / 20px var(--mat-sys-plain-font);
 
   --mat-sys-label-medium-font: var(--mat-sys-plain-font);
   --mat-sys-label-medium-size: 12px;
@@ -71,27 +116,49 @@
   --mat-sys-label-small-tracking: 0.1px;
   --mat-sys-label-small: 500 11px / 16px var(--mat-sys-plain-font);
 
-  // Body Scale
+  // Body Scale (Plain: Google Sans Text)
   --mat-sys-body-large-font: var(--mat-sys-plain-font);
   --mat-sys-body-large-size: 16px;
   --mat-sys-body-large-line-height: 24px;
   --mat-sys-body-large-weight: 400;
-  --mat-sys-body-large-tracking: 0.5px;
+  --mat-sys-body-large-tracking: 0px;
   --mat-sys-body-large: 400 16px / 24px var(--mat-sys-plain-font);
 
   --mat-sys-body-medium-font: var(--mat-sys-plain-font);
   --mat-sys-body-medium-size: 14px;
   --mat-sys-body-medium-line-height: 20px;
   --mat-sys-body-medium-weight: 400;
-  --mat-sys-body-medium-tracking: 0.25px;
+  --mat-sys-body-medium-tracking: 0px;
   --mat-sys-body-medium: 400 14px / 20px var(--mat-sys-plain-font);
 
   --mat-sys-body-small-font: var(--mat-sys-plain-font);
   --mat-sys-body-small-size: 12px;
   --mat-sys-body-small-line-height: 16px;
   --mat-sys-body-small-weight: 400;
-  --mat-sys-body-small-tracking: 0.4px;
+  --mat-sys-body-small-tracking: 0.1px;
   --mat-sys-body-small: 400 12px / 16px var(--mat-sys-plain-font);
+
+  // Code Scale (Monospace code snippets and identifiers)
+  --mat-sys-code-large-font: var(--mat-sys-code-font);
+  --mat-sys-code-large-size: 14px;
+  --mat-sys-code-large-line-height: 20px;
+  --mat-sys-code-large-weight: 400;
+  --mat-sys-code-large-tracking: 0px;
+  --mat-sys-code-large: 400 14px / 20px var(--mat-sys-code-font);
+
+  --mat-sys-code-medium-font: var(--mat-sys-code-font);
+  --mat-sys-code-medium-size: 12px;
+  --mat-sys-code-medium-line-height: 16px;
+  --mat-sys-code-medium-weight: 400;
+  --mat-sys-code-medium-tracking: 0px;
+  --mat-sys-code-medium: 400 12px / 16px var(--mat-sys-code-font);
+
+  --mat-sys-code-small-font: var(--mat-sys-code-font);
+  --mat-sys-code-small-size: 11px;
+  --mat-sys-code-small-line-height: 14px;
+  --mat-sys-code-small-weight: 400;
+  --mat-sys-code-small-tracking: 0px;
+  --mat-sys-code-small: 400 11px / 14px var(--mat-sys-code-font);
 
   // 3. Cross-Repository Compatibility Aliases (for host repos lacking M3 typography mixins)
   --sys-font-mono: var(--mat-sys-code-font);
@@ -127,4 +194,127 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--mat-sys-code-font, 'Roboto Mono', monospace);
+}
+
+// ---------------------------------------------------------------------------
+// Canonical Material 3 Typescale Helper Classes (Purely token-bound)
+// Sentence-case by default (NEVER ALL CAPS). Aliased to legacy .md-typescale-*
+// for backward compatibility with existing templates.
+// ---------------------------------------------------------------------------
+
+.mat-typescale-display-large,
+.md-typescale-display-large {
+  font: var(--mat-sys-display-large);
+  letter-spacing: var(--mat-sys-display-large-tracking);
+  text-transform: none;
+}
+
+.mat-typescale-display-medium,
+.md-typescale-display-medium {
+  font: var(--mat-sys-display-medium);
+  letter-spacing: var(--mat-sys-display-medium-tracking);
+  text-transform: none;
+}
+
+.mat-typescale-display-small,
+.md-typescale-display-small {
+  font: var(--mat-sys-display-small);
+  letter-spacing: var(--mat-sys-display-small-tracking);
+  text-transform: none;
+}
+
+.mat-typescale-headline-large,
+.md-typescale-headline-large {
+  font: var(--mat-sys-headline-large);
+  letter-spacing: var(--mat-sys-headline-large-tracking);
+  text-transform: none;
+}
+
+.mat-typescale-headline-medium,
+.md-typescale-headline-medium {
+  font: var(--mat-sys-headline-medium);
+  letter-spacing: var(--mat-sys-headline-medium-tracking);
+  text-transform: none;
+}
+
+.mat-typescale-headline-small,
+.md-typescale-headline-small {
+  font: var(--mat-sys-headline-small);
+  letter-spacing: var(--mat-sys-headline-small-tracking);
+  text-transform: none;
+}
+
+.mat-typescale-title-large,
+.md-typescale-title-large {
+  font: var(--mat-sys-title-large);
+  letter-spacing: var(--mat-sys-title-large-tracking);
+  text-transform: none;
+}
+
+.mat-typescale-title-medium,
+.md-typescale-title-medium {
+  font: var(--mat-sys-title-medium);
+  letter-spacing: var(--mat-sys-title-medium-tracking);
+  text-transform: none;
+}
+
+.mat-typescale-title-small,
+.md-typescale-title-small {
+  font: var(--mat-sys-title-small);
+  letter-spacing: var(--mat-sys-title-small-tracking);
+  text-transform: none;
+}
+
+.mat-typescale-body-large,
+.md-typescale-body-large {
+  font: var(--mat-sys-body-large);
+  letter-spacing: var(--mat-sys-body-large-tracking);
+}
+
+.mat-typescale-body-medium,
+.md-typescale-body-medium {
+  font: var(--mat-sys-body-medium);
+  letter-spacing: var(--mat-sys-body-medium-tracking);
+}
+
+.mat-typescale-body-small,
+.md-typescale-body-small {
+  font: var(--mat-sys-body-small);
+  letter-spacing: var(--mat-sys-body-small-tracking);
+}
+
+.mat-typescale-label-large,
+.md-typescale-label-large {
+  font: var(--mat-sys-label-large);
+  letter-spacing: var(--mat-sys-label-large-tracking);
+}
+
+.mat-typescale-label-medium,
+.md-typescale-label-medium {
+  font: var(--mat-sys-label-medium);
+  letter-spacing: var(--mat-sys-label-medium-tracking);
+}
+
+.mat-typescale-label-small,
+.md-typescale-label-small {
+  font: var(--mat-sys-label-small);
+  letter-spacing: var(--mat-sys-label-small-tracking);
+}
+
+.mat-typescale-code-large,
+.md-typescale-code-large {
+  font: var(--mat-sys-code-large);
+  letter-spacing: var(--mat-sys-code-large-tracking);
+}
+
+.mat-typescale-code-medium,
+.md-typescale-code-medium {
+  font: var(--mat-sys-code-medium);
+  letter-spacing: var(--mat-sys-code-medium-tracking);
+}
+
+.mat-typescale-code-small,
+.md-typescale-code-small {
+  font: var(--mat-sys-code-small);
+  letter-spacing: var(--mat-sys-code-small-tracking);
 }

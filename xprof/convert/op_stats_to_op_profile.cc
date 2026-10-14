@@ -45,7 +45,6 @@ void BuildOpProfileNodeTree(const OpStats& op_stats, OpProfileGrouping group_by,
                             bool exclude_idle_ops, int op_profile_limit,
                             Node* root) {
   const auto& metrics_db = op_stats.device_op_metrics_db();
-  if (metrics_db.metrics_db().empty()) return;
 
   OpProfileOptions options = {group_by,
                               /*group_by_deduplicated_name=*/true,

@@ -1,4 +1,6 @@
 import 'org_xprof/frontend/app/common/interfaces/window';
+import '@material/web/menu/menu';
+import '@material/web/menu/menu-item';
 
 import {PlatformLocation} from '@angular/common';
 import {

@@ -1,5 +1,5 @@
 import {CommonModule} from '@angular/common';
-import {NgModule} from '@angular/core';
+import {CUSTOM_ELEMENTS_SCHEMA, NgModule} from '@angular/core';
 import {FormsModule} from '@angular/forms';
 import {MatAutocompleteModule} from '@angular/material/autocomplete';
 import {MatButtonModule} from '@angular/material/button';
@@ -8,7 +8,6 @@ import {MatChipsModule} from '@angular/material/chips';
 import {MatDialogModule} from '@angular/material/dialog';
 import {MatDividerModule} from '@angular/material/divider';
 import {MatIconModule} from '@angular/material/icon';
-import {MatMenuModule} from '@angular/material/menu';
 import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {MatTooltipModule} from '@angular/material/tooltip';
 import {TraceViewerContainer} from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
@@ -32,7 +31,6 @@ import {TraceViewer} from './trace_viewer';
     MatDialogModule,
     MatDividerModule,
     MatIconModule,
-    MatMenuModule,
     MatProgressBarModule,
     MatTooltipModule,
     PipesModule,
@@ -40,5 +38,6 @@ import {TraceViewer} from './trace_viewer';
   ],
   providers: [DataServiceV2],
   exports: [TraceViewer, FilterChips, FilterInput],
+  schemas: [CUSTOM_ELEMENTS_SCHEMA],
 })
 export class TraceViewerModule {}

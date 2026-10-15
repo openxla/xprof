@@ -1,7 +1,9 @@
 #ifndef THIRD_PARTY_XPROF_CONVERT_TRACE_VIEWER_DELTA_SERIES_TRACE_DATA_TO_COMPRESSED_DELTA_SERIES_PROTO_H_
 #define THIRD_PARTY_XPROF_CONVERT_TRACE_VIEWER_DELTA_SERIES_TRACE_DATA_TO_COMPRESSED_DELTA_SERIES_PROTO_H_
 
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 #include <variant>
@@ -45,8 +47,38 @@ class DeltaSeriesProtoConverter {
       absl::string_view, xprof::TraceEventMetadata*, std::string* series_name)>;
 
   explicit DeltaSeriesProtoConverter(
+      const DeltaSeriesProtoConversionOptions& options = {});
+
+  explicit DeltaSeriesProtoConverter(
       const Trace* trace, CounterExtractor counter_extractor,
       const DeltaSeriesProtoConversionOptions& options = {});
+
+  // Interns `str` in the converter's string table (index 0 is reserved for "")
+  // and returns its 32-bit reference ID.
+  uint32_t InternString(absl::string_view str);
+
+  // Looks up a previously interned string by its reference ID.
+  absl::string_view InternedString(uint32_t id) const {
+    return id < interned_strings_.size()
+               ? absl::string_view(interned_strings_[id])
+               : absl::string_view();
+  }
+
+  // Appends any strings interned since the previous call to `response`.
+  void FlushInternedStringsIncrement(xprof::TraceDataResponse* response);
+
+  // Populates flow and group metadata fields on `metadata`, interning any
+  // non-generic flow category string.
+  void PopulateFlowAndGroupMetadata(std::optional<uint64_t> flow_id,
+                                    std::optional<uint8_t> flow_category,
+                                    std::optional<int64_t> group_id,
+                                    xprof::TraceEventMetadata* metadata);
+
+  // Serializes `frame`, Zstd-compresses it, and appends a length-prefixed frame
+  // (optionally preceded by the 4-byte "XCHN" magic header) to `out`.
+  static absl::Status AppendCompressedFrame(
+      const xprof::TraceDataResponse& frame, bool include_magic_header,
+      std::string* out);
 
   // Generates the uncompressed TraceDataResponse protobuf.
   template <typename TraceEventsContainer>
@@ -56,7 +88,9 @@ class DeltaSeriesProtoConverter {
  private:
   xprof::TraceMetadata GetTraceMetadata() const;
 
-  uint32_t MaybeInternString(absl::string_view str);
+  uint32_t MaybeInternString(absl::string_view str) {
+    return InternString(str);
+  }
 
   void PopulateTraceEventMetadata(const TraceEvent& event,
                                   xprof::TraceEventMetadata* metadata);
@@ -76,6 +110,7 @@ class DeltaSeriesProtoConverter {
   // String interning state.
   std::vector<std::string> interned_strings_;
   absl::flat_hash_map<std::string, uint32_t> interned_strings_map_;
+  size_t num_interned_strings_flushed_ = 0;
 
   CounterExtractor counter_extractor_;
   DeltaSeriesProtoConversionOptions options_;

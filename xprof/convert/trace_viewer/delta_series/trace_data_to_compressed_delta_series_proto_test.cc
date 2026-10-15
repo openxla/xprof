@@ -894,6 +894,52 @@ TEST(DeltaSeriesProtoConverterTest,
   }
 }
 
+TEST(DeltaSeriesProtoConverterTest, IncrementalHelpersAndFramedCompression) {
+  DeltaSeriesProtoConverter converter;
+  EXPECT_EQ(converter.InternString(""), 0);
+  const uint32_t id1 = converter.InternString("op_a");
+  const uint32_t id2 = converter.InternString("op_b");
+  EXPECT_EQ(converter.InternString("op_a"), id1);
+  EXPECT_EQ(converter.InternedString(id1), "op_a");
+  EXPECT_EQ(converter.InternedString(id2), "op_b");
+
+  xprof::TraceDataResponse frame1;
+  converter.FlushInternedStringsIncrement(&frame1);
+  ASSERT_EQ(frame1.interned_strings_size(), 3);
+  EXPECT_EQ(frame1.interned_strings(0), "");
+  EXPECT_EQ(frame1.interned_strings(1), "op_a");
+  EXPECT_EQ(frame1.interned_strings(2), "op_b");
+
+  xprof::TraceDataResponse frame2;
+  xprof::TraceEventMetadata* meta =
+      frame2.add_complete_events()->add_event_metadata();
+  converter.PopulateFlowAndGroupMetadata(/*flow_id=*/99, /*flow_category=*/2,
+                                         /*group_id=*/7, meta);
+  EXPECT_EQ(meta->flow_id(), 99);
+  EXPECT_EQ(meta->group_id(), 7);
+  EXPECT_GT(meta->flow_category(), 0);
+  converter.FlushInternedStringsIncrement(&frame2);
+  EXPECT_EQ(frame2.interned_strings_size(), 1);
+
+  std::string framed;
+  ASSERT_OK(DeltaSeriesProtoConverter::AppendCompressedFrame(
+      frame1, /*include_magic_header=*/true, &framed));
+  ASSERT_GE(framed.size(), 8);
+  EXPECT_EQ(absl::string_view(framed.data(), 4), "XCHN");
+  const uint32_t len =
+      static_cast<uint8_t>(framed[4]) |
+      (static_cast<uint32_t>(static_cast<uint8_t>(framed[5])) << 8) |
+      (static_cast<uint32_t>(static_cast<uint8_t>(framed[6])) << 16) |
+      (static_cast<uint32_t>(static_cast<uint8_t>(framed[7])) << 24);
+  ASSERT_EQ(framed.size(), 8 + len);
+  ASSERT_OK_AND_ASSIGN(
+      std::string decompressed,
+      ZstdCompression::Decompress(absl::string_view(framed.data() + 8, len)));
+  xprof::TraceDataResponse parsed_frame1;
+  ASSERT_TRUE(parsed_frame1.ParseFromString(decompressed));
+  EXPECT_EQ(parsed_frame1.interned_strings_size(), 3);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

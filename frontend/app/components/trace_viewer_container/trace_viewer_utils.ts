@@ -19,3 +19,27 @@ export function formatSi(value: number, unit: string, fractionDigits = 2) {
   const sign = value < 0 ? '-' : '';
   return `${sign}${scaled.toFixed(fractionDigits)} ${prefixes[index]}${unit}`;
 }
+
+/**
+ * Formats a time value in microseconds with an adaptable unit (ns, us, ms, s),
+ * preserving up to 6 decimal places without trailing zeros.
+ */
+export function formatTimeUs(valueUs: number): string {
+  const absUs = Math.abs(valueUs);
+  let scaled: number;
+  let unit: string;
+  if (absUs >= 1_000_000) {
+    scaled = valueUs / 1_000_000;
+    unit = 's';
+  } else if (absUs >= 1_000) {
+    scaled = valueUs / 1_000;
+    unit = 'ms';
+  } else if (absUs >= 1) {
+    scaled = valueUs;
+    unit = 'us';
+  } else {
+    scaled = valueUs * 1_000;
+    unit = 'ns';
+  }
+  return `${Number(scaled.toFixed(6))} ${unit}`;
+}

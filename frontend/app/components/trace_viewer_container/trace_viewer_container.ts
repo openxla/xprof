@@ -52,6 +52,7 @@ import {
   formatHloArgsForJsonTree,
   prettyPrintHloStackTrace,
 } from './hlo_pretty_printer';
+import {formatTimeUs} from './trace_viewer_utils';
 
 import {
   isSearchEventsEvent,
@@ -903,7 +904,14 @@ export class TraceViewerContainer
       return undefined;
     }
     if (event.rawEvent) {
-      return {...event.rawEvent};
+      const json: Record<string, unknown> = {...event.rawEvent};
+      if (typeof json['ts'] === 'number') {
+        json['ts'] = formatTimeUs(json['ts']);
+      }
+      if (typeof json['dur'] === 'number') {
+        json['dur'] = formatTimeUs(json['dur']);
+      }
+      return json;
     }
     // Uses the field names and order of the backend response. Fields that are
     // not known yet (e.g. `tid`) are omitted.
@@ -911,8 +919,11 @@ export class TraceViewerContainer
       ['pid', event.pid],
       ['tid', event.tid],
       ['name', event.name],
-      ['ts', event.ts],
-      ['dur', event.dur],
+      ['ts', typeof event.ts === 'number' ? formatTimeUs(event.ts) : event.ts],
+      [
+        'dur',
+        typeof event.dur === 'number' ? formatTimeUs(event.dur) : event.dur,
+      ],
       ['ph', event.ph],
     ];
     const json: Record<string, unknown> = {};

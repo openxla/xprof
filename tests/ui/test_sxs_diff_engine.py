@@ -178,7 +178,7 @@ class SxsDiffEngineTest(unittest.TestCase):
     self.assertIsNotNone(diff.heatmap_png_bytes)
 
     heatmap_img = Image.open(io.BytesIO(diff.heatmap_png_bytes)).convert("RGBA")
-    r, g, b, _ = heatmap_img.getpixel((0, 0))
+    r, g, b, _ = heatmap_img.getpixel((0, 0))  # pyrefly: ignore[not-iterable]
     self.assertGreater(r, 200)
     self.assertLess(g, 100)
     self.assertLess(b, 100)

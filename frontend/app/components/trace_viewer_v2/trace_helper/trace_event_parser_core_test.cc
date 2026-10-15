@@ -1,6 +1,9 @@
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event_parser_core.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -269,24 +272,15 @@ TEST(TraceEventParserCoreTest, ProcessCompleteEvents) {
   EXPECT_EQ(result.flame_events[0].name, "compute_op");
   EXPECT_TRUE(result.flame_events[0].has_serial);
   EXPECT_EQ(result.flame_events[0].serial, 123);
-  EXPECT_NE(result.flame_events[0].event_id, 0);
-  EXPECT_EQ(result.flame_events[0].event_id,
-            GenerateEventId("compute_op", 1.0, 5.0));
 
   EXPECT_EQ(result.flame_events[1].ph, Phase::kComplete);
   EXPECT_DOUBLE_EQ(result.flame_events[1].ts, 3.0);
   EXPECT_DOUBLE_EQ(result.flame_events[1].dur, 3.0);
   EXPECT_TRUE(result.flame_events[1].has_serial);
   EXPECT_EQ(result.flame_events[1].serial, 124);
-  EXPECT_EQ(result.flame_events[1].id, "999");
+  EXPECT_EQ(result.flame_events[1].flow_id, 999);
   EXPECT_EQ(result.flame_events[1].category,
             tsl::profiler::ContextType::kTpuLaunch);
-  EXPECT_NE(result.flame_events[1].event_id, 0);
-  EXPECT_EQ(result.flame_events[1].event_id,
-            GenerateEventId("compute_op", 3.0, 3.0));
-
-  ASSERT_EQ(result.flow_events.size(), 1);
-  EXPECT_EQ(result.flow_events[0].id, "999");
 }
 
 TEST(TraceEventParserCoreTest, ProcessCounterEvents) {
@@ -396,13 +390,14 @@ TEST(TraceEventParserCoreTest, ProcessAsyncEventsWithDuration) {
   EXPECT_DOUBLE_EQ(result.flame_events[0].ts, 1.0);
   EXPECT_DOUBLE_EQ(result.flame_events[0].dur, 5.0);
   EXPECT_EQ(result.flame_events[0].name, "async_op");
+  EXPECT_TRUE(result.flame_events[0].id.empty());
+  EXPECT_EQ(result.flame_events[0].flow_id, 500);
+  EXPECT_TRUE(result.flame_events[0].has_flow_id);
   EXPECT_TRUE(result.flame_events[0].has_serial);
   EXPECT_EQ(result.flame_events[0].serial, 42);
   EXPECT_TRUE(result.flame_events[0].has_group_id);
   EXPECT_EQ(result.flame_events[0].group_id, 99);
-  EXPECT_NE(result.flame_events[0].event_id, 0);
-  EXPECT_EQ(result.flame_events[0].event_id,
-            GenerateEventId("async_op", 1.0, 5.0));
+  EXPECT_TRUE(result.flow_events.empty());
 }
 
 TEST(TraceEventParserCoreTest, ProcessAsyncEventsBeginEndPair) {
@@ -434,11 +429,47 @@ TEST(TraceEventParserCoreTest, ProcessAsyncEventsBeginEndPair) {
   EXPECT_DOUBLE_EQ(result.flame_events[0].ts, 1.0);
   EXPECT_DOUBLE_EQ(result.flame_events[0].dur, 4.0);
   EXPECT_EQ(result.flame_events[0].name, "dma_transfer");
+  EXPECT_TRUE(result.flame_events[0].id.empty());
+  EXPECT_EQ(result.flame_events[0].flow_id, 777);
+  EXPECT_TRUE(result.flame_events[0].has_flow_id);
   EXPECT_TRUE(result.flame_events[0].has_serial);
   EXPECT_EQ(result.flame_events[0].serial, 101);
-  EXPECT_NE(result.flame_events[0].event_id, 0);
-  EXPECT_EQ(result.flame_events[0].event_id,
-            GenerateEventId("dma_transfer", 1.0, 4.0));
+  EXPECT_TRUE(result.flow_events.empty());
+}
+
+TEST(TraceEventParserCoreTest, ProcessAsyncEventsWithoutFlowIdOrMetadata) {
+  xprof::TraceDataResponse response;
+  response.add_interned_strings("async_no_meta");
+
+  xprof::TraceEventSeries* series = response.add_async_events();
+  series->mutable_metadata()->set_name_ref(0);
+  series->mutable_metadata()->set_process_id(1);
+
+  // Event 0: pre-paired async event (dur > 0) with flow_id == 0 in metadata.
+  series->add_deltas(1000000);
+  series->add_durations(2000000);
+  xprof::TraceEventMetadata* meta = series->add_event_metadata();
+  meta->set_flow_id(0);
+  meta->set_serial(7);
+
+  // Event 1: pre-paired async event (dur > 0) with omitted event_metadata.
+  series->add_deltas(3000000);
+  series->add_durations(1500000);
+
+  ParsedTraceEvents result;
+  ProcessAsyncEvents(response, result);
+
+  ASSERT_EQ(result.flame_events.size(), 2u);
+  EXPECT_DOUBLE_EQ(result.flame_events[0].ts, 1.0);
+  EXPECT_DOUBLE_EQ(result.flame_events[0].dur, 2.0);
+  EXPECT_FALSE(result.flame_events[0].has_flow_id);
+  EXPECT_TRUE(result.flame_events[0].has_serial);
+  EXPECT_EQ(result.flame_events[0].serial, 7);
+  EXPECT_DOUBLE_EQ(result.flame_events[1].ts, 4.0);
+  EXPECT_DOUBLE_EQ(result.flame_events[1].dur, 1.5);
+  EXPECT_FALSE(result.flame_events[1].has_flow_id);
+  EXPECT_TRUE(result.flame_events[1].has_serial);
+  EXPECT_EQ(result.flame_events[1].serial, 0);
 }
 
 TEST(TraceEventParserCoreTest, GenerateEventIdTest) {
@@ -470,7 +501,7 @@ TEST(TraceEventParserCoreTest, GenerateEventIdExactValues) {
   EXPECT_EQ(GenerateEventId("test_event", 1.0, 2.0), 16168300061312540288ULL);
 }
 
-TEST(TraceEventParserCoreTest, ProcessAsyncEventsWithDurationEmitsFlowEvent) {
+TEST(TraceEventParserCoreTest, ProcessAsyncEventsWithDurationSetsFlowMetadata) {
   xprof::TraceDataResponse response;
   response.add_interned_strings("async_transfer");
 
@@ -490,15 +521,13 @@ TEST(TraceEventParserCoreTest, ProcessAsyncEventsWithDurationEmitsFlowEvent) {
 
   ASSERT_EQ(result.flame_events.size(), 1);
   EXPECT_TRUE(result.flame_events[0].is_async);
-  EXPECT_EQ(result.flame_events[0].id, "888");
-
-  // Flow event must also be emitted for the async event with flow_id.
-  ASSERT_EQ(result.flow_events.size(), 1);
-  EXPECT_EQ(result.flow_events[0].id, "888");
-  EXPECT_EQ(result.flow_events[0].name, "async_transfer");
+  EXPECT_TRUE(result.flame_events[0].id.empty());
+  EXPECT_EQ(result.flame_events[0].flow_id, 888);
+  EXPECT_TRUE(result.flame_events[0].has_flow_id);
+  EXPECT_TRUE(result.flow_events.empty());
 }
 
-TEST(TraceEventParserCoreTest, ProcessAsyncEventsBeginEndEmitsFlowEvent) {
+TEST(TraceEventParserCoreTest, ProcessAsyncEventsBeginEndSetsFlowMetadata) {
   xprof::TraceDataResponse response;
   response.add_interned_strings("async_transfer_pair");
 
@@ -524,15 +553,13 @@ TEST(TraceEventParserCoreTest, ProcessAsyncEventsBeginEndEmitsFlowEvent) {
 
   ASSERT_EQ(result.flame_events.size(), 1);
   EXPECT_TRUE(result.flame_events[0].is_async);
-  EXPECT_EQ(result.flame_events[0].id, "999");
+  EXPECT_TRUE(result.flame_events[0].id.empty());
+  EXPECT_EQ(result.flame_events[0].flow_id, 999);
+  EXPECT_TRUE(result.flame_events[0].has_flow_id);
   EXPECT_EQ(result.flame_events[0].name, "async_transfer_pair");
   EXPECT_TRUE(result.flame_events[0].has_group_id);
   EXPECT_EQ(result.flame_events[0].group_id, 77);
-
-  ASSERT_EQ(result.flow_events.size(), 1);
-  EXPECT_EQ(result.flow_events[0].id, "999");
-  EXPECT_EQ(result.flow_events[0].name, "async_transfer_pair");
-  EXPECT_TRUE(result.flow_events[0].is_async);
+  EXPECT_TRUE(result.flow_events.empty());
 }
 
 TEST(TraceEventParserCoreTest,
@@ -560,6 +587,7 @@ TEST(TraceEventParserCoreTest,
   ASSERT_EQ(result.flame_events.size(), 1);
   EXPECT_TRUE(result.flame_events[0].is_async);
   EXPECT_TRUE(result.flame_events[0].id.empty());
+  EXPECT_FALSE(result.flame_events[0].has_flow_id);
   EXPECT_FALSE(result.flame_events[0].has_group_id);
   EXPECT_EQ(result.flame_events[0].args.find("group_id"),
             result.flame_events[0].args.end());
@@ -588,18 +616,14 @@ TEST(TraceEventParserCoreTest,
 
   ASSERT_EQ(result.flame_events.size(), 1);
   EXPECT_TRUE(result.flame_events[0].is_async);
-  EXPECT_EQ(result.flame_events[0].id, "12345");
+  EXPECT_TRUE(result.flame_events[0].id.empty());
+  EXPECT_EQ(result.flame_events[0].flow_id, 12345);
+  EXPECT_TRUE(result.flame_events[0].has_flow_id);
   EXPECT_EQ(result.flame_events[0].name, "async_transfer_interned");
   EXPECT_EQ(result.flame_events[0].category,
             tsl::profiler::ContextType::kTpuStream);
   EXPECT_DOUBLE_EQ(result.flame_events[0].dur, 5.0);
-
-  ASSERT_EQ(result.flow_events.size(), 1);
-  EXPECT_EQ(result.flow_events[0].id, "12345");
-  EXPECT_EQ(result.flow_events[0].name, "async_transfer_interned");
-  EXPECT_EQ(result.flow_events[0].category,
-            tsl::profiler::ContextType::kTpuStream);
-  EXPECT_TRUE(result.flow_events[0].is_async);
+  EXPECT_TRUE(result.flow_events.empty());
 }
 
 TEST(TraceEventParserCoreTest, ProcessAsyncEventsMultipleSeriesWithFlowEvents) {
@@ -648,18 +672,143 @@ TEST(TraceEventParserCoreTest, ProcessAsyncEventsMultipleSeriesWithFlowEvents) {
   ParsedTraceEvents result;
   ProcessAsyncEvents(response, result);
 
-  EXPECT_EQ(result.flame_events.size(), 3);
-  ASSERT_EQ(result.flow_events.size(), 2);
+  ASSERT_EQ(result.flame_events.size(), 3);
+  EXPECT_TRUE(result.flow_events.empty());
 
-  EXPECT_EQ(result.flow_events[0].id, "101");
-  EXPECT_EQ(result.flow_events[0].name, "series_with_flow");
-  EXPECT_EQ(result.flow_events[0].category,
+  EXPECT_EQ(result.flame_events[0].flow_id, 101);
+  EXPECT_TRUE(result.flame_events[0].has_flow_id);
+  EXPECT_EQ(result.flame_events[0].name, "series_with_flow");
+  EXPECT_EQ(result.flame_events[0].category,
             tsl::profiler::ContextType::kTpuLaunch);
 
-  EXPECT_EQ(result.flow_events[1].id, "202");
-  EXPECT_EQ(result.flow_events[1].name, "series_begin_end_flow");
-  EXPECT_EQ(result.flow_events[1].category,
+  EXPECT_EQ(result.flame_events[1].flow_id, 0);
+  EXPECT_FALSE(result.flame_events[1].has_flow_id);
+  EXPECT_EQ(result.flame_events[1].name, "series_without_flow");
+
+  EXPECT_EQ(result.flame_events[2].flow_id, 202);
+  EXPECT_TRUE(result.flame_events[2].has_flow_id);
+  EXPECT_EQ(result.flame_events[2].name, "series_begin_end_flow");
+  EXPECT_EQ(result.flame_events[2].category,
             tsl::profiler::ContextType::kGeneric);
+}
+
+TEST(TraceEventParserCoreTest,
+     ProcessAsyncEventsUnclosedZeroFlowIdDoesNotCollideAcrossSeries) {
+  xprof::TraceDataResponse response;
+  response.add_interned_strings("series_1_unclosed");
+  response.add_interned_strings("series_2_unclosed");
+
+  xprof::TraceEventSeries* series1 = response.add_async_events();
+  series1->mutable_metadata()->set_name_ref(0);
+  series1->mutable_metadata()->set_process_id(1);
+  series1->add_deltas(1000000);
+  series1->add_durations(0);
+
+  xprof::TraceEventSeries* series2 = response.add_async_events();
+  series2->mutable_metadata()->set_name_ref(1);
+  series2->mutable_metadata()->set_process_id(1);
+  series2->add_deltas(4000000);
+  series2->add_durations(0);
+
+  ParsedTraceEvents result;
+  ProcessAsyncEvents(response, result);
+
+  EXPECT_TRUE(result.flame_events.empty());
+  EXPECT_TRUE(result.flow_events.empty());
+}
+
+TEST(TraceEventParserCoreTest,
+     ProcessCompleteAndAsyncEventsReservesExactFlameEventsCapacity) {
+  xprof::TraceDataResponse response;
+  response.add_interned_strings("proc_0");
+  response.add_interned_strings("sync_op");
+  response.add_interned_strings("async_op");
+
+  xprof::Process* process = response.mutable_metadata()->add_processes();
+  process->set_id(1);
+  process->set_name("Process 1");
+
+  xprof::TraceEventSeries* complete_series = response.add_complete_events();
+  complete_series->mutable_metadata()->set_process_id(1);
+  complete_series->mutable_metadata()->set_thread_id(10);
+  complete_series->mutable_metadata()->set_name_ref(1);
+  for (int i = 0; i < 4; ++i) {
+    complete_series->add_deltas(1000000);
+    complete_series->add_durations(500000);
+  }
+
+  xprof::TraceEventSeries* async_series = response.add_async_events();
+  async_series->mutable_metadata()->set_process_id(1);
+  async_series->mutable_metadata()->set_name_ref(2);
+  for (int i = 0; i < 3; ++i) {
+    async_series->add_deltas(1000000);
+    async_series->add_durations(500000);
+    async_series->add_event_metadata()->set_flow_id(100 + i);
+  }
+
+  ParsedTraceEvents result;
+  ProcessMetadataEvents(response, result);
+  const size_t metadata_count = result.flame_events.size();
+  ASSERT_EQ(metadata_count, 1u);
+
+  ProcessCompleteEvents(response, result);
+  const size_t expected_total = metadata_count + 4u + 3u;
+  EXPECT_EQ(result.flame_events.capacity(), expected_total);
+
+  ProcessAsyncEvents(response, result);
+  EXPECT_EQ(result.flame_events.size(), expected_total);
+  EXPECT_EQ(result.flame_events.capacity(), expected_total);
+  EXPECT_TRUE(result.flow_events.empty());
+}
+
+TEST(TraceEventParserCoreTest,
+     ProcessAsyncEventsSamePidAndFlowIdDifferentSeriesDoNotCollide) {
+  xprof::TraceDataResponse response;
+  response.add_interned_strings("dma_ch0");
+  response.add_interned_strings("dma_ch1");
+
+  // Single series with per-event name_refs where two concurrent Begin/End pairs
+  // share (pid = 1, flow_id = 777) on different async tracks ("dma_ch0" vs
+  // "dma_ch1").
+  xprof::TraceEventSeries* series = response.add_async_events();
+  series->mutable_metadata()->set_process_id(1);
+  series->mutable_metadata()->set_name_ref(0);
+
+  // t = 1 us: Begin dma_ch0 (flow_id 777)
+  series->add_deltas(1000000);
+  series->add_durations(0);
+  series->add_name_refs(0);
+  series->add_event_metadata()->set_flow_id(777);
+
+  // t = 2 us: Begin dma_ch1 (flow_id 777)
+  series->add_deltas(1000000);
+  series->add_durations(0);
+  series->add_name_refs(1);
+  series->add_event_metadata()->set_flow_id(777);
+
+  // t = 5 us: End dma_ch0 (flow_id 777) -> dur = 4 us
+  series->add_deltas(3000000);
+  series->add_durations(0);
+  series->add_name_refs(0);
+  series->add_event_metadata()->set_flow_id(777);
+
+  // t = 9 us: End dma_ch1 (flow_id 777) -> dur = 7 us
+  series->add_deltas(4000000);
+  series->add_durations(0);
+  series->add_name_refs(1);
+  series->add_event_metadata()->set_flow_id(777);
+
+  ParsedTraceEvents result;
+  ProcessAsyncEvents(response, result);
+
+  ASSERT_EQ(result.flame_events.size(), 2u);
+  EXPECT_EQ(result.flame_events[0].name, "dma_ch0");
+  EXPECT_DOUBLE_EQ(result.flame_events[0].ts, 1.0);
+  EXPECT_DOUBLE_EQ(result.flame_events[0].dur, 4.0);
+  EXPECT_EQ(result.flame_events[1].name, "dma_ch1");
+  EXPECT_DOUBLE_EQ(result.flame_events[1].ts, 2.0);
+  EXPECT_DOUBLE_EQ(result.flame_events[1].dur, 7.0);
+  EXPECT_TRUE(result.flow_events.empty());
 }
 
 TEST(TraceEventParserCoreTest,
@@ -753,6 +902,91 @@ TEST(TraceEventParserCoreTest,
   EXPECT_EQ(result.flame_events[0].name, "parent_step");
   EXPECT_DOUBLE_EQ(result.flame_events[0].ts, 1000.0);
   EXPECT_DOUBLE_EQ(result.flame_events[0].dur, 2000.0);
+}
+
+TEST(TraceEventParserCoreTest,
+     SeriesSliceApisSetFlowIdWithoutDuplicatingFlowEvents) {
+  // A flow ID with the high bit set must round-trip without sign issues.
+  constexpr uint32_t kFlowId = 0x80000001u;
+  std::vector<std::string> interned = {"", "op_a", "op_b", "TF Executor"};
+  xprof::TraceEventSeries series;
+  series.mutable_metadata()->set_process_id(1);
+  series.mutable_metadata()->set_thread_id(10);
+
+  // Event 0: flow-carrying complete event at 1 us, duration 2 us.
+  series.add_deltas(1000000ULL);
+  series.add_durations(2000000ULL);
+  series.add_name_refs(1);
+  xprof::TraceEventMetadata* flow_meta = series.add_event_metadata();
+  flow_meta->set_flow_id(kFlowId);
+  flow_meta->set_flow_category(3);
+  flow_meta->set_serial(5);
+
+  // Event 1: complete event without a flow at 6 us, duration 1 us.
+  series.add_deltas(5000000ULL);
+  series.add_durations(1000000ULL);
+  series.add_name_refs(2);
+  series.add_event_metadata()->set_serial(6);
+
+  ParsedTraceEvents sliced;
+  uint64_t sliced_ts_ps = 0;
+  EXPECT_EQ(ProcessCompleteEventSeriesSlice(series, interned, 0, 2,
+                                            sliced_ts_ps, sliced),
+            2u);
+  ASSERT_EQ(sliced.flame_events.size(), 2u);
+  EXPECT_EQ(sliced.flame_events[0].flow_id, kFlowId);
+  EXPECT_TRUE(sliced.flame_events[0].has_flow_id);
+  EXPECT_TRUE(sliced.flame_events[0].id.empty());
+  EXPECT_EQ(sliced.flame_events[0].category,
+            tsl::profiler::ContextType::kTfExecutor);
+  EXPECT_FALSE(sliced.flame_events[1].has_flow_id);
+  EXPECT_TRUE(sliced.flow_events.empty());
+
+  ParsedTraceEvents overview;
+  uint64_t overview_ts_ps = 0;
+  bool did_coalesce = false;
+  EXPECT_EQ(ProcessOverviewSampledSeriesSlice(
+                series, interned, 0, 2, overview_ts_ps, overview, did_coalesce),
+            2u);
+  EXPECT_FALSE(did_coalesce);
+  ASSERT_EQ(overview.flame_events.size(), 2u);
+  EXPECT_EQ(overview.flame_events[0].flow_id, kFlowId);
+  EXPECT_TRUE(overview.flame_events[0].has_flow_id);
+  EXPECT_TRUE(overview.flame_events[0].id.empty());
+  EXPECT_FALSE(overview.flame_events[1].has_flow_id);
+  EXPECT_TRUE(overview.flow_events.empty());
+}
+
+TEST(TraceEventParserCoreTest,
+     ProcessAsyncEventSeriesPairsByFlowIdWithoutDuplicatingFlowEvents) {
+  std::vector<std::string> interned = {"", "dma"};
+  xprof::TraceEventSeries series;
+  series.mutable_metadata()->set_process_id(2);
+  series.mutable_metadata()->set_name_ref(1);
+
+  // Interleaved begin/end pairs for flows 7 and 8 without durations:
+  // begin(7) at 1 us, begin(8) at 2 us, end(7) at 5 us, end(8) at 9 us.
+  const uint64_t deltas_ps[] = {1000000ULL, 1000000ULL, 3000000ULL, 4000000ULL};
+  const uint64_t flow_ids[] = {7, 8, 7, 8};
+  for (int i = 0; i < 4; ++i) {
+    series.add_deltas(deltas_ps[i]);
+    series.add_event_metadata()->set_flow_id(flow_ids[i]);
+  }
+
+  ParsedTraceEvents result;
+  ProcessAsyncEventSeries(series, interned, result);
+
+  ASSERT_EQ(result.flame_events.size(), 2u);
+  EXPECT_EQ(result.flame_events[0].flow_id, 7u);
+  EXPECT_TRUE(result.flame_events[0].has_flow_id);
+  EXPECT_TRUE(result.flame_events[0].is_async);
+  EXPECT_EQ(result.flame_events[0].name, "dma");
+  EXPECT_DOUBLE_EQ(result.flame_events[0].ts, 1.0);
+  EXPECT_DOUBLE_EQ(result.flame_events[0].dur, 4.0);
+  EXPECT_EQ(result.flame_events[1].flow_id, 8u);
+  EXPECT_DOUBLE_EQ(result.flame_events[1].ts, 2.0);
+  EXPECT_DOUBLE_EQ(result.flame_events[1].dur, 7.0);
+  EXPECT_TRUE(result.flow_events.empty());
 }
 
 }  // namespace

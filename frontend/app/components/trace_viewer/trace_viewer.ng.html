@@ -101,12 +101,37 @@
 
 <ng-template #settingsDialog #paletteDialog #featureFlagsDialog let-dialogRef="dialogRef">
   <div class="settings-dialog-container">
-    <!-- Header with title & close button -->
+    <!-- Header with title, search box & close button -->
     <div class="settings-dialog-header">
       <div class="settings-dialog-header-title">Settings</div>
-      <button mat-icon-button class="settings-dialog-close-btn" (click)="dialogRef.close()" aria-label="Close settings">
-        <mat-icon>close</mat-icon>
-      </button>
+      <div class="settings-dialog-header-right">
+        <div class="search-box">
+          <mat-icon class="search-icon">search</mat-icon>
+          <input
+            class="search-input"
+            type="text"
+            placeholder="Search settings..."
+            aria-label="Search settings"
+            spellcheck="false"
+            autocomplete="off"
+            [value]="settingsSearchQuery"
+            (input)="onSettingsSearchInput($event)"
+            (keydown)="onSettingsSearchKeydown($event)"
+          />
+          <button
+            *ngIf="settingsSearchQuery"
+            class="clear-search-btn"
+            type="button"
+            (click)="clearSettingsSearch()"
+            aria-label="Clear search"
+          >
+            <mat-icon>close</mat-icon>
+          </button>
+        </div>
+        <button mat-icon-button class="settings-dialog-close-btn" (click)="dialogRef.close()" aria-label="Close settings">
+          <mat-icon>close</mat-icon>
+        </button>
+      </div>
     </div>
 
     <div class="settings-dialog-body">
@@ -147,7 +172,7 @@
       <div class="settings-content-wrapper">
         <div class="settings-content-pane">
         <!-- Tab 1: General -->
-        <div *ngIf="activeSettingsTab === SettingsTab.GENERAL" class="settings-tab-pane">
+        <div *ngIf="isSearchingSettings ? hasMatchingGeneralSettings : activeSettingsTab === SettingsTab.GENERAL" class="settings-tab-pane">
           <div class="settings-section-header settings-section-header-with-actions">
             <div>
               <div class="settings-section-title">Navigation Speed</div>
@@ -167,7 +192,7 @@
 
           <div class="settings-speed-card">
             <!-- Pan speed -->
-            <div class="settings-slider-row">
+            <div *ngIf="showPanningSpeedSetting" class="settings-slider-row">
               <div class="settings-slider-info">
                 <div class="settings-slider-title">Panning Speed (A/D & Left/Right)</div>
                 <div class="settings-slider-subtitle">Controls horizontal timeline pan multiplier</div>
@@ -187,7 +212,7 @@
             </div>
 
             <!-- Keyboard zoom speed -->
-            <div class="settings-slider-row">
+            <div *ngIf="showKeyboardZoomSpeedSetting" class="settings-slider-row">
               <div class="settings-slider-info">
                 <div class="settings-slider-title">Keyboard Zoom Speed (W/S & Up/Down)</div>
                 <div class="settings-slider-subtitle">Controls keyboard zoom-in and zoom-out speed</div>
@@ -207,7 +232,7 @@
             </div>
 
             <!-- Wheel zoom speed -->
-            <div class="settings-slider-row">
+            <div *ngIf="showWheelZoomSpeedSetting" class="settings-slider-row">
               <div class="settings-slider-info">
                 <div class="settings-slider-title">Wheel Zoom Speed (Scroll / Trackpad)</div>
                 <div class="settings-slider-subtitle">Controls mouse wheel scroll & pinch zoom sensitivity</div>
@@ -229,7 +254,7 @@
         </div>
 
         <!-- Tab 2: Color settings -->
-        <div *ngIf="activeSettingsTab === SettingsTab.COLOR" class="settings-tab-pane">
+        <div *ngIf="isSearchingSettings ? hasMatchingColorSettings : activeSettingsTab === SettingsTab.COLOR" class="settings-tab-pane">
           <div class="settings-section-header">
             <div class="settings-section-title">Select Color Palette</div>
             <div class="settings-section-subtitle">Controls the color scheme and visual rendering style for trace event tracks</div>
@@ -237,7 +262,7 @@
 
           <div class="settings-palette-list">
             <label
-              *ngFor="let palette of COLOR_PALETTES"
+              *ngFor="let palette of filteredColorPalettes"
               class="settings-palette-option"
               [class.selected]="selectedPalette === palette"
             >
@@ -267,6 +292,7 @@
 
             <!-- Custom Palette Option -->
             <label
+              *ngIf="showCustomPaletteSetting"
               class="settings-palette-option"
               [class.selected]="selectedPalette === CUSTOM_PALETTE_NAME"
             >
@@ -287,6 +313,7 @@
 
           <!-- Custom Color Swatches -->
           <div
+            *ngIf="showCustomPaletteSetting"
             class="custom-colors-container"
             [class.disabled]="selectedPalette !== CUSTOM_PALETTE_NAME"
           >
@@ -332,7 +359,7 @@
         </div>
 
         <!-- Tab 3: Feature flags -->
-        <div *ngIf="activeSettingsTab === SettingsTab.FLAGS" class="settings-tab-pane">
+        <div *ngIf="isSearchingSettings ? hasMatchingFeatureFlags : activeSettingsTab === SettingsTab.FLAGS" class="settings-tab-pane">
           <div class="settings-section-header settings-section-header-with-actions">
             <div>
               <div class="settings-section-title">Experimental Feature Flags</div>
@@ -351,7 +378,7 @@
           </div>
 
           <div class="feature-flags-list">
-            <div *ngFor="let flag of featureFlags" class="feature-flag-row">
+            <div *ngFor="let flag of filteredFeatureFlags" class="feature-flag-row">
               <div class="feature-flag-info">
                 <div class="feature-flag-name-container">
                   <span class="feature-flag-name">{{ flag.name }}</span>
@@ -374,6 +401,16 @@
               </button>
             </div>
           </div>
+        </div>
+
+        <div
+          *ngIf="isSearchingSettings && !hasAnyMatchingSettings"
+          class="empty-search-state"
+        >
+          <p class="empty-search-title">No matching settings found</p>
+          <p class="empty-search-subtext">
+            Try searching for a setting name, color palette, or feature flag.
+          </p>
         </div>
       </div>
 

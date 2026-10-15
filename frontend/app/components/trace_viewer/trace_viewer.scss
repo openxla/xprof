@@ -521,6 +521,82 @@ mat-divider {
   color: #202124;
 }
 
+.settings-dialog-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  width: 240px;
+  padding: 0 12px;
+  background-color: #fff;
+  border: 1px solid #1a73e8;
+  border-radius: 9999px;
+  box-sizing: border-box;
+  transition: box-shadow 0.2s;
+
+  &:focus-within {
+    box-shadow: 0 1px 3px rgba(26, 115, 232, 0.3);
+  }
+
+  .search-icon {
+    color: #5f6368;
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+    line-height: 18px;
+    flex-shrink: 0;
+  }
+
+  .search-input {
+    border: none;
+    outline: none;
+    background: transparent;
+    flex: 1;
+    height: 100%;
+    font-family: Roboto, 'Google Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 400;
+    color: #202124;
+    min-width: 0;
+
+    &::placeholder {
+      color: #5f6368;
+      font-family: Roboto, 'Google Sans', sans-serif;
+    }
+  }
+
+  .clear-search-btn {
+    background: none;
+    border: none;
+    padding: 2px;
+    cursor: pointer;
+    color: #5f6368;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    flex-shrink: 0;
+
+    &:hover {
+      color: #202124;
+      background-color: #f1f3f4;
+    }
+
+    mat-icon {
+      font-size: 16px;
+      width: 16px;
+      height: 16px;
+      line-height: 16px;
+    }
+  }
+}
+
 .settings-dialog-close-btn {
   color: #5f6368;
 }
@@ -640,6 +716,33 @@ mat-divider {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.settings-tab-pane + .settings-tab-pane {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid #e0e0e0;
+}
+
+.empty-search-state {
+  padding: 48px 24px;
+  text-align: center;
+  color: #5f6368;
+
+  .empty-search-title {
+    font-family: Roboto, 'Google Sans', sans-serif;
+    font-size: 16px;
+    font-weight: 500;
+    color: #202124;
+    margin: 0 0 8px 0;
+  }
+
+  .empty-search-subtext {
+    font-family: Roboto, 'Google Sans', sans-serif;
+    font-size: 14px;
+    color: #5f6368;
+    margin: 0;
+  }
 }
 
 .settings-section-header {

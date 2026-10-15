@@ -296,6 +296,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   readonly SettingsTab = SettingsTab;
   activeSettingsTab: SettingsTab = SettingsTab.GENERAL;
+  settingsSearchQuery = '';
   palettePreviews: Record<string, string[]> = PALETTE_PREVIEWS;
   paletteBackgrounds: Record<string, string> = PALETTE_BACKGROUNDS;
 
@@ -1686,6 +1687,172 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   setSettingsTab(tab: SettingsTab): void {
     this.activeSettingsTab = tab;
+    if (this.isSearchingSettings && !this.tabHasSearchMatches(tab)) {
+      this.settingsSearchQuery = '';
+    }
+  }
+
+  onSettingsSearchInput(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.settingsSearchQuery = input.value;
+    this.syncActiveSettingsTabWithSearch();
+  }
+
+  onSettingsSearchKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape' && this.settingsSearchQuery) {
+      event.stopPropagation();
+      event.preventDefault();
+      this.clearSettingsSearch();
+      return;
+    }
+    event.stopPropagation();
+  }
+
+  clearSettingsSearch(): void {
+    this.settingsSearchQuery = '';
+  }
+
+  private get normalizedSettingsSearchQuery(): string {
+    return this.settingsSearchQuery.trim().toLowerCase();
+  }
+
+  get isSearchingSettings(): boolean {
+    return this.normalizedSettingsSearchQuery.length > 0;
+  }
+
+  private matchesSettingsQuery(...texts: Array<string | undefined>): boolean {
+    const q = this.normalizedSettingsSearchQuery;
+    if (!q) return true;
+    return texts.some((text) => text?.toLowerCase().includes(q));
+  }
+
+  private get matchesGeneralSectionHeader(): boolean {
+    return this.matchesSettingsQuery('General', 'Navigation Speed');
+  }
+
+  get showPanningSpeedSetting(): boolean {
+    if (!this.isSearchingSettings || this.matchesGeneralSectionHeader) {
+      return true;
+    }
+    return this.matchesSettingsQuery(
+      'Panning Speed (A/D & Left/Right)',
+      'Controls horizontal timeline pan multiplier',
+    );
+  }
+
+  get showKeyboardZoomSpeedSetting(): boolean {
+    if (!this.isSearchingSettings || this.matchesGeneralSectionHeader) {
+      return true;
+    }
+    return this.matchesSettingsQuery(
+      'Keyboard Zoom Speed (W/S & Up/Down)',
+      'Controls keyboard zoom-in and zoom-out speed',
+    );
+  }
+
+  get showWheelZoomSpeedSetting(): boolean {
+    if (!this.isSearchingSettings || this.matchesGeneralSectionHeader) {
+      return true;
+    }
+    return this.matchesSettingsQuery(
+      'Wheel Zoom Speed (Scroll / Trackpad)',
+      'Controls mouse wheel scroll & pinch zoom sensitivity',
+    );
+  }
+
+  get hasMatchingGeneralSettings(): boolean {
+    return (
+      this.showPanningSpeedSetting ||
+      this.showKeyboardZoomSpeedSetting ||
+      this.showWheelZoomSpeedSetting
+    );
+  }
+
+  private get matchesColorSectionHeader(): boolean {
+    return this.matchesSettingsQuery('Color settings', 'Select Color Palette');
+  }
+
+  get filteredColorPalettes(): string[] {
+    if (!this.isSearchingSettings || this.matchesColorSectionHeader) {
+      return this.COLOR_PALETTES;
+    }
+    return this.COLOR_PALETTES.filter((palette) =>
+      this.matchesSettingsQuery(palette),
+    );
+  }
+
+  get showCustomPaletteSetting(): boolean {
+    if (!this.isSearchingSettings || this.matchesColorSectionHeader) {
+      return true;
+    }
+    return this.matchesSettingsQuery(
+      this.CUSTOM_PALETTE_NAME,
+      'Minimum 4 colors, maximum 23 colors.',
+    );
+  }
+
+  get hasMatchingColorSettings(): boolean {
+    return (
+      this.filteredColorPalettes.length > 0 || this.showCustomPaletteSetting
+    );
+  }
+
+  private get matchesFlagsSectionHeader(): boolean {
+    return this.matchesSettingsQuery(
+      'Feature flags',
+      'Experimental Feature Flags',
+    );
+  }
+
+  get filteredFeatureFlags(): FeatureFlagWithValue[] {
+    if (!this.isSearchingSettings || this.matchesFlagsSectionHeader) {
+      return this.featureFlags;
+    }
+    return this.featureFlags.filter((flag) =>
+      this.matchesSettingsQuery(
+        flag.name,
+        flag.description,
+        flag.id,
+        flag.badge,
+      ),
+    );
+  }
+
+  get hasMatchingFeatureFlags(): boolean {
+    return this.filteredFeatureFlags.length > 0;
+  }
+
+  get hasAnyMatchingSettings(): boolean {
+    return (
+      this.hasMatchingGeneralSettings ||
+      this.hasMatchingColorSettings ||
+      this.hasMatchingFeatureFlags
+    );
+  }
+
+  private tabHasSearchMatches(tab: SettingsTab): boolean {
+    switch (tab) {
+      case SettingsTab.GENERAL:
+        return this.hasMatchingGeneralSettings;
+      case SettingsTab.COLOR:
+        return this.hasMatchingColorSettings;
+      case SettingsTab.FLAGS:
+        return this.hasMatchingFeatureFlags;
+      default:
+        return false;
+    }
+  }
+
+  private syncActiveSettingsTabWithSearch(): void {
+    if (!this.isSearchingSettings) return;
+    if (this.tabHasSearchMatches(this.activeSettingsTab)) return;
+    if (this.hasMatchingGeneralSettings) {
+      this.activeSettingsTab = SettingsTab.GENERAL;
+    } else if (this.hasMatchingColorSettings) {
+      this.activeSettingsTab = SettingsTab.COLOR;
+    } else if (this.hasMatchingFeatureFlags) {
+      this.activeSettingsTab = SettingsTab.FLAGS;
+    }
   }
 
   private loadGeneralSettings(): void {
@@ -1752,6 +1919,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     }
 
     this.activeSettingsTab = tab;
+    this.settingsSearchQuery = '';
     this.loadPresetPalettes();
     this.loadGeneralSettings();
     this.initialPanningSpeed = this.panningSpeed;
@@ -1781,6 +1949,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       maxWidth: '95vw',
       panelClass: 'settings-dialog-mat-dialog-container',
       disableClose: false,
+      autoFocus: false,
     });
     this.settingsDialogRef = dialogRef;
 

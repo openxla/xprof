@@ -108,6 +108,8 @@ mat-divider {
   color: var(--mat-sys-on-surface-variant, #444746);
 
   mat-icon {
+    // stylelint-disable-next-line declaration-no-important -- Override global mat-icon font-family in _icons.scss
+    font-family: 'TraceViewerIcons' !important;
     font-size: 20px;
     width: 20px;
     height: 20px;

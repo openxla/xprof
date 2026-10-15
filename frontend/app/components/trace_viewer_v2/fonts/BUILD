@@ -4,6 +4,11 @@ load(":font_rules.bzl", "imgui_font_headers")
 
 package(default_visibility = ["@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__"])
 
+exports_files(
+    ["trace_viewer_icons.ttf"],
+    visibility = ["//frontend:internal"],
+)
+
 bzl_library(
     name = "font_rules_bzl",
     srcs = ["font_rules.bzl"],

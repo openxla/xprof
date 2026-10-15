@@ -1,12 +1,11 @@
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event_parser_core.h"
 
 #include <algorithm>
-#include <charconv>
-#include <cmath>
+#include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -15,30 +14,31 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
-#include "tsl/platform/fingerprint.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 #include "plugin/xprof/protobuf/trace_data_response.pb.h"
 
 namespace traceviewer {
+namespace {
 
-EventId GenerateEventId(absl::string_view name, Microseconds ts,
-                        Microseconds dur) {
-  const int64_t ts_ps = static_cast<int64_t>(std::round(ts * 1000000.0));
-  const int64_t dur_ps = static_cast<int64_t>(std::round(dur * 1000000.0));
-  char buf[512];
-  if (name.size() + 44 <= sizeof(buf)) {
-    std::memcpy(buf, name.data(), name.size());
-    char* p = buf + name.size();
-    *p++ = ':';
-    p = std::to_chars(p, buf + sizeof(buf), ts_ps).ptr;
-    *p++ = ':';
-    p = std::to_chars(p, buf + sizeof(buf), dur_ps).ptr;
-    return tsl::Fingerprint64(
-        absl::string_view(buf, static_cast<size_t>(p - buf)));
-  }
-  return tsl::Fingerprint64(absl::StrCat(name, ":", ts_ps, ":", dur_ps));
+absl::string_view GetInternedString(const xprof::TraceDataResponse& response,
+                                    uint32_t ref) {
+  return ref < static_cast<uint32_t>(response.interned_strings_size())
+             ? absl::string_view(response.interned_strings(ref))
+             : "";
 }
+
+absl::string_view GetInternedString(
+    absl::Span<const std::string> interned_strings, uint32_t ref) {
+  return ref < interned_strings.size()
+             ? absl::string_view(interned_strings[ref])
+             : "";
+}
+
+// Key for pairing async begin/end events: (pid, name_ref, flow_id).
+using AsyncEventKey = std::tuple<ProcessId, uint32_t, uint64_t>;
+
+}  // namespace
 
 Phase ParsePhase(absl::string_view ph_str) {
   if (!ph_str.empty()) {
@@ -52,6 +52,8 @@ Phase ParsePhase(absl::string_view ph_str) {
         return Phase::kDurationEnd;
       case static_cast<char>(Phase::kInstant):
         return Phase::kInstant;
+      case static_cast<char>(Phase::kInstantDeprecated):
+        return Phase::kInstantDeprecated;
       case static_cast<char>(Phase::kCounter):
         return Phase::kCounter;
       case static_cast<char>(Phase::kMetadata):
@@ -204,11 +206,12 @@ size_t ProcessCompleteEventSeriesSliceImpl(
     result.flame_events.reserve(result.flame_events.size() + count);
   }
 
-  const auto& metadata = series.metadata();
+  const xprof::TraceEventSeriesMetadata& metadata = series.metadata();
   for (size_t idx = start_idx; idx < end_idx; ++idx) {
     const int i = static_cast<int>(idx);
     current_ts_ps += series.deltas(i);
-    const uint64_t raw_dur_ps = series.durations(i);
+    const uint64_t raw_dur_ps =
+        i < series.durations_size() ? series.durations(i) : 0;
     const uint64_t dur_ps = raw_dur_ps & ~kDurationPhaseMask;
     if (filter_range_ps.has_value()) {
       if (current_ts_ps > filter_range_ps->second) {
@@ -219,6 +222,8 @@ size_t ProcessCompleteEventSeriesSliceImpl(
         continue;
       }
     }
+    const uint32_t name_ref =
+        i < series.name_refs_size() ? series.name_refs(i) : metadata.name_ref();
     TraceEvent ev;
     if (raw_dur_ps & kDurationPhaseBeginBit) {
       ev.ph = Phase::kDurationBegin;
@@ -231,24 +236,27 @@ size_t ProcessCompleteEventSeriesSliceImpl(
     ev.tid = metadata.thread_id();
     ev.ts = current_ts_ps / 1000000.0;
     ev.dur = dur_ps / 1000000.0;
-    ev.name = std::string(get_interned_string(series.name_refs(i)));
+    ev.name = std::string(get_interned_string(name_ref));
 
-    const auto& ev_meta = series.event_metadata(i);
-    if (ev_meta.flow_id() != 0) {
-      ev.id = std::to_string(ev_meta.flow_id());
-      if (ev_meta.flow_category() != 0) {
-        ev.category = GetContextTypeFromString(
-            get_interned_string(ev_meta.flow_category()));
+    if (i < series.event_metadata_size()) {
+      const xprof::TraceEventMetadata& ev_meta = series.event_metadata(i);
+      if (ev_meta.flow_id() != 0) {
+        ev.flow_id = ev_meta.flow_id();
+        ev.has_flow_id = true;
+        if (ev_meta.flow_category() != 0) {
+          ev.category = GetContextTypeFromString(
+              get_interned_string(ev_meta.flow_category()));
+        }
       }
+      ev.serial = ev_meta.serial();
+    } else {
+      ev.serial = 0;
     }
-
-    ev.serial = ev_meta.serial();
     ev.has_serial = true;
     ev.event_id = GenerateEventId(ev.name, ev.ts, ev.dur);
 
-    if (!ev.id.empty()) {
-      result.flow_events.push_back(ev);
-    }
+    // Flows are registered by DataProvider from flame events carrying
+    // `has_flow_id`, so they are not duplicated into `flow_events` here.
     result.flame_events.push_back(std::move(ev));
   }
   return count;
@@ -259,16 +267,19 @@ size_t ProcessCompleteEventSeriesSliceImpl(
 void ProcessCompleteEvents(const xprof::TraceDataResponse& response,
                            ParsedTraceEvents& result) {
   size_t total_deltas = 0;
-  for (const auto& series : response.complete_events()) {
+  for (const xprof::TraceEventSeries& series : response.complete_events()) {
+    total_deltas += series.deltas_size();
+  }
+  for (const xprof::TraceEventSeries& series : response.async_events()) {
     total_deltas += series.deltas_size();
   }
   result.flame_events.reserve(result.flame_events.size() + total_deltas);
-  for (const auto& series : response.complete_events()) {
+  for (const xprof::TraceEventSeries& series : response.complete_events()) {
     uint64_t current_ts_ps = 0;
     ProcessCompleteEventSeriesSliceImpl(
         series,
-        [&](uint64_t ref) -> absl::string_view {
-          return response.interned_strings(ref);
+        [&](uint32_t ref) -> absl::string_view {
+          return GetInternedString(response, ref);
         },
         0, static_cast<size_t>(series.deltas_size()), current_ts_ps, result,
         /*filter_range_ps=*/std::nullopt, /*reserve_slice=*/false);
@@ -282,9 +293,8 @@ size_t ProcessCompleteEventSeriesSlice(
     std::optional<std::pair<uint64_t, uint64_t>> filter_range_ps) {
   return ProcessCompleteEventSeriesSliceImpl(
       series,
-      [&](uint64_t ref) -> absl::string_view {
-        return ref < interned_strings.size() ? interned_strings[ref]
-                                             : absl::string_view();
+      [&](uint32_t ref) -> absl::string_view {
+        return GetInternedString(interned_strings, ref);
       },
       start_idx, max_events, current_ts_ps, result, filter_range_ps);
 }
@@ -295,60 +305,69 @@ template <typename GetInternedStringFn>
 void ProcessAsyncEventSeriesImpl(
     const xprof::TraceEventSeries& series,
     GetInternedStringFn&& get_interned_string,
-    absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>&
-        open_async_events,
+    absl::flat_hash_map<AsyncEventKey, TraceEvent>& open_async_events,
     ParsedTraceEvents& result) {
-  const auto& metadata = series.metadata();
+  const xprof::TraceEventSeriesMetadata& metadata = series.metadata();
+  const absl::string_view series_name =
+      get_interned_string(metadata.name_ref());
+  const bool has_per_event_name_refs = series.name_refs_size() > 0;
   uint64_t current_ts_ps = 0;
   for (int i = 0; i < series.deltas_size(); ++i) {
     current_ts_ps += series.deltas(i);
-    const auto& ev_meta = series.event_metadata(i);
-    std::string flow_id_str;
+    const double dur =
+        i < series.durations_size() ? series.durations(i) / 1000000.0 : 0.0;
+    uint64_t flow_id = 0;
     tsl::profiler::ContextType category = tsl::profiler::ContextType::kGeneric;
-    if (ev_meta.flow_id() != 0) {
-      flow_id_str = std::to_string(ev_meta.flow_id());
+    uint64_t serial = 0;
+    int64_t group_id = 0;
+    if (i < series.event_metadata_size()) {
+      const xprof::TraceEventMetadata& ev_meta = series.event_metadata(i);
+      flow_id = ev_meta.flow_id();
       if (ev_meta.flow_category() != 0) {
         category = GetContextTypeFromString(
             get_interned_string(ev_meta.flow_category()));
       }
+      serial = ev_meta.serial();
+      group_id = ev_meta.group_id();
     }
 
-    double dur = 0.0;
-    if (i < series.durations_size()) {
-      dur = series.durations(i) / 1000000.0;
-    }
-
+    const uint32_t name_ref =
+        (has_per_event_name_refs && i < series.name_refs_size())
+            ? series.name_refs(i)
+            : metadata.name_ref();
     TraceEvent ev;
     ev.pid = metadata.process_id();
     ev.ts = current_ts_ps / 1000000.0;
-    ev.name = std::string(get_interned_string(series.metadata().name_ref()));
-    ev.id = flow_id_str;
+    ev.name = std::string(
+        has_per_event_name_refs ? get_interned_string(name_ref) : series_name);
+    ev.flow_id = flow_id;
+    ev.has_flow_id = (flow_id != 0);
     ev.category = category;
-    ev.serial = ev_meta.serial();
+    ev.serial = serial;
     ev.has_serial = true;
-    if (ev_meta.group_id() != 0) {
-      ev.group_id = ev_meta.group_id();
+    if (group_id != 0) {
+      ev.group_id = group_id;
       ev.has_group_id = true;
     }
 
+    // TODO(b/542228691): Async flow events are skipped in DataProvider
+    // pending async flow level lookup, so we do not duplicate them into
+    // flow_events here.
     if (dur > 0.0) {
       // Pre-computed duration available, treat as complete event.
       ev.dur = dur;
       ev.ph = Phase::kComplete;
       ev.is_async = true;
       ev.event_id = GenerateEventId(ev.name, ev.ts, ev.dur);
-      if (!ev.id.empty()) {
-        result.flow_events.push_back(ev);
-      }
       result.flame_events.push_back(std::move(ev));
     } else {
       // No duration, assume it's part of a separate Begin/End pair.
-      auto key = std::make_pair(ev.pid, ev.id);
-      auto it = open_async_events.find(key);
-      if (it == open_async_events.end()) {
+      const AsyncEventKey key(ev.pid, name_ref, ev.flow_id);
+      const auto [it, inserted] =
+          open_async_events.try_emplace(key, std::move(ev));
+      if (inserted) {
         // Begin
-        ev.ph = Phase::kAsyncBegin;
-        open_async_events.try_emplace(std::move(key), std::move(ev));
+        it->second.ph = Phase::kAsyncBegin;
       } else {
         // End
         TraceEvent& begin_ev = it->second;
@@ -366,12 +385,16 @@ void ProcessAsyncEventSeriesImpl(
         }
         begin_ev.event_id =
             GenerateEventId(begin_ev.name, begin_ev.ts, begin_ev.dur);
-        if (!begin_ev.id.empty()) {
-          result.flow_events.push_back(begin_ev);
-        }
         result.flame_events.push_back(std::move(begin_ev));
         open_async_events.erase(it);
       }
+    }
+  }
+  if (!has_per_event_name_refs) {
+    open_async_events.erase({metadata.process_id(), metadata.name_ref(), 0});
+  } else {
+    for (int i = 0; i < series.name_refs_size(); ++i) {
+      open_async_events.erase({metadata.process_id(), series.name_refs(i), 0});
     }
   }
 }
@@ -380,13 +403,17 @@ void ProcessAsyncEventSeriesImpl(
 
 void ProcessAsyncEvents(const xprof::TraceDataResponse& response,
                         ParsedTraceEvents& result) {
-  absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>
-      open_async_events;
-  for (const auto& series : response.async_events()) {
+  size_t async_deltas = 0;
+  for (const xprof::TraceEventSeries& series : response.async_events()) {
+    async_deltas += series.deltas_size();
+  }
+  result.flame_events.reserve(result.flame_events.size() + async_deltas);
+  absl::flat_hash_map<AsyncEventKey, TraceEvent> open_async_events;
+  for (const xprof::TraceEventSeries& series : response.async_events()) {
     ProcessAsyncEventSeriesImpl(
         series,
-        [&](uint64_t ref) -> absl::string_view {
-          return response.interned_strings(ref);
+        [&](uint32_t ref) -> absl::string_view {
+          return GetInternedString(response, ref);
         },
         open_async_events, result);
   }
@@ -395,13 +422,11 @@ void ProcessAsyncEvents(const xprof::TraceDataResponse& response,
 void ProcessAsyncEventSeries(const xprof::TraceEventSeries& series,
                              absl::Span<const std::string> interned_strings,
                              ParsedTraceEvents& result) {
-  absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>
-      open_async_events;
+  absl::flat_hash_map<AsyncEventKey, TraceEvent> open_async_events;
   ProcessAsyncEventSeriesImpl(
       series,
-      [&](uint64_t ref) -> absl::string_view {
-        return ref < interned_strings.size() ? interned_strings[ref]
-                                             : absl::string_view();
+      [&](uint32_t ref) -> absl::string_view {
+        return GetInternedString(interned_strings, ref);
       },
       open_async_events, result);
 }
@@ -425,11 +450,13 @@ void ProcessCounterEventSeriesImpl(const xprof::TraceEventSeries& series,
     current_ts_ps += series.deltas(i);
     ev.timestamps.push_back(current_ts_ps / 1000000.0);
     double val = 0.0;
-    const auto& ev_meta = series.event_metadata(i);
-    if (ev_meta.has_counter_value_double()) {
-      val = ev_meta.counter_value_double();
-    } else if (ev_meta.has_counter_value_uint64()) {
-      val = static_cast<double>(ev_meta.counter_value_uint64());
+    if (i < series.event_metadata_size()) {
+      const xprof::TraceEventMetadata& ev_meta = series.event_metadata(i);
+      if (ev_meta.has_counter_value_double()) {
+        val = ev_meta.counter_value_double();
+      } else if (ev_meta.has_counter_value_uint64()) {
+        val = static_cast<double>(ev_meta.counter_value_uint64());
+      }
     }
     ev.values.push_back(val);
     ev.min_value = std::min(ev.min_value, val);
@@ -521,12 +548,16 @@ size_t ProcessOverviewSampledSeriesSlice(
     const int i = static_cast<int>(idx);
     current_timestamp_ps += series.deltas(i);
     const uint64_t start_ps = current_timestamp_ps;
-    const uint64_t raw_dur_ps = series.durations(i);
+    const uint64_t raw_dur_ps =
+        i < series.durations_size() ? series.durations(i) : 0;
     const uint64_t dur_ps = raw_dur_ps & ~kDurationPhaseMask;
     const uint64_t end_ps = start_ps + dur_ps;
     const bool is_begin = (raw_dur_ps & kDurationPhaseBeginBit) != 0;
     const bool is_end = (raw_dur_ps & kDurationPhaseEndBit) != 0;
-    const auto& ev_meta = series.event_metadata(i);
+    const xprof::TraceEventMetadata& ev_meta =
+        i < series.event_metadata_size()
+            ? series.event_metadata(i)
+            : xprof::TraceEventMetadata::default_instance();
     const bool has_flow = (ev_meta.flow_id() != 0);
 
     bool parent_boundary_crossed = false;
@@ -565,12 +596,15 @@ size_t ProcessOverviewSampledSeriesSlice(
       ev.tid = tid;
       ev.ts = start_ps / 1000000.0;
       ev.dur = dur_ps / 1000000.0;
-      const uint32_t name_ref = series.name_refs(i);
+      const uint32_t name_ref = i < series.name_refs_size()
+                                    ? series.name_refs(i)
+                                    : series.metadata().name_ref();
       if (name_ref < interned_strings.size()) {
         ev.name = interned_strings[name_ref];
       }
       if (has_flow) {
-        ev.id = std::to_string(ev_meta.flow_id());
+        ev.flow_id = ev_meta.flow_id();
+        ev.has_flow_id = true;
         if (ev_meta.flow_category() != 0 &&
             ev_meta.flow_category() < interned_strings.size()) {
           ev.category = GetContextTypeFromString(
@@ -580,14 +614,15 @@ size_t ProcessOverviewSampledSeriesSlice(
       ev.serial = ev_meta.serial();
       ev.has_serial = true;
       ev.event_id = GenerateEventId(ev.name, ev.ts, ev.dur);
-      if (!ev.id.empty()) {
-        result.flow_events.push_back(ev);
-      }
+      // Flows are registered by DataProvider from flame events carrying
+      // `has_flow_id`, so they are not duplicated into `flow_events` here.
       result.flame_events.push_back(std::move(ev));
       continue;
     }
 
-    const uint32_t name_ref = series.name_refs(i);
+    const uint32_t name_ref = i < series.name_refs_size()
+                                  ? series.name_refs(i)
+                                  : series.metadata().name_ref();
     const uint32_t serial = ev_meta.serial();
     if (in_burst) {
       const uint64_t gap_ps =

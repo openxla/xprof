@@ -15,7 +15,7 @@ message TraceEventSeriesMetadata {
 // Metadata for a specific occurrence of a trace event.
 // This contains optional fields that are not present on every event.
 message TraceEventMetadata {
-  uint32 flow_id = 1;
+  uint64 flow_id = 1;
   uint32 flow_category = 2;
   uint32 group_id = 3;
   uint32 serial = 4;
@@ -24,6 +24,8 @@ message TraceEventMetadata {
     double counter_value_double = 5;
     uint64 counter_value_uint64 = 6;
   }
+  optional uint32 hlo_op_ref = 7;
+  optional uint32 hlo_module_ref = 8;
 }
 
 // Represents a sequence of trace events, grouped by their metadata (e.g., same
@@ -44,6 +46,13 @@ message TraceEventSeries {
   repeated uint32 name_refs = 4;
   // Metadata for the events in this series.
   repeated TraceEventMetadata event_metadata = 5;
+  // Sparse 0-based event indices into `deltas` corresponding 1:1 with
+  // `event_metadata`. When non-empty, `event_metadata[k]` applies to the event
+  // at `event_metadata_indices[k]`.
+  repeated uint32 event_metadata_indices = 6;
+  // Run-length encoded group_id stream across the events in this series.
+  repeated int64 group_id_run_values = 7;
+  repeated uint32 group_id_run_lengths = 8;
 }
 
 // Describes a thread that appears in the trace.

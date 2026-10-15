@@ -3,6 +3,8 @@
 
 #include <emscripten/val.h>
 
+#include <cstddef>
+#include <cstdint>
 
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
@@ -16,7 +18,8 @@ ParsedTraceEvents ParsePerfettoTraceEvents(const void* data, size_t size,
 // stored.
 // data_size: The size of the Perfetto trace data in bytes.
 void ParseAndProcessPerfettoTraceEvents(
-    int data_ptr, int data_size, const emscripten::val& visible_range_from_url,
+    uintptr_t data_ptr, size_t data_size,
+    const emscripten::val& visible_range_from_url,
     bool normalize_timestamps = true);
 
 }  // namespace traceviewer

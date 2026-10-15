@@ -82,6 +82,32 @@ absl::btree_map<GroupKey, bool> GetRestoredExpandedStates(
   return expanded_states;
 }
 
+// Interns strings into a 0-based dense pool where index 0 is always "".
+class TableInterner {
+ public:
+  TableInterner() {
+    pool_.push_back("");
+    map_.try_emplace("", 0);
+  }
+
+  uint32_t Intern(absl::string_view str) {
+    if (str.empty()) return 0;
+    if (const auto it = map_.find(str); it != map_.end()) {
+      return it->second;
+    }
+    const uint32_t index = static_cast<uint32_t>(pool_.size());
+    pool_.push_back(std::string(str));
+    map_.try_emplace(pool_.back(), index);
+    return index;
+  }
+
+  std::vector<std::string> TakePool() { return std::move(pool_); }
+
+ private:
+  absl::flat_hash_map<std::string, uint32_t> map_;
+  std::vector<std::string> pool_;
+};
+
 struct TraceInformation {
   // The TraceEvent objects pointed to must outlive this TraceInformation
   // instance.
@@ -97,11 +123,13 @@ struct TraceInformation {
   absl::flat_hash_map<ProcessId, std::string> process_names;
   absl::flat_hash_map<ProcessId, uint32_t> process_sort_indices;
   absl::flat_hash_map<ProcessId, uint32_t> incoming_process_sort_indices;
-  absl::btree_map<std::string, std::vector<const TraceEvent*>>
-      flow_events_by_id;
+  absl::btree_map<uint64_t, std::vector<const TraceEvent*>> flow_events_by_id;
   absl::flat_hash_map<ProcessId, ThreadId> xla_modules_tids;
   absl::flat_hash_map<ProcessId, ThreadId> xla_ops_tids;
   absl::flat_hash_set<ProcessId> async_processes_by_events;
+  TableInterner name_interner;
+  TableInterner module_interner;
+  TableInterner op_interner;
   bool is_mpmd = false;
 };
 
@@ -331,12 +359,24 @@ void HandleCompleteEvent(const TraceEvent& event,
   }
 }
 
+bool HasFlowId(const TraceEvent& event) {
+  return event.has_flow_id || event.flow_id != 0 || !event.id.empty();
+}
+
+uint64_t GetEffectiveFlowId(const TraceEvent& event) {
+  if (event.has_flow_id || event.flow_id != 0) {
+    return event.flow_id;
+  }
+  return ParseFlowIdString(event.id);
+}
+
 void HandleFlowEvent(const TraceEvent& event, TraceInformation& trace_info,
                      absl::btree_map<int, int>& category_counts) {
-  if (!event.id.empty()) {
-    trace_info.flow_events_by_id[event.id].push_back(&event);
-    category_counts[static_cast<int>(event.category)]++;
+  if (!HasFlowId(event)) {
+    return;
   }
+  trace_info.flow_events_by_id[GetEffectiveFlowId(event)].push_back(&event);
+  ++category_counts[static_cast<int>(event.category)];
 }
 
 // Handles a counter event ('ph' == 'C'). These events represent a counter value
@@ -462,12 +502,20 @@ void GenerateFlowLines(const TraceInformation& trace_info,
                        absl::Span<const int> top_5_flow_categories,
                        FlameChartTimelineData& data, TimeBounds& bounds,
                        const ColorPalette& palette) {
-  for (const auto& [id, flow_events] : trace_info.flow_events_by_id) {
+  for (const auto& [flow_id, flow_events] : trace_info.flow_events_by_id) {
+    const std::string flow_id_str =
+        (!flow_events.empty() && !flow_events[0]->id.empty())
+            ? flow_events[0]->id
+            : absl::StrCat(flow_id);
     for (const TraceEvent* event : flow_events) {
+      const EventId event_id =
+          event->event_id != 0
+              ? event->event_id
+              : GenerateEventId(event->name, event->ts, event->dur);
       std::vector<std::string>& event_flow_ids =
-          data.flow_ids_by_event_id[event->event_id];
-      if (event_flow_ids.empty() || event_flow_ids.back() != id) {
-        event_flow_ids.push_back(id);
+          data.flow_ids_by_event_id[event_id];
+      if (event_flow_ids.empty() || event_flow_ids.back() != flow_id_str) {
+        event_flow_ids.push_back(flow_id_str);
       }
     }
 
@@ -489,27 +537,13 @@ void GenerateFlowLines(const TraceInformation& trace_info,
           .color = flow_color,
           .category = u->category};
       data.flow_lines.push_back(flow_line);
-      data.flow_lines_by_flow_id[id].push_back(flow_line);
+      data.flow_lines_by_flow_id[flow_id_str].push_back(flow_line);
       bounds.min = std::min(bounds.min, u->ts);
       bounds.max = std::max(bounds.max, u->ts);
       bounds.min = std::min(bounds.min, v->ts);
       bounds.max = std::max(bounds.max, v->ts);
     }
   }
-}
-
-uint32_t InternHloModuleName(std::vector<std::string>& hlo_module_names,
-                             absl::string_view module_name) {
-  if (module_name.empty() || module_name == kHloModuleDefault) {
-    return 0;
-  }
-  for (size_t i = hlo_module_names.size(); i > 0; --i) {
-    if (hlo_module_names[i - 1] == module_name) {
-      return static_cast<uint32_t>(i);
-    }
-  }
-  hlo_module_names.emplace_back(module_name);
-  return static_cast<uint32_t>(hlo_module_names.size());
 }
 
 struct TrackSpanSource {
@@ -567,9 +601,17 @@ absl::string_view LookupTrackSpanAtTimestamp(
   return default_name;
 }
 
+absl::string_view GetEventArg(const TraceEvent* event, absl::string_view key) {
+  if (event->args.empty()) return "";
+  if (const auto it = event->args.find(key); it != event->args.end()) {
+    return it->second;
+  }
+  return "";
+}
+
 void AppendEventToTimelineData(
     const TraceEvent* event, int level, FlameChartTimelineData& data,
-    TimeBounds& bounds, const TraceInformation& trace_info,
+    TimeBounds& bounds, TraceInformation& trace_info,
     absl::string_view thread_name, const TrackSpanSource& module_src,
     size_t& module_cursor, Microseconds& last_module_lookup_ts,
     std::optional<Microseconds> self_time = std::nullopt) {
@@ -599,63 +641,44 @@ void AppendEventToTimelineData(
   data.entry_total_times.push_back(event->dur);
   data.entry_self_times.push_back(self_time.value_or(event->dur));
   data.entry_levels.push_back(static_cast<uint16_t>(level));
+  data.entry_name_indices.push_back(
+      trace_info.name_interner.Intern(event->name));
   data.entry_names.push_back(event->name);
-  data.entry_event_ids.push_back(event->event_id);
+  data.entry_event_ids.push_back(
+      event->event_id != 0
+          ? event->event_id
+          : GenerateEventId(event->name, event->ts, event->dur));
+  if (event->has_serial && event->serial != 0) {
+    data.non_zero_uids_by_event_index[static_cast<int>(entry_idx)] =
+        static_cast<uint32_t>(event->serial);
+  }
+  if (event->flow_id != 0 && !event->is_async) {
+    data.flow_ids_by_event_index[static_cast<int>(entry_idx)] = event->flow_id;
+  }
+  if (event->has_group_id) {
+    data.sparse_entry_group_ids.Append(entry_idx, event->group_id);
+  }
 
+  const absl::string_view hlo_op = GetEventArg(event, *kHloOpStr);
+  const absl::string_view hlo_module = GetEventArg(event, *kHloModuleStr);
   const bool is_xla_ops_thread = thread_name == kXlaOps;
   const bool is_source_thread = thread_name == "Source code";
   const bool is_data_motion_layer = thread_name == kComputeUtilization ||
                                     thread_name == kDataMotionLayersUtilization;
+  const bool has_hlo_in_args = !hlo_op.empty() && !hlo_module.empty();
 
-  if (event->args.empty() && !is_source_thread && !is_data_motion_layer) {
-    data.entry_serials.push_back(event->serial);
-    uint8_t flags = 0;
-    if (event->has_serial) {
-      flags |= FlameChartTimelineData::kEntryArgHasUid;
-    }
-    if (event->has_group_id) {
-      flags |= FlameChartTimelineData::kEntryArgHasGroupId;
-      data.sparse_entry_group_ids[entry_idx] = event->group_id;
-    }
-    if (is_xla_ops_thread) {
-      flags |= FlameChartTimelineData::kEntryArgHloOpFromName;
-    }
-    data.entry_arg_flags.push_back(flags);
+  absl::string_view resolved_hlo_op = hlo_op;
+  absl::string_view resolved_hlo_module = *kHloModuleDefaultStr;
+  std::string formatted_hlo_module;
 
-    absl::string_view hlo_module_str = *kHloModuleDefaultStr;
-    if (is_xla_ops_thread) {
-      hlo_module_str = LookupTrackSpanAtTimestamp(
-          module_src, module_cursor, last_module_lookup_ts, event->ts);
-    }
-    data.entry_hlo_module_ids.push_back(
-        InternHloModuleName(data.hlo_module_names, hlo_module_str));
-
-    bounds.min = std::min(bounds.min, event->ts);
-    bounds.max = std::max(bounds.max, event->ts + event->dur);
-    return;
-  }
-
-  data.entry_serials.push_back(0);
-  data.entry_arg_flags.push_back(0);
-  data.entry_hlo_module_ids.push_back(0);
-
-  auto cur_args = event->args;
-  if (event->has_serial) {
-    cur_args.try_emplace("uid", absl::StrCat(event->serial));
-  }
-  if (event->has_group_id) {
-    cur_args.try_emplace("group_id", absl::StrCat(event->group_id));
-  }
-  const bool has_hlo_in_args = event->args.count(*kHloOpStr) > 0 &&
-                               event->args.count(*kHloModuleStr) > 0;
   if (is_xla_ops_thread || is_source_thread || is_data_motion_layer ||
       has_hlo_in_args) {
     if (is_data_motion_layer) {
-      auto it_name = event->args.find("Name");
-      if (it_name != event->args.end()) {
-        cur_args[*kHloOpStr] = it_name->second;
+      const absl::string_view name_arg = GetEventArg(event, "Name");
+      if (!name_arg.empty()) {
+        resolved_hlo_op = name_arg;
       }
-    } else if (is_source_thread && !event->args.count(*kHloOpStr)) {
+    } else if (is_source_thread && hlo_op.empty()) {
       size_t op_cursor = 0;
       Microseconds last_op_ts = std::numeric_limits<Microseconds>::lowest();
       const absl::string_view op_name = LookupTrackSpanAtTimestamp(
@@ -663,46 +686,49 @@ void AppendEventToTimelineData(
                                  trace_info),
           op_cursor, last_op_ts, event->ts, /*default_name=*/"");
       if (!op_name.empty()) {
-        cur_args[*kHloOpStr] = std::string(op_name);
+        resolved_hlo_op = op_name;
       }
-    } else if (!event->args.count(*kHloOpStr)) {
-      cur_args[*kHloOpStr] = event->name;
+    } else if (hlo_op.empty()) {
+      resolved_hlo_op = event->name;
     }
-    std::string hlo_module_str = *kHloModuleDefaultStr;
-    auto it_hlo_module = event->args.find(*kHloModuleStr);
-    if (it_hlo_module != event->args.end()) {
-      const std::string& hlo_module_name = it_hlo_module->second;
-      auto it_hlo_module_id = event->args.find(*kHloModuleIdStr);
-      auto it_program_id = event->args.find(*kProgramIdStr);
-      if (it_hlo_module_id != event->args.end()) {
-        hlo_module_str =
-            absl::StrCat(hlo_module_name, "(", it_hlo_module_id->second, ")");
-      } else if (it_program_id != event->args.end()) {
-        hlo_module_str =
-            absl::StrCat(hlo_module_name, "(", it_program_id->second, ")");
+
+    if (!hlo_module.empty()) {
+      const absl::string_view hlo_module_id =
+          GetEventArg(event, *kHloModuleIdStr);
+      const absl::string_view program_id = GetEventArg(event, *kProgramIdStr);
+      if (!hlo_module_id.empty()) {
+        formatted_hlo_module =
+            absl::StrCat(hlo_module, "(", hlo_module_id, ")");
+        resolved_hlo_module = formatted_hlo_module;
+      } else if (!program_id.empty()) {
+        formatted_hlo_module = absl::StrCat(hlo_module, "(", program_id, ")");
+        resolved_hlo_module = formatted_hlo_module;
       } else {
-        auto it_kernel_details = event->args.find(*kKernelDetailsStr);
-        if (it_kernel_details != event->args.end()) {
-          std::string module_id;
-          if (RE2::PartialMatch(it_kernel_details->second, *kModuleRe,
-                                &module_id)) {
-            hlo_module_str = absl::StrCat(hlo_module_name, "(", module_id, ")");
-          } else {
-            hlo_module_str = hlo_module_name;
-          }
+        const absl::string_view kernel_details =
+            GetEventArg(event, *kKernelDetailsStr);
+        std::string module_id;
+        if (!kernel_details.empty() &&
+            RE2::PartialMatch(kernel_details, *kModuleRe, &module_id)) {
+          formatted_hlo_module = absl::StrCat(hlo_module, "(", module_id, ")");
+          resolved_hlo_module = formatted_hlo_module;
         } else {
-          hlo_module_str = hlo_module_name;
+          resolved_hlo_module = hlo_module;
         }
       }
     } else {
-      hlo_module_str = std::string(LookupTrackSpanAtTimestamp(
-          module_src, module_cursor, last_module_lookup_ts, event->ts));
+      resolved_hlo_module = LookupTrackSpanAtTimestamp(
+          module_src, module_cursor, last_module_lookup_ts, event->ts);
     }
-    cur_args[*kHloModuleStr] = std::move(hlo_module_str);
-  } else {
-    cur_args[*kHloModuleStr] = *kHloModuleDefaultStr;
   }
-  data.sparse_entry_args[entry_idx] = std::move(cur_args);
+
+  data.entry_hlo_op_indices.push_back(
+      trace_info.op_interner.Intern(resolved_hlo_op));
+  data.entry_hlo_module_indices.push_back(
+      trace_info.module_interner.Intern(resolved_hlo_module));
+
+  if (!event->args.empty()) {
+    data.sparse_entry_args[entry_idx] = event->args;
+  }
 
   bounds.min = std::min(bounds.min, event->ts);
   bounds.max = std::max(bounds.max, event->ts + event->dur);
@@ -715,7 +741,7 @@ void AppendEventToTimelineData(
 void PopulateThreadTrackEvents(absl::Span<const TraceEvent* const> events,
                                int start_level, int& max_level,
                                FlameChartTimelineData& data, TimeBounds& bounds,
-                               const TraceInformation& trace_info,
+                               TraceInformation& trace_info,
                                absl::string_view thread_group_name) {
   if (events.empty()) return;
 
@@ -791,15 +817,7 @@ void PopulateThreadTrackEvents(absl::Span<const TraceEvent* const> events,
       ResolveTrackSpanSource(pid, trace_info.xla_modules_tids, trace_info);
 
   const size_t new_total = data.entry_start_times.size() + n;
-  data.entry_start_times.reserve(new_total);
-  data.entry_total_times.reserve(new_total);
-  data.entry_self_times.reserve(new_total);
-  data.entry_levels.reserve(new_total);
-  data.entry_names.reserve(new_total);
-  data.entry_event_ids.reserve(new_total);
-  data.entry_serials.reserve(new_total);
-  data.entry_arg_flags.reserve(new_total);
-  data.entry_hlo_module_ids.reserve(new_total);
+  data.Reserve(new_total);
 
   size_t module_cursor = 0;
   Microseconds last_module_lookup_ts =
@@ -816,7 +834,7 @@ void PopulateThreadTrackEvents(absl::Span<const TraceEvent* const> events,
 
 void PopulateThreadTrack(
     ProcessId pid, ThreadId tid, absl::Span<const TraceEvent* const> events,
-    const TraceInformation& trace_info, int& current_level,
+    TraceInformation& trace_info, int& current_level,
     FlameChartTimelineData& data, TimeBounds& bounds,
     absl::btree_map<std::pair<ProcessId, ThreadId>, ThreadLevelInfo>&
         thread_levels,
@@ -1031,7 +1049,7 @@ void PopulateAsyncProcessTracks(
     ProcessId pid,
     const absl::btree_map<std::string, std::vector<const TraceEvent*>>&
         async_groups,
-    const std::string& process_group_name, const TraceInformation& trace_info,
+    const std::string& process_group_name, TraceInformation& trace_info,
     int& current_level, FlameChartTimelineData& data, TimeBounds& bounds,
     absl::btree_map<std::pair<ProcessId, ThreadId>, ThreadLevelInfo>&
         thread_levels,
@@ -1052,7 +1070,7 @@ void PopulateSyncProcessTracks(
     ProcessId pid,
     const absl::btree_map<ThreadId, std::vector<const TraceEvent*>>&
         sync_groups,
-    const std::string& process_group_name, const TraceInformation& trace_info,
+    const std::string& process_group_name, TraceInformation& trace_info,
     int& current_level, FlameChartTimelineData& data, TimeBounds& bounds,
     absl::btree_map<std::pair<ProcessId, ThreadId>, ThreadLevelInfo>&
         thread_levels,
@@ -1320,15 +1338,7 @@ FlameChartTimelineData CreateTimelineData(
       }
     }
     if (total_events > 0) {
-      data.entry_start_times.reserve(total_events);
-      data.entry_total_times.reserve(total_events);
-      data.entry_self_times.reserve(total_events);
-      data.entry_levels.reserve(total_events);
-      data.entry_names.reserve(total_events);
-      data.entry_event_ids.reserve(total_events);
-      data.entry_serials.reserve(total_events);
-      data.entry_arg_flags.reserve(total_events);
-      data.entry_hlo_module_ids.reserve(total_events);
+      data.Reserve(total_events);
     }
   }
   int current_level = 0;
@@ -1377,6 +1387,11 @@ FlameChartTimelineData CreateTimelineData(
 
   GenerateFlowLines(trace_info, thread_levels, top_5_flow_categories, data,
                     bounds, palette);
+
+  data.interned_string_pool = trace_info.name_interner.TakePool();
+  data.hlo_module_table = trace_info.module_interner.TakePool();
+  data.hlo_op_table = trace_info.op_interner.TakePool();
+
   return data;
 }
 
@@ -1490,6 +1505,7 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   trace_info.xla_modules_tids = xla_modules_tids_;
   trace_info.async_processes_by_events = known_async_processes_;
 
+  absl::btree_map<int, int> flow_category_counts;
   for (const TraceEvent& event : parsed_events.flame_events) {
     switch (event.ph) {
       case Phase::kMetadata:
@@ -1499,6 +1515,17 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
       case Phase::kInstant:
       case Phase::kInstantDeprecated:
         HandleCompleteEvent(event, trace_info);
+        // TODO(b/542228691): Async flow events are skipped here until async
+        // track level lookup is supported in GenerateFlowLines.
+        if (HasFlowId(event) && !event.is_async) {
+          HandleFlowEvent(event, trace_info, flow_category_counts);
+        }
+        break;
+      case Phase::kFlowStart:
+      case Phase::kFlowEnd:
+        if (HasFlowId(event)) {
+          HandleFlowEvent(event, trace_info, flow_category_counts);
+        }
         break;
       default:
         // Ignore other event types.
@@ -1509,11 +1536,12 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   }
 
   MergeProcessSortIndices(trace_info);
-
-  absl::btree_map<int, int> flow_category_counts;
   for (const TraceEvent& event : parsed_events.flow_events) {
-    HandleFlowEvent(event, trace_info, flow_category_counts);
+    if (!event.is_async) {
+      HandleFlowEvent(event, trace_info, flow_category_counts);
+    }
   }
+
   UpdateFlowCategories(flow_category_counts, present_flow_categories_);
 
   for (const CounterEvent& event : parsed_events.counter_events) {

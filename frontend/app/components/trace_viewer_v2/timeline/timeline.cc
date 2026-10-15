@@ -52,15 +52,92 @@ namespace {
 
 using FallbackKey = std::tuple<ProcessId, ThreadId, absl::string_view>;
 
+absl::string_view GetEventNameFromData(
+    const FlameChartTimelineData& timeline_data, int event_index) {
+  if (!timeline_data.interned_string_pool.empty() && event_index >= 0 &&
+      static_cast<size_t>(event_index) <
+          timeline_data.entry_name_indices.size()) {
+    const uint32_t idx = timeline_data.entry_name_indices[event_index];
+    if (idx < timeline_data.interned_string_pool.size()) {
+      return timeline_data.interned_string_pool[idx];
+    }
+  }
+  if (event_index >= 0 &&
+      static_cast<size_t>(event_index) < timeline_data.entry_names.size()) {
+    return timeline_data.entry_names[event_index];
+  }
+  return "";
+}
+
+EventId GetEventIdFromData(const FlameChartTimelineData& timeline_data,
+                           int event_index) {
+  if (event_index >= 0 &&
+      static_cast<size_t>(event_index) < timeline_data.entry_event_ids.size()) {
+    return timeline_data.entry_event_ids[event_index];
+  }
+  if (event_index >= 0 && static_cast<size_t>(event_index) <
+                              timeline_data.entry_start_times.size()) {
+    const Microseconds dur = (static_cast<size_t>(event_index) <
+                              timeline_data.entry_total_times.size())
+                                 ? timeline_data.entry_total_times[event_index]
+                                 : 0.0;
+    return GenerateEventId(GetEventNameFromData(timeline_data, event_index),
+                           timeline_data.entry_start_times[event_index], dur);
+  }
+  return 0;
+}
+
 absl::flat_hash_map<FallbackKey, std::vector<int>> BuildFallbackMap(
-    const FlameChartTimelineData& timeline_data) {
-  const int num_loaded = timeline_data.entry_event_ids.size();
+    const FlameChartTimelineData& timeline_data,
+    const absl::flat_hash_set<FallbackKey>& wanted_keys) {
   absl::flat_hash_map<FallbackKey, std::vector<int>> fallback_map;
-  fallback_map.reserve(num_loaded);
+  if (wanted_keys.empty()) {
+    return fallback_map;
+  }
+  const int num_loaded = static_cast<int>(std::max({
+      timeline_data.entry_start_times.size(),
+      timeline_data.entry_names.size(),
+      timeline_data.entry_name_indices.size(),
+  }));
+  fallback_map.reserve(wanted_keys.size());
+
+  const int num_levels = timeline_data.total_levels();
+  if (num_levels > 0 &&
+      static_cast<int>(timeline_data.level_event_indices.size()) ==
+          num_loaded) {
+    absl::flat_hash_map<std::pair<ProcessId, ThreadId>,
+                        absl::flat_hash_set<absl::string_view>>
+        wanted_names;
+    wanted_names.reserve(wanted_keys.size());
+    for (const auto& [key_pid, key_tid, key_name] : wanted_keys) {
+      wanted_names[{key_pid, key_tid}].insert(key_name);
+    }
+    for (int level = 0; level < num_levels; ++level) {
+      const Group* grp = timeline_data.FindGroupForLevel(level);
+      const ProcessId pid = grp != nullptr ? grp->pid : 0;
+      const ThreadId tid = grp != nullptr ? grp->tid : 0;
+      const auto names_it = wanted_names.find({pid, tid});
+      if (names_it == wanted_names.end()) {
+        continue;
+      }
+      for (const int i : timeline_data.level_events(level)) {
+        const absl::string_view name = GetEventNameFromData(timeline_data, i);
+        if (!names_it->second.contains(name)) {
+          continue;
+        }
+        fallback_map[FallbackKey(pid, tid, name)].push_back(i);
+      }
+    }
+    for (auto& [key, bucket] : fallback_map) {
+      absl::c_sort(bucket);
+    }
+    return fallback_map;
+  }
+
   for (int i = 0; i < num_loaded; ++i) {
     ProcessId loaded_pid = 0;
     ThreadId loaded_tid = 0;
-    if (i < timeline_data.entry_levels.size()) {
+    if (static_cast<size_t>(i) < timeline_data.entry_levels.size()) {
       if (const Group* grp =
               timeline_data.FindGroupForLevel(timeline_data.entry_levels[i])) {
         loaded_pid = grp->pid;
@@ -68,10 +145,11 @@ absl::flat_hash_map<FallbackKey, std::vector<int>> BuildFallbackMap(
       }
     }
     const absl::string_view loaded_name =
-        (i < timeline_data.entry_names.size())
-            ? absl::string_view(timeline_data.entry_names[i])
-            : absl::string_view();
-    fallback_map[FallbackKey(loaded_pid, loaded_tid, loaded_name)].push_back(i);
+        GetEventNameFromData(timeline_data, i);
+    const FallbackKey key(loaded_pid, loaded_tid, loaded_name);
+    if (wanted_keys.contains(key)) {
+      fallback_map[key].push_back(i);
+    }
   }
   return fallback_map;
 }
@@ -79,19 +157,29 @@ absl::flat_hash_map<FallbackKey, std::vector<int>> BuildFallbackMap(
 int FindFallbackMatchedIndex(
     const absl::flat_hash_map<FallbackKey, std::vector<int>>& fallback_map,
     const FlameChartTimelineData& timeline_data, ProcessId pid, ThreadId tid,
-    absl::string_view name, Microseconds start_time, Microseconds duration) {
-  auto bucket_it = fallback_map.find(FallbackKey(pid, tid, name));
+    absl::string_view name, Microseconds start_time, Microseconds duration,
+    absl::string_view target_group_name = "") {
+  const auto bucket_it = fallback_map.find(FallbackKey(pid, tid, name));
   if (bucket_it == fallback_map.end()) {
     return -1;
   }
-  for (int i : bucket_it->second) {
+  for (const int i : bucket_it->second) {
+    if (!target_group_name.empty() &&
+        static_cast<size_t>(i) < timeline_data.entry_levels.size()) {
+      const Group* grp =
+          timeline_data.FindGroupForLevel(timeline_data.entry_levels[i]);
+      if (grp == nullptr || grp->name != target_group_name) {
+        continue;
+      }
+    }
     const Microseconds loaded_start =
-        (i < timeline_data.entry_start_times.size())
+        (static_cast<size_t>(i) < timeline_data.entry_start_times.size())
             ? timeline_data.entry_start_times[i]
             : 0.0;
-    const Microseconds loaded_dur = (i < timeline_data.entry_total_times.size())
-                                        ? timeline_data.entry_total_times[i]
-                                        : 0.0;
+    const Microseconds loaded_dur =
+        (static_cast<size_t>(i) < timeline_data.entry_total_times.size())
+            ? timeline_data.entry_total_times[i]
+            : 0.0;
     if (std::abs(loaded_start - start_time) < 1.0 &&
         std::abs(loaded_dur - duration) < 1.0) {
       return i;
@@ -472,10 +560,11 @@ bool MatchesArgsMap(const absl::flat_hash_map<std::string, std::string>& args,
 // (case-insensitive).
 bool MatchesSearchQuery(const FlameChartTimelineData& data, int index,
                         absl::string_view query) {
-  if (index < 0 || index >= data.entry_names.size()) {
+  if (index < 0) {
     return false;
   }
-  if (absl::StrContainsIgnoreCase(data.entry_names[index], query)) {
+  const absl::string_view name = GetEventNameFromData(data, index);
+  if (!name.empty() && absl::StrContainsIgnoreCase(name, query)) {
     return true;
   }
   const size_t idx = static_cast<size_t>(index);
@@ -483,14 +572,14 @@ bool MatchesSearchQuery(const FlameChartTimelineData& data, int index,
     return MatchesArgsMap(data.entry_args[idx], query);
   }
   if (const auto it = data.sparse_entry_args.find(idx);
-      it != data.sparse_entry_args.end()) {
-    return MatchesArgsMap(it->second, query);
+      it != data.sparse_entry_args.end() && MatchesArgsMap(it->second, query)) {
+    return true;
   }
-  if (data.HasEntryArgs(idx) &&
-      (data.entry_arg_flags[idx] != 0 || data.entry_hlo_module_ids[idx] != 0)) {
-    return MatchesArgsMap(data.GetEntryArgs(idx), query);
-  }
-  return false;
+  const bool has_columnar_args =
+      data.non_zero_uids_by_event_index.contains(index) ||
+      data.sparse_entry_group_ids.Find(idx).has_value() ||
+      !data.GetEntryHloOp(idx).empty() || data.GetEntryHloModuleIndex(idx) != 0;
+  return has_columnar_args && MatchesArgsMap(data.GetEntryArgs(idx), query);
 }
 }  // namespace
 
@@ -1198,6 +1287,89 @@ void Timeline::BackfillGroupLevelCount(FlameChartTimelineData& data) {
   }
 }
 
+void Timeline::CaptureSelectionStateIfNeeded() {
+  if (saved_selection_state_.has_value()) {
+    return;
+  }
+  if (selected_event_index_ >= 0 &&
+      (static_cast<size_t>(selected_event_index_) <
+           timeline_data_.entry_start_times.size() ||
+       static_cast<size_t>(selected_event_index_) <
+           timeline_data_.entry_names.size() ||
+       static_cast<size_t>(selected_event_index_) <
+           timeline_data_.entry_name_indices.size())) {
+    SavedSelectionState state;
+    state.event_id = GetEventIdFromData(timeline_data_, selected_event_index_);
+    if (static_cast<size_t>(selected_event_index_) <
+        timeline_data_.entry_levels.size()) {
+      if (const Group* grp = timeline_data_.FindGroupForLevel(
+              timeline_data_.entry_levels[selected_event_index_])) {
+        state.pid = grp->pid;
+        state.tid = grp->tid;
+        state.group_name = grp->name;
+      }
+    }
+    state.name = std::string(GetEventName(selected_event_index_));
+    state.start = (static_cast<size_t>(selected_event_index_) <
+                   timeline_data_.entry_start_times.size())
+                      ? timeline_data_.entry_start_times[selected_event_index_]
+                      : 0.0;
+    state.dur = (static_cast<size_t>(selected_event_index_) <
+                 timeline_data_.entry_total_times.size())
+                    ? timeline_data_.entry_total_times[selected_event_index_]
+                    : 0.0;
+    saved_selection_state_ = std::move(state);
+  }
+}
+
+void Timeline::ReleaseTimelineEntriesPreservingState() {
+  CaptureSelectionStateIfNeeded();
+  const size_t entry_count = GetEntryCount();
+  const bool overview_is_compacted =
+      is_compacted_ ||
+      absl::c_any_of(level_mip_pyramids_, [](const LevelMipPyramid& p) {
+        return p.raw_events_compacted;
+      });
+  const size_t uncompacted_stash_limit = std::min(
+      max_uncompacted_overview_entries_, kMaxUncompactedOverviewStashEntries);
+  if (stash_full_overview_on_next_update_ && incremental_fetch_enabled_ &&
+      (overview_is_compacted || entry_count <= uncompacted_stash_limit) &&
+      !saved_full_overview_.has_value() && entry_count > 0) {
+    // Keep the original `timeline_data_.groups` vector buffer in place on
+    // `timeline_data_` so `flattened_groups_` Group* pointers remain valid
+    // during scroll-anchor capture in `UpdateTimelineData()`.
+    std::vector<Group> original_groups;
+    original_groups.swap(timeline_data_.groups);
+    saved_full_overview_ = SavedFullOverview{
+        .data = std::move(timeline_data_),
+        .entry_colors = std::move(entry_colors_),
+        .cached_trace_colors_version = cached_trace_colors_version_,
+        .level_mip_pyramids = std::move(level_mip_pyramids_),
+        .process_utilization_pyramids =
+            std::move(process_utilization_pyramids_),
+        .gpu_flame_instances = std::move(gpu_flame_instances_),
+        .process_utilization_pyramids_dirty =
+            process_utilization_pyramids_dirty_,
+        .fetched_data_time_range = fetched_data_time_range_,
+    };
+    saved_full_overview_->data.groups = original_groups;
+    timeline_data_ = FlameChartTimelineData{};
+    timeline_data_.groups.swap(original_groups);
+  } else {
+    ReleaseEntryMemory(timeline_data_);
+    std::vector<ImU32>().swap(entry_colors_);
+    std::vector<LevelMipPyramid>().swap(level_mip_pyramids_);
+    std::vector<ProcessUtilizationPyramid>().swap(
+        process_utilization_pyramids_);
+  }
+  process_utilization_pyramids_dirty_ = true;
+  stash_full_overview_on_next_update_ = false;
+  is_full_overview_data_ = false;
+  matching_event_indices_.release();
+  selected_event_indices_.release();
+  filtered_event_indices_.release();
+}
+
 void Timeline::SetTimelineData(FlameChartTimelineData data) {
   UpdateTimelineData([&]() { return std::move(data); });
 }
@@ -1267,64 +1439,35 @@ void Timeline::UpdateTimelineData(
     }
   }
 
-  // Capture selection 5-tuple prior to replacing timeline_data_.
-  bool had_selected_event = false;
-  EventId selected_event_id = 0;
-  ProcessId selected_pid = 0;
-  ThreadId selected_tid = 0;
-  std::string selected_name;
-  Microseconds selected_start = 0.0;
-  Microseconds selected_dur = 0.0;
+  // Capture selection 5-tuple prior to releasing/replacing timeline_data_.
+  CaptureSelectionStateIfNeeded();
+  const std::optional<SavedSelectionState> saved_selection =
+      std::move(saved_selection_state_);
+  saved_selection_state_.reset();
+  const bool had_selected_event = saved_selection.has_value();
+  const EventId selected_event_id =
+      had_selected_event ? saved_selection->event_id : 0;
+  const ProcessId selected_pid = had_selected_event ? saved_selection->pid : 0;
+  const ThreadId selected_tid = had_selected_event ? saved_selection->tid : 0;
+  const std::string& selected_group_name =
+      had_selected_event ? saved_selection->group_name : "";
+  const std::string& selected_name =
+      had_selected_event ? saved_selection->name : "";
+  const Microseconds selected_start =
+      had_selected_event ? saved_selection->start : 0.0;
+  const Microseconds selected_dur =
+      had_selected_event ? saved_selection->dur : 0.0;
 
-  if (selected_event_index_ >= 0 &&
-      selected_event_index_ <
-          static_cast<int>(timeline_data_.entry_names.size())) {
-    had_selected_event = true;
-    selected_event_id =
-        (selected_event_index_ <
-         static_cast<int>(timeline_data_.entry_event_ids.size()))
-            ? timeline_data_.entry_event_ids[selected_event_index_]
-            : 0;
-    if (selected_event_index_ <
-        static_cast<int>(timeline_data_.entry_levels.size())) {
-      if (const Group* grp = timeline_data_.FindGroupForLevel(
-              timeline_data_.entry_levels[selected_event_index_])) {
-        selected_pid = grp->pid;
-        selected_tid = grp->tid;
-      }
-    }
-    selected_name = timeline_data_.entry_names[selected_event_index_];
-    selected_start =
-        (selected_event_index_ <
-         static_cast<int>(timeline_data_.entry_start_times.size()))
-            ? timeline_data_.entry_start_times[selected_event_index_]
-            : 0.0;
-    selected_dur = (selected_event_index_ <
-                    static_cast<int>(timeline_data_.entry_total_times.size()))
-                       ? timeline_data_.entry_total_times[selected_event_index_]
-                       : 0.0;
-  }
+  const bool recompute_local_search =
+      search_results_.empty() && !search_query_lower_.empty();
   const bool had_selected_event_dependencies =
-      had_selected_event && dependencies_.event_index == selected_event_index_;
+      had_selected_event && selected_event_index_ >= 0 &&
+      dependencies_.event_index == selected_event_index_;
 
-  if ((stash_full_overview_on_next_update_ || is_full_overview_data_) &&
-      !saved_full_overview_.has_value() &&
-      !timeline_data_.entry_start_times.empty()) {
-    saved_full_overview_ = SavedFullOverview{
-        .data = std::move(timeline_data_),
-        .entry_colors = std::move(entry_colors_),
-        .cached_trace_colors_version = cached_trace_colors_version_,
-        .level_mip_pyramids = std::move(level_mip_pyramids_),
-        .process_utilization_pyramids =
-            std::move(process_utilization_pyramids_),
-        .gpu_flame_instances = std::move(gpu_flame_instances_),
-        .fetched_data_time_range = fetched_data_time_range_,
-    };
-  } else {
-    ReleaseEntryMemory(timeline_data_);
-  }
-  stash_full_overview_on_next_update_ = false;
-  is_full_overview_data_ = false;
+  // Release old entry columns, sparse maps, CSR, flows, entry_colors_, and
+  // level_mip_pyramids_ before allocating new layout, colors, and pyramids.
+  ReleaseTimelineEntriesPreservingState();
+  std::vector<Group>().swap(timeline_data_.groups);
 
   FlameChartTimelineData data = builder();
   BackfillGroupLevelCount(data);
@@ -1337,6 +1480,15 @@ void Timeline::UpdateTimelineData(
   // resolved again below if the same op stays selected.
   EventDependencies old_dependencies = std::exchange(dependencies_, {});
   RebuildEntryColors();
+  ++filter_epoch_;
+  if (is_compacted_ &&
+      (!incremental_fetch_enabled_ ||
+       (timeline_data_.entry_start_times.size() <=
+            max_uncompacted_overview_entries_ &&
+        EstimateRetainedEntryBytes() <= max_uncompacted_overview_bytes_))) {
+    is_compacted_ = false;
+    window_at_full_resolution_ = true;
+  }
   BuildLevelMipPyramids();
 
   // Execute 4-tier despawn fallback to restore compensated scroll offset.
@@ -1407,7 +1559,8 @@ void Timeline::UpdateTimelineData(
 
   // Reconcile loaded_index for all search results against the new
   // timeline_data_.
-  const int num_loaded = timeline_data_.entry_event_ids.size();
+  const int num_loaded =
+      static_cast<int>(timeline_data_.entry_event_ids.size());
   absl::flat_hash_map<EventId, int> event_id_to_loaded_index;
   if (!search_results_.empty() ||
       (had_selected_event && selected_event_id != 0)) {
@@ -1420,34 +1573,65 @@ void Timeline::UpdateTimelineData(
 
   std::optional<absl::flat_hash_map<FallbackKey, std::vector<int>>>
       lazy_loaded_events;
-
-  matching_event_indices_.clear();
-  for (SearchResult& result : search_results_) {
-    if (const auto it = event_id_to_loaded_index.find(result.event_id);
-        it != event_id_to_loaded_index.end()) {
-      result.loaded_index = it->second;
-    } else {
-      if (!lazy_loaded_events.has_value()) {
-        lazy_loaded_events = BuildFallbackMap(timeline_data_);
-      }
-      result.loaded_index = FindFallbackMatchedIndex(
-          *lazy_loaded_events, timeline_data_, result.pid, result.tid,
-          result.name, result.start_time, result.duration);
-      if (result.loaded_index != -1) {
-        result.event_id = timeline_data_.entry_event_ids[result.loaded_index];
+  auto ensure_lazy_loaded_events = [&]() {
+    if (lazy_loaded_events.has_value()) {
+      return;
+    }
+    absl::flat_hash_set<FallbackKey> wanted_keys;
+    wanted_keys.reserve(search_results_.size() + (had_selected_event ? 1 : 0));
+    for (const SearchResult& res : search_results_) {
+      if (!event_id_to_loaded_index.contains(res.event_id)) {
+        wanted_keys.emplace(res.pid, res.tid, res.name);
       }
     }
-    if (result.loaded_index != -1) {
-      matching_event_indices_.insert(result.loaded_index);
+    if (had_selected_event) {
+      wanted_keys.emplace(selected_pid, selected_tid, selected_name);
+    }
+    lazy_loaded_events = BuildFallbackMap(timeline_data_, wanted_keys);
+  };
+
+  matching_event_indices_.clear();
+  if (recompute_local_search) {
+    RecomputeSearchResults();
+  } else {
+    for (SearchResult& result : search_results_) {
+      if (const auto it = event_id_to_loaded_index.find(result.event_id);
+          it != event_id_to_loaded_index.end()) {
+        result.loaded_index = it->second;
+        if (static_cast<size_t>(result.loaded_index) <
+            timeline_data_.entry_levels.size()) {
+          result.level = timeline_data_.entry_levels[result.loaded_index];
+        }
+      } else {
+        ensure_lazy_loaded_events();
+        result.loaded_index = FindFallbackMatchedIndex(
+            *lazy_loaded_events, timeline_data_, result.pid, result.tid,
+            result.name, result.start_time, result.duration);
+        if (result.loaded_index != -1) {
+          if (static_cast<size_t>(result.loaded_index) <
+              timeline_data_.entry_levels.size()) {
+            result.level = timeline_data_.entry_levels[result.loaded_index];
+          }
+          result.event_id =
+              GetEventIdFromData(timeline_data_, result.loaded_index);
+        }
+      }
+      if (result.loaded_index != -1 &&
+          IsEventVisibleUnderFilter(result.loaded_index)) {
+        matching_event_indices_.insert(result.loaded_index);
+      }
     }
   }
 
+  const int total_search_results = get_search_results_count();
   if (pending_navigation_event_id_.has_value()) {
     int matched_index = -1;
     if (current_search_result_index_ >= 0 &&
-        current_search_result_index_ < search_results_.size()) {
+        current_search_result_index_ < total_search_results) {
       matched_index =
-          search_results_.at(current_search_result_index_).loaded_index;
+          !search_results_.empty()
+              ? search_results_.at(current_search_result_index_).loaded_index
+              : GetNthMatchingCsrEventIndex(current_search_result_index_);
     }
 
     if (matched_index != -1) {
@@ -1455,10 +1639,13 @@ void Timeline::UpdateTimelineData(
       pending_navigation_event_id_.reset();
     }
   } else if (current_search_result_index_ >= 0 &&
-             current_search_result_index_ < search_results_.size()) {
-    const SearchResult& active =
-        search_results_.at(current_search_result_index_);
-    selected_event_index_ = active.loaded_index;
+             current_search_result_index_ < total_search_results) {
+    selected_event_index_ =
+        !search_results_.empty()
+            ? search_results_.at(current_search_result_index_).loaded_index
+            : GetNthMatchingCsrEventIndex(current_search_result_index_);
+  } else if (current_search_result_index_ >= 0) {
+    selected_event_index_ = -1;
   } else if (had_selected_event) {
     // Decouple selection re-indexing without mutating viewport scroll.
     int new_selected_index = -1;
@@ -1468,13 +1655,22 @@ void Timeline::UpdateTimelineData(
         new_selected_index = it->second;
       }
     }
-    if (new_selected_index == -1) {
-      if (!lazy_loaded_events.has_value()) {
-        lazy_loaded_events = BuildFallbackMap(timeline_data_);
+    if (new_selected_index != -1 && static_cast<size_t>(new_selected_index) <
+                                        timeline_data_.entry_levels.size()) {
+      if (const Group* grp = timeline_data_.FindGroupForLevel(
+              timeline_data_.entry_levels[new_selected_index])) {
+        if (grp->pid != selected_pid || grp->tid != selected_tid ||
+            (!selected_group_name.empty() &&
+             grp->name != selected_group_name)) {
+          new_selected_index = -1;
+        }
       }
+    }
+    if (new_selected_index == -1) {
+      ensure_lazy_loaded_events();
       new_selected_index = FindFallbackMatchedIndex(
           *lazy_loaded_events, timeline_data_, selected_pid, selected_tid,
-          selected_name, selected_start, selected_dur);
+          selected_name, selected_start, selected_dur, selected_group_name);
     }
     selected_event_index_ = new_selected_index;
   } else if (current_search_result_index_ < 0) {
@@ -1490,9 +1686,8 @@ void Timeline::UpdateTimelineData(
   // indices refer to the events that are kept.
   if (had_selected_event_dependencies && dependencies_.event_index == -1 &&
       selected_event_index_ >= 0 &&
-      selected_event_index_ <
-          static_cast<int>(timeline_data_.entry_names.size()) &&
-      timeline_data_.entry_names[selected_event_index_] == selected_name) {
+      selected_event_index_ < static_cast<int>(GetEntryCount()) &&
+      GetEventName(selected_event_index_) == selected_name) {
     SetSelectedEventDependencies(std::move(old_dependencies.operand_names),
                                  std::move(old_dependencies.consumer_names));
   }
@@ -1510,6 +1705,16 @@ void Timeline::UpdateTimelineData(
 void Timeline::RebuildEntryColors() {
   const auto& trace_colors = palette_.GetTraceColors();
   cached_trace_colors_version_ = palette_.GetTraceVersion();
+  if (!timeline_data_.interned_string_pool.empty()) {
+    const size_t n = timeline_data_.interned_string_pool.size();
+    entry_colors_.resize(n);
+    for (size_t i = 0; i < n; ++i) {
+      entry_colors_[i] =
+          GetColorForId(timeline_data_.interned_string_pool[i], trace_colors);
+    }
+    RebuildGroupAccentColors();
+    return;
+  }
   const size_t n = timeline_data_.entry_names.size();
   entry_colors_.resize(n);
   absl::string_view last_name;
@@ -1562,11 +1767,10 @@ void Timeline::RebuildGroupAccentColors() {
       for (size_t i = 0; i < indices.size(); i += stride) {
         const int event_index = indices[i];
         if (event_index < 0 ||
-            static_cast<size_t>(event_index) >= entry_colors_.size() ||
             static_cast<size_t>(event_index) >= total_times.size()) {
           continue;
         }
-        const ImU32 color = entry_colors_[event_index];
+        const ImU32 color = GetEventColor(event_index);
         // Weight by duration so the accent matches the color that covers the
         // most area on the canvas.
         const double weight = std::max(total_times[event_index], 1e-3);
@@ -1596,149 +1800,210 @@ void Timeline::BuildLevelMipPyramids() {
   level_mip_pyramids_.clear();
   level_mip_pyramids_.resize(num_levels);
   process_utilization_pyramids_.clear();
+  process_utilization_pyramids_dirty_ = true;
   if (num_levels == 0 || timeline_data_.entry_start_times.empty()) {
+    return;
+  }
+  for (int lvl = 0; lvl < num_levels; ++lvl) {
+    BuildLevelMipPyramidForLevel(lvl);
+  }
+}
+
+void Timeline::EnsureLevelMipPyramid(int lvl) {
+  if (lvl < 0 || static_cast<size_t>(lvl) >= level_mip_pyramids_.size()) {
+    return;
+  }
+  // Compacted levels keep only MIP representatives; keep the pre-compaction
+  // pyramid. TODO(b/568464847): fetch full resolution instead.
+  if (level_mip_pyramids_[lvl].raw_events_compacted) {
+    return;
+  }
+  if (level_mip_pyramids_[lvl].built_filter_epoch != filter_epoch_) {
+    BuildLevelMipPyramidForLevel(lvl);
+  }
+}
+
+void Timeline::BuildLevelMipPyramidForLevel(int lvl) {
+  if (lvl < 0 || static_cast<size_t>(lvl) >= level_mip_pyramids_.size()) {
+    return;
+  }
+  LevelMipPyramid& pyramid = level_mip_pyramids_[lvl];
+  pyramid = LevelMipPyramid{};
+  pyramid.built_filter_epoch = filter_epoch_;
+  if (timeline_data_.entry_start_times.empty()) {
     return;
   }
 
   const auto& start_times = timeline_data_.entry_start_times;
   const auto& total_times = timeline_data_.entry_total_times;
 
-  for (int lvl = 0; lvl < num_levels; ++lvl) {
-    const absl::Span<const int> indices = timeline_data_.level_events(lvl);
-    if (indices.size() < kMinEventsForMipPyramid) {
-      continue;
+  const absl::Span<const int> indices = timeline_data_.level_events(lvl);
+  size_t visible_event_count = 0;
+  int first_idx = -1;
+  int last_idx = -1;
+  if (!has_active_event_filter_) {
+    visible_event_count = indices.size();
+    if (!indices.empty()) {
+      first_idx = indices.front();
+      last_idx = indices.back();
     }
-    const int first_idx = indices.front();
-    const int last_idx = indices.back();
-    if (first_idx < 0 || static_cast<size_t>(first_idx) >= start_times.size() ||
-        last_idx < 0 || static_cast<size_t>(last_idx) >= start_times.size()) {
-      continue;
-    }
-    const Microseconds level_min_ts = start_times[first_idx];
-    const Microseconds level_max_ts =
-        std::max(start_times[first_idx] + total_times[first_idx],
-                 start_times[last_idx] + total_times[last_idx]);
-    const Microseconds span = level_max_ts - level_min_ts;
-    if (span <= 0.0) continue;
-
-    struct MipBuilderState {
-      bool active = false;
-      int num_bins = 0;
-      double inv_bin_width = 0.0;
-      int current_bin = -1;
-      Microseconds dom_dur = -1.0;
-      double weight_sum = 0.0;
-      double r_sum = 0.0;
-      double g_sum = 0.0;
-      double b_sum = 0.0;
-    };
-
-    LevelMipPyramid& pyramid = level_mip_pyramids_[lvl];
-    MipBuilderState states[LevelMipPyramid::kNumMipLevels];
-    bool any_active = false;
-    for (int m = 0; m < LevelMipPyramid::kNumMipLevels; ++m) {
-      int num_bins = kMipBinCounts[m];
-      if (m == LevelMipPyramid::kNumMipLevels - 1 &&
-          static_cast<size_t>(num_bins) >= indices.size()) {
-        num_bins = std::max<int>(32, static_cast<int>(indices.size() / 2));
-      }
-      if (static_cast<size_t>(num_bins) >= indices.size()) {
-        continue;
-      }
-      const Microseconds bin_width = span / static_cast<double>(num_bins);
-      if (bin_width <= 0.0) continue;
-      states[m].active = true;
-      states[m].num_bins = num_bins;
-      states[m].inv_bin_width = 1.0 / bin_width;
-      pyramid.levels[m].bin_width_us = bin_width;
-      pyramid.levels[m].tiles.reserve(num_bins);
-      any_active = true;
-    }
-    if (!any_active) continue;
-    pyramid.has_pyramid = true;
-
-    auto finalize_tile = [&](int m) {
-      LevelMipLevel& mip = pyramid.levels[m];
-      if (mip.tiles.empty()) return;
-      LevelMipTile& tile = mip.tiles.back();
-      const MipBuilderState& st = states[m];
-      if (st.weight_sum > 0.0) {
-        const uint32_t r = static_cast<uint32_t>(
-            std::clamp(st.r_sum / st.weight_sum, 0.0, 255.0));
-        const uint32_t g = static_cast<uint32_t>(
-            std::clamp(st.g_sum / st.weight_sum, 0.0, 255.0));
-        const uint32_t b = static_cast<uint32_t>(
-            std::clamp(st.b_sum / st.weight_sum, 0.0, 255.0));
-        tile.blended_color = IM_COL32(r, g, b, 255);
-      } else if (tile.dominant_event_index >= 0) {
-        tile.blended_color = GetEventColor(tile.dominant_event_index);
-      }
-    };
-
-    for (int idx : indices) {
-      if (idx < 0 || static_cast<size_t>(idx) >= start_times.size()) {
-        continue;
-      }
-      const Microseconds s = start_times[idx];
-      const Microseconds d = total_times[idx];
-      const Microseconds e = s + d;
-      const ImU32 c = GetEventColor(idx);
-      const double w = std::max(d, 1e-3);
-      const double cr = static_cast<double>((c >> IM_COL32_R_SHIFT) & 0xFF) * w;
-      const double cg = static_cast<double>((c >> IM_COL32_G_SHIFT) & 0xFF) * w;
-      const double cb = static_cast<double>((c >> IM_COL32_B_SHIFT) & 0xFF) * w;
-      const Microseconds rel_s = s - level_min_ts;
-
-      for (int m = 0; m < LevelMipPyramid::kNumMipLevels; ++m) {
-        MipBuilderState& st = states[m];
-        if (!st.active) continue;
-        LevelMipLevel& mip = pyramid.levels[m];
-        const int bin = std::clamp(static_cast<int>(rel_s * st.inv_bin_width),
-                                   0, st.num_bins - 1);
-        if (bin != st.current_bin) {
-          finalize_tile(m);
-          st.current_bin = bin;
-          st.dom_dur = d;
-          st.weight_sum = w;
-          st.r_sum = cr;
-          st.g_sum = cg;
-          st.b_sum = cb;
-          mip.tiles.push_back(LevelMipTile{
-              .min_start = s,
-              .max_end = e,
-              .total_occupied_dur = std::max(0.0, d),
-              .dominant_event_index = idx,
-              .count = 1,
-              .blended_color = c,
-          });
-        } else {
-          LevelMipTile& tile = mip.tiles.back();
-          const Microseconds prev_end = tile.max_end;
-          tile.max_end = std::max(tile.max_end, e);
-          if (e > prev_end) {
-            tile.total_occupied_dur += (e - std::max(s, prev_end));
-          }
-          tile.count++;
-          st.weight_sum += w;
-          st.r_sum += cr;
-          st.g_sum += cg;
-          st.b_sum += cb;
-          if (d > st.dom_dur) {
-            st.dom_dur = d;
-            tile.dominant_event_index = idx;
-          }
+  } else if (!filtered_event_indices_.empty()) {
+    for (const int idx : indices) {
+      if (filtered_event_indices_.contains(idx)) {
+        if (first_idx == -1) {
+          first_idx = idx;
         }
-      }
-    }
-    for (int m = 0; m < LevelMipPyramid::kNumMipLevels; ++m) {
-      if (states[m].active) {
-        finalize_tile(m);
-        pyramid.levels[m].tiles.shrink_to_fit();
+        last_idx = idx;
+        ++visible_event_count;
       }
     }
   }
+  if (visible_event_count < kMinEventsForMipPyramid || first_idx < 0 ||
+      static_cast<size_t>(first_idx) >= start_times.size() || last_idx < 0 ||
+      static_cast<size_t>(last_idx) >= start_times.size()) {
+    return;
+  }
+  const Microseconds level_min_ts = start_times[first_idx];
+  const Microseconds level_max_ts =
+      std::max(start_times[first_idx] + total_times[first_idx],
+               start_times[last_idx] + total_times[last_idx]);
+  const Microseconds span = level_max_ts - level_min_ts;
+  if (span <= 0.0) {
+    return;
+  }
 
-  BuildProcessUtilizationPyramids();
+  struct MipBuilderState {
+    bool active = false;
+    int num_bins = 0;
+    double inv_bin_width = 0.0;
+    int current_bin = -1;
+    Microseconds dom_dur = -1.0;
+    double occ_dur = 0.0;
+    double weight_sum = 0.0;
+    double r_sum = 0.0;
+    double g_sum = 0.0;
+    double b_sum = 0.0;
+  };
+
+  MipBuilderState states[LevelMipPyramid::kNumMipLevels];
+  int first_active_m = -1;
+  for (int m = 0; m < LevelMipPyramid::kNumMipLevels; ++m) {
+    int num_bins = kMipBinCounts[m];
+    if (is_compacted_ && m == LevelMipPyramid::kNumMipLevels - 1 &&
+        static_cast<size_t>(num_bins) >= visible_event_count) {
+      num_bins = std::max<int>(32, static_cast<int>(visible_event_count / 2));
+    }
+    if (static_cast<size_t>(num_bins) >= visible_event_count) {
+      continue;
+    }
+    const Microseconds bin_width = span / static_cast<double>(num_bins);
+    if (bin_width <= 0.0) continue;
+    states[m].active = true;
+    states[m].num_bins = num_bins;
+    states[m].inv_bin_width = 1.0 / bin_width;
+    pyramid.levels[m].bin_width_us = bin_width;
+    pyramid.levels[m].tiles.reserve(num_bins);
+    if (first_active_m == -1) {
+      first_active_m = m;
+    }
+  }
+  if (first_active_m == -1) {
+    return;
+  }
+  pyramid.has_pyramid = true;
+  pyramid.level_min_ts = level_min_ts;
+  pyramid.level_max_ts = level_max_ts;
+  pyramid.visible_event_count = visible_event_count;
+
+  auto finalize_single_tile = [&](int m) {
+    LevelMipLevel& mip = pyramid.levels[m];
+    if (mip.tiles.empty()) return;
+    LevelMipTile& tile = mip.tiles.back();
+    const MipBuilderState& st = states[m];
+    tile.total_occupied_dur = static_cast<float>(st.occ_dur);
+    if (st.weight_sum > 0.0) {
+      const uint32_t r = static_cast<uint32_t>(
+          std::clamp(st.r_sum / st.weight_sum, 0.0, 255.0));
+      const uint32_t g = static_cast<uint32_t>(
+          std::clamp(st.g_sum / st.weight_sum, 0.0, 255.0));
+      const uint32_t b = static_cast<uint32_t>(
+          std::clamp(st.b_sum / st.weight_sum, 0.0, 255.0));
+      tile.blended_color = IM_COL32(r, g, b, 255);
+    } else if (tile.dominant_event_index >= 0) {
+      tile.blended_color = GetEventColor(tile.dominant_event_index);
+    }
+  };
+
+  size_t actual_visible_count = 0;
+  for (int idx : indices) {
+    if (idx < 0 || static_cast<size_t>(idx) >= start_times.size()) {
+      continue;
+    }
+    if (has_active_event_filter_ && !filtered_event_indices_.contains(idx)) {
+      continue;
+    }
+    ++actual_visible_count;
+    const Microseconds s = start_times[idx];
+    const Microseconds d = total_times[idx];
+    const Microseconds e = s + d;
+    pyramid.level_min_ts = std::min(pyramid.level_min_ts, s);
+    pyramid.level_max_ts = std::max(pyramid.level_max_ts, e);
+    const ImU32 c = GetEventColor(idx);
+    const double w = std::max(d, 1e-3);
+    const double cr = static_cast<double>((c >> IM_COL32_R_SHIFT) & 0xFF) * w;
+    const double cg = static_cast<double>((c >> IM_COL32_G_SHIFT) & 0xFF) * w;
+    const double cb = static_cast<double>((c >> IM_COL32_B_SHIFT) & 0xFF) * w;
+    const Microseconds rel_s = s - level_min_ts;
+
+    for (int m = first_active_m; m < LevelMipPyramid::kNumMipLevels; ++m) {
+      MipBuilderState& st = states[m];
+      if (!st.active) continue;
+      LevelMipLevel& mip = pyramid.levels[m];
+      const int bin = std::clamp(static_cast<int>(rel_s * st.inv_bin_width), 0,
+                                 st.num_bins - 1);
+      if (bin != st.current_bin) {
+        finalize_single_tile(m);
+        st.current_bin = bin;
+        st.dom_dur = d;
+        st.occ_dur = std::max(0.0, d);
+        st.weight_sum = w;
+        st.r_sum = cr;
+        st.g_sum = cg;
+        st.b_sum = cb;
+        mip.tiles.push_back(LevelMipTile{
+            .min_start = s,
+            .max_end = e,
+            .dominant_event_index = idx,
+            .total_occupied_dur = static_cast<float>(st.occ_dur),
+            .count = 1,
+            .blended_color = c,
+        });
+      } else {
+        LevelMipTile& tile = mip.tiles.back();
+        const Microseconds prev_end = tile.max_end;
+        tile.max_end = std::max(tile.max_end, e);
+        if (e > prev_end) {
+          st.occ_dur += (e - std::max(s, prev_end));
+        }
+        ++tile.count;
+        st.weight_sum += w;
+        st.r_sum += cr;
+        st.g_sum += cg;
+        st.b_sum += cb;
+        if (d > st.dom_dur) {
+          st.dom_dur = d;
+          tile.dominant_event_index = idx;
+        }
+      }
+    }
+  }
+  pyramid.visible_event_count = actual_visible_count;
+  for (int m = first_active_m; m < LevelMipPyramid::kNumMipLevels; ++m) {
+    if (states[m].active) {
+      finalize_single_tile(m);
+      pyramid.levels[m].tiles.shrink_to_fit();
+    }
+  }
 }
 
 void Timeline::UploadGpuFlameInstances() {
@@ -1872,20 +2137,88 @@ void Timeline::AddGpuFlameBatch(ImDrawList* draw_list,
 }
 
 void Timeline::ReleaseEntryMemory(FlameChartTimelineData& d) {
-  decltype(d.entry_start_times)().swap(d.entry_start_times);
-  decltype(d.entry_total_times)().swap(d.entry_total_times);
-  decltype(d.entry_self_times)().swap(d.entry_self_times);
-  decltype(d.entry_levels)().swap(d.entry_levels);
-  decltype(d.entry_names)().swap(d.entry_names);
-  decltype(d.entry_event_ids)().swap(d.entry_event_ids);
-  decltype(d.entry_serials)().swap(d.entry_serials);
-  decltype(d.entry_arg_flags)().swap(d.entry_arg_flags);
-  decltype(d.entry_hlo_module_ids)().swap(d.entry_hlo_module_ids);
-  decltype(d.entry_args)().swap(d.entry_args);
-  d.sparse_entry_group_ids.clear();
-  d.sparse_entry_args.clear();
-  decltype(d.level_offsets)().swap(d.level_offsets);
-  decltype(d.level_event_indices)().swap(d.level_event_indices);
+  d.ForEachEntryColumn(
+      [](auto& col) { std::decay_t<decltype(col)>().swap(col); });
+  d.ForEachSparseEntryMap([](auto& m) { std::decay_t<decltype(m)>().swap(m); });
+  d.sparse_entry_group_ids.release();
+  d.sparse_entry_hlo_module_indices.release();
+  d.sparse_entry_hlo_op_indices.release();
+  std::vector<std::vector<ModuleInterval>>().swap(d.hlo_module_intervals);
+  std::vector<FlameChartTimelineData::HloTrackRule>().swap(d.hlo_track_rules);
+  d.sparse_self_times.release();
+  std::vector<int>().swap(d.level_event_indices);
+  std::vector<size_t>().swap(d.level_offsets);
+  std::vector<FlowLine>().swap(d.flow_lines);
+  decltype(d.flow_ids_by_event_id)().swap(d.flow_ids_by_event_id);
+  decltype(d.flow_lines_by_flow_id)().swap(d.flow_lines_by_flow_id);
+  decltype(d.flow_line_ranges_by_flow_id)().swap(d.flow_line_ranges_by_flow_id);
+  decltype(d.counter_data_by_group_index)().swap(d.counter_data_by_group_index);
+  std::vector<std::string>().swap(d.interned_string_pool);
+  std::vector<std::string>().swap(d.hlo_module_table);
+  std::vector<std::string>().swap(d.hlo_op_table);
+}
+
+size_t Timeline::EstimateRetainedEntryBytes() const {
+  size_t bytes = 0;
+  const FlameChartTimelineData& d = timeline_data_;
+  d.ForEachEntryColumn([&bytes](const auto& col) {
+    using ValueType = typename std::decay_t<decltype(col)>::value_type;
+    bytes += col.capacity() * sizeof(ValueType);
+  });
+  for (const std::string& s : d.entry_names) {
+    bytes += s.capacity();
+  }
+  const auto estimate_string_vec =
+      [](const std::vector<std::string>& vec) -> size_t {
+    size_t total = vec.capacity() * sizeof(std::string);
+    for (const std::string& s : vec) {
+      total += s.capacity();
+    }
+    return total;
+  };
+  const auto estimate_arg_map =
+      [](const absl::flat_hash_map<std::string, std::string>& m) -> size_t {
+    using Map = absl::flat_hash_map<std::string, std::string>;
+    size_t total = m.capacity() * (sizeof(Map::value_type) + 1);
+    for (const auto& [k, v] : m) {
+      total += k.capacity() + v.capacity();
+    }
+    return total;
+  };
+  for (const auto& m : d.entry_args) {
+    bytes += estimate_arg_map(m);
+  }
+  bytes += entry_colors_.capacity() * sizeof(ImU32);
+  bytes += d.level_event_indices.capacity() * sizeof(int);
+  bytes += d.level_offsets.capacity() * sizeof(size_t);
+  bytes += estimate_string_vec(d.interned_string_pool);
+  bytes += estimate_string_vec(d.hlo_module_table);
+  bytes += estimate_string_vec(d.hlo_op_table);
+  bytes += d.sparse_entry_group_ids.AllocatedBytes();
+  bytes += d.sparse_entry_hlo_module_indices.AllocatedBytes();
+  bytes += d.sparse_entry_hlo_op_indices.AllocatedBytes();
+  bytes += d.sparse_self_times.AllocatedBytes();
+  bytes += d.non_zero_uids_by_event_index.capacity() *
+           (sizeof(decltype(d.non_zero_uids_by_event_index)::value_type) + 1);
+  bytes += d.flow_ids_by_event_index.capacity() *
+           (sizeof(decltype(d.flow_ids_by_event_index)::value_type) + 1);
+  bytes += d.flow_line_ranges_by_flow_id.capacity() *
+           (sizeof(decltype(d.flow_line_ranges_by_flow_id)::value_type) + 1);
+  using SparseArgsMap = decltype(d.sparse_entry_args);
+  bytes +=
+      d.sparse_entry_args.capacity() * (sizeof(SparseArgsMap::value_type) + 1);
+  for (const auto& [idx, m] : d.sparse_entry_args) {
+    bytes += estimate_arg_map(m);
+  }
+  bytes += d.flow_lines.capacity() * sizeof(FlowLine);
+  bytes += d.hlo_track_rules.capacity() *
+           sizeof(FlameChartTimelineData::HloTrackRule);
+  bytes +=
+      d.hlo_module_intervals.capacity() * sizeof(std::vector<ModuleInterval>);
+  for (const std::vector<ModuleInterval>& intervals : d.hlo_module_intervals) {
+    bytes += intervals.capacity() * sizeof(ModuleInterval);
+  }
+  return bytes;
 }
 
 void Timeline::CompactTimelineDataToMipOverview() {
@@ -1896,28 +2229,30 @@ void Timeline::CompactTimelineDataToMipOverview() {
     return;
   }
   const size_t old_n = timeline_data_.entry_start_times.size();
-  // Only compact huge traces (>200k events by default) where the raw entry
-  // arrays consume hundreds of megabytes of WASM linear memory.
-  if (old_n <= max_uncompacted_overview_entries_) {
+  // Retain all raw events when both entry count and estimated retained entry
+  // bytes fit within the uncompacted memory budget.
+  if (old_n <= max_uncompacted_overview_entries_ &&
+      EstimateRetainedEntryBytes() <= max_uncompacted_overview_bytes_) {
     is_compacted_ = false;
     window_at_full_resolution_ = true;
     return;
   }
 
-  std::vector<uint8_t> keep(old_n, 0);
+  std::vector<int> old_to_new(old_n, -1);
   if (selected_event_index_ >= 0 &&
       static_cast<size_t>(selected_event_index_) < old_n) {
-    keep[selected_event_index_] = 1;
+    old_to_new[selected_event_index_] = 0;
   }
-  for (int idx : matching_event_indices_) {
+  matching_event_indices_.ForEachSetBit([&](int idx) {
     if (idx >= 0 && static_cast<size_t>(idx) < old_n) {
-      keep[idx] = 1;
+      old_to_new[idx] = 0;
     }
-  }
+  });
 
   const int total_lvls = timeline_data_.total_levels();
   std::vector<uint8_t> level_compacted(total_lvls, 0);
   for (int lvl = 0; lvl < total_lvls; ++lvl) {
+    EnsureLevelMipPyramid(lvl);
     const absl::Span<const int> indices = timeline_data_.level_events(lvl);
     const bool has_mip =
         static_cast<size_t>(lvl) < level_mip_pyramids_.size() &&
@@ -1925,7 +2260,7 @@ void Timeline::CompactTimelineDataToMipOverview() {
     if (!has_mip || indices.size() < 64) {
       for (int idx : indices) {
         if (idx >= 0 && static_cast<size_t>(idx) < old_n) {
-          keep[idx] = 1;
+          old_to_new[idx] = 0;
         }
       }
     } else {
@@ -1934,34 +2269,47 @@ void Timeline::CompactTimelineDataToMipOverview() {
         for (const auto& tile : level_mip_pyramids_[lvl].levels[m].tiles) {
           if (tile.dominant_event_index >= 0 &&
               static_cast<size_t>(tile.dominant_event_index) < old_n) {
-            keep[tile.dominant_event_index] = 1;
+            old_to_new[tile.dominant_event_index] = 0;
           }
         }
       }
       if (!indices.empty()) {
         if (indices.front() >= 0 &&
             static_cast<size_t>(indices.front()) < old_n) {
-          keep[indices.front()] = 1;
+          old_to_new[indices.front()] = 0;
         }
         if (indices.back() >= 0 &&
             static_cast<size_t>(indices.back()) < old_n) {
-          keep[indices.back()] = 1;
+          old_to_new[indices.back()] = 0;
         }
       }
     }
   }
 
-  std::vector<int> old_to_new(old_n, -1);
+  // Encode kept entries as `new_idx >= 0` and unkept entries as
+  // `~static_cast<int>(kept_before)` (`< 0`), allowing `kept_before(idx)` to
+  // be queried in O(1) without allocating a separate `keep` or `kept_before`
+  // vector.
   size_t new_n = 0;
   for (size_t i = 0; i < old_n; ++i) {
-    if (keep[i]) {
+    if (old_to_new[i] >= 0) {
       old_to_new[i] = static_cast<int>(new_n++);
+    } else {
+      old_to_new[i] = ~static_cast<int>(new_n);
     }
   }
+  const auto kept_before = [&old_to_new, old_n, new_n](size_t idx) -> size_t {
+    if (idx >= old_n) return new_n;
+    const int v = old_to_new[idx];
+    return static_cast<size_t>(v >= 0 ? v : ~v);
+  };
   if (new_n >= old_n) {
     is_compacted_ = false;
     window_at_full_resolution_ = true;
     return;
+  }
+  if (process_utilization_pyramids_dirty_) {
+    BuildProcessUtilizationPyramids();
   }
   for (int lvl = 0; lvl < total_lvls; ++lvl) {
     if (level_compacted[lvl]) {
@@ -1975,46 +2323,77 @@ void Timeline::CompactTimelineDataToMipOverview() {
     std::vector<T> out;
     out.reserve(new_n);
     for (size_t i = 0; i < old_n; ++i) {
-      if (keep[i]) {
+      if (old_to_new[i] >= 0) {
         out.push_back(std::move(vec[i]));
       }
     }
     vec.swap(out);
   };
 
-  compact_vec(timeline_data_.entry_start_times);
-  compact_vec(timeline_data_.entry_total_times);
-  compact_vec(timeline_data_.entry_self_times);
-  compact_vec(timeline_data_.entry_levels);
-  compact_vec(timeline_data_.entry_names);
-  compact_vec(timeline_data_.entry_event_ids);
-  compact_vec(timeline_data_.entry_serials);
-  compact_vec(timeline_data_.entry_arg_flags);
-  compact_vec(timeline_data_.entry_hlo_module_ids);
-  compact_vec(timeline_data_.entry_args);
-  compact_vec(entry_colors_);
-
-  if (!timeline_data_.sparse_entry_group_ids.empty()) {
-    decltype(timeline_data_.sparse_entry_group_ids) new_sparse_group_ids;
-    for (const auto& [old_idx, group_id] :
-         timeline_data_.sparse_entry_group_ids) {
-      if (old_idx < old_n && old_to_new[old_idx] != -1) {
-        new_sparse_group_ids[static_cast<size_t>(old_to_new[old_idx])] =
-            group_id;
-      }
-    }
-    timeline_data_.sparse_entry_group_ids = std::move(new_sparse_group_ids);
+  timeline_data_.ForEachEntryColumn(compact_vec);
+  if (timeline_data_.interned_string_pool.empty()) {
+    compact_vec(entry_colors_);
   }
 
-  if (!timeline_data_.sparse_entry_args.empty()) {
-    decltype(timeline_data_.sparse_entry_args) new_sparse;
-    for (auto& [old_idx, args_map] : timeline_data_.sparse_entry_args) {
-      if (old_idx < old_n && old_to_new[old_idx] != -1) {
-        new_sparse[static_cast<size_t>(old_to_new[old_idx])] =
-            std::move(args_map);
+  timeline_data_.ForEachSparseEntryMap([&](auto& m) {
+    if (m.empty()) return;
+    using Map = std::decay_t<decltype(m)>;
+    Map remapped;
+    remapped.reserve(m.size());
+    for (auto& [old_idx, value] : m) {
+      const size_t i = static_cast<size_t>(old_idx);
+      if (i < old_n && old_to_new[i] >= 0) {
+        remapped.try_emplace(static_cast<typename Map::key_type>(old_to_new[i]),
+                             std::move(value));
       }
     }
-    timeline_data_.sparse_entry_args = std::move(new_sparse);
+    m = std::move(remapped);
+  });
+
+  if (!timeline_data_.sparse_entry_group_ids.empty()) {
+    GroupIdRuns remapped;
+    for (const auto& run : timeline_data_.sparse_entry_group_ids.runs()) {
+      const size_t new_begin = kept_before(run.begin);
+      const size_t new_end = kept_before(run.end);
+      for (size_t new_idx = new_begin; new_idx < new_end; ++new_idx) {
+        remapped.Append(new_idx, run.group_id);
+      }
+    }
+    timeline_data_.sparse_entry_group_ids = std::move(remapped);
+  }
+
+  auto remap_index_runs = [&](IndexRuns& runs) {
+    if (runs.empty()) return;
+    IndexRuns remapped;
+    for (const auto& run : runs.runs()) {
+      const size_t new_begin = kept_before(run.begin);
+      const size_t new_end = kept_before(run.end);
+      for (size_t new_idx = new_begin; new_idx < new_end; ++new_idx) {
+        remapped.Append(new_idx, run.value);
+      }
+    }
+    runs = std::move(remapped);
+  };
+  remap_index_runs(timeline_data_.sparse_entry_hlo_module_indices);
+  remap_index_runs(timeline_data_.sparse_entry_hlo_op_indices);
+
+  if (!timeline_data_.sparse_self_times.empty()) {
+    SparseSelfTimes remapped;
+    for (size_t i = 0; i < old_n; ++i) {
+      if (old_to_new[i] < 0) continue;
+      if (const std::optional<Microseconds> self_time =
+              timeline_data_.sparse_self_times.Find(i);
+          self_time.has_value()) {
+        remapped.Append(static_cast<size_t>(old_to_new[i]), *self_time);
+      }
+    }
+    timeline_data_.sparse_self_times = std::move(remapped);
+  }
+
+  for (FlameChartTimelineData::HloTrackRule& rule :
+       timeline_data_.hlo_track_rules) {
+    rule.begin_entry = kept_before(rule.begin_entry);
+    rule.end_entry = kept_before(rule.end_entry);
   }
 
   std::vector<size_t> new_level_offsets(total_lvls + 1, 0);
@@ -2024,7 +2403,7 @@ void Timeline::CompactTimelineDataToMipOverview() {
     new_level_offsets[lvl] = new_level_event_indices.size();
     for (int idx : timeline_data_.level_events(lvl)) {
       if (idx >= 0 && static_cast<size_t>(idx) < old_n &&
-          old_to_new[idx] != -1) {
+          old_to_new[idx] >= 0) {
         new_level_event_indices.push_back(old_to_new[idx]);
       }
     }
@@ -2038,53 +2417,50 @@ void Timeline::CompactTimelineDataToMipOverview() {
       for (auto& tile : pyramid.levels[m].tiles) {
         if (tile.dominant_event_index >= 0 &&
             static_cast<size_t>(tile.dominant_event_index) < old_n) {
-          tile.dominant_event_index = old_to_new[tile.dominant_event_index];
+          const int mapped = old_to_new[tile.dominant_event_index];
+          tile.dominant_event_index = mapped >= 0 ? mapped : -1;
         }
       }
     }
   }
 
   if (selected_event_index_ >= 0 &&
-      static_cast<size_t>(selected_event_index_) < old_n) {
+      static_cast<size_t>(selected_event_index_) < old_n &&
+      old_to_new[selected_event_index_] >= 0) {
     selected_event_index_ = old_to_new[selected_event_index_];
   } else {
     selected_event_index_ = -1;
   }
 
   if (event_index_to_scroll_to_ >= 0 &&
-      static_cast<size_t>(event_index_to_scroll_to_) < old_n) {
+      static_cast<size_t>(event_index_to_scroll_to_) < old_n &&
+      old_to_new[event_index_to_scroll_to_] >= 0) {
     event_index_to_scroll_to_ = old_to_new[event_index_to_scroll_to_];
   } else {
     event_index_to_scroll_to_ = -1;
   }
 
-  if (!selected_event_indices_.empty()) {
-    std::vector<int> new_sel;
-    new_sel.reserve(selected_event_indices_.size());
-    for (int idx : selected_event_indices_) {
+  auto remap_bitset = [&](EntryBitset& bitset) {
+    if (bitset.empty()) return;
+    EntryBitset remapped;
+    remapped.Reserve(new_n);
+    bitset.ForEachSetBit([&](int idx) {
       if (idx >= 0 && static_cast<size_t>(idx) < old_n &&
-          old_to_new[idx] != -1) {
-        new_sel.push_back(old_to_new[idx]);
+          old_to_new[idx] >= 0) {
+        remapped.insert(old_to_new[idx]);
       }
-    }
-    selected_event_indices_.swap(new_sel);
-  }
-
-  if (!matching_event_indices_.empty()) {
-    absl::flat_hash_set<int> new_matching;
-    for (int idx : matching_event_indices_) {
-      if (idx >= 0 && static_cast<size_t>(idx) < old_n &&
-          old_to_new[idx] != -1) {
-        new_matching.insert(old_to_new[idx]);
-      }
-    }
-    matching_event_indices_ = std::move(new_matching);
-  }
+    });
+    bitset = std::move(remapped);
+  };
+  remap_bitset(selected_event_indices_);
+  remap_bitset(matching_event_indices_);
+  remap_bitset(filtered_event_indices_);
 
   for (auto& res : search_results_) {
     if (res.loaded_index >= 0 &&
         static_cast<size_t>(res.loaded_index) < old_n) {
-      res.loaded_index = old_to_new[res.loaded_index];
+      const int mapped = old_to_new[res.loaded_index];
+      res.loaded_index = mapped >= 0 ? mapped : -1;
     }
   }
   is_compacted_ = true;
@@ -2133,6 +2509,8 @@ bool Timeline::RestoreSavedFullOverview() {
   process_utilization_pyramids_ =
       std::move(saved_full_overview_->process_utilization_pyramids);
   gpu_flame_instances_ = std::move(saved_full_overview_->gpu_flame_instances);
+  process_utilization_pyramids_dirty_ =
+      saved_full_overview_->process_utilization_pyramids_dirty;
   fetched_data_time_range_ = saved_full_overview_->fetched_data_time_range;
   saved_full_overview_.reset();
   is_full_overview_data_ = true;
@@ -2140,6 +2518,11 @@ bool Timeline::RestoreSavedFullOverview() {
   selected_event_index_ = -1;
   selected_event_indices_.clear();
   matching_event_indices_.clear();
+  filtered_event_indices_.release();
+  has_active_event_filter_ = false;
+  if (!search_query_lower_.empty() && search_results_.empty()) {
+    RecomputeSearchResults();
+  }
   if (data_time_range_.duration() > 0) {
     last_fetch_request_range_ = data_time_range_;
   }
@@ -2156,16 +2539,24 @@ bool Timeline::RestoreSavedFullOverview() {
 }
 
 ImU32 Timeline::GetEventColor(int event_index) const {
-  if (event_index >= 0 &&
-      static_cast<size_t>(event_index) < entry_colors_.size() &&
-      cached_trace_colors_version_ == palette_.GetTraceVersion()) {
-    return entry_colors_[event_index];
+  if (cached_trace_colors_version_ == palette_.GetTraceVersion() &&
+      event_index >= 0) {
+    if (!timeline_data_.interned_string_pool.empty() &&
+        static_cast<size_t>(event_index) <
+            timeline_data_.entry_name_indices.size()) {
+      const uint32_t name_idx = timeline_data_.entry_name_indices[event_index];
+      if (name_idx < entry_colors_.size()) {
+        return entry_colors_[name_idx];
+      }
+    } else if (static_cast<size_t>(event_index) < entry_colors_.size()) {
+      return entry_colors_[event_index];
+    }
   }
-  return GetColorForId(timeline_data_.entry_names[event_index],
-                       palette_.GetTraceColors());
+  return GetColorForId(GetEventName(event_index), palette_.GetTraceColors());
 }
 
 void Timeline::BuildProcessUtilizationPyramids() {
+  process_utilization_pyramids_dirty_ = false;
   process_utilization_pyramids_.clear();
   const int num_levels = timeline_data_.total_levels();
   if (num_levels == 0 || timeline_data_.entry_start_times.empty()) {
@@ -2207,18 +2598,27 @@ Timeline::BuildProcessUtilizationPyramidForRange(int proc_start,
   size_t proc_event_count = 0;
 
   for (int lvl = proc_start; lvl < proc_end; ++lvl) {
-    const absl::Span<const int> indices = timeline_data_.level_events(lvl);
-    if (indices.empty()) continue;
-    proc_event_count += indices.size();
-    const int first_idx = indices.front();
-    if (first_idx >= 0 && static_cast<size_t>(first_idx) < start_times.size()) {
-      proc_min_ts = std::min(proc_min_ts, start_times[first_idx]);
-    }
-    for (int idx : indices) {
-      if (idx >= 0 && static_cast<size_t>(idx) < start_times.size()) {
-        proc_max_ts =
-            std::max(proc_max_ts, start_times[idx] + total_times[idx]);
+    if (static_cast<size_t>(lvl) < level_mip_pyramids_.size()) {
+      const LevelMipPyramid& lpyr = level_mip_pyramids_[lvl];
+      if (lpyr.has_pyramid && !lpyr.raw_events_compacted &&
+          lpyr.built_filter_epoch == filter_epoch_ &&
+          lpyr.visible_event_count > 0) {
+        proc_event_count += lpyr.visible_event_count;
+        proc_min_ts = std::min(proc_min_ts, lpyr.level_min_ts);
+        proc_max_ts = std::max(proc_max_ts, lpyr.level_max_ts);
+        continue;
       }
+    }
+    const absl::Span<const int> indices = timeline_data_.level_events(lvl);
+    for (int idx : indices) {
+      if (idx < 0 || static_cast<size_t>(idx) >= start_times.size()) continue;
+      if (has_active_event_filter_ && !filtered_event_indices_.contains(idx)) {
+        continue;
+      }
+      ++proc_event_count;
+      const Microseconds s = start_times[idx];
+      proc_min_ts = std::min(proc_min_ts, s);
+      proc_max_ts = std::max(proc_max_ts, s + total_times[idx]);
     }
   }
 
@@ -2232,54 +2632,67 @@ Timeline::BuildProcessUtilizationPyramidForRange(int proc_start,
   proc_pyr.end_level = proc_end;
   const Microseconds proc_span = proc_max_ts - proc_min_ts;
 
+  double bin_w[LevelMipPyramid::kNumMipLevels] = {};
+  double inv_bin_w[LevelMipPyramid::kNumMipLevels] = {};
   for (int m = 0; m < LevelMipPyramid::kNumMipLevels; ++m) {
-    PopulateProcessUtilizationMipLevel(proc_start, proc_end, proc_min_ts,
-                                       proc_span, kMipBinCounts[m],
-                                       proc_pyr.levels[m]);
+    const int num_bins = kMipBinCounts[m];
+    if (num_bins <= 0) return std::nullopt;
+    bin_w[m] = proc_span / static_cast<double>(num_bins);
+    if (bin_w[m] <= 0.0) return std::nullopt;
+    inv_bin_w[m] = 1.0 / bin_w[m];
+    ProcessUtilizationMip& pmip = proc_pyr.levels[m];
+    pmip.min_ts = proc_min_ts;
+    pmip.bin_width_us = bin_w[m];
+    pmip.occupied_us_bins.assign(num_bins, 0.0f);
   }
-  return proc_pyr;
-}
 
-void Timeline::PopulateProcessUtilizationMipLevel(
-    int proc_start, int proc_end, Microseconds proc_min_ts,
-    Microseconds proc_span, int num_bins, ProcessUtilizationMip& pmip) const {
-  if (num_bins <= 0) return;
-  const Microseconds bin_w = proc_span / static_cast<double>(num_bins);
-  if (bin_w <= 0.0) return;
-  const double inv_bin_w = 1.0 / bin_w;
-
-  pmip.min_ts = proc_min_ts;
-  pmip.bin_width_us = bin_w;
-  pmip.occupied_us_bins.assign(num_bins, 0.0f);
-
-  const auto& start_times = timeline_data_.entry_start_times;
-  const auto& total_times = timeline_data_.entry_total_times;
-  const double max_bin_idx = static_cast<double>(num_bins - 1);
+  const double bw0 = bin_w[0];
+  const double inv_bw0 = inv_bin_w[0];
+  const int max_b0 = kMipBinCounts[0] - 1;
+  std::vector<float>& bins0 = proc_pyr.levels[0].occupied_us_bins;
 
   for (int lvl = proc_start; lvl < proc_end; ++lvl) {
     for (int idx : timeline_data_.level_events(lvl)) {
       if (idx < 0 || static_cast<size_t>(idx) >= start_times.size()) continue;
+      if (has_active_event_filter_ && !filtered_event_indices_.contains(idx)) {
+        continue;
+      }
       const Microseconds s = start_times[idx];
       const Microseconds d = total_times[idx];
       if (d <= 0.0) continue;
       const Microseconds e = s + d;
-      const int b0 = static_cast<int>(std::clamp(
-          std::floor((s - proc_min_ts) * inv_bin_w), 0.0, max_bin_idx));
-      const int b1 = static_cast<int>(std::clamp(
-          std::ceil((e - proc_min_ts) * inv_bin_w - 1e-9), 0.0, max_bin_idx));
-      if (b0 == b1) {
-        pmip.occupied_us_bins[b0] += static_cast<float>(d);
+      const Microseconds rel_s = s - proc_min_ts;
+      const int b0 = std::clamp(static_cast<int>(rel_s * inv_bw0), 0, max_b0);
+      const Microseconds b0_end = proc_min_ts + (b0 + 1) * bw0;
+      if (e <= b0_end || b0 == max_b0) {
+        bins0[b0] += static_cast<float>(d);
         continue;
       }
+      const Microseconds rel_e = e - proc_min_ts;
+      const int b1 = std::clamp(static_cast<int>(rel_e * inv_bw0), b0, max_b0);
       for (int b = b0; b <= b1; ++b) {
-        const Microseconds bs = proc_min_ts + b * bin_w;
-        const Microseconds ov = std::min(e, bs + bin_w) - std::max(s, bs);
+        const Microseconds bs = proc_min_ts + b * bw0;
+        const Microseconds ov = std::min(e, bs + bw0) - std::max(s, bs);
         if (ov > 0.0) {
-          pmip.occupied_us_bins[b] += static_cast<float>(ov);
+          bins0[b] += static_cast<float>(ov);
         }
       }
     }
   }
+
+  static_assert(kMipBinCounts[0] == 4 * kMipBinCounts[1]);
+  static_assert(kMipBinCounts[1] == 4 * kMipBinCounts[2]);
+  for (int m = 1; m < LevelMipPyramid::kNumMipLevels; ++m) {
+    const std::vector<float>& prev = proc_pyr.levels[m - 1].occupied_us_bins;
+    std::vector<float>& cur = proc_pyr.levels[m].occupied_us_bins;
+    const int cur_n = kMipBinCounts[m];
+    for (int i = 0; i < cur_n; ++i) {
+      const int base = i * 4;
+      cur[i] =
+          (prev[base] + prev[base + 1]) + (prev[base + 2] + prev[base + 3]);
+    }
+  }
+  return proc_pyr;
 }
 
 void Timeline::ResetForNewDataset() {
@@ -2318,6 +2731,10 @@ void Timeline::ResetForNewDataset() {
   current_play_time_ = -1.0;
 
   // Data and layout caches.
+  has_active_event_filter_ = false;
+  filtered_event_indices_.release();
+  ++filter_epoch_;
+  ClearSavedFullOverview();
   SetTimelineData({});
   should_restore_scroll_ = false;
   last_scroll_y_ = 0.0f;
@@ -2340,8 +2757,12 @@ void Timeline::ResetForNewDataset() {
 
 void Timeline::Draw() {
   emitted_gpu_flame_batches_.clear();
+  const size_t expected_colors_size =
+      !timeline_data_.interned_string_pool.empty()
+          ? timeline_data_.interned_string_pool.size()
+          : timeline_data_.entry_names.size();
   if (cached_trace_colors_version_ != palette_.GetTraceVersion() ||
-      entry_colors_.size() != timeline_data_.entry_names.size()) {
+      entry_colors_.size() != expected_colors_size) {
     RebuildEntryColors();
     BuildLevelMipPyramids();
     UploadGpuFlameInstances();
@@ -3349,15 +3770,23 @@ void Timeline::ConstrainTimeRange(TimeRange& range) {
   }
 }
 
+absl::string_view Timeline::GetEventName(int event_index) const {
+  return GetEventNameFromData(timeline_data_, event_index);
+}
+
 EventData Timeline::CreateBaseEventData(int event_index, bool is_hover) const {
   EventData event_data;
   event_data.try_emplace(kEventSelectedIndex, event_index);
-  if (event_index < 0 || event_index >= timeline_data_.entry_names.size()) {
+  if (event_index < 0 ||
+      (static_cast<size_t>(event_index) >= timeline_data_.entry_names.size() &&
+       static_cast<size_t>(event_index) >=
+           timeline_data_.entry_name_indices.size())) {
     return event_data;
   }
   event_data.try_emplace(kEventSelectedName,
-                         timeline_data_.entry_names[event_index]);
-  if (event_index < timeline_data_.entry_start_times.size()) {
+                         std::string(GetEventName(event_index)));
+  if (static_cast<size_t>(event_index) <
+      timeline_data_.entry_start_times.size()) {
     const Microseconds start_ts = timeline_data_.entry_start_times[event_index];
     event_data.try_emplace(kEventSelectedStart, start_ts);
     event_data.try_emplace(
@@ -3366,13 +3795,14 @@ EventData Timeline::CreateBaseEventData(int event_index, bool is_hover) const {
             ? FormatRulerLabel(start_ts - data_time_range_.start())
             : FormatTime(start_ts));
   }
-  if (event_index < timeline_data_.entry_total_times.size()) {
+  if (static_cast<size_t>(event_index) <
+      timeline_data_.entry_total_times.size()) {
     const Microseconds total_ts = timeline_data_.entry_total_times[event_index];
     event_data.try_emplace(kEventSelectedDuration, total_ts);
     event_data.try_emplace(kEventSelectedDurationFormatted,
                            FormatDuration(total_ts, time_axis_unit_));
   }
-  if (event_index < timeline_data_.entry_levels.size()) {
+  if (static_cast<size_t>(event_index) < timeline_data_.entry_levels.size()) {
     ProcessId pid = 0;
     if (const Group* grp = timeline_data_.FindGroupForLevel(
             timeline_data_.entry_levels[event_index])) {
@@ -3383,7 +3813,8 @@ EventData Timeline::CreateBaseEventData(int event_index, bool is_hover) const {
   if (timeline_data_.HasEntryArgs(event_index)) {
     const absl::flat_hash_map<std::string, std::string> args =
         timeline_data_.GetEntryArgs(event_index);
-    if (const auto it = args.find("uid"); it != args.end()) {
+    if (const auto it = args.find("uid");
+        it != args.end() && it->second != "0") {
       event_data.try_emplace(kEventSelectedUid, it->second);
     }
     if (const auto it = args.find(kHloModule); it != args.end()) {
@@ -3430,8 +3861,11 @@ void Timeline::EmitEventHovered(int event_index, float mouse_x, float mouse_y) {
   event_data.try_emplace("mouse_x", static_cast<double>(mouse_x));
   event_data.try_emplace("mouse_y", static_cast<double>(mouse_y));
 
-  if (event_index >= 0 && event_index < timeline_data_.entry_names.size() &&
-      event_index < timeline_data_.entry_levels.size()) {
+  if (event_index >= 0 &&
+      (static_cast<size_t>(event_index) < timeline_data_.entry_names.size() ||
+       static_cast<size_t>(event_index) <
+           timeline_data_.entry_name_indices.size()) &&
+      static_cast<size_t>(event_index) < timeline_data_.entry_levels.size()) {
     // Find track name (group name)
     int level = timeline_data_.entry_levels[event_index];
     int group_index = -1;
@@ -3569,8 +4003,14 @@ void Timeline::SelectPreviousEvent() {
   const auto events_on_level = timeline_data_.level_events(level);
   auto it = std::find(events_on_level.begin(), events_on_level.end(),
                       selected_event_index_);
-  if (it != events_on_level.end() && it != events_on_level.begin()) {
-    RevealEvent(*(it - 1));
+  if (it != events_on_level.end()) {
+    while (it != events_on_level.begin()) {
+      --it;
+      if (IsEventVisibleUnderFilter(*it)) {
+        RevealEvent(*it);
+        break;
+      }
+    }
   }
 }
 
@@ -3589,8 +4029,13 @@ void Timeline::SelectNextEvent() {
   const auto events_on_level = timeline_data_.level_events(level);
   auto it = std::find(events_on_level.begin(), events_on_level.end(),
                       selected_event_index_);
-  if (it != events_on_level.end() && (it + 1) != events_on_level.end()) {
-    RevealEvent(*(it + 1));
+  if (it != events_on_level.end()) {
+    for (++it; it != events_on_level.end(); ++it) {
+      if (IsEventVisibleUnderFilter(*it)) {
+        RevealEvent(*it);
+        break;
+      }
+    }
   }
 }
 
@@ -3602,9 +4047,10 @@ std::optional<TimeRange> Timeline::GetSelectionTimeRange() const {
     Microseconds min_start = std::numeric_limits<Microseconds>::infinity();
     Microseconds max_end = -std::numeric_limits<Microseconds>::infinity();
 
-    for (int idx : selected_event_indices_) {
-      if (idx >= 0 && idx < timeline_data_.entry_start_times.size() &&
-          idx < timeline_data_.entry_total_times.size()) {
+    selected_event_indices_.ForEachSetBit([&](int idx) {
+      if (idx >= 0 &&
+          static_cast<size_t>(idx) < timeline_data_.entry_start_times.size() &&
+          static_cast<size_t>(idx) < timeline_data_.entry_total_times.size()) {
         const Microseconds start = timeline_data_.entry_start_times[idx];
         Microseconds duration = timeline_data_.entry_total_times[idx];
         if (std::isnan(duration) || duration <= 0) {
@@ -3613,7 +4059,7 @@ std::optional<TimeRange> Timeline::GetSelectionTimeRange() const {
         min_start = std::min(min_start, start);
         max_end = std::max(max_end, start + duration);
       }
-    }
+    });
     if (min_start <= max_end) {
       return TimeRange(min_start, max_end);
     }
@@ -3940,7 +4386,8 @@ void Timeline::FindNearestEventEdge(Microseconds time, Microseconds threshold,
         const int event_index = *it;
         if (event_index < 0 ||
             event_index >= timeline_data_.entry_start_times.size() ||
-            event_index >= timeline_data_.entry_total_times.size()) {
+            event_index >= timeline_data_.entry_total_times.size() ||
+            !IsEventVisibleUnderFilter(event_index)) {
           continue;
         }
 
@@ -4172,7 +4619,7 @@ void Timeline::DrawEventName(absl::string_view event_name,
 void Timeline::DrawEventTextOnly(int event_index, const EventRect& rect,
                                  ImDrawList* absl_nonnull draw_list) const {
   if (rect.right <= rect.left || event_index < 0 ||
-      static_cast<size_t>(event_index) >= timeline_data_.entry_names.size()) {
+      static_cast<size_t>(event_index) >= GetEntryCount()) {
     return;
   }
   const ImU32 event_color = GetEventColor(event_index);
@@ -4184,7 +4631,7 @@ void Timeline::DrawEventTextOnly(int event_index, const EventRect& rect,
           .value_or(kInverseOnSurfaceColor);
   const ImU32 text_color = GetTextColorForContrast(
       event_color, on_surface_color, inverse_on_surface_color);
-  DrawEventName(timeline_data_.entry_names[event_index], rect, draw_list,
+  DrawEventName(GetEventName(event_index), rect, draw_list,
                 text_color);
 }
 
@@ -4195,7 +4642,7 @@ void Timeline::DrawEvent(int group_index, int event_index,
   // TODO: b/453676716 - Add ImGUI test for this function, including condition
   // rect.right > rect.left.
   if (rect.right > rect.left) {
-    const std::string& event_name = timeline_data_.entry_names[event_index];
+    const absl::string_view event_name = GetEventName(event_index);
 
     const bool is_instant =
         timeline_data_.entry_total_times[event_index] <= 1e-06;
@@ -4280,7 +4727,7 @@ void Timeline::DrawEvent(int group_index, int event_index,
 
       if (event_tooltip_enabled_) {
         ImGui::SetTooltip(
-            "%s (%s)", event_name.c_str(),
+            "%.*s (%s)", static_cast<int>(event_name.size()), event_name.data(),
             FormatDuration(timeline_data_.entry_total_times[event_index],
                            time_axis_unit_)
                 .c_str());
@@ -4440,9 +4887,13 @@ void Timeline::DrawEventsForLevel(int group_index,
         global_level = timeline_data_.entry_levels[sample_idx];
       }
     }
-    if (global_level >= 0 &&
-        static_cast<size_t>(global_level) < level_mip_pyramids_.size() &&
-        level_mip_pyramids_[global_level].has_pyramid &&
+    const bool has_level =
+        global_level >= 0 &&
+        static_cast<size_t>(global_level) < level_mip_pyramids_.size();
+    if (has_level) {
+      EnsureLevelMipPyramid(global_level);
+    }
+    if (has_level && level_mip_pyramids_[global_level].has_pyramid &&
         (level_mip_pyramids_[global_level].raw_events_compacted ||
          visible_count > kMinVisibleEventsForMipDraw)) {
       const LevelMipPyramid& pyramid = level_mip_pyramids_[global_level];
@@ -4636,6 +5087,7 @@ void Timeline::DrawEventsForLevel(int group_index,
           }
 
           if (selected_event_index_ >= 0 &&
+              IsEventVisibleUnderFilter(selected_event_index_) &&
               static_cast<size_t>(selected_event_index_) <
                   timeline_data_.entry_levels.size() &&
               timeline_data_.entry_levels[selected_event_index_] ==
@@ -4780,7 +5232,8 @@ void Timeline::DrawEventsForLevel(int group_index,
     int event_index = *it;
     if (event_index < 0 ||
         event_index >= timeline_data_.entry_start_times.size() ||
-        event_index >= timeline_data_.entry_total_times.size()) {
+        event_index >= timeline_data_.entry_total_times.size() ||
+        !IsEventVisibleUnderFilter(event_index)) {
       // Should not happen if data is well-formed, but good to be safe.
       continue;
     }
@@ -5249,6 +5702,7 @@ void Timeline::DrawFlameGroupPreview(int start_level, int end_level,
   for (int level = start_level; level < end_level; ++level) {
     if (px_per_time_unit_val > 0.0 && level >= 0 &&
         static_cast<size_t>(level) < level_mip_pyramids_.size()) {
+      EnsureLevelMipPyramid(level);
       const LevelMipPyramid& pyramid = level_mip_pyramids_[level];
       const Microseconds us_per_px = 1.0 / px_per_time_unit_val;
       const int selected_mip =
@@ -5363,6 +5817,9 @@ void Timeline::DrawFlameGroupPreview(int start_level, int end_level,
     Pixel last_drawn_right = -std::numeric_limits<Pixel>::infinity();
     for (; it != indices.end(); ++it) {
       int event_index = *it;
+      if (!IsEventVisibleUnderFilter(event_index)) {
+        continue;
+      }
       const Microseconds start = timeline_data_.entry_start_times[event_index];
       if (start >= visible_end) break;
 
@@ -5418,6 +5875,9 @@ bool Timeline::TryAccumulateProcessUtilization(int start_level, int end_level,
                                                double px_per_time_unit_val,
                                                int num_bins) {
   if (px_per_time_unit_val <= 0.0) return false;
+  if (process_utilization_pyramids_dirty_) {
+    BuildProcessUtilizationPyramids();
+  }
   const Microseconds us_per_px = 1.0 / px_per_time_unit_val;
 
   const ProcessUtilizationPyramid* matching_pyr = nullptr;
@@ -5475,6 +5935,7 @@ void Timeline::AccumulateLevelUtilization(int level,
 
   if (px_per_time_unit_val > 0.0 && level >= 0 &&
       static_cast<size_t>(level) < level_mip_pyramids_.size()) {
+    EnsureLevelMipPyramid(level);
     const LevelMipPyramid& pyramid = level_mip_pyramids_[level];
     const Microseconds us_per_px = 1.0 / px_per_time_unit_val;
     const int selected_mip =
@@ -5515,6 +5976,7 @@ void Timeline::AccumulateLevelUtilization(int level,
     const int event_index = *it;
     const Microseconds start = timeline_data_.entry_start_times[event_index];
     if (start >= visible_end) break;
+    if (!IsEventVisibleUnderFilter(event_index)) continue;
     const Microseconds end =
         start + timeline_data_.entry_total_times[event_index];
 
@@ -5546,7 +6008,8 @@ void Timeline::DrawUtilizationAreaChart(int group_index, int start_level,
   std::fill(utilization_bins_.begin(), utilization_bins_.begin() + num_bins,
             0.0f);
 
-  if (!TryAccumulateProcessUtilization(start_level, end_level,
+  if (has_active_event_filter_ ||
+      !TryAccumulateProcessUtilization(start_level, end_level,
                                        px_per_time_unit_val, num_bins)) {
     for (int level = start_level; level < end_level; ++level) {
       AccumulateLevelUtilization(level, px_per_time_unit_val, num_bins);
@@ -5627,10 +6090,67 @@ void Timeline::DrawUtilizationAreaChart(int group_index, int start_level,
   }
 }
 
+int Timeline::FindEventAtLevelAndTime(int level, Microseconds ts) const {
+  if (level < 0) {
+    return -1;
+  }
+  const absl::Span<const int> indices = timeline_data_.level_events(level);
+  if (!indices.empty()) {
+    const auto it_idx = std::upper_bound(
+        indices.begin(), indices.end(), ts,
+        [this](Microseconds target_ts, int idx) {
+          if (idx < 0 || static_cast<size_t>(idx) >=
+                             timeline_data_.entry_start_times.size()) {
+            return false;
+          }
+          return target_ts < timeline_data_.entry_start_times[idx];
+        });
+    if (it_idx != indices.begin()) {
+      const int idx = *std::prev(it_idx);
+      if (idx >= 0 &&
+          static_cast<size_t>(idx) < timeline_data_.entry_start_times.size() &&
+          static_cast<size_t>(idx) < timeline_data_.entry_total_times.size() &&
+          timeline_data_.entry_start_times[idx] <= ts &&
+          timeline_data_.entry_start_times[idx] +
+                  timeline_data_.entry_total_times[idx] >=
+              ts) {
+        return idx;
+      }
+    }
+    return -1;
+  }
+  const size_t n = std::min({timeline_data_.entry_levels.size(),
+                             timeline_data_.entry_start_times.size(),
+                             timeline_data_.entry_total_times.size()});
+  for (size_t i = 0; i < n; ++i) {
+    if (timeline_data_.entry_levels[i] == level &&
+        timeline_data_.entry_start_times[i] <= ts &&
+        timeline_data_.entry_start_times[i] +
+                timeline_data_.entry_total_times[i] >=
+            ts) {
+      return static_cast<int>(i);
+    }
+  }
+  return -1;
+}
+
+bool Timeline::IsFlowVisibleUnderFilter(const FlowLine& flow) const {
+  if (!has_active_event_filter_) {
+    return true;
+  }
+  const int src_idx =
+      FindEventAtLevelAndTime(flow.source_level, flow.source_ts);
+  const int dst_idx =
+      FindEventAtLevelAndTime(flow.target_level, flow.target_ts);
+  return src_idx >= 0 && dst_idx >= 0 && IsEventVisibleUnderFilter(src_idx) &&
+         IsEventVisibleUnderFilter(dst_idx);
+}
+
 void Timeline::DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
                               Pixel timeline_y_start, double px_per_time,
                               ImDrawList* draw_list) {
-  if (flow.source_level >= visible_level_offsets_.size() ||
+  if (!IsFlowVisibleUnderFilter(flow) ||
+      flow.source_level >= visible_level_offsets_.size() ||
       flow.target_level >= visible_level_offsets_.size()) {
     return;
   }
@@ -5665,8 +6185,12 @@ void Timeline::SetVisibleFlowCategories(const std::vector<int>& category_ids) {
 
 void Timeline::DrawFlows(Pixel timeline_width, Pixel timeline_y_start) {
   const bool has_selected_event =
-      selected_event_index_ != -1 &&
-      selected_event_index_ < timeline_data_.entry_event_ids.size();
+      selected_event_index_ >= 0 &&
+      (selected_event_index_ <
+           static_cast<int>(timeline_data_.entry_event_ids.size()) ||
+       timeline_data_.flow_ids_by_event_index.contains(selected_event_index_) ||
+       selected_event_index_ <
+           static_cast<int>(timeline_data_.entry_name_indices.size()));
 
   if ((visible_flow_categories_.empty() && !has_selected_event) ||
       timeline_data_.flow_lines.empty()) {
@@ -5697,16 +6221,45 @@ void Timeline::DrawFlows(Pixel timeline_width, Pixel timeline_y_start) {
   }
 
   if (has_selected_event) {
-    EventId selected_event_id =
-        timeline_data_.entry_event_ids[selected_event_index_];
-    auto it_ids = timeline_data_.flow_ids_by_event_id.find(selected_event_id);
-    if (it_ids != timeline_data_.flow_ids_by_event_id.end()) {
-      for (const std::string& flow_id : it_ids->second) {
-        auto it_lines = timeline_data_.flow_lines_by_flow_id.find(flow_id);
+    if (const auto it_idx =
+            timeline_data_.flow_ids_by_event_index.find(selected_event_index_);
+        it_idx != timeline_data_.flow_ids_by_event_index.end()) {
+      if (const auto it_range =
+              timeline_data_.flow_line_ranges_by_flow_id.find(it_idx->second);
+          it_range != timeline_data_.flow_line_ranges_by_flow_id.end()) {
+        const size_t end = std::min(static_cast<size_t>(it_range->second.end),
+                                    timeline_data_.flow_lines.size());
+        for (size_t i = it_range->second.begin; i < end; ++i) {
+          DrawSingleFlow(timeline_data_.flow_lines[i], timeline_x_start,
+                         timeline_y_start, px_per_time, draw_list);
+        }
+      } else {
+        const std::string flow_id_str = std::to_string(it_idx->second);
+        const auto it_lines =
+            timeline_data_.flow_lines_by_flow_id.find(flow_id_str);
         if (it_lines != timeline_data_.flow_lines_by_flow_id.end()) {
-          for (const auto& flow : it_lines->second) {
+          for (const FlowLine& flow : it_lines->second) {
             DrawSingleFlow(flow, timeline_x_start, timeline_y_start,
                            px_per_time, draw_list);
+          }
+        }
+      }
+    } else if (selected_event_index_ >= 0 &&
+               selected_event_index_ <
+                   static_cast<int>(timeline_data_.entry_start_times.size())) {
+      const EventId selected_event_id =
+          GetEventIdFromData(timeline_data_, selected_event_index_);
+      const auto it_ids =
+          timeline_data_.flow_ids_by_event_id.find(selected_event_id);
+      if (it_ids != timeline_data_.flow_ids_by_event_id.end()) {
+        for (const std::string& flow_id : it_ids->second) {
+          const auto it_lines =
+              timeline_data_.flow_lines_by_flow_id.find(flow_id);
+          if (it_lines != timeline_data_.flow_lines_by_flow_id.end()) {
+            for (const FlowLine& flow : it_lines->second) {
+              DrawSingleFlow(flow, timeline_x_start, timeline_y_start,
+                             px_per_time, draw_list);
+            }
           }
         }
       }
@@ -6871,11 +7424,165 @@ void Timeline::SetSearchQuery(absl::string_view query) {
 }
 
 void Timeline::RecomputeSearchResults() {
-  const int num_entries = timeline_data_.entry_names.size();
+  const bool use_csr_interned = !timeline_data_.interned_string_pool.empty() &&
+                                !timeline_data_.level_offsets.empty() &&
+                                timeline_data_.level_event_indices.size() ==
+                                    timeline_data_.entry_name_indices.size();
+
+  if (use_csr_interned) {
+    const size_t pool_size = timeline_data_.interned_string_pool.size();
+    EntryBitset matching_name_idx;
+    matching_name_idx.Reserve(pool_size);
+    for (size_t s = 0; s < pool_size; ++s) {
+      if (absl::StrContainsIgnoreCase(timeline_data_.interned_string_pool[s],
+                                      search_query_lower_)) {
+        matching_name_idx.insert(static_cast<int>(s));
+      }
+    }
+
+    const size_t n_entries = timeline_data_.entry_name_indices.size();
+    const bool hlo_op_key_matches =
+        absl::StrContainsIgnoreCase(kHloOp, search_query_lower_);
+    EntryBitset matching_hlo_op_idx;
+    if (!timeline_data_.hlo_op_table.empty()) {
+      matching_hlo_op_idx.Reserve(timeline_data_.hlo_op_table.size());
+      for (size_t s = 1; s < timeline_data_.hlo_op_table.size(); ++s) {
+        if (hlo_op_key_matches ||
+            absl::StrContainsIgnoreCase(timeline_data_.hlo_op_table[s],
+                                        search_query_lower_)) {
+          matching_hlo_op_idx.insert(static_cast<int>(s));
+        }
+      }
+    }
+
+    const bool hlo_mod_key_matches =
+        absl::StrContainsIgnoreCase(kHloModule, search_query_lower_);
+    EntryBitset matching_hlo_mod_idx;
+    if (!timeline_data_.hlo_module_table.empty()) {
+      matching_hlo_mod_idx.Reserve(timeline_data_.hlo_module_table.size());
+      for (size_t s = 1; s < timeline_data_.hlo_module_table.size(); ++s) {
+        const std::string& mod = timeline_data_.hlo_module_table[s];
+        if (!mod.empty() && mod != kHloModuleDefault &&
+            (hlo_mod_key_matches ||
+             absl::StrContainsIgnoreCase(mod, search_query_lower_))) {
+          matching_hlo_mod_idx.insert(static_cast<int>(s));
+        }
+      }
+    }
+
+    EntryBitset matching_arg_events;
+    auto mark_arg_event = [&](size_t idx) {
+      if (idx < n_entries) {
+        if (matching_arg_events.empty()) {
+          matching_arg_events.Reserve(n_entries);
+        }
+        matching_arg_events.insert(static_cast<int>(idx));
+      }
+    };
+    for (size_t idx = 0; idx < timeline_data_.entry_args.size(); ++idx) {
+      if (MatchesArgsMap(timeline_data_.entry_args[idx], search_query_lower_)) {
+        mark_arg_event(idx);
+      }
+    }
+    for (const auto& [idx, args_map] : timeline_data_.sparse_entry_args) {
+      if (MatchesArgsMap(args_map, search_query_lower_)) {
+        mark_arg_event(idx);
+      }
+    }
+    if (!timeline_data_.non_zero_uids_by_event_index.empty()) {
+      const bool uid_key_matches =
+          absl::StrContainsIgnoreCase("uid", search_query_lower_);
+      for (const auto& [idx, uid] :
+           timeline_data_.non_zero_uids_by_event_index) {
+        if (idx >= 0 &&
+            (uid_key_matches || absl::StrContainsIgnoreCase(
+                                    absl::StrCat(uid), search_query_lower_))) {
+          mark_arg_event(static_cast<size_t>(idx));
+        }
+      }
+    }
+    if (!timeline_data_.sparse_entry_group_ids.empty()) {
+      const bool group_key_matches =
+          absl::StrContainsIgnoreCase("group_id", search_query_lower_);
+      for (const auto& run : timeline_data_.sparse_entry_group_ids.runs()) {
+        if (group_key_matches ||
+            absl::StrContainsIgnoreCase(absl::StrCat(run.group_id),
+                                        search_query_lower_)) {
+          const uint32_t end =
+              std::min<uint32_t>(run.end, static_cast<uint32_t>(n_entries));
+          for (uint32_t idx = run.begin; idx < end; ++idx) {
+            mark_arg_event(idx);
+          }
+        }
+      }
+    }
+
+    const bool check_hlo_op =
+        !matching_hlo_op_idx.empty() || hlo_op_key_matches;
+    const bool check_hlo_mod = !matching_hlo_mod_idx.empty();
+    const bool check_arg_events = !matching_arg_events.empty();
+
+    if (matching_name_idx.empty() && !check_hlo_op && !check_hlo_mod &&
+        !check_arg_events) {
+      if (redraw_callback_) redraw_callback_();
+      return;
+    }
+
+    matching_event_indices_.Reserve(n_entries);
+    const int num_levels = timeline_data_.total_levels();
+    for (int level = 0; level < num_levels; ++level) {
+      const absl::Span<const int> indices = timeline_data_.level_events(level);
+      for (const int i : indices) {
+        if (i < 0 || !IsEventVisibleUnderFilter(i) ||
+            static_cast<size_t>(i) >= n_entries ||
+            static_cast<size_t>(i) >= timeline_data_.entry_start_times.size() ||
+            static_cast<size_t>(i) >= timeline_data_.entry_total_times.size()) {
+          continue;
+        }
+        const uint32_t name_idx = timeline_data_.entry_name_indices[i];
+        bool matched =
+            (name_idx < pool_size &&
+             matching_name_idx.contains(static_cast<int>(name_idx))) ||
+            (check_arg_events && matching_arg_events.contains(i));
+        if (!matched && check_hlo_op) {
+          const uint32_t op_idx =
+              timeline_data_.GetEntryHloOpIndex(static_cast<size_t>(i));
+          if (op_idx != 0) {
+            if (!timeline_data_.hlo_op_table.empty()) {
+              matched = matching_hlo_op_idx.contains(static_cast<int>(op_idx));
+            } else {
+              matched = hlo_op_key_matches ||
+                        (op_idx < pool_size &&
+                         matching_name_idx.contains(static_cast<int>(op_idx)));
+            }
+          }
+        }
+        if (!matched && check_hlo_mod) {
+          const uint32_t mod_idx =
+              timeline_data_.GetEntryHloModuleIndex(static_cast<size_t>(i));
+          if (mod_idx != 0 &&
+              matching_hlo_mod_idx.contains(static_cast<int>(mod_idx))) {
+            matched = true;
+          }
+        }
+        if (matched) {
+          matching_event_indices_.insert(i);
+        }
+      }
+    }
+    if (redraw_callback_) redraw_callback_();
+    return;
+  }
+
+  const int num_entries =
+      !timeline_data_.interned_string_pool.empty()
+          ? static_cast<int>(timeline_data_.entry_name_indices.size())
+          : static_cast<int>(timeline_data_.entry_names.size());
   for (int i = 0; i < num_entries; ++i) {
+    if (!IsEventVisibleUnderFilter(i)) continue;
     if (MatchesSearchQuery(timeline_data_, i, search_query_lower_)) {
-      const std::string& name = timeline_data_.entry_names[i];
-      const EventId event_id = timeline_data_.entry_event_ids[i];
+      const absl::string_view name = GetEventName(i);
+      const EventId event_id = GetEventIdFromData(timeline_data_, i);
       const int level = timeline_data_.entry_levels[i];
       const Microseconds start_time = timeline_data_.entry_start_times[i];
       const Microseconds total_time = timeline_data_.entry_total_times[i];
@@ -6891,7 +7598,7 @@ void Timeline::RecomputeSearchResults() {
                                              .duration = total_time,
                                              .pid = pid,
                                              .tid = tid,
-                                             .name = name,
+                                             .name = std::string(name),
                                              .loaded_index = i});
       matching_event_indices_.insert(i);
     }
@@ -6905,6 +7612,109 @@ void Timeline::RecomputeSearchResults() {
                });
 
   if (redraw_callback_) redraw_callback_();
+}
+
+const std::vector<Timeline::SearchResult>&
+Timeline::get_search_results_for_test() const {
+  if (search_results_.empty() && !matching_event_indices_.empty()) {
+    search_results_.reserve(matching_event_indices_.size());
+    const int num_levels = timeline_data_.total_levels();
+    for (int level = 0; level < num_levels; ++level) {
+      const absl::Span<const int> indices = timeline_data_.level_events(level);
+      if (indices.empty()) continue;
+      ProcessId pid = 0;
+      ThreadId tid = 0;
+      if (const Group* grp = timeline_data_.FindGroupForLevel(level)) {
+        pid = grp->pid;
+        tid = grp->tid;
+      }
+      for (const int i : indices) {
+        if (!matching_event_indices_.contains(i)) continue;
+        if (i < 0 ||
+            static_cast<size_t>(i) >= timeline_data_.entry_start_times.size() ||
+            static_cast<size_t>(i) >= timeline_data_.entry_total_times.size()) {
+          continue;
+        }
+        search_results_.push_back(
+            SearchResult{.event_id = GetEventIdFromData(timeline_data_, i),
+                         .level = level,
+                         .start_time = timeline_data_.entry_start_times[i],
+                         .duration = timeline_data_.entry_total_times[i],
+                         .pid = pid,
+                         .tid = tid,
+                         .name = std::string(GetEventName(i)),
+                         .loaded_index = i});
+      }
+    }
+    auto cmp = [](const SearchResult& a, const SearchResult& b) {
+      return std::tie(a.level, a.start_time, a.loaded_index) <
+             std::tie(b.level, b.start_time, b.loaded_index);
+    };
+    if (!absl::c_is_sorted(search_results_, cmp)) {
+      absl::c_sort(search_results_, cmp);
+    }
+  }
+  return search_results_;
+}
+
+int Timeline::GetNthMatchingCsrEventIndex(int target_rank) const {
+  if (target_rank < 0 ||
+      static_cast<size_t>(target_rank) >= matching_event_indices_.size()) {
+    return -1;
+  }
+  int current_rank = 0;
+  const int num_levels = timeline_data_.total_levels();
+  for (int level = 0; level < num_levels; ++level) {
+    const absl::Span<const int> indices = timeline_data_.level_events(level);
+    int level_matches = 0;
+    int candidate = -1;
+    bool sorted = true;
+    Microseconds prev_start = -std::numeric_limits<Microseconds>::infinity();
+    int prev_idx = -1;
+    for (const int i : indices) {
+      if (!matching_event_indices_.contains(i)) continue;
+      const Microseconds s =
+          (i >= 0 &&
+           static_cast<size_t>(i) < timeline_data_.entry_start_times.size())
+              ? timeline_data_.entry_start_times[i]
+              : 0.0;
+      if (std::tie(s, i) < std::tie(prev_start, prev_idx)) {
+        sorted = false;
+      }
+      prev_start = s;
+      prev_idx = i;
+      if (current_rank + level_matches == target_rank) {
+        candidate = i;
+      }
+      ++level_matches;
+    }
+    if (target_rank < current_rank + level_matches) {
+      if (sorted) return candidate;
+      std::vector<int> matched_in_level;
+      matched_in_level.reserve(level_matches);
+      for (const int i : indices) {
+        if (matching_event_indices_.contains(i)) {
+          matched_in_level.push_back(i);
+        }
+      }
+      absl::c_sort(matched_in_level, [this](int a, int b) {
+        const Microseconds sa =
+            (a >= 0 &&
+             static_cast<size_t>(a) < timeline_data_.entry_start_times.size())
+                ? timeline_data_.entry_start_times[a]
+                : 0.0;
+        const Microseconds sb =
+            (b >= 0 &&
+             static_cast<size_t>(b) < timeline_data_.entry_start_times.size())
+                ? timeline_data_.entry_start_times[b]
+                : 0.0;
+        return std::tie(sa, a) < std::tie(sb, b);
+      });
+      return matched_in_level[target_rank - current_rank];
+    }
+    current_rank += level_matches;
+  }
+  return -1;
 }
 
 void Timeline::SetSearchResults(const ParsedTraceEvents& search_results) {
@@ -6941,26 +7751,46 @@ void Timeline::SetSearchResults(const ParsedTraceEvents& search_results) {
         event.ph != Phase::kInstantDeprecated) {
       continue;
     }
+    const EventId computed_event_id =
+        event.event_id != 0 ? event.event_id
+                            : GenerateEventId(event.name, event.ts, event.dur);
     int level = -1;
-    if (const auto it = event_id_to_level.find(event.event_id);
+    if (const auto it = event_id_to_level.find(computed_event_id);
         it != event_id_to_level.end()) {
       level = it->second;
     }
-    EventId event_id = event.event_id;
+    EventId event_id = computed_event_id;
     int loaded_index = -1;
-    if (const auto it = event_id_to_loaded_index.find(event.event_id);
+    if (const auto it = event_id_to_loaded_index.find(computed_event_id);
         it != event_id_to_loaded_index.end()) {
       loaded_index = it->second;
     } else {
       if (!lazy_loaded_events.has_value()) {
-        lazy_loaded_events = BuildFallbackMap(timeline_data_);
+        absl::flat_hash_set<FallbackKey> wanted_keys;
+        wanted_keys.reserve(search_results.flame_events.size());
+        for (const TraceEvent& ev : search_results.flame_events) {
+          if (ev.ph == Phase::kComplete || ev.ph == Phase::kInstant ||
+              ev.ph == Phase::kInstantDeprecated) {
+            wanted_keys.insert(
+                std::make_tuple(ev.pid, ev.tid, absl::string_view(ev.name)));
+          }
+        }
+        lazy_loaded_events = BuildFallbackMap(timeline_data_, wanted_keys);
       }
       loaded_index = FindFallbackMatchedIndex(
           *lazy_loaded_events, timeline_data_, event.pid, event.tid, event.name,
           event.ts, event.dur);
       if (loaded_index != -1) {
-        event_id = timeline_data_.entry_event_ids[loaded_index];
+        event_id = GetEventIdFromData(timeline_data_, loaded_index);
+        if (static_cast<size_t>(loaded_index) <
+            timeline_data_.entry_levels.size()) {
+          level = timeline_data_.entry_levels[loaded_index];
+        }
       }
+    }
+
+    if (loaded_index != -1 && !IsEventVisibleUnderFilter(loaded_index)) {
+      continue;
     }
 
     search_results_.push_back(SearchResult{.event_id = event_id,
@@ -6978,18 +7808,21 @@ void Timeline::SetSearchResults(const ParsedTraceEvents& search_results) {
 
   // Merge local loaded events that match by substring or event arguments, which
   // backend prefix search does not return.
-  const int num_entries = timeline_data_.entry_names.size();
+  const int num_entries =
+      !timeline_data_.interned_string_pool.empty()
+          ? static_cast<int>(timeline_data_.entry_name_indices.size())
+          : static_cast<int>(timeline_data_.entry_names.size());
   for (int i = 0; i < num_entries; ++i) {
+    if (!IsEventVisibleUnderFilter(i)) {
+      continue;
+    }
+    const absl::string_view name = GetEventName(i);
     if (matching_event_indices_.contains(i) ||
-        absl::StartsWithIgnoreCase(timeline_data_.entry_names[i],
-                                   search_query_lower_)) {
+        absl::StartsWithIgnoreCase(name, search_query_lower_)) {
       continue;
     }
     if (MatchesSearchQuery(timeline_data_, i, search_query_lower_)) {
-      const EventId event_id =
-          (i < static_cast<int>(timeline_data_.entry_event_ids.size()))
-              ? timeline_data_.entry_event_ids[i]
-              : 0;
+      const EventId event_id = GetEventIdFromData(timeline_data_, i);
       const int level =
           (i < static_cast<int>(timeline_data_.entry_levels.size()))
               ? timeline_data_.entry_levels[i]
@@ -7008,15 +7841,14 @@ void Timeline::SetSearchResults(const ParsedTraceEvents& search_results) {
         pid = group->pid;
         tid = group->tid;
       }
-      search_results_.push_back(
-          SearchResult{.event_id = event_id,
-                       .level = level,
-                       .start_time = start_time,
-                       .duration = total_time,
-                       .pid = pid,
-                       .tid = tid,
-                       .name = timeline_data_.entry_names[i],
-                       .loaded_index = i});
+      search_results_.push_back(SearchResult{.event_id = event_id,
+                                             .level = level,
+                                             .start_time = start_time,
+                                             .duration = total_time,
+                                             .pid = pid,
+                                             .tid = tid,
+                                             .name = std::string(name),
+                                             .loaded_index = i});
       matching_event_indices_.insert(i);
     }
   }
@@ -7163,27 +7995,46 @@ void Timeline::NavigateToSearchResult(const SearchResult& result) {
 }
 
 void Timeline::NavigateToNextSearchResult() {
-  if (search_results_.empty()) return;
-  current_search_result_index_++;
-  if (current_search_result_index_ >= search_results_.size()) {
+  const int count = get_search_results_count();
+  if (count == 0) return;
+  ++current_search_result_index_;
+  if (current_search_result_index_ >= count) {
     current_search_result_index_ = 0;
   }
-  NavigateToSearchResult(search_results_[current_search_result_index_]);
+  if (!search_results_.empty()) {
+    NavigateToSearchResult(search_results_[current_search_result_index_]);
+  } else {
+    const int matched_idx =
+        GetNthMatchingCsrEventIndex(current_search_result_index_);
+    if (matched_idx != -1) {
+      ZoomEvent(matched_idx);
+    }
+  }
   if (redraw_callback_) redraw_callback_();
 }
 
 void Timeline::NavigateToPrevSearchResult() {
-  if (search_results_.empty()) return;
-  current_search_result_index_--;
+  const int count = get_search_results_count();
+  if (count == 0) return;
+  --current_search_result_index_;
   if (current_search_result_index_ < 0) {
-    current_search_result_index_ = search_results_.size() - 1;
+    current_search_result_index_ = count - 1;
   }
-  NavigateToSearchResult(search_results_[current_search_result_index_]);
+  if (!search_results_.empty()) {
+    NavigateToSearchResult(search_results_[current_search_result_index_]);
+  } else {
+    const int matched_idx =
+        GetNthMatchingCsrEventIndex(current_search_result_index_);
+    if (matched_idx != -1) {
+      ZoomEvent(matched_idx);
+    }
+  }
   if (redraw_callback_) redraw_callback_();
 }
 
 void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
   selected_event_indices_.clear();
+  selected_event_indices_.Reserve(timeline_data_.entry_start_times.size());
   selected_counter_points_.clear();
   selected_event_index_ = -1;
   selected_group_index_ = -1;
@@ -7231,6 +8082,9 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
 
         for (; it != events.end(); ++it) {
           const int event_index = *it;
+          if (!IsEventVisibleUnderFilter(event_index)) {
+            continue;
+          }
           const Microseconds start =
               timeline_data_.entry_start_times[event_index];
           if (start > selection_end_time) {
@@ -7248,7 +8102,7 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
             continue;
           }
 
-          selected_event_indices_.push_back(event_index);
+          selected_event_indices_.insert(event_index);
         }
       }
     } else if (group.type == Group::Type::kCounter) {
@@ -7364,19 +8218,17 @@ void Timeline::CalculateAndEmitMetrics() {
         Microseconds wall_time = 0;
         Microseconds self_time = 0;
       };
+      absl::flat_hash_map<absl::string_view, Metrics> aggregated_metrics;
 
-      absl::flat_hash_map<std::string, Metrics> aggregated_metrics;
-
-      for (const int event_index : selected_event_indices_) {
-        const std::string& name = timeline_data_.entry_names[event_index];
+      selected_event_indices_.ForEachSetBit([&](int event_index) {
+        const absl::string_view name = GetEventName(event_index);
         const Microseconds wall = timeline_data_.entry_total_times[event_index];
-        const Microseconds self = timeline_data_.entry_self_times[event_index];
-
+        const Microseconds self = timeline_data_.GetEntrySelfTime(event_index);
         Metrics& m = aggregated_metrics[name];
-        m.count++;
+        ++m.count;
         m.wall_time += wall;
         m.self_time += self;
-      }
+      });
 
       std::string metrics_json = "[";
       bool first = true;

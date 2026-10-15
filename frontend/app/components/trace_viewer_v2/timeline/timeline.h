@@ -4,12 +4,14 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iterator>
 #include <limits>
 #include <map>
 #include <optional>
 #include <string>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -18,6 +20,8 @@
 #include "absl/container/flat_hash_set.h"
 #include "absl/functional/any_invocable.h"
 #include "absl/functional/function_ref.h"
+#include "absl/log/check.h"
+#include "absl/numeric/bits.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
@@ -146,10 +150,366 @@ struct FlowLine {
   tsl::profiler::ContextType category = tsl::profiler::ContextType::kGeneric;
 };
 
+// Group IDs of flame-chart entries, stored as sorted, disjoint, half-open
+// runs of entry indices that share one group ID. An entry index outside
+// every run has no group ID.
+class GroupIdRuns {
+ public:
+  struct Run {
+    uint32_t begin = 0;  // First entry index of the run.
+    uint32_t end = 0;    // One past the last entry index of the run.
+    int64_t group_id = 0;
+    friend bool operator==(const Run&, const Run&) = default;
+  };
+
+  // Records `group_id` for entry `index`. Indices must strictly increase
+  // across calls; gaps mean "no group ID".
+  void Append(size_t index, int64_t group_id) {
+    DCHECK_LT(index, std::numeric_limits<uint32_t>::max());
+    DCHECK(runs_.empty() || index >= runs_.back().end);
+    if (index >= std::numeric_limits<uint32_t>::max() ||
+        (!runs_.empty() && index < runs_.back().end)) {
+      return;
+    }
+    const uint32_t i = static_cast<uint32_t>(index);
+    if (!runs_.empty() && runs_.back().end == i &&
+        runs_.back().group_id == group_id) {
+      ++runs_.back().end;
+      return;
+    }
+    runs_.push_back({.begin = i, .end = i + 1, .group_id = group_id});
+  }
+
+  // Returns the group ID of entry `index`, or nullopt if it has none.
+  std::optional<int64_t> Find(size_t index) const {
+    const auto it = std::upper_bound(
+        runs_.begin(), runs_.end(), index,
+        [](size_t i, const Run& run) { return i < run.begin; });
+    if (it == runs_.begin()) {
+      return std::nullopt;
+    }
+    const auto prev_it = std::prev(it);
+    if (index >= prev_it->end) {
+      return std::nullopt;
+    }
+    return prev_it->group_id;
+  }
+
+  bool empty() const { return runs_.empty(); }
+  void clear() { runs_.clear(); }
+  void release() { std::vector<Run>().swap(runs_); }
+  size_t AllocatedBytes() const { return runs_.capacity() * sizeof(Run); }
+  absl::Span<const Run> runs() const { return runs_; }
+  friend bool operator==(const GroupIdRuns&, const GroupIdRuns&) = default;
+
+ private:
+  std::vector<Run> runs_;
+};
+static_assert(sizeof(GroupIdRuns::Run) == 16);
+
+// Non-zero table indices (such as HLO op or HLO module indices) of
+// flame-chart entries, stored as sorted, disjoint, half-open runs of entry
+// indices that share one uint32_t value. An entry index outside every run
+// has value 0.
+class IndexRuns {
+ public:
+  struct Run {
+    uint32_t begin = 0;  // First entry index of the run.
+    uint32_t end = 0;    // One past the last entry index of the run.
+    uint32_t value = 0;
+    friend bool operator==(const Run&, const Run&) = default;
+  };
+
+  void Append(size_t index, uint32_t value) {
+    if (value == 0) {
+      return;
+    }
+    DCHECK_LT(index, std::numeric_limits<uint32_t>::max());
+    DCHECK(runs_.empty() || index >= runs_.back().end);
+    if (index >= std::numeric_limits<uint32_t>::max() ||
+        (!runs_.empty() && index < runs_.back().end)) {
+      return;
+    }
+    const uint32_t i = static_cast<uint32_t>(index);
+    if (!runs_.empty() && runs_.back().end == i &&
+        runs_.back().value == value) {
+      ++runs_.back().end;
+      return;
+    }
+    runs_.push_back({.begin = i, .end = i + 1, .value = value});
+  }
+
+  std::optional<uint32_t> Find(size_t index) const {
+    const auto it = std::upper_bound(
+        runs_.begin(), runs_.end(), index,
+        [](size_t i, const Run& run) { return i < run.begin; });
+    if (it == runs_.begin()) {
+      return std::nullopt;
+    }
+    const auto prev_it = std::prev(it);
+    if (index >= prev_it->end) {
+      return std::nullopt;
+    }
+    return prev_it->value;
+  }
+
+  bool empty() const { return runs_.empty(); }
+  void clear() { runs_.clear(); }
+  void release() { std::vector<Run>().swap(runs_); }
+  size_t AllocatedBytes() const { return runs_.capacity() * sizeof(Run); }
+  absl::Span<const Run> runs() const { return runs_; }
+  friend bool operator==(const IndexRuns&, const IndexRuns&) = default;
+
+ private:
+  std::vector<Run> runs_;
+};
+static_assert(sizeof(IndexRuns::Run) == 12);
+
+// Compact chunked table of self-time overrides for non-leaf flame-chart
+// entries whose children subtract from total duration. Leaf entries have
+// self_time == total_time and are not stored.
+class SparseSelfTimes {
+ public:
+  struct Record {
+    uint32_t entry_index = 0;
+    uint32_t self_time_lo = 0;
+    uint32_t self_time_hi = 0;
+
+    Microseconds GetSelfTime() const {
+      const uint64_t bits = static_cast<uint64_t>(self_time_lo) |
+                            (static_cast<uint64_t>(self_time_hi) << 32);
+      Microseconds val = 0.0;
+      std::memcpy(&val, &bits, sizeof(val));
+      return val;
+    }
+
+    void SetSelfTime(Microseconds val) {
+      uint64_t bits = 0;
+      std::memcpy(&bits, &val, sizeof(bits));
+      self_time_lo = static_cast<uint32_t>(bits);
+      self_time_hi = static_cast<uint32_t>(bits >> 32);
+    }
+
+    friend bool operator==(const Record&, const Record&) = default;
+  };
+  static_assert(sizeof(Record) == 12);
+  static_assert(alignof(Record) == 4);
+
+  static constexpr uint32_t kNone = std::numeric_limits<uint32_t>::max();
+  static constexpr size_t kBlockShift = 16;
+  static constexpr size_t kBlockSize = size_t{1} << kBlockShift;  // 65,536
+  static constexpr size_t kBlockMask = kBlockSize - 1;
+
+  uint32_t Append(size_t entry_index, Microseconds self_time) {
+    DCHECK_LT(entry_index, std::numeric_limits<uint32_t>::max());
+    DCHECK(size_ == 0 || entry_index > RecordAt(size_ - 1).entry_index);
+    if (entry_index >= std::numeric_limits<uint32_t>::max() ||
+        (size_ > 0 && entry_index <= RecordAt(size_ - 1).entry_index)) {
+      return kNone;
+    }
+    const size_t block_idx = size_ >> kBlockShift;
+    if (block_idx == blocks_.size()) {
+      std::vector<Record> block;
+      block.reserve(kBlockSize);
+      blocks_.push_back(std::move(block));
+    }
+    Record rec{.entry_index = static_cast<uint32_t>(entry_index)};
+    rec.SetSelfTime(self_time);
+    blocks_[block_idx].push_back(rec);
+    return static_cast<uint32_t>(size_++);
+  }
+
+  void Subtract(uint32_t record_index, Microseconds child_duration) {
+    if (record_index >= size_) return;
+    Record& rec = RecordAt(record_index);
+    rec.SetSelfTime(
+        std::max<Microseconds>(0.0, rec.GetSelfTime() - child_duration));
+  }
+
+  std::optional<Microseconds> Find(size_t entry_index) const {
+    if (size_ == 0 || entry_index > std::numeric_limits<uint32_t>::max()) {
+      return std::nullopt;
+    }
+    const uint32_t target = static_cast<uint32_t>(entry_index);
+    size_t lo = 0;
+    size_t hi = size_;
+    while (lo < hi) {
+      const size_t mid = lo + ((hi - lo) >> 1);
+      const Record& rec = RecordAt(mid);
+      if (rec.entry_index < target) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    if (lo < size_) {
+      const Record& rec = RecordAt(lo);
+      if (rec.entry_index == target) {
+        return rec.GetSelfTime();
+      }
+    }
+    return std::nullopt;
+  }
+
+  bool empty() const { return size_ == 0; }
+  size_t size() const { return size_; }
+  void clear() {
+    blocks_.clear();
+    size_ = 0;
+  }
+  void release() {
+    std::vector<std::vector<Record>>().swap(blocks_);
+    size_ = 0;
+  }
+  size_t AllocatedBytes() const {
+    size_t bytes = blocks_.capacity() * sizeof(std::vector<Record>);
+    for (const std::vector<Record>& block : blocks_) {
+      bytes += block.capacity() * sizeof(Record);
+    }
+    return bytes;
+  }
+
+ private:
+  Record& RecordAt(size_t record_index) {
+    return blocks_[record_index >> kBlockShift][record_index & kBlockMask];
+  }
+  const Record& RecordAt(size_t record_index) const {
+    return blocks_[record_index >> kBlockShift][record_index & kBlockMask];
+  }
+
+  std::vector<std::vector<Record>> blocks_;
+  size_t size_ = 0;
+};
+
+// Compact bitset of non-negative event indices used for search match
+// highlighting without allocating hash-set nodes per matching event.
+class EntryBitset {
+ public:
+  void Reserve(size_t max_entries) {
+    const size_t needed_words = (max_entries + 63) >> 6;
+    if (needed_words > words_.size()) {
+      words_.resize(needed_words, 0);
+    }
+  }
+
+  void insert(int index) {
+    if (index < 0) return;
+    const size_t word_idx = static_cast<size_t>(index) >> 6;
+    const uint64_t mask = uint64_t{1} << (static_cast<size_t>(index) & 63);
+    if (word_idx >= words_.size()) {
+      words_.resize(word_idx + 1, 0);
+    }
+    if ((words_[word_idx] & mask) == 0) {
+      words_[word_idx] |= mask;
+      ++size_;
+    }
+  }
+
+  void push_back(int index) { insert(index); }
+
+  bool contains(int index) const {
+    if (index < 0) return false;
+    const size_t word_idx = static_cast<size_t>(index) >> 6;
+    if (word_idx >= words_.size()) return false;
+    const uint64_t mask = uint64_t{1} << (static_cast<size_t>(index) & 63);
+    return (words_[word_idx] & mask) != 0;
+  }
+
+  template <typename Fn>
+  void ForEachSetBit(Fn&& fn) const {
+    for (size_t word_idx = 0; word_idx < words_.size(); ++word_idx) {
+      uint64_t word = words_[word_idx];
+      while (word != 0) {
+        const int bit = absl::countr_zero(word);
+        const int index = static_cast<int>((word_idx << 6) + bit);
+        if constexpr (std::is_convertible_v<decltype(fn(index)), bool>) {
+          if (!fn(index)) return;
+        } else {
+          fn(index);
+        }
+        word &= (word - 1);
+      }
+    }
+  }
+
+  void IntersectWith(const EntryBitset& other) {
+    const size_t min_words = std::min(words_.size(), other.words_.size());
+    size_t new_size = 0;
+    for (size_t i = 0; i < min_words; ++i) {
+      words_[i] &= other.words_[i];
+      new_size += static_cast<size_t>(absl::popcount(words_[i]));
+    }
+    for (size_t i = min_words; i < words_.size(); ++i) {
+      words_[i] = 0;
+    }
+    size_ = new_size;
+  }
+
+  void UnionWith(const EntryBitset& other) {
+    if (other.words_.size() > words_.size()) {
+      words_.resize(other.words_.size(), 0);
+    }
+    size_t new_size = 0;
+    for (size_t i = 0; i < other.words_.size(); ++i) {
+      words_[i] |= other.words_[i];
+      new_size += static_cast<size_t>(absl::popcount(words_[i]));
+    }
+    for (size_t i = other.words_.size(); i < words_.size(); ++i) {
+      new_size += static_cast<size_t>(absl::popcount(words_[i]));
+    }
+    size_ = new_size;
+  }
+
+  void clear() {
+    words_.clear();
+    size_ = 0;
+  }
+
+  void release() {
+    std::vector<uint64_t>().swap(words_);
+    size_ = 0;
+  }
+
+  bool empty() const { return size_ == 0; }
+  size_t size() const { return size_; }
+
+ private:
+  std::vector<uint64_t> words_;
+  size_t size_ = 0;
+};
+
+// Represents a half-open [start, end) XLA module interval on a process.
+struct ModuleInterval {
+  Microseconds start = 0.0;
+  Microseconds end = 0.0;
+  uint32_t module_index = 0;
+
+  friend bool operator==(const ModuleInterval&,
+                         const ModuleInterval&) = default;
+};
+
 // Holds all the data required to render a flame chart and counter lines,
 // including event timing, grouping information, and mappings between levels
 // and events.
 struct FlameChartTimelineData {
+  struct FlowLineRange {
+    uint32_t begin = 0;
+    uint32_t end = 0;
+    friend bool operator==(const FlowLineRange&,
+                           const FlowLineRange&) = default;
+  };
+
+  // Compact per-track rule for read-time HLO op and HLO module derivation on
+  // the protobuf ingestion path, avoiding dense or per-event RLE HLO storage.
+  struct HloTrackRule {
+    size_t begin_entry = 0;
+    size_t end_entry = 0;
+    uint32_t default_module_index = 0;
+    uint32_t module_intervals_index = std::numeric_limits<uint32_t>::max();
+    bool is_xla_ops = false;
+    bool use_module_intervals = false;
+  };
+
   // Global cumulative flame chart row index across all process, counter,
   // thread, and async tracks. Capped at 65,534; events at level < 0 or
   // level >= std::numeric_limits<uint16_t>::max() (65,535) are dropped.
@@ -157,6 +517,10 @@ struct FlameChartTimelineData {
   std::vector<Microseconds> entry_total_times;
   std::vector<Microseconds> entry_self_times;
   std::vector<Microseconds> entry_start_times;
+  std::vector<uint32_t> entry_name_indices;
+  absl::flat_hash_map<int, uint32_t> non_zero_uids_by_event_index;
+  std::vector<uint32_t> entry_hlo_module_indices;
+  std::vector<uint32_t> entry_hlo_op_indices;
   std::vector<std::string> entry_names;
   std::vector<EventId> entry_event_ids;
   std::vector<absl::flat_hash_map<std::string, std::string>> entry_args;
@@ -166,23 +530,214 @@ struct FlameChartTimelineData {
   std::vector<FlowLine> flow_lines;
   // Map from event_id to list of flow ids that connect to this event.
   absl::flat_hash_map<EventId, std::vector<std::string>> flow_ids_by_event_id;
+  // Map from event index to flow id that connects to this event.
+  absl::flat_hash_map<int, uint64_t> flow_ids_by_event_index;
   // Map from flow_id to list of flow lines that belong to this flow.
   absl::flat_hash_map<std::string, std::vector<FlowLine>> flow_lines_by_flow_id;
+  // Contiguous [begin, end) slices into `flow_lines` keyed by numeric flow_id
+  // on the protobuf ingestion path, avoiding duplicate FlowLine copies and
+  // heap-allocated string keys.
+  absl::flat_hash_map<uint64_t, FlowLineRange> flow_line_ranges_by_flow_id;
   // A map from group index to counter data.
   // We use group index instead of PID as the key because a process (PID) can
   // have multiple counter tracks associated with it. The group index uniquely
   // identifies each track within the `groups` vector.
   std::map<int, CounterData> counter_data_by_group_index;
-  static constexpr uint8_t kEntryArgHasUid = 1 << 0;
-  static constexpr uint8_t kEntryArgHasGroupId = 1 << 1;
-  static constexpr uint8_t kEntryArgHloOpFromName = 1 << 2;
-  std::vector<uint64_t> entry_serials;
-  std::vector<uint8_t> entry_arg_flags;
-  std::vector<uint32_t> entry_hlo_module_ids;
-  std::vector<std::string> hlo_module_names;
-  absl::flat_hash_map<size_t, int64_t> sparse_entry_group_ids;
+  std::vector<std::string> interned_string_pool;
+  std::vector<std::string> hlo_module_table;
+  std::vector<std::string> hlo_op_table;
+  GroupIdRuns sparse_entry_group_ids;
+  IndexRuns sparse_entry_hlo_module_indices;
+  IndexRuns sparse_entry_hlo_op_indices;
+  std::vector<std::vector<ModuleInterval>> hlo_module_intervals;
+  std::vector<HloTrackRule> hlo_track_rules;
+  SparseSelfTimes sparse_self_times;
   absl::flat_hash_map<size_t, absl::flat_hash_map<std::string, std::string>>
       sparse_entry_args;
+  uint32_t dropped_level_cap_events = 0;
+
+  // Reserves capacity for per-entry dense columns. When
+  // `reserve_legacy_names_and_ids` is true (default), also reserves legacy
+  // dense columns used by the `TraceEvent` path.
+  void Reserve(size_t n, bool reserve_legacy_names_and_ids = true) {
+    entry_levels.reserve(n);
+    entry_total_times.reserve(n);
+    entry_start_times.reserve(n);
+    entry_name_indices.reserve(n);
+    if (reserve_legacy_names_and_ids) {
+      entry_self_times.reserve(n);
+      entry_hlo_module_indices.reserve(n);
+      entry_hlo_op_indices.reserve(n);
+      entry_names.reserve(n);
+      entry_event_ids.reserve(n);
+    }
+  }
+
+  // Invokes `fn` on every per-entry dense column vector. Shared column registry
+  // for entry release, compaction, and invariant validation.
+  template <typename Fn>
+  void ForEachEntryColumn(Fn&& fn) {
+    fn(entry_levels);
+    fn(entry_total_times);
+    fn(entry_self_times);
+    fn(entry_start_times);
+    fn(entry_name_indices);
+    fn(entry_hlo_module_indices);
+    fn(entry_hlo_op_indices);
+    fn(entry_names);
+    fn(entry_event_ids);
+    fn(entry_args);
+  }
+
+  template <typename Fn>
+  void ForEachEntryColumn(Fn&& fn) const {
+    fn(entry_levels);
+    fn(entry_total_times);
+    fn(entry_self_times);
+    fn(entry_start_times);
+    fn(entry_name_indices);
+    fn(entry_hlo_module_indices);
+    fn(entry_hlo_op_indices);
+    fn(entry_names);
+    fn(entry_event_ids);
+    fn(entry_args);
+  }
+
+  // Invokes `fn` on every event-index-keyed sparse map.
+  // Run tables (`sparse_entry_group_ids`, `sparse_entry_hlo_*_indices`,
+  // `sparse_self_times`) are handled explicitly during release.
+  template <typename Fn>
+  void ForEachSparseEntryMap(Fn&& fn) {
+    fn(non_zero_uids_by_event_index);
+    fn(flow_ids_by_event_index);
+    fn(sparse_entry_args);
+  }
+
+  template <typename Fn>
+  void ForEachSparseEntryMap(Fn&& fn) const {
+    fn(non_zero_uids_by_event_index);
+    fn(flow_ids_by_event_index);
+    fn(sparse_entry_args);
+  }
+
+  // Returns the self-time of entry `index`, falling back to `sparse_self_times`
+  // or `entry_total_times[index]` when `entry_self_times` is not populated.
+  Microseconds GetEntrySelfTime(size_t index) const {
+    if (index < entry_self_times.size()) {
+      return entry_self_times[index];
+    }
+    if (const std::optional<Microseconds> sparse_self =
+            sparse_self_times.Find(index);
+        sparse_self.has_value()) {
+      return *sparse_self;
+    }
+    if (index < entry_total_times.size()) {
+      return entry_total_times[index];
+    }
+    return 0.0;
+  }
+
+  // Finds the per-track HLO derivation rule covering `index`, or nullptr.
+  const HloTrackRule* FindHloTrackRule(size_t index) const {
+    if (hlo_track_rules.empty()) return nullptr;
+    const auto it =
+        std::upper_bound(hlo_track_rules.begin(), hlo_track_rules.end(), index,
+                         [](size_t target, const HloTrackRule& r) {
+                           return target < r.end_entry;
+                         });
+    if (it != hlo_track_rules.end() && index >= it->begin_entry) {
+      return &(*it);
+    }
+    return nullptr;
+  }
+
+  // Returns the HLO op table index of entry `index` (or `entry_name_indices`
+  // on `"XLA Ops"` tracks when derived on read; 0 if none).
+  uint32_t GetEntryHloOpIndex(size_t index) const {
+    if (index < entry_hlo_op_indices.size()) {
+      return entry_hlo_op_indices[index];
+    }
+    if (const std::optional<uint32_t> explicit_op =
+            sparse_entry_hlo_op_indices.Find(index);
+        explicit_op.has_value()) {
+      return *explicit_op;
+    }
+    if (const HloTrackRule* rule = FindHloTrackRule(index);
+        rule != nullptr && rule->is_xla_ops &&
+        index < entry_name_indices.size()) {
+      return entry_name_indices[index];
+    }
+    return 0;
+  }
+
+  // Returns the HLO module table index of entry `index` (0 if default/none).
+  uint32_t GetEntryHloModuleIndex(size_t index) const {
+    if (index < entry_hlo_module_indices.size()) {
+      return entry_hlo_module_indices[index];
+    }
+    if (const std::optional<uint32_t> explicit_mod =
+            sparse_entry_hlo_module_indices.Find(index);
+        explicit_mod.has_value()) {
+      return *explicit_mod;
+    }
+    if (const HloTrackRule* rule = FindHloTrackRule(index); rule != nullptr) {
+      uint32_t mod_idx = rule->default_module_index;
+      if (rule->use_module_intervals &&
+          rule->module_intervals_index < hlo_module_intervals.size() &&
+          index < entry_start_times.size()) {
+        const std::vector<ModuleInterval>& intervals =
+            hlo_module_intervals[rule->module_intervals_index];
+        const Microseconds ts = entry_start_times[index];
+        const auto it = std::lower_bound(
+            intervals.begin(), intervals.end(), ts,
+            [](const ModuleInterval& m, Microseconds target_ts) {
+              return m.end <= target_ts;
+            });
+        if (it != intervals.end() && ts >= it->start && ts < it->end) {
+          mod_idx = it->module_index;
+        }
+      }
+      return mod_idx;
+    }
+    return 0;
+  }
+
+  // Returns the HLO op name of entry `index` (empty if none).
+  absl::string_view GetEntryHloOp(size_t index) const {
+    if (index < entry_hlo_op_indices.size()) {
+      const uint32_t op_idx = entry_hlo_op_indices[index];
+      return op_idx < hlo_op_table.size()
+                 ? absl::string_view(hlo_op_table[op_idx])
+                 : "";
+    }
+    if (const std::optional<uint32_t> explicit_op =
+            sparse_entry_hlo_op_indices.Find(index);
+        explicit_op.has_value()) {
+      return *explicit_op < hlo_op_table.size()
+                 ? absl::string_view(hlo_op_table[*explicit_op])
+                 : "";
+    }
+    if (const HloTrackRule* rule = FindHloTrackRule(index);
+        rule != nullptr && rule->is_xla_ops &&
+        index < entry_name_indices.size()) {
+      const uint32_t name_idx = entry_name_indices[index];
+      if (name_idx < interned_string_pool.size()) {
+        return interned_string_pool[name_idx];
+      }
+    }
+    return "";
+  }
+
+  // Returns the HLO module name of entry `index` (`kHloModuleDefault` when
+  // module index is 0 and HLO module table is populated).
+  absl::string_view GetEntryHloModule(size_t index) const {
+    const uint32_t mod_idx = GetEntryHloModuleIndex(index);
+    if (mod_idx < hlo_module_table.size() &&
+        !hlo_module_table[mod_idx].empty()) {
+      return hlo_module_table[mod_idx];
+    }
+    return kHloModuleDefault;
+  }
 
   // Returns a pointer to the group containing the given level, or nullptr if
   // the level falls outside all group intervals.
@@ -222,14 +777,10 @@ struct FlameChartTimelineData {
   }
 
   bool HasEntryArgs(size_t index) const {
-    if (index < entry_args.size()) {
+    if (index < entry_args.size() || sparse_entry_args.contains(index)) {
       return true;
     }
-    if (sparse_entry_args.contains(index)) {
-      return true;
-    }
-    return index < entry_names.size() && index < entry_arg_flags.size() &&
-           index < entry_serials.size() && index < entry_hlo_module_ids.size();
+    return index < entry_name_indices.size() || index < entry_names.size();
   }
 
   absl::flat_hash_map<std::string, std::string> GetEntryArgs(
@@ -237,33 +788,32 @@ struct FlameChartTimelineData {
     if (index < entry_args.size()) {
       return entry_args[index];
     }
+    absl::flat_hash_map<std::string, std::string> args;
     if (auto it = sparse_entry_args.find(index);
         it != sparse_entry_args.end()) {
-      return it->second;
-    }
-    absl::flat_hash_map<std::string, std::string> args;
-    if (index >= entry_names.size() || index >= entry_arg_flags.size() ||
-        index >= entry_serials.size() || index >= entry_hlo_module_ids.size()) {
+      args = it->second;
+    } else if (index >= entry_name_indices.size() &&
+               index >= entry_names.size()) {
       return args;
     }
-    const uint8_t flags = entry_arg_flags[index];
-    if ((flags & kEntryArgHasUid) != 0) {
-      args["uid"] = absl::StrCat(entry_serials[index]);
+    if (auto it = non_zero_uids_by_event_index.find(static_cast<int>(index));
+        it != non_zero_uids_by_event_index.end()) {
+      args.try_emplace("uid", absl::StrCat(it->second));
     }
-    if ((flags & kEntryArgHasGroupId) != 0) {
-      if (auto it = sparse_entry_group_ids.find(index);
-          it != sparse_entry_group_ids.end()) {
-        args["group_id"] = absl::StrCat(it->second);
-      }
+    if (const std::optional<int64_t> group_id =
+            sparse_entry_group_ids.Find(index);
+        group_id.has_value()) {
+      args.try_emplace("group_id", absl::StrCat(*group_id));
     }
-    if ((flags & kEntryArgHloOpFromName) != 0) {
-      args[std::string(kHloOp)] = entry_names[index];
+    const absl::string_view hlo_op = GetEntryHloOp(index);
+    if (!hlo_op.empty()) {
+      args[std::string(kHloOp)] = std::string(hlo_op);
     }
-    const uint32_t mod_id = entry_hlo_module_ids[index];
-    if (mod_id == 0 || mod_id > hlo_module_names.size()) {
-      args[std::string(kHloModule)] = std::string(kHloModuleDefault);
-    } else {
-      args[std::string(kHloModule)] = hlo_module_names[mod_id - 1];
+    const bool has_hlo_module_metadata =
+        index < entry_hlo_module_indices.size() ||
+        !sparse_entry_hlo_module_indices.empty() || !hlo_module_table.empty();
+    if (has_hlo_module_metadata) {
+      args[std::string(kHloModule)] = std::string(GetEntryHloModule(index));
     }
     return args;
   }
@@ -274,7 +824,7 @@ struct FlameChartTimelineData {
 class Timeline {
  public:
   void CalculateAndEmitMetrics_for_test() { CalculateAndEmitMetrics(); }
-  std::vector<int>& selected_event_indices_for_test() {
+  EntryBitset& selected_event_indices_for_test() {
     return selected_event_indices_;
   }
   std::vector<std::pair<int, int>>& selected_counter_points_for_test() {
@@ -350,7 +900,7 @@ class Timeline {
   std::optional<EventId> get_pending_navigation_event_id_for_test() const {
     return pending_navigation_event_id_;
   }
-  const absl::flat_hash_set<int>& get_matching_event_indices_for_test() const {
+  const EntryBitset& get_matching_event_indices_for_test() const {
     return matching_event_indices_;
   }
   void set_selection_start_pos_for_test(std::optional<ImVec2> pos) {
@@ -428,6 +978,13 @@ class Timeline {
     }
   }
 
+  uint64_t filter_epoch() const { return filter_epoch_; }
+
+  bool IsEventVisibleUnderFilter(int event_index) const {
+    return !has_active_event_filter_ ||
+           filtered_event_indices_.contains(event_index);
+  }
+
   // Sets the search query to highlight events matching the query.
   // The search is case-insensitive.
   void SetSearchQuery(absl::string_view query);
@@ -435,10 +992,12 @@ class Timeline {
   // Sets the search results from the given parsed trace events.
   void SetSearchResults(const ParsedTraceEvents& search_results);
 
-  int get_search_results_count() const { return search_results_.size(); }
-  const std::vector<SearchResult>& get_search_results_for_test() const {
-    return search_results_;
+  int get_search_results_count() const {
+    return !search_results_.empty()
+               ? static_cast<int>(search_results_.size())
+               : static_cast<int>(matching_event_indices_.size());
   }
+  const std::vector<SearchResult>& get_search_results_for_test() const;
   int get_current_search_result_index() const {
     return current_search_result_index_;
   }
@@ -494,10 +1053,21 @@ class Timeline {
   }
   const TimeRange& data_time_range() const { return data_time_range_; }
 
+  // Releases per-entry columns, sparse maps, CSR buffers, flows, string pools,
+  // entry colors, and mip pyramids before a new FlameChartTimelineData is built
+  // or committed, while preserving track group metadata and scroll/selection
+  // state across reloads.
+  void ReleaseTimelineEntriesPreservingState();
+
   void SetTimelineData(FlameChartTimelineData data);
   void UpdateTimelineData(
       absl::FunctionRef<FlameChartTimelineData()> builder);
   const FlameChartTimelineData& timeline_data() const { return timeline_data_; }
+
+  static constexpr size_t kDefaultMaxUncompactedOverviewEntries = 50'000'000;
+  static constexpr size_t kDefaultMaxUncompactedOverviewBytes =
+      1536ULL * 1024 * 1024;
+  static constexpr size_t kMaxUncompactedOverviewStashEntries = 200'000;
 
   void set_max_uncompacted_overview_entries_for_test(size_t max_entries) {
     max_uncompacted_overview_entries_ = max_entries;
@@ -505,12 +1075,22 @@ class Timeline {
   size_t max_uncompacted_overview_entries() const {
     return max_uncompacted_overview_entries_;
   }
+  void set_max_uncompacted_overview_bytes_for_test(size_t max_bytes) {
+    max_uncompacted_overview_bytes_ = max_bytes;
+  }
+  size_t max_uncompacted_overview_bytes() const {
+    return max_uncompacted_overview_bytes_;
+  }
+  size_t EstimateRetainedEntryBytes() const;
 
   void MarkCurrentDataAsFullOverview() { is_full_overview_data_ = true; }
   void PrepareForFilteredRefetch() {
     if (is_full_overview_data_ && !saved_full_overview_.has_value()) {
       stash_full_overview_on_next_update_ = true;
     }
+  }
+  bool stash_full_overview_on_next_update() const {
+    return stash_full_overview_on_next_update_;
   }
   bool HasSavedFullOverview() const { return saved_full_overview_.has_value(); }
   bool RestoreSavedFullOverview();
@@ -523,6 +1103,15 @@ class Timeline {
   int selected_event_index() const { return selected_event_index_; }
   int selected_group_index() const { return selected_group_index_; }
   int selected_counter_index() const { return selected_counter_index_; }
+
+  size_t GetEntryCount() const {
+    return !timeline_data_.entry_start_times.empty()
+               ? timeline_data_.entry_start_times.size()
+               : (!timeline_data_.entry_name_indices.empty()
+                      ? timeline_data_.entry_name_indices.size()
+                      : timeline_data_.entry_names.size());
+  }
+  absl::string_view GetEventName(int event_index) const;
 
   const std::vector<Pixel>& GetVisibleLevelOffsets() const {
     return visible_level_offsets_;
@@ -914,8 +1503,21 @@ class Timeline {
   bool DrawPinButton(int group_index, Pixel height, bool is_pinned);
 
  private:
-  absl::flat_hash_set<int> matching_event_indices_;
+  struct SavedSelectionState {
+    EventId event_id = 0;
+    ProcessId pid = 0;
+    ThreadId tid = 0;
+    std::string group_name;
+    std::string name;
+    Microseconds start = 0.0;
+    Microseconds dur = 0.0;
+  };
 
+  EntryBitset matching_event_indices_;
+  std::optional<SavedSelectionState> saved_selection_state_;
+
+  void CaptureSelectionStateIfNeeded();
+  int GetNthMatchingCsrEventIndex(int target_rank) const;
   void NavigateToSearchResult(const SearchResult& result);
   void BackfillGroupLevelCount(FlameChartTimelineData& data);
 
@@ -1191,11 +1793,15 @@ class Timeline {
 
   void RebuildEntryColors();
   void BuildLevelMipPyramids();
+  void BuildLevelMipPyramidForLevel(int lvl);
+  void EnsureLevelMipPyramid(int lvl);
   void CompactTimelineDataToMipOverview();
   static void ReleaseEntryMemory(FlameChartTimelineData& d);
   void UploadGpuFlameInstances();
   bool HasGpuFlameInstanceBuffer() const;
   void AddGpuFlameBatch(ImDrawList* draw_list, const GpuFlameBatch& batch);
+  int FindEventAtLevelAndTime(int level, Microseconds ts) const;
+  bool IsFlowVisibleUnderFilter(const FlowLine& flow) const;
   ImU32 GetEventColor(int event_index) const;
 
   // Private static constants.
@@ -1235,14 +1841,16 @@ class Timeline {
   uint64_t cached_trace_colors_version_ = std::numeric_limits<uint64_t>::max();
   std::vector<float> utilization_bins_;
 
+ public:
   struct LevelMipTile {
     Microseconds min_start = 0.0;
     Microseconds max_end = 0.0;
-    Microseconds total_occupied_dur = 0.0;
     int dominant_event_index = -1;
+    float total_occupied_dur = 0.0f;
     uint32_t count = 0;
     ImU32 blended_color = 0;
   };
+  static_assert(sizeof(LevelMipTile) == 32);
   struct LevelMipLevel {
     Microseconds bin_width_us = 0.0;
     std::vector<LevelMipTile> tiles;
@@ -1252,8 +1860,12 @@ class Timeline {
     static constexpr int kNumMipLevels = 3;
     bool has_pyramid = false;
     bool raw_events_compacted = false;
+    Microseconds level_min_ts = 0.0;
+    Microseconds level_max_ts = 0.0;
+    size_t visible_event_count = 0;
     LevelMipLevel levels[kNumMipLevels];
     uint32_t raw_gpu_instance_offset = UINT32_MAX;
+    uint64_t built_filter_epoch = std::numeric_limits<uint64_t>::max();
 
     int SelectMipLevel(Microseconds max_bin_width_us) const {
       for (int m = kNumMipLevels - 1; m >= 0; --m) {
@@ -1265,16 +1877,6 @@ class Timeline {
       return -1;
     }
   };
-  static constexpr size_t kMinEventsForMipPyramid = 64;
-  static constexpr size_t kMinVisibleEventsForMipDraw = 128;
-  static constexpr double kMaxMipBinWidthPx = 1.25;
-  static constexpr double kMaxPreviewMipBinWidthPx = 2.0;
-  static constexpr double kMaxProcessUtilizationMipBinWidthPx = 2.5;
-  static constexpr size_t kMinEventsForProcessUtilizationPyramid = 256;
-  static constexpr int kMipBinCounts[LevelMipPyramid::kNumMipLevels] = {
-      2048, 512, 128};
-  std::vector<LevelMipPyramid> level_mip_pyramids_;
-
   struct ProcessUtilizationMip {
     Microseconds min_ts = 0.0;
     Microseconds bin_width_us = 0.0;
@@ -1296,14 +1898,44 @@ class Timeline {
       return -1;
     }
   };
+  const std::vector<LevelMipPyramid>& get_level_mip_pyramids_for_test() const {
+    return level_mip_pyramids_;
+  }
+  void ensure_level_mip_pyramid_for_test(int lvl) {
+    EnsureLevelMipPyramid(lvl);
+  }
+  void ensure_process_utilization_pyramids_for_test() {
+    if (process_utilization_pyramids_dirty_) {
+      BuildProcessUtilizationPyramids();
+    }
+  }
+  const std::vector<ProcessUtilizationPyramid>&
+  get_process_utilization_pyramids_for_test() const {
+    return process_utilization_pyramids_;
+  }
+  bool is_flow_visible_under_filter_for_test(const FlowLine& flow) const {
+    return IsFlowVisibleUnderFilter(flow);
+  }
+  ImU32 get_event_color_for_test(int event_index) const {
+    return GetEventColor(event_index);
+  }
+
+ private:
+  static constexpr size_t kMinEventsForMipPyramid = 64;
+  static constexpr size_t kMinVisibleEventsForMipDraw = 128;
+  static constexpr double kMaxMipBinWidthPx = 1.25;
+  static constexpr double kMaxPreviewMipBinWidthPx = 2.0;
+  static constexpr double kMaxProcessUtilizationMipBinWidthPx = 2.5;
+  static constexpr size_t kMinEventsForProcessUtilizationPyramid = 256;
+  static constexpr int kMipBinCounts[LevelMipPyramid::kNumMipLevels] = {
+      2048, 512, 128};
+  std::vector<LevelMipPyramid> level_mip_pyramids_;
+
   void BuildProcessUtilizationPyramids();
   std::optional<ProcessUtilizationPyramid>
   BuildProcessUtilizationPyramidForRange(int proc_start, int proc_end) const;
-  void PopulateProcessUtilizationMipLevel(int proc_start, int proc_end,
-                                          Microseconds proc_min_ts,
-                                          Microseconds proc_span, int num_bins,
-                                          ProcessUtilizationMip& pmip) const;
   std::vector<ProcessUtilizationPyramid> process_utilization_pyramids_;
+  bool process_utilization_pyramids_dirty_ = true;
 
   struct CachedGpuFlameInstance {
     float start_hi = 0.0f;
@@ -1322,6 +1954,7 @@ class Timeline {
     std::vector<LevelMipPyramid> level_mip_pyramids;
     std::vector<ProcessUtilizationPyramid> process_utilization_pyramids;
     std::vector<CachedGpuFlameInstance> gpu_flame_instances;
+    bool process_utilization_pyramids_dirty = true;
     TimeRange fetched_data_time_range = TimeRange::Zero();
   };
   std::optional<SavedFullOverview> saved_full_overview_;
@@ -1493,7 +2126,7 @@ class Timeline {
 
   std::optional<ImVec2> selection_start_pos_;
   std::optional<ImVec2> selection_end_pos_;
-  std::vector<int> selected_event_indices_;
+  EntryBitset selected_event_indices_;
   std::vector<std::pair<int, int>> selected_counter_points_;
 
   Microseconds drag_start_time_ = 0.0;
@@ -1505,7 +2138,9 @@ class Timeline {
   bool full_trace_loaded_ = false;
   bool is_compacted_ = false;
   bool window_at_full_resolution_ = false;
-  size_t max_uncompacted_overview_entries_ = 200000;
+  size_t max_uncompacted_overview_entries_ =
+      kDefaultMaxUncompactedOverviewEntries;
+  size_t max_uncompacted_overview_bytes_ = kDefaultMaxUncompactedOverviewBytes;
 
   bool incremental_fetch_enabled_ = true;
 
@@ -1519,8 +2154,12 @@ class Timeline {
   int pending_reorder_target_ = -1;
   bool pending_reorder_drop_after_ = false;
 
+  EntryBitset filtered_event_indices_;
+  bool has_active_event_filter_ = false;
+  uint64_t filter_epoch_ = 0;
+
   std::string search_query_lower_;
-  std::vector<SearchResult> search_results_;
+  mutable std::vector<SearchResult> search_results_;
   int current_search_result_index_ = -1;
   std::optional<EventId> pending_navigation_event_id_;
 

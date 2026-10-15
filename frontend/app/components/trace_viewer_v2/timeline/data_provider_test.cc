@@ -2932,7 +2932,7 @@ TEST_F(DataProviderTest, FlowEventFindLevelMultipleEventsOnLevel) {
 }
 
 TEST_F(DataProviderTest, CompleteEventWithIdIsHandledAsFlowEvent) {
-  const std::vector<TraceEvent> all_events = {
+  const std::vector<TraceEvent> flame_events = {
       // Process 1, Thread 101
       {.ph = Phase::kComplete,
        .event_id = 10,
@@ -2954,18 +2954,8 @@ TEST_F(DataProviderTest, CompleteEventWithIdIsHandledAsFlowEvent) {
        .id = "1",
        .category = tsl::profiler::ContextType::kGpuLaunch},
   };
-  std::vector<TraceEvent> flame_events;
-  std::vector<TraceEvent> flow_events;
-  for (const TraceEvent& event : all_events) {
-    if (event.ph == Phase::kComplete) {
-      flame_events.push_back(event);
-    }
-    if (!event.id.empty()) {
-      flow_events.push_back(event);
-    }
-  }
 
-  data_provider_.ProcessTraceEvents({flame_events, {}, flow_events}, timeline_);
+  data_provider_.ProcessTraceEvents({flame_events, {}, {}}, timeline_);
   const FlameChartTimelineData& data = timeline_.timeline_data();
   ASSERT_THAT(data.flow_lines, SizeIs(1));
   EXPECT_EQ(data.flow_lines[0].source_ts, 100.0);
@@ -6261,7 +6251,6 @@ TEST_F(DataProviderTest, NegativeLevelDroppedSafelyWithoutOverflow) {
   ASSERT_EQ(data.entry_levels.size(), 1);
   EXPECT_EQ(data.entry_levels[0], 0);
 }
-
 TEST_F(DataProviderTest,
        AppendEventToTimelineDataColumnarFastPathReconstructsArgs) {
   ParsedTraceEvents parsed_events;
@@ -6304,7 +6293,6 @@ TEST_F(DataProviderTest,
   EXPECT_EQ(args.at(std::string(kHloOp)), "fusion.1");
   EXPECT_EQ(args.at(std::string(kHloModule)), "jit_train(42)");
 }
-
 TEST_F(DataProviderTest, SelectedEventSurvivesProcessTraceEventsUpdate) {
   ParsedTraceEvents initial_events;
   initial_events.flame_events = {
@@ -6362,6 +6350,165 @@ TEST_F(DataProviderTest, SelectedEventSurvivesProcessTraceEventsUpdate) {
   ASSERT_LT(new_selected_idx,
             static_cast<int>(timeline_.timeline_data().entry_names.size()));
   EXPECT_EQ(timeline_.timeline_data().entry_names[new_selected_idx], "op_beta");
+}
+
+TEST_F(
+    DataProviderTest,
+    CompleteEventsInFlameEventsWithOnlyFlowIdOrOnlyStringIdProduceFlowLines) {
+  const std::vector<TraceEvent> flame_events = {
+      {.ph = Phase::kComplete,
+       .event_id = 10,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A1",
+       .ts = 100.0,
+       .dur = 20.0,
+       .flow_id = 42,
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+      {.ph = Phase::kComplete,
+       .event_id = 11,
+       .pid = 1,
+       .tid = 102,
+       .name = "Task A2",
+       .ts = 150.0,
+       .dur = 20.0,
+       .flow_id = 42,
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+      {.ph = Phase::kComplete,
+       .event_id = 12,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task B1",
+       .ts = 200.0,
+       .dur = 20.0,
+       .id = "legacy_id",
+       .category = tsl::profiler::ContextType::kTfExecutor},
+      {.ph = Phase::kComplete,
+       .event_id = 13,
+       .pid = 1,
+       .tid = 102,
+       .name = "Task B2",
+       .ts = 250.0,
+       .dur = 20.0,
+       .id = "legacy_id",
+       .category = tsl::profiler::ContextType::kTfExecutor},
+  };
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = flame_events}, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(2));
+  EXPECT_DOUBLE_EQ(data.flow_lines[0].source_ts, 100.0);
+  EXPECT_DOUBLE_EQ(data.flow_lines[0].target_ts, 150.0);
+  EXPECT_DOUBLE_EQ(data.flow_lines[1].source_ts, 200.0);
+  EXPECT_DOUBLE_EQ(data.flow_lines[1].target_ts, 250.0);
+}
+
+TEST_F(DataProviderTest, StandaloneFlowStartEndInFlameEventsProduceFlowLines) {
+  const std::vector<TraceEvent> flame_events = {
+      {.ph = Phase::kComplete,
+       .event_id = 10,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0},
+      {.ph = Phase::kComplete,
+       .event_id = 11,
+       .pid = 1,
+       .tid = 102,
+       .name = "Task B",
+       .ts = 200.0,
+       .dur = 50.0},
+      {.ph = Phase::kFlowStart,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow_num",
+       .ts = 110.0,
+       .flow_id = 99,
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+      {.ph = Phase::kFlowEnd,
+       .pid = 1,
+       .tid = 102,
+       .name = "flow_num",
+       .ts = 210.0,
+       .flow_id = 99,
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+      {.ph = Phase::kFlowStart,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow_str",
+       .ts = 120.0,
+       .id = "symbolic_flow",
+       .category = tsl::profiler::ContextType::kTfExecutor},
+      {.ph = Phase::kFlowEnd,
+       .pid = 1,
+       .tid = 102,
+       .name = "flow_str",
+       .ts = 220.0,
+       .id = "symbolic_flow",
+       .category = tsl::profiler::ContextType::kTfExecutor},
+  };
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = flame_events}, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(2));
+  EXPECT_DOUBLE_EQ(data.flow_lines[0].source_ts, 110.0);
+  EXPECT_DOUBLE_EQ(data.flow_lines[0].target_ts, 210.0);
+  EXPECT_DOUBLE_EQ(data.flow_lines[1].source_ts, 120.0);
+  EXPECT_DOUBLE_EQ(data.flow_lines[1].target_ts, 220.0);
+}
+
+TEST_F(DataProviderTest,
+       LegacyEventsCharacterizeUngroupedZeroAndNegativeGroupIds) {
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process A"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 101, "T1"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "ungrouped_op",
+       .ts = 10.0,
+       .dur = 5.0,
+       .group_id = 0,
+       .has_group_id = false},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "zero_group_op",
+       .ts = 20.0,
+       .dur = 5.0,
+       .group_id = 0,
+       .has_group_id = true},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "negative_group_op",
+       .ts = 30.0,
+       .dur = 5.0,
+       .group_id = -42,
+       .has_group_id = true},
+  };
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_EQ(data.entry_start_times.size(), 3u);
+
+  const absl::flat_hash_map<std::string, std::string> args0 =
+      data.GetEntryArgs(0);
+  EXPECT_FALSE(args0.contains("group_id"));
+
+  const absl::flat_hash_map<std::string, std::string> args1 =
+      data.GetEntryArgs(1);
+  ASSERT_TRUE(args1.contains("group_id"));
+  EXPECT_EQ(args1.at("group_id"), "0");
+
+  const absl::flat_hash_map<std::string, std::string> args2 =
+      data.GetEntryArgs(2);
+  ASSERT_TRUE(args2.contains("group_id"));
+  EXPECT_EQ(args2.at("group_id"), "-42");
 }
 }  // namespace
 }  // namespace traceviewer

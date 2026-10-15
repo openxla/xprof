@@ -1,6 +1,7 @@
 #ifndef THIRD_PARTY_XPROF_CONVERT_TRACE_VIEWER_DELTA_SERIES_TRACE_DATA_TO_COMPRESSED_DELTA_SERIES_PROTO_H_
 #define THIRD_PARTY_XPROF_CONVERT_TRACE_VIEWER_DELTA_SERIES_TRACE_DATA_TO_COMPRESSED_DELTA_SERIES_PROTO_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -10,6 +11,7 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/functional/any_invocable.h"
+#include "absl/functional/function_ref.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -27,6 +29,13 @@ namespace profiler {
 struct DeltaSeriesProtoConversionOptions {
   bool mpmd_pipeline_view = false;
   bool mpmd_single_device_per_stage = false;
+  // When true, encodes group_id using run-length encoding and emits
+  // TraceEventMetadata entries sparsely via event_metadata_indices (including
+  // HLO op/module refs). Defaults to false so legacy/OSS callers continue to
+  // receive dense 1:1 event_metadata.
+  bool sparse_event_metadata = false;
+  // Maximum number of events per TrackSegment when emitting streaming frames.
+  size_t stream_max_events_per_segment = 65536;
   JsonTraceOptions::Details details;
   // Device IDs whose resource threads should omit numerical sort indices,
   // enabling alphabetical sorting by resource name.
@@ -60,6 +69,13 @@ class DeltaSeriesProtoConverter {
 
   void PopulateTraceEventMetadata(const TraceEvent& event,
                                   xprof::TraceEventMetadata* metadata);
+
+  bool ExtractHloMetadataFromRawData(const TraceEvent& event,
+                                     bool is_xla_ops_thread,
+                                     bool is_data_motion_layer,
+                                     absl::string_view event_name,
+                                     uint32_t* hlo_op_ref,
+                                     uint32_t* hlo_module_ref);
 
   void AddCompleteEventTrack(uint32_t pid, uint64_t tid,
                              const TraceEventTrack& events,
@@ -142,7 +158,7 @@ absl::Status DeltaSeriesProtoConverter::GenerateResponse(
   *response->mutable_metadata() = GetTraceMetadata();
 
   for (const auto& detail : options_.details) {
-    auto* d = response->add_details();
+    xprof::DetailItem* d = response->add_details();
     d->set_name(detail.first);
     d->set_value(detail.second);
   }
@@ -182,6 +198,58 @@ absl::Status DeltaSeriesProtoConverter::GenerateResponse(
   }
   return absl::OkStatus();
 }
+
+// Converts an uncompressed TraceDataResponse into a sequence of 4-byte
+// little-endian length-prefixed, Zstd-compressed TraceStreamMessage frames
+// (header, segmented track chunks with server-side async pairing, and trailer).
+absl::StatusOr<std::string> ConvertTraceDataResponseToCompressedStreamProto(
+    const xprof::TraceDataResponse& response,
+    absl::FunctionRef<size_t(uint32_t track_id, size_t remaining_events)>
+        next_segment_size_fn);
+
+absl::StatusOr<std::string> ConvertTraceDataResponseToCompressedStreamProto(
+    const xprof::TraceDataResponse& response,
+    size_t max_events_per_segment = 65536);
+
+// Converts TraceEventsContainer trace data into length-prefixed,
+// Zstd-compressed TraceStreamMessage frames for streaming ingestion.
+template <typename TraceEventsContainer>
+absl::StatusOr<std::string> ConvertTraceDataToCompressedStreamProto(
+    const DeltaSeriesProtoConversionOptions& options,
+    const TraceEventsContainer& events) {
+  typename TraceEventsContainer::RawDataType raw_data;
+  auto extractor = [&raw_data](absl::string_view raw_bytes,
+                               xprof::TraceEventMetadata* metadata,
+                               std::string* series_name) {
+    if (!raw_data.ParseFromArray(raw_bytes.data(), raw_bytes.size())) {
+      LOG(ERROR) << "Failed to parse raw_data for counter event";
+      return;
+    }
+    if (raw_data.has_args() && raw_data.args().arg_size() > 0) {
+      const auto& arg = raw_data.args().arg(0);
+      if (series_name != nullptr && arg.has_name()) {
+        *series_name = arg.name();
+      }
+      if (arg.has_double_value()) {
+        metadata->set_counter_value_double(arg.double_value());
+      } else if (arg.has_uint_value()) {
+        metadata->set_counter_value_uint64(arg.uint_value());
+      }
+    }
+  };
+
+  xprof::TraceDataResponse response;
+  DeltaSeriesProtoConverter converter(&events.trace(), std::move(extractor),
+                                      options);
+  if (absl::Status status =
+          std::move(converter).GenerateResponse(events, &response);
+      !status.ok()) {
+    return status;
+  }
+  return ConvertTraceDataResponseToCompressedStreamProto(
+      response, options.stream_max_events_per_segment);
+}
+
 }  // namespace profiler
 }  // namespace tensorflow
 

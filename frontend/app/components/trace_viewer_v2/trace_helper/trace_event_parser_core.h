@@ -24,11 +24,6 @@ Phase ParsePhase(absl::string_view ph_str);
 const absl::flat_hash_map<tsl::profiler::ContextType, absl::string_view>&
 GetPrettyNames();
 
-// Generates a stable event ID robust against sub-microsecond floating-point
-// representation differences (e.g. string round-tripping vs integer division).
-EventId GenerateEventId(absl::string_view name, Microseconds ts,
-                        Microseconds dur);
-
 // Core Processing Functions for Protobuf Unmarshalling
 void ProcessProcessMetadata(const xprof::Process& process,
                             ParsedTraceEvents& result);

@@ -43,6 +43,7 @@ export const MIN_EVENT_WIDTH = 2;
 export const TRACE_OPTIONS = {
   SELECTED_GROUP_IDS: 'selected_group_ids',
   MPMD_PIPELINE_VIEW_PARAM: 'mpmd_pipeline_view',
+  FULL_FIDELITY: 'full_fidelity',
 } as const;
 
 /**
@@ -54,7 +55,15 @@ export const TRACE_VIEW_OPTION = {
   RESOLUTION: 'resolution',
   START_TIME_MS: 'start_time_ms',
   END_TIME_MS: 'end_time_ms',
+  SPARSE_EVENT_METADATA: 'sparse_event_metadata',
+  STREAM: 'stream',
 } as const;
+
+/**
+ * Size of the reusable WASM heap staging buffer for streaming trace ingestion
+ * (4 MiB).
+ */
+export const STREAM_STAGING_BUFFER_SIZE = 4 * 1024 * 1024;
 
 /**
  * URL parameters for initial view start.
@@ -212,6 +221,10 @@ declare global {
     dataSize: number,
     timeRangeFromUrl?: [number, number],
   ): void;
+  beginTraceStream?(streamId?: number): void;
+  pushTraceStreamBytes?(dataPtr: number, dataSize: number): boolean;
+  finishTraceStream?(timeRangeFromUrl?: [number, number]): boolean;
+  abortTraceStream?(): void;
   /**
    * Passes Perfetto trace events from a memory buffer in the WASM heap.
    * @param dataPtr A pointer to the memory address in the WASM heap where
@@ -745,6 +758,21 @@ async function processUploadedFile(
 }
 
 /**
+ * Returns whether full-fidelity mode is requested via URL parameter or feature
+ * flag.
+ */
+function isFullFidelityRequested(urlObj: URL): boolean {
+  const param = urlObj.searchParams.get(TRACE_OPTIONS.FULL_FIDELITY);
+  if (param === 'false') {
+    return false;
+  }
+  return (
+    param === 'true' ||
+    window.getFeatureFlag?.(TRACE_OPTIONS.FULL_FIDELITY) === true
+  );
+}
+
+/**
  * Updates a URL object in-place with a `resolution` parameter based on the
  * canvas width.
  *
@@ -765,7 +793,10 @@ export function updateUrlWithResolution(
   // Default resolution to 0, which fetches all data.
   let resolution = 0;
 
-  if (!params.has(TRACE_OPTIONS.SELECTED_GROUP_IDS)) {
+  if (
+    !params.has(TRACE_OPTIONS.SELECTED_GROUP_IDS) &&
+    !isFullFidelityRequested(urlObj)
+  ) {
     if (canvas) {
       const viewerWidth = canvas.clientWidth - HEADING_WIDTH;
 
@@ -820,6 +851,12 @@ function propagateBrowserTraceOptions(urlObj: URL): void {
     'true'
   ) {
     urlObj.searchParams.set(TRACE_OPTIONS.MPMD_PIPELINE_VIEW_PARAM, 'true');
+  }
+  if (
+    !urlObj.searchParams.has(TRACE_OPTIONS.FULL_FIDELITY) &&
+    browserUrl.searchParams.get(TRACE_OPTIONS.FULL_FIDELITY) === 'true'
+  ) {
+    urlObj.searchParams.set(TRACE_OPTIONS.FULL_FIDELITY, 'true');
   }
 }
 
@@ -898,6 +935,145 @@ function isFetchDataEvent(
   );
 }
 
+let nextTraceStreamId = 0;
+
+function shouldStreamCompressedTraceData(
+  urlObj: URL,
+  traceviewerModule: TraceViewerV2Module,
+): boolean {
+  const streamParam = urlObj.searchParams.get(TRACE_VIEW_OPTION.STREAM);
+  if (streamParam === 'false') {
+    return false;
+  }
+  const streamRequested =
+    streamParam === 'true' ||
+    traceviewerModule.getFeatureFlag?.('stream_trace_data') === true;
+  return (
+    streamRequested &&
+    typeof traceviewerModule.beginTraceStream === 'function' &&
+    typeof traceviewerModule.pushTraceStreamBytes === 'function' &&
+    typeof traceviewerModule.finishTraceStream === 'function' &&
+    typeof traceviewerModule.abortTraceStream === 'function'
+  );
+}
+
+/**
+ * Streams framed compressed protobuf trace chunks into WASM using a single
+ * reusable 4 MiB staging buffer. Returns true if the stream was handled
+ * (either completed or aborted due to supersession), or false if the caller
+ * should fall back to the monolithic response path (e.g. P10 trailer mismatch).
+ */
+async function streamCompressedTraceData({
+  urlObj,
+  traceviewerModule,
+  isAbortRequested,
+  timeRange,
+}: {
+  urlObj: URL;
+  traceviewerModule: TraceViewerV2Module;
+  isAbortRequested: () => boolean;
+  timeRange?: [number, number];
+}): Promise<boolean> {
+  const response = await fetch(urlObj.toString());
+  if (!response.ok) {
+    throw new Error(getFetchErrorMessage(response));
+  }
+  if (isAbortRequested()) {
+    await response.body?.cancel();
+    return true;
+  }
+  if (!response.body || typeof response.body.getReader !== 'function') {
+    return false;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+      detail: {status: TraceViewerV2LoadingStatus.PROCESSING_DATA},
+    }),
+  );
+
+  await new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+
+  if (isAbortRequested()) {
+    await response.body.cancel();
+    return true;
+  }
+
+  performance.mark('traceProcessStart');
+
+  const stagingPtr = traceviewerModule._malloc(STREAM_STAGING_BUFFER_SIZE);
+  if (!stagingPtr) {
+    await response.body.cancel();
+    throw new Error('Failed to allocate WASM memory buffer');
+  }
+
+  const reader = response.body.getReader();
+  try {
+    nextTraceStreamId += 1;
+    traceviewerModule.beginTraceStream!(nextTraceStreamId);
+
+    while (true) {
+      const {done, value} = await reader.read();
+      if (isAbortRequested()) {
+        await reader.cancel();
+        traceviewerModule.abortTraceStream!();
+        return true;
+      }
+      if (done) {
+        break;
+      }
+      if (!value || value.byteLength === 0) {
+        continue;
+      }
+
+      for (
+        let offset = 0;
+        offset < value.byteLength;
+        offset += STREAM_STAGING_BUFFER_SIZE
+      ) {
+        const end = Math.min(
+          offset + STREAM_STAGING_BUFFER_SIZE,
+          value.byteLength,
+        );
+        const slice = value.subarray(offset, end);
+        // Re-read HEAPU8 before every write because WASM memory growth replaces
+        // the underlying ArrayBuffer and TypedArray view.
+        traceviewerModule.HEAPU8.set(slice, stagingPtr);
+        const pushOk = traceviewerModule.pushTraceStreamBytes!(
+          stagingPtr,
+          slice.byteLength,
+        );
+        if (!pushOk) {
+          await reader.cancel();
+          traceviewerModule.abortTraceStream!();
+          return false;
+        }
+      }
+
+      // Yield between network chunks to keep the UI responsive and allow
+      // supersession checks to observe concurrent navigation.
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+      if (isAbortRequested()) {
+        await reader.cancel();
+        traceviewerModule.abortTraceStream!();
+        return true;
+      }
+    }
+
+    const finishOk = traceviewerModule.finishTraceStream!(timeRange);
+    if (!finishOk) {
+      return false;
+    }
+    return true;
+  } finally {
+    traceviewerModule._free(stagingPtr);
+  }
+}
+
 /**
  * Fetches and processes trace data (either .pb or .json) from the given URL.
  * Handles status dispatches, yielding to event loop, and latency measurement.
@@ -923,46 +1099,81 @@ async function fetchAndProcessTraceData({
 
   updateUrlWithResolution(urlObj, traceviewerModule.canvas);
 
+  if (
+    isFullFidelityRequested(urlObj) &&
+    urlObj.searchParams.get(TRACE_VIEW_OPTION.RESOLUTION) === '0' &&
+    !urlObj.searchParams.has(TRACE_VIEW_OPTION.START_TIME_MS) &&
+    !urlObj.searchParams.has(TRACE_VIEW_OPTION.END_TIME_MS)
+  ) {
+    traceviewerModule.SetIncrementalFetchEnabled?.(false);
+  }
+
   try {
     if (
       urlObj.pathname.endsWith('.pb') ||
       urlObj.searchParams.get('format') === 'pb'
     ) {
-      const buffer = await loadCompressedTraceDataInternal(urlObj.toString());
-      if (isAbortRequested()) return;
-
-      window.dispatchEvent(
-        new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-          detail: {status: TraceViewerV2LoadingStatus.PROCESSING_DATA},
-        }),
-      );
-
-      // Yield to the event loop to allow the UI to re-render and display
-      // the 'Processing data' status before the potentially long-running
-      // processCompressedTraceEvents call.
-      await new Promise((resolve) => {
-        setTimeout(resolve, 0);
-      });
-
-      if (isAbortRequested()) return;
-
-      performance.mark('traceProcessStart');
-
-      let dataPtr: number | undefined;
-      try {
-        dataPtr = traceviewerModule._malloc(buffer.byteLength);
-        if (!dataPtr) {
-          throw new Error('Failed to allocate WASM memory buffer');
-        }
-        traceviewerModule.HEAPU8.set(new Uint8Array(buffer), dataPtr);
-        traceviewerModule.processCompressedTraceEvents(
-          dataPtr,
-          buffer.byteLength,
+      urlObj.searchParams.set(TRACE_VIEW_OPTION.SPARSE_EVENT_METADATA, 'true');
+      let handledByStream = false;
+      if (shouldStreamCompressedTraceData(urlObj, traceviewerModule)) {
+        urlObj.searchParams.set(TRACE_VIEW_OPTION.STREAM, 'true');
+        handledByStream = await streamCompressedTraceData({
+          urlObj,
+          traceviewerModule,
+          isAbortRequested,
           timeRange,
+        });
+        if (handledByStream && isAbortRequested()) {
+          return;
+        }
+        if (!handledByStream) {
+          urlObj.searchParams.delete(TRACE_VIEW_OPTION.STREAM);
+        }
+      }
+
+      if (!handledByStream) {
+        let buffer: ArrayBuffer | null = await loadCompressedTraceDataInternal(
+          urlObj.toString(),
         );
-      } finally {
-        if (dataPtr !== undefined && dataPtr !== 0) {
-          traceviewerModule._free(dataPtr);
+        if (isAbortRequested()) return;
+
+        window.dispatchEvent(
+          new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+            detail: {status: TraceViewerV2LoadingStatus.PROCESSING_DATA},
+          }),
+        );
+
+        // Yield to the event loop to allow the UI to re-render and display
+        // the 'Processing data' status before the potentially long-running
+        // processCompressedTraceEvents call.
+        await new Promise((resolve) => {
+          setTimeout(resolve, 0);
+        });
+
+        if (isAbortRequested()) return;
+
+        performance.mark('traceProcessStart');
+
+        let dataPtr: number | undefined;
+        let ownershipTransferred = false;
+        try {
+          const byteLength = buffer.byteLength;
+          dataPtr = traceviewerModule._malloc(byteLength);
+          if (!dataPtr) {
+            throw new Error('Failed to allocate WASM memory buffer');
+          }
+          traceviewerModule.HEAPU8.set(new Uint8Array(buffer), dataPtr);
+          buffer = null;
+          ownershipTransferred = true;
+          traceviewerModule.processCompressedTraceEvents(
+            dataPtr,
+            byteLength,
+            timeRange,
+          );
+        } finally {
+          if (!ownershipTransferred && dataPtr !== undefined && dataPtr !== 0) {
+            traceviewerModule._free(dataPtr);
+          }
         }
       }
     } else {
@@ -1202,7 +1413,7 @@ export async function traceViewerV2Main(
         }
 
         const timeRangeFromUrl = getTimeRangeFromUrl(urlObj);
-        if (timeRangeFromUrl) {
+        if (timeRangeFromUrl && !isFullFidelityRequested(urlObj)) {
           expandUrlTimeRange(urlObj, timeRangeFromUrl);
         }
 
@@ -1239,6 +1450,10 @@ export async function traceViewerV2Main(
         urlObj.pathname.endsWith('.pb') ||
         urlObj.searchParams.get('format') === 'pb'
       ) {
+        urlObj.searchParams.set(
+          TRACE_VIEW_OPTION.SPARSE_EVENT_METADATA,
+          'true',
+        );
         const buffer = await loadCompressedTraceDataInternal(urlObj.toString());
         traceviewerModule.setCompressedSearchResultsInWasm(
           new Uint8Array(buffer),

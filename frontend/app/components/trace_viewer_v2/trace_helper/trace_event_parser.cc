@@ -7,11 +7,11 @@
 #include <cstdint>
 #include <map>
 #include <string>
+#include <tuple>
 #include <utility>
 
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "tsl/platform/fingerprint.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "frontend/app/components/trace_viewer_v2/application.h"
 #include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
@@ -94,30 +94,46 @@ void ParseFlowField(const emscripten::val& event, const char* field_name,
     for (unsigned int i = 0; i < len; ++i) {
       emscripten::val item = val[i];
       std::string flow_id;
+      uint64_t parsed_flow_id = 0;
+      bool has_parsed_flow_id = false;
       if (item.isString()) {
         flow_id = item.as<std::string>();
+        if (!flow_id.empty()) {
+          parsed_flow_id = ParseFlowIdString(flow_id);
+          has_parsed_flow_id = true;
+        }
       } else if (item.isNumber()) {
-        flow_id = std::to_string(static_cast<int64_t>(item.as<double>()));
+        parsed_flow_id =
+            static_cast<uint64_t>(static_cast<int64_t>(item.as<double>()));
+        flow_id = absl::StrCat(parsed_flow_id);
+        has_parsed_flow_id = true;
       }
-      if (!flow_id.empty()) {
+      if (has_parsed_flow_id) {
         TraceEvent flow_ev = ev;
         flow_ev.id = std::move(flow_id);
+        flow_ev.flow_id = parsed_flow_id;
+        flow_ev.has_flow_id = true;
         flow_ev.ph = ph;
         flow_events.push_back(std::move(flow_ev));
       }
     }
   } else if (!val.isNull() && !val.isUndefined() && val.as<bool>()) {
-    if (!ev.id.empty()) {
+    if (ev.has_flow_id || ev.flow_id != 0 || !ev.id.empty()) {
       TraceEvent flow_ev = ev;
+      if (flow_ev.id.empty()) {
+        flow_ev.id = absl::StrCat(flow_ev.flow_id);
+      }
+      flow_ev.has_flow_id = true;
       flow_ev.ph = ph;
       flow_events.push_back(std::move(flow_ev));
     }
   }
 }
 
-void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
-                    absl::flat_hash_map<std::pair<ProcessId, std::string>,
-                                        TraceEvent>& open_async_events) {
+void ParseAndAppend(
+    const emscripten::val& event, ParsedTraceEvents& result,
+    absl::flat_hash_map<std::tuple<ProcessId, std::string, uint64_t>,
+                        TraceEvent>& open_async_events) {
   if (!event.hasOwnProperty("ph")) {
     return;
   }
@@ -172,69 +188,84 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
       ev.pid = static_cast<ProcessId>(event["pid"].as<double>());
     if (event.hasOwnProperty("tid"))
       ev.tid = static_cast<ThreadId>(event["tid"].as<double>());
-    if (event.hasOwnProperty("name")) ev.name = event["name"].as<std::string>();
+    if (event.hasOwnProperty("name")) {
+      ev.name = event["name"].as<std::string>();
+    }
     if (event.hasOwnProperty("ts")) ev.ts = event["ts"].as<Microseconds>();
     if (event.hasOwnProperty("dur")) ev.dur = event["dur"].as<Microseconds>();
     if (event.hasOwnProperty("cat")) {
       emscripten::val cat = event["cat"];
-      if (cat.isNumber()) {
-        ev.category = tsl::profiler::GetSafeContextType(cat.as<uint32_t>());
-      } else if (cat.isString()) {
+      if (cat.isString()) {
         ev.category = GetContextTypeFromString(cat.as<std::string>());
+      } else if (cat.isNumber()) {
+        ev.category = tsl::profiler::GetSafeContextType(cat.as<uint32_t>());
       }
     }
     if (event.hasOwnProperty("id")) {
-      if (event["id"].isString()) {
-        ev.id = event["id"].as<std::string>();
-      } else {
-        ev.id = std::to_string((int64_t)event["id"].as<double>());
+      emscripten::val id_val = event["id"];
+      if (id_val.isString()) {
+        ev.id = id_val.as<std::string>();
+        if (!ev.id.empty()) {
+          ev.flow_id = ParseFlowIdString(ev.id);
+          ev.has_flow_id = true;
+        }
+      } else if (id_val.isNumber()) {
+        ev.flow_id =
+            static_cast<uint64_t>(static_cast<int64_t>(id_val.as<double>()));
+        ev.id = absl::StrCat(ev.flow_id);
+        ev.has_flow_id = true;
       }
     } else if (event.hasOwnProperty("bind_id")) {
-      if (event["bind_id"].isString()) {
-        ev.id = event["bind_id"].as<std::string>();
-      } else {
-        ev.id = std::to_string((int64_t)event["bind_id"].as<double>());
+      emscripten::val bind_id_val = event["bind_id"];
+      if (bind_id_val.isString()) {
+        ev.id = bind_id_val.as<std::string>();
+        if (!ev.id.empty()) {
+          ev.flow_id = ParseFlowIdString(ev.id);
+          ev.has_flow_id = true;
+        }
+      } else if (bind_id_val.isNumber()) {
+        ev.flow_id = static_cast<uint64_t>(
+            static_cast<int64_t>(bind_id_val.as<double>()));
+        ev.id = absl::StrCat(ev.flow_id);
+        ev.has_flow_id = true;
       }
     }
     if (event.hasOwnProperty("args")) {
-      emscripten::val args_val = event["args"];
+      emscripten::val args = event["args"];
       emscripten::val keys =
-          emscripten::val::global("Object").call<emscripten::val>("keys",
-                                                                  args_val);
+          emscripten::val::global("Object").call<emscripten::val>("keys", args);
       int length = keys["length"].as<int>();
       for (int i = 0; i < length; ++i) {
         std::string key = keys[i].as<std::string>();
-        if (args_val[key].isString()) {
-          ev.args[key] = args_val[key].as<std::string>();
-        } else if (args_val[key].isNumber()) {
-          ev.args[key] = args_val[key].call<std::string>("toString");
-        } else if (!args_val[key].isNull() && !args_val[key].isUndefined() &&
-                   !(args_val[key].isTrue() || args_val[key].isFalse())) {
+        emscripten::val val = args[key];
+        if (val.isString()) {
+          ev.args[key] = val.as<std::string>();
+        } else if (val.isNumber()) {
+          ev.args[key] = val.call<std::string>("toString");
+        } else if (val.isTrue()) {
+          ev.args[key] = "true";
+        } else if (val.isFalse()) {
+          ev.args[key] = "false";
+        } else if (key == kKernelDetails && !val.isNull() &&
+                   !val.isUndefined()) {
           // Stringify specific object/array arguments. "kernel_details" can
           // contain useful information in a nested JSON structure.
-          if (key == "kernel_details") {
-            ev.args[key] = emscripten::val::global("JSON").call<std::string>(
-                "stringify", args_val[key]);
-          }
+          ev.args[key] = emscripten::val::global("JSON").call<std::string>(
+              "stringify", val);
         }
-        // Other types such as boolean are currently ignored.
         // Generic nested objects or arrays are ignored to prevent performance
         // issues from stringifying potentially large structures.
       }
     }
-    // We use Fingerprint64 for a stable event ID because absl::HashOf
-    // does not guarantee stability across different executions or binaries,
-    // and we need consistency for event associations.
-    ev.event_id = GenerateEventId(ev.name, ev.ts, ev.dur);
     switch (ev.ph) {
       case Phase::kAsyncBegin:
-        if (!ev.id.empty()) {
-          open_async_events[{ev.pid, ev.id}] = std::move(ev);
+        if (ev.has_flow_id) {
+          open_async_events[{ev.pid, ev.name, ev.flow_id}] = std::move(ev);
         }
         break;
       case Phase::kAsyncEnd:
-        if (!ev.id.empty()) {
-          auto it = open_async_events.find({ev.pid, ev.id});
+        if (ev.has_flow_id) {
+          auto it = open_async_events.find({ev.pid, ev.name, ev.flow_id});
           if (it != open_async_events.end()) {
             TraceEvent& begin_ev = it->second;
             begin_ev.ph = Phase::kComplete;
@@ -246,11 +277,6 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
             if (!ev.args.empty()) {
               begin_ev.args.insert(ev.args.begin(), ev.args.end());
             }
-            begin_ev.event_id =
-                GenerateEventId(begin_ev.name, begin_ev.ts, begin_ev.dur);
-            if (!begin_ev.id.empty()) {
-              result.flow_events.push_back(begin_ev);
-            }
             result.flame_events.push_back(std::move(begin_ev));
             open_async_events.erase(it);
           }
@@ -258,8 +284,8 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
         break;
       case Phase::kFlowStart:
       case Phase::kFlowEnd:
-        if (!ev.id.empty()) {
-          result.flow_events.push_back(std::move(ev));
+        if (ev.has_flow_id) {
+          result.flame_events.push_back(std::move(ev));
         }
         break;
       case Phase::kComplete: {
@@ -270,16 +296,15 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
                          result.flow_events);
           ParseFlowField(event, "flow_out", ev, Phase::kFlowStart,
                          result.flow_events);
-        } else if (!ev.id.empty()) {
-          result.flow_events.push_back(ev);
+          ev.id.clear();
+          ev.flow_id = 0;
+          ev.has_flow_id = false;
         }
         result.flame_events.push_back(std::move(ev));
         break;
       }
       case Phase::kInstant:
-        if (!ev.id.empty()) {
-          result.flow_events.push_back(ev);
-        }
+      case Phase::kInstantDeprecated:
         result.flame_events.push_back(std::move(ev));
         break;
       case Phase::kMetadata:
@@ -318,7 +343,7 @@ ParsedTraceEvents ParseTraceEvents(
   // in number.
   result.flame_events.reserve(js_events.size());
 
-  absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>
+  absl::flat_hash_map<std::tuple<ProcessId, std::string, uint64_t>, TraceEvent>
       open_async_events;
   for (const auto& js_event : js_events) {
     ParseAndAppend(js_event, result, open_async_events);

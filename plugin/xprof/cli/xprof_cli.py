@@ -110,6 +110,10 @@ analyze_async_overlap_tool = _LazyModuleProxy(
 check_host_boundness_tool = _LazyModuleProxy(
     "xprof.cli.tools.check_host_boundness_tool"
 )
+events_db_info_tool = _LazyModuleProxy("xprof.cli.tools.events_db_info_tool")
+events_db_top_ops_tool = _LazyModuleProxy(
+    "xprof.cli.tools.events_db_top_ops_tool"
+)
 get_hlo_stats_tool = _LazyModuleProxy("xprof.cli.tools.get_hlo_stats_tool")
 get_kernel_stats_tool = _LazyModuleProxy(
     "xprof.cli.tools.get_kernel_stats_tool"
@@ -203,6 +207,8 @@ def cli_main() -> dict[str, Any]:
       "check_kernel_profiling": xplane_tools.inspect_capture,
       "compute_utilization": get_kernel_utilization_tool.get_kernel_utilization,
       "diff_sessions": diff_sessions_tool.diff_sessions,
+      "events_db_info": events_db_info_tool.events_db_info,
+      "events_db_top_ops": events_db_top_ops_tool.events_db_top_ops,
       "export_json": xprof_data.get_profile_summary,
       "get_device_information": xprof_data.get_device_information,
       "get_device_time_attribution": _get_device_time_attribution,

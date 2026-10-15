@@ -18,6 +18,8 @@ pytype_strict_library(
         "//plugin/xprof/cli/internal/oss:xprof_client",
         "//plugin/xprof/cli/tools:analyze_async_overlap_tool",
         "//plugin/xprof/cli/tools:check_host_boundness_tool",
+        "//plugin/xprof/cli/tools:events_db_info_tool",
+        "//plugin/xprof/cli/tools:events_db_top_ops_tool",
         "//plugin/xprof/cli/tools:get_hlo_stats_tool",
         "//plugin/xprof/cli/tools:get_kernel_stats_tool",
         "//plugin/xprof/cli/tools:get_kpi_metrics_tool",

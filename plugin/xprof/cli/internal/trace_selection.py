@@ -56,6 +56,8 @@ TOOL_TRAITS: types.MappingProxyType[str, ToolTraits] = types.MappingProxyType({
     # keep-sorted start
     "aggregate_xplane_events": ToolTraits(combine="summed"),
     "create_events_db": ToolTraits(single_trace=True),
+    "events_db_info": ToolTraits(single_trace=True),
+    "events_db_top_ops": ToolTraits(single_trace=True),
     "get_hlo_module_content": ToolTraits(combine="none"),
     "get_hlo_neighborhood": ToolTraits(combine="none"),
     "get_hlo_text": ToolTraits(combine="none"),

@@ -184,19 +184,30 @@ populated for a given event, its value in that row is `NULL`.
 
 ## 4. SQL Query Examples
 
-### 1. Top 10 HLO Operations by Total Device Time
+Before writing SQL, try the ready-made subcommands. They sum the right column
+for one device and category:
+
+-   `xprof events_db_info <trace>` lists the devices and categories of the
+    trace, with event counts, self time and time ranges. Copy `device` and
+    `category` values from it.
+-   `xprof events_db_top_ops <trace> [--device=TPU:0] [--category="XLA Ops"]
+    [--order_by=self|inclusive] [--limit=20]` lists the ops with the most self
+    time on one device and category.
+
+### 1. Top 10 HLO Operations by Device Time on One Core
 
 ```bash
 xprof query_events_db <logdir> --query="
   SELECT
+    hlo_module,
     hlo_op,
-    category,
     COUNT(*) AS occurrences,
     SUM(self_time_ns) / 1000.0 AS total_time_us
   FROM Events
-  WHERE hlo_op IS NOT NULL
+  WHERE device = 'TPU:0'
     AND category = 'XLA Ops'
-  GROUP BY hlo_op, category
+    AND hlo_op IS NOT NULL
+  GROUP BY hlo_module, hlo_op
   ORDER BY total_time_us DESC
   LIMIT 10
 "
@@ -282,3 +293,16 @@ xprof query_events_db <logdir> --query="
 4.  **Multi-Worker Directories**: If `create_events_db` or `query_events_db`
     raises `NotImplementedError: Multiple (N) trace files found`, pass one of
     the listed `.xplane.pb` file paths directly as the first argument.
+5.  **Sum `self_time_ns`, Not `end_ns - start_ns`**: `end_ns - start_ns` is
+    inclusive time, so a parent op such as a `while` loop also counts the time
+    of every op inside it. Use inclusive time only when you ask for it on
+    purpose, and never add it across nesting levels.
+6.  **SparseCore Op Names Are in `kernel_name`**: On
+    `category = 'Sparse Core Ops'`, `hlo_op` is `NULL`. Use
+    `COALESCE(hlo_op, kernel_name)` as the op name.
+7.  **Async Op Overlap**: Do not hand-write start/done pairing SQL. Pairing by
+    op family (`all-gather`) instead of by instruction (`all-gather.3`), or
+    numbering starts and dones independently, silently mispairs windows. Run
+    `xprof analyze_async_overlap <trace> --backend=events_db`, which pairs
+    `<op>-start.N` with `<op>-done.N` first-in, first-out per device and
+    measures compute coverage in one query.

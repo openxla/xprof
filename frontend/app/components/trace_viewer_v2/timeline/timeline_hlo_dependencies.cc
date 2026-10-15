@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <limits>
 #include <optional>
@@ -27,6 +28,22 @@ namespace {
 // event when resolving its HLO dependencies. Bounds the cost on large traces.
 // An operand or consumer that is further away on its level is not found.
 constexpr size_t kMaxDependencySearchEventsPerLevel = 10000;
+
+// Returns the name of entry `event`, reading the interned name table when
+// populated and falling back to `entry_names`.
+absl::string_view GetEntryName(const FlameChartTimelineData& data,
+                               int event) {
+  if (event < 0) return "";
+  const size_t index = static_cast<size_t>(event);
+  if (index < data.entry_name_indices.size()) {
+    const uint32_t name_index = data.entry_name_indices[index];
+    if (name_index < data.interned_string_pool.size()) {
+      return data.interned_string_pool[name_index];
+    }
+  }
+  if (index < data.entry_names.size()) return data.entry_names[index];
+  return "";
+}
 
 // Returns the time range of the event on the `XLA Modules` track of the process
 // of `group` that contains `time`, i.e. the module run of an op that starts at
@@ -109,7 +126,7 @@ std::vector<int> FindClosestEventsByName(const FlameChartTimelineData& data,
                      std::min(split, kMaxDependencySearchEventsPerLevel))
                : events.subspan(split, kMaxDependencySearchEventsPerLevel);
     for (const int event : candidates) {
-      const auto it = closest_by_name.find(data.entry_names[event]);
+      const auto it = closest_by_name.find(GetEntryName(data, event));
       if (it != closest_by_name.end() &&
           (it->second == -1 || std::abs(starts[event] - time) <
                                    std::abs(starts[it->second] - time))) {

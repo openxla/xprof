@@ -29,6 +29,16 @@ using EventId = uint64_t;
 using Microseconds = double;
 using Milliseconds = double;
 
+// Generates a stable event ID robust against sub-microsecond floating-point
+// representation differences (e.g. string round-tripping vs integer division).
+EventId GenerateEventId(absl::string_view name, Microseconds ts,
+                        Microseconds dur);
+
+// Parses a string flow or async ID into a 64-bit integer. Supports decimal
+// strings, "0x"-prefixed hexadecimal strings, and arbitrary symbolic ID strings
+// via a non-zero 64-bit fingerprint fallback.
+uint64_t ParseFlowIdString(absl::string_view id_str);
+
 // The phase of the event.
 // More phases are defined in:
 // https://source.chromium.org/chromium/chromium/src/+/main:base/trace_event/common/trace_event_common.h;l=1070-1093;drc=3874c9832e2de7ebf55eb4cad2bf9683556fb5e9
@@ -71,10 +81,12 @@ struct TraceEvent {
   Microseconds ts = 0.0;
   Microseconds dur = 0.0;
   std::string id;
+  uint64_t flow_id = 0;
   tsl::profiler::ContextType category = tsl::profiler::ContextType::kGeneric;
   absl::flat_hash_map<std::string, std::string> args;
   uint64_t serial = 0;
   int64_t group_id = 0;
+  bool has_flow_id = false;
   bool has_serial = false;
   bool has_group_id = false;
   bool is_async = false;
@@ -83,8 +95,8 @@ struct TraceEvent {
 // How a counter's values are displayed. An XProf extension of the `C` event,
 // declared as `"unit": "fraction" | "bytes"` next to `"entries"`. The unit is a
 // rendering hint only: it never changes the stored values, so other consumers
-// of the same numbers (e.g. the Kernel Viewer's hover card) keep reading them
-// unchanged.
+// of the same numbers (e.g. the Kernel Viewer's hover card) keep
+// reading them as-is.
 enum class CounterUnit {
   // No unit; values are shown as plain numbers.
   kNone = 0,
@@ -94,6 +106,11 @@ enum class CounterUnit {
   kBytes = 2,
 };
 
+// Represents a parsed counter event from the Chrome trace format.
+// In the Chrome trace format, a counter event is represented as a single event
+// with multiple series of data (e.g. counter values at different timestamps).
+// For more details, see:
+// https://docs.google.com/document/d/1CvAClvFfyA5R-PhYUmn5OOQtYMH4h6I0nSsKchNAySU/preview?tab=t.0#heading=h.lenwiilchoxp
 struct CounterEvent {
   ProcessId pid = 0;
   std::string name;

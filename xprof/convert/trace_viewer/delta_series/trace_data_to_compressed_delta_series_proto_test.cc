@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -12,6 +13,7 @@
 #include "xprof/convert/trace_viewer/trace_events_to_json.h"
 #include "plugin/xprof/protobuf/trace_data_response.pb.h"
 #include "plugin/xprof/protobuf/trace_events.pb.h"
+#include "plugin/xprof/protobuf/trace_events_raw.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -892,6 +894,217 @@ TEST(DeltaSeriesProtoConverterTest,
   for (const xprof::TraceEventSeries& series : response.complete_events()) {
     EXPECT_NE(series.metadata().process_id(), 1);
   }
+}
+
+TEST(DeltaSeriesProtoConverterTest, SparseMetadataAndRleGroupIdEncoding) {
+  Trace trace;
+  Device device;
+  Resource resource;
+  (*device.mutable_resources())[1] = resource;
+  (*trace.mutable_devices())[0] = device;
+
+  TestTraceEventsContainer container(trace);
+
+  // Complete events: 3 events in group 10, 2 events in group 11; only index 2
+  // has flow_id != 0 and index 4 has serial != 0.
+  std::vector<TraceEvent> complete_events(5);
+  for (int i = 0; i < 5; ++i) {
+    TraceEvent& ev = complete_events[i];
+    ev.set_device_id(0);
+    ev.set_resource_id(1);
+    ev.set_name("Op");
+    ev.set_timestamp_ps((i + 1) * 1000);
+    ev.set_duration_ps(500);
+    ev.set_group_id(i < 3 ? 10 : 11);
+    if (i == 2) ev.set_flow_id(777);
+    if (i == 4) ev.set_serial(99);
+    container.AddCompleteEvent(0, 1, &ev);
+  }
+
+  // Pre-paired async event (duration_ps > 0, serial == 0, generic category):
+  // must omit TraceEventMetadata while still recording group_id RLE.
+  TraceEvent pre_paired_async;
+  pre_paired_async.set_device_id(0);
+  pre_paired_async.set_name("AsyncXlaOp");
+  pre_paired_async.set_timestamp_ps(1000);
+  pre_paired_async.set_duration_ps(400);
+  pre_paired_async.set_flow_id(555);
+  pre_paired_async.set_group_id(10);
+  container.AddAsyncEvent(0, "AsyncXlaOp", &pre_paired_async);
+
+  DeltaSeriesProtoConversionOptions options;
+  options.sparse_event_metadata = true;
+  ASSERT_OK_AND_ASSIGN(
+      std::string compressed_result,
+      ConvertTraceDataToCompressedDeltaSeriesProto(options, container));
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
+  xprof::TraceDataResponse response;
+  ASSERT_TRUE(response.ParseFromString(decompressed));
+
+  ASSERT_EQ(response.complete_events_size(), 1);
+  const xprof::TraceEventSeries& comp = response.complete_events(0);
+  ASSERT_EQ(comp.event_metadata_size(), 2);
+  ASSERT_EQ(comp.event_metadata_indices_size(), 2);
+  EXPECT_EQ(comp.event_metadata_indices(0), 2u);
+  EXPECT_EQ(comp.event_metadata(0).flow_id(), 777u);
+  EXPECT_EQ(comp.event_metadata_indices(1), 4u);
+  EXPECT_EQ(comp.event_metadata(1).serial(), 99u);
+
+  ASSERT_EQ(comp.group_id_run_values_size(), 2);
+  ASSERT_EQ(comp.group_id_run_lengths_size(), 2);
+  EXPECT_EQ(comp.group_id_run_values(0), 10);
+  EXPECT_EQ(comp.group_id_run_lengths(0), 3u);
+  EXPECT_EQ(comp.group_id_run_values(1), 11);
+  EXPECT_EQ(comp.group_id_run_lengths(1), 2u);
+
+  ASSERT_EQ(response.async_events_size(), 1);
+  const xprof::TraceEventSeries& async_series = response.async_events(0);
+  EXPECT_EQ(async_series.event_metadata_size(), 0);
+  EXPECT_EQ(async_series.event_metadata_indices_size(), 0);
+  ASSERT_EQ(async_series.group_id_run_values_size(), 1);
+  EXPECT_EQ(async_series.group_id_run_values(0), 10);
+  EXPECT_EQ(async_series.group_id_run_lengths(0), 1u);
+}
+
+TEST(DeltaSeriesProtoConverterTest,
+     DefaultOptionsEmitDenseMetadataWithoutIndicesOrRle) {
+  Trace trace;
+  Device device;
+  Resource resource;
+  (*device.mutable_resources())[1] = resource;
+  (*trace.mutable_devices())[0] = device;
+
+  TestTraceEventsContainer container(trace);
+
+  std::vector<TraceEvent> complete_events(3);
+  for (int i = 0; i < 3; ++i) {
+    TraceEvent& ev = complete_events[i];
+    ev.set_device_id(0);
+    ev.set_resource_id(1);
+    ev.set_name("Op");
+    ev.set_timestamp_ps((i + 1) * 1000);
+    ev.set_duration_ps(500);
+    ev.set_group_id(10);
+    if (i == 1) ev.set_serial(42);
+    container.AddCompleteEvent(0, 1, &ev);
+  }
+
+  // Default options: sparse_event_metadata is false.
+  ASSERT_OK_AND_ASSIGN(std::string compressed_result,
+                       ConvertTraceDataToCompressedDeltaSeriesProto(
+                           DeltaSeriesProtoConversionOptions{}, container));
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
+  xprof::TraceDataResponse response;
+  ASSERT_TRUE(response.ParseFromString(decompressed));
+
+  ASSERT_EQ(response.complete_events_size(), 1);
+  const xprof::TraceEventSeries& comp = response.complete_events(0);
+  EXPECT_EQ(comp.event_metadata_size(), 3);
+  EXPECT_EQ(comp.event_metadata_indices_size(), 0);
+  EXPECT_EQ(comp.group_id_run_values_size(), 0);
+  EXPECT_EQ(comp.group_id_run_lengths_size(), 0);
+  EXPECT_EQ(comp.event_metadata(0).group_id(), 10);
+  EXPECT_EQ(comp.event_metadata(1).serial(), 42u);
+  EXPECT_EQ(comp.event_metadata(2).group_id(), 10);
+}
+
+TEST(DeltaSeriesProtoConverterTest,
+     SortsProcessesAndThreadsDeterministicallyById) {
+  Trace trace;
+  Device device10;
+  device10.set_name("Device 10");
+  (*device10.mutable_resources())[30].set_name("Thread 30");
+  (*device10.mutable_resources())[5].set_name("Thread 5");
+  (*device10.mutable_resources())[20].set_name("Thread 20");
+  (*trace.mutable_devices())[10] = device10;
+
+  Device device2;
+  device2.set_name("Device 2");
+  (*device2.mutable_resources())[9].set_name("Thread 9");
+  (*device2.mutable_resources())[1].set_name("Thread 1");
+  (*trace.mutable_devices())[2] = device2;
+
+  TestTraceEventsContainer container(trace);
+  ASSERT_OK_AND_ASSIGN(std::string compressed_result,
+                       ConvertTraceDataToCompressedDeltaSeriesProto(
+                           DeltaSeriesProtoConversionOptions{}, container));
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
+  xprof::TraceDataResponse response;
+  ASSERT_TRUE(response.ParseFromString(decompressed));
+
+  ASSERT_EQ(response.metadata().processes_size(), 2);
+  EXPECT_EQ(response.metadata().processes(0).id(), 2u);
+  ASSERT_EQ(response.metadata().processes(0).threads_size(), 2);
+  EXPECT_EQ(response.metadata().processes(0).threads(0).id(), 1u);
+  EXPECT_EQ(response.metadata().processes(0).threads(1).id(), 9u);
+
+  EXPECT_EQ(response.metadata().processes(1).id(), 10u);
+  ASSERT_EQ(response.metadata().processes(1).threads_size(), 3);
+  EXPECT_EQ(response.metadata().processes(1).threads(0).id(), 5u);
+  EXPECT_EQ(response.metadata().processes(1).threads(1).id(), 20u);
+  EXPECT_EQ(response.metadata().processes(1).threads(2).id(), 30u);
+}
+
+TEST(DeltaSeriesProtoConverterTest,
+     ExtractsHloModuleIdFromKernelDetailsViaRe2) {
+  Trace trace;
+  Device device;
+  device.set_name("/device:GPU:0");
+  (*device.mutable_resources())[1].set_name("Stream #0");
+  (*trace.mutable_devices())[0] = device;
+
+  TestTraceEventsContainer container(trace);
+
+  auto make_gpu_event = [](uint64_t ts_ps, absl::string_view hlo_op,
+                           absl::string_view hlo_module,
+                           absl::string_view kernel_details) {
+    TraceEvent ev;
+    ev.set_device_id(0);
+    ev.set_resource_id(1);
+    ev.set_name("cutlass_gemm");
+    ev.set_timestamp_ps(ts_ps);
+    ev.set_duration_ps(100);
+    RawData rd;
+    TraceEventArguments::Argument* a1 = rd.mutable_args()->add_arg();
+    a1->set_name("hlo_op");
+    a1->set_str_value(std::string(hlo_op));
+    TraceEventArguments::Argument* a2 = rd.mutable_args()->add_arg();
+    a2->set_name("hlo_module");
+    a2->set_str_value(std::string(hlo_module));
+    TraceEventArguments::Argument* a3 = rd.mutable_args()->add_arg();
+    a3->set_name("kernel_details");
+    a3->set_str_value(std::string(kernel_details));
+    ev.set_raw_data(rd.SerializeAsString());
+    return ev;
+  };
+
+  TraceEvent ev1 =
+      make_gpu_event(1000, "dot.1", "jit_step", "module:jit_step_88\nblock:1");
+  TraceEvent ev2 =
+      make_gpu_event(2000, "dot.2", "jit_eval", "module:jit_eval(99) grid:2");
+  container.AddCompleteEvent(0, 1, &ev1);
+  container.AddCompleteEvent(0, 1, &ev2);
+
+  DeltaSeriesProtoConversionOptions options;
+  options.sparse_event_metadata = true;
+  ASSERT_OK_AND_ASSIGN(
+      std::string compressed_result,
+      ConvertTraceDataToCompressedDeltaSeriesProto(options, container));
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
+  xprof::TraceDataResponse response;
+  ASSERT_TRUE(response.ParseFromString(decompressed));
+
+  ASSERT_EQ(response.complete_events_size(), 1);
+  const xprof::TraceEventSeries& comp = response.complete_events(0);
+  ASSERT_EQ(comp.event_metadata_size(), 2);
+  EXPECT_EQ(response.interned_strings(comp.event_metadata(0).hlo_module_ref()),
+            "jit_step(88)");
+  EXPECT_EQ(response.interned_strings(comp.event_metadata(1).hlo_module_ref()),
+            "jit_eval(99)");
 }
 
 }  // namespace

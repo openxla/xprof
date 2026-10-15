@@ -27,6 +27,11 @@ namespace profiler {
 struct DeltaSeriesProtoConversionOptions {
   bool mpmd_pipeline_view = false;
   bool mpmd_single_device_per_stage = false;
+  // When true, encodes group_id using run-length encoding and emits
+  // TraceEventMetadata entries sparsely via event_metadata_indices (including
+  // HLO op/module refs). Defaults to false so legacy/OSS callers continue to
+  // receive dense 1:1 event_metadata.
+  bool sparse_event_metadata = false;
   JsonTraceOptions::Details details;
   // Device IDs whose resource threads should omit numerical sort indices,
   // enabling alphabetical sorting by resource name.
@@ -60,6 +65,13 @@ class DeltaSeriesProtoConverter {
 
   void PopulateTraceEventMetadata(const TraceEvent& event,
                                   xprof::TraceEventMetadata* metadata);
+
+  bool ExtractHloMetadataFromRawData(const TraceEvent& event,
+                                     bool is_xla_ops_thread,
+                                     bool is_data_motion_layer,
+                                     absl::string_view event_name,
+                                     uint32_t* hlo_op_ref,
+                                     uint32_t* hlo_module_ref);
 
   void AddCompleteEventTrack(uint32_t pid, uint64_t tid,
                              const TraceEventTrack& events,
@@ -142,7 +154,7 @@ absl::Status DeltaSeriesProtoConverter::GenerateResponse(
   *response->mutable_metadata() = GetTraceMetadata();
 
   for (const auto& detail : options_.details) {
-    auto* d = response->add_details();
+    xprof::DetailItem* d = response->add_details();
     d->set_name(detail.first);
     d->set_value(detail.second);
   }

@@ -54,6 +54,7 @@ export const TRACE_VIEW_OPTION = {
   RESOLUTION: 'resolution',
   START_TIME_MS: 'start_time_ms',
   END_TIME_MS: 'end_time_ms',
+  SPARSE_EVENT_METADATA: 'sparse_event_metadata',
 } as const;
 
 /**
@@ -928,6 +929,7 @@ async function fetchAndProcessTraceData({
       urlObj.pathname.endsWith('.pb') ||
       urlObj.searchParams.get('format') === 'pb'
     ) {
+      urlObj.searchParams.set(TRACE_VIEW_OPTION.SPARSE_EVENT_METADATA, 'true');
       const buffer = await loadCompressedTraceDataInternal(urlObj.toString());
       if (isAbortRequested()) return;
 
@@ -1239,6 +1241,10 @@ export async function traceViewerV2Main(
         urlObj.pathname.endsWith('.pb') ||
         urlObj.searchParams.get('format') === 'pb'
       ) {
+        urlObj.searchParams.set(
+          TRACE_VIEW_OPTION.SPARSE_EVENT_METADATA,
+          'true',
+        );
         const buffer = await loadCompressedTraceDataInternal(urlObj.toString());
         traceviewerModule.setCompressedSearchResultsInWasm(
           new Uint8Array(buffer),

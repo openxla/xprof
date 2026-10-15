@@ -1,9 +1,14 @@
 #include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 
 #include <algorithm>
+#include <any>
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
+#include <limits>
+#include <optional>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -18,10 +23,12 @@
 #include "third_party/tcmalloc/malloc_extension.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
+#include "frontend/app/components/trace_viewer_v2/event_data.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
+#include "plugin/xprof/protobuf/trace_data_response.pb.h"
 
 namespace traceviewer {
 
@@ -2932,7 +2939,7 @@ TEST_F(DataProviderTest, FlowEventFindLevelMultipleEventsOnLevel) {
 }
 
 TEST_F(DataProviderTest, CompleteEventWithIdIsHandledAsFlowEvent) {
-  const std::vector<TraceEvent> all_events = {
+  const std::vector<TraceEvent> flame_events = {
       // Process 1, Thread 101
       {.ph = Phase::kComplete,
        .event_id = 10,
@@ -2954,18 +2961,8 @@ TEST_F(DataProviderTest, CompleteEventWithIdIsHandledAsFlowEvent) {
        .id = "1",
        .category = tsl::profiler::ContextType::kGpuLaunch},
   };
-  std::vector<TraceEvent> flame_events;
-  std::vector<TraceEvent> flow_events;
-  for (const TraceEvent& event : all_events) {
-    if (event.ph == Phase::kComplete) {
-      flame_events.push_back(event);
-    }
-    if (!event.id.empty()) {
-      flow_events.push_back(event);
-    }
-  }
 
-  data_provider_.ProcessTraceEvents({flame_events, {}, flow_events}, timeline_);
+  data_provider_.ProcessTraceEvents({flame_events, {}, {}}, timeline_);
   const FlameChartTimelineData& data = timeline_.timeline_data();
   ASSERT_THAT(data.flow_lines, SizeIs(1));
   EXPECT_EQ(data.flow_lines[0].source_ts, 100.0);
@@ -6261,7 +6258,6 @@ TEST_F(DataProviderTest, NegativeLevelDroppedSafelyWithoutOverflow) {
   ASSERT_EQ(data.entry_levels.size(), 1);
   EXPECT_EQ(data.entry_levels[0], 0);
 }
-
 TEST_F(DataProviderTest,
        AppendEventToTimelineDataColumnarFastPathReconstructsArgs) {
   ParsedTraceEvents parsed_events;
@@ -6304,7 +6300,6 @@ TEST_F(DataProviderTest,
   EXPECT_EQ(args.at(std::string(kHloOp)), "fusion.1");
   EXPECT_EQ(args.at(std::string(kHloModule)), "jit_train(42)");
 }
-
 TEST_F(DataProviderTest, SelectedEventSurvivesProcessTraceEventsUpdate) {
   ParsedTraceEvents initial_events;
   initial_events.flame_events = {
@@ -6363,5 +6358,1759 @@ TEST_F(DataProviderTest, SelectedEventSurvivesProcessTraceEventsUpdate) {
             static_cast<int>(timeline_.timeline_data().entry_names.size()));
   EXPECT_EQ(timeline_.timeline_data().entry_names[new_selected_idx], "op_beta");
 }
+
+TEST_F(
+    DataProviderTest,
+    CompleteEventsInFlameEventsWithOnlyFlowIdOrOnlyStringIdProduceFlowLines) {
+  const std::vector<TraceEvent> flame_events = {
+      {.ph = Phase::kComplete,
+       .event_id = 10,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A1",
+       .ts = 100.0,
+       .dur = 20.0,
+       .flow_id = 42,
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+      {.ph = Phase::kComplete,
+       .event_id = 11,
+       .pid = 1,
+       .tid = 102,
+       .name = "Task A2",
+       .ts = 150.0,
+       .dur = 20.0,
+       .flow_id = 42,
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+      {.ph = Phase::kComplete,
+       .event_id = 12,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task B1",
+       .ts = 200.0,
+       .dur = 20.0,
+       .id = "legacy_id",
+       .category = tsl::profiler::ContextType::kTfExecutor},
+      {.ph = Phase::kComplete,
+       .event_id = 13,
+       .pid = 1,
+       .tid = 102,
+       .name = "Task B2",
+       .ts = 250.0,
+       .dur = 20.0,
+       .id = "legacy_id",
+       .category = tsl::profiler::ContextType::kTfExecutor},
+  };
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = flame_events}, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(2));
+  EXPECT_DOUBLE_EQ(data.flow_lines[0].source_ts, 100.0);
+  EXPECT_DOUBLE_EQ(data.flow_lines[0].target_ts, 150.0);
+  EXPECT_DOUBLE_EQ(data.flow_lines[1].source_ts, 200.0);
+  EXPECT_DOUBLE_EQ(data.flow_lines[1].target_ts, 250.0);
+}
+
+TEST_F(DataProviderTest, StandaloneFlowStartEndInFlameEventsProduceFlowLines) {
+  const std::vector<TraceEvent> flame_events = {
+      {.ph = Phase::kComplete,
+       .event_id = 10,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0},
+      {.ph = Phase::kComplete,
+       .event_id = 11,
+       .pid = 1,
+       .tid = 102,
+       .name = "Task B",
+       .ts = 200.0,
+       .dur = 50.0},
+      {.ph = Phase::kFlowStart,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow_num",
+       .ts = 110.0,
+       .flow_id = 99,
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+      {.ph = Phase::kFlowEnd,
+       .pid = 1,
+       .tid = 102,
+       .name = "flow_num",
+       .ts = 210.0,
+       .flow_id = 99,
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+      {.ph = Phase::kFlowStart,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow_str",
+       .ts = 120.0,
+       .id = "symbolic_flow",
+       .category = tsl::profiler::ContextType::kTfExecutor},
+      {.ph = Phase::kFlowEnd,
+       .pid = 1,
+       .tid = 102,
+       .name = "flow_str",
+       .ts = 220.0,
+       .id = "symbolic_flow",
+       .category = tsl::profiler::ContextType::kTfExecutor},
+  };
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = flame_events}, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(2));
+  EXPECT_DOUBLE_EQ(data.flow_lines[0].source_ts, 110.0);
+  EXPECT_DOUBLE_EQ(data.flow_lines[0].target_ts, 210.0);
+  EXPECT_DOUBLE_EQ(data.flow_lines[1].source_ts, 120.0);
+  EXPECT_DOUBLE_EQ(data.flow_lines[1].target_ts, 220.0);
+}
+
+void AssertTimelineDataInvariants(const FlameChartTimelineData& data) {
+  const size_t n = data.entry_start_times.size();
+  // I1: Parallel SoA entry arrays have equal size and valid table indices.
+  ASSERT_EQ(data.entry_total_times.size(), n);
+  ASSERT_TRUE(data.entry_self_times.empty() ||
+              data.entry_self_times.size() == n);
+  ASSERT_EQ(data.entry_levels.size(), n);
+  ASSERT_EQ(data.entry_name_indices.size(), n);
+  ASSERT_TRUE(data.entry_hlo_op_indices.empty() ||
+              data.entry_hlo_op_indices.size() == n);
+  ASSERT_TRUE(data.entry_hlo_module_indices.empty() ||
+              data.entry_hlo_module_indices.size() == n);
+  for (size_t i = 0; i < n; ++i) {
+    EXPECT_LT(data.entry_name_indices[i], data.interned_string_pool.size());
+    if (i < data.entry_hlo_op_indices.size()) {
+      EXPECT_LT(data.entry_hlo_op_indices[i], data.hlo_op_table.size());
+    } else if (const std::optional<uint32_t> explicit_op =
+                   data.sparse_entry_hlo_op_indices.Find(i);
+               explicit_op.has_value()) {
+      EXPECT_LT(*explicit_op, data.hlo_op_table.size());
+    }
+    EXPECT_LT(data.GetEntryHloModuleIndex(i), data.hlo_module_table.size());
+    // I4: 0 <= self_time <= total_time.
+    EXPECT_GE(data.GetEntrySelfTime(i), -1e-6);
+    EXPECT_LE(data.GetEntrySelfTime(i), data.entry_total_times[i] + 1e-6);
+  }
+
+  // I2 & I3: CSR level_offsets and level_event_indices invariants.
+  if (!data.level_offsets.empty()) {
+    EXPECT_EQ(data.level_offsets.front(), 0u);
+    EXPECT_EQ(data.level_offsets.back(), n);
+    ASSERT_EQ(data.level_event_indices.size(), n);
+    std::vector<bool> seen(n, false);
+    for (size_t l = 0; l + 1 < data.level_offsets.size(); ++l) {
+      ASSERT_LE(data.level_offsets[l], data.level_offsets[l + 1]);
+      Microseconds prev_end = -std::numeric_limits<Microseconds>::infinity();
+      for (size_t pos = data.level_offsets[l]; pos < data.level_offsets[l + 1];
+           ++pos) {
+        const size_t idx = data.level_event_indices[pos];
+        ASSERT_LT(idx, n);
+        EXPECT_FALSE(seen[idx]);
+        seen[idx] = true;
+        EXPECT_EQ(data.entry_levels[idx], l);
+        EXPECT_GE(data.entry_start_times[idx] + 1e-6, prev_end);
+        prev_end = data.entry_start_times[idx] + data.entry_total_times[idx];
+      }
+    }
+  }
+
+  // I6: Group hierarchy and counter invariants.
+  for (size_t g = 0; g < data.groups.size(); ++g) {
+    EXPECT_GE(data.groups[g].start_level, 0);
+    EXPECT_GE(data.groups[g].level_count, 0);
+    if (data.groups[g].parent_index != -1) {
+      EXPECT_LT(static_cast<size_t>(data.groups[g].parent_index),
+                data.groups.size());
+    }
+    if (data.groups[g].type == Group::Type::kCounter) {
+      const auto it = data.counter_data_by_group_index.find(g);
+      ASSERT_NE(it, data.counter_data_by_group_index.end());
+      EXPECT_EQ(it->second.timestamps.size(), it->second.values.size());
+      EXPECT_TRUE(absl::c_is_sorted(it->second.timestamps));
+    }
+  }
+
+  // I7: GroupIdRuns half-open, sorted, disjoint, canonically coalesced runs.
+  const absl::Span<const GroupIdRuns::Run> runs =
+      data.sparse_entry_group_ids.runs();
+  for (size_t k = 0; k < runs.size(); ++k) {
+    EXPECT_LT(runs[k].begin, runs[k].end);
+    EXPECT_LE(static_cast<size_t>(runs[k].end), n);
+    if (k > 0) {
+      EXPECT_LE(runs[k - 1].end, runs[k].begin);
+      if (runs[k - 1].end == runs[k].begin) {
+        EXPECT_NE(runs[k - 1].group_id, runs[k].group_id);
+      }
+    }
+  }
+}
+
+TEST_F(DataProviderTest,
+       UnclosedZeroFlowIdAsyncEventsDoNotCollideAcrossSeries) {
+  xprof::TraceDataResponse response;
+  response.add_interned_strings("");
+  response.add_interned_strings("AsyncOpA");
+  response.add_interned_strings("AsyncOpB");
+
+  xprof::TraceEventSeries* series_a = response.add_async_events();
+  series_a->mutable_metadata()->set_process_id(1);
+  series_a->mutable_metadata()->set_name_ref(1);
+  series_a->add_deltas(100ULL * 1000000ULL);
+  series_a->add_durations(0);
+
+  xprof::TraceEventSeries* series_b = response.add_async_events();
+  series_b->mutable_metadata()->set_process_id(1);
+  series_b->mutable_metadata()->set_name_ref(2);
+  series_b->add_deltas(200ULL * 1000000ULL);
+  series_b->add_durations(0);
+
+  data_provider_.ProcessTraceEvents(response, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  AssertTimelineDataInvariants(data);
+  EXPECT_THAT(GetGroupNames(data),
+              ElementsAre("Process_1", "AsyncOpA", "AsyncOpB"));
+  ASSERT_THAT(data.entry_start_times, ElementsAre(100.0, 200.0));
+  EXPECT_THAT(data.entry_total_times, ElementsAre(100.0, 0.0));
+}
+
+TEST_F(DataProviderTest,
+       ProcessTraceEventsProtoHandlesPartialOverlapSelfTimeAndNestedModules) {
+  xprof::TraceDataResponse response;
+  response.add_interned_strings("");             // 0
+  response.add_interned_strings("OuterMod");     // 1
+  response.add_interned_strings("InnerMod");     // 2
+  response.add_interned_strings("ParentOp");     // 3
+  response.add_interned_strings("PartialOp");    // 4
+  response.add_interned_strings("PostInnerOp");  // 5
+  response.add_interned_strings("DmlEvent");     // 6
+
+  xprof::Process* proc = response.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("host0 /device:TPU:0");
+
+  xprof::Thread* mod_thread = proc->add_threads();
+  mod_thread->set_id(10);
+  mod_thread->set_name(std::string(kXlaModules));
+
+  xprof::Thread* ops_thread = proc->add_threads();
+  ops_thread->set_id(11);
+  ops_thread->set_name(std::string(kXlaOps));
+
+  xprof::Thread* dml_thread = proc->add_threads();
+  dml_thread->set_id(12);
+  dml_thread->set_name(std::string(kComputeUtilization));
+
+  // Add a metadata-only process with no threads/events/counters (must be
+  // skipped, not emitted as an empty group).
+  xprof::Process* empty_proc = response.mutable_metadata()->add_processes();
+  empty_proc->set_id(99);
+  empty_proc->set_name("Async XLA Ops");
+
+  // XLA Modules series: OuterMod [100us, 500us], InnerMod [200us, 300us].
+  xprof::TraceEventSeries* mod_series = response.add_complete_events();
+  mod_series->mutable_metadata()->set_process_id(1);
+  mod_series->mutable_metadata()->set_thread_id(10);
+  mod_series->add_deltas(100ULL * 1000000ULL);
+  mod_series->add_durations(400ULL * 1000000ULL);
+  mod_series->add_name_refs(1);
+  mod_series->add_deltas(100ULL * 1000000ULL);
+  mod_series->add_durations(100ULL * 1000000ULL);
+  mod_series->add_name_refs(2);
+
+  // XLA Ops series:
+  // 0: ParentOp [100us, 250us] (dur 150us).
+  // 1: PartialOp [200us, 320us] (dur 120us, partially overlaps ParentOp -> must
+  //    NOT subtract from ParentOp self_time and must NOT push onto
+  //    parent_stack).
+  // 2: PostInnerOp [350us, 400us] (dur 50us, after InnerMod [200,300] ends ->
+  //    must resolve module to OuterMod [100,500]).
+  xprof::TraceEventSeries* ops_series = response.add_complete_events();
+  ops_series->mutable_metadata()->set_process_id(1);
+  ops_series->mutable_metadata()->set_thread_id(11);
+  ops_series->add_deltas(100ULL * 1000000ULL);
+  ops_series->add_durations(150ULL * 1000000ULL);
+  ops_series->add_name_refs(3);
+  ops_series->add_deltas(100ULL * 1000000ULL);
+  ops_series->add_durations(120ULL * 1000000ULL);
+  ops_series->add_name_refs(4);
+  ops_series->add_deltas(150ULL * 1000000ULL);
+  ops_series->add_durations(50ULL * 1000000ULL);
+  ops_series->add_name_refs(5);
+
+  // Compute Utilization (data motion layer) event at 360us: resolves module to
+  // OuterMod, but hlo_op must remain "" (index 0).
+  xprof::TraceEventSeries* dml_series = response.add_complete_events();
+  dml_series->mutable_metadata()->set_process_id(1);
+  dml_series->mutable_metadata()->set_thread_id(12);
+  dml_series->add_deltas(360ULL * 1000000ULL);
+  dml_series->add_durations(20ULL * 1000000ULL);
+  dml_series->add_name_refs(6);
+
+  data_provider_.ProcessTraceEvents(response, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  AssertTimelineDataInvariants(data);
+
+  // Verify empty_proc (PID 99, "Async XLA Ops") was skipped and excluded from
+  // GetProcessMappings().
+  const absl::flat_hash_map<ProcessId, std::string> mappings =
+      data_provider_.GetProcessMappings();
+  EXPECT_EQ(mappings.find(99), mappings.end());
+  ASSERT_NE(mappings.find(1), mappings.end());
+  EXPECT_EQ(mappings.at(1), "host0");
+
+  // Locate ParentOp, PartialOp, PostInnerOp, and DmlEvent in timeline data.
+  int parent_idx = -1;
+  int post_inner_idx = -1;
+  int dml_idx = -1;
+  for (size_t i = 0; i < data.entry_name_indices.size(); ++i) {
+    const std::string& name =
+        data.interned_string_pool[data.entry_name_indices[i]];
+    if (name == "ParentOp") parent_idx = static_cast<int>(i);
+    if (name == "PostInnerOp") post_inner_idx = static_cast<int>(i);
+    if (name == "DmlEvent") dml_idx = static_cast<int>(i);
+  }
+  ASSERT_GE(parent_idx, 0);
+  ASSERT_GE(post_inner_idx, 0);
+  ASSERT_GE(dml_idx, 0);
+
+  // ParentOp self_time must remain 150.0 (PartialOp [200, 320] is not a strict
+  // child).
+  EXPECT_DOUBLE_EQ(data.GetEntrySelfTime(parent_idx), 150.0);
+
+  // PostInnerOp at 350us must resolve HLO module to "OuterMod" and HLO op to
+  // "PostInnerOp".
+  EXPECT_EQ(data.GetEntryHloModule(post_inner_idx), "OuterMod");
+  EXPECT_EQ(data.GetEntryHloOp(post_inner_idx), "PostInnerOp");
+
+  // DmlEvent at 360us must resolve HLO module to "OuterMod", while HLO op index
+  // is 0 ("").
+  EXPECT_EQ(data.GetEntryHloModule(dml_idx), "OuterMod");
+  EXPECT_EQ(data.GetEntryHloOpIndex(dml_idx), 0u);
+}
+
+TEST_F(DataProviderTest,
+       ProcessTraceEventsProtoAsyncTrackSharesTidWithSyncThread) {
+  xprof::TraceDataResponse response;
+  response.add_interned_strings("");            // 0
+  response.add_interned_strings("Host");        // 1
+  response.add_interned_strings("SyncThread");  // 2
+  response.add_interned_strings("AsyncTrack");  // 3
+  response.add_interned_strings("SyncOp");      // 4
+
+  xprof::Process* proc = response.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("Host");
+
+  xprof::Thread* thr = proc->add_threads();
+  thr->set_id(55);
+  thr->set_name("SyncThread");
+
+  // Sync complete event series on {pid = 1, tid = 55}.
+  xprof::TraceEventSeries* sync_series = response.add_complete_events();
+  sync_series->mutable_metadata()->set_process_id(1);
+  sync_series->mutable_metadata()->set_thread_id(55);
+  sync_series->add_deltas(100ULL * 1000000ULL);
+  sync_series->add_durations(50ULL * 1000000ULL);
+  sync_series->add_name_refs(4);
+
+  // Async track event series sharing {pid = 1, tid = 55}.
+  xprof::TraceEventSeries* async_series = response.add_async_events();
+  async_series->mutable_metadata()->set_process_id(1);
+  async_series->mutable_metadata()->set_thread_id(55);
+  async_series->add_deltas(200ULL * 1000000ULL);
+  async_series->add_durations(50ULL * 1000000ULL);
+  async_series->add_name_refs(3);
+  xprof::TraceEventMetadata* meta = async_series->add_event_metadata();
+  meta->set_serial(55);
+  meta->set_group_id(7);
+
+  data_provider_.ProcessTraceEvents(response, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  AssertTimelineDataInvariants(data);
+  ASSERT_THAT(data.groups, SizeIs(3));
+  EXPECT_EQ(data.groups[0].name, "Host");
+  EXPECT_EQ(data.groups[1].name, "SyncThread");
+  EXPECT_EQ(data.groups[1].start_level, 0);
+  EXPECT_EQ(data.groups[2].name, "AsyncTrack");
+  EXPECT_EQ(data.groups[2].start_level, 1);
+
+  ASSERT_EQ(data.entry_levels.size(), 2u);
+  EXPECT_EQ(data.entry_levels[0], 0);
+  EXPECT_EQ(data.entry_levels[1], 1);
+
+  // Second response with sync events on {1, 55} exercises sync-loop expansion.
+  xprof::TraceDataResponse response2;
+  response2.add_interned_strings("");
+  response2.add_interned_strings("SyncOp2");
+  xprof::TraceEventSeries* sync_series2 = response2.add_complete_events();
+  sync_series2->mutable_metadata()->set_process_id(1);
+  sync_series2->mutable_metadata()->set_thread_id(55);
+  sync_series2->add_deltas(300ULL * 1000000ULL);
+  sync_series2->add_durations(50ULL * 1000000ULL);
+  sync_series2->add_name_refs(1);
+
+  data_provider_.ProcessTraceEvents(response2, timeline_);
+  AssertTimelineDataInvariants(timeline_.timeline_data());
+}
+
+TEST_F(DataProviderTest, ProcessTraceEventsProtoIgnoresOverflowLevel) {
+  xprof::TraceDataResponse response;
+  response.add_interned_strings("");       // 0
+  response.add_interned_strings("Proc1");  // 1
+  response.add_interned_strings("Proc2");  // 2
+  response.add_interned_strings("Op");     // 3
+
+  xprof::Process* proc1 = response.mutable_metadata()->add_processes();
+  proc1->set_id(1);
+  proc1->set_name("Proc1");
+  for (int i = 1; i <= 65534; ++i) {
+    xprof::Thread* thr = proc1->add_threads();
+    thr->set_id(i);
+    thr->set_name("T");
+  }
+
+  xprof::Process* proc2 = response.mutable_metadata()->add_processes();
+  proc2->set_id(2);
+  proc2->set_name("Proc2");
+  xprof::Thread* thr2 = proc2->add_threads();
+  thr2->set_id(201);
+  thr2->set_name("T201");
+
+  xprof::TraceEventSeries* series = response.add_complete_events();
+  series->mutable_metadata()->set_process_id(2);
+  series->mutable_metadata()->set_thread_id(201);
+  // Event 0 (valid at level 65534):
+  series->add_deltas(100ULL * 1000000ULL);
+  series->add_durations(100ULL * 1000000ULL);
+  series->add_name_refs(3);
+  // Event 1 (overflow at level 65535, exercises first branch of LOG_FIRST_N):
+  series->add_deltas(0ULL);
+  series->add_durations(100ULL * 1000000ULL);
+  series->add_name_refs(3);
+  // Event 2 (overflow at level 65536, exercises second branch of LOG_FIRST_N):
+  series->add_deltas(0ULL);
+  series->add_durations(100ULL * 1000000ULL);
+  series->add_name_refs(3);
+
+  data_provider_.ProcessTraceEvents(response, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  EXPECT_THAT(data.entry_levels, ElementsAre(65534));
+}
+
+TEST_F(DataProviderTest, BuildDisjointModuleSegmentsNestedAndBoundary) {
+  xprof::TraceDataResponse resp;
+  resp.add_interned_strings("");                    // 0
+  resp.add_interned_strings("early(1)");            // 1
+  resp.add_interned_strings("outer(2)");            // 2
+  resp.add_interned_strings("inner(3)");            // 3
+  resp.add_interned_strings("before_boundary_op");  // 4
+  resp.add_interned_strings("boundary_op_0dur");    // 5
+  resp.add_interned_strings("boundary_op_posdur");  // 6
+  resp.add_interned_strings("after_inner_op");      // 7
+  xprof::Process* proc = resp.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("TPU:0");
+  xprof::Thread* mod_t = proc->add_threads();
+  mod_t->set_id(1);
+  mod_t->set_name(std::string(kXlaModules));
+  xprof::Thread* ops_t = proc->add_threads();
+  ops_t->set_id(2);
+  ops_t->set_name(std::string(kXlaOps));
+
+  // early(1): [50, 250), outer(2): [100, 500), inner(3): [200, 300) (nested in
+  // outer(2)). BuildDisjointModuleSegments produces half-open segments
+  // [50, 250) -> early(1) and [250, 500) -> outer(2), pruning inner(3) so
+  // binary search by .end remains monotonic.
+  xprof::TraceEventSeries* ms = resp.add_complete_events();
+  ms->mutable_metadata()->set_process_id(1);
+  ms->mutable_metadata()->set_thread_id(1);
+  ms->add_deltas(50ULL * 1000000ULL);
+  ms->add_durations(200ULL * 1000000ULL);
+  ms->add_name_refs(1);
+  ms->add_deltas(50ULL * 1000000ULL);
+  ms->add_durations(400ULL * 1000000ULL);
+  ms->add_name_refs(2);
+  ms->add_deltas(100ULL * 1000000ULL);
+  ms->add_durations(100ULL * 1000000ULL);
+  ms->add_name_refs(3);
+
+  xprof::TraceEventSeries* os = resp.add_complete_events();
+  os->mutable_metadata()->set_process_id(1);
+  os->mutable_metadata()->set_thread_id(2);
+  // ts = 249us (inside early(1) [50, 250)):
+  os->add_deltas(249ULL * 1000000ULL);
+  os->add_durations(1ULL * 1000000ULL);
+  os->add_name_refs(4);
+  // ts = 250us, 0-dur (at half-open boundary 250 -> attaches to outer(2)):
+  os->add_deltas(1ULL * 1000000ULL);
+  os->add_durations(0);
+  os->add_name_refs(5);
+  // ts = 250us, pos-dur (at half-open boundary 250 -> attaches to outer(2)):
+  os->add_deltas(0ULL);
+  os->add_durations(10ULL * 1000000ULL);
+  os->add_name_refs(6);
+  // ts = 350us (after inner(3) -> attaches to outer(2)):
+  os->add_deltas(100ULL * 1000000ULL);
+  os->add_durations(10ULL * 1000000ULL);
+  os->add_name_refs(7);
+
+  data_provider_.ProcessTraceEvents(resp, timeline_);
+  const FlameChartTimelineData& d = timeline_.timeline_data();
+  AssertTimelineDataInvariants(d);
+  ASSERT_EQ(d.entry_start_times.size(), 7u);
+  EXPECT_EQ(d.GetEntryHloModule(3), "early(1)");
+  EXPECT_EQ(d.GetEntryHloModule(4), "outer(2)");
+  EXPECT_EQ(d.GetEntryHloModule(5), "outer(2)");
+  EXPECT_EQ(d.GetEntryHloModule(6), "outer(2)");
+}
+
+TEST_F(DataProviderTest, FusedSelfTimePartialOverlap) {
+  xprof::TraceDataResponse resp;
+  resp.add_interned_strings("");
+  resp.add_interned_strings("parent");
+  resp.add_interned_strings("nested_child");
+  resp.add_interned_strings("partial_overlap");
+  xprof::Process* proc = resp.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  xprof::Thread* thr = proc->add_threads();
+  thr->set_id(1);
+  thr->set_name("T1");
+
+  xprof::TraceEventSeries* s = resp.add_complete_events();
+  s->mutable_metadata()->set_process_id(1);
+  s->mutable_metadata()->set_thread_id(1);
+  s->add_deltas(100ULL * 1000000ULL);
+  s->add_durations(200ULL * 1000000ULL);
+  s->add_name_refs(1);
+  s->add_deltas(20ULL * 1000000ULL);
+  s->add_durations(50ULL * 1000000ULL);
+  s->add_name_refs(2);
+  s->add_deltas(80ULL * 1000000ULL);
+  s->add_durations(150ULL * 1000000ULL);
+  s->add_name_refs(3);
+
+  data_provider_.ProcessTraceEvents(resp, timeline_);
+  const FlameChartTimelineData& d = timeline_.timeline_data();
+  AssertTimelineDataInvariants(d);
+  ASSERT_EQ(d.entry_start_times.size(), 3u);
+  EXPECT_NEAR(d.GetEntrySelfTime(0), 150.0, 1e-6);
+  EXPECT_NEAR(d.GetEntrySelfTime(1), 50.0, 1e-6);
+  EXPECT_NEAR(d.GetEntrySelfTime(2), 150.0, 1e-6);
+}
+
+TEST_F(DataProviderTest, AsyncTrackPairingAndOrder) {
+  xprof::TraceDataResponse resp;
+  resp.add_interned_strings("");
+  resp.add_interned_strings("AsyncTrackA");
+  resp.add_interned_strings("AsyncTrackB");
+  xprof::TraceEventSeries* sa = resp.add_async_events();
+  sa->mutable_metadata()->set_process_id(1);
+  sa->mutable_metadata()->set_name_ref(1);
+  sa->add_deltas(100ULL * 1000000ULL);
+  sa->add_durations(0);
+  sa->add_event_metadata()->set_flow_id(1);
+  sa->add_deltas(40ULL * 1000000ULL);
+  sa->add_durations(0);
+  sa->add_event_metadata()->set_flow_id(1);
+
+  xprof::TraceEventSeries* sb = resp.add_async_events();
+  sb->mutable_metadata()->set_process_id(1);
+  sb->mutable_metadata()->set_name_ref(2);
+  sb->add_deltas(110ULL * 1000000ULL);
+  sb->add_durations(30ULL * 1000000ULL);
+
+  data_provider_.ProcessTraceEvents(resp, timeline_);
+  AssertTimelineDataInvariants(timeline_.timeline_data());
+  EXPECT_THAT(GetGroupNames(timeline_.timeline_data()),
+              ElementsAre("Process_1", "AsyncTrackA", "AsyncTrackB"));
+}
+
+TEST_F(DataProviderTest, CounterTrackMinMaxAndDelta) {
+  xprof::TraceDataResponse resp;
+  resp.add_interned_strings("");
+  resp.add_interned_strings("MemBw");
+  xprof::TraceEventSeries* cs = resp.add_counter_events();
+  cs->mutable_metadata()->set_process_id(1);
+  cs->mutable_metadata()->set_name_ref(1);
+  cs->add_deltas(100ULL * 1000000ULL);
+  cs->add_event_metadata()->set_counter_value_double(5.5);
+  cs->add_deltas(50ULL * 1000000ULL);
+  cs->add_event_metadata()->set_counter_value_uint64(42);
+
+  data_provider_.ProcessTraceEvents(resp, timeline_);
+  AssertTimelineDataInvariants(timeline_.timeline_data());
+  const CounterData& cnt =
+      timeline_.timeline_data().counter_data_by_group_index.at(1);
+  EXPECT_DOUBLE_EQ(cnt.min_value, 5.5);
+  EXPECT_DOUBLE_EQ(cnt.max_value, 42.0);
+}
+
+TEST_F(DataProviderTest, FlowEndpointByValueAndLevelClamp) {
+  xprof::TraceDataResponse resp;
+  resp.add_interned_strings("");
+  resp.add_interned_strings("src");
+  resp.add_interned_strings("dst");
+  xprof::TraceEventSeries* s = resp.add_complete_events();
+  s->mutable_metadata()->set_process_id(1);
+  s->mutable_metadata()->set_thread_id(1);
+  s->add_deltas(100ULL * 1000000ULL);
+  s->add_durations(20ULL * 1000000ULL);
+  s->add_name_refs(1);
+  s->add_event_metadata()->set_flow_id(99);
+  s->add_deltas(5ULL * 1000000ULL);
+  s->add_durations(10ULL * 1000000ULL);
+  s->add_name_refs(2);
+  s->add_event_metadata()->set_flow_id(99);
+
+  data_provider_.ProcessTraceEvents(resp, timeline_);
+  AssertTimelineDataInvariants(timeline_.timeline_data());
+  ASSERT_EQ(timeline_.timeline_data().flow_lines.size(), 1u);
+  EXPECT_EQ(timeline_.timeline_data().flow_lines[0].source_level, 0);
+  EXPECT_EQ(timeline_.timeline_data().flow_lines[0].target_level, 1);
+}
+
+TEST_F(DataProviderTest,
+       AsyncProcessSameTidDoesNotOverwriteSyncThreadFlowLevelInterleaved) {
+  const std::vector<TraceEvent> flame_events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Async Process"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 55, "SyncThread55"),
+      CreateSortIndexMetadataEvent(std::string(kThreadSortIndex), 1, 55, "1"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 56, "SyncThread56"),
+      CreateSortIndexMetadataEvent(std::string(kThreadSortIndex), 1, 56, "2"),
+      // Sync event on tid 55 (level 0):
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 55,
+       .name = "SyncOp55",
+       .ts = 100.0,
+       .dur = 50.0,
+       .is_async = false},
+      // Interleaved sync event on tid 56 (level 1) spanning across both flow
+      // timestamps [50.0, 350.0]:
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 56,
+       .name = "InterleavedOp56",
+       .ts = 50.0,
+       .dur = 300.0,
+       .is_async = false},
+      // Async event on tid 55 (level 2) to trigger PopulateAsyncProcessTrack:
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 55,
+       .name = "AsyncOp55",
+       .ts = 200.0,
+       .dur = 50.0,
+       .is_async = true},
+  };
+
+  const std::vector<TraceEvent> flow_events = {
+      {.ph = Phase::kFlowStart,
+       .pid = 1,
+       .tid = 55,
+       .name = "Flow_1",
+       .ts = 120.0,
+       .id = "f1",
+       .category = tsl::profiler::ContextType::kGeneric},
+      {.ph = Phase::kFlowEnd,
+       .pid = 1,
+       .tid = 55,
+       .name = "Flow_1",
+       .ts = 220.0,
+       .id = "f1",
+       .category = tsl::profiler::ContextType::kGeneric},
+  };
+
+  data_provider_.ProcessTraceEvents({flame_events, {}, flow_events}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  AssertTimelineDataInvariants(data);
+  ASSERT_THAT(data.groups, SizeIs(4));
+  EXPECT_EQ(data.groups[0].name, "Async Process");
+  EXPECT_EQ(data.groups[1].name, "SyncThread55");
+  EXPECT_EQ(data.groups[1].start_level, 0);
+  EXPECT_EQ(data.groups[2].name, "SyncThread56");
+  EXPECT_EQ(data.groups[2].start_level, 1);
+  EXPECT_EQ(data.groups[3].name, "AsyncOp55");
+  EXPECT_EQ(data.groups[3].start_level, 2);
+
+  ASSERT_THAT(data.flow_lines, SizeIs(1));
+  EXPECT_EQ(data.flow_lines[0].source_ts, 120.0);
+  EXPECT_EQ(data.flow_lines[0].target_ts, 220.0);
+  EXPECT_EQ(data.flow_lines[0].source_level, 0);
+  EXPECT_EQ(data.flow_lines[0].target_level, 2);
+}
+
+TEST_F(DataProviderTest,
+       ProcessTraceEventsProtoAsyncSameTidDoesNotOverwriteSyncThreadFlowLevel) {
+  xprof::TraceDataResponse resp;
+  resp.add_interned_strings("");                 // 0
+  resp.add_interned_strings("Async Process");    // 1
+  resp.add_interned_strings("SyncOp55");         // 2
+  resp.add_interned_strings("InterleavedOp56");  // 3
+  resp.add_interned_strings("AsyncOp55");        // 4
+
+  xprof::Process* proc = resp.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("Async Process");
+  xprof::Thread* thr55 = proc->add_threads();
+  thr55->set_id(55);
+  thr55->set_name("SyncThread55");
+  thr55->set_sort_index(1);
+  xprof::Thread* thr56 = proc->add_threads();
+  thr56->set_id(56);
+  thr56->set_name("SyncThread56");
+  thr56->set_sort_index(2);
+
+  // Sync event on tid 55 (level 0) with flow_id 99:
+  xprof::TraceEventSeries* s55 = resp.add_complete_events();
+  s55->mutable_metadata()->set_process_id(1);
+  s55->mutable_metadata()->set_thread_id(55);
+  s55->add_deltas(100ULL * 1000000ULL);
+  s55->add_durations(50ULL * 1000000ULL);
+  s55->add_name_refs(2);
+  xprof::TraceEventMetadata* m55 = s55->add_event_metadata();
+  m55->set_flow_id(99);
+  m55->set_flow_category(
+      static_cast<uint32_t>(tsl::profiler::ContextType::kGeneric));
+
+  // Interleaved sync event on tid 56 (level 1) spanning [50.0, 350.0]:
+  xprof::TraceEventSeries* s56 = resp.add_complete_events();
+  s56->mutable_metadata()->set_process_id(1);
+  s56->mutable_metadata()->set_thread_id(56);
+  s56->add_deltas(50ULL * 1000000ULL);
+  s56->add_durations(300ULL * 1000000ULL);
+  s56->add_name_refs(3);
+
+  // Second sync event on tid 55 (level 0) at 220us receiving flow_id 99, while
+  // an async track also shares tid 55 at level 2:
+  s55->add_deltas(120ULL * 1000000ULL);
+  s55->add_durations(50ULL * 1000000ULL);
+  s55->add_name_refs(2);
+  xprof::TraceEventMetadata* m55_dst = s55->add_event_metadata();
+  m55_dst->set_flow_id(99);
+  m55_dst->set_flow_category(
+      static_cast<uint32_t>(tsl::profiler::ContextType::kGeneric));
+
+  // Async event sharing tid 55 (level 2) at 500us:
+  xprof::TraceEventSeries* async_s = resp.add_async_events();
+  async_s->mutable_metadata()->set_process_id(1);
+  async_s->mutable_metadata()->set_thread_id(55);
+  async_s->mutable_metadata()->set_name_ref(4);
+  async_s->add_deltas(500ULL * 1000000ULL);
+  async_s->add_durations(50ULL * 1000000ULL);
+
+  data_provider_.ProcessTraceEvents(resp, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  AssertTimelineDataInvariants(data);
+  ASSERT_THAT(data.groups, SizeIs(4));
+  EXPECT_EQ(data.groups[1].name, "SyncThread55");
+  EXPECT_EQ(data.groups[1].start_level, 0);
+  EXPECT_EQ(data.groups[2].name, "SyncThread56");
+  EXPECT_EQ(data.groups[2].start_level, 1);
+  EXPECT_EQ(data.groups[3].name, "AsyncOp55");
+  EXPECT_EQ(data.groups[3].start_level, 2);
+
+  ASSERT_THAT(data.flow_lines, SizeIs(1));
+  EXPECT_EQ(data.flow_lines[0].source_level, 0);
+  EXPECT_EQ(data.flow_lines[0].target_level, 0);
+}
+
+TEST_F(DataProviderTest,
+       ProcessTraceEventsProtoMpmdPreservesSortIndexAcrossIncrementalReloads) {
+  auto build_mpmd_response =
+      [](std::initializer_list<std::tuple<uint32_t, const char*, int64_t>>
+             devices,
+         uint64_t ts_us) {
+        xprof::TraceDataResponse resp;
+        resp.add_interned_strings("");
+        resp.add_interned_strings("op");
+        xprof::DetailItem* detail = resp.add_details();
+        detail->set_name("mpmd_pipeline_view");
+        detail->set_value(true);
+        for (const auto& [pid, name, sort_idx] : devices) {
+          xprof::Process* p = resp.mutable_metadata()->add_processes();
+          p->set_id(pid);
+          p->set_name(name);
+          p->set_sort_index(sort_idx);
+          xprof::Thread* t = p->add_threads();
+          t->set_id(1);
+          t->set_name(std::string(kXlaModules));
+          xprof::TraceEventSeries* s = resp.add_complete_events();
+          s->mutable_metadata()->set_process_id(pid);
+          s->mutable_metadata()->set_thread_id(1);
+          s->add_deltas(ts_us * 1000000ULL);
+          s->add_durations(5ULL * 1000000ULL);
+          s->add_name_refs(1);
+        }
+        return resp;
+      };
+
+  const xprof::TraceDataResponse initial_resp = build_mpmd_response(
+      {{10, "Process 10", 0}, {20, "Process 20", 1}, {1, "Process 1", 2}},
+      /*ts_us=*/10);
+  data_provider_.ProcessTraceEvents(initial_resp, timeline_);
+  ASSERT_THAT(GetProcessPids(timeline_.timeline_data()),
+              ElementsAre(10, 20, 1));
+
+  // Reload with Narrower/altered sort indices (e.g. Device 1 gets sort_index 0,
+  // Device 10 gets sort_index 25). The original full-range sort indices must be
+  // preserved.
+  const xprof::TraceDataResponse reload_resp = build_mpmd_response(
+      {{10, "Process 10", 25}, {20, "Process 20", 1}, {1, "Process 1", 0}},
+      /*ts_us=*/20);
+  data_provider_.ProcessTraceEvents(reload_resp, timeline_);
+  EXPECT_THAT(GetProcessPids(timeline_.timeline_data()),
+              ElementsAre(10, 20, 1));
+}
+
+TEST_F(DataProviderTest,
+       ProcessTraceEventsProtoMpmdIdleTpuHiddenAndRankedStageKeptOnZoom) {
+  auto add_process_and_threads =
+      [](xprof::TraceDataResponse& resp, uint32_t pid, const char* name,
+         int64_t sort_idx, bool add_xla_ops = false) {
+        xprof::Process* p = resp.mutable_metadata()->add_processes();
+        p->set_id(pid);
+        p->set_name(name);
+        p->set_sort_index(sort_idx);
+        xprof::Thread* t1 = p->add_threads();
+        t1->set_id(1);
+        t1->set_name(std::string(kXlaModules));
+        if (add_xla_ops) {
+          xprof::Thread* t2 = p->add_threads();
+          t2->set_id(2);
+          t2->set_name(std::string(kXlaOps));
+        }
+      };
+  auto add_complete_op = [](xprof::TraceDataResponse& resp, uint32_t pid,
+                            uint32_t tid) {
+    xprof::TraceEventSeries* s = resp.add_complete_events();
+    s->mutable_metadata()->set_process_id(pid);
+    s->mutable_metadata()->set_thread_id(tid);
+    s->add_deltas(10ULL * 1000000ULL);
+    s->add_durations(5ULL * 1000000ULL);
+    s->add_name_refs(1);
+  };
+
+  // Load 1: Full load (K = 2).
+  xprof::TraceDataResponse full_resp;
+  full_resp.add_interned_strings("");
+  full_resp.add_interned_strings("op");
+  xprof::DetailItem* d1 = full_resp.add_details();
+  d1->set_name("mpmd_pipeline_view");
+  d1->set_value(true);
+  add_process_and_threads(full_resp, 0, "Stage 0", 0);
+  add_complete_op(full_resp, 0, 1);
+  add_process_and_threads(full_resp, 1, "Stage 1", 1);
+  add_complete_op(full_resp, 1, 1);
+  add_process_and_threads(full_resp, 2, "Unranked Active TPU",
+                          kMpmdUnrankedSortIndexBase + 2, /*add_xla_ops=*/true);
+  add_complete_op(full_resp, 2, 2);
+  add_process_and_threads(full_resp, 3, "Idle TPU",
+                          kMpmdUnrankedSortIndexBase + 3);
+
+  data_provider_.ProcessTraceEvents(full_resp, timeline_);
+  EXPECT_THAT(GetGroupNames(timeline_.timeline_data()),
+              ElementsAre("Stage 0", "XLA Modules", "Stage 1", "XLA Modules",
+                          "Unranked Active TPU", "XLA Ops"));
+  EXPECT_THAT(GetProcessPids(timeline_.timeline_data()), ElementsAre(0, 1, 2));
+
+  // Load 2: Zoomed-in load (K' = 1 < K = 2). Stage 1 has 0 events and incoming
+  // index >= Base, but retains its ranked stage track. Unranked devices 2 and 3
+  // have 0 events in the zoomed slice and are hidden.
+  xprof::TraceDataResponse zoomed_resp;
+  zoomed_resp.add_interned_strings("");
+  zoomed_resp.add_interned_strings("op");
+  xprof::DetailItem* d2 = zoomed_resp.add_details();
+  d2->set_name("mpmd_pipeline_view");
+  d2->set_value(true);
+  add_process_and_threads(zoomed_resp, 0, "Stage 0", 0);
+  add_complete_op(zoomed_resp, 0, 1);
+  add_process_and_threads(zoomed_resp, 1, "Stage 1",
+                          kMpmdUnrankedSortIndexBase + 1);
+  add_process_and_threads(zoomed_resp, 2, "Unranked Active TPU",
+                          kMpmdUnrankedSortIndexBase + 2, /*add_xla_ops=*/true);
+  add_process_and_threads(zoomed_resp, 3, "Idle TPU",
+                          kMpmdUnrankedSortIndexBase + 3);
+
+  data_provider_.ProcessTraceEvents(zoomed_resp, timeline_);
+  EXPECT_THAT(GetGroupNames(timeline_.timeline_data()),
+              ElementsAre("Stage 0", "XLA Modules", "Stage 1", "XLA Modules"));
+}
+
+TEST_F(DataProviderTest, FinalizeTimelineUpdateParityAcrossOverloads) {
+  // 1. Empty response with full_timespan sets data_time_range on both
+  // overloads.
+  ParsedTraceEvents empty_parsed;
+  empty_parsed.full_timespan = std::make_pair(1.0, 5.0);  // [1000us, 5000us]
+  Timeline tl_parsed(palette_);
+  DataProvider dp_parsed;
+  dp_parsed.ProcessTraceEvents(empty_parsed, tl_parsed);
+
+  xprof::TraceDataResponse empty_proto;
+  empty_proto.set_full_timespan_start_ps(1ULL * 1000000000ULL);
+  empty_proto.set_full_timespan_end_ps(5ULL * 1000000000ULL);
+  Timeline tl_proto(palette_);
+  DataProvider dp_proto;
+  dp_proto.ProcessTraceEvents(empty_proto, tl_proto);
+
+  EXPECT_DOUBLE_EQ(tl_parsed.data_time_range().start(),
+                   tl_proto.data_time_range().start());
+  EXPECT_DOUBLE_EQ(tl_parsed.data_time_range().end(),
+                   tl_proto.data_time_range().end());
+  EXPECT_DOUBLE_EQ(tl_proto.data_time_range().start(), 1000.0);
+  EXPECT_DOUBLE_EQ(tl_proto.data_time_range().end(), 5000.0);
+
+  // 2. Non-empty response with visible_range_from_url and full_timespan sets
+  // fetched_data_time_range, visible_range, and data_time_range identically.
+  ParsedTraceEvents non_empty_parsed;
+  non_empty_parsed.flame_events = {
+      CreateProcessEvent(1, "P1"),
+      CreateThreadEvent(1, 1, "T1"),
+      CreateCompleteEvent(1, 1, "Op", 100.0, 50.0),
+  };
+  non_empty_parsed.visible_range_from_url =
+      std::make_pair(0.11, 0.14);  // [110us, 140us]
+  non_empty_parsed.full_timespan = std::make_pair(0.05, 0.50);
+  dp_parsed.ProcessTraceEvents(non_empty_parsed, tl_parsed);
+
+  xprof::TraceDataResponse non_empty_proto;
+  non_empty_proto.add_interned_strings("");
+  non_empty_proto.add_interned_strings("Op");
+  non_empty_proto.set_full_timespan_start_ps(50ULL * 1000000ULL);
+  non_empty_proto.set_full_timespan_end_ps(500ULL * 1000000ULL);
+  xprof::Process* p = non_empty_proto.mutable_metadata()->add_processes();
+  p->set_id(1);
+  p->set_name("P1");
+  xprof::Thread* t = p->add_threads();
+  t->set_id(1);
+  t->set_name("T1");
+  xprof::TraceEventSeries* s = non_empty_proto.add_complete_events();
+  s->mutable_metadata()->set_process_id(1);
+  s->mutable_metadata()->set_thread_id(1);
+  s->add_deltas(100ULL * 1000000ULL);
+  s->add_durations(50ULL * 1000000ULL);
+  s->add_name_refs(1);
+  dp_proto.ProcessTraceEvents(non_empty_proto, tl_proto,
+                              std::make_pair(0.11, 0.14));
+
+  EXPECT_DOUBLE_EQ(tl_parsed.fetched_data_time_range().start(),
+                   tl_proto.fetched_data_time_range().start());
+  EXPECT_DOUBLE_EQ(tl_parsed.fetched_data_time_range().end(),
+                   tl_proto.fetched_data_time_range().end());
+  EXPECT_DOUBLE_EQ(tl_parsed.visible_range().start(),
+                   tl_proto.visible_range().start());
+  EXPECT_DOUBLE_EQ(tl_parsed.visible_range().end(),
+                   tl_proto.visible_range().end());
+  EXPECT_DOUBLE_EQ(tl_parsed.data_time_range().start(),
+                   tl_proto.data_time_range().start());
+  EXPECT_DOUBLE_EQ(tl_parsed.data_time_range().end(),
+                   tl_proto.data_time_range().end());
+}
+
+TEST_F(DataProviderTest,
+       ProcessTraceEventsProtoPopulatesDenseGroupIdsOnCompleteAndAsyncEvents) {
+  xprof::TraceDataResponse resp;
+  resp.add_interned_strings("");         // 0
+  resp.add_interned_strings("SyncOp");   // 1
+  resp.add_interned_strings("AsyncOp");  // 2
+
+  xprof::Process* proc = resp.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("Host");
+  xprof::Thread* thr = proc->add_threads();
+  thr->set_id(1);
+  thr->set_name("T1");
+
+  // Complete event with dense group_id = 42 and serial = 1001.
+  xprof::TraceEventSeries* cs = resp.add_complete_events();
+  cs->mutable_metadata()->set_process_id(1);
+  cs->mutable_metadata()->set_thread_id(1);
+  cs->add_deltas(100ULL * 1000000ULL);
+  cs->add_durations(50ULL * 1000000ULL);
+  cs->add_name_refs(1);
+  xprof::TraceEventMetadata* cm = cs->add_event_metadata();
+  cm->set_group_id(42);
+  cm->set_serial(1001);
+
+  // Paired async event where group_id = 99 is supplied on the end event.
+  xprof::TraceEventSeries* as = resp.add_async_events();
+  as->mutable_metadata()->set_process_id(1);
+  as->mutable_metadata()->set_name_ref(2);
+  as->add_deltas(200ULL * 1000000ULL);
+  as->add_durations(0);
+  xprof::TraceEventMetadata* am_begin = as->add_event_metadata();
+  am_begin->set_flow_id(7);
+  am_begin->set_serial(2002);
+  as->add_deltas(40ULL * 1000000ULL);
+  as->add_durations(0);
+  xprof::TraceEventMetadata* am_end = as->add_event_metadata();
+  am_end->set_flow_id(7);
+  am_end->set_group_id(99);
+
+  data_provider_.ProcessTraceEvents(resp, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  AssertTimelineDataInvariants(data);
+  ASSERT_EQ(data.entry_start_times.size(), 2u);
+
+  const absl::flat_hash_map<std::string, std::string> sync_args =
+      data.GetEntryArgs(0);
+  ASSERT_NE(sync_args.find("group_id"), sync_args.end());
+  EXPECT_EQ(sync_args.at("group_id"), "42");
+  ASSERT_NE(sync_args.find("uid"), sync_args.end());
+  EXPECT_EQ(sync_args.at("uid"), "1001");
+
+  const absl::flat_hash_map<std::string, std::string> async_args =
+      data.GetEntryArgs(1);
+  ASSERT_NE(async_args.find("group_id"), async_args.end());
+  EXPECT_EQ(async_args.at("group_id"), "99");
+  ASSERT_NE(async_args.find("uid"), async_args.end());
+  EXPECT_EQ(async_args.at("uid"), "2002");
+}
+
+TEST_F(DataProviderTest,
+       ProcessTraceEventsProtoDecodesSparseMetadataAndRleGroupIds) {
+  xprof::TraceDataResponse response;
+  response.add_interned_strings("");              // 0
+  response.add_interned_strings("Group1Op");      // 1
+  response.add_interned_strings("Group2FlowOp");  // 2
+  response.add_interned_strings("AsyncTrack");    // 3
+  response.add_interned_strings("fusion_op.1");   // 4
+  response.add_interned_strings("main_mod(1)");   // 5
+
+  xprof::Process* proc = response.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("host0 /device:TPU:0");
+  xprof::Thread* thr = proc->add_threads();
+  thr->set_id(10);
+  thr->set_name("Stream #0");
+
+  xprof::TraceEventSeries* series = response.add_complete_events();
+  series->mutable_metadata()->set_process_id(1);
+  series->mutable_metadata()->set_thread_id(10);
+  // Event 0: Group 1, at 100us, no sparse metadata
+  series->add_deltas(100ULL * 1000000ULL);
+  series->add_durations(20ULL * 1000000ULL);
+  series->add_name_refs(1);
+  // Event 1: Group 2, at 200us, sparse metadata (serial=42, flow=7, HLO refs)
+  series->add_deltas(100ULL * 1000000ULL);
+  series->add_durations(30ULL * 1000000ULL);
+  series->add_name_refs(2);
+  series->add_event_metadata_indices(1);
+  xprof::TraceEventMetadata* meta = series->add_event_metadata();
+  meta->set_serial(42);
+  meta->set_flow_id(7);
+  meta->set_hlo_op_ref(4);
+  meta->set_hlo_module_ref(5);
+
+  series->add_group_id_run_values(1);
+  series->add_group_id_run_lengths(1);
+  series->add_group_id_run_values(2);
+  series->add_group_id_run_lengths(1);
+
+  // Async Begin/End pair with RLE group_id = 3 and HLO refs on End (L5-6).
+  xprof::TraceEventSeries* async_series = response.add_async_events();
+  async_series->mutable_metadata()->set_process_id(1);
+  async_series->mutable_metadata()->set_name_ref(3);
+  async_series->add_deltas(300ULL * 1000000ULL);
+  async_series->add_durations(0);
+  async_series->add_event_metadata_indices(0);
+  async_series->add_event_metadata()->set_flow_id(99);
+  async_series->add_deltas(50ULL * 1000000ULL);
+  async_series->add_durations(0);
+  async_series->add_event_metadata_indices(1);
+  xprof::TraceEventMetadata* async_end = async_series->add_event_metadata();
+  async_end->set_flow_id(99);
+  async_end->set_serial(88);
+  async_end->set_hlo_op_ref(4);
+  async_end->set_hlo_module_ref(5);
+  async_series->add_group_id_run_values(3);
+  async_series->add_group_id_run_lengths(2);
+
+  data_provider_.ProcessTraceEvents(response, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  AssertTimelineDataInvariants(data);
+  ASSERT_EQ(data.entry_start_times.size(), 3u);
+
+  const absl::flat_hash_map<std::string, std::string> ev0_args =
+      data.GetEntryArgs(0);
+  EXPECT_EQ(ev0_args.at("group_id"), "1");
+  EXPECT_EQ(ev0_args.find("uid"), ev0_args.end());
+
+  const absl::flat_hash_map<std::string, std::string> ev1_args =
+      data.GetEntryArgs(1);
+  EXPECT_EQ(ev1_args.at("group_id"), "2");
+  EXPECT_EQ(ev1_args.at("uid"), "42");
+  EXPECT_EQ(ev1_args.at("hlo_op"), "fusion_op.1");
+  EXPECT_EQ(ev1_args.at("hlo_module"), "main_mod(1)");
+  EXPECT_EQ(data.flow_ids_by_event_index.at(1), 7ULL);
+
+  const absl::flat_hash_map<std::string, std::string> async_args =
+      data.GetEntryArgs(2);
+  EXPECT_EQ(async_args.at("group_id"), "3");
+  EXPECT_EQ(async_args.at("uid"), "88");
+  EXPECT_EQ(async_args.at("hlo_op"), "fusion_op.1");
+  EXPECT_EQ(async_args.at("hlo_module"), "main_mod(1)");
+}
+
+TEST_F(DataProviderTest, SparseAndDenseMetadataParity) {
+  xprof::TraceDataResponse sparse_resp;
+  sparse_resp.add_interned_strings("");
+  sparse_resp.add_interned_strings("op0");
+  sparse_resp.add_interned_strings("op1");
+  sparse_resp.add_interned_strings("fusion_op");
+  sparse_resp.add_interned_strings("module_a(1)");
+  xprof::TraceEventSeries* s1 = sparse_resp.add_complete_events();
+  s1->mutable_metadata()->set_process_id(1);
+  s1->mutable_metadata()->set_thread_id(1);
+  s1->add_deltas(100ULL * 1000000ULL);
+  s1->add_durations(10ULL * 1000000ULL);
+  s1->add_name_refs(1);
+  s1->add_deltas(20ULL * 1000000ULL);
+  s1->add_durations(10ULL * 1000000ULL);
+  s1->add_name_refs(2);
+  s1->add_event_metadata_indices(1);
+  xprof::TraceEventMetadata* sm = s1->add_event_metadata();
+  sm->set_serial(77);
+  sm->set_hlo_op_ref(3);
+  sm->set_hlo_module_ref(4);
+  s1->add_group_id_run_values(-1);
+  s1->add_group_id_run_lengths(1);
+  s1->add_group_id_run_values(5);
+  s1->add_group_id_run_lengths(1);
+
+  xprof::TraceDataResponse dense_resp = sparse_resp;
+  xprof::TraceEventSeries* d1 = dense_resp.mutable_complete_events(0);
+  d1->clear_event_metadata_indices();
+  d1->clear_event_metadata();
+  d1->clear_group_id_run_values();
+  d1->clear_group_id_run_lengths();
+  d1->add_event_metadata();
+  xprof::TraceEventMetadata* dm = d1->add_event_metadata();
+  dm->set_serial(77);
+  dm->set_group_id(5);
+  dm->set_hlo_op_ref(3);
+  dm->set_hlo_module_ref(4);
+
+  Timeline tl_sparse(palette_), tl_dense(palette_);
+  DataProvider dp_sparse, dp_dense;
+  dp_sparse.ProcessTraceEvents(sparse_resp, tl_sparse);
+  dp_dense.ProcessTraceEvents(dense_resp, tl_dense);
+  AssertTimelineDataInvariants(tl_sparse.timeline_data());
+  AssertTimelineDataInvariants(tl_dense.timeline_data());
+  EXPECT_EQ(tl_sparse.timeline_data().entry_start_times,
+            tl_dense.timeline_data().entry_start_times);
+  EXPECT_EQ(tl_sparse.timeline_data().entry_total_times,
+            tl_dense.timeline_data().entry_total_times);
+  EXPECT_EQ(tl_sparse.timeline_data().entry_name_indices,
+            tl_dense.timeline_data().entry_name_indices);
+  EXPECT_EQ(tl_sparse.timeline_data().non_zero_uids_by_event_index,
+            tl_dense.timeline_data().non_zero_uids_by_event_index);
+  EXPECT_EQ(tl_sparse.timeline_data().sparse_entry_group_ids,
+            tl_dense.timeline_data().sparse_entry_group_ids);
+  EXPECT_EQ(tl_sparse.timeline_data().entry_hlo_op_indices,
+            tl_dense.timeline_data().entry_hlo_op_indices);
+  EXPECT_EQ(tl_sparse.timeline_data().entry_hlo_module_indices,
+            tl_dense.timeline_data().entry_hlo_module_indices);
+  EXPECT_EQ(tl_sparse.timeline_data().sparse_entry_hlo_op_indices,
+            tl_dense.timeline_data().sparse_entry_hlo_op_indices);
+  EXPECT_EQ(tl_sparse.timeline_data().sparse_entry_hlo_module_indices,
+            tl_dense.timeline_data().sparse_entry_hlo_module_indices);
+}
+
+TEST_F(DataProviderTest, XChunkShapeDenseMetadataNoRleNoIndices) {
+  xprof::TraceDataResponse resp;
+  resp.add_interned_strings("");            // 0
+  resp.add_interned_strings("Kernel0");     // 1
+  resp.add_interned_strings("Kernel1");     // 2
+  resp.add_interned_strings("custom_op");   // 3
+  resp.add_interned_strings("custom_mod");  // 4
+
+  xprof::TraceEventSeries* s = resp.add_complete_events();
+  s->mutable_metadata()->set_process_id(1);
+  s->mutable_metadata()->set_thread_id(1);
+  // Event 0: empty dense metadata
+  s->add_deltas(50ULL * 1000000ULL);
+  s->add_durations(10ULL * 1000000ULL);
+  s->add_name_refs(1);
+  s->add_event_metadata();
+  // Event 1: positional dense metadata (no event_metadata_indices, no RLE)
+  s->add_deltas(20ULL * 1000000ULL);
+  s->add_durations(10ULL * 1000000ULL);
+  s->add_name_refs(2);
+  xprof::TraceEventMetadata* m1 = s->add_event_metadata();
+  m1->set_serial(333);
+  m1->set_flow_id(19);
+  m1->set_group_id(14);
+  m1->set_hlo_op_ref(3);
+  m1->set_hlo_module_ref(4);
+
+  data_provider_.ProcessTraceEvents(resp, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  AssertTimelineDataInvariants(data);
+  ASSERT_EQ(data.entry_start_times.size(), 2u);
+  EXPECT_EQ(data.GetEntryArgs(0).find("group_id"), data.GetEntryArgs(0).end());
+  const absl::flat_hash_map<std::string, std::string> args1 =
+      data.GetEntryArgs(1);
+  EXPECT_EQ(args1.at("uid"), "333");
+  EXPECT_EQ(args1.at("group_id"), "14");
+  EXPECT_EQ(args1.at("hlo_op"), "custom_op");
+  EXPECT_EQ(args1.at("hlo_module"), "custom_mod");
+  EXPECT_EQ(data.flow_ids_by_event_index.at(1), 19ULL);
+}
+
+TEST_F(DataProviderTest,
+       LegacyEventsCharacterizeUngroupedZeroAndNegativeGroupIds) {
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process A"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 101, "T1"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "ungrouped_op",
+       .ts = 10.0,
+       .dur = 5.0,
+       .group_id = 0,
+       .has_group_id = false},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "zero_group_op",
+       .ts = 20.0,
+       .dur = 5.0,
+       .group_id = 0,
+       .has_group_id = true},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "negative_group_op",
+       .ts = 30.0,
+       .dur = 5.0,
+       .group_id = -42,
+       .has_group_id = true},
+  };
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_EQ(data.entry_start_times.size(), 3u);
+
+  const absl::flat_hash_map<std::string, std::string> args0 =
+      data.GetEntryArgs(0);
+  EXPECT_FALSE(args0.contains("group_id"));
+
+  const absl::flat_hash_map<std::string, std::string> args1 =
+      data.GetEntryArgs(1);
+  ASSERT_TRUE(args1.contains("group_id"));
+  EXPECT_EQ(args1.at("group_id"), "0");
+
+  const absl::flat_hash_map<std::string, std::string> args2 =
+      data.GetEntryArgs(2);
+  ASSERT_TRUE(args2.contains("group_id"));
+  EXPECT_EQ(args2.at("group_id"), "-42");
+}
+
+TEST_F(DataProviderTest,
+       ProtoAsyncEventsCharacterizeMergedPairsAndUnclosedEvents) {
+  xprof::TraceDataResponse resp;
+  resp.add_interned_strings("");            // 0
+  resp.add_interned_strings("AsyncTrack");  // 1
+  resp.set_full_timespan_start_ps(0);
+  resp.set_full_timespan_end_ps(500ULL * 1000000ULL);
+
+  xprof::Process* proc = resp.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("Host");
+
+  xprof::TraceEventSeries* as = resp.add_async_events();
+  as->mutable_metadata()->set_process_id(1);
+  as->mutable_metadata()->set_name_ref(1);
+
+  // Pair 0 (flow_id = 10): begin has group_id = 11, end has group_id = 22 ->
+  // begin's group_id (11) is retained.
+  as->add_deltas(100ULL * 1000000ULL);
+  as->add_durations(0);
+  xprof::TraceEventMetadata* m0_begin = as->add_event_metadata();
+  m0_begin->set_flow_id(10);
+  m0_begin->set_group_id(11);
+  as->add_deltas(20ULL * 1000000ULL);
+  as->add_durations(0);
+  xprof::TraceEventMetadata* m0_end = as->add_event_metadata();
+  m0_end->set_flow_id(10);
+  m0_end->set_group_id(22);
+
+  // Pair 1 (flow_id = 20): begin is ungrouped, end has group_id = 33 ->
+  // end's group_id (33) is merged onto the entry.
+  as->add_deltas(80ULL * 1000000ULL);
+  as->add_durations(0);
+  xprof::TraceEventMetadata* m1_begin = as->add_event_metadata();
+  m1_begin->set_flow_id(20);
+  as->add_deltas(20ULL * 1000000ULL);
+  as->add_durations(0);
+  xprof::TraceEventMetadata* m1_end = as->add_event_metadata();
+  m1_end->set_flow_id(20);
+  m1_end->set_group_id(33);
+
+  // Pair 2 (flow_id = 30): neither begin nor end has a group_id -> ungrouped.
+  as->add_deltas(80ULL * 1000000ULL);
+  as->add_durations(0);
+  xprof::TraceEventMetadata* m2_begin = as->add_event_metadata();
+  m2_begin->set_flow_id(30);
+  as->add_deltas(20ULL * 1000000ULL);
+  as->add_durations(0);
+  xprof::TraceEventMetadata* m2_end = as->add_event_metadata();
+  m2_end->set_flow_id(30);
+
+  // Event 3 (flow_id = 40): unclosed async begin with group_id = 55 ->
+  // completed to trace end with group_id (55) preserved.
+  as->add_deltas(80ULL * 1000000ULL);
+  as->add_durations(0);
+  xprof::TraceEventMetadata* m3_unclosed = as->add_event_metadata();
+  m3_unclosed->set_flow_id(40);
+  m3_unclosed->set_group_id(55);
+
+  data_provider_.ProcessTraceEvents(resp, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  AssertTimelineDataInvariants(data);
+  ASSERT_EQ(data.entry_start_times.size(), 4u);
+
+  const absl::flat_hash_map<std::string, std::string> args0 =
+      data.GetEntryArgs(0);
+  ASSERT_TRUE(args0.contains("group_id"));
+  EXPECT_EQ(args0.at("group_id"), "11");
+
+  const absl::flat_hash_map<std::string, std::string> args1 =
+      data.GetEntryArgs(1);
+  ASSERT_TRUE(args1.contains("group_id"));
+  EXPECT_EQ(args1.at("group_id"), "33");
+
+  const absl::flat_hash_map<std::string, std::string> args2 =
+      data.GetEntryArgs(2);
+  EXPECT_FALSE(args2.contains("group_id"));
+
+  const absl::flat_hash_map<std::string, std::string> args3 =
+      data.GetEntryArgs(3);
+  ASSERT_TRUE(args3.contains("group_id"));
+  EXPECT_EQ(args3.at("group_id"), "55");
+  EXPECT_DOUBLE_EQ(data.entry_total_times[3], 100.0);
+}
+
+TEST_F(DataProviderTest,
+       ProtoGroupIdZeroIsPresentFromRleAndAbsentFromDenseMetadata) {
+  xprof::TraceDataResponse resp;
+  resp.add_interned_strings("");       // 0
+  resp.add_interned_strings("RleOp");  // 1
+  resp.add_interned_strings("DenseOp");
+
+  xprof::Process* proc = resp.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("Host");
+  xprof::Thread* thr1 = proc->add_threads();
+  thr1->set_id(1);
+  thr1->set_name("T1");
+  xprof::Thread* thr2 = proc->add_threads();
+  thr2->set_id(2);
+  thr2->set_name("T2");
+
+  // Series 0 (T1): RLE group_id_run_values = [0, -1] -> event 0 has group_id 0,
+  // event 1 is ungrouped.
+  xprof::TraceEventSeries* rle_series = resp.add_complete_events();
+  rle_series->mutable_metadata()->set_process_id(1);
+  rle_series->mutable_metadata()->set_thread_id(1);
+  rle_series->add_deltas(10ULL * 1000000ULL);
+  rle_series->add_durations(5ULL * 1000000ULL);
+  rle_series->add_name_refs(1);
+  rle_series->add_deltas(10ULL * 1000000ULL);
+  rle_series->add_durations(5ULL * 1000000ULL);
+  rle_series->add_name_refs(1);
+  rle_series->add_group_id_run_values(0);
+  rle_series->add_group_id_run_lengths(1);
+  rle_series->add_group_id_run_values(-1);
+  rle_series->add_group_id_run_lengths(1);
+
+  // Series 1 (T2): positional dense metadata with group_id = 0 (proto3 default
+  // scalar, no RLE) -> treated as ungrouped (absent).
+  xprof::TraceEventSeries* dense_series = resp.add_complete_events();
+  dense_series->mutable_metadata()->set_process_id(1);
+  dense_series->mutable_metadata()->set_thread_id(2);
+  dense_series->add_deltas(30ULL * 1000000ULL);
+  dense_series->add_durations(5ULL * 1000000ULL);
+  dense_series->add_name_refs(2);
+  xprof::TraceEventMetadata* dm = dense_series->add_event_metadata();
+  dm->set_group_id(0);
+  dm->set_serial(999);
+
+  data_provider_.ProcessTraceEvents(resp, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  AssertTimelineDataInvariants(data);
+  ASSERT_EQ(data.entry_start_times.size(), 3u);
+
+  const absl::flat_hash_map<std::string, std::string> args_rle_zero =
+      data.GetEntryArgs(0);
+  ASSERT_TRUE(args_rle_zero.contains("group_id"));
+  EXPECT_EQ(args_rle_zero.at("group_id"), "0");
+
+  const absl::flat_hash_map<std::string, std::string> args_rle_neg_one =
+      data.GetEntryArgs(1);
+  EXPECT_FALSE(args_rle_neg_one.contains("group_id"));
+
+  const absl::flat_hash_map<std::string, std::string> args_dense_zero =
+      data.GetEntryArgs(2);
+  EXPECT_FALSE(args_dense_zero.contains("group_id"));
+  EXPECT_EQ(args_dense_zero.at("uid"), "999");
+}
+
+TEST_F(DataProviderTest,
+       ProcessSerializedTraceEventsHandlesWireStreamingFlowsAndUnclosedAsync) {
+  xprof::TraceDataResponse resp;
+  resp.add_interned_strings("");         // 0
+  resp.add_interned_strings("Step_0");   // 1
+  resp.add_interned_strings("Step_1");   // 2
+  resp.add_interned_strings("OpSrc");    // 3
+  resp.add_interned_strings("OpDst");    // 4
+  resp.add_interned_strings("AsyncCh");  // 5
+
+  xprof::Process* proc = resp.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("Host /device:TPU:0");
+  xprof::Thread* steps_thr = proc->add_threads();
+  steps_thr->set_id(1);
+  steps_thr->set_name("Steps");
+  xprof::Thread* ops_thr = proc->add_threads();
+  ops_thr->set_id(2);
+  ops_thr->set_name(std::string(kXlaOps));
+
+  // Single-level Steps track (exercises T7 single-level CSR iota fast path).
+  xprof::TraceEventSeries* steps = resp.add_complete_events();
+  steps->mutable_metadata()->set_process_id(1);
+  steps->mutable_metadata()->set_thread_id(1);
+  steps->add_deltas(100ULL * 1000000ULL);
+  steps->add_durations(200ULL * 1000000ULL);
+  steps->add_name_refs(1);
+  steps->add_deltas(200ULL * 1000000ULL);
+  steps->add_durations(200ULL * 1000000ULL);
+  steps->add_name_refs(2);
+
+  // XLA Ops with flow_id = 77 and end at 900us (exercises T6 fused max_end_ps
+  // when full_timespan_end_ps is unset and N19 flow_line_ranges_by_flow_id).
+  xprof::TraceEventSeries* ops = resp.add_complete_events();
+  ops->mutable_metadata()->set_process_id(1);
+  ops->mutable_metadata()->set_thread_id(2);
+  ops->add_deltas(150ULL * 1000000ULL);
+  ops->add_durations(50ULL * 1000000ULL);
+  ops->add_name_refs(3);
+  ops->add_event_metadata_indices(0);
+  xprof::TraceEventMetadata* m_src = ops->add_event_metadata();
+  m_src->set_flow_id(77);
+  ops->add_deltas(650ULL * 1000000ULL);
+  ops->add_durations(100ULL * 1000000ULL);  // Ends at 900us.
+  ops->add_name_refs(4);
+  ops->add_event_metadata_indices(1);
+  xprof::TraceEventMetadata* m_dst = ops->add_event_metadata();
+  m_dst->set_flow_id(77);
+
+  // Unclosed async event starting at 400us -> must extend to max_end_ps
+  // (900us -> duration 500us).
+  xprof::TraceEventSeries* async_s = resp.add_async_events();
+  async_s->mutable_metadata()->set_process_id(1);
+  async_s->mutable_metadata()->set_name_ref(5);
+  async_s->add_deltas(400ULL * 1000000ULL);
+  async_s->add_durations(0);
+  async_s->add_event_metadata()->set_flow_id(500);
+
+  std::string serialized;
+  ASSERT_TRUE(resp.SerializeToString(&serialized));
+  ASSERT_TRUE(data_provider_.ProcessSerializedTraceEvents(std::move(serialized),
+                                                          timeline_));
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  AssertTimelineDataInvariants(data);
+  ASSERT_EQ(data.entry_start_times.size(), 5u);
+  // Protobuf path uses sparse columns and flow_line_ranges_by_flow_id.
+  EXPECT_TRUE(data.entry_self_times.empty());
+  EXPECT_TRUE(data.entry_hlo_op_indices.empty());
+  EXPECT_TRUE(data.entry_hlo_module_indices.empty());
+  EXPECT_TRUE(data.flow_lines_by_flow_id.empty());
+  ASSERT_TRUE(data.flow_line_ranges_by_flow_id.contains(77ULL));
+  EXPECT_EQ(data.flow_line_ranges_by_flow_id.at(77ULL).begin, 0u);
+  EXPECT_EQ(data.flow_line_ranges_by_flow_id.at(77ULL).end, 1u);
+
+  // Unclosed async event at index 4 must have duration 900 - 400 = 500us.
+  EXPECT_DOUBLE_EQ(data.entry_start_times[4], 400.0);
+  EXPECT_DOUBLE_EQ(data.entry_total_times[4], 500.0);
+}
+
+TEST_F(DataProviderTest,
+       ProcessSerializedTraceEventsUnclosedAsyncUsesProvisionalEndOrReruns) {
+  auto build_response = [](bool set_full_timespan_end) {
+    xprof::TraceDataResponse resp;
+    resp.add_interned_strings("");
+    resp.add_interned_strings("CompleteOp");
+    resp.add_interned_strings("AsyncOp");
+    if (set_full_timespan_end) {
+      resp.set_full_timespan_start_ps(0);
+      resp.set_full_timespan_end_ps(1200ULL * 1000000ULL);
+    }
+
+    xprof::Process* p = resp.mutable_metadata()->add_processes();
+    p->set_id(1);
+    p->set_name("Async Device 0");
+    xprof::Thread* t = p->add_threads();
+    t->set_id(1);
+    t->set_name("Stream 0");
+
+    xprof::TraceEventSeries* complete = resp.add_complete_events();
+    complete->mutable_metadata()->set_process_id(1);
+    complete->mutable_metadata()->set_thread_id(1);
+    complete->add_deltas(200ULL * 1000000ULL);
+    complete->add_durations(600ULL * 1000000ULL);  // Ends at 800us.
+    complete->add_name_refs(1);
+
+    xprof::TraceEventSeries* async_s = resp.add_async_events();
+    async_s->mutable_metadata()->set_process_id(1);
+    async_s->mutable_metadata()->set_name_ref(2);
+    async_s->add_deltas(300ULL * 1000000ULL);
+    async_s->add_durations(0);
+    async_s->add_event_metadata()->set_flow_id(999);
+    return resp;
+  };
+
+  // Case 1: full_timespan_end_ps (1200us) >= max_complete_end_ps (800us), so
+  // provisional_end_us (1200us) is used in a single pass without rerun.
+  {
+    xprof::TraceDataResponse resp = build_response(true);
+    std::string serialized;
+    ASSERT_TRUE(resp.SerializeToString(&serialized));
+    ASSERT_TRUE(data_provider_.ProcessSerializedTraceEvents(
+        std::move(serialized), timeline_));
+    const FlameChartTimelineData& data = timeline_.timeline_data();
+    ASSERT_EQ(data.entry_total_times.size(), 2u);
+    EXPECT_DOUBLE_EQ(data.entry_total_times[1], 900.0);
+  }
+
+  // Case 2: full_timespan_end_ps is unset, so max_complete_end_ps (800us) >
+  // provisional_end_us (300us) triggers exact trace_end_us = 800us (dur 500us).
+  {
+    DataProvider fresh_provider;
+    Timeline fresh_timeline(palette_);
+    xprof::TraceDataResponse resp = build_response(false);
+    std::string serialized;
+    ASSERT_TRUE(resp.SerializeToString(&serialized));
+    ASSERT_TRUE(fresh_provider.ProcessSerializedTraceEvents(
+        std::move(serialized), fresh_timeline));
+    const FlameChartTimelineData& data = fresh_timeline.timeline_data();
+    ASSERT_EQ(data.entry_total_times.size(), 2u);
+    EXPECT_DOUBLE_EQ(data.entry_total_times[1], 500.0);
+  }
+}
+
+TEST_F(DataProviderTest, ProcessTraceEventsProtoDecodesCounterEventStatsRef) {
+  xprof::TraceDataResponse resp;
+  resp.add_interned_strings("");                       // 0
+  resp.add_interned_strings("Bandwidth Utilization");  // 1
+  resp.add_interned_strings("hbm_bw_utilization");     // 2
+
+  xprof::Process* proc = resp.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("Device 0");
+
+  xprof::TraceEventSeries* counter = resp.add_counter_events();
+  counter->mutable_metadata()->set_process_id(1);
+  counter->mutable_metadata()->set_name_ref(1);
+  counter->mutable_metadata()->set_event_stats_ref(2);
+  counter->add_deltas(100ULL * 1000000ULL);
+  counter->add_event_metadata()->set_counter_value_double(0.75);
+
+  data_provider_.ProcessTraceEvents(resp, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  AssertTimelineDataInvariants(data);
+  ASSERT_EQ(data.groups.size(), 2u);
+  EXPECT_EQ(data.groups[1].type, Group::Type::kCounter);
+  const auto it = data.counter_data_by_group_index.find(1);
+  ASSERT_NE(it, data.counter_data_by_group_index.end());
+  EXPECT_EQ(it->second.event_stats, "hbm_bw_utilization");
+}
+
+TEST_F(DataProviderTest,
+       FullRangeLoadWithoutPendingRefetchClearsStaleSavedFullOverview) {
+  // 1.ParsedTraceEvents path: seed saved_full_overview_ via an initial overview
+  // load followed by a zoomed refetch, then run a full-range load without
+  // PrepareForFilteredRefetch() while zoomed in.
+  {
+    const std::vector<TraceEvent> overview_events = {
+        CreateProcessEvent(1, "Device 0"),
+        CreateThreadEvent(1, 1, "T1"),
+        CreateCompleteEvent(1, 1, "OpOverview", 0.0, 10000.0),
+    };
+    data_provider_.ProcessTraceEvents(
+        ParsedTraceEvents{.flame_events = overview_events}, timeline_);
+
+    timeline_.SetVisibleRange({100.0, 200.0});
+    timeline_.InitializeLastFetchRequestRange({100.0, 200.0});
+    timeline_.PrepareForFilteredRefetch();
+    const std::vector<TraceEvent> zoomed_events = {
+        CreateCompleteEvent(1, 1, "OpZoomed", 100.0, 50.0),
+    };
+    data_provider_.ProcessTraceEvents(
+        ParsedTraceEvents{
+            .flame_events = zoomed_events,
+            .full_timespan = std::make_pair(0.0, 10.0),
+            .visible_range_from_url = std::make_pair(0.1, 0.2),
+        },
+        timeline_);
+    ASSERT_TRUE(timeline_.HasSavedFullOverview());
+
+    // Full-range reload without PrepareForFilteredRefetch() or URL range must
+    // drop the stale saved full overview.
+    data_provider_.ProcessTraceEvents(
+        ParsedTraceEvents{.flame_events = overview_events}, timeline_);
+    EXPECT_FALSE(timeline_.HasSavedFullOverview());
+  }
+
+  // 2. ProcessSerializedTraceEvents path: same scenario over wire bytes.
+  {
+    DataProvider fresh_provider;
+    Timeline fresh_timeline(palette_);
+
+    auto make_proto = []() {
+      xprof::TraceDataResponse resp;
+      resp.add_interned_strings("");
+      resp.add_interned_strings("OpProto");
+      resp.set_full_timespan_start_ps(0);
+      resp.set_full_timespan_end_ps(10000ULL * 1000000ULL);
+      xprof::Process* proc = resp.mutable_metadata()->add_processes();
+      proc->set_id(1);
+      proc->set_name("Device 0");
+      xprof::Thread* thr = proc->add_threads();
+      thr->set_id(1);
+      thr->set_name("T1");
+      xprof::TraceEventSeries* series = resp.add_complete_events();
+      series->mutable_metadata()->set_process_id(1);
+      series->mutable_metadata()->set_thread_id(1);
+      series->add_deltas(100ULL * 1000000ULL);
+      series->add_durations(50ULL * 1000000ULL);
+      series->add_name_refs(1);
+      std::string bytes;
+      resp.SerializeToString(&bytes);
+      return bytes;
+    };
+
+    ASSERT_TRUE(fresh_provider.ProcessSerializedTraceEvents(make_proto(),
+                                                            fresh_timeline));
+    fresh_timeline.SetVisibleRange({100.0, 200.0});
+    fresh_timeline.InitializeLastFetchRequestRange({100.0, 200.0});
+    fresh_timeline.PrepareForFilteredRefetch();
+    ASSERT_TRUE(fresh_provider.ProcessSerializedTraceEvents(
+        make_proto(), fresh_timeline, std::make_pair(0.1, 0.2)));
+    ASSERT_TRUE(fresh_timeline.HasSavedFullOverview());
+
+    ASSERT_TRUE(fresh_provider.ProcessSerializedTraceEvents(make_proto(),
+                                                            fresh_timeline));
+    EXPECT_FALSE(fresh_timeline.HasSavedFullOverview());
+  }
+}
+
+TEST_F(DataProviderTest,
+       ProcessSerializedTraceEventsSupportsScheduleSyncAndMinimapLookups) {
+  xprof::TraceDataResponse resp;
+  resp.add_interned_strings("");            // 0
+  resp.add_interned_strings("top_region");  // 1
+  resp.add_interned_strings("loop.body");   // 2
+  resp.add_interned_strings("matmul_a");    // 3
+  resp.add_interned_strings("vadd");        // 4
+
+  xprof::Process* proc = resp.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("Chip 0");
+  xprof::Thread* reg_thr = proc->add_threads();
+  reg_thr->set_id(1);
+  reg_thr->set_name("Regions");
+  reg_thr->set_sort_index(0);
+  xprof::Thread* mxu_thr = proc->add_threads();
+  mxu_thr->set_id(2);
+  mxu_thr->set_name("MXU");
+  mxu_thr->set_sort_index(1);
+  xprof::Thread* vpu_thr = proc->add_threads();
+  vpu_thr->set_id(3);
+  vpu_thr->set_name("VPU");
+  vpu_thr->set_sort_index(2);
+
+  xprof::TraceEventSeries* reg_series = resp.add_complete_events();
+  reg_series->mutable_metadata()->set_process_id(1);
+  reg_series->mutable_metadata()->set_thread_id(1);
+  reg_series->add_deltas(0);
+  reg_series->add_durations(100ULL * 1000000ULL);
+  reg_series->add_name_refs(1);
+  reg_series->add_deltas(10ULL * 1000000ULL);
+  reg_series->add_durations(40ULL * 1000000ULL);
+  reg_series->add_name_refs(2);
+
+  xprof::TraceEventSeries* mxu_series = resp.add_complete_events();
+  mxu_series->mutable_metadata()->set_process_id(1);
+  mxu_series->mutable_metadata()->set_thread_id(2);
+  mxu_series->add_deltas(10ULL * 1000000ULL);
+  mxu_series->add_durations(1ULL * 1000000ULL);
+  mxu_series->add_name_refs(3);
+
+  xprof::TraceEventSeries* vpu_series = resp.add_complete_events();
+  vpu_series->mutable_metadata()->set_process_id(1);
+  vpu_series->mutable_metadata()->set_thread_id(3);
+  vpu_series->add_deltas(10ULL * 1000000ULL);
+  vpu_series->add_durations(1ULL * 1000000ULL);
+  vpu_series->add_name_refs(4);
+
+  timeline_.set_event_tooltip_enabled(false);
+  timeline_.set_minimap_enabled(true);
+  std::vector<EventData> minimap_updates;
+  EventData selected_detail;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kMinimapUpdated) {
+          minimap_updates.push_back(detail);
+        } else if (type == kEventSelected) {
+          selected_detail = detail;
+        }
+      });
+
+  std::string serialized;
+  ASSERT_TRUE(resp.SerializeToString(&serialized));
+  ASSERT_TRUE(data_provider_.ProcessSerializedTraceEvents(std::move(serialized),
+                                                          timeline_));
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_TRUE(data.entry_names.empty());
+  ASSERT_EQ(data.entry_name_indices.size(), 4u);
+
+  ASSERT_FALSE(minimap_updates.empty());
+  const EventData& summary = minimap_updates.back();
+  ASSERT_TRUE(summary.contains("regions"));
+  const auto& minimap_regions =
+      std::any_cast<const std::vector<EventData>&>(summary.at("regions"));
+  ASSERT_FALSE(minimap_regions.empty());
+  EXPECT_EQ(std::any_cast<std::string>(minimap_regions[0].at("name")),
+            "top_region");
+
+  timeline_.RevealEvent(0);
+  ASSERT_TRUE(selected_detail.contains("childRegions"));
+  const auto& child_regions = std::any_cast<const std::vector<EventData>&>(
+      selected_detail.at("childRegions"));
+  ASSERT_EQ(child_regions.size(), 1u);
+  EXPECT_EQ(std::any_cast<std::string>(child_regions[0].at("name")),
+            "loop.body");
+
+  timeline_.RevealEvent(2);
+  ASSERT_TRUE(selected_detail.contains("bundleEvents"));
+  const auto& bundle_events = std::any_cast<const std::vector<EventData>&>(
+      selected_detail.at("bundleEvents"));
+  ASSERT_EQ(bundle_events.size(), 2u);
+  EXPECT_EQ(std::any_cast<std::string>(bundle_events[0].at("name")),
+            "matmul_a");
+  EXPECT_EQ(std::any_cast<std::string>(bundle_events[1].at("name")), "vadd");
+}
+
 }  // namespace
 }  // namespace traceviewer

@@ -82,7 +82,7 @@ void Timeline::DrawTimelinePlayerSync() {
             EventData ev;
             ev["level"] = level;
             ev["group"] = g_name;
-            std::string event_name = timeline_data_.entry_names[event_idx];
+            std::string event_name(GetEventName(event_idx));
             ev["name"] = event_name;
             ev["duration"] = duration;
             active_events.push_back(ev);

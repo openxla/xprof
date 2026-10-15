@@ -263,8 +263,8 @@ ParsedTraceEvents ParsePerfettoTraceEvents(const void* data, size_t size,
 }
 
 void ParseAndProcessPerfettoTraceEvents(
-    int data_ptr, int data_size, const emscripten::val& visible_range_from_url,
-    bool normalize_timestamps) {
+    uintptr_t data_ptr, size_t data_size,
+    const emscripten::val& visible_range_from_url, bool normalize_timestamps) {
   ParsedTraceEvents parsed_events = ParsePerfettoTraceEvents(
       reinterpret_cast<const void*>(data_ptr), data_size, normalize_timestamps);
 
@@ -306,7 +306,7 @@ void ParseAndProcessPerfettoTraceEvents(
 }
 
 EMSCRIPTEN_BINDINGS(perfetto_proto_parser) {
-  emscripten::function<void, int, int, const emscripten::val&, bool>(
+  emscripten::function<void, uintptr_t, size_t, const emscripten::val&, bool>(
       "processPerfettoTraceEvents",
       &traceviewer::ParseAndProcessPerfettoTraceEvents);
 }

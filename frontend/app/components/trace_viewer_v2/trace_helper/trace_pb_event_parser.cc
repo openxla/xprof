@@ -3,49 +3,77 @@
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 
+#include <cstddef>
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "google/protobuf/arena.h"
 #include "xprof/convert/trace_viewer/delta_series/zstd_compression.h"
 #include "frontend/app/components/trace_viewer_v2/application.h"
 #include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
-#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event_parser_core.h"
 #include "plugin/xprof/protobuf/trace_data_response.pb.h"
 
 namespace traceviewer {
-
 namespace {
 
-ParsedTraceEvents ParseCompressedTraceEvents(
+// Mirrors head's flag logic in ParseAndProcessCompressedTraceEvents.
+void SetCompactionFlagsForLoad(bool is_initial_load, bool has_url_range,
+                               Timeline& timeline) {
+  const bool is_overview_load =
+      is_initial_load && !has_url_range && timeline.incremental_fetch_enabled();
+  timeline.set_full_trace_loaded(!timeline.incremental_fetch_enabled() &&
+                                 !has_url_range);
+  timeline.set_is_compacted(is_overview_load);
+  timeline.set_window_at_full_resolution(!is_overview_load);
+}
+
+}  // namespace
+
+void ParseAndProcessCompressedTraceEvents(
     uintptr_t data_ptr, size_t data_size,
-    const emscripten::val& visible_range_from_url) {
+    const emscripten::val& visible_range_from_url, DataProvider& data_provider,
+    Timeline& timeline) {
+  const auto finish_empty = [&]() {
+    if (!timeline.is_incremental_loading()) {
+      data_provider.ProcessTraceEvents(xprof::TraceDataResponse{}, timeline,
+                                       std::nullopt);
+    }
+    timeline.set_is_incremental_loading(false);
+    timeline.RequestRedraw();
+  };
+  if (data_ptr == 0 || data_size == 0) {
+    finish_empty();
+    return;
+  }
   absl::string_view buffer_data(reinterpret_cast<const char*>(data_ptr),
                                 data_size);
-  ParsedTraceEvents result;
   absl::StatusOr<std::string> decompressed_proto =
       tensorflow::profiler::ZstdCompression::Decompress(buffer_data);
   if (!decompressed_proto.ok()) {
-    return result;
+    finish_empty();
+    return;
   }
 
-  xprof::TraceDataResponse response;
-  if (!response.ParseFromString(*decompressed_proto)) {
-    return result;
+  google::protobuf::Arena arena;
+  xprof::TraceDataResponse* response =
+      google::protobuf::Arena::Create<xprof::TraceDataResponse>(&arena);
+  if (!response->ParseFromString(*decompressed_proto)) {
+    finish_empty();
+    return;
   }
   // Free decompressed proto memory early to reduce peak memory usage.
   std::string().swap(*decompressed_proto);
 
-  if (response.details_size() > 0) {
+  if (response->details_size() > 0) {
     emscripten::val details_map = emscripten::val::global("Map").new_();
-    for (const auto& detail : response.details()) {
-      if (detail.name() == "mpmd_pipeline_view") {
-        result.mpmd_pipeline_view = detail.value();
-      }
+    for (const xprof::DetailItem& detail : response->details()) {
       details_map.call<void>("set", emscripten::val(detail.name()),
                              emscripten::val(detail.value()));
     }
@@ -60,58 +88,28 @@ ParsedTraceEvents ParseCompressedTraceEvents(
             .new_(emscripten::val("details_received"), event_init);
     emscripten::val::global("window").call<void>("dispatchEvent", event);
   }
-  ProcessMetadataEvents(response, result);
-  ProcessCompleteEvents(response, result);
-  ProcessAsyncEvents(response, result);
-  ProcessCounterEvents(response, result);
 
-  if (response.has_full_timespan_start_ps() &&
-      response.has_full_timespan_end_ps()) {
-    const Milliseconds start_ms = response.full_timespan_start_ps() / 1e9;
-    const Milliseconds end_ms = response.full_timespan_end_ps() / 1e9;
-    if (start_ms <= end_ms) {
-      result.full_timespan = std::make_pair(start_ms, end_ms);
-    }
-  }
+  const bool is_initial_load =
+      (timeline.last_fetch_request_range() == TimeRange::Zero());
 
+  std::optional<std::pair<Milliseconds, Milliseconds>> parsed_visible_range;
   if (!visible_range_from_url.isNull() &&
       !visible_range_from_url.isUndefined() &&
       visible_range_from_url["length"].as<int>() == 2) {
     Milliseconds start = visible_range_from_url[0].as<Milliseconds>();
     Milliseconds end = visible_range_from_url[1].as<Milliseconds>();
-    result.visible_range_from_url = std::make_pair(start, end);
+    parsed_visible_range = std::make_pair(start, end);
   }
 
-  return result;
-}
-}  // namespace
-
-void ParseAndProcessCompressedTraceEvents(
-    uintptr_t data_ptr, size_t data_size,
-    const emscripten::val& visible_range_from_url, DataProvider& data_provider,
-    Timeline& timeline) {
-  const bool is_initial_load =
-      (timeline.last_fetch_request_range() == TimeRange::Zero());
-  const ParsedTraceEvents parsed_events =
-      ParseCompressedTraceEvents(data_ptr, data_size, visible_range_from_url);
-  const bool has_url_range = parsed_events.visible_range_from_url.has_value();
-  const bool is_overview_load =
-      is_initial_load && !has_url_range && timeline.incremental_fetch_enabled();
-  timeline.set_full_trace_loaded(!timeline.incremental_fetch_enabled() &&
-                                 !has_url_range);
-  timeline.set_is_compacted(is_overview_load);
-  timeline.set_window_at_full_resolution(!is_overview_load);
-  data_provider.ProcessTraceEvents(parsed_events, timeline);
+  SetCompactionFlagsForLoad(is_initial_load, parsed_visible_range.has_value(),
+                            timeline);
+  data_provider.ProcessTraceEvents(*response, timeline, parsed_visible_range);
 
   if (is_initial_load) {
-    if (!visible_range_from_url.isNull() &&
-        !visible_range_from_url.isUndefined() &&
-        visible_range_from_url["length"].as<int>() == 2) {
-      Milliseconds start = visible_range_from_url[0].as<Milliseconds>();
-      Milliseconds end = visible_range_from_url[1].as<Milliseconds>();
-
+    if (parsed_visible_range.has_value()) {
       timeline.InitializeLastFetchRequestRange(
-          {MillisToMicros(start), MillisToMicros(end)});
+          {MillisToMicros(parsed_visible_range->first),
+           MillisToMicros(parsed_visible_range->second)});
     } else {
       timeline.InitializeLastFetchRequestRange(timeline.data_time_range());
     }

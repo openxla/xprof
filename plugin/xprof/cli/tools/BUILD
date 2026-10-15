@@ -27,8 +27,38 @@ pytype_strict_library(
     ],
     deps = [
         "//plugin/xprof/cli/internal:async_overlap",
+        "//plugin/xprof/cli/internal:async_overlap_sql",
         "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:events_db_sql",
         "//plugin/xprof/cli/internal/oss:xplane_tools",
+    ],
+)
+
+pytype_strict_library(
+    name = "events_db_info_tool",
+    srcs = ["events_db_info_tool.py"],
+    visibility = [
+        "//plugin/xprof:__subpackages__",
+        "//vr:__subpackages__",
+    ],
+    deps = [
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal:events_db_queries",
+        "//plugin/xprof/cli/internal/oss:events_db_sql",
+    ],
+)
+
+pytype_strict_library(
+    name = "events_db_top_ops_tool",
+    srcs = ["events_db_top_ops_tool.py"],
+    visibility = [
+        "//plugin/xprof:__subpackages__",
+        "//vr:__subpackages__",
+    ],
+    deps = [
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal:events_db_queries",
+        "//plugin/xprof/cli/internal/oss:events_db_sql",
     ],
 )
 

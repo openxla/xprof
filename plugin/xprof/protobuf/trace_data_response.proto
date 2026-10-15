@@ -15,7 +15,7 @@ message TraceEventSeriesMetadata {
 // Metadata for a specific occurrence of a trace event.
 // This contains optional fields that are not present on every event.
 message TraceEventMetadata {
-  uint32 flow_id = 1;
+  uint64 flow_id = 1;
   uint32 flow_category = 2;
   uint32 group_id = 3;
   uint32 serial = 4;
@@ -24,6 +24,8 @@ message TraceEventMetadata {
     double counter_value_double = 5;
     uint64 counter_value_uint64 = 6;
   }
+  optional uint32 hlo_op_ref = 7;
+  optional uint32 hlo_module_ref = 8;
 }
 
 // Represents a sequence of trace events, grouped by their metadata (e.g., same
@@ -44,6 +46,13 @@ message TraceEventSeries {
   repeated uint32 name_refs = 4;
   // Metadata for the events in this series.
   repeated TraceEventMetadata event_metadata = 5;
+  // Sparse 0-based event indices into `deltas` corresponding 1:1 with
+  // `event_metadata`. When non-empty, `event_metadata[k]` applies to the event
+  // at `event_metadata_indices[k]`.
+  repeated uint32 event_metadata_indices = 6;
+  // Run-length encoded group_id stream across the events in this series.
+  repeated int64 group_id_run_values = 7;
+  repeated uint32 group_id_run_lengths = 8;
 }
 
 // Describes a thread that appears in the trace.
@@ -88,4 +97,67 @@ message TraceDataResponse {
   // The full timespan of the trace (start time and end time in picoseconds).
   optional uint64 full_timespan_start_ps = 7;
   optional uint64 full_timespan_end_ps = 8;
+}
+
+// Describes a track's identity and expected total event count in a streamed
+// trace response.
+message TrackManifest {
+  uint32 track_id = 1;
+  uint32 process_id = 2;
+  uint64 thread_id = 3;
+  uint32 name_ref = 4;
+  uint64 event_count = 5;
+  enum TrackKind {
+    TRACK_KIND_UNSPECIFIED = 0;
+    TRACK_KIND_COMPLETE = 1;
+    TRACK_KIND_ASYNC = 2;
+    TRACK_KIND_COUNTER = 3;
+  }
+  TrackKind kind = 6;
+  bool ordered = 7;
+}
+
+// Initial framing header for a streamed trace response.
+message TraceStreamHeader {
+  TraceMetadata metadata = 1;
+  repeated string interned_strings = 2;
+  repeated DetailItem details = 3;
+  optional uint64 full_timespan_start_ps = 4;
+  optional uint64 full_timespan_end_ps = 5;
+  repeated TrackManifest tracks = 6;
+  uint64 total_expected_events = 7;
+}
+
+// A contiguous event segment for a single track within a streamed chunk.
+message TrackSegment {
+  uint32 track_id = 1;
+  uint64 first_event_ordinal = 2;
+  TraceEventSeries series = 3;
+}
+
+// Incremental chunk of newly interned strings and track segments.
+message TraceEventChunk {
+  uint32 chunk_seq = 1;
+  uint32 string_table_base_index = 2;
+  repeated string appended_interned_strings = 3;
+  repeated TrackSegment segments = 4;
+  repeated uint32 sealed_track_ids = 5;
+}
+
+// Final verification trailer for a streamed trace response.
+message TraceStreamTrailer {
+  repeated uint64 track_event_counts = 1;
+  repeated uint64 track_event_checksums = 2;
+  uint64 total_events = 3;
+  uint32 final_string_count = 4;
+}
+
+// Envelope message for each length-prefixed zstd-compressed frame in a
+// streamed trace response.
+message TraceStreamMessage {
+  oneof payload {
+    TraceStreamHeader header = 1;
+    TraceEventChunk chunk = 2;
+    TraceStreamTrailer trailer = 3;
+  }
 }

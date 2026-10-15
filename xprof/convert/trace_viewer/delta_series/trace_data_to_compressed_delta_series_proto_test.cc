@@ -1,7 +1,10 @@
 #include "xprof/convert/trace_viewer/delta_series/trace_data_to_compressed_delta_series_proto.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -12,6 +15,7 @@
 #include "xprof/convert/trace_viewer/trace_events_to_json.h"
 #include "plugin/xprof/protobuf/trace_data_response.pb.h"
 #include "plugin/xprof/protobuf/trace_events.pb.h"
+#include "plugin/xprof/protobuf/trace_events_raw.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -892,6 +896,386 @@ TEST(DeltaSeriesProtoConverterTest,
   for (const xprof::TraceEventSeries& series : response.complete_events()) {
     EXPECT_NE(series.metadata().process_id(), 1);
   }
+}
+
+TEST(DeltaSeriesProtoConverterTest, SparseMetadataAndRleGroupIdEncoding) {
+  Trace trace;
+  Device device;
+  Resource resource;
+  (*device.mutable_resources())[1] = resource;
+  (*trace.mutable_devices())[0] = device;
+
+  TestTraceEventsContainer container(trace);
+
+  // Complete events: 3 events in group 10, 2 events in group 11; only index 2
+  // has flow_id != 0 and index 4 has serial != 0.
+  std::vector<TraceEvent> complete_events(5);
+  for (int i = 0; i < 5; ++i) {
+    TraceEvent& ev = complete_events[i];
+    ev.set_device_id(0);
+    ev.set_resource_id(1);
+    ev.set_name("Op");
+    ev.set_timestamp_ps((i + 1) * 1000);
+    ev.set_duration_ps(500);
+    ev.set_group_id(i < 3 ? 10 : 11);
+    if (i == 2) ev.set_flow_id(777);
+    if (i == 4) ev.set_serial(99);
+    container.AddCompleteEvent(0, 1, &ev);
+  }
+
+  // Pre-paired async event (duration_ps > 0, serial == 0, generic category):
+  // must omit TraceEventMetadata while still recording group_id RLE.
+  TraceEvent pre_paired_async;
+  pre_paired_async.set_device_id(0);
+  pre_paired_async.set_name("AsyncXlaOp");
+  pre_paired_async.set_timestamp_ps(1000);
+  pre_paired_async.set_duration_ps(400);
+  pre_paired_async.set_flow_id(555);
+  pre_paired_async.set_group_id(10);
+  container.AddAsyncEvent(0, "AsyncXlaOp", &pre_paired_async);
+
+  DeltaSeriesProtoConversionOptions options;
+  options.sparse_event_metadata = true;
+  ASSERT_OK_AND_ASSIGN(
+      std::string compressed_result,
+      ConvertTraceDataToCompressedDeltaSeriesProto(options, container));
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
+  xprof::TraceDataResponse response;
+  ASSERT_TRUE(response.ParseFromString(decompressed));
+
+  ASSERT_EQ(response.complete_events_size(), 1);
+  const xprof::TraceEventSeries& comp = response.complete_events(0);
+  ASSERT_EQ(comp.event_metadata_size(), 2);
+  ASSERT_EQ(comp.event_metadata_indices_size(), 2);
+  EXPECT_EQ(comp.event_metadata_indices(0), 2u);
+  EXPECT_EQ(comp.event_metadata(0).flow_id(), 777u);
+  EXPECT_EQ(comp.event_metadata_indices(1), 4u);
+  EXPECT_EQ(comp.event_metadata(1).serial(), 99u);
+
+  ASSERT_EQ(comp.group_id_run_values_size(), 2);
+  ASSERT_EQ(comp.group_id_run_lengths_size(), 2);
+  EXPECT_EQ(comp.group_id_run_values(0), 10);
+  EXPECT_EQ(comp.group_id_run_lengths(0), 3u);
+  EXPECT_EQ(comp.group_id_run_values(1), 11);
+  EXPECT_EQ(comp.group_id_run_lengths(1), 2u);
+
+  ASSERT_EQ(response.async_events_size(), 1);
+  const xprof::TraceEventSeries& async_series = response.async_events(0);
+  EXPECT_EQ(async_series.event_metadata_size(), 0);
+  EXPECT_EQ(async_series.event_metadata_indices_size(), 0);
+  ASSERT_EQ(async_series.group_id_run_values_size(), 1);
+  EXPECT_EQ(async_series.group_id_run_values(0), 10);
+  EXPECT_EQ(async_series.group_id_run_lengths(0), 1u);
+}
+
+TEST(DeltaSeriesProtoConverterTest,
+     DefaultOptionsEmitDenseMetadataWithoutIndicesOrRle) {
+  Trace trace;
+  Device device;
+  Resource resource;
+  (*device.mutable_resources())[1] = resource;
+  (*trace.mutable_devices())[0] = device;
+
+  TestTraceEventsContainer container(trace);
+
+  std::vector<TraceEvent> complete_events(3);
+  for (int i = 0; i < 3; ++i) {
+    TraceEvent& ev = complete_events[i];
+    ev.set_device_id(0);
+    ev.set_resource_id(1);
+    ev.set_name("Op");
+    ev.set_timestamp_ps((i + 1) * 1000);
+    ev.set_duration_ps(500);
+    ev.set_group_id(10);
+    if (i == 1) ev.set_serial(42);
+    container.AddCompleteEvent(0, 1, &ev);
+  }
+
+  // Default options: sparse_event_metadata is false.
+  ASSERT_OK_AND_ASSIGN(std::string compressed_result,
+                       ConvertTraceDataToCompressedDeltaSeriesProto(
+                           DeltaSeriesProtoConversionOptions{}, container));
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
+  xprof::TraceDataResponse response;
+  ASSERT_TRUE(response.ParseFromString(decompressed));
+
+  ASSERT_EQ(response.complete_events_size(), 1);
+  const xprof::TraceEventSeries& comp = response.complete_events(0);
+  EXPECT_EQ(comp.event_metadata_size(), 3);
+  EXPECT_EQ(comp.event_metadata_indices_size(), 0);
+  EXPECT_EQ(comp.group_id_run_values_size(), 0);
+  EXPECT_EQ(comp.group_id_run_lengths_size(), 0);
+  EXPECT_EQ(comp.event_metadata(0).group_id(), 10);
+  EXPECT_EQ(comp.event_metadata(1).serial(), 42u);
+  EXPECT_EQ(comp.event_metadata(2).group_id(), 10);
+}
+
+TEST(DeltaSeriesProtoConverterTest,
+     SortsProcessesAndThreadsDeterministicallyById) {
+  Trace trace;
+  Device device10;
+  device10.set_name("Device 10");
+  (*device10.mutable_resources())[30].set_name("Thread 30");
+  (*device10.mutable_resources())[5].set_name("Thread 5");
+  (*device10.mutable_resources())[20].set_name("Thread 20");
+  (*trace.mutable_devices())[10] = device10;
+
+  Device device2;
+  device2.set_name("Device 2");
+  (*device2.mutable_resources())[9].set_name("Thread 9");
+  (*device2.mutable_resources())[1].set_name("Thread 1");
+  (*trace.mutable_devices())[2] = device2;
+
+  TestTraceEventsContainer container(trace);
+  ASSERT_OK_AND_ASSIGN(std::string compressed_result,
+                       ConvertTraceDataToCompressedDeltaSeriesProto(
+                           DeltaSeriesProtoConversionOptions{}, container));
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
+  xprof::TraceDataResponse response;
+  ASSERT_TRUE(response.ParseFromString(decompressed));
+
+  ASSERT_EQ(response.metadata().processes_size(), 2);
+  EXPECT_EQ(response.metadata().processes(0).id(), 2u);
+  ASSERT_EQ(response.metadata().processes(0).threads_size(), 2);
+  EXPECT_EQ(response.metadata().processes(0).threads(0).id(), 1u);
+  EXPECT_EQ(response.metadata().processes(0).threads(1).id(), 9u);
+
+  EXPECT_EQ(response.metadata().processes(1).id(), 10u);
+  ASSERT_EQ(response.metadata().processes(1).threads_size(), 3);
+  EXPECT_EQ(response.metadata().processes(1).threads(0).id(), 5u);
+  EXPECT_EQ(response.metadata().processes(1).threads(1).id(), 20u);
+  EXPECT_EQ(response.metadata().processes(1).threads(2).id(), 30u);
+}
+
+TEST(DeltaSeriesProtoConverterTest,
+     ExtractsHloModuleIdFromKernelDetailsViaRe2) {
+  Trace trace;
+  Device device;
+  device.set_name("/device:GPU:0");
+  (*device.mutable_resources())[1].set_name("Stream #0");
+  (*trace.mutable_devices())[0] = device;
+
+  TestTraceEventsContainer container(trace);
+
+  auto make_gpu_event = [](uint64_t ts_ps, absl::string_view hlo_op,
+                           absl::string_view hlo_module,
+                           absl::string_view kernel_details) {
+    TraceEvent ev;
+    ev.set_device_id(0);
+    ev.set_resource_id(1);
+    ev.set_name("cutlass_gemm");
+    ev.set_timestamp_ps(ts_ps);
+    ev.set_duration_ps(100);
+    RawData rd;
+    TraceEventArguments::Argument* a1 = rd.mutable_args()->add_arg();
+    a1->set_name("hlo_op");
+    a1->set_str_value(std::string(hlo_op));
+    TraceEventArguments::Argument* a2 = rd.mutable_args()->add_arg();
+    a2->set_name("hlo_module");
+    a2->set_str_value(std::string(hlo_module));
+    TraceEventArguments::Argument* a3 = rd.mutable_args()->add_arg();
+    a3->set_name("kernel_details");
+    a3->set_str_value(std::string(kernel_details));
+    ev.set_raw_data(rd.SerializeAsString());
+    return ev;
+  };
+
+  TraceEvent ev1 =
+      make_gpu_event(1000, "dot.1", "jit_step", "module:jit_step_88\nblock:1");
+  TraceEvent ev2 =
+      make_gpu_event(2000, "dot.2", "jit_eval", "module:jit_eval(99) grid:2");
+  container.AddCompleteEvent(0, 1, &ev1);
+  container.AddCompleteEvent(0, 1, &ev2);
+
+  DeltaSeriesProtoConversionOptions options;
+  options.sparse_event_metadata = true;
+  ASSERT_OK_AND_ASSIGN(
+      std::string compressed_result,
+      ConvertTraceDataToCompressedDeltaSeriesProto(options, container));
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
+  xprof::TraceDataResponse response;
+  ASSERT_TRUE(response.ParseFromString(decompressed));
+
+  ASSERT_EQ(response.complete_events_size(), 1);
+  const xprof::TraceEventSeries& comp = response.complete_events(0);
+  ASSERT_EQ(comp.event_metadata_size(), 2);
+  EXPECT_EQ(response.interned_strings(comp.event_metadata(0).hlo_module_ref()),
+            "jit_step(88)");
+  EXPECT_EQ(response.interned_strings(comp.event_metadata(1).hlo_module_ref()),
+            "jit_eval(99)");
+}
+
+TEST(DeltaSeriesProtoConverterTest,
+     EmitsLengthPrefixedCompressedStreamFramesWithHeaderChunksAndTrailer) {
+  Trace trace;
+  trace.set_min_timestamp_ps(100);
+  trace.set_max_timestamp_ps(5000);
+  Device device;
+  device.set_name("TPU 0");
+  (*device.mutable_resources())[1].set_name("XLA Modules");
+  (*device.mutable_resources())[2].set_name("XLA Ops");
+  (*trace.mutable_devices())[0] = device;
+
+  TestTraceEventsContainer container(trace);
+
+  std::vector<TraceEvent> comp_events(5);
+  for (int i = 0; i < 5; ++i) {
+    TraceEvent& ev = comp_events[i];
+    ev.set_device_id(0);
+    ev.set_resource_id(2);
+    ev.set_name("fusion_op");
+    ev.set_timestamp_ps((i + 1) * 500);
+    ev.set_duration_ps(100);
+    ev.set_group_id(7);
+    container.AddCompleteEvent(0, 2, &ev);
+  }
+
+  // Unpaired begin/end async events to exercise server-side P7 pairing.
+  TraceEvent async_begin;
+  async_begin.set_device_id(0);
+  async_begin.set_name("AsyncCh");
+  async_begin.set_timestamp_ps(1000);
+  async_begin.set_duration_ps(0);
+  async_begin.set_flow_id(0x100000005ULL);
+  container.AddAsyncEvent(0, "AsyncCh", &async_begin);
+
+  TraceEvent async_end;
+  async_end.set_device_id(0);
+  async_end.set_name("AsyncCh");
+  async_end.set_timestamp_ps(1800);
+  async_end.set_duration_ps(0);
+  async_end.set_flow_id(0x100000005ULL);
+  container.AddAsyncEvent(0, "AsyncCh", &async_end);
+
+  DeltaSeriesProtoConversionOptions options;
+  options.sparse_event_metadata = true;
+  options.stream_max_events_per_segment = 2;
+
+  ASSERT_OK_AND_ASSIGN(
+      const std::string stream_bytes,
+      ConvertTraceDataToCompressedStreamProto(options, container));
+
+  std::vector<xprof::TraceStreamMessage> messages;
+  size_t pos = 0;
+  while (pos < stream_bytes.size()) {
+    ASSERT_LE(pos + 4, stream_bytes.size());
+    const uint32_t frame_len =
+        static_cast<uint8_t>(stream_bytes[pos]) |
+        (static_cast<uint32_t>(static_cast<uint8_t>(stream_bytes[pos + 1]))
+         << 8) |
+        (static_cast<uint32_t>(static_cast<uint8_t>(stream_bytes[pos + 2]))
+         << 16) |
+        (static_cast<uint32_t>(static_cast<uint8_t>(stream_bytes[pos + 3]))
+         << 24);
+    pos += 4;
+    ASSERT_LE(pos + frame_len, stream_bytes.size());
+    ASSERT_OK_AND_ASSIGN(const std::string decompressed,
+                         ZstdCompression::Decompress(absl::string_view(
+                             stream_bytes.data() + pos, frame_len)));
+    pos += frame_len;
+    xprof::TraceStreamMessage msg;
+    ASSERT_TRUE(msg.ParseFromString(decompressed));
+    messages.push_back(std::move(msg));
+  }
+
+  // Expect header, multiple chunk frames (5 events split by 2 -> 3 chunks),
+  // and trailer.
+  ASSERT_GE(messages.size(), 4u);
+  EXPECT_TRUE(messages.front().has_header());
+  EXPECT_TRUE(messages.back().has_trailer());
+
+  const xprof::TraceStreamHeader& header = messages.front().header();
+  ASSERT_EQ(header.tracks_size(), 2);
+  EXPECT_EQ(header.tracks(0).kind(), xprof::TrackManifest::TRACK_KIND_COMPLETE);
+  EXPECT_EQ(header.tracks(0).event_count(), 5u);
+  // Post-pairing async count is 1 (paired from 2 begin/end instants).
+  EXPECT_EQ(header.tracks(1).kind(), xprof::TrackManifest::TRACK_KIND_ASYNC);
+  EXPECT_EQ(header.tracks(1).event_count(), 1u);
+
+  const xprof::TraceStreamTrailer& trailer = messages.back().trailer();
+  EXPECT_EQ(trailer.total_events(), 6u);
+  ASSERT_EQ(trailer.track_event_counts_size(), 2);
+  EXPECT_EQ(trailer.track_event_counts(0), 5u);
+  EXPECT_EQ(trailer.track_event_counts(1), 1u);
+}
+
+TEST(DeltaSeriesProtoConverterTest,
+     StreamProtoPropagatesCounterEventStatsRefOnFirstSegment) {
+  Trace trace;
+  Device device;
+  (*trace.mutable_devices())[0] = device;
+
+  std::vector<TraceEvent> cnt_events(3);
+  for (int i = 0; i < 3; ++i) {
+    TraceEvent& ev = cnt_events[i];
+    ev.set_device_id(0);
+    ev.set_name("HBM");
+    ev.set_timestamp_ps((i + 1) * 1000);
+    RawData rd;
+    TraceEventArguments::Argument* arg = rd.mutable_args()->add_arg();
+    arg->set_name("GiB");
+    arg->set_double_value(1.5 * (i + 1));
+    ev.set_raw_data(rd.SerializeAsString());
+  }
+
+  TestTraceEventsContainer container(trace);
+  for (int i = 0; i < 3; ++i) {
+    container.AddCounterEvent(0, "HBM", &cnt_events[i]);
+  }
+
+  DeltaSeriesProtoConversionOptions options;
+  options.stream_max_events_per_segment = 2;
+  ASSERT_OK_AND_ASSIGN(
+      const std::string stream_bytes,
+      ConvertTraceDataToCompressedStreamProto(options, container));
+
+  std::vector<xprof::TraceStreamMessage> messages;
+  size_t pos = 0;
+  while (pos < stream_bytes.size()) {
+    ASSERT_LE(pos + 4, stream_bytes.size());
+    const uint32_t frame_len =
+        static_cast<uint8_t>(stream_bytes[pos]) |
+        (static_cast<uint32_t>(static_cast<uint8_t>(stream_bytes[pos + 1]))
+         << 8) |
+        (static_cast<uint32_t>(static_cast<uint8_t>(stream_bytes[pos + 2]))
+         << 16) |
+        (static_cast<uint32_t>(static_cast<uint8_t>(stream_bytes[pos + 3]))
+         << 24);
+    pos += 4;
+    ASSERT_LE(pos + frame_len, stream_bytes.size());
+    ASSERT_OK_AND_ASSIGN(const std::string decompressed,
+                         ZstdCompression::Decompress(absl::string_view(
+                             stream_bytes.data() + pos, frame_len)));
+    pos += frame_len;
+    xprof::TraceStreamMessage msg;
+    ASSERT_TRUE(msg.ParseFromString(decompressed));
+    messages.push_back(std::move(msg));
+  }
+
+  ASSERT_GE(messages.size(), 4u);
+  const xprof::TraceStreamHeader& header = messages.front().header();
+  ASSERT_EQ(header.tracks_size(), 1);
+  EXPECT_EQ(header.tracks(0).kind(), xprof::TrackManifest::TRACK_KIND_COUNTER);
+
+  std::vector<xprof::TrackSegment> counter_segments;
+  for (size_t i = 1; i + 1 < messages.size(); ++i) {
+    ASSERT_TRUE(messages[i].has_chunk());
+    for (const xprof::TrackSegment& seg : messages[i].chunk().segments()) {
+      counter_segments.push_back(seg);
+    }
+  }
+  ASSERT_EQ(counter_segments.size(), 2u);
+  EXPECT_EQ(counter_segments[0].first_event_ordinal(), 0u);
+  ASSERT_TRUE(counter_segments[0].series().metadata().has_event_stats_ref());
+  const uint32_t stats_ref =
+      counter_segments[0].series().metadata().event_stats_ref();
+  ASSERT_LT(stats_ref, static_cast<uint32_t>(header.interned_strings_size()));
+  EXPECT_EQ(header.interned_strings(stats_ref), "GiB");
+  EXPECT_FALSE(counter_segments[1].series().metadata().has_event_stats_ref());
 }
 
 }  // namespace

@@ -269,7 +269,6 @@ cc_library(
     name = "all_rules",
     hdrs = ["all_rules.h"],
     deps = [
-        ":barrier_cores_rule",
         ":collective_bound_rule",
         ":compute_bound_rule",
         ":data_shuffle_bound_rule",

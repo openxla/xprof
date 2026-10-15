@@ -664,9 +664,11 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
             if (is_tpu) {
               // In TPU, we take the intersection of step events across cores
               // as well as hosts.see b/158249775 and cl/331842545.
-              IntersectCombineStepEvents(device_step_events, &step_events);
+              IntersectMoveCombineStepEvents(std::move(device_step_events),
+                                             &step_events);
             } else {
-              UnionCombineStepEvents(device_step_events, &step_events);
+              UnionMoveCombineStepEvents(std::move(device_step_events),
+                                         &step_events);
             }
           }
         });

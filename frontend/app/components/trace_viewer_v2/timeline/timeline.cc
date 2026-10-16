@@ -3742,7 +3742,7 @@ void Timeline::Zoom(float zoom_factor) {
     }
   }
 
-  Zoom(zoom_factor, visible_range_->center());
+  Zoom(zoom_factor, visible_range_.target().center());
 }
 
 void Timeline::Zoom(float zoom_factor, Microseconds pivot) {
@@ -3757,7 +3757,17 @@ void Timeline::Zoom(float zoom_factor, Microseconds pivot) {
   new_range.Zoom(zoom_factor, pivot);
 
   if (zoom_factor < 1.0) {
+    const Microseconds current_duration = visible_range_.target().duration();
+    constexpr Microseconds kMinDurationTolerance = 1e-11;
+    // If already at or below the minimum zoom duration, do not zoom or pan.
+    if (current_duration <= kMinDurationMicros + kMinDurationTolerance) {
+      ShowNavigationWarningNotification(
+          "Cannot zoom in further: minimum zoom duration reached.");
+      return;
+    }
     if (new_range.duration() < kMinDurationMicros) {
+      new_range = visible_range_.target();
+      new_range.Zoom(kMinDurationMicros / current_duration, pivot);
       ShowNavigationWarningNotification(
           "Cannot zoom in further: minimum zoom duration reached.");
     }

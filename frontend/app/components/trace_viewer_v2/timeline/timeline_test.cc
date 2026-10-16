@@ -837,6 +837,134 @@ TEST(TimelineTest, ConstrainTimeRange_StartBeforeDataRangeEndCapped) {
   EXPECT_DOUBLE_EQ(range.end(), 100.0);
 }
 
+TEST(TimelineTest, ZoomIn_WhenAlreadyAtMinDuration_DoesNotPanOrChangeRange) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 1000.0});
+  const TimeRange initial_range(50.0, 50.0 + kMinDurationMicros);
+  timeline.SetVisibleRange(initial_range);
+
+  // Zoom in with pivot away from center.
+  const Microseconds non_center_pivot = 50.0 + kMinDurationMicros * 0.1;
+  timeline.zoom_for_test(0.5f, non_center_pivot);
+
+  EXPECT_EQ(timeline.visible_range_target(), initial_range);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(),
+            "Cannot zoom in further: minimum zoom duration reached.");
+  EXPECT_FLOAT_EQ(timeline.get_bounds_notification_timer_for_test(), 2.0f);
+
+  // Also verify at the floating-point tolerance boundary (kMinDurationMicros +
+  // 1e-11) so rounding at large timestamps does not allow pan drift.
+  const TimeRange tolerance_range(4050.0, 4050.0 + kMinDurationMicros + 1e-11);
+  timeline.SetVisibleRange(tolerance_range);
+  timeline.zoom_for_test(0.5f, 4050.0 + kMinDurationMicros * 0.1);
+  EXPECT_EQ(timeline.visible_range_target(), tolerance_range);
+}
+
+TEST(TimelineTest, ZoomWithoutPivot_UsesAnimatedTargetCenter) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.SetVisibleRange({0.0, 1000.0}, /*animate=*/false);
+  // Start an animated transition toward [100, 300] (target center = 200).
+  timeline.SetVisibleRange({100.0, 300.0}, /*animate=*/true);
+
+  timeline.Zoom(0.5f);
+
+  EXPECT_DOUBLE_EQ(timeline.visible_range_target().center(), 200.0);
+  EXPECT_DOUBLE_EQ(timeline.visible_range_target().duration(), 100.0);
+}
+
+TEST(TimelineTest,
+     ZoomIn_CrossingMinDuration_ClampsToMinDurationAndPreservesPivot) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 1000.0});
+  const Microseconds start_time = 50.0;
+  const Microseconds initial_duration = 2.0 * kMinDurationMicros;
+  timeline.SetVisibleRange({start_time, start_time + initial_duration});
+
+  // Pivot at 25% of the range.
+  const Microseconds pivot = start_time + 0.25 * initial_duration;
+
+  // Zoom in with a factor of 0.1f (would overshoot min duration).
+  timeline.zoom_for_test(0.1f, pivot);
+
+  // Expected zoom factor is clamped to
+  // kMinDurationMicros / initial_duration = 0.5.
+  // Pivot should remain at 25% of the new kMinDurationMicros range.
+  const TimeRange target = timeline.visible_range_target();
+  EXPECT_NEAR(target.duration(), kMinDurationMicros, 1e-12);
+
+  const Microseconds expected_start = pivot - (pivot - start_time) * 0.5;
+  const Microseconds expected_end = expected_start + kMinDurationMicros;
+  EXPECT_NEAR(target.start(), expected_start, 1e-12);
+  EXPECT_NEAR(target.end(), expected_end, 1e-12);
+
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(),
+            "Cannot zoom in further: minimum zoom duration reached.");
+  EXPECT_FLOAT_EQ(timeline.get_bounds_notification_timer_for_test(), 2.0f);
+}
+
+// Verifies that when the timeline reaches the minimum zoom duration
+// (kMinDurationMicros), subsequent zoom-in events with an off-center pivot do
+// not cause the visible range to scroll, drift, or pan toward the cursor pivot.
+TEST(TimelineTest, ZoomIn_RepeatedFramesAtMinDuration_NoDriftOrPan) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 1000.0});
+  const TimeRange initial_range(50.0, 50.0 + kMinDurationMicros);
+  timeline.SetVisibleRange(initial_range);
+
+  // Repeatedly zoom in with an off-center pivot (90% toward the right edge)
+  // across 50 simulated frames. The early return in Timeline::Zoom ensures the
+  // viewport does not scroll or drift toward the pivot.
+  const Microseconds pivot = 50.0 + kMinDurationMicros * 0.9;
+  for (int frame = 0; frame < 50; ++frame) {
+    timeline.zoom_for_test(0.5f, pivot);
+    EXPECT_EQ(timeline.visible_range_target(), initial_range);
+  }
+}
+
+TEST(TimelineTest, ZoomOut_WhenAlreadyAtMaxBoundary_DoesNotPanOrChangeRange) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  const TimeRange full_trace(0.0, 1000.0);
+  timeline.set_data_time_range(full_trace);
+  timeline.SetVisibleRange(full_trace);
+
+  // Zoom out with non-center pivot.
+  timeline.zoom_for_test(2.0f, 100.0);
+
+  EXPECT_EQ(timeline.visible_range_target(), full_trace);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(),
+            "Cannot zoom out further: showing the entire trace.");
+  EXPECT_FLOAT_EQ(timeline.get_bounds_notification_timer_for_test(), 2.0f);
+}
+
+TEST(TimelineTest, ZoomOut_CrossingFullTraceBoundary_ClampsToDataTimeRange) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  const TimeRange full_trace(0.0, 1000.0);
+  timeline.set_data_time_range(full_trace);
+  // Start with duration 600.0.
+  timeline.SetVisibleRange({200.0, 800.0});
+
+  // Zoom out by factor of 3.0 (would expand to 1800.0, overshooting full
+  // trace). Clamping ensures the range matches full_trace.
+  timeline.zoom_for_test(3.0f, 500.0);
+
+  EXPECT_EQ(timeline.visible_range_target(), full_trace);
+
+  // Subsequent zoom out when already showing the entire trace returns early and
+  // displays the navigation warning notification.
+  timeline.zoom_for_test(1.5f, 500.0);
+  EXPECT_EQ(timeline.visible_range_target(), full_trace);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(),
+            "Cannot zoom out further: showing the entire trace.");
+  EXPECT_FLOAT_EQ(timeline.get_bounds_notification_timer_for_test(), 2.0f);
+}
+
 TEST(TimelineTest, CopyNotificationTimerAndNameInitialization) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);

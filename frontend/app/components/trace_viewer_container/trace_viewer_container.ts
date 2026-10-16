@@ -1225,6 +1225,11 @@ export class TraceViewerContainer
     window.localStorage.setItem(this.TIMING_PROMPTED_STORAGE_KEY, 'true');
   }
 
+  syncXpressSandboxMarkerToStorage(marker: string): string | null {
+    window.localStorage.setItem('xpress_sandbox_marker', marker);
+    return window.localStorage.getItem('xpress_sandbox_marker');
+  }
+
   blurActiveElement(): void {
     const el = document.activeElement;
     if (el instanceof HTMLInputElement) {

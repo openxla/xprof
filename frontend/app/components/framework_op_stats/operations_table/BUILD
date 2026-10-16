@@ -50,6 +50,7 @@ xprof_ng_module(
         "//third_party/javascript/typings/jasmine",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "@org_xprof//frontend/app/common/constants",
+        "@org_xprof//frontend/app/common/utils:testing",
     ],
 )
 

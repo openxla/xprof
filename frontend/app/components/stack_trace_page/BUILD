@@ -31,11 +31,11 @@ xprof_ng_module(
     ],
     deps = [
         ":stack_trace_page",
-        "//:node_modules/@angular/core_testing",
         "//:node_modules/@angular/router",
         "//:node_modules/rxjs",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
         "@org_xprof//frontend/app/services/source_code_service:source_code_service_interface",
         "@org_xprof//frontend/app/store",

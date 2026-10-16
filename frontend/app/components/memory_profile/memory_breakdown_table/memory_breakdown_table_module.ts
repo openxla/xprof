@@ -1,18 +1,9 @@
 import {NgModule} from '@angular/core';
-import {MatIconModule} from '@angular/material/icon';
-import {MatFormFieldModule} from '@angular/material/form-field';
-import {MatInputModule} from '@angular/material/input';
-
 import {MemoryBreakdownTable} from './memory_breakdown_table';
 
+/** @deprecated Import the standalone MemoryBreakdownTable component directly instead. */
 @NgModule({
-  declarations: [MemoryBreakdownTable],
-  imports: [
-    MatFormFieldModule,
-    MatIconModule,
-    MatInputModule,
-  ],
-  exports: [MemoryBreakdownTable]
+  imports: [MemoryBreakdownTable],
+  exports: [MemoryBreakdownTable],
 })
-export class MemoryBreakdownTableModule {
-}
+export class MemoryBreakdownTableModule {}

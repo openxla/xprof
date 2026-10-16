@@ -1,5 +1,16 @@
 import {CommonModule} from '@angular/common';
-import {AfterViewInit, Component, ElementRef, EventEmitter, Input, Output, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {
+  AfterViewInit,
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  EventEmitter,
+  Input,
+  OnChanges,
+  Output,
+  SimpleChanges,
+  ViewChild,
+} from '@angular/core';
 import {FormsModule} from '@angular/forms';
 import {MatOptionModule} from '@angular/material/core';
 import {MatFormFieldModule} from '@angular/material/form-field';
@@ -11,7 +22,8 @@ import {MatSelectModule} from '@angular/material/select';
  * A reusable standalone component for a searchable dropdown.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'app-searchable-dropdown',
   templateUrl: './searchable_dropdown.ng.html',
   styleUrls: ['./searchable_dropdown.scss'],
@@ -25,7 +37,7 @@ import {MatSelectModule} from '@angular/material/select';
     MatOptionModule,
   ],
 })
-export class SearchableDropdown implements AfterViewInit {
+export class SearchableDropdown implements OnChanges, AfterViewInit {
   @Input() itemList: string[] = [];
   @Input() selectedItem = '';
   @Input() label = '';
@@ -33,16 +45,28 @@ export class SearchableDropdown implements AfterViewInit {
   @ViewChild('searchInput') searchInput!: ElementRef<HTMLInputElement>;
 
   filterText = '';
+  filteredItemList: string[] = [];
 
-  get filteredItemList(): string[] {
-    if (!this.itemList) {
-      return [];
+  ngOnChanges(changes: SimpleChanges) {
+    if (changes['itemList']) {
+      this.updateFilteredItemList();
     }
-    if (!this.filterText) {
-      return this.itemList;
+  }
+
+  updateFilteredItemList() {
+    const items = this.itemList ?? [];
+    if (!items.length) {
+      this.filteredItemList = [];
+      return;
     }
     const filter = this.filterText.trim().toLowerCase();
-    return this.itemList.filter(item => item.toLowerCase().includes(filter));
+    if (!filter) {
+      this.filteredItemList = items;
+      return;
+    }
+    this.filteredItemList = items.filter((item) =>
+      item.toLowerCase().includes(filter),
+    );
   }
 
   ngAfterViewInit() {
@@ -51,6 +75,10 @@ export class SearchableDropdown implements AfterViewInit {
         this.searchInput.nativeElement.focus();
       }
     }, 0);
+  }
+
+  trackByItem(index: number, item: string): string {
+    return item;
   }
 
   emitSelectionChange() {

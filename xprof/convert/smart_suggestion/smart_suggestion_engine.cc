@@ -32,10 +32,18 @@ absl::StatusOr<SmartSuggestionReport> SmartSuggestionEngine::Run(
   SmartSuggestionReport report;
 
   const auto& rules = rule_factory.CreateAllRules();
+  // The order of rules matters. We assume here that the order of the rule
+  // matches the priority (highest priority first). If a suggestion with
+  // 'suppress_others' is generated, subsequent rules will not be processed.
   for (const auto& rule : rules) {
     TF_ASSIGN_OR_RETURN(std::optional<SmartSuggestion> suggestion,
                      rule->Apply(signal_provider));
     if (suggestion.has_value()) {
+      if (suggestion->suppress_others()) {
+        report.clear_suggestions();
+        *report.add_suggestions() = *suggestion;
+        break;
+      }
       *report.add_suggestions() = *suggestion;
     }
   }

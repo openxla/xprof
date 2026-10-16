@@ -233,12 +233,6 @@ const CARD_WIDTH = 320;
 /** Distance between the details card and its kernel. */
 const CARD_GAP = 8;
 
-/**
- * Delay before the tour starts on the first visit, so that the kernel list
- * and tabs settle first.
- */
-const TOUR_AUTO_START_DELAY_MS = 900;
-
 /** How long the tour button pulses as the tour closes; see the stylesheet. */
 const TOUR_BUTTON_PULSE_MS = 1100;
 
@@ -701,10 +695,9 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   private highlightTimer: ReturnType<typeof setTimeout> | undefined = undefined;
   private linkCopiedTimer: ReturnType<typeof setTimeout> | undefined =
     undefined;
-  private tourTimer: ReturnType<typeof setTimeout> | undefined = undefined;
   private tourButtonTimer: ReturnType<typeof setTimeout> | undefined =
     undefined;
-  /** Whether the tour was considered for this visit, so it starts once. */
+  /** Whether the tour was started for this visit, so it starts by itself once. */
   private hasConsideredTour = false;
   private isInitializing = false;
   private isDestroyed = false;
@@ -712,11 +705,34 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   private lastLoadedUrl = '';
   // Set on a viewer load error so that re-selecting the same kernel retries.
   private lastLoadFailed = false;
+  // Whether a kernel trace is currently loading into the WASM viewer.
+  private isLoadingTrace = false;
+  // Whether a kernel trace of the current profile has finished loading.
+  private hasLoadedTrace = false;
+  private traceLoadingStatus: TraceViewerV2LoadingStatus =
+    TraceViewerV2LoadingStatus.IDLE;
 
   private readonly loadingStatusUpdateListener = (event: Event) => {
-    const detail = (event as CustomEvent<{status?: unknown}>).detail;
-    if (detail?.status === TraceViewerV2LoadingStatus.ERROR) {
+    const status = (event as CustomEvent<{status?: unknown}>).detail?.status;
+    if (status === TraceViewerV2LoadingStatus.ERROR) {
+      this.traceLoadingStatus = status;
       this.lastLoadFailed = true;
+      this.isLoadingTrace = false;
+      this.hasLoadedTrace = false;
+    } else if (
+      status === TraceViewerV2LoadingStatus.INITIALIZING ||
+      status === TraceViewerV2LoadingStatus.LOADING_DATA ||
+      status === TraceViewerV2LoadingStatus.PROCESSING_DATA
+    ) {
+      this.traceLoadingStatus = status;
+      this.hasLoadedTrace = false;
+    } else if (status === TraceViewerV2LoadingStatus.IDLE) {
+      this.traceLoadingStatus = status;
+      this.isLoadingTrace = false;
+      if (!this.loadingKernels && !this.lastLoadFailed && this.url) {
+        this.hasLoadedTrace = true;
+        this.considerTour();
+      }
     }
   };
 
@@ -780,7 +796,6 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     clearTimeout(this.cardTimer);
     clearTimeout(this.highlightTimer);
     clearTimeout(this.linkCopiedTimer);
-    clearTimeout(this.tourTimer);
     clearTimeout(this.tourButtonTimer);
     this.destroyed.next();
     this.destroyed.complete();
@@ -816,6 +831,8 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
         this.traceViewerModule?.SetEventTooltipEnabled?.(false);
         this.lastLoadedUrl = '';
         this.lastLoadFailed = false;
+        this.isLoadingTrace = false;
+        this.hasLoadedTrace = false;
         this.loadKernelTrace(this.url);
       }
     } catch (error) {
@@ -832,6 +849,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     const requestId = ++this.listRequestId;
     this.loadingKernels = true;
     this.loadFailed = false;
+    this.hasLoadedTrace = false;
     let groups: KernelGroup[] = [];
     let failed = false;
     try {
@@ -1190,7 +1208,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     if (!tour) {
       return;
     }
-    clearTimeout(this.tourTimer);
+    this.hasConsideredTour = true;
     this.hideCard();
     this.isTourOpen = true;
     tour.start(this.buildTourSummary(), {
@@ -1289,6 +1307,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     this.backgroundTabCount = 0;
     this.hideCard();
     this.url = '';
+    this.hasLoadedTrace = false;
     const initialEntry = this.findRequestedEntry() ?? this.entries[0];
     if (initialEntry) {
       this.selectEntry(initialEntry);
@@ -1298,22 +1317,26 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     this.considerTour();
   }
 
-  /** Starts the tour soon on the first visit to a profile with kernels. */
+  /**
+   * Starts the tour on the first visit, once the kernel list and the selected
+   * kernel's trace have finished loading.
+   */
   private considerTour(): void {
     if (
+      this.isDestroyed ||
+      this.isTourOpen ||
       this.hasConsideredTour ||
+      this.loadingKernels ||
+      this.isLoadingTrace ||
+      !this.hasLoadedTrace ||
+      this.traceLoadingStatus !== TraceViewerV2LoadingStatus.IDLE ||
       this.entries.length === 0 ||
       hasSeenKernelViewerTour()
     ) {
       return;
     }
-    this.hasConsideredTour = true;
-    this.tourTimer = setTimeout(() => {
-      if (!this.isDestroyed && !this.isTourOpen) {
-        this.startTour();
-        this.changeDetectorRef.markForCheck();
-      }
-    }, TOUR_AUTO_START_DELAY_MS);
+    this.startTour();
+    this.changeDetectorRef.markForCheck();
   }
 
   /** Summarizes the profile for the tour, which features its kernels. */
@@ -1464,6 +1487,13 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
     if (url === this.lastLoadedUrl && !this.lastLoadFailed) {
+      if (
+        !this.isLoadingTrace &&
+        this.traceLoadingStatus === TraceViewerV2LoadingStatus.IDLE
+      ) {
+        this.hasLoadedTrace = true;
+        this.considerTour();
+      }
       return;
     }
     if (this.lastLoadedUrl) {
@@ -1471,7 +1501,31 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     }
     this.lastLoadedUrl = url;
     this.lastLoadFailed = false;
-    void module.loadTraceData(url);
+    this.isLoadingTrace = true;
+    this.hasLoadedTrace = false;
+    void Promise.resolve(module.loadTraceData(url)).then(
+      () => {
+        if (this.isDestroyed || url !== this.lastLoadedUrl) {
+          return;
+        }
+        this.isLoadingTrace = false;
+        if (
+          !this.lastLoadFailed &&
+          this.traceLoadingStatus === TraceViewerV2LoadingStatus.IDLE
+        ) {
+          this.hasLoadedTrace = true;
+          this.considerTour();
+        }
+      },
+      () => {
+        if (this.isDestroyed || url !== this.lastLoadedUrl) {
+          return;
+        }
+        this.isLoadingTrace = false;
+        this.lastLoadFailed = true;
+        this.hasLoadedTrace = false;
+      },
+    );
   }
 
   private updateUrlQueryParams(): void {

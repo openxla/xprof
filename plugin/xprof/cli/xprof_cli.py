@@ -1,6 +1,7 @@
 """CLI for XProf tools."""
 
 from collections.abc import Callable
+import dataclasses
 import functools
 import importlib
 import inspect
@@ -498,7 +499,11 @@ def _wrap_with_logdir(
         return json.dumps(envelope, indent=2)
 
     if capture is not None:
-      return trace_selection.attach_capture(res, capture)
+      res = trace_selection.attach_capture(res, capture)
+    if dataclasses.is_dataclass(res):
+      return json.dumps(dataclasses.asdict(res), indent=2)
+    if isinstance(res, (dict, list)):
+      return json.dumps(res, indent=2)
     return res
 
   wrapper.__signature__ = sig.replace(parameters=params)  # pyrefly: ignore[missing-attribute]

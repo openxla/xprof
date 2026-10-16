@@ -13,6 +13,7 @@ xprof_ng_module(
         "empty_page.ng.html",
     ],
     deps = [
+        "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
         "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/interfaces",

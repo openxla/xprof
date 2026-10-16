@@ -231,9 +231,11 @@ export class PodViewerCommon {
 
   setDiagnostics(data: PodViewerDatabase | null) {
     if (!data || !data.diagnostics) return;
-    this.diagnostics.info = data.diagnostics.info || [];
-    this.diagnostics.warnings = data.diagnostics.warnings || [];
-    this.diagnostics.errors = data.diagnostics.errors || [];
+    this.diagnostics = {
+      info: data.diagnostics.info || [],
+      warnings: data.diagnostics.warnings || [],
+      errors: data.diagnostics.errors || [],
+    };
   }
 
   setStepBreakdownChartDescription(isTPU: boolean) {

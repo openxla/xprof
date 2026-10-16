@@ -16,7 +16,7 @@
 <!-- dummy chart node to initialize gviz in chart  -->
 <chart [chartType]="ChartType.BAR_CHART" style="display:none;"></chart>
 <div class="section-container">
-  <div class="row" *ngFor="let index of coreIndexes">
+  <div class="row" *ngFor="let index of coreIndexes; trackBy: trackByCoreIndex">
     <div class="bar-chart">
       <div class="mat-title">Tensor Node {{ index }} - Unit Utilization</div>
       <chart chartType="BarChart" [dataInfo]="dataInfoTensorNodesUnit[index]"></chart>
@@ -24,13 +24,13 @@
   </div>
 </div>
 <div class="section-container" *ngIf="hbmCoreIndexes.length > 0">
-  <div class="row" *ngFor="let index of hbmCoreIndexes">
+  <div class="row" *ngFor="let index of hbmCoreIndexes; trackBy: trackByCoreIndex">
     <div class="mat-title">Node {{ index }} - HBM Rd/Wr Ratio</div>
     <chart chartType="PieChart" [dataInfo]="dataInfoHBMRatio[index]"></chart>
   </div>
 </div>
 <div class="section-container">
-  <div class="row" *ngFor="let index of coreIndexes">
+  <div class="row" *ngFor="let index of coreIndexes; trackBy: trackByCoreIndex">
     <div class="bar-chart">
       <div class="mat-title">Tensor Node {{ index }} - Bandwidth Utilization</div>
       <chart chartType="BarChart" [dataInfo]="dataInfoTensorNodesBandwidth[index]"></chart>

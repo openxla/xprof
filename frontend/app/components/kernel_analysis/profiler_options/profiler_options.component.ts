@@ -4,6 +4,7 @@ import {
   ChangeDetectorRef,
   Component,
   Input,
+  OnDestroy,
   OnInit,
   inject,
 } from '@angular/core';
@@ -21,6 +22,8 @@ import {
   DATA_SERVICE_INTERFACE_TOKEN,
   type DataServiceV2Interface,
 } from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {ReplaySubject} from 'rxjs';
+import {takeUntil} from 'rxjs/operators';
 import {
   COMPONENT_TO_GROUP_NAME,
   COMPONENT_TO_SEARCH_KEYWORD,
@@ -57,7 +60,8 @@ import {
   styleUrls: ['./profiler_options.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ProfilerOptionsComponent implements OnInit {
+export class ProfilerOptionsComponent implements OnInit, OnDestroy {
+  private readonly destroyed = new ReplaySubject<void>(1);
   @Input() formGroup?: FormGroup;
 
   selectedComponent: 'tc' | 'scs' | 'sctc' | 'sctd' | 'cmn' | 'icr' = 'tc';
@@ -76,11 +80,13 @@ export class ProfilerOptionsComponent implements OnInit {
     }
     this.formGroup
       .get('device_name')
-      ?.valueChanges.subscribe((gen: unknown) => {
+      ?.valueChanges.pipe(takeUntil(this.destroyed))
+      .subscribe((gen: unknown) => {
         const tpuGen = gen as {id: string; name: string} | null;
         if (tpuGen) {
           this.fetchCounters(tpuGen.id);
         }
+        this.cdr.markForCheck();
       });
 
     const initialGen = this.formGroup.get('device_name')?.value;
@@ -100,6 +106,7 @@ export class ProfilerOptionsComponent implements OnInit {
           ['device_type', deviceType],
         ]),
       )
+      .pipe(takeUntil(this.destroyed))
       .subscribe((data: unknown) => {
         if (Array.isArray(data)) {
           this.allCounters = data as Counter[];
@@ -197,14 +204,22 @@ export class ProfilerOptionsComponent implements OnInit {
       },
     });
 
-    dialogRef.afterClosed().subscribe((result: string[]) => {
-      if (result) {
-        const numericIndices = result
-          .map((id) => Number(id))
-          .sort((a, b) => a - b);
-        group?.get('indices')?.setValue(numericIndices);
-        this.cdr.markForCheck();
-      }
-    });
+    dialogRef
+      .afterClosed()
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((result: string[]) => {
+        if (result) {
+          const numericIndices = result
+            .map((id) => Number(id))
+            .sort((a, b) => a - b);
+          group?.get('indices')?.setValue(numericIndices);
+          this.cdr.markForCheck();
+        }
+      });
+  }
+
+  ngOnDestroy() {
+    this.destroyed.next();
+    this.destroyed.complete();
   }
 }

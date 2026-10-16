@@ -1,12 +1,9 @@
 import {NgModule} from '@angular/core';
-import {MatCardModule} from '@angular/material/card';
-
 import {StepTimeGraph} from './step_time_graph';
 
+/** @deprecated Import the standalone StepTimeGraph component directly instead. */
 @NgModule({
-  declarations: [StepTimeGraph],
-  imports: [MatCardModule],
-  exports: [StepTimeGraph]
+  imports: [StepTimeGraph],
+  exports: [StepTimeGraph],
 })
-export class StepTimeGraphModule {
-}
+export class StepTimeGraphModule {}

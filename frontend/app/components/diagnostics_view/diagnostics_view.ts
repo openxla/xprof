@@ -1,38 +1,80 @@
-import {ChangeDetectionStrategy, Component, Input} from '@angular/core';
+import {NgFor, NgIf} from '@angular/common';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  EventEmitter,
+  Input,
+  OnChanges,
+  Output,
+  SimpleChanges,
+} from '@angular/core';
+import {MatIconButton} from '@angular/material/button';
+import {MatIcon} from '@angular/material/icon';
 import {type Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 
 /** An diagnostics view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'diagnostics-view',
   templateUrl: './diagnostics_view.ng.html',
   styleUrls: ['./diagnostics_view.scss'],
+  imports: [MatIcon, MatIconButton, NgFor, NgIf],
 })
-export class DiagnosticsView {
+export class DiagnosticsView implements OnChanges {
   /** Error and warning messages for diagnosing profiling issues */
   @Input() diagnostics: Diagnostics = {info: [], warnings: [], errors: []};
+  /** Emits updated diagnostics when a message is dismissed. */
+  @Output() readonly diagnosticsChange = new EventEmitter<Diagnostics>();
+  private localDiagnostics?: Diagnostics;
   showErrors = true;
   showWarnings = true;
   showInfo = true;
+
+  get currentDiagnostics(): Diagnostics {
+    return this.localDiagnostics ?? this.diagnostics;
+  }
+
+  ngOnChanges(changes: SimpleChanges) {
+    if (changes['diagnostics']) {
+      this.localDiagnostics = undefined;
+    }
+  }
+
+  trackByMsg(index: number, msg: string): string {
+    return msg;
+  }
 
   /** Dismisses an individual message by category and index. */
   dismissMessage(
     category: 'errors' | 'warnings' | 'info',
     index: number,
   ): void {
-    if (!this.diagnostics) return;
-    if (category === 'errors' && this.diagnostics.errors) {
-      if (index >= 0 && index < this.diagnostics.errors.length) {
-        this.diagnostics.errors.splice(index, 1);
+    const current = this.currentDiagnostics;
+    if (!current) return;
+    if (category === 'errors' && current.errors) {
+      if (index >= 0 && index < current.errors.length) {
+        this.localDiagnostics = {
+          ...current,
+          errors: current.errors.filter((_, i) => i !== index),
+        };
+        this.diagnosticsChange.emit(this.localDiagnostics);
       }
-    } else if (category === 'warnings' && this.diagnostics.warnings) {
-      if (index >= 0 && index < this.diagnostics.warnings.length) {
-        this.diagnostics.warnings.splice(index, 1);
+    } else if (category === 'warnings' && current.warnings) {
+      if (index >= 0 && index < current.warnings.length) {
+        this.localDiagnostics = {
+          ...current,
+          warnings: current.warnings.filter((_, i) => i !== index),
+        };
+        this.diagnosticsChange.emit(this.localDiagnostics);
       }
-    } else if (category === 'info' && this.diagnostics.info) {
-      if (index >= 0 && index < this.diagnostics.info.length) {
-        this.diagnostics.info.splice(index, 1);
+    } else if (category === 'info' && current.info) {
+      if (index >= 0 && index < current.info.length) {
+        this.localDiagnostics = {
+          ...current,
+          info: current.info.filter((_, i) => i !== index),
+        };
+        this.diagnosticsChange.emit(this.localDiagnostics);
       }
     }
   }

@@ -57,15 +57,14 @@ const CHIP_TEXT_MAX_LENGTH = 15;
             [id]="'chip-dummy-input-' + idx"
             class="chip-dummy-input" />
         </mat-chip-row>
-        <mat-autocomplete #chipValueOptionsAuto class="dense" panelWidth="fit-content">
+        <mat-autocomplete #chipValueOptionsAuto class="dense" panelWidth="fit-content" (closed)="onPanelClosed()">
           <div style="display:flex;flex-direction:column;">
-            <button mat-stroked-button color="primary" (click)="onChipMultiSelectUpdateConfirm()" style="margin:10px;">Confirm</button>
             <mat-option>
               <mat-checkbox class="example-margin" [checked]="allOptionsSelected" (click)="onOperateAll($event)">{{allOptionsLabel}}</mat-checkbox>
             </mat-option>
             <mat-option *ngFor="let option of (autoChipValueOptions | async) trackBy:trackByValue"
               [value]="option.value" >
-              <mat-checkbox class="example-margin" [(ngModel)]="option.checked" (click)="onClickChipOption($event)">{{option.value}}</mat-checkbox>
+              <mat-checkbox class="example-margin" [(ngModel)]="option.checked" (ngModelChange)="applyChipMultiSelectUpdate()" (click)="onClickChipOption($event)">{{option.value}}</mat-checkbox>
             </mat-option>
           </div>
         </mat-autocomplete>
@@ -103,6 +102,24 @@ export class FilterChips {
     this.autoChipValueOptions.value.forEach((option) => {
       option.checked = !allOptionsSelected;
     });
+    this.applyChipMultiSelectUpdate();
+  }
+
+  applyChipMultiSelectUpdate() {
+    const updatedChipValue = this.autoChipValueOptions.value
+      .filter((option) => option.checked)
+      .map((option) => option.value)
+      .join(',');
+    if (this.onEditChipIndex >= 0) {
+      this.filterChanged.next({
+        value: updatedChipValue,
+        index: this.onEditChipIndex,
+      });
+    }
+  }
+
+  onPanelClosed() {
+    this.onEditChipIndex = -1;
   }
 
   trackByValue(index: number, option: FilterValue): string {
@@ -147,16 +164,7 @@ export class FilterChips {
   }
 
   onChipMultiSelectUpdateConfirm() {
-    const updatedChipValue = this.autoChipValueOptions.value
-      .filter((option) => option.checked)
-      .map((option) => option.value)
-      .join(',');
-    if (this.onEditChipIndex >= 0) {
-      this.filterChanged.next({
-        value: updatedChipValue,
-        index: this.onEditChipIndex,
-      });
-    }
+    this.applyChipMultiSelectUpdate();
     this.optionTrigger?.closePanel();
     this.onEditChipIndex = -1;
   }

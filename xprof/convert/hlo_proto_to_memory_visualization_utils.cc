@@ -43,7 +43,7 @@ limitations under the License.
 #include "nlohmann/json.hpp"
 #include "google/protobuf/json/json.h"
 #include "xla/layout_util.h"
-#include "xla/service/buffer_assignment.h"
+#include "xla/service/buffer_assignment/buffer_assignment.h"
 #include "xla/service/hlo.pb.h"
 #include "xla/service/hlo_proto_util.h"
 #include "xla/shape.h"

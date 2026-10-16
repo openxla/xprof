@@ -101,7 +101,7 @@ message MemoryAccessBreakdown {
 }
 
 // Metrics for an operation (accumulated over all occurrences).
-// Next ID: 33
+// Next ID: 35
 message OpMetrics {
   // HLO module id. 0 for Framework ops.
   uint64 hlo_module_id = 13;
@@ -186,6 +186,13 @@ message OpMetrics {
     SPARSE_CORE = 2;
   }
   TpuCoreType core_type = 28;
+  // Total FLOPs of a custom call estimated from low-level (LLO) instruction
+  // tracing, summed over all occurrences. Unlike `flops`, this is not the
+  // compiler or user-annotated cost.
+  double estimated_flops = 33;
+  // Total HBM bytes accessed by a custom call estimated from low-level (LLO)
+  // instruction tracing, summed over all occurrences.
+  double estimated_bytes_accessed = 34;
   reserved 4, 8, 9;
 }
 

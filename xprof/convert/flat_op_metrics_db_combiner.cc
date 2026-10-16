@@ -99,6 +99,9 @@ void FlatOpMetricsDbCombiner::CombineFlatOpMetrics(const FlatOpMetrics& src,
   dst->set_flops_v2(src.flops_v2() + dst->flops_v2());
   dst->set_model_flops_v2(src.model_flops_v2() + dst->model_flops_v2());
   dst->set_bytes_accessed(src.bytes_accessed() + dst->bytes_accessed());
+  dst->set_estimated_flops(src.estimated_flops() + dst->estimated_flops());
+  dst->set_estimated_bytes_accessed(src.estimated_bytes_accessed() +
+                                    dst->estimated_bytes_accessed());
   dst->set_dma_stall_ps(src.dma_stall_ps() + dst->dma_stall_ps());
   dst->set_autotuned(dst->autotuned() || src.autotuned());
   CombineMemoryAccessedBreakdown(src.memory_accessed_breakdown(),

@@ -99,6 +99,8 @@ TEST_F(FlatOpMetricsDbCombinerTest, CombineOverlapping) {
       self_time_ps: 100
       flops: 1000
       bytes_accessed: 500
+      estimated_flops: 300
+      estimated_bytes_accessed: 500
     }
   )pb");
 
@@ -111,6 +113,8 @@ TEST_F(FlatOpMetricsDbCombinerTest, CombineOverlapping) {
       self_time_ps: 50
       flops: 500
       bytes_accessed: 250
+      estimated_flops: 200
+      estimated_bytes_accessed: 100
     }
   )pb");
 
@@ -125,6 +129,8 @@ TEST_F(FlatOpMetricsDbCombinerTest, CombineOverlapping) {
   EXPECT_DOUBLE_EQ(metric.self_time_ps(), 150);
   EXPECT_EQ(metric.flops(), 1500);
   EXPECT_DOUBLE_EQ(metric.bytes_accessed(), 750);
+  EXPECT_DOUBLE_EQ(metric.estimated_flops(), 500);
+  EXPECT_DOUBLE_EQ(metric.estimated_bytes_accessed(), 600);
 }
 
 // -----------------------------------------------------------------------------

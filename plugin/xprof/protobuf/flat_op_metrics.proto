@@ -134,6 +134,15 @@ message FlatOpMetrics {
   bool is_fusion_child = 29;
 
   optional SourceInfo source_info = 30;
+
+  // Total FLOPs of a custom call estimated from low-level (LLO) instruction
+  // tracing, summed over all occurrences. Unlike `flops_v2`, this is not the
+  // compiler or user-annotated cost.
+  double estimated_flops = 31;
+
+  // Total HBM bytes accessed by a custom call estimated from low-level (LLO)
+  // instruction tracing, summed over all occurrences.
+  double estimated_bytes_accessed = 32;
 }
 
 message FlatOpMetricsDb {

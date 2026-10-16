@@ -688,8 +688,17 @@ TEST_F(XEventsFlatOpMetricsDbBuilderTest, CustomCallMetricsScaling) {
   stat_cat->set_metadata_id(category_meta->id());
   stat_cat->set_str_value("custom-call");
 
-  XStatMetadata* flops_meta = plane_builder.GetOrCreateStatMetadata("flops");
-  ev.AddStatValue(*flops_meta, int64_t{100});
+  // Like any other op, the annotated cost of a custom call is reported per
+  // occurrence on the event metadata.
+  auto* stat_flops = meta->add_stats();
+  stat_flops->set_metadata_id(
+      plane_builder.GetOrCreateStatMetadata("flops")->id());
+  stat_flops->set_int64_value(100);
+
+  auto* stat_bytes = meta->add_stats();
+  stat_bytes->set_metadata_id(
+      plane_builder.GetOrCreateStatMetadata("bytes_accessed")->id());
+  stat_bytes->set_int64_value(300);
 
   XPlaneVisitor plane_visitor(&plane, {}, {tsl::profiler::FindStatType});
   XEventVisitor event_visitor(&plane_visitor, &plane.lines(0),
@@ -702,6 +711,57 @@ TEST_F(XEventsFlatOpMetricsDbBuilderTest, CustomCallMetricsScaling) {
   const auto& metric = db.op_instances(0);
   EXPECT_EQ(metric.hlo_name(), "custom_call_op");
   EXPECT_EQ(metric.flops(), 200);
+  EXPECT_DOUBLE_EQ(metric.flops_v2(), 200);
+  EXPECT_DOUBLE_EQ(metric.bytes_accessed(), 600);
+}
+
+TEST_F(XEventsFlatOpMetricsDbBuilderTest, CustomCallEstimatedCostIsSummed) {
+  XPlane plane = CreateTestXPlane();
+  XPlaneBuilder plane_builder(&plane);
+  XLineBuilder line_builder = plane_builder.GetOrCreateLine(0);
+
+  XEventMetadata* meta =
+      plane_builder.GetOrCreateEventMetadata("custom_call_op");
+  auto* stat_cat = meta->add_stats();
+  stat_cat->set_metadata_id(
+      plane_builder.GetOrCreateStatMetadata("hlo_category")->id());
+  stat_cat->set_str_value("custom-call");
+
+  XStatMetadata* estimated_flops_meta = plane_builder.GetOrCreateStatMetadata(
+      tsl::profiler::GetStatTypeStr(tsl::profiler::StatType::kEstimatedFlops));
+  XStatMetadata* estimated_bytes_accessed_meta =
+      plane_builder.GetOrCreateStatMetadata(tsl::profiler::GetStatTypeStr(
+          tsl::profiler::StatType::kEstimatedBytesAccessed));
+
+  // The estimated cost is reported as a per-event total on each event.
+  XEventBuilder ev1 = CreateXEvent(plane_builder, line_builder,
+                                   "custom_call_op", 1000, 500, 1, 1);
+  ev1.AddStatValue(*estimated_flops_meta, int64_t{300});
+  ev1.AddStatValue(*estimated_bytes_accessed_meta, int64_t{500});
+
+  XEventBuilder ev2 = CreateXEvent(plane_builder, line_builder,
+                                   "custom_call_op", 2000, 500, 1, 1);
+  ev2.SetNumOccurrences(2);
+  ev2.AddStatValue(*estimated_flops_meta, int64_t{200});
+  ev2.AddStatValue(*estimated_bytes_accessed_meta, int64_t{100});
+
+  XPlaneVisitor plane_visitor(&plane, {}, {tsl::profiler::FindStatType});
+  XEventVisitor event_visitor1(&plane_visitor, &plane.lines(0),
+                               &plane.lines(0).events(0));
+  XEventVisitor event_visitor2(&plane_visitor, &plane.lines(0),
+                               &plane.lines(0).events(1));
+
+  builder_->AddOpMetric(event_visitor1);
+  builder_->AddOpMetric(event_visitor2);
+  FlatOpMetricsDb db = builder_->Finalize();
+
+  ASSERT_EQ(db.op_instances_size(), 1);
+  const auto& metric = db.op_instances(0);
+  EXPECT_EQ(metric.hlo_name(), "custom_call_op");
+  EXPECT_EQ(metric.occurrences(), 3);
+  // The estimated cost is summed over events and not scaled by occurrences.
+  EXPECT_DOUBLE_EQ(metric.estimated_flops(), 500);
+  EXPECT_DOUBLE_EQ(metric.estimated_bytes_accessed(), 600);
 }
 
 // -----------------------------------------------------------------------------
@@ -762,6 +822,8 @@ TEST(CreateTfMetricsDbFromDeviceOpMetricsDbTest, AggregationAndIdle) {
       model_flops: 102
       model_flops_v2: 103
       bytes_accessed: 1000
+      estimated_flops: 30
+      estimated_bytes_accessed: 300
       occurrences: 1
     }
     op_instances {
@@ -774,6 +836,8 @@ TEST(CreateTfMetricsDbFromDeviceOpMetricsDbTest, AggregationAndIdle) {
       model_flops: 52
       model_flops_v2: 53
       bytes_accessed: 500
+      estimated_flops: 20
+      estimated_bytes_accessed: 200
       occurrences: 2
     }
     op_instances {
@@ -824,6 +888,9 @@ TEST(CreateTfMetricsDbFromDeviceOpMetricsDbTest, AggregationAndIdle) {
     EXPECT_EQ(tf_op1->model_flops_v2(), 156);   // 103 + 53
     EXPECT_EQ(tf_op1->bytes_accessed(), 1500);  // 1000 + 500
     EXPECT_EQ(tf_op1->occurrences(), 2);        // max(1, 2)
+
+    EXPECT_DOUBLE_EQ(tf_op1->estimated_flops(), 50);            // 30 + 20
+    EXPECT_DOUBLE_EQ(tf_op1->estimated_bytes_accessed(), 500);  // 300 + 200
 
     ASSERT_NE(tf_op3, nullptr);
     EXPECT_EQ(tf_op3->category(), "Unknown");

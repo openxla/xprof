@@ -391,6 +391,61 @@ TEST(ConvertXPlaneToOpMetricsDb, TensorCoreDeviceOpMetricsDbExtractsVddEnergy) {
 }
 
 TEST(ConvertXPlaneToOpMetricsDb,
+     TensorCoreDeviceOpMetricsDbSumsEstimatedCustomCallCost) {
+  XSpace xspace;
+  XPlane* xplane = tsl::profiler::GetOrCreateTpuXPlane(
+      &xspace, /*device_ordinal=*/0, "TPU V4",
+      /*peak_tera_flops_per_second=*/0,
+      /*peak_hbm_bw_gigabytes_per_second=*/0);
+  XPlaneBuilder device_plane(xplane);
+  XLineBuilder stream1 = device_plane.GetOrCreateLine(/*line_id=*/10);
+  stream1.SetName(tsl::profiler::kXlaOpLineName);
+
+  // The annotated cost is reported per occurrence on the event metadata, and
+  // the estimated cost is reported as a per-event total on each event.
+  TpuEvent event_data;
+  event_data.name = "custom-call.1";
+  event_data.long_name = "custom-call.1";
+  event_data.category = "custom-call";
+  event_data.duration_ns = 10;
+  event_data.flops = 1000;
+  event_data.occurrences = 1;
+  event_data.program_id = 1;
+  event_data.symbol_id = 1;
+  event_data.type = TpuEvent::EventType::kHloOp;
+
+  const absl::string_view estimated_flops =
+      GetStatTypeStr(StatType::kEstimatedFlops);
+  const absl::string_view estimated_bytes_accessed =
+      GetStatTypeStr(StatType::kEstimatedBytesAccessed);
+  event_data.start_timestamp_ns = 0;
+  std::vector<std::pair<absl::string_view, int64_t>> stats_1 = {
+      {estimated_flops, 300}, {estimated_bytes_accessed, 500}};
+  AddXlaTpuEvent<int64_t>(event_data, absl::MakeSpan(stats_1), &device_plane,
+                          &stream1);
+  event_data.start_timestamp_ns = 20;
+  std::vector<std::pair<absl::string_view, int64_t>> stats_2 = {
+      {estimated_flops, 200}, {estimated_bytes_accessed, 100}};
+  AddXlaTpuEvent<int64_t>(event_data, absl::MakeSpan(stats_2), &device_plane,
+                          &stream1);
+
+  absl::flat_hash_map<std::pair<uint64_t, uint64_t>, OpMetricsDb>
+      sparse_core_metrics_map;
+  OpMetricsDb op_metrics = ConvertTensorCoreDeviceTraceXPlaneToOpMetricsDb(
+      *xplane, sparse_core_metrics_map);
+
+  ASSERT_GE(op_metrics.metrics_db_size(), 1);
+  const OpMetrics& op = op_metrics.metrics_db(0);
+  EXPECT_EQ(op.name(), "custom-call.1");
+  EXPECT_EQ(op.occurrences(), 2);
+  // The annotated cost is scaled by occurrences, like any other op.
+  EXPECT_EQ(op.flops(), 2000);
+  // The estimated cost is summed over events and not scaled by occurrences.
+  EXPECT_DOUBLE_EQ(op.estimated_flops(), 500.0);
+  EXPECT_DOUBLE_EQ(op.estimated_bytes_accessed(), 600.0);
+}
+
+TEST(ConvertXPlaneToOpMetricsDb,
      TensorCoreDeviceOpMetricsDbFindsSparseCoreOffload) {
   XSpace xspace;
   XPlane* xplane = tsl::profiler::GetOrCreateTpuXPlane(

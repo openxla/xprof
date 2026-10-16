@@ -16,6 +16,7 @@ limitations under the License.
 #include "xprof/convert/op_stats_to_roofline_model.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -24,6 +25,7 @@ limitations under the License.
 #include "absl/log/check.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "tsl/platform/protobuf.h"
@@ -56,6 +58,7 @@ using ::tensorflow::profiler::RooflineModelRecord;
 using tensorflow::profiler::roofline_model::RecordType;
 using tensorflow::profiler::roofline_model::RooflineModelDatabase;
 using tensorflow::profiler::roofline_model::RooflineModelRecord;
+using tensorflow::profiler::roofline_model::ScRooflineModelRecord;
 
 // The maximum number of records to generate.
 const uint32_t kMaxNumRecords = 1000;
@@ -288,6 +291,10 @@ ConvertOpMetricsDbToRooflineModelRecords(
     uint32_t step_num, const RooflineModelDatabase& roofline_model_db,
     const RooflineModelOptions& options) {
   tsl::protobuf::RepeatedPtrField<RooflineModelRecord> roofline_model_records;
+  roofline_model_records.Reserve(
+      std::min(static_cast<size_t>(GetDbMetricsList(db).size()),
+               static_cast<size_t>(kMaxNumRecords)) +
+      1);
   RooflineModelRecord* program_record = roofline_model_records.Add();
   *program_record = GenerateRooflineModelProgramRecord(
       op_stats, db, record_type, step_num, roofline_model_db, options);
@@ -312,6 +319,174 @@ ConvertOpMetricsDbToRooflineModelRecords(
   return roofline_model_records;
 }
 
+ScRooflineModelRecord ConvertOpMetricsToScRooflineModelRecord(
+    const OpStats& op_stats, const OpMetrics& metrics, RecordType record_type,
+    uint32_t step_num, uint64_t total_time_ps,
+    const RooflineModelDatabase& roofline_model_db,
+    const RooflineModelOptions& options) {
+  ScRooflineModelRecord record;
+  record.set_hlo_name(metrics.name());
+  record.set_hlo_category(metrics.category());
+  record.set_hlo_module_id(metrics.hlo_module_id());
+  record.set_record_type(record_type);
+  record.set_step_num(step_num);
+  *record.mutable_source_info() = metrics.source_info();
+  SetExecutionTimes(metrics, &record);
+  if (record_type == RecordType::AVERAGE_STEP) {
+    int num_steps = op_stats.step_db().step_sequence_size();
+    record.set_total_time_in_us(
+        tsl::profiler::SafeDivide(record.total_time_in_us(), num_steps));
+    record.set_total_self_time_in_us(
+        tsl::profiler::SafeDivide(record.total_self_time_in_us(), num_steps));
+  }
+  record.set_total_time_per_core_in_us(tsl::profiler::SafeDivide(
+      record.total_time_in_us(),
+      op_stats.run_environment().device_core_count()));
+  record.set_total_time_in_percentage(
+      tsl::profiler::SafeDivide(metrics.time_ps(), total_time_ps));
+
+  tensorflow::profiler::SetTpuUnitFractions(metrics, &record);
+
+  SetSparseCoreRooflineMetrics(metrics, op_stats.perf_env(),
+                               op_stats.run_environment(), &record,
+                               options.apply_time_scale_multiplier);
+
+  record.set_include_infeed_outfeed(options.include_infeed_outfeed);
+
+  if (roofline_model_db.has_peak_sc_flop_rate()) {
+    double sc_flops_utilization = tsl::profiler::SafeDivide(
+        record.measured_flop_rate(), roofline_model_db.peak_sc_flop_rate());
+    double sc_hbm_utilization = tsl::profiler::SafeDivide(
+        record.hbm_bw(), roofline_model_db.peak_hbm_bw());
+    double spmem_rd_utilization =
+        roofline_model_db.has_peak_spmem_read_bw()
+            ? tsl::profiler::SafeDivide(record.spmem_read_bw(),
+                                        roofline_model_db.peak_spmem_read_bw())
+            : 0;
+    double spmem_wr_utilization =
+        roofline_model_db.has_peak_spmem_write_bw()
+            ? tsl::profiler::SafeDivide(record.spmem_write_bw(),
+                                        roofline_model_db.peak_spmem_write_bw())
+            : 0;
+
+    double sc_max_mem_util = std::max(
+        {sc_hbm_utilization, spmem_rd_utilization, spmem_wr_utilization});
+    double sc_efficiency = std::max(sc_flops_utilization, sc_max_mem_util);
+
+    absl::string_view sc_bound = "TEC Compute";
+    double max_utilization =
+        std::max({sc_flops_utilization, sc_hbm_utilization,
+                  spmem_rd_utilization, spmem_wr_utilization});
+    if (max_utilization > 0) {
+      if (sc_hbm_utilization == max_utilization) {
+        sc_bound = "HBM";
+      } else if (spmem_rd_utilization == max_utilization ||
+                 spmem_wr_utilization == max_utilization) {
+        sc_bound = "SPMEM";
+      }
+    }
+
+    record.set_sc_bound_by(sc_bound);
+    record.set_sc_roofline_efficiency(sc_efficiency);
+    record.set_optimal_flop_rate(
+        tsl::profiler::SafeDivide(record.measured_flop_rate(), sc_efficiency));
+    record.set_flop_rate_relative_to_hw_limit(sc_flops_utilization);
+    record.set_memory_bw_relative_to_hw_limit(sc_max_mem_util);
+  }
+
+  return record;
+}
+
+ScRooflineModelRecord GenerateScRooflineModelProgramRecord(
+    const OpStats& op_stats, const OpMetricsDb& db,
+    const std::vector<const OpMetrics*>& sc_metrics, RecordType record_type,
+    uint32_t step_num, const RooflineModelDatabase& roofline_model_db,
+    const RooflineModelOptions& options) {
+  OpMetrics program_metrics;
+  program_metrics.set_name("Program");
+  program_metrics.set_category("Program");
+  program_metrics.set_occurrences(1);
+  uint64_t infeed_outfeed_time = 0;
+  for (const auto* metrics : sc_metrics) {
+    if (tsl::profiler::MayHaveInnerOps(metrics->category())) continue;
+    if (!options.include_infeed_outfeed &&
+        tsl::profiler::IsInfeedOrOutfeed(metrics->category())) {
+      infeed_outfeed_time += metrics->time_ps();
+      continue;
+    }
+    program_metrics.set_flops(program_metrics.flops() + metrics->flops());
+    program_metrics.set_flops_v2(program_metrics.flops_v2() +
+                                 metrics->flops_v2());
+    program_metrics.set_model_flops(program_metrics.model_flops() +
+                                    metrics->model_flops());
+    program_metrics.set_model_flops_v2(program_metrics.model_flops_v2() +
+                                       metrics->model_flops_v2());
+    program_metrics.set_bytes_accessed(program_metrics.bytes_accessed() +
+                                       metrics->bytes_accessed());
+    CombineMemoryAccessedBreakdown(
+        metrics->memory_accessed_breakdown(),
+        program_metrics.mutable_memory_accessed_breakdown());
+  }
+  uint64_t total_time_ps = db.total_time_ps();
+  if (!options.include_infeed_outfeed) total_time_ps -= infeed_outfeed_time;
+  program_metrics.set_time_ps(total_time_ps);
+  ScRooflineModelRecord program_record =
+      ConvertOpMetricsToScRooflineModelRecord(
+          op_stats, program_metrics, record_type, step_num, total_time_ps,
+          roofline_model_db, options);
+  program_record.set_rank(0);
+  program_record.set_total_self_time_as_fraction(0.0);
+  program_record.set_cumulative_total_self_time_as_fraction(0.0);
+  return program_record;
+}
+
+tsl::protobuf::RepeatedPtrField<ScRooflineModelRecord>
+ConvertOpMetricsDbToScRooflineModelRecords(
+    const OpStats& op_stats, const OpMetricsDb& db, RecordType record_type,
+    uint32_t step_num, const RooflineModelDatabase& roofline_model_db,
+    const RooflineModelOptions& options) {
+  tsl::protobuf::RepeatedPtrField<ScRooflineModelRecord> sc_records;
+  if (db.metrics_db().empty()) return sc_records;
+  std::vector<const OpMetrics*> sc_metrics = ScSortedOpMetricsDb(db);
+  if (sc_metrics.empty()) return sc_records;
+
+  size_t max_count =
+      std::min(sc_metrics.size(), static_cast<size_t>(kMaxNumRecords));
+  sc_records.Reserve(max_count + 1);
+
+  ScRooflineModelRecord* program_record = sc_records.Add();
+  *program_record = GenerateScRooflineModelProgramRecord(
+      op_stats, db, sc_metrics, record_type, step_num, roofline_model_db,
+      options);
+  const ScRooflineModelRecord* prev_record = program_record;
+  uint64_t infeed_outfeed_time = 0;
+  if (!options.include_infeed_outfeed) {
+    for (const auto* metrics : sc_metrics) {
+      if (tsl::profiler::IsInfeedOrOutfeed(metrics->category())) {
+        infeed_outfeed_time += metrics->time_ps();
+      }
+    }
+  }
+  uint64_t total_time_ps = db.total_time_ps() - infeed_outfeed_time;
+  double total_time_us = tsl::profiler::PicoToMicro(total_time_ps);
+
+  for (size_t i = 0; i < max_count; ++i) {
+    const auto* metrics = sc_metrics[i];
+    if (metrics->occurrences() == 0) continue;
+    if (!options.include_infeed_outfeed &&
+        tsl::profiler::IsInfeedOrOutfeed(metrics->category())) {
+      continue;
+    }
+    ScRooflineModelRecord* record = sc_records.Add();
+    *record = ConvertOpMetricsToScRooflineModelRecord(
+        op_stats, *metrics, record_type, step_num, total_time_ps,
+        roofline_model_db, options);
+    SetRankAndTimeFractions(total_time_us, *prev_record, record);
+    prev_record = record;
+  }
+  return sc_records;
+}
+
 // Explicit template instantiations.
 template tsl::protobuf::RepeatedPtrField<RooflineModelRecord>
 ConvertOpMetricsDbToRooflineModelRecords<OpMetricsDb>(
@@ -332,7 +507,6 @@ void SetTimeScaleMultiplier(const OpStats& op_stats,
         db.normalized_total_op_time_ps(), db.total_op_time_ps()));
   });
 }
-
 RooflineModelDatabase InitializeRooflineModelDatabaseFromOpStats(
     const OpStats& op_stats, const RooflineModelOptions& options) {
   tensorflow::profiler::HardwareType hardware_type =
@@ -367,6 +541,38 @@ RooflineModelDatabase InitializeRooflineModelDatabaseFromOpStats(
       roofline_model_db.set_peak_vmem_write_bw(
           tsl::profiler::GigaToGibi(GetMemoryPeakBandwidth(perf_env, 6)));
     }
+    if (perf_env.peak_bws_giga_bytes_per_second_size() >
+            tensorflow::profiler::MEM_BW_TYPE_SPMEM_RD &&
+        perf_env.peak_bws_giga_bytes_per_second(
+            tensorflow::profiler::MEM_BW_TYPE_SPMEM_RD) > 0.0) {
+      double spmem_read_bw =
+          tsl::profiler::GigaToGibi(perf_env.peak_bws_giga_bytes_per_second(
+              tensorflow::profiler::MEM_BW_TYPE_SPMEM_RD));
+      roofline_model_db.set_peak_spmem_read_bw(spmem_read_bw);
+    }
+    if (perf_env.peak_bws_giga_bytes_per_second_size() >
+            tensorflow::profiler::MEM_BW_TYPE_SPMEM_WR &&
+        perf_env.peak_bws_giga_bytes_per_second(
+            tensorflow::profiler::MEM_BW_TYPE_SPMEM_WR) > 0.0) {
+      double spmem_write_bw =
+          tsl::profiler::GigaToGibi(perf_env.peak_bws_giga_bytes_per_second(
+              tensorflow::profiler::MEM_BW_TYPE_SPMEM_WR));
+      roofline_model_db.set_peak_spmem_write_bw(spmem_write_bw);
+    }
+    if (roofline_model_db.peak_spmem_read_bw() > 0.0 ||
+        roofline_model_db.peak_spmem_write_bw() > 0.0) {
+      if (perf_env.peak_sc_tera_flops_per_second() > 0.0) {
+        roofline_model_db.set_peak_sc_flop_rate(tsl::profiler::TeraToGiga(
+            perf_env.peak_sc_tera_flops_per_second()));
+      }
+      if (perf_env.num_sparse_core_tiles() > 0) {
+        roofline_model_db.set_num_sparse_core_tiles(
+            perf_env.num_sparse_core_tiles());
+      } else if (roofline_model_db.num_sparse_core_tiles() == 0) {
+        roofline_model_db.set_num_sparse_core_tiles(16);
+      }
+    }
+
   } else if (hardware_type == HardwareType::GPU) {
     roofline_model_db.set_megacore(false);
     roofline_model_db.set_has_cmem(false);
@@ -564,6 +770,8 @@ std::unique_ptr<DataTable> GetRooflineModelDataTable(
       {"cmem_write_bw", "number", "CMEM Write BW (GiB/s)"},
       {"vmem_read_bw", "number", "VMEM Read BW (GiB/s)"},
       {"vmem_write_bw", "number", "VMEM Write BW (GiB/s)"},
+      {"spmem_read_bw", "number", "SPMEM Read BW (GiB/s)"},
+      {"spmem_write_bw", "number", "SPMEM Write BW (GiB/s)"},
       {"operational_intensity", "number", "Operational Intensity (FLOP/Byte)"},
       {
           "hbm_operational_intensity",
@@ -591,6 +799,16 @@ std::unique_ptr<DataTable> GetRooflineModelDataTable(
           "VMEM Write Operational Intensity (FLOP/Byte)",
       },
       {
+          "spmem_read_operational_intensity",
+          "number",
+          "SPMEM Read Operational Intensity (FLOP/Byte)",
+      },
+      {
+          "spmem_write_operational_intensity",
+          "number",
+          "SPMEM Write Operational Intensity (FLOP/Byte)",
+      },
+      {
           "bottleneck_operational_intensity",
           "number",
           "Bottleneck Operational Intensity (FLOP/Byte)",
@@ -609,6 +827,7 @@ std::unique_ptr<DataTable> GetRooflineModelDataTable(
       {"include_infeed_outfeed", "boolean", "Include Infeed/Outfeed"},
       {"hlo_module_id", "string", "Program ID"},
       {"source_info", "string", "Source Info"},
+      {"is_sparse_core", "boolean", "Is SparseCore"},
   };
 
   auto data_table = std::make_unique<DataTable>();
@@ -639,12 +858,16 @@ std::unique_ptr<DataTable> GetRooflineModelDataTable(
     row->AddNumberCell(record.cmem_write_bw());
     row->AddNumberCell(record.vmem_read_bw());
     row->AddNumberCell(record.vmem_write_bw());
+    row->AddNumberCell(0.0);
+    row->AddNumberCell(0.0);
     row->AddNumberCell(record.operational_intensity());
     row->AddNumberCell(record.hbm_operational_intensity());
     row->AddNumberCell(record.cmem_read_operational_intensity());
     row->AddNumberCell(record.cmem_write_operational_intensity());
     row->AddNumberCell(record.vmem_read_operational_intensity());
     row->AddNumberCell(record.vmem_write_operational_intensity());
+    row->AddNumberCell(0.0);
+    row->AddNumberCell(0.0);
     row->AddNumberCell(record.bottleneck_operational_intensity());
     row->AddTextCell(record.bound_by());
     row->AddNumberCell(record.total_time_per_core_in_us());
@@ -656,6 +879,54 @@ std::unique_ptr<DataTable> GetRooflineModelDataTable(
     row->AddBooleanCell(record.include_infeed_outfeed());
     row->AddTextCell(absl::StrCat(record.hlo_module_id()));
     row->AddTextCell(SourceInfoFormattedText(record.source_info()));
+    row->AddBooleanCell(false);
+  }
+
+  for (const ScRooflineModelRecord& record :
+       roofline_model_db.sc_roofline_model_record()) {
+    TableRow* row = data_table->AddRow();
+    row->AddTextCell(GetStepString(record.record_type(), record.step_num()));
+    row->AddNumberCell(record.rank());
+    row->AddTextCell(record.hlo_category());
+    row->AddTextCell(record.hlo_name());
+    row->AddNumberCell(record.occurrences());
+    row->AddNumberCell(record.total_time_in_us());
+    row->AddNumberCell(record.avg_time_in_us());
+    row->AddNumberCell(record.total_self_time_in_us());
+    row->AddNumberCell(record.avg_self_time_in_us());
+    row->AddNumberCell(record.total_self_time_as_fraction());
+    row->AddNumberCell(record.cumulative_total_self_time_as_fraction());
+    row->AddNumberCell(record.dma_stall_fraction());
+    row->AddNumberCell(record.measured_flop_rate());
+    row->AddNumberCell(record.model_flop_rate());
+    row->AddNumberCell(record.measured_memory_bw());
+    row->AddNumberCell(record.hbm_bw());
+    row->AddNumberCell(0.0);
+    row->AddNumberCell(0.0);
+    row->AddNumberCell(0.0);
+    row->AddNumberCell(0.0);
+    row->AddNumberCell(record.spmem_read_bw());
+    row->AddNumberCell(record.spmem_write_bw());
+    row->AddNumberCell(record.operational_intensity());
+    row->AddNumberCell(record.hbm_operational_intensity());
+    row->AddNumberCell(0.0);
+    row->AddNumberCell(0.0);
+    row->AddNumberCell(0.0);
+    row->AddNumberCell(0.0);
+    row->AddNumberCell(record.spmem_read_operational_intensity());
+    row->AddNumberCell(record.spmem_write_operational_intensity());
+    row->AddNumberCell(record.bottleneck_operational_intensity());
+    row->AddTextCell(record.sc_bound_by());
+    row->AddNumberCell(record.total_time_per_core_in_us());
+    row->AddNumberCell(record.total_time_in_percentage());
+    row->AddNumberCell(record.optimal_flop_rate());
+    row->AddNumberCell(record.sc_roofline_efficiency());
+    row->AddNumberCell(record.flop_rate_relative_to_hw_limit());
+    row->AddNumberCell(record.memory_bw_relative_to_hw_limit());
+    row->AddBooleanCell(record.include_infeed_outfeed());
+    row->AddTextCell(absl::StrCat(record.hlo_module_id()));
+    row->AddTextCell(SourceInfoFormattedText(record.source_info()));
+    row->AddBooleanCell(true);
   }
 
   std::vector<std::vector<std::string>> kCustomProperties = {
@@ -693,7 +964,20 @@ std::unique_ptr<DataTable> GetRooflineModelDataTable(
                                roofline_model_db.peak_vmem_write_bw()))},
       {"time_scale_multiplier",
        absl::StrCat(roofline_model_db.time_scale_multiplier())},
-  };
+      {"num_sparse_core_tiles",
+       absl::StrCat(roofline_model_db.num_sparse_core_tiles())},
+      {"peak_sc_flop_rate",
+       absl::StrCat(roofline_model_db.peak_sc_flop_rate())},
+      {"peak_spmem_read_bw",
+       absl::StrCat(roofline_model_db.peak_spmem_read_bw())},
+      {"peak_spmem_write_bw",
+       absl::StrCat(roofline_model_db.peak_spmem_write_bw())},
+      {"spmem_read_ridge_point",
+       absl::StrCat(RidgePoint(roofline_model_db.peak_sc_flop_rate(),
+                               roofline_model_db.peak_spmem_read_bw()))},
+      {"spmem_write_ridge_point",
+       absl::StrCat(RidgePoint(roofline_model_db.peak_sc_flop_rate(),
+                               roofline_model_db.peak_spmem_write_bw()))}};
 
   for (const std::vector<std::string>& property : kCustomProperties) {
     data_table->AddCustomProperty(property[0], property[1]);

@@ -31,7 +31,6 @@ limitations under the License.
 #include "absl/types/span.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/parser/hlo_parser.h"
-#include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
@@ -540,6 +539,70 @@ TEST(ConvertXPlaneToOpMetricsDb, SparseCoreDeviceOpMetricsDb) {
                                            total_op_time_ps: 10000
               )pb"));
 #endif
+}
+
+TEST(ConvertXPlaneToOpMetricsDb, SparseCoreTecTileXPlane) {
+  XSpace xspace;
+  XPlane* xplane = tsl::profiler::GetOrCreateTpuXPlane(
+      &xspace, /*device_ordinal=*/0, "TPU V5",
+      /*peak_tera_flops_per_second=*/0,
+      /*peak_hbm_bw_gigabytes_per_second=*/0);
+  XPlaneBuilder device_plane(xplane);
+  XLineBuilder module_line = device_plane.GetOrCreateLine(/*line_id=*/65);
+  XLineBuilder tec_line = device_plane.GetOrCreateLine(/*line_id=*/67);
+  module_line.SetName(tsl::profiler::kSparseCoreModuleLineName);
+  tec_line.SetName("TEC 0");
+
+  // Add XLA Module
+  XEventBuilder module_event = AddXlaTpuEvent(
+      TpuEvent{
+          .type = TpuEvent::EventType::kModule,
+          .name = "Main",
+          .start_timestamp_ns = 0,
+          .duration_ns = 100,
+          .self_duration = 100,
+          .module_id = 1,
+          .program_id = 1,
+          .symbol_id = 2,
+      },
+      absl::Span<const std::pair<absl::string_view, uint64_t>>(), &device_plane,
+      &module_line);
+  module_event.AddStatValue(*device_plane.GetOrCreateStatMetadata(
+                                GetStatTypeStr(StatType::kOffloadCoreId)),
+                            0);
+  module_event.AddStatValue(*device_plane.GetOrCreateStatMetadata(
+                                GetStatTypeStr(StatType::kTcOffloadStartId)),
+                            123);
+
+  // Add TEC Tile Op on "TEC 0" line
+  AddXlaTpuEvent(
+      TpuEvent{
+          .type = TpuEvent::EventType::kHloOp,
+          .name = "TileKernel",
+          .category = "SparseCoreTileOp",
+          .start_timestamp_ns = 0,
+          .duration_ns = 20,
+          .flops = 50,
+          .bytes_accessed = 200,
+          .occurrences = 1,
+          .self_duration = 20,
+          .module_id = 1,
+          .program_id = 1,
+          .symbol_id = 2,
+      },
+      absl::Span<const std::pair<absl::string_view, int64_t>>(), &device_plane,
+      &tec_line);
+
+  absl::flat_hash_map<std::pair<uint64_t, uint64_t>, OpMetricsDb>
+      sparse_core_metrics_map;
+  ConvertSparseCoreDeviceTraceXPlaneToOpMetricsDb(*xplane,
+                                                  sparse_core_metrics_map);
+  ASSERT_EQ(sparse_core_metrics_map.size(), 1);
+  OpMetricsDb op_metrics = sparse_core_metrics_map.begin()->second;
+  EXPECT_GE(op_metrics.metrics_db_size(), 1);
+  EXPECT_EQ(op_metrics.metrics_db(0).name(), "TileKernel");
+  EXPECT_EQ(op_metrics.metrics_db(0).core_type(),
+            OpMetrics_TpuCoreType_SPARSE_CORE);
 }
 
 TEST(ConvertXPlaneToOpMetricsDb, HostXPlaneWithXlaOps) {

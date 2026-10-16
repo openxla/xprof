@@ -1345,6 +1345,20 @@ cc_library(
     ],
 )
 
+cc_test(
+    name = "op_stats_to_roofline_model_sparsecore_test",
+    srcs = ["op_stats_to_roofline_model_sparsecore_test.cc"],
+    deps = [
+        ":data_table_utils",
+        ":op_stats_to_roofline_model",
+        "//plugin/xprof/protobuf:hardware_types_proto_cc",
+        "//plugin/xprof/protobuf:op_metrics_proto_cc",
+        "//plugin/xprof/protobuf:op_stats_proto_cc",
+        "//plugin/xprof/protobuf:roofline_model_proto_cc",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_library(
     name = "op_stats_to_op_profile",
     srcs = ["op_stats_to_op_profile.cc"],

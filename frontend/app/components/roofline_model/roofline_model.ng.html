@@ -76,3 +76,25 @@
     <mat-progress-bar color="primary" mode="indeterminate" aria-label="refreshing operation level roofline analysis"></mat-progress-bar>
   </div>
 </div>
+
+<div class="section-container" *ngIf="deviceInfoHasSparseCore()">
+  <div class="block-content">
+    <h2>Section3: SparseCore Operation-Level Analysis</h2>
+  </div>
+  <div class="block-content">
+    <div class="description">
+      Note:<br>
+      (1) This section provides operation-level analysis for operations executing on SparseCore.<br>
+      (2) A tooltip with extra information will show up if you mouse over a point in the roofline chart.<br>
+      (3) Ops are evaluated against SparseCore peak FLOP rate, HBM, and SPMEM (Tile SRAM) bandwidth limits.<br>
+      (4) You can filter data by HLO category, bottleneck resource (HBM, SPMEM, TEC Compute), or HLO name.<br>
+    </div>
+  </div>
+  <div [hidden]="loadingAnalysis" class="block-content">
+    <operation-level-analysis #opLevelAnalysisSparseCore [selectedOp]="selectedOpName" [rooflineModelData]="dataTableOpSparseCore" [viewColumns]="columnsIdxOpSparseCore" [rooflineSeriesData]="scatterDataOpSparseCore" [scatterChartOptions]="scatterChartOptionsOpSparseCore" [sourceCodeServiceIsAvailable]="sourceCodeServiceIsAvailable" (filterUpdated)="updateDataTableOpSparseCore($event)"></operation-level-analysis>
+  </div>
+  <div class="progress-container" [hidden]="!loadingAnalysis">
+    <div class="loading-message">Loading analysis...</div>
+    <mat-progress-bar color="primary" mode="indeterminate" aria-label="refreshing sparsecore operation level roofline analysis"></mat-progress-bar>
+  </div>
+</div>

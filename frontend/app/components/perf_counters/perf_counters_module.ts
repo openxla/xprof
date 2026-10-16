@@ -1,27 +1,11 @@
-import {CommonModule} from '@angular/common';
 import {NgModule} from '@angular/core';
-import {FormsModule} from '@angular/forms';
-import {MatCheckboxModule} from '@angular/material/checkbox';
-import {TableModule} from 'org_xprof/frontend/app/components/chart/table/table_module';
-import {CategoryFilterModule} from 'org_xprof/frontend/app/components/controls/category_filter/category_filter_module';
-import {ExportAsCsvModule} from 'org_xprof/frontend/app/components/controls/export_as_csv/export_as_csv_module';
-import {StringFilterModule} from 'org_xprof/frontend/app/components/controls/string_filter/string_filter_module';
-
 import {PerfCounters} from './perf_counters';
 
-/** A perf counters module. */
+/**
+ * @deprecated Import the standalone `PerfCounters` component directly instead.
+ */
 @NgModule({
-  declarations: [PerfCounters],
-  imports: [
-    CommonModule,
-    StringFilterModule,
-    CategoryFilterModule,
-    ExportAsCsvModule,
-    TableModule,
-    MatCheckboxModule,
-    FormsModule,
-  ],
+  imports: [PerfCounters],
   exports: [PerfCounters],
 })
-export class PerfCountersModule {
-}
+export class PerfCountersModule {}

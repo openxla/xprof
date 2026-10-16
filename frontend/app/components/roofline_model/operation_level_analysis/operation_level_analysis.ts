@@ -1,5 +1,7 @@
+import {CommonModule} from '@angular/common';
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   ElementRef,
   EventEmitter,
@@ -13,10 +15,14 @@ import {
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
+import {MatIconModule} from '@angular/material/icon';
+import {MatSlideToggleModule} from '@angular/material/slide-toggle';
+import {MatTooltip} from '@angular/material/tooltip';
 import {PIE_CHART_PALETTE} from 'org_xprof/frontend/app/common/constants/roofline_model_constants';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {CategoryTableDataProcessor} from 'org_xprof/frontend/app/components/chart/category_table_data_processor';
+import {Chart} from 'org_xprof/frontend/app/components/chart/chart';
 import {
   PIE_CHART_OPTIONS,
   SCATTER_CHART_OPTIONS,
@@ -24,6 +30,9 @@ import {
 import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
 import {Table} from 'org_xprof/frontend/app/components/chart/table/table';
+import {CategoryFilter} from 'org_xprof/frontend/app/components/controls/category_filter/category_filter';
+import {StringFilter} from 'org_xprof/frontend/app/components/controls/string_filter/string_filter';
+import {StackTraceSnippet} from 'org_xprof/frontend/app/components/stack_trace_snippet/stack_trace_snippet';
 
 type ColumnIdxArr = Array<number | google.visualization.ColumnSpec>;
 
@@ -31,8 +40,19 @@ type ColumnIdxArr = Array<number | google.visualization.ColumnSpec>;
  * An operation level analysis table view component (step appregation: total).
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
+  imports: [
+    CategoryFilter,
+    Table,
+    StringFilter,
+    Chart,
+    MatIconModule,
+    MatSlideToggleModule,
+    MatTooltip,
+    StackTraceSnippet,
+    CommonModule,
+  ],
   selector: 'operation-level-analysis',
   templateUrl: './operation_level_analysis.ng.html',
   styleUrls: ['./operation_level_analysis.scss'],
@@ -41,6 +61,7 @@ export class OperationLevelAnalysis
   extends Dashboard
   implements OnInit, OnChanges
 {
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly zone = inject(NgZone);
   /** The roofline model data, original dataset */
   // used for table chart and pie chart
@@ -107,6 +128,7 @@ export class OperationLevelAnalysis
       // TODO: b/429036372 - Using setTimeout to detect change is inefficient.
       setTimeout(() => {
         this.addSourceInfoClickListener();
+        this.cdr.markForCheck();
       }, 100);
       return;
     }
@@ -118,10 +140,12 @@ export class OperationLevelAnalysis
             this.zone.run(() => {
               this.sourceFileAndLineNumber = target.textContent || '';
               this.stackTrace = target.getAttribute('title') || '';
+              this.cdr.markForCheck();
             });
           }
         }
       });
+      this.cdr.markForCheck();
     });
   }
 
@@ -195,22 +219,27 @@ export class OperationLevelAnalysis
     const opCategoryIndex = this.dataTable.getColumnIndex('category');
     const opTotalSelfTimeIndex =
       this.dataTable.getColumnIndex('total_self_time');
-    this.dataInfoCategoryPieChart.customChartDataProcessor =
-      new CategoryTableDataProcessor(
+    this.dataInfoCategoryPieChart = {
+      ...this.dataInfoCategoryPieChart,
+      customChartDataProcessor: new CategoryTableDataProcessor(
         this.getFilters(),
         opCategoryIndex,
         opTotalSelfTimeIndex,
-      );
-    this.dataInfoCategoryPieChart.dataProvider.notifyCharts();
+      ),
+    };
+    this.pieChartDataProvider.notifyCharts();
   }
 
   updateAndDrawScatterChart() {
     if (!this.rooflineSeriesData) return;
-    this.dataInfoRooflineScatterChart.options = Object.assign(
-      {},
-      this.dataInfoRooflineScatterChart.options,
-      this.scatterChartOptions,
-    );
+    this.dataInfoRooflineScatterChart = {
+      ...this.dataInfoRooflineScatterChart,
+      options: {
+        ...(this.dataInfoRooflineScatterChart
+          .options as google.visualization.ScatterChartOptions),
+        ...this.scatterChartOptions,
+      },
+    };
     this.dataInfoRooflineScatterChart.dataProvider.notifyCharts();
   }
 }

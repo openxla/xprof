@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "export_as_csv",
     srcs = [
         "export_as_csv.ts",
-        "export_as_csv_module.ts",
     ],
     assets = [
         "export_as_csv.ng.html",

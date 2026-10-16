@@ -24,7 +24,6 @@ xprof_ng_module(
     name = "framework_op_stats",
     srcs = [
         "framework_op_stats.ts",
-        "framework_op_stats_module.ts",
     ],
     assets = [
         ":framework_op_stats_css",
@@ -35,6 +34,7 @@ xprof_ng_module(
         "//:node_modules/@angular/core",
         "//:node_modules/@ngrx/store",
         "//:node_modules/@types/google.visualization",
+        "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/angular:angular_material_button",
         "@org_xprof//frontend/app/common/angular:angular_material_divider",
         "@org_xprof//frontend/app/common/angular:angular_material_icon",

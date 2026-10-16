@@ -1,9 +1,12 @@
+import {CommonModule} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   ElementRef,
   EventEmitter,
+  inject,
   Input,
   OnChanges,
   Output,
@@ -11,12 +14,16 @@ import {
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
+import {FormsModule} from '@angular/forms';
 import {
   MAT_AUTOCOMPLETE_DEFAULT_OPTIONS,
   MatAutocomplete,
+  MatAutocompleteModule,
   MatAutocompleteSelectedEvent,
   MatAutocompleteTrigger,
 } from '@angular/material/autocomplete';
+import {MatButtonModule} from '@angular/material/button';
+import {MatCheckboxModule} from '@angular/material/checkbox';
 import {BehaviorSubject} from 'rxjs';
 import {FILTER_FIELDS, FILTER_OPERATORS} from './constants';
 import {
@@ -33,8 +40,15 @@ import {filterFieldKey, lookupFilterOperator} from './utils';
  * Component to display input field for adding a new filter.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
+  imports: [
+    CommonModule,
+    FormsModule,
+    MatAutocompleteModule,
+    MatButtonModule,
+    MatCheckboxModule,
+  ],
   selector: 'filter-input',
   viewProviders: [
     {
@@ -101,6 +115,7 @@ export class FilterInput implements AfterViewInit, OnChanges {
   @Input() hosts: string[] = [];
   @Input() processes: string[] = [];
 
+  private readonly cdr = inject(ChangeDetectorRef);
   isEditing = false;
   private filterInputInternal = '';
   /**
@@ -349,6 +364,7 @@ export class FilterInput implements AfterViewInit, OnChanges {
     setTimeout(() => {
       this.inputEl?.nativeElement.focus();
       this.optionTrigger?.openPanel();
+      this.cdr.markForCheck();
     }, 0);
   }
 
@@ -357,6 +373,7 @@ export class FilterInput implements AfterViewInit, OnChanges {
       if (!this.filterInput && !this.optionTrigger?.panelOpen) {
         this.isEditing = false;
       }
+      this.cdr.markForCheck();
     }, 200);
   }
 
@@ -371,6 +388,7 @@ export class FilterInput implements AfterViewInit, OnChanges {
     setTimeout(() => {
       this.inputEl.nativeElement.focus();
       this.optionTrigger?.openPanel();
+      this.cdr.markForCheck();
     }, 100);
   }
 

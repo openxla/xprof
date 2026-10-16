@@ -1,14 +1,17 @@
 import {EventEmitter} from '@angular/core';
-import {HostOpsColumn} from 'org_xprof/frontend/app/common/interfaces/data_table';
-import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {
+  HostOpsColumn,
+  SimpleDataTable,
+} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
 
 /** A host side analysis detail table data provider. */
-export class HostSideAnalysisDetailTableDataProvider extends
-    DefaultDataProvider {
+export class HostSideAnalysisDetailTableDataProvider extends DefaultDataProvider {
   private readonly hasHostOpsChanged = new EventEmitter<boolean>();
 
-  override parseData(data: SimpleDataTable|Array<Array<(string | number)>>|null) {
+  override parseData(
+    data: SimpleDataTable | Array<Array<string | number>> | null,
+  ) {
     if (!data) return;
     const dataTable = new google.visualization.DataTable(data);
     if (dataTable.getNumberOfRows() < 1) {
@@ -54,13 +57,15 @@ export class HostSideAnalysisDetailTableDataProvider extends
       }
     }
 
-    const percentFormatter =
-        new google.visualization.NumberFormat({pattern: '##.#%'});
+    const percentFormatter = new google.visualization.NumberFormat({
+      pattern: '##.#%',
+    });
     percentFormatter.format(dataTable, columns.timeInPercent);
     percentFormatter.format(dataTable, columns.selfTimeInPercent);
 
-    const zeroDecimalPtFormatter =
-        new google.visualization.NumberFormat({'fractionDigits': 0});
+    const zeroDecimalPtFormatter = new google.visualization.NumberFormat({
+      'fractionDigits': 0,
+    });
     zeroDecimalPtFormatter.format(dataTable, columns.timeInMs);
     zeroDecimalPtFormatter.format(dataTable, columns.selfTimeInMs);
 

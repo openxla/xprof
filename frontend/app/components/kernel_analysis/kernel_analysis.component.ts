@@ -1,9 +1,9 @@
-import {CommonModule} from '@angular/common';
 import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
   inject,
+  OnDestroy,
   ViewEncapsulation,
 } from '@angular/core';
 import {
@@ -14,6 +14,8 @@ import {
 } from '@angular/forms';
 import {MatButtonModule} from '@angular/material/button';
 import {MatStepperModule} from '@angular/material/stepper';
+import {ReplaySubject} from 'rxjs';
+import {takeUntil} from 'rxjs/operators';
 
 import {
   COMPONENT_TO_GROUP_NAME,
@@ -69,7 +71,6 @@ function createSamplingGroup(fb: FormBuilder) {
   selector: 'app-kernel-analysis',
   standalone: true,
   imports: [
-    CommonModule,
     ReactiveFormsModule,
     MatButtonModule,
     MatStepperModule,
@@ -81,7 +82,8 @@ function createSamplingGroup(fb: FormBuilder) {
   encapsulation: ViewEncapsulation.None,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class KernelAnalysisComponent {
+export class KernelAnalysisComponent implements OnDestroy {
+  private readonly destroyed = new ReplaySubject<void>(1);
   kernelForm!: FormGroup;
   kernelPasses = 1;
 
@@ -123,25 +125,40 @@ export class KernelAnalysisComponent {
     // Disable/Enable interval_us based on is_external_trigger
     for (const groupName of samplingGroups) {
       const group = this.kernelForm.get(groupName) as FormGroup;
-      group.get('is_external_trigger')?.valueChanges.subscribe((isExternal) => {
-        const intervalCtrl = group.get('interval_us');
-        if (isExternal) {
-          intervalCtrl?.disable();
-        } else {
-          intervalCtrl?.enable();
-        }
-      });
+      group
+        .get('is_external_trigger')
+        ?.valueChanges.pipe(takeUntil(this.destroyed))
+        .subscribe((isExternal) => {
+          const intervalCtrl = group.get('interval_us');
+          if (isExternal) {
+            intervalCtrl?.disable();
+          } else {
+            intervalCtrl?.enable();
+          }
+          this.cdr.markForCheck();
+        });
     }
 
-    this.kernelForm.get('device_name')?.valueChanges.subscribe(() => {
-      for (const groupName of samplingGroups) {
-        const group = this.kernelForm.get(groupName) as FormGroup;
-        group.get('indices')?.setValue([]);
-      }
-    });
+    this.kernelForm
+      .get('device_name')
+      ?.valueChanges.pipe(takeUntil(this.destroyed))
+      .subscribe(() => {
+        for (const groupName of samplingGroups) {
+          const group = this.kernelForm.get(groupName) as FormGroup;
+          group.get('indices')?.setValue([]);
+        }
+        this.cdr.markForCheck();
+      });
 
-    this.kernelForm.valueChanges.subscribe(() => {
-      this.cdr.markForCheck();
-    });
+    this.kernelForm.valueChanges
+      .pipe(takeUntil(this.destroyed))
+      .subscribe(() => {
+        this.cdr.markForCheck();
+      });
+  }
+
+  ngOnDestroy() {
+    this.destroyed.next();
+    this.destroyed.complete();
   }
 }

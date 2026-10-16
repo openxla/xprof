@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "device_side_analysis_detail",
     srcs = [
         "device_side_analysis_detail.ts",
-        "device_side_analysis_detail_module.ts",
     ],
     assets = [
         ":device_side_analysis_detail_css",
@@ -42,6 +41,7 @@ xprof_ng_module(
     ],
     deps = [
         ":device_side_analysis_detail",
+        "//:node_modules/@angular/core_testing",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",

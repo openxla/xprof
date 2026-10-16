@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "sidenav",
     srcs = [
         "sidenav.ts",
-        "sidenav_module.ts",
     ],
     assets = [
         ":sidenav_css",

@@ -16,8 +16,11 @@ export class Address {
    * @throws {Error} If the input parameters are invalid.
    */
   constructor(
-      readonly fileName: string, readonly lineNumber: number,
-      readonly linesBefore: number, readonly linesAfter: number) {
+    readonly fileName: string,
+    readonly lineNumber: number,
+    readonly linesBefore: number,
+    readonly linesAfter: number,
+  ) {
     if (lineNumber <= 0) {
       throw new Error(`lineNumber (${lineNumber}) must be > 0`);
     }
@@ -53,14 +56,17 @@ export class Address {
  */
 export class Content {
   constructor(
-      readonly address: Address, readonly lines: readonly string[],
-      readonly metrics: readonly LineMetric[]) {
+    readonly address: Address,
+    readonly lines: readonly string[],
+    readonly metrics: readonly LineMetric[],
+  ) {
     if (lines.length <= address.lineNumber - address.firstLine) {
       throw new Error(
-          `The input 'lines' has only ${lines.length} lines. Since the first ` +
+        `The input 'lines' has only ${lines.length} lines. Since the first ` +
           `line number is ${address.firstLine}, the input lines does not ` +
           `contain the requested line number in the address ` +
-          `${address.lineNumber}.`);
+          `${address.lineNumber}.`,
+      );
     }
   }
 }
@@ -94,11 +100,11 @@ export interface SourceCodeServiceInterface {
    * @return A link to the code search.
    */
   codeSearchLink(
-      sessionId: string,
-      fileName: string,
-      lineNumber: number,
-      pathPrefix: string,
-      ): Observable<string>;
+    sessionId: string,
+    fileName: string,
+    lineNumber: number,
+    pathPrefix: string,
+  ): Observable<string>;
 
   /**
    * Returns true if the source code service is available.
@@ -121,6 +127,4 @@ export interface SourceCodeServiceInterface {
 
 /** Injection token for the source code service interface. */
 export const SOURCE_CODE_SERVICE_INTERFACE_TOKEN =
-    new InjectionToken<SourceCodeServiceInterface>(
-        'SourceCodeServiceInterface',
-    );
+  new InjectionToken<SourceCodeServiceInterface>('SourceCodeServiceInterface');

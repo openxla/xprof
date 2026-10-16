@@ -7,7 +7,6 @@ xprof_ng_module(
     srcs = [
         "ir_text.ts",
         "source_mapper.ts",
-        "source_mapper_module.ts",
     ],
     assets = [
         ":source_mapper_css",
@@ -18,6 +17,7 @@ xprof_ng_module(
         "//:node_modules/@angular/forms",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
+        "@org_xprof//frontend/app/common/angular:angular_material_core",
         "@org_xprof//frontend/app/common/angular:angular_material_expansion",
         "@org_xprof//frontend/app/common/angular:angular_material_form_field",
         "@org_xprof//frontend/app/common/angular:angular_material_icon",
@@ -44,6 +44,7 @@ xprof_ng_module(
     deps = [
         ":source_mapper",
         "//:node_modules/@angular/router",
+        "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",

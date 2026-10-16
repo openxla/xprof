@@ -6,7 +6,6 @@ xprof_ng_module(
     name = "operations_table",
     srcs = [
         "operations_table.ts",
-        "operations_table_module.ts",
     ],
     assets = [
         ":operations_table_css",
@@ -50,6 +49,7 @@ xprof_ng_module(
         "//third_party/javascript/typings/jasmine",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "@org_xprof//frontend/app/common/constants",
+        "@org_xprof//frontend/app/common/utils:testing",
     ],
 )
 

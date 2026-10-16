@@ -6,13 +6,13 @@ xprof_ng_module(
     name = "empty_page",
     srcs = [
         "empty_page.ts",
-        "empty_page_module.ts",
     ],
     assets = [
         ":empty_page_css",
         "empty_page.ng.html",
     ],
     deps = [
+        "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
         "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/interfaces",

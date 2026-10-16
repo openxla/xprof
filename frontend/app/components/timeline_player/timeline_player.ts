@@ -7,13 +7,12 @@ import {
   NgZone,
   OnDestroy,
   OnInit,
+  computed,
   model,
   output,
-  computed,
 } from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
 import {MatIconModule} from '@angular/material/icon';
-import {MatMenuModule} from '@angular/material/menu';
 import {MatSliderModule} from '@angular/material/slider';
 import {MatTooltipModule} from '@angular/material/tooltip';
 import {TimeFormatPipe} from './time_format.pipe';
@@ -45,7 +44,6 @@ export interface SyncEventDetail {
     CommonModule,
     MatButtonModule,
     MatIconModule,
-    MatMenuModule,
     MatSliderModule,
     MatTooltipModule,
     TimeFormatPipe,

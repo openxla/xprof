@@ -6,7 +6,7 @@ import {KernelAnalysisComponent} from 'org_xprof/frontend/app/components/kernel_
 
 /** A capture kernel dialog component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: true,
   selector: 'capture-kernel-dialog',
   templateUrl: './capture_kernel_dialog.ng.html',

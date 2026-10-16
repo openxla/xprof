@@ -31,7 +31,6 @@ xprof_ng_module(
     name = "stack_frame_snippet",
     srcs = [
         "stack_frame_snippet.ts",
-        "stack_frame_snippet_module.ts",
     ],
     assets = [
         ":stack_frame_snippet_css",
@@ -71,7 +70,6 @@ xprof_ng_module(
     name = "stack_trace_snippet",
     srcs = [
         "stack_trace_snippet.ts",
-        "stack_trace_snippet_module.ts",
     ],
     assets = [
         ":stack_trace_snippet_css",

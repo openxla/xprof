@@ -10,7 +10,6 @@ import {
   OnDestroy,
   Output,
 } from '@angular/core';
-import {MatButtonModule} from '@angular/material/button';
 import {MatIconModule} from '@angular/material/icon';
 import {MatTooltipModule} from '@angular/material/tooltip';
 import {
@@ -1112,7 +1111,7 @@ function tooltipOrMix(
   templateUrl: './kernel_selection_panel.ng.html',
   styleUrls: ['./kernel_selection_panel.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, MatButtonModule, MatIconModule, MatTooltipModule],
+  imports: [CommonModule, MatIconModule, MatTooltipModule],
 })
 export class KernelSelectionPanel implements AfterViewInit, OnDestroy {
   /** Emits true when a selection is active, false when closed or deselected. */

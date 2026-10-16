@@ -107,7 +107,7 @@ export class PodViewerCommon {
   }
 
   processChannelDb(podStats: PodStatsMap) {
-    this.channelDb = (podStats.channelDb || []).sort((a, b) =>
+    this.channelDb = [...(podStats.channelDb || [])].sort((a, b) =>
       (a.channelId || '0') > (b.channelId || '0') ? 1 : -1,
     );
     this.channelDbForChart = (podStats.channelDb || [])
@@ -231,9 +231,11 @@ export class PodViewerCommon {
 
   setDiagnostics(data: PodViewerDatabase | null) {
     if (!data || !data.diagnostics) return;
-    this.diagnostics.info = data.diagnostics.info || [];
-    this.diagnostics.warnings = data.diagnostics.warnings || [];
-    this.diagnostics.errors = data.diagnostics.errors || [];
+    this.diagnostics = {
+      info: data.diagnostics.info || [],
+      warnings: data.diagnostics.warnings || [],
+      errors: data.diagnostics.errors || [],
+    };
   }
 
   setStepBreakdownChartDescription(isTPU: boolean) {

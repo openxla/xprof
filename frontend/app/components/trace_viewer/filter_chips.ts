@@ -57,15 +57,18 @@ const CHIP_TEXT_MAX_LENGTH = 15;
             [id]="'chip-dummy-input-' + idx"
             class="chip-dummy-input" />
         </mat-chip-row>
-        <mat-autocomplete #chipValueOptionsAuto class="dense" panelWidth="fit-content">
-          <div style="display:flex;flex-direction:column;">
-            <button mat-stroked-button color="primary" (click)="onChipMultiSelectUpdateConfirm()" style="margin:10px;">Confirm</button>
-            <mat-option>
-              <mat-checkbox class="example-margin" [checked]="allOptionsSelected" (click)="onOperateAll($event)">{{allOptionsLabel}}</mat-checkbox>
+        <mat-autocomplete #chipValueOptionsAuto class="dense filter-dropdown-panel" panelWidth="fit-content">
+          <div class="filter-dropdown-values-container">
+            <div class="filter-dropdown-actions">
+              <button mat-stroked-button color="primary" class="filter-dropdown-confirm-btn" (click)="onChipMultiSelectUpdateConfirm()">Confirm</button>
+            </div>
+            <mat-option class="filter-dropdown-option filter-dropdown-select-all">
+              <mat-checkbox class="filter-dropdown-checkbox" [checked]="allOptionsSelected" (click)="onOperateAll($event)">{{allOptionsLabel}}</mat-checkbox>
             </mat-option>
             <mat-option *ngFor="let option of (autoChipValueOptions | async) trackBy:trackByValue"
-              [value]="option.value" >
-              <mat-checkbox class="example-margin" [(ngModel)]="option.checked" (click)="onClickChipOption($event)">{{option.value}}</mat-checkbox>
+              class="filter-dropdown-option"
+              [value]="option.value">
+              <mat-checkbox class="filter-dropdown-checkbox" [(ngModel)]="option.checked" (click)="onClickChipOption($event)">{{option.value}}</mat-checkbox>
             </mat-option>
           </div>
         </mat-autocomplete>

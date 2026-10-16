@@ -1,4 +1,7 @@
-import {Address, Content} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
+import {
+  Address,
+  Content,
+} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 
 /** Definitions for the current compiler pass used to generate IR. */
 export enum CompilerPass {
@@ -8,13 +11,21 @@ export enum CompilerPass {
 }
 
 /**
+ * Maximum line prefix length inspected when searching for HLO op definitions
+ * (`<op> =`) to build the op-name index. HLO op names on the left-hand side of
+ * an assignment always appear near the start of a line, so capping the search
+ * prefix avoids scanning 100K-char lines without affecting displayed IR text.
+ */
+const OP_NAME_SEARCH_MAX_LINE_PREFIX_LENGTH = 256;
+
+/**
  * Encapsulates an IR text document (HLO or Mosaic MLIR) for a specific compiler
- * pass, providing focus line and display frame helpers.
+ * pass, providing lazy line splitting and an O(1) operation-to-line index.
  */
 export class IrText {
-  private lastFrameFocusIndex?: number;
-  private lastContextWindow?: number;
-  private cachedFrame?: Content;
+  private linesCache?: string[];
+  private opLineIndexCache?: Map<string, number>;
+  private firstKernelLineIndexCache?: number;
 
   constructor(
     readonly text: string,
@@ -25,8 +36,12 @@ export class IrText {
     return this.text.length;
   }
 
+  /** Lazily splits and caches the lines of the IR text. */
   get lines(): string[] {
-    return this.text.split('\n');
+    if (!this.linesCache) {
+      this.linesCache = this.text.split('\n');
+    }
+    return this.linesCache;
   }
 
   /**
@@ -34,22 +49,62 @@ export class IrText {
    * found.
    */
   getFocusLineIndex(opName: string): number {
-    let index = 0;
     switch (this.compilerPass) {
-      case CompilerPass.HLO_OPTIMIZED:
-        index = this.lines.findIndex((line) => line.includes(`${opName} =`));
-        break;
-      case CompilerPass.MOSAIC_ORIGINAL:
-        // Assumptions: the MLIR text contains the keyword 'kernel' in the
-        // kernel definition line.
-        index = this.lines.findIndex((line) => line.includes('kernel'));
-        break;
+      case CompilerPass.HLO_OPTIMIZED: {
+        if (!opName) return 0;
+        return this.opLineIndex.get(opName) ?? 0;
+      }
+      case CompilerPass.MOSAIC_ORIGINAL: {
+        if (this.firstKernelLineIndexCache === undefined) {
+          // Assumptions: the MLIR text contains the keyword 'kernel' in the
+          // kernel definition line.
+          const index = this.lines.findIndex((line) => line.includes('kernel'));
+          this.firstKernelLineIndexCache = index !== -1 ? index : 0;
+        }
+        return this.firstKernelLineIndexCache;
+      }
       case CompilerPass.HLO_UNOPTIMIZED:
       default:
-        index = 0;
-        break;
+        return 0;
     }
-    return index !== -1 ? index : 0;
+  }
+
+  /**
+   * Lazily builds and caches a map from HLO operation name to its 0-based
+   * definition line index in a single pass over `this.lines`.
+   */
+  private get opLineIndex(): Map<string, number> {
+    if (this.opLineIndexCache) {
+      return this.opLineIndexCache;
+    }
+    const index = new Map<string, number>();
+    const lines = this.lines;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line) continue;
+      const prefix =
+        line.length > OP_NAME_SEARCH_MAX_LINE_PREFIX_LENGTH
+          ? line.slice(0, OP_NAME_SEARCH_MAX_LINE_PREFIX_LENGTH)
+          : line;
+      const eqIdx = prefix.indexOf(' =');
+      if (eqIdx > 0) {
+        let start = eqIdx - 1;
+        // Walk backwards over the op identifier, stopping at whitespace or '%'.
+        while (
+          start >= 0 &&
+          prefix.charCodeAt(start) > 32 &&
+          prefix.charCodeAt(start) !== 37
+        ) {
+          start--;
+        }
+        const opName = prefix.slice(start + 1, eqIdx);
+        if (opName && !index.has(opName)) {
+          index.set(opName, i);
+        }
+      }
+    }
+    this.opLineIndexCache = index;
+    return index;
   }
 
   /**
@@ -80,31 +135,20 @@ export class IrText {
   }
 
   /**
-   * Returns the cached `Content` frame for `<source-code-editor>`, preserving
-   * object identity across Angular change detection cycles.
+   * Returns the `Content` frame for `<source-code-editor>`.
    */
   getDisplayFrame(opName: string, contextWindow: number): Content | undefined {
-    const focusIndex = this.getFocusLineIndex(opName);
-    if (
-      this.lastFrameFocusIndex !== focusIndex ||
-      this.lastContextWindow !== contextWindow ||
-      !this.cachedFrame
-    ) {
-      this.lastFrameFocusIndex = focusIndex;
-      this.lastContextWindow = contextWindow;
-      const lines = this.getLinesForDisplay(opName, contextWindow);
-      const focusLineNumber = this.getFocusLineNumberForDisplay(
-        opName,
-        contextWindow,
-      );
-      const address = new Address(
-        'ir_text',
-        focusLineNumber,
-        focusLineNumber - 1,
-        Math.max(0, lines.length - focusLineNumber),
-      );
-      this.cachedFrame = new Content(address, lines, []);
-    }
-    return this.cachedFrame;
+    const lines = this.getLinesForDisplay(opName, contextWindow);
+    const focusLineNumber = this.getFocusLineNumberForDisplay(
+      opName,
+      contextWindow,
+    );
+    const address = new Address(
+      'ir_text',
+      focusLineNumber,
+      focusLineNumber - 1,
+      Math.max(0, lines.length - focusLineNumber),
+    );
+    return new Content(address, lines, []);
   }
 }

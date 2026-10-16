@@ -1,4 +1,6 @@
+import dataclasses
 import inspect
+import io
 import json
 import pathlib
 import sys
@@ -19,6 +21,24 @@ from xprof.cli.tools.oss import diff_sessions_tool
 def _trace_only_tool(session_id: str):
   """A tool that is not marked as accepting a compiler dump directory."""
   return {'session_id': session_id}
+
+
+@dataclasses.dataclass
+class _SampleResult:
+  status: str
+  count: int
+
+
+def _sample_dataclass_tool():
+  return _SampleResult(status='ok', count=3)
+
+
+def _sample_dict_tool():
+  return {'status': 'success', 'items': [1, 2]}
+
+
+def _sample_list_tool():
+  return [{'name': 'a'}, {'name': 'b'}]
 
 
 class XProfCliTest(parameterized.TestCase):
@@ -471,9 +491,28 @@ class XProfCliTest(parameterized.TestCase):
       return {'source': source, 'limit': limit}
 
     wrapped = xprof_cli._wrap_with_logdir(dummy_tool)
-    res = wrapped(20260824063312, limit=5)
+    res = json.loads(wrapped(20260824063312, limit=5))
     self.assertEqual(res['source'], '20260824063312')
     self.assertEqual(res['limit'], 5)
+
+  def test_wrap_with_logdir_serializes_dataclass_and_dict_to_json(self):
+    wrapped_dc = xprof_cli._wrap_with_logdir(_sample_dataclass_tool)
+    self.assertEqual(
+        wrapped_dc(),
+        json.dumps({'status': 'ok', 'count': 3}, indent=2),
+    )
+
+    wrapped_dict = xprof_cli._wrap_with_logdir(_sample_dict_tool)
+    self.assertEqual(
+        wrapped_dict(),
+        json.dumps({'status': 'success', 'items': [1, 2]}, indent=2),
+    )
+
+    wrapped_list = xprof_cli._wrap_with_logdir(_sample_list_tool)
+    self.assertEqual(
+        wrapped_list(),
+        json.dumps([{'name': 'a'}, {'name': 'b'}], indent=2),
+    )
 
   def _make_compiler_dump_dir(self):
     """Creates a --xla_jf_dump_to style dir holding only text artifacts."""

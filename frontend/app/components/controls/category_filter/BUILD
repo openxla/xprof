@@ -22,6 +22,19 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = ["category_filter_test.ts"],
+    deps = [
+        ":category_filter",
+        "//:node_modules/@types/google.visualization",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+    ],
+)
+
 sass_binary(
     name = "category_filter_css",
     src = "category_filter.scss",

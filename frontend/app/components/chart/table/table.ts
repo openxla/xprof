@@ -1,11 +1,28 @@
-import {Component, ElementRef, HostListener, Input, OnChanges, OnInit, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {NgFor, NgIf} from '@angular/common';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  ElementRef,
+  HostListener,
+  Input,
+  OnChanges,
+  OnInit,
+  SimpleChanges,
+  ViewChild,
+} from '@angular/core';
+import {MatOption} from '@angular/material/core';
+import {MatFormField, MatLabel} from '@angular/material/form-field';
+import {MatSelect} from '@angular/material/select';
 
 /** A table view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'table',
   templateUrl: './table.ng.html',
-  styleUrls: ['./table.scss']
+  styleUrls: ['./table.scss'],
+  imports: [MatFormField, MatLabel, MatOption, MatSelect, NgFor, NgIf],
 })
 export class Table implements OnChanges, OnInit {
   @Input() dataView?: google.visualization.DataView;
@@ -18,6 +35,9 @@ export class Table implements OnChanges, OnInit {
   height = '150px';
 
   @ViewChild('table', {static: false}) tableRef!: ElementRef;
+
+
+  constructor(private readonly cdr: ChangeDetectorRef) {}
 
   ngOnInit() {
     this.loadGoogleChart();
@@ -81,6 +101,7 @@ export class Table implements OnChanges, OnInit {
     google.charts.setOnLoadCallback(() => {
       this.table = new google.visualization.Table(this.tableRef.nativeElement);
       this.drawTable();
+      this.cdr.markForCheck();
     });
   }
 }

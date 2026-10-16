@@ -17,6 +17,7 @@ app-kernel-analysis,
 app-kernel-analysis .kernel-analysis-container {
   display: flex;
   flex-direction: column;
+  padding: var(--spacing-4);
 }
 
 app-kernel-analysis .stepper-actions {

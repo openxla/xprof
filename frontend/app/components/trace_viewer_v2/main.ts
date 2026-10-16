@@ -259,6 +259,8 @@ declare global {
       setVisibleFlowCategory(categoryId: number): void;
       setVisibleFlowCategories(categoryIds: number[]): void;
       scheduleForcedRedraw(): void;
+      scrollToGroup(groupIndex: number): void;
+      scrollToGroupByName(name: string): boolean;
       zoomIn(): void;
       zoomOut(): void;
     };

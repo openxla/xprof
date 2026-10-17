@@ -86,6 +86,45 @@ export interface KernelFact {
   readonly warning: boolean;
 }
 
+/** How a kind of kernel, e.g. Pallas, is presented. */
+export interface KernelKind {
+  /** Kind reported by the backend, e.g. `pallas`. */
+  readonly id: string;
+  /** Label of the kind, e.g. `Pallas`. */
+  readonly label: string;
+  /** Label of one kernel of the kind, e.g. `Pallas kernel`. */
+  readonly noun: string;
+  /** Material icon of the kind. */
+  readonly icon: string;
+  /** Accent color of the kind. */
+  readonly color: string;
+  /** Position of the kind in filters and sections. */
+  readonly order: number;
+}
+
+/** How the kernel rail orders the kernels within each section. */
+export type KernelSort = 'bundles' | 'utilization' | 'name';
+
+/** How the kernel rail divides the kernels into sections. */
+export type KernelGrouping = 'module' | 'kind' | 'none';
+
+/** An option of a kernel rail filter. */
+export interface KernelFilterOption {
+  /** Value of the option, e.g. a kind or a functional unit. */
+  readonly id: string;
+  readonly label: string;
+  /** Number of kernels that the option shows, given the other filters. */
+  readonly count: number;
+  readonly icon?: string;
+  readonly color?: string;
+}
+
+/** A run of a kernel or module name, which may match the search terms. */
+export interface NameSegment {
+  readonly text: string;
+  readonly match: boolean;
+}
+
 /** A bar of the functional unit chart in the details card of a kernel. */
 export interface UnitBar {
   readonly unit: string;
@@ -121,12 +160,16 @@ export interface KernelEntry {
   readonly color: string;
   /** Statistics of the kernel's schedule, if the backend reports them. */
   readonly stats?: KernelStats;
+  /** Kind of the kernel, e.g. Pallas, if the backend reports it. */
+  readonly kind?: KernelKind;
   /** Compact schedule length, e.g. `38.4K`, or '' without statistics. */
   readonly bundlesLabel: string;
   /** Schedule length, e.g. `38,412 bundles`, or '' without statistics. */
   readonly bundlesText: string;
   /** Busiest functional unit and its utilization, e.g. `MXU 82%`, or ''. */
   readonly busiestUnit: string;
+  /** Busiest functional unit, e.g. `MXU`, or ''. */
+  readonly boundUnit: string;
   /** Color of the busiest functional unit, or ''. */
   readonly busiestUnitColor: string;
   /** Whether the schedule spills vector registers to memory. */
@@ -141,12 +184,32 @@ export interface KernelEntry {
   readonly bars: readonly UnitBar[];
   /** Accessible description of the kernel and its statistics. */
   readonly description: string;
+  /** Lowercase kernel name, module, kind and busiest unit, for the search. */
+  readonly searchText: string;
 }
 
 /** The kernels of one HLO module, shown like a browser tab group. */
 export interface KernelGroup {
   readonly module: string;
   readonly color: string;
+  readonly entries: readonly KernelEntry[];
+}
+
+/**
+ * A section of the kernel rail: the kernels of an HLO module or of a kind, or
+ * all kernels if the rail is not grouped.
+ */
+export interface KernelSection {
+  /** Identifies the section across updates, e.g. `module:jit_step`. */
+  readonly id: string;
+  /** Header of the section, or '' for a section without header. */
+  readonly label: string;
+  readonly color: string;
+  /** Whether `label` is the name of an HLO module. */
+  readonly isModule: boolean;
+  /** Material icon of a kind section. */
+  readonly icon?: string;
+  /** Kernels that pass the filters, in display order. */
   readonly entries: readonly KernelEntry[];
 }
 
@@ -209,6 +272,52 @@ const UNIT_COLORS: ReadonlyArray<readonly [string, string]> = [
   ['EUP', '#00796b'],
   ['DMA', '#e8710a'],
 ];
+
+/** Kinds of kernel that the backend reports, see `parseKernelKind`. */
+const KERNEL_KINDS: ReadonlyMap<string, KernelKind> = new Map([
+  [
+    'pallas',
+    {
+      id: 'pallas',
+      label: 'Pallas',
+      noun: 'Pallas kernel',
+      icon: 'function',
+      color: '#8430ce',
+      order: 0,
+    },
+  ],
+  [
+    'custom_call',
+    {
+      id: 'custom_call',
+      label: 'Custom call',
+      noun: 'custom call',
+      icon: 'extension',
+      color: '#b06000',
+      order: 1,
+    },
+  ],
+]);
+
+/** Color and icon of kinds that this version of the viewer does not know. */
+const OTHER_KIND_COLOR = '#5f6368';
+const OTHER_KIND_ICON = 'category';
+
+/** Local storage keys of the kernel rail's filter, sort and group preferences. */
+const KIND_FILTER_STORAGE_KEY = 'xprof_static_kernel_viewer_kind_filter';
+const UNIT_FILTER_STORAGE_KEY = 'xprof_static_kernel_viewer_unit_filter';
+const SPILLS_ONLY_STORAGE_KEY = 'xprof_static_kernel_viewer_spills_only';
+const SORT_STORAGE_KEY = 'xprof_static_kernel_viewer_sort';
+const GROUPING_STORAGE_KEY = 'xprof_static_kernel_viewer_grouping';
+
+const KERNEL_SORTS: readonly KernelSort[] = ['bundles', 'utilization', 'name'];
+const KERNEL_GROUPINGS: readonly KernelGrouping[] = ['module', 'kind', 'none'];
+
+/** Sorts kernel names like people do, e.g. `fusion.2` before `fusion.10`. */
+const NAME_COLLATOR = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: 'base',
+});
 
 /** Delay before the collapsed kernel rail expands on hover. */
 const RAIL_EXPAND_DELAY_MS = 150;
@@ -358,6 +467,201 @@ function formatPercent(fraction: number): string {
     : PERCENT_FORMAT.format(fraction);
 }
 
+/**
+ * Returns how to present the `kind` of a kernel's schedule summary, e.g.
+ * `{"kind": "pallas", ...}`, or undefined if the summary reports no kind.
+ * Kinds that this viewer does not know get a label derived from their name.
+ */
+export function parseKernelKind(summary: unknown): KernelKind | undefined {
+  const id = isRecord(summary) ? summary['kind'] : undefined;
+  if (typeof id !== 'string' || !id.trim()) {
+    return undefined;
+  }
+  const known = KERNEL_KINDS.get(id);
+  if (known) {
+    return known;
+  }
+  const words = id.trim().replace(/[_-]+/g, ' ');
+  const label = words.charAt(0).toUpperCase() + words.slice(1);
+  return {
+    id,
+    label,
+    noun: `${label} kernel`,
+    icon: OTHER_KIND_ICON,
+    color: OTHER_KIND_COLOR,
+    order: KERNEL_KINDS.size,
+  };
+}
+
+/** Terms of a kernel search. */
+export interface SearchTerms {
+  /** Lowercase terms that each kernel must contain. */
+  readonly include: readonly string[];
+  /** Lowercase terms, written with a leading `-`, that kernels must not contain. */
+  readonly exclude: readonly string[];
+}
+
+/**
+ * Splits a kernel search into terms, e.g. `attn fwd -mla` finds kernels that
+ * contain `attn` and `fwd` but not `mla`. Terms are plain text, not patterns.
+ */
+export function parseSearchTerms(query: string): SearchTerms {
+  const include: string[] = [];
+  const exclude: string[] = [];
+  for (const term of query.toLowerCase().split(/\s+/)) {
+    if (term.length > 1 && term.startsWith('-')) {
+      exclude.push(term.slice(1));
+    } else if (term && term !== '-') {
+      include.push(term);
+    }
+  }
+  return {include, exclude};
+}
+
+function matchesSearchTerms(entry: KernelEntry, terms: SearchTerms): boolean {
+  return (
+    terms.include.every((term) => entry.searchText.includes(term)) &&
+    !terms.exclude.some((term) => entry.searchText.includes(term))
+  );
+}
+
+/**
+ * Splits `text` into runs that do and do not contain any of `terms`, so that
+ * matches can be highlighted, e.g. `flash_attn` with `att` gives `flash_`,
+ * `att` (a match) and `n`.
+ */
+export function splitMatches(
+  text: string,
+  terms: readonly string[],
+): NameSegment[] {
+  const lower = text.toLowerCase();
+  const ranges: Array<[number, number]> = [];
+  for (const term of terms) {
+    for (let i = lower.indexOf(term); i >= 0; i = lower.indexOf(term, i + 1)) {
+      ranges.push([i, i + term.length]);
+    }
+  }
+  if (ranges.length === 0) {
+    return [{text, match: false}];
+  }
+  ranges.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+  const segments: NameSegment[] = [];
+  let end = 0;
+  for (const [start, stop] of ranges) {
+    if (stop <= end) {
+      continue;
+    }
+    const from = Math.max(start, end);
+    if (from > end) {
+      segments.push({text: text.slice(end, from), match: false});
+    }
+    const last = segments[segments.length - 1];
+    if (last?.match && from === end) {
+      segments[segments.length - 1] = {
+        text: last.text + text.slice(from, stop),
+        match: true,
+      };
+    } else {
+      segments.push({text: text.slice(from, stop), match: true});
+    }
+    end = stop;
+  }
+  if (end < text.length) {
+    segments.push({text: text.slice(end), match: false});
+  }
+  return segments;
+}
+
+/** Mean utilization of the busiest unit of `entry`, or -1 if unknown. */
+function busiestUtilization(entry: KernelEntry): number {
+  return entry.boundUnit ? (entry.stats?.units[0]?.utilization ?? 0) : -1;
+}
+
+function compareBundles(a: KernelEntry, b: KernelEntry): number {
+  return (b.stats?.bundles ?? -1) - (a.stats?.bundles ?? -1);
+}
+
+/** Orders kernels by `sort`, keeping the backend's order for ties. */
+function kernelComparator(
+  sort: KernelSort,
+): (a: KernelEntry, b: KernelEntry) => number {
+  switch (sort) {
+    case 'utilization':
+      return (a, b) =>
+        busiestUtilization(b) - busiestUtilization(a) ||
+        compareBundles(a, b) ||
+        a.index - b.index;
+    case 'name':
+      return (a, b) =>
+        NAME_COLLATOR.compare(a.kernel, b.kernel) || a.index - b.index;
+    default:
+      return (a, b) => compareBundles(a, b) || a.index - b.index;
+  }
+}
+
+function readPreference<T extends string>(
+  key: string,
+  values: readonly T[],
+  fallback: T,
+): T {
+  try {
+    const value = window.localStorage.getItem(key);
+    return values.find((option) => option === value) ?? fallback;
+  } catch {
+    // Storage can be unavailable, e.g. in sandboxed iframes.
+    return fallback;
+  }
+}
+
+function readStringPreference(key: string): string {
+  try {
+    return window.localStorage.getItem(key)?.trim() ?? '';
+  } catch {
+    // Storage can be unavailable, e.g. in sandboxed iframes.
+    return '';
+  }
+}
+
+function readListPreference(key: string): string[] {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return [];
+    }
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter(
+          (item): item is string =>
+            typeof item === 'string' && item.trim() !== '',
+        )
+      : [];
+  } catch {
+    // Storage can be unavailable or hold an older format.
+    return [];
+  }
+}
+
+function readBooleanPreference(key: string): boolean {
+  try {
+    return window.localStorage.getItem(key) === 'true';
+  } catch {
+    // Storage can be unavailable, e.g. in sandboxed iframes.
+    return false;
+  }
+}
+
+function writePreference(key: string, value: string) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Storage can be unavailable, e.g. in sandboxed iframes.
+  }
+}
+
+function writeListPreference(key: string, values: readonly string[]) {
+  writePreference(key, JSON.stringify(values));
+}
+
 function kernelFacts(stats: KernelStats): KernelFact[] {
   let instructions = NUMBER_FORMAT.format(stats.instructions);
   if (stats.bundles > 0) {
@@ -451,6 +755,7 @@ function createEntry(
   index: number,
   color: string,
   stats?: KernelStats,
+  kind?: KernelKind,
 ): KernelEntry {
   const bundlesText = stats
     ? `${NUMBER_FORMAT.format(stats.bundles)} ${
@@ -462,12 +767,13 @@ function createEntry(
   const busiestUnit = busiest?.utilization
     ? `${busiest.unit} ${formatPercent(busiest.utilization)}`
     : '';
-  const busiestUnitColor =
-    busiestUnit && busiest ? unitColor(busiest.unit) : '';
+  const boundUnit = busiestUnit && busiest ? busiest.unit : '';
+  const busiestUnitColor = boundUnit ? unitColor(boundUnit) : '';
   const hasSpills = (stats?.vectorSpills ?? 0) + (stats?.vectorFills ?? 0) > 0;
   const description = [
     kernel,
     module,
+    kind?.label ?? '',
     bundlesText,
     busiestUnit ? `busiest unit ${busiestUnit}` : '',
     hasSpills ? 'spills vector registers' : '',
@@ -480,15 +786,22 @@ function createEntry(
     monogram: kernelMonogram(kernel),
     color,
     stats,
+    kind,
     bundlesLabel: stats ? COMPACT_NUMBER_FORMAT.format(stats.bundles) : '',
     bundlesText,
     busiestUnit,
+    boundUnit,
     busiestUnitColor,
     hasSpills,
     subtitle: [module, bundlesText].filter(Boolean).join(' · '),
     facts: stats ? kernelFacts(stats) : [],
     ...unitChart(stats),
     description: description.filter(Boolean).join(', '),
+    // Newlines keep search terms from matching across fields.
+    searchText: [kernel, module, kind?.label, kind?.id, boundUnit]
+      .filter(Boolean)
+      .join('\n')
+      .toLowerCase(),
   };
 }
 
@@ -498,6 +811,7 @@ interface DraftGroup {
   readonly kernels: ReadonlyArray<{
     readonly kernel: string;
     readonly stats?: KernelStats;
+    readonly kind?: KernelKind;
   }>;
   readonly maxBundles: number;
 }
@@ -515,6 +829,7 @@ function buildDraftGroup(
     .map((kernel) => ({
       kernel,
       stats: parseKernelStats(statsByKernel[kernel]),
+      kind: parseKernelKind(statsByKernel[kernel]),
     }))
     .sort((a, b) => (b.stats?.bundles ?? -1) - (a.stats?.bundles ?? -1));
   const maxBundles = kernels[0]?.stats?.bundles ?? -1;
@@ -560,8 +875,8 @@ function buildKernelGroups(response: unknown): KernelGroup[] {
   let index = 0;
   return allGroups.map((group, groupIndex) => {
     const color = GROUP_COLORS[groupIndex % GROUP_COLORS.length];
-    const entries = group.kernels.map(({kernel, stats: entryStats}) =>
-      createEntry(group.module, kernel, index++, color, entryStats),
+    const entries = group.kernels.map(({kernel, stats: entryStats, kind}) =>
+      createEntry(group.module, kernel, index++, color, entryStats, kind),
     );
     return {module: group.module, color, entries};
   });
@@ -632,6 +947,10 @@ function writeRailPinned(pinned: boolean) {
  * vertical browser tabs. The rail stays collapsed to a narrow strip so the
  * timeline gets most of the width; it expands over the timeline on hover and
  * can be pinned open. Kernels open in tabs above the timeline.
+ *
+ * The rail narrows down the kernels by search terms, by kind (e.g. Pallas
+ * kernels or custom calls), by busiest functional unit and by vector register
+ * spills, and can sort and group them differently.
  */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
@@ -649,10 +968,51 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   groups: KernelGroup[] = [];
   /** All kernels in display order. */
   entries: KernelEntry[] = [];
-  /** `groups`, narrowed down to the kernels matching `filterQuery`. */
-  visibleGroups: KernelGroup[] = [];
-  /** Number of kernels in `visibleGroups`. */
+  /** Sections of the rail, with the kernels that pass the filters. */
+  sections: KernelSection[] = [];
+  /** Number of kernels in `sections`. */
   visibleCount = 0;
+  /** Kinds of the listed kernels, with counts given the other filters. */
+  kindOptions: KernelFilterOption[] = [];
+  /** Number of kernels of any kind that pass the other filters. */
+  allKindsCount = 0;
+  /** Busiest units of the listed kernels, with counts. */
+  unitOptions: KernelFilterOption[] = [];
+  /** Number of kernels with spills that pass the other filters. */
+  spillsCount = 0;
+  /** Kind of the kernels the rail shows, or '' for all kinds. */
+  kindFilter = readStringPreference(KIND_FILTER_STORAGE_KEY);
+  /** Busiest units of the kernels the rail shows, or empty for all units. */
+  unitFilter: readonly string[] = readListPreference(UNIT_FILTER_STORAGE_KEY);
+  /** Whether the rail only shows kernels that spill vector registers. */
+  spillsOnly = readBooleanPreference(SPILLS_ONLY_STORAGE_KEY);
+  sortOrder: KernelSort = readPreference(
+    SORT_STORAGE_KEY,
+    KERNEL_SORTS,
+    'bundles',
+  );
+  grouping: KernelGrouping = readPreference(
+    GROUPING_STORAGE_KEY,
+    KERNEL_GROUPINGS,
+    'module',
+  );
+  /** Whether the panel of unit, spill, sort and grouping options is open. */
+  isFilterPanelOpen = false;
+  readonly sortOptions: ReadonlyArray<{id: KernelSort; label: string}> = [
+    {id: 'bundles', label: 'Bundles'},
+    {id: 'utilization', label: 'Utilization'},
+    {id: 'name', label: 'Name'},
+  ];
+  readonly groupingOptions: ReadonlyArray<{
+    id: KernelGrouping;
+    label: string;
+  }> = [
+    {id: 'module', label: 'Module'},
+    {id: 'kind', label: 'Kind'},
+    {id: 'none', label: 'None'},
+  ];
+  /** Kernel that Enter opens from the search box, moved with the arrow keys. */
+  cursorEntry: KernelEntry | undefined = undefined;
   /** Open kernel tabs, in display order. */
   tabs: KernelTab[] = [];
   /** The tab whose kernel the timeline shows. */
@@ -699,7 +1059,19 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild('tourButton', {read: ElementRef})
   tourButton?: ElementRef<HTMLElement>;
 
-  private readonly collapsedModules = new Set<string>();
+  /** IDs of the sections whose kernels are hidden, see `KernelSection`. */
+  private readonly collapsedSections = new Set<string>();
+  /** Kinds of the listed kernels, in filter order. */
+  private kinds: readonly KernelKind[] = [];
+  /** Busiest units of the listed kernels, most common first. */
+  private units: readonly string[] = [];
+  /** Kernels that pass the filters, in display order. */
+  private navigableEntries: readonly KernelEntry[] = [];
+  /** All kernels in display order, ignoring the filters. */
+  private orderedEntries: readonly KernelEntry[] = [];
+  private searchTerms: SearchTerms = {include: [], exclude: []};
+  /** Highlighted runs of kernel and module names, by name. */
+  private readonly nameSegmentCache = new Map<string, readonly NameSegment[]>();
   private listKey = '';
   private listRequestId = 0;
   private requestedKernel = '';
@@ -762,9 +1134,67 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     return this.isRailPinned || this.isRailPeeking || this.isRailHeldOpen;
   }
 
-  /** Whether the search narrows down the kernel rail. */
-  get isFiltering(): boolean {
+  /** Whether search terms narrow down the kernel rail. */
+  get hasQuery(): boolean {
     return this.filterQuery.trim() !== '';
+  }
+
+  /** Whether the kind, unit or spill filters narrow down the kernel rail. */
+  get hasFacetFilters(): boolean {
+    return (
+      this.kindFilter !== '' || this.unitFilter.length > 0 || this.spillsOnly
+    );
+  }
+
+  /** Number of active filters in the filter panel. */
+  get panelFilterCount(): number {
+    return this.unitFilter.length + (this.spillsOnly ? 1 : 0);
+  }
+
+  /** Whether the search or the filters narrow down the kernel rail. */
+  get isFiltering(): boolean {
+    return this.hasQuery || this.hasFacetFilters;
+  }
+
+  /** Whether the search, filters, sort order or grouping differ from default. */
+  get hasNonDefaultSettings(): boolean {
+    return (
+      this.isFiltering ||
+      this.sortOrder !== 'bundles' ||
+      this.grouping !== 'module'
+    );
+  }
+
+  /** Whether the kernels are of more than one kind, so kinds can be told apart. */
+  get hasKindFilter(): boolean {
+    return this.kindOptions.length > 1;
+  }
+
+  /** Whether the backend reports the kind of any kernel. */
+  get hasKinds(): boolean {
+    return this.kinds.length > 0;
+  }
+
+  /** Whether any kernel spills vector registers. */
+  get hasSpillingKernels(): boolean {
+    return this.entries.some((entry) => entry.hasSpills);
+  }
+
+  /** Announces the number of kernels that pass the search and filters. */
+  get resultsStatus(): string {
+    if (!this.isFiltering) {
+      return '';
+    }
+    const count = this.visibleCount;
+    return `${count} of ${this.entries.length} ${
+      this.entries.length === 1 ? 'kernel' : 'kernels'
+    } shown`;
+  }
+
+  /** Whether the search box has focus, which shows `cursorEntry`. */
+  get isSearchFocused(): boolean {
+    const input = this.searchInput?.nativeElement;
+    return input !== undefined && document.activeElement === input;
   }
 
   /** The kernel that the timeline shows. */
@@ -772,9 +1202,49 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     return this.activeTab?.entry;
   }
 
-  /** One-based position of the selected kernel, or 0 if none is selected. */
+  /**
+   * One-based position of the selected kernel among the kernels that pass the
+   * filters, or 0 if none is selected or it is filtered out.
+   */
   get selectedPosition(): number {
-    return this.selectedEntry ? this.selectedEntry.index + 1 : 0;
+    const entry = this.selectedEntry;
+    return entry ? this.navigableEntries.indexOf(entry) + 1 : 0;
+  }
+
+  /** Number of kernels that the stepper steps through. */
+  get navigableCount(): number {
+    return this.navigableEntries.length;
+  }
+
+  /** Position of the selected kernel in the stepper, e.g. `3 / 75`. */
+  get positionLabel(): string {
+    const position = this.selectedPosition;
+    return `${position > 0 ? position : '–'} / ${this.navigableCount}`;
+  }
+
+  /** Whether the stepper can open another kernel. */
+  get canStep(): boolean {
+    const count = this.navigableEntries.length;
+    return (
+      count > 1 ||
+      (count === 1 && this.navigableEntries[0] !== this.selectedEntry)
+    );
+  }
+
+  /** The kind that `kindFilter` selects, if any. */
+  get selectedKind(): KernelKind | undefined {
+    return this.kinds.find((option) => option.id === this.kindFilter);
+  }
+
+  /** What the stepper steps through, e.g. `Pallas kernel`. */
+  get stepNoun(): string {
+    if (!this.isFiltering) {
+      return 'kernel';
+    }
+    const kind = this.selectedKind;
+    return kind && !this.hasQuery && this.panelFilterCount === 0
+      ? kind.noun
+      : 'matching kernel';
   }
 
   ngOnInit(): void {
@@ -975,22 +1445,38 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     return this.findTab(entry) !== undefined;
   }
 
-  /** Opens the next (`delta` = 1) or previous (`delta` = -1) kernel. */
+  /**
+   * Opens the next (`delta` = 1) or previous (`delta` = -1) kernel among the
+   * kernels that pass the filters, in display order. From a kernel that is
+   * filtered out, steps to the nearest kernel that passes them.
+   */
   stepKernel(delta: number): void {
-    const count = this.entries.length;
+    const list = this.navigableEntries;
+    const count = list.length;
     if (count === 0) {
       return;
     }
     this.hideCard();
     this.closeContextMenu();
-    const current = this.selectedEntry?.index;
-    const next =
-      current === undefined
-        ? delta > 0
-          ? 0
-          : count - 1
-        : (((current + delta) % count) + count) % count;
-    this.selectEntry(this.entries[next]);
+    const selected = this.selectedEntry;
+    const current = selected ? list.indexOf(selected) : -1;
+    let next: KernelEntry | undefined = undefined;
+    if (current >= 0) {
+      next = list[(((current + delta) % count) + count) % count];
+    } else if (selected && delta !== 0) {
+      const order = this.orderedEntries;
+      const position = order.indexOf(selected);
+      next =
+        delta > 0
+          ? (list.find((entry) => order.indexOf(entry) > position) ?? list[0])
+          : ([...list]
+              .reverse()
+              .find((entry) => order.indexOf(entry) < position) ??
+            list[count - 1]);
+    } else if (!selected) {
+      next = delta > 0 ? list[0] : list[count - 1];
+    }
+    this.selectEntry(next);
   }
 
   onKernelRowClick(entry: KernelEntry, event: MouseEvent): void {
@@ -1129,22 +1615,96 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     this.filterQuery = query;
     this.hideCardFrom('rail');
     this.closeContextMenuFrom('rail');
-    this.updateVisibleGroups();
+    this.updateSections();
+    // Enter opens the top match, so point it out while searching.
+    this.cursorEntry = this.hasQuery ? this.renderedEntries()[0] : undefined;
   }
 
+  /** Clears the search terms. The kind, unit and spill filters stay. */
   clearFilter(): void {
     this.onFilterChange('');
   }
 
+  /** Shows only kernels of `kind`, or kernels of all kinds for ''. */
+  setKindFilter(kind: string): void {
+    this.kindFilter = kind;
+    writePreference(KIND_FILTER_STORAGE_KEY, kind);
+    this.onFacetFilterChange();
+  }
+
+  /** Shows only kernels whose busiest unit is one of `units`, if any. */
+  setUnitFilter(units: readonly string[]): void {
+    this.unitFilter = units;
+    writeListPreference(UNIT_FILTER_STORAGE_KEY, units);
+    this.onFacetFilterChange();
+  }
+
+  /** Whether the rail shows the kernels whose busiest unit is `unit`. */
+  isUnitSelected(unit: string): boolean {
+    return this.unitFilter.includes(unit);
+  }
+
+  /** Adds `unit` to, or removes it from, the units that the rail shows. */
+  toggleUnitFilter(unit: string): void {
+    this.setUnitFilter(
+      this.isUnitSelected(unit)
+        ? this.unitFilter.filter((option) => option !== unit)
+        : [...this.unitFilter, unit],
+    );
+  }
+
+  /** Shows only kernels that spill vector registers, or all kernels. */
+  setSpillsOnly(spillsOnly: boolean): void {
+    this.spillsOnly = spillsOnly;
+    writePreference(SPILLS_ONLY_STORAGE_KEY, String(spillsOnly));
+    this.onFacetFilterChange();
+  }
+
+  /** Resets the filters, search terms, sort order and grouping to default. */
+  clearAllFilters(): void {
+    this.kindFilter = '';
+    this.unitFilter = [];
+    this.spillsOnly = false;
+    this.sortOrder = 'bundles';
+    this.grouping = 'module';
+    writePreference(KIND_FILTER_STORAGE_KEY, '');
+    writeListPreference(UNIT_FILTER_STORAGE_KEY, []);
+    writePreference(SPILLS_ONLY_STORAGE_KEY, 'false');
+    writePreference(SORT_STORAGE_KEY, 'bundles');
+    writePreference(GROUPING_STORAGE_KEY, 'module');
+    this.clearFilter();
+  }
+
+  setSortOrder(sortOrder: KernelSort): void {
+    this.sortOrder = sortOrder;
+    writePreference(SORT_STORAGE_KEY, sortOrder);
+    this.onFacetFilterChange();
+  }
+
+  setGrouping(grouping: KernelGrouping): void {
+    this.grouping = grouping;
+    writePreference(GROUPING_STORAGE_KEY, grouping);
+    this.onFacetFilterChange();
+  }
+
+  toggleFilterPanel(): void {
+    this.isFilterPanelOpen = !this.isFilterPanelOpen;
+    this.hideCardFrom('rail');
+    this.closeContextMenuFrom('rail');
+  }
+
+  /** Shows or hides the search cursor as the search box gains or loses focus. */
+  onSearchFocusChange(): void {
+    this.changeDetectorRef.markForCheck();
+  }
+
   onSearchKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Enter') {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
-      if (this.isFiltering) {
-        this.openEntry(
-          this.visibleGroups[0]?.entries[0],
-          event.ctrlKey || event.metaKey,
-        );
-      }
+      this.moveCursor(event.key === 'ArrowDown' ? 1 : -1);
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      this.openEntry(this.cursorEntry, event.ctrlKey || event.metaKey);
       this.dismissRail();
     } else if (event.key === 'Escape') {
       event.preventDefault();
@@ -1158,18 +1718,47 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  /** Whether the kernels of `group` are listed; searching expands all groups. */
-  isGroupExpanded(group: KernelGroup): boolean {
-    return this.isFiltering || !this.collapsedModules.has(group.module);
+  /** Whether `entry` is the kernel that Enter opens from the search box. */
+  isCursor(entry: KernelEntry): boolean {
+    return this.isSearchFocused && entry === this.cursorEntry;
   }
 
-  toggleGroup(group: KernelGroup): void {
+  /** ID of the row of `entry`, for `aria-activedescendant`. */
+  rowId(entry: KernelEntry): string {
+    return `skv-kernel-row-${entry.index}`;
+  }
+
+  /**
+   * Splits a kernel or module name into runs that do and do not match the
+   * search terms, for highlighting.
+   */
+  nameSegments(name: string): readonly NameSegment[] {
+    let segments = this.nameSegmentCache.get(name);
+    if (!segments) {
+      segments = splitMatches(name, this.searchTerms.include);
+      this.nameSegmentCache.set(name, segments);
+    }
+    return segments;
+  }
+
+  /** Whether the kernels of `section` are listed; searching expands all. */
+  isGroupExpanded(section: KernelSection): boolean {
+    return this.hasQuery || !this.collapsedSections.has(section.id);
+  }
+
+  toggleGroup(section: KernelSection): void {
     this.hideCardFrom('rail');
     this.closeContextMenuFrom('rail');
-    if (this.collapsedModules.has(group.module)) {
-      this.collapsedModules.delete(group.module);
+    if (this.collapsedSections.has(section.id)) {
+      this.collapsedSections.delete(section.id);
     } else {
-      this.collapsedModules.add(group.module);
+      this.collapsedSections.add(section.id);
+    }
+    if (
+      this.cursorEntry &&
+      !this.renderedEntries().includes(this.cursorEntry)
+    ) {
+      this.cursorEntry = undefined;
     }
   }
 
@@ -1315,8 +1904,12 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     this.changeDetectorRef.markForCheck();
   }
 
-  trackByModule(index: number, group: KernelGroup): string {
-    return group.module;
+  trackBySection(index: number, section: KernelSection): string {
+    return section.id;
+  }
+
+  trackByOption(index: number, option: KernelFilterOption): string {
+    return option.id;
   }
 
   trackByEntry(index: number, entry: KernelEntry): string {
@@ -1369,8 +1962,22 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   private setKernelGroups(groups: KernelGroup[]): void {
     this.groups = groups;
     this.entries = groups.flatMap((group) => [...group.entries]);
-    this.collapsedModules.clear();
-    this.updateVisibleGroups();
+    this.collapsedSections.clear();
+    this.kinds = this.listKinds();
+    this.units = this.listUnits();
+    // Only apply stored filters that this profile's kernels offer.
+    const savedKind = readStringPreference(KIND_FILTER_STORAGE_KEY);
+    this.kindFilter =
+      this.kinds.length > 1 && this.kinds.some((kind) => kind.id === savedKind)
+        ? savedKind
+        : '';
+    this.unitFilter = readListPreference(UNIT_FILTER_STORAGE_KEY).filter(
+      (unit) => this.units.includes(unit),
+    );
+    this.spillsOnly =
+      readBooleanPreference(SPILLS_ONLY_STORAGE_KEY) && this.hasSpillingKernels;
+    this.cursorEntry = undefined;
+    this.updateSections();
     this.tabs = [];
     this.activeTab = undefined;
     this.highlightedTab = undefined;
@@ -1378,13 +1985,43 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     this.hideCard();
     this.closeContextMenu();
     this.url = '';
-    const initialEntry = this.findRequestedEntry() ?? this.entries[0];
+    const initialEntry =
+      this.findRequestedEntry() ??
+      this.navigableEntries[0] ??
+      this.orderedEntries[0];
     if (initialEntry) {
       this.selectEntry(initialEntry);
     } else {
       this.updateUrlQueryParams();
     }
     this.considerTour();
+  }
+
+  /** Returns the kinds of the listed kernels, in filter order. */
+  private listKinds(): KernelKind[] {
+    const kinds = new Map<string, KernelKind>();
+    for (const entry of this.entries) {
+      if (entry.kind) {
+        kinds.set(entry.kind.id, entry.kind);
+      }
+    }
+    return [...kinds.values()].sort(
+      (a, b) => a.order - b.order || a.label.localeCompare(b.label),
+    );
+  }
+
+  /** Returns the busiest units of the listed kernels, most common first. */
+  private listUnits(): string[] {
+    const counts = new Map<string, number>();
+    for (const entry of this.entries) {
+      if (entry.boundUnit) {
+        counts.set(entry.boundUnit, (counts.get(entry.boundUnit) ?? 0) + 1);
+      }
+    }
+    return [...counts.keys()].sort(
+      (a, b) =>
+        (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || a.localeCompare(b),
+    );
   }
 
   /** Starts the tour soon on the first visit to a profile with kernels. */
@@ -1523,7 +2160,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   /** Loads the trace of `entry` into the timeline. */
   private showEntry(entry: KernelEntry): void {
     this.selectionPanel?.close();
-    this.collapsedModules.delete(entry.module);
+    this.collapsedSections.delete(this.sectionIdOf(entry));
     this.updateUrlQueryParams();
     const queryParamsMap = new Map<string, string>([
       ['request_type', 'trace'],
@@ -1627,29 +2264,183 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     this.scrollIntoView(undefined, '.kernel-tab.highlighted');
   }
 
-  private updateVisibleGroups(): void {
-    const query = this.filterQuery.trim().toLowerCase();
-    if (!query) {
-      this.visibleGroups = this.groups;
-    } else {
-      // A module name match keeps the whole group.
-      this.visibleGroups = this.groups
-        .map((group) =>
-          group.module.toLowerCase().includes(query)
-            ? group
-            : {
-                ...group,
-                entries: group.entries.filter((entry) =>
-                  entry.kernel.toLowerCase().includes(query),
-                ),
-              },
-        )
-        .filter((group) => group.entries.length > 0);
-    }
-    this.visibleCount = this.visibleGroups.reduce(
-      (count, group) => count + group.entries.length,
-      0,
+  /**
+   * Applies the search terms and the kind, unit and spill filters to the
+   * kernels, and lays the kernels that pass them out in sections. The count of
+   * each filter option takes all other filters into account, so it tells how
+   * many kernels the option would show.
+   */
+  private updateSections(): void {
+    this.searchTerms = parseSearchTerms(this.filterQuery);
+    this.nameSegmentCache.clear();
+    const kindFilter = this.kindFilter;
+    const unitFilter = new Set(this.unitFilter);
+    const matching = this.entries.filter((entry) =>
+      matchesSearchTerms(entry, this.searchTerms),
     );
+    const passesKind = (entry: KernelEntry) =>
+      !kindFilter || entry.kind?.id === kindFilter;
+    const passesUnit = (entry: KernelEntry) =>
+      unitFilter.size === 0 || unitFilter.has(entry.boundUnit);
+    const passesSpills = (entry: KernelEntry) =>
+      !this.spillsOnly || entry.hasSpills;
+
+    const kindCounts = new Map<string, number>();
+    const unitCounts = new Map<string, number>();
+    const visible = new Set<KernelEntry>();
+    this.allKindsCount = 0;
+    this.spillsCount = 0;
+    for (const entry of matching) {
+      const kind = passesKind(entry);
+      const unit = passesUnit(entry);
+      const spills = passesSpills(entry);
+      if (unit && spills) {
+        this.allKindsCount++;
+        if (entry.kind) {
+          kindCounts.set(
+            entry.kind.id,
+            (kindCounts.get(entry.kind.id) ?? 0) + 1,
+          );
+        }
+      }
+      if (kind && spills && entry.boundUnit) {
+        unitCounts.set(
+          entry.boundUnit,
+          (unitCounts.get(entry.boundUnit) ?? 0) + 1,
+        );
+      }
+      if (kind && unit && entry.hasSpills) {
+        this.spillsCount++;
+      }
+      if (kind && unit && spills) {
+        visible.add(entry);
+      }
+    }
+    this.kindOptions = this.kinds.map((kind) => ({
+      id: kind.id,
+      label: kind.label,
+      icon: kind.icon,
+      color: kind.color,
+      count: kindCounts.get(kind.id) ?? 0,
+    }));
+    this.unitOptions = this.units.map((unit) => ({
+      id: unit,
+      label: unit,
+      color: unitColor(unit),
+      count: unitCounts.get(unit) ?? 0,
+    }));
+    this.sections = this.buildSections((entry) => visible.has(entry));
+    this.visibleCount = visible.size;
+    this.navigableEntries = this.sections.flatMap((section) => [
+      ...section.entries,
+    ]);
+    this.orderedEntries = this.isFiltering
+      ? this.buildSections(() => true).flatMap((section) => [
+          ...section.entries,
+        ])
+      : this.navigableEntries;
+  }
+
+  /** Lays out the kernels that pass `include` in sections, in display order. */
+  private buildSections(
+    include: (entry: KernelEntry) => boolean,
+  ): KernelSection[] {
+    const compare = kernelComparator(this.sortOrder);
+    if (this.grouping === 'none') {
+      const entries = this.entries.filter(include).sort(compare);
+      return entries.length > 0
+        ? [
+            {
+              id: 'all',
+              label: '',
+              color: 'var(--mat-sys-outline)',
+              isModule: false,
+              entries,
+            },
+          ]
+        : [];
+    }
+    if (this.grouping === 'kind') {
+      const kinds: Array<KernelKind | undefined> = [...this.kinds, undefined];
+      return kinds
+        .map((kind) => ({
+          id: `kind:${kind?.id ?? ''}`,
+          label: kind?.label ?? 'Other',
+          color: kind?.color ?? OTHER_KIND_COLOR,
+          isModule: false,
+          icon: kind?.icon ?? OTHER_KIND_ICON,
+          entries: this.entries
+            .filter((entry) => entry.kind?.id === kind?.id && include(entry))
+            .sort(compare),
+        }))
+        .filter((section) => section.entries.length > 0);
+    }
+    const groups =
+      this.sortOrder === 'name'
+        ? [...this.groups].sort(
+            (a, b) =>
+              Number(!a.module) - Number(!b.module) ||
+              NAME_COLLATOR.compare(a.module, b.module),
+          )
+        : this.groups;
+    return groups
+      .map((group) => ({
+        id: `module:${group.module}`,
+        label: group.module,
+        color: group.color,
+        isModule: true,
+        entries: group.entries.filter(include).sort(compare),
+      }))
+      .filter((section) => section.entries.length > 0);
+  }
+
+  /** ID of the section that lists `entry`, see `KernelSection`. */
+  private sectionIdOf(entry: KernelEntry): string {
+    switch (this.grouping) {
+      case 'kind':
+        return `kind:${entry.kind?.id ?? ''}`;
+      case 'none':
+        return 'all';
+      default:
+        return `module:${entry.module}`;
+    }
+  }
+
+  /** Kernels whose rows are showing, i.e. not in collapsed sections. */
+  private renderedEntries(): KernelEntry[] {
+    return this.sections
+      .filter((section) => this.isGroupExpanded(section))
+      .flatMap((section) => [...section.entries]);
+  }
+
+  /** Re-applies the filters after a kind, unit, spill, sort or group change. */
+  private onFacetFilterChange(): void {
+    this.hideCardFrom('rail');
+    this.closeContextMenuFrom('rail');
+    this.updateSections();
+    const rendered = this.renderedEntries();
+    if (this.cursorEntry && !rendered.includes(this.cursorEntry)) {
+      this.cursorEntry = this.hasQuery ? rendered[0] : undefined;
+    }
+  }
+
+  /** Moves the kernel that Enter opens to the next or previous row. */
+  private moveCursor(delta: number): void {
+    const rendered = this.renderedEntries();
+    const count = rendered.length;
+    if (count === 0) {
+      return;
+    }
+    const current = this.cursorEntry ? rendered.indexOf(this.cursorEntry) : -1;
+    const next =
+      current < 0
+        ? delta > 0
+          ? 0
+          : count - 1
+        : (((current + delta) % count) + count) % count;
+    this.cursorEntry = rendered[next];
+    this.hideCardFrom('rail');
+    this.scrollIntoView('.kernel-row.cursor');
   }
 
   private setRailPeeking(peeking: boolean, delayMs: number): void {

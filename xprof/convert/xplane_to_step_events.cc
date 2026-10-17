@@ -28,6 +28,7 @@ limitations under the License.
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/timespan.h"
@@ -370,6 +371,11 @@ StepEvents ConvertTpuDeviceTraceXLineToStepEvents(const uint64_t device_id,
       // Adds an OpMetric to the builder based on the provided parent reference.
       [&](const ParentRef& parent) {
         OpMetrics op_metrics = FromXEvent(parent.event);
+        if (!tsl::profiler::IsOffDutyOp(op_metrics.category()) &&
+            (IsSyncWaitDoneOp(op_metrics.name()) ||
+             IsSyncWaitDoneOp(op_metrics.long_name()))) {
+          op_metrics.set_category(std::string(tsl::profiler::kHloAsyncDone));
+        }
         uint64_t total_time_ps = parent.device_timespan.duration_ps();
         op_metrics.set_time_ps(total_time_ps);
         uint64_t self_time_ps = (total_time_ps > parent.children_duration_ps)

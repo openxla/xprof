@@ -336,6 +336,23 @@ TEST(OpMetricsDbTest, GetRooflineModelRecordFromOpMetrics) {
   EXPECT_THAT(GetRootOpMetricsFromDb(op_metrics_db)[0]->name(), "root");
 }
 
+TEST(OpMetricsDbTest, IsSyncWaitDoneOpDistinguishesSyncWaitFromCollectives) {
+  EXPECT_TRUE(IsSyncWaitDoneOp("call-done"));
+  EXPECT_TRUE(IsSyncWaitDoneOp("call-done.12"));
+  EXPECT_TRUE(IsSyncWaitDoneOp("sparse-core-call.cloned.1.call-done"));
+  EXPECT_TRUE(IsSyncWaitDoneOp("async-done"));
+  EXPECT_TRUE(IsSyncWaitDoneOp("async-done.5"));
+  EXPECT_TRUE(IsSyncWaitDoneOp("sync-wait-done.1"));
+  EXPECT_TRUE(IsSyncWaitDoneOp("host-send-done"));
+  EXPECT_TRUE(IsSyncWaitDoneOp("host-recv-done"));
+
+  EXPECT_FALSE(IsSyncWaitDoneOp("all-reduce-done"));
+  EXPECT_FALSE(IsSyncWaitDoneOp("all-gather-done"));
+  EXPECT_FALSE(IsSyncWaitDoneOp("reduce-scatter-done"));
+  EXPECT_FALSE(IsSyncWaitDoneOp("collective-permute-done"));
+  EXPECT_FALSE(IsSyncWaitDoneOp("fusion.1"));
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

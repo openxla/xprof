@@ -33,7 +33,6 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/format_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
@@ -467,6 +466,29 @@ OverviewPage ConvertOpStatsToOverviewPage(const OpStats& op_stats) {
                "ConvertOpStatsToInputPipelineAnalysis";
   *overview_page.mutable_input_analysis() =
       ConvertOpStatsToInputPipelineAnalysis(op_stats);
+  if (hardware_type == tensorflow::profiler::TPU) {
+    TpuStepTimeBreakdown tpu_step_summary;
+    if (overview_page.input_analysis().step_time_breakdown().UnpackTo(
+            &tpu_step_summary)) {
+      overview_page.mutable_analysis()->set_active_step_time_ms_average(
+          tpu_step_summary.active_step_time_ms_summary().average());
+      overview_page.mutable_analysis()->set_tc_active_time_ms_average(
+          tpu_step_summary.tc_active_ms_summary().average());
+      const auto& sc_step_summary = tpu_step_summary.sparse_core_step_summary();
+      overview_page.mutable_analysis()->set_sc_active_time_ms_average(
+          sc_step_summary.sc_active_ms_summary().average() > 0
+              ? sc_step_summary.sc_active_ms_summary().average()
+              : sc_step_summary.sc_compute_ms_summary().average());
+      overview_page.mutable_analysis()->set_sc_step_time_ms_average(
+          sc_step_summary.sc_step_time_ms_summary().average());
+      overview_page.mutable_analysis()->set_sc_infeed_time_ms_avg(
+          sc_step_summary.sc_infeed_ms_summary().average());
+      overview_page.mutable_analysis()->set_sc_outfeed_time_ms_avg(
+          sc_step_summary.sc_outfeed_ms_summary().average());
+      overview_page.mutable_analysis()->set_sc_idle_time_ms_avg(
+          sc_step_summary.sc_idle_ms_summary().average());
+    }
+  }
 
   VLOG(1)
       << "ConvertOpStatsToOverviewPage: Starting ComputeBottleneckAnalysis";
@@ -562,6 +584,21 @@ void AddCommonStats(DataTable* data_table,
     data_table->AddCustomProperty(
         "sc_idle_time_avg",
         absl::StrFormat("%.1f", analysis.sc_idle_time_ms_avg()));
+  }
+  if (analysis.active_step_time_ms_average() > 0) {
+    data_table->AddCustomProperty(
+        "active_steptime_ms_average",
+        absl::StrFormat("%.2f", analysis.active_step_time_ms_average()));
+  }
+  if (analysis.tc_active_time_ms_average() > 0) {
+    data_table->AddCustomProperty(
+        "tc_active_ms_average",
+        absl::StrFormat("%.2f", analysis.tc_active_time_ms_average()));
+  }
+  if (analysis.sc_active_time_ms_average() > 0) {
+    data_table->AddCustomProperty(
+        "sc_active_ms_average",
+        absl::StrFormat("%.2f", analysis.sc_active_time_ms_average()));
   }
 }
 

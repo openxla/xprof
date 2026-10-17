@@ -128,7 +128,12 @@ class ProfileTimeBreakdown {
                {tsl::profiler::kHloInfeed, tsl::profiler::kHloOutfeed,
                 tsl::profiler::kHloHostSend, tsl::profiler::kHloHostSendDone,
                 tsl::profiler::kHloHostRecv, tsl::profiler::kHloHostRecvDone,
+                tsl::profiler::kHloAsyncDone,
                 tsl::profiler::kHloMegacoreFusion});
+  }
+
+  uint64_t AsyncDoneTimePs() const {
+    return CategoryTimePs(tsl::profiler::kHloAsyncDone);
   }
 
   uint64_t InfeedTimePs() const {

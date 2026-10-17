@@ -5,7 +5,7 @@ package tensorflow.profiler;
 import "plugin/xprof/protobuf/input_pipeline.proto";
 
 // Per-step details on TPU.
-// Next ID: 26
+// Next ID: 29
 message PerTpuStepDetails {
   // The step number of a step.
   int32 step_number = 1;
@@ -72,10 +72,22 @@ message PerTpuStepDetails {
   // Sparse core step time in ms.
   double sc_step_time_ms = 24;
 
+  // Active TensorCore time in this step (excluding idle, I/O, and sync waits)
+  // in ms.
+  double tc_active_time_ms = 26;
+
+  // Active SparseCore time in this step (excluding idle, I/O, and sync waits)
+  // in ms.
+  double sc_active_time_ms = 27;
+
+  // Active step time in this step (max(tc_active_time_ms, sc_active_time_ms))
+  // in ms.
+  double active_step_time_ms = 28;
+
   reserved 2, 8, 9, 10;
 }
 
-// Next Id: 9
+// Next Id: 11
 message TpuStepTimeBreakdown {
   // Summary of all TensorCore compute op duration as a part of step in ms.
   tensorflow.profiler.StepSummary tc_compute_ms_summary = 1;
@@ -101,9 +113,17 @@ message TpuStepTimeBreakdown {
   tensorflow.profiler.StepSummary host_transfer_ms_summary = 7;
   // Summary of all sparsecore step summary info.
   SparseCoreStepSummary sparse_core_step_summary = 8;
+
+  // Summary of active TensorCore time per step in ms.
+  tensorflow.profiler.StepSummary tc_active_ms_summary = 9;
+
+  // Summary of active step time (max(tc_active_time_ms, sc_active_time_ms)) per
+  // step in ms.
+  tensorflow.profiler.StepSummary active_step_time_ms_summary = 10;
 }
 
 // Similar to TpuStepTimeBreakdown, this is for sparse core step time info.
+// Next Id: 7
 message SparseCoreStepSummary {
   // Summary of all SparseCore compute op duration as a part of step in ms.
   tensorflow.profiler.StepSummary sc_compute_ms_summary = 1;
@@ -116,6 +136,8 @@ message SparseCoreStepSummary {
   tensorflow.profiler.StepSummary sc_idle_ms_summary = 4;
   // Summary of all SparseCore step time in ms.
   tensorflow.profiler.StepSummary sc_step_time_ms_summary = 5;
+  // Summary of active SparseCore time per step in ms.
+  tensorflow.profiler.StepSummary sc_active_ms_summary = 6;
 }
 
 message TpuBottleneckAnalysis {

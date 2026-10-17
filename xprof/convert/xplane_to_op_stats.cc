@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xprof/convert/xplane_to_op_stats.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -75,6 +76,7 @@ limitations under the License.
 #include "xprof/utils/hlo_module_map.h"
 #include "xprof/utils/hlo_proto_map.h"
 #include "xprof/utils/kernel_stats_utils.h"
+#include "xprof/utils/op_metrics_db_utils.h"
 #include "xprof/utils/op_utils.h"
 #include "xprof/utils/xprof_gpu_cost_analysis_types.h"
 
@@ -404,8 +406,44 @@ void UpdateFlatOpMetricsDbFromHloModuleMap(FlatOpMetricsDb& op_metrics_db,
 DutyCycleTrackers ConstructDutyCycleTrackers(XPlaneVisitor& visitor) {
   DutyCycleTracker duty_cycle_tracker;
   DutyCycleTracker duty_cycle_hc_tracker;
+  struct OpEventNode {
+    tsl::profiler::Timespan timespan;
+    uint64_t cursor_ps = 0;
+    bool is_active = false;
+    bool is_active_hc = false;
+  };
+  auto flush_op_event_node = [&](const OpEventNode& node) {
+    duty_cycle_tracker.AddInterval(node.timespan, /*is_active=*/false);
+    duty_cycle_hc_tracker.AddInterval(node.timespan, /*is_active=*/false);
+    if (node.cursor_ps < node.timespan.end_ps()) {
+      tsl::profiler::Timespan tail_span =
+          tsl::profiler::Timespan::FromEndPoints(node.cursor_ps,
+                                                 node.timespan.end_ps());
+      duty_cycle_tracker.AddInterval(tail_span, node.is_active);
+      duty_cycle_hc_tracker.AddInterval(tail_span, node.is_active_hc);
+    }
+  };
+  auto link_parent_child = [&](OpEventNode& parent, OpEventNode& child) {
+    if (child.timespan.begin_ps() > parent.cursor_ps) {
+      tsl::profiler::Timespan gap = tsl::profiler::Timespan::FromEndPoints(
+          parent.cursor_ps,
+          std::min(child.timespan.begin_ps(), parent.timespan.end_ps()));
+      duty_cycle_tracker.AddInterval(gap, parent.is_active);
+      duty_cycle_hc_tracker.AddInterval(gap, parent.is_active_hc);
+    }
+    parent.cursor_ps = std::max(parent.cursor_ps, child.timespan.end_ps());
+  };
   visitor.ForEachLine([&](const XLineVisitor& line) {
-    if (line.Name() == tsl::profiler::kXlaOpLineName) {
+    if (line.Name() == tsl::profiler::kXlaOpLineName ||
+        line.Name() == tsl::profiler::kSparseCoreOpLineName ||
+        absl::StartsWith(line.Name(), "TEC ")) {
+      const bool is_tc_line = (line.Name() == tsl::profiler::kXlaOpLineName);
+      tsl::profiler::AncestorStack<OpEventNode> event_stack(
+          flush_op_event_node,
+          [](const OpEventNode& parent, const OpEventNode& child) {
+            return parent.timespan.Includes(child.timespan);
+          },
+          link_parent_child);
       line.ForEachEvent([&](const XEventVisitor& event) {
         auto hlo_category_stat =
             event.Metadata().GetStat(StatType::kHloCategory);
@@ -413,28 +451,28 @@ DutyCycleTrackers ConstructDutyCycleTrackers(XPlaneVisitor& visitor) {
           hlo_category_stat = event.GetStat(StatType::kHloCategory);
         }
 
-        duty_cycle_tracker.AddInterval(
-            event.GetTimespan(),
-            !(hlo_category_stat &&
-              tsl::profiler::IsOffDutyOp(hlo_category_stat->StrOrRefValue())));
+        bool is_off_duty =
+            (hlo_category_stat &&
+             tsl::profiler::IsOffDutyOp(hlo_category_stat->StrOrRefValue())) ||
+            IsSyncWaitDoneOp(event.Name()) ||
+            IsSyncWaitDoneOp(event.DisplayName());
 
         bool is_custom_call =
-            hlo_category_stat &&
+            is_tc_line && hlo_category_stat &&
             hlo_category_stat->StrOrRefValue() ==
                 xla::HloOpcodeString(xla::HloOpcode::kCustomCall);
         bool is_off_duty_hc =
-            hlo_category_stat &&
-            (tsl::profiler::IsOffDutyOp(hlo_category_stat->StrOrRefValue()) ||
-             (is_custom_call && xprof::IsCustomCallEventOffDuty(event)));
-        duty_cycle_hc_tracker.AddInterval(event.GetTimespan(), !is_off_duty_hc);
+            is_off_duty ||
+            (is_custom_call && xprof::IsCustomCallEventOffDuty(event));
+        tsl::profiler::Timespan span = event.GetTimespan();
+        event_stack.Push(OpEventNode{
+            .timespan = span,
+            .cursor_ps = span.begin_ps(),
+            .is_active = !is_off_duty,
+            .is_active_hc = !is_off_duty_hc,
+        });
       });
-    } else if (line.Name() == tsl::profiler::kSparseCoreOpLineName) {
-      line.ForEachEvent([&](const XEventVisitor& event) {
-        //  TODO(b/397774568): Add support for SC off-duty ops.
-        duty_cycle_tracker.AddInterval(event.GetTimespan(), /*is_active=*/true);
-        duty_cycle_hc_tracker.AddInterval(event.GetTimespan(),
-                                          /*is_active=*/true);
-      });
+      event_stack.Flush();
     } else if (line.Name() == tsl::profiler::kXlaModuleLineName ||
                line.Name() == tsl::profiler::kSparseCoreModuleLineName) {
       line.ForEachEvent([&](const XEventVisitor& event) {
@@ -527,6 +565,12 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
   }
   DutyCycleCombiner duty_cycle_combiner;
   DutyCycleCombiner duty_cycle_hc_combiner;
+  struct DeviceTraceResult {
+    DutyCycleTracker duty_cycle_tracker;
+    DutyCycleTracker duty_cycle_hc_tracker;
+    std::optional<CoreDetails> core_details;
+  };
+  std::vector<DeviceTraceResult> device_trace_results;
   // TODO(b/161942993) parallelize XPlane processing per thread.
   HloModuleMap hlo_module_map;
 
@@ -727,13 +771,6 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
     }
 
     // Device Trace generation.
-    struct DeviceTraceResult {
-      DutyCycleTracker duty_cycle_tracker;
-      DutyCycleTracker duty_cycle_hc_tracker;
-      std::optional<CoreDetails> core_details;
-    };
-    std::vector<DeviceTraceResult> device_trace_results;
-
     // Ensure device_trace threads are joined and results processed when the
     // function exits.
     auto device_trace_cleanup = absl::MakeCleanup(
@@ -868,6 +905,81 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
       // already dropped the incomplete steps at both beginning and end.
       *op_stats.mutable_step_db() = ConvertStepEventsToStepDb(
           has_device, /*maybe_drop_incomplete_steps=*/false, step_events);
+      for (PerCoreStepInfo& per_core_step_info :
+           *op_stats.mutable_step_db()->mutable_step_sequence()) {
+        tsl::profiler::Timespan tc_step_span;
+        for (const auto& [core_id, step_info] :
+             per_core_step_info.step_info_per_core()) {
+          if (core_id < kSparseCoreIndexStart && step_info.duration_ps() > 0) {
+            tc_step_span.ExpandToInclude(tsl::profiler::Timespan(
+                step_info.begin_ps(), step_info.duration_ps()));
+          }
+        }
+        auto& step_info_map = *per_core_step_info.mutable_step_info_per_core();
+        for (size_t i = 0; i < device_planes.size(); ++i) {
+          if (!tsl::profiler::GetSparseCoreId(device_planes[i]->name())
+                   .has_value()) {
+            continue;
+          }
+          uint32_t sc_core_id = kSparseCoreIndexStart + device_planes[i]->id();
+          auto it = step_info_map.find(sc_core_id);
+          if (it != step_info_map.end()) {
+            StepInfoResult& sc_step_info = it->second;
+            tsl::profiler::Timespan sc_step_span(sc_step_info.begin_ps(),
+                                                 sc_step_info.duration_ps());
+            uint64_t sc_active_ps = std::min(
+                sc_step_span.duration_ps(),
+                device_trace_results[i].duty_cycle_tracker.GetActiveTimePs(
+                    sc_step_span));
+            GenericStepBreakdown generic;
+            if (sc_active_ps > 0 &&
+                sc_step_info.step_breakdown().UnpackTo(&generic)) {
+              auto& category_ps = *generic.mutable_category_ps();
+              uint64_t infeed_ps =
+                  category_ps.contains(tsl::profiler::kHloInfeed)
+                      ? category_ps.at(tsl::profiler::kHloInfeed)
+                      : 0;
+              uint64_t outfeed_ps =
+                  category_ps.contains(tsl::profiler::kHloOutfeed)
+                      ? category_ps.at(tsl::profiler::kHloOutfeed)
+                      : 0;
+              for (auto cat_it = category_ps.begin();
+                   cat_it != category_ps.end();) {
+                if (cat_it->first != tsl::profiler::kHloInfeed &&
+                    cat_it->first != tsl::profiler::kHloOutfeed &&
+                    tsl::profiler::IsOffDutyOp(cat_it->first)) {
+                  category_ps.erase(cat_it++);
+                } else {
+                  ++cat_it;
+                }
+              }
+              uint64_t non_idle_ps =
+                  std::min(sc_step_span.duration_ps(),
+                           sc_active_ps + infeed_ps + outfeed_ps);
+              category_ps[kIdle] = sc_step_span.duration_ps() - non_idle_ps;
+              sc_step_info.mutable_step_breakdown()->PackFrom(generic);
+            }
+          } else if (!tc_step_span.Empty()) {
+            uint64_t sc_active_ps = std::min(
+                tc_step_span.duration_ps(),
+                device_trace_results[i].duty_cycle_tracker.GetActiveTimePs(
+                    tc_step_span));
+            if (sc_active_ps > 0) {
+              StepInfoResult sc_step_info;
+              sc_step_info.set_step_num(per_core_step_info.step_num());
+              sc_step_info.set_begin_ps(tc_step_span.begin_ps());
+              sc_step_info.set_duration_ps(tc_step_span.duration_ps());
+              SparseCoreStepBreakdown sc_breakdown;
+              sc_breakdown.set_sc_compute_ps(sc_active_ps);
+              sc_breakdown.set_sc_busy_ps(sc_active_ps);
+              sc_breakdown.set_sc_idle_ps(tc_step_span.duration_ps() -
+                                          sc_active_ps);
+              sc_step_info.mutable_step_breakdown()->PackFrom(sc_breakdown);
+              step_info_map[sc_core_id] = std::move(sc_step_info);
+            }
+          }
+        }
+      }
       auto set_precision_stats = [&](auto* db) {
         *db->mutable_precision_stats() = ComputePrecisionStats(step_events);
       };

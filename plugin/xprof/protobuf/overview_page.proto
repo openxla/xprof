@@ -104,6 +104,12 @@ message OverviewPageAnalysis {
   bool has_program_goodput = 63;
   // Idle time for high confidence duty cycle.
   double idle_time_high_confidence_ps = 64;
+  // Active step time in ms average (max(tc_active_time_ms, sc_active_time_ms)).
+  double active_step_time_ms_average = 65;
+  // Active TensorCore time in ms average.
+  double tc_active_time_ms_average = 66;
+  // Active SparseCore time in ms average.
+  double sc_active_time_ms_average = 67;
   // END-INTERNAL
 }
 

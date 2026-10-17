@@ -591,6 +591,9 @@ TpuStepTimeBreakdown ComputeTpuStepTimeBreakdownInMs(
   tsl::Stat<double> sc_outfeed_ms;
   tsl::Stat<double> sc_idle_ms;
   tsl::Stat<double> sc_step_time_ms;
+  tsl::Stat<double> tc_active_ms;
+  tsl::Stat<double> sc_active_ms;
+  tsl::Stat<double> active_step_time_ms;
   TpuStepTimeBreakdown result;
 
   for (const google::protobuf::Any& step_details : analysis.step_details()) {
@@ -613,6 +616,19 @@ TpuStepTimeBreakdown ComputeTpuStepTimeBreakdownInMs(
     sc_infeed_ms.UpdateStat(details.sc_infeed_time_ms());
     sc_outfeed_ms.UpdateStat(details.sc_outfeed_time_ms());
     sc_step_time_ms.UpdateStat(details.sc_step_time_ms());
+    double step_tc_active_ms = details.tc_active_time_ms() > 0
+                                   ? details.tc_active_time_ms()
+                                   : details.tc_compute_time_ms();
+    double step_sc_active_ms = details.sc_active_time_ms() > 0
+                                   ? details.sc_active_time_ms()
+                                   : details.sc_compute_time_ms();
+    double step_active_ms =
+        details.active_step_time_ms() > 0
+            ? details.active_step_time_ms()
+            : std::max(step_tc_active_ms, step_sc_active_ms);
+    tc_active_ms.UpdateStat(step_tc_active_ms);
+    sc_active_ms.UpdateStat(step_sc_active_ms);
+    active_step_time_ms.UpdateStat(step_active_ms);
   }
   *result.mutable_tc_compute_ms_summary() =
       GetStepSummaryForSampleStats(tc_compute_ms);
@@ -628,6 +644,10 @@ TpuStepTimeBreakdown ComputeTpuStepTimeBreakdownInMs(
       GetStepSummaryForSampleStats(tc_idle_ms);
   *result.mutable_host_transfer_ms_summary() =
       GetStepSummaryForSampleStats(host_transfer_ms);
+  *result.mutable_tc_active_ms_summary() =
+      GetStepSummaryForSampleStats(tc_active_ms);
+  *result.mutable_active_step_time_ms_summary() =
+      GetStepSummaryForSampleStats(active_step_time_ms);
   if (has_sparse_core) {
     auto* sparse_core_step_summary = result.mutable_sparse_core_step_summary();
     *sparse_core_step_summary->mutable_sc_compute_ms_summary() =
@@ -640,6 +660,8 @@ TpuStepTimeBreakdown ComputeTpuStepTimeBreakdownInMs(
         GetStepSummaryForSampleStats(sc_idle_ms);
     *sparse_core_step_summary->mutable_sc_step_time_ms_summary() =
         GetStepSummaryForSampleStats(sc_step_time_ms);
+    *sparse_core_step_summary->mutable_sc_active_ms_summary() =
+        GetStepSummaryForSampleStats(sc_active_ms);
   }
   return result;
 }
@@ -672,6 +694,7 @@ InputPipelineAnalysisResult ComputeTpuInputPipelineAnalysisResult(
     // Compute each TPU step stats.
     const PerTpuStepDetails& per_step_data =
         ComputeTpuPerStepDataAcrossCores(coreid_stepinfo_map, core_details_map);
+    has_sparse_core |= (per_step_data.sc_step_time_ms() > 0);
     result.add_step_details()->PackFrom(per_step_data);
 
     // The infeed summary is based on the maximum infeed time across cores at
@@ -957,9 +980,11 @@ PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
   tsl::Stat<double> infeed_percent_stats;
   tsl::Stat<uint64_t> step_stats_in_ps;
   tsl::Stat<uint64_t> optimal_step_time_ps;
+  tsl::Stat<uint64_t> tc_active_time_ps;
   // Take the average TC outfeed time in result.
   tsl::Stat<uint64_t> tc_outfeed_time_in_ps;
   tsl::Stat<uint64_t> sc_compute_time_ps;
+  tsl::Stat<uint64_t> sc_active_time_ps;
   tsl::Stat<uint64_t> sc_step_stats_in_ps;
   tsl::Stat<uint64_t> sc_outfeed_time_in_ps;
   tsl::Stat<uint64_t> sc_infeed_time_in_ps;
@@ -984,9 +1009,19 @@ PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
         sc_step_stats_in_ps.UpdateStat(step_info.duration_ps());
         sc_outfeed_time_in_ps.UpdateStat(sc_step.sc_outfeed_ps());
         sc_infeed_time_in_ps.UpdateStat(sc_step.sc_infeed_ps());
-        sc_compute_time_ps.UpdateStat(step_info.duration_ps() -
-                                      sc_step.sc_infeed_ps() -
-                                      sc_step.sc_outfeed_ps());
+        uint64_t non_compute_ps = sc_step.sc_infeed_ps() +
+                                  sc_step.sc_outfeed_ps() +
+                                  sc_step.sc_idle_ps();
+        uint64_t core_sc_compute_ps =
+            step_info.duration_ps() > non_compute_ps
+                ? step_info.duration_ps() - non_compute_ps
+                : 0;
+        uint64_t core_sc_active_ps =
+            sc_step.sc_busy_ps() > 0
+                ? std::min(step_info.duration_ps(), sc_step.sc_busy_ps())
+                : core_sc_compute_ps;
+        sc_compute_time_ps.UpdateStat(core_sc_compute_ps);
+        sc_active_time_ps.UpdateStat(core_sc_active_ps);
         sc_idle_time_in_ps.UpdateStat(sc_step.sc_idle_ps());
       };
   for (const auto& [core_id, step_info] :
@@ -1007,7 +1042,8 @@ PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
     }
     // iterates over each core.
     TpuStepBreakdown tpu;
-    if (!step_info.step_breakdown().UnpackTo(&tpu)) {
+    bool unpacked_from_tpu = step_info.step_breakdown().UnpackTo(&tpu);
+    if (!unpacked_from_tpu) {
       VLOG(1) << "Unable to unpack step_breakdown from tpu, try unpacking from "
                  "generic";
       tensorflow::profiler::GenericStepBreakdown generic_step_breakdown;
@@ -1027,15 +1063,34 @@ PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
       if (core_id >= kSparseCoreIndexStart) {
         // Sparse core step breakdown from xspace.
         uint64_t idle_time_ps = 0;
+        uint64_t infeed_time_ps = 0;
+        uint64_t outfeed_time_ps = 0;
+        uint64_t off_duty_non_io_ps = 0;
         for (const auto& [category, time_ps] :
              generic_step_breakdown.category_ps()) {
           if (category == kIdle) {
-            idle_time_ps = time_ps;
+            idle_time_ps += time_ps;
+          } else if (category == tsl::profiler::kHloInfeed) {
+            infeed_time_ps += time_ps;
+          } else if (category == tsl::profiler::kHloOutfeed) {
+            outfeed_time_ps += time_ps;
+          } else if (tsl::profiler::IsOffDutyOp(category)) {
+            off_duty_non_io_ps += time_ps;
           }
         }
+        idle_time_ps = std::min(step_info.duration_ps(),
+                                idle_time_ps + off_duty_non_io_ps);
         sc_step_stats_in_ps.UpdateStat(step_info.duration_ps());
-        // Assume non-idle time is compute time for SparseCore.
-        sc_compute_time_ps.UpdateStat(step_info.duration_ps() - idle_time_ps);
+        sc_infeed_time_in_ps.UpdateStat(infeed_time_ps);
+        sc_outfeed_time_in_ps.UpdateStat(outfeed_time_ps);
+        uint64_t non_compute_ps =
+            infeed_time_ps + outfeed_time_ps + idle_time_ps;
+        uint64_t core_sc_compute_ps =
+            step_info.duration_ps() > non_compute_ps
+                ? step_info.duration_ps() - non_compute_ps
+                : 0;
+        sc_compute_time_ps.UpdateStat(core_sc_compute_ps);
+        sc_active_time_ps.UpdateStat(core_sc_compute_ps);
         sc_idle_time_in_ps.UpdateStat(idle_time_ps);
         continue;
       } else {
@@ -1062,8 +1117,20 @@ PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
     // The optimal step time is the actual step time minus the time tensor
     // core spends waiting for host or sparsecorev0 (but not other tensor
     // cores).
-    optimal_step_time_ps.UpdateStat(step_info.duration_ps() -
-                                    WaitForHostOrScV0DurationPs(tpu));
+    uint64_t wait_for_host_or_scv0_ps = WaitForHostOrScV0DurationPs(tpu);
+    uint64_t core_optimal_step_ps =
+        step_info.duration_ps() > wait_for_host_or_scv0_ps
+            ? step_info.duration_ps() - wait_for_host_or_scv0_ps
+            : 0;
+    optimal_step_time_ps.UpdateStat(core_optimal_step_ps);
+    uint64_t core_tc_active_ps = tpu.tc_busy_ps();
+    if (unpacked_from_tpu && core_tc_active_ps == 0 &&
+        core_optimal_step_ps >
+            tpu.wait_for_megacore_fusion_peer_duration_ps()) {
+      core_tc_active_ps = core_optimal_step_ps -
+                          tpu.wait_for_megacore_fusion_peer_duration_ps();
+    }
+    tc_active_time_ps.UpdateStat(core_tc_active_ps);
     host_send_recv_time_ps.UpdateStat(HostSendRecvDurationPs(tpu));
 
     if (tpu.infeed_duration_ps() > max_infeed.duration_ps) {
@@ -1080,6 +1147,10 @@ PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
   if (!optimal_step_time_ps.empty()) {
     per_step_data.set_tc_compute_time_ms(
         tsl::profiler::PicoToMilli(optimal_step_time_ps.min()));
+  }
+  if (!tc_active_time_ps.empty()) {
+    per_step_data.set_tc_active_time_ms(
+        tsl::profiler::PicoToMilli(tc_active_time_ps.avg()));
   }
   if (!host_send_recv_time_ps.empty()) {
     per_step_data.set_host_transfer_ms(
@@ -1142,6 +1213,10 @@ PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
     per_step_data.set_sc_compute_time_ms(
         tsl::profiler::PicoToMilli(sc_compute_time_ps.min()));
   }
+  if (!sc_active_time_ps.empty()) {
+    per_step_data.set_sc_active_time_ms(
+        tsl::profiler::PicoToMilli(sc_active_time_ps.avg()));
+  }
   if (!sc_idle_time_in_ps.empty()) {
     per_step_data.set_sc_idle_time_ms(
         tsl::profiler::PicoToMilli(sc_idle_time_in_ps.avg()));
@@ -1153,6 +1228,8 @@ PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
   if (per_step_data.sc_idle_time_ms() < 0) {
     per_step_data.set_sc_idle_time_ms(0);
   }
+  per_step_data.set_active_step_time_ms(std::max(
+      per_step_data.tc_active_time_ms(), per_step_data.sc_active_time_ms()));
   return per_step_data;
 }
 
@@ -1750,8 +1827,13 @@ void AddTpuStepTimeBreakdown(const TpuStepTimeBreakdown& breakdown,
       breakdown.sparse_core_step_summary().sc_idle_ms_summary();
   const StepSummary& sc_step_summary =
       breakdown.sparse_core_step_summary().sc_step_time_ms_summary();
+  const StepSummary& sc_active_summary =
+      breakdown.sparse_core_step_summary().sc_active_ms_summary();
   const StepSummary& host_transfer_summary =
       breakdown.host_transfer_ms_summary();
+  const StepSummary& tc_active_summary = breakdown.tc_active_ms_summary();
+  const StepSummary& active_step_summary =
+      breakdown.active_step_time_ms_summary();
 
   if (!has_sc) {
     data_table.AddCustomProperty(std::string(kSparseCoreV0ComputeMsAverage),
@@ -1761,6 +1843,10 @@ void AddTpuStepTimeBreakdown(const TpuStepTimeBreakdown& breakdown,
   }
   data_table.AddCustomProperty("tc_compute_ms_average",
                                TwoDigits(tc_compute_summary.average()));
+  data_table.AddCustomProperty("tc_active_ms_average",
+                               TwoDigits(tc_active_summary.average()));
+  data_table.AddCustomProperty("active_steptime_ms_average",
+                               TwoDigits(active_step_summary.average()));
   data_table.AddCustomProperty("tc_infeed_ms_average",
                                TwoDigits(tc_infeed_summary.average()));
   data_table.AddCustomProperty("tc_outfeed_ms_average",
@@ -1772,6 +1858,11 @@ void AddTpuStepTimeBreakdown(const TpuStepTimeBreakdown& breakdown,
   if (sc_step_summary.minimum() > 0) {
     data_table.AddCustomProperty("sc_compute_ms_average",
                                  TwoDigits(sc_compute_summary.average()));
+    double sc_active_avg = sc_active_summary.average() > 0
+                               ? sc_active_summary.average()
+                               : sc_compute_summary.average();
+    data_table.AddCustomProperty("sc_active_ms_average",
+                                 TwoDigits(sc_active_avg));
     data_table.AddCustomProperty("sc_infeed_ms_average",
                                  TwoDigits(sc_infeed_summary.average()));
     data_table.AddCustomProperty("sc_outfeed_ms_average",

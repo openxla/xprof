@@ -272,6 +272,70 @@ TEST(TfOpStatsToInputPipelineAnalysisTest,
   EXPECT_EQ(per_step_data.sc_outfeed_time_ms(), 0);
   EXPECT_EQ(per_step_data.sc_infeed_time_ms(), 0);
   EXPECT_EQ(per_step_data.sc_step_time_ms(), 1000);
+  EXPECT_EQ(per_step_data.tc_active_time_ms(), 0);
+  EXPECT_EQ(per_step_data.sc_active_time_ms(), 800);
+  EXPECT_EQ(per_step_data.active_step_time_ms(), 800);
+}
+
+TEST(TfOpStatsToInputPipelineAnalysisTest,
+     ComputeTpuPerStepDataAcrossCoresExcludesScSyncWaitAndComputesActiveTime) {
+  PerCoreStepInfo per_core_step_info;
+  per_core_step_info.set_step_num(1);
+  tsl::protobuf::Map<uint32_t, StepInfoResult>& step_info_per_core =
+      *per_core_step_info.mutable_step_info_per_core();
+
+  // Add a TensorCore step (1000 ms total: 600 ms compute, 100 ms infeed,
+  // 200 ms async-done/call-done, 100 ms idle -> 600 ms active).
+  uint32_t tc_core_id = 0;
+  StepInfoResult& tc_step_info = step_info_per_core[tc_core_id];
+  tc_step_info.set_step_num(1);
+  tc_step_info.set_begin_ps(0);
+  tc_step_info.set_duration_ps(1000 * 1000000000ULL);
+  GenericStepBreakdown tc_breakdown;
+  tsl::protobuf::Map<std::string, uint64_t>& tc_cat =
+      *tc_breakdown.mutable_category_ps();
+  tc_cat[xla::HloOpcodeString(xla::HloOpcode::kMultiply)] = 600 * 1000000000ULL;
+  tc_cat[xla::HloOpcodeString(xla::HloOpcode::kInfeed)] = 100 * 1000000000ULL;
+  tc_cat[xla::HloOpcodeString(xla::HloOpcode::kAsyncDone)] =
+      200 * 1000000000ULL;
+  tc_cat[tensorflow::profiler::kIdle] = 100 * 1000000000ULL;
+  tc_step_info.mutable_step_breakdown()->PackFrom(tc_breakdown);
+
+  // Add a SparseCore step via GenericStepBreakdown (1000 ms total:
+  // 500 ms compute, 300 ms async-done/call-done, 100 ms infeed, 100 ms idle
+  // -> 500 ms active).
+  uint32_t sc_core_id = kSparseCoreIndexStart + 1;
+  StepInfoResult& sc_step_info = step_info_per_core[sc_core_id];
+  sc_step_info.set_step_num(1);
+  sc_step_info.set_begin_ps(0);
+  sc_step_info.set_duration_ps(1000 * 1000000000ULL);
+  GenericStepBreakdown sc_breakdown;
+  tsl::protobuf::Map<std::string, uint64_t>& sc_cat =
+      *sc_breakdown.mutable_category_ps();
+  sc_cat[xla::HloOpcodeString(xla::HloOpcode::kAsyncDone)] =
+      300 * 1000000000ULL;
+  sc_cat[xla::HloOpcodeString(xla::HloOpcode::kInfeed)] = 100 * 1000000000ULL;
+  sc_cat[tensorflow::profiler::kIdle] = 100 * 1000000000ULL;
+  sc_step_info.mutable_step_breakdown()->PackFrom(sc_breakdown);
+
+  tsl::protobuf::Map<uint32_t, CoreDetails> core_details_map;
+  core_details_map[tc_core_id].set_is_sparse_core(false);
+  core_details_map[sc_core_id].set_is_sparse_core(true);
+
+  PerTpuStepDetails per_step_data =
+      ComputeTpuPerStepDataAcrossCores(per_core_step_info, core_details_map);
+
+  // Legacy tc_compute_time_ms/tc_idle_time_ms preserve historical semantics
+  // for MayFixTpuStepAnalysis, while tc_active_time_ms excludes async-done.
+  EXPECT_NEAR(per_step_data.tc_compute_time_ms(), 800.0, 1e-6);
+  EXPECT_NEAR(per_step_data.tc_idle_time_ms(), 100.0, 1e-6);
+  EXPECT_NEAR(per_step_data.tc_infeed_time_ms(), 100.0, 1e-6);
+  EXPECT_NEAR(per_step_data.sc_compute_time_ms(), 500.0, 1e-6);
+  EXPECT_NEAR(per_step_data.sc_idle_time_ms(), 400.0, 1e-6);
+  EXPECT_NEAR(per_step_data.sc_infeed_time_ms(), 100.0, 1e-6);
+  EXPECT_NEAR(per_step_data.tc_active_time_ms(), 600.0, 1e-6);
+  EXPECT_NEAR(per_step_data.sc_active_time_ms(), 500.0, 1e-6);
+  EXPECT_NEAR(per_step_data.active_step_time_ms(), 600.0, 1e-6);
 }
 
 TEST(TfOpStatsToInputPipelineAnalysisTest,
@@ -368,6 +432,38 @@ TEST(TfOpStatsToInputPipelineAnalysisTest,
   EXPECT_EQ(
       updated_category_ps.at(xla::HloOpcodeString(xla::HloOpcode::kInfeed)),
       50);
+}
+
+TEST(TfOpStatsToInputPipelineAnalysisTest,
+     ComputeTpuPerStepDataAcrossCoresUsesSparseCoreStepBreakdownBusyPs) {
+  PerCoreStepInfo per_core_step_info;
+  per_core_step_info.set_step_num(1);
+  tsl::protobuf::Map<uint32_t, StepInfoResult>& step_info_per_core =
+      *per_core_step_info.mutable_step_info_per_core();
+
+  uint32_t sc_core_id = kSparseCoreIndexStart + 1;
+  StepInfoResult& sc_step_info = step_info_per_core[sc_core_id];
+  sc_step_info.set_step_num(1);
+  sc_step_info.set_begin_ps(0);
+  sc_step_info.set_duration_ps(1000 * 1000000000ULL);
+  SparseCoreStepBreakdown sc_breakdown;
+  sc_breakdown.set_sc_compute_ps(450 * 1000000000ULL);
+  sc_breakdown.set_sc_busy_ps(450 * 1000000000ULL);
+  sc_breakdown.set_sc_infeed_ps(50 * 1000000000ULL);
+  sc_breakdown.set_sc_idle_ps(500 * 1000000000ULL);
+  sc_step_info.mutable_step_breakdown()->PackFrom(sc_breakdown);
+
+  tsl::protobuf::Map<uint32_t, CoreDetails> core_details_map;
+  core_details_map[sc_core_id].set_is_sparse_core(true);
+
+  PerTpuStepDetails per_step_data =
+      ComputeTpuPerStepDataAcrossCores(per_core_step_info, core_details_map);
+
+  EXPECT_NEAR(per_step_data.sc_compute_time_ms(), 450.0, 1e-6);
+  EXPECT_NEAR(per_step_data.sc_active_time_ms(), 450.0, 1e-6);
+  EXPECT_NEAR(per_step_data.sc_idle_time_ms(), 500.0, 1e-6);
+  EXPECT_NEAR(per_step_data.sc_infeed_time_ms(), 50.0, 1e-6);
+  EXPECT_NEAR(per_step_data.active_step_time_ms(), 450.0, 1e-6);
 }
 
 }  // namespace

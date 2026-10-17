@@ -94,6 +94,30 @@ uint64_t DutyCycleTracker::GetActiveTimePs() const {
   return active_time_ps;
 }
 
+uint64_t DutyCycleTracker::GetActiveTimePs(
+    tsl::profiler::Timespan window) const {
+  if (window.Empty() || active_time_spans_.empty()) {
+    return 0;
+  }
+  uint64_t active_time_ps = 0;
+  auto it = active_time_spans_.lower_bound(window);
+  if (it != active_time_spans_.begin()) {
+    --it;
+  }
+  for (; it != active_time_spans_.end() && it->begin_ps() < window.end_ps();
+       ++it) {
+    if (it->end_ps() <= window.begin_ps()) {
+      continue;
+    }
+    uint64_t start_ps = std::max(it->begin_ps(), window.begin_ps());
+    uint64_t end_ps = std::min(it->end_ps(), window.end_ps());
+    if (end_ps > start_ps) {
+      active_time_ps += end_ps - start_ps;
+    }
+  }
+  return active_time_ps;
+}
+
 uint64_t DutyCycleTracker::GetIdleTimePs() const {
   return total_time_span_.duration_ps() - GetActiveTimePs();
 }

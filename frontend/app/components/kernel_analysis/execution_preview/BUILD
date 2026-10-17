@@ -1,7 +1,5 @@
 load("//defs:defs.bzl", "xprof_ng_module")
 
-package(default_visibility = ["//frontend:internal"])
-
 xprof_ng_module(
     name = "execution_preview",
     srcs = ["execution_preview.component.ts"],

@@ -1763,6 +1763,110 @@ TEST(ConvertXPlaneToOpStats, ConstructHCDutyCycleTrackerFromCustomCallWithIci) {
   EXPECT_EQ(tracker.GetIdleTimePs(), 35);
 }
 
+TEST(ConvertXPlaneToOpStats,
+     ConstructDutyCycleTrackerCarvesOutNestedSyncWaitChildFromParent) {
+  XSpace space;
+  XPlane* device_plane = GetOrCreateTpuXPlane(
+      &space, /*device_ordinal=*/0, /*device_type=*/"TPU v5p",
+      /*peak_tera_flops_per_second=*/0,
+      /*peak_hbm_bw_gigabytes_per_second=*/0);
+  XPlaneBuilder device_plane_builder(device_plane);
+  XLineBuilder op_line = device_plane_builder.GetOrCreateLine(0);
+  op_line.SetName(kXlaOpLineName);
+
+  // Parent op at [10, 110) (duration 100ps)
+  CreateXEventMetadata(&device_plane_builder, "parent_op",
+                       {{StatType::kHloCategory, "fusion"}});
+  CreateXEvent(&device_plane_builder, &op_line, "parent_op",
+               /*offset_ps=*/10, /*duration_ps=*/100);
+
+  // Nested call-done child at [30, 90) (duration 60ps, off-duty sync wait)
+  CreateXEventMetadata(&device_plane_builder, "call-done.1",
+                       {{StatType::kHloCategory,
+                         xla::HloOpcodeString(xla::HloOpcode::kAsyncDone)}});
+  CreateXEvent(&device_plane_builder, &op_line, "call-done.1",
+               /*offset_ps=*/30, /*duration_ps=*/60);
+
+  XLineBuilder xla_module_line = device_plane_builder.GetOrCreateLine(1);
+  xla_module_line.SetName(kXlaModuleLineName);
+  CreateXEvent(&device_plane_builder, &xla_module_line, "module.1",
+               /*offset_ps=*/10, /*duration_ps=*/100);
+
+  XPlaneVisitor visitor = tsl::profiler::CreateTfXPlaneVisitor(device_plane);
+  DutyCycleTracker tracker = ConstructDutyCycleTracker(visitor);
+
+  // Active time should be [10, 30) + [90, 110) = 40ps, and idle time 60ps.
+  EXPECT_EQ(tracker.GetActiveTimePs(), 40);
+  EXPECT_EQ(tracker.GetIdleTimePs(), 60);
+}
+
+TEST(ConvertXPlaneToOpStats,
+     SparseCoreStepDbUnionsTecLinesAndExcludesSyncWait) {
+  XSpace space;
+  constexpr int64_t kGroupId = 1;
+
+  // TC Plane 0: Step [0, 100)
+  XPlaneBuilder tc_plane_builder(
+      GetOrCreateTpuXPlane(&space, /*device_ordinal=*/0, "TPU v5p", 0, 0));
+  tc_plane_builder.SetId(0);
+  XLineBuilder tc_step_line = tc_plane_builder.GetOrCreateLine(0);
+  tc_step_line.SetName(tsl::profiler::kStepLineName);
+  CreateXEvent(&tc_plane_builder, &tc_step_line, "Step 1", /*offset_ps=*/0,
+               /*duration_ps=*/100, {{StatType::kGroupId, kGroupId}});
+  XLineBuilder tc_op_line = tc_plane_builder.GetOrCreateLine(1);
+  tc_op_line.SetName(kXlaOpLineName);
+  CreateXEventMetadata(&tc_plane_builder, "tc_dot",
+                       {{StatType::kHloCategory, "dot"}});
+  CreateXEvent(&tc_plane_builder, &tc_op_line, "tc_dot", /*offset_ps=*/0,
+               /*duration_ps=*/40, {{StatType::kGroupId, kGroupId}});
+
+  // SC Plane 1: No Sparse Core Steps line; activity across Sparse Core Ops and
+  // TEC 0 / TEC 1 with overlapping intervals and an off-duty call-done wait.
+  XPlaneBuilder sc_plane_builder(
+      GetOrCreateTpuXPlane(&space, /*device_ordinal=*/1, "TPU v5p", 0, 0));
+  sc_plane_builder.SetId(1);
+  sc_plane_builder.SetName("/device:TPU:0 SparseCore 0");
+  XLineBuilder sc_op_line = sc_plane_builder.GetOrCreateLine(0);
+  sc_op_line.SetName(kSparseCoreOpLineName);
+  // Active SC op [10, 40) (30ps)
+  CreateXEvent(&sc_plane_builder, &sc_op_line, "sc_active_op", /*offset_ps=*/10,
+               /*duration_ps=*/30, {{StatType::kGroupId, kGroupId}});
+  // Off-duty SC sync wait [40, 80) (40ps, excluded)
+  CreateXEvent(&sc_plane_builder, &sc_op_line, "call-done.sc", /*offset_ps=*/40,
+               /*duration_ps=*/40, {{StatType::kGroupId, kGroupId}});
+
+  // TEC 0 line: active task [20, 60) (overlaps [20, 40) with sc_active_op,
+  // extends union to [10, 60) = 50ps)
+  XLineBuilder tec0_line = sc_plane_builder.GetOrCreateLine(1);
+  tec0_line.SetName("TEC 0");
+  CreateXEvent(&sc_plane_builder, &tec0_line, "tec_task_0", /*offset_ps=*/20,
+               /*duration_ps=*/40);
+
+  // TEC 1 line: active task [30, 70) (extends union to [10, 70) = 60ps)
+  XLineBuilder tec1_line = sc_plane_builder.GetOrCreateLine(2);
+  tec1_line.SetName("TEC 1");
+  CreateXEvent(&sc_plane_builder, &tec1_line, "tec_task_1", /*offset_ps=*/30,
+               /*duration_ps=*/40);
+
+  ASSERT_OK_AND_ASSIGN(
+      OpStats op_stats,
+      ConvertXSpaceToOpStats(space,
+                             OpStatsOptions{.generate_op_metrics_db = true,
+                                            .generate_step_db = true}));
+  ASSERT_EQ(op_stats.step_db().step_sequence_size(), 1);
+  const auto& step_info_per_core =
+      op_stats.step_db().step_sequence(0).step_info_per_core();
+  uint32_t sc_core_id = kSparseCoreIndexStart + 1;
+  ASSERT_TRUE(step_info_per_core.contains(sc_core_id));
+  SparseCoreStepBreakdown sc_breakdown;
+  ASSERT_TRUE(step_info_per_core.at(sc_core_id).step_breakdown().UnpackTo(
+      &sc_breakdown));
+  // Union of [10, 40), [20, 60), [30, 70) = [10, 70) = 60ps active, 40ps idle.
+  EXPECT_EQ(sc_breakdown.sc_compute_ps(), 60);
+  EXPECT_EQ(sc_breakdown.sc_busy_ps(), 60);
+  EXPECT_EQ(sc_breakdown.sc_idle_ps(), 40);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

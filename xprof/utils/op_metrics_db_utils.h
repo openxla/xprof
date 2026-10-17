@@ -23,6 +23,7 @@ limitations under the License.
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/platform/macros.h"
 #include "xla/tsl/platform/types.h"
@@ -131,6 +132,17 @@ void AddIdleOp(OpMetricsDb& db);
 // Returns true if the given metrics represents idle time.
 inline bool IsIdleOp(const OpMetrics& metrics) {
   return metrics.category() == kIdle;
+}
+
+// Returns true if the given op name represents a synchronous completion/wait op
+// for an asynchronous offload or host transfer (e.g., call-done, async-done,
+// sync-wait, host-send-done, host-recv-done).
+inline bool IsSyncWaitDoneOp(absl::string_view op_name) {
+  return absl::StrContains(op_name, "call-done") ||
+         absl::StrContains(op_name, "async-done") ||
+         absl::StrContains(op_name, "sync-wait") ||
+         absl::StrContains(op_name, "host-send-done") ||
+         absl::StrContains(op_name, "host-recv-done");
 }
 
 // Returns the time spent in children (nested) ops.

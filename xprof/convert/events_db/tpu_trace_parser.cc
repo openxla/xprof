@@ -173,15 +173,33 @@ absl::StatusOr<ParseStatus> ParseTpuTensorCoreTrace(
   return ParseStatus::kComplete;
 }
 
-void PopulateSparseCoreEventRecord(int64_t line_id,
-                                   const tsl::profiler::XEventVisitor& event,
-                                   const FieldIndices& indices,
-                                   Record& record) {
+void PopulateSparseCoreEventRecord(
+    int64_t line_id, tsl::profiler::XEventContextTracker& step_context,
+    tsl::profiler::XEventContextTracker& hlo_module_context,
+    const tsl::profiler::XEventVisitor& event, const FieldIndices& indices,
+    Record& record) {
+  auto populate_op_context = [&]() {
+    record[indices.hlo_op] =
+        event.HasDisplayName() ? event.DisplayName() : event.Name();
+    std::optional<tsl::profiler::XEventVisitor> step_event =
+        step_context.GetContainingEvent(event.GetTimespan());
+    if (step_event) {
+      record[indices.step] = absl::StrCat("step:", step_event->Name());
+    }
+    std::optional<tsl::profiler::XEventVisitor> hlo_module_event =
+        hlo_module_context.GetContainingEvent(event.GetTimespan());
+    if (hlo_module_event) {
+      record[indices.hlo_module] = hlo_module_event->Name();
+    }
+  };
   switch (line_id) {
     case TpuComponent::kSparseCoreModule:
       record[indices.kernel_name] = absl::StrCat("HLO Module:", event.Name());
       break;
     case TpuComponent::kSparseCoreOps:
+      record[indices.kernel_name] = event.Name();
+      populate_op_context();
+      break;
     case TpuComponent::kSparseCoreSyncs:
       record[indices.kernel_name] = event.Name();
       break;
@@ -196,6 +214,7 @@ void PopulateSparseCoreEventRecord(int64_t line_id,
       if (line_id >= TpuComponent::kSparseCoreTecBase &&
           line_id <= TpuComponent::kSparseCoreTec15) {
         record[indices.kernel_name] = event.Name();
+        populate_op_context();
       }
   }
 }
@@ -206,19 +225,36 @@ absl::StatusOr<ParseStatus> ParseTpuSparseCoreTrace(
   const tsl::profiler::XPlaneVisitor plane =
       tsl::profiler::CreateTfXPlaneVisitor(&device_trace);
   const absl::string_view device_name = GetTpuDeviceName(plane.Name());
-  Record record;
+  tsl::profiler::XEventContextTracker step_context(
+      &plane, tsl::profiler::FindLineWithId(
+                  device_trace, TpuComponent::kSparseCoreStepCounter));
+  tsl::profiler::XEventContextTracker hlo_module_context(
+      &plane, tsl::profiler::FindLineWithId(device_trace,
+                                            TpuComponent::kSparseCoreModule));
+  ParentEventTracker parent_tracker(kRecordBufferCapacity);
   for (const tensorflow::profiler::XLine& line : device_trace.lines()) {
     const tsl::profiler::XLineVisitor line_visitor(&plane, &line);
+    parent_tracker.Reset();
     for (const tensorflow::profiler::XEvent& event : line.events()) {
       const tsl::profiler::XEventVisitor event_visitor(&plane, &line, &event);
-      record.clear();
+      Record record = parent_tracker.GetOrCreateRecord();
       ExtractCommonInfo(device_name, line_visitor, event_visitor, indices,
                         record);
-      PopulateSparseCoreEventRecord(line_visitor.Id(), event_visitor, indices,
+      PopulateSparseCoreEventRecord(line_visitor.Id(), step_context,
+                                    hlo_module_context, event_visitor, indices,
                                     record);
-      TF_ASSIGN_OR_RETURN(const StepControl control, consumer(record));
+      TF_ASSIGN_OR_RETURN(
+          const StepControl control,
+          parent_tracker.AddRecord(
+              std::move(record),
+              static_cast<uint64_t>(event_visitor.TimestampNs()),
+              static_cast<uint64_t>(event_visitor.DurationNs()), indices,
+              consumer));
       if (control == StepControl::kStop) return ParseStatus::kStoppedEarly;
     }
+    TF_ASSIGN_OR_RETURN(const StepControl control,
+                        parent_tracker.Flush(consumer));
+    if (control == StepControl::kStop) return ParseStatus::kStoppedEarly;
   }
   return ParseStatus::kComplete;
 }

@@ -744,5 +744,69 @@ TEST(TpuTraceParserTest, NonCorePropagatesConsumerError) {
               StatusIs(absl::StatusCode::kInternal, "tpu noncore error"));
 }
 
+TEST(TpuTraceParserTest, ParsesSparseCoreOpContextAndSelfTime) {
+  tensorflow::profiler::XPlane plane;
+  plane.set_name("/device:TPU:0 SparseCore 0");
+  tsl::profiler::XPlaneBuilder plane_builder(&plane);
+
+  tsl::profiler::XLineBuilder step_line =
+      plane_builder.GetOrCreateLine(TpuComponent::kSparseCoreStepCounter);
+  step_line.SetName(tsl::profiler::kSparseCoreStepLineName);
+  tsl::profiler::XEventBuilder step_event =
+      step_line.AddEvent(*plane_builder.GetOrCreateEventMetadata("0"));
+  step_event.SetTimestampNs(1000);
+  step_event.SetDurationNs(5000);
+
+  tsl::profiler::XLineBuilder mod_line =
+      plane_builder.GetOrCreateLine(TpuComponent::kSparseCoreModule);
+  mod_line.SetName(tsl::profiler::kSparseCoreModuleLineName);
+  tsl::profiler::XEventBuilder mod_event =
+      mod_line.AddEvent(*plane_builder.GetOrCreateEventMetadata("sc_mod(42)"));
+  mod_event.SetTimestampNs(1000);
+  mod_event.SetDurationNs(5000);
+
+  tsl::profiler::XLineBuilder op_line =
+      plane_builder.GetOrCreateLine(TpuComponent::kSparseCoreOps);
+  op_line.SetName(tsl::profiler::kSparseCoreOpLineName);
+  tsl::profiler::XEventBuilder parent_op =
+      op_line.AddEvent(*plane_builder.GetOrCreateEventMetadata("parent_sc_op"));
+  parent_op.SetTimestampNs(2000);
+  parent_op.SetDurationNs(2000);
+
+  tsl::profiler::XEventBuilder child_op =
+      op_line.AddEvent(*plane_builder.GetOrCreateEventMetadata("call-done"));
+  child_op.SetTimestampNs(2500);
+  child_op.SetDurationNs(1200);
+
+  tensorflow::profiler::HloModuleMap hlo_module_map;
+  Schema schema;
+  FieldIndices indices(schema);
+  std::vector<Record> parsed_records;
+
+  EXPECT_THAT(ParseTpuTrace(plane, hlo_module_map, indices,
+                            [&](Record& record) -> absl::StatusOr<StepControl> {
+                              parsed_records.push_back(record);
+                              return StepControl::kContinue;
+                            }),
+              IsOkAndHolds(ParseStatus::kComplete));
+
+  const Record* parent_rec = nullptr;
+  const Record* child_rec = nullptr;
+  for (const Record& r : parsed_records) {
+    if (r[indices.kernel_name] == "parent_sc_op") parent_rec = &r;
+    if (r[indices.kernel_name] == "call-done") child_rec = &r;
+  }
+  ASSERT_NE(parent_rec, nullptr);
+  ASSERT_NE(child_rec, nullptr);
+  EXPECT_EQ((*parent_rec)[indices.step], "step:0");
+  EXPECT_EQ((*parent_rec)[indices.hlo_module], "sc_mod(42)");
+  EXPECT_EQ((*parent_rec)[indices.hlo_op], "parent_sc_op");
+  EXPECT_EQ(parent_rec->Get(indices.self_time_ns), 800);
+  EXPECT_EQ((*child_rec)[indices.step], "step:0");
+  EXPECT_EQ((*child_rec)[indices.hlo_module], "sc_mod(42)");
+  EXPECT_EQ((*child_rec)[indices.hlo_op], "call-done");
+  EXPECT_EQ(child_rec->Get(indices.self_time_ns), 1200);
+}
+
 }  // namespace
 }  // namespace xprof::events_db::internal

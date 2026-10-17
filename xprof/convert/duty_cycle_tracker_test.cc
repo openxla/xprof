@@ -83,6 +83,20 @@ TEST(DutyCycleTrackerTest, OverlappingMixedIntervalsTest) {
   EXPECT_EQ(tracker.GetIdleTimePs(), 10);
 }
 
+TEST(DutyCycleTrackerTest, GetActiveTimePsInWindowTest) {
+  DutyCycleTracker tracker;
+  tracker.AddInterval(Timespan::FromEndPoints(10, 20), true);
+  tracker.AddInterval(Timespan::FromEndPoints(30, 50), true);
+  tracker.AddInterval(Timespan::FromEndPoints(50, 70), false);
+  tracker.AddInterval(Timespan::FromEndPoints(70, 90), true);
+
+  EXPECT_EQ(tracker.GetActiveTimePs(Timespan::FromEndPoints(0, 10)), 0);
+  EXPECT_EQ(tracker.GetActiveTimePs(Timespan::FromEndPoints(15, 40)), 15);
+  EXPECT_EQ(tracker.GetActiveTimePs(Timespan::FromEndPoints(0, 100)), 50);
+  EXPECT_EQ(tracker.GetActiveTimePs(Timespan::FromEndPoints(50, 70)), 0);
+  EXPECT_EQ(tracker.GetActiveTimePs(Timespan::FromEndPoints(45, 75)), 10);
+}
+
 void BM_DutyCycleTracker_AddInterval(::testing::benchmark::State& state) {
   std::vector<Timespan> timespans;
   timespans.reserve(state.range(0));

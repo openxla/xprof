@@ -27,6 +27,9 @@ _MAX_DEVICES_PER_HOST = 1000
 PERFORMANCE_SUMMARY_KEYS = frozenset({
     "steptime_ms_average",
     "steptime_ms_standard_deviation",
+    "active_steptime_ms_average",
+    "tc_active_ms_average",
+    "sc_active_ms_average",
     "tc_idle_ms_average",
     "tc_infeed_ms_average",
     "tc_outfeed_ms_average",

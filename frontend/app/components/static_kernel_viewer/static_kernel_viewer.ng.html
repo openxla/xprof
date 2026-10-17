@@ -42,7 +42,11 @@
             [value]="filterQuery"
             (input)="onFilterChange(searchInput.value)"
             (keydown)="onSearchKeydown($event)"
+            (focus)="onSearchFocusChange()"
+            (blur)="onSearchFocusChange()"
             aria-label="Search kernels or modules"
+            aria-controls="skv-kernel-list"
+            [attr.aria-activedescendant]="isSearchFocused && cursorEntry ? rowId(cursorEntry) : null"
           />
           <kbd *ngIf="!filterQuery" class="search-shortcut" aria-hidden="true">K</kbd>
         </label>
@@ -56,9 +60,151 @@
         >
           <mat-icon>close</mat-icon>
         </button>
-      </div>
 
-      <div class="rail-body" (scroll)="onRailScroll()">
+        <div
+          *ngIf="hasFacetFilters"
+          class="collapsed-filter-pill"
+          [style.--pill-color]="
+            selectedKind && panelFilterCount === 0
+              ? selectedKind.color
+              : 'var(--mat-sys-primary)'
+          "
+          aria-hidden="true"
+        >
+          <div class="collapsed-filter-pill-content">
+            <mat-icon class="collapsed-filter-icon">{{
+              selectedKind && panelFilterCount === 0 ? selectedKind.icon : 'tune'
+            }}</mat-icon>
+            <span class="collapsed-filter-count">{{ visibleCount }}</span>
+          </div>
+        </div>
+
+        <div class="rail-filters">
+          <div class="rail-filters-content">
+            <div *ngIf="entries.length > 0" class="filter-bar">
+              <div *ngIf="hasKindFilter" class="segmented kind-filter" role="group" aria-label="Kind of kernel">
+                <button
+                  class="segment kind-option all-kinds"
+                  type="button"
+                  [class.selected]="kindFilter === ''"
+                  [attr.aria-pressed]="kindFilter === ''"
+                  (click)="setKindFilter('')"
+                >
+                  All<span class="option-count">{{ allKindsCount }}</span>
+                </button>
+                <button
+                  *ngFor="let option of kindOptions; trackBy: trackByOption"
+                  class="segment kind-option"
+                  type="button"
+                  [class.selected]="kindFilter === option.id"
+                  [class.empty]="option.count === 0"
+                  [style.--kind-color]="option.color"
+                  [attr.aria-pressed]="kindFilter === option.id"
+                  (click)="setKindFilter(option.id)"
+                >
+                  <mat-icon class="kind-icon" aria-hidden="true">{{ option.icon }}</mat-icon>{{ option.label }}<span class="option-count">{{ option.count }}</span>
+                </button>
+              </div>
+              <button
+                class="filter-button"
+                type="button"
+                [class.active]="isFilterPanelOpen || panelFilterCount > 0"
+                [class.labeled]="!hasKindFilter"
+                (click)="toggleFilterPanel()"
+                [matTooltip]="isFilterPanelOpen ? 'Hide filters' : 'Filter, sort and group kernels'"
+                matTooltipPosition="below"
+                [attr.aria-label]="hasKindFilter ? 'Filter, sort and group kernels' : null"
+                aria-controls="skv-filter-panel"
+                [attr.aria-expanded]="isFilterPanelOpen"
+              >
+                <mat-icon class="filter-icon" aria-hidden="true">tune</mat-icon>
+                <span *ngIf="!hasKindFilter" class="filter-button-label">Filters</span>
+                <span *ngIf="panelFilterCount > 0" class="filter-badge" aria-hidden="true">{{ panelFilterCount }}</span>
+              </button>
+            </div>
+
+            <div
+              *ngIf="isFilterPanelOpen"
+              id="skv-filter-panel"
+              class="filter-panel"
+              role="group"
+              aria-label="Filter, sort and group kernels"
+            >
+              <div *ngIf="unitOptions.length > 0" class="filter-row">
+                <span id="skv-unit-filter-label" class="filter-label">Busiest unit</span>
+                <div class="filter-chips unit-filter" role="group" aria-labelledby="skv-unit-filter-label">
+                  <button
+                    *ngFor="let option of unitOptions; trackBy: trackByOption"
+                    class="filter-chip unit-option"
+                    type="button"
+                    [class.selected]="isUnitSelected(option.id)"
+                    [class.empty]="option.count === 0"
+                    [style.--chip-color]="option.color"
+                    [attr.aria-pressed]="isUnitSelected(option.id)"
+                    (click)="toggleUnitFilter(option.id)"
+                  >
+                    <mat-icon *ngIf="isUnitSelected(option.id)" class="chip-check" aria-hidden="true">check</mat-icon>{{ option.label }}<span class="option-count">{{ option.count }}</span>
+                  </button>
+                </div>
+              </div>
+              <div *ngIf="hasSpillingKernels" class="filter-row">
+                <span id="skv-spill-filter-label" class="filter-label">Issues</span>
+                <div class="filter-chips spill-filter" role="group" aria-labelledby="skv-spill-filter-label">
+                  <button
+                    class="filter-chip spills-option"
+                    type="button"
+                    [class.selected]="spillsOnly"
+                    [class.empty]="spillsCount === 0"
+                    [attr.aria-pressed]="spillsOnly"
+                    (click)="setSpillsOnly(!spillsOnly)"
+                  >
+                    <mat-icon *ngIf="spillsOnly" class="chip-check" aria-hidden="true">check</mat-icon>Vector spills<span class="option-count">{{ spillsCount }}</span>
+                  </button>
+                </div>
+              </div>
+              <div class="filter-row">
+                <span id="skv-sort-label" class="filter-label">Sort by</span>
+                <div class="segmented view-toggle sort-toggle" role="group" aria-labelledby="skv-sort-label">
+                  <button
+                    *ngFor="let option of sortOptions"
+                    class="segment"
+                    type="button"
+                    [class.selected]="sortOrder === option.id"
+                    [attr.aria-pressed]="sortOrder === option.id"
+                    (click)="setSortOrder(option.id)"
+                  >
+                    {{ option.label }}
+                  </button>
+                </div>
+              </div>
+              <div class="filter-row">
+                <span id="skv-group-label" class="filter-label">Group by</span>
+                <div class="segmented view-toggle group-toggle" role="group" aria-labelledby="skv-group-label">
+                  <button
+                    *ngFor="let option of groupingOptions"
+                    class="segment"
+                    type="button"
+                    [class.selected]="grouping === option.id"
+                    [disabled]="option.id === 'kind' && !hasKinds"
+                    [attr.aria-pressed]="grouping === option.id"
+                    (click)="setGrouping(option.id)"
+                  >
+                    {{ option.label }}
+                  </button>
+                </div>
+              </div>
+              <div *ngIf="hasNonDefaultSettings" class="filter-actions">
+                <button class="text-button clear-filters-button" type="button" (click)="clearAllFilters()">
+                  Reset to default
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <span class="visually-hidden" role="status">{{ resultsStatus }}</span>
+
+      <div id="skv-kernel-list" class="rail-body" (scroll)="onRailScroll()">
         <div *ngIf="loadingKernels" class="rail-state" role="status">
           <mat-spinner diameter="20"></mat-spinner>
           <span class="rail-state-text">Loading kernels…</span>
@@ -74,37 +220,52 @@
           <mat-icon>memory</mat-icon>
           <span class="rail-state-text">No kernels in this profile</span>
         </div>
-        <div *ngIf="isFiltering && visibleCount === 0" class="rail-state">
+        <div *ngIf="isFiltering && visibleCount === 0 && entries.length > 0" class="rail-state no-matches">
           <mat-icon>search_off</mat-icon>
-          <span class="rail-state-text">No kernels match "{{ filterQuery.trim() }}"</span>
+          <span class="rail-state-text">
+            <ng-container *ngIf="hasQuery; else noFilterMatches">No kernels match "{{ filterQuery.trim() }}"</ng-container>
+            <ng-template #noFilterMatches>No kernels match the filters</ng-template>
+          </span>
         </div>
+        <button
+          *ngIf="isFiltering && visibleCount === 0 && hasFacetFilters"
+          class="text-button clear-filters-button empty-clear-button"
+          type="button"
+          (click)="clearAllFilters()"
+        >
+          Reset to default
+        </button>
 
         <section
-          *ngFor="let group of visibleGroups; trackBy: trackByModule"
+          *ngFor="let section of sections; trackBy: trackBySection"
           class="kernel-group"
-          [style.--group-color]="group.color"
+          [style.--group-color]="section.color"
         >
           <button
-            *ngIf="group.module"
+            *ngIf="section.label"
             class="group-header"
             type="button"
-            [class.collapsed]="!isGroupExpanded(group)"
-            (click)="toggleGroup(group)"
-            [attr.aria-expanded]="isGroupExpanded(group)"
-            [attr.aria-label]="group.module + ', ' + group.entries.length + ' kernels'"
+            [class.collapsed]="!isGroupExpanded(section)"
+            (click)="toggleGroup(section)"
+            [attr.aria-expanded]="isGroupExpanded(section)"
+            [attr.aria-label]="section.label + ', ' + section.entries.length + ' kernels'"
           >
             <span class="group-marker" aria-hidden="true"></span>
             <mat-icon class="group-chevron" aria-hidden="true">expand_more</mat-icon>
-            <span class="group-name">{{ group.module }}</span>
-            <span class="group-count" aria-hidden="true">{{ group.entries.length }}</span>
+            <mat-icon *ngIf="section.icon" class="group-kind-icon" aria-hidden="true">{{ section.icon }}</mat-icon>
+            <span class="group-name" [class.plain]="!section.isModule"><ng-container *ngFor="let segment of nameSegments(section.label)"><mark *ngIf="segment.match; else unmatchedGroupText" class="match">{{ segment.text }}</mark><ng-template #unmatchedGroupText>{{ segment.text }}</ng-template></ng-container></span>
+            <span class="group-count" aria-hidden="true">{{ section.entries.length }}</span>
           </button>
-          <ng-container *ngIf="isGroupExpanded(group)">
+          <ng-container *ngIf="isGroupExpanded(section)">
             <button
-              *ngFor="let entry of group.entries; trackBy: trackByEntry"
+              *ngFor="let entry of section.entries; trackBy: trackByEntry"
               class="kernel-row"
               type="button"
+              [id]="rowId(entry)"
+              [style.--group-color]="entry.color"
               [class.active]="entry === selectedEntry"
               [class.open]="isEntryOpen(entry)"
+              [class.cursor]="isCursor(entry)"
               [class.has-spills]="entry.hasSpills"
               (click)="onKernelRowClick(entry, $event)"
               (auxclick)="onKernelRowAuxClick(entry, $event)"
@@ -118,8 +279,8 @@
               [attr.aria-label]="isEntryOpen(entry) ? entry.description + ', open in a tab' : entry.description"
             >
               <span class="kernel-monogram" aria-hidden="true">{{ entry.monogram }}</span>
-              <span class="kernel-name">{{ entry.kernel }}</span>
-              <span *ngIf="entry.stats" class="kernel-meta" aria-hidden="true">
+              <span class="kernel-name"><ng-container *ngIf="hasQuery; else plainKernelName"><ng-container *ngFor="let segment of nameSegments(entry.kernel)"><mark *ngIf="segment.match; else unmatchedKernelText" class="match">{{ segment.text }}</mark><ng-template #unmatchedKernelText>{{ segment.text }}</ng-template></ng-container></ng-container><ng-template #plainKernelName>{{ entry.kernel }}</ng-template></span>
+              <span *ngIf="entry.stats || entry.kind" class="kernel-meta" aria-hidden="true">
                 <span
                   *ngIf="entry.busiestUnit"
                   class="unit-chip"
@@ -127,7 +288,12 @@
                 >
                   {{ entry.busiestUnit }}
                 </span>
-                <span class="kernel-bundles">{{ entry.bundlesLabel }}</span>
+                <span *ngIf="entry.stats" class="kernel-bundles">{{ entry.bundlesLabel }}</span>
+                <mat-icon
+                  *ngIf="entry.kind as kind"
+                  class="kind-glyph"
+                  [style.--kind-color]="kind.color"
+                >{{ kind.icon }}</mat-icon>
               </span>
             </button>
           </ng-container>
@@ -202,22 +368,22 @@
           mat-icon-button
           class="step-button"
           type="button"
-          [disabled]="entries.length < 2"
+          [disabled]="!canStep"
           (click)="stepKernel(-1)"
-          matTooltip="Previous kernel"
-          aria-label="Previous kernel"
+          [matTooltip]="'Previous ' + stepNoun"
+          [attr.aria-label]="'Previous ' + stepNoun"
         >
           <mat-icon>chevron_left</mat-icon>
         </button>
-        <span class="kernel-position">{{ selectedPosition }} / {{ entries.length }}</span>
+        <span class="kernel-position">{{ positionLabel }}</span>
         <button
           mat-icon-button
           class="step-button"
           type="button"
-          [disabled]="entries.length < 2"
+          [disabled]="!canStep"
           (click)="stepKernel(1)"
-          matTooltip="Next kernel"
-          aria-label="Next kernel"
+          [matTooltip]="'Next ' + stepNoun"
+          [attr.aria-label]="'Next ' + stepNoun"
         >
           <mat-icon>chevron_right</mat-icon>
         </button>
@@ -299,6 +465,10 @@
         <span *ngIf="card.entry.module" class="card-module">
           <span class="module-dot"></span>
           {{ card.entry.module }}
+        </span>
+        <span *ngIf="card.entry.kind as kind" class="card-kind" [style.--kind-color]="kind.color">
+          <mat-icon class="card-kind-icon">{{ kind.icon }}</mat-icon>
+          {{ kind.label }}
         </span>
       </div>
     </div>

@@ -190,6 +190,7 @@ $card-width: 320px;
 
 // Collapses to a round search button in the collapsed rail.
 .search-field {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--spacing-2);
@@ -274,6 +275,404 @@ $card-width: 320px;
   color: var(--mat-sys-on-surface-variant);
 }
 
+// Compact filter pill in the collapsed rail, showing the active filter icon
+// and matching count below the search button. Folds away as the rail expands.
+.collapsed-filter-pill {
+  --pill-color: var(--mat-sys-primary);
+  display: grid;
+  grid-template-rows: 1fr;
+  margin-top: 6px;
+  opacity: 1;
+  transition:
+    grid-template-rows $rail-transition,
+    margin-top $rail-transition,
+    opacity 120ms var(--motion-easing-standard);
+
+  .kernel-rail.expanded & {
+    grid-template-rows: 0fr;
+    margin-top: 0;
+    opacity: 0;
+  }
+}
+
+.collapsed-filter-pill-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 40px;
+  min-height: 0;
+  height: 24px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-radius: 12px;
+  background: color-mix(
+    in srgb,
+    var(--pill-color) 14%,
+    var(--mat-sys-surface-container-lowest)
+  );
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--pill-color) 35%, transparent);
+  color: color-mix(in srgb, var(--pill-color) 82%, var(--mat-sys-on-surface));
+  font: 600 11px / 16px var(--mat-sys-plain-font);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+
+  .kernel-rail.expanded & {
+    height: 0;
+  }
+}
+
+.collapsed-filter-icon {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  font-size: 13px;
+}
+
+.collapsed-filter-count {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+// Kind filter and filter panel below the search box. They take no space in
+// the collapsed rail, and unfold as the rail expands.
+.rail-filters {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows $rail-transition,
+    opacity 120ms var(--motion-easing-standard);
+
+  .kernel-rail.expanded & {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+
+.rail-filters-content {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.option-count {
+  margin-inline-start: 6px;
+  font: 600 10.5px / 16px var(--mat-sys-plain-font);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.72;
+}
+
+// A row of mutually exclusive options, like the segmented buttons of
+// Material 3: the kind filter, and the sort and grouping options.
+.segmented {
+  display: flex;
+  overflow: hidden;
+  border-radius: 15px;
+  background: color-mix(
+    in srgb,
+    var(--mat-sys-surface-container-lowest) 70%,
+    transparent
+  );
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--mat-sys-outline-variant) 85%, transparent);
+}
+
+.segment {
+  @include focus-ring;
+  --segment-color: var(--mat-sys-primary);
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-inline-start: 1px solid
+    color-mix(in srgb, var(--mat-sys-outline-variant) 85%, transparent);
+  background: transparent;
+  color: var(--mat-sys-on-surface-variant);
+  font: 500 12px / 16px var(--mat-sys-plain-font);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 120ms var(--motion-easing-standard),
+    color 120ms var(--motion-easing-standard);
+
+  &:first-child {
+    border-inline-start: 0;
+  }
+
+  &:hover:not(:disabled):not(.selected) {
+    background: color-mix(in srgb, var(--mat-sys-on-surface) 6%, transparent);
+    color: var(--mat-sys-on-surface);
+  }
+
+  &.selected {
+    background: color-mix(
+      in srgb,
+      var(--segment-color) 14%,
+      var(--mat-sys-surface-container-lowest)
+    );
+    color: color-mix(
+      in srgb,
+      var(--segment-color) 78%,
+      var(--mat-sys-on-surface)
+    );
+  }
+
+  &.empty:not(.selected) {
+    opacity: 0.55;
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.4;
+  }
+}
+
+// Tells Pallas kernels and custom calls apart, like the type filter of a
+// browser's network panel.
+// The kind filter and the filter button, on one row below the search box.
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--spacing-2);
+}
+
+.kind-filter {
+  flex: 1 1 auto;
+  min-width: 0;
+
+  .kind-option {
+    --kind-color: var(--mat-sys-primary);
+    --segment-color: var(--kind-color);
+  }
+}
+
+// Opens the panel of unit, spill, sort and grouping options. Outlined like the
+// kind filter next to it, so that the two read as one row of filters.
+.filter-button {
+  @include focus-ring;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 38px;
+  height: 30px;
+  padding: 0 9px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 15px;
+  background: color-mix(
+    in srgb,
+    var(--mat-sys-surface-container-lowest) 70%,
+    transparent
+  );
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--mat-sys-outline-variant) 85%, transparent);
+  color: var(--mat-sys-on-surface-variant);
+  font: 500 12px / 16px var(--mat-sys-plain-font);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 120ms var(--motion-easing-standard),
+    box-shadow 120ms var(--motion-easing-standard),
+    color 120ms var(--motion-easing-standard);
+
+  &:hover:not(.active) {
+    background: color-mix(
+      in srgb,
+      var(--mat-sys-on-surface) 6%,
+      var(--mat-sys-surface-container-lowest)
+    );
+    color: var(--mat-sys-on-surface);
+  }
+
+  &.active {
+    background: color-mix(
+      in srgb,
+      var(--mat-sys-primary) 14%,
+      var(--mat-sys-surface-container-lowest)
+    );
+    box-shadow: inset 0 0 0 1px
+      color-mix(in srgb, var(--mat-sys-primary) 35%, transparent);
+    color: color-mix(
+      in srgb,
+      var(--mat-sys-primary) 78%,
+      var(--mat-sys-on-surface)
+    );
+  }
+
+  // Without a kind filter, the button has the row to itself and a label.
+  &.labeled {
+    padding: 0 12px 0 10px;
+  }
+}
+
+.filter-icon {
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+}
+
+// Number of active unit and spill filters, next to the filter icon.
+.filter-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: var(--mat-sys-primary);
+  color: var(--mat-sys-on-primary);
+  font: 600 10px / 16px var(--mat-sys-plain-font);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.kind-icon {
+  width: 16px;
+  height: 16px;
+  margin-inline-end: 4px;
+  color: color-mix(in srgb, var(--kind-color) 72%, var(--mat-sys-on-surface));
+  font-size: 16px;
+  vertical-align: -4px;
+}
+
+.filter-panel {
+  display: grid;
+  gap: var(--spacing-2);
+  margin-top: var(--spacing-2);
+  padding: 10px var(--spacing-3);
+  border-radius: var(--mat-sys-corner-medium);
+  background: color-mix(
+    in srgb,
+    var(--mat-sys-surface-container-lowest) 82%,
+    transparent
+  );
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--mat-sys-outline-variant) 55%, transparent);
+  animation: panel-enter 160ms var(--motion-easing-emphasized-decelerate);
+}
+
+@keyframes panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.filter-row {
+  display: grid;
+  gap: 4px;
+}
+
+// Like the section titles of the details card.
+.filter-label {
+  color: var(--mat-sys-on-surface-variant);
+  font: 600 10.5px / 14px var(--mat-sys-plain-font);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+// Toggles a filter, like the filter chips of Material 3.
+.filter-chip {
+  @include focus-ring;
+  --chip-color: var(--mat-sys-warning);
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--mat-sys-outline-variant) 85%, transparent);
+  color: var(--mat-sys-on-surface-variant);
+  font: 600 11.5px / 16px var(--mat-sys-plain-font);
+  letter-spacing: 0.1px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 120ms var(--motion-easing-standard),
+    box-shadow 120ms var(--motion-easing-standard),
+    color 120ms var(--motion-easing-standard);
+
+  &:hover:not(.selected) {
+    background: color-mix(in srgb, var(--mat-sys-on-surface) 6%, transparent);
+    color: var(--mat-sys-on-surface);
+  }
+
+  &.selected {
+    padding-inline-start: 6px;
+    background: color-mix(
+      in srgb,
+      var(--chip-color) 14%,
+      var(--mat-sys-surface-container-lowest)
+    );
+    box-shadow: inset 0 0 0 1px
+      color-mix(in srgb, var(--chip-color) 35%, transparent);
+    color: color-mix(in srgb, var(--chip-color) 80%, var(--mat-sys-on-surface));
+  }
+
+  &.empty:not(.selected) {
+    opacity: 0.55;
+  }
+}
+
+.chip-check {
+  width: 16px;
+  height: 16px;
+  margin-inline-end: 2px;
+  font-size: 16px;
+}
+
+// Sort and grouping options, smaller than the kind filter.
+.view-toggle {
+  justify-self: start;
+  border-radius: 8px;
+
+  .segment {
+    flex: none;
+    height: 26px;
+    font-size: 11.5px;
+  }
+}
+
+.filter-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: -2px -4px -4px 0;
+}
+
+.text-button {
+  @include focus-ring;
+  height: 28px;
+  padding: 0 var(--spacing-2);
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--mat-sys-primary);
+  font: 500 12px / 16px var(--mat-sys-plain-font);
+  cursor: pointer;
+  transition: background-color 120ms var(--motion-easing-standard);
+
+  &:hover {
+    background: color-mix(in srgb, var(--mat-sys-primary) 8%, transparent);
+  }
+}
+
 .rail-body {
   flex: 1;
   min-height: 0;
@@ -315,6 +714,11 @@ $card-width: 320px;
   @include reveal-when-expanded;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.empty-clear-button {
+  @include reveal-when-expanded;
+  margin: 0 0 var(--spacing-2) 44px;
 }
 
 // Each HLO module forms a subtle card when the rail is expanded, while staying
@@ -446,6 +850,33 @@ $card-width: 320px;
   color: color-mix(in srgb, var(--group-color) 80%, var(--mat-sys-on-surface));
   font: 500 12px / 16px var(--mat-sys-code-font);
   text-overflow: ellipsis;
+
+  // Names a kind of kernel rather than an HLO module.
+  &.plain {
+    font: 600 12px / 16px var(--mat-sys-plain-font);
+  }
+}
+
+.group-kind-icon {
+  @include reveal-when-expanded;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: color-mix(in srgb, var(--group-color) 72%, var(--mat-sys-on-surface));
+  font-size: 16px;
+}
+
+// Search matches in kernel and module names.
+.match {
+  border-radius: 2px;
+  background: color-mix(
+    in srgb,
+    var(--mat-sys-warning-container) 90%,
+    transparent
+  );
+  box-shadow: 0 0 0 1px
+    color-mix(in srgb, var(--mat-sys-warning) 30%, transparent);
+  color: inherit;
 }
 
 // Sits next to the module name, so that it does not line up with the schedule
@@ -557,6 +988,21 @@ $card-width: 320px;
       font-weight: 500;
     }
   }
+
+  // The kernel that Enter opens from the search box.
+  &.cursor {
+    box-shadow: inset 0 0 0 2px
+      color-mix(in srgb, var(--mat-sys-primary) 60%, transparent);
+
+    &:not(.active) {
+      background: color-mix(
+        in srgb,
+        var(--mat-sys-primary) 7%,
+        var(--mat-sys-surface-container-lowest)
+      );
+      color: var(--mat-sys-on-surface);
+    }
+  }
 }
 
 @keyframes row-enter {
@@ -633,6 +1079,16 @@ $card-width: 320px;
   font: 500 11px / 16px var(--mat-sys-code-font);
   font-variant-numeric: tabular-nums;
   text-align: end;
+}
+
+// Kind of the kernel, in a column of its own at the end of the row.
+.kind-glyph {
+  --kind-color: var(--mat-sys-on-surface-variant);
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: color-mix(in srgb, var(--kind-color) 72%, var(--mat-sys-on-surface));
+  font-size: 16px;
 }
 
 .skv-main {
@@ -1110,6 +1566,31 @@ $card-width: 320px;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--group-color) 20%, transparent);
 }
 
+.card-kind {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  margin-top: 2px;
+  padding: 1px var(--spacing-2) 1px 6px;
+  border-radius: 999px;
+  background: color-mix(
+    in srgb,
+    var(--kind-color) 12%,
+    var(--mat-sys-surface-container-lowest)
+  );
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--kind-color) 24%, transparent);
+  color: color-mix(in srgb, var(--kind-color) 80%, var(--mat-sys-on-surface));
+  font: 600 11px / 16px var(--mat-sys-plain-font);
+}
+
+.card-kind-icon {
+  width: 14px;
+  height: 14px;
+  font-size: 14px;
+}
+
 .card-facts {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -1312,6 +1793,13 @@ $card-width: 320px;
 @media (prefers-reduced-motion: reduce) {
   .rail-slot,
   .kernel-rail,
+  .collapsed-filter-pill,
+  .rail-filters,
+  .filter-panel,
+  .filter-button,
+  .segment,
+  .filter-chip,
+  .text-button,
   .kernel-group,
   .kernel-row,
   .kernel-tab,

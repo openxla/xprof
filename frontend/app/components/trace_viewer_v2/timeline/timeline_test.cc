@@ -8623,6 +8623,198 @@ TEST_F(RealTimelineImGuiFixture,
   ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, false);
 }
 
+TEST_F(RealTimelineImGuiFixture,
+       SelectingEventDrawsTemporaryTimeRangeAndClearsOnDeselection) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.level_offsets = {0, 2};
+  data.level_event_indices = {0, 1};
+  data.entry_names = {"event1", "event2"};
+  data.entry_levels = {0, 0};
+  data.entry_start_times = {10.0, 50.0};
+  data.entry_total_times = {20.0, 10.0};
+  data.entry_args = {{}, {}};
+  timeline_.SetTimelineData(std::move(data));
+  // 165.5us results in 10px/us with 1655px timeline width.
+  timeline_.SetVisibleRange({0.0, 165.5});
+  timeline_.set_data_time_range({0.0, 165.5});
+
+  auto get_overlay_draw_list = []() -> ImDrawList* {
+    ImGuiWindow* timeline_window = ImGui::FindWindowByName("Timeline viewer");
+    if (timeline_window == nullptr) return nullptr;
+    for (ImGuiWindow* child : timeline_window->DC.ChildWindows) {
+      if (absl::StrContains(child->Name, "SelectionOverlay")) {
+        return child->DrawList;
+      }
+    }
+    return nullptr;
+  };
+
+  const ImU32 selection_color =
+      color_palette_.GetColor(ColorPalette::Key::kSelection)
+          .value_or(kSelectedTimeRangeColor);
+
+  auto has_border_at_x = [&](ImDrawList* draw_list, float target_x) {
+    for (const auto& vtx : draw_list->VtxBuffer) {
+      if (vtx.col == selection_color &&
+          std::abs(vtx.pos.x - target_x) <= 1.5f) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  auto has_any_curtain_vtx = [&](ImDrawList* draw_list) {
+    for (const auto& vtx : draw_list->VtxBuffer) {
+      if ((vtx.col & 0x00FFFFFF) == (selection_color & 0x00FFFFFF)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  auto has_close_button = [](ImDrawList* draw_list) {
+    for (const auto& vtx : draw_list->VtxBuffer) {
+      if (vtx.col == kCloseButtonColor || vtx.col == kCloseButtonHoverColor) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // Initially no event is selected and no curtain is drawn.
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* overlay_draw_list = get_overlay_draw_list();
+  ASSERT_NE(overlay_draw_list, nullptr);
+  EXPECT_FALSE(has_any_curtain_vtx(overlay_draw_list));
+  ImGui::EndFrame();
+
+  // Click on event 1 ([10.0, 30.0] -> [100px, 300px] from timeline start).
+  ImGui::GetIO().MousePos = ImVec2(GetTimelineStartX() + 200.0f, kFirstEventY);
+  ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
+  ImGui::GetIO().MouseDown[0] = false;
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+
+  const float event1_start_x = GetTimelineStartX() + 100.0f;
+  const float event1_end_x = GetTimelineStartX() + 300.0f - kEventPaddingRight;
+
+  // Hover on the start edge of the temporary range: it should NOT show a resize
+  // highlight or resize cursor, and should NOT have a close button.
+  ImGui::GetIO().MousePos = ImVec2(event1_start_x, 50.0f);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  overlay_draw_list = get_overlay_draw_list();
+  ASSERT_NE(overlay_draw_list, nullptr);
+  EXPECT_TRUE(has_border_at_x(overlay_draw_list, event1_start_x));
+  EXPECT_TRUE(has_border_at_x(overlay_draw_list, event1_end_x));
+  EXPECT_FALSE(has_close_button(overlay_draw_list));
+  for (const auto& vtx : overlay_draw_list->VtxBuffer) {
+    EXPECT_NE(vtx.col, kSelectedTimeRangeResizeColor);
+  }
+  EXPECT_NE(ImGui::GetMouseCursor(), ImGuiMouseCursor_ResizeEW);
+  ImGui::EndFrame();
+
+  // Click on event 2 ([50.0, 60.0] -> [500px, 600px] from timeline start).
+  ImGui::GetIO().MousePos = ImVec2(GetTimelineStartX() + 550.0f, kFirstEventY);
+  ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
+  ImGui::GetIO().MouseDown[0] = false;
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_event_index(), 1);
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+
+  const float event2_start_x = GetTimelineStartX() + 500.0f;
+  const float event2_end_x = GetTimelineStartX() + 600.0f - kEventPaddingRight;
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  overlay_draw_list = get_overlay_draw_list();
+  ASSERT_NE(overlay_draw_list, nullptr);
+  EXPECT_FALSE(has_border_at_x(overlay_draw_list, event1_start_x));
+  EXPECT_FALSE(has_border_at_x(overlay_draw_list, event1_end_x));
+  EXPECT_TRUE(has_border_at_x(overlay_draw_list, event2_start_x));
+  EXPECT_TRUE(has_border_at_x(overlay_draw_list, event2_end_x));
+  EXPECT_FALSE(has_close_button(overlay_draw_list));
+  ImGui::EndFrame();
+
+  // Click on an empty area to deselect; the temporary range should disappear.
+  ImGui::GetIO().MousePos = ImVec2(GetTimelineStartX() + 50.0f, 100.0f);
+  ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
+  ImGui::GetIO().MouseDown[0] = false;
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_event_index(), -1);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  overlay_draw_list = get_overlay_draw_list();
+  ASSERT_NE(overlay_draw_list, nullptr);
+  EXPECT_FALSE(has_any_curtain_vtx(overlay_draw_list));
+  ImGui::EndFrame();
+}
+
+TEST_F(
+    RealTimelineImGuiFixture,
+    SelectedEventTimeRangeNotDuplicatedWhenAlreadyInSelectedTimeRanges) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+  data.entry_names = {"event1"};
+  data.entry_levels = {0};
+  data.entry_start_times = {10.0};
+  data.entry_total_times = {20.0};
+  data.entry_args = {{}};
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 165.5});
+  timeline_.set_data_time_range({0.0, 165.5});
+
+  auto get_overlay_draw_list = []() -> ImDrawList* {
+    ImGuiWindow* timeline_window = ImGui::FindWindowByName("Timeline viewer");
+    if (timeline_window == nullptr) return nullptr;
+    for (ImGuiWindow* child : timeline_window->DC.ChildWindows) {
+      if (absl::StrContains(child->Name, "SelectionOverlay")) {
+        return child->DrawList;
+      }
+    }
+    return nullptr;
+  };
+
+  // Add permanent range [10.0, 30.0] while no event is selected and record
+  // vertex count.
+  timeline_.AddSelectedTimeRange({10.0, 30.0});
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* overlay_draw_list = get_overlay_draw_list();
+  ASSERT_NE(overlay_draw_list, nullptr);
+  const int permanent_only_vtx_count = overlay_draw_list->VtxBuffer.Size;
+  EXPECT_GT(permanent_only_vtx_count, 0);
+  ImGui::EndFrame();
+
+  // Now select event 0 (whose range is also [10.0, 30.0]); vertex count should
+  // be identical because the temporary range is not double-drawn.
+  timeline_.RevealEvent(0);
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  overlay_draw_list = get_overlay_draw_list();
+  ASSERT_NE(overlay_draw_list, nullptr);
+  EXPECT_EQ(overlay_draw_list->VtxBuffer.Size, permanent_only_vtx_count);
+  ImGui::EndFrame();
+}
+
 class TimelineDragSelectionTest : public RealTimelineImGuiFixture {
  protected:
   // Horizontal offset for the start of test selections/events.

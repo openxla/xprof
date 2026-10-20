@@ -5918,7 +5918,7 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
     // Only draw the border if the edge of the time range is visible.
     if (time_range_x_start >= timeline_x_start) {
       bool is_hovering_start = false;
-      if (!is_dragging_ &&
+      if (range_index.has_value() && !is_dragging_ &&
           std::abs(ImGui::GetMousePos().x - time_range_x_start) <=
               kSelectionEdgeThreshold &&
           ImGui::IsMouseHoveringRect(
@@ -5935,7 +5935,9 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
             time_range_resizing_state_.has_value() &&
             time_range_resizing_state_->range_index == *range_index &&
             time_range_resizing_state_->is_start_edge;
-      } else if (is_dragging_ && is_selecting_) {
+      } else if (is_dragging_ && is_selecting_ &&
+                 current_selected_time_range_.has_value() &&
+                 *current_selected_time_range_ == range) {
         is_resizing_start =
             std::abs(ImGui::GetMousePos().x - time_range_x_start) <
             std::abs(ImGui::GetMousePos().x - time_range_x_end);
@@ -5954,7 +5956,7 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
     }
     if (time_range_x_end <= timeline_x_start + timeline_width) {
       bool is_hovering_end = false;
-      if (!is_dragging_ &&
+      if (range_index.has_value() && !is_dragging_ &&
           std::abs(ImGui::GetMousePos().x - time_range_x_end) <=
               kSelectionEdgeThreshold &&
           ImGui::IsMouseHoveringRect(
@@ -5970,7 +5972,9 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
             time_range_resizing_state_.has_value() &&
             time_range_resizing_state_->range_index == *range_index &&
             !time_range_resizing_state_->is_start_edge;
-      } else if (is_dragging_ && is_selecting_) {
+      } else if (is_dragging_ && is_selecting_ &&
+                 current_selected_time_range_.has_value() &&
+                 *current_selected_time_range_ == range) {
         is_resizing_end = std::abs(ImGui::GetMousePos().x - time_range_x_end) <=
                           std::abs(ImGui::GetMousePos().x - time_range_x_start);
       }
@@ -6256,6 +6260,26 @@ void Timeline::DrawSelectedTimeRanges(Pixel timeline_width,
   if (current_selected_time_range_) {
     DrawSelectedTimeRange(*current_selected_time_range_, timeline_width,
                           px_per_time_unit_val, /*show_delete_button=*/false);
+  }
+
+  if (selected_event_index_ >= 0 &&
+      static_cast<size_t>(selected_event_index_) <
+          timeline_data_.entry_start_times.size() &&
+      static_cast<size_t>(selected_event_index_) <
+          timeline_data_.entry_total_times.size()) {
+    const Microseconds start =
+        timeline_data_.entry_start_times[selected_event_index_];
+    const Microseconds duration =
+        timeline_data_.entry_total_times[selected_event_index_];
+    if (duration > 0.0) {
+      const TimeRange event_range(start, start + duration);
+      if (absl::c_find(ranges_to_draw, event_range) == ranges_to_draw.end() &&
+          (!current_selected_time_range_.has_value() ||
+           *current_selected_time_range_ != event_range)) {
+        DrawSelectedTimeRange(event_range, timeline_width, px_per_time_unit_val,
+                              /*show_delete_button=*/false);
+      }
+    }
   }
 }
 

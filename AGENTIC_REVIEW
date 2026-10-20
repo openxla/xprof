@@ -1,0 +1,8 @@
+# proto-file: learning/gemini/_agents/cl_review_agent/agentic_review.proto
+# proto-message: AgenticReview
+
+review_noparent: true
+includes: "//depot/google3/perftools/accelerators/xprof/AGENTIC_REVIEW"
+exclude_skills: "third_party_reviewer"
+exclude_skills: "xprof_ui_testing"
+exclude_skills: "xprof_oss_ui_testing"

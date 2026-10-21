@@ -32,6 +32,22 @@ bool IsScopeOrRegionFlameGroup(absl::string_view group_name) {
          group_name == "Pallas Primitives";
 }
 
+// Returns true for Static Kernel Viewer lanes whose events mirror instructions
+// that are already present on a functional-unit lane (e.g. "Spills / Fills"
+// re-plots the register allocator's spill and fill instructions from the VLD /
+// VST lanes). Such lanes hover and select like unit lanes but must be excluded
+// from per-unit instruction aggregates so nothing is double-counted.
+bool IsDerivedInstructionLane(absl::string_view group_name) {
+  return group_name == "Spills / Fills";
+}
+
+// Returns true for flame lanes whose events each represent exactly one
+// scheduled instruction and should therefore contribute to per-unit counts.
+bool IsUnitInstructionLane(absl::string_view group_name) {
+  return !IsScopeOrRegionFlameGroup(group_name) &&
+         !IsDerivedInstructionLane(group_name);
+}
+
 // Formats an ImU32 color (0xAABBGGRR) as a lowercase CSS #rrggbb hex string.
 std::string FormatCssHexColor(ImU32 color) {
   return absl::StrFormat("#%02x%02x%02x", color & 0xFF, (color >> 8) & 0xFF,
@@ -412,7 +428,7 @@ void Timeline::PopulateBundleScheduleDetails(Microseconds bundle,
       }
       continue;
     }
-    if (IsScopeOrRegionFlameGroup(g.name)) {
+    if (!IsUnitInstructionLane(g.name)) {
       continue;
     }
 
@@ -569,7 +585,7 @@ void Timeline::PopulateHoverScheduleDetails(int group_index, int event_index,
     const Group& g = timeline_data_.groups[g_idx];
     if (g.type != Group::Type::kFlame ||
         (g.nesting_level == kProcessNestingLevel && g.has_children) ||
-        IsScopeOrRegionFlameGroup(g.name)) {
+        !IsUnitInstructionLane(g.name)) {
       continue;
     }
     const int start_lvl = std::max(0, g.start_level);
@@ -619,7 +635,7 @@ void Timeline::PopulateBundleEvents(Microseconds bundle,
     const Group& g = timeline_data_.groups[g_idx];
     if (g.type != Group::Type::kFlame ||
         (g.nesting_level == kProcessNestingLevel && g.has_children) ||
-        IsScopeOrRegionFlameGroup(g.name)) {
+        !IsUnitInstructionLane(g.name)) {
       continue;
     }
     const int start_lvl = std::max(0, g.start_level);
@@ -787,7 +803,7 @@ void Timeline::PopulateSelectedScheduleDetails(int group_index, int event_index,
     const Group& g = timeline_data_.groups[g_idx];
     if (g.type != Group::Type::kFlame ||
         (g.nesting_level == kProcessNestingLevel && g.has_children) ||
-        IsScopeOrRegionFlameGroup(g.name)) {
+        !IsUnitInstructionLane(g.name)) {
       continue;
     }
     const int start_lvl = std::max(0, g.start_level);
@@ -918,7 +934,7 @@ void Timeline::PopulateMultiSelectionScheduleDetails(
     sorted_indices.push_back(idx);
     const std::string track_name =
         find_group_name(timeline_data_.entry_levels[idx]);
-    if (track_name.empty() || IsScopeOrRegionFlameGroup(track_name)) continue;
+    if (track_name.empty() || !IsUnitInstructionLane(track_name)) continue;
 
     unit_counts[track_name]++;
     total_instructions++;
@@ -941,7 +957,7 @@ void Timeline::PopulateMultiSelectionScheduleDetails(
       const Group& g = timeline_data_.groups[g_idx];
       if (g.type != Group::Type::kFlame ||
           (g.nesting_level == kProcessNestingLevel && g.has_children) ||
-          IsScopeOrRegionFlameGroup(g.name)) {
+          !IsUnitInstructionLane(g.name)) {
         continue;
       }
       const int start_lvl = std::max(0, g.start_level);
@@ -1268,6 +1284,10 @@ void Timeline::PopulateMinimapScheduleSummary(Microseconds data_start,
       if (framework_scope_group_index < 0) {
         framework_scope_group_index = static_cast<int>(g_idx);
       }
+      continue;
+    }
+    // Lanes that re-plot instructions from a unit lane are not units.
+    if (IsDerivedInstructionLane(g.name)) {
       continue;
     }
     if (unit_names.size() < kMaxMinimapUnits &&

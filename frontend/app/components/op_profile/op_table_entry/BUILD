@@ -17,6 +17,7 @@ xprof_ng_module(
         "//:node_modules/@angular/core",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
+        "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/interfaces:op_profile_proto_defs",
         "@org_xprof//frontend/app/common/utils",

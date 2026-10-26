@@ -129,3 +129,14 @@ mat-card {
   font-size: 14px;
   color: #a47272;
 }
+
+.serving-entry {
+  margin-bottom: 4px;
+}
+
+.serving-omitted {
+  font-size: 13px;
+  font-style: italic;
+  color: common.$content-secondary-color;
+  margin-top: 2px;
+}

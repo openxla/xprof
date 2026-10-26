@@ -20,6 +20,14 @@
         </span>
       </span>
       {{name}}
+      <span
+        *ngIf="servingBadgeText"
+        class="serving-badge"
+        [matTooltip]="servingTooltipText"
+        matTooltipPosition="above">{{servingBadgeText}}</span>
+      <span
+        *ngIf="servingAccessibleText"
+        class="accessible-serving-metadata">{{servingAccessibleText}}</span>
       <span *ngIf="asDiffNode(node)?.activeOnly" class="diff-badge badge-added">Added</span>
       <span *ngIf="asDiffNode(node)?.baselineOnly" class="diff-badge badge-removed">Removed</span>
     </span>

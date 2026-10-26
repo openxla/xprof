@@ -2,14 +2,24 @@ import {
   ChangeDetectionStrategy,
   Component,
   EventEmitter,
+  inject,
   Input,
   OnChanges,
+  OnDestroy,
   OnInit,
   Output,
   SimpleChanges,
 } from '@angular/core';
 import {Store} from '@ngrx/store';
 import {type DiffNode} from 'org_xprof/frontend/app/common/interfaces/op_profile_diff';
+import {
+  formatBatchCount,
+  formatOmittedServingPairs,
+  getOmittedServingBatches,
+  getServingMetadata,
+  getServingPairs,
+  type ServingPair,
+} from 'org_xprof/frontend/app/common/utils/serving_metadata_utils';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {updateSelectedOpNodeChainAction} from 'org_xprof/frontend/app/store/actions';
 import {getOpAnalysisState} from 'org_xprof/frontend/app/store/selectors';
@@ -26,9 +36,10 @@ import {takeUntil} from 'rxjs/operators';
   templateUrl: './op_table_entry.ng.html',
   styleUrls: ['./op_table_entry.scss'],
 })
-export class OpTableEntry implements OnChanges, OnInit {
+export class OpTableEntry implements OnChanges, OnInit, OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
+  private readonly store = inject(Store);
 
   /** The depth of node. */
   @Input() level = 0;
@@ -80,8 +91,11 @@ export class OpTableEntry implements OnChanges, OnInit {
   hbmFlameColor = '';
   numLeftOut = 0;
   applyScalingFactor = false;
+  servingBadgeText = '';
+  servingTooltipText = '';
+  servingAccessibleText = '';
 
-  constructor(private readonly store: Store<{}>) {
+  constructor() {
     this.store
       .select(getOpAnalysisState)
       .pipe(takeUntil(this.destroyed))
@@ -104,6 +118,7 @@ export class OpTableEntry implements OnChanges, OnInit {
   }
 
   private updateProperties() {
+    this.updateServingMetadata();
     if (!this.node || !this.rootNode) {
       this.children = [];
       return;
@@ -252,6 +267,57 @@ export class OpTableEntry implements OnChanges, OnInit {
     this.hbmFlameColor = utils.bwColor(colorHbmUtil);
   }
 
+  /** Builds the serving label, its hover text, and its screen reader text. */
+  private updateServingMetadata() {
+    this.servingBadgeText = '';
+    this.servingTooltipText = '';
+    this.servingAccessibleText = '';
+    if (!this.node || !this.rootNode) {
+      return;
+    }
+
+    const servingMetadata = getServingMetadata(this.node);
+    const pairs = getServingPairs(servingMetadata);
+    if (pairs.length === 0) {
+      return;
+    }
+
+    const primary = pairs[0];
+    const primaryShortModel = shortenModelId(primary.modelId);
+    const badgeParts: string[] = [];
+    if (primary.batchSize > 0) {
+      badgeParts.push(`bs ${primary.batchSize}`);
+    }
+    if (primaryShortModel) {
+      badgeParts.push(primaryShortModel);
+    }
+    const baseBadge = badgeParts.join(' · ');
+
+    let totalBatches = getOmittedServingBatches(servingMetadata);
+    for (const pair of pairs) {
+      totalBatches += pair.numBatches;
+    }
+    // Other pairs count toward "+N" only if they hold at least 5% of batches.
+    const additionalSignificantCount =
+      totalBatches > 0
+        ? pairs.slice(1).filter((pair) => pair.numBatches * 20 >= totalBatches)
+            .length
+        : pairs.length - 1;
+
+    this.servingBadgeText =
+      additionalSignificantCount > 0
+        ? `${baseBadge} +${additionalSignificantCount}`
+        : baseBadge;
+
+    const tooltipParts = pairs.map(formatTooltipPair);
+    const omittedText = formatOmittedServingPairs(servingMetadata);
+    if (omittedText) {
+      tooltipParts.push(omittedText);
+    }
+    this.servingTooltipText = tooltipParts.join('; ');
+    this.servingAccessibleText = ` (${this.servingTooltipText})`;
+  }
+
   /**
    * Formats a percentage diff string for active, baseline, added, or removed ops.
    */
@@ -312,7 +378,7 @@ export class OpTableEntry implements OnChanges, OnInit {
   }
 
   private getChildren(): Node[] {
-    if (!this.node || !this.node.children || !this.rootNode) {
+    if (!this.node || !this.node.children) {
       return [];
     }
     let children: Node[] = this.node.children.slice();
@@ -358,4 +424,37 @@ export class OpTableEntry implements OnChanges, OnInit {
     this.expanded = !this.expanded;
     this.selected.emit(this.node);
   }
+
+  ngOnDestroy() {
+    this.destroyed.next();
+    this.destroyed.complete();
+  }
+}
+
+/**
+ * Shortens a full model id to its last path segment, keeping a trailing numeric
+ * version, e.g. "/models/ranking/m:12" -> "m:12" and "models/m/7" -> "m:7".
+ */
+function shortenModelId(modelId: string): string {
+  const segments = modelId.trim().split('/').filter(Boolean);
+  if (segments.length === 0) {
+    return '';
+  }
+  const last = segments[segments.length - 1];
+  if (/^\d+$/.test(last) && segments.length >= 2) {
+    return `${segments[segments.length - 2]}:${last}`;
+  }
+  return last;
+}
+
+/** Formats one pair for the hover text, e.g. "bs 8: 3 batches, model". */
+function formatTooltipPair(pair: ServingPair): string {
+  const batchCountText = formatBatchCount(pair.numBatches);
+  if (pair.batchSize > 0 && pair.modelId) {
+    return `bs ${pair.batchSize}: ${batchCountText}, ${pair.modelId}`;
+  }
+  if (pair.batchSize > 0) {
+    return `bs ${pair.batchSize}: ${batchCountText}`;
+  }
+  return `${pair.modelId}: ${batchCountText}`;
 }

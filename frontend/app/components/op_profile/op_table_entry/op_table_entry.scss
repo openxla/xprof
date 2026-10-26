@@ -82,3 +82,34 @@
   opacity: 0.65;
   text-decoration: line-through;
 }
+
+.serving-badge {
+  display: inline-block;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+  background-color: #f1f3f4;
+  color: #3c4043;
+  border: 1px solid #dadce0;
+  word-break: normal;
+}
+
+.accessible-serving-metadata {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

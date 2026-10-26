@@ -336,6 +336,7 @@ cc_test(
         "@xla//xla/tsl/profiler/utils:xplane_test_utils",
         "@xla//xla/tsl/profiler/utils:xplane_utils",
         "@xla//xla/tsl/profiler/utils:xplane_visitor",
+        "@xla//xla/tsl/util/proto:proto_matchers",
     ],
 )
 

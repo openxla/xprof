@@ -21,13 +21,17 @@ limitations under the License.
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <ostream>
 #include <string>
+#include <tuple>
 #include <utility>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/group_events.h"
@@ -38,24 +42,32 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_test_utils.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
+#include "xla/tsl/util/proto/proto_matchers.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 
 namespace tensorflow {
 namespace profiler {
 namespace {
 
+using ::testing::ElementsAre;
+using ::testing::IsEmpty;
+using ::testing::Key;
 using ::testing::UnorderedElementsAreArray;
 using ::tsl::profiler::GetOrCreateGpuXPlane;
+using ::tsl::profiler::kThreadIdCommandBufferMin;
 using ::tsl::profiler::kThreadIdHloModule;
 using ::tsl::profiler::kThreadIdTfNameScope;
 using ::tsl::profiler::kThreadIdTfOp;
 using ::tsl::profiler::StatType;
+using ::tsl::profiler::XEventBuilder;
 using ::tsl::profiler::XEventVisitor;
+using ::tsl::profiler::XLineBuilder;
 using ::tsl::profiler::XLineVisitor;
 using ::tsl::profiler::XPlaneBuilder;
 using ::tsl::profiler::XPlaneVisitor;
 using ::tsl::profiler::XStatValue;
 using ::tsl::profiler::XStatVisitor;
+using ::tsl::proto_testing::EqualsProto;
 
 TEST(DerivedTimelineTest, EmptySpaceTest) {
   XSpace space;
@@ -750,16 +762,374 @@ TEST(DerivedTimelineTest, CycleDetectionTest) {
   scope_range_id_tree[10] = 20;
   scope_range_id_tree[20] = 10;  // Cycle
 
-  SymbolResolver symbol_resolver = [](std::optional<uint64_t> program_id,
-                                      absl::string_view hlo_module_name,
-                                      absl::string_view hlo_op) {
-    return Symbol{hlo_module_name, "", ""};
-  };
+  SymbolResolver symbol_resolver =
+      [](std::optional<uint64_t> program_id, absl::string_view hlo_module_name,
+         absl::string_view hlo_op) { return Symbol{hlo_module_name, "", ""}; };
 
   // This should finish without hanging/OOM.
   DeriveEventsFromAnnotations(symbol_resolver, plane, &scope_range_id_tree);
 
   SUCCEED();
+}
+
+constexpr int64_t kStreamId = 7;
+constexpr int64_t kStepId = 1;
+constexpr uint64_t kGraphA = 20;
+constexpr uint64_t kGraphB = 21;
+constexpr absl::string_view kModuleName = "module";
+
+// ID of the Command Buffers line of the `rank`-th stream in processing order
+// (compute streams first, then by descending number of events).
+int64_t CommandBufferLineId(int rank) {
+  return kThreadIdCommandBufferMin + rank;
+}
+
+// ID of the XLA Modules line of the `rank`-th stream in processing order. Each
+// stream gets the derived line IDs kThreadIdTfNameScope..kThreadIdSource,
+// shifted to start at kThreadIdDeviceDerivedMin + rank * 6.
+int64_t HloModuleLineId(int rank) {
+  constexpr int64_t kLinesPerStream =
+      tsl::profiler::kThreadIdSource - kThreadIdTfNameScope + 1;
+  return tsl::profiler::kThreadIdDeviceDerivedMin + rank * kLinesPerStream +
+         (kThreadIdHloModule - kThreadIdTfNameScope);
+}
+
+// Returns the IDs of the lines of `plane` that have a display ID, sorted by
+// display ID. Lines that the GPU stream ordering doesn't place, such as the
+// Steps line, have none.
+std::vector<int64_t> GetLineIdsInDisplayOrder(const XPlane& plane) {
+  std::map<int64_t, int64_t> display_id_to_line_id;
+  for (const auto& line : plane.lines()) {
+    if (line.display_id() != 0) {
+      display_id_to_line_id[line.display_id()] = line.id();
+    }
+  }
+  std::vector<int64_t> line_ids;
+  for (const auto& [display_id, line_id] : display_id_to_line_id) {
+    line_ids.push_back(line_id);
+  }
+  return line_ids;
+}
+
+// A CUDA graph node event on a GPU stream, with the stats that the CUPTI
+// collector and event grouping write for it.
+struct NodeEvent {
+  int64_t offset_ps;
+  int64_t duration_ps;
+  uint64_t graph_id;
+  int64_t correlation_id;
+  // kKernelDetails, kMemcpyDetails or kMemsetDetails.
+  StatType details = StatType::kKernelDetails;
+};
+
+// Adds `node` to the line of `plane` with ID `stream_id`.
+void AddNodeEvent(XPlaneBuilder& plane, int64_t stream_id,
+                  const NodeEvent& node) {
+  auto stat = [&plane](StatType type) -> const XStatMetadata& {
+    return *plane.GetOrCreateStatMetadata(tsl::profiler::GetStatTypeStr(type));
+  };
+  XLineBuilder line = plane.GetOrCreateLine(stream_id);
+  XEventBuilder event = line.AddEvent(*plane.GetOrCreateEventMetadata("node"));
+  event.SetOffsetPs(node.offset_ps);
+  event.SetDurationPs(node.duration_ps);
+  event.AddStatValue(stat(node.details), "details");
+  event.AddStatValue(stat(StatType::kGroupId), kStepId);
+  event.AddStatValue(stat(StatType::kHloModule), kModuleName);
+  event.AddStatValue(stat(StatType::kCudaGraphId), node.graph_id);
+  event.AddStatValue(stat(StatType::kCorrelationId), node.correlation_id);
+}
+
+// A span on a Command Buffers line.
+struct CommandBufferSpan {
+  std::string name;
+  int64_t offset_ps = 0;
+  int64_t duration_ps = 0;
+  std::optional<uint64_t> graph_id;
+  std::optional<int64_t> correlation_id;
+};
+
+bool operator==(const CommandBufferSpan& a, const CommandBufferSpan& b) {
+  return std::tie(a.name, a.offset_ps, a.duration_ps, a.graph_id,
+                  a.correlation_id) == std::tie(b.name, b.offset_ps,
+                                                b.duration_ps, b.graph_id,
+                                                b.correlation_id);
+}
+
+std::ostream& operator<<(std::ostream& os, const CommandBufferSpan& span) {
+  return os << "{\"" << span.name << "\", offset_ps=" << span.offset_ps
+            << ", duration_ps=" << span.duration_ps
+            << ", graph_id=" << ::testing::PrintToString(span.graph_id)
+            << ", correlation_id="
+            << ::testing::PrintToString(span.correlation_id) << "}";
+}
+
+struct CommandBufferLine {
+  std::string name;
+  std::vector<CommandBufferSpan> spans;
+};
+
+// Returns the Command Buffers lines of `plane`, by line ID.
+std::map<int64_t, CommandBufferLine> GetCommandBufferLines(
+    const XPlane& plane) {
+  std::map<int64_t, CommandBufferLine> lines;
+  XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(&plane);
+  plane_visitor.ForEachLine([&](const XLineVisitor& line_visitor) {
+    if (!absl::StartsWith(line_visitor.Name(),
+                          tsl::profiler::kCommandBufferLineName)) {
+      return;
+    }
+    CommandBufferLine& line = lines[line_visitor.Id()];
+    line.name = std::string(line_visitor.Name());
+    line_visitor.ForEachEvent([&](const XEventVisitor& event) {
+      CommandBufferSpan span;
+      span.name = std::string(event.Name());
+      span.offset_ps = event.OffsetPs();
+      span.duration_ps = event.DurationPs();
+      if (std::optional<XStatVisitor> stat =
+              event.GetStat(StatType::kCudaGraphId)) {
+        span.graph_id = stat->IntOrUintValue();
+      }
+      if (std::optional<XStatVisitor> stat =
+              event.GetStat(StatType::kCorrelationId)) {
+        span.correlation_id = static_cast<int64_t>(stat->IntOrUintValue());
+      }
+      line.spans.push_back(std::move(span));
+    });
+  });
+  return lines;
+}
+
+std::map<int64_t, std::string> GetLineNames(
+    const std::map<int64_t, CommandBufferLine>& lines) {
+  std::map<int64_t, std::string> names;
+  for (const auto& [line_id, line] : lines) {
+    names[line_id] = line.name;
+  }
+  return names;
+}
+
+// Step metadata doesn't affect the Command Buffers line, so pass none.
+void DeriveLines(XSpace& space) {
+  GenerateDerivedTimeLines(tsl::profiler::GroupMetadataMap(), &space);
+}
+
+TEST(DerivedTimelineTest, BackToBackLaunchesGetSeparateSpans) {
+  XSpace space;
+  XPlane& plane = *GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
+  XPlaneBuilder plane_builder(&plane);
+  // Two kernels of the first launch merge into one span; the second launch of
+  // the same graph gets its own span.
+  AddNodeEvent(plane_builder, kStreamId, {0, 100, kGraphA, 100});
+  AddNodeEvent(plane_builder, kStreamId, {200, 300, kGraphA, 100});
+  AddNodeEvent(plane_builder, kStreamId, {600, 150, kGraphA, 101});
+
+  DeriveLines(space);
+
+  std::map<int64_t, CommandBufferLine> lines = GetCommandBufferLines(plane);
+  ASSERT_THAT(lines, ElementsAre(Key(CommandBufferLineId(0))));
+  const CommandBufferLine& line = lines.begin()->second;
+  EXPECT_EQ(line.name, "Command Buffers - from #7");
+  EXPECT_THAT(
+      line.spans,
+      ElementsAre(
+          CommandBufferSpan{"Command Buffer 20", 0, 500, kGraphA, 100},
+          CommandBufferSpan{"Command Buffer 20", 600, 150, kGraphA, 101}));
+}
+
+// Graphs can interleave on one stream, e.g. a parent graph and a child graph
+// on concurrent branches. A span never mixes graphs: each change of graph ID
+// ends the current span, so each graph gets one span per run of events.
+TEST(DerivedTimelineTest, InterleavedGraphsAlternateSpans) {
+  XSpace space;
+  XPlane& plane = *GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
+  XPlaneBuilder plane_builder(&plane);
+  AddNodeEvent(plane_builder, kStreamId, {0, 100, kGraphA, 1});
+  AddNodeEvent(plane_builder, kStreamId, {50, 100, kGraphB, 2});
+  AddNodeEvent(plane_builder, kStreamId, {200, 100, kGraphA, 1});
+  AddNodeEvent(plane_builder, kStreamId, {300, 100, kGraphA, 1});
+  AddNodeEvent(plane_builder, kStreamId, {400, 100, kGraphB, 2});
+
+  DeriveLines(space);
+
+  std::map<int64_t, CommandBufferLine> lines = GetCommandBufferLines(plane);
+  ASSERT_THAT(lines, ElementsAre(Key(CommandBufferLineId(0))));
+  EXPECT_THAT(
+      lines.begin()->second.spans,
+      ElementsAre(
+          CommandBufferSpan{"Command Buffer 20", 0, 100, kGraphA, 1},
+          CommandBufferSpan{"Command Buffer 21", 50, 100, kGraphB, 2},
+          CommandBufferSpan{"Command Buffer 20", 200, 200, kGraphA, 1},
+          CommandBufferSpan{"Command Buffer 21", 400, 100, kGraphB, 2}));
+}
+
+// Each stream gets its own line, named after the stream's line ID and placed
+// by the stream's rank; here the ranks follow the number of events.
+TEST(DerivedTimelineTest, EachStreamGetsItsOwnNamedLine) {
+  XSpace space;
+  XPlane& plane = *GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
+  XPlaneBuilder plane_builder(&plane);
+  // Stream 42 runs graph 1 three times, stream 7 graph 2 twice and stream 13
+  // graph 3 once, each launch with one kernel.
+  for (int i = 0; i < 3; ++i) {
+    AddNodeEvent(plane_builder, 42, {i * 100, 50, 1, 10 + i});
+  }
+  for (int i = 0; i < 2; ++i) {
+    AddNodeEvent(plane_builder, 7, {i * 100, 50, 2, 20 + i});
+  }
+  AddNodeEvent(plane_builder, 13, {0, 50, 3, 30});
+
+  DeriveLines(space);
+
+  std::map<int64_t, CommandBufferLine> lines = GetCommandBufferLines(plane);
+  EXPECT_EQ(GetLineNames(lines),
+            (std::map<int64_t, std::string>{
+                {CommandBufferLineId(0), "Command Buffers - from #42"},
+                {CommandBufferLineId(1), "Command Buffers - from #7"},
+                {CommandBufferLineId(2), "Command Buffers - from #13"}}));
+  EXPECT_THAT(
+      lines[CommandBufferLineId(0)].spans,
+      ElementsAre(CommandBufferSpan{"Command Buffer 1", 0, 50, 1, 10},
+                  CommandBufferSpan{"Command Buffer 1", 100, 50, 1, 11},
+                  CommandBufferSpan{"Command Buffer 1", 200, 50, 1, 12}));
+  EXPECT_THAT(
+      lines[CommandBufferLineId(1)].spans,
+      ElementsAre(CommandBufferSpan{"Command Buffer 2", 0, 50, 2, 20},
+                  CommandBufferSpan{"Command Buffer 2", 100, 50, 2, 21}));
+  EXPECT_THAT(lines[CommandBufferLineId(2)].spans,
+              ElementsAre(CommandBufferSpan{"Command Buffer 3", 0, 50, 3, 30}));
+  // Each stream's Command Buffers line comes right after its other derived
+  // lines (here only XLA Modules; empty lines are removed).
+  EXPECT_THAT(GetLineIdsInDisplayOrder(plane),
+              ElementsAre(42, HloModuleLineId(0), CommandBufferLineId(0), 7,
+                          HloModuleLineId(1), CommandBufferLineId(1), 13,
+                          HloModuleLineId(2), CommandBufferLineId(2)));
+}
+
+// Like the XLA Ops line, the Command Buffers line only uses kernels, so memcpy
+// and memset nodes are left out: a span runs from the first to the last kernel
+// of a launch, and a launch without kernels gets no span.
+TEST(DerivedTimelineTest, MemcpyAndMemsetNodesAreExcluded) {
+  XSpace space;
+  XPlane& plane = *GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
+  XPlaneBuilder plane_builder(&plane);
+  // Graph A: memset, kernel, memcpy, kernel, memcpy.
+  AddNodeEvent(plane_builder, kStreamId,
+               {0, 50, kGraphA, 1, StatType::kMemsetDetails});
+  AddNodeEvent(plane_builder, kStreamId, {100, 100, kGraphA, 1});
+  AddNodeEvent(plane_builder, kStreamId,
+               {250, 50, kGraphA, 1, StatType::kMemcpyDetails});
+  AddNodeEvent(plane_builder, kStreamId, {300, 100, kGraphA, 1});
+  AddNodeEvent(plane_builder, kStreamId,
+               {450, 50, kGraphA, 1, StatType::kMemcpyDetails});
+  // Graph B: only a memcpy and a memset.
+  AddNodeEvent(plane_builder, kStreamId,
+               {600, 50, kGraphB, 2, StatType::kMemcpyDetails});
+  AddNodeEvent(plane_builder, kStreamId,
+               {700, 50, kGraphB, 2, StatType::kMemsetDetails});
+
+  DeriveLines(space);
+
+  std::map<int64_t, CommandBufferLine> lines = GetCommandBufferLines(plane);
+  ASSERT_THAT(lines, ElementsAre(Key(CommandBufferLineId(0))));
+  EXPECT_THAT(lines.begin()->second.spans,
+              ElementsAre(CommandBufferSpan{"Command Buffer 20", 100, 300,
+                                            kGraphA, 1}));
+}
+
+// In GRAPH_TRACE mode CUPTI emits one event per graph launch instead of one
+// per node, and the Command Buffers line repeats those events one-to-one.
+TEST(DerivedTimelineTest, GraphTraceEventsMapOneToOne) {
+  XSpace space;
+  XPlane& plane = *GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
+  XPlaneBuilder plane_builder(&plane);
+  XLineBuilder line_builder = plane_builder.GetOrCreateLine(kStreamId);
+  auto add_graph_launch = [&](int64_t offset_ps, uint64_t graph_id,
+                              int64_t correlation_id) {
+    tsl::profiler::CreateXEvent(&plane_builder, &line_builder, "CudaGraphExec",
+                                offset_ps, /*duration_ps=*/300,
+                                {{StatType::kCudaGraphExecId, graph_id},
+                                 {StatType::kCudaGraphId, graph_id},
+                                 {StatType::kCorrelationId, correlation_id},
+                                 {StatType::kGroupId, kStepId},
+                                 {StatType::kHloModule, kModuleName}});
+  };
+  add_graph_launch(0, kGraphA, 1);
+  add_graph_launch(600, kGraphA, 2);
+  add_graph_launch(1000, kGraphB, 3);
+
+  DeriveLines(space);
+
+  std::map<int64_t, CommandBufferLine> lines = GetCommandBufferLines(plane);
+  ASSERT_THAT(lines, ElementsAre(Key(CommandBufferLineId(0))));
+  EXPECT_THAT(
+      lines.begin()->second.spans,
+      ElementsAre(
+          CommandBufferSpan{"Command Buffer 20", 0, 300, kGraphA, 1},
+          CommandBufferSpan{"Command Buffer 20", 600, 300, kGraphA, 2},
+          CommandBufferSpan{"Command Buffer 21", 1000, 300, kGraphB, 3}));
+}
+
+// Only GPU planes get the line. TPU planes only get lines derived from their
+// stats, and the host plane is only read, so CUDA graph stats on either add no
+// line and change nothing.
+TEST(DerivedTimelineTest, NonGpuPlanesGetNoLine) {
+  XSpace space;
+  XPlane& gpu_plane = *GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
+  XPlane& tpu_plane = *tsl::profiler::GetOrCreateTpuXPlane(
+      &space, /*device_ordinal=*/0, "TPU V4", 0, 0);
+  XPlane& host_plane = *tsl::profiler::GetOrCreateHostXPlane(&space);
+  for (XPlane* plane : {&gpu_plane, &tpu_plane, &host_plane}) {
+    XPlaneBuilder plane_builder(plane);
+    AddNodeEvent(plane_builder, kStreamId, {0, 100, kGraphA, 1});
+    AddNodeEvent(plane_builder, kStreamId, {200, 100, kGraphA, 1});
+  }
+  const XPlane tpu_plane_before = tpu_plane;
+  const XPlane host_plane_before = host_plane;
+
+  DeriveLines(space);
+
+  EXPECT_THAT(GetCommandBufferLines(gpu_plane),
+              ElementsAre(Key(CommandBufferLineId(0))));
+  EXPECT_THAT(GetCommandBufferLines(tpu_plane), IsEmpty());
+  EXPECT_THAT(GetCommandBufferLines(host_plane), IsEmpty());
+  // Deriving lines from stats can add stat metadata to a TPU plane, so only
+  // compare its lines.
+  ASSERT_EQ(tpu_plane.lines_size(), tpu_plane_before.lines_size());
+  for (int i = 0; i < tpu_plane.lines_size(); ++i) {
+    EXPECT_THAT(tpu_plane.lines(i), EqualsProto(tpu_plane_before.lines(i)));
+  }
+  EXPECT_THAT(host_plane, EqualsProto(host_plane_before));
+}
+
+// Non-GPU planes derive their lines at the fixed IDs kThreadIdTfNameScope to
+// kThreadIdSource. They get no Command Buffers line, so no derived line lands
+// in the host offload op range that follows kThreadIdSource.
+TEST(DerivedTimelineTest, NonGpuDerivationAddsNoCommandBufferLine) {
+  XSpace space;
+  XPlane& plane = *tsl::profiler::GetOrCreateTpuXPlane(
+      &space, /*device_ordinal=*/0, "TPU V4", 0, 0);
+  XPlaneBuilder plane_builder(&plane);
+  AddNodeEvent(plane_builder, kStreamId, {0, 100, kGraphA, 1});
+  AddNodeEvent(plane_builder, kStreamId, {200, 100, kGraphA, 1});
+  SymbolResolver symbol_resolver =
+      [](std::optional<uint64_t> program_id, absl::string_view hlo_module_name,
+         absl::string_view hlo_op) { return Symbol{hlo_module_name, "", ""}; };
+
+  DeriveEventsFromAnnotations(symbol_resolver, &plane);
+
+  EXPECT_THAT(GetCommandBufferLines(plane), IsEmpty());
+  std::vector<int64_t> derived_line_ids;
+  for (const auto& line : plane.lines()) {
+    if (tsl::profiler::IsDerivedThreadId(line.id())) {
+      derived_line_ids.push_back(line.id());
+    }
+  }
+  EXPECT_THAT(derived_line_ids, ElementsAre(kThreadIdHloModule));
+  for (int64_t line_id : derived_line_ids) {
+    EXPECT_FALSE(line_id >= tsl::profiler::kThreadIdHostOffloadOpStart &&
+                 line_id <= tsl::profiler::kThreadIdHostOffloadOpEnd)
+        << line_id;
+  }
 }
 
 }  // namespace

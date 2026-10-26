@@ -146,17 +146,25 @@ inline int64_t GetDerivedLineId(int64_t first_derived_line_id,
          (target_line_id - tsl::profiler::kThreadIdTfNameScope);
 }
 
+// Returns the suffix that tells apart the derived lines of different source
+// lines in group which starts from first_derived_line_id, e.g. " - from #3".
+std::string GetDerivedLineNameSuffix(
+    int64_t first_derived_line_id, absl::Span<const int64_t> source_line_ids) {
+  if (first_derived_line_id != kThreadIdTfNameScope &&
+      !source_line_ids.empty()) {
+    return absl::StrCat(" - from #", source_line_ids[0]);
+  }
+  return "";
+}
+
 // Get the derived line name for a given derived line in group which starts from
 // first_derived_line_id.
 std::string GetDerivedLineName(int64_t first_derived_line_id,
                                int64_t target_line_id,
                                absl::Span<const int64_t> source_line_ids) {
   int64_t offset = target_line_id - kThreadIdTfNameScope;
-  std::string suffix;
-  if (first_derived_line_id != kThreadIdTfNameScope &&
-      !source_line_ids.empty()) {
-    suffix = absl::StrCat(" - from #", source_line_ids[0]);
-  }
+  std::string suffix =
+      GetDerivedLineNameSuffix(first_derived_line_id, source_line_ids);
   switch (offset) {
     case kThreadIdTfNameScope - kThreadIdTfNameScope:
       return absl::StrCat(tsl::profiler::kTensorFlowNameScopeLineName, suffix);
@@ -178,10 +186,13 @@ std::string GetDerivedLineName(int64_t first_derived_line_id,
 // Derive events from the given line ids using annotations.
 // Returns the derived line ids in the order of tf_name_scope, tf_op, hlo_op,
 // hlo_module, source. Where the derived line id for tf_name_scope is
-// first_derived_line_id.
+// first_derived_line_id. If command_buffer_line_id is set, also derives a
+// "Command Buffers" line with that id from CUDA graph node events, and appends
+// its id.
 std::vector<int64_t> DeriveEventsFromAnnotationsForLines(
     const SymbolResolver& symbol_resolver, XPlane* device_trace,
     absl::Span<const int64_t> line_ids, int64_t first_derived_line_id,
+    std::optional<int64_t> command_buffer_line_id,
     const ScopeRangeIdTree* scope_range_id_tree = nullptr) {
   XPlaneVisitor plane_visitor =
       tsl::profiler::CreateTfXPlaneVisitor(device_trace);
@@ -202,11 +213,22 @@ std::vector<int64_t> DeriveEventsFromAnnotationsForLines(
       &plane_builder, GetDerivedLineId(first_derived_line_id, kThreadIdHloOp),
       GetDerivedLineName(first_derived_line_id, kThreadIdHloOp, line_ids),
       start_timestamp_ns, {});
+  std::optional<DerivedXLineBuilder> command_buffers;
+  std::vector<DerivedXLineBuilder*> hlo_module_dependents = {&tf_name_scope,
+                                                             &hlo_ops};
+  if (command_buffer_line_id.has_value()) {
+    command_buffers.emplace(
+        &plane_builder, *command_buffer_line_id,
+        absl::StrCat(tsl::profiler::kCommandBufferLineName,
+                     GetDerivedLineNameSuffix(first_derived_line_id, line_ids)),
+        start_timestamp_ns, std::vector<DerivedXLineBuilder*>());
+    hlo_module_dependents.push_back(&*command_buffers);
+  }
   DerivedXLineBuilder hlo_modules(
       &plane_builder,
       GetDerivedLineId(first_derived_line_id, kThreadIdHloModule),
       GetDerivedLineName(first_derived_line_id, kThreadIdHloModule, line_ids),
-      start_timestamp_ns, {&tf_name_scope, &hlo_ops});
+      start_timestamp_ns, std::move(hlo_module_dependents));
   DerivedXLineBuilder source(
       &plane_builder, GetDerivedLineId(first_derived_line_id, kThreadIdSource),
       GetDerivedLineName(first_derived_line_id, kThreadIdSource, line_ids),
@@ -256,6 +278,29 @@ std::vector<int64_t> DeriveEventsFromAnnotationsForLines(
           level_range_ids.empty() ? std::nullopt : level_range_ids.back());
     }
 
+    if (command_buffers.has_value() &&
+        stats.cuda_graph_id_for_inner_node.has_value() &&
+        *stats.cuda_graph_id_for_inner_node != 0) {
+      const uint64_t cuda_graph_id = *stats.cuda_graph_id_for_inner_node;
+      // A span covers the kernels of one graph launch, grouped by graph ID
+      // (metadata), step (group ID) and launch correlation ID (passed as the
+      // scope range ID, so back-to-back or concurrent launches stay apart).
+      // Memcpy and memset nodes are skipped by the kernel filter above. A node
+      // that CUPTI reports with the ID of a nested or conditional body graph
+      // starts a separate span, which splits the root graph's span.
+      command_buffers->ExpandOrAddEvent(
+          *plane_builder.GetOrCreateEventMetadata(
+              absl::StrCat("Command Buffer ", cuda_graph_id)),
+          event_span, stats.group_id, stats.correlation_id);
+      command_buffers->AddStatToLevelEvent(
+          0, *command_buffers->GetCudaGraphIdMetadata(), cuda_graph_id);
+      if (stats.correlation_id.has_value()) {
+        command_buffers->AddStatToLevelEvent(
+            0, *command_buffers->GetCorrelationIdMetadata(),
+            *stats.correlation_id);
+      }
+    }
+
     if (stats.IsXlaOp()) {
       auto symbol = symbol_resolver(stats.program_id, stats.hlo_module_name,
                                     stats.hlo_op_names.back());
@@ -303,8 +348,13 @@ std::vector<int64_t> DeriveEventsFromAnnotationsForLines(
                        plane_builder, tf_name_scope, tf_ops);
     }
   }
-  return {tf_name_scope.Line().Id(), tf_ops.Line().Id(),
-          hlo_modules.Line().Id(), hlo_ops.Line().Id(), source.Line().Id()};
+  std::vector<int64_t> derived_line_ids = {
+      tf_name_scope.Line().Id(), tf_ops.Line().Id(), hlo_modules.Line().Id(),
+      hlo_ops.Line().Id(), source.Line().Id()};
+  if (command_buffers.has_value()) {
+    derived_line_ids.push_back(command_buffers->Line().Id());
+  }
+  return derived_line_ids;
 }
 
 }  // namespace
@@ -556,20 +606,27 @@ void DeriveEventsFromAnnotations(const SymbolResolver& symbol_resolver,
     constexpr int64_t kMaxDerivedLinesPerStream =
         tsl::profiler::kThreadIdSource - tsl::profiler::kThreadIdTfNameScope +
         1;
+    // Each stream that gets derived lines also gets one command buffer line.
+    // trace_utils.h sizes both ranges for the same number of streams.
+    int64_t next_command_buffer_line_id =
+        tsl::profiler::kThreadIdCommandBufferMin;
     std::vector<int64_t> all_ordered_gpu_lines;
     all_ordered_gpu_lines.reserve(gpu_stream_lines.size() +
                                   tsl::profiler::kThreadIdDeviceDerivedMax -
                                   tsl::profiler::kThreadIdDeviceDerivedMin);
     for (const XLine* line : gpu_stream_lines) {
       if (next_derived_line_id + kMaxDerivedLinesPerStream >
-          tsl::profiler::kThreadIdDeviceDerivedMax) {
+              tsl::profiler::kThreadIdDeviceDerivedMax ||
+          next_command_buffer_line_id >
+              tsl::profiler::kThreadIdCommandBufferMax) {
         LOG(WARNING) << "Exceeding the range of derived line ids. Stopping.";
         break;
       }
       std::vector<int64_t> used_lines = DeriveEventsFromAnnotationsForLines(
           symbol_resolver, device_trace, {line->id()}, next_derived_line_id,
-          scope_range_id_tree);
+          next_command_buffer_line_id, scope_range_id_tree);
       next_derived_line_id += kMaxDerivedLinesPerStream;
+      ++next_command_buffer_line_id;
       all_ordered_gpu_lines.push_back(line->id());
       // Sort the used lines to ensure the order of the derived lines is
       // based on the kThreadId* order.
@@ -599,8 +656,9 @@ void DeriveEventsFromAnnotations(const SymbolResolver& symbol_resolver,
       }
     }
   } else {
-    DeriveEventsFromAnnotationsForLines(symbol_resolver, device_trace, {},
-                                        kThreadIdTfNameScope);
+    DeriveEventsFromAnnotationsForLines(
+        symbol_resolver, device_trace, {}, kThreadIdTfNameScope,
+        /*command_buffer_line_id=*/std::nullopt);
   }
   tsl::profiler::RemoveEmptyLines(device_trace);
 }

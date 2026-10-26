@@ -19,6 +19,19 @@ TEST(XlaOpUtilsTest, ExtractXprofKernelMetadataTest) {
   EXPECT_EQ(ExtractXprofKernelMetadata(hlo_expression), expected);
 }
 
+TEST(XlaOpUtilsTest, ExtractXprofKernelMetadataWithControlPredecessorsTest) {
+  std::string hlo_expression = R"(
+  %blah.1 = bf16[4096,2048]{1,0:T(8,128)(2,1)}
+    custom-call(s32[]{:T(128)} %bitcast), custom_call_target="tpu_custom_call",
+    frontend_attributes={
+      kernel_metadata={"xprof_metadata": "{\"whatever\": {\"I\": \"want\"}}"},
+      xla_scoped_vmem_reservation="pallas_call.1.scoped_vmem_reservation"},
+    control-predecessors={%pallas_call.1.scoped_vmem_reservation}
+)";
+  std::string expected = R"({"whatever":{"I":"want"}})";
+  EXPECT_EQ(ExtractXprofKernelMetadata(hlo_expression), expected);
+}
+
 TEST(XlaOpUtilsTest, ExtractXprofKernelMetadataTest_InvalidHlo) {
   std::string hlo_expression = R"(
   %blah.1 = bf16[4096,2048]{1,0:T(8,128)(2,1)}

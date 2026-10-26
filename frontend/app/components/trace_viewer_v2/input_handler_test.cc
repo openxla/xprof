@@ -207,5 +207,167 @@ TEST_F(InputHandlerTest, HandleKeyDownReturnsFalseWhenDOMTextIsSelected) {
 
   EXPECT_FALSE(handled);
 }
+
+EM_JS(void, CreateShadowInputForTest, (), {
+  const host = document.createElement('div');
+  host.id = 'shadow-test-host';
+  const shadow = host.attachShadow({mode : 'open'});
+  const input = document.createElement('input');
+  input.id = 'shadow-input';
+  shadow.appendChild(input);
+  document.body.appendChild(host);
+  input.focus();
+});
+
+EM_JS(void, CreateNestedShadowInputForTest, (), {
+  const outerHost = document.createElement('div');
+  outerHost.id = 'nested-outer-host';
+  const outerShadow = outerHost.attachShadow({mode : 'open'});
+  const innerHost = document.createElement('div');
+  innerHost.id = 'nested-inner-host';
+  const innerShadow = innerHost.attachShadow({mode : 'open'});
+  const textarea = document.createElement('textarea');
+  textarea.id = 'nested-textarea';
+  innerShadow.appendChild(textarea);
+  outerShadow.appendChild(innerHost);
+  document.body.appendChild(outerHost);
+  textarea.focus();
+});
+
+EM_JS(void, CleanupShadowElementsForTest, (), {
+  const host = document.getElementById('shadow-test-host');
+  if (host) host.remove();
+  const nested = document.getElementById('nested-outer-host');
+  if (nested) nested.remove();
+  if (document.activeElement && document.activeElement.blur) {
+    document.activeElement.blur();
+  }
+});
+
+EM_JS(void, CreateNativeDialogForTest, (), {
+  const dialog = document.createElement('dialog');
+  dialog.id = 'test-native-dialog';
+  dialog.setAttribute('open', "");
+  document.body.appendChild(dialog);
+});
+
+EM_JS(void, CreateAriaModalForTest, (), {
+  const div = document.createElement('div');
+  div.id = 'test-aria-modal';
+  div.setAttribute('aria-modal', 'true');
+  document.body.appendChild(div);
+});
+
+EM_JS(void, CreateTraceViewerHelpDialogForTest, (bool withShadowMdDialog), {
+  const el = document.createElement('trace-viewer-help-dialog');
+  el.id = 'test-help-dialog';
+  if (withShadowMdDialog) {
+    const shadow = el.attachShadow({mode : 'open'});
+    const mdDialog = document.createElement('md-dialog');
+    mdDialog.setAttribute('open', "");
+    shadow.appendChild(mdDialog);
+  } else {
+    el.setAttribute('open', "");
+  }
+  document.body.appendChild(el);
+});
+
+EM_JS(void, CreateTraceViewerCustomizationPanelForTest, (), {
+  const el = document.createElement('trace-viewer-customization-panel');
+  el.id = 'test-custom-panel';
+  const shadow = el.attachShadow({mode : 'open'});
+  const mdDialog = document.createElement('md-dialog');
+  mdDialog.setAttribute('open', "");
+  shadow.appendChild(mdDialog);
+  document.body.appendChild(el);
+});
+
+EM_JS(void, CleanupModalDialogsForTest, (), {
+  const nativeDialog = document.getElementById('test-native-dialog');
+  if (nativeDialog) nativeDialog.remove();
+  const ariaModal = document.getElementById('test-aria-modal');
+  if (ariaModal) ariaModal.remove();
+  const help = document.getElementById('test-help-dialog');
+  if (help) help.remove();
+  const panel = document.getElementById('test-custom-panel');
+  if (panel) panel.remove();
+});
+
+TEST_F(InputHandlerTest, HasDOMSelectionOrActiveInputDetectsShadowDOMInput) {
+  CreateShadowInputForTest();
+
+  EXPECT_EQ(HasDOMSelectionOrActiveInput(), 1);
+
+  EmscriptenKeyboardEvent event;
+  memset(&event, 0, sizeof(event));
+  strncpy(event.code, "KeyW", sizeof(event.code) - 1);
+  EXPECT_FALSE(HandleKeyDown(0, &event, nullptr));
+  EXPECT_FALSE(HandleKeyUp(0, &event, nullptr));
+
+  CleanupShadowElementsForTest();
+}
+
+TEST_F(InputHandlerTest,
+       HasDOMSelectionOrActiveInputDetectsNestedShadowDOMInput) {
+  CreateNestedShadowInputForTest();
+
+  EXPECT_EQ(HasDOMSelectionOrActiveInput(), 1);
+
+  CleanupShadowElementsForTest();
+}
+
+TEST_F(InputHandlerTest, IsModalDialogOpenDetectsNativeAndAriaModals) {
+  EXPECT_EQ(IsModalDialogOpen(), 0);
+
+  CreateNativeDialogForTest();
+  EXPECT_EQ(IsModalDialogOpen(), 1);
+  CleanupModalDialogsForTest();
+
+  EXPECT_EQ(IsModalDialogOpen(), 0);
+
+  CreateAriaModalForTest();
+  EXPECT_EQ(IsModalDialogOpen(), 1);
+  CleanupModalDialogsForTest();
+
+  EXPECT_EQ(IsModalDialogOpen(), 0);
+}
+
+TEST_F(InputHandlerTest, IsModalDialogOpenDetectsHelpDialogAndCustomPanel) {
+  EXPECT_EQ(IsModalDialogOpen(), 0);
+
+  CreateTraceViewerHelpDialogForTest(/*withShadowMdDialog=*/false);
+  EXPECT_EQ(IsModalDialogOpen(), 1);
+  CleanupModalDialogsForTest();
+
+  CreateTraceViewerHelpDialogForTest(/*withShadowMdDialog=*/true);
+  EXPECT_EQ(IsModalDialogOpen(), 1);
+  CleanupModalDialogsForTest();
+
+  CreateTraceViewerCustomizationPanelForTest();
+  EXPECT_EQ(IsModalDialogOpen(), 1);
+  CleanupModalDialogsForTest();
+
+  EXPECT_EQ(IsModalDialogOpen(), 0);
+}
+
+TEST_F(InputHandlerTest, ModalDialogSuppressesKeyAndWheelEvents) {
+  CreateTraceViewerHelpDialogForTest(/*withShadowMdDialog=*/true);
+  EXPECT_EQ(IsModalDialogOpen(), 1);
+
+  EmscriptenKeyboardEvent key_event;
+  memset(&key_event, 0, sizeof(key_event));
+  strncpy(key_event.code, "KeyW", sizeof(key_event.code) - 1);
+
+  EXPECT_FALSE(HandleKeyDown(0, &key_event, nullptr));
+  EXPECT_FALSE(HandleKeyUp(0, &key_event, nullptr));
+
+  EmscriptenWheelEvent wheel_event;
+  memset(&wheel_event, 0, sizeof(wheel_event));
+  wheel_event.deltaY = 100.0;
+  EXPECT_FALSE(HandleWheel(0, &wheel_event, nullptr));
+
+  CleanupModalDialogsForTest();
+}
+
 }  // namespace
 }  // namespace traceviewer

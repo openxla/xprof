@@ -6,6 +6,14 @@
 
 namespace traceviewer {
 
+// Returns true (1) if any modal dialog (native or custom element) is open in
+// the DOM, false (0) otherwise.
+int IsModalDialogOpen();
+
+// Returns true (1) if an input element has focus (including within shadow DOM)
+// or DOM text is selected, false (0) otherwise.
+int HasDOMSelectionOrActiveInput();
+
 // The following functions are used as callbacks for Emscripten event handlers.
 // They return EM_BOOL (typedef for int) as required by Emscripten:
 // - true (1): The event was handled and should not be propagated further.

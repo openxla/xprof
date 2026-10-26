@@ -484,6 +484,28 @@ export class TraceViewerContainer
     return this.eventDetailColumns.length <= 2;
   }
 
+  hasCrossToolLinks(): boolean {
+    if (!this.selectedEvent) {
+      return false;
+    }
+    let hasLinks = Boolean(
+      this.selectedEvent.stackTraceLinkHtml ||
+        this.selectedEvent.rooflineModelLinkHtml ||
+        this.selectedEvent.graphViewerLinkHtml ||
+        this.selectedEvent.hloOpStatsLinkHtml ||
+        this.selectedEvent.kernelViewerLinkHtml ||
+        this.selectedEvent.stepGroupLinkHtml,
+    );
+    return hasLinks;
+  }
+
+  hasRightSideContent(): boolean {
+    if (this.rightSideProperties.length > 0 || this.hasCrossToolLinks()) {
+      return true;
+    }
+    return false;
+  }
+
   showMetricsTable(): boolean {
     return this.metricsDataSource.data.length > 0;
   }

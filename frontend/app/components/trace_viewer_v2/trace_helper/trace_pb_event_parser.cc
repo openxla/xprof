@@ -83,8 +83,8 @@ void DispatchResponseDetails(const xprof::TraceDataResponse& response,
 
 ParsedTraceEvents ParseCompressedTraceEvents(
     uintptr_t data_ptr, size_t data_size,
-    std::optional<std::pair<Milliseconds, Milliseconds>>
-        visible_range_from_url) {
+    std::optional<std::pair<Milliseconds, Milliseconds>> visible_range_from_url,
+    OpenAsyncEventsMap* open_async_events = nullptr) {
   absl::string_view buffer_data(reinterpret_cast<const char*>(data_ptr),
                                 data_size);
   ParsedTraceEvents result;
@@ -104,7 +104,7 @@ ParsedTraceEvents ParseCompressedTraceEvents(
   DispatchResponseDetails(response, result.mpmd_pipeline_view);
   ProcessMetadataEvents(response, result);
   ProcessCompleteEvents(response, result);
-  ProcessAsyncEvents(response, result);
+  ProcessAsyncEvents(response, result, open_async_events);
   ProcessCounterEvents(response, result);
 
   if (response.has_full_timespan_start_ps() &&
@@ -708,6 +708,7 @@ bool UnmarshalProcessSliceBounded(IncrementalParserSession& session,
                                   size_t max_raw_events_budget,
                                   size_t& events_unmarshaled,
                                   size_t& raw_events_scanned,
+                                  DataProvider& data_provider,
                                   ParsedTraceEvents& batch) {
   xprof::TraceDataResponse& response = *session.active_response;
   const absl::Span<const std::string> interned_strings =
@@ -831,7 +832,7 @@ bool UnmarshalProcessSliceBounded(IncrementalParserSession& session,
       const size_t before_flame = batch.flame_events.size();
       const size_t before_flow = batch.flow_events.size();
       ProcessAsyncEventSeries(response.async_events(idx), interned_strings,
-                              batch);
+                              batch, &data_provider.open_async_events());
       if (session.recording_frame_summaries && session.can_build_trace_store) {
         session.building_async_flame_events.insert(
             session.building_async_flame_events.end(),
@@ -1161,7 +1162,7 @@ bool StepIncrementalTraceEvents(size_t max_events_per_step,
     const ProcessId pid = session.active_pids[session.next_pid_idx];
     const bool pid_finished = UnmarshalProcessSliceBounded(
         session, pid, max_events_per_step, max_raw_events_per_step,
-        events_unmarshaled, raw_events_scanned, batch);
+        events_unmarshaled, raw_events_scanned, data_provider, batch);
     any_processed = true;
     if (pid_finished) {
       ++session.next_pid_idx;
@@ -1342,7 +1343,8 @@ void ParseAndProcessCompressedTraceEvents(
       (timeline.last_fetch_request_range() == TimeRange::Zero());
   GetIncrementalSession().ClearPersistentCache();
   const ParsedTraceEvents parsed_events =
-      ParseCompressedTraceEvents(data_ptr, data_size, visible_range_from_url);
+      ParseCompressedTraceEvents(data_ptr, data_size, visible_range_from_url,
+                                 &data_provider.open_async_events());
   const bool has_url_range = parsed_events.visible_range_from_url.has_value();
   const bool is_overview_load =
       is_initial_load && !has_url_range && timeline.incremental_fetch_enabled();

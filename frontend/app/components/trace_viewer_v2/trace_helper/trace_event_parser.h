@@ -11,7 +11,8 @@ namespace traceviewer {
 
 ParsedTraceEvents ParseTraceEvents(
     const emscripten::val& trace_data,
-    const emscripten::val& visible_range_from_url);
+    const emscripten::val& visible_range_from_url,
+    OpenAsyncEventsMap* open_async_events = nullptr);
 
 // Parses trace data containing search results and updates the timeline.
 void SetSearchResultsInWasm(const emscripten::val& trace_data);

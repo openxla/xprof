@@ -3586,6 +3586,7 @@ bool DataProvider::HasKnownTracks() const {
 void DataProvider::Reset() {
   incremental_state_.reset();
   present_flow_categories_.clear();
+  open_async_events_.clear();
   process_names_.clear();
   thread_names_.clear();
   process_sort_indices_.clear();

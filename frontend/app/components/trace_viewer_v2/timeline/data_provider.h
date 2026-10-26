@@ -1,6 +1,7 @@
 #ifndef THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_DATA_PROVIDER_H_
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_DATA_PROVIDER_H_
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -94,6 +95,13 @@ class DataProvider {
   // Returns true if any threads, counters, or async tracks are registered.
   bool HasKnownTracks() const;
 
+  // Accesses the map of unclosed async begin events preserved across streaming
+  // chunks, keyed by (pid, name, flow_id).
+  OpenAsyncEventsMap& open_async_events() { return open_async_events_; }
+  const OpenAsyncEventsMap& open_async_events() const {
+    return open_async_events_;
+  }
+
   std::optional<ThreadId> GetXlaModulesTid(ProcessId pid) const {
     const auto it = xla_modules_tids_.find(pid);
     return it != xla_modules_tids_.end() ? std::optional<ThreadId>(it->second)
@@ -115,6 +123,11 @@ class DataProvider {
   absl::btree_map<ProcessId, absl::btree_set<std::string>> known_async_tracks_;
   absl::flat_hash_set<ProcessId> known_async_processes_;
   absl::btree_map<ProcessId, absl::btree_set<std::string>> known_counters_;
+  // Unclosed async begin events keyed by (pid, name, flow_id) preserved across
+  // streaming chunks. In Trace Event Format and XProf protobuf responses, async
+  // begin/end pairs are correlated by (pid, name, flow_id); events without a
+  // flow/correlation ID cannot be paired across chunks.
+  OpenAsyncEventsMap open_async_events_;
   std::unique_ptr<IncrementalState> incremental_state_;
   bool was_compacted_ = false;
   bool last_load_was_refetch_ = false;

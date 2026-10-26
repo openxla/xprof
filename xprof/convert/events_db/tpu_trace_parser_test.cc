@@ -12,6 +12,7 @@ limitations under the License.
 
 #include "xprof/convert/events_db/tpu_trace_parser.h"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
@@ -42,6 +43,8 @@ namespace {
 
 using ::absl_testing::IsOkAndHolds;
 using ::absl_testing::StatusIs;
+using ::testing::Eq;
+using ::testing::Pointee;
 
 TEST(TpuTraceParserTest, ParsesTensorCoreAndCalculatesSelfTime) {
   tensorflow::profiler::XPlane plane;
@@ -742,6 +745,105 @@ TEST(TpuTraceParserTest, NonCorePropagatesConsumerError) {
                               return absl::InternalError("tpu noncore error");
                             }),
               StatusIs(absl::StatusCode::kInternal, "tpu noncore error"));
+}
+
+TEST(TpuTraceParserTest, ParsesSparseCoreOpContextAndSelfTime) {
+  tensorflow::profiler::XPlane plane;
+  plane.set_name("/device:TPU:0 SparseCore 0");
+  tsl::profiler::XPlaneBuilder plane_builder(&plane);
+  auto add_event = [&](tsl::profiler::XLineBuilder& line,
+                       absl::string_view name, int64_t timestamp_ns,
+                       int64_t duration_ns) {
+    tsl::profiler::XEventBuilder event =
+        line.AddEvent(*plane_builder.GetOrCreateEventMetadata(name));
+    event.SetTimestampNs(timestamp_ns);
+    event.SetDurationNs(duration_ns);
+  };
+
+  // Steps 0 and 1 each run a different module.
+  tsl::profiler::XLineBuilder step_line =
+      plane_builder.GetOrCreateLine(TpuComponent::kSparseCoreStepCounter);
+  step_line.SetName(tsl::profiler::kSparseCoreStepLineName);
+  add_event(step_line, "0", 1000, 5000);
+  add_event(step_line, "1", 6000, 5000);
+  tsl::profiler::XLineBuilder mod_line =
+      plane_builder.GetOrCreateLine(TpuComponent::kSparseCoreModule);
+  mod_line.SetName(tsl::profiler::kSparseCoreModuleLineName);
+  add_event(mod_line, "sc_mod(42)", 1000, 5000);
+  add_event(mod_line, "sc_mod(43)", 6000, 5000);
+
+  // As in real traces, an HLO op is named by its HLO text and displayed by its
+  // op name.
+  constexpr absl::string_view kParentHloText =
+      "%fusion.1 = f32[8]{0} fusion(f32[8]{0} %call-done.3), kind=kLoop";
+  plane_builder.GetOrCreateEventMetadata(kParentHloText)
+      ->set_display_name("fusion.1");
+  tsl::profiler::XLineBuilder op_line =
+      plane_builder.GetOrCreateLine(TpuComponent::kSparseCoreOps);
+  op_line.SetName(tsl::profiler::kSparseCoreOpLineName);
+  add_event(op_line, kParentHloText, 2000, 2000);
+  add_event(op_line, "instant_marker", 2200, 0);  // Instant event in fusion.1.
+  add_event(op_line, "call-done.3", 2500, 1200);  // Nested in fusion.1.
+  add_event(op_line, "fusion.2", 7000, 1000);
+  // Overlapping children whose sum of durations (600 + 600) exceeds their
+  // parent's duration (1000) clamp parent self_time_ns to 0.
+  add_event(op_line, "underflow_parent", 8500, 1000);
+  add_event(op_line, "underflow_child_1", 8600, 600);
+  add_event(op_line, "underflow_child_2", 8800, 600);
+
+  // The TEC line is parsed after the ops line, yet it starts in step 0 again.
+  tsl::profiler::XLineBuilder tec_line =
+      plane_builder.GetOrCreateLine(TpuComponent::kSparseCoreTecBase);
+  tec_line.SetName("TEC 0");
+  add_event(tec_line, "tec_op.0", 1500, 500);
+  add_event(tec_line, "tec_op.1", 6500, 500);
+
+  tensorflow::profiler::HloModuleMap hlo_module_map;
+  Schema schema;
+  FieldIndices indices(schema);
+  std::vector<Record> parsed_records;
+
+  EXPECT_THAT(ParseTpuTrace(plane, hlo_module_map, indices,
+                            [&](Record& record) -> absl::StatusOr<StepControl> {
+                              parsed_records.push_back(record);
+                              return StepControl::kContinue;
+                            }),
+              IsOkAndHolds(ParseStatus::kComplete));
+
+  // Checks the op context and self time of the record named `kernel_name`.
+  auto expect_op = [&](absl::string_view kernel_name, absl::string_view hlo_op,
+                       absl::string_view step, absl::string_view hlo_module,
+                       uint64_t self_time_ns) {
+    SCOPED_TRACE(kernel_name);
+    const Record* op_record = nullptr;
+    for (const Record& record : parsed_records) {
+      if (record[indices.kernel_name] == kernel_name) op_record = &record;
+    }
+    ASSERT_NE(op_record, nullptr);
+    EXPECT_THAT(op_record->TryGet(indices.hlo_op), Pointee(Eq(hlo_op)));
+    EXPECT_THAT(op_record->TryGet(indices.step), Pointee(Eq(step)));
+    EXPECT_THAT(op_record->TryGet(indices.hlo_module), Pointee(Eq(hlo_module)));
+    EXPECT_THAT(op_record->TryGet(indices.self_time_ns),
+                Pointee(Eq(self_time_ns)));
+  };
+  ASSERT_NO_FATAL_FAILURE(
+      expect_op(kParentHloText, "fusion.1", "step:0", "sc_mod(42)", 800));
+  ASSERT_NO_FATAL_FAILURE(
+      expect_op("instant_marker", "instant_marker", "step:0", "sc_mod(42)", 0));
+  ASSERT_NO_FATAL_FAILURE(
+      expect_op("call-done.3", "call-done.3", "step:0", "sc_mod(42)", 1200));
+  ASSERT_NO_FATAL_FAILURE(
+      expect_op("fusion.2", "fusion.2", "step:1", "sc_mod(43)", 1000));
+  ASSERT_NO_FATAL_FAILURE(expect_op("underflow_parent", "underflow_parent",
+                                    "step:1", "sc_mod(43)", 0));
+  ASSERT_NO_FATAL_FAILURE(expect_op("underflow_child_1", "underflow_child_1",
+                                    "step:1", "sc_mod(43)", 600));
+  ASSERT_NO_FATAL_FAILURE(expect_op("underflow_child_2", "underflow_child_2",
+                                    "step:1", "sc_mod(43)", 600));
+  ASSERT_NO_FATAL_FAILURE(
+      expect_op("tec_op.0", "tec_op.0", "step:0", "sc_mod(42)", 500));
+  ASSERT_NO_FATAL_FAILURE(
+      expect_op("tec_op.1", "tec_op.1", "step:1", "sc_mod(43)", 500));
 }
 
 }  // namespace

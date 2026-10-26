@@ -39,27 +39,22 @@ TEST(TraceOptionsTest, TraceOptionsFromToolOptionsTest) {
   ToolOptions tool_options;
   TraceOptions options = TraceOptionsFromToolOptions(tool_options);
   EXPECT_FALSE(options.full_dma);
-  EXPECT_FALSE(options.enable_legacy_dcn);
   EXPECT_FALSE(options.mpmd_pipeline_view);
   EXPECT_FALSE(options.mpmd_single_device_per_stage);
 
   tool_options["full_dma"] = true;
-  tool_options["enable_legacy_dcn"] = true;
   tool_options[std::string(kMpmdPipelineView)] = true;
   tool_options[std::string(kMpmdSingleDevicePerStage)] = true;
   options = TraceOptionsFromToolOptions(tool_options);
   EXPECT_TRUE(options.full_dma);
-  EXPECT_TRUE(options.enable_legacy_dcn);
   EXPECT_TRUE(options.mpmd_pipeline_view);
   EXPECT_TRUE(options.mpmd_single_device_per_stage);
 
   tool_options["full_dma"] = false;
-  tool_options["enable_legacy_dcn"] = false;
   tool_options[std::string(kMpmdPipelineView)] = false;
   tool_options[std::string(kMpmdSingleDevicePerStage)] = false;
   options = TraceOptionsFromToolOptions(tool_options);
   EXPECT_FALSE(options.full_dma);
-  EXPECT_FALSE(options.enable_legacy_dcn);
   EXPECT_FALSE(options.mpmd_pipeline_view);
   EXPECT_FALSE(options.mpmd_single_device_per_stage);
 }

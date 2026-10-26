@@ -15,70 +15,21 @@ limitations under the License.
 #include "xprof/convert/process_megascale_dcn.h"
 
 #include <climits>
-#include <cstdint>
-#include <limits>
 #include <string>
 #include <vector>
 
-#include "absl/base/macros.h"
-#include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
-#include "absl/strings/str_format.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
-#include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
-#include "xla/tsl/profiler/utils/tpu_xplane_utils.h"
-#include "xla/tsl/profiler/utils/xplane_schema.h"
-#include "xla/tsl/profiler/utils/xplane_utils.h"
-#include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "xprof/convert/data_table_utils.h"
-#include "xprof/convert/dcn_analysis.h"
 
 namespace tensorflow {
 namespace profiler {
-namespace {
-template <typename T>
-const char* GetNegStr(T* value) {
-  if (*value < 0) {
-    *value = -(*value);
-    return "-";
-  } else {
-    return "";
-  }
-}
-}  // namespace
 
-using tsl::profiler::CreateTfXPlaneVisitor;
-using tsl::profiler::FindMutableTensorCorePlanes;
 using tsl::profiler::MicroToMilli;
 using tsl::profiler::SafeDivide;
 
 static constexpr double kbandwidthConversionFactor =
     /*bytes_to_gigabits=*/8E-9 / /*us_to_seconds=*/1E-6;
-
-void ProcessMegascaleDcn(XSpace* space) {
-  std::vector<XPlane*> device_xplanes = FindMutableTensorCorePlanes(space);
-  int num_tpu_cores = device_xplanes.size();
-  // DCN TraceMe's are in the Host XPlane
-  XPlane* host_plane = tsl::profiler::FindMutablePlaneWithName(
-      space, tsl::profiler::kHostThreadsPlaneName);
-  const tsl::profiler::XPlaneVisitor plane_visitor =
-      CreateTfXPlaneVisitor(host_plane);
-  // TODO(yashjs): Update parameter value for `is_megacore`.
-  DcnEventsProcessor dcn_events_processor(num_tpu_cores, false);
-  dcn_events_processor.SetupMessageInfo(plane_visitor);
-  if (dcn_events_processor.HasDcnMessages(
-          tsl::profiler::kMegaScaleDcnReceive)) {
-    dcn_events_processor.ProcessReceiveMessages(plane_visitor);
-  }
-  // Update host XPlane with DCN traffic
-  dcn_events_processor.AddHostDcnTrafficToXPlane(host_plane);
-  // Update device XPlanes with per collective TPU traffic.
-  for (XPlane* device_xplane : device_xplanes) {
-    dcn_events_processor.AddTpuCollectiveDcnTrafficToXPlane(device_xplane);
-  }
-
-  tsl::profiler::SortXSpace(space);
-}
 
 DataTable GetMegaScaleDataTable(const DcnSlackAnalysis& dcn_slack_analysis) {
   DataTable data_table;

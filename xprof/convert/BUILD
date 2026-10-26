@@ -594,7 +594,6 @@ cc_library(
     hdrs = ["streaming_trace_viewer_processor.h"],
     deps = [
         ":preprocess_single_host_xplane",
-        ":process_megascale_dcn",
         ":profile_processor",
         ":profile_processor_factory",
         ":repository",
@@ -2833,56 +2832,14 @@ cc_test(
 )
 
 cc_library(
-    name = "dcn_analysis",
-    srcs = ["dcn_analysis.cc"],
-    hdrs = ["dcn_analysis.h"],
-    visibility = ["//visibility:public"],
-    deps = [
-        ":dcn_utils",
-        "@com_google_absl//absl/container:flat_hash_map",
-        "@com_google_absl//absl/log",
-        "@com_google_absl//absl/strings",
-        "@xla//xla/tsl/profiler/utils:math_utils",
-        "@xla//xla/tsl/profiler/utils:tpu_xplane_utils",
-        "@xla//xla/tsl/profiler/utils:xplane_builder",
-        "@xla//xla/tsl/profiler/utils:xplane_schema",
-        "@xla//xla/tsl/profiler/utils:xplane_visitor",
-    ],
-)
-
-cc_library(
     name = "process_megascale_dcn",
     srcs = ["process_megascale_dcn.cc"],
     hdrs = ["process_megascale_dcn.h"],
     deps = [
         ":data_table_utils",
-        ":dcn_analysis",
         "//plugin/xprof/protobuf:dcn_slack_analysis_proto_cc",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/strings:str_format",
-        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/profiler/utils:math_utils",
-        "@xla//xla/tsl/profiler/utils:tf_xplane_visitor",
-        "@xla//xla/tsl/profiler/utils:tpu_xplane_utils",
-        "@xla//xla/tsl/profiler/utils:xplane_schema",
-        "@xla//xla/tsl/profiler/utils:xplane_utils",
-        "@xla//xla/tsl/profiler/utils:xplane_visitor",
-    ],
-)
-
-cc_test(
-    name = "dcn_analysis_test",
-    srcs = ["dcn_analysis_test.cc"],
-    deps = [
-        ":dcn_analysis",
-        ":dcn_utils",
-        "@com_google_googletest//:gtest_main",
-        "@xla//xla/tsl/profiler/utils:tf_xplane_visitor",
-        "@xla//xla/tsl/profiler/utils:xplane_builder",
-        "@xla//xla/tsl/profiler/utils:xplane_schema",
-        "@xla//xla/tsl/profiler/utils:xplane_visitor",
     ],
 )
 

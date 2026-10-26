@@ -124,9 +124,6 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
           "streaming trace viewer hasn't been supported in Cloud AI");
     }
     if (!tsl::Env::Default()->FileExists(*trace_events_sstable_path).ok()) {
-      if (profiler_trace_options.enable_legacy_dcn) {
-        ProcessMegascaleDcn(xspace);
-      }
       TraceEventLiteContainer lite_container;
       ConvertXSpaceToLiteTraceEventsContainer(host_name, *xspace,
                                               &lite_container);

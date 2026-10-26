@@ -17,15 +17,11 @@ limitations under the License.
 
 #include <string>
 
-#include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/data_table_utils.h"
 #include "plugin/xprof/protobuf/dcn_slack_analysis.pb.h"
 
 namespace tensorflow {
 namespace profiler {
-
-// Process Dcn Megascale TraceMe info.
-void ProcessMegascaleDcn(XSpace* space);
 
 DataTable GetMegaScaleDataTable(const DcnSlackAnalysis& dcn_slack_analysis);
 

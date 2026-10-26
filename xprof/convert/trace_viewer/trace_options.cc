@@ -65,8 +65,6 @@ TraceOptions TraceOptionsFromToolOptions(const ToolOptions& tool_options) {
   TraceOptions options;
   options.full_dma =
       GetParamWithDefault<bool>(tool_options, kFullDma, options.full_dma);
-  options.enable_legacy_dcn = GetParamWithDefault<bool>(
-      tool_options, kEnableLegacyDcn, options.enable_legacy_dcn);
   options.mpmd_pipeline_view = GetParamWithDefault<bool>(
       tool_options, kMpmdPipelineView, options.mpmd_pipeline_view);
   options.mpmd_single_device_per_stage =

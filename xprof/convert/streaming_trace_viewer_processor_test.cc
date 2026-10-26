@@ -651,7 +651,6 @@ TEST_F(StreamingTraceViewerProcessorTest, ReduceWithCorruptedMapOutput) {
 }
 
 TEST_F(StreamingTraceViewerProcessorTest, MapWithEmptyXSpace) {
-  // Use helper to avoid segfault in ProcessMegascaleDcn.
   XSpace empty_space = CreateTestXSpace(0);
   absl::flat_hash_map<std::string, XSpace> host_xspaces = {
       {"host1", empty_space}};

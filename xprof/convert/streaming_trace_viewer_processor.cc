@@ -27,7 +27,6 @@
 #include "tsl/platform/path.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/preprocess_single_host_xplane.h"
-#include "xprof/convert/process_megascale_dcn.h"
 #include "xprof/convert/profile_processor_factory.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
@@ -106,9 +105,6 @@ absl::Status StreamingTraceViewerProcessor::ProcessSession(
                           session_snapshot.GetXSpace(i, &arena));
       PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,
                                  /*derived_timeline=*/true);
-      if (profiler_trace_options.enable_legacy_dcn) {
-        ProcessMegascaleDcn(xspace);
-      }
 
       TraceEventLiteContainer lite_container;
       ConvertXSpaceToLiteTraceEventsContainer(host_name, *xspace,
@@ -223,11 +219,6 @@ absl::StatusOr<std::string> StreamingTraceViewerProcessor::Map(
     tensorflow::profiler::PreprocessSingleHostXSpace(&temp_xspace,
                                                      /*step_grouping=*/true,
                                                      /*derived_timeline=*/true);
-    tensorflow::profiler::TraceOptions profiler_trace_options =
-        TraceOptionsFromToolOptions(options_);
-    if (profiler_trace_options.enable_legacy_dcn) {
-      tensorflow::profiler::ProcessMegascaleDcn(&temp_xspace);
-    }
 
     TraceEventLiteContainer lite_container;
     ConvertXSpaceToLiteTraceEventsContainer(hostname, temp_xspace,

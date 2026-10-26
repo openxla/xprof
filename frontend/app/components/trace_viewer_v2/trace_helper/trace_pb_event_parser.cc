@@ -23,7 +23,9 @@ namespace {
 
 ParsedTraceEvents ParseCompressedTraceEvents(
     uintptr_t data_ptr, size_t data_size,
-    const emscripten::val& visible_range_from_url) {
+    const emscripten::val& visible_range_from_url,
+    absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>*
+        open_async_events = nullptr) {
   absl::string_view buffer_data(reinterpret_cast<const char*>(data_ptr),
                                 data_size);
   ParsedTraceEvents result;
@@ -62,7 +64,7 @@ ParsedTraceEvents ParseCompressedTraceEvents(
   }
   ProcessMetadataEvents(response, result);
   ProcessCompleteEvents(response, result);
-  ProcessAsyncEvents(response, result);
+  ProcessAsyncEvents(response, result, open_async_events);
   ProcessCounterEvents(response, result);
 
   if (response.has_full_timespan_start_ps() &&
@@ -92,8 +94,9 @@ void ParseAndProcessCompressedTraceEvents(
     Timeline& timeline) {
   const bool is_initial_load =
       (timeline.last_fetch_request_range() == TimeRange::Zero());
-  const ParsedTraceEvents parsed_events =
-      ParseCompressedTraceEvents(data_ptr, data_size, visible_range_from_url);
+  const ParsedTraceEvents parsed_events = ParseCompressedTraceEvents(
+      data_ptr, data_size, visible_range_from_url,
+      &data_provider.open_async_events());
   const bool has_url_range = parsed_events.visible_range_from_url.has_value();
   const bool is_overview_load =
       is_initial_load && !has_url_range && timeline.incremental_fetch_enabled();

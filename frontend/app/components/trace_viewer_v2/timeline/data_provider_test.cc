@@ -6555,5 +6555,29 @@ TEST_F(DataProviderTest,
   ExpectTimelineDataMatches(timeline_.timeline_data(),
                             single_timeline.timeline_data());
 }
+
+TEST_F(DataProviderTest, OpenAsyncEventsPreservedAcrossCallsAndResetClears) {
+  TraceEvent begin_ev;
+  begin_ev.ph = Phase::kAsyncBegin;
+  begin_ev.pid = 1;
+  begin_ev.name = "AsyncOp";
+  begin_ev.id = "flow_42";
+  begin_ev.ts = 10.0;
+  data_provider_.open_async_events()[{1, "flow_42"}] = begin_ev;
+
+  // ProcessTraceEvents preserves open_async_events_ across streaming chunks.
+  ParsedTraceEvents chunk1;
+  chunk1.flame_events = {
+      CreateProcessEvent(1, "Process 1"),
+      CreateThreadEvent(1, 1, "Thread 1"),
+      CreateCompleteEvent(1, 1, "SyncOp", 10.0, 5.0),
+  };
+  data_provider_.ProcessTraceEvents(chunk1, timeline_);
+  EXPECT_EQ(data_provider_.open_async_events().size(), 1u);
+
+  // Reset clears open_async_events_ along with session metadata.
+  data_provider_.Reset();
+  EXPECT_TRUE(data_provider_.open_async_events().empty());
+}
 }  // namespace
 }  // namespace traceviewer

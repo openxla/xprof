@@ -175,6 +175,9 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
     if (event.hasOwnProperty("name")) ev.name = event["name"].as<std::string>();
     if (event.hasOwnProperty("ts")) ev.ts = event["ts"].as<Microseconds>();
     if (event.hasOwnProperty("dur")) ev.dur = event["dur"].as<Microseconds>();
+    if (event.hasOwnProperty("is_async") && event["is_async"].as<bool>()) {
+      ev.is_async = true;
+    }
     if (event.hasOwnProperty("cat")) {
       emscripten::val cat = event["cat"];
       if (cat.isNumber()) {
@@ -237,11 +240,15 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
           auto it = open_async_events.find({ev.pid, ev.id});
           if (it != open_async_events.end()) {
             TraceEvent& begin_ev = it->second;
+            if (ev.ts == begin_ev.ts) {
+              break;
+            }
+            if (ev.ts < begin_ev.ts) {
+              std::swap(begin_ev.ts, ev.ts);
+            }
             begin_ev.ph = Phase::kComplete;
             begin_ev.is_async = true;
-            if (ev.ts > begin_ev.ts) {
-              begin_ev.dur = ev.ts - begin_ev.ts;
-            }
+            begin_ev.dur = ev.ts - begin_ev.ts;
             // Merge arguments from end event if any.
             if (!ev.args.empty()) {
               begin_ev.args.insert(ev.args.begin(), ev.args.end());
@@ -294,7 +301,8 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
 
 ParsedTraceEvents ParseTraceEvents(
     const emscripten::val& trace_data,
-    const emscripten::val& visible_range_from_url) {
+    const emscripten::val& visible_range_from_url,
+    DataProvider* data_provider) {
   ParsedTraceEvents result;
   if (trace_data.isNull() || trace_data.isUndefined() ||
       !trace_data.hasOwnProperty("traceEvents")) {
@@ -319,7 +327,9 @@ ParsedTraceEvents ParseTraceEvents(
   result.flame_events.reserve(js_events.size());
 
   absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>
-      open_async_events;
+      local_open_async_events;
+  auto& open_async_events = data_provider ? data_provider->open_async_events()
+                                          : local_open_async_events;
   for (const auto& js_event : js_events) {
     ParseAndAppend(js_event, result, open_async_events);
   }
@@ -356,10 +366,11 @@ ParsedTraceEvents ParseTraceEvents(
 void ParseAndProcessTraceEvents(const emscripten::val& trace_data,
                                 const emscripten::val& visible_range_from_url) {
   Timeline& timeline = Application::Instance().timeline();
+  DataProvider& data_provider = Application::Instance().data_provider();
   const bool is_initial_load =
       (timeline.last_fetch_request_range() == TimeRange::Zero());
   const ParsedTraceEvents parsed_events =
-      ParseTraceEvents(trace_data, visible_range_from_url);
+      ParseTraceEvents(trace_data, visible_range_from_url, &data_provider);
   const bool has_url_range = parsed_events.visible_range_from_url.has_value();
   const bool is_overview_load =
       is_initial_load && !has_url_range && timeline.incremental_fetch_enabled();
@@ -367,8 +378,7 @@ void ParseAndProcessTraceEvents(const emscripten::val& trace_data,
                                  !has_url_range);
   timeline.set_is_compacted(is_overview_load);
   timeline.set_window_at_full_resolution(!is_overview_load);
-  Application::Instance().data_provider().ProcessTraceEvents(parsed_events,
-                                                             timeline);
+  data_provider.ProcessTraceEvents(parsed_events, timeline);
 
   // Set last_fetch_request_range_ on initial load to avoid duplicate fetches.
   // On incremental fetches, MaybeRequestData() has already set

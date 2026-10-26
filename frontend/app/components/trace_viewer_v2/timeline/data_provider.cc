@@ -2491,6 +2491,7 @@ void DataProvider::Reset() {
   known_async_tracks_.clear();
   known_async_processes_.clear();
   known_counters_.clear();
+  open_async_events_.clear();
 }
 
 void DataProvider::BeginIncrementalLoad(Timeline& timeline) {

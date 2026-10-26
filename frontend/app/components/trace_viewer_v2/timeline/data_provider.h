@@ -68,6 +68,17 @@ class DataProvider {
   // Returns true if any threads, counters, or async tracks are registered.
   bool HasKnownTracks() const;
 
+  // Accesses the map of unclosed async begin events preserved across streaming
+  // chunks, keyed by (pid, async event correlation/flow ID).
+  absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>&
+  open_async_events() {
+    return open_async_events_;
+  }
+  const absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>&
+  open_async_events() const {
+    return open_async_events_;
+  }
+
  private:
   struct IncrementalState;
 
@@ -83,6 +94,13 @@ class DataProvider {
   absl::btree_map<ProcessId, absl::btree_set<std::string>> known_async_tracks_;
   absl::flat_hash_set<ProcessId> known_async_processes_;
   absl::btree_map<ProcessId, absl::btree_set<std::string>> known_counters_;
+  // Unclosed async begin events keyed by (pid, id) preserved across streaming
+  // chunks. In Trace Event Format and XProf protobuf responses, async begin/end
+  // pairs share a unique correlation/flow ID within a process. Events with an
+  // empty ID cannot be correlated across chunks and are emitted directly as
+  // instant events by the parser rather than being inserted here.
+  absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>
+      open_async_events_;
   std::unique_ptr<IncrementalState> incremental_state_;
 };
 

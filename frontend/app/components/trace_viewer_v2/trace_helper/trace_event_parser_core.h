@@ -52,12 +52,16 @@ size_t ProcessOverviewSampledSeriesSlice(
 void ProcessCompleteEvents(const xprof::TraceDataResponse& response,
                            ParsedTraceEvents& result);
 
-void ProcessAsyncEventSeries(const xprof::TraceEventSeries& series,
-                             absl::Span<const std::string> interned_strings,
-                             ParsedTraceEvents& result);
+void ProcessAsyncEventSeries(
+    const xprof::TraceEventSeries& series,
+    absl::Span<const std::string> interned_strings, ParsedTraceEvents& result,
+    absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>*
+        open_async_events = nullptr);
 
-void ProcessAsyncEvents(const xprof::TraceDataResponse& response,
-                        ParsedTraceEvents& result);
+void ProcessAsyncEvents(
+    const xprof::TraceDataResponse& response, ParsedTraceEvents& result,
+    absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>*
+        open_async_events = nullptr);
 
 void ProcessCounterEventSeries(const xprof::TraceEventSeries& series,
                                absl::Span<const std::string> interned_strings,

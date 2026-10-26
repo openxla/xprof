@@ -5,13 +5,15 @@
 
 #include "absl/strings/string_view.h"
 #include "tsl/profiler/lib/context_types.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
 
 ParsedTraceEvents ParseTraceEvents(
     const emscripten::val& trace_data,
-    const emscripten::val& visible_range_from_url);
+    const emscripten::val& visible_range_from_url,
+    DataProvider* data_provider = nullptr);
 
 // Parses trace data containing search results and updates the timeline.
 void SetSearchResultsInWasm(const emscripten::val& trace_data);

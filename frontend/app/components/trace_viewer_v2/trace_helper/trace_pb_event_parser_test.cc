@@ -236,4 +236,54 @@ TEST_F(
   EXPECT_EQ(timeline_.timeline_data().entry_start_times.size(), 500u);
 }
 
+TEST_F(TracePbEventParserTest,
+       MultiChunkAsyncEventsPreservedAcrossCompressedChunks) {
+  // Chunk 1: Async Begin event (duration = 0, flow_id = 42) at 1 ms
+  xprof::TraceDataResponse chunk1;
+  chunk1.add_interned_strings("AsyncDMA");
+  auto* process = chunk1.mutable_metadata()->add_processes();
+  process->set_id(1);
+  process->set_name("TPU:0");
+  auto* series1 = chunk1.add_async_events();
+  series1->mutable_metadata()->set_process_id(1);
+  series1->mutable_metadata()->set_name_ref(0);
+  series1->add_deltas(1000000000ULL);  // 1000 us
+  series1->add_durations(0);
+  series1->add_event_metadata()->set_flow_id(42);
+
+  std::string serialized1;
+  ASSERT_TRUE(chunk1.SerializeToString(&serialized1));
+  const std::string compressed1 =
+      *tensorflow::profiler::ZstdCompression::Compress(serialized1);
+
+  ParseAndProcessCompressedTraceEvents(
+      reinterpret_cast<uintptr_t>(compressed1.data()), compressed1.size(),
+      emscripten::val::null(), data_provider_, timeline_);
+  EXPECT_EQ(data_provider_.open_async_events().size(), 1u);
+
+  // Chunk 2: Matching Async End event (duration = 0, flow_id = 42) at 3 ms
+  xprof::TraceDataResponse chunk2;
+  chunk2.add_interned_strings("AsyncDMA");
+  auto* series2 = chunk2.add_async_events();
+  series2->mutable_metadata()->set_process_id(1);
+  series2->mutable_metadata()->set_name_ref(0);
+  series2->add_deltas(3000000000ULL);  // 3000 us
+  series2->add_durations(0);
+  series2->add_event_metadata()->set_flow_id(42);
+
+  std::string serialized2;
+  ASSERT_TRUE(chunk2.SerializeToString(&serialized2));
+  const std::string compressed2 =
+      *tensorflow::profiler::ZstdCompression::Compress(serialized2);
+
+  ParseAndProcessCompressedTraceEvents(
+      reinterpret_cast<uintptr_t>(compressed2.data()), compressed2.size(),
+      emscripten::val::null(), data_provider_, timeline_);
+  EXPECT_TRUE(data_provider_.open_async_events().empty());
+  ASSERT_EQ(timeline_.timeline_data().entry_names.size(), 1u);
+  EXPECT_EQ(timeline_.timeline_data().entry_names[0], "AsyncDMA");
+  EXPECT_DOUBLE_EQ(timeline_.timeline_data().entry_start_times[0], 1000.0);
+  EXPECT_DOUBLE_EQ(timeline_.timeline_data().entry_total_times[0], 2000.0);
+}
+
 }  // namespace traceviewer

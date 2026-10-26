@@ -1,9 +1,11 @@
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event_parser_core.h"
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
+#include "absl/container/flat_hash_map.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 #include "plugin/xprof/protobuf/trace_data_response.pb.h"
@@ -545,25 +547,193 @@ TEST(TraceEventParserCoreTest,
   series->mutable_metadata()->set_process_id(1);
 
   series->add_deltas(1000000);  // 1 us
-  series->add_durations(0);     // Begin event
+  series->add_durations(0);     // Event without flow_id or duration
   auto* meta1 = series->add_event_metadata();
   meta1->set_serial(20);
 
   series->add_deltas(2000000);  // +2 us = 3 us
-  series->add_durations(0);     // End event
+  series->add_durations(0);     // Event without flow_id or duration
   auto* meta2 = series->add_event_metadata();
   meta2->set_serial(21);
 
   ParsedTraceEvents result;
   ProcessAsyncEvents(response, result);
 
-  ASSERT_EQ(result.flame_events.size(), 1);
+  ASSERT_EQ(result.flame_events.size(), 2);
   EXPECT_TRUE(result.flame_events[0].is_async);
+  EXPECT_EQ(result.flame_events[0].ph, Phase::kInstant);
   EXPECT_TRUE(result.flame_events[0].id.empty());
   EXPECT_FALSE(result.flame_events[0].has_group_id);
   EXPECT_EQ(result.flame_events[0].args.find("group_id"),
             result.flame_events[0].args.end());
+  EXPECT_TRUE(result.flame_events[1].is_async);
+  EXPECT_EQ(result.flame_events[1].ph, Phase::kInstant);
   EXPECT_TRUE(result.flow_events.empty());
+}
+
+TEST(TraceEventParserCoreTest, ProcessAsyncEventsEmptyIdEmittedAsInstant) {
+  xprof::TraceDataResponse response;
+  response.add_interned_strings("uncorrelated_async");
+
+  auto* series = response.add_async_events();
+  series->mutable_metadata()->set_name_ref(0);
+  series->mutable_metadata()->set_process_id(1);
+
+  // Two zero-duration async events without flow_id; should not collide on
+  // (pid, "") in open_async_events, and instead be emitted as Instant events.
+  series->add_deltas(1000000);  // 1 us
+  series->add_durations(0);
+  series->add_event_metadata()->set_serial(10);
+
+  series->add_deltas(3000000);  // +3 us = 4 us
+  series->add_durations(0);
+  series->add_event_metadata()->set_serial(11);
+
+  absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>
+      open_async_events;
+  ParsedTraceEvents result;
+  ProcessAsyncEvents(response, result, &open_async_events);
+
+  EXPECT_TRUE(open_async_events.empty());
+  ASSERT_EQ(result.flame_events.size(), 2);
+  EXPECT_EQ(result.flame_events[0].ph, Phase::kInstant);
+  EXPECT_TRUE(result.flame_events[0].is_async);
+  EXPECT_DOUBLE_EQ(result.flame_events[0].ts, 1.0);
+  EXPECT_EQ(result.flame_events[1].ph, Phase::kInstant);
+  EXPECT_TRUE(result.flame_events[1].is_async);
+  EXPECT_DOUBLE_EQ(result.flame_events[1].ts, 4.0);
+}
+
+TEST(TraceEventParserCoreTest, ProcessAsyncEventsMultiChunk) {
+  absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>
+      open_async_events;
+
+  // Chunk 1: Contains Only Async Begin (duration = 0, flow_id = 777)
+  xprof::TraceDataResponse chunk1;
+  chunk1.add_interned_strings("cross_chunk_dma");
+  auto* series1 = chunk1.add_async_events();
+  series1->mutable_metadata()->set_name_ref(0);
+  series1->mutable_metadata()->set_process_id(1);
+  series1->add_deltas(2000000);  // 2 us
+  series1->add_durations(0);
+  auto* meta1 = series1->add_event_metadata();
+  meta1->set_flow_id(777);
+  meta1->set_serial(101);
+
+  ParsedTraceEvents result1;
+  ProcessAsyncEvents(chunk1, result1, &open_async_events);
+
+  // Begin event stays in open_async_events; nothing emitted yet.
+  EXPECT_TRUE(result1.flame_events.empty());
+  EXPECT_EQ(open_async_events.size(), 1);
+
+  // Chunk 2: Contains matching Async End (duration = 0, flow_id = 777) at 10 us
+  xprof::TraceDataResponse chunk2;
+  chunk2.add_interned_strings("cross_chunk_dma");
+  auto* series2 = chunk2.add_async_events();
+  series2->mutable_metadata()->set_name_ref(0);
+  series2->mutable_metadata()->set_process_id(1);
+  series2->add_deltas(10000000);  // 10 us
+  series2->add_durations(0);
+  auto* meta2 = series2->add_event_metadata();
+  meta2->set_flow_id(777);
+  meta2->set_serial(102);
+  meta2->set_group_id(55);
+
+  ParsedTraceEvents result2;
+  ProcessAsyncEvents(chunk2, result2, &open_async_events);
+
+  EXPECT_TRUE(open_async_events.empty());
+  ASSERT_EQ(result2.flame_events.size(), 1);
+  EXPECT_EQ(result2.flame_events[0].ph, Phase::kComplete);
+  EXPECT_TRUE(result2.flame_events[0].is_async);
+  EXPECT_EQ(result2.flame_events[0].name, "cross_chunk_dma");
+  EXPECT_DOUBLE_EQ(result2.flame_events[0].ts, 2.0);
+  EXPECT_DOUBLE_EQ(result2.flame_events[0].dur, 8.0);
+  EXPECT_TRUE(result2.flame_events[0].has_group_id);
+  EXPECT_EQ(result2.flame_events[0].group_id, 55);
+  ASSERT_EQ(result2.flow_events.size(), 1);
+  EXPECT_EQ(result2.flow_events[0].id, "777");
+}
+
+TEST(TraceEventParserCoreTest, ProcessAsyncEventsDuplicateFetchIgnored) {
+  absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>
+      open_async_events;
+
+  // Chunk 1: Async Begin at 5 us
+  xprof::TraceDataResponse chunk1;
+  chunk1.add_interned_strings("dup_dma");
+  auto* series1 = chunk1.add_async_events();
+  series1->mutable_metadata()->set_name_ref(0);
+  series1->mutable_metadata()->set_process_id(1);
+  series1->add_deltas(5000000);  // 5 us
+  series1->add_durations(0);
+  series1->add_event_metadata()->set_flow_id(888);
+
+  ParsedTraceEvents result1;
+  ProcessAsyncEvents(chunk1, result1, &open_async_events);
+  EXPECT_TRUE(result1.flame_events.empty());
+  EXPECT_EQ(open_async_events.size(), 1);
+
+  // Overlapping Chunk 2: Re-fetches the same Async Begin at 5 us
+  ParsedTraceEvents result2;
+  ProcessAsyncEvents(chunk1, result2, &open_async_events);
+  EXPECT_TRUE(result2.flame_events.empty());
+  EXPECT_EQ(open_async_events.size(), 1);
+
+  // Chunk 3: Async End at 12 us
+  xprof::TraceDataResponse chunk3;
+  chunk3.add_interned_strings("dup_dma");
+  auto* series3 = chunk3.add_async_events();
+  series3->mutable_metadata()->set_name_ref(0);
+  series3->mutable_metadata()->set_process_id(1);
+  series3->add_deltas(12000000);  // 12 us
+  series3->add_durations(0);
+  series3->add_event_metadata()->set_flow_id(888);
+
+  ParsedTraceEvents result3;
+  ProcessAsyncEvents(chunk3, result3, &open_async_events);
+  EXPECT_TRUE(open_async_events.empty());
+  ASSERT_EQ(result3.flame_events.size(), 1);
+  EXPECT_DOUBLE_EQ(result3.flame_events[0].ts, 5.0);
+  EXPECT_DOUBLE_EQ(result3.flame_events[0].dur, 7.0);
+}
+
+TEST(TraceEventParserCoreTest, ProcessAsyncEventsOutOfOrderArrivalSwapped) {
+  absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>
+      open_async_events;
+
+  // User pans left: later chunk (End at 20 us) arrives first
+  xprof::TraceDataResponse later_chunk;
+  later_chunk.add_interned_strings("reverse_dma");
+  auto* series_late = later_chunk.add_async_events();
+  series_late->mutable_metadata()->set_name_ref(0);
+  series_late->mutable_metadata()->set_process_id(1);
+  series_late->add_deltas(20000000);  // 20 us
+  series_late->add_durations(0);
+  series_late->add_event_metadata()->set_flow_id(999);
+
+  ParsedTraceEvents result1;
+  ProcessAsyncEvents(later_chunk, result1, &open_async_events);
+  EXPECT_TRUE(result1.flame_events.empty());
+  EXPECT_EQ(open_async_events.size(), 1);
+
+  // Earlier chunk (Begin at 6 us) arrives second
+  xprof::TraceDataResponse earlier_chunk;
+  earlier_chunk.add_interned_strings("reverse_dma");
+  auto* series_early = earlier_chunk.add_async_events();
+  series_early->mutable_metadata()->set_name_ref(0);
+  series_early->mutable_metadata()->set_process_id(1);
+  series_early->add_deltas(6000000);  // 6 us
+  series_early->add_durations(0);
+  series_early->add_event_metadata()->set_flow_id(999);
+
+  ParsedTraceEvents result2;
+  ProcessAsyncEvents(earlier_chunk, result2, &open_async_events);
+  EXPECT_TRUE(open_async_events.empty());
+  ASSERT_EQ(result2.flame_events.size(), 1);
+  EXPECT_DOUBLE_EQ(result2.flame_events[0].ts, 6.0);
+  EXPECT_DOUBLE_EQ(result2.flame_events[0].dur, 14.0);
 }
 
 TEST(TraceEventParserCoreTest,

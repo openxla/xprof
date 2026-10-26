@@ -1,15 +1,15 @@
-diff -ruN xla-0a1ec466320a2f8b234693a326227961525d92e6/tools/toolchains/python/python_repo.bzl xla-0a1ec466320a2f8b234693a326227961525d92e6/tools/toolchains/python/python_repo.bzl
---- xla-0a1ec466320a2f8b234693a326227961525d92e6/tools/toolchains/python/python_repo.bzl	2026-08-22 14:08:12.000000000 +0000
-+++ xla-0a1ec466320a2f8b234693a326227961525d92e6/tools/toolchains/python/python_repo.bzl	2026-08-24 10:26:36.308452743 +0000
+diff -ruN xla-9111cb3852eebeb09e32b32337c96e6596291ad1/tools/toolchains/python/python_repo.bzl xla-9111cb3852eebeb09e32b32337c96e6596291ad1/tools/toolchains/python/python_repo.bzl
+--- xla-9111cb3852eebeb09e32b32337c96e6596291ad1/tools/toolchains/python/python_repo.bzl	2026-08-22 14:08:12.000000000 +0000
++++ xla-9111cb3852eebeb09e32b32337c96e6596291ad1/tools/toolchains/python/python_repo.bzl	2026-08-24 10:26:36.308452743 +0000
 @@ -55,3 +55,5 @@
      implementation = _python_repository_impl,
      environ = ["TF_PYTHON_VERSION", "WHEEL_NAME", "WHEEL_COLLAB"],
  )
 +
 +USE_PYWRAP_RULES = "False"
-diff -ruN xla-0a1ec466320a2f8b234693a326227961525d92e6/xla/tsl/platform/cloud/BUILD xla-0a1ec466320a2f8b234693a326227961525d92e6/xla/tsl/platform/cloud/BUILD
---- xla-0a1ec466320a2f8b234693a326227961525d92e6/xla/tsl/platform/cloud/BUILD	2026-08-22 14:08:12.000000000 +0000
-+++ xla-0a1ec466320a2f8b234693a326227961525d92e6/xla/tsl/platform/cloud/BUILD	2026-08-24 10:26:36.308831513 +0000
+diff -ruN xla-9111cb3852eebeb09e32b32337c96e6596291ad1/xla/tsl/platform/cloud/BUILD xla-9111cb3852eebeb09e32b32337c96e6596291ad1/xla/tsl/platform/cloud/BUILD
+--- xla-9111cb3852eebeb09e32b32337c96e6596291ad1/xla/tsl/platform/cloud/BUILD	2026-08-22 14:08:12.000000000 +0000
++++ xla-9111cb3852eebeb09e32b32337c96e6596291ad1/xla/tsl/platform/cloud/BUILD	2026-08-24 10:26:36.308831513 +0000
 @@ -241,6 +241,10 @@
      srcs = ["curl_http_request.cc"],
      hdrs = ["curl_http_request.h"],

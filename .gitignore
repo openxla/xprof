@@ -28,3 +28,9 @@ MODULE.bazel.lock
 /lib/
 /share/
 
+
+# Pip build benchmark run artifacts (keep best_*.txt)
+tools/benchmark_results/bazel_pip_benchmark_*.log
+tools/benchmark_results/build_*.log
+tools/benchmark_results/attempts_*.tsv
+tools/benchmark_results/partial/

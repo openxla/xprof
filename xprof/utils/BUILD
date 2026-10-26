@@ -520,6 +520,11 @@ cc_test(
 )
 
 cc_library(
+    name = "xplane_lite",
+    hdrs = ["xplane_lite.h"],
+)
+
+cc_library(
     name = "hlo_module_map",
     srcs = ["hlo_module_map.cc"],
     hdrs = ["hlo_module_map.h"],

@@ -81,7 +81,7 @@ export class KernelSourceLines {
   readonly selectedLine = input<number | undefined>(undefined);
   readonly hoveredLine = input<number | undefined>(undefined);
   readonly reveal = input<SourceLinesReveal | undefined>(undefined);
-  readonly ariaLabel = input('Lines of the kernel source');
+  readonly ariaLabel = input('Lines of the HLO op source');
 
   readonly lineHover = output<SourceLinesHover | undefined>();
   readonly lineClick = output<number>();

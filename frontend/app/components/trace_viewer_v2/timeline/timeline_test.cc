@@ -7303,6 +7303,182 @@ TEST_F(RealTimelineImGuiFixture,
               1e-5);
 }
 
+TEST_F(RealTimelineImGuiFixture,
+       SpillsFillsLaneIsExcludedFromPerUnitInstructionCounts) {
+  // The Static Kernel Viewer mirrors spill/fill instructions from VLD / VST
+  // onto a "Spills / Fills" lane. That lane must hover like a unit lane but
+  // never be counted as a unit, or every spill would be counted twice.
+  FlameChartTimelineData data;
+  // Group 0: Process header
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "kernel",
+                         .start_level = 0,
+                         .nesting_level = kProcessNestingLevel,
+                         .expanded = true,
+                         .level_count = 4,
+                         .has_children = true});
+  // Group 1: Regions (level 0)
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Regions",
+                         .start_level = 0,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .level_count = 1});
+  // Group 2: Spills / Fills (level 1)
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Spills / Fills",
+                         .start_level = 1,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .level_count = 1});
+  // Group 3: MXU (level 2)
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "MXU",
+                         .start_level = 2,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .level_count = 1});
+  // Group 4: VST (level 3)
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "VST",
+                         .start_level = 3,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .level_count = 1});
+
+  // Events:
+  // 0: top_region [0, 100) on level 0
+  // 1: spill [20, 30) on level 1 (mirror of event 3)
+  // 2: vector_matmul [20, 30) on level 2 (MXU)
+  // 3: vector_store [20, 30) on level 3 (VST)
+  data.entry_names = {"top_region", "spill", "vector_matmul", "vector_store"};
+  data.entry_levels = {0, 1, 2, 3};
+  data.entry_start_times = {0.0, 20.0, 20.0, 20.0};
+  data.entry_total_times = {100.0, 10.0, 10.0, 10.0};
+  data.entry_args.assign(4, {});
+  data.level_offsets = {0, 1, 2, 3, 4};
+  data.level_event_indices = {0, 1, 2, 3};
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 100.0});
+  timeline_.SetVisibleRange({0.0, 100.0});
+  timeline_.set_event_tooltip_enabled(false);
+
+  EventData hovered_event;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kEventHovered) {
+          hovered_event = detail;
+        }
+      });
+
+  ImGui::GetIO().MousePos = ImVec2(-1000.0f, -1000.0f);
+  SimulateFrame();
+
+  auto find_child_window = [](absl::string_view prefix) -> ImGuiWindow* {
+    for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+      if (absl::StrContains(w->Name, prefix)) {
+        return w;
+      }
+    }
+    return nullptr;
+  };
+
+  // Hover the mirrored spill at t = 25: it is reported like an instruction
+  // (bundle schedule details), but the per-unit counts only see MXU and VST.
+  ImGuiWindow* spill_win = find_child_window("TimelineChild_Spills / Fills_2");
+  ASSERT_NE(spill_win, nullptr);
+  ImGui::GetIO().MousePos = ImVec2(spill_win->Pos.x + spill_win->Size.x * 0.25f,
+                                   spill_win->Pos.y + spill_win->Size.y * 0.5f);
+  SimulateFrame();
+
+  EXPECT_EQ(std::any_cast<int>(hovered_event.at(kEventSelectedIndex)), 1);
+  EXPECT_EQ(std::any_cast<std::string>(hovered_event.at("trackName")),
+            "Spills / Fills");
+  const auto& bundle_counts =
+      std::any_cast<const EventData&>(hovered_event.at("bundleCounts"));
+  EXPECT_EQ(std::any_cast<int>(bundle_counts.at("MXU")), 1);
+  EXPECT_EQ(std::any_cast<int>(bundle_counts.at("VST")), 1);
+  EXPECT_FALSE(bundle_counts.contains("Spills / Fills"));
+
+  // Hovering the region yields the same unit mix: the mirror is not a unit.
+  ImGuiWindow* reg_win = find_child_window("TimelineChild_Regions_1");
+  ASSERT_NE(reg_win, nullptr);
+  ImGui::GetIO().MousePos = ImVec2(reg_win->Pos.x + reg_win->Size.x * 0.25f,
+                                   reg_win->Pos.y + reg_win->Size.y * 0.5f);
+  SimulateFrame();
+
+  EXPECT_EQ(std::any_cast<int>(hovered_event.at(kEventSelectedIndex)), 0);
+  const auto& region_mix =
+      std::any_cast<const EventData&>(hovered_event.at("bundleCounts"));
+  EXPECT_EQ(std::any_cast<int>(region_mix.at("MXU")), 1);
+  EXPECT_EQ(std::any_cast<int>(region_mix.at("VST")), 1);
+  EXPECT_FALSE(region_mix.contains("Spills / Fills"));
+}
+
+TEST(TimelineTest, SpillsFillsLaneIsExcludedFromCounterRangeInstructionCounts) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_event_tooltip_enabled(false);
+
+  FlameChartTimelineData data;
+  // Group 0: Spills / Fills (level 0)
+  data.groups.push_back({.name = "Spills / Fills",
+                         .start_level = 0,
+                         .nesting_level = 1,
+                         .expanded = true});
+  // Group 1: VST (level 1)
+  data.groups.push_back(
+      {.name = "VST", .start_level = 1, .nesting_level = 1, .expanded = true});
+  // Group 2: VST utilization counter
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = "VST utilization",
+                         .start_level = 2,
+                         .nesting_level = 1,
+                         .expanded = true});
+
+  // Event 0: spill [20, 21) on level 0 (mirror of event 1)
+  // Event 1: vector_store [20, 21) on level 1 (VST)
+  data.entry_names = {"spill", "vector_store"};
+  data.entry_levels = {0, 1};
+  data.entry_start_times = {20.0, 20.0};
+  data.entry_total_times = {1.0, 1.0};
+  data.entry_self_times = {1.0, 1.0};
+  data.entry_args.assign(2, {});
+  data.level_offsets = {0, 1, 2};
+  data.level_event_indices = {0, 1};
+
+  CounterData counter;
+  counter.timestamps = {0.0, 20.0, 21.0};
+  counter.values = {0.0, 1.0, 0.0};
+  counter.min_value = 0.0;
+  counter.max_value = 1.0;
+  data.counter_data_by_group_index[2] = std::move(counter);
+
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 100.0});
+
+  EventData multi_detail;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kEventsSelected) {
+          multi_detail = detail;
+        }
+      });
+
+  // Selecting only the counter point at t = 20 aggregates the instructions
+  // scheduled in [20, 21): the store, but not its mirror.
+  timeline.selected_counter_points_for_test() = {{2, 1}};
+  timeline.CalculateAndEmitMetrics_for_test();
+
+  ASSERT_TRUE(multi_detail.contains("totalInstructions"));
+  EXPECT_EQ(std::any_cast<int>(multi_detail.at("totalInstructions")), 1);
+  const auto& bundle_counts =
+      std::any_cast<const EventData&>(multi_detail.at("bundleCounts"));
+  EXPECT_EQ(std::any_cast<int>(bundle_counts.at("VST")), 1);
+  EXPECT_FALSE(bundle_counts.contains("Spills / Fills"));
+}
+
 TEST_F(RealTimelineImGuiFixture, PanLeftBeyondDataRangeShouldBeConstrained) {
   timeline_.set_data_time_range({10.0, 100.0});
   timeline_.SetVisibleRange({11.0, 61.0});

@@ -186,6 +186,42 @@ TEST(HloProtoToModuleTest, FixNonConsecutiveInstructionIdsForModule) {
       ElementsAre(module->entry_computation()->parameter_instruction(0)));
 }
 
+TEST(HloProtoToModuleTest, ConstantWithoutLiteral) {
+  xla::HloProto hlo_proto;
+  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(
+      R"pb(
+        hlo_module {
+          name: "constant_without_literal_module"
+          entry_computation_name: "entry"
+          entry_computation_id: 1
+          computations {
+            name: "entry"
+            id: 1
+            root_id: 1
+            instructions {
+              name: "constant.1"
+              opcode: "constant"
+              id: 1
+              shape {
+                element_type: S32
+                layout { tail_padding_alignment_in_elements: 1 }
+              }
+            }
+          }
+          host_program_shape {
+            result {
+              element_type: S32
+              layout { tail_padding_alignment_in_elements: 1 }
+            }
+          }
+        }
+      )pb",
+      &hlo_proto));
+
+  ASSERT_OK_AND_ASSIGN(auto module, ConvertHloProtoToModule(hlo_proto));
+  EXPECT_EQ(module->entry_computation()->instruction_count(), 1);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

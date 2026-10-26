@@ -16,12 +16,16 @@ limitations under the License.
 #include "xprof/convert/unified_op_profile_processor.h"
 
 #include <string>
+#include <utility>
 
+#include "absl/log/log.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "tsl/platform/protobuf.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/flat_op_stats_to_op_profile.h"
+#include "xprof/convert/op_profile_builder.h"
 #include "xprof/convert/op_stats_to_op_profile.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/unified_session_snapshot.h"
@@ -31,31 +35,55 @@ limitations under the License.
 
 namespace xprof {
 
-using tensorflow::profiler::OpStats;
 using tensorflow::profiler::GetHardwareType;
+using tensorflow::profiler::GetParamWithDefault;
+using tensorflow::profiler::OpStats;
+using tensorflow::profiler::ProgramServingMetadataMap;
 using tensorflow::profiler::op_profile::Profile;
 using tsl::protobuf::util::JsonPrintOptions;
+
+absl::StatusOr<ProgramServingMetadataMap>
+UnifiedOpProfileProcessor::GetProgramServingMetadata(
+    const XprofSessionSnapshot& session_snapshot,
+    const OpStats& combined_op_stats) {
+  return ProgramServingMetadataMap{};
+}
 
 absl::Status UnifiedOpProfileProcessor::ProcessCombinedOpStats(
     const XprofSessionSnapshot& session_snapshot,
     const OpStats& combined_op_stats,
     const tensorflow::profiler::ToolOptions& options) {
   Profile profile;
-  bool use_flat_metric = tensorflow::profiler::GetParamWithDefault<bool>(
-      options, "use_flat_metric", false);
+  ProgramServingMetadataMap program_serving_metadata;
+  if (GetParamWithDefault<bool>(options, "program_serving_metadata", false)) {
+    if (absl::StatusOr<ProgramServingMetadataMap> metadata =
+            GetProgramServingMetadata(session_snapshot, combined_op_stats);
+        metadata.ok()) {
+      program_serving_metadata = *std::move(metadata);
+    } else {
+      LOG(WARNING) << "Failed to get program serving metadata: "
+                   << metadata.status();
+    }
+  }
+  const ProgramServingMetadataMap* program_serving_metadata_ptr =
+      program_serving_metadata.empty() ? nullptr : &program_serving_metadata;
+  bool use_flat_metric =
+      GetParamWithDefault<bool>(options, "use_flat_metric", false);
   if (use_flat_metric && combined_op_stats.has_flat_device_op_metrics_db() &&
       combined_op_stats.flat_device_op_metrics_db().op_instances_size() > 0) {
     tensorflow::profiler::ConvertFlatOpStatsToOpProfile(
         combined_op_stats,
         GetHardwareType(combined_op_stats.run_environment()),
         profile, /*op_profile_limit=*/100,
-        tensorflow::profiler::GetOpProfileGrouping(options));
+        tensorflow::profiler::GetOpProfileGrouping(options),
+        program_serving_metadata_ptr);
   } else {
     tensorflow::profiler::ConvertOpStatsToOpProfile(
         combined_op_stats,
         GetHardwareType(combined_op_stats.run_environment()),
         profile, /*op_profile_limit=*/100,
-        tensorflow::profiler::GetOpProfileGrouping(options));
+        tensorflow::profiler::GetOpProfileGrouping(options),
+        program_serving_metadata_ptr);
   }
 
   std::string op_profile_json;

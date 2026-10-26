@@ -2,6 +2,7 @@
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_TIMELINE_H_
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
@@ -857,6 +858,12 @@ class Timeline {
   size_t gpu_flame_instances_count_for_test() const {
     return gpu_flame_instances_.size();
   }
+  // Returns the raw {start_hi, start_lo, end_hi, end_lo} floats of the GPU
+  // flame instance at `index`, as uploaded to the vertex shader.
+  std::array<float, 4> gpu_flame_instance_times_for_test(size_t index) const {
+    const CachedGpuFlameInstance& inst = gpu_flame_instances_.at(index);
+    return {inst.start_hi, inst.start_lo, inst.end_hi, inst.end_lo};
+  }
   void ExpandAllGroupsForTest() {
     for (Group& group : timeline_data_.groups) {
       group.expanded = true;
@@ -1315,7 +1322,8 @@ class Timeline {
   struct CachedGpuFlameInstance {
     float start_hi = 0.0f;
     float start_lo = 0.0f;
-    float duration = 0.0f;
+    float end_hi = 0.0f;
+    float end_lo = 0.0f;
     uint32_t color = 0;
   };
   std::vector<CachedGpuFlameInstance> gpu_flame_instances_;

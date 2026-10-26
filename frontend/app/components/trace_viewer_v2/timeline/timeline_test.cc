@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <any>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -17137,6 +17138,20 @@ TEST_F(RealTimelineImGuiFixture,
   EXPECT_GT(timeline_.gpu_flame_instances_count_for_test(),
             static_cast<size_t>(kNumEvents));
 
+  // Every event starts at a multiple of 10 us and ends 8 us later, so each MIP
+  // tile and raw-event instance must span [10 * k, 10 * m + 8] for integers k
+  // and m. Check that the uploaded hi/lo pairs reconstruct those exact edges.
+  for (size_t i = 0; i < timeline_.gpu_flame_instances_count_for_test(); ++i) {
+    const std::array<float, 4> inst =
+        timeline_.gpu_flame_instance_times_for_test(i);
+    const double start =
+        static_cast<double>(inst[0]) + static_cast<double>(inst[1]);
+    const double end =
+        static_cast<double>(inst[2]) + static_cast<double>(inst[3]);
+    EXPECT_NEAR(std::remainder(start, 10.0), 0.0, 1e-9) << "instance " << i;
+    EXPECT_NEAR(std::remainder(end - 8.0, 10.0), 0.0, 1e-9) << "instance " << i;
+  }
+
   // 1. Overview (MIP level path): compare CPU fallback vs. GPU instanced mode.
   timeline_.set_force_gpu_flame_batch_mode_for_test(false);
   ImGui::NewFrame();
@@ -17180,6 +17195,121 @@ TEST_F(RealTimelineImGuiFixture,
   // indices in the ImGui CPU draw list.
   EXPECT_LE(gpu_zoomed_vtx + 400, cpu_zoomed_vtx);
   EXPECT_LE(gpu_zoomed_idx + 600, cpu_zoomed_idx);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       WebGpuInstancedFlameEdgesKeepPrecisionAtDeepZoom) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Process 1",
+                         .start_level = 0,
+                         .nesting_level = kProcessNestingLevel,
+                         .expanded = true,
+                         .has_children = true,
+                         .pid = 1});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Thread 1",
+                         .start_level = 0,
+                         .nesting_level = 1,
+                         .expanded = true,
+                         .pid = 1});
+
+  // Event 0: 300 ms slice whose right edge is on screen at deep zoom. With the
+  // end encoded as a single float32 duration, that edge lands pixels away from
+  // its true position.
+  // Event 1: sub-microsecond slice at a large timestamp offset (303314.389 us),
+  // where one float32 ULP (31.25 ns) spans hundreds of pixels.
+  constexpr double kLongStart = 3000.0;
+  constexpr double kLongDur = 300314.350;
+  constexpr double kShortStart = 303314.389;
+  constexpr double kShortDur = 0.045;
+  data.level_offsets = {0, 2};
+  data.level_event_indices = {0, 1};
+  data.entry_names = {"long_span_op", "convert_element_type"};
+  data.entry_levels = {0, 0};
+  data.entry_start_times = {kLongStart, kShortStart};
+  data.entry_total_times = {kLongDur, kShortDur};
+  data.entry_args = {{}, {}};
+
+  constexpr double kVisibleStart = 303314.26027;
+  timeline_.set_data_time_range({0.0, 303400.0});
+  timeline_.SetVisibleRange({kVisibleStart, 303314.46027});
+  timeline_.SetTimelineData(std::move(data));
+
+  // The raw-event instances for the only level are uploaded last. Their hi/lo
+  // pairs must reconstruct both edges to well below a nanosecond.
+  const size_t num_instances = timeline_.gpu_flame_instances_count_for_test();
+  ASSERT_GE(num_instances, 2u);
+  const std::array<float, 4> long_inst =
+      timeline_.gpu_flame_instance_times_for_test(num_instances - 2);
+  const std::array<float, 4> short_inst =
+      timeline_.gpu_flame_instance_times_for_test(num_instances - 1);
+  auto reconstruct = [](float hi, float lo) {
+    return static_cast<double>(hi) + static_cast<double>(lo);
+  };
+  constexpr double kMaxReconstructionErrorUs = 1e-6;
+  EXPECT_NEAR(reconstruct(long_inst[0], long_inst[1]), kLongStart,
+              kMaxReconstructionErrorUs);
+  EXPECT_NEAR(reconstruct(long_inst[2], long_inst[3]), kLongStart + kLongDur,
+              kMaxReconstructionErrorUs);
+  EXPECT_NEAR(reconstruct(short_inst[0], short_inst[1]), kShortStart,
+              kMaxReconstructionErrorUs);
+  EXPECT_NEAR(reconstruct(short_inst[2], short_inst[3]),
+              kShortStart + kShortDur, kMaxReconstructionErrorUs);
+
+  // Mirror the vertex shader's float32 arithmetic on the uploaded values and
+  // check that every on-screen edge lands within a small fraction of a pixel of
+  // the CPU position. kPxPerUs is close to the zoom level in the original bug
+  // report.
+  const float vs_hi = static_cast<float>(kVisibleStart);
+  const float vs_lo =
+      static_cast<float>(kVisibleStart - static_cast<double>(vs_hi));
+  auto shader_delta_us = [&](float t_hi, float t_lo) {
+    const float d_hi = t_hi - vs_hi;
+    const float d_lo = t_lo - vs_lo;
+    return d_hi + d_lo;
+  };
+  constexpr double kPxPerUs = 10000.0;
+  constexpr double kMaxEdgeErrorPx = 0.01;
+  auto cpu_edge_px = [&](double t) { return (t - kVisibleStart) * kPxPerUs; };
+  EXPECT_NEAR(shader_delta_us(long_inst[2], long_inst[3]) * kPxPerUs,
+              cpu_edge_px(kLongStart + kLongDur), kMaxEdgeErrorPx);
+  EXPECT_NEAR(shader_delta_us(short_inst[0], short_inst[1]) * kPxPerUs,
+              cpu_edge_px(kShortStart), kMaxEdgeErrorPx);
+  EXPECT_NEAR(shader_delta_us(short_inst[2], short_inst[3]) * kPxPerUs,
+              cpu_edge_px(kShortStart + kShortDur), kMaxEdgeErrorPx);
+
+  // Confirm the test exercises the precision problem: deriving the long
+  // slice's right edge from its start plus a float32 duration is off by more
+  // than a pixel.
+  const float px_per_us = static_cast<float>(kPxPerUs);
+  const float duration_based_right_px =
+      shader_delta_us(long_inst[0], long_inst[1]) * px_per_us +
+      static_cast<float>(kLongDur) * px_per_us;
+  EXPECT_GT(std::abs(duration_based_right_px -
+                     cpu_edge_px(kLongStart + kLongDur)),
+            1.0);
+
+  // The GPU batch draws both slices, so instanced mode omits both 4-vertex
+  // CPU rectangles. No slice falls back to a CPU rectangle.
+  timeline_.set_force_gpu_flame_batch_mode_for_test(false);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+  const int cpu_vtx = ImGui::GetDrawData()->TotalVtxCount;
+
+  timeline_.set_force_gpu_flame_batch_mode_for_test(true);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+  const int gpu_vtx = ImGui::GetDrawData()->TotalVtxCount;
+  ASSERT_EQ(timeline_.emitted_gpu_flame_batches_for_test().size(), 1u);
+  EXPECT_EQ(timeline_.emitted_gpu_flame_batches_for_test()[0].instance_count,
+            2u);
+  EXPECT_DOUBLE_EQ(
+      timeline_.emitted_gpu_flame_batches_for_test()[0].visible_start_us,
+      kVisibleStart);
+  EXPECT_EQ(gpu_vtx + 8, cpu_vtx);
 }
 }  // namespace
 }  // namespace testing

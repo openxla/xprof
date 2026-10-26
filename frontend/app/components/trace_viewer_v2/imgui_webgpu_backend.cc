@@ -45,7 +45,14 @@ struct alignas(256) FlameBatchUniforms {
   float min_width_px = 1.0f;
   float padding_right_px = 0.5f;
   float alpha_multiplier = 1.0f;
-  float pad[54] = {};
+  // Always 0. The flame vertex shader ORs this into bitcasts of its hi/lo
+  // partial sums as an optimization barrier: because the compiler cannot prove
+  // the value is 0, it cannot reassociate (a_hi - b_hi) + (a_lo - b_lo) into
+  // (a_hi + a_lo) - (b_hi + b_lo) under fast-math (for example, Metal's relaxed
+  // math mode), which would round each hi + lo back to hi in float32 and drop
+  // the lo precision terms. Do not remove it.
+  uint32_t zero_mask = 0;
+  float pad[53] = {};
 };
 static_assert(sizeof(FlameBatchUniforms) == 256,
               "FlameBatchUniforms must be 256-byte aligned for dynamic offset");
@@ -152,8 +159,9 @@ static const char kFlameShaderVertWgsl[] = R"(
 struct InstanceInput {
     @location(0) start_hi: f32,
     @location(1) start_lo: f32,
-    @location(2) duration: f32,
-    @location(3) color: vec4<f32>,
+    @location(2) end_hi: f32,
+    @location(3) end_lo: f32,
+    @location(4) color: vec4<f32>,
 };
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -174,15 +182,31 @@ struct FlameBatchUniforms {
     min_width_px: f32,
     padding_right_px: f32,
     alpha_multiplier: f32,
+    zero_mask: u32,
 };
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(1) @binding(0) var<uniform> batch: FlameBatchUniforms;
+// Returns x unchanged. Because batch.zero_mask is only known at run time, the
+// shader compiler cannot see through this round trip, so it acts as a
+// barrier that stops fast-math from reassociating additions across it.
+fn opaque(x: f32) -> f32 {
+    return bitcast<f32>(bitcast<u32>(x) | batch.zero_mask);
+}
+// Returns (t - visible_start) in microseconds, where both times are hi/lo
+// float32 pairs. The hi and lo differences must be computed separately and
+// then added; computing hi + lo first rounds back to hi and loses precision.
+fn time_delta(t_hi: f32, t_lo: f32) -> f32 {
+    let d_hi = opaque(t_hi - batch.visible_start_hi);
+    let d_lo = opaque(t_lo - batch.visible_start_lo);
+    return opaque(d_hi + d_lo);
+}
 @vertex
 fn main(@builtin(vertex_index) vid: u32, in: InstanceInput) -> VertexOutput {
     var out: VertexOutput;
-    let dt = (in.start_hi - batch.visible_start_hi) + (in.start_lo - batch.visible_start_lo);
-    let raw_left = batch.screen_x_offset + dt * batch.px_per_us;
-    var raw_right = raw_left + in.duration * batch.px_per_us;
+    let dt_start = time_delta(in.start_hi, in.start_lo);
+    let dt_end = time_delta(in.end_hi, in.end_lo);
+    let raw_left = batch.screen_x_offset + dt_start * batch.px_per_us;
+    var raw_right = batch.screen_x_offset + dt_end * batch.px_per_us;
     raw_right = max(raw_right, raw_left + batch.min_width_px) - batch.padding_right_px;
     let left = clamp(raw_left, batch.screen_x_offset, batch.timeline_right);
     let right = clamp(raw_right, batch.screen_x_offset, batch.timeline_right);
@@ -405,6 +429,7 @@ void ImGui_ImplWGPU_RenderDrawData(ImDrawData* draw_data,
       dst.min_width_px = src.min_width_px;
       dst.padding_right_px = src.padding_right_px;
       dst.alpha_multiplier = src.alpha_multiplier;
+      dst.zero_mask = 0;
     }
     bd->default_queue.WriteBuffer(frame->flame_batch_uniform_buffer, 0,
                                   frame->flame_batch_host.data(),
@@ -757,7 +782,7 @@ bool ImGui_ImplWGPU_CreateDeviceObjects() {
   wgpu::ShaderModule flame_vs_module = CreateShaderModule(kFlameShaderVertWgsl);
   wgpu::ShaderModule flame_fs_module = CreateShaderModule(kFlameShaderFragWgsl);
 
-  wgpu::VertexAttribute flame_attrs[4];
+  wgpu::VertexAttribute flame_attrs[5];
   flame_attrs[0].format = wgpu::VertexFormat::Float32;
   flame_attrs[0].offset =
       static_cast<uint64_t>(offsetof(ImGui_ImplWGPU_FlameInstance, start_hi));
@@ -768,17 +793,21 @@ bool ImGui_ImplWGPU_CreateDeviceObjects() {
   flame_attrs[1].shaderLocation = 1;
   flame_attrs[2].format = wgpu::VertexFormat::Float32;
   flame_attrs[2].offset =
-      static_cast<uint64_t>(offsetof(ImGui_ImplWGPU_FlameInstance, duration));
+      static_cast<uint64_t>(offsetof(ImGui_ImplWGPU_FlameInstance, end_hi));
   flame_attrs[2].shaderLocation = 2;
-  flame_attrs[3].format = wgpu::VertexFormat::Unorm8x4;
+  flame_attrs[3].format = wgpu::VertexFormat::Float32;
   flame_attrs[3].offset =
-      static_cast<uint64_t>(offsetof(ImGui_ImplWGPU_FlameInstance, color));
+      static_cast<uint64_t>(offsetof(ImGui_ImplWGPU_FlameInstance, end_lo));
   flame_attrs[3].shaderLocation = 3;
+  flame_attrs[4].format = wgpu::VertexFormat::Unorm8x4;
+  flame_attrs[4].offset =
+      static_cast<uint64_t>(offsetof(ImGui_ImplWGPU_FlameInstance, color));
+  flame_attrs[4].shaderLocation = 4;
 
   wgpu::VertexBufferLayout flame_vb_layout{};
   flame_vb_layout.arrayStride = sizeof(ImGui_ImplWGPU_FlameInstance);
   flame_vb_layout.stepMode = wgpu::VertexStepMode::Instance;
-  flame_vb_layout.attributeCount = 4;
+  flame_vb_layout.attributeCount = 5;
   flame_vb_layout.attributes = flame_attrs;
 
   wgpu::VertexState flame_vertex_state{};

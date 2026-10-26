@@ -20,10 +20,15 @@ struct ImGui_ImplWGPU_InitInfo {
   }
 };
 
+// Per-instance data for a GPU-instanced flame rectangle. Start and end times
+// are each split into a float32 hi/lo pair (hi = float(t), lo = float(t - hi))
+// so the vertex shader can position both edges with roughly twice the
+// precision of a single float32, even at large timestamp offsets and deep zoom.
 struct ImGui_ImplWGPU_FlameInstance {
   float start_hi = 0.0f;
   float start_lo = 0.0f;
-  float duration = 0.0f;
+  float end_hi = 0.0f;
+  float end_lo = 0.0f;
   uint32_t color = 0;
 };
 

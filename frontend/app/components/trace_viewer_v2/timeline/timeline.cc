@@ -1782,8 +1782,10 @@ void Timeline::UploadGpuFlameInstances() {
         const float start_hi = static_cast<float>(tile.min_start);
         const float start_lo =
             static_cast<float>(tile.min_start - static_cast<double>(start_hi));
-        const float dur =
-            static_cast<float>(std::max(0.0, tile.max_end - tile.min_start));
+        const double end = std::max(tile.min_start, tile.max_end);
+        const float end_hi = static_cast<float>(end);
+        const float end_lo =
+            static_cast<float>(end - static_cast<double>(end_hi));
         const uint32_t col =
             (tile.blended_color != 0)
                 ? tile.blended_color
@@ -1793,7 +1795,8 @@ void Timeline::UploadGpuFlameInstances() {
         gpu_flame_instances_.push_back(CachedGpuFlameInstance{
             .start_hi = start_hi,
             .start_lo = start_lo,
-            .duration = dur,
+            .end_hi = end_hi,
+            .end_lo = end_lo,
             .color = col,
         });
       }
@@ -1809,12 +1812,16 @@ void Timeline::UploadGpuFlameInstances() {
           const float start_lo =
               static_cast<float>(s - static_cast<double>(start_hi));
           const double raw_dur = total_times[idx];
-          const float dur = static_cast<float>(std::max(0.0, raw_dur));
+          const double e = s + std::max(0.0, raw_dur);
+          const float end_hi = static_cast<float>(e);
+          const float end_lo =
+              static_cast<float>(e - static_cast<double>(end_hi));
           const uint32_t col = (raw_dur <= 1e-06) ? 0u : GetEventColor(idx);
           gpu_flame_instances_.push_back(CachedGpuFlameInstance{
               .start_hi = start_hi,
               .start_lo = start_lo,
-              .duration = dur,
+              .end_hi = end_hi,
+              .end_lo = end_lo,
               .color = col,
           });
         } else {
@@ -1827,8 +1834,21 @@ void Timeline::UploadGpuFlameInstances() {
   }
 
 #ifdef __EMSCRIPTEN__
+  // The cached instances are uploaded through a reinterpret_cast, so the two
+  // structs must have identical layouts. Check field offsets as well as size so
+  // that a reordering (for example, swapping end_hi and end_lo) fails to build.
   static_assert(sizeof(CachedGpuFlameInstance) ==
                 sizeof(ImGui_ImplWGPU_FlameInstance));
+  static_assert(offsetof(CachedGpuFlameInstance, start_hi) ==
+                offsetof(ImGui_ImplWGPU_FlameInstance, start_hi));
+  static_assert(offsetof(CachedGpuFlameInstance, start_lo) ==
+                offsetof(ImGui_ImplWGPU_FlameInstance, start_lo));
+  static_assert(offsetof(CachedGpuFlameInstance, end_hi) ==
+                offsetof(ImGui_ImplWGPU_FlameInstance, end_hi));
+  static_assert(offsetof(CachedGpuFlameInstance, end_lo) ==
+                offsetof(ImGui_ImplWGPU_FlameInstance, end_lo));
+  static_assert(offsetof(CachedGpuFlameInstance, color) ==
+                offsetof(ImGui_ImplWGPU_FlameInstance, color));
   ImGui_ImplWGPU_UploadFlameInstances(
       reinterpret_cast<const ImGui_ImplWGPU_FlameInstance*>(
           gpu_flame_instances_.data()),

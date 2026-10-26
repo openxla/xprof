@@ -175,6 +175,9 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
     if (event.hasOwnProperty("name")) ev.name = event["name"].as<std::string>();
     if (event.hasOwnProperty("ts")) ev.ts = event["ts"].as<Microseconds>();
     if (event.hasOwnProperty("dur")) ev.dur = event["dur"].as<Microseconds>();
+    if (event.hasOwnProperty("is_async") && event["is_async"].as<bool>()) {
+      ev.is_async = true;
+    }
     if (event.hasOwnProperty("cat")) {
       emscripten::val cat = event["cat"];
       if (cat.isNumber()) {
@@ -237,11 +240,15 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
           auto it = open_async_events.find({ev.pid, ev.id});
           if (it != open_async_events.end()) {
             TraceEvent& begin_ev = it->second;
+            if (ev.ts == begin_ev.ts) {
+              break;
+            }
+            if (ev.ts < begin_ev.ts) {
+              std::swap(begin_ev.ts, ev.ts);
+            }
             begin_ev.ph = Phase::kComplete;
             begin_ev.is_async = true;
-            if (ev.ts > begin_ev.ts) {
-              begin_ev.dur = ev.ts - begin_ev.ts;
-            }
+            begin_ev.dur = ev.ts - begin_ev.ts;
             // Merge arguments from end event if any.
             if (!ev.args.empty()) {
               begin_ev.args.insert(ev.args.begin(), ev.args.end());

@@ -278,5 +278,50 @@ TEST(TraceEventParserTest, CounterEventUnit) {
                           Field(&CounterEvent::unit, CounterUnit::kNone)));
 }
 
+TEST(TraceEventParserTest, CompleteEventWithIsAsyncFlag) {
+  emscripten::val trace_data = ParseJson(R"({
+    "traceEvents": [
+      {
+        "ph": "X",
+        "name": "async_op",
+        "pid": 1,
+        "tid": 2,
+        "ts": 100.0,
+        "dur": 50.0,
+        "is_async": true
+      }
+    ]
+  })");
+
+  ParsedTraceEvents result =
+      ParseTraceEvents(trace_data, emscripten::val::null());
+
+  ASSERT_EQ(result.flame_events.size(), 1);
+  EXPECT_EQ(result.flame_events[0].name, "async_op");
+  EXPECT_TRUE(result.flame_events[0].is_async);
+}
+
+TEST(TraceEventParserTest, CompleteEventWithoutIsAsyncFlagDefaultsToFalse) {
+  emscripten::val trace_data = ParseJson(R"({
+    "traceEvents": [
+      {
+        "ph": "X",
+        "name": "sync_op",
+        "pid": 1,
+        "tid": 2,
+        "ts": 100.0,
+        "dur": 50.0
+      }
+    ]
+  })");
+
+  ParsedTraceEvents result =
+      ParseTraceEvents(trace_data, emscripten::val::null());
+
+  ASSERT_EQ(result.flame_events.size(), 1);
+  EXPECT_EQ(result.flame_events[0].name, "sync_op");
+  EXPECT_FALSE(result.flame_events[0].is_async);
+}
+
 }  // namespace
 }  // namespace traceviewer

@@ -297,9 +297,14 @@
               [attr.aria-current]="entry === selectedEntry ? 'true' : null"
               [attr.aria-label]="isEntryOpen(entry) ? entry.description + ', open in a tab' : entry.description"
             >
-              <span class="kernel-monogram" aria-hidden="true">{{ entry.monogram }}</span>
+              <mat-icon
+                *ngIf="entry.kind as kind"
+                class="kind-glyph"
+                [style.--kind-color]="kind.color"
+                aria-hidden="true"
+              >{{ kind.icon }}</mat-icon>
               <span class="kernel-name"><ng-container *ngIf="hasQuery; else plainKernelName"><ng-container *ngFor="let segment of nameSegments(entry.kernel)"><mark *ngIf="segment.match; else unmatchedKernelText" class="match">{{ segment.text }}</mark><ng-template #unmatchedKernelText>{{ segment.text }}</ng-template></ng-container></ng-container><ng-template #plainKernelName>{{ entry.kernel }}</ng-template></span>
-              <span *ngIf="entry.stats || entry.kind" class="kernel-meta" aria-hidden="true">
+              <span *ngIf="entry.stats" class="kernel-meta" aria-hidden="true">
                 <span
                   *ngIf="entry.busiestUnit"
                   class="unit-chip"
@@ -307,12 +312,7 @@
                 >
                   {{ entry.busiestUnit }}
                 </span>
-                <span *ngIf="entry.stats" class="kernel-bundles">{{ entry.bundlesLabel }}</span>
-                <mat-icon
-                  *ngIf="entry.kind as kind"
-                  class="kind-glyph"
-                  [style.--kind-color]="kind.color"
-                >{{ kind.icon }}</mat-icon>
+                <span class="kernel-bundles">{{ entry.bundlesLabel }}</span>
               </span>
             </button>
           </ng-container>

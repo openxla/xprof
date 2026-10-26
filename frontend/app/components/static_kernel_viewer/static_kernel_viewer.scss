@@ -1011,12 +1011,6 @@ $card-width: 320px;
       var(--mat-sys-surface-container-lowest)
     );
     color: var(--mat-sys-on-surface);
-
-    .kernel-monogram {
-      transform: scale(1.06);
-      box-shadow: inset 0 0 0 1px
-        color-mix(in srgb, var(--group-color) 38%, transparent);
-    }
   }
 
   // Marks the kernels that are open in tabs.
@@ -1068,13 +1062,6 @@ $card-width: 320px;
     &::before {
       height: 18px;
       background: var(--mat-sys-primary);
-    }
-
-    .kernel-monogram {
-      background: var(--group-color);
-      box-shadow: 0 2px 5px
-        color-mix(in srgb, var(--group-color) 38%, transparent);
-      color: var(--mat-sys-surface);
     }
 
     .kernel-name {
@@ -1174,7 +1161,7 @@ $card-width: 320px;
   text-align: end;
 }
 
-// Kind of the kernel, in a column of its own at the end of the row.
+// Kind of the kernel, shown at the start of the row.
 .kind-glyph {
   --kind-color: var(--mat-sys-on-surface-variant);
   flex: none;

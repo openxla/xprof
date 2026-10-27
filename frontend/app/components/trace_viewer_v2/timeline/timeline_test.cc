@@ -6498,6 +6498,287 @@ TEST_F(RealTimelineImGuiFixture, DrawFlowsWithZeroViewDuration) {
   ImGui::EndFrame();
 }
 
+TEST_F(RealTimelineImGuiFixture, DrawFlowsWithSourceOffscreenLeft) {
+  timeline_.SetTimelineData(GetTestFlowData());
+  // Visible range [30.0, 60.0]: flow1 source (12.0) is offscreen left,
+  // target (52.0) is visible.
+  timeline_.SetVisibleRange({30.0, 60.0});
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGeneric)});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  ASSERT_FALSE(draw_list->VtxBuffer.empty());
+
+  const float timeline_x_start = GetTimelineStartX();
+  bool found_flow1_color = false;
+  float min_x = std::numeric_limits<float>::max();
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) {
+      found_flow1_color = true;
+      min_x = std::min(min_x, vtx.pos.x);
+    }
+  }
+  EXPECT_TRUE(found_flow1_color);
+  // Source is offscreen left: clamped to timeline_x_start with no source circle
+  // extending to timeline_x_start - kPointRadius.
+  EXPECT_NEAR(min_x, timeline_x_start, 0.5f);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawFlowsWithTargetOffscreenRight) {
+  timeline_.SetTimelineData(GetTestFlowData());
+  // Visible range [0.0, 40.0]: flow1 source (12.0) is visible,
+  // target (52.0) is offscreen right.
+  timeline_.SetVisibleRange({0.0, 40.0});
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGeneric)});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  ASSERT_FALSE(draw_list->VtxBuffer.empty());
+
+  const float timeline_x_end = ImGui::GetIO().DisplaySize.x -
+                               ImGui::GetStyle().ScrollbarSize -
+                               kTimelinePaddingRight;
+  bool found_flow1_color = false;
+  float max_x = std::numeric_limits<float>::lowest();
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) {
+      found_flow1_color = true;
+      max_x = std::max(max_x, vtx.pos.x);
+    }
+  }
+  EXPECT_TRUE(found_flow1_color);
+  // Target is offscreen right: clamped to timeline_x_end with no target circle
+  // extending to timeline_x_end + kPointRadius.
+  EXPECT_NEAR(max_x, timeline_x_end, 0.5f);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       DrawFlowsWithSourceOffscreenRightAndTargetOffscreenLeft) {
+  FlameChartTimelineData data = GetTestFlowData();
+  data.flow_lines = {{.source_ts = 52.0,
+                      .target_ts = 12.0,
+                      .source_level = 0,
+                      .target_level = 0,
+                      .color = 0xFFFF0000,
+                      .category = tsl::profiler::ContextType::kGeneric}};
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGeneric)});
+
+  const float timeline_x_start = GetTimelineStartX();
+  const float timeline_x_end = ImGui::GetIO().DisplaySize.x -
+                               ImGui::GetStyle().ScrollbarSize -
+                               kTimelinePaddingRight;
+
+  // Source (52.0) is offscreen right, target (12.0) is visible.
+  timeline_.SetVisibleRange({0.0, 40.0});
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+  float max_x = std::numeric_limits<float>::lowest();
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) {
+      max_x = std::max(max_x, vtx.pos.x);
+    }
+  }
+  EXPECT_NEAR(max_x, timeline_x_end, 0.5f);
+  ImGui::EndFrame();
+
+  // Source (52.0) is visible, target (12.0) is offscreen left.
+  timeline_.SetVisibleRange({30.0, 60.0});
+  ImGui::NewFrame();
+  timeline_.Draw();
+  draw_list = ImGui::GetForegroundDrawList();
+  float min_x = std::numeric_limits<float>::max();
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) {
+      min_x = std::min(min_x, vtx.pos.x);
+    }
+  }
+  EXPECT_NEAR(min_x, timeline_x_start, 0.5f);
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       DrawFlowsWithBothEndpointsOffscreenSpanningViewport) {
+  timeline_.SetTimelineData(GetTestFlowData());
+  // Visible range [20.0, 40.0]: flow1 source (12.0) is offscreen left,
+  // target (52.0) is offscreen right. The flow spans the viewport.
+  timeline_.SetVisibleRange({20.0, 40.0});
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGeneric)});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  ASSERT_FALSE(draw_list->VtxBuffer.empty());
+
+  const float timeline_x_start = GetTimelineStartX();
+  const float timeline_x_end = ImGui::GetIO().DisplaySize.x -
+                               ImGui::GetStyle().ScrollbarSize -
+                               kTimelinePaddingRight;
+  bool found_flow1_color = false;
+  float min_x = std::numeric_limits<float>::max();
+  float max_x = std::numeric_limits<float>::lowest();
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) {
+      found_flow1_color = true;
+      min_x = std::min(min_x, vtx.pos.x);
+      max_x = std::max(max_x, vtx.pos.x);
+    }
+  }
+  EXPECT_TRUE(found_flow1_color);
+  EXPECT_NEAR(min_x, timeline_x_start, 0.5f);
+  EXPECT_NEAR(max_x, timeline_x_end, 0.5f);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawFlowsWithEndpointsOnViewportBoundaries) {
+  timeline_.SetTimelineData(GetTestFlowData());
+  // Visible range [12.0, 52.0]: flow1 source (12.0) is on timeline_x_start and
+  // target (52.0) is on timeline_x_end. Both endpoint circles should be drawn.
+  timeline_.SetVisibleRange({12.0, 52.0});
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGeneric)});
+
+  const float timeline_x_start = GetTimelineStartX();
+  const float timeline_x_end = ImGui::GetIO().DisplaySize.x -
+                               ImGui::GetStyle().ScrollbarSize -
+                               kTimelinePaddingRight;
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  float min_x = std::numeric_limits<float>::max();
+  float max_x = std::numeric_limits<float>::lowest();
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) {
+      min_x = std::min(min_x, vtx.pos.x);
+      max_x = std::max(max_x, vtx.pos.x);
+    }
+  }
+  EXPECT_LT(min_x, timeline_x_start - 2.0f);
+  EXPECT_GT(max_x, timeline_x_end + 2.0f);
+  ImGui::EndFrame();
+
+  // Visible range [52.0, 100.0]: flow1 target (52.0) touches timeline_x_start.
+  timeline_.SetVisibleRange({52.0, 100.0});
+  ImGui::NewFrame();
+  timeline_.Draw();
+  draw_list = ImGui::GetForegroundDrawList();
+  min_x = std::numeric_limits<float>::max();
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) {
+      min_x = std::min(min_x, vtx.pos.x);
+    }
+  }
+  EXPECT_LT(min_x, timeline_x_start - 2.0f);
+  ImGui::EndFrame();
+
+  // Visible range [0.0, 12.0]: flow1 source (12.0) touches timeline_x_end.
+  timeline_.SetVisibleRange({0.0, 12.0});
+  ImGui::NewFrame();
+  timeline_.Draw();
+  draw_list = ImGui::GetForegroundDrawList();
+  max_x = std::numeric_limits<float>::lowest();
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) {
+      max_x = std::max(max_x, vtx.pos.x);
+    }
+  }
+  EXPECT_GT(max_x, timeline_x_end + 2.0f);
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawFlowsCompletelyOffscreen) {
+  FlameChartTimelineData data = GetTestFlowData();
+  // Put source and target on different levels so an unculled clamped flow
+  // would draw a vertical segment between start_y and end_y.
+  data.level_offsets = {0, 1, 2};
+  data.entry_levels = {0, 1};
+  data.flow_lines[0].target_level = 1;
+  data.flow_lines[1].target_level = 1;
+  timeline_.SetTimelineData(std::move(data));
+  // Visible range [60.0, 100.0]: flow1 (12.0 to 52.0) and flow2 (15.0 to 55.0)
+  // are completely to the left of the viewport.
+  timeline_.SetVisibleRange({60.0, 100.0});
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGeneric),
+       static_cast<int>(tsl::profiler::ContextType::kGpuLaunch)});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  bool found_flow1_color = false;
+  bool found_flow2_color = false;
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) found_flow1_color = true;
+    if (vtx.col == 0xFF00FF00) found_flow2_color = true;
+  }
+  EXPECT_FALSE(found_flow1_color);
+  EXPECT_FALSE(found_flow2_color);
+
+  ImGui::EndFrame();
+
+  // Also test completely to the right of the viewport: [0.0, 10.0].
+  timeline_.SetVisibleRange({0.0, 10.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  draw_list = ImGui::GetForegroundDrawList();
+
+  found_flow1_color = false;
+  found_flow2_color = false;
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) found_flow1_color = true;
+    if (vtx.col == 0xFF00FF00) found_flow2_color = true;
+  }
+  EXPECT_FALSE(found_flow1_color);
+  EXPECT_FALSE(found_flow2_color);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       DrawFlowsForSelectedEventWithOffscreenEndpoint) {
+  timeline_.SetTimelineData(GetTestFlowData());
+  // Select event 0 (id 1000), which connects flow1 (source 12.0, target 52.0).
+  timeline_.RevealEvent(0);
+  // Set visible range to [0.0, 30.0], so target (52.0) is offscreen right.
+  timeline_.SetVisibleRange({0.0, 30.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  ASSERT_FALSE(draw_list->VtxBuffer.empty());
+
+  bool found_flow1_color = false;
+  bool found_flow2_color = false;
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) found_flow1_color = true;
+    if (vtx.col == 0xFF00FF00) found_flow2_color = true;
+  }
+  EXPECT_TRUE(found_flow1_color);
+  EXPECT_FALSE(found_flow2_color);
+
+  ImGui::EndFrame();
+}
+
 TEST_F(RealTimelineImGuiFixture, ProcessTrackDoesNotDrawUtilizationAreaChart) {
   FlameChartTimelineData data;
   // Group 0: Process (starts at level 0, ends at level 0 - no direct events)

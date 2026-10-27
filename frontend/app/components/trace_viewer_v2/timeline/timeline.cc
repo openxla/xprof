@@ -8,6 +8,7 @@
 #include <functional>
 #include <iterator>
 #include <limits>
+#include <numeric>
 #include <optional>
 #include <string>
 #include <tuple>
@@ -44,6 +45,7 @@
 #include "frontend/app/components/trace_viewer_v2/timeline/motion.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline_hlo_dependencies.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/track_order.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 #ifdef __EMSCRIPTEN__
@@ -362,11 +364,44 @@ bool DrawTextWithEllipsis(ImFont* font, absl::string_view text, ImU32 color,
   return truncated;
 }
 
-// Returns the width reserved on the right side of a process label row for the
-// track management (pin and hide) buttons.
-Pixel CalculateTrackManagementButtonWidth() {
-  return 2.0f * kTrackIconButtonSize + kTrackIconButtonGap +
-         kTrackIconButtonMarginRight;
+// Returns the width reserved on the right side of a label row for
+// `button_count` icon buttons (the pin and hide buttons and the drag handle):
+// [button] gap [button] ... margin | splitter.
+Pixel CalculateTrailingButtonsWidth(int button_count) {
+  if (button_count <= 0) return 0.0f;
+  return button_count * kTrackIconButtonSize +
+         (button_count - 1) * kTrackIconButtonGap + kTrackIconButtonMarginRight;
+}
+
+// Returns the fields of `groups` that the order of tracks depends on.
+std::vector<TrackNode> MakeTrackNodes(absl::Span<const Group> groups) {
+  std::vector<TrackNode> nodes;
+  nodes.reserve(groups.size());
+  for (const Group& group : groups) {
+    nodes.push_back({.nesting_level = group.nesting_level, .name = group.name});
+  }
+  return nodes;
+}
+
+// Draws the state layer of an icon button centered at `center`: a filled
+// circle while the button is `pressed`, or one that grows out from the icon as
+// the hover `emphasis` in [0, 1] fades in, like a Material state layer.
+void DrawIconButtonStateLayer(ImDrawList* draw_list, const ImVec2& center,
+                              Pixel radius, bool pressed, float emphasis,
+                              ImU32 foreground_color) {
+  if (pressed) {
+    draw_list->AddCircleFilled(
+        center, radius,
+        WithOpacity(foreground_color, kIconButtonPressedOpacity),
+        /*num_segments=*/24);
+  } else if (emphasis > 0.0f) {
+    const float scale = kMotionIconRippleStartScale +
+                        (1.0f - kMotionIconRippleStartScale) * emphasis;
+    draw_list->AddCircleFilled(
+        center, radius * scale,
+        WithOpacity(foreground_color, kIconButtonHoverOpacity * emphasis),
+        /*num_segments=*/24);
+  }
 }
 
 // The result of `TrackIconButton`.
@@ -413,21 +448,8 @@ IconButtonState TrackIconButton(
         WithOpacity(foreground_color, kIconButtonActiveOpacity),
         /*num_segments=*/24);
   }
-  if (pressed) {
-    draw_list->AddCircleFilled(
-        state.center, radius,
-        WithOpacity(foreground_color, kIconButtonPressedOpacity),
-        /*num_segments=*/24);
-  } else if (state.emphasis > 0.0f) {
-    // The hover circle grows out from the icon as it fades in, like a
-    // Material state layer.
-    const float scale = kMotionIconRippleStartScale +
-                        (1.0f - kMotionIconRippleStartScale) * state.emphasis;
-    draw_list->AddCircleFilled(
-        state.center, radius * scale,
-        WithOpacity(foreground_color, kIconButtonHoverOpacity * state.emphasis),
-        /*num_segments=*/24);
-  }
+  DrawIconButtonStateLayer(draw_list, state.center, radius, pressed,
+                           state.emphasis, foreground_color);
   if (state.hovered) {
     ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
@@ -584,12 +606,16 @@ void Timeline::BuildFlattenedGroups(const FlameChartTimelineData& data) {
 
   if (data.groups.empty()) return;
 
+  // The user-defined track order only permutes sibling subtrees, so the groups
+  // stay in DFS pre-order, which the categorization and layout below rely on.
+  const std::vector<int> display_order = GetTrackDisplayOrder(data.groups);
+
   // Fast-path: when track management (hiding/pinning) is disabled, copy the
   // raw groups sequence directly to avoid categorization overhead or inserting
   // virtual headers.
   if (!track_management_enabled_) {
     flattened_groups_.reserve(group_count);
-    for (int i = 0; i < group_count; ++i) {
+    for (const int i : display_order) {
       flattened_groups_.push_back(&data.groups[i]);
       if (data.groups[i].nesting_level == kProcessNestingLevel) {
         all_processes_count_++;
@@ -606,8 +632,8 @@ void Timeline::BuildFlattenedGroups(const FlameChartTimelineData& data) {
   std::vector<const Group*> hidden_groups;
   std::vector<const Group*> pinned_groups;
   std::vector<const Group*> all_groups;
-  CategorizeGroupsForTrackManagement(data, hidden_groups, pinned_groups,
-                                     all_groups);
+  CategorizeGroupsForTrackManagement(data, display_order, hidden_groups,
+                                     pinned_groups, all_groups);
 
   // Reserve capacity on flattened_groups_ to prevent multiple internal
   // reallocations as elements are added (headers + groups).
@@ -634,7 +660,7 @@ void Timeline::BuildFlattenedGroups(const FlameChartTimelineData& data) {
 }
 
 void Timeline::CategorizeGroupsForTrackManagement(
-    const FlameChartTimelineData& data,
+    const FlameChartTimelineData& data, absl::Span<const int> display_order,
     std::vector<const Group*>& hidden_groups,
     std::vector<const Group*>& pinned_groups,
     std::vector<const Group*>& all_groups) {
@@ -648,7 +674,7 @@ void Timeline::CategorizeGroupsForTrackManagement(
 
   // Groups are expected in DFS pre-order: each process is immediately followed
   // by its child thread/counter tracks.
-  for (int i = 0; i < group_count; ++i) {
+  for (const int i : display_order) {
     const Group& group = data.groups[i];
     if (group.nesting_level == kProcessNestingLevel) {
       current_process_hidden = hidden_track_names_.contains(group.name);
@@ -844,6 +870,8 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
               previous_header_offsets);
   group_visible_ = std::move(new_group_visible);
   group_striped_ = std::move(new_group_striped);
+  UpdateReorderableGroups(data);
+  NotifyTrackListChanged();
 }
 
 void Timeline::set_animations_enabled(bool enabled) {
@@ -1207,6 +1235,9 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
 
 void Timeline::UpdateTimelineData(
     absl::FunctionRef<FlameChartTimelineData()> builder) {
+  // A track drag refers to tracks by their indices in the current data.
+  CancelTrackDrag();
+
   // Capture anchor track and local pixel offset prior to updating layout.
   GroupKey anchor_group_key = {};
   Pixel local_pixel_offset = 0.0f;
@@ -2146,6 +2177,8 @@ bool Timeline::RestoreSavedFullOverview() {
     }
   }
 
+  // A track drag refers to tracks by their indices in the current data.
+  CancelTrackDrag();
   UpdateLevelPositions(saved_full_overview_->data);
   ReleaseEntryMemory(timeline_data_);
   timeline_data_ = std::move(saved_full_overview_->data);
@@ -2350,6 +2383,7 @@ void Timeline::ResetForNewDataset() {
   copied_track_group_index_ = -1;
   layout_transition_ = LayoutTransition();
   animate_next_layout_ = false;
+  last_track_list_canvas_order_.clear();
   chevron_openness_.clear();
   hover_fades_.clear();
 
@@ -2431,6 +2465,8 @@ void Timeline::Draw() {
   ImGui::SetCursorPos(ruler_start_pos);
   DrawRulerUI(tick_info, current_timeline_width_);
 
+  // Draw "Process" header text in the top-left empty label area of
+  // the ruler row when track management is enabled.
   if (track_management_enabled_) {
     // Draw "Process" header text in the top-left empty label area of
     // the ruler row.
@@ -2527,6 +2563,11 @@ void Timeline::Draw() {
     }
   }
 
+  // The drop indicator is drawn over the track rows, so this comes after them.
+  if (UpdateTrackDrag(tracks_start_screen_pos, content_region_avail_width)) {
+    needs_layout_update = true;
+  }
+
   // Create a dummy at the end to ensure the Tracks child has the right
   // scrolling height. We position the top of a 1px high dummy at
   // `group_offsets_.back() - 1.0f`. This means the bottom of the dummy is
@@ -2576,11 +2617,12 @@ void Timeline::Draw() {
   // interaction.
   // The performance impact is fine because HandleKeyboard/HandleWheel() only
   // performs lightweight checks and calculations.
-  bool is_interacting = is_resizing_label_column_;
+  bool is_interacting = is_resizing_label_column_ || is_dragging_track();
   if (!is_resizing_label_column_) {
     is_interacting |= HandleKeyboard();
     is_interacting |= HandleWheel();
-    is_interacting |= HandleMouse();
+    // The mouse is busy dragging the track, not panning or selecting.
+    if (!is_dragging_track()) is_interacting |= HandleMouse();
   }
 
   // We call MaybeRequestData() to check if we need to fetch more data.
@@ -2694,14 +2736,14 @@ void Timeline::Draw() {
     }
   }
 
-  SyncMinimapState();
-
   ImGui::PopStyleVar();  // ItemSpacing
   ImGui::PopStyleVar();  // CellPadding
   ImGui::PopStyleVar();  // WindowPadding
   ImGui::PopStyleVar();  // WindowBorderSize
   ImGui::PopStyleVar();  // WindowRounding
   ImGui::End();          // Timeline viewer
+
+  SyncMinimapState();
 
   if (needs_layout_update) {
     UpdateLevelPositions(timeline_data_);
@@ -2937,12 +2979,12 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
 
   // 2. The whole label row is a single hit target: clicking an expandable
   // track toggles it, clicking any other track copies its name, and
-  // right-clicking any track copies its name. The track management buttons
-  // (pin / hide) are excluded so they keep their own hit targets.
-  const Pixel management_width = track_management_enabled_ && is_process
-                                     ? CalculateTrackManagementButtonWidth()
-                                     : 0.0f;
-  const Pixel hit_right = label_right - management_width;
+  // right-clicking any track copies its name. The icon buttons at the right
+  // (pin / hide and the drag handle) are excluded so they keep their own hit
+  // targets.
+  const Pixel trailing_buttons_width =
+      CalculateTrailingButtonsWidth(TrailingButtonCount(group_index));
+  const Pixel hit_right = label_right - trailing_buttons_width;
   bool row_clicked = false;
   bool row_hovered = false;
   bool row_hovered_for_tooltip = false;
@@ -2959,14 +3001,15 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
     row_hovered_for_tooltip =
         ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip);
   }
-  // Include the management buttons area so the row stays highlighted while
-  // the pointer moves onto the pin / hide buttons.
+  // Include the icon buttons area so the row stays highlighted while the
+  // pointer moves onto the pin / hide buttons or the drag handle. Rows do not
+  // react to the pointer while a track is dragged over them.
   const bool tracks_window_hovered =
       ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && !is_dragging_ &&
-      !is_resizing_label_column_;
+      !is_resizing_label_column_ && !is_dragging_track();
   const bool label_area_hovered =
       row_hovered ||
-      (management_width > 0.0f && tracks_window_hovered &&
+      (trailing_buttons_width > 0.0f && tracks_window_hovered &&
        ImGui::IsMouseHoveringRect(ImVec2(hit_right, row_top),
                                   ImVec2(label_right, row_bottom)));
   // Whether the pointer is over this track's events on the canvas. The label
@@ -2977,12 +3020,14 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
                                  ImVec2(row_right, row_bottom));
   // Evaluate full-row hover before pushing the sidebar clip rect (which clips
   // ImGui::IsMouseHoveringRect to the label column), so hovering the canvas row
-  // also reserves space for the revealed pin / hide buttons.
-  const bool management_buttons_visible =
-      management_width > 0.0f &&
-      (pinned_track_names_.contains(group.name) ||
-       hidden_track_names_.contains(group.name) ||
-       IsTrackRowHovered(group_index));
+  // also reserves space for the revealed icon buttons.
+  const bool is_drag_source = IsTrackDragSource(group_index);
+  const bool trailing_buttons_visible =
+      trailing_buttons_width > 0.0f &&
+      ((track_management_enabled_ && is_process &&
+        (pinned_track_names_.contains(group.name) ||
+         hidden_track_names_.contains(group.name))) ||
+       is_drag_source || IsTrackRowHovered(group_index));
 
   if (row_clicked) {
     // Clicking a label must not clear the current event selection.
@@ -3016,6 +3061,14 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
         ImVec2(splitter_x, band_top), ImVec2(row_right, band_bottom),
         WithOpacity(foreground_color,
                     kTrackCanvasRowFocusOpacity * row_emphasis));
+  }
+  // The dragged track stays tinted with the accent color, so it is clear which
+  // track moves.
+  if (is_drag_source) {
+    draw_list->AddRectFilled(ImVec2(splitter_x, band_top),
+                             ImVec2(row_right, band_bottom),
+                             WithOpacity(kTrackReorderAccentColor,
+                                         kTrackReorderSourceCanvasOpacity));
   }
 
   // Tree guides: one vertical line per ancestor level, centered under the
@@ -3051,6 +3104,11 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
         draw_list, ImVec2(row_left, pill_top), ImVec2(label_right, pill_bottom),
         WithOpacity(foreground_color, kTrackHoverOpacity * row_emphasis));
   }
+  if (is_drag_source) {
+    DrawRowPill(
+        draw_list, ImVec2(row_left, pill_top), ImVec2(label_right, pill_bottom),
+        WithOpacity(kTrackReorderAccentColor, kTrackReorderSourceOpacity));
+  }
   if (copied_track_group_index_ == group_index) {
     // The copy flash fades out (or, without motion, shows briefly).
     const float flash = animations_enabled_
@@ -3079,12 +3137,13 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
 
   // Count chip on collapsed tracks: the number of hidden child tracks (or
   // levels, for a multi-level track without child tracks). The space of the
-  // track management buttons is only reserved while they are visible (see
-  // DrawPinButton and DrawHideButton), so names use the full width otherwise.
+  // icon buttons is only reserved while they are visible (see DrawPinButton,
+  // DrawHideButton and DrawTrackReorderHandle), so names use the full width
+  // otherwise.
   const Pixel content_left = slot_left + kTrackChevronSlotWidth;
   const Pixel text_left = content_left + kTrackLabelGap;
   Pixel text_right = label_right - kTrackLabelPaddingRight -
-                     (management_buttons_visible ? management_width : 0.0f);
+                     (trailing_buttons_visible ? trailing_buttons_width : 0.0f);
   // The collapsed cues (count chip, stack hint) fade in as the row collapses
   // and out as it expands.
   const float collapsed_cue_alpha = expandable ? 1.0f - openness : 0.0f;
@@ -3169,6 +3228,14 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
                                  first_line_height)) {
     needs_layout_update = true;
   }
+  if (IsGroupReorderable(group_index)) {
+    // The drag handle is the rightmost icon button of the label column.
+    ImGui::SetCursorPos(
+        ImVec2(tracks_start_pos.x + label_width_ - kSplitterOffset -
+                   kTrackIconButtonMarginRight - kTrackIconButtonSize,
+               tracks_start_pos.y + group_offsets_[group_index]));
+    DrawTrackReorderHandle(group_index, first_line_height);
+  }
 
   ImGui::SetCursorPos(ImVec2(tracks_start_pos.x + label_width_,
                              tracks_start_pos.y + group_offsets_[group_index]));
@@ -3197,6 +3264,8 @@ bool Timeline::HandleProcessTrackHeaderClick(
   if (group.nesting_level != kProcessNestingLevel || !group.has_children) {
     return false;
   }
+  // Releasing the mouse to drop a dragged track is not a click.
+  if (is_dragging_track()) return false;
 
   const Pixel timeline_start_x = tracks_start_screen_pos.x + label_width_;
   const Pixel timeline_end_x =
@@ -6069,10 +6138,17 @@ bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
   bool needs_layout_update = false;
 
   // The buttons are right-aligned in the label column with a small margin
-  // before the splitter: [pin] gap [hide] margin | splitter.
+  // before the splitter: [pin] gap [hide] margin | splitter, or
+  // [pin] gap [hide] gap [drag handle] margin | splitter for reorderable
+  // processes.
+  const Pixel drag_handle_width =
+      IsGroupReorderable(group_index)
+          ? kTrackIconButtonSize + kTrackIconButtonGap
+          : 0.0f;
   const Pixel row_y = tracks_start_pos.y + group_offsets_[group_index];
   const Pixel hide_x = tracks_start_pos.x + label_width_ - kSplitterOffset -
-                       kTrackIconButtonMarginRight - kTrackIconButtonSize;
+                       kTrackIconButtonMarginRight - kTrackIconButtonSize -
+                       drag_handle_width;
   const Pixel pin_x = hide_x - kTrackIconButtonGap - kTrackIconButtonSize;
 
   // Position and draw Pin button
@@ -6080,6 +6156,7 @@ bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
   const bool is_pinned = pinned_track_names_.contains(group.name);
   if (DrawPinButton(group_index, centereable_height, is_pinned)) {
     needs_layout_update = true;
+    minimap_schedule_dirty_ = true;
     ShowNavigationWarningNotification(
         is_pinned
             ? absl::StrCat(kUnpinnedProcessNotificationPrefix, group.name)
@@ -6091,6 +6168,7 @@ bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
   const bool is_track_hidden = hidden_track_names_.contains(group.name);
   if (DrawHideButton(group_index, centereable_height, is_track_hidden)) {
     needs_layout_update = true;
+    minimap_schedule_dirty_ = true;
     // The state was toggled inside DrawHideButton, so we should check the
     // new state or invert the old state. Since is_track_hidden holds the
     // old state:
@@ -6106,6 +6184,8 @@ bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
 }
 
 bool Timeline::IsTrackRowHovered(int group_index) const {
+  // Rows do not react to the pointer while a track is dragged over them.
+  if (is_dragging_track()) return false;
   const Pixel content_region_avail_width =
       ImGui::GetWindowWidth() - ImGui::GetStyle().ScrollbarSize;
   const Pixel row_top =
@@ -7548,155 +7628,459 @@ void Timeline::RemoveBookmark(Microseconds time) {
   }
 }
 
-Timeline::GroupRelativeInfo Timeline::FindGroupRelatives(Group* target_group) {
-  GroupRelativeInfo info;
-  if (!target_group) return info;
-
-  // Child track (e.g., thread or counter track): belongs to a parent process.
-  // Resolves its parent group and determines its position within the parent's
-  // child_indices list.
-  if (target_group->parent_index != -1) {
-    if (target_group->parent_index >= 0 &&
-        target_group->parent_index < timeline_data_.groups.size()) {
-      info.parent = &timeline_data_.groups[target_group->parent_index];
-      info.siblings = &timeline_data_.groups;
-      const auto& child_indices = info.parent->child_indices;
-      for (size_t i = 0; i < child_indices.size(); ++i) {
-        if (child_indices[i] >= 0 &&
-            child_indices[i] < timeline_data_.groups.size() &&
-            timeline_data_.groups[child_indices[i]].original_index ==
-                target_group->original_index) {
-          info.index_in_siblings = i;
-          break;
-        }
-      }
-    }
-  } else {
-    // Top-level root track (e.g., process track): parent_index is -1 because it
-    // has no parent. Its siblings are all other root-level tracks in
-    // timeline_data_.groups; determine its relative position among root tracks.
-    info.parent = nullptr;
-    info.siblings = &timeline_data_.groups;
-    int root_count = 0;
-    for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
-      if (timeline_data_.groups[i].parent_index == -1) {
-        if (timeline_data_.groups[i].original_index ==
-            target_group->original_index) {
-          info.index_in_siblings = root_count;
-          break;
-        }
-        root_count++;
-      }
-    }
-  }
-  return info;
+void Timeline::set_track_reordering_enabled(bool enabled) {
+  if (track_reordering_enabled_ == enabled) return;
+  track_reordering_enabled_ = enabled;
+  last_track_list_canvas_order_.clear();
+  // The track order only applies while tracks can be reordered.
+  ApplyTrackOrderChange(/*animate=*/false);
 }
 
-bool Timeline::HandleTrackDragAndDrop(int group_index, Group& group,
-                                      const ImVec2& tracks_start_pos,
-                                      const ImVec2& tracks_start_screen_pos,
-                                      Pixel group_height,
-                                      Pixel hover_zone_width) {
-  const Pixel effective_height =
-      group_height > 0.0f
-          ? group_height
-          : (group_index >= 0 && group_index < group_heights_.size()
-                 ? group_heights_[group_index]
-                 : 0.0f);
-  if (hover_zone_width <= 0.0f || effective_height <= 0.0f) {
+bool Timeline::RestoreTrackOrder(absl::string_view serialized) {
+  if (!track_order_.Deserialize(serialized)) return false;
+  ApplyTrackOrderChange(/*animate=*/false);
+  return true;
+}
+
+void Timeline::ResetTrackOrder() {
+  if (track_order_.empty()) return;
+  track_order_.Clear();
+  ApplyTrackOrderChange(/*animate=*/false);
+  NotifyTrackOrderChanged();
+}
+
+void Timeline::SetTrackOrderMode(TrackOrder::Mode mode) {
+  if (track_order_.mode() == mode) return;
+  track_order_.set_mode(mode);
+  ApplyTrackOrderChange(/*animate=*/true);
+  NotifyTrackOrderChanged();
+}
+
+std::vector<Timeline::TrackListEntry> Timeline::GetTrackList() const {
+  const std::vector<int> parents =
+      ComputeTrackParents(MakeTrackNodes(timeline_data_.groups));
+  const std::vector<int> order = GetCanvasGroupOrder();
+  std::vector<TrackListEntry> entries;
+  entries.reserve(order.size());
+  // In canvas order, each process is followed by its child tracks, which are
+  // in the same section.
+  TrackSection section = TrackSection::kAll;
+  for (const int index : order) {
+    if (timeline_data_.groups[index].nesting_level == kProcessNestingLevel) {
+      section = GetTrackSection(index);
+    }
+    entries.push_back({.group_index = index,
+                       .parent_index = parents[index],
+                       .section = section});
+  }
+  return entries;
+}
+
+bool Timeline::MoveTrack(int source, int target,
+                         TrackOrder::DropPosition position) {
+  const int group_count = static_cast<int>(timeline_data_.groups.size());
+  if (!track_reordering_enabled_ || source < 0 || source >= group_count ||
+      target < 0 || target >= group_count ||
+      GetTrackSection(source) != GetTrackSection(target) ||
+      !track_order_.Move(MakeTrackNodes(timeline_data_.groups), source, target,
+                         position)) {
+    return false;
+  }
+  ApplyTrackOrderChange(/*animate=*/true);
+  NotifyTrackOrderChanged();
+  return true;
+}
+
+void Timeline::ApplyTrackOrderChange(bool animate) {
+  // A track drag refers to the tracks by their display positions.
+  CancelTrackDrag();
+  if (timeline_data_.groups.empty()) {
+    UpdateReorderableGroups(timeline_data_);
+    NotifyTrackListChanged();
+  } else {
+    // The tracks slide to their new places.
+    animate_next_layout_ = animate && animations_enabled_;
+    UpdateLevelPositions(timeline_data_);
+  }
+  minimap_schedule_dirty_ = true;
+  SyncMinimapState();
+  if (redraw_callback_) redraw_callback_();
+}
+
+void Timeline::NotifyTrackOrderChanged() {
+  if (track_order_changed_callback_) {
+    track_order_changed_callback_(SerializeTrackOrder());
+  }
+}
+
+Timeline::TrackSection Timeline::GetTrackSection(int group_index) const {
+  if (!track_management_enabled_) return TrackSection::kAll;
+  // The process of a track is the closest process before it in the data,
+  // which is in DFS pre-order.
+  int process = group_index;
+  while (process > 0 &&
+         timeline_data_.groups[process].nesting_level > kProcessNestingLevel) {
+    --process;
+  }
+  const std::string& name = timeline_data_.groups[process].name;
+  if (hidden_track_names_.contains(name)) return TrackSection::kHidden;
+  if (pinned_track_names_.contains(name)) return TrackSection::kPinned;
+  return TrackSection::kAll;
+}
+
+void Timeline::NotifyTrackListChanged() {
+  const std::vector<int> canvas_order = GetCanvasGroupOrder();
+  if (canvas_order == last_track_list_canvas_order_) return;
+  last_track_list_canvas_order_ = canvas_order;
+  if (track_list_changed_callback_) track_list_changed_callback_();
+}
+
+std::vector<int> Timeline::GetTrackDisplayOrder(
+    absl::Span<const Group> groups) const {
+  if (!track_reordering_enabled_ || track_order_.empty()) {
+    std::vector<int> order(groups.size());
+    std::iota(order.begin(), order.end(), 0);
+    return order;
+  }
+  return track_order_.DisplayOrder(MakeTrackNodes(groups));
+}
+
+std::vector<int> Timeline::GetCanvasGroupOrder() const {
+  std::vector<int> order = GetTrackDisplayOrder(timeline_data_.groups);
+  if (!track_management_enabled_ ||
+      (pinned_track_names_.empty() && hidden_track_names_.empty())) {
+    return order;
+  }
+
+  // Lists the pinned processes first, then the remaining visible ones, and
+  // then the hidden ones, each with its child tracks. This ensures visible
+  // lanes and special tracks take priority over hidden ones.
+  std::vector<int> hidden_indices;
+  std::vector<int> pinned_indices;
+  std::vector<int> all_indices;
+  bool current_process_hidden = false;
+  bool current_process_pinned = false;
+  for (const int i : order) {
+    const Group& group = timeline_data_.groups[i];
+    if (group.nesting_level == kProcessNestingLevel) {
+      current_process_hidden = hidden_track_names_.contains(group.name);
+      current_process_pinned =
+          !current_process_hidden && pinned_track_names_.contains(group.name);
+    }
+    if (current_process_hidden) {
+      hidden_indices.push_back(i);
+    } else if (current_process_pinned) {
+      pinned_indices.push_back(i);
+    } else {
+      all_indices.push_back(i);
+    }
+  }
+
+  order = std::move(pinned_indices);
+  order.insert(order.end(), all_indices.begin(), all_indices.end());
+  order.insert(order.end(), hidden_indices.begin(), hidden_indices.end());
+  return order;
+}
+
+void Timeline::UpdateReorderableGroups(const FlameChartTimelineData& data) {
+  group_reorderable_.assign(data.groups.size(), false);
+  if (!track_reordering_enabled_ || data.groups.size() < 2) return;
+
+  const std::vector<int> parents =
+      ComputeTrackParents(MakeTrackNodes(data.groups));
+  // A track can be moved if its section (Hidden, Pinned or All; the sections
+  // are separated by virtual headers) lists one of its siblings too. Siblings
+  // have the same parent and nesting level.
+  absl::flat_hash_map<std::pair<int, int>, int> sibling_counts;
+  auto update_section = [&](absl::Span<const Group* const> section) {
+    sibling_counts.clear();
+    for (const Group* group : section) {
+      const int index = static_cast<int>(group - data.groups.data());
+      ++sibling_counts[{parents[index], group->nesting_level}];
+    }
+    for (const Group* group : section) {
+      const int index = static_cast<int>(group - data.groups.data());
+      group_reorderable_[index] =
+          sibling_counts[{parents[index], group->nesting_level}] > 1;
+    }
+  };
+  const absl::Span<const Group* const> groups(flattened_groups_);
+  size_t section_begin = 0;
+  for (size_t i = 0; i <= groups.size(); ++i) {
+    if (i == groups.size() || IsVirtualHeader(groups[i])) {
+      update_section(groups.subspan(section_begin, i - section_begin));
+      section_begin = i + 1;
+    }
+  }
+}
+
+bool Timeline::IsGroupReorderable(int group_index) const {
+  return group_index >= 0 &&
+         static_cast<size_t>(group_index) < group_reorderable_.size() &&
+         group_reorderable_[group_index];
+}
+
+int Timeline::TrailingButtonCount(int group_index) const {
+  const bool has_management_buttons =
+      track_management_enabled_ &&
+      timeline_data_.groups[group_index].nesting_level == kProcessNestingLevel;
+  return (has_management_buttons ? 2 : 0) +
+         (IsGroupReorderable(group_index) ? 1 : 0);
+}
+
+void Timeline::DrawTrackReorderHandle(int group_index, Pixel row_height) {
+  if (row_height <= 0.0f) return;
+  const ImVec2 cursor = ImGui::GetCursorScreenPos();
+  const ImVec2 min(std::floor(cursor.x), std::floor(cursor.y));
+  ImGui::SetCursorScreenPos(min);
+  // Rows are pointer targets only; keyboard arrows navigate the timeline.
+  ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
+  ImGui::InvisibleButton("##reorder_handle",
+                         ImVec2(kTrackIconButtonSize, row_height));
+  ImGui::PopItemFlag();
+  const ImGuiID handle_id = ImGui::GetItemID();
+  const bool hovered = ImGui::IsItemHovered();
+  const bool pressed = ImGui::IsItemActive();
+  if (pressed || ImGui::IsItemDeactivated()) {
+    // Pressing or releasing the handle must not clear the event selection.
+    event_clicked_this_frame_ = true;
+  }
+  if (pressed && !is_dragging_track() &&
+      ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+    BeginTrackDrag(group_index, handle_id);
+  }
+  const bool is_drag_source = IsTrackDragSource(group_index);
+  const float emphasis = HoverFade(handle_id, hovered || is_drag_source);
+  if (hovered && !is_dragging_track()) {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+      ShowCardTooltip(kDragToReorderTooltip);
+    }
+  }
+
+  // Like the pin and hide buttons, the handle is only revealed on row hover,
+  // and it stays visible on the dragged track.
+  if (!is_drag_source && !hovered && !IsTrackRowHovered(group_index)) return;
+  ImDrawList* const draw_list = ImGui::GetWindowDrawList();
+  const ImU32 foreground_color =
+      palette_.GetColor(ColorPalette::Key::kForeground).value_or(kBlackColor);
+  const ImVec2 center(min.x + kTrackIconButtonSize * 0.5f,
+                      min.y + row_height * 0.5f);
+  const Pixel radius = std::min(kTrackIconButtonSize, row_height) * 0.5f;
+  if (is_drag_source) {
+    draw_list->AddCircleFilled(
+        center, radius,
+        WithOpacity(kTrackReorderAccentColor, kIconButtonPressedOpacity),
+        /*num_segments=*/24);
+  } else {
+    DrawIconButtonStateLayer(draw_list, center, radius, pressed, emphasis,
+                             foreground_color);
+  }
+  DrawDragHandleIcon(
+      draw_list, center.x, center.y,
+      is_drag_source
+          ? kTrackReorderAccentColor
+          : WithOpacity(foreground_color,
+                        kTrackMutedTextOpacity +
+                            (1.0f - kTrackMutedTextOpacity) * emphasis));
+}
+
+void Timeline::BeginTrackDrag(int group_index, ImGuiID handle_id) {
+  if (!IsGroupReorderable(group_index)) return;
+  const std::vector<TrackNode> nodes = MakeTrackNodes(timeline_data_.groups);
+  const std::vector<int> parents = ComputeTrackParents(nodes);
+  const int nesting_level = timeline_data_.groups[group_index].nesting_level;
+
+  TrackDrag drag;
+  drag.source = group_index;
+  drag.handle_id = handle_id;
+  bool found_source = false;
+  for (const Group* group : flattened_groups_) {
+    if (IsVirtualHeader(group)) {
+      // A track is only moved within its section.
+      if (found_source) break;
+      drag.siblings.clear();
+      continue;
+    }
+    const int index = static_cast<int>(group - timeline_data_.groups.data());
+    if (parents[index] != parents[group_index] ||
+        group->nesting_level != nesting_level) {
+      continue;
+    }
+    if (index == group_index) {
+      found_source = true;
+      drag.source_slot = static_cast<int>(drag.siblings.size());
+    }
+    drag.siblings.push_back(
+        {.group_index = index, .subtree_end = TrackSubtreeEnd(nodes, index)});
+  }
+  if (!found_source || drag.siblings.size() < 2) return;
+  track_drag_ = std::move(drag);
+}
+
+bool Timeline::UpdateTrackDrag(const ImVec2& tracks_start_screen_pos,
+                               Pixel content_region_avail_width) {
+  if (!track_drag_.has_value()) return false;
+  // Releasing the mouse to drop the track must not clear the event selection.
+  event_clicked_this_frame_ = true;
+  if (ImGui::IsKeyPressed(ImGuiKey_Escape, /*repeat=*/false)) {
+    CancelTrackDrag();
+    if (redraw_callback_) redraw_callback_();
     return false;
   }
 
-  ImGui::SetCursorPos(
-      ImVec2(tracks_start_pos.x,
-             tracks_start_pos.y + group_offsets_[group_index]));
-  ImGui::SetNextItemAllowOverlap();
-  ImGui::InvisibleButton(
-      "RowLabelHoverZone",
-      ImVec2(hover_zone_width, effective_height));
-  const bool is_drag_and_drop_action =
-      ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenOverlapped);
-
-  if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
-    Group* group_ptr_payload = &group;
-    ImGui::SetDragDropPayload("TRACK_REORDER", &group_ptr_payload,
-                              sizeof(Group*));
-    ImGui::Text("%s%s", kMovingTrackNotificationPrefix, group.name.c_str());
-    ImGui::EndDragDropSource();
+  if (ImGui::IsMousePosValid()) {
+    AutoScrollTrackDrag();
+    track_drag_->drop_slot = ComputeTrackDropSlot(ImGui::GetIO().MousePos.y -
+                                                  tracks_start_screen_pos.y);
+  }
+  if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+    const bool moved = DropDraggedTrack();
+    track_drag_.reset();
+    if (redraw_callback_) redraw_callback_();
+    return moved;
   }
 
-  if (ImGui::BeginDragDropTarget()) {
-    if (const ImGuiPayload* group_ptr_payload = ImGui::AcceptDragDropPayload(
-            "TRACK_REORDER", ImGuiDragDropFlags_AcceptBeforeDelivery |
-                             ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
-      if (group_ptr_payload->Data != nullptr &&
-          group_ptr_payload->DataSize >= sizeof(Group*)) {
-        // Dereferencing as *(Group**)group_ptr_payload->Data
-        // retrieves the original pointer to the source group.
-        Group* source_group = *(Group**)group_ptr_payload->Data;
-        Group* target_group = &group;
-        if (source_group && target_group) {
-          GroupRelativeInfo source_info = FindGroupRelatives(source_group);
-          GroupRelativeInfo target_info = FindGroupRelatives(target_group);
-          if (source_info.parent == target_info.parent) {
-            Pixel line_y =
-                tracks_start_screen_pos.y + group_offsets_[group_index];
-            bool drop_after =
-                ImGui::GetIO().MousePos.y > line_y + group_height * 0.5f;
-            if (group_ptr_payload->IsDelivery()) {
-              pending_reorder_source_ = source_group->original_index;
-              pending_reorder_target_ = target_group->original_index;
-              pending_reorder_drop_after_ = drop_after;
-              if (redraw_callback_) redraw_callback_();
-            } else {
-              Pixel line_preview_y = line_y;
-              if (drop_after) {
-                line_preview_y += group_height;
-              }
-              reorder_preview_line_y_ = line_preview_y;
-            }
-          }
-        }
-      }
-    }
-    ImGui::EndDragDropTarget();
-  }
-
-  return is_drag_and_drop_action;
+  // Keep the handle active while its row is scrolled out of view (and not
+  // drawn), so that no other item reacts to the pointer during the drag.
+  ImGui::KeepAliveID(track_drag_->handle_id);
+  ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+  DrawTrackDropIndicator(tracks_start_screen_pos, content_region_avail_width);
+  // Names the dragged track next to the pointer, as it may be out of view.
+  ShowCardTooltip(
+      absl::StrCat(kMovingTrackNotificationPrefix,
+                   timeline_data_.groups[track_drag_->source].name));
+  return false;
 }
 
-void Timeline::HandleTrackDragAndDropHoverAndFeedback(
-    int group_index, Group& group, const ImVec2& tracks_start_pos,
-    const ImVec2& tracks_start_screen_pos, Pixel group_height) {
-  if (!track_management_enabled_) return;
-
-  // Draw invisible button covering the left panel row label text to handle
-  // hover and drag-and-drop.
-  Pixel hover_zone_width = label_width_ - kSplitterOffset;
-  // Only process tracks render track management buttons (Pin and Hide buttons)
-  // on the right side of the label area. Subtract their reserved width (plus
-  // gap and margin) so the invisible drag-and-drop button does not overlap or
-  // intercept clicks intended for those buttons. Child tracks (threads,
-  // counters) do not have management buttons, so their hover zone can safely
-  // span the full label width up to the splitter.
-  if (group.nesting_level == kProcessNestingLevel) {
-    const Pixel track_management_button_width =
-        CalculateTrackManagementButtonWidth();
-    hover_zone_width -= track_management_button_width;
+void Timeline::AutoScrollTrackDrag() {
+  const Pixel top = ImGui::GetWindowPos().y;
+  const Pixel bottom = top + ImGui::GetWindowHeight();
+  const Pixel pointer_y = ImGui::GetIO().MousePos.y;
+  // How deep the pointer is in the top (negative) or bottom (positive)
+  // auto-scroll zone, in [-1, 1]. Scrolling gets faster towards the edges.
+  float depth = 0.0f;
+  if (pointer_y < top + kTrackReorderAutoScrollZone) {
+    depth = -std::min(1.0f, (top + kTrackReorderAutoScrollZone - pointer_y) /
+                                kTrackReorderAutoScrollZone);
+  } else if (pointer_y > bottom - kTrackReorderAutoScrollZone) {
+    depth =
+        std::min(1.0f, (pointer_y - (bottom - kTrackReorderAutoScrollZone)) /
+                           kTrackReorderAutoScrollZone);
   }
+  if (depth == 0.0f) return;
+  const Pixel scroll_y = ImGui::GetScrollY();
+  const Pixel new_scroll_y =
+      std::clamp(scroll_y + depth * kTrackReorderAutoScrollMaxSpeed *
+                                ImGui::GetIO().DeltaTime,
+                 0.0f, ImGui::GetScrollMaxY());
+  if (new_scroll_y == scroll_y) return;
+  ImGui::SetScrollY(new_scroll_y);
+  // Keep rendering frames while scrolling, even if the pointer stays still.
+  motion_in_progress_ = true;
+}
 
-  if (hover_zone_width <= 0.0f || group_height <= 0.0f) {
-    return;
+int Timeline::ComputeTrackDropSlot(Pixel pointer_y) const {
+  const TrackDrag& drag = *track_drag_;
+  // The pointer is before a sibling if it is above the sibling's middle.
+  int slot = 0;
+  for (const TrackDrag::Sibling& sibling : drag.siblings) {
+    const TrackDrag::Extent extent = GetSiblingExtent(sibling);
+    if (pointer_y < (extent.top + extent.bottom) * 0.5f) break;
+    ++slot;
   }
+  // Dropping the track right before or after itself leaves it where it is.
+  if (slot == drag.source_slot || slot == drag.source_slot + 1) return -1;
+  return slot;
+}
 
-  const bool is_drag_and_drop_action =
-      HandleTrackDragAndDrop(group_index, group, tracks_start_pos,
-                             tracks_start_screen_pos, group_height,
-                             hover_zone_width);
-
-  if (is_drag_and_drop_action && ImGui::GetDragDropPayload() == nullptr) {
-    ImGui::SetTooltip("%s", kReorderTrackTooltip);
+Timeline::TrackDrag::Extent Timeline::GetSiblingExtent(
+    const TrackDrag::Sibling& sibling) const {
+  const Pixel top = group_offsets_[sibling.group_index];
+  Pixel bottom = top + group_heights_[sibling.group_index];
+  for (int i = sibling.group_index + 1; i < sibling.subtree_end; ++i) {
+    if (IsGroupDrawn(i)) {
+      bottom = std::max(bottom, group_offsets_[i] + group_heights_[i]);
+    }
   }
+  return {.top = top, .bottom = bottom};
+}
+
+void Timeline::DrawTrackDropIndicator(const ImVec2& tracks_start_screen_pos,
+                                      Pixel content_region_avail_width) {
+  const TrackDrag& drag = *track_drag_;
+  if (drag.drop_slot < 0) return;
+  const Group& source = timeline_data_.groups[drag.source];
+
+  // The line runs through the middle of the gap between the siblings around
+  // the drop position.
+  const Pixel half_gap =
+      (source.nesting_level == kProcessNestingLevel ? kProcessTrackGap
+                                                    : kThreadTrackGap) *
+      0.5f;
+  const int slot_count = static_cast<int>(drag.siblings.size());
+  Pixel y = 0.0f;
+  if (drag.drop_slot == 0) {
+    y = GetSiblingExtent(drag.siblings.front()).top - half_gap;
+  } else if (drag.drop_slot == slot_count) {
+    y = GetSiblingExtent(drag.siblings.back()).bottom + half_gap;
+  } else {
+    y = (GetSiblingExtent(drag.siblings[drag.drop_slot - 1]).bottom +
+         GetSiblingExtent(drag.siblings[drag.drop_slot]).top) *
+        0.5f;
+  }
+  // Keeps the ring fully visible above the first track.
+  y = std::max(y,
+               kTrackReorderIndicatorRadius + kTrackReorderIndicatorThickness);
+  const Pixel line_y = std::round(tracks_start_screen_pos.y + y);
+
+  // The ring sits under the chevrons of the siblings, which shows the level the
+  // track is dropped at, and the line spans the label column and the canvas.
+  const int depth = std::max(0, source.nesting_level - kProcessNestingLevel);
+  const Pixel ring_x = std::round(
+      tracks_start_screen_pos.x + kTrackLabelPaddingLeft +
+      depth * kTrackChevronSlotWidth + kTrackChevronSlotWidth * 0.5f);
+  ImDrawList* const draw_list = ImGui::GetWindowDrawList();
+  draw_list->AddLine(
+      ImVec2(ring_x + kTrackReorderIndicatorRadius, line_y),
+      ImVec2(tracks_start_screen_pos.x + content_region_avail_width, line_y),
+      kTrackReorderAccentColor, kTrackReorderIndicatorThickness);
+  draw_list->AddCircle(ImVec2(ring_x, line_y), kTrackReorderIndicatorRadius,
+                       kTrackReorderAccentColor, /*num_segments=*/12,
+                       kTrackReorderIndicatorThickness);
+}
+
+bool Timeline::DropDraggedTrack() {
+  const TrackDrag& drag = *track_drag_;
+  if (drag.drop_slot < 0) return false;
+  // The track goes before the sibling at the drop slot, or after the last one.
+  const bool after_last =
+      drag.drop_slot == static_cast<int>(drag.siblings.size());
+  const int target =
+      drag.siblings[after_last ? drag.drop_slot - 1 : drag.drop_slot]
+          .group_index;
+  if (!track_order_.Move(MakeTrackNodes(timeline_data_.groups), drag.source,
+                         target,
+                         after_last ? TrackOrder::DropPosition::kAfter
+                                    : TrackOrder::DropPosition::kBefore)) {
+    return false;
+  }
+  // The tracks slide to their new places when the caller updates the layout.
+  animate_next_layout_ = animations_enabled_;
+  minimap_schedule_dirty_ = true;
+  NotifyTrackOrderChanged();
+  return true;
+}
+
+void Timeline::CancelTrackDrag() {
+  if (!track_drag_.has_value()) return;
+  // The mouse button may still be down on the handle. Deactivate the handle,
+  // so that the drag does not start again until the next press.
+  if (ImGui::GetCurrentContext() != nullptr &&
+      ImGui::GetActiveID() == track_drag_->handle_id) {
+    ImGui::ClearActiveID();
+  }
+  track_drag_.reset();
 }
 
 }  // namespace traceviewer

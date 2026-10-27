@@ -3,6 +3,7 @@
 #include <dirent.h>
 #include <emscripten/bind.h>
 #include <emscripten/em_asm.h>
+#include <emscripten/em_js.h>
 #include <emscripten/em_macros.h>
 #include <emscripten/em_types.h>
 #include <emscripten/emscripten.h>
@@ -13,6 +14,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -34,6 +36,7 @@
 #include "frontend/app/components/trace_viewer_v2/input_handler.h"
 #include "frontend/app/components/trace_viewer_v2/scheduler.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/track_order.h"
 #include "frontend/app/components/trace_viewer_v2/webgpu_render_platform.h"
 
 namespace traceviewer {
@@ -43,6 +46,51 @@ namespace {
 const char* const kWindowTarget = EMSCRIPTEN_EVENT_TARGET_WINDOW;
 const char* const kCanvasTarget = "#canvas";
 constexpr float kScrollbarSize = 7.0f;
+// The `localStorage` key of the saved track order, shared by all sessions.
+constexpr char kTrackOrderStorageKey[] = "xprof_track_order";
+
+// Returns a string from window.localStorage, or an empty string if the key does
+// not exist or cannot be accessed (e.g. SecurityError in iframe).
+EM_JS_DEPS(local_storage_deps, "$stringToNewUTF8")
+EM_JS(char*, GetLocalStorageItemJS, (const char* key_ptr), {
+  try {
+    const key = UTF8ToString(key_ptr);
+    const val = window.localStorage ? window.localStorage.getItem(key) : null;
+    if (val === null || val === undefined) {
+      return 0;
+    }
+    return stringToNewUTF8(val);
+  } catch (e) {
+    console.warn('Failed to read from localStorage:', e);
+    return 0;
+  }
+});
+
+// Sets or removes a key in window.localStorage. Guards against exceptions
+// (for example QuotaExceededError or SecurityError) to prevent unwinding the
+// wasm loop.
+EM_JS(void, SetLocalStorageItemJS,
+      (const char* key_ptr, const char* value_ptr), {
+        try {
+          if (!window.localStorage) return;
+          const key = UTF8ToString(key_ptr);
+          if (value_ptr === 0) {
+            window.localStorage.removeItem(key);
+          } else {
+            window.localStorage.setItem(key, UTF8ToString(value_ptr));
+          }
+        } catch (e) {
+          console.warn('Failed to write to localStorage:', e);
+        }
+      });
+
+std::string GetLocalStorageItem(const char* key) {
+  char* str = GetLocalStorageItemJS(key);
+  if (str == nullptr) return "";
+  std::string result(str);
+  free(str);
+  return result;
+}
 
 EM_JS(bool, GetFeatureFlagFromJS, (const char* name), {
   if (window.getFeatureFlag) {
@@ -116,6 +164,30 @@ EMSCRIPTEN_KEEPALIVE void SetIncrementalFetchEnabled(bool enabled) {
 
 EMSCRIPTEN_KEEPALIVE void SetEventTooltipEnabled(bool enabled) {
   Application::Instance().SetEventTooltipEnabled(enabled);
+}
+
+EMSCRIPTEN_KEEPALIVE void SetTrackReorderingEnabled(bool enabled) {
+  Application::Instance().SetTrackReorderingEnabled(enabled);
+}
+
+EMSCRIPTEN_KEEPALIVE bool SetTrackOrderMode(const std::string& mode_name) {
+  return Application::Instance().SetTrackOrderMode(mode_name);
+}
+
+EMSCRIPTEN_KEEPALIVE void ResetTrackOrder() {
+  Application::Instance().ResetTrackOrder();
+}
+
+EMSCRIPTEN_KEEPALIVE emscripten::val GetTrackOrderState() {
+  return Application::Instance().GetTrackOrderState();
+}
+
+EMSCRIPTEN_KEEPALIVE emscripten::val GetTrackList() {
+  return Application::Instance().GetTrackList();
+}
+
+EMSCRIPTEN_KEEPALIVE bool MoveTrack(int source, int target, bool after) {
+  return Application::Instance().MoveTrack(source, target, after);
 }
 
 EMSCRIPTEN_KEEPALIVE void ResetDataset() {
@@ -227,6 +299,12 @@ EMSCRIPTEN_BINDINGS(traceviewer) {
   emscripten::function("SetIncrementalFetchEnabled",
                        &SetIncrementalFetchEnabled);
   emscripten::function("SetEventTooltipEnabled", &SetEventTooltipEnabled);
+  emscripten::function("SetTrackReorderingEnabled", &SetTrackReorderingEnabled);
+  emscripten::function("SetTrackOrderMode", &SetTrackOrderMode);
+  emscripten::function("ResetTrackOrder", &ResetTrackOrder);
+  emscripten::function("GetTrackOrderState", &GetTrackOrderState);
+  emscripten::function("GetTrackList", &GetTrackList);
+  emscripten::function("MoveTrack", &MoveTrack);
   emscripten::function("ResetDataset", &ResetDataset);
   emscripten::function("SetCustomTraceColors", &SetCustomTraceColors);
   emscripten::function("RequestRedraw", &RequestRedraw);
@@ -269,15 +347,7 @@ void Application::Initialize() {
   // Load fonts, colors and styles.
   fonts::LoadFonts(initial_canvas_state.device_pixel_ratio());
 
-  emscripten::val local_storage = emscripten::val::global("localStorage");
-  std::string palette_name = "";
-  if (local_storage.as<bool>()) {
-    emscripten::val item = local_storage.call<emscripten::val>(
-        "getItem", emscripten::val("trace_viewer_palette"));
-    if (!item.isNull() && !item.isUndefined()) {
-      palette_name = item.as<std::string>();
-    }
-  }
+  std::string palette_name = GetLocalStorageItem("trace_viewer_palette");
   if (palette_name.empty()) {
     palette_name = kDefaultPalette;
   }
@@ -314,8 +384,11 @@ void Application::Initialize() {
   platform_ = std::make_unique<WGPURenderPlatform>();
   platform_->Init(initial_canvas_state);
   timeline_ = std::make_unique<Timeline>(palette_);
-  timeline_->set_track_management_enabled(
-      IsFeatureEnabled("enable_track_management"));
+  // Track reordering is part of track management, next to pinning and hiding.
+  const bool track_management_enabled =
+      IsFeatureEnabled("enable_track_management");
+  timeline_->set_track_management_enabled(track_management_enabled);
+  timeline_->set_track_reordering_enabled(track_management_enabled);
   timeline_->set_timeline_player_enabled(
       IsFeatureEnabled("enable_timeline_player"));
   timeline_->set_bookmarks_enabled(IsFeatureEnabled("bookmarks"));
@@ -330,6 +403,17 @@ void Application::Initialize() {
         EventManager::Instance().DispatchEvent(type, event_data);
       });
   timeline_->set_redraw_callback([this]() { this->RequestRedraw(); });
+  timeline_->set_track_order_changed_callback(
+      [this](absl::string_view serialized_order) {
+        SaveTrackOrderToLocalStorage(serialized_order);
+        track_order_event_pending_ = true;
+      });
+  // Tracks change during layout updates. The event is dispatched once the
+  // frame is drawn, so that JavaScript listeners never run during a layout
+  // update and get at most one event per frame.
+  timeline_->set_track_list_changed_callback(
+      [this] { track_order_event_pending_ = true; });
+  RestoreSavedTrackOrder();
 
   ImGuiIO& io = ImGui::GetIO();
 
@@ -422,6 +506,7 @@ void Application::Draw() {
   UpdateMouseCursor();
   platform_->RenderFrame();
   frame_active_ = false;
+  DispatchTrackOrderChangedIfNeeded();
 
   if (Animation::HasActiveAnimations()) {
     RequestRedraw();
@@ -523,6 +608,134 @@ bool Application::IsFeatureEnabled(const std::string& name) {
   return enabled;
 }
 
+bool Application::SetTrackOrderMode(absl::string_view mode_name) {
+  const std::optional<TrackOrder::Mode> mode =
+      TrackOrder::ParseModeName(mode_name);
+  if (!timeline_ || !mode.has_value()) return false;
+  // Notifies the track order changed callback if the mode changes.
+  timeline_->SetTrackOrderMode(*mode);
+  RequestRedraw();
+  return true;
+}
+
+void Application::ResetTrackOrder() {
+  if (timeline_) {
+    timeline_->ResetTrackOrder();
+    RequestRedraw();
+  }
+}
+
+bool Application::MoveTrack(int source, int target, bool after) {
+  if (!timeline_) return false;
+  const bool moved = timeline_->MoveTrack(
+      source, target,
+      after ? TrackOrder::DropPosition::kAfter
+            : TrackOrder::DropPosition::kBefore);
+  if (moved) {
+    RequestRedraw();
+  }
+  return moved;
+}
+
+namespace {
+
+// Returns the `kind` of a track in `Application::GetTrackList()`.
+absl::string_view TrackKindName(const Group& group, int parent_index) {
+  if (group.type == Group::Type::kCounter) return "counter";
+  return parent_index < 0 ? "process" : "thread";
+}
+
+// Returns the `section` of a track in `Application::GetTrackList()`.
+absl::string_view TrackSectionName(Timeline::TrackSection section) {
+  switch (section) {
+    case Timeline::TrackSection::kHidden:
+      return "hidden";
+    case Timeline::TrackSection::kPinned:
+      return "pinned";
+    case Timeline::TrackSection::kAll:
+      return "all";
+  }
+  return "all";
+}
+
+}  // namespace
+
+emscripten::val Application::GetTrackList() const {
+  emscripten::val tracks = emscripten::val::array();
+  if (!timeline_) return tracks;
+  const std::vector<Group>& groups = timeline_->timeline_data().groups;
+  for (const Timeline::TrackListEntry& entry : timeline_->GetTrackList()) {
+    const Group& group = groups[entry.group_index];
+    emscripten::val track = emscripten::val::object();
+    track.set("id", entry.group_index);
+    track.set("parentId", entry.parent_index);
+    track.set("name", group.name);
+    track.set("subtitle", group.subtitle);
+    track.set("kind", std::string(TrackKindName(group, entry.parent_index)));
+    track.set("section", std::string(TrackSectionName(entry.section)));
+    tracks.call<void>("push", track);
+  }
+  return tracks;
+}
+
+EventData Application::TrackOrderStateData() const {
+  const bool initialized = timeline_ != nullptr;
+  const TrackOrder::Mode mode =
+      initialized ? timeline_->track_order_mode() : TrackOrder::Mode::kCustom;
+  return {
+      {std::string(kTrackOrderEnabled),
+       initialized && timeline_->track_reordering_enabled()},
+      {std::string(kTrackOrderMode), std::string(TrackOrder::ModeName(mode))},
+      {std::string(kTrackOrderHasCustomOrder),
+       initialized && timeline_->HasCustomTrackOrder()},
+  };
+}
+
+emscripten::val Application::GetTrackOrderState() const {
+  const EventData data = TrackOrderStateData();
+  emscripten::val state = emscripten::val::object();
+  state.set(std::string(kTrackOrderEnabled),
+            std::any_cast<bool>(data.at(std::string(kTrackOrderEnabled))));
+  state.set(std::string(kTrackOrderMode),
+            std::any_cast<std::string>(data.at(std::string(kTrackOrderMode))));
+  state.set(
+      std::string(kTrackOrderHasCustomOrder),
+      std::any_cast<bool>(data.at(std::string(kTrackOrderHasCustomOrder))));
+  return state;
+}
+
+void Application::DispatchTrackOrderChangedIfNeeded() {
+  if (!track_order_event_pending_ || !timeline_) return;
+  track_order_event_pending_ = false;
+  EventManager::Instance().DispatchEvent(kTrackOrderChanged,
+                                         TrackOrderStateData());
+}
+void Application::RestoreSavedTrackOrder() {
+  if (!timeline_) return;
+  const std::string saved = LoadTrackOrderFromLocalStorage();
+  // Another session may have reset the order, and a malformed saved order is
+  // replaced by the natural one.
+  if (saved.empty()) {
+    timeline_->ResetTrackOrder();
+  } else if (!timeline_->RestoreTrackOrder(saved)) {
+    timeline_->ResetTrackOrder();
+    SaveTrackOrderToLocalStorage("");
+  }
+}
+
+void Application::SaveTrackOrderToLocalStorage(
+    absl::string_view serialized_order) {
+  if (serialized_order.empty()) {
+    SetLocalStorageItemJS(kTrackOrderStorageKey, nullptr);
+  } else {
+    std::string order_str(serialized_order);
+    SetLocalStorageItemJS(kTrackOrderStorageKey, order_str.c_str());
+  }
+}
+
+std::string Application::LoadTrackOrderFromLocalStorage() {
+  return GetLocalStorageItem(kTrackOrderStorageKey);
+}
 void Application::Resize(float dpr, int width, int height) {
   CanvasState::SetState(dpr, width, height);
   const CanvasState& canvas_state = CanvasState::Current();

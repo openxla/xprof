@@ -15,6 +15,11 @@ void DrawHideIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
                   Pixel icon_draw_size, ImU32 icon_col,
                   bool is_track_hidden = false);
 
+// Draws the drag handle icon of a reorderable track: three stacked horizontal
+// lines, centered on (center_x, center_y).
+void DrawDragHandleIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
+                        ImU32 icon_col);
+
 }  // namespace traceviewer
 
 #endif  // THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_DRAW_HELPERS_H_

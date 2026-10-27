@@ -142,6 +142,9 @@ inline constexpr Pixel kProcessTrackHeight = 36.0f;
 // Translucent colors are derived from the palette foreground at the given
 // opacity, so the sidebar adapts to both light and dark palettes.
 // go/keep-sorted start
+// The accent color of a track being reordered: its drag handle, its label
+// highlight and the drop indicator line.
+inline constexpr ImU32 kTrackReorderAccentColor = kBlue60;
 // The corner rounding of the collapsed chevron's background square.
 inline constexpr Pixel kTrackChevronButtonRounding = 4.0f;
 // The size of the rounded square drawn behind the chevron of collapsed rows.
@@ -163,13 +166,21 @@ inline constexpr Pixel kTrackCollapsedStackSpacing = 2.0f;
 inline constexpr Pixel kTrackCountChipHeight = 14.0f;
 // The horizontal padding inside the count chip.
 inline constexpr Pixel kTrackCountChipPaddingX = 5.0f;
+// The vertical distance between the centers of the three lines of the drag
+// handle icon.
+inline constexpr Pixel kTrackDragHandleLineSpacing = 4.0f;
+// The thickness of each line of the drag handle icon.
+inline constexpr Pixel kTrackDragHandleLineThickness = 2.0f;
+// The width of the lines of the drag handle icon.
+inline constexpr Pixel kTrackDragHandleLineWidth = 12.0f;
 // The height of the drop shadow cast below process headers.
 inline constexpr Pixel kTrackHeaderShadowHeight = 4.0f;
-// The gap between the pin and hide icon buttons.
+// The gap between adjacent icon buttons (pin, hide, and drag handle).
 inline constexpr Pixel kTrackIconButtonGap = 2.0f;
 // The margin between the rightmost icon button and the label column's edge.
 inline constexpr Pixel kTrackIconButtonMarginRight = 4.0f;
-// The size of the square pin / hide icon buttons (and their hover circle).
+// The size of the square icon buttons (pin, hide, and drag handle) and their
+// hover circle.
 inline constexpr Pixel kTrackIconButtonSize = 20.0f;
 // The horizontal gap between the chevron slot, the track name, and the count
 // chip.
@@ -178,6 +189,13 @@ inline constexpr Pixel kTrackLabelGap = 6.0f;
 inline constexpr Pixel kTrackLabelPaddingLeft = 6.0f;
 // The space between the end of a label row's content and the splitter.
 inline constexpr Pixel kTrackLabelPaddingRight = 8.0f;
+// While a track is dragged within this distance of the top or bottom edge of
+// the tracks area, the tracks scroll towards that edge.
+inline constexpr Pixel kTrackReorderAutoScrollZone = 36.0f;
+// The radius of the ring at the start of the drop indicator line.
+inline constexpr Pixel kTrackReorderIndicatorRadius = 3.5f;
+// The thickness of the drop indicator line (and its ring).
+inline constexpr Pixel kTrackReorderIndicatorThickness = 2.0f;
 // The horizontal inset of the rounded hover pill from the label column edges.
 inline constexpr Pixel kTrackRowPillInsetX = 4.0f;
 // The vertical inset of the rounded hover pill from the row edges.
@@ -213,6 +231,13 @@ inline constexpr float kTrackHoverOpacity = 0.07f;
 inline constexpr float kTrackMutedTextOpacity = 0.62f;
 // The opacity of the neutral accent used by tracks without a dominant color.
 inline constexpr float kTrackNeutralAccentOpacity = 0.28f;
+// The fastest auto-scroll speed while dragging a track, in pixels per second,
+// reached when the pointer is at (or beyond) an edge of the tracks area.
+inline constexpr float kTrackReorderAutoScrollMaxSpeed = 1200.0f;
+// The opacity of the accent overlay on the canvas row of a dragged track.
+inline constexpr float kTrackReorderSourceCanvasOpacity = 0.05f;
+// The opacity of the accent highlight on the label of a dragged track.
+inline constexpr float kTrackReorderSourceOpacity = 0.16f;
 // The opacity of secondary (child track) label text.
 inline constexpr float kTrackSecondaryTextOpacity = 0.86f;
 // The opacity of the vertical tree guides connecting child tracks to parents.
@@ -394,6 +419,7 @@ inline constexpr double kEventNavigationZoomFactor = 2.5;
 inline constexpr char kAllHeaderName[] = "All";
 inline constexpr char kCannotHideLastProcessNotification[] =
     "Cannot hide the last visible process.";
+inline constexpr char kDragToReorderTooltip[] = "Drag to reorder";
 inline constexpr char kDragToResizeTooltip[] = "Drag to resize";
 inline constexpr char kHiddenHeaderName[] = "Hidden";
 inline constexpr char kHiddenProcessNotificationPrefix[] = "Hidden process: ";
@@ -403,7 +429,6 @@ inline constexpr char kPinTrackTooltip[] = "Pin track";
 inline constexpr char kPinnedHeaderName[] = "Pinned";
 inline constexpr char kPinnedProcessNotificationPrefix[] = "Pinned process: ";
 inline constexpr char kProcessHeaderLabel[] = "Process";
-inline constexpr char kReorderTrackTooltip[] = "Reorder track";
 inline constexpr char kUnhiddenProcessNotificationPrefix[] =
     "Unhidden process: ";
 inline constexpr char kUnhideTrackTooltip[] = "Unhide track";

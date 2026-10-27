@@ -126,6 +126,55 @@ export const FETCH_DATA_EVENT_NAME = 'fetch_data';
 export const SEARCH_EVENTS_EVENT_NAME = 'search_events';
 
 /**
+ * How sibling tracks are ordered. Matches `TrackOrder::ModeName()`.
+ * - `custom`: the order the user set by moving tracks.
+ * - `trace_order`: the order of the trace (the custom order is kept).
+ * - `alphabetical_asc` and `alphabetical_desc`: sorted by name, ignoring ASCII
+ *   case.
+ */
+export type TrackOrderMode =
+  | 'custom'
+  | 'trace_order'
+  | 'alphabetical_asc'
+  | 'alphabetical_desc';
+
+/**
+ * The name of the event dispatched from WASM after a frame in which the track
+ * order, its mode, whether tracks can be reordered, or the canvas track order
+ * (for example, because data was loaded or a track was expanded, pinned, or
+ * hidden) changed. Its detail is a `TrackOrderState`.
+ */
+export const TRACK_ORDER_CHANGED_EVENT_NAME = 'trackorderchanged';
+
+/** The track order state of the timeline. */
+export declare interface TrackOrderState {
+  /** Whether tracks can be reordered. */
+  enabled: boolean;
+  mode: TrackOrderMode;
+  /**
+   * Whether any track has been moved, whether or not `mode` displays the
+   * custom order.
+   */
+  hasCustomOrder: boolean;
+}
+
+/** A track, as listed by `TraceViewerV2Module.GetTrackList()`. */
+export declare interface TrackListEntry {
+  /**
+   * Identifies the track until the timeline data changes, which is followed by
+   * a `TRACK_ORDER_CHANGED_EVENT_NAME` event after the next frame.
+   */
+  id: number;
+  /** The `id` of the parent track, or -1 for a root track. */
+  parentId: number;
+  name: string;
+  subtitle: string;
+  kind: 'process' | 'thread' | 'counter';
+  /** The section of the track list that the track is shown in. */
+  section: 'hidden' | 'pinned' | 'all';
+}
+
+/**
  * The loading status of the trace viewer, used to update the loading status
  * indicator in the UI.
  */
@@ -185,6 +234,38 @@ declare global {
    * off. Hover highlighting, hover events and selection are unaffected.
    */
   SetEventTooltipEnabled?(enabled: boolean): void;
+  /**
+   * Enables or disables reordering tracks by their drag handle. Dispatches
+   * `TRACK_ORDER_CHANGED_EVENT_NAME` if the setting changed.
+   */
+  SetTrackReorderingEnabled?(enabled: boolean): void;
+  /**
+   * Sets how sibling tracks are ordered. Returns false if the module is not
+   * initialized or `mode` is unknown. Dispatches
+   * `TRACK_ORDER_CHANGED_EVENT_NAME` if the mode changed.
+   */
+  SetTrackOrderMode?(mode: TrackOrderMode): boolean;
+  /**
+   * Clears the custom track order and resets the ordering mode to `custom`,
+   * restoring the order of the trace. Dispatches
+   * `TRACK_ORDER_CHANGED_EVENT_NAME` if the order changed.
+   */
+  ResetTrackOrder?(): void;
+  /** Returns the current track order state. */
+  GetTrackOrderState?(): TrackOrderState;
+  /**
+   * Returns all tracks, including collapsed and hidden ones, in canvas order:
+   * by section (pinned, all, then hidden), each parent followed by its child
+   * tracks.
+   */
+  GetTrackList?(): TrackListEntry[];
+  /**
+   * Moves the track `source`, with its child tracks, right before (or, if
+   * `after`, right after) its sibling `target` in the same section. Both are
+   * `TrackListEntry.id`s. Returns false if tracks cannot be reordered or the
+   * move is invalid. Dispatches `TRACK_ORDER_CHANGED_EVENT_NAME` otherwise.
+   */
+  MoveTrack?(source: number, target: number, after: boolean): boolean;
   // Sets the visible time range of the timeline. Both arguments are in
   // microseconds. Registered as a module-level Emscripten function (see
   // `SetVisibleRange` in application.cc). Used by the Live Trace Viewer to
@@ -261,6 +342,11 @@ declare global {
       navigateToNextSearchResult(): void;
       navigateToPrevSearchResult(): void;
       resize(dpr: number, width: number, height: number): void;
+      /**
+       * Re-applies the track order saved in `localStorage`, which all sessions
+       * share, so that a newly loaded trace uses the latest layout.
+       */
+      restoreSavedTrackOrder?(): void;
       setSearchQuery(query: string): void;
       selectEvent(eventIndex: number): void;
       setMouseMode(mode: number): void;
@@ -740,6 +826,7 @@ async function processUploadedFile(
       uint8Array = new Uint8Array(decompressed.buffer as ArrayBuffer);
     }
 
+    traceviewerModule.application.instance().restoreSavedTrackOrder?.();
     if (isPerfettoTrace(uint8Array, file.name)) {
       processPerfettoTrace(uint8Array, traceviewerModule);
     } else {
@@ -1221,6 +1308,8 @@ export async function traceViewerV2Main(
         if (timeRangeFromUrl) {
           expandUrlTimeRange(urlObj, timeRangeFromUrl);
         }
+
+        traceviewerModule.application.instance().restoreSavedTrackOrder?.();
 
         await fetchAndProcessTraceData({
           urlObj,

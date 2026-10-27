@@ -9,6 +9,7 @@
 
 #include "emscripten/val.h"
 #include "absl/base/no_destructor.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "imgui.h"
@@ -134,6 +135,60 @@ class Application {
     RequestRedraw();
   }
 
+  // Enables or disables reordering tracks by their drag handle. See
+  // `Timeline::set_track_reordering_enabled()`.
+  void SetTrackReorderingEnabled(bool enabled) {
+    if (timeline_) {
+      timeline_->set_track_reordering_enabled(enabled);
+      RequestRedraw();
+    }
+  }
+
+  // Sets the track ordering mode from its `TrackOrder::ModeName()`, such as
+  // "alphabetical_asc". While reordering is disabled, the mode is stored and
+  // saved to local storage, but the tracks stay in natural order. Returns false
+  // and changes nothing if `mode_name` is not a known mode or the application
+  // is not initialized.
+  bool SetTrackOrderMode(absl::string_view mode_name);
+
+  // Clears the custom track order and resets the ordering mode to `custom`,
+  // restoring the trace order. See `Timeline::ResetTrackOrder()`.
+  void ResetTrackOrder();
+
+  // Returns the track order state as a JavaScript object
+  // `{enabled: boolean, mode: string, hasCustomOrder: boolean}`, where `mode`
+  // is a `TrackOrder::ModeName()`. The `kTrackOrderChanged` event, which is
+  // dispatched after a frame in which the track order, its mode, or the track
+  // list changed, carries the same object as its `detail`.
+  emscripten::val GetTrackOrderState() const;
+
+  // Returns all tracks, in the order of `Timeline::GetTrackList()`, as a
+  // JavaScript array of `{id: number, parentId: number, name: string,
+  // subtitle: string, kind: 'process' | 'thread' | 'counter', section:
+  // 'hidden' | 'pinned' | 'all'}`. `id` and `parentId` (-1 for root tracks)
+  // are valid until the timeline data changes, which is followed by a
+  // `kTrackOrderChanged` event after the next frame.
+  emscripten::val GetTrackList() const;
+
+  // Moves the track `source` right before (or, if `after`, right after) its
+  // sibling `target`, where both are `id`s from `GetTrackList()`. Returns
+  // false if the move is invalid. See `Timeline::MoveTrack()`.
+  bool MoveTrack(int source, int target, bool after);
+
+  // Re-applies the track order saved in `localStorage`, or resets the track
+  // order if none (or a malformed one) is saved. The saved order is shared by
+  // all sessions and browser tabs under a last-writer-wins policy, so this is
+  // called before a trace is loaded to pick up the latest layout.
+  void RestoreSavedTrackOrder();
+
+  // Saves `serialized_order` (see `TrackOrder::Serialize()`) in
+  // `localStorage`, or removes the saved order if `serialized_order` is empty.
+  static void SaveTrackOrderToLocalStorage(absl::string_view serialized_order);
+
+  // Returns the track order saved in `localStorage`, or an empty string if
+  // none is saved.
+  static std::string LoadTrackOrderFromLocalStorage();
+
   void NavigateToNextSearchResult() {
     if (timeline_) {
       timeline_->NavigateToNextSearchResult();
@@ -167,6 +222,27 @@ class Application {
   // the Initialize() method.
   Application() = default;
 
+  void MainLoop();
+  // Draws a single frame. Should ONLY be called from MainLoop() to ensure
+  // DeltaTime and Animations are updated correctly. Other methods should
+  // use RequestRedraw() instead of calling Draw() directly.
+  void Draw();
+
+  float GetDeltaTime();
+
+  void UpdateImGuiDisplaySize(const CanvasState& canvas_state);
+
+  void UpdateMouseCursor();
+
+  void UpdateApplicationColors();
+
+  // Returns the track order state as EventData for dispatching or Embind.
+  EventData TrackOrderStateData() const;
+
+  // Dispatches the `kTrackOrderChanged` event with `GetTrackOrderState()` if
+  // the track order or the track list changed since the last one.
+  void DispatchTrackOrderChangedIfNeeded();
+
   std::unique_ptr<WGPURenderPlatform> platform_;
   std::unique_ptr<Timeline> timeline_;
   // The data provider for trace events.
@@ -178,21 +254,11 @@ class Application {
 
   std::unordered_map<std::string, bool> feature_flags_cache_;
 
-  void MainLoop();
-  // Draws a single frame. Should ONLY be called from MainLoop() to ensure
-  // DeltaTime and Animations are updated correctly. Other methods should
-  // use RequestRedraw() instead of calling Draw() directly.
-  void Draw();
+  // Whether the track order or the track list changed since the last
+  // `kTrackOrderChanged` event.
+  bool track_order_event_pending_ = false;
 
   absl::Time last_frame_time_ = absl::Now();
-  float GetDeltaTime();
-
-  void UpdateImGuiDisplaySize(const CanvasState& canvas_state);
-
-  void UpdateMouseCursor();
-
-  void UpdateApplicationColors();
-
   ImGuiMouseCursor last_cursor_ = ImGuiMouseCursor_Arrow;
   bool frame_active_ = false;
 };

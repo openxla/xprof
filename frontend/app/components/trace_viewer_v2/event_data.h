@@ -63,6 +63,16 @@ inline constexpr absl::string_view kMouseModeKey = "mouseMode";
 // Constants for schedule minimap updated event.
 inline constexpr absl::string_view kMinimapUpdated = "minimap_updated";
 
+// Constants for the track order changed event, dispatched after a frame in
+// which the track order, its mode, whether tracks can be reordered, or the
+// canvas track order (for example, because data was loaded or a track was
+// expanded, pinned, or hidden) changed. Its detail is
+// `Application::GetTrackOrderState()`.
+inline constexpr absl::string_view kTrackOrderChanged = "trackorderchanged";
+inline constexpr absl::string_view kTrackOrderEnabled = "enabled";
+inline constexpr absl::string_view kTrackOrderMode = "mode";
+inline constexpr absl::string_view kTrackOrderHasCustomOrder = "hasCustomOrder";
+
 }  // namespace traceviewer
 
 #endif  // THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_EVENT_DATA_H_

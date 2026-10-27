@@ -3,8 +3,12 @@
 #include <emscripten/bind.h>
 #include <emscripten/em_asm.h>
 #include <emscripten/emscripten.h>
+#include <emscripten/val.h>
+
+#include <string>
 
 #include <gtest/gtest.h>
+#include "absl/strings/string_view.h"
 #include "imgui.h"
 
 namespace traceviewer {
@@ -18,6 +22,7 @@ class ApplicationTest : public ::testing::Test {
   }
 
   void TearDown() override {
+    EM_ASM({ window.localStorage.clear(); });
     // Ensure we don't leave ImGui context behind if a test fails.
     if (ImGui::GetCurrentContext()) {
       ImGui::DestroyContext();
@@ -116,6 +121,42 @@ TEST_F(ApplicationTest, NavigationMethodsSafeWhenUninitialized) {
   // safe no-ops without crashing.
   app.NavigateToNextSearchResult();
   app.NavigateToPrevSearchResult();
+}
+
+TEST_F(ApplicationTest, SaveAndLoadTrackOrderUseOneKeyForAllSessions) {
+  EXPECT_EQ(Application::LoadTrackOrderFromLocalStorage(), "");
+
+  constexpr absl::string_view kOrder =
+      R"({"mode":"alphabetical_asc","orders":[{"parent":[["TPU:0",0]],"order":[["XLU",0],["MXU",0]]}]})";
+  Application::SaveTrackOrderToLocalStorage(kOrder);
+  EXPECT_EQ(Application::LoadTrackOrderFromLocalStorage(), kOrder);
+  // The order is saved under a single key, shared by all sessions.
+  EXPECT_EQ(EM_ASM_INT({ return window.localStorage.length; }), 1);
+  EXPECT_TRUE(EM_ASM_INT({
+    return window.localStorage.getItem('xprof_track_order') !== null ? 1 : 0;
+  }));
+
+  // Saving no custom order (an empty string) removes the saved order.
+  Application::SaveTrackOrderToLocalStorage("");
+  EXPECT_EQ(Application::LoadTrackOrderFromLocalStorage(), "");
+}
+
+TEST_F(ApplicationTest, TrackOrderMethodsAreSafeWhenUninitialized) {
+  Application& app = Application::Instance();
+  app.Shutdown();
+
+  EXPECT_FALSE(app.IsInitialized());
+  EXPECT_FALSE(app.SetTrackOrderMode("alphabetical_asc"));
+  EXPECT_FALSE(app.MoveTrack(/*source=*/1, /*target=*/0, /*after=*/false));
+  app.ResetTrackOrder();
+  app.SetTrackReorderingEnabled(true);
+  app.RestoreSavedTrackOrder();
+
+  EXPECT_EQ(app.GetTrackList()["length"].as<int>(), 0);
+  const emscripten::val state = app.GetTrackOrderState();
+  EXPECT_FALSE(state["enabled"].as<bool>());
+  EXPECT_EQ(state["mode"].as<std::string>(), "custom");
+  EXPECT_FALSE(state["hasCustomOrder"].as<bool>());
 }
 
 }  // namespace

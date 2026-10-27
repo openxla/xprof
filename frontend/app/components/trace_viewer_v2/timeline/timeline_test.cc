@@ -490,6 +490,80 @@ TEST(TimelineTest, CalculateEventRect_ZeroPxPerTimeUnit) {
   EXPECT_FLOAT_EQ(rect.right, kEventMinimumDrawWidth - kEventPaddingRight);
 }
 
+TEST(TimelineTest,
+     CalculateEventRect_ConsecutiveEventsTouchSeamlesslyWithoutGap) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.SetVisibleRange({100.0, 200.0});
+
+  // Event 1: [110.0, 130.0]
+  // Event 2: [130.0, 160.0]
+  EventRect rect1 = timeline.CalculateEventRect(
+      /*start=*/110.0, /*end=*/130.0, kScreenXOffset, kScreenYOffset,
+      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth, kEventHeight,
+      kEventPaddingBottom);
+  EventRect rect2 = timeline.CalculateEventRect(
+      /*start=*/130.0, /*end=*/160.0, kScreenXOffset, kScreenYOffset,
+      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth, kEventHeight,
+      kEventPaddingBottom);
+
+  // Consecutive events must touch seamlessly with no artificial gap.
+  EXPECT_FLOAT_EQ(rect1.left, 10.0f);
+  EXPECT_FLOAT_EQ(rect1.right, 30.0f);
+  EXPECT_FLOAT_EQ(rect2.left, 30.0f);
+  EXPECT_FLOAT_EQ(rect2.right, 60.0f);
+  EXPECT_FLOAT_EQ(rect1.right, rect2.left);
+}
+
+TEST(TimelineTest, CalculateEventRect_MultipleConsecutiveEventsPipeline) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.SetVisibleRange({100.0, 200.0});
+
+  // A sequence of consecutive events in an execution pipeline:
+  // [110.0, 120.0], [120.0, 135.0], [135.0, 150.0], [150.0, 175.0]
+  const std::vector<std::pair<Microseconds, Microseconds>> event_ranges = {
+      {110.0, 120.0},
+      {120.0, 135.0},
+      {135.0, 150.0},
+      {150.0, 175.0},
+  };
+
+  std::vector<EventRect> rects;
+  rects.reserve(event_ranges.size());
+  for (const auto& [start, end] : event_ranges) {
+    rects.push_back(timeline.CalculateEventRect(
+        start, end, kScreenXOffset, kScreenYOffset, kPxPerTimeUnit,
+        kLevelInGroup, kTimelineWidth, kEventHeight, kEventPaddingBottom));
+  }
+
+  for (size_t i = 1; i < rects.size(); ++i) {
+    // Each adjacent pair must touch seamlessly with zero gap.
+    EXPECT_FLOAT_EQ(rects[i - 1].right, rects[i].left);
+  }
+}
+
+TEST(TimelineTest, CalculateEventRect_NonConsecutiveEventsMaintainRealGap) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.SetVisibleRange({100.0, 200.0});
+
+  // Event 1: [110.0, 125.0]
+  // Event 2: [130.0, 150.0] -> 5.0 us real idle gap
+  EventRect rect1 = timeline.CalculateEventRect(
+      /*start=*/110.0, /*end=*/125.0, kScreenXOffset, kScreenYOffset,
+      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth, kEventHeight,
+      kEventPaddingBottom);
+  EventRect rect2 = timeline.CalculateEventRect(
+      /*start=*/130.0, /*end=*/150.0, kScreenXOffset, kScreenYOffset,
+      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth, kEventHeight,
+      kEventPaddingBottom);
+
+  EXPECT_FLOAT_EQ(rect1.right, 25.0f);
+  EXPECT_FLOAT_EQ(rect2.left, 30.0f);
+  EXPECT_FLOAT_EQ(rect2.left - rect1.right, 5.0f);
+}
+
 TEST(TimelineTest, CalculateEventTextRect_EmptyText) {
   MockTimeline timeline;
   std::string event_name = "";

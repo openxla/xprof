@@ -3248,11 +3248,7 @@ EventRect Timeline::CalculateEventRect(
 
   // Ensure minimum width for visibility.
   right = std::max(right, left + kEventMinimumDrawWidth);
-  // Add a small gap to the right of the event for visual separation.
-  // This is done here instead of in the Draw function to ensure the gap is
-  // visible even if the event name overflows the right edge of the event. We
-  // only adjust `right` to ensure the `left` boundary accurately reflects the
-  // event's start time.
+  // Apply right-side event padding to the right boundary.
   right -= kEventPaddingRight;
 
   const Pixel top =

@@ -67,7 +67,8 @@ inline constexpr Pixel kDefaultLabelWidth = 250.0f;
 inline constexpr Pixel kEventHeight = 18.0f;
 inline constexpr Pixel kEventMinimumDrawWidth = 2.0f;
 inline constexpr Pixel kEventPaddingBottom = 1.0f;
-inline constexpr Pixel kEventPaddingRight = 1.0f;
+// Padding to the right of each event.
+inline constexpr Pixel kEventPaddingRight = 0.0f;
 inline constexpr Pixel kInstantEventChevronHalfWidth = 4.5f;
 inline constexpr Pixel kInstantEventChevronHeight = 15.5f;
 inline constexpr Pixel kInstantEventHoverChevronHalfWidth = 7.0f;

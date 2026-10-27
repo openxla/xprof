@@ -39,6 +39,7 @@ inline constexpr absl::string_view kEventSelectedHloModuleName =
     "hloModuleName";
 inline constexpr absl::string_view kEventSelectedHloOpName = "hloOpName";
 inline constexpr absl::string_view kEventSelectedArgs = "args";
+inline constexpr absl::string_view kEventSelectedTrackName = "trackName";
 
 // Constants for fetch data event.
 inline constexpr absl::string_view kFetchData = "fetch_data";

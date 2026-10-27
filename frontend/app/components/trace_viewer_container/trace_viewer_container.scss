@@ -53,7 +53,10 @@ $search-bar-height: 56px;
   }
 }
 
-:host ::ng-deep as-split[direction='vertical']:has(.custom-drawer-container:not([hidden])) > .as-split-gutter {
+:host
+  ::ng-deep
+  as-split[direction='vertical']:has(.custom-drawer-container:not([hidden]))
+  > .as-split-gutter {
   .as-split-gutter-icon {
     transform: translateY(4px);
   }
@@ -911,7 +914,8 @@ canvas.emscripten {
   }
 
   &:hover ::ng-deep [class*='mat-mdc-text-field-wrapper'] {
-    box-shadow: 0 1px 2px color-mix(in srgb, var(--mat-sys-shadow, #000) 15%, transparent);
+    box-shadow: 0 1px 2px
+      color-mix(in srgb, var(--mat-sys-shadow, #000) 15%, transparent);
   }
 
   &:focus-within ::ng-deep [class*='mat-mdc-text-field-wrapper'] {
@@ -1549,6 +1553,53 @@ button.overflow-menu-btn.mat-mdc-icon-button {
       }
     }
 
+    .flow-events-container {
+      margin-top: 8px;
+      padding: 6px 8px;
+      background-color: var(--mat-sys-surface-container, rgba(0, 0, 0, 0.02));
+      border: 1px solid var(--mat-sys-outline-variant, rgba(0, 0, 0, 0.08));
+      border-radius: 4px;
+
+      .flow-event-row {
+        align-items: center;
+        margin-bottom: 4px;
+
+        &:last-child {
+          margin-bottom: 0;
+        }
+      }
+
+      .flow-event-link {
+        color: var(--mat-sys-primary);
+        cursor: pointer;
+        text-decoration: underline;
+        font-weight: 500;
+        display: inline-flex;
+        align-items: baseline;
+        outline: none;
+
+        &:hover {
+          color: var(--mat-sys-primary);
+          text-decoration: underline;
+          opacity: 0.8;
+        }
+
+        &:focus-visible {
+          outline: 2px solid var(--mat-sys-primary);
+          outline-offset: 2px;
+          border-radius: 2px;
+        }
+
+        .flow-event-timestamp {
+          color: var(--mat-sys-on-surface-variant);
+          font-weight: 400;
+          font-size: 12px;
+          margin-left: 4px;
+          text-decoration: none;
+        }
+      }
+    }
+
     .cross-tool-links {
       margin-top: 16px;
       display: flex;
@@ -1671,7 +1722,8 @@ button.overflow-menu-btn.mat-mdc-icon-button {
   color: var(--mat-sys-on-primary);
   border-radius: 12px;
   box-shadow:
-    0 4px 8px 3px color-mix(in srgb, var(--mat-sys-shadow, #000) 15%, transparent),
+    0 4px 8px 3px
+      color-mix(in srgb, var(--mat-sys-shadow, #000) 15%, transparent),
     0 1px 3px color-mix(in srgb, var(--mat-sys-shadow, #000) 30%, transparent);
   font-family: 'Google Sans Text', 'Google Sans', Roboto, sans-serif;
   text-align: left;
@@ -1681,7 +1733,8 @@ button.overflow-menu-btn.mat-mdc-icon-button {
     display: inline-block;
     min-width: 12px;
     padding: 0 5px;
-    border: 1px solid color-mix(in srgb, var(--mat-sys-on-primary) 50%, transparent);
+    border: 1px solid
+      color-mix(in srgb, var(--mat-sys-on-primary) 50%, transparent);
     border-radius: 4px;
     font-family: 'Google Sans Mono', 'Roboto Mono', monospace;
     font-size: 11px;

@@ -865,12 +865,15 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     } = event;
 
     this.selectedEvent = {
+      eventIndex: event.eventIndex,
       name,
       pid,
       ts: startUs,
       dur: durationUs,
       startUsFormatted,
       durationUsFormatted,
+      inboundFlows: event.inboundFlows,
+      outboundFlows: event.outboundFlows,
     };
 
     const properties: SelectedEventProperty[] = [];

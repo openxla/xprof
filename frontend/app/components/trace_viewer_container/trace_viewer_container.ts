@@ -128,6 +128,23 @@ function isEventsSelectedEvent(
 
 
 /**
+ * Represents a link to a connected flow event (inbound or outbound).
+ */
+export declare interface FlowEventLink {
+  eventIndex: number;
+  name: string;
+  startUs?: number;
+  durationUs?: number;
+  startUsFormatted?: string;
+  durationUsFormatted?: string;
+  category?: string;
+  [key: string]: unknown;
+}
+
+/** Type alias for FlowEventLink for backward compatibility. */
+export type FlowEventItem = FlowEventLink;
+
+/**
  * The detail of an 'EntrySelected' custom event. The properties are quoted to
  * prevent renaming during minification.
  */
@@ -143,6 +160,8 @@ export declare interface EntrySelectedEventDetail {
   hloModuleName?: string;
   hloOpName?: string;
   args?: Record<string, string>;
+  inboundFlows?: FlowEventLink[];
+  outboundFlows?: FlowEventLink[];
 }
 
 // Type guard for the 'EntrySelected' custom event.
@@ -185,6 +204,8 @@ export interface SelectedEvent {
   dur?: number;
   ph?: string;
   uid?: string;
+  inboundFlows?: FlowEventLink[];
+  outboundFlows?: FlowEventLink[];
   /**
    * The event as returned by the backend event details response, rendered as
    * is in the details panel.
@@ -544,6 +565,9 @@ export class TraceViewerContainer
 
   leftSideProperties: SelectedEventProperty[] = [];
   rightSideProperties: SelectedEventProperty[] = [];
+  inboundFlows: FlowEventLink[] = [];
+  outboundFlows: FlowEventLink[] = [];
+  private lastEntrySelectedDetail?: EntrySelectedEventDetail;
 
   selectedEventPropertiesDataSource =
     new MatTableDataSource<SelectedEventProperty>();
@@ -633,6 +657,162 @@ export class TraceViewerContainer
   trackByProperty(index: number, prop: SelectedEventProperty): string {
     return `${prop.property ?? ''}:${prop.value ?? ''}`;
   }
+
+  trackByFlowIndex(index: number, flow: FlowEventLink): string {
+    return `${flow.eventIndex}:${flow.name}`;
+  }
+
+  /**
+   * Normalizes raw inbound or outbound flow data into an array of FlowEventLink objects.
+   * Handles both camelCase and snake_case properties.
+   */
+  extractFlowLinks(raw: unknown): FlowEventLink[] {
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    const result: FlowEventLink[] = [];
+    for (const item of raw) {
+      if (!item || typeof item !== 'object') {
+        continue;
+      }
+      const record = item as Record<string, unknown>;
+      const rawIndex = record['eventIndex'] ?? record['event_index'];
+      const eventIndex =
+        typeof rawIndex === 'number' ? rawIndex : Number(rawIndex);
+      if (isNaN(eventIndex) || eventIndex < 0) {
+        continue;
+      }
+      const rawName = record['name'] ?? record['title'];
+      const name =
+        rawName !== undefined && rawName !== null
+          ? String(rawName)
+          : `Event ${eventIndex}`;
+
+      const rawStartUs =
+        record['startUs'] ?? record['start_us'] ?? record['ts'];
+      const startUs =
+        typeof rawStartUs === 'number'
+          ? rawStartUs
+          : rawStartUs !== undefined
+            ? Number(rawStartUs)
+            : undefined;
+
+      const rawDurationUs =
+        record['durationUs'] ?? record['duration_us'] ?? record['dur'];
+      const durationUs =
+        typeof rawDurationUs === 'number'
+          ? rawDurationUs
+          : rawDurationUs !== undefined
+            ? Number(rawDurationUs)
+            : undefined;
+
+      const rawCategory = record['category'] ?? record['cat'];
+      const category =
+        rawCategory !== undefined && rawCategory !== null
+          ? String(rawCategory)
+          : undefined;
+
+      const rawStartUsFormatted =
+        record['startUsFormatted'] ?? record['start_us_formatted'];
+      const startUsFormatted =
+        typeof rawStartUsFormatted === 'string'
+          ? rawStartUsFormatted
+          : startUs !== undefined && !isNaN(startUs)
+            ? `${startUs.toFixed(2)} µs`
+            : undefined;
+
+      const rawDurationUsFormatted =
+        record['durationUsFormatted'] ?? record['duration_us_formatted'];
+      const durationUsFormatted =
+        typeof rawDurationUsFormatted === 'string'
+          ? rawDurationUsFormatted
+          : durationUs !== undefined && !isNaN(durationUs)
+            ? `${durationUs.toFixed(2)} µs`
+            : undefined;
+
+      result.push({
+        eventIndex,
+        name,
+        category,
+        startUs: startUs !== undefined && !isNaN(startUs) ? startUs : undefined,
+        durationUs:
+          durationUs !== undefined && !isNaN(durationUs)
+            ? durationUs
+            : undefined,
+        startUsFormatted,
+        durationUsFormatted,
+      });
+    }
+    return result;
+  }
+
+  /**
+   * Updates inbound and outbound flow links from the selected event or last entry selected detail.
+   */
+  updateFlowLinks(): void {
+    if (!this.selectedEvent) {
+      this.inboundFlows = [];
+      this.outboundFlows = [];
+      return;
+    }
+    const rawInbound =
+      this.selectedEvent.inboundFlows ??
+      (this.selectedEvent['inbound_flows'] as unknown) ??
+      (this.selectedEvent.rawEvent as Record<string, unknown> | undefined)?.[
+        'inboundFlows'
+      ] ??
+      (this.selectedEvent.rawEvent as Record<string, unknown> | undefined)?.[
+        'inbound_flows'
+      ] ??
+      this.lastEntrySelectedDetail?.inboundFlows ??
+      (this.lastEntrySelectedDetail as unknown as Record<string, unknown>)?.[
+        'inbound_flows'
+      ];
+
+    const rawOutbound =
+      this.selectedEvent.outboundFlows ??
+      (this.selectedEvent['outbound_flows'] as unknown) ??
+      (this.selectedEvent.rawEvent as Record<string, unknown> | undefined)?.[
+        'outboundFlows'
+      ] ??
+      (this.selectedEvent.rawEvent as Record<string, unknown> | undefined)?.[
+        'outbound_flows'
+      ] ??
+      this.lastEntrySelectedDetail?.outboundFlows ??
+      (this.lastEntrySelectedDetail as unknown as Record<string, unknown>)?.[
+        'outbound_flows'
+      ];
+
+    this.inboundFlows = this.extractFlowLinks(rawInbound);
+    this.outboundFlows = this.extractFlowLinks(rawOutbound);
+  }
+
+  /**
+   * Navigates to a flow event by selecting it in the WASM timeline.
+   */
+  navigateToFlowEvent(eventIndex: number, event?: Event): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (
+      eventIndex === undefined ||
+      eventIndex === null ||
+      eventIndex < 0 ||
+      isNaN(eventIndex)
+    ) {
+      return;
+    }
+    this.traceViewerModule?.application?.instance()?.selectEvent?.(eventIndex);
+    this.drillDownEvent.emit(eventIndex);
+    this.flowEventSelected.emit(eventIndex);
+  }
+
+  /**
+   * Alias for navigateToFlowEvent to jump directly to a target event slice.
+   */
+  jumpToEvent(eventIndex: number, event?: Event): void {
+    this.navigateToFlowEvent(eventIndex, event);
+  }
+
   @Input() set rawEvents(data: RawEventItem[] | null | undefined) {
     this.rawEventsDataSource.data = data ?? [];
   }
@@ -653,6 +833,7 @@ export class TraceViewerContainer
   @Output() readonly searchEvents = new EventEmitter<SearchEventsEventDetail>();
   @Output() readonly initializeWasm = new EventEmitter<void>();
   @Output() readonly toggleSettings = new EventEmitter<void>();
+  @Output() readonly flowEventSelected = new EventEmitter<number>();
 
   @Output() readonly requestHoveredEventArgs =
     new EventEmitter<SelectedEvent>();
@@ -915,6 +1096,7 @@ export class TraceViewerContainer
     }
     if (changes['selectedEvent'] || changes['customDrawerOpen']) {
       this.updateSplitSizes();
+      this.updateFlowLinks();
     }
   }
 
@@ -1122,6 +1304,10 @@ export class TraceViewerContainer
     }
     this.updateSearchResultCountText();
     this.hasSelectedEvent = e.detail.eventIndex !== -1;
+    this.lastEntrySelectedDetail = e.detail;
+    if (this.selectedEvent) {
+      this.updateFlowLinks();
+    }
     if (e.detail.eventIndex === -1) {
       this.eventSelected.emit(null);
     } else {

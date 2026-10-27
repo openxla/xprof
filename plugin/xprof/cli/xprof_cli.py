@@ -411,6 +411,7 @@ def _wrap_with_logdir(
           "func_name",
           "kernel_name",
           "kernel_regex",
+          "dump_dir",
           "host_name",
           "host",
       }:
@@ -431,6 +432,7 @@ def _wrap_with_logdir(
         "func_name",
         "kernel_name",
         "kernel_regex",
+        "dump_dir",
         "host_name",
         "host",
     ):

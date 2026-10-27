@@ -91,6 +91,9 @@ void CombineOpMetrics(const OpMetrics& src, OpMetrics* dst,
   dst->set_flops_v2(src.flops_v2() + dst->flops_v2());
   dst->set_model_flops_v2(src.model_flops_v2() + dst->model_flops_v2());
   dst->set_bytes_accessed(src.bytes_accessed() + dst->bytes_accessed());
+  dst->set_estimated_flops(src.estimated_flops() + dst->estimated_flops());
+  dst->set_estimated_bytes_accessed(src.estimated_bytes_accessed() +
+                                    dst->estimated_bytes_accessed());
   dst->set_autotuned(dst->autotuned() || src.autotuned());
   if (update_num_cores) {
     dst->set_num_cores(src.num_cores() + dst->num_cores());

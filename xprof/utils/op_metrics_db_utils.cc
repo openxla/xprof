@@ -33,7 +33,6 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
-#include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/platform/logging.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
@@ -130,6 +129,11 @@ class DeviceTfOpMetricsDbBuilder : public OpMetricsDbBuilder {
                                       device_op_metrics.model_flops_v2());
     tf_op_metrics->set_bytes_accessed(tf_op_metrics->bytes_accessed() +
                                       device_op_metrics.bytes_accessed());
+    tf_op_metrics->set_estimated_flops(tf_op_metrics->estimated_flops() +
+                                       device_op_metrics.estimated_flops());
+    tf_op_metrics->set_estimated_bytes_accessed(
+        tf_op_metrics->estimated_bytes_accessed() +
+        device_op_metrics.estimated_bytes_accessed());
     tf_op_metrics->set_core_type(device_op_metrics.core_type());
   }
 };
@@ -207,6 +211,11 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
   // Duration normalized given the scaling factor.
   uint64_t normalized_duration_ps = 0;
   uint64_t dma_stall_ps = 0;
+  // LLO-derived estimated cost of a custom call. It is reported per event (not
+  // on the event metadata) and is already a total for the event, so it is
+  // accumulated as is and not scaled by occurrences.
+  double estimated_flops = 0;
+  double estimated_bytes_accessed = 0;
   hlo_event.ForEachStat([&](const XStatVisitor& stat) {
     if (stat.Name() == "vdd_energy_j") {
       op_metrics->set_vdd_energy_j(op_metrics->vdd_energy_j() +
@@ -223,6 +232,12 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
         break;
       case StatType::kDmaStallDurationPs:
         dma_stall_ps = stat.IntValue();
+        break;
+      case StatType::kEstimatedFlops:
+        estimated_flops += static_cast<double>(stat.IntOrUintValue());
+        break;
+      case StatType::kEstimatedBytesAccessed:
+        estimated_bytes_accessed += static_cast<double>(stat.IntOrUintValue());
         break;
       default:
         break;
@@ -244,6 +259,8 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
     op_metrics->set_normalized_time_ps(normalized_duration_ps);
     op_metrics->set_dma_stall_ps(dma_stall_ps);
     op_metrics->set_num_cores(1);
+    op_metrics->set_estimated_flops(estimated_flops);
+    op_metrics->set_estimated_bytes_accessed(estimated_bytes_accessed);
   } else {
     op_metrics->set_occurrences(op_metrics->occurrences() +
                                 hlo_event.NumOccurrences());
@@ -254,33 +271,10 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
     op_metrics->set_normalized_time_ps(op_metrics->normalized_time_ps() +
                                        normalized_duration_ps);
     op_metrics->set_dma_stall_ps(op_metrics->dma_stall_ps() + dma_stall_ps);
-  }
-  // Fill The Custom Call Information
-  if (op_metrics->category() ==
-      xla::HloOpcodeString(xla::HloOpcode::kCustomCall)) {
-    hlo_event.ForEachStat([&](const XStatVisitor& stat) {
-      if (!stat.Type()) return;
-      switch (static_cast<StatType>(*stat.Type())) {
-        case StatType::kBytesAccessed:
-          op_metrics->set_bytes_accessed(op_metrics->bytes_accessed() +
-                                         stat.IntOrUintValue());
-          break;
-        case StatType::kModelFlops:
-          op_metrics->set_model_flops(op_metrics->model_flops() +
-                                      stat.IntOrUintValue());
-          op_metrics->set_model_flops_v2(
-              op_metrics->model_flops_v2() +
-              static_cast<double>(stat.IntOrUintValue()));
-          break;
-        case StatType::kFlops:
-          op_metrics->set_flops(op_metrics->flops() + stat.IntOrUintValue());
-          op_metrics->set_flops_v2(op_metrics->flops_v2() +
-                                   static_cast<double>(stat.IntOrUintValue()));
-          break;
-        default:
-          break;
-      }
-    });
+    op_metrics->set_estimated_flops(op_metrics->estimated_flops() +
+                                    estimated_flops);
+    op_metrics->set_estimated_bytes_accessed(
+        op_metrics->estimated_bytes_accessed() + estimated_bytes_accessed);
   }
 }
 
@@ -300,33 +294,26 @@ void MergeOpMetrics(const OpMetrics& src, OpMetrics& dst) {
     if (src.has_vdd_energy_j() || dst.has_vdd_energy_j()) {
       dst.set_vdd_energy_j(src.vdd_energy_j() + dst.vdd_energy_j());
     }
-    if (dst.category() == xla::HloOpcodeString(xla::HloOpcode::kCustomCall)) {
-      dst.set_flops(dst.flops() + src.flops());
-      dst.set_model_flops(dst.model_flops() + src.model_flops());
-      dst.set_flops_v2(dst.flops_v2() + src.flops_v2());
-      dst.set_model_flops_v2(dst.model_flops_v2() + src.model_flops_v2());
-      dst.set_bytes_accessed(dst.bytes_accessed() + src.bytes_accessed());
-    }
+    dst.set_estimated_flops(dst.estimated_flops() + src.estimated_flops());
+    dst.set_estimated_bytes_accessed(dst.estimated_bytes_accessed() +
+                                     src.estimated_bytes_accessed());
   }
 }
 
 void AdjustFlopsAndBytesAccessed(OpMetrics& op_metrics) {
-  if (op_metrics.category() !=
-      xla::HloOpcodeString(xla::HloOpcode::kCustomCall)) {
-    op_metrics.set_flops(op_metrics.flops() * op_metrics.occurrences());
-    op_metrics.set_flops_v2(op_metrics.flops_v2() * op_metrics.occurrences());
-    if (op_metrics.model_flops() > 0) {
-      op_metrics.set_model_flops(op_metrics.model_flops() *
-                                 op_metrics.occurrences());
-      op_metrics.set_model_flops_v2(op_metrics.model_flops_v2() *
-                                    op_metrics.occurrences());
-    } else {
-      op_metrics.set_model_flops(op_metrics.flops());
-      op_metrics.set_model_flops_v2(op_metrics.flops_v2());
-    }
-    op_metrics.set_bytes_accessed(op_metrics.bytes_accessed() *
+  op_metrics.set_flops(op_metrics.flops() * op_metrics.occurrences());
+  op_metrics.set_flops_v2(op_metrics.flops_v2() * op_metrics.occurrences());
+  if (op_metrics.model_flops() > 0) {
+    op_metrics.set_model_flops(op_metrics.model_flops() *
+                               op_metrics.occurrences());
+    op_metrics.set_model_flops_v2(op_metrics.model_flops_v2() *
                                   op_metrics.occurrences());
+  } else {
+    op_metrics.set_model_flops(op_metrics.flops());
+    op_metrics.set_model_flops_v2(op_metrics.flops_v2());
   }
+  op_metrics.set_bytes_accessed(op_metrics.bytes_accessed() *
+                                op_metrics.occurrences());
   for (auto& memory_access : *op_metrics.mutable_memory_accessed_breakdown()) {
     memory_access.set_bytes_accessed(memory_access.bytes_accessed() *
                                      op_metrics.occurrences());

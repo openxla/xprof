@@ -33,7 +33,6 @@ limitations under the License.
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/platform/logging.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
@@ -208,8 +207,13 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
   uint64_t self_duration_ps = duration_ps;
   uint64_t normalized_duration_ps = 0;
   uint64_t dma_stall_ps = 0;
+  // LLO-derived estimated cost of a custom call. It is reported per event (not
+  // on the event metadata) and is already a total for the event, so it is
+  // accumulated as is and not scaled by occurrences.
+  double estimated_flops = 0;
+  double estimated_bytes_accessed = 0;
 
-  // Extract durations from stats if available.
+  // Extract durations and estimated costs from stats if available.
   hlo_event.ForEachStat([&](const XStatVisitor& stat) {
     if (!stat.Type()) return;
     switch (static_cast<StatType>(*stat.Type())) {
@@ -221,6 +225,12 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
         break;
       case StatType::kDmaStallDurationPs:
         dma_stall_ps = stat.IntValue();
+        break;
+      case StatType::kEstimatedFlops:
+        estimated_flops += static_cast<double>(stat.IntOrUintValue());
+        break;
+      case StatType::kEstimatedBytesAccessed:
+        estimated_bytes_accessed += static_cast<double>(stat.IntOrUintValue());
         break;
       default:
         break;
@@ -253,7 +263,8 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
     flat_op_metrics->set_self_time_ps(self_duration_ps);
     flat_op_metrics->set_normalized_time_ps(normalized_duration_ps);
     flat_op_metrics->set_dma_stall_ps(dma_stall_ps);
-
+    flat_op_metrics->set_estimated_flops(estimated_flops);
+    flat_op_metrics->set_estimated_bytes_accessed(estimated_bytes_accessed);
   } else {
     // If this operation has been seen before, we update the metrics by
     // aggregating them.
@@ -272,41 +283,10 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
         flat_op_metrics->normalized_time_ps() + normalized_duration_ps);
     flat_op_metrics->set_dma_stall_ps(flat_op_metrics->dma_stall_ps() +
                                       dma_stall_ps);
-  }
-
-  // Special handling for CustomCall ops to extract flops and bytes accessed
-  // from the event stats, as they might not be in the metadata.
-  if (flat_op_metrics->category() ==
-      xla::HloOpcodeString(xla::HloOpcode::kCustomCall)) {
-    const int64_t num_occurrences =
-        std::max(kSingleOccurrence, hlo_event.NumOccurrences());
-    hlo_event.ForEachStat([&](const XStatVisitor& stat) {
-      if (!stat.Type()) return;
-      switch (static_cast<StatType>(*stat.Type())) {
-        case StatType::kBytesAccessed:
-          flat_op_metrics->set_bytes_accessed(
-              flat_op_metrics->bytes_accessed() +
-              stat.IntOrUintValue() * num_occurrences);
-          break;
-        case StatType::kModelFlops:
-          flat_op_metrics->set_model_flops(flat_op_metrics->model_flops() +
-                                           stat.IntOrUintValue() *
-                                               num_occurrences);
-          flat_op_metrics->set_model_flops_v2(
-              flat_op_metrics->model_flops_v2() +
-              static_cast<double>(stat.IntOrUintValue()) * num_occurrences);
-          break;
-        case StatType::kFlops:
-          flat_op_metrics->set_flops(flat_op_metrics->flops() +
-                                     stat.IntOrUintValue() * num_occurrences);
-          flat_op_metrics->set_flops_v2(
-              flat_op_metrics->flops_v2() +
-              static_cast<double>(stat.IntOrUintValue()) * num_occurrences);
-          break;
-        default:
-          break;
-      }
-    });
+    flat_op_metrics->set_estimated_flops(flat_op_metrics->estimated_flops() +
+                                         estimated_flops);
+    flat_op_metrics->set_estimated_bytes_accessed(
+        flat_op_metrics->estimated_bytes_accessed() + estimated_bytes_accessed);
   }
 }
 
@@ -338,15 +318,11 @@ void MergeOpMetrics(const FlatOpMetrics& src, FlatOpMetrics& dst) {
     dst.set_normalized_time_ps(src.normalized_time_ps() +
                                dst.normalized_time_ps());
 
-    if (dst.category() == xla::HloOpcodeString(xla::HloOpcode::kCustomCall)) {
-      // Merge Performance Metrics (Flops and Bytes) For CustomCall ops.
-      // Their Cost is Dynamic in nature
-      dst.set_flops(dst.flops() + src.flops());
-      dst.set_flops_v2(dst.flops_v2() + src.flops_v2());
-      dst.set_model_flops(dst.model_flops() + src.model_flops());
-      dst.set_model_flops_v2(dst.model_flops_v2() + src.model_flops_v2());
-      dst.set_bytes_accessed(dst.bytes_accessed() + src.bytes_accessed());
-    }
+    // The estimated cost of a custom call is a per-event total, so it is
+    // summed across events rather than scaled by occurrences.
+    dst.set_estimated_flops(dst.estimated_flops() + src.estimated_flops());
+    dst.set_estimated_bytes_accessed(dst.estimated_bytes_accessed() +
+                                     src.estimated_bytes_accessed());
   }
 }
 
@@ -354,28 +330,23 @@ void MergeOpMetrics(const FlatOpMetrics& src, FlatOpMetrics& dst) {
 // of occurrences. This is needed because the raw metrics from events are
 // usually per-occurrence, but we want total metrics in the finalized database.
 void AdjustFlopsAndBytesAccessed(FlatOpMetrics& op_metrics) {
-  // CustomCall ops are excluded from this adjustment because their metrics
-  // are already accumulated in SetOpMetricsFromHloEvent.
-  if (op_metrics.category() !=
-      xla::HloOpcodeString(xla::HloOpcode::kCustomCall)) {
-    op_metrics.set_flops(op_metrics.flops() * op_metrics.occurrences());
-    op_metrics.set_flops_v2(op_metrics.flops_v2() * op_metrics.occurrences());
+  op_metrics.set_flops(op_metrics.flops() * op_metrics.occurrences());
+  op_metrics.set_flops_v2(op_metrics.flops_v2() * op_metrics.occurrences());
 
-    // If model_flops is explicitly set, we scale it.
-    // Otherwise, we fallback to scaling the standard flops.
-    if (op_metrics.model_flops() > 0) {
-      op_metrics.set_model_flops(op_metrics.model_flops() *
-                                 op_metrics.occurrences());
-      op_metrics.set_model_flops_v2(op_metrics.model_flops_v2() *
-                                    op_metrics.occurrences());
-    } else {
-      op_metrics.set_model_flops(op_metrics.flops());
-      op_metrics.set_model_flops_v2(op_metrics.flops_v2());
-    }
-
-    op_metrics.set_bytes_accessed(op_metrics.bytes_accessed() *
+  // If model_flops is explicitly set, we scale it.
+  // Otherwise, we fallback to scaling the standard flops.
+  if (op_metrics.model_flops() > 0) {
+    op_metrics.set_model_flops(op_metrics.model_flops() *
+                               op_metrics.occurrences());
+    op_metrics.set_model_flops_v2(op_metrics.model_flops_v2() *
                                   op_metrics.occurrences());
+  } else {
+    op_metrics.set_model_flops(op_metrics.flops());
+    op_metrics.set_model_flops_v2(op_metrics.flops_v2());
   }
+
+  op_metrics.set_bytes_accessed(op_metrics.bytes_accessed() *
+                                op_metrics.occurrences());
 
   // Scale memory access breakdown by occurrences as well.
   for (auto& memory_access : *op_metrics.mutable_memory_accessed_breakdown()) {
@@ -628,6 +599,11 @@ class DeviceTfFlatOpMetricsDbBuilder : public FlatOpMetricsDbBuilder {
                                       device_op_metrics.model_flops_v2());
     tf_op_metrics->set_bytes_accessed(tf_op_metrics->bytes_accessed() +
                                       device_op_metrics.bytes_accessed());
+    tf_op_metrics->set_estimated_flops(tf_op_metrics->estimated_flops() +
+                                       device_op_metrics.estimated_flops());
+    tf_op_metrics->set_estimated_bytes_accessed(
+        tf_op_metrics->estimated_bytes_accessed() +
+        device_op_metrics.estimated_bytes_accessed());
     tf_op_metrics->set_core_type(device_op_metrics.core_type());
   }
 };

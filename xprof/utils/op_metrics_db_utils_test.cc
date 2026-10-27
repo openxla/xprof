@@ -194,16 +194,25 @@ TEST(OpMetricsDbTest, AddOpMetric) {
         GetStatTypeStr(StatType::kTimeScaleMultiplier));
     XStatMetadata* energy_stat_metadata =
         plane.GetOrCreateStatMetadata("vdd_energy_j");
+    XStatMetadata* estimated_flops_stat = plane.GetOrCreateStatMetadata(
+        GetStatTypeStr(StatType::kEstimatedFlops));
+    XStatMetadata* estimated_bytes_accessed_stat =
+        plane.GetOrCreateStatMetadata(
+            GetStatTypeStr(StatType::kEstimatedBytesAccessed));
     XEventBuilder event = line.AddEvent(*event_metadata);
     event.SetOffsetPs(0);
     event.SetDurationPs(100);
     event.AddStatValue(*time_scale_multiplier_stat, 0.5);
     event.AddStatValue(*energy_stat_metadata, 10.0);
+    event.AddStatValue(*estimated_flops_stat, 300);
+    event.AddStatValue(*estimated_bytes_accessed_stat, 500);
     XEventBuilder event2 = line.AddEvent(*event_metadata);
     event2.SetOffsetPs(100);
     event2.SetDurationPs(100);
     event2.AddStatValue(*time_scale_multiplier_stat, 1.0);
     event2.AddStatValue(*energy_stat_metadata, 20.0);
+    event2.AddStatValue(*estimated_flops_stat, 200);
+    event2.AddStatValue(*estimated_bytes_accessed_stat, 100);
   }
   {
     XEventMetadata* event_metadata = plane.GetOrCreateEventMetadata("m2");
@@ -254,6 +263,8 @@ TEST(OpMetricsDbTest, AddOpMetric) {
                   min_time_ps: 100
                   num_cores: 1
                   vdd_energy_j: 30
+                  estimated_flops: 500
+                  estimated_bytes_accessed: 600
                 }
                 metrics_db {
                   hlo_module_id: 1

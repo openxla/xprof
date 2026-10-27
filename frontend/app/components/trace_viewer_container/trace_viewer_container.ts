@@ -53,6 +53,8 @@ import {
   formatHloArgsForJsonTree,
   prettyPrintHloStackTrace,
 } from './hlo_pretty_printer';
+// Imported outside copybara strip block so formatTimeUs is available in OSS builds.
+import {formatTimeUs} from './trace_viewer_utils';
 
 import {
   isSearchEventsEvent,

@@ -89,6 +89,9 @@ class DataProvider {
 namespace internal {
 void AppendTraceEventForTesting(const TraceEvent* event, int level,
                                 FlameChartTimelineData& data);
+
+absl::btree_map<GroupKey, bool> GetRestoredExpandedStates(
+    const std::vector<Group>& groups);
 }  // namespace internal
 
 }  // namespace traceviewer

@@ -501,7 +501,7 @@ int Timeline::GetNextGroupStartLevel(const FlameChartTimelineData& data,
                                      int group_index) {
   if (group_index >= 0 && group_index < data.groups.size()) {
     const auto& group = data.groups[group_index];
-    if (group.has_children && group.nesting_level == kProcessNestingLevel) {
+    if (group.has_children) {
       return group.start_level;
     }
     return group.start_level + group.level_count;
@@ -769,6 +769,19 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
       continue;
     }
 
+    const bool is_empty_leaf = !group.has_children && group.is_empty;
+    if (is_empty_leaf) {
+      new_group_offsets[group_index] = current_offset;
+      new_group_visible[group_index] = false;
+      for (int level = group.start_level; level < next_group_start_level;
+           ++level) {
+        if (level < level_count) {
+          new_visible_level_offsets[level] = current_offset;
+        }
+      }
+      continue;
+    }
+
     if (has_visible_group) {
       current_offset += (group.nesting_level == kProcessNestingLevel)
                             ? kProcessTrackGap
@@ -838,6 +851,12 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
 
   // Set the dummy offset at the very end
   new_group_offsets[group_count] = current_offset;
+
+  for (int i = 0; i < group_count; ++i) {
+    data.groups[i].visible = new_group_visible[i];
+    data.groups[i].offset = new_group_offsets[i];
+    data.groups[i].height = new_group_heights[i];
+  }
 
   ApplyLayout(data, std::move(new_group_offsets), std::move(new_group_heights),
               std::move(new_visible_level_offsets), new_group_visible,

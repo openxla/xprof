@@ -42,30 +42,30 @@ const CHIP_TEXT_MAX_LENGTH = 15;
           [value]="filter.value"
           [attr.aria-description]="'press enter to edit filter ' + filter.field.displayName"
           [matTooltip]="getTooltip(filter)"
-          (click)="onClickChip($event, filter, idx)"
+          (click)="onClickChip($event, filter, idx, optionTrigger)"
           class="filter-chip">
             {{getFilterShortenString(filter)}}
           <button matChipRemove [attr.aria-label]="'remove filter ' + filter.field.displayName">
             <mat-icon>cancel</mat-icon>
           </button>
           <input
-            hidden
             #optionTrigger="matAutocompleteTrigger"
+            tabindex="-1"
+            class="chip-dummy-input"
             [matAutocompleteConnectedTo]="origin"
             [matAutocomplete]="chipValueOptionsAuto"
             [attr.aria-label]="'Filter options for ' + filter.field.displayName"
-            [id]="'chip-dummy-input-' + idx"
-            class="chip-dummy-input" />
+            [id]="'chip-dummy-input-' + idx" />
         </mat-chip-row>
         <mat-autocomplete #chipValueOptionsAuto class="dense" panelWidth="fit-content">
           <div style="display:flex;flex-direction:column;">
             <button mat-stroked-button color="primary" (click)="onChipMultiSelectUpdateConfirm()" style="margin:10px;">Confirm</button>
-            <mat-option>
+            <mat-option (click)="onOperateAll($event)">
               <mat-checkbox class="example-margin" [checked]="allOptionsSelected" (click)="onOperateAll($event)">{{allOptionsLabel}}</mat-checkbox>
             </mat-option>
-            <mat-option *ngFor="let option of (autoChipValueOptions | async) trackBy:trackByValue"
-              [value]="option.value" >
-              <mat-checkbox class="example-margin" [(ngModel)]="option.checked" (click)="onClickChipOption($event)">{{option.value}}</mat-checkbox>
+            <mat-option *ngFor="let option of (autoChipValueOptions | async); trackBy:trackByValue"
+              [value]="option.value" (click)="onOptionRowClick(option, $event)">
+              <mat-checkbox class="example-margin" [(ngModel)]="option.checked" (click)="$event.stopPropagation()">{{option.value}}</mat-checkbox>
             </mat-option>
           </div>
         </mat-autocomplete>
@@ -83,6 +83,7 @@ export class FilterChips {
   @Output() readonly filterRemoved = new EventEmitter<FilterRemoveEvent>();
   @ViewChild('chipValueOptionsAuto') chipValueOptionsAuto!: MatAutocomplete;
   @ViewChild('optionTrigger') optionTrigger?: MatAutocompleteTrigger;
+  activeTrigger?: MatAutocompleteTrigger;
 
   autoChipValueOptions = new BehaviorSubject<FilterValue[]>([]);
   onEditChipIndex = -1;
@@ -99,28 +100,48 @@ export class FilterChips {
 
   onOperateAll(e: Event) {
     e.stopPropagation();
+    e.preventDefault();
     const allOptionsSelected = this.allOptionsSelected;
     this.autoChipValueOptions.value.forEach((option) => {
       option.checked = !allOptionsSelected;
     });
+    this.autoChipValueOptions.next(this.autoChipValueOptions.value);
+  }
+
+  onOptionRowClick(option: FilterValue, e: Event) {
+    e.stopPropagation();
+    e.preventDefault();
+    option.checked = !option.checked;
+    this.autoChipValueOptions.next(this.autoChipValueOptions.value);
   }
 
   trackByValue(index: number, option: FilterValue): string {
     return option.value || '';
   }
 
-  onClickChip(e: Event, filter: FilterEntry, index: number) {
+  onClickChip(
+    e: Event,
+    filter: FilterEntry,
+    index: number,
+    trigger?: MatAutocompleteTrigger,
+  ) {
     e.stopPropagation();
-    if (this.optionTrigger?.panelOpen) {
+    const targetTrigger = trigger || this.optionTrigger;
+    if (this.activeTrigger?.panelOpen) {
+      const sameTrigger = this.activeTrigger === targetTrigger;
+      this.activeTrigger.closePanel();
+      this.activeTrigger = undefined;
       this.onEditChipIndex = -1;
-      this.optionTrigger?.closePanel();
-    } else {
-      this.onEditChipIndex = index;
-      const options = this.getChipOptions(filter);
-      if (options.length > 0) {
-        this.autoChipValueOptions.next(options);
-        this.optionTrigger?.openPanel();
+      if (sameTrigger) {
+        return;
       }
+    }
+    this.activeTrigger = targetTrigger;
+    this.onEditChipIndex = index;
+    const options = this.getChipOptions(filter);
+    if (options.length > 0) {
+      this.autoChipValueOptions.next(options);
+      targetTrigger?.openPanel();
     }
   }
 
@@ -157,6 +178,8 @@ export class FilterChips {
         index: this.onEditChipIndex,
       });
     }
+    this.activeTrigger?.closePanel();
+    this.activeTrigger = undefined;
     this.optionTrigger?.closePanel();
     this.onEditChipIndex = -1;
   }

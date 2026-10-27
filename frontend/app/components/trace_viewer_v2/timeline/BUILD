@@ -63,6 +63,31 @@ cc_test(
 )
 
 wasm_cc_library(
+    name = "track_order",
+    srcs = ["track_order.cc"],
+    hdrs = ["track_order.h"],
+    deps = [
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/functional:function_ref",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_test(
+    name = "track_order_test",
+    srcs = ["track_order_test.cc"],
+    deps = [
+        ":track_order",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+wasm_cc_library(
     name = "timeline",
     srcs = [
         "timeline.cc",

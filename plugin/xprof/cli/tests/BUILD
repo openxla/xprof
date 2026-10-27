@@ -51,6 +51,18 @@ py_test(
     ],
 )
 
+pytype_strict_contrib_test(
+    name = "async_overlap_sql_test",
+    srcs = ["async_overlap_sql_test.py"],
+    deps = [
+        "//plugin/xprof/cli/internal:async_overlap",
+        "//plugin/xprof/cli/internal:async_overlap_sql",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+        "@pypi//duckdb",
+    ],
+)
+
 py_test(
     name = "check_host_boundness_tool_test",
     srcs = ["check_host_boundness_tool_test.py"],

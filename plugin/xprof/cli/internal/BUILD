@@ -48,3 +48,9 @@ pytype_strict_library(
     name = "async_overlap",
     srcs = ["async_overlap.py"],
 )
+
+pytype_strict_library(
+    name = "async_overlap_sql",
+    srcs = ["async_overlap_sql.py"],
+    deps = [":async_overlap"],
+)

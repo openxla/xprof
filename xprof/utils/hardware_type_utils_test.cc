@@ -17,6 +17,8 @@ limitations under the License.
 
 #include <gtest/gtest.h>
 #include "xla/tsl/profiler/utils/math_utils.h"
+#include "plugin/xprof/protobuf/hardware_types.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -289,6 +291,30 @@ TEST(HardwareTypeUtilsTest, GpuModelNameFallsBackToAmdFamilyWithoutName) {
   device_cap.mutable_compute_capability()->set_minor(0);
 
   EXPECT_EQ(GpuModelName(device_cap), "AMD GPU - gfx-9XX series");
+}
+
+TEST(HardwareTypeUtilsTest, GetHardwareTypePrefersHardwareTypeField) {
+  RunEnvironment run_environment;
+  // A device type string that ParseHardwareType does not recognize.
+  run_environment.set_device_type("SomeAccelerator");
+  run_environment.set_hardware_type(HardwareType::TPU);
+
+  EXPECT_EQ(ParseHardwareType(run_environment.device_type()),
+            HardwareType::UNKNOWN_HARDWARE);
+  EXPECT_EQ(GetHardwareType(run_environment), HardwareType::TPU);
+}
+
+TEST(HardwareTypeUtilsTest, GetHardwareTypeFallsBackToDeviceType) {
+  RunEnvironment run_environment;
+  run_environment.set_device_type("TPU v5 Lite");
+
+  EXPECT_EQ(GetHardwareType(run_environment), HardwareType::TPU);
+}
+
+TEST(HardwareTypeUtilsTest, GetHardwareTypeUnknownWhenNothingIsSet) {
+  RunEnvironment run_environment;
+
+  EXPECT_EQ(GetHardwareType(run_environment), HardwareType::UNKNOWN_HARDWARE);
 }
 
 }  // namespace

@@ -456,8 +456,7 @@ OverviewPage ConvertOpStatsToOverviewPage(const OpStats& op_stats) {
   VLOG(1) << "ConvertOpStatsToOverviewPage: Starting ComputeAnalysisResult";
   *overview_page.mutable_analysis() = ComputeAnalysisResult(op_stats);
 
-  HardwareType hardware_type =
-      ParseHardwareType(op_stats.run_environment().device_type());
+  HardwareType hardware_type = GetHardwareType(op_stats.run_environment());
   if (hardware_type == tensorflow::profiler::TPU) {
     ComputeTpuAnalysisResult(op_stats, overview_page.mutable_analysis());
   }
@@ -502,7 +501,7 @@ OverviewPage ConvertOpStatsToOverviewPage(const OpStats& op_stats) {
   VLOG(1) << "ConvertOpStatsToOverviewPage: Starting SetCommonRecommendation";
   SetCommonRecommendation(
       bottleneck.input_classification(), bottleneck.input_statement(), "",
-      ParseHardwareType(op_stats.run_environment().device_type()),
+      hardware_type,
       TfFunctionRecommendationHtml(op_stats.tf_function_db()),
       EagerRecommendationHtml(
           overview_page.analysis().host_op_time_eager_percent(),

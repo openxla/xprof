@@ -103,6 +103,7 @@ cc_library(
         ":cuda_type_utils",
         ":rocm_type_utils",
         "//plugin/xprof/protobuf:hardware_types_proto_cc",
+        "//plugin/xprof/protobuf:op_stats_proto_cc",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
         "@xla//xla/tsl/profiler/utils:xplane_schema",
@@ -114,6 +115,8 @@ cc_test(
     srcs = ["hardware_type_utils_test.cc"],
     deps = [
         ":hardware_type_utils",
+        "//plugin/xprof/protobuf:hardware_types_proto_cc",
+        "//plugin/xprof/protobuf:op_stats_proto_cc",
         "@com_google_googletest//:gtest_main",
         "@xla//xla/tsl/profiler/utils:math_utils",
     ],

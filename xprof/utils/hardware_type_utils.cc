@@ -24,6 +24,7 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -66,6 +67,13 @@ HardwareType ParseHardwareType(absl::string_view device_type) {
   if (device_type == "CPU") return HardwareType::CPU_ONLY;
   if (absl::StrContains(device_type, "TPU")) return HardwareType::TPU;
   return HardwareType::UNKNOWN_HARDWARE;
+}
+
+HardwareType GetHardwareType(const RunEnvironment& run_environment) {
+  if (run_environment.hardware_type() != HardwareType::UNKNOWN_HARDWARE) {
+    return run_environment.hardware_type();
+  }
+  return ParseHardwareType(run_environment.device_type());
 }
 
 bool HasDevice(HardwareType x) { return x > tensorflow::profiler::CPU_ONLY; }

@@ -258,7 +258,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToOpProfileViewer(
   auto group_by = tensorflow::profiler::GetOpProfileGrouping(options);
   ConvertOpStatsToOpProfile(
       combined_op_stats,
-      ParseHardwareType(combined_op_stats.run_environment().device_type()),
+      GetHardwareType(combined_op_stats.run_environment()),
       profile, /*op_profile_limit=*/100, group_by);
   std::string json_output;
   tsl::protobuf::util::JsonPrintOptions opts;

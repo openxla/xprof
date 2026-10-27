@@ -20,6 +20,7 @@ limitations under the License.
 
 #include "absl/strings/string_view.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -43,6 +44,12 @@ double GetSharedMemoryBandwidthPerCore(const DeviceCapabilities& device_cap);
 std::string GpuModelName(const DeviceCapabilities& device_cap);
 
 HardwareType ParseHardwareType(absl::string_view device_type);
+
+// Returns the hardware type of the given run environment. Prefers the
+// `hardware_type` field, which is set from the device planes when the profile
+// is converted. Falls back to parsing `device_type` when `hardware_type` is
+// unset.
+HardwareType GetHardwareType(const RunEnvironment& run_environment);
 
 // Returns true if the given hardware type has a device.
 bool HasDevice(HardwareType x);

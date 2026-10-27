@@ -33,7 +33,7 @@ limitations under the License.
 namespace xprof {
 
 using tensorflow::profiler::OpStats;
-using tensorflow::profiler::ParseHardwareType;
+using tensorflow::profiler::GetHardwareType;
 using tensorflow::profiler::SessionSnapshot;
 using tensorflow::profiler::op_profile::Profile;
 using tsl::protobuf::util::JsonPrintOptions;
@@ -49,7 +49,7 @@ absl::Status OpProfileProcessor::ProcessSession(
   auto group_by = tensorflow::profiler::GetOpProfileGrouping(options);
   ConvertOpStatsToOpProfile(
       combined_op_stats,
-      ParseHardwareType(combined_op_stats.run_environment().device_type()),
+      GetHardwareType(combined_op_stats.run_environment()),
       profile, /*op_profile_limit=*/100, group_by);
   std::string json_output;
   tsl::protobuf::util::JsonPrintOptions opts;
@@ -73,7 +73,7 @@ absl::Status OpProfileProcessor::ProcessCombinedOpStats(
   auto group_by = tensorflow::profiler::GetOpProfileGrouping(options);
   ConvertOpStatsToOpProfile(
       combined_op_stats,
-      ParseHardwareType(combined_op_stats.run_environment().device_type()),
+      GetHardwareType(combined_op_stats.run_environment()),
       profile, /*op_profile_limit=*/100, group_by);
   std::string op_profile_json;
   JsonPrintOptions opts;

@@ -40,6 +40,21 @@ TEST(OpStatsToOverviewPageTest, TpuDutyCycle) {
   EXPECT_DOUBLE_EQ(overview_page.analysis().device_duty_cycle_percent(), 70.0);
 }
 
+TEST(OpStatsToOverviewPageTest,
+     TpuDutyCycleUsesHardwareTypeWhenDeviceTypeIsUnrecognized) {
+  OpStats op_stats;
+  // A device type string that does not contain "TPU".
+  op_stats.mutable_run_environment()->set_device_type("SomeAccelerator");
+  op_stats.mutable_run_environment()->set_hardware_type(TPU);
+  op_stats.mutable_device_op_metrics_db()->set_busy_time_ps(70);
+  op_stats.mutable_device_op_metrics_db()->set_idle_time_ps(30);
+
+  OverviewPage overview_page = ConvertOpStatsToOverviewPage(op_stats);
+
+  EXPECT_EQ(overview_page.run_environment().device_type(), "SomeAccelerator");
+  EXPECT_DOUBLE_EQ(overview_page.analysis().device_duty_cycle_percent(), 70.0);
+}
+
 TEST(OpStatsToOverviewPageTest, GenerateInferenceLatencyDataTable_AverageBug) {
   OverviewInferenceLatency result;
   result.add_percentile_numbers(50.0);

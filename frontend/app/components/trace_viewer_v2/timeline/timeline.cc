@@ -3743,22 +3743,29 @@ void Timeline::Zoom(float zoom_factor) {
   // active and the mouse is within the timeline area.
   // We use IsMouseHoveringRect solely to check if the mouse position is within
   // the timeline bounds, as we don't rely on the window's hover state.
-  // However, if the mouse is outside the timeline area (or outside an active
-  // window context, such as when triggered via external toolbar actions or unit
-  // tests), we fallback to using the current visible range center.
+  // The cursor position is mapped into visible_range_.target() rather than the
+  // currently animated on-screen range so that repeated zooms during animation
+  // do not drift away from the pivot. If the mouse is outside the timeline
+  // area (or outside an active window context, such as when triggered via
+  // external toolbar actions or unit tests), we fallback to using the target
+  // visible range center.
   if (context != nullptr && context->CurrentWindow != nullptr) {
     const ImRect timeline_area = GetTimelineArea();
     if (ImGui::IsMouseHoveringRect(timeline_area.Min, timeline_area.Max)) {
-      const double px_per_time = px_per_time_unit();
-      const Microseconds pivot = PixelToTime(
-          ImGui::GetMousePos().x - timeline_area.Min.x, px_per_time);
+      const TimeRange& target_range = visible_range_.target();
+      const Microseconds pivot =
+          target_range.start() +
+          (static_cast<Microseconds>(ImGui::GetMousePos().x -
+                                     timeline_area.Min.x) /
+           current_timeline_width_) *
+              target_range.duration();
 
       Zoom(zoom_factor, pivot);
       return;
     }
   }
 
-  Zoom(zoom_factor, visible_range_->center());
+  Zoom(zoom_factor, visible_range_.target().center());
 }
 
 void Timeline::Zoom(float zoom_factor, Microseconds pivot) {
@@ -3773,7 +3780,30 @@ void Timeline::Zoom(float zoom_factor, Microseconds pivot) {
   new_range.Zoom(zoom_factor, pivot);
 
   if (zoom_factor < 1.0) {
+    const Microseconds current_duration = visible_range_.target().duration();
+    // Floating-point precision tolerance for duration comparison.
+    // In IEEE 754 double precision, 1 ULP at a given timestamp magnitude is
+    // approximately `epsilon * end()`. When timestamps are large
+    // (e.g., 10^6 us or more), calculating duration (`end - start`) or range
+    // scaling can accumulate rounding error of several ULPs. At
+    // kMinDurationMicros (1 ps), this rounding error can cause the measured
+    // duration to exceed kMinDurationMicros by a fraction of a percent even
+    // when zoomed to the limit, which would otherwise allow an extra zoom step
+    // and cause pivot drift. Scaling 4.0 * epsilon by
+    // visible_range_.target().end() accounts for this precision loss
+    // dynamically based on the timestamp magnitude.
+    const Microseconds min_duration_tolerance =
+        4.0 * std::numeric_limits<double>::epsilon() *
+        visible_range_.target().end();
+    // If already at or below the minimum zoom duration, do not zoom or pan.
+    if (current_duration <= kMinDurationMicros + min_duration_tolerance) {
+      ShowNavigationWarningNotification(
+          "Cannot zoom in further: minimum zoom duration reached.");
+      return;
+    }
     if (new_range.duration() < kMinDurationMicros) {
+      new_range = visible_range_.target();
+      new_range.Zoom(kMinDurationMicros / current_duration, pivot);
       ShowNavigationWarningNotification(
           "Cannot zoom in further: minimum zoom duration reached.");
     }

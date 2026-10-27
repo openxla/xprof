@@ -15994,6 +15994,363 @@ TEST(TimelineTest, SelectionRemapFallbackDisambiguatesByTidAcrossThreads) {
   EXPECT_EQ(timeline.selected_event_index(), 1);
 }
 
+
+
+TEST_F(RealTimelineImGuiFixture, TrackManagement_PinnedTrackStickyOffset) {
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 100.0f);
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+  data.entry_total_times.assign(10, 10.0);
+  data.entry_self_times.assign(10, 10.0);
+  data.entry_start_times.assign(10, 0.0);
+  data.entry_names.assign(10, "event");
+  data.level_offsets = {0};
+  for (int i = 0; i < 10; ++i) {
+    data.groups.push_back({Group::Type::kFlame, absl::StrCat("Process ", i), "",
+                           i, kProcessNestingLevel, true});
+    data.level_event_indices.push_back(i);
+    data.level_offsets.push_back(i + 1);
+  }
+  timeline_.set_track_management_enabled(true);
+  timeline_.pinned_track_names_.insert("Process 1");
+  timeline_.SetTimelineData(data);
+
+  EXPECT_TRUE(timeline_.is_group_pinned_for_test(1));
+  EXPECT_TRUE(timeline_.is_level_pinned_for_test(1));
+  EXPECT_FALSE(timeline_.is_group_pinned_for_test(0));
+  EXPECT_FALSE(timeline_.is_level_pinned_for_test(0));
+
+  // When scroll_y is 0, sticky offset is 0.
+  timeline_.set_scroll_offset_for_test(0.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_EQ(timeline_.get_sticky_offset_for_test(), 0.0f);
+
+  // When scroll_y equals header_pinned_offset (30.0f inside Draw where
+  // CellPadding.y is 0, or 32.0f initially), sticky offset is still 0.
+  timeline_.set_scroll_offset_for_test(30.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_EQ(timeline_.get_sticky_offset_for_test(), 0.0f);
+
+  // When scrolled past header_pinned_offset, sticky offset becomes positive.
+  timeline_.set_scroll_offset_for_test(150.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_GT(timeline_.get_sticky_offset_for_test(), 0.0f);
+
+  // When unpinned, sticky offset resets to 0.
+  timeline_.pinned_track_names_.erase("Process 1");
+  timeline_.SetTimelineData(data);
+  EXPECT_FALSE(timeline_.is_group_pinned_for_test(1));
+  timeline_.set_scroll_offset_for_test(150.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_EQ(timeline_.get_sticky_offset_for_test(), 0.0f);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       TrackManagement_StickyOffsetDisabledWhenFeatureFlagOff) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0};
+  data.entry_names = {"event1", "event2"};
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true},
+      {Group::Type::kFlame, "Process B", "", 1, kProcessNestingLevel, true}};
+  data.level_offsets = {0, 1, 2};
+  data.level_event_indices = {0, 1};
+  timeline_.pinned_track_names_.insert("Process B");
+  timeline_.set_track_management_enabled(false);
+  timeline_.SetTimelineData(data);
+
+  timeline_.set_scroll_offset_for_test(200.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_EQ(timeline_.get_sticky_offset_for_test(), 0.0f);
+  EXPECT_FALSE(timeline_.is_group_pinned_for_test(0));
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       TrackManagement_ProcessPendingScrollWithStickyPinnedTrack) {
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 100.0f);
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+  data.entry_total_times.assign(10, 10.0);
+  data.entry_self_times.assign(10, 10.0);
+  data.entry_start_times.assign(10, 0.0);
+  data.entry_names = {"event_pinned"};
+  data.entry_names.resize(10, "event");
+  data.level_offsets = {0};
+  for (int i = 0; i < 10; ++i) {
+    data.groups.push_back({Group::Type::kFlame, absl::StrCat("Process ", i), "",
+                           i, kProcessNestingLevel, true});
+    data.level_event_indices.push_back(i);
+    data.level_offsets.push_back(i + 1);
+  }
+  timeline_.set_track_management_enabled(true);
+  timeline_.pinned_track_names_.insert("Process 0");
+  timeline_.SetTimelineData(data);
+
+  // Scroll down so pinned track sticks to top.
+  timeline_.set_scroll_offset_for_test(150.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_FLOAT_EQ(timeline_.last_scroll_y_for_test(), 150.0f);
+
+  // Reveal pinned event: since it is sticky, it is already visible.
+  timeline_.RevealEvent(0);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_FLOAT_EQ(timeline_.last_scroll_y_for_test(), 150.0f);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       TrackManagement_PinnedTrackRowAppliesStickyOffset) {
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 100.0f);
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+  data.entry_total_times.assign(10, 10.0);
+  data.entry_self_times.assign(10, 10.0);
+  data.entry_start_times.assign(10, 0.0);
+  data.entry_names.assign(10, "event");
+  data.level_offsets = {0};
+  for (int i = 0; i < 10; ++i) {
+    data.groups.push_back({Group::Type::kFlame, absl::StrCat("Process ", i), "",
+                           i, kProcessNestingLevel, true});
+    data.level_event_indices.push_back(i);
+    data.level_offsets.push_back(i + 1);
+  }
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.pinned_track_names_.insert("Process 0");
+  timeline_.SetTimelineData(data);
+
+  // When scrolled down (scroll_y = 150.0f > header_pinned_offset_), sticky
+  // offset is applied to the pinned process track row.
+  timeline_.set_scroll_offset_for_test(150.0f);
+  StepImGuiFrames(timeline_, 2);
+
+  const Pixel sticky_offset = timeline_.get_sticky_offset_for_test();
+  EXPECT_GT(sticky_offset, 0.0f);
+
+  ImGuiWindow* tracks_window = nullptr;
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (absl::StrContains(w->Name, "Tracks")) {
+      tracks_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(tracks_window, nullptr);
+
+  // The pinned process row background must be drawn at group_offsets_[0] +
+  // sticky_offset.
+  const Pixel expected_pinned_y =
+      timeline_.get_tracks_start_screen_pos_for_test().y +
+      timeline_.get_group_offset_for_test(0) + sticky_offset;
+
+  bool found_pinned_bg = false;
+  for (const auto& vtx : tracks_window->DrawList->VtxBuffer) {
+    if (std::abs(vtx.pos.y - expected_pinned_y) < 1.0f) {
+      found_pinned_bg = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_pinned_bg);
+}
+
+TEST_F(RealTimelineImGuiFixture, TrackManagement_StickyPass2StopsAtAllHeader) {
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 600.0f);
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1, 2, 3, 4};
+  data.entry_total_times.assign(5, 10.0);
+  data.entry_self_times.assign(5, 10.0);
+  data.entry_start_times.assign(5, 0.0);
+  data.entry_names.assign(5, "event");
+  data.level_offsets = {0};
+  for (int i = 0; i < 5; ++i) {
+    data.groups.push_back({Group::Type::kFlame, absl::StrCat("Process ", i), "",
+                           i, kProcessNestingLevel, false});
+    data.level_event_indices.push_back(i);
+    data.level_offsets.push_back(i + 1);
+  }
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.pinned_track_names_.insert("Process 0");
+  timeline_.SetTimelineData(data);
+
+  timeline_.set_scroll_offset_for_test(150.0f);
+  StepImGuiFrames(timeline_, 2);
+
+  ImGuiWindow* tracks_window = nullptr;
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (absl::StrContains(w->Name, "Tracks")) {
+      tracks_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(tracks_window, nullptr);
+
+  const ImU32 expanded_bg_color =
+      timeline_.GetPalette()
+          .GetColor(ColorPalette::Key::kExpandedHeader)
+          .value_or(kProcessTrackExpandedColor);
+
+  int expanded_bg_vtx_count = 0;
+  for (const auto& vtx : tracks_window->DrawList->VtxBuffer) {
+    if (vtx.col == expanded_bg_color) {
+      expanded_bg_vtx_count++;
+    }
+  }
+  // Each process header uses AddRectFilledMultiColor with expanded_bg_color on
+  // the bottom 2 vertices. With 5 processes drawn once each, there are 5 * 2 =
+  // 10 vertices with expanded_bg_color. If Pass 2 did not break at header_all_,
+  // the 4 unpinned processes would be drawn a second time in Pass 2.
+  EXPECT_EQ(expanded_bg_vtx_count, 5 * 2);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       TrackManagement_StickyPass1SkipsHiddenAndCollapsedGroups) {
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 100.0f);
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+  data.entry_total_times.assign(10, 10.0);
+  data.entry_self_times.assign(10, 10.0);
+  data.entry_start_times.assign(10, 0.0);
+  data.entry_names.assign(10, "event");
+
+  // Process 0: Pinned
+  data.groups.push_back(
+      {Group::Type::kFlame, "Process 0", "", 0, kProcessNestingLevel, true});
+
+  // Process 1: Unpinned, collapsed with has_children=true
+  Group process_1 = {Group::Type::kFlame,  "Process 1", "", 1,
+                     kProcessNestingLevel, false};
+  process_1.has_children = true;
+  data.groups.push_back(process_1);
+
+  // Child thread of Process 1: group_visible_ will be false
+  data.groups.push_back(
+      {Group::Type::kFlame, "Thread 1", "", 2, kThreadNestingLevel, true});
+
+  for (int i = 3; i < 10; ++i) {
+    data.groups.push_back({Group::Type::kFlame, absl::StrCat("Process ", i), "",
+                           i, kProcessNestingLevel, true});
+  }
+  data.level_offsets = {0};
+  for (int i = 0; i < 10; ++i) {
+    data.level_event_indices.push_back(i);
+    data.level_offsets.push_back(i + 1);
+  }
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.pinned_track_names_.insert("Process 0");
+  timeline_.SetTimelineData(data);
+
+  EXPECT_FALSE(timeline_.group_visible()[2]);
+
+  // When scrolled down (sticky mode active), Pass 1 iterates through unpinned
+  // groups and skips invisible groups.
+  timeline_.set_scroll_offset_for_test(150.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_GT(timeline_.get_sticky_offset_for_test(), 0.0f);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       TrackManagement_StickyPass1TogglesHeaderExpandCollapse) {
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 600.0f);
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0};
+  data.entry_names = {"event0", "event1"};
+  data.groups = {
+      {Group::Type::kFlame, "Process 0", "", 0, kProcessNestingLevel, true},
+      {Group::Type::kFlame, "Process 1", "", 1, kProcessNestingLevel, true}};
+  data.level_offsets = {0, 1, 2};
+  data.level_event_indices = {0, 1};
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.pinned_track_names_.insert("Process 0");
+  timeline_.SetTimelineData(data);
+
+  // Set sticky scroll
+  timeline_.set_scroll_offset_for_test(150.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_TRUE(timeline_.is_header_all_expanded_for_test());
+
+  // Position mouse over header_all_ expand/collapse button in Pass 1.
+  // In Pass 1, header_all_ is drawn at group_top = header_all_offset_.
+  const ImVec2 btn_pos(
+      timeline_.get_tracks_start_screen_pos_for_test().x +
+          kTrackLabelPaddingLeft + 5.0f,
+      timeline_.get_tracks_start_screen_pos_for_test().y +
+          timeline_.get_header_all_offset_for_test() +
+          kVirtualHeaderHeight * 0.5f);
+
+  ImGui::GetIO().MousePos = btn_pos;
+  ImGui::GetIO().AddMouseButtonEvent(0, true);
+  StepImGuiFrames(timeline_, 1);
+  ImGui::GetIO().AddMouseButtonEvent(0, false);
+  StepImGuiFrames(timeline_, 1);
+
+  EXPECT_FALSE(timeline_.is_header_all_expanded_for_test());
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawTrackRow_PinnedGroupCheck_Coverage) {
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 100.0f);
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0};
+  data.entry_names = {"event1", "event2"};
+  data.groups = {
+      {Group::Type::kFlame, "Process 0", "", 0, kProcessNestingLevel, true},
+      {Group::Type::kFlame, "Process 1", "", 1, kProcessNestingLevel, true}};
+  data.level_offsets = {0, 1, 2};
+  data.level_event_indices = {0, 1};
+  timeline_.pinned_track_names_.insert("Process 0");
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  // Scroll down so that sticky offset applies
+  timeline_.set_scroll_offset_for_test(200.0f);
+  StepImGuiFrames(timeline_, 2);
+
+  // Process 0 is pinned, Process 1 is not.
+  EXPECT_TRUE(timeline_.is_group_pinned_for_test(0));
+  EXPECT_FALSE(timeline_.is_group_pinned_for_test(1));
+
+  // The sticky offset should be positive
+  EXPECT_GT(timeline_.get_sticky_offset_for_test(), 0.0f);
+
+  // Unpin to cover the false branch
+  timeline_.pinned_track_names_.erase("Process 0");
+  timeline_.SetTimelineData(data);
+  timeline_.set_scroll_offset_for_test(200.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_FALSE(timeline_.is_group_pinned_for_test(0));
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       RenderPass1_GroupBottomLessThanScrollY_Coverage) {
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 100.0f);
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0};
+  data.entry_names = {"event1", "event2"};
+  data.groups = {
+      {Group::Type::kFlame, "Process 0", "", 0, kProcessNestingLevel, true},
+      {Group::Type::kFlame, "Process 1", "", 1, kProcessNestingLevel, true}};
+  data.level_offsets = {0, 1, 2};
+  data.level_event_indices = {0, 1};
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  timeline_.set_scroll_offset_for_test(2000.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_EQ(timeline_.selected_event_index(), -1);
+}
+
 TEST(TimelineTest, DrawWithoutDataDoesNotCrash) {
   ImGui::CreateContext();
   ImGuiIO& io = ImGui::GetIO();
@@ -17490,3 +17847,4 @@ TEST_F(RealTimelineImGuiFixture,
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer
+

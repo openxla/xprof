@@ -835,6 +835,28 @@ class Timeline {
            static_cast<size_t>(level) < level_mip_pyramids_.size() &&
            level_mip_pyramids_[level].raw_events_compacted;
   }
+  Pixel get_sticky_offset_for_test() const { return sticky_offset_; }
+  bool is_group_pinned_for_test(int group_index) const {
+    return group_index >= 0 &&
+           static_cast<size_t>(group_index) < group_is_pinned_.size() &&
+           group_is_pinned_[group_index];
+  }
+  bool is_level_pinned_for_test(int level) const {
+    return level >= 0 &&
+           static_cast<size_t>(level) < level_is_pinned_.size() &&
+           level_is_pinned_[level];
+  }
+  Pixel get_group_offset_for_test(int group_index) const {
+    return group_index >= 0 &&
+                   static_cast<size_t>(group_index) < group_offsets_.size()
+               ? group_offsets_[group_index]
+               : 0.0f;
+  }
+  Pixel get_header_all_offset_for_test() const { return header_all_offset_; }
+  bool is_header_all_expanded_for_test() const { return header_all_expanded_; }
+  ImVec2 get_tracks_start_screen_pos_for_test() const {
+    return tracks_start_screen_pos_;
+  }
 
   struct GpuFlameBatch {
     uint32_t first_instance = 0;
@@ -1366,6 +1388,16 @@ class Timeline {
   // Stores whether each group is visible (not hidden by a collapsed parent).
   // Precalculated in UpdateLevelPositions.
   std::vector<bool> group_visible_;
+  // Stores whether each group belongs to a pinned process section.
+  // Precalculated in BuildFlattenedGroups.
+  std::vector<bool> group_is_pinned_;
+  // Stores whether each level belongs to a pinned process section.
+  // Precalculated in UpdateLevelPositions.
+  std::vector<bool> level_is_pinned_;
+  // Current sticky Y offset (in pixels) applied to the Pinned section during
+  // vertical scrolling so pinned tracks remain fixed at the top of the
+  // viewport.
+  Pixel sticky_offset_ = 0.0f;
   // Motion state (see set_animations_enabled).
   struct LayoutTransition {
     bool active = false;

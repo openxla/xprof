@@ -287,10 +287,10 @@ http_archive(
     name = "xla",
     patch_args = ["-p1"],
     patches = ["//third_party:xla.patch"],
-    sha256 = "1cca55def08ef659139ea0d2d22d3426de0388aaa6c7935fbe07547fc80f44ab",
-    strip_prefix = "xla-9111cb3852eebeb09e32b32337c96e6596291ad1",
+    sha256 = "189bf4a92711d0c6cf3984fccba6b23e65d7b67e2adfd36b1be2505be26e2da8",
+    strip_prefix = "xla-827c753271865ea2739c5ed8f4023dc186672457",
     urls = [
-        "https://github.com/openxla/xla/archive/9111cb3852eebeb09e32b32337c96e6596291ad1.zip",
+        "https://github.com/openxla/xla/archive/827c753271865ea2739c5ed8f4023dc186672457.zip",
     ],
 )
 
@@ -313,7 +313,6 @@ compatibility_proxy_repo()
 
 _GRPC_PATCHES = [
     "@xla//third_party/grpc:grpc.patch",
-    "//third_party:grpc.patch",
 ]
 
 _GRPC_SHA256 = "41b695614b26652ff9e97ce50cfd4a6c7a3d45a9fe598d1454407746499bbf2c"

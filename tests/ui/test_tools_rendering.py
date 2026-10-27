@@ -300,3 +300,103 @@ def test_memory_viewer_shows_the_selected_module(
   select_module(page, "jit_train_step")
   expect(summary).to_contain_text("Module Name: jit_train_step(", timeout=20000)
   assert_healthy(page, browser_errors, "memory_viewer_module_selection")
+
+
+def test_input_pipeline_analysis_deep_components(
+    page: Page,
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+) -> None:
+  """Verifies Input Pipeline Analysis mounts summary, charts, and details."""
+  open_tool("tpu-training", "input_pipeline_analyzer")
+
+  pipeline_comp = page.locator("input-pipeline")
+  expect(pipeline_comp).to_be_visible(timeout=20000)
+
+  # 1. Summary conclusion
+  summary = pipeline_comp.locator("analysis-summary")
+  expect(summary).to_be_visible(timeout=10000)
+  conclusion = summary.locator(".summary-conclusion")
+  expect(conclusion).to_be_visible(timeout=10000)
+  expect(conclusion).to_contain_text(re.compile(r"input-bound", re.IGNORECASE))
+
+  # 2. Device-side analysis statistics and charts
+  device_detail = pipeline_comp.locator("device-side-analysis-detail")
+  expect(device_detail).to_be_visible(timeout=10000)
+  expect(device_detail).to_contain_text(
+      re.compile(r"Average:\s*\d+(\.\d+)?\s*ms")
+  )
+  area_chart = device_detail.locator("chart[charttype='AreaChart']")
+  expect(area_chart).to_be_visible(timeout=20000)
+  area_svg = area_chart.locator("svg").first
+  expect(area_svg).to_be_visible(timeout=10000)
+  bbox = area_svg.bounding_box()
+  assert bbox is not None and bbox["width"] > 0 and bbox["height"] > 0
+
+  # 3. Max infeed detail table and Host-side analysis detail
+  max_infeed = pipeline_comp.locator("max-infeed-detail")
+  expect(max_infeed).to_be_visible(timeout=10000)
+  infeed_table = max_infeed.locator(".table, table")
+  expect(infeed_table.first).to_be_visible(timeout=10000)
+  expect(infeed_table.first.locator("td, th").first).to_be_visible(timeout=5000)
+
+  host_detail = pipeline_comp.locator("host-side-analysis-detail")
+  expect(host_detail).to_be_visible(timeout=10000)
+  expect(host_detail).to_contain_text("Host-side analysis details")
+  assert_healthy(page, browser_errors, "input_pipeline_deep_components")
+
+
+def test_op_profile_interactive_toggles(
+    page: Page,
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+) -> None:
+  """Verifies Op Profile interactive controls and slide toggles update state."""
+  open_tool("tpu-training", "op_profile")
+
+  op_profile = page.locator("op-profile, op-profile-base").first
+  expect(op_profile).to_be_visible(timeout=20000)
+
+  # 1. Exclude Idle slide toggle
+  exclude_idle_control = op_profile.locator(".control:has-text('Exclude Idle')")
+  expect(exclude_idle_control).to_be_visible(timeout=10000)
+  switch_btn = exclude_idle_control.locator("button[role='switch']")
+  expect(switch_btn).to_be_visible(timeout=10000)
+  initial_state = switch_btn.get_attribute("aria-checked")
+  expected_next = "false" if initial_state == "true" else "true"
+  switch_btn.click()
+  expect(switch_btn).to_have_attribute(
+      "aria-checked", expected_next, timeout=5000
+  )
+
+  # 2. Invariant health verification
+  assert_healthy(page, browser_errors, "op_profile_interactive_toggles")
+
+
+def test_hlo_stats_chart_expansion(
+    page: Page,
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+) -> None:
+  """Verifies HLO Op Stats Chart Section expansion renders pie charts."""
+  open_tool("tpu-training", "hlo_stats")
+
+  hlo_comp = page.locator("hlo-stats").first
+  expect(hlo_comp).to_be_visible(timeout=20000)
+
+  # 1. Expand Chart Section
+  header = hlo_comp.locator(
+      "mat-expansion-panel-header:has-text('Chart Section')"
+  )
+  expect(header).to_be_visible(timeout=10000)
+  header.click()
+
+  pie_chart = hlo_comp.locator("chart[charttype='PieChart']").first
+  expect(pie_chart).to_be_visible(timeout=20000)
+  svg = pie_chart.locator("svg").first
+  expect(svg).to_be_visible(timeout=15000)
+  bbox = svg.bounding_box()
+  assert bbox is not None and bbox["width"] > 0 and bbox["height"] > 0
+
+  # 2. Invariant health verification
+  assert_healthy(page, browser_errors, "hlo_stats_chart_expansion")

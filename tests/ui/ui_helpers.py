@@ -72,6 +72,10 @@ def assert_healthy(
   assert text.strip(), f"Empty page body rendered{ctx}"
   violations = invariants.run_content_invariants(text)
   assert not violations, f"Poison tokens detected{ctx}: {violations}"
+  if page.locator("main-page mat-sidenav-content").count() > 0:
+    sync_api.expect(
+        page.locator("main-page mat-sidenav-content > div.full-height")
+    ).to_be_visible(timeout=20000)
   invariants.assert_page_invariants(page)
   if browser_errors is not None and hasattr(browser_errors, "assert_clean"):
     browser_errors.assert_clean(context)

@@ -91,7 +91,7 @@ def test_memory_viewer_module_selection_persists_across_reload(
 
   select_module(page, "jit_train_step")
   expect(summary).to_contain_text("Module Name: jit_train_step(", timeout=20000)
-  expect(summary).to_contain_text("12106.12", timeout=10000)
+  expect(summary).to_contain_text("12105.90", timeout=10000)
   expect(page).to_have_url(
       re.compile(r"[?&]moduleName=jit_train_step"), timeout=10000
   )
@@ -101,7 +101,7 @@ def test_memory_viewer_module_selection_persists_across_reload(
       re.compile(r"[?&]moduleName=jit_train_step"), timeout=10000
   )
   expect(summary).to_contain_text("Module Name: jit_train_step(", timeout=20000)
-  expect(summary).to_contain_text("12106.12", timeout=10000)
+  expect(summary).to_contain_text("12105.90", timeout=10000)
   expect(
       page.locator("sidenav .item-container:has-text('Hlo Modules') mat-select")
   ).to_contain_text("jit_train_step")

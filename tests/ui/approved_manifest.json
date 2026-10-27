@@ -62,27 +62,27 @@
     },
     "compute.op_profile_and_stats:01_switch_tool_HLO Op Profile": {
       "decision": "INTENTIONAL",
-      "diff_hash": "c8c78d19efbf0728",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:33.874747+00:00"
+      "diff_hash": "4d959e15af344c3b",
+      "rationale": "Intentional UI updates: Op Profile requests serving_metadata=true and renders serving metadata badge/details bindings.",
+      "timestamp": "2026-10-26T12:18:52.234206+00:00"
     },
     "compute.op_profile_and_stats:02_select_op_profile_group_by_Provenance": {
       "decision": "INTENTIONAL",
-      "diff_hash": "11fd0fa78717a3d5",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:33.877303+00:00"
+      "diff_hash": "9d5af6f6c1b63dff",
+      "rationale": "Intentional UI updates: Op Profile requests serving_metadata=true and renders serving metadata badge/details bindings.",
+      "timestamp": "2026-10-26T12:18:52.238281+00:00"
     },
     "compute.op_profile_and_stats:03_select_op_profile_group_by_Category": {
       "decision": "INTENTIONAL",
-      "diff_hash": "7590ee9304c5ed13",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:33.879770+00:00"
+      "diff_hash": "996e0b901159e7f2",
+      "rationale": "Intentional UI updates: Op Profile requests serving_metadata=true and renders serving metadata badge/details bindings.",
+      "timestamp": "2026-10-26T12:18:52.242785+00:00"
     },
     "compute.op_profile_and_stats:04_expand_op_profile_row_convolution fusion": {
       "decision": "INTENTIONAL",
-      "diff_hash": "02ab48d29632c253",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:33.882404+00:00"
+      "diff_hash": "72f4ff8fa0c5a709",
+      "rationale": "Intentional UI updates: Op Profile requests serving_metadata=true and renders serving metadata badge/details bindings.",
+      "timestamp": "2026-10-26T12:18:52.246920+00:00"
     },
     "compute.op_profile_and_stats:05_switch_tool_Framework Op Stats": {
       "decision": "INTENTIONAL",
@@ -314,9 +314,9 @@
     },
     "routing.popstate_resilience_loop:06_switch_tool_Op Profile": {
       "decision": "INTENTIONAL",
-      "diff_hash": "542616c885c9e107",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:33.916306+00:00"
+      "diff_hash": "46246e4c513c5f8c",
+      "rationale": "Intentional UI updates: Op Profile requests serving_metadata=true and renders serving metadata badge/details bindings.",
+      "timestamp": "2026-10-26T12:18:52.250606+00:00"
     },
     "triage.pipeline_and_hardware_bounds:00_overview_page": {
       "decision": "INTENTIONAL",
@@ -350,27 +350,27 @@
     },
     "triage.pipeline_and_hardware_bounds:05_switch_tool_Op Profile": {
       "decision": "INTENTIONAL",
-      "diff_hash": "98eeb17a9a224d21",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:33.827279+00:00"
+      "diff_hash": "0ef03c5880658061",
+      "rationale": "Intentional UI updates: Op Profile requests serving_metadata=true and renders serving metadata badge/details bindings.",
+      "timestamp": "2026-10-26T12:18:52.215567+00:00"
     },
     "triage.pipeline_and_hardware_bounds:06_select_op_profile_group_by_Category": {
       "decision": "INTENTIONAL",
-      "diff_hash": "15ea1aaf2e008ae0",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:33.829702+00:00"
+      "diff_hash": "69c4deabc9156f3c",
+      "rationale": "Intentional UI updates: Op Profile requests serving_metadata=true and renders serving metadata badge/details bindings.",
+      "timestamp": "2026-10-26T12:18:52.220780+00:00"
     },
     "triage.pipeline_and_hardware_bounds:07_expand_op_profile_row_convolution fusion": {
       "decision": "INTENTIONAL",
-      "diff_hash": "8614f51e6e673d9a",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:33.832149+00:00"
+      "diff_hash": "6b2a79d3d3f9fbfe",
+      "rationale": "Intentional UI updates: Op Profile requests serving_metadata=true and renders serving metadata badge/details bindings.",
+      "timestamp": "2026-10-26T12:18:52.225454+00:00"
     },
     "triage.pipeline_and_hardware_bounds:08_expand_op_profile_row_custom fusion": {
       "decision": "INTENTIONAL",
-      "diff_hash": "3a4919b8a932cfd3",
-      "rationale": "Intentional UI updates: responsive mat-sidenav mode binding, Roofline Operation-Level PieChart rendering, Memory Viewer moduleName persistence, and single-step History Back/Forward navigation.",
-      "timestamp": "2026-10-08T07:53:33.834497+00:00"
+      "diff_hash": "61fc85cb6035661d",
+      "rationale": "Intentional UI updates: Op Profile requests serving_metadata=true and renders serving metadata badge/details bindings.",
+      "timestamp": "2026-10-26T12:18:52.229832+00:00"
     },
     "triage.pipeline_and_hardware_bounds:09_switch_tool_Roofline Model": {
       "decision": "INTENTIONAL",

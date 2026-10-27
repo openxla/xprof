@@ -53,6 +53,15 @@
             </button>
           </a>
         </div>
+        <div *ngIf="servingModelBatches.length" class="info">
+          <div class="title">Serving (batch size · model · batches):</div>
+          <code
+            *ngFor="let item of servingModelBatches"
+            class="expression serving-entry">{{item}}</code>
+          <div
+            *ngIf="servingOmittedSummary"
+            class="serving-omitted">{{servingOmittedSummary}}</div>
+        </div>
         <div class="info" [hidden]="!avgTime">
           <div class="title">Total Time Avg:</div>
           <code class="expression">{{avgTime}}</code>

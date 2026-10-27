@@ -50,6 +50,7 @@ export class OpProfile implements OnDestroy {
     DATA_SERVICE_INTERFACE_TOKEN,
   );
   private readonly diffService: BaseDiffService = inject(BaseDiffService);
+  private readonly store: Store<{}> = inject(Store);
   private readonly opProfileDataCache = new Map<string, OpProfileProto>();
 
   sessionId = '';
@@ -59,10 +60,8 @@ export class OpProfile implements OnDestroy {
   opProfileData: OpProfileProto | null = null;
   groupBy = GROUP_BY_RULES[0]; // Default value
 
-  constructor(
-    route: ActivatedRoute,
-    private readonly store: Store<{}>,
-  ) {
+  constructor() {
+    const route = inject(ActivatedRoute);
     combineLatest([route.params, route.queryParams])
       .pipe(takeUntil(this.destroyed))
       .subscribe(([params, queryParams]) => {
@@ -114,6 +113,7 @@ export class OpProfile implements OnDestroy {
 
     const params = new Map<string, string>();
     params.set('group_by', groupBy);
+    params.set('serving_metadata', 'true');
     return this.diffService
       .getDiffData(this.sessionId, this.tool, {
         baselineSessionId: this.diffService.getBaseSessionId(),

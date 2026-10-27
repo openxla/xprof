@@ -43,3 +43,8 @@ pytype_strict_library(
     name = "xplane_event_query",
     srcs = ["xplane_event_query.py"],
 )
+
+pytype_strict_library(
+    name = "async_overlap",
+    srcs = ["async_overlap.py"],
+)

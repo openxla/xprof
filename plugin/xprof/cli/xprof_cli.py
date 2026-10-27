@@ -104,6 +104,9 @@ xprof_data = _LazyModuleProxy("xprof.cli.internal.xprof_data")
 hlo_tools = _LazyModuleProxy("xprof.cli.internal.oss.hlo_tools")
 xplane_tools = _LazyModuleProxy("xprof.cli.internal.oss.xplane_tools")
 xprof_client = _LazyModuleProxy("xprof.cli.internal.oss.xprof_client")
+analyze_async_overlap_tool = _LazyModuleProxy(
+    "xprof.cli.tools.analyze_async_overlap_tool"
+)
 check_host_boundness_tool = _LazyModuleProxy(
     "xprof.cli.tools.check_host_boundness_tool"
 )
@@ -195,6 +198,7 @@ def cli_main() -> dict[str, Any]:
       # 39 Core Tools (Available in both 1P and 3P):
       # keep-sorted start
       "aggregate_xplane_events": xplane_tools.aggregate_xplane_events,
+      "analyze_async_overlap": analyze_async_overlap_tool.analyze_async_overlap,
       "check_host_boundness": check_host_boundness_tool.check_host_boundness,
       "check_kernel_profiling": xplane_tools.inspect_capture,
       "compute_utilization": get_kernel_utilization_tool.get_kernel_utilization,

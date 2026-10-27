@@ -79,6 +79,11 @@ class XProfCliTest(parameterized.TestCase):
     self.cli.aggregate_xplane_events('session_123', '.*', '.*')
     mock_agg_events.assert_called_with('session_123', '.*', '.*')
 
+  @mock.patch.object(xprof_cli.XProfCli, 'analyze_async_overlap')
+  def test_analyze_async_overlap(self, mock_analyze_overlap):
+    self.cli.analyze_async_overlap('session_123')
+    mock_analyze_overlap.assert_called_with('session_123')
+
   @mock.patch.object(xprof_cli.XProfCli, 'get_xspace_proto')
   def test_get_xspace_proto(self, mock_get_xspace):
     self.cli.get_xspace_proto('session_123')
@@ -776,6 +781,23 @@ class MultiTraceSelectionTest(absltest.TestCase):
     self.assertEqual(
         self.calls, [{'session_id': str(self.rank2), 'host': 'rank2_node0'}]
     )
+
+  def test_fire_analyze_async_overlap_host_shared_by_a_sibling(self):
+    # `--host=a.h0` selects `a.h0.xplane.pb`, whose `get_hosts` name "h0" is
+    # also the name of `b.h0.xplane.pb`; the tool must not resolve it again.
+    run_dir = pathlib.Path(self.create_tempdir().full_path)
+    a_path = run_dir / 'a.h0.xplane.pb'
+    a_path.write_bytes(b'')
+    (run_dir / 'b.h0.xplane.pb').write_bytes(b'')
+    wrapped = xprof_cli._wrap_with_logdir(
+        xprof_cli.analyze_async_overlap_tool.analyze_async_overlap
+    )
+    res = self._fire(wrapped, str(run_dir), '--host=a.h0', '--bypass_cache')
+    out = json.loads(res)
+    self.assertEqual(out['session_id'], str(a_path))
+    self.assertEqual(out['host'], 'h0')
+    self.assertEqual(out['status'], 'NO_DEVICE_TIMELINE_EVENTS')
+    self.assertEqual(out['capture']['files_used'], ['a.h0'])
 
   def test_fire_omitted_native_host_uses_tool_default(self):
     wrapped = self._tool('get_llo_analysis', native_host=True)

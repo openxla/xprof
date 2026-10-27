@@ -260,6 +260,7 @@ def get_abs_path(logdir: str) -> str:
 # tools registered in `xprof.cli.xprof_cli.cli_main`.
 _CLI_SUBCOMMANDS = frozenset({
     "aggregate_xplane_events",
+    "analyze_async_overlap",
     "check_host_boundness",
     "check_kernel_profiling",
     "compute_utilization",

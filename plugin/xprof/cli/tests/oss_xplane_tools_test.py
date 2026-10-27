@@ -51,6 +51,12 @@ class _FakePlane:
     self.stat_metadata = {}
 
 
+class _FakeSpace:
+
+  def __init__(self, planes):
+    self.planes = planes
+
+
 class IterPlanesTest(absltest.TestCase):
 
   def setUp(self):
@@ -343,6 +349,129 @@ class InspectCaptureTest(absltest.TestCase):
         [("/device:TPU:0", "Copy"), ("/device:TPU:0", "Fusion")],
     )
     self.assertNotIn("line", payload["aggregates"][0])
+
+  def test_iter_timeline_events_filters_and_converts_ns_to_ps(self):
+    fake_plane = _FakePlane(
+        "/device:TPU:0",
+        lines=[
+            _FakeLine(
+                "Async XLA Ops",
+                events=[_FakeEvent("copy-start.1", start_ns=5, duration_ns=2)],
+            ),
+            _FakeLine("XLA Modules", events=[_FakeEvent("mod", start_ns=1)]),
+        ],
+    )
+    events = xplane_tools.iter_timeline_events(_FakeSpace([fake_plane]))
+    self.assertLen(events, 1)
+    self.assertEqual(events[0].plane, "/device:TPU:0")
+    self.assertEqual(events[0].line, "Async XLA Ops")
+    self.assertEqual(events[0].name, "copy-start.1")
+    self.assertEqual(events[0].start_ps, 5000)
+    self.assertEqual(events[0].duration_ps, 2000)
+    self.assertEqual(events[0].host, "")
+
+  def _write_two_host_traces(self, tmpdir: str) -> None:
+    (pathlib.Path(tmpdir) / "host-0.xplane.pb").write_bytes(b"host-0")
+    (pathlib.Path(tmpdir) / "host-1.xplane.pb").write_bytes(b"host-1")
+
+  def _fake_from_serialized(self, raw_bytes):
+    """Returns one `/device:TPU:0` plane whose event names its trace."""
+    name = "copy-start.1" if raw_bytes == b"host-0" else "copy-done.1"
+    pd = mock.MagicMock()
+    pd.planes = [
+        _FakePlane(
+            "/device:TPU:0", lines=[_FakeLine("XLA Ops", [_FakeEvent(name)])]
+        )
+    ]
+    return pd
+
+  def test_iter_timeline_events_labels_each_trace_of_a_directory(self):
+    with tempfile.TemporaryDirectory() as tmpdir:
+      self._write_two_host_traces(tmpdir)
+      with mock.patch.object(
+          xplane_tools.profiler.ProfileData,
+          "from_serialized_xspace",
+          side_effect=self._fake_from_serialized,
+      ):
+        events = xplane_tools.iter_timeline_events(tmpdir)
+    self.assertCountEqual(
+        [(e.host, e.plane, e.name) for e in events],
+        [
+            ("host-0", "/device:TPU:0", "copy-start.1"),
+            ("host-1", "/device:TPU:0", "copy-done.1"),
+        ],
+    )
+
+  def test_iter_timeline_events_host_selects_one_trace_of_a_directory(self):
+    with tempfile.TemporaryDirectory() as tmpdir:
+      self._write_two_host_traces(tmpdir)
+      with mock.patch.object(
+          xplane_tools.profiler.ProfileData,
+          "from_serialized_xspace",
+          side_effect=self._fake_from_serialized,
+      ):
+        events = xplane_tools.iter_timeline_events(tmpdir, host="host-1")
+        with self.assertRaisesRegex(ValueError, "Unknown host"):
+          xplane_tools.iter_timeline_events(tmpdir, host="host-2")
+    self.assertEqual([(e.host, e.name) for e in events], [("", "copy-done.1")])
+
+  def test_iter_timeline_events_rejects_host_for_in_memory_source(self):
+    with self.assertRaisesRegex(ValueError, "host is only supported"):
+      xplane_tools.iter_timeline_events(_FakeSpace([]), host="host-0")
+
+  def _fake_named_from_serialized(self, raw_bytes):
+    """Returns one `/device:TPU:0` plane with one event named `raw_bytes`."""
+    pd = mock.MagicMock()
+    pd.planes = [
+        _FakePlane(
+            "/device:TPU:0",
+            lines=[_FakeLine("XLA Ops", [_FakeEvent(raw_bytes.decode())])],
+        )
+    ]
+    return pd
+
+  def _timeline(self, session_id, **kwargs):
+    with mock.patch.object(
+        xplane_tools.profiler.ProfileData,
+        "from_serialized_xspace",
+        side_effect=self._fake_named_from_serialized,
+    ):
+      events = xplane_tools.iter_timeline_events(session_id, **kwargs)
+    return [(e.host, e.name) for e in events]
+
+  def test_iter_timeline_events_file_with_host_shared_by_a_sibling(self):
+    # The CLI resolves `--host=a.h0` to the file `a.h0.xplane.pb` and passes
+    # its `get_hosts` name "h0", which `b.h0.xplane.pb` also has.
+    with tempfile.TemporaryDirectory() as tmpdir:
+      a_path = pathlib.Path(tmpdir) / "a.h0.xplane.pb"
+      a_path.write_bytes(b"a")
+      (pathlib.Path(tmpdir) / "b.h0.xplane.pb").write_bytes(b"b")
+      self.assertEqual(self._timeline(str(a_path), host="h0"), [("", "a")])
+      self.assertEqual(self._timeline(str(a_path), host="a.h0"), [("", "a")])
+      with self.assertRaisesRegex(ValueError, "Conflicting selection"):
+        self._timeline(str(a_path), host="b.h0")
+
+  def test_iter_timeline_events_reads_file_without_trace_suffix(self):
+    with tempfile.TemporaryDirectory() as tmpdir:
+      path = pathlib.Path(tmpdir) / "trace.pb"
+      path.write_bytes(b"trace")
+      (pathlib.Path(tmpdir) / "host-0.xplane.pb").write_bytes(b"host-0")
+      self.assertEqual(self._timeline(str(path)), [("", "trace")])
+
+  def test_iter_timeline_events_labels_duplicate_stems_by_relative_path(self):
+    for names in (
+        ("x/host-0.xplane.pb", "y/host-0.xplane.pb"),
+        ("host-0.xplane.pb", "host-0.xspace.pb"),
+    ):
+      with self.subTest(names=names):
+        with tempfile.TemporaryDirectory() as tmpdir:
+          for name in names:
+            path = pathlib.Path(tmpdir) / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(name.encode())
+          self.assertCountEqual(
+              self._timeline(tmpdir), [(name, name) for name in names]
+          )
 
 
 if __name__ == "__main__":

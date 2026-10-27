@@ -18,6 +18,7 @@ except ImportError:
   except ImportError:
     from google3.perftools.accelerators.xprof.api.python.profile_data import profile_data as profiler  # pyrefly: ignore[missing-import,missing-module-attribute]
 
+from xprof.cli.internal import async_overlap
 from xprof.cli.internal import decorators
 from xprof.cli.internal import xplane_event_query
 
@@ -554,3 +555,76 @@ def inspect_capture(session_id: str) -> str:
       },
       indent=2,
   )
+
+
+def iter_timeline_events(
+    session_id: Any,
+    host: str = "",
+    bypass_cache: bool = False,
+) -> list[async_overlap.TimelineEvent]:
+  """Extracts device timeline events from an XSpace for overlap analysis.
+
+  Args:
+    session_id: The session ID, local trace file or directory, serialized XSpace
+      bytes, or an in-memory ProfileData/XSpace object.
+    host: Optional host. Selects one trace file of the session, matched by file
+      stem or `get_hosts` name. Only supported for session IDs and paths.
+    bypass_cache: Unused; kept for parity with the 1P implementation.
+
+  Returns:
+    The events of the `async_overlap.LINE_NAMES` lines. When the session holds
+    several trace files and no `host` is given, each event's `host` is its
+    trace file stem (or, if two files share a stem, its path relative to the
+    files' common directory), so events of different hosts are never merged.
+
+  Raises:
+    ValueError: If `host` does not match exactly one trace file, or is given
+      for an in-memory source.
+  """
+  del bypass_cache
+  sources: list[tuple[str, Any]] = []
+  if isinstance(session_id, (str, os.PathLike)):
+    trace = pathlib.Path(session_id)
+    if trace.is_file() and (
+        not host
+        or host
+        in (xprof_client.trace_stem(trace), xprof_client.trace_host_name(trace))
+    ):
+      # The CLI may already have resolved `--host` to this file and passed its
+      # `get_hosts` name, which sibling traces can share.
+      paths = [str(trace)]
+    else:
+      paths = xprof_client.get_client().select_paths(
+          str(session_id), host=host or None
+      )
+    sources.extend(zip(xprof_client.trace_labels(paths), paths))
+  elif host:
+    raise ValueError(
+        "host is only supported for a session ID or trace path, not for an"
+        f" in-memory {type(session_id).__name__}."
+    )
+  else:
+    sources.append(("", session_id))
+
+  events: list[async_overlap.TimelineEvent] = []
+  for label, source in sources:
+    for plane in iter_planes(source):
+      plane_name = getattr(plane, "name", "") or ""
+      for line in getattr(plane, "lines", []) or []:
+        line_name = (
+            getattr(line, "display_name", "") or getattr(line, "name", "") or ""
+        )
+        if line_name not in async_overlap.LINE_NAMES:
+          continue
+        for event in getattr(line, "events", []) or []:
+          events.append(
+              async_overlap.TimelineEvent(
+                  plane=plane_name,
+                  line=line_name,
+                  name=getattr(event, "name", "") or "",
+                  start_ps=int(event.start_ns * 1000),
+                  duration_ps=int(event.duration_ns * 1000),
+                  host=label,
+              )
+          )
+  return events

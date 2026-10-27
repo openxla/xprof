@@ -20,7 +20,8 @@ pytype_library(
     # strict_deps = False,
     deps = [
         ":xprof_client",  # buildcleaner: keep
-        "//plugin/xprof:profile_data",
+        "//plugin/xprof:profile_data",  # buildcleaner: keep
+        "//plugin/xprof/cli/internal:async_overlap",
         "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal:xplane_event_query",
     ],

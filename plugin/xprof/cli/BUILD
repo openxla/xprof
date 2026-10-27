@@ -16,6 +16,7 @@ pytype_strict_library(
         "//plugin/xprof/cli/internal/oss:hlo_tools",
         "//plugin/xprof/cli/internal/oss:xplane_tools",
         "//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/tools:analyze_async_overlap_tool",
         "//plugin/xprof/cli/tools:check_host_boundness_tool",
         "//plugin/xprof/cli/tools:get_hlo_stats_tool",
         "//plugin/xprof/cli/tools:get_kernel_stats_tool",

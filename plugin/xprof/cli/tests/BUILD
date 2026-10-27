@@ -38,6 +38,20 @@ py_test(
 )
 
 py_test(
+    name = "async_overlap_test",
+    srcs = ["async_overlap_test.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//plugin/xprof/cli/internal:async_overlap",
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xplane_tools",
+        "//plugin/xprof/cli/tools:analyze_async_overlap_tool",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+py_test(
     name = "check_host_boundness_tool_test",
     srcs = ["check_host_boundness_tool_test.py"],
     visibility = ["//visibility:public"],

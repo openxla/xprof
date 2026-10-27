@@ -349,6 +349,10 @@ Pallas or Mosaic):
 -   **[Analyze XLA Module Performance](references/analysis.md)**: Analyze XLA
     module performance, inspect HLO operations, query timeline events, and
     inspect raw XSpace protobufs (`get_xspace_proto`).
+-   **[Async Overlap](references/analyze_async_overlap.md)**: Measure how much
+    of each asynchronous XLA operation (collectives, copies, `send`/`recv`) is
+    hidden behind compute (`hidden`, `partial`, `exposed`) and quantify
+    TensorCore/SparseCore concurrent execution per TPU chip.
 -   **[Architecture Mapping](references/architecture_mapping.md)**: Map model
     architecture blocks to the HLO ops and timeline events that implement them.
 -   **[Import Trace File](references/upload_trace.md)**: Import raw trace files
@@ -366,3 +370,4 @@ Pallas or Mosaic):
     execution, instruction metrics, and register LLO debug info.
 
 [custom-call-doc]: https://openxla.org/xprof/custom_call_profiling
+

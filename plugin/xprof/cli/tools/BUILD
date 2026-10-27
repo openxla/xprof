@@ -19,6 +19,20 @@ pytype_strict_library(
 )
 
 pytype_strict_library(
+    name = "analyze_async_overlap_tool",
+    srcs = ["analyze_async_overlap_tool.py"],
+    visibility = [
+        "//plugin/xprof:__subpackages__",
+        "//vr:__subpackages__",
+    ],
+    deps = [
+        "//plugin/xprof/cli/internal:async_overlap",
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xplane_tools",
+    ],
+)
+
+pytype_strict_library(
     name = "check_host_boundness_tool",
     srcs = ["check_host_boundness_tool.py"],
     visibility = [

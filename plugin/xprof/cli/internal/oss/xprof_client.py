@@ -71,6 +71,7 @@ OP_STATS_TB_TOOLS: frozenset[str] = frozenset({
 
 trace_stem = trace_selection.trace_stem
 trace_host_name = trace_selection.trace_host_name
+trace_labels = trace_selection.trace_labels
 format_trace_list = trace_selection.format_trace_list
 
 

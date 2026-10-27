@@ -112,6 +112,29 @@ def trace_host_name(path: str | os.PathLike[str]) -> str:
   return trace_stem(path).split(".")[-1]
 
 
+def trace_labels(paths: Sequence[str | os.PathLike[str]]) -> list[str]:
+  """Returns a distinct label for each trace in `paths`, in order.
+
+  A single trace gets an empty label. Several traces are labelled by file stem,
+  or, when two of them share a stem (e.g. `x/host-0.xplane.pb` and
+  `y/host-0.xplane.pb`, or `host-0.xplane.pb` and `host-0.xspace.pb`), by
+  their path relative to the directory they have in common.
+
+  Args:
+    paths: Paths to `.xplane.pb` or `.xspace.pb` files.
+
+  Returns:
+    One label per path.
+  """
+  if len(paths) <= 1:
+    return [""] * len(paths)
+  stems = [trace_stem(path) for path in paths]
+  if len(set(stems)) == len(stems):
+    return stems
+  root = os.path.commonpath([os.fspath(path) for path in paths])
+  return [os.path.relpath(path, root) for path in paths]
+
+
 def format_trace_list(paths: Sequence[str | os.PathLike[str]]) -> str:
   """Formats trace paths as an indented list of stems for error messages."""
   return "\n".join(f"  {trace_stem(path)}" for path in paths)

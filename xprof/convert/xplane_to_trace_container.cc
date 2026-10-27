@@ -371,6 +371,22 @@ void ConvertXPlaneToLiteTraceEventsContainer(
   }
 }
 
+// Returns the TPU non-core planes (e.g. "#Chip0 HBM 0") that have events, such
+// as the periodic HBM (CMN) and ICI Router (ICR) counters on TPU7x. Planes
+// without events are skipped so that they don't show up as empty processes.
+std::vector<const XPlane*> FindTpuNonCorePlanesWithEvents(const XSpace& space) {
+  std::vector<const XPlane*> planes;
+  for (const XPlane* plane :
+       FindPlanesWithPrefix(space, tsl::profiler::kTpuNonCorePlaneNamePrefix)) {
+    if (absl::c_any_of(plane->lines(), [](const XLine& line) {
+          return line.events_size() > 0;
+        })) {
+      planes.push_back(plane);
+    }
+  }
+  return planes;
+}
+
 }  // namespace
 
 void ConvertXSpaceToTraceEventsContainer(absl::string_view hostname,
@@ -394,6 +410,10 @@ void ConvertXSpaceToTraceEventsContainer(absl::string_view hostname,
 
   if (device_planes.empty()) {
     device_planes = FindPlanesWithPrefix(space, tsl::profiler::kTpuPlanePrefix);
+    std::vector<const XPlane*> non_core_planes =
+        FindTpuNonCorePlanesWithEvents(space);
+    device_planes.insert(device_planes.end(), non_core_planes.begin(),
+                         non_core_planes.end());
   }
 
   for (const XPlane* device_plane : device_planes) {
@@ -433,6 +453,10 @@ void ConvertXSpaceToLiteTraceEventsContainer(
 
   if (device_planes.empty()) {
     device_planes = FindPlanesWithPrefix(space, tsl::profiler::kTpuPlanePrefix);
+    std::vector<const XPlane*> non_core_planes =
+        FindTpuNonCorePlanesWithEvents(space);
+    device_planes.insert(device_planes.end(), non_core_planes.begin(),
+                         non_core_planes.end());
   }
 
   for (const XPlane* device_plane : device_planes) {

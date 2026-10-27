@@ -783,6 +783,37 @@ TEST(TimelineTest, CalculateTickInfoUnitlessAlignsToAbsolutePositions) {
   EXPECT_EQ(selected_start_formatted, "105");
 }
 
+TEST(TimelineTest, EventSelectedPopulatesTrackName) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.level_event_indices = {0};
+  data.entry_names.push_back("test_event");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_args.push_back({});
+  Group group;
+  group.name = "Source code";
+  group.start_level = 0;
+  group.level_count = 1;
+  data.groups.push_back(group);
+  timeline.SetTimelineData(std::move(data));
+
+  std::string selected_track_name;
+  timeline.set_event_callback(
+      [&](absl::string_view event_type, const EventData& ev_data) {
+        if (event_type == kEventSelected) {
+          auto it = ev_data.find(std::string(kEventSelectedTrackName));
+          if (it != ev_data.end()) {
+            selected_track_name = std::any_cast<std::string>(it->second);
+          }
+        }
+      });
+  timeline.RevealEvent(0);
+  EXPECT_EQ(selected_track_name, "Source code");
+}
+
 TEST(TimelineTest, FormatRulerLabelUsesTimeByDefault) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);

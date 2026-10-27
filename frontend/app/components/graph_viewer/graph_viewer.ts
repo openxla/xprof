@@ -108,7 +108,15 @@ export class GraphViewer implements OnDestroy {
   rootNode?: Node;
   data = new OpProfileData();
   selectedNode: Node | null = null;
+  selectedNodeName = '';
+  get selectedOpName(): string {
+    return this.selectedNodeName;
+  }
   runtimeDataInjected = false;
+  extraNodes = new Set<string>();
+  adjacentOperands: string[] = [];
+  adjacentConsumers: string[] = [];
+  loadingAdjacentNodes = false;
 
   // ME related variables
   showMeGraph = false;
@@ -179,6 +187,16 @@ export class GraphViewer implements OnDestroy {
     this.symbolId = params['symbol_id'] || this.symbolId || '';
     this.symbolType = params['symbol_type'] || this.symbolType || '';
     this.opProfileLimit = params['op_profile_limit'] || 300;
+    if (params['extra_nodes']) {
+      this.extraNodes = new Set(
+        String(params['extra_nodes'])
+          .split(',')
+          .map((name: string) => name.trim())
+          .filter((name: string) => Boolean(name)),
+      );
+    } else {
+      this.extraNodes.clear();
+    }
   }
 
   async initData() {
@@ -550,7 +568,7 @@ export class GraphViewer implements OnDestroy {
     if (!children) return null;
     for (const node of children) {
       // Only looking for xla instruction node, as that is what's visualized in
-      // the grpah. Assumptions: only instruction node has xla field.
+      // the graph. Assumptions: only instruction node has xla field.
       if (
         node.xla &&
         (node.name === name || node.name === `${name} and its duplicate(s)`)
@@ -753,6 +771,9 @@ export class GraphViewer implements OnDestroy {
     queryParams.tag = 'graph_viewer';
     if (host) {
       queryParams.host = host;
+    }
+    if (this.extraNodes.size > 0) {
+      queryParams.extra_nodes = Array.from(this.extraNodes).join(',');
     }
     return queryParams;
   }

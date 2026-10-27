@@ -2552,6 +2552,7 @@ cc_test(
         ":tool_options",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
+        "@com_google_protobuf//:protobuf",
         "@xla//xla/service:hlo_graph_dumper",
         "@xla//xla/service:hlo_proto_cc",
         "@xla//xla/tsl/platform:errors",

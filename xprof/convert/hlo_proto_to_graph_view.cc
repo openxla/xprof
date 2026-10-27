@@ -124,9 +124,10 @@ void AddGraphMetadata(std::string& graph_json_str, const HloComputation& comp) {
 
 // This function does the same thing as Plot() but uses the ModelExplorer
 // instead of graphviz.
-absl::StatusOr<std::string> PlotMe(std::unique_ptr<HloModule> module,
-                                   const std::string& node_name,
-                                   int graph_width) {
+absl::StatusOr<std::string> PlotMe(
+    std::unique_ptr<HloModule> module, const std::string& node_name,
+    int graph_width,
+    const absl::flat_hash_set<std::string>& extra_node_names = {}) {
   if (node_name.empty()) {
     // This should not happen.
     return absl::InvalidArgumentError("node_name should not be empty");
@@ -148,8 +149,9 @@ absl::StatusOr<std::string> PlotMe(std::unique_ptr<HloModule> module,
   if (comp) {
     graph_handle = ::model_explorer::adapter::HloGraphAdapter(*comp);
   } else {
-    graph_handle =
-        ::model_explorer::adapter::HloGraphAdapter(*instr, graph_width);
+    graph_handle = ::model_explorer::adapter::HloGraphAdapter(
+        *instr, graph_width, ::model_explorer::adapter::HloAdapterOption(),
+        extra_node_names);
   }
 #endif  // PLATFORM_GOOGLE
   if (graph_handle.ok()) {
@@ -385,8 +387,30 @@ absl::StatusOr<std::string> GetAdjacentNodes(const HloProto& hlo_proto,
   std::function<void(std::vector<std::string>&, const xla::HloInstruction*)>
       find_operands = [&](std::vector<std::string>& operand_names,
                           const xla::HloInstruction* hlo_instruction) {
+        if (hlo_instruction->opcode() == xla::HloOpcode::kParameter &&
+            hlo_instruction->IsFused()) {
+          const xla::HloInstruction* fusion_instruction =
+              hlo_instruction->parent()->FusionInstruction();
+          if (fusion_instruction != nullptr &&
+              hlo_instruction->parameter_number() >= 0 &&
+              hlo_instruction->parameter_number() <
+                  fusion_instruction->operand_count()) {
+            const auto* operand = fusion_instruction->operand(
+                hlo_instruction->parameter_number());
+            if (operand != nullptr) {
+              if (operand->opcode() == xla::HloOpcode::kGetTupleElement ||
+                  absl::StartsWith(operand->name(), "get-tuple-element")) {
+                find_operands(operand_names, operand);
+              } else {
+                operand_names.push_back(absl::StrCat(operand->name()));
+              }
+            }
+          }
+          return;
+        }
         for (const auto& operand : hlo_instruction->operands()) {
-          if (absl::StartsWith(operand->name(), "get-tuple-element")) {
+          if (operand->opcode() == xla::HloOpcode::kGetTupleElement ||
+              absl::StartsWith(operand->name(), "get-tuple-element")) {
             find_operands(operand_names, operand);
             continue;
           }
@@ -430,10 +454,12 @@ absl::StatusOr<std::string> ConvertHloProtoToGraph(
 }
 
 absl::StatusOr<std::string> ConvertHloProtoToMeGraph(
-    const HloProto& hlo_proto, const std::string& node_name, int graph_width) {
+    const HloProto& hlo_proto, const std::string& node_name, int graph_width,
+    const absl::flat_hash_set<std::string>& extra_node_names) {
   TF_ASSIGN_OR_RETURN(std::unique_ptr<HloModule> hlo_module,
                       ConvertHloProtoToModule(hlo_proto));
-  return PlotMe(std::move(hlo_module), node_name, graph_width);
+  return PlotMe(std::move(hlo_module), node_name, graph_width,
+                extra_node_names);
 }
 
 absl::StatusOr<std::string> PrintJson(const xla::HloProto& proto) {

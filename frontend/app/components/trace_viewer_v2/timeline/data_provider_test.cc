@@ -6555,5 +6555,205 @@ TEST_F(DataProviderTest,
   ExpectTimelineDataMatches(timeline_.timeline_data(),
                             single_timeline.timeline_data());
 }
+
+TEST_F(DataProviderTest, GroupsMultipleTecTracksUnderCollapsedParent) {
+  ParsedTraceEvents events;
+  events.flame_events = {
+      CreateProcessEvent(1, "TPU:0"),
+      CreateThreadEvent(1, 1, "XLA Ops"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 1, "1"),
+      MakeSpan(Phase::kComplete, 10, 1, 1, "op_a", 10.0, 20.0),
+      CreateThreadEvent(1, 2, "TECTONIC"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 2, "2"),
+      MakeSpan(Phase::kComplete, 11, 1, 2, "non_tec_op", 10.0, 20.0),
+      CreateThreadEvent(1, 3, "TEC 0"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 3, "3"),
+      MakeSpan(Phase::kComplete, 12, 1, 3, "tec0_op", 10.0, 20.0),
+      CreateThreadEvent(1, 4, "  tec TraceMe 1"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 4, "4"),
+      MakeSpan(Phase::kComplete, 13, 1, 4, "tec1_outer", 10.0, 50.0),
+      MakeSpan(Phase::kComplete, 14, 1, 4, "tec1_inner", 15.0, 20.0),
+  };
+
+  data_provider_.ProcessTraceEvents(events, timeline_);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_THAT(groups, SizeIs(6));
+
+  EXPECT_EQ(groups[0].name, "TPU:0");
+  EXPECT_EQ(groups[0].nesting_level, kProcessNestingLevel);
+  EXPECT_TRUE(groups[0].has_children);
+  EXPECT_THAT(groups[0].child_indices, ElementsAre(1, 2, 3));
+
+  EXPECT_EQ(groups[1].name, "XLA Ops");
+  EXPECT_EQ(groups[1].nesting_level, kThreadNestingLevel);
+  EXPECT_EQ(groups[1].parent_index, 0);
+  EXPECT_EQ(groups[1].start_level, 0);
+  EXPECT_EQ(groups[1].level_count, 1);
+
+  EXPECT_EQ(groups[2].name, "TECTONIC");
+  EXPECT_EQ(groups[2].nesting_level, kThreadNestingLevel);
+  EXPECT_EQ(groups[2].parent_index, 0);
+  EXPECT_EQ(groups[2].start_level, 1);
+  EXPECT_EQ(groups[2].level_count, 1);
+
+  EXPECT_EQ(groups[3].name, kTecTracksGroupName);
+  EXPECT_EQ(groups[3].nesting_level, kThreadNestingLevel);
+  EXPECT_FALSE(groups[3].expanded);
+  EXPECT_TRUE(groups[3].has_children);
+  EXPECT_EQ(groups[3].parent_index, 0);
+  EXPECT_EQ(groups[3].start_level, 2);
+  EXPECT_EQ(groups[3].level_count, 3);
+  EXPECT_EQ(groups[3].pid, 1u);
+  EXPECT_THAT(groups[3].child_indices, ElementsAre(4, 5));
+
+  EXPECT_EQ(groups[4].name, "TEC 0");
+  EXPECT_EQ(groups[4].nesting_level, kSubTrackNestingLevel);
+  EXPECT_TRUE(groups[4].expanded);
+  EXPECT_FALSE(groups[4].has_children);
+  EXPECT_EQ(groups[4].parent_index, 3);
+  EXPECT_EQ(groups[4].start_level, 2);
+  EXPECT_EQ(groups[4].level_count, 1);
+  EXPECT_EQ(groups[4].pid, 1u);
+  EXPECT_EQ(groups[4].tid, 3);
+
+  EXPECT_EQ(groups[5].name, "  tec TraceMe 1");
+  EXPECT_EQ(groups[5].nesting_level, kSubTrackNestingLevel);
+  EXPECT_TRUE(groups[5].expanded);
+  EXPECT_FALSE(groups[5].has_children);
+  EXPECT_EQ(groups[5].parent_index, 3);
+  EXPECT_EQ(groups[5].start_level, 3);
+  EXPECT_EQ(groups[5].level_count, 2);
+  EXPECT_EQ(groups[5].pid, 1u);
+  EXPECT_EQ(groups[5].tid, 4);
+}
+
+TEST_F(DataProviderTest, SingleTecTrackNotGroupedUnderParent) {
+  ParsedTraceEvents events;
+  events.flame_events = {
+      CreateProcessEvent(1, "TPU:0"),
+      CreateThreadEvent(1, 1, "XLA Ops"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 1, "1"),
+      MakeSpan(Phase::kComplete, 10, 1, 1, "op_a", 10.0, 20.0),
+      CreateThreadEvent(1, 2, "TEC 0"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 2, "2"),
+      MakeSpan(Phase::kComplete, 11, 1, 2, "tec0_op", 10.0, 20.0),
+  };
+
+  data_provider_.ProcessTraceEvents(events, timeline_);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_THAT(groups, SizeIs(3));
+  EXPECT_EQ(groups[0].name, "TPU:0");
+  EXPECT_THAT(groups[0].child_indices, ElementsAre(1, 2));
+  EXPECT_EQ(groups[1].name, "XLA Ops");
+  EXPECT_EQ(groups[2].name, "TEC 0");
+  EXPECT_EQ(groups[2].nesting_level, kThreadNestingLevel);
+  EXPECT_EQ(groups[2].parent_index, 0);
+  EXPECT_TRUE(groups[2].expanded);
+}
+
+TEST_F(DataProviderTest,
+       PreservesTecGroupAndSubTrackStatePerProcessAcrossRefetches) {
+  ParsedTraceEvents initial_events;
+  initial_events.flame_events = {
+      CreateProcessEvent(1, "TPU:0"),
+      CreateSortIndexMetadataEvent(kProcessSortIndex, 1, 0, "1"),
+      CreateThreadEvent(1, 1, "TEC 0"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 1, "1"),
+      MakeSpan(Phase::kComplete, 10, 1, 1, "p1_tec0_outer", 10.0, 50.0),
+      MakeSpan(Phase::kComplete, 11, 1, 1, "p1_tec0_inner", 15.0, 20.0),
+      CreateThreadEvent(1, 2, "TEC 1"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 2, "2"),
+      MakeSpan(Phase::kComplete, 12, 1, 2, "p1_tec1_single", 10.0, 20.0),
+
+      CreateProcessEvent(2, "TPU:1"),
+      CreateSortIndexMetadataEvent(kProcessSortIndex, 2, 0, "2"),
+      CreateThreadEvent(2, 1, "TEC 0"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 2, 1, "1"),
+      MakeSpan(Phase::kComplete, 20, 2, 1, "p2_tec0_single", 10.0, 20.0),
+      CreateThreadEvent(2, 2, "TEC 1"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 2, 2, "2"),
+      MakeSpan(Phase::kComplete, 21, 2, 2, "p2_tec1_outer", 10.0, 50.0),
+      MakeSpan(Phase::kComplete, 22, 2, 2, "p2_tec1_inner", 15.0, 20.0),
+  };
+
+  data_provider_.ProcessTraceEvents(initial_events, timeline_);
+
+  {
+    const auto& groups = timeline_.timeline_data().groups;
+    ASSERT_THAT(groups, SizeIs(8));
+    // Process 1: TPU:0 (0), TEC Tracks (1), TEC 0 (2), TEC 1 (3)
+    EXPECT_EQ(groups[1].name, kTecTracksGroupName);
+    EXPECT_FALSE(groups[1].expanded);
+    EXPECT_EQ(groups[2].name, "TEC 0");
+    EXPECT_TRUE(groups[2].expanded);
+    EXPECT_EQ(groups[2].level_count, 2);
+    EXPECT_EQ(groups[3].name, "TEC 1");
+    EXPECT_TRUE(groups[3].expanded);
+    EXPECT_EQ(groups[3].level_count, 1);
+
+    // Process 2: TPU:1 (4), TEC Tracks (5), TEC 0 (6), TEC 1 (7)
+    EXPECT_EQ(groups[5].name, kTecTracksGroupName);
+    EXPECT_FALSE(groups[5].expanded);
+    EXPECT_EQ(groups[6].name, "TEC 0");
+    EXPECT_TRUE(groups[6].expanded);
+    EXPECT_EQ(groups[6].level_count, 1);
+    EXPECT_EQ(groups[7].name, "TEC 1");
+    EXPECT_TRUE(groups[7].expanded);
+    EXPECT_EQ(groups[7].level_count, 2);
+  }
+
+  // Toggle expanded states differently in Process 1 vs Process 2:
+  // Expand Process 1's "TEC Tracks" and collapse Process 1's "TEC 0", while
+  // keeping Process 2's "TEC Tracks" collapsed and Process 2's "TEC 0"
+  // expanded.
+  {
+    FlameChartTimelineData data = timeline_.timeline_data();
+    data.groups[1].expanded = true;
+    data.groups[2].expanded = false;
+    data.groups[5].expanded = false;
+    data.groups[6].expanded = true;
+    timeline_.SetTimelineData(std::move(data));
+  }
+
+  // Refetch where Process 1's "TEC 0" now only has a single event.
+  ParsedTraceEvents refetch_events;
+  refetch_events.flame_events = {
+      CreateProcessEvent(1, "TPU:0"),
+      CreateSortIndexMetadataEvent(kProcessSortIndex, 1, 0, "1"),
+      CreateThreadEvent(1, 1, "TEC 0"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 1, "1"),
+      MakeSpan(Phase::kComplete, 10, 1, 1, "p1_tec0_single", 10.0, 20.0),
+      CreateThreadEvent(1, 2, "TEC 1"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 2, "2"),
+      MakeSpan(Phase::kComplete, 12, 1, 2, "p1_tec1_single", 10.0, 20.0),
+
+      CreateProcessEvent(2, "TPU:1"),
+      CreateSortIndexMetadataEvent(kProcessSortIndex, 2, 0, "2"),
+      CreateThreadEvent(2, 1, "TEC 0"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 2, 1, "1"),
+      MakeSpan(Phase::kComplete, 20, 2, 1, "p2_tec0_single", 10.0, 20.0),
+      CreateThreadEvent(2, 2, "TEC 1"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 2, 2, "2"),
+      MakeSpan(Phase::kComplete, 21, 2, 2, "p2_tec1_single", 10.0, 50.0),
+  };
+
+  data_provider_.ProcessTraceEvents(refetch_events, timeline_);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_THAT(groups, SizeIs(8));
+  // Process 1 retained its expanded states and max_observed_levels (2 for TEC
+  // 0).
+  EXPECT_TRUE(groups[1].expanded);
+  EXPECT_FALSE(groups[2].expanded);
+  EXPECT_EQ(groups[2].level_count, 2);
+  // Process 2 retained its independent expanded states and max_observed_levels
+  // (1 for TEC 0, 2 for TEC 1).
+  EXPECT_FALSE(groups[5].expanded);
+  EXPECT_TRUE(groups[6].expanded);
+  EXPECT_EQ(groups[6].level_count, 1);
+  EXPECT_EQ(groups[7].level_count, 2);
+}
 }  // namespace
 }  // namespace traceviewer

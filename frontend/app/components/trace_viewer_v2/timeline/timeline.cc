@@ -519,11 +519,49 @@ bool MatchesSearchQuery(const FlameChartTimelineData& data, int index,
 }
 }  // namespace
 
+GroupKey GetScopedGroupKey(absl::Span<const Group> groups, size_t group_index,
+                           absl::string_view fallback_process_name) {
+  if (group_index >= groups.size()) {
+    return {};
+  }
+  const Group& group = groups[group_index];
+  if (group.nesting_level == kProcessNestingLevel) {
+    return {group.nesting_level, group.name, ""};
+  }
+
+  if (group.parent_index >= 0 &&
+      group.parent_index < static_cast<int>(groups.size())) {
+    const Group& parent_group = groups[group.parent_index];
+    if (group.nesting_level >= kSubTrackNestingLevel) {
+      std::string process_name;
+      if (parent_group.parent_index >= 0 &&
+          parent_group.parent_index < static_cast<int>(groups.size())) {
+        process_name = groups[parent_group.parent_index].name;
+      } else if (!fallback_process_name.empty()) {
+        process_name = std::string(fallback_process_name);
+      }
+      std::string scoped_parent =
+          process_name.empty()
+              ? parent_group.name
+              : absl::StrCat(process_name, "/", parent_group.name);
+      return {group.nesting_level, group.name, std::move(scoped_parent)};
+    }
+    return {group.nesting_level, group.name, parent_group.name};
+  }
+
+  // Fallback when parent_index is not set or out of bounds:
+  if (!fallback_process_name.empty()) {
+    return {group.nesting_level, group.name,
+            std::string(fallback_process_name)};
+  }
+  return {group.nesting_level, group.name, ""};
+}
+
 int Timeline::GetNextGroupStartLevel(const FlameChartTimelineData& data,
                                      int group_index) {
   if (group_index >= 0 && group_index < data.groups.size()) {
     const auto& group = data.groups[group_index];
-    if (group.has_children && group.nesting_level == kProcessNestingLevel) {
+    if (group.has_children) {
       return group.start_level;
     }
     return group.start_level + group.level_count;
@@ -1239,6 +1277,8 @@ void Timeline::UpdateTimelineData(
 
   // Capture anchor track and local pixel offset prior to updating layout.
   GroupKey anchor_group_key = {};
+  GroupKey anchor_parent_group_key = {};
+  bool has_anchor_parent_key = false;
   Pixel local_pixel_offset = 0.0f;
   bool has_anchor = false;
 
@@ -1285,14 +1325,16 @@ void Timeline::UpdateTimelineData(
 
       if (it != flattened_groups_.end()) {
         const Group* const anchor_group = *it;
-        anchor_group_key.nesting_level = anchor_group->nesting_level;
-        anchor_group_key.name = anchor_group->name;
-        anchor_group_key.parent_name =
-            (anchor_group->parent_index >= 0 &&
-             anchor_group->parent_index <
-                 static_cast<int>(timeline_data_.groups.size()))
-                ? timeline_data_.groups[anchor_group->parent_index].name
-                : "";
+        const int anchor_index = *it - timeline_data_.groups.data();
+        anchor_group_key =
+            GetScopedGroupKey(timeline_data_.groups, anchor_index);
+        if (anchor_group->parent_index >= 0 &&
+            anchor_group->parent_index <
+                static_cast<int>(timeline_data_.groups.size())) {
+          anchor_parent_group_key = GetScopedGroupKey(
+              timeline_data_.groups, anchor_group->parent_index);
+          has_anchor_parent_key = true;
+        }
         local_pixel_offset =
             std::max(0.0f, last_scroll_y_ - GetGroupTop(anchor_group));
         has_anchor = true;
@@ -1378,26 +1420,17 @@ void Timeline::UpdateTimelineData(
 
     // Tier 1: Exact GroupKey match.
     for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
-      const Group& g = timeline_data_.groups[i];
-      const absl::string_view parent =
-          (g.parent_index >= 0 &&
-           g.parent_index < static_cast<int>(timeline_data_.groups.size()))
-              ? absl::string_view(timeline_data_.groups[g.parent_index].name)
-              : "";
-      if (g.nesting_level == anchor_group_key.nesting_level &&
-          g.name == anchor_group_key.name &&
-          parent == anchor_group_key.parent_name) {
+      if (GetScopedGroupKey(timeline_data_.groups, i) == anchor_group_key) {
         new_group_index = static_cast<int>(i);
         break;
       }
     }
 
     // Tier 2: Match Parent Track if child track despawned.
-    if (new_group_index == -1 && !anchor_group_key.parent_name.empty()) {
+    if (new_group_index == -1 && has_anchor_parent_key) {
       for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
-        if (timeline_data_.groups[i].nesting_level <
-                anchor_group_key.nesting_level &&
-            timeline_data_.groups[i].name == anchor_group_key.parent_name) {
+        if (GetScopedGroupKey(timeline_data_.groups, i) ==
+            anchor_parent_group_key) {
           new_group_index = static_cast<int>(i);
           local_pixel_offset = 0.0f;
           break;
@@ -2152,27 +2185,14 @@ bool Timeline::RestoreSavedFullOverview() {
 
   absl::flat_hash_map<GroupKey, bool> current_expanded;
   for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
-    const Group& g = timeline_data_.groups[i];
-    std::string parent_name =
-        (g.parent_index >= 0 &&
-         g.parent_index < static_cast<int>(timeline_data_.groups.size()))
-            ? timeline_data_.groups[g.parent_index].name
-            : "";
-    current_expanded[GroupKey{g.nesting_level, g.name, parent_name}] =
-        g.expanded;
+    current_expanded[GetScopedGroupKey(timeline_data_.groups, i)] =
+        timeline_data_.groups[i].expanded;
   }
   auto& restored_groups = saved_full_overview_->data.groups;
   for (size_t i = 0; i < restored_groups.size(); ++i) {
-    Group& g = restored_groups[i];
-    std::string parent_name =
-        (g.parent_index >= 0 &&
-         g.parent_index < static_cast<int>(restored_groups.size()))
-            ? restored_groups[g.parent_index].name
-            : "";
-    if (auto it = current_expanded.find(
-            GroupKey{g.nesting_level, g.name, parent_name});
+    if (auto it = current_expanded.find(GetScopedGroupKey(restored_groups, i));
         it != current_expanded.end()) {
-      g.expanded = it->second;
+      restored_groups[i].expanded = it->second;
     }
   }
 

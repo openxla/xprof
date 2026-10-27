@@ -68,19 +68,12 @@ absl::btree_map<GroupKey, bool> GetRestoredExpandedStates(
     const std::vector<Group>& groups) {
   absl::btree_map<GroupKey, bool> expanded_states;
   std::string current_process_name;
-  for (const auto& group : groups) {
-    if (group.nesting_level == kProcessNestingLevel) {
-      current_process_name = group.name;
-      expanded_states[{kProcessNestingLevel, group.name, ""}] = group.expanded;
-    } else {
-      const std::string parent =
-          (group.parent_index != -1 &&
-           group.parent_index < static_cast<int>(groups.size()))
-              ? groups[group.parent_index].name
-              : current_process_name;
-      expanded_states[{group.nesting_level, group.name, parent}] =
-          group.expanded;
+  for (size_t i = 0; i < groups.size(); ++i) {
+    if (groups[i].nesting_level == kProcessNestingLevel) {
+      current_process_name = groups[i].name;
     }
+    expanded_states[GetScopedGroupKey(groups, i, current_process_name)] =
+        groups[i].expanded;
   }
   return expanded_states;
 }
@@ -1482,7 +1475,8 @@ void PopulateThreadTrack(
     const absl::btree_map<GroupKey, bool>& expanded_states,
     absl::flat_hash_map<GroupKey, int>& max_observed_levels,
     int parent_index = -1,
-    std::optional<absl::string_view> custom_name = std::nullopt) {
+    std::optional<absl::string_view> custom_name = std::nullopt,
+    int nesting_level = kThreadNestingLevel) {
   std::string thread_group_name;
   if (custom_name.has_value()) {
     thread_group_name = std::string(*custom_name);
@@ -1494,14 +1488,14 @@ void PopulateThreadTrack(
   }
 
   bool expanded =
-      GetExpandedState(kThreadNestingLevel, thread_group_name,
-                       process_group_name, default_expanded, expanded_states);
+      GetExpandedState(nesting_level, thread_group_name, process_group_name,
+                       default_expanded, expanded_states);
 
   int child_index = static_cast<int>(data.groups.size());
   data.groups.push_back({.type = Group::Type::kFlame,
                          .name = thread_group_name,
                          .start_level = current_level,
-                         .nesting_level = kThreadNestingLevel,
+                         .nesting_level = nesting_level,
                          .expanded = expanded,
                          .parent_index = parent_index,
                          .pid = pid,
@@ -1538,7 +1532,7 @@ void PopulateThreadTrack(
   }
 
   const GroupKey group_key{
-      .nesting_level = kThreadNestingLevel,
+      .nesting_level = nesting_level,
       .name = thread_group_name,
       .parent_name = process_group_name,
   };
@@ -1748,8 +1742,66 @@ void PopulateAsyncProcessTracks(
   }
 }
 
+bool IsTecTrack(absl::string_view name) {
+  static const absl::NoDestructor<RE2> kTecRe(R"(^(?i)\s*TEC\b)");
+  return RE2::PartialMatch(name, *kTecRe);
+}
+
+// Emits the collected TEC tracks for `pid`: a single TEC track is emitted as a
+// regular thread track; two or more are grouped under a collapsed-by-default
+// "TEC Tracks" parent with the children at kSubTrackNestingLevel.
+void PopulateTecTracks(
+    ProcessId pid, const std::string& process_group_name,
+    absl::Span<const std::pair<ThreadId, absl::Span<const TraceEvent* const>>>
+        tec_tracks,
+    const TraceInformation& trace_info, int& current_level,
+    FlameChartTimelineData& data, TimeBounds& bounds,
+    absl::btree_map<std::pair<ProcessId, ThreadId>, ThreadLevelInfo>&
+        thread_levels,
+    const absl::btree_map<GroupKey, bool>& expanded_states,
+    absl::flat_hash_map<GroupKey, int>& max_observed_levels, int parent_index) {
+  if (tec_tracks.empty()) {
+    return;
+  }
+
+  if (tec_tracks.size() == 1) {
+    PopulateThreadTrack(pid, tec_tracks[0].first, tec_tracks[0].second,
+                        trace_info, current_level, data, bounds, thread_levels,
+                        process_group_name, /*default_expanded=*/true,
+                        expanded_states, max_observed_levels, parent_index);
+    return;
+  }
+
+  const bool tec_group_expanded = GetExpandedState(
+      kThreadNestingLevel, kTecTracksGroupName, process_group_name,
+      /*default_expanded=*/false, expanded_states);
+  const int tec_group_index = static_cast<int>(data.groups.size());
+  const int tec_start_level = current_level;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = kTecTracksGroupName,
+                         .start_level = tec_start_level,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = tec_group_expanded,
+                         .parent_index = parent_index,
+                         .has_children = true,
+                         .pid = pid});
+  data.groups[parent_index].child_indices.push_back(tec_group_index);
+
+  const std::string tec_parent_group_name =
+      absl::StrCat(process_group_name, "/", kTecTracksGroupName);
+  for (const auto& [tid, events] : tec_tracks) {
+    PopulateThreadTrack(pid, tid, events, trace_info, current_level, data,
+                        bounds, thread_levels, tec_parent_group_name,
+                        /*default_expanded=*/true, expanded_states,
+                        max_observed_levels, tec_group_index,
+                        /*custom_name=*/std::nullopt, kSubTrackNestingLevel);
+  }
+  data.groups[tec_group_index].level_count = current_level - tec_start_level;
+}
+
 // Populates standard sync thread tracks for a process, sorted according to
-// metadata ordering, and filters out empty non-primary tracks for MPMD traces.
+// metadata ordering, filters out empty non-primary tracks for MPMD traces, and
+// dispatches TEC tracks to PopulateTecTracks.
 void PopulateSyncProcessTracks(
     ProcessId pid,
     const absl::btree_map<ThreadId, std::vector<const TraceEvent*>>&
@@ -1777,6 +1829,8 @@ void PopulateSyncProcessTracks(
       (it_sort == trace_info.process_sort_indices.end() ||
        it_sort->second >= kMpmdUnrankedSortIndexBase);
 
+  std::vector<std::pair<ThreadId, absl::Span<const TraceEvent* const>>>
+      tec_tracks;
   for (const ThreadId tid : sorted_tids) {
     const auto it_sync = sync_groups.find(tid);
     absl::Span<const TraceEvent* const> events;
@@ -1791,12 +1845,13 @@ void PopulateSyncProcessTracks(
           !it_cache->second.empty();
     }
 
+    const auto it_name = trace_info.thread_names.find({pid, tid});
+    const absl::string_view thread_name =
+        (it_name != trace_info.thread_names.end())
+            ? absl::string_view(it_name->second)
+            : "";
+
     if (trace_info.is_mpmd && events.empty() && !has_cached_events) {
-      const auto it_name = trace_info.thread_names.find({pid, tid});
-      const absl::string_view thread_name =
-          (it_name != trace_info.thread_names.end())
-              ? absl::string_view(it_name->second)
-              : "";
       const bool is_primary_mpmd_track =
           (thread_name == kXlaModules ||
            (it_xla_tid != trace_info.xla_modules_tids.end() &&
@@ -1805,11 +1860,21 @@ void PopulateSyncProcessTracks(
         continue;
       }
     }
+
+    if (IsTecTrack(thread_name)) {
+      tec_tracks.push_back({tid, events});
+      continue;
+    }
+
     PopulateThreadTrack(pid, tid, events, trace_info, current_level, data,
                         bounds, thread_levels, process_group_name,
                         /*default_expanded=*/true, expanded_states,
                         max_observed_levels, parent_index);
   }
+
+  PopulateTecTracks(pid, process_group_name, tec_tracks, trace_info,
+                    current_level, data, bounds, thread_levels, expanded_states,
+                    max_observed_levels, parent_index);
 }
 
 // Populates counter tracks for a process, merging events from parsed counter

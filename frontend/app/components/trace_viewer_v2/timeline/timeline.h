@@ -122,6 +122,8 @@ struct Group {
   int level_count = 0;
   // Indicates if this group has nested child tracks.
   bool has_children = false;
+  // Indicates if this group has no events or samples.
+  bool is_empty = false;
 
   // Cached layout offset (screen Y coordinate in pixels).
   mutable Pixel offset = 0.0f;
@@ -871,6 +873,9 @@ class Timeline {
     UpdateLevelPositions(timeline_data_);
   }
 
+  // Returns the cached group visibility array.
+  const std::vector<bool>& group_visible() const { return group_visible_; }
+
  protected:
   // Virtual method to allow mocking in tests.
   virtual ImVec2 GetTextSize(absl::string_view text) const {
@@ -910,9 +915,6 @@ class Timeline {
 
   Pixel GetGroupTop(const Group* group) const;
   Pixel GetGroupBottom(const Group* group) const;
-
-  // Returns the cached group visibility array.
-  const std::vector<bool>& group_visible() const { return group_visible_; }
 
   void DrawEvent(int group_index, int event_index, const EventRect& rect,
                  ImDrawList* absl_nonnull draw_list);

@@ -161,6 +161,13 @@ MATCHER_P2(GroupIs, name, expanded, "") {
   return arg.name == name && arg.expanded == expanded;
 }
 
+// Matches a FlameChartGroup with the specified name, expanded state, and
+// is_empty state.
+MATCHER_P3(GroupIs, name, expanded, is_empty, "") {
+  return arg.name == name && arg.expanded == expanded &&
+         arg.is_empty == is_empty;
+}
+
 // Matches a FlowLine with the specified source and target timestamps.
 MATCHER_P2(FlowLineIs, source_ts, target_ts, "") {
   return arg.source_ts == source_ts && arg.target_ts == target_ts;
@@ -173,10 +180,12 @@ class DataProviderTest : public ::testing::Test {
   // Resets timeline data and processes the given trace events.
   const FlameChartTimelineData& Process(
       const std::vector<TraceEvent>& flame_events, bool mpmd = false,
-      const std::vector<TraceEvent>& flow_events = {}) {
+      const std::vector<TraceEvent>& flow_events = {},
+      const std::vector<CounterEvent>& counter_events = {}) {
     timeline_.SetTimelineData({});
     data_provider_.ProcessTraceEvents(
         ParsedTraceEvents{.flame_events = flame_events,
+                          .counter_events = counter_events,
                           .flow_events = flow_events,
                           .mpmd_pipeline_view = mpmd},
         timeline_);
@@ -1311,13 +1320,17 @@ TEST_F(DataProviderTest, MpmdFirstProcessSuppressedExpansion) {
                           GroupIs("Active_Thread", true),
                           GroupIs("Active_Process_2", false),
                           GroupIs("Active_Thread_2", true)));
-  EXPECT_THAT(
-      Process(events, /*mpmd=*/false).groups,
-      ElementsAre(
-          GroupIs("Empty_Process", true), GroupIs("Async_Framework", true),
-          GroupIs("Steps", true), GroupIs("Active_Process", false),
-          GroupIs("Active_Thread", true), GroupIs("Active_Process_2", false),
-          GroupIs("Active_Thread_2", true)));
+  // In standard (non-MPMD) mode, empty child tracks (Async_Framework and Steps)
+  // in Empty_Process default to collapsed (expanded = false) and is_empty =
+  // true.
+  EXPECT_THAT(Process(events, /*mpmd=*/false).groups,
+              ElementsAre(GroupIs("Empty_Process", true),
+                          GroupIs("Async_Framework", false, /*is_empty=*/true),
+                          GroupIs("Steps", false, /*is_empty=*/true),
+                          GroupIs("Active_Process", false),
+                          GroupIs("Active_Thread", true),
+                          GroupIs("Active_Process_2", false),
+                          GroupIs("Active_Thread_2", true)));
 }
 
 TEST_F(DataProviderTest, ProcessTraceEventsEmptyEventsSetsMpmdFlag) {
@@ -6554,6 +6567,161 @@ TEST_F(DataProviderTest,
 
   ExpectTimelineDataMatches(timeline_.timeline_data(),
                             single_timeline.timeline_data());
+}
+
+TEST_F(DataProviderTest, EmptyChildThreadTracksDefaultToCollapsed) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(10, "Process_1"),
+      CreateThreadEvent(10, 1, "Busy_Thread"),
+      CreateCompleteEvent(10, 1, "Event_1"),
+      CreateThreadEvent(10, 2, "Empty_Thread"),
+  };
+
+  const FlameChartTimelineData data = Process(events, /*mpmd=*/false);
+  EXPECT_THAT(data.groups,
+              ElementsAre(GroupIs("Process_1", true),
+                          GroupIs("Busy_Thread", true, /*is_empty=*/false),
+                          GroupIs("Empty_Thread", false, /*is_empty=*/true)));
+}
+
+TEST_F(DataProviderTest,
+       GetRestoredExpandedStatesSkipsDefaultCollapsedEmptyGroups) {
+  std::vector<Group> groups;
+  // Process (expanded)
+  groups.push_back({
+      .name = "Proc",
+      .nesting_level = kProcessNestingLevel,
+      .expanded = true,
+      .is_empty = false,
+  });
+  // Busy thread (expanded)
+  groups.push_back({
+      .name = "Busy_Thread",
+      .nesting_level = kThreadNestingLevel,
+      .expanded = true,
+      .parent_index = 0,
+      .is_empty = false,
+  });
+  // Empty thread (collapsed by default because it's empty)
+  groups.push_back({
+      .name = "Default_Collapsed_Empty_Thread",
+      .nesting_level = kThreadNestingLevel,
+      .expanded = false,
+      .parent_index = 0,
+      .is_empty = true,
+  });
+  // Busy thread explicitly collapsed by user
+  groups.push_back({
+      .name = "Explicitly_Collapsed_Busy_Thread",
+      .nesting_level = kThreadNestingLevel,
+      .expanded = false,
+      .parent_index = 0,
+      .is_empty = false,
+  });
+  // Empty thread explicitly expanded by user
+  groups.push_back({
+      .name = "Explicitly_Expanded_Empty_Thread",
+      .nesting_level = kThreadNestingLevel,
+      .expanded = true,
+      .parent_index = 0,
+      .is_empty = true,
+  });
+
+  const absl::btree_map<GroupKey, bool> restored =
+      internal::GetRestoredExpandedStates(groups);
+
+  EXPECT_TRUE(restored.at({kProcessNestingLevel, "Proc", ""}));
+  EXPECT_TRUE(restored.at({kThreadNestingLevel, "Busy_Thread", "Proc"}));
+  // Empty thread collapsed by default MUST NOT be persisted.
+  EXPECT_FALSE(restored.contains(
+      GroupKey{kThreadNestingLevel, "Default_Collapsed_Empty_Thread", "Proc"}));
+  // Explicitly collapsed busy thread MUST be persisted.
+  EXPECT_FALSE(restored.at(
+      {kThreadNestingLevel, "Explicitly_Collapsed_Busy_Thread", "Proc"}));
+  // Explicitly expanded empty thread MUST be persisted.
+  EXPECT_TRUE(restored.at(
+      {kThreadNestingLevel, "Explicitly_Expanded_Empty_Thread", "Proc"}));
+}
+
+TEST_F(DataProviderTest, TwoLoadWindowTransitionEmptyToBusyExpandsTrack) {
+  // Window 1: Dynamic_Thread has no events in the current window.
+  ParsedTraceEvents window_1;
+  window_1.flame_events = {
+      CreateProcessEvent(10, "Proc"),
+      CreateThreadEvent(10, 1, "Dynamic_Thread"),
+  };
+  data_provider_.ProcessTraceEvents(window_1, timeline_);
+
+  const auto& groups_1 = timeline_.timeline_data().groups;
+  ASSERT_GE(groups_1.size(), 2);
+  EXPECT_EQ(groups_1[1].name, "Dynamic_Thread");
+  EXPECT_FALSE(groups_1[1].expanded);
+  EXPECT_TRUE(groups_1[1].is_empty);
+
+  // Window 2: Pan/zoom into a region where Dynamic_Thread now has events.
+  ParsedTraceEvents window_2;
+  window_2.flame_events = {
+      CreateProcessEvent(10, "Proc"),
+      CreateThreadEvent(10, 1, "Dynamic_Thread"),
+      CreateCompleteEvent(10, 1, "Slice_1", /*ts=*/100.0, /*dur=*/50.0),
+  };
+  data_provider_.ProcessTraceEvents(window_2, timeline_);
+
+  const auto& groups_2 = timeline_.timeline_data().groups;
+  ASSERT_GE(groups_2.size(), 2);
+  EXPECT_EQ(groups_2[1].name, "Dynamic_Thread");
+  // Because window 1's default-collapsed state was not persisted, the busy
+  // track now expands by default.
+  EXPECT_TRUE(groups_2[1].expanded);
+  EXPECT_FALSE(groups_2[1].is_empty);
+}
+
+TEST_F(DataProviderTest,
+       CounterTrackEmptyTimestampsHiddenButConstantZeroVisible) {
+  const std::vector<TraceEvent> flame_events = {
+      CreateProcessEvent(10, "Proc"),
+      CreateThreadEvent(10, 1, "Thread1"),
+      CreateCompleteEvent(10, 1, "Slice_1"),
+  };
+  std::vector<CounterEvent> counter_events;
+
+  // Constant zero counter track: values are all 0.0, but timestamps are
+  // present.
+  CounterEvent const_zero;
+  const_zero.pid = 10;
+  const_zero.name = "Constant_Zero_Counter";
+  const_zero.timestamps = {10.0, 20.0, 30.0};
+  const_zero.values = {0.0, 0.0, 0.0};
+  counter_events.push_back(std::move(const_zero));
+
+  // Empty counter track: timestamps is empty.
+  CounterEvent empty_counter;
+  empty_counter.pid = 10;
+  empty_counter.name = "Empty_Counter";
+  empty_counter.timestamps = {};
+  empty_counter.values = {};
+  counter_events.push_back(std::move(empty_counter));
+
+  const FlameChartTimelineData& data =
+      Process(flame_events, /*mpmd=*/false, /*flow_events=*/{}, counter_events);
+
+  int const_zero_idx = -1;
+  int empty_idx = -1;
+  for (size_t i = 0; i < data.groups.size(); ++i) {
+    if (data.groups[i].name == "Constant_Zero_Counter") {
+      const_zero_idx = static_cast<int>(i);
+    } else if (data.groups[i].name == "Empty_Counter") {
+      empty_idx = static_cast<int>(i);
+    }
+  }
+
+  ASSERT_NE(const_zero_idx, -1);
+  EXPECT_FALSE(data.groups[const_zero_idx].is_empty);
+  EXPECT_TRUE(data.groups[const_zero_idx].visible);
+
+  ASSERT_NE(empty_idx, -1);
+  EXPECT_TRUE(data.groups[empty_idx].is_empty);
+  EXPECT_FALSE(data.groups[empty_idx].visible);
 }
 }  // namespace
 }  // namespace traceviewer

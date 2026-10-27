@@ -64,6 +64,10 @@ bool GetExpandedState(int nesting_level, absl::string_view name,
   return default_expanded;
 }
 
+}  // namespace
+
+namespace internal {
+
 absl::btree_map<GroupKey, bool> GetRestoredExpandedStates(
     const std::vector<Group>& groups) {
   absl::btree_map<GroupKey, bool> expanded_states;
@@ -71,6 +75,11 @@ absl::btree_map<GroupKey, bool> GetRestoredExpandedStates(
   for (const auto& group : groups) {
     if (group.nesting_level == kProcessNestingLevel) {
       current_process_name = group.name;
+    }
+    if (group.is_empty && !group.expanded) {
+      continue;
+    }
+    if (group.nesting_level == kProcessNestingLevel) {
       expanded_states[{kProcessNestingLevel, group.name, ""}] = group.expanded;
     } else {
       const std::string parent =
@@ -84,6 +93,12 @@ absl::btree_map<GroupKey, bool> GetRestoredExpandedStates(
   }
   return expanded_states;
 }
+
+}  // namespace internal
+
+namespace {
+
+using ::traceviewer::internal::GetRestoredExpandedStates;
 
 struct TimeBounds {
   Microseconds min = std::numeric_limits<Microseconds>::max();
@@ -1493,6 +1508,27 @@ void PopulateThreadTrack(
                             : it->second;
   }
 
+  bool has_cached_events = false;
+  if (custom_name.has_value() && trace_info.cached_async_tracks != nullptr) {
+    if (const auto it_cache =
+            trace_info.cached_async_tracks->find({pid, thread_group_name});
+        it_cache != trace_info.cached_async_tracks->end() &&
+        !it_cache->second.empty()) {
+      has_cached_events = true;
+    }
+  } else if (!custom_name.has_value() &&
+             trace_info.cached_sync_tracks != nullptr) {
+    if (const auto it_cache = trace_info.cached_sync_tracks->find({pid, tid});
+        it_cache != trace_info.cached_sync_tracks->end() &&
+        !it_cache->second.empty()) {
+      has_cached_events = true;
+    }
+  }
+
+  if (events.empty() && !has_cached_events) {
+    default_expanded = false;
+  }
+
   bool expanded =
       GetExpandedState(kThreadNestingLevel, thread_group_name,
                        process_group_name, default_expanded, expanded_states);
@@ -1560,7 +1596,8 @@ void PopulateThreadTrack(
     it->second.end_level = std::max(it->second.end_level, current_level);
   }
 
-  if (max_level == start_level && !expanded_states.contains(group_key)) {
+  if (track_has_events && max_level == start_level &&
+      !expanded_states.contains(group_key)) {
     data.groups.back().expanded = true;
   }
 }
@@ -2093,6 +2130,24 @@ FlameChartTimelineData CreateTimelineData(
 
   GenerateFlowLines(trace_info, thread_levels, top_5_flow_categories, data,
                     bounds, palette);
+
+  for (size_t i = 0; i < data.groups.size(); ++i) {
+    Group& group = data.groups[i];
+    if (group.type == Group::Type::kCounter) {
+      const auto it = data.counter_data_by_group_index.find(i);
+      group.is_empty = (it == data.counter_data_by_group_index.end() ||
+                        it->second.timestamps.empty());
+    } else {
+      const int end_level =
+          std::min(group.start_level + group.level_count,
+                   static_cast<int>(data.level_offsets.size()) - 1);
+      group.is_empty =
+          (group.start_level < static_cast<int>(data.level_offsets.size()) &&
+           data.level_offsets[end_level] ==
+               data.level_offsets[group.start_level]);
+    }
+  }
+
   return data;
 }
 

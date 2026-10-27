@@ -23,6 +23,7 @@ xprof_ng_module(
         "//:node_modules/@angular/core",
         "//:node_modules/@angular/forms",
         "//:node_modules/@angular/router",
+        "//:node_modules/@material/web",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/angular:angular_common_http",

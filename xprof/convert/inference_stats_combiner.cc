@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 #include "xprof/convert/inference_stats_combiner.h"
 
+#include <cstdint>
 #include <string>
 
 #include "absl/container/flat_hash_map.h"
@@ -24,17 +25,39 @@ limitations under the License.
 
 namespace tensorflow::profiler {
 namespace {
+// Returns the index of `model_id` in `model_id_db`, inserting `model_id` into
+// both `ids` and `id_to_index` if it is not already present. Returns -1 if
+// `model_id` is empty (unknown model).
+int32_t AssignIndexToModelId(const std::string& model_id,
+                             ModelIdDatabase* model_id_db) {
+  if (model_id.empty()) {
+    return -1;
+  }
+  auto [iter, was_inserted] = model_id_db->mutable_id_to_index()->insert(
+      {model_id, model_id_db->ids_size()});
+  if (was_inserted) {
+    model_id_db->add_ids(model_id);
+  }
+  return iter->second;
+}
+
 // Combines two ModelIdDatabases. Returns true if this combination requires
-// updating the model_id_index in the SessionRunTimes of dst. This will be
-// the case if: (1) Src has a model name that doesn't already exist in dst;
-// or (2) Src has a model name that does exist in dst but has a different
-// index.
+// updating model_id_index in the incoming host's details because any entry in
+// src maps to a different index in dst (including empty model IDs mapping to
+// -1).
 bool CombineModelIdDatabases(const ModelIdDatabase& src, ModelIdDatabase* dst) {
   if (dst->ids_size() == 0) {
     // dst is empty. Simply copy src to dst. This avoids rebuilding
     // dst from src from scratch, which may change the name-to-index mapping.
     *dst = src;
     return false;
+  }
+  // Ensure every non-empty entry already in dst->ids() is indexed in
+  // dst->id_to_index() before merging src.
+  for (int32_t i = 0; i < dst->ids_size(); ++i) {
+    if (!dst->ids(i).empty()) {
+      dst->mutable_id_to_index()->insert({dst->ids(i), i});
+    }
   }
   // TODO(tianrun): For now, assume a model is always served with the same
   // parameter on different hosts. In the future, we might consider the case
@@ -44,16 +67,8 @@ bool CombineModelIdDatabases(const ModelIdDatabase& src, ModelIdDatabase* dst) {
     dst->mutable_id_to_batching_params()->insert(id_and_param);
   }
   bool need_update = false;
-  for (const auto& [src_id, index] : src.id_to_index()) {
-    auto [iter, was_inserted] =
-        dst->mutable_id_to_index()->insert({src_id, dst->ids_size()});
-    if (was_inserted) {
-      *dst->add_ids() = src_id;
-      need_update = true;
-      continue;
-    }
-    if (iter->second != index) {
-      // src_id is already in dst but has a different index.
+  for (int32_t i = 0; i < src.ids_size(); ++i) {
+    if (AssignIndexToModelId(src.ids(i), dst) != i) {
       need_update = true;
     }
   }
@@ -92,8 +107,14 @@ void UpdateTensorPatternIndex(
     const TensorPatternDatabase& src,
     const absl::flat_hash_map<absl::string_view, int>& dst_pattern_to_index,
     TensorEventDetail* detail) {
-  absl::string_view tensor_pattern =
-      src.tensor_pattern(detail->tensor_pattern_index());
+  const int32_t pattern_index = detail->tensor_pattern_index();
+  if (pattern_index < 0 || pattern_index >= src.tensor_pattern_size()) {
+    LOG(WARNING) << "Invalid tensor_pattern_index " << pattern_index
+                 << " for src.tensor_pattern_db() of size "
+                 << src.tensor_pattern_size();
+    return;
+  }
+  absl::string_view tensor_pattern = src.tensor_pattern(pattern_index);
   if (const int* new_index =
           tsl::gtl::FindOrNull(dst_pattern_to_index, tensor_pattern)) {
     detail->set_tensor_pattern_index(*new_index);
@@ -102,6 +123,19 @@ void UpdateTensorPatternIndex(
                  << " is not found in dst->tensor_pattern_db()";
   }
 }
+
+// Remaps model_id_index from src_db to dst_db to align model indices across
+// hosts, adding the model to dst_db if it is missing. Returns -1 (no model)
+// if src_index is out of range or refers to an empty model ID.
+int32_t RemapModelIdIndex(const ModelIdDatabase& src_db,
+                          ModelIdDatabase* dst_db, int32_t src_index) {
+  if (src_index < 0 || src_index >= src_db.ids_size()) {
+    LOG(WARNING) << "Invalid model_id_index " << src_index
+                 << " for src.model_id_db() of size " << src_db.ids_size();
+    return -1;
+  }
+  return AssignIndexToModelId(src_db.ids(src_index), dst_db);
+}
 }  // namespace
 
 void CombineInferenceStatsResult(int src_host_id, const InferenceStats& src,
@@ -109,6 +143,12 @@ void CombineInferenceStatsResult(int src_host_id, const InferenceStats& src,
   // There should be one key-value pair inside src.inference_stats_per_host(),
   // because the src comes from one XprofResponse (i.e., one host).
   DCHECK_LE(src.inference_stats_per_host_size(), 1);
+  // Check for a duplicate host before merging the databases, so that a
+  // rejected host does not add its models or tensor patterns to dst.
+  if (dst->inference_stats_per_host().contains(src_host_id)) {
+    LOG(INFO) << "Duplicate host_id: " << src_host_id;
+    return;
+  }
   bool need_update_model_id =
       CombineModelIdDatabases(src.model_id_db(), dst->mutable_model_id_db());
   absl::flat_hash_map<absl::string_view, int> dst_pattern_to_index;
@@ -125,43 +165,36 @@ void CombineInferenceStatsResult(int src_host_id, const InferenceStats& src,
         {src_host_id, inf_stats});
     if (!was_inserted) {
       LOG(INFO) << "Duplicate host_id: " << iter->first;
+      continue;
     }
-    if (need_update_model_id || need_update_tensor_pattern) {
-      // Needs to update the model_id_index in the dst.
-      PerHostInferenceStats* dst_inference_stats =
-          &(*dst->mutable_inference_stats_per_host())[src_host_id];
-      for (RequestDetail& request_detail :
-           *dst_inference_stats->mutable_request_details()) {
-        if (need_update_model_id && request_detail.model_id_index() != -1) {
-          // "model_id_index = -1" means there is no model_id associated with
-          // the group id in this event if client doesn't specify "model_id" in
-          // TraceMeEncode. so we don't need to update model_id if it doesn't
-          // have a model.
-          const std::string& model_id =
-              src.model_id_db().ids(request_detail.model_id_index());
-          auto iter = dst->model_id_db().id_to_index().find(model_id);
-          if (iter == dst->model_id_db().id_to_index().end()) {
-            LOG(WARNING) << "Model ID " << model_id
-                         << " is not found in dst->model_id_db()";
-            continue;
-          }
-          request_detail.set_model_id_index(iter->second);
-        }
-        if (need_update_tensor_pattern) {
-          for (auto& tensor_event_details :
-               *request_detail.mutable_tensor_event_details()) {
-            UpdateTensorPatternIndex(src.tensor_pattern_db(),
-                                     dst_pattern_to_index,
-                                     &tensor_event_details);
-          }
+    if (!need_update_model_id && !need_update_tensor_pattern) {
+      continue;
+    }
+    PerHostInferenceStats& dst_inference_stats = iter->second;
+    for (RequestDetail& request_detail :
+         *dst_inference_stats.mutable_request_details()) {
+      if (need_update_model_id && request_detail.model_id_index() != -1) {
+        request_detail.set_model_id_index(
+            RemapModelIdIndex(src.model_id_db(), dst->mutable_model_id_db(),
+                              request_detail.model_id_index()));
+      }
+      if (need_update_tensor_pattern) {
+        for (TensorEventDetail& tensor_event_details :
+             *request_detail.mutable_tensor_event_details()) {
+          UpdateTensorPatternIndex(src.tensor_pattern_db(),
+                                   dst_pattern_to_index, &tensor_event_details);
         }
       }
     }
-    if (need_update_tensor_pattern) {
-      PerHostInferenceStats* dst_inference_stats =
-          &(*dst->mutable_inference_stats_per_host())[src_host_id];
-      for (BatchDetail& batch_detail :
-           *dst_inference_stats->mutable_batch_details()) {
+    for (BatchDetail& batch_detail :
+         *dst_inference_stats.mutable_batch_details()) {
+      if (need_update_model_id && batch_detail.model_id_index() != -1) {
+        batch_detail.set_model_id_index(
+            RemapModelIdIndex(src.model_id_db(), dst->mutable_model_id_db(),
+                              batch_detail.model_id_index()));
+      }
+      if (need_update_tensor_pattern &&
+          batch_detail.has_tensor_event_detail()) {
         UpdateTensorPatternIndex(src.tensor_pattern_db(), dst_pattern_to_index,
                                  batch_detail.mutable_tensor_event_detail());
       }

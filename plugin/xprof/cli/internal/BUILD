@@ -54,3 +54,8 @@ pytype_strict_library(
     srcs = ["async_overlap_sql.py"],
     deps = [":async_overlap"],
 )
+
+pytype_strict_library(
+    name = "events_db_queries",
+    srcs = ["events_db_queries.py"],
+)

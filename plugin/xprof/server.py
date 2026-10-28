@@ -265,6 +265,8 @@ _CLI_SUBCOMMANDS = frozenset({
     "check_kernel_profiling",
     "compute_utilization",
     "diff_sessions",
+    "events_db_info",
+    "events_db_top_ops",
     "export_json",
     "get_device_information",
     "get_device_time_attribution",

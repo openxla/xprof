@@ -33,9 +33,23 @@
               aria-label="op-name"
               required
               autocomplete="off"
-              [(ngModel)]="opName"
+              [ngModel]="opName"
+              (ngModelChange)="onOpNameChange($event)"
               name="opName"
             />
+            <a
+              *ngIf="kernelViewerLink.url"
+              mat-icon-button
+              matSuffix
+              class="kernel-viewer-link"
+              [href]="kernelViewerLink.url"
+              target="_blank"
+              rel="noopener noreferrer"
+              [matTooltip]="kernelViewerLink.tooltip"
+              [attr.aria-label]="kernelViewerLink.tooltip"
+            >
+              <mat-icon>open_in_new</mat-icon>
+            </a>
           </mat-form-field>
           <mat-form-field class="full-width">
             <mat-label>Graph Width</mat-label>
@@ -90,7 +104,7 @@
         ></download-hlo>
       </div>
     </div>
-    <op-details [sessionId]="sessionId"></op-details>
+    <op-details [sessionId]="sessionId" [moduleList]="moduleList"></op-details>
     <div class="progress-container-op-details" *ngIf="loadingOpProfile">
       <mat-spinner class="loading-spinner" color="primary" mode="indeterminate" diameter="20"></mat-spinner>
       <div class="loading-message">Preparing Op Details ...</div>

@@ -1,4 +1,10 @@
 import {Store} from '@ngrx/store';
+import {
+  KERNEL_SCHEDULE_TOOLTIP_PREFIX,
+  KERNEL_VIEWER_TOOL_NAME,
+  LLO_DEBUG_TAG,
+  OPEN_KERNEL_VIEWER_LABEL,
+} from 'org_xprof/frontend/app/common/constants/constants';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {
   DataTableUnion,
@@ -921,4 +927,175 @@ export function syncParentUrlParams(
   } catch (error: unknown) {
     console.error('Failed to sync URL parameters:', error);
   }
+}
+
+/**
+ * Creates links to other XProf tools. Matches `DataServiceV2Interface`, which
+ * this file cannot import without a dependency cycle.
+ */
+export interface ToolUrlCreator {
+  createToolUrl(options: {
+    toolName: string;
+    sessionId: string;
+    params: Record<string, string>;
+  }): string;
+}
+
+/** A link to the Kernel Viewer. An empty `url` means that there is no link. */
+export interface KernelViewerLink {
+  readonly url: string;
+  readonly tooltip: string;
+}
+
+/** The `KernelViewerLink` of ops that do not link to the Kernel Viewer. */
+export const NO_KERNEL_VIEWER_LINK: KernelViewerLink = {url: '', tooltip: ''};
+
+/** The session that a Kernel Viewer link opens. */
+export interface KernelViewerSession {
+  readonly sessionId: string;
+  readonly dataService: ToolUrlCreator;
+}
+
+/** Options for `getKernelViewerLink`. */
+export interface KernelViewerLinkOptions extends KernelViewerSession {
+  /** HLO op name of the kernel. Without it, the link selects no kernel. */
+  readonly kernelName?: string;
+  /** HLO module of the kernel, with or without the "(<program id>)" suffix. */
+  readonly hloModule?: string;
+  readonly host?: string;
+}
+
+/** Sources of the HLO module names of the programs in an op profile. */
+export interface HloModuleLookup {
+  /** Root node, with program children when grouped by program or provenance. */
+  readonly rootNode?: OpProfileNode;
+  /** HLO modules of the session, as "<module name>(<program id>)". */
+  readonly moduleList?: readonly string[];
+}
+
+/** Options for `getOpProfileKernelViewerLink`. */
+export interface OpProfileKernelViewerLinkOptions
+  extends KernelViewerSession,
+    HloModuleLookup {
+  readonly node?: OpProfileNode;
+  readonly tags: readonly string[];
+}
+
+/** Strips duplicate-group suffix and leading '%' from an HLO op name. */
+export function cleanHloOpName(opName?: string): string {
+  return (opName || '')
+    .trim()
+    .replace(/ and its duplicate\(s\)$/, '')
+    .replace(/^%/, '')
+    .trim();
+}
+
+/** Strips a trailing '(program_id)' suffix from an HLO module name. */
+export function stripHloModuleProgramId(moduleName?: string): string {
+  return (moduleName || '').trim().replace(/\(\d+\)$/, '').trim();
+}
+
+/**
+ * Returns the bare HLO module name of the program with `programId`, from the
+ * program nodes of `rootNode` or else from `moduleList`.
+ */
+export function resolveBareHloModuleName(
+  programId: string,
+  {rootNode, moduleList}: HloModuleLookup,
+): string {
+  if (!programId) {
+    return '';
+  }
+  const programIdSuffix = `(${programId})`;
+  const moduleName =
+    rootNode?.children?.find((child) => child.name?.endsWith(programIdSuffix))
+      ?.name ??
+    moduleList?.find((module) => module.endsWith(programIdSuffix)) ??
+    '';
+  return stripHloModuleProgramId(moduleName);
+}
+
+/** Returns whether an op profile node is the custom-call category row. */
+export function isCustomCallCategoryNode(node?: OpProfileNode): boolean {
+  return !node?.xla && node?.name === 'custom-call';
+}
+
+/** Returns whether an op profile node is a pallas_call custom-call op. */
+export function isPallasCustomCallNode(node?: OpProfileNode): boolean {
+  if (node?.xla?.category !== 'custom-call') {
+    return false;
+  }
+  return parseFrameworkOpType(node.xla.provenance).startsWith('pallas_call');
+}
+
+/**
+ * Returns the link that opens `kernelName` in the Kernel Viewer, or
+ * `NO_KERNEL_VIEWER_LINK` if the data service cannot create the URL.
+ */
+export function getKernelViewerLink({
+  sessionId,
+  dataService,
+  kernelName,
+  hloModule,
+  host,
+}: KernelViewerLinkOptions): KernelViewerLink {
+  // TODO(jiyaz): Also pass the program ID once the Kernel Viewer accepts it.
+  // The module and kernel names are not unique if a module is compiled more
+  // than once, in which case the Kernel Viewer opens the first match.
+  const params: Record<string, string> = {};
+  if (kernelName) {
+    params['kernel_name'] = kernelName;
+  }
+  const bareHloModule = stripHloModuleProgramId(hloModule);
+  if (bareHloModule && bareHloModule !== 'default') {
+    params['hlo_module'] = bareHloModule;
+  }
+  if (host && host !== 'default') {
+    params['host'] = host;
+  }
+  const url = dataService.createToolUrl({
+    toolName: KERNEL_VIEWER_TOOL_NAME,
+    sessionId,
+    params,
+  });
+  if (!url) {
+    return NO_KERNEL_VIEWER_LINK;
+  }
+  const tooltip = kernelName
+    ? KERNEL_SCHEDULE_TOOLTIP_PREFIX + kernelName
+    : OPEN_KERNEL_VIEWER_LABEL;
+  return {url, tooltip};
+}
+
+/**
+ * Returns the Kernel Viewer link of a pallas_call custom-call op or of the
+ * custom-call category node, if the session has the `LLO_DEBUG_TAG` tag.
+ */
+export function getOpProfileKernelViewerLink(
+  options: OpProfileKernelViewerLinkOptions,
+): KernelViewerLink {
+  const {node, tags, sessionId, dataService} = options;
+  if (!tags.includes(LLO_DEBUG_TAG)) {
+    return NO_KERNEL_VIEWER_LINK;
+  }
+  if (isCustomCallCategoryNode(node)) {
+    return getKernelViewerLink({sessionId, dataService});
+  }
+  if (!isPallasCustomCallNode(node)) {
+    return NO_KERNEL_VIEWER_LINK;
+  }
+  const expression = node?.xla?.expression ?? '';
+  const expressionOpName = expression.includes('=')
+    ? cleanHloOpName(expression.split('=')[0])
+    : '';
+  const kernelName = expressionOpName || cleanHloOpName(node?.name);
+  if (!kernelName) {
+    return NO_KERNEL_VIEWER_LINK;
+  }
+  return getKernelViewerLink({
+    sessionId,
+    dataService,
+    kernelName,
+    hloModule: resolveBareHloModuleName(node?.xla?.programId ?? '', options),
+  });
 }

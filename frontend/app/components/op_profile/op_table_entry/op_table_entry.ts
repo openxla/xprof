@@ -2,8 +2,10 @@ import {
   ChangeDetectionStrategy,
   Component,
   EventEmitter,
+  inject,
   Input,
   OnChanges,
+  OnDestroy,
   OnInit,
   Output,
   SimpleChanges,
@@ -11,6 +13,7 @@ import {
 import {Store} from '@ngrx/store';
 import {type DiffNode} from 'org_xprof/frontend/app/common/interfaces/op_profile_diff';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
+import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {updateSelectedOpNodeChainAction} from 'org_xprof/frontend/app/store/actions';
 import {getOpAnalysisState} from 'org_xprof/frontend/app/store/selectors';
 import {OpAnalysisState} from 'org_xprof/frontend/app/store/state';
@@ -26,9 +29,10 @@ import {takeUntil} from 'rxjs/operators';
   templateUrl: './op_table_entry.ng.html',
   styleUrls: ['./op_table_entry.scss'],
 })
-export class OpTableEntry implements OnChanges, OnInit {
+export class OpTableEntry implements OnChanges, OnDestroy, OnInit {
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
+  private readonly dataService = inject(DATA_SERVICE_INTERFACE_TOKEN);
 
   /** The depth of node. */
   @Input() level = 0;
@@ -38,6 +42,15 @@ export class OpTableEntry implements OnChanges, OnInit {
 
   /** The root node. */
   @Input() rootNode?: Node;
+
+  /** The session id. */
+  @Input() sessionId = '';
+
+  /** The list of modules. */
+  @Input() moduleList: string[] = [];
+
+  /** Session tags inherited from the parent table. */
+  @Input() tags: string[] = [];
 
   /** The selected node. */
   @Input() selectedNode?: Node;
@@ -80,6 +93,7 @@ export class OpTableEntry implements OnChanges, OnInit {
   hbmFlameColor = '';
   numLeftOut = 0;
   applyScalingFactor = false;
+  kernelViewerLink = utils.NO_KERNEL_VIEWER_LINK;
 
   constructor(private readonly store: Store<{}>) {
     this.store
@@ -103,11 +117,30 @@ export class OpTableEntry implements OnChanges, OnInit {
     this.updateProperties();
   }
 
+  ngOnDestroy() {
+    this.destroyed.next();
+    this.destroyed.complete();
+  }
+
+  private updateKernelViewerLink() {
+    this.kernelViewerLink = utils.getOpProfileKernelViewerLink({
+      node: this.node,
+      tags: this.tags,
+      sessionId: this.sessionId,
+      dataService: this.dataService,
+      rootNode: this.rootNode,
+      moduleList: this.moduleList,
+    });
+  }
+
   private updateProperties() {
     if (!this.node || !this.rootNode) {
       this.children = [];
+      this.kernelViewerLink = utils.NO_KERNEL_VIEWER_LINK;
       return;
     }
+
+    this.updateKernelViewerLink();
 
     if (this.level === 0) {
       this.expanded = true;

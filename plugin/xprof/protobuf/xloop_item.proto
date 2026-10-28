@@ -1,0 +1,209 @@
+// XLoop Engine benchmark item.
+
+syntax = "proto3";
+
+package xprof.xloop;
+
+// NOTE: deliberately not LITE_RUNTIME. The engine round-trips these messages
+// through proto3 JSON (google.protobuf.json_format), which needs the full
+// runtime's reflection support.
+
+option cc_enable_arenas = true;
+
+// Outcome of parsing, compiling or executing one piece of code.
+enum CodeStatus {
+  CODE_STATUS_UNSPECIFIED = 0;
+  CODE_STATUS_COMPILE_ERROR = 1;
+  CODE_STATUS_EXECUTE_ERROR = 2;
+  CODE_STATUS_PARSE_SUCCESS = 3;
+  CODE_STATUS_EXECUTE_SUCCESS = 4;
+}
+
+// Framework the item is written against.
+enum KernelType {
+  KERNEL_TYPE_UNSPECIFIED = 0;
+  KERNEL_TYPE_TORCH = 1;
+  KERNEL_TYPE_JAX = 2;
+}
+
+// What an agent is being asked to produce for this item.
+enum TaskType {
+  TASK_TYPE_UNSPECIFIED = 0;
+
+  // Generate a new implementation given the reference code.
+  TASK_TYPE_COMPLETE_REWRITE = 1;
+
+  // Generate a new implementation given both the reference and the optimized
+  // code, based on the optimized code.
+  TASK_TYPE_PARTIAL_REWRITE_REFERENCE_AND_OPTIMIZED = 2;
+
+  // Generate a new implementation given only the optimized code.
+  TASK_TYPE_PARTIAL_REWRITE_OPTIMIZED_ONLY = 3;
+
+  // Generate a new implementation given the reference code and partially
+  // masked optimized code, i.e. "fill in the middle". In some cases the
+  // reference code may be the unmasked optimized code.
+  //
+  // This task expects to find the masked code under the key "masked_code" in
+  // the task specific metadata.
+  TASK_TYPE_PARTIAL_REWRITE_FIM = 4;
+}
+
+message TaskSpecificMetadata {
+  map<string, string> metadata = 1;
+}
+
+// Auxiliary Python modules required to run the main kernel code.
+//
+// The engine materializes these to disk beside the kernel before importing
+// it, which is how a kernel that spans several modules executes in an
+// isolated worker.
+message AuxiliaryModules {
+  // Fully qualified Python module name -> source code of that module.
+  map<string, string> modules = 1;
+}
+
+// One input-generation program, plus the tolerances that apply when comparing
+// outputs produced from its inputs.
+message InputGenerationConfig {
+  string name = 1;
+
+  // Source of a module defining `get_input_generator()` and, optionally,
+  // `get_init_inputs()`.
+  string input_generation_code = 2;
+
+  // Absolute/relative tolerance for output comparison. Unset means defer to
+  // the input-generation module's `get_atol()` / `get_rtol()`, and failing
+  // that to the engine default of 1e-3.
+  optional float atol = 3;
+  optional float rtol = 4;
+
+  AuxiliaryModules auxiliary_modules = 5;
+}
+
+// A hardware/compiler configuration the item can be executed under.
+message ExecutionEnvironment {
+  reserved 1;
+
+  // Requested accelerator shapes, e.g. "2x2".
+  repeated string slice_shapes = 2;
+
+  // Compiler flags to apply, in `--flag=value` form. On a TPU VM these are
+  // passed through LIBTPU_INIT_ARGS.
+  repeated string xla_flags = 3;
+}
+
+// Measurements from a single sample (one set of generated inputs).
+message SampleExecutionResult {
+  float reference_execution_time_sec = 1;
+  float custom_execution_time_sec = 2;
+  float optimized_execution_time_sec = 3;
+  map<string, float> reference_trace_matched_execution_times_sec = 4;
+  map<string, float> custom_trace_matched_execution_times_sec = 5;
+  map<string, float> optimized_trace_matched_execution_times_sec = 6;
+  bool custom_outputs_match_reference = 7;
+  bool optimized_outputs_match_reference = 8;
+  string reference_runtime_llo_report = 9;
+  string custom_runtime_llo_report = 10;
+  string optimized_runtime_llo_report = 11;
+}
+
+// Everything observed for one input-generation config.
+message ExecutionResult {
+  reserved 3, 4;
+
+  CodeStatus execution_status = 1;
+  string error_message = 2;
+
+  repeated SampleExecutionResult sample_execution_results = 5;
+
+  // Hardware utilization metrics extracted from the profile (e.g. HBM
+  // bandwidth, ICI, ALU, idleness).
+  map<string, float> reference_utilization_metrics = 6;
+  map<string, float> custom_utilization_metrics = 7;
+  map<string, float> optimized_utilization_metrics = 8;
+
+  // Absolute path or file:// URL to the execution log.
+  string execution_log_path = 9;
+
+  // Captured contents of the execution log.
+  string execution_log_content = 10;
+
+  // Where each role's per-sample times came from, keyed by role name:
+  // "trace" for durations read off the device plane of the emitted profile,
+  // "wall_clock" for host-side measurements around the dispatch.
+  //
+  // Wall clock is a fallback. It includes host dispatch, which costs ~160us
+  // on a v6e against ~2.5us of compute for a 1024-cube matmul, so it cannot
+  // resolve a microbenchmark. A consumer comparing runs should check that
+  // this says "trace" before trusting a speedup.
+  map<string, string> timing_source = 11;
+}
+
+// Aggregate across all input-generation configs.
+message ExecutionReport {
+  CodeStatus execution_status = 5;
+  bool custom_outputs_match_reference = 4;
+  bool optimized_outputs_match_reference = 9;
+  float gmean_speedup_over_reference = 1;
+  float gmean_speedup_over_optimized = 7;
+  float gmean_speedup_optimized_over_reference = 8;
+  map<string, float> reference_trace_matched_execution_times_sec = 2;
+  map<string, float> custom_trace_matched_execution_times_sec = 3;
+  map<string, float> optimized_trace_matched_execution_times_sec = 6;
+}
+
+// A single benchmark: up to three implementations of the same computation,
+// the programs that generate their inputs, and the results of running them.
+message XLoopItem {
+  reserved 7 to 16, 19 to 22, 24, 25, 28 to 31, 34, 35, 37 to 39;
+
+  string id = 1;
+  string name = 2;
+  KernelType kernel_type = 3;
+  TaskType task_type = 36;
+  string split = 6;
+
+  // Source revision at which the item was built and tested. If there are
+  // breaking framework changes it may be necessary to run the item at this
+  // revision.
+  int64 base_changelist_number = 41;
+
+  // Task specific metadata for agent development.
+  map<string, TaskSpecificMetadata> task_specific_metadata = 26;
+
+  // The baseline implementation, and the correctness oracle. This is the code
+  // to be optimized.
+  //
+  // Each `*_code` field holds source text, not a path. The entry point is the
+  // module's `get_model_identifier()`.
+  string reference_code = 4;
+  AuxiliaryModules reference_auxiliary_modules = 42;
+
+  // The implementation under test, usually machine generated.
+  string custom_code = 5;
+  AuxiliaryModules custom_auxiliary_modules = 43;
+
+  // A known-good optimized implementation, used for headroom analysis.
+  string optimized_code = 23;
+  AuxiliaryModules optimized_auxiliary_modules = 44;
+
+  // Input-generation programs keyed by config name. An item is executed once
+  // per config.
+  map<string, InputGenerationConfig> input_generation_configs = 27;
+
+  // Configurations to execute under. Each entry pairs compiler flags with
+  // compatible accelerator shapes.
+  repeated ExecutionEnvironment execution_environments = 47;
+
+  // Per-input-generation-config results, keyed by config name.
+  map<string, ExecutionResult> execution_results = 33;
+
+  // Aggregate across all configs.
+  ExecutionReport execution_report = 32;
+}
+
+// A batch of items, so a whole suite is one file.
+message XLoopItems {
+  repeated XLoopItem items = 1;
+}

@@ -134,6 +134,14 @@ class Application {
     RequestRedraw();
   }
 
+  // Enables or disables reordering tracks by their drag handle. See
+  // `Timeline::set_track_reordering_enabled()`.
+  void SetTrackReorderingEnabled(bool enabled) {
+    if (timeline_) {
+      timeline_->set_track_reordering_enabled(enabled);
+    }
+  }
+
   void NavigateToNextSearchResult() {
     if (timeline_) {
       timeline_->NavigateToNextSearchResult();

@@ -185,6 +185,8 @@ declare global {
    * off. Hover highlighting, hover events and selection are unaffected.
    */
   SetEventTooltipEnabled?(enabled: boolean): void;
+  /** Enables or disables reordering tracks by their drag handle. */
+  SetTrackReorderingEnabled?(enabled: boolean): void;
   // Sets the visible time range of the timeline. Both arguments are in
   // microseconds. Registered as a module-level Emscripten function (see
   // `SetVisibleRange` in application.cc). Used by the Live Trace Viewer to

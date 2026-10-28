@@ -55,4 +55,19 @@ void DrawHideIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
   DrawCenteredGlyph(draw_list, icon_str, center_x, center_y, icon_col);
 }
 
+void DrawDragHandleIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
+                        ImU32 icon_col) {
+  // Whole-pixel edges keep the lines crisp.
+  const Pixel left = std::round(center_x - kTrackDragHandleLineWidth * 0.5f);
+  const Pixel right = left + kTrackDragHandleLineWidth;
+  const Pixel middle_top =
+      std::round(center_y - kTrackDragHandleLineThickness * 0.5f);
+  for (int line = -1; line <= 1; ++line) {
+    const Pixel top = middle_top + line * kTrackDragHandleLineSpacing;
+    draw_list->AddRectFilled(ImVec2(left, top),
+                             ImVec2(right, top + kTrackDragHandleLineThickness),
+                             icon_col, kTrackDragHandleLineThickness * 0.5f);
+  }
+}
+
 }  // namespace traceviewer

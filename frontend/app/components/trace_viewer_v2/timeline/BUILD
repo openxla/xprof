@@ -104,6 +104,7 @@ wasm_cc_library(
         ":draw_helpers",
         ":motion",
         ":time_range",
+        ":track_order",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:flat_hash_map",

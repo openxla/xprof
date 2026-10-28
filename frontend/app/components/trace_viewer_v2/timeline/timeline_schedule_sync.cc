@@ -1249,40 +1249,55 @@ void Timeline::PopulateMinimapScheduleSummary(Microseconds data_start,
     }
     return false;
   };
-  for (size_t g_idx = 0; g_idx < timeline_data_.groups.size(); ++g_idx) {
+  // The tracks are visited in canvas order, so that the minimap lanes follow
+  // the order of the tracks on the canvas, including a user-defined one. If
+  // several tracks have one of the names below, the topmost one is used.
+  const std::vector<int> canvas_group_order = GetCanvasGroupOrder();
+  // The position of each group in `canvas_group_order`.
+  std::vector<int> canvas_rank(timeline_data_.groups.size(), 0);
+  for (size_t rank = 0; rank < canvas_group_order.size(); ++rank) {
+    canvas_rank[canvas_group_order[rank]] = static_cast<int>(rank);
+  }
+  for (const int g_idx : canvas_group_order) {
     const Group& g = timeline_data_.groups[g_idx];
     if (g.type != Group::Type::kFlame ||
         (g.nesting_level == kProcessNestingLevel && g.has_children)) {
       continue;
     }
-    all_flame_group_indices.push_back(static_cast<int>(g_idx));
+    all_flame_group_indices.push_back(g_idx);
     if (g.name == "Regions") {
-      regions_group_index = static_cast<int>(g_idx);
+      if (regions_group_index < 0) {
+        regions_group_index = g_idx;
+      }
       continue;
     }
     if (g.name == "Pallas Primitives") {
-      pallas_group_index = static_cast<int>(g_idx);
+      if (pallas_group_index < 0) {
+        pallas_group_index = g_idx;
+      }
       continue;
     }
     if (g.name == "Named Scope") {
-      named_scope_group_index = static_cast<int>(g_idx);
+      if (named_scope_group_index < 0) {
+        named_scope_group_index = g_idx;
+      }
       continue;
     }
     if (g.name == "Steps" || g.name == "StepMarker") {
       if (steps_group_index < 0) {
-        steps_group_index = static_cast<int>(g_idx);
+        steps_group_index = g_idx;
       }
       continue;
     }
     if (g.name == "XLA Modules" || g.name == "HLO Modules") {
       if (xla_modules_group_index < 0) {
-        xla_modules_group_index = static_cast<int>(g_idx);
+        xla_modules_group_index = g_idx;
       }
       continue;
     }
     if (g.name == "Framework Name Scope" || g.name == "Name Scope") {
       if (framework_scope_group_index < 0) {
-        framework_scope_group_index = static_cast<int>(g_idx);
+        framework_scope_group_index = g_idx;
       }
       continue;
     }
@@ -1290,10 +1305,9 @@ void Timeline::PopulateMinimapScheduleSummary(Microseconds data_start,
     if (IsDerivedInstructionLane(g.name)) {
       continue;
     }
-    if (unit_names.size() < kMaxMinimapUnits &&
-        group_has_events(static_cast<int>(g_idx))) {
+    if (unit_names.size() < kMaxMinimapUnits && group_has_events(g_idx)) {
       unit_names.push_back(g.name);
-      unit_group_indices.push_back(static_cast<int>(g_idx));
+      unit_group_indices.push_back(g_idx);
     }
   }
   if (unit_names.empty()) {
@@ -1643,9 +1657,10 @@ void Timeline::PopulateMinimapScheduleSummary(Microseconds data_start,
   payload.try_emplace("bins", std::move(bins));
   payload.try_emplace("lanes", std::move(lanes));
   // Scope rows are stacked in the same order as their tracks on the canvas.
-  payload.try_emplace("regionsFirst",
-                      regions_source_group >= 0 && pallas_source_group >= 0 &&
-                          regions_source_group < pallas_source_group);
+  payload.try_emplace("regionsFirst", regions_source_group >= 0 &&
+                                          pallas_source_group >= 0 &&
+                                          canvas_rank[regions_source_group] <
+                                              canvas_rank[pallas_source_group]);
   if (regions_source_group >= 0) {
     payload.try_emplace("regionsTrackName",
                         timeline_data_.groups[regions_source_group].name);

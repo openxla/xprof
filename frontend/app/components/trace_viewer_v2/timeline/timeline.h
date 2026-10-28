@@ -31,6 +31,7 @@
 #include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline_hlo_dependencies.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/track_order.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
@@ -307,11 +308,6 @@ class Timeline {
     int loaded_index = -1;
   };
 
-  struct GroupRelativeInfo {
-    Group* parent = nullptr;
-    std::vector<Group>* siblings = nullptr;
-    int index_in_siblings = -1;
-  };
   // A callback function to handle events from the timeline. The first argument
   // is the event type string. The second argument, EventData, is the payload
   // dispatched as the `detail` of a `CustomEvent` on the `window` object.
@@ -376,30 +372,6 @@ class Timeline {
   void set_scroll_offset_for_test(Pixel scroll_y) {
     last_scroll_y_ = scroll_y;
     should_restore_scroll_ = true;
-  }
-  int get_pending_reorder_source_for_test() const {
-    return pending_reorder_source_;
-  }
-  void set_pending_reorder_source_for_test(int source) {
-    pending_reorder_source_ = source;
-  }
-  int get_pending_reorder_target_for_test() const {
-    return pending_reorder_target_;
-  }
-  void set_pending_reorder_target_for_test(int target) {
-    pending_reorder_target_ = target;
-  }
-  bool get_pending_reorder_drop_after_for_test() const {
-    return pending_reorder_drop_after_;
-  }
-  void set_pending_reorder_drop_after_for_test(bool drop_after) {
-    pending_reorder_drop_after_ = drop_after;
-  }
-  Pixel get_reorder_preview_line_y_for_test() const {
-    return reorder_preview_line_y_;
-  }
-  void set_reorder_preview_line_y_for_test(Pixel y) {
-    reorder_preview_line_y_ = y;
   }
   void set_group_offsets_for_test(const std::vector<Pixel>& offsets) {
     group_offsets_ = offsets;
@@ -578,6 +550,17 @@ class Timeline {
     track_management_enabled_ = enabled;
   }
   bool track_management_enabled() const { return track_management_enabled_; }
+
+  // Enables reordering tracks by dragging the drag handle (three stacked lines)
+  // shown at the right of a hovered track label. A track can be moved among its
+  // siblings, together with its child tracks; the trace data itself is not
+  // changed. The order is kept across data reloads and ResetForNewDataset(),
+  // and only applies while reordering is enabled.
+  void set_track_reordering_enabled(bool enabled);
+  bool track_reordering_enabled() const { return track_reordering_enabled_; }
+  // Returns true while a track is being dragged by its drag handle.
+  bool is_dragging_track() const { return track_drag_.has_value(); }
+
   void set_timeline_player_enabled(bool enabled) {
     timeline_player_enabled_ = enabled;
   }
@@ -697,8 +680,10 @@ class Timeline {
 
   void UpdateLevelPositions(const FlameChartTimelineData& data);
   void BuildFlattenedGroups(const FlameChartTimelineData& data);
+  // Splits the groups listed in `display_order` (indices into `data.groups`)
+  // into hidden, pinned and other groups, keeping their order.
   void CategorizeGroupsForTrackManagement(
-      const FlameChartTimelineData& data,
+      const FlameChartTimelineData& data, absl::Span<const int> display_order,
       std::vector<const Group*>& hidden_groups,
       std::vector<const Group*>& pinned_groups,
       std::vector<const Group*>& all_groups);
@@ -870,6 +855,9 @@ class Timeline {
     }
     UpdateLevelPositions(timeline_data_);
   }
+  void set_header_hidden_expanded_for_test(bool expanded) {
+    header_hidden_expanded_ = expanded;
+  }
 
  protected:
   // Virtual method to allow mocking in tests.
@@ -926,6 +914,36 @@ class Timeline {
   bool DrawPinButton(int group_index, Pixel height, bool is_pinned);
 
  private:
+  // --- Track reordering ----------------------------------------------------
+  // An in-progress drag of a track by its drag handle.
+  struct TrackDrag {
+    // A sibling of the dragged track (or the dragged track itself) that it can
+    // be dropped next to.
+    struct Sibling {
+      int group_index = -1;
+      // One past the group index of the last track in the sibling's subtree.
+      int subtree_end = -1;
+    };
+    // Vertical span of a sibling's drawn subtree in tracks content coordinates.
+    struct Extent {
+      Pixel top = 0.0f;
+      Pixel bottom = 0.0f;
+    };
+    // The group index of the dragged track.
+    int source = -1;
+    // The ImGui ID of the dragged track's drag handle.
+    ImGuiID handle_id = 0;
+    // The dragged track's siblings in its section (Hidden, Pinned or All),
+    // including itself, in display order.
+    std::vector<Sibling> siblings;
+    // The position of the dragged track in `siblings`.
+    int source_slot = -1;
+    // Where the track would be dropped: before `siblings[drop_slot]`, or after
+    // the last sibling if it equals `siblings.size()`. -1 if dropping it would
+    // leave it where it is.
+    int drop_slot = -1;
+  };
+
   absl::flat_hash_set<int> matching_event_indices_;
 
   void NavigateToSearchResult(const SearchResult& result);
@@ -978,9 +996,6 @@ class Timeline {
   // Emits mouse mode changed event to JS side.
   void EmitMouseModeChanged();
   void ShowNavigationWarningNotification(absl::string_view message);
-
- protected:
-  GroupRelativeInfo FindGroupRelatives(Group* target_group);
 
  private:
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
@@ -1060,19 +1075,61 @@ class Timeline {
                                      const ImVec2& tracks_start_screen_pos,
                                      Pixel content_region_avail_width);
 
- protected:
-  // Handles drag-and-drop source/target and
-  // item hover check for a track label row.
-  bool HandleTrackDragAndDrop(int group_index, Group& group,
-                              const ImVec2& tracks_start_pos,
-                              const ImVec2& tracks_start_screen_pos,
-                              Pixel group_height, Pixel hover_zone_width);
-  // Handles track hover, drag-and-drop, and reorder tooltip for a track row.
-  void HandleTrackDragAndDropHoverAndFeedback(
-      int group_index, Group& group, const ImVec2& tracks_start_pos,
-      const ImVec2& tracks_start_screen_pos, Pixel group_height);
-
- private:
+  // --- Track reordering ----------------------------------------------------
+  // Recomputes `group_reorderable_` from the sections of `flattened_groups_`,
+  // which must be built from `data`.
+  void UpdateReorderableGroups(const FlameChartTimelineData& data);
+  // Returns the indices of `groups` in display order: with `track_order_`
+  // applied if track reordering is enabled, and in their natural order
+  // otherwise.
+  std::vector<int> GetTrackDisplayOrder(absl::Span<const Group> groups) const;
+  // Returns the indices of `timeline_data_.groups` in the top-to-bottom order
+  // they appear on the canvas: in display order and, when track management is
+  // enabled, with the pinned processes first, then the remaining visible ones,
+  // and then the hidden ones.
+  std::vector<int> GetCanvasGroupOrder() const;
+  // Updates everything that depends on the track order after it changed: ends
+  // any track drag, updates the layout (sliding the tracks to their new places
+  // if `animate`) and the minimap, and requests a redraw.
+  void ApplyTrackOrderChange(bool animate = false);
+  // Returns true if the track at `group_index` is being dragged.
+  bool IsTrackDragSource(int group_index) const {
+    return track_drag_.has_value() && track_drag_->source == group_index;
+  }
+  // Returns true if the group has a drag handle: track reordering is enabled
+  // and the group has a sibling in its section that it can be moved around.
+  bool IsGroupReorderable(int group_index) const;
+  // Returns the number of icon buttons at the right of a group's label: the
+  // pin and hide buttons of processes, and the drag handle.
+  int TrailingButtonCount(int group_index) const;
+  // Draws the drag handle of a track row, `row_height` tall, with the cursor at
+  // its top-left, and starts a drag once the pointer drags it.
+  void DrawTrackReorderHandle(int group_index, Pixel row_height);
+  // Starts dragging the track at `group_index` by the handle `handle_id`.
+  void BeginTrackDrag(int group_index, ImGuiID handle_id);
+  // Advances an in-progress track drag: auto-scrolls, updates and draws the
+  // drop position, and drops the track when the mouse button is released (or
+  // cancels the drag on Escape). Must be called inside the tracks child window
+  // after the track rows are drawn. Returns true if the order changed and the
+  // layout needs an update.
+  bool UpdateTrackDrag(const ImVec2& tracks_start_screen_pos,
+                       Pixel content_region_avail_width);
+  // Scrolls the tracks while the dragged track is near an edge of them.
+  void AutoScrollTrackDrag();
+  // Returns the drop slot (see TrackDrag::drop_slot) for a pointer at
+  // `pointer_y`, in tracks content coordinates.
+  int ComputeTrackDropSlot(Pixel pointer_y) const;
+  // Returns the top and bottom of the rows of a sibling's subtree that are
+  // drawn, in tracks content coordinates.
+  TrackDrag::Extent GetSiblingExtent(const TrackDrag::Sibling& sibling) const;
+  // Draws the line that shows where the dragged track would be dropped.
+  void DrawTrackDropIndicator(const ImVec2& tracks_start_screen_pos,
+                              Pixel content_region_avail_width);
+  // Moves the dragged track to its drop slot. Returns true if the order
+  // changed.
+  bool DropDraggedTrack();
+  // Ends an in-progress track drag without moving the track.
+  void CancelTrackDrag();
   // Draws vertical grid lines across the background of the tracks.
   // `viewport_bottom` is the y-coordinate of the bottom of the viewport, used
   // to draw vertical grid lines across the tracks.
@@ -1529,10 +1586,15 @@ class Timeline {
   // doesn't cover the full requested range).
   TimeRange last_fetch_request_range_ = TimeRange::Zero();
 
-  Pixel reorder_preview_line_y_ = -1.0f;
-  int pending_reorder_source_ = -1;
-  int pending_reorder_target_ = -1;
-  bool pending_reorder_drop_after_ = false;
+  // See set_track_reordering_enabled().
+  bool track_reordering_enabled_ = false;
+  // The user-defined order of the tracks.
+  TrackOrder track_order_;
+  // Whether each group has a drag handle (see IsGroupReorderable). Precomputed
+  // in UpdateLevelPositions.
+  std::vector<bool> group_reorderable_;
+  // The in-progress track drag, if any.
+  std::optional<TrackDrag> track_drag_;
 
   std::string search_query_lower_;
   std::vector<SearchResult> search_results_;

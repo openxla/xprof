@@ -118,6 +118,10 @@ EMSCRIPTEN_KEEPALIVE void SetEventTooltipEnabled(bool enabled) {
   Application::Instance().SetEventTooltipEnabled(enabled);
 }
 
+EMSCRIPTEN_KEEPALIVE void SetTrackReorderingEnabled(bool enabled) {
+  Application::Instance().SetTrackReorderingEnabled(enabled);
+}
+
 EMSCRIPTEN_KEEPALIVE void ResetDataset() {
   Application::Instance().ResetDataset();
 }
@@ -227,6 +231,7 @@ EMSCRIPTEN_BINDINGS(traceviewer) {
   emscripten::function("SetIncrementalFetchEnabled",
                        &SetIncrementalFetchEnabled);
   emscripten::function("SetEventTooltipEnabled", &SetEventTooltipEnabled);
+  emscripten::function("SetTrackReorderingEnabled", &SetTrackReorderingEnabled);
   emscripten::function("ResetDataset", &ResetDataset);
   emscripten::function("SetCustomTraceColors", &SetCustomTraceColors);
   emscripten::function("RequestRedraw", &RequestRedraw);
@@ -314,8 +319,11 @@ void Application::Initialize() {
   platform_ = std::make_unique<WGPURenderPlatform>();
   platform_->Init(initial_canvas_state);
   timeline_ = std::make_unique<Timeline>(palette_);
-  timeline_->set_track_management_enabled(
-      IsFeatureEnabled("enable_track_management"));
+  // Track reordering is part of track management, next to pinning and hiding.
+  const bool track_management_enabled =
+      IsFeatureEnabled("enable_track_management");
+  timeline_->set_track_management_enabled(track_management_enabled);
+  timeline_->set_track_reordering_enabled(track_management_enabled);
   timeline_->set_timeline_player_enabled(
       IsFeatureEnabled("enable_timeline_player"));
   timeline_->set_bookmarks_enabled(IsFeatureEnabled("bookmarks"));

@@ -119,3 +119,18 @@ the identity permutation when there is no custom order.
 *   **Minimap**: When the minimap is enabled, the schedule minimap
     (`PopulateMinimapScheduleSummary`) lists its lanes and region ribbons in
     the order of the tracks on the canvas.
+
+### Persistence
+
+`TrackOrder::Serialize()` encodes the stored sibling orders as compact JSON,
+and `TrackOrder::Deserialize()` reads it back, using defaults for missing
+members and skipping unknown ones. `Application` saves the JSON in
+`window.localStorage` whenever the user changes the order, and restores it at
+startup and before each trace is loaded. The Trace Viewer and the Kernel Viewer
+use separate `localStorage` keys (`xprof_trace_viewer_track_order` by default,
+overridden via `SetTrackOrderStorageKey("xprof_kernel_viewer_track_order")` in
+the Kernel Viewer), so reordering tracks in one viewer does not affect the
+other. Within each viewer, all sessions and browser tabs share the key under a
+last-writer-wins policy, so the layout follows the user from trace to trace. To
+start over, drag the tracks back or remove the key from local storage in the
+browser's developer tools.

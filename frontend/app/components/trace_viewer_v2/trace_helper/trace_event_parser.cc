@@ -490,6 +490,8 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
       .function("navigateToPrevSearchResult",
                 &traceviewer::Application::NavigateToPrevSearchResult)
       .function("resize", &traceviewer::Application::Resize)
+      .function("restoreSavedTrackOrder",
+                &traceviewer::Application::RestoreSavedTrackOrder)
       .function("setSearchQuery", &traceviewer::Application::SetSearchQuery)
       .function("setMouseMode", &traceviewer::Application::SetMouseMode)
       .function("setVisibleRange", &traceviewer::Application::SetVisibleRange)

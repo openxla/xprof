@@ -377,6 +377,9 @@ const CONTEXT_MENU_HEIGHT = 44;
 /** How long the tour button pulses as the tour closes; see the stylesheet. */
 const TOUR_BUTTON_PULSE_MS = 1100;
 
+/** Local storage key of the Kernel Viewer's timeline track order. */
+const TRACK_ORDER_STORAGE_KEY = 'xprof_kernel_viewer_track_order';
+
 /** Local storage key of the width of the source panel. */
 const SOURCE_WIDTH_STORAGE_KEY = 'xprof_static_kernel_viewer_source_width';
 
@@ -1460,6 +1463,11 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
         // Disable built-in WASM ImGui tooltips because Static Kernel Viewer
         // renders its own Angular `<kernel-event-tooltip>` overlay.
         this.traceViewerModule?.SetEventTooltipEnabled?.(false);
+        // Keep the Kernel Viewer's saved track order separate from the Trace
+        // Viewer's.
+        this.traceViewerModule?.SetTrackOrderStorageKey?.(
+          TRACK_ORDER_STORAGE_KEY,
+        );
         // Kernel lanes can always be reordered; in the Trace Viewer, reordering
         // is behind the `enable_track_management` feature flag.
         this.traceViewerModule?.SetTrackReorderingEnabled?.(true);

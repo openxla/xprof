@@ -17777,6 +17777,164 @@ TEST_F(TrackReorderTest, DraggingTracksUpdatesMinimapLanesAndScopeOrder) {
 }
 
 TEST_F(TrackReorderTest,
+       SerializeAndRestoreTrackOrderPreservesLayoutAndMinimapOnReloadAndReset) {
+  auto make_kernel_data = []() {
+    return BuildMinimapTestData({{.name = "Pallas Primitives",
+                                  .start_level = 0,
+                                  .nesting_level = 1,
+                                  .expanded = true},
+                                 {.name = "Regions",
+                                  .start_level = 1,
+                                  .nesting_level = 1,
+                                  .expanded = true},
+                                 {.name = "MXU",
+                                  .start_level = 2,
+                                  .nesting_level = 1,
+                                  .expanded = true},
+                                 {.name = "XLU",
+                                  .start_level = 3,
+                                  .nesting_level = 1,
+                                  .expanded = true}},
+                                {
+                                    {{"dot_general", 0.0, 100.0}},
+                                    {{"loop.body", 0.0, 100.0}},
+                                    {{"vmatmul", 0.0, 50.0}},
+                                    {{"vrot", 50.0, 50.0}},
+                                });
+  };
+
+  std::string saved_order;
+  timeline_.set_track_order_changed_callback([&](absl::string_view serialized) {
+    saved_order = std::string(serialized);
+  });
+  Load(make_kernel_data());
+
+  DragHandleTo(3, RowCenterY(2) - 5.0f);
+  DragHandleTo(1, RowCenterY(0) - 5.0f);
+  ASSERT_FALSE(saved_order.empty());
+  EXPECT_EQ(saved_order, timeline_.SerializeTrackOrder());
+
+  // Simulate a page reload: restore the saved track order onto a fresh
+  // Timeline instance before loading the dataset.
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline reloaded(palette);
+  reloaded.set_minimap_enabled(true);
+  reloaded.set_track_reordering_enabled(true);
+  ASSERT_TRUE(reloaded.RestoreTrackOrder(saved_order));
+
+  std::vector<EventData> minimap_updates;
+  reloaded.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kMinimapUpdated && detail.contains("lanes")) {
+          minimap_updates.push_back(detail);
+        }
+      });
+  reloaded.SetTimelineData(make_kernel_data());
+  reloaded.set_data_time_range({0.0, 100.0});
+  reloaded.SetVisibleRange({0.0, 100.0});
+
+  std::vector<std::string> reloaded_names;
+  for (const Group* group : reloaded.flattened_groups_) {
+    reloaded_names.push_back(group->name);
+  }
+  EXPECT_THAT(reloaded_names,
+              ElementsAre("Regions", "Pallas Primitives", "XLU", "MXU"));
+  ASSERT_FALSE(minimap_updates.empty());
+  EXPECT_TRUE(std::any_cast<bool>(minimap_updates.back().at("regionsFirst")));
+  const auto& lanes = std::any_cast<const std::vector<EventData>&>(
+      minimap_updates.back().at("lanes"));
+  ASSERT_EQ(lanes.size(), 2u);
+  EXPECT_EQ(std::any_cast<std::string>(lanes[0].at("name")), "XLU");
+  EXPECT_EQ(std::any_cast<std::string>(lanes[1].at("name")), "MXU");
+
+  // Resetting the custom order restores the natural order on both the canvas
+  // and the minimap.
+  minimap_updates.clear();
+  reloaded.ResetTrackOrder();
+  ASSERT_FALSE(minimap_updates.empty());
+  EXPECT_FALSE(std::any_cast<bool>(minimap_updates.back().at("regionsFirst")));
+  const auto& cleared_lanes = std::any_cast<const std::vector<EventData>&>(
+      minimap_updates.back().at("lanes"));
+  ASSERT_EQ(cleared_lanes.size(), 2u);
+  EXPECT_EQ(std::any_cast<std::string>(cleared_lanes[0].at("name")), "MXU");
+  EXPECT_EQ(std::any_cast<std::string>(cleared_lanes[1].at("name")), "XLU");
+}
+
+TEST_F(TrackReorderTest, RestoreTrackOrderAppliesToLoadedData) {
+  Load(TwoProcessesData());
+  int order_changes = 0;
+  timeline_.set_track_order_changed_callback(
+      [&](absl::string_view) { ++order_changes; });
+
+  ASSERT_TRUE(timeline_.RestoreTrackOrder(
+      R"({"orders":[{"parent":[],"order":[["P2",0],["P1",0]]}]})"));
+
+  EXPECT_THAT(DisplayedNames(),
+              ElementsAre("P2", "u1", "u2", "P1", "t1", "t2"));
+  // Restoring a saved order does not save it again.
+  EXPECT_EQ(order_changes, 0);
+}
+
+TEST_F(TrackReorderTest, RestoreTrackOrderReplacesExistingCustomOrder) {
+  Load(TwoProcessesData());
+  // Drag P2 (group 3) above P1 (group 0).
+  DragHandleTo(3, RowCenterY(0) - 10.0f);
+  ASSERT_THAT(DisplayedNames(),
+              ElementsAre("P2", "u1", "u2", "P1", "t1", "t2"));
+
+  // Restore an order that only reorders threads inside P1 (t2, t1).
+  // Processes should revert to their natural order (P1, P2) because the
+  // restored order completely replaces the earlier custom order.
+  ASSERT_TRUE(timeline_.RestoreTrackOrder(
+      R"({"orders":[{"parent":[["P1",0]],"order":[["t2",0],["t1",0]]}]})"));
+
+  EXPECT_THAT(DisplayedNames(),
+              ElementsAre("P1", "t2", "t1", "P2", "u1", "u2"));
+}
+
+TEST_F(TrackReorderTest, RestoreTrackOrderRejectsMalformedOrder) {
+  Load(TwoProcessesData());
+  DragHandleTo(3, RowCenterY(0) - 10.0f);
+
+  EXPECT_FALSE(timeline_.RestoreTrackOrder("{"));
+
+  EXPECT_THAT(DisplayedNames(),
+              ElementsAre("P2", "u1", "u2", "P1", "t1", "t2"));
+}
+
+TEST_F(TrackReorderTest, ResetTrackOrderClearsCustomOrderAndNotifiesOnce) {
+  FlameChartTimelineData data;
+  data.groups = {
+      CreateProcessGroup("P1", 0, {1, 2}),
+      CreateThreadGroup("XLA Ops", 0),
+      CreateThreadGroup("Steps", 1),
+  };
+  data.level_offsets.assign(3, 0);
+  Load(data);
+
+  std::string saved_order;
+  int change_count = 0;
+  timeline_.set_track_order_changed_callback([&](absl::string_view serialized) {
+    saved_order = std::string(serialized);
+    ++change_count;
+  });
+
+  // Resetting the natural order is a no-op and does not notify.
+  timeline_.ResetTrackOrder();
+  EXPECT_EQ(change_count, 0);
+
+  DragHandleTo(2, RowCenterY(1) - 5.0f);
+  ASSERT_THAT(DisplayedNames(), ElementsAre("P1", "Steps", "XLA Ops"));
+  ASSERT_EQ(change_count, 1);
+
+  timeline_.ResetTrackOrder();
+  SimulateFrame();
+  EXPECT_EQ(change_count, 2);
+  EXPECT_EQ(saved_order, "");
+  EXPECT_THAT(DisplayedNames(), ElementsAre("P1", "XLA Ops", "Steps"));
+}
+
+TEST_F(TrackReorderTest,
        CrossSessionLayoutAppliesWithDifferentProcessNamesAndMissingTracks) {
   // Session 1 has "/device:TPU:0" with "Steps", "XLA Modules", "XLA Ops".
   FlameChartTimelineData session_1;

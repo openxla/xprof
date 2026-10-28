@@ -187,6 +187,12 @@ declare global {
   SetEventTooltipEnabled?(enabled: boolean): void;
   /** Enables or disables reordering tracks by their drag handle. */
   SetTrackReorderingEnabled?(enabled: boolean): void;
+  /**
+   * Sets the `localStorage` key used for saving and restoring the track order
+   * (`xprof_trace_viewer_track_order` by default), and immediately restores
+   * the order saved under the new key.
+   */
+  SetTrackOrderStorageKey?(key: string): void;
   // Sets the visible time range of the timeline. Both arguments are in
   // microseconds. Registered as a module-level Emscripten function (see
   // `SetVisibleRange` in application.cc). Used by the Live Trace Viewer to
@@ -267,6 +273,11 @@ declare global {
       navigateToNextSearchResult(): void;
       navigateToPrevSearchResult(): void;
       resize(dpr: number, width: number, height: number): void;
+      /**
+       * Re-applies the track order saved in `localStorage`, which all sessions
+       * share, so that a newly loaded trace uses the latest layout.
+       */
+      restoreSavedTrackOrder?(): void;
       setSearchQuery(query: string): void;
       selectEvent(eventIndex: number): void;
       setMouseMode(mode: number): void;
@@ -764,6 +775,7 @@ async function processUploadedFile(
       uint8Array = new Uint8Array(decompressed.buffer as ArrayBuffer);
     }
 
+    traceviewerModule.application.instance().restoreSavedTrackOrder?.();
     if (isPerfettoTrace(uint8Array, file.name)) {
       processPerfettoTrace(uint8Array, traceviewerModule);
     } else {
@@ -1257,6 +1269,8 @@ export async function traceViewerV2Main(
         if (timeRangeFromUrl) {
           expandUrlTimeRange(urlObj, timeRangeFromUrl);
         }
+
+        traceviewerModule.application.instance().restoreSavedTrackOrder?.();
 
         await fetchAndProcessTraceData({
           urlObj,

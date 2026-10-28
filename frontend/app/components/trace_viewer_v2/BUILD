@@ -78,6 +78,7 @@ wasm_cc_library(
         ":scheduler",
         ":webgpu_render_platform",
         "@com_google_absl//absl/base:no_destructor",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "@imgui",
         "@org_xprof//frontend/app/components/trace_viewer_v2/fonts",

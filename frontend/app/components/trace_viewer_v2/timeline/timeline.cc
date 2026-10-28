@@ -7685,6 +7685,19 @@ void Timeline::set_track_reordering_enabled(bool enabled) {
   ApplyTrackOrderChange(/*animate=*/false);
 }
 
+bool Timeline::RestoreTrackOrder(absl::string_view serialized) {
+  if (!track_order_.Deserialize(serialized)) return false;
+  ApplyTrackOrderChange(/*animate=*/false);
+  return true;
+}
+
+void Timeline::ResetTrackOrder() {
+  if (track_order_.empty()) return;
+  track_order_.Clear();
+  ApplyTrackOrderChange(/*animate=*/false);
+  NotifyTrackOrderChanged();
+}
+
 void Timeline::ApplyTrackOrderChange(bool animate) {
   // A track drag refers to the tracks by their display positions.
   CancelTrackDrag();
@@ -7698,6 +7711,12 @@ void Timeline::ApplyTrackOrderChange(bool animate) {
   minimap_schedule_dirty_ = true;
   SyncMinimapState();
   if (redraw_callback_) redraw_callback_();
+}
+
+void Timeline::NotifyTrackOrderChanged() {
+  if (track_order_changed_callback_) {
+    track_order_changed_callback_(SerializeTrackOrder());
+  }
 }
 
 std::vector<int> Timeline::GetTrackDisplayOrder(
@@ -8033,6 +8052,7 @@ bool Timeline::DropDraggedTrack() {
   // The tracks slide to their new places when the caller updates the layout.
   animate_next_layout_ = animations_enabled_;
   minimap_schedule_dirty_ = true;
+  NotifyTrackOrderChanged();
   return true;
 }
 

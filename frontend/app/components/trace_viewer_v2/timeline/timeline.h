@@ -316,6 +316,7 @@ class Timeline {
   using EventCallback =
       absl::AnyInvocable<void(absl::string_view, const EventData&) const>;
   using RedrawCallback = absl::AnyInvocable<void()>;
+  using TrackOrderChangedCallback = absl::AnyInvocable<void(absl::string_view)>;
 
   Timeline(ColorPalette& palette) : palette_(palette) {}
   // This is necessary because MockTimeline in the tests inherits from Timeline.
@@ -560,6 +561,28 @@ class Timeline {
   bool track_reordering_enabled() const { return track_reordering_enabled_; }
   // Returns true while a track is being dragged by its drag handle.
   bool is_dragging_track() const { return track_drag_.has_value(); }
+
+  // Serializes the user-defined track order into a JSON string (see
+  // `TrackOrder::Serialize()`), which is empty if there is nothing to save.
+  std::string SerializeTrackOrder() const { return track_order_.Serialize(); }
+
+  // Restores the user-defined track order from a JSON string produced by
+  // `SerializeTrackOrder()`, and updates the layout and the minimap. Returns
+  // false and changes nothing if `serialized` is malformed. Does not invoke
+  // the track order changed callback.
+  bool RestoreTrackOrder(absl::string_view serialized);
+
+  // Forgets the user-defined track order, restoring the natural track order.
+  // Invokes the track order changed callback if there was a custom order, so
+  // that the cleared order is saved.
+  void ResetTrackOrder();
+
+  // Registers a callback invoked with `SerializeTrackOrder()` whenever the
+  // track order changes: when the user drops a track, or on
+  // `ResetTrackOrder()`.
+  void set_track_order_changed_callback(TrackOrderChangedCallback callback) {
+    track_order_changed_callback_ = std::move(callback);
+  }
 
   void set_timeline_player_enabled(bool enabled) {
     timeline_player_enabled_ = enabled;
@@ -1092,6 +1115,8 @@ class Timeline {
   // any track drag, updates the layout (sliding the tracks to their new places
   // if `animate`) and the minimap, and requests a redraw.
   void ApplyTrackOrderChange(bool animate = false);
+  // Invokes `track_order_changed_callback_`, if set.
+  void NotifyTrackOrderChanged();
   // Returns true if the track at `group_index` is being dragged.
   bool IsTrackDragSource(int group_index) const {
     return track_drag_.has_value() && track_drag_->source == group_index;
@@ -1590,6 +1615,8 @@ class Timeline {
   bool track_reordering_enabled_ = false;
   // The user-defined order of the tracks.
   TrackOrder track_order_;
+  // See set_track_order_changed_callback().
+  TrackOrderChangedCallback track_order_changed_callback_;
   // Whether each group has a drag handle (see IsGroupReorderable). Precomputed
   // in UpdateLevelPositions.
   std::vector<bool> group_reorderable_;

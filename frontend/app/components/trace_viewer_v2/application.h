@@ -9,6 +9,7 @@
 
 #include "emscripten/val.h"
 #include "absl/base/no_destructor.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "imgui.h"
@@ -134,6 +135,12 @@ class Application {
     RequestRedraw();
   }
 
+  // Default `localStorage` key of the saved track order (used by the Trace
+  // Viewer). Hosts such as the Kernel Viewer override it with
+  // `SetTrackOrderStorageKey()`.
+  static constexpr absl::string_view kDefaultTrackOrderStorageKey =
+      "xprof_trace_viewer_track_order";
+
   // Enables or disables reordering tracks by their drag handle. See
   // `Timeline::set_track_reordering_enabled()`.
   void SetTrackReorderingEnabled(bool enabled) {
@@ -141,6 +148,34 @@ class Application {
       timeline_->set_track_reordering_enabled(enabled);
     }
   }
+
+  // Sets the `localStorage` key used by `SaveTrackOrderToLocalStorage()`,
+  // `LoadTrackOrderFromLocalStorage()`, and `RestoreSavedTrackOrder()`, so
+  // that hosts (such as the Trace Viewer and the Kernel Viewer) keep separate
+  // track orders. If `key` is empty, `kDefaultTrackOrderStorageKey` is used.
+  // Immediately restores the order saved under the new key if the application
+  // is initialized.
+  void SetTrackOrderStorageKey(absl::string_view key);
+
+  const std::string& track_order_storage_key() const {
+    return track_order_storage_key_;
+  }
+
+  // Re-applies the track order saved in `localStorage` under
+  // `track_order_storage_key_`, or resets the track order if none (or a
+  // malformed one) is saved. Within each viewer, all sessions and browser tabs
+  // share the key under a last-writer-wins policy, so this is called before a
+  // trace is loaded to pick up the latest layout.
+  void RestoreSavedTrackOrder();
+
+  // Saves `serialized_order` (see `TrackOrder::Serialize()`) in
+  // `localStorage` under `track_order_storage_key_`, or removes the saved
+  // order if `serialized_order` is empty.
+  void SaveTrackOrderToLocalStorage(absl::string_view serialized_order) const;
+
+  // Returns the track order saved in `localStorage` under
+  // `track_order_storage_key_`, or an empty string if none is saved.
+  std::string LoadTrackOrderFromLocalStorage() const;
 
   void NavigateToNextSearchResult() {
     if (timeline_) {
@@ -185,6 +220,9 @@ class Application {
   uint64_t palette_version_ = 0xDEADBEEF;
 
   std::unordered_map<std::string, bool> feature_flags_cache_;
+
+  std::string track_order_storage_key_ =
+      std::string(kDefaultTrackOrderStorageKey);
 
   void MainLoop();
   // Draws a single frame. Should ONLY be called from MainLoop() to ensure

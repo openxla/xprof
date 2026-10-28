@@ -4,7 +4,10 @@
 #include <emscripten/em_asm.h>
 #include <emscripten/emscripten.h>
 
+#include <string>
+
 #include <gtest/gtest.h>
+#include "absl/strings/string_view.h"
 #include "imgui.h"
 
 namespace traceviewer {
@@ -18,6 +21,7 @@ class ApplicationTest : public ::testing::Test {
   }
 
   void TearDown() override {
+    EM_ASM({ window.localStorage.clear(); });
     // Ensure we don't leave ImGui context behind if a test fails.
     if (ImGui::GetCurrentContext()) {
       ImGui::DestroyContext();
@@ -116,6 +120,75 @@ TEST_F(ApplicationTest, NavigationMethodsSafeWhenUninitialized) {
   // safe no-ops without crashing.
   app.NavigateToNextSearchResult();
   app.NavigateToPrevSearchResult();
+}
+
+TEST_F(ApplicationTest, SaveAndLoadTrackOrderUseSeparateKeysPerViewer) {
+  Application& app = Application::Instance();
+  app.Shutdown();
+
+  EXPECT_EQ(app.track_order_storage_key(),
+            Application::kDefaultTrackOrderStorageKey);
+  EXPECT_EQ(app.LoadTrackOrderFromLocalStorage(), "");
+
+  constexpr absl::string_view kTraceOrder =
+      R"({"orders":[{"parent":[["TPU:0",0]],"order":[["XLA Ops",0],["Steps",0]]}]})";
+  app.SaveTrackOrderToLocalStorage(kTraceOrder);
+  EXPECT_EQ(app.LoadTrackOrderFromLocalStorage(), kTraceOrder);
+  EXPECT_EQ(EM_ASM_INT({ return window.localStorage.length; }), 1);
+  EXPECT_TRUE(EM_ASM_INT({
+    return window.localStorage.getItem('xprof_trace_viewer_track_order') !==
+            null
+        ? 1
+        : 0;
+  }));
+
+  // Switching to the Kernel Viewer key isolates its saved order from the
+  // Trace Viewer's saved order.
+  app.SetTrackOrderStorageKey("xprof_kernel_viewer_track_order");
+  EXPECT_EQ(app.track_order_storage_key(), "xprof_kernel_viewer_track_order");
+  EXPECT_EQ(app.LoadTrackOrderFromLocalStorage(), "");
+
+  constexpr absl::string_view kKernelOrder =
+      R"({"orders":[{"parent":[["TPU:0",0]],"order":[["XLU",0],["MXU",0]]}]})";
+  app.SaveTrackOrderToLocalStorage(kKernelOrder);
+  EXPECT_EQ(app.LoadTrackOrderFromLocalStorage(), kKernelOrder);
+  EXPECT_EQ(EM_ASM_INT({ return window.localStorage.length; }), 2);
+  EXPECT_TRUE(EM_ASM_INT({
+    return window.localStorage.getItem('xprof_kernel_viewer_track_order') !==
+            null
+        ? 1
+        : 0;
+  }));
+
+  // Saving an empty string removes only the active viewer's key.
+  app.SaveTrackOrderToLocalStorage("");
+  EXPECT_EQ(app.LoadTrackOrderFromLocalStorage(), "");
+  EXPECT_EQ(EM_ASM_INT({ return window.localStorage.length; }), 1);
+
+  // Passing an empty key or shutting down resets to the default Trace Viewer
+  // key, where the Trace Viewer order is still intact.
+  app.SetTrackOrderStorageKey("");
+  EXPECT_EQ(app.track_order_storage_key(),
+            Application::kDefaultTrackOrderStorageKey);
+  EXPECT_EQ(app.LoadTrackOrderFromLocalStorage(), kTraceOrder);
+
+  app.SetTrackOrderStorageKey("xprof_kernel_viewer_track_order");
+  app.Shutdown();
+  EXPECT_EQ(app.track_order_storage_key(),
+            Application::kDefaultTrackOrderStorageKey);
+  app.SaveTrackOrderToLocalStorage("");
+  EXPECT_EQ(app.LoadTrackOrderFromLocalStorage(), "");
+}
+
+TEST_F(ApplicationTest, TrackOrderMethodsAreSafeWhenUninitialized) {
+  Application& app = Application::Instance();
+  app.Shutdown();
+
+  EXPECT_FALSE(app.IsInitialized());
+
+  app.SetTrackOrderStorageKey("xprof_kernel_viewer_track_order");
+  app.SetTrackReorderingEnabled(true);
+  app.RestoreSavedTrackOrder();
 }
 
 }  // namespace

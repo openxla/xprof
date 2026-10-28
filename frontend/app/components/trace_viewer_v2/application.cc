@@ -3,6 +3,7 @@
 #include <dirent.h>
 #include <emscripten/bind.h>
 #include <emscripten/em_asm.h>
+#include <emscripten/em_js.h>
 #include <emscripten/em_macros.h>
 #include <emscripten/em_types.h>
 #include <emscripten/emscripten.h>
@@ -43,6 +44,49 @@ namespace {
 const char* const kWindowTarget = EMSCRIPTEN_EVENT_TARGET_WINDOW;
 const char* const kCanvasTarget = "#canvas";
 constexpr float kScrollbarSize = 7.0f;
+
+// Returns a string from window.localStorage, or an empty string if the key does
+// not exist or cannot be accessed (e.g. SecurityError in iframe).
+EM_JS_DEPS(local_storage_deps, "$stringToNewUTF8")
+EM_JS(char*, GetLocalStorageItemJS, (const char* key_ptr), {
+  try {
+    const key = UTF8ToString(key_ptr);
+    const val = window.localStorage ? window.localStorage.getItem(key) : null;
+    if (val === null || val === undefined) {
+      return 0;
+    }
+    return stringToNewUTF8(val);
+  } catch (e) {
+    console.warn('Failed to read from localStorage:', e);
+    return 0;
+  }
+});
+
+// Sets or removes a key in window.localStorage. Guards against exceptions
+// (for example QuotaExceededError or SecurityError) to prevent unwinding the
+// wasm loop.
+EM_JS(void, SetLocalStorageItemJS,
+      (const char* key_ptr, const char* value_ptr), {
+        try {
+          if (!window.localStorage) return;
+          const key = UTF8ToString(key_ptr);
+          if (value_ptr === 0) {
+            window.localStorage.removeItem(key);
+          } else {
+            window.localStorage.setItem(key, UTF8ToString(value_ptr));
+          }
+        } catch (e) {
+          console.warn('Failed to write to localStorage:', e);
+        }
+      });
+
+std::string GetLocalStorageItem(const char* key) {
+  char* str = GetLocalStorageItemJS(key);
+  if (str == nullptr) return "";
+  std::string result(str);
+  free(str);
+  return result;
+}
 
 EM_JS(bool, GetFeatureFlagFromJS, (const char* name), {
   if (window.getFeatureFlag) {
@@ -120,6 +164,10 @@ EMSCRIPTEN_KEEPALIVE void SetEventTooltipEnabled(bool enabled) {
 
 EMSCRIPTEN_KEEPALIVE void SetTrackReorderingEnabled(bool enabled) {
   Application::Instance().SetTrackReorderingEnabled(enabled);
+}
+
+EMSCRIPTEN_KEEPALIVE void SetTrackOrderStorageKey(const std::string& key) {
+  Application::Instance().SetTrackOrderStorageKey(key);
 }
 
 EMSCRIPTEN_KEEPALIVE void ResetDataset() {
@@ -232,6 +280,7 @@ EMSCRIPTEN_BINDINGS(traceviewer) {
                        &SetIncrementalFetchEnabled);
   emscripten::function("SetEventTooltipEnabled", &SetEventTooltipEnabled);
   emscripten::function("SetTrackReorderingEnabled", &SetTrackReorderingEnabled);
+  emscripten::function("SetTrackOrderStorageKey", &SetTrackOrderStorageKey);
   emscripten::function("ResetDataset", &ResetDataset);
   emscripten::function("SetCustomTraceColors", &SetCustomTraceColors);
   emscripten::function("RequestRedraw", &RequestRedraw);
@@ -274,15 +323,7 @@ void Application::Initialize() {
   // Load fonts, colors and styles.
   fonts::LoadFonts(initial_canvas_state.device_pixel_ratio());
 
-  emscripten::val local_storage = emscripten::val::global("localStorage");
-  std::string palette_name = "";
-  if (local_storage.as<bool>()) {
-    emscripten::val item = local_storage.call<emscripten::val>(
-        "getItem", emscripten::val("trace_viewer_palette"));
-    if (!item.isNull() && !item.isUndefined()) {
-      palette_name = item.as<std::string>();
-    }
-  }
+  std::string palette_name = GetLocalStorageItem("trace_viewer_palette");
   if (palette_name.empty()) {
     palette_name = kDefaultPalette;
   }
@@ -338,6 +379,12 @@ void Application::Initialize() {
         EventManager::Instance().DispatchEvent(type, event_data);
       });
   timeline_->set_redraw_callback([this]() { this->RequestRedraw(); });
+  track_order_storage_key_ = std::string(kDefaultTrackOrderStorageKey);
+  timeline_->set_track_order_changed_callback(
+      [this](absl::string_view serialized_order) {
+        SaveTrackOrderToLocalStorage(serialized_order);
+      });
+  RestoreSavedTrackOrder();
 
   ImGuiIO& io = ImGui::GetIO();
 
@@ -396,6 +443,7 @@ void Application::Shutdown() {
 
   // Clean up and release memory.
   feature_flags_cache_.clear();
+  track_order_storage_key_ = std::string(kDefaultTrackOrderStorageKey);
   timeline_.reset();
   platform_.reset();
 
@@ -531,6 +579,39 @@ bool Application::IsFeatureEnabled(const std::string& name) {
   return enabled;
 }
 
+void Application::SetTrackOrderStorageKey(absl::string_view key) {
+  track_order_storage_key_ = key.empty()
+                                 ? std::string(kDefaultTrackOrderStorageKey)
+                                 : std::string(key);
+  RestoreSavedTrackOrder();
+}
+
+void Application::RestoreSavedTrackOrder() {
+  if (!timeline_) return;
+  const std::string saved = LoadTrackOrderFromLocalStorage();
+  // Another session may have reset the order, and a malformed saved order is
+  // replaced by the natural one.
+  if (saved.empty()) {
+    timeline_->ResetTrackOrder();
+  } else if (!timeline_->RestoreTrackOrder(saved)) {
+    timeline_->ResetTrackOrder();
+    SaveTrackOrderToLocalStorage("");
+  }
+}
+
+void Application::SaveTrackOrderToLocalStorage(
+    absl::string_view serialized_order) const {
+  if (serialized_order.empty()) {
+    SetLocalStorageItemJS(track_order_storage_key_.c_str(), nullptr);
+  } else {
+    std::string order_str(serialized_order);
+    SetLocalStorageItemJS(track_order_storage_key_.c_str(), order_str.c_str());
+  }
+}
+
+std::string Application::LoadTrackOrderFromLocalStorage() const {
+  return GetLocalStorageItem(track_order_storage_key_.c_str());
+}
 void Application::Resize(float dpr, int width, int height) {
   CanvasState::SetState(dpr, width, height);
   const CanvasState& canvas_state = CanvasState::Current();

@@ -131,7 +131,7 @@ TEST_F(HloModuleUtilsTest, TestGetLocationStack) {
   const auto* root_instruction =
       module_with_stack_frames->entry_computation()->root_instruction();
   EXPECT_EQ(GetOpLocationStack(xla::StackFrameId{2}, *root_instruction),
-            "main.py:20:1\nmain.py:10:5\n");
+            "main.py:20:1:0\nmain.py:10:5:0\n");
 }
 
 TEST_F(HloModuleUtilsTest, TestGetSourceInfo) {
@@ -143,7 +143,7 @@ TEST_F(HloModuleUtilsTest, TestGetSourceInfo) {
   auto source_info = GetSourceInfo(*root_instruction);
   EXPECT_EQ(source_info.source_file, "main.py");
   EXPECT_EQ(source_info.source_line, 20);
-  EXPECT_EQ(source_info.stack_frame, "main.py:20:1\nmain.py:10:5\n");
+  EXPECT_EQ(source_info.stack_frame, "main.py:20:1:0\nmain.py:10:5:0\n");
 }
 
 TEST_F(HloModuleUtilsTest, TestGetSourceInfoFallback) {

@@ -365,12 +365,9 @@ bool DrawTextWithEllipsis(ImFont* font, absl::string_view text, ImU32 color,
 }
 
 // Returns the width reserved on the right side of a label row for
-// `button_count` icon buttons (the pin and hide buttons and the drag handle):
-// [button] gap [button] ... margin | splitter.
+// `button_count` icon buttons (the pin and hide buttons and the drag handle).
 Pixel CalculateTrailingButtonsWidth(int button_count) {
-  if (button_count <= 0) return 0.0f;
-  return button_count * kTrackIconButtonSize +
-         (button_count - 1) * kTrackIconButtonGap + kTrackIconButtonMarginRight;
+  return Timeline::CalculateTrackManagementButtonWidth(button_count);
 }
 
 // Returns the fields of `groups` that the order of tracks depends on.
@@ -422,7 +419,9 @@ struct IconButtonState {
 IconButtonState TrackIconButton(
     const char* id, Pixel row_height, bool active, absl::string_view tooltip,
     ImU32 foreground_color,
-    absl::FunctionRef<float(ImGuiID, bool)> hover_fade) {
+    absl::FunctionRef<float(ImGuiID, bool)> hover_fade,
+    Pixel hit_offset_x = 0.0f,
+    std::optional<Pixel> hit_width = std::nullopt) {
   IconButtonState state;
   const ImVec2 cursor = ImGui::GetCursorScreenPos();
   const Pixel top = std::floor(
@@ -430,11 +429,12 @@ IconButtonState TrackIconButton(
   const ImVec2 min(std::floor(cursor.x), top);
   state.center = ImVec2(min.x + kTrackIconButtonSize * 0.5f,
                         min.y + kTrackIconButtonSize * 0.5f);
-  ImGui::SetCursorScreenPos(min);
+  ImGui::SetCursorScreenPos(ImVec2(min.x + hit_offset_x, min.y));
   ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
+  const ImVec2 button_size(
+      hit_width.value_or(kTrackIconButtonSize), kTrackIconButtonSize);
   state.clicked = ImGui::InvisibleButton(
-      id, ImVec2(kTrackIconButtonSize, kTrackIconButtonSize),
-      ImGuiButtonFlags_PressedOnClick);
+      id, button_size, ImGuiButtonFlags_PressedOnClick);
   ImGui::PopItemFlag();
   state.hovered = ImGui::IsItemHovered();
   const bool pressed = ImGui::IsItemActive();
@@ -517,7 +517,42 @@ bool MatchesSearchQuery(const FlameChartTimelineData& data, int index,
   }
   return false;
 }
+
+// RAII helper to temporarily apply fonts::body_large if loaded.
+class ScopedBodyLargeFont {
+ public:
+  ScopedBodyLargeFont() : pushed_(fonts::body_large != nullptr) {
+    if (pushed_) {
+      ImGui::PushFont(fonts::body_large);
+    }
+  }
+  ~ScopedBodyLargeFont() {
+    if (pushed_) {
+      ImGui::PopFont();
+    }
+  }
+
+ private:
+  const bool pushed_;
+};
 }  // namespace
+
+Pixel Timeline::CalculateTrackManagementButtonWidth(int button_count) {
+  if (button_count <= 0) return 0.0f;
+  if (button_count == 1) {
+    return kTrackIconButtonSize + kTrackIconButtonMarginRight;
+  }
+  // When 2 buttons are present (pin and hide), they overlap with
+  // `kTrackManagementButtonSpacing` between centers.
+  const Pixel management_pair_width =
+      kTrackIconButtonSize + kTrackManagementButtonSpacing;
+  if (button_count == 2) {
+    return management_pair_width + kTrackIconButtonMarginRight;
+  }
+  // When 3 buttons are present (pin, hide, and reorder drag handle):
+  return (button_count - 2) * (kTrackIconButtonSize + kTrackIconButtonGap) +
+         management_pair_width + kTrackIconButtonMarginRight;
+}
 
 int Timeline::GetNextGroupStartLevel(const FlameChartTimelineData& data,
                                      int group_index) {
@@ -6188,9 +6223,10 @@ bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
   bool needs_layout_update = false;
 
   // The buttons are right-aligned in the label column with a small margin
-  // before the splitter: [pin] gap [hide] margin | splitter, or
-  // [pin] gap [hide] gap [drag handle] margin | splitter for reorderable
-  // processes.
+  // before the splitter: [pin] spacing [hide] margin | splitter, or
+  // [pin] spacing [hide] gap [drag handle] margin | splitter for reorderable
+  // processes. The pin and hide buttons share an overlapping hit layout where
+  // glyph centers sit `kTrackManagementButtonSpacing` apart.
   const Pixel drag_handle_width =
       IsGroupReorderable(group_index)
           ? kTrackIconButtonSize + kTrackIconButtonGap
@@ -6199,12 +6235,19 @@ bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
   const Pixel hide_x = tracks_start_pos.x + label_width_ - kSplitterOffset -
                        kTrackIconButtonMarginRight - kTrackIconButtonSize -
                        drag_handle_width;
-  const Pixel pin_x = hide_x - kTrackIconButtonGap - kTrackIconButtonSize;
+  const Pixel pin_x = hide_x - kTrackManagementButtonSpacing;
+
+  // The overlap between the two 32x32 hit targets resolves deterministically
+  // to the nearest glyph center at the midpoint boundary.
+  const Pixel overlap = kTrackIconButtonSize - kTrackManagementButtonSpacing;
+  const Pixel half_overlap = overlap * 0.5f;
+  const Pixel effective_hit_width = kTrackIconButtonSize - half_overlap;
 
   // Position and draw Pin button
   ImGui::SetCursorPos(ImVec2(pin_x, row_y));
   const bool is_pinned = pinned_track_names_.contains(group.name);
-  if (DrawPinButton(group_index, centereable_height, is_pinned)) {
+  if (DrawPinButton(group_index, centereable_height, is_pinned,
+                    /*hit_offset_x=*/0.0f, effective_hit_width)) {
     needs_layout_update = true;
     minimap_schedule_dirty_ = true;
     ShowNavigationWarningNotification(
@@ -6216,7 +6259,8 @@ bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
   // Position and draw Hide button
   ImGui::SetCursorPos(ImVec2(hide_x, row_y));
   const bool is_track_hidden = hidden_track_names_.contains(group.name);
-  if (DrawHideButton(group_index, centereable_height, is_track_hidden)) {
+  if (DrawHideButton(group_index, centereable_height, is_track_hidden,
+                     /*hit_offset_x=*/half_overlap, effective_hit_width)) {
     needs_layout_update = true;
     minimap_schedule_dirty_ = true;
     // The state was toggled inside DrawHideButton, so we should check the
@@ -6247,7 +6291,8 @@ bool Timeline::IsTrackRowHovered(int group_index) const {
 }
 
 bool Timeline::DrawHideButton(int group_index, Pixel height,
-                              bool is_track_hidden) {
+                              bool is_track_hidden, Pixel hit_offset_x,
+                              std::optional<Pixel> hit_width) {
   if (height <= 0.0f) return false;
   const Group& group = timeline_data_.groups[group_index];
   const ImU32 foreground_color =
@@ -6257,7 +6302,8 @@ bool Timeline::DrawHideButton(int group_index, Pixel height,
       "##hide", height, is_track_hidden,
       is_track_hidden ? kUnhideTrackTooltip : kHideTrackTooltip,
       foreground_color,
-      [this](ImGuiID id, bool hovered) { return HoverFade(id, hovered); });
+      [this](ImGuiID id, bool hovered) { return HoverFade(id, hovered); },
+      hit_offset_x, hit_width);
 
   bool toggled = false;
   if (state.clicked) {
@@ -6277,6 +6323,7 @@ bool Timeline::DrawHideButton(int group_index, Pixel height,
 
   // The button is only revealed on row hover, unless the track is hidden.
   if (state.hovered || is_track_hidden || IsTrackRowHovered(group_index)) {
+    ScopedBodyLargeFont font_scope;
     DrawHideIcon(ImGui::GetWindowDrawList(), state.center.x, state.center.y,
                  kTrackIconButtonSize,
                  TrackIconColor(state, is_track_hidden, foreground_color),
@@ -6285,7 +6332,9 @@ bool Timeline::DrawHideButton(int group_index, Pixel height,
   return toggled;
 }
 
-bool Timeline::DrawPinButton(int group_index, Pixel height, bool is_pinned) {
+bool Timeline::DrawPinButton(int group_index, Pixel height, bool is_pinned,
+                             Pixel hit_offset_x,
+                             std::optional<Pixel> hit_width) {
   if (height <= 0.0f) return false;
   const Group& group = timeline_data_.groups[group_index];
   const ImU32 foreground_color =
@@ -6294,7 +6343,8 @@ bool Timeline::DrawPinButton(int group_index, Pixel height, bool is_pinned) {
   const IconButtonState state = TrackIconButton(
       "##pin", height, is_pinned,
       is_pinned ? kUnpinTrackTooltip : kPinTrackTooltip, foreground_color,
-      [this](ImGuiID id, bool hovered) { return HoverFade(id, hovered); });
+      [this](ImGuiID id, bool hovered) { return HoverFade(id, hovered); },
+      hit_offset_x, hit_width);
 
   bool toggled = false;
   if (state.clicked) {
@@ -6308,6 +6358,7 @@ bool Timeline::DrawPinButton(int group_index, Pixel height, bool is_pinned) {
 
   // The button is only revealed on row hover, unless the track is pinned.
   if (state.hovered || is_pinned || IsTrackRowHovered(group_index)) {
+    ScopedBodyLargeFont font_scope;
     DrawPinIcon(ImGui::GetWindowDrawList(), state.center.x, state.center.y,
                 kTrackIconButtonSize,
                 TrackIconColor(state, is_pinned, foreground_color), is_pinned);

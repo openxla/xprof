@@ -176,12 +176,12 @@ inline constexpr Pixel kTrackDragHandleLineWidth = 12.0f;
 // The height of the drop shadow cast below process headers.
 inline constexpr Pixel kTrackHeaderShadowHeight = 4.0f;
 // The gap between adjacent icon buttons (pin, hide, and drag handle).
-inline constexpr Pixel kTrackIconButtonGap = 2.0f;
+inline constexpr Pixel kTrackIconButtonGap = 0.0f;
 // The margin between the rightmost icon button and the label column's edge.
-inline constexpr Pixel kTrackIconButtonMarginRight = 4.0f;
+inline constexpr Pixel kTrackIconButtonMarginRight = 2.0f;
 // The size of the square icon buttons (pin, hide, and drag handle) and their
 // hover circle.
-inline constexpr Pixel kTrackIconButtonSize = 20.0f;
+inline constexpr Pixel kTrackIconButtonSize = 32.0f;
 // The horizontal gap between the chevron slot, the track name, and the count
 // chip.
 inline constexpr Pixel kTrackLabelGap = 6.0f;
@@ -189,6 +189,9 @@ inline constexpr Pixel kTrackLabelGap = 6.0f;
 inline constexpr Pixel kTrackLabelPaddingLeft = 6.0f;
 // The space between the end of a label row's content and the splitter.
 inline constexpr Pixel kTrackLabelPaddingRight = 8.0f;
+// The distance between the centers of adjacent track management icon buttons
+// (pin and hide).
+inline constexpr Pixel kTrackManagementButtonSpacing = 24.0f;
 // While a track is dragged within this distance of the top or bottom edge of
 // the tracks area, the tracks scroll towards that edge.
 inline constexpr Pixel kTrackReorderAutoScrollZone = 36.0f;

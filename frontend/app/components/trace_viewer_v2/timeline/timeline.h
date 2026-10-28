@@ -322,6 +322,10 @@ class Timeline {
   // This is necessary because MockTimeline in the tests inherits from Timeline.
   virtual ~Timeline() = default;
 
+  // Returns the width reserved on the right side of a label row for
+  // `button_count` icon buttons (pin, hide, and drag handle).
+  static Pixel CalculateTrackManagementButtonWidth(int button_count);
+
   // For testing only
   float get_copy_notification_timer_for_test() const {
     return copy_notification_timer_;
@@ -933,8 +937,15 @@ class Timeline {
   // Draw the pin / hide icon buttons of a process row with the cursor at the
   // top-left of the button, vertically centering them in `height`. Return true
   // if the pinned / hidden state was toggled.
-  bool DrawHideButton(int group_index, Pixel height, bool is_track_hidden);
-  bool DrawPinButton(int group_index, Pixel height, bool is_pinned);
+  bool DrawHideButton(int group_index, Pixel height, bool is_track_hidden,
+                      Pixel hit_offset_x = 0.0f,
+                      std::optional<Pixel> hit_width = std::nullopt);
+  bool DrawPinButton(int group_index, Pixel height, bool is_pinned,
+                     Pixel hit_offset_x = 0.0f,
+                     std::optional<Pixel> hit_width = std::nullopt);
+  bool DrawTrackManagementButtons(int group_index, const Group& group,
+                                  const ImVec2& tracks_start_pos,
+                                  Pixel centereable_height);
 
  private:
   // --- Track reordering ----------------------------------------------------
@@ -1174,10 +1185,6 @@ class Timeline {
   void DrawCounterTrack(int group_index, const CounterData& counter_data,
                         double px_per_time_unit_val, const ImVec2& pos,
                         Pixel height);
-
-  bool DrawTrackManagementButtons(int group_index, const Group& group,
-                                  const ImVec2& tracks_start_pos,
-                                  Pixel centereable_height);
 
   void DrawGroupPreview(int group_index, double px_per_time_unit_val);
   void DrawFlameGroupPreview(int start_level, int end_level,

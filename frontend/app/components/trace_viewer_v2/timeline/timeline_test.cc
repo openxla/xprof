@@ -88,12 +88,18 @@ constexpr float kFirstEventY = kRulerHeight + kEventHeight / 2.0f;
 
 // Returns `color` with its alpha channel multiplied by `opacity`. Mirrors the
 // helper used by the timeline to draw translucent label colors.
-// Returns the screen X of the pin button's center for a label column of
-// `label_width`: the pin button sits left of the hide button.
-float PinButtonCenterX(float label_width) {
+// Returns the screen X of the hide button's center for a label column of
+// `label_width`: the hide button is the rightmost track management button.
+float HideButtonCenterX(float label_width) {
   return label_width - kSplitterOffset - kTrackIconButtonMarginRight -
-         kTrackIconButtonSize - kTrackIconButtonGap -
          kTrackIconButtonSize * 0.5f;
+}
+
+// Returns the screen X of the pin button's center for a label column of
+// `label_width`: the pin button sits left of the hide button with centers
+// spaced `kTrackManagementButtonSpacing` apart.
+float PinButtonCenterX(float label_width) {
+  return HideButtonCenterX(label_width) - kTrackManagementButtonSpacing;
 }
 
 ImU32 WithOpacityForTest(ImU32 color, float opacity) {
@@ -151,12 +157,25 @@ class MockTimeline : public Timeline {
     DrawEvent(group_index, event_index, rect, draw_list);
   }
 
-  bool CallDrawPinButton(int group_index, Pixel height, bool is_pinned) {
-    return DrawPinButton(group_index, height, is_pinned);
+  bool CallDrawPinButton(int group_index, Pixel height, bool is_pinned,
+                         Pixel hit_offset_x = 0.0f,
+                         std::optional<Pixel> hit_width = std::nullopt) {
+    return DrawPinButton(group_index, height, is_pinned, hit_offset_x,
+                         hit_width);
   }
 
-  bool CallDrawHideButton(int group_index, Pixel height, bool is_track_hidden) {
-    return DrawHideButton(group_index, height, is_track_hidden);
+  bool CallDrawHideButton(int group_index, Pixel height, bool is_track_hidden,
+                          Pixel hit_offset_x = 0.0f,
+                          std::optional<Pixel> hit_width = std::nullopt) {
+    return DrawHideButton(group_index, height, is_track_hidden, hit_offset_x,
+                          hit_width);
+  }
+
+  bool CallDrawTrackManagementButtons(int group_index, const Group& group,
+                                      const ImVec2& tracks_start_pos,
+                                      Pixel centereable_height) {
+    return DrawTrackManagementButtons(group_index, group, tracks_start_pos,
+                                      centereable_height);
   }
 
   const absl::flat_hash_set<std::string>& GetPinnedTrackNames() const {
@@ -4244,6 +4263,16 @@ TEST_F(MockTimelineImGuiFixture, DrawHideButton_Erase) {
 
   ImGui::End();
   ImGui::EndFrame();
+}
+
+TEST(TimelineConstantsTest, CalculateTrackManagementButtonWidth) {
+  EXPECT_EQ(Timeline::CalculateTrackManagementButtonWidth(0), 0.0f);
+  // 1 button (drag handle only): 32px + 2px margin = 34px.
+  EXPECT_EQ(Timeline::CalculateTrackManagementButtonWidth(1), 34.0f);
+  // 2 buttons (pin + hide, overlapping): 32px + 24px + 2px margin = 58px.
+  EXPECT_EQ(Timeline::CalculateTrackManagementButtonWidth(2), 58.0f);
+  // 3 buttons (pin + hide + drag handle): 32px + 56px + 2px margin = 90px.
+  EXPECT_EQ(Timeline::CalculateTrackManagementButtonWidth(3), 90.0f);
 }
 
 // =============================================================================
@@ -11824,10 +11853,10 @@ TEST_F(RealTimelineImGuiFixture, ClickUnhideButtonOnHiddenTrackUnhidesIt) {
 
   // Click the hide button of Process A in Hidden section.
   // Hide button is centered at X = label_width_ - kSplitterOffset -
-  // kTrackIconButtonMarginRight - kTrackIconButtonSize / 2 = 232.
+  // kTrackIconButtonMarginRight - kTrackIconButtonSize / 2 = 228.
   // Y should be centered in the track height
   // (e.g. 30 + 25 = 55 local, + 24 = 79 screen).
-  io.MousePos = ImVec2(232.0f, 79.0f);
+  io.MousePos = ImVec2(228.0f, 79.0f);
   SimulateFrame();
 
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
@@ -11960,9 +11989,11 @@ TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
   SimulateFrame();
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
 
-  // Test 2: Hovering just outside (to the left) of the hide button, in the gap
-  // before the pin button. Cursor should NOT be Hand.
-  io.MousePos = ImVec2(hide_right - kTrackIconButtonSize - 0.5f, 45.0f);
+  // Test 2: Hovering just outside (to the left) of the management buttons
+  // (to the left of the pin button). Cursor should NOT be Hand.
+  io.MousePos = ImVec2(
+      hide_right - kTrackIconButtonSize - kTrackManagementButtonSpacing - 0.5f,
+      45.0f);
   SimulateFrame();
   EXPECT_NE(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
 
@@ -11977,6 +12008,83 @@ TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
   io.MousePos = ImVec2(hide_right - kTrackIconButtonSize * 0.5f, 89.5f);
   SimulateFrame();
   EXPECT_NE(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       TrackManagementButtons_OverlapZoneHitResolution) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1, 2};
+  data.entry_total_times = {10.0, 10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0, 0.0};
+  data.entry_names = {"event1", "event2", "event3"};
+
+  // Add 3 processes so hiding a process is always permitted (>1 remaining).
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true},
+      {Group::Type::kFlame, "Process B", "", 1, kProcessNestingLevel, true},
+      {Group::Type::kFlame, "Process C", "", 2, kProcessNestingLevel, true}};
+  data.level_offsets = {0, 1, 2, 3};
+  data.level_event_indices = {0, 1, 2};
+  timeline_.set_track_management_enabled(true);
+
+  auto reset_timeline = [&]() {
+    timeline_.pinned_track_names_.clear();
+    timeline_.hidden_track_names_.clear();
+    timeline_.SetTimelineData(data);
+    SimulateFrame();
+  };
+  reset_timeline();
+
+  const float label_width = timeline_.GetLabelWidth();
+  const float hide_center_x = HideButtonCenterX(label_width);  // 228.0f
+  const float pin_center_x = PinButtonCenterX(label_width);    // 204.0f
+  const float midpoint_x = (pin_center_x + hide_center_x) * 0.5f;  // 216.0f
+  const float row_y = 135.0f;  // Process A row center in "All" section
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Test 1: Click in overlap zone to the left of the midpoint (x = 215.0f,
+  // closer to pin center 204.0f) -> pins Process A.
+  io.MousePos = ImVec2(midpoint_x - 1.0f, row_y);
+  SimulateFrame();
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  EXPECT_TRUE(timeline_.pinned_track_names_.contains("Process A"));
+  EXPECT_FALSE(timeline_.hidden_track_names_.contains("Process A"));
+
+  // Reset timeline to clean initial state.
+  reset_timeline();
+
+  // Test 2: Click in overlap zone at midpoint boundary (x = 216.0f,
+  // tie-breaks to hide) -> hides Process A.
+  io.MousePos = ImVec2(midpoint_x, row_y);
+  SimulateFrame();
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  EXPECT_TRUE(timeline_.hidden_track_names_.contains("Process A"));
+  EXPECT_FALSE(timeline_.pinned_track_names_.contains("Process A"));
+
+  // Reset timeline to clean initial state.
+  reset_timeline();
+
+  // Test 3: Click in overlap zone to the right of the midpoint (x = 217.0f,
+  // closer to hide center 228.0f) -> hides Process A.
+  io.MousePos = ImVec2(midpoint_x + 1.0f, row_y);
+  SimulateFrame();
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  EXPECT_TRUE(timeline_.hidden_track_names_.contains("Process A"));
+  EXPECT_FALSE(timeline_.pinned_track_names_.contains("Process A"));
 }
 
 TEST_F(RealTimelineImGuiFixture, PinUnpinnedTrack) {

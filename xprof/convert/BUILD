@@ -2998,6 +2998,18 @@ cc_library(
     ],
 )
 
+cc_test(
+    name = "inference_stats_combiner_test",
+    srcs = ["inference_stats_combiner_test.cc"],
+    deps = [
+        ":inference_stats_combiner",
+        ":inference_stats_grouping",
+        "//plugin/xprof/protobuf:inference_stats_proto_cc",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_library(
     name = "multi_xspace_to_inference_stats",
     srcs = ["multi_xspace_to_inference_stats.cc"],

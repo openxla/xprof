@@ -24,6 +24,26 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 
+TEST(HardwareTypeUtilsTest, RubinPeakComputeTFlops) {
+  DeviceCapabilities device_cap;
+  // For NVIDIA Rubin (compute capability 10.7), according to:
+  // https://www.nvidia.com/en-us/data-center/vera-rubin-nvl72/
+  // https://dam-cdn.nvd.orangelogic.com/AssetLink/56p68o47y6f1yucpubl0ump1c0aif422.pdf
+  // https://www.techpowerup.com/gpu-specs/rubin-gpu.c4425
+  device_cap.set_clock_rate_in_ghz(2.424);
+  device_cap.set_num_cores(212);
+  device_cap.set_memory_size_in_bytes(299103551488ULL);
+  device_cap.set_memory_bandwidth(19160064000000ULL);
+  device_cap.set_device_vendor("Nvidia");
+  device_cap.mutable_compute_capability()->set_major(10);
+  device_cap.mutable_compute_capability()->set_minor(7);
+
+  // Get target TFLOPS per SM and check: 212 * 2.424 * 8192 / 1000.0 = 4209.7.
+  double peak_tflops =
+      GetFlopMaxThroughputPerCore(device_cap) * device_cap.num_cores() / 1000.0;
+  EXPECT_NEAR(peak_tflops, 4209.7, /*abs_error=*/1.0);
+}
+
 TEST(HardwareTypeUtilsTest, B200PeakComputTFlops) {
   DeviceCapabilities device_cap;
   // For NVIDIA B200, according to:
@@ -45,7 +65,7 @@ TEST(HardwareTypeUtilsTest, B200PeakComputTFlops) {
 }
 
 // It should fall back to the highest compute cap less than 10.9.
-// Currently it is 10.0.
+// Currently it is 10.7.
 TEST(HardwareTypeUtilsTest, FutureBlackwellPeakComputTFlops) {
   DeviceCapabilities device_cap;
   device_cap.set_clock_rate_in_ghz(1.830);
@@ -250,6 +270,21 @@ TEST(HardwareTypeUtilsTest, GpuModelNameFallsBackToFamilyWithoutName) {
   device_cap.mutable_compute_capability()->set_major(9);
 
   EXPECT_EQ(GpuModelName(device_cap), "Nvidia GPU (Hopper)");
+}
+
+TEST(HardwareTypeUtilsTest, GpuModelNameDistinguishesBlackwellAndRubin) {
+  DeviceCapabilities device_cap;
+  device_cap.set_device_vendor("Nvidia");
+  device_cap.mutable_compute_capability()->set_major(10);
+  device_cap.mutable_compute_capability()->set_minor(0);
+  EXPECT_EQ(GpuModelName(device_cap), "Nvidia GPU (Blackwell)");
+
+  device_cap.mutable_compute_capability()->set_minor(3);
+  EXPECT_EQ(GpuModelName(device_cap), "Nvidia GPU (Blackwell)");
+
+  device_cap.mutable_compute_capability()->set_minor(7);
+  EXPECT_EQ(GpuModelName(device_cap), "Nvidia GPU (Rubin)");
+  EXPECT_EQ(ParseHardwareType(GpuModelName(device_cap)), HardwareType::GPU);
 }
 
 TEST(HardwareTypeUtilsTest, GpuModelNameReportsAmdArchFromDeviceName) {

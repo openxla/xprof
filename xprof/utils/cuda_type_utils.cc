@@ -92,6 +92,33 @@ struct GpuFlopCapabilities {
 // https://forums.developer.nvidia.com/t/how-to-calculate-the-tensor-core-fp16-performance-of-h100/244727
 // Below data are calculated from the various NVidia whitepapers/specs.
 
+// https://www.nvidia.com/en-us/data-center/vera-rubin-nvl72/
+// https://dam-cdn.nvd.orangelogic.com/AssetLink/56p68o47y6f1yucpubl0ump1c0aif422.pdf
+// https://www.techpowerup.com/gpu-specs/rubin-gpu.c4425
+// Dense Compute as default.
+const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_10_7 = {
+    .cuda_core =
+        {
+            .fp64_tflops = 64,
+            .fp32_tflops = 256,
+            .bf16_tflops = 256,
+            .fp16_tflops = 256,
+            .int8_tops = 512,
+        },
+    .tensor_core =
+        {
+            .fp64_tflops = 64,
+            .fp32_tflops = 4096,
+            .bf16_tflops = 8192,
+            .fp16_tflops = 8192,
+            .fp8_tflops = 32768,
+            // No special Tensor Cores for INT8 (same rate as CUDA cores).
+            .int8_tops = 512,
+            .fp4_tflops = 65536,
+        },
+    .has_tensor_core_sparsity_support = true,
+};
+
 // https://resources.nvidia.com/en-us-blackwell-architecture?ncid=pa-srch-goog-585983-Intel-Brand-Broad
 // Dense Compute as default.
 const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_10_0 = {
@@ -299,6 +326,7 @@ GpuFlopCapabilities GetNvidiaFlopCapsPerSMPerCycle(int major_comp_cap,
   static const auto& kPerSMFlopCapsTable =
       *new absl::btree_map<int, GpuFlopCapabilities const*>{
           // TODO: Add newer GPUS when available.
+          {10070, &kComputeCap_PerSM_PerCycle_10_7},
           {10000, &kComputeCap_PerSM_PerCycle_10_0},
           {9000, &kComputeCap_PerSM_PerCycle_9_0},
           {8090, &kComputeCap_PerSM_PerCycle_8_9},
@@ -383,7 +411,11 @@ std::string GpuModelName(const DeviceCapabilities& device_cap) {
     case 9:
       return "Nvidia GPU (Hopper)";
     case 10:
-      return "Nvidia GPU (Blackwell)";
+      if (device_cap.compute_capability().minor() < 7) {
+        return "Nvidia GPU (Blackwell)";
+      } else {
+        return "Nvidia GPU (Rubin)";
+      }
     default:
       return "Nvidia GPU";
   }

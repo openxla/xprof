@@ -3289,6 +3289,467 @@ TEST_F(DataProviderTest, FlowLinesNestedEventLevelTest) {
   EXPECT_EQ(data.flow_lines[0].target_level, 1);
 }
 
+TEST_F(DataProviderTest, FlowLineConnectsToDeeplyNestedTargetSlice) {
+  // Process 1, Thread 101 with 4 nested levels (Level 0 to Level 3).
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(kProcessName, 1, 0, "Process_1"),
+      CreateMetadataEvent(kThreadName, 1, 101, "Thread_101"),
+      // Level 0 root
+      {.ph = Phase::kComplete,
+       .event_id = 10,
+       .pid = 1,
+       .tid = 101,
+       .name = "Level0_Root",
+       .ts = 100.0,
+       .dur = 1000.0},
+      // Level 1 child
+      {.ph = Phase::kComplete,
+       .event_id = 11,
+       .pid = 1,
+       .tid = 101,
+       .name = "Level1_Child",
+       .ts = 200.0,
+       .dur = 500.0},
+      // Level 2 child
+      {.ph = Phase::kComplete,
+       .event_id = 12,
+       .pid = 1,
+       .tid = 101,
+       .name = "Level2_Child",
+       .ts = 300.0,
+       .dur = 300.0},
+      // Level 3 child (deeply nested target slice)
+      {.ph = Phase::kComplete,
+       .event_id = 13,
+       .pid = 1,
+       .tid = 101,
+       .name = "Level3_DeepChild",
+       .ts = 350.0,
+       .dur = 100.0}};
+
+  const std::vector<TraceEvent> flow_events = {
+      // Flow start at 100.0 (inside Level0_Root)
+      {.ph = Phase::kFlowStart,
+       .event_id = 10,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow1",
+       .ts = 100.0,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGeneric},
+      // Flow end at 350.0 (inside Level3_DeepChild)
+      {.ph = Phase::kFlowEnd,
+       .event_id = 13,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow1",
+       .ts = 350.0,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGeneric}};
+
+  data_provider_.ProcessTraceEvents({events, {}, flow_events}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(1));
+  EXPECT_EQ(data.flow_lines[0].source_level, 0);
+  EXPECT_EQ(data.flow_lines[0].target_level, 3);
+}
+
+TEST_F(DataProviderTest, FlowEndpointJustBeyondSliceDurationDoesNotMatchSlice) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(kProcessName, 1, 0, "Process_1"),
+      CreateMetadataEvent(kThreadName, 1, 101, "Thread_101"),
+      // Level 0 root slice spanning [0.0, 500.0]
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "RootSlice",
+       .ts = 0.0,
+       .dur = 500.0},
+      // Level 1 nested slice spanning [100.0, 200.0]
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "NestedSlice",
+       .ts = 100.0,
+       .dur = 100.0}};
+
+  const std::vector<TraceEvent> flow_events = {
+      // Flow start at 50.0 (inside RootSlice)
+      {.ph = Phase::kFlowStart,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow1",
+       .ts = 50.0,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGeneric},
+      // Flow end at 200.5 (just beyond NestedSlice [100.0, 200.0], inside
+      // RootSlice [0.0, 500.0])
+      {.ph = Phase::kFlowEnd,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow1",
+       .ts = 200.5,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGeneric}};
+
+  data_provider_.ProcessTraceEvents({events, {}, flow_events}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(1));
+  EXPECT_NE(data.flow_lines[0].target_level, 1);
+  EXPECT_EQ(data.flow_lines[0].target_level, 0);
+}
+
+TEST_F(DataProviderTest, FlowLineConnectsToAsyncTrackWithMismatchedTid) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Async Process"),
+      // Async complete event on Thread 101
+      {.ph = Phase::kComplete,
+       .event_id = 201,
+       .pid = 1,
+       .tid = 101,
+       .name = "AsyncTrackSlice",
+       .ts = 200.0,
+       .dur = 100.0,
+       .is_async = true},
+      // Sync complete event on Thread 101
+      {.ph = Phase::kComplete,
+       .event_id = 202,
+       .pid = 1,
+       .tid = 101,
+       .name = "SyncTrackSlice",
+       .ts = 50.0,
+       .dur = 50.0,
+       .is_async = false}};
+
+  const std::vector<TraceEvent> flow_events = {
+      // Flow start on Thread 101
+      {.ph = Phase::kFlowStart,
+       .event_id = 202,
+       .pid = 1,
+       .tid = 101,
+       .name = "SyncTrackSlice",
+       .ts = 50.0,
+       .id = "flow_async",
+       .category = tsl::profiler::ContextType::kGeneric},
+      // Flow end targeting the async slice, but with mismatched TID 999
+      {.ph = Phase::kFlowEnd,
+       .event_id = 201,
+       .pid = 1,
+       .tid = 999,
+       .name = "AsyncTrackSlice",
+       .ts = 200.0,
+       .id = "flow_async",
+       .category = tsl::profiler::ContextType::kGeneric,
+       .is_async = true}};
+
+  data_provider_.ProcessTraceEvents({events, {}, flow_events}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(1));
+  // In Async Process: sync track is populated first (level 0).
+  // Because async flow events do not pollute known_threads_ with tid 999,
+  // the named async track is placed at level 1.
+  // The flow line connects directly to the async track level (1).
+  EXPECT_EQ(data.flow_lines[0].source_level, 0);
+  EXPECT_EQ(data.flow_lines[0].target_level, 1);
+}
+
+TEST_F(DataProviderTest,
+       IncrementalFlowLineConnectsToAsyncTrackPreservingName) {
+  ParsedTraceEvents batch1;
+  batch1.flame_events = {
+      CreateProcessEvent(1, "Async Process"),
+      // Sync complete event on Thread 101
+      {.ph = Phase::kComplete,
+       .event_id = 501,
+       .pid = 1,
+       .tid = 101,
+       .name = "SyncTrackSlice",
+       .ts = 50.0,
+       .dur = 50.0,
+       .is_async = false},
+      // Async complete event on Thread 101 (belonging to async track
+      // "AsyncTrack")
+      {.ph = Phase::kComplete,
+       .event_id = 502,
+       .pid = 1,
+       .tid = 101,
+       .name = "AsyncTrack",
+       .ts = 200.0,
+       .dur = 100.0,
+       .is_async = true},
+  };
+  batch1.flow_events = {
+      {.ph = Phase::kFlowStart,
+       .event_id = 501,
+       .pid = 1,
+       .tid = 101,
+       .name = "SyncTrackSlice",
+       .ts = 50.0,
+       .id = "inc_flow_1",
+       .category = tsl::profiler::ContextType::kGeneric},
+      {.ph = Phase::kFlowEnd,
+       .event_id = 502,
+       .pid = 1,
+       .tid = 0,
+       .name = "AsyncTrack",
+       .ts = 200.0,
+       .id = "inc_flow_1",
+       .category = tsl::profiler::ContextType::kGeneric,
+       .is_async = true},
+  };
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(batch1), timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(1));
+  EXPECT_EQ(data.flow_lines[0].source_level, 0);
+  EXPECT_EQ(data.flow_lines[0].target_level, 1);
+}
+
+TEST_F(DataProviderTest, FlowLineNeverConnectsToCounterTrackAtLevelZero) {
+  const std::vector<TraceEvent> metadata_and_flame = {
+      CreateProcessEvent(1, "Process_With_Counter"),
+      CreateThreadEvent(1, 101, "Worker Thread"),
+      {.ph = Phase::kComplete,
+       .event_id = 301,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task 1",
+       .ts = 100.0,
+       .dur = 100.0}};
+
+  const std::vector<CounterEvent> counters = {
+      CreateCounterEvent(1, "Utilization", {50.0, 150.0, 250.0},
+                         {10.0, 20.0, 30.0})};
+
+  // Flow end has timestamp 999.0 which does not intersect Task 1 (ts 100..200)
+  // and event_id = 0, exercising the fallback path.
+  const std::vector<TraceEvent> flow_events = {
+      {.ph = Phase::kFlowStart,
+       .event_id = 301,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow_fallback",
+       .ts = 100.0,
+       .id = "flow_fallback_1",
+       .category = tsl::profiler::ContextType::kGeneric},
+      {.ph = Phase::kFlowEnd,
+       .event_id = 0,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow_fallback",
+       .ts = 999.0,
+       .id = "flow_fallback_1",
+       .category = tsl::profiler::ContextType::kGeneric}};
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = metadata_and_flame,
+                        .counter_events = counters,
+                        .flow_events = flow_events},
+      timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(1));
+
+  // Counter track "Utilization" is placed at level 0.
+  // Worker Thread is placed at level 1.
+  // The fallback must never connect to level 0 (the counter track).
+  EXPECT_NE(data.flow_lines[0].target_level, 0);
+  EXPECT_EQ(data.flow_lines[0].target_level, 1);
+}
+
+TEST_F(DataProviderTest,
+       FlowLineConnectsToAsyncTrackWithPrecedingCounterTrack) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Process_With_Counter_And_Async"),
+      // Sync complete event on Thread 101
+      {.ph = Phase::kComplete,
+       .event_id = 101,
+       .pid = 1,
+       .tid = 101,
+       .name = "ComputeTask",
+       .ts = 50.0,
+       .dur = 50.0,
+       .is_async = false},
+      // Async complete event on Thread 101
+      {.ph = Phase::kComplete,
+       .event_id = 201,
+       .pid = 1,
+       .tid = 101,
+       .name = "AsyncTransfer",
+       .ts = 200.0,
+       .dur = 100.0,
+       .is_async = true}};
+
+  const std::vector<CounterEvent> counters = {
+      CreateCounterEvent(1, "Device Utilization", {50.0, 150.0}, {10.0, 20.0})};
+
+  // Flow from sync task on Thread 101 to async task with mismatched/zero TID 0.
+  const std::vector<TraceEvent> flow_events = {
+      {.ph = Phase::kFlowStart,
+       .event_id = 101,
+       .pid = 1,
+       .tid = 101,
+       .name = "ComputeTask",
+       .ts = 50.0,
+       .id = "flow_async_counter",
+       .category = tsl::profiler::ContextType::kGeneric},
+      {.ph = Phase::kFlowEnd,
+       .event_id = 201,
+       .pid = 1,
+       .tid = 0,
+       .name = "AsyncTransfer",
+       .ts = 200.0,
+       .id = "flow_async_counter",
+       .category = tsl::profiler::ContextType::kGeneric,
+       .is_async = true}};
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = events,
+                        .counter_events = counters,
+                        .flow_events = flow_events},
+      timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(1));
+  const auto& flow = data.flow_lines[0];
+  const Group* target_group = data.FindGroupForLevel(flow.target_level);
+  ASSERT_NE(target_group, nullptr);
+  EXPECT_EQ(target_group->name, "AsyncTransfer");
+  EXPECT_EQ(target_group->type, Group::Type::kFlame);
+  // Confirms no phantom sync track was created for tid 0.
+  // Groups: [0] Process, [1] Device Utilization Counter, [2] Thread 101, [3]
+  // AsyncTransfer.
+  EXPECT_EQ(data.groups.size(), 4);
+}
+
+TEST_F(DataProviderTest, FlowLineSkippedWhenNoFlameTrackMatchesEndpoint) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Process_1"),
+      CreateThreadEvent(1, 101, "Worker Thread"),
+      {.ph = Phase::kComplete,
+       .event_id = 101,
+       .pid = 1,
+       .tid = 101,
+       .name = "ComputeTask",
+       .ts = 50.0,
+       .dur = 50.0}};
+
+  const std::vector<CounterEvent> counters = {
+      CreateCounterEvent(1, "Device Utilization", {50.0, 150.0}, {10.0, 20.0})};
+
+  // Flow targeting "Device Utilization" with is_async = true. "Device
+  // Utilization" is a counter track (Group::Type::kCounter), not a flame track
+  // (kFlame). ResolveFlowEndpointLevels returns std::nullopt and the flow line
+  // is skipped.
+  const std::vector<TraceEvent> flow_events = {
+      {.ph = Phase::kFlowStart,
+       .event_id = 101,
+       .pid = 1,
+       .tid = 101,
+       .name = "ComputeTask",
+       .ts = 50.0,
+       .id = "flow_to_counter",
+       .category = tsl::profiler::ContextType::kGeneric},
+      {.ph = Phase::kFlowEnd,
+       .event_id = 0,
+       .pid = 1,
+       .tid = 0,
+       .name = "Device Utilization",
+       .ts = 75.0,
+       .id = "flow_to_counter",
+       .category = tsl::profiler::ContextType::kGeneric,
+       .is_async = true}};
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = events,
+                        .counter_events = counters,
+                        .flow_events = flow_events},
+      timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  EXPECT_TRUE(data.flow_lines.empty());
+}
+
+TEST_F(DataProviderTest, FlowLineToCollapsedThreadResolvesToThreadRowCenter) {
+  const std::vector<TraceEvent> metadata_and_flame = {
+      CreateProcessEvent(1, "Process_1"),
+      CreateThreadEvent(1, 101, "Worker Thread"),
+      // Level 1 root task
+      {.ph = Phase::kComplete,
+       .event_id = 401,
+       .pid = 1,
+       .tid = 101,
+       .name = "RootTask",
+       .ts = 100.0,
+       .dur = 200.0},
+      // Level 2 nested child
+      {.ph = Phase::kComplete,
+       .event_id = 402,
+       .pid = 1,
+       .tid = 101,
+       .name = "NestedChild",
+       .ts = 120.0,
+       .dur = 100.0}};
+
+  const std::vector<CounterEvent> counters = {
+      CreateCounterEvent(1, "Utilization", {50.0, 150.0}, {10.0, 20.0})};
+
+  const std::vector<TraceEvent> flow_events = {
+      {.ph = Phase::kFlowStart,
+       .event_id = 401,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow_nested",
+       .ts = 100.0,
+       .id = "flow_nested_1",
+       .category = tsl::profiler::ContextType::kGeneric},
+      {.ph = Phase::kFlowEnd,
+       .event_id = 402,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow_nested",
+       .ts = 120.0,
+       .id = "flow_nested_1",
+       .category = tsl::profiler::ContextType::kGeneric}};
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = metadata_and_flame,
+                        .counter_events = counters,
+                        .flow_events = flow_events},
+      timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(1));
+
+  // Level 0: Utilization counter
+  // Level 1: Worker Thread level 0
+  // Level 2: Worker Thread level 1 (nested child)
+  EXPECT_EQ(data.flow_lines[0].source_level, 1);
+  EXPECT_EQ(data.flow_lines[0].target_level, 2);
+
+  // Groups: [0] Process, [1] Utilization Counter, [2] Worker Thread.
+  ASSERT_GE(data.groups.size(), 3);
+  EXPECT_EQ(data.groups[1].type, Group::Type::kCounter);
+  EXPECT_EQ(data.groups[2].type, Group::Type::kFlame);
+
+  FlameChartTimelineData modified_data = data;
+  modified_data.groups[2].expanded = false;
+  timeline_.SetTimelineData(modified_data);
+
+  const auto& offsets = timeline_.GetVisibleLevelOffsets();
+  ASSERT_GE(offsets.size(), 3);
+  // Level 1 and Level 2 offsets must collapse to the same thread row center.
+  EXPECT_EQ(offsets[1], offsets[2]);
+  // And must not equal the counter track offset (level 0).
+  EXPECT_NE(offsets[1], offsets[0]);
+}
+
 TEST_F(DataProviderTest, ProcessTraceEventsPreservesExpandedState) {
   const std::vector<TraceEvent> events = {
       CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),

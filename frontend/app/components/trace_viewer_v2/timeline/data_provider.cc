@@ -474,39 +474,77 @@ ImU32 GetFlowColorForCategory(tsl::profiler::ContextType category,
   return kPurple80;
 }
 
-// Returns the flame chart level of the given event.
-int GetEventFlameChartLevel(
+// Resolves track bounds for a flow event endpoint, matching only flame tracks
+// (and never counter tracks or process headers).
+std::optional<ThreadLevelInfo> ResolveFlowEndpointLevels(
     const TraceEvent* e,
     const absl::btree_map<std::pair<ProcessId, ThreadId>, ThreadLevelInfo>&
         thread_levels,
-    const FlameChartTimelineData& data) {
-  auto it = thread_levels.find({e->pid, e->tid});
-  if (it == thread_levels.end()) return 0;
-  int start = it->second.start_level;
-  int end = it->second.end_level;
+    const absl::flat_hash_map<std::pair<ProcessId, absl::string_view>,
+                              ThreadLevelInfo>& async_track_levels) {
+  if (e->is_async) {
+    if (!e->name.empty()) {
+      if (auto it = async_track_levels.find({e->pid, e->name});
+          it != async_track_levels.end()) {
+        return it->second;
+      }
+    }
+    return std::nullopt;
+  }
+  if (auto it = thread_levels.find({e->pid, e->tid});
+      it != thread_levels.end()) {
+    return it->second;
+  }
+  return std::nullopt;
+}
 
-  // Search from deepest level up
+// Returns the flame chart level of the given event within the resolved track
+// levels.
+int GetEventFlameChartLevel(const TraceEvent* e,
+                            const ThreadLevelInfo& track_levels,
+                            const FlameChartTimelineData& data) {
+  const int start = track_levels.start_level;
+  const int end = track_levels.end_level;
+  std::optional<int> name_match_level;
+  std::optional<int> candidate_level;
+
+  // Search from deepest level up.
   for (int lvl = end - 1; lvl >= start; --lvl) {
-    const Group* grp = data.FindGroupForLevel(lvl);
-    if (grp != nullptr && grp->tid != e->tid) continue;
     absl::Span<const int> indices = data.level_events(lvl);
-    // Binary search for event covering e->ts
-    // events are likely sorted by start time.
+    if (indices.empty()) continue;
+
     auto it_idx = std::upper_bound(indices.begin(), indices.end(), e->ts,
                                    [&](Microseconds ts, int idx) {
                                      return ts < data.entry_start_times[idx];
                                    });
 
-    // it_idx points to first event starting AFTER e->ts.
-    // Check the one before it.
     if (it_idx != indices.begin()) {
       int idx = *std::prev(it_idx);
-      if (data.entry_start_times[idx] + data.entry_total_times[idx] >= e->ts) {
-        return lvl;
+      const Microseconds start_time = data.entry_start_times[idx];
+      const Microseconds end_time = start_time + data.entry_total_times[idx];
+      if (start_time <= e->ts && end_time >= e->ts) {
+        if (e->event_id != 0 && data.entry_event_ids[idx] == e->event_id) {
+          return lvl;
+        }
+        if (!e->name.empty() && data.entry_names[idx] == e->name) {
+          if (!name_match_level.has_value()) {
+            name_match_level = lvl;
+          }
+        }
+        if (!candidate_level.has_value()) {
+          candidate_level = lvl;
+        }
       }
     }
   }
-  return start;  // Default to thread top
+
+  if (name_match_level.has_value()) {
+    return *name_match_level;
+  }
+  if (candidate_level.has_value()) {
+    return *candidate_level;
+  }
+  return start;  // Default to flame track top
 }
 
 void GenerateFlowLines(const TraceInformation& trace_info,
@@ -515,6 +553,20 @@ void GenerateFlowLines(const TraceInformation& trace_info,
                        absl::Span<const int> top_5_flow_categories,
                        FlameChartTimelineData& data, TimeBounds& bounds,
                        const ColorPalette& palette) {
+  if (trace_info.flow_events_by_id.empty()) {
+    return;
+  }
+
+  absl::flat_hash_map<std::pair<ProcessId, absl::string_view>, ThreadLevelInfo>
+      async_track_levels;
+  for (const auto& grp : data.groups) {
+    if (grp.nesting_level != kProcessNestingLevel &&
+        grp.type == Group::Type::kFlame) {
+      async_track_levels[{grp.pid, grp.name}] =
+          ThreadLevelInfo{grp.start_level, grp.start_level + grp.level_count};
+    }
+  }
+
   for (const auto& [id, flow_events] : trace_info.flow_events_by_id) {
     for (const TraceEvent* event : flow_events) {
       std::vector<std::string>& event_flow_ids =
@@ -527,8 +579,11 @@ void GenerateFlowLines(const TraceInformation& trace_info,
     for (size_t i = 0; i < flow_events.size() - 1; ++i) {
       const TraceEvent* u = flow_events[i];
       const TraceEvent* v = flow_events[i + 1];
-      if (!thread_levels.contains({u->pid, u->tid}) ||
-          !thread_levels.contains({v->pid, v->tid})) {
+      std::optional<ThreadLevelInfo> u_levels =
+          ResolveFlowEndpointLevels(u, thread_levels, async_track_levels);
+      std::optional<ThreadLevelInfo> v_levels =
+          ResolveFlowEndpointLevels(v, thread_levels, async_track_levels);
+      if (!u_levels.has_value() || !v_levels.has_value()) {
         continue;
       }
       const ImU32 flow_color =
@@ -537,8 +592,8 @@ void GenerateFlowLines(const TraceInformation& trace_info,
       FlowLine flow_line{
           .source_ts = u->ts,
           .target_ts = v->ts,
-          .source_level = GetEventFlameChartLevel(u, thread_levels, data),
-          .target_level = GetEventFlameChartLevel(v, thread_levels, data),
+          .source_level = GetEventFlameChartLevel(u, *u_levels, data),
+          .target_level = GetEventFlameChartLevel(v, *v_levels, data),
           .color = flow_color,
           .category = u->category};
       data.flow_lines.push_back(flow_line);
@@ -1886,12 +1941,9 @@ void PopulateThreadTrack(
   data.groups.back().level_count = level_count;
 
   current_level = start_level + level_count;
-  auto [it, inserted] = thread_levels.try_emplace(
-      {pid, tid}, ThreadLevelInfo{start_level, current_level});
-  if (!inserted) {
-    it->second.start_level = std::min(it->second.start_level, start_level);
-    it->second.end_level = std::max(it->second.end_level, current_level);
-  }
+
+  thread_levels.try_emplace({pid, tid},
+                            ThreadLevelInfo{start_level, current_level});
 
   if (max_level == start_level && !expanded_states.contains(group_key)) {
     data.groups.back().expanded = true;
@@ -2633,16 +2685,17 @@ struct DataProvider::IncrementalState {
                                   DataProvider& provider) {
     absl::flat_hash_set<std::string> dirty_flow_ids;
     for (TraceEvent& event : parsed_events.flow_events) {
-      if (event.tid < kSyntheticOpenSpanTidBit) {
+      if (!event.is_async && event.tid < kSyntheticOpenSpanTidBit) {
         provider.known_threads_.insert({event.pid, event.tid});
       }
-      trace_info.events_by_pid_tid[event.pid].try_emplace(event.tid);
+      if (!event.is_async) {
+        trace_info.events_by_pid_tid[event.pid].try_emplace(event.tid);
+      }
       if (flow_events.size() >= kMaxIncrementalFlowEvents &&
           !trace_info.flow_events_by_id.contains(event.id)) {
         ++flow_category_counts[static_cast<int>(event.category)];
         continue;
       }
-      event.name.clear();
       event.args.clear();
       flow_events.push_back(std::move(event));
       const TraceEvent& stored = flow_events.back();
@@ -3102,7 +3155,7 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   }
   for (const auto& [_, events] : trace_info.flow_events_by_id) {
     for (const TraceEvent* event : events) {
-      if (event->tid < kSyntheticOpenSpanTidBit) {
+      if (!event->is_async && event->tid < kSyntheticOpenSpanTidBit) {
         known_threads_.insert({event->pid, event->tid});
       }
     }
@@ -3115,7 +3168,9 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   // are created for them, which is required for level calculation.
   for (const auto& [id, events] : trace_info.flow_events_by_id) {
     for (const TraceEvent* event : events) {
-      trace_info.events_by_pid_tid[event->pid].try_emplace(event->tid);
+      if (!event->is_async) {
+        trace_info.events_by_pid_tid[event->pid].try_emplace(event->tid);
+      }
     }
   }
 

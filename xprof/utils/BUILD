@@ -64,6 +64,7 @@ cc_test(
     deps = [
         ":event_span",
         "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
+        "//plugin/xprof/protobuf:op_metrics_proto_cc",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
     ],
@@ -149,6 +150,7 @@ cc_library(
         "@xla//xla/tsl/platform:logging",
         "@xla//xla/tsl/platform:macros",
         "@xla//xla/tsl/platform:types",
+        "@xla//xla/tsl/profiler/convert:xla_op_utils",
         "@xla//xla/tsl/profiler/utils:math_utils",
         "@xla//xla/tsl/profiler/utils:tf_op_utils",
         "@xla//xla/tsl/profiler/utils:xplane_schema",
@@ -186,6 +188,7 @@ cc_test(
         ":op_metrics_db_utils",
         "//net/proto2/contrib/parse_proto:parse_text_proto",
         "//plugin/xprof/protobuf:op_metrics_proto_cc",
+        "//plugin/xprof/protobuf:source_info_proto_cc",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",

@@ -71,7 +71,7 @@ import {filterFieldKey, lookupFilterOperator} from './utils';
 <mat-autocomplete #filterOptionsAuto class="dense" panelWidth="fit-content" (optionSelected)="onOptionSelected($event)" (closed)="onPanelClosed()">
   <!-- option list for filter field and operator -->
   <div *ngIf="!isUpdatingValues()">
-    <mat-option *ngFor="let option of (autoFilterOptions | async) trackBy:trackByValue"
+    <mat-option *ngFor="let option of (autoFilterOptions | async); trackBy:trackByValue"
               [value]="option.value">
       {{option.displayName || option.value}}
     </mat-option>
@@ -79,12 +79,12 @@ import {filterFieldKey, lookupFilterOperator} from './utils';
   <!-- option list for filter values -->
   <div *ngIf="isUpdatingValues() && isMultiSelect()" style="display:flex;flex-direction:column;">
     <button mat-stroked-button color="primary" (click)="onConfirmMultiSelect()" style="margin:10px;">Confirm</button>
-    <mat-option>
+    <mat-option (click)="onOperateAll($event)">
       <mat-checkbox class="example-margin" [checked]="allOptionsSelected" (click)="onOperateAll($event)">{{allOptionsLabel}}</mat-checkbox>
     </mat-option>
-    <mat-option *ngFor="let option of (autoFilterValues | async) trackBy:trackByValue"
-      [value]="option.value" >
-      <mat-checkbox class="example-margin" [(ngModel)]="option.checked" (click)="onClickCheckbox($event)">{{option.displayName || option.value}}</mat-checkbox>
+    <mat-option *ngFor="let option of (autoFilterOptions | async); trackBy:trackByValue"
+      [value]="option.value" (click)="onOptionRowClick(option, $event)">
+      <mat-checkbox class="example-margin" [(ngModel)]="$any(option).checked" (click)="$event.stopPropagation()">{{option.displayName || option.value}}</mat-checkbox>
     </mat-option>
   </div>
 </mat-autocomplete>
@@ -119,10 +119,6 @@ export class FilterInput implements AfterViewInit, OnChanges {
   autoFilterOptions = new BehaviorSubject<FilterOption[]>(FILTER_FIELDS);
   autoFilterFields = new BehaviorSubject<FilterField[]>(FILTER_FIELDS);
 
-  get autoFilterValues() {
-    return new BehaviorSubject<FilterValue[]>(this.autoFilterOptions.value);
-  }
-
   get fieldValueOptions(): {[key: string]: string[]} {
     const valueOptions: {[key: string]: string[]} = {};
     valueOptions[FilterFieldCategory.HOST] = this.hosts;
@@ -148,7 +144,7 @@ export class FilterInput implements AfterViewInit, OnChanges {
   }
 
   get allOptionsSelected() {
-    return this.autoFilterValues.value.every((option) => option.checked);
+    return (this.autoFilterOptions.value as FilterValue[]).every((option) => option.checked);
   }
 
   get allOptionsLabel() {
@@ -188,7 +184,7 @@ export class FilterInput implements AfterViewInit, OnChanges {
   }
 
   onConfirmMultiSelect() {
-    this.currentFilterValue = this.autoFilterValues.value
+    this.currentFilterValue = (this.autoFilterOptions.value as FilterValue[])
       .filter((value) => value.checked)
       .map((value) => value.value)
       .join(',');
@@ -202,10 +198,19 @@ export class FilterInput implements AfterViewInit, OnChanges {
 
   onOperateAll(e: Event) {
     e.stopPropagation();
+    e.preventDefault();
     const allOptionsSelected = this.allOptionsSelected;
-    this.autoFilterValues.value.forEach((option) => {
+    (this.autoFilterOptions.value as FilterValue[]).forEach((option) => {
       option.checked = !allOptionsSelected;
     });
+    this.autoFilterOptions.next(this.autoFilterOptions.value);
+  }
+
+  onOptionRowClick(option: FilterValue, e: Event) {
+    e.stopPropagation();
+    e.preventDefault();
+    option.checked = !option.checked;
+    this.autoFilterOptions.next(this.autoFilterOptions.value);
   }
 
   trackByValue(index: number, option: FilterOption): string {
@@ -275,6 +280,7 @@ export class FilterInput implements AfterViewInit, OnChanges {
           currentOptions = [];
           this.optionTrigger.closePanel();
         }
+
         break;
       default:
         currentOptions = [];
@@ -327,6 +333,9 @@ export class FilterInput implements AfterViewInit, OnChanges {
   }
 
   onOptionSelected(event: MatAutocompleteSelectedEvent) {
+    if (this.filterStep === 2 && this.isMultiSelect()) {
+      return;
+    }
     const selectedValue = this.trackByValue(0, event.option);
     switch (this.filterStep) {
       case 0:
@@ -424,5 +433,6 @@ export class FilterInput implements AfterViewInit, OnChanges {
     this.filterStep = 0;
     this.isEditing = false;
     this.optionTrigger?.closePanel();
+
   }
 }

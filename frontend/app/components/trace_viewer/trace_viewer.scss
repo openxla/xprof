@@ -199,6 +199,17 @@ mat-divider {
   }
 }
 
+.chip-dummy-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
 .filter-form {
   display: flex;
 }

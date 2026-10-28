@@ -2487,22 +2487,6 @@ void UpdateTimelineTimeRanges(
   // handle any potential issues with max_time.
   if (bounds.min < std::numeric_limits<Microseconds>::max()) {
     timeline.set_fetched_data_time_range({bounds.min, bounds.max});
-
-    // TODO: b/460265076 - Change the logic here for visible range after
-    // we decided how to handle the visible range in url.
-    if (visible_range_from_url.has_value()) {
-      const Microseconds start = MillisToMicros(visible_range_from_url->first);
-      const Microseconds end = MillisToMicros(visible_range_from_url->second);
-
-      if (timeline.visible_range() == TimeRange::Zero()) {
-        timeline.SetVisibleRange({start, end});
-      }
-    } else if (timeline.visible_range() == TimeRange::Zero()) {
-      // If the visible range is not zero, we just keep it. This happens when
-      // the incremental loading is triggered and we don't want to override the
-      // current visible range.
-      timeline.SetVisibleRange({bounds.min, bounds.max});
-    }
   } else if (!has_known_tracks) {
     timeline.set_fetched_data_time_range(TimeRange::Zero());
     timeline.SetVisibleRange(TimeRange::Zero());
@@ -2514,6 +2498,28 @@ void UpdateTimelineTimeRanges(
     timeline.set_data_time_range({start, end});
   } else {
     timeline.set_data_time_range(timeline.fetched_data_time_range());
+  }
+
+  if (bounds.min < std::numeric_limits<Microseconds>::max()) {
+    if (timeline.visible_range_target() != TimeRange::Zero()) {
+      // User or prior state already set visible range.
+      // Strict priority: Current visible_range() > URL range > trace bounds.
+      if (full_timespan.has_value()) {
+        TimeRange clamped_range = timeline.visible_range_target();
+        timeline.ConstrainTimeRange(clamped_range);
+        if (clamped_range != timeline.visible_range_target()) {
+          timeline.SetVisibleRange(clamped_range);
+        }
+      }
+    } else if (visible_range_from_url.has_value()) {
+      const Microseconds start = MillisToMicros(visible_range_from_url->first);
+      const Microseconds end = MillisToMicros(visible_range_from_url->second);
+      TimeRange url_range(start, end);
+      timeline.ConstrainTimeRange(url_range);
+      timeline.SetVisibleRange(url_range);
+    } else {
+      timeline.SetVisibleRange({bounds.min, bounds.max});
+    }
   }
 }
 
@@ -2549,6 +2555,8 @@ struct DataProvider::IncrementalState {
   absl::btree_map<GroupKey, bool> last_emitted_expanded_states;
   std::optional<std::pair<Milliseconds, Milliseconds>> full_timespan;
   std::optional<std::pair<Milliseconds, Milliseconds>> visible_range_from_url;
+  std::optional<TimeRange> pending_url_range;
+  bool url_range_initialized = false;
   TimeRange initial_data_time_range = TimeRange::Zero();
   TimeRange last_auto_visible_range = TimeRange::Zero();
   TimeBounds observed_time_bounds;
@@ -2812,23 +2820,57 @@ struct DataProvider::IncrementalState {
     const TimeBounds& effective_bounds =
         has_valid_bounds ? observed_time_bounds : batch_bounds;
     const bool was_visible_zero =
-        (timeline.visible_range() == TimeRange::Zero());
+        (timeline.visible_range_target() == TimeRange::Zero());
+
+    // Drop pending URL range if the user manually zoomed or panned.
+    if (pending_url_range.has_value() &&
+        last_auto_visible_range != TimeRange::Zero() &&
+        timeline.visible_range_target() != last_auto_visible_range) {
+      pending_url_range.reset();
+    }
+
+    const bool bounds_contain_url =
+        pending_url_range.has_value() &&
+        effective_bounds.min <= pending_url_range->start() &&
+        effective_bounds.max >= pending_url_range->end();
+    const bool should_apply_url =
+        pending_url_range.has_value() &&
+        (bounds_contain_url || full_timespan.has_value() || is_finishing);
+
+    const auto url_for_update =
+        (was_visible_zero && should_apply_url) ? visible_range_from_url
+                                               : std::nullopt;
 
     UpdateTimelineTimeRanges(timeline, effective_bounds, has_known_tracks,
-                             visible_range_from_url, full_timespan);
+                             url_for_update, full_timespan);
 
     if (has_valid_bounds) {
-      if (was_visible_zero) {
-        last_auto_visible_range = timeline.visible_range();
-      } else if (!visible_range_from_url.has_value() &&
-                 timeline.visible_range() == last_auto_visible_range) {
+      if (was_visible_zero && should_apply_url) {
+        last_auto_visible_range = timeline.visible_range_target();
+        pending_url_range.reset();
+      } else if (was_visible_zero) {
+        last_auto_visible_range = timeline.visible_range_target();
+      } else if (should_apply_url) {
+        timeline.ConstrainTimeRange(*pending_url_range);
+        timeline.SetVisibleRange(*pending_url_range);
+        last_auto_visible_range = timeline.visible_range_target();
+        pending_url_range.reset();
+      } else if (!pending_url_range.has_value() &&
+                 timeline.visible_range_target() == last_auto_visible_range) {
         const TimeRange candidate_range{effective_bounds.min,
                                         effective_bounds.max};
         const Microseconds old_dur = last_auto_visible_range.duration();
         const Microseconds new_dur = candidate_range.duration();
         if (is_finishing || old_dur < 1000000.0 || new_dur > old_dur * 1.15) {
           timeline.SetVisibleRange(candidate_range);
-          last_auto_visible_range = timeline.visible_range();
+          last_auto_visible_range = timeline.visible_range_target();
+        }
+      } else if (is_finishing && !full_timespan.has_value() &&
+                 timeline.visible_range_target() != TimeRange::Zero()) {
+        TimeRange clamped = timeline.visible_range_target();
+        timeline.ConstrainTimeRange(clamped);
+        if (clamped != timeline.visible_range_target()) {
+          timeline.SetVisibleRange(clamped);
         }
       }
     }
@@ -2964,6 +3006,12 @@ void DataProvider::AppendTraceEventsIncremental(ParsedTraceEvents parsed_events,
   }
   if (parsed_events.visible_range_from_url.has_value()) {
     state.visible_range_from_url = parsed_events.visible_range_from_url;
+    if (!state.url_range_initialized) {
+      state.url_range_initialized = true;
+      state.pending_url_range = TimeRange(
+          MillisToMicros(parsed_events.visible_range_from_url->first),
+          MillisToMicros(parsed_events.visible_range_from_url->second));
+    }
   }
 
   const size_t batch_events = parsed_events.flame_events.size() +

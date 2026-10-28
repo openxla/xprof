@@ -3488,6 +3488,13 @@ Pixel Timeline::TimeToScreenX(Microseconds time, Pixel screen_x_offset,
 }
 
 void Timeline::ConstrainTimeRange(TimeRange& range) {
+  if (data_time_range_.duration() <= 0.0) {
+    return;
+  }
+  if (range.duration() >= data_time_range_.duration()) {
+    range = data_time_range_;
+    return;
+  }
   if (range.duration() < kMinDurationMicros) {
     double center = range.center();
     range = {center - kMinDurationMicros / 2.0,
@@ -3668,12 +3675,17 @@ void Timeline::RevealEvent(int event_index) {
         std::max(min_entry_time_window, time_per_px * min_visible_width_px);
   }
 
+  std::optional<TimeRange> new_range;
   if (time_left > end) {
-    double delta = time_left - end + min_entry_time_window;
-    SetVisibleRange({time_left - delta, time_right - delta}, /*animate=*/true);
+    const double delta = time_left - end + min_entry_time_window;
+    new_range = {time_left - delta, time_right - delta};
   } else if (time_right < start) {
-    double delta = start - time_right + min_entry_time_window;
-    SetVisibleRange({time_left + delta, time_right + delta}, /*animate=*/true);
+    const double delta = start - time_right + min_entry_time_window;
+    new_range = {time_left + delta, time_right + delta};
+  }
+  if (new_range.has_value()) {
+    ConstrainTimeRange(*new_range);
+    SetVisibleRange(*new_range, /*animate=*/true);
   }
 
   EmitEventSelected(event_index);
@@ -3846,21 +3858,20 @@ void Timeline::Pan(Pixel pixel_amount) {
   // This should never happen, but we check it to avoid division by zero.
   if (px_per_time_unit_val <= 0.0) return;
 
+  if (data_time_range_.duration() > 0.0 &&
+      visible_range_.target().duration() >= data_time_range_.duration()) {
+    return;
+  }
+
   const double time_offset = pixel_amount / px_per_time_unit_val;
   TimeRange new_range = visible_range_.target() + time_offset;
 
-  const bool showing_entire_trace =
-      visible_range_.target().start() <= data_time_range_.start() &&
-      visible_range_.target().end() >= data_time_range_.end();
-
-  if (!showing_entire_trace) {
-    if (pixel_amount < 0.0 && new_range.start() < data_time_range_.start()) {
-      ShowNavigationWarningNotification(
-          "Cannot pan further left: reached the beginning of the trace.");
-    } else if (pixel_amount > 0.0 && new_range.end() > data_time_range_.end()) {
-      ShowNavigationWarningNotification(
-          "Cannot pan further right: reached the end of the trace.");
-    }
+  if (pixel_amount < 0.0 && new_range.start() < data_time_range_.start()) {
+    ShowNavigationWarningNotification(
+        "Cannot pan further left: reached the beginning of the trace.");
+  } else if (pixel_amount > 0.0 && new_range.end() > data_time_range_.end()) {
+    ShowNavigationWarningNotification(
+        "Cannot pan further right: reached the end of the trace.");
   }
 
   ConstrainTimeRange(new_range);
@@ -3913,6 +3924,28 @@ void Timeline::Zoom(float zoom_factor, Microseconds pivot) {
   // If the zoom factor is 1, we don't need to zoom.
   if (zoom_factor == 1.0) return;
 
+  const Microseconds current_duration = visible_range_.target().duration();
+  // Floating-point precision tolerance for duration comparison.
+  // In IEEE 754 double precision, 1 ULP at a given timestamp magnitude is
+  // approximately `epsilon * end()`. When timestamps are large
+  // (e.g., 10^6 us or more), calculating duration (`end - start`) or range
+  // scaling can accumulate rounding error of several ULPs. At
+  // kMinDurationMicros (1 ps), this rounding error can cause the measured
+  // duration to exceed kMinDurationMicros by a fraction of a percent even
+  // when zoomed to the limit, which would otherwise allow an extra zoom step
+  // and cause pivot drift. Scaling 4.0 * epsilon by
+  // visible_range_.target().end() accounts for this precision loss
+  // dynamically based on the timestamp magnitude.
+  const Microseconds min_duration_tolerance =
+      4.0 * std::numeric_limits<double>::epsilon() *
+      visible_range_.target().end();
+  // If already at or below the minimum zoom duration, do not zoom or pan.
+  if (current_duration <= kMinDurationMicros + min_duration_tolerance) {
+    ShowNavigationWarningNotification(
+        "Cannot zoom in further: minimum zoom duration reached.");
+    return;
+  }
+
   // Clamp the zoom factor to the minimum value. This prevents the time
   // durations (mathmatically) become zero or negative.
   zoom_factor = std::max(zoom_factor, kMinZoomFactor);
@@ -3920,43 +3953,19 @@ void Timeline::Zoom(float zoom_factor, Microseconds pivot) {
   TimeRange new_range = visible_range_.target();
   new_range.Zoom(zoom_factor, pivot);
 
-  if (zoom_factor < 1.0) {
-    const Microseconds current_duration = visible_range_.target().duration();
-    // Floating-point precision tolerance for duration comparison.
-    // In IEEE 754 double precision, 1 ULP at a given timestamp magnitude is
-    // approximately `epsilon * end()`. When timestamps are large
-    // (e.g., 10^6 us or more), calculating duration (`end - start`) or range
-    // scaling can accumulate rounding error of several ULPs. At
-    // kMinDurationMicros (1 ps), this rounding error can cause the measured
-    // duration to exceed kMinDurationMicros by a fraction of a percent even
-    // when zoomed to the limit, which would otherwise allow an extra zoom step
-    // and cause pivot drift. Scaling 4.0 * epsilon by
-    // visible_range_.target().end() accounts for this precision loss
-    // dynamically based on the timestamp magnitude.
-    const Microseconds min_duration_tolerance =
-        4.0 * std::numeric_limits<double>::epsilon() *
-        visible_range_.target().end();
-    // If already at or below the minimum zoom duration, do not zoom or pan.
-    if (current_duration <= kMinDurationMicros + min_duration_tolerance) {
-      ShowNavigationWarningNotification(
-          "Cannot zoom in further: minimum zoom duration reached.");
-      return;
-    }
+  if (zoom_factor < 1.0f) {
     if (new_range.duration() < kMinDurationMicros) {
       new_range = visible_range_.target();
       new_range.Zoom(kMinDurationMicros / current_duration, pivot);
       ShowNavigationWarningNotification(
           "Cannot zoom in further: minimum zoom duration reached.");
     }
-  } else if (zoom_factor > 1.0) {
-    TimeRange constrained_range = new_range;
-    ConstrainTimeRange(constrained_range);
-    if (constrained_range.duration() < new_range.duration() ||
-        (visible_range_.target().start() <= data_time_range_.start() &&
-         visible_range_.target().end() >= data_time_range_.end())) {
-      ShowNavigationWarningNotification(
-          "Cannot zoom out further: showing the entire trace.");
-    }
+  } else if (zoom_factor > 1.0f && data_time_range_.duration() > 0.0 &&
+             (visible_range_.target().duration() >=
+                  data_time_range_.duration() ||
+              new_range.duration() >= data_time_range_.duration())) {
+    ShowNavigationWarningNotification(
+        "Cannot zoom out further: showing the entire trace.");
   }
 
   ConstrainTimeRange(new_range);

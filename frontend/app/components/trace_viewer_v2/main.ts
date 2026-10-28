@@ -962,14 +962,14 @@ async function fetchAndProcessTraceData({
   urlObj,
   traceviewerModule,
   isAbortRequested,
-  timeRange,
+  initialVisibleRangeFromUrl,
   errorContext,
   fetchData,
 }: {
   urlObj: URL;
   traceviewerModule: TraceViewerV2Module;
   isAbortRequested: () => boolean;
-  timeRange?: [number, number];
+  initialVisibleRangeFromUrl?: [number, number];
   errorContext: string;
   fetchData?: TraceDataFetcher;
 }) {
@@ -1019,7 +1019,7 @@ async function fetchAndProcessTraceData({
         traceviewerModule.processCompressedTraceEvents(
           dataPtr,
           buffer.byteLength,
-          timeRange,
+          initialVisibleRangeFromUrl,
         );
       } finally {
         if (dataPtr !== undefined && dataPtr !== 0) {
@@ -1059,7 +1059,10 @@ async function fetchAndProcessTraceData({
 
       performance.mark('traceProcessStart');
 
-      traceviewerModule.processTraceEvents(jsonData, timeRange);
+      traceviewerModule.processTraceEvents(
+        jsonData,
+        initialVisibleRangeFromUrl,
+      );
     }
 
     performance.mark('traceProcessEnd');
@@ -1133,7 +1136,6 @@ async function handleFetchDataEvent(
     urlObj,
     traceviewerModule,
     isAbortRequested: () => initialDataUrl !== getCurrentDataUrl(),
-    timeRange: [detail.start_time_ms, detail.end_time_ms],
     errorContext: 'fetching new data',
   });
 }
@@ -1276,7 +1278,7 @@ export async function traceViewerV2Main(
           urlObj,
           traceviewerModule,
           isAbortRequested: () => url !== currentDataUrl,
-          timeRange: timeRangeFromUrl,
+          initialVisibleRangeFromUrl: timeRangeFromUrl,
           errorContext: 'loading data',
           fetchData: loadOptions?.fetchData,
         });

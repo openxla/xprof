@@ -14862,6 +14862,21 @@ Group MakeThreadGroup(absl::string_view name, int parent_index,
           .tid = tid};
 }
 
+Group MakeSubTrackGroup(absl::string_view name, int parent_index,
+                        int start_level = 0, int level_count = 1,
+                        bool expanded = true, ProcessId pid = 0,
+                        ThreadId tid = 0) {
+  return {.type = Group::Type::kFlame,
+          .name = std::string(name),
+          .start_level = start_level,
+          .nesting_level = kSubTrackNestingLevel,
+          .expanded = expanded,
+          .parent_index = parent_index,
+          .level_count = level_count,
+          .pid = pid,
+          .tid = tid};
+}
+
 FlameChartTimelineData MakeTimelineData(std::vector<Group> groups,
                                         int num_levels = 1) {
   FlameChartTimelineData data;
@@ -14963,6 +14978,78 @@ TEST_F(RealTimelineImGuiFixture,
       /*updated_anchor_group_index=*/1);
 }
 
+TEST_F(RealTimelineImGuiFixture,
+       ScrollRestorationPreservesAnchorOnSecondProcessTecChildAcrossUpdates) {
+  // Two processes with identical "TEC Tracks" parent and "TEC 0" sub-tracks.
+  // Initial: Process 2's "TEC 0" is at index 6.
+  // When Process 1's "TEC 0" expands, the anchor must remain on Process 2's
+  // "TEC 0" (index 6) rather than jumping to Process 1's "TEC 0" (index 2).
+  VerifyScrollAnchorRestoration(
+      timeline_,
+      MakeTimelineData(
+          {
+              MakeProcessGroup("Process 1", /*start_level=*/0,
+                               /*level_count=*/2, /*expanded=*/true,
+                               /*pid=*/1),
+              MakeThreadGroup(kTecTracksGroupName, /*parent_index=*/0,
+                              /*start_level=*/0, /*level_count=*/2,
+                              /*expanded=*/true, /*pid=*/1),
+              MakeSubTrackGroup("TEC 0", /*parent_index=*/1,
+                                /*start_level=*/0, /*level_count=*/1,
+                                /*expanded=*/true, /*pid=*/1, /*tid=*/1),
+              MakeSubTrackGroup("TEC 1", /*parent_index=*/1,
+                                /*start_level=*/1, /*level_count=*/1,
+                                /*expanded=*/true, /*pid=*/1, /*tid=*/2),
+              MakeProcessGroup("Process 2", /*start_level=*/2,
+                               /*level_count=*/2, /*expanded=*/true,
+                               /*pid=*/2),
+              MakeThreadGroup(kTecTracksGroupName, /*parent_index=*/4,
+                              /*start_level=*/2, /*level_count=*/2,
+                              /*expanded=*/true, /*pid=*/2),
+              MakeSubTrackGroup("TEC 0", /*parent_index=*/5,
+                                /*start_level=*/2, /*level_count=*/1,
+                                /*expanded=*/true, /*pid=*/2, /*tid=*/3),
+              MakeSubTrackGroup("TEC 1", /*parent_index=*/5,
+                                /*start_level=*/3, /*level_count=*/1,
+                                /*expanded=*/true, /*pid=*/2, /*tid=*/4),
+              MakeThreadGroup("Padding", /*parent_index=*/4,
+                              /*start_level=*/4, /*level_count=*/50),
+          },
+          /*num_levels=*/54),
+      /*initial_anchor_group_index=*/6,
+      MakeTimelineData(
+          {
+              MakeProcessGroup("Process 1", /*start_level=*/0,
+                               /*level_count=*/11, /*expanded=*/true,
+                               /*pid=*/1),
+              MakeThreadGroup(kTecTracksGroupName, /*parent_index=*/0,
+                              /*start_level=*/0, /*level_count=*/11,
+                              /*expanded=*/true, /*pid=*/1),
+              MakeSubTrackGroup("TEC 0", /*parent_index=*/1,
+                                /*start_level=*/0, /*level_count=*/10,
+                                /*expanded=*/true, /*pid=*/1, /*tid=*/1),
+              MakeSubTrackGroup("TEC 1", /*parent_index=*/1,
+                                /*start_level=*/10, /*level_count=*/1,
+                                /*expanded=*/true, /*pid=*/1, /*tid=*/2),
+              MakeProcessGroup("Process 2", /*start_level=*/11,
+                               /*level_count=*/2, /*expanded=*/true,
+                               /*pid=*/2),
+              MakeThreadGroup(kTecTracksGroupName, /*parent_index=*/4,
+                              /*start_level=*/11, /*level_count=*/2,
+                              /*expanded=*/true, /*pid=*/2),
+              MakeSubTrackGroup("TEC 0", /*parent_index=*/5,
+                                /*start_level=*/11, /*level_count=*/1,
+                                /*expanded=*/true, /*pid=*/2, /*tid=*/3),
+              MakeSubTrackGroup("TEC 1", /*parent_index=*/5,
+                                /*start_level=*/12, /*level_count=*/1,
+                                /*expanded=*/true, /*pid=*/2, /*tid=*/4),
+              MakeThreadGroup("Padding", /*parent_index=*/4,
+                              /*start_level=*/13, /*level_count=*/50),
+          },
+          /*num_levels=*/63),
+      /*updated_anchor_group_index=*/6);
+}
+
 TEST(TimelineTest, ScrollRestorationFallsBackToParentWhenAnchorThreadDespawns) {
   ColorPalette palette = ColorPalette::Default();
   TestTimeline timeline(palette);
@@ -14981,6 +15068,57 @@ TEST(TimelineTest, ScrollRestorationFallsBackToParentWhenAnchorThreadDespawns) {
        MakeProcessGroup("Process Preceding 2"), MakeProcessGroup("Process A")},
       /*num_levels=*/3));
 
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  timeline.GetGroupTop(&timeline.timeline_data().groups[2]));
+}
+
+TEST(TimelineTest,
+     ScrollRestorationParentFallbackWithSlashProcessName) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  // Process name contains slashes, matching production names like
+  // "<host> /device:TPU:0".
+  constexpr absl::string_view kProcessName = "host:123 /device:TPU:0";
+  timeline.SetTimelineData(MakeTimelineData(
+      {
+          MakeProcessGroup(kProcessName, /*start_level=*/0, /*level_count=*/2,
+                           /*expanded=*/true, /*pid=*/1),
+          MakeThreadGroup(kTecTracksGroupName, /*parent_index=*/0,
+                          /*start_level=*/0, /*level_count=*/2,
+                          /*expanded=*/true, /*pid=*/1),
+          MakeSubTrackGroup("TEC 0", /*parent_index=*/1, /*start_level=*/0,
+                            /*level_count=*/1, /*expanded=*/true, /*pid=*/1,
+                            /*tid=*/1),
+          MakeSubTrackGroup("TEC 1", /*parent_index=*/1, /*start_level=*/1,
+                            /*level_count=*/1, /*expanded=*/true, /*pid=*/1,
+                            /*tid=*/2),
+      },
+      /*num_levels=*/2));
+
+  // Anchor on the child sub-track "TEC 0" (index 2).
+  const Pixel tec0_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[2]);
+  timeline.set_last_scroll_y_for_test(tec0_top + 5.0f);
+
+  // Data update: "TEC 0" and "TEC 1" despawned, but the parent "TEC Tracks"
+  // survives (now preceded by another process to verify non-zero scroll match).
+  timeline.SetTimelineData(MakeTimelineData(
+      {
+          MakeProcessGroup("Preceding Process", /*start_level=*/0,
+                           /*level_count=*/5, /*expanded=*/true, /*pid=*/99),
+          MakeProcessGroup(kProcessName, /*start_level=*/5, /*level_count=*/1,
+                           /*expanded=*/true, /*pid=*/1),
+          MakeThreadGroup(kTecTracksGroupName, /*parent_index=*/1,
+                          /*start_level=*/5, /*level_count=*/1,
+                          /*expanded=*/true, /*pid=*/1),
+      },
+      /*num_levels=*/6));
+
+  // Tier 2 should match the parent "TEC Tracks" group under kProcessName
+  // (index 2 in updated groups) without getting confused by slashes in
+  // kProcessName.
   EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
                   timeline.GetGroupTop(&timeline.timeline_data().groups[2]));
 }
@@ -18097,6 +18235,300 @@ TEST_F(TrackReorderTest, TopmostTrackWinsForSpecialMinimapRibbons) {
   EXPECT_EQ(
       std::any_cast<std::string>(regions_after[0].at(kEventSelectedName)),
       "reg_bottom");
+}
+
+TEST(TimelineTest,
+     GetNextGroupStartLevelReturnsStartLevelForGroupWithChildren) {
+  FlameChartTimelineData data;
+  data.level_offsets.assign(6, 0);
+
+  Group parent_group{.name = kTecTracksGroupName,
+                     .start_level = 2,
+                     .nesting_level = kThreadNestingLevel,
+                     .level_count = 3,
+                     .has_children = true};
+  Group leaf_group{.name = "TEC 0",
+                   .start_level = 2,
+                   .nesting_level = kSubTrackNestingLevel,
+                   .level_count = 3,
+                   .has_children = false};
+  data.groups.push_back(parent_group);
+  data.groups.push_back(leaf_group);
+
+  EXPECT_EQ(Timeline::GetNextGroupStartLevel(data, 0), 2);
+  EXPECT_EQ(Timeline::GetNextGroupStartLevel(data, 1), 5);
+}
+
+TEST(TimelineTest, RevealEventExpandsCollapsedTecTracksAndSubTrack) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Process 1",
+                         .start_level = 0,
+                         .nesting_level = kProcessNestingLevel,
+                         .expanded = false,
+                         .child_indices = {1},
+                         .level_count = 3,
+                         .has_children = true,
+                         .pid = 1});
+  data.groups.push_back({.name = kTecTracksGroupName,
+                         .start_level = 0,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = false,
+                         .parent_index = 0,
+                         .child_indices = {2, 3},
+                         .level_count = 3,
+                         .has_children = true,
+                         .pid = 1});
+  data.groups.push_back({.name = "TEC 0",
+                         .start_level = 0,
+                         .nesting_level = kSubTrackNestingLevel,
+                         .expanded = false,
+                         .parent_index = 1,
+                         .level_count = 2,
+                         .pid = 1,
+                         .tid = 1});
+  data.groups.push_back({.name = "TEC 1",
+                         .start_level = 2,
+                         .nesting_level = kSubTrackNestingLevel,
+                         .expanded = false,
+                         .parent_index = 1,
+                         .level_count = 1,
+                         .pid = 1,
+                         .tid = 2});
+
+  data.level_offsets = {0, 1, 1, 1};
+  data.level_event_indices = {0};
+
+  data.entry_names.push_back("tec0_event");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(50.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_args.push_back({});
+
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 100.0});
+  timeline.SetVisibleRange({0.0, 100.0});
+
+  EXPECT_FALSE(timeline.timeline_data().groups[0].expanded);
+  EXPECT_FALSE(timeline.timeline_data().groups[1].expanded);
+  EXPECT_FALSE(timeline.timeline_data().groups[2].expanded);
+  EXPECT_FALSE(timeline.timeline_data().groups[3].expanded);
+
+  timeline.RevealEvent(0);
+
+  EXPECT_TRUE(timeline.timeline_data().groups[0].expanded);
+  EXPECT_TRUE(timeline.timeline_data().groups[1].expanded);
+  EXPECT_TRUE(timeline.timeline_data().groups[2].expanded);
+  EXPECT_FALSE(timeline.timeline_data().groups[3].expanded);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       ClickTecTracksGroupLabelTogglesSubTracksVisibility) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0};
+  data.entry_start_times = {0.0, 20.0};
+  data.entry_names = {"tec0_op", "tec1_op"};
+  data.groups = {
+      {.type = Group::Type::kFlame,
+       .name = "TPU:0",
+       .start_level = 0,
+       .nesting_level = kProcessNestingLevel,
+       .expanded = true,
+       .child_indices = {1},
+       .level_count = 2,
+       .has_children = true,
+       .pid = 1},
+      {.type = Group::Type::kFlame,
+       .name = kTecTracksGroupName,
+       .start_level = 0,
+       .nesting_level = kThreadNestingLevel,
+       .expanded = false,
+       .parent_index = 0,
+       .child_indices = {2, 3},
+       .level_count = 2,
+       .has_children = true,
+       .pid = 1},
+      {.type = Group::Type::kFlame,
+       .name = "TEC 0",
+       .start_level = 0,
+       .nesting_level = kSubTrackNestingLevel,
+       .expanded = true,
+       .parent_index = 1,
+       .level_count = 1,
+       .pid = 1,
+       .tid = 1},
+      {.type = Group::Type::kFlame,
+       .name = "TEC 1",
+       .start_level = 1,
+       .nesting_level = kSubTrackNestingLevel,
+       .expanded = true,
+       .parent_index = 1,
+       .level_count = 1,
+       .pid = 1,
+       .tid = 2},
+  };
+  data.level_offsets = {0, 1, 2};
+  data.level_event_indices = {0, 1};
+
+  timeline_.SetTimelineData(data);
+  SimulateFrame();
+
+  EXPECT_THAT(timeline_.group_visible(), ElementsAre(true, true, false, false));
+
+  ImGuiIO& io = ImGui::GetIO();
+  const Pixel tec_label_y =
+      kRulerHeight +
+      timeline_.GetGroupTop(&timeline_.timeline_data().groups[1]) + 5.0f;
+  io.MousePos = ImVec2(50.0f, tec_label_y);
+  SimulateFrame();
+
+  // Click to expand "TEC Tracks".
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);
+  EXPECT_THAT(timeline_.group_visible(), ElementsAre(true, true, true, true));
+
+  // Click again to collapse "TEC Tracks".
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_FALSE(timeline_.timeline_data().groups[1].expanded);
+  EXPECT_THAT(timeline_.group_visible(), ElementsAre(true, true, false, false));
+}
+
+TEST(TimelineTest, GetScopedGroupKeyScopesSubTrackByProcessAndParent) {
+  std::vector<Group> groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/2,
+                       /*expanded=*/true, /*pid=*/1),
+      MakeThreadGroup(kTecTracksGroupName, /*parent_index=*/0,
+                      /*start_level=*/0, /*level_count=*/2,
+                      /*expanded=*/true, /*pid=*/1),
+      MakeSubTrackGroup("TEC 0", /*parent_index=*/1,
+                        /*start_level=*/0, /*level_count=*/1,
+                        /*expanded=*/true, /*pid=*/1, /*tid=*/1),
+      MakeProcessGroup("Process 2", /*start_level=*/2, /*level_count=*/2,
+                       /*expanded=*/true, /*pid=*/2),
+      MakeThreadGroup(kTecTracksGroupName, /*parent_index=*/3,
+                      /*start_level=*/2, /*level_count=*/2,
+                      /*expanded=*/true, /*pid=*/2),
+      MakeSubTrackGroup("TEC 0", /*parent_index=*/4,
+                        /*start_level=*/2, /*level_count=*/1,
+                        /*expanded=*/true, /*pid=*/2, /*tid=*/2),
+  };
+
+  EXPECT_EQ(GetScopedGroupKey(groups, 0),
+            (GroupKey{kProcessNestingLevel, "Process 1", ""}));
+  EXPECT_EQ(GetScopedGroupKey(groups, 1),
+            (GroupKey{kThreadNestingLevel, kTecTracksGroupName, "Process 1"}));
+  EXPECT_EQ(GetScopedGroupKey(groups, 2),
+            (GroupKey{kSubTrackNestingLevel, "TEC 0", "Process 1/TEC Tracks"}));
+
+  EXPECT_EQ(GetScopedGroupKey(groups, 3),
+            (GroupKey{kProcessNestingLevel, "Process 2", ""}));
+  EXPECT_EQ(GetScopedGroupKey(groups, 4),
+            (GroupKey{kThreadNestingLevel, kTecTracksGroupName, "Process 2"}));
+  EXPECT_EQ(GetScopedGroupKey(groups, 5),
+            (GroupKey{kSubTrackNestingLevel, "TEC 0", "Process 2/TEC Tracks"}));
+}
+
+TEST(TimelineTest,
+     RestoreSavedFullOverviewKeepsPerProcessTecChildExpandedState) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  FlameChartTimelineData initial_data;
+  initial_data.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/2,
+                       /*expanded=*/true, /*pid=*/1),
+      MakeThreadGroup(kTecTracksGroupName, /*parent_index=*/0,
+                      /*start_level=*/0, /*level_count=*/2,
+                      /*expanded=*/true, /*pid=*/1),
+      MakeSubTrackGroup("TEC 0", /*parent_index=*/1,
+                        /*start_level=*/0, /*level_count=*/1,
+                        /*expanded=*/false, /*pid=*/1, /*tid=*/1),
+      MakeSubTrackGroup("TEC 1", /*parent_index=*/1,
+                        /*start_level=*/1, /*level_count=*/1,
+                        /*expanded=*/true, /*pid=*/1, /*tid=*/2),
+      MakeProcessGroup("Process 2", /*start_level=*/2, /*level_count=*/2,
+                       /*expanded=*/true, /*pid=*/2),
+      MakeThreadGroup(kTecTracksGroupName, /*parent_index=*/4,
+                      /*start_level=*/2, /*level_count=*/2,
+                      /*expanded=*/true, /*pid=*/2),
+      MakeSubTrackGroup("TEC 0", /*parent_index=*/5,
+                        /*start_level=*/2, /*level_count=*/1,
+                        /*expanded=*/true, /*pid=*/2, /*tid=*/3),
+      MakeSubTrackGroup("TEC 1", /*parent_index=*/5,
+                        /*start_level=*/3, /*level_count=*/1,
+                        /*expanded=*/false, /*pid=*/2, /*tid=*/4),
+  };
+  initial_data.level_offsets = {0, 1, 2, 3, 4};
+  initial_data.level_event_indices = {0, 1, 2, 3};
+  initial_data.entry_names = {"p1_tec0", "p1_tec1", "p2_tec0", "p2_tec1"};
+  initial_data.entry_levels = {0, 1, 2, 3};
+  initial_data.entry_start_times = {10.0, 20.0, 30.0, 40.0};
+  initial_data.entry_total_times = {5.0, 5.0, 5.0, 5.0};
+  initial_data.entry_args.assign(4, {});
+
+  timeline.SetTimelineData(std::move(initial_data));
+  timeline.set_data_time_range({0.0, 100.0});
+  timeline.MarkCurrentDataAsFullOverview();
+  timeline.PrepareForFilteredRefetch();
+
+  FlameChartTimelineData zoomed_data;
+  zoomed_data.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/2,
+                       /*expanded=*/true, /*pid=*/1),
+      MakeThreadGroup(kTecTracksGroupName, /*parent_index=*/0,
+                      /*start_level=*/0, /*level_count=*/2,
+                      /*expanded=*/true, /*pid=*/1),
+      MakeSubTrackGroup("TEC 0", /*parent_index=*/1,
+                        /*start_level=*/0, /*level_count=*/1,
+                        /*expanded=*/true, /*pid=*/1, /*tid=*/1),
+      MakeSubTrackGroup("TEC 1", /*parent_index=*/1,
+                        /*start_level=*/1, /*level_count=*/1,
+                        /*expanded=*/false, /*pid=*/1, /*tid=*/2),
+      MakeProcessGroup("Process 2", /*start_level=*/2, /*level_count=*/2,
+                       /*expanded=*/true, /*pid=*/2),
+      MakeThreadGroup(kTecTracksGroupName, /*parent_index=*/4,
+                      /*start_level=*/2, /*level_count=*/2,
+                      /*expanded=*/true, /*pid=*/2),
+      MakeSubTrackGroup("TEC 0", /*parent_index=*/5,
+                        /*start_level=*/2, /*level_count=*/1,
+                        /*expanded=*/false, /*pid=*/2, /*tid=*/3),
+      MakeSubTrackGroup("TEC 1", /*parent_index=*/5,
+                        /*start_level=*/3, /*level_count=*/1,
+                        /*expanded=*/true, /*pid=*/2, /*tid=*/4),
+  };
+  zoomed_data.level_offsets = {0, 1, 2, 3, 4};
+  zoomed_data.level_event_indices = {0, 1, 2, 3};
+  zoomed_data.entry_names = {"p1_tec0", "p1_tec1", "p2_tec0", "p2_tec1"};
+  zoomed_data.entry_levels = {0, 1, 2, 3};
+  zoomed_data.entry_start_times = {10.0, 20.0, 30.0, 40.0};
+  zoomed_data.entry_total_times = {5.0, 5.0, 5.0, 5.0};
+  zoomed_data.entry_args.assign(4, {});
+
+  timeline.SetTimelineData(std::move(zoomed_data));
+  EXPECT_TRUE(timeline.HasSavedFullOverview());
+
+  EXPECT_TRUE(timeline.timeline_data().groups[2].expanded);
+  EXPECT_FALSE(timeline.timeline_data().groups[3].expanded);
+  EXPECT_FALSE(timeline.timeline_data().groups[6].expanded);
+  EXPECT_TRUE(timeline.timeline_data().groups[7].expanded);
+
+  EXPECT_TRUE(timeline.RestoreSavedFullOverview());
+
+  EXPECT_TRUE(timeline.timeline_data().groups[2].expanded);
+  EXPECT_FALSE(timeline.timeline_data().groups[3].expanded);
+  EXPECT_FALSE(timeline.timeline_data().groups[6].expanded);
+  EXPECT_TRUE(timeline.timeline_data().groups[7].expanded);
 }
 
 }  // namespace

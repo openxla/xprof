@@ -299,6 +299,7 @@ inline constexpr float kMotionLayoutSecondsPerPixel = 0.00035f;
 inline constexpr int kCounterNestingLevel = 2;
 inline constexpr int kHeaderNestingLevel = 0;
 inline constexpr int kProcessNestingLevel = 1;
+inline constexpr int kSubTrackNestingLevel = 3;
 inline constexpr int kThreadNestingLevel = 2;
 // go/keep-sorted end
 
@@ -429,6 +430,7 @@ inline constexpr char kPinTrackTooltip[] = "Pin track";
 inline constexpr char kPinnedHeaderName[] = "Pinned";
 inline constexpr char kPinnedProcessNotificationPrefix[] = "Pinned process: ";
 inline constexpr char kProcessHeaderLabel[] = "Process";
+inline constexpr char kTecTracksGroupName[] = "TEC Tracks";
 inline constexpr char kUnhiddenProcessNotificationPrefix[] =
     "Unhidden process: ";
 inline constexpr char kUnhideTrackTooltip[] = "Unhide track";

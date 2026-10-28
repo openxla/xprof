@@ -3509,6 +3509,20 @@ void Timeline::ConstrainTimeRange(TimeRange& range) {
   }
 }
 
+int Timeline::FindEventIndexAt(int level, Microseconds ts) const {
+  absl::Span<const int> indices = timeline_data_.level_events(level);
+  auto it = std::upper_bound(indices.begin(), indices.end(), ts,
+                             [&](Microseconds t, int idx) {
+                               return t < timeline_data_.entry_start_times[idx];
+                             });
+  if (it == indices.begin()) return -1;
+  const int idx = *std::prev(it);
+  return timeline_data_.entry_start_times[idx] +
+                     timeline_data_.entry_total_times[idx] >= ts
+             ? idx
+             : -1;
+}
+
 EventData Timeline::CreateBaseEventData(int event_index, bool is_hover) const {
   EventData event_data;
   event_data.try_emplace(kEventSelectedIndex, event_index);
@@ -3556,6 +3570,34 @@ EventData Timeline::CreateBaseEventData(int event_index, bool is_hover) const {
         js_args.try_emplace(key, value);
       }
       event_data.try_emplace(kEventSelectedArgs, std::move(js_args));
+    }
+  }
+  if (!is_hover && event_index < timeline_data_.entry_event_ids.size()) {
+    auto it = timeline_data_.flow_ids_by_event_id.find(
+        timeline_data_.entry_event_ids[event_index]);
+    if (it != timeline_data_.flow_ids_by_event_id.end()) {
+      std::vector<EventData> inbound, outbound;
+      for (const std::string& flow_id : it->second) {
+        auto lines_it = timeline_data_.flow_lines_by_flow_id.find(flow_id);
+        if (lines_it == timeline_data_.flow_lines_by_flow_id.end()) continue;
+        for (const FlowLine& flow : lines_it->second) {
+          const int src = FindEventIndexAt(flow.source_level, flow.source_ts);
+          const int tgt = FindEventIndexAt(flow.target_level, flow.target_ts);
+          if (src == event_index && tgt >= 0) {
+            outbound.push_back(CreateBaseEventData(tgt, /*is_hover=*/true));
+          } else if (tgt == event_index && src >= 0) {
+            inbound.push_back(CreateBaseEventData(src, /*is_hover=*/true));
+          }
+        }
+      }
+      if (!inbound.empty()) {
+        event_data.try_emplace(kEventSelectedInboundFlows,
+                               std::move(inbound));
+      }
+      if (!outbound.empty()) {
+        event_data.try_emplace(kEventSelectedOutboundFlows,
+                               std::move(outbound));
+      }
     }
   }
   return event_data;

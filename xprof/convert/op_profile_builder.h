@@ -20,6 +20,7 @@ limitations under the License.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/node_hash_map.h"
 #include "tsl/platform/protobuf.h"
@@ -32,10 +33,19 @@ namespace profiler {
 
 enum class OpProfileGrouping { kByProgram, kByCategory, kByProvenance };
 
+// Maps an HLO program id to the model and batch size that executed it.
+using ProgramServingMetadataMap =
+    absl::flat_hash_map<uint64_t, op_profile::Node::ProgramServingMetadata>;
+
 struct OpProfileOptions {
   OpProfileGrouping group_by = OpProfileGrouping::kByProgram;
   bool group_by_deduplicated_name = true;
   int children_per_node = 100;
+  // Optional serving metadata to copy onto program nodes. Entries without a
+  // model_id, a positive batch_size, or a positive num_batches are ignored. If
+  // non-null, must outlive the OpProfileBuilder.
+  const ProgramServingMetadataMap* absl_nullable program_serving_metadata =
+      nullptr;
 };
 
 // The structure of an op profile tree may looks like below:
@@ -164,11 +174,9 @@ class OpProfileBuilder {
   op_profile::Node* GetOrAddProvenanceParentNode(
       const FlatOpMetrics& op_metrics, Program* program);
 
-  // Returns a node for op_metrics.hlo_module_id().
+  // Returns a node for program_id.
   // Adds a node to the Node tree if necessary.
-  Program* LookupOrAddProgramNode(const OpMetrics& op_metrics);
-
-  Program* LookupOrAddProgramNode(const FlatOpMetrics& op_metrics);
+  Program* LookupOrAddProgramNode(uint64_t program_id);
 
   OpProfileOptions options_;
   op_profile::Node* root_;

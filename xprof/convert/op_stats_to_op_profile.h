@@ -16,6 +16,7 @@ limitations under the License.
 #ifndef XPROF_CONVERT_OP_STATS_TO_OP_PROFILE_H_
 #define XPROF_CONVERT_OP_STATS_TO_OP_PROFILE_H_
 
+#include "absl/base/nullability.h"
 #include "xprof/convert/op_profile_builder.h"
 #include "xprof/convert/tool_options.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
@@ -45,13 +46,17 @@ namespace profiler {
 //      - idle
 // The nodes in the profile are sorted by time in decreasing order and pruned
 // to reduce the profile size. Only 100 nodes are kept for level >= 3.
+// If program_serving_metadata is non-null, its entries are copied onto the
+// matching program nodes in the program and provenance views.
 // See op_profile.proto for the detailed semantics of the returned profile.
 void ConvertOpStatsToOpProfile(
     const tensorflow::profiler::OpStats& op_stats,
     tensorflow::profiler::HardwareType hardware_type,
     tensorflow::profiler::op_profile::Profile& profile,
     int op_profile_limit = 100,
-    OpProfileGrouping group_by = OpProfileGrouping::kByProgram);
+    OpProfileGrouping group_by = OpProfileGrouping::kByProgram,
+    const ProgramServingMetadataMap* absl_nullable program_serving_metadata =
+        nullptr);
 
 // Parses the "group_by" option and returns the corresponding OpProfileGrouping.
 inline OpProfileGrouping GetOpProfileGrouping(

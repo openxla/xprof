@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/log/check.h"
 #include "absl/strings/match.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
@@ -26,13 +27,17 @@ using ::tensorflow::profiler::OpProfileOptions;
 using ::tensorflow::profiler::op_profile::Node;
 
 // Modified to take OpStats for program_id_to_name_map and perf_env
-void BuildOpProfileNodeTreeAlter(const OpStats& op_stats,
-                                 OpProfileGrouping group_by,
-                                 bool exclude_idle_ops, int op_profile_limit,
-                                 Node* root) {
-  OpProfileOptions options = {group_by,
-                              /*group_by_deduplicated_name=*/true,
-                              /*children_per_node=*/op_profile_limit};
+void BuildOpProfileNodeTreeAlter(
+    const OpStats& op_stats, OpProfileGrouping group_by, bool exclude_idle_ops,
+    int op_profile_limit,
+    const ProgramServingMetadataMap* absl_nullable program_serving_metadata,
+    Node* root) {
+  OpProfileOptions options = {
+      group_by,
+      /*group_by_deduplicated_name=*/true,
+      /*children_per_node=*/op_profile_limit,
+      program_serving_metadata,
+  };
   // Use op_stats.program_id_to_name_map()
   OpProfileBuilder builder(options, root, &op_stats.program_id_to_name_map());
   for (const FlatOpMetrics& op_metrics :
@@ -68,7 +73,8 @@ void BuildOpProfileNodeTreeAlter(const OpStats& op_stats,
 void ConvertFlatOpStatsToOpProfile(
     const OpStats& op_stats, tensorflow::profiler::HardwareType hardware_type,
     tensorflow::profiler::op_profile::Profile& profile, int op_profile_limit,
-    OpProfileGrouping group_by) {
+    OpProfileGrouping group_by,
+    const ProgramServingMetadataMap* absl_nullable program_serving_metadata) {
   profile.set_device_type(HardwareType_Name(hardware_type));
 
   profile.set_agg_dvfs_time_scale_multiplier(tsl::profiler::SafeDivide(
@@ -79,25 +85,31 @@ void ConvertFlatOpStatsToOpProfile(
     case OpProfileGrouping::kByCategory:
       BuildOpProfileNodeTreeAlter(op_stats, OpProfileGrouping::kByCategory,
                                   /*exclude_idle_ops=*/false, op_profile_limit,
+                                  program_serving_metadata,
                                   profile.mutable_by_category());
       BuildOpProfileNodeTreeAlter(op_stats, OpProfileGrouping::kByCategory,
                                   /*exclude_idle_ops=*/true, op_profile_limit,
+                                  program_serving_metadata,
                                   profile.mutable_by_category_exclude_idle());
       break;
     case OpProfileGrouping::kByProgram:
       BuildOpProfileNodeTreeAlter(op_stats, OpProfileGrouping::kByProgram,
                                   /*exclude_idle_ops=*/false, op_profile_limit,
+                                  program_serving_metadata,
                                   profile.mutable_by_program());
       BuildOpProfileNodeTreeAlter(op_stats, OpProfileGrouping::kByProgram,
                                   /*exclude_idle_ops=*/true, op_profile_limit,
+                                  program_serving_metadata,
                                   profile.mutable_by_program_exclude_idle());
       break;
     case OpProfileGrouping::kByProvenance:
       BuildOpProfileNodeTreeAlter(op_stats, OpProfileGrouping::kByProvenance,
                                   /*exclude_idle_ops=*/false, op_profile_limit,
+                                  program_serving_metadata,
                                   profile.mutable_by_provenance());
       BuildOpProfileNodeTreeAlter(op_stats, OpProfileGrouping::kByProvenance,
                                   /*exclude_idle_ops=*/true, op_profile_limit,
+                                  program_serving_metadata,
                                   profile.mutable_by_provenance_exclude_idle());
       break;
   }

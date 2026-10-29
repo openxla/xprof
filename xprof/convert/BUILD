@@ -1356,6 +1356,7 @@ cc_library(
         "//plugin/xprof/protobuf:op_metrics_proto_cc",
         "//plugin/xprof/protobuf:op_profile_proto_cc",
         "//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
         "@org_xprof//xprof/utils:op_metrics_db_utils",
@@ -2448,6 +2449,7 @@ cc_library(
         "//plugin/xprof/protobuf:op_metrics_proto_cc",
         "//plugin/xprof/protobuf:op_profile_proto_cc",
         "//plugin/xprof/protobuf:source_info_proto_cc",
+        "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:node_hash_map",
         "@com_google_absl//absl/log",
@@ -2473,6 +2475,7 @@ cc_library(
         "//plugin/xprof/protobuf:op_metrics_proto_cc",
         "//plugin/xprof/protobuf:op_profile_proto_cc",
         "//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
@@ -2523,6 +2526,7 @@ cc_test(
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
+        "@tsl//tsl/platform:protobuf",
     ],
 )
 
@@ -2540,6 +2544,7 @@ cc_test(
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
+        "@tsl//tsl/platform:protobuf",
     ],
 )
 

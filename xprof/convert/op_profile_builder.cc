@@ -571,23 +571,19 @@ OpProfileBuilder::Category* OpProfileBuilder::LookupOrAddCategoryNode(
 }
 
 OpProfileBuilder::Program* OpProfileBuilder::LookupOrAddProgramNode(
-    const OpMetrics& op_metrics) {
-  uint64_t program_id = op_metrics.hlo_module_id();
+    uint64_t program_id) {
   Program* program = &programs_map_[program_id];
   if (program->node == nullptr) {
     program->node = root_->add_children();
     program->node->set_name(GenerateProgramName(program_id));
-  }
-  return program;
-}
-
-OpProfileBuilder::Program* OpProfileBuilder::LookupOrAddProgramNode(
-    const FlatOpMetrics& op_metrics) {
-  uint64_t program_id = op_metrics.hlo_module_id();
-  Program* program = &programs_map_[program_id];
-  if (program->node == nullptr) {
-    program->node = root_->add_children();
-    program->node->set_name(GenerateProgramName(program_id));
+    if (options_.program_serving_metadata != nullptr) {
+      auto it = options_.program_serving_metadata->find(program_id);
+      if (it != options_.program_serving_metadata->end() &&
+          !it->second.model_id().empty() && it->second.batch_size() > 0 &&
+          it->second.num_batches() > 0) {
+        *program->node->mutable_program_serving_metadata() = it->second;
+      }
+    }
   }
   return program;
 }
@@ -646,7 +642,7 @@ void OpProfileBuilder::AddOp(const OpMetrics& op_metrics) {
   UpdateNodeMetrics(op_metrics, &metrics_[root_]);
   Program* program = nullptr;
   if (!IsIdleOp(op_metrics) && RequiresProgramGrouping(options_)) {
-    program = LookupOrAddProgramNode(op_metrics);
+    program = LookupOrAddProgramNode(op_metrics.hlo_module_id());
     UpdateNodeMetrics(op_metrics, &metrics_[program->node]);
   }
 
@@ -701,7 +697,7 @@ void OpProfileBuilder::AddOp(const FlatOpMetrics& op_metrics) {
   UpdateNodeMetrics(op_metrics, &metrics_[root_]);
   Program* program = nullptr;
   if (!IsIdleOp(op_metrics) && RequiresProgramGrouping(options_)) {
-    program = LookupOrAddProgramNode(op_metrics);
+    program = LookupOrAddProgramNode(op_metrics.hlo_module_id());
     UpdateNodeMetrics(op_metrics, &metrics_[program->node]);
   }
   bool has_children = ChildrenTimePs(op_metrics) > 0;

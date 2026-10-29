@@ -13,11 +13,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include "xprof/convert/flat_op_stats_to_op_profile.h"
+
 #include <cstdint>
 #include <string>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include "xprof/convert/flat_op_stats_to_op_profile.h"
+#include "absl/strings/match.h"
+#include "tsl/platform/protobuf.h"
 #include "xprof/convert/op_profile_builder.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
@@ -27,10 +31,11 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
-
 namespace {
 
 using ::tensorflow::profiler::op_profile::Node;
+using ::testing::HasSubstr;
+using ::testing::Not;
 
 // Helper to create a dummy FlatOpMetrics
 FlatOpMetrics CreateOpMetrics(
@@ -421,6 +426,183 @@ TEST(FlatOpStatsToOpProfileTest, EmptyFlatMetricsDbHasRootMetricsByProvenance) {
   EXPECT_EQ(profile.by_provenance_exclude_idle().metrics().raw_time(), 0);
   EXPECT_EQ(profile.by_provenance_exclude_idle().metrics().raw_flops(), 0);
   EXPECT_EQ(profile.by_provenance_exclude_idle().children_size(), 0);
+}
+
+TEST(FlatOpStatsToOpProfileTest,
+     AttachesServingMetadataToProgramNodesInProgramAndProvenanceViews) {
+  OpStats op_stats;
+  FlatOpMetricsDb& db = *op_stats.mutable_flat_device_op_metrics_db();
+  db.set_total_time_ps(2900);
+  db.set_total_op_time_ps(2800);
+
+  PerfEnv* perf_env = op_stats.mutable_perf_env();
+  perf_env->set_peak_tera_flops_per_second(10.0);
+  perf_env->add_peak_bws_giga_bytes_per_second(100.0);
+  perf_env->add_peak_bws_giga_bytes_per_second(100.0);
+  perf_env->add_peak_bws_giga_bytes_per_second(100.0);
+
+  FlatOpMetrics op1 = CreateOpMetrics("op1", 1, 700, "conv");
+  op1.set_hlo_module_id(10);
+  op1.set_provenance("layer1/conv1");
+  *db.add_op_instances() = op1;
+
+  FlatOpMetrics op2 = CreateOpMetrics("op2", 2, 600, "fused");
+  op2.set_hlo_module_id(20);
+  op2.set_provenance("layer2/fused1");
+  *db.add_op_instances() = op2;
+
+  FlatOpMetrics op3 = CreateOpMetrics("op3", 3, 500, "dense");
+  op3.set_hlo_module_id(30);
+  op3.set_provenance("layer3/dense1");
+  *db.add_op_instances() = op3;
+
+  FlatOpMetrics op4 = CreateOpMetrics("op4", 4, 400, "copy");
+  op4.set_hlo_module_id(40);
+  op4.set_provenance("layer4/copy1");
+  *db.add_op_instances() = op4;
+
+  FlatOpMetrics op5 = CreateOpMetrics("op5", 5, 300, "transpose");
+  op5.set_hlo_module_id(50);
+  op5.set_provenance("layer5/transpose1");
+  *db.add_op_instances() = op5;
+
+  FlatOpMetrics op6 = CreateOpMetrics("op6", 6, 200, "reduce");
+  op6.set_hlo_module_id(60);
+  op6.set_provenance("layer6/reduce1");
+  *db.add_op_instances() = op6;
+
+  FlatOpMetrics op7 = CreateOpMetrics("op7", 7, 100, "pad");
+  op7.set_hlo_module_id(70);
+  op7.set_provenance("layer7/pad1");
+  *db.add_op_instances() = op7;
+
+  (*op_stats.mutable_program_id_to_name_map())[10] = "program1";
+  (*op_stats.mutable_program_id_to_name_map())[20] = "program2";
+  (*op_stats.mutable_program_id_to_name_map())[30] = "program3";
+  (*op_stats.mutable_program_id_to_name_map())[40] = "program4";
+  (*op_stats.mutable_program_id_to_name_map())[50] = "program5";
+  (*op_stats.mutable_program_id_to_name_map())[60] = "program6";
+  (*op_stats.mutable_program_id_to_name_map())[70] = "program7";
+
+  ProgramServingMetadataMap serving_metadata;
+  serving_metadata[10].set_model_id("/models/flat_model:1");
+  serving_metadata[10].set_batch_size(8);
+  serving_metadata[10].set_num_batches(7);
+  // Entries missing a model_id, a positive batch_size, or a positive
+  // num_batches are ignored (and program 70 is omitted from the map).
+  serving_metadata[20].set_model_id("/models/flat_model:1");
+  serving_metadata[20].set_batch_size(0);
+  serving_metadata[20].set_num_batches(5);
+  serving_metadata[30].set_batch_size(16);
+  serving_metadata[30].set_num_batches(3);
+  serving_metadata[40].set_model_id("/models/flat_model:1");
+  serving_metadata[40].set_batch_size(-1);
+  serving_metadata[40].set_num_batches(5);
+  serving_metadata[50].set_model_id("/models/flat_model:1");
+  serving_metadata[50].set_batch_size(8);
+  serving_metadata[50].set_num_batches(0);
+  serving_metadata[60].set_model_id("/models/flat_model:1");
+  serving_metadata[60].set_batch_size(8);
+  serving_metadata[60].set_num_batches(-1);
+
+  op_profile::Profile by_prog_profile;
+  ConvertFlatOpStatsToOpProfile(op_stats, HardwareType::TPU, by_prog_profile,
+                                100, OpProfileGrouping::kByProgram,
+                                &serving_metadata);
+  ASSERT_EQ(by_prog_profile.by_program().children_size(), 7);
+  EXPECT_TRUE(
+      by_prog_profile.by_program().children(0).has_program_serving_metadata());
+  EXPECT_EQ(by_prog_profile.by_program()
+                .children(0)
+                .program_serving_metadata()
+                .model_id(),
+            "/models/flat_model:1");
+  EXPECT_EQ(by_prog_profile.by_program()
+                .children(0)
+                .program_serving_metadata()
+                .batch_size(),
+            8);
+  EXPECT_EQ(by_prog_profile.by_program()
+                .children(0)
+                .program_serving_metadata()
+                .num_batches(),
+            7);
+  for (int i = 1; i < 7; ++i) {
+    EXPECT_FALSE(by_prog_profile.by_program()
+                     .children(i)
+                     .has_program_serving_metadata());
+  }
+  ASSERT_EQ(by_prog_profile.by_program_exclude_idle().children_size(), 7);
+  EXPECT_TRUE(by_prog_profile.by_program_exclude_idle()
+                  .children(0)
+                  .has_program_serving_metadata());
+
+  op_profile::Profile by_prov_profile;
+  ConvertFlatOpStatsToOpProfile(op_stats, HardwareType::TPU, by_prov_profile,
+                                100, OpProfileGrouping::kByProvenance,
+                                &serving_metadata);
+  ASSERT_EQ(by_prov_profile.by_provenance().children_size(), 7);
+  EXPECT_TRUE(by_prov_profile.by_provenance()
+                  .children(0)
+                  .has_program_serving_metadata());
+  for (int i = 1; i < 7; ++i) {
+    EXPECT_FALSE(by_prov_profile.by_provenance()
+                     .children(i)
+                     .has_program_serving_metadata());
+  }
+  ASSERT_EQ(by_prov_profile.by_provenance_exclude_idle().children_size(), 7);
+  EXPECT_TRUE(by_prov_profile.by_provenance_exclude_idle()
+                  .children(0)
+                  .has_program_serving_metadata());
+
+  op_profile::Profile by_cat_profile;
+  ConvertFlatOpStatsToOpProfile(op_stats, HardwareType::TPU, by_cat_profile,
+                                100, OpProfileGrouping::kByCategory,
+                                &serving_metadata);
+  for (const Node* root :
+       {&by_cat_profile.by_category(),
+        &by_cat_profile.by_category_exclude_idle()}) {
+    EXPECT_FALSE(root->has_program_serving_metadata());
+    for (const Node& cat : root->children()) {
+      EXPECT_FALSE(cat.has_program_serving_metadata());
+    }
+  }
+}
+
+TEST(FlatOpStatsToOpProfileTest,
+     NullMetadataMapAndDefaultArgsProduceIdenticalJson) {
+  OpStats op_stats;
+  FlatOpMetricsDb& db = *op_stats.mutable_flat_device_op_metrics_db();
+  db.set_total_time_ps(1000);
+  db.set_total_op_time_ps(800);
+  PerfEnv* perf_env = op_stats.mutable_perf_env();
+  perf_env->set_peak_tera_flops_per_second(10.0);
+  perf_env->add_peak_bws_giga_bytes_per_second(100.0);
+  perf_env->add_peak_bws_giga_bytes_per_second(100.0);
+  perf_env->add_peak_bws_giga_bytes_per_second(100.0);
+
+  FlatOpMetrics op = CreateOpMetrics("op1", 1, 800, "conv");
+  op.set_hlo_module_id(77);
+  *db.add_op_instances() = op;
+  (*op_stats.mutable_program_id_to_name_map())[77] = "prog";
+
+  op_profile::Profile default_profile;
+  ConvertFlatOpStatsToOpProfile(op_stats, HardwareType::TPU, default_profile);
+
+  op_profile::Profile nullptr_profile;
+  ConvertFlatOpStatsToOpProfile(op_stats, HardwareType::TPU, nullptr_profile,
+                                100, OpProfileGrouping::kByProgram, nullptr);
+
+  tsl::protobuf::util::JsonPrintOptions opts;
+  opts.always_print_fields_with_no_presence = true;
+  std::string default_json;
+  std::string nullptr_json;
+  ASSERT_OK(tsl::protobuf::util::MessageToJsonString(default_profile,
+                                                     &default_json, opts));
+  ASSERT_OK(tsl::protobuf::util::MessageToJsonString(nullptr_profile,
+                                                     &nullptr_json, opts));
+  EXPECT_EQ(default_json, nullptr_json);
+  EXPECT_THAT(default_json, Not(HasSubstr("programServingMetadata")));
 }
 
 }  // namespace

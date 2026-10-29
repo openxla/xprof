@@ -345,7 +345,8 @@ Pallas or Mosaic):
     utilization metrics filtered by host, device, or node.
 -   **[Query Events Database](references/events_db.md)**: Materialize and query
     raw XProf event traces via SQL for fine-grained event, timeline, and
-    argument analysis.
+    argument analysis. Start with `events_db_info` and `events_db_top_ops`
+    before writing SQL.
 -   **[Analyze XLA Module Performance](references/analysis.md)**: Analyze XLA
     module performance, inspect HLO operations, query timeline events, and
     inspect raw XSpace protobufs (`get_xspace_proto`).

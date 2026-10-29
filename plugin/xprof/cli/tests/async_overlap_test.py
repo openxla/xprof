@@ -1,12 +1,14 @@
 """Unit tests for async_overlap and analyze_async_overlap_tool."""
 
 import json
+from typing import Any
 from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
 from xprof.cli.internal import async_overlap
 from xprof.cli.internal import decorators
+from xprof.cli.internal.oss import events_db_sql
 from xprof.cli.internal.oss import xplane_tools
 from xprof.cli.tools import analyze_async_overlap_tool
 
@@ -303,6 +305,23 @@ class AsyncOverlapTest(parameterized.TestCase):
     self.assertEqual(out["host"], "host-0")
     self.assertEqual(out["summary"]["count"], 1)
     self.assertEqual(out["summary"]["exposed"], 1)
+    self.assertEqual(out["backend"], "xplane")
+
+    with mock.patch.object(events_db_sql, "run_query", return_value=[]):
+      out = json.loads(
+          analyze_async_overlap_tool.analyze_async_overlap(
+              "sess_db", backend="events_db"
+          )
+      )
+    self.assertEqual(out["status"], "NO_DEVICE_TIMELINE_EVENTS")
+    self.assertEqual(out["summary"]["count"], 0)
+
+  def test_tool_rejects_unknown_backend(self):
+    unsupported_backend: Any = "sqlite"
+    with self.assertRaisesRegex(ValueError, "backend"):
+      analyze_async_overlap_tool.analyze_async_overlap(
+          "sess", backend=unsupported_backend
+      )
 
 
 if __name__ == "__main__":

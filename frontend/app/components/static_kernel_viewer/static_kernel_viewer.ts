@@ -17,6 +17,7 @@ import {DEFAULT_HOST} from 'org_xprof/frontend/app/common/constants/constants';
 import {readHoveredEvent} from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_event_tooltip';
 import {
   KernelMinimap,
+  MINIMAP_UPDATED_EVENT_NAME,
   MinimapRegionMarker,
 } from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_minimap';
 import {KernelSelectionPanel} from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_selection_panel';
@@ -255,6 +256,8 @@ export interface KernelTab {
   entry: KernelEntry;
   /** When the tab was last active, to close the least recently used tab. */
   lastUsed: number;
+  /** Zoomed bundle range of the tab, or `undefined` when viewing all bundles. */
+  bundleRange?: BundleRange;
 }
 
 /** Details card of a hovered kernel row or tab. */
@@ -450,6 +453,108 @@ function readNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value)
     ? value
     : undefined;
+}
+
+const ZOOM_URL_PARAMS = [
+  'bundle_start',
+  'bundle_end',
+  'view_start',
+  'view_end',
+] as const;
+
+/** Parses a non-negative bundle index from a URL parameter, or `undefined`. */
+function parseBundleNumber(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw.trim() === '') {
+    return undefined;
+  }
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    return undefined;
+  }
+  return Math.round(value);
+}
+
+/**
+ * Parses a valid zoomed bundle range (`start < end`) from raw URL parameter
+ * strings, or `undefined` if either endpoint is missing or invalid.
+ */
+export function parseBundleRange(
+  rawStart: string | undefined,
+  rawEnd: string | undefined,
+): BundleRange | undefined {
+  const start = parseBundleNumber(rawStart);
+  const end = parseBundleNumber(rawEnd);
+  if (start === undefined || end === undefined || start >= end) {
+    return undefined;
+  }
+  return {start, end};
+}
+
+/**
+ * Clamps `range` to `bounds` when known, returning `undefined` if the clamped
+ * range is empty or covers the full schedule.
+ */
+export function toZoomedBundleRange(
+  range: BundleRange | undefined,
+  bounds: BundleRange | undefined,
+): BundleRange | undefined {
+  if (
+    !range ||
+    !Number.isFinite(range.start) ||
+    !Number.isFinite(range.end) ||
+    range.start >= range.end
+  ) {
+    return undefined;
+  }
+  let start = Math.round(range.start);
+  let end = Math.round(range.end);
+  if (start === end) {
+    start = Math.floor(range.start);
+    end = Math.max(start + 1, Math.ceil(range.end));
+  }
+  if (bounds && bounds.end > bounds.start) {
+    start = Math.max(bounds.start, Math.min(start, bounds.end));
+    end = Math.max(bounds.start, Math.min(end, bounds.end));
+    if (start >= end || (start <= bounds.start && end >= bounds.end)) {
+      return undefined;
+    }
+    return {start, end};
+  }
+  start = Math.max(0, start);
+  end = Math.max(0, end);
+  return start < end ? {start, end} : undefined;
+}
+
+/**
+ * Strips frontend zoom parameters from a trace data URL so that zooming never
+ * changes the backend trace request URL or triggers `view_start` millisecond
+ * scaling in `traceViewerV2Main`.
+ */
+function stripZoomParamsFromUrl(rawUrl: string): string {
+  const queryIndex = rawUrl.indexOf('?');
+  if (queryIndex < 0) {
+    return rawUrl;
+  }
+  const hashIndex = rawUrl.indexOf('#', queryIndex);
+  const query =
+    hashIndex >= 0
+      ? rawUrl.slice(queryIndex + 1, hashIndex)
+      : rawUrl.slice(queryIndex + 1);
+  const params = new URLSearchParams(query);
+  let changed = false;
+  for (const key of ZOOM_URL_PARAMS) {
+    if (params.has(key)) {
+      params.delete(key);
+      changed = true;
+    }
+  }
+  if (!changed) {
+    return rawUrl;
+  }
+  const nextQuery = params.toString();
+  const prefix = rawUrl.slice(0, queryIndex);
+  const suffix = hashIndex >= 0 ? rawUrl.slice(hashIndex) : '';
+  return nextQuery ? `${prefix}?${nextQuery}${suffix}` : `${prefix}${suffix}`;
 }
 
 /**
@@ -1183,8 +1288,13 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly nameSegmentCache = new Map<string, readonly NameSegment[]>();
   private listKey = '';
   private listRequestId = 0;
+  private hasLoadedInitialList = false;
   private requestedKernel = '';
   private requestedModule = '';
+  private requestedBundleRange: BundleRange | undefined = undefined;
+  private pendingBundleRange: BundleRange | undefined = undefined;
+  private scheduleBounds: BundleRange | undefined = undefined;
+  private lastReplacedSearch: string | undefined = undefined;
   private isPointerInRail = false;
   private isFocusInRail = false;
   /** Whether the last focused element was focused with the keyboard. */
@@ -1267,6 +1377,66 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
         this.sourceReveal = {location, nonce: ++this.revealNonce};
       }
       this.changeDetectorRef.markForCheck();
+    });
+  };
+
+  /** Syncs the zoomed bundle range in the URL with the timeline viewport. */
+  private readonly minimapUpdatedListener = (event: Event) => {
+    if (this.isDestroyed || !this.activeTab) {
+      return;
+    }
+    const detail =
+      event instanceof CustomEvent && isRecord(event.detail)
+        ? event.detail
+        : undefined;
+    if (!detail) {
+      return;
+    }
+    const dataStartUs = readNumber(detail['dataStartUs']);
+    const dataEndUs = readNumber(detail['dataEndUs']);
+    const visibleStartUs = readNumber(detail['visibleStartUs']);
+    const visibleEndUs = readNumber(detail['visibleEndUs']);
+    if (
+      dataStartUs === undefined ||
+      dataEndUs === undefined ||
+      visibleStartUs === undefined ||
+      visibleEndUs === undefined ||
+      dataEndUs <= dataStartUs
+    ) {
+      return;
+    }
+    this.ngZone.run(() => {
+      const bounds: BundleRange = {
+        start: Math.max(0, Math.round(dataStartUs)),
+        end: Math.max(0, Math.round(dataEndUs)),
+      };
+      this.scheduleBounds = bounds.end > bounds.start ? bounds : undefined;
+
+      const pending = this.pendingBundleRange;
+      if (pending) {
+        const isInitialUnzoomed =
+          Math.round(visibleStartUs) <= bounds.start &&
+          Math.round(visibleEndUs) >= bounds.end;
+        if (this.isLoadingTrace || isInitialUnzoomed) {
+          this.pendingBundleRange = toZoomedBundleRange(
+            pending,
+            this.scheduleBounds,
+          );
+          this.setTabBundleRange(this.pendingBundleRange);
+          if (!this.isLoadingTrace) {
+            this.applyPendingBundleRangeToTimeline();
+          }
+          return;
+        }
+        this.pendingBundleRange = undefined;
+      }
+
+      this.setTabBundleRange(
+        toZoomedBundleRange(
+          {start: visibleStartUs, end: visibleEndUs},
+          this.scheduleBounds,
+        ),
+      );
     });
   };
 
@@ -1429,6 +1599,10 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
         EVENT_SELECTED_EVENT_NAME,
         this.eventSelectedListener,
       );
+      window.addEventListener(
+        MINIMAP_UPDATED_EVENT_NAME,
+        this.minimapUpdatedListener,
+      );
     });
 
     combineLatest([this.route.params, this.route.queryParams])
@@ -1468,6 +1642,10 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     window.removeEventListener(
       EVENT_SELECTED_EVENT_NAME,
       this.eventSelectedListener,
+    );
+    window.removeEventListener(
+      MINIMAP_UPDATED_EVENT_NAME,
+      this.minimapUpdatedListener,
     );
     this.stopSourceResizeListeners();
     if (this.traceViewerModule !== null) {
@@ -1569,16 +1747,17 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
    * Shows `entry` in the active tab, or switches to the tab that already shows
    * it. Opens the first tab if there is none.
    */
-  selectEntry(entry: KernelEntry | undefined): void {
+  selectEntry(entry: KernelEntry | undefined, bundleRange?: BundleRange): void {
     if (!entry) {
       return;
     }
     const tab = this.findTab(entry);
     if (tab || !this.activeTab) {
-      this.openEntry(entry);
+      this.openEntry(entry, false, bundleRange);
       return;
     }
     this.activeTab.entry = entry;
+    this.activeTab.bundleRange = bundleRange;
     this.activeTab.lastUsed = ++this.tabClock;
     this.showEntry(entry);
   }
@@ -1587,7 +1766,11 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
    * Opens `entry` in a new tab next to the active tab, or switches to the tab
    * that already shows it. A `background` tab opens without switching to it.
    */
-  openEntry(entry: KernelEntry | undefined, background = false): void {
+  openEntry(
+    entry: KernelEntry | undefined,
+    background = false,
+    bundleRange?: BundleRange,
+  ): void {
     if (!entry) {
       return;
     }
@@ -1596,7 +1779,12 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       if (this.tabs.length >= MAX_OPEN_TABS) {
         this.closeLeastRecentlyUsedTab();
       }
-      tab = {id: this.nextTabId++, entry, lastUsed: ++this.tabClock};
+      tab = {
+        id: this.nextTabId++,
+        entry,
+        lastUsed: ++this.tabClock,
+        bundleRange,
+      };
       // Like links opened in the background, consecutive tabs open in order
       // after the active tab.
       const activeIndex = this.activeTab
@@ -1610,9 +1798,15 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       if (background) {
         this.backgroundTabCount++;
       }
+    } else if (bundleRange !== undefined) {
+      tab.bundleRange = bundleRange;
     }
     if (background) {
       this.highlightTab(tab);
+    } else if (tab === this.activeTab && !this.lastLoadFailed) {
+      if (bundleRange !== undefined) {
+        this.syncActiveTabBundleRange();
+      }
     } else {
       this.activateTab(tab);
     }
@@ -2119,14 +2313,23 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private onRouteChange(params: Params, queryParams: Params): void {
+    const isInitialLoad = !this.hasLoadedInitialList;
     const searchParams = this.dataService.getSearchParams?.();
+    const locationParams =
+      isInitialLoad && this.location
+        ? new URL(this.location.path(), window.location.origin).searchParams
+        : undefined;
     const getParam = (key: string): string | undefined => {
       const fromRoute = queryParams[key];
       if (typeof fromRoute === 'string' && fromRoute) {
         return fromRoute;
       }
       const fromSearch = searchParams?.get(key);
-      return fromSearch ? fromSearch : undefined;
+      if (fromSearch) {
+        return fromSearch;
+      }
+      const fromLocation = locationParams?.get(key);
+      return fromLocation ? fromLocation : undefined;
     };
 
     this.sessionId =
@@ -2141,23 +2344,76 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       queryParams['hlo_module'] !== undefined;
     this.requestedKernel = hasRouteKernelOrModule
       ? (queryParams['kernel_name'] ?? queryParams['kernel'] ?? '')
-      : (getParam('kernel_name') ?? getParam('kernel') ?? '');
+      : (getParam('kernel_name') ??
+        getParam('kernel') ??
+        (isInitialLoad ? this.requestedKernel : ''));
     this.requestedModule = hasRouteKernelOrModule
       ? (queryParams['hlo_module'] ?? '')
-      : (getParam('hlo_module') ?? '');
+      : (getParam('hlo_module') ?? (isInitialLoad ? this.requestedModule : ''));
+
+    const hasRouteBundleParams = ZOOM_URL_PARAMS.some(
+      (key) => queryParams[key] !== undefined,
+    );
+    const readBundleParam = (key: string): string | undefined => {
+      if (hasRouteBundleParams || !isInitialLoad) {
+        const val = queryParams[key];
+        return typeof val === 'string' ? val : undefined;
+      }
+      return getParam(key);
+    };
+    const parsedBundleRange =
+      parseBundleRange(
+        readBundleParam('bundle_start'),
+        readBundleParam('bundle_end'),
+      ) ??
+      parseBundleRange(
+        readBundleParam('view_start'),
+        readBundleParam('view_end'),
+      );
+    if (hasRouteBundleParams) {
+      this.requestedBundleRange = parsedBundleRange;
+    } else if (isInitialLoad) {
+      this.requestedBundleRange =
+        parsedBundleRange ?? this.requestedBundleRange;
+    } else {
+      this.requestedBundleRange = undefined;
+    }
 
     // Only refetch the kernel list when the profile changes. Other query
     // parameter changes at most switch the open kernel.
     const listKey = `${this.sessionId}|${this.host}`;
     if (listKey !== this.listKey) {
       this.listKey = listKey;
+      this.hasLoadedInitialList = false;
       void this.loadKernelList();
-    } else {
-      this.selectEntry(this.findRequestedEntry());
+    } else if (!this.loadingKernels && this.hasLoadedInitialList) {
+      const requestedRange = this.requestedBundleRange;
+      this.requestedBundleRange = undefined;
+      const entry =
+        this.findRequestedEntry() ??
+        (hasRouteBundleParams ? this.selectedEntry : undefined);
+      if (entry) {
+        if (entry === this.selectedEntry) {
+          if (hasRouteBundleParams && this.activeTab) {
+            this.activeTab.bundleRange = requestedRange;
+            this.syncActiveTabBundleRange();
+          } else {
+            this.updateUrlQueryParams();
+          }
+        } else {
+          this.selectEntry(
+            entry,
+            hasRouteBundleParams ? requestedRange : undefined,
+          );
+        }
+      } else if (this.selectedEntry) {
+        this.updateUrlQueryParams();
+      }
     }
   }
 
   private setKernelGroups(groups: KernelGroup[]): void {
+    this.hasLoadedInitialList = true;
     this.groups = groups;
     this.entries = groups.flatMap((group) => [...group.entries]);
     this.collapsedSections.clear();
@@ -2185,13 +2441,19 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     this.url = '';
     this.traceKernel = undefined;
     this.hasLoadedTrace = false;
+    const requestedEntry = this.findRequestedEntry();
     const initialEntry =
-      this.findRequestedEntry() ??
-      this.navigableEntries[0] ??
-      this.orderedEntries[0];
+      requestedEntry ?? this.navigableEntries[0] ?? this.orderedEntries[0];
+    const initialRange =
+      !this.requestedKernel || requestedEntry
+        ? this.requestedBundleRange
+        : undefined;
+    this.requestedBundleRange = undefined;
     if (initialEntry) {
-      this.selectEntry(initialEntry);
+      this.selectEntry(initialEntry, initialRange);
     } else {
+      this.pendingBundleRange = undefined;
+      this.scheduleBounds = undefined;
       this.clearTrace();
       this.updateUrlQueryParams();
     }
@@ -2361,6 +2623,13 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   onVisibleRangeChange(range: {startUs: number; endUs: number}): void {
+    this.pendingBundleRange = undefined;
+    this.setTabBundleRange(
+      toZoomedBundleRange(
+        {start: range.startUs, end: range.endUs},
+        this.scheduleBounds,
+      ),
+    );
     this.traceViewerModule?.application
       ?.instance?.()
       ?.setVisibleRange?.(range.startUs, range.endUs);
@@ -2401,6 +2670,8 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   onSourceZoom(range: BundleRange): void {
+    this.pendingBundleRange = undefined;
+    this.setTabBundleRange(toZoomedBundleRange(range, this.scheduleBounds));
     this.traceViewerModule?.application
       ?.instance?.()
       ?.setVisibleRange?.(range.start, range.end);
@@ -2522,6 +2793,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   private onTraceLoaded(): void {
     // Loading a trace clears the search of the timeline.
     this.sourceQuery = '';
+    this.applyPendingBundleRangeToTimeline();
     this.applySourceHighlight();
     this.changeDetectorRef.markForCheck();
   }
@@ -2625,6 +2897,17 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     this.collapsedSections.delete(this.sectionIdOf(entry));
     this.sourceSelection = undefined;
     this.clearSourceHighlight();
+    this.scheduleBounds =
+      entry.stats && entry.stats.bundles > 0
+        ? {start: 0, end: entry.stats.bundles}
+        : undefined;
+    if (this.activeTab) {
+      this.activeTab.bundleRange = toZoomedBundleRange(
+        this.activeTab.bundleRange,
+        this.scheduleBounds,
+      );
+    }
+    this.pendingBundleRange = this.activeTab?.bundleRange;
     this.updateUrlQueryParams();
     this.openTrace(this.kernelRefOf(entry));
     this.scrollIntoView('.kernel-row.active', '.kernel-tab.active');
@@ -2659,11 +2942,13 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     if (module) {
       queryParamsMap.set('hlo_module', module);
     }
-    return this.dataService.getDataUrl(
-      this.sessionId,
-      this.tool,
-      this.host,
-      queryParamsMap,
+    return stripZoomParamsFromUrl(
+      this.dataService.getDataUrl(
+        this.sessionId,
+        this.tool,
+        this.host,
+        queryParamsMap,
+      ),
     );
   }
 
@@ -2684,6 +2969,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
         this.traceLoadingStatus === TraceViewerV2LoadingStatus.IDLE
       ) {
         this.hasLoadedTrace = true;
+        this.applyPendingBundleRangeToTimeline();
         this.considerTour();
       }
       return;
@@ -2721,6 +3007,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
           void load.fetchedTrace?.save();
         }
         this.isLoadingTrace = false;
+        this.applyPendingBundleRangeToTimeline();
         if (
           !this.lastLoadFailed &&
           this.traceLoadingStatus === TraceViewerV2LoadingStatus.IDLE
@@ -2757,8 +3044,64 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 
+  /** Applies `activeTab.bundleRange` to the URL and loaded timeline. */
+  private syncActiveTabBundleRange(): void {
+    if (!this.activeTab) {
+      return;
+    }
+    this.activeTab.bundleRange = toZoomedBundleRange(
+      this.activeTab.bundleRange,
+      this.scheduleBounds,
+    );
+    this.pendingBundleRange = this.activeTab.bundleRange;
+    this.updateUrlQueryParams();
+    if (this.pendingBundleRange) {
+      this.applyPendingBundleRangeToTimeline();
+    } else if (!this.isLoadingTrace && this.scheduleBounds) {
+      this.traceViewerModule?.application
+        ?.instance?.()
+        ?.setVisibleRange?.(this.scheduleBounds.start, this.scheduleBounds.end);
+    }
+  }
+
+  /**
+   * Zooms the WASM timeline to `pendingBundleRange` once the trace has finished
+   * loading and the viewer instance is ready.
+   */
+  private applyPendingBundleRangeToTimeline(): void {
+    if (this.isLoadingTrace || !this.pendingBundleRange) {
+      return;
+    }
+    const instance = this.traceViewerModule?.application?.instance?.();
+    if (!instance?.setVisibleRange) {
+      return;
+    }
+    const clamped = toZoomedBundleRange(
+      this.pendingBundleRange,
+      this.scheduleBounds,
+    );
+    this.pendingBundleRange = undefined;
+    this.setTabBundleRange(clamped);
+    if (clamped) {
+      instance.setVisibleRange(clamped.start, clamped.end);
+    }
+  }
+
+  private setTabBundleRange(range: BundleRange | undefined): void {
+    if (!this.activeTab) {
+      return;
+    }
+    const current = this.activeTab.bundleRange;
+    const changed =
+      current?.start !== range?.start || current?.end !== range?.end;
+    this.activeTab.bundleRange = range;
+    if (changed) {
+      this.updateUrlQueryParams();
+    }
+  }
   private updateUrlQueryParams(): void {
     const entry = this.selectedEntry;
+    const bundleRange = entry ? this.activeTab?.bundleRange : undefined;
     const applyParams = (params: URLSearchParams) => {
       if (entry?.module) {
         params.set('hlo_module', entry.module);
@@ -2772,6 +3115,16 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
         params.delete('kernel_name');
       }
       params.delete('kernel');
+
+      if (bundleRange) {
+        params.set('bundle_start', String(bundleRange.start));
+        params.set('bundle_end', String(bundleRange.end));
+      } else {
+        params.delete('bundle_start');
+        params.delete('bundle_end');
+      }
+      params.delete('view_start');
+      params.delete('view_end');
     };
 
     if (this.dataService.getSearchParams && this.dataService.setSearchParams) {
@@ -2788,7 +3141,12 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       const currentSearch = url.search.startsWith('?')
         ? url.search.slice(1)
         : url.search;
-      if (currentSearch !== newSearch) {
+      if (
+        currentSearch !== newSearch ||
+        (this.lastReplacedSearch !== undefined &&
+          this.lastReplacedSearch !== newSearch)
+      ) {
+        this.lastReplacedSearch = newSearch;
         this.location.replaceState(url.pathname, decodeURIComponent(newSearch));
       }
     }

@@ -71,6 +71,16 @@ xprof_ng_module(
 )
 
 xprof_ng_module(
+    name = "kernel_viewer_cache",
+    srcs = [
+        "kernel_viewer_cache.ts",
+    ],
+    deps = [
+        ":kernel_viewer_store",
+    ],
+)
+
+xprof_ng_module(
     name = "static_kernel_viewer",
     srcs = [
         "kernel_event_tooltip.ts",
@@ -122,5 +132,16 @@ xprof_ng_module(
         "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
         "@org_xprof//frontend/app/services/source_code_service:source_code_service_interface",
         "@org_xprof//frontend/app/store",
+    ],
+)
+
+xprof_ng_module(
+    name = "fake_kernel_viewer_store",
+    testonly = True,
+    srcs = [
+        "fake_kernel_viewer_store.ts",
+    ],
+    deps = [
+        ":kernel_viewer_store",
     ],
 )

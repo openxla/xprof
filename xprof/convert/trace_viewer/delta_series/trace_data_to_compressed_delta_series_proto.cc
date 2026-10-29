@@ -1,12 +1,19 @@
 #include "xprof/convert/trace_viewer/delta_series/trace_data_to_compressed_delta_series_proto.h"
 
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/log/check.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "xla/tsl/platform/statusor.h"
 #include "tsl/profiler/lib/context_types.h"
+#include "xprof/convert/trace_viewer/delta_series/zstd_compression.h"
 #include "xprof/convert/trace_viewer/trace_events.h"
 #include "xprof/convert/trace_viewer/trace_events_to_json.h"
 #include "plugin/xprof/protobuf/trace_data_response.pb.h"
@@ -14,19 +21,14 @@
 namespace tensorflow {
 namespace profiler {
 
-DeltaSeriesProtoConverter::DeltaSeriesProtoConverter(
-    const Trace* trace, CounterExtractor counter_extractor,
-    const DeltaSeriesProtoConversionOptions& options)
-    : trace_(trace),
-      counter_extractor_(std::move(counter_extractor)),
-      options_(options) {
+DeltaSeriesStringTable::DeltaSeriesStringTable() {
   // Reserve index 0 for empty strings to prevent default 0 name_refs
   // from pointing to valid strings.
   interned_strings_.push_back("");
   interned_strings_map_[""] = 0;
 }
 
-uint32_t DeltaSeriesProtoConverter::MaybeInternString(absl::string_view str) {
+uint32_t DeltaSeriesStringTable::InternString(absl::string_view str) {
   auto it = interned_strings_map_.find(str);
   if (it != interned_strings_map_.end()) {
     return it->second;
@@ -36,6 +38,84 @@ uint32_t DeltaSeriesProtoConverter::MaybeInternString(absl::string_view str) {
   interned_strings_map_[str] = interned_string_id;
   return interned_string_id;
 }
+
+void DeltaSeriesStringTable::FlushInternedStringsIncrement(
+    xprof::TraceDataResponse* response) {
+  for (size_t i = num_interned_strings_flushed_; i < interned_strings_.size();
+       ++i) {
+    response->add_interned_strings(interned_strings_[i]);
+  }
+  num_interned_strings_flushed_ = interned_strings_.size();
+}
+
+void DeltaSeriesStringTable::MoveAllInternedStrings(
+    xprof::TraceDataResponse* response) && {
+  DCHECK_EQ(num_interned_strings_flushed_, 0);
+  for (std::string& str : interned_strings_) {
+    response->add_interned_strings(std::move(str));
+  }
+}
+
+void DeltaSeriesStringTable::PopulateFlowAndGroupMetadata(
+    std::optional<uint64_t> flow_id, std::optional<uint32_t> flow_category,
+    std::optional<int64_t> group_id, xprof::TraceEventMetadata* metadata) {
+  if (flow_id.has_value()) {
+    metadata->set_flow_id(*flow_id);
+  }
+  if (flow_category.has_value()) {
+    tsl::profiler::ContextType type =
+        tsl::profiler::GetSafeContextType(*flow_category);
+    if (type != tsl::profiler::ContextType::kGeneric &&
+        type != tsl::profiler::ContextType::kLegacy) {
+      const char* category = tsl::profiler::GetContextTypeString(type);
+      metadata->set_flow_category(InternString(category));
+    }
+  }
+  if (group_id.has_value()) {
+    metadata->set_group_id(*group_id);
+  }
+}
+
+absl::StatusOr<std::string> SerializeAndCompress(
+    const xprof::TraceDataResponse& response) {
+  std::string serialized;
+  if (!response.SerializeToString(&serialized)) {
+    return absl::InternalError("Failed to serialize TraceDataResponse.");
+  }
+  return ZstdCompression::Compress(serialized);
+}
+
+absl::Status StreamingDeltaSeriesProtoConverter::AppendCompressedFrame(
+    const xprof::TraceDataResponse& frame, bool include_magic_header,
+    std::string* out) {
+  TF_ASSIGN_OR_RETURN(std::string compressed, SerializeAndCompress(frame));
+  if (include_magic_header) {
+    out->append(kXChunkMagic.data(), kXChunkMagic.size());
+  }
+  const uint32_t frame_len = static_cast<uint32_t>(compressed.size());
+  const char len_bytes[4] = {
+      static_cast<char>(frame_len & 0xff),
+      static_cast<char>((frame_len >> 8) & 0xff),
+      static_cast<char>((frame_len >> 16) & 0xff),
+      static_cast<char>((frame_len >> 24) & 0xff),
+  };
+  out->append(len_bytes, 4);
+  out->append(compressed);
+  return absl::OkStatus();
+}
+
+void StreamingDeltaSeriesProtoConverter::AppendEndOfStreamFrame(
+    std::string* out) {
+  constexpr char kEndOfStreamFrame[4] = {0, 0, 0, 0};
+  out->append(kEndOfStreamFrame, sizeof(kEndOfStreamFrame));
+}
+
+DeltaSeriesProtoConverter::DeltaSeriesProtoConverter(
+    const Trace* trace, CounterExtractor counter_extractor,
+    const DeltaSeriesProtoConversionOptions& options)
+    : trace_(trace),
+      counter_extractor_(std::move(counter_extractor)),
+      options_(options) {}
 
 xprof::TraceMetadata DeltaSeriesProtoConverter::GetTraceMetadata() const {
   xprof::TraceMetadata metadata;
@@ -73,21 +153,14 @@ xprof::TraceMetadata DeltaSeriesProtoConverter::GetTraceMetadata() const {
 
 void DeltaSeriesProtoConverter::PopulateTraceEventMetadata(
     const TraceEvent& event, xprof::TraceEventMetadata* metadata) {
-  if (event.has_flow_id()) {
-    metadata->set_flow_id(event.flow_id());
-  }
-  if (event.has_flow_category()) {
-    tsl::profiler::ContextType type =
-        tsl::profiler::GetSafeContextType(event.flow_category());
-    if (type != tsl::profiler::ContextType::kGeneric &&
-        type != tsl::profiler::ContextType::kLegacy) {
-      const char* category = tsl::profiler::GetContextTypeString(type);
-      metadata->set_flow_category(MaybeInternString(category));
-    }
-  }
-  if (event.has_group_id()) {
-    metadata->set_group_id(event.group_id());
-  }
+  string_table_.PopulateFlowAndGroupMetadata(
+      event.has_flow_id() ? std::optional<uint64_t>(event.flow_id())
+                          : std::nullopt,
+      event.has_flow_category() ? std::optional<uint32_t>(event.flow_category())
+                                : std::nullopt,
+      event.has_group_id() ? std::optional<int64_t>(event.group_id())
+                           : std::nullopt,
+      metadata);
   if (event.has_serial()) {
     metadata->set_serial(event.serial());
   }

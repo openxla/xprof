@@ -1,12 +1,15 @@
 #include "xprof/convert/trace_viewer/delta_series/trace_data_to_compressed_delta_series_proto.h"
 
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/string_view.h"
+#include "tsl/profiler/lib/context_types.h"
 #include "xprof/convert/trace_viewer/delta_series/zstd_compression.h"
 #include "xprof/convert/trace_viewer/trace_events.h"
 #include "xprof/convert/trace_viewer/trace_events_to_json.h"
@@ -17,8 +20,10 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 
+using ::testing::ElementsAre;
 using ::testing::Eq;
 using ::testing::EqualsProto;
+using ::testing::IsEmpty;
 using ::testing::proto::Partially;
 
 class TestTraceEventsContainer
@@ -892,6 +897,133 @@ TEST(DeltaSeriesProtoConverterTest,
   for (const xprof::TraceEventSeries& series : response.complete_events()) {
     EXPECT_NE(series.metadata().process_id(), 1);
   }
+}
+
+TEST(StreamingDeltaSeriesProtoConverterTest,
+     IncrementalHelpersAndFramedCompression) {
+  StreamingDeltaSeriesProtoConverter converter;
+  EXPECT_EQ(converter.InternString(""), 0);
+  const uint32_t id1 = converter.InternString("op_a");
+  const uint32_t id2 = converter.InternString("op_b");
+  EXPECT_EQ(converter.InternString("op_a"), id1);
+  EXPECT_EQ(converter.InternedString(id1), "op_a");
+  EXPECT_EQ(converter.InternedString(id2), "op_b");
+  EXPECT_THAT(converter.InternedString(999), IsEmpty());
+
+  xprof::TraceDataResponse frame1;
+  converter.FlushInternedStringsIncrement(&frame1);
+  ASSERT_EQ(frame1.interned_strings_size(), 3);
+  EXPECT_EQ(frame1.interned_strings(0), "");
+  EXPECT_EQ(frame1.interned_strings(1), "op_a");
+  EXPECT_EQ(frame1.interned_strings(2), "op_b");
+
+  xprof::TraceDataResponse frame2;
+  xprof::TraceEventMetadata* meta =
+      frame2.add_complete_events()->add_event_metadata();
+  const char* const kTfExecutorCategory = tsl::profiler::GetContextTypeString(
+      tsl::profiler::ContextType::kTfExecutor);
+  converter.PopulateFlowAndGroupMetadata(/*flow_id=*/99, /*flow_category=*/2,
+                                         /*group_id=*/7, meta);
+  EXPECT_EQ(meta->flow_id(), 99);
+  EXPECT_EQ(meta->group_id(), 7);
+  EXPECT_GT(meta->flow_category(), 0);
+  EXPECT_EQ(converter.InternedString(meta->flow_category()),
+            kTfExecutorCategory);
+
+  // Out-of-range uint32_t flow_category values (> 255) must not wrap around via
+  // uint8_t truncation into a valid ContextType.
+  xprof::TraceEventMetadata* out_of_range_meta =
+      frame2.mutable_complete_events(0)->add_event_metadata();
+  converter.PopulateFlowAndGroupMetadata(
+      /*flow_id=*/100, /*flow_category=*/256 + 2, /*group_id=*/8,
+      out_of_range_meta);
+  EXPECT_EQ(out_of_range_meta->flow_category(), 0u);
+
+  // Generic (0) and Legacy (1) flow categories must not be interned.
+  xprof::TraceEventMetadata* generic_meta =
+      frame2.mutable_complete_events(0)->add_event_metadata();
+  converter.PopulateFlowAndGroupMetadata(
+      /*flow_id=*/101, /*flow_category=*/0, /*group_id=*/9, generic_meta);
+  EXPECT_EQ(generic_meta->flow_category(), 0u);
+
+  xprof::TraceEventMetadata* legacy_meta =
+      frame2.mutable_complete_events(0)->add_event_metadata();
+  converter.PopulateFlowAndGroupMetadata(
+      /*flow_id=*/102, /*flow_category=*/1, /*group_id=*/10, legacy_meta);
+  EXPECT_EQ(legacy_meta->flow_category(), 0u);
+
+  // std::nullopt arguments must leave their fields at default 0.
+  xprof::TraceEventMetadata* empty_meta =
+      frame2.mutable_complete_events(0)->add_event_metadata();
+  converter.PopulateFlowAndGroupMetadata(
+      /*flow_id=*/std::nullopt, /*flow_category=*/std::nullopt,
+      /*group_id=*/std::nullopt, empty_meta);
+  EXPECT_EQ(empty_meta->flow_id(), 0u);
+  EXPECT_EQ(empty_meta->flow_category(), 0u);
+  EXPECT_EQ(empty_meta->group_id(), 0);
+
+  converter.FlushInternedStringsIncrement(&frame2);
+  EXPECT_THAT(frame2.interned_strings(), ElementsAre(kTfExecutorCategory));
+
+  std::string framed;
+  ASSERT_OK(StreamingDeltaSeriesProtoConverter::AppendCompressedFrame(
+      frame1, /*include_magic_header=*/true, &framed));
+  ASSERT_GE(framed.size(), 8u);
+  EXPECT_EQ(absl::string_view(framed.data(), 4), kXChunkMagic);
+  const uint32_t len1 =
+      static_cast<uint8_t>(framed[4]) |
+      (static_cast<uint32_t>(static_cast<uint8_t>(framed[5])) << 8) |
+      (static_cast<uint32_t>(static_cast<uint8_t>(framed[6])) << 16) |
+      (static_cast<uint32_t>(static_cast<uint8_t>(framed[7])) << 24);
+  const size_t frame1_end = 8 + len1;
+  ASSERT_EQ(framed.size(), frame1_end);
+  ASSERT_OK_AND_ASSIGN(
+      std::string decompressed1,
+      ZstdCompression::Decompress(absl::string_view(framed.data() + 8, len1)));
+  xprof::TraceDataResponse parsed_frame1;
+  ASSERT_TRUE(parsed_frame1.ParseFromString(decompressed1));
+  EXPECT_THAT(parsed_frame1.interned_strings(),
+              ElementsAre("", "op_a", "op_b"));
+
+  ASSERT_OK(StreamingDeltaSeriesProtoConverter::AppendCompressedFrame(
+      frame2, /*include_magic_header=*/false, &framed));
+  ASSERT_GE(framed.size(), frame1_end + 4);
+  const uint32_t len2 =
+      static_cast<uint8_t>(framed[frame1_end]) |
+      (static_cast<uint32_t>(static_cast<uint8_t>(framed[frame1_end + 1]))
+       << 8) |
+      (static_cast<uint32_t>(static_cast<uint8_t>(framed[frame1_end + 2]))
+       << 16) |
+      (static_cast<uint32_t>(static_cast<uint8_t>(framed[frame1_end + 3]))
+       << 24);
+  const size_t frame2_end = frame1_end + 4 + len2;
+  ASSERT_EQ(framed.size(), frame2_end);
+  ASSERT_OK_AND_ASSIGN(
+      std::string decompressed2,
+      ZstdCompression::Decompress(
+          absl::string_view(framed.data() + frame1_end + 4, len2)));
+  xprof::TraceDataResponse parsed_frame2;
+  ASSERT_TRUE(parsed_frame2.ParseFromString(decompressed2));
+  EXPECT_THAT(parsed_frame2.interned_strings(),
+              ElementsAre(kTfExecutorCategory));
+  ASSERT_EQ(parsed_frame2.complete_events_size(), 1);
+  ASSERT_EQ(parsed_frame2.complete_events(0).event_metadata_size(), 5);
+  EXPECT_EQ(parsed_frame2.complete_events(0).event_metadata(0).flow_id(), 99);
+  EXPECT_EQ(parsed_frame2.complete_events(0).event_metadata(0).group_id(), 7);
+  EXPECT_EQ(parsed_frame2.complete_events(0).event_metadata(0).flow_category(),
+            meta->flow_category());
+
+  StreamingDeltaSeriesProtoConverter::AppendEndOfStreamFrame(&framed);
+  ASSERT_EQ(framed.size(), frame2_end + 4);
+  const uint32_t eos_len =
+      static_cast<uint8_t>(framed[frame2_end]) |
+      (static_cast<uint32_t>(static_cast<uint8_t>(framed[frame2_end + 1]))
+       << 8) |
+      (static_cast<uint32_t>(static_cast<uint8_t>(framed[frame2_end + 2]))
+       << 16) |
+      (static_cast<uint32_t>(static_cast<uint8_t>(framed[frame2_end + 3]))
+       << 24);
+  EXPECT_EQ(eos_len, 0u);
 }
 
 }  // namespace

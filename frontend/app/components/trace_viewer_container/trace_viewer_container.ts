@@ -1139,9 +1139,18 @@ export class TraceViewerContainer
       this.cdRef.markForCheck();
       return;
     }
-    this.hoveredEvent = detail;
     this.hoveredEventMouseX = Number(detail['mouse_x']) || 0;
     this.hoveredEventMouseY = Number(detail['mouse_y']) || 0;
+
+    if (
+      this.hoveredEvent &&
+      this.hoveredEvent.eventIndex !== undefined &&
+      this.hoveredEvent.eventIndex === detail.eventIndex
+    ) {
+      this.cdRef.markForCheck();
+      return;
+    }
+    this.hoveredEvent = detail;
     this.cdRef.markForCheck();
   }
 

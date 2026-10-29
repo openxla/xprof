@@ -74,6 +74,24 @@ message Node {
     // attributes.
     optional string xprof_kernel_metadata = 10;
   }
+
+  // Serving metadata of a program node. Only set on program nodes that ran at
+  // least one analyzed batch with a known model and positive padded batch size,
+  // and only when the request asks for it.
+  ProgramServingMetadata program_serving_metadata = 7;
+
+  // Model and padded batch size that executed a program.
+  // Next ID: 4
+  message ProgramServingMetadata {
+    // Non-empty model id as reported by the serving framework, e.g.
+    // "<model_path>:<version>".
+    string model_id = 1;
+    // Padded size of the batches (BatchDetail.batch_size_after_padding);
+    // always > 0.
+    int32 batch_size = 2;
+    // Number of analyzed batches for this (model_id, batch_size) pair.
+    int32 num_batches = 3;
+  }
 }
 
 // Measurements of an operation (or aggregated set of operations).

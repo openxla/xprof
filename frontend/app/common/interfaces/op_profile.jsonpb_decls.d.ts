@@ -20,6 +20,7 @@ export interface Node {
   category?: Node.InstructionCategory;
   xla?: Node.XLAInstruction;
   numChildren?: /* int32 */ number;
+  programServingMetadata?: Node.ProgramServingMetadata;
 }
 
 /** An entry in the profile tree. (An instruction, or set of instructions). */
@@ -47,6 +48,11 @@ export namespace Node {
         semantics?: string;
       }
     }
+  }
+  export interface ProgramServingMetadata {
+    modelId?: string;
+    batchSize?: /* int32 */ number;
+    numBatches?: /* int32 */ number;
   }
 }
 

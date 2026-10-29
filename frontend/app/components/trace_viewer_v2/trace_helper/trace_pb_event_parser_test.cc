@@ -1,13 +1,11 @@
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_pb_event_parser.h"
 
 #include <emscripten/bind.h>
-#include <emscripten/em_asm.h>
+#include <emscripten/emscripten.h>
 #include <emscripten/val.h>
 
 #include <cstdint>
-#include <memory>
 #include <string>
-#include <vector>
 
 #include <gtest/gtest.h>
 #include "absl/status/statusor.h"
@@ -134,48 +132,333 @@ TEST_F(TracePbEventParserTest, ValidTraceDataWithInvalidTimespan) {
       compressed_buffer.size(), visible_range, data_provider_, timeline_);
 }
 
-TEST_F(TracePbEventParserTest, IncrementalLoadPreservesLastFetchRequestRange) {
-  xprof::TraceDataResponse response;
-  response.add_interned_strings("");
-  response.add_interned_strings("op");
-  response.set_full_timespan_start_ps(0);
-  response.set_full_timespan_end_ps(10000000000ULL);  // 10 ms
-  auto* series = response.add_complete_events();
+TEST_F(TracePbEventParserTest, IncrementalTraceEventsXchnMultiFrame) {
+  auto append_framed = [](std::string& out,
+                          const xprof::TraceDataResponse& frame) {
+    std::string serialized;
+    ASSERT_TRUE(frame.SerializeToString(&serialized));
+    const std::string compressed =
+        *tensorflow::profiler::ZstdCompression::Compress(serialized);
+    const uint32_t len = static_cast<uint32_t>(compressed.size());
+    const char len_bytes[4] = {
+        static_cast<char>(len & 0xff),
+        static_cast<char>((len >> 8) & 0xff),
+        static_cast<char>((len >> 16) & 0xff),
+        static_cast<char>((len >> 24) & 0xff),
+    };
+    out.append(len_bytes, 4);
+    out.append(compressed);
+  };
+
+  xprof::TraceDataResponse frame1;
+  frame1.set_full_timespan_start_ps(1000000000);
+  frame1.set_full_timespan_end_ps(5000000000);
+  frame1.add_interned_strings("");
+  frame1.add_interned_strings("op_a");
+  auto* proc1 = frame1.mutable_metadata()->add_processes();
+  proc1->set_id(1);
+  proc1->set_name("host:0 /device:TPU:0");
+  auto* th1 = proc1->add_threads();
+  th1->set_id(10);
+  th1->set_name("XLA Ops");
+  auto* series1 = frame1.add_complete_events();
+  series1->mutable_metadata()->set_process_id(1);
+  series1->mutable_metadata()->set_thread_id(10);
+  series1->add_deltas(1000000000);
+  series1->add_durations(500000000);
+  series1->add_name_refs(1);
+  series1->add_event_metadata();
+
+  xprof::TraceDataResponse frame2;
+  frame2.add_interned_strings("op_b");
+  auto* proc2 = frame2.mutable_metadata()->add_processes();
+  proc2->set_id(2);
+  proc2->set_name("host:0 /device:TPU:1");
+  auto* th2 = proc2->add_threads();
+  th2->set_id(20);
+  th2->set_name("XLA Ops");
+  auto* series2 = frame2.add_complete_events();
+  series2->mutable_metadata()->set_process_id(2);
+  series2->mutable_metadata()->set_thread_id(20);
+  series2->add_deltas(2000000000);
+  series2->add_durations(500000000);
+  series2->add_name_refs(2);
+  series2->add_event_metadata();
+
+  std::string xchn_payload(tensorflow::profiler::kXChunkMagic);
+  append_framed(xchn_payload, frame1);
+  append_framed(xchn_payload, frame2);
+  xchn_payload.append("\0\0\0\0", 4);
+
+  const emscripten::val visible_range = emscripten::val::undefined();
+  BeginIncrementalTraceEvents(visible_range, data_provider_, timeline_);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(xchn_payload.data()), xchn_payload.size());
+
+  EXPECT_TRUE(StepIncrementalTraceEvents(1, data_provider_, timeline_));
+  EXPECT_EQ(timeline_.timeline_data().entry_names.size(), 1u);
+  EXPECT_EQ(timeline_.timeline_data().entry_names[0], "op_a");
+
+  EXPECT_FALSE(StepIncrementalTraceEvents(1, data_provider_, timeline_));
+  EXPECT_EQ(timeline_.timeline_data().entry_names.size(), 2u);
+  EXPECT_EQ(timeline_.timeline_data().entry_names[1], "op_b");
+
+  FinishIncrementalTraceEvents(data_provider_, timeline_);
+  EXPECT_EQ(timeline_.data_time_range().duration(), 4000.0);
+  EXPECT_TRUE(timeline_.full_trace_loaded());
+}
+
+TEST_F(TracePbEventParserTest,
+       IncrementalTraceEventsXchnOpenSpanExtensionAcrossFrames) {
+  constexpr uint64_t kDurationPhaseBeginBit = 1ULL << 61;
+  constexpr uint64_t kDurationPhaseEndBit = 1ULL << 62;
+
+  auto append_framed = [](std::string& out,
+                          const xprof::TraceDataResponse& frame) {
+    std::string serialized;
+    ASSERT_TRUE(frame.SerializeToString(&serialized));
+    const std::string compressed =
+        *tensorflow::profiler::ZstdCompression::Compress(serialized);
+    const uint32_t len = static_cast<uint32_t>(compressed.size());
+    const char len_bytes[4] = {
+        static_cast<char>(len & 0xff),
+        static_cast<char>((len >> 8) & 0xff),
+        static_cast<char>((len >> 16) & 0xff),
+        static_cast<char>((len >> 24) & 0xff),
+    };
+    out.append(len_bytes, 4);
+    out.append(compressed);
+  };
+
+  // Frame 1: while_loop starts at 1000 us with partial duration 500 us (tagged
+  // with kDurationPhaseBeginBit), and child_1 runs [1100, 1300] us (200 us).
+  xprof::TraceDataResponse frame1;
+  frame1.add_interned_strings("");
+  frame1.add_interned_strings("while_loop");
+  frame1.add_interned_strings("child_1");
+  auto* proc1 = frame1.mutable_metadata()->add_processes();
+  proc1->set_id(1);
+  proc1->set_name("host:0 /device:TPU:0");
+  auto* th1 = proc1->add_threads();
+  th1->set_id(10);
+  th1->set_name("XLA Ops");
+  auto* series1 = frame1.add_complete_events();
+  series1->mutable_metadata()->set_process_id(1);
+  series1->mutable_metadata()->set_thread_id(10);
+  series1->add_deltas(1000000000ULL);
+  series1->add_durations(500000000ULL | kDurationPhaseBeginBit);
+  series1->add_name_refs(1);
+  series1->add_event_metadata();
+  series1->add_deltas(100000000ULL);
+  series1->add_durations(200000000ULL);
+  series1->add_name_refs(2);
+  series1->add_event_metadata();
+
+  // Frame 2: while_loop closes at 2500 us with full duration 1500 us (tagged
+  // with kDurationPhaseEndBit), and child_2 runs [1600, 1900] us (300 us).
+  xprof::TraceDataResponse frame2;
+  frame2.add_interned_strings("child_2");
+  auto* series2 = frame2.add_complete_events();
+  series2->mutable_metadata()->set_process_id(1);
+  series2->mutable_metadata()->set_thread_id(10);
+  series2->add_deltas(1000000000ULL);
+  series2->add_durations(1500000000ULL | kDurationPhaseEndBit);
+  series2->add_name_refs(1);
+  series2->add_event_metadata();
+  series2->add_deltas(600000000ULL);
+  series2->add_durations(300000000ULL);
+  series2->add_name_refs(3);
+  series2->add_event_metadata();
+
+  std::string xchn_payload(tensorflow::profiler::kXChunkMagic);
+  append_framed(xchn_payload, frame1);
+  append_framed(xchn_payload, frame2);
+  xchn_payload.append("\0\0\0\0", 4);
+
+  const emscripten::val visible_range = emscripten::val::undefined();
+  BeginIncrementalTraceEvents(visible_range, data_provider_, timeline_);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(xchn_payload.data()), xchn_payload.size());
+
+  EXPECT_TRUE(StepIncrementalTraceEvents(1, data_provider_, timeline_));
+  ASSERT_EQ(timeline_.timeline_data().entry_names.size(), 2u);
+  EXPECT_DOUBLE_EQ(timeline_.timeline_data().entry_total_times[0], 500.0);
+  EXPECT_DOUBLE_EQ(timeline_.timeline_data().entry_self_times[0], 300.0);
+
+  EXPECT_FALSE(StepIncrementalTraceEvents(1, data_provider_, timeline_));
+  FinishIncrementalTraceEvents(data_provider_, timeline_);
+
+  const auto& data = timeline_.timeline_data();
+  ASSERT_EQ(data.entry_names.size(), 3u);
+  EXPECT_EQ(data.entry_names[0], "while_loop");
+  EXPECT_DOUBLE_EQ(data.entry_start_times[0], 1000.0);
+  EXPECT_DOUBLE_EQ(data.entry_total_times[0], 1500.0);
+  EXPECT_DOUBLE_EQ(data.entry_self_times[0], 1000.0);
+  EXPECT_EQ(data.entry_levels[0], 0);
+  EXPECT_EQ(data.entry_levels[1], 1);
+  EXPECT_EQ(data.entry_levels[2], 1);
+}
+
+TEST_F(TracePbEventParserTest,
+       IncrementalTraceEventsZoomRefetchFiltersEventsToWindow) {
+  xprof::TraceDataResponse frame;
+  frame.add_interned_strings("");
+  frame.add_interned_strings("op_early");
+  frame.add_interned_strings("op_middle");
+  frame.add_interned_strings("op_late");
+  auto* proc = frame.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("host:0 /device:TPU:0");
+  auto* th = proc->add_threads();
+  th->set_id(10);
+  th->set_name("XLA Ops");
+  auto* series = frame.add_complete_events();
   series->mutable_metadata()->set_process_id(1);
-  series->mutable_metadata()->set_thread_id(1);
-  series->add_deltas(1000000000ULL);     // 1 ms
-  series->add_durations(1000000000ULL);  // 1 ms
+  series->mutable_metadata()->set_thread_id(10);
+  // op_early: [1000, 1200] us
+  series->add_deltas(1000000000ULL);
+  series->add_durations(200000000ULL);
   series->add_name_refs(1);
   series->add_event_metadata();
+  // op_middle: [2000, 2200] us
+  series->add_deltas(1000000000ULL);
+  series->add_durations(200000000ULL);
+  series->add_name_refs(2);
+  series->add_event_metadata();
+  // op_late: [3000, 3200] us
+  series->add_deltas(1000000000ULL);
+  series->add_durations(200000000ULL);
+  series->add_name_refs(3);
+  series->add_event_metadata();
 
-  std::string serialized_proto;
-  ASSERT_TRUE(response.SerializeToString(&serialized_proto));
-  const std::string compressed_buffer =
-      *tensorflow::profiler::ZstdCompression::Compress(serialized_proto);
+  std::string serialized;
+  ASSERT_TRUE(frame.SerializeToString(&serialized));
+  const std::string compressed =
+      *tensorflow::profiler::ZstdCompression::Compress(serialized);
 
-  // Initial load initializes last_fetch_request_range_ to full data_time_range_
-  ParseAndProcessCompressedTraceEvents(
-      reinterpret_cast<uintptr_t>(compressed_buffer.data()),
-      compressed_buffer.size(), emscripten::val::undefined(), data_provider_,
-      timeline_);
-  EXPECT_EQ(timeline_.last_fetch_request_range(), TimeRange(0.0, 10000.0));
+  // Initial load: all 3 events loaded, full_trace_loaded == true.
+  BeginIncrementalTraceEvents(emscripten::val::undefined(), data_provider_,
+                              timeline_);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(compressed.data()), compressed.size());
+  EXPECT_TRUE(FinishIncrementalTraceEvents(data_provider_, timeline_));
+  ASSERT_EQ(timeline_.timeline_data().entry_names.size(), 3u);
+  EXPECT_DOUBLE_EQ(timeline_.data_time_range().start(), 1000.0);
+  EXPECT_DOUBLE_EQ(timeline_.data_time_range().end(), 3200.0);
 
-  // Simulate MaybeRequestData setting last_fetch_request_range_ to an expanded
-  // fetch window [2000 us, 5000 us] (2.0 ms to 5.0 ms) before incremental load.
-  timeline_.InitializeLastFetchRequestRange(TimeRange(3000.0, 4000.0));
-  const TimeRange expected_fetch_range = timeline_.last_fetch_request_range();
-  ASSERT_EQ(expected_fetch_range, TimeRange(2000.0, 5000.0));
+  // Zoom refetch for [1.8, 2.4] ms ([1800, 2400] us): only op_middle is kept,
+  // while data_time_range preserves [1000, 3200] us.
+  emscripten::val zoom_range = emscripten::val::array();
+  zoom_range.set(0, 1.8);
+  zoom_range.set(1, 2.4);
+  BeginIncrementalTraceEvents(zoom_range, data_provider_, timeline_);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(compressed.data()), compressed.size());
+  // Intermediate step during refetch must not replace existing timeline_data
+  // until FinishIncrementalTraceEvents completes.
+  EXPECT_FALSE(StepIncrementalTraceEvents(1, data_provider_, timeline_));
+  EXPECT_EQ(timeline_.timeline_data().entry_names.size(), 3u);
 
-  emscripten::val fetch_range_ms = emscripten::val::array();
-  fetch_range_ms.call<void>("push", emscripten::val(2.0));
-  fetch_range_ms.call<void>("push", emscripten::val(5.0));
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider_, timeline_));
+  ASSERT_EQ(timeline_.timeline_data().entry_names.size(), 1u);
+  EXPECT_EQ(timeline_.timeline_data().entry_names[0], "op_middle");
+  EXPECT_DOUBLE_EQ(timeline_.data_time_range().start(), 1000.0);
+  EXPECT_DOUBLE_EQ(timeline_.data_time_range().end(), 3200.0);
+  EXPECT_TRUE(timeline_.window_at_full_resolution());
+  EXPECT_DOUBLE_EQ(timeline_.last_fetch_request_range().start(), 1800.0);
+  EXPECT_DOUBLE_EQ(timeline_.last_fetch_request_range().end(), 2400.0);
 
-  ParseAndProcessCompressedTraceEvents(
-      reinterpret_cast<uintptr_t>(compressed_buffer.data()),
-      compressed_buffer.size(), fetch_range_ms, data_provider_, timeline_);
+  // Zooming back out restores the stashed full-trace overview in O(1) without
+  // re-decompressing or re-parsing frames.
+  EXPECT_TRUE(RestoreFullTraceOverviewIfAvailable(timeline_));
+  ASSERT_EQ(timeline_.timeline_data().entry_names.size(), 3u);
+  EXPECT_EQ(timeline_.timeline_data().entry_names[0], "op_early");
+  EXPECT_EQ(timeline_.timeline_data().entry_names[1], "op_middle");
+  EXPECT_EQ(timeline_.timeline_data().entry_names[2], "op_late");
+  EXPECT_DOUBLE_EQ(timeline_.last_fetch_request_range().start(), 1000.0);
+  EXPECT_DOUBLE_EQ(timeline_.last_fetch_request_range().end(), 3200.0);
+}
 
-  // Incremental load must not re-scale [2.0 ms, 5.0 ms] by kFetchRatio again.
-  EXPECT_EQ(timeline_.last_fetch_request_range(), expected_fetch_range);
+TEST_F(TracePbEventParserTest,
+       IncrementalTraceEventsZoomRefetchSkipsNonOverlappingFrames) {
+  auto compress_frame = [](const xprof::TraceDataResponse& frame) {
+    std::string serialized;
+    EXPECT_TRUE(frame.SerializeToString(&serialized));
+    return *tensorflow::profiler::ZstdCompression::Compress(serialized);
+  };
+
+  // Frame 0: [100, 200] ms (100,000..200,000 us), interned strings ["", "op0"]
+  xprof::TraceDataResponse f0;
+  f0.add_interned_strings("");
+  f0.add_interned_strings("op0");
+  auto* proc = f0.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("host:0 /device:TPU:0");
+  auto* th = proc->add_threads();
+  th->set_id(10);
+  th->set_name("XLA Ops");
+  auto* s0 = f0.add_complete_events();
+  s0->mutable_metadata()->set_process_id(1);
+  s0->mutable_metadata()->set_thread_id(10);
+  s0->add_deltas(100000000000ULL);
+  s0->add_durations(100000000000ULL);
+  s0->add_name_refs(1);
+  s0->add_event_metadata();
+
+  // Frame 1: [2000, 2100] ms, cumulative interned string ["op1"] (id 2)
+  xprof::TraceDataResponse f1;
+  f1.add_interned_strings("op1");
+  auto* s1 = f1.add_complete_events();
+  s1->mutable_metadata()->set_process_id(1);
+  s1->mutable_metadata()->set_thread_id(10);
+  s1->add_deltas(2000000000000ULL);
+  s1->add_durations(100000000000ULL);
+  s1->add_name_refs(2);
+  s1->add_event_metadata();
+
+  // Frame 2: [5000, 5100] ms, cumulative interned string ["op2"] (id 3)
+  xprof::TraceDataResponse f2;
+  f2.add_interned_strings("op2");
+  auto* s2 = f2.add_complete_events();
+  s2->mutable_metadata()->set_process_id(1);
+  s2->mutable_metadata()->set_thread_id(10);
+  s2->add_deltas(5000000000000ULL);
+  s2->add_durations(100000000000ULL);
+  s2->add_name_refs(3);
+  s2->add_event_metadata();
+
+  const std::string c0 = compress_frame(f0);
+  const std::string c1 = compress_frame(f1);
+  const std::string c2 = compress_frame(f2);
+
+  BeginIncrementalTraceEvents(emscripten::val::undefined(), data_provider_,
+                              timeline_);
+  AppendCompressedTraceEventsIncremental(reinterpret_cast<uintptr_t>(c0.data()),
+                                         c0.size());
+  AppendCompressedTraceEventsIncremental(reinterpret_cast<uintptr_t>(c1.data()),
+                                         c1.size());
+  AppendCompressedTraceEventsIncremental(reinterpret_cast<uintptr_t>(c2.data()),
+                                         c2.size());
+  EXPECT_TRUE(FinishIncrementalTraceEvents(data_provider_, timeline_));
+  ASSERT_EQ(timeline_.timeline_data().entry_names.size(), 3u);
+
+  // Zoom refetch for [1900, 2200] ms: Frame 0 ([100, 200] ms) and Frame 2
+  // ([5000, 5100] ms) are outside the 500 ms margin around [1900, 2200] ms, so
+  // ShouldEnqueueCompressedFrameIncremental() returns false for Frames 0 and 2
+  // and true for Frame 1.
+  emscripten::val zoom_range = emscripten::val::array();
+  zoom_range.set(0, 1900.0);
+  zoom_range.set(1, 2200.0);
+  BeginIncrementalTraceEvents(zoom_range, data_provider_, timeline_);
+  EXPECT_FALSE(ShouldEnqueueCompressedFrameIncremental());  // Frame 0 skipped
+  EXPECT_TRUE(ShouldEnqueueCompressedFrameIncremental());   // Frame 1 needed
+  AppendCompressedTraceEventsIncremental(reinterpret_cast<uintptr_t>(c1.data()),
+                                         c1.size());
+  EXPECT_FALSE(ShouldEnqueueCompressedFrameIncremental());  // Frame 2 skipped
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider_, timeline_));
+
+  ASSERT_EQ(timeline_.timeline_data().entry_names.size(), 1u);
+  EXPECT_EQ(timeline_.timeline_data().entry_names[0], "op1");
 }
 
 TEST_F(

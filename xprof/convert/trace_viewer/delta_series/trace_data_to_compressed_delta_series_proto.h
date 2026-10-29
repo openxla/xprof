@@ -17,7 +17,7 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/platform/statusor.h"
-#include "xprof/convert/trace_viewer/delta_series/zstd_compression.h"
+#include "xprof/convert/trace_viewer/delta_series/zstd_compression.h"  // IWYU pragma: export
 #include "xprof/convert/trace_viewer/trace_events.h"
 #include "xprof/convert/trace_viewer/trace_events_to_json.h"
 #include "plugin/xprof/protobuf/trace_data_response.pb.h"
@@ -25,8 +25,6 @@
 
 namespace tensorflow {
 namespace profiler {
-
-inline constexpr absl::string_view kXChunkMagic = "XCHN";
 
 struct DeltaSeriesProtoConversionOptions {
   bool mpmd_pipeline_view = false;

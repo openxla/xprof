@@ -1378,6 +1378,11 @@ void Timeline::UpdateTimelineData(
   if ((stash_full_overview_on_next_update_ || is_full_overview_data_) &&
       !saved_full_overview_.has_value() &&
       !timeline_data_.entry_start_times.empty()) {
+    if (is_compacted_ && timeline_data_.entry_start_times.size() >
+                             max_uncompacted_overview_entries_) {
+      CompactTimelineDataToMipOverview();
+      UploadGpuFlameInstances();
+    }
     saved_full_overview_ = SavedFullOverview{
         .data = std::move(timeline_data_),
         .entry_colors = std::move(entry_colors_),
@@ -1386,7 +1391,16 @@ void Timeline::UpdateTimelineData(
         .process_utilization_pyramids =
             std::move(process_utilization_pyramids_),
         .gpu_flame_instances = std::move(gpu_flame_instances_),
-        .fetched_data_time_range = fetched_data_time_range_,
+        .fetched_data_time_range =
+            overview_fetched_data_time_range_ != TimeRange::Zero()
+                ? overview_fetched_data_time_range_
+                : fetched_data_time_range_,
+        .data_time_range = overview_data_time_range_ != TimeRange::Zero()
+                               ? overview_data_time_range_
+                               : data_time_range_,
+        .full_trace_loaded = overview_full_trace_loaded_,
+        .is_compacted = overview_is_compacted_,
+        .window_at_full_resolution = overview_window_at_full_resolution_,
     };
   } else {
     ReleaseEntryMemory(timeline_data_);
@@ -1983,6 +1997,11 @@ void Timeline::CompactTimelineDataToMipOverview() {
   if (!incremental_fetch_enabled_ || !is_compacted_) {
     return;
   }
+  for (const auto& pyramid : level_mip_pyramids_) {
+    if (pyramid.raw_events_compacted) {
+      return;
+    }
+  }
   const size_t old_n = timeline_data_.entry_start_times.size();
   // Only compact huge traces (>200k events by default) where the raw entry
   // arrays consume hundreds of megabytes of WASM linear memory.
@@ -2182,6 +2201,13 @@ void Timeline::CompactTimelineDataToMipOverview() {
 
 bool Timeline::RestoreSavedFullOverview() {
   if (!saved_full_overview_.has_value()) {
+    if (is_full_overview_data_) {
+      stash_full_overview_on_next_update_ = false;
+      InitializeLastFetchRequestRange(data_time_range_);
+      set_is_incremental_loading(false);
+      if (redraw_callback_) redraw_callback_();
+      return true;
+    }
     return false;
   }
 
@@ -2224,14 +2250,27 @@ bool Timeline::RestoreSavedFullOverview() {
       std::move(saved_full_overview_->process_utilization_pyramids);
   gpu_flame_instances_ = std::move(saved_full_overview_->gpu_flame_instances);
   fetched_data_time_range_ = saved_full_overview_->fetched_data_time_range;
+  if (saved_full_overview_->data_time_range != TimeRange::Zero()) {
+    data_time_range_ = saved_full_overview_->data_time_range;
+  }
+  full_trace_loaded_ = saved_full_overview_->full_trace_loaded;
+  is_compacted_ = saved_full_overview_->is_compacted;
+  window_at_full_resolution_ = saved_full_overview_->window_at_full_resolution;
+  overview_fetched_data_time_range_ = fetched_data_time_range_;
+  overview_data_time_range_ = data_time_range_;
+  overview_full_trace_loaded_ = full_trace_loaded_;
+  overview_is_compacted_ = is_compacted_;
+  overview_window_at_full_resolution_ = window_at_full_resolution_;
   saved_full_overview_.reset();
   is_full_overview_data_ = true;
   stash_full_overview_on_next_update_ = false;
+  is_incremental_loading_ = false;
+  should_restore_scroll_ = true;
   selected_event_index_ = -1;
   selected_event_indices_.clear();
   matching_event_indices_.clear();
   if (data_time_range_.duration() > 0) {
-    last_fetch_request_range_ = data_time_range_;
+    InitializeLastFetchRequestRange(data_time_range_);
   }
 #ifdef __EMSCRIPTEN__
   if (!gpu_flame_instances_.empty()) {
@@ -6960,6 +6999,23 @@ void Timeline::InitializeLastFetchRequestRange(const TimeRange& visible_range) {
 }
 
 void Timeline::MaybeRequestData() {
+  const TimeRange current_visible = visible_range();
+  TimeRange fetch = current_visible.Scale(kFetchRatio);
+  if (fetch.duration() < kMinFetchDurationMicros) {
+    Microseconds center = fetch.center();
+    fetch = {center - kMinFetchDurationMicros / 2.0,
+             center + kMinFetchDurationMicros / 2.0};
+  }
+  ConstrainTimeRange(fetch);
+
+  if ((!is_full_overview_data_ || stash_full_overview_on_next_update_) &&
+      (saved_full_overview_.has_value() || is_full_overview_data_) &&
+      data_time_range_.duration() > 0 &&
+      fetch.duration() >= 0.9 * data_time_range_.duration()) {
+    RestoreSavedFullOverview();
+    return;
+  }
+
   // Don't request more data if a request is already in flight or if the entire
   // trace is already loaded at full resolution in memory.
   if (is_incremental_loading_ || (full_trace_loaded_ && !is_compacted_)) return;
@@ -6978,22 +7034,8 @@ void Timeline::MaybeRequestData() {
   // is too coarse, a new load of 'fetch' range is triggered.
   // - last_fetch_request_range_: The time range covered by data currently
   // loaded.
-  const TimeRange current_visible = visible_range();
-
   TimeRange preserve = current_visible.Scale(kPreserveRatio);
-  TimeRange fetch = current_visible.Scale(kFetchRatio);
-
-  if (fetch.duration() < kMinFetchDurationMicros) {
-    Microseconds center = fetch.center();
-    fetch = {center - kMinFetchDurationMicros / 2.0,
-             center + kMinFetchDurationMicros / 2.0};
-  }
-
-  // Constrain the ranges to the valid data range. This ensures that we don't
-  // try to fetch data outside the available trace duration (e.g. negative time
-  // or future time), preventing infinite refetch loops at the boundaries.
   ConstrainTimeRange(preserve);
-  ConstrainTimeRange(fetch);
 
   // Refetch data if user zoomed in significantly, making resolution too coarse.
   // We use last_fetch_request_range_ here because it reflects the density of
@@ -7017,12 +7059,6 @@ void Timeline::MaybeRequestData() {
   // higher-resolution data.
   if (!zoomed_in_too_much && !needs_full_resolution_window &&
       last_fetch_request_range_.Contains(preserve)) {
-    return;
-  }
-
-  if (saved_full_overview_.has_value() && data_time_range_.duration() > 0 &&
-      fetch.duration() >= 0.9 * data_time_range_.duration()) {
-    RestoreSavedFullOverview();
     return;
   }
 

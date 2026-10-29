@@ -9,6 +9,9 @@
 namespace tensorflow {
 namespace profiler {
 
+// 4-byte magic prefix identifying a length-delimited multi-frame Zstd stream.
+inline constexpr absl::string_view kXChunkMagic = "XCHN";
+
 // Provides ZStandard compression and decompression utilities.
 class ZstdCompression {
  public:

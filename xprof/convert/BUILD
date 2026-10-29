@@ -2395,6 +2395,7 @@ cc_test(
     srcs = ["hlo_proto_to_memory_visualization_utils_test.cc"],
     deps = [
         ":hlo_proto_to_memory_visualization_utils",
+        "//net/proto2/contrib/parse_proto:parse_text_proto",
         "//plugin/xprof/protobuf:memory_viewer_preprocess_proto_cc",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/status:statusor",

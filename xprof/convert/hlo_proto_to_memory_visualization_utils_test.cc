@@ -21,6 +21,7 @@ limitations under the License.
 #include <string>
 #include <vector>
 
+#include "net/proto2/contrib/parse_proto/parse_text_proto.h"
 #include <gtest/gtest.h>
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/statusor.h"
@@ -35,6 +36,8 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 namespace {
+
+using ::google::protobuf::contrib::parse_proto::ParseTextProtoOrDie;
 
 // 2 buffer allocations of 1MB, one of which is indefinite (constant).
 // 3 logical buffers
@@ -464,8 +467,8 @@ std::vector<DoubleRectInfo> ParseLogicalBuffersFromDot(absl::string_view dot) {
       label_start += 7;
       size_t label_end = dot.find('"', label_start);
       if (label_end != absl::string_view::npos) {
-        label_val = std::string(
-            dot.substr(label_start, label_end - label_start));
+        label_val =
+            std::string(dot.substr(label_start, label_end - label_start));
         next_search_start = label_end;
       }
     }
@@ -793,7 +796,7 @@ TEST(MemoryViewerTest, ScopedVmemAllocation_SingleInstruction) {
   option.small_buffer_size = 0;
   option.memory_color = 1;
   TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result,
-                       ConvertHloProtoToPreprocessResult(hlo_proto, option));
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
   EXPECT_EQ(result.max_scoped_vmem_allocation_mib(), 1.0);
   EXPECT_EQ(result.max_scoped_vmem_instruction_name(), "fusion.1");
 }
@@ -850,13 +853,12 @@ TEST(MemoryViewerTest, ScopedVmemAllocation_MaxAcrossInstructions) {
     }
   )pb";
   xla::HloProto hlo_proto;
-  ASSERT_TRUE(
-      ParseTextFormatFromString(kHLOVmemTwoScoped, &hlo_proto).ok());
+  ASSERT_TRUE(ParseTextFormatFromString(kHLOVmemTwoScoped, &hlo_proto).ok());
   MemoryViewerOption option;
   option.small_buffer_size = 0;
   option.memory_color = 1;
   TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result,
-                       ConvertHloProtoToPreprocessResult(hlo_proto, option));
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
   EXPECT_EQ(result.max_scoped_vmem_allocation_mib(), 2.0);
   EXPECT_EQ(result.max_scoped_vmem_instruction_name(), "fusion.2");
 }
@@ -910,13 +912,12 @@ TEST(MemoryViewerTest, ScopedVmemAllocation_NoScopedConfigs) {
     }
   )pb";
   xla::HloProto hlo_proto;
-  ASSERT_TRUE(
-      ParseTextFormatFromString(kHLOVmemNoScoped, &hlo_proto).ok());
+  ASSERT_TRUE(ParseTextFormatFromString(kHLOVmemNoScoped, &hlo_proto).ok());
   MemoryViewerOption option;
   option.small_buffer_size = 0;
   option.memory_color = 1;
   TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result,
-                       ConvertHloProtoToPreprocessResult(hlo_proto, option));
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
   EXPECT_EQ(result.max_scoped_vmem_allocation_mib(), 0);
   EXPECT_TRUE(result.max_scoped_vmem_instruction_name().empty());
 }
@@ -944,7 +945,7 @@ TEST(MemoryViewerTest, ScopedVmemAllocation_HBMIgnoresScoped) {
   option.small_buffer_size = 0;
   option.memory_color = 0;  // HBM
   TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result,
-                       ConvertHloProtoToPreprocessResult(hlo_proto, option));
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
   EXPECT_EQ(result.max_scoped_vmem_allocation_mib(), 0);
   EXPECT_TRUE(result.max_scoped_vmem_instruction_name().empty());
 }
@@ -1114,8 +1115,8 @@ TEST(MemoryViewerTest, TestAllocationTimelineLabelsTruncation) {
 
   // Mutate heap simulator trace to have 100 events.
   // The first buffer will span from 0 to 1.
-  auto* trace = hlo_proto.mutable_buffer_assignment()
-                    ->mutable_heap_simulator_traces(0);
+  auto* trace =
+      hlo_proto.mutable_buffer_assignment()->mutable_heap_simulator_traces(0);
   // It already has 2 events (ALLOC 1, FREE 1).
   // Add 98 more dummy events.
   for (int i = 0; i < 49; ++i) {
@@ -1150,7 +1151,6 @@ TEST(MemoryViewerTest, TestAllocationTimelineLabelsTruncation) {
   ASSERT_EQ(rects.size(), 1);
   EXPECT_EQ(rects[0].label, "v...");
 }
-
 
 TEST(MemoryViewerTest, TestAllocationTimelineFontSizeScaling) {
   static constexpr char kHLOFontSizeScaling[] = R"pb(
@@ -1607,7 +1607,53 @@ TEST(MemoryViewerTest, ThreadLocalAllocationsAreNotIndefinite) {
   EXPECT_EQ(preprocess_result.indefinite_lifetimes_size(), 1);
 }
 
+TEST(MemoryViewerTest, TestMissingInstructionIdInLogicalBufferDoesNotCrash) {
+  // An HloProto where a logical buffer references an instruction_id that does
+  // not exist in the HloModule computations (e.g. pruned/DCE'd instruction).
+  constexpr absl::string_view kHloMissingInstruction = R"pb(
+    hlo_module {
+      name: "test_module"
+      entry_computation_name: "test_computation"
+      computations {
+        name: "test_computation"
+        instructions {
+          name: "constant.1"
+          id: 0
+          shape { tuple_shapes { element_type: U64 } }
+        }
+      }
+    }
+    buffer_assignment {
+      buffer_allocations {
+        index: 0
+        size: 1048576
+        color: 0
+        assigned { logical_buffer_id: 1 offset: 0 size: 1048576 }
+      }
+      logical_buffers {
+        id: 1
+        size: 1048576
+        color: 0
+        defined_at { instruction_id: 0 shape_index: 0 }
+      }
+      logical_buffers {
+        id: 2
+        size: 1048576
+        color: 0
+        defined_at { instruction_id: 9999 shape_index: 0 }
+      }
+      heap_simulator_traces {
+        events { kind: ALLOC buffer_id: 1 }
+        events { kind: FREE buffer_id: 1 }
+      }
+    }
+  )pb";
+
+  xla::HloProto hlo_proto = ParseTextProtoOrDie(kHloMissingInstruction);
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result,
+                          ConvertHloProtoToPreprocessResult(hlo_proto));
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow
-

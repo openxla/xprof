@@ -360,10 +360,45 @@ class HloProtoBufferWrapper {
       id_to_logical_buffer_proto[logical_buffer.id()] = &logical_buffer;
     }
 
+    xla::BufferAssignmentProto sanitized_buffer_assignment;
+    const xla::BufferAssignmentProto* buffer_assignment_to_use =
+        &hlo_proto_.buffer_assignment();
+
+    bool has_missing_instruction = false;
+    for (const auto& logical_buffer :
+         hlo_proto_.buffer_assignment().logical_buffers()) {
+      if (!unique_id_to_hlo.contains(
+              logical_buffer.defined_at().instruction_id())) {
+        has_missing_instruction = true;
+        break;
+      }
+    }
+
+    if (has_missing_instruction) {
+      sanitized_buffer_assignment = hlo_proto_.buffer_assignment();
+      sanitized_buffer_assignment.clear_logical_buffers();
+      for (const auto& logical_buffer :
+           hlo_proto_.buffer_assignment().logical_buffers()) {
+        if (unique_id_to_hlo.contains(
+                logical_buffer.defined_at().instruction_id())) {
+          *sanitized_buffer_assignment.add_logical_buffers() = logical_buffer;
+        } else {
+          LOG(WARNING) << "Skipping logical buffer " << logical_buffer.id()
+                       << " with missing instruction_id "
+                       << logical_buffer.defined_at().instruction_id()
+                       << " when computing unpadded sizes.";
+        }
+      }
+      buffer_assignment_to_use = &sanitized_buffer_assignment;
+    }
+
     absl::StatusOr<absl::flat_hash_map<int64_t, int64_t>>
         logical_buffer_unpadded_sizes = ComputeLogicalBufferUnpaddedSizes(
-            hlo_proto_.hlo_module(), hlo_proto_.buffer_assignment());
-    CHECK_OK(logical_buffer_unpadded_sizes);
+            hlo_proto_.hlo_module(), *buffer_assignment_to_use);
+    if (!logical_buffer_unpadded_sizes.ok()) {
+      LOG(WARNING) << "Failed to compute logical buffer unpadded sizes: "
+                   << logical_buffer_unpadded_sizes.status();
+    }
 
     for (const auto& buffer_allocation :
          hlo_proto_.buffer_assignment().buffer_allocations()) {
@@ -384,10 +419,16 @@ class HloProtoBufferWrapper {
           continue;
         }
         const auto* instruction = unique_id_to_hlo.at(inst_id);
+        int64_t unpadded_size = logical_buffer->size();
+        if (logical_buffer_unpadded_sizes.ok()) {
+          auto it = logical_buffer_unpadded_sizes->find(logical_buffer->id());
+          if (it != logical_buffer_unpadded_sizes->end()) {
+            unpadded_size = it->second;
+          }
+        }
         id_to_logical_buffer_[id] = std::make_unique<LogicalBufferStruct>(
             *logical_buffer, *buffer_allocation_s, *instruction,
-            assigned.offset(),
-            logical_buffer_unpadded_sizes->at(logical_buffer->id()));
+            assigned.offset(), unpadded_size);
       }
     }
 
@@ -810,9 +851,8 @@ absl::Status ProcessHeapSimulatorTrace(const HloProtoBufferWrapper& wrapper,
         auto* root_canonical = canonical_buffer->get_canonical_buffer();
         stats->canonical_to_display_id[root_canonical->proto.id()] =
             logical_buffer->proto.id();
-        logical_buffer->span.emplace(
-            stats->heap_size_bytes_timeline.size() - 1,
-            stats->simulator_trace_event_size - 1);
+        logical_buffer->span.emplace(stats->heap_size_bytes_timeline.size() - 1,
+                                     stats->simulator_trace_event_size - 1);
         stats->IncreaseMemoryUsage(root_canonical,
                                    /*init_buffer_span=*/false);
       }
@@ -1014,8 +1054,8 @@ void ConvertAllocationTimeline(const HloProtoBufferWrapper& wrapper,
     // point-scale values by 72.0 to convert to inches.
     double rect_w = (static_cast<double>(width) * scale_x);
     double rect_h = (static_cast<double>(height) * scale_y);
-    double node_fontsize = std::clamp(rect_h * kFontSizeToHeightRatio,
-                                      kMinFontSize, kMaxFontSize);
+    double node_fontsize =
+        std::clamp(rect_h * kFontSizeToHeightRatio, kMinFontSize, kMaxFontSize);
     std::string label =
         GetFittingLabel(raw_label, rect_w, rect_h, node_fontsize);
     rects.push_back(absl::StrFormat(
@@ -1099,8 +1139,7 @@ void ConvertAllocationTimeline(const HloProtoBufferWrapper& wrapper,
       "node [shape=box,style=filled,fontname=\"Arial\","
       "margin=\"$1,$1\"];\n "
       " $2\n}",
-      kPointsPerInch, kGraphMarginInches,
-      absl::StrJoin(rects, "\n")));
+      kPointsPerInch, kGraphMarginInches, absl::StrJoin(rects, "\n")));
 }
 
 // Compute the max scoped VMEM allocation by parsing backend_config JSON

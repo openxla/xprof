@@ -238,7 +238,7 @@ absl::StatusOr<std::string> GetNodeStyles() {
       xla::HloOpcode::kCall, xla::HloOpcode::kConditional,
       xla::HloOpcode::kCustomCall, xla::HloOpcode::kWhile};
   std::vector<xla::HloOpcode> gray_op_codes = {
-      xla::HloOpcode::kDomain, xla::HloOpcode::kFusion, xla::HloOpcode::kMap,
+      xla::HloOpcode::kFusion, xla::HloOpcode::kMap,
       xla::HloOpcode::kGetDimensionSize, xla::HloOpcode::kSetDimensionSize};
   std::vector<xla::HloOpcode> green_op_codes = {
       xla::HloOpcode::kConcatenate, xla::HloOpcode::kDynamicSlice,

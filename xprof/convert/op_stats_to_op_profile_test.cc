@@ -494,6 +494,51 @@ TEST(OpStatsToOpProfileTest,
   }
 }
 
+// The frontend derives the number of left-out children from `num_children`, so
+// it must hold the child count from before pruning.
+TEST(OpStatsToOpProfileTest, NumChildrenIsCountBeforePruning) {
+  OpStats op_stats;
+  OpMetricsDb& db = *op_stats.mutable_device_op_metrics_db();
+  db.set_total_time_ps(2000);
+  db.set_total_op_time_ps(1500);
+
+  PerfEnv& perf_env = *op_stats.mutable_perf_env();
+  perf_env.set_peak_tera_flops_per_second(10.0);
+  perf_env.add_peak_bws_giga_bytes_per_second(100.0);
+  perf_env.add_peak_bws_giga_bytes_per_second(100.0);
+  perf_env.add_peak_bws_giga_bytes_per_second(100.0);
+
+  // Five ops in one category; op_profile_limit keeps only the top two.
+  for (int i = 1; i <= 5; ++i) {
+    *db.add_metrics_db() =
+        CreateOpMetrics("conv_op_" + std::to_string(i), 100 * i, "convolution");
+  }
+
+  op_profile::Profile by_category_profile;
+  ConvertOpStatsToOpProfile(op_stats, HardwareType::TPU, by_category_profile,
+                            /*op_profile_limit=*/2,
+                            OpProfileGrouping::kByCategory);
+  ASSERT_EQ(by_category_profile.by_category().children_size(), 1);
+  const Node& category = by_category_profile.by_category().children(0);
+  ASSERT_EQ(category.children_size(), 2);
+  EXPECT_EQ(category.num_children(), 5);
+  EXPECT_EQ(category.children(0).name(), "conv_op_5");
+  EXPECT_EQ(category.children(1).name(), "conv_op_4");
+
+  op_profile::Profile by_program_profile;
+  ConvertOpStatsToOpProfile(op_stats, HardwareType::TPU, by_program_profile,
+                            /*op_profile_limit=*/2,
+                            OpProfileGrouping::kByProgram);
+  ASSERT_EQ(by_program_profile.by_program().children_size(), 1);
+  const Node& program = by_program_profile.by_program().children(0);
+  ASSERT_EQ(program.children_size(), 1);
+  const Node& program_category = program.children(0);
+  ASSERT_EQ(program_category.children_size(), 2);
+  EXPECT_EQ(program_category.num_children(), 5);
+  EXPECT_EQ(program_category.children(0).name(), "conv_op_5");
+  EXPECT_EQ(program_category.children(1).name(), "conv_op_4");
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

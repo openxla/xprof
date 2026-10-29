@@ -798,7 +798,6 @@ void OpProfileBuilder::Finalize(
       break;
   }
   SortAndPruneChildren(options_.children_per_node, level, root_);
-  SortAndPruneChildren(options_.children_per_node, level, root_);
   if (options_.group_by_deduplicated_name) {
     FinalizeDeduplicatedNodes(root_);
   }

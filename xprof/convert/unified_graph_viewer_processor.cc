@@ -44,7 +44,9 @@ using ::tensorflow::profiler::GetAdjacentNodes;
 using ::tensorflow::profiler::GraphViewerParams;
 using ::tensorflow::profiler::kAdjacentNodes;
 using ::tensorflow::profiler::kCustomCallGraphTypeName;
+using ::tensorflow::profiler::kGraphStyles;
 using ::tensorflow::profiler::kGraphTypeName;
+using ::tensorflow::profiler::kMeGraphTypeName;
 using ::tensorflow::profiler::ParseGraphViewerParams;
 using ::tensorflow::profiler::ToolOptions;
 
@@ -84,6 +86,11 @@ absl::StatusOr<std::string> ConvertHloProtoToGraphViewer(
     return GetCustomCallText(*hlo_instruction);
   } else if (params.type == kAdjacentNodes) {
     return GetAdjacentNodes(hlo_proto, params.node_name);
+  } else if (params.type == kMeGraphTypeName) {
+    return tensorflow::profiler::ConvertHloProtoToMeGraph(
+        hlo_proto, params.node_name, params.graph_width);
+  } else if (params.type == kGraphStyles) {
+    return tensorflow::profiler::GetNodeStyles();
   } else {
     // All other types are string view types
     return ConvertHloProtoToStringView(hlo_proto, params.type, params.verbose,
@@ -103,6 +110,12 @@ absl::Status UnifiedGraphViewerProcessor::ProcessSession(
   }
 
   // Get HLO Proto.
+  std::optional<std::string> options_type =
+      ::tensorflow::profiler::GetParam<std::string>(options, "type");
+  if (options_type == ::tensorflow::profiler::kGraphStyles) {
+    return ProcessHlo(session_snapshot, xla::HloProto(), options);
+  }
+
   TF_ASSIGN_OR_RETURN(xla::HloProto hlo_proto,
                       GetHloProto(*profiler_session_snapshot, options));
 

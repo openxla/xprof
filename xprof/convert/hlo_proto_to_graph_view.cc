@@ -305,6 +305,7 @@ absl::StatusOr<GraphViewerParams> ParseGraphViewerParams(
       kProtoTypeName,    kProtoTextTypeName,
       kShortTxtTypeName, kLongTxtTypeName,
       kAdjacentNodes,    kCustomCallGraphTypeName,
+      kMeGraphTypeName,  kGraphStyles,
   };
   if (std::find(valid_types.begin(), valid_types.end(), type.value()) ==
       valid_types.end()) {
@@ -343,6 +344,18 @@ absl::StatusOr<GraphViewerParams> ParseGraphViewerParams(
             GetParam<std::string>(options, "node_name")) {
       params.node_name = node_name.value();
     }
+    return params;
+  } else if (type == kMeGraphTypeName) {
+    params.type = type.value();
+    if (std::optional<std::string> node_name =
+            GetParam<std::string>(options, "node_name")) {
+      params.node_name = node_name.value();
+    }
+    params.graph_width =
+        GetParamWithDefault<int>(options, "graph_width", kDefaultWidth);
+    return params;
+  } else if (type == kGraphStyles) {
+    params.type = type.value();
     return params;
   }
 

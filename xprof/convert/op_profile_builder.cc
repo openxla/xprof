@@ -16,6 +16,7 @@ limitations under the License.
 #include "xprof/convert/op_profile_builder.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -231,6 +232,13 @@ void PopulateOpMetricsNode(
   metrics->set_normalized_time_ps(op_metrics.normalized_time_ps());
 
   // Capture both on-chip and off-chip memory utilization.
+  auto get_peak_mem_bw = [&](size_t index) -> double {
+    if (index < peak_mem_gibibytes_per_second_per_core.size()) {
+      return peak_mem_gibibytes_per_second_per_core[index];
+    }
+    return 0.0;
+  };
+
   const double hbm_gibibytes_per_second =
       tsl::profiler::GigaToGibi(
           GigaBytesPerSecondPerCore(op_metrics, MemorySpace::MEMORY_SPACE_HBM,
@@ -240,7 +248,7 @@ void PopulateOpMetricsNode(
                                     OpMetrics::MemoryAccessed::WRITE));
   const double hbm_bw_utilization = CapUtilization(tsl::profiler::SafeDivide(
       hbm_gibibytes_per_second,
-      peak_mem_gibibytes_per_second_per_core[MemBwType::MEM_BW_TYPE_HBM_RW]));
+      get_peak_mem_bw(MemBwType::MEM_BW_TYPE_HBM_RW)));
   metrics->add_bandwidth_utils(hbm_bw_utilization);
   double hbm_bytes = tsl::profiler::GibiToGiga(hbm_gibibytes_per_second) *
                      tsl::profiler::PicoToNano(op_metrics.time_ps());
@@ -250,8 +258,8 @@ void PopulateOpMetricsNode(
                                 OpMetrics::MemoryAccessed::READ));
   const double sram_rd_bw_utilization =
       CapUtilization(tsl::profiler::SafeDivide(
-          sram_rd_gibibytes_per_second, peak_mem_gibibytes_per_second_per_core
-                                            [MemBwType::MEM_BW_TYPE_SRAM_RD]));
+          sram_rd_gibibytes_per_second,
+          get_peak_mem_bw(MemBwType::MEM_BW_TYPE_SRAM_RD)));
   metrics->add_bandwidth_utils(sram_rd_bw_utilization);
   double sram_rd_bytes =
       tsl::profiler::GibiToGiga(sram_rd_gibibytes_per_second) *
@@ -262,8 +270,8 @@ void PopulateOpMetricsNode(
                                 OpMetrics::MemoryAccessed::WRITE));
   const double sram_wr_bw_utilization =
       CapUtilization(tsl::profiler::SafeDivide(
-          sram_wr_gibibytes_per_second, peak_mem_gibibytes_per_second_per_core
-                                            [MemBwType::MEM_BW_TYPE_SRAM_WR]));
+          sram_wr_gibibytes_per_second,
+          get_peak_mem_bw(MemBwType::MEM_BW_TYPE_SRAM_WR)));
   metrics->add_bandwidth_utils(sram_wr_bw_utilization);
   double sram_wr_bytes =
       tsl::profiler::GibiToGiga(sram_wr_gibibytes_per_second) *

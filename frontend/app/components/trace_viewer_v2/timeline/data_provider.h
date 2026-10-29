@@ -59,6 +59,12 @@ class DataProvider {
   // timeline update is flushed.
   void MarkFinishingIncrementalLoad();
 
+  // Returns true if any track was compacted during the current or most recent
+  // incremental load. `BeginIncrementalLoad()`, `ProcessTraceEvents()`, and
+  // `Reset()` clear this flag.
+  bool was_compacted() const { return was_compacted_; }
+  bool last_load_was_refetch() const { return last_load_was_refetch_; }
+
   // Returns true if a refetch is still waiting to flush its timeline update.
   bool HasPendingRefetchUpdate() const;
 
@@ -84,6 +90,8 @@ class DataProvider {
   absl::flat_hash_set<ProcessId> known_async_processes_;
   absl::btree_map<ProcessId, absl::btree_set<std::string>> known_counters_;
   std::unique_ptr<IncrementalState> incremental_state_;
+  bool was_compacted_ = false;
+  bool last_load_was_refetch_ = false;
 };
 
 namespace internal {

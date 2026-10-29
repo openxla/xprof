@@ -51,6 +51,15 @@ namespace {
 constexpr uint32_t kMpmdUnrankedSortIndexBase = 1u << 30;
 
 constexpr ThreadId kSyntheticOpenSpanTidBit = 0x80000000;
+constexpr size_t kDefaultMaxTrackEvents = 262144;
+constexpr size_t kDefaultTargetTrackEvents = 131072;
+constexpr size_t kDefaultTailKeepEvents = 2048;
+constexpr size_t kMinLevelCompactionThreshold = 2048;
+constexpr size_t kMinLevelBudget = 512;
+constexpr size_t kMaxGlobalCachedEvents = 600000;
+constexpr size_t kTargetGlobalCachedEvents = 350000;
+constexpr size_t kMinTrackEventsForGlobalCompaction = 1024;
+constexpr size_t kGlobalTailKeepEvents = 512;
 constexpr size_t kMaxIncrementalFlowEvents = 16384;
 
 bool GetExpandedState(int nesting_level, absl::string_view name,
@@ -116,6 +125,7 @@ struct CachedThreadTrack {
     int relative_level = 0;
   };
   std::vector<OpenSpan> open_spans;
+  bool was_compacted = false;
 
   size_t size() const { return entries.entry_start_times.size(); }
   bool empty() const { return entries.entry_start_times.empty(); }
@@ -791,6 +801,13 @@ void AppendEventToTimelineData(
   bounds.max = std::max(bounds.max, event->ts + event->dur);
 }
 
+struct RestoredEntryMeta {
+  Microseconds self_time = 0.0;
+  int relative_level = 0;
+};
+using RestoredMetaMap =
+    absl::flat_hash_map<const TraceEvent*, RestoredEntryMeta>;
+
 // Packs trace events for a thread track and appends them to data (inout).
 // Updates max_level (inout) if any packed event exceeds it, and expands
 // bounds (inout) to include the start and end timestamps of all appended
@@ -803,7 +820,8 @@ void PopulateThreadTrackEvents(
     absl::Span<const int> proxy_fixed_levels = {},
     std::vector<Microseconds>* proxy_self_times_out = nullptr,
     ProcessId* emitted_pid_out = nullptr,
-    std::vector<ThreadId>* emitted_tids_out = nullptr) {
+    std::vector<ThreadId>* emitted_tids_out = nullptr,
+    const RestoredMetaMap* restored_meta = nullptr) {
   if (events.empty()) return;
 
   const size_t num_proxies = proxy_fixed_levels.size();
@@ -846,18 +864,45 @@ void PopulateThreadTrackEvents(
     }
   }
 
+  const bool has_restored_meta =
+      restored_meta != nullptr && !restored_meta->empty();
+  std::vector<const RestoredEntryMeta*> entry_meta;
+  std::vector<ptrdiff_t> nearest_restored_anc;
+  if (has_restored_meta) {
+    entry_meta.assign(n, nullptr);
+    nearest_restored_anc.assign(n, -1);
+    for (size_t i = 0; i < n; ++i) {
+      if (const auto it = restored_meta->find(sorted_events[i]);
+          it != restored_meta->end()) {
+        entry_meta[i] = &it->second;
+      }
+    }
+  }
+
   for (size_t i = 0; i < n; ++i) {
     const TraceEvent* ev = sorted_events[i];
     const Microseconds end_time = ev->ts + ev->dur;
-    self_times[i] = ev->dur;
+    const RestoredEntryMeta* meta = has_restored_meta ? entry_meta[i] : nullptr;
+    self_times[i] = meta != nullptr ? meta->self_time : ev->dur;
 
+    std::optional<size_t> enclosing_idx;
     while (!parent_stack.empty()) {
       const size_t p_idx = parent_stack.back();
       const Microseconds p_end =
           sorted_events[p_idx]->ts + sorted_events[p_idx]->dur;
       if (ev->ts < p_end) {
         if (end_time <= p_end) {
-          self_times[p_idx] = std::max(0.0, self_times[p_idx] - ev->dur);
+          enclosing_idx = p_idx;
+          const RestoredEntryMeta* p_meta =
+              has_restored_meta ? entry_meta[p_idx] : nullptr;
+          if (p_meta == nullptr) {
+            self_times[p_idx] = std::max(0.0, self_times[p_idx] - ev->dur);
+            if (has_restored_meta && meta == nullptr) {
+              nearest_restored_anc[i] = nearest_restored_anc[p_idx];
+            }
+          } else if (meta == nullptr) {
+            nearest_restored_anc[i] = static_cast<ptrdiff_t>(p_idx);
+          }
           parent_stack.push_back(i);
         }
         break;
@@ -878,7 +923,25 @@ void PopulateThreadTrackEvents(
       row_end_times[assigned_row] =
           std::max(row_end_times[assigned_row], end_time);
     } else {
-      for (size_t r = 0; r < row_end_times.size(); ++r) {
+      int min_row = enclosing_idx.has_value()
+                        ? (relative_levels[*enclosing_idx] + 1)
+                        : 0;
+      if (meta != nullptr) {
+        int parent_shift = 0;
+        if (enclosing_idx.has_value() &&
+            entry_meta[*enclosing_idx] != nullptr) {
+          parent_shift =
+              std::max(0, relative_levels[*enclosing_idx] -
+                              entry_meta[*enclosing_idx]->relative_level);
+        }
+        min_row = std::max(min_row, meta->relative_level + parent_shift);
+      }
+      if (min_row > static_cast<int>(row_end_times.size())) {
+        row_end_times.resize(min_row,
+                             std::numeric_limits<Microseconds>::lowest());
+      }
+      for (size_t r = static_cast<size_t>(min_row); r < row_end_times.size();
+           ++r) {
         if (row_end_times[r] <= ev->ts) {
           assigned_row = static_cast<int>(r);
           break;
@@ -892,6 +955,15 @@ void PopulateThreadTrackEvents(
       }
     }
     relative_levels[i] = assigned_row;
+  }
+
+  if (has_restored_meta) {
+    for (size_t i = 0; i < n; ++i) {
+      if (entry_meta[i] == nullptr && nearest_restored_anc[i] >= 0) {
+        const size_t anc = static_cast<size_t>(nearest_restored_anc[i]);
+        self_times[anc] = std::max(0.0, self_times[anc] - self_times[i]);
+      }
+    }
   }
 
   if (proxy_self_times_out != nullptr) {
@@ -952,7 +1024,8 @@ void AppendToCachedThreadTrack(
     CachedThreadTrack& cached, absl::Span<const TraceEvent* const> events,
     const TraceInformation& trace_info, absl::string_view thread_group_name,
     absl::Span<const int> proxy_fixed_levels = {},
-    std::vector<Microseconds>* proxy_self_times_out = nullptr) {
+    std::vector<Microseconds>* proxy_self_times_out = nullptr,
+    const RestoredMetaMap* restored_meta = nullptr) {
   if (events.empty()) return;
 
   const size_t base_idx = cached.size();
@@ -960,10 +1033,11 @@ void AppendToCachedThreadTrack(
   const size_t open_spans_base = cached.open_spans.size();
   ProcessId emitted_pid = 0;
   std::vector<ThreadId> emitted_tids;
-  PopulateThreadTrackEvents(
-      events, /*start_level=*/0, max_relative_level, cached.entries,
-      cached.bounds, trace_info, thread_group_name, &cached.open_spans,
-      proxy_fixed_levels, proxy_self_times_out, &emitted_pid, &emitted_tids);
+  PopulateThreadTrackEvents(events, /*start_level=*/0, max_relative_level,
+                            cached.entries, cached.bounds, trace_info,
+                            thread_group_name, &cached.open_spans,
+                            proxy_fixed_levels, proxy_self_times_out,
+                            &emitted_pid, &emitted_tids, restored_meta);
   const size_t new_size = cached.size();
   if (new_size == base_idx) return;
 
@@ -1041,6 +1115,230 @@ void ResizeCachedTrackArrays(CachedThreadTrack& cached, size_t new_size,
     ResizeVector(cached.entry_tids, new_size, shrink);
   }
   ResizeVector(cached.prefix_max_end_times, new_size, shrink);
+}
+
+// Returns a comparator that orders entry indices in `entries` by start time
+// ascending, breaking ties by total duration descending.
+auto CompareEntriesByStartAscThenDurDesc(
+    const FlameChartTimelineData& entries) {
+  return [&entries](int idx_a, int idx_b) {
+    return entries.entry_start_times[idx_a] != entries.entry_start_times[idx_b]
+               ? entries.entry_start_times[idx_a] <
+                     entries.entry_start_times[idx_b]
+               : entries.entry_total_times[idx_a] >
+                     entries.entry_total_times[idx_b];
+  };
+}
+
+// Compacts `cached` in-place when its event count exceeds `max_cached_events`,
+// reducing the track toward `target_compacted_events` while always preserving
+// active `open_spans`, pinned events, the most recent `tail_keep_count` events
+// (and any ancestor active at the last start time), and the longest-duration
+// span in each time bucket per level. Returns true if any entries were dropped.
+bool CompactCachedThreadTrackIfNeeded(
+    CachedThreadTrack& cached,
+    size_t max_cached_events = kDefaultMaxTrackEvents,
+    size_t target_compacted_events = kDefaultTargetTrackEvents,
+    size_t tail_keep_count = kDefaultTailKeepEvents,
+    const absl::flat_hash_set<EventId>* pinned_event_ids = nullptr) {
+  const size_t n = cached.size();
+  if (n <= max_cached_events) return false;
+
+  FlameChartTimelineData& entries = cached.entries;
+  std::vector<uint8_t> keep(n, 0);
+  // Always preserve open spans, pinned events, ancestors active at the last
+  // event's start time, and the recent tail at full resolution.
+  for (const auto& open_span : cached.open_spans) {
+    if (open_span.entry_idx < n) keep[open_span.entry_idx] = 1;
+  }
+  if (pinned_event_ids != nullptr && !pinned_event_ids->empty()) {
+    for (size_t i = 0; i < n; ++i) {
+      if (pinned_event_ids->contains(entries.entry_event_ids[i])) keep[i] = 1;
+    }
+  }
+  const Microseconds last_start_ts = entries.entry_start_times.back();
+  const size_t tail_start = n > tail_keep_count ? (n - tail_keep_count) : 0;
+  for (size_t i = 0; i < n; ++i) {
+    if (i >= tail_start ||
+        entries.entry_start_times[i] + entries.entry_total_times[i] >
+            last_start_ts) {
+      keep[i] = 1;
+    }
+  }
+
+  size_t already_kept = 0;
+  std::vector<std::vector<int>> events_by_level(cached.max_relative_level + 1);
+  for (size_t i = 0; i < n; ++i) {
+    if (keep[i]) {
+      ++already_kept;
+      continue;
+    }
+    events_by_level[entries.entry_levels[i]].push_back(static_cast<int>(i));
+  }
+  const size_t unkept_count = n - already_kept;
+  if (unkept_count == 0) return false;
+  const auto cmp_idx = CompareEntriesByStartAscThenDurDesc(entries);
+
+  const size_t head_budget = target_compacted_events > already_kept
+                                 ? (target_compacted_events - already_kept)
+                                 : 0;
+  const size_t non_empty_levels = std::max<size_t>(
+      1, static_cast<size_t>(absl::c_count_if(
+             events_by_level,
+             [](const std::vector<int>& v) { return !v.empty(); })));
+  const size_t per_level_cap = head_budget / non_empty_levels;
+  const size_t min_level_threshold =
+      std::min(kMinLevelCompactionThreshold, per_level_cap / 2);
+  const size_t min_level_budget =
+      std::min(kMinLevelBudget, std::max<size_t>(1, per_level_cap / 2));
+  for (std::vector<int>& level_vec : events_by_level) {
+    if (level_vec.empty()) continue;
+    if (!absl::c_is_sorted(level_vec, cmp_idx)) {
+      absl::c_stable_sort(level_vec, cmp_idx);
+    }
+    const size_t level_budget =
+        level_vec.size() <= min_level_threshold
+            ? level_vec.size()
+            : std::max<size_t>(
+                  min_level_budget,
+                  static_cast<size_t>(static_cast<uint64_t>(head_budget) *
+                                      level_vec.size() / unkept_count));
+    if (level_vec.size() <= level_budget) {
+      for (const int idx : level_vec) keep[idx] = 1;
+      continue;
+    }
+    const Microseconds min_ts = entries.entry_start_times[level_vec.front()];
+    const Microseconds max_start_ts =
+        entries.entry_start_times[level_vec.back()];
+    const Microseconds bucket_width =
+        max_start_ts > min_ts
+            ? (max_start_ts - min_ts) / static_cast<double>(level_budget)
+            : 0.0;
+    size_t current_bucket = std::numeric_limits<size_t>::max();
+    int best_idx = -1;
+    Microseconds best_dur = -1.0;
+    for (const int idx : level_vec) {
+      const Microseconds ts = entries.entry_start_times[idx];
+      const Microseconds dur = entries.entry_total_times[idx];
+      const size_t bucket =
+          bucket_width > 0.0
+              ? std::min<size_t>(level_budget - 1,
+                                 static_cast<size_t>(std::max(
+                                     0.0, (ts - min_ts) / bucket_width)))
+              : 0;
+      if (bucket != current_bucket) {
+        if (best_idx >= 0) keep[best_idx] = 1;
+        current_bucket = bucket;
+        best_idx = idx;
+        best_dur = dur;
+      } else if (dur > best_dur) {
+        best_dur = dur;
+        best_idx = idx;
+      }
+    }
+    if (best_idx >= 0) keep[best_idx] = 1;
+  }
+
+  constexpr uint32_t kDropped = std::numeric_limits<uint32_t>::max();
+  std::vector<uint32_t> old_to_new(n, kDropped);
+  size_t out_idx = 0;
+  Microseconds running_max = std::numeric_limits<Microseconds>::lowest();
+  for (size_t i = 0; i < n; ++i) {
+    if (!keep[i]) continue;
+    old_to_new[i] = static_cast<uint32_t>(out_idx);
+    if (out_idx != i) {
+      entries.entry_start_times[out_idx] = entries.entry_start_times[i];
+      entries.entry_total_times[out_idx] = entries.entry_total_times[i];
+      entries.entry_self_times[out_idx] = entries.entry_self_times[i];
+      entries.entry_levels[out_idx] = entries.entry_levels[i];
+      cached.entry_name_ids[out_idx] = cached.entry_name_ids[i];
+      entries.entry_event_ids[out_idx] = entries.entry_event_ids[i];
+      if (!cached.entry_tids.empty()) {
+        cached.entry_tids[out_idx] = cached.entry_tids[i];
+      }
+      entries.entry_serials[out_idx] = entries.entry_serials[i];
+      entries.entry_arg_flags[out_idx] = entries.entry_arg_flags[i];
+      entries.entry_hlo_module_ids[out_idx] = entries.entry_hlo_module_ids[i];
+    }
+    running_max = std::max(running_max, entries.entry_start_times[out_idx] +
+                                            entries.entry_total_times[out_idx]);
+    cached.prefix_max_end_times[out_idx] = running_max;
+    ++out_idx;
+  }
+
+  if (out_idx == n) return false;
+
+  ResizeCachedTrackArrays(cached, out_idx, /*shrink=*/true);
+
+  for (auto& open_span : cached.open_spans) {
+    if (open_span.entry_idx < n &&
+        old_to_new[open_span.entry_idx] != kDropped) {
+      open_span.entry_idx = old_to_new[open_span.entry_idx];
+    }
+  }
+
+  constexpr uint32_t kUnusedName = std::numeric_limits<uint32_t>::max();
+  std::vector<uint32_t> name_remap(cached.unique_names.size(), kUnusedName);
+  size_t surviving_unique_names = 0;
+  for (const uint32_t name_id : cached.entry_name_ids) {
+    if (name_remap[name_id] == kUnusedName) {
+      name_remap[name_id] = 1;
+      ++surviving_unique_names;
+    }
+  }
+  for (const auto& open_span : cached.open_spans) {
+    if (open_span.name_id < name_remap.size() &&
+        name_remap[open_span.name_id] == kUnusedName) {
+      name_remap[open_span.name_id] = 1;
+      ++surviving_unique_names;
+    }
+  }
+  if (surviving_unique_names < cached.unique_names.size()) {
+    absl::c_fill(name_remap, kUnusedName);
+    std::vector<std::string> compacted_names;
+    compacted_names.reserve(surviving_unique_names);
+    cached.name_to_id.clear();
+    cached.name_to_id.reserve(surviving_unique_names);
+    for (uint32_t& name_id : cached.entry_name_ids) {
+      uint32_t& mapped = name_remap[name_id];
+      if (mapped == kUnusedName) {
+        mapped = static_cast<uint32_t>(compacted_names.size());
+        compacted_names.push_back(std::move(cached.unique_names[name_id]));
+        cached.name_to_id.emplace(compacted_names.back(), mapped);
+      }
+      name_id = mapped;
+    }
+    for (auto& open_span : cached.open_spans) {
+      if (open_span.name_id < name_remap.size()) {
+        uint32_t& mapped = name_remap[open_span.name_id];
+        if (mapped == kUnusedName) {
+          mapped = static_cast<uint32_t>(compacted_names.size());
+          compacted_names.push_back(
+              std::move(cached.unique_names[open_span.name_id]));
+          cached.name_to_id.emplace(compacted_names.back(), mapped);
+        }
+        open_span.name_id = mapped;
+      }
+    }
+    cached.unique_names = std::move(compacted_names);
+  }
+
+  auto remap_sparse_map = [&](auto& sparse_map) {
+    if (sparse_map.empty()) return;
+    std::decay_t<decltype(sparse_map)> remapped;
+    remapped.reserve(sparse_map.size());
+    for (auto& [old_i, val] : sparse_map) {
+      if (old_i < n && old_to_new[old_i] != kDropped) {
+        remapped[old_to_new[old_i]] = std::move(val);
+      }
+    }
+    sparse_map = std::move(remapped);
+  };
+  remap_sparse_map(entries.sparse_entry_group_ids);
+  remap_sparse_map(entries.sparse_entry_args);
+
+  cached.was_compacted = true;
+  return true;
 }
 
 CachedThreadTrack BuildCachedThreadTrack(
@@ -1353,11 +1651,16 @@ void StitchOpenSpansInCachedTrack(
   }
 }
 
-void UpdateCachedTrackIncremental(CachedThreadTrack& cached, bool is_async,
-                                  std::vector<const TraceEvent*>& new_events,
-                                  const TraceInformation& trace_info,
-                                  absl::string_view thread_group_name) {
-  if (new_events.empty()) return;
+// Merges `new_events` into `cached` and, when `allow_compaction` is true,
+// compacts `cached` if it exceeds the per-track budget. Returns true if
+// compaction dropped any entries.
+bool UpdateCachedTrackIncremental(
+    CachedThreadTrack& cached, bool is_async,
+    std::vector<const TraceEvent*>& new_events,
+    const TraceInformation& trace_info, absl::string_view thread_group_name,
+    bool allow_compaction = true,
+    const absl::flat_hash_set<EventId>* pinned_event_ids = nullptr) {
+  if (new_events.empty()) return false;
   auto cmp_events = [](const TraceEvent* a, const TraceEvent* b) {
     if (a->ts != b->ts) return a->ts < b->ts;
     if (a->dur != b->dur) return a->dur > b->dur;
@@ -1390,17 +1693,41 @@ void UpdateCachedTrackIncremental(CachedThreadTrack& cached, bool is_async,
   if (!cached.open_spans.empty()) {
     StitchOpenSpansInCachedTrack(cached, new_events, trace_info,
                                  thread_group_name);
-    return;
+    return allow_compaction &&
+           CompactCachedThreadTrackIfNeeded(
+               cached, kDefaultMaxTrackEvents, kDefaultTargetTrackEvents,
+               kDefaultTailKeepEvents, pinned_event_ids);
   }
   const size_t split_idx = FindNonOverlappingPrefixSplitIndex(
       cached, new_events.front()->ts, new_events.front()->dur);
   if (split_idx == cached.size()) {
     AppendToCachedThreadTrack(cached, new_events, trace_info,
                               thread_group_name);
-    return;
+    return allow_compaction &&
+           CompactCachedThreadTrackIfNeeded(
+               cached, kDefaultMaxTrackEvents, kDefaultTargetTrackEvents,
+               kDefaultTailKeepEvents, pinned_event_ids);
+  }
+  const bool was_compacted = cached.was_compacted;
+  RestoredMetaMap restored_meta;
+  std::vector<RestoredEntryMeta> saved_meta;
+  if (was_compacted) {
+    saved_meta.reserve(cached.size() - split_idx);
+    for (size_t i = split_idx; i < cached.size(); ++i) {
+      saved_meta.push_back(
+          {cached.entries.entry_self_times[i],
+           static_cast<int>(cached.entries.entry_levels[i])});
+    }
   }
   const std::vector<TraceEvent> restored =
       RestoreAndTruncateCachedTrackFrom(cached, split_idx, is_async);
+  cached.was_compacted = was_compacted;
+  if (was_compacted) {
+    restored_meta.reserve(restored.size());
+    for (size_t k = 0; k < restored.size(); ++k) {
+      restored_meta.try_emplace(&restored[k], saved_meta[k]);
+    }
+  }
   std::vector<const TraceEvent*> merged_events;
   merged_events.reserve(restored.size() + new_events.size());
   for (const TraceEvent& ev : restored) merged_events.push_back(&ev);
@@ -1410,8 +1737,14 @@ void UpdateCachedTrackIncremental(CachedThreadTrack& cached, bool is_async,
       merged_events.begin(),
       merged_events.begin() + static_cast<ptrdiff_t>(restored.size()),
       merged_events.end(), cmp_events);
-  AppendToCachedThreadTrack(cached, merged_events, trace_info,
-                            thread_group_name);
+  AppendToCachedThreadTrack(
+      cached, merged_events, trace_info, thread_group_name,
+      /*proxy_fixed_levels=*/{}, /*proxy_self_times_out=*/nullptr,
+      was_compacted ? &restored_meta : nullptr);
+  return allow_compaction &&
+         CompactCachedThreadTrackIfNeeded(
+             cached, kDefaultMaxTrackEvents, kDefaultTargetTrackEvents,
+             kDefaultTailKeepEvents, pinned_event_ids);
 }
 
 // Re-evaluates HLO module associations for cached entries in `cached` starting
@@ -2076,11 +2409,8 @@ FlameChartTimelineData CreateTimelineData(
   // time ascending, duration descending), so the CSR layout preserves this
   // order per level without needing a secondary sort pass unless incremental
   // out-of-order stitching occurred.
-  auto cmp_by_start_asc_then_dur_desc = [&](int idx_a, int idx_b) {
-    return data.entry_start_times[idx_a] < data.entry_start_times[idx_b] ||
-           (data.entry_start_times[idx_a] == data.entry_start_times[idx_b] &&
-            data.entry_total_times[idx_a] > data.entry_total_times[idx_b]);
-  };
+  const auto cmp_by_start_asc_then_dur_desc =
+      CompareEntriesByStartAscThenDurDesc(data);
   for (int lvl = 0; lvl < current_level; ++lvl) {
     auto begin = data.level_event_indices.begin() +
                  static_cast<ptrdiff_t>(data.level_offsets[lvl]);
@@ -2094,6 +2424,34 @@ FlameChartTimelineData CreateTimelineData(
   GenerateFlowLines(trace_info, thread_levels, top_5_flow_categories, data,
                     bounds, palette);
   return data;
+}
+
+template <typename TrackMap, typename SkipKeyFn>
+bool CompactTrackMap(
+    TrackMap& tracks, size_t compactable_events, size_t compactable_target,
+    size_t compactable_tracks, SkipKeyFn skip_key,
+    const absl::flat_hash_set<EventId>* pinned_event_ids = nullptr) {
+  const size_t per_track_cap =
+      compactable_target / std::max<size_t>(1, compactable_tracks);
+  const size_t min_track_events =
+      std::min(kMinTrackEventsForGlobalCompaction,
+               std::max<size_t>(1, per_track_cap / 2));
+  bool compacted = false;
+  for (auto& [key, cached] : tracks) {
+    if (skip_key(key)) continue;
+    const size_t n = cached.size();
+    if (n <= min_track_events) continue;
+    const size_t target = std::max<size_t>(
+        min_track_events,
+        static_cast<size_t>(static_cast<uint64_t>(n) * compactable_target /
+                            compactable_events));
+    if (CompactCachedThreadTrackIfNeeded(
+            cached, target, target,
+            std::min(kGlobalTailKeepEvents, target / 4), pinned_event_ids)) {
+      compacted = true;
+    }
+  }
+  return compacted;
 }
 
 void SortFlowEvents(std::vector<const TraceEvent*>& events) {
@@ -2179,6 +2537,8 @@ struct DataProvider::IncrementalState {
   bool is_finishing = false;
   bool emitted_timeline_data = false;
   bool has_unflushed_updates = false;
+  bool was_compacted = false;
+  bool allow_compaction = true;
   TraceInformation trace_info;
   absl::btree_map<int, int> flow_category_counts;
   absl::flat_hash_map<std::pair<ProcessId, ThreadId>, CachedThreadTrack>
@@ -2308,7 +2668,9 @@ struct DataProvider::IncrementalState {
     }
   }
 
-  void UpdateCachedTracks(EventBatch& batch) {
+  void UpdateCachedTracks(
+      EventBatch& batch,
+      const absl::flat_hash_set<EventId>* pinned_event_ids = nullptr) {
     auto get_sync_thread_name = [&](ProcessId pid, ThreadId tid) {
       const auto it = trace_info.thread_names.find({pid, tid});
       return it == trace_info.thread_names.end() ? GetDefaultThreadName(tid)
@@ -2330,7 +2692,8 @@ struct DataProvider::IncrementalState {
       if (!inserted) it_min->second = std::min(it_min->second, min_ts);
       UpdateCachedTrackIncremental(
           cached_sync_tracks[pid_tid], /*is_async=*/false, events, trace_info,
-          get_sync_thread_name(pid_tid.first, pid_tid.second));
+          get_sync_thread_name(pid_tid.first, pid_tid.second),
+          /*allow_compaction=*/false);
       events.clear();
     }
 
@@ -2350,19 +2713,73 @@ struct DataProvider::IncrementalState {
     // Pass 2: Update all remaining sync tracks incrementally.
     for (auto& [pid_tid, events] : batch.sync_events) {
       if (events.empty()) continue;
-      UpdateCachedTrackIncremental(
-          cached_sync_tracks[pid_tid], /*is_async=*/false, events, trace_info,
-          get_sync_thread_name(pid_tid.first, pid_tid.second));
+      if (UpdateCachedTrackIncremental(
+              cached_sync_tracks[pid_tid], /*is_async=*/false, events,
+              trace_info, get_sync_thread_name(pid_tid.first, pid_tid.second),
+              allow_compaction, pinned_event_ids)) {
+        was_compacted = true;
+      }
       events.clear();
     }
 
     // Pass 3: Update all async tracks incrementally.
     for (auto& [pid_name, events] : batch.async_events) {
       if (events.empty()) continue;
-      UpdateCachedTrackIncremental(cached_async_tracks[pid_name],
-                                   /*is_async=*/true, events, trace_info,
-                                   pid_name.second);
+      if (UpdateCachedTrackIncremental(
+              cached_async_tracks[pid_name], /*is_async=*/true, events,
+              trace_info, pid_name.second, allow_compaction,
+              pinned_event_ids)) {
+        was_compacted = true;
+      }
       events.clear();
+    }
+
+    if (!allow_compaction) return;
+
+    // Uniform global cache budget across all tracks so full-session traces fit
+    // without device-specific PID heuristics.
+    const auto is_xla_modules_track =
+        [&](const std::pair<ProcessId, ThreadId>& pid_tid) {
+          const auto it = trace_info.xla_modules_tids.find(pid_tid.first);
+          return it != trace_info.xla_modules_tids.end() &&
+                 it->second == pid_tid.second;
+        };
+    size_t exempt_events = 0;
+    size_t compactable_events = 0;
+    size_t compactable_tracks = 0;
+    for (const auto& [pid_tid, cached] : cached_sync_tracks) {
+      if (cached.empty()) continue;
+      if (is_xla_modules_track(pid_tid)) {
+        exempt_events += cached.size();
+      } else {
+        compactable_events += cached.size();
+        ++compactable_tracks;
+      }
+    }
+    for (const auto& [_, cached] : cached_async_tracks) {
+      if (cached.empty()) continue;
+      compactable_events += cached.size();
+      ++compactable_tracks;
+    }
+    if (exempt_events + compactable_events > kMaxGlobalCachedEvents &&
+        compactable_events > 0) {
+      const size_t compactable_target =
+          kTargetGlobalCachedEvents > exempt_events
+              ? (kTargetGlobalCachedEvents - exempt_events)
+              : 0;
+      const auto no_skip = [](const std::pair<ProcessId, std::string>&) {
+        return false;
+      };
+      if (CompactTrackMap(cached_sync_tracks, compactable_events,
+                          compactable_target, compactable_tracks,
+                          is_xla_modules_track, pinned_event_ids)) {
+        was_compacted = true;
+      }
+      if (CompactTrackMap(cached_async_tracks, compactable_events,
+                          compactable_target, compactable_tracks, no_skip,
+                          pinned_event_ids)) {
+        was_compacted = true;
+      }
     }
   }
 
@@ -2491,12 +2908,15 @@ void DataProvider::Reset() {
   known_async_tracks_.clear();
   known_async_processes_.clear();
   known_counters_.clear();
+  was_compacted_ = false;
+  last_load_was_refetch_ = false;
 }
 
 void DataProvider::BeginIncrementalLoad(Timeline& timeline) {
   incremental_state_ = std::make_unique<IncrementalState>();
   incremental_state_->is_refetch =
       HasKnownTracks() && timeline.visible_range() != TimeRange::Zero();
+  incremental_state_->allow_compaction = timeline.incremental_fetch_enabled();
   if (!incremental_state_->is_refetch) {
     timeline.ClearSavedFullOverview();
   }
@@ -2510,6 +2930,8 @@ void DataProvider::BeginIncrementalLoad(Timeline& timeline) {
       GetRestoredExpandedStates(timeline.timeline_data().groups);
   incremental_state_->last_emitted_expanded_states =
       incremental_state_->base_expanded_states;
+  was_compacted_ = false;
+  last_load_was_refetch_ = incremental_state_->is_refetch;
 }
 
 void DataProvider::MarkFinishingIncrementalLoad() {
@@ -2565,7 +2987,30 @@ void DataProvider::AppendTraceEventsIncremental(ParsedTraceEvents parsed_events,
     return;
   }
 
-  state.UpdateCachedTracks(batch);
+  state.allow_compaction = timeline.incremental_fetch_enabled();
+  absl::flat_hash_set<EventId> pinned_event_ids;
+  if (state.allow_compaction) {
+    const auto& entry_event_ids = timeline.timeline_data().entry_event_ids;
+    const int sel_idx = timeline.selected_event_index();
+    if (sel_idx >= 0 && static_cast<size_t>(sel_idx) < entry_event_ids.size()) {
+      pinned_event_ids.insert(entry_event_ids[sel_idx]);
+    }
+    for (const int idx : timeline.get_matching_event_indices_for_test()) {
+      if (idx >= 0 && static_cast<size_t>(idx) < entry_event_ids.size()) {
+        pinned_event_ids.insert(entry_event_ids[idx]);
+      }
+    }
+    for (const auto& sr : timeline.get_search_results_for_test()) {
+      if (sr.event_id != 0) pinned_event_ids.insert(sr.event_id);
+    }
+    if (const auto pending_id =
+            timeline.get_pending_navigation_event_id_for_test();
+        pending_id.has_value()) {
+      pinned_event_ids.insert(*pending_id);
+    }
+  }
+  state.UpdateCachedTracks(batch, &pinned_event_ids);
+  was_compacted_ = state.was_compacted;
   if (state.ShouldFlushTimeline(flush_mode)) {
     state.FlushTimeline(timeline, *this);
   }
@@ -2578,6 +3023,8 @@ void DataProvider::FinishIncrementalLoad() { incremental_state_.reset(); }
 void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
                                       Timeline& timeline) {
   incremental_state_.reset();
+  was_compacted_ = false;
+  last_load_was_refetch_ = false;
   timeline.set_mpmd_pipeline_view_enabled(parsed_events.mpmd_pipeline_view);
   timeline.set_time_axis_unit(parsed_events.time_axis_unit);
   if (parsed_events.flame_events.empty() &&

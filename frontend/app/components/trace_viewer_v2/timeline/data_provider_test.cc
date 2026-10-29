@@ -6555,5 +6555,399 @@ TEST_F(DataProviderTest,
   ExpectTimelineDataMatches(timeline_.timeline_data(),
                             single_timeline.timeline_data());
 }
+
+TEST_F(
+    DataProviderTest,
+    UniformTrackBudgetPreservesHighEventCountTracksWithoutDevicePidHeuristics) {
+  ParsedTraceEvents batch;
+  batch.flame_events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "/device:TPU:0"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 1, "XLA Ops"),
+      CreateMetadataEvent(std::string(kProcessName), 701, 0, "/host:CPU"),
+      CreateMetadataEvent(std::string(kThreadName), 701, 1, "thread_0"),
+      MakeSpan(Phase::kComplete, 1, 1, 1, "tpu_op", 10.0, 5.0),
+  };
+  for (int i = 0; i < 70000; ++i) {
+    batch.flame_events.push_back(
+        MakeSpan(Phase::kComplete, static_cast<size_t>(10 + i), 701, 1,
+                 "host_op", static_cast<Microseconds>(i * 2), 1.0));
+  }
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(batch), timeline_,
+                                              TimelineFlushMode::kAutoFlush);
+  EXPECT_FALSE(data_provider_.was_compacted());
+  EXPECT_EQ(timeline_.timeline_data().entry_names.size(), 70001u);
+  data_provider_.FinishIncrementalLoad();
+}
+
+TEST_F(DataProviderTest,
+       PerTrackCompactionPreservesOpenSpansRecentTailAndSparseArgs) {
+  ParsedTraceEvents batch;
+  batch.flame_events.reserve(265005);
+  batch.flame_events.push_back(
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "/device:TPU:0"));
+  batch.flame_events.push_back(
+      CreateMetadataEvent(std::string(kThreadName), 1, 1, "XLA Ops"));
+
+  TraceEvent open_root = MakeSpan(Phase::kDurationBegin, 999999, /*pid=*/1,
+                                  /*tid=*/1, "open_root", /*ts=*/0.0,
+                                  /*dur=*/600000.0);
+  open_root.has_group_id = true;
+  open_root.group_id = 42;
+  open_root.args = {{"custom_key", "open_val"}};
+  batch.flame_events.push_back(std::move(open_root));
+
+  constexpr int kNumLeafEvents = 265000;
+  for (int i = 0; i < kNumLeafEvents; ++i) {
+    TraceEvent leaf = MakeSpan(
+        Phase::kComplete, static_cast<size_t>(10 + i),
+        /*pid=*/1, /*tid=*/1, i == kNumLeafEvents - 1 ? "tail_leaf" : "leaf_op",
+        static_cast<Microseconds>(1.0 + i * 2.0), 1.0);
+    if (i == kNumLeafEvents - 1) {
+      leaf.has_group_id = true;
+      leaf.group_id = 77;
+      leaf.args = {{"tail_key", "tail_val"}};
+    }
+    batch.flame_events.push_back(std::move(leaf));
+  }
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(batch), timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  EXPECT_TRUE(data_provider_.was_compacted());
+  EXPECT_FALSE(data_provider_.last_load_was_refetch());
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  EXPECT_LT(data.entry_names.size(), static_cast<size_t>(kNumLeafEvents + 1));
+  EXPECT_GT(data.entry_names.size(), 100000u);
+
+  const auto it_open = absl::c_find(data.entry_names, "open_root");
+  ASSERT_NE(it_open, data.entry_names.end());
+  const size_t open_idx =
+      static_cast<size_t>(it_open - data.entry_names.begin());
+  const auto open_args = data.GetEntryArgs(open_idx);
+  EXPECT_EQ(open_args.at("custom_key"), "open_val");
+  EXPECT_EQ(open_args.at("group_id"), "42");
+
+  const auto it_tail = absl::c_find(data.entry_names, "tail_leaf");
+  ASSERT_NE(it_tail, data.entry_names.end());
+  const size_t tail_idx =
+      static_cast<size_t>(it_tail - data.entry_names.begin());
+  const auto tail_args = data.GetEntryArgs(tail_idx);
+  EXPECT_EQ(tail_args.at("tail_key"), "tail_val");
+  EXPECT_EQ(tail_args.at("group_id"), "77");
+}
+
+TEST_F(DataProviderTest,
+       GlobalCompactionCompactsLargeTracksAndPreservesSmallTracks) {
+  ParsedTraceEvents batch;
+  constexpr int kLargeTrackEvents = 210000;
+  constexpr int kSmallTrackEvents = 500;
+  batch.flame_events.reserve(3 * kLargeTrackEvents + kSmallTrackEvents + 10);
+  batch.flame_events.push_back(
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "/device:TPU:0"));
+  for (ThreadId tid = 1; tid <= 3; ++tid) {
+    batch.flame_events.push_back(CreateMetadataEvent(
+        std::string(kThreadName), 1, tid, absl::StrCat("large_track_", tid)));
+    for (int i = 0; i < kLargeTrackEvents; ++i) {
+      batch.flame_events.push_back(
+          MakeSpan(Phase::kComplete, static_cast<size_t>(tid * 1000000 + i),
+                   /*pid=*/1, tid, "large_track_op",
+                   static_cast<Microseconds>(i * 2), 1.0));
+    }
+  }
+  batch.flame_events.push_back(
+      CreateMetadataEvent(std::string(kThreadName), 1, 4, "small_track"));
+  for (int i = 0; i < kSmallTrackEvents; ++i) {
+    batch.flame_events.push_back(MakeSpan(
+        Phase::kComplete, static_cast<size_t>(4000000 + i), /*pid=*/1,
+        /*tid=*/4, "small_track_op", static_cast<Microseconds>(i * 2), 1.0));
+  }
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(batch), timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  EXPECT_TRUE(data_provider_.was_compacted());
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  EXPECT_LT(data.entry_names.size(), 600000u);
+  EXPECT_GT(data.entry_names.size(), 300000u);
+  EXPECT_EQ(absl::c_count(data.entry_names, "small_track_op"),
+            kSmallTrackEvents);
+}
+
+TEST_F(DataProviderTest,
+       GlobalCompactionScalesFloorsForManyTracksAndMultiRowTracks) {
+  {
+    ParsedTraceEvents batch;
+    constexpr int kNumTracks = 800;
+    constexpr int kSpansPerTrack = 900;
+    batch.flame_events.reserve(kNumTracks * (kSpansPerTrack + 1) + 2);
+    batch.flame_events.push_back(
+        CreateMetadataEvent(std::string(kProcessName), 1, 0, "/device:TPU:0"));
+    for (int t = 1; t <= kNumTracks; ++t) {
+      batch.flame_events.push_back(CreateMetadataEvent(
+          std::string(kThreadName), 1, static_cast<ThreadId>(t),
+          absl::StrCat("track_", t)));
+      for (int i = 0; i < kSpansPerTrack; ++i) {
+        batch.flame_events.push_back(MakeSpan(
+            Phase::kComplete, static_cast<size_t>(t * 10000 + i), /*pid=*/1,
+            static_cast<ThreadId>(t), "op", static_cast<Microseconds>(i * 2),
+            1.0));
+      }
+    }
+    data_provider_.BeginIncrementalLoad(timeline_);
+    data_provider_.AppendTraceEventsIncremental(std::move(batch), timeline_);
+    data_provider_.FinishIncrementalLoad();
+
+    EXPECT_TRUE(data_provider_.was_compacted());
+    EXPECT_LT(timeline_.timeline_data().entry_names.size(), 400000u);
+  }
+
+  data_provider_.Reset();
+  timeline_.ResetForNewDataset();
+
+  {
+    ParsedTraceEvents batch;
+    constexpr int kNumTracks = 64;
+    constexpr int kNumRows = 8;
+    constexpr int kSpansPerRow = 2000;
+    batch.flame_events.reserve(kNumTracks * (kNumRows * kSpansPerRow + 1) + 2);
+    batch.flame_events.push_back(
+        CreateMetadataEvent(std::string(kProcessName), 1, 0, "/device:TPU:0"));
+    for (int t = 1; t <= kNumTracks; ++t) {
+      batch.flame_events.push_back(CreateMetadataEvent(
+          std::string(kThreadName), 1, static_cast<ThreadId>(t),
+          absl::StrCat("track_", t)));
+      for (int i = 0; i < kSpansPerRow; ++i) {
+        const Microseconds base_ts = static_cast<Microseconds>(i * 20);
+        for (int r = 0; r < kNumRows; ++r) {
+          batch.flame_events.push_back(MakeSpan(
+              Phase::kComplete,
+              static_cast<size_t>((t * kSpansPerRow + i) * kNumRows + r + 1),
+              /*pid=*/1, static_cast<ThreadId>(t), "nested_op", base_ts,
+              static_cast<Microseconds>(10 - r)));
+        }
+      }
+    }
+    data_provider_.BeginIncrementalLoad(timeline_);
+    data_provider_.AppendTraceEventsIncremental(std::move(batch), timeline_);
+    data_provider_.FinishIncrementalLoad();
+
+    EXPECT_TRUE(data_provider_.was_compacted());
+    EXPECT_LT(timeline_.timeline_data().entry_names.size(), 400000u);
+  }
+}
+
+TEST_F(DataProviderTest,
+       CompactionExemptsXlaModulesTrackForSubsequentHloModuleLookup) {
+  ParsedTraceEvents batch1;
+  constexpr int kNumModules = 1500;
+  constexpr int kFillerTrackEvents = 210000;
+  batch1.flame_events.reserve(kNumModules + 3 * kFillerTrackEvents + 10);
+  batch1.flame_events.push_back(
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "/device:TPU:0"));
+  batch1.flame_events.push_back(
+      CreateMetadataEvent(std::string(kThreadName), 1, 1, "XLA Modules"));
+  batch1.flame_events.push_back(
+      CreateMetadataEvent(std::string(kThreadName), 1, 2, "XLA Ops"));
+  for (int m = 0; m < kNumModules; ++m) {
+    batch1.flame_events.push_back(MakeSpan(
+        Phase::kComplete, static_cast<size_t>(100 + m), /*pid=*/1, /*tid=*/1,
+        absl::StrCat("jit_step_", m, "(", m, ")"),
+        static_cast<Microseconds>(m * 100), 50.0));
+  }
+  for (ThreadId tid = 3; tid <= 5; ++tid) {
+    batch1.flame_events.push_back(CreateMetadataEvent(
+        std::string(kThreadName), 1, tid, absl::StrCat("filler_", tid)));
+    for (int i = 0; i < kFillerTrackEvents; ++i) {
+      batch1.flame_events.push_back(
+          MakeSpan(Phase::kComplete, static_cast<size_t>(tid * 1000000 + i),
+                   /*pid=*/1, tid, "filler_op",
+                   static_cast<Microseconds>(i * 2), 1.0));
+    }
+  }
+
+  ParsedTraceEvents batch2;
+  for (int m = 0; m < kNumModules; ++m) {
+    batch2.flame_events.push_back(MakeSpan(
+        Phase::kComplete, static_cast<size_t>(9000000 + m), /*pid=*/1,
+        /*tid=*/2, "fusion_op", static_cast<Microseconds>(m * 100 + 10), 5.0));
+  }
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(batch1), timeline_);
+  EXPECT_TRUE(data_provider_.was_compacted());
+  data_provider_.MarkFinishingIncrementalLoad();
+  data_provider_.AppendTraceEventsIncremental(std::move(batch2), timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  size_t fusion_count = 0;
+  for (size_t i = 0; i < data.entry_names.size(); ++i) {
+    if (data.entry_names[i] == "fusion_op") {
+      ++fusion_count;
+      EXPECT_NE(data.GetEntryArgs(i).at("hlo_module"), "default");
+    }
+  }
+  EXPECT_EQ(fusion_count, static_cast<size_t>(kNumModules));
+}
+
+TEST_F(DataProviderTest,
+       HeadBucketingHandlesPreTailIdleGapAndSubMicrosecondBursts) {
+  {
+    ParsedTraceEvents batch;
+    batch.flame_events.reserve(265060);
+    batch.flame_events.push_back(
+        CreateMetadataEvent(std::string(kProcessName), 1, 0, "/device:TPU:0"));
+    batch.flame_events.push_back(
+        CreateMetadataEvent(std::string(kThreadName), 1, 1, "XLA Ops"));
+    for (int i = 0; i < 263000; ++i) {
+      batch.flame_events.push_back(MakeSpan(
+          Phase::kComplete, static_cast<size_t>(10 + i), /*pid=*/1, /*tid=*/1,
+          "step1_op", static_cast<Microseconds>(i) * (10000.0 / 263000.0),
+          0.01));
+    }
+    for (int i = 0; i < 2048; ++i) {
+      batch.flame_events.push_back(MakeSpan(
+          Phase::kComplete, static_cast<size_t>(300000 + i), /*pid=*/1,
+          /*tid=*/1, "step2_tail_op",
+          990000.0 + static_cast<Microseconds>(i) * 2.0, 1.0));
+    }
+
+    data_provider_.BeginIncrementalLoad(timeline_);
+    data_provider_.AppendTraceEventsIncremental(std::move(batch), timeline_);
+    data_provider_.FinishIncrementalLoad();
+
+    EXPECT_TRUE(data_provider_.was_compacted());
+    EXPECT_GT(timeline_.timeline_data().entry_names.size(), 100000u);
+  }
+
+  data_provider_.Reset();
+  timeline_.ResetForNewDataset();
+
+  {
+    ParsedTraceEvents batch;
+    batch.flame_events.reserve(265010);
+    batch.flame_events.push_back(
+        CreateMetadataEvent(std::string(kProcessName), 1, 0, "/device:TPU:0"));
+    batch.flame_events.push_back(
+        CreateMetadataEvent(std::string(kThreadName), 1, 1, "LLO Ops"));
+    for (int i = 0; i < 265000; ++i) {
+      batch.flame_events.push_back(MakeSpan(
+          Phase::kComplete, static_cast<size_t>(10 + i), /*pid=*/1, /*tid=*/1,
+          "llo_op", static_cast<Microseconds>(i) * (0.05 / 265000.0), 1e-7));
+    }
+
+    data_provider_.BeginIncrementalLoad(timeline_);
+    data_provider_.AppendTraceEventsIncremental(std::move(batch), timeline_);
+    data_provider_.FinishIncrementalLoad();
+
+    EXPECT_TRUE(data_provider_.was_compacted());
+    EXPECT_GT(timeline_.timeline_data().entry_names.size(), 100000u);
+  }
+}
+
+TEST_F(DataProviderTest,
+       OverlapRestoreAfterCompactionPreservesParentSelfTimeAndChildRow) {
+  ParsedTraceEvents batch1;
+  constexpr int kNumChildren = 300000;
+  batch1.flame_events.reserve(kNumChildren + 10);
+  batch1.flame_events.push_back(
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "/device:TPU:0"));
+  batch1.flame_events.push_back(
+      CreateMetadataEvent(std::string(kThreadName), 1, 1, "host_thread"));
+  batch1.flame_events.push_back(MakeSpan(Phase::kComplete, 1, /*pid=*/1,
+                                         /*tid=*/1, "parent_span", /*ts=*/0.0,
+                                         /*dur=*/1000000.0));
+  batch1.flame_events.push_back(MakeSpan(Phase::kComplete, 2, /*pid=*/1,
+                                         /*tid=*/1, "grandchild_span",
+                                         /*ts=*/0.2, /*dur=*/0.5));
+  for (int i = 0; i < kNumChildren; ++i) {
+    batch1.flame_events.push_back(
+        MakeSpan(Phase::kComplete, static_cast<size_t>(10 + i), /*pid=*/1,
+                 /*tid=*/1, "child_span", static_cast<Microseconds>(i * 2),
+                 /*dur=*/1.0));
+  }
+
+  ParsedTraceEvents batch2;
+  batch2.flame_events.push_back(MakeSpan(Phase::kComplete, 999999, /*pid=*/1,
+                                         /*tid=*/1, "late_child",
+                                         /*ts=*/950000.0, /*dur=*/1.0));
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(batch1), timeline_);
+  EXPECT_TRUE(data_provider_.was_compacted());
+  data_provider_.MarkFinishingIncrementalLoad();
+  data_provider_.AppendTraceEventsIncremental(std::move(batch2), timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  const auto it_parent = absl::c_find(data.entry_names, "parent_span");
+  ASSERT_NE(it_parent, data.entry_names.end());
+  const size_t parent_idx =
+      static_cast<size_t>(it_parent - data.entry_names.begin());
+  EXPECT_NEAR(data.entry_self_times[parent_idx], 699999.0, 1e-3);
+
+  const auto it_gc = absl::c_find(data.entry_names, "grandchild_span");
+  if (it_gc != data.entry_names.end()) {
+    const size_t gc_idx = static_cast<size_t>(it_gc - data.entry_names.begin());
+    EXPECT_EQ(data.entry_levels[gc_idx] - data.entry_levels[parent_idx], 2);
+  }
+}
+
+TEST_F(DataProviderTest,
+       DisabledIncrementalFetchSkipsCompactionAndRefetchTracksLastLoadFlag) {
+  timeline_.set_incremental_fetch_enabled(false);
+  ParsedTraceEvents batch;
+  constexpr int kNumEvents = 265001;
+  batch.flame_events.reserve(kNumEvents + 5);
+  batch.flame_events.push_back(
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "/device:TPU:0"));
+  batch.flame_events.push_back(
+      CreateMetadataEvent(std::string(kThreadName), 1, 1, "XLA Ops"));
+  for (int i = 0; i < kNumEvents; ++i) {
+    batch.flame_events.push_back(
+        MakeSpan(Phase::kComplete, static_cast<size_t>(10 + i), /*pid=*/1,
+                 /*tid=*/1, absl::StrCat("op_", i),
+                 static_cast<Microseconds>(i * 2), 1.0));
+  }
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  EXPECT_FALSE(data_provider_.last_load_was_refetch());
+  data_provider_.AppendTraceEventsIncremental(std::move(batch), timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  EXPECT_FALSE(data_provider_.was_compacted());
+  EXPECT_EQ(timeline_.timeline_data().entry_names.size(),
+            static_cast<size_t>(kNumEvents));
+
+  // Re-enable incremental fetch and perform a zoomed refetch with distinct
+  // span names to verify `last_load_was_refetch()` and dictionary compaction.
+  timeline_.set_incremental_fetch_enabled(true);
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  ParsedTraceEvents refetch_batch;
+  constexpr int kRefetchEvents = 300000;
+  refetch_batch.flame_events.reserve(kRefetchEvents + 2);
+  for (int i = 0; i < kRefetchEvents; ++i) {
+    refetch_batch.flame_events.push_back(
+        MakeSpan(Phase::kComplete, static_cast<size_t>(1000000 + i), /*pid=*/1,
+                 /*tid=*/1, absl::StrCat("refetch_op_", i),
+                 static_cast<Microseconds>(i * 2), 1.0));
+  }
+  data_provider_.BeginIncrementalLoad(timeline_);
+  EXPECT_TRUE(data_provider_.last_load_was_refetch());
+  data_provider_.MarkFinishingIncrementalLoad();
+  data_provider_.AppendTraceEventsIncremental(std::move(refetch_batch),
+                                              timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  EXPECT_TRUE(data_provider_.was_compacted());
+  EXPECT_TRUE(data_provider_.last_load_was_refetch());
+  EXPECT_LT(timeline_.timeline_data().entry_names.size(),
+            static_cast<size_t>(kRefetchEvents));
+  EXPECT_GT(timeline_.timeline_data().entry_names.size(), 100000u);
+}
 }  // namespace
 }  // namespace traceviewer

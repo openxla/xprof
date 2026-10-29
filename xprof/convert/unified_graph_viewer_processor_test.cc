@@ -150,5 +150,144 @@ TEST_F(UnifiedGraphViewerProcessorTest, HandleSuccess) {
   EXPECT_FALSE(processor->GetData().empty());
 }
 
+TEST_F(UnifiedGraphViewerProcessorTest, HandleOpStyles) {
+  std::unique_ptr<UnifiedProfileProcessor> processor =
+      UnifiedProfileProcessorFactory::GetInstance().Create("graph_viewer",
+                                                           options_);
+  ASSERT_NE(processor, nullptr);
+
+  xla::HloProto dummy_hlo = ParseTextProtoOrDie(R"pb(
+    hlo_module {
+      name: "my_module"
+      entry_computation_name: "my_module"
+      entry_computation_id: 1
+      host_program_shape {
+        result {
+          element_type: F32
+          dimensions: [ 1 ]
+        }
+      }
+      computations {
+        name: "my_module"
+        id: 1
+        root_id: 10
+        instructions {
+          name: "constant"
+          opcode: "constant"
+          id: 10
+          shape {
+            element_type: F32
+            dimensions: [ 1 ]
+            layout { minor_to_major: 0 }
+          }
+          literal {
+            shape {
+              element_type: F32
+              dimensions: [ 1 ]
+              layout { minor_to_major: 0 }
+            }
+            f32s: 1.0
+          }
+        }
+        program_shape {
+          result {
+            element_type: F32
+            dimensions: [ 1 ]
+          }
+        }
+      }
+    }
+  )pb");
+
+  std::string hlo_path = file::JoinPath(session_dir_, "my_module.hlo_proto.pb");
+  ASSERT_OK(WriteBinaryProto(hlo_path, dummy_hlo));
+
+  std::string xspace_path = file::JoinPath(session_dir_, "test_host.xplane.pb");
+  XSpace dummy_space;
+  ASSERT_OK(WriteBinaryProto(xspace_path, dummy_space));
+
+  std::vector<std::string> xspace_paths = {xspace_path};
+  ASSERT_OK_AND_ASSIGN(
+      SessionSnapshot session_snapshot,
+      SessionSnapshot::Create(xspace_paths, /*xspaces=*/std::nullopt));
+
+  ToolOptions options;
+  options["module_name"] = "my_module";
+  options["type"] = "op_styles";
+
+  ASSERT_OK(processor->ProcessSession(session_snapshot, options));
+  EXPECT_FALSE(processor->GetData().empty());
+}
+
+TEST_F(UnifiedGraphViewerProcessorTest, HandleMeGraph) {
+  std::unique_ptr<UnifiedProfileProcessor> processor =
+      UnifiedProfileProcessorFactory::GetInstance().Create("graph_viewer",
+                                                           options_);
+  ASSERT_NE(processor, nullptr);
+
+  xla::HloProto dummy_hlo = ParseTextProtoOrDie(R"pb(
+    hlo_module {
+      name: "my_module"
+      entry_computation_name: "my_module"
+      entry_computation_id: 1
+      host_program_shape {
+        result {
+          element_type: F32
+          dimensions: [ 1 ]
+        }
+      }
+      computations {
+        name: "my_module"
+        id: 1
+        root_id: 10
+        instructions {
+          name: "constant"
+          opcode: "constant"
+          id: 10
+          shape {
+            element_type: F32
+            dimensions: [ 1 ]
+            layout { minor_to_major: 0 }
+          }
+          literal {
+            shape {
+              element_type: F32
+              dimensions: [ 1 ]
+              layout { minor_to_major: 0 }
+            }
+            f32s: 1.0
+          }
+        }
+        program_shape {
+          result {
+            element_type: F32
+            dimensions: [ 1 ]
+          }
+        }
+      }
+    }
+  )pb");
+
+  std::string hlo_path = file::JoinPath(session_dir_, "my_module.hlo_proto.pb");
+  ASSERT_OK(WriteBinaryProto(hlo_path, dummy_hlo));
+
+  std::string xspace_path = file::JoinPath(session_dir_, "test_host.xplane.pb");
+  XSpace dummy_space;
+  ASSERT_OK(WriteBinaryProto(xspace_path, dummy_space));
+
+  std::vector<std::string> xspace_paths = {xspace_path};
+  ASSERT_OK_AND_ASSIGN(
+      SessionSnapshot session_snapshot,
+      SessionSnapshot::Create(xspace_paths, /*xspaces=*/std::nullopt));
+
+  ToolOptions options;
+  options["module_name"] = "my_module";
+  options["type"] = "me_graph";
+  options["node_name"] = "constant";
+
+  ASSERT_OK(processor->ProcessSession(session_snapshot, options));
+  EXPECT_FALSE(processor->GetData().empty());
+}
+
 }  // namespace
 }  // namespace xprof

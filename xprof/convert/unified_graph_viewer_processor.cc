@@ -42,6 +42,8 @@ using ::tensorflow::profiler::ConvertHloProtoToStringView;
 using ::tensorflow::profiler::FindInstruction;
 using ::tensorflow::profiler::GetAdjacentNodes;
 using ::tensorflow::profiler::GraphViewerParams;
+using ::tensorflow::profiler::kGraphStyles;
+using ::tensorflow::profiler::kMeGraphTypeName;
 using ::tensorflow::profiler::kAdjacentNodes;
 using ::tensorflow::profiler::kCustomCallGraphTypeName;
 using ::tensorflow::profiler::kGraphTypeName;
@@ -84,6 +86,11 @@ absl::StatusOr<std::string> ConvertHloProtoToGraphViewer(
     return GetCustomCallText(*hlo_instruction);
   } else if (params.type == kAdjacentNodes) {
     return GetAdjacentNodes(hlo_proto, params.node_name);
+  } else if (params.type == kMeGraphTypeName) {
+    return tensorflow::profiler::ConvertHloProtoToMeGraph(
+        hlo_proto, params.node_name, params.graph_width);
+  } else if (params.type == kGraphStyles) {
+    return tensorflow::profiler::GetNodeStyles();
   } else {
     // All other types are string view types
     return ConvertHloProtoToStringView(hlo_proto, params.type, params.verbose,

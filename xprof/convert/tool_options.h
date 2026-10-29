@@ -33,6 +33,8 @@ namespace profiler {
 static constexpr char kGraphTypeName[] = "graph";
 static constexpr char kCustomCallGraphTypeName[] = "custom_call";
 static constexpr char kAdjacentNodes[] = "adj_nodes";
+static constexpr char kMeGraphTypeName[] = "me_graph";
+static constexpr char kGraphStyles[] = "op_styles";
 static constexpr char kShortTxtTypeName[] = "short_txt";
 static constexpr char kLongTxtTypeName[] = "long_txt";
 static constexpr char kJsonTypeName[] = "json";

@@ -1499,7 +1499,8 @@ button.overflow-menu-btn.mat-mdc-icon-button {
         white-space: pre-wrap;
       }
 
-      &.hlo-text-row {
+      &.hlo-text-row,
+      &.stack-trace-row {
         align-items: flex-start;
 
         .detail-label {

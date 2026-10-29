@@ -253,10 +253,11 @@ export function isHloTextProperty(prop: SelectedEventProperty): boolean {
 }
 
 /**
- * Returns a short single-line preview of an HLO instruction with ellipsis
- * when collapsed in the details panel.
+ * Returns a short single-line preview of a collapsed property (such as
+ * HLO instruction or Stack Trace) with ellipsis when collapsed in the
+ * details panel.
  */
-export function getHloTextPreview(value: string, maxLength = 60): string {
+export function getCollapsedPreview(value: string, maxLength = 60): string {
   if (!value) return '';
   const singleLine = value.replace(/\s+/g, ' ').trim();
   if (singleLine.length <= maxLength) {
@@ -611,23 +612,51 @@ export class TraceViewerContainer
     const nextHloText = rightProps.find(
       (p) => p.property === 'HLO Text',
     )?.value;
+    const prevStackTrace = this.rightSideProperties.find(
+      (p) => p.property === 'Stack Trace',
+    )?.value;
+    const nextStackTrace = rightProps.find(
+      (p) => p.property === 'Stack Trace',
+    )?.value;
     this.rightSideProperties = rightProps;
     if (prevHloText !== nextHloText) {
       this.isHloTextCollapsed = true;
     }
+    if (prevStackTrace !== nextStackTrace) {
+      this.isStackTraceCollapsed = true;
+    }
   }
 
   isHloTextCollapsed = true;
+  isStackTraceCollapsed = true;
 
   toggleHloTextCollapse() {
     this.isHloTextCollapsed = !this.isHloTextCollapsed;
   }
 
-  getHloTextPreview(value: unknown): string {
-    if (typeof value !== 'string') {
+  toggleStackTraceCollapse() {
+    this.isStackTraceCollapsed = !this.isStackTraceCollapsed;
+  }
+
+  isPropCollapsed(prop: SelectedEventProperty): boolean {
+    if (prop.property === 'HLO Text') {
+      return this.isHloTextCollapsed;
+    }
+    if (prop.property === 'Stack Trace') {
+      return this.isStackTraceCollapsed;
+    }
+    return false;
+  }
+
+  getPropPreview(prop: SelectedEventProperty): string {
+    if (typeof prop.value !== 'string') {
       return '';
     }
-    return getHloTextPreview(value);
+    const val =
+      prop.property === 'Stack Trace'
+        ? prop.value.split('\n', 1)[0]
+        : prop.value;
+    return getCollapsedPreview(val);
   }
 
   trackByProperty(index: number, prop: SelectedEventProperty): string {

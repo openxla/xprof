@@ -36,6 +36,7 @@ import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigati
 import {
   EntrySelectedEventDetail,
   EventsSelectedEventDetail,
+  extractSourceContentFromEvent,
   SelectedEvent,
   SelectedEventProperty,
   TraceViewerContainer,
@@ -862,6 +863,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       startUs,
       durationUs,
       pid,
+      trackName,
     } = event;
 
     this.selectedEvent = {
@@ -871,6 +873,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       dur: durationUs,
       startUsFormatted,
       durationUsFormatted,
+      hloModule: hloModuleName,
+      hloOpName,
+      trackName,
+      args: event.args || {},
     };
 
     const properties: SelectedEventProperty[] = [];
@@ -889,6 +895,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       this.maybeFetchEventArgs({name, startUs, durationUs, uid, pid});
     } else if (event.args) {
       this.addArgsToSelectedEvent(event.args);
+    } else {
+      this.createCrossToolLinks();
     }
     this.maybeFetchAdjacentNodes();
   }
@@ -1138,7 +1146,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
    * Assumes `selectedEvent` and `selectedEvent.args` are populated.
    */
   private createCrossToolLinks() {
-    if (!this.selectedEvent || !this.selectedEvent.args) return;
+    if (!this.selectedEvent) return;
     this.createStackTraceSnippetLink();
     this.createRooflineModelLink();
     this.createGraphViewerLink();
@@ -1146,16 +1154,30 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     this.createStepGroupLink();
   }
 
+  private getHloOpName(): string {
+    if (!this.selectedEvent) return '';
+    const args = (this.selectedEvent.args || {}) as Record<string, string>;
+    return (
+      args[HLO_OP] ||
+      this.selectedEvent.hloOpName ||
+      (this.selectedEvent.trackName === 'Source code'
+        ? ''
+        : this.selectedEvent.name)
+    );
+  }
+
   /**
    * Sets the stack trace / source snippet cross-tool link when source
    * information is available for the selected event.
    */
   private createStackTraceSnippetLink() {
-    if (!this.sourceCodeServiceIsAvailable || !this.selectedEvent?.args) {
+    if (!this.sourceCodeServiceIsAvailable || !this.selectedEvent) {
       return;
     }
-    const args = this.selectedEvent.args as Record<string, string>;
-    const sourceFileAndLineNumber = args['source'];
+    const args = (this.selectedEvent.args || {}) as Record<string, string>;
+    const sourceFileAndLineNumber = extractSourceContentFromEvent(
+      this.selectedEvent,
+    );
     const stackTrace = args['source_stack'];
     if (!sourceFileAndLineNumber && !stackTrace) {
       return;
@@ -1167,7 +1189,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     if (hloModule !== 'default' && hloModuleId) {
       hloModule = `${hloModule}(${hloModuleId})`;
     }
-    const hloOp = args[HLO_OP] || this.selectedEvent.name;
+    const hloOp = this.getHloOpName();
     const opCategory = args['hlo_category'];
 
     const hloModuleKey = 'hlo_module';
@@ -1199,9 +1221,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     if (!this.selectedEvent?.args) {
       return;
     }
-    const args = this.selectedEvent.args as Record<string, string>;
-    const hloOp = args[HLO_OP] || this.selectedEvent.name;
-
+    const hloOp = this.getHloOpName();
     if (!hloOp) {
       return;
     }
@@ -1222,7 +1242,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
     const args = this.selectedEvent.args as Record<string, string>;
-    const hloOp = args[HLO_OP] || this.selectedEvent.name;
+    const hloOp = this.getHloOpName();
     const hloModule =
       this.selectedEvent.hloModule || args[HLO_MODULE] || 'default';
     // Only generate link if hlo_op argument is present or hloModule is not
@@ -1321,16 +1341,22 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
     const {name, module} = getHloNameAndModule(this.selectedEventProperties);
-    if (!name || !module || module === 'default' || module === 'NO_MODULE') {
+    const resolvedName = name || this.getHloOpName();
+    if (
+      !resolvedName ||
+      !module ||
+      module === 'default' ||
+      module === 'NO_MODULE'
+    ) {
       return;
     }
 
-    const key = `${name}-${module}`;
+    const key = `${resolvedName}-${module}`;
     const cachedAdjNodes = this.hloAdjacentNodesCache.get(key);
     if (cachedAdjNodes) {
       this.injectAdjacentNodes({
         adjacentNodes: cachedAdjNodes,
-        targetNodeName: name,
+        targetNodeName: resolvedName,
         targetModuleName: module,
       });
       return;

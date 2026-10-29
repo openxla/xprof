@@ -3495,6 +3495,7 @@ EventData Timeline::CreateBaseEventData(int event_index, bool is_hover) const {
     if (const Group* grp = timeline_data_.FindGroupForLevel(
             timeline_data_.entry_levels[event_index])) {
       pid = grp->pid;
+      event_data.try_emplace(kEventSelectedTrackName, grp->name);
     }
     event_data.try_emplace(kEventSelectedPid, static_cast<double>(pid));
   }
@@ -3548,24 +3549,6 @@ void Timeline::EmitEventHovered(int event_index, float mouse_x, float mouse_y) {
   event_data.try_emplace("mouse_x", static_cast<double>(mouse_x));
   event_data.try_emplace("mouse_y", static_cast<double>(mouse_y));
 
-  if (event_index >= 0 && event_index < timeline_data_.entry_names.size() &&
-      event_index < timeline_data_.entry_levels.size()) {
-    // Find track name (group name)
-    int level = timeline_data_.entry_levels[event_index];
-    int group_index = -1;
-    for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
-      int next_group_start_level = GetNextGroupStartLevel(timeline_data_, i);
-      if (level >= timeline_data_.groups[i].start_level &&
-          level < next_group_start_level) {
-        group_index = i;
-        break;
-      }
-    }
-    if (group_index != -1) {
-      event_data.try_emplace("trackName",
-                             timeline_data_.groups[group_index].name);
-    }
-  }
   if (!event_tooltip_enabled_) {
     PopulateEventHoveredScheduleDetails(event_index, event_data);
   }

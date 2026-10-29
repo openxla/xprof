@@ -193,6 +193,7 @@ export declare interface SelectedEvent {
   hloOpStatsLinkHtml?: string;
   kernelViewerLinkHtml?: string;
   stepGroupLinkHtml?: string;
+  trackName?: string;
   /**
    * The event as returned by the backend event details response, rendered as
    * is in the details panel.

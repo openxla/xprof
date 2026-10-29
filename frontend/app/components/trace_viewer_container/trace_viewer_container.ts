@@ -53,6 +53,7 @@ import {
   formatHloArgsForJsonTree,
   prettyPrintHloStackTrace,
 } from './hlo_pretty_printer';
+import {parseSourceFileAndLine} from './trace_viewer_utils';
 
 import {
   isSearchEventsEvent,
@@ -143,6 +144,7 @@ export declare interface EntrySelectedEventDetail {
   hloModuleName?: string;
   hloOpName?: string;
   args?: Record<string, string>;
+  trackName?: string;
 }
 
 // Type guard for the 'EntrySelected' custom event.
@@ -185,6 +187,8 @@ export interface SelectedEvent {
   dur?: number;
   ph?: string;
   uid?: string;
+  trackName?: string;
+  source?: string;
   /**
    * The event as returned by the backend event details response, rendered as
    * is in the details panel.
@@ -225,6 +229,32 @@ export declare interface TooltipFrameCrumb {
   index: number;
   label: string;
   title: string;
+}
+
+/**
+ * Extracts source content (file:line or source string) from a trace event.
+ * Checks event.source, event.args?.['source'], and falls back to
+ * parseSourceFileAndLine(event.name) on 'Source code' track (or also on 'XLA Ops'
+ * track if allowXlaOpsTrack is true, used by hovered tooltips).
+ */
+export function extractSourceContentFromEvent(
+  event: SelectedEvent | null | undefined,
+  allowXlaOpsTrack = false,
+): string | undefined {
+  if (!event) return undefined;
+  let sourceContent = event.source;
+  if (!sourceContent && event.args?.['source']) {
+    sourceContent = event.args['source'] as string;
+  }
+  if (!sourceContent && event.name) {
+    const isAllowedTrack =
+      event.trackName === 'Source code' ||
+      (allowXlaOpsTrack && event.trackName === 'XLA Ops');
+    if (isAllowedTrack) {
+      sourceContent = parseSourceFileAndLine(event.name);
+    }
+  }
+  return sourceContent;
 }
 
 /** Canonical display order for properties shown in the right details pane. */

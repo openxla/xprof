@@ -61,6 +61,16 @@ xprof_ng_module(
 )
 
 xprof_ng_module(
+    name = "kernel_viewer_store",
+    srcs = [
+        "kernel_viewer_store.ts",
+    ],
+    deps = [
+        "@org_xprof//frontend/app/services/indexed_db",
+    ],
+)
+
+xprof_ng_module(
     name = "static_kernel_viewer",
     srcs = [
         "kernel_event_tooltip.ts",

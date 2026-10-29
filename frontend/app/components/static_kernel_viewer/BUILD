@@ -81,6 +81,18 @@ xprof_ng_module(
 )
 
 xprof_ng_module(
+    name = "kernel_viewer_cache_token",
+    srcs = [
+        "kernel_viewer_cache_token.ts",
+    ],
+    deps = [
+        ":kernel_viewer_cache",
+        ":kernel_viewer_store",
+        "//:node_modules/@angular/core",
+    ],
+)
+
+xprof_ng_module(
     name = "static_kernel_viewer",
     srcs = [
         "kernel_event_tooltip.ts",
@@ -112,6 +124,8 @@ xprof_ng_module(
     ],
     deps = [
         ":kernel_minimap",
+        ":kernel_viewer_cache",
+        ":kernel_viewer_cache_token",
         "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
         "//:node_modules/@angular/router",

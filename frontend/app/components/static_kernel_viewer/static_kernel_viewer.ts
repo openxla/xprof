@@ -36,6 +36,11 @@ import {
   type SummaryState,
 } from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_source_panel';
 import {
+  type FetchedTrace,
+  type KernelRef,
+} from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_viewer_cache';
+import {KERNEL_VIEWER_CACHE_TOKEN} from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_viewer_cache_token';
+import {
   DetailsKind,
   hasSeenKernelViewerTour,
   KernelViewerTour,
@@ -211,6 +216,17 @@ export interface KernelGroup {
   readonly module: string;
   readonly color: string;
   readonly entries: readonly KernelEntry[];
+}
+
+/** A kernel of the current profile, by its HLO module and name. */
+type KernelId = Omit<KernelRef, 'profileKey'>;
+
+/** A load of a kernel trace into the WASM viewer. */
+class TraceLoad {
+  /** The trace that the viewer got, once it asked for it. */
+  fetchedTrace?: FetchedTrace;
+  /** Resolves once the viewer is done with the load, failed or not. */
+  done = Promise.resolve();
 }
 
 /**
@@ -908,6 +924,17 @@ function buildKernelGroups(response: unknown): KernelGroup[] {
   });
 }
 
+/** Whether a kernel list response lists any kernel, and can be shown. */
+function hasKernels(response: unknown): boolean {
+  try {
+    return buildKernelGroups(response).some(
+      (group) => group.entries.length > 0,
+    );
+  } catch {
+    return false;
+  }
+}
+
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -1181,6 +1208,10 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   private lastLoadedUrl = '';
   // Set on a viewer load error so that re-selecting the same kernel retries.
   private lastLoadFailed = false;
+  /** The kernel whose trace `url` loads. */
+  private traceKernel: KernelRef | undefined = undefined;
+  /** The latest trace load into the WASM viewer. */
+  private traceLoad: TraceLoad | undefined = undefined;
   // Whether a kernel trace is currently loading into the WASM viewer.
   private isLoadingTrace = false;
   private traceLoadingStatus: TraceViewerV2LoadingStatus =
@@ -1249,6 +1280,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly dataService: DataServiceV2Interface = inject(
     DATA_SERVICE_INTERFACE_TOKEN,
   );
+  private readonly cache = inject(KERNEL_VIEWER_CACHE_TOKEN);
   private readonly ngZone = inject(NgZone);
   private readonly location = inject(Location, {optional: true});
   private readonly changeDetectorRef = inject(ChangeDetectorRef);
@@ -1475,7 +1507,9 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
         this.lastLoadFailed = false;
         this.isLoadingTrace = false;
         this.hasLoadedTrace = false;
-        this.loadKernelTrace(this.url);
+        if (this.traceKernel) {
+          this.loadKernelTrace(this.url, this.traceKernel);
+        }
       }
     } catch (error) {
       console.error('Failed to initialize Trace Viewer V2 WASM module:', error);
@@ -1484,6 +1518,10 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
+  /**
+   * Loads the kernel list of the profile, from the cache if it holds the
+   * list.
+   */
   async loadKernelList(): Promise<void> {
     if (!this.sessionId) {
       return;
@@ -1496,14 +1534,20 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     let runEnvironment: RunEnvironment | undefined = undefined;
     let failed = false;
     try {
-      const response: unknown = await firstValueFrom(
-        this.dataService.getData(
-          this.sessionId,
-          this.tool,
-          this.host,
-          new Map<string, string>([['request_type', 'list']]),
-        ),
-      );
+      const response = await this.cache.loadList(this.listKey, {
+        fetchList: () =>
+          firstValueFrom(
+            this.dataService.getData(
+              this.sessionId,
+              this.tool,
+              this.host,
+              new Map<string, string>([['request_type', 'list']]),
+            ),
+          ),
+        // The backend lists no kernels when it cannot read the profile, which
+        // could be temporary.
+        isCacheable: hasKernels,
+      });
       groups = buildKernelGroups(response);
       runEnvironment = parseRunEnvironment(response);
     } catch (error) {
@@ -2139,6 +2183,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     this.hideCard();
     this.closeContextMenu();
     this.url = '';
+    this.traceKernel = undefined;
     this.hasLoadedTrace = false;
     const initialEntry =
       this.findRequestedEntry() ??
@@ -2147,6 +2192,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     if (initialEntry) {
       this.selectEntry(initialEntry);
     } else {
+      this.clearTrace();
       this.updateUrlQueryParams();
     }
     this.considerTour();
@@ -2580,33 +2626,54 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     this.sourceSelection = undefined;
     this.clearSourceHighlight();
     this.updateUrlQueryParams();
-    const queryParamsMap = new Map<string, string>([
-      ['request_type', 'trace'],
-      ['kernel_name', entry.kernel],
-    ]);
-    // Kernel names are only unique within a module.
-    if (entry.module) {
-      queryParamsMap.set('hlo_module', entry.module);
-    }
-    this.url = this.dataService.getDataUrl(
-      this.sessionId,
-      this.tool,
-      this.host,
-      queryParamsMap,
-    );
-    this.loadKernelTrace(this.url);
+    this.openTrace(this.kernelRefOf(entry));
     this.scrollIntoView('.kernel-row.active', '.kernel-tab.active');
     if (this.isSourceOpen) {
       void this.loadSourceSummary();
     }
   }
 
+  /** Loads the trace of `kernel` into the timeline. */
+  private openTrace(kernel: KernelRef): void {
+    const url = this.traceUrlOf(kernel);
+    this.url = url;
+    this.traceKernel = kernel;
+    this.loadKernelTrace(url, kernel);
+  }
+
   /**
-   * Loads `url` into the WASM viewer. Skips a URL that is already loaded
-   * (unless its load failed) and resets the viewer's per-dataset state before
-   * loading a different one.
+   * Returns the reference to a kernel of the current profile, which `listKey`
+   * identifies.
    */
-  private loadKernelTrace(url: string): void {
+  private kernelRefOf({module, kernel}: KernelId): KernelRef {
+    return {profileKey: this.listKey, module, kernel};
+  }
+
+  /** Returns the URL of the trace of a kernel. */
+  private traceUrlOf({module, kernel}: KernelId): string {
+    const queryParamsMap = new Map<string, string>([
+      ['request_type', 'trace'],
+      ['kernel_name', kernel],
+    ]);
+    // Kernel names are only unique within a module.
+    if (module) {
+      queryParamsMap.set('hlo_module', module);
+    }
+    return this.dataService.getDataUrl(
+      this.sessionId,
+      this.tool,
+      this.host,
+      queryParamsMap,
+    );
+  }
+
+  /**
+   * Loads `url`, the trace of `kernel`, into the WASM viewer, from the cache if
+   * it holds the trace. Skips a URL that is already loaded (unless its load
+   * failed) and resets the viewer's per-dataset state before loading a
+   * different one.
+   */
+  private loadKernelTrace(url: string, kernel: KernelRef): void {
     const module = this.traceViewerModule;
     if (!url || !module?.loadTraceData) {
       return;
@@ -2628,10 +2695,30 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     this.lastLoadFailed = false;
     this.isLoadingTrace = true;
     this.hasLoadedTrace = false;
-    void Promise.resolve(module.loadTraceData(url)).then(
+    const load = new TraceLoad();
+    this.traceLoad = load;
+    const loading = Promise.resolve(
+      module.loadTraceData(url, {
+        // The backend ignores the time range and resolution parameters that
+        // the viewer adds to the URL, so the trace is cached by kernel.
+        fetchData: async (viewerUrl) => {
+          load.fetchedTrace = await this.cache.fetchTrace(kernel, viewerUrl);
+          return load.fetchedTrace.response;
+        },
+      }),
+    );
+    load.done = loading.then(
+      () => {},
+      () => {},
+    );
+    void loading.then(
       () => {
-        if (this.isDestroyed || url !== this.lastLoadedUrl) {
+        if (this.isDestroyed || this.traceLoad !== load) {
           return;
+        }
+        // Caches the trace once the viewer loaded it without error.
+        if (!this.lastLoadFailed) {
+          void load.fetchedTrace?.save();
         }
         this.isLoadingTrace = false;
         if (
@@ -2643,7 +2730,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
         }
       },
       () => {
-        if (this.isDestroyed || url !== this.lastLoadedUrl) {
+        if (this.isDestroyed || this.traceLoad !== load) {
           return;
         }
         this.isLoadingTrace = false;
@@ -2651,6 +2738,23 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
         this.hasLoadedTrace = false;
       },
     );
+  }
+
+  /** Clears the timeline, when the kernel list has no kernel to show. */
+  private clearTrace(): void {
+    const pendingLoad = this.isLoadingTrace ? this.traceLoad : undefined;
+    this.traceLoad = undefined;
+    this.isLoadingTrace = false;
+    if (this.lastLoadedUrl) {
+      this.traceViewerModule?.ResetDataset?.();
+      this.lastLoadedUrl = '';
+    }
+    // The viewer finishes a load in flight, so clears its data again after.
+    void pendingLoad?.done.then(() => {
+      if (!this.isDestroyed && !this.traceLoad) {
+        this.traceViewerModule?.ResetDataset?.();
+      }
+    });
   }
 
   private updateUrlQueryParams(): void {

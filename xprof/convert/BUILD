@@ -3028,6 +3028,53 @@ cc_test(
 )
 
 cc_library(
+    name = "inference_stats_program_metadata",
+    srcs = ["inference_stats_program_metadata.cc"],
+    hdrs = ["inference_stats_program_metadata.h"],
+    deps = [
+        ":op_profile_builder",
+        "//plugin/xprof/protobuf:inference_stats_proto_cc",
+        "//plugin/xprof/protobuf:op_profile_proto_cc",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+cc_test(
+    name = "inference_stats_program_metadata_test",
+    srcs = ["inference_stats_program_metadata_test.cc"],
+    deps = [
+        ":inference_stats",
+        ":inference_stats_grouping",
+        ":inference_stats_program_metadata",
+        ":op_profile_builder",
+        ":op_stats_to_op_profile",
+        ":xplane_to_op_stats",
+        "//plugin/xprof/protobuf:hardware_types_proto_cc",
+        "//plugin/xprof/protobuf:inference_stats_proto_cc",
+        "//plugin/xprof/protobuf:op_profile_proto_cc",
+        "//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@com_google_absl//absl/base:log_severity",
+        "@com_google_absl//absl/log:scoped_mock_log",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//xprof/utils:event_span",
+        "@tsl//tsl/platform:protobuf",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/profiler/utils:device_utils",
+        "@xla//xla/tsl/profiler/utils:group_events",
+        "@xla//xla/tsl/profiler/utils:xplane_builder",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
+        "@xla//xla/tsl/profiler/utils:xplane_test_utils",
+    ],
+)
+
+cc_library(
     name = "multi_xspace_to_inference_stats",
     srcs = ["multi_xspace_to_inference_stats.cc"],
     hdrs = ["multi_xspace_to_inference_stats.h"],

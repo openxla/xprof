@@ -7172,14 +7172,15 @@ void Timeline::SetSearchResults(const ParsedTraceEvents& search_results) {
         event.ph != Phase::kInstantDeprecated) {
       continue;
     }
+    const EventId computed_event_id = GetEffectiveEventId(event);
     int level = -1;
-    if (const auto it = event_id_to_level.find(event.event_id);
+    if (const auto it = event_id_to_level.find(computed_event_id);
         it != event_id_to_level.end()) {
       level = it->second;
     }
-    EventId event_id = event.event_id;
+    EventId event_id = computed_event_id;
     int loaded_index = -1;
-    if (const auto it = event_id_to_loaded_index.find(event.event_id);
+    if (const auto it = event_id_to_loaded_index.find(computed_event_id);
         it != event_id_to_loaded_index.end()) {
       loaded_index = it->second;
     } else {

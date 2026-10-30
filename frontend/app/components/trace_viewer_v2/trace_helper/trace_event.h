@@ -29,6 +29,17 @@ using EventId = uint64_t;
 using Microseconds = double;
 using Milliseconds = double;
 
+// Generates a stable event ID robust against sub-microsecond floating-point
+// representation differences (e.g. string round-tripping vs integer division).
+EventId GenerateEventId(absl::string_view name, Microseconds ts,
+                        Microseconds dur);
+
+// Parses a string flow or async ID into a 64-bit integer. Supports canonical
+// non-padded unsigned decimal ("0" or [1-9][0-9]*) and "0x"/"0X" hexadecimal
+// literals fitting in uint64_t; all other non-empty strings map to a non-zero
+// 64-bit fingerprint hash. Empty strings return 0.
+uint64_t ParseFlowIdString(absl::string_view id_str);
+
 // The phase of the event.
 // More phases are defined in:
 // https://source.chromium.org/chromium/chromium/src/+/main:base/trace_event/common/trace_event_common.h;l=1070-1093;drc=3874c9832e2de7ebf55eb4cad2bf9683556fb5e9
@@ -71,14 +82,26 @@ struct TraceEvent {
   Microseconds ts = 0.0;
   Microseconds dur = 0.0;
   std::string id;
+  uint64_t flow_id = 0;
   tsl::profiler::ContextType category = tsl::profiler::ContextType::kGeneric;
   absl::flat_hash_map<std::string, std::string> args;
   uint64_t serial = 0;
   int64_t group_id = 0;
+  // Authoritative indicator of whether this event carries a flow or async
+  // correlation ID (including an explicit flow_id == 0).
+  bool has_flow_id = false;
   bool has_serial = false;
   bool has_group_id = false;
   bool is_async = false;
 };
+
+// Returns `event.event_id` if already populated, or computes a stable
+// fingerprint ID from `(name, ts, dur)` otherwise.
+inline EventId GetEffectiveEventId(const TraceEvent& event) {
+  return event.event_id != 0
+             ? event.event_id
+             : GenerateEventId(event.name, event.ts, event.dur);
+}
 
 // How a counter's values are displayed. An XProf extension of the `C` event,
 // declared as `"unit": "fraction" | "bytes"` next to `"entries"`. The unit is a

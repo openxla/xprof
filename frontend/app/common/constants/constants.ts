@@ -195,3 +195,20 @@ export const TOOL_CATEGORIES: Record<ToolCategory, readonly string[]> = {
   ],
   [ToolCategory.OTHER]: [],
 };
+
+/** Name of the Kernel Viewer tool in tool URLs. */
+export const KERNEL_VIEWER_TOOL_NAME = 'kernel_viewer';
+
+// TODO(jiyaz): Use LLO_DEBUG_TAG in the remaining 'llo_debug' checks, e.g. in
+// SourceMapper.
+/** Session tag of profiles with LLO debug info, i.e. kernels to view. */
+export const LLO_DEBUG_TAG = 'llo_debug';
+
+/** Tooltip prefix for Kernel Viewer redirect links on custom-call XLA ops. */
+export const KERNEL_SCHEDULE_TOOLTIP_PREFIX = 'See kernel schedule for ';
+
+/** Tooltip and aria-label for opening Kernel Viewer without a specific op. */
+export const OPEN_KERNEL_VIEWER_LABEL = 'Open Kernel Viewer';
+
+/** Button label for opening Kernel Viewer from Op Details. */
+export const KERNEL_VIEWER_BUTTON_LABEL = '> Kernel Viewer';

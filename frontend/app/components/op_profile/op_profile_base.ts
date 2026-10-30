@@ -67,6 +67,7 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
   applyScalingFactor = false;
 
   @Input() sessionId = '';
+  @Input() moduleList: string[] = [];
   @Input() opProfileData: OpProfileProto | null = null;
   @Output() readonly groupByChange = new EventEmitter<string>();
 

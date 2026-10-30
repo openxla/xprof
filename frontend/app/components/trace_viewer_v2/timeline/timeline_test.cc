@@ -994,6 +994,34 @@ TEST(TimelineTest, ConstrainTimeRange_StartBeforeDataRangeEndCapped) {
   EXPECT_DOUBLE_EQ(range.end(), 100.0);
 }
 
+TEST(TimelineTest, ConstrainTimeRange_DataTimeRangeEmpty_IsNoOp) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  EXPECT_DOUBLE_EQ(timeline.data_time_range().duration(), 0.0);
+
+  TimeRange range(10.0, 50.0);
+  timeline.ConstrainTimeRange(range);
+
+  EXPECT_DOUBLE_EQ(range.start(), 10.0);
+  EXPECT_DOUBLE_EQ(range.end(), 50.0);
+}
+
+TEST(TimelineTest,
+     ConstrainTimeRange_RangeExceedingDataBounds_ClampsExactlyToDataTimeRange) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  const TimeRange data_range(0.0, 100.0);
+  timeline.set_data_time_range(data_range);
+
+  TimeRange range_spanning(-50.0, 200.0);
+  timeline.ConstrainTimeRange(range_spanning);
+  EXPECT_EQ(range_spanning, data_range);
+
+  TimeRange astronomical_range(-1.0049e79, 1.0458e79);
+  timeline.ConstrainTimeRange(astronomical_range);
+  EXPECT_EQ(astronomical_range, data_range);
+}
+
 TEST(TimelineTest, ZoomIn_WhenAlreadyAtMinDuration_DoesNotPanOrChangeRange) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
@@ -1127,6 +1155,73 @@ TEST(TimelineTest, ZoomOut_CrossingFullTraceBoundary_ClampsToDataTimeRange) {
   EXPECT_EQ(timeline.get_bounds_notification_message_for_test(),
             "Cannot zoom out further: showing the entire trace.");
   EXPECT_FLOAT_EQ(timeline.get_bounds_notification_timer_for_test(), 2.0f);
+}
+
+TEST(TimelineTest, ZoomOut_RepeatedFramesAtMaxBoundary_NoDriftOrPan) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  const TimeRange full_trace(0.0, 1000.0);
+  timeline.set_data_time_range(full_trace);
+  timeline.SetVisibleRange(full_trace);
+
+  // Off-center pivot (90% toward the right edge).
+  const Microseconds pivot = 900.0;
+  for (int frame = 0; frame < 50; ++frame) {
+    timeline.zoom_for_test(1.5f, pivot);
+    EXPECT_EQ(timeline.visible_range_target(), full_trace);
+    EXPECT_EQ(timeline.get_bounds_notification_message_for_test(),
+              "Cannot zoom out further: showing the entire trace.");
+  }
+}
+
+TEST(TimelineTest, ToolbarZoomOut_AtMaxBoundary_IsStrictNoOp) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  const TimeRange full_trace(0.0, 1000.0);
+  timeline.set_data_time_range(full_trace);
+  timeline.SetVisibleRange(full_trace);
+
+  // Calling Zoom(factor) with factor > 1.0 (toolbar zoom out without pivot)
+  timeline.Zoom(1.5f);
+
+  EXPECT_EQ(timeline.visible_range_target(), full_trace);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(),
+            "Cannot zoom out further: showing the entire trace.");
+  EXPECT_FLOAT_EQ(timeline.get_bounds_notification_timer_for_test(), 2.0f);
+}
+
+TEST(TimelineTest, RulerLabelFormattingStaysWithinTraceSpanWhenZoomedOut) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  // Realistic trace span: 5,000,000 us (5 seconds)
+  const TimeRange trace_range(1'000'000.0, 6'000'000.0);
+  timeline.set_data_time_range(trace_range);
+  timeline.SetVisibleRange(trace_range);
+
+  // Attempt to zoom out beyond max trace duration
+  timeline.zoom_for_test(10.0f, trace_range.center());
+  EXPECT_EQ(timeline.visible_range_target(), trace_range);
+
+  // Format tick labels across the entire visible trace range
+  const Timeline::TickInfo tick_info =
+      timeline.CalculateTickInfo(timeline.px_per_time_unit(1920.0f));
+  EXPECT_GT(tick_info.tick_interval, 0.0);
+
+  for (Microseconds t = tick_info.first_tick_time; t <= trace_range.end();
+       t += tick_info.tick_interval) {
+    const std::string label =
+        timeline.FormatRulerLabel(t, tick_info.tick_interval);
+    EXPECT_FALSE(absl::StrContains(label, "Myr"))
+        << "Label unexpectedly contained 'Myr': " << label;
+    EXPECT_FALSE(absl::StrContains(label, "yr"))
+        << "Label unexpectedly contained 'yr': " << label;
+    EXPECT_FALSE(absl::StrContains(label, "day"))
+        << "Label unexpectedly contained 'day': " << label;
+    EXPECT_FALSE(absl::StrContains(label, "hr"))
+        << "Label unexpectedly contained 'hr': " << label;
+    EXPECT_FALSE(absl::StrContains(label, "e+"))
+        << "Label unexpectedly contained scientific notation 'e+': " << label;
+  }
 }
 
 TEST(TimelineTest, CopyNotificationTimerAndNameInitialization) {
@@ -3331,6 +3426,62 @@ TEST(TimelineTest, RevealEventOutOfViewRight) {
 
   EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 5010);
   EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 10010);
+}
+
+TEST(TimelineTest, RevealEventAtRightBoundary_ClampedToDataBounds) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .pid = 1});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(9800.0);
+  data.entry_total_times.push_back(200.0);
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 10000.0});
+  timeline.SetVisibleRange({0.0, 5000.0});
+
+  timeline.RevealEvent(0);
+  Animation::UpdateAll(1.0f);
+
+  // Visible range must be strictly constrained to data time range [0, 10000].
+  EXPECT_LE(timeline.visible_range().end(), 10000.0);
+  EXPECT_GE(timeline.visible_range().start(), 0.0);
+}
+
+TEST(TimelineTest, RevealEventAtLeftBoundary_ClampedToDataBounds) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .pid = 1});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(0.0);
+  data.entry_total_times.push_back(200.0);
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 10000.0});
+  timeline.SetVisibleRange({5000.0, 10000.0});
+
+  timeline.RevealEvent(0);
+  Animation::UpdateAll(1.0f);
+
+  // Visible range must be strictly constrained to data time range [0, 10000].
+  EXPECT_GE(timeline.visible_range().start(), 0.0);
+  EXPECT_LE(timeline.visible_range().end(), 10000.0);
 }
 
 TEST(TimelineTest, RevealEventOutToRight) {
@@ -10536,6 +10687,19 @@ TEST_F(RealTimelineImGuiFixture, PanRightOutOfBounds) {
             "Cannot pan further right: reached the end of the trace.");
 }
 
+TEST_F(RealTimelineImGuiFixture,
+       PanLeftNearRightBoundaryDoesNotTriggerRightToast) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({900.0, 1000.0});
+  SimulateFrame();
+
+  // Panning left when at or near the right boundary must not trigger right
+  // toast.
+  timeline_.Pan(-10.0f);
+
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(), "");
+}
+
 TEST_F(RealTimelineImGuiFixture, ZoomInOutOfBounds) {
   timeline_.set_data_time_range({0.0, 1000.0});
   // Visible range is already at minimum duration kMinDurationMicros
@@ -10607,6 +10771,55 @@ TEST_F(RealTimelineImGuiFixture, PanFullyZoomedOutNoNotification) {
 
   EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
   EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(), "");
+}
+
+TEST_F(RealTimelineImGuiFixture, Pan_WhenShowingEntireTrace_IsStrictNoOp) {
+  const TimeRange full_trace(0.0, 1000.0);
+  timeline_.set_data_time_range(full_trace);
+  timeline_.SetVisibleRange(full_trace);
+  SimulateFrame();
+
+  timeline_.Pan(-500.0f);
+  EXPECT_EQ(timeline_.visible_range_target(), full_trace);
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(), "");
+
+  timeline_.Pan(500.0f);
+  EXPECT_EQ(timeline_.visible_range_target(), full_trace);
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(), "");
+}
+
+TEST_F(RealTimelineImGuiFixture, KeyboardZoomOut_AtMaxBoundary_IsNoOp) {
+  const TimeRange full_trace(0.0, 1000.0);
+  timeline_.set_data_time_range(full_trace);
+  timeline_.SetVisibleRange(full_trace);
+  SimulateFrame();
+
+  // Simulate pressing 's' to zoom out
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_S, true);
+  SimulateFrame();
+
+  EXPECT_EQ(timeline_.visible_range_target(), full_trace);
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            "Cannot zoom out further: showing the entire trace.");
+}
+
+TEST_F(RealTimelineImGuiFixture, MouseWheelZoomOut_AtMaxBoundary_IsNoOp) {
+  const TimeRange full_trace(0.0, 1000.0);
+  timeline_.set_data_time_range(full_trace);
+  timeline_.SetVisibleRange(full_trace);
+  SimulateFrame();
+
+  // Simulate Ctrl + MouseWheel (zoom_factor > 1.0 = zoom out)
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  io.AddMouseWheelEvent(0.0f, 1.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(timeline_.visible_range_target(), full_trace);
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            "Cannot zoom out further: showing the entire trace.");
 }
 
 TEST_F(RealTimelineImGuiFixture, DrawNotificationToastFades) {

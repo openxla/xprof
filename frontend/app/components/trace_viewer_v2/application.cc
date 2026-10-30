@@ -249,8 +249,7 @@ EMSCRIPTEN_KEEPALIVE emscripten::val GetPresetPalettes() {
 // microseconds. This is primarily used by the Live Trace Viewer to auto-follow
 // the newest sliding window as new streaming data arrives.
 EMSCRIPTEN_KEEPALIVE void SetVisibleRange(double start_us, double end_us) {
-  Application::Instance().timeline().SetVisibleRange({start_us, end_us});
-  Application::Instance().RequestRedraw();
+  Application::Instance().SetVisibleRange(start_us, end_us);
 }
 
 // Passes the HLO operand and consumer names of the selected event, so that the

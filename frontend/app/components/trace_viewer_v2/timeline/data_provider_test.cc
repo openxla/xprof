@@ -2517,6 +2517,229 @@ TEST_F(DataProviderTest,
 }
 
 TEST_F(DataProviderTest,
+       UpdateTimelineTimeRanges_ClampsAstronomicalUrlRangeToDataBounds) {
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 1,
+                                           .name = "Event 1",
+                                           .ts = 1000.0,
+                                           .dur = 5000.0}};
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+  // Astronomical range in milliseconds, such as from an unbounded URL query:
+  // -1.0049171430999723e+79 ms to 1.0458029997631888e+79 ms.
+  parsed_events.visible_range_from_url =
+      std::make_pair(-1.0049171430999723e+79, 1.0458029997631888e+79);
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  // Visible range must be clamped strictly to the data time range
+  // [1000.0, 6000.0].
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 1000.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 6000.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().duration(), 5000.0);
+}
+
+TEST_F(DataProviderTest,
+       ProcessTraceEvents_PreservesUserZoomAcrossRefetchWithFullTimespan) {
+  timeline_.SetVisibleRange({20000.0, 40000.0});
+
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 1,
+                                           .name = "Event 1",
+                                           .ts = 10000.0,
+                                           .dur = 80000.0}};
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+  parsed_events.full_timespan = std::make_pair(0.0, 100.0);  // 0ms to 100ms
+  parsed_events.visible_range_from_url =
+      std::make_pair(10.0, 80.0);  // 10ms to 80ms
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  // User's zoom range [20000.0, 40000.0] must be strictly preserved.
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 20000.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 40000.0);
+
+  // When user visible range extends outside authoritative data bounds, it is
+  // clamped without resetting to the URL range.
+  timeline_.SetVisibleRange({-50000.0, 200000.0});
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 0.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 100000.0);
+}
+
+TEST_F(DataProviderTest,
+       ProcessTraceEvents_DoesNotSnapAnimatedVisibleRangeDuringRefetch) {
+  const TimeRange target_range(20000.0, 40000.0);
+  timeline_.SetVisibleRange(target_range, /*animate=*/true);
+  // Note: Animation::UpdateAll is NOT called, so visible_range() (current_)
+  // has not caught up with visible_range_target().
+
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 1,
+                                           .name = "Event 1",
+                                           .ts = 10000.0,
+                                           .dur = 80000.0}};
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+  parsed_events.full_timespan = std::make_pair(0.0, 100.0);  // 0ms to 100ms
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  // The in-flight animated target must remain untouched by the refetch.
+  EXPECT_EQ(timeline_.visible_range_target(), target_range);
+}
+
+TEST_F(DataProviderTest,
+       MultiChunkLoad_PreservesUrlRangeInChunk2WithoutFullTimespan) {
+  // Chunk 1: only spans 0 to 10ms (10,000us)
+  ParsedTraceEvents chunk1;
+  chunk1.flame_events = {
+      CreateProcessEvent(1, "host:0 /device:TPU:0"),
+      CreateSortIndexMetadataEvent(kProcessSortIndex, 1, 0, "1"),
+      CreateThreadEvent(1, 1, "XLA Ops"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 1, "1"),
+      TraceEvent{.ph = Phase::kComplete,
+                 .pid = 1,
+                 .tid = 1,
+                 .name = "op1",
+                 .ts = 0.0,
+                 .dur = 10000.0},
+  };
+  chunk1.visible_range_from_url =
+      std::make_pair(500.0, 600.0);  // 500ms to 600ms = 500,000us to 600,000us
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk1), timeline_);
+
+  // After chunk 1: 500ms..600ms is beyond chunk 1 bounds [0, 10ms], so it is
+  // constrained to chunk 1 bounds.
+  EXPECT_LE(timeline_.visible_range().end(), 10000.0);
+
+  // Chunk 2: spans up to 1000ms (1,000,000us)
+  ParsedTraceEvents chunk2;
+  chunk2.flame_events = {
+      TraceEvent{.ph = Phase::kComplete,
+                 .pid = 1,
+                 .tid = 1,
+                 .name = "op2",
+                 .ts = 10000.0,
+                 .dur = 990000.0},
+  };
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk2), timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  // Once chunk 2 expands data bounds to 1,000,000us, the URL range
+  // [500ms, 600ms] is correctly applied.
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 500000.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 600000.0);
+}
+
+TEST_F(DataProviderTest,
+       MultiChunkLoad_UserZoomBetweenChunksPreventsUrlRangeReapplication) {
+  ParsedTraceEvents chunk1;
+  chunk1.flame_events = {
+      CreateProcessEvent(1, "host:0 /device:TPU:0"),
+      CreateSortIndexMetadataEvent(kProcessSortIndex, 1, 0, "1"),
+      CreateThreadEvent(1, 1, "XLA Ops"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 1, "1"),
+      TraceEvent{.ph = Phase::kComplete,
+                 .pid = 1,
+                 .tid = 1,
+                 .name = "op1",
+                 .ts = 0.0,
+                 .dur = 10000.0},
+  };
+  chunk1.visible_range_from_url = std::make_pair(500.0, 600.0);
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk1), timeline_);
+
+  // User manually zooms/pans between chunk 1 and chunk 2.
+  const TimeRange user_zoom(2000.0, 6000.0);
+  timeline_.SetVisibleRange(user_zoom);
+
+  ParsedTraceEvents chunk2;
+  chunk2.flame_events = {
+      TraceEvent{.ph = Phase::kComplete,
+                 .pid = 1,
+                 .tid = 1,
+                 .name = "op2",
+                 .ts = 10000.0,
+                 .dur = 990000.0},
+  };
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk2), timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  // User's zoom must be preserved; URL range must NOT be re-applied.
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().start(), 2000.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().end(), 6000.0);
+}
+
+TEST_F(DataProviderTest,
+       IncrementalLoad_FinishingWithoutFullTimespanClampsOutOfBoundsRange) {
+  ParsedTraceEvents chunk1;
+  chunk1.flame_events = {
+      CreateProcessEvent(1, "host:0 /device:TPU:0"),
+      CreateThreadEvent(1, 1, "XLA Ops"),
+      TraceEvent{.ph = Phase::kComplete,
+                 .pid = 1,
+                 .tid = 1,
+                 .name = "op1",
+                 .ts = 1000.0,
+                 .dur = 5000.0},
+  };
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk1), timeline_);
+
+  // Set visible range extending outside data bounds [1000.0, 6000.0].
+  timeline_.SetVisibleRange({-2000.0, 10000.0});
+
+  data_provider_.MarkFinishingIncrementalLoad();
+  ParsedTraceEvents final_chunk;
+  data_provider_.AppendTraceEventsIncremental(std::move(final_chunk),
+                                              timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().start(), 1000.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().end(), 6000.0);
+}
+
+TEST_F(DataProviderTest,
+       UpdateTimelineTimeRanges_NoEventsWithKnownTracksDoesNotResetRange) {
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 1,
+                                           .name = "Event 1",
+                                           .ts = 100.0,
+                                           .dur = 100.0}};
+  ParsedTraceEvents initial_batch;
+  initial_batch.flame_events = events;
+  data_provider_.ProcessTraceEvents(initial_batch, timeline_);
+  ASSERT_TRUE(data_provider_.HasKnownTracks());
+
+  timeline_.SetVisibleRange({120.0, 180.0});
+
+  // Batch with empty events (e.g. empty refetch).
+  ParsedTraceEvents empty_batch;
+  data_provider_.ProcessTraceEvents(empty_batch, timeline_);
+
+  // Since has_known_tracks is true, visible range must NOT be reset to zero.
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 120.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 180.0);
+
+  // When reset with no known tracks, visible range resets to zero.
+  data_provider_.Reset();
+  ASSERT_FALSE(data_provider_.HasKnownTracks());
+  data_provider_.ProcessTraceEvents(empty_batch, timeline_);
+  EXPECT_EQ(timeline_.visible_range(), TimeRange::Zero());
+}
+
+TEST_F(DataProviderTest,
        ProcessMultipleCounterEventsReservesCapacityCorrectly) {
   // Use sizes that trigger reallocation if not reserved upfront.
   // 64 is a common power of 2. Adding 1 more should trigger growth if capacity

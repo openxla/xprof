@@ -671,12 +671,12 @@ TEST_F(DataProviderTest,
        .name = "FlowDst",
        .ts = 300.0,
        .dur = 50.0},
-      // Async event reusing tid 55 and name "AsyncTrack"
+      // Async event reusing tid 55 and name "AsyncTrack" overlapping FlowSrc
       {.ph = Phase::kComplete,
        .pid = 1,
        .tid = 55,
        .name = "AsyncTrack",
-       .ts = 500.0,
+       .ts = 100.0,
        .dur = 50.0,
        .id = "AsyncTrack",
        .is_async = true},
@@ -5521,6 +5521,284 @@ TEST_F(DataProviderTest,
   EXPECT_EQ(groups[3].name, "Counter 2");
   EXPECT_EQ(groups[3].type, Group::Type::kCounter);
   EXPECT_TRUE(groups[3].expanded);
+}
+
+TEST_F(DataProviderTest,
+       MpmdTraceKeepsEmptyTrackWhenTidMatchesXlaModulesTidAndNameDiffers) {
+  // In an MPMD pipeline view, an empty thread track whose name is not
+  // "XLA Modules" is retained if its TID matches xla_modules_tids[pid],
+  // while non-matching empty tracks are filtered out.
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "MPMD Process"),
+      CreateProcessSortIndexEvent(1, "1"),
+      CreateThreadEvent(1, 10, "XLA Modules"),
+      CreateThreadEvent(1, 10, "Kernel Execution"),
+      CreateThreadEvent(1, 20, "Idle Secondary"),
+  };
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = events, .mpmd_pipeline_view = true},
+      timeline_);
+
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_THAT(groups, SizeIs(2));
+  EXPECT_EQ(groups[0].name, "MPMD Process");
+  // Thread 10 ("Kernel Execution") kept because its TID was recorded in
+  // xla_modules_tids[1].
+  EXPECT_EQ(groups[1].name, "Kernel Execution");
+  EXPECT_EQ(groups[1].parent_index, 0);
+}
+
+TEST_F(DataProviderTest, AsyncEventsConnectedByFlowLines) {
+  // Process 1 has an async event "MemcpyH2D" and sync event "Op1" on thread 10.
+  // Flow starts at "MemcpyH2D" (is_async = true, tid = 0) and ends at "Op1"
+  // (tid = 10).
+  const std::vector<TraceEvent> flame_events = {
+      CreateProcessEvent(1, "/device:TPU:0"),
+      CreateThreadEvent(1, 10, "XLA Ops"),
+      CreateCompleteEvent(1, 10, "Op1", 200.0, 50.0),
+      TraceEvent{
+          .ph = Phase::kComplete,
+          .event_id = 1,
+          .pid = 1,
+          .tid = 0,
+          .name = "MemcpyH2D",
+          .ts = 100.0,
+          .dur = 50.0,
+          .is_async = true,
+      },
+  };
+
+  const std::vector<TraceEvent> flow_events = {
+      TraceEvent{
+          .ph = Phase::kFlowStart,
+          .event_id = 10,
+          .pid = 1,
+          .tid = 0,
+          .name = "MemcpyH2D",
+          .ts = 100.0,
+          .id = "flow_1",
+          .category = tsl::profiler::ContextType::kGeneric,
+          .is_async = true,
+      },
+      TraceEvent{
+          .ph = Phase::kFlowEnd,
+          .event_id = 11,
+          .pid = 1,
+          .tid = 10,
+          .name = "Op1",
+          .ts = 200.0,
+          .id = "flow_1",
+          .category = tsl::profiler::ContextType::kGeneric,
+          .is_async = false,
+      },
+  };
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = flame_events,
+                        .flow_events = flow_events},
+      timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(1));
+  EXPECT_EQ(data.flow_lines[0].source_ts, 100.0);
+  EXPECT_EQ(data.flow_lines[0].target_ts, 200.0);
+  // Async track "MemcpyH2D" is placed at level 1 (under Process, after
+  // XLA Ops), XLA Ops at level 0.
+  EXPECT_EQ(data.flow_lines[0].source_level, 1);
+  EXPECT_EQ(data.flow_lines[0].target_level, 0);
+
+  // Crucially, verify no empty "Thread 0" or "Thread_0" was created by the
+  // async flow event.
+  const auto& groups = data.groups;
+  ASSERT_THAT(groups, SizeIs(3));
+  EXPECT_EQ(groups[0].name, "/device:TPU:0");
+  EXPECT_EQ(groups[1].name, "XLA Ops");
+  EXPECT_EQ(groups[2].name, "MemcpyH2D");
+}
+
+TEST_F(DataProviderTest, AsyncFlowResolvesNestedLevelAcrossDistinctTids) {
+  // Process 1 has a 2-level async track "MemcpyH2D":
+  // - Parent slice: ts = 100.0, dur = 100.0, tid = 0 (level 1)
+  // - Nested child slice: ts = 120.0, dur = 40.0, tid = 0 (level 2)
+  // Flow starts at child slice ts = 125.0, but flow event has mismatched
+  // tid = 99 and is_async = true.
+  // Flow ends at sync event on thread 10 (level 0).
+  const std::vector<TraceEvent> flame_events = {
+      CreateProcessEvent(1, "/device:TPU:0"),
+      CreateThreadEvent(1, 10, "XLA Ops"),
+      CreateCompleteEvent(1, 10, "Op1", 300.0, 50.0),
+      TraceEvent{
+          .ph = Phase::kComplete,
+          .event_id = 1,
+          .pid = 1,
+          .tid = 0,
+          .name = "MemcpyH2D",
+          .ts = 100.0,
+          .dur = 100.0,
+          .is_async = true,
+      },
+      TraceEvent{
+          .ph = Phase::kComplete,
+          .event_id = 2,
+          .pid = 1,
+          .tid = 0,
+          .name = "MemcpyH2D",
+          .ts = 120.0,
+          .dur = 40.0,
+          .is_async = true,
+      },
+  };
+
+  const std::vector<TraceEvent> flow_events = {
+      TraceEvent{
+          .ph = Phase::kFlowStart,
+          .event_id = 10,
+          .pid = 1,
+          .tid = 99,  // Mismatched TID
+          .name = "MemcpyH2D",
+          .ts = 125.0,
+          .id = "flow_nested",
+          .category = tsl::profiler::ContextType::kGeneric,
+          .is_async = true,
+      },
+      TraceEvent{
+          .ph = Phase::kFlowEnd,
+          .event_id = 11,
+          .pid = 1,
+          .tid = 10,
+          .name = "Op1",
+          .ts = 300.0,
+          .id = "flow_nested",
+          .category = tsl::profiler::ContextType::kGeneric,
+          .is_async = false,
+      },
+  };
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = flame_events,
+                        .flow_events = flow_events},
+      timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(1));
+  EXPECT_EQ(data.flow_lines[0].source_ts, 125.0);
+  EXPECT_EQ(data.flow_lines[0].target_ts, 300.0);
+  // Source level must resolve to child slice level (level 2), not parent (1)
+  // or thread top fallback.
+  EXPECT_EQ(data.flow_lines[0].source_level, 2);
+  EXPECT_EQ(data.flow_lines[0].target_level, 0);
+}
+
+TEST_F(DataProviderTest, UnmatchedAsyncFlowDoesNotAttachToSyncThreadZero) {
+  // Process 1 has synchronous Thread_0 (pid = 1, tid = 0).
+  // Flow start event is async with tid = 0, but name "MissingTrack" does not
+  // exist.
+  // It must NOT fall back to Thread_0; flow_lines must be empty.
+  const std::vector<TraceEvent> flame_events = {
+      CreateProcessEvent(1, "/device:TPU:0"),
+      CreateThreadEvent(1, 0, "Thread_0"),
+      CreateCompleteEvent(1, 0, "SyncOp", 100.0, 50.0),
+      CreateThreadEvent(1, 10, "XLA Ops"),
+      CreateCompleteEvent(1, 10, "Op1", 200.0, 50.0),
+  };
+
+  const std::vector<TraceEvent> flow_events = {
+      TraceEvent{
+          .ph = Phase::kFlowStart,
+          .event_id = 10,
+          .pid = 1,
+          .tid = 0,
+          .name = "MissingTrack",
+          .ts = 100.0,
+          .id = "flow_missing",
+          .category = tsl::profiler::ContextType::kGeneric,
+          .is_async = true,
+      },
+      TraceEvent{
+          .ph = Phase::kFlowEnd,
+          .event_id = 11,
+          .pid = 1,
+          .tid = 10,
+          .name = "Op1",
+          .ts = 200.0,
+          .id = "flow_missing",
+          .category = tsl::profiler::ContextType::kGeneric,
+          .is_async = false,
+      },
+  };
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = flame_events,
+                        .flow_events = flow_events},
+      timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  EXPECT_THAT(data.flow_lines, IsEmpty());
+}
+
+TEST_F(DataProviderTest,
+       AppendTraceEventsIncremental_AsyncEventsConnectedByFlowLines) {
+  const std::vector<TraceEvent> flame_events = {
+      CreateProcessEvent(1, "/device:TPU:0"),
+      CreateThreadEvent(1, 10, "XLA Ops"),
+      CreateCompleteEvent(1, 10, "Op1", 200.0, 50.0),
+      TraceEvent{
+          .ph = Phase::kComplete,
+          .event_id = 1,
+          .pid = 1,
+          .tid = 0,
+          .name = "MemcpyH2D",
+          .ts = 100.0,
+          .dur = 50.0,
+          .is_async = true,
+      },
+  };
+
+  const std::vector<TraceEvent> flow_events = {
+      TraceEvent{
+          .ph = Phase::kFlowStart,
+          .event_id = 10,
+          .pid = 1,
+          .tid = 0,
+          .name = "MemcpyH2D",
+          .ts = 100.0,
+          .id = "flow_1",
+          .category = tsl::profiler::ContextType::kGeneric,
+          .is_async = true,
+      },
+      TraceEvent{
+          .ph = Phase::kFlowEnd,
+          .event_id = 11,
+          .pid = 1,
+          .tid = 10,
+          .name = "Op1",
+          .ts = 200.0,
+          .id = "flow_1",
+          .category = tsl::profiler::ContextType::kGeneric,
+          .is_async = false,
+      },
+  };
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(
+      ParsedTraceEvents{.flame_events = flame_events,
+                        .flow_events = flow_events},
+      timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(1));
+  EXPECT_EQ(data.flow_lines[0].source_ts, 100.0);
+  EXPECT_EQ(data.flow_lines[0].target_ts, 200.0);
+  EXPECT_EQ(data.flow_lines[0].source_level, 1);
+  EXPECT_EQ(data.flow_lines[0].target_level, 0);
+
+  const auto& groups = data.groups;
+  ASSERT_THAT(groups, SizeIs(3));
+  EXPECT_EQ(groups[0].name, "/device:TPU:0");
+  EXPECT_EQ(groups[1].name, "XLA Ops");
+  EXPECT_EQ(groups[2].name, "MemcpyH2D");
 }
 
 TEST_F(DataProviderTest, PopulateProcessTrackUnifiesSyncAndAsyncTracks) {

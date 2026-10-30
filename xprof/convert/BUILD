@@ -225,6 +225,8 @@ cc_library(
         "//plugin/xprof/protobuf:hlo_stats_proto_cc",
         "//plugin/xprof/protobuf:op_stats_proto_cc",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
     ],
 )

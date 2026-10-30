@@ -17,11 +17,14 @@ limitations under the License.
 
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 #include "tsl/platform/protobuf.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/flat_op_stats_to_op_profile.h"
@@ -84,6 +87,24 @@ absl::Status UnifiedOpProfileProcessor::ProcessCombinedOpStats(
         profile, /*op_profile_limit=*/100,
         tensorflow::profiler::GetOpProfileGrouping(options),
         program_serving_metadata_ptr);
+  }
+
+  std::string format = GetParamWithDefault<std::string>(options, "format", "");
+  std::string tqx = GetParamWithDefault<std::string>(options, "tqx", "");
+  bool is_pb = (format == "pb");
+  if (!is_pb && !tqx.empty()) {
+    std::vector<absl::string_view> tqx_parts = absl::StrSplit(tqx, ';');
+    for (absl::string_view part : tqx_parts) {
+      if (part == "out:pb") {
+        is_pb = true;
+        break;
+      }
+    }
+  }
+
+  if (is_pb) {
+    SetOutput(profile.SerializeAsString(), "application/x-protobuf");
+    return absl::OkStatus();
   }
 
   std::string op_profile_json;

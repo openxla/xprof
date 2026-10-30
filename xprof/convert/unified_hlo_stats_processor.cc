@@ -16,8 +16,11 @@
 #include "xprof/convert/unified_hlo_stats_processor.h"
 
 #include <string>
+#include <vector>
 
 #include "absl/status/status.h"
+#include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/op_stats_to_hlo_stats.h"
 #include "xprof/convert/tool_options.h"
@@ -28,6 +31,7 @@
 namespace xprof {
 
 using tensorflow::profiler::ConvertOpStatsToHloStats;
+using tensorflow::profiler::GetParamWithDefault;
 using tensorflow::profiler::HloStatsToDataTableJson;
 using tensorflow::profiler::OpStats;
 using tensorflow::profiler::hlo_stats::HloStatsDatabase;
@@ -37,6 +41,25 @@ absl::Status UnifiedHloStatsProcessor::ProcessCombinedOpStats(
     const OpStats& combined_op_stats,
     const tensorflow::profiler::ToolOptions& options) {
   HloStatsDatabase hlo_stats_db = ConvertOpStatsToHloStats(combined_op_stats);
+
+  std::string format = GetParamWithDefault<std::string>(options, "format", "");
+  std::string tqx = GetParamWithDefault<std::string>(options, "tqx", "");
+  bool is_pb = (format == "pb");
+  if (!is_pb && !tqx.empty()) {
+    std::vector<absl::string_view> tqx_parts = absl::StrSplit(tqx, ';');
+    for (absl::string_view part : tqx_parts) {
+      if (part == "out:pb") {
+        is_pb = true;
+        break;
+      }
+    }
+  }
+
+  if (is_pb) {
+    SetOutput(hlo_stats_db.SerializeAsString(), "application/x-protobuf");
+    return absl::OkStatus();
+  }
+
   std::string hlo_stats_json = HloStatsToDataTableJson(hlo_stats_db);
   SetOutput(hlo_stats_json, "application/json");
   return absl::OkStatus();

@@ -21,6 +21,7 @@ limitations under the License.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/node_hash_map.h"
 #include "absl/log/check.h"
@@ -576,9 +577,9 @@ OpProfileBuilder::Program* OpProfileBuilder::LookupOrAddProgramNode(
   if (program->node == nullptr) {
     program->node = root_->add_children();
     program->node->set_name(GenerateProgramName(program_id));
-    if (options_.program_serving_metadata != nullptr) {
-      auto it = options_.program_serving_metadata->find(program_id);
-      if (it != options_.program_serving_metadata->end() &&
+    if (program_serving_metadata_ != nullptr) {
+      auto it = program_serving_metadata_->find(program_id);
+      if (it != program_serving_metadata_->end() &&
           !it->second.model_id().empty() && it->second.batch_size() > 0 &&
           it->second.num_batches() > 0) {
         *program->node->mutable_program_serving_metadata() = it->second;
@@ -806,8 +807,12 @@ void OpProfileBuilder::Finalize(
 OpProfileBuilder::OpProfileBuilder(
     const OpProfileOptions& options,
     tensorflow::profiler::op_profile::Node* root,
-    const tsl::protobuf::Map<uint64_t, std::string>* program_name_map)
-    : options_(options), root_(root), program_name_map_(program_name_map) {
+    const tsl::protobuf::Map<uint64_t, std::string>* program_name_map,
+    const ProgramServingMetadataMap* absl_nullable program_serving_metadata)
+    : options_(options),
+      root_(root),
+      program_name_map_(program_name_map),
+      program_serving_metadata_(program_serving_metadata) {
   if (root == nullptr) {
     LOG(DFATAL) << "root is null.";
     return;

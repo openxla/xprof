@@ -53,9 +53,9 @@ void BuildOpProfileNodeTree(
       group_by,
       /*group_by_deduplicated_name=*/true,
       /*children_per_node=*/op_profile_limit,
-      program_serving_metadata,
   };
-  OpProfileBuilder builder(options, root, &op_stats.program_id_to_name_map());
+  OpProfileBuilder builder(options, root, &op_stats.program_id_to_name_map(),
+                           program_serving_metadata);
 
   for (const OpMetrics& op_metrics : metrics_db.metrics_db()) {
     DCHECK(!op_metrics.name().empty());

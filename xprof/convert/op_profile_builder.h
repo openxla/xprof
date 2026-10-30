@@ -41,11 +41,6 @@ struct OpProfileOptions {
   OpProfileGrouping group_by = OpProfileGrouping::kByProgram;
   bool group_by_deduplicated_name = true;
   int children_per_node = 100;
-  // Optional serving metadata to copy onto program nodes. Entries without a
-  // model_id, a positive batch_size, or a positive num_batches are ignored. If
-  // non-null, must outlive the OpProfileBuilder.
-  const ProgramServingMetadataMap* absl_nullable program_serving_metadata =
-      nullptr;
 };
 
 // The structure of an op profile tree may looks like below:
@@ -92,9 +87,15 @@ struct OpProfileOptions {
 // group, to avoid double counting
 class OpProfileBuilder {
  public:
+  // Constructs an op profile tree builder rooted at `root`. If
+  // `program_serving_metadata` is non-null, copies matching entries (requiring
+  // a non-empty model_id and positive batch_size and num_batches) onto program
+  // nodes; the map must outlive the builder.
   OpProfileBuilder(const OpProfileOptions& options, op_profile::Node* root,
                    const tsl::protobuf::Map<uint64_t, std::string>*
-                       program_name_map = nullptr);
+                       program_name_map = nullptr,
+                   const ProgramServingMetadataMap* absl_nullable
+                       program_serving_metadata = nullptr);
 
   // Accumulate the op_metrics to the op_profile node tree
   void AddOp(const OpMetrics& op_metrics);
@@ -217,6 +218,11 @@ class OpProfileBuilder {
   // Map to look up program names by id.
 
   const tsl::protobuf::Map<uint64_t, std::string>* program_name_map_ = nullptr;
+
+  // Map to look up serving metadata by program id. If non-null, must outlive
+  // this builder.
+  const ProgramServingMetadataMap* absl_nullable program_serving_metadata_ =
+      nullptr;
 };
 }  // namespace profiler
 }  // namespace tensorflow

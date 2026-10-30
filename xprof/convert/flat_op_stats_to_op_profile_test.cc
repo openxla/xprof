@@ -20,7 +20,6 @@ limitations under the License.
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include "absl/strings/match.h"
 #include "tsl/platform/protobuf.h"
 #include "xprof/convert/op_profile_builder.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"

@@ -2536,7 +2536,6 @@ cc_test(
         "//plugin/xprof/protobuf:op_profile_proto_cc",
         "//plugin/xprof/protobuf:op_stats_proto_cc",
         "@com_google_absl//absl/log",
-        "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
         "@tsl//tsl/platform:protobuf",

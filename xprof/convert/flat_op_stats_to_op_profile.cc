@@ -36,10 +36,10 @@ void BuildOpProfileNodeTreeAlter(
       group_by,
       /*group_by_deduplicated_name=*/true,
       /*children_per_node=*/op_profile_limit,
-      program_serving_metadata,
   };
   // Use op_stats.program_id_to_name_map()
-  OpProfileBuilder builder(options, root, &op_stats.program_id_to_name_map());
+  OpProfileBuilder builder(options, root, &op_stats.program_id_to_name_map(),
+                           program_serving_metadata);
   for (const FlatOpMetrics& op_metrics :
        op_stats.flat_device_op_metrics_db().op_instances()) {
     DCHECK(!op_metrics.hlo_name().empty());

@@ -42,7 +42,7 @@ std::vector<PackedEvent> PackTraceEvents(
 
     std::optional<int> selected_row = std::nullopt;
     for (size_t i = 0; i < row_end_times.size(); ++i) {
-      if (row_end_times[i] <= start) {
+      if (row_end_times[i] <= start + kPicosecondRoundingToleranceUs) {
         selected_row = static_cast<int>(i);
         break;
       }

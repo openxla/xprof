@@ -1,5 +1,6 @@
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event_packer.h"
 
+#include <cstdint>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -122,6 +123,52 @@ TEST(TraceEventPackerTest, IgnoresNullPointers) {
   const TraceEvent event_b = {.name = "B", .ts = 20.0, .dur = 20.0};
   const std::vector<const TraceEvent*> events_ptr = {&event_a, nullptr,
                                                      &event_b, nullptr};
+  const auto packed = PackTraceEvents(events_ptr);
+
+  ASSERT_EQ(packed.size(), 2);
+  EXPECT_EQ(packed[0].event->name, "A");
+  EXPECT_EQ(packed[0].level, 0);
+  EXPECT_EQ(packed[1].event->name, "B");
+  EXPECT_EQ(packed[1].level, 1);
+}
+
+TEST(TraceEventPackerTest,
+     PicosecondAdjacentEventsWithDoubleRoundingStayOnSameLevel) {
+  constexpr uint64_t kStart0Ps = 14043458000ULL;
+  constexpr uint64_t kDur0Ps = 22113441836ULL;
+  constexpr uint64_t kStart1Ps = kStart0Ps + kDur0Ps;
+  constexpr uint64_t kDur1Ps = 721597984164ULL;
+
+  const std::vector<TraceEvent> events = {
+      {.name = "A", .ts = kStart0Ps / 1e6, .dur = kDur0Ps / 1e6},
+      {.name = "B", .ts = kStart1Ps / 1e6, .dur = kDur1Ps / 1e6},
+  };
+  // Verify that independent `ps / 1e6` conversions round `ts + dur` 1 ULP past
+  // the next event's `ts`.
+  ASSERT_GT(events[0].ts + events[0].dur, events[1].ts);
+
+  auto events_ptr = GetEventPointers(events);
+  const auto packed = PackTraceEvents(events_ptr);
+
+  ASSERT_EQ(packed.size(), 2);
+  EXPECT_EQ(packed[0].event->name, "A");
+  EXPECT_EQ(packed[0].level, 0);
+  EXPECT_EQ(packed[1].event->name, "B");
+  EXPECT_EQ(packed[1].level, 0);
+}
+
+TEST(TraceEventPackerTest, OnePicosecondOverlapMovesToNextLevel) {
+  constexpr uint64_t kStart0Ps = 14043458000ULL;
+  constexpr uint64_t kDur0Ps = 22113441837ULL;
+  constexpr uint64_t kStart1Ps = 36156899836ULL;
+  constexpr uint64_t kDur1Ps = 1000000ULL;
+  static_assert(kStart0Ps + kDur0Ps == kStart1Ps + 1);
+
+  const std::vector<TraceEvent> events = {
+      {.name = "A", .ts = kStart0Ps / 1e6, .dur = kDur0Ps / 1e6},
+      {.name = "B", .ts = kStart1Ps / 1e6, .dur = kDur1Ps / 1e6},
+  };
+  auto events_ptr = GetEventPointers(events);
   const auto packed = PackTraceEvents(events_ptr);
 
   ASSERT_EQ(packed.size(), 2);

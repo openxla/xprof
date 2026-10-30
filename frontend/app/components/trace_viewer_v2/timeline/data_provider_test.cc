@@ -7714,5 +7714,71 @@ TEST_F(
   EXPECT_EQ(src_grp->name, "ICI");
   EXPECT_EQ(tgt_grp->name, "Memcpy");
 }
+
+TEST_F(DataProviderTest,
+       PicosecondAdjacentEventsWithDoubleRoundingPackIntoSingleLevel) {
+  constexpr uint64_t kStart0Ps = 14043458000ULL;
+  constexpr uint64_t kDur0Ps = 22113441836ULL;
+  constexpr uint64_t kStart1Ps = kStart0Ps + kDur0Ps;
+  constexpr uint64_t kDur1Ps = 721597984164ULL;
+
+  const TraceEvent ev0 = {.ph = Phase::kComplete,
+                          .pid = 1,
+                          .tid = 10,
+                          .name = "InitialPad",
+                          .ts = kStart0Ps / 1e6,
+                          .dur = kDur0Ps / 1e6};
+  const TraceEvent ev1 = {.ph = Phase::kComplete,
+                          .pid = 1,
+                          .tid = 10,
+                          .name = "SteadyState",
+                          .ts = kStart1Ps / 1e6,
+                          .dur = kDur1Ps / 1e6};
+  ASSERT_GT(ev0.ts + ev0.dur, ev1.ts);
+
+  const FlameChartTimelineData& data = Process({
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Device"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 10, "Power Throttle"),
+      ev0,
+      ev1,
+  });
+
+  ASSERT_EQ(data.groups.size(), 2);
+  EXPECT_EQ(data.groups[1].name, "Power Throttle");
+  EXPECT_EQ(data.groups[1].level_count, 1);
+  ASSERT_EQ(data.entry_levels.size(), 2);
+  EXPECT_EQ(data.entry_levels[0], data.entry_levels[1]);
+  EXPECT_DOUBLE_EQ(data.entry_self_times[0], ev0.dur);
+  EXPECT_DOUBLE_EQ(data.entry_self_times[1], ev1.dur);
+}
+
+TEST_F(DataProviderTest, OnePicosecondOverlapStillSplitsAcrossTwoLevels) {
+  constexpr uint64_t kStart0Ps = 14043458000ULL;
+  constexpr uint64_t kDur0Ps = 22113441837ULL;
+  constexpr uint64_t kStart1Ps = 36156899836ULL;
+  constexpr uint64_t kDur1Ps = 1000000ULL;
+  static_assert(kStart0Ps + kDur0Ps == kStart1Ps + 1);
+
+  const FlameChartTimelineData& data = Process({
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Device"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 10, "Track"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 10,
+       .name = "A",
+       .ts = kStart0Ps / 1e6,
+       .dur = kDur0Ps / 1e6},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 10,
+       .name = "B",
+       .ts = kStart1Ps / 1e6,
+       .dur = kDur1Ps / 1e6},
+  });
+
+  ASSERT_EQ(data.groups.size(), 2);
+  EXPECT_EQ(data.groups[1].level_count, 2);
+}
+
 }  // namespace
 }  // namespace traceviewer

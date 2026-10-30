@@ -986,7 +986,7 @@ void PopulateThreadTrackEvents(
       }
       for (size_t r = static_cast<size_t>(min_row); r < row_end_times.size();
            ++r) {
-        if (row_end_times[r] <= ev->ts) {
+        if (row_end_times[r] <= ev->ts + kPicosecondRoundingToleranceUs) {
           assigned_row = static_cast<int>(r);
           break;
         }

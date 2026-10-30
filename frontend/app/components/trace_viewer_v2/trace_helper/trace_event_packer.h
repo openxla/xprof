@@ -8,6 +8,11 @@
 
 namespace traceviewer {
 
+// Independent event conversions to IEEE-754 double microseconds can round
+// `ts + dur` a few ULPs past the next contiguous event's `ts`. Treat overlaps
+// smaller than 0.5 ps as contiguous rather than overlapping.
+inline constexpr Microseconds kPicosecondRoundingToleranceUs = 0.5e-6;
+
 // Represents a trace event and its assigned visual level (row) after packing.
 struct PackedEvent {
   // Pointer to the original trace event. Must outlive PackedEvent and is

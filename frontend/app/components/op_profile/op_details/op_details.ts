@@ -1,9 +1,10 @@
 import {Component, EventEmitter, inject, Input, Output, ChangeDetectionStrategy} from '@angular/core';
 import {Store} from '@ngrx/store';
+import {KERNEL_VIEWER_BUTTON_LABEL} from 'org_xprof/frontend/app/common/constants/constants';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
-import {getActiveOpProfileNodeState, getCurrentRun, getOpAnalysisState, getOpProfileRootNode, getProfilingGeneralState, getSelectedOpNodeChainState} from 'org_xprof/frontend/app/store/selectors';
+import {getActiveOpProfileNodeState, getCurrentRun, getOpAnalysisState, getOpProfileRootNode, getProfilingGeneralState, getSelectedOpNodeChainState, getTagsState} from 'org_xprof/frontend/app/store/selectors';
 import {OpAnalysisState, ProfilingGeneralState} from 'org_xprof/frontend/app/store/state';
 import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 import {Observable, ReplaySubject} from 'rxjs';
@@ -70,6 +71,8 @@ export class OpDetails {
   showUtilizationWarning = false;
   deviceType = 'TPU';
   applyScalingFactor = false;
+  tags: string[] = [];
+  readonly kernelViewerButtonLabel = KERNEL_VIEWER_BUTTON_LABEL;
 
   constructor(
       private readonly store: Store<{}>,
@@ -103,6 +106,11 @@ export class OpDetails {
               generalState.deviceType :
               'TPU';
         });
+    this.store.select(getTagsState)
+        .pipe(takeUntil(this.destroyed))
+        .subscribe((tags: string[]) => {
+          this.tags = tags ?? [];
+        });
 
     this.currentRun$.subscribe(run => {
       if (run) {
@@ -130,6 +138,21 @@ export class OpDetails {
     const aggregatedBy = this.selectedOpNodeChain[0];
     // 'by_program' or 'by_category'
     return aggregatedBy === 'by_program' ? this.selectedOpNodeChain[1] : '';
+  }
+
+  /**
+   * Links custom call XLA ops, e.g. Pallas kernels, to their static schedule in
+   * the Kernel Viewer when the session has kernel debug info (`llo_debug` tag).
+   */
+  get kernelViewerLink(): string {
+    return utils.getOpProfileKernelViewerLink({
+      node: this.node,
+      tags: this.tags,
+      sessionId: this.sessionId,
+      dataService: this.dataService,
+      rootNode: this.rootNode,
+      moduleList: this.moduleList,
+    }).url;
   }
 
   get graphViewerLink() {

@@ -25,6 +25,20 @@
             </button>
           </a>
         </div>
+        <div class="info" id="kernel-viewer-link" [hidden]="!kernelViewerLink">
+          <a [href]="kernelViewerLink" target="_blank" rel="noopener noreferrer" style="text-decoration:none;">
+            <button
+              mat-stroked-button
+              extended
+              type="button"
+              color="primary"
+              appearance="fill"
+              aria-label="go to kernel viewer"
+              i18n-aria-label="Aria label for a button that opens the corresponding Kernel Viewer page for the selected custom call operation [CHAR_LIMIT=NONE]">
+             {{kernelViewerButtonLabel}}
+            </button>
+          </a>
+        </div>
         <div class="info" id="custom-call-text-link" [hidden]="!isValidCustomCall">
           <a [href]="getCustomCallTextLink()" target="_blank" style="text-decoration:none;">
             <button

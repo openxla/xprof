@@ -20,7 +20,15 @@
         </span>
       </span>
       {{name}}
-      <span *ngIf="asDiffNode(node)?.activeOnly" class="diff-badge badge-added">Added</span>
+      <a
+        [hidden]="!kernelViewerLink.url"
+        class="kernel-viewer-link"
+        [href]="kernelViewerLink.url"
+        target="_blank"
+        rel="noopener noreferrer"
+        [title]="kernelViewerLink.tooltip"
+        [attr.aria-label]="kernelViewerLink.tooltip"
+        (click)="$event.stopPropagation()"><mat-icon *ngIf="kernelViewerLink.url" class="kernel-viewer-link-icon">open_in_new</mat-icon></a><span *ngIf="asDiffNode(node)?.activeOnly" class="diff-badge badge-added">Added</span>
       <span *ngIf="asDiffNode(node)?.baselineOnly" class="diff-badge badge-removed">Removed</span>
     </span>
     <span aria-label="Framework Op type:"></span><span class="provenance">{{provenance}}&nbsp;</span>
@@ -49,6 +57,9 @@
     [level]="level + 1"
     [node]="childNode"
     [rootNode]="rootNode"
+    [sessionId]="sessionId"
+    [moduleList]="moduleList"
+    [tags]="tags"
     [selectedNode]="selectedNode"
     [byWasted]="byWasted"
     [showP90]="showP90"

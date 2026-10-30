@@ -20,6 +20,7 @@ ts_library(
     ],
     deps = [
         "//:node_modules/@ngrx/store",
+        "@org_xprof//frontend/app/common/constants",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/interfaces:chart",
         "@org_xprof//frontend/app/common/interfaces:op_profile_proto_defs",

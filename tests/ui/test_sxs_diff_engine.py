@@ -678,7 +678,9 @@ class SxsDiffEngineTest(unittest.TestCase):
       self.assertIn("triage — hlo_stats", content)
       self.assertIn("PASS (Identical)", content)
       self.assertIn("DIFF DETECTED", content)
-      self.assertIn("Reviewer Action Required", content)
+      self.assertIn("Author Action Required", content)
+      self.assertIn("Author UI Diff Approval Portal", content)
+      self.assertNotIn("Reviewer Certification", content)
       self.assertIn("data:image/png;base64,", content)
       self.assertIn("DOM Structure Divergence (+1 / -1)", content)
       self.assertIn(
@@ -1233,6 +1235,8 @@ class SxsDiffEngineTest(unittest.TestCase):
       self.assertIn("ALL WAYPOINTS IDENTICAL", content_identical)
       self.assertIn("badge badge-pass", content_identical)
       self.assertIn("100% Identical to Baseline", content_identical)
+      self.assertNotIn('id="approval-card"', content_identical)
+      self.assertNotIn('id="reviewer-guidance-card"', content_identical)
       manifest_path = os.path.join(tmpdir, "approved_manifest.json")
       diff_changed = _evaluate(
           engine,
@@ -1259,9 +1263,16 @@ class SxsDiffEngineTest(unittest.TestCase):
           waypoint="hlo_stats",
       )
       content_approved = _render_report([diff_same, diff_approved])
-      self.assertIn("DIFFS APPROVED", content_approved)
+      self.assertIn("AUTHOR APPROVED — PENDING REVIEW", content_approved)
       self.assertIn("badge badge-approved", content_approved)
-      self.assertIn("All Diffs Approved", content_approved)
+      self.assertIn(
+          "Author Approved in Manifest — Code Reviewer: Inspect APPROVED Tabs"
+          " Below",
+          content_approved,
+      )
+      self.assertIn('id="reviewer-guidance-card"', content_approved)
+      self.assertIn("No button click or manifest edit", content_approved)
+      self.assertNotIn('id="approval-card"', content_approved)
       self.assertIn(
           '<div class="tab-status-approved"></div>'
           " triage: hlo_stats (APPROVED)",
@@ -1274,7 +1285,33 @@ class SxsDiffEngineTest(unittest.TestCase):
       content_diff = _render_report([diff_same, diff_approved, diff_changed])
       self.assertIn("DIFF DETECTED", content_diff)
       self.assertIn("badge badge-fail", content_diff)
-      self.assertIn("Reviewer Action Required", content_diff)
+      self.assertIn("Author Action Required", content_diff)
+      self.assertIn('id="approval-card"', content_diff)
+      self.assertNotIn('id="reviewer-guidance-card"', content_diff)
+
+  def test_sxs_report_embeds_escaped_report_url_for_tag_copy(self):
+    """Verifies XPROF_SXS_REPORT_URL is embedded safely for tag copy."""
+    engine = SxsDiffEngine()
+    diff = _evaluate(
+        engine,
+        _create_test_image((0, 0, 0)),
+        _create_test_image((255, 255, 255)),
+        html_a="<div>A</div>",
+        html_b="<div>B</div>",
+    )
+    sample_url = (
+        "https://artifacts.example.test/runs/42/sxs_report.html?a=1&b=<x>"
+    )
+    with mock.patch.dict(
+        os.environ, {"XPROF_SXS_REPORT_URL": sample_url}, clear=False
+    ):
+      content = _render_report([diff])
+
+    embedded = content.split("const reportUrl = ", 1)[1].split(";\n", 1)[0]
+    self.assertNotIn("<x>", embedded)
+    self.assertEqual(json.loads(embedded), sample_url)
+    self.assertIn('id="report-tag-section"', content)
+    self.assertIn("Copy UI_SXS_REPORT Tag to Clipboard", content)
 
   def test_sxs_report_unapproved_json_escapes_script_tags(self):
     """Verifies <script> JSON payload escapes <, >, and & characters."""

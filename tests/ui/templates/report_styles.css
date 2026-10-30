@@ -498,7 +498,7 @@ body {
   color: var(--fail);
 }
 
-/* Reviewer Certification Portal */
+/* Author Diff Approval Portal & Reviewer Guidance */
 .approval-card {
   background: #fdfdfe;
   border: 2px solid var(--primary);

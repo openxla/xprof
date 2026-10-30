@@ -30,6 +30,7 @@ $approval_portal_html
 <script>
   const unapprovedWaypoints = $unapproved_json;
   const currentApprovedDiffs = $approved_json;
+  const reportUrl = $report_url_json;
 
   function setVisualMode(cardId, mode) {
     const sxs = document.getElementById('view-sxs-' + cardId);
@@ -189,6 +190,14 @@ $approval_portal_html
 
     document.getElementById('manifest-code').textContent =
         JSON.stringify({approved_diffs: sortedDiffs}, null, 2) + '\n';
+    if (reportUrl) {
+      const tagBlock = document.getElementById('report-tag-code');
+      const tagSection = document.getElementById('report-tag-section');
+      if (tagBlock && tagSection) {
+        tagBlock.textContent = 'UI_SXS_REPORT=' + reportUrl;
+        tagSection.style.display = 'block';
+      }
+    }
     document.getElementById('approval-card').style.display = 'none';
     document.getElementById('certified-banner').style.display = 'block';
     // The overall badge is deliberately left red. Nothing has been written:
@@ -204,13 +213,10 @@ $approval_portal_html
         'remains red. Fix the regression and re-run the comparison.');
   }
 
-  function copyManifestJson() {
-    const code = document.getElementById('manifest-code').textContent;
-    const successMsg =
-        'Copied. Replace tests/ui/approved_manifest.json in your CL with it.';
-    function fallbackCopy(text) {
+  function copyTextWithFallback(text, successMsg) {
+    function fallbackCopy(val) {
       const ta = document.createElement('textarea');
-      ta.value = text;
+      ta.value = val;
       ta.style.position = 'fixed';
       ta.style.opacity = '0';
       document.body.appendChild(ta);
@@ -229,14 +235,28 @@ $approval_portal_html
       }
     }
     if (!navigator.clipboard || !navigator.clipboard.writeText) {
-      fallbackCopy(code);
+      fallbackCopy(text);
       return;
     }
-    navigator.clipboard.writeText(code).then(() => {
+    navigator.clipboard.writeText(text).then(() => {
       alert(successMsg);
     }).catch(() => {
-      fallbackCopy(code);
+      fallbackCopy(text);
     });
+  }
+
+  function copyManifestJson() {
+    copyTextWithFallback(
+        document.getElementById('manifest-code').textContent,
+        'Copied. Replace tests/ui/approved_manifest.json in your change with it.'
+    );
+  }
+
+  function copyReportTag() {
+    copyTextWithFallback(
+        document.getElementById('report-tag-code').textContent,
+        'Copied UI_SXS_REPORT tag. Paste it into your change description footer tags.'
+    );
   }
 </script>
 </body>

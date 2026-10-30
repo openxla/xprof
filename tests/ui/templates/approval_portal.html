@@ -1,17 +1,17 @@
 <div class="approval-card" id="approval-card">
   <div class="approval-title">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-    Reviewer Certification & Approval Portal
+    Author UI Diff Approval Portal
   </div>
   <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
-    Unapproved visual or structural deltas detected. Certify whether this diff is an intended improvement or an unintentional regression.
+    <strong>For Change Authors only:</strong> Declare whether unapproved visual, DOM, or network deltas are intentional so they can be recorded in <code>tests/ui/approved_manifest.json</code>. Code reviewers do not use this form &mdash; inspect the waypoint tabs above and review directly in code review.
   </p>
 
   <div class="approval-options">
     <label class="radio-label">
       <input type="radio" name="approval_choice" id="choice-intentional" value="intentional" checked>
       <div>
-        <strong>Mark as INTENTIONAL Improvement (Approve Change)</strong>
+        <strong>Mark as INTENTIONAL Improvement (Author Approval)</strong>
         <div style="font-size: 12px; color: var(--text-muted);">The visual change matches product design specs and improves user experience.</div>
       </div>
     </label>
@@ -22,20 +22,25 @@
       <input type="radio" name="approval_choice" id="choice-regression" value="regression">
       <div>
         <strong>Flag as UNINTENTIONAL Regression (Withhold Approval)</strong>
-        <div style="font-size: 12px; color: var(--text-muted);">The layout shift or text change was accidental and must be fixed in the CL.</div>
+        <div style="font-size: 12px; color: var(--text-muted);">The layout shift or text change was accidental and must be fixed in the change.</div>
       </div>
     </label>
   </div>
 
   <div class="action-row">
-    <button type="button" class="btn-reject" onclick="flagRegression()">Reject & Request Rework</button>
-    <button type="button" class="btn-approve" onclick="signApproval()">Approve & Sign Manifest</button>
+    <button type="button" class="btn-reject" onclick="flagRegression()">Reject &amp; Request Rework</button>
+    <button type="button" class="btn-approve" onclick="signApproval()">Approve &amp; Generate Manifest</button>
   </div>
 </div>
 
 <div class="certified-banner" id="certified-banner" style="display:none;">
-  <h4>approved_manifest.json generated &mdash; not yet applied</h4>
-  <p style="font-size: 13px; margin: 8px 0 4px 0;">This run is still failing and nothing has been written. Replace <code>tests/ui/approved_manifest.json</code> in your CL with the file below and upload; the gate re-evaluates on the next run. It is the manifest this run read plus the new entries, so the CL diff should only add or update entries for the waypoints on this page. If other entries disappear, the manifest changed after this run: use the report from a newer run.</p>
+  <h4>approved_manifest.json generated &mdash; author must apply to change</h4>
+  <p style="font-size: 13px; margin: 8px 0 4px 0;">This run is still failing and nothing has been written. Replace <code>tests/ui/approved_manifest.json</code> in your change with the file below, include a link to this <code>sxs_report.html</code> in your change description for your code reviewer, and re-run checks. It is the manifest this run read plus the new entries, so the diff should only add or update entries for the waypoints on this page. If other entries disappear, the manifest changed after this run: use the report from a newer run.</p>
   <pre id="manifest-code" class="manifest-code-block"></pre>
   <button type="button" class="btn-approve" onclick="copyManifestJson()" style="padding:6px 14px; font-size:12px; margin-top:8px;">Copy approved_manifest.json to Clipboard</button>
+  <div id="report-tag-section" style="display:none; margin-top:14px; padding-top:12px; border-top:1px solid var(--pass);">
+    <p style="font-size: 13px; margin: 0 0 6px 0;"><strong>Required Description Footer Tag (for 2-party review visibility):</strong> Add this line to the bottom tags of your change description so your code reviewer can open this report directly:</p>
+    <pre id="report-tag-code" class="manifest-code-block"></pre>
+    <button type="button" class="btn-approve" onclick="copyReportTag()" style="padding:6px 14px; font-size:12px; margin-top:6px;">Copy UI_SXS_REPORT Tag to Clipboard</button>
+  </div>
 </div>

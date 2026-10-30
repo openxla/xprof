@@ -300,13 +300,15 @@ def generate_sxs_html_report(
     badge_class = "badge-fail"
     badge_text = "DIFF DETECTED"
     summary_text = (
-        f"{len(waypoint_diffs)} Waypoints Evaluated (Reviewer Action Required)"
+        f"{len(waypoint_diffs)} Waypoints Evaluated (Author Action Required)"
     )
   elif has_approved_diffs:
     badge_class = "badge-approved"
-    badge_text = "DIFFS APPROVED"
+    badge_text = "AUTHOR APPROVED — PENDING REVIEW"
     summary_text = (
-        f"{len(waypoint_diffs)} Waypoints Evaluated (All Diffs Approved)"
+        f"{len(waypoint_diffs)} Waypoints Evaluated"
+        " (Author Approved in Manifest — Code Reviewer: Inspect APPROVED Tabs"
+        " Below)"
     )
   else:
     badge_class = "badge-pass"
@@ -320,9 +322,7 @@ def generate_sxs_html_report(
   )
   unapproved_list: list[dict[str, str]] = []
   approved_diffs: dict[str, dict[str, str]] = {}
-  if not has_unapproved_diffs:
-    approval_portal_html = ""
-  else:
+  if has_unapproved_diffs:
     approval_portal_html = templates.get_section("approval_portal.html")
     unapproved_list = [
         {
@@ -335,8 +335,13 @@ def generate_sxs_html_report(
     approved_diffs = sxs_diff_engine.SxsDiffEngine(
         manifest_path
     ).approved_manifest
+  elif has_approved_diffs:
+    approval_portal_html = templates.get_section("reviewer_guidance.html")
+  else:
+    approval_portal_html = ""
 
   styles = templates.get("report_styles.css")
+  report_url = os.environ.get("XPROF_SXS_REPORT_URL", "")
 
   main_tmpl = string.Template(templates.get("sxs_report_template.html"))
   full_html = main_tmpl.safe_substitute(
@@ -349,6 +354,7 @@ def generate_sxs_html_report(
       approval_portal_html=approval_portal_html,
       unapproved_json=_script_json(unapproved_list),
       approved_json=_script_json(approved_diffs),
+      report_url_json=_script_json(report_url),
   )
 
   os.makedirs(os.path.dirname(os.path.abspath(output_html_path)), exist_ok=True)

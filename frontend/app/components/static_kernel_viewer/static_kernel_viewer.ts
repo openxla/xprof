@@ -39,6 +39,7 @@ import {
 import {
   type FetchedTrace,
   type KernelRef,
+  type TracePrefetch,
 } from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_viewer_cache';
 import {KERNEL_VIEWER_CACHE_TOKEN} from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_viewer_cache_token';
 import {
@@ -1322,6 +1323,11 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   private traceKernel: KernelRef | undefined = undefined;
   /** The latest trace load into the WASM viewer. */
   private traceLoad: TraceLoad | undefined = undefined;
+  /**
+   * The early load of the kernel that the URL names, until the viewer takes or
+   * cancels it.
+   */
+  private prefetch: TracePrefetch | undefined = undefined;
   // Whether a kernel trace is currently loading into the WASM viewer.
   private isLoadingTrace = false;
   private traceLoadingStatus: TraceViewerV2LoadingStatus =
@@ -1633,6 +1639,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     clearTimeout(this.highlightTimer);
     clearTimeout(this.linkCopiedTimer);
     clearTimeout(this.tourButtonTimer);
+    this.cancelPrefetch();
     this.destroyed.next();
     this.destroyed.complete();
     window.removeEventListener(
@@ -2338,6 +2345,9 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       getParam('sessionId') ??
       this.sessionId;
     this.host = getParam('host') ?? DEFAULT_HOST;
+    const listKey = `${this.sessionId}|${this.host}`;
+    const keepRequested =
+      listKey === this.listKey && !this.hasLoadedInitialList;
     const hasRouteKernelOrModule =
       queryParams['kernel_name'] !== undefined ||
       queryParams['kernel'] !== undefined ||
@@ -2346,10 +2356,10 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       ? (queryParams['kernel_name'] ?? queryParams['kernel'] ?? '')
       : (getParam('kernel_name') ??
         getParam('kernel') ??
-        (isInitialLoad ? this.requestedKernel : ''));
+        (keepRequested ? this.requestedKernel : ''));
     this.requestedModule = hasRouteKernelOrModule
       ? (queryParams['hlo_module'] ?? '')
-      : (getParam('hlo_module') ?? (isInitialLoad ? this.requestedModule : ''));
+      : (getParam('hlo_module') ?? (keepRequested ? this.requestedModule : ''));
 
     const hasRouteBundleParams = ZOOM_URL_PARAMS.some(
       (key) => queryParams[key] !== undefined,
@@ -2372,20 +2382,24 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       );
     if (hasRouteBundleParams) {
       this.requestedBundleRange = parsedBundleRange;
-    } else if (isInitialLoad) {
+    } else if (keepRequested) {
       this.requestedBundleRange =
         parsedBundleRange ?? this.requestedBundleRange;
+    } else if (isInitialLoad) {
+      this.requestedBundleRange = parsedBundleRange;
     } else {
       this.requestedBundleRange = undefined;
     }
 
     // Only refetch the kernel list when the profile changes. Other query
     // parameter changes at most switch the open kernel.
-    const listKey = `${this.sessionId}|${this.host}`;
     if (listKey !== this.listKey) {
       this.listKey = listKey;
       this.hasLoadedInitialList = false;
+      this.url = '';
+      this.traceKernel = undefined;
       void this.loadKernelList();
+      this.prefetchRequestedKernel();
     } else if (!this.loadingKernels && this.hasLoadedInitialList) {
       const requestedRange = this.requestedBundleRange;
       this.requestedBundleRange = undefined;
@@ -2410,6 +2424,37 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
         this.updateUrlQueryParams();
       }
     }
+  }
+
+  /**
+   * Starts loading the kernel that the URL names, without waiting for the
+   * kernel list or the WASM viewer. The kernel list then opens the same
+   * kernel, whose trace is already loading or loaded, or opens another kernel
+   * if the profile has no such kernel.
+   */
+  private prefetchRequestedKernel(): void {
+    this.cancelPrefetch();
+    if (!this.sessionId || !this.requestedKernel) {
+      return;
+    }
+    const kernel = this.kernelRefOf({
+      module: this.requestedModule,
+      kernel: this.requestedKernel,
+    });
+    const url = this.traceUrlOf(kernel);
+    this.prefetch = this.cache.prefetchTrace(kernel, url);
+    this.openTrace(kernel, url);
+  }
+
+  private cancelPrefetch(): void {
+    if (!this.prefetch) {
+      return;
+    }
+    this.prefetch.cancel();
+    this.prefetch = undefined;
+    this.traceLoad = undefined;
+    this.isLoadingTrace = false;
+    this.lastLoadedUrl = '';
   }
 
   private setKernelGroups(groups: KernelGroup[]): void {
@@ -2916,9 +2961,11 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  /** Loads the trace of `kernel` into the timeline. */
-  private openTrace(kernel: KernelRef): void {
-    const url = this.traceUrlOf(kernel);
+  /** Loads the trace of `kernel`, at `url`, into the timeline. */
+  private openTrace(kernel: KernelRef, url = this.traceUrlOf(kernel)): void {
+    if (this.prefetch && !this.prefetch.isOf(kernel)) {
+      this.cancelPrefetch();
+    }
     this.url = url;
     this.traceKernel = kernel;
     this.loadKernelTrace(url, kernel);
@@ -2988,7 +3035,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
         // The backend ignores the time range and resolution parameters that
         // the viewer adds to the URL, so the trace is cached by kernel.
         fetchData: async (viewerUrl) => {
-          load.fetchedTrace = await this.cache.fetchTrace(kernel, viewerUrl);
+          load.fetchedTrace = await this.fetchTrace(kernel, viewerUrl);
           return load.fetchedTrace.response;
         },
       }),
@@ -3010,6 +3057,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
         this.applyPendingBundleRangeToTimeline();
         if (
           !this.lastLoadFailed &&
+          this.url &&
           this.traceLoadingStatus === TraceViewerV2LoadingStatus.IDLE
         ) {
           this.hasLoadedTrace = true;
@@ -3027,8 +3075,26 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     );
   }
 
+  /**
+   * Returns the trace of a kernel for the WASM viewer. Takes the prefetch if it
+   * is of that kernel, keeping it cancellable until it settles, and otherwise
+   * gets the trace through the cache.
+   */
+  private fetchTrace(kernel: KernelRef, url: string): Promise<FetchedTrace> {
+    const prefetch = this.prefetch;
+    if (prefetch?.isOf(kernel)) {
+      return prefetch.take().finally(() => {
+        if (this.prefetch === prefetch) {
+          this.prefetch = undefined;
+        }
+      });
+    }
+    return this.cache.fetchTrace(kernel, url);
+  }
+
   /** Clears the timeline, when the kernel list has no kernel to show. */
   private clearTrace(): void {
+    this.cancelPrefetch();
     const pendingLoad = this.isLoadingTrace ? this.traceLoad : undefined;
     this.traceLoad = undefined;
     this.isLoadingTrace = false;

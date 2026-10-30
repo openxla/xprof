@@ -9,7 +9,10 @@ const READ_TIMEOUT_MS = 1000;
 const EMPTY_TRACE_CHECK_BYTES = 1024;
 
 /** Downloads a trace, like `fetch`. */
-export type TraceDownloader = (url: string) => Promise<Response>;
+export type TraceDownloader = (
+  url: string,
+  init?: RequestInit,
+) => Promise<Response>;
 
 /** Identifies a kernel of a profile. */
 export interface KernelRef {
@@ -53,11 +56,30 @@ export interface FetchedTrace {
   save(): Promise<void>;
 }
 
+/**
+ * A trace that started loading before the viewer asked for it, see
+ * `KernelViewerCache.prefetchTrace`.
+ */
+export interface TracePrefetch {
+  /** Whether this is the trace of `kernel`. */
+  isOf(kernel: KernelRef): boolean;
+  /**
+   * Returns the trace like `KernelViewerCache.fetchTrace`. Rejects if the
+   * prefetch was canceled before the trace loaded.
+   */
+  take(): Promise<FetchedTrace>;
+  /** Aborts the download of the trace, if any. */
+  cancel(): void;
+}
+
 /** Options of a `KernelViewerCache`. */
 export interface KernelViewerCacheOptions {
   /** Stores the cached lists and traces. */
   readonly store: KernelViewerStore;
-  /** Downloads traces, `fetch` by default. */
+  /**
+   * Downloads traces, `fetch` by default. Receives the abort signal of a
+   * prefetch.
+   */
   readonly download?: TraceDownloader;
   /** How long to wait for a cached list or trace, 1 s by default. */
   readonly readTimeoutMs?: number;
@@ -70,6 +92,13 @@ interface LoadedTrace {
   readonly data?: Blob;
   /** Whether the trace came from the cache. */
   readonly fromCache: boolean;
+}
+
+/** Throws an `AbortError` when `signal` has been aborted. */
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
 }
 
 /** Whether `data` is an empty blob, or a small JSON trace without events. */
@@ -114,7 +143,9 @@ export class KernelViewerCache {
 
   constructor(options: KernelViewerCacheOptions) {
     this.store = options.store;
-    this.download = options.download ?? ((url: string) => fetch(url));
+    this.download =
+      options.download ??
+      ((url: string, init?: RequestInit) => fetch(url, init));
     this.readTimeoutMs = options.readTimeoutMs ?? READ_TIMEOUT_MS;
   }
 
@@ -151,18 +182,40 @@ export class KernelViewerCache {
     return this.toFetchedTrace(kernel, await this.loadTrace(kernel, url));
   }
 
+  /**
+   * Starts loading the trace of a kernel before the viewer asks for it, for
+   * example the kernel that the URL names while the kernel list loads. The
+   * caller must take or cancel the prefetch. Errors surface once the trace is
+   * taken.
+   */
+  prefetchTrace(kernel: KernelRef, url: string): TracePrefetch {
+    const controller = new AbortController();
+    const trace = this.loadTrace(kernel, url, controller.signal);
+    void trace.catch(() => {});
+    const traceKey = traceKeyOf(kernel);
+    return {
+      isOf: (other: KernelRef) => traceKeyOf(other) === traceKey,
+      take: async () => this.toFetchedTrace(kernel, await trace),
+      cancel: () => {
+        controller.abort();
+      },
+    };
+  }
+
   /** Reads a trace from the cache, or downloads it. */
   private async loadTrace(
     kernel: KernelRef,
     url: string,
+    signal?: AbortSignal,
   ): Promise<LoadedTrace> {
     const data = await this.readWithTimeout(
       this.store.readTrace(traceKeyOf(kernel)),
     );
+    throwIfAborted(signal);
     if (data) {
       return {status: 200, data, fromCache: true};
     }
-    return this.downloadTrace(url);
+    return this.downloadTrace(url, signal);
   }
 
   private toFetchedTrace(
@@ -204,15 +257,17 @@ export class KernelViewerCache {
   }
 
   /** Downloads a trace. Rejects on network errors. */
-  private async downloadTrace(url: string): Promise<LoadedTrace> {
-    const response = await this.download(url);
+  private async downloadTrace(
+    url: string,
+    signal?: AbortSignal,
+  ): Promise<LoadedTrace> {
+    const response = await this.download(url, {signal});
+    throwIfAborted(signal);
     if (!response.ok) {
       return {status: response.status, fromCache: false};
     }
-    return {
-      status: response.status,
-      data: await response.blob(),
-      fromCache: false,
-    };
+    const data = await response.blob();
+    throwIfAborted(signal);
+    return {status: response.status, data, fromCache: false};
   }
 }

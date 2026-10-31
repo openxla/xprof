@@ -306,11 +306,9 @@ export interface LoadTraceDataOptions {
    * Downloads the trace in place of `fetch`, for example to serve it from a
    * cache. Receives the URL that the viewer would fetch, including the
    * parameters that the viewer adds. To report an error, rejects or resolves
-   * with a failed response; to cancel the load without reporting an error,
-   * rejects with an `AbortError` `DOMException`, like an aborted `fetch`.
-   * Applies to this load only: time-range refetches and search results still
-   * use `fetch`. A call with a URL that is already loading joins that load and
-   * ignores its options.
+   * with a failed response. Applies to this load only: time-range refetches
+   * and search results still use `fetch`. A call with a URL that is already
+   * loading joins that load and ignores its options.
    */
   fetchData?: TraceDataFetcher;
 }
@@ -884,13 +882,6 @@ function getFetchErrorMessage(response: Response): string {
   return `Failed to load trace data: HTTP error! status: ${response.status}`;
 }
 
-function isAbortError(error: unknown): boolean {
-  return (
-    (error instanceof DOMException || error instanceof Error) &&
-    error.name === 'AbortError'
-  );
-}
-
 // Fetches JSON data from the given URL. The `response.json()` method returns
 // `any`, so this function returns `unknown`. Validation of the data structure
 // (e.g., using `isTraceData`) is expected to be done by the caller.
@@ -905,9 +896,7 @@ async function loadJsonDataInternal(
     }
     return await response.json();
   } catch (e) {
-    if (!isAbortError(e)) {
-      console.error('Failed to load JSON data:', e);
-    }
+    console.error('Failed to load JSON data:', e);
     throw e;
   }
 }
@@ -923,9 +912,7 @@ async function loadCompressedTraceDataInternal(
     }
     return await response.arrayBuffer();
   } catch (e) {
-    if (!isAbortError(e)) {
-      console.error('Failed to load compressed trace data:', e);
-    }
+    console.error('Failed to load compressed trace data:', e);
     throw e;
   }
 }
@@ -970,23 +957,22 @@ function isFetchDataEvent(
 /**
  * Fetches and processes trace data (either .pb or .json) from the given URL.
  * Handles status dispatches, yielding to event loop, and latency measurement.
- * Returns `false` if the load was aborted or superseded, and `true` otherwise.
  */
 async function fetchAndProcessTraceData({
   urlObj,
   traceviewerModule,
   isAbortRequested,
-  timeRange,
+  initialVisibleRangeFromUrl,
   errorContext,
   fetchData,
 }: {
   urlObj: URL;
   traceviewerModule: TraceViewerV2Module;
   isAbortRequested: () => boolean;
-  timeRange?: [number, number];
+  initialVisibleRangeFromUrl?: [number, number];
   errorContext: string;
   fetchData?: TraceDataFetcher;
-}): Promise<boolean> {
+}) {
   window.dispatchEvent(
     new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
       detail: {status: TraceViewerV2LoadingStatus.LOADING_DATA},
@@ -1004,7 +990,7 @@ async function fetchAndProcessTraceData({
         urlObj.toString(),
         fetchData,
       );
-      if (isAbortRequested()) return false;
+      if (isAbortRequested()) return;
 
       window.dispatchEvent(
         new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
@@ -1019,7 +1005,7 @@ async function fetchAndProcessTraceData({
         setTimeout(resolve, 0);
       });
 
-      if (isAbortRequested()) return false;
+      if (isAbortRequested()) return;
 
       performance.mark('traceProcessStart');
 
@@ -1033,7 +1019,7 @@ async function fetchAndProcessTraceData({
         traceviewerModule.processCompressedTraceEvents(
           dataPtr,
           buffer.byteLength,
-          timeRange,
+          initialVisibleRangeFromUrl,
         );
       } finally {
         if (dataPtr !== undefined && dataPtr !== 0) {
@@ -1042,7 +1028,7 @@ async function fetchAndProcessTraceData({
       }
     } else {
       const jsonData = await loadJsonDataInternal(urlObj.toString(), fetchData);
-      if (isAbortRequested()) return false;
+      if (isAbortRequested()) return;
 
       if (!isTraceData(jsonData)) {
         console.error('File does not contain valid trace events.');
@@ -1051,7 +1037,7 @@ async function fetchAndProcessTraceData({
             detail: {status: TraceViewerV2LoadingStatus.IDLE},
           }),
         );
-        return true;
+        return;
       }
 
       maybeDispatchDetailsReceivedEvent(jsonData);
@@ -1069,11 +1055,14 @@ async function fetchAndProcessTraceData({
         setTimeout(resolve, 0);
       });
 
-      if (isAbortRequested()) return false;
+      if (isAbortRequested()) return;
 
       performance.mark('traceProcessStart');
 
-      traceviewerModule.processTraceEvents(jsonData, timeRange);
+      traceviewerModule.processTraceEvents(
+        jsonData,
+        initialVisibleRangeFromUrl,
+      );
     }
 
     performance.mark('traceProcessEnd');
@@ -1097,19 +1086,7 @@ async function fetchAndProcessTraceData({
         detail: {status: TraceViewerV2LoadingStatus.IDLE},
       }),
     );
-    return true;
   } catch (e) {
-    if (isAbortRequested()) {
-      return false;
-    }
-    if (isAbortError(e)) {
-      window.dispatchEvent(
-        new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-          detail: {status: TraceViewerV2LoadingStatus.IDLE},
-        }),
-      );
-      return false;
-    }
     console.error(`Error ${errorContext}:`, e);
     const errorMessage = e instanceof Error ? e.message : String(e);
     window.dispatchEvent(
@@ -1120,7 +1097,6 @@ async function fetchAndProcessTraceData({
         },
       }),
     );
-    return true;
   }
 }
 
@@ -1159,10 +1135,7 @@ async function handleFetchDataEvent(
   await fetchAndProcessTraceData({
     urlObj,
     traceviewerModule,
-    isAbortRequested: () =>
-      initialDataUrl !== getCurrentDataUrl() ||
-      traceviewerModule !== activeWasmModule,
-    timeRange: [detail.start_time_ms, detail.end_time_ms],
+    isAbortRequested: () => initialDataUrl !== getCurrentDataUrl(),
     errorContext: 'fetching new data',
   });
 }
@@ -1274,9 +1247,7 @@ export async function traceViewerV2Main(
     currentDataUrl = url;
     if (!traceviewerModule) return;
 
-    let settled = false;
-    let completed = false;
-    const loadingPromise = (async () => {
+    currentLoadingPromise = (async () => {
       try {
         let urlObj: URL;
         try {
@@ -1293,7 +1264,6 @@ export async function traceViewerV2Main(
               },
             }),
           );
-          completed = true;
           return;
         }
 
@@ -1304,30 +1274,22 @@ export async function traceViewerV2Main(
 
         traceviewerModule.application.instance().restoreSavedTrackOrder?.();
 
-        completed = await fetchAndProcessTraceData({
+        await fetchAndProcessTraceData({
           urlObj,
           traceviewerModule,
-          isAbortRequested: () =>
-            url !== currentDataUrl || traceviewerModule !== activeWasmModule,
-          timeRange: timeRangeFromUrl,
+          isAbortRequested: () => url !== currentDataUrl,
+          initialVisibleRangeFromUrl: timeRangeFromUrl,
           errorContext: 'loading data',
           fetchData: loadOptions?.fetchData,
         });
       } finally {
-        settled = true;
         if (url === currentDataUrl) {
           currentLoadingPromise = null;
-          if (!completed) {
-            currentDataUrl = null;
-          }
         }
       }
     })();
-    if (!settled) {
-      currentLoadingPromise = loadingPromise;
-    }
 
-    return loadingPromise;
+    return currentLoadingPromise;
   };
 
   traceviewerModule.loadSearchResults = async (url: string) => {

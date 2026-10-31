@@ -16,12 +16,10 @@ ts_library(
 
 wasm_cc_library(
     name = "trace_event",
-    srcs = ["trace_event.cc"],
     hdrs = ["trace_event.h"],
     deps = [
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
-        "@tsl//tsl/platform:fingerprint",
         "@tsl//tsl/profiler/lib:context_types",
     ],
 )
@@ -36,12 +34,13 @@ wasm_cc_library(
         "//plugin/xprof/protobuf:trace_data_response_proto_cc",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/hash",
         "@com_google_absl//absl/strings",
         "@org_xprof//frontend/app/components/trace_viewer_v2:application",
         "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
         "@org_xprof//frontend/app/components/trace_viewer_v2/timeline:data_provider",
         "@org_xprof//xprof/convert/trace_viewer/delta_series:zstd_compression",
-        "@tsl//tsl/profiler/lib:context_types",
+        "@tsl//tsl/platform:fingerprint",
     ],
     alwayslink = True,
 )
@@ -81,6 +80,7 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
+        "@tsl//tsl/platform:fingerprint",
         "@tsl//tsl/profiler/lib:context_types",
     ],
 )
@@ -147,8 +147,6 @@ wasm_cc_test(
         ":trace_event",
         ":trace_event_parser",
         "@com_google_googletest//:gtest_main",
-        "@tsl//tsl/platform:fingerprint",
-        "@tsl//tsl/profiler/lib:context_types",
     ],
 )
 

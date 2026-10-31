@@ -18207,6 +18207,334 @@ TEST_F(TrackReorderTest, TopmostTrackWinsForSpecialMinimapRibbons) {
       "reg_bottom");
 }
 
+TEST(TimelineTest, RestoreSavedFullOverviewPropagatesExpandedCounterBounds) {
+  MockTimeline timeline;
+
+  FlameChartTimelineData overview_data;
+  overview_data.groups = {{.type = Group::Type::kFlame,
+                           .name = "Process 1",
+                           .start_level = 0,
+                           .pid = 1},
+                          {.type = Group::Type::kCounter,
+                           .name = "Counter A",
+                           .start_level = 0,
+                           .nesting_level = 1,
+                           .pid = 1}};
+  AddEvents(overview_data,
+            {{.name = "ev", .start = 0.0, .dur = 10.0, .level = 0, .id = 1}});
+  SetSingleEventCsrLayout(overview_data);
+  overview_data.counter_data_by_group_index[1] = {
+      .timestamps = {0.0, 100.0},
+      .values = {10.0, 50.0},
+      .min_value = 10.0,
+      .max_value = 50.0,
+  };
+  timeline.SetTimelineData(std::move(overview_data));
+  timeline.set_fetched_data_time_range({0.0, 100.0});
+  timeline.MarkCurrentDataAsFullOverview();
+
+  // Simulate a zoomed/panned fetch where group indices shifted and wider
+  // counter bounds [5.0, 90.0] were discovered for "Counter A".
+  FlameChartTimelineData zoomed_data;
+  zoomed_data.groups = {{.type = Group::Type::kFlame,
+                         .name = "Process 1",
+                         .start_level = 0,
+                         .pid = 1},
+                        {.type = Group::Type::kFlame,
+                         .name = "Thread 1",
+                         .start_level = 0,
+                         .pid = 1},
+                        {.type = Group::Type::kCounter,
+                         .name = "Counter A",
+                         .start_level = 1,
+                         .nesting_level = 1,
+                         .pid = 1}};
+  zoomed_data.counter_data_by_group_index[2] = {
+      .timestamps = {20.0, 40.0},
+      .values = {5.0, 90.0},
+      .min_value = 5.0,
+      .max_value = 90.0,
+      .unit = CounterUnit::kBytes,
+  };
+  timeline.SetTimelineData(std::move(zoomed_data));
+
+  ASSERT_TRUE(timeline.RestoreSavedFullOverview());
+  ASSERT_TRUE(timeline.timeline_data().counter_data_by_group_index.contains(1));
+  const CounterData& restored =
+      timeline.timeline_data().counter_data_by_group_index.at(1);
+  EXPECT_DOUBLE_EQ(restored.min_value, 5.0);
+  EXPECT_DOUBLE_EQ(restored.max_value, 90.0);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       DrawCounterTrackRendersConstantZeroAndNonZeroFlatlines) {
+  FlameChartTimelineData data;
+  data.groups = {{.type = Group::Type::kCounter,
+                  .name = "Zero Counter",
+                  .start_level = 0,
+                  .expanded = true},
+                 {.type = Group::Type::kCounter,
+                  .name = "NonZero Counter",
+                  .start_level = 0,
+                  .expanded = true}};
+  data.counter_data_by_group_index[0] = {
+      .timestamps = {0.0, 50.0},
+      .values = {0.0, 0.0},
+      .min_value = 0.0,
+      .max_value = 0.0,
+  };
+  data.counter_data_by_group_index[1] = {
+      .timestamps = {0.0, 50.0},
+      .values = {42.0, 42.0},
+      .min_value = 42.0,
+      .max_value = 42.0,
+  };
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  // Find child window for Zero Counter
+  ImGuiWindow* window0 = nullptr;
+  const std::string child_id0 = "TimelineChild_Zero Counter_0";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id0) != std::string::npos) {
+      window0 = w;
+      break;
+    }
+  }
+  ASSERT_NE(window0, nullptr);
+  const Pixel zero_y_base = window0->Pos.y + window0->Size.y;
+  const Pixel expected_zero_y = zero_y_base - 1.0f;
+  bool found_zero_y = false;
+  for (int i = 0; i < window0->DrawList->VtxBuffer.Size; ++i) {
+    const ImDrawVert& vtx = window0->DrawList->VtxBuffer[i];
+    if (std::abs(vtx.pos.y - expected_zero_y) < 0.1f) {
+      found_zero_y = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_zero_y);
+
+  // Find child window for NonZero Counter
+  ImGuiWindow* window1 = nullptr;
+  const std::string child_id1 = "TimelineChild_NonZero Counter_1";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id1) != std::string::npos) {
+      window1 = w;
+      break;
+    }
+  }
+  ASSERT_NE(window1, nullptr);
+  const Pixel nonzero_y_base = window1->Pos.y + window1->Size.y;
+  const Pixel expected_nonzero_y = nonzero_y_base - 1.0f;
+  bool found_nonzero_y = false;
+  for (int i = 0; i < window1->DrawList->VtxBuffer.Size; ++i) {
+    const ImDrawVert& vtx = window1->DrawList->VtxBuffer[i];
+    if (std::abs(vtx.pos.y - expected_nonzero_y) < 0.1f) {
+      found_nonzero_y = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_nonzero_y);
+
+  ImGui::Render();
+
+  ImDrawData* draw_data = ImGui::GetDrawData();
+  ASSERT_NE(draw_data, nullptr);
+  EXPECT_GT(draw_data->TotalVtxCount, 0);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       DrawCounterTooltipHandlesZeroRangeAndNonFiniteValuesWithoutNaN) {
+  FlameChartTimelineData data;
+  data.groups = {{.type = Group::Type::kCounter,
+                  .name = "Constant Counter",
+                  .start_level = 0,
+                  .expanded = true},
+                 {.type = Group::Type::kCounter,
+                  .name = "NaN Counter",
+                  .start_level = 0,
+                  .expanded = true}};
+  data.counter_data_by_group_index[0] = {
+      .timestamps = {10.0, 30.0, 50.0},
+      .values = {5.0, 5.0, 5.0},
+      .min_value = 5.0,
+      .max_value = 5.0,
+  };
+  data.counter_data_by_group_index[1] = {
+      .timestamps = {10.0, 30.0, 50.0},
+      .values = {std::numeric_limits<double>::quiet_NaN(), 2.0, 8.0},
+      .min_value = 0.0,
+      .max_value = 10.0,
+  };
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  // Hover over the first counter track (constant value, zero range) as a
+  // no-crash check (since DrawCounterTrack returns early for zero-range
+  // tracks and does not reach DrawCounterTooltip).
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGuiWindow* window0 = nullptr;
+  const std::string child_id0 = "TimelineChild_Constant Counter_0";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id0) != std::string::npos) {
+      window0 = w;
+      break;
+    }
+  }
+  ASSERT_NE(window0, nullptr);
+  ImGui::EndFrame();
+
+  ImVec2 hover_pos0 = window0->Pos;
+  hover_pos0.x += window0->Size.x * 0.2f;
+  hover_pos0.y += window0->Size.y * 0.5f;
+
+  ImGui::GetIO().MousePos = hover_pos0;
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+
+  ImDrawData* draw_data = ImGui::GetDrawData();
+  ASSERT_NE(draw_data, nullptr);
+  EXPECT_GT(draw_data->TotalVtxCount, 0);
+  for (int i = 0; i < draw_data->CmdListsCount; ++i) {
+    const ImDrawList* cmd_list = draw_data->CmdLists[i];
+    for (int j = 0; j < cmd_list->VtxBuffer.Size; ++j) {
+      const ImDrawVert& vtx = cmd_list->VtxBuffer[j];
+      EXPECT_TRUE(std::isfinite(vtx.pos.x));
+      EXPECT_TRUE(std::isfinite(vtx.pos.y));
+    }
+  }
+
+  // Hover over the second counter track (NaN sample) to verify tooltip and
+  // hover drawing safely handle NaN values.
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGuiWindow* window1 = nullptr;
+  const std::string child_id1 = "TimelineChild_NaN Counter_1";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id1) != std::string::npos) {
+      window1 = w;
+      break;
+    }
+  }
+  ASSERT_NE(window1, nullptr);
+  ImGui::EndFrame();
+
+  ImVec2 hover_pos1 = window1->Pos;
+  hover_pos1.x += window1->Size.x * 0.2f;
+  hover_pos1.y += window1->Size.y * 0.5f;
+
+  ImGui::GetIO().MousePos = hover_pos1;
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+
+  draw_data = ImGui::GetDrawData();
+  ASSERT_NE(draw_data, nullptr);
+  EXPECT_GT(draw_data->TotalVtxCount, 0);
+  for (int i = 0; i < draw_data->CmdListsCount; ++i) {
+    const ImDrawList* cmd_list = draw_data->CmdLists[i];
+    for (int j = 0; j < cmd_list->VtxBuffer.Size; ++j) {
+      const ImDrawVert& vtx = cmd_list->VtxBuffer[j];
+      EXPECT_TRUE(std::isfinite(vtx.pos.x));
+      EXPECT_TRUE(std::isfinite(vtx.pos.y));
+    }
+  }
+}
+
+TEST_F(MockTimelineImGuiFixture, CounterTrackBoundsStabilizeAcrossUpdates) {
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.type = Group::Type::kCounter, .name = "HBM BW", .pid = 1});
+  data.counter_data_by_group_index[0] = {.min_value = 10.0,
+                                         .max_value = 40.0,
+                                         .event_stats = "bandwidth",
+                                         .unit = CounterUnit::kNone};
+
+  timeline_.StabilizeCounterTracksForTest(data);
+
+  EXPECT_DOUBLE_EQ(data.counter_data_by_group_index.at(0).min_value, 10.0);
+  EXPECT_DOUBLE_EQ(data.counter_data_by_group_index.at(0).max_value, 40.0);
+  EXPECT_EQ(data.counter_data_by_group_index.at(0).event_stats, "bandwidth");
+
+  // Subsequent narrow chunk
+  FlameChartTimelineData chunk2;
+  chunk2.groups = data.groups;
+  chunk2.counter_data_by_group_index[0] = {
+      .min_value = 25.0, .max_value = 30.0, .unit = CounterUnit::kNone};
+  timeline_.StabilizeCounterTracksForTest(chunk2);
+
+  EXPECT_DOUBLE_EQ(chunk2.counter_data_by_group_index.at(0).min_value, 10.0);
+  EXPECT_DOUBLE_EQ(chunk2.counter_data_by_group_index.at(0).max_value, 40.0);
+  EXPECT_EQ(chunk2.counter_data_by_group_index.at(0).event_stats, "bandwidth");
+
+  // Wider chunk
+  FlameChartTimelineData chunk3;
+  chunk3.groups = data.groups;
+  chunk3.counter_data_by_group_index[0] = {
+      .min_value = 5.0, .max_value = 80.0, .unit = CounterUnit::kNone};
+  timeline_.StabilizeCounterTracksForTest(chunk3);
+
+  EXPECT_DOUBLE_EQ(chunk3.counter_data_by_group_index.at(0).min_value, 5.0);
+  EXPECT_DOUBLE_EQ(chunk3.counter_data_by_group_index.at(0).max_value, 80.0);
+
+  // NaN chunk
+  FlameChartTimelineData chunk4;
+  chunk4.groups = data.groups;
+  chunk4.counter_data_by_group_index[0] = {
+      .min_value = std::numeric_limits<double>::quiet_NaN(),
+      .max_value = std::numeric_limits<double>::quiet_NaN(),
+      .unit = CounterUnit::kNone};
+  timeline_.StabilizeCounterTracksForTest(chunk4);
+  EXPECT_DOUBLE_EQ(chunk4.counter_data_by_group_index.at(0).min_value, 5.0);
+  EXPECT_DOUBLE_EQ(chunk4.counter_data_by_group_index.at(0).max_value, 80.0);
+
+  // Clear timeline state
+  timeline_.ResetForNewDataset();
+
+  FlameChartTimelineData chunk5;
+  chunk5.groups = data.groups;
+  chunk5.counter_data_by_group_index[0] = {
+      .min_value = 30.0, .max_value = 50.0, .unit = CounterUnit::kNone};
+  timeline_.StabilizeCounterTracksForTest(chunk5);
+  EXPECT_DOUBLE_EQ(chunk5.counter_data_by_group_index.at(0).min_value, 30.0);
+  EXPECT_DOUBLE_EQ(chunk5.counter_data_by_group_index.at(0).max_value, 50.0);
+}
+
+TEST_F(MockTimelineImGuiFixture, FractionCounterTrackPinsBoundsToZeroAndOne) {
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.type = Group::Type::kCounter, .name = "MXU Utilization", .pid = 1});
+  data.counter_data_by_group_index[0] = {
+      .min_value = 0.25, .max_value = 0.75, .unit = CounterUnit::kFraction};
+
+  timeline_.StabilizeCounterTracksForTest(data);
+
+  EXPECT_EQ(data.counter_data_by_group_index.at(0).unit,
+            CounterUnit::kFraction);
+  EXPECT_DOUBLE_EQ(data.counter_data_by_group_index.at(0).min_value, 0.0);
+  EXPECT_DOUBLE_EQ(data.counter_data_by_group_index.at(0).max_value, 1.0);
+
+  // Inherits kFraction
+  FlameChartTimelineData chunk2;
+  chunk2.groups = data.groups;
+  chunk2.counter_data_by_group_index[0] = {
+      .min_value = 0.4, .max_value = 0.6, .unit = CounterUnit::kNone};
+
+  timeline_.StabilizeCounterTracksForTest(chunk2);
+
+  EXPECT_EQ(chunk2.counter_data_by_group_index.at(0).unit,
+            CounterUnit::kFraction);
+  EXPECT_DOUBLE_EQ(chunk2.counter_data_by_group_index.at(0).min_value, 0.0);
+  EXPECT_DOUBLE_EQ(chunk2.counter_data_by_group_index.at(0).max_value, 1.0);
+}
+
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer

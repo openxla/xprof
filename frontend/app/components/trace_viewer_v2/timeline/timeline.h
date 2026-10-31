@@ -279,6 +279,12 @@ struct FlameChartTimelineData {
 // zooming, panning, and rendering of events grouped into lanes.
 class Timeline {
  public:
+  // Applies cumulative [min_value, max_value] bounds and metadata to counter
+  // tracks in `data`. Exposed for testing.
+  void StabilizeCounterTracksForTest(FlameChartTimelineData& data) {
+    StabilizeCounterTracks(data);
+  }
+
   void CalculateAndEmitMetrics_for_test() { CalculateAndEmitMetrics(); }
   std::vector<int>& selected_event_indices_for_test() {
     return selected_event_indices_;
@@ -1367,6 +1373,8 @@ class Timeline {
   void AddGpuFlameBatch(ImDrawList* draw_list, const GpuFlameBatch& batch);
   ImU32 GetEventColor(int event_index) const;
 
+  void StabilizeCounterTracks(FlameChartTimelineData& data);
+
   // Private static constants.
   static constexpr ImGuiWindowFlags kImGuiWindowFlags =
       ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse |
@@ -1394,6 +1402,15 @@ class Timeline {
   int all_processes_count_ = 0;
   int hidden_processes_count_ = 0;
   int pinned_processes_count_ = 0;
+
+  struct CounterTrackMetadata {
+    double min_value = std::numeric_limits<double>::max();
+    double max_value = std::numeric_limits<double>::lowest();
+    CounterUnit unit = CounterUnit::kNone;
+    std::string event_stats;
+  };
+  absl::flat_hash_map<std::pair<ProcessId, std::string>, CounterTrackMetadata>
+      counter_metadata_;
 
   FlameChartTimelineData timeline_data_;
   std::vector<ImU32> entry_colors_;

@@ -535,6 +535,24 @@ class ScopedBodyLargeFont {
  private:
   const bool pushed_;
 };
+
+// Returns the screen Y coordinate of `value` in a counter track spanning
+// [y_top, y_top + height] with precomputed `y_ratio`. Values keep a minimum
+// height of 1px so that min_value is still visible.
+Pixel ComputeCounterValueY(double value, double min_value, Pixel y_top,
+                           Pixel height, float y_ratio) {
+  const Pixel y_base = y_top + height;
+  const Pixel y_min_height = y_base - 1.0f;
+  // Non-finite samples or tracks with non-positive range (e.g. constant tracks
+  // where min_value == max_value) are drawn at the baseline (1px minimum
+  // height) to avoid divide-by-zero producing NaN or Inf.
+  if (!std::isfinite(value) || y_ratio <= 0.0f || !std::isfinite(y_ratio)) {
+    return y_min_height;
+  }
+  const Pixel y = static_cast<Pixel>(y_base - (value - min_value) * y_ratio);
+  return std::clamp(y, y_top, std::max(y_top, y_min_height));
+}
+
 }  // namespace
 
 Pixel Timeline::CalculateTrackManagementButtonWidth(int button_count) {
@@ -1263,6 +1281,48 @@ void Timeline::BackfillGroupLevelCount(FlameChartTimelineData& data) {
   }
 }
 
+// As a client-side stopgap, accumulate bounds per
+// (pid, counter_name) so counter tracks do not shrink vertically during pan and
+// zoom. Note that bounds will still step once when a new extreme scrolls into
+// view.
+void Timeline::StabilizeCounterTracks(FlameChartTimelineData& data) {
+  for (auto& [group_index, counter_data] : data.counter_data_by_group_index) {
+    if (group_index < 0 ||
+        static_cast<size_t>(group_index) >= data.groups.size()) {
+      continue;
+    }
+    const Group& group = data.groups[group_index];
+    CounterTrackMetadata& meta = counter_metadata_[{group.pid, group.name}];
+    if (counter_data.unit != CounterUnit::kNone) {
+      meta.unit = counter_data.unit;
+    } else {
+      counter_data.unit = meta.unit;
+    }
+    if (!counter_data.event_stats.empty()) {
+      meta.event_stats = counter_data.event_stats;
+    } else {
+      counter_data.event_stats = meta.event_stats;
+    }
+    if (counter_data.min_value <= counter_data.max_value &&
+        std::isfinite(counter_data.min_value) &&
+        std::isfinite(counter_data.max_value)) {
+      meta.min_value = std::min(meta.min_value, counter_data.min_value);
+      meta.max_value = std::max(meta.max_value, counter_data.max_value);
+    }
+    if (meta.unit == CounterUnit::kFraction) {
+      // Utilization counters represent a [0, 1] fraction; pinning their axis to
+      // the full range keeps the bar scale stable even before a window hits 0%
+      // or 100%.
+      meta.min_value = std::min(meta.min_value, 0.0);
+      meta.max_value = std::max(meta.max_value, 1.0);
+    }
+    if (meta.min_value <= meta.max_value) {
+      counter_data.min_value = meta.min_value;
+      counter_data.max_value = meta.max_value;
+    }
+  }
+}
+
 void Timeline::SetTimelineData(FlameChartTimelineData data) {
   UpdateTimelineData([&]() { return std::move(data); });
 }
@@ -1410,6 +1470,7 @@ void Timeline::UpdateTimelineData(
 
   FlameChartTimelineData data = builder();
   BackfillGroupLevelCount(data);
+  StabilizeCounterTracks(data);
 
   // Pre-calculate the level positions to avoid partial state and per-frame
   // layout recalculations before saving the newly arrived timeline_data.
@@ -2237,6 +2298,8 @@ bool Timeline::RestoreSavedFullOverview() {
     }
   }
 
+  StabilizeCounterTracks(saved_full_overview_->data);
+
   // A track drag refers to tracks by their indices in the current data.
   CancelTrackDrag();
   UpdateLevelPositions(saved_full_overview_->data);
@@ -2458,6 +2521,7 @@ void Timeline::ResetForNewDataset() {
   animate_next_layout_ = false;
   chevron_openness_.clear();
   hover_fades_.clear();
+  counter_metadata_.clear();
 
   // A zero visible range makes the next ProcessTraceEvents fit the new
   // dataset to width.
@@ -5045,13 +5109,15 @@ void Timeline::DrawCounterTooltip(int group_index, const CounterData& data,
       // Highlight the entire bar under hover.
       const Pixel x1 = TimeToScreenX(t1, pos.x, px_per_time_unit_val);
       const Pixel x2 = TimeToScreenX(t2, pos.x, px_per_time_unit_val);
-      const Pixel y = y_base - (v1 - data.min_value) * y_ratio;
+      const Pixel y =
+          ComputeCounterValueY(v1, data.min_value, pos.y, height, y_ratio);
       draw_list->AddRect(ImVec2(x1, y), ImVec2(x2, y_base), kCounterHoverColor,
                          0.0f, 0, kCounterHoverThickness);
     }
 
     const Pixel x = mouse_pos.x;
-    const Pixel y = y_base - (val - data.min_value) * y_ratio;
+    const Pixel y =
+        ComputeCounterValueY(val, data.min_value, pos.y, height, y_ratio);
 
     // Draw circle
     draw_list->AddCircleFilled(ImVec2(x, y), kPointRadius, kWhiteColor);
@@ -5170,11 +5236,8 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
     Pixel x1 = TimeToScreenX(data.timestamps[i], pos.x, px_per_time_unit_val);
     Pixel x2 =
         TimeToScreenX(data.timestamps[i + 1], pos.x, px_per_time_unit_val);
-    Pixel y = y_base - (data.values[i] - data.min_value) * y_ratio;
-
-    // Add a minimum 1px height so that a value equal to min_value is still
-    // visible as a thin line instead of completely disappearing.
-    y = std::min(y, y_base - 1.0f);
+    const Pixel y = ComputeCounterValueY(data.values[i], data.min_value, pos.y,
+                                         height, y_ratio);
 
     if (x2 - x1 < 0.5f) {
       if (!has_pending) {
@@ -5214,7 +5277,8 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
   if (!data.timestamps.empty()) {
     Pixel x =
         TimeToScreenX(data.timestamps.back(), pos.x, px_per_time_unit_val);
-    Pixel y = y_base - (data.values.back() - data.min_value) * y_ratio;
+    const Pixel y = ComputeCounterValueY(data.values.back(), data.min_value,
+                                         pos.y, height, y_ratio);
     draw_list->AddRectFilled(ImVec2(x, y), ImVec2(x + 1.0f, y_base),
                              kCounterTrackColor);
   }
@@ -5237,7 +5301,8 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
       Microseconds ts = data.timestamps[p_idx];
       double val = data.values[p_idx];
       Pixel x = TimeToScreenX(ts, pos.x, px_per_time_unit_val);
-      Pixel y = pos.y + height - (val - data.min_value) * y_ratio;
+      const Pixel y =
+          ComputeCounterValueY(val, data.min_value, pos.y, height, y_ratio);
 
       draw_list->AddCircleFilled(ImVec2(x, y), kSelectedDataPointRadius,
                                  kBlue60);
@@ -5264,7 +5329,8 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
     }
     double val = data.values[selected_counter_index_];
     Pixel x = TimeToScreenX(ts, pos.x, px_per_time_unit_val);
-    Pixel y = pos.y + height - (val - data.min_value) * y_ratio;
+    const Pixel y =
+        ComputeCounterValueY(val, data.min_value, pos.y, height, y_ratio);
 
     draw_list->AddCircleFilled(ImVec2(x, y), kPointRadius, kWhiteColor);
     draw_list->AddCircle(ImVec2(x, y), kPointRadius, kSelectedBorderColor,
@@ -7518,10 +7584,8 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
         double val = counter_data.values[i];
 
         Pixel x = TimeToScreenX(*it, screen_x_offset, px_per_time);
-        Pixel y = (value_range > 0)
-                      ? y_top + group_height -
-                            (val - counter_data.min_value) * y_ratio
-                      : y_top + group_height / 2.0f;
+        const Pixel y = ComputeCounterValueY(val, counter_data.min_value, y_top,
+                                             group_height, y_ratio);
 
         if (selection_rect.Contains(ImVec2(x, y))) {
           selected_counter_points_.push_back({group_index, i});

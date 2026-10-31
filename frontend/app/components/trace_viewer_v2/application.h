@@ -202,6 +202,13 @@ class Application {
     }
     return timeline_->get_current_search_result_index();
   }
+  void RevealEvent(int event_index) {
+    if (timeline_) {
+      timeline_->RevealEvent(event_index);
+      RequestRedraw();
+    }
+  }
+
 
  private:
   friend class absl::NoDestructor<Application>;

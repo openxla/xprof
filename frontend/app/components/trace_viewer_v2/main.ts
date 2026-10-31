@@ -272,6 +272,8 @@ declare global {
       getSearchResultsCount(): number;
       navigateToNextSearchResult(): void;
       navigateToPrevSearchResult(): void;
+      /** Reveals the flow-connected event in the timeline by its index. */
+      revealEvent?(eventIndex: number): void;
       resize(dpr: number, width: number, height: number): void;
       /**
        * Re-applies the track order saved in `localStorage`, which all sessions

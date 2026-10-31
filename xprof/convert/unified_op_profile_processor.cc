@@ -86,6 +86,11 @@ absl::Status UnifiedOpProfileProcessor::ProcessCombinedOpStats(
         program_serving_metadata_ptr);
   }
 
+  if (GetParamWithDefault<std::string>(options, "tqx", "") == "out:pb") {
+    SetOutput(profile.SerializeAsString(), "application/x-protobuf");
+    return absl::OkStatus();
+  }
+
   std::string op_profile_json;
   JsonPrintOptions opts;
   opts.always_print_fields_with_no_presence = true;

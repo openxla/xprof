@@ -981,6 +981,7 @@ cc_test(
         "//file/base",
         "//file/base:options_cc",
         "//file/base:path",
+        "//plugin/xprof/protobuf:hlo_stats_proto_cc",
         "//plugin/xprof/protobuf:op_stats_proto_cc",
         "//third_party/jsoncpp:json_compat",
         "@com_google_absl//absl/status",

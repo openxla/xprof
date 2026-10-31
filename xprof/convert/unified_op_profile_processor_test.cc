@@ -236,5 +236,32 @@ TEST(UnifiedOpProfileProcessorTest,
   EXPECT_THAT(processor_failing.GetData(), HasSubstr("jit_step(1234)"));
 }
 
+TEST(UnifiedOpProfileProcessorTest, ProtoOutputWhenTqxIsOutPb) {
+  std::string session_dir =
+      tsl::io::JoinPath(testing::TempDir(), "unified_op_profile_pb_test");
+  ASSERT_OK(tsl::Env::Default()->RecursivelyCreateDir(session_dir));
+  std::string xspace_path =
+      tsl::io::JoinPath(session_dir, "test_host.xplane.pb");
+  XSpace dummy_space;
+  ASSERT_OK(WriteBinaryProto(xspace_path, dummy_space));
+  ASSERT_OK_AND_ASSIGN(
+      auto session_snapshot,
+      SessionSnapshot::Create({xspace_path}, /*xspaces=*/std::nullopt));
+
+  OpStats op_stats = CreateTestOpStatsWithProgram(1234);
+
+  ToolOptions pb_options;
+  pb_options["tqx"] = std::string("out:pb");
+  UnifiedOpProfileProcessor processor(pb_options);
+  ASSERT_OK(
+      processor.ProcessCombinedOpStats(session_snapshot, op_stats, pb_options));
+  EXPECT_EQ(processor.GetContentType(), "application/x-protobuf");
+
+  tensorflow::profiler::op_profile::Profile profile;
+  ASSERT_TRUE(profile.ParseFromString(processor.GetData()));
+  ASSERT_EQ(profile.by_program().children_size(), 1);
+  EXPECT_EQ(profile.by_program().children(0).name(), "jit_step(1234)");
+}
+
 }  // namespace
 }  // namespace xprof

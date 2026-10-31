@@ -28,6 +28,7 @@
 namespace xprof {
 
 using tensorflow::profiler::ConvertOpStatsToHloStats;
+using tensorflow::profiler::GetParamWithDefault;
 using tensorflow::profiler::HloStatsToDataTableJson;
 using tensorflow::profiler::OpStats;
 using tensorflow::profiler::hlo_stats::HloStatsDatabase;
@@ -37,6 +38,10 @@ absl::Status UnifiedHloStatsProcessor::ProcessCombinedOpStats(
     const OpStats& combined_op_stats,
     const tensorflow::profiler::ToolOptions& options) {
   HloStatsDatabase hlo_stats_db = ConvertOpStatsToHloStats(combined_op_stats);
+  if (GetParamWithDefault<std::string>(options, "tqx", "") == "out:pb") {
+    SetOutput(hlo_stats_db.SerializeAsString(), "application/x-protobuf");
+    return absl::OkStatus();
+  }
   std::string hlo_stats_json = HloStatsToDataTableJson(hlo_stats_db);
   SetOutput(hlo_stats_json, "application/json");
   return absl::OkStatus();

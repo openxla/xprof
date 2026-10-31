@@ -33,6 +33,7 @@
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/unified_profile_processor_factory.h"
 #include "xprof/convert/unified_tools_registration.h"
+#include "plugin/xprof/protobuf/hlo_stats.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 
 namespace xprof {
@@ -112,6 +113,43 @@ TEST_F(UnifiedHloStatsProcessorTest, ProcessCombinedOpStatsTest) {
   ASSERT_EQ(json["rows"].size(), 1);
   EXPECT_EQ(json["rows"][0]["c"][4]["v"].asString(), "tc-op");
   EXPECT_EQ(json["rows"][0]["c"][26]["v"].asString(), "TensorCore");
+}
+
+TEST_F(UnifiedHloStatsProcessorTest, ProtoOutputWhenTqxIsOutPb) {
+  options_["tqx"] = std::string("out:pb");
+  auto processor = UnifiedProfileProcessorFactory::GetInstance().Create(
+      "hlo_stats", options_);
+  ASSERT_NE(processor, nullptr);
+
+  auto* hlo_processor = dynamic_cast<BaseOpStatsProcessor*>(processor.get());
+  ASSERT_NE(hlo_processor, nullptr);
+
+  std::string xspace_path = file::JoinPath(session_dir_, "test_host.xplane.pb");
+  XSpace dummy_space;
+  ASSERT_OK(WriteBinaryProto(xspace_path, dummy_space));
+
+  ASSERT_OK_AND_ASSIGN(SessionSnapshot session_snapshot,
+                       SessionSnapshot::Create({xspace_path}, std::nullopt));
+
+  tensorflow::profiler::OpStats combined_op_stats;
+  combined_op_stats.mutable_run_environment()->set_device_type("TPU");
+
+  auto& db = *(combined_op_stats.mutable_device_op_metrics_db());
+  auto& tc_metric = *db.add_metrics_db();
+  tc_metric.set_name("tc-op");
+  tc_metric.set_core_type(tensorflow::profiler::OpMetrics::TENSOR_CORE);
+  tc_metric.set_occurrences(1);
+  tc_metric.set_self_time_ps(100000);
+
+  ASSERT_OK(hlo_processor->ProcessCombinedOpStats(session_snapshot,
+                                                  combined_op_stats, options_));
+  EXPECT_EQ(processor->GetContentType(), "application/x-protobuf");
+
+  tensorflow::profiler::hlo_stats::HloStatsDatabase hlo_stats_db;
+  ASSERT_TRUE(hlo_stats_db.ParseFromString(processor->GetData()));
+  ASSERT_EQ(hlo_stats_db.hlo_stats_record_size(), 1);
+  EXPECT_EQ(hlo_stats_db.hlo_stats_record(0).hlo_expression(), "tc-op");
+  EXPECT_EQ(hlo_stats_db.hlo_stats_record(0).core_type(), "TensorCore");
 }
 
 }  // namespace

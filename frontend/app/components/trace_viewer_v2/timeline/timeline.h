@@ -1060,6 +1060,8 @@ class Timeline {
   // Emits an event selected event to JS side.
   void EmitEventSelected(int event_index);
   EventData CreateBaseEventData(int event_index, bool is_hover = false) const;
+  // Returns the index of the slice on `level` that covers `ts`, or -1.
+  int FindEventIndexAt(int level, Microseconds ts) const;
   // Emits an event hovered event to JS side.
   void EmitEventHovered(int event_index, float mouse_x, float mouse_y);
   // Populates schedule context (totalBundles, bundleCounts, regions,

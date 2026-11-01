@@ -1162,7 +1162,7 @@ async function handleFetchDataEvent(
     isAbortRequested: () =>
       initialDataUrl !== getCurrentDataUrl() ||
       traceviewerModule !== activeWasmModule,
-    timeRange: [detail.start_time_ms, detail.end_time_ms],
+    timeRange: undefined,
     errorContext: 'fetching new data',
   });
 }

@@ -3488,6 +3488,11 @@ Pixel Timeline::TimeToScreenX(Microseconds time, Pixel screen_x_offset,
 }
 
 void Timeline::ConstrainTimeRange(TimeRange& range) {
+  if (data_time_range_.duration() <= 0) return;
+  if (range.duration() >= data_time_range_.duration()) {
+    range = data_time_range_;
+    return;
+  }
   if (range.duration() < kMinDurationMicros) {
     double center = range.center();
     range = {center - kMinDurationMicros / 2.0,
@@ -3668,12 +3673,21 @@ void Timeline::RevealEvent(int event_index) {
         std::max(min_entry_time_window, time_per_px * min_visible_width_px);
   }
 
+  bool needs_update = false;
+  TimeRange new_range = visible_range_target();
   if (time_left > end) {
     double delta = time_left - end + min_entry_time_window;
-    SetVisibleRange({time_left - delta, time_right - delta}, /*animate=*/true);
+    new_range = {time_left - delta, time_right - delta};
+    needs_update = true;
   } else if (time_right < start) {
     double delta = start - time_right + min_entry_time_window;
-    SetVisibleRange({time_left + delta, time_right + delta}, /*animate=*/true);
+    new_range = {time_left + delta, time_right + delta};
+    needs_update = true;
+  }
+
+  if (needs_update) {
+    ConstrainTimeRange(new_range);
+    SetVisibleRange(new_range, /*animate=*/true);
   }
 
   EmitEventSelected(event_index);
@@ -3842,6 +3856,11 @@ void Timeline::Pan(Pixel pixel_amount) {
   // If the pixel amount is 0, we don't need to pan.
   if (pixel_amount == 0.0) return;
 
+  if (visible_range_.target().duration() >=
+      data_time_range_.duration() - 1e-6) {
+    return;
+  }
+
   const double px_per_time_unit_val = px_per_time_unit();
   // This should never happen, but we check it to avoid division by zero.
   if (px_per_time_unit_val <= 0.0) return;
@@ -3849,18 +3868,12 @@ void Timeline::Pan(Pixel pixel_amount) {
   const double time_offset = pixel_amount / px_per_time_unit_val;
   TimeRange new_range = visible_range_.target() + time_offset;
 
-  const bool showing_entire_trace =
-      visible_range_.target().start() <= data_time_range_.start() &&
-      visible_range_.target().end() >= data_time_range_.end();
-
-  if (!showing_entire_trace) {
-    if (pixel_amount < 0.0 && new_range.start() < data_time_range_.start()) {
-      ShowNavigationWarningNotification(
-          "Cannot pan further left: reached the beginning of the trace.");
-    } else if (pixel_amount > 0.0 && new_range.end() > data_time_range_.end()) {
-      ShowNavigationWarningNotification(
-          "Cannot pan further right: reached the end of the trace.");
-    }
+  if (pixel_amount < 0.0 && new_range.start() < data_time_range_.start()) {
+    ShowNavigationWarningNotification(
+        "Cannot pan further left: reached the beginning of the trace.");
+  } else if (pixel_amount > 0.0 && new_range.end() > data_time_range_.end()) {
+    ShowNavigationWarningNotification(
+        "Cannot pan further right: reached the end of the trace.");
   }
 
   ConstrainTimeRange(new_range);
@@ -3948,14 +3961,13 @@ void Timeline::Zoom(float zoom_factor, Microseconds pivot) {
       ShowNavigationWarningNotification(
           "Cannot zoom in further: minimum zoom duration reached.");
     }
-  } else if (zoom_factor > 1.0) {
-    TimeRange constrained_range = new_range;
-    ConstrainTimeRange(constrained_range);
-    if (constrained_range.duration() < new_range.duration() ||
-        (visible_range_.target().start() <= data_time_range_.start() &&
-         visible_range_.target().end() >= data_time_range_.end())) {
+  } else {
+    // Zooming out
+    if (visible_range_.target().duration() >=
+        data_time_range_.duration() - 1e-6) {
       ShowNavigationWarningNotification(
           "Cannot zoom out further: showing the entire trace.");
+      return;
     }
   }
 

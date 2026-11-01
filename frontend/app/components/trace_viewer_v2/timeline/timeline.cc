@@ -1272,6 +1272,13 @@ void Timeline::UpdateTimelineData(
   // A track drag refers to tracks by their indices in the current data.
   CancelTrackDrag();
 
+  const TimeRange saved_visible_range = *visible_range_;
+  const TimeRange saved_visible_range_target = visible_range_.target();
+  const bool had_valid_visible_range = (saved_visible_range.duration() > 0);
+  const bool was_animating_visible_range =
+      had_valid_visible_range &&
+      (saved_visible_range != saved_visible_range_target);
+
   // Capture anchor track and local pixel offset prior to updating layout.
   GroupKey anchor_group_key = {};
   Pixel local_pixel_offset = 0.0f;
@@ -1579,12 +1586,23 @@ void Timeline::UpdateTimelineData(
                                  std::move(old_dependencies.consumer_names));
   }
 
+  if (is_incremental_loading_ && had_valid_visible_range &&
+      !pending_navigation_event_id_.has_value()) {
+    if (was_animating_visible_range) {
+      visible_range_.snap_to(saved_visible_range);
+      visible_range_ = saved_visible_range_target;
+    } else {
+      visible_range_.snap_to(saved_visible_range);
+    }
+  }
+
   if (is_incremental_loading_) {
     should_restore_scroll_ = true;
   }
 
   minimap_schedule_dirty_ = true;
   SyncMinimapState();
+  failed_fetch_request_range_ = TimeRange::Zero();
 
   if (redraw_callback_) redraw_callback_();
 }
@@ -3488,6 +3506,9 @@ Pixel Timeline::TimeToScreenX(Microseconds time, Pixel screen_x_offset,
 }
 
 void Timeline::ConstrainTimeRange(TimeRange& range) {
+  if (data_time_range_.duration() <= 0) {
+    return;
+  }
   if (range.duration() < kMinDurationMicros) {
     double center = range.center();
     range = {center - kMinDurationMicros / 2.0,
@@ -3913,9 +3934,9 @@ void Timeline::Zoom(float zoom_factor, Microseconds pivot) {
   // If the zoom factor is 1, we don't need to zoom.
   if (zoom_factor == 1.0) return;
 
-  // Clamp the zoom factor to the minimum value. This prevents the time
-  // durations (mathmatically) become zero or negative.
-  zoom_factor = std::max(zoom_factor, kMinZoomFactor);
+  // Clamp the zoom factor to prevent the time duration from becoming zero,
+  // negative, or unrecoverably large in a single frame.
+  zoom_factor = std::clamp(zoom_factor, 0.1f, 10.0f);
 
   TimeRange new_range = visible_range_.target();
   new_range.Zoom(zoom_factor, pivot);
@@ -6999,8 +7020,10 @@ void Timeline::InitializeLastFetchRequestRange(const TimeRange& visible_range) {
 }
 
 void Timeline::MaybeRequestData() {
-  const TimeRange current_visible = visible_range();
-  TimeRange fetch = current_visible.Scale(kFetchRatio);
+  TimeRange active_visible = visible_range();
+  active_visible.Encompass(visible_range_.target());
+
+  TimeRange fetch = active_visible.Scale(kFetchRatio);
   if (fetch.duration() < kMinFetchDurationMicros) {
     Microseconds center = fetch.center();
     fetch = {center - kMinFetchDurationMicros / 2.0,
@@ -7034,7 +7057,7 @@ void Timeline::MaybeRequestData() {
   // is too coarse, a new load of 'fetch' range is triggered.
   // - last_fetch_request_range_: The time range covered by data currently
   // loaded.
-  TimeRange preserve = current_visible.Scale(kPreserveRatio);
+  TimeRange preserve = active_visible.Scale(kPreserveRatio);
   ConstrainTimeRange(preserve);
 
   // Refetch data if user zoomed in significantly, making resolution too coarse.
@@ -7076,9 +7099,24 @@ void Timeline::MaybeRequestData() {
   // SetTimelineData / set_fetched_data_time_range / set_is_incremental_loading
   // are not overwritten afterward.
   last_fetch_request_range_ = fetch;
+  if (failed_fetch_request_range_ != TimeRange::Zero() &&
+      failed_fetch_request_range_.Contains(fetch)) {
+    return;
+  }
+
+  // We set is_incremental_loading_ to true to prevent sending duplicate
+  // requests. The flag will be reset to false when the data is received and
+  // processed.
   is_incremental_loading_ = true;
 
   event_callback_(kFetchData, event_data);
+}
+
+void Timeline::FailIncrementalLoad(bool aborted) {
+  is_incremental_loading_ = false;
+  if (!aborted) {
+    failed_fetch_request_range_ = last_fetch_request_range_;
+  }
 }
 
 void Timeline::SetSearchQuery(absl::string_view query) {

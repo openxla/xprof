@@ -2567,7 +2567,7 @@ void UpdateTimelineTimeRanges(
       // current visible range.
       timeline.SetVisibleRange({bounds.min, bounds.max});
     }
-  } else if (!has_known_tracks) {
+  } else if (!has_known_tracks && !timeline.is_incremental_loading()) {
     timeline.set_fetched_data_time_range(TimeRange::Zero());
     timeline.SetVisibleRange(TimeRange::Zero());
   }
@@ -2576,8 +2576,12 @@ void UpdateTimelineTimeRanges(
     const Microseconds start = MillisToMicros(full_timespan->first);
     const Microseconds end = MillisToMicros(full_timespan->second);
     timeline.set_data_time_range({start, end});
-  } else {
+  } else if (timeline.data_time_range().duration() == 0) {
     timeline.set_data_time_range(timeline.fetched_data_time_range());
+  } else {
+    TimeRange expanded = timeline.data_time_range();
+    expanded.Encompass(timeline.fetched_data_time_range());
+    timeline.set_data_time_range(expanded);
   }
 }
 

@@ -474,8 +474,14 @@ class Timeline {
   }
 
   void set_data_time_range(const TimeRange& range) {
-    if (data_time_range_ != range) {
-      data_time_range_ = range;
+    TimeRange new_range = range;
+    if (data_time_range_.duration() > 0 && range.duration() > 0) {
+      new_range = data_time_range_;
+      new_range.Encompass(range);
+    }
+
+    if (data_time_range_ != new_range) {
+      data_time_range_ = new_range;
       minimap_schedule_dirty_ = true;
       SyncMinimapState();
     }
@@ -837,6 +843,7 @@ class Timeline {
   // available before it becomes visible, providing a smoother user experience.
   // Exposed for testing.
   void MaybeRequestData();
+  void FailIncrementalLoad(bool aborted);
   double px_per_time_unit() const;
   double px_per_time_unit(Pixel timeline_width) const;
   void DrawTimelinePlayerSync();
@@ -1662,6 +1669,7 @@ class Timeline {
   // the returned data is empty or sparse (and thus fetched_data_time_range_
   // doesn't cover the full requested range).
   TimeRange last_fetch_request_range_ = TimeRange::Zero();
+  TimeRange failed_fetch_request_range_ = TimeRange::Zero();
 
   // See set_track_reordering_enabled().
   bool track_reordering_enabled_ = false;

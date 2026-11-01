@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <utility>
 
 #include "frontend/app/components/trace_viewer_v2/animation.h"
@@ -155,6 +156,17 @@ class TimeRange {
 // Animated<T>::Converged() to compute relative tolerance thresholds.
 inline Microseconds abs(const TimeRange& range) {
   return std::fabs(range.start()) + std::fabs(range.end());
+}
+
+template <>
+inline bool Animated<TimeRange>::Converged() const {
+  using std::abs;
+  const double max_val =
+      std::max(std::fabs(target_.start()), std::fabs(target_.end()));
+  const double eps = std::numeric_limits<double>::epsilon();
+  // Scale by 32 ULPs to bound floating-point error, or fall back to 1e-12.
+  const double tolerance = std::max(max_val * eps * 32.0, 1e-12);
+  return abs(current_ - target_) < tolerance;
 }
 
 }  // namespace traceviewer

@@ -7,6 +7,9 @@ Public API:
     may return pytrees; each leaf is validated, with optional per-leaf
     contracts via `contract_by_leaf`.
   compare_bitwise: Exact bit-pattern comparison of two arrays.
+  CONTRACT_ROW_REL_L2: `contract` that gates on whole-output and per-row
+    relative L2 error (see `rel_l2`) instead of ULP distance, for kernels
+    whose arithmetic is intentionally lossy, such as FP8/FP4 dequantization.
   make_fwd_bwd: Wrap a JAX function so its output also carries its VJP, which
     puts the backward pass under validation.
   chunk_callable: Wrap an oracle to execute in slices along one axis, for
@@ -30,6 +33,7 @@ import ml_dtypes
 import numpy as np
 
 from xprof.xparity import numerical_generator
+from xprof.xparity import rel_l2
 from xprof.xparity import ulp
 
 
@@ -175,6 +179,8 @@ class BatchValidationResult:
   tolerance_ratio: float | None = None
   # The same ratio for candidate against oracle, when an oracle ran.
   oracle_tolerance_ratio: float | None = None
+  # Whole-output and per-row relative L2 check under CONTRACT_ROW_REL_L2.
+  row_rel_l2: rel_l2.RowRelL2Comparison | None = None
 
   @property
   def max_ulp(self) -> int:
@@ -213,6 +219,9 @@ class KernelValidationReport:
   failure_dumps: list[str] = dataclasses.field(default_factory=list)
   coverage: dict[str, Any] = dataclasses.field(default_factory=dict)
   tolerance_headroom: dict[str, Any] = dataclasses.field(default_factory=dict)
+  # Worst whole-output and per-row relative L2 error across batches and
+  # leaves, filled when any output is gated by CONTRACT_ROW_REL_L2.
+  rel_l2_summary: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -327,9 +336,12 @@ def _relative_diff(abs_diff: float, ref_value: float, canonical: str) -> float:
 # Verdict contracts accepted by `validate_kernels` and `validate_arrays`.
 # CONTRACT_ULP gates on ULP distance and an allclose check. CONTRACT_BITWISE
 # requires every output element to have the same bit pattern as the reference.
+# CONTRACT_ROW_REL_L2 gates on whole-output relative L2 error <= rel_l2_tol and
+# every row (last dimension) within row_factor * rel_l2_tol; see `rel_l2`.
 CONTRACT_ULP = "ulp"
 CONTRACT_BITWISE = "bitwise"
-_CONTRACTS = frozenset({CONTRACT_ULP, CONTRACT_BITWISE})
+CONTRACT_ROW_REL_L2 = "row_rel_l2"
+_CONTRACTS = frozenset({CONTRACT_ULP, CONTRACT_BITWISE, CONTRACT_ROW_REL_L2})
 
 # Tiers that run only the 'normal' regime by default and the other regimes as
 # triage after a failure. Every other tier gates on the full suite.
@@ -416,6 +428,7 @@ _ML_FLOAT_DTYPES = (
     ml_dtypes.bfloat16,
     ml_dtypes.float8_e4m3fn,
     ml_dtypes.float8_e5m2,
+    ml_dtypes.float4_e2m1fn,
 )
 
 
@@ -1212,8 +1225,30 @@ def _execute_single_batch(
     contract: str = CONTRACT_ULP,
     contract_by_leaf: collections.abc.Mapping[str, str] | None = None,
     user_tolerance: tuple[float, float] | None = None,
+    row_l2_gate: tuple[float, float, float] | None = None,
 ) -> _BatchExecutionResult:
-  """Executes and validates a single batch between reference and candidate."""
+  """Executes and validates a single batch between reference and candidate.
+
+  Args:
+    batch: The test batch.
+    kernel_ref: Reference implementation.
+    kernel_candidate: Candidate implementation.
+    canonical_dtype: Canonical name of `dtype_str`.
+    dtype_str: Output dtype in whose units ULP figures are reported.
+    actual_max_allowed_ulp: Per-element ULP gate.
+    p99_9_allowed_ulp: 99.9th-percentile ULP gate.
+    recommended_ulp: Recommended ULP contract for the dtype.
+    kernel_oracle: Optional oracle callable or ORACLE_AUTO.
+    contract: Verdict contract for this output.
+    contract_by_leaf: Per-leaf contract overrides for pytree outputs.
+    user_tolerance: Optional report-only (atol, rtol).
+    row_l2_gate: (rel_l2_tol, row_factor, row_norm_floor), required when this
+      output is gated by CONTRACT_ROW_REL_L2.
+
+  Returns:
+    The batch verdict together with the oracle and output data that
+    `validate_kernels` aggregates across batches.
+  """
   args = batch.get("args", (batch.get("tensor"),))
   kwargs = batch.get("kwargs", {})
 
@@ -1237,10 +1272,12 @@ def _execute_single_batch(
         p99_9_allowed_ulp=p99_9_allowed_ulp,
         recommended_ulp=recommended_ulp,
         user_tolerance=user_tolerance,
+        row_l2_gate=row_l2_gate,
     )
 
-  out_ref = np.asarray(raw_ref)
-  out_cand = np.asarray(raw_cand)
+  # `as_host_array` also accepts PyTorch tensors on any device.
+  out_ref = rel_l2.as_host_array(raw_ref)[0]
+  out_cand = rel_l2.as_host_array(raw_cand)[0]
 
   if out_cand.shape != out_ref.shape:
     raise ValueError(
@@ -1511,6 +1548,13 @@ def _execute_single_batch(
         note=context_note,
     )
 
+  row_cmp = None
+  if contract == CONTRACT_ROW_REL_L2:
+    if row_l2_gate is None:
+      raise ValueError(f"Contract '{CONTRACT_ROW_REL_L2}' needs rel_l2_tol.")
+    row_cmp = rel_l2.compare_row_rel_l2(raw_cand, raw_ref, *row_l2_gate)
+    passed = row_cmp.passed
+
   if contract == CONTRACT_BITWISE:
     passed = bitwise_cmp.equal
     if bitwise_cmp.equal and has_nan_or_inf:
@@ -1546,6 +1590,7 @@ def _execute_single_batch(
           else None
       ),
       oracle_tolerance_ratio=oracle_tolerance_ratio,
+      row_rel_l2=row_cmp,
   )
 
   return _BatchExecutionResult(
@@ -1642,6 +1687,38 @@ def _dump_failing_batches(
   return paths
 
 
+def _summarize_row_rel_l2(
+    batch_results: collections.abc.Sequence[BatchValidationResult],
+    row_l2_gate: tuple[float, float, float],
+) -> dict[str, Any]:
+  """Returns the worst relative L2 figures across batches and output leaves."""
+  checks = []
+  for b in batch_results:
+    leaves = b.leaf_results.values() if b.leaf_results else [b]
+    for leaf in leaves:
+      if leaf.row_rel_l2 is not None:
+        checks.append((b, leaf.leaf_path, leaf.row_rel_l2))
+  tol, factor, floor = row_l2_gate
+  summary: dict[str, Any] = {
+      "rel_l2_tol": tol,
+      "row_factor": factor,
+      "row_norm_floor": floor,
+      "checks": len(checks),
+      "failed_checks": sum(1 for _, _, c in checks if not c.passed),
+  }
+  finite = [t for t in checks if np.isfinite(t[2].worst_row_rel_l2)]
+  if finite:
+    b, path, worst = max(finite, key=lambda t: t[2].worst_row_rel_l2)
+    summary.update(
+        max_rel_l2=max(c.rel_l2 for _, _, c in finite),
+        max_row_rel_l2=worst.worst_row_rel_l2,
+        worst_row_batch=b.batch_name,
+        worst_row_leaf=path,
+        worst_row_index=list(worst.worst_row_index),
+    )
+  return summary
+
+
 def replay_failure_dump(
     path: str | os.PathLike[str],
     kernel_ref: collections.abc.Callable[..., Any],
@@ -1649,6 +1726,9 @@ def replay_failure_dump(
     kernel_oracle: collections.abc.Callable[..., Any] | str | None = None,
     contract: str | None = None,
     as_jax_arrays: bool = False,
+    rel_l2_tol: float | None = None,
+    row_factor: float | None = None,
+    row_norm_floor: float | None = None,
 ) -> KernelValidationReport:
   """Re-runs a batch saved by `validate_kernels(dump_failures_to=...)`.
 
@@ -1663,6 +1743,9 @@ def replay_failure_dump(
     kernel_oracle: Optional oracle, as in `validate_kernels`.
     contract: Overrides the contract stored in the dump.
     as_jax_arrays: If True, the inputs are passed as JAX arrays.
+    rel_l2_tol: Overrides the stored CONTRACT_ROW_REL_L2 tolerance.
+    row_factor: Overrides the stored per-row factor.
+    row_norm_floor: Overrides the stored row-norm floor.
 
   Returns:
     A KernelValidationReport for the saved batch.
@@ -1672,6 +1755,13 @@ def replay_failure_dump(
   if not suite or "dtype_str" not in info:
     raise ValueError(f"{os.fspath(path)} is not an Xparity failure dump.")
   shapes = [tuple(np.shape(arg)) for arg in suite[0]["args"]]
+
+  def stored(override: float | None, key: str, default: Any) -> Any:
+    if override is not None:
+      return override
+    value = info.get(key)
+    return default if value is None else value
+
   return validate_kernels(
       kernel_ref,
       kernel_candidate,
@@ -1684,6 +1774,11 @@ def replay_failure_dump(
       kernel_oracle=kernel_oracle,
       contract=contract or info["contract"],
       contract_by_leaf=info.get("contract_by_leaf"),
+      rel_l2_tol=stored(rel_l2_tol, "rel_l2_tol", None),
+      row_factor=stored(row_factor, "row_factor", rel_l2.ROW_FACTOR),
+      row_norm_floor=stored(
+          row_norm_floor, "row_norm_floor", rel_l2.ROW_NORM_FLOOR
+      ),
   )
 
 
@@ -1708,6 +1803,9 @@ def validate_kernels(
     dump_failures_to: str | os.PathLike[str] | None = None,
     atol: float | None = None,
     rtol: float | None = None,
+    rel_l2_tol: float | None = None,
+    row_factor: float = rel_l2.ROW_FACTOR,
+    row_norm_floor: float = rel_l2.ROW_NORM_FLOOR,
 ) -> KernelValidationReport:
   """Validates candidate kernel against reference implementation.
 
@@ -1747,6 +1845,13 @@ def validate_kernels(
       CONTRACT_BITWISE passes only when every output element of the candidate
       has the same bit pattern and dtype as the reference. Use it for refactors
       and reduction-order-controlled rewrites that must be exact.
+      CONTRACT_ROW_REL_L2 ("row_rel_l2") passes when the whole-output relative
+      L2 error is at most `rel_l2_tol` and every row (last dimension) is within
+      `row_factor * rel_l2_tol`, rows being measured against max(row norm,
+      `row_norm_floor` * mean row norm); NaN or Inf, or a dtype mismatch, fails.
+      Use it for kernels whose arithmetic is intentionally lossy (FP8/FP4
+      dequantization, different accumulation order), where a few-ULP gate is too
+      strict. ULP statistics are still reported but do not decide the verdict.
     contract_by_leaf: For kernels that return a pytree, overrides `contract` for
       individual output leaves, keyed by JAX key path (for example `{"[1]":
       CONTRACT_ULP}` or `{"['lse']": CONTRACT_BITWISE}`). Every leaf is
@@ -1764,6 +1869,11 @@ def validate_kernels(
       verdict. Defaults to 0 when only `rtol` is set.
     rtol: Optional relative tolerance; see `atol`. Defaults to 0 when only
       `atol` is set.
+    rel_l2_tol: Whole-output relative L2 tolerance for CONTRACT_ROW_REL_L2.
+      Required when that contract is used for any output.
+    row_factor: Per-row bound as a multiple of `rel_l2_tol`.
+    row_norm_floor: Floor on each row's norm as a fraction of the mean row norm,
+      so that near-zero rows do not inflate the per-row error.
 
   Returns:
     A KernelValidationReport. For pytree outputs each batch result carries
@@ -1788,6 +1898,18 @@ def validate_kernels(
       )
     if user_tolerance == (0.0, 0.0):
       raise ValueError("atol and rtol cannot both be 0; use CONTRACT_BITWISE.")
+  uses_row_l2 = contract == CONTRACT_ROW_REL_L2 or any(
+      c == CONTRACT_ROW_REL_L2 for c in contract_by_leaf.values()
+  )
+  row_l2_gate: tuple[float, float, float] | None = None
+  if uses_row_l2:
+    if rel_l2_tol is None:
+      raise ValueError(
+          f"Contract '{CONTRACT_ROW_REL_L2}' requires rel_l2_tol, the"
+          " whole-output relative L2 tolerance (for example 2e-2)."
+      )
+    rel_l2.check_parameters(rel_l2_tol, row_factor, row_norm_floor)
+    row_l2_gate = (float(rel_l2_tol), float(row_factor), float(row_norm_floor))
 
   canonical_dtype = _resolve_canonical_dtype(dtype_str)
   recommended_ulp = RECOMMENDED_CONTRACT_ULP.get(canonical_dtype, 2)
@@ -1935,6 +2057,7 @@ def validate_kernels(
         contract=contract,
         contract_by_leaf=contract_by_leaf,
         user_tolerance=user_tolerance,
+        row_l2_gate=row_l2_gate,
     )
     acc.update(res)
     batch_results.append(res.batch_result)
@@ -2036,7 +2159,41 @@ def validate_kernels(
     except Exception as e:  # pylint: disable=broad-exception-caught
       logging.debug("Zero-ULP lossy baseline probe failed: %s", e)
 
-  if contract == CONTRACT_BITWISE:
+  rel_l2_summary = (
+      _summarize_row_rel_l2(batch_results, row_l2_gate)
+      if row_l2_gate is not None
+      else {}
+  )
+
+  if contract == CONTRACT_ROW_REL_L2 and row_l2_gate is not None:
+    caution_msg = None
+    tol, factor, floor = row_l2_gate
+    if is_equivalent:
+      summary = (
+          f"PASSED: Candidate is within relative L2 tol {tol:g} (every row"
+          f" within {factor:g} x tol, row-norm floor {floor:g} x mean) across"
+          f" {len(batch_results)} batches (worst relative L2"
+          f" {rel_l2_summary.get('max_rel_l2', 0.0):.3e}, worst row"
+          f" {rel_l2_summary.get('max_row_rel_l2', 0.0):.3e}) (contract:"
+          " row_rel_l2)."
+      )
+    else:
+      first_bad = next(b for b in batch_results if not b.passed)
+      leaf = (
+          f" output leaf {first_bad.leaf_path}," if first_bad.leaf_path else ""
+      )
+      detail = (
+          first_bad.row_rel_l2.message
+          if first_bad.row_rel_l2 is not None
+          else "failed another leaf's contract."
+      )
+      summary = (
+          "FAILED: Candidate exceeds the relative L2 contract in"
+          f" {acc.failed_batches}/{len(batch_results)} batches (contract:"
+          f" row_rel_l2). First failure: batch '{first_bad.batch_name}'"
+          f" (regime '{first_bad.regime}'),{leaf} {detail}"
+      )
+  elif contract == CONTRACT_BITWISE:
     caution_msg = None
     if is_equivalent:
       summary = (
@@ -2152,6 +2309,9 @@ def validate_kernels(
             "p99_9_allowed_ulp": p99_9_allowed_ulp,
             "contract": contract,
             "contract_by_leaf": contract_by_leaf,
+            "rel_l2_tol": rel_l2_tol,
+            "row_factor": row_factor,
+            "row_norm_floor": row_norm_floor,
         },
     )
     summary = (
@@ -2230,6 +2390,10 @@ def validate_kernels(
   }
   if contract_by_leaf:
     run_config["contract_by_leaf"] = contract_by_leaf
+  if row_l2_gate is not None:
+    run_config["rel_l2_tol"] = row_l2_gate[0]
+    run_config["row_factor"] = row_l2_gate[1]
+    run_config["row_norm_floor"] = row_l2_gate[2]
   if pin_inert_detected:
     run_config["reference_pin_inert"] = True
   if ref_is_unpinned:
@@ -2253,6 +2417,7 @@ def validate_kernels(
       failure_dumps=failure_dumps,
       coverage=coverage,
       tolerance_headroom=tolerance_headroom,
+      rel_l2_summary=rel_l2_summary,
   )
 
 
@@ -2263,6 +2428,9 @@ def validate_arrays(
     max_allowed_ulp: int | None = None,
     p99_9_allowed_ulp: float = 1.0,
     contract: str = CONTRACT_ULP,
+    rel_l2_tol: float | None = None,
+    row_factor: float = rel_l2.ROW_FACTOR,
+    row_norm_floor: float = rel_l2.ROW_NORM_FLOOR,
 ) -> BatchValidationResult:
   """Validates bitwise ULP parity between two pre-computed arrays.
 
@@ -2275,7 +2443,12 @@ def validate_arrays(
     p99_9_allowed_ulp: Gate on the 99.9th percentile of the ULP distribution.
     contract: CONTRACT_ULP (default) or CONTRACT_BITWISE. Under CONTRACT_BITWISE
       `passed` is True only when both arrays have the same dtype and every
-      element has the same bit pattern.
+      element has the same bit pattern. Under CONTRACT_ROW_REL_L2 `passed` comes
+      from `rel_l2.compare_row_rel_l2`, reported in `row_rel_l2`.
+    rel_l2_tol: Whole-output relative L2 tolerance; required by
+      CONTRACT_ROW_REL_L2.
+    row_factor: Per-row bound as a multiple of `rel_l2_tol`.
+    row_norm_floor: Row-norm floor as a fraction of the mean row norm.
 
   Returns:
     A BatchValidationResult. When either tensor contains non-finite values the
@@ -2284,8 +2457,15 @@ def validate_arrays(
     finite subset, rather than a sentinel magnitude.
   """
   _check_contract(contract)
-  act_np = np.asarray(actual)
-  exp_np = np.asarray(expected)
+  row_cmp = None
+  if contract == CONTRACT_ROW_REL_L2:
+    if rel_l2_tol is None:
+      raise ValueError(f"Contract '{CONTRACT_ROW_REL_L2}' requires rel_l2_tol.")
+    row_cmp = rel_l2.compare_row_rel_l2(
+        actual, expected, rel_l2_tol, row_factor, row_norm_floor
+    )
+  act_np = rel_l2.as_host_array(actual)[0]
+  exp_np = rel_l2.as_host_array(expected)[0]
   canonical = resolve_canonical_dtype(dtype_str)
   recommended_ulp, hard_ceiling = get_contract(canonical)
 
@@ -2412,6 +2592,8 @@ def validate_arrays(
   passed = bool(ulp_passed and allclose_passed)
   if contract == CONTRACT_BITWISE:
     passed = bitwise_cmp.equal
+  elif row_cmp is not None:
+    passed = row_cmp.passed
   note = None
   if has_nan_inf:
     note = (
@@ -2447,6 +2629,7 @@ def validate_arrays(
       finite_max_ulp=max_ulp,
       worst_offender=worst_offender,
       bitwise=bitwise_cmp,
+      row_rel_l2=row_cmp,
   )
 
 

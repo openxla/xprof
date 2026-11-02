@@ -37,6 +37,7 @@ limitations under the License.
 #include "xprof/convert/smart_suggestion/tool_data_provider.h"
 #include "plugin/xprof/protobuf/event_time_fraction_analyzer.pb.h"
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
+#include "plugin/xprof/protobuf/kernel_stats.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/overview_page.pb.h"
@@ -367,6 +368,14 @@ class SignalProvider {
       }
     }
     return async_done_op_time_ps / root_node.metrics().raw_time() * 100.0;
+  }
+
+  // GPU kernel stats aggregated by kernel over all devices. Empty for
+  // profiles without GPU kernels.
+  absl::StatusOr<const KernelStatsDb*> GetKernelStatsDb() const {
+    TF_ASSIGN_OR_RETURN(const auto* op_stats,
+                        tool_data_provider_->GetOpStats());
+    return &op_stats->kernel_stats_db();
   }
 
   absl::StatusOr<double> GetPeakMemoryUtilization() const {

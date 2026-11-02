@@ -22,6 +22,7 @@ import {
   DIAGNOSTICS_DEFAULT,
   GRAPH_TYPE_DEFAULT,
   GRAPHVIZ_PAN_ZOOM_CONTROL,
+  LLO_DEBUG_TAG,
 } from 'org_xprof/frontend/app/common/constants/constants';
 import {OpProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
@@ -42,6 +43,7 @@ import {
   setOpProfileRootNodeAction,
   setProfilingDeviceTypeAction,
 } from 'org_xprof/frontend/app/store/actions';
+import {getTagsState} from 'org_xprof/frontend/app/store/selectors';
 import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 import {combineLatest, firstValueFrom, ReplaySubject} from 'rxjs';
 import {defaultIfEmpty, takeUntil} from 'rxjs/operators';
@@ -109,6 +111,19 @@ export class GraphViewer implements OnDestroy {
   data = new OpProfileData();
   selectedNode: Node | null = null;
   runtimeDataInjected = false;
+  tags: string[] = [];
+  /** `rootNode` that `cachedModuleOpMap` was built from, for invalidation. */
+  private cachedModuleRoot?: Node;
+  /**
+   * `selectedModule` that `cachedModuleOpMap` was built for, for invalidation.
+   */
+  private cachedModuleName = '';
+  /**
+   * Map from op name to op profile node for the ops of module
+   * `cachedModuleName` in `cachedModuleRoot`. `updateCachedModuleOpMap()`
+   * rebuilds it when `rootNode` or `selectedModule` changes.
+   */
+  private cachedModuleOpMap = new Map<string, Node>();
 
   // ME related variables
   showMeGraph = false;
@@ -128,6 +143,12 @@ export class GraphViewer implements OnDestroy {
   private readonly snackBar: MatSnackBar = inject(MatSnackBar);
 
   constructor() {
+    this.store
+      .select(getTagsState)
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((tags: string[]) => {
+        this.tags = tags ?? [];
+      });
     combineLatest([this.route.params, this.route.queryParams])
       .pipe(takeUntil(this.destroyed))
       .subscribe(async ([params, queryParams]) => {
@@ -530,17 +551,51 @@ export class GraphViewer implements OnDestroy {
     }
   };
 
-  getOpNodeInGraphviz(nodeName: string): Node | null | undefined {
-    if (!this.opProfile || !this.rootNode) return null;
-    for (const topLevelNode of this.rootNode.children!) {
+  /**
+   * Adds the XLA op nodes in `children` and their descendants to `opMap` by
+   * name, keeping the first node of each name.
+   */
+  private addOpNodesToMap(
+    children: Node[] | null | undefined,
+    opMap: Map<string, Node>,
+  ) {
+    if (!children) return;
+    for (const node of children) {
+      if (node.xla && node.name && !opMap.has(node.name)) {
+        opMap.set(node.name, node);
+      }
+      this.addOpNodesToMap(node.children, opMap);
+    }
+  }
+
+  /**
+   * Rebuilds `cachedModuleOpMap` for `selectedModule` in `rootNode`. No-op if
+   * neither has changed since the last build.
+   */
+  private updateCachedModuleOpMap() {
+    if (
+      this.cachedModuleRoot === this.rootNode &&
+      this.cachedModuleName === this.selectedModule
+    ) {
+      return;
+    }
+    const opMap = new Map<string, Node>();
+    for (const topLevelNode of this.rootNode?.children || []) {
       // Find the program id from HloOpProfile by the selected XLA module.
       // Assuming that the XLA modules and program ids are the same.
       if (topLevelNode.name === this.selectedModule) {
-        const node = this.findNode(topLevelNode.children, nodeName);
-        if (node) return node;
+        this.addOpNodesToMap(topLevelNode.children, opMap);
       }
     }
-    return null;
+    this.cachedModuleRoot = this.rootNode;
+    this.cachedModuleName = this.selectedModule;
+    this.cachedModuleOpMap = opMap;
+  }
+
+  getOpNodeInGraphviz(nodeName: string): Node | null | undefined {
+    if (!this.opProfile || !this.rootNode) return null;
+    this.updateCachedModuleOpMap();
+    return this.cachedModuleOpMap.get(nodeName) || null;
   }
 
   findNode(
@@ -565,6 +620,52 @@ export class GraphViewer implements OnDestroy {
 
   private openSnackBar(message: string) {
     this.snackBar.open(message, 'Close.', {duration: 5000});
+  }
+
+  onOpNameChange(opName: string) {
+    this.opName = opName;
+    this.selectedNode = null;
+  }
+
+  /**
+   * Kernel Viewer link of the first custom call among the selected op and the
+   * center op, if the session has kernels (`LLO_DEBUG_TAG`).
+   */
+  get kernelViewerLink(): utils.KernelViewerLink {
+    if (!this.tags.includes(LLO_DEBUG_TAG)) {
+      return utils.NO_KERNEL_VIEWER_LINK;
+    }
+    const kernelName = this.getCustomCallOpName();
+    if (!kernelName) {
+      return utils.NO_KERNEL_VIEWER_LINK;
+    }
+    return utils.getKernelViewerLink({
+      sessionId: this.sessionId,
+      dataService: this.dataService,
+      kernelName,
+      hloModule: this.selectedModule,
+      host: this.host,
+    });
+  }
+
+  /**
+   * Returns the name of the first custom call among the selected op and the
+   * center op, or '' if neither is a custom call.
+   */
+  private getCustomCallOpName(): string {
+    if (this.selectedNode?.xla?.category === 'custom-call') {
+      return utils.cleanHloOpName(this.selectedNode.name);
+    }
+    const centerOpName = utils.cleanHloOpName(this.opName);
+    return this.isCustomCallOp(centerOpName) ? centerOpName : '';
+  }
+
+  /** Returns whether `opName` is a custom call op of the selected module. */
+  private isCustomCallOp(opName: string): boolean {
+    const category = this.getOpNodeInGraphviz(opName)?.xla?.category;
+    return category
+      ? category === 'custom-call'
+      : opName.startsWith('custom-call');
   }
 
   getOpAvgTime(node: Node | null | undefined) {
@@ -831,6 +932,7 @@ export class GraphViewer implements OnDestroy {
   resetPage() {
     // Clear iframe html so the rule to detect `graphIframeLoaded` can satisfy
     this.clearGraphIframeHtml();
+    this.selectedNode = null;
     this.url = '';
     this.diagnostics = {...DIAGNOSTICS_DEFAULT};
   }

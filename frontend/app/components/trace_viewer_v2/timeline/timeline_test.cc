@@ -10611,11 +10611,11 @@ TEST_F(RealTimelineImGuiFixture, PanFullyZoomedOutNoNotification) {
 
 TEST_F(RealTimelineImGuiFixture, DrawNotificationToastFades) {
   timeline_.set_data_time_range({0.0, 1000.0});
-  timeline_.SetVisibleRange({10.0, 100.0});
+  timeline_.SetVisibleRange({50.0, 50.0 + kMinDurationMicros});
   SimulateFrame();
 
-  // Pan out of bounds to trigger
-  timeline_.Pan(-2000.0f);
+  // Zoom in past minimum duration to trigger notification
+  timeline_.zoom_for_test(0.5f, 50.0);
 
   // Verify notification is active
   EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 2.0f);

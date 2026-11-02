@@ -148,7 +148,91 @@ TEST(InferenceStatsCombinerTest,
 }
 
 TEST(InferenceStatsCombinerTest,
-     RequestWithMissingModelStillUpdatesTensorPattern) {
+     AddsUnindexedSourceModelsToDestinationDatabase) {
+  InferenceStats src0;
+  AddModelId(src0.mutable_model_id_db(), "/models/model_a:1");
+  // Add an entry to host 0's ids() without id_to_index() to verify dst indexes
+  // existing ids() entries without duplicating them when another host merges.
+  src0.mutable_model_id_db()->add_ids("/models/unindexed_host0:1");
+  PerHostInferenceStats& host0 = (*src0.mutable_inference_stats_per_host())[0];
+  RequestDetail* req0 = host0.add_request_details();
+  req0->set_request_id(1);
+  req0->set_start_time_ps(1000);
+  req0->set_end_time_ps(2000);
+  req0->set_model_id_index(1);
+
+  InferenceStats src1;
+  AddModelId(src1.mutable_model_id_db(), "/models/model_b:1");
+  src1.mutable_model_id_db()->add_ids("/models/unindexed_host0:1");
+  src1.mutable_model_id_db()->add_ids("/models/unindexed_host1:1");
+
+  PerHostInferenceStats& host1 = (*src1.mutable_inference_stats_per_host())[0];
+  RequestDetail* req1_shared = host1.add_request_details();
+  req1_shared->set_request_id(10);
+  req1_shared->set_start_time_ps(3000);
+  req1_shared->set_end_time_ps(4000);
+  req1_shared->set_model_id_index(1);  // "/models/unindexed_host0:1".
+
+  RequestDetail* req1_new = host1.add_request_details();
+  req1_new->set_request_id(11);
+  req1_new->set_start_time_ps(5000);
+  req1_new->set_end_time_ps(6000);
+  req1_new->set_model_id_index(2);  // "/models/unindexed_host1:1".
+
+  BatchDetail* batch1 = host1.add_batch_details();
+  batch1->set_batch_id(20);
+  batch1->set_start_time_ps(5000);
+  batch1->set_end_time_ps(6000);
+  batch1->set_model_id_index(2);  // "/models/unindexed_host1:1".
+  batch1->add_program_ids(3003);
+
+  InferenceStats combined;
+  CombineInferenceStatsResult(0, src0, &combined);
+  CombineInferenceStatsResult(1, src1, &combined);
+
+  EXPECT_THAT(
+      combined.model_id_db().ids(),
+      ElementsAre("/models/model_a:1", "/models/unindexed_host0:1",
+                  "/models/model_b:1", "/models/unindexed_host1:1"));
+  for (int32_t i = 0; i < combined.model_id_db().ids_size(); ++i) {
+    EXPECT_EQ(combined.model_id_db().id_to_index().at(
+                  combined.model_id_db().ids(i)),
+              i);
+  }
+
+  const int32_t host0_unindexed_idx =
+      combined.model_id_db().id_to_index().at("/models/unindexed_host0:1");
+  const int32_t host1_unindexed_idx =
+      combined.model_id_db().id_to_index().at("/models/unindexed_host1:1");
+
+  const PerHostInferenceStats& combined_host1 =
+      combined.inference_stats_per_host().at(1);
+  ASSERT_EQ(combined_host1.request_details_size(), 2);
+  EXPECT_EQ(combined_host1.request_details(0).model_id_index(),
+            host0_unindexed_idx);
+  EXPECT_EQ(combined_host1.request_details(1).model_id_index(),
+            host1_unindexed_idx);
+  ASSERT_EQ(combined_host1.batch_details_size(), 1);
+  EXPECT_EQ(combined_host1.batch_details(0).model_id_index(),
+            host1_unindexed_idx);
+
+  RegroupInferenceStatsByModel(&combined);
+  ASSERT_TRUE(
+      combined.inference_stats_per_model().contains(host0_unindexed_idx));
+  EXPECT_EQ(combined.inference_stats_per_model()
+                .at(host0_unindexed_idx)
+                .request_details_size(),
+            2);
+  ASSERT_TRUE(
+      combined.inference_stats_per_model().contains(host1_unindexed_idx));
+  EXPECT_EQ(combined.inference_stats_per_model()
+                .at(host1_unindexed_idx)
+                .batch_details_size(),
+            1);
+}
+
+TEST(InferenceStatsCombinerTest,
+     RequestWithUnknownModelStillUpdatesTensorPattern) {
   InferenceStats src0;
   AddModelId(src0.mutable_model_id_db(), "/models/model_a:1");
   src0.mutable_tensor_pattern_db()->add_tensor_pattern("pattern_0");
@@ -156,15 +240,14 @@ TEST(InferenceStatsCombinerTest,
 
   InferenceStats src1;
   AddModelId(src1.mutable_model_id_db(), "/models/model_b:1");
-  // Add an entry to ids() without adding it to id_to_index() so that it will
-  // not exist in dst->model_id_db().id_to_index().
-  src1.mutable_model_id_db()->add_ids("/models/unindexed_model:1");
+  // Empty string represents an unknown model and must not be added to dst.
+  src1.mutable_model_id_db()->add_ids("");
   src1.mutable_tensor_pattern_db()->add_tensor_pattern("pattern_1");
 
   PerHostInferenceStats& host1 = (*src1.mutable_inference_stats_per_host())[0];
   RequestDetail* req1 = host1.add_request_details();
   req1->set_request_id(10);
-  req1->set_model_id_index(1);  // Points to "/models/unindexed_model:1".
+  req1->set_model_id_index(1);  // Points to "" (unknown model).
   req1->add_tensor_event_details()->set_tensor_pattern_index(0);
 
   BatchDetail* batch1 = host1.add_batch_details();
@@ -176,10 +259,14 @@ TEST(InferenceStatsCombinerTest,
   CombineInferenceStatsResult(0, src0, &combined);
   CombineInferenceStatsResult(1, src1, &combined);
 
+  EXPECT_THAT(combined.model_id_db().ids(),
+              ElementsAre("/models/model_a:1", "/models/model_b:1"));
+  EXPECT_FALSE(combined.model_id_db().id_to_index().contains(""));
+
   const PerHostInferenceStats& combined_host1 =
       combined.inference_stats_per_host().at(1);
   ASSERT_EQ(combined_host1.request_details_size(), 1);
-  // The unindexed model maps to -1 (no model) instead of an unrelated model.
+  // The empty model ID maps to -1 (no model) instead of an unrelated model.
   EXPECT_EQ(combined_host1.request_details(0).model_id_index(), -1);
   ASSERT_EQ(combined_host1.request_details(0).tensor_event_details_size(), 1);
   // "pattern_1" is appended at index 1 in combined.tensor_pattern_db().
@@ -382,6 +469,123 @@ TEST(InferenceStatsCombinerTest,
                 .tensor_event_detail()
                 .tensor_pattern_index(),
             1);
+}
+
+TEST(InferenceStatsCombinerTest,
+     FirstHostEmptyModelIdIsExcludedRegardlessOfCombineOrder) {
+  InferenceStats host_with_empty;
+  host_with_empty.mutable_model_id_db()->add_ids("");
+  AddModelId(host_with_empty.mutable_model_id_db(), "/models/model_a:1");
+  PerHostInferenceStats& h0 =
+      (*host_with_empty.mutable_inference_stats_per_host())[0];
+  h0.add_request_details()->set_model_id_index(0);  // "" -> -1.
+  h0.add_request_details()->set_model_id_index(1);  // "/models/model_a:1".
+  h0.add_batch_details()->set_model_id_index(0);    // "" -> -1.
+  h0.add_batch_details()->set_model_id_index(1);    // "/models/model_a:1".
+
+  InferenceStats valid_host;
+  AddModelId(valid_host.mutable_model_id_db(), "/models/model_a:1");
+  AddModelId(valid_host.mutable_model_id_db(), "/models/model_b:1");
+  PerHostInferenceStats& h1 =
+      (*valid_host.mutable_inference_stats_per_host())[0];
+  h1.add_request_details()->set_model_id_index(1);  // "/models/model_b:1".
+
+  InferenceStats empty_first;
+  CombineInferenceStatsResult(0, host_with_empty, &empty_first);
+  CombineInferenceStatsResult(1, valid_host, &empty_first);
+
+  InferenceStats valid_first;
+  CombineInferenceStatsResult(1, valid_host, &valid_first);
+  CombineInferenceStatsResult(0, host_with_empty, &valid_first);
+
+  for (const InferenceStats* combined : {&empty_first, &valid_first}) {
+    EXPECT_THAT(combined->model_id_db().ids(),
+                ElementsAre("/models/model_a:1", "/models/model_b:1"));
+    EXPECT_FALSE(combined->model_id_db().id_to_index().contains(""));
+    const int32_t model_a_idx =
+        combined->model_id_db().id_to_index().at("/models/model_a:1");
+    const int32_t model_b_idx =
+        combined->model_id_db().id_to_index().at("/models/model_b:1");
+
+    const PerHostInferenceStats& out_h0 =
+        combined->inference_stats_per_host().at(0);
+    ASSERT_EQ(out_h0.request_details_size(), 2);
+    EXPECT_EQ(out_h0.request_details(0).model_id_index(), -1);
+    EXPECT_EQ(out_h0.request_details(1).model_id_index(), model_a_idx);
+    ASSERT_EQ(out_h0.batch_details_size(), 2);
+    EXPECT_EQ(out_h0.batch_details(0).model_id_index(), -1);
+    EXPECT_EQ(out_h0.batch_details(1).model_id_index(), model_a_idx);
+
+    const PerHostInferenceStats& out_h1 =
+        combined->inference_stats_per_host().at(1);
+    ASSERT_EQ(out_h1.request_details_size(), 1);
+    EXPECT_EQ(out_h1.request_details(0).model_id_index(), model_b_idx);
+  }
+}
+
+TEST(InferenceStatsCombinerTest,
+     SingleHostPopulatesMissingIdToIndexEntries) {
+  InferenceStats src0;
+  src0.mutable_model_id_db()->add_ids("/models/single_host_unindexed:1");
+  BatchingParameters params;
+  params.set_max_batch_size(32);
+  (*src0.mutable_model_id_db()
+        ->mutable_id_to_batching_params())["/models/single_host_unindexed:1"] =
+      params;
+  PerHostInferenceStats& host0 = (*src0.mutable_inference_stats_per_host())[0];
+  host0.add_request_details()->set_model_id_index(0);
+
+  InferenceStats combined;
+  CombineInferenceStatsResult(0, src0, &combined);
+
+  EXPECT_THAT(combined.model_id_db().ids(),
+              ElementsAre("/models/single_host_unindexed:1"));
+  ASSERT_TRUE(combined.model_id_db().id_to_index().contains(
+      "/models/single_host_unindexed:1"));
+  EXPECT_EQ(combined.model_id_db().id_to_index().at(
+                "/models/single_host_unindexed:1"),
+            0);
+  EXPECT_EQ(combined.model_id_db()
+                .id_to_batching_params()
+                .at("/models/single_host_unindexed:1")
+                .max_batch_size(),
+            32);
+  EXPECT_EQ(combined.inference_stats_per_host()
+                .at(0)
+                .request_details(0)
+                .model_id_index(),
+            0);
+}
+
+TEST(InferenceStatsCombinerTest,
+     SeedsPreExistingDestinationIdsWhenIndexIsEmpty) {
+  InferenceStats combined;
+  combined.mutable_model_id_db()->add_ids("");
+  combined.mutable_model_id_db()->add_ids("/models/preexisting_dst:1");
+
+  InferenceStats src0;
+  AddModelId(src0.mutable_model_id_db(), "/models/preexisting_dst:1");
+  AddModelId(src0.mutable_model_id_db(), "/models/model_a:1");
+  PerHostInferenceStats& host0 = (*src0.mutable_inference_stats_per_host())[0];
+  host0.add_request_details()->set_model_id_index(0);
+  host0.add_batch_details()->set_model_id_index(1);
+
+  CombineInferenceStatsResult(0, src0, &combined);
+
+  EXPECT_THAT(
+      combined.model_id_db().ids(),
+      ElementsAre("", "/models/preexisting_dst:1", "/models/model_a:1"));
+  EXPECT_FALSE(combined.model_id_db().id_to_index().contains(""));
+  EXPECT_EQ(
+      combined.model_id_db().id_to_index().at("/models/preexisting_dst:1"), 1);
+  EXPECT_EQ(combined.model_id_db().id_to_index().at("/models/model_a:1"), 2);
+
+  const PerHostInferenceStats& combined_host0 =
+      combined.inference_stats_per_host().at(0);
+  ASSERT_EQ(combined_host0.request_details_size(), 1);
+  EXPECT_EQ(combined_host0.request_details(0).model_id_index(), 1);
+  ASSERT_EQ(combined_host0.batch_details_size(), 1);
+  EXPECT_EQ(combined_host0.batch_details(0).model_id_index(), 2);
 }
 
 }  // namespace

@@ -25,17 +25,36 @@ limitations under the License.
 
 namespace tensorflow::profiler {
 namespace {
+// Returns the index of `model_id` in `model_id_db`, inserting `model_id` into
+// both `ids` and `id_to_index` if it is not already present. Returns -1 if
+// `model_id` is empty (unknown model).
+int32_t AssignIndexToModelId(absl::string_view model_id,
+                             ModelIdDatabase* model_id_db) {
+  if (model_id.empty()) {
+    return -1;
+  }
+  auto [iter, was_inserted] =
+      model_id_db->mutable_id_to_index()->try_emplace(model_id,
+                                                      model_id_db->ids_size());
+  if (was_inserted) {
+    model_id_db->add_ids(std::string(model_id));
+  }
+  return iter->second;
+}
+
 // Combines two ModelIdDatabases. Returns true if this combination requires
-// updating the model_id_index in the SessionRunTimes of dst. This will be
-// the case if: (1) Src has a model name that doesn't already exist in dst;
-// or (2) Src has a model name that does exist in dst but has a different
-// index.
+// updating model_id_index in the incoming host's details because any entry in
+// src maps to a different index in dst (including empty model IDs mapping to
+// -1).
 bool CombineModelIdDatabases(const ModelIdDatabase& src, ModelIdDatabase* dst) {
-  if (dst->ids_size() == 0) {
-    // dst is empty. Simply copy src to dst. This avoids rebuilding
-    // dst from src from scratch, which may change the name-to-index mapping.
-    *dst = src;
-    return false;
+  // Seed id_to_index from any pre-existing dst->ids entries so we have a
+  // complete baseline before merging src.
+  if (dst->id_to_index().empty()) {
+    for (int32_t i = 0; i < dst->ids_size(); ++i) {
+      if (!dst->ids(i).empty()) {
+        dst->mutable_id_to_index()->try_emplace(dst->ids(i), i);
+      }
+    }
   }
   // TODO(tianrun): For now, assume a model is always served with the same
   // parameter on different hosts. In the future, we might consider the case
@@ -45,16 +64,8 @@ bool CombineModelIdDatabases(const ModelIdDatabase& src, ModelIdDatabase* dst) {
     dst->mutable_id_to_batching_params()->insert(id_and_param);
   }
   bool need_update = false;
-  for (const auto& [src_id, index] : src.id_to_index()) {
-    auto [iter, was_inserted] =
-        dst->mutable_id_to_index()->insert({src_id, dst->ids_size()});
-    if (was_inserted) {
-      *dst->add_ids() = src_id;
-      need_update = true;
-      continue;
-    }
-    if (iter->second != index) {
-      // src_id is already in dst but has a different index.
+  for (int32_t i = 0; i < src.ids_size(); ++i) {
+    if (AssignIndexToModelId(src.ids(i), dst) != i) {
       need_update = true;
     }
   }
@@ -111,26 +122,16 @@ void UpdateTensorPatternIndex(
 }
 
 // Remaps model_id_index from src_db to dst_db to align model indices across
-// hosts. Returns -1 (no model) if src_index is out of range or its model is
-// missing from dst_db, so that the detail is never attributed to an unrelated
-// model.
+// hosts, adding the model to dst_db if it is missing. Returns -1 (no model)
+// if src_index is out of range or refers to an empty model ID.
 int32_t RemapModelIdIndex(const ModelIdDatabase& src_db,
-                          const ModelIdDatabase& dst_db, int32_t src_index) {
+                          ModelIdDatabase* dst_db, int32_t src_index) {
   if (src_index < 0 || src_index >= src_db.ids_size()) {
     LOG(WARNING) << "Invalid model_id_index " << src_index
                  << " for src.model_id_db() of size " << src_db.ids_size();
     return -1;
   }
-  const std::string& model_id = src_db.ids(src_index);
-  if (const int32_t* new_index =
-          tsl::gtl::FindOrNull(dst_db.id_to_index(), model_id)) {
-    return *new_index;
-  }
-  // TODO: Add model_id to dst_db if it exists in src_db but is missing from
-  // dst_db.
-  LOG(WARNING) << "Model ID " << model_id
-               << " is not found in dst->model_id_db()";
-  return -1;
+  return AssignIndexToModelId(src_db.ids(src_index), dst_db);
 }
 }  // namespace
 
@@ -171,7 +172,7 @@ void CombineInferenceStatsResult(int src_host_id, const InferenceStats& src,
          *dst_inference_stats.mutable_request_details()) {
       if (need_update_model_id && request_detail.model_id_index() != -1) {
         request_detail.set_model_id_index(
-            RemapModelIdIndex(src.model_id_db(), dst->model_id_db(),
+            RemapModelIdIndex(src.model_id_db(), dst->mutable_model_id_db(),
                               request_detail.model_id_index()));
       }
       if (need_update_tensor_pattern) {
@@ -186,7 +187,7 @@ void CombineInferenceStatsResult(int src_host_id, const InferenceStats& src,
          *dst_inference_stats.mutable_batch_details()) {
       if (need_update_model_id && batch_detail.model_id_index() != -1) {
         batch_detail.set_model_id_index(
-            RemapModelIdIndex(src.model_id_db(), dst->model_id_db(),
+            RemapModelIdIndex(src.model_id_db(), dst->mutable_model_id_db(),
                               batch_detail.model_id_index()));
       }
       if (need_update_tensor_pattern &&

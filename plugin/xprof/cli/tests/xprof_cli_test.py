@@ -668,6 +668,19 @@ class XProfCliTest(parameterized.TestCase):
     self.assertEqual(
         res['hlo_stats']['optimized']['total_self_time_ms_all_records'], 0.04
     )
+    for call in mock_get_kernel_stats.call_args_list:
+      self.assertEqual(call.kwargs['device_to_use'], 'all')
+
+  def test_device_time_attribution_sums_every_device(self):
+    with mock.patch.object(
+        xprof_cli.get_kernel_stats_tool,
+        'get_kernel_stats',
+        return_value='{}',
+    ) as mock_get_kernel_stats:
+      xprof_cli._get_device_time_attribution('sess1')
+    mock_get_kernel_stats.assert_called_once_with(
+        session_id='sess1', include_summary=True, device_to_use='all'
+    )
 
 
 class MultiTraceSelectionTest(absltest.TestCase):
@@ -710,8 +723,42 @@ class MultiTraceSelectionTest(absltest.TestCase):
     )
 
   def test_directory_attaches_capture_with_sum_warning(self):
-    out = json.loads(self._tool('get_kernel_stats')(str(self.run_dir)))
+    out = json.loads(self._tool('aggregate_xplane_events')(str(self.run_dir)))
     self.assertEqual(out['value'], 1)
+    capture = out['capture']
+    self.assertEqual(capture['files_used'], ['rank0_node0', 'rank2_node0'])
+    self.assertTrue(capture['combined'])
+    self.assertLen(capture['warnings'], 1)
+    self.assertIn('summed', capture['warnings'][0])
+
+  def _kernel_stats_tool(self):
+    """Builds a fake `get_kernel_stats` that records `device_to_use`."""
+    calls = self.calls
+
+    def get_kernel_stats(
+        session_id: str, device_to_use: str | None = None
+    ) -> Any:
+      calls.append({'session_id': session_id, 'device_to_use': device_to_use})
+      return json.dumps({'value': 1})
+
+    return xprof_cli._wrap_with_logdir(get_kernel_stats)
+
+  def test_kernel_stats_directory_capture_lists_first_trace_only(self):
+    out = json.loads(self._kernel_stats_tool()(str(self.run_dir)))
+    capture = out['capture']
+    self.assertEqual(capture['files_used'], ['rank0_node0'])
+    self.assertFalse(capture['combined'])
+    self.assertLen(capture['warnings'], 1)
+    self.assertIn(
+        'read only rank0_node0 (trace 1 of 2)', capture['warnings'][0]
+    )
+    self.assertIn('--device_to_use=all', capture['warnings'][0])
+    self.assertEqual(self.calls[0]['session_id'], str(self.run_dir))
+
+  def test_kernel_stats_all_devices_capture_sums_every_trace(self):
+    out = json.loads(
+        self._kernel_stats_tool()(str(self.run_dir), device_to_use='ALL')
+    )
     capture = out['capture']
     self.assertEqual(capture['files_used'], ['rank0_node0', 'rank2_node0'])
     self.assertTrue(capture['combined'])

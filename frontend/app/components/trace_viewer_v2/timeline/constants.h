@@ -370,11 +370,18 @@ inline constexpr float kButtonZoomInFactor = 0.8f;
 inline constexpr float kButtonZoomOutFactor = 1.25f;
 // The maximum factor by which the panning/zooming speed can be accelerated.
 inline constexpr float kMaxAccelerateFactor = 30.0f;
+// Maximum absolute wheel delta in CSS pixels applied per event when zooming,
+// capping discrete physical mouse-wheel notches while keeping small trackpad
+// pinch deltas 1:1.
+inline constexpr float kMaxMouseWheelZoomDelta = 30.0f;
 // The minimum allowed zoom factor for the timeline. This prevents zooming in
 // too much that time durations (mathmatically) become zero or negative.
 inline constexpr float kMinZoomFactor = 0.001f;
-// The sensitivity of zooming with the mouse wheel, measured in units per pixel.
-inline constexpr float kMouseWheelZoomSpeed = 0.2f;
+// Exponential zoom sensitivity per vertical pixel dragged in MouseMode::kZoom.
+inline constexpr float kMouseDragZoomSpeed = 0.01f;
+// Exponential zoom sensitivity per CSS pixel of wheel/pinch delta (0.01 matches
+// browser pinch-to-zoom encoding).
+inline constexpr float kMouseWheelZoomSpeed = 0.01f;
 // The base speed of timeline panning, measured in pixels per second.
 inline constexpr float kPanningSpeed = 1000.0f;
 // The base speed of timeline scrolling, measured in pixels per second.

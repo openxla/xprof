@@ -269,6 +269,18 @@ export const NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY =
   'trace_viewer_nav_wheel_zoom_speed';
 
 /**
+ * Local storage key for persisting smooth viewport navigation toggle.
+ */
+export const NAV_SMOOTH_NAVIGATION_STORAGE_KEY =
+  'trace_viewer_nav_smooth_navigation';
+
+/**
+ * Local storage key for persisting keyboard hold acceleration toggle.
+ */
+export const NAV_KEYBOARD_ACCELERATION_STORAGE_KEY =
+  'trace_viewer_nav_keyboard_acceleration';
+
+/**
  * Palette preview dot colors for Trace Viewer settings.
  */
 export const PALETTE_PREVIEWS: Record<string, string[]> = {

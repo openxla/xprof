@@ -11,6 +11,7 @@ from typing import Any
 
 from xprof.xparity import numerical_generator
 from xprof.xparity import numerical_validator
+from xprof.xparity import rel_l2
 
 _Callable = collections.abc.Callable
 _Mapping = collections.abc.Mapping
@@ -164,6 +165,9 @@ def verify_numerical_parity(
     atol: float | None = None,
     rtol: float | None = None,
     verdict_only: bool = False,
+    rel_l2_tol: float | None = None,
+    row_factor: float = rel_l2.ROW_FACTOR,
+    row_norm_floor: float = rel_l2.ROW_NORM_FLOOR,
 ) -> str:
   """Validates numerical parity between two kernels and returns a JSON report.
 
@@ -194,7 +198,10 @@ def verify_numerical_parity(
     strict_shape_error: If True, raises ValueError on output shape or structure
       mismatch instead of returning a structured failure JSON report.
     contract: "ulp" (default) gates on ULP distance; "bitwise" requires every
-      output element to match the reference bit for bit.
+      output element to match the reference bit for bit; "row_rel_l2" requires
+      whole-output relative L2 error <= `rel_l2_tol` and every row (last
+      dimension) within `row_factor * rel_l2_tol`, for intentionally lossy
+      kernels such as FP8/FP4 dequantization.
     contract_by_leaf: Per-leaf contract overrides for pytree outputs, keyed by
       JAX key path, as a mapping or a dict literal string (e.g. "{'[1]':
       'ulp'}").
@@ -209,7 +216,13 @@ def verify_numerical_parity(
       the full report: the verdict, correctness basis, contract, overall max
       ULP, batch counts, up to 5 failing batches (name, regime, output leaf, max
       ULP), regimes not run, regimes over `atol`/`rtol`, failure dump paths and
-      the summary verdict line.
+      the summary verdict line. Under "row_rel_l2" each failure also carries its
+      relative L2 figures and worst row, and `rel_l2` holds the worst figures of
+      the run.
+    rel_l2_tol: Whole-output relative L2 tolerance, required by "row_rel_l2".
+    row_factor: Per-row bound as a multiple of `rel_l2_tol` (default 5).
+    row_norm_floor: Floor on each row's norm as a fraction of the mean row norm
+      (default 0.1), so that near-zero rows do not inflate the ratio.
 
   Returns:
     A JSON string containing the validation report.
@@ -261,6 +274,9 @@ def verify_numerical_parity(
         dump_failures_to=dump_failures_to,
         atol=atol,
         rtol=rtol,
+        rel_l2_tol=rel_l2_tol,
+        row_factor=row_factor,
+        row_norm_floor=row_norm_floor,
     )
   except ValueError as e:
     msg = str(e)
@@ -293,6 +309,7 @@ def verify_numerical_parity(
           "failure_dumps": [],
           "coverage": {},
           "tolerance_headroom": {},
+          "rel_l2_summary": {},
       }
       return _dump_json(mismatch_payload, verdict_only)
     raise
@@ -316,19 +333,13 @@ def _summary_verdict_line(summary: str) -> str:
 def _compact_verdict(payload: _Mapping[str, Any]) -> dict[str, Any]:
   """Reduces a full JSON report payload to the fields that decide the verdict."""
   failures = [
-      {
-          "batch_name": b.get("batch_name"),
-          "regime": b.get("regime"),
-          "leaf_path": b.get("leaf_path"),
-          "max_ulp": b.get("max_ulp_distance"),
-          "has_nan_or_inf": b.get("has_nan_or_inf"),
-      }
+      _compact_failure(b)
       for b in payload.get("batch_results", [])
       if not b.get("passed")
   ]
   coverage = payload.get("coverage") or {}
   headroom = payload.get("tolerance_headroom") or {}
-  return {
+  verdict = {
       "is_numerically_equivalent": payload["is_numerically_equivalent"],
       "correctness_basis": payload.get("correctness_basis"),
       "contract": (payload.get("run_config") or {}).get("contract"),
@@ -342,6 +353,31 @@ def _compact_verdict(payload: _Mapping[str, Any]) -> dict[str, Any]:
       "failure_dumps": payload.get("failure_dumps", []),
       "verdict": _summary_verdict_line(payload.get("summary_message", "")),
   }
+  rel_l2_summary = payload.get("rel_l2_summary")
+  if rel_l2_summary:
+    verdict["rel_l2"] = rel_l2_summary
+  return verdict
+
+
+def _compact_failure(batch: _Mapping[str, Any]) -> dict[str, Any]:
+  """Returns the verdict-relevant fields of one failing batch result."""
+  failure = {
+      "batch_name": batch.get("batch_name"),
+      "regime": batch.get("regime"),
+      "leaf_path": batch.get("leaf_path"),
+      "max_ulp": batch.get("max_ulp_distance"),
+      "has_nan_or_inf": batch.get("has_nan_or_inf"),
+  }
+  row_l2 = batch.get("row_rel_l2")
+  if row_l2:
+    failure.update(
+        rel_l2=row_l2.get("rel_l2"),
+        worst_row_rel_l2=row_l2.get("worst_row_rel_l2"),
+        worst_row_index=row_l2.get("worst_row_index"),
+        rows_over_bound=row_l2.get("rows_over_bound"),
+        reason=row_l2.get("reason"),
+    )
+  return failure
 
 
 def _dump_json(payload: _Mapping[str, Any], verdict_only: bool) -> str:
@@ -388,6 +424,7 @@ def _report_to_json(
       "failure_dumps": report.failure_dumps,
       "coverage": report.coverage,
       "tolerance_headroom": report.tolerance_headroom,
+      "rel_l2_summary": report.rel_l2_summary,
   }
   return _dump_json(results_dict, verdict_only)
 
@@ -399,6 +436,9 @@ def replay(
     kernel_oracle: _Callable[..., Any] | str | None = None,
     contract: str | None = None,
     verdict_only: bool = False,
+    rel_l2_tol: float | None = None,
+    row_factor: float | None = None,
+    row_norm_floor: float | None = None,
 ) -> str:
   """Re-runs one saved failing batch and returns a JSON report.
 
@@ -407,9 +447,13 @@ def replay(
     kernel_ref: The reference implementation (callable or string path).
     kernel_candidate: The candidate implementation (callable or string path).
     kernel_oracle: Optional oracle (callable, string path, or "auto").
-    contract: Overrides the contract stored in the dump ("ulp" or "bitwise").
+    contract: Overrides the contract stored in the dump ("ulp", "bitwise" or
+      "row_rel_l2").
     verdict_only: If True, returns the compact verdict described in
       `verify_numerical_parity` instead of the full report.
+    rel_l2_tol: Overrides the "row_rel_l2" tolerance stored in the dump.
+    row_factor: Overrides the stored per-row factor.
+    row_norm_floor: Overrides the stored row-norm floor.
 
   Returns:
     A JSON string containing the validation report for the saved batch.
@@ -424,6 +468,9 @@ def replay(
       _resolve_callable(kernel_candidate),
       kernel_oracle=oracle_fn,
       contract=contract,
+      rel_l2_tol=rel_l2_tol,
+      row_factor=row_factor,
+      row_norm_floor=row_norm_floor,
   )
   return _report_to_json(report, verdict_only=verdict_only)
 

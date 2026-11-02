@@ -189,7 +189,11 @@ def _get_device_time_attribution(
   """Returns per-line disjoint-interval device time attribution and kernel stats."""
   del host
   return get_kernel_stats_tool.get_kernel_stats(
-      session_id=session_id, include_summary=include_summary
+      session_id=session_id,
+      include_summary=include_summary,
+      # `get_kernel_stats_tool` is a lazy proxy whose attributes are callables,
+      # so the ALL_DEVICES constant is not read through it here.
+      device_to_use="all",
   )
 
 

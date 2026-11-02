@@ -13,7 +13,12 @@ from unittest import mock
 from xprof.cli.internal import decorators
 from xprof.cli.internal.oss import kernel_stats_tools
 from xprof.cli.internal.oss import xplane_tools
+from xprof.cli.internal.oss import xprof_client
 from xprof.cli.tools import get_kernel_stats_tool
+
+# Source for tests that patch `xplane_tools.iter_planes`. A bytes source is
+# read as one XSpace, so `get_kernel_stats` does not look for trace files.
+_FAKE_XSPACE = b"fake-serialized-xspace"
 
 
 class OssKernelStatsToolsTest(unittest.TestCase):
@@ -45,7 +50,7 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     with mock.patch.object(
         xplane_tools, "iter_planes", return_value=[mock_plane]
     ):
-      res_str = kernel_stats_tools.get_kernel_stats("local_logdir")
+      res_str = kernel_stats_tools.get_kernel_stats(_FAKE_XSPACE)
       records = json.loads(res_str)
 
       self.assertEqual(len(records), 1)
@@ -100,7 +105,7 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     ):
       result = json.loads(
           kernel_stats_tools.get_kernel_stats(
-              "local_logdir", include_summary=True
+              _FAKE_XSPACE, include_summary=True
           )
       )
 
@@ -149,7 +154,7 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     ):
       result = json.loads(
           kernel_stats_tools.get_kernel_stats(
-              "local_logdir", include_summary=True
+              _FAKE_XSPACE, include_summary=True
           )
       )
 
@@ -212,7 +217,7 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     ):
       result = json.loads(
           kernel_stats_tools.get_kernel_stats(
-              "local_logdir", trace_matchers=("matmul",)
+              _FAKE_XSPACE, trace_matchers=("matmul",)
           )
       )
       self.assertEqual(len(result), 1)
@@ -280,7 +285,7 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     with mock.patch.object(
         xplane_tools, "iter_planes", return_value=[plane]
     ):
-      records = json.loads(kernel_stats_tools.get_kernel_stats("local_logdir"))
+      records = json.loads(kernel_stats_tools.get_kernel_stats(_FAKE_XSPACE))
 
     self.assertEqual(len(records), 1)
     self.assertEqual(records[0]["kernel_name"], "_at_pallas_rowblock.1")
@@ -293,7 +298,7 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     ):
       records = json.loads(
           kernel_stats_tools.get_kernel_stats(
-              "local_logdir", include_intra_kernel_regions=True
+              _FAKE_XSPACE, include_intra_kernel_regions=True
           )
       )
 
@@ -311,7 +316,7 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     ):
       summary = json.loads(
           kernel_stats_tools.get_kernel_stats(
-              "local_logdir", include_summary=True
+              _FAKE_XSPACE, include_summary=True
           )
       )
 
@@ -407,14 +412,14 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     ):
       summary = json.loads(
           kernel_stats_tools.get_kernel_stats(
-              "local_logdir", include_summary=True, limit=1
+              _FAKE_XSPACE, include_summary=True, limit=1
           )
       )
       records = json.loads(
-          kernel_stats_tools.get_kernel_stats("local_logdir", limit=1)
+          kernel_stats_tools.get_kernel_stats(_FAKE_XSPACE, limit=1)
       )
       md = kernel_stats_tools.get_kernel_stats(
-          "local_logdir", limit=1, output_format="markdown"
+          _FAKE_XSPACE, limit=1, output_format="markdown"
       )
 
     self.assertTrue(summary["truncated"])
@@ -433,7 +438,7 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     ):
       result = json.loads(
           kernel_stats_tools.get_kernel_stats(
-              "local_logdir", include_summary=True, limit=2
+              _FAKE_XSPACE, include_summary=True, limit=2
           )
       )
 
@@ -456,7 +461,7 @@ class OssKernelStatsToolsTest(unittest.TestCase):
       ):
         result = json.loads(
             kernel_stats_tools.get_kernel_stats(
-                "local_logdir", include_summary=True, limit=limit
+                _FAKE_XSPACE, include_summary=True, limit=limit
             )
         )
         self.assertEqual(len(result["kernel_records"]), 3)
@@ -475,7 +480,7 @@ class OssKernelStatsToolsTest(unittest.TestCase):
         mock.patch.object(sys, "stderr", new_callable=io.StringIO) as stderr,
     ):
       records = json.loads(
-          kernel_stats_tools.get_kernel_stats("local_logdir", limit=2)
+          kernel_stats_tools.get_kernel_stats(_FAKE_XSPACE, limit=2)
       )
 
     self.assertEqual(len(records), 2)
@@ -492,7 +497,7 @@ class OssKernelStatsToolsTest(unittest.TestCase):
         mock.patch.object(sys, "stderr", new_callable=io.StringIO) as stderr,
     ):
       records = json.loads(
-          kernel_stats_tools.get_kernel_stats("local_logdir", limit=3)
+          kernel_stats_tools.get_kernel_stats(_FAKE_XSPACE, limit=3)
       )
 
     self.assertEqual(len(records), 3)
@@ -503,10 +508,10 @@ class OssKernelStatsToolsTest(unittest.TestCase):
         xplane_tools, "iter_planes", return_value=[self._three_kernel_plane()]
     ):
       truncated = kernel_stats_tools.get_kernel_stats(
-          "local_logdir", limit=2, output_format="markdown"
+          _FAKE_XSPACE, limit=2, output_format="markdown"
       )
       full = kernel_stats_tools.get_kernel_stats(
-          "local_logdir", limit=0, output_format="markdown"
+          _FAKE_XSPACE, limit=0, output_format="markdown"
       )
 
     self.assertIn("Showing 2 of 3 kernels", truncated)
@@ -581,7 +586,7 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     with mock.patch.object(xplane_tools, "iter_planes", return_value=[plane]):
       summary = json.loads(
           kernel_stats_tools.get_kernel_stats(
-              "local_logdir",
+              _FAKE_XSPACE,
               include_summary=True,
               include_intra_kernel_regions=True,
               limit=1,
@@ -597,8 +602,16 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     temp_dir = pathlib.Path(tempfile.mkdtemp())
     self.addCleanup(lambda: shutil.rmtree(temp_dir, ignore_errors=True))
     cache = decorators.Cache(temp_dir)
+    # The cache key needs a JSON-serializable source, so use a local session
+    # name (the 1P backend forwards `local_` names to this engine) that
+    # resolves to one trace file.
+    fake_client = mock.create_autospec(
+        xprof_client.LocalXprofClient, instance=True
+    )
+    fake_client.get_xspace_paths.return_value = ["/run/host.xplane.pb"]
     with (
         mock.patch.object(decorators, "get_cache", return_value=cache),
+        mock.patch.object(xprof_client, "get_client", return_value=fake_client),
         mock.patch.object(
             xplane_tools,
             "iter_planes",
@@ -607,11 +620,11 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     ):
       with mock.patch.object(sys, "stderr", new_callable=io.StringIO) as err1:
         res1 = json.loads(
-            get_kernel_stats_tool.get_kernel_stats("local_logdir", limit=2)
+            get_kernel_stats_tool.get_kernel_stats("local_session_1", limit=2)
         )
       with mock.patch.object(sys, "stderr", new_callable=io.StringIO) as err2:
         res2 = json.loads(
-            get_kernel_stats_tool.get_kernel_stats("local_logdir", limit=2)
+            get_kernel_stats_tool.get_kernel_stats("local_session_1", limit=2)
         )
 
     self.assertEqual(mock_iter.call_count, 1)
@@ -619,6 +632,368 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     self.assertEqual(res1, res2)
     self.assertIn("xprof-note: truncated: returned 2 of 3", err1.getvalue())
     self.assertIn("xprof-note: truncated: returned 2 of 3", err2.getvalue())
+
+  def _one_kernel_plane(self, plane_name, line_name, kernel, duration_ns):
+    """Returns a device plane with one kernel event on one line."""
+    ev = mock.MagicMock(duration_ns=duration_ns, start_ns=0, stats=[])
+    ev.name = kernel
+    line = mock.MagicMock(events=[ev])
+    line.name = line_name
+    plane = mock.MagicMock(lines=[line])
+    plane.name = plane_name
+    return plane
+
+  def _gpu_planes(self):
+    """Returns host, GPU:1 and GPU:0 planes with distinct kernels."""
+    host = mock.MagicMock(lines=[])
+    host.name = "/host:CPU"
+    return [
+        host,
+        self._one_kernel_plane(
+            "/device:GPU:1", "Stream #13(Compute)", "gemm_on_gpu1", 2_000_000
+        ),
+        self._one_kernel_plane(
+            "/device:GPU:0", "Stream #13(Compute)", "gemm_on_gpu0", 1_000_000
+        ),
+    ]
+
+  def test_resolve_device_planes(self):
+    names = [
+        "/host:CPU",
+        "/device:GPU:0",
+        "/device:TPU:10",
+        "/device:TPU:2",
+        "/device:TPU:2 SparseCore 0",
+        "/device:TPU:2",
+    ]
+    self.assertEqual(
+        kernel_stats_tools.resolve_device_planes(names, None),
+        ("/device:TPU:2", ["/device:TPU:2", "/device:TPU:2 SparseCore 0"]),
+    )
+    self.assertEqual(
+        kernel_stats_tools.resolve_device_planes(names, "gpu:0"),
+        ("/device:GPU:0", ["/device:GPU:0"]),
+    )
+    self.assertEqual(
+        kernel_stats_tools.resolve_device_planes(names, "/device:TPU:10"),
+        ("/device:TPU:10", ["/device:TPU:10"]),
+    )
+    self.assertEqual(
+        kernel_stats_tools.resolve_device_planes(names, "ALL"),
+        (
+            "all",
+            [
+                "/device:GPU:0",
+                "/device:TPU:10",
+                "/device:TPU:2",
+                "/device:TPU:2 SparseCore 0",
+            ],
+        ),
+    )
+    self.assertEqual(
+        kernel_stats_tools.resolve_device_planes(["/host:CPU"], "TPU:0"),
+        ("all", []),
+    )
+    with self.assertRaisesRegex(ValueError, "matches no device plane"):
+      kernel_stats_tools.resolve_device_planes(names, "GPU:1")
+
+  def test_default_device_picks_first_gpu_and_notes_it(self):
+    with (
+        mock.patch.object(
+            xplane_tools, "iter_planes", return_value=self._gpu_planes()
+        ),
+        mock.patch.object(sys, "stderr", new_callable=io.StringIO) as stderr,
+    ):
+      records = json.loads(kernel_stats_tools.get_kernel_stats(_FAKE_XSPACE))
+      summary = json.loads(
+          kernel_stats_tools.get_kernel_stats(
+              _FAKE_XSPACE, include_summary=True
+          )
+      )
+      md = kernel_stats_tools.get_kernel_stats(
+          _FAKE_XSPACE, output_format="markdown"
+      )
+
+    self.assertEqual([r["kernel_name"] for r in records], ["gemm_on_gpu0"])
+    self.assertEqual(records[0]["total_duration_us"], 1000.0)
+    self.assertEqual(summary["device"], "/device:GPU:0")
+    self.assertEqual(summary["device_planes"], ["/device:GPU:0"])
+    self.assertEqual(summary["total_device_duration_us"], 1000.0)
+    self.assertIn("Device: `/device:GPU:0`", md)
+    self.assertIn(
+        "device_to_use=None picked /device:GPU:0 of 2", stderr.getvalue()
+    )
+
+  def test_explicit_device_and_all(self):
+    with (
+        mock.patch.object(
+            xplane_tools, "iter_planes", return_value=self._gpu_planes()
+        ),
+        mock.patch.object(sys, "stderr", new_callable=io.StringIO) as stderr,
+    ):
+      gpu1 = json.loads(
+          kernel_stats_tools.get_kernel_stats(
+              _FAKE_XSPACE, device_to_use="GPU:1"
+          )
+      )
+      every = json.loads(
+          kernel_stats_tools.get_kernel_stats(_FAKE_XSPACE, device_to_use="all")
+      )
+
+    self.assertEqual([r["kernel_name"] for r in gpu1], ["gemm_on_gpu1"])
+    self.assertEqual(
+        [r["kernel_name"] for r in every], ["gemm_on_gpu1", "gemm_on_gpu0"]
+    )
+    self.assertEqual(stderr.getvalue(), "")
+
+  def test_unknown_device_raises_value_error(self):
+    with mock.patch.object(
+        xplane_tools, "iter_planes", return_value=self._gpu_planes()
+    ):
+      with self.assertRaisesRegex(ValueError, "TPU:0.*matches no device"):
+        kernel_stats_tools.get_kernel_stats(_FAKE_XSPACE, device_to_use="TPU:0")
+
+  def test_tool_default_device_picks_lowest_tpu_index(self):
+    planes = [
+        self._one_kernel_plane(
+            "/device:TPU:1", "XLA Ops", "fusion_on_tpu1", 1_000_000
+        ),
+        self._one_kernel_plane(
+            "/device:TPU:0", "XLA Ops", "fusion_on_tpu0", 1_000_000
+        ),
+    ]
+    with (
+        mock.patch.object(xplane_tools, "iter_planes", return_value=planes),
+        mock.patch.object(sys, "stderr", new_callable=io.StringIO),
+    ):
+      records = json.loads(
+          get_kernel_stats_tool.compute_kernel_stats(_FAKE_XSPACE)
+      )
+
+    self.assertEqual([r["kernel_name"] for r in records], ["fusion_on_tpu0"])
+
+  def _two_host_run_dir(self):
+    """Writes a run dir with 2 host traces of 2 GPUs each.
+
+    Each trace has `gemm_<host>_gpu<N>` on `/device:GPU:<N>` and a shared
+    `shared_kernel` on `/device:GPU:0`, so sums across hosts are visible.
+
+    Returns:
+      The path of the run dir.
+    """
+    tmpdir = tempfile.mkdtemp()
+    self.addCleanup(shutil.rmtree, tmpdir)
+    run_dir = pathlib.Path(tmpdir)
+    for host in ("host_a", "host_b"):
+      (run_dir / f"{host}.xplane.pb").write_bytes(host.encode())
+    return run_dir
+
+  def _fake_host_xspace(self, raw_bytes):
+    """Builds the ProfileData that `_two_host_run_dir` traces decode to."""
+    host = raw_bytes.decode()
+    planes = []
+    for gpu in (0, 1):
+      plane = self._one_kernel_plane(
+          f"/device:GPU:{gpu}",
+          "Stream #13(Compute)",
+          f"gemm_{host}_gpu{gpu}",
+          1_000_000 * (gpu + 1),
+      )
+      if gpu == 0:
+        shared = mock.MagicMock(
+            duration_ns=500_000, start_ns=5_000_000, stats=[]
+        )
+        shared.name = "shared_kernel"
+        plane.lines[0].events.append(shared)
+      planes.append(plane)
+    pd = mock.MagicMock()
+    pd.planes = planes
+    return pd
+
+  def test_multi_host_dir_default_reads_chip0_of_first_host(self):
+    run_dir = self._two_host_run_dir()
+    with (
+        mock.patch.object(
+            xplane_tools.profiler.ProfileData,
+            "from_serialized_xspace",
+            side_effect=self._fake_host_xspace,
+        ) as mock_decode,
+        mock.patch.object(sys, "stderr", new_callable=io.StringIO) as stderr,
+    ):
+      summary = json.loads(
+          kernel_stats_tools.get_kernel_stats(
+              str(run_dir), include_summary=True
+          )
+      )
+
+    self.assertEqual(
+        [r["kernel_name"] for r in summary["kernel_records"]],
+        ["gemm_host_a_gpu0", "shared_kernel"],
+    )
+    self.assertEqual(summary["kernel_records"][1]["execution_count"], 1)
+    self.assertEqual(summary["device"], "/device:GPU:0")
+    self.assertEqual(summary["host"], "host_a")
+    self.assertEqual(summary["num_hosts"], 2)
+    self.assertEqual(summary["total_device_duration_us"], 1500.0)
+    # Only the first host's trace is read.
+    mock_decode.assert_called_once_with(b"host_a")
+    self.assertIn(
+        "device_to_use=None picked /device:GPU:0 on host host_a (host 1 of 2;"
+        " 2 accelerator devices on that host)",
+        stderr.getvalue(),
+    )
+    self.assertIn("--host=<name> for another host", stderr.getvalue())
+
+  def test_multi_host_dir_explicit_device_reads_first_host(self):
+    run_dir = self._two_host_run_dir()
+    with (
+        mock.patch.object(
+            xplane_tools.profiler.ProfileData,
+            "from_serialized_xspace",
+            side_effect=self._fake_host_xspace,
+        ),
+        mock.patch.object(sys, "stderr", new_callable=io.StringIO) as stderr,
+    ):
+      md = kernel_stats_tools.get_kernel_stats(
+          str(run_dir), device_to_use="GPU:1", output_format="markdown"
+      )
+
+    self.assertIn("`gemm_host_a_gpu1`", md)
+    self.assertNotIn("host_b", md)
+    self.assertIn("Device: `/device:GPU:1 on host host_a (1 of 2)`", md)
+    self.assertIn(
+        "device_to_use=GPU:1 read /device:GPU:1 on host host_a (host 1 of 2",
+        stderr.getvalue(),
+    )
+
+  def test_multi_host_dir_all_sums_every_device_on_every_host(self):
+    run_dir = self._two_host_run_dir()
+    with (
+        mock.patch.object(
+            xplane_tools.profiler.ProfileData,
+            "from_serialized_xspace",
+            side_effect=self._fake_host_xspace,
+        ),
+        mock.patch.object(sys, "stderr", new_callable=io.StringIO) as stderr,
+    ):
+      summary = json.loads(
+          kernel_stats_tools.get_kernel_stats(
+              str(run_dir), include_summary=True, device_to_use="all"
+          )
+      )
+
+    records = {r["kernel_name"]: r for r in summary["kernel_records"]}
+    self.assertCountEqual(
+        records,
+        [
+            "gemm_host_a_gpu0",
+            "gemm_host_a_gpu1",
+            "gemm_host_b_gpu0",
+            "gemm_host_b_gpu1",
+            "shared_kernel",
+        ],
+    )
+    self.assertEqual(records["shared_kernel"]["execution_count"], 2)
+    self.assertEqual(summary["device"], "all")
+    self.assertEqual(summary["host"], "all")
+    self.assertEqual(summary["num_hosts"], 2)
+    self.assertEqual(stderr.getvalue(), "")
+
+  def test_markdown_for_all_devices_has_no_device_line(self):
+    run_dir = self._two_host_run_dir()
+    with mock.patch.object(
+        xplane_tools.profiler.ProfileData,
+        "from_serialized_xspace",
+        side_effect=self._fake_host_xspace,
+    ):
+      md = kernel_stats_tools.get_kernel_stats(
+          str(run_dir),
+          output_format="markdown",
+          device_to_use=get_kernel_stats_tool.ALL_DEVICES,
+      )
+
+    self.assertIn("shared_kernel", md)
+    self.assertNotIn("Device:", md)
+
+  def test_source_without_traces_raises_file_not_found(self):
+    fake_client = mock.create_autospec(
+        xprof_client.LocalXprofClient, instance=True
+    )
+    fake_client.get_xspace_paths.return_value = []
+    with mock.patch.object(
+        xprof_client, "get_client", return_value=fake_client
+    ):
+      with self.assertRaisesRegex(FileNotFoundError, "local_empty"):
+        kernel_stats_tools.load_host_planes("local_empty", all_hosts=False)
+
+  def test_all_devices_constant_is_exported(self):
+    self.assertEqual(get_kernel_stats_tool.ALL_DEVICES, "all")
+    self.assertEqual(
+        get_kernel_stats_tool.ALL_DEVICES, kernel_stats_tools.ALL_DEVICES
+    )
+
+  def test_single_file_reports_its_host(self):
+    run_dir = self._two_host_run_dir()
+    with (
+        mock.patch.object(
+            xplane_tools.profiler.ProfileData,
+            "from_serialized_xspace",
+            side_effect=self._fake_host_xspace,
+        ),
+        mock.patch.object(sys, "stderr", new_callable=io.StringIO),
+    ):
+      summary = json.loads(
+          kernel_stats_tools.get_kernel_stats(
+              str(run_dir / "host_b.xplane.pb"), include_summary=True
+          )
+      )
+
+    self.assertEqual(summary["host"], "host_b")
+    self.assertEqual(summary["num_hosts"], 1)
+    self.assertEqual(
+        summary["kernel_records"][0]["kernel_name"], "gemm_host_b_gpu0"
+    )
+
+  def test_merged_xspace_default_keeps_first_copy_of_each_plane(self):
+    planes = [
+        self._one_kernel_plane(
+            "/device:GPU:0", "Stream #13(Compute)", "gemm_first", 1_000_000
+        ),
+        self._one_kernel_plane(
+            "/device:GPU:0", "Stream #13(Compute)", "gemm_second", 2_000_000
+        ),
+    ]
+    with (
+        mock.patch.object(xplane_tools, "iter_planes", return_value=planes),
+        mock.patch.object(sys, "stderr", new_callable=io.StringIO) as stderr,
+    ):
+      summary = json.loads(
+          kernel_stats_tools.get_kernel_stats(
+              _FAKE_XSPACE, include_summary=True
+          )
+      )
+      every = json.loads(
+          kernel_stats_tools.get_kernel_stats(
+              _FAKE_XSPACE, include_summary=True, device_to_use="all"
+          )
+      )
+
+    self.assertEqual(
+        [r["kernel_name"] for r in summary["kernel_records"]], ["gemm_first"]
+    )
+    self.assertIsNone(summary["host"])
+    self.assertEqual(summary["num_hosts"], 2)
+    self.assertIn(
+        "picked /device:GPU:0 on the first host (host 1 of 2; 1 accelerator"
+        " devices on that host)",
+        stderr.getvalue(),
+    )
+    self.assertIn("only the first copy of each device plane", stderr.getvalue())
+    self.assertCountEqual(
+        [r["kernel_name"] for r in every["kernel_records"]],
+        ["gemm_first", "gemm_second"],
+    )
+    self.assertEqual(every["host"], "all")
 
 
 if __name__ == "__main__":

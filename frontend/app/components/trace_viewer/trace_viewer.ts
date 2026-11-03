@@ -34,10 +34,10 @@ import {
 import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {
-  EntrySelectedEventDetail,
-  EventsSelectedEventDetail,
-  SelectedEvent,
-  SelectedEventProperty,
+  type EntrySelectedEventDetail,
+  type EventsSelectedEventDetail,
+  type SelectedEvent,
+  type SelectedEventProperty,
   TraceViewerContainer,
 } from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
 import {

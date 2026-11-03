@@ -114,6 +114,15 @@ EM_BOOL OnResize(int eventType, const EmscriptenUiEvent* uiEvent,
   return EM_FALSE;
 }
 
+bool HasMouseButtonTransition() {
+  for (int button = 0; button < ImGuiMouseButton_COUNT; ++button) {
+    if (ImGui::IsMouseClicked(button) || ImGui::IsMouseReleased(button)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 EMSCRIPTEN_KEEPALIVE void SetPalette(const std::string& palette_name) {
   ColorPalette& palette = Application::Instance().GetPalette();
 
@@ -405,13 +414,17 @@ void Application::Initialize() {
   // The canvas element is guaranteed to exist at this point, because
   // traceViewerV2Main() in main.ts ensures it before calling callMain(), which
   // then calls Initialize().
-  // Register mouse event handlers to the canvas element.
+  // Register mouse event handlers to the canvas element, except mouseup which
+  // is registered on the window so drags released outside the canvas still
+  // terminate cleanly.
   emscripten_set_mousemove_callback(kCanvasTarget, /*user_data=*/this,
                                     /*use_capture=*/true, HandleMouseMove);
   emscripten_set_mousedown_callback(kCanvasTarget, /*user_data=*/this,
                                     /*use_capture=*/true, HandleMouseDown);
-  emscripten_set_mouseup_callback(kCanvasTarget, /*user_data=*/this,
+  emscripten_set_mouseup_callback(kWindowTarget, /*user_data=*/this,
                                   /*use_capture=*/true, HandleMouseUp);
+  emscripten_set_blur_callback(kWindowTarget, /*user_data=*/this,
+                               /*use_capture=*/false, HandleWindowBlur);
 
   // Register wheel event handlers to the canvas element.
   emscripten_set_wheel_callback(kCanvasTarget, /*user_data=*/this,
@@ -434,8 +447,10 @@ void Application::Shutdown() {
                                     /*use_capture=*/true, nullptr);
   emscripten_set_mousedown_callback(kCanvasTarget, /*user_data=*/nullptr,
                                     /*use_capture=*/true, nullptr);
-  emscripten_set_mouseup_callback(kCanvasTarget, /*user_data=*/nullptr,
+  emscripten_set_mouseup_callback(kWindowTarget, /*user_data=*/nullptr,
                                   /*use_capture=*/true, nullptr);
+  emscripten_set_blur_callback(kWindowTarget, /*user_data=*/nullptr,
+                               /*use_capture=*/false, nullptr);
   emscripten_set_wheel_callback(kCanvasTarget, /*user_data=*/nullptr,
                                 /*use_capture=*/true, nullptr);
   emscripten_set_resize_callback(kWindowTarget, /*user_data=*/nullptr,
@@ -476,10 +491,14 @@ void Application::Draw() {
   platform_->NewFrame();
   timeline_->Draw();
   UpdateMouseCursor();
+  const bool has_mouse_transition = HasMouseButtonTransition();
   platform_->RenderFrame();
   frame_active_ = false;
 
-  if (Animation::HasActiveAnimations()) {
+  // Schedule one follow-up frame after mouse button transitions so trickled
+  // ImGui input events drain and post-drag state (e.g., deferred incremental
+  // data fetches) settles immediately.
+  if (Animation::HasActiveAnimations() || has_mouse_transition) {
     RequestRedraw();
   }
 }

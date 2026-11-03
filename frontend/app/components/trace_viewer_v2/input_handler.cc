@@ -1,7 +1,11 @@
 #include "frontend/app/components/trace_viewer_v2/input_handler.h"
 
+#include <emscripten/em_js.h>
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
+
+#include <cfloat>
+#include <cstdint>
 
 #include "absl/strings/string_view.h"
 #include "imgui.h"
@@ -43,6 +47,80 @@ void UpdateModifierKeys(const EmscriptenKeyboardEvent* event) {
     io.AddKeyEvent(ImGuiKey_ModAlt, event->altKey);
     io.AddKeyEvent(ImGuiKey_ModSuper, event->metaKey);
 }
+
+// Maps W3C MouseEvent.button (0=Left, 1=Middle, 2=Right, 3=X1, 4=X2) to
+// ImGuiMouseButton (0=Left, 1=Right, 2=Middle, 3=X1, 4=X2), or -1 if out of
+// range.
+int DomButtonToImGuiButton(uint16_t dom_button) {
+  switch (dom_button) {
+    case 0:
+      return ImGuiMouseButton_Left;
+    case 1:
+      return ImGuiMouseButton_Middle;
+    case 2:
+      return ImGuiMouseButton_Right;
+    case 3:
+      return 3;
+    case 4:
+      return 4;
+    default:
+      return -1;
+  }
+}
+
+// Reconciles buttons that are no longer physically held according to the W3C
+// MouseEvent.buttons bitmask (1=Left, 2=Right, 4=Middle, 8=X1, 16=X2). Only
+// releases buttons; never synthesizes presses so drags started outside the
+// canvas do not activate canvas interactions on entry.
+void ReconcileReleasedMouseButtons(uint16_t dom_buttons_mask, ImGuiIO& io) {
+  struct ButtonMask {
+    uint16_t mask;
+    int imgui_button;
+  };
+  constexpr ButtonMask kButtonMasks[] = {
+      {1 << 0, ImGuiMouseButton_Left},
+      {1 << 1, ImGuiMouseButton_Right},
+      {1 << 2, ImGuiMouseButton_Middle},
+      {1 << 3, 3},
+      {1 << 4, 4},
+  };
+  // A button that ImGui still holds while none is physically held was released
+  // outside the canvas without a mouseup reaching the window. Invalidate the
+  // mouse position before queuing the release, so that it is not taken for a
+  // click at the last in-canvas position (an already invalid position is
+  // filtered as a duplicate).
+  if (dom_buttons_mask == 0) {
+    for (const ButtonMask& entry : kButtonMasks) {
+      if (io.MouseDown[entry.imgui_button]) {
+        io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+        break;
+      }
+    }
+  }
+  for (const ButtonMask& entry : kButtonMasks) {
+    if ((dom_buttons_mask & entry.mask) == 0) {
+      io.AddMouseButtonEvent(entry.imgui_button, false);
+    }
+  }
+}
+
+// Returns true if the CSS client point (`client_x`, `client_y`) is over the
+// `#canvas` element and not covered by another element (such as a menu,
+// tooltip, or dialog). Returns true if there is no `#canvas`, so that releases
+// are processed at the current mouse position.
+EM_JS(bool, IsClientPointOverCanvas, (int client_x, int client_y), {
+  const canvas = document.getElementById('canvas');
+  if (!canvas) return true;
+  const rect = canvas.getBoundingClientRect();
+  if (client_x < rect.left || client_x >= rect.right || client_y < rect.top ||
+      client_y >= rect.bottom) {
+    return false;
+  }
+  if (typeof document.elementFromPoint !== 'function') return true;
+  // elementFromPoint() returns null outside the layout viewport.
+  const hit = document.elementFromPoint(client_x, client_y);
+  return hit === canvas || (hit !== null && canvas.contains(hit));
+});
 
 }  // namespace
 
@@ -140,24 +218,60 @@ EM_BOOL HandleKeyUp(int, const EmscriptenKeyboardEvent* event, void*) {
 }
 
 EM_BOOL HandleMouseMove(int, const EmscriptenMouseEvent* event, void*) {
+  if (event == nullptr || ImGui::GetCurrentContext() == nullptr) {
+    return EM_FALSE;
+  }
   Scheduler::Instance().RequestRedraw();
   ImGuiIO& io = ImGui::GetIO();
+  // Queue button reconciliation before the new cursor position so ImGui
+  // trickles any missed off-canvas release at the previous cursor position
+  // (zero MouseDelta jump) before applying the re-entry position on the
+  // following frame.
+  ReconcileReleasedMouseButtons(event->buttons, io);
   io.AddMousePosEvent(event->targetX, event->targetY);
   return io.WantCaptureMouse;
 }
 
 EM_BOOL HandleMouseDown(int, const EmscriptenMouseEvent* event, void*) {
+  if (event == nullptr || ImGui::GetCurrentContext() == nullptr) {
+    return EM_FALSE;
+  }
+  const int imgui_button = DomButtonToImGuiButton(event->button);
+  if (imgui_button < 0) return EM_FALSE;
   Scheduler::Instance().RequestRedraw();
   ImGuiIO& io = ImGui::GetIO();
-  io.AddMouseButtonEvent(event->button, true);
+  // The press carries the pointer position, so a click without a preceding
+  // mousemove (e.g. right after the mouse state was cleared on window blur)
+  // still lands where the pointer is. An unchanged position is filtered as a
+  // duplicate, and ImGui applies the position before the press in the same
+  // frame.
+  io.AddMousePosEvent(event->targetX, event->targetY);
+  io.AddMouseButtonEvent(imgui_button, true);
   return io.WantCaptureMouse;
 }
 
 EM_BOOL HandleMouseUp(int, const EmscriptenMouseEvent* event, void*) {
-  Scheduler::Instance().RequestRedraw();
-  ImGuiIO& io = ImGui::GetIO();
-  io.AddMouseButtonEvent(event->button, false);
-  return io.WantCaptureMouse;
+  if (event == nullptr || ImGui::GetCurrentContext() == nullptr) {
+    return EM_FALSE;
+  }
+  const int imgui_button = DomButtonToImGuiButton(event->button);
+  if (imgui_button >= 0) {
+    Scheduler::Instance().RequestRedraw();
+    ImGuiIO& io = ImGui::GetIO();
+    // Releasing the last held button outside the canvas, or over an element
+    // covering it, must not count as a click at the last in-canvas position
+    // (which froze when the pointer left the canvas): invalidate the position
+    // before the release. ImGui applies both in the same frame.
+    if (event->buttons == 0 &&
+        !IsClientPointOverCanvas(event->clientX, event->clientY)) {
+      io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+    }
+    io.AddMouseButtonEvent(imgui_button, false);
+  }
+  // Registered on window so releases outside the canvas still reach ImGui;
+  // return EM_FALSE so surrounding DOM elements retain default mouseup
+  // behavior.
+  return EM_FALSE;
 }
 
 EM_BOOL HandleWheel(int, const EmscriptenWheelEvent* event, void*) {
@@ -174,6 +288,28 @@ EM_BOOL HandleWheel(int, const EmscriptenWheelEvent* event, void*) {
   io.AddMouseWheelEvent(wheel_x, wheel_y);
 
   return io.WantCaptureMouse;
+}
+
+EM_BOOL HandleWindowBlur(int, const EmscriptenFocusEvent* event, void*) {
+  if (event != nullptr && event->nodeName[0] != '\0' &&
+      absl::string_view(event->nodeName) != "#window") {
+    return EM_FALSE;
+  }
+  if (ImGui::GetCurrentContext() == nullptr) {
+    return EM_FALSE;
+  }
+  Scheduler::Instance().RequestRedraw();
+  ImGuiIO& io = ImGui::GetIO();
+  // Clear the input state directly instead of queuing releases: a queued
+  // release would set IsMouseReleased() and commit the in-flight interaction
+  // (click, selection, track drop) on focus loss, whereas cleared state is
+  // seen as a cancelled interaction. This mirrors what ImGui does on
+  // AddFocusEvent(false). Also drop queued events, so that nothing pressed
+  // before the blur is applied after it.
+  io.ClearEventsQueue();
+  io.ClearInputKeys();
+  io.ClearInputMouse();
+  return EM_FALSE;
 }
 
 }  // namespace traceviewer

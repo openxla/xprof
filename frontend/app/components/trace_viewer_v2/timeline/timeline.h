@@ -362,6 +362,12 @@ class Timeline {
   void set_selection_start_pos_for_test(std::optional<ImVec2> pos) {
     selection_start_pos_ = pos;
   }
+  std::optional<ImVec2> selection_start_pos_for_test() const {
+    return selection_start_pos_;
+  }
+  std::optional<ImVec2> selection_end_pos_for_test() const {
+    return selection_end_pos_;
+  }
   void set_current_timeline_width_for_test(Pixel width) {
     current_timeline_width_ = width;
   }
@@ -1211,9 +1217,10 @@ class Timeline {
   void BeginTrackDrag(int group_index, ImGuiID handle_id);
   // Advances an in-progress track drag: auto-scrolls, updates and draws the
   // drop position, and drops the track when the mouse button is released (or
-  // cancels the drag on Escape). Must be called inside the tracks child window
-  // after the track rows are drawn. Returns true if the order changed and the
-  // layout needs an update.
+  // cancels the drag on Escape, or when the mouse state was cleared without a
+  // release, e.g. on window blur). Must be called inside the tracks child
+  // window after the track rows are drawn. Returns true if the order changed
+  // and the layout needs an update.
   bool UpdateTrackDrag(const ImVec2& tracks_start_screen_pos,
                        Pixel content_region_avail_width);
   // Scrolls the tracks while the dragged track is near an edge of them.

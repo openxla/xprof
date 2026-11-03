@@ -6894,7 +6894,9 @@ void Timeline::HandleMouseRelease() {
     time_range_resizing_state_.reset();
 
     bool is_click = false;
-    if (selection_start_pos_) {
+    // The position is invalid when the button was released outside the canvas:
+    // that is a cancelled drag, not a click.
+    if (selection_start_pos_ && ImGui::IsMousePosValid()) {
       const float dx = ImGui::GetIO().MousePos.x - selection_start_pos_->x;
       const float dy = ImGui::GetIO().MousePos.y - selection_start_pos_->y;
       const float distance_squared = dx * dx + dy * dy;
@@ -6916,6 +6918,17 @@ void Timeline::HandleMouseRelease() {
     selection_start_pos_.reset();
     selection_end_pos_.reset();
     current_selected_time_range_.reset();
+  } else if (!ImGui::IsMouseDown(0)) {
+    // Only called while is_dragging_, so a button that is up without a release
+    // transition means the mouse state was cleared (e.g. on window blur):
+    // cancel the in-flight interaction without committing it.
+    is_dragging_ = false;
+    is_selecting_ = false;
+    time_range_resizing_state_.reset();
+    selection_start_pos_.reset();
+    selection_end_pos_.reset();
+    current_selected_time_range_.reset();
+    if (redraw_callback_) redraw_callback_();
   }
 }
 
@@ -8007,6 +8020,13 @@ bool Timeline::UpdateTrackDrag(const ImVec2& tracks_start_screen_pos,
                                                   tracks_start_screen_pos.y);
   }
   if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+    // A button that is up without a release transition means the mouse state
+    // was cleared (e.g. on window blur): cancel instead of dropping the track.
+    if (!ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+      CancelTrackDrag();
+      if (redraw_callback_) redraw_callback_();
+      return false;
+    }
     const bool moved = DropDraggedTrack();
     track_drag_.reset();
     if (redraw_callback_) redraw_callback_();

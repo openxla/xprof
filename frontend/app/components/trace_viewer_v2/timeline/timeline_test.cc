@@ -8796,6 +8796,90 @@ TEST_F(TimelineDragSelectionTest, ClickingTextDoesNotRemoveSelectedTimeRange) {
   EXPECT_EQ(timeline_.selected_time_ranges().size(), 1);
 }
 
+// Losing the window focus while resizing a selected time range clears the mouse
+// state without a release transition. The resize must stop there: hovering no
+// longer shows the resize cursor, and the next drag is an ordinary pan rather
+// than a continuation of the resize.
+TEST_F(TimelineDragSelectionTest, ClearedMouseInputCancelsTimeRangeResize) {
+  ImGuiIO& io = ImGui::GetIO();
+  SimulateFrame();
+
+  // Shift+drag a time range [5, 25] us.
+  io.AddMousePosEvent(GetTimelineStartX() + kSelectionStartOffset, kEmptyAreaY);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMousePosEvent(GetTimelineStartX() + 250.0f, kEmptyAreaY);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  ASSERT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 25.0);
+
+  // Grab the end edge and start resizing it to 30 us.
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMousePosEvent(GetTimelineStartX() + 300.0f, kEmptyAreaY);
+  SimulateFrame();
+  ASSERT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 30.0);
+  ASSERT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_ResizeEW);
+
+  // The window loses focus mid-resize.
+  io.ClearInputMouse();
+  SimulateFrame();
+
+  // The range keeps the size it had, and hovering an empty area away from its
+  // edges no longer shows the resize cursor.
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 30.0);
+  io.AddKeyEvent(ImGuiMod_Shift, false);
+  io.AddMousePosEvent(GetTimelineStartX() + 800.0f, kEmptyAreaY);
+  SimulateFrame();
+  EXPECT_NE(ImGui::GetMouseCursor(), ImGuiMouseCursor_ResizeEW);
+
+  // A plain drag there pans instead of moving the edge of the range.
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMousePosEvent(GetTimelineStartX() + 900.0f, kEmptyAreaY);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 5.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 30.0);
+}
+
+// Losing the window focus while Shift+dragging a time range discards the range
+// in progress: a later plain click must not add it.
+TEST_F(TimelineDragSelectionTest,
+       ClearedMouseInputDiscardsTimeRangeInProgress) {
+  ImGuiIO& io = ImGui::GetIO();
+  SimulateFrame();
+
+  // Shift+drag a time range [5, 25] us, without releasing.
+  io.AddMousePosEvent(GetTimelineStartX() + kSelectionStartOffset, kEmptyAreaY);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMousePosEvent(GetTimelineStartX() + 250.0f, kEmptyAreaY);
+  SimulateFrame();
+  ASSERT_TRUE(timeline_.selected_time_ranges().empty());
+
+  // The window loses focus mid-drag.
+  io.ClearInputMouse();
+  SimulateFrame();
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+
+  // A plain click afterwards does not add the interrupted range.
+  io.AddKeyEvent(ImGuiMod_Shift, false);
+  io.AddMousePosEvent(GetTimelineStartX() + 800.0f, kEmptyAreaY);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+}
+
 class TimelineMouseModeSelectTestSuite : public TimelineDragSelectionTest {
  protected:
   void SetUp() override {
@@ -10031,6 +10115,97 @@ TEST_F(TimelineMouseModeSelectTestSuite, FindSelectedEventsEmitsJson) {
   EXPECT_THAT(captured_payload, ::testing::HasSubstr("event1"));
 }
 
+// Losing the window focus mid-drag clears the mouse state without a release
+// transition. The in-flight interaction must be cancelled (not committed), the
+// canvas redrawn, and the next press must start a fresh interaction.
+TEST_F(TimelineMouseModeSelectTestSuite,
+       ClearedMouseInputCancelsInFlightSelectionAndRearmsNextPress) {
+  ImGuiIO& io = ImGui::GetIO();
+  int redraws = 0;
+  timeline_.set_redraw_callback([&] { ++redraws; });
+  int empty_selection_events = 0;
+  timeline_.set_event_callback(
+      [&](absl::string_view event_type, const EventData& data) {
+        if (event_type == kEventsSelected && data.empty()) {
+          ++empty_selection_events;
+        }
+      });
+  SimulateFrame();  // Warm-up frame
+
+  // Rectangle-select both events.
+  io.AddMousePosEvent(GetTimelineStartX() + 200.0f, 39.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMousePosEvent(GetTimelineStartX(), 150.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  ASSERT_EQ(timeline_.selected_event_indices_for_test().size(), 2);
+
+  // Start measuring a time range in Timing mode (which keeps the rectangle
+  // selection) and lose the window focus mid-drag.
+  timeline_.set_mouse_mode(MouseMode::kTiming);
+  io.AddMousePosEvent(GetTimelineStartX() + 200.0f, 100.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMousePosEvent(GetTimelineStartX() + 400.0f, 100.0f);
+  SimulateFrame();
+  ASSERT_TRUE(timeline_.selected_time_ranges().empty());
+
+  io.ClearInputMouse();
+  const int redraws_before_cleanup = redraws;
+  SimulateFrame();
+
+  // The in-flight range is dropped rather than added, and the canvas is
+  // redrawn without it.
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+  EXPECT_GT(redraws, redraws_before_cleanup);
+  EXPECT_EQ(timeline_.selected_event_indices_for_test().size(), 2);
+
+  // Back in Select mode, pressing on an empty area starts a fresh rectangle
+  // selection, which clears the previous one right away...
+  timeline_.set_mouse_mode(MouseMode::kSelect);
+  io.AddMousePosEvent(GetTimelineStartX() + 200.0f, 100.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  EXPECT_TRUE(timeline_.selected_event_indices_for_test().empty());
+
+  // ... and releasing without moving reports the cleared selection once.
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  EXPECT_TRUE(timeline_.selected_event_indices_for_test().empty());
+  EXPECT_EQ(empty_selection_events, 1);
+}
+
+// Losing the window focus mid rectangle selection discards the rectangle: it is
+// neither committed nor kept as the corners of a later selection.
+TEST_F(TimelineMouseModeSelectTestSuite,
+       ClearedMouseInputDiscardsRectangleSelectionInProgress) {
+  ImGuiIO& io = ImGui::GetIO();
+  SimulateFrame();  // Warm-up frame
+
+  // Drag a rectangle over both events, without releasing.
+  io.AddMousePosEvent(GetTimelineStartX() + 200.0f, 39.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMousePosEvent(GetTimelineStartX(), 150.0f);
+  SimulateFrame();
+  ASSERT_TRUE(timeline_.selection_start_pos_for_test().has_value());
+  ASSERT_TRUE(timeline_.selection_end_pos_for_test().has_value());
+
+  io.ClearInputMouse();
+  SimulateFrame();
+
+  EXPECT_FALSE(timeline_.selection_start_pos_for_test().has_value());
+  EXPECT_FALSE(timeline_.selection_end_pos_for_test().has_value());
+  EXPECT_TRUE(timeline_.selected_event_indices_for_test().empty());
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+}
+
 TEST_F(TimelineMouseModeSelectTestSuite,
        KeyM_MarksAndUnmarksMultiEventSelection) {
   ImGuiIO& io = ImGui::GetIO();
@@ -10473,6 +10648,112 @@ TEST_F(TimelineImGuiFixture, ZoomMode) {
 
   // Verify visible range changed.
   EXPECT_NEAR(timeline_.visible_range().duration(), 140.0, 1.0);
+}
+
+TEST_F(TimelineImGuiFixture,
+       ZoomModeReentryAfterMissedOffCanvasReleaseDoesNotStickOrSpike) {
+  ImGuiIO& io = ImGui::GetIO();
+  SimulateFrame();  // Init window
+
+  timeline_.set_mouse_mode(MouseMode::kZoom);
+
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.name = "Group 1", .start_level = 0, .expanded = true});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+  data.entry_names.push_back("Event 1");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(900.0);
+  data.entry_self_times.push_back(900.0);
+  data.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({100.0, 200.0});
+
+  ImGuiWindow* window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(window, nullptr);
+
+  const float tracks_x = GetTimelineStartX();
+  const float start_y = window->DC.CursorStartPos.y + kRulerHeight + 100.0f;
+  io.AddMousePosEvent(tracks_x + 10.0f, start_y);
+  SimulateFrame();
+
+  // Start drag and zoom in by dragging upward 20px.
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.AddMousePosEvent(tracks_x + 10.0f, start_y - 20.0f);
+  io.DeltaTime = 1.0f;
+  SimulateFrame();
+
+  const double duration_after_drag = timeline_.visible_range().duration();
+  EXPECT_NEAR(duration_after_drag, 80.0, 1.0);
+
+  // Simulate cursor re-entering the canvas at a distant Y coordinate after the
+  // mouse button was released outside the window: button release is queued
+  // before the re-entry position.
+  io.AddMouseButtonEvent(0, false);
+  io.AddMousePosEvent(tracks_x + 10.0f, start_y - 70.0f);
+  io.DeltaTime = 1.0f;
+  SimulateFrame();
+  io.DeltaTime = 1.0f;
+  SimulateFrame();
+
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().duration(), duration_after_drag);
+
+  // Subsequent hover movements must not continue zooming.
+  io.AddMousePosEvent(tracks_x + 10.0f, start_y + 30.0f);
+  io.DeltaTime = 1.0f;
+  SimulateFrame();
+
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().duration(), duration_after_drag);
+}
+
+TEST_F(TimelineImGuiFixture,
+       ClearedMouseInputResetsDragStateAndUnblocksDataFetch) {
+  ImGuiIO& io = ImGui::GetIO();
+  SimulateFrame();  // Init window
+
+  timeline_.set_mouse_mode(MouseMode::kPan);
+  timeline_.set_data_time_range({0.0, 10000.0});
+  timeline_.set_fetched_data_time_range({0.0, 500.0});
+  timeline_.SetVisibleRange({100.0, 200.0});
+  timeline_.set_is_incremental_loading(false);
+
+  int fetch_count = 0;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          ++fetch_count;
+        }
+      });
+
+  ImGuiWindow* window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(window, nullptr);
+  const float tracks_x = GetTimelineStartX();
+  const float start_y = window->DC.CursorStartPos.y + kRulerHeight + 20.0f;
+
+  io.AddMousePosEvent(tracks_x + 50.0f, start_y);
+  SimulateFrame();
+
+  // Start dragging and move visible range outside fetched_data_time_range.
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  timeline_.SetVisibleRange({2000.0, 2100.0});
+  timeline_.set_is_incremental_loading(false);
+
+  // While dragging, Draw() defers MaybeRequestData().
+  SimulateFrame();
+  EXPECT_EQ(fetch_count, 0);
+
+  // Clear mouse state directly without a discrete MouseReleased transition.
+  io.ClearInputMouse();
+  SimulateFrame();  // Resets is_dragging_ via defensive HandleMouseRelease().
+  SimulateFrame();  // Next frame sees !is_interacting and triggers fetch.
+
+  EXPECT_EQ(fetch_count, 1);
 }
 
 TEST_F(TimelineImGuiFixture, PanModeCursor) {
@@ -17653,6 +17934,30 @@ TEST_F(TrackReorderTest, EscapeCancelsDrag) {
   MovePointer(HandleX(), RowCenterY(0) - 20.0f);
   EXPECT_FALSE(timeline_.is_dragging_track());
   ReleaseMouse();
+  EXPECT_THAT(DisplayedNames(),
+              ElementsAre("P1", "t1", "t2", "P2", "u1", "u2"));
+}
+
+TEST_F(TrackReorderTest, ClearedMouseInputCancelsDragWithoutDropping) {
+  Load(TwoProcessesData());
+  PressHandleAndDragTo(3, HandleX(), RowCenterY(0) - 10.0f);
+  ASSERT_TRUE(timeline_.is_dragging_track());
+  int redraws = 0;
+  timeline_.set_redraw_callback([&] { ++redraws; });
+
+  // The window loses focus mid-drag: the mouse state is cleared without a
+  // release transition, so the track must not be dropped where the pointer
+  // last was.
+  ImGui::GetIO().ClearInputMouse();
+  SimulateFrame();
+
+  EXPECT_FALSE(timeline_.is_dragging_track());
+  EXPECT_FALSE(ImGui::IsMouseReleased(ImGuiMouseButton_Left));
+  EXPECT_GT(redraws, 0);
+  EXPECT_THAT(DisplayedNames(),
+              ElementsAre("P1", "t1", "t2", "P2", "u1", "u2"));
+  // The next frame does not drop it either.
+  SimulateFrame();
   EXPECT_THAT(DisplayedNames(),
               ElementsAre("P1", "t1", "t2", "P2", "u1", "u2"));
 }

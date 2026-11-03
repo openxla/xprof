@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "google/protobuf/any.pb.h"
 #include <gtest/gtest.h>
 #include "xprof/convert/data_table_utils.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"

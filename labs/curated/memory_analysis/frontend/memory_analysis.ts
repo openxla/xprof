@@ -30,7 +30,7 @@ import type {
   TreeNode,
 } from 'org_xprof/frontend/app/common/interfaces/memory_analysis_view';
 import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
-import {buildTree} from './utils/tree_builder';
+import {buildTree, getPathSegments} from './utils/tree_builder';
 
 /** Represents a summary of memory usage for a specific category. */
 interface CategorySummary {
@@ -232,7 +232,6 @@ export class MemoryAnalysis {
 
   // Visualizer Toggles & Variables
   activeTab = 0;
-  hierarchyType: 'jax' | 'category' = 'jax';
   sizeMetric: 'total' | 'padding' = 'total';
   colorMode: ColorMode = 'classic';
   readonly sidebarExpanded = signal(true);
@@ -389,6 +388,10 @@ export class MemoryAnalysis {
       // Cast unknown data to RawMemoryAnalysisResult
       this.result = preprocessResult(data as RawMemoryAnalysisResult);
       this.fullBuffers = this.result.buffers;
+      for (const b of this.fullBuffers) {
+        // Object.assign is required because MemoryAnalysisBuffer has a readonly index signature.
+        Object.assign(b, {path: this.getBufferPath(b)});
+      }
 
       this.spaceList = Array.from(
         new Set(
@@ -425,15 +428,19 @@ export class MemoryAnalysis {
   }
 
   private rebuildTree(): void {
-    if (!this.fullBuffers || this.fullBuffers.length === 0) return;
-    const buffersToBuild =
-      this.selectedSpace === 'all'
-        ? this.fullBuffers
-        : this.fullBuffers.filter((b) => b.memorySpace === this.selectedSpace);
+    if (this.fullBuffers.length === 0) {
+      this.totalMemoryMib = 0;
+      this.rootNode = null;
+      this.selectedVisualNode = null;
+      this.activeCategorySummaries.set([]);
+      return;
+    }
 
-    for (const b of this.fullBuffers) {
-      // Object.assign is required because MemoryAnalysisBuffer has a readonly index signature.
-      Object.assign(b, {path: this.getBufferPath(b)});
+    let buffersToBuild = this.fullBuffers;
+    if (this.selectedSpace !== 'all') {
+      buffersToBuild = buffersToBuild.filter(
+        (b) => b.memorySpace === this.selectedSpace,
+      );
     }
 
     let summaryMap: Record<string, number> = {};
@@ -463,16 +470,9 @@ export class MemoryAnalysis {
 
     this.rootNode = buildTree({
       buffers: buffersToBuild,
-      hierarchyType: this.hierarchyType,
       metric: this.sizeMetric,
     });
     this.selectedVisualNode = this.rootNode;
-  }
-
-  onHierarchyTypeChange(value: 'jax' | 'category'): void {
-    this.hierarchyType = value;
-    this.rebuildTree();
-    this.applyFilters();
   }
 
   onSizeMetricChange(value: 'total' | 'padding'): void {
@@ -490,12 +490,10 @@ export class MemoryAnalysis {
     this.selectedVisualNode = node;
 
     if (node.depth === 0) {
-      if (this.result) {
-        this.selectedCategories = new Set(
-          Object.keys(this.result.categorySummaries),
-        );
-      }
-    } else if (this.hierarchyType === 'category') {
+      this.selectedCategories = new Set(
+        this.activeCategorySummaries().map((s) => s.name),
+      );
+    } else {
       const activeCategoryNames = this.activeCategorySummaries().map(
         (s) => s.name,
       );
@@ -601,23 +599,7 @@ export class MemoryAnalysis {
   }
 
   getBufferPath(buffer: MemoryAnalysisBuffer): string {
-    if (this.hierarchyType === 'jax') {
-      const jaxPath = buffer.jaxVariablePath ?? '';
-      if (!jaxPath) {
-        return `Others/${buffer.category || 'Uncategorized'}/${buffer.subCategory || 'Others'}/${buffer.name}`;
-      }
-      const cleanPath = jaxPath.replace(/^\/|\/$/g, '');
-      return `${cleanPath}/${buffer.name}`;
-    } else {
-      return [
-        buffer.category || 'Uncategorized',
-        buffer.subCategory || 'Others',
-        buffer.group || 'General',
-        buffer.name,
-      ]
-        .filter(Boolean)
-        .join('/');
-    }
+    return getPathSegments({buffer}).join('/');
   }
 
   private applyFilters(): void {

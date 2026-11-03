@@ -3,15 +3,14 @@ import type {TreeNode} from 'org_xprof/frontend/app/common/interfaces/memory_ana
 
 /**
  * Builds a hierarchical TreeNode tree from a flat list of buffers.
- * Intermediate scope nodes holding physical memory are automatically split into '[self]' sub-leaves.
+ * Empty-name buffers whose 3-segment path is a prefix of named siblings are split into '[self]' sub-leaves.
  * Duplicate buffers on identical paths accumulate values.
  */
 export function buildTree(options: {
   readonly buffers: Readonly<MemoryAnalysisBuffer[]>;
-  readonly hierarchyType: 'jax' | 'category';
   readonly metric: 'total' | 'padding';
 }): TreeNode {
-  const {buffers, hierarchyType, metric} = options;
+  const {buffers, metric} = options;
   const root: TreeNode = {
     name: 'root',
     value: 0,
@@ -24,7 +23,7 @@ export function buildTree(options: {
   };
 
   for (const buffer of buffers) {
-    const paths = getPathSegments({buffer, hierarchyType});
+    const paths = getPathSegments({buffer});
     insertBuffer({parent: root, buffer, segments: paths, depth: 0, metric});
   }
 
@@ -34,37 +33,18 @@ export function buildTree(options: {
 }
 
 /**
- * Extracts and normalizes path segments for a buffer based on the selected hierarchy type.
+ * Extracts and normalizes the category hierarchy path segments for a buffer.
  */
 export function getPathSegments(options: {
   readonly buffer: Readonly<MemoryAnalysisBuffer>;
-  readonly hierarchyType: 'jax' | 'category';
 }): string[] {
-  const {buffer, hierarchyType} = options;
-  if (hierarchyType === 'jax') {
-    const jaxPath = buffer.jaxVariablePath ?? '';
-    if (!jaxPath) {
-      return [
-        'Others',
-        buffer.category || 'Uncategorized',
-        buffer.subCategory || 'Others',
-        buffer.name,
-      ];
-    }
-    const segments = jaxPath
-      .replace(/^\/|\/$/g, '')
-      .split('/')
-      .filter(Boolean);
-    segments.push(buffer.name);
-    return segments;
-  } else {
-    return [
-      buffer.category || 'Uncategorized',
-      buffer.subCategory || 'Others',
-      buffer.group || 'General',
-      buffer.name,
-    ].filter(Boolean);
-  }
+  const {buffer} = options;
+  return [
+    buffer.category || 'Uncategorized',
+    buffer.subCategory || 'Others',
+    buffer.group || 'General',
+    buffer.name,
+  ].filter(Boolean);
 }
 
 function insertBuffer(options: {

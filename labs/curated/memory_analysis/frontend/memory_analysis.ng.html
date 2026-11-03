@@ -99,11 +99,6 @@
       <!-- Visualizer Section -->
       <div class="visualizer-section">
         <div class="vis-toolbar">
-          <mat-button-toggle-group [value]="hierarchyType" (change)="onHierarchyTypeChange($event.value)" aria-label="Hierarchy Type">
-            <mat-button-toggle value="jax">JAX Tree</mat-button-toggle>
-            <mat-button-toggle value="category">Category Tree</mat-button-toggle>
-          </mat-button-toggle-group>
-
           <mat-button-toggle-group [value]="sizeMetric" (change)="onSizeMetricChange($event.value)" aria-label="Size Metric">
             <mat-button-toggle value="total">Total Size</mat-button-toggle>
             <mat-button-toggle value="padding">Padding Size</mat-button-toggle>

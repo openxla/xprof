@@ -28,7 +28,16 @@
         rel="noopener noreferrer"
         [title]="kernelViewerLink.tooltip"
         [attr.aria-label]="kernelViewerLink.tooltip"
-        (click)="$event.stopPropagation()"><mat-icon *ngIf="kernelViewerLink.url" class="kernel-viewer-link-icon">open_in_new</mat-icon></a><span *ngIf="asDiffNode(node)?.activeOnly" class="diff-badge badge-added">Added</span>
+        (click)="$event.stopPropagation()"><mat-icon *ngIf="kernelViewerLink.url" class="kernel-viewer-link-icon">open_in_new</mat-icon></a>
+      <span
+        *ngIf="programServingBadgeText"
+        class="serving-badge"
+        [matTooltip]="programServingTooltipText"
+        matTooltipPosition="above">{{programServingBadgeText}}</span>
+      <span
+        *ngIf="programServingAccessibleText"
+        class="accessible-serving-metadata">{{programServingAccessibleText}}</span>
+      <span *ngIf="asDiffNode(node)?.activeOnly" class="diff-badge badge-added">Added</span>
       <span *ngIf="asDiffNode(node)?.baselineOnly" class="diff-badge badge-removed">Removed</span>
     </span>
     <span aria-label="Framework Op type:"></span><span class="provenance">{{provenance}}&nbsp;</span>

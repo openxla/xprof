@@ -16,6 +16,7 @@ ts_library(
     name = "utils",
     srcs = [
         "diff_utils.ts",
+        "serving_metadata_utils.ts",
         "utils.ts",
     ],
     deps = [

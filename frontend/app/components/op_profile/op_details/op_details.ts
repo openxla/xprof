@@ -1,26 +1,52 @@
-import {Component, EventEmitter, inject, Input, Output, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  EventEmitter,
+  inject,
+  Input,
+  OnDestroy,
+  Output,
+} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {KERNEL_VIEWER_BUTTON_LABEL} from 'org_xprof/frontend/app/common/constants/constants';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
+import {type DiffNode} from 'org_xprof/frontend/app/common/interfaces/op_profile_diff';
+import {
+  getServingMetadata,
+  type NormalizedServingMetadata,
+  normalizeServingMetadata,
+} from 'org_xprof/frontend/app/common/utils/serving_metadata_utils';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
-import {getActiveOpProfileNodeState, getCurrentRun, getOpAnalysisState, getOpProfileRootNode, getProfilingGeneralState, getSelectedOpNodeChainState, getTagsState} from 'org_xprof/frontend/app/store/selectors';
-import {OpAnalysisState, ProfilingGeneralState} from 'org_xprof/frontend/app/store/state';
+import {
+  getActiveOpProfileNodeState,
+  getOpAnalysisState,
+  getOpProfileRootNode,
+  getProfilingGeneralState,
+  getSelectedOpNodeChainState,
+  getTagsState,
+} from 'org_xprof/frontend/app/store/selectors';
+import {
+  OpAnalysisState,
+  ProfilingGeneralState,
+} from 'org_xprof/frontend/app/store/state';
 import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
-import {Observable, ReplaySubject} from 'rxjs';
+import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 /** An op details view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'op-details',
   templateUrl: './op_details.ng.html',
-  styleUrls: ['./op_details.scss']
+  styleUrls: ['./op_details.scss'],
 })
-export class OpDetails {
+export class OpDetails implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
   private readonly dataService = inject(DATA_SERVICE_INTERFACE_TOKEN);
+  private readonly store = inject(Store);
 
   /** When updating app route to other tools through crosslink */
   @Output() readonly updateRoute = new EventEmitter<NavigationEvent>();
@@ -30,10 +56,8 @@ export class OpDetails {
   /** the list of modules */
   @Input() moduleList: string[] = [];
 
-  currentRun$: Observable<string>;
-
   rootNode?: Node;
-  node?: Node;
+  node?: Node | DiffNode;
   color = '';
   name = '';
   subheader = '';
@@ -41,15 +65,15 @@ export class OpDetails {
   bf16FlopsRate = '';
   flopsUtilization = '';
   flopsColor = '';
-  bandwidths: string[] =
-      Array.from<string>({length: utils.MemBwType.MEM_BW_TYPE_MAX + 1})
-          .fill('');
-  bandwidthUtilizations: string[] =
-      Array.from<string>({length: utils.MemBwType.MEM_BW_TYPE_MAX + 1})
-          .fill('');
-  bwColors: string[] =
-      Array.from<string>({length: utils.MemBwType.MEM_BW_TYPE_MAX + 1})
-          .fill('');
+  bandwidths: string[] = Array.from<string>({
+    length: utils.MemBwType.MEM_BW_TYPE_MAX + 1,
+  }).fill('');
+  bandwidthUtilizations: string[] = Array.from<string>({
+    length: utils.MemBwType.MEM_BW_TYPE_MAX + 1,
+  }).fill('');
+  bwColors: string[] = Array.from<string>({
+    length: utils.MemBwType.MEM_BW_TYPE_MAX + 1,
+  }).fill('');
   programId = '';
   expression = '';
   xprofKernelMetadata: unknown = null;
@@ -66,57 +90,53 @@ export class OpDetails {
   dimensions: Node.XLAInstruction.LayoutAnalysis.Dimension[] = [];
   computationPrimitiveSize = '';
   selectedOpNodeChain: string[] = [];
-  memBwType = utils.MemBwType;
-  currentRun = '';
+  readonly MemBwType = utils.MemBwType;
   showUtilizationWarning = false;
   deviceType = 'TPU';
   applyScalingFactor = false;
   tags: string[] = [];
   readonly kernelViewerButtonLabel = KERNEL_VIEWER_BUTTON_LABEL;
 
-  constructor(
-      private readonly store: Store<{}>,
-  ) {
-    this.currentRun$ =
-        this.store.select(getCurrentRun).pipe(takeUntil(this.destroyed));
-    this.store.select(getActiveOpProfileNodeState)
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((node: Node|null) => {
-          this.update(node);
-        });
-    this.store.select(getOpAnalysisState)
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((opAnalysisState: OpAnalysisState) => {
-          this.applyScalingFactor = opAnalysisState.applyScalingFactor;
-        });
-    this.store.select(getSelectedOpNodeChainState)
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((nodeChain: string[]) => {
-          this.selectedOpNodeChain = nodeChain;
-        });
-    this.store.select(getOpProfileRootNode)
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((node: Node|null) => {
-          this.rootNode = node || undefined;
-        });
-    this.store.select(getProfilingGeneralState)
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((generalState: ProfilingGeneralState|null) => {
-          this.deviceType = (generalState && generalState.deviceType) ?
-              generalState.deviceType :
-              'TPU';
-        });
-    this.store.select(getTagsState)
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((tags: string[]) => {
-          this.tags = tags ?? [];
-        });
-
-    this.currentRun$.subscribe(run => {
-      if (run) {
-        this.currentRun = run;
-      }
-    });
+  constructor() {
+    this.store
+      .select(getActiveOpProfileNodeState)
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((node: Node | null) => {
+        this.update(node);
+      });
+    this.store
+      .select(getOpAnalysisState)
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((opAnalysisState: OpAnalysisState) => {
+        this.applyScalingFactor = opAnalysisState.applyScalingFactor;
+      });
+    this.store
+      .select(getSelectedOpNodeChainState)
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((nodeChain: string[]) => {
+        this.selectedOpNodeChain = nodeChain;
+      });
+    this.store
+      .select(getOpProfileRootNode)
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((node: Node | null) => {
+        this.rootNode = node || undefined;
+      });
+    this.store
+      .select(getProfilingGeneralState)
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((generalState: ProfilingGeneralState | null) => {
+        this.deviceType =
+          generalState && generalState.deviceType
+            ? generalState.deviceType
+            : 'TPU';
+      });
+    this.store
+      .select(getTagsState)
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((tags: string[]) => {
+        this.tags = tags ?? [];
+      });
   }
 
   getTitleByDeviceType(titlePrefix: string, titleSuffix: string) {
@@ -158,11 +178,19 @@ export class OpDetails {
   get graphViewerLink() {
     if (this.selectedModuleName) {
       return this.dataService.getGraphViewerLink(
-          this.sessionId, this.selectedModuleName, this.selectedOpName, '');
+        this.sessionId,
+        this.selectedModuleName,
+        this.selectedOpName,
+        '',
+      );
     }
     if (this.programId) {
       return this.dataService.getGraphViewerLink(
-          this.sessionId, '', this.selectedOpName, this.programId);
+        this.sessionId,
+        '',
+        this.selectedOpName,
+        this.programId,
+      );
     }
     return '';
   }
@@ -174,11 +202,19 @@ export class OpDetails {
   getCustomCallTextLink() {
     if (this.selectedModuleName) {
       return this.dataService.getCustomCallTextLink(
-          this.sessionId, this.selectedModuleName, this.selectedOpName, '');
+        this.sessionId,
+        this.selectedModuleName,
+        this.selectedOpName,
+        '',
+      );
     }
     if (this.programId) {
       return this.dataService.getCustomCallTextLink(
-          this.sessionId, '', this.selectedOpName, this.programId);
+        this.sessionId,
+        '',
+        this.selectedOpName,
+        this.programId,
+      );
     }
     return '';
   }
@@ -186,17 +222,26 @@ export class OpDetails {
   getCustomCallRegvizLink() {
     if (this.selectedModuleName) {
       return this.dataService.getCustomCallRegvizLink(
-          this.sessionId, this.selectedModuleName, this.selectedOpName, '');
+        this.sessionId,
+        this.selectedModuleName,
+        this.selectedOpName,
+        '',
+      );
     }
     if (this.programId) {
       return this.dataService.getCustomCallRegvizLink(
-          this.sessionId, '', this.selectedOpName, this.programId);
+        this.sessionId,
+        '',
+        this.selectedOpName,
+        this.programId,
+      );
     }
     return '';
   }
 
-  dimensionColor(dimension?: Node.XLAInstruction.LayoutAnalysis.Dimension):
-      string {
+  dimensionColor(
+    dimension?: Node.XLAInstruction.LayoutAnalysis.Dimension,
+  ): string {
     if (!dimension || !dimension.alignment) {
       return '';
     }
@@ -206,16 +251,18 @@ export class OpDetails {
     return utils.flameColor(ratio / Math.ceil(ratio), 1, 0.25, harshCurve);
   }
 
-  dimensionHint(dimension?: Node.XLAInstruction.LayoutAnalysis.Dimension):
-      string {
+  dimensionHint(
+    dimension?: Node.XLAInstruction.LayoutAnalysis.Dimension,
+  ): string {
     if (!dimension || !dimension.alignment) {
       return '';
     }
     const size = dimension.size || 0;
     const mul = Math.ceil(size / dimension.alignment);
-    const mulSuffix = (mul === 1) ?
-        '' :
-        ': ' + mul.toString() + ' x ' + dimension.alignment.toString();
+    const mulSuffix =
+      mul === 1
+        ? ''
+        : ': ' + mul.toString() + ' x ' + dimension.alignment.toString();
     if (size % dimension.alignment === 0) {
       return 'Exact fit' + mulSuffix;
     }
@@ -226,31 +273,48 @@ export class OpDetails {
     if (!this.node) {
       return '';
     }
-    if (this.node.xla && this.node.xla.category) {
+    if (this.node.xla?.category) {
       return this.node.xla.category + ' operation';
     }
     if (this.node.category) {
       return 'Operation category';
     }
+    if (this.programServingMetadata) {
+      return 'Program';
+    }
     return 'Unknown';
   }
 
-  update(node: Node|null) {
-    this.node = node || undefined;
+  /** The validated serving metadata of the active program node, if any. */
+  get programServingMetadata(): NormalizedServingMetadata | undefined {
+    // Do not show serving metadata next to stale details.
+    if (!this.rootNode) {
+      return undefined;
+    }
+    return normalizeServingMetadata(getServingMetadata(this.node));
+  }
+
+  update(node: Node | DiffNode | null) {
+    this.node = node ?? undefined;
     if (!this.node || !this.rootNode) {
       return;
     }
     this.showUtilizationWarning = false;
     this.color = utils.flameColor(
-        utils.flopsUtilization(
-            this.node, this.rootNode, this.applyScalingFactor),
-        0.7, 1, Math.sqrt);
+      utils.flopsUtilization(this.node, this.rootNode, this.applyScalingFactor),
+      0.7,
+      1,
+      Math.sqrt,
+    );
     this.name = this.node.name || '';
     this.subheader = this.getSubheader();
 
     if (utils.hasFlopsUtilization(this.node)) {
       const flopsUtilization = utils.flopsUtilization(
-          this.node, this.rootNode, this.applyScalingFactor);
+        this.node,
+        this.rootNode,
+        this.applyScalingFactor,
+      );
       if (flopsUtilization === 1) {
         this.showUtilizationWarning = true;
       }
@@ -266,14 +330,23 @@ export class OpDetails {
       this.flopsRate = '';
       this.bf16FlopsRate = '';
     } else {
-      this.flopsRate = utils.humanReadableText(
-          flopsRate, {si: true, dp: 2, suffix: 'FLOP/s'});
-      this.bf16FlopsRate = utils.humanReadableText(
-          bf16FlopsRate, {si: true, dp: 2, suffix: 'FLOP/s'});
+      this.flopsRate = utils.humanReadableText(flopsRate, {
+        si: true,
+        dp: 2,
+        suffix: 'FLOP/s',
+      });
+      this.bf16FlopsRate = utils.humanReadableText(bf16FlopsRate, {
+        si: true,
+        dp: 2,
+        suffix: 'FLOP/s',
+      });
     }
 
-    for (let i = utils.MemBwType.MEM_BW_TYPE_FIRST;
-         i <= utils.MemBwType.MEM_BW_TYPE_MAX; i++) {
+    for (
+      let i = utils.MemBwType.MEM_BW_TYPE_FIRST;
+      i <= utils.MemBwType.MEM_BW_TYPE_MAX;
+      i++
+    ) {
       if (utils.hasBandwidthUtilization(this.node, i)) {
         const utilization = utils.memoryBandwidthUtilization(this.node, i);
         if (utilization === 1) {
@@ -288,8 +361,11 @@ export class OpDetails {
       if (isNaN(memoryBW)) {
         this.bandwidths[i] = '';
       } else {
-        this.bandwidths[i] =
-            utils.humanReadableText(memoryBW, {si: true, dp: 2, suffix: 'B/s'});
+        this.bandwidths[i] = utils.humanReadableText(memoryBW, {
+          si: true,
+          dp: 2,
+          suffix: 'B/s',
+        });
       }
     }
 
@@ -299,8 +375,9 @@ export class OpDetails {
     if (this.node.xla?.xprofKernelMetadata) {
       try {
         // Allow unknown structure to the JSON here (we do not care).
-        this.xprofKernelMetadata =
-            JSON.parse(this.node.xla?.xprofKernelMetadata || '') as unknown;
+        this.xprofKernelMetadata = JSON.parse(
+          this.node.xla?.xprofKernelMetadata || '',
+        ) as unknown;
       } catch (e) {
         console.error('Failed to parse xprof kernel metadata: ', e);
         this.xprofKernelMetadata = this.node.xla?.xprofKernelMetadata;
@@ -313,7 +390,9 @@ export class OpDetails {
 
     if (this.node.metrics && this.node.metrics.rawTime) {
       this.rawTimeMs = utils.humanReadableText(
-          this.node.metrics.rawTime / 1e9, {si: true, dp: 2, suffix: ' ms'});
+        this.node.metrics.rawTime / 1e9,
+        {si: true, dp: 2, suffix: ' ms'},
+      );
     } else {
       this.rawTimeMs = '';
     }
@@ -327,17 +406,18 @@ export class OpDetails {
 
     this.fused = !!this.node.xla && !this.node.metrics;
     this.hasCategory = !!this.node.category;
-    this.hasLayout = !!this.node.xla && !!this.node.xla.layout &&
-        !!this.node.xla.layout.dimensions &&
-        this.node.xla.layout.dimensions.length > 0;
+    this.hasLayout =
+      !!this.node.xla &&
+      !!this.node.xla.layout &&
+      !!this.node.xla.layout.dimensions &&
+      this.node.xla.layout.dimensions.length > 0;
     if (this.node.xla && this.node.xla.layout) {
       this.dimensions = this.node.xla.layout.dimensions || [];
     }
 
-    this.computationPrimitiveSize =
-        ((this.node?.xla?.computationPrimitiveSize) ?
-             `${this.node.xla.computationPrimitiveSize} bits` :
-             '');
+    this.computationPrimitiveSize = this.node?.xla?.computationPrimitiveSize
+      ? `${this.node.xla.computationPrimitiveSize} bits`
+      : '';
   }
 
   /**

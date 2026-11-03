@@ -12,6 +12,12 @@ import {
 } from '@angular/core';
 import {Store} from '@ngrx/store';
 import {type DiffNode} from 'org_xprof/frontend/app/common/interfaces/op_profile_diff';
+import {
+  formatServingBadge,
+  formatServingTooltip,
+  getServingMetadata,
+  normalizeServingMetadata,
+} from 'org_xprof/frontend/app/common/utils/serving_metadata_utils';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {updateSelectedOpNodeChainAction} from 'org_xprof/frontend/app/store/actions';
@@ -33,6 +39,7 @@ export class OpTableEntry implements OnChanges, OnDestroy, OnInit {
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
   private readonly dataService = inject(DATA_SERVICE_INTERFACE_TOKEN);
+  private readonly store = inject(Store);
 
   /** The depth of node. */
   @Input() level = 0;
@@ -94,8 +101,11 @@ export class OpTableEntry implements OnChanges, OnDestroy, OnInit {
   numLeftOut = 0;
   applyScalingFactor = false;
   kernelViewerLink = utils.NO_KERNEL_VIEWER_LINK;
+  programServingBadgeText = '';
+  programServingTooltipText = '';
+  programServingAccessibleText = '';
 
-  constructor(private readonly store: Store<{}>) {
+  constructor() {
     this.store
       .select(getOpAnalysisState)
       .pipe(takeUntil(this.destroyed))
@@ -134,6 +144,7 @@ export class OpTableEntry implements OnChanges, OnDestroy, OnInit {
   }
 
   private updateProperties() {
+    this.updateProgramServingMetadata();
     if (!this.node || !this.rootNode) {
       this.children = [];
       this.kernelViewerLink = utils.NO_KERNEL_VIEWER_LINK;
@@ -283,6 +294,25 @@ export class OpTableEntry implements OnChanges, OnDestroy, OnInit {
     );
     const colorHbmUtil = diffNode?.baselineOnly ? baseHbmUtil : hbmUtilization;
     this.hbmFlameColor = utils.bwColor(colorHbmUtil);
+  }
+
+  /** Builds the serving label, its hover text, and its screen reader text. */
+  private updateProgramServingMetadata() {
+    this.programServingBadgeText = '';
+    this.programServingTooltipText = '';
+    this.programServingAccessibleText = '';
+    if (!this.node || !this.rootNode) {
+      return;
+    }
+
+    const normalized = normalizeServingMetadata(getServingMetadata(this.node));
+    if (!normalized) {
+      return;
+    }
+
+    this.programServingBadgeText = formatServingBadge(normalized);
+    this.programServingTooltipText = formatServingTooltip(normalized);
+    this.programServingAccessibleText = ` (${this.programServingTooltipText})`;
   }
 
   /**

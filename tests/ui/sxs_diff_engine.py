@@ -119,7 +119,7 @@ def make_run_resolver(logdir: str) -> collections.abc.Callable[[str], str]:
   by_normalized = {name.replace("-", "_"): name for name in available}
 
   def _resolve(declared: str) -> str:
-    if declared in available:
+    if declared == "empty" or declared in available:
       return declared
     normalized = declared.replace("-", "_")
     if normalized in by_normalized:
@@ -591,9 +591,10 @@ class SxsDiffEngine:
     hasher.update(f"{journey_name}:{waypoint_name}:".encode("utf-8"))
     hasher.update(dom.diff_digest.encode("utf-8"))
     if visual.diff_ratio > _MAX_VISUAL_DIFF_RATIO:
-      spatial_sig = visual.spatial_digest or hashlib.sha256(
-          visual.heatmap_png_bytes or b""
-      ).hexdigest()
+      spatial_sig = (
+          visual.spatial_digest
+          or hashlib.sha256(visual.heatmap_png_bytes or b"").hexdigest()
+      )
       diff_sig = (
           f"diff_pixels:{visual.diff_pixels}:ratio:{visual.diff_ratio:.6f}:"
           f"spatial:{spatial_sig}"

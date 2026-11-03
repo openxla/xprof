@@ -337,6 +337,42 @@
         "expected_selector": "overview-page, overview-viewer"
       }
     ]
+  },
+  {
+    "id": "shell.gm2_navigation_and_empty_state",
+    "fixture": "tpu-training",
+    "initial_tool": "overview_page",
+    "steps": [
+      {
+        "action": "toggle_nav_drawer",
+        "target": "collapsed",
+        "expected_selector": "overview-page, overview-viewer"
+      },
+      {
+        "action": "toggle_nav_drawer",
+        "target": "expanded",
+        "expected_selector": "overview-page, overview-viewer"
+      },
+      {
+        "action": "goto",
+        "target": "tpu-training/overview_page?new_nav=true",
+        "expected_selector": "rack-navigation-drawer:not(.collapsed)"
+      },
+      {
+        "action": "toggle_nav_drawer",
+        "target": "collapsed",
+        "expected_selector": "rack-navigation-drawer.collapsed"
+      },
+      {
+        "action": "toggle_nav_drawer",
+        "target": "expanded",
+        "expected_selector": "rack-navigation-drawer:not(.collapsed)"
+      },
+      {
+        "action": "goto",
+        "target": "empty/empty",
+        "expected_selector": "empty-page"
+      }
+    ]
   }
 ]
-

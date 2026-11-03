@@ -39,7 +39,17 @@ sync_api = invariants.sync_api
 # iframe that has not drawn anything yet (Graph Viewer's graph) still counts.
 VISUALIZATION_SELECTOR = (
     "svg:not([focusable='false'], [aria-hidden='true']), canvas, table,"
-    " mat-card, .mat-mdc-card, iframe, op-table-entry .row"
+    " mat-card, .mat-mdc-card, iframe, op-table-entry .row,"
+    " rack-navigation-item, capture-profile"
+)
+
+EXPANDED_NAV_SELECTOR = (
+    "rack-navigation-drawer:not(.collapsed),"
+    " mat-sidenav.mat-drawer-opened:has(sidenav:not([hidden]))"
+)
+COLLAPSED_NAV_SELECTOR = (
+    "rack-navigation-drawer.collapsed,"
+    " mat-sidenav:not(.mat-drawer-opened):has(sidenav:not([hidden]))"
 )
 
 
@@ -122,6 +132,48 @@ def ensure_sidenav_open(page: sync_api.Page) -> None:
   sync_api.expect(
       page.locator("mat-sidenav.mat-drawer-opened:has(sidenav)")
   ).to_be_visible(timeout=5000)
+
+
+def toggle_nav_drawer(page: sync_api.Page, target_state: str) -> None:
+  """Clicks the toolbar menu button to collapse or expand the nav drawer.
+
+  Args:
+    page: Playwright Page instance.
+    target_state: Desired drawer state ('collapsed' or 'expanded').
+
+  Raises:
+    ValueError: If target_state is not 'collapsed' or 'expanded'.
+  """
+  if target_state not in ("collapsed", "expanded"):
+    raise ValueError(f"Unsupported nav drawer target_state: {target_state!r}")
+  before_selector = (
+      EXPANDED_NAV_SELECTOR
+      if target_state == "collapsed"
+      else COLLAPSED_NAV_SELECTOR
+  )
+  after_selector = (
+      COLLAPSED_NAV_SELECTOR
+      if target_state == "collapsed"
+      else EXPANDED_NAV_SELECTOR
+  )
+  sync_api.expect(page.locator(before_selector).first).to_be_attached(
+      timeout=10000
+  )
+  toggle_btn = page.locator("button.sidenav-toggle-button")
+  sync_api.expect(toggle_btn).to_be_visible(timeout=10000)
+  toggle_btn.click()
+  if target_state == "expanded":
+    sync_api.expect(page.locator(after_selector).first).to_be_visible(
+        timeout=5000
+    )
+  else:
+    sync_api.expect(page.locator(after_selector).first).to_be_attached(
+        timeout=5000
+    )
+  try:
+    page.mouse.move(0, 0)
+  except invariants.PlaywrightError as err:
+    logging.debug("Ignored mouse reset error after nav toggle: %s", err)
 
 
 def _select_option(

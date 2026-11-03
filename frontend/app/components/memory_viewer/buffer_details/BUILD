@@ -16,12 +16,12 @@ xprof_ng_module(
         "//:node_modules/@angular/core",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
-        "@org_xprof//frontend/app/common/angular:angular_material_button",
-        "@org_xprof//frontend/app/common/angular:angular_material_card",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/common/utils",
-        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
-        "@org_xprof//frontend/app/store",
+        "//frontend/app/common/angular:angular_material_button",
+        "//frontend/app/common/angular:angular_material_card",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/common/utils",
+        "//frontend/app/services/data_service_v2:data_service_v2_interface",
+        "//frontend/app/store",
     ],
 )
 
@@ -31,6 +31,6 @@ sass_binary(
     # stack = False,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

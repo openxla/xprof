@@ -1,6 +1,7 @@
 # Package for generating Megascale Perfetto traces.
 
-# load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -24,6 +25,7 @@ cc_library(
     hdrs = ["xspace_loader.h"],
     deps = [
         ":xprof_trace",
+        "//xprof/convert:file_utils",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
@@ -32,7 +34,6 @@ cc_library(
         "@com_google_absl//absl/strings:string_view",
         "@com_google_protobuf//:protobuf",
         "@com_googlesource_code_re2//:re2",
-        "@org_xprof//xprof/convert:file_utils",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/profiler/utils:xplane_schema",

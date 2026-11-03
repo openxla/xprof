@@ -30,7 +30,7 @@ wasm_cc_library(
 wasm_cc_library(
     name = "animation",
     hdrs = ["animation.h"],
-    visibility = ["@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__"],
+    visibility = ["//frontend/app/components/trace_viewer_v2:__subpackages__"],
     deps = [
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/container:flat_hash_set",
@@ -69,7 +69,7 @@ wasm_cc_library(
     name = "application",
     srcs = ["application.cc"],
     hdrs = ["application.h"],
-    visibility = ["@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__"],
+    visibility = ["//frontend/app/components/trace_viewer_v2:__subpackages__"],
     deps = [
         ":animation",
         ":canvas_state",
@@ -77,13 +77,13 @@ wasm_cc_library(
         ":input_handler",
         ":scheduler",
         ":webgpu_render_platform",
+        "//frontend/app/components/trace_viewer_v2/fonts",
+        "//frontend/app/components/trace_viewer_v2/timeline",
+        "//frontend/app/components/trace_viewer_v2/timeline:data_provider",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "@imgui",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/fonts",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/timeline",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/timeline:data_provider",
     ],
 )
 
@@ -102,7 +102,7 @@ wasm_cc_library(
 wasm_cc_library(
     name = "event_data",
     hdrs = ["event_data.h"],
-    visibility = ["@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__"],
+    visibility = ["//frontend/app/components/trace_viewer_v2:__subpackages__"],
     deps = [
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
@@ -113,7 +113,7 @@ wasm_cc_library(
     name = "event_manager",
     srcs = ["event_manager.cc"],
     hdrs = ["event_manager.h"],
-    visibility = ["@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__"],
+    visibility = ["//frontend/app/components/trace_viewer_v2:__subpackages__"],
     deps = [
         ":event_data",
         "@com_google_absl//absl/base:no_destructor",
@@ -127,7 +127,7 @@ wasm_cc_library(
     name = "imgui_webgpu_backend",
     srcs = ["imgui_webgpu_backend.cc"],
     hdrs = ["imgui_webgpu_backend.h"],
-    visibility = ["@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__"],
+    visibility = ["//frontend/app/components/trace_viewer_v2:__subpackages__"],
     deps = [
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
@@ -179,9 +179,9 @@ cc_binary(
     deps = [
         ":application",
         ":input_handler",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:perfetto_proto_parser",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event_parser",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_pb_event_parser",
+        "//frontend/app/components/trace_viewer_v2/trace_helper:perfetto_proto_parser",
+        "//frontend/app/components/trace_viewer_v2/trace_helper:trace_event_parser",
+        "//frontend/app/components/trace_viewer_v2/trace_helper:trace_pb_event_parser",
     ],
 )
 

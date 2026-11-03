@@ -1,18 +1,18 @@
-# load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
-# load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
-load("@org_xprof//frontend/app/components/trace_viewer_v2:build_defs.bzl", "wasm_cc_library")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//frontend/app/components/trace_viewer_v2:build_defs.bzl", "wasm_cc_library")
 
 package(default_visibility = [
-    "@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__",
+    "//frontend/app/components/trace_viewer_v2:__subpackages__",
 ])
 
 cc_library(
     name = "constants",
     hdrs = ["constants.h"],
     deps = [
+        "//frontend/app/components/trace_viewer_v2/color:colors",
+        "//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
         "@imgui",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/color:colors",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
     ],
 )
 
@@ -46,9 +46,9 @@ wasm_cc_library(
     srcs = ["time_range.cc"],
     hdrs = ["time_range.h"],
     deps = [
+        "//frontend/app/components/trace_viewer_v2:animation",
+        "//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
         "@com_google_absl//absl/log",
-        "@org_xprof//frontend/app/components/trace_viewer_v2:animation",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
     ],
 )
 
@@ -57,8 +57,8 @@ cc_test(
     srcs = ["time_range_test.cc"],
     deps = [
         ":time_range",
+        "//frontend/app/components/trace_viewer_v2:animation",
         "@com_google_googletest//:gtest_main",
-        "@org_xprof//frontend/app/components/trace_viewer_v2:animation",
     ],
 )
 
@@ -105,6 +105,15 @@ wasm_cc_library(
         ":motion",
         ":time_range",
         ":track_order",
+        "//frontend/app/components/trace_viewer_v2:animation",
+        "//frontend/app/components/trace_viewer_v2:event_data",
+        "//frontend/app/components/trace_viewer_v2/color:colors",
+        "//frontend/app/components/trace_viewer_v2/color:counter_colors",
+        "//frontend/app/components/trace_viewer_v2/fonts",
+        "//frontend/app/components/trace_viewer_v2/helper:clipboard",
+        "//frontend/app/components/trace_viewer_v2/helper:counter_formatter",
+        "//frontend/app/components/trace_viewer_v2/helper:time_formatter",
+        "//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -118,19 +127,10 @@ wasm_cc_library(
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/types:span",
         "@imgui",
-        "@org_xprof//frontend/app/components/trace_viewer_v2:animation",
-        "@org_xprof//frontend/app/components/trace_viewer_v2:event_data",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/color:colors",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/color:counter_colors",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/fonts",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/helper:clipboard",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/helper:counter_formatter",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
         "@tsl//tsl/profiler/lib:context_types_hdrs",
     ] + select({
-        "@org_xprof//frontend/app/components/trace_viewer_v2:is_emscripten": [
-            "@org_xprof//frontend/app/components/trace_viewer_v2:imgui_webgpu_backend",
+        "//frontend/app/components/trace_viewer_v2:is_emscripten": [
+            "//frontend/app/components/trace_viewer_v2:imgui_webgpu_backend",
         ],
         "//conditions:default": [],
     }),
@@ -144,6 +144,13 @@ cc_test(
         ":draw_helpers",
         ":time_range",
         ":timeline",
+        "//frontend/app/components/trace_viewer_v2:animation",
+        "//frontend/app/components/trace_viewer_v2:event_data",
+        "//frontend/app/components/trace_viewer_v2/color:colors",
+        "//frontend/app/components/trace_viewer_v2/color:counter_colors",
+        "//frontend/app/components/trace_viewer_v2/fonts",
+        "//frontend/app/components/trace_viewer_v2/helper:time_formatter",
+        "//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
@@ -151,13 +158,6 @@ cc_test(
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
         "@imgui",
-        "@org_xprof//frontend/app/components/trace_viewer_v2:animation",
-        "@org_xprof//frontend/app/components/trace_viewer_v2:event_data",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/color:colors",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/color:counter_colors",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/fonts",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
         "@tsl//tsl/profiler/lib:context_types_hdrs",
     ],
 )
@@ -168,12 +168,12 @@ cc_test(
     deps = [
         ":constants",
         ":timeline",
+        "//frontend/app/components/trace_viewer_v2:event_data",
+        "//frontend/app/components/trace_viewer_v2/color:colors",
+        "//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
-        "@org_xprof//frontend/app/components/trace_viewer_v2:event_data",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/color:colors",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
     ],
 )
 
@@ -187,6 +187,11 @@ wasm_cc_library(
         ":constants",
         ":time_range",
         ":timeline",
+        "//frontend/app/components/trace_viewer_v2/color:colors",
+        "//frontend/app/components/trace_viewer_v2/helper:time_formatter",
+        "//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
+        "//frontend/app/components/trace_viewer_v2/trace_helper:trace_event_packer",
+        "//frontend/app/components/trace_viewer_v2/trace_helper:trace_event_tree",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/container:btree",
@@ -197,11 +202,6 @@ wasm_cc_library(
         "@com_google_absl//absl/types:span",
         "@com_googlesource_code_re2//:re2",
         "@imgui",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/color:colors",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event_packer",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event_tree",
         "@tsl//tsl/profiler/lib:context_types_hdrs",
     ],
 )
@@ -214,14 +214,14 @@ cc_test(
         ":data_provider",
         ":time_range",
         ":timeline",
+        "//frontend/app/components/trace_viewer_v2/color:colors",
+        "//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
         "//third_party/tcmalloc:malloc_extension",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
         "@imgui",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/color:colors",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
         "@tsl//tsl/profiler/lib:context_types_hdrs",
     ],
 )

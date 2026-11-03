@@ -1,0 +1,159 @@
+diff --git a/MODULE.bazel b/MODULE.bazel
+--- a/MODULE.bazel
++++ b/MODULE.bazel
+@@ -26,18 +26,6 @@ bazel_dep(
+     version = "0.0.1",
+ )
+ 
+-bazel_dep(
+-    name = "rules_webtesting",
+-    version = "0.4.1",
+-    repo_name = "io_bazel_rules_webtesting",
+-)
+-
+-bazel_dep(
+-    name = "rules_web_testing_java",
+-    version = "0.4.1",
+-    repo_name = "io_rules_web_testing_java",
+-)
+-
+ ##### Java dependencies #####
+ bazel_dep(
+     name = "rules_java",
+@@ -56,31 +44,31 @@ bazel_dep(
+ maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
+ 
+ maven.install(
++    name = "closure_maven",
+     artifacts = [
+         "args4j:args4j:2.33",
+         "com.google.closure-stylesheets:closure-stylesheets:1.5.0",
+         "com.google.dagger:dagger-producers:2.43.2",
+         "com.google.jimfs:jimfs:1.1",
+         "net.java.dev.javacc:javacc:7.0.13",
+         "org.jsoup:jsoup:1.16.1",
+-        "org.seleniumhq.selenium:selenium-remote-driver:4.27.0",
+-        "org.seleniumhq.selenium:selenium-api:4.27.0",
+-        "org.seleniumhq.selenium:selenium-support:4.27.0",
+     ],
+ )
+ 
+ # Using maven.artifact here because the version number vxxxxx cannot parsed correctly.
+ maven.artifact(
++    name = "closure_maven",
+     artifact = "closure-compiler",
+     group = "com.google.javascript",
+     version = "v20250402",
+ )
+ 
+ # javacc:javacc was not updated since 2008 and relocated to net.java.dev.javacc
+ maven.override(
++    name = "closure_maven",
+     coordinates = "javacc:javacc",
+     target = "@maven//:net_java_dev_javacc_javacc",
+ )
+ 
+-use_repo(maven, "maven")
++use_repo(maven, maven = "closure_maven")
+ 
+@@ -135,19 +123,3 @@ http_file(
+         "http://http.us.debian.org/debian/pool/main/f/fonts-noto/fonts-noto-hinted_20161116-1_all.deb",
+     ],
+ )
+-
+-platform_http_file = use_repo_rule("//closure/private:platform_http_file.bzl", "platform_http_file")
+-
+-platform_http_file(
+-    name = "phantomjs",
+-    amd64_sha256 = "86dd9a4bf4aee45f1a84c9f61cf1947c1d6dce9b9e8d2a907105da7852460d2f",
+-    amd64_urls = [
+-        "https://mirror.bazel.build/bitbucket.org/ariya/phantomjs/downloads/phantomjs-2.1.1-linux-x86_64.tar.bz2",
+-        "https://bitbucket.org/ariya/phantomjs/downloads/phantomjs-2.1.1-linux-x86_64.tar.bz2",
+-    ],
+-    macos_sha256 = "538cf488219ab27e309eafc629e2bcee9976990fe90b1ec334f541779150f8c1",
+-    macos_urls = [
+-        "https://mirror.bazel.build/bitbucket.org/ariya/phantomjs/downloads/phantomjs-2.1.1-macosx.zip",
+-        "https://bitbucket.org/ariya/phantomjs/downloads/phantomjs-2.1.1-macosx.zip",
+-    ],
+-)
+diff --git a/closure/defs.bzl b/closure/defs.bzl
+--- a/closure/defs.bzl
++++ b/closure/defs.bzl
+@@ -22,8 +22,6 @@ load("//closure/private:defs.bzl", _CLOSURE_JS_TOOLCHAIN_ATTRS = "CLOSURE_JS_TOO
+ load("//closure/private:files_equal_test.bzl", _files_equal_test = "files_equal_test")
+ load("//closure/stylesheets:closure_css_binary.bzl", _closure_css_binary = "closure_css_binary")
+ load("//closure/stylesheets:closure_css_library.bzl", _closure_css_library = "closure_css_library")
+-load("//closure/testing:closure_js_test.bzl", _closure_js_test = "closure_js_test")
+-load("//closure/testing:phantomjs_test.bzl", _phantomjs_test = "phantomjs_test")
+ 
+ closure_js_aspect = _closure_js_aspect
+ closure_js_binary = _closure_js_binary
+@@ -34,8 +32,6 @@ CLOSURE_JS_TOOLCHAIN_ATTRS = _CLOSURE_JS_TOOLCHAIN_ATTRS
+ files_equal_test = _files_equal_test
+ closure_css_binary = _closure_css_binary
+ closure_css_library = _closure_css_library
+-closure_js_test = _closure_js_test
+-phantomjs_test = _phantomjs_test
+ filegroup_external = _filegroup_external
+ web_library = _web_library
+ web_library_external = _web_library_external
+diff --git a/java/io/bazel/rules/closure/BUILD b/java/io/bazel/rules/closure/BUILD
+--- a/java/io/bazel/rules/closure/BUILD
++++ b/java/io/bazel/rules/closure/BUILD
+@@ -12,8 +12,9 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ 
+-load("@rules_java//java:defs.bzl", "java_binary", "java_library", "java_proto_library")
+-load("@rules_proto//proto:defs.bzl", "proto_library")
++load("@com_google_protobuf//bazel:java_proto_library.bzl", "java_proto_library")
++load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
++load("@rules_java//java:defs.bzl", "java_binary", "java_library")
+ 
+ licenses(["notice"])
+ 
+diff --git a/java/io/bazel/rules/closure/webfiles/BUILD b/java/io/bazel/rules/closure/webfiles/BUILD
+--- a/java/io/bazel/rules/closure/webfiles/BUILD
++++ b/java/io/bazel/rules/closure/webfiles/BUILD
+@@ -12,8 +12,9 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ 
+-load("@rules_java//java:defs.bzl", "java_library", "java_proto_library")
+-load("@rules_proto//proto:defs.bzl", "proto_library")
++load("@com_google_protobuf//bazel:java_proto_library.bzl", "java_proto_library")
++load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
++load("@rules_java//java:defs.bzl", "java_library")
+ 
+ licenses(["notice"])
+ 
+diff --git a/java/io/bazel/rules/closure/webfiles/server/BUILD b/java/io/bazel/rules/closure/webfiles/server/BUILD
+--- a/java/io/bazel/rules/closure/webfiles/server/BUILD
++++ b/java/io/bazel/rules/closure/webfiles/server/BUILD
+@@ -12,8 +12,9 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ 
+-load("@rules_java//java:defs.bzl", "java_binary", "java_library", "java_proto_library")
+-load("@rules_proto//proto:defs.bzl", "proto_library")
++load("@com_google_protobuf//bazel:java_proto_library.bzl", "java_proto_library")
++load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
++load("@rules_java//java:defs.bzl", "java_binary", "java_library")
+ 
+ licenses(["notice"])
+ 
+diff --git a/java/io/bazel/rules/closure/worker/BUILD b/java/io/bazel/rules/closure/worker/BUILD
+--- a/java/io/bazel/rules/closure/worker/BUILD
++++ b/java/io/bazel/rules/closure/worker/BUILD
+@@ -12,8 +12,9 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ 
+-load("@rules_java//java:defs.bzl", "java_library", "java_proto_library")
+-load("@rules_proto//proto:defs.bzl", "proto_library")
++load("@com_google_protobuf//bazel:java_proto_library.bzl", "java_proto_library")
++load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
++load("@rules_java//java:defs.bzl", "java_library")
+ 
+ licenses(["notice"])
+ 

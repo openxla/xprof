@@ -14,7 +14,7 @@ xprof_ng_module(
     ],
     deps = [
         "//:node_modules/@angular/core",
-        "@org_xprof//frontend/app/common/interfaces",
+        "//frontend/app/common/interfaces",
     ],
 )
 
@@ -24,6 +24,6 @@ sass_binary(
     # stack = False,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

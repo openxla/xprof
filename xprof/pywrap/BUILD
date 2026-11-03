@@ -1,5 +1,5 @@
-# load("//third_party/bazel_rules/rules_cc/cc:cc_binary.bzl", "cc_binary")
-# load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_python//python:defs.bzl", "py_library")
 load("@rules_python//python:py_test.bzl", "py_test")
 load("@xla//xla/tsl:tsl.bzl", pytype_extension = "tsl_pybind_extension_opensource")
@@ -51,10 +51,10 @@ cc_binary(
     deps = [
         ":profiler_plugin_impl",
         "//plugin/xprof/worker:stub_factory",
+        "//xprof/convert:tool_options",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
-        "@org_xprof//xprof/convert:tool_options",
         "@rules_python//python/cc:current_py_cc_headers",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/pjrt:status_casters",  # buildcleaner: keep
@@ -62,8 +62,8 @@ cc_binary(
         "@xla//xla/tsl/profiler/rpc/client:capture_profile",
     ] + select({
         "//:embedded_features_enabled": [
-            "@org_xprof//xprof/embedded/llo_analysis:llo_analysis_c_api",
-            "@org_xprof//xprof/embedded/llo_analysis:llo_analysis_lib",
+            "//xprof/embedded/llo_analysis:llo_analysis_c_api",
+            "//xprof/embedded/llo_analysis:llo_analysis_lib",
         ],
         "//conditions:default": [],
     }),
@@ -94,6 +94,10 @@ cc_library(
         ["profiler_plugin_impl.h"],
     deps = [
         "//plugin/xprof/worker:grpc_server",
+        "//xprof/convert:repository",
+        "//xprof/convert:tool_options",
+        "//xprof/convert:xplane_to_tools_data",
+        "//xprof/convert:xplane_to_tools_data_with_profile_processor",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/container:flat_hash_set",
@@ -102,10 +106,6 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_protobuf//:protobuf",
-        "@org_xprof//xprof/convert:repository",
-        "@org_xprof//xprof/convert:tool_options",
-        "@org_xprof//xprof/convert:xplane_to_tools_data",
-        "@org_xprof//xprof/convert:xplane_to_tools_data_with_profile_processor",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc_impl",
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:types",

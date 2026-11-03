@@ -43,17 +43,19 @@ if [ -z "${RUNFILES}" ]; then
     build_workspace="$(cygpath "$BUILD_WORKSPACE_DIRECTORY")"
     runfiles_dir="${build_workspace}/bazel-out/x64_windows-fastbuild/"
     RUNFILES="$(CDPATH= cd -- "$0.exe.runfiles" && pwd)"
-
     dest="/c$OUTPUT_DIR"
-    PLUGIN_RUNFILE_DIR="${RUNFILES}/org_xprof/plugin"
-    FRONTEND_RUNFILE_DIR="${RUNFILES}/org_xprof/frontend"
   else
     RUNFILES="$(CDPATH= cd -- "$0.runfiles" && pwd)"
     build_workspace="$BUILD_WORKSPACE_DIRECTORY"
     dest="$OUTPUT_DIR"
-    PLUGIN_RUNFILE_DIR="${RUNFILES}/org_xprof/plugin"
-    FRONTEND_RUNFILE_DIR="${RUNFILES}/org_xprof/frontend"
   fi
+  if [ -d "${RUNFILES}/_main" ]; then
+    RUNFILES_WORKSPACE="_main"
+  else
+    RUNFILES_WORKSPACE="org_xprof"
+  fi
+  PLUGIN_RUNFILE_DIR="${RUNFILES}/${RUNFILES_WORKSPACE}/plugin"
+  FRONTEND_RUNFILE_DIR="${RUNFILES}/${RUNFILES_WORKSPACE}/frontend"
 fi
 
 if [ "$(uname)" = "Darwin" ]; then
@@ -61,7 +63,7 @@ if [ "$(uname)" = "Darwin" ]; then
 fi
 
 
-ROOT_RUNFILE_DIR="${RUNFILES}/org_xprof/"
+ROOT_RUNFILE_DIR="${RUNFILES}/${RUNFILES_WORKSPACE:-_main}/"
 
 mkdir -p "$dest"
 cd "$dest"
@@ -145,3 +147,10 @@ cp -LR "$FRONTEND_RUNFILE_DIR/styles.css" .
 cp -LR "$FRONTEND_RUNFILE_DIR/zone.js" .
 cp -LR "$FRONTEND_RUNFILE_DIR/runtime.js" .
 chmod -R 755 "$dest"
+
+if [ -z "${KOKORO_JOB_NAME:-}" ]; then
+  cd "$dest"
+  rm -rf "$dest/dist" "$dest/build"
+  python3 setup.py bdist_wheel
+  rm -rf "$dest/build" "$dest"/*.egg-info
+fi

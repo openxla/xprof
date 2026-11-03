@@ -104,6 +104,8 @@ def _find_lib_paths() -> tuple[str, ...]:
 
   if runfiles_inst:
     for runfiles_path in (
+        "_main/xprof/convert/events_db/python/libpywrap_events_db_c_api.so",
+        "_main/xprof/convert/events_db/python/pywrap_events_db_c_api.so",
         "org_xprof/xprof/convert/events_db/python/libpywrap_events_db_c_api.so",
         "org_xprof/xprof/convert/events_db/python/pywrap_events_db_c_api.so",
     ):

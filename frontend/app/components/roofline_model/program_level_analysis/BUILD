@@ -15,14 +15,14 @@ xprof_ng_module(
     # strict_templates = False,
     deps = [
         "//:node_modules/@angular/core",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/common/interfaces:chart",
-        "@org_xprof//frontend/app/components/chart",
-        "@org_xprof//frontend/app/components/chart:chart_options",
-        "@org_xprof//frontend/app/components/chart:default_data_provider",
-        "@org_xprof//frontend/app/components/chart/dashboard",
-        "@org_xprof//frontend/app/components/chart/table",
-        "@org_xprof//frontend/app/components/controls/category_filter",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/common/interfaces:chart",
+        "//frontend/app/components/chart",
+        "//frontend/app/components/chart:chart_options",
+        "//frontend/app/components/chart:default_data_provider",
+        "//frontend/app/components/chart/dashboard",
+        "//frontend/app/components/chart/table",
+        "//frontend/app/components/controls/category_filter",
     ],
 )
 

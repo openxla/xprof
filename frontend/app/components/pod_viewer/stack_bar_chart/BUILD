@@ -15,8 +15,8 @@ xprof_ng_module(
     deps = [
         "//:node_modules/@angular/core",
         "//:node_modules/@types/google.visualization",
-        "@org_xprof//frontend/app/common/constants",
-        "@org_xprof//frontend/app/common/interfaces",
+        "//frontend/app/common/constants",
+        "//frontend/app/common/interfaces",
     ],
 )
 

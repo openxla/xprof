@@ -17,10 +17,10 @@ xprof_ng_module(
         "//:node_modules/@angular/core",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
-        "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
-        "@org_xprof//frontend/app/common/interfaces:op_profile_proto_defs",
-        "@org_xprof//frontend/app/components/op_profile/op_table_entry",
-        "@org_xprof//frontend/app/store",
+        "//frontend/app/common/angular:angular_material_tooltip",
+        "//frontend/app/common/interfaces:op_profile_proto_defs",
+        "//frontend/app/components/op_profile/op_table_entry",
+        "//frontend/app/store",
     ],
 )
 
@@ -30,6 +30,6 @@ sass_binary(
     # stack = False,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/components/op_profile:op_profile_common",
+        "//frontend/app/components/op_profile:op_profile_common",
     ],
 )

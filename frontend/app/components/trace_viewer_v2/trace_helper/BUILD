@@ -1,12 +1,13 @@
-load("@org_xprof//frontend/app/components/trace_viewer_v2:build_defs.bzl", "wasm_cc_library", "wasm_cc_test")
-load("@rules_proto//proto:defs.bzl", "proto_library")
+load("@com_google_protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("//defs:defs.bzl", "ts_library")
-# load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
-# load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
+load("//frontend/app/components/trace_viewer_v2:build_defs.bzl", "wasm_cc_library", "wasm_cc_test")
 
 package(default_visibility = [
-    "@org_xprof//frontend/app/components/trace_viewer:__pkg__",
-    "@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__",
+    "//frontend/app/components/trace_viewer:__pkg__",
+    "//frontend/app/components/trace_viewer_v2:__subpackages__",
 ])
 
 ts_library(
@@ -33,14 +34,14 @@ wasm_cc_library(
     deps = [
         ":trace_event",
         ":trace_event_parser_core",
+        "//frontend/app/components/trace_viewer_v2:application",
+        "//frontend/app/components/trace_viewer_v2/helper:time_formatter",
+        "//frontend/app/components/trace_viewer_v2/timeline:data_provider",
         "//plugin/xprof/protobuf:trace_data_response_proto_cc",
+        "//xprof/convert/trace_viewer/delta_series:zstd_compression",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
-        "@org_xprof//frontend/app/components/trace_viewer_v2:application",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/timeline:data_provider",
-        "@org_xprof//xprof/convert/trace_viewer/delta_series:zstd_compression",
         "@tsl//tsl/profiler/lib:context_types",
     ],
     alwayslink = True,
@@ -53,7 +54,11 @@ wasm_cc_library(
     deps = [
         ":trace_event",
         ":trace_event_parser_core",
+        "//frontend/app/components/trace_viewer_v2/helper:time_formatter",
+        "//frontend/app/components/trace_viewer_v2/timeline",
+        "//frontend/app/components/trace_viewer_v2/timeline:data_provider",
         "//plugin/xprof/protobuf:trace_data_response_proto_cc",
+        "//xprof/convert/trace_viewer/delta_series:zstd_compression",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
@@ -61,13 +66,9 @@ wasm_cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/types:span",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/timeline",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/timeline:data_provider",
-        "@org_xprof//xprof/convert/trace_viewer/delta_series:zstd_compression",
     ] + select({
-        "@org_xprof//frontend/app/components/trace_viewer_v2:is_emscripten": [
-            "@org_xprof//frontend/app/components/trace_viewer_v2:application",
+        "//frontend/app/components/trace_viewer_v2:is_emscripten": [
+            "//frontend/app/components/trace_viewer_v2:application",
         ],
         "//conditions:default": [],
     }),
@@ -134,14 +135,14 @@ wasm_cc_test(
     srcs = ["trace_pb_event_parser_test.cc"],
     deps = [
         ":trace_pb_event_parser",
+        "//frontend/app/components/trace_viewer_v2/color:colors",
+        "//frontend/app/components/trace_viewer_v2/timeline",
+        "//frontend/app/components/trace_viewer_v2/timeline:data_provider",
         "//plugin/xprof/protobuf:trace_data_response_proto_cc",
+        "//xprof/convert/trace_viewer/delta_series:zstd_compression",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest_main",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/color:colors",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/timeline",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/timeline:data_provider",
-        "@org_xprof//xprof/convert/trace_viewer/delta_series:zstd_compression",
     ],
 )
 

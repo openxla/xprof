@@ -1,5 +1,5 @@
-# load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
-# load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
 cc_library(
     name = "zstd_compression",
@@ -35,6 +35,8 @@ cc_library(
         ":zstd_compression",
         "//plugin/xprof/protobuf:trace_data_response_proto_cc",
         "//plugin/xprof/protobuf:trace_events_proto_cc",
+        "//xprof/convert/trace_viewer:trace_events",
+        "//xprof/convert/trace_viewer:trace_events_to_json",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/functional:any_invocable",
@@ -43,8 +45,6 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
-        "@org_xprof//xprof/convert/trace_viewer:trace_events",
-        "@org_xprof//xprof/convert/trace_viewer:trace_events_to_json",
         "@tsl//tsl/profiler/lib:context_types",
         "@xla//xla/tsl/platform:statusor",
     ],
@@ -58,11 +58,11 @@ cc_test(
         ":zstd_compression",
         "//plugin/xprof/protobuf:trace_data_response_proto_cc",
         "//plugin/xprof/protobuf:trace_events_proto_cc",
+        "//xprof/convert/trace_viewer:trace_events",
+        "//xprof/convert/trace_viewer:trace_events_to_json",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest_main",
-        "@org_xprof//xprof/convert/trace_viewer:trace_events",
-        "@org_xprof//xprof/convert/trace_viewer:trace_events_to_json",
         "@tsl//tsl/profiler/lib:context_types",
     ],
 )

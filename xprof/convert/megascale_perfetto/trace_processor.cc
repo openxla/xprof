@@ -427,6 +427,8 @@ void TraceProcessor::ResolveFlows() {
       push_flow(q_send_to_recv_done, key, event);
       push_flow(q_send_to_d2h, key, event);
     } else {
+      std::string hlo_key = make_hlo_key(tpu_id, event.run_id, hlo_id);
+      recv_hlo_to_rendezvous[hlo_key] = rendezvous;
       push_flow(q_recv_to_recv_done, key, event);
       push_flow(q_recv_to_h2d, key, event);
     }

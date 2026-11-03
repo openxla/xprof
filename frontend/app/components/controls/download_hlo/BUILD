@@ -19,11 +19,11 @@ xprof_ng_module(
         "//:node_modules/@angular/router",
         "//:node_modules/rxjs",
         "//:node_modules/safevalues",
-        "@org_xprof//frontend/app/common/angular:angular_material_icon",
-        "@org_xprof//frontend/app/common/angular:angular_material_menu",
-        "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
-        "@org_xprof//frontend/app/common/constants",
-        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
+        "//frontend/app/common/angular:angular_material_icon",
+        "//frontend/app/common/angular:angular_material_menu",
+        "//frontend/app/common/angular:angular_material_tooltip",
+        "//frontend/app/common/constants",
+        "//frontend/app/services/data_service_v2:data_service_v2_interface",
     ],
 )
 
@@ -33,6 +33,6 @@ sass_binary(
     # stack = True,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

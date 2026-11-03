@@ -2,6 +2,7 @@ load("@aspect_bazel_lib//lib:copy_to_bin.bzl", "copy_to_bin")
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 load("@npm//:defs.bzl", "npm_link_all_packages")
 load("@repository_configuration//:repository_config.bzl", "PROFILER_REQUIREMENTS_FILE")
+load("@rules_python//python:defs.bzl", "py_library")
 load("@rules_python//python:pip.bzl", "compile_pip_requirements")
 
 npm_link_all_packages(name = "node_modules")

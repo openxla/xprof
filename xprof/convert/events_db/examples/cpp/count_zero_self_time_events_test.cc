@@ -29,6 +29,14 @@ namespace {
 using ::testing::HasSubstr;
 
 std::string GetBinaryPath() {
+  const std::string main_path = tsl::io::JoinPath(
+      testing::SrcDir(),
+      "_main/xprof/convert/events_db/examples/cpp/"
+      "count_zero_self_time_events");
+  if (std::ifstream(main_path).good() ||
+      std::ifstream(main_path + ".exe").good()) {
+    return main_path;
+  }
   constexpr std::string_view kRelativeBinaryPath =
       "org_xprof/xprof/convert/events_db/examples/cpp/"
       "count_zero_self_time_events";

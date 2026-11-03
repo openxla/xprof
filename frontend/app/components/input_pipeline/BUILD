@@ -18,19 +18,19 @@ xprof_ng_module(
         "//:node_modules/@angular/router",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
-        "@org_xprof//frontend/app/common/angular:angular_material_divider",
-        "@org_xprof//frontend/app/common/classes",
-        "@org_xprof//frontend/app/common/constants",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/common/utils",
-        "@org_xprof//frontend/app/components/diagnostics_view",
-        "@org_xprof//frontend/app/components/input_pipeline/analysis_summary",
-        "@org_xprof//frontend/app/components/input_pipeline/device_side_analysis_detail",
-        "@org_xprof//frontend/app/components/input_pipeline/host_op",
-        "@org_xprof//frontend/app/components/input_pipeline/host_side_analysis_detail",
-        "@org_xprof//frontend/app/components/input_pipeline/max_infeed_detail",
-        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
-        "@org_xprof//frontend/app/store",
+        "//frontend/app/common/angular:angular_material_divider",
+        "//frontend/app/common/classes",
+        "//frontend/app/common/constants",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/common/utils",
+        "//frontend/app/components/diagnostics_view",
+        "//frontend/app/components/input_pipeline/analysis_summary",
+        "//frontend/app/components/input_pipeline/device_side_analysis_detail",
+        "//frontend/app/components/input_pipeline/host_op",
+        "//frontend/app/components/input_pipeline/host_side_analysis_detail",
+        "//frontend/app/components/input_pipeline/max_infeed_detail",
+        "//frontend/app/services/data_service_v2:data_service_v2_interface",
+        "//frontend/app/store",
     ],
 )
 
@@ -40,7 +40,7 @@ sass_binary(
     # stack = False,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )
 
@@ -48,6 +48,6 @@ sass_library(
     name = "common_css",
     srcs = ["input_pipeline.scss"],
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

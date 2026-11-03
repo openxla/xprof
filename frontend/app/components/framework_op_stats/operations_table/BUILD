@@ -16,10 +16,10 @@ xprof_ng_module(
     deps = [
         ":operations_table_data_provider",
         "//:node_modules/@angular/core",
-        "@org_xprof//frontend/app/common/constants",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/common/interfaces:chart",
-        "@org_xprof//frontend/app/components/chart",
+        "//frontend/app/common/constants",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/common/interfaces:chart",
+        "//frontend/app/components/chart",
     ],
 )
 
@@ -29,11 +29,11 @@ ts_library(
         "operations_table_data_provider.ts",
     ],
     deps = [
-        "@org_xprof//frontend/app/common/constants",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/common/interfaces:chart",
-        "@org_xprof//frontend/app/components/chart:default_data_provider",
-        "@org_xprof//frontend/app/components/chart:utils",
+        "//frontend/app/common/constants",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/common/interfaces:chart",
+        "//frontend/app/components/chart:default_data_provider",
+        "//frontend/app/components/chart:utils",
     ],
 )
 
@@ -43,6 +43,6 @@ sass_binary(
     # stack = False,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

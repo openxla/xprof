@@ -1,6 +1,8 @@
 # Description:
 #   Apache Arrow and Parquet C++ libraries matching Google3 (21.0.0)
 
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
 package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])

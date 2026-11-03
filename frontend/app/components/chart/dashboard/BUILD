@@ -9,6 +9,6 @@ ts_library(
     ],
     deps = [
         "//:node_modules/@types/google.visualization",
-        "@org_xprof//frontend/app/common/interfaces",
+        "//frontend/app/common/interfaces",
     ],
 )

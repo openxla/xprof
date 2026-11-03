@@ -1,3 +1,5 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("@xla//xla/tsl/platform:build_config.bzl", xprof_proto_library = "tf_proto_library")
 
 package(
@@ -226,9 +228,9 @@ cc_library(
         ":performance_info_wrapper",
         "//plugin/xprof/protobuf:op_metrics_proto_cc",
         "//plugin/xprof/protobuf:source_info_proto_cc",
+        "//xprof/convert:op_metrics_db_combiner",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
-        "@org_xprof//xprof/convert:op_metrics_db_combiner",
         "@tsl//tsl/platform:protobuf",
         "@xla//xla/hlo/ir:hlo",
         "@xla//xla/tsl/platform:types",
@@ -288,6 +290,7 @@ cc_library(
         ":hlo_module_map",
         ":hlo_proto_map",
         ":host_offload_utils",
+        "//xprof/convert:xprof_thread_pool_executor",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
@@ -295,7 +298,6 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
         "@com_google_absl//absl/types:span",
-        "@org_xprof//xprof/convert:xprof_thread_pool_executor",
         "@tsl//tsl/platform:platform_port",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/lib/gtl:map_util",

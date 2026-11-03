@@ -1,5 +1,5 @@
-# load("//third_party/bazel_rules/rules_cc/cc:cc_binary.bzl", "cc_binary")
-# load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
 package(
     # copybara:uncomment default_applicable_licenses = ["//xprof:license"],
@@ -11,6 +11,10 @@ cc_binary(
     name = "xspace_to_parquet",
     srcs = ["xspace_to_parquet.cc"],
     deps = [
+        "//xprof/convert/events_db:parquet_record_consumer",
+        "//xprof/convert/events_db:record_consumer",
+        "//xprof/convert/events_db:schema",
+        "//xprof/convert/events_db:xspace_parser",
         "@arrow//:arrow_core",
         "@arrow//:util_hdrs",
         "@com_google_absl//absl/flags:flag",
@@ -20,10 +24,6 @@ cc_binary(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/time",
-        "@org_xprof//xprof/convert/events_db:parquet_record_consumer",
-        "@org_xprof//xprof/convert/events_db:record_consumer",
-        "@org_xprof//xprof/convert/events_db:schema",
-        "@org_xprof//xprof/convert/events_db:xspace_parser",
         "@tsl//tsl/platform:platform_port",
     ],
 )
@@ -46,14 +46,14 @@ cc_binary(
     name = "count_zero_self_time_events",
     srcs = ["count_zero_self_time_events.cc"],
     deps = [
+        "//xprof/convert/events_db:record_consumer",
+        "//xprof/convert/events_db:schema",
+        "//xprof/convert/events_db:xspace_parser",
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/flags:parse",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/time",
-        "@org_xprof//xprof/convert/events_db:record_consumer",
-        "@org_xprof//xprof/convert/events_db:schema",
-        "@org_xprof//xprof/convert/events_db:xspace_parser",
         "@tsl//tsl/platform:platform_port",
     ],
 )

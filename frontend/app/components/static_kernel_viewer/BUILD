@@ -54,9 +54,9 @@ xprof_ng_module(
     deps = [
         "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
-        "@org_xprof//frontend/app/common/angular:angular_material_button",
-        "@org_xprof//frontend/app/common/angular:angular_material_icon",
-        "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
+        "//frontend/app/common/angular:angular_material_button",
+        "//frontend/app/common/angular:angular_material_icon",
+        "//frontend/app/common/angular:angular_material_tooltip",
     ],
 )
 
@@ -66,7 +66,7 @@ xprof_ng_module(
         "kernel_viewer_store.ts",
     ],
     deps = [
-        "@org_xprof//frontend/app/services/indexed_db",
+        "//frontend/app/services/indexed_db",
     ],
 )
 
@@ -131,21 +131,21 @@ xprof_ng_module(
         "//:node_modules/@angular/router",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
-        "@org_xprof//frontend/app/common/angular:angular_material_button",
-        "@org_xprof//frontend/app/common/angular:angular_material_button_toggle",
-        "@org_xprof//frontend/app/common/angular:angular_material_chips",
-        "@org_xprof//frontend/app/common/angular:angular_material_divider",
-        "@org_xprof//frontend/app/common/angular:angular_material_icon",
-        "@org_xprof//frontend/app/common/angular:angular_material_menu",
-        "@org_xprof//frontend/app/common/angular:angular_material_progress_bar",
-        "@org_xprof//frontend/app/common/angular:angular_material_progress_spinner",
-        "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
-        "@org_xprof//frontend/app/common/constants",
-        "@org_xprof//frontend/app/components/trace_viewer_container",
-        "@org_xprof//frontend/app/components/trace_viewer_v2:app_bundle_ts",
-        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
-        "@org_xprof//frontend/app/services/source_code_service:source_code_service_interface",
-        "@org_xprof//frontend/app/store",
+        "//frontend/app/common/angular:angular_material_button",
+        "//frontend/app/common/angular:angular_material_button_toggle",
+        "//frontend/app/common/angular:angular_material_chips",
+        "//frontend/app/common/angular:angular_material_divider",
+        "//frontend/app/common/angular:angular_material_icon",
+        "//frontend/app/common/angular:angular_material_menu",
+        "//frontend/app/common/angular:angular_material_progress_bar",
+        "//frontend/app/common/angular:angular_material_progress_spinner",
+        "//frontend/app/common/angular:angular_material_tooltip",
+        "//frontend/app/common/constants",
+        "//frontend/app/components/trace_viewer_container",
+        "//frontend/app/components/trace_viewer_v2:app_bundle_ts",
+        "//frontend/app/services/data_service_v2:data_service_v2_interface",
+        "//frontend/app/services/source_code_service:source_code_service_interface",
+        "//frontend/app/store",
     ],
 )
 

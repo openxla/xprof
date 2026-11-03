@@ -32,6 +32,6 @@ py_binary(
         "//third_party/py/google/protobuf",
         "//third_party/py/google/protobuf:use_fast_cpp_protos",  # Automatically added go/proto_python_upb_flip
         "@org_tensorflow_tensorboard//tensorboard/backend/event_processing:plugin_asset_util",
-        "@pypi//absl-py",  # build_cleaner: keep; go/disable_tf2
+        "@pypi//absl_py",  # build_cleaner: keep; go/disable_tf2
     ],
 )

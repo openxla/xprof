@@ -23,7 +23,7 @@ sass_binary(
     # stack = False,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )
 
@@ -43,17 +43,17 @@ xprof_ng_module(
         "//:node_modules/@angular/core",
         "//:node_modules/@angular/router",
         "//:node_modules/rxjs",
-        "@org_xprof//frontend/app/common/angular:angular_common_http",
-        "@org_xprof//frontend/app/common/angular:angular_material_expansion",
-        "@org_xprof//frontend/app/common/angular:angular_material_icon",
-        "@org_xprof//frontend/app/common/angular:angular_material_progress_bar",
-        "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
-        "@org_xprof//frontend/app/common/constants",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/common/utils",
-        "@org_xprof//frontend/app/pipes",
-        "@org_xprof//frontend/app/services/communication_service",
-        "@org_xprof//frontend/app/services/source_code_service:source_code_service_interface",
+        "//frontend/app/common/angular:angular_common_http",
+        "//frontend/app/common/angular:angular_material_expansion",
+        "//frontend/app/common/angular:angular_material_icon",
+        "//frontend/app/common/angular:angular_material_progress_bar",
+        "//frontend/app/common/angular:angular_material_tooltip",
+        "//frontend/app/common/constants",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/common/utils",
+        "//frontend/app/pipes",
+        "//frontend/app/services/communication_service",
+        "//frontend/app/services/source_code_service:source_code_service_interface",
     ],
 )
 
@@ -63,7 +63,7 @@ sass_binary(
     # stack = False,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )
 
@@ -82,8 +82,8 @@ xprof_ng_module(
         ":stack_frame_snippet",
         "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
-        "@org_xprof//frontend/app/common/angular:angular_material_expansion",
-        "@org_xprof//frontend/app/services/source_code_service:source_code_service_interface",
+        "//frontend/app/common/angular:angular_material_expansion",
+        "//frontend/app/services/source_code_service:source_code_service_interface",
     ],
 )
 
@@ -93,6 +93,6 @@ sass_binary(
     # stack = False,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

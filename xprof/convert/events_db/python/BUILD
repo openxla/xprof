@@ -1,6 +1,6 @@
-# load("//third_party/bazel_rules/rules_cc/cc:cc_binary.bzl", "cc_binary")
-# load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
-
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("//plugin/xprof/build_utils:pytype.default.bzl", "pytype_library", "pytype_strict_binary", "pytype_strict_contrib_test", "pytype_strict_library")
 
 package(
@@ -16,15 +16,15 @@ cc_library(
     copts = ["-fvisibility=hidden"],
     linkstatic = 1,
     deps = [
+        "//xprof/convert/events_db:parquet_record_consumer",
+        "//xprof/convert/events_db:record_consumer",
+        "//xprof/convert/events_db:schema",
+        "//xprof/convert/events_db:xspace_parser",
         "@arrow//:arrow_core",
         "@arrow//:util_hdrs",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
-        "@org_xprof//xprof/convert/events_db:parquet_record_consumer",
-        "@org_xprof//xprof/convert/events_db:record_consumer",
-        "@org_xprof//xprof/convert/events_db:schema",
-        "@org_xprof//xprof/convert/events_db:xspace_parser",
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:statusor",
     ],
@@ -42,11 +42,11 @@ cc_test(
     srcs = ["pywrap_events_db_c_api_test.cc"],
     deps = [
         ":pywrap_events_db_c_api",
+        "//xprof/convert/events_db:parquet_record_consumer",
         "@arrow//:util_hdrs",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
-        "@org_xprof//xprof/convert/events_db:parquet_record_consumer",
         "@tsl//tsl/platform:path",
         "@tsl//tsl/platform:protobuf",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",

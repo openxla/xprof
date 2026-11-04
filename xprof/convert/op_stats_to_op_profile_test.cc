@@ -437,7 +437,7 @@ TEST(OpStatsToOpProfileTest,
 }
 
 TEST(OpStatsToOpProfileTest,
-     IgnoresServingMetadataWithMissingModelIdOrNonPositiveBatchSize) {
+     AcceptsModelOnlyZeroBatchSizeAndIgnoresInvalidServingMetadata) {
   OpStats op_stats;
   OpMetricsDb& db = *op_stats.mutable_device_op_metrics_db();
   db.set_total_time_ps(1500);
@@ -489,8 +489,22 @@ TEST(OpStatsToOpProfileTest,
                             OpProfileGrouping::kByProgram, &serving_metadata);
 
   ASSERT_EQ(profile.by_program().children_size(), 5);
-  for (const Node& child : profile.by_program().children()) {
-    EXPECT_FALSE(child.has_program_serving_metadata());
+  EXPECT_FALSE(
+      profile.by_program().children(0).has_program_serving_metadata());
+  ASSERT_TRUE(
+      profile.by_program().children(1).has_program_serving_metadata());
+  EXPECT_EQ(
+      profile.by_program().children(1).program_serving_metadata().model_id(),
+      "/models/m1:1");
+  EXPECT_EQ(
+      profile.by_program().children(1).program_serving_metadata().batch_size(),
+      0);
+  EXPECT_EQ(
+      profile.by_program().children(1).program_serving_metadata().num_batches(),
+      2);
+  for (int i = 2; i < 5; ++i) {
+    EXPECT_FALSE(
+        profile.by_program().children(i).has_program_serving_metadata());
   }
 }
 

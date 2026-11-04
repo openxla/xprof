@@ -487,8 +487,9 @@ TEST(FlatOpStatsToOpProfileTest,
   serving_metadata[10].set_model_id("/models/flat_model:1");
   serving_metadata[10].set_batch_size(8);
   serving_metadata[10].set_num_batches(7);
-  // Entries missing a model_id, a positive batch_size, or a positive
-  // num_batches are ignored (and program 70 is omitted from the map).
+  // Model-only metadata (batch_size == 0) is accepted; entries missing a
+  // model_id, a non-negative batch_size, or a positive num_batches are ignored
+  // (and program 70 is omitted from the map).
   serving_metadata[20].set_model_id("/models/flat_model:1");
   serving_metadata[20].set_batch_size(0);
   serving_metadata[20].set_num_batches(5);
@@ -526,7 +527,24 @@ TEST(FlatOpStatsToOpProfileTest,
                 .program_serving_metadata()
                 .num_batches(),
             7);
-  for (int i = 1; i < 7; ++i) {
+  EXPECT_TRUE(
+      by_prog_profile.by_program().children(1).has_program_serving_metadata());
+  EXPECT_EQ(by_prog_profile.by_program()
+                .children(1)
+                .program_serving_metadata()
+                .model_id(),
+            "/models/flat_model:1");
+  EXPECT_EQ(by_prog_profile.by_program()
+                .children(1)
+                .program_serving_metadata()
+                .batch_size(),
+            0);
+  EXPECT_EQ(by_prog_profile.by_program()
+                .children(1)
+                .program_serving_metadata()
+                .num_batches(),
+            5);
+  for (int i = 2; i < 7; ++i) {
     EXPECT_FALSE(by_prog_profile.by_program()
                      .children(i)
                      .has_program_serving_metadata());
@@ -534,6 +552,9 @@ TEST(FlatOpStatsToOpProfileTest,
   ASSERT_EQ(by_prog_profile.by_program_exclude_idle().children_size(), 7);
   EXPECT_TRUE(by_prog_profile.by_program_exclude_idle()
                   .children(0)
+                  .has_program_serving_metadata());
+  EXPECT_TRUE(by_prog_profile.by_program_exclude_idle()
+                  .children(1)
                   .has_program_serving_metadata());
 
   op_profile::Profile by_prov_profile;
@@ -544,7 +565,10 @@ TEST(FlatOpStatsToOpProfileTest,
   EXPECT_TRUE(by_prov_profile.by_provenance()
                   .children(0)
                   .has_program_serving_metadata());
-  for (int i = 1; i < 7; ++i) {
+  EXPECT_TRUE(by_prov_profile.by_provenance()
+                  .children(1)
+                  .has_program_serving_metadata());
+  for (int i = 2; i < 7; ++i) {
     EXPECT_FALSE(by_prov_profile.by_provenance()
                      .children(i)
                      .has_program_serving_metadata());
@@ -552,6 +576,9 @@ TEST(FlatOpStatsToOpProfileTest,
   ASSERT_EQ(by_prov_profile.by_provenance_exclude_idle().children_size(), 7);
   EXPECT_TRUE(by_prov_profile.by_provenance_exclude_idle()
                   .children(0)
+                  .has_program_serving_metadata());
+  EXPECT_TRUE(by_prov_profile.by_provenance_exclude_idle()
+                  .children(1)
                   .has_program_serving_metadata());
 
   op_profile::Profile by_cat_profile;

@@ -580,7 +580,7 @@ OpProfileBuilder::Program* OpProfileBuilder::LookupOrAddProgramNode(
     if (program_serving_metadata_ != nullptr) {
       auto it = program_serving_metadata_->find(program_id);
       if (it != program_serving_metadata_->end() &&
-          !it->second.model_id().empty() && it->second.batch_size() > 0 &&
+          !it->second.model_id().empty() && it->second.batch_size() >= 0 &&
           it->second.num_batches() > 0) {
         *program->node->mutable_program_serving_metadata() = it->second;
       }

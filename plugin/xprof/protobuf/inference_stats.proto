@@ -34,7 +34,7 @@ message TensorEventDetail {
 }
 
 // Detail of a user facing request.
-// Next ID: 22
+// Next ID: 23
 message RequestDetail {
   // Request id.
   optional int64 request_id = 10 [default = -1];
@@ -98,6 +98,10 @@ message RequestDetail {
   // The time no event associated with. It could be that the machine was idle or
   // executing some events which were not traced.
   optional double idle_time_ps = 21;
+
+  // The compiled HLO program_ids (XLA module fingerprints) that executed this
+  // request on device.
+  repeated uint64 program_ids = 22 [packed = true];
 
   // Were device_start_time_ps, device_end_time_ps, session_id
   reserved 3, 4, 9;

@@ -16,6 +16,7 @@ limitations under the License.
 #include "xprof/convert/inference_stats.h"
 
 #include <cstdint>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -32,14 +33,20 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 
+using ::testing::AllOf;
 using ::testing::ElementsAre;
 using ::testing::IsEmpty;
+using ::testing::Property;
+using ::testing::UnorderedElementsAre;
 using ::tsl::profiler::CreateXEvent;
+using ::tsl::profiler::CreateXEventMetadata;
 using ::tsl::profiler::DeviceType;
 using ::tsl::profiler::GetOrCreateHostXPlane;
+using ::tsl::profiler::GetOrCreateTpuXPlane;
 using ::tsl::profiler::GroupMetadata;
 using ::tsl::profiler::GroupMetadataMap;
 using ::tsl::profiler::HostEventType;
+using ::tsl::profiler::kXlaModuleLineName;
 using ::tsl::profiler::StatType;
 using ::tsl::profiler::XLineBuilder;
 using ::tsl::profiler::XPlane;
@@ -191,6 +198,90 @@ TEST(InferenceStatsTest, GenerateTensorPatternMissingLayoutReturnsEmpty) {
                          &inference_stats);
 
   EXPECT_THAT(inference_stats.tensor_pattern_db().tensor_pattern(), IsEmpty());
+}
+
+TEST(InferenceStatsTest, RecordsDeduplicatedProgramIdsOnRequestDetail) {
+  constexpr int64_t kRequestGroupId = 100;
+  constexpr int64_t kChildGroupId = 101;
+  constexpr uint64_t kProgramIdFromStat = 5621224425449793704ULL;
+  constexpr uint64_t kProgramIdFromName = 7777777777777777777ULL;
+
+  XSpace space;
+  XPlane* host_plane = GetOrCreateHostXPlane(&space);
+  XPlaneBuilder host_plane_builder(host_plane);
+  XLineBuilder main_thread = host_plane_builder.GetOrCreateLine(0);
+  CreateXEvent(&host_plane_builder, &main_thread, HostEventType::kSessionRun,
+               1000, 10000,
+               {{StatType::kGroupId, kRequestGroupId},
+                {StatType::kModelId, "/models/unbatched_model:1"}});
+
+  XPlane* tpu_plane = GetOrCreateTpuXPlane(
+      &space, /*device_ordinal=*/0, /*device_type=*/"TPU v4",
+      /*peak_tera_flops_per_second=*/275.0,
+      /*peak_hbm_bw_gigabytes_per_second=*/1200.0);
+  XPlaneBuilder tpu_builder(tpu_plane);
+  XLineBuilder module_line = tpu_builder.GetOrCreateLine(0);
+  module_line.SetName(kXlaModuleLineName);
+  CreateXEventMetadata(
+      &tpu_builder, "jit_step",
+      {{StatType::kProgramId, static_cast<int64_t>(kProgramIdFromStat)}});
+  // Two executions of the same program directly under the request's group_id,
+  // plus one execution parsed from the HLO module name under a child group_id.
+  CreateXEvent(&tpu_builder, &module_line, "jit_step", 2000, 1000,
+               {{StatType::kGroupId, kRequestGroupId}});
+  CreateXEvent(&tpu_builder, &module_line, "jit_step", 3500, 1000,
+               {{StatType::kGroupId, kRequestGroupId}});
+  CreateXEvent(&tpu_builder, &module_line,
+               "fallback_module(7777777777777777777)", 5000, 1000,
+               {{StatType::kGroupId, kChildGroupId}});
+
+  GroupMetadataMap group_metadata_map;
+  group_metadata_map[kRequestGroupId].children.insert(kChildGroupId);
+  group_metadata_map[kChildGroupId].parents.insert(kRequestGroupId);
+
+  std::vector<XPlane*> device_traces = {tpu_plane};
+  StepEvents step_events;
+  InferenceStats inference_stats;
+  GenerateInferenceStats(device_traces, step_events, group_metadata_map, space,
+                         DeviceType::kTpu, /*host_id=*/0, &inference_stats);
+
+  ASSERT_TRUE(inference_stats.inference_stats_per_host().contains(0));
+  const PerHostInferenceStats& per_host =
+      inference_stats.inference_stats_per_host().at(0);
+  ASSERT_EQ(per_host.request_details_size(), 1);
+  EXPECT_THAT(per_host.request_details(0).program_ids(),
+              ElementsAre(kProgramIdFromStat, kProgramIdFromName));
+}
+
+TEST(InferenceStatsTest, UnmodeledUngroupedRequestUsesNegativeModelIdIndex) {
+  XSpace space;
+  XPlane* host_plane = GetOrCreateHostXPlane(&space);
+  XPlaneBuilder host_plane_builder(host_plane);
+  XLineBuilder main_thread = host_plane_builder.GetOrCreateLine(0);
+  CreateXEvent(
+      &host_plane_builder, &main_thread, HostEventType::kSessionRun, 1000, 1000,
+      {{StatType::kGroupId, 1}, {StatType::kModelId, "/models/first_model:1"}});
+  CreateXEvent(&host_plane_builder, &main_thread, HostEventType::kSessionRun,
+               3000, 1000, {{StatType::kGroupId, 2}});
+
+  GroupMetadataMap group_metadata_map;
+  group_metadata_map[1];
+
+  std::vector<XPlane*> device_traces;
+  StepEvents step_events;
+  InferenceStats inference_stats;
+  GenerateInferenceStats(device_traces, step_events, group_metadata_map, space,
+                         DeviceType::kTpu, /*host_id=*/0, &inference_stats);
+
+  ASSERT_TRUE(inference_stats.inference_stats_per_host().contains(0));
+  const PerHostInferenceStats& per_host =
+      inference_stats.inference_stats_per_host().at(0);
+  EXPECT_THAT(per_host.request_details(),
+              UnorderedElementsAre(
+                  AllOf(Property(&RequestDetail::request_id, 1),
+                        Property(&RequestDetail::model_id_index, 0)),
+                  AllOf(Property(&RequestDetail::request_id, 2),
+                        Property(&RequestDetail::model_id_index, -1))));
 }
 
 }  // namespace

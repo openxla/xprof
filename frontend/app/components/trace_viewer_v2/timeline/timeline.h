@@ -880,6 +880,8 @@ class Timeline {
 
   const ColorPalette& GetPalette() const { return palette_; }
 
+  void ShowNavigationWarningNotification(absl::string_view message);
+
   // ---------------------------------------------------------------------------
   // Accessors for testing
   // ---------------------------------------------------------------------------
@@ -1124,7 +1126,6 @@ class Timeline {
   void EmitViewportChanged(const TimeRange& range);
   // Emits mouse mode changed event to JS side.
   void EmitMouseModeChanged();
-  void ShowNavigationWarningNotification(absl::string_view message);
 
  private:
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).

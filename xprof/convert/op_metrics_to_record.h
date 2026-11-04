@@ -96,13 +96,17 @@ auto SortedOpMetricsDb(const MetricsDbT& metrics_db, int max_records = -1) {
   return result;
 }
 
+std::vector<const OpMetrics*> ScSortedOpMetricsDb(const OpMetricsDb& metrics_db,
+                                                  int max_records = -1);
+
 template <typename Metrics>
 inline double GigaFlopsPerSecondPerCore(const Metrics& metrics) {
   // flops and time_ps are accumulated across all occurrences on all cores.
   // time_ps is used instead of self_time_ps because flops for an op includes
   // the flops executed by children (nested) ops.
   return tsl::profiler::SafeDivide(
-      metrics.flops_v2(), tsl::profiler::PicoToNano(metrics.time_ps()));
+      std::max(0.0, metrics.flops_v2()),
+      tsl::profiler::PicoToNano(metrics.time_ps()));
 }
 
 // Normalized flop rate if running on default pstate.
@@ -126,7 +130,8 @@ inline double GigaModelFlopsPerSecondPerCore(const Metrics& metrics) {
   // time_ps is used instead of self_time_ps because flops for an op includes
   // the flops executed by children (nested) ops.
   return tsl::profiler::SafeDivide(
-      metrics.model_flops_v2(), tsl::profiler::PicoToNano(metrics.time_ps()));
+      std::max(0.0, metrics.model_flops_v2()),
+      tsl::profiler::PicoToNano(metrics.time_ps()));
 }
 
 // Return ByteAccessed for memory_space and operation_type.
@@ -233,7 +238,8 @@ inline void SetRankAndHostTimeFractions(double total_time_us,
 // memory space is chosen by index following order in xplane_to_op_stats.cc
 static inline double GetMemoryPeakBandwidth(const PerfEnv& perf_env,
                                             const int index) {
-  if (perf_env.peak_bws_giga_bytes_per_second_size() > index) {
+  if (perf_env.peak_bws_giga_bytes_per_second_size() > index &&
+      perf_env.peak_bws_giga_bytes_per_second(index) > 0) {
     return perf_env.peak_bws_giga_bytes_per_second(index);
   }
   return perf_env.peak_hbm_bw_giga_bytes_per_second();
@@ -422,6 +428,70 @@ inline void SetRooflineMetrics(const Metrics& metrics, const PerfEnv& perf_env,
   record->set_bound_by(std::string(bottleneck_resource));
   record->set_bottleneck_operational_intensity(
       bottleneck_operational_intensity);
+}
+
+template <typename Record>
+inline void SetSparseCoreRooflineMetrics(const OpMetrics& metrics,
+                                         const PerfEnv& perf_env,
+                                         const RunEnvironment& run_env,
+                                         Record* record,
+                                         bool apply_time_scale_factor = false) {
+  int64_t device_time_ps =
+      (apply_time_scale_factor && metrics.normalized_time_ps() > 0)
+          ? metrics.normalized_time_ps()
+          : metrics.time_ps();
+  double device_time_ns = tsl::profiler::PicoToNano(device_time_ps);
+  double flops = std::max(0.0, metrics.flops_v2());
+  double model_flops = std::max(0.0, metrics.model_flops_v2());
+  uint64_t bytes_accessed = metrics.bytes_accessed();
+
+  record->set_measured_flop_rate(
+      tsl::profiler::SafeDivide(flops, device_time_ns));
+  record->set_model_flop_rate(
+      tsl::profiler::SafeDivide(model_flops, device_time_ns));
+  record->set_measured_memory_bw(
+      tsl::profiler::GibibytesPerSecond(bytes_accessed, device_time_ns));
+  record->set_operational_intensity(
+      tsl::profiler::SafeDivide(flops, bytes_accessed));
+
+  uint64_t hbm_bytes = 0;
+  uint64_t spmem_read_bytes = 0;
+  uint64_t spmem_write_bytes = 0;
+  for (const auto& memory_access : metrics.memory_accessed_breakdown()) {
+    const auto mem_space = memory_access.memory_space();
+    const auto bytes = memory_access.bytes_accessed();
+    if (mem_space == PerformanceInfo::MemoryAccessed::HBM ||
+        mem_space == tensorflow::profiler::MemorySpace::MEMORY_SPACE_HBM ||
+        mem_space == tensorflow::profiler::MEM_BW_TYPE_HBM_RW) {
+      hbm_bytes += bytes;
+    } else if (mem_space == tensorflow::profiler::MEM_BW_TYPE_SPMEM_RD ||
+               memory_access.operation_type() ==
+                   OpMetrics::MemoryAccessed::READ) {
+      spmem_read_bytes += bytes;
+    } else if (mem_space == tensorflow::profiler::MEM_BW_TYPE_SPMEM_WR ||
+               memory_access.operation_type() ==
+                   OpMetrics::MemoryAccessed::WRITE) {
+      spmem_write_bytes += bytes;
+    }
+  }
+  if (metrics.memory_accessed_breakdown_size() == 0) {
+    hbm_bytes = bytes_accessed;
+  }
+  record->set_hbm_bw(
+      tsl::profiler::GibibytesPerSecond(hbm_bytes, device_time_ns));
+  record->set_spmem_read_bw(
+      tsl::profiler::GibibytesPerSecond(spmem_read_bytes, device_time_ns));
+  record->set_spmem_write_bw(
+      tsl::profiler::GibibytesPerSecond(spmem_write_bytes, device_time_ns));
+
+  record->set_hbm_operational_intensity(
+      tsl::profiler::SafeDivide(flops, hbm_bytes));
+  record->set_spmem_read_operational_intensity(
+      tsl::profiler::SafeDivide(flops, spmem_read_bytes));
+  record->set_spmem_write_operational_intensity(
+      tsl::profiler::SafeDivide(flops, spmem_write_bytes));
+  record->set_bottleneck_operational_intensity(
+      tsl::profiler::SafeDivide(flops, bytes_accessed));
 }
 
 }  // namespace profiler

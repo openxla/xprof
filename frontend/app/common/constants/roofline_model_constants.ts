@@ -86,6 +86,9 @@ export const ROOFLINE_NAMES = {
   VMEM_WRITE: 'VMEM Write',
   CMEM_READ: 'CMEM Read',
   CMEM_WRITE: 'CMEM Write',
+  SPMEM_READ: 'SPMEM Read',
+  SPMEM_WRITE: 'SPMEM Write',
+  SPMEM: 'SPMEM',
 };
 
 /** Roofline series names. */
@@ -96,6 +99,9 @@ export const ROOFLINE_SERIES_NAMES = {
   VMEM_WRITE: 'VMEM Write Roofline',
   CMEM_READ: 'CMEM Read Roofline',
   CMEM_WRITE: 'CMEM Write Roofline',
+  SPMEM_READ: 'SPMEM Read Roofline',
+  SPMEM_WRITE: 'SPMEM Write Roofline',
+  SPMEM: 'SPMEM Roofline',
 };
 
 /** roofline model properties configuration */
@@ -192,6 +198,34 @@ export const DEVICE_INFO = [
     display: false,
   },
   {
+    id: 'num_sparse_core_tiles',
+    label: 'Number of SparseCore Tiles',
+    type: 'number',
+    unit: '',
+    display: true,
+  },
+  {
+    id: 'peak_sc_flop_rate',
+    label: 'Peak FLOP Rate per SparseCore',
+    type: 'number',
+    unit: 'GFLOP/s',
+    display: true,
+  },
+  {
+    id: 'peak_spmem_read_bw',
+    label: 'Peak SPMEM Read Bandwidth per SparseCore',
+    type: 'number',
+    unit: 'GiB/s',
+    display: true,
+  },
+  {
+    id: 'peak_spmem_write_bw',
+    label: 'Peak SPMEM Write Bandwidth per SparseCore',
+    type: 'number',
+    unit: 'GiB/s',
+    display: true,
+  },
+  {
     id: 'time_scale_multiplier',
     label: 'Time Scale Multiplier',
     type: 'number',
@@ -243,6 +277,14 @@ export const NUMERIC_DATA_FORMAT:
         digit: 2,
       },
       'cmem_write_bw': {
+        type: 'decimal',
+        digit: 2,
+      },
+      'spmem_read_bw': {
+        type: 'decimal',
+        digit: 2,
+      },
+      'spmem_write_bw': {
         type: 'decimal',
         digit: 2,
       },

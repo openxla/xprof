@@ -756,10 +756,9 @@ TEST(TimelineTest, CalculateTickInfoUnitlessAlignsToAbsolutePositions) {
   EXPECT_DOUBLE_EQ(info.first_tick_time, 100.0);
   EXPECT_EQ(timeline.FormatRulerLabel(info.first_tick_time, info.tick_interval),
             "100");
-  EXPECT_EQ(
-      timeline.FormatRulerLabel(info.first_tick_time + info.tick_interval,
-                                info.tick_interval),
-      "110");
+  EXPECT_EQ(timeline.FormatRulerLabel(info.first_tick_time + info.tick_interval,
+                                      info.tick_interval),
+            "110");
 
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Ops", .start_level = 0, .expanded = true});
@@ -2683,8 +2682,7 @@ TEST_F(MockTimelineImGuiFixture, HandleKeyboard_KeyD_PansRight) {
   SimulateFrame();
 }
 
-TEST_F(MockTimelineImGuiFixture,
-       HandleKeyboard_LeftArrow_PansWhenNoSelection) {
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_LeftArrow_PansWhenNoSelection) {
   timeline_.RevealEvent(-1);  // Ensure no event is selected
   ImGui::GetIO().AddKeyEvent(ImGuiKey_LeftArrow, true);
   EXPECT_CALL(timeline_, Pan(FloatEq(-timeline_.panning_speed() *
@@ -7188,8 +7186,7 @@ TEST_F(RealTimelineImGuiFixture, RulerHeightAndProcessHeaderAlignment) {
   float min_header_text_y = std::numeric_limits<float>::max();
   bool found_header_text = false;
   for (const auto& vtx : timeline_window->DrawList->VtxBuffer) {
-    if (vtx.col == text_col &&
-        vtx.pos.y >= ruler_start_screen_y &&
+    if (vtx.col == text_col && vtx.pos.y >= ruler_start_screen_y &&
         vtx.pos.y < ruler_start_screen_y + kRulerHeight) {
       if (vtx.pos.y < min_header_text_y) {
         min_header_text_y = vtx.pos.y;
@@ -7198,9 +7195,8 @@ TEST_F(RealTimelineImGuiFixture, RulerHeightAndProcessHeaderAlignment) {
     }
   }
   EXPECT_TRUE(found_header_text) << "Process header text not found in ruler";
-  EXPECT_NEAR(
-      min_header_text_y - ruler_start_screen_y, expected_vertical_offset,
-      3.0f);
+  EXPECT_NEAR(min_header_text_y - ruler_start_screen_y,
+              expected_vertical_offset, 3.0f);
 
   ImGui::EndFrame();
 }
@@ -7515,10 +7511,9 @@ TEST_F(RealTimelineImGuiFixture,
                          .expanded = true});
   data.level_offsets = {0, 2};
   data.level_event_indices = {0, 1};
-  AddEvents(
-      data,
-      {{.name = "ev0", .start = 0.0, .dur = 50.0, .level = 0, .id = 1},
-       {.name = "ev1", .start = 50.0, .dur = 50.0, .level = 0, .id = 2}});
+  AddEvents(data,
+            {{.name = "ev0", .start = 0.0, .dur = 50.0, .level = 0, .id = 1},
+             {.name = "ev1", .start = 50.0, .dur = 50.0, .level = 0, .id = 2}});
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
@@ -7597,8 +7592,7 @@ TEST_F(RealTimelineImGuiFixture,
   ASSERT_NE(track_window, nullptr);
   const float x = track_window->Pos.x + 50.0f;
   const float level0_top = track_window->Pos.y;
-  const float border_y =
-      level0_top + kEventHeight + 0.5f * kEventPaddingBottom;
+  const float border_y = level0_top + kEventHeight + 0.5f * kEventPaddingBottom;
   const float level1_top = level0_top + kEventHeight + kEventPaddingBottom;
 
   // 1. Hover inside the level 0 event.
@@ -8772,9 +8766,8 @@ TEST_F(RealTimelineImGuiFixture,
   ImGui::EndFrame();
 }
 
-TEST_F(
-    RealTimelineImGuiFixture,
-    SelectedEventTimeRangeNotDuplicatedWhenAlreadyInSelectedTimeRanges) {
+TEST_F(RealTimelineImGuiFixture,
+       SelectedEventTimeRangeNotDuplicatedWhenAlreadyInSelectedTimeRanges) {
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
@@ -12664,8 +12657,8 @@ TEST_F(RealTimelineImGuiFixture,
   reset_timeline();
 
   const float label_width = timeline_.GetLabelWidth();
-  const float hide_center_x = HideButtonCenterX(label_width);  // 228.0f
-  const float pin_center_x = PinButtonCenterX(label_width);    // 204.0f
+  const float hide_center_x = HideButtonCenterX(label_width);      // 228.0f
+  const float pin_center_x = PinButtonCenterX(label_width);        // 204.0f
   const float midpoint_x = (pin_center_x + hide_center_x) * 0.5f;  // 216.0f
   const float row_y = 135.0f;  // Process A row center in "All" section
 
@@ -12890,6 +12883,320 @@ TEST_F(RealTimelineImGuiFixture, PinAndUnpinTrackWorksWell) {
   io.MousePos = ImVec2(PinButtonCenterX(timeline_.GetLabelWidth()), 135.0f);
   SimulateFrame();
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       UndoPinTrackRestoresUnpinnedStateAndShowsConfirmation) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(PinButtonCenterX(timeline_.GetLabelWidth()), 135.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_TRUE(timeline_.pinned_track_names_.contains("Process A"));
+  EXPECT_TRUE(timeline_.has_pending_undo_action_for_test());
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            absl::StrCat(kPinnedProcessNotificationPrefix, "Process A"));
+
+  // Hover the "Undo" button in the snackbar.
+  const ImRect undo_rect = timeline_.get_undo_button_rect_for_test();
+  ASSERT_GT(undo_rect.GetWidth(), 0.0f);
+  io.MousePos = undo_rect.GetCenter();
+  SimulateFrame();
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Click "Undo".
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_FALSE(timeline_.pinned_track_names_.contains("Process A"));
+  EXPECT_FALSE(timeline_.has_pending_undo_action_for_test());
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            absl::StrCat(kUnpinnedProcessNotificationPrefix, "Process A"));
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 2.0f);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       UndoUnpinTrackRestoresPinnedStateAndShowsConfirmation) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+  timeline_.set_track_management_enabled(true);
+  timeline_.pinned_track_names_.insert("Process A");
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(PinButtonCenterX(timeline_.GetLabelWidth()), 105.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_FALSE(timeline_.pinned_track_names_.contains("Process A"));
+  EXPECT_TRUE(timeline_.has_pending_undo_action_for_test());
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            absl::StrCat(kUnpinnedProcessNotificationPrefix, "Process A"));
+
+  // Click "Undo" in the snackbar.
+  io.MousePos = timeline_.get_undo_button_rect_for_test().GetCenter();
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.pinned_track_names_.contains("Process A"));
+  EXPECT_FALSE(timeline_.has_pending_undo_action_for_test());
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            absl::StrCat(kPinnedProcessNotificationPrefix, "Process A"));
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       UndoHideTrackRestoresVisibleStateAndShowsConfirmation) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0};
+  data.entry_names = {"event1", "event2"};
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true},
+      {Group::Type::kFlame, "Process B", "", 1, kProcessNestingLevel, true}};
+  data.level_offsets = {0, 1, 2};
+  data.level_event_indices = {0, 1};
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(HideButtonCenterX(timeline_.GetLabelWidth()), 135.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_TRUE(timeline_.hidden_track_names_.contains("Process A"));
+  EXPECT_TRUE(timeline_.has_pending_undo_action_for_test());
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            absl::StrCat(kHiddenProcessNotificationPrefix, "Process A"));
+
+  // Click "Undo" in the snackbar.
+  io.MousePos = timeline_.get_undo_button_rect_for_test().GetCenter();
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_FALSE(timeline_.hidden_track_names_.contains("Process A"));
+  EXPECT_FALSE(timeline_.has_pending_undo_action_for_test());
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            absl::StrCat(kUnhiddenProcessNotificationPrefix, "Process A"));
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       UndoUnhideTrackRestoresHiddenStateAndShowsConfirmation) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0};
+  data.entry_names = {"event1", "event2"};
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true},
+      {Group::Type::kFlame, "Process B", "", 1, kProcessNestingLevel, true}};
+  data.level_offsets = {0, 1, 2};
+  data.level_event_indices = {0, 1};
+  timeline_.set_track_management_enabled(true);
+  timeline_.set_header_hidden_expanded_for_test(true);
+  timeline_.hidden_track_names_.insert("Process A");
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Unhide Process A from the expanded "Hidden" section (Y = 72.0f).
+  io.MousePos = ImVec2(HideButtonCenterX(timeline_.GetLabelWidth()), 72.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_FALSE(timeline_.hidden_track_names_.contains("Process A"));
+  EXPECT_TRUE(timeline_.has_pending_undo_action_for_test());
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            absl::StrCat(kUnhiddenProcessNotificationPrefix, "Process A"));
+
+  // Click "Undo" in the snackbar.
+  io.MousePos = timeline_.get_undo_button_rect_for_test().GetCenter();
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.hidden_track_names_.contains("Process A"));
+  EXPECT_FALSE(timeline_.has_pending_undo_action_for_test());
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            absl::StrCat(kHiddenProcessNotificationPrefix, "Process A"));
+}
+
+TEST_F(RealTimelineImGuiFixture, HoveringToastPausesFadeOutTimer) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(PinButtonCenterX(timeline_.GetLabelWidth()), 135.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  const float timer_after_pin =
+      timeline_.get_bounds_notification_timer_for_test();
+  ASSERT_GT(timer_after_pin, 1.5f);
+  ASSERT_TRUE(timeline_.has_pending_undo_action_for_test());
+
+  // Hover over the toast and advance 1.5 seconds: timer must stay paused.
+  io.MousePos = timeline_.get_bounds_toast_rect_for_test().GetCenter();
+  io.DeltaTime = 1.5f;
+  SimulateFrame();
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(),
+                  timer_after_pin);
+  EXPECT_TRUE(timeline_.has_pending_undo_action_for_test());
+
+  // Move mouse away from the toast: timer resumes counting down and expires.
+  io.MousePos = ImVec2(10.0f, 10.0f);
+  io.DeltaTime = 2.5f;
+  SimulateFrame();
+  EXPECT_LE(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
+  EXPECT_FALSE(timeline_.has_pending_undo_action_for_test());
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       NavigationWarningNotificationClearsPendingUndoAction) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(PinButtonCenterX(timeline_.GetLabelWidth()), 135.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  ASSERT_TRUE(timeline_.has_pending_undo_action_for_test());
+
+  // Attempting to hide the last visible process shows a warning toast without
+  // an Undo action.
+  io.MousePos = ImVec2(HideButtonCenterX(timeline_.GetLabelWidth()), 105.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            kCannotHideLastProcessNotification);
+  EXPECT_FALSE(timeline_.has_pending_undo_action_for_test());
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       ClickingUndoDoesNotDeselectSelectedTimelineEvent) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(PinButtonCenterX(timeline_.GetLabelWidth()), 135.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  timeline_.set_selected_event_index_for_test(0);
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+  ASSERT_TRUE(timeline_.has_pending_undo_action_for_test());
+
+  // Click "Undo" in the snackbar and verify the selected event stays selected.
+  io.MousePos = timeline_.get_undo_button_rect_for_test().GetCenter();
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+  EXPECT_FALSE(timeline_.pinned_track_names_.contains("Process A"));
 }
 
 TEST_F(RealTimelineImGuiFixture,
@@ -15548,8 +15855,7 @@ TEST_F(MockTimelineImGuiFixture, Draw_ZeroTrackOffsetsHandledSafely) {
   ImGui::EndFrame();
 }
 
-TEST_F(MockTimelineImGuiFixture,
-       DrawButtons_ZeroHeightHandledSafely) {
+TEST_F(MockTimelineImGuiFixture, DrawButtons_ZeroHeightHandledSafely) {
   FlameChartTimelineData data;
   Group group;
   group.name = "Test Track";
@@ -17615,12 +17921,11 @@ TEST(TimelineTest, CompactTimelineDataSkipsFullLoadsAndCompactsOverviews) {
   EXPECT_TRUE(timeline.is_level_raw_events_compacted_for_test(0));
 
   bool fetch_requested = false;
-  timeline.set_event_callback(
-      [&](absl::string_view type, const EventData&) {
-        if (type == kFetchData) {
-          fetch_requested = true;
-        }
-      });
+  timeline.set_event_callback([&](absl::string_view type, const EventData&) {
+    if (type == kFetchData) {
+      fetch_requested = true;
+    }
+  });
   timeline.set_data_time_range({0.0, 5000.0});
   timeline.set_fetched_data_time_range({0.0, 5000.0});
   timeline.set_is_incremental_loading(false);
@@ -17678,28 +17983,26 @@ TEST(TimelineTest,
   EXPECT_EQ(timeline.timeline_data().entry_start_times.size(), 3u);
 
   int fetch_count = 0;
-  timeline.set_event_callback(
-      [&](absl::string_view type, const EventData&) {
-        if (type == kFetchData) {
-          ++fetch_count;
-          // Simulate serving a narrow zoomed-in slice where "host1 CPU" is
-          // subsequently expanded by the user.
-          FlameChartTimelineData zoomed_data =
-              make_overview_data(/*cpu_expanded=*/true);
-          zoomed_data.entry_names.push_back("fine_op_2");
-          zoomed_data.entry_levels.push_back(0);
-          zoomed_data.entry_start_times.push_back(100.0);
-          zoomed_data.entry_total_times.push_back(50.0);
-          zoomed_data.entry_self_times.push_back(50.0);
-          zoomed_data.entry_event_ids.push_back(4);
-          zoomed_data.level_offsets = {0, 3, 4};
-          zoomed_data.level_event_indices = {0, 3, 1, 2};
-          timeline.UpdateTimelineData(
-              [&]() { return std::move(zoomed_data); });
-          timeline.set_fetched_data_time_range({0.0, 1000.0});
-          timeline.set_is_incremental_loading(false);
-        }
-      });
+  timeline.set_event_callback([&](absl::string_view type, const EventData&) {
+    if (type == kFetchData) {
+      ++fetch_count;
+      // Simulate serving a narrow zoomed-in slice where "host1 CPU" is
+      // subsequently expanded by the user.
+      FlameChartTimelineData zoomed_data =
+          make_overview_data(/*cpu_expanded=*/true);
+      zoomed_data.entry_names.push_back("fine_op_2");
+      zoomed_data.entry_levels.push_back(0);
+      zoomed_data.entry_start_times.push_back(100.0);
+      zoomed_data.entry_total_times.push_back(50.0);
+      zoomed_data.entry_self_times.push_back(50.0);
+      zoomed_data.entry_event_ids.push_back(4);
+      zoomed_data.level_offsets = {0, 3, 4};
+      zoomed_data.level_event_indices = {0, 3, 1, 2};
+      timeline.UpdateTimelineData([&]() { return std::move(zoomed_data); });
+      timeline.set_fetched_data_time_range({0.0, 1000.0});
+      timeline.set_is_incremental_loading(false);
+    }
+  });
 
   // 1. Zoom in to [0, 300]: PrepareForFilteredRefetch() stashes the full
   // overview when UpdateTimelineData runs.
@@ -18009,9 +18312,9 @@ TEST_F(RealTimelineImGuiFixture,
   const float duration_based_right_px =
       shader_delta_us(long_inst[0], long_inst[1]) * px_per_us +
       static_cast<float>(kLongDur) * px_per_us;
-  EXPECT_GT(std::abs(duration_based_right_px -
-                     cpu_edge_px(kLongStart + kLongDur)),
-            1.0);
+  EXPECT_GT(
+      std::abs(duration_based_right_px - cpu_edge_px(kLongStart + kLongDur)),
+      1.0);
 
   // The GPU batch draws both slices, so instanced mode omits both 4-vertex
   // CPU rectangles. No slice falls back to a CPU rectangle.
@@ -18744,41 +19047,41 @@ TEST_F(TrackReorderTest, ReorderingInsideHiddenSection) {
 TEST_F(TrackReorderTest, HiddenProcessDoesNotPreemptVisibleProcessInMinimap) {
   timeline_.set_minimap_enabled(true);
   timeline_.set_track_management_enabled(true);
-  FlameChartTimelineData data = BuildMinimapTestData(
-      {{.name = "P_hidden",
-        .start_level = 0,
-        .nesting_level = kProcessNestingLevel,
-        .expanded = true,
-        .has_children = true},
-       {.name = "Regions",
-        .start_level = 0,
-        .nesting_level = 2,
-        .expanded = true},
-       {.name = "L_hidden",
-        .start_level = 1,
-        .nesting_level = 2,
-        .expanded = true},
-       {.name = "P_visible",
-        .start_level = 2,
-        .nesting_level = kProcessNestingLevel,
-        .expanded = true,
-        .has_children = true},
-       {.name = "Regions",
-        .start_level = 2,
-        .nesting_level = 2,
-        .expanded = true},
-       {.name = "L_visible",
-        .start_level = 3,
-        .nesting_level = 2,
-        .expanded = true}},
-      {
-          {},
-          {{"hidden_reg", 0.0, 100.0}},
-          {{"hidden_lane", 0.0, 50.0}},
-          {},
-          {{"visible_reg", 0.0, 100.0}},
-          {{"visible_lane", 50.0, 50.0}},
-      });
+  FlameChartTimelineData data =
+      BuildMinimapTestData({{.name = "P_hidden",
+                             .start_level = 0,
+                             .nesting_level = kProcessNestingLevel,
+                             .expanded = true,
+                             .has_children = true},
+                            {.name = "Regions",
+                             .start_level = 0,
+                             .nesting_level = 2,
+                             .expanded = true},
+                            {.name = "L_hidden",
+                             .start_level = 1,
+                             .nesting_level = 2,
+                             .expanded = true},
+                            {.name = "P_visible",
+                             .start_level = 2,
+                             .nesting_level = kProcessNestingLevel,
+                             .expanded = true,
+                             .has_children = true},
+                            {.name = "Regions",
+                             .start_level = 2,
+                             .nesting_level = 2,
+                             .expanded = true},
+                            {.name = "L_visible",
+                             .start_level = 3,
+                             .nesting_level = 2,
+                             .expanded = true}},
+                           {
+                               {},
+                               {{"hidden_reg", 0.0, 100.0}},
+                               {{"hidden_lane", 0.0, 50.0}},
+                               {},
+                               {{"visible_reg", 0.0, 100.0}},
+                               {{"visible_lane", 50.0, 50.0}},
+                           });
 
   std::vector<EventData> minimap_updates;
   timeline_.set_event_callback(
@@ -18810,19 +19113,19 @@ TEST_F(TrackReorderTest, HiddenProcessDoesNotPreemptVisibleProcessInMinimap) {
 
 TEST_F(TrackReorderTest, TopmostTrackWinsForSpecialMinimapRibbons) {
   timeline_.set_minimap_enabled(true);
-  FlameChartTimelineData data = BuildMinimapTestData(
-      {{.name = "Regions",
-        .start_level = 0,
-        .nesting_level = 1,
-        .expanded = true},
-       {.name = "Regions",
-        .start_level = 1,
-        .nesting_level = 1,
-        .expanded = true}},
-      {
-          {{"reg_top", 0.0, 50.0}},
-          {{"reg_bottom", 50.0, 50.0}},
-      });
+  FlameChartTimelineData data =
+      BuildMinimapTestData({{.name = "Regions",
+                             .start_level = 0,
+                             .nesting_level = 1,
+                             .expanded = true},
+                            {.name = "Regions",
+                             .start_level = 1,
+                             .nesting_level = 1,
+                             .expanded = true}},
+                           {
+                               {{"reg_top", 0.0, 50.0}},
+                               {{"reg_bottom", 50.0, 50.0}},
+                           });
 
   std::vector<EventData> minimap_updates;
   timeline_.set_event_callback(
@@ -18853,9 +19156,8 @@ TEST_F(TrackReorderTest, TopmostTrackWinsForSpecialMinimapRibbons) {
   const auto& regions_after = std::any_cast<const std::vector<EventData>&>(
       minimap_updates.back().at("regions"));
   ASSERT_FALSE(regions_after.empty());
-  EXPECT_EQ(
-      std::any_cast<std::string>(regions_after[0].at(kEventSelectedName)),
-      "reg_bottom");
+  EXPECT_EQ(std::any_cast<std::string>(regions_after[0].at(kEventSelectedName)),
+            "reg_bottom");
 }
 
 TEST(TimelineTest,

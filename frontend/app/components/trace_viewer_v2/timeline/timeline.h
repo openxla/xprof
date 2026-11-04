@@ -337,8 +337,7 @@ class Timeline {
   ImU32 get_group_accent_color_for_test(int group_index) const {
     return GetGroupAccentColor(group_index);
   }
-  const CounterTrackColors* get_counter_track_colors_for_test(
-      int group_index) {
+  const CounterTrackColors* get_counter_track_colors_for_test(int group_index) {
     RebuildCounterTrackColorsIfNeeded();
     return GetCounterTrackColors(group_index);
   }
@@ -350,6 +349,26 @@ class Timeline {
   }
   const std::string& get_bounds_notification_message_for_test() const {
     return bounds_notification_message_;
+  }
+  bool has_pending_undo_action_for_test() const {
+    return pending_undo_action_.has_value();
+  }
+  ImRect get_undo_button_rect_for_test() const {
+    ImRect undo_rect;
+    if (bounds_notification_timer_ > 0.0f && pending_undo_action_.has_value()) {
+      const float bounds_toast_offset =
+          copy_notification_timer_ > 0.0f ? 80.0f : 32.0f;
+      CalculateToastRect(bounds_notification_message_, bounds_toast_offset,
+                         /*has_undo=*/true, &undo_rect);
+    }
+    return undo_rect;
+  }
+  ImRect get_bounds_toast_rect_for_test() const {
+    if (bounds_notification_timer_ <= 0.0f) return ImRect();
+    const float bounds_toast_offset =
+        copy_notification_timer_ > 0.0f ? 80.0f : 32.0f;
+    return CalculateToastRect(bounds_notification_message_, bounds_toast_offset,
+                              pending_undo_action_.has_value());
   }
   bool get_should_restore_scroll_for_test() const {
     return should_restore_scroll_;
@@ -396,16 +415,13 @@ class Timeline {
   void set_group_heights_for_test(const std::vector<Pixel>& heights) {
     group_heights_ = heights;
   }
-  void set_label_width_for_test(Pixel width) {
-    label_width_ = width;
-  }
+  void set_label_width_for_test(Pixel width) { label_width_ = width; }
   bool get_is_resizing_label_column_for_test() const {
     return is_resizing_label_column_;
   }
   void set_track_management_enabled_for_test(bool enabled) {
     track_management_enabled_ = enabled;
   }
-
 
   // The provided callback is stored and invoked during the lifetime of this
   // `Timeline` instance. Any captured references must outlive the `Timeline`
@@ -495,8 +511,7 @@ class Timeline {
   const TimeRange& data_time_range() const { return data_time_range_; }
 
   void SetTimelineData(FlameChartTimelineData data);
-  void UpdateTimelineData(
-      absl::FunctionRef<FlameChartTimelineData()> builder);
+  void UpdateTimelineData(absl::FunctionRef<FlameChartTimelineData()> builder);
   const FlameChartTimelineData& timeline_data() const { return timeline_data_; }
 
   void MarkCurrentDataAsFullOverview() {
@@ -589,7 +604,6 @@ class Timeline {
     }
   }
   TimeAxisUnit time_axis_unit() const { return time_axis_unit_; }
-
 
   void set_bookmarks_enabled(bool enabled) { bookmarks_enabled_ = enabled; }
   bool bookmarks_enabled() const { return bookmarks_enabled_; }
@@ -870,7 +884,6 @@ class Timeline {
   double px_per_time_unit(Pixel timeline_width) const;
   void DrawTimelinePlayerSync();
 
-
   // Calculates the layout for the delete button and its hover area.
   // Exposed for testing.
   DeleteButtonLayout GetDeleteButtonLayout(const ImVec2& text_size,
@@ -1124,7 +1137,20 @@ class Timeline {
   void EmitViewportChanged(const TimeRange& range);
   // Emits mouse mode changed event to JS side.
   void EmitMouseModeChanged();
+  enum class TrackManagementActionType : uint8_t {
+    kPin,
+    kUnpin,
+    kHide,
+    kUnhide,
+  };
+  struct UndoableTrackAction {
+    TrackManagementActionType type;
+    std::string track_name;
+  };
   void ShowNavigationWarningNotification(absl::string_view message);
+  void ShowTrackManagementNotification(TrackManagementActionType action_type,
+                                       absl::string_view track_name);
+  bool UndoTrackManagementAction();
 
  private:
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
@@ -1386,8 +1412,18 @@ class Timeline {
   void CalculateAndEmitMetrics();
   void DrawSelectionRectangle();
 
-  // Draws a notification toast at the bottom of the timeline.
-  void DrawToast(absl::string_view message, float& timer, float base_y_offset);
+  // Calculates the screen rectangle of a notification toast and optionally its
+  // "Undo" action button.
+  ImRect CalculateToastRect(absl::string_view message, float base_y_offset,
+                            bool has_undo = false,
+                            ImRect* undo_button_rect = nullptr) const;
+  // Returns true if the mouse cursor is hovering over an active notification
+  // toast.
+  bool IsMouseOverToast() const;
+  // Draws a notification toast at the bottom of the timeline. Returns true if
+  // `has_undo` is true and the user clicked the "Undo" button.
+  bool DrawToast(absl::string_view message, float& timer, float base_y_offset,
+                 bool has_undo = false);
 
   // Draws all the bookmarks as vertical lines.
   void DrawBookmarks(Pixel timeline_width, double px_per_time_unit_val);
@@ -1739,6 +1775,11 @@ class Timeline {
   float bounds_notification_timer_ = 0.0f;
   // The message to show in the bounds notification toast.
   std::string bounds_notification_message_ = "";
+  // Pending track management action that can be undone via the toast snackbar.
+  std::optional<UndoableTrackAction> pending_undo_action_;
+  // Cached per-frame state indicating whether the mouse cursor is over an
+  // active notification toast, suppressing underlying timeline interactions.
+  bool is_mouse_over_toast_ = false;
 
   // Stores the remaining time (in seconds) to display the "Copied!"
   // notification.

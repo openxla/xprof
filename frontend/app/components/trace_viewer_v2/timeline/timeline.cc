@@ -489,10 +489,8 @@ struct IconButtonState {
 // standard hover delay.
 IconButtonState TrackIconButton(
     const char* id, Pixel row_height, bool active, absl::string_view tooltip,
-    ImU32 foreground_color,
-    absl::FunctionRef<float(ImGuiID, bool)> hover_fade,
-    Pixel hit_offset_x = 0.0f,
-    std::optional<Pixel> hit_width = std::nullopt) {
+    ImU32 foreground_color, absl::FunctionRef<float(ImGuiID, bool)> hover_fade,
+    Pixel hit_offset_x = 0.0f, std::optional<Pixel> hit_width = std::nullopt) {
   IconButtonState state;
   const ImVec2 cursor = ImGui::GetCursorScreenPos();
   const Pixel top = std::floor(
@@ -502,10 +500,10 @@ IconButtonState TrackIconButton(
                         min.y + kTrackIconButtonSize * 0.5f);
   ImGui::SetCursorScreenPos(ImVec2(min.x + hit_offset_x, min.y));
   ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
-  const ImVec2 button_size(
-      hit_width.value_or(kTrackIconButtonSize), kTrackIconButtonSize);
-  state.clicked = ImGui::InvisibleButton(
-      id, button_size, ImGuiButtonFlags_PressedOnClick);
+  const ImVec2 button_size(hit_width.value_or(kTrackIconButtonSize),
+                           kTrackIconButtonSize);
+  state.clicked =
+      ImGui::InvisibleButton(id, button_size, ImGuiButtonFlags_PressedOnClick);
   ImGui::PopItemFlag();
   state.hovered = ImGui::IsItemHovered();
   const bool pressed = ImGui::IsItemActive();
@@ -2616,6 +2614,8 @@ void Timeline::ResetForNewDataset() {
   group_accent_colors_.clear();
   counter_track_colors_.clear();
   copied_track_group_index_ = -1;
+  pending_undo_action_.reset();
+  is_mouse_over_toast_ = false;
   layout_transition_ = LayoutTransition();
   animate_next_layout_ = false;
   chevron_openness_.clear();
@@ -2651,7 +2651,8 @@ void Timeline::Draw() {
   hovered_group_index_ = -1;
   hovered_bundle_ = -1;
   hovered_counter_value_ = 0.0;
-  event_clicked_this_frame_ = false;
+  is_mouse_over_toast_ = IsMouseOverToast();
+  event_clicked_this_frame_ = is_mouse_over_toast_;
   bool is_resizer_hovered = false;
   bool needs_layout_update = false;
   motion_in_progress_ = false;
@@ -2815,15 +2816,15 @@ void Timeline::Draw() {
       group_offsets_.empty() ? 0.0f : group_offsets_.back();
   if (total_tracks_height > 0.0f) {
     if (!group_offsets_.empty() && group_offsets_.back() > 0.0f) {
-    ImGui::SetCursorPos(
-        ImVec2(0, tracks_start_pos.y + total_tracks_height - 1.0f));
-    ImGui::Dummy(ImVec2(content_region_avail_width, 1.0f));
-  }
+      ImGui::SetCursorPos(
+          ImVec2(0, tracks_start_pos.y + total_tracks_height - 1.0f));
+      ImGui::Dummy(ImVec2(content_region_avail_width, 1.0f));
+    }
 
     // Handle label resizing manually since we removed the table
-    ImGui::SetCursorPos(ImVec2(
-        tracks_start_pos.x + label_width_ - kSplitterOffset,
-        tracks_start_pos.y));
+    ImGui::SetCursorPos(
+        ImVec2(tracks_start_pos.x + label_width_ - kSplitterOffset,
+               tracks_start_pos.y));
     ImGui::InvisibleButton("##LabelResizer",
                            ImVec2(kSplitterWidth, group_offsets_.back()));
     if (ImGui::IsItemActive()) {
@@ -2953,8 +2954,14 @@ void Timeline::Draw() {
   if (copy_notification_timer_ > 0.0f) {
     bounds_toast_offset += 48.0f;
   }
-  DrawToast(bounds_notification_message_, bounds_notification_timer_,
-            bounds_toast_offset);
+  if (DrawToast(bounds_notification_message_, bounds_notification_timer_,
+                bounds_toast_offset, pending_undo_action_.has_value())) {
+    if (UndoTrackManagementAction()) {
+      needs_layout_update = true;
+    }
+  } else if (bounds_notification_timer_ <= 0.0f) {
+    pending_undo_action_.reset();
+  }
 
   if (hovered_event_index_ != -1) {
     hovered_group_index_ = -1;
@@ -2979,8 +2986,6 @@ void Timeline::Draw() {
   ImGui::PopStyleVar();  // WindowRounding
   ImGui::End();          // Timeline viewer
 
-  SyncMinimapState();
-
   if (needs_layout_update) {
     UpdateLevelPositions(timeline_data_);
     if (redraw_callback_) redraw_callback_();
@@ -2988,6 +2993,8 @@ void Timeline::Draw() {
     // Keep rendering frames until all motion has settled.
     redraw_callback_();
   }
+
+  SyncMinimapState();
 }
 
 bool Timeline::DrawHeaderRow(const Group* group_ptr,
@@ -3556,7 +3563,7 @@ bool Timeline::HandleProcessTrackHeaderClick(
     return false;
   }
   // Releasing the mouse to drop a dragged track is not a click.
-  if (is_dragging_track()) return false;
+  if (is_dragging_track() || is_mouse_over_toast_) return false;
 
   const Pixel timeline_start_x = tracks_start_screen_pos.x + label_width_;
   const Pixel timeline_end_x =
@@ -3849,7 +3856,69 @@ void Timeline::EmitMouseModeChanged() {
 void Timeline::ShowNavigationWarningNotification(absl::string_view message) {
   bounds_notification_message_ = std::string(message);
   bounds_notification_timer_ = 2.0f;
+  pending_undo_action_.reset();
   if (redraw_callback_) redraw_callback_();
+}
+
+void Timeline::ShowTrackManagementNotification(
+    TrackManagementActionType action_type, absl::string_view track_name) {
+  absl::string_view prefix;
+  switch (action_type) {
+    case TrackManagementActionType::kPin:
+      prefix = kPinnedProcessNotificationPrefix;
+      break;
+    case TrackManagementActionType::kUnpin:
+      prefix = kUnpinnedProcessNotificationPrefix;
+      break;
+    case TrackManagementActionType::kHide:
+      prefix = kHiddenProcessNotificationPrefix;
+      break;
+    case TrackManagementActionType::kUnhide:
+      prefix = kUnhiddenProcessNotificationPrefix;
+      break;
+  }
+  bounds_notification_message_ = absl::StrCat(prefix, track_name);
+  bounds_notification_timer_ = 2.0f;
+  pending_undo_action_ =
+      UndoableTrackAction{action_type, std::string(track_name)};
+  if (redraw_callback_) redraw_callback_();
+}
+
+bool Timeline::UndoTrackManagementAction() {
+  if (!pending_undo_action_.has_value()) return false;
+  const UndoableTrackAction action = *std::move(pending_undo_action_);
+  pending_undo_action_.reset();
+
+  switch (action.type) {
+    case TrackManagementActionType::kPin:
+      pinned_track_names_.erase(action.track_name);
+      ShowNavigationWarningNotification(
+          absl::StrCat(kUnpinnedProcessNotificationPrefix, action.track_name));
+      break;
+    case TrackManagementActionType::kUnpin:
+      pinned_track_names_.insert(action.track_name);
+      ShowNavigationWarningNotification(
+          absl::StrCat(kPinnedProcessNotificationPrefix, action.track_name));
+      break;
+    case TrackManagementActionType::kHide:
+      hidden_track_names_.erase(action.track_name);
+      ShowNavigationWarningNotification(
+          absl::StrCat(kUnhiddenProcessNotificationPrefix, action.track_name));
+      break;
+    case TrackManagementActionType::kUnhide:
+      if (all_processes_count_ > 1) {
+        hidden_track_names_.insert(action.track_name);
+        ShowNavigationWarningNotification(
+            absl::StrCat(kHiddenProcessNotificationPrefix, action.track_name));
+      } else {
+        ShowNavigationWarningNotification(kCannotHideLastProcessNotification);
+        return false;
+      }
+      break;
+  }
+
+  minimap_schedule_dirty_ = true;
+  return true;
 }
 
 void Timeline::RevealEvent(int event_index) {
@@ -4401,10 +4470,9 @@ Timeline::TickInfo Timeline::CalculateTickInfo(
     const std::string sample_label =
         FormatRulerLabel(sample_time, tick_interval);
     ImGui::PushFont(fonts::label_small);
-    const Pixel min_dist =
-        std::max(kMinTickDistancePx,
-                 ImGui::CalcTextSize(sample_label.c_str()).x +
-                     2.0f * kRulerTextPadding);
+    const Pixel min_dist = std::max(
+        kMinTickDistancePx,
+        ImGui::CalcTextSize(sample_label.c_str()).x + 2.0f * kRulerTextPadding);
     ImGui::PopFont();
     if (min_dist > kMinTickDistancePx) {
       tick_interval = CalculateNiceInterval(min_dist / px_per_time_unit_val);
@@ -4614,19 +4682,21 @@ void Timeline::DrawEvent(int group_index, int event_index,
     bool is_hovered = false;
     // As the shapes for instant events are triangles, we need to check for
     // hover in a different way than regular events.
-    if (is_instant) {
-      // Even if the instant event is triangular, to solve the "fat finger"
-      // problem, we still want to check for hover in a rectangle around the
-      // triangle.
-      is_hovered = ImGui::IsMouseHoveringRect(
-          ImVec2(rect.left - kInstantEventChevronHalfWidth, rect.top),
-          ImVec2(rect.left + kInstantEventChevronHalfWidth,
-                 rect.top + kInstantEventChevronHeight));
-    } else {
-      is_hovered = ImGui::IsMouseHoveringRect(
-          ImVec2(rect.left, rect.top),
-          ImVec2(rect.right + kEventPaddingRight,
-                 rect.bottom + kEventPaddingBottom));
+    if (!is_mouse_over_toast_) {
+      if (is_instant) {
+        // Even if the instant event is triangular, to solve the "fat finger"
+        // problem, we still want to check for hover in a rectangle around the
+        // triangle.
+        is_hovered = ImGui::IsMouseHoveringRect(
+            ImVec2(rect.left - kInstantEventChevronHalfWidth, rect.top),
+            ImVec2(rect.left + kInstantEventChevronHalfWidth,
+                   rect.top + kInstantEventChevronHeight));
+      } else {
+        is_hovered = ImGui::IsMouseHoveringRect(
+            ImVec2(rect.left, rect.top),
+            ImVec2(rect.right + kEventPaddingRight,
+                   rect.bottom + kEventPaddingBottom));
+      }
     }
 
     const Pixel corner_rounding =
@@ -4847,9 +4917,8 @@ void Timeline::DrawEventsForLevel(int group_index,
     }
     if (global_level < 0 && !event_indices.empty()) {
       const int sample_idx = event_indices.front();
-      if (sample_idx >= 0 &&
-          static_cast<size_t>(sample_idx) <
-              timeline_data_.entry_levels.size()) {
+      if (sample_idx >= 0 && static_cast<size_t>(sample_idx) <
+                                 timeline_data_.entry_levels.size()) {
         global_level = timeline_data_.entry_levels[sample_idx];
       }
     }
@@ -4860,8 +4929,7 @@ void Timeline::DrawEventsForLevel(int group_index,
          visible_count > kMinVisibleEventsForMipDraw)) {
       const LevelMipPyramid& pyramid = level_mip_pyramids_[global_level];
       const Microseconds us_per_px = 1.0 / px_per_time_unit;
-      int selected_mip =
-          pyramid.SelectMipLevel(kMaxMipBinWidthPx * us_per_px);
+      int selected_mip = pyramid.SelectMipLevel(kMaxMipBinWidthPx * us_per_px);
       if (selected_mip < 0 && pyramid.raw_events_compacted) {
         for (int m = 0; m < LevelMipPyramid::kNumMipLevels; ++m) {
           if (!pyramid.levels[m].tiles.empty()) {
@@ -4999,9 +5067,8 @@ void Timeline::DrawEventsForLevel(int group_index,
           Pixel hovered_tile_right = 0.0f;
           for (auto it = tile_first; it != tile_last; ++it) {
             const int dom_idx = it->dominant_event_index;
-            if (dom_idx >= 0 &&
-                static_cast<size_t>(dom_idx) <
-                    timeline_data_.entry_start_times.size()) {
+            if (dom_idx >= 0 && static_cast<size_t>(dom_idx) <
+                                    timeline_data_.entry_start_times.size()) {
               const Microseconds dom_start =
                   timeline_data_.entry_start_times[dom_idx];
               const Microseconds dom_dur =
@@ -5207,15 +5274,13 @@ void Timeline::DrawEventsForLevel(int group_index,
 
     const bool is_instant = dur <= 1e-06;
     const bool is_selected = (selected_event_index_ == event_index);
-    const bool matches_search =
-        !search_query_lower_.empty() &&
-        matching_event_indices_.contains(event_index);
+    const bool matches_search = !search_query_lower_.empty() &&
+                                matching_event_indices_.contains(event_index);
 
     if (!is_instant && !is_selected && !matches_search) {
       const Pixel raw_left = TimeToScreenX(start, pos.x, px_per_time_unit);
       const Pixel raw_right = TimeToScreenX(end, pos.x, px_per_time_unit);
-      if (raw_left < last_drawn_right &&
-          raw_right <= last_drawn_right + 0.5f) {
+      if (raw_left < last_drawn_right && raw_right <= last_drawn_right + 0.5f) {
         continue;
       }
     }
@@ -5306,10 +5371,9 @@ void Timeline::DrawCounterTooltip(int group_index, const CounterData& data,
 
     if (event_tooltip_enabled_) {
       // Draw tooltip for current counter point's value and timestamp
-      ImGui::SetTooltip(
-          "%s",
-          FormatCounterTooltip(time_axis_unit_, mouse_time, val, data.unit)
-              .c_str());
+      ImGui::SetTooltip("%s", FormatCounterTooltip(time_axis_unit_, mouse_time,
+                                                   val, data.unit)
+                                  .c_str());
     } else if (hovered_event_index_ == -1 && mouse_time >= 0.0) {
       hovered_group_index_ = group_index;
       hovered_bundle_ = static_cast<int64_t>(std::floor(mouse_time));
@@ -6554,10 +6618,10 @@ bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
                     /*hit_offset_x=*/0.0f, effective_hit_width)) {
     needs_layout_update = true;
     minimap_schedule_dirty_ = true;
-    ShowNavigationWarningNotification(
-        is_pinned
-            ? absl::StrCat(kUnpinnedProcessNotificationPrefix, group.name)
-            : absl::StrCat(kPinnedProcessNotificationPrefix, group.name));
+    ShowTrackManagementNotification(is_pinned
+                                        ? TrackManagementActionType::kUnpin
+                                        : TrackManagementActionType::kPin,
+                                    group.name);
   }
 
   // Position and draw Hide button
@@ -6572,10 +6636,10 @@ bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
     // old state:
     // If it WAS hidden (true), it is now UNHIDDEN.
     // If it WAS visible (false), it is now HIDDEN.
-    ShowNavigationWarningNotification(
-        is_track_hidden
-            ? absl::StrCat(kUnhiddenProcessNotificationPrefix, group.name)
-            : absl::StrCat(kHiddenProcessNotificationPrefix, group.name));
+    ShowTrackManagementNotification(is_track_hidden
+                                        ? TrackManagementActionType::kUnhide
+                                        : TrackManagementActionType::kHide,
+                                    group.name);
   }
 
   return needs_layout_update;
@@ -6583,7 +6647,7 @@ bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
 
 bool Timeline::IsTrackRowHovered(int group_index) const {
   // Rows do not react to the pointer while a track is dragged over them.
-  if (is_dragging_track()) return false;
+  if (is_dragging_track() || is_mouse_over_toast_) return false;
   const Pixel content_region_avail_width =
       ImGui::GetWindowWidth() - ImGui::GetStyle().ScrollbarSize;
   const Pixel row_top =
@@ -6611,6 +6675,7 @@ bool Timeline::DrawHideButton(int group_index, Pixel height,
 
   bool toggled = false;
   if (state.clicked) {
+    event_clicked_this_frame_ = true;
     auto it = hidden_track_names_.find(group.name);
     if (it != hidden_track_names_.end()) {
       hidden_track_names_.erase(it);
@@ -6652,6 +6717,7 @@ bool Timeline::DrawPinButton(int group_index, Pixel height, bool is_pinned,
 
   bool toggled = false;
   if (state.clicked) {
+    event_clicked_this_frame_ = true;
     if (is_pinned) {
       pinned_track_names_.erase(group.name);
     } else {
@@ -6721,8 +6787,7 @@ bool Timeline::HandleKeyboard() {
       (selected_event_index_ == -1 && ImGui::IsKeyDown(ImGuiKey_LeftArrow))) {
     ImGuiKey key =
         ImGui::IsKeyDown(ImGuiKey_A) ? ImGuiKey_A : ImGuiKey_LeftArrow;
-    float multiplier =
-        GetSpeedMultiplier(io, key, kShiftPanAccelerateFactor);
+    float multiplier = GetSpeedMultiplier(io, key, kShiftPanAccelerateFactor);
     Pan(-panning_speed_ * io.DeltaTime * multiplier);
     is_interacting = true;
   }
@@ -6984,6 +7049,7 @@ void Timeline::HandleEventDeselection() {
 bool Timeline::HandleMouse() {
   const ImRect timeline_area = GetTimelineArea();
   const bool is_mouse_over_timeline =
+      !is_mouse_over_toast_ &&
       ImGui::IsMouseHoveringRect(timeline_area.Min, timeline_area.Max);
 
   if (time_range_resizing_state_.has_value()) {
@@ -7137,39 +7203,127 @@ void Timeline::HandleMouseDrag(Pixel timeline_origin_x) {
   }
 }
 
-void Timeline::DrawToast(absl::string_view message, float& timer,
-                         float base_y_offset) {
-  if (timer <= 0.0f) return;
-
-  timer -= ImGui::GetIO().DeltaTime;
-  if (redraw_callback_) redraw_callback_();
-
+ImRect Timeline::CalculateToastRect(absl::string_view message,
+                                    float base_y_offset, bool has_undo,
+                                    ImRect* undo_button_rect) const {
   const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
-  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
-
   const ImVec2 text_size =
       ImGui::CalcTextSize(message.data(), message.data() + message.size());
-  const ImVec2 padding(16.0f, 8.0f);
-  const ImVec2 toast_size(text_size.x + padding.x * 2.0f,
-                          text_size.y + padding.y * 2.0f);
+  Pixel width = text_size.x + kToastPaddingX * 2.0f;
+  const Pixel height = text_size.y + kToastPaddingY * 2.0f;
+  ImVec2 undo_size(0.0f, 0.0f);
+  if (has_undo) {
+    const absl::string_view undo_label(kUndoLabel);
+    undo_size = ImGui::CalcTextSize(undo_label.data(),
+                                    undo_label.data() + undo_label.size());
+    width = kToastPaddingX + text_size.x + kToastActionSpacing + undo_size.x +
+            kToastButtonPaddingX * 2.0f + kToastRightPaddingWithAction;
+  }
 
   const ImVec2 toast_pos(
-      main_viewport->Pos.x + (main_viewport->Size.x - toast_size.x) * 0.5f,
-      main_viewport->Pos.y + main_viewport->Size.y - toast_size.y -
-          base_y_offset);
+      main_viewport->Pos.x + (main_viewport->Size.x - width) * 0.5f,
+      main_viewport->Pos.y + main_viewport->Size.y - height - base_y_offset);
+  if (undo_button_rect != nullptr) {
+    if (has_undo) {
+      const Pixel button_min_x =
+          toast_pos.x + kToastPaddingX + text_size.x + kToastActionSpacing;
+      const Pixel button_min_y =
+          toast_pos.y + kToastPaddingY - kToastButtonPaddingY;
+      *undo_button_rect = ImRect(
+          ImVec2(button_min_x, button_min_y),
+          ImVec2(button_min_x + undo_size.x + kToastButtonPaddingX * 2.0f,
+                 button_min_y + undo_size.y + kToastButtonPaddingY * 2.0f));
+    } else {
+      *undo_button_rect = ImRect();
+    }
+  }
+  return ImRect(toast_pos, ImVec2(toast_pos.x + width, toast_pos.y + height));
+}
+
+bool Timeline::IsMouseOverToast() const {
+  if (!ImGui::IsMousePosValid()) return false;
+  if (copy_notification_timer_ > 0.0f) {
+    const ImRect copy_rect = CalculateToastRect(
+        absl::StrCat("Copied track name: ", copied_track_name_), 32.0f,
+        /*has_undo=*/false);
+    if (ImGui::IsMouseHoveringRect(copy_rect.Min, copy_rect.Max,
+                                   /*clip=*/false)) {
+      return true;
+    }
+  }
+  if (bounds_notification_timer_ > 0.0f) {
+    const float bounds_toast_offset =
+        copy_notification_timer_ > 0.0f ? 80.0f : 32.0f;
+    const ImRect bounds_rect =
+        CalculateToastRect(bounds_notification_message_, bounds_toast_offset,
+                           pending_undo_action_.has_value());
+    if (ImGui::IsMouseHoveringRect(bounds_rect.Min, bounds_rect.Max,
+                                   /*clip=*/false)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool Timeline::DrawToast(absl::string_view message, float& timer,
+                         float base_y_offset, bool has_undo) {
+  if (timer <= 0.0f) return false;
+
+  ImRect undo_button_rect;
+  const ImRect toast_rect =
+      CalculateToastRect(message, base_y_offset, has_undo, &undo_button_rect);
+  const bool is_toast_hovered =
+      ImGui::IsMousePosValid() &&
+      ImGui::IsMouseHoveringRect(toast_rect.Min, toast_rect.Max,
+                                 /*clip=*/false);
+
+  if (!is_toast_hovered) {
+    timer -= ImGui::GetIO().DeltaTime;
+  }
+  if (redraw_callback_) redraw_callback_();
+
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
 
   // Fade out at the end.
   const float alpha = std::max(0.0f, std::min(1.0f, timer * 2.0f));
   const ImU32 bg_color =
-      IM_COL32(32, 33, 36, (int)(230.0f * alpha));  // Dark grey
-  const ImU32 text_color = IM_COL32(255, 255, 255, (int)(255.0f * alpha));
+      IM_COL32(32, 33, 36, static_cast<int>(230.0f * alpha));  // Dark grey
+  const ImU32 text_color =
+      IM_COL32(255, 255, 255, static_cast<int>(255.0f * alpha));
 
-  draw_list->AddRectFilled(
-      toast_pos, ImVec2(toast_pos.x + toast_size.x, toast_pos.y + toast_size.y),
-      bg_color, kToastCornerRounding);
-  draw_list->AddText(ImVec2(toast_pos.x + padding.x, toast_pos.y + padding.y),
+  draw_list->AddRectFilled(toast_rect.Min, toast_rect.Max, bg_color,
+                           kToastCornerRounding);
+  draw_list->AddText(ImVec2(toast_rect.Min.x + kToastPaddingX,
+                            toast_rect.Min.y + kToastPaddingY),
                      text_color, message.data(),
                      message.data() + message.size());
+
+  bool undo_clicked = false;
+  if (has_undo) {
+    const bool is_undo_hovered =
+        ImGui::IsMousePosValid() &&
+        ImGui::IsMouseHoveringRect(undo_button_rect.Min, undo_button_rect.Max,
+                                   /*clip=*/false);
+    if (is_undo_hovered) {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+      const float highlight_opacity =
+          (ImGui::IsMouseDown(0) ? kIconButtonPressedOpacity
+                                 : kIconButtonHoverOpacity) *
+          alpha;
+      draw_list->AddRectFilled(undo_button_rect.Min, undo_button_rect.Max,
+                               WithOpacity(kBlue80, highlight_opacity),
+                               kToastCornerRounding);
+      if (ImGui::IsMouseReleased(0) && !ImGui::IsMouseDragPastThreshold(0)) {
+        undo_clicked = true;
+      }
+    }
+    const absl::string_view undo_label(kUndoLabel);
+    draw_list->AddText(ImVec2(undo_button_rect.Min.x + kToastButtonPaddingX,
+                              toast_rect.Min.y + kToastPaddingY),
+                       WithOpacity(kBlue80, alpha), undo_label.data(),
+                       undo_label.data() + undo_label.size());
+  }
+  return undo_clicked;
 }
 
 void Timeline::HandleMouseRelease() {

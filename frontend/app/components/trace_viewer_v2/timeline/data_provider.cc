@@ -3714,6 +3714,11 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   incremental_state_.reset();
   was_compacted_ = false;
   last_load_was_refetch_ = false;
+  if (timeline.ShouldIgnoreStaleFilteredRefetch(
+          parsed_events.visible_range_from_url.has_value())) {
+    timeline.set_is_incremental_loading(false);
+    return;
+  }
   timeline.set_mpmd_pipeline_view_enabled(parsed_events.mpmd_pipeline_view);
   timeline.set_time_axis_unit(parsed_events.time_axis_unit);
   if (parsed_events.flame_events.empty() &&

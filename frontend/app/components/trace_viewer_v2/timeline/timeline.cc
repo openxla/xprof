@@ -1587,7 +1587,7 @@ void Timeline::UpdateTimelineData(
   const bool had_selected_event_dependencies =
       had_selected_event && dependencies_.event_index == selected_event_index_;
 
-  if ((stash_full_overview_on_next_update_ || is_full_overview_data_) &&
+  if (stash_full_overview_on_next_update_ &&
       !saved_full_overview_.has_value() &&
       !timeline_data_.entry_start_times.empty()) {
     if (is_compacted_ && timeline_data_.entry_start_times.size() >
@@ -1619,6 +1619,7 @@ void Timeline::UpdateTimelineData(
   }
   stash_full_overview_on_next_update_ = false;
   is_full_overview_data_ = false;
+  ClearPendingRefetchState();
 
   FlameChartTimelineData data = builder();
   BackfillGroupLevelCount(data);
@@ -2489,12 +2490,19 @@ void Timeline::CompactTimelineDataToMipOverview() {
 }
 
 bool Timeline::RestoreSavedFullOverview() {
+  const bool was_refetch_in_flight =
+      pending_refetch_state_.has_value() && pending_refetch_state_->in_flight;
   if (!saved_full_overview_.has_value()) {
     if (is_full_overview_data_) {
+      // No refetched data was flushed yet, so the overview is still displayed;
+      // roll back the resolution flags reset when the refetch began.
+      RestorePreRefetchResolutionFlags();
       stash_full_overview_on_next_update_ = false;
+      ClearPendingRefetchState();
       ClearLoadedActiveTracks();
       InitializeLastFetchRequestRange(data_time_range_);
       set_is_incremental_loading(false);
+      NotifyRefetchCancelledIfInFlight(was_refetch_in_flight);
       if (redraw_callback_) redraw_callback_();
       return true;
     }
@@ -2545,6 +2553,7 @@ bool Timeline::RestoreSavedFullOverview() {
   saved_full_overview_.reset();
   is_full_overview_data_ = true;
   stash_full_overview_on_next_update_ = false;
+  ClearPendingRefetchState();
   is_incremental_loading_ = false;
   should_restore_scroll_ = true;
   selected_event_index_ = -1;
@@ -2553,6 +2562,7 @@ bool Timeline::RestoreSavedFullOverview() {
   if (data_time_range_.duration() > 0) {
     InitializeLastFetchRequestRange(data_time_range_);
   }
+  NotifyRefetchCancelledIfInFlight(was_refetch_in_flight);
 #ifdef __EMSCRIPTEN__
   if (!gpu_flame_instances_.empty()) {
     ImGui_ImplWGPU_UploadFlameInstances(
@@ -2563,6 +2573,15 @@ bool Timeline::RestoreSavedFullOverview() {
 #endif
   if (redraw_callback_) redraw_callback_();
   return true;
+}
+
+void Timeline::CancelPendingRefetch() {
+  if (pending_refetch_state_.has_value()) {
+    RestorePreRefetchState();
+  } else {
+    stash_full_overview_on_next_update_ = false;
+  }
+  is_incremental_loading_ = false;
 }
 
 ImU32 Timeline::GetEventColor(int event_index) const {
@@ -2749,6 +2768,7 @@ void Timeline::ResetForNewDataset() {
   fetched_data_time_range_ = TimeRange::Zero();
   data_time_range_ = TimeRange::Zero();
   last_fetch_request_range_ = TimeRange::Zero();
+  ClearPendingRefetchState();
   SetVisibleRange(TimeRange::Zero());
 }
 
@@ -7638,6 +7658,7 @@ void Timeline::InitializeLastFetchRequestRange(const TimeRange& visible_range) {
 
   ConstrainTimeRange(fetch);
   last_fetch_request_range_ = fetch;
+  ClearPendingRefetchState();
 }
 
 absl::flat_hash_set<std::pair<ProcessId, ThreadId>>
@@ -7801,9 +7822,11 @@ void Timeline::MaybeRequestData() {
     return;
   }
 
+  PendingRefetchState& pending_refetch = SnapshotPreRefetchState();
   if (data_time_range_.duration() > 0 &&
-      fetch.duration() < 0.9 * data_time_range_.duration()) {
-    PrepareForFilteredRefetch();
+      fetch.duration() < 0.9 * data_time_range_.duration() &&
+      is_full_overview_data_ && !saved_full_overview_.has_value()) {
+    stash_full_overview_on_next_update_ = true;
   }
 
   EventData event_data;
@@ -7815,6 +7838,7 @@ void Timeline::MaybeRequestData() {
   // SetTimelineData / set_fetched_data_time_range / set_is_incremental_loading
   // are not overwritten afterward.
   last_fetch_request_range_ = fetch;
+  pending_refetch.in_flight = true;
   is_incremental_loading_ = true;
 
   event_callback_(kFetchData, event_data);
@@ -8910,6 +8934,49 @@ void Timeline::CancelTrackDrag() {
     ImGui::ClearActiveID();
   }
   track_drag_.reset();
+}
+
+Timeline::PendingRefetchState& Timeline::SnapshotPreRefetchState() {
+  if (!pending_refetch_state_.has_value()) {
+    pending_refetch_state_ = PendingRefetchState{
+        .last_fetch_request_range = last_fetch_request_range_,
+        .stash_full_overview_on_next_update =
+            stash_full_overview_on_next_update_,
+        .full_trace_loaded = full_trace_loaded_,
+        .is_compacted = is_compacted_,
+        .window_at_full_resolution = window_at_full_resolution_,
+        .has_active_track_filter = has_active_track_filter_,
+        .loaded_active_tracks = loaded_active_tracks_,
+    };
+  }
+  return *pending_refetch_state_;
+}
+
+void Timeline::RestorePreRefetchState() {
+  if (!pending_refetch_state_.has_value()) return;
+  PendingRefetchState& state = *pending_refetch_state_;
+  last_fetch_request_range_ = state.last_fetch_request_range;
+  stash_full_overview_on_next_update_ =
+      state.stash_full_overview_on_next_update;
+  RestorePreRefetchResolutionFlags();
+  has_active_track_filter_ = state.has_active_track_filter;
+  loaded_active_tracks_ = std::move(state.loaded_active_tracks);
+  ClearPendingRefetchState();
+}
+
+void Timeline::RestorePreRefetchResolutionFlags() {
+  if (!pending_refetch_state_.has_value()) return;
+  full_trace_loaded_ = pending_refetch_state_->full_trace_loaded;
+  is_compacted_ = pending_refetch_state_->is_compacted;
+  window_at_full_resolution_ =
+      pending_refetch_state_->window_at_full_resolution;
+}
+
+void Timeline::NotifyRefetchCancelledIfInFlight(bool was_refetch_in_flight) {
+  if (was_refetch_in_flight) {
+    event_callback_(kFetchData, {{std::string(kFetchDataStart), 0.0},
+                                 {std::string(kFetchDataEnd), 0.0}});
+  }
 }
 
 }  // namespace traceviewer

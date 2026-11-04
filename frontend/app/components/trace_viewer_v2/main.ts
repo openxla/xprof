@@ -711,16 +711,21 @@ async function initGpuAndStartWasmApp(
   return loadAndStartWasm(canvas, device);
 }
 
+interface FileInputCallbacks {
+  onFileProcessed?: () => void;
+  onFileSelected?: () => void;
+}
+
 /**
  * Sets up drag-and-drop and file input handlers for uploading trace files.
  *
  * @param traceviewerModule The initialized Trace Viewer v2 WASM module.
- * @param onFileProcessed Optional callback to execute when a file is
+ * @param callbacks Optional callbacks invoked when a file is selected or
  *     successfully processed.
  */
 function setupFileInputHandler(
   traceviewerModule: TraceViewerV2Module,
-  onFileProcessed?: () => void,
+  callbacks?: FileInputCallbacks,
 ) {
   const fileInput = document.getElementById('fileInput') as HTMLInputElement;
   if (fileInput) {
@@ -729,7 +734,12 @@ function setupFileInputHandler(
       if (!file) {
         return;
       }
-      await processUploadedFile(file, traceviewerModule, onFileProcessed);
+      callbacks?.onFileSelected?.();
+      await processUploadedFile(
+        file,
+        traceviewerModule,
+        callbacks?.onFileProcessed,
+      );
     });
   }
 
@@ -757,7 +767,12 @@ function setupFileInputHandler(
     if (!file) {
       return;
     }
-    await processUploadedFile(file, traceviewerModule, onFileProcessed);
+    callbacks?.onFileSelected?.();
+    await processUploadedFile(
+      file,
+      traceviewerModule,
+      callbacks?.onFileProcessed,
+    );
   };
 
   registerWindowListener('dragover', handleDragOver);
@@ -1129,10 +1144,15 @@ function propagateBrowserTraceOptions(urlObj: URL): void {
 // (e.g., using `isTraceData`) is expected to be done by the caller.
 async function loadJsonDataInternal(
   url: string,
-  fetchData: TraceDataFetcher = fetch,
+  fetchData?: TraceDataFetcher,
+  abortSignal?: AbortSignal,
 ): Promise<unknown> {
   try {
-    const response = await fetchData(url);
+    const response = fetchData
+      ? await fetchData(url)
+      : abortSignal
+        ? await fetch(url, {signal: abortSignal})
+        : await fetch(url);
     if (!response.ok) {
       throw new Error(getFetchErrorMessage(response));
     }
@@ -1225,6 +1245,7 @@ async function fetchAndProcessCompressedTraceDataIncremental({
   urlObj,
   traceviewerModule,
   isAbortRequested,
+  isSuperseded = () => false,
   abortSignal,
   timeRange,
   isRefetch = false,
@@ -1234,6 +1255,7 @@ async function fetchAndProcessCompressedTraceDataIncremental({
   urlObj: URL;
   traceviewerModule: IncrementalTraceViewerModule;
   isAbortRequested: () => boolean;
+  isSuperseded?: () => boolean;
   abortSignal?: AbortSignal;
   timeRange?: [number, number];
   isRefetch?: boolean;
@@ -1262,6 +1284,7 @@ async function fetchAndProcessCompressedTraceDataIncremental({
       !settledIncrementalSession &&
       traceviewerModule === activeWasmModule &&
       sessionId === activeWasmIncrementalSessionId &&
+      !isSuperseded() &&
       (startedIncrementalSession || isRefetch)
     ) {
       settledIncrementalSession = true;
@@ -1633,6 +1656,7 @@ async function fetchAndProcessTraceData({
   urlObj,
   traceviewerModule,
   isAbortRequested,
+  isSuperseded = () => false,
   abortSignal,
   timeRange,
   isRefetch = false,
@@ -1645,6 +1669,7 @@ async function fetchAndProcessTraceData({
   urlObj: URL;
   traceviewerModule: TraceViewerV2Module;
   isAbortRequested: () => boolean;
+  isSuperseded?: () => boolean;
   abortSignal?: AbortSignal;
   timeRange?: [number, number];
   isRefetch?: boolean;
@@ -1666,6 +1691,7 @@ async function fetchAndProcessTraceData({
     updateUrlWithResolution(urlObj, traceviewerModule.canvas);
   }
 
+  let incrementalPipelineUsed = false;
   try {
     if (
       urlObj.pathname.endsWith('.pb') ||
@@ -1690,10 +1716,12 @@ async function fetchAndProcessTraceData({
         }
       }
       if (useIncrementalPipeline) {
+        incrementalPipelineUsed = true;
         const fullLoaded = await fetchAndProcessCompressedTraceDataIncremental({
           urlObj,
           traceviewerModule,
           isAbortRequested,
+          isSuperseded,
           abortSignal,
           timeRange,
           isRefetch,
@@ -1708,6 +1736,7 @@ async function fetchAndProcessTraceData({
         const buffer = await loadCompressedTraceDataInternal(
           urlObj.toString(),
           fetchData,
+          abortSignal,
         );
         if (isAbortRequested()) return false;
 
@@ -1747,17 +1776,24 @@ async function fetchAndProcessTraceData({
         }
       }
     } else {
-      const jsonData = await loadJsonDataInternal(urlObj.toString(), fetchData);
+      const jsonData = await loadJsonDataInternal(
+        urlObj.toString(),
+        fetchData,
+        abortSignal,
+      );
       if (isAbortRequested()) return false;
 
       if (!isTraceData(jsonData)) {
         console.error('File does not contain valid trace events.');
+        if (isRefetch && traceviewerModule === activeWasmModule) {
+          traceviewerModule.cancelIncrementalTraceEvents?.();
+        }
         window.dispatchEvent(
           new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
             detail: {status: TraceViewerV2LoadingStatus.IDLE},
           }),
         );
-        return true;
+        return false;
       }
 
       maybeDispatchDetailsReceivedEvent(jsonData);
@@ -1805,15 +1841,26 @@ async function fetchAndProcessTraceData({
     );
     return true;
   } catch (e) {
-    if (isAbortRequested()) {
-      return false;
+    const superseded = isSuperseded();
+    if (
+      isRefetch &&
+      !incrementalPipelineUsed &&
+      !superseded &&
+      traceviewerModule === activeWasmModule
+    ) {
+      traceviewerModule.cancelIncrementalTraceEvents?.();
     }
     if (isAbortError(e)) {
-      window.dispatchEvent(
-        new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-          detail: {status: TraceViewerV2LoadingStatus.IDLE},
-        }),
-      );
+      if (!superseded && traceviewerModule === activeWasmModule) {
+        window.dispatchEvent(
+          new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+            detail: {status: TraceViewerV2LoadingStatus.IDLE},
+          }),
+        );
+      }
+      return false;
+    }
+    if (isAbortRequested() || superseded) {
       return false;
     }
     console.error(`Error ${errorContext}:`, e);
@@ -1826,7 +1873,7 @@ async function fetchAndProcessTraceData({
         },
       }),
     );
-    return true;
+    return false;
   }
 }
 
@@ -1844,16 +1891,39 @@ async function handleFetchDataEvent(
     return;
   }
   if (isFullTraceLoaded() || isCurrentlyLoading()) {
+    traceviewerModule?.cancelIncrementalTraceEvents?.();
     return;
   }
   const detail = event.detail;
   const initialDataUrl = getCurrentDataUrl();
   if (!initialDataUrl) {
     console.warn('Data URL not set, cannot fetch new data.');
+    traceviewerModule?.cancelIncrementalTraceEvents?.();
     return;
   }
   if (!traceviewerModule) {
     console.warn('Trace viewer module not initialized.');
+    return;
+  }
+
+  const isSuperseded = () =>
+    initialDataUrl !== getCurrentDataUrl() || isRefetchSuperseded();
+  if (!(detail.end_time_ms > detail.start_time_ms)) {
+    if (!isSuperseded() && traceviewerModule === activeWasmModule) {
+      ++activeWasmIncrementalSessionId;
+      traceviewerModule.restoreFullTraceOverviewIfAvailable?.();
+      traceviewerModule.cancelIncrementalTraceEvents?.();
+      window.dispatchEvent(
+        new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+          detail: {status: TraceViewerV2LoadingStatus.IDLE},
+        }),
+      );
+      requestAnimationFrame(() => {
+        if (!isSuperseded() && traceviewerModule === activeWasmModule) {
+          traceviewerModule.RequestRedraw?.();
+        }
+      });
+    }
     return;
   }
 
@@ -1875,9 +1945,10 @@ async function handleFetchDataEvent(
     urlObj,
     traceviewerModule,
     isAbortRequested: () =>
-      initialDataUrl !== getCurrentDataUrl() ||
-      traceviewerModule !== activeWasmModule ||
-      isRefetchSuperseded(),
+      (abortSignal?.aborted ?? false) ||
+      isSuperseded() ||
+      traceviewerModule !== activeWasmModule,
+    isSuperseded,
     abortSignal,
     timeRange: [detail.start_time_ms, detail.end_time_ms],
     isRefetch: true,
@@ -1946,6 +2017,7 @@ export async function traceViewerV2Main(
   let currentStreamWorkerFactory: TraceStreamWorkerFactory | undefined =
     options?.createStreamWorker;
   let fullTraceLoaded = false;
+  let activeLoadId = 0;
   let activeRefetchId = 0;
   let hasLoadedDataset = false;
 
@@ -1967,20 +2039,50 @@ export async function traceViewerV2Main(
     return null;
   }
 
-  setupFileInputHandler(traceviewerModule, () => {
+  const resetInFlightRequestsForNewDataset = (
+    nextDataUrl: string | null,
+    streamWorkerFactory: TraceStreamWorkerFactory | undefined,
+  ): boolean => {
+    const hadActiveFetch =
+      activeLoadAbortController !== null ||
+      activeRefetchAbortController !== null ||
+      currentLoadingPromise !== null;
     activeLoadAbortController?.abort();
     activeLoadAbortController = null;
     activeRefetchAbortController?.abort();
     activeRefetchAbortController = null;
-    currentDataUrl = null;
-    currentStreamWorkerFactory = options?.createStreamWorker;
+    ++activeLoadId;
+    ++activeRefetchId;
+    currentDataUrl = nextDataUrl;
+    currentLoadingPromise = null;
+    currentStreamWorkerFactory = streamWorkerFactory;
     fullTraceLoaded = false;
     clearCachedFullTrace();
-    ++activeRefetchId;
-    hasLoadedDataset = true;
-    if (options?.onFileUploadedToXprof) {
-      options.onFileUploadedToXprof();
-    }
+    return hadActiveFetch;
+  };
+
+  setupFileInputHandler(traceviewerModule, {
+    onFileProcessed: () => {
+      fullTraceLoaded = true;
+      hasLoadedDataset = true;
+      if (options?.onFileUploadedToXprof) {
+        options.onFileUploadedToXprof();
+      }
+    },
+    onFileSelected: () => {
+      const hadActiveFetch = resetInFlightRequestsForNewDataset(
+        null,
+        options?.createStreamWorker,
+      );
+      traceviewerModule?.cancelIncrementalTraceEvents?.();
+      if (hadActiveFetch) {
+        window.dispatchEvent(
+          new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+            detail: {status: TraceViewerV2LoadingStatus.IDLE},
+          }),
+        );
+      }
+    },
   });
 
   const resizeObserver = new ResizeObserver(() => {
@@ -2003,26 +2105,22 @@ export async function traceViewerV2Main(
   // it's tied to the canvas element.
 
   // Add a method to the module to load data from a URL
-  traceviewerModule.loadTraceData = async (
+  traceviewerModule.loadTraceData = (
     url: string,
     loadOptions?: LoadTraceDataOptions,
-  ) => {
+  ): Promise<void> => {
+    if (!traceviewerModule || traceviewerModule !== activeWasmModule) {
+      return Promise.resolve();
+    }
     if (url === currentDataUrl && currentLoadingPromise) {
       return currentLoadingPromise;
     }
-    activeLoadAbortController?.abort();
-    activeRefetchAbortController?.abort();
-    activeRefetchAbortController = null;
-    const loadAbortController = new AbortController();
-    activeLoadAbortController = loadAbortController;
-    currentDataUrl = url;
     const streamWorkerFactory =
       loadOptions?.createStreamWorker ?? options?.createStreamWorker;
-    currentStreamWorkerFactory = streamWorkerFactory;
-    fullTraceLoaded = false;
-    clearCachedFullTrace();
-    ++activeRefetchId;
-    if (!traceviewerModule) return;
+    resetInFlightRequestsForNewDataset(url, streamWorkerFactory);
+    const currentLoadId = activeLoadId;
+    const loadAbortController = new AbortController();
+    activeLoadAbortController = loadAbortController;
     if (hasLoadedDataset) {
       if (typeof traceviewerModule.ResetDataset === 'function') {
         ++activeWasmIncrementalSessionId;
@@ -2085,13 +2183,16 @@ export async function traceViewerV2Main(
 
         traceviewerModule.application.instance().restoreSavedTrackOrder?.();
 
+        const isLoadSuperseded = () =>
+          currentLoadId !== activeLoadId || url !== currentDataUrl;
         completed = await fetchAndProcessTraceData({
           urlObj,
           traceviewerModule,
           isAbortRequested: () =>
             loadAbortController.signal.aborted ||
-            url !== currentDataUrl ||
+            isLoadSuperseded() ||
             traceviewerModule !== activeWasmModule,
+          isSuperseded: isLoadSuperseded,
           abortSignal: loadAbortController.signal,
           timeRange: timeRangeFromUrl,
           fastMode,
@@ -2107,7 +2208,7 @@ export async function traceViewerV2Main(
         if (activeLoadAbortController === loadAbortController) {
           activeLoadAbortController = null;
         }
-        if (url === currentDataUrl) {
+        if (currentLoadId === activeLoadId && url === currentDataUrl) {
           currentLoadingPromise = null;
           if (!completed) {
             currentDataUrl = null;
@@ -2164,15 +2265,19 @@ export async function traceViewerV2Main(
   };
 
   registerWindowListener(FETCH_DATA_EVENT_NAME, (event: Event) => {
-    if (
-      !isFetchDataEvent(event) ||
-      fullTraceLoaded ||
-      currentLoadingPromise !== null
-    ) {
+    if (!isFetchDataEvent(event)) {
+      return;
+    }
+    if (fullTraceLoaded || currentLoadingPromise !== null) {
+      traceviewerModule?.cancelIncrementalTraceEvents?.();
       return;
     }
     activeRefetchAbortController?.abort();
-    const refetchAbortController = new AbortController();
+    const hasPositiveRange =
+      event.detail.end_time_ms > event.detail.start_time_ms;
+    const refetchAbortController = hasPositiveRange
+      ? new AbortController()
+      : null;
     activeRefetchAbortController = refetchAbortController;
     const refetchId = ++activeRefetchId;
     void handleFetchDataEvent(
@@ -2181,12 +2286,14 @@ export async function traceViewerV2Main(
       traceviewerModule,
       () => fullTraceLoaded,
       () => currentLoadingPromise !== null,
-      () =>
-        refetchAbortController.signal.aborted || refetchId !== activeRefetchId,
-      refetchAbortController.signal,
+      () => refetchId !== activeRefetchId,
+      refetchAbortController?.signal,
       currentStreamWorkerFactory,
     ).finally(() => {
-      if (activeRefetchAbortController === refetchAbortController) {
+      if (
+        refetchAbortController !== null &&
+        activeRefetchAbortController === refetchAbortController
+      ) {
         activeRefetchAbortController = null;
       }
     });

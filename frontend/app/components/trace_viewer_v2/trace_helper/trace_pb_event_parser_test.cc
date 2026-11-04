@@ -6,6 +6,7 @@
 #include <emscripten/val.h>
 #endif
 
+#include <any>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -14,14 +15,18 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "xprof/convert/trace_viewer/delta_series/zstd_compression.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
+#include "frontend/app/components/trace_viewer_v2/event_data.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 #include "plugin/xprof/protobuf/trace_data_response.pb.h"
 
 namespace traceviewer {
@@ -319,6 +324,7 @@ TEST(TracePbEventParserIncrementalTest,
   // 1. Zoom-in cached refetch over [0.5, 5.5] ms while "TEC Tracks" is
   // collapsed: both TEC 0 and TEC 1 events in the window must be retained so
   // the collapsed "TEC Tracks" preview row stays populated.
+  timeline.PrepareForFilteredRefetch();
   BeginIncrementalTraceEvents(std::make_pair(0.5, 5.5), data_provider,
                               timeline);
   while (StepIncrementalTraceEvents(5000, data_provider, timeline)) {
@@ -351,6 +357,337 @@ TEST(TracePbEventParserIncrementalTest,
   clear_incremental_cache();
   EXPECT_FALSE(HasCachedTraceEventsIncremental());
 }
+
+namespace {
+
+using ::testing::ElementsAre;
+using ::testing::Test;
+
+std::string CompressFrame(const xprof::TraceDataResponse& frame) {
+  std::string serialized;
+  CHECK(frame.SerializeToString(&serialized));
+  absl::StatusOr<std::string> compressed =
+      tensorflow::profiler::ZstdCompression::Compress(serialized);
+  CHECK_OK(compressed);
+  return *std::move(compressed);
+}
+
+// Builds a compressed 10 ms trace frame for process 1 with one event on each of
+// threads 10 and 11.
+std::string MakeTwoThreadCompressedFrame() {
+  xprof::TraceDataResponse resp;
+  resp.set_full_timespan_start_ps(0ULL);
+  resp.set_full_timespan_end_ps(10000000000ULL);
+  resp.add_interned_strings("");
+  resp.add_interned_strings("op");
+  auto* proc = resp.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("host:0 /device:TPU:0");
+  for (const uint64_t tid : {10, 11}) {
+    auto* th = proc->add_threads();
+    th->set_id(tid);
+    th->set_name(tid == 10 ? "Thread A" : "Thread B");
+    auto* series = resp.add_complete_events();
+    series->mutable_metadata()->set_process_id(1);
+    series->mutable_metadata()->set_thread_id(tid);
+    series->add_deltas(1000000000ULL);
+    series->add_durations(200000000ULL);
+    series->add_name_refs(1);
+    series->add_event_metadata();
+  }
+  return CompressFrame(resp);
+}
+
+void LoadIncrementally(
+    const std::string& compressed,
+    std::optional<std::pair<Milliseconds, Milliseconds>> visible_range,
+    DataProvider& data_provider, Timeline& timeline) {
+  BeginIncrementalTraceEvents(visible_range, data_provider, timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(compressed.data()), compressed.size());
+  FinishIncrementalTraceEvents(data_provider, timeline);
+}
+
+// Loads a compacted two-thread overview into `timeline` and configures
+// `fetch_count` to count positive-range `kFetchData` requests.
+void LoadCompactedOverview(DataProvider& data_provider, Timeline& timeline,
+                           int& fetch_count) {
+  timeline.set_event_callback(
+      [&fetch_count](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData &&
+            std::any_cast<double>(detail.at(std::string(kFetchDataStart))) <
+                std::any_cast<double>(detail.at(std::string(kFetchDataEnd)))) {
+          ++fetch_count;
+        }
+      });
+  LoadIncrementally(MakeTwoThreadCompressedFrame(), std::nullopt, data_provider,
+                    timeline);
+  timeline.set_full_trace_loaded(false);
+  timeline.set_is_compacted(true);
+  timeline.set_window_at_full_resolution(false);
+  timeline.MarkCurrentDataAsFullOverview();
+}
+
+class TracePbEventParserRefetchTest : public Test {
+ protected:
+  void TearDown() override {
+    DataProvider reset_dp;
+    Timeline reset_tl(palette_);
+    BeginIncrementalTraceEvents(std::nullopt, reset_dp, reset_tl);
+    CancelIncrementalTraceEvents(reset_dp, reset_tl);
+  }
+
+  ColorPalette palette_ = ColorPalette::Default();
+  Timeline timeline_{palette_};
+  DataProvider data_provider_;
+};
+
+TEST_F(TracePbEventParserRefetchTest,
+       CancelIncrementalTraceEventsRestoresTimelinePendingRefetchState) {
+  timeline_.set_data_time_range({0.0, 100000.0});
+  timeline_.SetVisibleRange({0.0, 100000.0});
+  timeline_.InitializeLastFetchRequestRange({0.0, 100000.0});
+  timeline_.MarkCurrentDataAsFullOverview();
+  timeline_.set_is_incremental_loading(false);
+  const TimeRange initial_range = timeline_.last_fetch_request_range();
+
+  timeline_.SetVisibleRange({1000.0, 2000.0});
+  timeline_.MaybeRequestData();
+  EXPECT_NE(timeline_.last_fetch_request_range(), initial_range);
+  EXPECT_TRUE(timeline_.stash_full_overview_on_next_update());
+  EXPECT_TRUE(timeline_.is_incremental_loading());
+
+  CancelIncrementalTraceEvents(data_provider_, timeline_);
+  EXPECT_EQ(timeline_.last_fetch_request_range(), initial_range);
+  EXPECT_FALSE(timeline_.stash_full_overview_on_next_update());
+  EXPECT_FALSE(timeline_.is_incremental_loading());
+}
+
+TEST_F(TracePbEventParserRefetchTest,
+       CancelIncrementalTraceEventsRestoresStateCommittedBeforeBegin) {
+  const std::string frame = MakeTwoThreadCompressedFrame();
+  LoadIncrementally(frame, std::nullopt, data_provider_, timeline_);
+  timeline_.PrepareForFilteredRefetch();
+  LoadIncrementally(frame, std::make_pair(1.5, 2.5), data_provider_, timeline_);
+  ASSERT_FALSE(timeline_.is_showing_full_overview());
+  // A filtered window that loaded only thread 10 while thread 11 is visible.
+  timeline_.SetLoadedActiveTracks({{1, 10}});
+  ASSERT_TRUE(timeline_.HasUnloadedVisibleExpandedTracks());
+  const bool full_trace_loaded = timeline_.full_trace_loaded();
+  const bool is_compacted = timeline_.is_compacted();
+  const bool window_at_full_resolution = timeline_.window_at_full_resolution();
+
+  // Begin a filtered refetch with no pending snapshot, then cancel it before
+  // any data is flushed.
+  BeginIncrementalTraceEvents(std::make_pair(1.0, 3.0), data_provider_,
+                              timeline_);
+  ASSERT_FALSE(timeline_.HasUnloadedVisibleExpandedTracks());
+  CancelIncrementalTraceEvents(data_provider_, timeline_);
+
+  EXPECT_TRUE(timeline_.HasUnloadedVisibleExpandedTracks());
+  EXPECT_EQ(timeline_.full_trace_loaded(), full_trace_loaded);
+  EXPECT_EQ(timeline_.is_compacted(), is_compacted);
+  EXPECT_EQ(timeline_.window_at_full_resolution(), window_at_full_resolution);
+}
+
+TEST_F(TracePbEventParserRefetchTest,
+       CompactedOverviewCancelBeforeFlushAllowsRefetch) {
+  int fetch_count = 0;
+  LoadCompactedOverview(data_provider_, timeline_, fetch_count);
+  // Zoom in less than the refetch zoom ratio so only the compacted overview
+  // requires a full-resolution refetch, and begin that filtered refetch without
+  // flushing any data.
+  timeline_.SetVisibleRange({4000.0, 6000.0});
+  timeline_.MaybeRequestData();
+  ASSERT_EQ(fetch_count, 1);
+  BeginIncrementalTraceEvents(std::make_pair(3.0, 7.0), data_provider_,
+                              timeline_);
+
+  CancelIncrementalTraceEvents(data_provider_, timeline_);
+
+  EXPECT_TRUE(timeline_.is_showing_full_overview());
+  EXPECT_TRUE(timeline_.is_compacted());
+  EXPECT_FALSE(timeline_.window_at_full_resolution());
+  EXPECT_FALSE(timeline_.full_trace_loaded());
+  timeline_.MaybeRequestData();
+  EXPECT_EQ(fetch_count, 2);
+}
+
+TEST_F(TracePbEventParserRefetchTest,
+       CompactedOverviewZoomOutBeforeFlushAllowsRefetch) {
+  int fetch_count = 0;
+  LoadCompactedOverview(data_provider_, timeline_, fetch_count);
+  timeline_.SetVisibleRange({4000.0, 6000.0});
+  timeline_.MaybeRequestData();
+  ASSERT_EQ(fetch_count, 1);
+  BeginIncrementalTraceEvents(std::make_pair(3.0, 7.0), data_provider_,
+                              timeline_);
+
+  timeline_.SetVisibleRange({0.0, 10000.0});
+  timeline_.MaybeRequestData();
+
+  EXPECT_FALSE(timeline_.is_incremental_loading());
+  EXPECT_TRUE(timeline_.is_showing_full_overview());
+  EXPECT_TRUE(timeline_.is_compacted());
+  EXPECT_FALSE(timeline_.window_at_full_resolution());
+  EXPECT_FALSE(timeline_.full_trace_loaded());
+  timeline_.SetVisibleRange({4000.0, 6000.0});
+  timeline_.MaybeRequestData();
+  EXPECT_EQ(fetch_count, 2);
+}
+
+TEST_F(TracePbEventParserRefetchTest,
+       LateFilteredCompressedTraceEventsIgnoredAfterOverviewRestored) {
+  xprof::TraceDataResponse init_resp;
+  init_resp.set_full_timespan_start_ps(0ULL);
+  init_resp.set_full_timespan_end_ps(10000000000ULL);
+  init_resp.add_interned_strings("");
+  init_resp.add_interned_strings("overview_op");
+  auto* proc = init_resp.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("host:0 /device:TPU:0");
+  auto* th = proc->add_threads();
+  th->set_id(10);
+  th->set_name("XLA Ops");
+  auto* s0 = init_resp.add_complete_events();
+  s0->mutable_metadata()->set_process_id(1);
+  s0->mutable_metadata()->set_thread_id(10);
+  s0->add_deltas(1000000000ULL);
+  s0->add_durations(200000000ULL);
+  s0->add_name_refs(1);
+  s0->add_event_metadata();
+
+  const std::string c_init = CompressFrame(init_resp);
+  ParseAndProcessCompressedTraceEvents(
+      reinterpret_cast<uintptr_t>(c_init.data()), c_init.size(),
+      /*visible_range_from_url=*/std::nullopt, data_provider_, timeline_);
+  EXPECT_THAT(timeline_.timeline_data().entry_names,
+              ElementsAre("overview_op"));
+  EXPECT_TRUE(timeline_.is_showing_full_overview());
+
+  // Zoom in to trigger an in-flight refetch, then zoom back out to restore the
+  // full overview before the filtered non-incremental response arrives.
+  timeline_.SetVisibleRange({100.0, 200.0});
+  timeline_.MaybeRequestData();
+  EXPECT_TRUE(timeline_.stash_full_overview_on_next_update());
+
+  timeline_.SetVisibleRange({0.0, 10000.0});
+  timeline_.MaybeRequestData();
+  EXPECT_TRUE(timeline_.is_showing_full_overview());
+  EXPECT_FALSE(timeline_.stash_full_overview_on_next_update());
+  EXPECT_THAT(timeline_.timeline_data().entry_names,
+              ElementsAre("overview_op"));
+
+  xprof::TraceDataResponse late_resp;
+  late_resp.set_full_timespan_start_ps(0ULL);
+  late_resp.set_full_timespan_end_ps(10000000000ULL);
+  late_resp.add_interned_strings("");
+  late_resp.add_interned_strings("late_filtered_op");
+  auto* l_proc = late_resp.mutable_metadata()->add_processes();
+  l_proc->set_id(1);
+  l_proc->set_name("host:0 /device:TPU:0");
+  auto* l_th = l_proc->add_threads();
+  l_th->set_id(10);
+  l_th->set_name("XLA Ops");
+  auto* s1 = late_resp.add_complete_events();
+  s1->mutable_metadata()->set_process_id(1);
+  s1->mutable_metadata()->set_thread_id(10);
+  s1->add_deltas(2000000000ULL);
+  s1->add_durations(200000000ULL);
+  s1->add_name_refs(1);
+  s1->add_event_metadata();
+
+  const std::string c_late = CompressFrame(late_resp);
+  timeline_.set_is_incremental_loading(true);
+  ParseAndProcessCompressedTraceEvents(
+      reinterpret_cast<uintptr_t>(c_late.data()), c_late.size(),
+      std::make_pair(1.5, 2.5), data_provider_, timeline_);
+
+  EXPECT_FALSE(timeline_.is_incremental_loading());
+  EXPECT_TRUE(timeline_.is_showing_full_overview());
+  EXPECT_THAT(timeline_.timeline_data().entry_names,
+              ElementsAre("overview_op"));
+
+  // Also verify a stale filtered incremental lifecycle (Begin -> ShouldEnqueue
+  // -> Append -> Step -> Finish) is ignored end-to-end without overwriting the
+  // restored overview.
+  timeline_.set_is_incremental_loading(true);
+  BeginIncrementalTraceEvents(std::make_pair(1.5, 2.5), data_provider_,
+                              timeline_);
+  EXPECT_FALSE(ShouldEnqueueCompressedFrameIncremental());
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(c_late.data()), c_late.size());
+  EXPECT_FALSE(StepIncrementalTraceEvents(100, data_provider_, timeline_));
+  FinishIncrementalTraceEvents(data_provider_, timeline_);
+  EXPECT_FALSE(timeline_.is_incremental_loading());
+  EXPECT_FALSE(timeline_.stash_full_overview_on_next_update());
+  EXPECT_TRUE(timeline_.is_showing_full_overview());
+  EXPECT_THAT(timeline_.timeline_data().entry_names,
+              ElementsAre("overview_op"));
+
+  timeline_.set_is_incremental_loading(true);
+  LoadIncrementally(c_late, std::make_pair(1.5, 2.5), data_provider_,
+                    timeline_);
+  EXPECT_FALSE(timeline_.is_incremental_loading());
+  EXPECT_FALSE(timeline_.stash_full_overview_on_next_update());
+  EXPECT_TRUE(timeline_.is_showing_full_overview());
+  EXPECT_THAT(timeline_.timeline_data().entry_names,
+              ElementsAre("overview_op"));
+}
+
+TEST_F(TracePbEventParserRefetchTest,
+       LateFilteredProcessTraceEventsIgnoredAfterRestoreSavedFullOverview) {
+  ParsedTraceEvents initial_events;
+  initial_events.full_timespan = {0.0, 100.0};
+  initial_events.flame_events.push_back({
+      .ph = Phase::kComplete,
+      .pid = 1,
+      .tid = 1,
+      .name = "overview_track",
+      .ts = 100.0,
+      .dur = 50.0,
+  });
+  data_provider_.ProcessTraceEvents(initial_events, timeline_);
+  timeline_.InitializeLastFetchRequestRange(timeline_.data_time_range());
+  timeline_.MarkCurrentDataAsFullOverview();
+  timeline_.set_is_incremental_loading(false);
+  EXPECT_THAT(timeline_.timeline_data().entry_names,
+              ElementsAre("overview_track"));
+
+  timeline_.SetVisibleRange({1000.0, 2000.0});
+  timeline_.MaybeRequestData();
+  EXPECT_TRUE(timeline_.stash_full_overview_on_next_update());
+  EXPECT_TRUE(timeline_.is_incremental_loading());
+
+  timeline_.SetVisibleRange({0.0, 100000.0});
+  timeline_.MaybeRequestData();
+  EXPECT_TRUE(timeline_.is_showing_full_overview());
+  EXPECT_FALSE(timeline_.stash_full_overview_on_next_update());
+  EXPECT_FALSE(timeline_.is_incremental_loading());
+  EXPECT_THAT(timeline_.timeline_data().entry_names,
+              ElementsAre("overview_track"));
+
+  ParsedTraceEvents late_filtered_events;
+  late_filtered_events.visible_range_from_url = {1.0, 2.0};
+  late_filtered_events.full_timespan = {0.0, 100.0};
+  late_filtered_events.flame_events.push_back({
+      .ph = Phase::kComplete,
+      .pid = 1,
+      .tid = 1,
+      .name = "late_filtered_event",
+      .ts = 1500.0,
+      .dur = 50.0,
+  });
+  timeline_.set_is_incremental_loading(true);
+  data_provider_.ProcessTraceEvents(late_filtered_events, timeline_);
+
+  EXPECT_FALSE(timeline_.is_incremental_loading());
+  EXPECT_TRUE(timeline_.is_showing_full_overview());
+  EXPECT_THAT(timeline_.timeline_data().entry_names,
+              ElementsAre("overview_track"));
+}
+
+}  // namespace
 
 #ifdef __EMSCRIPTEN__
 class TracePbEventParserTest : public ::testing::Test {
@@ -688,6 +1025,7 @@ TEST_F(TracePbEventParserTest,
 
   // Zoom refetch for [1.8, 2.4] ms ([1800, 2400] us): only op_middle is kept,
   // while data_time_range preserves [1000, 3200] us.
+  timeline_.PrepareForFilteredRefetch();
   emscripten::val zoom_range = emscripten::val::array();
   zoom_range.set(0, 1.8);
   zoom_range.set(1, 2.4);
@@ -786,6 +1124,7 @@ TEST_F(TracePbEventParserTest,
   // ([5000, 5100] ms) are outside the 500 ms margin around [1900, 2200] ms, so
   // ShouldEnqueueCompressedFrameIncremental() returns false for Frames 0 and 2
   // and true for Frame 1.
+  timeline_.PrepareForFilteredRefetch();
   emscripten::val zoom_range = emscripten::val::array();
   zoom_range.set(0, 1900.0);
   zoom_range.set(1, 2200.0);
@@ -848,6 +1187,7 @@ TEST_F(
 
   // 2. Subsequent sub-window fetch (with visible_range_from_url) configures
   // is_compacted(false) and preserves all 500 events at full resolution.
+  timeline_.PrepareForFilteredRefetch();
   emscripten::val fetch_range_ms = emscripten::val::array();
   fetch_range_ms.call<void>("push", emscripten::val(0.0));
   fetch_range_ms.call<void>("push", emscripten::val(5.0));
@@ -913,6 +1253,7 @@ TEST_F(TracePbEventParserTest,
   // uncompacted events are retained in the zoomed-in window). Because
   // HasCachedTraceEventsIncremental() is true, no compressed frame needs to be
   // re-enqueued or re-decompressed.
+  timeline_.PrepareForFilteredRefetch();
   emscripten::val zoom_range = emscripten::val::array();
   zoom_range.set(0, 0.0);
   zoom_range.set(1, 0.5);
@@ -993,6 +1334,7 @@ TEST_F(TracePbEventParserTest,
   // skipped, so only Process 1's 50 events are decoded into entry_names, while
   // Process 2's level borrows its overview MIP pyramid from
   // saved_full_overview_.
+  timeline_.PrepareForFilteredRefetch();
   emscripten::val zoom_range = emscripten::val::array();
   zoom_range.set(0, 0.0);
   zoom_range.set(1, 0.5);
@@ -1121,6 +1463,7 @@ TEST_F(TracePbEventParserTest,
   // 3. Also verify that if a filtered refetch is in flight when the user zooms
   // out and restores the full overview, finishing the stale filtered refetch
   // does not overwrite the restored full overview.
+  timeline_.PrepareForFilteredRefetch();
   emscripten::val zoom_range = emscripten::val::array();
   zoom_range.set(0, 8850.0);
   zoom_range.set(1, 10000.0);
@@ -1173,6 +1516,7 @@ TEST_F(TracePbEventParserTest,
   FinishIncrementalTraceEvents(data_provider_, timeline_);
   ASSERT_TRUE(HasCachedTraceEventsIncremental());
 
+  timeline_.PrepareForFilteredRefetch();
   emscripten::val zoom_range = emscripten::val::array();
   zoom_range.set(0, 0.0);
   zoom_range.set(1, 0.5);
@@ -1378,6 +1722,7 @@ TEST_F(TracePbEventParserTest,
   ASSERT_TRUE(HasCachedTraceEventsIncremental());
 
   // Zoomed cached refetch over [0.0, 5.0] ms ([0, 5000] us).
+  timeline_.PrepareForFilteredRefetch();
   emscripten::val zoom_range = emscripten::val::array();
   zoom_range.set(0, 0.0);
   zoom_range.set(1, 5.0);
@@ -1453,6 +1798,7 @@ TEST_F(TracePbEventParserTest,
 
   // 2. First zoom-in network refetch for [1.0, 3.0] ms with its own
   // window-specific interned_strings table.
+  timeline_.PrepareForFilteredRefetch();
   const std::string zoom1_compressed = build_window_response(
       "zoom1_op_a", "zoom1_op_b", 1200000000ULL, 2200000000ULL);
   emscripten::val zoom1_range = emscripten::val::array();
@@ -1546,6 +1892,7 @@ TEST_F(TracePbEventParserTest,
   s1->add_event_metadata();
 
   const std::string c_refetch = compress_frame(refetch_resp);
+  timeline_.PrepareForFilteredRefetch();
   emscripten::val zoom_range = emscripten::val::array();
   zoom_range.set(0, 1.5);
   zoom_range.set(1, 2.5);

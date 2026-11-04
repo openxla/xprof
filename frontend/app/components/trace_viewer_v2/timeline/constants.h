@@ -89,7 +89,13 @@ inline constexpr Pixel kSplitterWidth = 8.0f;
 inline constexpr Pixel kThreadTrackGap = 4.0f;
 // Padding on the right to prevent content from touching the window edge.
 inline constexpr Pixel kTimelinePaddingRight = 1.0f;
+inline constexpr Pixel kToastActionSpacing = 12.0f;
+inline constexpr Pixel kToastButtonPaddingX = 8.0f;
+inline constexpr Pixel kToastButtonPaddingY = 4.0f;
 inline constexpr Pixel kToastCornerRounding = 4.0f;
+inline constexpr Pixel kToastPaddingX = 16.0f;
+inline constexpr Pixel kToastPaddingY = 8.0f;
+inline constexpr Pixel kToastRightPaddingWithAction = 8.0f;
 inline constexpr Pixel kVirtualHeaderHeight = 30.0f;
 inline constexpr double kEpsilon = 0.001;
 // go/keep-sorted end
@@ -440,12 +446,13 @@ inline constexpr char kPinTrackTooltip[] = "Pin track";
 inline constexpr char kPinnedHeaderName[] = "Pinned";
 inline constexpr char kPinnedProcessNotificationPrefix[] = "Pinned process: ";
 inline constexpr char kProcessHeaderLabel[] = "Process";
+inline constexpr char kUndoLabel[] = "Undo";
 inline constexpr char kUnhiddenProcessNotificationPrefix[] =
     "Unhidden process: ";
 inline constexpr char kUnhideTrackTooltip[] = "Unhide track";
 inline constexpr char kUnpinTrackTooltip[] = "Unpin track";
 inline constexpr char kUnpinnedProcessNotificationPrefix[] =
-        "Unpinned process: ";
+    "Unpinned process: ";
 // go/keep-sorted end
 }  // namespace traceviewer
 

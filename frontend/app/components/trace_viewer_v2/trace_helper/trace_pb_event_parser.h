@@ -69,6 +69,13 @@ bool RestoreFullTraceOverviewIfAvailable();
 // parser has already advanced its frame index past it.
 bool ShouldEnqueueCompressedFrameIncremental();
 
+// Returns true if the parser holds a compact in-memory block cache of the full
+// trace from the initial load, allowing filtered zoom/pan refetches to execute
+// directly without re-streaming or re-decompressing compressed frames.
+bool HasCachedTraceEventsIncremental();
+
+void SetMaxCachedPackedBytesForTest(size_t max_bytes);
+
 }  // namespace traceviewer
 
 #endif  // THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TRACE_HELPER_TRACE_PB_EVENT_PARSER_H_

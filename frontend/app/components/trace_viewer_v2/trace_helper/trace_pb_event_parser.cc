@@ -118,6 +118,59 @@ struct FrameSummary {
   bool always_process = false;
 };
 
+constexpr size_t kCachedBlockEvents = 4096;
+constexpr size_t kMaxCachedPackedBytes = 512ULL * 1024 * 1024;
+constexpr uint64_t kDurationPhaseBeginBit = 1ULL << 61;
+constexpr uint64_t kDurationPhaseEndBit = 1ULL << 62;
+constexpr uint64_t kDurationPhaseMask =
+    kDurationPhaseBeginBit | kDurationPhaseEndBit;
+
+inline void AppendVarint64(std::string& out, uint64_t v) {
+  uint8_t buf[10];
+  size_t n = 0;
+  while (v >= 0x80) {
+    buf[n++] = static_cast<uint8_t>(v | 0x80);
+    v >>= 7;
+  }
+  buf[n++] = static_cast<uint8_t>(v);
+  out.append(reinterpret_cast<const char*>(buf), n);
+}
+
+inline uint64_t ReadVarint64(const uint8_t*& p, const uint8_t* end) {
+  uint64_t result = 0;
+  int shift = 0;
+  while (p < end && shift < 64) {
+    const uint8_t byte = *p++;
+    result |= static_cast<uint64_t>(byte & 0x7F) << shift;
+    if ((byte & 0x80) == 0) {
+      return result;
+    }
+    shift += 7;
+  }
+  return result;
+}
+
+inline uint64_t ZigZagEncode64(int64_t n) {
+  return (static_cast<uint64_t>(n) << 1) ^ static_cast<uint64_t>(n >> 63);
+}
+
+inline int64_t ZigZagDecode64(uint64_t n) {
+  return static_cast<int64_t>((n >> 1) ^ (~(n & 1) + 1));
+}
+
+struct CachedCompleteBlock {
+  ProcessId pid = 0;
+  ThreadId tid = 0;
+  uint32_t frame_idx = 0;
+  bool use_frame_strings = false;
+  uint32_t event_count = 0;
+  uint64_t base_ts_ps = 0;
+  uint64_t min_start_ps = std::numeric_limits<uint64_t>::max();
+  uint64_t max_end_ps = 0;
+  bool has_split_events = false;
+  std::string packed_events;
+};
+
 struct IncrementalParserSession {
   std::deque<std::pair<size_t, std::string>> pending_compressed_frames;
   std::vector<std::string> cumulative_interned_strings;
@@ -133,7 +186,32 @@ struct IncrementalParserSession {
   size_t active_frame_index = 0;
   bool using_cached_cumulative_strings = false;
   bool recording_frame_summaries = false;
+
+  // Compact in-memory block cache for sub-50ms zoom/pan refetches without
+  // Zstd decompression or protobuf heap allocations.
+  bool can_build_trace_store = true;
   bool overview_pre_compacted = false;
+  size_t max_cached_packed_bytes = kMaxCachedPackedBytes;
+  size_t building_packed_bytes = 0;
+  std::vector<xprof::Process> building_processes;
+  std::vector<TraceEvent> building_async_flame_events;
+  std::vector<TraceEvent> building_async_flow_events;
+  std::vector<CounterEvent> building_counter_events;
+  std::vector<CachedCompleteBlock> building_complete_blocks;
+  absl::flat_hash_map<size_t, std::vector<std::string>>
+      building_frame_interned_strings;
+
+  bool has_cached_trace_store = false;
+  bool using_cached_trace_store = false;
+  bool cached_metadata_and_globals_emitted = false;
+  size_t next_cached_block_idx = 0;
+  std::vector<xprof::Process> cached_processes;
+  std::vector<TraceEvent> cached_async_flame_events;
+  std::vector<TraceEvent> cached_async_flow_events;
+  std::vector<CounterEvent> cached_counter_events;
+  std::vector<CachedCompleteBlock> cached_complete_blocks;
+  absl::flat_hash_map<size_t, std::vector<std::string>>
+      cached_frame_interned_strings;
 
   std::unique_ptr<xprof::TraceDataResponse> active_response;
   std::vector<ProcessId> active_pids;
@@ -151,12 +229,25 @@ struct IncrementalParserSession {
 
   std::optional<std::pair<Milliseconds, Milliseconds>> visible_range_from_url;
   std::optional<std::pair<uint64_t, uint64_t>> filter_range_ps;
+  std::optional<absl::flat_hash_set<std::pair<ProcessId, ThreadId>>>
+      active_track_filter;
   std::optional<std::pair<Milliseconds, Milliseconds>> full_timespan;
   bool is_initial_load = true;
   bool mpmd_pipeline_view = false;
   bool appended_any_batch = false;
   size_t frames_flushed = 0;
   bool in_finish_drain = false;
+
+  void ResetBuildingTraceStore() {
+    can_build_trace_store = true;
+    building_packed_bytes = 0;
+    building_processes.clear();
+    building_async_flame_events.clear();
+    building_async_flow_events.clear();
+    building_counter_events.clear();
+    building_complete_blocks.clear();
+    building_frame_interned_strings.clear();
+  }
 
   void Reset() {
     pending_compressed_frames.clear();
@@ -165,13 +256,18 @@ struct IncrementalParserSession {
     use_active_frame_interned_strings = false;
     building_frame_summaries.clear();
     overview_pre_compacted = false;
+    ResetBuildingTraceStore();
     next_enqueued_frame_index = 0;
     active_frame_index = 0;
     using_cached_cumulative_strings = false;
+    using_cached_trace_store = false;
+    cached_metadata_and_globals_emitted = false;
+    next_cached_block_idx = 0;
     recording_frame_summaries = false;
     ClearActiveFrame();
     visible_range_from_url = std::nullopt;
     filter_range_ps = std::nullopt;
+    active_track_filter = std::nullopt;
     full_timespan = std::nullopt;
     is_initial_load = true;
     mpmd_pipeline_view = false;
@@ -185,6 +281,14 @@ struct IncrementalParserSession {
     cached_frame_summaries.clear();
     cached_full_timespan = std::nullopt;
     cached_mpmd_pipeline_view = false;
+    has_cached_trace_store = false;
+    using_cached_trace_store = false;
+    cached_processes.clear();
+    cached_async_flame_events.clear();
+    cached_async_flow_events.clear();
+    cached_counter_events.clear();
+    cached_complete_blocks.clear();
+    cached_frame_interned_strings.clear();
   }
 
   void ResetCurrentPidCursors() {
@@ -221,6 +325,201 @@ struct IncrementalParserSession {
 IncrementalParserSession& GetIncrementalSession() {
   static absl::NoDestructor<IncrementalParserSession> session;
   return *session;
+}
+
+void AppendCompleteSeriesSliceToBlockCache(
+    IncrementalParserSession& session, const xprof::TraceEventSeries& series,
+    size_t slice_start_idx, size_t slice_count, uint64_t running_ts_ps) {
+  if (!session.can_build_trace_store || slice_count == 0) {
+    return;
+  }
+  const ProcessId pid = series.metadata().process_id();
+  const ThreadId tid = series.metadata().thread_id();
+  const size_t slice_end_idx = slice_start_idx + slice_count;
+
+  for (size_t b_start = slice_start_idx; b_start < slice_end_idx;
+       b_start += kCachedBlockEvents) {
+    const size_t b_end = std::min(b_start + kCachedBlockEvents, slice_end_idx);
+    CachedCompleteBlock block;
+    block.pid = pid;
+    block.tid = tid;
+    block.frame_idx = static_cast<uint32_t>(session.active_frame_index);
+    block.use_frame_strings = session.use_active_frame_interned_strings;
+    block.event_count = static_cast<uint32_t>(b_end - b_start);
+    block.packed_events.reserve(block.event_count * 7);
+
+    uint32_t prev_serial = 0;
+    for (size_t idx = b_start; idx < b_end; ++idx) {
+      const int i = static_cast<int>(idx);
+      const uint64_t d_ts = series.deltas(i);
+      running_ts_ps += d_ts;
+      const uint64_t delta_ts_ps = (idx == b_start) ? 0ULL : d_ts;
+      if (idx == b_start) {
+        block.base_ts_ps = running_ts_ps;
+      }
+
+      const uint64_t raw_dur_ps = series.durations(i);
+      const uint64_t dur_ps = raw_dur_ps & ~kDurationPhaseMask;
+      const bool is_begin = (raw_dur_ps & kDurationPhaseBeginBit) != 0;
+      const bool is_end = (raw_dur_ps & kDurationPhaseEndBit) != 0;
+      if (is_begin || is_end) {
+        block.has_split_events = true;
+      } else {
+        block.min_start_ps = std::min(block.min_start_ps, running_ts_ps);
+        block.max_end_ps = std::max(block.max_end_ps, running_ts_ps + dur_ps);
+      }
+
+      const auto& ev_meta = series.event_metadata(i);
+      const bool has_flow = (ev_meta.flow_id() != 0);
+      const bool ns_scaled =
+          (delta_ts_ps % 1000ULL == 0) && (dur_ps % 1000ULL == 0);
+      const uint64_t packed_delta_ts =
+          ns_scaled ? (delta_ts_ps / 1000ULL) : delta_ts_ps;
+      const uint64_t packed_dur = ns_scaled ? (dur_ps / 1000ULL) : dur_ps;
+      const uint64_t dur_and_flags =
+          (packed_dur << 4) | (is_begin ? 1ULL : 0ULL) |
+          (is_end ? 2ULL : 0ULL) | (has_flow ? 4ULL : 0ULL) |
+          (ns_scaled ? 8ULL : 0ULL);
+      const uint32_t name_ref = series.name_refs(i);
+      const uint32_t serial = ev_meta.serial();
+      const int64_t serial_delta =
+          static_cast<int64_t>(serial) - static_cast<int64_t>(prev_serial);
+      prev_serial = serial;
+
+      AppendVarint64(block.packed_events, packed_delta_ts);
+      AppendVarint64(block.packed_events, dur_and_flags);
+      AppendVarint64(block.packed_events, name_ref);
+      AppendVarint64(block.packed_events, ZigZagEncode64(serial_delta));
+      if (has_flow) {
+        AppendVarint64(block.packed_events, ev_meta.flow_id());
+        AppendVarint64(block.packed_events, ev_meta.flow_category());
+      }
+    }
+
+    if (session.recording_frame_summaries &&
+        session.active_frame_index < session.building_frame_summaries.size() &&
+        block.min_start_ps <= block.max_end_ps) {
+      FrameSummary& summary =
+          session.building_frame_summaries[session.active_frame_index];
+      summary.min_start_ps = std::min(summary.min_start_ps, block.min_start_ps);
+      summary.max_end_ps = std::max(summary.max_end_ps, block.max_end_ps);
+      summary.has_non_split_bounds = true;
+    }
+
+    session.building_packed_bytes += block.packed_events.size();
+    if (session.building_packed_bytes > session.max_cached_packed_bytes) {
+      session.ResetBuildingTraceStore();
+      session.can_build_trace_store = false;
+      return;
+    }
+    session.building_complete_blocks.push_back(std::move(block));
+  }
+}
+
+bool BlockOverlapsFilter(const CachedCompleteBlock& block,
+                         const IncrementalParserSession& session) {
+  if (session.active_track_filter.has_value() &&
+      !session.active_track_filter->contains({block.pid, block.tid})) {
+    return false;
+  }
+  if (!session.filter_range_ps.has_value() || block.has_split_events) {
+    return true;
+  }
+  if (block.min_start_ps > block.max_end_ps) {
+    return false;
+  }
+  return !(block.max_end_ps < session.filter_range_ps->first ||
+           block.min_start_ps > session.filter_range_ps->second);
+}
+
+size_t DecodeCachedCompleteBlock(const IncrementalParserSession& session,
+                                 const CachedCompleteBlock& block,
+                                 ParsedTraceEvents& batch) {
+  if (!BlockOverlapsFilter(block, session)) {
+    return 0;
+  }
+  absl::Span<const std::string> interned_strings =
+      absl::MakeConstSpan(session.cached_cumulative_interned_strings);
+  if (block.use_frame_strings) {
+    if (const auto it =
+            session.cached_frame_interned_strings.find(block.frame_idx);
+        it != session.cached_frame_interned_strings.end()) {
+      interned_strings = absl::MakeConstSpan(it->second);
+    }
+  }
+
+  const uint8_t* p =
+      reinterpret_cast<const uint8_t*>(block.packed_events.data());
+  const uint8_t* end = p + block.packed_events.size();
+  uint64_t current_ts_ps = block.base_ts_ps;
+  uint32_t prev_serial = 0;
+  size_t emitted = 0;
+
+  for (uint32_t i = 0; i < block.event_count && p < end; ++i) {
+    const uint64_t packed_delta_ts = ReadVarint64(p, end);
+    const uint64_t dur_and_flags = ReadVarint64(p, end);
+    const bool ns_scaled = (dur_and_flags & 8ULL) != 0;
+    const uint64_t delta_ts_ps =
+        ns_scaled ? (packed_delta_ts * 1000ULL) : packed_delta_ts;
+    if (i > 0) {
+      current_ts_ps += delta_ts_ps;
+    }
+    const uint32_t name_ref = static_cast<uint32_t>(ReadVarint64(p, end));
+    const int64_t serial_delta = ZigZagDecode64(ReadVarint64(p, end));
+    const uint32_t serial =
+        static_cast<uint32_t>(static_cast<int64_t>(prev_serial) + serial_delta);
+    prev_serial = serial;
+
+    const bool has_flow = (dur_and_flags & 4ULL) != 0;
+    uint64_t flow_id = 0;
+    uint32_t flow_category = 0;
+    if (has_flow) {
+      flow_id = ReadVarint64(p, end);
+      flow_category = static_cast<uint32_t>(ReadVarint64(p, end));
+    }
+
+    const uint64_t packed_dur = dur_and_flags >> 4;
+    const uint64_t dur_ps = ns_scaled ? (packed_dur * 1000ULL) : packed_dur;
+    if (session.filter_range_ps.has_value()) {
+      if (current_ts_ps > session.filter_range_ps->second) {
+        break;
+      }
+      if (current_ts_ps + dur_ps < session.filter_range_ps->first) {
+        continue;
+      }
+    }
+
+    TraceEvent ev;
+    if (dur_and_flags & 1ULL) {
+      ev.ph = Phase::kDurationBegin;
+    } else if (dur_and_flags & 2ULL) {
+      ev.ph = Phase::kDurationEnd;
+    } else {
+      ev.ph = Phase::kComplete;
+    }
+    ev.pid = block.pid;
+    ev.tid = block.tid;
+    ev.ts = current_ts_ps / 1000000.0;
+    ev.dur = dur_ps / 1000000.0;
+    if (name_ref < interned_strings.size()) {
+      ev.name = interned_strings[name_ref];
+    }
+    if (flow_id != 0) {
+      ev.flow_id = flow_id;
+      ev.has_flow_id = true;
+      if (flow_category != 0 && flow_category < interned_strings.size()) {
+        ev.category = GetContextTypeFromString(interned_strings[flow_category]);
+      }
+    }
+    ev.serial = serial;
+    ev.has_serial = true;
+    ev.event_id = GenerateEventId(ev.name, ev.ts, ev.dur);
+    // Flows are registered by DataProvider from flame events carrying
+    // `has_flow_id`, so they are not duplicated into `flow_events` here.
+    batch.flame_events.push_back(std::move(ev));
+    ++emitted;
+  }
+  return emitted;
 }
 
 bool CanSkipFrameForFilter(const IncrementalParserSession& session,
@@ -333,6 +632,12 @@ bool ActivateNextCompressedFrame(IncrementalParserSession& session,
       session.use_active_frame_interned_strings = false;
     }
 
+    if (session.recording_frame_summaries && session.can_build_trace_store &&
+        session.use_active_frame_interned_strings) {
+      session.building_frame_interned_strings[frame_idx] =
+          session.active_frame_interned_strings;
+    }
+
     absl::flat_hash_set<ProcessId> seen_pids;
     auto register_pid = [&](ProcessId pid) {
       if (seen_pids.insert(pid).second) {
@@ -345,6 +650,9 @@ bool ActivateNextCompressedFrame(IncrementalParserSession& session,
       const ProcessId pid = processes[i].id();
       register_pid(pid);
       session.metadata_indices_by_pid[pid].push_back(i);
+      if (session.recording_frame_summaries && session.can_build_trace_store) {
+        session.building_processes.push_back(processes[i]);
+      }
     }
     for (int i = 0; i < response->complete_events_size(); ++i) {
       const ProcessId pid =
@@ -404,32 +712,63 @@ bool UnmarshalProcessSliceBounded(IncrementalParserSession& session,
            raw_events_scanned < max_raw_events_budget) {
       const int idx = series_indices[session.current_complete_series_pos];
       const auto& series = response.complete_events(idx);
+      if (session.active_track_filter.has_value() &&
+          !session.active_track_filter->contains(
+              {pid, series.metadata().thread_id()})) {
+        response.mutable_complete_events(idx)->Clear();
+        ++session.current_complete_series_pos;
+        session.current_complete_event_idx = 0;
+        session.current_complete_ts_ps = 0;
+        continue;
+      }
       const size_t total_in_series = static_cast<size_t>(series.deltas_size());
       const size_t remaining_budget = max_events_budget - events_unmarshaled;
-      const size_t slice_limit =
+      const size_t raw_slice_limit =
           session.filter_range_ps.has_value()
               ? std::max<size_t>(remaining_budget, 262144)
               : std::max<size_t>(remaining_budget, 65536);
+      const size_t slice_limit =
+          ((raw_slice_limit + kCachedBlockEvents - 1) / kCachedBlockEvents) *
+          kCachedBlockEvents;
+      const size_t slice_start_idx = session.current_complete_event_idx;
+      const uint64_t slice_start_ts_ps = session.current_complete_ts_ps;
       const size_t before = batch.flame_events.size();
       size_t count = 0;
       const bool can_use_overview_fast_path =
           !session.filter_range_ps.has_value() &&
-          session.recording_frame_summaries && total_in_series > 8192;
+          session.recording_frame_summaries && session.can_build_trace_store &&
+          total_in_series > 8192;
       if (can_use_overview_fast_path) {
-        bool did_coalesce = false;
-        count = ProcessOverviewSampledSeriesSlice(
-            series, interned_strings, session.current_complete_event_idx,
-            slice_limit, session.current_complete_ts_ps, batch, did_coalesce);
-        if (did_coalesce) {
-          session.overview_pre_compacted = true;
+        const size_t planned_count =
+            std::min(slice_limit, total_in_series - slice_start_idx);
+        AppendCompleteSeriesSliceToBlockCache(session, series, slice_start_idx,
+                                              planned_count, slice_start_ts_ps);
+        if (session.can_build_trace_store) {
+          bool did_coalesce = false;
+          count = ProcessOverviewSampledSeriesSlice(
+              series, interned_strings, session.current_complete_event_idx,
+              slice_limit, session.current_complete_ts_ps, batch, did_coalesce);
+          if (did_coalesce) {
+            session.overview_pre_compacted = true;
+          }
+        } else {
+          count = ProcessCompleteEventSeriesSlice(
+              series, interned_strings, session.current_complete_event_idx,
+              slice_limit, session.current_complete_ts_ps, batch,
+              session.filter_range_ps);
         }
       } else {
         count = ProcessCompleteEventSeriesSlice(
             series, interned_strings, session.current_complete_event_idx,
             slice_limit, session.current_complete_ts_ps, batch,
             session.filter_range_ps);
+        if (session.recording_frame_summaries &&
+            session.can_build_trace_store && count > 0) {
+          AppendCompleteSeriesSliceToBlockCache(
+              session, series, slice_start_idx, count, slice_start_ts_ps);
+        }
       }
-      if (session.recording_frame_summaries &&
+      if (session.recording_frame_summaries && !session.can_build_trace_store &&
           session.active_frame_index <
               session.building_frame_summaries.size()) {
         FrameSummary& summary =
@@ -471,8 +810,18 @@ bool UnmarshalProcessSliceBounded(IncrementalParserSession& session,
            events_unmarshaled < max_events_budget) {
       const int idx = series_indices[session.current_async_series_pos++];
       const size_t before_flame = batch.flame_events.size();
+      const size_t before_flow = batch.flow_events.size();
       ProcessAsyncEventSeries(response.async_events(idx), interned_strings,
                               batch);
+      if (session.recording_frame_summaries && session.can_build_trace_store) {
+        session.building_async_flame_events.insert(
+            session.building_async_flame_events.end(),
+            batch.flame_events.begin() + before_flame,
+            batch.flame_events.end());
+        session.building_async_flow_events.insert(
+            session.building_async_flow_events.end(),
+            batch.flow_events.begin() + before_flow, batch.flow_events.end());
+      }
       response.mutable_async_events(idx)->Clear();
       const size_t added = batch.flame_events.size() - before_flame;
       events_unmarshaled += added;
@@ -492,6 +841,11 @@ bool UnmarshalProcessSliceBounded(IncrementalParserSession& session,
       const size_t before = batch.counter_events.size();
       ProcessCounterEventSeries(response.counter_events(idx), interned_strings,
                                 batch);
+      if (session.recording_frame_summaries && session.can_build_trace_store) {
+        session.building_counter_events.insert(
+            session.building_counter_events.end(),
+            batch.counter_events.begin() + before, batch.counter_events.end());
+      }
       response.mutable_counter_events(idx)->Clear();
       const size_t added = batch.counter_events.size() - before;
       events_unmarshaled += added;
@@ -532,12 +886,32 @@ void BeginIncrementalTraceEvents(const emscripten::val& visible_range_from_url,
     session.recording_frame_summaries = true;
   } else {
     session.using_cached_cumulative_strings = true;
+    session.using_cached_trace_store = session.has_cached_trace_store;
     session.mpmd_pipeline_view = session.cached_mpmd_pipeline_view;
     session.full_timespan = session.cached_full_timespan;
   }
   if (session.filter_range_ps.has_value()) {
+    absl::flat_hash_set<std::pair<ProcessId, ThreadId>> active_tracks =
+        timeline.ComputeActiveTracksForFetch(/*include_vertical_margin=*/true);
+    absl::flat_hash_set<ProcessId> active_pids;
+    for (const auto& [pid, _] : active_tracks) {
+      active_pids.insert(pid);
+    }
+    for (const ProcessId pid : active_pids) {
+      if (const auto xla_tid = data_provider.GetXlaModulesTid(pid);
+          xla_tid.has_value()) {
+        active_tracks.insert({pid, *xla_tid});
+      }
+    }
+    if (!active_tracks.empty()) {
+      timeline.SetLoadedActiveTracks(active_tracks);
+      session.active_track_filter = std::move(active_tracks);
+    } else {
+      timeline.ClearLoadedActiveTracks();
+    }
     timeline.PrepareForFilteredRefetch();
   } else {
+    timeline.ClearLoadedActiveTracks();
     timeline.set_stash_full_overview_on_next_update(false);
   }
   timeline.set_full_trace_loaded(false);
@@ -552,6 +926,14 @@ void BeginIncrementalTraceEvents(
   BeginIncrementalTraceEvents(visible_range_from_url,
                               Application::Instance().data_provider(),
                               Application::Instance().timeline());
+}
+
+bool HasCachedTraceEventsIncremental() {
+  return GetIncrementalSession().has_cached_trace_store;
+}
+
+void SetMaxCachedPackedBytesForTest(size_t max_bytes) {
+  GetIncrementalSession().max_cached_packed_bytes = max_bytes;
 }
 
 bool ShouldEnqueueCompressedFrameIncremental() {
@@ -569,6 +951,10 @@ void AppendCompressedTraceEventsIncremental(uintptr_t data_ptr,
     return;
   }
   IncrementalParserSession& session = GetIncrementalSession();
+  if (session.using_cached_trace_store) {
+    ++session.next_enqueued_frame_index;
+    return;
+  }
   const char* bytes = reinterpret_cast<const char*>(data_ptr);
   if (absl::StartsWith(absl::string_view(bytes, data_size),
                        tensorflow::profiler::kXChunkMagic)) {
@@ -583,7 +969,7 @@ void AppendCompressedTraceEventsIncremental(uintptr_t data_ptr,
           (static_cast<uint32_t>(static_cast<uint8_t>(bytes[offset + 3]))
            << 24);
       offset += 4;
-      if (frame_len == 0 || offset + frame_len > data_size) {
+      if (frame_len == 0 || frame_len > data_size - offset) {
         break;
       }
       const size_t frame_idx = session.next_enqueued_frame_index++;
@@ -616,6 +1002,98 @@ bool StepIncrementalTraceEvents(size_t max_events_per_step,
   size_t raw_events_scanned = 0;
   bool any_processed = false;
 
+  if (session.using_cached_trace_store) {
+    if (!session.cached_metadata_and_globals_emitted) {
+      session.cached_metadata_and_globals_emitted = true;
+      for (const auto& proc : session.cached_processes) {
+        ProcessProcessMetadata(proc, batch);
+      }
+      if (session.filter_range_ps.has_value()) {
+        const Microseconds min_ts_us = session.filter_range_ps->first / 1e6;
+        const Microseconds max_ts_us = session.filter_range_ps->second / 1e6;
+        for (const TraceEvent& ev : session.cached_async_flame_events) {
+          if (ev.ph == Phase::kComplete &&
+              (ev.ts + ev.dur < min_ts_us || ev.ts > max_ts_us)) {
+            continue;
+          }
+          batch.flame_events.push_back(ev);
+        }
+        for (const TraceEvent& ev : session.cached_async_flow_events) {
+          if (ev.ph == Phase::kComplete &&
+              (ev.ts + ev.dur < min_ts_us || ev.ts > max_ts_us)) {
+            continue;
+          }
+          batch.flow_events.push_back(ev);
+        }
+        for (const CounterEvent& counter : session.cached_counter_events) {
+          const auto first_it = std::lower_bound(
+              counter.timestamps.begin(), counter.timestamps.end(), min_ts_us);
+          const auto last_it =
+              std::upper_bound(first_it, counter.timestamps.end(), max_ts_us);
+          if (first_it == last_it) continue;
+          const size_t first_idx =
+              static_cast<size_t>(first_it - counter.timestamps.begin());
+          const size_t last_idx =
+              static_cast<size_t>(last_it - counter.timestamps.begin());
+          CounterEvent sliced;
+          sliced.pid = counter.pid;
+          sliced.name = counter.name;
+          sliced.event_stats = counter.event_stats;
+          sliced.unit = counter.unit;
+          sliced.timestamps.assign(first_it, last_it);
+          sliced.values.assign(counter.values.begin() + first_idx,
+                               counter.values.begin() + last_idx);
+          for (const double val : sliced.values) {
+            sliced.min_value = std::min(sliced.min_value, val);
+            sliced.max_value = std::max(sliced.max_value, val);
+          }
+          batch.counter_events.push_back(std::move(sliced));
+        }
+      } else {
+        batch.flame_events.insert(batch.flame_events.end(),
+                                  session.cached_async_flame_events.begin(),
+                                  session.cached_async_flame_events.end());
+        batch.flow_events.insert(batch.flow_events.end(),
+                                 session.cached_async_flow_events.begin(),
+                                 session.cached_async_flow_events.end());
+        batch.counter_events.insert(batch.counter_events.end(),
+                                    session.cached_counter_events.begin(),
+                                    session.cached_counter_events.end());
+      }
+      any_processed = !batch.flame_events.empty() ||
+                      !batch.flow_events.empty() ||
+                      !batch.counter_events.empty();
+    }
+    while (session.next_cached_block_idx <
+               session.cached_complete_blocks.size() &&
+           events_unmarshaled < max_events_per_step) {
+      const CachedCompleteBlock& block =
+          session.cached_complete_blocks[session.next_cached_block_idx++];
+      const size_t decoded = DecodeCachedCompleteBlock(session, block, batch);
+      if (decoded > 0) {
+        any_processed = true;
+        events_unmarshaled += decoded;
+      }
+    }
+    while (session.next_cached_block_idx <
+               session.cached_complete_blocks.size() &&
+           !BlockOverlapsFilter(
+               session.cached_complete_blocks[session.next_cached_block_idx],
+               session)) {
+      ++session.next_cached_block_idx;
+    }
+    if (any_processed) {
+      batch.mpmd_pipeline_view = session.mpmd_pipeline_view;
+      batch.full_timespan = session.full_timespan;
+      batch.visible_range_from_url = session.visible_range_from_url;
+      data_provider.AppendTraceEventsIncremental(
+          std::move(batch), timeline, TimelineFlushMode::kDeferFlush);
+      session.appended_any_batch = true;
+    }
+    return session.next_cached_block_idx <
+           session.cached_complete_blocks.size();
+  }
+
   const size_t max_raw_events_per_step =
       session.filter_range_ps.has_value() ? 2097152 : 524288;
 
@@ -624,6 +1102,10 @@ bool StepIncrementalTraceEvents(size_t max_events_per_step,
     if (!session.active_response ||
         session.next_pid_idx >= session.active_pids.size()) {
       session.ClearActiveFrame();
+      // On initial progressive load, flush at frame boundaries once we have
+      // unmarshaled events so each completed frame renders cleanly. On a
+      // filtered zoom refetch, continue scanning across frames up to the raw
+      // event budget.
       if (events_unmarshaled > 0 &&
           (!session.filter_range_ps.has_value() ||
            raw_events_scanned >= max_raw_events_per_step / 2)) {
@@ -763,6 +1245,24 @@ bool FinishIncrementalTraceEvents(DataProvider& data_provider,
         std::move(session.building_frame_summaries);
     session.cached_full_timespan = session.full_timespan;
     session.cached_mpmd_pipeline_view = session.mpmd_pipeline_view;
+    if (!full_loaded && !session.visible_range_from_url.has_value() &&
+        session.can_build_trace_store &&
+        !session.building_complete_blocks.empty()) {
+      session.cached_processes = std::move(session.building_processes);
+      session.cached_async_flame_events =
+          std::move(session.building_async_flame_events);
+      session.cached_async_flow_events =
+          std::move(session.building_async_flow_events);
+      session.cached_counter_events =
+          std::move(session.building_counter_events);
+      session.cached_complete_blocks =
+          std::move(session.building_complete_blocks);
+      session.cached_frame_interned_strings =
+          std::move(session.building_frame_interned_strings);
+      session.has_cached_trace_store = true;
+    } else {
+      session.has_cached_trace_store = false;
+    }
   }
 
   data_provider.FinishIncrementalLoad();
@@ -843,6 +1343,8 @@ EMSCRIPTEN_BINDINGS(trace_pb_event_parser) {
   emscripten::function("beginIncrementalTraceEvents",
                        static_cast<void (*)(const emscripten::val&)>(
                            &traceviewer::BeginIncrementalTraceEvents));
+  emscripten::function("hasCachedTraceEventsIncremental",
+                       &traceviewer::HasCachedTraceEventsIncremental);
   emscripten::function("shouldEnqueueCompressedFrameIncremental",
                        &traceviewer::ShouldEnqueueCompressedFrameIncremental);
   emscripten::function("appendCompressedTraceEventsIncremental",

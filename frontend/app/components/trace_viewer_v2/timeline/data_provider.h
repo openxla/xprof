@@ -2,6 +2,7 @@
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_DATA_PROVIDER_H_
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -73,6 +74,12 @@ class DataProvider {
 
   // Returns true if any threads, counters, or async tracks are registered.
   bool HasKnownTracks() const;
+
+  std::optional<ThreadId> GetXlaModulesTid(ProcessId pid) const {
+    const auto it = xla_modules_tids_.find(pid);
+    return it != xla_modules_tids_.end() ? std::optional<ThreadId>(it->second)
+                                         : std::nullopt;
+  }
 
  private:
   struct IncrementalState;

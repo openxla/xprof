@@ -496,6 +496,7 @@ class Timeline {
   void MarkCurrentDataAsFullOverview() {
     is_full_overview_data_ = true;
     stash_full_overview_on_next_update_ = false;
+    ClearLoadedActiveTracks();
     saved_full_overview_.reset();
     if (is_compacted_ && timeline_data_.entry_start_times.size() >
                              max_uncompacted_overview_entries_) {
@@ -526,6 +527,7 @@ class Timeline {
     saved_full_overview_.reset();
     is_full_overview_data_ = false;
     stash_full_overview_on_next_update_ = false;
+    ClearLoadedActiveTracks();
     overview_fetched_data_time_range_ = TimeRange::Zero();
     overview_data_time_range_ = TimeRange::Zero();
     overview_full_trace_loaded_ = false;
@@ -534,6 +536,21 @@ class Timeline {
   }
   bool HasCompactedMipLevels() const { return is_compacted_; }
 
+  absl::flat_hash_set<std::pair<ProcessId, ThreadId>>
+  ComputeActiveTracksForFetch(bool include_vertical_margin = true) const;
+  bool HasUnloadedVisibleExpandedTracks() const;
+  void SetLoadedActiveTracks(
+      absl::flat_hash_set<std::pair<ProcessId, ThreadId>> tracks) {
+    has_active_track_filter_ = true;
+    loaded_active_tracks_ = std::move(tracks);
+  }
+  void ClearLoadedActiveTracks() {
+    has_active_track_filter_ = false;
+    loaded_active_tracks_.clear();
+  }
+  void set_tracks_window_height_for_test(float height) {
+    last_tracks_window_height_ = height;
+  }
   void set_max_uncompacted_overview_entries_for_test(size_t max_entries) {
     max_uncompacted_overview_entries_ = max_entries;
   }
@@ -1483,6 +1500,9 @@ class Timeline {
   bool overview_full_trace_loaded_ = false;
   bool overview_is_compacted_ = false;
   bool overview_window_at_full_resolution_ = false;
+  Pixel last_tracks_window_height_ = 800.0f;
+  bool has_active_track_filter_ = false;
+  absl::flat_hash_set<std::pair<ProcessId, ThreadId>> loaded_active_tracks_;
   size_t max_uncompacted_overview_entries_ = 200000;
 
   // TODO - b/444026851: Set the label width based on the real screen width.

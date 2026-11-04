@@ -13,6 +13,7 @@
 #include <ios>
 #include <limits>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <tuple>
@@ -18702,6 +18703,313 @@ TEST_F(TrackReorderTest, TopmostTrackWinsForSpecialMinimapRibbons) {
   EXPECT_EQ(
       std::any_cast<std::string>(regions_after[0].at(kEventSelectedName)),
       "reg_bottom");
+}
+
+TEST(TimelineTest,
+     ActiveTrackFilterStateClearedByRestoreClearAndResetForNewDataset) {
+  auto make_two_track_data = []() {
+    FlameChartTimelineData data;
+    data.groups = {
+        {.type = Group::Type::kFlame,
+         .name = "Proc 1",
+         .start_level = 0,
+         .nesting_level = kProcessNestingLevel,
+         .expanded = true,
+         .parent_index = -1,
+         .has_children = true,
+         .pid = 1},
+        {.type = Group::Type::kFlame,
+         .name = "Thread 1",
+         .start_level = 0,
+         .nesting_level = kThreadNestingLevel,
+         .expanded = true,
+         .parent_index = 0,
+         .level_count = 1,
+         .pid = 1,
+         .tid = 10},
+        {.type = Group::Type::kFlame,
+         .name = "Proc 2",
+         .start_level = 1,
+         .nesting_level = kProcessNestingLevel,
+         .expanded = true,
+         .parent_index = -1,
+         .has_children = true,
+         .pid = 2},
+        {.type = Group::Type::kFlame,
+         .name = "Thread 2",
+         .start_level = 1,
+         .nesting_level = kThreadNestingLevel,
+         .expanded = true,
+         .parent_index = 2,
+         .level_count = 1,
+         .pid = 2,
+         .tid = 20},
+    };
+    data.level_offsets = {0, 1, 1};
+    data.level_event_indices = {0};
+    data.entry_names = {"ev0"};
+    data.entry_levels = {0};
+    data.entry_start_times = {0.0};
+    data.entry_total_times = {100.0};
+    data.entry_self_times = {100.0};
+    return data;
+  };
+
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.SetTimelineData(make_two_track_data());
+  timeline.MarkCurrentDataAsFullOverview();
+
+  // When is_full_overview_data_ is true and groups are non-empty,
+  // HasUnloadedVisibleExpandedTracks() must return false even if an active
+  // track filter is set.
+  timeline.SetLoadedActiveTracks({{1, 10}});
+  EXPECT_FALSE(timeline.HasUnloadedVisibleExpandedTracks());
+
+  // Stash the overview via PrepareForFilteredRefetch + SetTimelineData: now
+  // is_full_overview_data_ is false and {2, 20} is unloaded.
+  timeline.PrepareForFilteredRefetch();
+  timeline.SetTimelineData(make_two_track_data());
+  EXPECT_TRUE(timeline.HasSavedFullOverview());
+  EXPECT_TRUE(timeline.HasUnloadedVisibleExpandedTracks());
+
+  // RestoreSavedFullOverview() must clear the active track filter so a
+  // subsequent unfiltered zoom-in does not see stale loaded_active_tracks_.
+  EXPECT_TRUE(timeline.RestoreSavedFullOverview());
+  timeline.PrepareForFilteredRefetch();
+  timeline.SetTimelineData(make_two_track_data());
+  EXPECT_FALSE(timeline.HasUnloadedVisibleExpandedTracks());
+
+  // ClearSavedFullOverview() and ResetForNewDataset() must also clear the
+  // active track filter.
+  timeline.SetLoadedActiveTracks({{1, 10}});
+  EXPECT_TRUE(timeline.HasUnloadedVisibleExpandedTracks());
+  timeline.ClearSavedFullOverview();
+  EXPECT_FALSE(timeline.HasUnloadedVisibleExpandedTracks());
+
+  timeline.SetLoadedActiveTracks({{1, 10}});
+  EXPECT_TRUE(timeline.HasUnloadedVisibleExpandedTracks());
+  timeline.ResetForNewDataset();
+  timeline.SetTimelineData(make_two_track_data());
+  EXPECT_FALSE(timeline.HasUnloadedVisibleExpandedTracks());
+}
+
+TEST(TimelineTest,
+     ComputeActiveTracksForFetchSkipsHiddenProcessesInFallbackLoop) {
+  FlameChartTimelineData data;
+  data.groups = {
+      {.type = Group::Type::kFlame,
+       .name = "P_hidden",
+       .start_level = 0,
+       .nesting_level = kProcessNestingLevel,
+       .expanded = true,
+       .parent_index = -1,
+       .has_children = true,
+       .pid = 1},
+      {.type = Group::Type::kFlame,
+       .name = "Hidden Thread",
+       .start_level = 0,
+       .nesting_level = kThreadNestingLevel,
+       .expanded = true,
+       .parent_index = 0,
+       .level_count = 1,
+       .pid = 1,
+       .tid = 10},
+      {.type = Group::Type::kFlame,
+       .name = "P_collapsed",
+       .start_level = 1,
+       .nesting_level = kProcessNestingLevel,
+       .expanded = false,
+       .parent_index = -1,
+       .has_children = true,
+       .pid = 2},
+      {.type = Group::Type::kFlame,
+       .name = "Collapsed Thread",
+       .start_level = 1,
+       .nesting_level = kThreadNestingLevel,
+       .expanded = true,
+       .parent_index = 2,
+       .level_count = 1,
+       .pid = 2,
+       .tid = 20},
+  };
+  data.level_offsets = {0, 0, 0};
+
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_track_management_enabled(true);
+  timeline.hidden_track_names_ = {"P_hidden"};
+  timeline.SetTimelineData(std::move(data));
+
+  // P_hidden is expanded but hidden under the collapsed Hidden section, and
+  // P_collapsed is collapsed, so ComputeActiveTracksForFetch must return empty
+  // rather than leaking P_hidden's thread via the fallback loop.
+  EXPECT_TRUE(timeline.ComputeActiveTracksForFetch().empty());
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       DrawUpdatesTracksWindowHeightForComputeActiveTracks) {
+  FlameChartTimelineData data;
+  constexpr int kNumThreads = 60;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Proc_0",
+                         .start_level = 0,
+                         .nesting_level = kProcessNestingLevel,
+                         .expanded = true,
+                         .parent_index = -1,
+                         .has_children = true,
+                         .pid = 1});
+  for (int i = 0; i < kNumThreads; ++i) {
+    data.groups.push_back({.type = Group::Type::kFlame,
+                           .name = absl::StrCat("Thread_", i),
+                           .start_level = i,
+                           .nesting_level = kThreadNestingLevel,
+                           .expanded = true,
+                           .parent_index = 0,
+                           .level_count = 1,
+                           .pid = 1,
+                           .tid = static_cast<ThreadId>((i + 1) * 10)});
+  }
+  data.level_offsets.assign(kNumThreads + 1, 0);
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+
+  // Before Draw(), last_tracks_window_height_ is 800px, so even though Proc_0's
+  // header is at y=0, off-screen child thread 59 (y > 1200) is culled.
+  const std::pair<ProcessId, ThreadId> top_track{1, 10};
+  const std::pair<ProcessId, ThreadId> bottom_track{1, 600};
+  const auto active_before =
+      timeline_.ComputeActiveTracksForFetch(/*include_vertical_margin=*/false);
+  EXPECT_TRUE(active_before.contains(top_track));
+  EXPECT_FALSE(active_before.contains(bottom_track));
+
+  // Render with a 2400px-tall viewport so Draw() updates
+  // last_tracks_window_height_ from ImGui::GetWindowHeight().
+  ImGui::GetIO().DisplaySize = ImVec2(1200.0f, 2400.0f);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+
+  const auto active_after =
+      timeline_.ComputeActiveTracksForFetch(/*include_vertical_margin=*/false);
+  EXPECT_TRUE(active_after.contains(bottom_track));
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       BorrowedOverviewMipPyramidsDistinguishSiblingThreadsAndRenderWhenEmpty) {
+  auto make_groups = []() {
+    std::vector<Group> groups = {
+        {.type = Group::Type::kFlame,
+         .name = "Process 1",
+         .start_level = 0,
+         .nesting_level = kProcessNestingLevel,
+         .expanded = true,
+         .parent_index = -1,
+         .has_children = true,
+         .pid = 1},
+        // Two sibling threads with the exact same name ("worker") under the
+        // same process, distinguished by tid (10 vs 20).
+        {.type = Group::Type::kFlame,
+         .name = "worker",
+         .start_level = 0,
+         .nesting_level = kThreadNestingLevel,
+         .expanded = true,
+         .parent_index = 0,
+         .level_count = 1,
+         .pid = 1,
+         .tid = 10},
+        {.type = Group::Type::kFlame,
+         .name = "worker",
+         .start_level = 1,
+         .nesting_level = kThreadNestingLevel,
+         .expanded = true,
+         .parent_index = 0,
+         .level_count = 1,
+         .pid = 1,
+         .tid = 20},
+    };
+    return groups;
+  };
+
+  FlameChartTimelineData overview;
+  overview.groups = make_groups();
+  constexpr int kEventsPerThread = 200;
+  overview.level_offsets = {0, kEventsPerThread, 2 * kEventsPerThread};
+  // Thread 1 (tid 10, level 0) spans [0, 2000] us; Thread 2 (tid 20, level 1)
+  // spans [10000, 12000] us.
+  for (int i = 0; i < kEventsPerThread; ++i) {
+    overview.level_event_indices.push_back(i);
+    overview.entry_names.push_back("op_early");
+    overview.entry_levels.push_back(0);
+    overview.entry_start_times.push_back(static_cast<double>(i) * 10.0);
+    overview.entry_total_times.push_back(8.0);
+    overview.entry_self_times.push_back(8.0);
+    overview.entry_args.push_back({});
+  }
+  for (int i = 0; i < kEventsPerThread; ++i) {
+    overview.level_event_indices.push_back(kEventsPerThread + i);
+    overview.entry_names.push_back("op_late");
+    overview.entry_levels.push_back(1);
+    overview.entry_start_times.push_back(10000.0 +
+                                         static_cast<double>(i) * 10.0);
+    overview.entry_total_times.push_back(8.0);
+    overview.entry_self_times.push_back(8.0);
+    overview.entry_args.push_back({});
+  }
+
+  timeline_.set_data_time_range({0.0, 12000.0});
+  timeline_.SetVisibleRange({0.0, 12000.0});
+  timeline_.SetTimelineData(std::move(overview));
+  timeline_.MarkCurrentDataAsFullOverview();
+
+  // Filtered refetch where neither tid 10 nor tid 20 was loaded AND the zoomed
+  // dataset has 0 raw events (entry_start_times is empty).
+  timeline_.SetLoadedActiveTracks({{99, 999}});
+  timeline_.PrepareForFilteredRefetch();
+  FlameChartTimelineData empty_zoomed;
+  empty_zoomed.groups = make_groups();
+  empty_zoomed.level_offsets = {0, 0, 0};
+  timeline_.SetTimelineData(std::move(empty_zoomed));
+
+  const auto& pyramids = timeline_.level_mip_pyramids_for_test();
+  ASSERT_EQ(pyramids.size(), 2u);
+  ASSERT_TRUE(pyramids[0].has_pyramid);
+  ASSERT_TRUE(pyramids[1].has_pyramid);
+  ASSERT_FALSE(pyramids[0].levels[2].tiles.empty());
+  ASSERT_FALSE(pyramids[1].levels[2].tiles.empty());
+  // Level 0 (tid 10) must borrow its own [0, 2000] pyramid rather than being
+  // overwritten by sibling tid 20's [10000, 12000] pyramid.
+  EXPECT_LT(pyramids[0].levels[2].tiles.front().min_start, 100.0);
+  EXPECT_GE(pyramids[1].levels[2].tiles.front().min_start, 10000.0);
+
+  // Verify both WebGPU instanced batches and CPU fallback rectangles render the
+  // borrowed MIP tiles on the expanded flame tracks despite empty level_events.
+  timeline_.set_force_gpu_flame_batch_mode_for_test(true);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+  EXPECT_GE(timeline_.emitted_gpu_flame_batches_for_test().size(), 2u);
+
+  timeline_.set_force_gpu_flame_batch_mode_for_test(false);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+  const int cpu_borrowed_vtx = ImGui::GetDrawData()->TotalVtxCount;
+
+  // Compare against a timeline with the same empty groups but no borrowed
+  // pyramids: CPU vertex count with borrowed MIP tiles must be strictly larger.
+  timeline_.ClearSavedFullOverview();
+  FlameChartTimelineData unborrowed_empty;
+  unborrowed_empty.groups = make_groups();
+  unborrowed_empty.level_offsets = {0, 0, 0};
+  timeline_.SetTimelineData(std::move(unborrowed_empty));
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+  const int cpu_empty_vtx = ImGui::GetDrawData()->TotalVtxCount;
+  EXPECT_GT(cpu_borrowed_vtx, cpu_empty_vtx);
 }
 
 }  // namespace

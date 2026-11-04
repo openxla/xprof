@@ -9,11 +9,17 @@ $bar-height: 52px;
 $row-height: 32px;
 $monogram-width: 28px;
 $monogram-height: 20px;
-// Centers the monograms in the collapsed rail, and keeps them in place while
-// the rail expands into grouped module cards.
-$row-start-padding: (
+$kind-glyph-size: 16px;
+// Centers the group markers and kind icons in the collapsed rail, and keeps
+// the kind icons in place while the rail expands into grouped module cards.
+$group-start-padding: (
     $rail-collapsed-width - 2 * ($group-margin + $group-padding) -
       $monogram-width
+  ) *
+  0.5;
+$row-start-padding: (
+    $rail-collapsed-width - 2 * ($group-margin + $group-padding) -
+      $kind-glyph-size
   ) *
   0.5;
 // Must match TAB_HIGHLIGHT_MS and CARD_WIDTH, see static_kernel_viewer.ts.
@@ -859,7 +865,6 @@ $card-width: 320px;
   display: flex;
   align-items: center;
   width: 100%;
-  padding: 0 var(--spacing-2) 0 $row-start-padding;
   box-sizing: border-box;
   border: 0;
   border-radius: var(--mat-sys-corner-small);
@@ -876,6 +881,7 @@ $card-width: 320px;
   gap: var(--spacing-1);
   height: 28px;
   margin-bottom: 2px;
+  padding: 0 var(--spacing-2) 0 $group-start-padding;
   transition: background-color 120ms var(--motion-easing-standard);
 
   &:hover {
@@ -892,7 +898,7 @@ $card-width: 320px;
 .group-marker {
   position: absolute;
   top: 50%;
-  left: $row-start-padding;
+  left: $group-start-padding;
   width: $monogram-width;
   height: 4px;
   transform: translateY(-50%);
@@ -994,6 +1000,7 @@ $card-width: 320px;
   gap: var(--spacing-3);
   height: $row-height;
   margin-bottom: 1px;
+  padding: 0 var(--spacing-2) 0 $row-start-padding;
   transition:
     background-color 140ms var(--motion-easing-standard),
     box-shadow 140ms var(--motion-easing-standard),
@@ -1165,10 +1172,10 @@ $card-width: 320px;
 .kind-glyph {
   --kind-color: var(--mat-sys-on-surface-variant);
   flex: none;
-  width: 16px;
-  height: 16px;
+  width: $kind-glyph-size;
+  height: $kind-glyph-size;
   color: color-mix(in srgb, var(--kind-color) 72%, var(--mat-sys-on-surface));
-  font-size: 16px;
+  font-size: $kind-glyph-size;
 }
 
 .skv-main {

@@ -1,5 +1,6 @@
 """Shared Playwright UI interaction helpers for XProf frontend tests."""
 
+import importlib
 import logging
 import pathlib
 import re
@@ -293,3 +294,288 @@ def sort_table_column(page: sync_api.Page, column_name: str) -> None:
   header.click()
   sync_api.expect(header).to_have_class(sorted_class, timeout=5000)
   page.mouse.move(0, 0)
+
+
+_XPLANE_FILE_DESCRIPTOR_TEXTPROTO = """
+name: "xplane.proto"
+package: "tensorflow.profiler"
+syntax: "proto3"
+message_type {
+  name: "XSpace"
+  field {
+    name: "planes"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".tensorflow.profiler.XPlane"
+  }
+}
+message_type {
+  name: "XPlane"
+  field { name: "id" number: 1 label: LABEL_OPTIONAL type: TYPE_INT64 }
+  field { name: "name" number: 2 label: LABEL_OPTIONAL type: TYPE_STRING }
+  field {
+    name: "lines"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".tensorflow.profiler.XLine"
+  }
+  field {
+    name: "event_metadata"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".tensorflow.profiler.XPlane.EventMetadataEntry"
+  }
+  field {
+    name: "stat_metadata"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".tensorflow.profiler.XPlane.StatMetadataEntry"
+  }
+  field {
+    name: "stats"
+    number: 6
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".tensorflow.profiler.XStat"
+  }
+  nested_type {
+    name: "EventMetadataEntry"
+    field { name: "key" number: 1 label: LABEL_OPTIONAL type: TYPE_INT64 }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".tensorflow.profiler.XEventMetadata"
+    }
+    options { map_entry: true }
+  }
+  nested_type {
+    name: "StatMetadataEntry"
+    field { name: "key" number: 1 label: LABEL_OPTIONAL type: TYPE_INT64 }
+    field {
+      name: "value"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".tensorflow.profiler.XStatMetadata"
+    }
+    options { map_entry: true }
+  }
+}
+message_type {
+  name: "XLine"
+  field { name: "id" number: 1 label: LABEL_OPTIONAL type: TYPE_INT64 }
+  field { name: "name" number: 2 label: LABEL_OPTIONAL type: TYPE_STRING }
+  field {
+    name: "events"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".tensorflow.profiler.XEvent"
+  }
+}
+message_type {
+  name: "XEvent"
+  field { name: "metadata_id" number: 1 label: LABEL_OPTIONAL type: TYPE_INT64 }
+  field { name: "offset_ps" number: 2 label: LABEL_OPTIONAL type: TYPE_INT64 }
+  field { name: "duration_ps" number: 3 label: LABEL_OPTIONAL type: TYPE_INT64 }
+  field {
+    name: "stats"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".tensorflow.profiler.XStat"
+  }
+}
+message_type {
+  name: "XEventMetadata"
+  field { name: "id" number: 1 label: LABEL_OPTIONAL type: TYPE_INT64 }
+  field { name: "name" number: 2 label: LABEL_OPTIONAL type: TYPE_STRING }
+  field {
+    name: "stats"
+    number: 5
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".tensorflow.profiler.XStat"
+  }
+}
+message_type {
+  name: "XStatMetadata"
+  field { name: "id" number: 1 label: LABEL_OPTIONAL type: TYPE_INT64 }
+  field { name: "name" number: 2 label: LABEL_OPTIONAL type: TYPE_STRING }
+}
+message_type {
+  name: "XStat"
+  field { name: "metadata_id" number: 1 label: LABEL_OPTIONAL type: TYPE_INT64 }
+  field {
+    name: "double_value"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_DOUBLE
+  }
+  field {
+    name: "uint64_value"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_UINT64
+  }
+  field { name: "int64_value" number: 4 label: LABEL_OPTIONAL type: TYPE_INT64 }
+  field { name: "str_value" number: 5 label: LABEL_OPTIONAL type: TYPE_STRING }
+}
+"""
+
+_INFERENCE_SERVING_XSPACE_TEXTPROTO = """
+planes {
+  id: 1
+  name: "/host:CPU"
+  lines {
+    id: 1
+    name: "RequestThread"
+    events {
+      metadata_id: 1
+      offset_ps: 100
+      duration_ps: 20000
+      stats { metadata_id: 1 int64_value: 1 }
+      stats { metadata_id: 2 str_value: "/models/ranking_model:1" }
+    }
+    events {
+      metadata_id: 2
+      offset_ps: 200
+      duration_ps: 200
+      stats { metadata_id: 3 int64_value: 4 }
+      stats { metadata_id: 4 int64_value: 1 }
+      stats { metadata_id: 5 int64_value: 8 }
+    }
+  }
+  lines {
+    id: 2
+    name: "BatchThread"
+    events {
+      metadata_id: 3
+      offset_ps: 500
+      duration_ps: 15000
+      stats { metadata_id: 6 int64_value: 4 }
+      stats { metadata_id: 7 int64_value: 1 }
+      stats { metadata_id: 1 int64_value: 2 }
+      stats { metadata_id: 3 int64_value: 12 }
+      stats { metadata_id: 4 int64_value: 42 }
+    }
+    events {
+      metadata_id: 4
+      offset_ps: 600
+      duration_ps: 100
+      stats { metadata_id: 8 int64_value: 0 }
+      stats { metadata_id: 9 int64_value: 8 }
+    }
+  }
+  event_metadata { key: 1 value { id: 1 name: "SessionRun" } }
+  event_metadata { key: 2 value { id: 2 name: "ScheduleWithoutSplit" } }
+  event_metadata { key: 3 value { id: 3 name: "ProcessBatch" } }
+  event_metadata { key: 4 value { id: 4 name: "ConcatInputTensors" } }
+  stat_metadata { key: 1 value { id: 1 name: "_r" } }
+  stat_metadata { key: 2 value { id: 2 name: "model_id" } }
+  stat_metadata { key: 3 value { id: 3 name: "_pt" } }
+  stat_metadata { key: 4 value { id: 4 name: "_p" } }
+  stat_metadata { key: 5 value { id: 5 name: "batching_input_task_size" } }
+  stat_metadata { key: 6 value { id: 6 name: "_ct" } }
+  stat_metadata { key: 7 value { id: 7 name: "_c" } }
+  stat_metadata { key: 8 value { id: 8 name: "padding_amount" } }
+  stat_metadata { key: 9 value { id: 9 name: "batch_size_after_padding" } }
+}
+planes {
+  id: 2
+  name: "/device:TPU:0"
+  lines {
+    id: 1
+    name: "XLA Modules"
+    events {
+      metadata_id: 1
+      offset_ps: 1000
+      duration_ps: 10000
+      stats { metadata_id: 4 int64_value: 12 }
+      stats { metadata_id: 5 int64_value: 42 }
+    }
+  }
+  lines {
+    id: 2
+    name: "XLA Ops"
+    events {
+      metadata_id: 2
+      offset_ps: 2000
+      duration_ps: 8000
+    }
+  }
+  event_metadata {
+    key: 1
+    value { id: 1 name: "jit_serve(5621224425449793704)" }
+  }
+  event_metadata {
+    key: 2
+    value {
+      id: 2
+      name: "fusion.1"
+      stats { metadata_id: 6 int64_value: 5621224425449793704 }
+      stats { metadata_id: 7 int64_value: 1 }
+      stats { metadata_id: 8 str_value: "fusion" }
+      stats { metadata_id: 9 int64_value: 1000000 }
+      stats { metadata_id: 10 int64_value: 100000 }
+    }
+  }
+  stat_metadata { key: 1 value { id: 1 name: "peak_teraflops_per_second" } }
+  stat_metadata {
+    key: 2
+    value { id: 2 name: "peak_hbm_bw_gigabytes_per_second" }
+  }
+  stat_metadata { key: 3 value { id: 3 name: "device_type_string" } }
+  stat_metadata { key: 4 value { id: 4 name: "_ct" } }
+  stat_metadata { key: 5 value { id: 5 name: "_c" } }
+  stat_metadata { key: 6 value { id: 6 name: "program_id" } }
+  stat_metadata { key: 7 value { id: 7 name: "symbol_id" } }
+  stat_metadata { key: 8 value { id: 8 name: "hlo_category" } }
+  stat_metadata { key: 9 value { id: 9 name: "flops" } }
+  stat_metadata { key: 10 value { id: 10 name: "bytes_accessed" } }
+  stats { metadata_id: 1 double_value: 275.0 }
+  stats { metadata_id: 2 double_value: 1200.0 }
+  stats { metadata_id: 3 str_value: "TPU v4" }
+}
+"""
+
+
+def write_inference_serving_trace(path: pathlib.Path) -> None:
+  """Writes a minimal TPU inference serving `.xplane.pb` trace to `path`."""
+  descriptor_pb2 = importlib.import_module("google.protobuf.descriptor_pb2")
+  descriptor_pool = importlib.import_module("google.protobuf.descriptor_pool")
+  message_factory = importlib.import_module("google.protobuf.message_factory")
+  text_format = importlib.import_module("google.protobuf.text_format")
+  pool = descriptor_pool.DescriptorPool()
+  pool.Add(
+      text_format.Parse(
+          _XPLANE_FILE_DESCRIPTOR_TEXTPROTO,
+          descriptor_pb2.FileDescriptorProto(),
+      )
+  )
+  xspace_cls = message_factory.GetMessageClass(
+      pool.FindMessageTypeByName("tensorflow.profiler.XSpace")
+  )
+  serving_xspace = text_format.Parse(
+      _INFERENCE_SERVING_XSPACE_TEXTPROTO, xspace_cls()
+  )
+  path.parent.mkdir(parents=True, exist_ok=True)
+  path.write_bytes(serving_xspace.SerializeToString())
+
+
+def ensure_inference_serving_run(
+    logdir: str, fallback_dir: pathlib.Path
+) -> pathlib.Path:
+  """Returns the staged `tpu-serving` run path or writes one in `fallback_dir`."""
+  staged_dir = pathlib.Path(logdir) / "tpu-serving"
+  if staged_dir.is_dir():
+    return staged_dir
+  serving_dir = fallback_dir / "tpu-serving"
+  write_inference_serving_trace(serving_dir / "serving-node-1.xplane.pb")
+  return serving_dir

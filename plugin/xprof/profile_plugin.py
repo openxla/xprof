@@ -1281,6 +1281,10 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
     }
     if request.args.get('group_by'):
       params['group_by'] = request.args.get('group_by')
+    if request.args.get('program_serving_metadata') is not None:
+      params['program_serving_metadata'] = _get_bool_arg(
+          request.args, 'program_serving_metadata', False
+      )
     if request.args.get('refresh_suggestion'):
       params['refresh_suggestion'] = request.args.get('refresh_suggestion')
     content_type = 'application/json'

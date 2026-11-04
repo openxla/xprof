@@ -25,18 +25,24 @@ limitations under the License.
 #include "tsl/platform/protobuf.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/flat_op_stats_to_op_profile.h"
+#include "xprof/convert/inference_stats_program_metadata.h"
+#include "xprof/convert/multi_xspace_to_inference_stats.h"
 #include "xprof/convert/op_profile_builder.h"
 #include "xprof/convert/op_stats_to_op_profile.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/unified_session_snapshot.h"
+#include "plugin/xprof/protobuf/inference_stats.pb.h"
 #include "plugin/xprof/protobuf/op_profile.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "xprof/utils/hardware_type_utils.h"
 
 namespace xprof {
 
+using tensorflow::profiler::BuildProgramServingMetadata;
+using tensorflow::profiler::ConvertMultiXSpaceToInferenceStats;
 using tensorflow::profiler::GetHardwareType;
 using tensorflow::profiler::GetParamWithDefault;
+using tensorflow::profiler::InferenceStats;
 using tensorflow::profiler::OpStats;
 using tensorflow::profiler::ProgramServingMetadataMap;
 using tensorflow::profiler::op_profile::Profile;
@@ -46,7 +52,16 @@ absl::StatusOr<ProgramServingMetadataMap>
 UnifiedOpProfileProcessor::GetProgramServingMetadata(
     const XprofSessionSnapshot& session_snapshot,
     const OpStats& combined_op_stats) {
-  return ProgramServingMetadataMap{};
+  if (combined_op_stats.run_environment().is_training()) {
+    return ProgramServingMetadataMap{};
+  }
+  InferenceStats inference_stats;
+  if (absl::Status status = ConvertMultiXSpaceToInferenceStats(
+          session_snapshot, "", "", &inference_stats);
+      !status.ok()) {
+    return status;
+  }
+  return BuildProgramServingMetadata(inference_stats);
 }
 
 absl::Status UnifiedOpProfileProcessor::ProcessCombinedOpStats(

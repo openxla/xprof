@@ -15,28 +15,18 @@ limitations under the License.
 
 #include "xprof/convert/op_profile_processor.h"
 
-#include <string>
-
 #include "absl/status/status.h"
-#include "absl/strings/string_view.h"
 #include "xla/tsl/platform/errors.h"
-#include "tsl/platform/protobuf.h"
-#include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/multi_xplanes_to_op_stats.h"
-#include "xprof/convert/op_stats_to_op_profile.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
-#include "plugin/xprof/protobuf/op_profile.pb.h"
+#include "xprof/convert/unified_op_profile_processor.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
-#include "xprof/utils/hardware_type_utils.h"
 
 namespace xprof {
 
 using tensorflow::profiler::OpStats;
-using tensorflow::profiler::GetHardwareType;
 using tensorflow::profiler::SessionSnapshot;
-using tensorflow::profiler::op_profile::Profile;
-using tsl::protobuf::util::JsonPrintOptions;
 
 absl::Status OpProfileProcessor::ProcessSession(
     const SessionSnapshot& session_snapshot,
@@ -44,50 +34,16 @@ absl::Status OpProfileProcessor::ProcessSession(
   OpStats combined_op_stats;
   TF_RETURN_IF_ERROR(ConvertMultiXSpaceToCombinedOpStatsWithCache(
       session_snapshot, &combined_op_stats));
-
-  tensorflow::profiler::op_profile::Profile profile;
-  auto group_by = tensorflow::profiler::GetOpProfileGrouping(options);
-  ConvertOpStatsToOpProfile(
-      combined_op_stats,
-      GetHardwareType(combined_op_stats.run_environment()),
-      profile, /*op_profile_limit=*/100, group_by);
-  std::string json_output;
-  tsl::protobuf::util::JsonPrintOptions opts;
-  opts.always_print_fields_with_no_presence = true;
-
-  auto encode_status =
-      tsl::protobuf::util::MessageToJsonString(profile, &json_output, opts);
-  if (!encode_status.ok()) {
-    const auto& error_message = encode_status.message();
-    return absl::InternalError(absl::StrCat(
-        "Could not convert op profile proto to json. Error: ", error_message));
-  }
-  SetOutput(json_output, "application/json");
-  return absl::OkStatus();
+  return ProcessCombinedOpStats(session_snapshot, combined_op_stats, options);
 }
 
 absl::Status OpProfileProcessor::ProcessCombinedOpStats(
     const SessionSnapshot& session_snapshot, const OpStats& combined_op_stats,
     const tensorflow::profiler::ToolOptions& options) {
-  Profile profile;
-  auto group_by = tensorflow::profiler::GetOpProfileGrouping(options);
-  ConvertOpStatsToOpProfile(
-      combined_op_stats,
-      GetHardwareType(combined_op_stats.run_environment()),
-      profile, /*op_profile_limit=*/100, group_by);
-  std::string op_profile_json;
-  JsonPrintOptions opts;
-  opts.always_print_fields_with_no_presence = true;
-
-  auto encode_status =
-      tsl::protobuf::util::MessageToJsonString(profile, &op_profile_json, opts);
-  if (!encode_status.ok()) {
-    const auto& error_message = encode_status.message();
-    return absl::InternalError(absl::StrCat(
-        "Could not convert op profile proto to json. Error: ", error_message));
-  }
-
-  SetOutput(op_profile_json, "application/json");
+  UnifiedOpProfileProcessor processor(options);
+  TF_RETURN_IF_ERROR(processor.ProcessCombinedOpStats(
+      session_snapshot, combined_op_stats, options));
+  SetOutput(processor.GetData(), processor.GetContentType());
   return absl::OkStatus();
 }
 

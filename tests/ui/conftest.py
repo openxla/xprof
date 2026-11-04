@@ -137,7 +137,10 @@ def logdir() -> Iterator[str]:
       (staged / "gpu-training" / "gpu-node-1.xplane.pb").symlink_to(
           gpu_trace.resolve()
       )
-    # TODO(b/566347448): Stage an inference serving trace for Op Profile chips.
+    if not (staged / "tpu-serving").exists():
+      ui_helpers.write_inference_serving_trace(
+          staged / "tpu-serving" / "serving-node-1.xplane.pb"
+      )
     yield str(staged)
 
 

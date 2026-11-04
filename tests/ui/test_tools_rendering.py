@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 import os
+import pathlib
 import re
 
 from playwright.sync_api import expect
@@ -13,7 +14,10 @@ try:
   from tests.ui.conftest import BrowserErrors
   from tests.ui.ui_helpers import assert_component_geometry
   from tests.ui.ui_helpers import assert_healthy
+  from tests.ui.ui_helpers import build_tool_url
+  from tests.ui.ui_helpers import ensure_inference_serving_run
   from tests.ui.ui_helpers import ensure_sidenav_open
+  from tests.ui.ui_helpers import expand_op_profile_row
   from tests.ui.ui_helpers import select_category_filter
   from tests.ui.ui_helpers import select_module
   from tests.ui.ui_helpers import switch_tool
@@ -21,7 +25,10 @@ except ImportError:
   from conftest import BrowserErrors
   from ui_helpers import assert_component_geometry
   from ui_helpers import assert_healthy
+  from ui_helpers import build_tool_url
+  from ui_helpers import ensure_inference_serving_run
   from ui_helpers import ensure_sidenav_open
+  from ui_helpers import expand_op_profile_row
   from ui_helpers import select_category_filter
   from ui_helpers import select_module
   from ui_helpers import switch_tool
@@ -371,6 +378,38 @@ def test_op_profile_interactive_toggles(
 
   # 2. Invariant health verification
   assert_healthy(page, browser_errors, "op_profile_interactive_toggles")
+
+
+def test_op_profile_serving_metadata_chips(
+    page: Page,
+    server_url: str,
+    logdir: str,
+    tmp_path: pathlib.Path,
+    browser_errors: BrowserErrors,
+) -> None:
+  """Verifies Op Profile renders model and batch size chips on serving runs."""
+  serving_dir = ensure_inference_serving_run(logdir, tmp_path)
+  page.goto(
+      build_tool_url(server_url, str(serving_dir), "tpu-serving", "op_profile"),
+      wait_until="domcontentloaded",
+  )
+
+  op_profile = page.locator("op-profile, op-profile-base").first
+  expect(op_profile).to_be_visible(timeout=20000)
+
+  serving_badge = op_profile.locator("op-table-entry .serving-badge").first
+  expect(serving_badge).to_be_visible(timeout=15000)
+  expect(serving_badge).to_have_text("BS 8 \u2022 Model: ranking_model:1")
+
+  expand_op_profile_row(page, "main")
+  expect(page.locator("op-details .info-header-subheader")).to_have_text(
+      "Program"
+  )
+  serving_entries = page.locator("op-details .serving-entry")
+  expect(serving_entries).to_have_count(2, timeout=10000)
+  expect(serving_entries.nth(0)).to_have_text("Model: /models/ranking_model:1")
+  expect(serving_entries.nth(1)).to_have_text("Batch size: 8")
+  assert_healthy(page, browser_errors, "op_profile_serving_metadata_chips")
 
 
 def test_hlo_stats_chart_expansion(

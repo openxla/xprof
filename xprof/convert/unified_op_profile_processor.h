@@ -43,9 +43,9 @@ class UnifiedOpProfileProcessor : public BaseOpStatsProcessor {
 
   // Returns the serving metadata to attach to program nodes. Called only when
   // the "program_serving_metadata" tool option is true. The default
-  // implementation returns an empty map; subclasses with access to
-  // InferenceStats override it. An error is logged and the profile is built
-  // without serving metadata.
+  // implementation computes InferenceStats from the session's XSpaces for
+  // non-training runs; subclasses with precomputed InferenceStats override it.
+  // An error is logged and the profile is built without serving metadata.
   virtual absl::StatusOr<tensorflow::profiler::ProgramServingMetadataMap>
   GetProgramServingMetadata(
       const XprofSessionSnapshot& session_snapshot,

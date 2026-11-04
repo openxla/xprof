@@ -29,14 +29,12 @@ limitations under the License.
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "google/protobuf/arena.h"
-#include "google/protobuf/json/json.h"
 #include "xla/service/hlo.pb.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/file_system.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/profiler/convert/xplane_to_trace_events.h"
-
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/framework_op_stats_processor.h"
@@ -44,9 +42,8 @@ limitations under the License.
 #include "xprof/convert/hlo_to_tools_data.h"
 #include "xprof/convert/input_pipeline_processor.h"
 #include "xprof/convert/kernel_stats_processor.h"
-#include "xprof/convert/multi_xplanes_to_op_stats.h"
 #include "xprof/convert/multi_xspace_to_inference_stats.h"
-#include "xprof/convert/op_stats_to_op_profile.h"
+#include "xprof/convert/op_profile_processor.h"
 #include "xprof/convert/overview_page_processor.h"
 #include "xprof/convert/pod_viewer_processor.h"
 #include "xprof/convert/preprocess_single_host_xplane.h"
@@ -73,13 +70,10 @@ limitations under the License.
 #include "plugin/xprof/protobuf/inference_stats.pb.h"
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
 #include "plugin/xprof/protobuf/kernel_stats.pb.h"
-#include "plugin/xprof/protobuf/op_profile.pb.h"
-#include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/overview_page.pb.h"
 #include "plugin/xprof/protobuf/roofline_model.pb.h"
 #include "plugin/xprof/protobuf/tf_data_stats.pb.h"
 #include "plugin/xprof/protobuf/tf_stats.pb.h"
-#include "xprof/utils/hardware_type_utils.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -250,28 +244,9 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToRooflineModel(
 
 absl::StatusOr<std::string> ConvertMultiXSpacesToOpProfileViewer(
     const SessionSnapshot& session_snapshot, const ToolOptions& options) {
-  OpStats combined_op_stats;
-  TF_RETURN_IF_ERROR(ConvertMultiXSpaceToCombinedOpStatsWithCache(
-      session_snapshot, &combined_op_stats));
-
-  tensorflow::profiler::op_profile::Profile profile;
-  auto group_by = tensorflow::profiler::GetOpProfileGrouping(options);
-  ConvertOpStatsToOpProfile(
-      combined_op_stats,
-      GetHardwareType(combined_op_stats.run_environment()),
-      profile, /*op_profile_limit=*/100, group_by);
-  std::string json_output;
-  tsl::protobuf::util::JsonPrintOptions opts;
-  opts.always_print_fields_with_no_presence = true;
-
-  auto encode_status =
-      tsl::protobuf::util::MessageToJsonString(profile, &json_output, opts);
-  if (!encode_status.ok()) {
-    const auto& error_message = encode_status.message();
-    return absl::InternalError(absl::StrCat(
-        "Could not convert op profile proto to json. Error: ", error_message));
-  }
-  return json_output;
+  xprof::OpProfileProcessor processor(options);
+  TF_RETURN_IF_ERROR(processor.ProcessSession(session_snapshot, options));
+  return processor.GetData();
 }
 
 absl::StatusOr<std::string> PreprocessXSpace(

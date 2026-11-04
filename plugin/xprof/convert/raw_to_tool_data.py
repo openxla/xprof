@@ -267,6 +267,8 @@ def xspace_to_tool_data(
       data = raw_data
   elif tool == 'op_profile':
     options['group_by'] = params.get('group_by', 'program')
+    if params.get('program_serving_metadata') is not None:
+      options['program_serving_metadata'] = params['program_serving_metadata']
     raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = raw_data

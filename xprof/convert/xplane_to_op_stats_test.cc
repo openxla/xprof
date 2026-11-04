@@ -25,7 +25,10 @@ limitations under the License.
 #include <gtest/gtest.h>
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/ir/hlo_opcode.h"
+#include "xla/hlo/parser/hlo_parser.h"
+#include "xla/service/hlo.pb.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
@@ -2250,6 +2253,56 @@ TEST(ConvertXPlaneToOpStats,
     EXPECT_DOUBLE_EQ(step_details.sc_step_time_ms(),
                      tsl::profiler::PicoToMilli(100));
   }
+}
+
+TEST(ConvertXPlaneToOpStats,
+     RetainsProgramNamesWhenOneHloModuleFailsConversion) {
+  XSpace space;
+  GetOrCreateTpuXPlane(&space, /*device_ordinal=*/0, "TPU v5p", 0, 0);
+
+  XPlane* metadata_plane = space.add_planes();
+  metadata_plane->set_name(tsl::profiler::kMetadataPlaneName);
+  XPlaneBuilder builder(metadata_plane);
+  tsl::profiler::XStatMetadata* hlo_proto_stat =
+      builder.GetOrCreateStatMetadata(
+          tsl::profiler::GetStatTypeStr(StatType::kHloProto));
+  tsl::profiler::XStatMetadata* program_id_stat =
+      builder.GetOrCreateStatMetadata(
+          tsl::profiler::GetStatTypeStr(StatType::kProgramId));
+
+  ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<xla::HloModule> valid_mod,
+      xla::ParseAndReturnUnverifiedModule(R"hlo(
+        HloModule main_program
+        ENTRY main {
+          x = f32[8]{0} parameter(0)
+          ROOT y = f32[8]{0} add(x, x)
+        })hlo"));
+  xla::HloProto valid_proto;
+  *valid_proto.mutable_hlo_module() = valid_mod->ToProto();
+  {
+    tsl::profiler::XEventMetadata* meta = builder.GetOrCreateEventMetadata(1);
+    XStatsBuilder<tsl::profiler::XEventMetadata> stats(meta, &builder);
+    stats.AddStatValue(*program_id_stat, uint64_t{301});
+    stats.AddStatValue(*hlo_proto_stat, valid_proto);
+  }
+
+  xla::HloProto malformed_proto;
+  malformed_proto.mutable_hlo_module()->set_name("broken_program");
+  {
+    tsl::profiler::XEventMetadata* meta = builder.GetOrCreateEventMetadata(2);
+    XStatsBuilder<tsl::profiler::XEventMetadata> stats(meta, &builder);
+    stats.AddStatValue(*program_id_stat, uint64_t{302});
+    stats.AddStatValue(*hlo_proto_stat, malformed_proto);
+  }
+
+  ASSERT_OK_AND_ASSIGN(
+      OpStats op_stats,
+      ConvertXSpaceToOpStats(space,
+                             OpStatsOptions{.generate_op_metrics_db = true}));
+  ASSERT_EQ(op_stats.program_id_to_name_map_size(), 2);
+  EXPECT_EQ(op_stats.program_id_to_name_map().at(301), "main_program");
+  EXPECT_EQ(op_stats.program_id_to_name_map().at(302), "broken_program");
 }
 }  // namespace
 }  // namespace profiler

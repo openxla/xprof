@@ -27,6 +27,7 @@
 #include "tsl/profiler/lib/context_types.h"
 #include "frontend/app/components/trace_viewer_v2/animation.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
+#include "frontend/app/components/trace_viewer_v2/color/counter_colors.h"
 #include "frontend/app/components/trace_viewer_v2/event_data.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
@@ -335,6 +336,11 @@ class Timeline {
   }
   ImU32 get_group_accent_color_for_test(int group_index) const {
     return GetGroupAccentColor(group_index);
+  }
+  const CounterTrackColors* get_counter_track_colors_for_test(
+      int group_index) {
+    RebuildCounterTrackColorsIfNeeded();
+    return GetCounterTrackColors(group_index);
   }
   const std::vector<bool>& get_group_striped_for_test() const {
     return group_striped_;
@@ -1183,6 +1189,17 @@ class Timeline {
   // Recomputes `group_accent_colors_` from the current events and colors.
   void RebuildGroupAccentColors();
 
+  // Returns the theme-adapted colors of a counter track of the static kernel
+  // schedule (see GetKernelCounterTrackBaseColor), or nullptr if the track is
+  // drawn in the default counter color: on a time axis (the Trace Viewer) and
+  // for tracks that are not counters. The colors are valid until the next
+  // RebuildCounterTrackColorsIfNeeded() call.
+  const CounterTrackColors* GetCounterTrackColors(int group_index) const;
+
+  // Recomputes `counter_track_colors_` if the data, the palette or the x-axis
+  // unit changed since they were last computed.
+  void RebuildCounterTrackColorsIfNeeded();
+
   // Draws a standard track row in the timeline: the row background, the label
   // (chevron, name, subtitle and count chip) and the events.
   // Returns true if layout update is needed.
@@ -1426,6 +1443,16 @@ class Timeline {
   // with `entry_colors_`.
   std::vector<ImU32> group_accent_colors_;
   uint64_t cached_trace_colors_version_ = std::numeric_limits<uint64_t>::max();
+  // The colors of each counter track of a unitless (static kernel schedule)
+  // trace, indexed by group index; `std::nullopt` for other tracks. Empty on a
+  // time axis. See GetCounterTrackColors().
+  std::vector<std::optional<CounterTrackColors>> counter_track_colors_;
+  // The palette version and x-axis unit `counter_track_colors_` was computed
+  // for, and whether the data changed since.
+  uint64_t counter_track_colors_palette_version_ =
+      std::numeric_limits<uint64_t>::max();
+  TimeAxisUnit counter_track_colors_axis_unit_ = TimeAxisUnit::kTime;
+  bool counter_track_colors_dirty_ = true;
   std::vector<float> utilization_bins_;
 
   static constexpr size_t kMinEventsForMipPyramid = 64;

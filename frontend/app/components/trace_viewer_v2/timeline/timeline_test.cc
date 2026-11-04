@@ -35,6 +35,8 @@
 #include "frontend/app/components/trace_viewer_v2/animation.h"
 #include "frontend/app/components/trace_viewer_v2/color/color_generator.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
+#include "frontend/app/components/trace_viewer_v2/color/counter_colors.h"
+#include "frontend/app/components/trace_viewer_v2/color/palettes.h"
 #include "frontend/app/components/trace_viewer_v2/event_data.h"
 #include "frontend/app/components/trace_viewer_v2/fonts/fonts.h"
 #include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
@@ -11507,6 +11509,157 @@ TEST_F(RealTimelineImGuiFixture, AccentColorOfCounterTrackIsCounterColor) {
   timeline_.SetTimelineData(std::move(data));
 
   EXPECT_EQ(timeline_.get_group_accent_color_for_test(0), kCounterTrackColor);
+}
+
+TEST_F(RealTimelineImGuiFixture, CounterTracksOnTimeAxisAreNotColorCoded) {
+  FlameChartTimelineData data;
+  data.groups = {{.type = Group::Type::kCounter,
+                  .name = "MXU utilization",
+                  .start_level = 0,
+                  .nesting_level = kThreadNestingLevel,
+                  .expanded = true}};
+  timeline_.SetTimelineData(std::move(data));
+
+  EXPECT_EQ(timeline_.get_counter_track_colors_for_test(0), nullptr);
+  EXPECT_EQ(timeline_.get_group_accent_color_for_test(0), kCounterTrackColor);
+}
+
+TEST_F(RealTimelineImGuiFixture, KernelCounterTracksAreColorCoded) {
+  timeline_.set_time_axis_unit(TimeAxisUnit::kUnitless);
+  FlameChartTimelineData data;
+  data.groups = {{.type = Group::Type::kCounter,
+                  .name = "MXU utilization",
+                  .start_level = 0,
+                  .nesting_level = kThreadNestingLevel,
+                  .expanded = true},
+                 {.type = Group::Type::kCounter,
+                  .name = "VMEM Spill",
+                  .start_level = 1,
+                  .nesting_level = kThreadNestingLevel,
+                  .expanded = true},
+                 {.type = Group::Type::kCounter,
+                  .name = "HBM Usage",
+                  .start_level = 2,
+                  .nesting_level = kThreadNestingLevel,
+                  .expanded = true}};
+  timeline_.SetTimelineData(std::move(data));
+
+  const ImU32 background = ColorPalette::Preset::Default().background;
+  const CounterTrackColors* mxu =
+      timeline_.get_counter_track_colors_for_test(0);
+  ASSERT_NE(mxu, nullptr);
+  EXPECT_EQ(*mxu, MakeCounterTrackColors(
+                      GetKernelCounterTrackBaseColor("MXU utilization").value(),
+                      background));
+  EXPECT_EQ(timeline_.get_group_accent_color_for_test(0), mxu->stroke);
+
+  const CounterTrackColors* spill =
+      timeline_.get_counter_track_colors_for_test(1);
+  ASSERT_NE(spill, nullptr);
+  EXPECT_EQ(*spill, MakeCounterTrackColors(
+                        GetKernelCounterTrackBaseColor("VMEM Spill").value(),
+                        background));
+
+  // Other counters get a stable color of the palette.
+  const CounterTrackColors* other =
+      timeline_.get_counter_track_colors_for_test(2);
+  ASSERT_NE(other, nullptr);
+  EXPECT_EQ(*other,
+            MakeCounterTrackColors(
+                GetColorForId("HBM Usage", color_palette_.GetTraceColors()),
+                background));
+}
+
+TEST_F(RealTimelineImGuiFixture, KernelCounterColorsFollowThePalette) {
+  timeline_.set_time_axis_unit(TimeAxisUnit::kUnitless);
+  FlameChartTimelineData data;
+  data.groups = {{.type = Group::Type::kCounter,
+                  .name = "VPU utilization",
+                  .start_level = 0,
+                  .nesting_level = kThreadNestingLevel,
+                  .expanded = true}};
+  timeline_.SetTimelineData(std::move(data));
+  const CounterTrackColors* light =
+      timeline_.get_counter_track_colors_for_test(0);
+  ASSERT_NE(light, nullptr);
+  const CounterTrackColors light_colors = *light;
+
+  ASSERT_TRUE(color_palette_.FromPreset("Dracula").ok());
+  const CounterTrackColors* dark =
+      timeline_.get_counter_track_colors_for_test(0);
+  ASSERT_NE(dark, nullptr);
+
+  const ImU32 dark_background = kPresetPalettes.at("Dracula").background;
+  EXPECT_NE(*dark, light_colors);
+  EXPECT_EQ(*dark,
+            MakeCounterTrackColors(
+                GetKernelCounterTrackBaseColor("VPU utilization").value(),
+                dark_background));
+}
+
+TEST_F(RealTimelineImGuiFixture, KernelCounterColorsAreDroppedOnTimeAxis) {
+  timeline_.set_time_axis_unit(TimeAxisUnit::kUnitless);
+  FlameChartTimelineData data;
+  data.groups = {{.type = Group::Type::kCounter,
+                  .name = "MXU utilization",
+                  .start_level = 0,
+                  .nesting_level = kThreadNestingLevel,
+                  .expanded = true}};
+  timeline_.SetTimelineData(std::move(data));
+  ASSERT_NE(timeline_.get_counter_track_colors_for_test(0), nullptr);
+
+  timeline_.set_time_axis_unit(TimeAxisUnit::kTime);
+
+  EXPECT_EQ(timeline_.get_counter_track_colors_for_test(0), nullptr);
+}
+
+TEST_F(RealTimelineImGuiFixture, ClickKernelCounterEmitsItsChartColor) {
+  timeline_.set_time_axis_unit(TimeAxisUnit::kUnitless);
+  timeline_.set_event_tooltip_enabled(false);
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = "MXU utilization",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  CounterData counter_data;
+  counter_data.timestamps = {10.0, 20.0, 30.0};
+  counter_data.values = {0.0, 1.0, 0.5};
+  counter_data.min_value = 0.0;
+  counter_data.max_value = 1.0;
+  data.counter_data_by_group_index[0] = std::move(counter_data);
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  EventData selected_event;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kEventSelected) selected_event = detail;
+      });
+
+  SimulateFrame();
+  ImGuiWindow* counter_window = nullptr;
+  for (ImGuiWindow* window : ImGui::GetCurrentContext()->Windows) {
+    if (absl::StrContains(window->Name, "TimelineChild_MXU utilization_0")) {
+      counter_window = window;
+      break;
+    }
+  }
+  ASSERT_NE(counter_window, nullptr);
+  // Click the bar of the sample at 20, as in
+  // ClickCounterEventSetsSelectionIndices.
+  ImGui::GetIO().MousePos =
+      ImVec2(counter_window->Pos.x + counter_window->Size.x * 0.25f,
+             counter_window->Pos.y + counter_window->Size.y * 0.5f);
+  ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
+  ImGui::GetIO().MouseDown[0] = false;
+  SimulateFrame();
+
+  // The selection panel gets the chart color: #7C4DFF, the MXU color, which
+  // already contrasts with the white default background.
+  ASSERT_TRUE(selected_event.contains("color"));
+  EXPECT_EQ(std::any_cast<std::string>(selected_event.at("color")), "#7c4dff");
 }
 
 TEST_F(RealTimelineImGuiFixture, AccentColorOfProcessTrackIsFlameHeaderColor) {

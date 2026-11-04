@@ -302,6 +302,8 @@ void Timeline::PopulateCounterSelectedScheduleDetails(
           : step_start_bundle;
   event_data.try_emplace("trackName", name);
   event_data.try_emplace("trackType", std::string("counter"));
+  event_data.try_emplace("color",
+                         FormatCssHexColor(GetGroupAccentColor(group_index)));
   event_data.try_emplace(kEventSelectedStart, bundle);
   event_data.try_emplace(kEventSelectedDuration, 1.0);
   event_data.try_emplace("counterValue", data.values[counter_index]);

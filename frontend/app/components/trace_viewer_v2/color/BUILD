@@ -30,6 +30,31 @@ wasm_cc_library(
     ],
 )
 
+wasm_cc_library(
+    name = "counter_colors",
+    srcs = ["counter_colors.cc"],
+    hdrs = ["counter_colors.h"],
+    deps = [
+        ":colors",
+        "@com_google_absl//absl/strings",
+        "@imgui",
+    ],
+)
+
+cc_test(
+    name = "counter_colors_test",
+    srcs = ["counter_colors_test.cc"],
+    deps = [
+        ":colors",
+        ":counter_colors",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
+        "@imgui",
+    ],
+)
+
 cc_test(
     name = "color_generator_test",
     srcs = ["color_generator_test.cc"],

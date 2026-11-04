@@ -35,6 +35,7 @@
 #include "imgui_internal.h"
 #include "frontend/app/components/trace_viewer_v2/color/color_generator.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
+#include "frontend/app/components/trace_viewer_v2/color/counter_colors.h"
 #include "frontend/app/components/trace_viewer_v2/event_data.h"
 #include "frontend/app/components/trace_viewer_v2/fonts/fonts.h"
 #include "frontend/app/components/trace_viewer_v2/helper/clipboard.h"
@@ -179,6 +180,76 @@ ImU32 MixColors(ImU32 from, ImU32 to, float t) {
   return channel(IM_COL32_R_SHIFT) | channel(IM_COL32_G_SHIFT) |
          channel(IM_COL32_B_SHIFT) | channel(IM_COL32_A_SHIFT);
 }
+
+// Returns the top of a color-coded counter bar whose value is at `y`: on a
+// whole pixel, so the outline is equally thick on every bar, and at least 1px
+// above the baseline `y_base`, so a bar at the minimum value stays visible.
+Pixel SnapCounterBarTop(Pixel y, Pixel y_base) {
+  return std::min(std::round(y), y_base - 1.0f);
+}
+
+// Draws the sample-and-hold bars of a counter track, from left to right, down
+// to the baseline `y_base`. Without `colors`, the bars are solid
+// `kCounterTrackColor`. With `colors`, they form a color-coded area chart: each
+// bar is filled with a vertical gradient anchored to the track (so the bars
+// form one continuous area) and outlined along its top, and the outline steps
+// vertically between adjacent bars.
+class CounterBarPainter {
+ public:
+  CounterBarPainter(ImDrawList* absl_nonnull draw_list,
+                    const CounterTrackColors* absl_nullable colors,
+                    Pixel y_base, Pixel height)
+      : draw_list_(draw_list),
+        colors_(colors),
+        y_base_(y_base),
+        height_(height) {}
+
+  // Draws the bar [x1, x2) from `y` down to the baseline.
+  void DrawBar(Pixel x1, Pixel x2, Pixel y) {
+    if (colors_ == nullptr) {
+      draw_list_->AddRectFilled(ImVec2(x1, y), ImVec2(x2, y_base_),
+                                kCounterTrackColor);
+      return;
+    }
+    y = SnapCounterBarTop(y, y_base_);
+    const ImU32 top_color =
+        MixColors(colors_->fill_bottom, colors_->fill_top,
+                  std::clamp((y_base_ - y) / height_, 0.0f, 1.0f));
+    draw_list_->AddRectFilledMultiColor(
+        ImVec2(x1, y), ImVec2(x2, y_base_), top_color, top_color,
+        colors_->fill_bottom, colors_->fill_bottom);
+    draw_list_->AddRectFilled(
+        ImVec2(x1, y),
+        ImVec2(x2, std::min(y + kCounterStrokeThickness, y_base_)),
+        colors_->stroke);
+    if (x1 <= outline_right_ + 1.0f && y != outline_top_) {
+      DrawOutlineStep(x1, y);
+    }
+    outline_right_ = x2;
+    outline_top_ = y;
+  }
+
+ private:
+  // Joins the outline of the previous bar to that of a bar starting at `x`
+  // with its top at `y`.
+  void DrawOutlineStep(Pixel x, Pixel y) {
+    const Pixel half_thickness = kCounterStrokeThickness * 0.5f;
+    draw_list_->AddRectFilled(
+        ImVec2(x - half_thickness, std::min(y, outline_top_)),
+        ImVec2(x + half_thickness,
+               std::min(std::max(y, outline_top_) + kCounterStrokeThickness,
+                        y_base_)),
+        colors_->stroke);
+  }
+
+  ImDrawList* absl_nonnull draw_list_;
+  const CounterTrackColors* absl_nullable colors_;
+  Pixel y_base_;
+  Pixel height_;
+  // The right edge and the top of the last bar drawn with an outline.
+  Pixel outline_right_ = -std::numeric_limits<Pixel>::infinity();
+  Pixel outline_top_ = 0.0f;
+};
 
 // Draws a vertical "drop shadow": a gradient from `opacity` black at `top` to
 // transparent at `top + height`, spanning [left, right). This mimics a CSS
@@ -1415,6 +1486,7 @@ void Timeline::UpdateTimelineData(
   // layout recalculations before saving the newly arrived timeline_data.
   UpdateLevelPositions(data);
   timeline_data_ = std::move(data);
+  counter_track_colors_dirty_ = true;
   // Resolved event indices do not apply to the new data. The names are
   // resolved again below if the same op stays selected.
   EventDependencies old_dependencies = std::exchange(dependencies_, {});
@@ -2332,6 +2404,7 @@ bool Timeline::RestoreSavedFullOverview() {
   entry_colors_ = std::move(saved_full_overview_->entry_colors);
   cached_trace_colors_version_ =
       saved_full_overview_->cached_trace_colors_version;
+  counter_track_colors_dirty_ = true;
   level_mip_pyramids_ = std::move(saved_full_overview_->level_mip_pyramids);
   process_utilization_pyramids_ =
       std::move(saved_full_overview_->process_utilization_pyramids);
@@ -2541,6 +2614,7 @@ void Timeline::ResetForNewDataset() {
   // Draw() only rebuilds colors when the entry count changes.
   entry_colors_.clear();
   group_accent_colors_.clear();
+  counter_track_colors_.clear();
   copied_track_group_index_ = -1;
   layout_transition_ = LayoutTransition();
   animate_next_layout_ = false;
@@ -2563,6 +2637,7 @@ void Timeline::Draw() {
     BuildLevelMipPyramids();
     UploadGpuFlameInstances();
   }
+  RebuildCounterTrackColorsIfNeeded();
 #ifdef __EMSCRIPTEN__
   if (!gpu_flame_instances_.empty() &&
       !ImGui_ImplWGPU_HasFlameInstanceBuffer()) {
@@ -3020,7 +3095,8 @@ void Timeline::CopyTrackName(int group_index) {
 ImU32 Timeline::GetGroupAccentColor(int group_index) const {
   const Group& group = timeline_data_.groups[group_index];
   if (group.type == Group::Type::kCounter) {
-    return kCounterTrackColor;
+    const CounterTrackColors* colors = GetCounterTrackColors(group_index);
+    return colors != nullptr ? colors->stroke : kCounterTrackColor;
   }
   if (group.nesting_level == kProcessNestingLevel) {
     // Matches the color of the process utilization chart.
@@ -3033,6 +3109,49 @@ ImU32 Timeline::GetGroupAccentColor(int group_index) const {
   return WithOpacity(
       palette_.GetColor(ColorPalette::Key::kForeground).value_or(kBlackColor),
       kTrackNeutralAccentOpacity);
+}
+
+const CounterTrackColors* Timeline::GetCounterTrackColors(
+    int group_index) const {
+  if (group_index < 0 ||
+      static_cast<size_t>(group_index) >= counter_track_colors_.size() ||
+      !counter_track_colors_[group_index].has_value()) {
+    return nullptr;
+  }
+  return &*counter_track_colors_[group_index];
+}
+
+void Timeline::RebuildCounterTrackColorsIfNeeded() {
+  const uint64_t palette_version = palette_.GetVersion();
+  if (!counter_track_colors_dirty_ &&
+      counter_track_colors_palette_version_ == palette_version &&
+      counter_track_colors_axis_unit_ == time_axis_unit_) {
+    return;
+  }
+  counter_track_colors_dirty_ = false;
+  counter_track_colors_palette_version_ = palette_version;
+  counter_track_colors_axis_unit_ = time_axis_unit_;
+  counter_track_colors_.clear();
+  // Only the static kernel schedule (a unitless axis) color-codes its counter
+  // tracks; the Trace Viewer keeps a single counter color.
+  if (time_axis_unit_ != TimeAxisUnit::kUnitless) return;
+
+  const ImU32 background =
+      palette_.GetColor(ColorPalette::Key::kBackground).value_or(kWhiteColor);
+  const absl::Span<const ImU32> trace_colors = palette_.GetTraceColors();
+  counter_track_colors_.resize(timeline_data_.groups.size());
+  for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+    const Group& group = timeline_data_.groups[i];
+    if (group.type != Group::Type::kCounter) continue;
+    // Counters without an identity color still get a stable color of the
+    // palette, so every chart is told apart from its neighbors.
+    std::optional<ImU32> base = GetKernelCounterTrackBaseColor(group.name);
+    if (!base.has_value()) {
+      base = trace_colors.empty() ? kCounterTrackColor
+                                  : GetColorForId(group.name, trace_colors);
+    }
+    counter_track_colors_[i] = MakeCounterTrackColors(*base, background);
+  }
 }
 
 bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
@@ -3294,6 +3413,17 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
         draw_list,
         ImVec2(slot_left + kTrackChevronSlotWidth * 0.5f, first_line_center_y),
         openness, label_emphasis, foreground_color);
+  } else if (const CounterTrackColors* counter_colors =
+                 GetCounterTrackColors(group_index);
+             counter_colors != nullptr) {
+    // A color-coded counter has no chevron, so its slot holds a legend swatch
+    // that ties the track name to the color of its chart.
+    const Pixel center_x = slot_left + kTrackChevronSlotWidth * 0.5f;
+    const Pixel half_size = kCounterLegendSwatchSize * 0.5f;
+    draw_list->AddRectFilled(
+        ImVec2(center_x - half_size, first_line_center_y - half_size),
+        ImVec2(center_x + half_size, first_line_center_y + half_size),
+        counter_colors->stroke, kCounterLegendSwatchRounding);
   }
 
   // Count chip on collapsed tracks: the number of hidden child tracks (or
@@ -5126,6 +5256,7 @@ void Timeline::DrawCounterTooltip(int group_index, const CounterData& data,
     double val = data.values[index];
 
     const Pixel y_base = pos.y + height;
+    const CounterTrackColors* const colors = GetCounterTrackColors(group_index);
 
     if (index + 1 < data.timestamps.size()) {
       const double t1 = data.timestamps[index];
@@ -5140,16 +5271,38 @@ void Timeline::DrawCounterTooltip(int group_index, const CounterData& data,
       const Pixel x1 = TimeToScreenX(t1, pos.x, px_per_time_unit_val);
       const Pixel x2 = TimeToScreenX(t2, pos.x, px_per_time_unit_val);
       const Pixel y = y_base - (v1 - data.min_value) * y_ratio;
-      draw_list->AddRect(ImVec2(x1, y), ImVec2(x2, y_base), kCounterHoverColor,
-                         0.0f, 0, kCounterHoverThickness);
+      if (colors != nullptr) {
+        // Tint the bar with its own color and frame it with the outline, so
+        // the highlight reads on every palette. The top matches the bar drawn
+        // by CounterBarPainter.
+        const Pixel bar_top = SnapCounterBarTop(y, y_base);
+        draw_list->AddRectFilled(
+            ImVec2(x1, bar_top), ImVec2(x2, y_base),
+            WithOpacity(colors->stroke, kCounterHoverFillOpacity));
+        draw_list->AddRect(ImVec2(x1, bar_top), ImVec2(x2, y_base),
+                           colors->stroke, 0.0f, 0, kCounterStrokeThickness);
+      } else {
+        draw_list->AddRect(ImVec2(x1, y), ImVec2(x2, y_base),
+                           kCounterHoverColor, 0.0f, 0, kCounterHoverThickness);
+      }
     }
 
     const Pixel x = mouse_pos.x;
     const Pixel y = y_base - (val - data.min_value) * y_ratio;
 
     // Draw circle
-    draw_list->AddCircleFilled(ImVec2(x, y), kPointRadius, kWhiteColor);
-    draw_list->AddCircle(ImVec2(x, y), kPointRadius, kBlackColor);
+    if (colors != nullptr) {
+      draw_list->AddCircleFilled(
+          ImVec2(x, y), kPointRadius,
+          palette_.GetColor(ColorPalette::Key::kBackground)
+              .value_or(kWhiteColor));
+      draw_list->AddCircle(ImVec2(x, y), kPointRadius, colors->stroke,
+                           /*num_segments=*/0,
+                           /*thickness=*/kCounterStrokeThickness);
+    } else {
+      draw_list->AddCircleFilled(ImVec2(x, y), kPointRadius, kWhiteColor);
+      draw_list->AddCircle(ImVec2(x, y), kPointRadius, kBlackColor);
+    }
 
     if (event_tooltip_enabled_) {
       // Draw tooltip for current counter point's value and timestamp
@@ -5239,6 +5392,9 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
   }
 
   const Pixel y_base = pos.y + height;
+  // Theme-adapted colors of a static kernel schedule counter, or nullptr to
+  // draw solid bars in the default counter color.
+  const CounterTrackColors* const colors = GetCounterTrackColors(group_index);
 
   // If all counter values are the same, draw a 1px thin rectangle
   // at the base to avoid division by zero.
@@ -5248,12 +5404,19 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
         TimeToScreenX(data.timestamps.front(), pos.x, px_per_time_unit_val);
     const Pixel x_end =
         TimeToScreenX(data.timestamps.back(), pos.x, px_per_time_unit_val);
-    draw_list->AddRectFilled(ImVec2(x_start, y), ImVec2(x_end, y_base),
-                             kCounterTrackColor);
+    draw_list->AddRectFilled(
+        ImVec2(x_start, y), ImVec2(x_end, y_base),
+        colors != nullptr ? colors->stroke : kCounterTrackColor);
     return;
   }
 
   const float y_ratio = height / value_range;
+
+  CounterBarPainter painter(draw_list, colors, y_base, height);
+
+  // Bars outside of the clip rect are not visible, so they are skipped.
+  const Pixel clip_left = draw_list->GetClipRectMin().x;
+  const Pixel clip_right = draw_list->GetClipRectMax().x;
 
   Pixel pending_x1 = 0.0f;
   Pixel pending_x2 = 0.0f;
@@ -5264,6 +5427,8 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
     Pixel x1 = TimeToScreenX(data.timestamps[i], pos.x, px_per_time_unit_val);
     Pixel x2 =
         TimeToScreenX(data.timestamps[i + 1], pos.x, px_per_time_unit_val);
+    if (x2 < clip_left) continue;
+    if (x1 > clip_right) break;
     Pixel y = y_base - (data.values[i] - data.min_value) * y_ratio;
 
     // Add a minimum 1px height so that a value equal to min_value is still
@@ -5280,9 +5445,7 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
         pending_x2 = std::max(pending_x2, x2);
         pending_min_y = std::min(pending_min_y, y);
       } else {
-        draw_list->AddRectFilled(ImVec2(pending_x1, pending_min_y),
-                                 ImVec2(pending_x2, y_base),
-                                 kCounterTrackColor);
+        painter.DrawBar(pending_x1, pending_x2, pending_min_y);
         pending_x1 = x1;
         pending_x2 = std::max(x2, x1 + 1.0f);
         pending_min_y = y;
@@ -5291,17 +5454,14 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
     }
 
     if (has_pending) {
-      draw_list->AddRectFilled(ImVec2(pending_x1, pending_min_y),
-                               ImVec2(pending_x2, y_base), kCounterTrackColor);
+      painter.DrawBar(pending_x1, pending_x2, pending_min_y);
       has_pending = false;
     }
 
-    draw_list->AddRectFilled(ImVec2(x1, y), ImVec2(x2, y_base),
-                             kCounterTrackColor);
+    painter.DrawBar(x1, x2, y);
   }
   if (has_pending) {
-    draw_list->AddRectFilled(ImVec2(pending_x1, pending_min_y),
-                             ImVec2(pending_x2, y_base), kCounterTrackColor);
+    painter.DrawBar(pending_x1, pending_x2, pending_min_y);
   }
 
   // For the last point, draw a 1px wide bar to show its value.
@@ -5309,8 +5469,7 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
     Pixel x =
         TimeToScreenX(data.timestamps.back(), pos.x, px_per_time_unit_val);
     Pixel y = y_base - (data.values.back() - data.min_value) * y_ratio;
-    draw_list->AddRectFilled(ImVec2(x, y), ImVec2(x + 1.0f, y_base),
-                             kCounterTrackColor);
+    painter.DrawBar(x, x + 1.0f, y);
   }
 
   // Draw selected points from rectangle selection.

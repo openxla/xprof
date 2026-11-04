@@ -36,7 +36,15 @@ inline constexpr ImU32 kWhiteColor = IM_COL32(255, 255, 255, 255);
 // Counter Track Constants
 // go/keep-sorted start
 inline constexpr ImU32 kCounterTrackColor = kBlue80;
+// The legend swatch left of the name of a color-coded counter track.
+inline constexpr Pixel kCounterLegendSwatchRounding = 2.0f;
+inline constexpr Pixel kCounterLegendSwatchSize = 8.0f;
+// The outline along the top of a color-coded counter chart (see
+// CounterTrackColors).
+inline constexpr Pixel kCounterStrokeThickness = 2.0f;
 inline constexpr Pixel kCounterTrackHeight = 40.0f;
+// The tint of the stroke color over the hovered bar of a color-coded counter.
+inline constexpr float kCounterHoverFillOpacity = 0.25f;
 // go/keep-sorted end
 
 // Ruler Constants

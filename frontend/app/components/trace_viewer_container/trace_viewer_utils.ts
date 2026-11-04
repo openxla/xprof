@@ -19,3 +19,52 @@ export function formatSi(value: number, unit: string, fractionDigits = 2) {
   const sign = value < 0 ? '-' : '';
   return `${sign}${scaled.toFixed(fractionDigits)} ${prefixes[index]}${unit}`;
 }
+
+/**
+ * Formats a timestamp or duration in microseconds with adaptable units (s, ms, us, ns).
+ *
+ * Capped to at most `maxFractionDigits` (default 2) and trims trailing zeros. Rolls up boundary
+ * values so "1000 ms", "1000 us", or "1000 ns" never appear. Non-finite values (NaN, Infinity,
+ * -Infinity) return '-'.
+ */
+export function formatTimeUs(valueUs: number, maxFractionDigits = 2): string {
+  if (!Number.isFinite(valueUs)) {
+    return '-';
+  }
+  const sign = valueUs < 0 ? '-' : '';
+  const absUs = Math.abs(valueUs);
+
+  let unit = 'ns';
+  let scaled = absUs * 1e3;
+
+  if (absUs >= 1e6) {
+    unit = 's';
+    scaled = absUs / 1e6;
+  } else if (absUs >= 1e3) {
+    unit = 'ms';
+    scaled = absUs / 1e3;
+  } else if (absUs >= 1) {
+    unit = 'us';
+    scaled = absUs;
+  }
+
+  let formatted = scaled.toFixed(maxFractionDigits);
+  if (formatted.includes('.')) {
+    formatted = formatted.replace(/\.?0+$/, '');
+  }
+  if (formatted === '1000') {
+    if (unit === 'ns') {
+      unit = 'us';
+      formatted = '1';
+    } else if (unit === 'us') {
+      unit = 'ms';
+      formatted = '1';
+    } else if (unit === 'ms') {
+      unit = 's';
+      formatted = '1';
+    }
+  }
+
+  return `${sign}${formatted} ${unit}`;
+}
+

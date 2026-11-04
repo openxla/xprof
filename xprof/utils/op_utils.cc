@@ -165,8 +165,10 @@ void DeviceOpMetricsDbBuilder::EnterOpMetadata(const OpIdentifier& op_id,
       op_id.op_source_info.source_file);
   op_metrics->mutable_source_info()->set_line_number(
       op_id.op_source_info.source_line);
-  op_metrics->mutable_source_info()->set_stack_frame(
-      op_id.op_source_info.stack_frame);
+  if (!op_id.op_source_info.stack_frame.empty()) {
+    op_metrics->mutable_source_info()->set_stack_frame(
+        op_id.op_source_info.stack_frame);
+  }
 }
 
 void DeviceOpMetricsDbBuilder::EnterOp(const OpIdentifier& op_id,
@@ -262,8 +264,10 @@ void DeviceFlatOpMetricsDbBuilder::EnterOpMetadata(const OpIdentifier& op_id,
       std::string(op_id.op_source_info.source_file));
   op_metrics->mutable_source_info()->set_line_number(
       op_id.op_source_info.source_line);
-  op_metrics->mutable_source_info()->set_stack_frame(
-      std::string(op_id.op_source_info.stack_frame));
+  if (!op_id.op_source_info.stack_frame.empty()) {
+    op_metrics->mutable_source_info()->set_stack_frame(
+        std::string(op_id.op_source_info.stack_frame));
+  }
 }
 
 void DeviceFlatOpMetricsDbBuilder::EnterOp(const OpIdentifier& op_id,

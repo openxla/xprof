@@ -31,6 +31,22 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
+// Moves every Node.xla.source_info.stack_frame string in `profile` into the
+// deduplicated `profile->stack_frame_table` and replaces it with
+// Node.xla.stack_frame_index. Stack traces are typically shared by many HLO
+// ops (e.g. all ops emitted from one Python call site) and are also repeated
+// across the `*_exclude_idle` trees, so interning shrinks the response a lot.
+// Clients must resolve `stack_frame_index` against `stack_frame_table`.
+void InternStackFrames(op_profile::Profile* profile);
+
+// If `profile` holds exactly one full / `*_exclude_idle` tree pair (e.g.
+// by_program and by_program_exclude_idle), replaces the `*_exclude_idle` tree
+// with `exclude_idle_patch` entries relative to the full tree. The two trees
+// usually share structure and differ only in IDLE nodes and time-normalized
+// metrics, so the patches are much smaller. Clients must rebuild the tree by
+// applying the patches to the full tree.
+void ReplaceExcludeIdleTreesWithPatches(op_profile::Profile* profile);
+
 enum class OpProfileGrouping { kByProgram, kByCategory, kByProvenance };
 
 // Maps an HLO program id to the model and batch size that executed it.
@@ -97,8 +113,10 @@ class OpProfileBuilder {
                    const ProgramServingMetadataMap* absl_nullable
                        program_serving_metadata = nullptr);
 
-  // Accumulate the op_metrics to the op_profile node tree
+  // Accumulates `op_metrics` into the op_profile node tree. Non-idle
+  // `op_metrics` (and their fused `children`) must outlive `Finalize()`.
   void AddOp(const OpMetrics& op_metrics);
+  void AddOp(OpMetrics&&) = delete;
 
   // Accumulate the flat_op_metrics to the op_profile node tree
   void AddOp(const FlatOpMetrics& op_metrics);
@@ -107,10 +125,10 @@ class OpProfileBuilder {
 
   // Finalize the op_profile proto in a few steps (inter-dependent):
   // 1. Reset time_ps for root node for more precise total time
-  // 2. Loop over the node to op_metrics map, populate corresponding op_metrics
-  // to the node.metrics
-  // 3. `SortAndPruneChildren` given query param `op_profile_limit`
-  // 4. `FinalizeDeduplicatedNodes` by coping the first op node data to the
+  // 2. Seed `raw_time` and `raw_flops`, then `SortAndPruneChildren` given
+  // query param `op_profile_limit` (populating surviving leaf symbols/fusions)
+  // 3. Populate full `node.metrics` for surviving nodes only
+  // 4. `FinalizeDeduplicatedNodes` by copying the first op node data to the
   // deduplicated node
   void Finalize(double peak_gigaflops_per_second_per_core,
                 std::vector<double> peak_mem_gibibytes_per_second_per_core,
@@ -195,6 +213,10 @@ class OpProfileBuilder {
   // This allows `GetOrAddProvenanceParentNode` to efficiently traverse down the
   // path (e.g., program -> foo -> bar -> baz).
   absl::node_hash_map<op_profile::Node*, OpMetrics> metrics_;
+
+  // Non-idle leaf op nodes and fused instruction children whose symbol and
+  // metric population is deferred until after SortAndPruneChildren in Finalize.
+  absl::flat_hash_map<op_profile::Node*, const OpMetrics*> leaf_op_metrics_;
 
   // Maps to look up if a category / program / deduplicated node has
   // already been added to the tree.

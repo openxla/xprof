@@ -29,6 +29,36 @@ message Profile {
   // Root of a profile broken down by program and provenance.
   Node by_provenance = 8;
   Node by_provenance_exclude_idle = 9;
+
+  // Deduplicated stack traces referenced by
+  // Node.XLAInstruction.stack_frame_index. Only populated when the request
+  // asks for interned stack frames; in that case
+  // Node.XLAInstruction.source_info.stack_frame is left empty.
+  repeated string stack_frame_table = 11;
+
+  // Patches that rebuild the `*_exclude_idle` tree from its full counterpart
+  // (e.g. by_program_exclude_idle from by_program). Only populated when the
+  // request asks for exclude-idle patches and exactly one full /
+  // exclude-idle tree pair is present; that `*_exclude_idle` tree is then
+  // left unset.
+  repeated NodePatch exclude_idle_patch = 12;
+}
+
+// Describes how one node of a derived tree differs from the base tree node at
+// the same `path`. Nodes without a patch are identical to the base node, and
+// their children are matched by index (after `removed_children`).
+message NodePatch {
+  // Child indices from the base tree root to the patched node.
+  repeated uint32 path = 1;
+  // If set, the whole derived subtree at `path`; other fields are unset.
+  Node replacement = 2;
+  // Fields that differ from the base node. Unset fields are unchanged.
+  optional string name = 3;
+  Metrics metrics = 4;
+  Node.XLAInstruction xla = 5;
+  optional int32 num_children = 6;
+  // Indices of base node children that are absent from the derived node.
+  repeated uint32 removed_children = 7;
 }
 
 // An entry in the profile tree. (An instruction, or set of instructions).
@@ -73,6 +103,9 @@ message Node {
     // Xprof kernel metadata extracted from the HLO expression's frontend
     // attributes.
     optional string xprof_kernel_metadata = 10;
+    // Index into Profile.stack_frame_table holding this instruction's
+    // source_info.stack_frame. Only set when stack frames are interned.
+    optional uint32 stack_frame_index = 11;
   }
 
   // Serving metadata of a program node. Only set on program nodes that ran at

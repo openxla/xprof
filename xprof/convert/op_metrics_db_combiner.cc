@@ -16,12 +16,10 @@ limitations under the License.
 #include "xprof/convert/op_metrics_db_combiner.h"
 
 #include <algorithm>
-#include <utility>
+#include <cstdint>
 
-#include "absl/container/flat_hash_map.h"
 #include "absl/log/check.h"
 #include "xla/tsl/platform/logging.h"
-#include "xla/tsl/platform/types.h"
 #include "tsl/platform/protobuf.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/source_info.pb.h"
@@ -35,6 +33,17 @@ using OperationType = OpMetrics::MemoryAccessed::OperationType;
 void CombinePrecisionStats(const PrecisionStats& src, PrecisionStats* dst) {
   dst->set_compute_16bit_ps(src.compute_16bit_ps() + dst->compute_16bit_ps());
   dst->set_compute_32bit_ps(src.compute_32bit_ps() + dst->compute_32bit_ps());
+}
+
+void PropagateIsEagerToChildren(OpMetrics* op_metrics) {
+  if (!op_metrics->is_eager() || !op_metrics->has_children()) return;
+  for (OpMetrics& child :
+       *op_metrics->mutable_children()->mutable_metrics_db()) {
+    if (!child.is_eager()) {
+      child.set_is_eager(true);
+    }
+    PropagateIsEagerToChildren(&child);
+  }
 }
 
 }  // namespace
@@ -81,6 +90,7 @@ void CombineOpMetrics(const OpMetrics& src, OpMetrics* dst,
     dst->set_min_time_ps(std::min(src.min_time_ps(), dst->min_time_ps()));
   }
   dst->set_is_eager(dst->is_eager() || src.is_eager());
+  PropagateIsEagerToChildren(dst);
   dst->set_occurrences(src.occurrences() + dst->occurrences());
   dst->set_time_ps(src.time_ps() + dst->time_ps());
   dst->set_self_time_ps(src.self_time_ps() + dst->self_time_ps());
@@ -110,19 +120,17 @@ void CombineMemoryAccessedBreakdown(
     const tsl::protobuf::RepeatedPtrField<OpMetrics_MemoryAccessed>& src,
     tsl::protobuf::RepeatedPtrField<OpMetrics_MemoryAccessed>* dst) {
   if (src.empty()) return;
-  absl::flat_hash_map<std::pair<uint64_t /*memory_space*/, OperationType>,
-                      OpMetrics_MemoryAccessed*>
-      dst_memory_accessed_map;
-  for (auto& dst_memory_accessed : *dst) {
-    dst_memory_accessed_map[{dst_memory_accessed.memory_space(),
-                             dst_memory_accessed.operation_type()}] =
-        &dst_memory_accessed;
-  }
   for (const auto& src_memory_accessed : src) {
     uint64_t memory_space = src_memory_accessed.memory_space();
     OperationType operation_type = src_memory_accessed.operation_type();
-    auto*& dst_memory_accessed =
-        dst_memory_accessed_map[{memory_space, operation_type}];
+    OpMetrics_MemoryAccessed* dst_memory_accessed = nullptr;
+    for (auto& existing : *dst) {
+      if (existing.memory_space() == memory_space &&
+          existing.operation_type() == operation_type) {
+        dst_memory_accessed = &existing;
+        break;
+      }
+    }
     if (dst_memory_accessed == nullptr) {
       dst_memory_accessed = dst->Add();
       dst_memory_accessed->set_memory_space(memory_space);

@@ -15,15 +15,25 @@ limitations under the License.
 
 #include "xprof/utils/hlo_module_map.h"
 
+#include <cstdint>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/parser/hlo_parser.h"
+#include "xla/service/hlo.pb.h"
+#include "xla/tsl/profiler/utils/xplane_builder.h"
+#include "xla/tsl/profiler/utils/xplane_schema.h"
+#include "tsl/platform/protobuf.h"
+#include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/utils/hlo_cost_analysis_wrapper.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -78,6 +88,119 @@ TEST(HloInstructionWrapperTest, ExtractsTupleOutputTensors) {
 
   EXPECT_THAT(tuple_wrapper.InputTensors(), ElementsAre("f32[10]", "f32[20]"));
   EXPECT_THAT(tuple_wrapper.OutputTensors(), ElementsAre("(f32[10], f32[20])"));
+}
+
+TEST(ProcessHloModuleMapFromXSpaceTest,
+     InvokesStatefulCostAnalysisFactorySequentiallyAcrossMultipleModules) {
+  XSpace space;
+  XPlane* metadata_plane = space.add_planes();
+  metadata_plane->set_name(tsl::profiler::kMetadataPlaneName);
+  tsl::profiler::XPlaneBuilder builder(metadata_plane);
+  tsl::profiler::XStatMetadata* hlo_proto_stat =
+      builder.GetOrCreateStatMetadata(
+          tsl::profiler::GetStatTypeStr(tsl::profiler::StatType::kHloProto));
+  tsl::profiler::XStatMetadata* program_id_stat =
+      builder.GetOrCreateStatMetadata(
+          tsl::profiler::GetStatTypeStr(tsl::profiler::StatType::kProgramId));
+
+  constexpr int kNumModules = 8;
+  for (int i = 1; i <= kNumModules; ++i) {
+    std::string hlo_text = absl::StrCat("HloModule mod_", i, R"hlo(
+      ENTRY main {
+        x = f32[16,16]{1,0} parameter(0)
+        ROOT y = f32[16,16]{1,0} add(x, x)
+      })hlo");
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<xla::HloModule> mod,
+                         xla::ParseAndReturnUnverifiedModule(hlo_text));
+    xla::HloProto proto;
+    *proto.mutable_hlo_module() = mod->ToProto();
+
+    tsl::profiler::XEventMetadata* event_metadata =
+        builder.GetOrCreateEventMetadata(i);
+    tsl::profiler::XStatsBuilder<tsl::profiler::XEventMetadata> stats(
+        event_metadata, &builder);
+    stats.AddStatValue(*program_id_stat, static_cast<uint64_t>(100 + i));
+    stats.AddStatValue(*hlo_proto_stat, proto);
+  }
+
+  // Non-thread-safe stateful vector mutated inside the factory; under TSAN this
+  // catches any concurrent invocation of `create_cost_analysis` on worker
+  // threads.
+  std::vector<int> invocation_log;
+  HloCostAnalysisWrapper::Factory factory =
+      [&invocation_log]() -> std::unique_ptr<HloCostAnalysisWrapper> {
+    invocation_log.push_back(static_cast<int>(invocation_log.size()) + 1);
+    return nullptr;
+  };
+
+  HloModuleMap hlo_module_map;
+  ProcessHloModuleMapFromXSpace(hlo_module_map, &space, factory);
+
+  EXPECT_EQ(invocation_log.size(), kNumModules);
+  ASSERT_EQ(hlo_module_map.size(), kNumModules);
+  for (int i = 1; i <= kNumModules; ++i) {
+    auto it = hlo_module_map.find(static_cast<uint64_t>(100 + i));
+    ASSERT_NE(it, hlo_module_map.end());
+    EXPECT_EQ(it->second.Name(), absl::StrCat("mod_", i));
+  }
+}
+
+TEST(ProcessHloModuleMapFromXSpaceTest,
+     PopulatesProgramIdToNameMapEvenWhenOneModuleFailsConversion) {
+  XSpace space;
+  XPlane* metadata_plane = space.add_planes();
+  metadata_plane->set_name(tsl::profiler::kMetadataPlaneName);
+  tsl::profiler::XPlaneBuilder builder(metadata_plane);
+  tsl::profiler::XStatMetadata* hlo_proto_stat =
+      builder.GetOrCreateStatMetadata(
+          tsl::profiler::GetStatTypeStr(tsl::profiler::StatType::kHloProto));
+  tsl::profiler::XStatMetadata* program_id_stat =
+      builder.GetOrCreateStatMetadata(
+          tsl::profiler::GetStatTypeStr(tsl::profiler::StatType::kProgramId));
+
+  // Module 1: valid HLO module.
+  ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<xla::HloModule> valid_mod,
+      xla::ParseAndReturnUnverifiedModule(R"hlo(
+        HloModule valid_module
+        ENTRY main {
+          x = f32[8]{0} parameter(0)
+          ROOT y = f32[8]{0} add(x, x)
+        })hlo"));
+  xla::HloProto valid_proto;
+  *valid_proto.mutable_hlo_module() = valid_mod->ToProto();
+  {
+    tsl::profiler::XEventMetadata* meta = builder.GetOrCreateEventMetadata(1);
+    tsl::profiler::XStatsBuilder<tsl::profiler::XEventMetadata> stats(meta,
+                                                                      &builder);
+    stats.AddStatValue(*program_id_stat, uint64_t{201});
+    stats.AddStatValue(*hlo_proto_stat, valid_proto);
+  }
+
+  // Module 2: malformed HloProto (has module name, no computations ->
+  // ConvertHloProtoToModule fails).
+  xla::HloProto malformed_proto;
+  malformed_proto.mutable_hlo_module()->set_name("malformed_module");
+  {
+    tsl::profiler::XEventMetadata* meta = builder.GetOrCreateEventMetadata(2);
+    tsl::profiler::XStatsBuilder<tsl::profiler::XEventMetadata> stats(meta,
+                                                                      &builder);
+    stats.AddStatValue(*program_id_stat, uint64_t{202});
+    stats.AddStatValue(*hlo_proto_stat, malformed_proto);
+  }
+
+  HloCostAnalysisWrapper::Factory factory = []() { return nullptr; };
+  HloModuleMap hlo_module_map;
+  tsl::protobuf::Map<uint64_t, std::string> program_id_to_name_map;
+  ProcessHloModuleMapFromXSpace(hlo_module_map, &space, factory,
+                                &program_id_to_name_map);
+
+  EXPECT_EQ(hlo_module_map.size(), 1);
+  EXPECT_TRUE(hlo_module_map.contains(201));
+  EXPECT_FALSE(hlo_module_map.contains(202));
+  ASSERT_EQ(program_id_to_name_map.size(), 2);
+  EXPECT_EQ(program_id_to_name_map.at(201), "valid_module");
+  EXPECT_EQ(program_id_to_name_map.at(202), "malformed_module");
 }
 
 }  // namespace

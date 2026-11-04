@@ -145,8 +145,19 @@ void FlatOpMetricsDbCombiner::Combine(const FlatOpMetricsDb& src,
   dst->set_total_op_time_ps(src.total_op_time_ps() + dst->total_op_time_ps());
   dst->set_idle_time_ps(src.idle_time_ps() + dst->idle_time_ps());
   dst->set_busy_time_ps(src.busy_time_ps() + dst->busy_time_ps());
+  dst->set_idle_time_high_confidence_ps(src.idle_time_high_confidence_ps() +
+                                        dst->idle_time_high_confidence_ps());
+  dst->set_busy_time_high_confidence_ps(src.busy_time_high_confidence_ps() +
+                                        dst->busy_time_high_confidence_ps());
   dst->set_normalized_total_op_time_ps(src.normalized_total_op_time_ps() +
                                        dst->normalized_total_op_time_ps());
+  auto* dst_precision_stats = dst->mutable_precision_stats();
+  dst_precision_stats->set_compute_16bit_ps(
+      src.precision_stats().compute_16bit_ps() +
+      dst_precision_stats->compute_16bit_ps());
+  dst_precision_stats->set_compute_32bit_ps(
+      src.precision_stats().compute_32bit_ps() +
+      dst_precision_stats->compute_32bit_ps());
 
   // Removed assignment of perf_env, device_type, and program_id_to_name_map
   // as they were removed from the proto definition.

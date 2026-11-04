@@ -918,6 +918,62 @@ TEST(CreateTfMetricsDbFromDeviceOpMetricsDbTest, AggregationAndIdle) {
   }
 }
 
+TEST(CreateTfMetricsDbFromDeviceOpMetricsDbTest, SkipsFusionChildren) {
+  FlatOpMetricsDb device_db = ParseTextProtoOrDie(R"pb(
+    total_op_time_ps: 1000
+    total_time_ps: 1000
+    op_instances {
+      op_id: 1
+      hlo_name: "fusion.1"
+      provenance: "TfOp1:TfOpType1"
+      time_ps: 1000
+      self_time_ps: 1000
+      flops_v2: 100
+      bytes_accessed: 1000
+      occurrences: 2
+      is_eager: true
+    }
+    op_instances {
+      op_id: 2
+      parent_op_id: 1
+      hlo_name: "add.1"
+      provenance: "TfOp1:TfOpType1"
+      time_ps: 600
+      self_time_ps: 600
+      flops_v2: 60
+      bytes_accessed: 600
+      occurrences: 2
+      is_fusion_child: true
+    }
+    op_instances {
+      op_id: 3
+      parent_op_id: 1
+      hlo_name: "mul.1"
+      provenance: "TfOp2:TfOpType2"
+      time_ps: 400
+      self_time_ps: 400
+      flops_v2: 40
+      bytes_accessed: 400
+      occurrences: 2
+      is_fusion_child: true
+    }
+  )pb");
+
+  FlatOpMetricsDb tf_db =
+      CreateTfMetricsDbFromDeviceOpMetricsDb(device_db, /*with_idle=*/false);
+
+  // Only the parent fusion contributes; the children (including the one with a
+  // different TF op) must not create extra TF ops or double count.
+  ASSERT_EQ(tf_db.op_instances_size(), 1);
+  const FlatOpMetrics& tf_op1 = tf_db.op_instances(0);
+  EXPECT_EQ(tf_op1.hlo_name(), "TfOp1");
+  EXPECT_EQ(tf_op1.self_time_ps(), 1000);
+  EXPECT_EQ(tf_op1.flops_v2(), 100);
+  EXPECT_EQ(tf_op1.bytes_accessed(), 1000);
+  EXPECT_EQ(tf_op1.occurrences(), 2);
+  EXPECT_TRUE(tf_op1.is_eager());
+}
+
 TEST(FinalizeSortedTest, HandlesOrphanNodes) {
   XEventsFlatOpMetricsDbBuilder builder;
   FlatOpMetrics child;
@@ -931,6 +987,31 @@ TEST(FinalizeSortedTest, HandlesOrphanNodes) {
   ASSERT_EQ(db.op_instances_size(), 1);
   EXPECT_EQ(db.op_instances(0).op_id(), 100);
   EXPECT_EQ(db.total_op_time_ps(), 500);
+}
+
+TEST(FlatOpMetricsDbTest, IdleTimeRatio) {
+  constexpr double kMaxError = 1E-10;
+
+  // The ratio is relative to total_time_ps, not total_op_time_ps.
+  FlatOpMetricsDb db_0;
+  db_0.set_total_time_ps(100000000);
+  db_0.set_total_op_time_ps(60000000);
+  EXPECT_NEAR(0.4, IdleTimeRatio(db_0), kMaxError);
+
+  FlatOpMetricsDb db_1;
+  db_1.set_total_time_ps(200000000);
+  db_1.set_total_op_time_ps(150000000);
+  EXPECT_NEAR(0.25, IdleTimeRatio(db_1), kMaxError);
+
+  // Fully busy: no idle time.
+  FlatOpMetricsDb db_2;
+  db_2.set_total_time_ps(100000000);
+  db_2.set_total_op_time_ps(100000000);
+  EXPECT_NEAR(0.0, IdleTimeRatio(db_2), kMaxError);
+
+  // Empty db: SafeDivide(0, 0) is 0, so the db is reported as fully idle.
+  FlatOpMetricsDb db_3;
+  EXPECT_NEAR(1.0, IdleTimeRatio(db_3), kMaxError);
 }
 
 }  // namespace

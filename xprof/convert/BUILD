@@ -1379,9 +1379,9 @@ cc_library(
     hdrs = ["op_stats_to_overview_page.h"],
     deps = [
         ":data_table_utils",
-        ":op_metrics_db_combiner",
         ":op_metrics_to_record",
         ":op_stats_to_input_pipeline_analysis",
+        "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "//plugin/xprof/protobuf:input_pipeline_proto_cc",
         "//plugin/xprof/protobuf:kernel_stats_proto_cc",
@@ -1397,6 +1397,7 @@ cc_library(
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/time",
         "@org_xprof//xprof/utils:diagnostics",
+        "@org_xprof//xprof/utils:flat_op_metrics_db_utils",
         "@org_xprof//xprof/utils:hardware_type_utils",
         "@org_xprof//xprof/utils:html_utils",
         "@org_xprof//xprof/utils:kernel_stats_utils",
@@ -1415,6 +1416,8 @@ cc_test(
     deps = [
         ":data_table_utils",
         ":op_stats_to_overview_page",
+        "//net/proto2/contrib/parse_proto:parse_text_proto",
+        "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "//plugin/xprof/protobuf:op_stats_proto_cc",
         "//plugin/xprof/protobuf:overview_page_proto_cc",

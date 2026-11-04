@@ -554,6 +554,11 @@ uint64_t IdleTimePs(const FlatOpMetricsDb& db) {
   return db.total_time_ps() - db.total_op_time_ps();
 }
 
+double IdleTimeRatio(const FlatOpMetricsDb& db) {
+  return 1.0 -
+         tsl::profiler::SafeDivide(db.total_op_time_ps(), db.total_time_ps());
+}
+
 void SetIdleOp(uint64_t idle_time_ps, FlatOpMetrics& idle_op) {
   idle_op.set_hlo_name(kIdle);
   idle_op.set_category(kIdle);
@@ -615,6 +620,10 @@ FlatOpMetricsDb CreateTfMetricsDbFromDeviceOpMetricsDb(
   FlatOpMetricsDb tf_op_metrics_db;
   DeviceTfFlatOpMetricsDbBuilder builder(&tf_op_metrics_db);
   for (const auto& device_op_metrics : device_op_metrics_db.op_instances()) {
+    // Fusion children are stored as top-level entries in the flat DB, but their
+    // time, flops and bytes are already accounted for by the parent fusion.
+    // Skip them to match the legacy OpMetricsDb, where children are nested.
+    if (device_op_metrics.is_fusion_child()) continue;
     if (IsIdleOp(device_op_metrics)) {
       if (with_idle) {
         builder.UpdateTfOpMetricsWithDeviceOpMetrics(kIdle, kIdle,

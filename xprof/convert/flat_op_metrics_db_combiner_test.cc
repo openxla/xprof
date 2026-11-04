@@ -46,6 +46,27 @@ TEST_F(FlatOpMetricsDbCombinerTest, CombineEmptyDb) {
   EXPECT_EQ(dst_.total_time_ps(), 0);
 }
 
+TEST_F(FlatOpMetricsDbCombinerTest, CombinesHighConfidenceTimesAndPrecision) {
+  FlatOpMetricsDb src1 = ParseTextProtoOrDie(R"pb(
+    busy_time_high_confidence_ps: 100
+    idle_time_high_confidence_ps: 10
+    precision_stats { compute_16bit_ps: 300 compute_32bit_ps: 30 }
+  )pb");
+  FlatOpMetricsDb src2 = ParseTextProtoOrDie(R"pb(
+    busy_time_high_confidence_ps: 200
+    idle_time_high_confidence_ps: 20
+    precision_stats { compute_16bit_ps: 400 compute_32bit_ps: 40 }
+  )pb");
+  FlatOpMetricsDbCombiner combiner(&dst_);
+  combiner.Combine(src1);
+  combiner.Combine(src2);
+
+  EXPECT_EQ(dst_.busy_time_high_confidence_ps(), 300);
+  EXPECT_EQ(dst_.idle_time_high_confidence_ps(), 30);
+  EXPECT_EQ(dst_.precision_stats().compute_16bit_ps(), 700);
+  EXPECT_EQ(dst_.precision_stats().compute_32bit_ps(), 70);
+}
+
 // -----------------------------------------------------------------------------
 // Test Case 2: Combine Non-Overlapping Databases
 // -----------------------------------------------------------------------------

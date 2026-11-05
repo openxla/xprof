@@ -248,6 +248,18 @@ struct FlameChartTimelineData {
                                  end - start);
   }
 
+  // Returns the index of the slice on `level` that covers `ts` (start <= ts <=
+  // start + duration), or -1 if `ts` falls in a gap or `level` is out of range.
+  int FindEventIndexAt(int level, Microseconds ts) const {
+    absl::Span<const int> indices = level_events(level);
+    auto it = std::upper_bound(
+        indices.begin(), indices.end(), ts,
+        [&](Microseconds t, int idx) { return t < entry_start_times[idx]; });
+    if (it == indices.begin()) return -1;
+    const int idx = *std::prev(it);
+    return entry_start_times[idx] + entry_total_times[idx] >= ts ? idx : -1;
+  }
+
   bool HasEntryArgs(size_t index) const {
     if (index < entry_args.size()) {
       return true;

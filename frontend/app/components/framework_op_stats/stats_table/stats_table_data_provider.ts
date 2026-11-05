@@ -53,7 +53,7 @@ export class StatsTableDataProvider extends DefaultDataProvider {
   }
 
   override parseData(data: SimpleDataTable|Array<Array<(string | number)>>|null) {
-    if (!data) return;
+    if (!data || !this.ensureChartPackagesLoaded(data)) return;
     const dataTable = new google.visualization.DataTable(data);
     if (this.hasDiff && this.diffTable) {
       this.preProcessDiffTable(dataTable, this.diffTable);

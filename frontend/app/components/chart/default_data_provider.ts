@@ -15,11 +15,28 @@ export class DefaultDataProvider implements ChartDataProvider {
     this.chart = chart;
   }
 
-  parseData(data: SimpleDataTable|Array<Array<(string | number)>>|null) {
-    if (data) {
-      this.dataTable =
-          new google.visualization.DataTable(data as SimpleDataTable);
+  protected ensureChartPackagesLoaded(
+      data: SimpleDataTable|Array<Array<(string | number)>>|null,
+      isReady = typeof google !== 'undefined' &&
+          typeof google.visualization?.DataTable === 'function',
+  ): boolean {
+    if (isReady) {
+      return true;
     }
+    if (typeof google !== 'undefined' && google.charts) {
+      google.charts.safeLoad({'packages': ['corechart', 'table']});
+      google.charts.setOnLoadCallback(() => {
+        this.parseData(data);
+        this.notifyCharts();
+      });
+    }
+    return false;
+  }
+
+  parseData(data: SimpleDataTable|Array<Array<(string | number)>>|null) {
+    if (!data || !this.ensureChartPackagesLoaded(data)) return;
+    this.dataTable =
+        new google.visualization.DataTable(data as SimpleDataTable);
   }
 
   setSortColumns(sortColumns: google.visualization.SortByColumn[]) {
@@ -80,11 +97,19 @@ export class DefaultDataProvider implements ChartDataProvider {
 /** A chart data provider that accepts array data. */
 export class ArrayDataProvider extends DefaultDataProvider {
   override parseData(data: SimpleDataTable|Array<Array<(string | number)>>|null) {
-    if (data) {
-      /* tslint:disable no-any */
-      this.dataTable = google.visualization.arrayToDataTable(data as any[]);
-      /* tslint:enable */
+    if (
+      !data ||
+      !this.ensureChartPackagesLoaded(
+          data,
+          typeof google !== 'undefined' &&
+              typeof google.visualization?.arrayToDataTable === 'function',
+      )
+    ) {
+      return;
     }
+    /* tslint:disable no-any */
+    this.dataTable = google.visualization.arrayToDataTable(data as any[]);
+    /* tslint:enable */
   }
 }
 
@@ -104,7 +129,14 @@ export class ReplicaGroupDataProvider extends DefaultDataProvider {
   override parseData(data: SimpleDataTable) {
     const rowWithReplicaGroups: google.visualization.DataObjectRow[] = [];
 
-    if (!data || !data.cols || !data.rows) return;
+    if (
+      !data ||
+      !data.cols ||
+      !data.rows ||
+      !this.ensureChartPackagesLoaded(data)
+    ) {
+      return;
+    }
 
     // Set the column index member variables.
     for (let i = 0; i < data.cols.length; i++) {

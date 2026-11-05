@@ -5,7 +5,7 @@ import {PodViewerDatabase} from 'org_xprof/frontend/app/common/interfaces/data_t
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setLoadingStateAction} from 'org_xprof/frontend/app/store/actions';
-import {ReplaySubject} from 'rxjs';
+import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 import {PodViewerCommon} from './pod_viewer_common';
@@ -29,9 +29,11 @@ export class PodViewer extends PodViewerCommon implements OnDestroy {
       override readonly store: Store<{}>,
   ) {
     super(store);
-    route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
-      this.update(params as NavigationEvent);
-    });
+    combineLatest([route.params, route.queryParams])
+        .pipe(takeUntil(this.destroyed))
+        .subscribe(([params, queryParams]) => {
+          this.update({...params, ...queryParams} as NavigationEvent);
+        });
   }
 
   update(event: NavigationEvent) {

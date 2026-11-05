@@ -12,7 +12,7 @@ export class DeviceSideAnalysisDetailDataProvider extends DefaultDataProvider {
 
   override parseData(
       data: SimpleDataTable|Array<Array<(string | number)>>|null) {
-    if (!data) return;
+    if (!data || !this.ensureChartPackagesLoaded(data)) return;
 
     const dataTable = new google.visualization.DataTable(data);
     const dataView = new google.visualization.DataView(dataTable);

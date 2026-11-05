@@ -19,12 +19,14 @@
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
+#include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/file_utils.h"
 #include "xprof/convert/xspace_to_event_time_fraction_analyzer.h"
 #include "plugin/xprof/protobuf/event_time_fraction_analyzer.pb.h"
 #include "xprof/utils/event_span.h"
+#include "xprof/utils/op_metrics_db_utils.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -37,7 +39,8 @@ using ::tsl::profiler::XPlaneBuilder;
 using ::tsl::profiler::XStatsBuilder;
 
 // Helper to create a synthetic TPU plane with a step line and an op line.
-XPlane CreateSyntheticTpuPlane(int64_t num_ops, int64_t num_steps = 10) {
+XPlane CreateSyntheticTpuPlane(int64_t num_ops, int64_t num_steps = 10,
+                               bool add_source_info = false) {
   XPlane raw_plane;
   XPlaneBuilder plane(&raw_plane);
   int64_t device_id = 0;
@@ -58,6 +61,14 @@ XPlane CreateSyntheticTpuPlane(int64_t num_ops, int64_t num_steps = 10) {
       *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kGroupId));
   const XStatMetadata& duration_stat = *plane.GetOrCreateStatMetadata(
       GetStatTypeStr(StatType::kDeviceDurationPs));
+  const XStatMetadata* source_info_stat = nullptr;
+  const XStatMetadata* source_stack_stat = nullptr;
+  if (add_source_info) {
+    source_info_stat =
+        plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kSourceInfo));
+    source_stack_stat =
+        plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kSourceStack));
+  }
 
   constexpr uint64_t kStepDurationPs = 100000000ULL;  // 100 us
   constexpr int kNumDistinctOps = 100;
@@ -69,6 +80,12 @@ XPlane CreateSyntheticTpuPlane(int64_t num_ops, int64_t num_steps = 10) {
     XStatsBuilder<XEventMetadata> stats(op_metadata[i], &plane);
     stats.AddStatValue(program_id_stat, 1);
     stats.AddStatValue(symbol_id_stat, i);
+    if (add_source_info) {
+      stats.AddStatValue(*source_info_stat,
+                         "third_party/py/jax/_src/interpreters/pxla.py:123");
+      stats.AddStatValue(*source_stack_stat,
+                         "frame1:10;frame2:20;frame3:30;frame4:40;frame5:50");
+    }
   }
 
   int64_t ops_per_step = std::max<int64_t>(1, num_ops / num_steps);

@@ -2,6 +2,7 @@
 
 from xprof.xparity import numerical_generator
 from xprof.xparity import numerical_validator
+from xprof.xparity import rel_l2
 from xprof.xparity import ulp
 from xprof.xparity import xparity_tool
 
@@ -13,6 +14,7 @@ compare_bitwise = numerical_validator.compare_bitwise
 make_fwd_bwd = numerical_validator.make_fwd_bwd
 replay_failure_dump = numerical_validator.replay_failure_dump
 chunk_callable = numerical_validator.chunk_callable
+compare_row_rel_l2 = rel_l2.compare_row_rel_l2
 compute_ulp_distance = ulp.compute_ulp_distance
 get_contract = ulp.get_contract
 generate_test_suite = numerical_generator.generate_test_suite
@@ -32,6 +34,7 @@ __all__ = [
     "ORACLE_AUTO",
     "chunk_callable",
     "compare_bitwise",
+    "compare_row_rel_l2",
     "compute_ulp_distance",
     "generate_attention_suite",
     "generate_suite",
@@ -44,6 +47,7 @@ __all__ = [
     "numerical_validator",
     "probe_precision",
     "read_suite_metadata",
+    "rel_l2",
     "replay",
     "replay_failure_dump",
     "save_test_suite",

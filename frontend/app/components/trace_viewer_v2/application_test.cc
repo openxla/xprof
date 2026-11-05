@@ -120,6 +120,8 @@ TEST_F(ApplicationTest, NavigationMethodsSafeWhenUninitialized) {
   // safe no-ops without crashing.
   app.NavigateToNextSearchResult();
   app.NavigateToPrevSearchResult();
+  app.ScrollToGroup(0);
+  EXPECT_FALSE(app.ScrollToGroup("test"));
 }
 
 TEST_F(ApplicationTest, SaveAndLoadTrackOrderUseSeparateKeysPerViewer) {

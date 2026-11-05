@@ -507,22 +507,7 @@ int GetEventFlameChartLevel(const TraceEvent* e,
         (e->is_async ? grp->name != e->name : grp->tid != e->tid)) {
       continue;
     }
-    absl::Span<const int> indices = data.level_events(lvl);
-    // Binary search for event covering e->ts
-    // events are likely sorted by start time.
-    auto it_idx = std::upper_bound(indices.begin(), indices.end(), e->ts,
-                                   [&](Microseconds ts, int idx) {
-                                     return ts < data.entry_start_times[idx];
-                                   });
-
-    // it_idx points to first event starting AFTER e->ts.
-    // Check the one before it.
-    if (it_idx != indices.begin()) {
-      int idx = *std::prev(it_idx);
-      if (data.entry_start_times[idx] + data.entry_total_times[idx] >= e->ts) {
-        return lvl;
-      }
-    }
+    if (data.FindEventIndexAt(lvl, e->ts) >= 0) return lvl;
   }
   return start;  // Default to track top
 }

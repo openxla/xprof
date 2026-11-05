@@ -1,7 +1,9 @@
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_pb_event_parser.h"
 
+#ifdef __EMSCRIPTEN__
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
+#endif
 
 #include <algorithm>
 #include <cstddef>
@@ -22,7 +24,9 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "xprof/convert/trace_viewer/delta_series/zstd_compression.h"
+#ifdef __EMSCRIPTEN__
 #include "frontend/app/components/trace_viewer_v2/application.h"
+#endif
 #include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
@@ -34,6 +38,7 @@ namespace traceviewer {
 
 namespace {
 
+#ifdef __EMSCRIPTEN__
 std::optional<std::pair<Milliseconds, Milliseconds>> ParseVisibleRangeFromUrl(
     const emscripten::val& visible_range_from_url) {
   if (!visible_range_from_url.isNull() &&
@@ -45,17 +50,21 @@ std::optional<std::pair<Milliseconds, Milliseconds>> ParseVisibleRangeFromUrl(
   }
   return std::nullopt;
 }
+#endif
 
 void DispatchResponseDetails(const xprof::TraceDataResponse& response,
                              bool& mpmd_pipeline_view) {
   if (response.details_size() <= 0) {
     return;
   }
-  emscripten::val details_map = emscripten::val::global("Map").new_();
   for (const auto& detail : response.details()) {
     if (detail.name() == "mpmd_pipeline_view") {
       mpmd_pipeline_view = detail.value();
     }
+  }
+#ifdef __EMSCRIPTEN__
+  emscripten::val details_map = emscripten::val::global("Map").new_();
+  for (const auto& detail : response.details()) {
     details_map.call<void>("set", emscripten::val(detail.name()),
                            emscripten::val(detail.value()));
   }
@@ -69,11 +78,13 @@ void DispatchResponseDetails(const xprof::TraceDataResponse& response,
       emscripten::val::global("CustomEvent")
           .new_(emscripten::val("details_received"), event_init);
   emscripten::val::global("window").call<void>("dispatchEvent", event);
+#endif
 }
 
 ParsedTraceEvents ParseCompressedTraceEvents(
     uintptr_t data_ptr, size_t data_size,
-    const emscripten::val& visible_range_from_url) {
+    std::optional<std::pair<Milliseconds, Milliseconds>>
+        visible_range_from_url) {
   absl::string_view buffer_data(reinterpret_cast<const char*>(data_ptr),
                                 data_size);
   ParsedTraceEvents result;
@@ -105,8 +116,7 @@ ParsedTraceEvents ParseCompressedTraceEvents(
     }
   }
 
-  result.visible_range_from_url =
-      ParseVisibleRangeFromUrl(visible_range_from_url);
+  result.visible_range_from_url = visible_range_from_url;
 
   return result;
 }
@@ -861,15 +871,14 @@ bool UnmarshalProcessSliceBounded(IncrementalParserSession& session,
 
 }  // namespace
 
-void BeginIncrementalTraceEvents(const emscripten::val& visible_range_from_url,
-                                 DataProvider& data_provider,
-                                 Timeline& timeline) {
+void BeginIncrementalTraceEvents(
+    std::optional<std::pair<Milliseconds, Milliseconds>> visible_range_from_url,
+    DataProvider& data_provider, Timeline& timeline) {
   IncrementalParserSession& session = GetIncrementalSession();
   session.Reset();
   session.is_initial_load = !data_provider.HasKnownTracks() ||
                             (timeline.visible_range() == TimeRange::Zero());
-  session.visible_range_from_url =
-      ParseVisibleRangeFromUrl(visible_range_from_url);
+  session.visible_range_from_url = visible_range_from_url;
   if (!session.is_initial_load && session.visible_range_from_url.has_value()) {
     const Milliseconds start_ms = session.visible_range_from_url->first;
     const Milliseconds end_ms = session.visible_range_from_url->second;
@@ -880,15 +889,19 @@ void BeginIncrementalTraceEvents(const emscripten::val& visible_range_from_url,
       session.filter_range_ps = std::make_pair(start_ps, end_ps);
     }
   }
-  if (session.is_initial_load ||
-      session.cached_cumulative_interned_strings.empty()) {
+  if (session.is_initial_load) {
     session.ClearPersistentCache();
-    session.recording_frame_summaries = true;
+    const bool is_unfiltered_initial_load =
+        !session.visible_range_from_url.has_value();
+    session.recording_frame_summaries = is_unfiltered_initial_load;
+    session.can_build_trace_store = is_unfiltered_initial_load;
   } else {
-    session.using_cached_cumulative_strings = true;
+    session.can_build_trace_store = false;
     session.using_cached_trace_store = session.has_cached_trace_store;
-    session.mpmd_pipeline_view = session.cached_mpmd_pipeline_view;
-    session.full_timespan = session.cached_full_timespan;
+    if (!session.cached_cumulative_interned_strings.empty()) {
+      session.mpmd_pipeline_view = session.cached_mpmd_pipeline_view;
+      session.full_timespan = session.cached_full_timespan;
+    }
   }
   if (session.filter_range_ps.has_value()) {
     absl::flat_hash_set<std::pair<ProcessId, ThreadId>> active_tracks =
@@ -921,12 +934,21 @@ void BeginIncrementalTraceEvents(const emscripten::val& visible_range_from_url,
   data_provider.BeginIncrementalLoad(timeline);
 }
 
+#ifdef __EMSCRIPTEN__
+void BeginIncrementalTraceEvents(const emscripten::val& visible_range_from_url,
+                                 DataProvider& data_provider,
+                                 Timeline& timeline) {
+  BeginIncrementalTraceEvents(ParseVisibleRangeFromUrl(visible_range_from_url),
+                              data_provider, timeline);
+}
+
 void BeginIncrementalTraceEvents(
     const emscripten::val& visible_range_from_url) {
   BeginIncrementalTraceEvents(visible_range_from_url,
                               Application::Instance().data_provider(),
                               Application::Instance().timeline());
 }
+#endif
 
 bool HasCachedTraceEventsIncremental() {
   return GetIncrementalSession().has_cached_trace_store;
@@ -938,6 +960,10 @@ void SetMaxCachedPackedBytesForTest(size_t max_bytes) {
 
 bool ShouldEnqueueCompressedFrameIncremental() {
   IncrementalParserSession& session = GetIncrementalSession();
+  if (!session.is_initial_load &&
+      !session.cached_cumulative_interned_strings.empty()) {
+    session.using_cached_cumulative_strings = true;
+  }
   if (CanSkipFrameForFilter(session, session.next_enqueued_frame_index)) {
     ++session.next_enqueued_frame_index;
     return false;
@@ -1168,11 +1194,13 @@ bool StepIncrementalTraceEvents(size_t max_events_per_step,
   return has_more;
 }
 
+#ifdef __EMSCRIPTEN__
 bool StepIncrementalTraceEvents(size_t max_events_per_step) {
   return StepIncrementalTraceEvents(max_events_per_step,
                                     Application::Instance().data_provider(),
                                     Application::Instance().timeline());
 }
+#endif
 
 void CancelIncrementalTraceEvents(DataProvider& data_provider,
                                   Timeline& timeline) {
@@ -1181,10 +1209,12 @@ void CancelIncrementalTraceEvents(DataProvider& data_provider,
   timeline.set_is_incremental_loading(false);
 }
 
+#ifdef __EMSCRIPTEN__
 void CancelIncrementalTraceEvents() {
   CancelIncrementalTraceEvents(Application::Instance().data_provider(),
                                Application::Instance().timeline());
 }
+#endif
 
 bool FinishIncrementalTraceEvents(DataProvider& data_provider,
                                   Timeline& timeline) {
@@ -1272,10 +1302,12 @@ bool FinishIncrementalTraceEvents(DataProvider& data_provider,
   return full_loaded;
 }
 
+#ifdef __EMSCRIPTEN__
 bool FinishIncrementalTraceEvents() {
   return FinishIncrementalTraceEvents(Application::Instance().data_provider(),
                                       Application::Instance().timeline());
 }
+#endif
 
 bool RestoreFullTraceOverviewIfAvailable(Timeline& timeline) {
   if (timeline.RestoreSavedFullOverview()) {
@@ -1285,15 +1317,17 @@ bool RestoreFullTraceOverviewIfAvailable(Timeline& timeline) {
   return false;
 }
 
+#ifdef __EMSCRIPTEN__
 bool RestoreFullTraceOverviewIfAvailable() {
   return RestoreFullTraceOverviewIfAvailable(
       Application::Instance().timeline());
 }
+#endif
 
 void ParseAndProcessCompressedTraceEvents(
     uintptr_t data_ptr, size_t data_size,
-    const emscripten::val& visible_range_from_url, DataProvider& data_provider,
-    Timeline& timeline) {
+    std::optional<std::pair<Milliseconds, Milliseconds>> visible_range_from_url,
+    DataProvider& data_provider, Timeline& timeline) {
   const bool is_initial_load =
       (timeline.last_fetch_request_range() == TimeRange::Zero());
   GetIncrementalSession().ClearPersistentCache();
@@ -1309,12 +1343,9 @@ void ParseAndProcessCompressedTraceEvents(
   data_provider.ProcessTraceEvents(parsed_events, timeline);
 
   if (is_initial_load) {
-    if (!visible_range_from_url.isNull() &&
-        !visible_range_from_url.isUndefined() &&
-        visible_range_from_url["length"].as<int>() == 2) {
-      Milliseconds start = visible_range_from_url[0].as<Milliseconds>();
-      Milliseconds end = visible_range_from_url[1].as<Milliseconds>();
-
+    if (visible_range_from_url.has_value()) {
+      const Milliseconds start = visible_range_from_url->first;
+      const Milliseconds end = visible_range_from_url->second;
       timeline.InitializeLastFetchRequestRange(
           {MillisToMicros(start), MillisToMicros(end)});
     } else {
@@ -1324,6 +1355,16 @@ void ParseAndProcessCompressedTraceEvents(
 
   timeline.set_is_incremental_loading(false);
   timeline.RequestRedraw();
+}
+
+#ifdef __EMSCRIPTEN__
+void ParseAndProcessCompressedTraceEvents(
+    uintptr_t data_ptr, size_t data_size,
+    const emscripten::val& visible_range_from_url, DataProvider& data_provider,
+    Timeline& timeline) {
+  ParseAndProcessCompressedTraceEvents(
+      data_ptr, data_size, ParseVisibleRangeFromUrl(visible_range_from_url),
+      data_provider, timeline);
 }
 
 void ParseAndProcessCompressedTraceEvents(
@@ -1362,5 +1403,6 @@ EMSCRIPTEN_BINDINGS(trace_pb_event_parser) {
                        static_cast<bool (*)()>(
                            &traceviewer::RestoreFullTraceOverviewIfAvailable));
 }
+#endif
 
 }  // namespace traceviewer

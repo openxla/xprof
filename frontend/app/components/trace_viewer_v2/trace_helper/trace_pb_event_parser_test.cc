@@ -1068,4 +1068,155 @@ TEST_F(TracePbEventParserTest,
   }
   EXPECT_TRUE(found_counter);
 }
+
+TEST_F(TracePbEventParserTest,
+       NetworkRefetchesWithWindowSpecificStringTablesPreserveEventNames) {
+  auto build_window_response = [](absl::string_view name_1,
+                                  absl::string_view name_2, uint64_t ts1_ps,
+                                  uint64_t ts2_ps) {
+    xprof::TraceDataResponse resp;
+    resp.set_full_timespan_start_ps(0ULL);
+    resp.set_full_timespan_end_ps(10000000000ULL);  // 10 ms
+    resp.add_interned_strings("");
+    resp.add_interned_strings(std::string(name_1));
+    resp.add_interned_strings(std::string(name_2));
+    auto* proc = resp.mutable_metadata()->add_processes();
+    proc->set_id(1);
+    proc->set_name("host:0 /device:TPU:0");
+    auto* th = proc->add_threads();
+    th->set_id(10);
+    th->set_name("XLA Ops");
+    auto* series = resp.add_complete_events();
+    series->mutable_metadata()->set_process_id(1);
+    series->mutable_metadata()->set_thread_id(10);
+    series->add_deltas(ts1_ps);
+    series->add_durations(100000000ULL);
+    series->add_name_refs(1);
+    series->add_event_metadata();
+    series->add_deltas(ts2_ps - ts1_ps);
+    series->add_durations(100000000ULL);
+    series->add_name_refs(2);
+    series->add_event_metadata();
+    std::string serialized;
+    EXPECT_TRUE(resp.SerializeToString(&serialized));
+    return *tensorflow::profiler::ZstdCompression::Compress(serialized);
+  };
+
+  // 1. Initial load via ParseAndProcessCompressedTraceEvents (legacy overview
+  // load when resolution > 0).
+  const std::string overview_compressed = build_window_response(
+      "overview_op_1", "overview_op_2", 1000000000ULL, 5000000000ULL);
+  ParseAndProcessCompressedTraceEvents(
+      reinterpret_cast<uintptr_t>(overview_compressed.data()),
+      overview_compressed.size(), emscripten::val::undefined(), data_provider_,
+      timeline_);
+  ASSERT_EQ(timeline_.timeline_data().entry_names.size(), 2u);
+  EXPECT_EQ(timeline_.timeline_data().entry_names[0], "overview_op_1");
+  EXPECT_EQ(timeline_.timeline_data().entry_names[1], "overview_op_2");
+
+  // 2. First zoom-in network refetch for [1.0, 3.0] ms with its own
+  // window-specific interned_strings table.
+  const std::string zoom1_compressed = build_window_response(
+      "zoom1_op_a", "zoom1_op_b", 1200000000ULL, 2200000000ULL);
+  emscripten::val zoom1_range = emscripten::val::array();
+  zoom1_range.set(0, 1.0);
+  zoom1_range.set(1, 3.0);
+  BeginIncrementalTraceEvents(zoom1_range, data_provider_, timeline_);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(zoom1_compressed.data()),
+      zoom1_compressed.size());
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider_, timeline_));
+  EXPECT_FALSE(HasCachedTraceEventsIncremental());
+  ASSERT_EQ(timeline_.timeline_data().entry_names.size(), 2u);
+  EXPECT_EQ(timeline_.timeline_data().entry_names[0], "zoom1_op_a");
+  EXPECT_EQ(timeline_.timeline_data().entry_names[1], "zoom1_op_b");
+
+  // 3. Second zoom-out / pan network refetch for [0.5, 6.0] ms with a fresh
+  // window-specific interned_strings table where indices 1 and 2 map to
+  // completely different event names.
+  const std::string zoom2_compressed = build_window_response(
+      "zoom2_op_x", "zoom2_op_y", 800000000ULL, 4500000000ULL);
+  emscripten::val zoom2_range = emscripten::val::array();
+  zoom2_range.set(0, 0.5);
+  zoom2_range.set(1, 6.0);
+  BeginIncrementalTraceEvents(zoom2_range, data_provider_, timeline_);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(zoom2_compressed.data()),
+      zoom2_compressed.size());
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider_, timeline_));
+  ASSERT_EQ(timeline_.timeline_data().entry_names.size(), 2u);
+  EXPECT_EQ(timeline_.timeline_data().entry_names[0], "zoom2_op_x");
+  EXPECT_EQ(timeline_.timeline_data().entry_names[1], "zoom2_op_y");
+}
+
+TEST_F(TracePbEventParserTest,
+       NetworkRefetchAfterUncachedIncrementalLoadUsesResponseStrings) {
+  auto compress_frame = [](const xprof::TraceDataResponse& frame) {
+    std::string serialized;
+    EXPECT_TRUE(frame.SerializeToString(&serialized));
+    return *tensorflow::profiler::ZstdCompression::Compress(serialized);
+  };
+
+  xprof::TraceDataResponse init_resp;
+  init_resp.set_full_timespan_start_ps(0ULL);
+  init_resp.set_full_timespan_end_ps(10000000000ULL);
+  init_resp.add_interned_strings("");
+  init_resp.add_interned_strings("initial_op");
+  auto* proc = init_resp.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("host:0 /device:TPU:0");
+  auto* th = proc->add_threads();
+  th->set_id(10);
+  th->set_name("XLA Ops");
+  auto* s0 = init_resp.add_complete_events();
+  s0->mutable_metadata()->set_process_id(1);
+  s0->mutable_metadata()->set_thread_id(10);
+  s0->add_deltas(1000000000ULL);
+  s0->add_durations(200000000ULL);
+  s0->add_name_refs(1);
+  s0->add_event_metadata();
+
+  const std::string c_init = compress_frame(init_resp);
+  BeginIncrementalTraceEvents(emscripten::val::undefined(), data_provider_,
+                              timeline_);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(c_init.data()), c_init.size());
+  EXPECT_TRUE(FinishIncrementalTraceEvents(data_provider_, timeline_));
+  EXPECT_FALSE(HasCachedTraceEventsIncremental());
+  ASSERT_EQ(timeline_.timeline_data().entry_names.size(), 1u);
+  EXPECT_EQ(timeline_.timeline_data().entry_names[0], "initial_op");
+
+  // Network refetch response with its own interned_strings table where index 1
+  // is "refetch_window_op" (enqueued directly without calling
+  // ShouldEnqueueCompressedFrameIncremental()).
+  xprof::TraceDataResponse refetch_resp;
+  refetch_resp.set_full_timespan_start_ps(0ULL);
+  refetch_resp.set_full_timespan_end_ps(10000000000ULL);
+  refetch_resp.add_interned_strings("");
+  refetch_resp.add_interned_strings("refetch_window_op");
+  auto* r_proc = refetch_resp.mutable_metadata()->add_processes();
+  r_proc->set_id(1);
+  r_proc->set_name("host:0 /device:TPU:0");
+  auto* r_th = r_proc->add_threads();
+  r_th->set_id(10);
+  r_th->set_name("XLA Ops");
+  auto* s1 = refetch_resp.add_complete_events();
+  s1->mutable_metadata()->set_process_id(1);
+  s1->mutable_metadata()->set_thread_id(10);
+  s1->add_deltas(2000000000ULL);
+  s1->add_durations(200000000ULL);
+  s1->add_name_refs(1);
+  s1->add_event_metadata();
+
+  const std::string c_refetch = compress_frame(refetch_resp);
+  emscripten::val zoom_range = emscripten::val::array();
+  zoom_range.set(0, 1.5);
+  zoom_range.set(1, 2.5);
+  BeginIncrementalTraceEvents(zoom_range, data_provider_, timeline_);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(c_refetch.data()), c_refetch.size());
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider_, timeline_));
+  ASSERT_EQ(timeline_.timeline_data().entry_names.size(), 1u);
+  EXPECT_EQ(timeline_.timeline_data().entry_names[0], "refetch_window_op");
+}
 }  // namespace traceviewer

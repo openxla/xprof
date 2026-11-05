@@ -61,11 +61,16 @@ wasm_cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/types:span",
-        "@org_xprof//frontend/app/components/trace_viewer_v2:application",
         "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/timeline",
         "@org_xprof//frontend/app/components/trace_viewer_v2/timeline:data_provider",
         "@org_xprof//xprof/convert/trace_viewer/delta_series:zstd_compression",
-    ],
+    ] + select({
+        "@org_xprof//frontend/app/components/trace_viewer_v2:is_emscripten": [
+            "@org_xprof//frontend/app/components/trace_viewer_v2:application",
+        ],
+        "//conditions:default": [],
+    }),
     alwayslink = True,
 )
 

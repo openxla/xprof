@@ -1,17 +1,9 @@
-import {CommonModule} from '@angular/common';
 import {NgModule} from '@angular/core';
-import {MatIconModule} from '@angular/material/icon';
-
 import {ExportAsCsv} from './export_as_csv';
 
-/** A export-to-csv button module. */
+/** @deprecated Import the standalone ExportAsCsv component directly instead. */
 @NgModule({
-  declarations: [ExportAsCsv],
-  imports: [
-    CommonModule,
-    MatIconModule,
-  ],
+  imports: [ExportAsCsv],
   exports: [ExportAsCsv],
 })
-export class ExportAsCsvModule {
-}
+export class ExportAsCsvModule {}

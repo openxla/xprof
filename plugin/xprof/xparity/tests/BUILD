@@ -60,6 +60,28 @@ pytype_strict_contrib_test(
 )
 
 pytype_strict_contrib_test(
+    name = "rel_l2_test",
+    srcs = ["rel_l2_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:rel_l2",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+pytype_strict_contrib_test(
+    name = "row_rel_l2_contract_test",
+    srcs = ["row_rel_l2_contract_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:numerical_validator",
+        "//plugin/xprof/xparity:rel_l2",
+        "//plugin/xprof/xparity:xparity_cli_lib",
+        "//plugin/xprof/xparity:xparity_tool",
+        "@absl_py//absl/testing:absltest",
+    ],
+)
+
+pytype_strict_contrib_test(
     name = "regime_coverage_test",
     srcs = ["regime_coverage_test.py"],
     deps = [

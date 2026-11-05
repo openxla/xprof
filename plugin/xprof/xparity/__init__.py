@@ -2,17 +2,20 @@
 
 from xprof.xparity import numerical_generator
 from xprof.xparity import numerical_validator
+from xprof.xparity import rel_l2
 from xprof.xparity import ulp
 from xprof.xparity import xparity_tool
 
 ORACLE_AUTO = numerical_validator.ORACLE_AUTO
 CONTRACT_ULP = numerical_validator.CONTRACT_ULP
 CONTRACT_BITWISE = numerical_validator.CONTRACT_BITWISE
+CONTRACT_ROW_REL_L2 = numerical_validator.CONTRACT_ROW_REL_L2
 validate_kernels = numerical_validator.validate_kernels
 compare_bitwise = numerical_validator.compare_bitwise
 make_fwd_bwd = numerical_validator.make_fwd_bwd
 replay_failure_dump = numerical_validator.replay_failure_dump
 chunk_callable = numerical_validator.chunk_callable
+compare_row_rel_l2 = rel_l2.compare_row_rel_l2
 compute_ulp_distance = ulp.compute_ulp_distance
 get_contract = ulp.get_contract
 generate_test_suite = numerical_generator.generate_test_suite
@@ -28,10 +31,12 @@ replay = xparity_tool.replay
 
 __all__ = [
     "CONTRACT_BITWISE",
+    "CONTRACT_ROW_REL_L2",
     "CONTRACT_ULP",
     "ORACLE_AUTO",
     "chunk_callable",
     "compare_bitwise",
+    "compare_row_rel_l2",
     "compute_ulp_distance",
     "generate_attention_suite",
     "generate_suite",
@@ -44,6 +49,7 @@ __all__ = [
     "numerical_validator",
     "probe_precision",
     "read_suite_metadata",
+    "rel_l2",
     "replay",
     "replay_failure_dump",
     "save_test_suite",

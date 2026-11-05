@@ -196,6 +196,56 @@ class ProfileDataTest(parameterized.TestCase):
         self.assertFalse(event.closed)
       self.assertTrue(event.closed)
 
+  def test_ref_value_stats_resolve_to_interned_strings(self):
+    # Producers intern repeated strings (e.g. GPU `kernel_details`) in the
+    # plane's stat metadata and store a ref_value on the stat.
+    xspace = xplane_pb2.XSpace(
+        planes=[
+            xplane_pb2.XPlane(
+                name="/device:GPU:0",
+                stats=[xplane_pb2.XStat(metadata_id=1, ref_value=3)],
+                lines=[
+                    xplane_pb2.XLine(
+                        name="stream",
+                        events=[
+                            xplane_pb2.XEvent(
+                                metadata_id=1,
+                                stats=[
+                                    xplane_pb2.XStat(
+                                        metadata_id=2, ref_value=4
+                                    ),
+                                    # Unknown ids keep the numeric value.
+                                    xplane_pb2.XStat(
+                                        metadata_id=2, ref_value=99
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                ],
+                event_metadata={1: xplane_pb2.XEventMetadata(name="kernel")},
+                stat_metadata={
+                    1: xplane_pb2.XStatMetadata(name="device_vendor"),
+                    2: xplane_pb2.XStatMetadata(name="kernel_details"),
+                    3: xplane_pb2.XStatMetadata(name="Nvidia"),
+                    4: xplane_pb2.XStatMetadata(name="regs:32 block:128,1,1"),
+                },
+            ),
+        ]
+    )
+    with profile_data.ProfileData.from_serialized_xspace(
+        xspace.SerializeToString()
+    ) as pd:
+      plane = pd.planes[0]
+      self.assertEqual(plane.stats, (("device_vendor", "Nvidia"),))
+      self.assertEqual(
+          plane.lines[0].events[0].stats,
+          (
+              ("kernel_details", "regs:32 block:128,1,1"),
+              ("kernel_details", "99"),
+          ),
+      )
+
   def test_closed_data_errors(self):
     xspace = _create_test_xspace()
     with profile_data.ProfileData.from_serialized_xspace(

@@ -564,6 +564,7 @@ dashboard would integrate trace viewer app using iframe.
       _asyncTrackState: {type: Object, value: new Map()},
       _sourceCodeServiceIsAvailable: {type: Boolean, value: false},
       _percaleUrlPrefix: {type: String, value: ''},
+      hasLloDebugTag: {type: Boolean, value: false},
       _mpmdPipelineView: {type: Boolean, value: false},
       _sessionPath: {type: String, value: ''},
       _runPath: {type: String, value: ''},
@@ -669,6 +670,8 @@ dashboard would integrate trace viewer app using iframe.
           this._sourceCodeServiceIsAvailable = value === 'true';
         } else if (key === 'percale_url_prefix') {
           this._percaleUrlPrefix = value;
+        } else if (key === 'llo_debug') {
+          this.hasLloDebugTag = value === 'true';
         }
       }.bind(this));
 
@@ -838,6 +841,23 @@ dashboard would integrate trace viewer app using iframe.
       this._eventDetails.appendChild(percaleLinkElement);
     },
 
+    // Links custom call XLA ops, e.g. Pallas kernels, to their static schedule
+    // in the Kernel Viewer when the session has the `llo_debug` tag.
+    createKernelViewerLink: function(hloOp, host, hloModule, hloCategory) {
+      if (!this.hasLloDebugTag || !this._sessionId || !hloOp || hloCategory !== 'custom-call') return;
+      const params = {'kernel_name': hloOp};
+      // The Kernel Viewer uses bare module names, without the "(<program id>)" suffix.
+      const bareHloModule = (hloModule || '').trim().replace(/\(\d+\)$/, '').trim();
+      if (bareHloModule && bareHloModule !== 'default') {
+        params['hlo_module'] = bareHloModule;
+      }
+      if (host) {
+        params['host'] = host;
+      }
+      this.createCrossToolLink(
+          'kernel_viewer', 'Kernel Viewer', params, `see kernel schedule for ${hloOp}`);
+    },
+
     // Custom on selection event handler for single event selection.
     onSelectionChange: async function(events) {
       if (events === undefined) return;
@@ -910,6 +930,7 @@ dashboard would integrate trace viewer app using iframe.
             const hostnamePrefix = currentProcess.name.split(' ')[0];
             const host = this._selectedHosts.find(host => host.startsWith(hostnamePrefix));
             this.createPercaleLink(hloOp, host, hloModule);
+            this.createKernelViewerLink(hloOp, host, hloModule, event.args?.hlo_category);
           } else {
             // Add crosslink form trace viewer to graph viewer
             // per event selection for tensorboard profiler

@@ -76,8 +76,8 @@ message Node {
   }
 
   // Serving metadata of a program node. Only set on program nodes that ran at
-  // least one analyzed batch with a known model and positive padded batch size,
-  // and only when the request asks for it.
+  // least one analyzed batch or unbatched request with a known model, and only
+  // when the request asks for it.
   ProgramServingMetadata program_serving_metadata = 7;
 
   // Model and padded batch size that executed a program.
@@ -86,10 +86,11 @@ message Node {
     // Non-empty model id as reported by the serving framework, e.g.
     // "<model_path>:<version>".
     string model_id = 1;
-    // Padded size of the batches (BatchDetail.batch_size_after_padding);
-    // always > 0.
+    // Padded size of the batches (BatchDetail.batch_size_after_padding), or 0
+    // for serving sessions without batching.
     int32 batch_size = 2;
-    // Number of analyzed batches for this (model_id, batch_size) pair.
+    // Number of analyzed batches (or unbatched requests when batch_size is 0)
+    // for this (model_id, batch_size) pair.
     int32 num_batches = 3;
   }
 }

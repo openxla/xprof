@@ -84,13 +84,13 @@ using EventsByType =
 // BatchingFunctionOp.
 struct RequestEvents {
   // Index to the model id.
-  int32_t model_id_index;
+  int32_t model_id_index = -1;
   // The timespan of the entire request(including both host and device).
   Timespan request_timespan;
   // The latency between a request is scheduled and is processed in a batch.
-  int64_t batching_request_delay_ps;
+  int64_t batching_request_delay_ps = 0;
   // Size of a request in batching mode.
-  int32_t batching_request_size;
+  int32_t batching_request_size = 0;
 
   // Timestamps of the events used for the detailed execution time breakdown.
   struct EventTimestamps {
@@ -114,6 +114,8 @@ struct RequestEvents {
 
   // The batch ids related to this request.
   std::vector<int64_t> related_batch_ids;
+  // The compiled HLO program_ids that executed this request on device.
+  std::vector<uint64_t> program_ids;
   // All the events.
   std::vector<EventTypeSpan> events;
 };
@@ -232,15 +234,35 @@ BatchEvents* UpdateBatchEvents(absl::Span<const EventTypeSpan> events,
   return nullptr;
 }
 
+// Returns the HLO program_id from the kProgramId stat if present, falling back
+// to parsing the "<module_name>(<program_id>)" suffix on event.Name().
+std::optional<uint64_t> GetProgramId(const XEventVisitor& event) {
+  if (std::optional<XStatVisitor> program_id_stat =
+          event.GetEventOrMetadataStat(StatType::kProgramId);
+      program_id_stat.has_value()) {
+    return program_id_stat->IntOrUintValue();
+  }
+  return xprof::events_db::internal::GetProgramIdFromHloModuleName(
+      event.Name());
+}
+
 // Updates RequestEvents using ReadFromDevice, WriteToDevice and DeviceRun.
 void UpdateRequestEvents(const GroupMetadataMap& group_metadata_map,
                          absl::Span<const EventTypeSpan> events,
-                         int64_t group_id,
+                         int64_t group_id, std::optional<uint64_t> program_id,
                          RequestEventsMap* request_events_map) {
+  auto record_program_id = [program_id](std::vector<uint64_t>& program_ids) {
+    if (program_id.has_value() &&
+        !absl::c_linear_search(program_ids, *program_id)) {
+      program_ids.push_back(*program_id);
+    }
+  };
+
   // Update RequestEvents that are directly associated with <group_id>.
   if (auto request_events = FindOrNull(*request_events_map, group_id)) {
     request_events->events.insert(request_events->events.end(), events.begin(),
                                   events.end());
+    record_program_id(request_events->program_ids);
   }
 
   // Update all the parent RequestEvents of <group_id> with the same
@@ -254,6 +276,7 @@ void UpdateRequestEvents(const GroupMetadataMap& group_metadata_map,
             FindOrNull(*request_events_map, parent_group_id)) {
       parent_request_events->events.insert(parent_request_events->events.end(),
                                            events.begin(), events.end());
+      record_program_id(parent_request_events->program_ids);
     }
   }
 }
@@ -418,7 +441,7 @@ void UpdateTpuDataTransferEventsInTpuSystem(
       if (request_events_map != nullptr) {
         UpdateRequestEvents(group_metadata_map, event_to_update,
                             events[0]->GetStat(StatType::kGroupId)->IntValue(),
-                            request_events_map);
+                            /*program_id=*/std::nullopt, request_events_map);
       }
       if (batch_events_map != nullptr) {
         UpdateBatchEvents(event_to_update,
@@ -472,7 +495,7 @@ void BuildTPUDeviceEvents(const std::vector<XPlane*>& device_traces,
                               data_transfer_event.GetTimespan()};
         if (request_events_map != nullptr) {
           UpdateRequestEvents(group_metadata_map, event_to_update, group_id,
-                              request_events_map);
+                              /*program_id=*/std::nullopt, request_events_map);
         }
         if (batch_events_map != nullptr) {
           UpdateBatchEvents(event_to_update, group_id, batch_events_map);
@@ -508,29 +531,22 @@ void BuildTPUDeviceEvents(const std::vector<XPlane*>& device_traces,
         // DEVICE_COMPUTE_32 to annotate this is a compute event.
         event_to_update[0] = {EventType::DEVICE_COMPUTE_32,
                               event.GetTimespan()};
+        const std::optional<uint64_t> program_id = GetProgramId(event);
         if (request_events_map != nullptr) {
           UpdateRequestEvents(group_metadata_map, event_to_update,
-                              group_id->IntValue(), request_events_map);
+                              group_id->IntValue(), program_id,
+                              request_events_map);
         }
         if (batch_events_map != nullptr) {
           if (BatchEvents* batch_events = UpdateBatchEvents(
                   event_to_update, group_id->IntValue(), batch_events_map);
-              batch_events != nullptr) {
-            std::optional<XStatVisitor> program_id_stat =
-                event.GetEventOrMetadataStat(StatType::kProgramId);
-            std::optional<uint64_t> program_id =
-                program_id_stat.has_value()
-                    ? std::make_optional(program_id_stat->IntOrUintValue())
-                    : xprof::events_db::internal::GetProgramIdFromHloModuleName(
-                          event.Name());
-            if (program_id.has_value()) {
-              uint64_t pid = *program_id;
-              tensorflow::profiler::BatchDetail& batch_detail =
-                  batch_events->batch_detail_proto;
-              // Append to program_ids list if not already present.
-              if (!absl::c_linear_search(batch_detail.program_ids(), pid)) {
-                batch_detail.add_program_ids(pid);
-              }
+              batch_events != nullptr && program_id.has_value()) {
+            uint64_t pid = *program_id;
+            tensorflow::profiler::BatchDetail& batch_detail =
+                batch_events->batch_detail_proto;
+            // Append to program_ids list if not already present.
+            if (!absl::c_linear_search(batch_detail.program_ids(), pid)) {
+              batch_detail.add_program_ids(pid);
             }
           }
         }
@@ -613,7 +629,7 @@ void BuildGPUDeviceEvents(const StepEvents& nonoverlapped_step_events,
   if (request_events_map != nullptr) {
     for (const auto& [step_id, step_details] : nonoverlapped_step_events) {
       UpdateRequestEvents(group_metadata_map, step_details.Events(), step_id,
-                          request_events_map);
+                          /*program_id=*/std::nullopt, request_events_map);
     }
   }
   if (batch_events_map != nullptr) {
@@ -1287,6 +1303,9 @@ void RequestEventsToDetails(
   }
   for (const int64_t batch_id : request_events.related_batch_ids) {
     request_detail->add_related_batch_ids(batch_id);
+  }
+  for (const uint64_t program_id : request_events.program_ids) {
+    request_detail->add_program_ids(program_id);
   }
 
   std::vector<EventTypeSpan> tpu_non_overlapped_events;

@@ -25,7 +25,8 @@ import {type Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jso
 
 /**
  * The `ProgramServingMetadata` fields shown in the UI, after validation:
- * `modelId` is non-empty and trimmed, and `batchSize` is positive.
+ * `modelId` is non-empty and trimmed, and `batchSize` is non-negative (`0` for
+ * serving sessions without batching).
  */
 export type NormalizedServingMetadata = Readonly<
   Required<Pick<Node.ProgramServingMetadata, 'modelId' | 'batchSize'>>
@@ -73,7 +74,8 @@ export function shortenModelId(modelId: string): string {
 
 /**
  * Validates and normalizes `ProgramServingMetadata`. Returns `undefined` unless
- * both a non-empty `modelId` and a positive `batchSize` (`> 0`) are present.
+ * both a non-empty `modelId` and a non-negative `batchSize` (`>= 0`) are
+ * present.
  */
 export function normalizeServingMetadata(
   servingMetadata?: Node.ProgramServingMetadata,
@@ -82,34 +84,44 @@ export function normalizeServingMetadata(
     return undefined;
   }
   const modelId = (servingMetadata.modelId ?? '').trim();
-  const batchSize = servingMetadata.batchSize ?? 0;
+  const rawBatchSize = servingMetadata.batchSize ?? 0;
   if (
     modelId === '' ||
     shortenModelId(modelId) === '' ||
-    !(batchSize > 0) ||
-    !Number.isFinite(batchSize)
+    !(rawBatchSize >= 0) ||
+    !Number.isFinite(rawBatchSize)
   ) {
     return undefined;
   }
+  const batchSize = rawBatchSize === 0 ? 0 : rawBatchSize;
   return {modelId, batchSize};
 }
 
 /**
  * Formats the compact row label for a program node, e.g.
- * "BS 8 • Model: recommendation_model:1786007405".
+ * "BS 8 • Model: recommendation_model:1786007405", or
+ * "Model: recommendation_model:1786007405" when batching is not used.
  */
 export function formatServingBadge(
   metadata: NormalizedServingMetadata,
 ): string {
-  return `BS ${metadata.batchSize} • Model: ${shortenModelId(metadata.modelId)}`;
+  const shortModel = shortenModelId(metadata.modelId);
+  if (metadata.batchSize > 0) {
+    return `BS ${metadata.batchSize} • Model: ${shortModel}`;
+  }
+  return `Model: ${shortModel}`;
 }
 
 /**
  * Formats the single-line hover and screen-reader description for a program
- * node, e.g. "Model: /models/ranking/m:1 · Batch size: 8".
+ * node, e.g. "Model: /models/ranking/m:1 · Batch size: 8", or
+ * "Model: /models/ranking/m:1" when batching is not used.
  */
 export function formatServingTooltip(
   metadata: NormalizedServingMetadata,
 ): string {
-  return `Model: ${metadata.modelId} · Batch size: ${metadata.batchSize}`;
+  if (metadata.batchSize > 0) {
+    return `Model: ${metadata.modelId} · Batch size: ${metadata.batchSize}`;
+  }
+  return `Model: ${metadata.modelId}`;
 }

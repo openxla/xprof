@@ -69,7 +69,7 @@
         </div>
         <div *ngIf="programServingMetadata as metadata" class="info">
           <code class="expression serving-entry">Model: {{metadata.modelId}}</code>
-          <code class="expression serving-entry">Batch size: {{metadata.batchSize}}</code>
+          <code *ngIf="metadata.batchSize > 0" class="expression serving-entry">Batch size: {{metadata.batchSize}}</code>
         </div>
         <div class="info" [hidden]="!avgTime">
           <div class="title">Total Time Avg:</div>

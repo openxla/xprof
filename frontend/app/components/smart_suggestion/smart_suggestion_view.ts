@@ -1,6 +1,7 @@
 import {CommonModule} from '@angular/common';
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   HostBinding,
   inject,
@@ -45,11 +46,11 @@ const FEEDBACK_STORAGE_KEY_PREFIX = 'smartSuggestionFeedback';
 
 /** A component for displaying smart suggestions. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
   selector: 'smart-suggestion-view',
   templateUrl: './smart_suggestion_view.ng.html',
   styleUrls: ['./smart_suggestion_view.scss'],
-  standalone: true,
   imports: [
     CommonModule,
     MatButtonModule,
@@ -75,6 +76,8 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
   private readonly dataService: DataServiceV2Interface = inject(
     DATA_SERVICE_INTERFACE_TOKEN,
   );
+
+  constructor(private readonly cdr: ChangeDetectorRef) {}
 
   ngOnInit() {
     this.updateStorageKey();
@@ -120,6 +123,7 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
         finalize(() => {
           this.loading = false;
           this.throbber.stop();
+          this.cdr.markForCheck();
         }),
       )
       .subscribe((report: SmartSuggestionReport | null) => {
@@ -140,6 +144,7 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
         } else {
           this.processedSuggestions = [];
         }
+        this.cdr.markForCheck();
       });
   }
 

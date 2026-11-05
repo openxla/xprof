@@ -15,10 +15,10 @@ xprof_ng_module(
     deps = [
         "//:node_modules/@angular/core",
         "//:node_modules/@types/google.visualization",
-        "@org_xprof//frontend/app/common/angular:angular_material_card",
-        "@org_xprof//frontend/app/common/constants",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/common/utils:chart_utils",
+        "//frontend/app/common/angular:angular_material_card",
+        "//frontend/app/common/constants",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/common/utils:chart_utils",
     ],
 )
 
@@ -28,6 +28,6 @@ sass_binary(
     # stack = False,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

@@ -49,7 +49,7 @@ def wasm_cc_library(name, copts = [], **kwargs):
         name = name,
         tags = WASM_TAGS,
         copts = copts + select({
-            "@org_xprof//frontend/app/components/trace_viewer_v2:is_emscripten": [
+            "//frontend/app/components/trace_viewer_v2:is_emscripten": [
                 "-msimd128",
             ],
             "//conditions:default": [],

@@ -16,12 +16,12 @@ xprof_ng_module(
     deps = [
         ":host_side_analysis_detail_table_data_provider",
         "//:node_modules/@angular/core",
-        "@org_xprof//frontend/app/common/angular:angular_material_expansion",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/common/interfaces:chart",
-        "@org_xprof//frontend/app/components/chart",
-        "@org_xprof//frontend/app/components/chart:chart_options",
-        "@org_xprof//frontend/app/components/chart:default_data_provider",
+        "//frontend/app/common/angular:angular_material_expansion",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/common/interfaces:chart",
+        "//frontend/app/components/chart",
+        "//frontend/app/components/chart:chart_options",
+        "//frontend/app/components/chart:default_data_provider",
     ],
 )
 
@@ -32,8 +32,8 @@ xprof_ng_module(
     ],
     deps = [
         "//:node_modules/@angular/core",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/components/chart:default_data_provider",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/components/chart:default_data_provider",
     ],
 )
 
@@ -43,6 +43,6 @@ sass_binary(
     # stack = False,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

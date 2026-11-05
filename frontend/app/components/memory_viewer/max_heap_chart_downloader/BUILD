@@ -1,7 +1,7 @@
 load("//defs:defs.bzl", "sass_binary", "xprof_ng_module")
 
 package(default_visibility = [
-    "@org_xprof//frontend:__subpackages__",
+    "//frontend:__subpackages__",
 ])
 
 xprof_ng_module(
@@ -17,9 +17,9 @@ xprof_ng_module(
     deps = [
         "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
-        "@org_xprof//frontend/app/common/angular:angular_material_button",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/components/memory_viewer/memory_usage",
+        "//frontend/app/common/angular:angular_material_button",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/components/memory_viewer/memory_usage",
     ],
 )
 

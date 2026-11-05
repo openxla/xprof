@@ -1,9 +1,12 @@
 # bazel configurations for tensorboard plugin build.
+common --enable_bzlmod
+common --lockfile_mode=off
+common --incompatible_disallow_empty_glob=false
+common --repo_env=HERMETIC_CUDA_VERSION="12.8.0"
 build --repo_env=TF_PYTHON_VERSION=3.10
 build --experimental_repo_remote_exec
 build --cxxopt=-std=c++17
 build --host_cxxopt=-std=c++17
-build --noenable_bzlmod
 
 build --incompatible_enable_cc_toolchain_resolution
 build --repo_env USE_HERMETIC_CC_TOOLCHAIN=1
@@ -22,9 +25,6 @@ build:macos --copt=-DGRPC_BAZEL_BUILD
 build:macos --linkopt=-Wl,-undefined,dynamic_lookup
 build:macos --host_linkopt=-Wl,-undefined,dynamic_lookup
 build:macos --config=clang_local
-build:macos --apple_crosstool_top=@local_config_apple_cc//:toolchain
-build:macos --crosstool_top=@local_config_apple_cc//:toolchain
-build:macos --host_crosstool_top=@local_config_apple_cc//:toolchain
 
 # XLA uses M_* math constants that only get defined by MSVC headers if
 # _USE_MATH_DEFINES is defined. We use -D for clang compatibility.
@@ -43,6 +43,8 @@ build:windows --incompatible_strict_action_env=true
 build:windows --action_env=PATH
 
 # Windows x86 CI configs
+common:ci_windows_amd64 --noenable_bzlmod
+common:ci_windows_amd64 --repo_env=HERMETIC_CUDA_VERSION=
 build:ci_windows_amd64 --crosstool_top="@xla//tools/toolchains/win2022/20241118:toolchain"
 build:ci_windows_amd64 --extra_toolchains="@xla//tools/toolchains/win2022/20241118:cc-toolchain-x64_windows-clang-cl"
 build:ci_windows_amd64 --color=yes
@@ -94,6 +96,10 @@ build:rbe_base --spawn_strategy=remote,worker,standalone,local
 # Attempt to minimize the amount of data transfer between bazel and the remote
 # workers:
 build:rbe_base --remote_download_toplevel
+build:rbe_base --experimental_inmemory_dotd_files
+build:rbe_base --experimental_inmemory_jdeps_files
+build:rbe_base --strategy=Copy=standalone
+build:rbe_base --strategy=TsValidateOptions=standalone
 test:rbe_base --test_env=USER=anon
 
 build:rbe_linux --extra_execution_platforms="@ubuntu20.04-clang_manylinux2014-cuda12.3-cudnn9.1_config_platform//:platform"
@@ -141,9 +147,8 @@ build:ci_linux_aarch64 --color=yes
 build:ci_linux_aarch64 --config=clang_local
 build:ci_linux_aarch64 --repo_env=CC=clang
 
-build:wasm --crosstool_top=//emscripten_toolchain:everything
+build:wasm --platforms=@emsdk//:platform_wasm
 build:wasm --cpu=wasm
-build:wasm --host_crosstool_top=@bazel_tools//tools/cpp:toolchain
 build:wasm --copt=-msimd128
 build:wasm --copt=-Wno-unused-command-line-argument
 build:wasm --cxxopt=-std=c++17

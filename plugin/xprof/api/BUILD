@@ -9,7 +9,7 @@ py_library(
     name = "continuous_profiling_snapshot",
     srcs = ["continuous_profiling_snapshot.py"],
     deps = [
-        "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
+        "//xprof/pywrap:_pywrap_profiler_plugin",
     ],
 )
 
@@ -18,7 +18,7 @@ py_test(
     srcs = ["continuous_profiling_snapshot_test.py"],
     deps = [
         ":continuous_profiling_snapshot",
+        "//xprof/pywrap:_pywrap_profiler_plugin",
         "@absl_py//absl/testing:absltest",
-        "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
     ],
 )

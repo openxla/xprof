@@ -1,0 +1,44 @@
+diff --git a/tools/toolchains/python/python_repo.bzl b/tools/toolchains/python/python_repo.bzl
+--- a/tools/toolchains/python/python_repo.bzl
++++ b/tools/toolchains/python/python_repo.bzl
+@@ -55,3 +55,5 @@ python_repository = repository_rule(
+     implementation = _python_repository_impl,
+     environ = ["TF_PYTHON_VERSION", "WHEEL_NAME", "WHEEL_COLLAB"],
+ )
++
++USE_PYWRAP_RULES = "False"
+diff --git a/xla/backends/profiler/gpu/BUILD b/xla/backends/profiler/gpu/BUILD
+--- a/xla/backends/profiler/gpu/BUILD
++++ b/xla/backends/profiler/gpu/BUILD
+@@ -262,9 +262,6 @@ cc_library(
+         "cupti_wrapper_stub.cc",
+     ],
+     hdrs = ["cupti_wrapper.h"],
+-    # -supports_dynamic_linker: Forces static linking even with --dynamic_mode=fully
+-    features = ["-supports_dynamic_linker"],
+-    linkstatic = 1,
+     tags = [
+         "cuda-only",
+         "gpu",
+@@ -826,7 +823,6 @@ cc_library(
+         "@com_google_absl//absl/log",
+         "@com_google_absl//absl/strings:string_view",
+     ],
+-    alwayslink = 1,
+ )
+ 
+ cc_library(
+diff --git a/xla/tsl/platform/cloud/BUILD b/xla/tsl/platform/cloud/BUILD
+--- a/xla/tsl/platform/cloud/BUILD
++++ b/xla/tsl/platform/cloud/BUILD
+@@ -241,6 +241,10 @@ cc_library(
+     srcs = ["curl_http_request.cc"],
+     hdrs = ["curl_http_request.h"],
+     copts = tsl_copts(),
++    defines = select({
++        "//xla/tsl:windows": ["CURL_STATICLIB"],
++        "//conditions:default": [],
++    }),
+     deps = [
+         ":http_request",
+         "//xla/tsl/platform:env",

@@ -11,8 +11,8 @@ pytype_strict_library(
     srcs = ["xspace_to_parquet.py"],
     deps = [
         "//third_party/py/absl:app",
+        "//xprof/convert/events_db/python:events_db",
         "@absl_py//absl/flags",
-        "@org_xprof//xprof/convert/events_db/python:events_db",
         "@pypi//etils",
     ],
 )
@@ -31,10 +31,10 @@ pytype_strict_contrib_test(
     deps = [
         ":xspace_to_parquet_lib",
         "//third_party/py/absl:app",
+        "//xprof/convert/events_db/python:events_db",
         "@absl_py//absl/flags",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:flagsaver",
-        "@org_xprof//xprof/convert/events_db/python:events_db",
         "@pypi//etils",
     ],
 )
@@ -44,7 +44,7 @@ pytype_strict_library(
     srcs = ["count_zero_self_time_events.py"],
     deps = [
         "//third_party/py/absl:app",
-        "@org_xprof//xprof/convert/events_db/python:events_db",
+        "//xprof/convert/events_db/python:events_db",
         "@pypi//etils",
     ],
 )
@@ -60,7 +60,7 @@ pytype_strict_binary(
 pytype_strict_contrib_test(
     name = "count_zero_self_time_events_test",
     srcs = ["count_zero_self_time_events_test.py"],
-    data = ["@org_xprof//xprof/convert/events_db/examples/test_data:test.xplane.pb"],
+    data = ["//xprof/convert/events_db/examples/test_data:test.xplane.pb"],
     deps = [
         ":count_zero_self_time_events_lib",
         "//third_party/py/absl:app",
@@ -77,7 +77,7 @@ pytype_strict_library(
     srcs = ["zero_self_time_ratio.py"],
     deps = [
         "//third_party/py/absl:app",
-        "@org_xprof//xprof/convert/events_db/python:events_db",
+        "//xprof/convert/events_db/python:events_db",
         "@pypi//etils",
     ],
 )
@@ -93,7 +93,7 @@ pytype_strict_binary(
 pytype_strict_contrib_test(
     name = "zero_self_time_ratio_test",
     srcs = ["zero_self_time_ratio_test.py"],
-    data = ["@org_xprof//xprof/convert/events_db/examples/test_data:test.xplane.pb"],
+    data = ["//xprof/convert/events_db/examples/test_data:test.xplane.pb"],
     deps = [
         ":zero_self_time_ratio_lib",
         "//third_party/py/absl:app",

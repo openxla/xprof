@@ -1,6 +1,6 @@
 load("//defs:defs.bzl", "ts_library")
 
-package(default_visibility = ["@org_xprof//frontend:__subpackages__"])
+package(default_visibility = ["//frontend:__subpackages__"])
 
 ts_library(
     name = "classes",
@@ -8,6 +8,6 @@ ts_library(
         "throbber.ts",
     ],
     deps = [
-        "@org_xprof//frontend/app/common/interfaces",
+        "//frontend/app/common/interfaces",
     ],
 )

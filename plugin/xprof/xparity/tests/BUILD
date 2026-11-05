@@ -1,6 +1,6 @@
 load("//plugin/xprof/build_utils:pytype.default.bzl", "pytype_library", "pytype_strict_binary", "pytype_strict_contrib_test", "pytype_strict_library")
 
-package(default_visibility = ["//plugin/xprof:__subpackages__"])
+package(default_visibility = ["//plugin:__subpackages__"])
 
 licenses(["notice"])
 

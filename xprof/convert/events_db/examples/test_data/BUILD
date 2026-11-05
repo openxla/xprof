@@ -1,6 +1,6 @@
 package(
     # copybara:uncomment default_applicable_licenses = ["//xprof:license"],
-    default_visibility = ["@org_xprof//xprof/convert/events_db:__subpackages__"],
+    default_visibility = ["//xprof/convert/events_db:__subpackages__"],
     licenses = ["notice"],
 )
 

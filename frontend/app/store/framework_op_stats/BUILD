@@ -14,7 +14,7 @@ xprof_ng_module(
         "//:node_modules/@angular/core",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/store:types",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/store:types",
     ],
 )

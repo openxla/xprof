@@ -1,5 +1,5 @@
-# load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
-# load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
 exports_files([
     "grpc_server.cc",
@@ -24,14 +24,14 @@ cc_library(
     deps = [
         ":grpc_utils",
         "//plugin/xprof/protobuf:worker_service_cc_grpc_proto",
-        "@com_github_grpc_grpc//:grpc++",
+        "//xprof/convert:profile_processor_factory",
+        "//xprof/convert:tool_options",
         "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
-        "@org_xprof//xprof/convert:profile_processor_factory",
-        "@org_xprof//xprof/convert:tool_options",
+        "@grpc//:grpc++",
         "@tsl//tsl/platform:platform_port",
         "@xla//xla/pjrt:semaphore",
     ],
@@ -43,10 +43,10 @@ cc_library(
     hdrs = ["grpc_server.h"],
     deps = [
         ":worker_service",
-        "@com_github_grpc_grpc//:grpc++",
-        "@com_github_grpc_grpc//:grpc_security_base",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
+        "@grpc//:grpc++",
+        "@grpc//:grpc_security_base",
     ],
     alwayslink = 1,
 )
@@ -56,8 +56,8 @@ cc_library(
     srcs = ["grpc_utils.cc"],
     hdrs = ["grpc_utils.h"],
     deps = [
-        "@com_github_grpc_grpc//:grpc++",
         "@com_google_absl//absl/status",
+        "@grpc//:grpc++",
     ],
 )
 
@@ -67,13 +67,13 @@ cc_library(
     hdrs = ["stub_factory.h"],
     deps = [
         "//plugin/xprof/protobuf:worker_service_cc_grpc_proto",
-        "@com_github_grpc_grpc//:grpc++",
-        "@com_github_grpc_grpc//:grpc_security_base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
+        "@grpc//:grpc++",
+        "@grpc//:grpc_security_base",
     ],
     alwayslink = 1,
 )
@@ -84,7 +84,7 @@ cc_test(
     deps = [
         ":stub_factory",
         "//plugin/xprof/protobuf:worker_service_cc_grpc_proto",
-        "@com_github_grpc_grpc//:grpc++",
         "@com_google_googletest//:gtest_main",
+        "@grpc//:grpc++",
     ],
 )

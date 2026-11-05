@@ -17,11 +17,11 @@ xprof_ng_module(
         "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
         "//:node_modules/@types/google.visualization",
-        "@org_xprof//frontend/app/common/angular:angular_material_button",
-        "@org_xprof//frontend/app/common/angular:angular_material_form_field",
-        "@org_xprof//frontend/app/common/angular:angular_material_icon",
-        "@org_xprof//frontend/app/common/angular:angular_material_input",
-        "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
+        "//frontend/app/common/angular:angular_material_button",
+        "//frontend/app/common/angular:angular_material_form_field",
+        "//frontend/app/common/angular:angular_material_icon",
+        "//frontend/app/common/angular:angular_material_input",
+        "//frontend/app/common/angular:angular_material_tooltip",
     ],
 )
 
@@ -31,6 +31,6 @@ sass_binary(
     # stack = False,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

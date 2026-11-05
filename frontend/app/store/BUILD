@@ -16,11 +16,11 @@ xprof_ng_module(
         "//:node_modules/@angular/core",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
-        "@org_xprof//frontend/app/common/constants",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/common/interfaces:op_profile_proto_defs",
-        "@org_xprof//frontend/app/store/common_data_store",
-        "@org_xprof//frontend/app/store/framework_op_stats",
+        "//frontend/app/common/constants",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/common/interfaces:op_profile_proto_defs",
+        "//frontend/app/store/common_data_store",
+        "//frontend/app/store/framework_op_stats",
     ],
 )
 

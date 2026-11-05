@@ -1,4 +1,4 @@
-load("@org_xprof//plugin/xprof/build_utils:profiler_test.bzl", "profiler_test")
+load("//plugin/xprof/build_utils:profiler_test.bzl", "profiler_test")
 load("//plugin/xprof/build_utils:strict.default.bzl", "py_strict_library")
 
 profiler_test(

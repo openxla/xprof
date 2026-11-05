@@ -33,7 +33,7 @@ xprof_ng_module(
     deps = [
         "//:node_modules/@angular/core",
         "//:node_modules/rxjs",
-        "@org_xprof//frontend/app/common/interfaces",
+        "//frontend/app/common/interfaces",
     ],
 )
 
@@ -46,7 +46,7 @@ xprof_ng_module(
         ":source_code_service_interface",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/store",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/store",
     ],
 )

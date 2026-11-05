@@ -14,14 +14,14 @@ xprof_ng_module(
     deps = [
         "//:node_modules/@angular/core",
         "//:node_modules/rxjs",
-        "@org_xprof//frontend/app/common/angular:angular_material_button",
-        "@org_xprof//frontend/app/common/angular:angular_material_card",
-        "@org_xprof//frontend/app/common/angular:angular_material_expansion",
-        "@org_xprof//frontend/app/common/angular:angular_material_icon",
-        "@org_xprof//frontend/app/common/angular:angular_material_progress_spinner",
-        "@org_xprof//frontend/app/common/classes",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
+        "//frontend/app/common/angular:angular_material_button",
+        "//frontend/app/common/angular:angular_material_card",
+        "//frontend/app/common/angular:angular_material_expansion",
+        "//frontend/app/common/angular:angular_material_icon",
+        "//frontend/app/common/angular:angular_material_progress_spinner",
+        "//frontend/app/common/classes",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/services/data_service_v2:data_service_v2_interface",
     ],
 )
 
@@ -31,6 +31,6 @@ sass_binary(
     # stack = False,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

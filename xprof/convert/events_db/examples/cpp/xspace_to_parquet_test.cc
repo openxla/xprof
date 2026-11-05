@@ -34,6 +34,13 @@ using ::testing::HasSubstr;
 using ::testing::StartsWith;
 
 std::string GetBinaryPath() {
+  const std::string main_path = tsl::io::JoinPath(
+      testing::SrcDir(),
+      "_main/xprof/convert/events_db/examples/cpp/xspace_to_parquet");
+  if (std::ifstream(main_path).good() ||
+      std::ifstream(main_path + ".exe").good()) {
+    return main_path;
+  }
   constexpr std::string_view kRelativeBinaryPath =
       "org_xprof/xprof/convert/events_db/examples/cpp/xspace_to_parquet";
   return tsl::io::JoinPath(testing::SrcDir(), kRelativeBinaryPath);

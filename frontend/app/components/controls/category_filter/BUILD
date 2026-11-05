@@ -16,9 +16,9 @@ xprof_ng_module(
         "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
         "//:node_modules/@types/google.visualization",
-        "@org_xprof//frontend/app/common/angular:angular_material_core",
-        "@org_xprof//frontend/app/common/angular:angular_material_form_field",
-        "@org_xprof//frontend/app/common/angular:angular_material_select",
+        "//frontend/app/common/angular:angular_material_core",
+        "//frontend/app/common/angular:angular_material_form_field",
+        "//frontend/app/common/angular:angular_material_select",
     ],
 )
 
@@ -28,6 +28,6 @@ sass_binary(
     # stack = False,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

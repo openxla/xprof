@@ -15,12 +15,12 @@ xprof_ng_module(
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
         "//:node_modules/safevalues",
-        "@org_xprof//frontend/app/common/angular:angular_common_http",
-        "@org_xprof//frontend/app/common/constants",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/common/utils",
-        "@org_xprof//frontend/app/components/op_profile:op_profile_data",
-        "@org_xprof//frontend/app/store",
+        "//frontend/app/common/angular:angular_common_http",
+        "//frontend/app/common/constants",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/common/utils",
+        "//frontend/app/components/op_profile:op_profile_data",
+        "//frontend/app/store",
     ],
 )
 
@@ -32,8 +32,8 @@ xprof_ng_module(
     deps = [
         "//:node_modules/@angular/core",
         "//:node_modules/rxjs",
-        "@org_xprof//frontend/app/common/angular:angular_common_http",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/components/op_profile:op_profile_data",
+        "//frontend/app/common/angular:angular_common_http",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/components/op_profile:op_profile_data",
     ],
 )

@@ -17,9 +17,9 @@ xprof_ng_module(
         "//:node_modules/@angular/router",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
-        "@org_xprof//frontend/app/components/source_mapper",
-        "@org_xprof//frontend/app/services/source_code_service:source_code_service_interface",
-        "@org_xprof//frontend/app/store",
+        "//frontend/app/components/source_mapper",
+        "//frontend/app/services/source_code_service:source_code_service_interface",
+        "//frontend/app/store",
     ],
 )
 
@@ -28,5 +28,5 @@ sass_binary(
     src = "stack_trace_page.scss",
     # stack = True,
     sourcemap = False,
-    deps = ["@org_xprof//frontend/app/styles:common"],
+    deps = ["//frontend/app/styles:common"],
 )

@@ -1,0 +1,519 @@
+module(name = "org_xprof")
+
+bazel_dep(name = "abseil-cpp", version = "20260526.0", repo_name = "com_google_absl")
+bazel_dep(name = "abseil-py", version = "2.1.0", repo_name = "absl_py")
+bazel_dep(name = "apple_support", version = "2.8.0", repo_name = "build_bazel_apple_support")
+bazel_dep(name = "aspect_bazel_lib", version = "2.19.2")
+bazel_dep(name = "aspect_rules_esbuild", version = "0.23.0")
+bazel_dep(name = "aspect_rules_js", version = "2.3.8")
+bazel_dep(name = "bazel_clang_tidy", dev_dependency = True)
+bazel_dep(name = "bazel_features", version = "1.50.0")
+bazel_dep(name = "bazel_skylib", version = "1.9.2")
+bazel_dep(name = "boringssl", version = "0.20260616.0")
+bazel_dep(name = "c-ares", version = "1.34.6.bcr.3", repo_name = None)
+bazel_dep(name = "curl", version = "8.22.0")
+bazel_dep(name = "eigen", version = "4.0.0-20241125.bcr.3", repo_name = None)
+bazel_dep(name = "flatbuffers", version = "25.9.23")
+bazel_dep(name = "google_bazel_common", version = "0.0.1")
+bazel_dep(name = "google_benchmark", version = "1.9.5", repo_name = "com_google_benchmark")
+bazel_dep(name = "googletest", version = "1.18.0", repo_name = "com_google_googletest")
+bazel_dep(name = "grpc", version = "1.81.0")
+bazel_dep(name = "grpc-java", version = "1.75.0", repo_name = None)
+bazel_dep(name = "highway", version = "1.4.0")
+bazel_dep(name = "jsoncpp", version = "1.9.6.bcr.2", repo_name = "jsoncpp_git")
+bazel_dep(name = "libpfm", version = "4.13.0", repo_name = None)
+bazel_dep(name = "nlohmann_json", version = "3.12.0.bcr.2", repo_name = "com_github_nlohmann_json")
+bazel_dep(name = "opentelemetry-cpp", version = "1.19.0.bcr.1")
+bazel_dep(name = "or-tools", version = "9.12", repo_name = "com_google_ortools")
+bazel_dep(name = "platforms", version = "1.1.0")
+bazel_dep(name = "protobuf", version = "33.6", repo_name = "com_google_protobuf")
+bazel_dep(name = "pybind11_abseil", version = "202402.0")
+bazel_dep(name = "pybind11_bazel", version = "3.0.0")
+bazel_dep(name = "pybind11_protobuf", version = "0.0.0-20250210-f02a2b7")
+bazel_dep(name = "re2", version = "2025-11-05.bcr.1", repo_name = "com_googlesource_code_re2")
+bazel_dep(name = "rules_cc", version = "0.2.25")
+bazel_dep(name = "rules_closure", version = "0.15.0", repo_name = "io_bazel_rules_closure")
+bazel_dep(name = "rules_java", version = "9.0.3")
+bazel_dep(name = "rules_jvm_external", version = "6.8")
+bazel_dep(name = "rules_license", version = "1.0.0")
+bazel_dep(name = "rules_ml_toolchain")
+bazel_dep(name = "rules_nodejs", version = "6.3.3")
+bazel_dep(name = "rules_pkg", version = "1.1.0")
+bazel_dep(name = "rules_proto", version = "7.1.0")
+bazel_dep(name = "rules_python", version = "2.4.5")
+bazel_dep(name = "rules_shell", version = "0.8.0")
+bazel_dep(name = "snappy", version = "1.2.2.bcr.3")
+bazel_dep(name = "xla")
+bazel_dep(name = "zlib", version = "1.3.2")
+bazel_dep(name = "zstd", version = "1.5.7")
+
+archive_override(
+    module_name = "xla",
+    integrity = "sha256-BgGHIUoG3Kw4nz+24W650bMo6nMF2PntOddR4OSs1/E=",
+    patch_strip = 1,
+    patches = ["//third_party:xla_bzlmod.patch"],
+    strip_prefix = "xla-8e5ee1d2edb2ed4826698399c22b5f9a134bacc9",
+    urls = ["https://github.com/openxla/xla/archive/8e5ee1d2edb2ed4826698399c22b5f9a134bacc9.zip"],
+)
+
+archive_override(
+    module_name = "rules_ml_toolchain",
+    integrity = "sha256-Xw6dSRhyTXUXkFZd37QMeB/Qx4qcs2uUlMdVGmN5kiM=",
+    strip_prefix = "rules_ml_toolchain-37c4dabbe0d074cc2413ceb1decd926f95f8cd02",
+    urls = ["https://github.com/google-ml-infra/rules_ml_toolchain/archive/37c4dabbe0d074cc2413ceb1decd926f95f8cd02.tar.gz"],
+)
+
+single_version_override(
+    module_name = "rules_closure",
+    patch_strip = 1,
+    patches = ["//third_party:rules_closure_bzlmod.patch"],
+    version = "0.15.0",
+)
+
+single_version_override(
+    module_name = "grpc",
+    patch_strip = 1,
+    patches = ["//third_party:grpc.patch"],
+    version = "1.81.0",
+)
+
+single_version_override(
+    module_name = "abseil-cpp",
+    patch_strip = 1,
+    patches = ["//third_party:absl.patch"],
+    version = "20260526.0",
+)
+
+single_version_override(
+    module_name = "protobuf",
+    patch_strip = 1,
+    patches = ["//third_party:protobuf.patch"],
+    version = "33.6",
+)
+
+archive_override(
+    module_name = "googletest",
+    integrity = "sha256-bjGRwUVUaLP8NaQX+1ZcHFBxruG35/heMM9IqY032LU=",
+    patch_strip = 1,
+    patches = ["//third_party:googletest.patch"],
+    strip_prefix = "googletest-1.18.0",
+    urls = ["https://github.com/google/googletest/archive/refs/tags/v1.18.0.tar.gz"],
+)
+
+archive_override(
+    module_name = "bazel_clang_tidy",
+    integrity = "sha256-ltpuk1zMkQRc+SjbxX8iUIonKcUff7P1YXgBew3rmzw=",
+    strip_prefix = "bazel_clang_tidy-c4d35e0d0b838309358e57a2efed831780f85cd0",
+    urls = [
+        "https://github.com/erenon/bazel_clang_tidy/archive/c4d35e0d0b838309358e57a2efed831780f85cd0.tar.gz",
+    ],
+)
+
+single_version_override(
+    module_name = "rules_python",
+    patch_strip = 1,
+    patches = ["//third_party:rules_python.patch"],
+    version = "2.4.5",
+)
+
+single_version_override(
+    module_name = "rules_swift",
+    version = "3.1.2",
+)
+
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
+repository_configuration = use_repo_rule("//:config.bzl", "repository_configuration")
+
+repository_configuration(name = "repository_configuration")
+
+http_file(
+    name = "roboto_font",
+    downloaded_file_path = "Roboto[wdth,wght].ttf",
+    sha256 = "d7598e12c5dbef095ff8272cfc55da0250bd07fbdecbac8a530b9b277872a134",
+    urls = [
+        "https://raw.githubusercontent.com/google/fonts/main/ofl/roboto/Roboto%5Bwdth%2Cwght%5D.ttf",
+    ],
+)
+
+http_archive(
+    name = "arrow",
+    build_file = "//third_party:arrow.BUILD",
+    sha256 = "46d72113d776592195162ebd9f0b181ed224cdc3262f78508a0e7ef72e08cf74",
+    strip_prefix = "arrow-ee4d09ebef61c663c1efbfa4c18e518a03b798be",
+    urls = ["https://github.com/apache/arrow/archive/ee4d09ebef61c663c1efbfa4c18e518a03b798be.zip"],
+)
+
+http_archive(
+    name = "rapidjson",
+    build_file_content = """
+load("@rules_cc//cc:defs.bzl", "cc_library")
+cc_library(
+    name = "rapidjson",
+    hdrs = glob(["include/rapidjson/**/*.h"]),
+    includes = ["include"],
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "b9290a9a6d444c8e049bd589ab804e0ccf2b05dc5984a19ed5ae75d090064806",
+    strip_prefix = "rapidjson-232389d4f1012dddec4ef84861face2d2ba85709",
+    urls = [
+        "https://github.com/Tencent/rapidjson/archive/232389d4f1012dddec4ef84861face2d2ba85709.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "boost_predef",
+    build_file_content = """
+load("@rules_cc//cc:defs.bzl", "cc_library")
+cc_library(
+    name = "predef",
+    hdrs = glob(["include/boost/**/*.h"]),
+    includes = ["include"],
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "7791fe4065d04950bb60bd0004860da3322ab7abc7847e34feb38d9cf51f8c8d",
+    strip_prefix = "predef-boost-1.84.0",
+    urls = [
+        "https://github.com/boostorg/predef/archive/refs/tags/boost-1.84.0.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "thrift",
+    build_file_content = """
+load("@rules_cc//cc:defs.bzl", "cc_library")
+genrule(
+    name = "config_h",
+    outs = ["lib/cpp/src/thrift/config.h"],
+    cmd = '''cat << 'CFG' > $@
+#ifndef CONFIG_H
+#define CONFIG_H
+#define ARITHMETIC_RIGHT_SHIFT 1
+#define SIGNED_RIGHT_SHIFT_IS 1
+#define HAVE_STDINT_H 1
+#define HAVE_INTTYPES_H 1
+#define HAVE_SYS_TYPES_H 1
+#define PACKAGE_VERSION "0.22.0"
+#ifndef _WIN32
+#define HAVE_NETINET_IN_H 1
+#define HAVE_ARPA_INET_H 1
+#define HAVE_STRERROR_R 1
+#if !defined(__APPLE__)
+#define STRERROR_R_CHAR_P 1
+#endif
+#endif
+#endif
+CFG
+''',
+)
+
+genrule(
+    name = "boost_cast_h",
+    outs = ["lib/cpp/src/boost/numeric/conversion/cast.hpp"],
+    cmd = '''cat << 'CFG' > $@
+#pragma once
+namespace boost {
+template <typename To, typename From>
+To numeric_cast(From from) {
+  return static_cast<To>(from);
+}
+}
+CFG
+''',
+)
+
+cc_library(
+    name = "thrift",
+    srcs = [
+        "lib/cpp/src/thrift/TApplicationException.cpp",
+        "lib/cpp/src/thrift/TOutput.cpp",
+        "lib/cpp/src/thrift/protocol/TProtocol.cpp",
+        "lib/cpp/src/thrift/transport/TBufferTransports.cpp",
+        "lib/cpp/src/thrift/transport/TTransportException.cpp",
+    ],
+    hdrs = glob([
+        "lib/cpp/src/thrift/**/*.h",
+    ]) + [
+        "lib/cpp/src/thrift/config.h",
+        "lib/cpp/src/boost/numeric/conversion/cast.hpp",
+    ],
+    textual_hdrs = glob([
+        "lib/cpp/src/thrift/**/*.tcc",
+    ]),
+    includes = ["lib/cpp/src"],
+    linkopts = select({
+        "@platforms//os:windows": ["ws2_32.lib"],
+        "//conditions:default": [],
+    }),
+    visibility = ["//visibility:public"],
+    deps = [
+        "@boost_predef//:predef",
+    ],
+)
+""",
+    sha256 = "c4649c5879dd56c88f1e7a1c03e0fbfcc3b2a2872fb81616bffba5aa8a225a37",
+    strip_prefix = "thrift-0.22.0",
+    urls = [
+        "https://github.com/apache/thrift/archive/refs/tags/v0.22.0.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "com_github_googlecloudplatform_google_cloud_cpp",
+    patch_args = ["-p1"],
+    patches = ["//third_party:google_cloud_cpp.patch"],
+    sha256 = "b50ab4e2123f3d5982961ca6e497a952dcf820a57162c087e5478e2ffe97b30e",
+    strip_prefix = "google-cloud-cpp-3.12.0",
+    urls = [
+        "https://github.com/googleapis/google-cloud-cpp/archive/v3.12.0.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "org_tensorflow_tensorboard",
+    patch_args = ["-p1"],
+    patches = ["//third_party:tensorboard_bzlmod.patch"],
+    sha256 = "04471935801ccab0bc39951ad84aff61d829f5f5b387f0442a3a143ab58c2dbe",
+    strip_prefix = "tensorboard-2.19.0",
+    urls = ["https://github.com/tensorflow/tensorboard/archive/refs/tags/2.19.0.tar.gz"],
+)
+
+http_archive(
+    name = "perfetto",
+    patch_args = ["-p1"],
+    patches = ["//third_party:perfetto.patch"],
+    sha256 = "b25023f3281165a1a7d7cde9f3ed2dfcfce022ffd727e77f6589951e0ba6af9a",
+    strip_prefix = "perfetto-53.0",
+    urls = ["https://github.com/google/perfetto/archive/refs/tags/v53.0.tar.gz"],
+)
+
+http_archive(
+    name = "perfetto_cfg",
+    build_file_content = "exports_files([\"perfetto_cfg.bzl\"])",
+    sha256 = "b25023f3281165a1a7d7cde9f3ed2dfcfce022ffd727e77f6589951e0ba6af9a",
+    strip_prefix = "perfetto-53.0/bazel/standalone",
+    urls = ["https://github.com/google/perfetto/archive/refs/tags/v53.0.tar.gz"],
+)
+
+http_archive(
+    name = "emsdk",
+    patch_args = ["-p1"],
+    patches = ["//third_party:emsdk_bzlmod.patch"],
+    sha256 = "2d3292d508b4f5477f490b080b38a34aaefed43e85258a1de72cb8dde3f8f3af",
+    strip_prefix = "emsdk-4.0.6/bazel",
+    url = "https://github.com/emscripten-core/emsdk/archive/4.0.6.tar.gz",
+)
+
+http_archive(
+    name = "imgui",
+    build_file_content = """
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+licenses(["notice"])
+cc_library(
+    name = "imgui",
+    srcs = glob(["*.cpp"], exclude=["backends/**", "misc/**"]),
+    hdrs = glob(["*.h"]),
+    copts = [
+        "-I.",
+    ],
+    includes = ["."],
+    visibility = ["//visibility:public"],
+)
+cc_library(
+    name = "imgui_freetype",
+    srcs = ["misc/freetype/imgui_freetype.cpp"],
+    hdrs = ["misc/freetype/imgui_freetype.h"],
+    copts = [
+        "-I.",
+        "-DFREETYPE_GLYPH_RANGES=1",
+    ],
+    includes = ["."],
+    linkopts = ["-sUSE_FREETYPE=1"],
+    visibility = ["//visibility:public"],
+    deps = [":imgui"],
+)
+cc_binary(
+    name = "binary_to_compressed_c",
+    srcs = ["misc/fonts/binary_to_compressed_c.cpp"],
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "c5e2053afc707c70385431ed85c500b108b521784a3f6a7a31ea17583aab89a2",
+    strip_prefix = "imgui-1.92.4-docking",
+    urls = ["https://github.com/ocornut/imgui/archive/refs/tags/v1.92.4-docking.tar.gz"],
+)
+
+http_archive(
+    name = "emdawnwebgpu",
+    build_file_content = """
+load("@rules_cc//cc:defs.bzl", "cc_library")
+licenses(["notice"])
+
+cc_library(
+    name = "webgpu",
+    srcs = glob(
+        ["**/*.cpp"],
+        exclude = [
+            "**/android/**",
+            "**/jni/**",
+            "**/art/**",
+            "examples/**",
+            "generator/**",
+            "tests/**",
+            "src/dawn/tests/**",
+            "src/dawn/common/IOSurfaceUtils.cpp",
+            "src/dawn/utils/OSXTimer.cpp",
+        ],
+    ),
+    hdrs = glob(["**/*.h"]),
+    includes = [
+        "include",
+        "src",
+        "src/dawn/include",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:inlined_vector",
+        "@com_google_absl//absl/log",
+    ],
+)
+""",
+    sha256 = "f49683605487f62e1c9e32ed0d71a3ed3029993f818f5a97f13f8266c39b0004",
+    strip_prefix = "dawn-20250713.025201",
+    urls = ["https://github.com/google/dawn/archive/v20250713.025201.tar.gz"],
+)
+
+emsdk_ext = use_extension("//:config.bzl", "emsdk_ext")
+use_repo(
+    emsdk_ext,
+    "emscripten_bin_linux",
+    "emscripten_bin_linux_arm64",
+    "emscripten_bin_mac",
+    "emscripten_bin_mac_arm64",
+    "emscripten_bin_win",
+)
+
+register_toolchains("@emsdk//emscripten_toolchain:cc-toolchain-wasm")
+
+maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
+use_repo(maven, maven = "closure_maven")
+
+node = use_extension("@rules_nodejs//nodejs:extensions.bzl", "node")
+node.toolchain(
+    name = "nodejs",
+    node_version = "20.14.0",
+)
+use_repo(node, "nodejs", "nodejs_toolchains")
+
+npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm")
+npm.npm_translate_lock(
+    name = "npm",
+    pnpm_lock = "//:pnpm-lock.yaml",
+)
+use_repo(npm, "npm")
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.defaults(
+    python_version = "3.10",
+    python_version_env = "HERMETIC_PYTHON_VERSION",
+)
+python.toolchain(
+    is_default = True,
+    python_version = "3.10",
+)
+python.toolchain(python_version = "3.11")
+python.toolchain(python_version = "3.12")
+python.toolchain(python_version = "3.13")
+use_repo(python, "pythons_hub")
+
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+pip.whl_mods(
+    additive_build_content = """
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+cc_library(
+    name = "numpy_headers",
+    hdrs = glob(["site-packages/numpy/_core/include/**/*.h"]) + glob(["site-packages/numpy/core/include/**/*.h"]),
+    includes = ["site-packages/numpy/_core/include", "site-packages/numpy/core/include"],
+)
+""",
+    hub_name = "xprof_pypi_mods",
+    whl_name = "numpy",
+)
+[
+    pip.parse(
+        experimental_requirement_cycles = {
+            "fsspec": [
+                "fsspec",
+                "gcsfs",
+            ],
+        },
+        extra_hub_aliases = {
+            "numpy": ["numpy_headers"],
+        },
+        hub_name = "xprof_pypi",
+        python_version = python_version,
+        requirements_lock = "//:requirements_lock_{}.txt".format(python_version.replace(".", "_")),
+        whl_modifications = {
+            "@xprof_pypi_mods//:numpy.json": "numpy",
+        },
+    )
+    for python_version in [
+        "3.10",
+        "3.11",
+        "3.12",
+        "3.13",
+    ]
+]
+use_repo(pip, "xprof_pypi_mods", pypi = "xprof_pypi")
+override_repo(
+    pip,
+    rules_ml_toolchain_pypi = "pypi",
+    xla_pypi = "pypi",
+)
+
+third_party = use_extension("@xla//third_party/extensions:third_party.bzl", "third_party_ext")
+use_repo(
+    third_party,
+    "eigen_archive",
+    "farmhash_archive",
+    "highwayhash",
+    "llvm-raw",
+    "ml_dtypes_py",
+    "nanobind",
+    "net_zstd",
+    "org_sqlite",
+    "riegeli",
+    "robin_map",
+)
+
+tsl_extension = use_extension("@xla//third_party/extensions:tsl.bzl", "tsl_extension")
+use_repo(tsl_extension, "tsl")
+
+llvm = use_extension("@xla//third_party/extensions:llvm.bzl", "llvm_extension")
+use_repo(llvm, "llvm-project")
+
+pybind11_internal_configure = use_extension(
+    "@pybind11_bazel//:internal_configure.bzl",
+    "internal_configure_extension",
+)
+use_repo(pybind11_internal_configure, "pybind11")
+
+rbe_configs = use_extension("//:extension_for_rbe.bzl", "rbe_configs")
+use_repo(
+    rbe_configs,
+    "ubuntu20.04-clang_manylinux2014-cuda12.3-cudnn9.1_config_platform",
+)
+
+toolchain_ext = use_extension("@rules_ml_toolchain//extensions:toolchain.bzl", "toolchain_ext")
+use_repo(toolchain_ext, "llvm18_linux_x86_64", "llvm_linux_aarch64", "llvm_linux_x86_64")
+
+register_toolchains("@rules_ml_toolchain//cc:linux_x86_64_linux_x86_64")
+
+register_toolchains("@rules_ml_toolchain//cc:linux_x86_64_linux_x86_64_cuda")
+
+register_toolchains("@rules_ml_toolchain//cc:linux_aarch64_linux_aarch64")
+
+register_toolchains("@rules_ml_toolchain//cc:linux_aarch64_linux_aarch64_cuda")

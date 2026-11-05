@@ -24,7 +24,7 @@ from python.runfiles import runfiles
 from xprof.convert.events_db.python import pywrap_events_db_c_api as events_db
 
 _TEST_DATA_PATH = (
-    "org_xprof/xprof/convert/events_db/python/test_data/test.xplane.pb"
+    "_main/xprof/convert/events_db/python/test_data/test.xplane.pb"
 )
 
 
@@ -96,7 +96,12 @@ class XSpaceToParquetTest(parameterized.TestCase):
   @classmethod
   def setUpClass(cls) -> None:
     super().setUpClass()
-    file_path = runfiles.Create().Rlocation(_TEST_DATA_PATH)
+    r = runfiles.Create()
+    file_path = r.Rlocation(_TEST_DATA_PATH)
+    if not file_path or not os.path.exists(file_path):
+      file_path = r.Rlocation(
+          "org_xprof/xprof/convert/events_db/python/test_data/test.xplane.pb"
+      )
     cls._xspace_path = file_path
 
   def test_xspace_to_parquet_default_options(self):

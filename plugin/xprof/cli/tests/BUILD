@@ -1,7 +1,7 @@
 load("@rules_python//python:defs.bzl", "py_library", "py_test")
 load("//plugin/xprof/build_utils:pytype.default.bzl", "pytype_library", "pytype_strict_binary", "pytype_strict_contrib_test", "pytype_strict_library")
 
-package(default_visibility = ["//plugin/xprof:__subpackages__"])
+package(default_visibility = ["//plugin:__subpackages__"])
 
 py_test(
     name = "oss_kernel_stats_tools_test",
@@ -319,9 +319,9 @@ pytype_strict_contrib_test(
         "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal/oss:xprof_client",
         "//plugin/xprof/cli/tools/oss:events_db_tool",
+        "//xprof/convert/events_db/python:pywrap_events_db_c_api_py",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
-        "@org_xprof//xprof/convert/events_db/python:pywrap_events_db_c_api_py",
         "@rules_python//python/runfiles",
     ],
 )
@@ -416,9 +416,9 @@ py_test(
         "//plugin/xprof/cli/tools:get_top_hlo_ops_tool",
         "//plugin/xprof/cli/tools:get_utilization_viewer_tool",
         "//plugin/xprof/cli/tools/oss:upload_trace_tool",
+        "//xprof/pywrap:_pywrap_profiler_plugin",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
-        "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
         "@tsl//tsl/profiler/protobuf:xplane_proto_py_proto",
     ],
 )

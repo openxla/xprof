@@ -1,8 +1,8 @@
 load("//defs:defs.bzl", "sass_binary", "xprof_ng_module")
 
 package(default_visibility = [
+    "//frontend:__subpackages__",
     "//frontend:internal",
-    "@org_xprof//frontend:__subpackages__",
 ])
 
 xprof_ng_module(
@@ -18,12 +18,12 @@ xprof_ng_module(
     deps = [
         "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
-        "@org_xprof//frontend/app/common/angular:angular_material_core",
-        "@org_xprof//frontend/app/common/angular:angular_material_form_field",
-        "@org_xprof//frontend/app/common/angular:angular_material_select",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/components/controls/download_hlo",
-        "@org_xprof//frontend/app/components/controls/searchable_dropdown",
+        "//frontend/app/common/angular:angular_material_core",
+        "//frontend/app/common/angular:angular_material_form_field",
+        "//frontend/app/common/angular:angular_material_select",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/components/controls/download_hlo",
+        "//frontend/app/components/controls/searchable_dropdown",
     ],
 )
 
@@ -33,6 +33,6 @@ sass_binary(
     # stack = True,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

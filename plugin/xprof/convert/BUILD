@@ -41,7 +41,7 @@ py_test(
         "//plugin/xprof/protobuf:trace_events_old_proto_py",
         "//third_party/py/google/protobuf",
         "//third_party/py/google/protobuf:use_fast_cpp_protos",  # Automatically added go/proto_python_upb_flip
-        "@pypi//absl-py",  # build_cleaner: keep; go/disable_tf2
+        "@pypi//absl_py",  # build_cleaner: keep; go/disable_tf2
     ],
 )
 
@@ -56,14 +56,14 @@ py_library(
         ":csv_writer",
         ":trace_events_json",
         "//plugin/xprof/protobuf:trace_events_old_proto_py",
-        "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
+        "//xprof/pywrap:_pywrap_profiler_plugin",
     ],
 )
 
 py_library(
     name = "counter_extractor",
     srcs = ["counter_extractor.py"],
-    data = ["@org_xprof//xprof/utils:tpu_counter_ids_headers"],
+    data = ["//xprof/utils:tpu_counter_ids_headers"],
     # strict_deps = False,
 )
 

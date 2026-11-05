@@ -1014,6 +1014,31 @@ TEST(FlatOpMetricsDbTest, IdleTimeRatio) {
   EXPECT_NEAR(1.0, IdleTimeRatio(db_3), kMaxError);
 }
 
+TEST(FlatOpMetricsDbUtilsTest, TotalTimePs) {
+  FlatOpMetricsDb db;
+  db.set_total_op_time_ps(800);
+  db.set_total_time_ps(1000);
+
+  EXPECT_EQ(TotalTimePs(db, /*exclude_idle=*/false), 1000);
+  EXPECT_EQ(TotalTimePs(db, /*exclude_idle=*/true), 800);
+}
+
+TEST(FlatOpMetricsDbUtilsTest, IsIdleOp) {
+  FlatOpMetrics idle_by_category;
+  idle_by_category.set_category(kIdle);
+  EXPECT_TRUE(IsIdleOp(idle_by_category));
+
+  // Like the OpMetrics overload, idleness is determined by category only.
+  FlatOpMetrics hlo_name_only;
+  hlo_name_only.set_hlo_name(kIdle);
+  EXPECT_FALSE(IsIdleOp(hlo_name_only));
+
+  FlatOpMetrics non_idle;
+  non_idle.set_category("dense");
+  non_idle.set_hlo_name("op_a");
+  EXPECT_FALSE(IsIdleOp(non_idle));
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

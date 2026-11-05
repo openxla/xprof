@@ -145,6 +145,13 @@ inline void SetTotalTimePs(FlatOpMetricsDb& db, uint64_t total_time_ps) {
   db.set_total_time_ps(std::max(db.total_op_time_ps(), total_time_ps));
 }
 
+// Returns the total time in FlatOpMetricsDb, optionally excluding the idle
+// time.
+inline uint64_t TotalTimePs(const FlatOpMetricsDb& db,
+                            bool exclude_idle = false) {
+  return exclude_idle ? db.total_op_time_ps() : db.total_time_ps();
+}
+
 // Adds a FlatOpMetrics record representing idle time, i.e., the amount of time
 // spent without any op execution.
 // REQUIRED: All ops must have been added to the database and the total time

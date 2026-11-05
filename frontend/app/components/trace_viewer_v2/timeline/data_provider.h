@@ -101,6 +101,12 @@ class DataProvider {
   bool last_load_was_refetch_ = false;
 };
 
+// Returns restored expanded states for groups, excluding empty collapsed leaf
+// tracks so that later data window transitions that introduce events can
+// naturally expand them.
+absl::btree_map<GroupKey, bool> GetRestoredExpandedStates(
+    const std::vector<Group>& groups);
+
 namespace internal {
 void AppendTraceEventForTesting(const TraceEvent* event, int level,
                                 FlameChartTimelineData& data);

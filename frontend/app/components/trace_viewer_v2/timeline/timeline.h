@@ -124,6 +124,8 @@ struct Group {
   int level_count = 0;
   // Indicates if this group has nested child tracks.
   bool has_children = false;
+  // Indicates if this group has no events or samples.
+  bool is_empty = false;
 
   // Cached layout offset (screen Y coordinate in pixels).
   mutable Pixel offset = 0.0f;
@@ -135,6 +137,24 @@ struct Group {
   ProcessId pid = 0;
   ThreadId tid = 0;
 };
+
+// Returns the scoped parent group name in the form
+// "<process_name>/<parent_name>", or just "<parent_name>" if process_name is
+// empty.
+inline std::string MakeScopedParentName(absl::string_view process_name,
+                                        absl::string_view parent_name) {
+  if (process_name.empty()) {
+    return std::string(parent_name);
+  }
+  return absl::StrCat(process_name, "/", parent_name);
+}
+
+// Returns the scoped GroupKey for groups[group_index], scoping child tracks
+// (e.g. sub-tracks at kSubTrackNestingLevel) by their enclosing process name to
+// distinguish them across processes. If parent_index is unset or invalid and
+// fallback_process_name is non-empty, fallback_process_name is used.
+GroupKey GetScopedGroupKey(absl::Span<const Group> groups, size_t group_index,
+                           absl::string_view fallback_process_name = "");
 
 struct FlowLine {
   Microseconds source_ts = 0.0;

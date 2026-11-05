@@ -12,6 +12,13 @@ from xprof.cli.internal.oss import xplane_tools
 
 _DEVICE_PLANE_RE = re.compile(r"^/device:.*")
 
+# Top-level accelerator chip planes, e.g. "/device:TPU:0" or "/device:GPU:3".
+# Sub-planes of a chip (e.g. "/device:TPU:0 SparseCore 0") do not match.
+_ACCELERATOR_PLANE_RE = re.compile(r"^/device:(TPU|GPU):(\d+)$", re.IGNORECASE)
+
+# `device_to_use` value that aggregates every device plane.
+ALL_DEVICES = "all"
+
 # Exact XLine names carrying *top-level* device kernels. Substring matching is
 # unsafe here: with --xla_xprof_enable_custom_call_tracing=true the TPU tracer
 # adds "Pallas Primitives" and "LLO Ops" lines holding the regions *inside* a
@@ -56,6 +63,63 @@ def classify_tpu_line(line_name: str) -> str:
   return "other"
 
 
+def resolve_device_planes(
+    plane_names: list[str], device_to_use: str | None
+) -> tuple[str, list[str]]:
+  """Resolves `device_to_use` to the device plane names to aggregate.
+
+  Args:
+    plane_names: Names of every plane in the profile, in order. A name may
+      repeat when the source holds several trace files (one per host).
+    device_to_use: None picks the first accelerator chip plane, TPU before GPU
+      and then by device index. "all" selects every device plane. Any other
+      value names one chip, e.g. "GPU:0" or "/device:TPU:1" (case-insensitive
+      device type); its sub-planes such as "/device:TPU:0 SparseCore 0" are
+      included too.
+
+  Returns:
+    A (device, plane_names) pair: the resolved device plane name (or "all"),
+    and the de-duplicated device plane names to aggregate.
+
+  Raises:
+    ValueError: If `device_to_use` names a device that is not in the profile.
+  """
+  device_names = list(
+      dict.fromkeys(n for n in plane_names if _DEVICE_PLANE_RE.search(n))
+  )
+  if not device_names:
+    return ALL_DEVICES, []
+  if device_to_use is not None and device_to_use.strip().lower() == ALL_DEVICES:
+    return ALL_DEVICES, device_names
+  if device_to_use is None:
+    chips = []
+    for name in device_names:
+      match = _ACCELERATOR_PLANE_RE.match(name)
+      if match:
+        device_type_rank = 0 if match.group(1).upper() == "TPU" else 1
+        chips.append((device_type_rank, int(match.group(2)), name))
+    if not chips:
+      return ALL_DEVICES, device_names
+    chosen = min(chips)[2]
+  else:
+    target = device_to_use.strip()
+    if not target.lower().startswith("/device:"):
+      target = "/device:" + target
+    chosen = next(
+        (n for n in device_names if n.lower() == target.lower()), None
+    )
+    if chosen is None:
+      raise ValueError(
+          f"device_to_use={device_to_use!r} matches no device plane in the"
+          f" profile. Available device planes: {device_names}. Pass"
+          f" device_to_use={ALL_DEVICES!r} to aggregate every device plane."
+      )
+  selected = [
+      n for n in device_names if n == chosen or n.startswith(chosen + " ")
+  ]
+  return chosen, selected
+
+
 def compute_disjoint_interval_union_ns(intervals: list[tuple[int, int]]) -> int:
   """Computes total duration from overlapping intervals using sweep-line merge.
 
@@ -85,15 +149,30 @@ def compute_disjoint_interval_union_ns(intervals: list[tuple[int, int]]) -> int:
 
 
 def format_markdown_table(
-    df_records: List[Dict[str, Any]], kernel_name: str | None
+    df_records: List[Dict[str, Any]],
+    kernel_name: str | None,
+    device: str | None = None,
 ) -> str:
-  """Formats kernel stats as a markdown table."""
+  """Formats kernel stats as a markdown table.
+
+  Args:
+    df_records: Kernel records to render.
+    kernel_name: The kernel the records were filtered to, if any.
+    device: The device the records were aggregated over, if known; shown
+      under the heading.
+
+  Returns:
+    The markdown table.
+  """
   lines = []
   if kernel_name:
     lines.append(f"# Kernel Stats for `{kernel_name}`")
   else:
     lines.append("# Top Kernels by Duration")
   lines.append("")
+  if device:
+    lines.append(f"Device: `{device}`")
+    lines.append("")
   lines.append(
       "| Kernel | Total Duration (us) | Execution Count | Avg Duration (us) |"
   )
@@ -138,6 +217,7 @@ def _format_kernel_records_output(
     kernel_name: str | None,
     limit: int,
     output_format: Literal["json", "markdown"],
+    device: str | None = None,
 ) -> str:
   """Formats kernel records as markdown or JSON and emits truncation notes."""
   truncated = bool(truncation_fields["truncated"])
@@ -145,7 +225,7 @@ def _format_kernel_records_output(
   raw_total_dur = truncation_fields.get("total_duration_us_all_records")
   total_dur_all = float(raw_total_dur) if raw_total_dur is not None else None
   if output_format == "markdown":
-    table = format_markdown_table(records, kernel_name)
+    table = format_markdown_table(records, kernel_name, device)
     if truncated:
       if total_dur_all is not None:
         table += (
@@ -208,7 +288,7 @@ def get_kernel_stats(
     limit: int = 10,
     output_format: Literal["json", "markdown"] = "json",
     include_summary: bool = False,
-    device_to_use: str | None = "TPU:0",  # pylint: disable=unused-argument
+    device_to_use: str | None = None,
     trace_matchers: tuple[str, ...] | None = None,
     include_intra_kernel_regions: bool = False,
     bypass_cache: bool = False,
@@ -229,7 +309,12 @@ def get_kernel_stats(
       table string).
     include_summary: If True, computes and returns ground-truth timing via
       Disjoint Interval Union alongside per-kernel records.
-    device_to_use: Device plane to target (e.g., "TPU:0").
+    device_to_use: Device to aggregate. None (default) picks the first
+      accelerator chip plane in the profile, TPU before GPU and then by index
+      (e.g. "/device:GPU:0" on a GPU profile). Pass a device such as "TPU:1"
+      or "GPU:3" to select it, or "all" to sum every device plane. Raises
+      ValueError if the named device is not in the profile. Ignored for
+      pre-computed record inputs.
     trace_matchers: Optional tuple of event name matchers for filtering.
     include_intra_kernel_regions: If True, also emits events from TPU lines that
       carry regions *inside* a kernel ("LLO Ops", "Pallas Primitives", "<unit>
@@ -303,8 +388,24 @@ def get_kernel_stats(
     step_durations_us: list[float] = []
     excluded_region_lines: set[str] = set()
 
-    for plane in xplane_tools.iter_planes(source):
-      if not _DEVICE_PLANE_RE.search(plane.name):
+    planes = list(xplane_tools.iter_planes(source))
+    device, device_plane_names = resolve_device_planes(
+        [plane.name for plane in planes], device_to_use
+    )
+    selected_planes = frozenset(device_plane_names)
+    if device_to_use is None and device != ALL_DEVICES:
+      num_chips = len({
+          p.name for p in planes if _ACCELERATOR_PLANE_RE.match(p.name)
+      })
+      if num_chips > 1:
+        decorators.emit_stderr_note(
+            f"xprof-note: device_to_use=None picked {device} of {num_chips}"
+            " accelerator devices; pass device_to_use='<TYPE>:<N>' for"
+            " another device or 'all' to sum every device.\n"
+        )
+
+    for plane in planes:
+      if plane.name not in selected_planes:
         continue
 
       is_tpu = "TPU" in plane.name.upper()
@@ -396,6 +497,8 @@ def get_kernel_stats(
       msg = f"No kernel stats found for session {source}"
       if kernel_name:
         msg += f" and kernel {kernel_name}"
+      if device != ALL_DEVICES:
+        msg += f" on device {device}"
       if output_format == "markdown":
         return f"# Info\n{msg}\n"
       return json.dumps({"info": msg}, indent=2)
@@ -459,6 +562,8 @@ def get_kernel_stats(
           "kernel_records": records,
           "step_durations_us": step_durations_us,
           "stats": {"mean_us": round(mean_us, 4), "std_us": round(std_us, 4)},
+          "device": device,
+          "device_planes": device_plane_names,
           **truncation_fields,
       }
       if excluded_region_lines:
@@ -480,6 +585,7 @@ def get_kernel_stats(
         kernel_name=kernel_name,
         limit=limit,
         output_format=output_format,
+        device=device,
     )
 
   except (FileNotFoundError, ValueError):

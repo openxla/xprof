@@ -40,14 +40,15 @@ struct StackFrameInfo {
   std::string file_name;
   int32_t line_number;
   int32_t column_number;
+  int32_t end_column_number;
 };
 
 // Joins the elements of the input `stack_frames` into a single string.
 
 // The result is a newline-separated list of file names, line, and column
 // numbers (numbers could be negative). Each line is of the form:
-// `<file_name>:<line_number>:<column_number>`. Order of stack frames in the
-// result is same as their order in the input.
+// `<file_name>:<line_number>:<column_number>:<end_column_number>`.
+// Order of stack frames in the result is same as their order in the input.
 std::string JoinStackFrames(const std::vector<StackFrameInfo>& stack_frames) {
   std::stringstream result;
   for (auto end = stack_frames.cend(), it = stack_frames.cbegin(); it != end;
@@ -56,7 +57,7 @@ std::string JoinStackFrames(const std::vector<StackFrameInfo>& stack_frames) {
       result << '\n';
     }
     result << it->file_name << ':' << it->line_number << ':'
-           << it->column_number;
+           << it->column_number << ':' << it->end_column_number;
   }
   return result.str();
 }
@@ -78,6 +79,7 @@ std::vector<StackFrameInfo> ExtractStackFrames(
     std::string file_name;
     int32_t line_number = -1;
     int32_t column_number = -1;
+    int32_t end_column_number = -1;
     if (const auto file_location_id = frame.file_location_id();
         file_location_id > 0 &&
         file_location_id <= stack_frame_index.file_locations_size()) {
@@ -85,6 +87,7 @@ std::vector<StackFrameInfo> ExtractStackFrames(
           stack_frame_index.file_locations(file_location_id - 1);
       line_number = file_location.line();
       column_number = file_location.column();
+      end_column_number = file_location.end_column();
       if (const auto file_name_id = file_location.file_name_id();
           file_name_id > 0 &&
           file_name_id <= stack_frame_index.file_names_size()) {
@@ -93,7 +96,8 @@ std::vector<StackFrameInfo> ExtractStackFrames(
     }
     result.emplace_back(StackFrameInfo{.file_name = std::move(file_name),
                                        .line_number = line_number,
-                                       .column_number = column_number});
+                                       .column_number = column_number,
+                                       .end_column_number = end_column_number});
   }
   return result;
 }

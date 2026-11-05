@@ -282,3 +282,9 @@ xprof query_events_db <logdir> --query="
 4.  **Multi-Worker Directories**: If `create_events_db` or `query_events_db`
     raises `NotImplementedError: Multiple (N) trace files found`, pass one of
     the listed `.xplane.pb` file paths directly as the first argument.
+5.  **Async Op Overlap**: Do not hand-write start/done pairing SQL. Pairing by
+    op family (`all-gather`) instead of by instruction (`all-gather.3`), or
+    numbering starts and dones independently, silently mispairs windows. Run
+    `xprof analyze_async_overlap <trace> --backend=events_db`, which pairs
+    `<op>-start.N` with `<op>-done.N` first-in, first-out per device and
+    measures compute coverage in one query.

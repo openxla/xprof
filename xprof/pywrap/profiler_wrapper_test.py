@@ -14,7 +14,9 @@
 # ==============================================================================
 """Tests for profiler_wrapper.cc pybind methods."""
 
+from concurrent import futures
 import json
+import os
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -193,6 +195,33 @@ class ProfilerSessionTest(parameterized.TestCase):
     )
     self.assertTrue(success)
     self.assertIn(b"rows", res)
+
+  def test_concurrent_uncached_xspace_to_tools_data_does_not_race(self):
+    """Verifies concurrent use_saved_result=False calls serialize cache resets."""
+    session_dir = self.create_tempdir().full_path
+    xspace = xplane_pb2.XSpace()
+    xspace.planes.add(name="/host:CPU")
+    payload = xspace.SerializeToString()
+    paths = []
+    for host in ("host0", "host1"):
+      path = os.path.join(session_dir, f"{host}.xplane.pb")
+      with open(path, "wb") as f:
+        f.write(payload)
+      paths.append(path)
+
+    def _convert(_: int) -> tuple[bytes, bool]:
+      return profiler_wrapper_plugin.xspace_to_tools_data(
+          xspace_paths=paths,
+          tool_name="overview_page",
+          options={"use_saved_result": False},
+      )
+
+    with futures.ThreadPoolExecutor(max_workers=6) as pool:
+      results = list(pool.map(_convert, range(12)))
+
+    for data, success in results:
+      self.assertTrue(success)
+      self.assertNotEmpty(data)
 
 
 if __name__ == "__main__":

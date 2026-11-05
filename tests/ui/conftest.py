@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from typing import Any
 import urllib.error
 import urllib.request
 from playwright.sync_api import Page
@@ -50,12 +51,6 @@ KNOWN_UPSTREAM_BUGS = [
     "gstatic.com",
     "Cannot set properties of null",  # Standalone iframe reload bug
     "split is not a function",  # Thrown by the app when Trace Viewer opens
-    "EmptyError",  # RxJS stream termination without defaultIfEmpty
-    # EmptyError's runtime message. Console text carries the message, not the
-    # class name, so the entry above never matches on its own.
-    "no elements in sequence",
-    "google.visualization",  # Google charts async initialization race
-    "DataTable",
     "net::ERR_CONNECTION_REFUSED",
 ]
 
@@ -115,7 +110,10 @@ def logdir() -> Iterator[str]:
   checked-in directory would leave those files in the source tree.
   """
   source_dir = _source_logdir()
-  if os.environ.get("XPROF_LOGDIR"):
+  if (
+      os.environ.get("XPROF_LOGDIR")
+      and os.environ.get("XPROF_STAGE_SYNTHETIC_RUNS") != "1"
+  ):
     # An external server (Kokoro) already serves this directory, so tool URLs
     # must name its paths rather than those of a copy.
     yield source_dir
@@ -126,21 +124,7 @@ def logdir() -> Iterator[str]:
     for trace in pathlib.Path(source_dir).glob("*/*.xplane.pb"):
       (staged / trace.parent.name).mkdir(exist_ok=True)
       (staged / trace.parent.name / trace.name).symlink_to(trace.resolve())
-    gpu_trace = (
-        _find_repo_root()
-        / "convert"
-        / "test_xplanes"
-        / "gpu_training_2.xplane.pb"
-    )
-    if gpu_trace.is_file() and not (staged / "gpu-training").exists():
-      (staged / "gpu-training").mkdir(exist_ok=True)
-      (staged / "gpu-training" / "gpu-node-1.xplane.pb").symlink_to(
-          gpu_trace.resolve()
-      )
-    if not (staged / "tpu-serving").exists():
-      ui_helpers.write_inference_serving_trace(
-          staged / "tpu-serving" / "serving-node-1.xplane.pb"
-      )
+    ui_helpers.stage_synthesized_runs(staged, _find_repo_root())
     yield str(staged)
 
 
@@ -179,59 +163,69 @@ def server_url(logdir: str) -> Iterator[str]:
 
   server = None
   url = None
-  stderr_file = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
+  server_logdir = ui_helpers.resolve_server_logdir(logdir)
 
-  for attempt in range(MAX_STARTUP_ATTEMPTS):
-    port = _find_free_port(HOST)
-    grpc_port = _find_free_port(HOST)
-    url = f"http://{HOST}:{port}"
-    server = subprocess.Popen(
-        [
-            binary,
-            f"--logdir={logdir}",
-            f"--port={port}",
-            f"--grpc_port={grpc_port}",
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=stderr_file,
-        text=True,
-    )
+  with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as stderr_file:
+    for attempt in range(MAX_STARTUP_ATTEMPTS):
+      port = _find_free_port(HOST)
+      grpc_port = _find_free_port(HOST)
+      url = f"http://{HOST}:{port}"
+      server = subprocess.Popen(
+          [
+              binary,
+              "server",
+              f"--logdir={server_logdir}",
+              f"--port={port}",
+              f"--grpc_port={grpc_port}",
+              "--hide_capture_profile_button=false",
+          ],
+          stdout=subprocess.DEVNULL,
+          stderr=stderr_file,
+          text=True,
+      )
 
-    deadline = time.time() + STARTUP_TIMEOUT_SECONDS
-    while time.time() < deadline and server.poll() is None:
-      if _is_server_ready(url):
-        break
-      time.sleep(0.1)
-    else:
-      server.kill()
-      try:
-        server.wait(timeout=5)
-      except subprocess.TimeoutExpired:
-        pass
-      if attempt < MAX_STARTUP_ATTEMPTS - 1:
-        stderr_file.seek(0)
-        stderr_file.truncate(0)
-      continue
-    break
-  else:
-    stderr_file.seek(0)
-    stderr = stderr_file.read()
-    stderr_file.close()
-    raise RuntimeError(
-        f"Server failed to start after {MAX_STARTUP_ATTEMPTS} attempts:\n"
-        f"{stderr}"
-    )
-
-  try:
-    yield url
-  finally:
-    if server:
-      server.terminate()
-      try:
-        server.wait(timeout=5)
-      except subprocess.TimeoutExpired:
+      deadline = time.time() + STARTUP_TIMEOUT_SECONDS
+      while time.time() < deadline and server.poll() is None:
+        if _is_server_ready(url):
+          break
+        time.sleep(0.1)
+      else:
         server.kill()
-    stderr_file.close()
+        try:
+          server.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+          pass
+        if attempt < MAX_STARTUP_ATTEMPTS - 1:
+          stderr_file.seek(0)
+          stderr_file.truncate(0)
+        continue
+      break
+    else:
+      stderr_file.seek(0)
+      stderr = stderr_file.read()
+      raise RuntimeError(
+          f"Server failed to start after {MAX_STARTUP_ATTEMPTS} attempts:\n"
+          f"{stderr}"
+      )
+
+    try:
+      yield url
+    finally:
+      if server:
+        rc = server.poll()
+        if rc is not None:
+          stderr_file.seek(0)
+          tail = "\n".join(stderr_file.read().splitlines()[-40:])
+          print(
+              f"\n[xprof server exited unexpectedly with code {rc}]\n{tail}",
+              file=sys.stderr,
+          )
+        else:
+          server.terminate()
+          try:
+            server.wait(timeout=5)
+          except subprocess.TimeoutExpired:
+            server.kill()
 
 
 @pytest.fixture(scope="session")
@@ -274,26 +268,84 @@ def open_tool(
 
 @dataclasses.dataclass
 class BrowserErrors:
-  """Captures unexpected browser console errors and page crashes."""
+  """Captures unexpected browser console errors, page crashes, and HTTP 5xx."""
 
   page_errors: list[str] = dataclasses.field(default_factory=list)
   console_errors: list[str] = dataclasses.field(default_factory=list)
+  http_errors: list[str] = dataclasses.field(default_factory=list)
   ignored_patterns: list[str] = dataclasses.field(default_factory=list)
 
-  def ignore(self, *patterns: str):
+  def ignore(self, *patterns: str) -> None:
     """Allows specific tests to explicitly ignore expected error strings."""
     self.ignored_patterns.extend(patterns)
 
-  def assert_clean(self, context: str = ""):
+  def assert_clean(self, context: str = "") -> None:
     """Verifies that no unhandled errors occurred during the test."""
     all_ignored = KNOWN_UPSTREAM_BUGS + self.ignored_patterns
     active = [
         err
-        for err in self.page_errors + self.console_errors
+        for err in self.page_errors + self.console_errors + self.http_errors
         if not any(pattern in err for pattern in all_ignored)
     ]
     ctx = f" during {context}" if context else ""
     assert not active, f"Unexpected browser errors{ctx}:\n" + "\n".join(active)
+
+
+def _dump_failure_artifacts(
+    item: pytest.Item, tracker: BrowserErrors | None = None
+) -> None:
+  """Writes failure screenshot, DOM HTML, and console logs to artifact dir."""
+  if getattr(item, "_xprof_artifacts_dumped", False):
+    return
+  out_root = os.environ.get("XPROF_UI_ARTIFACTS_DIR") or os.environ.get(
+      "TEST_UNDECLARED_OUTPUTS_DIR"
+  )
+  if not out_root:
+    return
+  funcargs = getattr(item, "funcargs", {})
+  page: Page | None = funcargs.get("page")
+  if page is None:
+    return
+  setattr(item, "_xprof_artifacts_dumped", True)
+  out_dir = pathlib.Path(out_root)
+  out_dir.mkdir(parents=True, exist_ok=True)
+  safe_name = "".join(
+      ch if ch.isalnum() or ch in ("-", "_", ".") else "_"
+      for ch in item.nodeid
+  )[:180]
+  try:
+    page.screenshot(path=str(out_dir / f"{safe_name}.png"), full_page=True)
+  except Exception as exc:  # pylint: disable=broad-exception-caught
+    sys.stderr.write(f"Failed to capture screenshot for {safe_name}: {exc}\n")
+  try:
+    (out_dir / f"{safe_name}.html").write_text(
+        page.content(), encoding="utf-8"
+    )
+  except Exception as exc:  # pylint: disable=broad-exception-caught
+    sys.stderr.write(f"Failed to capture DOM HTML for {safe_name}: {exc}\n")
+  if tracker is not None:
+    lines = tracker.page_errors + tracker.console_errors + tracker.http_errors
+    try:
+      (out_dir / f"{safe_name}.console.log").write_text(
+          "\n".join(lines), encoding="utf-8"
+      )
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+      sys.stderr.write(
+          f"Failed to capture console log for {safe_name}: {exc}\n"
+      )
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(
+    item: pytest.Item, call: pytest.CallInfo[object]
+) -> Iterator[None]:
+  """Captures diagnostic browser artifacts whenever a Playwright test fails."""
+  del call
+  outcome = yield
+  report = outcome.get_result()
+  if report.failed and report.when in ("call", "teardown"):
+    funcargs = getattr(item, "funcargs", {})
+    _dump_failure_artifacts(item, funcargs.get("browser_errors"))
 
 
 @pytest.fixture(autouse=True)
@@ -306,14 +358,28 @@ def browser_errors(request: pytest.FixtureRequest) -> Iterator[BrowserErrors]:
 
   page: Page = request.getfixturevalue("page")
 
-  def on_console(msg):
+  def on_console(msg: Any) -> None:
     if msg.type in ("error", "assert"):
       tracker.console_errors.append(f"[{msg.type.upper()}] {msg.text}")
+
+  def on_response(response: Any) -> None:
+    if (
+        response.status >= http.HTTPStatus.INTERNAL_SERVER_ERROR
+        and "/data/plugin/profile/" in response.url
+    ):
+      tracker.http_errors.append(
+          f"[HTTP {response.status}] {response.request.method} {response.url}"
+      )
 
   page.on("console", on_console)
   page.on(
       "pageerror",
       lambda exc: tracker.page_errors.append(f"[UNHANDLED] {exc}"),
   )
+  page.on("response", on_response)
   yield tracker
-  tracker.assert_clean()
+  try:
+    tracker.assert_clean()
+  except AssertionError:
+    _dump_failure_artifacts(request.node, tracker)
+    raise

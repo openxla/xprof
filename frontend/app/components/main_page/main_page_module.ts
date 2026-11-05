@@ -77,6 +77,7 @@ export const routes: Routes = [
   {path: 'trace_viewer', component: TraceViewer},
   {path: 'trace_viewer@', component: TraceViewer},
   {path: 'utilization_viewer', component: UtilizationViewer},
+  {path: 'kernel_utilization', component: UtilizationViewer},
   {path: 'graph_viewer', component: GraphViewer},
   {path: 'megascale_perfetto/:sessionId', component: MegascalePerfetto},
   {path: 'megascale_stats', component: MegascaleStats},

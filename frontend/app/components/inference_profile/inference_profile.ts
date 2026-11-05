@@ -123,6 +123,20 @@ export class InferenceProfile implements OnDestroy {
     // If tensor pattern is recorded, there is one additional table per model
     // for tensor pattern results.
     if (!data || data.length <= 1) return false;
+    if (
+      typeof google === 'undefined' ||
+      typeof google.visualization?.DataTable !== 'function'
+    ) {
+      if (typeof google !== 'undefined' && google.charts) {
+        google.charts.safeLoad({'packages': ['corechart', 'table']});
+        google.charts.setOnLoadCallback(() => {
+          if (this.parseData(data)) {
+            this.updateView();
+          }
+        });
+      }
+      return false;
+    }
     if (!this.parseMetadata(data[0])) return false;
 
     // Check the number of inference tables is correct, and parse table data.

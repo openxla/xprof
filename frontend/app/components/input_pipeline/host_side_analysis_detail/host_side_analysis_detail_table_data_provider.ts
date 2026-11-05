@@ -9,7 +9,17 @@ export class HostSideAnalysisDetailTableDataProvider extends
   private readonly hasHostOpsChanged = new EventEmitter<boolean>();
 
   override parseData(data: SimpleDataTable|Array<Array<(string | number)>>|null) {
-    if (!data) return;
+    if (
+      !data ||
+      !this.ensureChartPackagesLoaded(
+          data,
+          typeof google !== 'undefined' &&
+              typeof google.visualization?.DataTable === 'function' &&
+              typeof google.visualization?.NumberFormat === 'function',
+      )
+    ) {
+      return;
+    }
     const dataTable = new google.visualization.DataTable(data);
     if (dataTable.getNumberOfRows() < 1) {
       this.hasHostOpsChanged.emit(false);

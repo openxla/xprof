@@ -39,6 +39,9 @@ ACTIVE_TOOL_SPECS: list[tuple[str, str, str]] = [
     ("tpu-training", "roofline_model", "roofline-model, .roofline-container"),
     ("tpu-training", "framework_op_stats", "framework-op-stats"),
     ("tpu-training", "hlo_stats", "hlo-stats"),
+    ("perf-utilization", "perf_counters", "perf-counters"),
+    ("perf-v4", "perf_counters", "perf-counters"),
+    ("perf-utilization", "utilization_viewer", "utilization-viewer"),
 ]
 
 # Tool content that MUST render inside the component, besides the drawn

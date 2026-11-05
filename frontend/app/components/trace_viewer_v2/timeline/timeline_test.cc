@@ -4771,6 +4771,7 @@ class TestTimeline : public Timeline {
   using Timeline::hidden_track_names_;
   using Timeline::pinned_track_names_;
 
+  using Timeline::ConstrainTimeRange;
   using Timeline::group_visible;
   using Timeline::Pan;
   using Timeline::Scroll;
@@ -18995,6 +18996,48 @@ TEST_F(TrackReorderTest, TopmostTrackWinsForSpecialMinimapRibbons) {
   EXPECT_EQ(
       std::any_cast<std::string>(regions_after[0].at(kEventSelectedName)),
       "reg_bottom");
+}
+TEST_F(RealTimelineImGuiFixture, ZoomFactorClamping) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({100.0, 200.0});  // Starting Duration = 100.0
+
+  // Validate Extreme Zoom In
+  timeline_.Zoom(0.0001f);
+  // Clamped at 0.1f
+  EXPECT_NEAR(timeline_.visible_range_target().duration(), 10.0, 1e-6);
+
+  timeline_.SetVisibleRange({100.0, 200.0});  // Reset
+
+  // Validate Extreme Zoom Out
+  timeline_.Zoom(100.0f);
+  // Clamped at 10.0f, 100.0 * 10.0 = 1000.0
+  EXPECT_NEAR(timeline_.visible_range_target().duration(), 1000.0, 1e-6);
+}
+
+TEST_F(RealTimelineImGuiFixture, FailIncrementalLoadLatchesRange) {
+  timeline_.set_data_time_range({0.0, 100000.0});
+  timeline_.SetVisibleRange({100.0, 200.0});
+  timeline_.set_is_incremental_loading(false);
+
+  timeline_.MaybeRequestData();
+  EXPECT_TRUE(timeline_.is_incremental_loading());
+
+  // Ensure failed loads lift the flag but latch the range.
+  timeline_.FailIncrementalLoad(/*aborted=*/false);
+  EXPECT_FALSE(timeline_.is_incremental_loading());
+
+  // Validate latched ranges suppress duplicate subsequent requests
+  timeline_.MaybeRequestData();
+  EXPECT_FALSE(timeline_.is_incremental_loading());
+
+  // Ensure new data resets the latch
+  timeline_.SetTimelineData({});
+  timeline_.set_is_incremental_loading(false);  // Simulate parser resetting it
+
+  // Move to a new range not covered by last_fetch_request_range_
+  timeline_.SetVisibleRange({2000.0, 2100.0});
+  timeline_.MaybeRequestData();
+  EXPECT_TRUE(timeline_.is_incremental_loading());
 }
 
 TEST(TimelineTest,

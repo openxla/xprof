@@ -335,4 +335,18 @@ TEST(TimeRangeTest, ContainsWithTolerance_ZeroBoundary) {
 }
 
 }  // namespace
+TEST(TimeRangeTest, AnimatedTimeRangeConvergesAtLargeMagnitude) {
+  Microseconds large_time = 4.0e6;
+  TimeRange target(large_time, large_time + 10.0);
+  Animated<TimeRange> animated_range(TimeRange(large_time, large_time + 5.0));
+
+  // 5.0 µs displacement at 4e6 µs is larger than `EPS * 4e6 * 32.0`.
+  animated_range = target;
+  Animation::UpdateAll(0.01f);
+  bool converged = (animated_range.target() == *animated_range);
+
+  // Must not converge prematurely
+  EXPECT_FALSE(converged);
+}
+
 }  // namespace traceviewer

@@ -296,6 +296,7 @@ pytype_strict_contrib_test(
         "//plugin/xprof/cli/internal/oss:hlo_tools",
         "//plugin/xprof/cli/internal/oss:xprof_client",
         "@absl_py//absl/testing:absltest",
+        "@pypi//protobuf",
     ],
 )
 

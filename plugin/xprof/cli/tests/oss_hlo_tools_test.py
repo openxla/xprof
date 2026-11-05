@@ -5,6 +5,7 @@ import pathlib
 import tempfile
 from unittest import mock
 
+from google.protobuf import descriptor_pool
 from absl.testing import absltest
 from xprof.cli.internal.oss import hlo_tools
 from xprof.cli.internal.oss import xprof_client
@@ -321,6 +322,122 @@ class OssHloToolsTest(absltest.TestCase):
           str(self.session_dir), instruction_name="fus", radius=2, max_nodes=2
       )
       self.assertIn("[truncated at max_nodes=2;", nb_trunc)
+
+
+class OssFetchDebugInfoTest(absltest.TestCase):
+  """Tests for loading HloProto messages via the private descriptor pool."""
+
+  # pylint: disable=protected-access
+
+  def setUp(self):
+    super().setUp()
+    self.test_dir = tempfile.TemporaryDirectory()
+    self.addCleanup(self.test_dir.cleanup)
+    self.session_dir = pathlib.Path(self.test_dir.name)
+
+  def _write_hlo_proto(self, filename: str) -> pathlib.Path:
+    """Writes a small HloProto with a while loop and returns its path."""
+    hlo = hlo_tools._hlo_proto_class()()
+    module = hlo.hlo_module
+    module.name = "jit_step"
+    module.computations.add(name="body", id=1)
+    module.computations.add(name="cond", id=2)
+    entry = module.computations.add(name="main", id=3)
+    module.entry_computation_id = 3
+    param = entry.instructions.add(
+        name="p0", opcode="parameter", id=10, parameter_number=0
+    )
+    param.shape.element_type = 11  # F32
+    param.shape.dimensions.extend([2, 4])
+    param.shape.layout.minor_to_major.extend([0, 1])
+    entry.instructions.add(
+        name="gte", opcode="get-tuple-element", id=11, tuple_index=1
+    )
+    entry.instructions.add(
+        name="while.1", opcode="while", id=12, called_computation_ids=[1, 2]
+    )
+    path = self.session_dir / filename
+    path.write_bytes(hlo.SerializeToString())
+    return path
+
+  def test_fetch_debug_info_parses_fields(self):
+    path = self._write_hlo_proto("jit_step(123).hlo_proto.pb")
+    with mock.patch.object(
+        hlo_tools, "_get_hlo_proto_files", return_value=[path]
+    ):
+      debug_info = hlo_tools._fetch_debug_info("session")
+
+    self.assertEqual(debug_info.program_id, [123])
+    self.assertLen(debug_info.hlo_proto, 1)
+    module = debug_info.hlo_proto[0].hlo_module
+    self.assertEqual(module.name, "jit_step")
+    instrs = {}
+    for computation in module.computations:
+      for instr in computation.instructions:
+        instrs[instr.name] = instr
+    self.assertEqual(instrs["p0"].parameter_number, 0)
+    self.assertEqual(instrs["p0"].shape.element_type, 11)
+    self.assertEqual(list(instrs["p0"].shape.dimensions), [2, 4])
+    self.assertEqual(list(instrs["p0"].shape.layout.minor_to_major), [0, 1])
+    self.assertEqual(instrs["gte"].tuple_index, 1)
+    # While loops list [body, condition].
+    self.assertEqual(list(instrs["while.1"].called_computation_ids), [1, 2])
+
+  def test_parse_program_id(self):
+    for name, expected in [
+        ("jit_step(123).hlo_proto.pb", 123),
+        ("jit_f(x)(42).hlo_proto.pb", 42),
+        ("jit_step.hlo_proto.pb", 0),
+        ("jit_step(abc).hlo_proto.pb", 0),
+    ]:
+      with self.subTest(name=name):
+        self.assertEqual(
+            hlo_tools._parse_program_id(pathlib.Path(name)), expected
+        )
+
+  def test_fetch_debug_info_no_files_raises(self):
+    with mock.patch.object(hlo_tools, "_get_hlo_proto_files", return_value=[]):
+      with self.assertRaises(FileNotFoundError):
+        hlo_tools._fetch_debug_info("session")
+
+  def test_fetch_debug_info_skips_corrupt_file(self):
+    good = self._write_hlo_proto("jit_step(1).hlo_proto.pb")
+    bad = self.session_dir / "jit_bad(2).hlo_proto.pb"
+    bad.write_bytes(b"\xff\xff\xff")
+    with mock.patch.object(
+        hlo_tools, "_get_hlo_proto_files", return_value=[bad, good]
+    ):
+      debug_info = hlo_tools._fetch_debug_info("session")
+
+    self.assertEqual(debug_info.program_id, [1])
+    self.assertEqual(debug_info.hlo_proto[0].hlo_module.name, "jit_step")
+
+  def test_fetch_debug_info_all_corrupt_raises(self):
+    bad = self.session_dir / "jit_bad(2).hlo_proto.pb"
+    bad.write_bytes(b"\xff\xff\xff")
+    with mock.patch.object(
+        hlo_tools, "_get_hlo_proto_files", return_value=[bad]
+    ):
+      with self.assertRaises(ValueError):
+        hlo_tools._fetch_debug_info("session")
+
+  def test_missing_descriptor_set_raises(self):
+    hlo_tools._hlo_proto_class.cache_clear()
+    self.addCleanup(hlo_tools._hlo_proto_class.cache_clear)
+    with mock.patch.object(
+        hlo_tools,
+        "_HLO_DESCRIPTOR_SET_PATH",
+        self.session_dir / "missing.pb",
+    ):
+      with self.assertRaises(FileNotFoundError):
+        hlo_tools._hlo_proto_class()
+
+  def test_hlo_proto_class_uses_private_pool(self):
+    hlo_proto_class = hlo_tools._hlo_proto_class()
+    self.assertEqual(hlo_proto_class.DESCRIPTOR.full_name, "xla.HloProto")
+    self.assertIsNot(
+        hlo_proto_class.DESCRIPTOR.file.pool, descriptor_pool.Default()
+    )
 
 
 if __name__ == "__main__":

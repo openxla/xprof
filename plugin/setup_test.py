@@ -107,6 +107,11 @@ class SetupTest(absltest.TestCase):
     self.assertIn('xprof', setup.PACKAGE_DATA)
     self.assertIn('skills/**', setup.PACKAGE_DATA['xprof'])
 
+  def test_package_data_contains_hlo_descriptor_set(self):
+    self.assertIn(
+        'cli/internal/oss/hlo_descriptor_set.pb', setup.PACKAGE_DATA['xprof']
+    )
+
   def test_skills_markdown_files_present_in_source_tree(self):
     skills_dir = os.path.join(
         os.path.dirname(__file__), '..', 'skills', 'xprof'

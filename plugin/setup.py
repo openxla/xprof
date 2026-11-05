@@ -130,6 +130,7 @@ PACKAGE_DATA = {
         'convert/events_db/python/libpywrap_events_db_c_api.so',
         'convert/events_db/python/libpywrap_events_db_c_api.pyd',
         'skills/**',
+        'cli/internal/oss/hlo_descriptor_set.pb',
     ],
 }
 ENTRY_POINTS = {

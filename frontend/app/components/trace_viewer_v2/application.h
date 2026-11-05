@@ -112,6 +112,20 @@ class Application {
     }
   }
 
+  // See Timeline::set_smooth_navigation_enabled().
+  void SetSmoothNavigationEnabled(bool enabled) {
+    if (timeline_) {
+      timeline_->set_smooth_navigation_enabled(enabled);
+    }
+  }
+
+  // See Timeline::set_navigation_acceleration_enabled().
+  void SetNavigationAccelerationEnabled(bool enabled) {
+    if (timeline_) {
+      timeline_->set_navigation_acceleration_enabled(enabled);
+    }
+  }
+
   // See Timeline::set_incremental_fetch_enabled().
   void SetIncrementalFetchEnabled(bool enabled) {
     if (timeline_) {

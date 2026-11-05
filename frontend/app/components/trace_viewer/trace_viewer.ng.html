@@ -219,6 +219,52 @@
                 <span class="settings-slider-badge">{{ wheelZoomSpeed.toFixed(1) }}x</span>
               </div>
             </div>
+
+            <!-- Smooth navigation -->
+            <div class="settings-slider-row">
+              <div class="settings-slider-info">
+                <div class="settings-slider-title">Smooth Navigation</div>
+                <div class="settings-slider-subtitle">Animate pan and zoom transitions on the timeline</div>
+              </div>
+              <button
+                class="settings-switch-btn"
+                [class.checked]="smoothNavigation"
+                type="button"
+                role="switch"
+                (click)="onSmoothNavigationChange(!smoothNavigation)"
+                [attr.aria-checked]="smoothNavigation"
+                aria-label="Smooth Navigation"
+                data-test-id="smooth-navigation-switch"
+              >
+                <div class="settings-switch-thumb">
+                  <mat-icon *ngIf="smoothNavigation" class="settings-switch-icon">check</mat-icon>
+                  <mat-icon *ngIf="!smoothNavigation" class="settings-switch-icon">close</mat-icon>
+                </div>
+              </button>
+            </div>
+
+            <!-- Keyboard hold acceleration -->
+            <div class="settings-slider-row">
+              <div class="settings-slider-info">
+                <div class="settings-slider-title">Keyboard Hold Acceleration</div>
+                <div class="settings-slider-subtitle">Ramp up pan and zoom speed while holding W/A/S/D keys</div>
+              </div>
+              <button
+                class="settings-switch-btn"
+                [class.checked]="keyboardAcceleration"
+                type="button"
+                role="switch"
+                (click)="onKeyboardAccelerationChange(!keyboardAcceleration)"
+                [attr.aria-checked]="keyboardAcceleration"
+                aria-label="Keyboard Hold Acceleration"
+                data-test-id="keyboard-acceleration-switch"
+              >
+                <div class="settings-switch-thumb">
+                  <mat-icon *ngIf="keyboardAcceleration" class="settings-switch-icon">check</mat-icon>
+                  <mat-icon *ngIf="!keyboardAcceleration" class="settings-switch-icon">close</mat-icon>
+                </div>
+              </button>
+            </div>
           </div>
         </div>
 

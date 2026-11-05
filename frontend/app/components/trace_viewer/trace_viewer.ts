@@ -83,8 +83,10 @@ import {
   getConnectedStepGroupLinkText,
   getSingleStepGroupLinkText,
   HLO_OP_STATS_TOOL_NAME,
+  NAV_KEYBOARD_ACCELERATION_STORAGE_KEY,
   NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
   NAV_PAN_SPEED_STORAGE_KEY,
+  NAV_SMOOTH_NAVIGATION_STORAGE_KEY,
   NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY,
   PALETTE_BACKGROUNDS,
   PALETTE_PREVIEWS,
@@ -179,6 +181,16 @@ function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
       value: getStoredFeatureFlag(flag.id),
     }),
   );
+}
+
+function getDefaultSmoothNavigation(): boolean {
+  try {
+    return !(
+      window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
+    );
+  } catch {
+    return true;
+  }
 }
 
 /** A trace viewer component. */
@@ -307,6 +319,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   panningSpeed = 1.0;
   keyboardZoomSpeed = 1.0;
   wheelZoomSpeed = 1.0;
+  smoothNavigation = getDefaultSmoothNavigation();
+  keyboardAcceleration = true;
 
   /**
    * Initial state of general navigation speeds to detect changes.
@@ -314,9 +328,11 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private initialPanningSpeed = 1.0;
   private initialKeyboardZoomSpeed = 1.0;
   private initialWheelZoomSpeed = 1.0;
+  private initialSmoothNavigation = this.smoothNavigation;
+  private initialKeyboardAcceleration = true;
 
   /**
-   * Returns true if any general navigation speed has been modified.
+   * Returns true if any general navigation setting has been modified.
    */
   get hasGeneralSettingsChanges(): boolean {
     if (this.panningSpeed !== this.initialPanningSpeed) {
@@ -325,7 +341,13 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     if (this.keyboardZoomSpeed !== this.initialKeyboardZoomSpeed) {
       return true;
     }
-    return this.wheelZoomSpeed !== this.initialWheelZoomSpeed;
+    if (this.wheelZoomSpeed !== this.initialWheelZoomSpeed) {
+      return true;
+    }
+    if (this.smoothNavigation !== this.initialSmoothNavigation) {
+      return true;
+    }
+    return this.keyboardAcceleration !== this.initialKeyboardAcceleration;
   }
 
   /**
@@ -1630,7 +1652,9 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     return (
       this.panningSpeed === 1.0 &&
       this.keyboardZoomSpeed === 1.0 &&
-      this.wheelZoomSpeed === 1.0
+      this.wheelZoomSpeed === 1.0 &&
+      this.smoothNavigation === getDefaultSmoothNavigation() &&
+      this.keyboardAcceleration === true
     );
   }
 
@@ -1639,7 +1663,13 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       this.traceViewerModule.SetPanningSpeed?.(1000 * this.panningSpeed);
       this.traceViewerModule.SetZoomSpeed?.(1.5 * this.keyboardZoomSpeed);
       this.traceViewerModule.SetMouseWheelZoomSpeed?.(
-        0.2 * this.wheelZoomSpeed,
+        0.01 * this.wheelZoomSpeed,
+      );
+      this.traceViewerModule.SetSmoothNavigationEnabled?.(
+        this.smoothNavigation,
+      );
+      this.traceViewerModule.SetNavigationAccelerationEnabled?.(
+        this.keyboardAcceleration,
       );
     }
   }
@@ -1648,6 +1678,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     this.panningSpeed = 1.0;
     this.keyboardZoomSpeed = 1.0;
     this.wheelZoomSpeed = 1.0;
+    this.smoothNavigation = getDefaultSmoothNavigation();
+    this.keyboardAcceleration = true;
   }
 
   onPanningSpeedChange(event: Event): void {
@@ -1665,6 +1697,14 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     this.wheelZoomSpeed = Number(input.value);
   }
 
+  onSmoothNavigationChange(enabled: boolean): void {
+    this.smoothNavigation = enabled;
+  }
+
+  onKeyboardAccelerationChange(enabled: boolean): void {
+    this.keyboardAcceleration = enabled;
+  }
+
   saveGeneralSettings(): void {
     window.localStorage.setItem(
       NAV_PAN_SPEED_STORAGE_KEY,
@@ -1678,9 +1718,19 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY,
       this.wheelZoomSpeed.toFixed(1),
     );
+    window.localStorage.setItem(
+      NAV_SMOOTH_NAVIGATION_STORAGE_KEY,
+      String(this.smoothNavigation),
+    );
+    window.localStorage.setItem(
+      NAV_KEYBOARD_ACCELERATION_STORAGE_KEY,
+      String(this.keyboardAcceleration),
+    );
     this.initialPanningSpeed = this.panningSpeed;
     this.initialKeyboardZoomSpeed = this.keyboardZoomSpeed;
     this.initialWheelZoomSpeed = this.wheelZoomSpeed;
+    this.initialSmoothNavigation = this.smoothNavigation;
+    this.initialKeyboardAcceleration = this.keyboardAcceleration;
     this.applyNavigationSpeeds();
   }
 
@@ -1706,6 +1756,17 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       if (wheelZoom !== null) {
         this.wheelZoomSpeed = Number(wheelZoom) || 1.0;
       }
+      const smoothNav = window.localStorage.getItem(
+        NAV_SMOOTH_NAVIGATION_STORAGE_KEY,
+      );
+      this.smoothNavigation =
+        smoothNav !== null
+          ? smoothNav === 'true'
+          : getDefaultSmoothNavigation();
+      const kbAccel = window.localStorage.getItem(
+        NAV_KEYBOARD_ACCELERATION_STORAGE_KEY,
+      );
+      this.keyboardAcceleration = kbAccel !== null ? kbAccel === 'true' : true;
     } catch {
       // Ignore storage errors.
     }
@@ -1757,6 +1818,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     this.initialPanningSpeed = this.panningSpeed;
     this.initialKeyboardZoomSpeed = this.keyboardZoomSpeed;
     this.initialWheelZoomSpeed = this.wheelZoomSpeed;
+    this.initialSmoothNavigation = this.smoothNavigation;
+    this.initialKeyboardAcceleration = this.keyboardAcceleration;
 
     this.loadCustomColors();
 

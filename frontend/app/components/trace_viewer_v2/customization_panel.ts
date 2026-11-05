@@ -61,7 +61,7 @@ export class TraceViewerCustomizationPanel extends LitElement {
 
   @state() private panningSpeed = 1000;
   @state() private zoomSpeed = 1.5;
-  @state() private mouseWheelZoomSpeed = 0.2;
+  @state() private mouseWheelZoomSpeed = 0.01;
 
   private checkInterval?: number;
 
@@ -125,7 +125,7 @@ export class TraceViewerCustomizationPanel extends LitElement {
   resetToDefault() {
     this.panningSpeed = 1000;
     this.zoomSpeed = 1.5;
-    this.mouseWheelZoomSpeed = 0.2;
+    this.mouseWheelZoomSpeed = 0.01;
     this.traceviewerModule?.SetPanningSpeed?.(this.panningSpeed);
     this.traceviewerModule?.SetZoomSpeed?.(this.zoomSpeed);
     this.traceviewerModule?.SetMouseWheelZoomSpeed?.(this.mouseWheelZoomSpeed);
@@ -183,9 +183,9 @@ export class TraceViewerCustomizationPanel extends LitElement {
               >Wheel Zoom Speed: ${this.mouseWheelZoomSpeed}</span
             >
             <md-slider
-              min="0.01"
-              max="1.0"
-              step="0.01"
+              min="0.002"
+              max="0.05"
+              step="0.002"
               value=${this.mouseWheelZoomSpeed}
               @input=${this.onMouseWheelZoomSpeedChange}
               @change=${this.onMouseWheelZoomSpeedChange}></md-slider>

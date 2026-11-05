@@ -157,6 +157,8 @@ declare global {
   SetPanningSpeed?(speed: number): void;
   SetZoomSpeed?(speed: number): void;
   SetMouseWheelZoomSpeed?(speed: number): void;
+  SetSmoothNavigationEnabled?(enabled: boolean): void;
+  SetNavigationAccelerationEnabled?(enabled: boolean): void;
   /**
    * Enables/disables `fetch_data` requests for time-range refetching. Turn off
    * when the backend always returns the full dataset.

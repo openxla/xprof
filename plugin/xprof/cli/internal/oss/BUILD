@@ -72,3 +72,12 @@ pytype_library(
     # strict_deps = False,
     deps = [":llo_detectors"],
 )
+
+pytype_library(
+    name = "events_db_sql",
+    srcs = ["events_db_sql.py"],
+    deps = [
+        "//plugin/xprof/cli/tools/oss:events_db_tool",
+        "@pypi//duckdb",
+    ],
+)

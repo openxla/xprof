@@ -14,8 +14,24 @@ export class Dashboard {
 
   dataView?: google.visualization.DataView;
 
+  protected ensureChartPackagesLoaded(data: SimpleDataTable|null): boolean {
+    if (
+      typeof google !== 'undefined' &&
+      typeof google.visualization?.DataTable === 'function'
+    ) {
+      return true;
+    }
+    if (typeof google !== 'undefined' && google.charts) {
+      google.charts.safeLoad({'packages': ['corechart', 'table']});
+      google.charts.setOnLoadCallback(() => {
+        this.parseData(data);
+      });
+    }
+    return false;
+  }
+
   parseData(data: SimpleDataTable|null) {
-    if (!data) return;
+    if (!data || !this.ensureChartPackagesLoaded(data)) return;
 
     this.dataTable = new google.visualization.DataTable(data);
     this.updateView();

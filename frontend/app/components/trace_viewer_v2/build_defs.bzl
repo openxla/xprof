@@ -14,7 +14,7 @@ WASM_TAGS = [
     "requires_wasm_config",
 ]
 
-TEST_LINKOPTS = ["-sASYNCIFY=1", "-sNO_EXIT_RUNTIME=1"]
+TEST_LINKOPTS = ["-sNO_EXIT_RUNTIME=1"]
 
 def wasm_cc_test(name, srcs, deps = [], copts = [], linkopts = TEST_LINKOPTS, **kwargs):
     """Generates a cc_test and a wasm_web_test target.

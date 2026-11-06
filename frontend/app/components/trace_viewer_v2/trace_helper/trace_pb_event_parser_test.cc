@@ -926,7 +926,7 @@ TEST_F(TracePbEventParserTest,
 }
 
 TEST_F(TracePbEventParserTest,
-       InitialUrlSubWindowLoadDoesNotArmCachedTraceStore) {
+       InitialUrlVisibleRangeFullSessionLoadArmsCachedTraceStore) {
   xprof::TraceDataResponse f0;
   f0.add_interned_strings("");
   f0.add_interned_strings("url_window_op");
@@ -965,7 +965,7 @@ TEST_F(TracePbEventParserTest,
   while (StepIncrementalTraceEvents(100, data_provider_, timeline_)) {
   }
   EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider_, timeline_));
-  EXPECT_FALSE(HasCachedTraceEventsIncremental());
+  EXPECT_TRUE(HasCachedTraceEventsIncremental());
 }
 
 TEST_F(TracePbEventParserTest,

@@ -891,10 +891,8 @@ void BeginIncrementalTraceEvents(
   }
   if (session.is_initial_load) {
     session.ClearPersistentCache();
-    const bool is_unfiltered_initial_load =
-        !session.visible_range_from_url.has_value();
-    session.recording_frame_summaries = is_unfiltered_initial_load;
-    session.can_build_trace_store = is_unfiltered_initial_load;
+    session.recording_frame_summaries = true;
+    session.can_build_trace_store = true;
   } else {
     session.can_build_trace_store = false;
     session.using_cached_trace_store = session.has_cached_trace_store;
@@ -1275,8 +1273,7 @@ bool FinishIncrementalTraceEvents(DataProvider& data_provider,
         std::move(session.building_frame_summaries);
     session.cached_full_timespan = session.full_timespan;
     session.cached_mpmd_pipeline_view = session.mpmd_pipeline_view;
-    if (!full_loaded && !session.visible_range_from_url.has_value() &&
-        session.can_build_trace_store &&
+    if (!full_loaded && session.can_build_trace_store &&
         !session.building_complete_blocks.empty()) {
       session.cached_processes = std::move(session.building_processes);
       session.cached_async_flame_events =

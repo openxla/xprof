@@ -77,11 +77,9 @@ class ActionType(str, enum.Enum):
 DEFAULT_CATALOG_DIR = pathlib.Path(__file__).resolve().parent / "journeys"
 DEFAULT_CATALOG_FILE = "diagnostic_journeys.json"
 
-# Note: Trace viewer legacy iframe type errors.
+# Legacy iframe trace viewer messages unrelated to streaming trace correctness.
 _UPSTREAM_BASELINE_IGNORED_PATTERNS: tuple[str, ...] = (
-    "trace_viewer",
     "streaming trace",
-    "Cannot read properties of undefined",
 )
 
 # How long a navigation assertion waits for the router to publish the new tool

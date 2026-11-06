@@ -196,8 +196,17 @@ absl::StatusOr<std::optional<std::string>> TryRunUnifiedProcessor(
   LOG(INFO) << "Using unified workflow for tool: " << tool_name;
   if (unified_processor->ShouldUseWorkerService(session_snapshot, options) &&
       ::xprof::profiler::HasWorkerStubs()) {
-    TF_RETURN_IF_ERROR(RunUnifiedMapReduce(session_snapshot, tool_name,
-                                           unified_processor.get(), options));
+    absl::Status status = RunUnifiedMapReduce(
+        session_snapshot, tool_name, unified_processor.get(), options);
+    if (absl::IsUnavailable(status)) {
+      LOG(WARNING) << "Worker service unavailable for unified tool "
+                   << tool_name << " (" << status
+                   << "), falling back to local processing.";
+      TF_RETURN_IF_ERROR(
+          unified_processor->ProcessSession(session_snapshot, options));
+    } else {
+      TF_RETURN_IF_ERROR(status);
+    }
   } else {
     TF_RETURN_IF_ERROR(
         unified_processor->ProcessSession(session_snapshot, options));
@@ -236,8 +245,17 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolDataWithProfileProcessor(
     if (processor->ShouldUseWorkerService(session_snapshot, options) &&
         ::xprof::profiler::HasWorkerStubs()) {
       LOG(INFO) << "Using worker service for tool: " << tool_name;
-      TF_RETURN_IF_ERROR(
-          RunMapReduce(session_snapshot, tool_name, processor.get(), options));
+      absl::Status status =
+          RunMapReduce(session_snapshot, tool_name, processor.get(), options);
+      if (absl::IsUnavailable(status)) {
+        LOG(WARNING) << "Worker service unavailable for tool " << tool_name
+                     << " (" << status
+                     << "), falling back to local processing.";
+        TF_RETURN_IF_ERROR(
+            ProcessSession(processor.get(), session_snapshot, options));
+      } else {
+        TF_RETURN_IF_ERROR(status);
+      }
     } else {
       LOG(INFO) << "Using local processing for tool: " << tool_name;
       TF_RETURN_IF_ERROR(

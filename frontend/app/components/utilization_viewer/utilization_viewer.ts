@@ -394,7 +394,7 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
   }
 
   override parseData(data: SimpleDataTable | null) {
-    if (!data) return;
+    if (!data || !this.ensureChartPackagesLoaded(data)) return;
     this.dataProvider.parseData(data);
     const dataTable = this.dataProvider.getDataTable();
     if (dataTable) {

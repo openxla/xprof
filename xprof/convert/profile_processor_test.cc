@@ -46,6 +46,7 @@ limitations under the License.
 #include "xprof/convert/xplane_to_tools_data_with_profile_processor.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/trace_events_old.pb.h"
+#include "plugin/xprof/worker/stub_factory.h"
 
 ABSL_DECLARE_FLAG(bool, enable_unified_xprof);
 
@@ -289,6 +290,41 @@ TEST(TraceViewerContractTest, UnifiedWorkflowReturnsSerializedTraceProto) {
       << "trace_viewer output is not a serialized Trace proto";
   EXPECT_THAT(trace.devices(), Not(IsEmpty()));
   EXPECT_THAT(trace.trace_events(), Not(IsEmpty()));
+}
+
+TEST(WorkerFallbackTest, FallsBackToLocalProcessingWhenWorkerUnavailable) {
+  std::string session_dir =
+      file::JoinPath(testing::TempDir(), "worker_unavailable_fallback_test");
+  ASSERT_OK(file::CreateDir(session_dir, file::Defaults()));
+  auto dir_cleanup = absl::MakeCleanup([&session_dir] {
+    file::RecursivelyDelete(session_dir, file::Defaults()).IgnoreError();
+  });
+
+  XSpace space;
+  space.add_planes()->set_name("test_plane");
+  std::string host1_path = file::JoinPath(session_dir, "host1.xplane.pb");
+  std::string host2_path = file::JoinPath(session_dir, "host2.xplane.pb");
+  ASSERT_OK(xprof::WriteBinaryProto(host1_path, space));
+  ASSERT_OK(xprof::WriteBinaryProto(host2_path, space));
+
+  ::xprof::profiler::internal::ResetStubsForTesting();
+  ::xprof::profiler::InitializeStubs("127.0.0.1:1");
+  auto stub_cleanup = absl::MakeCleanup([] {
+    ::xprof::profiler::internal::ResetStubsForTesting();
+  });
+
+  for (bool enable_unified : {false, true}) {
+    absl::FlagSaver flag_saver;
+    absl::SetFlag(&FLAGS_enable_unified_xprof, enable_unified);
+    ASSERT_OK_AND_ASSIGN(
+        SessionSnapshot session_snapshot,
+        SessionSnapshot::Create({host1_path, host2_path}, std::nullopt));
+    ASSERT_OK(session_snapshot.ClearCacheFiles());
+    ASSERT_OK_AND_ASSIGN(std::string tool_data,
+                         ConvertMultiXSpacesToToolDataWithProfileProcessor(
+                             session_snapshot, "overview_page", ToolOptions()));
+    EXPECT_THAT(tool_data, Not(IsEmpty()));
+  }
 }
 
 // Helper to map index to tool name for benchmarks.

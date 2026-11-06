@@ -20,6 +20,7 @@ import os
 import pathlib
 import re
 import subprocess
+import tempfile
 import threading
 import traceback
 from typing import Any
@@ -427,16 +428,16 @@ class InvariantsTest(unittest.TestCase):
         self._box = box
         self._text = text
 
-      def bounding_box(self):
+      def bounding_box(self) -> dict[str, int] | None:
         return self._box
 
-      def inner_text(self):
+      def inner_text(self) -> str:
         return self._text
 
-      def count(self):
+      def count(self) -> int:
         return 1
 
-      def locator(self, sel):
+      def locator(self, sel: str) -> "_FakeEl":
         del sel
         return self
 
@@ -456,6 +457,10 @@ class InvariantsTest(unittest.TestCase):
         if "table" in selector:
           return type("_L", (), {"all": lambda s: self._tables})()
         return type("_L", (), {"all": lambda s: []})()
+
+      def evaluate(self, script: str, arg: object = None) -> list[str]:
+        del script, arg
+        return []
 
     healthy_page = _FakePage(
         charts=[_FakeEl(box={"width": 100, "height": 100})],
@@ -566,6 +571,9 @@ class InvariantsTest(unittest.TestCase):
         def inner_text(self) -> str:
           return self._text
 
+        def count(self) -> int:
+          return 0
+
         def all(self) -> list[object]:
           return []
 
@@ -584,8 +592,8 @@ class InvariantsTest(unittest.TestCase):
           return self._text
 
         def evaluate(self, script: str, arg: object = None) -> list[str]:
-          del script, arg
-          return self._cells
+          del arg
+          return self._cells if "diffRe" in script else []
 
         def locator(self, selector: str) -> _BodyLocator:
           del selector
@@ -603,6 +611,91 @@ class InvariantsTest(unittest.TestCase):
       with self.assertRaisesRegex(AssertionError, "Negative duration -4.2"):
         ui_helpers.assert_healthy(
             _HealthyPage("Overview Page Metrics", ["-4.2 ms"]), None, "cell"
+        )
+
+  def test_layout_overlap_and_overflow_invariants(self) -> None:
+    """Verifies layout invariants pass on clean pages and flag defects."""
+
+    class _EvalPage:
+      """Page double returning scripted JS evaluation outputs."""
+
+      def __init__(
+          self,
+          response: list[str],
+          wait_fn: Callable[..., None] | None = None,
+      ):
+        self._response = response
+        self.last_arg: object = None
+        if wait_fn is not None:
+          self.wait_for_function = wait_fn
+
+      def evaluate(self, script: str, arg: object = None) -> list[str]:
+        del script
+        self.last_arg = arg
+        return self._response
+
+    self.assertEqual(invariants.check_no_sidenav_overlap(_EvalPage([])), [])
+    self.assertEqual(
+        invariants.check_no_sidenav_overlap(
+            _EvalPage([
+                "Open side drawer overlaps mat-sidenav-content by 300px"
+            ])
+        ),
+        ["Open side drawer overlaps mat-sidenav-content by 300px"],
+    )
+    self.assertEqual(
+        invariants.check_no_sidenav_overlap(
+            _EvalPage(
+                ["Open side drawer overlaps mat-sidenav-content by 12px"],
+                wait_fn=lambda script, timeout=600: None,
+            )
+        ),
+        [],
+    )
+
+    clean_overflow_page = _EvalPage([])
+    self.assertEqual(
+        invariants.check_no_horizontal_overflow(
+            clean_overflow_page, max_overflow_px=12, check_content_pane=True
+        ),
+        [],
+    )
+    self.assertEqual(clean_overflow_page.last_arg, [12, True])
+    self.assertEqual(
+        invariants.check_no_horizontal_overflow(
+            _EvalPage(["Document horizontal overflow: 120px > 16px"])
+        ),
+        ["Document horizontal overflow: 120px > 16px"],
+    )
+
+  def test_synthetic_trace_generators_and_staging(self) -> None:
+    """Verifies synthesized traces serialize valid XSpace protos."""
+    with tempfile.TemporaryDirectory() as tmp:
+      staged = pathlib.Path(tmp)
+      ui_helpers.stage_synthesized_runs(staged)
+      expected_runs = (
+          "tpu-serving",
+          "perf-utilization",
+          "perf-v4",
+          "megascale-1host",
+          "megascale-2host",
+          "empty-memory",
+      )
+      for run_name in expected_runs:
+        traces = sorted((staged / run_name).glob("*.xplane.pb"))
+        self.assertTrue(traces, f"Missing synthesized trace for {run_name}")
+        for trace_file in traces:
+          self.assertGreater(trace_file.stat().st_size, 0)
+      self.assertEqual(
+          len(list((staged / "megascale-2host").glob("*.xplane.pb"))), 2
+      )
+      for dcn_file in (
+          "ALL_HOSTS.dcn_collective_stats.pb",
+          "mega-node-0.dcn_collective_stats.pb",
+          "mega-node-1.dcn_collective_stats.pb",
+      ):
+        self.assertGreater(
+            (staged / "megascale-2host" / dcn_file).stat().st_size, 0
         )
 
 
@@ -806,6 +899,17 @@ class UiHelpersTest(unittest.TestCase):
     self.assertRegex("header-cell sort-ascending", sorted_class)
     self.assertRegex("header-cell sort-descending", sorted_class)
     self.assertNotRegex("header-cell", sorted_class)
+
+  def test_resolve_server_logdir_strips_plugins_profile_suffix(self) -> None:
+    """Verifies server logdir resolves to the parent of plugins/profile."""
+    self.assertEqual(
+        ui_helpers.resolve_server_logdir("/tmp/xprof/demo/plugins/profile"),
+        "/tmp/xprof/demo",
+    )
+    self.assertEqual(
+        ui_helpers.resolve_server_logdir("/tmp/custom_runs"),
+        "/tmp/custom_runs",
+    )
 
 
 if __name__ == "__main__":

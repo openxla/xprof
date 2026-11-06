@@ -273,54 +273,67 @@ std::vector<std::vector<const TraceEventLite*>> GetLiteTraceEventsByLevel(
   return events_by_level;
 }
 
+namespace {
+
+// Sorts every track that is not already sorted. Both n-way merges in
+// LiteTraceEventsByLevel() require sorted tracks, but a track that collects
+// same-name async events from several lines is not sorted.
+void SortUnsortedTracks(TraceEventLiteContainer* container) {
+  TraceEventLiteComparator cmp(*container);
+  auto sort_tracks = [&cmp](auto& events_map) {
+    for (auto& [metadata, events] : events_map) {
+      if (!std::is_sorted(events.begin(), events.end(), cmp)) {
+        std::sort(events.begin(), events.end(), cmp);
+      }
+    }
+  };
+  sort_tracks(container->complete_events);
+  sort_tracks(container->counter_events);
+}
+
+}  // namespace
+
 std::vector<std::vector<const TraceEventLite*>> LiteTraceEventsByLevel(
     TraceEventLiteContainer* container) {
-  XprofThreadPoolExecutor executor("LiteTraceEventsByLevelExecutor", 2);
+  SortUnsortedTracks(container);
 
-  constexpr int kNumLevels = NumLevels();
-  std::vector<std::vector<const TraceEventLite*>> events_by_level(kNumLevels);
   std::vector<TraceEventLite*> all_events;
   all_events.reserve(NumEvents(*container));
 
-  executor.Execute(
-      [&]() { events_by_level = GetLiteTraceEventsByLevel(*container); });
+  std::vector<std::vector<TraceEventLite*>> track_pointers;
+  track_pointers.reserve(container->complete_events.size() +
+                         container->counter_events.size());
 
-  executor.Execute([&]() {
-    std::vector<std::vector<TraceEventLite*>> track_pointers;
-    track_pointers.reserve(container->complete_events.size() +
-                           container->counter_events.size());
-
-    auto collect_track_pointers = [&](auto& events_map) {
-      for (auto& [metadata, events] : events_map) {
-        if (!events.empty()) {
-          track_pointers.emplace_back();
-          auto& ptrs = track_pointers.back();
-          ptrs.reserve(events.size());
-          for (auto& ev : events) {
-            ptrs.push_back(&ev);
-          }
+  auto collect_track_pointers = [&](auto& events_map) {
+    for (auto& [metadata, events] : events_map) {
+      if (!events.empty()) {
+        track_pointers.emplace_back();
+        auto& ptrs = track_pointers.back();
+        ptrs.reserve(events.size());
+        for (auto& ev : events) {
+          ptrs.push_back(&ev);
         }
       }
-    };
-
-    collect_track_pointers(container->complete_events);
-    collect_track_pointers(container->counter_events);
-
-    std::vector<const std::vector<TraceEventLite*>*> tracks_ptrs;
-    tracks_ptrs.reserve(track_pointers.size());
-    for (const auto& ptrs : track_pointers) {
-      tracks_ptrs.push_back(&ptrs);
     }
+  };
 
-    nway_merge(tracks_ptrs, std::back_inserter(all_events),
-               TraceEventLiteComparator(*container));
-  });
+  collect_track_pointers(container->complete_events);
+  collect_track_pointers(container->counter_events);
 
-  executor.JoinAll();
+  std::vector<const std::vector<TraceEventLite*>*> tracks_ptrs;
+  tracks_ptrs.reserve(track_pointers.size());
+  for (const auto& ptrs : track_pointers) {
+    tracks_ptrs.push_back(&ptrs);
+  }
 
+  nway_merge(tracks_ptrs, std::back_inserter(all_events),
+             TraceEventLiteComparator(*container));
+
+  // Assign `serial` before the per-level merge: the comparator uses it as a
+  // tie-breaker, so each level keeps the global order of tied events.
   MaybeAddEventUniqueId(all_events);
 
-  return events_by_level;
+  return GetLiteTraceEventsByLevel(*container);
 }
 
 absl::Status DoStoreLiteEventsAsTraceEventsAndMetadataLevelDbTables(

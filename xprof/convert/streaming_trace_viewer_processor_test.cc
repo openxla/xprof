@@ -560,6 +560,51 @@ TEST_F(StreamingTraceViewerProcessorTest, ProcessSessionSingleHost) {
   TF_EXPECT_OK(processor.ProcessSession(snapshot, tool_options));
 }
 
+TEST_F(StreamingTraceViewerProcessorTest,
+       ConcurrentProcessSessionOnUncachedHostIsRaceFree) {
+  XSpace space = CreateTestXSpace(2);
+  XLine* line = space.mutable_planes(0)->mutable_lines(0);
+  int64_t event_id =
+      static_cast<int64_t>(tsl::profiler::HostEventType::kSessionRun);
+  for (int i = 0; i < 500; ++i) {
+    XEvent* ev = line->add_events();
+    ev->set_metadata_id(event_id);
+    ev->set_offset_ps(2000000000LL + i * 1000000LL);
+    ev->set_duration_ps(500000LL);
+  }
+  absl::flat_hash_map<std::string, XSpace> host_xspaces = {
+      {"concurrent_host", space}};
+  TF_ASSERT_OK_AND_ASSIGN(SessionSnapshot snapshot,
+                          CreateSnapshot(host_xspaces));
+
+  constexpr int kNumThreads = 8;
+  std::vector<absl::Status> statuses(kNumThreads);
+  std::vector<std::string> outputs(kNumThreads);
+  {
+    tensorflow::profiler::XprofThreadPoolExecutor executor(
+        "ConcurrentProcessSessionTest", kNumThreads);
+    for (int t = 0; t < kNumThreads; ++t) {
+      executor.Execute([&snapshot, &statuses, &outputs, t]() {
+        ToolOptions opts;
+        opts["end_time_ms"] = "5000.0";
+        opts["resolution"] = "100";
+        StreamingTraceViewerProcessor proc(opts);
+        statuses[t] = proc.ProcessSession(snapshot, opts);
+        if (statuses[t].ok()) {
+          outputs[t] = proc.GetData();
+        }
+      });
+    }
+    executor.JoinAll();
+  }
+
+  for (int t = 0; t < kNumThreads; ++t) {
+    TF_EXPECT_OK(statuses[t]) << "Thread " << t << " failed";
+    ASSERT_FALSE(outputs[t].empty()) << "Thread " << t << " returned empty";
+    EXPECT_TRUE(nlohmann::json::parse(outputs[t]).contains("traceEvents"));
+  }
+}
+
 TEST_F(StreamingTraceViewerProcessorTest, ReduceWithEventName) {
   XSpace space = CreateTestXSpace(2);
   absl::flat_hash_map<std::string, XSpace> host_xspaces = {{"host1", space}};

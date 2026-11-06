@@ -24,9 +24,6 @@ export declare interface MemoryAnalysisBuffer {
   readonly memorySpace?: string;
 }
 
-/** Summary of memory consumption per category. */
-export type CategorySummaries = Record<string, number>;
-
 /**
  * Preprocessed peak memory analysis result payload.
  * Uses index signature to comply with Bracket Notation JSON minification rules.
@@ -34,13 +31,11 @@ export type CategorySummaries = Record<string, number>;
 export declare interface MemoryAnalysisResult {
   readonly [propertyName: string]:
     | string
-    | CategorySummaries
     | MemorySpaceBreakdown
     | MemoryAnalysisBuffer[]
     | undefined;
   readonly moduleName: string;
-  readonly categorySummaries: CategorySummaries;
-  readonly memorySpaceBreakdown?: MemorySpaceBreakdown;
+  readonly memorySpaceBreakdown: MemorySpaceBreakdown;
   readonly buffers: MemoryAnalysisBuffer[];
 }
 

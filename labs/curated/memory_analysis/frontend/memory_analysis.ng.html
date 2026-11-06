@@ -23,20 +23,6 @@
           <div class="sidebar-section">
             <div class="sidebar-section-title">Memory Space</div>
             <div class="summary-cards-container">
-              @if (spaceList.length > 1) {
-                <mat-card class="compact-summary-card space-card"
-                          [class.selected]="selectedSpace === 'all'"
-                          (click)="onSpaceSelected('all')">
-                  <div class="card-content-wrapper">
-                    <div class="card-left">
-                      <div class="category-title">All Spaces</div>
-                    </div>
-                    <div class="card-right">
-                      <span class="memory-val">{{totalMemoryMib | number:'1.1-2'}} MiB</span>
-                    </div>
-                  </div>
-                </mat-card>
-              }
               @for (space of result.memorySpaceBreakdown | keyvalue:compareSpacesDesc; track space.key) {
                 <mat-card class="compact-summary-card space-card"
                           [class.selected]="selectedSpace === space.key"

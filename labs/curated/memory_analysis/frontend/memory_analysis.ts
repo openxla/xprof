@@ -19,7 +19,6 @@ import {
 } from 'org_xprof/frontend/app/store/actions';
 
 import type {
-  CategorySummaries,
   MemoryAnalysisBuffer,
   MemoryAnalysisResult,
   MemorySpaceBreakdown,
@@ -39,10 +38,6 @@ interface CategorySummary {
   readonly percentage: number;
 }
 
-declare interface RawSummary {
-  readonly [category: string]: number | undefined;
-}
-
 declare interface RawMemorySpaceBreakdown {
   readonly [space: string]: number | undefined;
 }
@@ -60,16 +55,9 @@ declare interface RawBuffer {
   readonly memorySpace?: string;
 }
 
-function preprocessResult(raw: RawMemoryAnalysisResult): MemoryAnalysisResult {
-  const categorySummaries: CategorySummaries = {};
-  // Cast to declare interface for minification safety
-  const rawSummary = (raw['summary'] as unknown as RawSummary) ?? {};
-  for (const [category, bytes] of Object.entries(rawSummary)) {
-    if (bytes !== undefined) {
-      categorySummaries[category] = bytes / 1048576.0; // Bytes to MiB
-    }
-  }
+const DEFAULT_MEMORY_SPACE = 'HBM';
 
+function preprocessResult(raw: RawMemoryAnalysisResult): MemoryAnalysisResult {
   const memorySpaceBreakdown: MemorySpaceBreakdown = {};
   // Cast to declare interface for minification safety
   const rawBreakdown =
@@ -81,6 +69,7 @@ function preprocessResult(raw: RawMemoryAnalysisResult): MemoryAnalysisResult {
   }
 
   const buffers: MemoryAnalysisBuffer[] = [];
+  const bufferTotals: MemorySpaceBreakdown = {};
   // Cast to declare interface for minification safety
   const rawBuffers = (raw['peakHeapBuffers'] as unknown as RawBuffer[]) ?? [];
   for (const rawBuffer of rawBuffers) {
@@ -95,15 +84,17 @@ function preprocessResult(raw: RawMemoryAnalysisResult): MemoryAnalysisResult {
     }
 
     const sizeBytes = rawBuffer.size ?? 0;
+    const sizeMib = sizeBytes / 1048576.0;
     const unpaddedSize = rawBuffer.unpaddedSize ?? sizeBytes;
     const paddingBytes = sizeBytes - unpaddedSize;
     const paddingMib = paddingBytes / 1048576.0;
     const paddingPercentage =
       sizeBytes > 0 ? (paddingBytes / sizeBytes) * 100.0 : 0.0;
+    const memorySpace = rawBuffer.memorySpace || DEFAULT_MEMORY_SPACE;
 
     buffers.push({
       name: rawBuffer.label ?? '',
-      sizeMib: sizeBytes / 1048576.0,
+      sizeMib,
       category: rawBuffer.category ?? '',
       subCategory: rawBuffer.subCategory ?? '',
       group: rawBuffer.group ?? '',
@@ -113,22 +104,20 @@ function preprocessResult(raw: RawMemoryAnalysisResult): MemoryAnalysisResult {
       jaxVariablePath: rawBuffer.jaxPath ?? '',
       paddingMib,
       paddingPercentage,
-      memorySpace: rawBuffer.memorySpace ?? 'HBM',
+      memorySpace,
       'path': '',
     });
+    bufferTotals[memorySpace] = (bufferTotals[memorySpace] ?? 0) + sizeMib;
   }
 
-  if (Object.keys(memorySpaceBreakdown).length === 0) {
-    const totalBytes = Object.values(rawSummary).reduce(
-      (sum: number, v: number | undefined) => sum + (v ?? 0),
-      0,
-    );
-    memorySpaceBreakdown['HBM'] = totalBytes / 1048576.0;
+  for (const [space, totalMib] of Object.entries(bufferTotals)) {
+    if (memorySpaceBreakdown[space] === undefined) {
+      memorySpaceBreakdown[space] = totalMib;
+    }
   }
 
   return {
     moduleName: raw['moduleName'] ?? '',
-    categorySummaries,
     memorySpaceBreakdown,
     buffers,
   };
@@ -151,6 +140,10 @@ function findNodeInTree(options: {
   return null;
 }
 
+/**
+ * Returns leaf buffers under `node`; `allBuffers` must be scoped to the tree's
+ * memory space.
+ */
 function getLeafBuffers(options: {
   readonly node: Readonly<TreeNode>;
   readonly allBuffers: Readonly<MemoryAnalysisBuffer[]>;
@@ -182,6 +175,10 @@ function findTreeNodeForBuffer(options: {
   return null;
 }
 
+/**
+ * Populates `set` with buffers under `node`; `allBuffers` must be scoped to the
+ * tree's memory space.
+ */
 function populateHoveredBuffersSet(options: {
   readonly node: Readonly<TreeNode>;
   readonly set: Set<MemoryAnalysisBuffer>;
@@ -197,6 +194,28 @@ function populateHoveredBuffersSet(options: {
   for (const childNode of node.children) {
     populateHoveredBuffersSet({node: childNode, set, allBuffers});
   }
+}
+
+/**
+ * Selects HBM when present in populated spaces, otherwise the largest space.
+ */
+function pickDefaultSpace(
+  breakdown: Readonly<MemorySpaceBreakdown>,
+  spaceList: readonly string[],
+): string {
+  let candidates = [...spaceList];
+  if (candidates.length === 0) {
+    const breakdownKeys = Object.keys(breakdown);
+    const nonZeroSpaces = breakdownKeys.filter((s) => breakdown[s] > 0);
+    candidates = nonZeroSpaces.length > 0 ? nonZeroSpaces : breakdownKeys;
+  }
+  if (candidates.includes(DEFAULT_MEMORY_SPACE)) {
+    return DEFAULT_MEMORY_SPACE;
+  }
+  return (
+    candidates.sort((a, b) => breakdown[b] - breakdown[a])[0] ??
+    DEFAULT_MEMORY_SPACE
+  );
 }
 
 /**
@@ -255,7 +274,7 @@ export class MemoryAnalysis {
   };
 
   selectedDtype = 'all';
-  selectedSpace = 'all';
+  selectedSpace = DEFAULT_MEMORY_SPACE;
 
   dtypeList: string[] = [];
   spaceList: string[] = [];
@@ -280,6 +299,8 @@ export class MemoryAnalysis {
 
   // Cached full buffers list to avoid re-preprocessing
   private fullBuffers: MemoryAnalysisBuffer[] = [];
+  // Cached buffers of the currently selected memory space.
+  private spaceBuffers: MemoryAnalysisBuffer[] = [];
 
   constructor() {
     this.store.dispatch(
@@ -384,7 +405,6 @@ export class MemoryAnalysis {
       }),
     );
     if (data) {
-      this.selectedSpace = 'all';
       // Cast unknown data to RawMemoryAnalysisResult
       this.result = preprocessResult(data as RawMemoryAnalysisResult);
       this.fullBuffers = this.result.buffers;
@@ -401,55 +421,48 @@ export class MemoryAnalysis {
             .filter(Boolean) as string[],
         ),
       );
+      this.selectedSpace = pickDefaultSpace(
+        this.result.memorySpaceBreakdown,
+        this.spaceList,
+      );
 
       this.rebuildTree();
-
-      this.dtypeList = [
-        'all',
-        ...new Set(this.fullBuffers.map((b) => b.dtype).filter(Boolean)),
-      ];
-
-      this.selectedCategories = new Set(
-        this.activeCategorySummaries().map((s) => s.name),
-      );
     } else {
       this.result = null;
-      this.totalMemoryMib = 0;
-      this.rootNode = null;
       this.fullBuffers = [];
-      this.selectedCategories = new Set();
-      this.activeCategorySummaries.set([]);
-      this.dtypeList = [];
       this.spaceList = [];
-      this.selectedSpace = 'all';
+      this.selectedSpace = DEFAULT_MEMORY_SPACE;
+      this.rebuildTree();
     }
     this.applyFilters();
     this.changeDetectorRef.markForCheck();
   }
 
   private rebuildTree(): void {
-    if (this.fullBuffers.length === 0) {
+    this.spaceBuffers = this.fullBuffers.filter(
+      (b) => b.memorySpace === this.selectedSpace,
+    );
+    this.selectedDtype = 'all';
+    this.hoveredVisualNode = null;
+    this.hoveredBuffersSet.set(new Set());
+    if (this.spaceBuffers.length === 0) {
       this.totalMemoryMib = 0;
       this.rootNode = null;
       this.selectedVisualNode = null;
+      this.selectedCategories = new Set();
       this.activeCategorySummaries.set([]);
+      this.dtypeList = [];
       return;
     }
 
-    let buffersToBuild = this.fullBuffers;
-    if (this.selectedSpace !== 'all') {
-      buffersToBuild = buffersToBuild.filter(
-        (b) => b.memorySpace === this.selectedSpace,
-      );
-    }
+    this.dtypeList = [
+      'all',
+      ...new Set(this.spaceBuffers.map((b) => b.dtype).filter(Boolean)),
+    ];
 
-    let summaryMap: Record<string, number> = {};
-    if (this.selectedSpace === 'all') {
-      summaryMap = this.result ? this.result.categorySummaries : {};
-    } else {
-      for (const b of buffersToBuild) {
-        summaryMap[b.category] = (summaryMap[b.category] ?? 0) + b.sizeMib;
-      }
+    const summaryMap: Record<string, number> = {};
+    for (const b of this.spaceBuffers) {
+      summaryMap[b.category] = (summaryMap[b.category] ?? 0) + b.sizeMib;
     }
 
     const total = Object.values(summaryMap).reduce<number>(
@@ -458,18 +471,18 @@ export class MemoryAnalysis {
     );
     this.totalMemoryMib = total;
 
-    this.activeCategorySummaries.set(
-      Object.entries(summaryMap)
-        .map(([name, value]) => ({
-          name,
-          value,
-          percentage: total > 0 ? (value / total) * 100 : 0,
-        }))
-        .sort((a, b) => b.value - a.value),
-    );
+    const summaries = Object.entries(summaryMap)
+      .map(([name, value]) => ({
+        name,
+        value,
+        percentage: total > 0 ? (value / total) * 100 : 0,
+      }))
+      .sort((a, b) => b.value - a.value);
+    this.activeCategorySummaries.set(summaries);
+    this.selectedCategories = new Set(summaries.map((s) => s.name));
 
     this.rootNode = buildTree({
-      buffers: buffersToBuild,
+      buffers: this.spaceBuffers,
       metric: this.sizeMetric,
     });
     this.selectedVisualNode = this.rootNode;
@@ -516,7 +529,7 @@ export class MemoryAnalysis {
       populateHoveredBuffersSet({
         node,
         set: newSet,
-        allBuffers: this.fullBuffers,
+        allBuffers: this.spaceBuffers,
       });
     }
     this.hoveredBuffersSet.set(newSet);
@@ -567,19 +580,11 @@ export class MemoryAnalysis {
         } else {
           this.selectedVisualNode = this.rootNode;
           this.selectedDtype = 'all';
-          if (this.selectedSpace !== 'all') {
-            this.selectedSpace = 'all';
-            this.rebuildTree();
-          }
         }
       }
     } else {
       this.selectedVisualNode = this.rootNode;
       this.selectedDtype = 'all';
-      if (this.selectedSpace !== 'all') {
-        this.selectedSpace = 'all';
-        this.rebuildTree();
-      }
     }
 
     this.applyFilters();
@@ -608,15 +613,13 @@ export class MemoryAnalysis {
       return;
     }
 
-    let buffers = this.fullBuffers;
+    let buffers = this.spaceBuffers;
 
     if (this.selectedVisualNode && this.selectedVisualNode !== this.rootNode) {
       buffers = getLeafBuffers({
         node: this.selectedVisualNode,
-        allBuffers: this.fullBuffers,
+        allBuffers: this.spaceBuffers,
       });
-    } else if (this.selectedSpace !== 'all') {
-      buffers = buffers.filter((b) => b.memorySpace === this.selectedSpace);
     }
 
     const isDtypeAll = this.selectedDtype === 'all';
@@ -653,7 +656,7 @@ export class MemoryAnalysis {
     const matchNode = findTreeNodeForBuffer({node: this.rootNode, buffer: row});
     if (matchNode) {
       this.hoveredVisualNode = matchNode;
-      const allMatches = this.fullBuffers.filter(
+      const allMatches = this.spaceBuffers.filter(
         (b) => b['path'] === matchNode.path,
       );
       this.hoveredBuffersSet.set(new Set(allMatches));

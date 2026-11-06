@@ -13,6 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -27,6 +28,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/trace_utils.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xprof/convert/file_utils.h"
+#include "xprof/convert/trace_viewer/lite_trace_events.h"
 #include "xprof/convert/xplane_to_trace_container.h"
 #include "xprof/utils/tensorflow_utils.h"
 
@@ -204,6 +206,99 @@ TEST(XPlaneToTraceContainerTest, SubprocessHostTrace_ConvertsToTraceEvents) {
   });
   EXPECT_TRUE(event1_found);
   EXPECT_TRUE(event2_found);
+}
+
+TEST(XPlaneToTraceContainerTest,
+     LiteTraceEventsMultiLineAsyncAndSimultaneousEventsAreMonotonic) {
+  XSpace xspace;
+  CHECK_OK(ParseTextFormatFromString(
+      R"pb(
+        planes {
+          name: "/host:CPU"
+          lines {
+            id: 1
+            name: "MegaScale Thread 1"
+            events {
+              metadata_id: 1
+              offset_ps: 5000000
+              duration_ps: 100000
+              stats { metadata_id: 10 uint64_value: 1 }
+              stats { metadata_id: 11 int64_value: 1 }
+            }
+            events {
+              metadata_id: 1
+              offset_ps: 5000000
+              duration_ps: 300000
+              stats { metadata_id: 10 uint64_value: 2 }
+              stats { metadata_id: 11 int64_value: 1 }
+            }
+          }
+          lines {
+            id: 2
+            name: "MegaScale Thread 2"
+            events {
+              metadata_id: 1
+              offset_ps: 1000000
+              duration_ps: 200000
+              stats { metadata_id: 10 uint64_value: 3 }
+              stats { metadata_id: 11 int64_value: 1 }
+            }
+            events {
+              metadata_id: 1
+              offset_ps: 5000000
+              duration_ps: 200000
+              stats { metadata_id: 10 uint64_value: 4 }
+              stats { metadata_id: 11 int64_value: 1 }
+            }
+            events {
+              metadata_id: 3
+              offset_ps: 5000000
+              duration_ps: 200000
+              stats { metadata_id: 10 uint64_value: 5 }
+              stats { metadata_id: 11 int64_value: 1 }
+            }
+          }
+          event_metadata {
+            key: 1
+            value: {
+              id: 1
+              name: "MegaScale:NetworkSendDone_CollectiveChannel_Beta"
+            }
+          }
+          event_metadata {
+            key: 3
+            value: {
+              id: 3
+              name: "MegaScale:NetworkSendDone_CollectiveChannel_Alpha"
+            }
+          }
+          stat_metadata {
+            key: 10
+            value: { id: 10 name: "flow" }
+          }
+          stat_metadata {
+            key: 11
+            value: { id: 11 name: "is_async" }
+          }
+        }
+      )pb",
+      &xspace));
+
+  TraceEventLiteContainer lite_container;
+  ConvertXSpaceToLiteTraceEventsContainer("localhost", xspace, &lite_container);
+  EXPECT_EQ(NumEvents(lite_container), 5);
+
+  auto events_by_level = LiteTraceEventsByLevel(&lite_container);
+  EXPECT_FALSE(events_by_level.empty());
+  for (const auto& level_events : events_by_level) {
+    for (size_t i = 1; i < level_events.size(); ++i) {
+      const TraceEventLite* prev = level_events[i - 1];
+      const TraceEventLite* curr = level_events[i];
+      EXPECT_TRUE(prev->timestamp_ps < curr->timestamp_ps ||
+                  (prev->timestamp_ps == curr->timestamp_ps &&
+                   prev->serial < curr->serial));
+    }
+  }
 }
 
 }  // namespace

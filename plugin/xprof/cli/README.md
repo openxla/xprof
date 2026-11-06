@@ -15,7 +15,7 @@ bazel run //third_party/xprof/plugin/xprof/cli:xprof_cli -- <command> <path_to_t
 
 ## Available Commands
 
-The CLI provides 23 core tools for comprehensive accelerator profile analysis:
+The CLI provides 28 core tools for comprehensive accelerator profile analysis:
 
 ### Overview & Telemetry
 
@@ -33,8 +33,6 @@ The CLI provides 23 core tools for comprehensive accelerator profile analysis:
 
 ### HLO & Compiler Analysis
 
-> **Prerequisite for HLO-proto tools:** The static HLO detectors (`detect_*`) and other tools that parse the raw HLO proto rely on the generated `hlo_pb2` Python bindings, which ship in the `tensorflow` package (`tensorflow/compiler/xla/service/hlo_pb2.py`). Install `tensorflow` (or the lighter `tensorflow-cpu`) into the same environment; xprof auto-detects it and no code change is required. Without it, these tools report the HLO proto as unavailable and degrade gracefully. Note that `jax`/`jaxlib` do **not** provide these bindings.
-
 *   **`get_top_hlo_ops`**: Fetches the most expensive HLO operations sorted by execution time, FLOPs, or memory traffic.
 *   **`get_hlo_op_profile`**: Formatted HLO operation profile breakdown table.
 *   **`list_hlo_modules`**: Lists all HLO modules available in the profile session.
@@ -45,7 +43,7 @@ The CLI provides 23 core tools for comprehensive accelerator profile analysis:
 
 ### Static HLO Detectors
 
-> These detectors parse the raw HLO proto and require the `tensorflow` prerequisite noted above.
+> These detectors parse the raw HLO proto using the HLO schema bundled with xprof, so they need no extra packages (such as `tensorflow`). They rank candidates by the device-side op profile, so use a TPU or GPU trace; a CPU-only trace reports no findings.
 
 *   **`detect_unfused_reshapes`**: Flags reshape ops that materialize large tensors to HBM instead of being fused, adding avoidable memory traffic.
 *   **`detect_unfused_updates`**: Detects unfused sequences of small elementwise/update ops that could be fused to reduce HBM round-trips.

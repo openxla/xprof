@@ -334,6 +334,21 @@ pytype_strict_contrib_test(
 )
 
 pytype_strict_contrib_test(
+    name = "oss_detect_tools_test",
+    srcs = ["oss_detect_tools_test.py"],
+    deps = [
+        "//plugin/xprof/cli/internal/oss:hlo_tools",
+        "//plugin/xprof/cli/tools:detect_layout_mismatch_copies_tool",
+        "//plugin/xprof/cli/tools:detect_unfused_reshapes_tool",
+        "//plugin/xprof/cli/tools:detect_unfused_updates_tool",
+        "//plugin/xprof/cli/tools:detect_unnecessary_convert_dynamic_scale_tool",
+        "//plugin/xprof/cli/tools:detect_unnecessary_convert_reduce_tool",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+pytype_strict_contrib_test(
     name = "oss_upload_trace_tool_test",
     srcs = ["oss_upload_trace_tool_test.py"],
     deps = [
@@ -474,6 +489,26 @@ py_test(
         "//plugin/xprof/cli/tools:get_overview_tool",
         "//plugin/xprof/cli/tools:get_roofline_model_tool",
         "//plugin/xprof/cli/tools:get_top_hlo_ops_tool",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+py_test(
+    name = "test_detect_tools_e2e",
+    timeout = "moderate",
+    srcs = ["e2e/test_detect_tools_e2e.py"],
+    data = [
+        "//xprof:demo_traces",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//plugin/xprof/cli/internal/oss:hlo_tools",
+        "//plugin/xprof/cli/tools:detect_layout_mismatch_copies_tool",
+        "//plugin/xprof/cli/tools:detect_unfused_reshapes_tool",
+        "//plugin/xprof/cli/tools:detect_unfused_updates_tool",
+        "//plugin/xprof/cli/tools:detect_unnecessary_convert_dynamic_scale_tool",
+        "//plugin/xprof/cli/tools:detect_unnecessary_convert_reduce_tool",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
     ],

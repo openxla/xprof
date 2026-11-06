@@ -54,7 +54,7 @@ import {
   prettyPrintHloStackTrace,
 } from './hlo_pretty_printer';
 // Imported outside copybara strip block so formatTimeUs is available in OSS builds.
-import {formatTimeUs} from './trace_viewer_utils';
+import {formatTimeUs, splitTimeUs} from './trace_viewer_utils';
 
 import {
   isSearchEventsEvent,
@@ -966,7 +966,16 @@ export class TraceViewerContainer
       return undefined;
     }
     if (event.rawEvent) {
-      return {...event.rawEvent};
+      const json: Record<string, unknown> = {};
+      for (const [key, val] of Object.entries(event.rawEvent)) {
+        if ((key === 'ts' || key === 'dur') && typeof val === 'number') {
+          const {value, unit} = splitTimeUs(val);
+          json[`${key} (${unit})`] = value;
+        } else {
+          json[key] = val;
+        }
+      }
+      return json;
     }
     // Uses the field names and order of the backend response. Fields that are
     // not known yet (e.g. `tid`) are omitted.
@@ -974,10 +983,21 @@ export class TraceViewerContainer
       ['pid', event.pid],
       ['tid', event.tid],
       ['name', event.name],
-      ['ts', event.ts],
-      ['dur', event.dur],
-      ['ph', event.ph],
     ];
+    if (typeof event.ts === 'number') {
+      const {value, unit} = splitTimeUs(event.ts);
+      fields.push([`ts (${unit})`, value]);
+    } else if (event.ts !== undefined) {
+      fields.push(['ts', event.ts]);
+    }
+    if (typeof event.dur === 'number') {
+      const {value, unit} = splitTimeUs(event.dur);
+      fields.push([`dur (${unit})`, value]);
+    } else if (event.dur !== undefined) {
+      fields.push(['dur', event.dur]);
+    }
+    fields.push(['ph', event.ph]);
+
     const json: Record<string, unknown> = {};
     for (const [key, value] of fields) {
       if (value !== undefined) {

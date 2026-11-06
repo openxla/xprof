@@ -20,21 +20,25 @@ export function formatSi(value: number, unit: string, fractionDigits = 2) {
   return `${sign}${scaled.toFixed(fractionDigits)} ${prefixes[index]}${unit}`;
 }
 
+/** Result of splitting a microsecond timestamp or duration into an adaptable unit and value. */
+export interface SplitTime {
+  value: number;
+  unit: 's' | 'ms' | 'us' | 'ns';
+}
+
 /**
- * Formats a timestamp or duration in microseconds with adaptable units (s, ms, us, ns).
+ * Splits a timestamp or duration in microseconds into an adaptable unit (s, ms, us, ns)
+ * and numeric value rounded to at most `maxFractionDigits` (default 2).
  *
- * Capped to at most `maxFractionDigits` (default 2) and trims trailing zeros. Rolls up boundary
- * values so "1000 ms", "1000 us", or "1000 ns" never appear. Non-finite values (NaN, Infinity,
- * -Infinity) return '-'.
+ * Rolls up boundary values so "1000 ms", "1000 us", or "1000 ns" roll up to 1 s, 1 ms, or 1 us.
  */
-export function formatTimeUs(valueUs: number, maxFractionDigits = 2): string {
+export function splitTimeUs(valueUs: number, maxFractionDigits = 2): SplitTime {
   if (!Number.isFinite(valueUs)) {
-    return '-';
+    return {value: valueUs, unit: 'us'};
   }
-  const sign = valueUs < 0 ? '-' : '';
   const absUs = Math.abs(valueUs);
 
-  let unit = 'ns';
+  let unit: 's' | 'ms' | 'us' | 'ns' = 'ns';
   let scaled = absUs * 1e3;
 
   if (absUs >= 1e6) {
@@ -65,6 +69,20 @@ export function formatTimeUs(valueUs: number, maxFractionDigits = 2): string {
     }
   }
 
-  return `${sign}${formatted} ${unit}`;
+  const roundedValue = Number(formatted) * (valueUs < 0 ? -1 : 1);
+  return {value: roundedValue, unit};
+}
+
+/**
+ * Formats a timestamp or duration in microseconds with adaptable units (s, ms, us, ns).
+ *
+ * Non-finite values (NaN, Infinity, -Infinity) return '-'.
+ */
+export function formatTimeUs(valueUs: number, maxFractionDigits = 2): string {
+  if (!Number.isFinite(valueUs)) {
+    return '-';
+  }
+  const {value, unit} = splitTimeUs(valueUs, maxFractionDigits);
+  return `${value} ${unit}`;
 }
 

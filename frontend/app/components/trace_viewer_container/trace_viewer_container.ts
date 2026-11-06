@@ -145,6 +145,7 @@ export declare interface EntrySelectedEventDetail {
   hloModuleName?: string;
   hloOpName?: string;
   args?: Record<string, string>;
+  trackName?: string;
 }
 
 // Type guard for the 'EntrySelected' custom event.
@@ -187,6 +188,8 @@ export interface SelectedEvent {
   dur?: number;
   ph?: string;
   uid?: string;
+  trackName?: string;
+  source?: string;
   /**
    * The event as returned by the backend event details response, rendered as
    * is in the details panel.

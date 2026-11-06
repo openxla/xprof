@@ -23,10 +23,10 @@ struct NamedColor {
 // unit's utilization chart matches its bars there.
 constexpr NamedColor kUnitColors[] = {
     {"MXU", 0xFFFF4D7C},    // #7C4DFF
-    {"XLU", 0xFF0099F2},    // #F29900
-    {"SALU", 0xFF3E8E1E},   // #1E8E3E
     {"VPU", 0xFFE8731A},    // #1A73E8
+    {"XLU", 0xFF0099F2},    // #F29900
     {"EUP", 0xFFAFA412},    // #12A4AF
+    {"SALU", 0xFF3E8E1E},   // #1E8E3E
     {"VLD", 0xFFBFA300},    // #00A3BF
     {"VST", 0xFF8418D0},    // #D01884
     {"DMA", 0xFF0A71E8},    // #E8710A

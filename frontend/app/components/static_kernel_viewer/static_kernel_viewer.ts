@@ -14,7 +14,10 @@ import {
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {DEFAULT_HOST} from 'org_xprof/frontend/app/common/constants/constants';
-import {readHoveredEvent} from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_event_tooltip';
+import {
+  FUNCTIONAL_UNITS,
+  readHoveredEvent,
+} from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_event_tooltip';
 import {
   KernelMinimap,
   MINIMAP_UPDATED_EVENT_NAME,
@@ -299,17 +302,24 @@ const GROUP_COLORS = [
   '#5f6368',
 ];
 
-/** Colors of functional units, matched by uppercase prefix. */
-const UNIT_COLORS: ReadonlyArray<readonly [string, string]> = [
-  ['MXU', '#7c4dff'],
-  ['VPU', '#1a73e8'],
+/** Darker functional unit colors for text contrast in the kernel rail. */
+const RAIL_UNIT_COLOR_OVERRIDES: ReadonlyMap<string, string> = new Map([
+  ['XLU', '#e37400'],
+  ['EUP', '#00796b'],
   ['SALU', '#188038'],
   ['VLD', '#00838f'],
   ['VST', '#c2185b'],
-  ['XLU', '#e37400'],
-  ['EUP', '#00796b'],
-  ['DMA', '#e8710a'],
-];
+]);
+
+/** Colors of functional units, matched by uppercase prefix. */
+const UNIT_COLORS: ReadonlyArray<readonly [string, string]> =
+  FUNCTIONAL_UNITS.filter((unit) => unit.label !== 'Other').map(
+    (unit) =>
+      [
+        unit.label,
+        RAIL_UNIT_COLOR_OVERRIDES.get(unit.label) ?? unit.color,
+      ] as const,
+  );
 
 /** Kinds of kernel that the backend reports, see `parseKernelKind`. */
 const KERNEL_KINDS: ReadonlyMap<string, KernelKind> = new Map([

@@ -248,10 +248,10 @@ function readCssHexColor(value: unknown): string | undefined {
 /** Functional units in the Static Kernel Viewer timeline. */
 export const FUNCTIONAL_UNITS: readonly FunctionalUnit[] = [
   {label: 'MXU', color: '#7c4dff'},
-  {label: 'XLU', color: '#f29900'},
-  {label: 'SALU', color: '#1e8e3e'},
   {label: 'VPU', color: '#1a73e8'},
+  {label: 'XLU', color: '#f29900'},
   {label: 'EUP', color: '#12a4af'},
+  {label: 'SALU', color: '#1e8e3e'},
   {label: 'VLD', color: '#00a3bf'},
   {label: 'VST', color: '#d01884'},
   {label: 'DMA', color: '#e8710a'},

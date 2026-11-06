@@ -8,6 +8,8 @@
  * user then tries it, and are sampled frame by frame.
  */
 
+import {FUNCTIONAL_UNITS_BY_LANE} from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_event_tooltip';
+
 /** A position, in viewport pixels. */
 export interface Point {
   readonly x: number;
@@ -555,24 +557,12 @@ function boxAround(point: Point, radius: number): Box {
   };
 }
 
-const UNIT_LANES = new Set([
-  'MXU',
-  'XLU',
-  'SALU',
-  'VPU',
-  'EUP',
-  'VLD',
-  'VST',
-  'DMA',
-  'Other',
-]);
-
 /** What the demo of the inspect step asks the user to click. */
 export function clickCaptionFor(lane: string | undefined): string {
   if (lane === undefined) {
     return 'Click a block in a unit lane';
   }
-  if (UNIT_LANES.has(lane)) {
+  if (FUNCTIONAL_UNITS_BY_LANE.has(lane)) {
     return `Click this ${lane} instruction`;
   }
   if (lane === 'Regions') {

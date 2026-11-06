@@ -91,23 +91,25 @@ export const DEFAULT_MINIMAP_THEME: MinimapTheme = {
   traceColors: TRACE_VIEWER_PALETTE,
 };
 
+// Matches FUNCTIONAL_UNITS order in kernel_event_tooltip.ts using Catapult
+// canvas colors; kept separate so kernel_minimap stays dependency-free.
 const FUNCTIONAL_UNITS: readonly FunctionalUnit[] = [
   {label: 'MXU', description: 'Matrix multiply unit', color: '#cc9eff'},
+  {label: 'VPU', description: 'Vector ALU', color: '#96c1ff'},
   {
     label: 'XLU',
     description: 'Cross-lane unit — transpose / permute / reduce',
     color: '#e4b886',
   },
   {
-    label: 'SALU',
-    description: 'Scalar ALU — control flow, addressing, DMA issue',
-    color: '#b1d284',
-  },
-  {label: 'VPU', description: 'Vector ALU', color: '#96c1ff'},
-  {
     label: 'EUP',
     description: 'Extended unary pipeline — exp, rcp, tanh',
     color: '#80ddcc',
+  },
+  {
+    label: 'SALU',
+    description: 'Scalar ALU — control flow, addressing, DMA issue',
+    color: '#b1d284',
   },
   {label: 'VLD', description: 'Vector load — VMEM → vregs', color: '#85d1ff'},
   {label: 'VST', description: 'Vector store — vregs → VMEM', color: '#ff92c1'},

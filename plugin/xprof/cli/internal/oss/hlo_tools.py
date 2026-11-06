@@ -2,10 +2,18 @@
 
 import collections
 from collections.abc import Sequence
+import dataclasses
+import functools
 import hashlib
 import json
 import logging
 import pathlib
+from typing import Any
+
+from google.protobuf import descriptor_pb2
+from google.protobuf import descriptor_pool
+from google.protobuf import message
+from google.protobuf import message_factory
 
 # pylint: disable=g-import-not-at-top,g-direct-tensorflow-import
 try:
@@ -60,6 +68,93 @@ def get_hlo_proto_files(session_id: str) -> Sequence[pathlib.Path]:
 
 
 _get_hlo_proto_files = get_hlo_proto_files
+
+
+# FileDescriptorSet of xla/service/hlo.proto and its imports, generated at build
+# time and shipped next to this module.
+_HLO_DESCRIPTOR_SET_PATH = pathlib.Path(__file__).with_name(
+    "hlo_descriptor_set.pb"
+)
+
+
+@dataclasses.dataclass
+class _DebugInfoCollection:
+  """Parsed HLO protos of a session, field-compatible with DebugInfoCollection.
+
+  `hlo_proto[i]` is an `xla.HloProto` message and `program_id[i]` is its
+  program id (0 if unknown).
+  """
+
+  hlo_proto: list[Any] = dataclasses.field(default_factory=list)
+  program_id: list[int] = dataclasses.field(default_factory=list)
+
+
+@functools.cache
+def _hlo_proto_class() -> type[Any]:
+  """Returns the `xla.HloProto` message class built from a private pool.
+
+  A private DescriptorPool is used so that nothing is registered in the global
+  protobuf pool, avoiding conflicts with other packages (e.g. TensorFlow) that
+  ship their own copy of the XLA protos.
+
+  Raises:
+    FileNotFoundError: If the HLO descriptor set is missing.
+  """
+  fds = descriptor_pb2.FileDescriptorSet.FromString(  # pyrefly: ignore[missing-attribute]
+      _HLO_DESCRIPTOR_SET_PATH.read_bytes()
+  )
+  pool = descriptor_pool.DescriptorPool()
+  # proto_descriptor_set lists dependencies before the files that import them.
+  for fd in fds.file:
+    pool.AddSerializedFile(fd.SerializeToString())
+  desc = pool.FindMessageTypeByName("xla.HloProto")
+  get_message_class = getattr(message_factory, "GetMessageClass", None)
+  if get_message_class is not None:  # protobuf >= 4.22
+    return get_message_class(desc)
+  # Older protobuf releases only provide MessageFactory.GetPrototype.
+  return message_factory.MessageFactory(pool).GetPrototype(desc)  # pyrefly: ignore[missing-attribute]
+
+
+def _parse_program_id(path: pathlib.Path) -> int:
+  """Parses `<module>(<program_id>).hlo_proto.pb`; returns 0 if absent."""
+  stem = path.name.removesuffix(".hlo_proto.pb")
+  if stem.endswith(")") and "(" in stem:
+    program_id = stem[stem.rfind("(") + 1 : -1]
+    if program_id.isdigit():
+      return int(program_id)
+  return 0
+
+
+def _fetch_debug_info(session_id: str) -> _DebugInfoCollection:
+  """Loads all HLO protos of a session as `xla.HloProto` messages.
+
+  Args:
+    session_id: The unique XProf session ID.
+
+  Returns:
+    A collection with parallel `hlo_proto` and `program_id` lists.
+
+  Raises:
+    FileNotFoundError: If the session has no HLO protos or the HLO descriptor
+      set is missing.
+    ValueError: If none of the HLO protos could be parsed.
+  """
+  files = _get_hlo_proto_files(session_id)
+  if not files:
+    raise FileNotFoundError("No HLO proto found.")
+  hlo_proto_class = _hlo_proto_class()
+  debug_info = _DebugInfoCollection()
+  for path in files:
+    try:
+      hlo_proto = hlo_proto_class.FromString(path.read_bytes())
+    except message.DecodeError as e:
+      logging.warning("Skipping unreadable HLO proto %s: %r", path, e)
+      continue
+    debug_info.hlo_proto.append(hlo_proto)
+    debug_info.program_id.append(_parse_program_id(path))
+  if not debug_info.hlo_proto:
+    raise ValueError(f"Failed to parse any HLO proto for session {session_id}.")
+  return debug_info
 
 
 def _resolve_from_available_modules(

@@ -1,11 +1,13 @@
 <div>
   <div class="mat-headline">Memory Breakdown Table</div>
   <mat-form-field>
+    <mat-label>Operation</mat-label>
     <input
       matInput
       placeholder="Operation"
+      aria-label="Operation"
       [value]="filterOperation"
-      (input)="filterOperation = $event.target.value; drawTable()"
+      (input)="onFilterChanged($any($event.target).value)"
     />
     <mat-icon matSuffix>search</mat-icon>
   </mat-form-field>
@@ -15,6 +17,94 @@
   sluggishness, only the allocations with size over 1MiB are shown in the table below.
 </div>
 <br />
-<div>
-  <div #table class="table"></div>
+<div class="table">
+  <div class="table-container">
+    <table
+      mat-table
+      [dataSource]="dataSource"
+      [trackBy]="trackByRow"
+      matSort
+      class="gm3-high-density-table"
+    >
+      <!-- Op Name Column -->
+      <ng-container matColumnDef="opName">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header class="col-op-name">Op Name</th>
+        <td mat-cell *matCellDef="let row" class="col-op-name code-font" [title]="row.opName">
+          <span class="text-truncate">{{ row.opName }}</span>
+        </td>
+      </ng-container>
+
+      <!-- Allocation Size (GiBs) Column -->
+      <ng-container matColumnDef="allocationSizeGiBs">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header class="col-num col-alloc-size">
+          Allocation Size (GiBs)
+        </th>
+        <td mat-cell *matCellDef="let row" class="col-num col-alloc-size code-font">
+          {{ row.allocationSizeGiBs | number:'1.3-3' }}
+        </td>
+      </ng-container>
+
+      <!-- Requested Size (GiBs) Column -->
+      <ng-container matColumnDef="requestedSizeGiBs">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header class="col-num col-req-size">
+          Requested Size (GiBs)
+        </th>
+        <td mat-cell *matCellDef="let row" class="col-num col-req-size code-font">
+          {{ row.requestedSizeGiBs | number:'1.3-3' }}
+        </td>
+      </ng-container>
+
+      <!-- Occurrences Column -->
+      <ng-container matColumnDef="occurrences">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header class="col-num col-occurrences">
+          Occurrences
+        </th>
+        <td mat-cell *matCellDef="let row" class="col-num col-occurrences code-font">
+          {{ row.occurrences | number:'1.0-0' }}
+        </td>
+      </ng-container>
+
+      <!-- Region type Column -->
+      <ng-container matColumnDef="regionType">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header class="col-region-type">Region type</th>
+        <td mat-cell *matCellDef="let row" class="col-region-type">
+          {{ row.regionType }}
+        </td>
+      </ng-container>
+
+      <!-- Data type Column -->
+      <ng-container matColumnDef="dataType">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header class="col-data-type">Data type</th>
+        <td mat-cell *matCellDef="let row" class="col-data-type code-font">
+          {{ row.dataType }}
+        </td>
+      </ng-container>
+
+      <!-- Shape Column -->
+      <ng-container matColumnDef="shape">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header class="col-shape">Shape</th>
+        <td mat-cell *matCellDef="let row" class="col-shape code-font" [title]="row.shape">
+          <span class="text-truncate">{{ row.shape }}</span>
+        </td>
+      </ng-container>
+
+      <tr mat-header-row *matHeaderRowDef="displayedColumns; sticky: true" class="gm3-header-row"></tr>
+      <tr mat-row *matRowDef="let row; columns: displayedColumns;" class="gm3-row"></tr>
+
+      <tr class="mat-row" *matNoDataRow>
+        <td class="mat-cell empty-table-cell" [attr.colspan]="displayedColumns.length">
+          No memory allocations found matching filter criteria.
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- Paginator -->
+  <mat-paginator
+    [pageSizeOptions]="[10, 25, 50, 100]"
+    [pageSize]="25"
+    showFirstLastButtons
+    class="gm3-paginator"
+  >
+  </mat-paginator>
 </div>

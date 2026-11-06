@@ -19,3 +19,78 @@ mat-icon {
 .table {
   margin: 0 -20px;
 }
+
+.table-container {
+  max-height: 600px;
+  overflow: auto;
+}
+
+.gm3-high-density-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+
+  tr.gm3-header-row {
+    height: 36px;
+    background-color: #fff;
+    border-bottom: 1px solid #e0e0e0;
+
+    th.mat-header-cell {
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      color: rgba(0, 0, 0, 0.87);
+      border-bottom: 1px solid #e0e0e0;
+      white-space: nowrap;
+    }
+  }
+
+  tr.gm3-row {
+    height: 32px;
+    border-bottom: 1px solid #f0f0f0;
+
+    &:hover {
+      background-color: #f8f9fa;
+    }
+
+    td.mat-cell {
+      padding: 4px 12px;
+      font-size: 12px;
+      color: rgba(0, 0, 0, 0.87);
+      border-bottom: 1px solid #f0f0f0;
+    }
+  }
+
+  .col-num {
+    text-align: center;
+
+    ::ng-deep .mat-sort-header-container {
+      justify-content: center;
+    }
+  }
+
+  .code-font {
+    font-family: var(--code-font-family, common.$code-font-family);
+  }
+
+  .text-truncate {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+  }
+
+  .empty-table-cell {
+    text-align: center;
+    padding: 32px 16px;
+    color: rgba(0, 0, 0, 0.54);
+    font-size: 13px;
+    font-style: italic;
+  }
+}
+
+.gm3-paginator {
+  border-top: 1px solid #e0e0e0;
+  font-size: 12px;
+}

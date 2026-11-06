@@ -20,6 +20,7 @@ export class HostSideAnalysisDetail implements OnInit, OnChanges {
   /** The recommendation data. */
   @Input()
   set recommendation(data: SimpleDataTable|null) {
+    this.recommendations = [];
     data = data || DEFAULT_SIMPLE_DATA_TABLE;
     data.rows = data.rows || [];
     data.rows.forEach(row => {

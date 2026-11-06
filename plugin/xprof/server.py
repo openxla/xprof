@@ -171,10 +171,10 @@ def _launch_server(
   Args:
     config: The ServerConfig object containing all server settings.
   """
-  _pywrap_profiler_plugin.initialize_stubs(config.worker_service_address)
   _pywrap_profiler_plugin.start_grpc_server(
       config.grpc_port, config.max_concurrent_worker_requests
   )
+  _pywrap_profiler_plugin.initialize_stubs(config.worker_service_address)
 
   context = TBContext(
       config.logdir, DataProvider(config.logdir), TBContext.Flags(False)

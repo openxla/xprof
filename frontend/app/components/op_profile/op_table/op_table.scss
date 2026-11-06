@@ -1,21 +1,145 @@
-/** CSS for an op talbe view component. */
+/** CSS for an op table view component. */
 
 @use 'frontend/app/components/op_profile/op_profile_common';
+@use 'frontend/app/styles/common';
 
-.header {
+:host { display: block; color: common.$content-primary-color; }
+
+mat-table.op-table {
+  background: #fff;
   display: flex;
-  align-items: center;
-  font-size: smaller;
-  font-weight: bold;
-  color: #666;
-  padding-bottom: .25em;
-  text-transform: uppercase;
-  white-space: nowrap;
+  flex-direction: column;
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 13.33px;
 }
 
-.header > * {
-  padding: .5em .5em 0;
-  overflow: hidden;
-  flex-shrink: 0;
+.header, .header > mat-header-cell, mat-row.row, mat-cell {
+  height: 33.33px;
+  min-height: 33.33px;
+  display: flex;
+  align-items: center;
   box-sizing: border-box;
+  font-size: 13.33px;
+  border-bottom: none;
+}
+
+.header {
+  width: 100%;
+  font-weight: bold;
+  color: #666;
+  text-transform: uppercase;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background-color: #fff;
+}
+
+.header > mat-header-cell, mat-cell {
+  padding: 0 0.5em;
+  overflow: hidden;
+  margin-left: 0;
+  text-align: center;
+  justify-content: center;
+}
+
+mat-cell { position: relative; z-index: 2; background: transparent; line-height: 20px; }
+
+mat-row.row {
+  position: relative;
+  border-top: 1px solid #eee;
+  z-index: 0;
+  cursor: pointer;
+  outline: none;
+  width: 100%;
+
+  &:focus-visible { outline: 2px solid #1a73e8; outline-offset: -2px; }
+
+  &.expanded { background-color: rgba(0, 0, 0, 0.04); }
+
+  &:hover { background-color: rgba(0, 0, 0, 0.05); }
+
+  &::before, &.row-selected::after { content: ''; position: absolute; inset: 0 auto 0 0; pointer-events: none; }
+
+  &::before { width: var(--bar-width, 0%); background-color: #cde; z-index: 0; }
+
+  &.row-selected::after { width: 8px; background-color: #e8710a; z-index: 1; }
+}
+
+.time-header, .time, .hbmFraction-header, .hbmFraction { flex: 1 1 70px; min-width: 70px; }
+
+.wasted-header, .wasted { flex: 1 1 85px; min-width: 85px; }
+
+.name-header, .name { flex: 3 1 280px; min-width: 280px; text-align: left; justify-content: flex-start; word-break: break-all; }
+
+.provenance-header, .provenance { flex: 2 1 140px; min-width: 140px; text-align: left; justify-content: flex-start; }
+
+.utilization-header, .utilization { flex: 1 1 65px; min-width: 65px; }
+
+.hbmUtilization-header, .hbmUtilization {
+  flex: 1 1 90px;
+  min-width: 90px;
+
+  .accessible_text { display: inline-block; width: 32px; text-align: left; margin-right: 4px; flex-shrink: 0; }
+
+  .hbmUtilization-value { display: inline-block; min-width: 50px; text-align: center; flex-shrink: 0; }
+}
+
+.flame-color-circle-header, .flame-color-circle-cell, .hbm-flame-color-circle-header, .hbm-flame-color-circle-cell {
+  flex: 0 0 28px;
+  min-width: 28px;
+  padding: 0;
+  overflow: visible;
+
+  .flame-color-circle, .hbm-flame-color-circle { margin: 0 auto; }
+}
+
+.leftout-row { border: none; min-height: 24px; }
+
+.leftout-cell { padding: 0; width: 100%; justify-content: flex-start; text-align: left; }
+
+.leftout { padding-left: 175px; font-style: italic; font-size: 13.33px; }
+
+.diff-badge { font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
+
+.badge-added { background-color: #e6f4ea; color: #137333; border: 1px solid #ceead6; }
+
+.badge-removed { background-color: #fce8e6; color: #c5221f; border: 1px solid #fad2cf; }
+
+.removed-text { opacity: 0.65; text-decoration: line-through; }
+
+.kernel-viewer-link { margin-left: 4px; color: #1967d2; text-decoration: none; }
+
+.kernel-viewer-link-icon { width: 14px; height: 14px; font-size: 14px; vertical-align: text-bottom; }
+
+.serving-badge {
+  display: inline-block;
+  max-width: min(320px, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  padding: 1px 7px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+  background: #fff;
+  color: #3c4043;
+  border: 1px solid #bdc1c6;
+  word-break: normal;
+}
+
+.accessible-serving-metadata {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

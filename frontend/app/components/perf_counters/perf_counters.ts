@@ -81,7 +81,7 @@ export class PerfCounters extends Dashboard implements OnDestroy {
   }
 
   override parseData(data: SimpleDataTable | null) {
-    if (!data) return;
+    if (!data || !this.ensureChartPackagesLoaded(data)) return;
 
     const dataTable = new google.visualization.DataTable(data);
 

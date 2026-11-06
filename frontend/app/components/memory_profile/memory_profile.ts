@@ -89,23 +89,26 @@ export class MemoryProfile extends MemoryProfileBase implements OnDestroy {
 
     const hostIds = [];
     if (this.data) {
-      const numHosts = this.data.numHosts!;
+      const numHosts = this.data.numHosts || 0;
       for (let i = 0; i < numHosts; ++i) {
         hostIds.push(i);
       }
     }
+    if (hostIds.length === 0) {
+      hostIds.push(0);
+    }
     this.hostIds = hostIds;
 
     let hasIncompleteSteps = false;
-    if (this.data) {
-      const snapshots =
-          this.data.memoryProfilePerAllocator![this.selectedMemoryId]
-              .sampledTimelineSnapshots!;
-      if (snapshots) {
-        hasIncompleteSteps = snapshots.length === 0 ||
-            Number(snapshots[snapshots.length - 1].activityMetadata!.stepId!) <
-                1;
-      }
+    const allocatorProfile = this.selectedMemoryId
+      ? this.data?.memoryProfilePerAllocator?.[this.selectedMemoryId]
+      : undefined;
+    const snapshots = allocatorProfile?.sampledTimelineSnapshots;
+    if (snapshots) {
+      hasIncompleteSteps =
+        snapshots.length === 0 ||
+        Number(snapshots[snapshots.length - 1]?.activityMetadata?.stepId ?? 0) <
+          1;
     }
     this.hasIncompleteSteps = hasIncompleteSteps;
   }

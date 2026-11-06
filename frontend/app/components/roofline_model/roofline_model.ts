@@ -352,9 +352,6 @@ export class RooflineModel implements OnDestroy {
         {column: this.dataTableRaw.getColumnIndex('step'), value: 'Total'},
       ]),
     );
-    // TODO(b/359276801) Enable injecting Graph Viewer crosslink after
-    // dispatching host list to global store, so we can infer module name from
-    // program_id given the module list (aka host list in graph viewer)
     const dataTableOp = gViewOp.toDataTable();
     this.dataTableOp =
         this.injectGraphViewerLinksForOpTable(dataTableOp) || null;
@@ -367,13 +364,12 @@ export class RooflineModel implements OnDestroy {
     if (!dataTableOp) return;
 
     const operationIndex = dataTableOp.getColumnIndex('operation');
-    const programIdIndex =
-        this.dataTableProgram!.getColumnIndex('hlo_module_id');
+    const programIdIndex = dataTableOp.getColumnIndex('hlo_module_id');
     const numRows = dataTableOp.getNumberOfRows();
-    if (!operationIndex || !programIdIndex || !numRows) return;
+    if (operationIndex < 0 || programIdIndex < 0 || !numRows) return dataTableOp;
     for (let i = 0; i < numRows; ++i) {
-      const opName = dataTableOp.getValue(i, operationIndex);
-      const programId = dataTableOp.getValue(i, programIdIndex);
+      const opName = String(dataTableOp.getValue(i, operationIndex) ?? '').trim();
+      const programId = String(dataTableOp.getValue(i, programIdIndex) ?? '').trim();
       if (!programId || programId === '0' || !opName) continue;
       const graphViewerLink = this.dataService.getGraphViewerLink(
           this.sessionId, '', opName, programId);
@@ -1085,7 +1081,7 @@ export class RooflineModel implements OnDestroy {
         operation: (val) =>
           val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
-      {id: 'boundy_by', label: 'Bound By'},
+      {id: 'bound_by', label: 'Bound By'},
     ];
     const gpuTooltipRows: TooltipRow[] = [
       {
@@ -1166,7 +1162,7 @@ export class RooflineModel implements OnDestroy {
         operation: (val) =>
           val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
-      {id: 'boundy_by', label: 'Bound By'},
+      {id: 'bound_by', label: 'Bound By'},
     ];
 
     const tooltipBodyHtml = (

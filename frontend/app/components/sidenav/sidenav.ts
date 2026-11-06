@@ -11,6 +11,7 @@ import {Store} from '@ngrx/store';
 import {
   DEFAULT_HOST,
   HLO_TOOLS,
+  NON_UI_TOOLS,
 } from 'org_xprof/frontend/app/common/constants/constants';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
@@ -19,6 +20,7 @@ import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/dat
 import {
   setCurrentRunAction,
   setErrorMessageStateAction,
+  setHostsStateAction,
   setProfilerConfigAction,
   updateRunToolsMapAction,
 } from 'org_xprof/frontend/app/store/actions';
@@ -67,9 +69,10 @@ export interface NavigationParamsRecord {
 export function parseNavigationParams(
   params: ReadonlyMap<string, string>,
 ): NavigationParamsRecord {
+  const rawTag = params.get('tag') ?? params.get('tool') ?? '';
   return {
     run: params.get('run') ?? params.get('sessionId') ?? '',
-    tag: params.get('tag') ?? params.get('tool') ?? '',
+    tag: rawTag === 'kernel_utilization' ? 'utilization_viewer' : rawTag,
     host: params.get('host') ?? '',
     hosts: params.get('hosts') ?? '',
     sessionPath: params.get('session_path') ?? params.get('sessionPath') ?? '',
@@ -297,6 +300,14 @@ export class SideNav implements OnInit, OnDestroy {
     const label = route.label || parent.label;
     const opName = route.opName || parent.opName;
     const moduleName = route.moduleName || parent.moduleName;
+    const programId =
+      routeParams.get('program_id') ||
+      routeParams.get('programId') ||
+      parentParams.get('program_id') ||
+      parentParams.get('programId') ||
+      '';
+    const newNav =
+      routeParams.get('new_nav') || parentParams.get('new_nav') || '';
 
     const isHostsEqual = this.isMultiHostsEnabled
       ? this.selectedHostsInternal.join(',') === hostsParam
@@ -324,6 +335,7 @@ export class SideNav implements OnInit, OnDestroy {
       this.sessionPathInternal === sessionPath &&
       this.labelInternal === label &&
       (this.navigationParams['opName'] || '') === opName &&
+      (this.navigationParams['program_id'] || '') === programId &&
       (this.dataService.getBaseSessionId() ?? '') === baseSessionId &&
       isHostsEqual
     ) {
@@ -336,6 +348,16 @@ export class SideNav implements OnInit, OnDestroy {
       this.navigationParams['opName'] = opName;
     } else {
       delete this.navigationParams['opName'];
+    }
+    if (programId) {
+      this.navigationParams['program_id'] = programId;
+    } else {
+      delete this.navigationParams['program_id'];
+    }
+    if (newNav === 'true') {
+      this.navigationParams['new_nav'] = 'true';
+    } else {
+      delete this.navigationParams['new_nav'];
     }
     this.selectedRunInternal = run;
     this.selectedTagInternal = tag;
@@ -447,10 +469,14 @@ export class SideNav implements OnInit, OnDestroy {
   }
 
   async getToolsForSelectedRun() {
-    const tools = await firstValueFrom(
+    const rawTools = await firstValueFrom(
       this.dataService
         .getRunTools(this.selectedRun)
         .pipe(takeUntil(this.destroyed), defaultIfEmpty([])),
+    );
+    const tools = (rawTools || []).filter(
+      (tool: string) =>
+        !NON_UI_TOOLS.has(tool && tool.endsWith('@') ? tool.slice(0, -1) : tool),
     );
 
     this.store.dispatch(
@@ -469,6 +495,7 @@ export class SideNav implements OnInit, OnDestroy {
         .getHosts(this.selectedRun, this.selectedTag)
         .pipe(takeUntil(this.destroyed), defaultIfEmpty([])),
     );
+    this.store.dispatch(setHostsStateAction({hostsState: response || []}));
 
     let hosts = response.map((host) => host.hostname) || [];
     if (hosts.length === 0) {
@@ -492,7 +519,7 @@ export class SideNav implements OnInit, OnDestroy {
         .getModuleList(this.selectedRun)
         .pipe(takeUntil(this.destroyed), defaultIfEmpty('')),
     );
-    return response ? response.split(',') : [];
+    return typeof response === 'string' && response ? response.split(',') : [];
   }
 
   onRunSelectionChange(run: string) {
@@ -511,7 +538,10 @@ export class SideNav implements OnInit, OnDestroy {
   }
 
   async updateTags() {
-    this.tags = this.runToolsMap[this.selectedRun] || [];
+    this.tags = (this.runToolsMap[this.selectedRun] || []).filter(
+      (tool: string) =>
+        !NON_UI_TOOLS.has(tool && tool.endsWith('@') ? tool.slice(0, -1) : tool),
+    );
     if (!this.tags.length) {
       this.tags = ((await this.getToolsForSelectedRun()) || []) as string[];
     }
@@ -526,6 +556,7 @@ export class SideNav implements OnInit, OnDestroy {
       this.selectedTagInternal = this.tags[0];
       this.selectedModuleInternal = '';
       delete this.navigationParams['opName'];
+      delete this.navigationParams['program_id'];
       delete this.navigationParams['moduleName'];
     }
     this.afterUpdateTag();
@@ -544,6 +575,7 @@ export class SideNav implements OnInit, OnDestroy {
     if (previousSelectedTag !== tag) {
       this.selectedModuleInternal = '';
       delete this.navigationParams['opName'];
+      delete this.navigationParams['program_id'];
       delete this.navigationParams['moduleName'];
     }
 
@@ -581,7 +613,11 @@ export class SideNav implements OnInit, OnDestroy {
         (!this.selectedModuleInternal ||
           !this.moduleList.includes(this.selectedModuleInternal))
       ) {
-        this.selectedModuleInternal = this.moduleList[0];
+        const programId = String(this.navigationParams['program_id'] || '');
+        const matchedByProgramId = programId
+          ? this.moduleList.find((mod) => mod.endsWith(`(${programId})`))
+          : undefined;
+        this.selectedModuleInternal = matchedByProgramId || this.moduleList[0];
       }
     }
   }

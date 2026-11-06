@@ -138,6 +138,9 @@ export const PRIMARY_TOOL_ENDPOINTS = new Set([
   'megascale_stats',
 ]);
 
+/** Backend data tags exposed by run_tools that do not have standalone UI pages. */
+export const NON_UI_TOOLS = new Set(['kernel_utilization', 'smart_suggestion']);
+
 /** Canonical categories for grouping XProf tools. */
 export enum ToolCategory {
   CORE = 'Core',

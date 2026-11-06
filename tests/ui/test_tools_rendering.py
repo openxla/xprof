@@ -420,15 +420,23 @@ def test_hlo_stats_chart_expansion(
   """Verifies HLO Op Stats Chart Section expansion renders pie charts."""
   open_tool("tpu-training", "hlo_stats")
 
+  expect(
+      page.locator("main-page mat-sidenav-content > div.full-height")
+  ).to_be_visible(timeout=20000)
   hlo_comp = page.locator("hlo-stats").first
   expect(hlo_comp).to_be_visible(timeout=20000)
 
-  # 1. Expand Chart Section
+  # 1. Chart Section starts expanded (showChartSection = true); verify toggle
+  # collapses and re-expands cleanly with rendered PieChart SVGs.
   header = hlo_comp.locator(
       "mat-expansion-panel-header:has-text('Chart Section')"
   )
   expect(header).to_be_visible(timeout=10000)
+  expect(header).to_have_attribute("aria-expanded", "true", timeout=10000)
   header.click()
+  expect(header).to_have_attribute("aria-expanded", "false", timeout=10000)
+  header.click()
+  expect(header).to_have_attribute("aria-expanded", "true", timeout=10000)
 
   pie_chart = hlo_comp.locator("chart[charttype='PieChart']").first
   expect(pie_chart).to_be_visible(timeout=20000)

@@ -4,11 +4,14 @@ import {
   HostListener,
   inject,
   OnDestroy,
+  ViewChild,
 } from '@angular/core';
+import {MatSidenav} from '@angular/material/sidenav';
 import {Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {
   CANONICAL_CATEGORY_ORDER,
+  NON_UI_TOOLS,
   TOOL_CATEGORIES,
   ToolCategory,
 } from 'org_xprof/frontend/app/common/constants/constants';
@@ -54,6 +57,7 @@ export class MainPage implements OnDestroy {
   private readonly communicationService = inject(CommunicationService);
   private readonly router = inject(Router);
 
+  @ViewChild(MatSidenav) sidenav?: MatSidenav;
   loading = true;
   loadingMessage = '';
   isSideNavOpen = true;
@@ -157,23 +161,25 @@ export class MainPage implements OnDestroy {
       .pipe(takeUntil(this.destroyed))
       .subscribe((navigationEvent: NavigationEvent) => {
         this.navigationReady = true;
+        this.isSmallScreen = window.innerWidth < 960;
         this.currentRun = navigationEvent.run || this.currentRun;
         this.currentTag = navigationEvent.tag || '';
-        // TODO(fe-unification): Remove this constraint once the sidepanel
-        // content of the 3 tools are moved out from sidenav with consolidated
-        // templates.
-        const toolsWithSideNav = [
-          'op_profile',
-          'memory_viewer',
-          'pod_viewer',
-          'megascale_stats',
-        ];
         if (!this.isNewNavEnabled) {
-          this.isSideNavOpen =
-            navigationEvent.firstLoad ||
-            toolsWithSideNav.filter((tool) =>
-              navigationEvent?.tag?.startsWith(tool),
-            ).length > 0;
+          const hasSideNavControls = this.isToolWithSideNav(
+            navigationEvent?.tag,
+          );
+          if (
+            this.isSmallScreen &&
+            navigationEvent?.tag &&
+            navigationEvent.tag !== 'empty' &&
+            !hasSideNavControls
+          ) {
+            this.isSideNavOpen = false;
+            this.sidenav?.close();
+          } else {
+            this.isSideNavOpen =
+              Boolean(navigationEvent.firstLoad) || hasSideNavControls;
+          }
         }
       });
     this.dataService
@@ -193,7 +199,10 @@ export class MainPage implements OnDestroy {
   }
 
   getCategorizedTools(): CategorizedTools[] {
-    const activeTools = this.availableTools.filter((tag) => tag !== 'empty');
+    const activeTools = this.availableTools.filter((tag) => {
+      const cleanTag = tag && tag.endsWith('@') ? tag.slice(0, -1) : tag || '';
+      return tag !== 'empty' && !NON_UI_TOOLS.has(cleanTag);
+    });
     const groupsMap = new Map<ToolCategory, string[]>();
     for (const category of CANONICAL_CATEGORY_ORDER) {
       groupsMap.set(category, []);
@@ -237,17 +246,48 @@ export class MainPage implements OnDestroy {
 
   selectTool(tag: string) {
     this.currentTag = tag;
-    this.router.navigate([tag || 'empty'], {
-      queryParams: {
-        'run': this.currentRun,
-        'tag': tag,
-      },
-    });
+    const queryParams: {[key: string]: string} = {
+      'run': this.currentRun,
+      'tag': tag,
+    };
+    if (this.isNewNavEnabled) {
+      queryParams['new_nav'] = 'true';
+    }
+    this.router.navigate([tag || 'empty'], {queryParams});
+  }
+
+  private isToolWithSideNav(tag?: string): boolean {
+    // TODO(fe-unification): Remove this constraint once the sidepanel
+    // content of the tools are moved out from sidenav with consolidated
+    // templates.
+    const toolsWithSideNav = [
+      'op_profile',
+      'memory_viewer',
+      'pod_viewer',
+      'megascale_stats',
+    ];
+    return toolsWithSideNav.some((tool) => tag?.startsWith(tool));
   }
 
   @HostListener('window:resize')
   onResize() {
+    const wasSmallScreen = this.isSmallScreen;
     this.isSmallScreen = window.innerWidth < 960;
+    // Close the overlay side panel only when the window shrinks below the
+    // breakpoint, so resizing an already narrow window keeps a panel that the
+    // user opened.
+    if (
+      !wasSmallScreen &&
+      this.isSmallScreen &&
+      !this.isNewNavEnabled &&
+      this.navigationReady &&
+      this.currentTag &&
+      this.currentTag !== 'empty' &&
+      !this.isToolWithSideNav(this.currentTag)
+    ) {
+      this.isSideNavOpen = false;
+      this.sidenav?.close();
+    }
   }
 
   get sideNavMode(): 'over' | 'side' {
@@ -270,7 +310,11 @@ export class MainPage implements OnDestroy {
 
   onSideNavOpenedChange(opened: boolean) {
     if (!this.isNewNavEnabled) {
-      this.isSideNavOpen = opened;
+      if (!opened) {
+        this.isSideNavOpen = false;
+      } else if (!this.isSideNavOpen) {
+        this.sidenav?.close();
+      }
     }
   }
 

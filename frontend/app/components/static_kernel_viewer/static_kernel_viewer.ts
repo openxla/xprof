@@ -104,6 +104,11 @@ export interface KernelStats {
   readonly vectorSpills?: number;
   /** Number of vector register fills, if known. */
   readonly vectorFills?: number;
+  /**
+   * Kernel of the other core type that this kernel is linked to, such as the
+   * TensorCore kernel that consumes the result of a SparseCore offload.
+   */
+  readonly linkedKernel?: string;
 }
 
 /** A labeled value in the details card of a kernel. */
@@ -112,6 +117,10 @@ export interface KernelFact {
   readonly value: string;
   /** Whether the value points at a likely performance problem. */
   readonly warning: boolean;
+  /** Material icon shown before `value`, if any. */
+  readonly icon?: string;
+  /** Whether `value` is styled as an identifier chip. */
+  readonly linkedPill?: boolean;
 }
 
 /** How a kind of kernel, e.g. custom-call, is presented. */
@@ -175,6 +184,8 @@ export interface KernelEntry {
   readonly module: string;
   /** Kernel name, as reported by the backend. */
   readonly kernel: string;
+  /** Linked kernel of the other core type in the same HLO module, if any. */
+  readonly linkedKernel?: string;
   /**
    * Kernel name split after each `_` and `-`, where the details card may wrap
    * it, e.g. `['flash_', 'attention_', 'bwd.3']`.
@@ -212,7 +223,7 @@ export interface KernelEntry {
   readonly bars: readonly UnitBar[];
   /** Accessible description of the kernel and its statistics. */
   readonly description: string;
-  /** Lowercase kernel name, module, kind and busiest unit, for the search. */
+  /** Lowercase kernel, module, linked kernel, kind and busiest unit, for search. */
   readonly searchText: string;
 }
 
@@ -621,6 +632,9 @@ export function parseKernelStats(summary: unknown): KernelStats | undefined {
       (b.utilization ?? 0) - (a.utilization ?? 0) ||
       b.instructions - a.instructions,
   );
+  const rawLinkedKernel = summary['linked_kernel'];
+  const linkedKernel =
+    typeof rawLinkedKernel === 'string' ? rawLinkedKernel.trim() : '';
   return {
     bundles,
     instructions: readNumber(summary['instructions']) ?? 0,
@@ -628,6 +642,7 @@ export function parseKernelStats(summary: unknown): KernelStats | undefined {
     hasUtilization: unitUtilization !== undefined,
     vectorSpills: readNumber(summary['vector_spills']),
     vectorFills: readNumber(summary['vector_fills']),
+    ...(linkedKernel ? {linkedKernel} : {}),
   };
 }
 
@@ -859,6 +874,15 @@ function kernelFacts(stats: KernelStats): KernelFact[] {
       warning: spills + fills > 0,
     });
   }
+  if (stats.linkedKernel) {
+    facts.push({
+      label: 'Linked',
+      value: stats.linkedKernel,
+      warning: false,
+      linkedPill: true,
+      icon: 'sync_alt',
+    });
+  }
   return facts;
 }
 
@@ -928,6 +952,7 @@ function createEntry(
   stats?: KernelStats,
   kind?: KernelKind,
 ): KernelEntry {
+  const linkedKernel = stats?.linkedKernel;
   const bundlesText = stats
     ? `${NUMBER_FORMAT.format(stats.bundles)} ${
         stats.bundles === 1 ? 'bundle' : 'bundles'
@@ -945,6 +970,7 @@ function createEntry(
     kernel,
     module,
     kind?.label ?? '',
+    linkedKernel ? `linked with ${linkedKernel}` : '',
     bundlesText,
     busiestUnit ? `busiest unit ${busiestUnit}` : '',
     hasSpills ? 'spills vector registers' : '',
@@ -952,6 +978,7 @@ function createEntry(
   return {
     module,
     kernel,
+    linkedKernel,
     nameParts: kernel.match(/[^-_]+[-_]*|[-_]+/g) ?? [kernel],
     index,
     monogram: kernelMonogram(kernel),
@@ -969,7 +996,7 @@ function createEntry(
     ...unitChart(stats),
     description: description.filter(Boolean).join(', '),
     // Newlines keep search terms from matching across fields.
-    searchText: [kernel, module, kind?.label, kind?.id, boundUnit]
+    searchText: [kernel, module, linkedKernel, kind?.label, kind?.id, boundUnit]
       .filter(Boolean)
       .join('\n')
       .toLowerCase(),

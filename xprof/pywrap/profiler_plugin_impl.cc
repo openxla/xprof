@@ -24,13 +24,17 @@ limitations under the License.
 #include <vector>
 
 #include "absl/base/call_once.h"
+#include "absl/base/const_init.h"
 #include "absl/base/no_destructor.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/flags/declare.h"
 #include "absl/flags/flag.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/profiler/rpc/client/capture_profile.h"
 #include "xla/tsl/profiler/utils/session_manager.h"
@@ -74,6 +78,24 @@ using ::tensorflow::profiler::SessionSnapshot;
 using ::tensorflow::profiler::ToolOptions;
 using ::tensorflow::profiler::XSpace;
 
+namespace {
+
+std::shared_ptr<absl::Mutex> GetSessionCacheMutex(
+    absl::string_view session_run_dir) {
+  ABSL_CONST_INIT static absl::Mutex map_mu(absl::kConstInit);
+  static absl::NoDestructor<
+      absl::flat_hash_map<std::string, std::shared_ptr<absl::Mutex>>>
+      session_mutexes;
+  absl::MutexLock lock(map_mu);
+  std::shared_ptr<absl::Mutex>& mu = (*session_mutexes)[session_run_dir];
+  if (mu == nullptr) {
+    mu = std::make_shared<absl::Mutex>();
+  }
+  return mu;
+}
+
+}  // namespace
+
 absl::StatusOr<std::pair<std::string, bool>> SessionSnapshotToToolsData(
     const absl::StatusOr<SessionSnapshot>& status_or_session_snapshot,
     const std::string& tool_name, const ToolOptions& tool_options) {
@@ -82,12 +104,28 @@ absl::StatusOr<std::pair<std::string, bool>> SessionSnapshotToToolsData(
     return std::make_pair("", false);
   }
 
+  absl::string_view session_run_dir =
+      status_or_session_snapshot->GetSessionRunDir();
+  std::shared_ptr<absl::Mutex> session_mu =
+      session_run_dir.empty() ? nullptr : GetSessionCacheMutex(session_run_dir);
+
   // If use_saved_result is False, clear the cache files before converting to
-  // tool data.
+  // tool data under an exclusive lock so concurrent conversions on the same
+  // session directory do not lose intermediate cache files mid-flight.
   std::optional<bool> use_saved_result =
       GetParam<bool>(tool_options, "use_saved_result");
   if (use_saved_result.has_value() && !use_saved_result.value()) {
-    TF_RETURN_IF_ERROR(status_or_session_snapshot->ClearCacheFiles());
+    if (session_mu != nullptr) {
+      absl::WriterMutexLock write_lock(*session_mu);
+      TF_RETURN_IF_ERROR(status_or_session_snapshot->ClearCacheFiles());
+    } else {
+      TF_RETURN_IF_ERROR(status_or_session_snapshot->ClearCacheFiles());
+    }
+  }
+
+  std::optional<absl::ReaderMutexLock> read_lock;
+  if (session_mu != nullptr) {
+    read_lock.emplace(*session_mu);
   }
 
   absl::StatusOr<std::string> status_or_tool_data;

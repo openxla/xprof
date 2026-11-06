@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xprof/convert/file_utils.h"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -167,7 +168,22 @@ absl::Status WriteBinaryProto(absl::string_view fname,
                                                 gcs_path, proto);
   }
 
-  return tsl::WriteBinaryProto(tsl::Env::Default(), std::string(fname), proto);
+  tsl::Env* env = tsl::Env::Default();
+  static std::atomic<uint64_t> tmp_seq{0};
+  const std::string tmp_fname = absl::StrCat(
+      fname, ".tmp.", env->NowMicros(), ".",
+      tmp_seq.fetch_add(1, std::memory_order_relaxed));
+  absl::Status write_status = tsl::WriteBinaryProto(env, tmp_fname, proto);
+  if (!write_status.ok()) {
+    env->DeleteFile(tmp_fname).IgnoreError();
+    return write_status;
+  }
+  absl::Status rename_status = env->RenameFile(tmp_fname, std::string(fname));
+  if (!rename_status.ok()) {
+    env->DeleteFile(tmp_fname).IgnoreError();
+    return rename_status;
+  }
+  return absl::OkStatus();
 }
 
 }  // namespace xprof

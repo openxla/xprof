@@ -257,7 +257,10 @@ absl::Status SessionSnapshot::ClearCacheFiles() const {
     for (const auto& format : *kHostDataSuffixes) {
       if (format.first == StoredDataType::RIEGELI_XSPACE) continue;
       if (absl::EndsWith(path, format.second)) {
-        TF_RETURN_IF_ERROR(tsl::Env::Default()->DeleteFile(file_path));
+        absl::Status status = tsl::Env::Default()->DeleteFile(file_path);
+        if (!status.ok() && !absl::IsNotFound(status)) {
+          return status;
+        }
         break;
       }
     }

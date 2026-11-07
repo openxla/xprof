@@ -96,4 +96,19 @@
       </div>
     </div>
   </ng-template>
+
+  <md-dialog
+    class="counter-selection-dialog"
+    quick
+    [open]="activeCustomizeGroup !== null"
+    (closed)="closeCustomizeDialog()">
+    <app-counter-selection
+      *ngIf="activeCustomizeGroup !== null"
+      slot="content"
+      [config]="customizeConfig"
+      [selectedIds]="customizeSelectedIds"
+      (applied)="onCustomizeApplied($event)"
+      (cancelled)="closeCustomizeDialog()">
+    </app-counter-selection>
+  </md-dialog>
 </div>

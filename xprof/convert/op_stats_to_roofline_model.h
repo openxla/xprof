@@ -58,6 +58,12 @@ RooflineModelRecord ConvertOpMetricsToRooflineModelRecord(
     const RooflineModelDatabase& roofline_model_db,
     const RooflineModelOptions& options = {});
 
+roofline_model::ScRooflineModelRecord ConvertOpMetricsToScRooflineModelRecord(
+    const OpStats& op_stats, const OpMetrics& metrics, RecordType record_type,
+    uint32_t step_num, uint64_t total_time_ps,
+    const RooflineModelDatabase& roofline_model_db,
+    const RooflineModelOptions& options = {});
+
 template <typename MetricsDbT>
 RooflineModelRecord GenerateRooflineModelProgramRecord(
     const OpStats& op_stats, const MetricsDbT& db, RecordType record_type,
@@ -68,6 +74,12 @@ template <typename MetricsDbT>
 tsl::protobuf::RepeatedPtrField<RooflineModelRecord>
 ConvertOpMetricsDbToRooflineModelRecords(
     const OpStats& op_stats, const MetricsDbT& db, RecordType record_type,
+    uint32_t step_num, const RooflineModelDatabase& roofline_model_db,
+    const RooflineModelOptions& options = {});
+
+tsl::protobuf::RepeatedPtrField<roofline_model::ScRooflineModelRecord>
+ConvertOpMetricsDbToScRooflineModelRecords(
+    const OpStats& op_stats, const OpMetricsDb& db, RecordType record_type,
     uint32_t step_num, const RooflineModelDatabase& roofline_model_db,
     const RooflineModelOptions& options = {});
 
@@ -91,6 +103,10 @@ inline void AddRooflineModelRecordForProfileDuration(
             op_stats, db, RecordType::ALL,
             /*step_num=*/0, roofline_model_db, options);
   });
+  *roofline_model_db.mutable_sc_roofline_model_record() =
+      ConvertOpMetricsDbToScRooflineModelRecords(
+          op_stats, op_stats.device_op_metrics_db(), RecordType::ALL,
+          /*step_num=*/0, roofline_model_db, options);
 }
 
 // Generate RooflineModelRecord for the HLO DB over complete steps only.

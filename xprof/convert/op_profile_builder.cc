@@ -18,9 +18,12 @@ limitations under the License.
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "absl/base/casts.h"
 #include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/node_hash_map.h"
@@ -72,6 +75,9 @@ void PopulateSymbolNode(const OpMetrics& op_metrics, Node* node) {
   }
   xla.set_computation_primitive_size(op_metrics.computation_primitive_size());
   *xla.mutable_source_info() = op_metrics.source_info();
+  if (!xla.source_info().has_stack_frame()) {
+    xla.mutable_source_info()->set_stack_frame("");
+  }
 }
 
 // Fill symbol details into a node for FlatOpMetrics.
@@ -85,30 +91,61 @@ void PopulateSymbolNode(const FlatOpMetrics& op_metrics, Node* node) {
   xla.set_category(op_metrics.category());
   xla.set_provenance(op_metrics.provenance());
   *xla.mutable_source_info() = op_metrics.source_info();
+  if (!xla.source_info().has_stack_frame()) {
+    xla.mutable_source_info()->set_stack_frame("");
+  }
 }
 
-// Sort the children and only keep the top K children.
+// Sorts the children in place and only keeps the top K children.
+//
+// The children are ordered by running `std::partial_sort` over an index
+// permutation and then reordering the repeated field with pointer swaps, so no
+// child subtree is copied.
 template <typename Cmp>
-Node TopKChildren(const Node* root, int k, Cmp cmp) {
-  std::vector<const Node*> children_ptrs;
-  children_ptrs.reserve(root->children_size());
-  for (const Node& node : root->children()) {
-    children_ptrs.push_back(&node);
+void TopKChildrenInPlace(Node* root, int k, Cmp cmp) {
+  const int n = root->children_size();
+  // Ensure k is not larger than the number of children.
+  const int actual_k = std::min(k, n);
+  if (actual_k <= 0) {
+    root->clear_children();
+    return;
   }
 
-  // Ensure k is not larger than the number of children
-  const int actual_k = std::min(k, static_cast<int>(children_ptrs.size()));
+  // Sort {node, index} entries rather than plain indices: libc++ uses a
+  // different heap construction for arithmetic value types, which would order
+  // ties differently from sorting `const Node*`.
+  struct Entry {
+    const Node* node;
+    int index;
+  };
+  std::vector<Entry> order;
+  order.reserve(n);
+  for (int i = 0; i < n; ++i) order.push_back({&root->children(i), i});
+  std::partial_sort(
+      order.begin(), order.begin() + actual_k, order.end(),
+      [&cmp](const Entry& a, const Entry& b) { return cmp(a.node, b.node); });
 
-  if (actual_k > 0) {
-    std::partial_sort(children_ptrs.begin(), children_ptrs.begin() + actual_k,
-                      children_ptrs.end(), cmp);
+  // Apply the permutation with pointer swaps. `position[i]` is the current
+  // position of the original child `i`; `original[p]` is the original index of
+  // the child currently at position `p`.
+  std::vector<int> position(n);
+  std::vector<int> original(n);
+  for (int i = 0; i < n; ++i) position[i] = original[i] = i;
+  auto* mutable_children = root->mutable_children();
+  for (int p = 0; p < actual_k; ++p) {
+    const int want = order[p].index;
+    const int from = position[want];
+    if (from == p) continue;
+    mutable_children->SwapElements(p, from);
+    const int displaced = original[p];
+    original[from] = displaced;
+    position[displaced] = from;
+    original[p] = want;
+    position[want] = p;
   }
-
-  Node output;
-  for (int i = 0; i < actual_k; ++i) {
-    *output.add_children() = *children_ptrs[i];
+  if (actual_k < n) {
+    mutable_children->DeleteSubrange(actual_k, n - actual_k);
   }
-  return output;
 }
 
 // Copy symbol details into a deduplicated node from the top child node.
@@ -138,27 +175,48 @@ bool RequiresProgramGrouping(OpProfileOptions& options) {
          options.group_by == OpProfileGrouping::kByProvenance;
 }
 
-void SortAndPruneChildren(int k, int level, Node* root) {
-  // Set the total number of children before pruning.
-  root->set_num_children(root->children_size());
-  for (Node& node : *root->mutable_children()) {
-    SortAndPruneChildren(k, level - 1, &node);
-  }
-  k = level > 0 ? root->children_size() : k;
-
+template <typename Cmp>
+void SortAndPruneChildrenOfNode(int k, Node* root, Cmp cmp) {
   if (root->children_size() > 1) {
-    if (root->has_xla() && IsFusion(root->xla().category())) {
-      // Sort the children under fusion node by raw flops.
-      *root->mutable_children() =
-          TopKChildren(root, k, [](const Node* a, const Node* b) {
-            return a->metrics().raw_flops() > b->metrics().raw_flops();
-          }).children();
-    } else {
-      *root->mutable_children() =
-          TopKChildren(root, k, [](const Node* a, const Node* b) {
-            return a->metrics().raw_time() > b->metrics().raw_time();
-          }).children();
+    TopKChildrenInPlace(root, k, cmp);
+  }
+}
+
+// Sorts and prunes the children of `root` recursively. The sort order of a
+// node's children depends only on the children's own metrics, so each node is
+// pruned before recursing, which skips subtrees that are dropped anyway.
+void SortAndPruneChildren(
+    int k, int level, Node* root,
+    absl::flat_hash_map<Node*, const OpMetrics*>* leaf_op_metrics) {
+  if (auto it = leaf_op_metrics->find(root); it != leaf_op_metrics->end()) {
+    const OpMetrics& op_metrics = *it->second;
+    PopulateSymbolNode(op_metrics, root);
+    if (op_metrics.has_children()) {
+      for (const auto& child : op_metrics.children().metrics_db()) {
+        Node* new_node = root->add_children();
+        Metrics* m = new_node->mutable_metrics();
+        m->set_raw_time(child.time_ps());
+        m->set_raw_flops(child.model_flops_v2());
+        (*leaf_op_metrics)[new_node] = &child;
+      }
     }
+  }
+  // `num_children` holds the child count from before pruning; the frontend
+  // derives the number of left-out children from it.
+  root->set_num_children(root->children_size());
+  const int node_k = level > 0 ? root->children_size() : k;
+  if (root->has_xla() && IsFusion(root->xla().category())) {
+    // Sort the children under fusion node by raw flops.
+    SortAndPruneChildrenOfNode(node_k, root, [](const Node* a, const Node* b) {
+      return a->metrics().raw_flops() > b->metrics().raw_flops();
+    });
+  } else {
+    SortAndPruneChildrenOfNode(node_k, root, [](const Node* a, const Node* b) {
+      return a->metrics().raw_time() > b->metrics().raw_time();
+    });
+  }
+  for (Node& node : *root->mutable_children()) {
+    SortAndPruneChildren(k, level - 1, &node, leaf_op_metrics);
   }
 }
 
@@ -184,10 +242,20 @@ void FinalizeNodeRecursive(Node* node) {
   }
 
   // It's a single-op group. Replace the node with its child.
-  // A temporary copy is used to avoid the protobuf descendant check error.
+  // The child is first swapped into a temporary on the same arena (a pointer
+  // swap, not a copy) to avoid the protobuf descendant check error.
   if (node->children_size() == 1) {
-    Node child_copy = *node->mutable_children(0);
-    *node = child_copy;
+    tsl::protobuf::Arena* arena = node->GetArena();
+    std::unique_ptr<Node> owned_tmp;
+    Node* tmp;
+    if (arena == nullptr) {
+      owned_tmp = std::make_unique<Node>();
+      tmp = owned_tmp.get();
+    } else {
+      tmp = tsl::protobuf::Arena::Create<Node>(arena);
+    }
+    tmp->Swap(node->mutable_children(0));
+    node->Swap(tmp);
     return;  // Node is replaced; no need to recurse further.
   }
 
@@ -420,8 +488,15 @@ Node* OpProfileBuilder::AddOpNode(const OpMetrics& op_metrics,
   } else {
     leaf = root_->add_children();
   }
-  PopulateSymbolNode(op_metrics, leaf);
-  InsertFusedInstructions(op_metrics, leaf, this);
+  if (category == nullptr && deduplicated_node == nullptr) {
+    PopulateSymbolNode(op_metrics, leaf);
+    InsertFusedInstructions(op_metrics, leaf, this);
+  } else {
+    Metrics* m = leaf->mutable_metrics();
+    m->set_raw_time(op_metrics.time_ps());
+    m->set_raw_flops(op_metrics.model_flops_v2());
+    leaf_op_metrics_[leaf] = &op_metrics;
+  }
   return leaf;
 }
 
@@ -682,8 +757,7 @@ void OpProfileBuilder::AddOp(const OpMetrics& op_metrics) {
       nested_grouping_nodes.push_back(deduplicated_node);
     }
 
-    Node* leaf = AddOpNode(op_metrics, category, deduplicated_node);
-    nested_grouping_nodes.push_back(leaf);
+    AddOpNode(op_metrics, category, deduplicated_node);
   }
 
   for (auto* node : nested_grouping_nodes) {
@@ -774,10 +848,13 @@ void OpProfileBuilder::Finalize(
   // This is best effort to at least reset the time_ps for root node to be more
   // precise.
   metrics_[root_].set_time_ps(total_time_ps);
+  // Defer full metric computation (FLOPS, repeated bandwidth utils arrays,
+  // etc.) until after children are sorted and pruned, which destroys >90% of
+  // nodes. SortAndPruneChildren only requires raw_time and raw_flops.
   for (const auto& [node, op_metrics] : metrics_) {
-    PopulateOpMetricsNode(op_metrics, peak_gigaflops_per_second_per_core,
-                          peak_mem_gibibytes_per_second_per_core, total_time_ps,
-                          node);
+    Metrics* m = node->mutable_metrics();
+    m->set_raw_time(op_metrics.time_ps());
+    m->set_raw_flops(op_metrics.model_flops_v2());
   }
   // If grouping by program, we build a two-level pruned tree: the first level
   // is per program and the second level is per category. Otherwise we build a
@@ -798,7 +875,26 @@ void OpProfileBuilder::Finalize(
       level = 100;
       break;
   }
-  SortAndPruneChildren(options_.children_per_node, level, root_);
+  SortAndPruneChildren(options_.children_per_node, level, root_,
+                       &leaf_op_metrics_);
+
+  auto populate_surviving_nodes = [&](auto& self, Node* node) -> void {
+    if (auto leaf_it = leaf_op_metrics_.find(node);
+        leaf_it != leaf_op_metrics_.end()) {
+      PopulateOpMetricsNode(
+          *leaf_it->second, peak_gigaflops_per_second_per_core,
+          peak_mem_gibibytes_per_second_per_core, total_time_ps, node);
+    } else if (auto it = metrics_.find(node); it != metrics_.end()) {
+      PopulateOpMetricsNode(it->second, peak_gigaflops_per_second_per_core,
+                            peak_mem_gibibytes_per_second_per_core,
+                            total_time_ps, node);
+    }
+    for (Node& child : *node->mutable_children()) {
+      self(self, &child);
+    }
+  };
+  populate_surviving_nodes(populate_surviving_nodes, root_);
+
   if (options_.group_by_deduplicated_name) {
     FinalizeDeduplicatedNodes(root_);
   }
@@ -835,6 +931,280 @@ OpProfileBuilder::OpProfileBuilder(
       root->set_name("by_category");
       break;
   }
+}
+
+namespace {
+
+void InternStackFramesInNode(
+    Node* node, absl::flat_hash_map<std::string, uint32_t>& index_by_frame,
+    tsl::protobuf::RepeatedPtrField<std::string>& table) {
+  if (node->has_xla() && node->xla().has_source_info() &&
+      !node->xla().source_info().stack_frame().empty()) {
+    Node::XLAInstruction& xla = *node->mutable_xla();
+    std::string* frame = xla.mutable_source_info()->mutable_stack_frame();
+    auto [it, inserted] =
+        index_by_frame.try_emplace(*frame, static_cast<uint32_t>(table.size()));
+    if (inserted) *table.Add() = std::move(*frame);
+    xla.set_stack_frame_index(it->second);
+    xla.mutable_source_info()->clear_stack_frame();
+  } else if (node->has_xla() && node->xla().has_source_info()) {
+    // Drop empty stack frames so they are not serialized as "".
+    node->mutable_xla()->mutable_source_info()->clear_stack_frame();
+  }
+  for (Node& child : *node->mutable_children()) {
+    InternStackFramesInNode(&child, index_by_frame, table);
+  }
+}
+
+}  // namespace
+
+void InternStackFrames(op_profile::Profile* profile) {
+  absl::flat_hash_map<std::string, uint32_t> index_by_frame;
+  tsl::protobuf::RepeatedPtrField<std::string>& table =
+      *profile->mutable_stack_frame_table();
+  index_by_frame.reserve(table.size());
+  for (int i = 0; i < table.size(); ++i) {
+    index_by_frame.try_emplace(table[i], static_cast<uint32_t>(i));
+  }
+  // Only visit trees that are present; mutable_*() would otherwise create
+  // empty trees and change the response.
+  auto intern = [&](bool present,
+                    Node* (op_profile::Profile::*mutable_root)()) {
+    if (present) {
+      InternStackFramesInNode((profile->*mutable_root)(), index_by_frame,
+                              table);
+    }
+  };
+  intern(profile->has_by_category(), &op_profile::Profile::mutable_by_category);
+  intern(profile->has_by_program(), &op_profile::Profile::mutable_by_program);
+  intern(profile->has_by_category_exclude_idle(),
+         &op_profile::Profile::mutable_by_category_exclude_idle);
+  intern(profile->has_by_program_exclude_idle(),
+         &op_profile::Profile::mutable_by_program_exclude_idle);
+  intern(profile->has_by_provenance(),
+         &op_profile::Profile::mutable_by_provenance);
+  intern(profile->has_by_provenance_exclude_idle(),
+         &op_profile::Profile::mutable_by_provenance_exclude_idle);
+
+  for (op_profile::NodePatch& patch : *profile->mutable_exclude_idle_patch()) {
+    if (patch.has_replacement()) {
+      InternStackFramesInNode(patch.mutable_replacement(), index_by_frame,
+                              table);
+    }
+    if (patch.has_xla() && patch.xla().has_source_info()) {
+      Node::XLAInstruction& xla = *patch.mutable_xla();
+      if (!xla.source_info().stack_frame().empty()) {
+        std::string* frame = xla.mutable_source_info()->mutable_stack_frame();
+        auto [it, inserted] = index_by_frame.try_emplace(
+            *frame, static_cast<uint32_t>(table.size()));
+        if (inserted) *table.Add() = std::move(*frame);
+        xla.set_stack_frame_index(it->second);
+      }
+      xla.mutable_source_info()->clear_stack_frame();
+    }
+  }
+}
+
+namespace {
+
+using op_profile::NodePatch;
+
+bool SameMetrics(const op_profile::Metrics& a, const op_profile::Metrics& b) {
+  if (absl::bit_cast<uint64_t>(a.flops()) !=
+          absl::bit_cast<uint64_t>(b.flops()) ||
+      absl::bit_cast<uint64_t>(a.uncapped_flops()) !=
+          absl::bit_cast<uint64_t>(b.uncapped_flops()) ||
+      absl::bit_cast<uint64_t>(a.raw_time()) !=
+          absl::bit_cast<uint64_t>(b.raw_time()) ||
+      absl::bit_cast<uint64_t>(a.raw_flops()) !=
+          absl::bit_cast<uint64_t>(b.raw_flops()) ||
+      absl::bit_cast<uint64_t>(a.bf16_flops()) !=
+          absl::bit_cast<uint64_t>(b.bf16_flops()) ||
+      absl::bit_cast<uint64_t>(a.normalized_time_ps()) !=
+          absl::bit_cast<uint64_t>(b.normalized_time_ps()) ||
+      a.occurrences() != b.occurrences() ||
+      absl::bit_cast<uint64_t>(a.avg_time_ps()) !=
+          absl::bit_cast<uint64_t>(b.avg_time_ps())) {
+    return false;
+  }
+  if (a.bandwidth_utils_size() != b.bandwidth_utils_size()) return false;
+  for (int i = 0; i < a.bandwidth_utils_size(); ++i) {
+    if (absl::bit_cast<uint64_t>(a.bandwidth_utils(i)) !=
+        absl::bit_cast<uint64_t>(b.bandwidth_utils(i))) {
+      return false;
+    }
+  }
+  if (a.raw_bytes_accessed_array_size() != b.raw_bytes_accessed_array_size()) {
+    return false;
+  }
+  for (int i = 0; i < a.raw_bytes_accessed_array_size(); ++i) {
+    if (absl::bit_cast<uint64_t>(a.raw_bytes_accessed_array(i)) !=
+        absl::bit_cast<uint64_t>(b.raw_bytes_accessed_array(i))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool SameXlaInstruction(const Node::XLAInstruction& a,
+                        const Node::XLAInstruction& b) {
+  if (a.program_id() != b.program_id() || a.fingerprint() != b.fingerprint() ||
+      a.computation_primitive_size() != b.computation_primitive_size() ||
+      a.has_layout() != b.has_layout() ||
+      a.has_source_info() != b.has_source_info() ||
+      a.has_xprof_kernel_metadata() != b.has_xprof_kernel_metadata() ||
+      a.has_stack_frame_index() != b.has_stack_frame_index() ||
+      a.op() != b.op() || a.category() != b.category() ||
+      a.provenance() != b.provenance() || a.expression() != b.expression()) {
+    return false;
+  }
+  if (a.has_xprof_kernel_metadata() &&
+      a.xprof_kernel_metadata() != b.xprof_kernel_metadata()) {
+    return false;
+  }
+  if (a.has_stack_frame_index() &&
+      a.stack_frame_index() != b.stack_frame_index()) {
+    return false;
+  }
+  if (a.has_layout()) {
+    const auto& la = a.layout().dimensions();
+    const auto& lb = b.layout().dimensions();
+    if (la.size() != lb.size()) return false;
+    for (int i = 0; i < la.size(); ++i) {
+      if (la[i].size() != lb[i].size() ||
+          la[i].alignment() != lb[i].alignment() ||
+          la[i].semantics() != lb[i].semantics()) {
+        return false;
+      }
+    }
+  }
+  if (a.has_source_info()) {
+    const auto& sa = a.source_info();
+    const auto& sb = b.source_info();
+    if (sa.line_number() != sb.line_number() ||
+        sa.has_stack_frame() != sb.has_stack_frame() ||
+        sa.file_name() != sb.file_name()) {
+      return false;
+    }
+    if (sa.has_stack_frame() && sa.stack_frame() != sb.stack_frame()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool SameProgramServingMetadata(const Node& a, const Node& b) {
+  if (a.has_program_serving_metadata() != b.has_program_serving_metadata()) {
+    return false;
+  }
+  if (!a.has_program_serving_metadata()) return true;
+  const auto& ma = a.program_serving_metadata();
+  const auto& mb = b.program_serving_metadata();
+  return ma.model_id() == mb.model_id() && ma.batch_size() == mb.batch_size() &&
+         ma.num_batches() == mb.num_batches();
+}
+
+// Appends patches describing how `derived` differs from `base`.
+void DiffNode(const Node& base, const Node& derived,
+              std::vector<uint32_t>& path,
+              tsl::protobuf::RepeatedPtrField<NodePatch>* patches) {
+  auto add_patch = [&]() {
+    NodePatch* patch = patches->Add();
+    patch->mutable_path()->Assign(path.begin(), path.end());
+    return patch;
+  };
+  // Match derived children to base children by name, in order.
+  std::vector<std::pair<int, int>> matched;  // (base index, derived index)
+  std::vector<uint32_t> removed;
+  bool aligned = true;
+  int b = 0;
+  for (int d = 0; d < derived.children_size(); ++d) {
+    while (b < base.children_size() &&
+           base.children(b).name() != derived.children(d).name()) {
+      removed.push_back(b++);
+    }
+    if (b == base.children_size()) {
+      aligned = false;
+      break;
+    }
+    matched.emplace_back(b++, d);
+  }
+  while (aligned && b < base.children_size()) removed.push_back(b++);
+  if (!aligned || base.contents_case() != derived.contents_case() ||
+      base.has_metrics() != derived.has_metrics() ||
+      !SameProgramServingMetadata(base, derived)) {
+    *add_patch()->mutable_replacement() = derived;
+    return;
+  }
+  NodePatch patch;
+  bool changed = !removed.empty();
+  if (base.name() != derived.name()) {
+    patch.set_name(derived.name());
+    changed = true;
+  }
+  if (derived.has_metrics() &&
+      !SameMetrics(base.metrics(), derived.metrics())) {
+    *patch.mutable_metrics() = derived.metrics();
+    changed = true;
+  }
+  if (derived.has_xla() && !SameXlaInstruction(base.xla(), derived.xla())) {
+    *patch.mutable_xla() = derived.xla();
+    changed = true;
+  }
+  if (base.num_children() != derived.num_children()) {
+    patch.set_num_children(derived.num_children());
+    changed = true;
+  }
+  if (changed) {
+    patch.mutable_removed_children()->Assign(removed.begin(), removed.end());
+    patch.mutable_path()->Assign(path.begin(), path.end());
+    *patches->Add() = std::move(patch);
+  }
+  for (const auto& [base_index, derived_index] : matched) {
+    path.push_back(base_index);
+    DiffNode(base.children(base_index), derived.children(derived_index), path,
+             patches);
+    path.pop_back();
+  }
+}
+
+}  // namespace
+
+void ReplaceExcludeIdleTreesWithPatches(op_profile::Profile* profile) {
+  struct TreePair {
+    const Node* base;
+    Node* derived;
+    void (op_profile::Profile::*clear_derived)();
+  };
+  std::vector<TreePair> pairs;
+  if (profile->has_by_category() && profile->has_by_category_exclude_idle()) {
+    pairs.push_back({&profile->by_category(),
+                     profile->mutable_by_category_exclude_idle(),
+                     &op_profile::Profile::clear_by_category_exclude_idle});
+  }
+  if (profile->has_by_program() && profile->has_by_program_exclude_idle()) {
+    pairs.push_back({&profile->by_program(),
+                     profile->mutable_by_program_exclude_idle(),
+                     &op_profile::Profile::clear_by_program_exclude_idle});
+  }
+  if (profile->has_by_provenance() &&
+      profile->has_by_provenance_exclude_idle()) {
+    pairs.push_back({&profile->by_provenance(),
+                     profile->mutable_by_provenance_exclude_idle(),
+                     &op_profile::Profile::clear_by_provenance_exclude_idle});
+  }
+  // Patches are only unambiguous when a single tree pair is present.
+  if (pairs.size() != 1) return;
+  profile->clear_exclude_idle_patch();
+  std::vector<uint32_t> path;
+  DiffNode(*pairs[0].base, *pairs[0].derived, path,
+           profile->mutable_exclude_idle_patch());
+  if (profile->exclude_idle_patch().empty()) {
+    // Emit an identity root patch so clients know `derived` was cleared and
+    // rebuild it as a clone of `base` when `base` and `derived` are identical.
+    profile->add_exclude_idle_patch();
+  }
+  (profile->*pairs[0].clear_derived)();
 }
 
 }  // namespace profiler

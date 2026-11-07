@@ -27,6 +27,7 @@ limitations under the License.
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_profile.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/source_info.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -537,6 +538,174 @@ TEST(OpStatsToOpProfileTest, NumChildrenIsCountBeforePruning) {
   EXPECT_EQ(program_category.num_children(), 5);
   EXPECT_EQ(program_category.children(0).name(), "conv_op_5");
   EXPECT_EQ(program_category.children(1).name(), "conv_op_4");
+}
+
+TEST(InternStackFramesTest, DeduplicatesStackFramesAcrossTrees) {
+  op_profile::Profile profile;
+  auto add_op = [](Node* parent, const std::string& name,
+                   const std::string& stack_frame) {
+    Node* node = parent->add_children();
+    node->set_name(name);
+    node->mutable_xla()->mutable_source_info()->set_file_name("f.py");
+    node->mutable_xla()->mutable_source_info()->set_stack_frame(stack_frame);
+    return node;
+  };
+  Node* by_program = profile.mutable_by_program();
+  Node* program = by_program->add_children();
+  add_op(program, "op1", "a.py:1\nb.py:2");
+  add_op(program, "op2", "c.py:3");
+  add_op(program, "op3", "");
+  add_op(add_op(program, "op4", "a.py:1\nb.py:2"), "fused", "c.py:3");
+  *profile.mutable_by_program_exclude_idle() = *by_program;
+
+  InternStackFrames(&profile);
+
+  ASSERT_EQ(profile.stack_frame_table_size(), 2);
+  EXPECT_EQ(profile.stack_frame_table(0), "a.py:1\nb.py:2");
+  EXPECT_EQ(profile.stack_frame_table(1), "c.py:3");
+  EXPECT_FALSE(profile.has_by_category());
+  EXPECT_FALSE(profile.has_by_provenance());
+  for (const Node* root :
+       {&profile.by_program(), &profile.by_program_exclude_idle()}) {
+    const Node& prog = root->children(0);
+    EXPECT_EQ(prog.children(0).xla().stack_frame_index(), 0);
+    EXPECT_EQ(prog.children(1).xla().stack_frame_index(), 1);
+    EXPECT_FALSE(prog.children(2).xla().has_stack_frame_index());
+    EXPECT_FALSE(prog.children(2).xla().source_info().has_stack_frame());
+    EXPECT_EQ(prog.children(3).xla().stack_frame_index(), 0);
+    EXPECT_EQ(prog.children(3).children(0).xla().stack_frame_index(), 1);
+    for (const Node& op : prog.children()) {
+      EXPECT_TRUE(op.xla().source_info().stack_frame().empty());
+      EXPECT_EQ(op.xla().source_info().file_name(), "f.py");
+    }
+  }
+}
+
+TEST(ReplaceExcludeIdleTreesWithPatchesTest, PatchesRebuildDerivedTree) {
+  op_profile::Profile profile;
+  Node* full = profile.mutable_by_program();
+  full->set_name("by_program");
+  full->set_num_children(3);
+  Node* idle = full->add_children();
+  idle->set_name("IDLE");
+  Node* prog = full->add_children();
+  prog->set_name("prog");
+  prog->mutable_metrics()->set_flops(0.25);
+  Node* op = prog->add_children();
+  op->set_name("op");
+  op->mutable_metrics()->set_raw_time(10);
+  op->mutable_xla()->set_expression("e");
+  Node* other = full->add_children();
+  other->set_name("other");
+  other->mutable_metrics()->set_flops(0.5);
+
+  Node* excl = profile.mutable_by_program_exclude_idle();
+  *excl = *full;
+  excl->mutable_children()->DeleteSubrange(0, 1);  // Drop IDLE.
+  excl->set_num_children(2);
+  excl->mutable_children(0)->mutable_metrics()->set_flops(1.0);  // prog
+  excl->mutable_children(1)->clear_metrics();  // other: presence change.
+
+  ReplaceExcludeIdleTreesWithPatches(&profile);
+
+  EXPECT_FALSE(profile.has_by_program_exclude_idle());
+  const auto& patches = profile.exclude_idle_patch();
+  ASSERT_EQ(patches.size(), 3);
+  // Root: removed IDLE and changed num_children.
+  EXPECT_TRUE(patches[0].path().empty());
+  EXPECT_EQ(patches[0].num_children(), 2);
+  ASSERT_EQ(patches[0].removed_children_size(), 1);
+  EXPECT_EQ(patches[0].removed_children(0), 0);
+  // prog: metrics only; "op" is unchanged and has no patch.
+  ASSERT_EQ(patches[1].path_size(), 1);
+  EXPECT_EQ(patches[1].path(0), 1);
+  EXPECT_EQ(patches[1].metrics().flops(), 1.0);
+  EXPECT_FALSE(patches[1].has_xla());
+  EXPECT_FALSE(patches[1].has_name());
+  // other: metrics presence changed, so the subtree is replaced.
+  ASSERT_EQ(patches[2].path_size(), 1);
+  EXPECT_EQ(patches[2].path(0), 2);
+  EXPECT_EQ(patches[2].replacement().name(), "other");
+  EXPECT_FALSE(patches[2].replacement().has_metrics());
+}
+
+TEST(ReplaceExcludeIdleTreesWithPatchesTest,
+     EmitsIdentityRootPatchWhenBaseAndDerivedAreIdentical) {
+  op_profile::Profile profile;
+  Node* full = profile.mutable_by_program();
+  full->set_name("by_program");
+  full->set_num_children(1);
+  Node* prog = full->add_children();
+  prog->set_name("prog");
+  prog->mutable_metrics()->set_flops(0.75);
+  *profile.mutable_by_program_exclude_idle() = *full;
+
+  ReplaceExcludeIdleTreesWithPatches(&profile);
+
+  EXPECT_FALSE(profile.has_by_program_exclude_idle());
+  ASSERT_EQ(profile.exclude_idle_patch_size(), 1);
+  const op_profile::NodePatch& root_patch = profile.exclude_idle_patch(0);
+  EXPECT_TRUE(root_patch.path().empty());
+  EXPECT_FALSE(root_patch.has_replacement());
+  EXPECT_FALSE(root_patch.has_name());
+  EXPECT_FALSE(root_patch.has_metrics());
+  EXPECT_FALSE(root_patch.has_xla());
+  EXPECT_FALSE(root_patch.has_num_children());
+  EXPECT_TRUE(root_patch.removed_children().empty());
+}
+
+TEST(ReplaceExcludeIdleTreesWithPatchesTest,
+     ReplacesNodeWhenProgramServingMetadataDiffers) {
+  op_profile::Profile profile;
+  Node* full = profile.mutable_by_program();
+  full->set_name("by_program");
+  full->set_num_children(2);
+
+  // Simulate two unnamed programs both falling back to node name "main" with
+  // distinct serving metadata; derived drops the first "main" program.
+  Node* main1 = full->add_children();
+  main1->set_name("main");
+  main1->mutable_metrics()->set_raw_time(100);
+  main1->mutable_program_serving_metadata()->set_model_id("/models/m1:1");
+  main1->mutable_program_serving_metadata()->set_batch_size(4);
+  main1->mutable_program_serving_metadata()->set_num_batches(2);
+
+  Node* main2 = full->add_children();
+  main2->set_name("main");
+  main2->mutable_metrics()->set_raw_time(50);
+  main2->mutable_program_serving_metadata()->set_model_id("/models/m2:1");
+  main2->mutable_program_serving_metadata()->set_batch_size(16);
+  main2->mutable_program_serving_metadata()->set_num_batches(5);
+
+  Node* excl = profile.mutable_by_program_exclude_idle();
+  excl->set_name("by_program");
+  excl->set_num_children(1);
+  *excl->add_children() = *main2;
+
+  ReplaceExcludeIdleTreesWithPatches(&profile);
+
+  EXPECT_FALSE(profile.has_by_program_exclude_idle());
+  ASSERT_EQ(profile.exclude_idle_patch_size(), 2);
+  // Root removes base child index 1 after greedy alignment matches base[0] with
+  // derived[0].
+  EXPECT_TRUE(profile.exclude_idle_patch(0).path().empty());
+  ASSERT_EQ(profile.exclude_idle_patch(0).removed_children_size(), 1);
+  EXPECT_EQ(profile.exclude_idle_patch(0).removed_children(0), 1);
+  // Base child 0 ("main" with m1) differs in program_serving_metadata from
+  // derived child 0 ("main" with m2), so DiffNode must emit a replacement.
+  ASSERT_EQ(profile.exclude_idle_patch(1).path_size(), 1);
+  EXPECT_EQ(profile.exclude_idle_patch(1).path(0), 0);
+  ASSERT_TRUE(profile.exclude_idle_patch(1).has_replacement());
+  EXPECT_EQ(profile.exclude_idle_patch(1)
+                .replacement()
+                .program_serving_metadata()
+                .model_id(),
+            "/models/m2:1");
+  EXPECT_EQ(profile.exclude_idle_patch(1)
+                .replacement()
+                .program_serving_metadata()
+                .batch_size(),
+            16);
 }
 
 }  // namespace

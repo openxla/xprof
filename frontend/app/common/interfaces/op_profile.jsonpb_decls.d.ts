@@ -10,6 +10,19 @@ export interface Profile {
   byProgramExcludeIdle?: Node;
   byProvenance?: Node;
   byProvenanceExcludeIdle?: Node;
+  stackFrameTable?: string[];
+  excludeIdlePatch?: NodePatch[];
+}
+
+/** Describes how one node of a derived tree differs from the base tree node. */
+export interface NodePatch {
+  path?: /* uint32 */ number[];
+  replacement?: Node;
+  name?: string;
+  metrics?: Metrics;
+  xla?: Node.XLAInstruction;
+  numChildren?: /* int32 */ number;
+  removedChildren?: /* uint32 */ number[];
 }
 
 /** An entry in the profile tree. (An instruction, or set of instructions). */
@@ -36,6 +49,7 @@ export namespace Node {
     programId?: /* uint64 */ string;
     sourceInfo?: SourceInfo;
     xprofKernelMetadata?: string;
+    stackFrameIndex?: /* uint32 */ number;
   }
   export namespace XLAInstruction {
     export interface LayoutAnalysis {

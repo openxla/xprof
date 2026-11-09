@@ -2620,19 +2620,33 @@ void UpdateTimelineTimeRanges(
     const std::optional<std::pair<Milliseconds, Milliseconds>>&
         visible_range_from_url,
     const std::optional<std::pair<Milliseconds, Milliseconds>>& full_timespan) {
-  // Don't need to check for max_time because the TimeRange constructor will
-  // handle any potential issues with max_time.
   if (bounds.min < std::numeric_limits<Microseconds>::max()) {
     timeline.set_fetched_data_time_range({bounds.min, bounds.max});
+  } else if (!has_known_tracks) {
+    timeline.set_fetched_data_time_range(TimeRange::Zero());
+  }
 
+  if (full_timespan.has_value()) {
+    const Microseconds start_us = MillisToMicros(full_timespan->first);
+    const Microseconds end_us = MillisToMicros(full_timespan->second);
+    timeline.set_data_time_range({start_us, end_us});
+  } else {
+    timeline.set_data_time_range(timeline.fetched_data_time_range());
+  }
+
+  if (bounds.min < std::numeric_limits<Microseconds>::max()) {
     // TODO: b/460265076 - Change the logic here for visible range after
     // we decided how to handle the visible range in url.
     if (visible_range_from_url.has_value()) {
-      const Microseconds start = MillisToMicros(visible_range_from_url->first);
-      const Microseconds end = MillisToMicros(visible_range_from_url->second);
+      const Microseconds start_us =
+          MillisToMicros(visible_range_from_url->first);
+      const Microseconds end_us =
+          MillisToMicros(visible_range_from_url->second);
 
       if (timeline.visible_range() == TimeRange::Zero()) {
-        timeline.SetVisibleRange({start, end});
+        TimeRange range{std::min(start_us, end_us), std::max(start_us, end_us)};
+        timeline.ConstrainTimeRange(range);
+        timeline.SetVisibleRange(range);
       }
     } else if (timeline.visible_range() == TimeRange::Zero()) {
       // If the visible range is not zero, we just keep it. This happens when
@@ -2641,16 +2655,7 @@ void UpdateTimelineTimeRanges(
       timeline.SetVisibleRange({bounds.min, bounds.max});
     }
   } else if (!has_known_tracks) {
-    timeline.set_fetched_data_time_range(TimeRange::Zero());
     timeline.SetVisibleRange(TimeRange::Zero());
-  }
-
-  if (full_timespan.has_value()) {
-    const Microseconds start = MillisToMicros(full_timespan->first);
-    const Microseconds end = MillisToMicros(full_timespan->second);
-    timeline.set_data_time_range({start, end});
-  } else {
-    timeline.set_data_time_range(timeline.fetched_data_time_range());
   }
 }
 

@@ -2518,6 +2518,91 @@ TEST_F(DataProviderTest,
   EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 8.0);
 }
 
+TEST_F(
+    DataProviderTest,
+    ProcessTraceEventsWithVisibleRangeFromUrlLargeRangeClampedToFullTimespan) {
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 1,
+                                           .name = "Event 1",
+                                           .ts = 10.0,
+                                           .dur = 10.0}};
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+  // full_timespan in milliseconds (0.005 ms to 0.050 ms -> 5.0 us to 50.0 us).
+  parsed_events.full_timespan = std::make_pair(0.005, 0.050);
+  // Extremely large URL range: ±1e79 ms.
+  parsed_events.visible_range_from_url = std::make_pair(-1e79, 1e79);
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  EXPECT_EQ(timeline_.visible_range(), timeline_.data_time_range());
+  EXPECT_EQ(timeline_.visible_range_target(), timeline_.data_time_range());
+  EXPECT_EQ(timeline_.visible_range(), TimeRange(5.0, 50.0));
+}
+
+TEST_F(DataProviderTest,
+       ProcessTraceEventsWithVisibleRangeFromUrlInsideBoundsKeptVerbatim) {
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 1,
+                                           .name = "Event 1",
+                                           .ts = 10.0,
+                                           .dur = 10.0}};
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+  // Initial visible range in milliseconds inside [10.0 us, 20.0 us].
+  // 0.012 ms = 12.0 us, 0.018 ms = 18.0 us.
+  parsed_events.visible_range_from_url = std::make_pair(0.012, 0.018);
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  EXPECT_EQ(timeline_.visible_range(), TimeRange(12.0, 18.0));
+  EXPECT_EQ(timeline_.visible_range_target(), TimeRange(12.0, 18.0));
+}
+
+TEST_F(DataProviderTest,
+       ProcessTraceEventsWithVisibleRangeFromUrlInvertedOrderNormalized) {
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 1,
+                                           .name = "Event 1",
+                                           .ts = 10.0,
+                                           .dur = 10.0}};
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+  // URL range provided with inverted order (start > end).
+  // 0.018 ms = 18.0 us, 0.012 ms = 12.0 us.
+  parsed_events.visible_range_from_url = std::make_pair(0.018, 0.012);
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  EXPECT_EQ(timeline_.visible_range(), TimeRange(12.0, 18.0));
+  EXPECT_EQ(timeline_.visible_range_target(), TimeRange(12.0, 18.0));
+}
+
+TEST_F(DataProviderTest,
+       ProcessTraceEventsWithVisibleRangeFromUrlClampedToFetchedBounds) {
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 1,
+                                           .name = "Event 1",
+                                           .ts = 10.0,
+                                           .dur = 10.0}};
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+  // full_timespan is std::nullopt.
+  // URL range exceeds fetched bounds [10.0 us, 20.0 us]: e.g., ±1e79 ms.
+  parsed_events.visible_range_from_url = std::make_pair(-1e79, 1e79);
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  EXPECT_EQ(timeline_.visible_range(), timeline_.fetched_data_time_range());
+  EXPECT_EQ(timeline_.visible_range_target(),
+            timeline_.fetched_data_time_range());
+  EXPECT_EQ(timeline_.visible_range(), TimeRange(10.0, 20.0));
+}
+
 TEST_F(DataProviderTest,
        ProcessMultipleCounterEventsReservesCapacityCorrectly) {
   // Use sizes that trigger reallocation if not reserved upfront.

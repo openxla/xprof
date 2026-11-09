@@ -62,6 +62,15 @@ EXPORT_C char* Trace(const char* service_addr, const char* logdir,
                      const char** option_keys, const char** option_string_vals,
                      const int* option_int_vals, const bool* option_bool_vals,
                      const int* option_types, int num_options) {
+  if (service_addr == nullptr) {
+    return StatusToCError(
+        absl::InvalidArgumentError("service_addr must be non-NULL"));
+  }
+  if (logdir == nullptr) {
+    return StatusToCError(
+        absl::InvalidArgumentError("logdir must be non-NULL"));
+  }
+  const char* safe_worker_list = worker_list != nullptr ? worker_list : "";
   auto tool_options_or =
       ToolOptionsFromCArrays(option_keys, option_string_vals, option_int_vals,
                              option_bool_vals, option_types, num_options);
@@ -70,7 +79,7 @@ EXPORT_C char* Trace(const char* service_addr, const char* logdir,
   }
   ToolOptions tool_options = std::move(*tool_options_or);
   absl::Status status = tsl::profiler::CaptureRemoteTrace(
-      service_addr, logdir, worker_list, include_dataset_ops, duration_ms,
+      service_addr, logdir, safe_worker_list, include_dataset_ops, duration_ms,
       num_tracing_attempts, tool_options);
   return StatusToCError(status);
 }
@@ -79,6 +88,10 @@ EXPORT_C char* Monitor(const char* service_addr, int duration_ms,
                        int monitoring_level, bool display_timestamp,
                        char** result_content) {
   if (result_content) *result_content = nullptr;
+  if (service_addr == nullptr) {
+    return StatusToCError(
+        absl::InvalidArgumentError("service_addr must be non-NULL"));
+  }
   std::string content;
   absl::Status status = xprof::pywrap::Monitor(
       service_addr, duration_ms, monitoring_level, display_timestamp, &content);
@@ -95,6 +108,10 @@ EXPORT_C char* StartContinuousProfiling(
     const char* service_addr, const char** option_keys,
     const char** option_string_vals, const int* option_int_vals,
     const bool* option_bool_vals, const int* option_types, int num_options) {
+  if (service_addr == nullptr) {
+    return StatusToCError(
+        absl::InvalidArgumentError("service_addr must be non-NULL"));
+  }
   auto tool_options_or =
       ToolOptionsFromCArrays(option_keys, option_string_vals, option_int_vals,
                              option_bool_vals, option_types, num_options);
@@ -108,11 +125,23 @@ EXPORT_C char* StartContinuousProfiling(
 }
 
 EXPORT_C char* StopContinuousProfiling(const char* service_addr) {
+  if (service_addr == nullptr) {
+    return StatusToCError(
+        absl::InvalidArgumentError("service_addr must be non-NULL"));
+  }
   absl::Status status = xprof::pywrap::StopContinuousProfiling(service_addr);
   return StatusToCError(status);
 }
 
 EXPORT_C char* GetSnapshot(const char* service_addr, const char* logdir) {
+  if (service_addr == nullptr) {
+    return StatusToCError(
+        absl::InvalidArgumentError("service_addr must be non-NULL"));
+  }
+  if (logdir == nullptr) {
+    return StatusToCError(
+        absl::InvalidArgumentError("logdir must be non-NULL"));
+  }
   absl::Status status = xprof::pywrap::GetSnapshot(service_addr, logdir);
   return StatusToCError(status);
 }
@@ -126,6 +155,14 @@ EXPORT_C char* XSpaceToToolsData(
   if (result_data) *result_data = nullptr;
   if (result_data_size) *result_data_size = 0;
   if (success) *success = false;
+  if (tool_name == nullptr) {
+    return StatusToCError(
+        absl::InvalidArgumentError("tool_name must be non-NULL"));
+  }
+  if (num_xspace_paths > 0 && xspace_paths == nullptr) {
+    return StatusToCError(absl::InvalidArgumentError(
+        "xspace_paths must be non-NULL if num_xspace_paths > 0"));
+  }
 
   std::vector<std::string> paths;
   paths.reserve(num_xspace_paths);
@@ -184,6 +221,17 @@ EXPORT_C char* XSpaceToToolsDataFromByteString(
   if (result_data) *result_data = nullptr;
   if (result_data_size) *result_data_size = 0;
   if (success) *success = false;
+  if (tool_name == nullptr) {
+    return StatusToCError(
+        absl::InvalidArgumentError("tool_name must be non-NULL"));
+  }
+  if (num_xspaces > 0 &&
+      (xspace_strings == nullptr || xspace_string_sizes == nullptr ||
+       xspace_paths == nullptr)) {
+    return StatusToCError(absl::InvalidArgumentError(
+        "xspace_strings, xspace_string_sizes, and xspace_paths must be "
+        "non-NULL if num_xspaces > 0"));
+  }
 
   std::vector<std::string> strings;
   std::vector<std::string> paths;
@@ -245,7 +293,8 @@ EXPORT_C void StartGrpcServer(int port, int max_concurrent_requests) {
 }
 
 EXPORT_C void InitializeStubs(const char* worker_service_addresses) {
-  xprof::profiler::InitializeStubs(worker_service_addresses);
+  xprof::profiler::InitializeStubs(
+      worker_service_addresses != nullptr ? worker_service_addresses : "");
 }
 // Provide a minimal PyInit for Python import resolution
 // This allows loaders to properly satisfy `DT_NEEDED` dependencies before we
@@ -271,6 +320,9 @@ PyMODINIT_FUNC PyInit_profiler_plugin_c_api(void) {
 EXPORT_C bool BuiltWithEmbedded() { return true; }
 #include "xprof/embedded/llo_analysis/llo_analysis_c_api.h"
 EXPORT_C LloAnalysisHandle CreateLloAnalysis(const char* filename) {
+  if (filename == nullptr) {
+    return nullptr;
+  }
   return CreateLloAnalysisImpl(filename);
 }
 EXPORT_C int GetTotalInstructions(LloAnalysisHandle handle) {

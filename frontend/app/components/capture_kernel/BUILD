@@ -14,9 +14,9 @@ xprof_ng_module(
     deps = [
         "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
-        "@org_xprof//frontend/app/common/angular:angular_material_button",
-        "@org_xprof//frontend/app/common/angular:angular_material_dialog",
-        "@org_xprof//frontend/app/components/capture_kernel/capture_kernel_dialog",
+        "//frontend/app/common/angular:angular_material_button",
+        "//frontend/app/common/angular:angular_material_dialog",
+        "//frontend/app/components/capture_kernel/capture_kernel_dialog",
     ],
 )
 
@@ -25,6 +25,6 @@ sass_binary(
     src = "capture_kernel.scss",
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

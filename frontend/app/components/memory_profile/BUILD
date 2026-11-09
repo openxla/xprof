@@ -18,18 +18,18 @@ xprof_ng_module(
         "//:node_modules/@angular/router",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
-        "@org_xprof//frontend/app/common/angular:angular_material_core",
-        "@org_xprof//frontend/app/common/angular:angular_material_divider",
-        "@org_xprof//frontend/app/common/angular:angular_material_icon",
-        "@org_xprof//frontend/app/common/angular:angular_material_progress_bar",
-        "@org_xprof//frontend/app/common/angular:angular_material_select",
-        "@org_xprof//frontend/app/common/classes",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/components/memory_profile/memory_breakdown_table",
-        "@org_xprof//frontend/app/components/memory_profile/memory_profile_summary",
-        "@org_xprof//frontend/app/components/memory_profile/memory_timeline_graph",
-        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
-        "@org_xprof//frontend/app/store",
+        "//frontend/app/common/angular:angular_material_core",
+        "//frontend/app/common/angular:angular_material_divider",
+        "//frontend/app/common/angular:angular_material_icon",
+        "//frontend/app/common/angular:angular_material_progress_bar",
+        "//frontend/app/common/angular:angular_material_select",
+        "//frontend/app/common/classes",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/components/memory_profile/memory_breakdown_table",
+        "//frontend/app/components/memory_profile/memory_profile_summary",
+        "//frontend/app/components/memory_profile/memory_timeline_graph",
+        "//frontend/app/services/data_service_v2:data_service_v2_interface",
+        "//frontend/app/store",
     ],
 )
 
@@ -39,7 +39,7 @@ ts_library(
         "memory_profile_base.ts",
     ],
     deps = [
-        "@org_xprof//frontend/app/common/interfaces",
+        "//frontend/app/common/interfaces",
     ],
 )
 
@@ -57,6 +57,6 @@ sass_library(
     name = "memory_profile_common",
     srcs = ["memory_profile_common.scss"],
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

@@ -1,0 +1,47 @@
+diff --git a/absl/container/internal/btree.h b/absl/container/internal/btree.h
+--- a/absl/container/internal/btree.h
++++ b/absl/container/internal/btree.h
+@@ -1124,9 +1124,7 @@ class btree_iterator : private btree_iterator_generation_info {
+   using slot_type = typename params_type::slot_type;
+ 
+   // In sets, all iterators are const.
+-  using iterator = std::conditional_t<
+-      is_map_container::value,
+-      btree_iterator<normal_node, normal_reference, normal_pointer>,
+-      btree_iterator<normal_node, const_reference, const_pointer>>;
++  using iterator =
++      btree_iterator<normal_node, normal_reference, normal_pointer>;
+   using const_iterator =
+       btree_iterator<const_node, const_reference, const_pointer>;
+diff --git a/absl/base/BUILD.bazel b/absl/base/BUILD.bazel
+--- a/absl/base/BUILD.bazel
++++ b/absl/base/BUILD.bazel
+@@ -578,12 +578,8 @@ cc_library(
+     copts = ABSL_DEFAULT_COPTS,
+     linkopts = ABSL_DEFAULT_LINKOPTS,
+-    visibility = [
+-        "//absl:__subpackages__",
+-        "//absl:friends",
+-    ],
+     deps = [
+         ":base",
+         ":config",
+         ":core_headers",
+         ":nullability",
+     ],
+diff --git a/absl/container/internal/raw_hash_set.h b/absl/container/internal/raw_hash_set.h
+--- a/absl/container/internal/raw_hash_set.h
++++ b/absl/container/internal/raw_hash_set.h
+@@ -232,9 +232,9 @@
+ #if ABSL_INTERNAL_CPLUSPLUS_LANG >= 202002L
+ #include <ranges>  // NOLINT(build/c++20)
+ #endif
+ 
+-#ifdef __BMI2__
+-#include <bmi2intrin.h>
+-#endif  // __BMI2__
++#if defined(__i386__) || defined(__x86_64__)
++#include <immintrin.h>
++#endif
+ 
+ namespace absl {

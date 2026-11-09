@@ -8,7 +8,7 @@ ts_library(
         "memory_usage.ts",
     ],
     deps = [
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/common/utils",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/common/utils",
     ],
 )

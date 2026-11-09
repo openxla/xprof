@@ -1,15 +1,15 @@
 load("//plugin/xprof/build_utils:pytype.default.bzl", "pytype_library", "pytype_strict_binary", "pytype_strict_contrib_test", "pytype_strict_library")
 
 package(default_visibility = [
-    "//plugin/xprof:__subpackages__",
-    "@org_xprof//plugin:__pkg__",
+    "//plugin:__pkg__",
+    "//plugin:__subpackages__",
 ])
 
 pytype_strict_library(
     name = "get_kernel_stats_tool",
     srcs = ["get_kernel_stats_tool.py"],
     visibility = [
-        "//plugin/xprof:__subpackages__",
+        "//plugin:__subpackages__",
         "//vr:__subpackages__",
     ],
     deps = [
@@ -22,7 +22,7 @@ pytype_strict_library(
     name = "analyze_async_overlap_tool",
     srcs = ["analyze_async_overlap_tool.py"],
     visibility = [
-        "//plugin/xprof:__subpackages__",
+        "//plugin:__subpackages__",
         "//vr:__subpackages__",
     ],
     deps = [
@@ -36,7 +36,7 @@ pytype_strict_library(
     name = "check_host_boundness_tool",
     srcs = ["check_host_boundness_tool.py"],
     visibility = [
-        "//plugin/xprof:__subpackages__",
+        "//plugin:__subpackages__",
         "//vr:__subpackages__",
     ],
     deps = [
@@ -74,7 +74,7 @@ pytype_strict_library(
     name = "get_step_trace_tool",
     srcs = ["get_step_trace_tool.py"],
     visibility = [
-        "//plugin/xprof:__subpackages__",
+        "//plugin:__subpackages__",
     ],
     deps = [
         "//plugin/xprof/cli/internal:decorators",
@@ -97,7 +97,7 @@ pytype_strict_library(
     deps = [
         "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal/oss:xprof_client",
-        "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
+        "//xprof/pywrap:_pywrap_profiler_plugin",
     ],
 )
 
@@ -107,7 +107,7 @@ pytype_strict_library(
     deps = [
         "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal/oss:xprof_client",
-        "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
+        "//xprof/pywrap:_pywrap_profiler_plugin",
     ],
 )
 
@@ -156,7 +156,7 @@ pytype_strict_library(
     name = "get_hlo_stats_tool",
     srcs = ["get_hlo_stats_tool.py"],
     visibility = [
-        "//plugin/xprof:__subpackages__",
+        "//plugin:__subpackages__",
         "//vr:__subpackages__",
     ],
     deps = [

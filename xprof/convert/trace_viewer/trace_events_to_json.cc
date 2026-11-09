@@ -78,7 +78,7 @@ std::string JsonEscape(absl::string_view raw) {
                               static_cast<unsigned int>(c));
         continue;
       }
-      case '\xe2': {
+      case 0xe2: {
         if ((i + 2 < length) && (raw[i + 1] == '\x80')) {
           if (raw[i + 2] == '\xa8') {
             escaped_string.append("\\u2028");

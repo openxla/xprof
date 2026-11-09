@@ -9,7 +9,7 @@ xprof_ng_module(
     ],
     deps = [
         "//:node_modules/@angular/core",
-        "@org_xprof//frontend/app/common/interfaces:chart",
+        "//frontend/app/common/interfaces:chart",
     ],
 )
 
@@ -20,8 +20,8 @@ xprof_ng_module(
     ],
     deps = [
         "//:node_modules/@angular/core",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/common/interfaces:chart",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/common/interfaces:chart",
     ],
 )
 
@@ -35,8 +35,8 @@ ts_library(
     ],
     deps = [
         ":utils",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/common/interfaces:chart",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/common/interfaces:chart",
     ],
 )
 
@@ -56,6 +56,6 @@ ts_library(
         "table_utils.ts",
     ],
     deps = [
-        "@org_xprof//frontend/app/common/interfaces:chart",
+        "//frontend/app/common/interfaces:chart",
     ],
 )

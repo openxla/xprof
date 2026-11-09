@@ -15,10 +15,10 @@ xprof_ng_module(
     deps = [
         "//:node_modules/@angular/core",
         "//:node_modules/rxjs",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/components/capture_profile",
-        "@org_xprof//frontend/app/services/data_service_v2",
-        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/components/capture_profile",
+        "//frontend/app/services/data_service_v2",
+        "//frontend/app/services/data_service_v2:data_service_v2_interface",
     ],
 )
 
@@ -28,6 +28,6 @@ sass_binary(
     # stack = False,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

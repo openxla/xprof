@@ -8,7 +8,7 @@ tf_web_library(
     name = "webcomponentsjs_polyfill",
     srcs = [
         "webcomponentsjs_polyfill.html",
-        "@org_xprof//plugin/third_party/webcomponentsjs",
+        "//plugin/third_party/webcomponentsjs",
     ],
     path = "/webcomponentsjs_polyfill",
 )

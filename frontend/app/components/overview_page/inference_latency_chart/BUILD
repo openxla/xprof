@@ -15,8 +15,8 @@ xprof_ng_module(
     deps = [
         "//:node_modules/@angular/core",
         "//:node_modules/@types/google.visualization",
-        "@org_xprof//frontend/app/common/angular:angular_material_card",
-        "@org_xprof//frontend/app/common/interfaces",
+        "//frontend/app/common/angular:angular_material_card",
+        "//frontend/app/common/interfaces",
     ],
 )
 
@@ -26,6 +26,6 @@ sass_binary(
     # stack = True,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

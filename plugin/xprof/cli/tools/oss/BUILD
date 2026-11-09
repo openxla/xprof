@@ -1,6 +1,6 @@
 load("//plugin/xprof/build_utils:pytype.default.bzl", "pytype_library", "pytype_strict_binary", "pytype_strict_contrib_test", "pytype_strict_library")
 
-package(default_visibility = ["@org_xprof//plugin:__subpackages__"])
+package(default_visibility = ["//plugin:__subpackages__"])
 
 pytype_strict_library(
     name = "get_graph_viewer_tool",
@@ -44,7 +44,7 @@ pytype_strict_library(
         "//plugin/xprof:version",
         "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal/oss:xprof_client",
-        "@org_xprof//xprof/convert/events_db/python:pywrap_events_db_c_api_py",
+        "//xprof/convert/events_db/python:pywrap_events_db_c_api_py",
         "@pypi//duckdb",
     ],
 )
@@ -55,7 +55,7 @@ pytype_strict_library(
         "__init__.py",
         "llo_static_analysis_tool.py",
     ],
-    deps = ["@org_xprof//xprof/pywrap:_pywrap_profiler_plugin"],
+    deps = ["//xprof/pywrap:_pywrap_profiler_plugin"],
 )
 
 pytype_strict_library(

@@ -1,5 +1,5 @@
-# load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
-# load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
 package(
     # copybara:uncomment default_applicable_licenses = ["//third_party/tensorflow:license"],
@@ -156,6 +156,7 @@ cc_library(
         "//plugin/xprof/protobuf:task_proto_cc",
         "//plugin/xprof/protobuf:trace_events_proto_cc",
         "//plugin/xprof/protobuf:trace_events_raw_proto_cc",
+        "//xprof/convert:xprof_thread_pool_executor",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -173,7 +174,6 @@ cc_library(
         "@com_google_absl//absl/time",
         "@com_google_protobuf//:protobuf",
         "@com_googlesource_code_re2//:re2",
-        "@org_xprof//xprof/convert:xprof_thread_pool_executor",
         "@tsl//tsl/platform:platform_port",
         "@tsl//tsl/profiler/lib:context_types_hdrs",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
@@ -200,8 +200,8 @@ cc_library(
         ":trace_events_to_json",
         ":trace_utils",
         "//plugin/xprof/protobuf:trace_filter_config_proto_cc",
+        "//xprof/convert:tool_options",
         "@com_google_absl//absl/container:flat_hash_set",
-        "@org_xprof//xprof/convert:tool_options",
     ],
 )
 
@@ -211,10 +211,10 @@ cc_test(
     deps = [
         ":trace_events_filter_interface",
         ":trace_options",
+        "//xprof/convert:tool_options",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
-        "@org_xprof//xprof/convert:tool_options",
     ],
 )
 

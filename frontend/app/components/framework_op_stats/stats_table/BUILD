@@ -16,12 +16,12 @@ xprof_ng_module(
     deps = [
         ":stats_table_data_provider",
         "//:node_modules/@angular/core",
-        "@org_xprof//frontend/app/common/angular:angular_material_form_field",
-        "@org_xprof//frontend/app/common/angular:angular_material_icon",
-        "@org_xprof//frontend/app/common/angular:angular_material_input",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/common/interfaces:chart",
-        "@org_xprof//frontend/app/components/chart",
+        "//frontend/app/common/angular:angular_material_form_field",
+        "//frontend/app/common/angular:angular_material_icon",
+        "//frontend/app/common/angular:angular_material_input",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/common/interfaces:chart",
+        "//frontend/app/components/chart",
     ],
 )
 
@@ -32,10 +32,10 @@ xprof_ng_module(
     ],
     deps = [
         "//:node_modules/@angular/core",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/common/interfaces:chart",
-        "@org_xprof//frontend/app/components/chart:default_data_provider",
-        "@org_xprof//frontend/app/components/chart:utils",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/common/interfaces:chart",
+        "//frontend/app/components/chart:default_data_provider",
+        "//frontend/app/components/chart:utils",
     ],
 )
 
@@ -45,6 +45,6 @@ sass_binary(
     # stack = False,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

@@ -1,0 +1,110 @@
+diff --git a/google/cloud/BUILD.bazel b/google/cloud/BUILD.bazel
+--- a/google/cloud/BUILD.bazel
++++ b/google/cloud/BUILD.bazel
+@@ -73,12 +73,12 @@
+         "//:__pkg__",
+     ],
+     deps = [
+-        "@abseil-cpp//absl/base",
+-        "@abseil-cpp//absl/functional:function_ref",
+-        "@abseil-cpp//absl/strings",
+-        "@abseil-cpp//absl/strings:str_format",
+-        "@abseil-cpp//absl/time",
+-        "@abseil-cpp//absl/types:span",
++        "@com_google_absl//absl/base",
++        "@com_google_absl//absl/functional:function_ref",
++        "@com_google_absl//absl/strings",
++        "@com_google_absl//absl/strings:str_format",
++        "@com_google_absl//absl/time",
++        "@com_google_absl//absl/types:span",
+         "@opentelemetry-cpp//api",
+     ] + select({
+         "@platforms//os:windows": [],
+@@ -145,8 +145,8 @@
+     ],
+     deps = [
+         ":google_cloud_cpp_common",
+-        "@abseil-cpp//absl/functional:function_ref",
+-        "@abseil-cpp//absl/time",
++        "@com_google_absl//absl/functional:function_ref",
++        "@com_google_absl//absl/time",
+         "@googleapis//google/cloud/location:location_cc_grpc",
+         "@googleapis//google/iam/credentials/v1:credentials_cc_grpc",
+         "@googleapis//google/iam/v1:iam_cc_grpc",
+@@ -154,7 +154,7 @@
+         "@googleapis//google/rpc:error_details_cc_proto",
+         "@googleapis//google/rpc:status_cc_proto",
+         "@grpc//:grpc++",
+-        "@nlohmann_json//:json",
++        "@com_github_nlohmann_json//:json",
+     ],
+ )
+ 
+@@ -180,7 +180,7 @@
+         "@googleapis//google/bigtable/admin/v2:admin_cc_grpc",
+         "@googleapis//google/bigtable/v2:bigtable_cc_grpc",
+         "@googletest//:gtest_main",
+-        "@nlohmann_json//:json",
++        "@com_github_nlohmann_json//:json",
+     ],
+ ) for test in google_cloud_cpp_grpc_utils_unit_tests]
+ 
+@@ -258,11 +258,11 @@
+     visibility = ["//:__subpackages__"],
+     deps = [
+         ":google_cloud_cpp_common",
+-        "@abseil-cpp//absl/container:flat_hash_map",
+-        "@abseil-cpp//absl/functional:function_ref",
+-        "@abseil-cpp//absl/types:span",
++        "@com_google_absl//absl/container:flat_hash_map",
++        "@com_google_absl//absl/functional:function_ref",
++        "@com_google_absl//absl/types:span",
+         "@curl",
+-        "@nlohmann_json//:json",
++        "@com_github_nlohmann_json//:json",
+     ] + select({
+         "@platforms//os:windows": [],
+         "//conditions:default": [
+diff --git a/google/cloud/storage/BUILD.bazel b/google/cloud/storage/BUILD.bazel
+--- a/google/cloud/storage/BUILD.bazel
++++ b/google/cloud/storage/BUILD.bazel
+@@ -75,14 +75,14 @@
+     deps = [
+         ":google_cloud_cpp_storage",
+         "//:grpc_utils",
+-        "@abseil-cpp//absl/algorithm:container",
+-        "@abseil-cpp//absl/strings",
+-        "@abseil-cpp//absl/time",
++        "@com_google_absl//absl/algorithm:container",
++        "@com_google_absl//absl/strings",
++        "@com_google_absl//absl/time",
+         "@curl",
+         "@googleapis//google/storage/v2:storage_cc_grpc",
+         "@googleapis//google/storage/v2:storage_cc_proto",
+         "@grpc//:grpc++",
+-        "@nlohmann_json//:json",
++        "@com_github_nlohmann_json//:json",
+     ] + select({
+         ":grpc_metrics_enabled": [
+             "//:opentelemetry",
+@@ -141,13 +141,13 @@
+     deps = [
+         "//:common",
+         "//google/cloud:google_cloud_cpp_rest_internal",
+-        "@abseil-cpp//absl/crc:crc32c",
+-        "@abseil-cpp//absl/strings:cord",
+-        "@abseil-cpp//absl/strings:str_format",
+-        "@abseil-cpp//absl/time",
+-        "@abseil-cpp//absl/types:span",
+-        "@curl",
+-        "@nlohmann_json//:json",
++        "@com_google_absl//absl/crc:crc32c",
++        "@com_google_absl//absl/strings:cord",
++        "@com_google_absl//absl/strings:str_format",
++        "@com_google_absl//absl/time",
++        "@com_google_absl//absl/types:span",
++        "@curl",
++        "@com_github_nlohmann_json//:json",
+     ] + select({
+         "@platforms//os:windows": [],
+         "//conditions:default": [

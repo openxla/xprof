@@ -13,9 +13,9 @@ xprof_ng_module(
         "//:node_modules/@angular/router",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
-        "@org_xprof//frontend/app/common/constants",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/store",
+        "//frontend/app/common/constants",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/store",
     ],
 )
 
@@ -32,11 +32,11 @@ xprof_ng_module(
     deps = [
         "//:node_modules/@angular/core",
         "//:node_modules/@ngrx/store",
-        "@org_xprof//frontend/app/common/angular:angular_material_divider",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/components/controls/export_as_csv",
-        "@org_xprof//frontend/app/components/kernel_stats/kernel_stats_table",
-        "@org_xprof//frontend/app/store/common_data_store",
+        "//frontend/app/common/angular:angular_material_divider",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/components/controls/export_as_csv",
+        "//frontend/app/components/kernel_stats/kernel_stats_table",
+        "//frontend/app/store/common_data_store",
     ],
 )
 
@@ -46,6 +46,6 @@ sass_binary(
     # stack = False,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

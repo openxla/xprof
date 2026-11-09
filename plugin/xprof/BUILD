@@ -1,4 +1,5 @@
 load("@aspect_bazel_lib//lib:copy_to_bin.bzl", "copy_to_bin")
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
 
 # Description:
 #  TensorBoard plugin for the performance profiling.
@@ -18,12 +19,12 @@ py_library(
     name = "profile_plugin",
     srcs = ["profile_plugin.py"],
     deps = [
+        "//plugin/xprof/convert:all_libs",
+        "//plugin/xprof/protobuf:protos_all_py",
+        "//plugin/xprof/standalone:tensorboard_shim",
+        "//xprof/pywrap:_pywrap_profiler_plugin",
         "@org_tensorflow_tensorboard//tensorboard/backend/event_processing:plugin_asset_util",
         "@org_tensorflow_tensorboard//tensorboard/plugins:base_plugin",
-        "@org_xprof//plugin/xprof/convert:all_libs",
-        "@org_xprof//plugin/xprof/protobuf:protos_all_py",
-        "@org_xprof//plugin/xprof/standalone:tensorboard_shim",
-        "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
         "@pypi//etils",
         "@pypi//six",
         "@pypi//werkzeug",
@@ -35,9 +36,8 @@ py_library(
     srcs = ["profile_plugin_test_utils.py"],
     deps = [
         ":profile_plugin",
-        "@org_pocoo_werkzeug",
-        "@org_xprof//plugin/xprof/protobuf:protos_all_py",
-        "@org_xprof//plugin/xprof/standalone:tensorboard_shim",
+        "//plugin/xprof/protobuf:protos_all_py",
+        "//plugin/xprof/standalone:tensorboard_shim",
         "@pypi//werkzeug",
     ],
 )
@@ -50,14 +50,14 @@ py_test(
     deps = [
         ":profile_plugin",
         ":profile_plugin_test_utils",
+        "//plugin/xprof/protobuf:protos_all_py",
+        "//plugin/xprof/standalone:tensorboard_shim",
         "@org_tensorflow_tensorboard//tensorboard:context",
         "@org_tensorflow_tensorboard//tensorboard/backend/event_processing:data_provider",
         "@org_tensorflow_tensorboard//tensorboard/backend/event_processing:event_multiplexer",
         "@org_tensorflow_tensorboard//tensorboard/backend/event_processing:plugin_asset_util",
         "@org_tensorflow_tensorboard//tensorboard/plugins:base_plugin",
-        "@org_xprof//plugin/xprof/protobuf:protos_all_py",
-        "@org_xprof//plugin/xprof/standalone:tensorboard_shim",
-        "@pypi//absl-py",
+        "@pypi//absl_py",
     ],
 )
 
@@ -69,9 +69,9 @@ py_test(
     deps = [
         ":profile_plugin",
         ":profile_plugin_test_utils",
-        "@org_xprof//plugin/xprof/protobuf:protos_all_py",
-        "@org_xprof//plugin/xprof/standalone:tensorboard_shim",
-        "@pypi//absl-py",
+        "//plugin/xprof/protobuf:protos_all_py",
+        "//plugin/xprof/standalone:tensorboard_shim",
+        "@pypi//absl_py",
     ],
 )
 
@@ -80,7 +80,7 @@ py_library(
     srcs = ["profile_plugin_loader.py"],
     deps = [
         ":profile_plugin",
-        "@org_xprof//plugin/xprof/standalone:tensorboard_shim",
+        "//plugin/xprof/standalone:tensorboard_shim",
     ],
 )
 
@@ -89,7 +89,7 @@ py_library(
     srcs = ["server.py"],
     deps = [
         ":profile_plugin_loader",
-        "@org_xprof//plugin/xprof/standalone:tensorboard_shim",
+        "//plugin/xprof/standalone:tensorboard_shim",
     ],
 )
 
@@ -117,7 +117,7 @@ py_test(
     main = "profile_io_test.py",
     deps = [
         ":profile_io",
-        "@pypi//absl-py",
+        "@pypi//absl_py",
     ],
 )
 
@@ -125,7 +125,7 @@ py_library(
     name = "profile_data",
     srcs = ["profile_data.py"],
     deps = [
-        "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
+        "//xprof/pywrap:_pywrap_profiler_plugin",
         "@pypi//etils",
     ],
 )
@@ -137,7 +137,7 @@ py_test(
     main = "profile_data_test.py",
     deps = [
         ":profile_data",
-        "@pypi//absl-py",
+        "@pypi//absl_py",
         "@tsl//tsl/profiler/protobuf:xplane_proto_py",
     ],
 )

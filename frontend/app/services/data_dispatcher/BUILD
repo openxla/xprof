@@ -11,11 +11,11 @@ ts_library(
         ":data_request_queue",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
-        "@org_xprof//frontend/app/common/constants",
-        "@org_xprof//frontend/app/store",
-        "@org_xprof//frontend/app/store:types",
-        "@org_xprof//frontend/app/store/common_data_store",
-        "@org_xprof//frontend/app/store/framework_op_stats",
+        "//frontend/app/common/constants",
+        "//frontend/app/store",
+        "//frontend/app/store:types",
+        "//frontend/app/store/common_data_store",
+        "//frontend/app/store/framework_op_stats",
     ],
 )
 
@@ -25,8 +25,8 @@ ts_library(
         "data_request_queue.ts",
     ],
     deps = [
-        "@org_xprof//frontend/app/common/constants",
-        "@org_xprof//frontend/app/store",
+        "//frontend/app/common/constants",
+        "//frontend/app/store",
     ],
 )
 
@@ -41,8 +41,8 @@ xprof_ng_module(
         "//:node_modules/@angular/core",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
-        "@org_xprof//frontend/app/common/constants",
-        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
-        "@org_xprof//frontend/app/store",
+        "//frontend/app/common/constants",
+        "//frontend/app/services/data_service_v2:data_service_v2_interface",
+        "//frontend/app/store",
     ],
 )

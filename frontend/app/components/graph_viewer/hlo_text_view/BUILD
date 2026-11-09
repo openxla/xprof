@@ -16,14 +16,14 @@ xprof_ng_module(
         "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
         "//:node_modules/rxjs",
-        "@org_xprof//frontend/app/common/angular:angular_material_button",
-        "@org_xprof//frontend/app/common/angular:angular_material_expansion",
-        "@org_xprof//frontend/app/common/angular:angular_material_form_field",
-        "@org_xprof//frontend/app/common/angular:angular_material_progress_bar",
-        "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
-        "@org_xprof//frontend/app/common/classes",
-        "@org_xprof//frontend/app/common/constants",
-        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
+        "//frontend/app/common/angular:angular_material_button",
+        "//frontend/app/common/angular:angular_material_expansion",
+        "//frontend/app/common/angular:angular_material_form_field",
+        "//frontend/app/common/angular:angular_material_progress_bar",
+        "//frontend/app/common/angular:angular_material_tooltip",
+        "//frontend/app/common/classes",
+        "//frontend/app/common/constants",
+        "//frontend/app/services/data_service_v2:data_service_v2_interface",
     ],
 )
 
@@ -33,6 +33,6 @@ sass_binary(
     # stack = True,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

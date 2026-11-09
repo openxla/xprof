@@ -14,11 +14,11 @@ xprof_ng_module(
     ],
     deps = [
         "//:node_modules/@angular/core",
-        "@org_xprof//frontend/app/common/angular:angular_material_button",
-        "@org_xprof//frontend/app/common/angular:angular_material_icon",
-        "@org_xprof//frontend/app/common/angular:angular_material_menu",
-        "@org_xprof//frontend/app/common/angular:angular_material_slider",
-        "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
+        "//frontend/app/common/angular:angular_material_button",
+        "//frontend/app/common/angular:angular_material_icon",
+        "//frontend/app/common/angular:angular_material_menu",
+        "//frontend/app/common/angular:angular_material_slider",
+        "//frontend/app/common/angular:angular_material_tooltip",
     ],
 )
 

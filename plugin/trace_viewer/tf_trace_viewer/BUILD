@@ -8,7 +8,7 @@ tf_web_library(
     name = "tf_trace_viewer",
     srcs = [
         "tf-trace-viewer.html",
-        "@org_xprof//plugin/third_party/tracing:trace_viewer_full.html",
+        "//plugin/third_party/tracing:trace_viewer_full.html",
     ],
     path = "/tf-trace-viewer",
     deps = [
@@ -22,7 +22,7 @@ tf_web_library(
     path = "/tf-trace-viewer",
     deps = [
         ":tf_trace_viewer",
-        "@org_xprof//plugin/trace_viewer/tf_trace_viewer/data",
+        "//plugin/trace_viewer/tf_trace_viewer/data",
     ],
 )
 

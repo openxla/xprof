@@ -17,15 +17,15 @@ xprof_ng_module(
         "//:node_modules/@angular/core",
         "//:node_modules/@angular/forms",
         "//:node_modules/@angular/platform-browser",
-        "@org_xprof//frontend/app/common/angular:angular_material_button",
-        "@org_xprof//frontend/app/common/angular:angular_material_dialog",
-        "@org_xprof//frontend/app/common/angular:angular_material_expansion",
-        "@org_xprof//frontend/app/common/angular:angular_material_form_field",
-        "@org_xprof//frontend/app/common/angular:angular_material_input",
-        "@org_xprof//frontend/app/common/angular:angular_material_radio",
-        "@org_xprof//frontend/app/common/angular:angular_material_select",
-        "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
-        "@org_xprof//frontend/app/common/interfaces",
+        "//frontend/app/common/angular:angular_material_button",
+        "//frontend/app/common/angular:angular_material_dialog",
+        "//frontend/app/common/angular:angular_material_expansion",
+        "//frontend/app/common/angular:angular_material_form_field",
+        "//frontend/app/common/angular:angular_material_input",
+        "//frontend/app/common/angular:angular_material_radio",
+        "//frontend/app/common/angular:angular_material_select",
+        "//frontend/app/common/angular:angular_material_tooltip",
+        "//frontend/app/common/interfaces",
     ],
 )
 
@@ -35,6 +35,6 @@ sass_binary(
     # stack = False,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

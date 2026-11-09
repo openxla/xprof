@@ -16,9 +16,9 @@ xprof_ng_module(
     deps = [
         ":device_side_analysis_detail_data_provider",
         "//:node_modules/@angular/core",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/common/interfaces:chart",
-        "@org_xprof//frontend/app/components/chart",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/common/interfaces:chart",
+        "//frontend/app/components/chart",
     ],
 )
 
@@ -28,9 +28,9 @@ ts_library(
         "device_side_analysis_detail_data_provider.ts",
     ],
     deps = [
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/common/utils:chart_utils",
-        "@org_xprof//frontend/app/components/chart:default_data_provider",
+        "//frontend/app/common/interfaces",
+        "//frontend/app/common/utils:chart_utils",
+        "//frontend/app/components/chart:default_data_provider",
     ],
 )
 
@@ -40,6 +40,6 @@ sass_binary(
     # stack = False,
     sourcemap = False,
     deps = [
-        "@org_xprof//frontend/app/styles:common",
+        "//frontend/app/styles:common",
     ],
 )

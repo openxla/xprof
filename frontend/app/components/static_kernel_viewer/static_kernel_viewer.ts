@@ -1690,6 +1690,10 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
         // Disable built-in WASM ImGui tooltips because Static Kernel Viewer
         // renders its own Angular `<kernel-event-tooltip>` overlay.
         this.traceViewerModule?.SetEventTooltipEnabled?.(false);
+        // Kernel lanes are read as intervals, so selecting an event also
+        // draws a time range curtain spanning it; the Trace Viewer keeps it
+        // off.
+        this.traceViewerModule?.SetSelectedEventTimeRangeEnabled?.(true);
         // Keep the Kernel Viewer's saved track order separate from the Trace
         // Viewer's.
         this.traceViewerModule?.SetTrackOrderStorageKey?.(

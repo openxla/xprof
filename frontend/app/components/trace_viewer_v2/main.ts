@@ -185,6 +185,11 @@ declare global {
    * off. Hover highlighting, hover events and selection are unaffected.
    */
   SetEventTooltipEnabled?(enabled: boolean): void;
+  /**
+   * Whether selecting an event also draws a temporary time range curtain
+   * spanning it. Off by default; the Kernel Viewer turns it on.
+   */
+  SetSelectedEventTimeRangeEnabled?(enabled: boolean): void;
   /** Enables or disables reordering tracks by their drag handle. */
   SetTrackReorderingEnabled?(enabled: boolean): void;
   /**

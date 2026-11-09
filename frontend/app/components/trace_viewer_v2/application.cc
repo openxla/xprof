@@ -171,6 +171,10 @@ EMSCRIPTEN_KEEPALIVE void SetEventTooltipEnabled(bool enabled) {
   Application::Instance().SetEventTooltipEnabled(enabled);
 }
 
+EMSCRIPTEN_KEEPALIVE void SetSelectedEventTimeRangeEnabled(bool enabled) {
+  Application::Instance().SetSelectedEventTimeRangeEnabled(enabled);
+}
+
 EMSCRIPTEN_KEEPALIVE void SetTrackReorderingEnabled(bool enabled) {
   Application::Instance().SetTrackReorderingEnabled(enabled);
 }
@@ -288,6 +292,8 @@ EMSCRIPTEN_BINDINGS(traceviewer) {
   emscripten::function("SetIncrementalFetchEnabled",
                        &SetIncrementalFetchEnabled);
   emscripten::function("SetEventTooltipEnabled", &SetEventTooltipEnabled);
+  emscripten::function("SetSelectedEventTimeRangeEnabled",
+                       &SetSelectedEventTimeRangeEnabled);
   emscripten::function("SetTrackReorderingEnabled", &SetTrackReorderingEnabled);
   emscripten::function("SetTrackOrderStorageKey", &SetTrackOrderStorageKey);
   emscripten::function("ResetDataset", &ResetDataset);

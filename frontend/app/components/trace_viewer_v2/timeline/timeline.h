@@ -710,6 +710,17 @@ class Timeline {
     hlo_dependency_arrows_enabled_ = enabled;
   }
 
+  // Whether selecting an event also draws a temporary, non-interactive time
+  // range curtain spanning the event (see DrawSelectedTimeRanges()). Off by
+  // default; the Kernel Viewer turns it on because its lanes are read as
+  // intervals, whereas in the Trace Viewer the curtain only hides the slice.
+  void set_selected_event_time_range_enabled(bool enabled) {
+    selected_event_time_range_enabled_ = enabled;
+  }
+  bool selected_event_time_range_enabled() const {
+    return selected_event_time_range_enabled_;
+  }
+
   // Resolves the HLO operands and consumers of the selected event to events
   // on its track, see ResolveEventDependencies() in
   // timeline_hlo_dependencies.h. The names are resolved again when new
@@ -1716,6 +1727,8 @@ class Timeline {
   // See set_event_tooltip_enabled().
   bool event_tooltip_enabled_ = true;
   bool hlo_dependency_arrows_enabled_ = false;
+  // See set_selected_event_time_range_enabled().
+  bool selected_event_time_range_enabled_ = false;
   // See SetSelectedEventDependencies().
   EventDependencies dependencies_;
 

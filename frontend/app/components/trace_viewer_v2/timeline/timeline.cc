@@ -6768,7 +6768,7 @@ void Timeline::DrawSelectedTimeRanges(Pixel timeline_width,
                           px_per_time_unit_val, /*show_delete_button=*/false);
   }
 
-  if (selected_event_index_ >= 0 &&
+  if (selected_event_time_range_enabled_ && selected_event_index_ >= 0 &&
       static_cast<size_t>(selected_event_index_) <
           timeline_data_.entry_start_times.size() &&
       static_cast<size_t>(selected_event_index_) <

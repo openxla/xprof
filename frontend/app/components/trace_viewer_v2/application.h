@@ -126,6 +126,13 @@ class Application {
     }
   }
 
+  // See Timeline::set_selected_event_time_range_enabled().
+  void SetSelectedEventTimeRangeEnabled(bool enabled) {
+    if (timeline_) {
+      timeline_->set_selected_event_time_range_enabled(enabled);
+    }
+  }
+
   // Clears all per-dataset state so a different dataset can be loaded into
   // this instance. Call before loadTraceData() when switching datasets.
   void ResetDataset() {

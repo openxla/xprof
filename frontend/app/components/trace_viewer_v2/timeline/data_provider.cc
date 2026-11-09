@@ -62,7 +62,12 @@ namespace {
 // tie-breaking.
 constexpr uint32_t kMpmdUnrankedSortIndexBase = 1u << 30;
 
-constexpr ThreadId kSyntheticOpenSpanTidBit = 0x80000000;
+// Bit 63 is reserved for synthetic async tracks created in
+// PopulateAsyncProcessTracks. In trace JSON, resource_id is a uint64, TSL's
+// derived thread IDs are in the 0xdeadbeef... range, and observed host thread
+// IDs remain well below 2^59, ensuring bit 63 does not collide with real or
+// derived thread IDs.
+constexpr ThreadId kSyntheticOpenSpanTidBit = 0x8000000000000000ULL;
 constexpr size_t kDefaultMaxTrackEvents = 262144;
 constexpr size_t kDefaultTargetTrackEvents = 131072;
 constexpr size_t kDefaultTailKeepEvents = 2048;
@@ -2099,7 +2104,7 @@ ProcessEventGroups CollectProcessEventGroups(
 }
 
 // Populates named async tracks for a process using synthetic ThreadIds
-// (starting at 0x80000000).
+// (starting at 0x8000000000000000ULL).
 void PopulateAsyncProcessTracks(
     ProcessId pid,
     const absl::btree_map<std::string, std::vector<const TraceEvent*>>&

@@ -5291,14 +5291,14 @@ TEST_F(DataProviderTest, ThreadTrack_LevelCountMatchesOverlappingEventLevels) {
 
 TEST_F(DataProviderTest,
        MultipleAsyncTracks_EachReceivesUniqueSyntheticTidForFlowLines) {
-  // Track 1: async flame event with synthetic tid base 0x80000000.
-  // Track 2: async flame event with synthetic tid 0x80000001.
+  // Track 1: async flame event with synthetic tid base 0x8000000000000000ULL.
+  // Track 2: async flame event with synthetic tid 0x8000000000000001ULL.
   const std::vector<TraceEvent> flame_events = {
       CreateProcessEvent(1, "Async Process"),
       {.ph = Phase::kComplete,
        .event_id = 101,
        .pid = 1,
-       .tid = 0x80000000,
+       .tid = 0x8000000000000000ULL,
        .name = "AsyncTrack1",
        .ts = 100.0,
        .dur = 50.0,
@@ -5306,15 +5306,17 @@ TEST_F(DataProviderTest,
       {.ph = Phase::kComplete,
        .event_id = 102,
        .pid = 1,
-       .tid = 0x80000001,
+       .tid = 0x8000000000000001ULL,
        .name = "AsyncTrack2",
        .ts = 200.0,
        .dur = 50.0,
        .is_async = true},
   };
   const std::vector<TraceEvent> flow_events = {
-      CreateFlowEvent(Phase::kFlowStart, 101, 1, 0x80000000, "flow1", 100.0),
-      CreateFlowEvent(Phase::kFlowEnd, 102, 1, 0x80000001, "flow1", 200.0),
+      CreateFlowEvent(Phase::kFlowStart, 101, 1, 0x8000000000000000ULL, "flow1",
+                      100.0),
+      CreateFlowEvent(Phase::kFlowEnd, 102, 1, 0x8000000000000001ULL, "flow1",
+                      200.0),
   };
   data_provider_.ProcessTraceEvents(
       ParsedTraceEvents{.flame_events = flame_events,
@@ -6020,7 +6022,7 @@ TEST_F(DataProviderTest, PureSyncProcessTrackPopulation) {
 TEST_F(DataProviderTest, PureAsyncProcessTrackPopulation) {
   // An async transfer process with multiple named async tracks.
   // Note: async events often share tid 0 or have arbitrary raw tids, but are
-  // grouped by name into synthetic tracks (>= 0x80000000).
+  // grouped by name into synthetic tracks (>= 0x8000000000000000ULL).
   const std::vector<TraceEvent> events = {
       CreateProcessEvent(2, "Async Streams"),
       CreateProcessSortIndexEvent(2, "1"),
@@ -6522,7 +6524,7 @@ TEST_F(DataProviderTest, SyncProcessWithAsyncEventsRetainsOriginalTids) {
   const FlameChartTimelineData& data = timeline_.timeline_data();
   ASSERT_THAT(data.groups, SizeIs(2));
   EXPECT_EQ(data.groups[1].tid, 101);
-  EXPECT_LT(data.groups[1].tid, 0x80000000);
+  EXPECT_LT(data.groups[1].tid, 0x8000000000000000ULL);
 }
 
 TEST_F(DataProviderTest, ProcessTraceEventIgnoresOverflowLevel) {
@@ -6789,6 +6791,25 @@ void ExpectTimelineDataMatches(const FlameChartTimelineData& actual,
         << "Mismatch in entry args at index " << i << " ("
         << actual.entry_names[i] << ")";
   }
+}
+
+TEST_F(DataProviderTest, IncrementalLoadKeepsDerivedLineTracks) {
+  constexpr ThreadId kDerivedThreadId = 0xDEADBEF2;
+  ParsedTraceEvents batch;
+  batch.flame_events = {
+      CreateProcessEvent(1, "Device Process"),
+      CreateThreadEvent(1, kDerivedThreadId, "Framework Ops"),
+      MakeSpan(Phase::kComplete, 1, 1, kDerivedThreadId,
+               "jvp(ragged_all_to_all_sc)", 100.0, 50.0),
+  };
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(batch), timeline_);
+  data_provider_.FinishIncrementalLoad();
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(2));
+  EXPECT_EQ(data.groups[1].name, "Framework Ops");
+  EXPECT_EQ(data.groups[1].tid, kDerivedThreadId);
+  EXPECT_FALSE(data.groups[1].is_empty);
 }
 
 TEST_F(DataProviderTest, AppendTraceEventsIncrementalMatchesSinglePass) {

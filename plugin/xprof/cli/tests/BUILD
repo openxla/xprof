@@ -44,6 +44,7 @@ py_test(
     deps = [
         "//plugin/xprof/cli/internal:async_overlap",
         "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:events_db_sql",
         "//plugin/xprof/cli/internal/oss:xplane_tools",
         "//plugin/xprof/cli/tools:analyze_async_overlap_tool",
         "@absl_py//absl/testing:absltest",
@@ -60,6 +61,23 @@ pytype_strict_contrib_test(
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
         "@pypi//duckdb",
+    ],
+)
+
+pytype_strict_contrib_test(
+    name = "oss_async_overlap_events_db_test",
+    srcs = ["oss_async_overlap_events_db_test.py"],
+    data = [
+        "//xprof:demo_traces",
+    ],
+    deps = [
+        "//plugin/xprof/cli/internal:async_overlap",
+        "//plugin/xprof/cli/internal:async_overlap_sql",
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:events_db_sql",
+        "//plugin/xprof/cli/internal/oss:xplane_tools",
+        "@absl_py//absl/testing:absltest",
+        "@rules_python//python/runfiles",
     ],
 )
 

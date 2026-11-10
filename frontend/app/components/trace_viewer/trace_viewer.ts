@@ -1424,19 +1424,20 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     const properties = [...this.selectedEventProperties];
     properties.push({
       property: 'Operands',
-      value: adjacentNodes['operand_names'].join(', '),
+      value: adjacentNodes.operand_names.join(', '),
     });
     properties.push({
       property: 'Consumers',
-      value: adjacentNodes['consumer_names'].join(', '),
+      value: adjacentNodes.consumer_names.join(', '),
     });
     this.selectedEventProperties = properties;
+    this.selectedEvent = {...this.selectedEvent, adjacentNodes};
 
     // The timeline resolves the names to events and draws the HLO dependency
     // arrows (behind the `enable_hlo_dependency_arrows` flag).
     this.traceViewerModule?.SetSelectedEventDependencies?.(
-      adjacentNodes['operand_names'],
-      adjacentNodes['consumer_names'],
+      adjacentNodes.operand_names,
+      adjacentNodes.consumer_names,
     );
   }
 

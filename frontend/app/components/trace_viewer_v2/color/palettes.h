@@ -32,8 +32,8 @@ inline const absl::flat_hash_map<std::string, ColorPalette::Preset>
                               0xFF7053FF, 0xFFFFDD89, 0xFF7871F0},
              .flow_colors = {0xFFFFDD89, 0xFF6C8CF7, 0xFFEA92C7, 0xFF7053FF,
                              0xFF6BCBFF, 0xFF8DE8C3, 0xFFFFAA82},
-             .hlo_producer_arrow = 0xFF6C8CF7,  // orange #F78C6C
-             .hlo_consumer_arrow = 0xFFFFDD89,  // cyan #89DDFF
+             .hlo_producer_arrow = 0xFFFFDD89,  // cyan #89DDFF
+             .hlo_consumer_arrow = 0xFF6C8CF7,  // orange #F78C6C
          }},
         {"Dracula",
          {
@@ -53,8 +53,8 @@ inline const absl::flat_hash_map<std::string, ColorPalette::Preset>
                               0xFF6CB8FF, 0xFFC679FF, 0xFFFDE98B},
              .flow_colors = {0xFFFDE98B, 0xFFC679FF, 0xFF8CFAF1, 0xFF6CB8FF,
                              0xFFF993BD, 0xFF7BFA50, 0xFFD28B26},
-             .hlo_producer_arrow = 0xFF6CB8FF,  // orange #FFB86C
-             .hlo_consumer_arrow = 0xFFFDE98B,  // cyan #8BE9FD
+             .hlo_producer_arrow = 0xFFFDE98B,  // cyan #8BE9FD
+             .hlo_consumer_arrow = 0xFF6CB8FF,  // orange #FFB86C
          }},
         {"Monokai",
          {
@@ -73,8 +73,8 @@ inline const absl::flat_hash_map<std::string, ColorPalette::Preset>
              .trace_colors = {0xFFEFD966, 0xFF2EE2A6, 0xFF8946FF, 0xFFFF81AE},
              .flow_colors = {0xFF74DBE6, 0xFFFF81AE, 0xFF8946FF, 0xFF2EE2A6,
                              0xFFEFD966},
-             .hlo_producer_arrow = 0xFF1F97FD,  // orange #FD971F
-             .hlo_consumer_arrow = 0xFFEFD966,  // blue #66D9EF
+             .hlo_producer_arrow = 0xFFEFD966,  // blue #66D9EF
+             .hlo_consumer_arrow = 0xFF1F97FD,  // orange #FD971F
          }},
         {"Solarized Dark",
          {
@@ -94,8 +94,8 @@ inline const absl::flat_hash_map<std::string, ColorPalette::Preset>
                               0xFF2F32DC, 0xFF8236D3, 0xFFC4716C},
              .flow_colors = {0xFF98A12A, 0xFFC4716C, 0xFF8236D3, 0xFF2F32DC,
                              0xFF164BCB, 0xFF0089B5, 0xFF009985},
-             .hlo_producer_arrow = 0xFF164BCB,  // orange #CB4B16
-             .hlo_consumer_arrow = 0xFF98A12A,  // cyan #2AA198
+             .hlo_producer_arrow = 0xFF98A12A,  // cyan #2AA198
+             .hlo_consumer_arrow = 0xFF164BCB,  // orange #CB4B16
          }},
         {"Solarized Light",
          {
@@ -115,8 +115,8 @@ inline const absl::flat_hash_map<std::string, ColorPalette::Preset>
                               0xFF2F32DC, 0xFF8236D3, 0xFFC4716C},
              .flow_colors = {0xFF98A12A, 0xFFC4716C, 0xFF8236D3, 0xFF2F32DC,
                              0xFF164BCB, 0xFF0089B5, 0xFF009985},
-             .hlo_producer_arrow = 0xFF164BCB,  // orange #CB4B16
-             .hlo_consumer_arrow = 0xFF98A12A,  // cyan #2AA198
+             .hlo_producer_arrow = 0xFF98A12A,  // cyan #2AA198
+             .hlo_consumer_arrow = 0xFF164BCB,  // orange #CB4B16
          }},
         {"Catapult",
          {

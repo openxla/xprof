@@ -61,7 +61,6 @@ import {
     <button
       type="button"
       class="group-header"
-      tabindex="-1"
       (click)="toggleExpand()"
       [attr.aria-expanded]="expanded()">
       <span class="group-title">{{ label() }}</span>

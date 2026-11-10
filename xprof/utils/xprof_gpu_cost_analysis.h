@@ -21,8 +21,8 @@ limitations under the License.
 
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "xla/backends/gpu/cost_model/gpu_hlo_cost_analysis.h"
 #include "xla/hlo/ir/hlo_instruction.h"
-#include "xla/service/gpu/model/gpu_hlo_cost_analysis.h"
 #include "xla/service/hlo_cost_analysis.h"
 #include "xprof/utils/hlo_cost_analysis_wrapper.h"
 

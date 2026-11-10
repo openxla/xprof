@@ -10,6 +10,7 @@
         <div class="mat-headline">HLO Modules</div>
         <div>
           <mat-form-field>
+            <mat-label>HLO's at time (ms)</mat-label>
             <input
               matInput
               type="number"
@@ -28,29 +29,59 @@
         </div>
       </div>
       <div class="hlo-table-container">
-        <table class="hlo-table">
-          <thead>
-            <tr>
-              <th>Id</th>
-              <th>HLO Module</th>
-              <th>Device</th>
-              <th>Start Time (ms)</th>
-              <th>End Time (ms)</th>
-              <th>Duration (ms)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr *ngFor="let module of hloModules; let i = index"
-              (click)="selectHloModule(module, i)"
-              [class.selected]="i === selectedRowIndex">
-              <td>{{module.id}}</td>
-              <td>{{module.name}}</td>
-              <td>{{module.planeName}}</td>
-              <td>{{picoToMilli(module.startTimePs).toFixed(3)}}</td>
-              <td>{{picoToMilli(module.endTimePs).toFixed(3)}}</td>
-              <td>{{(picoToMilli(module.endTimePs) - picoToMilli(module.startTimePs)).toFixed(3)}}</td>
-            </tr>
-          </tbody>
+        <table
+          mat-table
+          [dataSource]="dataSource"
+          class="hlo-table"
+        >
+          <!-- Id Column -->
+          <ng-container matColumnDef="id">
+            <th mat-header-cell *matHeaderCellDef>Id</th>
+            <td mat-cell *matCellDef="let row">{{ row.id }}</td>
+          </ng-container>
+
+          <!-- HLO Module Column -->
+          <ng-container matColumnDef="name">
+            <th mat-header-cell *matHeaderCellDef>HLO Module</th>
+            <td mat-cell *matCellDef="let row">{{ row.name }}</td>
+          </ng-container>
+
+          <!-- Device Column -->
+          <ng-container matColumnDef="planeName">
+            <th mat-header-cell *matHeaderCellDef>Device</th>
+            <td mat-cell *matCellDef="let row">{{ row.planeName }}</td>
+          </ng-container>
+
+          <!-- Start Time Column -->
+          <ng-container matColumnDef="startTime">
+            <th mat-header-cell *matHeaderCellDef>Start Time (ms)</th>
+            <td mat-cell *matCellDef="let row">{{ formatTime(row.startTimePs) }}</td>
+          </ng-container>
+
+          <!-- End Time Column -->
+          <ng-container matColumnDef="endTime">
+            <th mat-header-cell *matHeaderCellDef>End Time (ms)</th>
+            <td mat-cell *matCellDef="let row">{{ formatTime(row.endTimePs) }}</td>
+          </ng-container>
+
+          <!-- Duration Column -->
+          <ng-container matColumnDef="duration">
+            <th mat-header-cell *matHeaderCellDef>Duration (ms)</th>
+            <td mat-cell *matCellDef="let row">{{ formatDuration(row) }}</td>
+          </ng-container>
+
+          <tr mat-header-row *matHeaderRowDef="displayedColumns; sticky: true"></tr>
+          <tr
+            mat-row
+            *matRowDef="let row; columns: displayedColumns;"
+            (click)="selectHloModule(row)"
+            [class.selected]="isSelected(row)"
+          ></tr>
+          <tr class="mat-row empty-row" *matNoDataRow>
+            <td class="mat-cell empty-table-cell" [attr.colspan]="displayedColumns.length">
+              No HLO modules found matching the filter.
+            </td>
+          </tr>
         </table>
       </div>
     </div>

@@ -22,28 +22,6 @@ mat-card-title {
   max-width: 1500px;
 }
 
-.hlo-table-container {
-  max-height: 300px;
-  overflow-y: auto;
-  margin-top: 20px;
-}
-
-.hlo-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.hlo-table th,
-.hlo-table td {
-  border: 1px solid #ddd;
-  padding: 8px;
-  text-align: left;
-}
-
-.hlo-table th {
-  background-color: #f2f2f2;
-}
-
 .hlo-title-bar {
   display: flex;
   justify-content: space-between;
@@ -54,18 +32,87 @@ mat-card-title {
   margin-left: 10px;
 }
 
-.hlo-table tbody tr {
-  cursor: pointer;
-}
-
-.hlo-table tbody tr:hover {
-  background-color: #f8f9fa; // gray 50
-}
-
-.hlo-table tbody tr.selected {
-  background-color: #e8f0fe; // Google blue 50
-}
-
 mat-form-field {
   margin: 0 8px;
+}
+
+.hlo-table-container {
+  max-height: 300px;
+  overflow-y: auto;
+  margin-top: 20px;
+}
+
+.hlo-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+
+  tr.mat-header-row,
+  tr.mat-row,
+  .mat-mdc-header-row,
+  .mat-mdc-row {
+    height: 36px;
+    min-height: 36px;
+    max-height: 36px;
+  }
+
+  th,
+  td,
+  th.mat-header-cell,
+  td.mat-cell,
+  .mat-mdc-header-cell,
+  .mat-mdc-cell {
+    border-right: 1px solid #ddd;
+    border-bottom: 1px solid #ddd;
+    border-top: 1px solid #ddd;
+    border-left: none;
+    padding: 4px 8px;
+    height: 36px;
+    box-sizing: border-box;
+    font-size: 16px;
+    line-height: normal;
+    text-align: start;
+    color: inherit;
+    font-family: inherit;
+
+    &:first-child {
+      border-left: 1px solid #ddd;
+    }
+  }
+
+  th,
+  th.mat-header-cell,
+  .mat-mdc-header-cell {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: #f2f2f2;
+    font-weight: bold;
+    color: inherit;
+  }
+
+  tr.mat-row td,
+  .mat-mdc-row td {
+    border-top: none;
+  }
+
+  tr.mat-row,
+  .mat-mdc-row {
+    cursor: pointer;
+
+    &:hover {
+      background-color: #f8f9fa; // gray 50
+    }
+
+    &.selected {
+      background-color: #e8f0fe; // Google blue 50
+    }
+  }
+
+  .empty-table-cell {
+    text-align: center;
+    padding: 16px;
+    color: rgba(0, 0, 0, 0.54);
+    font-style: italic;
+  }
 }

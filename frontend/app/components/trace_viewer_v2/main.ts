@@ -910,6 +910,64 @@ function expandUrlTimeRange(urlObj: URL, timeRange: [number, number]): void {
   urlObj.searchParams.set(TRACE_VIEW_OPTION.END_TIME_MS, String(expandedEnd));
 }
 
+/**
+ * Parses a raw `resolution` query parameter into a non-negative finite number,
+ * or `undefined` when absent or malformed.
+ *
+ * Parsing philosophy and edge cases handled:
+ * - Absent (`null`), empty (`""`), or whitespace-only (`"  "`) strings return
+ *   `undefined` before `Number(...)` runs, because `Number("")` coerces to `0`
+ *   and would otherwise silently trigger an unfiltered full-resolution load.
+ * - Non-numeric (`"invalid"`), non-finite (`"Infinity"`), or negative (`"-1"`)
+ *   values return `undefined` (backend `resolution` is an unsigned bin count).
+ * - Valid numeric strings (such as `"0"`, whitespace-padded `" 0 "`, or
+ *   scientific notation like `"1e3"`) are parsed to a `number` so callers can
+ *   compare numerically and `sanitizeResolutionParam` can write `String(value)`
+ *   back onto `urlObj.searchParams` as a canonical, trimmed numeric string.
+ */
+function parseFiniteResolution(value: string | null): number | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+/**
+ * Extracts, validates, and normalizes the `resolution` `TraceViewOption` on
+ * `urlObj` (falling back to the browser URL when absent or invalid on
+ * `urlObj`), updating `urlObj.searchParams` in place to hold either a canonical
+ * numeric string or no `resolution` parameter.
+ *
+ * Downstream data-loading behavior by return value:
+ * - `0`: Explicit opt-in to full-resolution (`resolution=0`) initial loading.
+ *   Unfiltered `.pb` loads stream the full session into the in-memory cache so
+ *   subsequent zoom/pan navigation replays locally without network refetches.
+ * - Positive finite `number` (`> 0`): Explicit event-bin downsampling count
+ *   requested by the caller/URL; preserved on the initial request instead of
+ *   overwriting with the canvas-derived resolution.
+ * - `undefined`: No valid `resolution` override was supplied (`resolution` is
+ *   deleted from `urlObj.searchParams`), so `fetchAndProcessTraceData` computes
+ *   the default viewport-based resolution from the canvas width.
+ */
+function sanitizeResolutionParam(urlObj: URL): number | undefined {
+  const browserUrl = new URL(window.location.href);
+  const normalized =
+    parseFiniteResolution(
+      urlObj.searchParams.get(TRACE_VIEW_OPTION.RESOLUTION),
+    ) ??
+    parseFiniteResolution(
+      browserUrl.searchParams.get(TRACE_VIEW_OPTION.RESOLUTION),
+    );
+  if (normalized === undefined) {
+    urlObj.searchParams.delete(TRACE_VIEW_OPTION.RESOLUTION);
+    return undefined;
+  }
+  urlObj.searchParams.set(TRACE_VIEW_OPTION.RESOLUTION, String(normalized));
+  return normalized;
+}
+
 function propagateBrowserTraceOptions(urlObj: URL): void {
   const browserUrl = new URL(window.location.href);
   if (
@@ -1227,15 +1285,6 @@ async function fetchAndProcessCompressedTraceDataIncremental({
       pendingFrames.push(...cachedFullTraceFrames);
       streamFinished = true;
     } else {
-      if (!isRefetch) {
-        // Request all events at full resolution in one streaming pass on
-        // initial load so zooming and panning can replay from memory without
-        // network round-trips; uncached refetches keep the canvas resolution.
-        urlObj.searchParams.set(TRACE_VIEW_OPTION.RESOLUTION, '0');
-        urlObj.searchParams.delete(TRACE_VIEW_OPTION.START_TIME_MS);
-        urlObj.searchParams.delete(TRACE_VIEW_OPTION.END_TIME_MS);
-      }
-
       streamPromise = loadCompressedTraceDataInternal(
         urlObj.toString(),
         fetchData,
@@ -1482,14 +1531,23 @@ async function fetchAndProcessTraceData({
     );
   }
 
-  updateUrlWithResolution(urlObj, traceviewerModule.canvas);
+  if (isRefetch || !urlObj.searchParams.has(TRACE_VIEW_OPTION.RESOLUTION)) {
+    updateUrlWithResolution(urlObj, traceviewerModule.canvas);
+  }
 
   try {
     if (
       urlObj.pathname.endsWith('.pb') ||
       urlObj.searchParams.get('format') === 'pb'
     ) {
-      if (supportsIncrementalTraceEvents(traceviewerModule)) {
+      const isUnfilteredFullResolutionLoad =
+        urlObj.searchParams.get(TRACE_VIEW_OPTION.RESOLUTION) === '0' &&
+        !urlObj.searchParams.has(TRACE_VIEW_OPTION.START_TIME_MS) &&
+        !urlObj.searchParams.has(TRACE_VIEW_OPTION.END_TIME_MS);
+      if (
+        supportsIncrementalTraceEvents(traceviewerModule) &&
+        (isRefetch || isUnfilteredFullResolutionLoad)
+      ) {
         const fullLoaded = await fetchAndProcessCompressedTraceDataIncremental({
           urlObj,
           traceviewerModule,
@@ -1808,9 +1866,11 @@ export async function traceViewerV2Main(
     const loadingPromise = (async () => {
       try {
         let urlObj: URL;
+        let explicitResolution: number | undefined;
         try {
           urlObj = new URL(url, window.location.href);
           propagateBrowserTraceOptions(urlObj);
+          explicitResolution = sanitizeResolutionParam(urlObj);
         } catch (e) {
           console.error('Invalid URL:', url, e);
           const errorMessage = (e as Error).message;
@@ -1828,6 +1888,7 @@ export async function traceViewerV2Main(
 
         const timeRangeFromUrl = getTimeRangeFromUrl(urlObj);
         const usesFullSessionIncrementalPb =
+          explicitResolution === 0 &&
           (urlObj.pathname.endsWith('.pb') ||
             urlObj.searchParams.get('format') === 'pb') &&
           supportsIncrementalTraceEvents(traceviewerModule);

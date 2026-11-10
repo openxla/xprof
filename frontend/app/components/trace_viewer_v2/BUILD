@@ -200,6 +200,7 @@ ts_library(
         "help_dialog.ts",
         "main.ts",
         "shortcuts.ts",
+        "trace_stream_worker.ts",
     ],
     visibility = ["//frontend:__subpackages__"],
     deps = [

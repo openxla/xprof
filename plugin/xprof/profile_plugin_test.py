@@ -1746,5 +1746,14 @@ class HloModuleListImplTest(absltest.TestCase):
     )
 
 
+class RespondCspTest(absltest.TestCase):
+  """Tests Content-Security-Policy headers emitted by profile_plugin.respond."""
+
+  def test_respond_includes_blob_worker_src_in_csp(self):
+    response = profile_plugin.respond('<html></html>', 'text/html')
+    csp = response.headers.get('Content-Security-Policy', '')
+    self.assertIn("worker-src 'self' blob:", csp)
+
+
 if __name__ == '__main__':
   absltest.main()

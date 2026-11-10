@@ -362,6 +362,10 @@ def respond(
           "'self'",
           'https://ui.perfetto.dev',
       ],
+      'worker-src': [
+          "'self'",
+          'blob:',
+      ],
       'script-src-elem': [
           "'self'",
           "'unsafe-inline'",

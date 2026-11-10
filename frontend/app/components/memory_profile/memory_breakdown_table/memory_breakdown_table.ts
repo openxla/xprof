@@ -1,8 +1,9 @@
-import {Component, ElementRef, Input, OnChanges, OnInit, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {ChangeDetectionStrategy, ChangeDetectorRef, Component, inject, Input, OnChanges, OnInit, SimpleChanges, ViewChild} from '@angular/core';
+import {MatPaginator} from '@angular/material/paginator';
+import {MatSort} from '@angular/material/sort';
+import {MatTableDataSource} from '@angular/material/table';
 import {type MemoryProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {bytesToGiBs} from 'org_xprof/frontend/app/common/utils/utils';
-
-const DATA_TABLE_OPERATION_INDEX = 0;
 
 /** Set of uninitialized or null-like sentinel string tokens. */
 export const NULL_TOKENS = new Set([
@@ -34,6 +35,17 @@ export function cleanCellToken(
   return trimmed;
 }
 
+/** Row data for memory breakdown table. */
+export interface MemoryBreakdownRow {
+  opName: string;
+  allocationSizeGiBs: number;
+  requestedSizeGiBs: number;
+  occurrences: number;
+  regionType: string;
+  dataType: string;
+  shape: string;
+}
+
 /** A memory breakdown table view component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,standalone: false,
@@ -48,35 +60,87 @@ export class MemoryBreakdownTable implements OnChanges, OnInit {
   /** The selected memory ID to show memory profile for. */
   @Input() memoryId: string = '';
 
-  @ViewChild('table', {static: false}) tableRef!: ElementRef;
-
-  dataTable: google.visualization.DataTable|null = null;
   filterOperation: string = '';
-  table: google.visualization.Table|null = null;
+
+  readonly displayedColumns: string[] = [
+    'opName',
+    'allocationSizeGiBs',
+    'requestedSizeGiBs',
+    'occurrences',
+    'regionType',
+    'dataType',
+    'shape',
+  ];
+
+  readonly dataSource = new MatTableDataSource<MemoryBreakdownRow>([]);
+
+  @ViewChild(MatSort) set sort(sort: MatSort | null) {
+    if (sort) this.dataSource.sort = sort;
+  }
+
+  @ViewChild(MatPaginator) set paginator(paginator: MatPaginator | null) {
+    if (paginator) this.dataSource.paginator = paginator;
+  }
+
+  private readonly cdr = inject(ChangeDetectorRef);
 
   ngOnInit() {
-    this.loadGoogleChart();
+    this.setupDataSource();
+    this.updateMatTableData();
   }
 
   ngOnChanges(changes: SimpleChanges) {
-    this.dataTable = null;
-    this.drawTable();
+    this.updateMatTableData();
   }
 
-  createDataTable() {
-    if (!this.table || !this.memoryProfileData ||
-        !this.memoryProfileData.memoryProfilePerAllocator || !!this.dataTable) {
-      return;
-    }
+  private setupDataSource() {
+    this.dataSource.sortingDataAccessor = (
+      item: MemoryBreakdownRow,
+      prop: string,
+    ): string | number =>
+      prop === 'allocationSizeGiBs' ? item.allocationSizeGiBs :
+      prop === 'requestedSizeGiBs' ? item.requestedSizeGiBs :
+      prop === 'occurrences' ? item.occurrences :
+      (prop === 'opName' ? item.opName : prop === 'regionType' ? item.regionType :
+       prop === 'dataType' ? item.dataType : item.shape).toLowerCase();
+    this.dataSource.filterPredicate = (
+      data: MemoryBreakdownRow,
+      filter: string,
+    ) => {
+      const trimmed = filter.trim().toLowerCase();
+      return trimmed ? data.opName.toLowerCase().includes(trimmed) : true;
+    };
+  }
 
-    this.dataTable = new google.visualization.DataTable();
-    this.dataTable.addColumn('string', 'Op Name');
-    this.dataTable.addColumn('number', 'Allocation Size (GiBs)');
-    this.dataTable.addColumn('number', 'Requested Size (GiBs)');
-    this.dataTable.addColumn('number', 'Occurrences');
-    this.dataTable.addColumn('string', 'Region type');
-    this.dataTable.addColumn('string', 'Data type');
-    this.dataTable.addColumn('string', 'Shape');
+  onFilterChanged(filter: string) {
+    this.filterOperation = filter;
+    this.applyFilter();
+  }
+
+  trackByRow(index: number, item: MemoryBreakdownRow): string {
+    return `${item.opName}_${item.regionType}_${item.allocationSizeGiBs}_${index}`;
+  }
+
+  private applyFilter() {
+    this.dataSource.filter = this.filterOperation;
+    if (this.dataSource.paginator) {
+      this.dataSource.paginator.firstPage();
+    }
+    this.cdr.markForCheck();
+  }
+
+  updateMatTableData() {
+    this.dataSource.data = this.getRowsFromData();
+    this.applyFilter();
+    this.cdr.markForCheck();
+  }
+
+  getRowsFromData(): MemoryBreakdownRow[] {
+    if (!this.memoryProfileData ||
+        !this.memoryProfileData.memoryProfilePerAllocator ||
+        !this.memoryProfileData.memoryProfilePerAllocator[this.memoryId]) {
+      return [];
+    }
 
     const snapshots =
         this.memoryProfileData.memoryProfilePerAllocator[this.memoryId]
@@ -88,9 +152,10 @@ export class MemoryBreakdownTable implements OnChanges, OnInit {
         this.memoryProfileData.memoryProfilePerAllocator[this.memoryId]
             .specialAllocations;
     if (!snapshots || !activeAllocations || !specialAllocations) {
-      return;
+      return [];
     }
 
+    const rows: MemoryBreakdownRow[] = [];
     for (let i = 0; i < activeAllocations.length; i++) {
       const index: number = Number(activeAllocations[i].snapshotIndex);
       const specialIndex = Number(activeAllocations[i].specialIndex);
@@ -107,100 +172,20 @@ export class MemoryBreakdownTable implements OnChanges, OnInit {
       if (!metadata) {
         continue;
       }
-      this.dataTable.addRow([
-        cleanCellToken(metadata.tfOpName, 'System Reserved'),
-        bytesToGiBs(metadata.allocationBytes),
-        bytesToGiBs(metadata.requestedBytes),
-        Number(activeAllocations[i].numOccurrences),
-        cleanCellToken(metadata.regionType, 'Unallocated'),
-        cleanCellToken(metadata.dataType, 'N/A'),
-        cleanCellToken(metadata.tensorShape, 'N/A'),
-      ]);
+      rows.push({
+        opName: cleanCellToken(metadata.tfOpName, 'System Reserved'),
+        allocationSizeGiBs: bytesToGiBs(metadata.allocationBytes),
+        requestedSizeGiBs: bytesToGiBs(metadata.requestedBytes),
+        occurrences: Number(activeAllocations[i].numOccurrences) || 0,
+        regionType: cleanCellToken(metadata.regionType, 'Unallocated'),
+        dataType: cleanCellToken(metadata.dataType, 'N/A'),
+        shape: cleanCellToken(metadata.tensorShape, 'N/A'),
+      });
     }
 
-    const decimalPtFormatter =
-        new google.visualization.NumberFormat({fractionDigits: 3});
-    decimalPtFormatter.format(this.dataTable, 1); /* requested_size */
-    decimalPtFormatter.format(this.dataTable, 2); /* allocation_size */
-  }
-
-  drawTable() {
-    if (!this.table || !this.memoryProfileData) {
-      return;
-    }
-
-    const dataView = this.getDataView();
-    if (!dataView) {
-      return;
-    }
-
-    const options = {
-      allowHtml: true,
-      alternatingRowStyle: false,
-      showRowNumber: false,
-      width: '100%',
-      height: '600px',
-      cssClassNames: {
-        'headerCell': 'google-chart-table-header-cell',
-        'tableCell': 'google-chart-table-table-cell',
-      },
-    };
-
-    this.table.draw(dataView, options as google.visualization.TableOptions);
-  }
-
-  getDataView(): google.visualization.DataView|null {
-    if (!this.dataTable) {
-      this.createDataTable();
-    }
-
-    const dataTable = this.getFilteredDataTable();
-    if (!dataTable) {
-      return null;
-    }
-
-    const dataView = new google.visualization.DataView(dataTable);
-    dataView.setRows(dataView.getFilteredRows([{column: 2, minValue: 0.001}]));
-    return dataView;
-  }
-
-  getFilteredDataTable(): google.visualization.DataTable|null {
-    if (!this.dataTable) {
-      return null;
-    }
-
-    /* tslint:disable no-any */
-    const filters = [];
-    if (this.filterOperation.trim()) {
-      const filter = this.filterOperation.trim().toLowerCase();
-      filters.push({
-        'column': DATA_TABLE_OPERATION_INDEX,
-        'test': (value: string) => value.toLowerCase().indexOf(filter) >= 0,
-      } as any);
-    }
-    /* tslint:enable */
-
-    if (filters.length > 0) {
-      const dataView = new google.visualization.DataView(this.dataTable);
-      dataView.setRows(this.dataTable.getFilteredRows(filters));
-      return dataView.toDataTable();
-    }
-
-    return this.dataTable;
-  }
-
-  loadGoogleChart() {
-    if (!google || !google.charts) {
-      setTimeout(() => {
-        this.loadGoogleChart();
-      }, 100);
-      return;
-    }
-
-    google.charts.safeLoad({'packages': ['table']});
-    google.charts.setOnLoadCallback(() => {
-      this.table = new google.visualization.Table(this.tableRef.nativeElement);
-      this.drawTable();
-    });
+    const hasLargeAllocations = rows.some((r) => r.requestedSizeGiBs >= 0.001);
+    return hasLargeAllocations
+      ? rows.filter((r) => r.requestedSizeGiBs >= 0.001)
+      : rows;
   }
 }

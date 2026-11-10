@@ -1,4 +1,7 @@
-import {Component, Input, ChangeDetectionStrategy} from '@angular/core';
+import '@material/web/menu/menu';
+import '@material/web/menu/menu-item';
+
+import {ChangeDetectionStrategy, Component, inject, Input} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {IdleOption, OpExecutor, OpKind, OpType} from 'org_xprof/frontend/app/common/constants/enums';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
@@ -70,8 +73,9 @@ export class FrameworkOpStats {
     dataProvider: this.dataProvider,
     options: PIE_CHART_OPTIONS,
   };
+  private readonly store = inject(Store<{}>);
 
-  constructor(private readonly store: Store<{}>) {
+  constructor() {
     this.store.select(selectors.getTitleState).subscribe((title: string) => {
       this.title = title || '';
     });

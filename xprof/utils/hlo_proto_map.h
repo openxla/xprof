@@ -37,6 +37,9 @@ using ::tsl::profiler::XPlaneVisitor;
 absl::flat_hash_map<uint64_t /*program_id*/, std::unique_ptr<xla::HloProto>>
 ParseHloProtosFromXSpace(const tensorflow::profiler::XSpace& space);
 
+absl::flat_hash_map<uint64_t /*program_id*/, std::unique_ptr<xla::HloProto>>
+ParseOriginalHloProtosFromXSpace(const tensorflow::profiler::XSpace& space);
+
 class HloProtoMap {
  public:
   HloProtoMap() = default;

@@ -150,11 +150,43 @@ struct TraceEventLiteComparator {
     if (!is_resource_a && is_resource_b) return false;
 
     if (is_resource_a) {
-      return meta_a->resource_id < meta_b->resource_id;
+      if (meta_a->resource_id != meta_b->resource_id) {
+        return meta_a->resource_id < meta_b->resource_id;
+      }
+    } else {
+      const std::string& name_a = container.name_table.at(meta_a->name_ref);
+      const std::string& name_b = container.name_table.at(meta_b->name_ref);
+      if (name_a != name_b) {
+        return name_a < name_b;
+      }
     }
 
-    return container.name_table.at(meta_a->name_ref) <
-           container.name_table.at(meta_b->name_ref);
+    // Break the remaining ties so that the order is total. Otherwise the
+    // unstable n-way merges in LiteTraceEventsByLevel() can order tied events
+    // differently per level than in the merge that assigns `serial`, which
+    // produces out-of-order (timestamp, serial) keys.
+    if (a->serial != b->serial) {
+      return a->serial < b->serial;
+    }
+    if (a->line != b->line) {
+      if (a->line == nullptr || b->line == nullptr) {
+        return a->line == nullptr;
+      }
+      if (a->line->id() != b->line->id()) {
+        return a->line->id() < b->line->id();
+      }
+      if (a->line->display_id() != b->line->display_id()) {
+        return a->line->display_id() < b->line->display_id();
+      }
+      if (a->line->timestamp_ns() != b->line->timestamp_ns()) {
+        return a->line->timestamp_ns() < b->line->timestamp_ns();
+      }
+      if (a->line->name() != b->line->name()) {
+        return a->line->name() < b->line->name();
+      }
+      return std::less<const tsl::profiler::XLine*>()(a->line, b->line);
+    }
+    return a->event_idx < b->event_idx;
   }
 
   const TraceEventLiteContainer& container;

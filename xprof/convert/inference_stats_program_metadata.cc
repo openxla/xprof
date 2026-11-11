@@ -115,7 +115,7 @@ ProgramServingMetadataMap BuildProgramServingMetadata(
   }
 
   ProgramServingMetadataMap result;
-  if (batches.empty()) {
+  if (batches.empty() && requests.empty()) {
     return result;
   }
 
@@ -129,14 +129,21 @@ ProgramServingMetadataMap BuildProgramServingMetadata(
   const bool trust_batch_model_index =
       (distinct_hosts.size() <= 1) || (model_id_db.ids_size() <= 1);
 
+  absl::flat_hash_set<std::pair<int32_t, int64_t>> batch_ids_by_host;
   absl::flat_hash_map<std::pair<int32_t, int64_t>, int32_t>
       request_model_index_by_host_and_id;
-  request_model_index_by_host_and_id.reserve(requests.size());
-  for (const RequestRecord& record : requests) {
-    if (record.host_id >= 0 && record.request->request_id() != -1) {
-      request_model_index_by_host_and_id[{record.host_id,
-                                          record.request->request_id()}] =
-          record.request->model_id_index();
+  if (!batches.empty()) {
+    batch_ids_by_host.reserve(batches.size());
+    for (const BatchRecord& record : batches) {
+      batch_ids_by_host.insert({record.host_id, record.batch->batch_id()});
+    }
+    request_model_index_by_host_and_id.reserve(requests.size());
+    for (const RequestRecord& record : requests) {
+      if (record.host_id >= 0 && record.request->request_id() != -1) {
+        request_model_index_by_host_and_id[{record.host_id,
+                                            record.request->request_id()}] =
+            record.request->model_id_index();
+      }
     }
   }
 
@@ -167,7 +174,9 @@ ProgramServingMetadataMap BuildProgramServingMetadata(
       ++skipped_non_positive_batch_size_batches;
       programs_with_non_positive_batch_size.insert(seen_program_ids.begin(),
                                                    seen_program_ids.end());
-      continue;
+      if (batch_size < 0) {
+        continue;
+      }
     }
 
     std::string model_id;
@@ -195,6 +204,36 @@ ProgramServingMetadataMap BuildProgramServingMetadata(
     }
   }
 
+  for (const RequestRecord& record : requests) {
+    const RequestDetail& request = *record.request;
+    if (request.program_ids().empty() ||
+        absl::c_any_of(request.related_batch_ids(), [&](int64_t batch_id) {
+          return batch_ids_by_host.contains({record.host_id, batch_id});
+        })) {
+      continue;
+    }
+
+    absl::flat_hash_set<uint64_t> seen_program_ids;
+    for (uint64_t program_id : request.program_ids()) {
+      if (program_id != 0) {
+        seen_program_ids.insert(program_id);
+      }
+    }
+    if (seen_program_ids.empty()) {
+      continue;
+    }
+
+    std::string model_id =
+        ResolveModelId(model_id_db, request.model_id_index());
+    if (model_id.empty()) {
+      continue;
+    }
+
+    for (uint64_t program_id : seen_program_ids) {
+      counts_by_program[program_id][{model_id, /*batch_size=*/0}]++;
+    }
+  }
+
   if (skipped_non_positive_batch_size_batches > 0) {
     LOG(WARNING) << "BuildProgramServingMetadata: skipped "
                  << skipped_non_positive_batch_size_batches
@@ -205,9 +244,16 @@ ProgramServingMetadataMap BuildProgramServingMetadata(
 
   result.reserve(counts_by_program.size());
   for (const auto& [program_id, pair_counts] : counts_by_program) {
+    // Only positive batch sizes are valid; fall back to model-only entries
+    // (batch_size == 0) only when no positive batch size was recorded.
+    const bool has_positive_batch_size = absl::c_any_of(
+        pair_counts, [](const auto& kv) { return kv.first.second > 0; });
     std::vector<ModelBatchEntry> entries;
     entries.reserve(pair_counts.size());
     for (const auto& [key, count] : pair_counts) {
+      if (has_positive_batch_size && key.second == 0) {
+        continue;
+      }
       entries.push_back({key.first, key.second, count});
     }
     absl::c_sort(entries,

@@ -579,8 +579,10 @@ OpProfileBuilder::Program* OpProfileBuilder::LookupOrAddProgramNode(
     program->node->set_name(GenerateProgramName(program_id));
     if (program_serving_metadata_ != nullptr) {
       auto it = program_serving_metadata_->find(program_id);
+      // For model-only entries (batch_size == 0), num_batches holds the count
+      // of observed unbatched requests or size-0 batches.
       if (it != program_serving_metadata_->end() &&
-          !it->second.model_id().empty() && it->second.batch_size() > 0 &&
+          !it->second.model_id().empty() && it->second.batch_size() >= 0 &&
           it->second.num_batches() > 0) {
         *program->node->mutable_program_serving_metadata() = it->second;
       }

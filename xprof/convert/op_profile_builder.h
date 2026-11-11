@@ -89,8 +89,8 @@ class OpProfileBuilder {
  public:
   // Constructs an op profile tree builder rooted at `root`. If
   // `program_serving_metadata` is non-null, copies matching entries (requiring
-  // a non-empty model_id and positive batch_size and num_batches) onto program
-  // nodes; the map must outlive the builder.
+  // a non-empty model_id, non-negative batch_size, and positive num_batches)
+  // onto program nodes; the map must outlive the builder.
   OpProfileBuilder(const OpProfileOptions& options, op_profile::Node* root,
                    const tsl::protobuf::Map<uint64_t, std::string>*
                        program_name_map = nullptr,

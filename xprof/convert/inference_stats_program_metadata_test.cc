@@ -47,6 +47,7 @@ namespace {
 
 using ::testing::_;
 using ::testing::AllOf;
+using ::testing::ElementsAre;
 using ::testing::HasSubstr;
 using ::testing::IsEmpty;
 using ::tsl::profiler::CreateXEvent;
@@ -252,12 +253,14 @@ TEST(InferenceStatsProgramMetadataTest,
 }
 
 TEST(InferenceStatsProgramMetadataTest,
-     NonPositiveBatchSizeOnlyProducesNoMetadataAndLogsOneSummaryWarning) {
+     ZeroBatchSizeOnlyFallsBackToModelOnlyAndNegativeBatchSizeProducesNone) {
   InferenceStats stats;
   int32_t model_idx = AddModelId(stats.mutable_model_id_db(), "/models/m1:1");
   PerModelInferenceStats& per_model =
       (*stats.mutable_inference_stats_per_model())[model_idx];
 
+  // Program 1001 has two size-0 batches and one negative batch size, with no
+  // positive-batch-size batch, so it falls back to model-only (batch_size = 0).
   for (int32_t bs : {0, -4, 0}) {
     BatchDetail* batch = per_model.add_batch_details();
     batch->set_model_id_index(model_idx);
@@ -265,18 +268,29 @@ TEST(InferenceStatsProgramMetadataTest,
     batch->add_program_ids(1001);
   }
 
+  // Program 2002 only has a negative batch size, so it is omitted.
+  BatchDetail* neg_only = per_model.add_batch_details();
+  neg_only->set_model_id_index(model_idx);
+  neg_only->set_batch_size_after_padding(-4);
+  neg_only->add_program_ids(2002);
+
   absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
   EXPECT_CALL(
       log,
       Log(absl::LogSeverity::kWarning, _,
           HasSubstr(
-              "skipped 3 batches with batch_size_after_padding <= 0 across 1 "
+              "skipped 4 batches with batch_size_after_padding <= 0 across 2 "
               "HLO programs")))
       .Times(1);
   log.StartCapturingLogs();
 
   ProgramServingMetadataMap metadata = BuildProgramServingMetadata(stats);
-  EXPECT_THAT(metadata, IsEmpty());
+  ASSERT_EQ(metadata.size(), 1);
+  ASSERT_TRUE(metadata.contains(1001));
+  EXPECT_EQ(metadata.at(1001).model_id(), "/models/m1:1");
+  EXPECT_EQ(metadata.at(1001).batch_size(), 0);
+  EXPECT_EQ(metadata.at(1001).num_batches(), 2);
+  EXPECT_FALSE(metadata.contains(2002));
 }
 
 TEST(InferenceStatsProgramMetadataTest,
@@ -582,10 +596,11 @@ TEST(InferenceStatsProgramMetadataTest,
   EXPECT_THAT(json, HasSubstr("\"batchSize\":8"));
 }
 
-// Without batching, a session has only RequestDetails. They carry no program
-// ids, so the request's model cannot be matched to the program it ran.
+// Without batching, a session has only RequestDetails, which record the
+// program_ids executed in the request's group and produce model-only serving
+// metadata (batch_size = 0).
 TEST(InferenceStatsProgramMetadataTest,
-     RequestOnlySessionWithoutBatchingHasNoProgramLink) {
+     RequestOnlySessionWithoutBatchingLinksProgramToModel) {
   constexpr uint64_t kProgramId = 5621224425449793704ULL;
   constexpr int64_t kRequestGroupId = 101;
 
@@ -605,6 +620,17 @@ TEST(InferenceStatsProgramMetadataTest,
                /*offset_ps=*/1000, /*duration_ps=*/10000,
                {{StatType::kGroupId, kRequestGroupId}});
 
+  XLineBuilder op_line = tpu_builder.GetOrCreateLine(1);
+  op_line.SetName(kXlaOpLineName);
+  CreateXEventMetadata(
+      &tpu_builder, "fusion.1",
+      {{StatType::kHloCategory, "fusion"},
+       {StatType::kProgramId, static_cast<int64_t>(kProgramId)},
+       {StatType::kSymbolId, int64_t{1}},
+       {StatType::kFlops, int64_t{1000}}});
+  CreateXEvent(&tpu_builder, &op_line, "fusion.1", /*offset_ps=*/2000,
+               /*duration_ps=*/8000, {{StatType::kGroupId, kRequestGroupId}});
+
   XPlane* host_plane = GetOrCreateHostXPlane(&space);
   XPlaneBuilder host_builder(host_plane);
   XLineBuilder host_line = host_builder.GetOrCreateLine(0);
@@ -613,6 +639,11 @@ TEST(InferenceStatsProgramMetadataTest,
                /*offset_ps=*/500, /*duration_ps=*/12000,
                {{StatType::kGroupId, kRequestGroupId},
                 {StatType::kModelId, "/models/ranking_model:1"}});
+
+  ASSERT_OK_AND_ASSIGN(
+      OpStats op_stats,
+      ConvertXSpaceToOpStats(space,
+                             OpStatsOptions{.generate_op_metrics_db = true}));
 
   GroupMetadataMap group_metadata_map;
   // A request group without children, so no batches.
@@ -624,8 +655,6 @@ TEST(InferenceStatsProgramMetadataTest,
                          DeviceType::kTpu, /*host_id=*/0, &inference_stats);
   RegroupInferenceStatsByModel(&inference_stats);
 
-  // The request knows its model and ran on device, but no batch links it to
-  // the program.
   ASSERT_EQ(inference_stats.inference_stats_per_model_size(), 1);
   const PerModelInferenceStats& per_model =
       inference_stats.inference_stats_per_model().begin()->second;
@@ -637,9 +666,157 @@ TEST(InferenceStatsProgramMetadataTest,
             "/models/ranking_model:1");
   EXPECT_GT(request.device_time_ps(), 0);
   EXPECT_THAT(request.related_batch_ids(), IsEmpty());
+  EXPECT_THAT(request.program_ids(), ElementsAre(kProgramId));
   EXPECT_THAT(per_model.batch_details(), IsEmpty());
 
-  EXPECT_THAT(BuildProgramServingMetadata(inference_stats), IsEmpty());
+  ProgramServingMetadataMap serving_metadata =
+      BuildProgramServingMetadata(inference_stats);
+  ASSERT_EQ(serving_metadata.size(), 1);
+  ASSERT_TRUE(serving_metadata.contains(kProgramId));
+  EXPECT_EQ(serving_metadata.at(kProgramId).model_id(),
+            "/models/ranking_model:1");
+  EXPECT_EQ(serving_metadata.at(kProgramId).batch_size(), 0);
+  EXPECT_EQ(serving_metadata.at(kProgramId).num_batches(), 1);
+
+  (*op_stats.mutable_program_id_to_name_map())[kProgramId] = "jit__apply";
+  op_profile::Profile profile;
+  ConvertOpStatsToOpProfile(op_stats, HardwareType::TPU, profile,
+                            /*op_profile_limit=*/100,
+                            OpProfileGrouping::kByProgram, &serving_metadata);
+  ASSERT_TRUE(profile.has_by_program());
+  const op_profile::Node* program_node = nullptr;
+  for (const op_profile::Node& child : profile.by_program().children()) {
+    if (absl::StrContains(child.name(), "5621224425449793704")) {
+      program_node = &child;
+    }
+  }
+  ASSERT_NE(program_node, nullptr);
+  ASSERT_TRUE(program_node->has_program_serving_metadata());
+  EXPECT_EQ(program_node->program_serving_metadata().model_id(),
+            "/models/ranking_model:1");
+  EXPECT_EQ(program_node->program_serving_metadata().batch_size(), 0);
+  EXPECT_EQ(program_node->program_serving_metadata().num_batches(), 1);
+}
+
+TEST(InferenceStatsProgramMetadataTest,
+     CountsUnbatchedRequestsAndSkipsRequestsLinkedToBatches) {
+  InferenceStats stats;
+  stats.mutable_model_id_db()->add_ids("ALL");
+  stats.mutable_model_id_db()->add_ids("/models/unbatched_a:1");
+  stats.mutable_model_id_db()->add_ids("/models/unbatched_b:2");
+  stats.mutable_model_id_db()->add_ids("/models/batched_c:3");
+
+  PerHostInferenceStats& host = (*stats.mutable_inference_stats_per_host())[0];
+
+  // Two unbatched requests running program 100 for unbatched_a (with duplicate
+  // and zero program_ids in the first request).
+  RequestDetail* req1 = host.add_request_details();
+  req1->set_request_id(1);
+  req1->set_model_id_index(1);
+  req1->add_program_ids(100);
+  req1->add_program_ids(100);
+  req1->add_program_ids(0);
+
+  RequestDetail* req2 = host.add_request_details();
+  req2->set_request_id(2);
+  req2->set_model_id_index(1);
+  req2->add_program_ids(100);
+
+  // One unbatched request running program 100 for unbatched_b (loses tie to
+  // unbatched_a's 2 requests).
+  RequestDetail* req3 = host.add_request_details();
+  req3->set_request_id(3);
+  req3->set_model_id_index(2);
+  req3->add_program_ids(100);
+
+  // Requests with invalid/ALL/unset model_id_index are ignored.
+  RequestDetail* req_all = host.add_request_details();
+  req_all->set_request_id(4);
+  req_all->set_model_id_index(0);  // "ALL"
+  req_all->add_program_ids(200);
+
+  RequestDetail* req_unset_model = host.add_request_details();
+  req_unset_model->set_request_id(7);
+  req_unset_model->set_model_id_index(-1);
+  req_unset_model->add_program_ids(500);
+
+  // Requests linked to an actual BatchDetail on the same host are counted via
+  // the batch rather than as batch_size = 0, while unbatched requests whose
+  // related_batch_ids only hold non-batch child group_ids (even if another host
+  // happens to have a BatchDetail with the same batch_id) are still counted as
+  // unbatched. When a program has any positive batch size, positive batch sizes
+  // take precedence over batch_size = 0 even if unbatched requests are more
+  // frequent.
+  constexpr int64_t kBatchIds[] = {50, 51};
+  for (int64_t batch_id : kBatchIds) {
+    BatchDetail* batch = host.add_batch_details();
+    batch->set_batch_id(batch_id);
+    batch->set_model_id_index(3);
+    batch->set_batch_size_after_padding(16);
+    batch->add_related_request_ids(5);
+    batch->add_program_ids(300);
+  }
+
+  RequestDetail* req_batched = host.add_request_details();
+  req_batched->set_request_id(5);
+  req_batched->set_model_id_index(3);
+  req_batched->add_related_batch_ids(50);
+  req_batched->add_program_ids(300);
+
+  for (int64_t req_id : {8, 10, 11}) {
+    RequestDetail* req_mixed_unbatched = host.add_request_details();
+    req_mixed_unbatched->set_request_id(req_id);
+    req_mixed_unbatched->set_model_id_index(1);
+    req_mixed_unbatched->add_program_ids(300);
+  }
+
+  RequestDetail* req_child_group = host.add_request_details();
+  req_child_group->set_request_id(6);
+  req_child_group->set_model_id_index(2);
+  req_child_group->add_related_batch_ids(999);
+  req_child_group->add_program_ids(400);
+
+  BatchDetail* other_host_batch =
+      (*stats.mutable_inference_stats_per_host())[1].add_batch_details();
+  other_host_batch->set_batch_id(999);
+
+  // A batch whose padding size was not recorded (batch_size_after_padding = 0)
+  // still produces model-only metadata (batch_size = 0) when no positive batch
+  // size exists for the program, and its linked request is not double-counted.
+  BatchDetail* size_zero_batch = host.add_batch_details();
+  size_zero_batch->set_batch_id(60);
+  size_zero_batch->set_model_id_index(3);
+  size_zero_batch->set_batch_size_after_padding(0);
+  size_zero_batch->add_related_request_ids(9);
+  size_zero_batch->add_program_ids(600);
+
+  RequestDetail* req_size_zero_batch = host.add_request_details();
+  req_size_zero_batch->set_request_id(9);
+  req_size_zero_batch->set_model_id_index(3);
+  req_size_zero_batch->add_related_batch_ids(60);
+  req_size_zero_batch->add_program_ids(600);
+
+  ProgramServingMetadataMap result = BuildProgramServingMetadata(stats);
+  ASSERT_EQ(result.size(), 4);
+  ASSERT_TRUE(result.contains(100));
+  EXPECT_EQ(result.at(100).model_id(), "/models/unbatched_a:1");
+  EXPECT_EQ(result.at(100).batch_size(), 0);
+  EXPECT_EQ(result.at(100).num_batches(), 2);
+
+  ASSERT_TRUE(result.contains(300));
+  EXPECT_EQ(result.at(300).model_id(), "/models/batched_c:3");
+  EXPECT_EQ(result.at(300).batch_size(), 16);
+  EXPECT_EQ(result.at(300).num_batches(), 2);
+
+  ASSERT_TRUE(result.contains(400));
+  EXPECT_EQ(result.at(400).model_id(), "/models/unbatched_b:2");
+  EXPECT_EQ(result.at(400).batch_size(), 0);
+  EXPECT_EQ(result.at(400).num_batches(), 1);
+
+  ASSERT_TRUE(result.contains(600));
+  EXPECT_EQ(result.at(600).model_id(), "/models/batched_c:3");
+  EXPECT_EQ(result.at(600).batch_size(), 0);
+  EXPECT_EQ(result.at(600).num_batches(), 1);
 }
 
 }  // namespace

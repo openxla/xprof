@@ -23,15 +23,15 @@ namespace tensorflow::profiler {
 // Builds a map from HLO program_id to its ProgramServingMetadata (model_id,
 // batch_size, and num_batches) from InferenceStats.
 //
-// Only batches with a non-empty model_id and batch_size > 0 are counted;
-// batches with batch_size <= 0 are skipped with a summary warning. If a
-// program has multiple distinct (model_id, batch_size) pairs, keeps the pair
-// with the highest num_batches (tie-breaking by model_id, then batch_size) and
-// logs a warning.
-//
-// Only batches link to programs (BatchDetail::program_ids), so a session
-// without batching, which has only RequestDetails, gets an empty map.
-// TODO(profiler): Also match requests in sessions without batching.
+// Batches and unbatched requests (RequestDetail entries not linked to any
+// BatchDetail) with a non-empty model_id and batch_size >= 0 are counted;
+// batches with batch_size <= 0 are logged in a summary warning. Only
+// batch_size > 0 is treated as a valid batch size: when a program has any
+// entry with batch_size > 0, batch_size == 0 entries are ignored so the
+// program falls back to model-only (batch_size = 0) only when no positive
+// batch size was recorded. If a program has multiple candidate (model_id,
+// batch_size) pairs, keeps the pair with the highest num_batches (tie-breaking
+// by model_id, then batch_size) and logs a warning.
 ProgramServingMetadataMap BuildProgramServingMetadata(
     const InferenceStats& inference_stats);
 

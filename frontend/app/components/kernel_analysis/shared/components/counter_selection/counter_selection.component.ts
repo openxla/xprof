@@ -2,16 +2,15 @@ import {CommonModule} from '@angular/common';
 import {
   Component,
   EventEmitter,
-  Inject,
   Input,
+  OnChanges,
   OnInit,
-  Optional,
   Output,
+  SimpleChanges,
 } from '@angular/core';
 import {FormsModule} from '@angular/forms';
 import {MatButtonModule} from '@angular/material/button';
 import {MatCheckboxModule} from '@angular/material/checkbox';
-import {MAT_DIALOG_DATA, MatDialogRef} from '@angular/material/dialog';
 import {MatExpansionModule} from '@angular/material/expansion';
 import {MatFormFieldModule} from '@angular/material/form-field';
 import {MatIconModule} from '@angular/material/icon';
@@ -44,7 +43,7 @@ import type {
   templateUrl: './counter_selection.component.html',
   styleUrls: ['./counter_selection.component.scss'],
 })
-export class CounterSelectionComponent implements OnInit {
+export class CounterSelectionComponent implements OnInit, OnChanges {
   @Input() config: CounterSelectionConfig = {groups: []};
   @Input() selectedIds: string[] = [];
   @Input() layout: 'columns' | 'list' = 'columns';
@@ -56,28 +55,15 @@ export class CounterSelectionComponent implements OnInit {
   searchText = '';
   currentSelections = new Set<string>();
 
-  constructor(
-    @Optional()
-    @Inject(MAT_DIALOG_DATA)
-    public data: {
-      config: CounterSelectionConfig;
-      selectedIds: string[];
-      layout: 'columns' | 'list';
-      density: 'comfortable' | 'compact';
-    } | null,
-    @Optional()
-    public dialogRef: MatDialogRef<CounterSelectionComponent> | null,
-  ) {
-    if (data) {
-      this.config = data.config || this.config;
-      this.selectedIds = data.selectedIds || this.selectedIds;
-      this.layout = data.layout || this.layout;
-      this.density = data.density || this.density;
-    }
-  }
-
   ngOnInit() {
     this.currentSelections = new Set(this.selectedIds);
+  }
+
+  ngOnChanges(changes: SimpleChanges) {
+    if (changes['selectedIds'] || changes['config']) {
+      this.currentSelections = new Set(this.selectedIds);
+      this.searchText = '';
+    }
   }
 
   get filteredGroups(): CounterGroup[] {
@@ -173,15 +159,9 @@ export class CounterSelectionComponent implements OnInit {
   onApply() {
     const selections = Array.from(this.currentSelections);
     this.applied.emit(selections);
-    if (this.dialogRef) {
-      this.dialogRef.close(selections);
-    }
   }
 
   onCancel() {
     this.cancelled.emit();
-    if (this.dialogRef) {
-      this.dialogRef.close();
-    }
   }
 }

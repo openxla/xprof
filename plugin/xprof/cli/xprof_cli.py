@@ -111,6 +111,10 @@ analyze_async_overlap_tool = _LazyModuleProxy(
 check_host_boundness_tool = _LazyModuleProxy(
     "xprof.cli.tools.check_host_boundness_tool"
 )
+events_db_info_tool = _LazyModuleProxy("xprof.cli.tools.events_db_info_tool")
+events_db_top_ops_tool = _LazyModuleProxy(
+    "xprof.cli.tools.events_db_top_ops_tool"
+)
 get_hlo_stats_tool = _LazyModuleProxy("xprof.cli.tools.get_hlo_stats_tool")
 get_kernel_stats_tool = _LazyModuleProxy(
     "xprof.cli.tools.get_kernel_stats_tool"
@@ -196,7 +200,7 @@ def cli_main() -> dict[str, Any]:
     A dictionary of tool names to functions.
   """
   return {
-      # 39 Core Tools (Available in both 1P and 3P):
+      # 39 Core Tools (Available in every build):
       # keep-sorted start
       "aggregate_xplane_events": xplane_tools.aggregate_xplane_events,
       "analyze_async_overlap": analyze_async_overlap_tool.analyze_async_overlap,
@@ -204,6 +208,8 @@ def cli_main() -> dict[str, Any]:
       "check_kernel_profiling": xplane_tools.inspect_capture,
       "compute_utilization": get_kernel_utilization_tool.get_kernel_utilization,
       "diff_sessions": diff_sessions_tool.diff_sessions,
+      "events_db_info": events_db_info_tool.events_db_info,
+      "events_db_top_ops": events_db_top_ops_tool.events_db_top_ops,
       "export_json": xprof_data.get_profile_summary,
       "get_device_information": xprof_data.get_device_information,
       "get_device_time_attribution": _get_device_time_attribution,
@@ -245,7 +251,7 @@ def cli_main() -> dict[str, Any]:
       "query_hlo_graph": hlo_tools.query_hlo_graph,
       "upload_trace": upload_trace_tool.upload_trace,
       # keep-sorted end
-      # 2 Tools Gated in 3P (Third Party Only):
+      # 2 Tools Gated in the Open-Source Build:
       "create_events_db": events_db_tool.create_events_db,
       "query_events_db": events_db_tool.query_events_db,
   }

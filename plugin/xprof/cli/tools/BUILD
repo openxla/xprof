@@ -35,6 +35,34 @@ pytype_strict_library(
 )
 
 pytype_strict_library(
+    name = "events_db_info_tool",
+    srcs = ["events_db_info_tool.py"],
+    visibility = [
+        "//plugin/xprof:__subpackages__",
+        "//vr:__subpackages__",
+    ],
+    deps = [
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal:events_db_queries",
+        "//plugin/xprof/cli/internal/oss:events_db_sql",
+    ],
+)
+
+pytype_strict_library(
+    name = "events_db_top_ops_tool",
+    srcs = ["events_db_top_ops_tool.py"],
+    visibility = [
+        "//plugin/xprof:__subpackages__",
+        "//vr:__subpackages__",
+    ],
+    deps = [
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal:events_db_queries",
+        "//plugin/xprof/cli/internal/oss:events_db_sql",
+    ],
+)
+
+pytype_strict_library(
     name = "check_host_boundness_tool",
     srcs = ["check_host_boundness_tool.py"],
     visibility = [

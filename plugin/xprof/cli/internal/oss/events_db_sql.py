@@ -12,6 +12,32 @@ from xprof.cli.tools.oss import events_db_tool
 DIALECT = "duckdb"
 # The parquet file holds one trace, so rows carry no host.
 HOST_COLUMN = None
+# The parquet file has no `HloOpMeta` table.
+HLO_META_TABLE = None
+
+
+def _create(session_id: str, *, bypass_cache: bool) -> str:
+  """Creates the Events DB parquet file if needed and returns its path."""
+  created = json.loads(
+      events_db_tool.create_events_db(session_id, bypass_cache=bypass_cache)
+  )
+  return str(created["path"])
+
+
+def describe_source(
+    session_id: str, *, bypass_cache: bool = False
+) -> dict[str, Any]:
+  """Returns where the trace's Events DB is.
+
+  Args:
+    session_id: Session ID, logdir path, run directory, or trace file.
+    bypass_cache: Whether to rebuild the parquet file from the trace instead of
+      reusing it.
+
+  Returns:
+    `events_db_path`, the path of the Events DB parquet file.
+  """
+  return {"events_db_path": _create(session_id, bypass_cache=bypass_cache)}
 
 
 def run_query(
@@ -36,10 +62,7 @@ def run_query(
   Returns:
     The result rows.
   """
-  created = json.loads(
-      events_db_tool.create_events_db(session_id, bypass_cache=bypass_cache)
-  )
-  db_path = str(created["path"]).replace("'", "''")
+  db_path = _create(session_id, bypass_cache=bypass_cache).replace("'", "''")
   with duckdb.connect(":memory:") as con:
     con.execute(
         f"CREATE VIEW Events AS SELECT * FROM read_parquet('{db_path}')"

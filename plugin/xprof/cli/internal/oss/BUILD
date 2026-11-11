@@ -33,7 +33,9 @@ pytype_library(
     # strict_deps = False,
     deps = [
         ":xplane_tools",
+        ":xprof_client",
         "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal:trace_selection",
     ],
 )
 

@@ -14,7 +14,10 @@ limitations under the License.
 ==============================================================================*/
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -31,6 +34,8 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/profiler/rpc/client/capture_profile.h"
 #include "xla/tsl/profiler/utils/session_manager.h"
@@ -74,6 +79,47 @@ using ::tensorflow::profiler::SessionSnapshot;
 using ::tensorflow::profiler::ToolOptions;
 using ::tensorflow::profiler::XSpace;
 
+namespace {
+
+struct SessionCacheStripe {
+  absl::Mutex io_mu;
+  absl::Mutex state_mu;
+  int active_uncached = 0;
+  std::string cleared_wave_dir;
+};
+
+SessionCacheStripe& GetSessionCacheStripe(absl::string_view session_run_dir) {
+  static absl::NoDestructor<std::array<SessionCacheStripe, 256>> stripes;
+  const size_t idx =
+      std::hash<absl::string_view>{}(session_run_dir) % stripes->size();
+  return (*stripes)[idx];
+}
+
+class ScopedUncachedWave {
+ public:
+  explicit ScopedUncachedWave(SessionCacheStripe* stripe) : stripe_(stripe) {
+    if (stripe_ != nullptr) {
+      absl::MutexLock lock(stripe_->state_mu);
+      ++stripe_->active_uncached;
+    }
+  }
+  ScopedUncachedWave(const ScopedUncachedWave&) = delete;
+  ScopedUncachedWave& operator=(const ScopedUncachedWave&) = delete;
+  ~ScopedUncachedWave() {
+    if (stripe_ != nullptr) {
+      absl::MutexLock lock(stripe_->state_mu);
+      if (--stripe_->active_uncached == 0) {
+        stripe_->cleared_wave_dir = std::string();
+      }
+    }
+  }
+
+ private:
+  SessionCacheStripe* stripe_;
+};
+
+}  // namespace
+
 absl::StatusOr<std::pair<std::string, bool>> SessionSnapshotToToolsData(
     const absl::StatusOr<SessionSnapshot>& status_or_session_snapshot,
     const std::string& tool_name, const ToolOptions& tool_options) {
@@ -82,12 +128,44 @@ absl::StatusOr<std::pair<std::string, bool>> SessionSnapshotToToolsData(
     return std::make_pair("", false);
   }
 
+  absl::string_view session_run_dir =
+      status_or_session_snapshot->GetSessionRunDir();
+  SessionCacheStripe* stripe = session_run_dir.empty()
+                                   ? nullptr
+                                   : &GetSessionCacheStripe(session_run_dir);
+
   // If use_saved_result is False, clear the cache files before converting to
-  // tool data.
+  // tool data under an exclusive lock so concurrent conversions on the same
+  // session directory do not lose intermediate cache files mid-flight. Track
+  // active uncached waves in memory so concurrent cold requests clear at most
+  // once without writing sentinel files to read-only directories or suppressing
+  // subsequent cache invalidations after the wave completes.
   std::optional<bool> use_saved_result =
       GetParam<bool>(tool_options, "use_saved_result");
-  if (use_saved_result.has_value() && !use_saved_result.value()) {
-    TF_RETURN_IF_ERROR(status_or_session_snapshot->ClearCacheFiles());
+  const bool clear_cache =
+      use_saved_result.has_value() && !use_saved_result.value();
+  ScopedUncachedWave uncached_wave(clear_cache ? stripe : nullptr);
+  if (clear_cache) {
+    if (stripe != nullptr) {
+      absl::WriterMutexLock write_lock(stripe->io_mu);
+      bool should_clear = false;
+      {
+        absl::MutexLock state_lock(stripe->state_mu);
+        should_clear = (stripe->cleared_wave_dir != session_run_dir);
+      }
+      if (should_clear) {
+        TF_RETURN_IF_ERROR(status_or_session_snapshot->ClearCacheFiles());
+        absl::MutexLock state_lock(stripe->state_mu);
+        stripe->cleared_wave_dir = std::string(session_run_dir);
+      }
+    } else {
+      TF_RETURN_IF_ERROR(status_or_session_snapshot->ClearCacheFiles());
+    }
+  }
+
+  std::optional<absl::ReaderMutexLock> read_lock;
+  if (stripe != nullptr) {
+    read_lock.emplace(stripe->io_mu);
   }
 
   absl::StatusOr<std::string> status_or_tool_data;

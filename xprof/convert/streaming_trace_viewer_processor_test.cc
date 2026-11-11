@@ -560,6 +560,116 @@ TEST_F(StreamingTraceViewerProcessorTest, ProcessSessionSingleHost) {
   TF_EXPECT_OK(processor.ProcessSession(snapshot, tool_options));
 }
 
+TEST_F(StreamingTraceViewerProcessorTest,
+       ConcurrentProcessSessionOnUncachedHostIsRaceFree) {
+  XSpace space = CreateTestXSpace(2);
+  XLine* line = space.mutable_planes(0)->mutable_lines(0);
+  int64_t event_id =
+      static_cast<int64_t>(tsl::profiler::HostEventType::kSessionRun);
+  for (int i = 0; i < 500; ++i) {
+    XEvent* ev = line->add_events();
+    ev->set_metadata_id(event_id);
+    ev->set_offset_ps(2000000000LL + i * 1000000LL);
+    ev->set_duration_ps(500000LL);
+  }
+  absl::flat_hash_map<std::string, XSpace> host_xspaces = {
+      {"concurrent_host", space}};
+  TF_ASSERT_OK_AND_ASSIGN(SessionSnapshot snapshot,
+                          CreateSnapshot(host_xspaces));
+
+  constexpr int kNumThreads = 8;
+  std::vector<absl::Status> statuses(kNumThreads);
+  std::vector<std::string> outputs(kNumThreads);
+  {
+    tensorflow::profiler::XprofThreadPoolExecutor executor(
+        "ConcurrentProcessSessionTest", kNumThreads);
+    for (int t = 0; t < kNumThreads; ++t) {
+      executor.Execute([&snapshot, &statuses, &outputs, t]() {
+        ToolOptions opts;
+        opts["end_time_ms"] = "5000.0";
+        opts["resolution"] = "100";
+        StreamingTraceViewerProcessor proc(opts);
+        statuses[t] = proc.ProcessSession(snapshot, opts);
+        if (statuses[t].ok()) {
+          outputs[t] = proc.GetData();
+        }
+      });
+    }
+    executor.JoinAll();
+  }
+
+  for (int t = 0; t < kNumThreads; ++t) {
+    TF_EXPECT_OK(statuses[t]) << "Thread " << t << " failed";
+    ASSERT_FALSE(outputs[t].empty()) << "Thread " << t << " returned empty";
+    EXPECT_TRUE(nlohmann::json::parse(outputs[t]).contains("traceEvents"));
+  }
+
+  TF_ASSERT_OK(snapshot.ClearCacheFiles());
+  std::string xspace_path =
+      file::JoinPath(snapshot.GetSessionRunDir(), "concurrent_host.xspace");
+  std::vector<absl::StatusOr<std::string>> map_results(kNumThreads);
+  {
+    tensorflow::profiler::XprofThreadPoolExecutor executor(
+        "ConcurrentMapTest", kNumThreads);
+    for (int t = 0; t < kNumThreads; ++t) {
+      executor.Execute([&xspace_path, &map_results, t]() {
+        StreamingTraceViewerProcessor proc((ToolOptions()));
+        map_results[t] = proc.Map(xspace_path);
+      });
+    }
+    executor.JoinAll();
+  }
+  for (int t = 0; t < kNumThreads; ++t) {
+    TF_ASSERT_OK_AND_ASSIGN(std::string sstable_path, map_results[t]);
+    TF_EXPECT_OK(tsl::Env::Default()->FileExists(sstable_path));
+  }
+  std::string hostname = snapshot.GetHostname(0);
+  std::string metadata_path = *snapshot.MakeHostDataFilePath(
+      tensorflow::profiler::StoredDataType::TRACE_EVENTS_METADATA_LEVELDB,
+      hostname);
+  std::string trie_path = *snapshot.MakeHostDataFilePath(
+      tensorflow::profiler::StoredDataType::TRACE_EVENTS_PREFIX_TRIE_LEVELDB,
+      hostname);
+  TF_EXPECT_OK(tsl::Env::Default()->FileExists(metadata_path));
+  TF_EXPECT_OK(tsl::Env::Default()->FileExists(trie_path));
+
+  std::vector<std::string> children;
+  TF_ASSERT_OK(tsl::Env::Default()->GetChildren(
+      std::string(snapshot.GetSessionRunDir()), &children));
+  for (const std::string& child : children) {
+    EXPECT_EQ(child.find(".tmp."), std::string::npos) << child;
+  }
+
+  // Delete only .metadata.SSTABLE while primary .SSTABLE remains, and verify
+  // the next ProcessSession regenerates all three tables cleanly.
+  TF_ASSERT_OK(tsl::Env::Default()->DeleteFile(metadata_path));
+  ToolOptions regen_opts;
+  regen_opts["end_time_ms"] = "5000.0";
+  regen_opts["resolution"] = "100";
+  StreamingTraceViewerProcessor regen_proc(regen_opts);
+  TF_EXPECT_OK(regen_proc.ProcessSession(snapshot, regen_opts));
+  TF_EXPECT_OK(tsl::Env::Default()->FileExists(metadata_path));
+  TF_EXPECT_OK(tsl::Env::Default()->FileExists(trie_path));
+
+  // Force RenameFile failure by placing a non-empty directory at .SSTABLE path
+  // and verify temporary files are cleaned up.
+  TF_ASSERT_OK(snapshot.ClearCacheFiles());
+  std::string primary_sstable =
+      *snapshot.GetFilePath("trace_viewer@", hostname);
+  TF_ASSERT_OK(tsl::Env::Default()->RecursivelyCreateDir(primary_sstable));
+  TF_ASSERT_OK(tsl::WriteStringToFile(
+      tsl::Env::Default(), file::JoinPath(primary_sstable, "keep.txt"),
+      "occupied"));
+  StreamingTraceViewerProcessor fail_proc(regen_opts);
+  EXPECT_FALSE(fail_proc.ProcessSession(snapshot, regen_opts).ok());
+  children.clear();
+  TF_ASSERT_OK(tsl::Env::Default()->GetChildren(
+      std::string(snapshot.GetSessionRunDir()), &children));
+  for (const std::string& child : children) {
+    EXPECT_EQ(child.find(".tmp."), std::string::npos) << child;
+  }
+}
+
 TEST_F(StreamingTraceViewerProcessorTest, ReduceWithEventName) {
   XSpace space = CreateTestXSpace(2);
   absl::flat_hash_map<std::string, XSpace> host_xspaces = {{"host1", space}};

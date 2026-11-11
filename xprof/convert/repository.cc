@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xprof/convert/repository.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <memory>
 #include <optional>
@@ -252,12 +253,22 @@ absl::Status SessionSnapshot::ClearCacheFiles() const {
   TF_RETURN_IF_ERROR(::tsl::Env::Default()->GetChildren(
       std::string(GetSessionRunDir()), &results));
 
+  std::stable_partition(
+      results.begin(), results.end(), [](const std::string& path) {
+        return absl::EndsWith(path, ".SSTABLE") &&
+               !absl::EndsWith(path, ".metadata.SSTABLE") &&
+               !absl::EndsWith(path, ".trie.SSTABLE");
+      });
+
   for (const std::string& path : results) {
     std::string file_path = tsl::io::JoinPath(GetSessionRunDir(), path);
     for (const auto& format : *kHostDataSuffixes) {
       if (format.first == StoredDataType::RIEGELI_XSPACE) continue;
       if (absl::EndsWith(path, format.second)) {
-        TF_RETURN_IF_ERROR(tsl::Env::Default()->DeleteFile(file_path));
+        absl::Status status = tsl::Env::Default()->DeleteFile(file_path);
+        if (!status.ok() && !absl::IsNotFound(status)) {
+          return status;
+        }
         break;
       }
     }

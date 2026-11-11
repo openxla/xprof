@@ -15,11 +15,15 @@ limitations under the License.
 
 #include "xprof/convert/file_utils.h"
 
+#include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <string>
 
+#include "absl/base/no_destructor.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -27,6 +31,7 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
+#include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "xla/tsl/platform/env.h"
@@ -42,6 +47,11 @@ namespace {
 
 // Maximum size for a proto: 2 GiB - 1 bytes.
 constexpr int64_t kMaxProtoSize = std::numeric_limits<int>::max();
+
+absl::Mutex& GetProtoCacheStripeMutex(absl::string_view fname) {
+  static absl::NoDestructor<std::array<absl::Mutex, 64>> stripes;
+  return (*stripes)[std::hash<absl::string_view>{}(fname) % stripes->size()];
+}
 
 }  // namespace
 
@@ -152,6 +162,9 @@ absl::Status ReadBinaryProto(absl::string_view fname,
                                                fname, proto);
   }
 
+#ifdef _WIN32
+  absl::ReaderMutexLock lock(GetProtoCacheStripeMutex(fname));
+#endif
   return tsl::ReadBinaryProto(tsl::Env::Default(), std::string(fname), proto);
 }
 
@@ -167,7 +180,29 @@ absl::Status WriteBinaryProto(absl::string_view fname,
                                                 gcs_path, proto);
   }
 
-  return tsl::WriteBinaryProto(tsl::Env::Default(), std::string(fname), proto);
+  tsl::Env* env = tsl::Env::Default();
+  static const uint64_t proc_salt =
+      static_cast<uint64_t>(env->NowNanos()) ^
+      reinterpret_cast<uintptr_t>(&proc_salt);
+  static std::atomic<uint64_t> tmp_seq{0};
+  const std::string tmp_fname = absl::StrCat(
+      fname, ".tmp.", env->GetProcessId(), ".", absl::Hex(proc_salt), ".",
+      env->NowMicros(), ".", tmp_seq.fetch_add(1, std::memory_order_relaxed));
+  absl::Status write_status = tsl::WriteBinaryProto(env, tmp_fname, proto);
+  if (!write_status.ok()) {
+    env->DeleteFile(tmp_fname).IgnoreError();
+    return write_status;
+  }
+  absl::Status rename_status;
+  {
+    absl::WriterMutexLock lock(GetProtoCacheStripeMutex(fname));
+    rename_status = env->RenameFile(tmp_fname, std::string(fname));
+  }
+  if (!rename_status.ok()) {
+    env->DeleteFile(tmp_fname).IgnoreError();
+    return rename_status;
+  }
+  return absl::OkStatus();
 }
 
 }  // namespace xprof

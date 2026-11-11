@@ -1,19 +1,25 @@
 #include "xprof/convert/streaming_trace_viewer_processor.h"
 
 #include <algorithm>
+#include <array>
+#include <atomic>
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/base/no_destructor.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
+#include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "google/protobuf/arena.h"
@@ -59,6 +65,162 @@ using ::tensorflow::profiler::TraceViewOption;
 using ::tensorflow::profiler::XprofThreadPoolExecutor;
 using ::tensorflow::profiler::XSpace;
 
+namespace {
+
+absl::Mutex& GetSstableGenerationMutex(absl::string_view sstable_path) {
+  static absl::NoDestructor<std::array<absl::Mutex, 256>> stripes;
+  const size_t idx =
+      std::hash<absl::string_view>{}(sstable_path) % stripes->size();
+  return (*stripes)[idx];
+}
+
+bool HasCompleteTraceSstables(tsl::Env* env, absl::string_view events_path,
+                              absl::string_view metadata_path,
+                              absl::string_view trie_path) {
+  return env->FileExists(events_path).ok() &&
+         env->FileExists(metadata_path).ok() &&
+         env->FileExists(trie_path).ok();
+}
+
+absl::Status WriteLiteEventsAtomically(
+    absl::string_view host_name, const XSpace& preprocessed_xspace,
+    absl::string_view trace_events_sstable_path,
+    absl::string_view trace_events_metadata_sstable_path,
+    absl::string_view trace_events_prefix_trie_sstable_path) {
+  TraceEventLiteContainer lite_container;
+  ConvertXSpaceToLiteTraceEventsContainer(host_name, preprocessed_xspace,
+                                          &lite_container);
+  tsl::Env* env = tsl::Env::Default();
+  static const uint64_t proc_salt =
+      static_cast<uint64_t>(env->NowNanos()) ^
+      reinterpret_cast<uintptr_t>(&proc_salt);
+  static std::atomic<uint64_t> tmp_seq{0};
+  const uint64_t nonce = tmp_seq.fetch_add(1, std::memory_order_relaxed);
+  const std::string suffix = absl::StrCat(
+      ".tmp.", env->GetProcessId(), ".", absl::Hex(proc_salt), ".",
+      env->NowMicros(), ".", nonce);
+  const std::string events_tmp =
+      absl::StrCat(trace_events_sstable_path, suffix);
+  const std::string metadata_tmp =
+      absl::StrCat(trace_events_metadata_sstable_path, suffix);
+  const std::string trie_tmp =
+      absl::StrCat(trace_events_prefix_trie_sstable_path, suffix);
+
+  std::unique_ptr<tsl::WritableFile> trace_events_file;
+  std::unique_ptr<tsl::WritableFile> trace_events_metadata_file;
+  std::unique_ptr<tsl::WritableFile> trace_events_prefix_trie_file;
+  auto cleanup_tmp = [&]() {
+    trace_events_file.reset();
+    trace_events_metadata_file.reset();
+    trace_events_prefix_trie_file.reset();
+    env->DeleteFile(events_tmp).IgnoreError();
+    env->DeleteFile(metadata_tmp).IgnoreError();
+    env->DeleteFile(trie_tmp).IgnoreError();
+  };
+
+  if (absl::Status s = env->NewWritableFile(events_tmp, &trace_events_file);
+      !s.ok()) {
+    cleanup_tmp();
+    return s;
+  }
+  if (absl::Status s =
+          env->NewWritableFile(metadata_tmp, &trace_events_metadata_file);
+      !s.ok()) {
+    cleanup_tmp();
+    return s;
+  }
+  if (absl::Status s =
+          env->NewWritableFile(trie_tmp, &trace_events_prefix_trie_file);
+      !s.ok()) {
+    cleanup_tmp();
+    return s;
+  }
+  auto converter_fn =
+      [&](const tsl::profiler::XEventVisitor& event_visitor,
+          const tensorflow::profiler::TraceEventLite& lite_event,
+          absl::flat_hash_map<uint64_t, std::string>* local_name_table,
+          tensorflow::profiler::TraceEvent* full_event,
+          google::protobuf::Arena* arena) -> absl::Status {
+    ConvertLiteTraceEventToFullTraceEvent(event_visitor, lite_event,
+                                          lite_container, local_name_table,
+                                          full_event, arena);
+    return absl::OkStatus();
+  };
+  if (absl::Status s = StoreLiteEventsAsLevelDbTables(
+          &lite_container, converter_fn, trace_events_file,
+          trace_events_metadata_file, trace_events_prefix_trie_file);
+      !s.ok()) {
+    cleanup_tmp();
+    return s;
+  }
+  trace_events_file.reset();
+  trace_events_metadata_file.reset();
+  trace_events_prefix_trie_file.reset();
+
+  // Publish auxiliary tables before the primary .SSTABLE sentinel path so
+  // lock-free FileExists(trace_events_sstable_path) readers only observe a
+  // complete, closed set of all three LevelDB tables. If a later rename fails,
+  // remove already-published tables so mismatched generations cannot survive.
+  auto rollback_published = [&](bool metadata_published, bool trie_published) {
+    if (trie_published) {
+      env->DeleteFile(std::string(trace_events_prefix_trie_sstable_path))
+          .IgnoreError();
+    }
+    if (metadata_published) {
+      env->DeleteFile(std::string(trace_events_metadata_sstable_path))
+          .IgnoreError();
+    }
+    env->DeleteFile(std::string(trace_events_sstable_path)).IgnoreError();
+    cleanup_tmp();
+  };
+  if (absl::Status s = env->RenameFile(
+          metadata_tmp, std::string(trace_events_metadata_sstable_path));
+      !s.ok()) {
+    cleanup_tmp();
+    return s;
+  }
+  if (absl::Status s = env->RenameFile(
+          trie_tmp, std::string(trace_events_prefix_trie_sstable_path));
+      !s.ok()) {
+    rollback_published(/*metadata_published=*/true, /*trie_published=*/false);
+    return s;
+  }
+  if (absl::Status s =
+          env->RenameFile(events_tmp, std::string(trace_events_sstable_path));
+      !s.ok()) {
+    rollback_published(/*metadata_published=*/true, /*trie_published=*/true);
+    return s;
+  }
+  return absl::OkStatus();
+}
+
+absl::Status EnsureTraceEventsSstables(
+    absl::string_view host_name, absl::string_view trace_events_sstable_path,
+    absl::string_view trace_events_metadata_sstable_path,
+    absl::string_view trace_events_prefix_trie_sstable_path,
+    const std::function<absl::StatusOr<const XSpace*>(google::protobuf::Arena* arena)>&
+        load_preprocessed_xspace) {
+  if (HasCompleteTraceSstables(tsl::Env::Default(), trace_events_sstable_path,
+                               trace_events_metadata_sstable_path,
+                               trace_events_prefix_trie_sstable_path)) {
+    return absl::OkStatus();
+  }
+  absl::MutexLock host_lock(
+      GetSstableGenerationMutex(trace_events_sstable_path));
+  if (HasCompleteTraceSstables(tsl::Env::Default(), trace_events_sstable_path,
+                               trace_events_metadata_sstable_path,
+                               trace_events_prefix_trie_sstable_path)) {
+    return absl::OkStatus();
+  }
+  google::protobuf::Arena arena;
+  TF_ASSIGN_OR_RETURN(const XSpace* xspace, load_preprocessed_xspace(&arena));
+  return WriteLiteEventsAtomically(
+      host_name, *xspace, trace_events_sstable_path,
+      trace_events_metadata_sstable_path,
+      trace_events_prefix_trie_sstable_path);
+}
+
+}  // namespace
 
 absl::Status StreamingTraceViewerProcessor::ProcessSession(
     const SessionSnapshot& session_snapshot, const ToolOptions& options) {
@@ -96,47 +258,23 @@ absl::Status StreamingTraceViewerProcessor::ProcessSession(
           "streaming trace viewer hasn't been supported in Cloud AI");
     }
 
-    if (!tsl::Env::Default()->FileExists(*trace_events_sstable_path).ok()) {
-      absl::Time preprocess_start_time = absl::Now();
-      LOG(INFO) << "Preprocessing XSpace for host " << i
-                << " session_id: " << session_id;
-      google::protobuf::Arena arena;
-      TF_ASSIGN_OR_RETURN(XSpace * xspace,
-                          session_snapshot.GetXSpace(i, &arena));
-      PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,
-                                 /*derived_timeline=*/true);
-
-      TraceEventLiteContainer lite_container;
-      ConvertXSpaceToLiteTraceEventsContainer(host_name, *xspace,
-                                              &lite_container);
-      std::unique_ptr<tsl::WritableFile> trace_events_file;
-      TF_RETURN_IF_ERROR(tsl::Env::Default()->NewWritableFile(
-          *trace_events_sstable_path, &trace_events_file));
-      std::unique_ptr<tsl::WritableFile> trace_events_metadata_file;
-      TF_RETURN_IF_ERROR(tsl::Env::Default()->NewWritableFile(
-          *trace_events_metadata_sstable_path, &trace_events_metadata_file));
-      std::unique_ptr<tsl::WritableFile> trace_events_prefix_trie_file;
-      TF_RETURN_IF_ERROR(tsl::Env::Default()->NewWritableFile(
-          *trace_events_prefix_trie_sstable_path,
-          &trace_events_prefix_trie_file));
-      auto converter_fn =
-          [&](const tsl::profiler::XEventVisitor& event_visitor,
-              const tensorflow::profiler::TraceEventLite& lite_event,
-              absl::flat_hash_map<uint64_t, std::string>* local_name_table,
-              tensorflow::profiler::TraceEvent* full_event,
-              google::protobuf::Arena* arena) -> absl::Status {
-        ConvertLiteTraceEventToFullTraceEvent(event_visitor, lite_event,
-                                              lite_container, local_name_table,
-                                              full_event, arena);
-        return absl::OkStatus();
-      };
-      TF_RETURN_IF_ERROR(StoreLiteEventsAsLevelDbTables(
-          &lite_container, converter_fn, trace_events_file,
-          trace_events_metadata_file, trace_events_prefix_trie_file));
-      LOG(INFO) << "Preprocessing done for host " << i
-                << ". Duration: " << absl::Now() - preprocess_start_time
-                << " session_id: " << session_id;
-    }
+    TF_RETURN_IF_ERROR(EnsureTraceEventsSstables(
+        host_name, *trace_events_sstable_path,
+        *trace_events_metadata_sstable_path,
+        *trace_events_prefix_trie_sstable_path,
+        [&](google::protobuf::Arena* arena) -> absl::StatusOr<const XSpace*> {
+          absl::Time preprocess_start_time = absl::Now();
+          LOG(INFO) << "Preprocessing XSpace for host " << i
+                    << " session_id: " << session_id;
+          TF_ASSIGN_OR_RETURN(XSpace * xspace,
+                              session_snapshot.GetXSpace(i, arena));
+          PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,
+                                     /*derived_timeline=*/true);
+          LOG(INFO) << "Preprocessing done for host " << i
+                    << ". Duration: " << absl::Now() - preprocess_start_time
+                    << " session_id: " << session_id;
+          return xspace;
+        }));
 
     TraceEventsLevelDbFilePaths file_paths;
     file_paths.trace_events_file_path = *trace_events_sstable_path;
@@ -180,15 +318,35 @@ absl::StatusOr<std::string> StreamingTraceViewerProcessor::Map(
   std::optional<std::string> trace_events_sstable_path =
       session_snapshot.MakeHostDataFilePath(
           tensorflow::profiler::StoredDataType::TRACE_LEVELDB, hostname);
-  if (trace_events_sstable_path &&
-      tsl::Env::Default()->FileExists(*trace_events_sstable_path).ok()) {
-    return *trace_events_sstable_path;
+  std::optional<std::string> trace_events_metadata_sstable_path =
+      session_snapshot.MakeHostDataFilePath(
+          tensorflow::profiler::StoredDataType::TRACE_EVENTS_METADATA_LEVELDB,
+          hostname);
+  std::optional<std::string> trace_events_prefix_trie_sstable_path =
+      session_snapshot.MakeHostDataFilePath(
+          tensorflow::profiler::StoredDataType::
+              TRACE_EVENTS_PREFIX_TRIE_LEVELDB,
+          hostname);
+
+  if (!trace_events_sstable_path.has_value() ||
+      !trace_events_metadata_sstable_path.has_value() ||
+      !trace_events_prefix_trie_sstable_path.has_value()) {
+    return absl::UnimplementedError(
+        "streaming trace viewer hasn't been supported in Cloud AI");
   }
 
-  google::protobuf::Arena arena;
-  TF_ASSIGN_OR_RETURN(XSpace * xspace, session_snapshot.GetXSpace(0, &arena));
+  TF_RETURN_IF_ERROR(EnsureTraceEventsSstables(
+      hostname, *trace_events_sstable_path, *trace_events_metadata_sstable_path,
+      *trace_events_prefix_trie_sstable_path,
+      [&](google::protobuf::Arena* arena) -> absl::StatusOr<const XSpace*> {
+        TF_ASSIGN_OR_RETURN(XSpace * xspace,
+                            session_snapshot.GetXSpace(0, arena));
+        tensorflow::profiler::PreprocessSingleHostXSpace(
+            xspace, /*step_grouping=*/true, /*derived_timeline=*/true);
+        return xspace;
+      }));
 
-  return Map(session_snapshot, hostname, *xspace);
+  return *trace_events_sstable_path;
 }
 
 absl::StatusOr<std::string> StreamingTraceViewerProcessor::Map(
@@ -214,40 +372,16 @@ absl::StatusOr<std::string> StreamingTraceViewerProcessor::Map(
         "streaming trace viewer hasn't been supported in Cloud AI");
   }
 
-  if (!tsl::Env::Default()->FileExists(*trace_events_sstable_path).ok()) {
-    XSpace temp_xspace = xspace;
-    tensorflow::profiler::PreprocessSingleHostXSpace(&temp_xspace,
-                                                     /*step_grouping=*/true,
-                                                     /*derived_timeline=*/true);
-
-    TraceEventLiteContainer lite_container;
-    ConvertXSpaceToLiteTraceEventsContainer(hostname, temp_xspace,
-                                            &lite_container);
-    std::unique_ptr<tsl::WritableFile> trace_events_file;
-    TF_RETURN_IF_ERROR(tsl::Env::Default()->NewWritableFile(
-        *trace_events_sstable_path, &trace_events_file));
-    std::unique_ptr<tsl::WritableFile> trace_events_metadata_file;
-    TF_RETURN_IF_ERROR(tsl::Env::Default()->NewWritableFile(
-        *trace_events_metadata_sstable_path, &trace_events_metadata_file));
-    std::unique_ptr<tsl::WritableFile> trace_events_prefix_trie_file;
-    TF_RETURN_IF_ERROR(tsl::Env::Default()->NewWritableFile(
-        *trace_events_prefix_trie_sstable_path,
-        &trace_events_prefix_trie_file));
-    auto converter_fn =
-        [&](const tsl::profiler::XEventVisitor& event_visitor,
-            const tensorflow::profiler::TraceEventLite& lite_event,
-            absl::flat_hash_map<uint64_t, std::string>* local_name_table,
-            tensorflow::profiler::TraceEvent* full_event,
-            google::protobuf::Arena* arena) -> absl::Status {
-      ConvertLiteTraceEventToFullTraceEvent(event_visitor, lite_event,
-                                            lite_container, local_name_table,
-                                            full_event, arena);
-      return absl::OkStatus();
-    };
-    TF_RETURN_IF_ERROR(StoreLiteEventsAsLevelDbTables(
-        &lite_container, converter_fn, trace_events_file,
-        trace_events_metadata_file, trace_events_prefix_trie_file));
-  }
+  TF_RETURN_IF_ERROR(EnsureTraceEventsSstables(
+      hostname, *trace_events_sstable_path, *trace_events_metadata_sstable_path,
+      *trace_events_prefix_trie_sstable_path,
+      [&](google::protobuf::Arena* arena) -> absl::StatusOr<const XSpace*> {
+        XSpace* temp_xspace = google::protobuf::Arena::Create<XSpace>(arena);
+        *temp_xspace = xspace;
+        tensorflow::profiler::PreprocessSingleHostXSpace(
+            temp_xspace, /*step_grouping=*/true, /*derived_timeline=*/true);
+        return temp_xspace;
+      }));
   return *trace_events_sstable_path;
 }
 

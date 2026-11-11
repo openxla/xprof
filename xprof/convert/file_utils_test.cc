@@ -17,6 +17,7 @@ limitations under the License.
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -24,9 +25,12 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/lib/core/status_test_util.h"
+#include "xla/tsl/platform/env.h"
+#include "tsl/platform/path.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/file_utils_gcs.h"
 #include "xprof/convert/storage_client_interface.h"
+#include "xprof/convert/xprof_thread_pool_executor.h"
 
 namespace xprof {
 namespace {
@@ -107,6 +111,50 @@ TEST(FileUtilsTest, WriteBinaryProtoWithClient_Success) {
 
   TF_EXPECT_OK(
       WriteBinaryProtoWithClient(client, "gs://bucket/object", xspace));
+}
+
+TEST(FileUtilsTest, ConcurrentLocalWriteAndReadBinaryProtoAndRollback) {
+  tsl::Env* env = tsl::Env::Default();
+  std::string base_dir = tsl::io::JoinPath(
+      testing::TempDir(),
+      "file_utils_concurrent_" + std::to_string(env->NowMicros()));
+  TF_ASSERT_OK(env->RecursivelyCreateDir(base_dir));
+
+  std::string target_pb = tsl::io::JoinPath(base_dir, "cache.pb");
+  constexpr int kNumThreads = 8;
+  std::vector<absl::Status> statuses(kNumThreads);
+  {
+    tensorflow::profiler::XprofThreadPoolExecutor executor(
+        "ConcurrentWriteProto", kNumThreads);
+    for (int t = 0; t < kNumThreads; ++t) {
+      executor.Execute([&target_pb, &statuses, t]() {
+        tensorflow::profiler::XSpace xspace;
+        xspace.add_hostnames("host-" + std::to_string(t));
+        statuses[t] = WriteBinaryProto(target_pb, xspace);
+      });
+    }
+    executor.JoinAll();
+  }
+  for (int t = 0; t < kNumThreads; ++t) {
+    TF_EXPECT_OK(statuses[t]);
+  }
+  tensorflow::profiler::XSpace loaded;
+  TF_EXPECT_OK(ReadBinaryProto(target_pb, &loaded));
+  EXPECT_EQ(loaded.hostnames_size(), 1);
+
+  std::string dir_collision = tsl::io::JoinPath(base_dir, "dir_target.pb");
+  std::string nested_file = tsl::io::JoinPath(dir_collision, "keep.txt");
+  TF_ASSERT_OK(env->RecursivelyCreateDir(dir_collision));
+  TF_ASSERT_OK(tsl::WriteStringToFile(env, nested_file, "occupied"));
+  tensorflow::profiler::XSpace xspace;
+  xspace.add_hostnames("fail-rename");
+  EXPECT_FALSE(WriteBinaryProto(dir_collision, xspace).ok());
+
+  std::vector<std::string> children;
+  TF_ASSERT_OK(env->GetChildren(base_dir, &children));
+  for (const std::string& child : children) {
+    EXPECT_EQ(child.find(".tmp."), std::string::npos) << child;
+  }
 }
 
 }  // namespace

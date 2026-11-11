@@ -14,7 +14,9 @@
 # ==============================================================================
 """Tests for profiler_wrapper.cc pybind methods."""
 
+from concurrent import futures
 import json
+import os
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -193,6 +195,74 @@ class ProfilerSessionTest(parameterized.TestCase):
     )
     self.assertTrue(success)
     self.assertIn(b"rows", res)
+
+  def test_concurrent_uncached_xspace_to_tools_data_does_not_race(self):
+    """Verifies concurrent use_saved_result=False calls serialize cache resets."""
+    session_dir = self.create_tempdir().full_path
+    xspace = xplane_pb2.XSpace()
+    xspace.planes.add(name="/host:CPU")
+    payload = xspace.SerializeToString()
+    paths = []
+    for host in ("host0", "host1"):
+      path = os.path.join(session_dir, f"{host}.xplane.pb")
+      with open(path, "wb") as f:
+        f.write(payload)
+      paths.append(path)
+
+    def _convert(idx: int) -> tuple[bytes, bool]:
+      tool = "overview_page" if idx % 2 == 0 else "trace_viewer@"
+      return profiler_wrapper_plugin.xspace_to_tools_data(
+          xspace_paths=paths,
+          tool_name=tool,
+          options={"use_saved_result": False},
+      )
+
+    with futures.ThreadPoolExecutor(max_workers=6) as pool:
+      results = list(pool.map(_convert, range(12)))
+
+    for data, success in results:
+      self.assertTrue(success)
+      self.assertNotEmpty(data)
+
+    entries = os.listdir(session_dir)
+    self.assertEqual([f for f in entries if ".tmp." in f], [])
+    self.assertNotIn(".cache_cleared", entries)
+    self.assertTrue(any(f.endswith(".op_stats_v2.pb") for f in entries))
+    self.assertTrue(any(f.endswith(".SSTABLE") for f in entries))
+
+    # Once the concurrent wave completes, a subsequent use_saved_result=False
+    # request must still clear stale cache files instead of being suppressed.
+    stale_cache = os.path.join(session_dir, "stale.smart_suggestion.pb")
+    with open(stale_cache, "wb") as f:
+      f.write(b"stale")
+    refreshed, refreshed_ok = profiler_wrapper_plugin.xspace_to_tools_data(
+        xspace_paths=paths,
+        tool_name="overview_page",
+        options={"use_saved_result": False},
+    )
+    self.assertTrue(refreshed_ok)
+    self.assertNotEmpty(refreshed)
+    self.assertFalse(os.path.exists(stale_cache))
+
+  def test_uncached_xspace_to_tools_data_on_readonly_dir(self):
+    """Verifies use_saved_result=False succeeds on read-only directories."""
+    session_dir = self.create_tempdir().full_path
+    xspace = xplane_pb2.XSpace()
+    xspace.planes.add(name="/host:CPU")
+    path = os.path.join(session_dir, "host0.xplane.pb")
+    with open(path, "wb") as f:
+      f.write(xspace.SerializeToString())
+
+    os.chmod(session_dir, 0o555)
+    self.addCleanup(os.chmod, session_dir, 0o755)
+
+    data, success = profiler_wrapper_plugin.xspace_to_tools_data(
+        xspace_paths=[path],
+        tool_name="overview_page",
+        options={"use_saved_result": False},
+    )
+    self.assertTrue(success)
+    self.assertNotEmpty(data)
 
 
 if __name__ == "__main__":

@@ -77,13 +77,6 @@ class ActionType(str, enum.Enum):
 DEFAULT_CATALOG_DIR = pathlib.Path(__file__).resolve().parent / "journeys"
 DEFAULT_CATALOG_FILE = "diagnostic_journeys.json"
 
-# Note: Trace viewer legacy iframe type errors.
-_UPSTREAM_BASELINE_IGNORED_PATTERNS: tuple[str, ...] = (
-    "trace_viewer",
-    "streaming trace",
-    "Cannot read properties of undefined",
-)
-
 # How long a navigation assertion waits for the router to publish the new tool
 # in the address bar. XProf loads the tool's data before the router updates the
 # query string, so the address bar lags the click by however long the tool
@@ -302,8 +295,6 @@ def test_user_journey_state_machine(
     scenario: JourneyScenario,
 ) -> None:
   """Executes declarative user journeys with invariant sweeps."""
-  browser_errors.ignore(*_UPSTREAM_BASELINE_IGNORED_PATTERNS)
-
   # 1. Mount initial starting waypoint
   scenario = resolve_scenario_runs(scenario, resolve_run, logdir=logdir)
   open_tool(scenario.fixture, scenario.initial_tool)

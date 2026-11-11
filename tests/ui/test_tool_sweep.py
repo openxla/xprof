@@ -33,12 +33,19 @@ ACTIVE_TOOL_SPECS: list[tuple[str, str, str]] = [
         "graph-viewer, iframe.graph-viewer-iframe, .graph-viewer-container",
     ),
     ("tpu-training", "op_profile", "op-profile, op-profile-base"),
+    ("tpu-serving", "op_profile", "op-profile, op-profile-base"),
     ("tpu-training", "input_pipeline_analyzer", "input-pipeline"),
     ("tpu-training", "memory_profile", "memory-viewer, memory-profile"),
+    ("empty-memory", "memory_profile", "memory-viewer, memory-profile"),
     ("tpu-training", "memory_viewer", "memory-viewer, memory-profile"),
     ("tpu-training", "roofline_model", "roofline-model, .roofline-container"),
     ("tpu-training", "framework_op_stats", "framework-op-stats"),
     ("tpu-training", "hlo_stats", "hlo-stats"),
+    ("perf-utilization", "perf_counters", "perf-counters"),
+    ("perf-v4", "perf_counters", "perf-counters"),
+    ("perf-utilization", "utilization_viewer", "utilization-viewer"),
+    ("megascale-1host", "megascale_stats", "megascale-stats"),
+    ("megascale-2host", "megascale_stats", "megascale-stats"),
 ]
 
 # Tool content that MUST render inside the component, besides the drawn
@@ -46,10 +53,31 @@ ACTIVE_TOOL_SPECS: list[tuple[str, str, str]] = [
 # component itself) for tools without such content.
 TOOL_CONTENT_SELECTORS: dict[str, str] = {
     "graph_viewer": "iframe, svg, canvas",
-    "op_profile": "text=jit_train_step",
+    "op_profile": "op-table-entry .row",
     "input_pipeline_analyzer": "text=Summary of input-pipeline analysis",
     "hlo_stats": "google-chart, .google-visualization-table",
 }
+
+
+TOOL_PANEL_HEADER_SELECTORS: dict[str, str] = {
+    "megascale_stats": "megascale-stats mat-expansion-panel-header",
+}
+
+
+def _mount_tool_for_sweep(
+    page: Page,
+    open_tool: Callable[..., str],
+    run: str,
+    tag: str,
+) -> None:
+  """Navigates to `(run, tag)` and opens any collapsed sweep panel."""
+  extra_params = {"host": "ALL_HOSTS"} if run == "megascale-2host" else {}
+  open_tool(run, tag, **extra_params)
+  if panel_selector := TOOL_PANEL_HEADER_SELECTORS.get(tag):
+    header = page.locator(panel_selector).first
+    expect(header).to_be_visible(timeout=20000)
+    header.click()
+    expect(header).to_have_attribute("aria-expanded", "true", timeout=10000)
 
 
 def test_tool_navigation_shell(
@@ -86,7 +114,7 @@ def test_individual_tool_loads(
     selector: str,
 ):
   """Verifies that deep-linking to each tool mounts its component view."""
-  open_tool(run, tag)
+  _mount_tool_for_sweep(page, open_tool, run, tag)
 
   # Assert the specific tool view and its child visualization rendered
   assert_component_geometry(page, selector, tag)

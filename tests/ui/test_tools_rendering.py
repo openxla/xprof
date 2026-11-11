@@ -19,6 +19,7 @@ try:
   from tests.ui.ui_helpers import ensure_sidenav_open
   from tests.ui.ui_helpers import expand_op_profile_row
   from tests.ui.ui_helpers import select_category_filter
+  from tests.ui.ui_helpers import select_memory_id
   from tests.ui.ui_helpers import select_module
   from tests.ui.ui_helpers import switch_tool
 except ImportError:
@@ -30,6 +31,7 @@ except ImportError:
   from ui_helpers import ensure_sidenav_open
   from ui_helpers import expand_op_profile_row
   from ui_helpers import select_category_filter
+  from ui_helpers import select_memory_id
   from ui_helpers import select_module
   from ui_helpers import switch_tool
 
@@ -420,15 +422,23 @@ def test_hlo_stats_chart_expansion(
   """Verifies HLO Op Stats Chart Section expansion renders pie charts."""
   open_tool("tpu-training", "hlo_stats")
 
+  expect(
+      page.locator("main-page mat-sidenav-content > div.full-height")
+  ).to_be_visible(timeout=20000)
   hlo_comp = page.locator("hlo-stats").first
   expect(hlo_comp).to_be_visible(timeout=20000)
 
-  # 1. Expand Chart Section
+  # 1. Chart Section starts expanded (showChartSection = true); verify toggle
+  # collapses and re-expands cleanly with rendered PieChart SVGs.
   header = hlo_comp.locator(
       "mat-expansion-panel-header:has-text('Chart Section')"
   )
   expect(header).to_be_visible(timeout=10000)
+  expect(header).to_have_attribute("aria-expanded", "true", timeout=10000)
   header.click()
+  expect(header).to_have_attribute("aria-expanded", "false", timeout=10000)
+  header.click()
+  expect(header).to_have_attribute("aria-expanded", "true", timeout=10000)
 
   pie_chart = hlo_comp.locator("chart[charttype='PieChart']").first
   expect(pie_chart).to_be_visible(timeout=20000)
@@ -439,3 +449,141 @@ def test_hlo_stats_chart_expansion(
 
   # 2. Invariant health verification
   assert_healthy(page, browser_errors, "hlo_stats_chart_expansion")
+
+
+def test_framework_op_stats_idle_toggle_and_table_rendering(
+    page: Page,
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+) -> None:
+  """Verifies Framework Op Stats charts, table, and idle toggle behavior."""
+  open_tool("tpu-training", "framework_op_stats")
+
+  framework_comp = page.locator("framework-op-stats").first
+  expect(framework_comp).to_be_visible(timeout=20000)
+
+  pie = framework_comp.locator("chart[charttype='PieChart']").first
+  expect(pie).to_be_visible(timeout=20000)
+  svg = pie.locator("svg").first
+  expect(svg).to_be_visible(timeout=15000)
+  stats_tbl = framework_comp.locator("stats-table").first
+  expect(stats_tbl).to_be_visible(timeout=10000)
+  rows = stats_tbl.locator("table tbody tr, tr:has(td)")
+  expect(rows.first).to_be_visible(timeout=10000)
+
+  # 1. Idle toggle menu interaction (verify active Yes state before reverting)
+  idle_btn = framework_comp.locator(".idle-button-container button").first
+  expect(idle_btn).to_be_visible(timeout=10000)
+
+  idle_btn.click()
+  enabled_item = page.locator("button.mat-mdc-menu-item:not([disabled])").first
+  expect(enabled_item).to_be_visible(timeout=5000)
+  target_text = enabled_item.inner_text().strip()
+  enabled_item.click()
+  expect(idle_btn).to_contain_text(target_text, timeout=5000)
+  expect(svg).to_be_visible(timeout=15000)
+  toggled_bbox = svg.bounding_box()
+  assert (
+      toggled_bbox is not None
+      and toggled_bbox["width"] > 0
+      and toggled_bbox["height"] > 0
+  )
+  expect(rows.first).to_be_visible(timeout=10000)
+  assert bool(rows.first.inner_text().strip())
+
+  idle_btn.click()
+  return_item = page.locator("button.mat-mdc-menu-item:not([disabled])").first
+  expect(return_item).to_be_visible(timeout=5000)
+  return_text = return_item.inner_text().strip()
+  return_item.click()
+  expect(idle_btn).to_contain_text(return_text, timeout=5000)
+
+  # 2. Device and Host pie charts rendering
+  expect(svg).to_be_visible(timeout=15000)
+  bbox = svg.bounding_box()
+  assert bbox is not None and bbox["width"] > 0 and bbox["height"] > 0
+
+  # 3. Stats table rows rendering
+  expect(stats_tbl).to_be_visible(timeout=10000)
+  expect(rows.first).to_be_visible(timeout=10000)
+  assert bool(rows.first.inner_text().strip())
+
+  # 4. Invariant health verification
+  assert_healthy(page, browser_errors, "framework_op_stats_idle_toggle")
+
+
+def test_memory_profile_interactive_memory_id_and_timeline(
+    page: Page,
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+) -> None:
+  """Verifies Memory Profile memory ID selector updates timeline and summary."""
+  open_tool("tpu-training", "memory_profile")
+
+  mem_comp = page.locator("memory-viewer, memory-profile").first
+  expect(mem_comp).to_be_visible(timeout=20000)
+
+  # 1. Summary card and Memory ID selector rendering
+  mem_id_selector = page.locator("#memory-id-selector")
+  expect(mem_id_selector).to_be_visible(timeout=10000)
+  expect(mem_id_selector).to_contain_text("Memory ID", timeout=5000)
+
+  summary = mem_comp.locator("memory-profile-summary").first
+  expect(summary).to_be_visible(timeout=15000)
+  expect(summary).to_contain_text("Memory Capacity", timeout=10000)
+  expect(summary).to_contain_text("Lifetime Peak Heap Usage", timeout=5000)
+
+  # 2. Timeline graph rendering
+  timeline = mem_comp.locator("memory-timeline-graph").first
+  expect(timeline).to_be_visible(timeout=15000)
+  timeline_chart = timeline.locator("chart, svg, canvas").first
+  expect(timeline_chart).to_be_visible(timeout=15000)
+  bbox = timeline_chart.bounding_box()
+  assert bbox is not None and bbox["width"] > 0 and bbox["height"] > 0
+
+  # 3. Interactive non-default memory ID dropdown selection
+  mem_select = page.locator("#memory-id-selector mat-select")
+  expect(mem_select).to_be_visible(timeout=10000)
+  initial_summary = summary.inner_text()
+  select_memory_id(page, "1")
+  expect(summary).not_to_have_text(initial_summary, timeout=10000)
+  expect(summary).to_contain_text("Memory Capacity", timeout=10000)
+  expect(timeline_chart).to_be_visible(timeout=15000)
+
+  # 4. Breakdown table rendering
+  breakdown = mem_comp.locator("memory-breakdown-table").first
+  expect(breakdown).to_be_visible(timeout=10000)
+  expect(breakdown).to_contain_text("Memory Breakdown Table", timeout=5000)
+
+  # 5. Invariant health verification
+  assert_healthy(page, browser_errors, "memory_profile_interactive_controls")
+
+
+def test_roofline_model_program_analysis_scatter_and_table(
+    page: Page,
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+) -> None:
+  """Verifies Roofline Model Program-Level scatter plot and summary table."""
+  open_tool("tpu-training", "roofline_model")
+
+  roofline = page.locator("roofline-model, .roofline-container").first
+  expect(roofline).to_be_visible(timeout=20000)
+
+  # 1. Program-level analysis scatter chart
+  prog_analysis = roofline.locator("program-level-analysis")
+  expect(prog_analysis).to_be_visible(timeout=20000)
+  scatter_svg = (
+      prog_analysis.locator("chart[charttype='ScatterChart'] svg").first
+  )
+  expect(scatter_svg).to_be_visible(timeout=20000)
+  bbox = scatter_svg.bounding_box()
+  assert bbox is not None and bbox["width"] > 0 and bbox["height"] > 0
+
+  # 2. Program-level data table rendering
+  table = prog_analysis.locator("table").first
+  expect(table).to_be_visible(timeout=10000)
+  expect(table.locator("td, th").first).to_be_visible(timeout=5000)
+
+  # 3. Invariant health verification
+  assert_healthy(page, browser_errors, "roofline_model_program_analysis")

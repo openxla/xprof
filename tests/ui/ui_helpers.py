@@ -1,10 +1,21 @@
 """Shared Playwright UI interaction helpers for XProf frontend tests."""
 
+from collections.abc import Mapping
+import functools
+import gzip
+import http
 import importlib
+import json
 import logging
+import os
 import pathlib
 import re
+import shutil
+from typing import Any
+import urllib.error
 import urllib.parse
+import urllib.request
+import zlib
 
 # pylint: disable=g-import-not-at-top
 try:
@@ -372,6 +383,12 @@ message_type {
   field { name: "id" number: 1 label: LABEL_OPTIONAL type: TYPE_INT64 }
   field { name: "name" number: 2 label: LABEL_OPTIONAL type: TYPE_STRING }
   field {
+    name: "timestamp_ns"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
     name: "events"
     number: 4
     label: LABEL_REPEATED
@@ -396,6 +413,12 @@ message_type {
   name: "XEventMetadata"
   field { name: "id" number: 1 label: LABEL_OPTIONAL type: TYPE_INT64 }
   field { name: "name" number: 2 label: LABEL_OPTIONAL type: TYPE_STRING }
+  field {
+    name: "display_name"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
   field {
     name: "stats"
     number: 5
@@ -426,6 +449,7 @@ message_type {
   }
   field { name: "int64_value" number: 4 label: LABEL_OPTIONAL type: TYPE_INT64 }
   field { name: "str_value" number: 5 label: LABEL_OPTIONAL type: TYPE_STRING }
+  field { name: "bytes_value" number: 6 label: LABEL_OPTIONAL type: TYPE_BYTES }
 }
 """
 
@@ -546,8 +570,537 @@ planes {
 """
 
 
-def write_inference_serving_trace(path: pathlib.Path) -> None:
-  """Writes a minimal TPU inference serving `.xplane.pb` trace to `path`."""
+_PERF_UTILIZATION_XSPACE_TEMPLATE = """
+planes {{
+  id: 1
+  name: "/host:CPU"
+  lines {{
+    id: 1
+    name: "MainThread"
+    events {{
+      metadata_id: 1
+      offset_ps: 0
+      duration_ps: 2000000
+    }}
+  }}
+  event_metadata {{ key: 1 value {{ id: 1 name: "TrainStep" }} }}
+}}
+planes {{
+  id: 2
+  name: "/device:TPU:0"
+  stats {{ metadata_id: 1 int64_value: 0 }}
+  stats {{ metadata_id: 2 str_value: "{device_type}" }}
+  lines {{
+    id: 1
+    name: "XLA Ops"
+    events {{
+      metadata_id: 10
+      offset_ps: 1000
+      duration_ps: 1000000000
+    }}
+  }}
+  lines {{
+    id: 2
+    name: "counters_test_matmul"
+    events {{
+      metadata_id: 101
+      offset_ps: 1000
+      duration_ps: 1000000000
+      stats {{ metadata_id: 3 uint64_value: 3257466888 }}
+      stats {{ metadata_id: 4 uint64_value: 1750000 }}
+      stats {{ metadata_id: 5 str_value: "TC unprivileged cycles" }}
+      stats {{ metadata_id: 6 str_value: "TC" }}
+    }}
+    events {{
+      metadata_id: 102
+      offset_ps: 1000
+      duration_ps: 1000000000
+      stats {{ metadata_id: 3 uint64_value: 3257467408 }}
+      stats {{ metadata_id: 4 uint64_value: 875000 }}
+      stats {{ metadata_id: 5 str_value: "MXU 1-core busy cycles" }}
+      stats {{ metadata_id: 6 str_value: "MXU TC" }}
+    }}
+    events {{
+      metadata_id: 103
+      offset_ps: 1000
+      duration_ps: 1000000000
+      stats {{ metadata_id: 3 uint64_value: 3257467352 }}
+      stats {{ metadata_id: 4 uint64_value: 400000 }}
+      stats {{ metadata_id: 5 str_value: "MXU 0 BF16 LMR" }}
+      stats {{ metadata_id: 6 str_value: "MXU TC" }}
+    }}
+    events {{
+      metadata_id: 104
+      offset_ps: 1000
+      duration_ps: 1000000000
+      stats {{ metadata_id: 3 uint64_value: 3257467136 }}
+      stats {{ metadata_id: 4 uint64_value: 250000 }}
+      stats {{ metadata_id: 5 str_value: "Vector ALU 0 ops" }}
+      stats {{ metadata_id: 6 str_value: "VPU TC" }}
+    }}
+    events {{
+      metadata_id: 105
+      offset_ps: 1000
+      duration_ps: 1000000000
+      stats {{ metadata_id: 3 uint64_value: 3257466968 }}
+      stats {{ metadata_id: 4 uint64_value: 100000 }}
+      stats {{ metadata_id: 5 str_value: "Scalar ALU 0 ops" }}
+      stats {{ metadata_id: 6 str_value: "Scalar TC" }}
+    }}
+    events {{
+      metadata_id: 106
+      offset_ps: 1000
+      duration_ps: 1000000000
+      stats {{ metadata_id: 3 uint64_value: 3257467536 }}
+      stats {{ metadata_id: 4 uint64_value: 0 }}
+      stats {{ metadata_id: 5 str_value: "XLU 0 busy zero test" }}
+      stats {{ metadata_id: 6 str_value: "XLU TC" }}
+    }}
+  }}
+  event_metadata {{ key: 10 value {{ id: 10 name: "test_matmul" }} }}
+  event_metadata {{ key: 101 value {{ id: 101 name: "tcs_count_cycles" }} }}
+  event_metadata {{ key: 102 value {{ id: 102 name: "mxu_busy_1" }} }}
+  event_metadata {{
+    key: 103
+    value {{ id: 103 name: "matmul_lmr_bf16_mxu_0" }}
+  }}
+  event_metadata {{ key: 104 value {{ id: 104 name: "vector_alu_0" }} }}
+  event_metadata {{ key: 105 value {{ id: 105 name: "scalar_alu_0" }} }}
+  event_metadata {{ key: 106 value {{ id: 106 name: "xlu_busy_0" }} }}
+  stat_metadata {{ key: 1 value {{ id: 1 name: "device_id" }} }}
+  stat_metadata {{ key: 2 value {{ id: 2 name: "device_type_string" }} }}
+  stat_metadata {{ key: 3 value {{ id: 3 name: "performance_counter_id" }} }}
+  stat_metadata {{ key: 4 value {{ id: 4 name: "counter_value" }} }}
+  stat_metadata {{
+    key: 5
+    value {{ id: 5 name: "performance_counter_description" }}
+  }}
+  stat_metadata {{ key: 6 value {{ id: 6 name: "performance_counter_sets" }} }}
+}}
+"""
+
+_EMPTY_MEMORY_XSPACE_TEXTPROTO = """
+planes {
+  id: 1
+  name: "/device:TPU:0"
+  lines {
+    id: 1
+    name: "XLA Ops"
+    events { metadata_id: 1 offset_ps: 1000 duration_ps: 5000 }
+  }
+  event_metadata { key: 1 value { id: 1 name: "noop" } }
+  stat_metadata { key: 1 value { id: 1 name: "device_id" } }
+  stat_metadata { key: 2 value { id: 2 name: "device_type_string" } }
+  stats { metadata_id: 1 int64_value: 0 }
+  stats { metadata_id: 2 str_value: "TPU v6 Lite" }
+}
+planes {
+  id: 2
+  name: "/host:CPU"
+  lines {
+    id: 1
+    name: "MainThread"
+    events { metadata_id: 1 offset_ps: 0 duration_ps: 5000 }
+  }
+  event_metadata { key: 1 value { id: 1 name: "TrainStep" } }
+}
+"""
+
+_DCN_COLLECTIVE_INFO_DESCRIPTOR_TEXTPROTO = """
+name: "dcn_collective_info.proto"
+package: "tensorflow.profiler"
+syntax: "proto3"
+message_type {
+  name: "DcnCollectiveInfoProto"
+  field {
+    name: "transfer_type"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "endpoint_groups"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".tensorflow.profiler.DcnCollectiveInfoProto.EndpointGroup"
+  }
+  nested_type {
+    name: "Endpoint"
+    field { name: "slice_id" number: 1 label: LABEL_OPTIONAL type: TYPE_INT32 }
+    field { name: "device_id" number: 2 label: LABEL_OPTIONAL type: TYPE_INT32 }
+  }
+  nested_type {
+    name: "EndpointGroup"
+    field {
+      name: "endpoints"
+      number: 1
+      label: LABEL_REPEATED
+      type: TYPE_MESSAGE
+      type_name: ".tensorflow.profiler.DcnCollectiveInfoProto.Endpoint"
+    }
+  }
+}
+"""
+
+_DEFAULT_DCN_COLLECTIVE_INFO_TEXTPROTO = """
+transfer_type: 5
+endpoint_groups {
+  endpoints { slice_id: 0 device_id: 0 }
+  endpoints { slice_id: 1 device_id: 0 }
+  endpoints { slice_id: 2 device_id: 0 }
+  endpoints { slice_id: 3 device_id: 0 }
+}
+"""
+
+_MINIMAL_HLO_FILE_DESCRIPTOR_TEXTPROTO = """
+name: "minimal_hlo.proto"
+package: "xla"
+syntax: "proto3"
+message_type {
+  name: "LayoutProto"
+  field {
+    name: "minor_to_major"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_INT64
+  }
+}
+message_type {
+  name: "ShapeProto"
+  field {
+    name: "element_type"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_INT32
+  }
+  field {
+    name: "dimensions"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_INT64
+  }
+  field {
+    name: "tuple_shapes"
+    number: 4
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".xla.ShapeProto"
+  }
+  field {
+    name: "layout"
+    number: 5
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".xla.LayoutProto"
+  }
+}
+message_type {
+  name: "ProgramShapeProto"
+  field {
+    name: "parameters"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".xla.ShapeProto"
+  }
+  field {
+    name: "result"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".xla.ShapeProto"
+  }
+  field {
+    name: "parameter_names"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_STRING
+  }
+}
+message_type {
+  name: "FrontendAttributes"
+  field {
+    name: "map"
+    number: 1
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".xla.FrontendAttributes.MapEntry"
+  }
+  nested_type {
+    name: "MapEntry"
+    field { name: "key" number: 1 label: LABEL_OPTIONAL type: TYPE_STRING }
+    field { name: "value" number: 2 label: LABEL_OPTIONAL type: TYPE_STRING }
+    options { map_entry: true }
+  }
+}
+message_type {
+  name: "HloInstructionProto"
+  field { name: "name" number: 1 label: LABEL_OPTIONAL type: TYPE_STRING }
+  field { name: "opcode" number: 2 label: LABEL_OPTIONAL type: TYPE_STRING }
+  field {
+    name: "shape"
+    number: 3
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".xla.ShapeProto"
+  }
+  field {
+    name: "parameter_number"
+    number: 9
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field {
+    name: "channel_id"
+    number: 26
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+  field { name: "id" number: 35 label: LABEL_OPTIONAL type: TYPE_INT64 }
+  field {
+    name: "operand_ids"
+    number: 36
+    label: LABEL_REPEATED
+    type: TYPE_INT64
+  }
+  field {
+    name: "is_host_transfer"
+    number: 47
+    label: LABEL_OPTIONAL
+    type: TYPE_BOOL
+  }
+  field {
+    name: "frontend_attributes"
+    number: 68
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".xla.FrontendAttributes"
+  }
+}
+message_type {
+  name: "HloComputationProto"
+  field { name: "name" number: 1 label: LABEL_OPTIONAL type: TYPE_STRING }
+  field {
+    name: "instructions"
+    number: 2
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".xla.HloInstructionProto"
+  }
+  field {
+    name: "program_shape"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".xla.ProgramShapeProto"
+  }
+  field { name: "id" number: 5 label: LABEL_OPTIONAL type: TYPE_INT64 }
+  field { name: "root_id" number: 6 label: LABEL_OPTIONAL type: TYPE_INT64 }
+}
+message_type {
+  name: "HloModuleProto"
+  field { name: "name" number: 1 label: LABEL_OPTIONAL type: TYPE_STRING }
+  field {
+    name: "entry_computation_name"
+    number: 2
+    label: LABEL_OPTIONAL
+    type: TYPE_STRING
+  }
+  field {
+    name: "computations"
+    number: 3
+    label: LABEL_REPEATED
+    type: TYPE_MESSAGE
+    type_name: ".xla.HloComputationProto"
+  }
+  field {
+    name: "host_program_shape"
+    number: 4
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".xla.ProgramShapeProto"
+  }
+  field { name: "id" number: 5 label: LABEL_OPTIONAL type: TYPE_INT64 }
+  field {
+    name: "entry_computation_id"
+    number: 6
+    label: LABEL_OPTIONAL
+    type: TYPE_INT64
+  }
+}
+message_type {
+  name: "HloProto"
+  field {
+    name: "hlo_module"
+    number: 1
+    label: LABEL_OPTIONAL
+    type: TYPE_MESSAGE
+    type_name: ".xla.HloModuleProto"
+  }
+}
+"""
+
+_MEGASCALE_HLO_TEXTPROTO = """
+hlo_module {
+  name: "megascale_dcn_module"
+  entry_computation_name: "main"
+  entry_computation_id: 1
+  id: 9001
+  host_program_shape {
+    parameters {
+      element_type: 11
+      dimensions: 1024
+      layout { minor_to_major: 0 }
+    }
+    parameter_names: "p0"
+    result {
+      element_type: 13
+      tuple_shapes {
+        element_type: 11
+        dimensions: 1024
+        layout { minor_to_major: 0 }
+      }
+      tuple_shapes { element_type: 17 }
+    }
+  }
+  computations {
+    name: "main"
+    id: 1
+    root_id: 6
+    program_shape {
+      parameters {
+        element_type: 11
+        dimensions: 1024
+        layout { minor_to_major: 0 }
+      }
+      parameter_names: "p0"
+      result {
+        element_type: 13
+        tuple_shapes {
+          element_type: 11
+          dimensions: 1024
+          layout { minor_to_major: 0 }
+        }
+        tuple_shapes { element_type: 17 }
+      }
+    }
+    instructions {
+      id: 1
+      name: "p0"
+      opcode: "parameter"
+      parameter_number: 0
+      shape {
+        element_type: 11
+        dimensions: 1024
+        layout { minor_to_major: 0 }
+      }
+    }
+    instructions {
+      id: 2
+      name: "tok0"
+      opcode: "after-all"
+      shape { element_type: 17 }
+    }
+    instructions {
+      id: 3
+      name: "send.1"
+      opcode: "send"
+      operand_ids: 1
+      operand_ids: 2
+      channel_id: 1
+      is_host_transfer: true
+      shape {
+        element_type: 13
+        tuple_shapes {
+          element_type: 11
+          dimensions: 1024
+          layout { minor_to_major: 0 }
+        }
+        tuple_shapes { element_type: 8 layout {} }
+        tuple_shapes { element_type: 17 }
+      }
+      frontend_attributes {
+        map { key: "_xla_host_transfer_rendezvous" value: "all_reduce_dcn_0" }
+        map { key: "_xla_megascale_transfer_type" value: "ALL_REDUCE" }
+      }
+    }
+    instructions {
+      id: 4
+      name: "send-done.1"
+      opcode: "send-done"
+      operand_ids: 3
+      channel_id: 1
+      is_host_transfer: true
+      shape { element_type: 17 }
+    }
+    instructions {
+      id: 5
+      name: "recv.1"
+      opcode: "recv"
+      operand_ids: 4
+      channel_id: 2
+      is_host_transfer: true
+      shape {
+        element_type: 13
+        tuple_shapes {
+          element_type: 11
+          dimensions: 1024
+          layout { minor_to_major: 0 }
+        }
+        tuple_shapes { element_type: 8 layout {} }
+        tuple_shapes { element_type: 17 }
+      }
+      frontend_attributes {
+        map { key: "_xla_host_transfer_rendezvous" value: "all_reduce_dcn_0" }
+      }
+    }
+    instructions {
+      id: 6
+      name: "recv-done.1"
+      opcode: "recv-done"
+      operand_ids: 5
+      channel_id: 2
+      is_host_transfer: true
+      shape {
+        element_type: 13
+        tuple_shapes {
+          element_type: 11
+          dimensions: 1024
+          layout { minor_to_major: 0 }
+        }
+        tuple_shapes { element_type: 17 }
+      }
+    }
+  }
+}
+"""
+
+SYNTHESIZED_RUNS: frozenset[str] = frozenset({
+    "empty-memory",
+    "gpu-training",
+    "megascale-1host",
+    "megascale-2host",
+    "multi-host",
+    "perf-utilization",
+    "perf-v4",
+    "tpu-serving",
+})
+
+
+@functools.cache
+def _build_proto_parser(
+    descriptor_textproto: str, message_name: str
+) -> tuple[Any, Any]:
+  """Builds and caches a runtime protobuf message class for `message_name`.
+
+  Args:
+    descriptor_textproto: Text-format `FileDescriptorProto` schema.
+    message_name: Fully-qualified protobuf message name to look up.
+
+  Returns:
+    Tuple of `(message_class, text_format_module)`.
+  """
   descriptor_pb2 = importlib.import_module("google.protobuf.descriptor_pb2")
   descriptor_pool = importlib.import_module("google.protobuf.descriptor_pool")
   message_factory = importlib.import_module("google.protobuf.message_factory")
@@ -555,24 +1108,436 @@ def write_inference_serving_trace(path: pathlib.Path) -> None:
   pool = descriptor_pool.DescriptorPool()
   pool.Add(
       text_format.Parse(
-          _XPLANE_FILE_DESCRIPTOR_TEXTPROTO,
-          descriptor_pb2.FileDescriptorProto(),
+          descriptor_textproto, descriptor_pb2.FileDescriptorProto()
       )
   )
-  xspace_cls = message_factory.GetMessageClass(
-      pool.FindMessageTypeByName("tensorflow.profiler.XSpace")
+  msg_cls = message_factory.GetMessageClass(
+      pool.FindMessageTypeByName(message_name)
   )
-  serving_xspace = text_format.Parse(
-      _INFERENCE_SERVING_XSPACE_TEXTPROTO, xspace_cls()
+  return msg_cls, text_format
+
+
+def _build_xspace_parser() -> tuple[Any, Any]:
+  """Builds a runtime protobuf parser for `tensorflow.profiler.XSpace`.
+
+  Returns:
+    Tuple of `(xspace_class, text_format_module)`.
+  """
+  return _build_proto_parser(
+      _XPLANE_FILE_DESCRIPTOR_TEXTPROTO, "tensorflow.profiler.XSpace"
   )
+
+
+def _write_xspace_textproto(path: pathlib.Path, textproto: str) -> None:
+  """Serializes `textproto` as an `XSpace` binary proto to `path`.
+
+  Args:
+    path: Destination `.xplane.pb` file path.
+    textproto: Text-format `XSpace` proto payload.
+  """
+  xspace_cls, text_format = _build_xspace_parser()
+  msg = text_format.Parse(textproto, xspace_cls())
   path.parent.mkdir(parents=True, exist_ok=True)
-  path.write_bytes(serving_xspace.SerializeToString())
+  path.write_bytes(msg.SerializeToString())
+
+
+def write_inference_serving_trace(path: pathlib.Path) -> None:
+  """Writes a minimal TPU inference serving `.xplane.pb` trace to `path`.
+
+  Args:
+    path: Destination `.xplane.pb` file path.
+  """
+  _write_xspace_textproto(path, _INFERENCE_SERVING_XSPACE_TEXTPROTO)
+
+
+def write_perf_utilization_trace(
+    path: pathlib.Path, device_type: str = "TPU v6 Lite"
+) -> None:
+  """Writes a TPU performance-counter and utilization trace to `path`.
+
+  Args:
+    path: Destination `.xplane.pb` file path.
+    device_type: Target TPU device string recorded on the device plane.
+  """
+  _write_xspace_textproto(
+      path, _PERF_UTILIZATION_XSPACE_TEMPLATE.format(device_type=device_type)
+  )
+
+
+def write_empty_memory_trace(path: pathlib.Path) -> None:
+  """Writes a minimal TPU trace with zero host memory allocators to `path`.
+
+  Args:
+    path: Destination `.xplane.pb` file path.
+  """
+  _write_xspace_textproto(path, _EMPTY_MEMORY_XSPACE_TEXTPROTO)
+
+
+@functools.cache
+def _serialize_megascale_hlo_and_dcn_info() -> tuple[bytes, bytes]:
+  """Serializes the cached `HloProto` and `DcnCollectiveInfoProto` payloads.
+
+  Returns:
+    Tuple of serialized `(hlo_proto_bytes, dcn_collective_info_bytes)`.
+  """
+  hlo_cls, text_format = _build_proto_parser(
+      _MINIMAL_HLO_FILE_DESCRIPTOR_TEXTPROTO, "xla.HloProto"
+  )
+  dcn_info_cls, _ = _build_proto_parser(
+      _DCN_COLLECTIVE_INFO_DESCRIPTOR_TEXTPROTO,
+      "tensorflow.profiler.DcnCollectiveInfoProto",
+  )
+  hlo_bytes = text_format.Parse(
+      _MEGASCALE_HLO_TEXTPROTO, hlo_cls()
+  ).SerializeToString()
+  dcn_info_bytes = text_format.Parse(
+      _DEFAULT_DCN_COLLECTIVE_INFO_TEXTPROTO, dcn_info_cls()
+  ).SerializeToString()
+  return hlo_bytes, dcn_info_bytes
+
+
+def _get_or_create_stat_metadata_id(plane: Any, stat_name: str) -> int:
+  """Returns the stat metadata ID for `stat_name`, creating one if absent.
+
+  Args:
+    plane: Mutable `XPlane` protobuf object.
+    stat_name: Metadata entry name to find or add.
+
+  Returns:
+    Integer stat metadata ID on `plane`.
+  """
+  for stat_id, meta in plane.stat_metadata.items():
+    if meta.name == stat_name:
+      return stat_id
+  next_id = max(plane.stat_metadata.keys(), default=0) + 1
+  meta = plane.stat_metadata[next_id]
+  meta.id = next_id
+  meta.name = stat_name
+  return next_id
+
+
+def _get_or_create_line(
+    plane: Any, line_name: str, timestamp_ns: int | None = None
+) -> Any:
+  """Gets or creates an `XLine` named `line_name` on `plane`.
+
+  Args:
+    plane: Mutable `XPlane` protobuf object.
+    line_name: Name of the line to locate or create.
+    timestamp_ns: Optional start timestamp in nanoseconds. When omitted (`None`)
+      and `line_name` is created, inherits the earliest non-zero sibling line
+      timestamp on `plane` (or `1000` when `plane` has no timestamped lines).
+
+  Returns:
+    Existing or newly created `XLine` message.
+  """
+  for line in plane.lines:
+    if line.name == line_name:
+      return line
+  next_id = max((line.id for line in plane.lines), default=0) + 1
+  if timestamp_ns is None:
+    timestamp_ns = min(
+        (line.timestamp_ns for line in plane.lines if line.timestamp_ns),
+        default=1000,
+    )
+  return plane.lines.add(id=next_id, name=line_name, timestamp_ns=timestamp_ns)
+
+
+def write_megascale_trace(
+    path: pathlib.Path, base_trace_path: pathlib.Path | None = None
+) -> None:
+  """Writes an `.xplane.pb` with MegaScale DCN ops and HloProto.
+
+  Args:
+    path: Destination `.xplane.pb` file path.
+    base_trace_path: Optional base `.xplane.pb` trace to augment. When `None`
+      or not an existing file, starts from the built-in TPU serving fixture.
+  """
+  xspace_cls, text_format = _build_xspace_parser()
+  if base_trace_path is not None and base_trace_path.is_file():
+    mega_space = xspace_cls.FromString(base_trace_path.read_bytes())
+  else:
+    mega_space = text_format.Parse(
+        _INFERENCE_SERVING_XSPACE_TEXTPROTO, xspace_cls()
+    )
+
+  cpu_plane = next(
+      (p for p in mega_space.planes if p.name == "/host:CPU"), None
+  )
+  if cpu_plane is None:
+    next_plane_id = max((p.id for p in mega_space.planes), default=0) + 1
+    cpu_plane = mega_space.planes.add(id=next_plane_id, name="/host:CPU")
+
+  tpu_planes = [
+      p for p in mega_space.planes if p.name.startswith("/device:TPU:")
+  ]
+  if not tpu_planes:
+    next_plane_id = max((p.id for p in mega_space.planes), default=0) + 1
+    tpu_plane = mega_space.planes.add(id=next_plane_id, name="/device:TPU:0")
+    dev_id_stat = _get_or_create_stat_metadata_id(tpu_plane, "device_id")
+    dev_type_stat = _get_or_create_stat_metadata_id(
+        tpu_plane, "device_type_string"
+    )
+    tpu_plane.stats.add(metadata_id=dev_id_stat, int64_value=0)
+    tpu_plane.stats.add(metadata_id=dev_type_stat, str_value="TPU v4")
+    tpu_planes = [tpu_plane]
+
+  for plane in [cpu_plane, *tpu_planes]:
+    mega_em_id = max(plane.event_metadata.keys(), default=999998) + 1
+    em = plane.event_metadata[mega_em_id]
+    em.id = mega_em_id
+    em.name = "MegaScale:send_dcn"
+    mega_line = _get_or_create_line(plane, "MegaScale")
+    mega_line.events.add(
+        metadata_id=mega_em_id, offset_ps=1000, duration_ps=50000
+    )
+
+  hlo_bytes, dcn_info_bytes = _serialize_megascale_hlo_and_dcn_info()
+  meta_plane = next(
+      (p for p in mega_space.planes if p.name == "/host:metadata"), None
+  )
+  if meta_plane is None:
+    next_plane_id = max((p.id for p in mega_space.planes), default=0) + 1
+    meta_plane = mega_space.planes.add(id=next_plane_id, name="/host:metadata")
+  hlo_stat_id = _get_or_create_stat_metadata_id(meta_plane, "Hlo Proto")
+  prog_stat_id = _get_or_create_stat_metadata_id(meta_plane, "program_id")
+  hlo_em_id = max(meta_plane.event_metadata.keys(), default=9000) + 1
+  hlo_em = meta_plane.event_metadata[hlo_em_id]
+  hlo_em.id = hlo_em_id
+  hlo_em.name = "megascale_dcn_module(9001)"
+  del hlo_em.stats[:]
+  hlo_em.stats.add(metadata_id=hlo_stat_id, bytes_value=hlo_bytes)
+  hlo_em.stats.add(metadata_id=prog_stat_id, int64_value=9001)
+
+  tpu0 = next(
+      (p for p in tpu_planes if p.name == "/device:TPU:0"), tpu_planes[0]
+  )
+  cat_stat_id = _get_or_create_stat_metadata_id(tpu0, "hlo_category")
+  dcn_stat_id = _get_or_create_stat_metadata_id(tpu0, "dcn_collective_info")
+  mod_line = _get_or_create_line(tpu0, "XLA Modules")
+  ops_line = _get_or_create_line(tpu0, "XLA Ops")
+  max_end_ps = 0
+  for ln in (mod_line, ops_line):
+    for ev in ln.events:
+      max_end_ps = max(max_end_ps, ev.offset_ps + ev.duration_ps)
+  base_ps = max_end_ps + 10_000_000
+
+  next_em_id = max(tpu0.event_metadata.keys(), default=1000) + 1
+  mod_em = tpu0.event_metadata[next_em_id]
+  mod_em.id = next_em_id
+  mod_em.name = "megascale_dcn_module(9001)"
+  mod_line.events.add(
+      metadata_id=next_em_id, offset_ps=base_ps, duration_ps=20_000_000
+  )
+
+  dcn_ops = (
+      ("send.1", "host send", 2_000_000, 2_000_000, dcn_info_bytes),
+      ("send-done.1", "host send", 4_000_000, 1_000_000, b""),
+      ("recv.1", "host recv", 8_000_000, 1_000_000, b""),
+      ("recv-done.1", "host recv", 9_000_000, 3_000_000, b""),
+  )
+  for idx, (op_name, category, rel_start, dur, info_payload) in enumerate(
+      dcn_ops, start=1
+  ):
+    em_id = next_em_id + idx
+    op_em = tpu0.event_metadata[em_id]
+    op_em.id = em_id
+    op_em.name = op_name
+    op_em.display_name = op_name
+    op_em.stats.add(metadata_id=cat_stat_id, str_value=category)
+    if info_payload:
+      op_em.stats.add(metadata_id=dcn_stat_id, bytes_value=info_payload)
+    ops_line.events.add(
+        metadata_id=em_id, offset_ps=base_ps + rel_start, duration_ps=dur
+    )
+
+  path.parent.mkdir(parents=True, exist_ok=True)
+  path.write_bytes(mega_space.SerializeToString())
+
+
+def stage_synthesized_runs(
+    staged_dir: pathlib.Path, repo_root: pathlib.Path | None = None
+) -> None:
+  """Populates multi-tool and edge-case runs inside a writable `staged_dir`.
+
+  Args:
+    staged_dir: Writable profile logdir directory to populate.
+    repo_root: Optional repository root for locating `gpu_training_2.xplane.pb`.
+      When `None`, only `/tmp/convert_test_xplanes` is checked for GPU traces.
+  """
+  base_tpu_trace = next(
+      iter(
+          sorted(staged_dir.glob("tpu[-_]training/*.xplane.pb"))
+          or [
+              p
+              for p in sorted(staged_dir.glob("*/*.xplane.pb"))
+              if p.parent.name != "gpu-training"
+          ]
+      ),
+      None,
+  )
+
+  gpu_candidates: list[pathlib.Path] = [
+      pathlib.Path("/tmp/convert_test_xplanes/gpu_training_2.xplane.pb"),
+  ]
+  if repo_root is not None:
+    gpu_candidates.append(
+        repo_root / "convert" / "test_xplanes" / "gpu_training_2.xplane.pb"
+    )
+    gpu_candidates.append(
+        repo_root
+        / "xprof"
+        / "convert"
+        / "test_xplanes"
+        / "gpu_training_2.xplane.pb"
+    )
+  for gpu_trace in gpu_candidates:
+    if gpu_trace.is_file() and not (staged_dir / "gpu-training").exists():
+      (staged_dir / "gpu-training").mkdir(parents=True, exist_ok=True)
+      (staged_dir / "gpu-training" / "gpu-node-1.xplane.pb").symlink_to(
+          gpu_trace.resolve()
+      )
+      break
+
+  if not (staged_dir / "tpu-serving").exists():
+    write_inference_serving_trace(
+        staged_dir / "tpu-serving" / "serving-node-1.xplane.pb"
+    )
+
+  if base_tpu_trace is not None and not (staged_dir / "multi-host").exists():
+    mh_dir = staged_dir / "multi-host"
+    mh_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(base_tpu_trace, mh_dir / "worker-0.xplane.pb")
+    shutil.copy2(base_tpu_trace, mh_dir / "worker-1.xplane.pb")
+
+  if not (staged_dir / "perf-utilization").exists():
+    write_perf_utilization_trace(
+        staged_dir / "perf-utilization" / "perf-node-1.xplane.pb",
+        device_type="TPU v6 Lite",
+    )
+  if not (staged_dir / "perf-v4").exists():
+    write_perf_utilization_trace(
+        staged_dir / "perf-v4" / "perf-v4-node-1.xplane.pb",
+        device_type="TPU v4",
+    )
+  if not (staged_dir / "megascale-1host").exists():
+    write_megascale_trace(
+        staged_dir / "megascale-1host" / "mega-node-0.xplane.pb",
+        base_tpu_trace,
+    )
+  if not (staged_dir / "megascale-2host").exists():
+    write_megascale_trace(
+        staged_dir / "megascale-2host" / "mega-node-0.xplane.pb",
+        base_tpu_trace,
+    )
+    shutil.copy2(
+        staged_dir / "megascale-2host" / "mega-node-0.xplane.pb",
+        staged_dir / "megascale-2host" / "mega-node-1.xplane.pb",
+    )
+  if not (staged_dir / "empty-memory").exists():
+    write_empty_memory_trace(
+        staged_dir / "empty-memory" / "empty-mem-0.xplane.pb"
+    )
+
+
+def resolve_server_logdir(profile_logdir: str) -> str:
+  """Returns the TensorBoard root logdir for a `.../plugins/profile` path.
+
+  Args:
+    profile_logdir: Profile plugin directory or standalone run directory.
+
+  Returns:
+    Parent root logdir when `profile_logdir` ends in `plugins/profile`,
+    otherwise `profile_logdir` unchanged.
+  """
+  path = pathlib.Path(profile_logdir)
+  if path.parts[-2:] == ("plugins", "profile"):
+    return str(path.parent.parent)
+  return profile_logdir
+
+
+def is_server_ready(
+    url: str,
+    expected_runs: set[str] | None = None,
+    profile_logdir: str | None = None,
+) -> bool:
+  """Polls the HTTP server until its profile plugin responds with runs.
+
+  Args:
+    url: Base HTTP URL of the XProf server.
+    expected_runs: Optional run names to check in `/runs`. When `None` or empty,
+      checks only that the root URL responds with status below 500.
+    profile_logdir: Optional profile logdir passed via `run_path` when polling a
+      flat directory (`None` or `.../plugins/profile` omits `run_path`).
+
+  Returns:
+    True once the server responds and at least one of `expected_runs` (if
+    given) is present.
+  """
+  try:
+    if expected_runs:
+      runs_url = f"{url.rstrip('/')}/data/plugin/profile/runs"
+      if (
+          profile_logdir
+          and pathlib.Path(profile_logdir).parts[-2:] != ("plugins", "profile")
+      ):
+        query = urllib.parse.urlencode({"run_path": profile_logdir})
+        runs_url = f"{runs_url}?{query}"
+      with urllib.request.urlopen(runs_url, timeout=0.5) as resp:
+        if resp.status != http.HTTPStatus.OK:
+          return False
+        payload = resp.read()
+        if (
+            payload.startswith(b"\x1f\x8b")
+            or resp.headers.get("Content-Encoding") == "gzip"
+        ):
+          payload = gzip.decompress(payload)
+        runs = json.loads(payload.decode("utf-8"))
+        return isinstance(runs, list) and bool(expected_runs.intersection(runs))
+    with urllib.request.urlopen(url, timeout=0.5) as resp:
+      return resp.status < http.HTTPStatus.INTERNAL_SERVER_ERROR
+  except urllib.error.HTTPError as e:
+    return (
+        not expected_runs
+        and e.code < http.HTTPStatus.INTERNAL_SERVER_ERROR
+    )
+  except (urllib.error.URLError, OSError, ValueError, zlib.error):
+    return False
+
+
+def resolve_artifacts_dir(
+    env: Mapping[str, str] | None = None,
+) -> str | None:
+  """Resolves the output directory for Playwright failure diagnostic artifacts.
+
+  Args:
+    env: Environment mapping to inspect (`None` defaults to `os.environ`).
+
+  Returns:
+    Resolved directory path string, or `None` when no artifact env var is set.
+  """
+  environ = os.environ if env is None else env
+  if out_dir := environ.get("XPROF_UI_ARTIFACTS_DIR"):
+    return out_dir
+  if undeclared_dir := environ.get("TEST_UNDECLARED_OUTPUTS_DIR"):
+    return undeclared_dir
+  if kokoro_dir := environ.get("KOKORO_ARTIFACTS_DIR"):
+    return os.path.join(kokoro_dir, "ui_failure_artifacts")
+  return None
 
 
 def ensure_inference_serving_run(
     logdir: str, fallback_dir: pathlib.Path
 ) -> pathlib.Path:
-  """Returns the staged `tpu-serving` run path or writes one in `fallback_dir`."""
+  """Returns the staged `tpu-serving` run path or writes one in `fallback_dir`.
+
+  Args:
+    logdir: Primary profile logdir to check for an existing `tpu-serving` run.
+    fallback_dir: Writable directory used if `tpu-serving` is absent.
+
+  Returns:
+    Path to the ready `tpu-serving` directory.
+  """
   staged_dir = pathlib.Path(logdir) / "tpu-serving"
   if staged_dir.is_dir():
     return staged_dir

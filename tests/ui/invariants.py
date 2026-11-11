@@ -329,6 +329,139 @@ def check_no_error_banners(page: Page) -> list[str]:
   return violations
 
 
+_CHECK_SIDENAV_OVERLAP_JS = """
+() => {
+  const out = [];
+  const containers = document.querySelectorAll('mat-sidenav-container');
+  for (const container of containers) {
+    const sidenav = container.querySelector(
+        ':scope > mat-sidenav.mat-drawer-side.mat-drawer-opened' +
+        ':not(.mat-drawer-animating)'
+    );
+    const content = container.querySelector(':scope > mat-sidenav-content');
+    if (!sidenav || !content) continue;
+    const sRect = sidenav.getBoundingClientRect();
+    const cRect = content.getBoundingClientRect();
+    if (sRect.width <= 0 || cRect.width <= 0) continue;
+    const overlap = sRect.right - cRect.left;
+    if (overlap > 2) {
+      out.push(
+          'Open side drawer overlaps mat-sidenav-content by ' +
+          `${overlap.toFixed(0)}px`
+      );
+    }
+  }
+  return out;
+}
+"""
+
+_CHECK_HORIZONTAL_OVERFLOW_JS = """
+([maxOverflow, checkContentPane]) => {
+  const out = [];
+  const doc = document.documentElement;
+  const vw = doc.clientWidth || window.innerWidth;
+  const docOverflow = doc.scrollWidth - vw;
+  if (docOverflow > maxOverflow) {
+    out.push(
+        `Document horizontal overflow: ${docOverflow.toFixed(0)}px > ` +
+        `${maxOverflow}px`
+    );
+  }
+  if (checkContentPane) {
+    const pane = document.querySelector('mat-sidenav-content');
+    if (pane) {
+      const paneOverflow = pane.scrollWidth - pane.clientWidth;
+      if (paneOverflow > maxOverflow) {
+        out.push(
+            'mat-sidenav-content horizontal overflow: ' +
+            `${paneOverflow.toFixed(0)}px > ${maxOverflow}px`
+        );
+      }
+    }
+  }
+  return out;
+}
+"""
+
+
+def _is_transient_eval_error(err: Exception) -> bool:
+  """Returns whether Playwright eval failed due to navigation.
+
+  Args:
+    err: Exception raised during `page.evaluate`.
+
+  Returns:
+    True when the message indicates frame detachment or navigation.
+  """
+  msg = str(err).lower()
+  return any(
+      token in msg
+      for token in (
+          "execution context was destroyed",
+          "frame was detached",
+          "navigat",
+      )
+  )
+
+
+def check_no_sidenav_overlap(page: Page) -> list[str]:
+  """Flags an open side-mode navigation drawer overlapping main tool content.
+
+  Args:
+    page: Playwright page under test.
+
+  Returns:
+    List of overlap violation descriptions, empty when clear or navigating.
+  """
+  try:
+    violations = list(page.evaluate(_CHECK_SIDENAV_OVERLAP_JS) or [])
+    if not violations:
+      return []
+    wait_fn = getattr(page, "wait_for_function", None)
+    if wait_fn is None:
+      return violations
+    try:
+      wait_fn(
+          f"() => ({_CHECK_SIDENAV_OVERLAP_JS})().length === 0",
+          timeout=600,
+      )
+      return []
+    except PlaywrightError:
+      return list(page.evaluate(_CHECK_SIDENAV_OVERLAP_JS) or [])
+  except PlaywrightError as err:
+    if _is_transient_eval_error(err):
+      return []
+    raise
+
+
+def check_no_horizontal_overflow(
+    page: Page,
+    max_overflow_px: int = 16,
+    check_content_pane: bool = True,
+) -> list[str]:
+  """Flags horizontal overflow beyond the viewport or sidenav content pane.
+
+  Args:
+    page: Playwright page under test.
+    max_overflow_px: Allowed pixel tolerance before reporting overflow.
+    check_content_pane: Whether to also inspect `mat-sidenav-content` overflow.
+
+  Returns:
+    List of overflow violation descriptions, empty when within bounds.
+  """
+  try:
+    return list(
+        page.evaluate(
+            _CHECK_HORIZONTAL_OVERFLOW_JS, [max_overflow_px, check_content_pane]
+        )
+        or []
+    )
+  except PlaywrightError as err:
+    if _is_transient_eval_error(err):
+      return []
+    raise
+
+
 def check_no_stuck_loading_lock(page: Page) -> list[str]:
   """Flags a router-outlet stuck inside a 0px hidden-content loading wrapper."""
   violations = []
@@ -353,6 +486,10 @@ def run_dom_invariants(
   violations.extend(check_positive_rendered_content(page))
   violations.extend(check_no_error_banners(page))
   violations.extend(check_no_stuck_loading_lock(page))
+  violations.extend(check_no_sidenav_overlap(page))
+  violations.extend(
+      check_no_horizontal_overflow(page, check_content_pane=False)
+  )
   return violations
 
 

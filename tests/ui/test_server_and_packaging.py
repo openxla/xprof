@@ -15,21 +15,34 @@
 """Tests for server HTTP protocol, packaging integrity, and cleanliness."""
 
 from collections.abc import Callable
+import email.message
 import gzip
+import importlib.util
+import io
+import json
 import os
 import pathlib
 import re
 import subprocess
+import sys
+import tempfile
 import threading
 import traceback
+import types
 from typing import Any
 import unittest
 from unittest import mock
 import urllib.error
+import urllib.parse
 import urllib.request
 from wsgiref import simple_server
 
 # pylint: disable=g-import-not-at-top,g-importing-member
+try:
+  from absl.testing import absltest
+except ImportError:
+  absltest = None  # pyrefly: ignore[assignment]
+
 try:
   from tensorboard_plugin_profile import (
       profile_plugin,
@@ -232,6 +245,107 @@ class ServerAndPackagingContractTest(unittest.TestCase):
       err.close()
     self.assertEqual(status, 404)
 
+  def test_flat_logdir_readiness_and_megascale_conversion(self) -> None:
+    """Tests flat-logdir readiness polling and self-contained MegaScale data."""
+    self.assertIsNotNone(
+        self.server_url,
+        f"XProf server URL must be available for testing: {self._setup_error}",
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+      flat_logdir = pathlib.Path(tmp) / "custom_runs"
+      flat_logdir.mkdir()
+      ui_helpers.stage_synthesized_runs(flat_logdir)
+
+      self.assertTrue(
+          ui_helpers.is_server_ready(
+              self.server_url, {"megascale-1host"}, str(flat_logdir)
+          )
+      )
+      self.assertFalse(
+          ui_helpers.is_server_ready(
+              self.server_url, {"nonexistent-run"}, str(flat_logdir)
+          )
+      )
+
+      mega_dir = flat_logdir / "megascale-2host"
+      self.assertEqual(list(mega_dir.glob("*.dcn_collective_stats.pb")), [])
+      self.assertFalse((mega_dir / "cache_version.txt").exists())
+
+      def fetch_json(endpoint: str, **params: str) -> Any:
+        query = urllib.parse.urlencode(params)
+        base = self.server_url.rstrip("/")
+        url = f"{base}/data/plugin/profile/{endpoint}?{query}"
+        with urllib.request.urlopen(url, timeout=10.0) as resp:
+          raw = resp.read()
+          if (
+              raw.startswith(b"\x1f\x8b")
+              or resp.headers.get("Content-Encoding") == "gzip"
+          ):
+            raw = gzip.decompress(raw)
+        return json.loads(raw.decode("utf-8"))
+
+      tools = fetch_json(
+          "run_tools", run="megascale-2host", session_path=str(mega_dir)
+      )
+      self.assertIn("megascale_stats", tools)
+
+      for host in ("ALL_HOSTS", "mega-node-0"):
+        payload = fetch_json(
+            "data",
+            run="megascale-2host",
+            tag="megascale_stats",
+            host=host,
+            session_path=str(mega_dir),
+        )
+        self.assertIn("all_reduce_dcn_0", json.dumps(payload))
+
+      # Simulate SxS cache clearing (deleting everything except *.xplane.pb)
+      # and verify cold recomputation still yields non-empty DcnSlackSummary.
+      for child in mega_dir.iterdir():
+        if child.is_file() and not child.name.endswith(".xplane.pb"):
+          child.unlink()
+      recomputed = fetch_json(
+          "data",
+          run="megascale-2host",
+          tag="megascale_stats",
+          host="ALL_HOSTS",
+          session_path=str(mega_dir),
+      )
+      self.assertIn("all_reduce_dcn_0", json.dumps(recomputed))
+
+      # Verify a base trace without /host:CPU still produces /host:CPU and rows.
+      tpu_only_base = flat_logdir / "tpu_only_base.xplane.pb"
+      ui_helpers.write_perf_utilization_trace(tpu_only_base)
+      tpu_only_mega_dir = flat_logdir / "megascale-tpu-base"
+      ui_helpers.write_megascale_trace(
+          tpu_only_mega_dir / "mega-node-0.xplane.pb", tpu_only_base
+      )
+      tpu_base_tools = fetch_json(
+          "run_tools",
+          run="megascale-tpu-base",
+          session_path=str(tpu_only_mega_dir),
+      )
+      self.assertIn("megascale_stats", tpu_base_tools)
+      tpu_base_data = fetch_json(
+          "data",
+          run="megascale-tpu-base",
+          tag="megascale_stats",
+          host="mega-node-0",
+          session_path=str(tpu_only_mega_dir),
+      )
+      self.assertIn("all_reduce_dcn_0", json.dumps(tpu_base_data))
+
+      serving_dir = flat_logdir / "tpu-serving"
+      serving_data = fetch_json(
+          "data",
+          run="tpu-serving",
+          tag="inference_profile",
+          host="serving-node-1",
+          session_path=str(serving_dir),
+      )
+      self.assertIsInstance(serving_data, list)
+      self.assertGreater(len(serving_data), 1)
+
   def test_no_server_cache_files_checked_into_demo_traces(self) -> None:
     """Verifies no server cache artifact is checked into the demo corpus.
 
@@ -427,16 +541,16 @@ class InvariantsTest(unittest.TestCase):
         self._box = box
         self._text = text
 
-      def bounding_box(self):
+      def bounding_box(self) -> dict[str, int] | None:
         return self._box
 
-      def inner_text(self):
+      def inner_text(self) -> str:
         return self._text
 
-      def count(self):
+      def count(self) -> int:
         return 1
 
-      def locator(self, sel):
+      def locator(self, sel: str) -> "_FakeEl":
         del sel
         return self
 
@@ -456,6 +570,10 @@ class InvariantsTest(unittest.TestCase):
         if "table" in selector:
           return type("_L", (), {"all": lambda s: self._tables})()
         return type("_L", (), {"all": lambda s: []})()
+
+      def evaluate(self, script: str, arg: object = None) -> list[str]:
+        del script, arg
+        return []
 
     healthy_page = _FakePage(
         charts=[_FakeEl(box={"width": 100, "height": 100})],
@@ -566,6 +684,9 @@ class InvariantsTest(unittest.TestCase):
         def inner_text(self) -> str:
           return self._text
 
+        def count(self) -> int:
+          return 0
+
         def all(self) -> list[object]:
           return []
 
@@ -584,8 +705,8 @@ class InvariantsTest(unittest.TestCase):
           return self._text
 
         def evaluate(self, script: str, arg: object = None) -> list[str]:
-          del script, arg
-          return self._cells
+          del arg
+          return self._cells if "diffRe" in script else []
 
         def locator(self, selector: str) -> _BodyLocator:
           del selector
@@ -604,6 +725,122 @@ class InvariantsTest(unittest.TestCase):
         ui_helpers.assert_healthy(
             _HealthyPage("Overview Page Metrics", ["-4.2 ms"]), None, "cell"
         )
+
+  def test_layout_overlap_and_overflow_invariants(self) -> None:
+    """Verifies layout invariants pass on clean pages and flag defects."""
+
+    class _EvalPage:
+      """Page double returning scripted JS evaluation outputs."""
+
+      def __init__(
+          self,
+          response: list[str],
+          wait_fn: Callable[..., None] | None = None,
+      ):
+        self._response = response
+        self.last_arg: object = None
+        if wait_fn is not None:
+          self.wait_for_function = wait_fn
+
+      def evaluate(self, script: str, arg: object = None) -> list[str]:
+        del script
+        self.last_arg = arg
+        return self._response
+
+    self.assertEqual(invariants.check_no_sidenav_overlap(_EvalPage([])), [])
+    self.assertEqual(
+        invariants.check_no_sidenav_overlap(
+            _EvalPage([
+                "Open side drawer overlaps mat-sidenav-content by 300px"
+            ])
+        ),
+        ["Open side drawer overlaps mat-sidenav-content by 300px"],
+    )
+    self.assertEqual(
+        invariants.check_no_sidenav_overlap(
+            _EvalPage(
+                ["Open side drawer overlaps mat-sidenav-content by 12px"],
+                wait_fn=lambda script, timeout=600: None,
+            )
+        ),
+        [],
+    )
+
+    clean_overflow_page = _EvalPage([])
+    self.assertEqual(
+        invariants.check_no_horizontal_overflow(
+            clean_overflow_page, max_overflow_px=12, check_content_pane=True
+        ),
+        [],
+    )
+    self.assertEqual(clean_overflow_page.last_arg, [12, True])
+    self.assertEqual(
+        invariants.check_no_horizontal_overflow(
+            _EvalPage(["Document horizontal overflow: 120px > 16px"])
+        ),
+        ["Document horizontal overflow: 120px > 16px"],
+    )
+
+  def test_synthetic_trace_generators_and_staging(self) -> None:
+    """Verifies synthesized traces serialize valid XSpace protos."""
+    xspace_cls, _ = ui_helpers._build_xspace_parser()
+    with tempfile.TemporaryDirectory() as tmp:
+      staged = pathlib.Path(tmp)
+      ui_helpers.stage_synthesized_runs(staged)
+      expected_runs = (
+          "tpu-serving",
+          "perf-utilization",
+          "perf-v4",
+          "megascale-1host",
+          "megascale-2host",
+          "empty-memory",
+      )
+      for run_name in expected_runs:
+        traces = sorted((staged / run_name).glob("*.xplane.pb"))
+        self.assertTrue(traces, f"Missing synthesized trace for {run_name}")
+        for trace_file in traces:
+          self.assertGreater(trace_file.stat().st_size, 0)
+          parsed = xspace_cls.FromString(trace_file.read_bytes())
+          self.assertGreater(
+              len(parsed.planes), 0, f"Empty XSpace in {run_name}"
+          )
+      empty_mem_space = xspace_cls.FromString(
+          (staged / "empty-memory" / "empty-mem-0.xplane.pb").read_bytes()
+      )
+      self.assertIn(
+          "/host:CPU", {plane.name for plane in empty_mem_space.planes}
+      )
+      self.assertEqual(
+          len(list((staged / "megascale-2host").glob("*.xplane.pb"))), 2
+      )
+      self.assertEqual(
+          list((staged / "megascale-2host").glob("*.dcn_collective_stats.pb")),
+          [],
+      )
+      self.assertFalse(
+          (staged / "megascale-2host" / "cache_version.txt").exists()
+      )
+      mega_space = xspace_cls.FromString(
+          (staged / "megascale-2host" / "mega-node-0.xplane.pb").read_bytes()
+      )
+      mega_planes = {plane.name for plane in mega_space.planes}
+      self.assertIn("/host:CPU", mega_planes)
+      self.assertIn("/host:metadata", mega_planes)
+
+      fake_repo = staged / "fake_repo"
+      gpu_src = (
+          fake_repo
+          / "xprof"
+          / "convert"
+          / "test_xplanes"
+          / "gpu_training_2.xplane.pb"
+      )
+      ui_helpers.write_empty_memory_trace(gpu_src)
+      empty_staged = staged / "empty_staged"
+      empty_staged.mkdir()
+      ui_helpers.stage_synthesized_runs(empty_staged, repo_root=fake_repo)
+      self.assertTrue((empty_staged / "gpu-training").is_dir())
+      self.assertFalse((empty_staged / "multi-host").exists())
 
 
 _LogEntry = tuple[str, Any, tuple[Any, ...], dict[str, Any]]
@@ -807,6 +1044,304 @@ class UiHelpersTest(unittest.TestCase):
     self.assertRegex("header-cell sort-descending", sorted_class)
     self.assertNotRegex("header-cell", sorted_class)
 
+  def test_resolve_server_logdir_strips_plugins_profile_suffix(self) -> None:
+    """Verifies server logdir resolves to the parent of plugins/profile."""
+    self.assertEqual(
+        ui_helpers.resolve_server_logdir("/tmp/xprof/demo/plugins/profile"),
+        "/tmp/xprof/demo",
+    )
+    self.assertEqual(
+        ui_helpers.resolve_server_logdir("/tmp/custom_runs"),
+        "/tmp/custom_runs",
+    )
+    self.assertEqual(
+        ui_helpers.resolve_server_logdir(
+            "/tmp/xprof/demo/plugins/profile/tpu_training"
+        ),
+        "/tmp/xprof/demo/plugins/profile/tpu_training",
+    )
+
+  def test_resolve_artifacts_dir_falls_back_to_kokoro_artifacts_dir(
+      self,
+  ) -> None:
+    """Verifies failure artifact dir resolution across CI and test env vars."""
+    self.assertIsNone(ui_helpers.resolve_artifacts_dir({}))
+    self.assertEqual(
+        ui_helpers.resolve_artifacts_dir(
+            {"KOKORO_ARTIFACTS_DIR": "/kokoro/out"}
+        ),
+        "/kokoro/out/ui_failure_artifacts",
+    )
+    self.assertEqual(
+        ui_helpers.resolve_artifacts_dir({
+            "TEST_UNDECLARED_OUTPUTS_DIR": "/ci/undeclared",
+            "KOKORO_ARTIFACTS_DIR": "/kokoro/out",
+        }),
+        "/ci/undeclared",
+    )
+    self.assertEqual(
+        ui_helpers.resolve_artifacts_dir({
+            "XPROF_UI_ARTIFACTS_DIR": "/explicit/ui_artifacts",
+            "TEST_UNDECLARED_OUTPUTS_DIR": "/ci/undeclared",
+            "KOKORO_ARTIFACTS_DIR": "/kokoro/out",
+        }),
+        "/explicit/ui_artifacts",
+    )
+
+
+class HarnessInvariantsAndConftestTest(unittest.TestCase):
+  """Hermetic unit tests for readiness polling, invariants, and conftest."""
+
+  def _mock_http_response(
+      self,
+      status: int,
+      body: bytes,
+      headers: dict[str, str] | None = None,
+  ) -> mock.MagicMock:
+    """Returns a context-manager mock for `urllib.request.urlopen`."""
+    resp = mock.MagicMock()
+    resp.status = status
+    resp.read.return_value = body
+    msg = email.message.Message()
+    for key, value in (headers or {}).items():
+      msg[key] = value
+    resp.headers = msg
+    cm = mock.MagicMock()
+    cm.__enter__.return_value = resp
+    cm.__exit__.return_value = False
+    return cm
+
+  def test_is_server_ready_edge_cases(self) -> None:
+    """Tests readiness polling across HTTP statuses, gzip, and errors."""
+    with mock.patch.object(
+        urllib.request,
+        "urlopen",
+        return_value=self._mock_http_response(200, b"ok"),
+    ):
+      self.assertTrue(ui_helpers.is_server_ready("http://127.0.0.1:9999"))
+
+    http_404 = urllib.error.HTTPError(
+        "http://127.0.0.1:9999", 404, "Not Found", email.message.Message(), None
+    )
+    self.addCleanup(http_404.close)
+    with mock.patch.object(urllib.request, "urlopen", side_effect=http_404):
+      self.assertTrue(ui_helpers.is_server_ready("http://127.0.0.1:9999"))
+      self.assertFalse(
+          ui_helpers.is_server_ready(
+              "http://127.0.0.1:9999", expected_runs={"run_a"}
+          )
+      )
+
+    http_500 = urllib.error.HTTPError(
+        "http://127.0.0.1:9999",
+        500,
+        "Server Error",
+        email.message.Message(),
+        None,
+    )
+    self.addCleanup(http_500.close)
+    with mock.patch.object(urllib.request, "urlopen", side_effect=http_500):
+      self.assertFalse(ui_helpers.is_server_ready("http://127.0.0.1:9999"))
+
+    gz_runs = gzip.compress(b'["run_a", "run_b"]')
+    with mock.patch.object(
+        urllib.request,
+        "urlopen",
+        return_value=self._mock_http_response(
+            200, gz_runs, {"Content-Encoding": "gzip"}
+        ),
+    ) as mock_open:
+      self.assertTrue(
+          ui_helpers.is_server_ready(
+              "http://127.0.0.1:9999/",
+              expected_runs={"run_a"},
+              profile_logdir="/tmp/flat",
+          )
+      )
+      called_url = mock_open.call_args.args[0]
+      self.assertIn("run_path=%2Ftmp%2Fflat", called_url)
+
+    for bad_side_effect in (
+        self._mock_http_response(202, b'["run_a"]'),
+        self._mock_http_response(200, b"\x1f\x8bnot-valid-gzip"),
+        self._mock_http_response(200, b"{not-json"),
+        urllib.error.URLError("connection refused"),
+    ):
+      with mock.patch.object(
+          urllib.request, "urlopen", side_effect=[bad_side_effect]
+      ):
+        self.assertFalse(
+            ui_helpers.is_server_ready(
+                "http://127.0.0.1:9999", expected_runs={"run_a"}
+            )
+        )
+
+  def test_write_megascale_trace_synthesizes_tpu_plane_and_inherits_timestamp(
+      self,
+  ) -> None:
+    """Verifies MegaScale writer synthesizes TPU plane and keeps timestamps."""
+    # pylint: disable=protected-access
+    xspace_cls, _ = ui_helpers._build_xspace_parser()
+    # pylint: enable=protected-access
+    base_space = xspace_cls()
+    cpu = base_space.planes.add(id=1, name="/host:CPU")
+    cpu.lines.add(id=1, name="Main", timestamp_ns=42000)
+
+    with tempfile.TemporaryDirectory() as tmp:
+      tmp_dir = pathlib.Path(tmp)
+      base_path = tmp_dir / "base.xplane.pb"
+      base_path.write_bytes(base_space.SerializeToString())
+      out_path = tmp_dir / "mega.xplane.pb"
+
+      ui_helpers.write_megascale_trace(out_path, base_path)
+      result = xspace_cls.FromString(out_path.read_bytes())
+
+    planes = {plane.name: plane for plane in result.planes}
+    self.assertIn("/host:CPU", planes)
+    self.assertIn("/device:TPU:0", planes)
+    self.assertIn("/host:metadata", planes)
+    cpu_mega = next(
+        line for line in planes["/host:CPU"].lines if line.name == "MegaScale"
+    )
+    self.assertEqual(cpu_mega.timestamp_ns, 42000)
+    tpu_lines = {line.name for line in planes["/device:TPU:0"].lines}
+    self.assertEqual(tpu_lines, {"MegaScale", "XLA Modules", "XLA Ops"})
+
+  def test_invariants_playwright_error_handling(self) -> None:
+    """Verifies navigation errors are ignored while target crashes raise."""
+    for msg in (
+        "Execution context was destroyed, most likely because of a navigation",
+        "Frame was detached",
+        "Navigating frame was detached",
+    ):
+      nav_page = mock.MagicMock()
+      nav_page.evaluate.side_effect = invariants.PlaywrightError(msg)
+      self.assertEqual(invariants.check_no_sidenav_overlap(nav_page), [])
+      self.assertEqual(invariants.check_no_horizontal_overflow(nav_page), [])
+
+    retrying_page = mock.MagicMock()
+    retrying_page.evaluate.return_value = ["overlap"]
+    retrying_page.wait_for_function.return_value = None
+    self.assertEqual(invariants.check_no_sidenav_overlap(retrying_page), [])
+
+    for err_msg in (
+        "Target page, context or browser has been closed",
+        "Target closed",
+    ):
+      crash_page = mock.MagicMock()
+      crash_page.evaluate.side_effect = invariants.PlaywrightError(err_msg)
+      with self.assertRaises(invariants.PlaywrightError):
+        invariants.check_no_sidenav_overlap(crash_page)
+      with self.assertRaises(invariants.PlaywrightError):
+        invariants.check_no_horizontal_overflow(crash_page)
+
+  def _load_isolated_conftest(self) -> Any:
+    """Loads sibling `conftest.py` hermetically with stubbed pytest."""
+    conftest_path = pathlib.Path(__file__).with_name("conftest.py")
+    fake_playwright: Any = types.ModuleType("playwright")
+    fake_sync_api: Any = types.ModuleType("playwright.sync_api")
+
+    class _StubPage:
+      pass
+
+    fake_sync_api.Page = _StubPage
+    fake_playwright.sync_api = fake_sync_api
+
+    class _StubCallInfo:
+
+      def __class_getitem__(cls, _: Any) -> type["_StubCallInfo"]:
+        return cls
+
+    fake_pytest: Any = types.ModuleType("pytest")
+    fake_pytest.fixture = lambda *args, **kwargs: (lambda fn: fn)
+    fake_pytest.hookimpl = lambda *args, **kwargs: (lambda fn: fn)
+    fake_pytest.Item = object
+    fake_pytest.CallInfo = _StubCallInfo
+    fake_pytest.FixtureRequest = object
+
+    spec = importlib.util.spec_from_file_location(
+        "_xprof_isolated_conftest", conftest_path
+    )
+    if spec is None or spec.loader is None:
+      self.fail(f"Could not create ModuleSpec for {conftest_path}")
+    mod = importlib.util.module_from_spec(spec)
+    with mock.patch.dict(
+        sys.modules,
+        {
+            "playwright": fake_playwright,
+            "playwright.sync_api": fake_sync_api,
+            "pytest": fake_pytest,
+        },
+    ):
+      spec.loader.exec_module(mod)
+    return mod
+
+  def test_conftest_browser_errors_artifacts_and_run_resolution(self) -> None:
+    """Tests BrowserErrors, failure artifact dumps, and run resolution."""
+    conftest_mod = self._load_isolated_conftest()
+
+    tracker = conftest_mod.BrowserErrors(
+        page_errors=["[UNHANDLED] boom"],
+        http_errors=["[HTTP 500] GET /data/plugin/profile/data?run=r1"],
+    )
+    with self.assertRaisesRegex(AssertionError, r"HTTP 500"):
+      tracker.assert_clean("tool_render")
+    tracker.ignore("HTTP 500", "boom")
+    tracker.assert_clean("ignored_case")
+
+    with tempfile.TemporaryDirectory() as tmp:
+      tmp_dir = pathlib.Path(tmp)
+      art_dir = tmp_dir / "artifacts"
+      page = mock.MagicMock()
+      page.content.return_value = "<html><body>failed</body></html>"
+      item = types.SimpleNamespace(
+          nodeid="tests/ui/test_tools.py::test_case[param]",
+          funcargs={"page": page, "browser_errors": tracker},
+      )
+      outcome = types.SimpleNamespace(
+          get_result=lambda: types.SimpleNamespace(failed=True, when="call")
+      )
+      with (
+          mock.patch.dict(os.environ, {"XPROF_UI_ARTIFACTS_DIR": str(art_dir)}),
+          mock.patch.object(sys, "stderr", new_callable=io.StringIO),
+      ):
+        for _ in range(2):
+          hook_gen = conftest_mod.pytest_runtest_makereport(item, None)
+          next(hook_gen)
+          with self.assertRaises(StopIteration):
+            hook_gen.send(outcome)
+      page.screenshot.assert_called_once()
+      self.assertEqual(len(list(art_dir.glob("*.html"))), 1)
+      console_files = list(art_dir.glob("*.console.log"))
+      self.assertEqual(len(console_files), 1)
+      self.assertIn("HTTP 500", console_files[0].read_text(encoding="utf-8"))
+
+      src_dir = tmp_dir / "src_runs"
+      trace_file = src_dir / "demo_run" / "host.xplane.pb"
+      ui_helpers.write_empty_memory_trace(trace_file)
+
+      synth_gen = conftest_mod.synthesized_logdir(str(src_dir))
+      self.addCleanup(synth_gen.close)
+      staged_dir = pathlib.Path(next(synth_gen))
+      linked = staged_dir / "demo_run" / "host.xplane.pb"
+      self.assertTrue(linked.is_symlink())
+      self.assertEqual(linked.resolve(), trace_file.resolve())
+      self.assertTrue((staged_dir / "multi-host").is_dir())
+      resolver = conftest_mod.resolve_run_dir(
+          str(src_dir), str(staged_dir), lambda name: f"resolved_{name}"
+      )
+      self.assertEqual(
+          resolver("perf-v4"), ("perf-v4", str(staged_dir / "perf-v4"))
+      )
+      self.assertEqual(
+          resolver("demo_run"),
+          ("resolved_demo_run", str(src_dir / "resolved_demo_run")),
+      )
+      synth_gen.close()
+
 
 if __name__ == "__main__":
-  unittest.main()
+  if absltest is not None:
+    absltest.main()
+  else:
+    unittest.main()

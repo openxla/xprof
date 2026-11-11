@@ -3,7 +3,7 @@
   class="source-panel"
   [class.resizing-details]="isResizingDetails()"
   (keydown)="hideHoverCard()"
-  aria-label="Kernel source"
+  aria-label="HLO op source"
 >
   <header class="panel-header">
     <span class="file-badge" aria-hidden="true">{{ fileBadge() }}</span>
@@ -245,7 +245,7 @@
         <div class="empty-state">
           <mat-icon class="empty-icon" aria-hidden="true">code_off</mat-icon>
           <span class="empty-title">Source attribution isn't available</span>
-          <span class="empty-text">This XProf server doesn't map kernel schedules to source lines.</span>
+          <span class="empty-text">This XProf server doesn't map HLO op schedules to source lines.</span>
         </div>
       }
       @case ('error') {
@@ -261,9 +261,9 @@
       @case ('no-map') {
         <div class="empty-state">
           <mat-icon class="empty-icon" aria-hidden="true">link_off</mat-icon>
-          <span class="empty-title">No source map for this kernel</span>
+          <span class="empty-title">No source map for this HLO op</span>
           <span class="empty-text">
-            Pallas kernels carry a source map when they are profiled with
+            Custom-calls carry a source map when they are profiled with
             <code>--xla_xprof_register_llo_debug_info=true</code>.
           </span>
         </div>
@@ -277,7 +277,7 @@
             [selectedLine]="selectedLine()"
             [hoveredLine]="hoveredLine()"
             [reveal]="viewReveal()"
-            [ariaLabel]="'Lines of ' + fileName() + ' that have instructions'"
+            [ariaLabel]="'Lines of ' + (fileName() || 'the HLO op source') + ' that have instructions'"
             (lineHover)="onLineHover($event)"
             (lineClick)="onLineClick($event)"
             (clear)="clearSelection()"
@@ -298,7 +298,7 @@
             [selectedLine]="selectedLine()"
             [hoveredLine]="hoveredLine()"
             [reveal]="viewReveal()"
-            [ariaLabel]="'Lines of ' + fileName()"
+            [ariaLabel]="'Lines of ' + (fileName() || 'the HLO op source')"
             (lineHover)="onLineHover($event)"
             (lineClick)="onLineClick($event)"
             (clear)="clearSelection()"
@@ -406,7 +406,7 @@
             @if (coverage(); as coverage) {
               <span
                 class="details-subtitle"
-                matTooltip="Share of the instructions of the kernel that the source map attributes to a line"
+                matTooltip="Share of the instructions of the HLO op that the source map attributes to a line"
                 matTooltipShowDelay="400"
               >{{ coverage }} mapped to source</span>
             }

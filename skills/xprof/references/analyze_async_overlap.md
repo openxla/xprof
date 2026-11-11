@@ -56,6 +56,28 @@ Thresholds must satisfy `0 <= exposed_threshold < hidden_threshold <= 1`.
 Coverage is measured against non-async ops on the **same plane** only and
 excludes the start and done bookend ops themselves.
 
+## Events DB Backend
+
+`--backend=events_db` runs the same analysis as one DuckDB SQL query over the
+Events DB parquet file of the trace (see `create_events_db`), instead of
+loading every trace event in Python:
+
+```bash
+xprof analyze_async_overlap <trace_or_session_id> --backend=events_db
+```
+
+*   Windows always come from `<op>-start` / `<op>-done` pairs (the Events DB
+    has no `Async XLA Ops` category), so `window_source` is always
+    `"start_done_pairs"`. Pairing is first-in, first-out per instruction key,
+    so `all-gather-done.3` closes the oldest open `all-gather-start.3`.
+*   Times have nanosecond resolution (still reported as `*_ps`).
+*   `concurrency` is always `[]`; use the default `--backend=xplane` for it.
+*   It reads one trace file. Pass a `.xplane.pb` file, or a run directory with
+    a single trace file; a directory with several trace files raises
+    `NotImplementedError` (pass one of the listed files instead).
+*   `--host` is ignored, because the parquet file holds one trace and its rows
+    carry no host. Use `--backend=xplane` for multi-host run directories.
+
 ## Example Usage
 
 If the user asks "Are my all-gather collectives hidden behind compute, or are

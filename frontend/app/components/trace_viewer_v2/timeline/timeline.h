@@ -248,6 +248,10 @@ struct FlameChartTimelineData {
                                  end - start);
   }
 
+  // Returns the index of the slice on `level` that covers `ts` (start <= ts <=
+  // start + duration), or -1 if `ts` falls in a gap or `level` is out of range.
+  int FindEventIndexAt(int level, Microseconds ts) const;
+
   bool HasEntryArgs(size_t index) const {
     if (index < entry_args.size()) {
       return true;

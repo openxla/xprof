@@ -662,6 +662,16 @@ GroupKey GetScopedGroupKey(absl::Span<const Group> groups, size_t group_index,
   return {group.nesting_level, group.name, ""};
 }
 
+int FlameChartTimelineData::FindEventIndexAt(int level, Microseconds ts) const {
+  absl::Span<const int> indices = level_events(level);
+  auto it = std::upper_bound(
+      indices.begin(), indices.end(), ts,
+      [&](Microseconds t, int idx) { return t < entry_start_times[idx]; });
+  if (it == indices.begin()) return -1;
+  const int idx = *std::prev(it);
+  return entry_start_times[idx] + entry_total_times[idx] >= ts ? idx : -1;
+}
+
 Pixel Timeline::CalculateTrackManagementButtonWidth(int button_count) {
   if (button_count <= 0) return 0.0f;
   if (button_count == 1) {

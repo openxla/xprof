@@ -4,7 +4,11 @@ import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {DEVICE_INFO, NUMERIC_DATA_FORMAT, PIE_CHART_PALETTE, ROOFLINE_NAMES, ROOFLINE_SERIES_NAMES, ROOFLINE_STYLES, SCATTER_CHART_AXIS, SCATTER_CHART_OPTIONS, } from 'org_xprof/frontend/app/common/constants/roofline_model_constants';
 import {RooflineModelData} from 'org_xprof/frontend/app/common/interfaces/roofline_model';
-import {getGigaflopsReadableString, setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
+import {
+  escapeHtml,
+  getGigaflopsReadableString,
+  setLoadingState,
+} from 'org_xprof/frontend/app/common/utils/utils';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
@@ -352,9 +356,6 @@ export class RooflineModel implements OnDestroy {
         {column: this.dataTableRaw.getColumnIndex('step'), value: 'Total'},
       ]),
     );
-    // TODO(b/359276801) Enable injecting Graph Viewer crosslink after
-    // dispatching host list to global store, so we can infer module name from
-    // program_id given the module list (aka host list in graph viewer)
     const dataTableOp = gViewOp.toDataTable();
     this.dataTableOp =
         this.injectGraphViewerLinksForOpTable(dataTableOp) || null;
@@ -363,24 +364,36 @@ export class RooflineModel implements OnDestroy {
 
   injectGraphViewerLinksForOpTable(
       dataTableOp: google.visualization.DataTable,
-  ) {
-    if (!dataTableOp) return;
+  ): google.visualization.DataTable | null {
+    if (!dataTableOp) return null;
 
     const operationIndex = dataTableOp.getColumnIndex('operation');
-    const programIdIndex =
-        this.dataTableProgram!.getColumnIndex('hlo_module_id');
+    const programIdIndex = dataTableOp.getColumnIndex('hlo_module_id');
     const numRows = dataTableOp.getNumberOfRows();
-    if (!operationIndex || !programIdIndex || !numRows) return;
+    if (operationIndex < 0 || programIdIndex < 0 || !numRows) {
+      return dataTableOp;
+    }
     for (let i = 0; i < numRows; ++i) {
-      const opName = dataTableOp.getValue(i, operationIndex);
-      const programId = dataTableOp.getValue(i, programIdIndex);
+      const opName = String(
+          dataTableOp.getValue(i, operationIndex) ?? '',
+      ).trim();
+      const programId = String(
+          dataTableOp.getValue(i, programIdIndex) ?? '',
+      ).trim();
       if (!programId || programId === '0' || !opName) continue;
       const graphViewerLink = this.dataService.getGraphViewerLink(
           this.sessionId, '', opName, programId);
-      const hyperlinkValue = graphViewerLink ?
-          `<a href="${graphViewerLink}" target="_blank">${opName}</a>` :
-          opName;
-      dataTableOp.setCell(i, operationIndex, hyperlinkValue);
+      if (graphViewerLink) {
+        dataTableOp.setCell(
+            i,
+            operationIndex,
+            opName,
+            `<a href="${escapeHtml(graphViewerLink)}" target="_blank">` +
+                `${escapeHtml(opName)}</a>`,
+        );
+      } else {
+        dataTableOp.setCell(i, operationIndex, opName);
+      }
     }
     return dataTableOp;
   }
@@ -1085,7 +1098,7 @@ export class RooflineModel implements OnDestroy {
         operation: (val) =>
           val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
-      {id: 'boundy_by', label: 'Bound By'},
+      {id: 'bound_by', label: 'Bound By'},
     ];
     const gpuTooltipRows: TooltipRow[] = [
       {
@@ -1166,7 +1179,7 @@ export class RooflineModel implements OnDestroy {
         operation: (val) =>
           val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
-      {id: 'boundy_by', label: 'Bound By'},
+      {id: 'bound_by', label: 'Bound By'},
     ];
 
     const tooltipBodyHtml = (

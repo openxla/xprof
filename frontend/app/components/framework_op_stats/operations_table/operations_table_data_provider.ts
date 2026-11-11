@@ -1,6 +1,9 @@
 import {OpExecutor} from 'org_xprof/frontend/app/common/constants/enums';
 import {ChartOptions} from 'org_xprof/frontend/app/common/interfaces/chart';
-import {FrameworkOpStatsData} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {
+  FrameworkOpStatsData,
+  SimpleDataTable,
+} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
 import {computeDiffTable} from 'org_xprof/frontend/app/components/chart/table_utils';
 
@@ -9,6 +12,7 @@ const MINIMUM_ROWS = 20;
 /** A operations table data provider. */
 export class OperationsTableDataProvider extends DefaultDataProvider {
   diffTable?: google.visualization.DataTable;
+  private rawDiffData: FrameworkOpStatsData | null = null;
   hasDiff = false;
   opExecutor = OpExecutor.NONE;
   options = {
@@ -22,9 +26,29 @@ export class OperationsTableDataProvider extends DefaultDataProvider {
     },
   };
 
+  override parseData(
+      data: SimpleDataTable | Array<Array<string | number>> | null,
+  ) {
+    if (!data) {
+      this.pendingData = null;
+      this.dataTable = undefined;
+      return;
+    }
+    if (!this.ensureChartPackagesLoaded(data)) return;
+    this.dataTable =
+        new google.visualization.DataTable(data as SimpleDataTable);
+    this.diffTable = this.rawDiffData
+        ? new google.visualization.DataTable(this.rawDiffData)
+        : undefined;
+  }
+
   setDiffData(diffData: FrameworkOpStatsData|null) {
-    this.diffTable =
-        diffData ? new google.visualization.DataTable(diffData) : undefined;
+    this.rawDiffData = diffData;
+    if (diffData && this.isDataTableReady()) {
+      this.diffTable = new google.visualization.DataTable(diffData);
+    } else {
+      this.diffTable = undefined;
+    }
   }
 
   override process(): google.visualization.DataTable|google.visualization.DataView|null {

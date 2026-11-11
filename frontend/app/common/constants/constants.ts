@@ -138,6 +138,24 @@ export const PRIMARY_TOOL_ENDPOINTS = new Set([
   'megascale_stats',
 ]);
 
+/**
+ * Backend data tags exposed by run_tools that do not have standalone UI pages.
+ */
+export const NON_UI_TOOLS: ReadonlySet<string> = new Set([
+  'kernel_utilization',
+  'smart_suggestion',
+]);
+
+/** Strips a trailing streaming tool suffix (`@`) if present. */
+export function stripToolSuffix(tool: string): string {
+  return tool && tool.endsWith('@') ? tool.slice(0, -1) : tool || '';
+}
+
+/** Filters backend-only tool tags from a list of run tool identifiers. */
+export function filterUiTools(tools: readonly string[]): string[] {
+  return tools.filter((tool) => !NON_UI_TOOLS.has(stripToolSuffix(tool)));
+}
+
 /** Canonical categories for grouping XProf tools. */
 export enum ToolCategory {
   CORE = 'Core',

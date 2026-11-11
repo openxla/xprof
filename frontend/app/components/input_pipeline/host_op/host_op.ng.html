@@ -5,7 +5,8 @@
       <td>
         Op:
         <mat-form-field>
-          <mat-select (selectionChange)="updateHostOpSelection($event.value)">
+          <mat-select [value]="hostOpSelected"
+                      (selectionChange)="updateHostOpSelection($event.value)">
             <mat-option *ngFor="let opChoice of allHostOpChoices" [value]="opChoice">
               {{ opChoice }}
             </mat-option>
@@ -15,7 +16,8 @@
       <td>
         Hostname:
         <mat-form-field>
-          <mat-select (selectionChange)="updateHostnameSelection($event.value)">
+          <mat-select [value]="hostnameSelected"
+                      (selectionChange)="updateHostnameSelection($event.value)">
             <mat-option *ngFor="let hostnameChoice of allHostnameChoices" [value]="hostnameChoice">
               {{ hostnameChoice }}
             </mat-option>
@@ -25,7 +27,8 @@
       <td>
         Core:
         <mat-form-field>
-          <mat-select (selectionChange)="updateCoreSelection($event.value)">
+          <mat-select [value]="coreSelected"
+                      (selectionChange)="updateCoreSelection($event.value)">
             <mat-option *ngFor="let coreChoice of allCoreChoices" [value]="coreChoice">
               {{ coreChoice }}
             </mat-option>

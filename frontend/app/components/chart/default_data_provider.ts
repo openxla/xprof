@@ -6,6 +6,9 @@ import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_tab
 export class DefaultDataProvider implements ChartDataProvider {
   protected chart?: ChartClass;
   protected dataTable?: google.visualization.DataTable;
+  protected pendingData:
+      SimpleDataTable | Array<Array<string | number>> | null = null;
+  protected hasPendingLoadCallback = false;
   protected sortColumns?: google.visualization.SortByColumn[];
   protected visibleColumns?: number[];
   protected filters?: google.visualization.DataTableCellFilter[];
@@ -15,11 +18,50 @@ export class DefaultDataProvider implements ChartDataProvider {
     this.chart = chart;
   }
 
-  parseData(data: SimpleDataTable|Array<Array<(string | number)>>|null) {
-    if (data) {
-      this.dataTable =
-          new google.visualization.DataTable(data as SimpleDataTable);
+  protected isDataTableReady(): boolean {
+    return (
+      typeof google !== 'undefined' &&
+      typeof google.visualization?.DataTable === 'function'
+    );
+  }
+
+  protected ensureChartPackagesLoaded(
+      data: SimpleDataTable|Array<Array<(string | number)>>|null,
+      isReady = this.isDataTableReady(),
+  ): boolean {
+    if (isReady) {
+      this.pendingData = null;
+      return true;
     }
+    this.pendingData = data;
+    if (
+      typeof google !== 'undefined' &&
+      google.charts &&
+      !this.hasPendingLoadCallback
+    ) {
+      this.hasPendingLoadCallback = true;
+      google.charts.safeLoad({'packages': ['corechart', 'table']});
+      google.charts.setOnLoadCallback(() => {
+        this.hasPendingLoadCallback = false;
+        const latest = this.pendingData;
+        this.pendingData = null;
+        if (latest) {
+          this.parseData(latest);
+          this.notifyCharts();
+        }
+      });
+    }
+    return false;
+  }
+
+  parseData(data: SimpleDataTable|Array<Array<(string | number)>>|null) {
+    if (!data) {
+      this.pendingData = null;
+      return;
+    }
+    if (!this.ensureChartPackagesLoaded(data)) return;
+    this.dataTable =
+        new google.visualization.DataTable(data as SimpleDataTable);
   }
 
   setSortColumns(sortColumns: google.visualization.SortByColumn[]) {
@@ -80,11 +122,22 @@ export class DefaultDataProvider implements ChartDataProvider {
 /** A chart data provider that accepts array data. */
 export class ArrayDataProvider extends DefaultDataProvider {
   override parseData(data: SimpleDataTable|Array<Array<(string | number)>>|null) {
-    if (data) {
-      /* tslint:disable no-any */
-      this.dataTable = google.visualization.arrayToDataTable(data as any[]);
-      /* tslint:enable */
+    if (!data) {
+      this.pendingData = null;
+      return;
     }
+    if (
+      !this.ensureChartPackagesLoaded(
+          data,
+          typeof google !== 'undefined' &&
+              typeof google.visualization?.arrayToDataTable === 'function',
+      )
+    ) {
+      return;
+    }
+    /* tslint:disable no-any */
+    this.dataTable = google.visualization.arrayToDataTable(data as any[]);
+    /* tslint:enable */
   }
 }
 
@@ -101,10 +154,16 @@ export class ReplicaGroupDataProvider extends DefaultDataProvider {
   hloOpNameIndex?: number;   // 'hlo_op_expression' column
   selfTimeIndex?: number;    // 'total_self_time' column
 
-  override parseData(data: SimpleDataTable) {
+  override parseData(data: SimpleDataTable | null) {
     const rowWithReplicaGroups: google.visualization.DataObjectRow[] = [];
 
-    if (!data || !data.cols || !data.rows) return;
+    if (!data || !data.cols || !data.rows) {
+      this.pendingData = null;
+      return;
+    }
+    if (!this.ensureChartPackagesLoaded(data)) {
+      return;
+    }
 
     // Set the column index member variables.
     for (let i = 0; i < data.cols.length; i++) {

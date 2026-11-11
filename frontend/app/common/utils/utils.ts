@@ -1099,3 +1099,15 @@ export function getOpProfileKernelViewerLink(
     hloModule: resolveBareHloModuleName(node?.xla?.programId ?? '', options),
   });
 }
+
+/**
+ * Escapes HTML special characters in plain text before embedding in markup.
+ */
+export function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}

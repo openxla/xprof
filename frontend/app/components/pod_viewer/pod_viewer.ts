@@ -3,9 +3,9 @@ import {ActivatedRoute} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {PodViewerDatabase} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
+import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
-import {setLoadingStateAction} from 'org_xprof/frontend/app/store/actions';
-import {ReplaySubject} from 'rxjs';
+import {combineLatest, ReplaySubject, Subscription} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 import {PodViewerCommon} from './pod_viewer_common';
@@ -20,6 +20,7 @@ import {PodViewerCommon} from './pod_viewer_common';
 export class PodViewer extends PodViewerCommon implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
+  private dataSubscription?: Subscription;
   private readonly dataService: DataServiceV2Interface = inject(
       DATA_SERVICE_INTERFACE_TOKEN,
   );
@@ -29,29 +30,30 @@ export class PodViewer extends PodViewerCommon implements OnDestroy {
       override readonly store: Store<{}>,
   ) {
     super(store);
-    route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
-      this.update(params as NavigationEvent);
-    });
+    combineLatest([route.params, route.queryParams])
+        .pipe(takeUntil(this.destroyed))
+        .subscribe(([params, queryParams]) => {
+          this.update({
+            run: params['sessionId'] || queryParams['sessionId'] || '',
+            ...params,
+            ...queryParams,
+          } as NavigationEvent);
+        });
   }
 
   update(event: NavigationEvent) {
-    this.store.dispatch(setLoadingStateAction({
-      loadingState: {
-        loading: true,
-        message: 'Loading data',
-      }
-    }));
+    const run = event.run || '';
+    if (!run) {
+      return;
+    }
+    this.dataSubscription?.unsubscribe();
+    setLoadingState(true, this.store, 'Loading data');
 
-    this.dataService
-        .getData(event.run || '', event.tag || 'pod_viewer', event.host || '')
+    this.dataSubscription = this.dataService
+        .getData(run, event.tag || 'pod_viewer', event.host || '')
         .pipe(takeUntil(this.destroyed))
         .subscribe(data => {
-          this.store.dispatch(setLoadingStateAction({
-            loadingState: {
-              loading: false,
-              message: '',
-            }
-          }));
+          setLoadingState(false, this.store);
 
           this.parseData(data as PodViewerDatabase | null);
         });
@@ -59,6 +61,7 @@ export class PodViewer extends PodViewerCommon implements OnDestroy {
 
   ngOnDestroy() {
     // Unsubscribes all pending subscriptions.
+    setLoadingState(false, this.store);
     this.destroyed.next();
     this.destroyed.complete();
   }

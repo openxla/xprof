@@ -174,6 +174,7 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
   ngOnDestroy() {
     // Unsubscribes all pending subscriptions.
     setLoadingState(false, this.store);
+    this.pendingData = null;
     this.destroyed.next();
     this.destroyed.complete();
   }

@@ -17,7 +17,10 @@ import {OpType} from 'org_xprof/frontend/app/common/constants/enums';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {alignTables} from 'org_xprof/frontend/app/common/utils/diff_utils';
-import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
+import {
+  escapeHtml,
+  setLoadingState,
+} from 'org_xprof/frontend/app/common/utils/utils';
 import {CategoryDiffTableDataProcessor} from 'org_xprof/frontend/app/components/chart/category_diff_table_data_processor';
 import {CategoryTableDataProcessor} from 'org_xprof/frontend/app/components/chart/category_table_data_processor';
 import {Chart} from 'org_xprof/frontend/app/components/chart/chart';
@@ -584,6 +587,7 @@ export class HloStats extends Dashboard implements OnDestroy {
     const hloOpNameColumnIdx =
       data.cols?.findIndex((col) => col.id === OP_NAME_ID) ?? -1;
     if (
+      !data.rows ||
       programIdColumnIdx === -1 ||
       hloOpExpressionColumnIdx === -1 ||
       hloOpNameColumnIdx === -1
@@ -593,31 +597,41 @@ export class HloStats extends Dashboard implements OnDestroy {
 
     const updatedData = {
       ...data,
-      rows: data?.rows!.map((row, index) => {
-        const programId = (row.c![programIdColumnIdx].v as string).trim() || '';
-        const hloOpName = (row.c![hloOpNameColumnIdx].v as string).trim() || '';
-        const hloOpExpression =
-          (row.c![hloOpExpressionColumnIdx].v as string) || '';
-        const graphViewerLink = this.dataService.getGraphViewerLink(
-          this.sessionId,
-          '',
-          hloOpName,
-          programId,
-        );
-        const hyperlinkValue = graphViewerLink
-          ? `<a href="${graphViewerLink}" target="_blank">${
-              hloOpExpression
-            }</a>`
-          : hloOpExpression;
+      rows: data.rows.map((row) => {
+        if (!row.c) {
+          return row;
+        }
+        const programId = String(row.c[programIdColumnIdx]?.v ?? '').trim();
+        const hloOpName = String(row.c[hloOpNameColumnIdx]?.v ?? '').trim();
+        const exprCell = row.c[hloOpExpressionColumnIdx];
+        const hloOpExpression = String(exprCell?.v ?? '');
+        const graphViewerLink =
+          programId && programId !== '0' && hloOpName
+            ? this.dataService.getGraphViewerLink(
+                this.sessionId,
+                '',
+                hloOpName,
+                programId,
+              )
+            : '';
+        const formattedCell = graphViewerLink
+          ? {
+              ...exprCell,
+              v: hloOpExpression,
+              f:
+                `<a href="${escapeHtml(graphViewerLink)}" target="_blank">` +
+                `${escapeHtml(hloOpExpression)}</a>`,
+            }
+          : {
+              ...exprCell,
+              v: hloOpExpression,
+            };
         return {
           ...row,
           c: [
-            ...row.c!.slice(0, hloOpExpressionColumnIdx),
-            {
-              ...row.c![hloOpExpressionColumnIdx],
-              v: hyperlinkValue,
-            },
-            ...row.c!.slice(hloOpExpressionColumnIdx + 1),
+            ...row.c.slice(0, hloOpExpressionColumnIdx),
+            formattedCell,
+            ...row.c.slice(hloOpExpressionColumnIdx + 1),
           ],
         };
       }),

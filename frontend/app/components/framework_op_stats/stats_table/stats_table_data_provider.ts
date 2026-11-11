@@ -22,6 +22,7 @@ const MINIMUM_ROWS = 20;
 /** A stats table data provider. */
 export class StatsTableDataProvider extends DefaultDataProvider {
   diffTable?: google.visualization.DataTable;
+  private rawDiffData: FrameworkOpStatsData | null = null;
   hasDiff = false;
   sortAscending = true;
   sortColumn = -1;
@@ -53,8 +54,16 @@ export class StatsTableDataProvider extends DefaultDataProvider {
   }
 
   override parseData(data: SimpleDataTable|Array<Array<(string | number)>>|null) {
-    if (!data) return;
+    if (!data) {
+      this.pendingData = null;
+      this.dataTable = undefined;
+      return;
+    }
+    if (!this.ensureChartPackagesLoaded(data)) return;
     const dataTable = new google.visualization.DataTable(data);
+    this.diffTable = this.rawDiffData
+        ? new google.visualization.DataTable(this.rawDiffData)
+        : undefined;
     if (this.hasDiff && this.diffTable) {
       this.preProcessDiffTable(dataTable, this.diffTable);
     } else {
@@ -63,9 +72,12 @@ export class StatsTableDataProvider extends DefaultDataProvider {
   }
 
   setDiffData(diffData: FrameworkOpStatsData|null) {
-    this.diffTable = diffData ?
-        new google.visualization.DataTable(diffData) :
-        undefined;
+    this.rawDiffData = diffData;
+    if (diffData && this.isDataTableReady()) {
+      this.diffTable = new google.visualization.DataTable(diffData);
+    } else {
+      this.diffTable = undefined;
+    }
   }
 
   override setFilters(filters: google.visualization.DataTableCellFilter[]) {

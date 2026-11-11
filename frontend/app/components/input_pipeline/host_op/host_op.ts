@@ -1,4 +1,11 @@
-import {Component, Input, OnChanges, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  Input,
+  OnChanges,
+  OnInit,
+  SimpleChanges,
+} from '@angular/core';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {
   HostOpTable,
@@ -13,7 +20,7 @@ import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/defau
   templateUrl: './host_op.ng.html',
   styleUrls: ['./host_op.scss'],
 })
-export class HostOp implements OnChanges {
+export class HostOp implements OnChanges, OnInit {
   /** Whether there are host-op tables */
   @Input() hasHostOpTables = false;
 
@@ -57,7 +64,7 @@ export class HostOp implements OnChanges {
   /** Updates the visability of all charts */
   private updateChartsVisability() {
     for (let i = 0; i < this.hostOpTables.length; i++) {
-      const prop = this.hostOpTables[i].p;
+      const prop = this.hostOpTables[i]?.p;
       const hostOp = (prop && prop.hostop) || '';
       const hostname = (prop && prop.hostname) || '';
       const core = (prop && prop.value) || '';
@@ -122,23 +129,79 @@ export class HostOp implements OnChanges {
   }
 
   /** Sets up choices and charts */
-  private setupChoicesAndCharts() {
-    if (!this.metaHostOpTable) return;
+  private setupChoicesAndCharts(resetSelections = false) {
+    if (!this.metaHostOpTable) {
+      this.allHostOpChoices = [];
+      this.allHostnameChoices = [];
+      this.allCoreChoices = [];
+      this.hostOpSelected = '';
+      this.hostnameSelected = '';
+      this.coreSelected = '';
+      this.showChart = false;
+      this.dataInfo = {
+        ...this.dataInfo,
+        data: null,
+      };
+      return;
+    }
 
     // Sets up choices.
     this.allHostOpChoices = (
       this.metaHostOpTable.p?.valid_host_ops || ''
-    ).split(',');
-    this.allHostnameChoices = (this.metaHostOpTable.p?.hostnames || '').split(
-      ',',
-    );
-    this.allCoreChoices = (this.metaHostOpTable.p?.values || '').split(',');
+    )
+      .split(',')
+      .filter((choice) => choice !== '');
+    this.allHostnameChoices = (this.metaHostOpTable.p?.hostnames || '')
+      .split(',')
+      .filter((choice) => choice !== '');
+    this.allCoreChoices = (this.metaHostOpTable.p?.values || '')
+      .split(',')
+      .filter((choice) => choice !== '');
+
+    const defaultTableProps = this.hostOpTables[0]?.p;
+    if (
+      resetSelections ||
+      !this.hostOpSelected ||
+      !this.allHostOpChoices.includes(this.hostOpSelected)
+    ) {
+      const preferredOp = defaultTableProps?.hostop || '';
+      this.hostOpSelected = this.allHostOpChoices.includes(preferredOp)
+        ? preferredOp
+        : this.allHostOpChoices[0] || '';
+    }
+    if (
+      resetSelections ||
+      !this.hostnameSelected ||
+      !this.allHostnameChoices.includes(this.hostnameSelected)
+    ) {
+      const preferredHost = defaultTableProps?.hostname || '';
+      this.hostnameSelected = this.allHostnameChoices.includes(preferredHost)
+        ? preferredHost
+        : this.allHostnameChoices[0] || '';
+    }
+    if (
+      resetSelections ||
+      !this.coreSelected ||
+      !this.allCoreChoices.includes(this.coreSelected)
+    ) {
+      const preferredCore = defaultTableProps?.value || '';
+      this.coreSelected = this.allCoreChoices.includes(preferredCore)
+        ? preferredCore
+        : this.allCoreChoices[0] || '';
+    }
 
     // Updates visability.
     this.updateChartsVisability();
   }
 
-  ngOnChanges(changes: SimpleChanges) {
+  ngOnInit() {
     this.setupChoicesAndCharts();
+  }
+
+  ngOnChanges(changes: SimpleChanges) {
+    const resetSelections = Boolean(
+      changes['metaHostOpTable'] || changes['hostOpTables'],
+    );
+    this.setupChoicesAndCharts(resetSelections);
   }
 }

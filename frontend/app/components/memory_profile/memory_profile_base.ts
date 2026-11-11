@@ -9,14 +9,30 @@ export class MemoryProfileBase {
 
   parseData(data: MemoryProfileProto|null) {
     this.data = data;
-    if (data && data.memoryIds && data.numHosts) {
+    this.hasMemoryData = false;
+    this.memoryIds = [];
+    if (
+      data &&
+      data.memoryIds &&
+      data.numHosts &&
+      data.memoryProfilePerAllocator
+    ) {
       if (data.numHosts > 0 && data.memoryIds.length > 0) {
-        this.hasMemoryData = true;
         this.memoryIds = data.memoryIds;
-        if (this.selectedMemoryId === '') {
+        if (
+          this.selectedMemoryId === '' ||
+          !data.memoryIds.includes(this.selectedMemoryId)
+        ) {
           this.selectedMemoryId = data.memoryIds[0];
         }
+        this.hasMemoryData = Boolean(
+          this.selectedMemoryId &&
+            data.memoryProfilePerAllocator[this.selectedMemoryId],
+        );
       }
+    }
+    if (!this.hasMemoryData) {
+      this.selectedMemoryId = '';
     }
   }
 }

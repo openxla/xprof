@@ -3,11 +3,13 @@
     <div class="controls-row">
       <button type="button" class="perfetto-button" [disabled]="host === 'ALL_HOSTS'" (click)="openPerfetto()">Open in Perfetto</button>
       <span *ngIf="host === 'ALL_HOSTS'">Select a host in the left side bar to open in Perfetto</span>
-      <span *ngIf="host !== 'ALL_HOSTS'">Select "ALL_HOSTS" to see the aggregated statistics table</span>
+      <span *ngIf="host !== 'ALL_HOSTS' && hostList.length !== 1">
+        Select "ALL_HOSTS" to see the aggregated statistics table
+      </span>
     </div>
   </div>
 
-  <mat-accordion *ngIf="host === 'ALL_HOSTS'">
+  <mat-accordion *ngIf="host === 'ALL_HOSTS' || hostList.length === 1">
     <mat-expansion-panel (opened)="onPanelOpened()" (closed)="onPanelClosed()" [expanded]="isExpanded">
       <mat-expansion-panel-header>
         <mat-panel-title>

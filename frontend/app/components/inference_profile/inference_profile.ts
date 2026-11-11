@@ -37,6 +37,9 @@ export class InferenceProfile implements OnDestroy {
   private readonly destroyed = new ReplaySubject<void>(1);
   private readonly throbber = new Throbber(this.tool);
   private readonly dataService = inject(DATA_SERVICE_INTERFACE_TOKEN);
+  private pendingData: InferenceProfileTable[] | null = null;
+  private loadCallbackRegistered = false;
+  private isDestroyed = false;
 
   // All the model IDs and data.
   hasBatching = false;
@@ -79,8 +82,13 @@ export class InferenceProfile implements OnDestroy {
     combineLatest([route.params, route.queryParams])
       .pipe(takeUntil(this.destroyed))
       .subscribe(([params, queryParams]) => {
+        const oldSessionId = this.sessionId;
+        const oldHost = this.host;
         this.sessionId = params['sessionId'] || this.sessionId;
         this.processQueryParams(queryParams);
+        if (this.sessionId !== oldSessionId || this.host !== oldHost) {
+          this.selectedIndex = 0;
+        }
         this.update();
       });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
@@ -113,6 +121,21 @@ export class InferenceProfile implements OnDestroy {
     return parseSuccess;
   }
 
+  private resetParsedState() {
+    this.hasBatching = false;
+    this.hasTensorPattern = false;
+    this.allModelIds = [];
+    this.allRequestTables = [];
+    this.allRequestProperties = [];
+    this.allBatchTables = [];
+    this.allBatchProperties = [];
+    this.allTensorPatternTables = [];
+    this.allTensorPatternProperties = [];
+    this.requestView = undefined;
+    this.batchView = undefined;
+    this.tensorPatternView = undefined;
+  }
+
   parseData(data: InferenceProfileTable[]) {
     // <data> is a list of tables.
     // The first table is a metadat table, which contains model ids and whether
@@ -122,14 +145,47 @@ export class InferenceProfile implements OnDestroy {
     // batching related metrics.
     // If tensor pattern is recorded, there is one additional table per model
     // for tensor pattern results.
-    if (!data || data.length <= 1) return false;
-    if (!this.parseMetadata(data[0])) return false;
+    if (!data || data.length <= 1) {
+      this.pendingData = null;
+      this.resetParsedState();
+      this.selectedIndex = 0;
+      return false;
+    }
+    if (
+      typeof google === 'undefined' ||
+      typeof google.visualization?.DataTable !== 'function'
+    ) {
+      this.pendingData = data;
+      if (typeof google !== 'undefined' && google.charts) {
+        google.charts.safeLoad({'packages': ['corechart', 'table']});
+        if (!this.loadCallbackRegistered) {
+          this.loadCallbackRegistered = true;
+          google.charts.setOnLoadCallback(() => {
+            this.loadCallbackRegistered = false;
+            const latest = this.pendingData;
+            this.pendingData = null;
+            if (!this.isDestroyed && latest && this.parseData(latest)) {
+              this.updateView();
+            }
+          });
+        }
+      }
+      return false;
+    }
+    this.resetParsedState();
+    if (!this.parseMetadata(data[0])) {
+      this.resetParsedState();
+      return false;
+    }
 
     // Check the number of inference tables is correct, and parse table data.
     let expectedNum = 1 + this.allModelIds.length;
     if (this.hasBatching) expectedNum += this.allModelIds.length;
     if (this.hasTensorPattern) expectedNum += this.allModelIds.length;
-    if (data.length !== expectedNum) return false;
+    if (data.length !== expectedNum) {
+      this.resetParsedState();
+      return false;
+    }
 
     for (let i = 1; i < data.length; ) {
       const requestData = data[i] as InferenceProfileData;
@@ -166,6 +222,12 @@ export class InferenceProfile implements OnDestroy {
   }
 
   updateView() {
+    if (
+      this.selectedIndex < 0 ||
+      this.selectedIndex >= this.allRequestTables.length
+    ) {
+      this.selectedIndex = 0;
+    }
     this.requestView = new google.visualization.DataView(
       this.allRequestTables[this.selectedIndex],
     );
@@ -215,8 +277,8 @@ export class InferenceProfile implements OnDestroy {
       this.throbber.start();
     }
     // Clear the old data from previous update().
-    this.allRequestTables = [];
-    this.allBatchTables = [];
+    this.pendingData = null;
+    this.resetParsedState();
 
     this.dataService
       .getData(
@@ -249,6 +311,8 @@ export class InferenceProfile implements OnDestroy {
 
   ngOnDestroy() {
     // Unsubscribes all pending subscriptions.
+    this.isDestroyed = true;
+    this.pendingData = null;
     setLoadingState(false, this.store);
     this.destroyed.next();
     this.destroyed.complete();

@@ -13,9 +13,45 @@ export class Dashboard {
   filters = new Map<number, google.visualization.DataTableCellFilter>();
 
   dataView?: google.visualization.DataView;
+  protected pendingData: SimpleDataTable | null = null;
+  protected hasPendingLoadCallback = false;
+
+  protected ensureChartPackagesLoaded(data: SimpleDataTable|null): boolean {
+    if (
+      typeof google !== 'undefined' &&
+      typeof google.visualization?.DataTable === 'function'
+    ) {
+      this.pendingData = null;
+      return true;
+    }
+    this.pendingData = data;
+    if (
+      typeof google !== 'undefined' &&
+      google.charts &&
+      !this.hasPendingLoadCallback
+    ) {
+      this.hasPendingLoadCallback = true;
+      google.charts.safeLoad({'packages': ['corechart', 'table']});
+      google.charts.setOnLoadCallback(() => {
+        this.hasPendingLoadCallback = false;
+        const latest = this.pendingData;
+        this.pendingData = null;
+        if (latest) {
+          this.parseData(latest);
+        }
+      });
+    }
+    return false;
+  }
 
   parseData(data: SimpleDataTable|null) {
-    if (!data) return;
+    if (!data) {
+      this.pendingData = null;
+      this.dataTable = undefined;
+      this.dataView = undefined;
+      return;
+    }
+    if (!this.ensureChartPackagesLoaded(data)) return;
 
     this.dataTable = new google.visualization.DataTable(data);
     this.updateView();

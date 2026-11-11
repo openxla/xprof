@@ -81,7 +81,13 @@ export class PerfCounters extends Dashboard implements OnDestroy {
   }
 
   override parseData(data: SimpleDataTable | null) {
-    if (!data) return;
+    if (!data) {
+      this.pendingData = null;
+      this.dataTable = undefined;
+      this.dataView = undefined;
+      return;
+    }
+    if (!this.ensureChartPackagesLoaded(data)) return;
 
     const dataTable = new google.visualization.DataTable(data);
 
@@ -115,6 +121,7 @@ export class PerfCounters extends Dashboard implements OnDestroy {
 
   ngOnDestroy() {
     // Unsubscribes all pending subscriptions.
+    this.pendingData = null;
     setLoadingState(false, this.store);
     this.destroyed.next();
     this.destroyed.complete();

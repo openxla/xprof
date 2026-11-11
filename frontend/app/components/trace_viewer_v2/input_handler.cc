@@ -5,6 +5,7 @@
 #include <emscripten/html5.h>
 
 #include <cfloat>
+#include <cmath>
 #include <cstdint>
 
 #include "absl/strings/string_view.h"
@@ -121,6 +122,30 @@ EM_JS(bool, IsClientPointOverCanvas, (int client_x, int client_y), {
   const hit = document.elementFromPoint(client_x, client_y);
   return hit === canvas || (hit !== null && canvas.contains(hit));
 });
+
+// Normalizes browser DOM wheel deltas across pixel, line, and page delta modes
+// into CSS pixel units, clamping non-finite values to zero.
+ImVec2 NormalizeWheelDelta(const EmscriptenWheelEvent& event,
+                           ImVec2 display_size) {
+  constexpr float kWheelLineHeightPx = 16.0f;
+  constexpr float kFallbackPageSizePx = 800.0f;
+  float wheel_x =
+      std::isfinite(event.deltaX) ? static_cast<float>(event.deltaX) : 0.0f;
+  float wheel_y =
+      std::isfinite(event.deltaY) ? static_cast<float>(event.deltaY) : 0.0f;
+  if (event.deltaMode == DOM_DELTA_LINE) {
+    wheel_x *= kWheelLineHeightPx;
+    wheel_y *= kWheelLineHeightPx;
+  } else if (event.deltaMode == DOM_DELTA_PAGE) {
+    const float page_width =
+        display_size.x > 0.0f ? display_size.x : kFallbackPageSizePx;
+    const float page_height =
+        display_size.y > 0.0f ? display_size.y : kFallbackPageSizePx;
+    wheel_x *= page_width;
+    wheel_y *= page_height;
+  }
+  return ImVec2(wheel_x, wheel_y);
+}
 
 }  // namespace
 
@@ -282,10 +307,8 @@ EM_BOOL HandleWheel(int, const EmscriptenWheelEvent* event, void*) {
     io.AddKeyEvent(ImGuiKey_ModShift, event->mouse.shiftKey);
     io.AddKeyEvent(ImGuiKey_ModSuper, event->mouse.metaKey);
 
-  float wheel_x = static_cast<float>(event->deltaX);
-  float wheel_y = static_cast<float>(event->deltaY);
-
-  io.AddMouseWheelEvent(wheel_x, wheel_y);
+  const ImVec2 wheel_delta = NormalizeWheelDelta(*event, io.DisplaySize);
+  io.AddMouseWheelEvent(wheel_delta.x, wheel_delta.y);
 
   return io.WantCaptureMouse;
 }

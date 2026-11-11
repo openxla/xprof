@@ -121,18 +121,20 @@ void ApplySnappingToEdge(Microseconds time, Microseconds threshold,
     }
   }
 }
-// Calculates a speed multiplier based on how long a key has been held down and
-// whether the Shift modifier key is pressed.
-// Provides acceleration for continuous actions like panning and zooming.
-float GetSpeedMultiplier(const ImGuiIO& io, ImGuiKey key,
-                         float shift_factor = 1.0f) {
-  const float down_duration = ImGui::GetKeyData(key)->DownDuration;
+// Calculates a speed multiplier for continuous actions like panning and
+// zooming. Applies hold-duration acceleration only when `acceleration_enabled`
+// is true, and scales by `shift_factor` whenever the Shift modifier is held.
+float GetSpeedMultiplier(const ImGuiIO& io, ImGuiKey key, float shift_factor,
+                         bool acceleration_enabled) {
   float multiplier = 1.0f;
 
-  if (down_duration >= kAccelerateThreshold) {
-    const float accelerated_time = down_duration - kAccelerateThreshold;
-    multiplier +=
-        std::min(accelerated_time * kAccelerateRate, kMaxAccelerateFactor);
+  if (acceleration_enabled) {
+    const float down_duration = ImGui::GetKeyData(key)->DownDuration;
+    if (down_duration >= kAccelerateThreshold) {
+      const float accelerated_time = down_duration - kAccelerateThreshold;
+      multiplier +=
+          std::min(accelerated_time * kAccelerateRate, kMaxAccelerateFactor);
+    }
   }
 
   if (io.KeyShift) {
@@ -1375,8 +1377,17 @@ void Timeline::FinishLayoutTransition() {
   transition = LayoutTransition();
 }
 
+void Timeline::set_smooth_navigation_enabled(bool enabled) {
+  smooth_navigation_enabled_ = enabled;
+  if (!enabled && *visible_range_ != visible_range_.target()) {
+    visible_range_.snap_to(visible_range_.target());
+    SyncMinimapState();
+    if (redraw_callback_) redraw_callback_();
+  }
+}
+
 void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
-  if (animate) {
+  if (animate && smooth_navigation_enabled_) {
     visible_range_ = range;
   } else {
     visible_range_.snap_to(range);
@@ -6910,8 +6921,8 @@ bool Timeline::HandleKeyboard() {
       (selected_event_index_ == -1 && ImGui::IsKeyDown(ImGuiKey_LeftArrow))) {
     ImGuiKey key =
         ImGui::IsKeyDown(ImGuiKey_A) ? ImGuiKey_A : ImGuiKey_LeftArrow;
-    float multiplier =
-        GetSpeedMultiplier(io, key, kShiftPanAccelerateFactor);
+    float multiplier = GetSpeedMultiplier(io, key, kShiftPanAccelerateFactor,
+                                          navigation_acceleration_enabled_);
     Pan(-panning_speed_ * io.DeltaTime * multiplier);
     is_interacting = true;
   }
@@ -6922,7 +6933,8 @@ bool Timeline::HandleKeyboard() {
         ImGui::IsKeyDown(ImGuiKey_D)
             ? ImGuiKey_D
             : (ImGui::IsKeyDown(ImGuiKey_E) ? ImGuiKey_E : ImGuiKey_RightArrow);
-    float multiplier = GetSpeedMultiplier(io, key, kShiftPanAccelerateFactor);
+    float multiplier = GetSpeedMultiplier(io, key, kShiftPanAccelerateFactor,
+                                          navigation_acceleration_enabled_);
     Pan(panning_speed_ * io.DeltaTime * multiplier);
     is_interacting = true;
   }
@@ -6942,15 +6954,17 @@ bool Timeline::HandleKeyboard() {
   // Zoom in ('w' or ',')
   if (ImGui::IsKeyDown(ImGuiKey_W) || ImGui::IsKeyDown(ImGuiKey_Comma)) {
     ImGuiKey key = ImGui::IsKeyDown(ImGuiKey_W) ? ImGuiKey_W : ImGuiKey_Comma;
-    float multiplier = GetSpeedMultiplier(io, key, kShiftZoomAccelerateFactor);
-    Zoom(1.0f - zoom_speed_ * io.DeltaTime * multiplier);
+    float multiplier = GetSpeedMultiplier(io, key, kShiftZoomAccelerateFactor,
+                                          navigation_acceleration_enabled_);
+    Zoom(std::exp(-zoom_speed_ * io.DeltaTime * multiplier));
     is_interacting = true;
   }
   // Zoom out ('s' or 'o')
   if (ImGui::IsKeyDown(ImGuiKey_S) || ImGui::IsKeyDown(ImGuiKey_O)) {
     ImGuiKey key = ImGui::IsKeyDown(ImGuiKey_S) ? ImGuiKey_S : ImGuiKey_O;
-    float multiplier = GetSpeedMultiplier(io, key, kShiftZoomAccelerateFactor);
-    Zoom(1.0f + zoom_speed_ * io.DeltaTime * multiplier);
+    float multiplier = GetSpeedMultiplier(io, key, kShiftZoomAccelerateFactor,
+                                          navigation_acceleration_enabled_);
+    Zoom(std::exp(zoom_speed_ * io.DeltaTime * multiplier));
     is_interacting = true;
   }
 
@@ -7055,8 +7069,13 @@ bool Timeline::HandleWheel() {
 
   if (io.KeyCtrl || io.KeySuper) {
     // If the mouse wheel is being used with the control or command key, zoom
-    // in or out.
-    const float zoom_factor = 1.0f + io.MouseWheel * mouse_wheel_zoom_speed_;
+    // in or out. Clamp discrete mouse-wheel notches while preserving small
+    // trackpad pinch deltas 1:1.
+    const float clamped_wheel_delta =
+        std::clamp(io.MouseWheel, -kMaxMouseWheelZoomDelta,
+                   kMaxMouseWheelZoomDelta);
+    const float zoom_factor =
+        std::exp(clamped_wheel_delta * mouse_wheel_zoom_speed_);
     Zoom(zoom_factor);
     return true;
   }
@@ -7318,7 +7337,7 @@ void Timeline::HandleMouseDrag(Pixel timeline_origin_x) {
         ApplySnapping(*current_selected_time_range_);
       }
     } else if (mouse_mode_ == MouseMode::kZoom) {
-      Zoom(1.0f + io.MouseDelta.y * 0.01f);
+      Zoom(std::exp(io.MouseDelta.y * kMouseDragZoomSpeed));
     } else {
       Pan(-io.MouseDelta.x);
       Scroll(-io.MouseDelta.y);

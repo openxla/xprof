@@ -758,6 +758,26 @@ class Timeline {
   }
   float mouse_wheel_zoom_speed() const { return mouse_wheel_zoom_speed_; }
 
+  // Enables smooth exponential interpolation on `visible_range_` during pan,
+  // zoom, event reveal, and reset-view transitions. Enabled by default; the
+  // application disables it when the user prefers reduced motion or disables
+  // smooth navigation in Settings. Disabling it immediately snaps any
+  // in-flight viewport transition to its target.
+  void set_smooth_navigation_enabled(bool enabled);
+  bool smooth_navigation_enabled() const {
+    return smooth_navigation_enabled_;
+  }
+
+  // Enables hold-duration speed ramp-up (`kAccelerateRate` up to
+  // `1 + kMaxAccelerateFactor`) while holding keyboard pan/zoom keys.
+  // Explicit `Shift` modifier speed boost remains active regardless.
+  void set_navigation_acceleration_enabled(bool enabled) {
+    navigation_acceleration_enabled_ = enabled;
+  }
+  bool navigation_acceleration_enabled() const {
+    return navigation_acceleration_enabled_;
+  }
+
   // Zooms the visible time range by the given zoom factor, centered around the
   // mouse position, or the center of the visible range if the mouse is outside
   // the trace events area.
@@ -1746,6 +1766,8 @@ class Timeline {
   float panning_speed_ = kPanningSpeed;
   float zoom_speed_ = kZoomSpeed;
   float mouse_wheel_zoom_speed_ = kMouseWheelZoomSpeed;
+  bool smooth_navigation_enabled_ = true;
+  bool navigation_acceleration_enabled_ = true;
 
   bool mpmd_pipeline_view_enabled_ = false;
   TimeAxisUnit time_axis_unit_ = TimeAxisUnit::kTime;

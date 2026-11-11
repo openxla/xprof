@@ -192,5 +192,16 @@ TEST_F(ApplicationTest, TrackOrderMethodsAreSafeWhenUninitialized) {
   app.RestoreSavedTrackOrder();
 }
 
+TEST_F(ApplicationTest, NavigationPreferenceSettersSafeWhenUninitialized) {
+  Application& app = Application::Instance();
+  app.Shutdown();
+
+  EXPECT_FALSE(app.IsInitialized());
+
+  app.SetSmoothNavigationEnabled(false);
+  app.SetNavigationAccelerationEnabled(false);
+  app.SetMouseWheelZoomSpeed(0.01f);
+}
+
 }  // namespace
 }  // namespace traceviewer

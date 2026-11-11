@@ -163,6 +163,14 @@ EMSCRIPTEN_KEEPALIVE void SetMouseWheelZoomSpeed(float speed) {
   Application::Instance().SetMouseWheelZoomSpeed(speed);
 }
 
+EMSCRIPTEN_KEEPALIVE void SetSmoothNavigationEnabled(bool enabled) {
+  Application::Instance().SetSmoothNavigationEnabled(enabled);
+}
+
+EMSCRIPTEN_KEEPALIVE void SetNavigationAccelerationEnabled(bool enabled) {
+  Application::Instance().SetNavigationAccelerationEnabled(enabled);
+}
+
 EMSCRIPTEN_KEEPALIVE void SetIncrementalFetchEnabled(bool enabled) {
   Application::Instance().SetIncrementalFetchEnabled(enabled);
 }
@@ -289,6 +297,10 @@ EMSCRIPTEN_BINDINGS(traceviewer) {
   emscripten::function("SetPanningSpeed", &SetPanningSpeed);
   emscripten::function("SetZoomSpeed", &SetZoomSpeed);
   emscripten::function("SetMouseWheelZoomSpeed", &SetMouseWheelZoomSpeed);
+  emscripten::function("SetSmoothNavigationEnabled",
+                       &SetSmoothNavigationEnabled);
+  emscripten::function("SetNavigationAccelerationEnabled",
+                       &SetNavigationAccelerationEnabled);
   emscripten::function("SetIncrementalFetchEnabled",
                        &SetIncrementalFetchEnabled);
   emscripten::function("SetEventTooltipEnabled", &SetEventTooltipEnabled);
@@ -386,9 +398,11 @@ void Application::Initialize() {
   timeline_->set_minimap_enabled(IsFeatureEnabled("enable_minimap"));
   timeline_->set_hlo_dependency_arrows_enabled(
       IsFeatureEnabled("enable_hlo_dependency_arrows"));
-  // Smooth expand / collapse, chevron and hover motion, unless the user
-  // prefers reduced motion.
-  timeline_->set_animations_enabled(!PrefersReducedMotion());
+  // Smooth expand / collapse, chevron, hover, and viewport navigation motion,
+  // unless the user prefers reduced motion.
+  const bool animations_enabled = !PrefersReducedMotion();
+  timeline_->set_animations_enabled(animations_enabled);
+  timeline_->set_smooth_navigation_enabled(animations_enabled);
   timeline_->set_event_callback(
       [](absl::string_view type, const EventData& event_data) {
         EventManager::Instance().DispatchEvent(type, event_data);

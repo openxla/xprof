@@ -1422,6 +1422,7 @@ cc_test(
     deps = [
         ":data_table_utils",
         ":op_stats_to_overview_page",
+        "//google/protobuf:any_cc_proto",
         "//net/proto2/contrib/parse_proto:parse_text_proto",
         "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "//plugin/xprof/protobuf:hardware_types_proto_cc",

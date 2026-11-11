@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "google/protobuf/any.pb.h"
 #include "net/proto2/contrib/parse_proto/parse_text_proto.h"
 #include <gtest/gtest.h>
 #include "xprof/convert/data_table_utils.h"

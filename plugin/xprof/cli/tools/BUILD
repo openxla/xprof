@@ -27,7 +27,9 @@ pytype_strict_library(
     ],
     deps = [
         "//plugin/xprof/cli/internal:async_overlap",
+        "//plugin/xprof/cli/internal:async_overlap_sql",
         "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:events_db_sql",
         "//plugin/xprof/cli/internal/oss:xplane_tools",
     ],
 )

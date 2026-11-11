@@ -335,6 +335,7 @@ class OssKernelUtilizationToolTest(parameterized.TestCase):
         "session_v7x",
         kernel_name="matmul_optimized.1",
         limit=0,
+        device_to_use="all",
         bypass_cache=True,
     )
 

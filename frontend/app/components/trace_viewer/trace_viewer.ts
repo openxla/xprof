@@ -862,6 +862,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       startUs,
       durationUs,
       pid,
+      trackName,
     } = event;
 
     this.selectedEvent = {
@@ -871,6 +872,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       dur: durationUs,
       startUsFormatted,
       durationUsFormatted,
+      trackName,
     };
 
     const properties: SelectedEventProperty[] = [];
@@ -889,6 +891,9 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       this.maybeFetchEventArgs({name, startUs, durationUs, uid, pid});
     } else if (event.args) {
       this.addArgsToSelectedEvent(event.args);
+    }
+    if (this.isSourceCodeTrack()) {
+      this.createCrossToolLinks();
     }
     this.maybeFetchAdjacentNodes();
   }
@@ -1132,6 +1137,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     }" target="_blank" rel="noopener noreferrer" title="${escapedText}">${text}</a></div>`;
   }
 
+  private isSourceCodeTrack(): boolean {
+    return this.selectedEvent?.trackName === 'Source code';
+  }
+
   /**
    * Creates all cross-tool links for the selected event. Mirrors the 1p trace
    * viewer so 3p (OSS) users get the same links.
@@ -1139,7 +1148,12 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
    * Assumes `selectedEvent` and `selectedEvent.args` are populated.
    */
   private createCrossToolLinks() {
-    if (!this.selectedEvent || !this.selectedEvent.args) return;
+    if (
+      !this.selectedEvent ||
+      (!this.selectedEvent.args && !this.isSourceCodeTrack())
+    ) {
+      return;
+    }
     this.createStackTraceSnippetLink();
     this.createRooflineModelLink();
     this.createGraphViewerLink();
@@ -1152,11 +1166,13 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
    * information is available for the selected event.
    */
   private createStackTraceSnippetLink() {
-    if (!this.sourceCodeServiceIsAvailable || !this.selectedEvent?.args) {
+    if (!this.sourceCodeServiceIsAvailable || !this.selectedEvent) {
       return;
     }
-    const args = this.selectedEvent.args as Record<string, string>;
-    const sourceFileAndLineNumber = args['source'];
+    const args = (this.selectedEvent.args ?? {}) as Record<string, string>;
+    const sourceFileAndLineNumber =
+      args['source'] ??
+      (this.isSourceCodeTrack() ? this.selectedEvent.name : undefined);
     const stackTrace = args['source_stack'];
     if (!sourceFileAndLineNumber && !stackTrace) {
       return;
@@ -1168,7 +1184,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     if (hloModule !== 'default' && hloModuleId) {
       hloModule = `${hloModule}(${hloModuleId})`;
     }
-    const hloOp = args[HLO_OP] || this.selectedEvent.name;
+    const hloOp =
+      args[HLO_OP] || (this.isSourceCodeTrack() ? '' : this.selectedEvent.name);
     const opCategory = args['hlo_category'];
 
     const hloModuleKey = 'hlo_module';
@@ -1201,7 +1218,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
     const args = this.selectedEvent.args as Record<string, string>;
-    const hloOp = args[HLO_OP] || this.selectedEvent.name;
+    const hloOp =
+      args[HLO_OP] || (this.isSourceCodeTrack() ? '' : this.selectedEvent.name);
 
     if (!hloOp) {
       return;
@@ -1223,7 +1241,11 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
     const args = this.selectedEvent.args as Record<string, string>;
-    const hloOp = args[HLO_OP] || this.selectedEvent.name;
+    const hloOp =
+      args[HLO_OP] || (this.isSourceCodeTrack() ? '' : this.selectedEvent.name);
+    if (!hloOp) {
+      return;
+    }
     const hloModule =
       this.selectedEvent.hloModule || args[HLO_MODULE] || 'default';
     // Only generate link if hlo_op argument is present or hloModule is not

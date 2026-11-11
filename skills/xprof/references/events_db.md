@@ -184,23 +184,38 @@ populated for a given event, its value in that row is `NULL`.
 
 ## 4. SQL Query Examples
 
-### 1. Top 10 HLO Operations by Total Device Time
+Before writing SQL, try the ready-made subcommands. They sum the right column
+for one device and category:
+
+-   `xprof events_db_info <trace>` lists the devices and categories of the
+    trace, with event counts, self time and time ranges. Copy `device` and
+    `category` values from it.
+-   `xprof events_db_top_ops <trace> [--device=TPU:0] [--category="XLA Ops"]
+    [--order_by=self|inclusive] [--limit=20]` lists the ops with the most self
+    time on one device and category.
+
+### 1. Top 10 HLO Operations by Device Time per Core
 
 ```bash
 xprof query_events_db <logdir> --query="
   SELECT
-    hlo_op,
-    category,
+    device,
+    hlo_module,
+    COALESCE(NULLIF(hlo_op, ''), kernel_name) AS op,
     COUNT(*) AS occurrences,
     SUM(self_time_ns) / 1000.0 AS total_time_us
   FROM Events
-  WHERE hlo_op IS NOT NULL
-    AND category = 'XLA Ops'
-  GROUP BY hlo_op, category
+  WHERE category = 'XLA Ops'
+  GROUP BY device, hlo_module, op
   ORDER BY total_time_us DESC
   LIMIT 10
 "
 ```
+
+This query is for TPU traces. On GPU traces, `device` is `gpu:0`, `gpu:1`,
+and so on, and HLO ops are on `category = 'device'`: the GPU `XLA Ops` rows
+only set `kernel_name`. To look at one core, add `AND device = '<device>'` with
+a value from `xprof events_db_info`.
 
 ### 2. Per-Step Duration and Event Count Breakdown
 
@@ -232,7 +247,7 @@ xprof query_events_db <logdir> --query="
     QUANTILE_CONT(self_time_ns / 1000.0, 0.99) AS p99_us
   FROM Events
   WHERE category = 'XLA Ops'
-    AND hlo_op IS NOT NULL
+    AND hlo_op != ''
   GROUP BY hlo_op
   HAVING COUNT(*) > 1
   ORDER BY p99_us DESC
@@ -275,14 +290,27 @@ xprof query_events_db <logdir> --query="
     start or end at the exact same timestamp, always include `device` in
     `GROUP BY device, step` (or filter to a single core such as
     `WHERE device = 'TPU:0'`) when computing step spans or per-core counts.
-3.  **Use `IS NOT NULL` for Unset Fields**: Unset fields on an event are stored
-    as SQL `NULL` rather than empty strings (`''`). Always filter with
-    `WHERE <column> IS NOT NULL` (for example, `WHERE hlo_op IS NOT NULL` or
-    `WHERE step IS NOT NULL`).
+3.  **Unset Fields Can Be `NULL` or `''`**: Fields that are never set on an
+    event are SQL `NULL`, but some fields are written as an empty string
+    (`''`). For example, `hlo_op` on TPU `XLA Ops` rows is `''` when the op has
+    no display name. Filter with `WHERE <column> != ''`, which also drops
+    `NULL`, and use `NULLIF(<column>, '')` before `COALESCE`.
 4.  **Multi-Worker Directories**: If `create_events_db` or `query_events_db`
     raises `NotImplementedError: Multiple (N) trace files found`, pass one of
     the listed `.xplane.pb` file paths directly as the first argument.
-5.  **Async Op Overlap**: Do not hand-write start/done pairing SQL. Pairing by
+5.  **Sum `self_time_ns`, Not `end_ns - start_ns`**: `end_ns - start_ns` is
+    inclusive time, so a parent op such as a `while` loop also counts the time
+    of every op inside it. `SUM(self_time_ns)` stays correct across nesting
+    levels. Inclusive time is fine for ranking single ops
+    (`xprof events_db_top_ops --order_by=inclusive`), but do not add it up over
+    ops that nest inside each other, such as a `while` loop and the ops in its
+    body.
+6.  **Use `COALESCE(NULLIF(hlo_op, ''), kernel_name)` as the Op Name**:
+    `hlo_op` can be `''` (see item 3), and `COALESCE(hlo_op, kernel_name)` then
+    returns `''`. SparseCore ops are on `category = 'Sparse Core Ops'` (the
+    sequencer) and on `category = 'TEC 0'`..`'TEC 15'` (the tile execution
+    cores). Both set `hlo_op`, `hlo_module` and `step`.
+7.  **Async Op Overlap**: Do not hand-write start/done pairing SQL. Pairing by
     op family (`all-gather`) instead of by instruction (`all-gather.3`), or
     numbering starts and dones independently, silently mispairs windows. Run
     `xprof analyze_async_overlap <trace> --backend=events_db`, which pairs

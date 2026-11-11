@@ -65,6 +65,17 @@ pytype_strict_contrib_test(
 )
 
 pytype_strict_contrib_test(
+    name = "events_db_queries_test",
+    srcs = ["events_db_queries_test.py"],
+    deps = [
+        "//plugin/xprof/cli/internal:events_db_queries",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+        "@pypi//duckdb",
+    ],
+)
+
+pytype_strict_contrib_test(
     name = "oss_async_overlap_events_db_test",
     srcs = ["oss_async_overlap_events_db_test.py"],
     data = [

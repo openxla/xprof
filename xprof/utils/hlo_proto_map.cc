@@ -95,6 +95,7 @@ ParseHloProtosFromXSpace(const XSpace& space) {
 
 bool HloProtoMap::AddHloProto(uint64_t program_id,
                               const xla::HloProto* hlo_proto) {
+  if (hlo_proto == nullptr) return false;
   bool new_program_id =
       hlo_protos_by_program_id_.try_emplace(program_id, hlo_proto).second;
   absl::string_view hlo_module_name = hlo_proto->hlo_module().name();
@@ -109,6 +110,7 @@ bool HloProtoMap::AddHloProto(uint64_t program_id,
 
 void HloProtoMap::AddHloProto(uint64_t program_id,
                               std::unique_ptr<const xla::HloProto> hlo_proto) {
+  if (hlo_proto == nullptr) return;
   if (AddHloProto(program_id, hlo_proto.get())) {
     // Only add to <owned_hlo_protos_> if <hlo_proto> is new to HloProtoMap.
     owned_hlo_protos_.push_back(std::move(hlo_proto));

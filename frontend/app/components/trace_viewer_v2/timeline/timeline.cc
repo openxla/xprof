@@ -4042,6 +4042,49 @@ void Timeline::RevealEvent(int event_index) {
   EmitEventSelected(event_index);
 }
 
+void Timeline::RevealEvent(int index, absl::string_view name,
+                           Microseconds start_us, Microseconds duration_us) {
+  // Tolerance in microseconds to accommodate floating-point conversion jitter
+  // across the JavaScript/WASM boundary (e.g. double precision differences).
+  constexpr Microseconds kTimestampToleranceUs = 1.0;
+
+  const size_t n = std::min({timeline_data_.entry_start_times.size(),
+                             timeline_data_.entry_total_times.size(),
+                             timeline_data_.entry_names.size()});
+
+  auto matches_identity = [&](size_t i) {
+    if (std::abs(timeline_data_.entry_start_times[i] - start_us) >=
+        kTimestampToleranceUs) {
+      return false;
+    }
+    const Microseconds entry_dur = timeline_data_.entry_total_times[i];
+    const bool durations_match =
+        (std::isnan(entry_dur) && std::isnan(duration_us)) ||
+        (entry_dur <= 0.0 && duration_us <= 0.0) ||
+        std::abs(entry_dur - duration_us) < kTimestampToleranceUs;
+    return durations_match && timeline_data_.entry_names[i] == name;
+  };
+
+  int target_index = -1;
+  if (index >= 0 && static_cast<size_t>(index) < n &&
+      matches_identity(static_cast<size_t>(index))) {
+    target_index = index;
+  } else {
+    for (size_t i = 0; i < n; ++i) {
+      if (matches_identity(i)) {
+        target_index = static_cast<int>(i);
+        break;
+      }
+    }
+  }
+
+  if (target_index != -1) {
+    RevealEvent(target_index);
+  } else {
+    ShowNavigationWarningNotification("Event not found");
+  }
+}
+
 void Timeline::ZoomEvent(int event_index) {
   if (event_index < 0 ||
       event_index >= timeline_data_.entry_start_times.size() ||

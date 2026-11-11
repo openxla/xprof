@@ -856,6 +856,13 @@ class Timeline {
   // without altering the zoom level.
   void RevealEvent(int event_index);
 
+  // Selects the event matching the given identity (name, start_us, duration_us)
+  // and ensures it is visible. If the given index matches, it is used directly;
+  // otherwise, the event is relocated via a linear scan. If the event cannot be
+  // found, a navigation warning toast is displayed.
+  void RevealEvent(int index, absl::string_view name, Microseconds start_us,
+                   Microseconds duration_us);
+
   // Navigates to and selects the event with the given index, zooming to it.
   void ZoomEvent(int event_index);
 

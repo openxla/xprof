@@ -3531,6 +3531,335 @@ TEST(TimelineTest, RevealEventWithNegativeIndex) {
   EXPECT_EQ(timeline.visible_range().end(), initial_range.end());
 }
 
+TEST(TimelineTest, RevealEventWithIdentityExactMatch) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .pid = 1});
+  data.level_offsets = {0, 2};
+  data.level_event_indices = {0, 1};
+  data.entry_names.push_back("event0");
+  data.entry_names.push_back("event1");
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_start_times.push_back(200.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_total_times.push_back(20.0);
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 500.0});
+  timeline.SetVisibleRange({0.0, 500.0});
+
+  timeline.RevealEvent(/*index=*/1, "event1", /*start_us=*/200.0,
+                       /*duration_us=*/20.0);
+
+  EXPECT_EQ(timeline.selected_event_index(), 1);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(), "");
+}
+
+TEST(TimelineTest, RevealEventWithIdentityStaleIndexRelocates) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .pid = 1});
+  data.level_offsets = {0, 3};
+  data.level_event_indices = {0, 1, 2};
+  data.entry_names.push_back("other_event");
+  data.entry_names.push_back("dummy");
+  data.entry_names.push_back("target_event");
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(50.0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_start_times.push_back(300.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_total_times.push_back(15.0);
+  data.entry_total_times.push_back(25.0);
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 500.0});
+  timeline.SetVisibleRange({0.0, 500.0});
+
+  // Stale index 0 points to "other_event", but identity matches index 2.
+  timeline.RevealEvent(/*index=*/0, "target_event", /*start_us=*/300.0,
+                       /*duration_us=*/25.0);
+
+  EXPECT_EQ(timeline.selected_event_index(), 2);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(), "");
+}
+
+TEST(TimelineTest, RevealEventWithIdentityWithinTolerance) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .pid = 1});
+  data.level_offsets = {0, 2};
+  data.level_event_indices = {0, 1};
+  data.entry_names.push_back("event0");
+  data.entry_names.push_back("event1");
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_start_times.push_back(200.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_total_times.push_back(20.0);
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 500.0});
+  timeline.SetVisibleRange({0.0, 500.0});
+
+  // Fast path tolerance test: index 1 matches within +-1.0 us (0.5 us delta).
+  timeline.RevealEvent(/*index=*/1, "event1", /*start_us=*/200.5,
+                       /*duration_us=*/19.5);
+  EXPECT_EQ(timeline.selected_event_index(), 1);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(), "");
+
+  // Relocation path tolerance test: stale index 0, matches index 1 within +-1.0
+  // us.
+  timeline.RevealEvent(/*index=*/0, "event1", /*start_us=*/199.3,
+                       /*duration_us=*/20.4);
+  EXPECT_EQ(timeline.selected_event_index(), 1);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(), "");
+}
+
+TEST(TimelineTest, RevealEventWithIdentityNotFound) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .pid = 1});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 500.0});
+  timeline.SetVisibleRange({0.0, 500.0});
+
+  // Mismatched name
+  timeline.RevealEvent(/*index=*/0, "nonexistent", /*start_us=*/100.0,
+                       /*duration_us=*/10.0);
+  EXPECT_EQ(timeline.selected_event_index(), -1);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(),
+            "Event not found");
+
+  // Mismatched timestamp outside tolerance (delta >= 1.0 us)
+  timeline.RevealEvent(/*index=*/0, "event0", /*start_us=*/102.0,
+                       /*duration_us=*/10.0);
+  EXPECT_EQ(timeline.selected_event_index(), -1);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(),
+            "Event not found");
+
+  // Out of bounds index and nonexistent event
+  timeline.RevealEvent(/*index=*/99, "unknown", /*start_us=*/999.0,
+                       /*duration_us=*/1.0);
+  EXPECT_EQ(timeline.selected_event_index(), -1);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(),
+            "Event not found");
+}
+
+TEST(TimelineTest, RevealEventWithIdentityOutOfBoundsIndexRelocates) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .pid = 1});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 500.0});
+  timeline.SetVisibleRange({0.0, 500.0});
+
+  // Out of bounds positive index relocates to index 0.
+  timeline.RevealEvent(/*index=*/10, "event0", /*start_us=*/100.0,
+                       /*duration_us=*/10.0);
+  EXPECT_EQ(timeline.selected_event_index(), 0);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(), "");
+
+  // Reset selection
+  timeline.set_selected_event_index_for_test(-1);
+
+  // Negative index relocates to index 0.
+  timeline.RevealEvent(/*index=*/-1, "event0", /*start_us=*/100.0,
+                       /*duration_us=*/10.0);
+  EXPECT_EQ(timeline.selected_event_index(), 0);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(), "");
+}
+
+TEST(TimelineTest, RevealEventWithIdentityNaNDuration) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .pid = 1});
+  data.level_offsets = {0, 3};
+  data.level_event_indices = {0, 1, 2};
+  data.entry_names.push_back("normal_event");
+  data.entry_names.push_back("marker_event");
+  data.entry_names.push_back("other_marker");
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_start_times.push_back(200.0);
+  data.entry_start_times.push_back(300.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_total_times.push_back(std::numeric_limits<double>::quiet_NaN());
+  data.entry_total_times.push_back(std::numeric_limits<double>::quiet_NaN());
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 500.0});
+  timeline.SetVisibleRange({0.0, 500.0});
+
+  const double kNanDuration = std::numeric_limits<double>::quiet_NaN();
+
+  // Exact match at provided index for NaN-duration marker.
+  timeline.RevealEvent(/*index=*/1, "marker_event", /*start_us=*/200.0,
+                       /*duration_us=*/kNanDuration);
+  EXPECT_EQ(timeline.selected_event_index(), 1);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(), "");
+
+  // Relocation when index is stale (points to normal_event at index 0).
+  timeline.set_selected_event_index_for_test(-1);
+  timeline.RevealEvent(/*index=*/0, "marker_event", /*start_us=*/200.0,
+                       /*duration_us=*/kNanDuration);
+  EXPECT_EQ(timeline.selected_event_index(), 1);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(), "");
+
+  // Relocation when index is out of bounds (positive out-of-bounds).
+  timeline.set_selected_event_index_for_test(-1);
+  timeline.RevealEvent(/*index=*/99, "marker_event", /*start_us=*/200.0,
+                       /*duration_us=*/kNanDuration);
+  EXPECT_EQ(timeline.selected_event_index(), 1);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(), "");
+
+  // Relocation when index is out of bounds (negative).
+  timeline.set_selected_event_index_for_test(-1);
+  timeline.RevealEvent(/*index=*/-1, "marker_event", /*start_us=*/200.0,
+                       /*duration_us=*/kNanDuration);
+  EXPECT_EQ(timeline.selected_event_index(), 1);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(), "");
+
+  // Non-matching NaN duration against finite-duration event fails.
+  timeline.set_selected_event_index_for_test(-1);
+  timeline.RevealEvent(/*index=*/0, "normal_event", /*start_us=*/100.0,
+                       /*duration_us=*/kNanDuration);
+  EXPECT_EQ(timeline.selected_event_index(), -1);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(),
+            "Event not found");
+}
+
+TEST(TimelineTest, RevealEventWithIdentityZeroDuration) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .pid = 1});
+  data.level_offsets = {0, 3};
+  data.level_event_indices = {0, 1, 2};
+  data.entry_names.push_back("normal_event");
+  data.entry_names.push_back("instant_event");
+  data.entry_names.push_back("negative_dur_event");
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_start_times.push_back(200.0);
+  data.entry_start_times.push_back(300.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_total_times.push_back(0.0);
+  data.entry_total_times.push_back(-1.0);
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 500.0});
+  timeline.SetVisibleRange({0.0, 500.0});
+
+  // Exact match at provided index for 0-duration event.
+  timeline.RevealEvent(/*index=*/1, "instant_event", /*start_us=*/200.0,
+                       /*duration_us=*/0.0);
+  EXPECT_EQ(timeline.selected_event_index(), 1);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(), "");
+
+  // Relocation when index is stale (points to normal_event at index 0).
+  timeline.set_selected_event_index_for_test(-1);
+  timeline.RevealEvent(/*index=*/0, "instant_event", /*start_us=*/200.0,
+                       /*duration_us=*/0.0);
+  EXPECT_EQ(timeline.selected_event_index(), 1);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(), "");
+
+  // Relocation when index is out of bounds (positive out-of-bounds).
+  timeline.set_selected_event_index_for_test(-1);
+  timeline.RevealEvent(/*index=*/99, "instant_event", /*start_us=*/200.0,
+                       /*duration_us=*/0.0);
+  EXPECT_EQ(timeline.selected_event_index(), 1);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(), "");
+
+  // Relocation when index is out of bounds (negative).
+  timeline.set_selected_event_index_for_test(-1);
+  timeline.RevealEvent(/*index=*/-1, "instant_event", /*start_us=*/200.0,
+                       /*duration_us=*/0.0);
+  EXPECT_EQ(timeline.selected_event_index(), 1);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(), "");
+
+  // Match when entry duration is negative and target duration is 0.0 (both <=
+  // 0).
+  timeline.set_selected_event_index_for_test(-1);
+  timeline.RevealEvent(/*index=*/2, "negative_dur_event", /*start_us=*/300.0,
+                       /*duration_us=*/0.0);
+  EXPECT_EQ(timeline.selected_event_index(), 2);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(), "");
+
+  // Non-matching 0 duration against positive finite-duration event fails.
+  timeline.set_selected_event_index_for_test(-1);
+  timeline.RevealEvent(/*index=*/0, "normal_event", /*start_us=*/100.0,
+                       /*duration_us=*/0.0);
+  EXPECT_EQ(timeline.selected_event_index(), -1);
+  EXPECT_EQ(timeline.get_bounds_notification_message_for_test(),
+            "Event not found");
+}
+
 TEST(TimelineTest, SetSearchQuery) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);

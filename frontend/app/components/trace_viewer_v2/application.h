@@ -215,7 +215,13 @@ class Application {
       RequestRedraw();
     }
   }
-
+  void RevealEvent(int event_index, const std::string& name,
+                   Microseconds start_us, Microseconds duration_us) {
+    if (timeline_) {
+      timeline_->RevealEvent(event_index, name, start_us, duration_us);
+      RequestRedraw();
+    }
+  }
 
  private:
   friend class absl::NoDestructor<Application>;

@@ -15,7 +15,7 @@ import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {DEFAULT_HOST} from 'org_xprof/frontend/app/common/constants/constants';
 import {
-  FUNCTIONAL_UNITS,
+  FUNCTIONAL_UNITS_BY_LANE,
   readHoveredEvent,
 } from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_event_tooltip';
 import {
@@ -305,6 +305,7 @@ const GROUP_COLORS = [
 /** Darker functional unit colors for text contrast in the kernel rail. */
 const RAIL_UNIT_COLOR_OVERRIDES: ReadonlyMap<string, string> = new Map([
   ['XLU', '#e37400'],
+  ['XPU', '#e37400'],
   ['EUP', '#00796b'],
   ['SALU', '#188038'],
   ['VLD', '#00838f'],
@@ -312,8 +313,11 @@ const RAIL_UNIT_COLOR_OVERRIDES: ReadonlyMap<string, string> = new Map([
 ]);
 
 /** Colors of functional units, matched by uppercase prefix. */
-const UNIT_COLORS: ReadonlyArray<readonly [string, string]> =
-  FUNCTIONAL_UNITS.filter((unit) => unit.label !== 'Other').map(
+const UNIT_COLORS: ReadonlyArray<readonly [string, string]> = Array.from(
+  FUNCTIONAL_UNITS_BY_LANE.values(),
+)
+  .filter((unit) => unit.label !== 'Other')
+  .map(
     (unit) =>
       [
         unit.label,

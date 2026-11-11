@@ -245,7 +245,7 @@ function readCssHexColor(value: unknown): string | undefined {
   return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed.toLowerCase() : undefined;
 }
 
-/** Functional units in the Static Kernel Viewer timeline. */
+/** Functional units in the Static Kernel Viewer timeline (TensorCore). */
 export const FUNCTIONAL_UNITS: readonly FunctionalUnit[] = [
   {label: 'MXU', color: '#7c4dff'},
   {label: 'VPU', color: '#1a73e8'},
@@ -258,14 +258,42 @@ export const FUNCTIONAL_UNITS: readonly FunctionalUnit[] = [
   {label: 'Other', color: '#5f6368'},
 ];
 
-/** The 8 primary VLIW hardware lanes shown in the bundle strip. */
+/** Functional units in the Static Kernel Viewer timeline (SparseCore). */
+export const SPARSE_CORE_FUNCTIONAL_UNITS: readonly FunctionalUnit[] = [
+  {label: 'SALU', color: '#1e8e3e'},
+  {label: 'TVPU', color: '#1a73e8'},
+  {label: 'XPU', color: '#f29900'},
+  {label: 'EUP', color: '#12a4af'},
+  {label: 'VLD', color: '#00a3bf'},
+  {label: 'VST', color: '#d01884'},
+  {label: 'SGE', color: '#0288d1'},
+  {label: 'DMA', color: '#e8710a'},
+  {label: 'Other', color: '#5f6368'},
+];
+
+/** Lanes of SparseCore functional units that TensorCore does not have. */
+const SPARSE_CORE_ONLY_LANES: ReadonlySet<string> = new Set(
+  SPARSE_CORE_FUNCTIONAL_UNITS.map((unit) => unit.label).filter(
+    (label) => !FUNCTIONAL_UNITS.some((unit) => unit.label === label),
+  ),
+);
+
+/** The 8 primary TensorCore VLIW hardware lanes shown in the bundle strip. */
 const BUNDLE_STRIP_UNITS: readonly FunctionalUnit[] = FUNCTIONAL_UNITS.filter(
   (unit) => unit.label !== 'Other',
 );
 
-/** Functional units, keyed by the name of their lane. */
+/** The 8 primary SparseCore VLIW hardware lanes shown in the bundle strip. */
+const SPARSE_CORE_BUNDLE_STRIP_UNITS: readonly FunctionalUnit[] =
+  SPARSE_CORE_FUNCTIONAL_UNITS.filter((unit) => unit.label !== 'Other');
+
+/** Functional units (TensorCore and SparseCore), keyed by lane name. */
 export const FUNCTIONAL_UNITS_BY_LANE: ReadonlyMap<string, FunctionalUnit> =
-  new Map(FUNCTIONAL_UNITS.map((unit) => [unit.label, unit] as const));
+  new Map(
+    [...FUNCTIONAL_UNITS, ...SPARSE_CORE_FUNCTIONAL_UNITS].map(
+      (unit) => [unit.label, unit] as const,
+    ),
+  );
 
 /** Integer formatter for bundle indices and instruction counts. */
 export const BUNDLE_FORMAT = new Intl.NumberFormat(undefined, {
@@ -478,12 +506,13 @@ function buildInstructionOutput(
 export function unitForCounterTrack(
   trackName: string,
 ): FunctionalUnit | undefined {
-  const direct = FUNCTIONAL_UNITS_BY_LANE.get(trackName);
+  const normalized = trackName.trim();
+  const direct = FUNCTIONAL_UNITS_BY_LANE.get(normalized);
   if (direct) {
     return direct;
   }
-  if (trackName.endsWith(UTILIZATION_SUFFIX)) {
-    const label = trackName.slice(0, -UTILIZATION_SUFFIX.length).trim();
+  if (normalized.endsWith(UTILIZATION_SUFFIX)) {
+    const label = normalized.slice(0, -UTILIZATION_SUFFIX.length).trim();
     return FUNCTIONAL_UNITS_BY_LANE.get(label);
   }
   return undefined;
@@ -491,7 +520,11 @@ export function unitForCounterTrack(
 
 /** Classifies a counter track into utilization (%), memory (bytes), or registers. */
 export function classifyCounterTrack(trackName: string): CounterMetricKind {
-  if (/\bvmem\b|\bbytes?\b|\bmemory\b/i.test(trackName)) {
+  if (
+    /\b(vmem|spmem|tilespmem|smem|hbm|cmem|imem|simem|timem|spill)\b|\bbytes?\b|\bmemory\b/i.test(
+      trackName,
+    )
+  ) {
     return 'bytes';
   }
   if (/\breg(ister)?s?\b/i.test(trackName)) {
@@ -539,14 +572,44 @@ function clampPercent(percent: number): number {
   return Math.max(0, Math.min(100, Math.round(percent)));
 }
 
+/** Returns true if `bundleCounts` or `event` originates from SparseCore. */
+export function isSparseCoreBundleContext(
+  bundleCounts: Readonly<Record<string, number>> | undefined,
+  event?: Pick<HoveredEvent, 'trackName' | 'args'>,
+): boolean {
+  if (event) {
+    if (
+      Boolean(event.args?.['core_type']) ||
+      event.trackName === 'SparseCore' ||
+      SPARSE_CORE_ONLY_LANES.has(event.trackName)
+    ) {
+      return true;
+    }
+  }
+  if (bundleCounts) {
+    for (const key of Object.keys(bundleCounts)) {
+      if (SPARSE_CORE_ONLY_LANES.has(key)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 /** Builds the 8-lane VLIW bundle occupancy cells for a single bundle. */
 export function buildBundleStrip(
   bundleCounts: Readonly<Record<string, number>> | undefined,
+  preferSparseCore = false,
 ): readonly BundleLaneCell[] | undefined {
   if (!bundleCounts) {
     return undefined;
   }
-  const cells: BundleLaneCell[] = BUNDLE_STRIP_UNITS.map((unit) => {
+  const useScStrip =
+    preferSparseCore || isSparseCoreBundleContext(bundleCounts);
+  const stripUnits = useScStrip
+    ? SPARSE_CORE_BUNDLE_STRIP_UNITS
+    : BUNDLE_STRIP_UNITS;
+  const cells: BundleLaneCell[] = stripUnits.map((unit) => {
     const count = Math.max(0, Math.round(bundleCounts[unit.label] ?? 0));
     return {
       unit,
@@ -577,6 +640,9 @@ export function buildUtilizationBars(
   }
   const rawBars: Array<{unit: FunctionalUnit; percent: number}> = [];
   for (const [trackName, rawValue] of Object.entries(utilization)) {
+    if (classifyCounterTrack(trackName) !== 'utilization') {
+      continue;
+    }
     const unit = unitForCounterTrack(trackName);
     if (!unit) {
       continue;
@@ -606,7 +672,7 @@ export function buildInstructionMix(
   }
   let totalInstructions = 0;
   const entries: Array<{unit: FunctionalUnit; count: number}> = [];
-  for (const unit of FUNCTIONAL_UNITS) {
+  for (const unit of FUNCTIONAL_UNITS_BY_LANE.values()) {
     const count = Math.max(0, Math.round(bundleCounts[unit.label] ?? 0));
     if (count > 0) {
       totalInstructions += count;
@@ -863,10 +929,13 @@ export function buildKernelEventTooltip(
       : undefined;
   const hasSpills = (event.vectorSpills ?? 0) > 0;
 
+  const isSparseCore = isSparseCoreBundleContext(event.bundleCounts, event);
   const bundleStrip =
-    kind === 'instruction' ? buildBundleStrip(event.bundleCounts) : undefined;
+    kind === 'instruction'
+      ? buildBundleStrip(event.bundleCounts, isSparseCore)
+      : undefined;
   const processBundleStrip = isProcess
-    ? buildBundleStrip(event.bundleCounts)
+    ? buildBundleStrip(event.bundleCounts, isSparseCore)
     : undefined;
   const utilizationBars =
     kind === 'instruction' || isRegion

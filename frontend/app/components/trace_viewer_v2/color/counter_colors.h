@@ -35,8 +35,8 @@ struct CounterTrackColors {
 // or nullopt if `track_name` is not one of them:
 // - "<unit> utilization" tracks (e.g. "MXU utilization") get the color of the
 //   functional unit, as used for the unit in the rest of the Kernel Viewer.
-// - Memory tracks ("VMEM Scoped", "VMEM Spill", "Scalar Reg", "Vector Reg",
-//   "Predicate Reg", "Vector Mask Reg") get distinct hues, with spills in red.
+// - Memory tracks (VMEM, SparseCore scratchpad spills, and register tracks
+//   including "Descriptor Reg") get distinct hues, with spills in red shades.
 // The colors are mid-tones designed for light backgrounds; pass them through
 // MakeCounterTrackColors() to adapt them to a palette.
 std::optional<ImU32> GetKernelCounterTrackBaseColor(

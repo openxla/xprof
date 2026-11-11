@@ -24,20 +24,27 @@ struct NamedColor {
 constexpr NamedColor kUnitColors[] = {
     {"MXU", 0xFFFF4D7C},    // #7C4DFF
     {"VPU", 0xFFE8731A},    // #1A73E8
+    {"TVPU", 0xFFE8731A},   // #1A73E8
     {"XLU", 0xFF0099F2},    // #F29900
+    {"XPU", 0xFF0099F2},    // #F29900
     {"EUP", 0xFFAFA412},    // #12A4AF
     {"SALU", 0xFF3E8E1E},   // #1E8E3E
     {"VLD", 0xFFBFA300},    // #00A3BF
     {"VST", 0xFF8418D0},    // #D01884
+    {"SGE", 0xFFD18802},    // #0288D1
     {"DMA", 0xFF0A71E8},    // #E8710A
     {"Other", 0xFF68635F},  // #5F6368
 };
 
 // Memory track colors. Neighboring tracks (sorted by name) get contrasting
-// hues, and VMEM spills are red because they signal register pressure.
+// hues, and spills are red shades because they signal register pressure.
 constexpr NamedColor kMemoryColors[] = {
+    {"Descriptor Reg", 0xFFD18802},   // #0288D1 cerulean
     {"Predicate Reg", 0xFF0074E3},    // #E37400 amber
+    {"SCS Smem Spill", 0xFF0C36BF},   // #BF360C deep orange-red
     {"Scalar Reg", 0xFF388018},       // #188038 green
+    {"Tile Smem Spill", 0xFF5B18C2},  // #C2185B crimson
+    {"TileSpmem Spill", 0xFF2530D9},  // #D93025 red
     {"VMEM Scoped", 0xFFE63493},      // #9334E6 purple
     {"VMEM Spill", 0xFF2530D9},       // #D93025 red
     {"Vector Mask Reg", 0xFF837B00},  // #007B83 teal

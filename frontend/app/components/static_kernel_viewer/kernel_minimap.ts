@@ -121,13 +121,42 @@ const FUNCTIONAL_UNITS: readonly FunctionalUnit[] = [
   },
 ];
 
+const SPARSE_CORE_EXTRA_UNITS: readonly FunctionalUnit[] = [
+  {
+    label: 'TVPU',
+    description: 'Tile vector programmable unit — 16-wide SIMD ALU',
+    color: '#96c1ff',
+  },
+  {
+    label: 'XPU',
+    description: 'Cross-lane processing unit — permute / scan / sort',
+    color: '#e4b886',
+  },
+  {
+    label: 'SGE',
+    description: 'Scatter-Gather Engine — HBM / Spmem ↔ TileSpmem',
+    color: '#8ec8ff',
+  },
+];
+
 const FUNCTIONAL_UNITS_BY_LANE: ReadonlyMap<string, FunctionalUnit> = new Map(
-  FUNCTIONAL_UNITS.map((unit) => [unit.label, unit] as const),
+  [...FUNCTIONAL_UNITS, ...SPARSE_CORE_EXTRA_UNITS].map(
+    (unit) => [unit.label, unit] as const,
+  ),
 );
 
-const FUNCTIONAL_UNIT_INDEX_BY_LANE: ReadonlyMap<string, number> = new Map(
-  FUNCTIONAL_UNITS.map((unit, idx) => [unit.label, idx] as const),
-);
+/**
+ * Palette slots of the functional units, which also order the lanes built from
+ * bins. The SparseCore XPU and TVPU share the slots of their TensorCore
+ * counterparts, the XLU and the VPU, and the SGE, which has no counterpart,
+ * takes the next free slot.
+ */
+const FUNCTIONAL_UNIT_INDEX_BY_LANE: ReadonlyMap<string, number> = new Map([
+  ...FUNCTIONAL_UNITS.map((unit, idx) => [unit.label, idx] as const),
+  ['XPU', FUNCTIONAL_UNITS.findIndex((unit) => unit.label === 'XLU')] as const,
+  ['TVPU', FUNCTIONAL_UNITS.findIndex((unit) => unit.label === 'VPU')] as const,
+  ['SGE', FUNCTIONAL_UNITS.length] as const,
+]);
 
 const BUNDLE_FORMAT = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 0,

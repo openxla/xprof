@@ -27,14 +27,27 @@ constexpr absl::string_view kUtilizationTracks[] = {
     "VST utilization", "DMA utilization", "Other utilization",
 };
 
+constexpr absl::string_view kSparseCoreUtilizationTracks[] = {
+    "SALU utilization", "TVPU utilization", "XPU utilization",
+    "EUP utilization",  "VLD utilization",  "VST utilization",
+    "SGE utilization",  "DMA utilization",  "Other utilization",
+};
+
 constexpr absl::string_view kMemoryTracks[] = {
     "Predicate Reg", "Scalar Reg",      "VMEM Scoped",
     "VMEM Spill",    "Vector Mask Reg", "Vector Reg",
 };
 
+constexpr absl::string_view kSparseCoreMemoryTracks[] = {
+    "Descriptor Reg",  "Predicate Reg",   "SCS Smem Spill",  "Scalar Reg",
+    "Tile Smem Spill", "TileSpmem Spill", "Vector Mask Reg", "Vector Reg",
+};
+
 constexpr absl::Span<const absl::string_view> kSections[] = {
     kUtilizationTracks,
+    kSparseCoreUtilizationTracks,
     kMemoryTracks,
+    kSparseCoreMemoryTracks,
 };
 
 constexpr ImU32 kWhite = 0xFFFFFFFF;
@@ -47,7 +60,16 @@ TEST(GetKernelCounterTrackBaseColorTest, UtilizationTracksUseTheUnitColor) {
               Optional(Eq(0xFFFF4D7Cu)));
   EXPECT_THAT(GetKernelCounterTrackBaseColor("VPU utilization"),
               Optional(Eq(0xFFE8731Au)));
+  EXPECT_THAT(GetKernelCounterTrackBaseColor("TVPU utilization"),
+              Optional(Eq(0xFFE8731Au)));
+  EXPECT_THAT(GetKernelCounterTrackBaseColor("XPU utilization"),
+              Optional(Eq(0xFF0099F2u)));
+  EXPECT_THAT(GetKernelCounterTrackBaseColor("SGE utilization"),
+              Optional(Eq(0xFFD18802u)));
   for (absl::string_view track : kUtilizationTracks) {
+    EXPECT_TRUE(GetKernelCounterTrackBaseColor(track).has_value()) << track;
+  }
+  for (absl::string_view track : kSparseCoreUtilizationTracks) {
     EXPECT_TRUE(GetKernelCounterTrackBaseColor(track).has_value()) << track;
   }
 }
@@ -58,12 +80,31 @@ TEST(GetKernelCounterTrackBaseColorTest, VmemSpillIsRed) {
               Optional(Eq(0xFF2530D9u)));
 }
 
+TEST(GetKernelCounterTrackBaseColorTest,
+     SparseCoreMemoryTracksUseExpectedColors) {
+  EXPECT_THAT(GetKernelCounterTrackBaseColor("Descriptor Reg"),
+              Optional(Eq(0xFFD18802u)));
+  EXPECT_THAT(GetKernelCounterTrackBaseColor("TileSpmem Spill"),
+              Optional(Eq(0xFF2530D9u)));
+  EXPECT_THAT(GetKernelCounterTrackBaseColor("Tile Smem Spill"),
+              Optional(Eq(0xFF5B18C2u)));
+  EXPECT_THAT(GetKernelCounterTrackBaseColor("SCS Smem Spill"),
+              Optional(Eq(0xFF0C36BFu)));
+}
+
 TEST(GetKernelCounterTrackBaseColorTest, MemoryTracksHaveDistinctColors) {
-  absl::flat_hash_set<ImU32> colors;
+  absl::flat_hash_set<ImU32> tc_colors;
   for (absl::string_view track : kMemoryTracks) {
     const std::optional<ImU32> color = GetKernelCounterTrackBaseColor(track);
     ASSERT_TRUE(color.has_value()) << track;
-    EXPECT_TRUE(colors.insert(*color).second) << track;
+    EXPECT_TRUE(tc_colors.insert(*color).second) << track;
+  }
+
+  absl::flat_hash_set<ImU32> sc_colors;
+  for (absl::string_view track : kSparseCoreMemoryTracks) {
+    const std::optional<ImU32> color = GetKernelCounterTrackBaseColor(track);
+    ASSERT_TRUE(color.has_value()) << track;
+    EXPECT_TRUE(sc_colors.insert(*color).second) << track;
   }
 }
 

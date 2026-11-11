@@ -102,10 +102,9 @@ absl::StatusOr<std::string> CallWorkerService(const std::string& xspace_path,
   return response.output();
 }
 
-absl::Status RunMapReduce(const SessionSnapshot& session_snapshot,
-                          const absl::string_view tool_name,
-                          xprof::ProfileProcessor* processor,
-                          const ToolOptions& options) {
+absl::StatusOr<std::vector<std::string>> RunWorkerMap(
+    const SessionSnapshot& session_snapshot, absl::string_view tool_name,
+    const ToolOptions& options) {
   const int num_hosts = session_snapshot.XSpaceSize();
   std::vector<absl::StatusOr<std::string>> map_outputs(num_hosts);
 
@@ -113,7 +112,7 @@ absl::Status RunMapReduce(const SessionSnapshot& session_snapshot,
     tsl::thread::ThreadPool thread_pool(tsl::Env::Default(), __FUNCTION__,
                                         num_hosts);
     for (int i = 0; i < num_hosts; ++i) {
-      thread_pool.Schedule([&session_snapshot, &tool_name, &options,
+      thread_pool.Schedule([&session_snapshot, tool_name, &options,
                             &map_outputs, i] {
         std::string hostname = session_snapshot.GetHostname(i);
         std::string xspace_path = GetXSpaceFilePath(session_snapshot, hostname);
@@ -128,6 +127,15 @@ absl::Status RunMapReduce(const SessionSnapshot& session_snapshot,
     TF_RETURN_IF_ERROR(map_outputs[i].status());
     map_output_files.push_back(*std::move(map_outputs[i]));
   }
+  return map_output_files;
+}
+
+template <typename ProcessorType>
+absl::Status RunReducePhase(const SessionSnapshot& session_snapshot,
+                            absl::string_view tool_name,
+                            ProcessorType* processor,
+                            const std::vector<std::string>& map_output_files) {
+  const int num_hosts = session_snapshot.XSpaceSize();
   LOG(INFO) << "Started reducing outputs for tool: " << tool_name
             << " num_hosts: " << num_hosts;
   absl::Time start_time = absl::Now();
@@ -146,43 +154,6 @@ absl::Status ProcessSession(xprof::ProfileProcessor* processor,
   return absl::OkStatus();
 }
 
-absl::Status RunUnifiedMapReduce(const SessionSnapshot& session_snapshot,
-                                 absl::string_view tool_name,
-                                 UnifiedProfileProcessor* processor,
-                                 const ToolOptions& options) {
-  const int num_hosts = session_snapshot.XSpaceSize();
-  std::vector<absl::StatusOr<std::string>> map_outputs(num_hosts);
-
-  {
-    tsl::thread::ThreadPool thread_pool(tsl::Env::Default(), __FUNCTION__,
-                                        num_hosts);
-    for (int i = 0; i < num_hosts; ++i) {
-      thread_pool.Schedule([&session_snapshot, &tool_name, &options,
-                            &map_outputs, i] {
-        std::string hostname = session_snapshot.GetHostname(i);
-        std::string xspace_path = GetXSpaceFilePath(session_snapshot, hostname);
-        map_outputs[i] = CallWorkerService(xspace_path, tool_name, options);
-      });
-    }
-  }
-
-  std::vector<std::string> map_output_files;
-  map_output_files.reserve(num_hosts);
-  for (int i = 0; i < num_hosts; ++i) {
-    TF_RETURN_IF_ERROR(map_outputs[i].status());
-    map_output_files.push_back(*std::move(map_outputs[i]));
-  }
-  LOG(INFO) << "Started reducing outputs for tool: " << tool_name
-            << " num_hosts: " << num_hosts;
-  absl::Time start_time = absl::Now();
-  absl::Status reduce_status =
-      processor->Reduce(session_snapshot, map_output_files);
-  absl::Duration reduce_time = absl::Now() - start_time;
-  LOG(INFO) << "Finished reducing outputs for tool: " << tool_name
-            << " num_hosts: " << num_hosts << " time taken: " << reduce_time;
-  return reduce_status;
-}
-
 absl::StatusOr<std::optional<std::string>> TryRunUnifiedProcessor(
     const SessionSnapshot& session_snapshot, absl::string_view tool_name,
     const ToolOptions& options) {
@@ -196,8 +167,21 @@ absl::StatusOr<std::optional<std::string>> TryRunUnifiedProcessor(
   LOG(INFO) << "Using unified workflow for tool: " << tool_name;
   if (unified_processor->ShouldUseWorkerService(session_snapshot, options) &&
       ::xprof::profiler::HasWorkerStubs()) {
-    TF_RETURN_IF_ERROR(RunUnifiedMapReduce(session_snapshot, tool_name,
-                                           unified_processor.get(), options));
+    absl::StatusOr<std::vector<std::string>> map_output_files =
+        RunWorkerMap(session_snapshot, tool_name, options);
+    if (map_output_files.ok()) {
+      TF_RETURN_IF_ERROR(RunReducePhase(session_snapshot, tool_name,
+                                        unified_processor.get(),
+                                        *map_output_files));
+    } else if (absl::IsUnavailable(map_output_files.status())) {
+      LOG(WARNING) << "Worker service unavailable for unified tool "
+                   << tool_name << " (" << map_output_files.status()
+                   << "), falling back to local processing.";
+      TF_RETURN_IF_ERROR(
+          unified_processor->ProcessSession(session_snapshot, options));
+    } else {
+      TF_RETURN_IF_ERROR(map_output_files.status());
+    }
   } else {
     TF_RETURN_IF_ERROR(
         unified_processor->ProcessSession(session_snapshot, options));
@@ -236,8 +220,20 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolDataWithProfileProcessor(
     if (processor->ShouldUseWorkerService(session_snapshot, options) &&
         ::xprof::profiler::HasWorkerStubs()) {
       LOG(INFO) << "Using worker service for tool: " << tool_name;
-      TF_RETURN_IF_ERROR(
-          RunMapReduce(session_snapshot, tool_name, processor.get(), options));
+      absl::StatusOr<std::vector<std::string>> map_output_files =
+          RunWorkerMap(session_snapshot, tool_name, options);
+      if (map_output_files.ok()) {
+        TF_RETURN_IF_ERROR(RunReducePhase(
+            session_snapshot, tool_name, processor.get(), *map_output_files));
+      } else if (absl::IsUnavailable(map_output_files.status())) {
+        LOG(WARNING) << "Worker service unavailable for tool " << tool_name
+                     << " (" << map_output_files.status()
+                     << "), falling back to local processing.";
+        TF_RETURN_IF_ERROR(
+            ProcessSession(processor.get(), session_snapshot, options));
+      } else {
+        TF_RETURN_IF_ERROR(map_output_files.status());
+      }
     } else {
       LOG(INFO) << "Using local processing for tool: " << tool_name;
       TF_RETURN_IF_ERROR(

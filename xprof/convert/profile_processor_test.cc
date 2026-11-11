@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 #include "xprof/convert/profile_processor.h"
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -35,6 +36,11 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "grpcpp/security/server_credentials.h"
+#include "grpcpp/server.h"
+#include "grpcpp/server_builder.h"
+#include "grpcpp/server_context.h"
+#include "grpcpp/support/status.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
@@ -46,6 +52,8 @@ limitations under the License.
 #include "xprof/convert/xplane_to_tools_data_with_profile_processor.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/trace_events_old.pb.h"
+#include "plugin/xprof/protobuf/worker_service.grpc.pb.h"
+#include "plugin/xprof/worker/stub_factory.h"
 
 ABSL_DECLARE_FLAG(bool, enable_unified_xprof);
 
@@ -289,6 +297,95 @@ TEST(TraceViewerContractTest, UnifiedWorkflowReturnsSerializedTraceProto) {
       << "trace_viewer output is not a serialized Trace proto";
   EXPECT_THAT(trace.devices(), Not(IsEmpty()));
   EXPECT_THAT(trace.trace_events(), Not(IsEmpty()));
+}
+
+class UnavailableWorkerService final
+    : public ::xprof::pywrap::grpc::XprofAnalysisWorkerService::Service {
+ public:
+  ::grpc::Status GetProfileData(
+      ::grpc::ServerContext* context,
+      const ::xprof::pywrap::WorkerProfileDataRequest* request,
+      ::xprof::pywrap::WorkerProfileDataResponse* response) override {
+    calls.fetch_add(1, std::memory_order_relaxed);
+    if (succeed_with_missing_output.load(std::memory_order_relaxed)) {
+      response->set_output("/nonexistent_reduce_input.pb");
+      response->set_worker_id("test-worker");
+      return ::grpc::Status::OK;
+    }
+    context->AddTrailingMetadata("grpc-retry-pushback-ms", "-1");
+    return ::grpc::Status(::grpc::StatusCode::UNAVAILABLE, "unavailable");
+  }
+  std::atomic<int> calls{0};
+  std::atomic<bool> succeed_with_missing_output{false};
+};
+
+TEST(WorkerFallbackTest, FallsBackToLocalProcessingWhenWorkerUnavailable) {
+  std::string session_dir =
+      file::JoinPath(testing::TempDir(), "worker_unavailable_fallback_test");
+  ASSERT_OK(file::CreateDir(session_dir, file::Defaults()));
+  auto dir_cleanup = absl::MakeCleanup([&session_dir] {
+    file::RecursivelyDelete(session_dir, file::Defaults()).IgnoreError();
+  });
+
+  XSpace space;
+  space.add_planes()->set_name("test_plane");
+  std::string host1_path = file::JoinPath(session_dir, "host1.xplane.pb");
+  std::string host2_path = file::JoinPath(session_dir, "host2.xplane.pb");
+  ASSERT_OK(xprof::WriteBinaryProto(host1_path, space));
+  ASSERT_OK(xprof::WriteBinaryProto(host2_path, space));
+
+  UnavailableWorkerService service;
+  ::grpc::ServerBuilder builder;
+  int port = 0;
+  builder.AddListeningPort("localhost:0", ::grpc::InsecureServerCredentials(),
+                           &port);
+  builder.RegisterService(&service);
+  std::unique_ptr<::grpc::Server> server = builder.BuildAndStart();
+  ASSERT_NE(server, nullptr);
+  auto server_cleanup = absl::MakeCleanup([&server] {
+    server->Shutdown();
+    server->Wait();
+  });
+
+  ::xprof::profiler::internal::ResetStubsForTesting();
+  ::xprof::profiler::InitializeStubs("localhost:" + std::to_string(port));
+  auto stub_cleanup = absl::MakeCleanup([] {
+    ::xprof::profiler::internal::ResetStubsForTesting();
+  });
+
+  int expected_calls = 0;
+  for (bool enable_unified : {false, true}) {
+    absl::FlagSaver flag_saver;
+    absl::SetFlag(&FLAGS_enable_unified_xprof, enable_unified);
+    ASSERT_OK_AND_ASSIGN(
+        SessionSnapshot session_snapshot,
+        SessionSnapshot::Create({host1_path, host2_path}, std::nullopt));
+    ASSERT_OK(session_snapshot.ClearCacheFiles());
+    ASSERT_OK_AND_ASSIGN(std::string tool_data,
+                         ConvertMultiXSpacesToToolDataWithProfileProcessor(
+                             session_snapshot, "overview_page", ToolOptions()));
+    EXPECT_THAT(tool_data, Not(IsEmpty()));
+    expected_calls += 2;
+    EXPECT_EQ(service.calls.load(std::memory_order_relaxed), expected_calls);
+  }
+
+  // When workers succeed in Map but Reduce fails on the returned output files,
+  // Reduce errors must propagate directly without falling back to local
+  // ProcessSession.
+  service.succeed_with_missing_output.store(true, std::memory_order_relaxed);
+  for (bool enable_unified : {false, true}) {
+    absl::FlagSaver flag_saver;
+    absl::SetFlag(&FLAGS_enable_unified_xprof, enable_unified);
+    ASSERT_OK_AND_ASSIGN(
+        SessionSnapshot session_snapshot,
+        SessionSnapshot::Create({host1_path, host2_path}, std::nullopt));
+    ASSERT_OK(session_snapshot.ClearCacheFiles());
+    EXPECT_FALSE(ConvertMultiXSpacesToToolDataWithProfileProcessor(
+                     session_snapshot, "overview_page", ToolOptions())
+                     .ok());
+    expected_calls += 2;
+    EXPECT_EQ(service.calls.load(std::memory_order_relaxed), expected_calls);
+  }
 }
 
 // Helper to map index to tool name for benchmarks.

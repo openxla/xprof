@@ -211,6 +211,53 @@ class ServerTest(parameterized.TestCase):
     )
 
 
+class LaunchServerTest(absltest.TestCase):
+
+  def test_launch_server_starts_grpc_before_initializing_stubs(self):
+    """Ensures worker gRPC server is listening before stubs pre-warm."""
+    call_order = []
+    with (
+        mock.patch.object(
+            server._pywrap_profiler_plugin,
+            'start_grpc_server',
+            autospec=True,
+            side_effect=lambda port, max_concurrent_requests: call_order.append(
+                ('start_grpc', (port, max_concurrent_requests))
+            ),
+        ),
+        mock.patch.object(
+            server._pywrap_profiler_plugin,
+            'initialize_stubs',
+            autospec=True,
+            side_effect=lambda worker_service_addresses: call_order.append(
+                ('init_stubs', worker_service_addresses)
+            ),
+        ),
+        mock.patch.object(server, 'DataProvider', autospec=True),
+        mock.patch.object(server, 'TBContext', autospec=True),
+        mock.patch.object(server, 'ProfilePluginLoader', autospec=True),
+        mock.patch.object(server, 'run_server', autospec=True),
+    ):
+      config = server.ServerConfig(
+          logdir='/tmp/log',
+          port=8791,
+          grpc_port=50051,
+          worker_service_address='0.0.0.0:50051',
+          hide_capture_profile_button=False,
+          src_prefix=None,
+          max_concurrent_worker_requests=4,
+      )
+      server._launch_server(config)
+
+    self.assertEqual(
+        call_order,
+        [
+            ('start_grpc', (50051, 4)),
+            ('init_stubs', '0.0.0.0:50051'),
+        ],
+    )
+
+
 def _respond_with(body):
   """Returns a WSGI app that answers every request with 200 and `body`."""
 

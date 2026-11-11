@@ -1446,6 +1446,8 @@ button.overflow-menu-btn.mat-mdc-icon-button {
       box-sizing: border-box;
       padding: 4px;
       overflow: visible;
+      // Prevent flex child intrinsic width from forcing the container to widen.
+      min-width: 0;
 
       .split-area-inner {
         background-color: var(--mat-sys-surface);
@@ -1460,6 +1462,8 @@ button.overflow-menu-btn.mat-mdc-icon-button {
       box-sizing: border-box;
       padding: 4px;
       overflow: visible;
+      // Prevent flex child intrinsic width from forcing the container to widen.
+      min-width: 0;
 
       .split-area-inner {
         background-color: var(--mat-sys-surface-container);
@@ -1553,19 +1557,20 @@ button.overflow-menu-btn.mat-mdc-icon-button {
     .cross-tool-links {
       margin-top: 16px;
       display: flex;
-      flex-wrap: wrap;
+      flex-direction: column;
       gap: 8px;
-      align-items: baseline;
       font-size: 12px;
 
       ::ng-deep div,
       div {
-        display: inline-flex;
+        display: flex;
         align-items: center;
         gap: 4px;
         white-space: nowrap;
         font-size: 12px;
         color: var(--mat-sys-on-surface-variant);
+        max-width: 100%;
+        min-width: 0;
       }
 
       ::ng-deep a,
@@ -1579,6 +1584,11 @@ button.overflow-menu-btn.mat-mdc-icon-button {
         font-size: 12px;
         font-weight: 500;
         white-space: nowrap;
+        max-width: 100%;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        box-sizing: border-box;
 
         &:hover {
           text-decoration: underline;

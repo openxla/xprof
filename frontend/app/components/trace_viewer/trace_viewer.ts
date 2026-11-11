@@ -1126,9 +1126,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     if (!toolLinkHref) {
       return `<div>${toolLabel}: Error creating link</div>`;
     }
+    const escapedText = text.replace(/"/g, '&quot;');
     return `<div>${toolLabel}: <a href="${
       toolLinkHref
-    }" target="_blank" rel="noopener noreferrer">${text}</a></div>`;
+    }" target="_blank" rel="noopener noreferrer" title="${escapedText}">${text}</a></div>`;
   }
 
   /**

@@ -129,6 +129,17 @@ function isEventsSelectedEvent(
 }
 
 
+/** One flow-connected event in the EntrySelected payload. */
+export declare interface FlowEventDetail {
+  eventIndex: number;
+  name: string;
+  startUs: number;
+  durationUs: number;
+  startUsFormatted: string;
+  durationUsFormatted: string;
+  pid?: number;
+}
+
 /**
  * The detail of an 'EntrySelected' custom event. The properties are quoted to
  * prevent renaming during minification.
@@ -146,6 +157,8 @@ export declare interface EntrySelectedEventDetail {
   hloOpName?: string;
   args?: Record<string, string>;
   trackName?: string;
+  inboundFlows?: FlowEventDetail[];
+  outboundFlows?: FlowEventDetail[];
 }
 
 // Type guard for the 'EntrySelected' custom event.

@@ -19998,6 +19998,181 @@ TEST_F(MockTimelineImGuiFixture, FractionCounterTrackPinsBoundsToZeroAndOne) {
   EXPECT_DOUBLE_EQ(chunk2.counter_data_by_group_index.at(0).max_value, 1.0);
 }
 
+TEST_F(RealTimelineImGuiFixture, FlowLinesPopulateEventData) {
+  FlameChartTimelineData timeline_data;
+
+  Group group1;
+  group1.type = Group::Type::kFlame;
+  group1.name = "Group1";
+  group1.start_level = 0;
+  group1.level_count = 1;
+  group1.expanded = true;
+  group1.pid = 100;
+  timeline_data.groups.push_back(group1);
+
+  Group group2;
+  group2.type = Group::Type::kFlame;
+  group2.name = "Group2";
+  group2.start_level = 1;
+  group2.level_count = 1;
+  group2.expanded = true;
+  group2.pid = 200;
+  timeline_data.groups.push_back(group2);
+
+  timeline_data.entry_levels = {0, 1};
+  timeline_data.entry_names = {"Event0", "Event1"};
+  timeline_data.entry_start_times = {0.0, 100.0};
+  timeline_data.entry_total_times = {50.0, 50.0};
+  timeline_data.entry_event_ids = {1000, 1001};
+  timeline_data.level_event_indices = {0, 1};
+  timeline_data.level_offsets = {0, 1, 2};
+  timeline_data.sparse_entry_args[0] = {{"uid", "123"},
+                                        {std::string(kHloOp), "op0"},
+                                        {std::string(kHloModule), "mod0"}};
+  timeline_data.sparse_entry_args[1] = {{"uid", "456"},
+                                        {std::string(kHloOp), "op1"},
+                                        {std::string(kHloModule), "mod1"}};
+
+  FlowLine flow;
+  flow.source_level = 0;
+  flow.target_level = 1;
+  flow.source_ts = 0.0;
+  flow.target_ts = 100.0;
+
+  timeline_data.flow_lines.push_back(flow);
+  timeline_data.flow_ids_by_event_id[1000].push_back("flow_A");
+  timeline_data.flow_ids_by_event_id[1001].push_back("flow_A");
+  timeline_data.flow_lines_by_flow_id["flow_A"].push_back(flow);
+
+  // Add a flow whose endpoint timestamp falls into a gap on its level.
+  FlowLine flow_gap;
+  flow_gap.source_level = 0;
+  flow_gap.target_level = 1;
+  flow_gap.source_ts = 25.0;
+  flow_gap.target_ts = 200.0;  // Gap on level 1 (Event1 is [100.0, 150.0]).
+  timeline_data.flow_lines.push_back(flow_gap);
+  timeline_data.flow_ids_by_event_id[1000].push_back("flow_gap");
+  timeline_data.flow_lines_by_flow_id["flow_gap"].push_back(flow_gap);
+
+  // Add an inbound flow whose source lies in a gap on its level.
+  FlowLine flow_inbound_gap;
+  flow_inbound_gap.source_level = 0;
+  flow_inbound_gap.target_level = 1;
+  flow_inbound_gap.source_ts = 75.0;  // Gap on level 0 (Event0 is [0.0, 50.0]).
+  flow_inbound_gap.target_ts = 125.0;  // Within Event1 on level 1.
+  timeline_data.flow_lines.push_back(flow_inbound_gap);
+  timeline_data.flow_ids_by_event_id[1001].push_back("flow_inbound_gap");
+  timeline_data.flow_lines_by_flow_id["flow_inbound_gap"].push_back(
+      flow_inbound_gap);
+
+  timeline_.SetTimelineData(timeline_data);
+  timeline_.SetVisibleRange({0.0, 200.0});
+
+  std::vector<EventData> emitted_events;
+  timeline_.set_event_callback(
+      [&](absl::string_view name, const EventData& data) {
+        if (name == kEventSelected || name == kEventHovered) {
+          emitted_events.push_back(data);
+        }
+      });
+
+  timeline_.RevealEvent(0);
+  ASSERT_EQ(emitted_events.size(), 1);
+  const EventData& selected_data0 = emitted_events.back();
+  auto it0 = selected_data0.find(std::string(kEventSelectedOutboundFlows));
+  ASSERT_NE(it0, selected_data0.end());
+  const auto& out_flows0 =
+      std::any_cast<const std::vector<EventData>&>(it0->second);
+  ASSERT_EQ(out_flows0.size(), 1);
+  EXPECT_EQ(
+      std::any_cast<int>(out_flows0[0].at(std::string(kEventSelectedIndex))),
+      1);
+  EXPECT_EQ(std::any_cast<std::string>(
+                out_flows0[0].at(std::string(kEventSelectedName))),
+            "Event1");
+  EXPECT_EQ(std::any_cast<Microseconds>(
+                out_flows0[0].at(std::string(kEventSelectedStart))),
+            100.0);
+  EXPECT_EQ(std::any_cast<Microseconds>(
+                out_flows0[0].at(std::string(kEventSelectedDuration))),
+            50.0);
+  EXPECT_EQ(std::any_cast<std::string>(
+                out_flows0[0].at(std::string(kEventSelectedStartFormatted))),
+            timeline_.FormatRulerLabel(100.0, 0.0));
+  EXPECT_EQ(std::any_cast<std::string>(
+                out_flows0[0].at(std::string(kEventSelectedDurationFormatted))),
+            FormatDuration(50.0, timeline_.time_axis_unit()));
+  EXPECT_EQ(
+      std::any_cast<double>(out_flows0[0].at(std::string(kEventSelectedPid))),
+      200.0);
+  EXPECT_EQ(out_flows0[0].find(std::string(kEventSelectedUid)),
+            out_flows0[0].end());
+  EXPECT_EQ(out_flows0[0].find(std::string(kEventSelectedHloModuleName)),
+            out_flows0[0].end());
+  EXPECT_EQ(out_flows0[0].find(std::string(kEventSelectedHloOpName)),
+            out_flows0[0].end());
+  EXPECT_EQ(out_flows0[0].find(std::string(kEventSelectedArgs)),
+            out_flows0[0].end());
+  EXPECT_EQ(selected_data0.find(std::string(kEventSelectedInboundFlows)),
+            selected_data0.end());
+
+  timeline_.RevealEvent(1);
+  ASSERT_EQ(emitted_events.size(), 2);
+  const EventData& selected_data1 = emitted_events.back();
+  auto it1 = selected_data1.find(std::string(kEventSelectedInboundFlows));
+  ASSERT_NE(it1, selected_data1.end());
+  const auto& in_flows1 =
+      std::any_cast<const std::vector<EventData>&>(it1->second);
+  ASSERT_EQ(in_flows1.size(), 1);
+  EXPECT_EQ(
+      std::any_cast<int>(in_flows1[0].at(std::string(kEventSelectedIndex))), 0);
+  EXPECT_EQ(std::any_cast<std::string>(
+                in_flows1[0].at(std::string(kEventSelectedName))),
+            "Event0");
+  EXPECT_EQ(std::any_cast<Microseconds>(
+                in_flows1[0].at(std::string(kEventSelectedStart))),
+            0.0);
+  EXPECT_EQ(std::any_cast<Microseconds>(
+                in_flows1[0].at(std::string(kEventSelectedDuration))),
+            50.0);
+  EXPECT_EQ(std::any_cast<std::string>(
+                in_flows1[0].at(std::string(kEventSelectedStartFormatted))),
+            timeline_.FormatRulerLabel(0.0, 0.0));
+  EXPECT_EQ(std::any_cast<std::string>(
+                in_flows1[0].at(std::string(kEventSelectedDurationFormatted))),
+            FormatDuration(50.0, timeline_.time_axis_unit()));
+  EXPECT_EQ(
+      std::any_cast<double>(in_flows1[0].at(std::string(kEventSelectedPid))),
+      100.0);
+  EXPECT_EQ(in_flows1[0].find(std::string(kEventSelectedUid)),
+            in_flows1[0].end());
+  EXPECT_EQ(in_flows1[0].find(std::string(kEventSelectedHloModuleName)),
+            in_flows1[0].end());
+  EXPECT_EQ(in_flows1[0].find(std::string(kEventSelectedHloOpName)),
+            in_flows1[0].end());
+  EXPECT_EQ(in_flows1[0].find(std::string(kEventSelectedArgs)),
+            in_flows1[0].end());
+  EXPECT_EQ(selected_data1.find(std::string(kEventSelectedOutboundFlows)),
+            selected_data1.end());
+
+  emitted_events.clear();
+  ImGui::GetIO().MousePos = ImVec2(-1000.0f, -1000.0f);
+  SimulateFrame();
+
+  ImGui::GetIO().MousePos = ImVec2(GetTimelineStartX() + 25.0f, kFirstEventY);
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  bool found_hover = false;
+  for (const auto& ev : emitted_events) {
+    EXPECT_EQ(ev.find(std::string(kEventSelectedOutboundFlows)), ev.end());
+    EXPECT_EQ(ev.find(std::string(kEventSelectedInboundFlows)), ev.end());
+    found_hover = true;
+  }
+  EXPECT_TRUE(found_hover);
+
+  ImGui::EndFrame();
+}
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer

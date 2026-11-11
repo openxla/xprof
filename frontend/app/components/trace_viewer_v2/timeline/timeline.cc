@@ -3880,6 +3880,65 @@ EventData Timeline::CreateBaseEventData(int event_index, bool is_hover) const {
       event_data.try_emplace(kEventSelectedArgs, std::move(js_args));
     }
   }
+  if (!is_hover && event_index < timeline_data_.entry_event_ids.size()) {
+    auto it = timeline_data_.flow_ids_by_event_id.find(
+        timeline_data_.entry_event_ids[event_index]);
+    if (it != timeline_data_.flow_ids_by_event_id.end()) {
+      auto create_flow_event_detail = [&](int idx) -> EventData {
+        EventData detail;
+        detail.try_emplace(kEventSelectedIndex, idx);
+        if (idx >= 0 && idx < timeline_data_.entry_names.size()) {
+          detail.try_emplace(kEventSelectedName,
+                             timeline_data_.entry_names[idx]);
+        }
+        if (idx >= 0 && idx < timeline_data_.entry_start_times.size()) {
+          const Microseconds start_ts = timeline_data_.entry_start_times[idx];
+          detail.try_emplace(kEventSelectedStart, start_ts);
+          detail.try_emplace(kEventSelectedStartFormatted,
+                             FormatRulerLabel(start_ts, /*tick_interval=*/0.0));
+        }
+        if (idx >= 0 && idx < timeline_data_.entry_total_times.size()) {
+          const Microseconds total_ts = timeline_data_.entry_total_times[idx];
+          detail.try_emplace(kEventSelectedDuration, total_ts);
+          detail.try_emplace(kEventSelectedDurationFormatted,
+                             FormatDuration(total_ts, time_axis_unit_));
+        }
+        if (idx >= 0 && idx < timeline_data_.entry_levels.size()) {
+          ProcessId pid = 0;
+          if (const Group* grp = timeline_data_.FindGroupForLevel(
+                  timeline_data_.entry_levels[idx])) {
+            pid = grp->pid;
+          }
+          detail.try_emplace(kEventSelectedPid, static_cast<double>(pid));
+        }
+        return detail;
+      };
+
+      std::vector<EventData> inbound, outbound;
+      for (const std::string& flow_id : it->second) {
+        auto lines_it = timeline_data_.flow_lines_by_flow_id.find(flow_id);
+        if (lines_it == timeline_data_.flow_lines_by_flow_id.end()) continue;
+        for (const FlowLine& flow : lines_it->second) {
+          const int src = timeline_data_.FindEventIndexAt(flow.source_level,
+                                                          flow.source_ts);
+          const int tgt = timeline_data_.FindEventIndexAt(flow.target_level,
+                                                          flow.target_ts);
+          if (src == event_index && tgt >= 0) {
+            outbound.push_back(create_flow_event_detail(tgt));
+          } else if (tgt == event_index && src >= 0) {
+            inbound.push_back(create_flow_event_detail(src));
+          }
+        }
+      }
+      if (!inbound.empty()) {
+        event_data.try_emplace(kEventSelectedInboundFlows, std::move(inbound));
+      }
+      if (!outbound.empty()) {
+        event_data.try_emplace(kEventSelectedOutboundFlows,
+                               std::move(outbound));
+      }
+    }
+  }
   return event_data;
 }
 

@@ -4,6 +4,16 @@ build --experimental_repo_remote_exec
 build --cxxopt=-std=c++17
 build --host_cxxopt=-std=c++17
 build --noenable_bzlmod
+build --copt=-Wno-unknown-argument
+build --host_copt=-Wno-unknown-argument
+build --copt=-Wno-unknown-warning-option
+build --host_copt=-Wno-unknown-warning-option
+build --copt=-Wno-unused-command-line-argument
+build --host_copt=-Wno-unused-command-line-argument
+build --copt=-Wno-deprecated-declarations
+build --host_copt=-Wno-deprecated-declarations
+build --copt=-Wno-invalid-offsetof
+build --host_copt=-Wno-invalid-offsetof
 
 build --incompatible_enable_cc_toolchain_resolution
 build --repo_env USE_HERMETIC_CC_TOOLCHAIN=1
@@ -57,6 +67,46 @@ build:ci_windows_amd64 --copt=-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH
 build:ci_windows_amd64 --host_copt=-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH
 build:ci_windows_amd64 --action_env=_LINK_="/FORCE:MULTIPLE"
 build:ci_windows_amd64 --host_action_env=_LINK_="/FORCE:MULTIPLE"
+
+# Suppress noisy third-party compiler warnings on Windows Clang-cl (protobuf, abseil, imgui)
+build:ci_windows_amd64 --copt=-Wno-unknown-argument
+build:ci_windows_amd64 --host_copt=-Wno-unknown-argument
+build:ci_windows_amd64 --copt=-Wno-unknown-warning-option
+build:ci_windows_amd64 --host_copt=-Wno-unknown-warning-option
+build:ci_windows_amd64 --copt=-Wno-invalid-offsetof
+build:ci_windows_amd64 --host_copt=-Wno-invalid-offsetof
+build:ci_windows_amd64 --copt=-Wno-unused-command-line-argument
+build:ci_windows_amd64 --host_copt=-Wno-unused-command-line-argument
+build:ci_windows_amd64 --copt=-Wno-deprecated-declarations
+build:ci_windows_amd64 --host_copt=-Wno-deprecated-declarations
+build:ci_windows_amd64 --copt=-Wno-nontrivial-memcall
+build:ci_windows_amd64 --host_copt=-Wno-nontrivial-memcall
+build:ci_windows_amd64 --copt=-Wno-nullability-completeness
+build:ci_windows_amd64 --host_copt=-Wno-nullability-completeness
+build:ci_windows_amd64 --copt=-Wno-macro-redefined
+build:ci_windows_amd64 --host_copt=-Wno-macro-redefined
+build:ci_windows_amd64 --copt=-Wno-microsoft-cast
+build:ci_windows_amd64 --host_copt=-Wno-microsoft-cast
+build:ci_windows_amd64 --copt=-Wno-inconsistent-missing-override
+build:ci_windows_amd64 --host_copt=-Wno-inconsistent-missing-override
+build:ci_windows_amd64 --copt=-Wno-final-dtor-non-final-class
+build:ci_windows_amd64 --host_copt=-Wno-final-dtor-non-final-class
+build:ci_windows_amd64 --copt=-Wno-c++20-extensions
+build:ci_windows_amd64 --host_copt=-Wno-c++20-extensions
+build:ci_windows_amd64 --copt=-Wno-microsoft-include
+build:ci_windows_amd64 --host_copt=-Wno-microsoft-include
+build:ci_windows_amd64 --copt=-Wno-unused-result
+build:ci_windows_amd64 --host_copt=-Wno-unused-result
+build:ci_windows_amd64 --copt=-Wno-implicit-const-int-float-conversion
+build:ci_windows_amd64 --host_copt=-Wno-implicit-const-int-float-conversion
+build:ci_windows_amd64 --copt=-Wno-ignored-attributes
+build:ci_windows_amd64 --host_copt=-Wno-ignored-attributes
+build:ci_windows_amd64 --copt=-Wno-unused-variable
+build:ci_windows_amd64 --host_copt=-Wno-unused-variable
+build:ci_windows_amd64 --copt=-Wno-unused-const-variable
+build:ci_windows_amd64 --host_copt=-Wno-unused-const-variable
+build:ci_windows_amd64 --copt=-Wno-unknown-warning-option
+build:ci_windows_amd64 --host_copt=-Wno-unknown-warning-option
 
 # #############################################################################
 # RBE config options below. These inherit the CI configs above and set the
@@ -145,7 +195,26 @@ build:wasm --crosstool_top=//emscripten_toolchain:everything
 build:wasm --cpu=wasm
 build:wasm --host_crosstool_top=@bazel_tools//tools/cpp:toolchain
 build:wasm --copt=-msimd128
+build:wasm --copt=-Wno-unknown-argument
+build:wasm --copt=-Wno-unknown-warning-option
 build:wasm --copt=-Wno-unused-command-line-argument
+build:wasm --copt=-Wno-deprecated-declarations
+build:wasm --copt=-Wno-nontrivial-memcall
+build:wasm --copt=-Wno-nullability-completeness
+build:wasm --copt=-Wno-macro-redefined
+build:wasm --copt=-Wno-microsoft-cast
+build:wasm --copt=-Wno-inconsistent-missing-override
+build:wasm --copt=-Wno-final-dtor-non-final-class
+build:wasm --copt=-Wno-c++20-extensions
+build:wasm --copt=-Wno-microsoft-include
+build:wasm --copt=-Wno-unused-result
+build:wasm --copt=-Wno-implicit-const-int-float-conversion
+build:wasm --copt=-Wno-ignored-attributes
+build:wasm --copt=-Wno-invalid-offsetof
+build:wasm --copt=-Wno-unused-variable
+build:wasm --copt=-Wno-unused-const-variable
+build:wasm --copt=-Wno-pthreads-mem-growth
+build:wasm --copt=-Wno-limited-postlink-optimizations
 build:wasm --cxxopt=-std=c++17
 build:wasm --host_cxxopt=-std=c++17
 

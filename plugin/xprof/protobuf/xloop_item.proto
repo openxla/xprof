@@ -1,0 +1,280 @@
+/* Copyright 2026 The XProf Authors. All Rights Reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
+// XLoop Engine benchmark item.
+
+syntax = "proto3";
+
+package xprof.xloop;
+
+// NOTE: deliberately not LITE_RUNTIME. The engine round-trips these messages
+// through proto3 JSON (google.protobuf.json_format), which needs the full
+// runtime's reflection support.
+
+option cc_enable_arenas = true;
+
+// Outcome of parsing, compiling or executing one piece of code.
+enum CodeStatus {
+  CODE_STATUS_UNSPECIFIED = 0;
+  CODE_STATUS_COMPILE_ERROR = 1;
+  CODE_STATUS_EXECUTE_ERROR = 2;
+  CODE_STATUS_PARSE_SUCCESS = 3;
+  CODE_STATUS_EXECUTE_SUCCESS = 4;
+}
+
+// Framework the item is written against.
+enum KernelType {
+  KERNEL_TYPE_UNSPECIFIED = 0;
+  KERNEL_TYPE_TORCH = 1;
+  KERNEL_TYPE_JAX = 2;
+}
+
+// Auxiliary Python modules required to run the main kernel code.
+//
+// The engine materializes these to disk beside the kernel before importing
+// it, which is how a kernel that spans several modules executes in an
+// isolated worker.
+message AuxiliaryModules {
+  // Fully qualified Python module name -> source code of that module.
+  map<string, string> modules = 1;
+}
+
+// One input-generation program, plus the tolerances that apply when comparing
+// outputs produced from its inputs.
+message InputGenerationConfig {
+  string name = 1;
+
+  // Source of a module defining `get_input_generator()` and, optionally,
+  // `get_init_inputs()`.
+  string input_generation_code = 2;
+
+  // Absolute/relative tolerance for output comparison. Unset means defer to
+  // the input-generation module's `get_atol()` / `get_rtol()`, and failing
+  // that to the engine default of 1e-3.
+  optional float atol = 3;
+  optional float rtol = 4;
+
+  AuxiliaryModules auxiliary_modules = 5;
+}
+
+// A hardware/compiler configuration the item can be executed under.
+message ExecutionEnvironment {
+  reserved 1;
+
+  // Requested accelerator shapes, e.g. "2x2".
+  repeated string slice_shapes = 2;
+
+  // Compiler flags to apply, in `--flag=value` form. On a TPU VM these are
+  // passed through LIBTPU_INIT_ARGS.
+  repeated string xla_flags = 3;
+}
+
+// How the engine lays out and hands inputs to the compiled function.
+enum InputLayout {
+  // Inputs keep the layout they were generated with.
+  INPUT_LAYOUT_DEFAULT = 0;
+
+  // The compiler chooses the input layouts, and inputs are relaid out to match
+  // once, outside the timed region.
+  INPUT_LAYOUT_AUTO = 1;
+}
+
+// Per-item options for how inputs are passed to each implementation.
+message InputOptions {
+  // Names of arguments whose buffers may be donated to the computation.
+  repeated string donate_argnames = 1;
+
+  InputLayout layout = 2;
+}
+
+// The software and hardware a result was measured on. Recorded so that two
+// results can be checked for comparability before their times are compared.
+message RunEnvironment {
+  string host_name = 1;
+  string python_version = 2;
+  string jax_version = 3;
+  string jaxlib_version = 4;
+  string libtpu_version = 5;
+  string xprof_version = 6;
+
+  // Backend platform as reported by JAX, e.g. "tpu" or "cpu".
+  string platform = 7;
+
+  // Runtime version string reported by the backend.
+  string platform_version = 8;
+
+  // Device kind as reported by JAX, e.g. "TPU v6 lite".
+  string device_kind = 9;
+  int32 device_count = 10;
+
+  // Accelerator type of the host, e.g. "v6e-8", when the environment
+  // provides it.
+  string accelerator_type = 11;
+
+  // Grid of device coordinates, e.g. "2x4x1".
+  string topology = 12;
+
+  // Compiler flags in effect for the run.
+  repeated string xla_flags = 13;
+}
+
+// Measurements from a single sample (one set of generated inputs).
+message SampleExecutionResult {
+  reserved 9 to 11;
+
+  float reference_execution_time_sec = 1;
+  float custom_execution_time_sec = 2;
+  float optimized_execution_time_sec = 3;
+  map<string, float> reference_trace_matched_execution_times_sec = 4;
+  map<string, float> custom_trace_matched_execution_times_sec = 5;
+  map<string, float> optimized_trace_matched_execution_times_sec = 6;
+  bool custom_outputs_match_reference = 7;
+  bool optimized_outputs_match_reference = 8;
+
+  // Per-device execution times, keyed by device id. Populated when the run
+  // spans more than one device. The sample's `*_execution_time_sec` is then
+  // the largest of these.
+  map<string, float> reference_device_execution_times_sec = 12;
+  map<string, float> custom_device_execution_times_sec = 13;
+  map<string, float> optimized_device_execution_times_sec = 14;
+}
+
+// Everything observed for one input-generation config.
+message ExecutionResult {
+  reserved 3, 4, 6, 7, 8;
+
+  CodeStatus execution_status = 1;
+  string error_message = 2;
+
+  repeated SampleExecutionResult sample_execution_results = 5;
+
+  // Absolute path or file:// URL to the execution log.
+  string execution_log_path = 9;
+
+  // Captured contents of the execution log.
+  string execution_log_content = 10;
+
+  // Where each role's per-sample times came from, keyed by role name:
+  // "trace" for durations read off the device plane of the emitted profile,
+  // "wall_clock" for host-side measurements around the dispatch.
+  //
+  // Wall clock is a fallback. It includes host dispatch, which costs ~160us
+  // on a v6e against ~2.5us of compute for a 1024-cube matmul, so it cannot
+  // resolve a microbenchmark. A consumer comparing runs should check that
+  // this says "trace" before trusting a speedup.
+  map<string, string> timing_source = 11;
+
+  // The software and hardware the times were measured on.
+  RunEnvironment environment = 12;
+
+  // The device that set each role's per-sample times most often, keyed by role
+  // name. Set when `timing_source` is "trace". With one device, this is that
+  // device.
+  map<string, string> timing_device = 13;
+
+  // The XLA module whose executions were timed, keyed by role name, without
+  // its program id, e.g. "jit__matmul". Set when `timing_source` is "trace".
+  // Other modules in the trace, such as input moves that run before a sharded
+  // computation, are not counted as samples.
+  map<string, string> timing_module = 14;
+
+  // Why the trace did not give a full timing, keyed by role name: for example
+  // a device left out because its execution count does not match the samples,
+  // or a trace that cannot be read. Sentences are separated by "; ". Absent
+  // when every device that ran the module was used.
+  map<string, string> timing_notes = 15;
+}
+
+// Aggregate across all input-generation configs.
+message ExecutionReport {
+  CodeStatus execution_status = 5;
+  bool custom_outputs_match_reference = 4;
+  bool optimized_outputs_match_reference = 9;
+  float gmean_speedup_over_reference = 1;
+  float gmean_speedup_over_optimized = 7;
+  float gmean_speedup_optimized_over_reference = 8;
+  map<string, float> reference_trace_matched_execution_times_sec = 2;
+  map<string, float> custom_trace_matched_execution_times_sec = 3;
+  map<string, float> optimized_trace_matched_execution_times_sec = 6;
+
+  // Relative half-width of the band around 1.0 inside which
+  // `gmean_speedup_over_reference` is indistinguishable from run-to-run noise,
+  // e.g. 0.02 for +/-2%.
+  float speedup_noise_band = 10;
+
+  // "faster", "slower" or "no change". "faster" or "slower" needs
+  // `gmean_speedup_over_reference` to be outside `speedup_noise_band`, and the
+  // paired interval below to exclude 1.0.
+  string verdict = 11;
+
+  // Distribution-free 95% interval on the median of the per-sample
+  // reference-over-custom ratios. It comes from the order statistics of the
+  // ratios, so it is not symmetric and a few slow samples move it little.
+  // Unset when there are fewer than 6 paired samples.
+  float speedup_interval_low = 12;
+  float speedup_interval_high = 13;
+
+  // Why `verdict` is "no change" although the speedup is outside
+  // `speedup_noise_band`. Empty otherwise.
+  string verdict_note = 14;
+}
+
+// A single benchmark: up to three implementations of the same computation,
+// the programs that generate their inputs, and the results of running them.
+message XLoopItem {
+  reserved 6 to 22, 24 to 26, 28 to 31, 34 to 41;
+
+  string id = 1;
+  string name = 2;
+  KernelType kernel_type = 3;
+
+  // The baseline implementation, and the correctness oracle. This is the code
+  // to be optimized.
+  //
+  // Each `*_code` field holds source text, not a path. The entry point is the
+  // module's `get_model_identifier()`.
+  string reference_code = 4;
+  AuxiliaryModules reference_auxiliary_modules = 42;
+
+  // The implementation under test, usually machine generated.
+  string custom_code = 5;
+  AuxiliaryModules custom_auxiliary_modules = 43;
+
+  // A known-good optimized implementation, used for headroom analysis.
+  string optimized_code = 23;
+  AuxiliaryModules optimized_auxiliary_modules = 44;
+
+  // Input-generation programs keyed by config name. An item is executed once
+  // per config.
+  map<string, InputGenerationConfig> input_generation_configs = 27;
+
+  // Configurations to execute under. Each entry pairs compiler flags with
+  // compatible accelerator shapes.
+  repeated ExecutionEnvironment execution_environments = 47;
+
+  // How inputs are passed to each implementation.
+  InputOptions input_options = 48;
+
+  // Per-input-generation-config results, keyed by config name.
+  map<string, ExecutionResult> execution_results = 33;
+
+  // Aggregate across all configs.
+  ExecutionReport execution_report = 32;
+}
+
+// A batch of items, so a whole suite is one file.
+message XLoopItems {
+  repeated XLoopItem items = 1;
+}

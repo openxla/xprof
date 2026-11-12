@@ -20,22 +20,27 @@ limitations under the License.
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "nlohmann/json_fwd.hpp"  // from @com_github_nlohmann_json
+#include "nlohmann/json.hpp"
 #include "xla/service/hlo.pb.h"
 #include "xla/service/hlo_graph_dumper.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/status_matchers.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/protobuf/error_codes.pb.h"
+#include "xla/xla_data.pb.h"
 #include "xprof/convert/tool_options.h"
 
 namespace tensorflow {
 namespace profiler {
 namespace {
 
+using ::testing::Eq;
 using ::testing::HasSubstr;
 using ::testing::StartsWith;
 using ::testing::status::IsOkAndHolds;
 using ::testing::status::StatusIs;
+using json = nlohmann::json;
 
 TEST(GraphViewerParamsTest, GraphType) {
   // Default for graph type.
@@ -133,6 +138,70 @@ TEST(GraphViewerParamsTest, OtherTypes) {
                        HasSubstr("Unknown graph viewer type option: abcd")));
 }
 
+TEST(HloProtoToGraphViewTest, GetAdjacentNodesMetadata) {
+  xla::HloProto hlo_proto;
+  xla::HloModuleProto* module = hlo_proto.mutable_hlo_module();
+  module->set_name("test_module");
+  module->set_id(1);
+  module->set_entry_computation_name("entry");
+  module->set_entry_computation_id(10);
+
+  auto set_f32_2x4_shape = [](xla::ShapeProto* shape) {
+    shape->set_element_type(xla::F32);
+    shape->add_dimensions(2);
+    shape->add_dimensions(4);
+    shape->mutable_layout()->add_minor_to_major(1);
+    shape->mutable_layout()->add_minor_to_major(0);
+  };
+
+  xla::HloComputationProto* comp = module->add_computations();
+  comp->set_name("entry");
+  comp->set_id(10);
+  comp->set_root_id(2);
+
+  xla::HloInstructionProto* param = comp->add_instructions();
+  param->set_name("arg0.1");
+  param->set_opcode("parameter");
+  param->set_parameter_number(0);
+  param->set_id(0);
+  set_f32_2x4_shape(param->mutable_shape());
+
+  xla::HloInstructionProto* negate = comp->add_instructions();
+  negate->set_name("negate.2");
+  negate->set_opcode("negate");
+  negate->set_id(1);
+  negate->add_operand_ids(0);
+  set_f32_2x4_shape(negate->mutable_shape());
+
+  xla::HloInstructionProto* add = comp->add_instructions();
+  add->set_name("add.3");
+  add->set_opcode("add");
+  add->set_id(2);
+  add->add_operand_ids(0);
+  add->add_operand_ids(1);
+  set_f32_2x4_shape(add->mutable_shape());
+
+  xla::ProgramShapeProto* program_shape = module->mutable_host_program_shape();
+  set_f32_2x4_shape(program_shape->add_parameters());
+  program_shape->add_parameter_names("arg0");
+  set_f32_2x4_shape(program_shape->mutable_result());
+
+  TF_ASSERT_OK_AND_ASSIGN(std::string response,
+                          GetAdjacentNodes(hlo_proto, "negate.2"));
+  json j = json::parse(response);
+  EXPECT_THAT(j["operand_names"], Eq(json::array({"arg0.1"})));
+  EXPECT_THAT(j["consumer_names"], Eq(json::array({"add.3"})));
+  EXPECT_THAT(j["center_node"], Eq(json{{"name", "negate.2"},
+                                        {"opcode", "negate"},
+                                        {"shape", "f32[2,4]"}}));
+  EXPECT_THAT(j["operands"], Eq(json::array({{{"name", "arg0.1"},
+                                              {"opcode", "parameter"},
+                                              {"shape", "f32[2,4]"}}})));
+  EXPECT_THAT(
+      j["consumers"],
+      Eq(json::array(
+          {{{"name", "add.3"}, {"opcode", "add"}, {"shape", "f32[2,4]"}}})));
+}
 
 }  // namespace
 }  // namespace profiler

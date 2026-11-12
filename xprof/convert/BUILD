@@ -2520,6 +2520,7 @@ cc_library(
         # copybara:uncomment(b/399203304) "//third_party/odml/model_explorer/backend/adapters/hlo:direct_hlo_to_json_graph_convert",
         "@com_google_protobuf//:protobuf",
         "@com_google_protobuf//:json",
+        "@xla//xla:shape_util",
         "@xla//xla/hlo/ir:hlo",
         "@xla//xla/service:hlo_graph_dumper",
         "@xla//xla/service:hlo_proto_cc",
@@ -2572,8 +2573,10 @@ cc_test(
     deps = [
         ":hlo_proto_to_graph_view",
         ":tool_options",
+        "@com_github_nlohmann_json//:json",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
+        "@xla//xla:xla_data_proto_cc",
         "@xla//xla/service:hlo_graph_dumper",
         "@xla//xla/service:hlo_proto_cc",
         "@xla//xla/tsl/platform:errors",

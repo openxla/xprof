@@ -45,6 +45,7 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/service/hlo.pb.h"
 #include "xla/service/hlo_graph_dumper.h"
+#include "xla/shape.h"
 #include "xla/tsl/platform/errors.h"
 #include "xprof/convert/graphviz_helper.h"
 #include "xprof/convert/tool_options.h"
@@ -66,6 +67,14 @@ using ::xla::HloRenderOptions;
 using ::xla::RenderedGraphFormat;
 
 constexpr char kCenterNodeKey[] = "centerNode";
+
+nlohmann::json BuildAdjacentNodeJson(const HloInstruction& instr) {
+  return {
+      {"name", instr.name()},
+      {"opcode", xla::HloOpcodeString(instr.opcode())},
+      {"shape", instr.shape().ToString(/*print_layout=*/false)},
+  };
+}
 
 void CleanUpHloModuleForGraphviz(HloModule* hlo_module) {
   // Infeed config is escaped serialized proto, and graphviz server complains.
@@ -393,37 +402,50 @@ absl::StatusOr<std::string> GetAdjacentNodes(const HloProto& hlo_proto,
   const xla::HloComputation* hlo_computation =
       FindComputation(*hlo_module, node_name);
   nlohmann::json json;
-  // Recursively seeking for first visible operands and users in trace viewer or
-  // graph viewer.
-  std::function<void(std::vector<std::string>&, const xla::HloInstruction*)>
-      find_operands = [&](std::vector<std::string>& operand_names,
-                          const xla::HloInstruction* hlo_instruction) {
-        for (const auto& operand : hlo_instruction->operands()) {
-          if (absl::StartsWith(operand->name(), "get-tuple-element")) {
-            find_operands(operand_names, operand);
-            continue;
-          }
-          operand_names.push_back(absl::StrCat(operand->name()));
-        }
-      };
-  std::function<void(std::vector<std::string>&, const xla::HloInstruction*)>
-      find_users = [&](std::vector<std::string>& user_names,
-                       const xla::HloInstruction* hlo_instruction) {
-        for (const auto& user : hlo_instruction->users()) {
-          if (absl::StartsWith(user->name(), "get-tuple-element")) {
-            find_users(user_names, user);
-            continue;
-          }
-          user_names.push_back(absl::StrCat(user->name()));
-        }
-      };
   if (hlo_instruction) {
+    // Recursively seeking for first visible operands and users in trace viewer
+    // or graph viewer.
     std::vector<std::string> operand_names;
-    std::vector<std::string> user_names;
-    find_operands(operand_names, hlo_instruction);
-    find_users(user_names, hlo_instruction);
+    std::vector<std::string> consumer_names;
+    nlohmann::json operands = nlohmann::json::array();
+    nlohmann::json consumers = nlohmann::json::array();
+    absl::flat_hash_set<absl::string_view> seen_operands;
+    absl::flat_hash_set<absl::string_view> seen_consumers;
+
+    std::function<void(const xla::HloInstruction*)> find_operands =
+        [&](const xla::HloInstruction* instr) {
+          for (const auto& operand : instr->operands()) {
+            if (absl::StartsWith(operand->name(), "get-tuple-element")) {
+              find_operands(operand);
+              continue;
+            }
+            operand_names.push_back(absl::StrCat(operand->name()));
+            if (seen_operands.insert(operand->name()).second) {
+              operands.push_back(BuildAdjacentNodeJson(*operand));
+            }
+          }
+        };
+    std::function<void(const xla::HloInstruction*)> find_users =
+        [&](const xla::HloInstruction* instr) {
+          for (const auto& user : instr->users()) {
+            if (absl::StartsWith(user->name(), "get-tuple-element")) {
+              find_users(user);
+              continue;
+            }
+            consumer_names.push_back(absl::StrCat(user->name()));
+            if (seen_consumers.insert(user->name()).second) {
+              consumers.push_back(BuildAdjacentNodeJson(*user));
+            }
+          }
+        };
+
+    find_operands(hlo_instruction);
+    find_users(hlo_instruction);
     json["operand_names"] = operand_names;
-    json["consumer_names"] = user_names;
+    json["consumer_names"] = consumer_names;
+    json["center_node"] = BuildAdjacentNodeJson(*hlo_instruction);
+    json["operands"] = std::move(operands);
+    json["consumers"] = std::move(consumers);
     return json.dump();
   } else if (hlo_computation) {
     return absl::UnimplementedError(

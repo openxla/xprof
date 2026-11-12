@@ -225,6 +225,26 @@ class ServerAndPackagingContractTest(unittest.TestCase):
     self.assertEqual(status, 200)
     self.assertIn("javascript", content_type.lower())
 
+  def test_index_html_declares_default_base_href(self) -> None:
+    """Verifies packaged index.html declares the default <base href>."""
+    self.assertIsNotNone(
+        self.server_url,
+        f"XProf server URL must be available for testing: {self._setup_error}",
+    )
+    url = f"{self.server_url.rstrip('/')}/data/plugin/profile/index.html"
+    request = urllib.request.Request(url, method="GET")
+    with urllib.request.urlopen(request, timeout=5.0) as response:
+      self.assertEqual(response.status, 200)
+      raw = response.read()
+      if (
+          raw.startswith(b"\x1f\x8b")
+          or response.headers.get("Content-Encoding") == "gzip"
+      ):
+        raw = gzip.decompress(raw)
+      html = raw.decode("utf-8")
+
+    self.assertIn('<base href="/data/plugin/profile/">', html)
+
   def test_nonexistent_route_returns_404(self) -> None:
     """Verifies that unmapped static routes return HTTP 404 rather than 200."""
     self.assertIsNotNone(
@@ -1257,6 +1277,10 @@ class HarnessInvariantsAndConftestTest(unittest.TestCase):
       def __class_getitem__(cls, _: Any) -> type["_StubCallInfo"]:
         return cls
 
+    class _StubPlaywrightError(Exception):
+      pass
+
+    fake_sync_api.Error = _StubPlaywrightError
     fake_sync_api.Page = _StubPage
     fake_sync_api.Route = object
     fake_sync_api.expect = mock.MagicMock()

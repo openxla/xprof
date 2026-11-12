@@ -20,6 +20,7 @@ export declare interface CaptureProfileOptions {
 /** A serializable object with profiler configuration details. */
 export declare interface ProfilerConfig {
   hideCaptureProfileButton: boolean;
-  srcPathPrefix: string;
+  /** Source path prefix, or null when the server has no --src_prefix. */
+  srcPathPrefix: string | null;
   enableTabNameLabel?: boolean;
 }

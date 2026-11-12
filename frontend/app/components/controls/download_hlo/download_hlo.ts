@@ -2,7 +2,7 @@ import {Component, inject, Input, OnDestroy, ChangeDetectionStrategy} from '@ang
 import {ActivatedRoute} from '@angular/router';
 import {GRAPH_TYPE_DEFAULT} from 'org_xprof/frontend/app/common/constants/constants';
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
-import {getSessionIdFromParams} from 'org_xprof/frontend/app/common/utils/utils';
+import {createSessionIdResolver} from 'org_xprof/frontend/app/common/utils/utils';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {combineLatest, of, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
@@ -47,11 +47,12 @@ export class DownloadHlo implements OnDestroy {
       route: ActivatedRoute,
       private readonly downloader: BlobDownloader,
   ) {
+    const resolveSessionId = createSessionIdResolver();
     combineLatest([route.params ?? of({}), route.queryParams ?? of({})])
         .pipe(takeUntil(this.destroyed))
         .subscribe(([params, queryParams]) => {
-          this.sessionId = getSessionIdFromParams(
-              params, queryParams, this.sessionId);
+          this.sessionId =
+              resolveSessionId(params, queryParams, this.sessionId);
         });
   }
 

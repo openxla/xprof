@@ -1,4 +1,11 @@
-import {Component, inject, OnDestroy, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  NgZone,
+  OnDestroy,
+  ViewChild,
+} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -7,6 +14,7 @@ import {RooflineModelData} from 'org_xprof/frontend/app/common/interfaces/roofli
 import {
   escapeHtml,
   getGigaflopsReadableString,
+  loadGoogleChartPackages,
   setLoadingState,
 } from 'org_xprof/frontend/app/common/utils/utils';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
@@ -59,6 +67,9 @@ export class RooflineModel implements OnDestroy {
       inject(DATA_SERVICE_INTERFACE_TOKEN);
   private readonly sourceCodeService =
       inject(SOURCE_CODE_SERVICE_INTERFACE_TOKEN, {optional: true});
+  private readonly zone = inject(NgZone);
+  /** Cancels chart package loading for data that arrived too early. */
+  private cancelChartLoad?: () => void;
 
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
@@ -219,7 +230,7 @@ export class RooflineModel implements OnDestroy {
       params.set('apply_time_scale_multiplier', this.applyScalingFactor);
     }
     this.dataService.getData(this.sessionId, this.tool, this.host, params)
-        .pipe(take(1))
+        .pipe(take(1), takeUntil(this.destroyed))
         .subscribe((data) => {
           this.parseData(data as RooflineModelData[]);
           this.loadingAnalysis = false;
@@ -227,14 +238,20 @@ export class RooflineModel implements OnDestroy {
   }
 
   parseData(data?: RooflineModelData[]) {
-    if (typeof google === 'undefined' || !google.visualization?.DataTable) {
-      console.log('gviz lib is not loaded yet.');
-      setTimeout(() => {
-        this.parseData(data);
-      }, 100);
+    // Newer data replaces data that is still waiting for the chart packages.
+    this.cancelChartLoad?.();
+    if (!Array.isArray(data) || !data.length) {
       return;
     }
-    if (data === null || !Array.isArray(data) || data.length < 1) {
+    if (typeof google === 'undefined' || !google.visualization?.DataTable) {
+      // Data can arrive before the loader script and chart packages load.
+      this.cancelChartLoad =
+          loadGoogleChartPackages(['corechart', 'table'], () => {
+            // The chart loader can call back outside the Angular zone.
+            this.zone.run(() => {
+              this.parseData(data);
+            });
+          });
       return;
     }
     this.dataTableRaw = new google.visualization.DataTable(data[0]);
@@ -1267,6 +1284,7 @@ export class RooflineModel implements OnDestroy {
   }
 
   ngOnDestroy() {
+    this.cancelChartLoad?.();
     setLoadingState(false, this.store);
     this.destroyed.next();
     this.destroyed.complete();

@@ -36,10 +36,10 @@
       </div>
       <button mat-button [matMenuTriggerFor]="flowMenu">Flow Events</button>
       <mat-menu #flowMenu="matMenu">
-        <button mat-menu-item (click)="selectAllFlowCategories()">All</button>
-        <button mat-menu-item (click)="selectNoneFlowCategories()">None</button>
+        <button mat-menu-item (click)="$event.stopPropagation(); selectAllFlowCategories()">All</button>
+        <button mat-menu-item (click)="$event.stopPropagation(); selectNoneFlowCategories()">None</button>
         <mat-divider></mat-divider>
-        <button mat-menu-item *ngFor="let category of flowCategories" (click)="toggleFlowCategory(category)">
+        <button mat-menu-item *ngFor="let category of flowCategories" (click)="$event.stopPropagation(); toggleFlowCategory(category)">
           <mat-checkbox [checked]="isSelectedFlowCategory(category)">{{category.name}}</mat-checkbox>
         </button>
       </mat-menu>

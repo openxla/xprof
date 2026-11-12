@@ -5,8 +5,16 @@ cc_library(
     name = "zstd_compression",
     srcs = ["zstd_compression.cc"],
     hdrs = ["zstd_compression.h"],
+    copts = select({
+        "@org_xprof//frontend/app/components/trace_viewer_v2:is_emscripten": [
+            "-msimd128",
+        ],
+        "//conditions:default": [],
+    }),
     visibility = ["//visibility:public"],
     deps = [
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",

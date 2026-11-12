@@ -9,7 +9,8 @@ bzl_library(
     srcs = ["font_rules.bzl"],
     visibility = ["@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__"],
     deps = [
-        "//third_party/bazel_rules/rules_cc/cc/common",
+        "//third_party/bazel_rules/rules_cc/cc/common:cc_common",
+        "//third_party/bazel_rules/rules_cc/cc/common:cc_info",
     ],
 )
 

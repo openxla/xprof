@@ -497,6 +497,14 @@ load("@rules_java//java:rules_java_deps.bzl", "rules_java_dependencies")
 rules_java_dependencies()
 
 http_archive(
+    name = "rules_nodejs",
+    repo_mapping = {"@bazel_lib": "@bazel_skylib"},
+    sha256 = "f87453e0d6a97b4d2e6d22070a447b6d304727bf61ff8e31ce25ded0319005dd",
+    strip_prefix = "rules_nodejs-6.7.7",
+    urls = ["https://github.com/bazelbuild/rules_nodejs/releases/download/v6.7.7/rules_nodejs-v6.7.7.tar.gz"],
+)
+
+http_archive(
     name = "aspect_rules_js",
     sha256 = "75c25a0f15a9e4592bbda45b57aa089e4bf17f9176fd735351e8c6444df87b52",
     strip_prefix = "rules_js-2.1.0",
@@ -513,18 +521,11 @@ aspect_bazel_lib_dependencies()
 
 aspect_bazel_lib_register_toolchains()
 
-http_archive(
-    name = "rules_nodejs",
-    sha256 = "87c6171c5be7b69538d4695d9ded29ae2626c5ed76a9adeedce37b63c73bef67",
-    strip_prefix = "rules_nodejs-6.2.0",
-    urls = ["https://github.com/bazelbuild/rules_nodejs/releases/download/v6.2.0/rules_nodejs-v6.2.0.tar.gz"],
-)
-
 load("@rules_nodejs//nodejs:repositories.bzl", "nodejs_register_toolchains")
 
 nodejs_register_toolchains(
     name = "nodejs",
-    node_version = "20.14.0",
+    node_version = "20.20.2",
 )
 
 load("@aspect_rules_js//npm:repositories.bzl", "npm_translate_lock")

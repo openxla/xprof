@@ -227,7 +227,7 @@ export class RooflineModel implements OnDestroy {
   }
 
   parseData(data?: RooflineModelData[]) {
-    if (!google?.visualization?.DataTable) {
+    if (typeof google === 'undefined' || !google.visualization?.DataTable) {
       console.log('gviz lib is not loaded yet.');
       setTimeout(() => {
         this.parseData(data);

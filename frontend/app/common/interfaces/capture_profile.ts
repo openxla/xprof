@@ -1,11 +1,11 @@
 /** The base interface for a response of capture profile api. */
-export interface CaptureProfileResponse {
+export declare interface CaptureProfileResponse {
   error?: string;
   result?: string;
 }
 
 /** The base interface for a options of capture profile api. */
-export interface CaptureProfileOptions {
+export declare interface CaptureProfileOptions {
   serviceAddr: string;
   isTpuName: boolean;
   duration: number;
@@ -18,7 +18,7 @@ export interface CaptureProfileOptions {
 }
 
 /** A serializable object with profiler configuration details. */
-export interface ProfilerConfig {
+export declare interface ProfilerConfig {
   hideCaptureProfileButton: boolean;
   srcPathPrefix: string;
   enableTabNameLabel?: boolean;

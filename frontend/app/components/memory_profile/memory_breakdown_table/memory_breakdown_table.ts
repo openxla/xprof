@@ -1,6 +1,6 @@
-import {Component, ElementRef, Input, OnChanges, OnInit, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {Component, DestroyRef, ElementRef, inject, Input, OnChanges, OnInit, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
 import {type MemoryProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
-import {bytesToGiBs} from 'org_xprof/frontend/app/common/utils/utils';
+import {bytesToGiBs, loadGoogleChartPackages} from 'org_xprof/frontend/app/common/utils/utils';
 
 const DATA_TABLE_OPERATION_INDEX = 0;
 
@@ -49,6 +49,7 @@ export class MemoryBreakdownTable implements OnChanges, OnInit {
   @Input() memoryId: string = '';
 
   @ViewChild('table', {static: false}) tableRef!: ElementRef;
+  private readonly destroyRef = inject(DestroyRef);
 
   dataTable: google.visualization.DataTable|null = null;
   filterOperation: string = '';
@@ -190,17 +191,10 @@ export class MemoryBreakdownTable implements OnChanges, OnInit {
   }
 
   loadGoogleChart() {
-    if (!google || !google.charts) {
-      setTimeout(() => {
-        this.loadGoogleChart();
-      }, 100);
-      return;
-    }
-
-    google.charts.safeLoad({'packages': ['table']});
-    google.charts.setOnLoadCallback(() => {
+    const cancelLoad = loadGoogleChartPackages(['table'], () => {
       this.table = new google.visualization.Table(this.tableRef.nativeElement);
       this.drawTable();
     });
+    this.destroyRef.onDestroy(cancelLoad);
   }
 }

@@ -17,6 +17,7 @@ xprof_ng_module(
         "//:node_modules/@angular/router",
         "//:node_modules/@ngrx/store",
         "//:node_modules/rxjs",
+        "@org_xprof//frontend/app/common/utils",
         "@org_xprof//frontend/app/components/source_mapper",
         "@org_xprof//frontend/app/services/source_code_service:source_code_service_interface",
         "@org_xprof//frontend/app/store",

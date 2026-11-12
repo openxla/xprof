@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   EventEmitter,
   HostListener,
@@ -19,6 +20,7 @@ import {
   CustomChartDataProcessor,
   DataTableOrDataView,
 } from 'org_xprof/frontend/app/common/interfaces/chart';
+import {loadGoogleChartPackages} from 'org_xprof/frontend/app/common/utils/utils';
 
 /** A common chart component. */
 @Component({
@@ -54,6 +56,7 @@ export class Chart implements OnChanges, OnInit {
   chart?: ChartClass;
 
   private readonly elementRef: ElementRef = inject(ElementRef);
+  private readonly destroyRef = inject(DestroyRef);
   private isSmallScreen = window.innerWidth < 960;
 
   @HostListener('window:resize')
@@ -71,7 +74,17 @@ export class Chart implements OnChanges, OnInit {
 
   ngOnChanges(changes: SimpleChanges) {
     if (changes['dataInfo'] && this.dataInfo && this.dataInfo.dataProvider) {
-      this.dataInfo.dataProvider.parseData(this.dataInfo.data);
+      const previousInfo = changes['dataInfo'].previousValue as
+        | ChartDataInfo
+        | undefined;
+      // Clear a provider only when this chart filled it before, so a provider
+      // shared through `data: null` keeps data deferred until charts load.
+      const clearsOwnData =
+        previousInfo?.dataProvider === this.dataInfo.dataProvider &&
+        Boolean(previousInfo?.data);
+      if (this.dataInfo.data || clearsOwnData) {
+        this.dataInfo.dataProvider.parseData(this.dataInfo.data);
+      }
       this.dataInfo.dataProvider.setFilters(this.dataInfo.filters || []);
     }
     this.draw();
@@ -124,14 +137,8 @@ export class Chart implements OnChanges, OnInit {
   }
 
   loadGoogleChart() {
-    if (!google || !google.charts) {
-      setTimeout(() => {
-        this.loadGoogleChart();
-      }, 100);
-    }
-
-    google.charts.safeLoad({'packages': ['corechart', 'table', 'line']});
-    google.charts.setOnLoadCallback(() => {
+    const packages = ['corechart', 'table', 'line'];
+    const cancelLoad = loadGoogleChartPackages(packages, () => {
       this.initChart();
       this.initDataProvider();
       this.draw();
@@ -141,6 +148,7 @@ export class Chart implements OnChanges, OnInit {
         });
       }
     });
+    this.destroyRef.onDestroy(cancelLoad);
   }
 
   initChart() {
@@ -219,7 +227,12 @@ export class Chart implements OnChanges, OnInit {
     if (this.chart) {
       this.dataInfo.dataProvider.setChart(this.chart);
     }
-    this.dataInfo.dataProvider.parseData(this.dataInfo.data);
+    if (this.dataInfo.data) {
+      this.dataInfo.dataProvider.parseData(this.dataInfo.data);
+    } else {
+      // A shared provider can hold data that arrived before Google Charts did.
+      this.dataInfo.dataProvider.flushPendingData?.();
+    }
     this.dataInfo.dataProvider.setFilters(this.dataInfo.filters || []);
     this.dataInfo.dataProvider.setUpdateEventListener(() => {
       this.draw();

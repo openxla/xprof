@@ -13,7 +13,10 @@ import {
 } from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {alignTables} from 'org_xprof/frontend/app/common/utils/diff_utils';
-import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
+import {
+  getSessionIdFromParams,
+  setLoadingState,
+} from 'org_xprof/frontend/app/common/utils/utils';
 import {
   BAR_CHART_OPTIONS,
   PIE_CHART_OPTIONS,
@@ -172,22 +175,27 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
     private readonly store: Store<{}>,
   ) {
     super();
-    route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
-      this.sessionId = (params || {})['sessionId'] || '';
-    });
     combineLatest([route.params, route.queryParams])
       .pipe(takeUntil(this.destroyed))
       .subscribe(([params, queryParams]) => {
-        this.sessionId = params['sessionId'] || this.sessionId;
-        this.processQueryParams(queryParams);
+        const prevSessionId = this.sessionId;
+        this.sessionId = getSessionIdFromParams(
+          params,
+          queryParams,
+          this.sessionId,
+        );
+        this.processQueryParams(queryParams, prevSessionId);
         this.update();
       });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
   }
 
-  processQueryParams(params: Params) {
-    this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
-    this.host = params['host'] || this.host;
+  processQueryParams(params: Params, prevSessionId = this.sessionId) {
+    this.sessionId = getSessionIdFromParams(undefined, params, this.sessionId);
+    const sessionChanged = Boolean(
+      prevSessionId && this.sessionId !== prevSessionId,
+    );
+    this.host = params['host'] ?? (sessionChanged ? '' : this.host);
   }
 
   update() {
@@ -195,7 +203,7 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
     this.throbber.start();
 
     this.diffService
-      .getDiffData(this.sessionId, this.tool)
+      .getDiffData(this.sessionId, this.tool, {host: this.host})
       .pipe(takeUntil(this.destroyed))
       .subscribe(({active, baseline}) => {
         this.throbber.stop();

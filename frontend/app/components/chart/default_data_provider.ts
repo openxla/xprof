@@ -117,6 +117,18 @@ export class DefaultDataProvider implements ChartDataProvider {
   notifyCharts() {
     this.update.emit();
   }
+
+  /**
+   * Parses data deferred while the Google Charts loader was unavailable.
+   *
+   * `ensureChartPackagesLoaded` can register a load callback only after the
+   * loader script defines `google.charts`, so charts call this once they load.
+   */
+  flushPendingData() {
+    if (!this.pendingData) return;
+    this.parseData(this.pendingData);
+    this.notifyCharts();
+  }
 }
 
 /** A chart data provider that accepts array data. */

@@ -1,4 +1,5 @@
-import {Component, ElementRef, HostListener, Input, OnChanges, OnInit, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {Component, DestroyRef, ElementRef, HostListener, inject, Input, OnChanges, OnInit, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {loadGoogleChartPackages} from 'org_xprof/frontend/app/common/utils/utils';
 
 /** A table view component. */
 @Component({
@@ -18,6 +19,7 @@ export class Table implements OnChanges, OnInit {
   height = '150px';
 
   @ViewChild('table', {static: false}) tableRef!: ElementRef;
+  private readonly destroyRef = inject(DestroyRef);
 
   ngOnInit() {
     this.loadGoogleChart();
@@ -71,16 +73,10 @@ export class Table implements OnChanges, OnInit {
   }
 
   loadGoogleChart() {
-    if (!google || !google.charts) {
-      setTimeout(() => {
-        this.loadGoogleChart();
-      }, 100);
-    }
-
-    google.charts.safeLoad({'packages': ['table']});
-    google.charts.setOnLoadCallback(() => {
+    const cancelLoad = loadGoogleChartPackages(['table'], () => {
       this.table = new google.visualization.Table(this.tableRef.nativeElement);
       this.drawTable();
     });
+    this.destroyRef.onDestroy(cancelLoad);
   }
 }

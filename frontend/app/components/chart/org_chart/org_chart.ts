@@ -1,4 +1,5 @@
-import {Component, ElementRef, Input, OnChanges, OnInit, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {Component, DestroyRef, ElementRef, inject, Input, OnChanges, OnInit, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {loadGoogleChartPackages} from 'org_xprof/frontend/app/common/utils/utils';
 
 /** A organization chart view component. */
 @Component({
@@ -13,6 +14,7 @@ export class OrgChart implements OnChanges, OnInit {
   chart?: google.visualization.OrgChart;
 
   @ViewChild('chart', {static: false}) chartRef!: ElementRef;
+  private readonly destroyRef = inject(DestroyRef);
 
   ngOnInit() {
     this.loadGoogleChart();
@@ -35,17 +37,11 @@ export class OrgChart implements OnChanges, OnInit {
   }
 
   loadGoogleChart() {
-    if (!google || !google.charts) {
-      setTimeout(() => {
-        this.loadGoogleChart();
-      }, 100);
-    }
-
-    google.charts.safeLoad({'packages': ['orgchart']});
-    google.charts.setOnLoadCallback(() => {
+    const cancelLoad = loadGoogleChartPackages(['orgchart'], () => {
       this.chart =
           new google.visualization.OrgChart(this.chartRef.nativeElement);
       this.drawChart();
     });
+    this.destroyRef.onDestroy(cancelLoad);
   }
 }

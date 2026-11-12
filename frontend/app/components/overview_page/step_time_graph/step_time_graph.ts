@@ -1,7 +1,8 @@
-import {AfterViewInit, Component, ElementRef, HostListener, Input, OnChanges, SimpleChanges, ViewChild, ChangeDetectionStrategy, EventEmitter, Output} from '@angular/core';
+import {AfterViewInit, Component, DestroyRef, ElementRef, HostListener, inject, Input, OnChanges, SimpleChanges, ViewChild, ChangeDetectionStrategy, EventEmitter, Output} from '@angular/core';
 import {STACK_CHART_FILL_COLORS} from 'org_xprof/frontend/app/common/constants/constants';
 import {type InputPipelineAnalysis} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {clampDataTableNumericValues} from 'org_xprof/frontend/app/common/utils/chart_utils';
+import {loadGoogleChartPackages} from 'org_xprof/frontend/app/common/utils/utils';
 
 const MAX_CHART_WIDTH = 800;
 const COLORS_FOR_GPU = [
@@ -31,6 +32,7 @@ export class StepTimeGraph implements AfterViewInit, OnChanges {
   @Input() columnColors = STACK_CHART_FILL_COLORS;
 
   @ViewChild('chart', {static: false}) chartRef!: ElementRef;
+  private readonly destroyRef = inject(DestroyRef);
   @Output() readonly ready = new EventEmitter<void>();
 
   title = 'Step-time Graph';
@@ -112,15 +114,7 @@ export class StepTimeGraph implements AfterViewInit, OnChanges {
   }
 
   loadGoogleChart() {
-    if (!google || !google.charts) {
-      setTimeout(() => {
-        this.loadGoogleChart();
-      }, 100);
-      return;
-    }
-
-    google.charts.safeLoad({'packages': ['corechart']});
-    google.charts.setOnLoadCallback(() => {
+    const cancelLoad = loadGoogleChartPackages(['corechart'], () => {
       this.chart = new google.visualization.AreaChart(
         this.chartRef.nativeElement,
       );
@@ -129,5 +123,6 @@ export class StepTimeGraph implements AfterViewInit, OnChanges {
       });
       this.drawChart();
     });
+    this.destroyRef.onDestroy(cancelLoad);
   }
 }

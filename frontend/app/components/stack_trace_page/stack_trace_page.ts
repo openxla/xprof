@@ -1,7 +1,8 @@
 import {Component, inject, Injector, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
+import {getSessionIdFromParams} from 'org_xprof/frontend/app/common/utils/utils';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
-import {combineLatest, ReplaySubject} from 'rxjs';
+import {combineLatest, of, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 /**
@@ -55,10 +56,14 @@ export class StackTracePage implements OnDestroy {
         .subscribe((isAvailable) => {
           this.sourceCodeServiceIsAvailable = isAvailable;
         });
-    combineLatest([this.route.params, this.route.queryParams])
+    combineLatest([
+      this.route.params ?? of({}),
+      this.route.queryParams ?? of({}),
+    ])
         .pipe(takeUntil(this.destroyed))
         .subscribe(([params, queryParams]) => {
-          this.sessionId = params['sessionId'] || this.sessionId;
+          this.sessionId = getSessionIdFromParams(
+              params, queryParams, this.sessionId, this.sessionIdKey);
           this.processQueryParams(queryParams);
         });
   }
@@ -71,7 +76,8 @@ export class StackTracePage implements OnDestroy {
     const regex = /\((.*?)\)/;
     const programIdMatch = this.hloModule.match(regex);
     this.programId = programIdMatch ? programIdMatch[1] : '';
-    this.sessionId = params[this.sessionIdKey] || params['run'] || '';
+    this.sessionId = getSessionIdFromParams(
+        undefined, params, this.sessionId, this.sessionIdKey);
     this.opCategory = params[this.opCategoryKey] || '';
   }
 

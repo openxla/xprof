@@ -82,12 +82,14 @@ export class CategoryFilter implements OnChanges {
         google.visualization.DataTableCellFilter = {column: this.columnIndex};
     if (!this.all || this.value !== this.all) {
       if (this.valueSeparator) {
-        filter.test = (value: string) =>
-            (this.valueSeparator + value + this.valueSeparator)
+        const separator = this.valueSeparator;
+        const searchToken =
+            `${separator}${this.value ?? ''}${separator}`.toLowerCase();
+        filter.test = (value: unknown): boolean =>
+            value != null &&
+            `${separator}${value}${separator}`
                 .toLowerCase()
-                .indexOf(
-                    this.valueSeparator + this.value.toString() +
-                    this.valueSeparator) !== -1;
+                .includes(searchToken);
       } else {
         filter.value = this.value;
       }

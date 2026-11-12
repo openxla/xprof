@@ -1,4 +1,5 @@
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {isGoogleChartsLoaded} from 'org_xprof/frontend/app/common/utils/utils';
 
 /** A base class for a google-charts dashboard. */
 export class Dashboard {
@@ -25,23 +26,40 @@ export class Dashboard {
       return true;
     }
     this.pendingData = data;
-    if (
-      typeof google !== 'undefined' &&
-      google.charts &&
-      !this.hasPendingLoadCallback
-    ) {
+    if (!this.hasPendingLoadCallback) {
       this.hasPendingLoadCallback = true;
-      google.charts.safeLoad({'packages': ['corechart', 'table']});
-      google.charts.setOnLoadCallback(() => {
-        this.hasPendingLoadCallback = false;
-        const latest = this.pendingData;
-        this.pendingData = null;
-        if (latest) {
-          this.parseData(latest);
-        }
-      });
+      this.loadPendingData();
     }
     return false;
+  }
+
+  /**
+   * Parses `pendingData` once the Google Charts packages load.
+   *
+   * Polls while the loader script has not defined `google.charts`, which
+   * happens when the app boots first on slow networks. Stops once
+   * `pendingData` is cleared, such as when the component is destroyed.
+   */
+  private loadPendingData() {
+    if (!this.pendingData) {
+      this.hasPendingLoadCallback = false;
+      return;
+    }
+    if (!isGoogleChartsLoaded()) {
+      setTimeout(() => {
+        this.loadPendingData();
+      }, 100);
+      return;
+    }
+    google.charts.safeLoad({'packages': ['corechart', 'table']});
+    google.charts.setOnLoadCallback(() => {
+      this.hasPendingLoadCallback = false;
+      const latest = this.pendingData;
+      this.pendingData = null;
+      if (latest) {
+        this.parseData(latest);
+      }
+    });
   }
 
   parseData(data: SimpleDataTable|null) {

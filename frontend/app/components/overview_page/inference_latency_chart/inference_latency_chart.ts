@@ -2,9 +2,11 @@ import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   EventEmitter,
   HostListener,
+  inject,
   Input,
   OnChanges,
   Output,
@@ -12,6 +14,7 @@ import {
   ViewChild,
 } from '@angular/core';
 import {type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {loadGoogleChartPackages} from 'org_xprof/frontend/app/common/utils/utils';
 
 const MAX_CHART_WIDTH = 800;
 
@@ -27,6 +30,7 @@ export class InferenceLatencyChart implements AfterViewInit, OnChanges {
   @Input() inferenceLatencyData?: SimpleDataTable;
 
   @ViewChild('chart', {static: false}) chartRef!: ElementRef;
+  private readonly destroyRef = inject(DestroyRef);
   @Output() readonly ready = new EventEmitter<void>();
 
   title = 'Inference Session Latency Breakdown';
@@ -107,14 +111,7 @@ export class InferenceLatencyChart implements AfterViewInit, OnChanges {
   }
 
   loadGoogleChart() {
-    if (!google || !google.charts) {
-      setTimeout(() => {
-        this.loadGoogleChart();
-      }, 100);
-    }
-
-    google.charts.safeLoad({'packages': ['corechart']});
-    google.charts.setOnLoadCallback(() => {
+    const cancelLoad = loadGoogleChartPackages(['corechart'], () => {
       this.chart = new google.visualization.ColumnChart(
         this.chartRef.nativeElement,
       );
@@ -123,5 +120,6 @@ export class InferenceLatencyChart implements AfterViewInit, OnChanges {
       });
       this.drawChart();
     });
+    this.destroyRef.onDestroy(cancelLoad);
   }
 }

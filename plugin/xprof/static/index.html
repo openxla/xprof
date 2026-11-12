@@ -3,16 +3,21 @@
 <head>
   <meta charset="utf-8">
   <title>XProf</title>
+  <base href="/data/plugin/profile/">
   <script>
-    const base = document.createElement("base");
-    const defaultPath = '/data/plugin/profile';
-    let newPath = defaultPath + '/';
-    if (document.location.pathname.includes(defaultPath)) {
-      newPath = document.location.pathname.split(defaultPath)[0] + defaultPath + '/';
+    const base = document.querySelector("base");
+    const match = document.location.pathname.match(
+      /^(.*?)\/data\/plugin\/profile(?:\/|$)/
+    );
+    if (base && match && match[1]) {
+      const resolved = new URL(
+        match[1] + "/data/plugin/profile/",
+        document.location.origin
+      );
+      if (resolved.origin === document.location.origin) {
+        base.setAttribute("href", resolved.pathname);
+      }
     }
-    base.setAttribute("href", newPath);
-    const header = document.getElementsByTagName("head")[0];
-    header.insertBefore(base, header.firstChild);
   </script>
 
   <meta name="viewport" content="width=device-width, initial-scale=1">

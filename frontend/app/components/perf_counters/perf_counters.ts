@@ -8,7 +8,10 @@ import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
-import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
+import {
+  getSessionIdFromParams,
+  setLoadingState,
+} from 'org_xprof/frontend/app/common/utils/utils';
 import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
 import {
   DATA_SERVICE_INTERFACE_TOKEN,
@@ -50,17 +53,25 @@ export class PerfCounters extends Dashboard implements OnDestroy {
     combineLatest([route.params, route.queryParams])
       .pipe(takeUntil(this.destroyed))
       .subscribe(([params, queryParams]) => {
-        this.sessionId = params['sessionId'] || this.sessionId;
-        this.processQueryParams(queryParams);
+        const prevSessionId = this.sessionId;
+        this.sessionId = getSessionIdFromParams(
+          params,
+          queryParams,
+          this.sessionId,
+        );
+        this.processQueryParams(queryParams, prevSessionId);
         this.update();
       });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
   }
 
-  processQueryParams(params: Params) {
-    this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
+  processQueryParams(params: Params, prevSessionId = this.sessionId) {
+    this.sessionId = getSessionIdFromParams(undefined, params, this.sessionId);
     this.tool = params['tag'] || this.tool;
-    this.host = params['host'] || this.host;
+    const sessionChanged = Boolean(
+      prevSessionId && this.sessionId !== prevSessionId,
+    );
+    this.host = params['host'] ?? (sessionChanged ? '' : this.host);
   }
 
   update() {
@@ -71,7 +82,7 @@ export class PerfCounters extends Dashboard implements OnDestroy {
       ['show_zeros', this.showZeroValues ? '1' : '0'],
     ]);
     this.dataService
-      .getData(this.sessionId, this.tool, '', params)
+      .getData(this.sessionId, this.tool, this.host, params)
       .pipe(takeUntil(this.destroyed))
       .subscribe((data) => {
         this.throbber.stop();

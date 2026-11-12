@@ -128,19 +128,19 @@ export class FrameworkOpStats {
     this.dataProvider.parseData(this.selectedData);
 
     const dataTable = this.dataProvider.getDataTable();
-    let opTypeIndex = -1;
-    let opNameIndex = -1;
-    let selfTimeIndex = -1;
-    let opExecutorIndex = -1;
-    if (dataTable && dataTable.getColumnIndex) {
-      this.flopRateChartXColumn = dataTable.getColumnIndex(OP_NAME_ID);
-      this.flopRateChartYColumn =
-          dataTable.getColumnIndex(MEASURED_FLOP_RATE_ID);
-      opTypeIndex = dataTable.getColumnIndex(OP_TYPE_ID);
-      opNameIndex = dataTable.getColumnIndex(OP_NAME_ID);
-      selfTimeIndex = dataTable.getColumnIndex(SELF_TIME_ID);
-      opExecutorIndex = dataTable.getColumnIndex(OP_EXECUTOR_ID);
-    }
+    const getColumnIndex = (colId: string): number => {
+      if (dataTable && dataTable.getColumnIndex) {
+        return dataTable.getColumnIndex(colId);
+      }
+      return this.selectedData?.cols?.findIndex((col) => col.id === colId) ??
+          -1;
+    };
+    this.flopRateChartXColumn = getColumnIndex(OP_NAME_ID);
+    this.flopRateChartYColumn = getColumnIndex(MEASURED_FLOP_RATE_ID);
+    const opTypeIndex = getColumnIndex(OP_TYPE_ID);
+    const opNameIndex = getColumnIndex(OP_NAME_ID);
+    const selfTimeIndex = getColumnIndex(SELF_TIME_ID);
+    const opExecutorIndex = getColumnIndex(OP_EXECUTOR_ID);
 
     const filtersForDevice =
         [{column: opExecutorIndex, value: OpExecutor.DEVICE}];

@@ -1,5 +1,6 @@
-import {Component, ElementRef, Input, OnChanges, OnInit, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {Component, DestroyRef, ElementRef, inject, Input, OnChanges, OnInit, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
 import {type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {loadGoogleChartPackages} from 'org_xprof/frontend/app/common/utils/utils';
 
 declare interface KernelStatsColumn {
   rank: number;
@@ -41,6 +42,7 @@ export class KernelStatsTable implements OnChanges, OnInit {
   @Input() kernelStatsData: SimpleDataTable|null = null;
 
   @ViewChild('table', {static: false}) tableRef!: ElementRef;
+  private readonly destroyRef = inject(DestroyRef);
 
   columns: KernelStatsColumn = {
     rank: 0,
@@ -242,14 +244,7 @@ export class KernelStatsTable implements OnChanges, OnInit {
   }
 
   loadGoogleChart() {
-    if (!google || !google.charts) {
-      setTimeout(() => {
-        this.loadGoogleChart();
-      }, 100);
-    }
-
-    google.charts.safeLoad({'packages': ['table']});
-    google.charts.setOnLoadCallback(() => {
+    const cancelLoad = loadGoogleChartPackages(['table'], () => {
       this.table = new google.visualization.Table(this.tableRef.nativeElement);
       google.visualization.events.addListener(
           this.table, 'sort', (event: SortEvent) => {
@@ -259,6 +254,7 @@ export class KernelStatsTable implements OnChanges, OnInit {
           });
       this.drawTable();
     });
+    this.destroyRef.onDestroy(cancelLoad);
   }
 
   sortDataView(): google.visualization.DataView|null {

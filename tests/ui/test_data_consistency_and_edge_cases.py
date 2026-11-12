@@ -503,3 +503,167 @@ def test_perf_counters_values_match_backend_json(
       counter_hex, timeout=20000
   )
   assert_healthy(page, browser_errors, "perf_counters_backend_json_consistency")
+
+
+@pytest.mark.parametrize("hold_loader", [False, True])
+def test_framework_op_stats_cold_load_renders_pie_charts(
+    page: Page,
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+    hold_loader: bool,
+) -> None:
+  """Verifies Framework Op Stats renders pie charts when gcharts loads late.
+
+  Without `hold_loader`, profile data arrives while the chart packages load.
+  With it, `loader.js` is held too, so the app boots on its 2.5s fallback
+  timer and profile data arrives before `google` is defined.
+  """
+  held_routes: list[Route] = []
+  release_charts = False
+
+  def delay_gcharts(route: Route) -> None:
+    is_loader = route.request.url.endswith("/charts/loader.js")
+    if release_charts or (is_loader and not hold_loader):
+      route.continue_()
+    else:
+      held_routes.append(route)
+
+  gcharts_pattern = "**/*gstatic.com/charts/**"
+  page.route(gcharts_pattern, delay_gcharts)
+  try:
+    with page.expect_response(
+        lambda response: "/data/plugin/profile/data" in response.url
+        and "tag=framework_op_stats" in response.url,
+        timeout=25000,
+    ):
+      open_tool("tpu-training", "framework_op_stats")
+  finally:
+    # Release held requests before unrouting. Unrouting resumes every request
+    # that the handler still holds, and resuming one twice is an error.
+    release_charts = True
+    for held in tuple(held_routes):
+      held.continue_()
+    page.unroute(gcharts_pattern, delay_gcharts)
+
+  pies = page.locator("framework-op-stats chart[charttype='PieChart'] svg")
+  expect(pies.first).to_be_visible(timeout=20000)
+  expect(pies.nth(1)).to_be_visible(timeout=20000)
+  assert_healthy(page, browser_errors, "framework_op_stats_cold_load")
+
+
+def test_standalone_stack_trace_page_direct_load_and_download_hlo_run(
+    page: Page,
+    server_url: str,
+    resolve_run_dir: Callable[[str], tuple[str, str]],
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+) -> None:
+  """Verifies direct /stack_trace_page load and DownloadHlo run parameter."""
+  tpu_run, tpu_path = resolve_run_dir("tpu-training")
+  cfg_body = (
+      '{"hideCaptureProfileButton": false, "srcPathPrefix": "/workspace"}'
+  )
+  config_route = "**/data/plugin/profile/config*"
+  page.route(
+      config_route,
+      lambda route: route.fulfill(
+          status=200, content_type="application/json", body=cfg_body
+      ),
+  )
+  try:
+    query = urllib.parse.urlencode({
+        "hlo_module": "jit_train_step",
+        "hlo_op": "fusion.1",
+        "session_path": tpu_path,
+    })
+    direct_url = (
+        f"{server_url.rstrip('/')}/data/plugin/profile/"
+        f"stack_trace_page/{tpu_run}?{query}"
+    )
+    page.goto(direct_url, wait_until="domcontentloaded")
+    expect(
+        page.locator("main-page mat-sidenav-content > div.full-height")
+    ).to_be_visible(timeout=20000)
+    expect(page.locator("stack-trace-page .container")).to_be_visible(
+        timeout=20000
+    )
+    expect(page.locator("stack-trace-page .container")).to_contain_text(
+        "fusion.1", timeout=15000
+    )
+    assert_healthy(page, browser_errors, "standalone_stack_trace_page")
+  finally:
+    page.unroute(config_route)
+
+  open_tool("tpu-training", "graph_viewer")
+  dl_btn = page.locator("graph-viewer download-hlo .save-button").first
+  expect(dl_btn).to_be_visible(timeout=20000)
+  dl_btn.click()
+  pbtxt_item = page.locator(
+      "button[mat-menu-item]", has_text="Download as .pbtxt"
+  ).first
+  expect(pbtxt_item).to_be_visible(timeout=10000)
+  with page.expect_request(
+      lambda req: "/data/plugin/profile/data" in req.url
+      and "tag=graph_viewer" in req.url
+      and "type=pbtxt" in req.url,
+      timeout=15000,
+  ) as dl_req_info:
+    pbtxt_item.click()
+  expect(pbtxt_item).to_be_hidden(timeout=5000)
+  assert f"run={urllib.parse.quote(tpu_run)}" in dl_req_info.value.url
+  assert_healthy(page, browser_errors, "download_hlo_query_run")
+
+
+@pytest.mark.parametrize(
+    "tag,selector",
+    [
+        ("utilization_viewer", "utilization-viewer"),
+        ("perf_counters", "perf-counters"),
+    ],
+)
+def test_utilization_and_perf_counters_csv_export_include_host(
+    page: Page,
+    server_url: str,
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+    tag: str,
+    selector: str,
+) -> None:
+  """Verifies Export as CSV includes host on Utilization and PerfCounters."""
+  open_tool("perf-utilization", tag, host="perf-node-1")
+  comp = page.locator(selector)
+  expect(comp).to_be_visible(timeout=20000)
+  page.evaluate(
+      "() => {"
+      "  delete document.body.dataset.lastCsvUrl;"
+      "  const origOpen = window.open;"
+      "  window.__restoreOpen = () => { window.open = origOpen; };"
+      "  window.open = (url) => {"
+      "    document.body.dataset.lastCsvUrl = String(url);"
+      "    return null;"
+      "  };"
+      "}"
+  )
+  try:
+    save_btn = comp.locator("export-as-csv .save-button").first
+    expect(save_btn).to_be_visible(timeout=15000)
+    save_btn.click()
+    expect(page.locator("body")).to_have_attribute(
+        "data-last-csv-url",
+        re.compile(r"/data/plugin/profile/data_csv\?.*host=perf-node-1"),
+        timeout=5000,
+    )
+    csv_url = page.locator("body").get_attribute("data-last-csv-url")
+    assert csv_url is not None
+    csv_resp = page.request.get(f"{server_url.rstrip('/')}{csv_url}")
+    assert csv_resp.status == 200 and len(csv_resp.body()) > 0
+  finally:
+    page.evaluate(
+        "() => {"
+        "  if (window.__restoreOpen) window.__restoreOpen();"
+        "  delete window.__restoreOpen;"
+        "  delete document.body.dataset.lastCsvUrl;"
+        "}"
+    )
+  assert_healthy(page, browser_errors, f"{tag}_csv_export_host")
+

@@ -1,8 +1,10 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   EventEmitter,
+  inject,
   Input,
   OnChanges,
   OnInit,
@@ -11,6 +13,7 @@ import {
 } from '@angular/core';
 import {KELLY_COLORS} from 'org_xprof/frontend/app/common/constants/constants';
 import {PrimitiveTypeNumberString} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {loadGoogleChartPackages} from 'org_xprof/frontend/app/common/utils/utils';
 
 const BAR_WIDTH = 50;
 const DEFAULT_CHART_WIDTH = 500;
@@ -31,6 +34,7 @@ export class StackBarChart implements OnChanges, OnInit {
   @Output() selected = new EventEmitter<number>();
 
   @ViewChild('chart', {static: false}) chartRef!: ElementRef;
+  private readonly destroyRef = inject(DestroyRef);
 
   chart: google.visualization.BarChart | null = null;
   chartWidth = DEFAULT_CHART_WIDTH;
@@ -81,14 +85,7 @@ export class StackBarChart implements OnChanges, OnInit {
   }
 
   loadGoogleChart() {
-    if (!google || !google.charts) {
-      setTimeout(() => {
-        this.loadGoogleChart();
-      }, 100);
-    }
-
-    google.charts.safeLoad({'packages': ['corechart']});
-    google.charts.setOnLoadCallback(() => {
+    const cancelLoad = loadGoogleChartPackages(['corechart'], () => {
       this.chart = new google.visualization.BarChart(
         this.chartRef.nativeElement,
       );
@@ -104,5 +101,6 @@ export class StackBarChart implements OnChanges, OnInit {
 
       this.drawChart();
     });
+    this.destroyRef.onDestroy(cancelLoad);
   }
 }

@@ -1,6 +1,6 @@
-import {AfterViewInit, Component, ElementRef, HostListener, Input, OnChanges, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {AfterViewInit, Component, DestroyRef, ElementRef, HostListener, inject, Input, OnChanges, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
 import {type HloModule, type MemoryProfileProto, MemoryProfileSnapshot} from 'org_xprof/frontend/app/common/interfaces/data_table';
-import {bytesToGiBs, picoToMilli} from 'org_xprof/frontend/app/common/utils/utils';
+import {bytesToGiBs, loadGoogleChartPackages, picoToMilli} from 'org_xprof/frontend/app/common/utils/utils';
 
 const MAX_CHART_WIDTH = 1500;
 
@@ -19,6 +19,7 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
   @Input() memoryId = '';
 
   @ViewChild('chart', {static: false}) chartRef!: ElementRef;
+  private readonly destroyRef = inject(DestroyRef);
 
   title = 'Memory Timeline Graph';
   height = 465;
@@ -293,17 +294,11 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
   }
 
   loadGoogleChart() {
-    if (!google || !google.charts) {
-      setTimeout(() => {
-        this.loadGoogleChart();
-      }, 100);
-    }
-
-    google.charts.safeLoad({'packages': ['corechart']});
-    google.charts.setOnLoadCallback(() => {
+    const cancelLoad = loadGoogleChartPackages(['corechart'], () => {
       this.chart =
           new google.visualization.AreaChart(this.chartRef.nativeElement);
       this.drawChart();
     });
+    this.destroyRef.onDestroy(cancelLoad);
   }
 }

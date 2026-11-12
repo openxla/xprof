@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   inject,
   Injector,
@@ -19,6 +20,7 @@ import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_tab
 import {alignTables} from 'org_xprof/frontend/app/common/utils/diff_utils';
 import {
   escapeHtml,
+  loadGoogleChartPackages,
   setLoadingState,
 } from 'org_xprof/frontend/app/common/utils/utils';
 import {CategoryDiffTableDataProcessor} from 'org_xprof/frontend/app/components/chart/category_diff_table_data_processor';
@@ -80,9 +82,9 @@ export class HloStats extends Dashboard implements OnDestroy {
   );
   private readonly diffService = inject(BaseDiffService);
   private readonly zone = inject(NgZone);
+  private readonly destroyRef = inject(DestroyRef);
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
-  private isDestroyed = false;
   private readonly throbber = new Throbber(this.tool);
   data: SimpleDataTable | null = null;
   baselineData: SimpleDataTable | null = null;
@@ -278,18 +280,18 @@ export class HloStats extends Dashboard implements OnDestroy {
    * opened, its data can arrive before the packages load.
    */
   private whenChartsLoaded(callback: () => void) {
-    if (typeof google.visualization?.DataTable === 'function') {
+    if (
+      typeof google !== 'undefined' &&
+      typeof google.visualization?.DataTable === 'function'
+    ) {
       callback();
       return;
     }
-    google.charts.safeLoad({'packages': ['corechart', 'table']});
-    google.charts.setOnLoadCallback(() => {
-      // The page may have been closed while the packages loaded.
-      if (this.isDestroyed) {
-        return;
-      }
+    // The page may be closed while the loader script and packages load.
+    const cancelLoad = loadGoogleChartPackages(['corechart', 'table'], () => {
       this.zone.run(callback);
     });
+    this.destroyRef.onDestroy(cancelLoad);
   }
 
   private mergeTables(
@@ -930,7 +932,6 @@ export class HloStats extends Dashboard implements OnDestroy {
 
   ngOnDestroy() {
     // Unsubscribes all pending subscriptions.
-    this.isDestroyed = true;
     setLoadingState(false, this.store);
     this.destroyed.next();
     this.destroyed.complete();

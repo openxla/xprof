@@ -1,4 +1,4 @@
-import {Component, ElementRef, EventEmitter, HostListener, Input, OnChanges, OnInit, Output, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {Component, DestroyRef, ElementRef, EventEmitter, HostListener, inject, Input, OnChanges, OnInit, Output, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
 import {HeapObject} from 'org_xprof/frontend/app/common/interfaces/heap_object';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 
@@ -23,6 +23,7 @@ export class MaxHeapChart implements OnChanges, OnInit {
   @Output() selected = new EventEmitter<number>();
 
   @ViewChild('chart', {static: false}) chartRef!: ElementRef;
+  private readonly destroyRef = inject(DestroyRef);
 
   chart: google.visualization.ColumnChart|null = null;
 
@@ -102,18 +103,12 @@ export class MaxHeapChart implements OnChanges, OnInit {
   }
 
   loadGoogleChart() {
-    if (!google || !google.charts) {
-      setTimeout(() => {
-        this.loadGoogleChart();
-      }, 100);
-    }
-
-    google.charts.safeLoad({'packages': ['corechart']});
-    google.charts.setOnLoadCallback(() => {
+    const cancelLoad = utils.loadGoogleChartPackages(['corechart'], () => {
       this.chart =
           new google.visualization.ColumnChart(this.chartRef.nativeElement);
       this.drawChart();
     });
+    this.destroyRef.onDestroy(cancelLoad);
   }
 
   updateSelection() {

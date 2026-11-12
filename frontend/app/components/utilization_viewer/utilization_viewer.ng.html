@@ -9,7 +9,7 @@
       </category-filter>
     </div>
     <div class="flex-space"></div>
-    <export-as-csv [tool]="tool" [sessionId]="sessionId"></export-as-csv>
+    <export-as-csv [tool]="tool" [sessionId]="sessionId" [host]="host"></export-as-csv>
     <view-architecture *ngIf="dataService.isGraphvizAvailable()" [sessionId]="sessionId"></view-architecture>
   </div>
 </div>

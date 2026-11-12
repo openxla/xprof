@@ -1111,3 +1111,70 @@ export function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
+
+/**
+ * Returns whether the global Google Charts loader (`google.charts`) is ready.
+ */
+export function isGoogleChartsLoaded(): boolean {
+  return typeof google !== 'undefined' && !!google?.charts;
+}
+
+/**
+ * Loads the Google Charts `packages`, then calls `onLoad` once they are ready.
+ *
+ * The app can boot before the loader script defines `google.charts` on slow
+ * networks, so this polls every 100ms until it does. Returns a function that
+ * stops polling and skips `onLoad`, for components to call when destroyed.
+ */
+export function loadGoogleChartPackages(
+  packages: string[],
+  onLoad: () => void,
+): () => void {
+  let cancelled = false;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  const load = () => {
+    if (!isGoogleChartsLoaded()) {
+      retryTimer = setTimeout(load, 100);
+      return;
+    }
+    google.charts.safeLoad({'packages': packages});
+    google.charts.setOnLoadCallback(() => {
+      if (!cancelled) {
+        onLoad();
+      }
+    });
+  };
+  load();
+  return () => {
+    cancelled = true;
+    clearTimeout(retryTimer);
+  };
+}
+
+/**
+ * Resolves the active session ID from route and query parameter maps.
+ *
+ * Query parameters (`session_id`, `run`, `sessionId`) take precedence over
+ * route parameters (`sessionId`, `run`) to match parent tool routing when
+ * switching runs in-place, falling back to `fallbackSessionId`.
+ */
+export function getSessionIdFromParams(
+  routeParams?: Readonly<Record<string, unknown>> | null,
+  queryParams?: Readonly<Record<string, unknown>> | null,
+  fallbackSessionId = '',
+  sessionIdQueryKey = 'session_id',
+): string {
+  const candidates = [
+    queryParams?.[sessionIdQueryKey],
+    queryParams?.['run'],
+    queryParams?.['sessionId'],
+    routeParams?.['sessionId'],
+    routeParams?.['run'],
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate) {
+      return candidate;
+    }
+  }
+  return fallbackSessionId;
+}

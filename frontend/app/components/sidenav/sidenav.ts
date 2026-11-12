@@ -15,6 +15,7 @@ import {
 } from 'org_xprof/frontend/app/common/constants/constants';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
+import {getSessionIdFromParams} from 'org_xprof/frontend/app/common/utils/utils';
 import {CommunicationService} from 'org_xprof/frontend/app/services/communication_service/communication_service';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {
@@ -276,8 +277,45 @@ export class SideNav implements OnInit, OnDestroy {
   navigateWithUrl(url?: string) {
     const standaloneRoute = this.getStandaloneNonSidenavRoute(url);
     if (standaloneRoute) {
+      const rawUrl =
+        url ??
+        (this.router.url || this.router.routerState?.snapshot?.url || '');
+      const [pathWithoutHash] = rawUrl.split('#');
+      const [cleanPath, queryString = ''] = pathWithoutHash.split('?');
+      const pathSegments = cleanPath.split('/').filter(Boolean);
+      let pathSessionId = pathSegments[1] || '';
+      if (pathSessionId) {
+        try {
+          pathSessionId = decodeURIComponent(pathSessionId);
+        } catch {
+          // Keep raw segment if percent-encoding is malformed.
+        }
+      }
+      const searchParams = new URLSearchParams(queryString);
+      const routeParams = this.mergeRouteParams();
+      const prevRun = this.selectedRunInternal;
+      this.selectedRunInternal = getSessionIdFromParams(
+        {sessionId: pathSessionId},
+        Object.fromEntries(searchParams),
+        routeParams.get('session_id') ||
+          routeParams.get('run') ||
+          routeParams.get('sessionId') ||
+          prevRun,
+      );
+      const runChanged = Boolean(
+        prevRun && this.selectedRunInternal !== prevRun,
+      );
+      this.selectedHostInternal =
+        searchParams.get('host') ??
+        routeParams.get('host') ??
+        (runChanged ? '' : this.selectedHostInternal);
       this.selectedTagInternal = standaloneRoute;
       this.hasNavigated = false;
+      this.communicationService.onNavigateReady({
+        run: this.selectedRunInternal,
+        tag: standaloneRoute,
+        host: this.selectedHostInternal,
+      });
       // Standalone sub-pages manage their own data loading and router lifecycle.
       // Return early to prevent SideNav from parsing tool route params, triggering
       // sidebar tool data fetches, or redirecting away from the standalone sub-page.

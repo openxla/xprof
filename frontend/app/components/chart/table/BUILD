@@ -18,6 +18,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/angular:angular_material_core",
         "@org_xprof//frontend/app/common/angular:angular_material_form_field",
         "@org_xprof//frontend/app/common/angular:angular_material_select",
+        "@org_xprof//frontend/app/common/utils",
     ],
 )
 

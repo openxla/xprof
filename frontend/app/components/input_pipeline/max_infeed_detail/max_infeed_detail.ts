@@ -1,13 +1,16 @@
 import {
   AfterViewInit,
   Component,
+  DestroyRef,
   ElementRef,
+  inject,
   Input,
   OnChanges,
   SimpleChanges,
   ViewChild, ChangeDetectionStrategy,
 } from '@angular/core';
 import {type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {loadGoogleChartPackages} from 'org_xprof/frontend/app/common/utils/utils';
 
 /** A max-infeed-detail view component. */
 @Component({
@@ -24,6 +27,7 @@ export class MaxInfeedDetail implements AfterViewInit, OnChanges {
   @Input() maxInfeedCoreTable: SimpleDataTable | null = null;
 
   @ViewChild('table', {static: false}) tableRef!: ElementRef;
+  private readonly destroyRef = inject(DestroyRef);
 
   table: google.visualization.Table | null = null;
 
@@ -57,16 +61,10 @@ export class MaxInfeedDetail implements AfterViewInit, OnChanges {
   }
 
   loadGoogleChart() {
-    if (!google || !google.charts) {
-      setTimeout(() => {
-        this.loadGoogleChart();
-      }, 100);
-    }
-
-    google.charts.safeLoad({'packages': ['table']});
-    google.charts.setOnLoadCallback(() => {
+    const cancelLoad = loadGoogleChartPackages(['table'], () => {
       this.table = new google.visualization.Table(this.tableRef.nativeElement);
       this.drawTable();
     });
+    this.destroyRef.onDestroy(cancelLoad);
   }
 }

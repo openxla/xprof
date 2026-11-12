@@ -76,6 +76,8 @@ export interface ChartDataProvider {
   setUpdateEventListener(callback: Function): void;
   setVisibleColumns(visibleColumns: number[]): void;
   notifyCharts(): void;
+  // Parses data that arrived before Google Charts loaded, then redraws charts.
+  flushPendingData?(): void;
 }
 
 /** The base interface for a class with custom process method. */

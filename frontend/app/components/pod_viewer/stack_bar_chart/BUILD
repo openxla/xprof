@@ -17,6 +17,7 @@ xprof_ng_module(
         "//:node_modules/@types/google.visualization",
         "@org_xprof//frontend/app/common/constants",
         "@org_xprof//frontend/app/common/interfaces",
+        "@org_xprof//frontend/app/common/utils",
     ],
 )
 

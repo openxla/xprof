@@ -3,7 +3,7 @@ import {ActivatedRoute} from '@angular/router';
 import {Metric} from 'org_xprof/frontend/app/common/interfaces/source_stats';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {Address, Content, SOURCE_CODE_SERVICE_INTERFACE_TOKEN, SourceCodeServiceInterface} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
-import {Subject} from 'rxjs';
+import {combineLatest, of, Subject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 /**
@@ -35,11 +35,19 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
 
 
   constructor() {
-    this.route.params.pipe(takeUntil(this.destroy$)).subscribe((params) => {
-      this.sessionId = (params || {})['sessionId'] || (params || {})['run'] ||
-          this.sessionId;
-      this.reload();
-    });
+    combineLatest([
+      this.route.params ?? of({}),
+      this.route.queryParams ?? of({}),
+    ])
+        .pipe(takeUntil(this.destroy$))
+        .subscribe(([params, queryParams]) => {
+          const nextSessionId = utils.getSessionIdFromParams(
+              params, queryParams, this.sessionId);
+          if (nextSessionId !== (this.sessionId ?? '')) {
+            this.sessionId = nextSessionId;
+            this.reload();
+          }
+        });
     this.isCodeFetchEnabled = this.sourceCodeService.isCodeFetchEnabled();
   }
 

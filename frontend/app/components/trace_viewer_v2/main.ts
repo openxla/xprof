@@ -210,6 +210,17 @@ declare global {
    * the order saved under the new key.
    */
   SetTrackOrderStorageKey?(key: string): void;
+  /**
+   * Expands every process track by default instead of only the first process.
+   * Off by default; the Kernel Viewer turns it on so `Memory` and `Utilization`
+   * start expanded alongside the schedule.
+   */
+  SetExpandAllProcessesByDefault?(enabled: boolean): void;
+  /**
+   * Configures thread-level tracks that start collapsed to a single line when
+   * they span multiple levels. Empty by default.
+   */
+  SetDefaultCollapsedTracks?(trackNames: readonly string[]): void;
   // Sets the visible time range of the timeline. Both arguments are in
   // microseconds. Registered as a module-level Emscripten function (see
   // `SetVisibleRange` in application.cc). Used by the Live Trace Viewer to

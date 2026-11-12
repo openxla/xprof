@@ -1416,8 +1416,8 @@ export function buildKernelViewerTourSteps(
       eyebrow: 'Timeline',
       title: 'Read the timeline, row by row',
       body:
-        'The ruler counts bundles, not microseconds. Rows run from scopes ' +
-        'down to a lane per unit; Memory and Utilization sit collapsed ' +
+        'The ruler counts bundles, not microseconds. Scopes start collapsed ' +
+        'above regions and unit lanes, with Memory and Utilization expanded ' +
         'below. Click a point on those to compare it with the HLO op’s ' +
         'mean and peak.',
       visual: 'legend',

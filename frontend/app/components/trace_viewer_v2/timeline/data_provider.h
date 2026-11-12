@@ -12,6 +12,7 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
@@ -69,8 +70,26 @@ class DataProvider {
   // Returns true if a refetch is still waiting to flush its timeline update.
   bool HasPendingRefetchUpdate() const;
 
-  // Clears persistent session metadata and track registries.
+  // Clears persistent session metadata and track registries, preserving
+  // host-configured default expansion settings.
   void Reset();
+
+  // Expands every process track by default instead of only the first process.
+  // Preserved across `Reset()`.
+  void set_expand_all_processes_by_default(bool enabled) {
+    expand_all_processes_by_default_ = enabled;
+  }
+  bool expand_all_processes_by_default() const {
+    return expand_all_processes_by_default_;
+  }
+
+  // Configures thread-level tracks that start collapsed to a single line when
+  // they span multiple levels. Preserved across `Reset()`.
+  void SetDefaultCollapsedTrackNames(absl::Span<const std::string> track_names);
+  const absl::flat_hash_set<std::string>& default_collapsed_track_names()
+      const {
+    return default_collapsed_track_names_;
+  }
 
   // Returns true if any threads, counters, or async tracks are registered.
   bool HasKnownTracks() const;
@@ -99,6 +118,8 @@ class DataProvider {
   std::unique_ptr<IncrementalState> incremental_state_;
   bool was_compacted_ = false;
   bool last_load_was_refetch_ = false;
+  bool expand_all_processes_by_default_ = false;
+  absl::flat_hash_set<std::string> default_collapsed_track_names_;
 };
 
 // Returns restored expanded states for groups, excluding empty collapsed leaf

@@ -414,6 +414,15 @@ const TOUR_BUTTON_PULSE_MS = 1100;
 /** Local storage key of the Kernel Viewer's timeline track order. */
 const TRACK_ORDER_STORAGE_KEY = 'xprof_kernel_viewer_track_order';
 
+/**
+ * Scope tracks that start collapsed to a single summary line so `Regions`,
+ * unit lanes, `Memory`, and `Utilization` fit in the initial viewport.
+ */
+const DEFAULT_COLLAPSED_TRACK_NAMES: readonly string[] = [
+  'Named Scope',
+  'Pallas Primitives',
+];
+
 /** Local storage key of the width of the source panel. */
 const SOURCE_WIDTH_STORAGE_KEY = 'xprof_static_kernel_viewer_source_width';
 
@@ -1706,6 +1715,12 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
         // Kernel lanes can always be reordered; in the Trace Viewer, reordering
         // is behind the `enable_track_management` feature flag.
         this.traceViewerModule?.SetTrackReorderingEnabled?.(true);
+        // Collapse nested source-scope rows to single summary lines and expand
+        // the `Memory` and `Utilization` counter sections by default.
+        this.traceViewerModule?.SetExpandAllProcessesByDefault?.(true);
+        this.traceViewerModule?.SetDefaultCollapsedTracks?.(
+          DEFAULT_COLLAPSED_TRACK_NAMES,
+        );
         this.lastLoadedUrl = '';
         this.lastLoadFailed = false;
         this.isLoadingTrace = false;

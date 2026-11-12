@@ -8192,5 +8192,308 @@ TEST_F(DataProviderTest,
   EXPECT_TRUE(restored_expanded.at(empty_counter_key));
 }
 
+ParsedTraceEvents CreateKernelViewerLikeEvents() {
+  ParsedTraceEvents parsed;
+  parsed.time_axis_unit = TimeAxisUnit::kUnitless;
+  parsed.flame_events = {
+      CreateProcessEvent(1, "routing_gmm_fused.1"),
+      CreateProcessSortIndexEvent(1, "0"),
+      CreateThreadEvent(1, 1, "Named Scope"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 1, "1"),
+      CreateCompleteEvent(1, 1, "moe_layer", 0.0, 100.0, /*event_id=*/1),
+      CreateCompleteEvent(1, 1, "expert_gmm", 10.0, 80.0, /*event_id=*/2),
+      CreateThreadEvent(1, 2, "Pallas Primitives"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 2, "2"),
+      CreateCompleteEvent(1, 2, "dma_start", 0.0, 100.0, /*event_id=*/3),
+      CreateCompleteEvent(1, 2, "select_n", 0.0, 90.0, /*event_id=*/4),
+      CreateCompleteEvent(1, 2, "dot_general", 10.0, 70.0, /*event_id=*/5),
+      CreateThreadEvent(1, 3, "Regions"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 3, "3"),
+      CreateCompleteEvent(1, 3, "pred.check_branch", 0.0, 100.0,
+                          /*event_id=*/6),
+      CreateCompleteEvent(1, 3, "loop.body", 10.0, 80.0, /*event_id=*/7),
+      CreateThreadEvent(1, 4, "MXU"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 4, "4"),
+      CreateCompleteEvent(1, 4, "vmatmul", 10.0, 60.0, /*event_id=*/8),
+      CreateCompleteEvent(1, 4, "vmatmul.push", 15.0, 20.0, /*event_id=*/9),
+      CreateProcessEvent(2, "Memory"),
+      CreateProcessSortIndexEvent(2, "1"),
+      CreateProcessEvent(3, "Utilization"),
+      CreateProcessSortIndexEvent(3, "2"),
+  };
+  parsed.counter_events = {
+      CreateCounterEvent(2, "VMEM Scoped", {0.0, 50.0, 100.0},
+                         {1024.0, 4096.0, 0.0}),
+      CreateCounterEvent(3, "MXU utilization", {0.0, 50.0, 100.0},
+                         {0.5, 1.0, 0.0}),
+  };
+  return parsed;
+}
+
+const Group* FindGroupByName(const std::vector<Group>& groups,
+                             absl::string_view name) {
+  for (const Group& group : groups) {
+    if (group.name == name) {
+      return &group;
+    }
+  }
+  return nullptr;
+}
+
+TEST_F(DataProviderTest, DefaultTrackExpansionLeavesTraceViewerUnchanged) {
+  EXPECT_FALSE(data_provider_.expand_all_processes_by_default());
+  EXPECT_THAT(data_provider_.default_collapsed_track_names(), IsEmpty());
+
+  data_provider_.ProcessTraceEvents(CreateKernelViewerLikeEvents(), timeline_);
+
+  const std::vector<Group>& groups = timeline_.timeline_data().groups;
+  const Group* kernel_process = FindGroupByName(groups, "routing_gmm_fused.1");
+  const Group* named_scope = FindGroupByName(groups, "Named Scope");
+  const Group* pallas_primitives = FindGroupByName(groups, "Pallas Primitives");
+  const Group* regions = FindGroupByName(groups, "Regions");
+  const Group* memory_process = FindGroupByName(groups, "Memory");
+  const Group* utilization_process = FindGroupByName(groups, "Utilization");
+  ASSERT_NE(kernel_process, nullptr);
+  ASSERT_NE(named_scope, nullptr);
+  ASSERT_NE(pallas_primitives, nullptr);
+  ASSERT_NE(regions, nullptr);
+  ASSERT_NE(memory_process, nullptr);
+  ASSERT_NE(utilization_process, nullptr);
+
+  EXPECT_TRUE(kernel_process->expanded);
+  EXPECT_TRUE(named_scope->expanded);
+  EXPECT_TRUE(pallas_primitives->expanded);
+  EXPECT_TRUE(regions->expanded);
+  EXPECT_FALSE(memory_process->expanded);
+  EXPECT_FALSE(utilization_process->expanded);
+}
+
+TEST_F(DataProviderTest,
+       KernelViewerTrackExpansionCollapsesMultiLevelScopesAndExpandsSections) {
+  data_provider_.set_expand_all_processes_by_default(true);
+  data_provider_.SetDefaultCollapsedTrackNames(
+      {"Named Scope", "Pallas Primitives"});
+
+  data_provider_.ProcessTraceEvents(CreateKernelViewerLikeEvents(), timeline_);
+
+  const std::vector<Group>& groups = timeline_.timeline_data().groups;
+  std::vector<std::string> group_names;
+  group_names.reserve(groups.size());
+  for (const Group& group : groups) {
+    group_names.push_back(group.name);
+  }
+  EXPECT_THAT(group_names,
+              ElementsAre("routing_gmm_fused.1", "Named Scope",
+                          "Pallas Primitives", "Regions", "MXU", "Memory",
+                          "VMEM Scoped", "Utilization", "MXU utilization"));
+
+  const Group* kernel_process = FindGroupByName(groups, "routing_gmm_fused.1");
+  const Group* named_scope = FindGroupByName(groups, "Named Scope");
+  const Group* pallas_primitives = FindGroupByName(groups, "Pallas Primitives");
+  const Group* regions = FindGroupByName(groups, "Regions");
+  const Group* mxu = FindGroupByName(groups, "MXU");
+  const Group* memory_process = FindGroupByName(groups, "Memory");
+  const Group* vmem_scoped = FindGroupByName(groups, "VMEM Scoped");
+  const Group* utilization_process = FindGroupByName(groups, "Utilization");
+  const Group* mxu_util = FindGroupByName(groups, "MXU utilization");
+  ASSERT_NE(kernel_process, nullptr);
+  ASSERT_NE(named_scope, nullptr);
+  ASSERT_NE(pallas_primitives, nullptr);
+  ASSERT_NE(regions, nullptr);
+  ASSERT_NE(mxu, nullptr);
+  ASSERT_NE(memory_process, nullptr);
+  ASSERT_NE(vmem_scoped, nullptr);
+  ASSERT_NE(utilization_process, nullptr);
+  ASSERT_NE(mxu_util, nullptr);
+
+  EXPECT_TRUE(kernel_process->expanded);
+  EXPECT_EQ(named_scope->level_count, 2);
+  EXPECT_FALSE(named_scope->expanded);
+  EXPECT_EQ(pallas_primitives->level_count, 3);
+  EXPECT_FALSE(pallas_primitives->expanded);
+  EXPECT_EQ(regions->level_count, 2);
+  EXPECT_TRUE(regions->expanded);
+  EXPECT_EQ(mxu->level_count, 2);
+  EXPECT_TRUE(mxu->expanded);
+  EXPECT_TRUE(memory_process->expanded);
+  EXPECT_TRUE(vmem_scoped->expanded);
+  EXPECT_TRUE(utilization_process->expanded);
+  EXPECT_TRUE(mxu_util->expanded);
+}
+
+TEST_F(DataProviderTest,
+       DefaultCollapsedSingleLevelTrackStaysVisibleAndEmptyTracksAreOmitted) {
+  data_provider_.set_expand_all_processes_by_default(true);
+  data_provider_.SetDefaultCollapsedTrackNames(
+      {"Named Scope", "Pallas Primitives"});
+
+  ParsedTraceEvents parsed;
+  parsed.time_axis_unit = TimeAxisUnit::kUnitless;
+  parsed.flame_events = {
+      CreateProcessEvent(1, "single_level_scope_kernel"),
+      CreateProcessSortIndexEvent(1, "0"),
+      CreateThreadEvent(1, 1, "Named Scope"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 1, "1"),
+      CreateCompleteEvent(1, 1, "qk_phase", 0.0, 40.0, /*event_id=*/1),
+      CreateCompleteEvent(1, 1, "pv_phase", 50.0, 40.0, /*event_id=*/2),
+      CreateThreadEvent(1, 3, "Regions"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 3, "3"),
+      CreateCompleteEvent(1, 3, "loop.body", 0.0, 90.0, /*event_id=*/3),
+  };
+
+  data_provider_.ProcessTraceEvents(parsed, timeline_);
+
+  const std::vector<Group>& groups = timeline_.timeline_data().groups;
+  const Group* named_scope = FindGroupByName(groups, "Named Scope");
+  ASSERT_NE(named_scope, nullptr);
+  // A 1-level track already occupies a single xline and is non-expandable in
+  // Timeline, so it upgrades to `expanded = true` to render its spans visibly.
+  EXPECT_EQ(named_scope->level_count, 1);
+  EXPECT_TRUE(named_scope->expanded);
+  EXPECT_EQ(FindGroupByName(groups, "Pallas Primitives"), nullptr);
+  EXPECT_EQ(FindGroupByName(groups, "Memory"), nullptr);
+  EXPECT_EQ(FindGroupByName(groups, "Utilization"), nullptr);
+}
+
+TEST_F(DataProviderTest,
+       DefaultExpansionPreservesManualTogglesAndSurvivesDatasetReset) {
+  data_provider_.set_expand_all_processes_by_default(true);
+  data_provider_.SetDefaultCollapsedTrackNames(
+      {"Named Scope", "Pallas Primitives"});
+
+  data_provider_.ProcessTraceEvents(CreateKernelViewerLikeEvents(), timeline_);
+
+  // Simulate the user manually expanding "Pallas Primitives" and collapsing
+  // "Memory".
+  {
+    FlameChartTimelineData data = timeline_.timeline_data();
+    for (Group& group : data.groups) {
+      if (group.name == "Pallas Primitives") group.expanded = true;
+      if (group.name == "Memory") group.expanded = false;
+    }
+    timeline_.SetTimelineData(std::move(data));
+  }
+
+  // Reloading without Reset() preserves the user's manual toggles.
+  data_provider_.ProcessTraceEvents(CreateKernelViewerLikeEvents(), timeline_);
+  {
+    const std::vector<Group>& groups = timeline_.timeline_data().groups;
+    const Group* pallas = FindGroupByName(groups, "Pallas Primitives");
+    const Group* memory = FindGroupByName(groups, "Memory");
+    ASSERT_NE(pallas, nullptr);
+    ASSERT_NE(memory, nullptr);
+    EXPECT_TRUE(pallas->expanded);
+    EXPECT_FALSE(memory->expanded);
+  }
+
+  // Switching to a new kernel calls Reset() + ResetForNewDataset(), keeping
+  // host-configured default expansion settings for the next kernel load
+  // (including via the incremental loader).
+  data_provider_.Reset();
+  timeline_.ResetForNewDataset();
+  EXPECT_TRUE(data_provider_.expand_all_processes_by_default());
+  EXPECT_THAT(data_provider_.default_collapsed_track_names(),
+              UnorderedElementsAre("Named Scope", "Pallas Primitives"));
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(CreateKernelViewerLikeEvents(),
+                                              timeline_);
+  data_provider_.MarkFinishingIncrementalLoad();
+  data_provider_.AppendTraceEventsIncremental({}, timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  const std::vector<Group>& groups = timeline_.timeline_data().groups;
+  const Group* named_scope = FindGroupByName(groups, "Named Scope");
+  const Group* pallas = FindGroupByName(groups, "Pallas Primitives");
+  const Group* memory = FindGroupByName(groups, "Memory");
+  const Group* utilization = FindGroupByName(groups, "Utilization");
+  ASSERT_NE(named_scope, nullptr);
+  ASSERT_NE(pallas, nullptr);
+  ASSERT_NE(memory, nullptr);
+  ASSERT_NE(utilization, nullptr);
+  EXPECT_FALSE(named_scope->expanded);
+  EXPECT_FALSE(pallas->expanded);
+  EXPECT_TRUE(memory->expanded);
+  EXPECT_TRUE(utilization->expanded);
+}
+
+TEST_F(DataProviderTest,
+       MultiChunkIncrementalLoadAutoCollapsesScopesOnceMultiLevelSpansArrive) {
+  data_provider_.set_expand_all_processes_by_default(true);
+  data_provider_.SetDefaultCollapsedTrackNames(
+      {"Named Scope", "Pallas Primitives"});
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+
+  // Chunk 1: metadata arrives first with 0 events on "Named Scope" and 1 level
+  // on "Pallas Primitives", so both temporarily upgrade to `expanded = true`.
+  ParsedTraceEvents chunk1;
+  chunk1.time_axis_unit = TimeAxisUnit::kUnitless;
+  chunk1.flame_events = {
+      CreateProcessEvent(1, "streamed_kernel.1"),
+      CreateProcessSortIndexEvent(1, "0"),
+      CreateThreadEvent(1, 1, "Named Scope"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 1, "1"),
+      CreateThreadEvent(1, 2, "Pallas Primitives"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 2, "2"),
+      CreateCompleteEvent(1, 2, "dma_start", 0.0, 100.0, /*event_id=*/1),
+      CreateThreadEvent(1, 3, "Regions"),
+      CreateSortIndexMetadataEvent(kThreadSortIndex, 1, 3, "3"),
+      CreateCompleteEvent(1, 3, "loop.body", 0.0, 100.0, /*event_id=*/2),
+  };
+  data_provider_.AppendTraceEventsIncremental(chunk1, timeline_);
+  {
+    const std::vector<Group>& groups = timeline_.timeline_data().groups;
+    const Group* named_scope = FindGroupByName(groups, "Named Scope");
+    const Group* pallas = FindGroupByName(groups, "Pallas Primitives");
+    ASSERT_NE(named_scope, nullptr);
+    ASSERT_NE(pallas, nullptr);
+    EXPECT_TRUE(named_scope->expanded);
+    EXPECT_TRUE(pallas->expanded);
+  }
+
+  // Chunk 2: nested/overlapping scope spans and counter sections arrive; the
+  // earlier 1-level auto-upgrade must not stick as a manual user toggle.
+  ParsedTraceEvents chunk2;
+  chunk2.time_axis_unit = TimeAxisUnit::kUnitless;
+  chunk2.flame_events = {
+      CreateCompleteEvent(1, 1, "moe_layer", 0.0, 100.0, /*event_id=*/3),
+      CreateCompleteEvent(1, 1, "expert_gmm", 10.0, 80.0, /*event_id=*/4),
+      CreateCompleteEvent(1, 2, "dot_general", 10.0, 70.0, /*event_id=*/5),
+      CreateProcessEvent(2, "Memory"),
+      CreateProcessSortIndexEvent(2, "1"),
+      CreateProcessEvent(3, "Utilization"),
+      CreateProcessSortIndexEvent(3, "2"),
+  };
+  chunk2.counter_events = {
+      CreateCounterEvent(2, "VMEM Scoped", {0.0, 50.0, 100.0},
+                         {1024.0, 4096.0, 0.0}),
+      CreateCounterEvent(3, "MXU utilization", {0.0, 50.0, 100.0},
+                         {0.5, 1.0, 0.0}),
+  };
+  data_provider_.MarkFinishingIncrementalLoad();
+  data_provider_.AppendTraceEventsIncremental(chunk2, timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  const std::vector<Group>& groups = timeline_.timeline_data().groups;
+  const Group* named_scope = FindGroupByName(groups, "Named Scope");
+  const Group* pallas = FindGroupByName(groups, "Pallas Primitives");
+  const Group* regions = FindGroupByName(groups, "Regions");
+  const Group* memory = FindGroupByName(groups, "Memory");
+  const Group* utilization = FindGroupByName(groups, "Utilization");
+  ASSERT_NE(named_scope, nullptr);
+  ASSERT_NE(pallas, nullptr);
+  ASSERT_NE(regions, nullptr);
+  ASSERT_NE(memory, nullptr);
+  ASSERT_NE(utilization, nullptr);
+  EXPECT_EQ(named_scope->level_count, 2);
+  EXPECT_FALSE(named_scope->expanded);
+  EXPECT_EQ(pallas->level_count, 2);
+  EXPECT_FALSE(pallas->expanded);
+  EXPECT_TRUE(regions->expanded);
+  EXPECT_TRUE(memory->expanded);
+  EXPECT_TRUE(utilization->expanded);
+}
+
 }  // namespace
 }  // namespace traceviewer

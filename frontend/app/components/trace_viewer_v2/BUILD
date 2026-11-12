@@ -80,6 +80,7 @@ wasm_cc_library(
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
         "@imgui",
         "@org_xprof//frontend/app/components/trace_viewer_v2/fonts",
         "@org_xprof//frontend/app/components/trace_viewer_v2/timeline",

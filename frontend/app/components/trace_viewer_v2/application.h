@@ -12,6 +12,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "imgui.h"
 #include "frontend/app/components/trace_viewer_v2/canvas_state.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
@@ -154,6 +155,17 @@ class Application {
     if (timeline_) {
       timeline_->set_track_reordering_enabled(enabled);
     }
+  }
+
+  // Expands every process track by default instead of only the first process.
+  void SetExpandAllProcessesByDefault(bool enabled) {
+    data_provider_.set_expand_all_processes_by_default(enabled);
+  }
+
+  // Configures thread tracks that start collapsed when spanning >1 level.
+  void SetDefaultCollapsedTrackNames(
+      absl::Span<const std::string> track_names) {
+    data_provider_.SetDefaultCollapsedTrackNames(track_names);
   }
 
   // Sets the `localStorage` key used by `SaveTrackOrderToLocalStorage()`,

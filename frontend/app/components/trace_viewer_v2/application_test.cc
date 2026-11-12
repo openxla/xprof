@@ -192,5 +192,32 @@ TEST_F(ApplicationTest, TrackOrderMethodsAreSafeWhenUninitialized) {
   app.RestoreSavedTrackOrder();
 }
 
+TEST_F(ApplicationTest, ShutdownResetsDefaultTrackExpansionSettings) {
+  Application& app = Application::Instance();
+  app.Shutdown();
+
+  EXPECT_FALSE(app.data_provider().expand_all_processes_by_default());
+  EXPECT_TRUE(app.data_provider().default_collapsed_track_names().empty());
+
+  app.SetExpandAllProcessesByDefault(true);
+  app.SetDefaultCollapsedTrackNames({"Named Scope", "Pallas Primitives"});
+  EXPECT_TRUE(app.data_provider().expand_all_processes_by_default());
+  EXPECT_EQ(app.data_provider().default_collapsed_track_names().size(), 2);
+  EXPECT_TRUE(app.data_provider().default_collapsed_track_names().contains(
+      "Named Scope"));
+  EXPECT_TRUE(app.data_provider().default_collapsed_track_names().contains(
+      "Pallas Primitives"));
+
+  // Switching kernels resets dataset metadata while preserving viewer defaults.
+  app.data_provider().Reset();
+  EXPECT_TRUE(app.data_provider().expand_all_processes_by_default());
+  EXPECT_EQ(app.data_provider().default_collapsed_track_names().size(), 2);
+
+  // Shutting down restores clean Trace Viewer defaults.
+  app.Shutdown();
+  EXPECT_FALSE(app.data_provider().expand_all_processes_by_default());
+  EXPECT_TRUE(app.data_provider().default_collapsed_track_names().empty());
+}
+
 }  // namespace
 }  // namespace traceviewer

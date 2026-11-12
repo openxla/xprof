@@ -183,6 +183,21 @@ EMSCRIPTEN_KEEPALIVE void SetTrackOrderStorageKey(const std::string& key) {
   Application::Instance().SetTrackOrderStorageKey(key);
 }
 
+EMSCRIPTEN_KEEPALIVE void SetExpandAllProcessesByDefault(bool enabled) {
+  Application::Instance().SetExpandAllProcessesByDefault(enabled);
+}
+
+EMSCRIPTEN_KEEPALIVE void SetDefaultCollapsedTracks(
+    const emscripten::val& track_names) {
+  if (!track_names.isArray()) {
+    LOG(ERROR) << "Failed to set default collapsed tracks: input is not an "
+                  "array";
+    return;
+  }
+  Application::Instance().SetDefaultCollapsedTrackNames(
+      emscripten::vecFromJSArray<std::string>(track_names));
+}
+
 EMSCRIPTEN_KEEPALIVE void ResetDataset() {
   Application::Instance().ResetDataset();
 }
@@ -296,6 +311,9 @@ EMSCRIPTEN_BINDINGS(traceviewer) {
                        &SetSelectedEventTimeRangeEnabled);
   emscripten::function("SetTrackReorderingEnabled", &SetTrackReorderingEnabled);
   emscripten::function("SetTrackOrderStorageKey", &SetTrackOrderStorageKey);
+  emscripten::function("SetExpandAllProcessesByDefault",
+                       &SetExpandAllProcessesByDefault);
+  emscripten::function("SetDefaultCollapsedTracks", &SetDefaultCollapsedTracks);
   emscripten::function("ResetDataset", &ResetDataset);
   emscripten::function("SetCustomTraceColors", &SetCustomTraceColors);
   emscripten::function("RequestRedraw", &RequestRedraw);
@@ -465,6 +483,9 @@ void Application::Shutdown() {
   // Clean up and release memory.
   feature_flags_cache_.clear();
   track_order_storage_key_ = std::string(kDefaultTrackOrderStorageKey);
+  data_provider_.Reset();
+  data_provider_.set_expand_all_processes_by_default(false);
+  data_provider_.SetDefaultCollapsedTrackNames({});
   timeline_.reset();
   platform_.reset();
 

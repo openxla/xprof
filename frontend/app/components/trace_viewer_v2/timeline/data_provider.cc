@@ -158,6 +158,9 @@ struct TraceInformation {
   absl::flat_hash_set<ProcessId> async_processes_by_events;
   bool is_mpmd = false;
   bool consume_cached_tracks = false;
+  bool expand_all_processes_by_default = false;
+  const absl::flat_hash_set<std::string>* default_collapsed_track_names =
+      nullptr;
   absl::flat_hash_map<std::pair<ProcessId, ThreadId>, CachedThreadTrack>*
       cached_sync_tracks = nullptr;
   absl::flat_hash_map<std::pair<ProcessId, std::string>, CachedThreadTrack>*
@@ -1859,9 +1862,13 @@ void PopulateThreadTrack(
                             : it->second;
   }
 
-  bool expanded =
-      GetExpandedState(nesting_level, thread_group_name, process_group_name,
-                       default_expanded, expanded_states);
+  const bool is_default_collapsed_track =
+      nesting_level == kThreadNestingLevel &&
+      trace_info.default_collapsed_track_names != nullptr &&
+      trace_info.default_collapsed_track_names->contains(thread_group_name);
+  bool expanded = GetExpandedState(
+      nesting_level, thread_group_name, process_group_name,
+      default_expanded && !is_default_collapsed_track, expanded_states);
 
   int child_index = static_cast<int>(data.groups.size());
   data.groups.push_back({.type = Group::Type::kFlame,
@@ -2500,7 +2507,8 @@ FlameChartTimelineData CreateTimelineData(
   AsyncTrackLevels async_track_levels;
 
   for (const ProcessId pid : sorted_pids) {
-    const bool default_expanded = data.groups.empty();
+    const bool default_expanded =
+        trace_info.expand_all_processes_by_default || data.groups.empty();
     PopulateProcessTrack(pid, trace_info, current_level, data, bounds,
                          thread_levels, async_track_levels, default_expanded,
                          expanded_states, max_observed_levels, known_threads,
@@ -3022,6 +3030,10 @@ struct DataProvider::IncrementalState {
 
     timeline.UpdateTimelineData([&]() {
       trace_info.consume_cached_tracks = is_finishing;
+      trace_info.expand_all_processes_by_default =
+          provider.expand_all_processes_by_default_;
+      trace_info.default_collapsed_track_names =
+          &provider.default_collapsed_track_names_;
       FlameChartTimelineData new_timeline_data = CreateTimelineData(
           trace_info, sorted_pids, GetTop5FlowCategories(flow_category_counts),
           time_bounds, base_expanded_states, timeline.GetPalette(),
@@ -3073,6 +3085,12 @@ void DataProvider::Reset() {
   known_counters_.clear();
   was_compacted_ = false;
   last_load_was_refetch_ = false;
+}
+
+void DataProvider::SetDefaultCollapsedTrackNames(
+    absl::Span<const std::string> track_names) {
+  default_collapsed_track_names_.clear();
+  default_collapsed_track_names_.insert(track_names.begin(), track_names.end());
 }
 
 void DataProvider::BeginIncrementalLoad(Timeline& timeline) {
@@ -3201,6 +3219,8 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
 
   TraceInformation trace_info;
   trace_info.is_mpmd = parsed_events.mpmd_pipeline_view;
+  trace_info.expand_all_processes_by_default = expand_all_processes_by_default_;
+  trace_info.default_collapsed_track_names = &default_collapsed_track_names_;
   trace_info.process_names = process_names_;
   trace_info.thread_names = thread_names_;
   trace_info.process_sort_indices = process_sort_indices_;

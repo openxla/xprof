@@ -94,9 +94,11 @@ skill's markdown files but are NOT visible by running `xprof -h`.
     ```bash
     xprof get_overview /path/to/logdir/plugins/profile/2026_08_17_22_58_50/worker0.xplane.pb
     ```
-4.  **Explicit Named Flags**: Pass explicit `--logdir` and `--session_id` flags:
+4.  **Explicit Named Flags**: Pass `--logdir` on its own to auto-discover the
+    latest run, and add `--session_id` only to pin a specific one:
 
     ```bash
+    xprof get_overview --logdir=/path/to/logdir
     xprof get_overview --logdir=/path/to/logdir --session_id=2026_08_17_22_58_50
     ```
 

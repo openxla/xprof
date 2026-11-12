@@ -264,6 +264,12 @@ def _is_oss() -> bool:
 
 _SPILL_THRESHOLD_BYTES = 10 * 1024 * 1024
 
+# Parameter kinds that Fire can populate from a positional CLI argument.
+_POSITIONAL_KINDS = (
+    inspect.Parameter.POSITIONAL_ONLY,
+    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+)
+
 
 def _wrap_with_logdir(
     tool_func: Callable[..., Any], accepts_compiler_dump_dir: bool = False
@@ -298,6 +304,40 @@ def _wrap_with_logdir(
       kwargs_param = p
     else:
       params.append(p)
+
+  # `--logdir=<path>` on its own is a documented, complete invocation: the
+  # wrapper body below derives `session_id` from `logdir`. Fire validates the
+  # call against `wrapper.__signature__` *before* that body runs, so leaving
+  # `session_id` required there makes Fire reject `--logdir=<path>` with a
+  # misleading "received no value for the required argument: session_id".
+  # Relax it to a None default so the derivation is reachable, then enforce
+  # the real requirement at runtime in `wrapper`. Only tools that read a local
+  # trace derive the session from `--logdir`, so leave the others unchanged.
+  session_param_index = None
+  if reads_local_trace:
+    session_param_index = next(
+        (
+            i
+            for i, param in enumerate(params)
+            if param.name in ("session_id", "source")
+            and param.kind in _POSITIONAL_KINDS
+            and param.default is inspect.Parameter.empty
+        ),
+        None,
+    )
+  # Only safe when every later positional already has a default; otherwise
+  # `Signature.replace` would raise on a non-default following a default.
+  if session_param_index is not None and all(
+      param.default is not inspect.Parameter.empty
+      for param in params[session_param_index + 1 :]
+      if param.kind in _POSITIONAL_KINDS
+  ):
+    session_param_name = params[session_param_index].name
+    params[session_param_index] = params[session_param_index].replace(
+        default=None
+    )
+  else:
+    session_param_name = None
 
   if "logdir" not in sig.parameters:
     params.append(
@@ -338,21 +378,67 @@ def _wrap_with_logdir(
       raise fire.core.FireError("The --logdir flag requires a value.")
 
     if reads_local_trace:
+      # Fire binds every parameter of the synthesized signature and passes the
+      # defaults *positionally*, so `args` arrives as e.g. `(None, False)` even
+      # for a bare `xprof <tool>`. Resolve the session argument by name rather
+      # than treating a non-empty `args` as "the user supplied one".
+      args = list(args)
+      positional_names = [
+          param.name
+          for param in sig.parameters.values()
+          if param.kind in _POSITIONAL_KINDS
+      ]
+      session_pos = None
+      if (
+          session_param_name is not None
+          and session_param_name in positional_names
+      ):
+        index = positional_names.index(session_param_name)
+        if index < len(args):
+          session_pos = index
+
+      if session_pos is not None:
+        session_value = args[session_pos]
+      elif session_param_name is not None:
+        session_value = kwargs.get(session_param_name)
+      else:
+        session_value = args[0] if args else None
+
       # Reject an empty session_id, positional or named, unless the tool makes
       # it optional (e.g. llo_load, which can read a local file instead). Fire
       # passes defaults positionally, so an optional one arrives as
-      # args[0] = "".
+      # args[0] = "". `None` only means "not supplied", and may still be
+      # satisfied from `--logdir` below, so these checks must not collapse
+      # `None` and `""` into a single falsy case.
       if not session_id_optional:
-        if args and not args[0]:
+        keyword_session = kwargs.get("session_id")
+        if (isinstance(session_value, str) and not session_value) or (
+            isinstance(keyword_session, str) and not keyword_session
+        ):
           raise ValueError("session_id cannot be an empty string.")
-        if "session_id" in kwargs and not kwargs["session_id"]:
-          raise ValueError("session_id cannot be an empty string.")
+
+      # The synthesized signature no longer marks the session argument as
+      # required (so `--logdir` alone can reach the derivation below), so Fire
+      # will happily dispatch a bare `xprof <subcommand>`. Re-impose the real
+      # requirement here rather than letting the tool fail deeper with a less
+      # actionable error.
+      if (
+          session_param_name is not None
+          and session_value is None
+          and logdir is None
+      ):
+        raise fire.core.FireError(
+            f"Missing required argument: {session_param_name}. Pass it"
+            " positionally (e.g. `xprof"
+            f" {getattr(tool_func, '__name__', 'TOOL')}"
+            " <logdir_or_session_id>`) or supply --logdir=<path>."
+        )
 
       target_path = None
       if logdir is not None:
         target_path = str(logdir)
-      elif args and "session_id" in sig.parameters:
-        first_arg = args[0]
+      elif session_value is not None and "session_id" in sig.parameters:
+        first_arg = session_value
         if isinstance(first_arg, str) and (
             "/" in first_arg or "\\" in first_arg or "." in first_arg
         ):
@@ -392,16 +478,16 @@ def _wrap_with_logdir(
                 )
         if logdir is not None:
           xprof_client.get_client().set_logdir(str(logdir))
-          if (
-              "session_id" in sig.parameters
-              and "session_id" not in kwargs
-              and not args
-          ):
-            kwargs["session_id"] = str(logdir)
-          elif (
-              "source" in sig.parameters and "source" not in kwargs and not args
-          ):
-            kwargs["source"] = str(logdir)
+          # Write the derived value back into whichever channel Fire used: it
+          # binds the session argument positionally when the tool declares it
+          # as a positional parameter, and by keyword otherwise.
+          if session_value is None:
+            if session_pos is not None:
+              args[session_pos] = str(logdir)
+            elif "session_id" in sig.parameters:
+              kwargs["session_id"] = str(logdir)
+            elif "source" in sig.parameters:
+              kwargs["source"] = str(logdir)
 
     args_list = list(args)
     for i, p in enumerate(sig.parameters.values()):

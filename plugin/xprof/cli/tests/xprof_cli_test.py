@@ -8,6 +8,8 @@ import tempfile
 from typing import Any
 from unittest import mock
 
+import fire
+
 from absl.testing import absltest
 from absl.testing import parameterized
 from xprof import server
@@ -39,6 +41,16 @@ def _sample_dict_tool():
 
 def _sample_list_tool():
   return [{'name': 'a'}, {'name': 'b'}]
+
+
+def _dummy_tool_with_limit(session_id: str, limit: int = 10):
+  """A tool with a required session arg followed by a defaulted positional."""
+  return {'session_id': session_id, 'limit': limit}
+
+
+def _dummy_tool_session_only(session_id: str):
+  """A tool whose only parameter is a required session arg."""
+  return {'session_id': session_id}
 
 
 class XProfCliTest(parameterized.TestCase):
@@ -417,6 +429,65 @@ class XProfCliTest(parameterized.TestCase):
     # Fire passes defaults positionally.
     self.assertEqual(wrapped('', '/tmp/x.pb'), '|/tmp/x.pb')
     self.assertEqual(wrapped(session_id='', llo_file='y'), '|y')
+
+  def test_session_id_not_required_in_synthesized_signature(self):
+    """`--logdir` alone must not be rejected by Fire's signature binding.
+
+    Fire validates against `wrapper.__signature__` before the wrapper body
+    derives `session_id` from `logdir`, so a required `session_id` there made
+    `xprof <tool> --logdir=<path>` fail with a misleading "received no value
+    for the required argument: session_id".
+    """
+    wrapped = xprof_cli._wrap_with_logdir(_dummy_tool_with_limit)
+    session_param = wrapped.__signature__.parameters['session_id']
+    self.assertIsNot(session_param.default, inspect.Parameter.empty)
+    self.assertIsNone(session_param.default)
+
+  def test_logdir_only_derives_session_id(self):
+    """`--logdir=<path>` alone resolves the session from the logdir."""
+    logdir = self.create_tempdir()
+    logdir.create_file('plugins/profile/run1/worker0.xplane.pb')
+
+    wrapped = xprof_cli._wrap_with_logdir(_dummy_tool_session_only)
+    # `xprof_cli.xprof_client` is a lazy module proxy, so patch the method on
+    # the shared client rather than autospeccing the proxy.
+    client = xprof_cli.xprof_client.get_client()
+    with mock.patch.object(
+        client, 'set_logdir', autospec=True
+    ) as mock_set_logdir:
+      result = wrapped(logdir=logdir.full_path)
+
+    # The wrapper serializes dict results to JSON.
+    self.assertEqual(json.loads(result)['session_id'], logdir.full_path)
+    mock_set_logdir.assert_called_once_with(logdir.full_path)
+
+  def test_missing_session_and_logdir_raises_fire_error(self):
+    """A bare `xprof <tool>` still fails, and names the missing argument."""
+    wrapped = xprof_cli._wrap_with_logdir(_dummy_tool_session_only)
+    with self.assertRaises(fire.core.FireError) as cm:
+      wrapped()
+    self.assertIn('session_id', str(cm.exception))
+
+  @parameterized.named_parameters(
+      # Already optional: nothing to relax.
+      ('already_defaulted', lambda session_id='': None, 'session_id', ''),
+      # A required positional *after* the session arg would make the
+      # synthesized signature invalid, so it must be left alone.
+      (
+          'required_trailing_positional',
+          lambda source, destination: None,
+          'source',
+          inspect.Parameter.empty,
+      ),
+  )
+  def test_signature_relaxation_is_conservative(
+      self, tool_func, param_name, expected_default
+  ):
+    """Only a trailing-safe, required session arg is relaxed."""
+    wrapped = xprof_cli._wrap_with_logdir(tool_func)
+    self.assertIs(
+        wrapped.__signature__.parameters[param_name].default, expected_default
+    )
 
   def test_preprocess_argv_quotes_timestamp_tokens(self):
     """Ensures timestamp tokens with underscores are quoted for PEP 515."""

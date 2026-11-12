@@ -271,6 +271,7 @@ pytype_strict_contrib_test(
         "//plugin/xprof/cli/tools/oss:diff_sessions_tool",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
+        "@pypi//fire",
     ],
 )
 

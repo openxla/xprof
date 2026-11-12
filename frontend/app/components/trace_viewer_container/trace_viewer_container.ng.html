@@ -316,6 +316,42 @@
                       <span class="detail-value hlo-preview" *ngIf="isPropCollapsed(prop)">{{getPropPreview(prop)}}</span>
                       <span class="detail-value" *ngIf="!isPropCollapsed(prop)">{{prop.value}}</span>
                     </div>
+                    <div class="flow-events-container" *ngIf="inboundFlows.length > 0 || outboundFlows.length > 0">
+                      <div class="detail-row flow-event-row" *ngFor="let flow of displayedInboundFlows; trackBy: trackByFlowIndex">
+                        <span class="detail-label">Incoming flow:</span>
+                        <span
+                          class="detail-value flow-event-link"
+                          role="button"
+                          tabindex="0"
+                          [attr.aria-label]="'Jump to incoming flow event ' + flow.name"
+                          (click)="navigateToFlowEvent(flow, $event)"
+                          (keydown.enter)="navigateToFlowEvent(flow, $event)"
+                          (keydown.space)="navigateToFlowEvent(flow, $event)">
+                          {{flow.name}}<span *ngIf="flow.startUsFormatted" class="flow-event-timestamp"> ({{flow.startUsFormatted}})</span>
+                        </span>
+                      </div>
+                      <div class="detail-row flow-event-row flow-event-overflow" *ngIf="inboundOverflowCount > 0">
+                        <span class="detail-label"></span>
+                        <span class="detail-value flow-event-overflow-text">and {{inboundOverflowCount}} more</span>
+                      </div>
+                      <div class="detail-row flow-event-row" *ngFor="let flow of displayedOutboundFlows; trackBy: trackByFlowIndex">
+                        <span class="detail-label">Outgoing flow:</span>
+                        <span
+                          class="detail-value flow-event-link"
+                          role="button"
+                          tabindex="0"
+                          [attr.aria-label]="'Jump to outgoing flow event ' + flow.name"
+                          (click)="navigateToFlowEvent(flow, $event)"
+                          (keydown.enter)="navigateToFlowEvent(flow, $event)"
+                          (keydown.space)="navigateToFlowEvent(flow, $event)">
+                          {{flow.name}}<span *ngIf="flow.startUsFormatted" class="flow-event-timestamp"> ({{flow.startUsFormatted}})</span>
+                        </span>
+                      </div>
+                      <div class="detail-row flow-event-row flow-event-overflow" *ngIf="outboundOverflowCount > 0">
+                        <span class="detail-label"></span>
+                        <span class="detail-value flow-event-overflow-text">and {{outboundOverflowCount}} more</span>
+                      </div>
+                    </div>
                     <div class="cross-tool-links">
                       <div *ngIf="selectedEvent.stackTraceLinkHtml" [innerHTML]="selectedEvent.stackTraceLinkHtml"></div>
                       <div *ngIf="selectedEvent.rooflineModelLinkHtml" [innerHTML]="selectedEvent.rooflineModelLinkHtml"></div>

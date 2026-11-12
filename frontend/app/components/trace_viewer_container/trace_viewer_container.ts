@@ -129,7 +129,19 @@ function isEventsSelectedEvent(
 }
 
 
-/** One flow-connected event in the EntrySelected payload. */
+/**
+ * Represents a lightweight reference to a connected flow endpoint (inbound or
+ * outbound) emitted by C++ `flow_event_data` (`event_data.h`).
+ *
+ * Unlike full event details (such as `EntrySelectedEventDetail` or
+ * `SelectedEvent`), which contain heavy properties (`args`, `hloOpName`,
+ * `hloModuleName`, full attributes, etc.) representing the selected event
+ * itself, `FlowEventDetail` provides only minimal endpoint metadata
+ * (`eventIndex`, `name`, `startUs`, `durationUs`, formatted timestamps, and
+ * optional `pid`). This is used to render navigable flow links in the event
+ * details drawer and jump to or select the target event via `revealEvent`
+ * without transporting complete event payloads.
+ */
 export declare interface FlowEventDetail {
   eventIndex: number;
   name: string;
@@ -203,6 +215,8 @@ export interface SelectedEvent {
   uid?: string;
   trackName?: string;
   source?: string;
+  inboundFlows?: FlowEventDetail[];
+  outboundFlows?: FlowEventDetail[];
   /**
    * The event as returned by the backend event details response, rendered as
    * is in the details panel.
@@ -408,6 +422,10 @@ declare interface TfTraceViewer {
 export class TraceViewerContainer
   implements OnInit, OnDestroy, AfterViewInit, OnChanges
 {
+  private static readonly EMPTY_FLOWS: readonly FlowEventDetail[] =
+    Object.freeze([]);
+  static readonly MAX_DISPLAYED_FLOWS = 50;
+
   @Input() traceViewerModule: TraceViewerV2Module | null = null;
   /**
    * URL of the legacy (v1) `trace_viewer_index.html` page, used as the `src`
@@ -564,6 +582,44 @@ export class TraceViewerContainer
   leftSideProperties: SelectedEventProperty[] = [];
   rightSideProperties: SelectedEventProperty[] = [];
 
+  get inboundFlows(): readonly FlowEventDetail[] {
+    return this.selectedEvent?.inboundFlows ?? TraceViewerContainer.EMPTY_FLOWS;
+  }
+
+  get outboundFlows(): readonly FlowEventDetail[] {
+    return (
+      this.selectedEvent?.outboundFlows ?? TraceViewerContainer.EMPTY_FLOWS
+    );
+  }
+
+  private truncateFlows(
+    flows: readonly FlowEventDetail[],
+  ): readonly FlowEventDetail[] {
+    return flows.length > TraceViewerContainer.MAX_DISPLAYED_FLOWS
+      ? flows.slice(0, TraceViewerContainer.MAX_DISPLAYED_FLOWS)
+      : flows;
+  }
+
+  private calculateOverflowCount(flows: readonly FlowEventDetail[]): number {
+    return Math.max(0, flows.length - TraceViewerContainer.MAX_DISPLAYED_FLOWS);
+  }
+
+  get displayedInboundFlows(): readonly FlowEventDetail[] {
+    return this.truncateFlows(this.inboundFlows);
+  }
+
+  get displayedOutboundFlows(): readonly FlowEventDetail[] {
+    return this.truncateFlows(this.outboundFlows);
+  }
+
+  get inboundOverflowCount(): number {
+    return this.calculateOverflowCount(this.inboundFlows);
+  }
+
+  get outboundOverflowCount(): number {
+    return this.calculateOverflowCount(this.outboundFlows);
+  }
+
   selectedEventPropertiesDataSource =
     new MatTableDataSource<SelectedEventProperty>();
   metricsDataSource = new MatTableDataSource<SelectedEventProperty>();
@@ -680,6 +736,38 @@ export class TraceViewerContainer
   trackByProperty(index: number, prop: SelectedEventProperty): string {
     return `${prop.property ?? ''}:${prop.value ?? ''}`;
   }
+
+  trackByFlowIndex(index: number, flow: FlowEventDetail): string {
+    return `${flow.eventIndex}:${flow.name}`;
+  }
+
+  /**
+   * Navigates to a flow event by revealing it in the WASM timeline.
+   */
+  navigateToFlowEvent(flow: FlowEventDetail, event?: Event): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (flow === undefined || flow === null) {
+      return;
+    }
+    if (
+      flow.eventIndex === undefined ||
+      flow.eventIndex === null ||
+      flow.eventIndex < 0 ||
+      isNaN(flow.eventIndex)
+    ) {
+      return;
+    }
+    this.traceViewerModule?.application
+      ?.instance()
+      ?.revealEvent?.(
+        flow.eventIndex,
+        flow.name,
+        flow.startUs,
+        flow.durationUs,
+      );
+  }
+
   @Input() set rawEvents(data: RawEventItem[] | null | undefined) {
     this.rawEventsDataSource.data = data ?? [];
   }

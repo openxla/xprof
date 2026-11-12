@@ -225,6 +225,19 @@ export interface SelectedEvent {
   [key: string]: unknown;
 }
 
+/** Returns an identity key for the given selected event. */
+export function getSelectedEventId(
+  event?: SelectedEvent | null,
+): string | undefined {
+  if (!event) {
+    return undefined;
+  }
+  if (event.eventIndex !== undefined || event.uid !== undefined) {
+    return `${event.eventIndex ?? ''}:${event.uid ?? ''}`;
+  }
+  return `${event.startUs ?? ''}:${event.durationUs ?? ''}`;
+}
+
 /**
  * The interface for selected event property.
  */
@@ -680,25 +693,7 @@ export class TraceViewerContainer
       const orderB = RIGHT_SIDE_PROPERTY_ORDER[b.property ?? ''] ?? 100;
       return orderA - orderB;
     });
-    const prevHloText = this.rightSideProperties.find(
-      (p) => p.property === 'HLO Text',
-    )?.value;
-    const nextHloText = rightProps.find(
-      (p) => p.property === 'HLO Text',
-    )?.value;
-    const prevStackTrace = this.rightSideProperties.find(
-      (p) => p.property === 'Stack Trace',
-    )?.value;
-    const nextStackTrace = rightProps.find(
-      (p) => p.property === 'Stack Trace',
-    )?.value;
     this.rightSideProperties = rightProps;
-    if (prevHloText !== nextHloText) {
-      this.isHloTextCollapsed = true;
-    }
-    if (prevStackTrace !== nextStackTrace) {
-      this.isStackTraceCollapsed = true;
-    }
   }
 
   isHloTextCollapsed = true;
@@ -1046,6 +1041,12 @@ export class TraceViewerContainer
 
   ngOnChanges(changes: SimpleChanges) {
     if (changes['selectedEvent']) {
+      const prevId = getSelectedEventId(changes['selectedEvent'].previousValue);
+      const currId = getSelectedEventId(changes['selectedEvent'].currentValue);
+      if (currId !== undefined && currId !== prevId) {
+        this.isHloTextCollapsed = true;
+        this.isStackTraceCollapsed = true;
+      }
       this.selectedEventJson = this.buildSelectedEventJson();
     }
     if (changes['selectedEvent'] || changes['customDrawerOpen']) {

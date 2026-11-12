@@ -424,14 +424,14 @@ class JsonEventWriter {
         RawDataType data;
         if (data.ParseFromString(event.raw_data()) && data.has_args()) {
           if (data.args().arg_size() > 0) {
-            event_stats_str = absl::StrFormat(R"(,"event_stats":"%s")",
-                                              data.args().arg(0).name());
+            event_stats_str = absl::StrCat(
+                ",\"event_stats\":", JsonEscape(data.args().arg(0).name()));
           }
         }
       }
-      output_->Append(
-          absl::StrFormat(R"({"pid":%d,"name":"%s","ph":"C"%s,"entries":[)",
-                          event.device_id(), event_name, event_stats_str));
+      output_->Append(absl::StrFormat(
+          R"({"pid":%d,"name":%s,"ph":"C"%s,"entries":[)", event.device_id(),
+          JsonEscape(event_name), event_stats_str));
     }
 
     std::vector<std::string> entry_values;

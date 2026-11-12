@@ -325,6 +325,60 @@ TYPED_TEST(JsonEventWriterTypedTest, CounterEventTest) {
       R"({"pid":1,"name":"counter_event","ph":"C","event_stats":"arg1","entries":[[1,100]]})");
 }
 
+TYPED_TEST(JsonEventWriterTypedTest, CounterEventNameEscapingTest) {
+  Trace trace;
+  DefaultTraceEventsColorer colorer;
+  absl::btree_map<uint64_t, uint64_t> references;
+  std::string output_str;
+  TypeParam output(&output_str);
+  JsonEventWriter<TypeParam, RawData> writer(&colorer, trace, references,
+                                             &output);
+
+  TraceEvent event;
+  event.set_device_id(1);
+  event.set_name(R"(counter"event,"codeLink":"http://evil.com)");
+  event.set_timestamp_ps(1000000);
+  RawData raw_data;
+  TraceEventArguments::Argument& arg = *raw_data.mutable_args()->add_arg();
+  arg.set_name("arg1");
+  arg.set_int_value(100);
+  event.set_raw_data(raw_data.SerializeAsString());
+  writer.AddCounterEvent(event);
+
+  output_str += "]}";
+
+  EXPECT_EQ(
+      output_str,
+      R"({"pid":1,"name":"counter\"event,\"codeLink\":\"http://evil.com","ph":"C","event_stats":"arg1","entries":[[1,100]]})");
+}
+
+TYPED_TEST(JsonEventWriterTypedTest, CounterEventStatsEscapingTest) {
+  Trace trace;
+  DefaultTraceEventsColorer colorer;
+  absl::btree_map<uint64_t, uint64_t> references;
+  std::string output_str;
+  TypeParam output(&output_str);
+  JsonEventWriter<TypeParam, RawData> writer(&colorer, trace, references,
+                                             &output);
+
+  TraceEvent event;
+  event.set_device_id(1);
+  event.set_name("counter_event");
+  event.set_timestamp_ps(1000000);
+  RawData raw_data;
+  TraceEventArguments::Argument& arg = *raw_data.mutable_args()->add_arg();
+  arg.set_name(R"(arg1"name,"injected":"value)");
+  arg.set_int_value(100);
+  event.set_raw_data(raw_data.SerializeAsString());
+  writer.AddCounterEvent(event);
+
+  output_str += "]}";
+
+  EXPECT_EQ(
+      output_str,
+      R"({"pid":1,"name":"counter_event","ph":"C","event_stats":"arg1\"name,\"injected\":\"value","entries":[[1,100]]})");
+}
+
 TYPED_TEST(JsonEventWriterTypedTest, AsyncEventTest) {
   Trace trace;
   DefaultTraceEventsColorer colorer;

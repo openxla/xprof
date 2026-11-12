@@ -732,14 +732,21 @@ dashboard would integrate trace viewer app using iframe.
     createCodeSearchLink: function(text) {
       if (!text) return;
       // source code format: file/path/to/file.bar:line_number
-      sourceLineSplit = text.split(':');
-      filePath = text.split(':')[0] || '';
-      if (sourceLineSplit.length > 1) {
-        lineNumber = text.split(':')[1] || '';
-      }
-      url = this._codeLink.replace("{filePath}", filePath).replace("{lineNumber}", lineNumber).replace("{changelist}", this._changelist);
+      const sourceLineSplit = text.split(':');
+      const filePath = sourceLineSplit[0] || '';
+      const lineNumber =
+          sourceLineSplit.length > 1 ? sourceLineSplit[1] || '' : '';
+      const url = this._codeLink.replace('{filePath}', filePath)
+                      .replace('{lineNumber}', lineNumber)
+                      .replace('{changelist}', this._changelist);
       const codeSearchLinkElement = document.createElement('div');
-      codeSearchLinkElement.innerHTML = `Code Search: <a href="${url}" target="_blank">${text}</a>`;
+      codeSearchLinkElement.appendChild(
+          document.createTextNode('Code Search: '));
+      const link = document.createElement('a');
+      link.href = url;
+      link.target = '_blank';
+      link.textContent = text;
+      codeSearchLinkElement.appendChild(link);
       this._eventDetails.appendChild(codeSearchLinkElement);
       codeSearchLinkElement.addEventListener('click', () => {
           window.gtag && window.gtag('event', 'tv-code-search-click', {

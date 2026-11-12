@@ -35,6 +35,10 @@ except ImportError:
   from conftest import BrowserErrors
   from ui_helpers import assert_healthy
 
+_RUN_TOOLS_ROUTE_RE = re.compile(
+    r"^[^?#]*/data/plugin/profile/run_tools(?:[?#]|$)"
+)
+
 
 def _first_xplane_host(session_dir: str) -> str:
   """Returns the lexicographically first `.xplane.pb` host in `session_dir`."""
@@ -314,18 +318,19 @@ def test_inference_profile_renders_serving_tables_and_metrics(
     browser_errors: BrowserErrors,
 ) -> None:
   """Verifies Inference Profile renders request and batch tables on serving."""
-  page.route(
-      "**/data/plugin/profile/run_tools*", _enable_inference_profile_tool
-  )
-  open_tool("tpu-serving", "inference_profile", host="serving-node-1")
-  comp = page.locator("inference-profile")
-  expect(comp).to_be_visible(timeout=20000)
-  expect(comp).to_contain_text("Request level analysis", timeout=15000)
-  expect(comp).to_contain_text("Batch level analysis", timeout=15000)
-  expect(
-      comp.locator(".google-visualization-table-table tbody tr").first
-  ).to_be_visible(timeout=20000)
-  assert_healthy(page, browser_errors, "inference_profile_tpu_serving")
+  page.route(_RUN_TOOLS_ROUTE_RE, _enable_inference_profile_tool)
+  try:
+    open_tool("tpu-serving", "inference_profile", host="serving-node-1")
+    comp = page.locator("inference-profile")
+    expect(comp).to_be_visible(timeout=20000)
+    expect(comp).to_contain_text("Request level analysis", timeout=15000)
+    expect(comp).to_contain_text("Batch level analysis", timeout=15000)
+    expect(
+        comp.locator(".google-visualization-table-table tbody tr").first
+    ).to_be_visible(timeout=20000)
+    assert_healthy(page, browser_errors, "inference_profile_tpu_serving")
+  finally:
+    page.unroute(_RUN_TOOLS_ROUTE_RE)
 
 
 def test_roofline_bound_by_tooltip_and_graph_viewer_links(

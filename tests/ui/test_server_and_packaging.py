@@ -344,7 +344,11 @@ class ServerAndPackagingContractTest(unittest.TestCase):
           session_path=str(serving_dir),
       )
       self.assertIsInstance(serving_data, list)
-      self.assertGreater(len(serving_data), 1)
+      self.assertEqual(len(serving_data), 3)
+      self.assertEqual(serving_data[0].get("p", {}).get("hasBatching"), "true")
+      self.assertEqual(
+          invariants.check_poison_tokens(json.dumps(serving_data)), []
+      )
 
   def test_no_server_cache_files_checked_into_demo_traces(self) -> None:
     """Verifies no server cache artifact is checked into the demo corpus.
@@ -1235,46 +1239,73 @@ class HarnessInvariantsAndConftestTest(unittest.TestCase):
       with self.assertRaises(invariants.PlaywrightError):
         invariants.check_no_horizontal_overflow(crash_page)
 
-  def _load_isolated_conftest(self) -> Any:
-    """Loads sibling `conftest.py` hermetically with stubbed pytest."""
-    conftest_path = pathlib.Path(__file__).with_name("conftest.py")
+  def _load_isolated_ui_module(
+      self,
+      filename: str,
+      conftest_mod: types.ModuleType | None = None,
+  ) -> types.ModuleType:
+    """Loads a sibling Playwright UI module hermetically with stubbed deps."""
+    module_path = pathlib.Path(__file__).with_name(filename)
     fake_playwright: Any = types.ModuleType("playwright")
     fake_sync_api: Any = types.ModuleType("playwright.sync_api")
 
     class _StubPage:
       pass
 
-    fake_sync_api.Page = _StubPage
-    fake_playwright.sync_api = fake_sync_api
-
     class _StubCallInfo:
 
       def __class_getitem__(cls, _: Any) -> type["_StubCallInfo"]:
         return cls
 
+    fake_sync_api.Page = _StubPage
+    fake_sync_api.Route = object
+    fake_sync_api.expect = mock.MagicMock()
+    fake_playwright.sync_api = fake_sync_api
+
     fake_pytest: Any = types.ModuleType("pytest")
     fake_pytest.fixture = lambda *args, **kwargs: (lambda fn: fn)
     fake_pytest.hookimpl = lambda *args, **kwargs: (lambda fn: fn)
+    fake_pytest.mark = types.SimpleNamespace(
+        parametrize=lambda *args, **kwargs: (lambda fn: fn)
+    )
+    fake_pytest.skip = mock.MagicMock()
     fake_pytest.Item = object
     fake_pytest.CallInfo = _StubCallInfo
     fake_pytest.FixtureRequest = object
 
+    patched_modules: dict[str, types.ModuleType] = {
+        "playwright": fake_playwright,
+        "playwright.sync_api": fake_sync_api,
+        "pytest": fake_pytest,
+    }
+    if conftest_mod is not None:
+      fake_tests_pkg: Any = types.ModuleType("tests")
+      fake_tests_pkg.__path__ = []
+      fake_tests_ui_pkg: Any = types.ModuleType("tests.ui")
+      fake_tests_ui_pkg.__path__ = [str(module_path.parent)]
+      fake_tests_ui_pkg.conftest = conftest_mod
+      fake_tests_ui_pkg.ui_helpers = ui_helpers
+      fake_tests_pkg.ui = fake_tests_ui_pkg
+      patched_modules.update({
+          "tests": fake_tests_pkg,
+          "tests.ui": fake_tests_ui_pkg,
+          "tests.ui.conftest": conftest_mod,
+          "tests.ui.ui_helpers": ui_helpers,
+      })
+
     spec = importlib.util.spec_from_file_location(
-        "_xprof_isolated_conftest", conftest_path
+        f"_xprof_isolated_{module_path.stem}", module_path
     )
     if spec is None or spec.loader is None:
-      self.fail(f"Could not create ModuleSpec for {conftest_path}")
+      self.fail(f"Could not create ModuleSpec for {module_path}")
     mod = importlib.util.module_from_spec(spec)
-    with mock.patch.dict(
-        sys.modules,
-        {
-            "playwright": fake_playwright,
-            "playwright.sync_api": fake_sync_api,
-            "pytest": fake_pytest,
-        },
-    ):
+    with mock.patch.dict(sys.modules, patched_modules):
       spec.loader.exec_module(mod)
     return mod
+
+  def _load_isolated_conftest(self) -> types.ModuleType:
+    """Loads sibling `conftest.py` hermetically with stubbed pytest."""
+    return self._load_isolated_ui_module("conftest.py")
 
   def test_conftest_browser_errors_artifacts_and_run_resolution(self) -> None:
     """Tests BrowserErrors, failure artifact dumps, and run resolution."""
@@ -1338,6 +1369,132 @@ class HarnessInvariantsAndConftestTest(unittest.TestCase):
           ("resolved_demo_run", str(src_dir / "resolved_demo_run")),
       )
       synth_gen.close()
+
+      env_repo = tmp_dir / "custom_repo_root"
+      env_repo.mkdir()
+      rel_env_repo = os.path.relpath(env_repo, pathlib.Path.cwd())
+      with mock.patch.dict(os.environ, {"XPROF_REPO_ROOT": rel_env_repo}):
+        # pylint: disable=protected-access
+        self.assertEqual(conftest_mod._find_repo_root(), env_repo.resolve())
+        # pylint: enable=protected-access
+
+      missing_repo = tmp_dir / "missing_repo_root"
+      with mock.patch.dict(os.environ, {"XPROF_REPO_ROOT": str(missing_repo)}):
+        # pylint: disable=protected-access
+        self.assertNotEqual(
+            conftest_mod._find_repo_root(), missing_repo.resolve()
+        )
+        # pylint: enable=protected-access
+
+      fallback_root = tmp_dir / "fallback_srcdir"
+      fallback_demo = fallback_root / "xprof" / "demo" / "plugins" / "profile"
+      fallback_demo.mkdir(parents=True)
+      with (
+          mock.patch.object(
+              conftest_mod, "__file__", str(tmp_dir / "conftest.py")
+          ),
+          mock.patch.dict(
+              os.environ,
+              {
+                  "XPROF_LOGDIR": "",
+                  "XPROF_REPO_ROOT": str(env_repo),
+                  "TEST_SRCDIR": str(fallback_root),
+              },
+          ),
+      ):
+        # pylint: disable=protected-access
+        self.assertEqual(
+            conftest_mod._source_logdir(), str(fallback_demo.resolve())
+        )
+        # pylint: enable=protected-access
+
+  def test_ui_suite_op_profile_visibility_and_run_tools_route_matching(
+      self,
+  ) -> None:
+    """Verifies Op Profile visible row selector and run_tools slash matching."""
+    conftest_mod = self._load_isolated_conftest()
+    sweep_mod = self._load_isolated_ui_module(
+        "test_tool_sweep.py", conftest_mod
+    )
+    self.assertEqual(
+        sweep_mod.TOOL_CONTENT_SELECTORS["op_profile"],
+        "op-table-entry .row:visible",
+    )
+
+    edge_mod = self._load_isolated_ui_module(
+        "test_data_consistency_and_edge_cases.py", conftest_mod
+    )
+    # pylint: disable=protected-access
+    route_re = edge_mod._RUN_TOOLS_ROUTE_RE
+    enable_fn = edge_mod._enable_inference_profile_tool
+    # pylint: enable=protected-access
+    slash_query_url = (
+        "http://127.0.0.1:45983/data/plugin/profile/run_tools"
+        "?session_path=/tmp/xprof_logdir/demo/plugins/profile/tpu-serving"
+        "&run=tpu-serving"
+    )
+    self.assertIsNotNone(route_re.search(slash_query_url))
+    self.assertIsNotNone(
+        route_re.search("http://127.0.0.1:45983/data/plugin/profile/run_tools")
+    )
+    self.assertIsNotNone(
+        route_re.search(
+            "http://127.0.0.1:45983/tb/data/plugin/profile/run_tools#frag"
+        )
+    )
+    self.assertIsNone(
+        route_re.search(
+            "http://127.0.0.1:45983/data/plugin/profile/run_tools_extra"
+        )
+    )
+    self.assertIsNone(
+        route_re.search(
+            "http://127.0.0.1:45983/data/plugin/profile/hosts"
+            "?session_path=/tmp/data/plugin/profile/run_tools"
+        )
+    )
+
+    fake_route = mock.MagicMock()
+    fake_route.fetch.return_value = types.SimpleNamespace(
+        status=200, json=lambda: ["overview_page", "op_profile"]
+    )
+    enable_fn(fake_route)
+    fake_route.fulfill.assert_called_once_with(
+        status=200,
+        content_type="application/json",
+        body=json.dumps(["overview_page", "op_profile", "inference_profile"]),
+    )
+
+    idempotent_route = mock.MagicMock()
+    idempotent_route.fetch.return_value = types.SimpleNamespace(
+        status=200, json=lambda: ["overview_page", "inference_profile"]
+    )
+    enable_fn(idempotent_route)
+    idempotent_route.fulfill.assert_called_once_with(
+        status=200,
+        content_type="application/json",
+        body=json.dumps(["overview_page", "inference_profile"]),
+    )
+
+    error_route = mock.MagicMock()
+    error_route.fetch.return_value = types.SimpleNamespace(
+        status=503, json=lambda: {"error": "unavailable"}
+    )
+    enable_fn(error_route)
+    error_route.fulfill.assert_called_once_with(
+        status=503,
+        content_type="application/json",
+        body=json.dumps({"error": "unavailable"}),
+    )
+
+    fake_page = mock.MagicMock()
+    open_tool = mock.MagicMock(side_effect=RuntimeError("boom"))
+    with self.assertRaisesRegex(RuntimeError, "boom"):
+      edge_mod.test_inference_profile_renders_serving_tables_and_metrics(
+          fake_page, open_tool, conftest_mod.BrowserErrors()
+      )
+    fake_page.route.assert_called_once_with(route_re, enable_fn)
+    fake_page.unroute.assert_called_once_with(route_re)
 
 
 if __name__ == "__main__":

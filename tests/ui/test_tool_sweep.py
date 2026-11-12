@@ -53,7 +53,7 @@ ACTIVE_TOOL_SPECS: list[tuple[str, str, str]] = [
 # component itself) for tools without such content.
 TOOL_CONTENT_SELECTORS: dict[str, str] = {
     "graph_viewer": "iframe, svg, canvas",
-    "op_profile": "op-table-entry .row",
+    "op_profile": "op-table-entry .row:visible",
     "input_pipeline_analyzer": "text=Summary of input-pipeline analysis",
     "hlo_stats": "google-chart, .google-visualization-table",
 }

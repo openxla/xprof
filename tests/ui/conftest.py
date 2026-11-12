@@ -53,41 +53,46 @@ KNOWN_UPSTREAM_BUGS = [
 ]
 
 
-def _find_repo_root() -> pathlib.Path:
-  """Locates repository root by searching upward for standard markers."""
+def _iter_repo_root_candidates() -> Iterator[pathlib.Path]:
+  """Yields resolved candidate repository roots in priority order."""
+  if env_root := os.environ.get("XPROF_REPO_ROOT"):
+    candidate = pathlib.Path(env_root).resolve()
+    if candidate.is_dir():
+      yield candidate
+
   current = pathlib.Path(__file__).resolve()
   for parent in [current, *current.parents]:
     if (parent / "pytest.ini").exists() or (parent / ".git").exists():
-      return parent
+      yield parent
+      break
 
-  test_srcdir = os.environ.get("TEST_SRCDIR")
-  if test_srcdir:
+  if test_srcdir := os.environ.get("TEST_SRCDIR"):
     for sub in ("google3/third_party/xprof", "third_party/xprof", "xprof"):
-      candidate = pathlib.Path(test_srcdir) / sub
+      candidate = (pathlib.Path(test_srcdir) / sub).resolve()
       if candidate.is_dir():
-        return candidate
+        yield candidate
 
-  return pathlib.Path.cwd()
+  yield pathlib.Path.cwd().resolve()
+
+
+def _find_repo_root() -> pathlib.Path:
+  """Locates the repository root from XPROF_REPO_ROOT, markers, or runfiles."""
+  return next(_iter_repo_root_candidates())
 
 
 def _source_logdir() -> str:
   """Resolves the absolute path to the demo profile dataset directory."""
   if custom_logdir := os.environ.get("XPROF_LOGDIR"):
-    profile_subdir = pathlib.Path(custom_logdir) / "plugins" / "profile"
+    resolved_custom = pathlib.Path(custom_logdir).resolve()
+    profile_subdir = resolved_custom / "plugins" / "profile"
     if profile_subdir.is_dir():
       return str(profile_subdir)
-    return custom_logdir
+    return str(resolved_custom)
 
-  repo_root = os.environ.get("XPROF_REPO_ROOT")
-  if repo_root:
-    resolved = pathlib.Path(repo_root) / RELATIVE_PROFILE_DATA_DIR
-    if resolved.is_dir():
-      return str(resolved)
-
-  root = _find_repo_root()
-  candidate = root / RELATIVE_PROFILE_DATA_DIR
-  if candidate.is_dir():
-    return str(candidate)
+  for root in _iter_repo_root_candidates():
+    candidate = root / RELATIVE_PROFILE_DATA_DIR
+    if candidate.is_dir():
+      return str(candidate)
 
   current = pathlib.Path(__file__).resolve().parent
   for parent in [current, *current.parents]:

@@ -250,6 +250,11 @@ struct FlameChartTimelineData {
 
   // Returns the index of the slice on `level` that covers `ts` (start <= ts <=
   // start + duration), or -1 if `ts` falls in a gap or `level` is out of range.
+  // Abutting slices (slices sharing an endpoint where slice[i].end ==
+  // slice[i+1].start) are permitted; an exact boundary timestamp resolves to
+  // the slice starting at that timestamp.
+  // Precondition: slices on the given `level` must be sorted by start time
+  // and non-overlapping (except for abutting endpoints).
   int FindEventIndexAt(int level, Microseconds ts) const;
 
   bool HasEntryArgs(size_t index) const {

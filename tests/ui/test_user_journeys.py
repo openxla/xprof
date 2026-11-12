@@ -7,6 +7,7 @@ import json
 import os
 import pathlib
 import re
+import urllib.parse
 
 from playwright.sync_api import expect
 from playwright.sync_api import Page
@@ -33,6 +34,7 @@ try:
   from tests.ui.ui_helpers import select_session
   from tests.ui.ui_helpers import sort_table_column
   from tests.ui.ui_helpers import switch_tool
+  from tests.ui.ui_helpers import toggle_nav_drawer
 except ImportError:
   from conftest import BrowserErrors
   from journey_capture import settled_tool_url_pattern
@@ -53,6 +55,7 @@ except ImportError:
   from ui_helpers import select_session
   from ui_helpers import sort_table_column
   from ui_helpers import switch_tool
+  from ui_helpers import toggle_nav_drawer
 
 
 class ActionType(str, enum.Enum):
@@ -70,6 +73,7 @@ class ActionType(str, enum.Enum):
   SELECT_CATEGORY_FILTER = "select_category_filter"
   FILTER_TABLE_ROWS = "filter_table_rows"
   SORT_TABLE_COLUMN = "sort_table_column"
+  TOGGLE_NAV_DRAWER = "toggle_nav_drawer"
   GO_BACK = "go_back"
   GO_FORWARD = "go_forward"
 
@@ -181,6 +185,11 @@ def _wait_for_tool_data(page: Page, tool: str) -> None:
     page: Page that was just pointed at `tool`.
     tool: Tag or display name of the tool.
   """
+  if tool == "empty":
+    expect(page.locator("empty-page")).to_be_visible(
+        timeout=URL_SETTLE_TIMEOUT_MS
+    )
+    return
   expect(page).to_have_url(
       settled_tool_url_pattern(tool), timeout=URL_SETTLE_TIMEOUT_MS
   )
@@ -269,15 +278,23 @@ def dispatch_action(
       filter_table_rows(page, step.target)
     case ActionType.SORT_TABLE_COLUMN:
       sort_table_column(page, step.target)
+    case ActionType.TOGGLE_NAV_DRAWER:
+      toggle_nav_drawer(page, step.target)
     case ActionType.GO_BACK | ActionType.GO_FORWARD:
       step_history(page, step.target, step.action == ActionType.GO_FORWARD)
       _wait_for_tool_data(page, step.target)
     case ActionType.GOTO:
-      parts = step.target.split("/", 1)
+      target_path, _, query_string = step.target.partition("?")
+      parts = target_path.split("/", 1)
       run_name = _resolve_run_name(logdir, parts[0])
       tag = parts[1] if len(parts) > 1 else "overview_page"
+      extra_params = dict(
+          urllib.parse.parse_qsl(query_string, keep_blank_values=True)
+      )
       dest_path = os.path.join(logdir, run_name)
-      dest_url = build_tool_url(server_url, dest_path, run_name, tag)
+      dest_url = build_tool_url(
+          server_url, dest_path, run_name, tag, **extra_params
+      )
       page.goto(dest_url, wait_until="domcontentloaded")
       _wait_for_tool_data(page, tag)
     case _:

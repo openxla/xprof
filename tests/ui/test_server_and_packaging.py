@@ -1088,6 +1088,35 @@ class UiHelpersTest(unittest.TestCase):
         "/explicit/ui_artifacts",
     )
 
+  def test_toggle_nav_drawer_checks_before_and_after_states(self) -> None:
+    """Verifies collapsing and expanding the nav drawer checks both states."""
+    ui_helpers.toggle_nav_drawer(self.page, "collapsed")
+    self.assertEqual(
+        self._actions(),
+        ["to_be_attached", "to_be_visible", "click", "to_be_attached", "move"],
+    )
+    before, after = self._calls("to_be_attached")
+    self.assertEqual(before[1].selector, ui_helpers.EXPANDED_NAV_SELECTOR)
+    self.assertEqual(after[1].selector, ui_helpers.COLLAPSED_NAV_SELECTOR)
+
+    self.log.clear()
+    ui_helpers.toggle_nav_drawer(self.page, "expanded")
+    self.assertEqual(
+        self._actions(),
+        ["to_be_attached", "to_be_visible", "click", "to_be_visible", "move"],
+    )
+    (before_expand,) = self._calls("to_be_attached")
+    _, after_expand = self._calls("to_be_visible")
+    self.assertEqual(
+        before_expand[1].selector, ui_helpers.COLLAPSED_NAV_SELECTOR
+    )
+    self.assertEqual(after_expand[1].selector, ui_helpers.EXPANDED_NAV_SELECTOR)
+
+    with self.assertRaisesRegex(
+        ValueError, r"Unsupported nav drawer target_state: 'invalid_state'"
+    ):
+      ui_helpers.toggle_nav_drawer(self.page, "invalid_state")
+
 
 class HarnessInvariantsAndConftestTest(unittest.TestCase):
   """Hermetic unit tests for readiness polling, invariants, and conftest."""

@@ -424,6 +424,91 @@ TEST(XPlaneToTraceContainerTest,
   EXPECT_EQ(forward_level_serials, reversed_level_serials);
 }
 
+// TPU non-core planes such as "#Chip0 HBM 0" hold the periodic HBM (CMN)
+// counters on TPU7x. "#Chip0 Misc" has no events and must be skipped.
+constexpr char kTpuXSpaceWithNonCorePlanes[] = R"pb(
+  planes {
+    id: 2
+    name: "/device:TPU:0"
+    lines {
+      id: 1
+      name: "XLA Ops"
+      events { metadata_id: 1 offset_ps: 0 duration_ps: 100 }
+    }
+    event_metadata {
+      key: 1
+      value: { id: 1 name: "fusion" }
+    }
+  }
+  planes {
+    id: 1
+    name: "#Chip0 HBM 0"
+    lines {
+      name: "_counters_"
+      events {
+        metadata_id: 1
+        offset_ps: 50
+        stats { metadata_id: 1 double_value: 42 }
+      }
+    }
+    event_metadata {
+      key: 1
+      value: { id: 1 name: "RD_RSP_BEAT_0" }
+    }
+    stat_metadata {
+      key: 1
+      value: { id: 1 name: "CMN Sample Stats (MB/sec)" }
+    }
+  }
+  planes {
+    id: 6
+    name: "#Chip0 Misc"
+    lines { name: "_counters_" }
+  }
+)pb";
+
+constexpr uint32_t kHbmDeviceId = tsl::profiler::kFirstDeviceId + 1;
+constexpr uint32_t kMiscDeviceId = tsl::profiler::kFirstDeviceId + 6;
+
+TEST(XPlaneToTraceContainerTest, TpuNonCorePlaneWithEventsIsConverted) {
+  XSpace xspace;
+  CHECK_OK(ParseTextFormatFromString(kTpuXSpaceWithNonCorePlanes, &xspace));
+  TraceEventsContainer container;
+  ConvertXSpaceToTraceEventsContainer("localhost", xspace, &container);
+
+  ASSERT_EQ(container.trace().devices().count(kHbmDeviceId), 1);
+  EXPECT_EQ(container.trace().devices().at(kHbmDeviceId).name(),
+            "localhost #Chip0 HBM 0");
+  EXPECT_EQ(container.trace().devices().count(kMiscDeviceId), 0);
+  bool hbm_counter_found = false;
+  container.ForAllEvents([&](const TraceEvent& event) {
+    if (event.name() == "RD_RSP_BEAT_0") {
+      hbm_counter_found = true;
+      EXPECT_EQ(event.device_id(), kHbmDeviceId);
+    }
+  });
+  EXPECT_TRUE(hbm_counter_found);
+}
+
+TEST(XPlaneToTraceContainerTest, TpuNonCorePlaneWithEventsIsConvertedToLite) {
+  XSpace xspace;
+  CHECK_OK(ParseTextFormatFromString(kTpuXSpaceWithNonCorePlanes, &xspace));
+  TraceEventLiteContainer container;
+  ConvertXSpaceToLiteTraceEventsContainer("localhost", xspace, &container);
+
+  ASSERT_EQ(container.trace.devices().count(kHbmDeviceId), 1);
+  EXPECT_EQ(container.trace.devices().at(kHbmDeviceId).name(),
+            "localhost #Chip0 HBM 0");
+  EXPECT_EQ(container.trace.devices().count(kMiscDeviceId), 0);
+  size_t num_hbm_counter_events = 0;
+  for (const auto& [metadata, events] : container.counter_events) {
+    if (metadata.device_id == kHbmDeviceId) {
+      num_hbm_counter_events += events.size();
+    }
+  }
+  EXPECT_EQ(num_hbm_counter_events, 1);
+}
+
 }  // namespace
 
 }  // namespace profiler

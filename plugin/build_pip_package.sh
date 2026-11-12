@@ -92,6 +92,10 @@ find xprof/protobuf -name \*.py -exec sed -i.bak -e '
 
 find . -name "*.bak" -exec rm -f {} \;
 
+# Copy the HLO FileDescriptorSet loaded by the CLI's OSS hlo_tools.
+cp -L "${PLUGIN_RUNFILE_DIR}/xprof/cli/internal/oss/hlo_descriptor_set.pb" \
+  xprof/cli/internal/oss/
+
 cp -L ${build_workspace}/bazel-bin/xprof/pywrap/profiler_plugin_c_api.so \
   xprof/convert/
 cp -L ${ROOT_RUNFILE_DIR}/xprof/pywrap/_pywrap_profiler_plugin.py \

@@ -1,16 +1,26 @@
+load("@rules_proto//proto:defs.bzl", "proto_descriptor_set")
 load("//plugin/xprof/build_utils:pytype.default.bzl", "pytype_library", "pytype_strict_binary", "pytype_strict_contrib_test", "pytype_strict_library")
 
 package(default_visibility = ["//plugin/xprof/cli:__subpackages__"])
 
+# Schema of xla.HloProto, loaded into a private DescriptorPool by hlo_tools.
+proto_descriptor_set(
+    name = "hlo_descriptor_set",
+    visibility = ["//plugin:internal"],
+    deps = ["@xla//xla/service:hlo_proto"],
+)
+
 pytype_library(
     name = "hlo_tools",
     srcs = ["hlo_tools.py"],
+    data = [":hlo_descriptor_set"],
     # strict_deps = False,
     deps = [
         ":xprof_client",  # buildcleaner: keep
         "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal:hlo_graph_db",
         "//plugin/xprof/convert:raw_to_tool_data",
+        "@pypi//protobuf",
     ],
 )
 

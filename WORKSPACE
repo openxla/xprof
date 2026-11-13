@@ -630,44 +630,51 @@ cc_binary(
     urls = ["https://github.com/ocornut/imgui/archive/refs/tags/v1.92.4-docking.tar.gz"],
 )
 
+# Emdawnwebgpu: Dawn's WebGPU bindings for Emscripten, the same bindings the
+# internal build uses. The release package is prebuilt and text-only.
+# Releases after v20260423 need C++20 in every file that includes
+# webgpu_cpp.h, while this workspace builds with C++17.
 http_archive(
     name = "emdawnwebgpu",
     build_file_content = """
 licenses(["notice"])
 
+_JS_LIBRARIES = [
+    # library_webgpu.js depends on the generated files, so it comes last.
+    "webgpu/src/library_webgpu_enum_tables.js",
+    "webgpu/src/library_webgpu_generated_struct_info.js",
+    "webgpu/src/library_webgpu_generated_sig_info.js",
+    "webgpu/src/library_webgpu.js",
+]
+
 cc_library(
     name = "webgpu",
-    srcs = glob(
-        ["**/*.cpp"],
-        exclude = [
-            "**/android/**",
-            "**/jni/**",
-            "**/art/**",
-            "examples/**",
-            "generator/**",
-            "tests/**",
-            "src/dawn/tests/**",
-            "src/dawn/common/IOSurfaceUtils.cpp",
-            "src/dawn/utils/OSXTimer.cpp",
-        ],
-    ),
-    hdrs = glob(["**/*.h"]),
+    srcs = ["webgpu/src/webgpu.cpp"],
+    hdrs = glob([
+        "webgpu/include/**/*.h",
+        "webgpu_cpp/include/**/*.h",
+    ]),
+    additional_linker_inputs = _JS_LIBRARIES,
+    copts = [
+        "-std=c++20",
+        "-fno-exceptions",
+    ],
     includes = [
-        "include",
-        "src",
-        "src/dawn/include",
+        "webgpu/include",
+        "webgpu_cpp/include",
+    ],
+    linkopts = [
+        opt
+        for js in _JS_LIBRARIES
+        for opt in ("--js-library", "$(location %s)" % js)
     ],
     visibility = ["//visibility:public"],
-    deps = [
-        "@com_google_absl//absl/container:flat_hash_map",
-        "@com_google_absl//absl/container:inlined_vector",
-        "@com_google_absl//absl/log",
-    ],
+    alwayslink = True,
 )
 """,
-    sha256 = "f49683605487f62e1c9e32ed0d71a3ed3029993f818f5a97f13f8266c39b0004",
-    strip_prefix = "dawn-20250713.025201",
-    urls = ["https://github.com/google/dawn/archive/v20250713.025201.tar.gz"],
+    sha256 = "3ad7ebe95a4a20764df46c5a63b0ad489782aee26804fff8511d9797c10e732f",
+    strip_prefix = "emdawnwebgpu_pkg",
+    urls = ["https://github.com/google/dawn/releases/download/v20260423.175430/emdawnwebgpu_pkg-v20260423.175430.zip"],
 )
 
 load("@emsdk//:toolchains.bzl", "register_emscripten_toolchains")

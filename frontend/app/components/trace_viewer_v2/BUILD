@@ -133,6 +133,7 @@ wasm_cc_library(
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings:str_format",
+        "@emdawnwebgpu//:webgpu",
         "@imgui",
     ],
 )
@@ -145,6 +146,7 @@ wasm_cc_library(
         ":canvas_state",
         ":imgui_webgpu_backend",
         "@com_google_absl//absl/log:check",
+        "@emdawnwebgpu//:webgpu",
         "@imgui",
     ],
 )
@@ -162,7 +164,6 @@ BINARY_LINKOPTS = [
     "-g",
     "-msimd128",
     "--bind",
-    "-sUSE_WEBGPU=1",
     "-lhtml5",
 ]
 

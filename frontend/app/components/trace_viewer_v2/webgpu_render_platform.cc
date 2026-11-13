@@ -21,11 +21,10 @@ void WGPURenderPlatform::Init(const CanvasState& canvas_state) {
   CHECK(device_) << "Error creating device.";
   queue_ = device_.GetQueue();
 
-  wgpu::SurfaceDescriptorFromCanvasHTMLSelector canvas_desc;
+  wgpu::EmscriptenSurfaceSourceCanvasHTMLSelector canvas_desc;
   canvas_desc.selector = "#canvas";
   wgpu::SurfaceDescriptor surface_desc;
-  surface_desc.nextInChain =
-      static_cast<wgpu::ChainedStruct*>(&canvas_desc);
+  surface_desc.nextInChain = &canvas_desc;
   surface_ = instance_.CreateSurface(&surface_desc);
   CHECK(surface_) << "Error when creating canvas surface.";
 

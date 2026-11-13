@@ -248,7 +248,7 @@ fn main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 static wgpu::ShaderModule CreateShaderModule(const char* wgsl_source) {
   ImGui_ImplWGPU_Data* bd = ImGui_ImplWGPU_GetBackendData();
-  wgpu::ShaderModuleWGSLDescriptor wgsl_descriptor;
+  wgpu::ShaderSourceWGSL wgsl_descriptor;
   wgsl_descriptor.code = wgsl_source;
   wgpu::ShaderModuleDescriptor module_descriptor{};
   module_descriptor.nextInChain = &wgsl_descriptor;
@@ -619,13 +619,13 @@ void ImGui_ImplWGPU_UpdateTexture(ImTextureData* tex) {
       upload_h = tex->UpdateRect.h;
     }
 
-    wgpu::ImageCopyTexture destination = {};
+    wgpu::TexelCopyTextureInfo destination = {};
     destination.texture = backend_tex->texture;
     destination.origin = {static_cast<uint32_t>(upload_x),
                           static_cast<uint32_t>(upload_y), 0};
     destination.aspect = wgpu::TextureAspect::All;
 
-    wgpu::TextureDataLayout layout = {};
+    wgpu::TexelCopyBufferLayout layout = {};
     layout.offset = static_cast<uint64_t>(upload_y * tex->Width + upload_x) * 4;
     layout.bytesPerRow = static_cast<uint32_t>(tex->Width * 4);
     layout.rowsPerImage = static_cast<uint32_t>(tex->Height);

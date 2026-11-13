@@ -609,6 +609,9 @@ OverviewPage ConvertOpStatsToOverviewPage(const OpStats& op_stats,
       op_stats.performance_counter_result().matrix_unit_utilization_percent());
   overview_page.mutable_analysis()->set_hbm_utilization_percent(
       op_stats.performance_counter_result().hbm_utilization_percent());
+  overview_page.mutable_analysis()->set_hardware_utilization_unavailable(
+      !op_stats.performance_counter_result()
+           .has_matrix_unit_utilization_percent());
 
   VLOG(1) << "ConvertOpStatsToOverviewPage: Overall Finished in "
             << absl::Now() - start_time;
@@ -643,6 +646,9 @@ void AddCommonStats(DataTable* data_table,
   data_table->AddCustomProperty(
       "hbm_utilization_percent",
       StrFormatToPercentage(analysis.hbm_utilization_percent()));
+  data_table->AddCustomProperty(
+      "hardware_utilization_unavailable",
+      absl::StrFormat("%v", analysis.hardware_utilization_unavailable()));
   if (analysis.has_program_goodput()) {
     data_table->AddCustomProperty(
         "program_goodput_percent",

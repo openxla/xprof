@@ -787,7 +787,12 @@ dashboard would integrate trace viewer app using iframe.
         toolLink.searchParams.append(key, value);
       }
       const toolLinkElement = document.createElement('div');
-      toolLinkElement.innerHTML = `${toolLabel}: <a href="${toolLink.href}" target="_blank">${text}</a>`;
+      toolLinkElement.appendChild(document.createTextNode(`${toolLabel}: `));
+      const link = document.createElement('a');
+      link.href = toolLink.href;
+      link.target = '_blank';
+      link.textContent = text;
+      toolLinkElement.appendChild(link);
       this._eventDetails.appendChild(toolLinkElement);
       toolLinkElement.addEventListener('click', () => {
             window.gtag && window.gtag('event', 'tv-hlo-click', {
@@ -819,24 +824,46 @@ dashboard would integrate trace viewer app using iframe.
       if (this._runPath) {
         toolLink.searchParams.set('run_path', this._runPath);
       }
-      toolLinkElement.innerHTML = `${toolLabel}: <a href="${toolLink.href}" target="_blank">${text}</a>`;
+      toolLinkElement.appendChild(document.createTextNode(`${toolLabel}: `));
+      const link = document.createElement('a');
+      link.href = toolLink.href;
+      link.target = '_blank';
+      link.textContent = text;
+      toolLinkElement.appendChild(link);
       this._eventDetails.appendChild(toolLinkElement);
     },
 
     addHloGraphInfo: async function(hloOp, hloModule) {
       const hloGraphInfoNodeElement = document.createElement('div');
-      hloGraphInfoNodeElement.innerHTML = `Context for Hlo Op Event (${hloOp}): loading...`;
+      hloGraphInfoNodeElement.textContent =
+          `Context for Hlo Op Event (${hloOp}): loading...`;
       this._eventDetails.appendChild(hloGraphInfoNodeElement);
-      const adjNodesInfo  = await this._maybeFetchAdjacentEvents(hloOp, hloModule);
-      hloGraphInfoNodeElement.innerHTML = `
-        <div style="display:flex;"><div style="width:100px;">operands:</div> <div style="width:80%;">${adjNodesInfo['operand_names'].join(',')}</div></div>
-        <div style="display:flex;"><div style="width:100px;">consumers:</div> <div style="width:80%;">${adjNodesInfo['consumer_names'].join(',')}</div></div>
-      `;
+      const adjNodesInfo =
+          await this._maybeFetchAdjacentEvents(hloOp, hloModule);
+      hloGraphInfoNodeElement.textContent = '';
+      for (const [label, key] of [
+               ['operands:', 'operand_names'],
+               ['consumers:', 'consumer_names'],
+           ]) {
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        const labelDiv = document.createElement('div');
+        labelDiv.style.width = '100px';
+        labelDiv.textContent = label;
+        const valueDiv = document.createElement('div');
+        valueDiv.style.width = '80%';
+        valueDiv.textContent = (adjNodesInfo[key] || []).join(',');
+        row.appendChild(labelDiv);
+        row.appendChild(valueDiv);
+        hloGraphInfoNodeElement.appendChild(row);
+      }
     },
 
     createPercaleLink: function(hloOp, host, hloModule) {
       if (!this._percaleUrlPrefix || !this._sessionId || !hloOp) return;
-      const percaleLink = new URL(`${this._percaleUrlPrefix}/llo?id=${this._sessionId}&name=${hloOp}`);
+      const percaleLink = new URL(`${this._percaleUrlPrefix}/llo`);
+      percaleLink.searchParams.append('id', this._sessionId);
+      percaleLink.searchParams.append('name', hloOp);
       if (host) {
         percaleLink.searchParams.append('host', host);
       }
@@ -844,7 +871,13 @@ dashboard would integrate trace viewer app using iframe.
         percaleLink.searchParams.append('module', hloModule);
       }
       const percaleLinkElement = document.createElement('div');
-      percaleLinkElement.innerHTML = `Percale link: <a href="${percaleLink.href}" target="_blank">see percale for low level kernel details</a>`;
+      percaleLinkElement.appendChild(
+          document.createTextNode('Percale link: '));
+      const link = document.createElement('a');
+      link.href = percaleLink.href;
+      link.target = '_blank';
+      link.textContent = 'see percale for low level kernel details';
+      percaleLinkElement.appendChild(link);
       this._eventDetails.appendChild(percaleLinkElement);
     },
 
@@ -969,8 +1002,13 @@ dashboard would integrate trace viewer app using iframe.
             graphViewLink.searchParams.append("symbol_type", "MLIR_MODULE");
             graphViewLink.searchParams.append("type", "pbtxt");
             const graphViewLinkElement = document.createElement('div');
-            graphViewLinkElement.innerHTML = 'Graph Viewer:<a href="' + graphViewLink.href +
-                  '" target="_blank"> see the TF MLIR graph </a>';
+            graphViewLinkElement.appendChild(
+                document.createTextNode('Graph Viewer:'));
+            const link = document.createElement('a');
+            link.href = graphViewLink.href;
+            link.target = '_blank';
+            link.textContent = ' see the TF MLIR graph ';
+            graphViewLinkElement.appendChild(link);
             this._eventDetails.appendChild(graphViewLinkElement);
           }
           // Second link is for TFRT MLIR.
@@ -982,8 +1020,13 @@ dashboard would integrate trace viewer app using iframe.
             graphViewLink.searchParams.append("symbol_type", "MLIR_MODULE");
             graphViewLink.searchParams.append("type", "pbtxt");
             const graphViewLinkElement = document.createElement('div');
-            graphViewLinkElement.innerHTML = 'Graph Viewer:<a href="' + graphViewLink.href +
-                  '" target="_blank"> see the TFRT MLIR graph </a>';
+            graphViewLinkElement.appendChild(
+                document.createTextNode('Graph Viewer:'));
+            const link = document.createElement('a');
+            link.href = graphViewLink.href;
+            link.target = '_blank';
+            link.textContent = ' see the TFRT MLIR graph ';
+            graphViewLinkElement.appendChild(link);
             this._eventDetails.appendChild(graphViewLinkElement);
           }
         }
@@ -997,11 +1040,15 @@ dashboard would integrate trace viewer app using iframe.
                 "selected_group_ids", event.args['connected_group_ids']);
           this._addSelectedHostsToTraceViewerURL(traceViewerConnectedEventsLink);
           const traceViewerConnectedEventsLinkElement = document.createElement('div');
-          traceViewerConnectedEventsLinkElement.innerHTML = 'Trace Viewer:<a href="' +
-                traceViewerConnectedEventsLink.href +
-                '" target="_blank"> see events for step/group ' +
-                event.args['group_id'] +
-                ' and other steps/groups connected to it';
+          traceViewerConnectedEventsLinkElement.appendChild(
+              document.createTextNode('Trace Viewer:'));
+          const link = document.createElement('a');
+          link.href = traceViewerConnectedEventsLink.href;
+          link.target = '_blank';
+          link.textContent = ' see events for step/group ' +
+              event.args['group_id'] +
+              ' and other steps/groups connected to it';
+          traceViewerConnectedEventsLinkElement.appendChild(link);
           this._eventDetails.appendChild(traceViewerConnectedEventsLinkElement);
         } else if (this._sessionId && 'group_id' in event.args) {
           const traceViewerStepLink =
@@ -1009,9 +1056,14 @@ dashboard would integrate trace viewer app using iframe.
           traceViewerStepLink.searchParams.append("selected_group_ids", event.args['group_id']);
           this._addSelectedHostsToTraceViewerURL(traceViewerStepLink);
           const traceViewerStepLinkElement = document.createElement('div');
-          traceViewerStepLinkElement.innerHTML = 'Trace Viewer:<a href="' + traceViewerStepLink.href +
-                '" target="_blank"> see events ONLY for this step/group ' +
-                event.args['group_id'];
+          traceViewerStepLinkElement.appendChild(
+              document.createTextNode('Trace Viewer:'));
+          const link = document.createElement('a');
+          link.href = traceViewerStepLink.href;
+          link.target = '_blank';
+          link.textContent =
+              ' see events ONLY for this step/group ' + event.args['group_id'];
+          traceViewerStepLinkElement.appendChild(link);
           this._eventDetails.appendChild(traceViewerStepLinkElement);
         }
         // Plot the hlo graph context for the selected hlo op event.

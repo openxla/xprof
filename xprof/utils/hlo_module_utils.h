@@ -99,6 +99,7 @@ inline std::string GetOpLocationStack(xla::StackFrameId frame_id,
                                       const xla::HloInstruction& instr) {
   std::string stack_lines;
   xla::HloModule* hlo_module = instr.GetModule();
+  bool first_frame = true;
 #ifdef XLA_HAVE_STACK_FRAME_ID
   while (frame_id.valid()) {
 #else
@@ -108,10 +109,18 @@ inline std::string GetOpLocationStack(xla::StackFrameId frame_id,
     if (frame.empty()) {
       break;
     }
+    int end_col = frame.end_column;
+    if (end_col == 0 && first_frame &&
+        instr.metadata().source_end_column() != 0) {
+      end_col = instr.metadata().source_end_column();
+    }
     absl::StrAppend(&stack_lines, frame.file_name, ":", frame.line, ":",
-                    frame.column, "\n");
+                    frame.column, ":", end_col, "\n");
+    first_frame = false;
     frame_id = frame.parent_frame_id;
   }
+
+  return stack_lines;
 
   return stack_lines;
 }

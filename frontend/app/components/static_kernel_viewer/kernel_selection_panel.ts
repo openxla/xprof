@@ -105,11 +105,11 @@ export interface ExtraAttributeItem {
 
 /** Parsed source file and line/column location for a source or stack frame. */
 export interface SourceFrameItem {
-  /** Full raw location string, e.g. `learning/gemini/.../megablocks_gmm.py:627:5`. */
+  /** Full raw location string, e.g. `models/transformer/.../megablocks_gmm.py:627:5`. */
   readonly raw: string;
   /** File basename with `:line[:col]` suffix, e.g. `megablocks_gmm.py:627:5`. */
   readonly shortLocation: string;
-  /** Parent directory path without trailing slash, e.g. `learning/gemini/.../kernels`. */
+  /** Parent directory path without trailing slash, e.g. `models/transformer/.../kernels`. */
   readonly directory?: string;
   /** 0-based index in the call stack (0 = outermost caller, last = innermost callee). */
   readonly index: number;

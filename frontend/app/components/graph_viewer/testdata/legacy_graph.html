@@ -38,7 +38,7 @@
 <g id="node3" class="node">
 <title>140493741663808</title>
 <g id="a_node3"><a xlink:title="jit(update)/jvp(Top)/transformer.compute_final_activations_with_per_layer_inputs/mul
-source: learning/gemini/gemax/core/models/attention.py:2671">
+source: models/transformer/core/models/attention.py:2671">
 <polygon fill="#c8e6c9" stroke="#97b498" points="304.39,-546.65 104.93,-546.65 104.93,-482.65 304.39,-482.65 304.39,-546.65"></polygon>
 <text text-anchor="start" x="122.03" y="-531.05" font-family="Times,serif" font-weight="bold" font-size="14.00">dynamic-slice.11771.clone.1</text>
 <text text-anchor="start" x="117.2" y="-517.05" font-family="Times,serif" font-size="14.00">dynamic_slice_sizes={1,4096}</text>
@@ -79,7 +79,7 @@ source: learning/gemini/gemax/core/models/attention.py:2671">
 <g id="node5" class="node">
 <title>140493741665952</title>
 <g id="a_node5"><a xlink:title="jit(update)/jvp(Top)/slice
-source: learning/gemini/cms/core/models/gemini/positions_lib.py:37">
+source: models/transformer/core/models/positions_lib.py:37">
 <polygon fill="#c8e6c9" stroke="#97b498" points="502.07,-646.65 311.25,-646.65 311.25,-582.65 502.07,-582.65 502.07,-646.65"></polygon>
 <text text-anchor="start" x="324.03" y="-631.05" font-family="Times,serif" font-weight="bold" font-size="14.00">dynamic-slice.11770.clone.1</text>
 <text text-anchor="start" x="319.2" y="-617.05" font-family="Times,serif" font-size="14.00">dynamic_slice_sizes={1,4096}</text>
@@ -103,7 +103,7 @@ source: learning/gemini/cms/core/models/gemini/positions_lib.py:37">
 <g id="node7" class="node">
 <title>140493741671056</title>
 <g id="a_node7"><a xlink:title="jit(update)/jvp(Top)/transformer.compute_final_activations_with_per_layer_inputs/mul
-source: learning/gemini/gemax/core/models/attention.py:2671">
+source: models/transformer/core/models/attention.py:2671">
 <polygon fill="white" stroke="#9e9e9e" points="428.11,-446.65 259.2,-446.65 259.2,-396.65 428.11,-396.65 428.11,-446.65"></polygon>
 <text text-anchor="start" x="289.04" y="-431.05" font-family="Times,serif" font-weight="bold" font-size="14.00">select.8825.clone.1</text>
 <text text-anchor="start" x="267.92" y="-417.05" font-family="Times,serif" font-size="14.00">s32[1,4096]{1,0:T(1,128)}</text>
@@ -160,7 +160,7 @@ source: learning/gemini/gemax/core/models/attention.py:2671">
 <g id="node6" class="node">
 <title>140493741669312</title>
 <g id="a_node6"><a xlink:title="jit(update)/jvp(Top)/transformer.compute_final_activations_with_per_layer_inputs/add
-source: learning/gemini/gemax/core/models/attention.py:2671">
+source: models/transformer/core/models/attention.py:2671">
 <polygon fill="white" stroke="#9e9e9e" points="491.11,-539.65 322.2,-539.65 322.2,-489.65 491.11,-489.65 491.11,-539.65"></polygon>
 <text text-anchor="start" x="353.57" y="-524.05" font-family="Times,serif" font-weight="bold" font-size="14.00">add.20812.clone.1</text>
 <text text-anchor="start" x="330.92" y="-510.05" font-family="Times,serif" font-size="14.00">s32[1,4096]{1,0:T(1,128)}</text>
@@ -193,7 +193,7 @@ source: learning/gemini/gemax/core/models/attention.py:2671">
 <g id="node8" class="node">
 <title>140493741671936</title>
 <g id="a_node8"><a xlink:title="jit(update)/scan/scan._block_sequence/attention_type_0/attention_type_0.block/attention_type_0.apply_attention/attn/attn.attention_sub_block/attn._compute_attn_vec/vmap()/checkpoint/ne
-source: learning/gemini/gemax/core/models/attention.py:2271">
+source: models/transformer/core/models/attention.py:2271">
 <polygon fill="white" stroke="#9e9e9e" points="470.39,-360.65 270.93,-360.65 270.93,-296.65 470.39,-296.65 470.39,-360.65"></polygon>
 <text text-anchor="start" x="328.86" y="-345.05" font-family="Times,serif" font-weight="bold" font-size="14.00">compare.3996</text>
 <text text-anchor="start" x="332.5" y="-331.05" font-family="Times,serif" font-size="14.00">direction=NE</text>
@@ -227,7 +227,7 @@ source: learning/gemini/gemax/core/models/attention.py:2271">
 <g id="node9" class="node">
 <title>140493741674160</title>
 <g id="a_node9"><a xlink:title="jit(update)/scan/scan._block_sequence/attention_type_0/attention_type_0.block/attention_type_0.apply_attention/attn/attn.attention_sub_block/attn._compute_attn_vec/vmap()/checkpoint/ne
-source: learning/gemini/gemax/core/models/attention.py:2271">
+source: models/transformer/core/models/attention.py:2271">
 <polygon fill="#e1bee7" stroke="#af8eb5" points="437.47,-260.65 281.85,-260.65 281.85,-182.65 437.47,-182.65 437.47,-260.65"></polygon>
 <text text-anchor="start" x="320.19" y="-245.05" font-family="Times,serif" font-weight="bold" font-size="14.00">reduce.12808</text>
 <text text-anchor="start" x="298.79" y="-231.05" font-family="Times,serif" font-size="14.00">Subcomputation: </text>
@@ -519,18 +519,18 @@ stylesheet=<
 140493741661520 [label=<<b>Parameter 2</b><br/>pred[1,16384]{1,0:T(4,128)(4,1)}>, shape=rect, tooltip="", style="filled", fontcolor="black", color="#c88719", fillcolor="#ffb74d"];
 140493741663184 [label=<<b>Parameter 1</b><br/>s32[]>, shape=rect, tooltip="", style="filled", fontcolor="black", color="#cbae82", fillcolor="#ffe0b2"];
 140493741663808 [label=<<b>dynamic-slice.11771.clone.1</b><br/>dynamic_slice_sizes={1,4096}<br/>pred[1,4096]{1,0:T(4,128)(4,1)}<br/><b>operand 1</b> = s32[] 0>, shape=rect, tooltip="jit(update)/jvp(Top)/transformer.compute_final_activations_with_per_layer_inputs/mul
-source: learning/gemini/gemax/core/models/attention.py:2671", style="filled", fontcolor="black", color="#97b498", fillcolor="#c8e6c9"];
+source: models/transformer/core/models/attention.py:2671", style="filled", fontcolor="black", color="#97b498", fillcolor="#c8e6c9"];
 140493741665328 [label=<<b>Parameter 0</b><br/>s32[1,16384]{1,0:T(1,128)}>, shape=rect, tooltip="", style="filled", fontcolor="black", color="#c88719", fillcolor="#ffb74d"];
 140493741665952 [label=<<b>dynamic-slice.11770.clone.1</b><br/>dynamic_slice_sizes={1,4096}<br/>s32[1,4096]{1,0:T(1,128)}<br/><b>operand 1</b> = s32[] 0>, shape=rect, tooltip="jit(update)/jvp(Top)/slice
-source: learning/gemini/cms/core/models/gemini/positions_lib.py:37", style="filled", fontcolor="black", color="#97b498", fillcolor="#c8e6c9"];
+source: models/transformer/core/models/positions_lib.py:37", style="filled", fontcolor="black", color="#97b498", fillcolor="#c8e6c9"];
 140493741669312 [label=<<b>add.20812.clone.1</b><br/>s32[1,4096]{1,0:T(1,128)}<br/><b>operand 1</b> = s32[1,4096] 1>, shape=rect, tooltip="jit(update)/jvp(Top)/transformer.compute_final_activations_with_per_layer_inputs/add
-source: learning/gemini/gemax/core/models/attention.py:2671", style="filled", fontcolor="black", color="#9e9e9e", fillcolor="white"];
+source: models/transformer/core/models/attention.py:2671", style="filled", fontcolor="black", color="#9e9e9e", fillcolor="white"];
 140493741671056 [label=<<b>select.8825.clone.1</b><br/>s32[1,4096]{1,0:T(1,128)}<br/><b>operand 2</b> = s32[1,4096] 0>, shape=rect, tooltip="jit(update)/jvp(Top)/transformer.compute_final_activations_with_per_layer_inputs/mul
-source: learning/gemini/gemax/core/models/attention.py:2671", style="filled", fontcolor="black", color="#9e9e9e", fillcolor="white"];
+source: models/transformer/core/models/attention.py:2671", style="filled", fontcolor="black", color="#9e9e9e", fillcolor="white"];
 140493741671936 [label=<<b>compare.3996</b><br/>direction=NE<br/>pred[1,4096]{1,0:T(4,128)(4,1)}<br/><b>operand 1</b> = s32[1,4096] 0>, shape=rect, tooltip="jit(update)/scan/scan._block_sequence/attention_type_0/attention_type_0.block/attention_type_0.apply_attention/attn/attn.attention_sub_block/attn._compute_attn_vec/vmap()/checkpoint/ne
-source: learning/gemini/gemax/core/models/attention.py:2271", style="filled", fontcolor="black", color="#9e9e9e", fillcolor="white"];
+source: models/transformer/core/models/attention.py:2271", style="filled", fontcolor="black", color="#9e9e9e", fillcolor="white"];
 140493741674160 [label=<<b>reduce.12808</b><br/>Subcomputation: <b>add</b><br/>dimensions={0}<br/>pred[4096]<br/><b>operand 1</b> = pred[] false>, shape=rect, tooltip="jit(update)/scan/scan._block_sequence/attention_type_0/attention_type_0.block/attention_type_0.apply_attention/attn/attn.attention_sub_block/attn._compute_attn_vec/vmap()/checkpoint/ne
-source: learning/gemini/gemax/core/models/attention.py:2271", style="filled", fontcolor="black", color="#af8eb5", fillcolor="#e1bee7"];
+source: models/transformer/core/models/attention.py:2271", style="filled", fontcolor="black", color="#af8eb5", fillcolor="#e1bee7"];
 140493741675456 [label=<<b>tuple.2911</b><br/>(pred[4096], s32[1,4096], pred[1,4096])>, shape=rect, tooltip="", style="filled", fontcolor="black", color="#9e9e9e", fillcolor="white"];
 cluster_140493741677872 [label=<ROOT>, shape=circle, tooltip=" ", style="filled", fontcolor="black", color="#8c7b75", fillcolor="#bcaaa4"];
 140493741661520 -> 140493741663808 [arrowhead=normal tooltip="param_2.30961 -> dynamic-slice.11771.clone.1"  headlabel="0", labeldistance=2];

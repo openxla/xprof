@@ -120,7 +120,7 @@ def build_truncation_fields(
 
 
 def is_rpc_exception(exception: BaseException) -> bool:
-  """Returns True if `exception` is a Stubby RPCException."""
+  """Returns True if `exception` is an RPCException."""
   return exception.__class__.__name__ == "RPCException"
 
 

@@ -3,7 +3,11 @@ import {ActivatedRoute} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {DATA_API} from 'org_xprof/frontend/app/common/constants/constants';
-import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
+import {
+  formatFetchError,
+  formatFetchException,
+  setLoadingState,
+} from 'org_xprof/frontend/app/common/utils/utils';
 import {
   setCurrentToolStateAction,
   setErrorMessageStateAction,
@@ -79,11 +83,12 @@ export class MegascalePerfetto implements OnDestroy {
     await this.loadPerfetto();
   }
 
-  async loadPerfetto() {
+  async loadPerfetto(): Promise<void> {
     if (this.isLoading) {
       return;
     }
     this.isLoading = true;
+    this.store.dispatch(setErrorMessageStateAction({errorMessage: ''}));
     setLoadingState(true, this.store, 'Loading perfetto data');
     try {
       this.throbber.start();
@@ -113,7 +118,7 @@ export class MegascalePerfetto implements OnDestroy {
     return requestURL.toString();
   }
 
-  async getDataAndOpenPerfettoUI() {
+  async getDataAndOpenPerfettoUI(): Promise<void> {
     if (!this.perfettoDataUrl) return;
     if (!this.host) {
       this.store.dispatch(
@@ -123,8 +128,13 @@ export class MegascalePerfetto implements OnDestroy {
       );
       return;
     }
-    const response = await fetch(this.perfettoDataUrl);
-    if (response.ok) {
+    try {
+      const response = await fetch(this.perfettoDataUrl);
+      if (!response.ok) {
+        const errorMessage = `Failed to load Perfetto data: ${await formatFetchError(response)}`;
+        this.store.dispatch(setErrorMessageStateAction({errorMessage}));
+        return;
+      }
       const blob = await response.blob();
       const trace = await blob.arrayBuffer();
       if (trace.byteLength === 0) {
@@ -133,11 +143,15 @@ export class MegascalePerfetto implements OnDestroy {
             errorMessage: 'Trace data too big for perfetto.',
           }),
         );
-      } else {
-        this.openPerfettoUI(trace);
+        return;
       }
-    } else {
-      console.error(`Fail to get perfetto view data: ${await response.text()}`);
+      this.openPerfettoUI(trace);
+    } catch (e) {
+      this.store.dispatch(
+        setErrorMessageStateAction({
+          errorMessage: `Failed to load Perfetto data: ${formatFetchException(e)}`,
+        }),
+      );
     }
   }
 

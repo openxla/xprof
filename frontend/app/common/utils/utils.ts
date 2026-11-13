@@ -992,7 +992,10 @@ export function cleanHloOpName(opName?: string): string {
 
 /** Strips a trailing '(program_id)' suffix from an HLO module name. */
 export function stripHloModuleProgramId(moduleName?: string): string {
-  return (moduleName || '').trim().replace(/\(\d+\)$/, '').trim();
+  return (moduleName || '')
+    .trim()
+    .replace(/\(\d+\)$/, '')
+    .trim();
 }
 
 /**
@@ -1177,4 +1180,22 @@ export function getSessionIdFromParams(
     }
   }
   return fallbackSessionId;
+}
+
+/** Formats an unsuccessful HTTP response into a concise UI error detail. */
+export async function formatFetchError(response: Response): Promise<string> {
+  const contentType = response.headers.get('content-type') ?? '';
+  const rawBody = contentType.toLowerCase().includes('text/html')
+    ? ''
+    : (await response.text()).trim();
+  return rawBody
+    ? escapeHtml(rawBody)
+    : `HTTP ${response.status} ${response.statusText}`.trim();
+}
+
+/** Formats a thrown fetch exception into a concise UI error detail. */
+export function formatFetchException(error: unknown): string {
+  return error instanceof Error
+    ? escapeHtml(error.message || error.name)
+    : escapeHtml(String(error));
 }

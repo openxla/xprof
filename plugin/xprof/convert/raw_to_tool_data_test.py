@@ -377,6 +377,52 @@ class RawToToolDataTest(absltest.TestCase):
         },
     )
 
+  def test_xspace_to_tool_data_megascale_stats_perfetto_returns_octet_stream(
+      self,
+  ):
+    params = {
+        "host": "host0",
+        "perfetto": True,
+    }
+    wrapper_func = mock.MagicMock(return_value=(b"perfetto_bytes", True))
+
+    data, content_type = raw_to_tool_data.xspace_to_tool_data(
+        xspace_paths=["/path/to/xspace"],
+        tool="megascale_stats",
+        params=params,
+        xspace_wrapper_func=wrapper_func,
+    )
+
+    self.assertEqual(data, b"perfetto_bytes")
+    self.assertEqual(content_type, "application/octet-stream")
+    wrapper_func.assert_called_once_with(
+        ["/path/to/xspace"],
+        "megascale_stats",
+        {
+            "host_name": "host0",
+            "perfetto": True,
+        },
+    )
+
+  def test_xspace_to_tool_data_megascale_stats_failure_raises_value_error(self):
+    params = {"host": "missing_host", "perfetto": True}
+    wrapper_func = mock.MagicMock(
+        return_value=(b"No profile for missing_host", False)
+    )
+
+    with self.assertRaisesRegex(ValueError, "No profile for missing_host"):
+      raw_to_tool_data.xspace_to_tool_data(
+          xspace_paths=["/path/to/xspace"],
+          tool="megascale_stats",
+          params=params,
+          xspace_wrapper_func=wrapper_func,
+      )
+    wrapper_func.assert_called_once_with(
+        ["/path/to/xspace"],
+        "megascale_stats",
+        {"host_name": "missing_host", "perfetto": True},
+    )
+
   def test_profile_data_to_tool_data(self):
     mock_func = self.enter_context(
         mock.patch.object(

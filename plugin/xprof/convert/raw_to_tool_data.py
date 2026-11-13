@@ -327,11 +327,15 @@ def xspace_to_tool_data(
     }
     if 'group_tiny_events' in params:
       options['group_tiny_events'] = params['group_tiny_events']
-    json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
+    raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
-      data = json_data
+      data = raw_data
       if options['perfetto']:
         content_type = 'application/octet-stream'
+    else:
+      if isinstance(raw_data, bytes):
+        raw_data = raw_data.decode('utf-8', errors='replace')
+      raise ValueError(raw_data)
   elif tool == 'inference_profile':
     json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:

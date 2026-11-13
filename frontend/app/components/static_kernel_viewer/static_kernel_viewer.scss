@@ -1143,6 +1143,16 @@ $card-width: 320px;
   margin-inline-start: auto;
 }
 
+.kernel-linked-icon {
+  flex: none;
+  width: var(--rack-icon-size-sm, 16px);
+  height: var(--rack-icon-size-sm, 16px);
+  color: var(--mat-sys-on-surface-variant);
+  font-size: var(--rack-icon-size-sm, 16px);
+  line-height: var(--rack-icon-size-sm, 16px);
+  font-variation-settings: var(--rack-icon-settings-sm);
+}
+
 .unit-chip {
   --unit-color: var(--mat-sys-primary);
   padding: 1px 6px;
@@ -1384,6 +1394,17 @@ trace-viewer-container.trace-loaded {
   font: 400 11px / 14px var(--mat-sys-plain-font);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tab-linked-icon {
+  width: 13px;
+  height: 13px;
+  margin-inline-end: 3px;
+  color: currentColor;
+  font-size: 13px;
+  line-height: 13px;
+  font-variation-settings: var(--rack-icon-settings-sm);
+  vertical-align: -2px;
 }
 
 // Smaller than a Material icon button, like the close buttons of browser tabs.
@@ -1725,6 +1746,44 @@ trace-viewer-container.trace-loaded {
       color: var(--mat-sys-warning);
       font-weight: 600;
     }
+
+    &.linked-pill {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: var(--spacing-1);
+      min-width: 0;
+    }
+  }
+
+  .fact-icon {
+    flex: none;
+    width: var(--rack-icon-size-sm, 16px);
+    height: var(--rack-icon-size-sm, 16px);
+    color: var(--mat-sys-on-surface-variant);
+    font-size: var(--rack-icon-size-sm, 16px);
+    line-height: var(--rack-icon-size-sm, 16px);
+    font-variation-settings: var(--rack-icon-settings-sm);
+  }
+
+  .fact-value-chip {
+    box-sizing: border-box;
+    flex: 0 1 auto;
+    min-width: 0;
+    height: 17px;
+    padding: 0 var(--spacing-1);
+    overflow: hidden;
+    border: 1px solid var(--mat-sys-outline-variant);
+    border-radius: var(--radius-xs, 4px);
+    background: var(--mat-sys-surface-container-low);
+    color: var(--mat-sys-on-surface);
+    font: var(--mat-sys-label-small);
+    font-weight: 400;
+    line-height: 15px;
+    letter-spacing: var(--mat-sys-label-small-tracking);
+    font-variant-numeric: normal;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 

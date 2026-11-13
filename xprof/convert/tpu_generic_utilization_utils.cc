@@ -181,6 +181,8 @@ void ComputeTpuGenericTcUnitUtilization(
 
     utilization->num_mxu_inst_issued +=
         COMPUTE_TPUV6E_MXU_INSTRUCTIONS(0) + COMPUTE_TPUV6E_MXU_INSTRUCTIONS(1);
+    utilization->num_mxu_dense_inst_issued +=
+        COMPUTE_TPUV6E_MXU_INSTRUCTIONS(0) + COMPUTE_TPUV6E_MXU_INSTRUCTIONS(1);
     utilization->num_mxu_busy_cycles +=
         COMPUTE_TPUV6E_MXU_CYCLES(0) + COMPUTE_TPUV6E_MXU_CYCLES(1);
 
@@ -228,6 +230,8 @@ void ComputeTpuGenericTcUnitUtilization(
    GET_TPUV7X_COUNTER(MATMUL_VREG_F32_MXU_##unit_id))
 
     utilization->num_mxu_inst_issued +=
+        COMPUTE_TPUV7X_MXU_INSTRUCTIONS(0) + COMPUTE_TPUV7X_MXU_INSTRUCTIONS(1);
+    utilization->num_mxu_dense_inst_issued +=
         COMPUTE_TPUV7X_MXU_INSTRUCTIONS(0) + COMPUTE_TPUV7X_MXU_INSTRUCTIONS(1);
     utilization->num_mxu_busy_cycles +=
         COMPUTE_TPUV7X_MXU_CYCLES(0) + COMPUTE_TPUV7X_MXU_CYCLES(1);

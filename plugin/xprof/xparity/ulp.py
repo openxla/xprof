@@ -58,6 +58,9 @@ _ULP_BIT_LAYOUT: types.MappingProxyType[str, tuple[Any, Any, int, int]] = (
         "bfloat16": (ml_dtypes.bfloat16, np.uint16, 0x8000, 0x7FFF),
         "float8_e4m3fn": (ml_dtypes.float8_e4m3fn, np.uint8, 0x80, 0x7F),
         "float8_e5m2": (ml_dtypes.float8_e5m2, np.uint8, 0x80, 0x7F),
+        # ml_dtypes stores each float4_e2m1fn value in the low nibble of a
+        # byte: bit 3 is the sign, bits 0-2 the exponent and mantissa.
+        "float4_e2m1fn": (ml_dtypes.float4_e2m1fn, np.uint8, 0x08, 0x07),
     })
 )
 
@@ -167,6 +170,12 @@ DTYPE_TOLERANCES: types.MappingProxyType[str, tuple[float, float]] = (
         "float8_e5m2": (
             float(ml_dtypes.finfo(ml_dtypes.float8_e5m2).eps),
             0.05,
+        ),
+        # Neighbouring float4_e2m1fn values are at least 0.5 apart, so an atol
+        # of half that admits no representable difference.
+        "float4_e2m1fn": (
+            float(ml_dtypes.finfo(ml_dtypes.float4_e2m1fn).eps),
+            0.25,
         ),
         "float64": (float(np.finfo(np.float64).eps), 1e-12),
     })

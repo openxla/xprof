@@ -1583,6 +1583,45 @@ TEST(ConvertXPlaneToOpStats,
   ASSERT_FALSE(op_stats.has_disaggregated_serving_latency());
 }
 
+TEST(ConvertXPlaneToOpStats, PerformanceCounterResultUnsetWithoutHostStats) {
+  XSpace space;
+  GetOrCreateHostXPlane(&space);
+
+  ASSERT_OK_AND_ASSIGN(OpStats op_stats,
+                       ConvertXSpaceToOpStats(space, OpStatsOptions()));
+
+  EXPECT_FALSE(op_stats.performance_counter_result()
+                   .has_matrix_unit_utilization_percent());
+  EXPECT_FALSE(
+      op_stats.performance_counter_result().has_hbm_utilization_percent());
+}
+
+TEST(ConvertXPlaneToOpStats, PerformanceCounterResultSetForMeasuredZero) {
+  XSpace space;
+  XPlaneBuilder host_plane_builder(GetOrCreateHostXPlane(&space));
+  host_plane_builder.AddStatValue(
+      *host_plane_builder.GetOrCreateStatMetadata(
+          GetStatTypeStr(StatType::kMatrixUnitUtilizationPercent)),
+      0.0);
+  host_plane_builder.AddStatValue(
+      *host_plane_builder.GetOrCreateStatMetadata(
+          GetStatTypeStr(StatType::kHbmUtilizationPercent)),
+      0.0);
+
+  ASSERT_OK_AND_ASSIGN(OpStats op_stats,
+                       ConvertXSpaceToOpStats(space, OpStatsOptions()));
+
+  EXPECT_TRUE(op_stats.performance_counter_result()
+                  .has_matrix_unit_utilization_percent());
+  EXPECT_DOUBLE_EQ(
+      op_stats.performance_counter_result().matrix_unit_utilization_percent(),
+      0.0);
+  EXPECT_TRUE(
+      op_stats.performance_counter_result().has_hbm_utilization_percent());
+  EXPECT_DOUBLE_EQ(
+      op_stats.performance_counter_result().hbm_utilization_percent(), 0.0);
+}
+
 TEST(ConvertXPlaneToOpStats, PopulateDisaggregatedServingLatency) {
   XSpace space;
   XPlaneBuilder host_plane_builder(GetOrCreateHostXPlane(&space));

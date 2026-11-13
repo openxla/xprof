@@ -19,6 +19,7 @@
 
 #include "google/protobuf/any.pb.h"
 #include "net/proto2/contrib/parse_proto/parse_text_proto.h"
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "xprof/convert/data_table_utils.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
@@ -33,6 +34,8 @@ namespace profiler {
 namespace {
 
 using ::google::protobuf::contrib::parse_proto::ParseTextProtoOrDie;
+using ::testing::Key;
+using ::testing::UnorderedElementsAre;
 
 TEST(OpStatsToOverviewPageTest, TpuDutyCycle) {
   OpStats op_stats;
@@ -183,6 +186,98 @@ TEST(OpStatsToOverviewPageTest, TpuActiveTimesAndSparseCoreStepAverages) {
   EXPECT_EQ(properties.at("active_steptime_ms_average"), "700.00");
   EXPECT_EQ(properties.at("sc_steptime_average"), "1000.0");
 }
+
+TEST(OpStatsToOverviewPageTest, HardwareUtilizationUnavailableWithoutCounters) {
+  OpStats op_stats;
+  op_stats.mutable_run_environment()->set_device_type("TPU");
+
+  OverviewPage overview_page = ConvertOpStatsToOverviewPage(op_stats);
+
+  EXPECT_TRUE(overview_page.analysis().hardware_utilization_unavailable());
+  auto data_table = GenerateAnalysisResultDataTable(overview_page);
+  ASSERT_NE(data_table, nullptr);
+  const auto& properties = data_table->GetCustomProperties();
+  EXPECT_EQ(properties.at("hardware_utilization_unavailable"), "true");
+  // The MXU value keeps its old format. Readers use the new flag to tell an
+  // unknown value from a measured zero.
+  EXPECT_EQ(properties.at("mxu_utilization_percent"), "0.0%");
+}
+
+TEST(OpStatsToOverviewPageTest, HardwareUtilizationAvailableForMeasuredZero) {
+  OpStats op_stats;
+  op_stats.mutable_run_environment()->set_device_type("TPU");
+  op_stats.mutable_performance_counter_result()
+      ->set_matrix_unit_utilization_percent(0.0);
+
+  OverviewPage overview_page = ConvertOpStatsToOverviewPage(op_stats);
+
+  EXPECT_FALSE(overview_page.analysis().hardware_utilization_unavailable());
+  auto data_table = GenerateAnalysisResultDataTable(overview_page);
+  ASSERT_NE(data_table, nullptr);
+  const auto& properties = data_table->GetCustomProperties();
+  EXPECT_EQ(properties.at("hardware_utilization_unavailable"), "false");
+  EXPECT_EQ(properties.at("mxu_utilization_percent"), "0.0%");
+}
+
+TEST(OpStatsToOverviewPageTest, HardwareUtilizationAvailableForMeasuredValue) {
+  OpStats op_stats;
+  op_stats.mutable_run_environment()->set_device_type("TPU");
+  op_stats.mutable_performance_counter_result()
+      ->set_matrix_unit_utilization_percent(42.5);
+
+  OverviewPage overview_page = ConvertOpStatsToOverviewPage(op_stats);
+
+  EXPECT_FALSE(overview_page.analysis().hardware_utilization_unavailable());
+  auto data_table = GenerateAnalysisResultDataTable(overview_page);
+  ASSERT_NE(data_table, nullptr);
+  const auto& properties = data_table->GetCustomProperties();
+  EXPECT_EQ(properties.at("hardware_utilization_unavailable"), "false");
+  EXPECT_EQ(properties.at("mxu_utilization_percent"), "42.5%");
+}
+
+TEST(OpStatsToOverviewPageTest, TpuAnalysisPropertiesAddOnlyHardwareFlag) {
+  OverviewPage overview_page;
+  overview_page.mutable_run_environment()->set_device_type("TPU");
+
+  auto data_table = GenerateAnalysisResultDataTable(overview_page);
+
+  ASSERT_NE(data_table, nullptr);
+  EXPECT_THAT(
+      data_table->GetCustomProperties(),
+      UnorderedElementsAre(
+          Key("host_trace_level"), Key("host_tf_op_percent"),
+          Key("device_tf_op_percent"), Key("host_op_time_eager_percent"),
+          Key("device_op_time_eager_percent"), Key("remark_text"),
+          Key("remark_color"), Key("mxu_utilization_percent"),
+          Key("hbm_utilization_percent"),
+          Key("hardware_utilization_unavailable"),
+          Key("flop_rate_utilization_relative_to_roofline"),
+          Key("memory_bw_utilization_relative_to_hw_limit"),
+          Key("device_idle_time_percent"), Key("device_duty_cycle_percent"),
+          Key("device_duty_cycle_high_confidence_percent"),
+          Key("host_idle_time_percent")));
+}
+
+TEST(OpStatsToOverviewPageTest, GpuAnalysisPropertiesAddOnlyHardwareFlag) {
+  OverviewPage overview_page;
+  overview_page.mutable_run_environment()->set_device_type("GPU");
+
+  auto data_table = GenerateAnalysisResultDataTable(overview_page);
+
+  ASSERT_NE(data_table, nullptr);
+  EXPECT_THAT(
+      data_table->GetCustomProperties(),
+      UnorderedElementsAre(
+          Key("host_trace_level"), Key("host_tf_op_percent"),
+          Key("device_tf_op_percent"), Key("host_op_time_eager_percent"),
+          Key("device_op_time_eager_percent"), Key("remark_text"),
+          Key("remark_color"), Key("mxu_utilization_percent"),
+          Key("hbm_utilization_percent"),
+          Key("hardware_utilization_unavailable"),
+          Key("device_compute_16bit_percent"),
+          Key("device_compute_32bit_percent")));
+}
+
 TEST(OpStatsToOverviewPageTest, RooflineMetrics) {
   OpStats op_stats;
   OpMetricsDb* hlo_db = op_stats.mutable_hlo_metrics_db_complete_steps_only();

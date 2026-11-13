@@ -305,6 +305,11 @@
               >{{ kind.icon }}</mat-icon>
               <span class="kernel-name"><ng-container *ngIf="hasQuery; else plainKernelName"><ng-container *ngFor="let segment of nameSegments(entry.kernel)"><mark *ngIf="segment.match; else unmatchedKernelText" class="match">{{ segment.text }}</mark><ng-template #unmatchedKernelText>{{ segment.text }}</ng-template></ng-container></ng-container><ng-template #plainKernelName>{{ entry.kernel }}</ng-template></span>
               <span *ngIf="entry.stats" class="kernel-meta" aria-hidden="true">
+                <mat-icon
+                  *ngIf="entry.linkedKernel"
+                  class="kernel-linked-icon"
+                  aria-hidden="true"
+                >sync_alt</mat-icon>
                 <span
                   *ngIf="entry.busiestUnit"
                   class="unit-chip"
@@ -350,7 +355,7 @@
               <span class="kernel-monogram" aria-hidden="true">{{ tab.entry.monogram }}</span>
               <span class="tab-text">
                 <span class="tab-name">{{ tab.entry.kernel }}</span>
-                <span *ngIf="tab.entry.subtitle" class="tab-subtitle">{{ tab.entry.subtitle }}</span>
+                <span *ngIf="tab.entry.subtitle || tab.entry.linkedKernel" class="tab-subtitle"><ng-container *ngIf="tab.entry.linkedKernel as linkedKernel; else plainTabSubtitle">{{ tab.entry.module ? tab.entry.module + ' · ' : '' }}<mat-icon class="tab-linked-icon" aria-hidden="true">sync_alt</mat-icon>{{ linkedKernel }}{{ tab.entry.bundlesText ? ' · ' + tab.entry.bundlesText : '' }}</ng-container><ng-template #plainTabSubtitle>{{ tab.entry.subtitle }}</ng-template></span>
               </span>
             </button>
             <button
@@ -557,7 +562,14 @@
     <dl *ngIf="card.entry.facts.length > 0" class="card-facts">
       <ng-container *ngFor="let fact of card.entry.facts">
         <dt>{{ fact.label }}</dt>
-        <dd [class.warning]="fact.warning">{{ fact.value }}</dd>
+        <dd [class.warning]="fact.warning" [class.linked-pill]="fact.linkedPill">
+          <mat-icon *ngIf="fact.icon" class="fact-icon" aria-hidden="true">{{ fact.icon }}</mat-icon>
+          <span
+            class="fact-value"
+            [class.fact-value-chip]="fact.linkedPill"
+            [attr.title]="fact.linkedPill ? fact.value : null"
+          >{{ fact.value }}</span>
+        </dd>
       </ng-container>
     </dl>
     <div *ngIf="card.entry.bars.length > 0" class="card-chart">

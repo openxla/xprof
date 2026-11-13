@@ -119,6 +119,33 @@ const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_10_7 = {
     .has_tensor_core_sparsity_support = true,
 };
 
+// https://resources.nvidia.com/en-us-blackwell-architecture
+// Blackwell Ultra (B300 / GB300, compute capability 10.3).
+// Dense Compute as default.
+const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_10_3 = {
+    .cuda_core =
+        {
+            .fp64_tflops = 4,
+            .fp32_tflops = 256,
+            .bf16_tflops = 256,
+            .fp16_tflops = 256,
+            .int8_tops = 512,
+        },
+    .tensor_core =
+        {
+            .fp64_tflops = 4,
+            .fp32_tflops = 4096,
+            .bf16_tflops = 8192,
+            .fp16_tflops = 8192,
+            .fp8_tflops = 16384,
+            // Native INT8 Tensor Core rate is reduced on Blackwell Ultra
+            // (same dense rate as CUDA cores).
+            .int8_tops = 512,
+            .fp4_tflops = 49152,
+        },
+    .has_tensor_core_sparsity_support = true,
+};
+
 // https://resources.nvidia.com/en-us-blackwell-architecture?ncid=pa-srch-goog-585983-Intel-Brand-Broad
 // Dense Compute as default.
 const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_10_0 = {
@@ -138,6 +165,7 @@ const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_10_0 = {
             .fp16_tflops = 8192,
             .fp8_tflops = 16384,
             .int8_tops = 16384,
+            .fp4_tflops = 32768,
         },
     .has_tensor_core_sparsity_support = true,
 };
@@ -327,6 +355,7 @@ GpuFlopCapabilities GetNvidiaFlopCapsPerSMPerCycle(int major_comp_cap,
       *new absl::btree_map<int, GpuFlopCapabilities const*>{
           // TODO: Add newer GPUS when available.
           {10070, &kComputeCap_PerSM_PerCycle_10_7},
+          {10030, &kComputeCap_PerSM_PerCycle_10_3},
           {10000, &kComputeCap_PerSM_PerCycle_10_0},
           {9000, &kComputeCap_PerSM_PerCycle_9_0},
           {8090, &kComputeCap_PerSM_PerCycle_8_9},

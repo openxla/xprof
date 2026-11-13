@@ -44,6 +44,25 @@ TEST(HardwareTypeUtilsTest, RubinPeakComputeTFlops) {
   EXPECT_NEAR(peak_tflops, 4209.7, /*abs_error=*/1.0);
 }
 
+TEST(HardwareTypeUtilsTest, GB300PeakComputeTFlops) {
+  DeviceCapabilities device_cap;
+  // For NVIDIA Blackwell Ultra GB300 (compute capability 10.3), according to:
+  // https://resources.nvidia.com/en-us-blackwell-architecture
+  device_cap.set_clock_rate_in_ghz(2.070);
+  device_cap.set_num_cores(152);
+  device_cap.set_memory_size_in_bytes(
+      tsl::profiler::GibiToGiga(tsl::profiler::GigaToUni(288)));
+  device_cap.set_memory_bandwidth(tsl::profiler::GigaToUni(8000));
+  device_cap.set_device_vendor("Nvidia");
+  device_cap.mutable_compute_capability()->set_major(10);
+  device_cap.mutable_compute_capability()->set_minor(3);
+
+  // Get target TFLOPS per SM and check: 152 * 2.070 * 8192 / 1000.0 = 2577.5.
+  double peak_tflops =
+      GetFlopMaxThroughputPerCore(device_cap) * device_cap.num_cores() / 1000.0;
+  EXPECT_NEAR(peak_tflops, 2577.5, /*abs_error=*/1.0);
+}
+
 TEST(HardwareTypeUtilsTest, B200PeakComputTFlops) {
   DeviceCapabilities device_cap;
   // For NVIDIA B200, according to:

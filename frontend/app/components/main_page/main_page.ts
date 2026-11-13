@@ -247,8 +247,24 @@ export class MainPage implements OnDestroy {
     return result;
   }
 
+  /**
+   * Returns the Material Symbol ligature name for a tool tag, or up to 3
+   * uppercase word initials when the tool has no mapped icon.
+   */
   getToolIcon(tag: string): string {
-    return this.toolIconMap[tag] || 'dashboard';
+    if (this.toolIconMap[tag]) {
+      return this.toolIconMap[tag];
+    }
+    const label = this.getToolLabel(tag);
+    // Build up to 3 uppercase initials from space-, hyphen-, or underscore-
+    // separated words (e.g. 'Megascale Viewer' -> 'MV', or 'unknown_tool' ->
+    // 'UT') for tools without a dedicated Material Symbol icon.
+    return label
+      .split(/[\s\-_]+/)
+      .filter((word) => !!word)
+      .map((word) => word.charAt(0).toUpperCase())
+      .join('')
+      .substring(0, 3);
   }
 
   getToolLabel(tag: string): string {

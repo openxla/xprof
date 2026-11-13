@@ -3,6 +3,7 @@
 
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline_hlo_dependencies.h"
 
+#include <any>
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
@@ -966,6 +967,192 @@ TEST(RouteDependencyArrowTest, CollapsesToAVerticalTickOnASharedPixel) {
   EXPECT_FLOAT_EQ(route.end.x, 100.0f);
   EXPECT_FLOAT_EQ(route.corner_radius, 0.0f);
   EXPECT_FALSE(route.with_head);
+}
+
+TEST(TimelineTest, SelectAdjacentEventFocusesClosestOperand) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  // Works even when HLO dependency arrows are disabled.
+  timeline.SetTimelineData(MakeDependencyTestData({
+      {.name = "operand", .start = 0.0, .dur = 10.0, .level = 0, .id = 1},
+      {.name = "operand", .start = 20.0, .dur = 10.0, .level = 0, .id = 2},
+      {.name = "selected", .start = 40.0, .dur = 10.0, .level = 0, .id = 3},
+  }));
+  timeline.set_data_time_range({0.0, 100.0});
+  timeline.set_selected_event_index_for_test(2);
+  int emitted_index = -1;
+  timeline.set_event_callback(
+      [&emitted_index](absl::string_view type, const EventData& detail) {
+        if (type == kEventSelected) {
+          emitted_index = std::any_cast<int>(detail.at(kEventSelectedIndex));
+        }
+      });
+
+  timeline.SelectAdjacentEvent("%operand", /*is_operand=*/true);
+
+  EXPECT_EQ(timeline.selected_event_index(), 1);
+  EXPECT_EQ(emitted_index, 1);
+}
+
+TEST(TimelineTest, SelectAdjacentEventFocusesClosestConsumer) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.SetTimelineData(MakeDependencyTestData({
+      {.name = "selected", .start = 40.0, .dur = 10.0, .level = 0, .id = 1},
+      {.name = "consumer", .start = 60.0, .dur = 10.0, .level = 0, .id = 2},
+      {.name = "consumer", .start = 80.0, .dur = 10.0, .level = 0, .id = 3},
+  }));
+  timeline.set_data_time_range({0.0, 100.0});
+  timeline.set_selected_event_index_for_test(0);
+  int emitted_index = -1;
+  timeline.set_event_callback(
+      [&emitted_index](absl::string_view type, const EventData& detail) {
+        if (type == kEventSelected) {
+          emitted_index = std::any_cast<int>(detail.at(kEventSelectedIndex));
+        }
+      });
+
+  timeline.SelectAdjacentEvent("consumer", /*is_operand=*/false);
+
+  EXPECT_EQ(timeline.selected_event_index(), 1);
+  EXPECT_EQ(emitted_index, 1);
+}
+
+TEST(TimelineTest, SelectAdjacentEventNoOpWhenNotFound) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.SetTimelineData(MakeDependencyTestData({
+      {.name = "selected", .start = 40.0, .dur = 10.0, .level = 0, .id = 1},
+  }));
+  timeline.set_selected_event_index_for_test(0);
+
+  timeline.SelectAdjacentEvent("missing", /*is_operand=*/true);
+
+  EXPECT_EQ(timeline.selected_event_index(), 0);
+}
+
+TEST(TimelineTest,
+     SelectedEventDependenciesEmitResolvedNamesWhenArrowsDisabled) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.SetTimelineData(MakeDependencyTestData({
+      {.name = "operand", .start = 0.0, .dur = 10.0, .level = 0, .id = 1},
+      {.name = "selected", .start = 40.0, .dur = 10.0, .level = 0, .id = 2},
+      {.name = "consumer", .start = 60.0, .dur = 10.0, .level = 0, .id = 3},
+  }));
+  timeline.set_selected_event_index_for_test(1);
+
+  int emitted_index = -1;
+  std::vector<std::string> emitted_operands;
+  std::vector<std::string> emitted_consumers;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kSelectedEventDependencies) {
+          emitted_index = std::any_cast<int>(detail.at(kEventSelectedIndex));
+          emitted_operands = std::any_cast<std::vector<std::string>>(
+              detail.at(kSelectedEventDependenciesOperands));
+          emitted_consumers = std::any_cast<std::vector<std::string>>(
+              detail.at(kSelectedEventDependenciesConsumers));
+        }
+      });
+
+  timeline.SetSelectedEventDependencies({"%operand", "%bitcast.1"},
+                                        {"%consumer", "%tuple.2"});
+
+  EXPECT_EQ(emitted_index, 1);
+  EXPECT_THAT(emitted_operands, ElementsAre("operand"));
+  EXPECT_THAT(emitted_consumers, ElementsAre("consumer"));
+  EXPECT_THAT(timeline.producer_event_indices(), IsEmpty());
+  EXPECT_THAT(timeline.consumer_event_indices(), IsEmpty());
+}
+
+TEST(TimelineTest, SelectedEventDependenciesEmitUpdatedNamesOnRefetch) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.SetTimelineData(MakeDependencyTestData({
+      {.name = "operand", .start = 0.0, .dur = 10.0, .level = 0, .id = 1},
+      {.name = "selected", .start = 40.0, .dur = 10.0, .level = 0, .id = 2},
+  }));
+  timeline.set_selected_event_index_for_test(1);
+
+  int emitted_index = -1;
+  std::vector<std::string> emitted_operands;
+  std::vector<std::string> emitted_consumers;
+  int emit_count = 0;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kSelectedEventDependencies) {
+          ++emit_count;
+          emitted_index = std::any_cast<int>(detail.at(kEventSelectedIndex));
+          emitted_operands = std::any_cast<std::vector<std::string>>(
+              detail.at(kSelectedEventDependenciesOperands));
+          emitted_consumers = std::any_cast<std::vector<std::string>>(
+              detail.at(kSelectedEventDependenciesConsumers));
+        }
+      });
+
+  timeline.SetSelectedEventDependencies({"operand"}, {"consumer"});
+  EXPECT_EQ(emit_count, 1);
+  EXPECT_EQ(emitted_index, 1);
+  EXPECT_THAT(emitted_operands, ElementsAre("operand"));
+  EXPECT_THAT(emitted_consumers, IsEmpty());
+
+  // Refetch drops operand and brings consumer into the loaded timeline.
+  timeline.SetTimelineData(MakeDependencyTestData({
+      {.name = "selected", .start = 40.0, .dur = 10.0, .level = 0, .id = 2},
+      {.name = "consumer", .start = 60.0, .dur = 10.0, .level = 0, .id = 3},
+  }));
+  EXPECT_EQ(emit_count, 2);
+  EXPECT_EQ(emitted_index, 0);
+  EXPECT_THAT(emitted_operands, IsEmpty());
+  EXPECT_THAT(emitted_consumers, ElementsAre("consumer"));
+
+  // Refetch where selected event itself is no longer present.
+  timeline.SetTimelineData(MakeDependencyTestData({
+      {.name = "consumer", .start = 60.0, .dur = 10.0, .level = 0, .id = 3},
+  }));
+  EXPECT_EQ(emit_count, 3);
+  EXPECT_EQ(emitted_index, -1);
+  EXPECT_THAT(emitted_operands, IsEmpty());
+  EXPECT_THAT(emitted_consumers, IsEmpty());
+}
+
+TEST(TimelineTest,
+     SelectedEventDependenciesDoNotEmitNegativeOneWhenRefetchSelectsAnotherOp) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  const FlameChartTimelineData data = MakeDependencyTestData({
+      {.name = "operand", .start = 0.0, .dur = 10.0, .level = 0, .id = 1},
+      {.name = "selected", .start = 40.0, .dur = 10.0, .level = 0, .id = 2},
+      {.name = "consumer", .start = 60.0, .dur = 10.0, .level = 0, .id = 3},
+  });
+  timeline.SetTimelineData(data);
+  timeline.set_selected_event_index_for_test(1);
+
+  int emit_count = 0;
+  int emitted_index = -1;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kSelectedEventDependencies) {
+          ++emit_count;
+          emitted_index = std::any_cast<int>(detail.at(kEventSelectedIndex));
+        }
+      });
+
+  timeline.SetSelectedEventDependencies({"operand"}, {"consumer"});
+  EXPECT_EQ(emit_count, 1);
+  EXPECT_EQ(emitted_index, 1);
+
+  // Refetch switches `selected_event_index_` to another event ("consumer")
+  // via active search result. `kSelectedEventDependencies` must not emit `-1`.
+  timeline.set_search_results_for_test({{.event_id = 3, .name = "consumer"}});
+  timeline.set_current_search_result_index_for_test(0);
+
+  timeline.SetTimelineData(data);
+
+  EXPECT_EQ(timeline.selected_event_index(), 2);
+  EXPECT_EQ(emit_count, 1);
+  EXPECT_EQ(emitted_index, 1);
 }
 }  // namespace
 }  // namespace testing

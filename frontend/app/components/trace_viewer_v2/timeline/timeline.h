@@ -733,19 +733,33 @@ class Timeline {
   // Resolves the HLO operands and consumers of the selected event to events
   // on its track, see ResolveEventDependencies() in
   // timeline_hlo_dependencies.h. The names are resolved again when new
-  // timeline data is set while the same op stays selected. Does nothing unless
-  // HLO dependency arrows are enabled.
+  // timeline data is set while the same op stays selected, and the resolved
+  // names are emitted via `kSelectedEventDependencies` so the UI can mark
+  // navigable neighbors. HLO dependency arrows on the canvas are drawn only
+  // when HLO dependency arrows are enabled.
   void SetSelectedEventDependencies(std::vector<std::string> operand_names,
                                     std::vector<std::string> consumer_names);
 
+  // Resolves `op_name` as an HLO operand (`is_operand = true`) or consumer
+  // (`is_operand = false`) of the currently selected event and focuses the
+  // timeline on it if found.
+  void SelectAdjacentEvent(std::string op_name, bool is_operand);
+
   // The events that the operands and consumers of the selected event resolved
-  // to. Empty if they were set while another event was selected.
+  // to. Empty if HLO dependency arrows are disabled or they were set while
+  // another event was selected.
   absl::Span<const int> producer_event_indices() const {
-    if (dependencies_.event_index != selected_event_index_) return {};
+    if (!hlo_dependency_arrows_enabled_ ||
+        dependencies_.event_index != selected_event_index_) {
+      return {};
+    }
     return dependencies_.producer_indices;
   }
   absl::Span<const int> consumer_event_indices() const {
-    if (dependencies_.event_index != selected_event_index_) return {};
+    if (!hlo_dependency_arrows_enabled_ ||
+        dependencies_.event_index != selected_event_index_) {
+      return {};
+    }
     return dependencies_.consumer_indices;
   }
 
@@ -1141,6 +1155,8 @@ class Timeline {
 
   // Emits an event selected event to JS side.
   void EmitEventSelected(int event_index);
+  // Emits resolved HLO operand and consumer names for the selected event.
+  void EmitSelectedEventDependencies();
   EventData CreateBaseEventData(int event_index, bool is_hover = false) const;
   // Emits an event hovered event to JS side.
   void EmitEventHovered(int event_index, float mouse_x, float mouse_y);

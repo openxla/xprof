@@ -1,7 +1,8 @@
 ---
 name: xparity
 description: >-
-  Verifies numerical accuracy, bitwise ULP parity, Float64 and Pinned-Float32
+  Verifies numerical accuracy, bitwise ULP parity, whole-output and row-wise
+  relative L2 for FP8/FP4 dequantization kernels, Float64 and Pinned-Float32
   oracle grounding, and multi-regime synthetic tensor correctness (Student-t
   heavy tails, scattered and per-channel outliers, cancellation pairs, discrete
   bounded indices, and attention masks) for JAX, Pallas, Triton, XLA, PyTorch,
@@ -49,6 +50,19 @@ xparity verify \
   --dtype_str="bfloat16" \
   --contract="bitwise"
 
+# Gate a deliberately lossy kernel (FP8/FP4 dequantization) on whole-output
+# and per-row relative L2 instead of ULP; --rel_l2_tol is required
+xparity verify \
+  --kernel_ref="my_pkg.kernels:ref_fn" \
+  --kernel_candidate="my_pkg.kernels:fp8_dequant_fn" \
+  --shapes="[(256, 4096)]" \
+  --dtype_str="float32" \
+  --contract="row_rel_l2" \
+  --rel_l2_tol=2e-2 \
+  --row_factor=5 \
+  --row_norm_floor=0.1 \
+  --verdict_only
+
 # Generate and persist a multi-regime .npz stress test suite
 xparity generate_suite \
   --shapes="[(16, 1024)]" \
@@ -80,8 +94,10 @@ directly from `xprof.xparity`:
 
 ```python
 from xprof.xparity import CONTRACT_BITWISE
+from xprof.xparity import CONTRACT_ROW_REL_L2
 from xprof.xparity import chunk_callable
 from xprof.xparity import compare_bitwise
+from xprof.xparity import compare_row_rel_l2
 from xprof.xparity import generate_attention_suite
 from xprof.xparity import make_fwd_bwd
 from xprof.xparity import numerical_generator
@@ -110,6 +126,21 @@ if report.failure_dumps:
       report.failure_dumps[0], reference_fn, candidate_fn
   )
 
+# Deliberately lossy kernel (FP8/FP4 dequantization): gate on relative L2.
+# rel_l2_tol is required; row_factor=5.0 and row_norm_floor=0.1 by default.
+row_report = validate_kernels(
+    kernel_ref=reference_fn,
+    kernel_candidate=fp8_dequant_fn,
+    shapes=[(256, 4096)],
+    dtype_str="float32",
+    contract=CONTRACT_ROW_REL_L2,
+    rel_l2_tol=2e-2,
+)
+# Or compare two outputs directly (NumPy, JAX or PyTorch, on any device):
+row_check = compare_row_rel_l2(candidate_out, reference_out, tol=2e-2)
+if not row_check.passed:
+  print(row_check.reason, row_check.worst_row_index, row_check.worst_row_rel_l2)
+
 # Validate both forward output and backward VJP gradients leaf-by-leaf:
 fwd_bwd_report = validate_kernels(
     kernel_ref=make_fwd_bwd(reference_fn),
@@ -134,7 +165,7 @@ Float64 oracle (a **False Red**).
 ### Mandatory Verdict-Reading Order (Inverted Order)
 
 1.  **Check `run_config` & `coverage` Provenance First**: Confirm `tier`
-    (`fast_agent` vs `presubmit`), `contract` (`"ulp"` vs `"bitwise"`),
+    (`fast_agent` vs `presubmit`), `contract` (`"ulp"`, `"bitwise"` or `"row_rel_l2"`),
     `dtype_str`, `device_kind`, `total_batches_count`, and `coverage`
     (`selection`, `regimes_run`, `regimes_not_run`). By default, `presubmit` and
     `deep_fuzzing` gate on every regime in the suite (`selection:
@@ -185,6 +216,70 @@ Float64 oracle (a **False Red**).
         e.g. `"[0]"`, `"['lse']"`, or `"['vjp'][0]"`) and per-leaf entries in
         `leaf_results`. Every leaf must pass for the batch to pass; use
         `contract_by_leaf` (`--contract_by_leaf`) to set per-leaf contracts.
+    -   Under `contract="row_rel_l2"`, the verdict comes from each batch's (or
+        leaf's) `row_rel_l2`: `rel_l2` (whole output), `worst_row_rel_l2` and
+        `worst_row_index` (rows run over the last dimension), `rows_over_bound`,
+        and `reason` (`whole_output_rel_l2`, `row_rel_l2`,
+        `non_finite_candidate`, `non_finite_reference`, `shape_mismatch` or
+        `dtype_mismatch`). The report's `rel_l2_summary` gives `max_rel_l2`,
+        `max_row_rel_l2`, `worst_row_batch`, `worst_row_leaf`,
+        `worst_row_index` and `failed_checks`; `--verdict_only` repeats these
+        per failing batch and under a top-level `rel_l2`. ULP fields are still
+        reported but do not gate.
+
+**Reporting the verdict.** State the result with the report's own field names
+so it can be checked against the JSON: `passed: true|false` (from
+`is_numerically_equivalent`), `max_ulp_distance`, and the worst relative error
+(`worst_offender.rel_diff`, or `rel_l2_summary.max_rel_l2` and
+`max_row_rel_l2` under `row_rel_l2`), plus the failing batch count.
+
+--------------------------------------------------------------------------------
+
+## When to Prefer `row_rel_l2` Over ULP
+
+The ULP contract asks whether every element is within a few representable steps
+of the reference. Keep it (the default) when the candidate should reproduce the
+reference up to rounding: fusion, layout changes, same-precision rewrites. Use
+`contract="row_rel_l2"` when the candidate's arithmetic is deliberately lossier
+than the reference's and correctness is defined in aggregate:
+
+-   **FP8 / FP4 dequantization** (`float8_e4m3fn`, `float8_e5m2`,
+    `float4_e2m1fn` weights or activations, e.g. W4A16 or W8A8 GEMM and MoE
+    kernels) checked against a `bfloat16` / `float32` reference. A row-scaled
+    `float8_e4m3fn` value keeps 3 mantissa bits, so single elements can sit up
+    to about $2^{19}$ `float32` ULP from the reference while the relative L2
+    error is small. No `max_allowed_ulp` under `hard_safety_ceiling` accepts that, and
+    raising the ULP budget would also hide real defects.
+-   **Kernels whose upstream acceptance test is a relative-L2 norm**, so the
+    xparity gate matches the threshold the kernel is specified against.
+
+The check passes when both hold, with $c$ the candidate, $r$ the reference and
+rows $i$ running over the last dimension:
+
+$$\frac{\lVert c - r \rVert_2}{\lVert r \rVert_2} \le \texttt{rel\_l2\_tol}
+\quad\text{and}\quad
+\max_i \frac{\lVert c_i - r_i \rVert_2}{\max(\lVert r_i \rVert_2,\;
+\texttt{row\_norm\_floor} \cdot \overline{\lVert r_j \rVert_2})} \le
+\texttt{row\_factor} \cdot \texttt{rel\_l2\_tol}$$
+
+-   The row bound catches one wrong row (a misrouted token, a bad expert or
+    tile) that the whole-output norm averages away; the floor keeps rows that
+    are legitimately near zero from inflating their ratio.
+-   NaN or Inf in either output, a shape mismatch, or an output dtype that
+    differs from the reference's fails the check.
+-   There is no default `rel_l2_tol`: take it from the kernel's own acceptance
+    spec and never loosen it to make a candidate pass. Keep `row_factor=5` and
+    `row_norm_floor=0.1` unless the spec says otherwise.
+-   Pairwise relative L2 against a lossy reference still proves nothing about
+    ground truth; read `oracle_audit` (Q2 and Q3) as for the ULP contract.
+-   Inputs are generated as NumPy arrays in `dtype_str`, and there is no
+    `float4_e2m1fn` generator profile: pass the high-precision input dtype and
+    quantize inside the candidate. `float4_e2m1fn` outputs are accepted under
+    every contract (the ULP contract for them is 0 ULP), but for dequantization
+    kernels gate the dequantized `bfloat16` / `float32` output with
+    `row_rel_l2`. PyTorch outputs, including CUDA
+    tensors, are converted to NumPy automatically, but PyTorch kernels must
+    convert their NumPy inputs themselves.
 
 --------------------------------------------------------------------------------
 

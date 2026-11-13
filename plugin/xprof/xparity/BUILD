@@ -15,10 +15,16 @@ pytype_strict_library(
 )
 
 pytype_strict_library(
+    name = "rel_l2",
+    srcs = ["rel_l2.py"],
+)
+
+pytype_strict_library(
     name = "numerical_validator",
     srcs = ["numerical_validator.py"],
     deps = [
         ":numerical_generator",
+        ":rel_l2",
         ":ulp",
         "@absl_py//absl/logging",
     ],
@@ -30,6 +36,7 @@ pytype_strict_library(
     deps = [
         ":numerical_generator",
         ":numerical_validator",
+        ":rel_l2",
     ],
 )
 
@@ -39,6 +46,7 @@ pytype_strict_library(
     deps = [
         ":numerical_generator",
         ":numerical_validator",
+        ":rel_l2",
         ":ulp",
         ":xparity_tool",
     ],

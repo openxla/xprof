@@ -28,10 +28,23 @@ MXU/device utilization, peak memory, and accelerator info.
 
     -   `step_time_ms`
     -   `duty_cycle_percent`
-    -   `mxu_utilization_percent`
+    -   `mxu_utilization_percent`: from hardware performance counters. It is
+        `null` when the counters were not captured. Then
+        `mxu_utilization_status` (`status: "unavailable"`, `reason`,
+        `how_to_get`) is also present.
+    -   `compute_efficiency_percent`: program FLOP rate relative to the peak
+        device FLOP rate, from the XLA cost model. Present when roofline data
+        exists.
     -   `roofline_utilization`
     -   `peak_hbm_gib`
     -   `accelerator_info` (device type and core count)
+
+3.  If `mxu_utilization_percent` is `null`, say that MXU utilization is unknown
+    (not measured), not 0%. Use `compute_efficiency_percent` as a cost-model
+    estimate instead, or run
+    [`get_kernel_utilization`](get_kernel_utilization.md) for per-kernel values.
+    See
+    [Missing Hardware Counters](get_overview.md#missing-hardware-counters).
 
 ## Multi-Host Runs
 

@@ -6,6 +6,7 @@ from absl.testing import parameterized
 from xprof.cli.internal import decorators
 from xprof.cli.internal.oss import xprof_client
 from xprof.cli.tools import get_kpi_metrics_tool
+from xprof.cli.tools import get_overview_tool
 from xprof.cli.tools import get_roofline_model_tool
 
 
@@ -231,6 +232,65 @@ class GetKpiMetricsToolTest(parameterized.TestCase):
 
     self.assertEqual(result["flops_provenance"], "derived_from_shapes")
     self.assertEqual(result["roofline_utilization"], "75.55%")
+    self.assertIsNone(result["mxu_utilization_percent"])
+    self.assertEqual(result["mxu_utilization_status"]["status"], "unavailable")
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name="mixed_overrides",
+          provenance="mixed",
+          overview_compute_eff="1.00%",
+          expected_compute_eff="12.34%",
+      ),
+      dict(
+          testcase_name="cost_model_keeps_overview",
+          provenance="xla_cost_model",
+          overview_compute_eff="1.00%",
+          expected_compute_eff="1.00%",
+      ),
+  )
+  def test_get_kpi_metrics_mxu_status_and_compute_efficiency(
+      self, provenance, overview_compute_eff, expected_compute_eff
+  ):
+    overview_json = json.dumps({
+        "performance_summary": {
+            "steptime_ms_average": "1.0",
+            "mxu_utilization_percent": None,
+            "mxu_utilization_status": {"status": "unavailable"},
+            "compute_efficiency_percent": overview_compute_eff,
+        },
+        "run_environment": {},
+    })
+    self.enter_context(
+        mock.patch.object(
+            get_overview_tool,
+            "get_overview",
+            return_value=overview_json,
+            autospec=True,
+        )
+    )
+    self.enter_context(
+        mock.patch.object(
+            get_roofline_model_tool,
+            "get_roofline_model",
+            return_value=json.dumps({
+                "program": {
+                    "flops_provenance": provenance,
+                    "roofline_efficiency_percent": "75.55%",
+                    "compute_efficiency_percent": "12.34%",
+                }
+            }),
+            autospec=True,
+        )
+    )
+
+    result = json.loads(get_kpi_metrics_tool.get_kpi_metrics("test_session"))
+
+    self.assertIsNone(result["mxu_utilization_percent"])
+    self.assertEqual(
+        result["mxu_utilization_status"], {"status": "unavailable"}
+    )
+    self.assertEqual(result["compute_efficiency_percent"], expected_compute_eff)
 
   @parameterized.named_parameters(
       ("derived_from_shapes", "derived_from_shapes", 1.0, "75.55%"),

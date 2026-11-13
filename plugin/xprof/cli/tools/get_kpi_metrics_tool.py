@@ -25,7 +25,15 @@ def get_kpi_metrics(session_id: str, *, bypass_cache: bool = False) -> str:
       A JSON-formatted string containing the KPI metrics:
         - step_time_ms: The average step time in milliseconds.
         - duty_cycle_percent: The device duty cycle as a percentage.
-        - mxu_utilization_percent: MXU utilization as a percentage.
+        - mxu_utilization_percent: MXU utilization from hardware performance
+          counters, as a percentage. None if the counters were not captured.
+          This value never comes from the XLA cost model.
+        - mxu_utilization_status: (Optional) Present only when
+          mxu_utilization_percent is None. Has 'status', 'reason' and
+          'how_to_get'.
+        - compute_efficiency_percent: (Optional) Roofline FLOP rate relative
+          to the peak device FLOP rate, from the XLA cost model. Present when
+          roofline data exists.
         - roofline_utilization: Flop rate utilization relative to roofline.
         - flops_provenance: Provenance of FLOP calculations ('xla_cost_model',
           'derived_from_shapes', 'mixed', or 'opaque_custom_call').
@@ -77,6 +85,7 @@ def get_kpi_metrics(session_id: str, *, bypass_cache: bool = False) -> str:
   peak_hbm = collections.defaultdict(lambda: "N/A", peak_hbm_data)
 
   roofline_util = perf_summary["flop_rate_utilization_relative_to_roofline"]
+  compute_eff = perf_summary_raw.get("compute_efficiency_percent")
   flops_provenance = "xla_cost_model"
   derived_flops_fraction = 0.0
   try:
@@ -90,11 +99,13 @@ def get_kpi_metrics(session_id: str, *, bypass_cache: bool = False) -> str:
     derived_flops_fraction = float(
         prog_roofline.get("derived_flops_fraction") or 0.0
     )
-    if (
-        flops_provenance in ("derived_from_shapes", "mixed")
-        and prog_roofline.get("roofline_efficiency_percent")
-    ):
-      roofline_util = prog_roofline["roofline_efficiency_percent"]
+    if flops_provenance in ("derived_from_shapes", "mixed"):
+      roofline_util = (
+          prog_roofline.get("roofline_efficiency_percent") or roofline_util
+      )
+      compute_eff = (
+          prog_roofline.get("compute_efficiency_percent") or compute_eff
+      )
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.debug(
         "get_roofline_model fallback in get_kpi_metrics failed for %s: %s",
@@ -115,6 +126,12 @@ def get_kpi_metrics(session_id: str, *, bypass_cache: bool = False) -> str:
           "device_core_count": run_env["device_core_count"],
       },
   }
+  if "mxu_utilization_status" in perf_summary_raw:
+    payload["mxu_utilization_status"] = perf_summary_raw[
+        "mxu_utilization_status"
+    ]
+  if compute_eff is not None:
+    payload["compute_efficiency_percent"] = compute_eff
   if "custom_call_warning" in perf_summary_raw:
     payload["custom_call_share_pct"] = perf_summary_raw.get(
         "custom_call_share_pct"

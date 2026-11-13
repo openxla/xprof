@@ -92,6 +92,14 @@ export const VIEW_START = 'view_start';
 export const VIEW_END = 'view_end';
 
 /**
+ * URL parameter for enabling end-to-end fast trace streaming mode.
+ */
+export const ENABLE_FAST_MODE_KEY = 'enable_fast_mode';
+
+const USE_XCHUNK_PARAM = 'use_xchunk';
+const STREAM_PARAM = 'stream';
+
+/**
  * The name of the loading status update custom event, dispatched from WASM in
  * Trace Viewer v2.
  */
@@ -455,7 +463,8 @@ function getCanonicalTraceCacheKey(urlObj: URL): string {
   copy.searchParams.delete(TRACE_VIEW_OPTION.END_TIME_MS);
   copy.searchParams.delete(VIEW_START);
   copy.searchParams.delete(VIEW_END);
-  copy.searchParams.delete('stream');
+  copy.searchParams.delete(USE_XCHUNK_PARAM);
+  copy.searchParams.delete(STREAM_PARAM);
   copy.searchParams.delete('use_saved_result');
   copy.searchParams.delete('nocache');
   copy.searchParams.sort();
@@ -1007,6 +1016,54 @@ function sanitizeResolutionParam(urlObj: URL): number | undefined {
   return normalized;
 }
 
+/** Options for {@link parseBooleanParam}. */
+export interface ParseBooleanParamOptions {
+  emptyStringAsTrue?: boolean;
+}
+
+/**
+ * Parses a raw boolean URL parameter (`'true'`/`'1'` -> `true`,
+ * `'false'`/`'0'` -> `false`), treating an empty string (`""`) as `true` when
+ * `emptyStringAsTrue` is true, and returning `undefined` when absent or
+ * malformed.
+ */
+export function parseBooleanParam(
+  value: string | null | undefined,
+  options: ParseBooleanParamOptions = {},
+): boolean | undefined {
+  const {emptyStringAsTrue = false} = options;
+  if (value === '' && emptyStringAsTrue) {
+    return true;
+  }
+  const trimmed = value?.trim().toLowerCase();
+  if (trimmed === 'true' || trimmed === '1') {
+    return true;
+  }
+  if (trimmed === 'false' || trimmed === '0') {
+    return false;
+  }
+  return undefined;
+}
+
+/**
+ * Extracts and strips `enable_fast_mode` on `urlObj` (falling back to
+ * `window.location.href` when absent or invalid on `urlObj`), returning `true`
+ * when enabled (`?enable_fast_mode`, `true`, or `1`) and `false` otherwise.
+ */
+function sanitizeFastModeParam(urlObj: URL): boolean {
+  const browserUrl = new URL(window.location.href);
+  const fastMode =
+    parseBooleanParam(urlObj.searchParams.get(ENABLE_FAST_MODE_KEY), {
+      emptyStringAsTrue: true,
+    }) ??
+    parseBooleanParam(browserUrl.searchParams.get(ENABLE_FAST_MODE_KEY), {
+      emptyStringAsTrue: true,
+    }) ??
+    false;
+  urlObj.searchParams.delete(ENABLE_FAST_MODE_KEY);
+  return fastMode;
+}
+
 function propagateBrowserTraceOptions(urlObj: URL): void {
   const browserUrl = new URL(window.location.href);
   if (
@@ -1339,11 +1396,7 @@ async function fetchAndProcessCompressedTraceDataIncremental({
           notifyConsumer();
         });
 
-      while (
-        pendingFrames.length === 0 &&
-        !streamFinished &&
-        !isAborted()
-      ) {
+      while (pendingFrames.length === 0 && !streamFinished && !isAborted()) {
         await new Promise<void>((resolve) => {
           wakeConsumer = resolve;
         });
@@ -1533,6 +1586,7 @@ async function fetchAndProcessTraceData({
   abortSignal,
   timeRange,
   isRefetch = false,
+  fastMode = false,
   errorContext,
   fetchData,
   createStreamWorker,
@@ -1544,6 +1598,7 @@ async function fetchAndProcessTraceData({
   abortSignal?: AbortSignal;
   timeRange?: [number, number];
   isRefetch?: boolean;
+  fastMode?: boolean;
   errorContext: string;
   fetchData?: TraceDataFetcher;
   createStreamWorker?: TraceStreamWorkerFactory;
@@ -1570,10 +1625,21 @@ async function fetchAndProcessTraceData({
         urlObj.searchParams.get(TRACE_VIEW_OPTION.RESOLUTION) === '0' &&
         !urlObj.searchParams.has(TRACE_VIEW_OPTION.START_TIME_MS) &&
         !urlObj.searchParams.has(TRACE_VIEW_OPTION.END_TIME_MS);
-      if (
+      const useIncrementalPipeline =
         supportsIncrementalTraceEvents(traceviewerModule) &&
-        (isRefetch || isUnfilteredFullResolutionLoad)
-      ) {
+        (isRefetch || isUnfilteredFullResolutionLoad);
+      if (fastMode) {
+        if (!urlObj.searchParams.has(USE_XCHUNK_PARAM)) {
+          urlObj.searchParams.set(USE_XCHUNK_PARAM, 'true');
+        }
+        if (!urlObj.searchParams.has(STREAM_PARAM)) {
+          urlObj.searchParams.set(
+            STREAM_PARAM,
+            String(useIncrementalPipeline && !isRefetch),
+          );
+        }
+      }
+      if (useIncrementalPipeline) {
         const fullLoaded = await fetchAndProcessCompressedTraceDataIncremental({
           urlObj,
           traceviewerModule,
@@ -1744,6 +1810,7 @@ async function handleFetchDataEvent(
   const urlObj = new URL(initialDataUrl, window.location.href);
   urlObj.searchParams.delete('use_saved_result');
   propagateBrowserTraceOptions(urlObj);
+  const fastMode = sanitizeFastModeParam(urlObj);
 
   urlObj.searchParams.set(
     TRACE_VIEW_OPTION.START_TIME_MS,
@@ -1764,6 +1831,7 @@ async function handleFetchDataEvent(
     abortSignal,
     timeRange: [detail.start_time_ms, detail.end_time_ms],
     isRefetch: true,
+    fastMode,
     errorContext: 'fetching new data',
     createStreamWorker,
   });
@@ -1917,10 +1985,12 @@ export async function traceViewerV2Main(
       try {
         let urlObj: URL;
         let explicitResolution: number | undefined;
+        let fastMode = false;
         try {
           urlObj = new URL(url, window.location.href);
           propagateBrowserTraceOptions(urlObj);
           explicitResolution = sanitizeResolutionParam(urlObj);
+          fastMode = sanitizeFastModeParam(urlObj);
         } catch (e) {
           console.error('Invalid URL:', url, e);
           const errorMessage = (e as Error).message;
@@ -1935,11 +2005,27 @@ export async function traceViewerV2Main(
           return;
         }
 
+        const isPbUrl =
+          urlObj.pathname.endsWith('.pb') ||
+          urlObj.searchParams.get('format') === 'pb';
+        const hasExplicitTimeFilter =
+          urlObj.searchParams.has(TRACE_VIEW_OPTION.START_TIME_MS) ||
+          urlObj.searchParams.has(TRACE_VIEW_OPTION.END_TIME_MS);
+        if (
+          fastMode &&
+          isPbUrl &&
+          explicitResolution === undefined &&
+          !hasExplicitTimeFilter &&
+          supportsIncrementalTraceEvents(traceviewerModule)
+        ) {
+          explicitResolution = 0;
+          urlObj.searchParams.set(TRACE_VIEW_OPTION.RESOLUTION, '0');
+        }
+
         const timeRangeFromUrl = getTimeRangeFromUrl(urlObj);
         const usesFullSessionIncrementalPb =
           explicitResolution === 0 &&
-          (urlObj.pathname.endsWith('.pb') ||
-            urlObj.searchParams.get('format') === 'pb') &&
+          isPbUrl &&
           supportsIncrementalTraceEvents(traceviewerModule);
         if (timeRangeFromUrl && !usesFullSessionIncrementalPb) {
           expandUrlTimeRange(urlObj, timeRangeFromUrl);
@@ -1956,6 +2042,7 @@ export async function traceViewerV2Main(
             traceviewerModule !== activeWasmModule,
           abortSignal: loadAbortController.signal,
           timeRange: timeRangeFromUrl,
+          fastMode,
           errorContext: 'loading data',
           fetchData: loadOptions?.fetchData,
           createStreamWorker: streamWorkerFactory,

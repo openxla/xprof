@@ -1,3 +1,4 @@
+import {ENABLE_FAST_MODE_KEY} from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
 import {
   FilterField,
   FilterFieldCategory,
@@ -5,6 +6,8 @@ import {
   FilterOperatorId,
   FilterOperatorType,
 } from './trace_viewer_typings';
+
+export {ENABLE_FAST_MODE_KEY};
 
 // LINT.IfChange
 /** Filter field name for event duration, in ms. */

@@ -1,6 +1,13 @@
 import {RawEventItem} from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
-import {TraceViewerV2Module} from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
-import {FILTER_OPERATORS} from './constants';
+import {
+  parseBooleanParam,
+  TraceViewerV2Module,
+} from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
+import {
+  ENABLE_FAST_MODE_KEY,
+  FILTER_OPERATORS,
+  USE_TRACE_VIEWER_V2_KEY,
+} from './constants';
 import {
   AggregatedEventProperty,
   CounterSelectionItem,
@@ -376,4 +383,80 @@ export function getEventDetailsCacheKey(
   startUs: number,
 ): string {
   return `${sanitizedUid}:${name}:${startUs}`;
+}
+
+/** Options for {@link extractFastModeFromQueryParams}. */
+export interface ExtractFastModeOptions {
+  searchParams?: Pick<URLSearchParams, 'get'> | null;
+  queryParams?: Record<string, unknown>;
+}
+
+/**
+ * Extracts and normalizes the `enable_fast_mode` query parameter from route
+ * `queryParams`, `searchParams` (`URLSearchParams` or Angular `HttpParams`), or
+ * `window.location.search`, returning `false` by default when absent or
+ * malformed.
+ */
+export function extractFastModeFromQueryParams(
+  options: ExtractFastModeOptions = {},
+): boolean {
+  const {searchParams, queryParams} = options;
+  if (
+    queryParams &&
+    Object.prototype.hasOwnProperty.call(queryParams, ENABLE_FAST_MODE_KEY)
+  ) {
+    const raw = queryParams[ENABLE_FAST_MODE_KEY];
+    const parsed = parseBooleanParam(
+      typeof raw === 'string' ? raw : raw != null ? String(raw) : null,
+      {emptyStringAsTrue: true},
+    );
+    if (parsed !== undefined) {
+      return parsed;
+    }
+  }
+  const fromSearchParams = searchParams
+    ? parseBooleanParam(searchParams.get(ENABLE_FAST_MODE_KEY), {
+        emptyStringAsTrue: true,
+      })
+    : undefined;
+  if (fromSearchParams !== undefined) {
+    return fromSearchParams;
+  }
+  const urlSearchParams = new URLSearchParams(window.location.search);
+  return (
+    parseBooleanParam(urlSearchParams.get(ENABLE_FAST_MODE_KEY), {
+      emptyStringAsTrue: true,
+    }) ?? false
+  );
+}
+
+/** Options for {@link resolveUseTraceViewerV2}. */
+export interface ResolveUseTraceViewerV2Options {
+  enableFastMode?: boolean;
+  defaultWhenUnset?: boolean;
+}
+
+/**
+ * Resolves whether Trace Viewer V2 should be active, allowing an explicit URL
+ * `use_trace_viewer_v2=true` or `enable_fast_mode=true` opt-in to override a
+ * stored `use_trace_viewer_v2=false` preference unless `use_trace_viewer_v2` is
+ * explicitly set to `'false'` in the URL.
+ */
+export function resolveUseTraceViewerV2(
+  explicitUseV2Param: string | null | undefined,
+  options: ResolveUseTraceViewerV2Options = {},
+): boolean {
+  const {enableFastMode = false, defaultWhenUnset = true} = options;
+  if (explicitUseV2Param === 'false') {
+    return false;
+  }
+  if (explicitUseV2Param === 'true' || enableFastMode) {
+    return true;
+  }
+  try {
+    const stored = window.localStorage.getItem(USE_TRACE_VIEWER_V2_KEY);
+    return defaultWhenUnset ? stored !== 'false' : stored === 'true';
+  } catch {
+    return defaultWhenUnset;
+  }
 }

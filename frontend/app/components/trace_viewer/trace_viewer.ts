@@ -74,6 +74,7 @@ import {
   CUSTOM_PALETTE_NAME,
   DEFAULT_PALETTE,
   DEFAULT_PALETTE_BACKGROUND,
+  ENABLE_FAST_MODE_KEY,
   FILTER_CONFIG,
   FILTER_FIELD_EVENT_DURATION,
   FILTER_FIELDS,
@@ -92,6 +93,7 @@ import {
   SettingsTab,
   STACK_TRACE_TOOL_NAME,
   TRACE_VIEWER_TOOL_NAME,
+  USE_TRACE_VIEWER_V2_KEY,
 } from './constants';
 import {FilterInput} from './filter_input';
 import {AdjacentNodesResponse} from './interfaces';
@@ -108,6 +110,7 @@ import {
 } from './trace_viewer_typings';
 import {
   EventDetails,
+  extractFastModeFromQueryParams,
   getEventDetailsArgs,
   getEventDetailsCacheKey,
   getProcessMappingsFromWasm,
@@ -115,6 +118,7 @@ import {
   parseEventDetails,
   parseEventsSelectedData,
   RawTraceEvent,
+  resolveUseTraceViewerV2,
   sanitizeUid,
 } from './utils';
 
@@ -207,22 +211,14 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   pathPrefix = '';
   sourceCodeServiceIsAvailable = false;
   hostList: string[] = [];
-  useTraceViewerV2 = (() => {
-    try {
-      return (
-        new URLSearchParams(window.location.search).get(
-          'use_trace_viewer_v2',
-        ) === 'true' ||
-        window.localStorage.getItem('use_trace_viewer_v2') === 'true'
-      );
-    } catch {
-      return (
-        new URLSearchParams(window.location.search).get(
-          'use_trace_viewer_v2',
-        ) === 'true'
-      );
-    }
-  })();
+  enableFastMode = extractFastModeFromQueryParams({
+    searchParams: this.dataService.getSearchParams?.(),
+  });
+  useTraceViewerV2 = resolveUseTraceViewerV2(
+    this.dataService.getSearchParams?.()?.get(USE_TRACE_VIEWER_V2_KEY) ??
+      new URLSearchParams(window.location.search).get(USE_TRACE_VIEWER_V2_KEY),
+    {enableFastMode: this.enableFastMode, defaultWhenUnset: false},
+  );
   traceViewerModule: TraceViewerV2Module | null = null;
   selectedEvent: SelectedEvent | null = null;
   hoveredEventArgs: Record<string, string> | null = null;
@@ -253,7 +249,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     }
     const isPbFormat =
       searchParams.get('format') === 'pb' ||
-      searchParams.get('use_pb') === 'true';
+      searchParams.get('use_pb') === 'true' ||
+      this.enableFastMode;
     if (isPbFormat) {
       return true;
     }
@@ -553,13 +550,22 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
             (host: HostMetadata) => host.hostname,
           );
         }
-        try {
-          this.useTraceViewerV2 =
-            queryParams['use_trace_viewer_v2'] === 'true' ||
-            window.localStorage.getItem('use_trace_viewer_v2') === 'true';
-        } catch {
-          this.useTraceViewerV2 = queryParams['use_trace_viewer_v2'] === 'true';
-        }
+        const searchParams = this.dataService.getSearchParams?.();
+        const urlSearchParams = new URLSearchParams(window.location.search);
+        const rawUseV2Param = queryParams[USE_TRACE_VIEWER_V2_KEY];
+        const explicitUseV2Param =
+          rawUseV2Param != null
+            ? String(rawUseV2Param)
+            : (searchParams?.get(USE_TRACE_VIEWER_V2_KEY) ??
+              urlSearchParams.get(USE_TRACE_VIEWER_V2_KEY));
+        this.enableFastMode = extractFastModeFromQueryParams({
+          searchParams,
+          queryParams,
+        });
+        this.useTraceViewerV2 = resolveUseTraceViewerV2(explicitUseV2Param, {
+          enableFastMode: this.enableFastMode,
+          defaultWhenUnset: false,
+        });
         this.navigationEvent = {...params, ...queryParams};
         this.update(this.navigationEvent);
       });
@@ -752,6 +758,9 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
     if (this.usePb) {
       additionalParams.set('format', 'pb');
+    }
+    if (this.useTraceViewerV2 && this.enableFastMode) {
+      additionalParams.set(ENABLE_FAST_MODE_KEY, 'true');
     }
 
     const traceDataUrl = this.dataService.getDataUrl(

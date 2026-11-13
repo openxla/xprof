@@ -370,8 +370,8 @@ InputOpCategory CategorizeInputOp(absl::string_view name,
       return InputOpCategory::kDemandedFileRead;
     }
   } else {
-    // All other ops are classified as preprocessing.
-    return InputOpCategory::kPreprocessing;
+    // All other ops are classified as unknown.
+    return InputOpCategory::kUnknown;
   }
 }
 
@@ -514,7 +514,8 @@ bool TfDataInUse(const InputTimeBreakdown& breakdown) {
   // not part of tf.data.
   return breakdown.demanded_file_read_us() > 0 ||
          breakdown.advanced_file_read_us() > 0 ||
-         breakdown.preprocessing_us() > 0;
+         breakdown.preprocessing_us() > 0 ||
+         breakdown.unclassified_non_enqueue_us() > 0;
 }
 
 // Returns a HTML link with the given text.
@@ -1438,7 +1439,8 @@ void GenerateHostResult(const OpMetricsDb& host_tf_metrics_db,
   double total_input_op_time_us =
       aggregated_input_op_times_us[InputOpCategory::kDemandedFileRead] +
       aggregated_input_op_times_us[InputOpCategory::kAdvancedFileRead] +
-      aggregated_input_op_times_us[InputOpCategory::kPreprocessing];
+      aggregated_input_op_times_us[InputOpCategory::kPreprocessing] +
+      aggregated_input_op_times_us[InputOpCategory::kUnknown];
 
   double ratio = std::min(
       1.0, RatioOfHostToDeviceTimeToStepTime(host_tf_metrics_db, *result));

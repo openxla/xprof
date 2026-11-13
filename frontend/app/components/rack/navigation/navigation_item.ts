@@ -33,6 +33,7 @@ import {
 } from '@angular/core';
 import {MatIconModule} from '@angular/material/icon';
 import {MatTooltipModule} from '@angular/material/tooltip';
+import {Params, RouterLink, UrlTree} from '@angular/router';
 
 /**
  * Interface representing the parent navigation group context.
@@ -69,7 +70,7 @@ export const NAV_DRAWER_CONTEXT = new InjectionToken<NavigationDrawerContext>(
 @Component({
   selector: 'rack-navigation-item',
   standalone: true,
-  imports: [MatIconModule, MatTooltipModule],
+  imports: [MatIconModule, MatTooltipModule, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrls: ['./navigation_item.scss'],
   host: {
@@ -84,18 +85,19 @@ export const NAV_DRAWER_CONTEXT = new InjectionToken<NavigationDrawerContext>(
   },
   template: `
     <a
-      [attr.href]="href() || null"
-      [attr.target]="href() ? (target() || '_self') : null"
-      [attr.role]="href() ? null : 'button'"
-      [attr.tabindex]="disabled() ? -1 : (href() ? null : 0)"
+      class="nav-link"
+      [routerLink]="disabled() ? null : (route() || null)"
+      [queryParams]="queryParams()"
+      [target]="target() || undefined"
+      [attr.role]="route() ? null : 'button'"
+      [attr.tabindex]="disabled() ? -1 : (route() ? null : 0)"
       [attr.aria-disabled]="disabled() ? 'true' : null"
       [attr.aria-label]="effectiveLabel() || null"
+      (keydown)="onKeydown($event)"
       [matTooltip]="effectiveLabel()"
       matTooltipPosition="right"
       [matTooltipShowDelay]="150"
-      [matTooltipDisabled]="!isDrawerCollapsed()"
-      (keydown)="onKeydown($event)"
-      class="nav-link">
+      [matTooltipDisabled]="!isDrawerCollapsed()">
       @if (icon()) {
         <mat-icon
           fontSet="material-symbols-outlined"
@@ -143,7 +145,10 @@ export class RackNavigationItem implements AfterViewInit {
   });
   readonly badge = input<string>('');
   readonly badgeVariant = input<string>('primary');
-  readonly href = input<string>('');
+  readonly route = input<string | readonly unknown[] | UrlTree | undefined>(
+    undefined,
+  );
+  readonly queryParams = input<Params | undefined>(undefined);
   readonly target = input<string>('');
 
   readonly pinnedChangeKebab = output<boolean>({alias: 'pinned-change'});
@@ -181,9 +186,15 @@ export class RackNavigationItem implements AfterViewInit {
   }
 
   onKeydown(event: KeyboardEvent) {
-    if (!this.href() && (event.key === ' ' || event.key === 'Enter')) {
+    if (
+      !this.disabled() &&
+      !this.route() &&
+      (event.key === ' ' || event.key === 'Enter')
+    ) {
       event.preventDefault();
-      (event.currentTarget as HTMLElement).click();
+      if (event.currentTarget instanceof HTMLElement) {
+        event.currentTarget.click();
+      }
     }
   }
 }

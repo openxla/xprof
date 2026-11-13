@@ -35,9 +35,9 @@
                 [icon]="getToolIcon(tag)"
                 [active]="activeTool === tag"
                 [pinned]="isToolPinned(tag)"
-                [href]="getToolHref(tag)"
-                (pinnedChange)="onToolPinnedChange(tag, $event)"
-                (click)="onToolClick($event, tag)">
+                [route]="'/' + (tag || 'empty')"
+                [queryParams]="getToolQueryParams(tag)"
+                (pinnedChange)="onToolPinnedChange(tag, $event)">
                 {{getToolLabel(tag)}}
               </rack-navigation-item>
             }

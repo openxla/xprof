@@ -20,12 +20,7 @@
 :host {
   display: flex;
   align-items: center;
-  justify-content: var(--rack-nav-item-justify-content, flex-start);
-  gap: var(--spacing-2, 8px);
-  padding: var(
-    --rack-nav-item-padding,
-    var(--spacing-1, 4px) var(--spacing-2, 8px)
-  );
+  padding: 0;
   margin: var(--rack-nav-item-margin, 0 var(--spacing-3, 12px));
   border-radius: var(--rack-nav-item-border-radius, 20px);
   width: var(--rack-nav-item-width, auto);
@@ -122,20 +117,26 @@
 .nav-link {
   display: flex;
   align-items: center;
+  justify-content: var(--rack-nav-item-justify-content, flex-start);
   gap: var(--rack-nav-item-gap, var(--spacing-3, 12px));
-  flex: var(--rack-nav-item-link-flex, 1);
+  padding: var(
+    --rack-nav-item-padding,
+    var(--spacing-1, 4px) 48px var(--spacing-1, 4px) var(--spacing-2, 8px)
+  );
+  flex: var(--rack-nav-item-link-flex, 1 1 auto);
   color: inherit;
   text-decoration: none;
   min-width: 0;
   outline: none;
   width: 100%;
   height: 100%;
+  box-sizing: border-box;
 }
 
 :host(:focus-within) .nav-link:focus-visible {
   outline: 2px solid var(--mat-sys-primary);
-  outline-offset: 2px;
-  border-radius: var(--radius-xs, 4px);
+  outline-offset: -2px;
+  border-radius: inherit;
 }
 
 .nav-icon {
@@ -227,6 +228,11 @@
 
 // Pin button styling
 .pin-btn {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: var(--spacing-2, 8px);
+  margin-block: auto;
+  z-index: 1;
   background: none;
   border: none;
   padding: 0;
@@ -241,11 +247,9 @@
     background-color var(--motion-duration-short, 150ms),
     transform var(--motion-duration-short, 150ms);
   color: var(--mat-sys-on-surface-variant);
-  flex-shrink: 0;
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  margin-inline-start: var(--spacing-1, 4px);
 }
 
 .pin-btn mat-icon {
@@ -321,8 +325,7 @@
 
 // Drawer Collapsed (Rail Mode) Styles
 :host(.drawer-collapsed) {
-  justify-content: flex-start !important;
-  padding: 0 var(--spacing-2, 8px) !important;
+  padding: 0 !important;
   margin: 0 var(--spacing-3, 12px) !important;
   width: 40px !important;
   min-width: 40px !important;
@@ -333,8 +336,9 @@
 }
 
 :host(.drawer-collapsed) .nav-link {
-  flex: 0 0 auto !important;
+  flex: 1 1 auto !important;
   justify-content: flex-start !important;
+  padding: 0 var(--spacing-2, 8px) !important;
 }
 
 :host(.drawer-collapsed) .nav-text {

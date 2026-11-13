@@ -7,7 +7,7 @@ import {
   ViewChild,
 } from '@angular/core';
 import {MatSidenav} from '@angular/material/sidenav';
-import {Router} from '@angular/router';
+import {Params, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {
   CANONICAL_CATEGORY_ORDER,
@@ -256,8 +256,8 @@ export class MainPage implements OnDestroy {
     return this.toolsDisplayMap.get(cleanTag) || cleanTag;
   }
 
-  private buildToolQueryParams(tag: string): {[key: string]: string} {
-    const queryParams: {[key: string]: string} = {};
+  getToolQueryParams(tag: string): Params {
+    const queryParams: Params = {};
     const searchParams = new URLSearchParams(window.location.search);
     searchParams.forEach((value, key) => {
       if (!TRANSIENT_TOOL_QUERY_PARAMS.has(key)) {
@@ -279,33 +279,6 @@ export class MainPage implements OnDestroy {
       queryParams['new_nav'] = 'true';
     }
     return queryParams;
-  }
-
-  getToolHref(tag: string): string {
-    const urlTree = this.router.createUrlTree([tag || 'empty'], {
-      queryParams: this.buildToolQueryParams(tag),
-    });
-    return this.router.serializeUrl(urlTree).replace(/^\//, '');
-  }
-
-  onToolClick(event: MouseEvent, tag: string) {
-    if (
-      event.button !== 0 ||
-      event.ctrlKey ||
-      event.metaKey ||
-      event.shiftKey ||
-      event.altKey
-    ) {
-      return;
-    }
-    event.preventDefault();
-    this.selectTool(tag);
-  }
-
-  selectTool(tag: string) {
-    this.currentTag = tag;
-    const queryParams = this.buildToolQueryParams(tag);
-    this.router.navigate([tag || 'empty'], {queryParams});
   }
 
   private isToolWithSideNav(tag?: string): boolean {

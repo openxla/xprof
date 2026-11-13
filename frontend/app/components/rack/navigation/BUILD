@@ -19,6 +19,7 @@ xprof_ng_module(
     ],
     deps = [
         "//:node_modules/@angular/core",
+        "//:node_modules/@angular/router",
         "@org_xprof//frontend/app/common/angular:angular_material_icon",
         "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
     ],

@@ -22,6 +22,7 @@ limitations under the License.
 #include <stack>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/base/attributes.h"
 #include "absl/container/flat_hash_set.h"
@@ -33,7 +34,9 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/platform/logging.h"
+#include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
@@ -138,8 +141,34 @@ class DeviceTfOpMetricsDbBuilder : public OpMetricsDbBuilder {
   }
 };
 
+void AdjustFlopsAndBytesAccessed(OpMetrics& op_metrics) {
+  if (op_metrics.category() !=
+      xla::HloOpcodeString(xla::HloOpcode::kCustomCall)) {
+    op_metrics.set_flops(op_metrics.flops() * op_metrics.occurrences());
+    op_metrics.set_flops_v2(op_metrics.flops_v2() * op_metrics.occurrences());
+    if (op_metrics.model_flops() > 0) {
+      op_metrics.set_model_flops(op_metrics.model_flops() *
+                                 op_metrics.occurrences());
+      op_metrics.set_model_flops_v2(op_metrics.model_flops_v2() *
+                                    op_metrics.occurrences());
+    } else {
+      op_metrics.set_model_flops(op_metrics.flops());
+      op_metrics.set_model_flops_v2(op_metrics.flops_v2());
+    }
+    op_metrics.set_bytes_accessed(op_metrics.bytes_accessed() *
+                                  op_metrics.occurrences());
+  }
+  for (auto& memory_access : *op_metrics.mutable_memory_accessed_breakdown()) {
+    memory_access.set_bytes_accessed(memory_access.bytes_accessed() *
+                                     op_metrics.occurrences());
+  }
+}
+
+}  // namespace
+
 void SetOpMetadataFromHloEventMetadata(
-    const XEventMetadataVisitor& hlo_event_metadata, OpMetrics* op_metrics) {
+    const XEventMetadataVisitor& hlo_event_metadata, OpMetrics* op_metrics,
+    bool include_source_info) {
   if (hlo_event_metadata.HasDisplayName()) {
     op_metrics->set_name(std::string(hlo_event_metadata.DisplayName()));
     op_metrics->set_long_name(std::string(hlo_event_metadata.Name()));
@@ -183,28 +212,35 @@ void SetOpMetadataFromHloEventMetadata(
           op_metrics->set_deduplicated_name(std::string(stat.StrOrRefValue()));
           break;
         case StatType::kSourceInfo:
-          PopulateSourceInfo(stat.StrOrRefValue(),
-                             *op_metrics->mutable_source_info());
+          if (include_source_info) {
+            PopulateSourceInfo(stat.StrOrRefValue(),
+                               *op_metrics->mutable_source_info());
+          }
           break;
         case StatType::kSourceStack:
-          op_metrics->mutable_source_info()->set_stack_frame(
-              std::string(stat.StrOrRefValue()));
+          if (include_source_info) {
+            op_metrics->mutable_source_info()->set_stack_frame(
+                std::string(stat.StrOrRefValue()));
+          }
           break;
         default:
           break;
       }
     }
   });
-  hlo_event_metadata.ForEachChild(
-      [&](const XEventMetadataVisitor& child_hlo_event_metadata) {
-        OpMetrics* child = op_metrics->mutable_children()->add_metrics_db();
-        child->set_occurrences(1);
-        SetOpMetadataFromHloEventMetadata(child_hlo_event_metadata, child);
-      });
+  if (include_source_info) {
+    hlo_event_metadata.ForEachChild(
+        [&](const XEventMetadataVisitor& child_hlo_event_metadata) {
+          OpMetrics* child = op_metrics->mutable_children()->add_metrics_db();
+          child->set_occurrences(1);
+          SetOpMetadataFromHloEventMetadata(child_hlo_event_metadata, child,
+                                            include_source_info);
+        });
+  }
 }
 
 void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
-                              OpMetrics* op_metrics) {
+                              OpMetrics* op_metrics, bool include_source_info) {
   uint64_t duration_ps = hlo_event.DurationPs();
   uint64_t min_duration_ps = duration_ps;
   uint64_t self_duration_ps = duration_ps;
@@ -250,7 +286,8 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
         duration_ps * time_scale_multiplier_stat->DoubleValue();
   }
   if (op_metrics->occurrences() == 0) {
-    SetOpMetadataFromHloEventMetadata(hlo_event.Metadata(), op_metrics);
+    SetOpMetadataFromHloEventMetadata(hlo_event.Metadata(), op_metrics,
+                                      include_source_info);
     op_metrics->set_occurrences(
         std::max(kSingleOccurrence, hlo_event.NumOccurrences()));
     op_metrics->set_time_ps(duration_ps);
@@ -297,30 +334,44 @@ void MergeOpMetrics(const OpMetrics& src, OpMetrics& dst) {
     dst.set_estimated_flops(dst.estimated_flops() + src.estimated_flops());
     dst.set_estimated_bytes_accessed(dst.estimated_bytes_accessed() +
                                      src.estimated_bytes_accessed());
+    if (dst.category() == xla::HloOpcodeString(xla::HloOpcode::kCustomCall)) {
+      dst.set_flops(dst.flops() + src.flops());
+      dst.set_model_flops(dst.model_flops() + src.model_flops());
+      dst.set_flops_v2(dst.flops_v2() + src.flops_v2());
+      dst.set_model_flops_v2(dst.model_flops_v2() + src.model_flops_v2());
+      dst.set_bytes_accessed(dst.bytes_accessed() + src.bytes_accessed());
+    }
   }
 }
 
-void AdjustFlopsAndBytesAccessed(OpMetrics& op_metrics) {
-  op_metrics.set_flops(op_metrics.flops() * op_metrics.occurrences());
-  op_metrics.set_flops_v2(op_metrics.flops_v2() * op_metrics.occurrences());
-  if (op_metrics.model_flops() > 0) {
-    op_metrics.set_model_flops(op_metrics.model_flops() *
-                               op_metrics.occurrences());
-    op_metrics.set_model_flops_v2(op_metrics.model_flops_v2() *
-                                  op_metrics.occurrences());
+void MergeOpMetrics(OpMetrics&& src, OpMetrics& dst) {
+  if (dst.occurrences() == 0) {
+    dst = std::move(src);
   } else {
-    op_metrics.set_model_flops(op_metrics.flops());
-    op_metrics.set_model_flops_v2(op_metrics.flops_v2());
-  }
-  op_metrics.set_bytes_accessed(op_metrics.bytes_accessed() *
-                                op_metrics.occurrences());
-  for (auto& memory_access : *op_metrics.mutable_memory_accessed_breakdown()) {
-    memory_access.set_bytes_accessed(memory_access.bytes_accessed() *
-                                     op_metrics.occurrences());
+    dst.set_occurrences(src.occurrences() + dst.occurrences());
+    dst.set_time_ps(src.time_ps() + dst.time_ps());
+    dst.set_min_time_ps(
+        std::min<uint64_t>(src.min_time_ps(), dst.min_time_ps()));
+    dst.set_self_time_ps(src.self_time_ps() + dst.self_time_ps());
+    dst.set_dma_stall_ps(src.dma_stall_ps() + dst.dma_stall_ps());
+    dst.set_normalized_time_ps(src.normalized_time_ps() +
+                               dst.normalized_time_ps());
+    dst.set_core_type(src.core_type());
+    if (src.has_vdd_energy_j() || dst.has_vdd_energy_j()) {
+      dst.set_vdd_energy_j(src.vdd_energy_j() + dst.vdd_energy_j());
+    }
+    dst.set_estimated_flops(dst.estimated_flops() + src.estimated_flops());
+    dst.set_estimated_bytes_accessed(dst.estimated_bytes_accessed() +
+                                     src.estimated_bytes_accessed());
+    if (dst.category() == xla::HloOpcodeString(xla::HloOpcode::kCustomCall)) {
+      dst.set_flops(dst.flops() + src.flops());
+      dst.set_model_flops(dst.model_flops() + src.model_flops());
+      dst.set_flops_v2(dst.flops_v2() + src.flops_v2());
+      dst.set_model_flops_v2(dst.model_flops_v2() + src.model_flops_v2());
+      dst.set_bytes_accessed(dst.bytes_accessed() + src.bytes_accessed());
+    }
   }
 }
-
-}  // namespace
 
 OpMetricsDbBuilder::OpMetricsDbBuilder(OpMetricsDb* db) : db_(db) {
   DCHECK_NE(db_, nullptr);
@@ -353,6 +404,109 @@ void XEventsOpMetricsDbBuilder::AddOpMetric(const OpMetrics& op_metrics,
       flat_op_metric_[key.program_id.value()][key.symbol_id.value()]);
 }
 
+void XEventsOpMetricsDbBuilder::AddOpMetric(OpMetrics&& op_metrics,
+                                            const OpKey& key) {
+  if (!key.program_id.has_value() || !key.symbol_id.has_value() ||
+      key.symbol_id == kRootSymbolId)
+    return;
+  MergeOpMetrics(
+      std::move(op_metrics),
+      flat_op_metric_[key.program_id.value()][key.symbol_id.value()]);
+}
+
+void XEventsOpMetricsDbBuilder::AddOpMetric(
+    const tsl::profiler::XEventVisitor& event, const OpKey& key,
+    uint64_t total_time_ps, uint64_t self_time_ps, bool include_source_info) {
+  if (!key.program_id.has_value() || !key.symbol_id.has_value() ||
+      key.symbol_id == kRootSymbolId)
+    return;
+  OpMetrics& dst =
+      flat_op_metric_[key.program_id.value()][key.symbol_id.value()];
+
+  uint64_t min_duration_ps = total_time_ps;
+  uint64_t dma_stall_ps = 0;
+  uint64_t normalized_duration_ps = 0;
+  double vdd_energy_j = 0.0;
+  bool has_vdd_energy = false;
+  int64_t occurrences = std::max(kSingleOccurrence, event.NumOccurrences());
+
+  event.ForEachStat([&](const XStatVisitor& stat) {
+    if (stat.Name() == "vdd_energy_j") {
+      vdd_energy_j += stat.DoubleValue();
+      has_vdd_energy = true;
+      return;
+    }
+    if (!stat.Type()) return;
+    switch (static_cast<StatType>(*stat.Type())) {
+      case StatType::kMinDurationPs:
+        min_duration_ps = stat.IntValue();
+        break;
+      case StatType::kDmaStallDurationPs:
+        dma_stall_ps = stat.IntValue();
+        break;
+      case StatType::kTimeScaleMultiplier:
+        normalized_duration_ps = total_time_ps * stat.DoubleValue();
+        break;
+      default:
+        break;
+    }
+  });
+
+  if (dst.occurrences() == 0) {
+    SetOpMetadataFromHloEventMetadata(event.Metadata(), &dst,
+                                      include_source_info);
+    if (!tsl::profiler::IsOffDutyOp(dst.category()) &&
+        IsSyncWaitDoneOp(dst.name())) {
+      dst.set_category(std::string(tsl::profiler::kHloAsyncDone));
+    }
+    dst.set_occurrences(occurrences);
+    dst.set_time_ps(total_time_ps);
+    dst.set_min_time_ps(min_duration_ps);
+    dst.set_self_time_ps(self_time_ps);
+    dst.set_normalized_time_ps(normalized_duration_ps);
+    dst.set_dma_stall_ps(dma_stall_ps);
+    dst.set_num_cores(1);
+    if (has_vdd_energy) {
+      dst.set_vdd_energy_j(vdd_energy_j);
+    }
+  } else {
+    dst.set_occurrences(dst.occurrences() + occurrences);
+    dst.set_time_ps(dst.time_ps() + total_time_ps);
+    dst.set_min_time_ps(std::min<uint64_t>(dst.min_time_ps(), min_duration_ps));
+    dst.set_self_time_ps(dst.self_time_ps() + self_time_ps);
+    dst.set_normalized_time_ps(dst.normalized_time_ps() +
+                               normalized_duration_ps);
+    dst.set_dma_stall_ps(dst.dma_stall_ps() + dma_stall_ps);
+    if (has_vdd_energy) {
+      dst.set_vdd_energy_j(dst.vdd_energy_j() + vdd_energy_j);
+    }
+  }
+
+  // Fill The Custom Call Information
+  if (dst.category() == xla::HloOpcodeString(xla::HloOpcode::kCustomCall)) {
+    event.ForEachStat([&](const XStatVisitor& stat) {
+      if (!stat.Type()) return;
+      switch (static_cast<StatType>(*stat.Type())) {
+        case StatType::kBytesAccessed:
+          dst.set_bytes_accessed(dst.bytes_accessed() + stat.IntOrUintValue());
+          break;
+        case StatType::kModelFlops:
+          dst.set_model_flops(dst.model_flops() + stat.IntOrUintValue());
+          dst.set_model_flops_v2(dst.model_flops_v2() +
+                                 static_cast<double>(stat.IntOrUintValue()));
+          break;
+        case StatType::kFlops:
+          dst.set_flops(dst.flops() + stat.IntOrUintValue());
+          dst.set_flops_v2(dst.flops_v2() +
+                           static_cast<double>(stat.IntOrUintValue()));
+          break;
+        default:
+          break;
+      }
+    });
+  }
+}
+
 OpMetricsDb XEventsOpMetricsDbBuilder::Finalize(uint64_t total_time_ps) {
   OpMetricsDb db = Finalize();
   SetTotalTimePs(db, total_time_ps);
@@ -375,6 +529,7 @@ OpMetricsDb XEventsOpMetricsDbBuilder::Finalize() {
       db.add_metrics_db()->Swap(&op_metrics);
     }
   }
+  flat_op_metric_.clear();
   db.set_total_op_time_ps(total_op_time_ps);
   db.set_normalized_total_op_time_ps(normalized_total_op_time_ps);
   return db;
@@ -465,9 +620,10 @@ OpMetricsDb CreateTfMetricsDbFromDeviceOpMetricsDb(
   return tf_op_metrics_db;
 }
 
-OpMetrics FromXEvent(const tsl::profiler::XEventVisitor& xevent) {
+OpMetrics FromXEvent(const tsl::profiler::XEventVisitor& xevent,
+                     bool include_source_info) {
   OpMetrics op_metrics;
-  SetOpMetricsFromHloEvent(xevent, &op_metrics);
+  SetOpMetricsFromHloEvent(xevent, &op_metrics, include_source_info);
   return op_metrics;
 }
 

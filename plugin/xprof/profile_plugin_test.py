@@ -882,6 +882,26 @@ class ProfilePluginTest(absltest.TestCase):
       contents = self.plugin._read_static_file_impl('bundle.js')
       self.assertEqual(contents, b'console.log("xprof");')
 
+  def test_static_file_route_serves_trace_viewer_icons_ttf(self):
+    """Verifies trace_viewer_icons.ttf is registered and served as font/ttf."""
+    self.assertIn(
+        profile_plugin.TRACE_VIEWER_ICONS_TTF_ROUTE,
+        self.plugin.get_plugin_apps(),
+    )
+    temp_dir = self.create_tempdir().full_path
+    font_bytes = b'\x00\x01\x00\x00'
+    with open(os.path.join(temp_dir, 'trace_viewer_icons.ttf'), 'wb') as f:
+      f.write(font_bytes)
+    with mock.patch.dict(os.environ, {'XPROF_STATIC_DIR': temp_dir}):
+      server = werkzeug_test.Client(
+          self.plugin.static_file_route, wrappers.Response
+      )
+      response = server.get(profile_plugin.TRACE_VIEWER_ICONS_TTF_ROUTE)
+    self.assertEqual(response.status_code, 200)
+    self.assertEqual(response.mimetype, 'font/ttf')
+    self.assertEqual(response.headers.get('Content-Encoding'), 'gzip')
+    self.assertEqual(gzip.decompress(response.get_data()), font_bytes)
+
   def test_read_static_file_serves_symlinked_asset(self):
     """Verifies static assets symlinked outside the serving directory are served."""
     temp_dir = self.create_tempdir().full_path

@@ -78,6 +78,7 @@ BUNDLE_JS_ROUTE = '/bundle.js'
 STYLES_CSS_ROUTE = '/styles.css'
 MATERIALICONS_WOFF2_ROUTE = '/materialicons.woff2'
 MATERIAL_SYMBOLS_WOFF2_ROUTE = '/material_symbols_outlined.woff2'
+TRACE_VIEWER_ICONS_TTF_ROUTE = '/trace_viewer_icons.ttf'
 TRACE_VIEWER_INDEX_HTML_ROUTE = '/trace_viewer_index.html'
 TRACE_VIEWER_INDEX_JS_ROUTE = '/trace_viewer_index.js'
 TRACE_VIEWER_V2_JS_ROUTE = '/trace_viewer_v2.js'
@@ -831,6 +832,7 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
             STYLES_CSS_ROUTE: self.static_file_route,
             MATERIALICONS_WOFF2_ROUTE: self.static_file_route,
             MATERIAL_SYMBOLS_WOFF2_ROUTE: self.static_file_route,
+            TRACE_VIEWER_ICONS_TTF_ROUTE: self.static_file_route,
             TRACE_VIEWER_INDEX_HTML_ROUTE: self.static_file_route,
             TRACE_VIEWER_INDEX_JS_ROUTE: self.static_file_route,
             TRACE_VIEWER_V2_JS_ROUTE: self.static_file_route,
@@ -912,6 +914,8 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
       mimetype = 'application/javascript'
     elif extension == '.wasm':
       mimetype = 'application/wasm'
+    elif extension == '.ttf':
+      mimetype = 'font/ttf'
     else:
       mimetype = 'application/octet-stream'
     try:

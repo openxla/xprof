@@ -128,6 +128,9 @@ struct CachedThreadTrack {
     int relative_level = 0;
   };
   std::vector<OpenSpan> open_spans;
+  // Index of the rightmost rect on each row (`entries`), kept to reserve rows
+  // when closed spans extend into later streamed slices.
+  std::vector<size_t> rightmost_entry_by_row;
   bool was_compacted = false;
 
   size_t size() const { return entries.entry_start_times.size(); }
@@ -847,6 +850,10 @@ using RestoredMetaMap =
 // Updates max_level (inout) if any packed event exceeds it, and expands
 // bounds (inout) to include the start and end timestamps of all appended
 // events.
+//
+// Optional `proxy_fixed_levels` pins the leading `events` to pre-assigned
+// rows without re-emitting them, keeping rows reserved across streamed slices
+// while deducting child durations from enclosing spans.
 void PopulateThreadTrackEvents(
     absl::Span<const TraceEvent* const> events, int start_level, int& max_level,
     FlameChartTimelineData& data, TimeBounds& bounds,
@@ -892,11 +899,16 @@ void PopulateThreadTrackEvents(
   parent_stack.reserve(16);
   std::vector<Microseconds> row_end_times;
   row_end_times.reserve(16);
-  for (int fixed_lvl : proxy_fixed_levels) {
+  // Reserve rows occupied by earlier-slice proxy spans so new rects do not
+  // overlap them even when visited earlier.
+  for (size_t p = 0; p < num_proxies && p < n; ++p) {
+    const int fixed_lvl = proxy_fixed_levels[p];
     if (fixed_lvl >= static_cast<int>(row_end_times.size())) {
       row_end_times.resize(fixed_lvl + 1,
                            std::numeric_limits<Microseconds>::lowest());
     }
+    row_end_times[fixed_lvl] = std::max(
+        row_end_times[fixed_lvl], sorted_events[p]->ts + sorted_events[p]->dur);
   }
 
   const bool has_restored_meta =
@@ -914,32 +926,46 @@ void PopulateThreadTrackEvents(
     }
   }
 
-  for (size_t i = 0; i < n; ++i) {
+  // Merge sorted proxies `[0, num_proxies)` and incoming events
+  // `[num_proxies, n)` in chronological order.
+  const size_t proxy_limit = std::min(num_proxies, n);
+  size_t proxy_cursor = 0;
+  size_t event_cursor = proxy_limit;
+  for (size_t step = 0; step < n; ++step) {
+    const size_t i =
+        (proxy_cursor < proxy_limit &&
+         (event_cursor == n || !cmp_events(sorted_events[event_cursor],
+                                           sorted_events[proxy_cursor])))
+            ? proxy_cursor++
+            : event_cursor++;
     const TraceEvent* ev = sorted_events[i];
     const Microseconds end_time = ev->ts + ev->dur;
     const RestoredEntryMeta* meta = has_restored_meta ? entry_meta[i] : nullptr;
     self_times[i] = meta != nullptr ? meta->self_time : ev->dur;
 
     std::optional<size_t> enclosing_idx;
+    // Pop spans that do not fully enclose `ev` so crossing spans never hide
+    // enclosing ancestors.
     while (!parent_stack.empty()) {
       const size_t p_idx = parent_stack.back();
-      const Microseconds p_end =
-          sorted_events[p_idx]->ts + sorted_events[p_idx]->dur;
-      if (ev->ts < p_end) {
-        if (end_time <= p_end) {
-          enclosing_idx = p_idx;
-          const RestoredEntryMeta* p_meta =
-              has_restored_meta ? entry_meta[p_idx] : nullptr;
-          if (p_meta == nullptr) {
+      const Microseconds p_start = sorted_events[p_idx]->ts;
+      const Microseconds p_end = p_start + sorted_events[p_idx]->dur;
+      if (ev->ts >= p_start && ev->ts < p_end && end_time <= p_end) {
+        enclosing_idx = p_idx;
+        const RestoredEntryMeta* p_meta =
+            has_restored_meta ? entry_meta[p_idx] : nullptr;
+        if (p_meta == nullptr) {
+          // Existing proxy durations were already deducted in earlier slices.
+          if (i >= num_proxies) {
             self_times[p_idx] = std::max(0.0, self_times[p_idx] - ev->dur);
-            if (has_restored_meta && meta == nullptr) {
-              nearest_restored_anc[i] = nearest_restored_anc[p_idx];
-            }
-          } else if (meta == nullptr) {
-            nearest_restored_anc[i] = static_cast<ptrdiff_t>(p_idx);
           }
-          parent_stack.push_back(i);
+          if (has_restored_meta && meta == nullptr) {
+            nearest_restored_anc[i] = nearest_restored_anc[p_idx];
+          }
+        } else if (meta == nullptr) {
+          nearest_restored_anc[i] = static_cast<ptrdiff_t>(p_idx);
         }
+        parent_stack.push_back(i);
         break;
       }
       parent_stack.pop_back();
@@ -951,12 +977,6 @@ void PopulateThreadTrackEvents(
     int assigned_row = -1;
     if (i < num_proxies) {
       assigned_row = proxy_fixed_levels[i];
-      if (assigned_row >= static_cast<int>(row_end_times.size())) {
-        row_end_times.resize(assigned_row + 1,
-                             std::numeric_limits<Microseconds>::lowest());
-      }
-      row_end_times[assigned_row] =
-          std::max(row_end_times[assigned_row], end_time);
     } else {
       int min_row = enclosing_idx.has_value()
                         ? (relative_levels[*enclosing_idx] + 1)
@@ -1055,6 +1075,15 @@ void PopulateThreadTrackEvents(
   }
 }
 
+void RebuildRightmostEntryByRow(CachedThreadTrack& cached) {
+  cached.rightmost_entry_by_row.assign(
+      cached.empty() ? 0 : static_cast<size_t>(cached.max_relative_level) + 1,
+      std::numeric_limits<size_t>::max());
+  for (size_t i = 0; i < cached.size(); ++i) {
+    cached.rightmost_entry_by_row[cached.entries.entry_levels[i]] = i;
+  }
+}
+
 void AppendToCachedThreadTrack(
     CachedThreadTrack& cached, absl::Span<const TraceEvent* const> events,
     const TraceInformation& trace_info, absl::string_view thread_group_name,
@@ -1114,6 +1143,11 @@ void AppendToCachedThreadTrack(
         cached.entry_name_ids[cached.open_spans[s].entry_idx];
   }
 
+  const size_t num_rows = static_cast<size_t>(cached.max_relative_level) + 1;
+  if (cached.rightmost_entry_by_row.size() < num_rows) {
+    cached.rightmost_entry_by_row.resize(num_rows,
+                                         std::numeric_limits<size_t>::max());
+  }
   cached.prefix_max_end_times.reserve(new_size);
   Microseconds running_max = cached.prefix_max_end_times.empty()
                                  ? std::numeric_limits<Microseconds>::lowest()
@@ -1123,6 +1157,7 @@ void AppendToCachedThreadTrack(
         std::max(running_max, cached.entries.entry_start_times[i] +
                                   cached.entries.entry_total_times[i]);
     cached.prefix_max_end_times.push_back(running_max);
+    cached.rightmost_entry_by_row[cached.entries.entry_levels[i]] = i;
   }
 }
 
@@ -1371,6 +1406,7 @@ bool CompactCachedThreadTrackIfNeeded(
   };
   remap_sparse_map(entries.sparse_entry_group_ids);
   remap_sparse_map(entries.sparse_entry_args);
+  RebuildRightmostEntryByRow(cached);
 
   cached.was_compacted = true;
   return true;
@@ -1549,6 +1585,7 @@ std::vector<TraceEvent> RestoreAndTruncateCachedTrackFrom(
       cached.open_spans.end());
   cached.max_relative_level =
       e.entry_levels.empty() ? 0 : *absl::c_max_element(e.entry_levels);
+  RebuildRightmostEntryByRow(cached);
   return restored;
 }
 
@@ -1584,22 +1621,30 @@ void StitchOpenSpansInCachedTrack(
       remaining_new_events.empty() ? std::numeric_limits<Microseconds>::max()
                                    : remaining_new_events.front()->ts;
 
+  // Metadata for synthetic placeholder ("proxy") spans representing earlier
+  // open or overlapping closed spans whose assigned rows (`proxy_levels`) stay
+  // reserved while laying out `remaining_new_events`.
   struct ActiveProxyInfo {
     size_t entry_idx;
     Microseconds full_dur;
     EventId full_event_id;
     Microseconds new_end_ts;
+    Microseconds added_dur = 0.0;
   };
   std::vector<TraceEvent> proxy_storage;
   std::vector<int> proxy_levels;
   std::vector<ActiveProxyInfo> active_proxies;
   std::vector<CachedThreadTrack::OpenSpan> surviving_open_spans;
-  proxy_storage.reserve(num_open);
-  proxy_levels.reserve(num_open);
-  active_proxies.reserve(num_open);
+  const size_t max_proxies = num_open + cached.rightmost_entry_by_row.size();
+  proxy_storage.reserve(max_proxies);
+  proxy_levels.reserve(max_proxies);
+  active_proxies.reserve(max_proxies);
   surviving_open_spans.reserve(num_open);
 
   FlameChartTimelineData& e = cached.entries;
+  std::vector<uint8_t> row_locked(cached.rightmost_entry_by_row.size(), 0);
+  // Keep rows reserved for all active open spans, even across slices without
+  // continuation updates.
   for (size_t s = 0; s < num_open; ++s) {
     auto os = cached.open_spans[s];
     const TraceEvent* ev = matched_ev[s];
@@ -1612,21 +1657,22 @@ void StitchOpenSpansInCachedTrack(
       is_closed = (ev->ph == Phase::kDurationEnd);
     }
     const Microseconds new_end_ts = os.start_ts + full_dur;
-    Microseconds proxy_start_ts = os.current_end_ts;
-    if (min_remaining_ts < proxy_start_ts && min_remaining_ts >= os.start_ts) {
-      proxy_start_ts = min_remaining_ts;
-    }
-    if (new_end_ts > proxy_start_ts) {
+    const Microseconds added_dur =
+        std::max(0.0, new_end_ts - os.current_end_ts);
+    if (full_dur > 0.0) {
       TraceEvent proxy;
       proxy.ph = is_closed ? Phase::kDurationEnd : Phase::kDurationBegin;
       proxy.pid = cached.pid;
       proxy.tid = cached.tid_at(os.entry_idx);
-      proxy.ts = proxy_start_ts;
-      proxy.dur = new_end_ts - proxy_start_ts;
+      proxy.ts = os.start_ts;
+      proxy.dur = full_dur;
       proxy_storage.push_back(std::move(proxy));
       proxy_levels.push_back(os.relative_level);
-      active_proxies.push_back(
-          ActiveProxyInfo{os.entry_idx, full_dur, full_event_id, new_end_ts});
+      active_proxies.push_back(ActiveProxyInfo{
+          os.entry_idx, full_dur, full_event_id, new_end_ts, added_dur});
+      if (static_cast<size_t>(os.relative_level) < row_locked.size()) {
+        row_locked[os.relative_level] = 1;
+      }
     } else {
       e.entry_total_times[os.entry_idx] = full_dur;
       e.entry_event_ids[os.entry_idx] = full_event_id;
@@ -1639,6 +1685,45 @@ void StitchOpenSpansInCachedTrack(
     if (!is_closed) {
       os.current_end_ts = std::max(os.current_end_ts, new_end_ts);
       surviving_open_spans.push_back(os);
+    }
+  }
+
+  // Also reserve rows whose rightmost closed span extends into the incoming
+  // slice.
+  if (!remaining_new_events.empty()) {
+    for (size_t row = 0; row < cached.rightmost_entry_by_row.size(); ++row) {
+      if (row_locked[row]) continue;
+      const size_t idx = cached.rightmost_entry_by_row[row];
+      if (idx >= cached.size()) continue;
+      const Microseconds span_start = e.entry_start_times[idx];
+      const Microseconds span_dur = e.entry_total_times[idx];
+      if (span_start + span_dur <= min_remaining_ts || span_dur <= 0.0) {
+        continue;
+      }
+      TraceEvent proxy;
+      proxy.ph = Phase::kComplete;
+      proxy.pid = cached.pid;
+      proxy.tid = cached.tid_at(idx);
+      proxy.ts = span_start;
+      proxy.dur = span_dur;
+      proxy_storage.push_back(std::move(proxy));
+      proxy_levels.push_back(static_cast<int>(e.entry_levels[idx]));
+      active_proxies.push_back(ActiveProxyInfo{
+          idx, span_dur, e.entry_event_ids[idx], span_start + span_dur, 0.0});
+    }
+  }
+
+  for (size_t i = 1; i < active_proxies.size(); ++i) {
+    for (size_t j = i;
+         j > 0 &&
+         std::make_tuple(proxy_storage[j].ts, -proxy_storage[j].dur,
+                         proxy_levels[j]) <
+             std::make_tuple(proxy_storage[j - 1].ts, -proxy_storage[j - 1].dur,
+                             proxy_levels[j - 1]);
+         --j) {
+      std::swap(proxy_storage[j], proxy_storage[j - 1]);
+      std::swap(proxy_levels[j], proxy_levels[j - 1]);
+      std::swap(active_proxies[j], active_proxies[j - 1]);
     }
   }
 
@@ -1657,6 +1742,23 @@ void StitchOpenSpansInCachedTrack(
     AppendToCachedThreadTrack(cached, combined_events, trace_info,
                               thread_group_name, proxy_levels,
                               &proxy_self_times);
+  }
+  // Deduct only newly added open-span duration to avoid double-counting prior
+  // slices.
+  for (size_t c = 0; c < active_proxies.size(); ++c) {
+    if (active_proxies[c].added_dur <= 0.0) continue;
+    const Microseconds c_start = proxy_storage[c].ts;
+    const Microseconds c_end = c_start + proxy_storage[c].dur;
+    for (size_t p = c; p-- > 0;) {
+      const Microseconds p_start = proxy_storage[p].ts;
+      const Microseconds p_end = p_start + proxy_storage[p].dur;
+      if (proxy_levels[p] < proxy_levels[c] && c_start >= p_start &&
+          c_end <= p_end && p < proxy_self_times.size()) {
+        proxy_self_times[p] =
+            std::max(0.0, proxy_self_times[p] - active_proxies[c].added_dur);
+        break;
+      }
+    }
   }
   for (size_t p = 0; p < active_proxies.size(); ++p) {
     const auto& info = active_proxies[p];

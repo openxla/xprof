@@ -8495,5 +8495,93 @@ TEST_F(DataProviderTest,
   EXPECT_TRUE(utilization->expanded);
 }
 
+TEST_F(DataProviderTest,
+       AppendTraceEventsIncremental_ReservesOpenAndClosedRowsAcrossSlices) {
+  // Verifies that across streamed batches, both active open spans (including
+  // ones with no continuation in an intermediate batch) and overlapping closed
+  // spans keep their rows reserved, and parent self-times deduct newly grown
+  // child durations without same-row overlaps.
+  ParsedTraceEvents batch1;
+  batch1.flame_events = {
+      CreateProcessEvent(1, "host:0 /device:TPU:0"),
+      CreateThreadEvent(1, 2, "XLA Ops"),
+      MakeSpan(Phase::kComplete, 1000, 1, 2, "closed_outer", 10.0, 95.0),
+      MakeSpan(Phase::kDurationBegin, 1001, 1, 2, "open_iter0", 10.0, 80.0),
+      MakeSpan(Phase::kDurationBegin, 1002, 1, 2, "open_iter1", 20.0, 70.0),
+      MakeSpan(Phase::kComplete, 2001, 1, 2, "closed_container", 25.0, 55.0),
+      MakeSpan(Phase::kComplete, 3001, 1, 2, "leaf_0", 30.0, 5.0),
+  };
+
+  ParsedTraceEvents batch2;
+  batch2.flame_events = {
+      MakeSpan(Phase::kDurationBegin, 1003, 1, 2, "open_iter0", 10.0, 90.0),
+      MakeSpan(Phase::kComplete, 4001, 1, 2, "crossing_span", 10.0, 100.0),
+      MakeSpan(Phase::kComplete, 3002, 1, 2, "leaf_1", 40.0, 10.0),
+  };
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(batch1), timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(batch2), timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_EQ(data.entry_names.size(), 7u);
+
+  for (size_t i = 0; i < data.entry_names.size(); ++i) {
+    for (size_t j = i + 1; j < data.entry_names.size(); ++j) {
+      if (data.entry_levels[i] != data.entry_levels[j]) continue;
+      const Microseconds start_i = data.entry_start_times[i];
+      const Microseconds end_i = start_i + data.entry_total_times[i];
+      const Microseconds start_j = data.entry_start_times[j];
+      const Microseconds end_j = start_j + data.entry_total_times[j];
+      EXPECT_TRUE(end_i <= start_j || end_j <= start_i)
+          << "Overlap on level " << data.entry_levels[i] << " between '"
+          << data.entry_names[i] << "' [" << start_i << ", " << end_i
+          << "] and '" << data.entry_names[j] << "' [" << start_j << ", "
+          << end_j << "]";
+    }
+  }
+
+  const auto it_open0 = absl::c_find(data.entry_names, "open_iter0");
+  ASSERT_NE(it_open0, data.entry_names.end());
+  const size_t open0_idx =
+      static_cast<size_t>(it_open0 - data.entry_names.begin());
+  EXPECT_DOUBLE_EQ(data.entry_total_times[open0_idx], 90.0);
+
+  const auto it_outer = absl::c_find(data.entry_names, "closed_outer");
+  ASSERT_NE(it_outer, data.entry_names.end());
+  const size_t outer_idx =
+      static_cast<size_t>(it_outer - data.entry_names.begin());
+  EXPECT_DOUBLE_EQ(data.entry_self_times[outer_idx], 5.0);
+
+  const auto it_closed = absl::c_find(data.entry_names, "closed_container");
+  ASSERT_NE(it_closed, data.entry_names.end());
+  const size_t closed_idx =
+      static_cast<size_t>(it_closed - data.entry_names.begin());
+  EXPECT_DOUBLE_EQ(data.entry_self_times[closed_idx], 40.0);
+}
+
+TEST_F(DataProviderTest,
+       CrossingSpanRemainsOnParentStackSoNestedChildrenDoNotCollide) {
+  // Verifies that partially crossing non-LIFO spans keep the longer span on the
+  // parent stack so nested children pack onto deeper rows below both spans.
+  ParsedTraceEvents parsed;
+  parsed.flame_events = {
+      CreateProcessEvent(1, "host:0 /device:TPU:0"),
+      CreateThreadEvent(1, 2, "XLA Ops"),
+      MakeSpan(Phase::kComplete, 1, 1, 2, "span_a", 10.0, 70.0),
+      MakeSpan(Phase::kComplete, 2, 1, 2, "span_b", 11.0, 79.0),
+      MakeSpan(Phase::kComplete, 3, 1, 2, "child_c", 20.0, 50.0),
+  };
+
+  data_provider_.ProcessTraceEvents(parsed, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_EQ(data.entry_names.size(), 3u);
+  EXPECT_EQ(data.entry_levels[0], 0);
+  EXPECT_EQ(data.entry_levels[1], 1);
+  EXPECT_EQ(data.entry_levels[2], 2);
+  EXPECT_DOUBLE_EQ(data.entry_self_times[1], 29.0);
+}
+
 }  // namespace
 }  // namespace traceviewer

@@ -1,22 +1,24 @@
 <!-- TODO: b/428947160 - Load the stack trace from the backend.-->
-<div class="container" *ngIf="sourceCodeServiceIsAvailable">
-  <table class="info-table">
-    <tbody>
-      <tr>
-        <td class="info-table-header">HLO Module</td>
-        <td>{{hloModule}}</td>
-      </tr>
-      <tr>
-        <td class="info-table-header">HLO Op</td>
-        <td>{{hloOp}}</td>
-      </tr>
-    </tbody>
-  </table>
-  <source-mapper
+@if (sourceCodeServiceIsAvailable) {
+  <div class="container">
+    <table class="info-table">
+      <tbody>
+        <tr>
+          <td class="info-table-header">HLO Module</td>
+          <td>{{hloModule}}</td>
+        </tr>
+        <tr>
+          <td class="info-table-header">HLO Op</td>
+          <td>{{hloOp}}</td>
+        </tr>
+      </tbody>
+    </table>
+    <source-mapper
       [sessionId]="sessionId"
       [programId]="programId"
       [opName]="hloOp"
       [opCategory]="opCategory"
       [sourceFileAndLineNumber]="sourceFileAndLineNumber"
       [stackTrace]="stackTrace" />
-</div>
+  </div>
+}

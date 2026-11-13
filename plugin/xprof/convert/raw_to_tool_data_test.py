@@ -350,6 +350,33 @@ class RawToToolDataTest(absltest.TestCase):
         {"type": "pb", "use_saved_result": True},
     )
 
+  def test_xspace_to_tool_data_megascale_stats_forwards_group_tiny_events(self):
+    params = {
+        "host": "host0",
+        "perfetto": True,
+        "group_tiny_events": False,
+    }
+    wrapper_func = mock.MagicMock(return_value=(b"perfetto_bytes", True))
+
+    data, content_type = raw_to_tool_data.xspace_to_tool_data(
+        xspace_paths=["/path/to/xspace"],
+        tool="megascale_stats",
+        params=params,
+        xspace_wrapper_func=wrapper_func,
+    )
+
+    self.assertEqual(data, b"perfetto_bytes")
+    self.assertEqual(content_type, "application/octet-stream")
+    wrapper_func.assert_called_once_with(
+        ["/path/to/xspace"],
+        "megascale_stats",
+        {
+            "host_name": "host0",
+            "perfetto": True,
+            "group_tiny_events": False,
+        },
+    )
+
   def test_profile_data_to_tool_data(self):
     mock_func = self.enter_context(
         mock.patch.object(

@@ -640,6 +640,40 @@ class ProfilePluginTest(absltest.TestCase):
     args, _ = mock_xspace_to_tool_data.call_args
     self.assertEqual(args[2]['trace_viewer_options']['format'], 'pb')
 
+  def test_data_impl_megascale_stats_group_tiny_events(self):
+    mock_xspace_to_tool_data = self.enter_context(
+        mock.patch.object(convert, 'xspace_to_tool_data', autospec=True)
+    )
+    generate_testdata(self.logdir)
+    self.multiplexer.AddRunsFromDirectory(self.logdir)
+    self.multiplexer.Reload()
+    mock_xspace_to_tool_data.return_value = (
+        b'perfetto_bytes',
+        'application/octet-stream',
+    )
+    plugin = utils.create_profile_plugin(
+        self.logdir,
+        self.multiplexer,
+        xspace_to_tool_data_fn=mock_xspace_to_tool_data,
+    )
+    request = utils.make_data_request(
+        utils.DataRequestOptions(
+            run='foo',
+            tool='megascale_stats',
+            host='host1',
+        )
+    )
+    request.args['perfetto'] = 'true'
+    request.args['group_tiny_events'] = 'false'
+
+    _, content_type, _ = plugin.data_impl(request)
+
+    self.assertEqual(content_type, 'application/octet-stream')
+    mock_xspace_to_tool_data.assert_called_once()
+    args, _ = mock_xspace_to_tool_data.call_args
+    self.assertIs(args[2]['perfetto'], True)
+    self.assertIs(args[2]['group_tiny_events'], False)
+
   def test_data_impl_trace_viewer_event_name_fallback_to_json(self):
     mock_xspace_to_tool_data = self.enter_context(
         mock.patch.object(convert, 'xspace_to_tool_data', autospec=True)

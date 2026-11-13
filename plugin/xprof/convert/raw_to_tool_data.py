@@ -325,6 +325,8 @@ def xspace_to_tool_data(
         'host_name': params.get('host'),
         'perfetto': params.get('perfetto', False),
     }
+    if 'group_tiny_events' in params:
+      options['group_tiny_events'] = params['group_tiny_events']
     json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = json_data

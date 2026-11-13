@@ -17,6 +17,9 @@
 from concurrent import futures
 import json
 import os
+import subprocess
+import sys
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -26,6 +29,8 @@ from tensorflow.tsl.profiler.protobuf import xplane_pb2
 # pylint: enable=g-direct-tensorflow-import
 from google3.third_party.xprof.embedded.llo_analysis import llo_lite_pb2
 from xprof.convert import _pywrap_profiler_plugin as profiler_wrapper_plugin
+
+_INIT_STUBS_SUBPROCESS_ENV = "XPROF_TEST_INIT_STUBS_SUBPROCESS"
 
 
 def _create_multi_module_llo_xspace_bytes() -> bytes:
@@ -93,6 +98,7 @@ class ProfilerSessionTest(parameterized.TestCase):
       ("default_options", "trace_viewer", None),
       ("with_list_options", "trace_viewer@", {"hosts": ["host1", "host2"]}),
       ("utilization_viewer", "utilization_viewer", None),
+      ("empty_tool_name", "", None),
   )
   def test_xspace_to_tools_data(self, tool_name, options):
     res, success = profiler_wrapper_plugin.xspace_to_tools_data(
@@ -100,6 +106,138 @@ class ProfilerSessionTest(parameterized.TestCase):
     )
     self.assertEmpty(res)
     self.assertFalse(success)
+
+  def test_xspace_to_tools_data_from_byte_string_empty_tool_name(self):
+    res, success = (
+        profiler_wrapper_plugin.xspace_to_tools_data_from_byte_string(
+            xspace_strings=[], filenames_list=[], tool_name=""
+        )
+    )
+    self.assertEmpty(res)
+    self.assertFalse(success)
+
+  def test_empty_and_none_string_marshaling_passes_empty_bytes(self):
+    with mock.patch.object(
+        profiler_wrapper_plugin, "_lib", autospec=True
+    ) as mock_lib:
+      mock_lib.Trace.return_value = None
+      mock_lib.Monitor.return_value = None
+      mock_lib.StartContinuousProfiling.return_value = None
+      mock_lib.StopContinuousProfiling.return_value = None
+      mock_lib.GetSnapshot.return_value = None
+      mock_lib.XSpaceToToolsData.return_value = None
+      mock_lib.XSpaceToToolsDataFromByteString.return_value = None
+
+      profiler_wrapper_plugin.trace(
+          "localhost:8466", "/tmp/logdir", "", False, 100, 1
+      )
+      self.assertEqual(
+          mock_lib.Trace.call_args.args[:3],
+          (b"localhost:8466", b"/tmp/logdir", b""),
+      )
+
+      profiler_wrapper_plugin.trace(
+          "localhost:8466", "/tmp/logdir", None, False, 100, 1
+      )
+      self.assertEqual(
+          mock_lib.Trace.call_args.args[:3],
+          (b"localhost:8466", b"/tmp/logdir", b""),
+      )
+
+      profiler_wrapper_plugin.trace("", "", "", False, 100, 1)
+      self.assertEqual(mock_lib.Trace.call_args.args[:3], (b"", b"", b""))
+
+      self.assertEqual(profiler_wrapper_plugin.monitor("", 100, 1, False), "")
+      self.assertEqual(mock_lib.Monitor.call_args.args[0], b"")
+
+      profiler_wrapper_plugin.start_continuous_profiling("")
+      self.assertEqual(mock_lib.StartContinuousProfiling.call_args.args[0], b"")
+
+      profiler_wrapper_plugin.stop_continuous_profiling("")
+      self.assertEqual(mock_lib.StopContinuousProfiling.call_args.args[0], b"")
+
+      profiler_wrapper_plugin.get_snapshot("", "")
+      self.assertEqual(mock_lib.GetSnapshot.call_args.args, (b"", b""))
+
+      profiler_wrapper_plugin.xspace_to_tools_data([], "")
+      self.assertEqual(mock_lib.XSpaceToToolsData.call_args.args[2], b"")
+
+      profiler_wrapper_plugin.xspace_to_tools_data_from_byte_string([], [], "")
+      self.assertEqual(
+          mock_lib.XSpaceToToolsDataFromByteString.call_args.args[4], b""
+      )
+
+      profiler_wrapper_plugin.initialize_stubs("")
+      mock_lib.InitializeStubs.assert_called_once_with(b"")
+
+  def test_c_api_null_pointer_guards_return_invalid_argument(self):
+    lib = profiler_wrapper_plugin._lib
+    error_ptrs = [
+        lib.Trace(
+            None, b"/tmp", b"", False, 1, 1, None, None, None, None, None, 0
+        ),
+        lib.Trace(
+            b"localhost:8466",
+            None,
+            b"",
+            False,
+            1,
+            1,
+            None,
+            None,
+            None,
+            None,
+            None,
+            0,
+        ),
+        lib.Trace(
+            b"", b"/tmp", None, False, 1, 1, None, None, None, None, None, 0
+        ),
+        lib.Monitor(None, 1, 1, False, None),
+        lib.StartContinuousProfiling(None, None, None, None, None, None, 0),
+        lib.StopContinuousProfiling(None),
+        lib.GetSnapshot(None, b"/tmp"),
+        lib.GetSnapshot(b"localhost:8466", None),
+        lib.XSpaceToToolsData(
+            None, 0, None, None, None, None, None, None, 0, None, None, None
+        ),
+        lib.XSpaceToToolsDataFromByteString(
+            None,
+            None,
+            None,
+            0,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            0,
+            None,
+            None,
+            None,
+        ),
+    ]
+    for err_ptr in error_ptrs:
+      self.assertIsNotNone(err_ptr)
+      with self.assertRaisesRegex(RuntimeError, r"^INVALID_ARGUMENT"):
+        profiler_wrapper_plugin._check_error(err_ptr)
+
+    if profiler_wrapper_plugin.built_with_embedded():
+      self.assertIsNone(lib.CreateLloAnalysis(None))
+
+  def test_initialize_stubs_empty_and_null_in_subprocess(self):
+    env = dict(os.environ)
+    env[_INIT_STUBS_SUBPROCESS_ENV] = "1"
+    proc = subprocess.run(
+        [sys.argv[0]],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    self.assertEqual(proc.returncode, 0, msg=proc.stderr)
 
   def test_xspace_to_tools_data_invalid_options_c_api(self):
     err = _call_xspace_to_tools_data_invalid()
@@ -266,4 +404,8 @@ class ProfilerSessionTest(parameterized.TestCase):
 
 
 if __name__ == "__main__":
+  if os.environ.get(_INIT_STUBS_SUBPROCESS_ENV) == "1":
+    profiler_wrapper_plugin.initialize_stubs("")
+    profiler_wrapper_plugin._lib.InitializeStubs(None)
+    sys.exit(0)
   absltest.main()

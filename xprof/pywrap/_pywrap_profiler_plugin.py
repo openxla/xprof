@@ -200,10 +200,15 @@ _lib.Trace.argtypes = [
 _lib.Trace.restype = ctypes.c_void_p
 
 
+def _encode_optional_str(text: str | None) -> bytes | None:
+  """Encodes a string as UTF-8 bytes, or returns None if text is None."""
+  return None if text is None else text.encode("utf-8")
+
+
 def trace(
     service_addr: str,
     logdir: str,
-    worker_list: str,
+    worker_list: str | None,
     include_dataset_ops: bool,
     duration_ms: int,
     num_tracing_attempts: int,
@@ -214,7 +219,7 @@ def trace(
   Args:
     service_addr: Address of the profiler service.
     logdir: Directory to save the profile.
-    worker_list: List of workers to profile.
+    worker_list: Optional list of workers to profile.
     include_dataset_ops: Whether to include dataset ops.
     duration_ms: Duration of the trace in milliseconds.
     num_tracing_attempts: Number of tracing attempts.
@@ -222,9 +227,9 @@ def trace(
   """
   packed = _pack_options(options)
   err = _lib.Trace(
-      service_addr.encode() if service_addr else None,
-      logdir.encode() if logdir else None,
-      worker_list.encode() if worker_list else None,
+      _encode_optional_str(service_addr),
+      _encode_optional_str(logdir),
+      (worker_list or "").encode("utf-8"),
       include_dataset_ops,
       duration_ms,
       num_tracing_attempts,
@@ -269,7 +274,7 @@ def monitor(
   """
   content_ptr = ctypes.c_void_p()
   err = _lib.Monitor(
-      service_addr.encode() if service_addr else None,
+      _encode_optional_str(service_addr),
       duration_ms,
       monitoring_level,
       display_timestamp,
@@ -308,7 +313,7 @@ def start_continuous_profiling(
   """
   packed = _pack_options(options)
   err = _lib.StartContinuousProfiling(
-      service_addr.encode() if service_addr else None,
+      _encode_optional_str(service_addr),
       packed.keys,
       packed.string_vals,
       packed.int_vals,
@@ -326,9 +331,7 @@ _lib.StopContinuousProfiling.restype = ctypes.c_void_p
 
 
 def stop_continuous_profiling(service_addr: str) -> None:
-  err = _lib.StopContinuousProfiling(
-      service_addr.encode() if service_addr else None
-  )
+  err = _lib.StopContinuousProfiling(_encode_optional_str(service_addr))
   _check_error(err)
 
 
@@ -338,8 +341,8 @@ _lib.GetSnapshot.restype = ctypes.c_void_p
 
 def get_snapshot(service_addr: str, logdir: str) -> None:
   err = _lib.GetSnapshot(
-      service_addr.encode() if service_addr else None,
-      logdir.encode() if logdir else None,
+      _encode_optional_str(service_addr),
+      _encode_optional_str(logdir),
   )
   _check_error(err)
 
@@ -392,7 +395,7 @@ def xspace_to_tools_data(
   err = _lib.XSpaceToToolsData(
       c_paths,
       len(xspace_paths),
-      tool_name.encode() if tool_name else None,
+      _encode_optional_str(tool_name),
       packed.keys,
       packed.string_vals,
       packed.int_vals,
@@ -479,7 +482,7 @@ def xspace_to_tools_data_from_byte_string(
       c_sizes,
       c_paths,
       num_xspaces,
-      tool_name.encode() if tool_name else None,
+      _encode_optional_str(tool_name),
       packed.keys,
       packed.string_vals,
       packed.int_vals,
@@ -515,10 +518,9 @@ _lib.InitializeStubs.argtypes = [ctypes.c_char_p]
 _lib.InitializeStubs.restype = None
 
 
-def initialize_stubs(worker_service_addresses: str) -> None:
-  _lib.InitializeStubs(
-      worker_service_addresses.encode() if worker_service_addresses else None
-  )
+def initialize_stubs(worker_service_addresses: str | None) -> None:
+  _lib.InitializeStubs(_encode_optional_str(worker_service_addresses))
+
 
 _lib.BuiltWithEmbedded.argtypes = []
 _lib.BuiltWithEmbedded.restype = ctypes.c_bool
@@ -596,7 +598,7 @@ if built_with_embedded():
 
   def analyze_llo(xspace_filename: str, kernel: str = "") -> dict[str, Any]:
     """Analyzes an LLO file."""
-    handle = _lib.CreateLloAnalysis(xspace_filename.encode("utf-8"))
+    handle = _lib.CreateLloAnalysis(_encode_optional_str(xspace_filename))
     if not handle:
       return {"success": False}
     try:

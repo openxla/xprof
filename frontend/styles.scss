@@ -168,6 +168,13 @@ op-profile .control .mat-slide-toggle-thumb {
   src: url(../plugin/xprof/static/material_symbols_outlined.woff2) format('woff2');
 }
 
+@font-face {
+  font-family: 'TraceViewerIcons';
+  font-style: normal;
+  font-weight: 400;
+  src: url(./trace_viewer_icons.ttf) format('truetype');
+}
+
 .material-icons {
   font-family: 'Material Icons';
   font-weight: normal;

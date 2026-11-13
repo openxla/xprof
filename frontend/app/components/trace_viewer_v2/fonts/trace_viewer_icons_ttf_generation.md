@@ -24,15 +24,17 @@ The pipeline consists of three stages:
 ## 2. Source Assets and Codepoint Mapping
 
 Each icon is authored as a single-path or compound-path SVG file (e.g.,
-`pin.svg`, `unpin.svg`, `hide.svg`, `unhide.svg`) and assigned a Unicode
-codepoint in the Private Use Area (`U+E000`–`U+E050`) via `mapping.json`:
+`pin.svg`, `unpin.svg`, `hide.svg`, `unhide.svg`, `filter.svg`) and assigned a
+Unicode codepoint in the Private Use Area (`U+E000`–`U+E050`) via
+`mapping.json`:
 
 ```json
 {
   "57345": ["pin"],
   "57346": ["unpin"],
   "57347": ["hide"],
-  "57348": ["visible", "unhide"]
+  "57348": ["visible", "unhide"],
+  "57349": ["filter"]
 }
 ```
 
@@ -42,6 +44,7 @@ codepoint in the Private Use Area (`U+E000`–`U+E050`) via `mapping.json`:
 | `57346` | `0xE002` | `"\xee\x80\x82"` | `unpin`             | `ICON_UNPIN_BUTTON`   |
 | `57347` | `0xE003` | `"\xee\x80\x83"` | `hide`              | `ICON_HIDDEN_BUTTON`  |
 | `57348` | `0xE004` | `"\xee\x80\x84"` | `visible`, `unhide` | `ICON_VISIBLE_BUTTON` |
+| `57349` | `0xE005` | `"\xee\x80\x85"` | `filter`            | — (Angular Filter UI) |
 
 ---
 

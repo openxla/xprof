@@ -146,6 +146,7 @@ cp -L "$WASM_DIR/trace_viewer_v2.js" .
 cp -L "$WASM_DIR/trace_viewer_v2.wasm" .
 cp -LR "$FRONTEND_RUNFILE_DIR/bundle.js" .
 cp -LR "$FRONTEND_RUNFILE_DIR/styles.css" .
+cp -LR "$FRONTEND_RUNFILE_DIR/trace_viewer_icons.ttf" .
 cp -LR "$FRONTEND_RUNFILE_DIR/zone.js" .
 cp -LR "$FRONTEND_RUNFILE_DIR/runtime.js" .
 chmod -R 755 "$dest"

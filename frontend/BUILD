@@ -13,6 +13,13 @@ package_group(
     packages = ["//..."],
 )
 
+genrule(
+    name = "trace_viewer_icons_font",
+    srcs = ["//frontend/app/components/trace_viewer_v2/fonts:trace_viewer_icons.ttf"],
+    outs = ["trace_viewer_icons.ttf"],
+    cmd = "cp $< $@",
+)
+
 # Runs the Angular CLI build.
 # Outputs files into dist/xprof directory.
 # TODO: Migrate away from legacy Webpack builder (bin.ng) to the
@@ -23,6 +30,7 @@ bin.ng(
     srcs = [
         "angular.json",
         "tsconfig.app.json",
+        ":trace_viewer_icons_font",
         "//:node_modules",
         "//:package_json",
         "//:tsconfig",
@@ -86,6 +94,7 @@ py_binary(
         ":bundle",
         ":css",
         ":runtime.js",
+        ":trace_viewer_icons_font",
         ":zone.js",
     ],
     python_version = "PY3",
@@ -110,6 +119,7 @@ bin.ng_binary(
         "angular.json",
         "proxy.conf.json",
         "tsconfig.app.json",
+        ":trace_viewer_icons_font",
         "//:node_modules",
         "//:package_json",
         "//:tsconfig",

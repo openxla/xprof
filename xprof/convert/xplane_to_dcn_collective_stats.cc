@@ -99,7 +99,7 @@ absl::StatusOr<bool> HasDcnCollectiveStatsInMultiXSpace(
   // Cache file not present, check if trace contains dcn collective stats.
   if (!hasCacheFile.first) {
     for (int idx = 0; idx < session_snapshot.XSpaceSize(); idx++) {
-      std::string hostname = session_snapshot.GetHostname(idx);
+      [[maybe_unused]] std::string hostname = session_snapshot.GetHostname(idx);
       google::protobuf::Arena arena;
       TF_ASSIGN_OR_RETURN(XSpace* xspace,
                           session_snapshot.GetXSpace(idx, &arena));

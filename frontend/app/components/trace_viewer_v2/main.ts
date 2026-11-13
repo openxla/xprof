@@ -146,6 +146,39 @@ export const FETCH_DATA_EVENT_NAME = 'fetch_data';
 export const SEARCH_EVENTS_EVENT_NAME = 'search_events';
 
 /**
+ * The name of the selected event dependencies custom event, dispatched from
+ * WASM in Trace Viewer v2 after resolving HLO dependencies on the timeline.
+ */
+export const SELECTED_EVENT_DEPENDENCIES_EVENT_NAME =
+  'selected_event_dependencies';
+
+/**
+ * The detail of a 'selected_event_dependencies' custom event, emitted by C++
+ * `Timeline::EmitSelectedEventDependencies`.
+ */
+export declare interface SelectedEventDependenciesDetail {
+  eventIndex: number;
+  operandNames: string[];
+  consumerNames: string[];
+}
+
+/** Type guard for the 'selected_event_dependencies' custom event. */
+export function isSelectedEventDependenciesEvent(
+  event: Event,
+): event is CustomEvent<SelectedEventDependenciesDetail> {
+  if (!(event instanceof CustomEvent)) return false;
+  const detail = event.detail as unknown;
+  return (
+    typeof detail === 'object' &&
+    detail !== null &&
+    typeof (detail as SelectedEventDependenciesDetail).eventIndex ===
+      'number' &&
+    Array.isArray((detail as SelectedEventDependenciesDetail).operandNames) &&
+    Array.isArray((detail as SelectedEventDependenciesDetail).consumerNames)
+  );
+}
+
+/**
  * The loading status of the trace viewer, used to update the loading status
  * indicator in the UI.
  */
@@ -236,7 +269,8 @@ declare global {
   setVisibleRange(startUs: number, endUs: number): void;
   /**
    * Passes the HLO operand and consumer names of the selected event, so that
-   * the timeline can draw the HLO dependency arrows (behind the
+   * the timeline resolves them, emits `selected_event_dependencies` with the
+   * navigable neighbors, and draws HLO dependency arrows (behind the
    * `enable_hlo_dependency_arrows` feature flag). Registered as a module-level
    * Emscripten function (see `SetSelectedEventDependencies` in
    * application.cc). Call once the names of the selected op are known.
@@ -245,6 +279,13 @@ declare global {
     operandNames: string[],
     consumerNames: string[],
   ): void;
+  /**
+   * Resolves `opName` as an HLO operand (`isOperand = true`) or consumer
+   * (`isOperand = false`) of the selected event and focuses the timeline on
+   * it. Registered as a module-level Emscripten function (see
+   * `SelectAdjacentEvent` in application.cc).
+   */
+  SelectAdjacentEvent?(opName: string, isOperand: boolean): void;
   canvas: HTMLCanvasElement;
   callMain(args: string[]): void;
   preinitializedWebGPUDevice: GPUDevice | null;

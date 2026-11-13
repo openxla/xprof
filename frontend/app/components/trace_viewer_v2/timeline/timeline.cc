@@ -1761,6 +1761,8 @@ void Timeline::UpdateTimelineData(
       timeline_data_.entry_names[selected_event_index_] == selected_name) {
     SetSelectedEventDependencies(std::move(old_dependencies.operand_names),
                                  std::move(old_dependencies.consumer_names));
+  } else if (had_selected_event_dependencies && selected_event_index_ == -1) {
+    EmitSelectedEventDependencies();
   }
 
   if (is_incremental_loading_) {
@@ -3954,12 +3956,73 @@ void Timeline::EmitEventSelected(int event_index) {
 void Timeline::SetSelectedEventDependencies(
     std::vector<std::string> operand_names,
     std::vector<std::string> consumer_names) {
-  if (!hlo_dependency_arrows_enabled_) return;
+  auto strip_leading_percent = [](std::vector<std::string>& names) {
+    for (std::string& name : names) {
+      if (!name.empty() && name.front() == '%') {
+        name.erase(0, 1);
+      }
+    }
+  };
+  strip_leading_percent(operand_names);
+  strip_leading_percent(consumer_names);
   dependencies_ = ResolveEventDependencies(
       timeline_data_, selected_event_index_, std::move(operand_names),
       std::move(consumer_names));
+  EmitSelectedEventDependencies();
   // The names usually arrive after the frame that selected the event.
-  if (redraw_callback_) redraw_callback_();
+  if (hlo_dependency_arrows_enabled_ && redraw_callback_) redraw_callback_();
+}
+
+void Timeline::EmitSelectedEventDependencies() {
+  if (!event_callback_) return;
+  EventData event_data;
+  const int event_index = (dependencies_.event_index >= 0 &&
+                           dependencies_.event_index == selected_event_index_)
+                              ? dependencies_.event_index
+                              : -1;
+  event_data.try_emplace(kEventSelectedIndex, event_index);
+  std::vector<std::string> resolved_operands;
+  std::vector<std::string> resolved_consumers;
+  if (event_index >= 0) {
+    resolved_operands.reserve(dependencies_.producer_indices.size());
+    for (const int idx : dependencies_.producer_indices) {
+      if (idx >= 0 &&
+          idx < static_cast<int>(timeline_data_.entry_names.size())) {
+        resolved_operands.push_back(timeline_data_.entry_names[idx]);
+      }
+    }
+    resolved_consumers.reserve(dependencies_.consumer_indices.size());
+    for (const int idx : dependencies_.consumer_indices) {
+      if (idx >= 0 &&
+          idx < static_cast<int>(timeline_data_.entry_names.size())) {
+        resolved_consumers.push_back(timeline_data_.entry_names[idx]);
+      }
+    }
+  }
+  event_data.try_emplace(kSelectedEventDependenciesOperands,
+                         std::move(resolved_operands));
+  event_data.try_emplace(kSelectedEventDependenciesConsumers,
+                         std::move(resolved_consumers));
+  event_callback_(kSelectedEventDependencies, event_data);
+}
+
+void Timeline::SelectAdjacentEvent(std::string op_name, bool is_operand) {
+  if (!op_name.empty() && op_name.front() == '%') {
+    op_name.erase(0, 1);
+  }
+  if (op_name.empty()) return;
+  const EventDependencies dependencies =
+      is_operand
+          ? ResolveEventDependencies(timeline_data_, selected_event_index_,
+                                     /*operand_names=*/{std::move(op_name)},
+                                     /*consumer_names=*/{})
+          : ResolveEventDependencies(timeline_data_, selected_event_index_,
+                                     /*operand_names=*/{},
+                                     /*consumer_names=*/{std::move(op_name)});
+  const std::vector<int>& indices = is_operand ? dependencies.producer_indices
+                                               : dependencies.consumer_indices;
+  if (indices.empty()) return;
+  ZoomEvent(indices.front());
 }
 
 void Timeline::EmitEventHovered(int event_index, float mouse_x, float mouse_y) {

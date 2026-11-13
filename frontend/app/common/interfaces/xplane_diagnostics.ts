@@ -1,7 +1,7 @@
 /**
  * Interface for XPlane warnings.
  */
-export interface XPlaneDiagnostic {
+export declare interface XPlaneDiagnostic {
   name: string;
   severity: string;
   text: string;

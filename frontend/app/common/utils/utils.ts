@@ -1178,3 +1178,50 @@ export function getSessionIdFromParams(
   }
   return fallbackSessionId;
 }
+
+/**
+ * Creates a session ID resolver that skips repeated route params.
+ *
+ * Components combine route and query params, so every query param change
+ * arrives with the latest route params again. If those repeated route params
+ * counted, they would undo a session that a query param selected earlier. The
+ * resolver uses the route session only on the first call and when it changes;
+ * a query session always wins. It remembers the last route session, so each
+ * component needs its own resolver.
+ */
+export function createSessionIdResolver(
+  sessionIdQueryKey = 'session_id',
+): (
+  routeParams: Readonly<Record<string, unknown>> | null | undefined,
+  queryParams: Readonly<Record<string, unknown>> | null | undefined,
+  fallbackSessionId: string,
+) => string {
+  let lastRouteSessionId: string | undefined;
+  return (routeParams, queryParams, fallbackSessionId) => {
+    const routeSessionId = getSessionIdFromParams(routeParams);
+    const routeSessionChanged = routeSessionId !== lastRouteSessionId;
+    lastRouteSessionId = routeSessionId;
+    return getSessionIdFromParams(
+      routeSessionChanged ? routeParams : undefined,
+      queryParams,
+      fallbackSessionId,
+      sessionIdQueryKey,
+    );
+  };
+}
+
+/**
+ * Resolves the host parameter, clearing a carried-over host on session change.
+ */
+export function resolveHostFromParams(
+  queryParams: Readonly<Record<string, unknown>> | null | undefined,
+  prevSessionId: string,
+  nextSessionId: string,
+  currentHost: string,
+): string {
+  const host = queryParams?.['host'];
+  if (typeof host === 'string') {
+    return host;
+  }
+  return prevSessionId && nextSessionId !== prevSessionId ? '' : currentHost;
+}

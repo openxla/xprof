@@ -3,7 +3,11 @@ import {ActivatedRoute} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {DATA_API} from 'org_xprof/frontend/app/common/constants/constants';
-import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
+import {
+  getSessionIdFromParams,
+  resolveHostFromParams,
+  setLoadingState,
+} from 'org_xprof/frontend/app/common/utils/utils';
 import {
   setCurrentToolStateAction,
   setErrorMessageStateAction,
@@ -44,13 +48,20 @@ export class MegascalePerfetto implements OnDestroy {
     combineLatest([route.params, route.queryParams])
       .pipe(takeUntil(this.destroyed))
       .subscribe(([params, queryParams]) => {
-        // TODO(yinzz) ActivatedRoute's params property is Observable<Params>, so
-        // params in this function shouldn't be nullable,
-        // https://angular.io/api/router/ActivatedRoute#params, consider changing
-        // across codebase to this.sessionId = params['sessionId'] ?? '';
-        this.sessionId = (params || {})['sessionId'] || '';
-        this.host = (queryParams || {})['host'] || '';
-        this.groupTinyEvents = (queryParams || {})['group_tiny_events'] || '';
+        const prevSessionId = this.sessionId;
+        // Prefer the route session, because query params copied from saved
+        // search params can carry a stale session. A bare route falls back to
+        // the query session.
+        this.sessionId =
+          getSessionIdFromParams(params) ||
+          getSessionIdFromParams(undefined, queryParams, this.sessionId);
+        this.host = resolveHostFromParams(
+          queryParams,
+          prevSessionId,
+          this.sessionId,
+          this.host,
+        );
+        this.groupTinyEvents = queryParams['group_tiny_events'] || '';
         this.perfettoDataUrl = this.buildPerfettoDataURL();
         this.perfettoUrl = this.buildMegascalePerfettoUrl();
       });
@@ -102,6 +113,8 @@ export class MegascalePerfetto implements OnDestroy {
       window.location.href,
     );
     requestURL.searchParams.set('session_id', this.sessionId);
+    requestURL.searchParams.set('run', this.sessionId);
+    requestURL.searchParams.delete('sessionId');
     requestURL.searchParams.set('perfetto', 'true');
     requestURL.searchParams.set('tag', 'megascale_stats');
     if (this.host) {

@@ -30,7 +30,13 @@ about a run.
         -   `steptime_ms_average`: Average step execution time.
         -   `device_duty_cycle_percent`: Percentage of time accelerator is
             actively computing.
-        -   `mxu_utilization_percent`: Matrix unit utilization.
+        -   `mxu_utilization_percent`: Matrix unit utilization from hardware
+            performance counters. It is `null` when the counters were not
+            captured. See
+            [Missing Hardware Counters](#missing-hardware-counters).
+        -   `compute_efficiency_percent`: Program FLOP rate relative to the peak
+            device FLOP rate, from the XLA cost model. Present when roofline
+            data exists.
         -   `flop_rate_utilization_relative_to_roofline`: Flop rate relative to
             theoretical roofline.
         -   `device_idle_time_percent` & `host_idle_time_percent`: Idle time
@@ -39,6 +45,22 @@ about a run.
             execution share.
     -   `run_environment`: Hardware type (`device_type`), core count
         (`device_core_count`), host count, and training mode.
+
+## Missing Hardware Counters
+
+When the capture has no hardware performance counters (for example, a TPU
+profile captured without `tpu_perf_counters=True`), `mxu_utilization_percent`
+is `null` and `performance_summary.mxu_utilization_status` has `status:
+"unavailable"`, a `reason` and a `how_to_get` hint. In that case:
+
+-   Say that MXU utilization is unknown (not measured). Do not report it as 0%.
+    A `null` value does not mean that the MXU was idle.
+-   Use `compute_efficiency_percent` as the compute estimate, and say that it
+    comes from the XLA cost model, not from a hardware counter.
+-   For per-kernel MXU values, run
+    [`get_kernel_utilization`](get_kernel_utilization.md). It also needs
+    counter data, so it can return no records on the same capture.
+-   To measure MXU, capture the profile again with counters enabled.
 
 ## Multi-Host Runs
 

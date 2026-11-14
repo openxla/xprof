@@ -15,7 +15,6 @@ xprof_ng_module(
         "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
         "@org_xprof//frontend/app/common/angular:angular_material_button",
-        "@org_xprof//frontend/app/common/angular:angular_material_dialog",
         "@org_xprof//frontend/app/components/kernel_analysis",
     ],
 )

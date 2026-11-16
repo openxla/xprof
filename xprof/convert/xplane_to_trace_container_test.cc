@@ -26,9 +26,11 @@ limitations under the License.
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/substitute.h"
+#include "google/protobuf/arena.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/trace_utils.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
+#include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "xprof/convert/file_utils.h"
 #include "xprof/convert/trace_viewer/lite_trace_events.h"
 #include "xprof/convert/xplane_to_trace_container.h"
@@ -316,8 +318,16 @@ TEST(XPlaneToTraceContainerTest,
           lines {
             id: 0
             name: "_counters_"
-            events { metadata_id: 1 offset_ps: 4999999 }
-            events { metadata_id: 1 offset_ps: 5000000 }
+            events {
+              metadata_id: 1
+              offset_ps: 4999999
+              stats { metadata_id: 12 uint64_value: 1 }
+            }
+            events {
+              metadata_id: 1
+              offset_ps: 5000000
+              stats { metadata_id: 12 uint64_value: 2 }
+            }
           }
           lines {
             id: 1
@@ -377,6 +387,10 @@ TEST(XPlaneToTraceContainerTest,
             key: 11
             value: { id: 11 name: "is_async" }
           }
+          stat_metadata {
+            key: 12
+            value: { id: 12 name: "val" }
+          }
         }
       )pb",
       &xspace));
@@ -422,6 +436,200 @@ TEST(XPlaneToTraceContainerTest,
     }
   }
   EXPECT_EQ(forward_level_serials, reversed_level_serials);
+}
+
+// TPU non-core planes such as "#Chip0 HBM 0" hold the periodic HBM (CMN)
+// counters on TPU7x. "#Chip0 Misc" has no events and must be skipped.
+constexpr char kTpuXSpaceWithNonCorePlanes[] = R"pb(
+  planes {
+    id: 2
+    name: "/device:TPU:0"
+    lines {
+      id: 1
+      name: "XLA Ops"
+      events { metadata_id: 1 offset_ps: 0 duration_ps: 100 }
+    }
+    event_metadata {
+      key: 1
+      value: { id: 1 name: "fusion" }
+    }
+  }
+  planes {
+    id: 1
+    name: "#Chip0 HBM 0"
+    lines {
+      name: "_counters_"
+      events {
+        metadata_id: 1
+        offset_ps: 50
+        stats { metadata_id: 1 double_value: 42 }
+      }
+    }
+    event_metadata {
+      key: 1
+      value: { id: 1 name: "RD_RSP_BEAT_0" }
+    }
+    stat_metadata {
+      key: 1
+      value: { id: 1 name: "CMN Sample Stats (MB/sec)" }
+    }
+  }
+  planes {
+    id: 6
+    name: "#Chip0 Misc"
+    lines { name: "_counters_" }
+  }
+)pb";
+
+constexpr uint32_t kHbmDeviceId = tsl::profiler::kFirstDeviceId + 1;
+constexpr uint32_t kMiscDeviceId = tsl::profiler::kFirstDeviceId + 6;
+
+TEST(XPlaneToTraceContainerTest, TpuNonCorePlaneWithEventsIsConverted) {
+  XSpace xspace;
+  CHECK_OK(ParseTextFormatFromString(kTpuXSpaceWithNonCorePlanes, &xspace));
+  TraceEventsContainer container;
+  ConvertXSpaceToTraceEventsContainer("localhost", xspace, &container);
+
+  ASSERT_EQ(container.trace().devices().count(kHbmDeviceId), 1);
+  EXPECT_EQ(container.trace().devices().at(kHbmDeviceId).name(),
+            "localhost #Chip0 HBM 0");
+  EXPECT_EQ(container.trace().devices().count(kMiscDeviceId), 0);
+  bool hbm_counter_found = false;
+  container.ForAllEvents([&](const TraceEvent& event) {
+    if (event.name() == "RD_RSP_BEAT_0") {
+      hbm_counter_found = true;
+      EXPECT_EQ(event.device_id(), kHbmDeviceId);
+    }
+  });
+  EXPECT_TRUE(hbm_counter_found);
+}
+
+TEST(XPlaneToTraceContainerTest, TpuNonCorePlaneWithEventsIsConvertedToLite) {
+  XSpace xspace;
+  CHECK_OK(ParseTextFormatFromString(kTpuXSpaceWithNonCorePlanes, &xspace));
+  TraceEventLiteContainer container;
+  ConvertXSpaceToLiteTraceEventsContainer("localhost", xspace, &container);
+
+  ASSERT_EQ(container.trace.devices().count(kHbmDeviceId), 1);
+  EXPECT_EQ(container.trace.devices().at(kHbmDeviceId).name(),
+            "localhost #Chip0 HBM 0");
+  EXPECT_EQ(container.trace.devices().count(kMiscDeviceId), 0);
+  size_t num_hbm_counter_events = 0;
+  for (const auto& [metadata, events] : container.counter_events) {
+    if (metadata.device_id == kHbmDeviceId) {
+      num_hbm_counter_events += events.size();
+    }
+  }
+  EXPECT_EQ(num_hbm_counter_events, 1);
+}
+
+TEST(XPlaneToTraceContainerTest,
+     InvalidCounterEventsOnTpuNonCorePlaneAreSkipped) {
+  XSpace xspace;
+  CHECK_OK(ParseTextFormatFromString(
+      R"pb(
+        planes {
+          id: 2
+          name: "/device:TPU:0"
+          lines {
+            id: 1
+            name: "XLA Ops"
+            events { metadata_id: 1 offset_ps: 0 duration_ps: 100 }
+          }
+          event_metadata {
+            key: 1
+            value: { id: 1 name: "fusion" }
+          }
+        }
+        planes {
+          id: 1
+          name: "#Chip0 HBM 0"
+          lines {
+            name: "_counters_"
+            events { metadata_id: 1 offset_ps: 10 }
+            events {
+              metadata_id: 2
+              offset_ps: 20
+              stats { metadata_id: 1 double_value: 10 }
+            }
+            events {
+              metadata_id: 1
+              offset_ps: 30
+              stats { metadata_id: 2 str_value: "bad" }
+            }
+            events {
+              metadata_id: 1
+              offset_ps: 40
+              stats { metadata_id: 1 double_value: 20 }
+              stats { metadata_id: 3 uint64_value: 30 }
+            }
+            events {
+              metadata_id: 1
+              offset_ps: 50
+              stats { metadata_id: 1 double_value: 42 }
+            }
+          }
+          event_metadata {
+            key: 1
+            value: { id: 1 name: "RD_RSP_BEAT_0" }
+          }
+          event_metadata {
+            key: 2
+            value: {
+              id: 2
+              name: "RD_RSP_BEAT_1"
+              display_name: "RD_RSP_BEAT_1_DISPLAY"
+            }
+          }
+          stat_metadata {
+            key: 1
+            value: { id: 1 name: "CMN Sample Stats (MB/sec)" }
+          }
+          stat_metadata {
+            key: 2
+            value: { id: 2 name: "label" }
+          }
+          stat_metadata {
+            key: 3
+            value: { id: 3 name: "extra" }
+          }
+        }
+      )pb",
+      &xspace));
+
+  TraceEventsContainer container;
+  ConvertXSpaceToTraceEventsContainer("localhost", xspace, &container);
+  size_t num_hbm_events = 0;
+  container.ForAllEvents([&](const TraceEvent& event) {
+    if (event.device_id() == kHbmDeviceId) {
+      ++num_hbm_events;
+      EXPECT_EQ(event.name(), "RD_RSP_BEAT_0");
+      EXPECT_EQ(event.timestamp_ps(), 50);
+    }
+  });
+  EXPECT_EQ(num_hbm_events, 1);
+
+  TraceEventLiteContainer lite_container;
+  ConvertXSpaceToLiteTraceEventsContainer("localhost", xspace, &lite_container);
+  size_t num_lite_hbm_events = 0;
+  google::protobuf::Arena arena;
+  absl::flat_hash_map<uint64_t, std::string> local_name_table;
+  for (const auto& [metadata, events] : lite_container.counter_events) {
+    if (metadata.device_id != kHbmDeviceId) continue;
+    for (const TraceEventLite& lite_event : events) {
+      ++num_lite_hbm_events;
+      tsl::profiler::XEventVisitor visitor(
+          metadata.plane_visitor.get(), lite_event.line,
+          &lite_event.line->events(lite_event.event_idx));
+      TraceEvent full_event;
+      ConvertLiteTraceEventToFullTraceEvent(visitor, lite_event, lite_container,
+                                            &local_name_table, &full_event,
+                                            &arena);
+      EXPECT_EQ(full_event.name(), "RD_RSP_BEAT_0");
+      EXPECT_EQ(full_event.timestamp_ps(), 50);
+    }
+  }
+  EXPECT_EQ(num_lite_hbm_events, 1);
 }
 
 }  // namespace

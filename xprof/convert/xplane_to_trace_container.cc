@@ -135,6 +135,13 @@ SpecialArguments ConvertXStatsToTraceEventArguments(
   return special_args;
 }
 
+// Counter events require a single uint64 or double stat value.
+bool HasValidCounterArg(const RawData& raw_data) {
+  if (!raw_data.has_args() || raw_data.args().arg_size() != 1) return false;
+  const TraceEventArguments::Argument& arg = raw_data.args().arg(0);
+  return arg.has_uint_value() || arg.has_double_value();
+}
+
 void ConvertXLineToTraceEventsContainer(uint32_t device_id,
                                         const XLineVisitor& line,
                                         TraceEventsContainer* container) {
@@ -176,8 +183,10 @@ void ConvertXLineToTraceEventsContainer(uint32_t device_id,
       event_name = special_args.step_name;
     }
     if (!resource_id) {
-      container->AddCounterEvent(event_name, device_id, event.TimestampPs(),
-                                 raw_data);
+      if (HasValidCounterArg(raw_data)) {
+        container->AddCounterEvent(event_name, device_id, event.TimestampPs(),
+                                   raw_data);
+      }
     } else if (special_args.flow) {
       tsl::profiler::Timespan span(event.TimestampPs(), event.DurationPs());
       if (special_args.is_async_event) {
@@ -286,6 +295,7 @@ void ConvertXPlaneToLiteTraceEventsContainer(
       resource.set_num_events(line_visitor.NumEvents());
     }
 
+    RawData counter_raw_data;
     for (size_t event_idx = 0; event_idx < line.events_size(); ++event_idx) {
       const auto& event = line.events(event_idx);
       tsl::profiler::XEventVisitor event_visitor(plane_visitor.get(), &line,
@@ -293,6 +303,15 @@ void ConvertXPlaneToLiteTraceEventsContainer(
       int64_t event_type =
           event_visitor.Type().value_or(HostEventType::kUnknownHostEventType);
       if (tsl::profiler::IsInternalEvent(event_type)) continue;
+      if (is_counter_line) {
+        if (event_visitor.HasDisplayName()) continue;
+        TraceEventArguments* raw_args = counter_raw_data.mutable_args();
+        ConvertXStatsToTraceEventArguments(event_visitor, &counter_raw_data,
+                                           raw_args);
+        const bool valid = HasValidCounterArg(counter_raw_data);
+        raw_args->clear_arg();
+        if (!valid) continue;
+      }
 
       tensorflow::profiler::TraceEventLite lite_event;
       lite_event.timestamp_ps = event_visitor.TimestampPs();
@@ -371,6 +390,22 @@ void ConvertXPlaneToLiteTraceEventsContainer(
   }
 }
 
+// Returns the TPU non-core planes (e.g. "#Chip0 HBM 0") that have events, such
+// as the periodic HBM (CMN) and ICI Router (ICR) counters on TPU7x. Planes
+// without events are skipped so that they don't show up as empty processes.
+std::vector<const XPlane*> FindTpuNonCorePlanesWithEvents(const XSpace& space) {
+  std::vector<const XPlane*> planes;
+  for (const XPlane* plane :
+       FindPlanesWithPrefix(space, tsl::profiler::kTpuNonCorePlaneNamePrefix)) {
+    if (absl::c_any_of(plane->lines(), [](const XLine& line) {
+          return line.events_size() > 0;
+        })) {
+      planes.push_back(plane);
+    }
+  }
+  return planes;
+}
+
 }  // namespace
 
 void ConvertXSpaceToTraceEventsContainer(absl::string_view hostname,
@@ -394,6 +429,10 @@ void ConvertXSpaceToTraceEventsContainer(absl::string_view hostname,
 
   if (device_planes.empty()) {
     device_planes = FindPlanesWithPrefix(space, tsl::profiler::kTpuPlanePrefix);
+    std::vector<const XPlane*> non_core_planes =
+        FindTpuNonCorePlanesWithEvents(space);
+    device_planes.insert(device_planes.end(), non_core_planes.begin(),
+                         non_core_planes.end());
   }
 
   for (const XPlane* device_plane : device_planes) {
@@ -433,6 +472,10 @@ void ConvertXSpaceToLiteTraceEventsContainer(
 
   if (device_planes.empty()) {
     device_planes = FindPlanesWithPrefix(space, tsl::profiler::kTpuPlanePrefix);
+    std::vector<const XPlane*> non_core_planes =
+        FindTpuNonCorePlanesWithEvents(space);
+    device_planes.insert(device_planes.end(), non_core_planes.begin(),
+                         non_core_planes.end());
   }
 
   for (const XPlane* device_plane : device_planes) {
@@ -496,8 +539,11 @@ void ConvertLiteTraceEventToFullTraceEvent(
     if (it != container.name_table.end()) {
       event_name = it->second;
     }
-    CreateCounterEvent(event_name, metadata.device_id, lite_event.timestamp_ps,
-                       *raw_data, serial, full_event);
+    if (HasValidCounterArg(*raw_data)) {
+      CreateCounterEvent(event_name, metadata.device_id,
+                         lite_event.timestamp_ps, *raw_data, serial,
+                         full_event);
+    }
   } else if (special_args.flow) {
     if (special_args.is_async_event) {
       CreateAsyncEvent(

@@ -1516,11 +1516,13 @@ cc_test(
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
+        "@com_google_protobuf//:protobuf",
         "@org_xprof//xprof/convert/trace_viewer:trace_events",
         "@org_xprof//xprof/utils:tensorflow_utils",
         "@xla//xla/tsl/profiler/utils:math_utils",
         "@xla//xla/tsl/profiler/utils:trace_utils",
         "@xla//xla/tsl/profiler/utils:xplane_schema",
+        "@xla//xla/tsl/profiler/utils:xplane_visitor",
     ],
 )
 

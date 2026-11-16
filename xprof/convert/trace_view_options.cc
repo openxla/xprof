@@ -17,7 +17,9 @@ limitations under the License.
 
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -35,13 +37,40 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
+namespace {
+
+constexpr double kPicosecondsPerMillisecond = 1E9;
+
+// Returns true if `time_ms` is finite, non-negative, and converts to
+// picoseconds via `tsl::profiler::MilliToPico` without overflowing `uint64_t`.
+bool IsValidTraceViewTimeMs(double time_ms) {
+  // `uint64_t::max()` rounds up to 2^64 in IEEE-754 double, so strict `<`
+  // rejects 2^64 and above (preventing uint64_t overflow in `MilliToPico`).
+  constexpr double kUint64Limit =
+      static_cast<double>(std::numeric_limits<uint64_t>::max());
+  if (!std::isfinite(time_ms) || time_ms < 0.0) {
+    return false;
+  }
+  const double time_ps = time_ms * kPicosecondsPerMillisecond;
+  return std::isfinite(time_ps) && time_ps < kUint64Limit;
+}
+
+}  // namespace
 
 absl::StatusOr<TraceViewOption> GetTraceViewOption(const ToolOptions& options) {
   TraceViewOption trace_options;
   std::string start_time_ms_opt =
       GetParamWithDefault<std::string>(options, "start_time_ms", "0.0");
-  std::string end_time_ms_opt =
-      GetParamWithDefault<std::string>(options, "end_time_ms", "0.0");
+  if (options.contains("end_time_ms")) {
+    std::string end_time_ms_opt =
+        GetParamWithDefault<std::string>(options, "end_time_ms", "0.0");
+    double parsed_end_time_ms = 0.0;
+    if (!absl::SimpleAtod(end_time_ms_opt, &parsed_end_time_ms) ||
+        !IsValidTraceViewTimeMs(parsed_end_time_ms)) {
+      return absl::InvalidArgumentError("wrong arguments");
+    }
+    trace_options.end_time_ms = parsed_end_time_ms;
+  }
   std::string resolution_opt =
       GetParamWithDefault<std::string>(options, "resolution", "0");
   trace_options.event_name =
@@ -58,7 +87,7 @@ absl::StatusOr<TraceViewOption> GetTraceViewOption(const ToolOptions& options) {
       GetParamWithDefault<bool>(options, "search_metadata", false);
 
   if (!absl::SimpleAtod(start_time_ms_opt, &trace_options.start_time_ms) ||
-      !absl::SimpleAtod(end_time_ms_opt, &trace_options.end_time_ms) ||
+      !IsValidTraceViewTimeMs(trace_options.start_time_ms) ||
       !absl::SimpleAtod(duration_ms_opt, &trace_options.duration_ms)) {
     return absl::InvalidArgumentError("wrong arguments");
   }
@@ -92,8 +121,10 @@ absl::Status LoadTraceEventsContainer(
     TF_RETURN_IF_ERROR(trace_container->ReadFullEventFromLevelDbTable(
         file_paths.trace_events_metadata_file_path,
         file_paths.trace_events_file_path, trace_option.event_name,
-        static_cast<uint64_t>(std::round(trace_option.start_time_ms * 1E9)),
-        static_cast<uint64_t>(std::round(trace_option.duration_ms * 1E9)),
+        static_cast<uint64_t>(std::round(trace_option.start_time_ms *
+                                         kPicosecondsPerMillisecond)),
+        static_cast<uint64_t>(
+            std::round(trace_option.duration_ms * kPicosecondsPerMillisecond)),
         trace_option.unique_id));
   } else if (!trace_option.search_prefix.empty()) {  // Search Events Request
     if (tsl::Env::Default()
@@ -107,10 +138,28 @@ absl::Status LoadTraceEventsContainer(
           {.search_metadata = trace_option.search_metadata}));
     }
   } else {
+    // Validate bounds and flag inverted windows before calling MilliSpan,
+    // which converts doubles to uint64_t picoseconds and clamps inverted spans
+    // to 0; SetUp() handles post-trace-clamp start_time_ps > end_time_ps.
+    const bool has_valid_bounds =
+        IsValidTraceViewTimeMs(trace_option.start_time_ms) &&
+        (!trace_option.end_time_ms.has_value() ||
+         IsValidTraceViewTimeMs(*trace_option.end_time_ms));
+    const bool empty_window =
+        !has_valid_bounds ||
+        (trace_option.end_time_ms.has_value() &&
+         trace_option.start_time_ms > *trace_option.end_time_ms);
+    const tsl::profiler::Timespan visible_span =
+        empty_window
+            ? tsl::profiler::Timespan(0, 0)
+            : tsl::profiler::MilliSpan(trace_option.start_time_ms,
+                                       trace_option.end_time_ms.value_or(0.0));
     auto visibility_filter = std::make_unique<TraceVisibilityFilter>(
-        tsl::profiler::MilliSpan(trace_option.start_time_ms,
-                                 trace_option.end_time_ms),
-        trace_option.resolution, profiler_trace_options);
+        visible_span, trace_option.resolution, profiler_trace_options,
+        VisibilityWindowOptions{
+            .has_end_time = trace_option.end_time_ms.has_value(),
+            .empty_window = empty_window,
+        });
     constexpr int64_t kDisableStreamingThreshold = 500000;
     std::unique_ptr<TraceEventsFilterInterface> trace_events_filter =
         CreateTraceEventsFilterFromTraceOptions(profiler_trace_options);

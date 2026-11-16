@@ -16,15 +16,15 @@ import {
 import {MatDialog, MatDialogRef} from '@angular/material/dialog';
 import {ActivatedRoute, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
-import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
+import {combineLatest, Observable, of, ReplaySubject, Subject} from 'rxjs';
 import {
   catchError,
   debounceTime,
   distinctUntilChanged,
   finalize,
+  map,
   switchMap,
   takeUntil,
-  tap,
 } from 'rxjs/operators';
 
 import {
@@ -195,6 +195,7 @@ function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
 })
 export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly destroyed = new ReplaySubject<void>(1);
+  private readonly datasetReset = new Subject<void>();
   private isDestroyed = false;
   private isInitializing = false;
   private navigationEvent: NavigationEvent = {};
@@ -234,6 +235,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   >();
   private readonly pendingAdjacentNodesFetches = new Set<string>();
   private queryString = '';
+  private traceLoadToken = 0;
   searching = false;
   private readonly searchQuery = new ReplaySubject<string>(1);
   get usePb(): boolean {
@@ -441,6 +443,13 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     this.openSettings(SettingsTab.FLAGS);
   }
 
+  get hasHostFilter(): boolean {
+    return this.selectedFilters.some(
+      (filterEntry) =>
+        filterEntry.field?.info.category === FilterFieldCategory.HOST,
+    );
+  }
+
   get filterSelectedHosts(): string[] {
     const hostFilterEntry: FilterEntry | undefined = this.selectedFilters.find(
       (filterEntry) =>
@@ -450,7 +459,18 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       return hostFilterEntry?.value
         .split(',')
         .map((h) => h.trim())
-        .filter(Boolean);
+        .filter(Boolean)
+        .sort();
+    } else if (
+      hostFilterEntry?.operator.value === FilterOperatorType.REGEX &&
+      hostFilterEntry.value
+    ) {
+      try {
+        const regex = new RegExp(hostFilterEntry.value);
+        return this.hostList.filter((hostname) => regex.test(hostname)).sort();
+      } catch {
+        return [];
+      }
     }
     return [];
   }
@@ -601,18 +621,22 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       .pipe(
         takeUntil(this.destroyed),
         debounceTime(300),
-        distinctUntilChanged(),
-        tap<string>(() => {
-          this.searching = true;
-        }),
-        switchMap((query: string) => {
+        map((query: string) => ({query, loadToken: this.traceLoadToken})),
+        distinctUntilChanged(
+          (prev, curr) =>
+            prev.query === curr.query && prev.loadToken === curr.loadToken,
+        ),
+        switchMap(({query}) => {
           if (!query) {
-            return of(null);
+            this.searching = false;
+            return of(undefined);
           }
           const host = this.getCurrentHost();
           if (!host) {
-            return of(null);
+            this.searching = false;
+            return of(undefined);
           }
+          this.searching = true;
           return this.dataService
             .getData(
               this.navigationEvent.run ?? '',
@@ -621,12 +645,13 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
               new Map<string, string>([['search_prefix', query]]),
             )
             .pipe(
+              takeUntil(this.datasetReset),
               catchError((error: unknown) => {
                 console.error(
                   'Failed to fetch trace data for search query:',
                   error,
                 );
-                return of(null);
+                return of(undefined);
               }),
             );
         }),
@@ -697,13 +722,81 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
+  private resolveHostSelection(
+    event: NavigationEvent,
+    isStreaming: boolean,
+  ): {currentHost: string; hostsString: string; isEmptyHostFilter: boolean} {
+    const hasHostFilter = this.hasHostFilter;
+    const filterSelectedHosts = hasHostFilter ? this.filterSelectedHosts : [];
+    const isEmptyHostFilter = hasHostFilter && filterSelectedHosts.length === 0;
+    let hostsList: string[] = [];
+    if (hasHostFilter) {
+      if (isStreaming) {
+        hostsList = filterSelectedHosts;
+      }
+    } else {
+      hostsList = parseHostsList(event.hosts);
+    }
+    const sortedHosts = [...hostsList].sort();
+    const currentHost = hasHostFilter
+      ? (filterSelectedHosts[0] ?? '')
+      : (sortedHosts[0] ?? this.getCurrentHost(event));
+    const hostsString =
+      sortedHosts.length > 0 ? sortedHosts.slice(0, 10).join(',') : '';
+    return {currentHost, hostsString, isEmptyHostFilter};
+  }
+
+  private clearDatasetState(): void {
+    this.selectedEvent = null;
+    this.selectedEventProperties = [];
+    this.selectionStartFormat = undefined;
+    this.selectionExtentFormat = undefined;
+    this.eventDetailColumns = [...DEFAULT_EVENT_DETAIL_COLUMNS];
+    this.hoveredEventArgs = null;
+    this.flowCategories = [];
+    this.selectedFlowCategoryIds.clear();
+    this.traceViewerModule?.resetDataset?.();
+    // Use 'about:blank' rather than '' so the legacy v1 iframe blanks cleanly
+    // instead of resolving '' relative to the document URL and reloading XProf.
+    this.url = 'about:blank';
+  }
+
   update(event: NavigationEvent): void {
+    const loadToken = ++this.traceLoadToken;
+    this.searching = false;
+    this.datasetReset.next();
     if (event.run) {
       this.sessionId = event.run;
     } else if ((event as Record<string, string>)['sessionId']) {
       this.sessionId = (event as Record<string, string>)['sessionId'];
     }
     const isStreaming = event.tag === 'trace_viewer@';
+    const {currentHost, hostsString, isEmptyHostFilter} =
+      this.resolveHostSelection(event, isStreaming);
+
+    if (!hostsString) {
+      // dataService.getDataUrl() merges persisted URL searchParams with
+      // additionalParams, so stale 'hosts'/'host' entries must be cleared.
+      const searchParams = this.dataService.getSearchParams?.();
+      let searchParamsUpdated = false;
+      if (searchParams?.has('hosts')) {
+        searchParams.delete('hosts');
+        searchParamsUpdated = true;
+      }
+      if (!currentHost && searchParams?.has('host')) {
+        searchParams.delete('host');
+        searchParamsUpdated = true;
+      }
+      if (searchParams && searchParamsUpdated) {
+        this.dataService.setSearchParams?.(searchParams);
+      }
+    }
+
+    if (isEmptyHostFilter) {
+      this.clearDatasetState();
+      return;
+    }
+
     const run = event.run || '';
     const tag = event.tag || '';
     const runPath = event.run_path || '';
@@ -716,16 +809,11 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       this.queryString += `&run_path=${runPath}`;
     }
 
-    let hostsString = '';
-    if (event.hosts) {
-      const hostsList = parseHostsList(event.hosts);
+    if (hostsString) {
       // Sort hosts to ensure stable query string
-      hostsString = hostsList.sort().slice(0, 10).join(',');
       this.queryString += `&hosts=${hostsString}`;
-    } else if (event.host) {
-      this.queryString += `&host=${event.host}`;
     } else {
-      this.queryString += `&host=${this.hostList.length > 0 ? this.hostList[0] : ''}`;
+      this.queryString += `&host=${currentHost}`;
     }
 
     const additionalParams = new Map<string, string>();
@@ -737,6 +825,14 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
     if (hostsString) {
       additionalParams.set('hosts', hostsString);
+    }
+
+    const [startTimeMs, endTimeMs] = this.filterSelectedTimeRange;
+    if (startTimeMs) {
+      additionalParams.set('start_time_ms', startTimeMs);
+    }
+    if (endTimeMs) {
+      additionalParams.set('end_time_ms', endTimeMs);
     }
 
     if (this.hasValidTraceFilters()) {
@@ -766,13 +862,16 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     const traceDataUrl = this.dataService.getDataUrl(
       run,
       tag,
-      this.getCurrentHost(event),
+      currentHost,
       additionalParams,
     );
 
     if (this.useTraceViewerV2) {
       if (this.traceViewerModule && this.traceViewerModule.loadTraceData) {
-        this.traceViewerModule.loadTraceData(traceDataUrl).then(() => {
+        void this.traceViewerModule.loadTraceData(traceDataUrl).then(() => {
+          if (this.isDestroyed || loadToken !== this.traceLoadToken) {
+            return;
+          }
           this.updateFlowCategories();
           this.updateWasmFlowCategories();
           this.updateWasmProcessMappings();
@@ -798,6 +897,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       }
     } finally {
       // Unsubscribes all pending subscriptions.
+      this.datasetReset.complete();
       this.destroyed.next();
       this.destroyed.complete();
       window.removeEventListener(
@@ -837,6 +937,9 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   getCurrentHost(event: NavigationEvent = this.navigationEvent): string {
+    if (this.hasHostFilter) {
+      return this.filterSelectedHosts[0] ?? '';
+    }
     if (event.hosts) {
       const hostsList = parseHostsList(event.hosts);
       if (hostsList.length > 0) {
@@ -1032,7 +1135,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         host,
         params,
       )
-      .pipe(takeUntil(this.destroyed))
+      .pipe(takeUntil(this.datasetReset), takeUntil(this.destroyed))
       .subscribe((data) => {
         const details = parseEventDetails(data as TraceData | null);
         if (details) {
@@ -1088,7 +1191,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         host,
         params,
       )
-      .pipe(takeUntil(this.destroyed))
+      .pipe(takeUntil(this.datasetReset), takeUntil(this.destroyed))
       .subscribe((data) => {
         const details = parseEventDetails(data as TraceData | null);
         if (details) {

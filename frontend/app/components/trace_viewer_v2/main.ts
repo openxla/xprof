@@ -272,8 +272,9 @@ declare global {
    */
   SetIncrementalFetchEnabled?(enabled: boolean): void;
   /**
-   * Clears all per-dataset state (data, viewport, selection, search, track
-   * metadata). Call before `loadTraceData` when switching datasets.
+   * Clears only C++ per-dataset state (data, viewport, selection, search, track
+   * metadata) without cancelling JS loader state. Internal WASM binding; call
+   * `resetDataset()` instead.
    */
   ResetDataset?(): void;
   SetCustomTraceColors?(colors: number[]): void;
@@ -399,6 +400,13 @@ declare global {
    */
   loadTraceData?(url: string, options?: LoadTraceDataOptions): Promise<void>;
   loadSearchResults?(url: string): Promise<void>;
+  /**
+   * Aborts in-flight trace loads and refetches, cancels active incremental
+   * streaming, clears cached loader state, resets the WASM dataset, and
+   * dispatches `TraceViewerV2LoadingStatus.IDLE`. No-op after
+   * `shutdownTraceViewerV2()`.
+   */
+  resetDataset?(): void;
   StringVector: {
     size(): number;
     get(index: number): string;
@@ -1990,6 +1998,7 @@ export async function traceViewerV2Main(
   let currentStreamWorkerFactory: TraceStreamWorkerFactory | undefined =
     options?.createStreamWorker;
   let fullTraceLoaded = false;
+  let activeLoadId = 0;
   let activeRefetchId = 0;
   let hasLoadedDataset = false;
 
@@ -2006,16 +2015,23 @@ export async function traceViewerV2Main(
     return null;
   }
 
-  setupFileInputHandler(traceviewerModule, () => {
+  const cancelAndClearLoaderState = (): void => {
+    ++activeLoadId;
+    ++activeRefetchId;
+    ++activeWasmIncrementalSessionId;
     activeLoadAbortController?.abort();
     activeLoadAbortController = null;
     activeRefetchAbortController?.abort();
     activeRefetchAbortController = null;
     currentDataUrl = null;
+    currentLoadingPromise = null;
     currentStreamWorkerFactory = options?.createStreamWorker;
     fullTraceLoaded = false;
     clearCachedFullTrace();
-    ++activeRefetchId;
+  };
+
+  setupFileInputHandler(traceviewerModule, () => {
+    cancelAndClearLoaderState();
     hasLoadedDataset = true;
     if (options?.onFileUploadedToXprof) {
       options.onFileUploadedToXprof();
@@ -2049,22 +2065,17 @@ export async function traceViewerV2Main(
     if (url === currentDataUrl && currentLoadingPromise) {
       return currentLoadingPromise;
     }
-    activeLoadAbortController?.abort();
-    activeRefetchAbortController?.abort();
-    activeRefetchAbortController = null;
+    cancelAndClearLoaderState();
+    const loadId = activeLoadId;
     const loadAbortController = new AbortController();
     activeLoadAbortController = loadAbortController;
     currentDataUrl = url;
     const streamWorkerFactory =
       loadOptions?.createStreamWorker ?? options?.createStreamWorker;
     currentStreamWorkerFactory = streamWorkerFactory;
-    fullTraceLoaded = false;
-    clearCachedFullTrace();
-    ++activeRefetchId;
     if (!traceviewerModule) return;
     if (hasLoadedDataset) {
       if (typeof traceviewerModule.ResetDataset === 'function') {
-        ++activeWasmIncrementalSessionId;
         traceviewerModule.ResetDataset();
       }
     }
@@ -2124,7 +2135,7 @@ export async function traceViewerV2Main(
           traceviewerModule,
           isAbortRequested: () =>
             loadAbortController.signal.aborted ||
-            url !== currentDataUrl ||
+            loadId !== activeLoadId ||
             traceviewerModule !== activeWasmModule,
           abortSignal: loadAbortController.signal,
           timeRange: timeRangeFromUrl,
@@ -2141,7 +2152,7 @@ export async function traceViewerV2Main(
         if (activeLoadAbortController === loadAbortController) {
           activeLoadAbortController = null;
         }
-        if (url === currentDataUrl) {
+        if (loadId === activeLoadId) {
           currentLoadingPromise = null;
           if (!completed) {
             currentDataUrl = null;
@@ -2195,6 +2206,17 @@ export async function traceViewerV2Main(
       console.error('Error loading search results:', e);
       throw e;
     }
+  };
+
+  traceviewerModule.resetDataset = () => {
+    if (traceviewerModule !== activeWasmModule) {
+      return;
+    }
+    cancelAndClearLoaderState();
+    hasLoadedDataset = false;
+    traceviewerModule.cancelIncrementalTraceEvents?.();
+    traceviewerModule.ResetDataset?.();
+    dispatchLoadingStatus(TraceViewerV2LoadingStatus.IDLE);
   };
 
   registerWindowListener(CANCEL_FETCH_DATA_EVENT_NAME, () => {

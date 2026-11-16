@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 #include "xprof/convert/trace_viewer/trace_viewer_visibility.h"
 
+#include <cstddef>
 #include <cstdint>
 
 #include "absl/log/check.h"
@@ -24,12 +25,19 @@ namespace tensorflow {
 namespace profiler {
 
 TraceViewerVisibility::TraceViewerVisibility(
-    tsl::profiler::Timespan visible_span, uint64_t resolution_ps)
-    : visible_span_(visible_span), resolution_ps_(resolution_ps) {}
+    tsl::profiler::Timespan visible_span, uint64_t resolution_ps,
+    InstantSpanPolicy instant_span_policy)
+    : visible_span_(visible_span),
+      resolution_ps_(resolution_ps),
+      instant_span_policy_(instant_span_policy) {}
 
 bool TraceViewerVisibility::Visible(const TraceEvent& event) {
-  // If visible_span_ is instant, we cannot usefully filter.
-  if (visible_span_.Instant()) return true;
+  // If visible_span_ is an unconstrained instant span, we cannot usefully
+  // filter.
+  if (visible_span_.Instant() &&
+      instant_span_policy_ == InstantSpanPolicy::kUnconstrained) {
+    return true;
+  }
 
   // Events outside visible_span are not visible.
   tsl::profiler::Timespan span(event.timestamp_ps(), event.duration_ps());

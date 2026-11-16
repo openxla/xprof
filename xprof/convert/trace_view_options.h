@@ -17,8 +17,10 @@ limitations under the License.
 #define THIRD_PARTY_XPROF_CONVERT_TRACE_VIEW_OPTIONS_H_
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/xplane_to_trace_container.h"
@@ -30,7 +32,7 @@ namespace profiler {
 struct TraceViewOption {
   uint64_t resolution = 0;
   double start_time_ms = 0.0;
-  double end_time_ms = 0.0;
+  std::optional<double> end_time_ms = std::nullopt;
   std::string event_name;
   std::string search_prefix;
   double duration_ms = 0.0;
@@ -40,14 +42,19 @@ struct TraceViewOption {
 };
 
 // Parses the `ToolOptions` (typically from an HTTP request) into a structured
-// `TraceViewOption`. Returns an error status if the options are invalid.
+// `TraceViewOption`. Returns an `InvalidArgumentError` if required numeric
+// options are malformed or if `start_time_ms` or `end_time_ms` is negative,
+// non-finite, or overflows `uint64_t` picoseconds.
 absl::StatusOr<TraceViewOption> GetTraceViewOption(const ToolOptions& options);
 
 struct TraceEventsLevelDbFilePaths;
 struct TraceOptions;
 
 // Loads trace events from LevelDB tables into the provided `trace_container`
-// based on the parameters in `trace_option`.
+// based on the parameters in `trace_option`. When loading a time window,
+// invalid bounds (negative, non-finite, or overflowing `uint64_t` picoseconds)
+// or inverted bounds (`start_time_ms > *end_time_ms`) are treated as an empty
+// window rather than converting out-of-range doubles to picoseconds.
 absl::Status LoadTraceEventsContainer(
     const TraceEventsLevelDbFilePaths& file_paths,
     const TraceViewOption& trace_option,

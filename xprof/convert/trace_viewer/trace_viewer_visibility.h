@@ -43,11 +43,16 @@ namespace profiler {
 // events is fully enabled.
 class TraceViewerVisibility {
  public:
+  enum class InstantSpanPolicy { kUnconstrained, kExactInstant };
+
   // Create with visible timespan and resolution (in picoseconds).
-  // The visible timespan must have non-zero duration.
+  // The visible timespan must have non-zero duration unless
+  // `instant_span_policy` is `InstantSpanPolicy::kExactInstant`.
   // If resolution is zero, no events are downsampled.
   explicit TraceViewerVisibility(tsl::profiler::Timespan visible_span,
-                                 uint64_t resolution_ps = 0);
+                                 uint64_t resolution_ps = 0,
+                                 InstantSpanPolicy instant_span_policy =
+                                     InstantSpanPolicy::kUnconstrained);
 
   // Returns true if the event overlaps the visible span and is distinguishable
   // at resolution_ps.
@@ -115,6 +120,7 @@ class TraceViewerVisibility {
   // Constructor arguments.
   tsl::profiler::Timespan visible_span_;
   uint64_t resolution_ps_;
+  InstantSpanPolicy instant_span_policy_ = InstantSpanPolicy::kUnconstrained;
 
   // Visibility data for all rows.
   absl::flat_hash_map<RowId, RowVisibility> rows_;
@@ -126,22 +132,37 @@ class TraceViewerVisibility {
   absl::flat_hash_map<CounterRowId, uint64_t> last_counter_timestamp_ps_;
 };
 
+struct VisibilityWindowOptions {
+  std::optional<bool> has_end_time = std::nullopt;
+  bool empty_window = false;
+};
+
 class TraceVisibilityFilter : public TraceEventsFilterInterface {
  public:
-  // If visible_span.Instant(), all events are visible.
+  // If visible_span.Empty(), all events are visible before SetUp().
   // If resolution is 0.0, events aren't downsampled.
   TraceVisibilityFilter(tsl::profiler::Timespan visible_span, double resolution)
-      : resolution_(resolution),
-        visibility_(visible_span, ResolutionPs(visible_span.duration_ps())) {}
+      : TraceVisibilityFilter(visible_span, resolution, TraceOptions()) {}
 
   tsl::profiler::Timespan VisibleSpan() const {
     return visibility_.VisibleSpan();
   }
+  // Creates a visibility filter over `visible_span` at `resolution`.
+  // If `window_options.has_end_time` is omitted, defaults to
+  // `!visible_span.Instant()`, so zero-duration spans expand `end_time_ps` to
+  // `trace.max_timestamp_ps()` in `SetUp(trace)` unless `has_end_time` is
+  // explicitly true. If `window_options.empty_window` is true, all events are
+  // filtered out.
   explicit TraceVisibilityFilter(tsl::profiler::Timespan visible_span,
-                                 double resolution, const TraceOptions& options)
+                                 double resolution, const TraceOptions& options,
+                                 VisibilityWindowOptions window_options = {})
       : options_(options),
         resolution_(resolution),
-        visibility_(visible_span, ResolutionPs(visible_span.duration_ps())) {}
+        has_end_time_(
+            window_options.has_end_time.value_or(!visible_span.Instant())),
+        empty_window_(window_options.empty_window),
+        visibility_(visible_span, ResolutionPs(visible_span.duration_ps()),
+                    GetInstantSpanPolicy(visible_span)) {}
 
   uint64_t ResolutionPs() const { return visibility_.ResolutionPs(); }
 
@@ -158,15 +179,21 @@ class TraceVisibilityFilter : public TraceEventsFilterInterface {
       start_time_ps = trace.min_timestamp_ps();
     }
     if (trace.has_max_timestamp_ps() &&
-        (end_time_ps == 0 || end_time_ps > trace.max_timestamp_ps())) {
+        (!has_end_time_ || end_time_ps > trace.max_timestamp_ps())) {
       VLOG(1) << "Adjusting end_time_ps from " << end_time_ps << " to "
               << trace.max_timestamp_ps();
       end_time_ps = trace.max_timestamp_ps();
     }
-    visible_span =
-        tsl::profiler::Timespan::FromEndPoints(start_time_ps, end_time_ps);
+    if (empty_window_ || start_time_ps > end_time_ps) {
+      empty_window_ = true;
+      visible_span = tsl::profiler::Timespan(0, 0);
+    } else {
+      visible_span =
+          tsl::profiler::Timespan::FromEndPoints(start_time_ps, end_time_ps);
+    }
     visibility_ = TraceViewerVisibility(
-        visible_span, ResolutionPs(visible_span.duration_ps()));
+        visible_span, ResolutionPs(visible_span.duration_ps()),
+        GetInstantSpanPolicy(visible_span));
     for (const auto& [device_id, device] : trace.devices()) {
       if (IsTpuCoreDeviceName(device.name())) {
         tpu_core_devices_.insert(device_id);
@@ -179,12 +206,16 @@ class TraceVisibilityFilter : public TraceEventsFilterInterface {
   // Updates the visibility based on `resolution`.
   void UpdateVisibility(double resolution) {
     resolution_ = resolution;
+    const tsl::profiler::Timespan visible_span = visibility_.VisibleSpan();
     visibility_ = TraceViewerVisibility(
-        visibility_.VisibleSpan(),
-        ResolutionPs(visibility_.VisibleSpan().duration_ps()));
+        visible_span, ResolutionPs(visible_span.duration_ps()),
+        GetInstantSpanPolicy(visible_span));
   }
 
   bool Filter(const TraceEvent& event) override {
+    if (empty_window_) {
+      return true;
+    }
     // Filter intermediate DMA flow events unless "Full DMA" is checked.
     if (IsFlowMid(event) &&
         (tpu_core_devices_.contains(event.device_id()) ||
@@ -202,7 +233,16 @@ class TraceVisibilityFilter : public TraceEventsFilterInterface {
     return (resolution_ == 0.0) ? 0 : std::llround(duration_ps / resolution_);
   }
 
+  TraceViewerVisibility::InstantSpanPolicy GetInstantSpanPolicy(
+      const tsl::profiler::Timespan& visible_span) const {
+    return (has_end_time_ || visible_span.begin_ps() > 0)
+               ? TraceViewerVisibility::InstantSpanPolicy::kExactInstant
+               : TraceViewerVisibility::InstantSpanPolicy::kUnconstrained;
+  }
+
   double resolution_;  // number of visible events per row
+  bool has_end_time_ = true;
+  bool empty_window_ = false;
   TraceViewerVisibility visibility_;
   absl::flat_hash_set<uint32_t /*device_id*/> tpu_noncore_devices_;
   absl::flat_hash_set<uint32_t /*device_id*/> tpu_core_devices_;

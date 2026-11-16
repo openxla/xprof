@@ -41,6 +41,21 @@ generate_sxs_html_report = sxs_report_generator.generate_sxs_html_report
 publish_report_artifact = sxs_report_generator.publish_report_artifact
 
 
+@dataclasses.dataclass(frozen=True)
+class _CatalogStep:
+  action: str
+  target: str
+  expected_selector: str
+
+
+@dataclasses.dataclass(frozen=True)
+class _CatalogScenario:
+  id: str
+  fixture: str
+  initial_tool: str
+  steps: tuple[_CatalogStep, ...]
+
+
 def _create_test_image(
     color: tuple[int, int, int] | tuple[int, int, int, int],
     size: tuple[int, int] = (50, 50),
@@ -1514,6 +1529,39 @@ class SxsDiffEngineTest(unittest.TestCase):
       self.assertEqual(resolved_slashless.fixture, "gpu-profile")
       self.assertEqual(resolved_slashless.steps[0].target, "overview_page")
 
+      # Verify synthetic "empty" run and query-parameterized goto targets are
+      # preserved across both single-run (CI) and multi-run (workstation)
+      # resolvers.
+      self.assertEqual(resolver("empty"), "empty")
+      self.assertEqual(multi_resolver("empty"), "empty")
+      shell_scenario = _Scenario(
+          id="shell",
+          fixture="tpu-training",
+          initial_tool="overview_page",
+          steps=(
+              _Step(
+                  action="goto",
+                  target="tpu-training/overview_page?new_nav=true",
+                  expected_selector="rack-navigation-drawer:not(.collapsed)",
+              ),
+              _Step(
+                  action="goto",
+                  target="empty/empty",
+                  expected_selector="empty-page",
+              ),
+          ),
+      )
+      for env_resolver in (resolver, multi_resolver):
+        resolved_shell = sxs_diff_engine.resolve_scenario_runs(
+            shell_scenario, env_resolver, logdir=tmp
+        )
+        self.assertEqual(resolved_shell.fixture, "tpu_training")
+        self.assertEqual(
+            resolved_shell.steps[0].target,
+            "tpu_training/overview_page?new_nav=true",
+        )
+        self.assertEqual(resolved_shell.steps[1].target, "empty/empty")
+
   def test_waypoint_names_are_identical_across_environments(self):
     """Waypoint names must not vary with the runs present in the logdir."""
 
@@ -1628,6 +1676,58 @@ class SxsDiffEngineTest(unittest.TestCase):
     without_bundle = primary.replace('<script src="bundle.js"></script>', "")
     self.assertNotEqual(
         engine.sanitize_dom(primary), engine.sanitize_dom(without_bundle)
+    )
+
+  def test_diagnostic_journeys_catalog_and_gm2_shell_baseline(self):
+    """Verifies diagnostic_journeys.json schema and GM2 shell baseline waypoints."""
+    catalog_path = (
+        pathlib.Path(__file__).resolve().parent
+        / "journeys"
+        / "diagnostic_journeys.json"
+    )
+    if not catalog_path.is_file() and "TEST_SRCDIR" in os.environ:
+      workspace = os.environ.get("TEST_WORKSPACE", "google3")
+      catalog_path = (
+          pathlib.Path(os.environ["TEST_SRCDIR"])
+          / workspace
+          / "third_party/xprof/tests/ui/journeys/diagnostic_journeys.json"
+      )
+    self.assertTrue(catalog_path.is_file())
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    self.assertIsInstance(catalog, list)
+    self.assertGreaterEqual(len(catalog), 8)
+
+    by_id: dict[str, _CatalogScenario] = {}
+    for entry in catalog:
+      steps = tuple(
+          _CatalogStep(
+              action=step["action"],
+              target=step["target"],
+              expected_selector=step["expected_selector"],
+          )
+          for step in entry["steps"]
+      )
+      self.assertTrue(steps)
+      by_id[entry["id"]] = _CatalogScenario(
+          id=entry["id"],
+          fixture=entry["fixture"],
+          initial_tool=entry["initial_tool"],
+          steps=steps,
+      )
+
+    self.assertIn("shell.gm2_navigation_and_empty_state", by_id)
+    shell = by_id["shell.gm2_navigation_and_empty_state"]
+    self.assertEqual(
+        sxs_diff_engine.waypoint_names(shell),
+        [
+            "00_overview_page",
+            "01_toggle_nav_drawer_collapsed",
+            "02_toggle_nav_drawer_expanded",
+            "03_goto_tpu-training/overview_page?new_nav=true",
+            "04_toggle_nav_drawer_collapsed",
+            "05_toggle_nav_drawer_expanded",
+            "06_goto_empty/empty",
+        ],
     )
 
 

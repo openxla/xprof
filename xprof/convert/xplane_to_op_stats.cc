@@ -617,7 +617,8 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
       // we pass nullptr for the cost analysis for TPU.
       create_cost_analysis = []() { return nullptr; };
     }
-    ProcessHloModuleMapFromXSpace(hlo_module_map, &space, create_cost_analysis);
+    ProcessHloModuleMapFromXSpace(hlo_module_map, &space, create_cost_analysis,
+                                  op_stats.mutable_program_id_to_name_map());
   }
   {
     LOG(INFO) << "ConvertXSpaceToOpStats: creating op_stats_threads "
@@ -1082,9 +1083,11 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
 
   // Set program_id_to_name map in OpStats from Xspace
   // Will be non-op if the space does not have materialized device traces
-  HloProtoMap hlo_proto_map;
-  hlo_proto_map.AddHloProtosFromXSpace(space);
-  SetProgramIdToNameMap(hlo_proto_map, op_stats);
+  if (!generate_hlo_module_map) {
+    HloProtoMap hlo_proto_map;
+    hlo_proto_map.AddHloProtosFromXSpace(space);
+    SetProgramIdToNameMap(hlo_proto_map, op_stats);
+  }
 
   size_t final_size = op_stats.ByteSizeLong();
   LOG(INFO) << "ConvertXSpaceToOpStats: Final OpStats size: " << final_size

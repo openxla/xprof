@@ -24,11 +24,106 @@ import {setProfilingDeviceTypeAction} from 'org_xprof/frontend/app/store/actions
 import {
   Metrics,
   Node,
+  NodePatch,
 } from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
-import {combineLatestWith, map, takeUntil} from 'rxjs/operators';
+import {map, takeUntil} from 'rxjs/operators';
 
 const GROUP_BY_RULES = ['program', 'category', 'provenance'];
+
+/**
+ * Rebuilds a derived tree from `base` and the `patches` produced by the
+ * server's ReplaceExcludeIdleTreesWithPatches (`exclude_idle_patch=true`).
+ * Unpatched nodes share their `metrics` and `xla` objects with `base`.
+ */
+export function applyNodePatches(base: Node, patches: NodePatch[]): Node {
+  const patchByPath = new Map<string, NodePatch>();
+  for (const patch of patches) {
+    patchByPath.set((patch.path || []).join('/'), patch);
+  }
+  const build = (node: Node, key: string): Node => {
+    const patch = patchByPath.get(key);
+    if (patch?.replacement) return patch.replacement;
+    const out: Node = {...node};
+    if (patch) {
+      if (patch.name !== undefined) out.name = patch.name;
+      if (patch.metrics) out.metrics = patch.metrics;
+      if (patch.xla) out.xla = patch.xla;
+      if (patch.numChildren !== undefined) out.numChildren = patch.numChildren;
+    }
+    if (node.children) {
+      const removed = new Set(patch?.removedChildren || []);
+      const children: Node[] = [];
+      node.children.forEach((child, i) => {
+        if (!removed.has(i)) {
+          children.push(build(child, key === '' ? `${i}` : `${key}/${i}`));
+        }
+      });
+      if (children.length > 0) {
+        out.children = children;
+      } else {
+        delete out.children;
+      }
+    }
+    return out;
+  };
+  return build(base, '');
+}
+
+/** Rebuilds the `*ExcludeIdle` tree that the server sent as patches. */
+export function applyExcludeIdlePatches(profile: OpProfileProto) {
+  const patches = profile.excludeIdlePatch;
+  if (!patches || patches.length === 0) return;
+  if (profile.byCategory && !profile.byCategoryExcludeIdle) {
+    profile.byCategoryExcludeIdle = applyNodePatches(
+      profile.byCategory,
+      patches,
+    );
+  } else if (profile.byProgram && !profile.byProgramExcludeIdle) {
+    profile.byProgramExcludeIdle = applyNodePatches(profile.byProgram, patches);
+  } else if (profile.byProvenance && !profile.byProvenanceExcludeIdle) {
+    profile.byProvenanceExcludeIdle = applyNodePatches(
+      profile.byProvenance,
+      patches,
+    );
+  }
+  delete profile.excludeIdlePatch;
+}
+
+/**
+ * Restores `xla.sourceInfo.stackFrame` on every node from the response-level
+ * `stackFrameTable` (requested with `stack_frame_table=true`), so downstream
+ * consumers can keep reading `node.xla.sourceInfo.stackFrame`. Strings are
+ * shared by reference, so this does not copy the stack traces.
+ */
+export function resolveStackFrames(profile: OpProfileProto) {
+  const table = profile.stackFrameTable;
+  if (!table || table.length === 0) return;
+  const stack: Node[] = [];
+  for (const root of [
+    profile.byCategory,
+    profile.byProgram,
+    profile.byCategoryExcludeIdle,
+    profile.byProgramExcludeIdle,
+    profile.byProvenance,
+    profile.byProvenanceExcludeIdle,
+  ]) {
+    if (root) stack.push(root);
+  }
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    const xla = node.xla;
+    if (xla && xla.stackFrameIndex !== undefined) {
+      const frame = table[xla.stackFrameIndex];
+      if (frame !== undefined) {
+        xla.sourceInfo = {...xla.sourceInfo, stackFrame: frame};
+      }
+      delete xla.stackFrameIndex;
+    }
+    if (node.children) stack.push(...node.children);
+  }
+  delete profile.stackFrameTable;
+}
 
 /** An op profile component. */
 @Component({
@@ -114,6 +209,8 @@ export class OpProfile implements OnDestroy {
     const params = new Map<string, string>();
     params.set('group_by', groupBy);
     params.set('program_serving_metadata', 'true');
+    params.set('stack_frame_table', 'true');
+    params.set('exclude_idle_patch', 'true');
     return this.diffService
       .getDiffData(this.sessionId, this.tool, {
         baselineSessionId: this.diffService.getBaseSessionId(),
@@ -124,6 +221,11 @@ export class OpProfile implements OnDestroy {
         map(({active, baseline}) => {
           this.throbber.stop();
           setLoadingState(false, this.store);
+          for (const profile of [active, baseline]) {
+            if (!profile) continue;
+            applyExcludeIdlePatches(profile as OpProfileProto);
+            resolveStackFrames(profile as OpProfileProto);
+          }
           if (active && baseline) {
             const opProfileDiff = this.mergeProfile(
               active as OpProfileProto,
@@ -146,24 +248,27 @@ export class OpProfile implements OnDestroy {
     if (!this.sessionId || !this.tool) {
       return;
     }
+    const sessionId = this.sessionId;
+    this.moduleList = [];
     const $data = this.fetchData(this.groupBy);
-    const $moduleList = this.dataService.getModuleList(this.sessionId);
-    $data
-      .pipe(combineLatestWith($moduleList), takeUntil(this.destroyed))
-      .subscribe(([data, moduleList]) => {
-        if (data) {
-          this.opProfileData = data;
-          this.store.dispatch(
-            setProfilingDeviceTypeAction({
-              deviceType: this.opProfileData.deviceType,
-            }),
-          );
-        }
-        if (moduleList) {
-          this.moduleList = moduleList.split(',');
-        }
-        this.ready.emit();
-      });
+    const $moduleList = this.dataService.getModuleList(sessionId);
+    // The module list only enables graph viewer links, so it must not block
+    // rendering the op profile table.
+    $moduleList.pipe(takeUntil(this.destroyed)).subscribe((moduleList) => {
+      if (sessionId !== this.sessionId) return;
+      this.moduleList = moduleList ? moduleList.split(',') : [];
+    });
+    $data.pipe(takeUntil(this.destroyed)).subscribe((data) => {
+      if (data) {
+        this.opProfileData = data;
+        this.store.dispatch(
+          setProfilingDeviceTypeAction({
+            deviceType: this.opProfileData.deviceType,
+          }),
+        );
+      }
+      this.ready.emit();
+    });
   }
 
   updateTable() {

@@ -106,6 +106,13 @@ absl::Status UnifiedOpProfileProcessor::ProcessCombinedOpStats(
     return absl::OkStatus();
   }
 
+  if (GetParamWithDefault<bool>(options, "exclude_idle_patch", false)) {
+    tensorflow::profiler::ReplaceExcludeIdleTreesWithPatches(&profile);
+  }
+  if (GetParamWithDefault<bool>(options, "stack_frame_table", false)) {
+    tensorflow::profiler::InternStackFrames(&profile);
+  }
+
   std::string op_profile_json;
   JsonPrintOptions opts;
   opts.always_print_fields_with_no_presence = true;

@@ -35,6 +35,7 @@ limitations under the License.
 #include "xla/service/hlo.pb.h"
 #include "xla/service/hlo_cost_analysis.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
+#include "tsl/platform/protobuf.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/utils/hlo_cost_analysis_wrapper.h"
 #include "xprof/utils/hlo_module_utils.h"
@@ -232,11 +233,15 @@ void AddHloProto(
     const xla::HloProto& hlo_proto,
     std::unique_ptr<HloCostAnalysisWrapper> cost_analysis = nullptr);
 
-// Process HloModuleMap from single XSpace.
+// Process HloModuleMap from single XSpace. If `program_id_to_name_map` is
+// non-null, populates `program_id -> hlo_module().name()` for every parsed
+// HloProto before HloModule conversion.
 void ProcessHloModuleMapFromXSpace(
     HloModuleMap& hlo_module_map, const XSpace* space,
     tensorflow::profiler::HloCostAnalysisWrapper::Factory&
-        create_cost_analysis);
+        create_cost_analysis,
+    tsl::protobuf::Map<uint64_t, std::string>* program_id_to_name_map =
+        nullptr);
 
 // WARNING: The returned pointer will be invalidated if HloModuleMap is mutated.
 inline const HloModuleWrapper* GetHloModule(const HloModuleMap* hlo_module_map,

@@ -14,6 +14,8 @@ import {
 } from 'org_xprof/frontend/app/components/framework_op_stats/framework_op_stats_adapter';
 import {GraphViewer} from 'org_xprof/frontend/app/components/graph_viewer/graph_viewer';
 import {GraphViewerModule} from 'org_xprof/frontend/app/components/graph_viewer/graph_viewer_module';
+import {GrpcMetrics} from 'org_xprof/frontend/app/components/grpc_metrics/grpc_metrics';
+import {GrpcMetricsModule} from 'org_xprof/frontend/app/components/grpc_metrics/grpc_metrics_module';
 import {HloStats} from 'org_xprof/frontend/app/components/hlo_stats/hlo_stats';
 import {HloStatsModule} from 'org_xprof/frontend/app/components/hlo_stats/hlo_stats_module';
 import {InferenceProfile} from 'org_xprof/frontend/app/components/inference_profile/inference_profile';
@@ -82,6 +84,8 @@ export const routes: Routes = [
   {path: 'megascale_perfetto', component: MegascalePerfetto},
   {path: 'megascale_perfetto/:sessionId', component: MegascalePerfetto},
   {path: 'megascale_stats', component: MegascaleStats},
+  // DCN Analyzer. Listed in the sidenav only when the backend lists the tool.
+  {path: 'grpc_metrics', component: GrpcMetrics},
   {path: 'perf_counters', component: PerfCounters},
   {path: 'inference_profile', component: InferenceProfile},
   {path: 'hlo_stats', component: HloStats},
@@ -119,6 +123,7 @@ export const routes: Routes = [
     FrameworkOpStatsAdapterModule,
     MegascaleStatsModule,
     MegascalePerfettoModule,
+    GrpcMetricsModule,
     PerfCountersModule,
     HloStatsModule,
     RooflineModelModule,

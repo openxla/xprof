@@ -125,6 +125,7 @@ export class MainPage implements OnDestroy {
     'perf_counters': 'av_timer',
     'utilization_viewer': 'bar_chart_4_bars',
     'megascale_stats': 'monitoring',
+    'grpc_metrics': 'network_check',
   };
 
   private readonly toolsDisplayMap = new Map<string, string>([
@@ -142,6 +143,7 @@ export class MainPage implements OnDestroy {
     ['kernel_stats', 'Kernel Stats'],
     ['trace_viewer', 'Trace Viewer'],
     ['megascale_stats', 'Megascale Viewer'],
+    ['grpc_metrics', 'DCN Analyzer'],
     ['perf_counters', 'Perf Counters'],
     ['utilization_viewer', 'Utilization Viewer'],
   ]);

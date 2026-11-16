@@ -2695,5 +2695,34 @@ class CaptureRouteAndToolNormalizationTest(absltest.TestCase):
     self.assertIs(mock_xspace.call_args.args[2]['show_zeros'], False)
 
 
+class DcnAnalyzerToolListTest(absltest.TestCase):
+  """Tests that the DCN Analyzer (grpc_metrics) is listed only when enabled."""
+
+  def setUp(self):
+    super().setUp()
+    self.enter_context(mock.patch.dict(os.environ))
+    os.environ.pop(convert.DCN_ANALYZER_ENV_VAR, None)
+
+  def test_get_tools_without_run_dir_lists_grpc_metrics_only_when_enabled(
+      self,
+  ):
+    # Without a run directory every xplane tool is listed without asking the
+    # converter, so the switch is applied here.
+    filenames = ['host1.xplane.pb']
+
+    tools_when_disabled = profile_plugin._get_tools(filenames, '')
+    os.environ[convert.DCN_ANALYZER_ENV_VAR] = 'true'
+    tools_when_enabled = profile_plugin._get_tools(filenames, '')
+
+    self.assertNotIn('grpc_metrics', tools_when_disabled)
+    self.assertIn('overview_page', tools_when_disabled)
+    self.assertIn('grpc_metrics', tools_when_enabled)
+
+  def test_grpc_metrics_is_an_all_hosts_only_xplane_tool(self):
+    # The page merges all hosts, so the host list only offers ALL_HOSTS.
+    self.assertIn('grpc_metrics', profile_plugin.XPLANE_TOOLS_SET)
+    self.assertIn('grpc_metrics', profile_plugin.XPLANE_TOOLS_ALL_HOSTS_ONLY)
+
+
 if __name__ == '__main__':
   absltest.main()

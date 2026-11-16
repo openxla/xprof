@@ -31,7 +31,6 @@ limitations under the License.
 #include "absl/types/span.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/parser/hlo_parser.h"
-#include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
@@ -595,6 +594,171 @@ TEST(ConvertXPlaneToOpMetricsDb, SparseCoreDeviceOpMetricsDb) {
                                            total_op_time_ps: 10000
               )pb"));
 #endif
+}
+
+TEST(ConvertXPlaneToOpMetricsDb, SparseCoreTecTileXPlane) {
+  XSpace xspace;
+  XPlane* xplane = tsl::profiler::GetOrCreateTpuXPlane(
+      &xspace, /*device_ordinal=*/0, "TPU V5",
+      /*peak_tera_flops_per_second=*/0,
+      /*peak_hbm_bw_gigabytes_per_second=*/0);
+  XPlaneBuilder device_plane(xplane);
+  XLineBuilder module_line = device_plane.GetOrCreateLine(/*line_id=*/65);
+  XLineBuilder tec_line = device_plane.GetOrCreateLine(/*line_id=*/67);
+  module_line.SetName(tsl::profiler::kSparseCoreModuleLineName);
+  tec_line.SetName("TEC 0");
+
+  // Add XLA Module
+  XEventBuilder module_event = AddXlaTpuEvent(
+      TpuEvent{
+          .type = TpuEvent::EventType::kModule,
+          .name = "Main",
+          .start_timestamp_ns = 0,
+          .duration_ns = 100,
+          .self_duration = 100,
+          .module_id = 1,
+          .program_id = 1,
+          .symbol_id = 2,
+      },
+      absl::Span<const std::pair<absl::string_view, uint64_t>>(), &device_plane,
+      &module_line);
+  module_event.AddStatValue(*device_plane.GetOrCreateStatMetadata(
+                                GetStatTypeStr(StatType::kOffloadCoreId)),
+                            0);
+  module_event.AddStatValue(*device_plane.GetOrCreateStatMetadata(
+                                GetStatTypeStr(StatType::kTcOffloadStartId)),
+                            123);
+
+  // Add TEC Tile Op on "TEC 0" line
+  AddXlaTpuEvent(
+      TpuEvent{
+          .type = TpuEvent::EventType::kHloOp,
+          .name = "TileKernel",
+          .category = "SparseCoreTileOp",
+          .start_timestamp_ns = 0,
+          .duration_ns = 20,
+          .flops = 50,
+          .bytes_accessed = 200,
+          .occurrences = 1,
+          .self_duration = 20,
+          .module_id = 1,
+          .program_id = 1,
+          .symbol_id = 2,
+      },
+      absl::Span<const std::pair<absl::string_view, int64_t>>(), &device_plane,
+      &tec_line);
+
+  absl::flat_hash_map<std::pair<uint64_t, uint64_t>, OpMetricsDb>
+      sparse_core_metrics_map;
+  ConvertSparseCoreDeviceTraceXPlaneToOpMetricsDb(*xplane,
+                                                  sparse_core_metrics_map);
+  ASSERT_EQ(sparse_core_metrics_map.size(), 1);
+  OpMetricsDb op_metrics = sparse_core_metrics_map.begin()->second;
+  ASSERT_EQ(op_metrics.metrics_db_size(), 2);
+  EXPECT_EQ(op_metrics.metrics_db(0).name(), "TileKernel");
+  EXPECT_EQ(op_metrics.metrics_db(0).core_type(),
+            OpMetrics_TpuCoreType_SPARSE_CORE);
+  EXPECT_EQ(op_metrics.metrics_db(0).time_ps(), 20000);
+  EXPECT_EQ(op_metrics.metrics_db(0).self_time_ps(), 20000);
+  EXPECT_EQ(op_metrics.metrics_db(1).name(), "IDLE");
+  EXPECT_EQ(op_metrics.metrics_db(1).time_ps(), 80000);
+}
+
+TEST(ConvertXPlaneToOpMetricsDb, SparseCoreParallelTecLinesAndTraceMeIgnored) {
+  XSpace xspace;
+  XPlane* xplane = tsl::profiler::GetOrCreateTpuXPlane(
+      &xspace, /*device_ordinal=*/0, "TPU V5",
+      /*peak_tera_flops_per_second=*/0,
+      /*peak_hbm_bw_gigabytes_per_second=*/0);
+  XPlaneBuilder device_plane(xplane);
+  XLineBuilder module_line = device_plane.GetOrCreateLine(/*line_id=*/65);
+  XLineBuilder scs_line = device_plane.GetOrCreateLine(/*line_id=*/66);
+  XLineBuilder tec0_line = device_plane.GetOrCreateLine(/*line_id=*/67);
+  XLineBuilder tec1_line = device_plane.GetOrCreateLine(/*line_id=*/68);
+  XLineBuilder traceme_line = device_plane.GetOrCreateLine(/*line_id=*/69);
+  module_line.SetName(tsl::profiler::kSparseCoreModuleLineName);
+  scs_line.SetName(tsl::profiler::kSparseCoreOpLineName);
+  tec0_line.SetName("TEC 0");
+  tec1_line.SetName("TEC 1");
+  traceme_line.SetName("TEC TraceMe 0");
+
+  XEventBuilder module_event = AddXlaTpuEvent(
+      TpuEvent{
+          .type = TpuEvent::EventType::kModule,
+          .name = "Main",
+          .start_timestamp_ns = 0,
+          .duration_ns = 100,
+          .self_duration = 100,
+          .module_id = 1,
+          .program_id = 1,
+          .symbol_id = 1,
+      },
+      absl::Span<const std::pair<absl::string_view, uint64_t>>(), &device_plane,
+      &module_line);
+  module_event.AddStatValue(*device_plane.GetOrCreateStatMetadata(
+                                GetStatTypeStr(StatType::kOffloadCoreId)),
+                            0);
+  module_event.AddStatValue(*device_plane.GetOrCreateStatMetadata(
+                                GetStatTypeStr(StatType::kTcOffloadStartId)),
+                            123);
+
+  auto add_op = [&](XLineBuilder& line, absl::string_view name,
+                    int64_t start_ns, int64_t dur_ns, int64_t symbol_id) {
+    AddXlaTpuEvent(
+        TpuEvent{
+            .type = TpuEvent::EventType::kHloOp,
+            .name = name,
+            .category = "SparseCoreOp",
+            .start_timestamp_ns = start_ns,
+            .duration_ns = dur_ns,
+            .flops = 10,
+            .bytes_accessed = 20,
+            .occurrences = 1,
+            .self_duration = dur_ns,
+            .module_id = 1,
+            .program_id = 1,
+            .symbol_id = symbol_id,
+        },
+        absl::Span<const std::pair<absl::string_view, int64_t>>(),
+        &device_plane, &line);
+  };
+
+  // Overlapping ops across SCS, TEC 0, and TEC 1 must not falsely nest or
+  // underflow self_time_ps / IdleTimePs.
+  add_op(scs_line, "ScsOp", /*start_ns=*/0, /*dur_ns=*/100, /*symbol_id=*/2);
+  add_op(tec0_line, "Tec0Op", /*start_ns=*/10, /*dur_ns=*/80, /*symbol_id=*/3);
+  add_op(tec1_line, "Tec1Op", /*start_ns=*/5, /*dur_ns=*/90, /*symbol_id=*/4);
+
+  // TraceMe line sharing the "TEC " prefix must be ignored.
+  XEventMetadata* traceme_meta =
+      device_plane.GetOrCreateEventMetadata("UserTraceMe");
+  XEventBuilder traceme_event = traceme_line.AddEvent(*traceme_meta);
+  traceme_event.SetTimestampNs(0);
+  traceme_event.SetDurationNs(100);
+
+  absl::flat_hash_map<std::pair<uint64_t, uint64_t>, OpMetricsDb>
+      sparse_core_metrics_map;
+  ConvertSparseCoreDeviceTraceXPlaneToOpMetricsDb(*xplane,
+                                                  sparse_core_metrics_map);
+  ASSERT_EQ(sparse_core_metrics_map.size(), 1);
+  const OpMetricsDb& op_metrics = sparse_core_metrics_map.begin()->second;
+  // 3 active lines * 100 ns module duration = 300,000 ps.
+  EXPECT_EQ(op_metrics.total_time_ps(), 300000);
+  EXPECT_EQ(op_metrics.total_op_time_ps(), 270000);
+
+  absl::flat_hash_map<std::string, const OpMetrics*> by_name;
+  for (const auto& m : op_metrics.metrics_db()) {
+    by_name[m.name()] = &m;
+  }
+  ASSERT_TRUE(by_name.contains("ScsOp"));
+  ASSERT_TRUE(by_name.contains("Tec0Op"));
+  ASSERT_TRUE(by_name.contains("Tec1Op"));
+  ASSERT_TRUE(by_name.contains("IDLE"));
+  EXPECT_FALSE(by_name.contains("UserTraceMe"));
+  EXPECT_EQ(by_name["ScsOp"]->self_time_ps(), 100000);
+  EXPECT_EQ(by_name["Tec0Op"]->self_time_ps(), 80000);
+  EXPECT_EQ(by_name["Tec1Op"]->self_time_ps(), 90000);
+  EXPECT_EQ(by_name["IDLE"]->time_ps(), 30000);
 }
 
 TEST(ConvertXPlaneToOpMetricsDb, HostXPlaneWithXlaOps) {

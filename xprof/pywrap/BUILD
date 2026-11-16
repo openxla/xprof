@@ -20,6 +20,11 @@ cc_binary(
         "profiler_plugin_c_api.cc",
         "profiler_plugin_c_api.h",
     ],
+    additional_linker_inputs = select({
+        "@xla//xla/tsl:macos": [],
+        "@xla//xla/tsl:windows": [],
+        "//conditions:default": [":profiler_plugin_c_api.lds"],
+    }),
     copts = [
         "-fno-strict-aliasing",
         "-fvisibility=hidden",  # Prevent exposing all symbols
@@ -42,6 +47,7 @@ cc_binary(
         ],
         "//conditions:default": [
             "-Wl,--exclude-libs,ALL",  # Prevent exposing symbols from dependencies
+            "-Wl,--version-script=$(execpath :profiler_plugin_c_api.lds)",
             "-Wl,--gc-sections",  # Garbage collect any unused sections
             "-Wl,--icf=all",  # Merge identical functions
             "-Wl,--strip-all",  # Strip all symbols

@@ -68,6 +68,7 @@ cc_binary(
         "@xla//xla/tsl/profiler/rpc/client:capture_profile",
     ] + select({
         "//:embedded_features_enabled": [
+            "@org_xprof//xprof/embedded/kernel_viewer:kernel_viewer_registrar",
             "@org_xprof//xprof/embedded/llo_analysis:llo_analysis_c_api",
             "@org_xprof//xprof/embedded/llo_analysis:llo_analysis_lib",
         ],

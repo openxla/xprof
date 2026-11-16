@@ -20,6 +20,7 @@ limitations under the License.
 
 #include "absl/status/statusor.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 #include "google/protobuf/arena.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
@@ -44,6 +45,28 @@ bool HasHloProtoMetadata(const XSpace& xspace) {
           plane.GetStatMetadataByType(tsl::profiler::StatType::kHloProto);
       if (hlo_proto_stat_metadata != nullptr) {
         return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Returns true if any plane whose name starts with `plane_prefix` has an event
+// with a counter value stat.
+bool HasCounterValueInPlanes(const XSpace& xspace,
+                             absl::string_view plane_prefix) {
+  for (const XPlane* plane :
+       tsl::profiler::FindPlanesWithPrefix(xspace, plane_prefix)) {
+    tsl::profiler::XPlaneVisitor visitor =
+        tsl::profiler::CreateTfXPlaneVisitor(plane);
+    const XStatMetadata* counter_value_metadata =
+        visitor.GetStatMetadataByType(tsl::profiler::StatType::kCounterValue);
+    if (counter_value_metadata == nullptr) continue;
+    for (const auto& line : plane->lines()) {
+      for (const auto& event : line.events()) {
+        for (const auto& stat : event.stats()) {
+          if (stat.metadata_id() == counter_value_metadata->id()) return true;
+        }
       }
     }
   }
@@ -74,7 +97,8 @@ absl::StatusOr<std::string> GetAvailableToolNames(
     bool has_kernel_stats = false;
     bool has_hlo = false;
     bool has_dcn_collective_stats = false;
-    bool has_perf_counters = false;
+    bool has_tpu_perf_counters = false;
+    bool has_gpu_perf_counters = false;
 
     // Use only the first host, as the sessions would consist of similar
     // devices, and the tool list can be generated from the first host itself.
@@ -93,22 +117,14 @@ absl::StatusOr<std::string> GetAvailableToolNames(
     has_dcn_collective_stats =
         has_dcn_collective_stats || HasDcnCollectiveStatsInXSpace(*xspace);
 
-    std::vector<const XPlane*> tpu_planes = tsl::profiler::FindPlanesWithPrefix(
-        *xspace, tsl::profiler::kTpuPlanePrefix);
-    for (const XPlane* plane : tpu_planes) {
-      tsl::profiler::XPlaneVisitor visitor =
-          tsl::profiler::CreateTfXPlaneVisitor(plane);
-      visitor.ForEachLine([&](const tsl::profiler::XLineVisitor& line) {
-        line.ForEachEvent([&](const tsl::profiler::XEventVisitor& event) {
-          if (event.GetStat(tsl::profiler::StatType::kCounterValue)) {
-            has_perf_counters = true;
-            return;
-          }
-        });
-        if (has_perf_counters) return;
-      });
-      if (has_perf_counters) break;
-    }
+    has_tpu_perf_counters =
+        HasCounterValueInPlanes(*xspace, tsl::profiler::kTpuPlanePrefix);
+    // The perf counter converter reads both TPU and GPU planes. The
+    // utilization viewer and the kernel utilization tools decode TPU counter
+    // IDs only, so do not list them for GPU counters.
+    has_gpu_perf_counters =
+        !has_tpu_perf_counters &&
+        HasCounterValueInPlanes(*xspace, tsl::profiler::kGpuPlanePrefix);
 
     if (has_kernel_stats) {
       tools.push_back("kernel_stats");
@@ -123,10 +139,12 @@ absl::StatusOr<std::string> GetAvailableToolNames(
       tools.push_back("megascale_stats");
     }
 
-    if (has_perf_counters) {
+    if (has_tpu_perf_counters) {
       tools.push_back("perf_counters");
       tools.push_back("utilization_viewer");
       tools.push_back("kernel_utilization");
+    } else if (has_gpu_perf_counters) {
+      tools.push_back("perf_counters");
     }
   }
 

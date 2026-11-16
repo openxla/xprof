@@ -185,8 +185,10 @@ void SetOpMetadataFromHloEventMetadata(
           break;
 
         case StatType::kSourceStack:
-          op_metrics->mutable_source_info()->set_stack_frame(
-              std::string(stat.StrOrRefValue()));
+          if (!stat.StrOrRefValue().empty()) {
+            op_metrics->mutable_source_info()->set_stack_frame(
+                std::string(stat.StrOrRefValue()));
+          }
           break;
 
         default:

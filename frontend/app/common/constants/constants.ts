@@ -38,6 +38,9 @@ export const CAPTURE_PROFILE_API =
 /** Default Host */
 export const DEFAULT_HOST = 'default';
 
+/** Host value that selects all hosts of a session. */
+export const ALL_HOSTS = 'ALL_HOSTS';
+
 /**
  * Based on palette of Kenneth Kelly's 22 colors of maximum contrast.
  * More information at page 5 of

@@ -15,7 +15,10 @@ import {
 } from 'org_xprof/frontend/app/common/constants/constants';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
-import {getSessionIdFromParams} from 'org_xprof/frontend/app/common/utils/utils';
+import {
+  getSessionIdFromParams,
+  resolveHostFromParams,
+} from 'org_xprof/frontend/app/common/utils/utils';
 import {CommunicationService} from 'org_xprof/frontend/app/services/communication_service/communication_service';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {
@@ -72,7 +75,11 @@ export function parseNavigationParams(
 ): NavigationParamsRecord {
   const rawTag = params.get('tag') ?? params.get('tool') ?? '';
   return {
-    run: params.get('run') ?? params.get('sessionId') ?? '',
+    run:
+      params.get('run') ??
+      params.get('session_id') ??
+      params.get('sessionId') ??
+      '',
     tag: rawTag === 'kernel_utilization' ? 'utilization_viewer' : rawTag,
     host: params.get('host') ?? '',
     hosts: params.get('hosts') ?? '',
@@ -149,6 +156,10 @@ export class SideNav implements OnInit, OnDestroy {
   hideCaptureProfileButton = false;
   enableTabNameLabel = false;
   private hasNavigated = false;
+  /** Tools fetched for standalone runs, kept when the run map resets. */
+  private readonly standaloneRunTools = new Map<string, string[]>();
+  /** Standalone runs whose tools are being fetched. */
+  private readonly standaloneToolsInFlight = new Set<string>();
 
   private readonly router = inject(Router);
   // Using DataServiceV2 because methods used in sidenav is not defined in
@@ -169,6 +180,9 @@ export class SideNav implements OnInit, OnDestroy {
     this.runToolsMap$.subscribe((runTools: RunToolsMap) => {
       this.runToolsMap = runTools;
       this.runs = Object.keys(this.runToolsMap);
+      if (STANDALONE_NON_SIDENAV_ROUTES.includes(this.selectedTagInternal)) {
+        this.syncStandaloneRunTools({fetchIfMissing: false});
+      }
     });
     this.currentRun$.subscribe((run) => {
       if (run && !this.selectedRunInternal) {
@@ -193,6 +207,11 @@ export class SideNav implements OnInit, OnDestroy {
       this.runs[0] ||
       ''
     );
+  }
+
+  /** The run of a standalone route, even when absent from the run list. */
+  private get standaloneRun(): string {
+    return this.selectedRunInternal || this.selectedRun;
   }
 
   // Getter for valid tag given url router or user selection.
@@ -294,23 +313,25 @@ export class SideNav implements OnInit, OnDestroy {
       const searchParams = new URLSearchParams(queryString);
       const routeParams = this.mergeRouteParams();
       const prevRun = this.selectedRunInternal;
-      this.selectedRunInternal = getSessionIdFromParams(
-        {sessionId: pathSessionId},
-        Object.fromEntries(searchParams),
-        routeParams.get('session_id') ||
-          routeParams.get('run') ||
-          routeParams.get('sessionId') ||
-          prevRun,
+      this.selectedRunInternal =
+        pathSessionId ||
+        getSessionIdFromParams(
+          undefined,
+          Object.fromEntries(searchParams),
+          routeParams.get('session_id') ||
+            routeParams.get('run') ||
+            routeParams.get('sessionId') ||
+            prevRun,
+        );
+      this.selectedHostInternal = resolveHostFromParams(
+        {'host': searchParams.get('host') ?? routeParams.get('host')},
+        prevRun,
+        this.selectedRunInternal,
+        this.selectedHostInternal,
       );
-      const runChanged = Boolean(
-        prevRun && this.selectedRunInternal !== prevRun,
-      );
-      this.selectedHostInternal =
-        searchParams.get('host') ??
-        routeParams.get('host') ??
-        (runChanged ? '' : this.selectedHostInternal);
       this.selectedTagInternal = standaloneRoute;
       this.hasNavigated = false;
+      this.syncStandaloneRunTools({fetchIfMissing: true});
       this.communicationService.onNavigateReady({
         run: this.selectedRunInternal,
         tag: standaloneRoute,
@@ -526,6 +547,97 @@ export class SideNav implements OnInit, OnDestroy {
     return tools;
   }
 
+  /**
+   * Syncs the standalone run's tools from the store or local cache.
+   *
+   * App startup makes the first run current and replaces the run map with empty
+   * tool lists, which would hide tools already fetched for a standalone run.
+   * Store updates pass `fetchIfMissing: false` so they cannot start a fetch
+   * loop.
+   */
+  private syncStandaloneRunTools({fetchIfMissing}: {fetchIfMissing: boolean}) {
+    const run = this.standaloneRun;
+    if (!run) {
+      return;
+    }
+    this.store.dispatch(setCurrentRunAction({currentRun: run}));
+    const tools = filterUiTools(this.runToolsMap[run] || []);
+    if (tools.length > 0) {
+      this.tags = tools;
+      return;
+    }
+    const cachedTools = this.standaloneRunTools.get(run);
+    if (cachedTools) {
+      this.tags = cachedTools;
+      if (Object.prototype.hasOwnProperty.call(this.runToolsMap, run)) {
+        this.store.dispatch(
+          updateRunToolsMapAction({run, tools: cachedTools}),
+        );
+      }
+      return;
+    }
+    this.tags = [];
+    if (fetchIfMissing && !this.standaloneToolsInFlight.has(run)) {
+      void this.loadToolsForStandaloneRun(run);
+    }
+  }
+
+  private async loadToolsForStandaloneRun(run: string) {
+    this.standaloneToolsInFlight.add(run);
+    try {
+      const rawTools = await firstValueFrom(
+        this.dataService
+          .getRunTools(run)
+          .pipe(takeUntil(this.destroyed), defaultIfEmpty([])),
+      );
+      const tools = filterUiTools(rawTools || []);
+      // Keep an empty result out of the cache so a later visit can refetch.
+      if (!tools.length) {
+        return;
+      }
+      this.standaloneRunTools.set(run, tools);
+      this.store.dispatch(updateRunToolsMapAction({run, tools}));
+      if (this.standaloneRun === run) {
+        this.tags = tools;
+      }
+    } finally {
+      this.standaloneToolsInFlight.delete(run);
+    }
+  }
+
+  /**
+   * Returns the incoming URL params to keep on the first standalone load.
+   *
+   * Router query params win over the embedding page's params. Params that
+   * `navigationEvent` sets to a non-empty value are left out so navigation
+   * wins, while its empty values, such as a run or host that isn't loaded
+   * yet, don't erase incoming ones.
+   */
+  private getStandaloneQueryParams(
+    navigationEvent: NavigationEvent,
+  ): Record<string, string> {
+    const preserved: Record<string, string> = {};
+    const copyParams = (entries: Iterable<[string, unknown]>) => {
+      for (const [key, value] of entries) {
+        if (value != null && key !== 'tool') {
+          preserved[key] = String(value);
+        }
+      }
+    };
+    copyParams(getParentLocationParams().entries());
+    const routerQueryParams =
+      this.router.routerState?.snapshot?.root?.queryParams;
+    if (routerQueryParams) {
+      copyParams(Object.entries(routerQueryParams));
+    }
+    for (const [key, value] of Object.entries(navigationEvent)) {
+      if (value) {
+        delete preserved[key];
+      }
+    }
+    return preserved;
+  }
+
   async getHostsForSelectedTag() {
     if (!this.selectedRun || !this.selectedTag) return [];
     const response = await firstValueFrom(
@@ -735,8 +847,13 @@ export class SideNav implements OnInit, OnDestroy {
    * Copies the navigation parameters into the embedding page's URL.
    *
    * @param replace Replaces the current history entry instead of adding one.
+   * @param extraQueryParams Params to add to the URL. They override the
+   *     navigation parameters with the same name.
    */
-  updateUrlHistory(replace = false): void {
+  updateUrlHistory(
+    replace = false,
+    extraQueryParams: Record<string, string> = {},
+  ): void {
     try {
       // Standalone, the router records the URL in this same history.
       if (window.parent === window) {
@@ -745,7 +862,11 @@ export class SideNav implements OnInit, OnDestroy {
       const navigationEvent = this.getNavigationEvent();
       const queryParams: {
         [key: string]: string | string[] | boolean | undefined;
-      } = {...navigationEvent};
+      } = {...navigationEvent, ...extraQueryParams};
+      // A standalone route has no sidebar tool, so record the route itself.
+      if (STANDALONE_NON_SIDENAV_ROUTES.includes(this.selectedTagInternal)) {
+        queryParams['tag'] = this.selectedTagInternal;
+      }
 
       if (this.isMultiHostsEnabled) {
         const hosts = queryParams['hosts'];
@@ -783,17 +904,32 @@ export class SideNav implements OnInit, OnDestroy {
     // the first load, browser back and forward, or a link. That URL already has
     // a history entry, so replace it; adding one would drop the forward entries.
     const replaceUrl = this.navigationParams['firstLoad'] === true;
-    this.updateUrlHistory(replaceUrl);
     // This router.navigate call remains, as it's responsible for Angular
     // routing
     // TODO - b/401596855: Deprecate the navigationEvent in route.params as we
     // are subscribing to the queryParams in the components.
     if (STANDALONE_NON_SIDENAV_ROUTES.includes(this.selectedTagInternal)) {
-      this.router.navigate([this.selectedTagInternal, this.selectedRun], {
-        queryParams: navigationEvent,
+      // Only the first load keeps the params of the URL that opened a
+      // standalone route, so a later run switch doesn't carry the old run's
+      // params.
+      const standaloneQueryParams: Record<string, string> = replaceUrl
+        ? this.getStandaloneQueryParams(navigationEvent)
+        : {};
+      const targetRun = this.standaloneRun;
+      // Keep the run param in step with the run in the route path.
+      standaloneQueryParams['run'] = targetRun;
+      delete standaloneQueryParams['session_id'];
+      delete standaloneQueryParams['sessionId'];
+      this.updateUrlHistory(replaceUrl, standaloneQueryParams);
+      const commands = targetRun
+        ? [this.selectedTagInternal, targetRun]
+        : [this.selectedTagInternal];
+      this.router.navigate(commands, {
+        queryParams: {...navigationEvent, ...standaloneQueryParams},
         replaceUrl,
       });
     } else {
+      this.updateUrlHistory(replaceUrl);
       this.router.navigate([this.selectedTag || 'empty'], {
         queryParams: navigationEvent,
         replaceUrl,

@@ -14,7 +14,9 @@ import {
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {alignTables} from 'org_xprof/frontend/app/common/utils/diff_utils';
 import {
+  createSessionIdResolver,
   getSessionIdFromParams,
+  resolveHostFromParams,
   setLoadingState,
 } from 'org_xprof/frontend/app/common/utils/utils';
 import {
@@ -30,7 +32,7 @@ import {
 } from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {BaseDiffService} from 'org_xprof/frontend/app/services/data_service_v2/diff_service';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
-import {combineLatest, ReplaySubject} from 'rxjs';
+import {combineLatest, ReplaySubject, Subscription} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 const UNIT_CHART_OPTIONS: google.visualization.BarChartOptions = {
@@ -154,6 +156,7 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
   readonly ChartType = ChartType;
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
+  private dataSubscription?: Subscription;
   private readonly throbber = new Throbber(this.tool);
 
   sessionId = '';
@@ -175,15 +178,12 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
     private readonly store: Store<{}>,
   ) {
     super();
+    const resolveSessionId = createSessionIdResolver();
     combineLatest([route.params, route.queryParams])
       .pipe(takeUntil(this.destroyed))
       .subscribe(([params, queryParams]) => {
         const prevSessionId = this.sessionId;
-        this.sessionId = getSessionIdFromParams(
-          params,
-          queryParams,
-          this.sessionId,
-        );
+        this.sessionId = resolveSessionId(params, queryParams, this.sessionId);
         this.processQueryParams(queryParams, prevSessionId);
         this.update();
       });
@@ -192,28 +192,28 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
 
   processQueryParams(params: Params, prevSessionId = this.sessionId) {
     this.sessionId = getSessionIdFromParams(undefined, params, this.sessionId);
-    const sessionChanged = Boolean(
-      prevSessionId && this.sessionId !== prevSessionId,
+    this.host = resolveHostFromParams(
+      params,
+      prevSessionId,
+      this.sessionId,
+      this.host,
     );
-    this.host = params['host'] ?? (sessionChanged ? '' : this.host);
   }
 
   update() {
+    this.dataSubscription?.unsubscribe();
     setLoadingState(true, this.store, 'Loading utilization viewer data');
     this.throbber.start();
 
-    this.diffService
-      .getDiffData(this.sessionId, this.tool, {host: this.host})
+    this.dataSubscription = this.diffService
+      .getDiffData<SimpleDataTable>(this.sessionId, this.tool, {
+        host: this.host,
+      })
       .pipe(takeUntil(this.destroyed))
       .subscribe(({active, baseline}) => {
         this.throbber.stop();
         setLoadingState(false, this.store);
-        this.parseData(
-          this.mergeTables(
-            active as SimpleDataTable | null,
-            baseline as SimpleDataTable | null,
-          ),
-        );
+        this.parseData(this.mergeTables(active, baseline));
       });
   }
 

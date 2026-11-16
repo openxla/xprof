@@ -22,6 +22,7 @@ import re
 from typing import Any
 import urllib.parse
 
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import expect
 from playwright.sync_api import Page
 from playwright.sync_api import Route
@@ -528,7 +529,7 @@ def test_framework_op_stats_cold_load_renders_pie_charts(
     else:
       held_routes.append(route)
 
-  gcharts_pattern = "**/*gstatic.com/charts/**"
+  gcharts_pattern = re.compile(r"^https?://[^/]*gstatic\.(?:com|cn)/charts/")
   page.route(gcharts_pattern, delay_gcharts)
   try:
     with page.expect_response(
@@ -537,17 +538,28 @@ def test_framework_op_stats_cold_load_renders_pie_charts(
         timeout=25000,
     ):
       open_tool("tpu-training", "framework_op_stats")
+    expect(page.locator("framework-op-stats stats-table")).to_be_visible(
+        timeout=15000
+    )
   finally:
     # Release held requests before unrouting. Unrouting resumes every request
     # that the handler still holds, and resuming one twice is an error.
     release_charts = True
-    for held in tuple(held_routes):
-      held.continue_()
-    page.unroute(gcharts_pattern, delay_gcharts)
+    try:
+      for held in tuple(held_routes):
+        try:
+          held.continue_()
+        except PlaywrightError:
+          # The held route may have already been aborted, fulfilled, or closed.
+          pass
+    finally:
+      page.unroute(gcharts_pattern, delay_gcharts)
 
   pies = page.locator("framework-op-stats chart[charttype='PieChart'] svg")
   expect(pies.first).to_be_visible(timeout=20000)
   expect(pies.nth(1)).to_be_visible(timeout=20000)
+  expect(pies.first.locator("path").first).to_be_visible(timeout=20000)
+  expect(pies.nth(1).locator("path").first).to_be_visible(timeout=20000)
   assert_healthy(page, browser_errors, "framework_op_stats_cold_load")
 
 
@@ -576,9 +588,10 @@ def test_standalone_stack_trace_page_direct_load_and_download_hlo_run(
         "hlo_op": "fusion.1",
         "session_path": tpu_path,
     })
+    encoded_run = urllib.parse.quote(tpu_run, safe="")
     direct_url = (
         f"{server_url.rstrip('/')}/data/plugin/profile/"
-        f"stack_trace_page/{tpu_run}?{query}"
+        f"stack_trace_page/{encoded_run}?{query}"
     )
     page.goto(direct_url, wait_until="domcontentloaded")
     expect(
@@ -610,7 +623,10 @@ def test_standalone_stack_trace_page_direct_load_and_download_hlo_run(
   ) as dl_req_info:
     pbtxt_item.click()
   expect(pbtxt_item).to_be_hidden(timeout=5000)
-  assert f"run={urllib.parse.quote(tpu_run)}" in dl_req_info.value.url
+  dl_query = urllib.parse.parse_qs(
+      urllib.parse.urlsplit(dl_req_info.value.url).query
+  )
+  assert dl_query.get("run") == [tpu_run]
   assert_healthy(page, browser_errors, "download_hlo_query_run")
 
 
@@ -650,13 +666,17 @@ def test_utilization_and_perf_counters_csv_export_include_host(
     save_btn.click()
     expect(page.locator("body")).to_have_attribute(
         "data-last-csv-url",
-        re.compile(r"/data/plugin/profile/data_csv\?.*host=perf-node-1"),
+        re.compile(r"/data/plugin/profile/data_csv\?"),
         timeout=5000,
     )
     csv_url = page.locator("body").get_attribute("data-last-csv-url")
     assert csv_url is not None
-    csv_resp = page.request.get(f"{server_url.rstrip('/')}{csv_url}")
-    assert csv_resp.status == 200 and len(csv_resp.body()) > 0
+    csv_query = urllib.parse.parse_qs(urllib.parse.urlsplit(csv_url).query)
+    assert csv_query.get("host") == ["perf-node-1"]
+    csv_response = page.request.get(
+        urllib.parse.urljoin(server_url.rstrip("/") + "/", csv_url)
+    )
+    assert csv_response.status == 200 and len(csv_response.body()) > 0
   finally:
     page.evaluate(
         "() => {"
@@ -666,4 +686,55 @@ def test_utilization_and_perf_counters_csv_export_include_host(
         "}"
     )
   assert_healthy(page, browser_errors, f"{tag}_csv_export_host")
+
+
+@pytest.mark.parametrize(
+    "path_template,expected_base",
+    [
+        (
+            "/proxy/sub/data/plugin/profile/stack_trace_page/run1",
+            "/proxy/sub/data/plugin/profile/",
+        ),
+        ("/proxy/data/plugin/profile", "/proxy/data/plugin/profile/"),
+        ("/data/plugin/profile/", "/data/plugin/profile/"),
+        ("//evil.example/data/plugin/profile/", "/data/plugin/profile/"),
+        (
+            "//{netloc}//evil.example/data/plugin/profile/",
+            "/data/plugin/profile/",
+        ),
+    ],
+)
+def test_index_html_resolves_same_origin_base_href(
+    page: Page,
+    server_url: str,
+    browser_errors: BrowserErrors,
+    path_template: str,
+    expected_base: str,
+) -> None:
+  """Verifies index.html rewrites <base href> only for same-origin prefixes."""
+  index_response = page.request.get(
+      f"{server_url.rstrip('/')}/data/plugin/profile/index.html"
+  )
+  assert index_response.status == 200
+  index_html = index_response.text()
+  server_parts = urllib.parse.urlsplit(server_url)
+  request_path = path_template.format(netloc=server_parts.netloc)
+  browser_errors.ignore("net::ERR_FAILED")
+
+  def serve_index_only(route: Route) -> None:
+    if route.request.resource_type == "document":
+      route.fulfill(status=200, content_type="text/html", body=index_html)
+    else:
+      route.abort()
+
+  page.route("**/*", serve_index_only)
+  try:
+    page.goto(
+        f"{server_parts.scheme}://{server_parts.netloc}{request_path}",
+        wait_until="domcontentloaded",
+    )
+    expect(page.locator("head > base")).to_have_attribute("href", expected_base)
+  finally:
+    page.unroute("**/*", serve_index_only)
+  browser_errors.assert_clean("index_html_base_href")
 

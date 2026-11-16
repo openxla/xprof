@@ -171,13 +171,16 @@ export class DataServiceV2 implements DataServiceV2Interface {
   ): HttpParams {
     // Update searchparams with the updated run, tag and host.
     // In a Single Page App, we need to update the searchparams with the updated
-    // run, tag and host on tool change for consistency.
+    // run, tag and host on tool change for consistency. An empty host clears
+    // the persisted host; requests that skip the update keep it.
     const searchParams = this.getSearchParams();
 
     searchParams.set('run', run);
     searchParams.set('tag', tag);
     if (host) {
       searchParams.set('host', host);
+    } else {
+      searchParams.delete('host');
     }
     const hosts = parameters.get('hosts');
     if (typeof hosts === 'string') {

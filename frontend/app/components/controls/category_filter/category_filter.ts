@@ -41,15 +41,21 @@ export class CategoryFilter implements OnChanges {
     this.columnIndex = this.dataTable.getColumnIndex(this.column);
     if (this.columnIndex !== -1) {
       this.columnLabel = this.dataTable.getColumnLabel(this.columnIndex);
-      const values = new Set<number|string>();
+      const values = new Set<number|string|boolean>();
+      const seenLower = new Set<string>();
       const numRows = this.dataTable.getNumberOfRows();
       for (let i = 0; i < numRows; ++i) {
         const v = this.dataTable.getValue(i, this.columnIndex);
-        if (v === null) continue;
+        if (v == null) continue;
         if (this.valueSeparator) {
-          (v as string).split(this.valueSeparator).forEach(value => {
-            values.add(value);
-          });
+          for (const value of String(v).split(this.valueSeparator)) {
+            if (!value) continue;
+            const lower = value.toLowerCase();
+            if (!seenLower.has(lower)) {
+              seenLower.add(lower);
+              values.add(value);
+            }
+          }
         } else {
           values.add(v);
         }
@@ -58,12 +64,26 @@ export class CategoryFilter implements OnChanges {
       if (this.dataTable.getColumnType(this.columnIndex) === 'number') {
         this.options.sort((a, b) => (a as number) - (b as number));
       } else {
-        this.options.sort();
+        // Same order as the default sort, which compares string forms.
+        this.options.sort((a, b) => {
+          const left = String(a);
+          const right = String(b);
+          return left < right ? -1 : left > right ? 1 : 0;
+        });
       }
       if (this.all) {
         this.options.unshift(this.all);
       }
-      if (this.initValue) {
+      const hasInitValue = this.initValue !== '' && this.initValue != null;
+      if (hasInitValue && this.valueSeparator) {
+        // Separator options are deduped ignoring case, so match the initial
+        // value the same way. Single-value cells keep exact matching.
+        const initValue = String(this.initValue).toLowerCase();
+        this.value =
+            this.options.find(
+                (option) => String(option).toLowerCase() === initValue) ??
+            this.initValue;
+      } else if (hasInitValue) {
         this.value = this.initValue;
       } else {
         this.value = this.options[0];
@@ -83,13 +103,13 @@ export class CategoryFilter implements OnChanges {
     if (!this.all || this.value !== this.all) {
       if (this.valueSeparator) {
         const separator = this.valueSeparator;
-        const searchToken =
-            `${separator}${this.value ?? ''}${separator}`.toLowerCase();
+        const target = String(this.value ?? '').toLowerCase();
         filter.test = (value: unknown): boolean =>
             value != null &&
-            `${separator}${value}${separator}`
-                .toLowerCase()
-                .includes(searchToken);
+            target !== '' &&
+            String(value)
+                .split(separator)
+                .some((item) => item.toLowerCase() === target);
       } else {
         filter.value = this.value;
       }

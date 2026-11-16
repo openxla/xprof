@@ -1,6 +1,9 @@
 import {Component, inject, Injector, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
-import {getSessionIdFromParams} from 'org_xprof/frontend/app/common/utils/utils';
+import {
+  createSessionIdResolver,
+  getSessionIdFromParams,
+} from 'org_xprof/frontend/app/common/utils/utils';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {combineLatest, of, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
@@ -56,14 +59,15 @@ export class StackTracePage implements OnDestroy {
         .subscribe((isAvailable) => {
           this.sourceCodeServiceIsAvailable = isAvailable;
         });
+    const resolveSessionId = createSessionIdResolver(this.sessionIdKey);
     combineLatest([
       this.route.params ?? of({}),
       this.route.queryParams ?? of({}),
     ])
         .pipe(takeUntil(this.destroyed))
         .subscribe(([params, queryParams]) => {
-          this.sessionId = getSessionIdFromParams(
-              params, queryParams, this.sessionId, this.sessionIdKey);
+          this.sessionId =
+              resolveSessionId(params, queryParams, this.sessionId);
           this.processQueryParams(queryParams);
         });
   }

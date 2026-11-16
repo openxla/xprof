@@ -5,19 +5,29 @@
   <title>XProf</title>
   <base href="/data/plugin/profile/">
   <script>
-    const base = document.querySelector("base");
-    const match = document.location.pathname.match(
-      /^(.*?)\/data\/plugin\/profile(?:\/|$)/
-    );
-    if (base && match && match[1]) {
-      const resolved = new URL(
-        match[1] + "/data/plugin/profile/",
-        document.location.origin
-      );
-      if (resolved.origin === document.location.origin) {
-        base.setAttribute("href", resolved.pathname);
+    (() => {
+      try {
+        const base = document.querySelector("base");
+        const match = document.location.pathname.match(
+          /^(.*?)\/data\/plugin\/profile(?:\/|$)/
+        );
+        if (base && match && match[1]) {
+          const resolved = new URL(
+            match[1] + "/data/plugin/profile/",
+            document.location.href
+          );
+          if (
+            resolved.origin === document.location.origin &&
+            resolved.pathname.startsWith("/") &&
+            !resolved.pathname.startsWith("//")
+          ) {
+            base.setAttribute("href", resolved.pathname);
+          }
+        }
+      } catch {
+        // Keep the static default <base href> if URL resolution fails.
       }
-    }
+    })();
   </script>
 
   <meta name="viewport" content="width=device-width, initial-scale=1">

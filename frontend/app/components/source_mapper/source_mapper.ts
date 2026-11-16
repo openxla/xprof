@@ -97,9 +97,9 @@ export class SourceMapper implements OnDestroy, OnChanges {
     this.store
       .select(getProfilerConfig)
       .pipe(takeUntil(this.destroyed))
-      .subscribe((config: ProfilerConfig) => {
+      .subscribe((config: ProfilerConfig | null) => {
         if (!config) return;
-        this.srcPathPrefix = config.srcPathPrefix;
+        this.srcPathPrefix = config.srcPathPrefix ?? '';
       });
   }
 

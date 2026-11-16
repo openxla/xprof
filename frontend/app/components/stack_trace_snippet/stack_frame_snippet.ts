@@ -25,6 +25,7 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
   private readonly sourceCodeService: SourceCodeServiceInterface =
       inject(SOURCE_CODE_SERVICE_INTERFACE_TOKEN);
   private readonly destroy$ = new Subject<void>();
+  private readonly reload$ = new Subject<void>();
   private sessionId: string|undefined = undefined;
   frame: Content|undefined = undefined;
   failure: string|undefined = undefined;
@@ -35,14 +36,15 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
 
 
   constructor() {
+    const resolveSessionId = utils.createSessionIdResolver();
     combineLatest([
       this.route.params ?? of({}),
       this.route.queryParams ?? of({}),
     ])
         .pipe(takeUntil(this.destroy$))
         .subscribe(([params, queryParams]) => {
-          const nextSessionId = utils.getSessionIdFromParams(
-              params, queryParams, this.sessionId);
+          const nextSessionId =
+              resolveSessionId(params, queryParams, this.sessionId ?? '');
           if (nextSessionId !== (this.sessionId ?? '')) {
             this.sessionId = nextSessionId;
             this.reload();
@@ -92,16 +94,18 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
   }
 
   private reload() {
+    this.reload$.next();
     this.frame = undefined;
     this.failure = undefined;
     this.codeSearchLink = undefined;
+    this.codeSearchLinkTooltip = undefined;
     this.lineNumberToMetricMap = undefined;
     if (!this.sessionId || !this.sourceCodeSnippetAddress) {
       return;
     }
     this.sourceCodeService
         .loadContent(this.sessionId, this.sourceCodeSnippetAddress)
-        .pipe(takeUntil(this.destroy$))
+        .pipe(takeUntil(this.reload$), takeUntil(this.destroy$))
         .subscribe({
           next: (frame) => {
             this.frame = frame;
@@ -126,7 +130,7 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
         .codeSearchLink(
             this.sessionId, this.sourceCodeSnippetAddress.fileName,
             this.sourceCodeSnippetAddress.lineNumber, this.srcPathPrefix)
-        .pipe(takeUntil(this.destroy$))
+        .pipe(takeUntil(this.reload$), takeUntil(this.destroy$))
         .subscribe({
           next: (link) => {
             this.codeSearchLink = link;

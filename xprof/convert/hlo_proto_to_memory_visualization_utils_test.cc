@@ -1733,6 +1733,63 @@ TEST(MemoryViewerTest, ThreadLocalAllocationsAreNotIndefinite) {
   EXPECT_EQ(preprocess_result.indefinite_lifetimes_size(), 1);
 }
 
+TEST(MemoryViewerDeathTest, DuplicateBufferAllocationIndex) {
+  static constexpr char kHloDuplicateAllocationIndex[] = R"pb(
+    hlo_module {
+      name: "test_module"
+      entry_computation_name: "test_computation"
+      computations {
+        name: "test_computation"
+        instructions {
+          name: "p1"
+          id: 1
+          shape { element_type: F32 }
+        }
+        instructions {
+          name: "p2"
+          id: 2
+          shape { element_type: F32 }
+        }
+      }
+    }
+    buffer_assignment {
+      logical_buffers {
+        id: 1
+        size: 8
+        color: 0
+        defined_at { instruction_id: 1 }
+      }
+      logical_buffers {
+        id: 2
+        size: 8
+        color: 0
+        defined_at { instruction_id: 2 }
+      }
+      buffer_allocations {
+        index: 7
+        size: 8
+        color: 0
+        assigned { logical_buffer_id: 1 offset: 0 size: 8 }
+      }
+      buffer_allocations {
+        index: 7
+        size: 8
+        color: 0
+        assigned { logical_buffer_id: 2 offset: 0 size: 8 }
+      }
+      heap_simulator_traces {
+        events { kind: ALLOC buffer_id: 1 }
+      }
+    }
+  )pb";
+  xla::HloProto hlo_proto;
+  ASSERT_TRUE(
+      ParseTextFormatFromString(kHloDuplicateAllocationIndex, &hlo_proto).ok());
+  EXPECT_DEBUG_DEATH(
+      EXPECT_TRUE(ConvertHloProtoToPreprocessResult(hlo_proto).ok()),
+      "Duplicate buffer_allocation index 7");
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

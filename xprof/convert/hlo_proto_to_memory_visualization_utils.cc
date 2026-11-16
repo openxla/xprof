@@ -375,6 +375,11 @@ class HloProtoBufferWrapper {
 
     for (const auto& buffer_allocation :
          hlo_proto_.buffer_assignment().buffer_allocations()) {
+      if (id_to_buffer_allocation_.contains(buffer_allocation.index())) {
+        LOG(DFATAL) << "Duplicate buffer_allocation index "
+                    << buffer_allocation.index();
+        continue;
+      }
       auto& buffer_allocation_s =
           id_to_buffer_allocation_[buffer_allocation.index()];
       buffer_allocation_s =

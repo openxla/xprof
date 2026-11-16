@@ -50,7 +50,7 @@ def _cache_path_for_query(parent: pathlib.Path, query: str) -> pathlib.Path:
 
 
 def _create_multi_file_error(
-    search_target: pathlib.Path, all_files: Sequence[str]
+    search_target: pathlib.Path | str, all_files: Sequence[str]
 ) -> NotImplementedError:
   displayed_files = pprint.pformat(all_files[:_MAX_DISPLAY_FILES], indent=2)
   truncation_msg = (
@@ -66,15 +66,26 @@ def _create_multi_file_error(
   )
 
 
+def _reject_gcs_path(path: pathlib.Path | str | None) -> None:
+  """Raises ValueError if `path` is a `gs://` URI."""
+  if isinstance(path, str) and path.startswith("gs://"):
+    raise ValueError(
+        "Events DB creation from gs:// paths is not supported. Download the"
+        " trace locally first."
+    )
+
+
 def _resolve_input_path(
     client: xprof_client.LocalXprofClient,
     source: str | None,
 ) -> pathlib.Path:
   """Resolves the input trace file path for the events DB."""
+  _reject_gcs_path(source)
   if source and (source_path := pathlib.Path(source).expanduser()).is_file():
     search_target = source_path
   else:
     search_target = client.get_run_dir(source)
+  _reject_gcs_path(search_target)
 
   input_path, *must_be_empty = client.get_xspace_paths(search_target)
   if must_be_empty:

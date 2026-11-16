@@ -53,6 +53,7 @@ pytype_library(
     # strict_deps = False,
     visibility = ["//visibility:public"],
     deps = [
+        "//plugin/xprof:profile_io",
         "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal:trace_selection",
         "//plugin/xprof/convert:raw_to_tool_data",

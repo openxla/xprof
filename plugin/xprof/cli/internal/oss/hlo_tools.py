@@ -28,6 +28,21 @@ from xprof.cli.internal import hlo_graph_db
 from . import xprof_client
 
 
+def _require_local_run_dir(run_dir: pathlib.Path | str) -> pathlib.Path:
+  """Ensures `run_dir` is a local Path and rejects `gs://` URIs."""
+  if isinstance(run_dir, str) and run_dir.startswith("gs://"):
+    raise ValueError(
+        "HLO proto extraction from gs:// paths is not supported because it"
+        " writes .hlo_proto.pb files into the run directory. Download the"
+        " trace locally to use HLO proto tools."
+    )
+  if not isinstance(run_dir, pathlib.Path):
+    raise TypeError(
+        f"Expected local pathlib.Path, got {type(run_dir).__name__}"
+    )
+  return run_dir
+
+
 def generate_hlo_protos(session_id: str) -> str:
   """Generates local <module_name>.hlo_proto.pb files from the XPlane traces.
 
@@ -38,7 +53,7 @@ def generate_hlo_protos(session_id: str) -> str:
     A string indicating if the HLO protos were generated or already existed.
   """
   client = xprof_client.get_client()
-  run_dir = client.get_run_dir(session_id)
+  run_dir = _require_local_run_dir(client.get_run_dir(session_id))
 
   if any(run_dir.glob("*.hlo_proto.pb")) or any(
       run_dir.glob("**/*.hlo_proto.pb")
@@ -61,7 +76,7 @@ def get_hlo_proto_files(session_id: str) -> Sequence[pathlib.Path]:
   """
   generate_hlo_protos(session_id)
   client = xprof_client.get_client()
-  run_dir = client.get_run_dir(str(session_id))
+  run_dir = _require_local_run_dir(client.get_run_dir(str(session_id)))
   files = list(run_dir.glob("*.hlo_proto.pb"))
   if not files:
     files = list(run_dir.glob("**/*.hlo_proto.pb"))

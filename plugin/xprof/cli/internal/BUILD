@@ -30,7 +30,10 @@ pytype_strict_library(
 pytype_strict_library(
     name = "decorators",
     srcs = ["decorators.py"],
-    deps = ["@absl_py//absl/logging"],
+    deps = [
+        "//plugin/xprof:profile_io",
+        "@absl_py//absl/logging",
+    ],
 )
 
 pytype_strict_library(

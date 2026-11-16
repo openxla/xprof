@@ -9,9 +9,29 @@
 # Standalone PyPI / Open-Source CLI
 xprof <command> <path_to_trace_or_logdir> [flags...]
 
+# Directly analyze traces stored on Google Cloud Storage (gs://)
+xprof get_overview gs://<bucket>/<path_to_trace_or_run_dir>
+xprof get_overview --logdir=gs://<bucket>/<logdir> [--session_id=<run_name>]
+
 # In Google3 monorepo
 bazel run //third_party/xprof/plugin/xprof/cli:xprof_cli -- <command> <path_to_trace> [flags...]
 ```
+
+> **GCS (`gs://`) Support:** Authenticate with Application Default Credentials
+> (`gcloud auth application-default login`) before reading `gs://` URIs.
+>
+> *   **Supported on `gs://`:** Converter-backed commands (`get_overview`,
+>     `get_roofline_model`, `get_memory_profile`, `get_top_hlo_ops`,
+>     `get_kpi_metrics`, `get_hosts`, etc.) and XPlane-inspection commands
+>     (`list_xplane_events`, `aggregate_xplane_events`, `get_xspace_proto`,
+>     `get_kernel_stats`) accept `gs://` file, run-directory, and `--logdir`
+>     URIs natively without writing cache files back to the bucket.
+> *   **Local paths only:** HLO-proto extraction commands (`get_hlo_text`,
+>     `get_hlo_module_content`, `get_hlo_neighborhood`, `detect_*`), Events DB
+>     commands, and `upload_trace` require local paths.
+> *   **Local mirror cache:** Downloaded GCS traces are cached locally under
+>     `$TMPDIR/xprof_cli_cache_<user>/gcs` (default `/tmp/xprof_cli_cache_<user>/gcs`)
+>     keyed by blob generation. Remove that directory to reclaim disk space.
 
 ## Available Commands
 

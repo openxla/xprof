@@ -1,4 +1,5 @@
 import dataclasses
+import importlib
 import inspect
 import io
 import json
@@ -761,6 +762,41 @@ class XProfCliTest(parameterized.TestCase):
     self.assertNotIn('traceback', payload)
     mock_stderr.write.assert_called()
     self.assertIn('INVALID_VALUE', mock_stderr.write.call_args[0][0])
+
+  def test_main_get_overview_gcs_skips_local_check(self):
+    fake_client = mock.MagicMock()
+    fake_client.is_local_session.return_value = True
+    fake_client.select_paths.return_value = ['gs://bucket/run/host0.xplane.pb']
+    fake_client.describe_capture.return_value = {
+        'input': 'gs://bucket/run',
+        'run': 'run',
+        'files_used': ['host0'],
+        'files_available': ['host0'],
+        'combined': False,
+        'warnings': [],
+    }
+    fake_client.fetch.return_value = (
+        'application/json',
+        json.dumps([{'p': {'steptime_ms_average': '1.0'}}]),
+    )
+    real_xprof_client = importlib.import_module(
+        xprof_cli.xprof_client._module_name
+    )
+    with (
+        mock.patch.object(
+            real_xprof_client, 'get_client', return_value=fake_client
+        ),
+        mock.patch('sys.stdout') as mock_stdout,
+    ):
+      xprof_cli.main(['xprof', 'get_overview', 'gs://bucket/run'])
+    fake_client.fetch.assert_any_call(
+        tool_name='overview_page',
+        session_id='gs://bucket/run',
+        format='json',
+        bypass_cache=False,
+    )
+    output = ''.join(call[0][0] for call in mock_stdout.write.call_args_list)
+    self.assertIn('steptime_ms_average', output)
 
   @mock.patch.object(
       xprof_cli.fire, 'Fire', side_effect=RuntimeError('Unexpected failure')

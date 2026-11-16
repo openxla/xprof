@@ -33,6 +33,7 @@ try:
   # pylint: disable=g-import-not-at-top
   import google.auth as google_auth  # type: ignore
   from google.api_core import exceptions as gcs_exceptions  # type: ignore
+  from google.auth import exceptions as google_auth_exceptions  # pyrefly: ignore[missing-import]
   from google.auth.transport import requests as google_auth_requests  # type: ignore
   from google.cloud import storage  # type: ignore
 except ImportError:
@@ -40,9 +41,28 @@ except ImportError:
       'Google Cloud Storage not found. GCS paths will not be supported.'
   )
   google_auth = None
+  google_auth_exceptions = None
   google_auth_requests = None
   gcs_exceptions = None
   storage = None
+
+
+def _translate_gcs_error(err: Exception, gcs_path: str) -> Exception:
+  """Translates raw GCS/auth exceptions into actionable standard errors."""
+  if gcs_exceptions is not None and isinstance(err, gcs_exceptions.NotFound):
+    return FileNotFoundError(f'Path not found: {gcs_path}')
+  auth_err_cls = (
+      google_auth_exceptions.DefaultCredentialsError
+      if google_auth_exceptions is not None
+      else ()
+  )
+  forbidden_cls = gcs_exceptions.Forbidden if gcs_exceptions is not None else ()
+  if isinstance(err, (auth_err_cls, forbidden_cls)):
+    return PermissionError(
+        'Access denied or missing Application Default Credentials for'
+        f' {gcs_path}. Run `gcloud auth application-default login`: {err}'
+    )
+  return err
 
 
 @functools.lru_cache(maxsize=None)
@@ -50,15 +70,23 @@ def get_storage_client():
   """Returns a memoized storage client instance."""
   if storage is None:
     raise RuntimeError(
-        'Google Cloud Storage libraries not found. gs:// paths are not'
-        ' supported.'
+        'Google Cloud Storage libraries not found. gs:// paths require'
+        ' google-cloud-storage (`pip install google-cloud-storage`) and'
+        ' Application Default Credentials (`gcloud auth application-default'
+        ' login`).'
     )
 
   # google-auth tries to use pyOpenSSL for mTLS client
   # certificates, but pyOpenSSL is incompatible with urllib3 >= 2.7.
   # xprof only reads GCS blobs — mutual TLS is not required.
   if google_auth is not None and google_auth_requests is not None:
-    credentials, project = google_auth.default()
+    try:
+      credentials, project = google_auth.default()
+    except Exception as err:
+      translated = _translate_gcs_error(err, 'gs://')
+      if translated is not err:
+        raise translated from err
+      raise
     http_session = google_auth_requests.AuthorizedSession(credentials)
     return storage.Client(
         project=project, credentials=credentials, _http=http_session
@@ -77,6 +105,153 @@ def _list_gcs_dir(storage_client, gcs_path: str):
       bucket_name, prefix=prefix, delimiter='/'
   )
   return list(iterator), iterator.prefixes, bucket_name
+
+
+TRACE_SUFFIXES: tuple[str, ...] = ('.xplane.pb', '.xspace.pb')
+
+
+def is_gcs_path(path: Any) -> bool:
+  """Returns True if `path` is a `gs://` URI string."""
+  return isinstance(path, str) and path.startswith('gs://')
+
+
+def parse_gcs_path(gcs_path: str) -> tuple[str, str]:
+  """Splits `gs://bucket/path/to/obj` into `(bucket_name, object_path)`."""
+  path_no_prefix = gcs_path.removeprefix('gs://')
+  bucket_name, _, blob_path = path_no_prefix.partition('/')
+  return bucket_name, blob_path.strip('/')
+
+
+def join_gcs_path(bucket_name: str, blob_path: str) -> str:
+  """Joins a GCS bucket name and object/prefix path into a `gs://` URI."""
+  clean = blob_path.strip('/')
+  return f'gs://{bucket_name}/{clean}' if clean else f'gs://{bucket_name}'
+
+
+def gcs_parent_dir(gcs_path: str) -> str:
+  """Returns the parent `gs://` directory of a `gs://` file path."""
+  bucket_name, blob_path = parse_gcs_path(gcs_path)
+  if '/' not in blob_path:
+    return f'gs://{bucket_name}'
+  parent_blob = blob_path.rsplit('/', 1)[0]
+  return f'gs://{bucket_name}/{parent_blob}'
+
+
+def gcs_list_subdirs(gcs_dir: str, storage_client=None) -> list[str]:
+  """Lists immediate subdirectory `gs://` URIs under `gcs_dir`."""
+  bucket_name, prefix = parse_gcs_path(gcs_dir)
+  if not bucket_name:
+    return []
+  dir_prefix = f'{prefix}/' if prefix else ''
+  client = (
+      storage_client if storage_client is not None else get_storage_client()
+  )
+  try:
+    iterator = client.list_blobs(bucket_name, prefix=dir_prefix, delimiter='/')
+    list(iterator)
+  except Exception as err:
+    translated = _translate_gcs_error(err, gcs_dir)
+    if translated is not err:
+      raise translated from err
+    raise
+  return sorted(join_gcs_path(bucket_name, p) for p in iterator.prefixes)
+
+
+def gcs_prefix_exists(gcs_dir: str, storage_client=None) -> bool:
+  """Returns True if any GCS object exists under `gcs_dir`."""
+  bucket_name, prefix = parse_gcs_path(gcs_dir)
+  if not bucket_name:
+    return False
+  dir_prefix = f'{prefix}/' if prefix else ''
+  client = (
+      storage_client if storage_client is not None else get_storage_client()
+  )
+  try:
+    return any(client.list_blobs(bucket_name, prefix=dir_prefix, max_results=1))
+  except Exception as err:
+    translated = _translate_gcs_error(err, gcs_dir)
+    if translated is not err:
+      raise translated from err
+    raise
+
+
+def gcs_blob_exists(gcs_file: str, storage_client=None) -> bool:
+  """Returns True if the GCS object at `gcs_file` exists."""
+  bucket_name, blob_path = parse_gcs_path(gcs_file)
+  if not bucket_name or not blob_path:
+    return False
+  client = (
+      storage_client if storage_client is not None else get_storage_client()
+  )
+  try:
+    return client.bucket(bucket_name).blob(blob_path).exists()
+  except Exception as err:
+    translated = _translate_gcs_error(err, gcs_file)
+    if translated is not err:
+      raise translated from err
+    raise
+
+
+def gcs_find_trace_blobs(gcs_dir: str, storage_client=None) -> list[Any]:
+  """Recursively finds `.xplane.pb` and `.xspace.pb` blobs under `gcs_dir`."""
+  bucket_name, prefix = parse_gcs_path(gcs_dir)
+  if not bucket_name:
+    return []
+  dir_prefix = f'{prefix}/' if prefix else ''
+  client = (
+      storage_client if storage_client is not None else get_storage_client()
+  )
+  try:
+    blobs = client.list_blobs(bucket_name, prefix=dir_prefix)
+    by_name = {
+        blob.name: blob for blob in blobs if blob.name.endswith(TRACE_SUFFIXES)
+    }
+  except Exception as err:
+    translated = _translate_gcs_error(err, gcs_dir)
+    if translated is not err:
+      raise translated from err
+    raise
+  return [by_name[name] for name in sorted(by_name)]
+
+
+def gcs_find_traces(gcs_dir: str, storage_client=None) -> list[str]:
+  """Recursively finds `.xplane.pb` and `.xspace.pb` URIs under `gcs_dir`."""
+  bucket_name, _ = parse_gcs_path(gcs_dir)
+  if not bucket_name:
+    return []
+  return [
+      join_gcs_path(bucket_name, blob.name)
+      for blob in gcs_find_trace_blobs(gcs_dir, storage_client=storage_client)
+  ]
+
+
+def gcs_resolve_latest_run_dir(gcs_dir: str, storage_client=None) -> str:
+  """Resolves `<gcs_dir>/plugins/profile/<latest_run>` if present."""
+  clean_dir = gcs_dir.rstrip('/')
+  plugins_subdirs = gcs_list_subdirs(
+      f'{clean_dir}/plugins/profile', storage_client=storage_client
+  )
+  if plugins_subdirs:
+    return plugins_subdirs[-1]
+  return clean_dir
+
+
+def gcs_read_bytes(gcs_file: str, storage_client=None) -> bytes:
+  """Downloads raw bytes from a `gs://` object URI."""
+  bucket_name, blob_path = parse_gcs_path(gcs_file)
+  if not bucket_name or not blob_path:
+    raise FileNotFoundError(f'Path not found: {gcs_file}')
+  client = (
+      storage_client if storage_client is not None else get_storage_client()
+  )
+  blob = client.bucket(bucket_name).blob(blob_path)
+  try:
+    return blob.download_as_bytes()
+  except Exception as err:
+    translated = _translate_gcs_error(err, gcs_file)
+    if translated is not err:
+      raise translated from err
+    raise
 
 
 class ProfileFileSystem(abc.ABC):

@@ -187,6 +187,12 @@ class OssUploadTraceToolTest(unittest.TestCase):
     self.assertEqual(res.get('status'), 'success')
     self.assertEqual(res.get('run_name'), 'tagged_run')
 
+  def test_upload_trace_rejects_gcs_logdir(self) -> None:
+    """Tests that upload_trace rejects a gs:// logdir."""
+    self.client.set_logdir('gs://my-bucket/logdir')
+    with self.assertRaisesRegex(ValueError, 'requires a local logdir'):
+      upload_trace_tool.upload_trace(str(self.src_file), run_name='gcs_run')
+
 
 if __name__ == '__main__':
   unittest.main()

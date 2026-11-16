@@ -10,6 +10,7 @@ import pathlib
 import tempfile
 from typing import Any
 
+from xprof import profile_io
 from xprof.cli.internal import trace_selection
 
 # pylint: disable=g-import-not-at-top
@@ -22,6 +23,72 @@ try:
   from xprof.convert import raw_to_tool_data as convert  # pyrefly: ignore[missing-import]
 except ImportError:
   from xprof.convert import raw_to_tool_data as convert  # pyrefly: ignore[missing-import]
+
+
+_TRACE_SUFFIXES = profile_io.TRACE_SUFFIXES
+
+
+def _path_basename(path: pathlib.Path | str) -> str:
+  """Returns the final path component for a local Path or `gs://` URI."""
+  if isinstance(path, pathlib.Path):
+    return path.name
+  return path.rstrip("/").rsplit("/", 1)[-1]
+
+
+def _normalize_gcs_uri(gcs_path: str) -> str:
+  """Normalizes a `gs://` URI and validates that a bucket name is present."""
+  path_no_prefix = gcs_path.removeprefix("gs://").strip("/")
+  if not path_no_prefix:
+    raise ValueError(f"Invalid GCS URI (missing bucket name): {gcs_path!r}")
+  return f"gs://{path_no_prefix}"
+
+
+def _format_14digit_session_id(session_id: str) -> str | None:
+  """Formats a 14-digit timestamp session ID into `YYYY_MM_DD_HH_MM_SS`."""
+  if len(session_id) == 14 and session_id.isdigit():
+    return (
+        f"{session_id[:4]}_{session_id[4:6]}_{session_id[6:8]}"
+        f"_{session_id[8:10]}_{session_id[10:12]}_{session_id[12:14]}"
+    )
+  return None
+
+
+def _resolve_run_dir_candidates(
+    logdir: Any,
+    session_id: str | None,
+    *,
+    join_fn: Any,
+    exists_fn: Any,
+    list_subdirs_fn: Any,
+) -> Any:
+  """Resolves a session_id against `logdir` using pluggable path operations."""
+  if not session_id:
+    plugins_subdirs = list_subdirs_fn(join_fn(logdir, "plugins", "profile"))
+    if plugins_subdirs:
+      return plugins_subdirs[-1]
+    return logdir
+
+  session_id_str = str(session_id)
+  candidates = [join_fn(logdir, "plugins", "profile", session_id_str)]
+  formatted_id = _format_14digit_session_id(session_id_str)
+  if formatted_id:
+    candidates.append(join_fn(logdir, "plugins", "profile", formatted_id))
+  candidates.append(join_fn(logdir, session_id_str))
+
+  for candidate in candidates:
+    if exists_fn(candidate):
+      return candidate
+  raise FileNotFoundError(
+      f"Run directory not found for session {session_id!r} in {logdir}"
+  )
+
+
+def read_trace_bytes(path: str | os.PathLike[str]) -> bytes:
+  """Reads raw trace bytes from a local path or `gs://` URI."""
+  if profile_io.is_gcs_path(path):
+    return profile_io.gcs_read_bytes(str(path))
+  with open(path, "rb") as f:
+    return f.read()
 
 
 KNOWN_TOOLS: frozenset[str] = frozenset({
@@ -85,7 +152,12 @@ class LocalXprofClient:
       logdir: The base directory where profile runs are stored. Typically, runs
         are in <logdir>/plugins/profile/<run_name>.
     """
-    self._logdir = pathlib.Path(logdir).expanduser() if logdir else None
+    if not logdir:
+      self._logdir: pathlib.Path | str | None = None
+    elif profile_io.is_gcs_path(logdir):
+      self._logdir = _normalize_gcs_uri(logdir)
+    else:
+      self._logdir = pathlib.Path(logdir).expanduser()
 
   def set_logdir(self, logdir: str | None):
     """Sets the log directory for the client.
@@ -93,34 +165,67 @@ class LocalXprofClient:
     Args:
       logdir: The base directory where profile runs are stored.
     """
-    self._logdir = (
-        pathlib.Path(logdir).expanduser() if logdir is not None else None
-    )
+    if logdir is None:
+      self._logdir = None
+    elif profile_io.is_gcs_path(logdir):
+      self._logdir = _normalize_gcs_uri(logdir)
+    else:
+      self._logdir = pathlib.Path(logdir).expanduser()
 
   @property
-  def logdir(self) -> pathlib.Path | None:
+  def logdir(self) -> pathlib.Path | str | None:
     """The current logdir."""
     return self._logdir
 
   def is_local_session(self, session_id: str) -> bool:
-    """Returns True; every OSS session is served from local trace files."""
+    """Returns True; every OSS session is served from local or GCS trace files."""
     del session_id
     return True
 
-  def get_run_dir(self, session_id: str | None = None) -> pathlib.Path:
+  def _resolve_gcs_run_dir_with_logdir(
+      self, logdir: str, session_id: str | None
+  ) -> str:
+    """Resolves a session_id against a GCS `logdir`."""
+    return _resolve_run_dir_candidates(
+        logdir,
+        session_id,
+        join_fn=lambda base, *parts: "/".join(
+            [base.rstrip("/"), *(p.strip("/") for p in parts)]
+        ),
+        exists_fn=profile_io.gcs_prefix_exists,
+        list_subdirs_fn=profile_io.gcs_list_subdirs,
+    )
+
+  def get_run_dir(self, session_id: str | None = None) -> pathlib.Path | str:
     """Resolves the run directory for a given session_id (run name).
 
     Args:
       session_id: The session ID, run name, or direct directory/file path.
 
     Returns:
-      A pathlib.Path to the run directory.
+      A pathlib.Path (for local paths) or `gs://` URI string (for GCS paths)
+      for the run directory.
 
     Raises:
       ValueError: If neither session_id nor logdir is specified.
       FileNotFoundError: If the run directory cannot be found.
     """
     if session_id:
+      if profile_io.is_gcs_path(session_id):
+        gcs_session = _normalize_gcs_uri(session_id)
+        if gcs_session.endswith(_TRACE_SUFFIXES):
+          if profile_io.gcs_blob_exists(gcs_session):
+            return profile_io.gcs_parent_dir(gcs_session)
+          raise FileNotFoundError(f"Path not found: {session_id}")
+        plugins_subdirs = profile_io.gcs_list_subdirs(
+            f"{gcs_session}/plugins/profile"
+        )
+        if plugins_subdirs:
+          return plugins_subdirs[-1]
+        if profile_io.gcs_prefix_exists(gcs_session):
+          return gcs_session
+        raise FileNotFoundError(f"Path not found: {session_id}")
+
       try:
         session_path = pathlib.Path(str(session_id)).expanduser()
         if session_path.is_file() and session_path.exists():
@@ -140,38 +245,23 @@ class LocalXprofClient:
         raise FileNotFoundError(f"Path not found: {session_id}")
       raise ValueError("Logdir not set. Please configure logdir first.")
 
-    if not session_id:
-      plugins_dir = self._logdir / "plugins" / "profile"
-      if plugins_dir.is_dir() and plugins_dir.exists():
-        subdirs = sorted([d for d in plugins_dir.iterdir() if d.is_dir()])
-        if subdirs:
-          return subdirs[-1]
-      return self._logdir
-
-    # Session ID is treated as the run name.
-    # Standard TensorBoard structure: <logdir>/plugins/profile/<run>/.
-    run_dir = self._logdir / "plugins" / "profile" / str(session_id)
-    if not run_dir.exists():
-      # Try fallback to formatted date string if fire stripped underscores.
-      session_id_str = str(session_id)
-      if len(session_id_str) == 14 and session_id_str.isdigit():
-        formatted_id = (
-            f"{session_id_str[:4]}_{session_id_str[4:6]}_{session_id_str[6:8]}"
-            f"_{session_id_str[8:10]}_{session_id_str[10:12]}_{session_id_str[12:14]}"
-        )
-        formatted_dir = self._logdir / "plugins" / "profile" / formatted_id
-        if formatted_dir.exists():
-          return formatted_dir
-
-      # Try fallback to direct logdir/run if plugins/profile is missing.
-      fallback_dir = self._logdir / str(session_id)
-      if fallback_dir.exists():
-        return fallback_dir
-      raise FileNotFoundError(
-          f"Run directory not found for session {session_id!r} in"
-          f" {self._logdir}"
+    if profile_io.is_gcs_path(self._logdir):
+      return self._resolve_gcs_run_dir_with_logdir(
+          str(self._logdir), session_id
       )
-    return run_dir
+    assert isinstance(self._logdir, pathlib.Path)
+
+    return _resolve_run_dir_candidates(
+        self._logdir,
+        session_id,
+        join_fn=lambda base, *parts: base.joinpath(*parts),
+        exists_fn=lambda p: p.exists(),
+        list_subdirs_fn=lambda p: (
+            sorted(d for d in p.iterdir() if d.is_dir())
+            if p.is_dir() and p.exists()
+            else []
+        ),
+    )
 
   def get_xspace_paths(self, run_dir: pathlib.Path | str) -> Sequence[str]:
     """Finds all .xplane.pb or .xspace.pb files in the run directory or path.
@@ -185,6 +275,20 @@ class LocalXprofClient:
     Raises:
       FileNotFoundError: If no .xplane.pb or .xspace.pb files are found.
     """
+    if profile_io.is_gcs_path(run_dir):
+      gcs_path = str(run_dir).rstrip("/")
+      if gcs_path.endswith(_TRACE_SUFFIXES):
+        if profile_io.gcs_blob_exists(gcs_path):
+          return [gcs_path]
+        raise FileNotFoundError(f"Path not found: {run_dir}")
+      resolved_dir = self.get_run_dir(gcs_path)
+      paths = profile_io.gcs_find_traces(str(resolved_dir))
+      if not paths:
+        raise FileNotFoundError(
+            f"No .xplane.pb or .xspace.pb files found in {run_dir}"
+        )
+      return paths
+
     p = pathlib.Path(run_dir).expanduser()
     if p.is_file() and (
         p.name.endswith(".xplane.pb") or p.name.endswith(".xspace.pb")
@@ -195,11 +299,19 @@ class LocalXprofClient:
     # `plugins/profile/<run>` subdirectory and returns other directories
     # unchanged. Short-circuiting on `p.is_dir()` here would silently merge
     # every run under a logdir root.
-    p = self.get_run_dir(str(run_dir))
+    resolved_dir = self.get_run_dir(str(run_dir))
+    if profile_io.is_gcs_path(resolved_dir):
+      paths = profile_io.gcs_find_traces(str(resolved_dir))
+      if not paths:
+        raise FileNotFoundError(
+            f"No .xplane.pb or .xspace.pb files found in {run_dir}"
+        )
+      return paths
+    assert isinstance(resolved_dir, pathlib.Path)
 
     paths = []
     for pattern in ("**/*.xplane.pb", "**/*.xspace.pb"):
-      paths.extend(str(x) for x in p.glob(pattern))
+      paths.extend(str(x) for x in resolved_dir.glob(pattern))
     if not paths:
       raise FileNotFoundError(
           f"No .xplane.pb or .xspace.pb files found in {run_dir}"
@@ -219,6 +331,9 @@ class LocalXprofClient:
       A sorted list of trace paths, with symlinked duplicates removed.
     """
     run_dir = self.get_run_dir(session_id)
+    if profile_io.is_gcs_path(run_dir):
+      return profile_io.gcs_find_traces(str(run_dir))
+    assert isinstance(run_dir, pathlib.Path)
     paths = []
     for pattern in ("**/*.xplane.pb", "**/*.xspace.pb"):
       paths.extend(str(x) for x in run_dir.glob(pattern))
@@ -259,6 +374,15 @@ class LocalXprofClient:
           f" stem instead:\n{format_trace_list(matches)}"
       )
     selected = matches[0]
+    if profile_io.is_gcs_path(session_id) or profile_io.is_gcs_path(selected):
+      session_str = str(session_id).rstrip("/")
+      if session_str.endswith(_TRACE_SUFFIXES) and session_str != selected:
+        raise ValueError(
+            f"Conflicting selection: session is {trace_stem(session_id)!r}"
+            f" but --host selects {trace_stem(selected)!r}. Pass either a file"
+            " path or a directory with --host."
+        )
+      return selected
     session_path = pathlib.Path(str(session_id)).expanduser()
     if session_path.is_file() and os.path.realpath(
         session_path
@@ -315,6 +439,8 @@ class LocalXprofClient:
     """Resolves the run directory and op_stats scope metadata for `session_id`."""
     try:
       run_dir = self.get_run_dir(session_id)
+      if profile_io.is_gcs_path(run_dir):
+        return None
       paths = (
           list(xspace_paths)
           if xspace_paths is not None
@@ -412,20 +538,40 @@ class LocalXprofClient:
     available = self.list_run_traces(session_id)
     warnings: list[str] = []
 
-    input_path = pathlib.Path(str(session_id)).expanduser()
-    plugins_dir = input_path / "plugins" / "profile"
-    if input_path.is_dir() and plugins_dir.is_dir():
-      other_runs = sorted(
-          d.name
-          for d in plugins_dir.iterdir()
-          if d.is_dir() and d.resolve() != run_dir.resolve()
-      )
-      if other_runs:
-        warnings.append(
-            f"Used latest run {run_dir.name!r}; ignored"
-            f" {len(other_runs)} other run(s): {other_runs}. Pass a run"
-            " directory to choose a different run."
+    if profile_io.is_gcs_path(run_dir):
+      if profile_io.is_gcs_path(session_id) and not str(session_id).rstrip(
+          "/"
+      ).endswith(_TRACE_SUFFIXES):
+        plugins_subdirs = profile_io.gcs_list_subdirs(
+            f"{str(session_id).rstrip('/')}/plugins/profile"
         )
+        other_runs = sorted(
+            _path_basename(d)
+            for d in plugins_subdirs
+            if d.rstrip("/") != str(run_dir).rstrip("/")
+        )
+        if other_runs:
+          warnings.append(
+              f"Used latest run {_path_basename(run_dir)!r}; ignored"
+              f" {len(other_runs)} other run(s): {other_runs}. Pass a run"
+              " directory to choose a different run."
+          )
+    else:
+      assert isinstance(run_dir, pathlib.Path)
+      input_path = pathlib.Path(str(session_id)).expanduser()
+      plugins_dir = input_path / "plugins" / "profile"
+      if input_path.is_dir() and plugins_dir.is_dir():
+        other_runs = sorted(
+            d.name
+            for d in plugins_dir.iterdir()
+            if d.is_dir() and d.resolve() != run_dir.resolve()
+        )
+        if other_runs:
+          warnings.append(
+              f"Used latest run {run_dir.name!r}; ignored"
+              f" {len(other_runs)} other run(s): {other_runs}. Pass a run"
+              " directory to choose a different run."
+          )
 
     combined = len(used) > 1
     if combined and combine == "summed":
@@ -450,7 +596,7 @@ class LocalXprofClient:
 
     return {
         "input": str(session_id),
-        "run": run_dir.name,
+        "run": _path_basename(run_dir),
         "files_used": [trace_stem(p) for p in used],
         "files_available": [trace_stem(p) for p in available],
         "combined": combined,
@@ -512,7 +658,12 @@ class LocalXprofClient:
 
     fetch_params = dict(kwargs)
     bypass_cache = fetch_params.pop("bypass_cache", False)
-    run_dir_path = pathlib.Path(run_dir)
+    if profile_io.is_gcs_path(run_dir):
+      run_dir_path, xspace_paths = _mirror_gcs_traces(
+          str(run_dir), xspace_paths
+      )
+    else:
+      run_dir_path = pathlib.Path(run_dir)
     scope = _compute_op_stats_scope(run_dir_path, xspace_paths)
     scope.fp_dir.mkdir(parents=True, exist_ok=True)
 
@@ -647,6 +798,8 @@ class LocalXprofClient:
 
     # For single-host, just return the raw file bytes directly.
     if len(xspace_paths) == 1:
+      if profile_io.is_gcs_path(xspace_paths[0]):
+        return profile_io.gcs_read_bytes(xspace_paths[0])
       with open(xspace_paths[0], "rb") as f:
         return f.read()
 
@@ -662,11 +815,128 @@ def _dedup_by_realpath(paths: Sequence[str]) -> list[str]:
   seen: set[str] = set()
   result: list[str] = []
   for path in sorted(set(paths)):
-    real = os.path.realpath(path)
+    real = path if profile_io.is_gcs_path(path) else os.path.realpath(path)
     if real not in seen:
       seen.add(real)
       result.append(path)
   return result
+
+
+def _safe_gcs_cache_subpath(root: pathlib.Path, *parts: str) -> pathlib.Path:
+  """Safely joins GCS bucket/object components under `root`."""
+  resolved_root = root.resolve()
+  target = resolved_root
+  for part in parts:
+    if not part:
+      continue
+    if "\\" in part or "\x00" in part:
+      raise ValueError(f"Unsafe GCS path component: {part!r}")
+    for seg in part.split("/"):
+      if not seg:
+        continue
+      if seg in (".", ".."):
+        raise ValueError(f"Unsafe GCS path traversal component: {part!r}")
+      target = target / seg
+  resolved_target = target.resolve()
+  if not resolved_target.is_relative_to(resolved_root):
+    raise ValueError(
+        f"GCS cache path escapes root {resolved_root}: {resolved_target}"
+    )
+  return target
+
+
+def _mirror_gcs_traces(
+    run_dir: str, xspace_paths: Sequence[str]
+) -> tuple[pathlib.Path, list[str]]:
+  """Mirrors GCS trace blobs into the local CLI cache, keyed by generation."""
+  try:
+    from xprof.cli.internal import decorators  # pyrefly: ignore[missing-import]
+  except ImportError:
+    from xprof.cli.internal import decorators  # pyrefly: ignore[missing-import]
+
+  gcs_cache_root = decorators.get_cache_dir() / "gcs"
+  gcs_cache_root.mkdir(parents=True, exist_ok=True)
+  bucket_name, run_prefix = profile_io.parse_gcs_path(run_dir)
+  local_run_dir = _safe_gcs_cache_subpath(
+      gcs_cache_root, bucket_name, run_prefix
+  )
+  local_run_dir.mkdir(parents=True, exist_ok=True)
+
+  storage_client = profile_io.get_storage_client()
+  local_paths: list[str] = []
+  for gcs_path in xspace_paths:
+    b_name, blob_path = profile_io.parse_gcs_path(gcs_path)
+    if not b_name or not blob_path:
+      raise FileNotFoundError(f"Path not found: {gcs_path}")
+    if (
+        b_name == bucket_name
+        and run_prefix
+        and blob_path.startswith(f"{run_prefix}/")
+    ):
+      local_file = _safe_gcs_cache_subpath(
+          local_run_dir, blob_path[len(run_prefix) + 1 :]
+      )
+    elif b_name == bucket_name and not run_prefix:
+      local_file = _safe_gcs_cache_subpath(local_run_dir, blob_path)
+    else:
+      local_file = _safe_gcs_cache_subpath(gcs_cache_root, b_name, blob_path)
+
+    local_file.parent.mkdir(parents=True, exist_ok=True)
+    lock_dir = decorators.get_cache_dir() / "gcs_locks"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    file_hash = hashlib.sha256(str(local_file).encode("utf-8")).hexdigest()[:16]
+    precondition_cls = (
+        profile_io.gcs_exceptions.PreconditionFailed
+        if profile_io.gcs_exceptions is not None
+        else ()
+    )
+
+    with _lock_run_dir(lock_dir, file_hash):
+      blob = storage_client.bucket(b_name).get_blob(blob_path)
+      if blob is None:
+        raise FileNotFoundError(f"Path not found: {gcs_path}")
+
+      gen_sig = f"{blob.generation}:{blob.size}"
+      gen_file = local_file.with_name(f"{local_file.name}.gen")
+      if (
+          local_file.exists()
+          and gen_file.exists()
+          and _read_text_or_none(gen_file) == gen_sig
+      ):
+        local_paths.append(str(local_file))
+        continue
+
+      for attempt in range(2):
+        fd, tmp_name = tempfile.mkstemp(
+            dir=local_file.parent, prefix=f".{local_file.name}."
+        )
+        os.close(fd)
+        try:
+          if hasattr(blob, "download_to_filename"):
+            blob.download_to_filename(
+                tmp_name, if_generation_match=blob.generation
+            )
+          else:
+            pathlib.Path(tmp_name).write_bytes(
+                blob.download_as_bytes(if_generation_match=blob.generation)
+            )
+          os.replace(tmp_name, local_file)
+          break
+        except precondition_cls as exc:
+          _unlink_quietly(pathlib.Path(tmp_name))
+          if attempt == 1:
+            raise
+          blob = storage_client.bucket(b_name).get_blob(blob_path)
+          if blob is None:
+            raise FileNotFoundError(f"Path not found: {gcs_path}") from exc
+          gen_sig = f"{blob.generation}:{blob.size}"
+        except Exception:
+          _unlink_quietly(pathlib.Path(tmp_name))
+          raise
+      _atomic_write_text(local_file.parent, gen_file, gen_sig)
+    local_paths.append(str(local_file))
+
+  return local_run_dir, local_paths
 
 
 # Global instance

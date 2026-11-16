@@ -21,6 +21,8 @@ from typing import Any, TypeVar
 
 from absl import logging
 
+from xprof import profile_io
+
 _T = TypeVar("_T")
 
 _UNKNOWN = object()
@@ -385,7 +387,72 @@ def _get_xprof_version() -> str:
   return "unknown"
 
 
-def _resolve_session_path_via_client(val: str) -> pathlib.Path | None:
+_RESOLUTION_CACHE_MAXSIZE = 256
+_RESOLUTION_MEM_CACHE: collections.OrderedDict[
+    tuple[str, str], pathlib.Path | str | None
+] = collections.OrderedDict()
+_PATH_PARAM_NAMES: frozenset[str] = frozenset({
+    "session_id",
+    "path",
+    "run_dir",
+    "trace_path",
+    "input_path",
+    "source",
+    "logdir",
+    "paths",
+    "file_path",
+    "dir_path",
+})
+
+
+def _looks_like_path_or_uri(val: Any) -> bool:
+  """Returns True if `val` looks like a local filesystem path or GCS URI."""
+  if isinstance(val, pathlib.Path):
+    return True
+  if not isinstance(val, str) or not val:
+    return False
+  if val.startswith(("/", "./", "../", "~/", "gs://")):
+    return True
+  if val.endswith((".pb", ".json", ".json.gz", ".parquet")):
+    return True
+  return _safe_path_exists(val)
+
+
+def _resolved_path_still_exists(resolved: pathlib.Path | str) -> bool:
+  """Returns True if a previously resolved local or GCS path still exists."""
+  if isinstance(resolved, str) and resolved.startswith("gs://"):
+    try:
+      if resolved.rstrip("/").endswith(profile_io.TRACE_SUFFIXES):
+        return profile_io.gcs_blob_exists(resolved)
+      return profile_io.gcs_prefix_exists(resolved)
+    except Exception:  # pylint: disable=broad-except
+      return False
+  try:
+    return pathlib.Path(resolved).exists()
+  except (OSError, RuntimeError, ValueError):
+    return False
+
+
+def _get_active_client_logdir() -> Any:
+  """Returns the active client's `_logdir` if an xprof client is loaded."""
+  mod_names = ("xprof.cli.internal.oss.xprof_client",)
+  for mod_name in mod_names:
+    mod = sys.modules.get(mod_name)
+    if mod is None:
+      continue
+    get_client_fn = getattr(mod, "get_client", None)
+    if callable(get_client_fn):
+      try:
+        client = get_client_fn()
+        logdir = getattr(client, "_logdir", None)
+        if logdir:
+          return logdir
+      except Exception:  # pylint: disable=broad-except
+        pass
+  return None
+
+
+def _resolve_session_path_via_client(val: str) -> pathlib.Path | str | None:
   """Dynamically resolves a session ID against the active xprof client if present."""
   mod_names = ("xprof.cli.internal.oss.xprof_client",)
   for mod_name in mod_names:
@@ -403,18 +470,131 @@ def _resolve_session_path_via_client(val: str) -> pathlib.Path | None:
     except Exception:  # pylint: disable=broad-except
       client = None
 
-    if (
-        client
-        and getattr(client, "_logdir", None)
-        and hasattr(client, "get_run_dir")
-    ):
+    logdir = getattr(client, "_logdir", None) if client else None
+    if client and logdir and hasattr(client, "get_run_dir"):
+      # Do not cache empty/logdir-root queries ("latest run" can change).
+      cacheable = bool(val) and str(val).rstrip("/") != str(logdir).rstrip("/")
+      cache_key = (str(logdir), val)
+      if cacheable and cache_key in _RESOLUTION_MEM_CACHE:
+        cached_entry = _RESOLUTION_MEM_CACHE[cache_key]
+        if cached_entry is not None and _resolved_path_still_exists(
+            cached_entry
+        ):
+          _RESOLUTION_MEM_CACHE.move_to_end(cache_key)
+          return cached_entry
+        _RESOLUTION_MEM_CACHE.pop(cache_key, None)
       try:
         resolved = client.get_run_dir(val)
-        if resolved and pathlib.Path(resolved).exists():
-          return pathlib.Path(resolved)
+        result: pathlib.Path | str | None = None
+        if isinstance(resolved, str) and resolved.startswith("gs://"):
+          result = resolved
+        elif resolved and pathlib.Path(resolved).exists():
+          result = pathlib.Path(resolved)
+        if cacheable and result is not None:
+          _RESOLUTION_MEM_CACHE[cache_key] = result
+          _RESOLUTION_MEM_CACHE.move_to_end(cache_key)
+          while len(_RESOLUTION_MEM_CACHE) > _RESOLUTION_CACHE_MAXSIZE:
+            _RESOLUTION_MEM_CACHE.popitem(last=False)
+        return result
       except Exception:  # pylint: disable=broad-except
         pass
   return None
+
+
+def _hash_local_file(hasher: "hashlib._Hash", path_obj: pathlib.Path) -> bool:
+  """Updates `hasher` with local file size and boundary bytes."""
+  try:
+    if not path_obj.is_file():
+      return False
+    st = path_obj.stat()
+    hasher.update(f"{path_obj.name}:{st.st_size}:".encode("utf-8"))
+    with open(path_obj, "rb") as fp:
+      hasher.update(fp.read(64 * 1024))
+      if st.st_size > 128 * 1024:
+        fp.seek(-64 * 1024, 2)
+        hasher.update(fp.read(64 * 1024))
+    return True
+  except (OSError, ValueError):
+    return False
+
+
+def _hash_gcs_blob(hasher: "hashlib._Hash", blob: Any) -> None:
+  """Updates `hasher` with stable GCS blob metadata."""
+  hasher.update(
+      f"{blob.name}:{blob.size}:{blob.generation}:{blob.md5_hash}:".encode(
+          "utf-8"
+      )
+  )
+
+
+def _compute_gcs_fingerprint(
+    val: Any, xspace_paths: Sequence[str] | None = None
+) -> str:
+  """Computes a fingerprint for `gs://` trace paths using blob metadata."""
+  if profile_io.storage is None:
+    logging.warning(
+        "Skipping GCS fingerprint for %s: google-cloud-storage is not"
+        " installed.",
+        val,
+    )
+    return "NO_TRACE_INPUTS" if xspace_paths else "NONEXISTENT"
+  try:
+    storage_client = profile_io.get_storage_client()
+  except Exception as e:  # pylint: disable=broad-except
+    logging.warning(
+        "Failed to initialize GCS storage client for %s: %s", val, e
+    )
+    return "NO_TRACE_INPUTS" if xspace_paths else "NONEXISTENT"
+
+  hasher = hashlib.sha256()
+  matched = 0
+  try:
+    if xspace_paths:
+      for p in sorted(str(x) for x in xspace_paths):
+        if not profile_io.is_gcs_path(p):
+          if _hash_local_file(hasher, pathlib.Path(p)):
+            matched += 1
+          continue
+        bucket_name, blob_path = profile_io.parse_gcs_path(p)
+        if not bucket_name or not blob_path:
+          continue
+        blob = storage_client.bucket(bucket_name).get_blob(blob_path)
+        if blob is None:
+          continue
+        _hash_gcs_blob(hasher, blob)
+        matched += 1
+      return f"gcs:{hasher.hexdigest()[:16]}" if matched else "NO_TRACE_INPUTS"
+
+    gcs_val = str(val).rstrip("/")
+    bucket_name, blob_path = profile_io.parse_gcs_path(gcs_val)
+    if not bucket_name:
+      return "NONEXISTENT"
+
+    if gcs_val.endswith(profile_io.TRACE_SUFFIXES):
+      if not blob_path:
+        return "NONEXISTENT"
+      blob = storage_client.bucket(bucket_name).get_blob(blob_path)
+      if blob is None:
+        return "NONEXISTENT"
+      _hash_gcs_blob(hasher, blob)
+      return f"f:{hasher.hexdigest()[:16]}"
+
+    run_dir = profile_io.gcs_resolve_latest_run_dir(
+        gcs_val, storage_client=storage_client
+    )
+    blobs = profile_io.gcs_find_trace_blobs(
+        run_dir, storage_client=storage_client
+    )
+    if not blobs:
+      return "NO_TRACE_INPUTS"
+    for blob in blobs:
+      _hash_gcs_blob(hasher, blob)
+    return f"gcs:{hasher.hexdigest()[:16]}"
+  except Exception as e:  # pylint: disable=broad-except
+    logging.warning(
+        "Failed to compute GCS fingerprint for %s: %s", val, e, exc_info=True
+    )
+    return "NO_TRACE_INPUTS" if xspace_paths else "NONEXISTENT"
 
 
 def _safe_path_exists(val: str) -> bool:
@@ -451,7 +631,9 @@ def _compute_path_fingerprint(
       return cached_fp
 
     res = _compute_path_fingerprint_uncached(val, xspace_paths)
-    if res in ("NONEXISTENT", "NO_TRACE_INPUTS"):
+    if res in ("NONEXISTENT", "NO_TRACE_INPUTS") and not profile_io.is_gcs_path(
+        val
+    ):
       _FINGERPRINT_MEM_CACHE[val] = res
       _FINGERPRINT_MEM_CACHE.move_to_end(val)
       while len(_FINGERPRINT_MEM_CACHE) > _FINGERPRINT_CACHE_MAXSIZE:
@@ -465,6 +647,11 @@ def _compute_path_fingerprint_uncached(
     val: Any, xspace_paths: Sequence[str] | None = None
 ) -> str:
   """Computes a fingerprint string for a session path or xspace file list."""
+  if (
+      xspace_paths and any(str(p).startswith("gs://") for p in xspace_paths)
+  ) or (isinstance(val, str) and val.startswith("gs://")):
+    return _compute_gcs_fingerprint(val, xspace_paths)
+
   files: list[pathlib.Path] = []
   if xspace_paths:
     for p in xspace_paths:
@@ -485,7 +672,9 @@ def _compute_path_fingerprint_uncached(
       p = pathlib.Path(val).expanduser()
       if not p.exists():
         resolved_p = _resolve_session_path_via_client(str(val))
-        if resolved_p is not None:
+        if isinstance(resolved_p, str) and resolved_p.startswith("gs://"):
+          return _compute_gcs_fingerprint(resolved_p, xspace_paths)
+        if isinstance(resolved_p, pathlib.Path):
           p = resolved_p
       if not p.exists():
         return "NONEXISTENT"
@@ -664,23 +853,55 @@ def cached(
           if k not in ignore and k != "bypass_cache"
       }
 
+      pos_param_names = (
+          [p for p in params if p != "bypass_cache"]
+          if func_sig is not None
+          else None
+      )
       normalized_args = []
       fingerprints = []
-      for arg in args_for_key:
-        fp = _compute_path_fingerprint(arg)
+      gcs_fp_failed = False
+      active_logdir_is_gcs = profile_io.is_gcs_path(_get_active_client_logdir())
+      for idx, arg in enumerate(args_for_key):
+        param_name = (
+            pos_param_names[idx]
+            if pos_param_names and idx < len(pos_param_names)
+            else None
+        )
+        should_fp = (
+            param_name is None
+            or param_name in _PATH_PARAM_NAMES
+            or _looks_like_path_or_uri(arg)
+        )
+        fp = _compute_path_fingerprint(arg) if should_fp else ""
         if fp:
           fingerprints.append(fp)
-        if fp not in ("NO_TRACE_INPUTS", "NONEXISTENT"):
+        if fp in ("NO_TRACE_INPUTS", "NONEXISTENT") and (
+            profile_io.is_gcs_path(arg)
+            or (active_logdir_is_gcs and isinstance(arg, str) and arg)
+        ):
+          gcs_fp_failed = True
+        if fp and fp not in ("NO_TRACE_INPUTS", "NONEXISTENT"):
           normalized_args.append(f"trace_sig:{fp}")
         else:
           normalized_args.append(arg)
 
       normalized_kwargs = {}
       for k, v in key_kwargs.items():
-        fp = _compute_path_fingerprint(v)
+        should_fp = (
+            func_sig is None
+            or k in _PATH_PARAM_NAMES
+            or _looks_like_path_or_uri(v)
+        )
+        fp = _compute_path_fingerprint(v) if should_fp else ""
         if fp:
           fingerprints.append(fp)
-        if fp not in ("NO_TRACE_INPUTS", "NONEXISTENT"):
+        if fp in ("NO_TRACE_INPUTS", "NONEXISTENT") and (
+            profile_io.is_gcs_path(v)
+            or (active_logdir_is_gcs and isinstance(v, str) and v)
+        ):
+          gcs_fp_failed = True
+        if fp and fp not in ("NO_TRACE_INPUTS", "NONEXISTENT"):
           normalized_kwargs[k] = f"trace_sig:{fp}"
         else:
           normalized_kwargs[k] = v
@@ -711,7 +932,7 @@ def cached(
         return func(*args, **kwargs_call)
 
       cache_instance = cache if cache is not None else get_cache()
-      if not bypass_cache:
+      if not bypass_cache and not gcs_fp_failed:
         # 2. Check the cache.
         value = _UNKNOWN
         set_time = None
@@ -754,18 +975,19 @@ def cached(
           prev_notes.extend(current_notes)
 
       # 4. Store in cache.
-      try:
-        cache_instance.set(key, result, expire=expire, **kwargs)
-        if current_notes:
-          cache_instance.set(
-              f"{key}:stderr", "".join(current_notes), expire=expire, **kwargs
-          )
-        elif not _is_error_payload(result) and hasattr(
-            cache_instance, "delete"
-        ):
-          cache_instance.delete(f"{key}:stderr")
-      except Exception:  # pylint: disable=broad-except
-        logging.warning("Failed to store in cache", exc_info=True)
+      if not gcs_fp_failed:
+        try:
+          cache_instance.set(key, result, expire=expire, **kwargs)
+          if current_notes:
+            cache_instance.set(
+                f"{key}:stderr", "".join(current_notes), expire=expire, **kwargs
+            )
+          elif not _is_error_payload(result) and hasattr(
+              cache_instance, "delete"
+          ):
+            cache_instance.delete(f"{key}:stderr")
+        except Exception:  # pylint: disable=broad-except
+          logging.warning("Failed to store in cache", exc_info=True)
 
       return result
 

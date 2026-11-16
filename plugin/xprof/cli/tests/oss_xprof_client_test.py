@@ -582,5 +582,577 @@ class OssXprofClientTest(unittest.TestCase):
     )
 
 
+class _FakeBlob:
+
+  def __init__(
+      self,
+      name: str,
+      data: bytes = b'trace_data',
+      generation: int = 1,
+      md5_hash: str = 'abc123==',
+  ):
+    self.name = name
+    self._data = data
+    self.size = len(data)
+    self.generation = generation
+    self.md5_hash = md5_hash
+
+  def exists(self) -> bool:
+    return True
+
+  def download_as_bytes(self, if_generation_match: int | None = None) -> bytes:
+    if (
+        if_generation_match is not None
+        and self.generation != if_generation_match
+        and xprof_client.profile_io.gcs_exceptions is not None
+    ):
+      raise xprof_client.profile_io.gcs_exceptions.PreconditionFailed(
+          f'Generation mismatch: {self.generation} != {if_generation_match}'
+      )
+    return self._data
+
+  def download_to_filename(
+      self, filename: str, if_generation_match: int | None = None
+  ) -> None:
+    if (
+        if_generation_match is not None
+        and self.generation != if_generation_match
+        and xprof_client.profile_io.gcs_exceptions is not None
+    ):
+      raise xprof_client.profile_io.gcs_exceptions.PreconditionFailed(
+          f'Generation mismatch: {self.generation} != {if_generation_match}'
+      )
+    pathlib.Path(filename).write_bytes(self._data)
+
+
+class _FakeBlobIterator:
+
+  def __init__(self, blobs: list[_FakeBlob], prefixes: list[str] | None = None):
+    self._blobs = blobs
+    self.prefixes = prefixes or []
+
+  def __iter__(self):
+    return iter(self._blobs)
+
+
+class _FakeBucket:
+
+  def __init__(self, blobs: dict[str, _FakeBlob]):
+    self._blobs = blobs
+
+  def get_blob(self, name: str):
+    return self._blobs.get(name)
+
+  def blob(self, name: str):
+    if name in self._blobs:
+      return self._blobs[name]
+    missing = mock.MagicMock()
+    missing.exists.return_value = False
+    not_found_cls = (
+        xprof_client.profile_io.gcs_exceptions.NotFound
+        if xprof_client.profile_io.gcs_exceptions is not None
+        else FileNotFoundError
+    )
+    missing.download_as_bytes.side_effect = not_found_cls(f'Missing: {name}')
+    missing.download_to_filename.side_effect = not_found_cls(f'Missing: {name}')
+    return missing
+
+
+class _FakeStorageClient:
+
+  def __init__(self, buckets: dict[str, dict[str, _FakeBlob]]):
+    self._buckets = buckets
+
+  def set_blob(self, bucket_name: str, blob_name: str, blob: _FakeBlob) -> None:
+    self._buckets.setdefault(bucket_name, {})[blob_name] = blob
+
+  def update_blob(
+      self,
+      bucket_name: str,
+      blob_name: str,
+      *,
+      generation: int | None = None,
+      md5_hash: str | None = None,
+  ) -> None:
+    blob = self._buckets[bucket_name][blob_name]
+    if generation is not None:
+      blob.generation = generation
+    if md5_hash is not None:
+      blob.md5_hash = md5_hash
+
+  def bucket(self, name: str) -> _FakeBucket:
+    return _FakeBucket(self._buckets.get(name, {}))
+
+  def list_blobs(
+      self,
+      bucket_name: str,
+      prefix: str = '',
+      delimiter: str | None = None,
+      max_results: int | None = None,
+  ) -> _FakeBlobIterator:
+    blobs_map = self._buckets.get(bucket_name, {})
+    matching = [
+        blob
+        for name, blob in sorted(blobs_map.items())
+        if name.startswith(prefix)
+    ]
+    if delimiter is None:
+      if max_results is not None:
+        matching = matching[:max_results]
+      return _FakeBlobIterator(matching)
+    direct_blobs = []
+    prefixes = set()
+    for blob in matching:
+      rel = blob.name[len(prefix) :]
+      if delimiter in rel:
+        subdir = rel.split(delimiter, 1)[0]
+        prefixes.add(f'{prefix}{subdir}{delimiter}')
+      else:
+        direct_blobs.append(blob)
+    return _FakeBlobIterator(direct_blobs, sorted(prefixes))
+
+
+class OssXprofClientGcsTest(unittest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.temp_dir = tempfile.mkdtemp()
+    self.addCleanup(lambda: shutil.rmtree(self.temp_dir, ignore_errors=True))
+    self.cache_dir = pathlib.Path(self.temp_dir) / 'cli_cache'
+    self.cache_dir.mkdir(parents=True, exist_ok=True)
+    mock.patch.object(
+        decorators, '_get_cache_dir', return_value=self.cache_dir
+    ).start()
+    mock.patch.object(
+        decorators, 'get_cache_dir', return_value=self.cache_dir
+    ).start()
+    decorators._FINGERPRINT_MEM_CACHE.clear()
+    decorators._RESOLUTION_MEM_CACHE.clear()
+    self.fake_storage = _FakeStorageClient({
+        'my-bucket': {
+            'direct_run/host0.xplane.pb': _FakeBlob(
+                'direct_run/host0.xplane.pb', b'host0_bytes'
+            ),
+            'direct_run/host1.xplane.pb': _FakeBlob(
+                'direct_run/host1.xplane.pb', b'host1_bytes'
+            ),
+            'logdir/plugins/profile/run1/a.xplane.pb': _FakeBlob(
+                'logdir/plugins/profile/run1/a.xplane.pb', b'run1_bytes'
+            ),
+            'logdir/plugins/profile/run2/b.xplane.pb': _FakeBlob(
+                'logdir/plugins/profile/run2/b.xplane.pb', b'run2_bytes'
+            ),
+            'empty_dir/notes.txt': _FakeBlob('empty_dir/notes.txt', b'notes'),
+        }
+    })
+    mock.patch.object(
+        xprof_client.profile_io,
+        'get_storage_client',
+        return_value=self.fake_storage,
+    ).start()
+    self.mock_converter = mock.patch.object(
+        xprof_client.convert,
+        'xspace_to_tool_data',
+        return_value=(b'{}', 'application/json'),
+    ).start()
+    self.mock_byte_converter = mock.patch.object(
+        xprof_client.convert,
+        'xspace_to_tools_data_from_byte_string',
+        return_value=(b'{}', 'application/json'),
+    ).start()
+    self.addCleanup(mock.patch.stopall)
+
+  def test_set_logdir_preserves_gcs_uri(self):
+    client = xprof_client.LocalXprofClient('gs://my-bucket/logdir/')
+    self.assertEqual(client.logdir, 'gs://my-bucket/logdir')
+    client.set_logdir('gs://my-bucket/other/')
+    self.assertEqual(client.logdir, 'gs://my-bucket/other')
+
+  def test_get_run_dir_gcs_direct_file(self):
+    client = xprof_client.LocalXprofClient()
+    self.assertEqual(
+        client.get_run_dir('gs://my-bucket/direct_run/host0.xplane.pb'),
+        'gs://my-bucket/direct_run',
+    )
+
+  def test_get_run_dir_gcs_logdir_picks_latest_run(self):
+    client = xprof_client.LocalXprofClient()
+    self.assertEqual(
+        client.get_run_dir('gs://my-bucket/logdir/'),
+        'gs://my-bucket/logdir/plugins/profile/run2',
+    )
+
+  def test_get_run_dir_gcs_with_configured_logdir(self):
+    client = xprof_client.LocalXprofClient('gs://my-bucket/logdir')
+    self.assertEqual(
+        client.get_run_dir('run1'),
+        'gs://my-bucket/logdir/plugins/profile/run1',
+    )
+    self.assertEqual(
+        client.get_run_dir(None),
+        'gs://my-bucket/logdir/plugins/profile/run2',
+    )
+
+  def test_get_run_dir_gcs_missing_raises(self):
+    client = xprof_client.LocalXprofClient()
+    with self.assertRaises(FileNotFoundError):
+      client.get_run_dir('gs://my-bucket/does_not_exist')
+
+  def test_get_xspace_paths_gcs_file_and_dir(self):
+    client = xprof_client.LocalXprofClient()
+    self.assertEqual(
+        client.get_xspace_paths('gs://my-bucket/direct_run/host0.xplane.pb'),
+        ['gs://my-bucket/direct_run/host0.xplane.pb'],
+    )
+    self.assertEqual(
+        client.get_xspace_paths('gs://my-bucket/direct_run'),
+        [
+            'gs://my-bucket/direct_run/host0.xplane.pb',
+            'gs://my-bucket/direct_run/host1.xplane.pb',
+        ],
+    )
+    with self.assertRaises(FileNotFoundError):
+      client.get_xspace_paths('gs://my-bucket/empty_dir')
+
+  def test_fetch_gcs_overview_page(self):
+    client = xprof_client.LocalXprofClient()
+    content_type, data = client.fetch(
+        'overview_page', 'gs://my-bucket/direct_run'
+    )
+    self.assertEqual(content_type, 'application/json')
+    self.assertEqual(data, b'{}')
+    self.mock_converter.assert_called_once()
+    call_kwargs = self.mock_converter.call_args.kwargs
+    self.assertEqual(call_kwargs['tool'], 'overview_page')
+    self.assertEqual(call_kwargs['params'], {'use_saved_result': '0'})
+    xspace_paths = call_kwargs['xspace_paths']
+    self.assertEqual(len(xspace_paths), 2)
+    self.assertTrue(xspace_paths[0].endswith('/host0.xplane.pb'))
+    self.assertTrue(xspace_paths[1].endswith('/host1.xplane.pb'))
+    self.assertEqual(pathlib.Path(xspace_paths[0]).read_bytes(), b'host0_bytes')
+    self.assertEqual(pathlib.Path(xspace_paths[1]).read_bytes(), b'host1_bytes')
+    self.assertEqual(
+        pathlib.Path(xspace_paths[0]).parent,
+        pathlib.Path(xspace_paths[1]).parent,
+    )
+    self.mock_byte_converter.assert_not_called()
+
+    # Second fetch with unchanged generation reuses mirrored files.
+    self.mock_converter.reset_mock()
+    with mock.patch.object(
+        _FakeBlob, 'download_to_filename', side_effect=AssertionError('re-dl')
+    ):
+      client.fetch('overview_page', 'gs://my-bucket/direct_run')
+    self.mock_converter.assert_called_once()
+
+    self.mock_converter.reset_mock()
+    client.fetch(
+        'overview_page',
+        'gs://my-bucket/direct_run/host0.xplane.pb',
+        bypass_cache=True,
+    )
+    self.mock_converter.assert_called_once()
+    call_kwargs = self.mock_converter.call_args.kwargs
+    self.assertEqual(call_kwargs['tool'], 'overview_page')
+    self.assertEqual(call_kwargs['params'], {'use_saved_result': '0'})
+    self.assertEqual(len(call_kwargs['xspace_paths']), 1)
+    self.assertTrue(call_kwargs['xspace_paths'][0].endswith('/host0.xplane.pb'))
+    self.mock_byte_converter.assert_not_called()
+
+  def test_get_xspace_paths_local_file_with_gcs_logdir(self):
+    with tempfile.TemporaryDirectory() as tmpdir:
+      local_trace = pathlib.Path(tmpdir) / 'local.xplane.pb'
+      local_trace.write_bytes(b'local')
+      client = xprof_client.LocalXprofClient('gs://my-bucket/logdir')
+      self.assertEqual(
+          client.get_xspace_paths(str(local_trace)), [str(local_trace)]
+      )
+
+  def test_gcs_fingerprint_tracks_generation_and_md5(self):
+    with (
+        mock.patch.object(decorators.profile_io, 'storage', mock.MagicMock()),
+        mock.patch.object(
+            decorators.profile_io,
+            'get_storage_client',
+            return_value=self.fake_storage,
+        ),
+    ):
+      fp1 = decorators.compute_path_fingerprint(
+          'gs://my-bucket/direct_run/host0.xplane.pb'
+      )
+      self.assertTrue(fp1.startswith('f:'))
+      self.fake_storage.update_blob(
+          'my-bucket', 'direct_run/host0.xplane.pb', generation=2
+      )
+      fp2 = decorators.compute_path_fingerprint(
+          'gs://my-bucket/direct_run/host0.xplane.pb'
+      )
+      self.assertNotEqual(fp1, fp2)
+
+      dir_fp1 = decorators.compute_path_fingerprint('gs://my-bucket/direct_run')
+      self.assertTrue(dir_fp1.startswith('gcs:'))
+      self.fake_storage.update_blob(
+          'my-bucket', 'direct_run/host1.xplane.pb', md5_hash='changed=='
+      )
+      dir_fp2 = decorators.compute_path_fingerprint('gs://my-bucket/direct_run')
+      self.assertNotEqual(dir_fp1, dir_fp2)
+
+  def test_read_trace_bytes_gcs(self):
+    self.assertEqual(
+        xprof_client.read_trace_bytes(
+            'gs://my-bucket/direct_run/host0.xplane.pb'
+        ),
+        b'host0_bytes',
+    )
+
+  def test_describe_capture_gcs(self):
+    client = xprof_client.LocalXprofClient()
+    capture = client.describe_capture('gs://my-bucket/logdir')
+    self.assertEqual(capture['run'], 'run2')
+    self.assertEqual(capture['files_used'], ['b'])
+    self.assertTrue(any('run1' in w for w in capture['warnings']))
+
+  def test_get_serialized_xspace_gcs(self):
+    client = xprof_client.LocalXprofClient()
+    self.assertEqual(
+        client.get_serialized_xspace(
+            'gs://my-bucket/direct_run/host0.xplane.pb'
+        ),
+        b'host0_bytes',
+    )
+
+  def test_set_logdir_gcs_missing_bucket_raises(self):
+    with self.assertRaises(ValueError):
+      xprof_client.LocalXprofClient('gs://')
+    client = xprof_client.LocalXprofClient()
+    with self.assertRaises(ValueError):
+      client.set_logdir('gs:///')
+
+  def test_resolve_gcs_run_dir_with_logdir_14digit_and_fallback(self):
+    self.fake_storage.set_blob(
+        'my-bucket',
+        'logdir/plugins/profile/2026_08_20_12_34_56/host0.xplane.pb',
+        _FakeBlob(
+            'logdir/plugins/profile/2026_08_20_12_34_56/host0.xplane.pb',
+            b'ts',
+        ),
+    )
+    self.fake_storage.set_blob(
+        'my-bucket',
+        'logdir/direct_session/host0.xplane.pb',
+        _FakeBlob('logdir/direct_session/host0.xplane.pb', b'fb'),
+    )
+    client = xprof_client.LocalXprofClient('gs://my-bucket/logdir')
+    self.assertEqual(
+        client.get_run_dir('20260820123456'),
+        'gs://my-bucket/logdir/plugins/profile/2026_08_20_12_34_56',
+    )
+    self.assertEqual(
+        client.get_run_dir('direct_session'),
+        'gs://my-bucket/logdir/direct_session',
+    )
+
+  def test_resolve_host_path_and_select_paths_gcs(self):
+    client = xprof_client.LocalXprofClient()
+    self.assertEqual(
+        client.resolve_host_path('gs://my-bucket/direct_run', 'host1'),
+        'gs://my-bucket/direct_run/host1.xplane.pb',
+    )
+    self.assertEqual(
+        client.select_paths('gs://my-bucket/direct_run', host='host0'),
+        ['gs://my-bucket/direct_run/host0.xplane.pb'],
+    )
+
+  def test_fetch_gcs_same_basename_in_different_subdirs(self):
+    self.fake_storage.set_blob(
+        'my-bucket',
+        'nested_run/a/host0.xplane.pb',
+        _FakeBlob('nested_run/a/host0.xplane.pb', b'a_bytes'),
+    )
+    self.fake_storage.set_blob(
+        'my-bucket',
+        'nested_run/b/host0.xplane.pb',
+        _FakeBlob('nested_run/b/host0.xplane.pb', b'b_bytes'),
+    )
+    client = xprof_client.LocalXprofClient()
+    client.fetch('overview_page', 'gs://my-bucket/nested_run')
+    self.mock_converter.assert_called_once()
+    xspace_paths = self.mock_converter.call_args.kwargs['xspace_paths']
+    self.assertEqual(len(xspace_paths), 2)
+    self.assertTrue(xspace_paths[0].endswith('/a/host0.xplane.pb'))
+    self.assertTrue(xspace_paths[1].endswith('/b/host0.xplane.pb'))
+    self.assertEqual(pathlib.Path(xspace_paths[0]).read_bytes(), b'a_bytes')
+    self.assertEqual(pathlib.Path(xspace_paths[1]).read_bytes(), b'b_bytes')
+
+  def test_gcs_fingerprint_xspace_paths_and_failure_not_memoized(self):
+    decorators._FINGERPRINT_MEM_CACHE.clear()
+    with (
+        mock.patch.object(decorators.profile_io, 'storage', mock.MagicMock()),
+        mock.patch.object(
+            decorators.profile_io,
+            'get_storage_client',
+            return_value=self.fake_storage,
+        ),
+    ):
+      fp = decorators.compute_path_fingerprint(
+          'gs://my-bucket/direct_run',
+          xspace_paths=['gs://my-bucket/direct_run/host0.xplane.pb'],
+      )
+      self.assertTrue(fp.startswith('gcs:'))
+
+    gcs_uri = 'gs://my-bucket/direct_run/host0.xplane.pb'
+    with (
+        mock.patch.object(decorators.profile_io, 'storage', mock.MagicMock()),
+        mock.patch.object(
+            decorators.profile_io,
+            'get_storage_client',
+            side_effect=RuntimeError('transient gcs error'),
+        ),
+    ):
+      self.assertEqual(
+          decorators.compute_path_fingerprint(gcs_uri), 'NONEXISTENT'
+      )
+    self.assertNotIn(gcs_uri, decorators._FINGERPRINT_MEM_CACHE)
+
+  def test_read_trace_bytes_gcs_missing_raises(self):
+    with self.assertRaises(FileNotFoundError):
+      xprof_client.read_trace_bytes(
+          'gs://my-bucket/direct_run/missing.xplane.pb'
+      )
+
+  def test_mirror_gcs_traces_rejects_traversal_and_stays_in_cache(self):
+    self.fake_storage.set_blob(
+        'my-bucket',
+        'run//tmp/evil.xplane.pb',
+        _FakeBlob('run//tmp/evil.xplane.pb', b'slash_bytes'),
+    )
+    local_run_dir, local_paths = xprof_client._mirror_gcs_traces(
+        'gs://my-bucket/run', ['gs://my-bucket/run//tmp/evil.xplane.pb']
+    )
+    self.assertTrue(
+        pathlib.Path(local_paths[0])
+        .resolve()
+        .is_relative_to((decorators.get_cache_dir() / 'gcs').resolve())
+    )
+    self.assertTrue(
+        pathlib.Path(local_paths[0])
+        .resolve()
+        .is_relative_to(local_run_dir.resolve())
+    )
+
+    with self.assertRaisesRegex(ValueError, 'Unsafe GCS path'):
+      xprof_client._mirror_gcs_traces(
+          'gs://my-bucket/run',
+          ['gs://my-bucket/run/../../tmp/evil.xplane.pb'],
+      )
+    with self.assertRaisesRegex(ValueError, 'Unsafe GCS path'):
+      xprof_client._mirror_gcs_traces(
+          'gs://my-bucket/../../tmp/evil',
+          ['gs://my-bucket/../../tmp/evil/host0.xplane.pb'],
+      )
+
+  def test_resolution_cache_does_not_stick_negative_or_stale_entries(self):
+    client = xprof_client.LocalXprofClient('gs://my-bucket/logdir')
+    with (
+        mock.patch.object(xprof_client, 'get_client', return_value=client),
+        mock.patch.object(
+            decorators.profile_io,
+            'get_storage_client',
+            return_value=self.fake_storage,
+        ),
+    ):
+      self.assertIsNone(decorators._resolve_session_path_via_client('new_run'))
+      self.fake_storage.set_blob(
+          'my-bucket',
+          'logdir/plugins/profile/new_run/host0.xplane.pb',
+          _FakeBlob('logdir/plugins/profile/new_run/host0.xplane.pb', b'new'),
+      )
+      self.assertEqual(
+          decorators._resolve_session_path_via_client('new_run'),
+          'gs://my-bucket/logdir/plugins/profile/new_run',
+      )
+
+  def test_mirror_gcs_traces_uses_generation_match(self):
+    with mock.patch.object(
+        _FakeBlob,
+        'download_to_filename',
+        autospec=True,
+        side_effect=_FakeBlob.download_to_filename,
+    ) as mock_dl:
+      xprof_client._mirror_gcs_traces(
+          'gs://my-bucket/direct_run',
+          ['gs://my-bucket/direct_run/host0.xplane.pb'],
+      )
+      self.assertEqual(mock_dl.call_args.kwargs['if_generation_match'], 1)
+
+  def test_cached_skips_cache_on_failed_gcs_fingerprint(self):
+    call_count = 0
+
+    @decorators.cached()
+    def _tool(session_id: str) -> dict[str, int]:
+      del session_id
+      nonlocal call_count
+      call_count += 1
+      return {'calls': call_count}
+
+    with (
+        mock.patch.object(decorators.profile_io, 'storage', mock.MagicMock()),
+        mock.patch.object(
+            decorators.profile_io,
+            'get_storage_client',
+            side_effect=RuntimeError('transient gcs error'),
+        ),
+    ):
+      res1 = _tool('gs://my-bucket/direct_run/host0.xplane.pb')
+      res2 = _tool('gs://my-bucket/direct_run/host0.xplane.pb')
+    self.assertEqual(res1, {'calls': 1})
+    self.assertEqual(res2, {'calls': 2})
+
+  def test_gcs_fingerprint_mixed_local_and_gcs_xspace_paths(self):
+    local_file = pathlib.Path(self.temp_dir) / 'local.xplane.pb'
+    local_file.write_bytes(b'v1')
+    with (
+        mock.patch.object(decorators.profile_io, 'storage', mock.MagicMock()),
+        mock.patch.object(
+            decorators.profile_io,
+            'get_storage_client',
+            return_value=self.fake_storage,
+        ),
+    ):
+      fp1 = decorators.compute_path_fingerprint(
+          'gs://my-bucket/direct_run',
+          xspace_paths=[
+              'gs://my-bucket/direct_run/host0.xplane.pb',
+              str(local_file),
+          ],
+      )
+      local_file.write_bytes(b'v2_changed')
+      fp2 = decorators.compute_path_fingerprint(
+          'gs://my-bucket/direct_run',
+          xspace_paths=[
+              'gs://my-bucket/direct_run/host0.xplane.pb',
+              str(local_file),
+          ],
+      )
+    self.assertNotEqual(fp1, fp2)
+
+  def test_gcs_read_bytes_maps_forbidden_to_permission_error(self):
+    if xprof_client.profile_io.gcs_exceptions is None:
+      self.skipTest('gcs_exceptions unavailable')
+    forbidden_blob = mock.MagicMock()
+    forbidden_blob.download_as_bytes.side_effect = (
+        xprof_client.profile_io.gcs_exceptions.Forbidden('denied')
+    )
+    forbidden_client = mock.MagicMock()
+    forbidden_client.bucket.return_value.blob.return_value = forbidden_blob
+    with self.assertRaisesRegex(
+        PermissionError, 'gcloud auth application-default login'
+    ):
+      xprof_client.profile_io.gcs_read_bytes(
+          'gs://my-bucket/direct_run/host0.xplane.pb',
+          storage_client=forbidden_client,
+      )
+
+
 if __name__ == '__main__':
   unittest.main()

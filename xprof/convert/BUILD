@@ -2247,6 +2247,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "@com_google_protobuf//:protobuf",
+        "@org_xprof//xprof/convert/grpc_metrics:xplane_to_grpc_metrics",
         "@org_xprof//xprof/convert/trace_viewer:trace_events",
         "@org_xprof//xprof/convert/trace_viewer:trace_events_to_json",
         "@org_xprof//xprof/convert/trace_viewer:trace_options",
@@ -2799,10 +2800,12 @@ cc_library(
     hdrs = ["xplane_to_tool_names.h"],
     deps = [
         ":repository",
+        ":tool_options",
         ":xplane_to_dcn_collective_stats",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_protobuf//:protobuf",
+        "@org_xprof//xprof/convert/grpc_metrics:grpc_metrics_utils",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:statusor",
         "@xla//xla/tsl/profiler/utils:tf_xplane_visitor",
@@ -2818,6 +2821,7 @@ cc_test(
     srcs = ["xplane_to_tool_names_test.cc"],
     deps = [
         ":repository",
+        ":tool_options",
         ":xplane_to_tool_names",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",

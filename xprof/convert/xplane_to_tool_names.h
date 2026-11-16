@@ -19,15 +19,27 @@ limitations under the License.
 #include <string>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "xprof/convert/repository.h"
+#include "xprof/convert/tool_options.h"
 
 namespace tensorflow {
 namespace profiler {
+
+// Bool tool option that lists the DCN Analyzer tool (grpc_metrics) when the
+// profile has its events. Off by default.
+inline constexpr absl::string_view kEnableDcnAnalyzerOption =
+    "enable_dcn_analyzer";
 
 // Gets the names of the available tools given a session snapshot.
 // Returns a comma separated list of tool names.
 absl::StatusOr<std::string> GetAvailableToolNames(
     const SessionSnapshot& session_snapshot);
+
+// Same as above, but `options` can turn on optional tools (see
+// kEnableDcnAnalyzerOption).
+absl::StatusOr<std::string> GetAvailableToolNames(
+    const SessionSnapshot& session_snapshot, const ToolOptions& options);
 
 }  // namespace profiler
 }  // namespace tensorflow

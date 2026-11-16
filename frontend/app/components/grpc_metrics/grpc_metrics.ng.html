@@ -1,0 +1,1078 @@
+<div class="grpc-metrics-container" *ngIf="!isLoading">
+  <h1>
+    DCN Analyzer (Experimental)
+    <mat-icon matTooltip="TPU VM refers to GKE node." class="info-icon" style="font-size: 20px; width: 20px; height: 20px; margin-left: 8px; vertical-align: middle;">info</mat-icon>
+  </h1>
+  <mat-tab-group [selectedIndex]="selectedTabIndex()" (selectedIndexChange)="selectedTabIndex.set($event); rebindTableTools()">
+    <mat-tab label="Step Overview">
+      <ng-template matTabContent>
+        <div class="table-container">
+          <!-- Master Panel -->
+          <div class="master-panel" [style.height.px]="topPanelHeight" style="border: 1px solid #e0e0e0; border-radius: 4px; display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0;" *ngIf="dcnOperationsDataSource.data.length > 0">
+            <h3 style="padding: 16px 16px 0 16px; margin-top: 0; flex-shrink: 0;">DCN Operations (recv / recv-done)</h3>
+            <div style="padding: 0 16px; flex-shrink: 0;">
+            <mat-form-field appearance="outline" class="search-field" style="width: 100%; margin-bottom: 16px;">
+              <mat-label>Search DCN Operations</mat-label>
+              <input matInput (keyup)="applyDcnOperationsFilter($event)" placeholder="e.g. recv">
+              <mat-icon matSuffix>search</mat-icon>
+            </mat-form-field>
+            </div>
+            <div style="flex-grow: 1; overflow: auto; min-height: 0;">
+              <table mat-table [dataSource]="dcnOperationsDataSource" multiTemplateDataRows class="mat-elevation-z8" style="width: 100%;">
+                <ng-container matColumnDef="hloInstruction">
+                  <th mat-header-cell *matHeaderCellDef> HLO Instruction Name </th>
+                  <td mat-cell *matCellDef="let op"> {{op.hloInstruction}} </td>
+                </ng-container>
+                <ng-container matColumnDef="collectiveName">
+                  <th mat-header-cell *matHeaderCellDef> Rendezvous Name </th>
+                  <td mat-cell *matCellDef="let op"> {{op.collectiveName}} </td>
+                </ng-container>
+                <ng-container matColumnDef="chunksCount">
+                  <th mat-header-cell *matHeaderCellDef> Matching Chunks </th>
+                  <td mat-cell *matCellDef="let op"> {{op.chunksCount}} </td>
+                </ng-container>
+
+                <!-- Expanded Content Column for Link Groups -->
+                <ng-container matColumnDef="expandedDetail">
+                  <td mat-cell *matCellDef="let op" [attr.colspan]="dcnOperationsColumns.length">
+                    <div class="straggler-element-detail" [class.expanded]="op === selectedDcnOperation">
+                      <div class="detail-container-inner" *ngIf="op === selectedDcnOperation" style="padding: 16px; background-color: #fafafa;">
+                        <h4 style="margin-top: 0;">Link Groups for {{op.hloInstruction}}</h4>
+                        <table mat-table [dataSource]="dcnLinkGroupsDataSource" class="mat-elevation-z8" style="width: 100%;">
+                          <ng-container matColumnDef="src_dst">
+                            <th mat-header-cell *matHeaderCellDef> Src -> Dst </th>
+                            <td mat-cell *matCellDef="let group"> {{group.srcDst}} </td>
+                          </ng-container>
+                          <ng-container matColumnDef="tpu_vm">
+                            <th mat-header-cell *matHeaderCellDef> TPU VM </th>
+                            <td mat-cell *matCellDef="let group"> {{group.tpuVm}} </td>
+                          </ng-container>
+                          <ng-container matColumnDef="chunksCount">
+                            <th mat-header-cell *matHeaderCellDef> Chunks Count </th>
+                            <td mat-cell *matCellDef="let group"> {{group.chunksCount}} </td>
+                          </ng-container>
+                          <ng-container matColumnDef="maxLatency">
+                            <th mat-header-cell *matHeaderCellDef> Max Latency (ms) </th>
+                            <td mat-cell *matCellDef="let group"> {{group.maxLatency | number:'1.2-2'}} </td>
+                          </ng-container>
+                          <tr mat-header-row *matHeaderRowDef="dcnLinkGroupsColumns"></tr>
+                          <tr mat-row *matRowDef="let lgRow; columns: dcnLinkGroupsColumns;"
+                              (click)="$event.stopPropagation(); selectLinkGroup(lgRow); updateFilterForLinkGroup(lgRow)"
+                              [class.selected-row]="selectedLinkGroup === lgRow"
+                              style="cursor: pointer;">
+                          </tr>
+                        </table>
+                      </div>
+                    </div>
+                  </td>
+                </ng-container>
+
+                <tr mat-header-row *matHeaderRowDef="dcnOperationsColumns"></tr>
+                <tr mat-row *matRowDef="let row; columns: dcnOperationsColumns;"
+                    class="straggler-element-row"
+                    [class.straggler-expanded-row]="selectedDcnOperation === row"
+                    (click)="selectDcnOperation(row); updateFilterForDcnRow(row)">
+                </tr>
+                <tr mat-row *matRowDef="let row; columns: ['expandedDetail']" class="straggler-detail-row"></tr>
+              </table>
+            </div>
+            <mat-paginator #dcnOpsPaginator [pageSizeOptions]="[10, 50, 100]" pageSize="10" aria-label="Select page of DCN operations" style="flex-shrink: 0;"></mat-paginator>
+          </div>
+
+          <div class="resize-handle" (mousedown)="startResizing($event)" *ngIf="dcnOperationsDataSource.data.length > 0">
+            <span class="resize-icon"></span>
+          </div>
+
+          <div class="filters-container" style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; align-items: center; width: 100%;">
+            <mat-form-field appearance="outline" style="flex: 2; min-width: 250px; margin-bottom: 0;">
+              <mat-label>Search the table</mat-label>
+              <input matInput (keyup)="applyFilter($event)" [value]="filterInputValue" placeholder="Search by Chunk Flow ID, TPU VM Name, or Endpoint IDs...">
+              <mat-icon matPrefix>search</mat-icon>
+            </mat-form-field>
+
+            <mat-form-field appearance="outline" style="width: 200px; margin-bottom: 0;">
+              <mat-label>HLO Collective</mat-label>
+              <input matInput [(ngModel)]="filterHloCollective" (keyup)="applyCombinedFilter()" placeholder="e.g. recv-done.143">
+            </mat-form-field>
+
+            <mat-form-field appearance="outline" style="width: 110px; margin-bottom: 0;">
+              <mat-label>Src Device</mat-label>
+              <input matInput [(ngModel)]="filterSrcDevice" (keyup)="applyCombinedFilter()" placeholder="e.g. 1">
+            </mat-form-field>
+
+            <mat-form-field appearance="outline" style="width: 110px; margin-bottom: 0;">
+              <mat-label>Dst Device</mat-label>
+              <input matInput [(ngModel)]="filterDstDevice" (keyup)="applyCombinedFilter()" placeholder="e.g. 0">
+            </mat-form-field>
+
+            <mat-form-field appearance="outline" style="width: 160px; margin-bottom: 0;">
+              <mat-label>TPU VM</mat-label>
+              <input matInput [(ngModel)]="filterTpuVm" (keyup)="applyCombinedFilter()" placeholder="e.g. node-0">
+            </mat-form-field>
+
+            <mat-form-field appearance="outline" style="width: 110px; margin-bottom: 0;">
+              <mat-label>Launch ID</mat-label>
+              <input matInput [(ngModel)]="filterLaunchId" (keyup)="applyCombinedFilter()" placeholder="e.g. 1">
+            </mat-form-field>
+
+            <mat-form-field appearance="outline" style="width: 110px; margin-bottom: 0;">
+              <mat-label>Loop Index</mat-label>
+              <input matInput [(ngModel)]="filterLoopIndex" (keyup)="applyCombinedFilter()" placeholder="e.g. 0">
+            </mat-form-field>
+
+            <mat-form-field appearance="outline" style="width: 110px; margin-bottom: 0;">
+              <mat-label>Chunk Index</mat-label>
+              <input matInput [(ngModel)]="filterChunkIndex" (keyup)="applyCombinedFilter()" placeholder="e.g. 0">
+            </mat-form-field>
+
+            <button mat-stroked-button color="warn" (click)="clearAllFilters()" style="height: 56px; margin-bottom: 4px;">
+              Clear Filters
+            </button>
+          </div>
+
+          <div class="scrollable-table">
+            <table mat-table [dataSource]="stragglers" multiTemplateDataRows matSort (matSortChange)="applySortAndCache()" class="mat-elevation-z8">
+              <ng-container matColumnDef="chunk_id">
+                <th mat-header-cell *matHeaderCellDef mat-sort-header> Chunk Flow ID </th>
+                <td mat-cell *matCellDef="let element"> {{element.chunk_id}} </td>
+              </ng-container>
+
+              <ng-container matColumnDef="tpu_vm">
+                <th mat-header-cell *matHeaderCellDef mat-sort-header> TPU VM </th>
+                <td mat-cell *matCellDef="let element"> {{element.tpu_vm}} </td>
+              </ng-container>
+
+              <ng-container matColumnDef="latency_ms">
+                <th mat-header-cell *matHeaderCellDef mat-sort-header> Chunk Transfer Latency (ms) </th>
+                <td mat-cell *matCellDef="let element">
+                  <div class="latency-cell">
+                    <span class="latency-value">{{element.latency_ms | number:'1.2-2'}}</span>
+                  </div>
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="grpc_status">
+                <th mat-header-cell *matHeaderCellDef mat-sort-header> Status </th>
+                <td mat-cell *matCellDef="let element"> {{element.grpc_status !== undefined ? element.grpc_status : '0 (OK)'}} </td>
+              </ng-container>
+
+          <!-- Expanded Content Column -->
+          <ng-container matColumnDef="expandedDetail">
+            <td mat-cell *matCellDef="let element" [attr.colspan]="displayedColumns.length">
+              <div class="straggler-element-detail" [class.expanded]="element == expandedElement">
+                <div class="detail-container-inner" *ngIf="element === expandedElement">
+                <div class="detail-container">
+                  <!-- Flow Context & Insights -->
+                  <div class="flow-context-row" style="margin-bottom: 16px; width: 100%;">
+                    <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+                      <div><span style="font-weight: 500; color: #5f6368;">Recv Operation (HLO):</span> <code style="background: #f1f3f4; padding: 2px 6px; border-radius: 4px; font-size: 13px;">{{element.hlo_collective_name || 'N/A'}}</code></div>
+                      <div><span style="font-weight: 500; color: #5f6368;">Collective Name:</span> <code style="background: #f1f3f4; padding: 2px 6px; border-radius: 4px; font-size: 13px;">{{element.dcn_collective_label || 'N/A'}}</code></div>
+                      <div *ngIf="enableRecommendations && element.insights && element.insights.length > 0">
+                        <mat-chip-set style="display: inline-flex;">
+                          <mat-chip *ngFor="let insight of element.insights"
+                                    [color]="insight.severity === 'info' || insight.severity === 'success' ? 'primary' : (insight.severity === 'warning' ? 'accent' : 'warn')"
+                                    [matTooltip]="insight.description || ''"
+                                    style="margin: 2px; height: 24px; font-size: 12px; cursor: help;">
+                            <mat-icon *ngIf="insight.severity === 'success' || insight.severity === 'info'" style="font-size: 14px; width: 14px; height: 14px; margin-right: 4px; color: #1a73e8;">info</mat-icon>
+                            <mat-icon *ngIf="insight.severity === 'warning' || insight.severity === 'critical'" style="font-size: 14px; width: 14px; height: 14px; margin-right: 4px; color: #d93025;">warning</mat-icon>
+                            {{ insight.text }}
+                          </mat-chip>
+                        </mat-chip-set>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- DCN Transfer Details -->
+                  <div class="dcn-transfer-details-row" style="margin-bottom: 24px; width: 100%;" *ngIf="element.raw_transfer_key">
+                    <h4 style="margin-top: 0; margin-bottom: 12px; font-size: 14px; color: #5f6368; border-bottom: 1px solid #eee; padding-bottom: 6px;">TransferKey & DCN Context</h4>
+                    <div class="detail-grid" style="margin-bottom: 16px;">
+                      <div class="detail-item" [matTooltip]="'DCN Launch ID'">
+                        <span class="label">Launch ID</span>
+                        <span class="value">{{element.dcn_launch_id || 'N/A'}}</span>
+                      </div>
+                      <div class="detail-item" [matTooltip]="'DCN Loop Index'">
+                        <span class="label">Loop Index</span>
+                        <span class="value">{{element.dcn_loop_index || 'N/A'}}</span>
+                      </div>
+                      <div class="detail-item" [matTooltip]="'DCN Chunk Index'">
+                        <span class="label">Chunk Index</span>
+                        <span class="value">{{element.dcn_chunk_index || 'N/A'}}</span>
+                      </div>
+                      <div class="detail-item" [matTooltip]="'DCN Source Device ID'">
+                        <span class="label">Src Device</span>
+                        <span class="value">{{element.dcn_source_device_id || 'N/A'}}</span>
+                      </div>
+                      <div class="detail-item" [matTooltip]="'DCN Destination Device ID'">
+                        <span class="label">Dst Device</span>
+                        <span class="value">{{element.dcn_destination_device_id || 'N/A'}}</span>
+                      </div>
+                      <div class="detail-item" [matTooltip]="'Operation Tag'">
+                        <span class="label">Operation Tag</span>
+                        <span class="value" style="display: flex; align-items: center;">
+                          <mat-chip style="height: 24px; font-size: 12px;">{{getOperationTag(element)}}</mat-chip>
+                        </span>
+                      </div>
+
+                    </div>
+                    <!-- Raw Transfer Key row -->
+                    <div style="font-size: 13px; color: #5f6368; padding: 4px 8px; background: #f8f9fa; border-radius: 4px; font-family: monospace; white-space: normal; word-break: break-all;">
+                      <span style="font-weight: 500;">Raw TransferKey:</span> {{element.raw_transfer_key}}
+                    </div>
+                  </div>
+
+                  <!-- Metrics for Transfer Section -->
+                  <div class="metrics-for-transfer-section" style="width: 100%; margin-top: 8px;">
+                    <h4 style="margin-top: 0; margin-bottom: 12px; font-size: 14px; color: #5f6368; border-bottom: 1px solid #eee; padding-bottom: 6px;">Metrics for Transfer</h4>
+                    <div class="detail-grid" style="margin-bottom: 16px;">
+                      <!-- Client/Server latencies -->
+                      <div class="detail-item" [matTooltip]="'Total time measured by the gRPC client from initiating request to completing chunk transfer.'">
+                        <span class="label">gRPC Client Latency</span>
+                        <span class="value">{{element.grpc_client_latency_ms !== undefined ? (element.grpc_client_latency_ms | number:'1.2-2') + ' ms' : 'Not sampled'}}</span>
+                      </div>
+                      <div class="detail-item" [matTooltip]="'Total time measured by the gRPC server from receiving request to finishing chunk sending.'">
+                        <span class="label">gRPC Server Latency</span>
+                        <span class="value">{{element.grpc_server_latency_ms !== undefined ? (element.grpc_server_latency_ms | number:'1.2-2') + ' ms' : 'Not sampled'}}</span>
+                      </div>
+                      <div class="detail-item" *ngIf="element.client_request_size !== undefined" [matTooltip]="'Total bytes sent in the gRPC request payload.'">
+                        <span class="label">Request payload size</span>
+                        <span class="value">{{element.client_request_size}} bytes</span>
+                      </div>
+                      <div class="detail-item" *ngIf="element.client_response_size !== undefined" [matTooltip]="'Total bytes received in the gRPC response payload.'">
+                        <span class="label">Response payload size</span>
+                        <span class="value">{{element.client_response_size}} bytes</span>
+                      </div>
+                      <div class="detail-item" *ngIf="element.ack_to_sendmsg_ms != null" [matTooltip]="tcpLatencyNote(element) ?? 'TCP latency from the first SENDMSG to the last ACK.'">
+                        <span class="label">TCP Latency (ACK-SENDMSG)
+                          <mat-icon *ngIf="tcpLatencyNote(element)" class="info-icon" style="font-size: 14px; width: 14px; height: 14px; vertical-align: middle;">info</mat-icon>
+                        </span>
+                        <span class="value">{{element.ack_to_sendmsg_ms | number:'1.2-2'}} ms</span>
+                      </div>
+                      <div class="detail-item" *ngIf="getConnectionAddresses(element) as addrs" [matTooltip]="'Local IP address and port of the TCP connection.'">
+                        <span class="label">Local Address</span>
+                        <span class="value" style="font-size: 13px;">{{addrs.local}}</span>
+                      </div>
+                      <div class="detail-item" *ngIf="getConnectionAddresses(element) as addrs" [matTooltip]="'Peer IP address and port of the TCP connection.'">
+                        <span class="label">Peer Address</span>
+                        <span class="value" style="font-size: 13px;">{{addrs.peer}}</span>
+                      </div>
+                      <div class="detail-item" *ngIf="!getConnectionAddresses(element) && element.peer_address" [matTooltip]="'Peer IP address of the connection.'">
+                        <span class="label">Peer Address (from DB)</span>
+                        <span class="value" style="font-size: 13px;">{{element.peer_address}}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- TCP Events Section -->
+                  <div class="tcp-events-section" style="margin-top: 24px; width: 100%;" *ngIf="getTcpEventsForFlow(element).length > 0">
+                    <h4 style="margin-top: 0; margin-bottom: 12px; font-size: 14px; font-weight: bold; color: #5f6368; border-bottom: 1px solid #eee; padding-bottom: 6px;">
+                      TCP Events Timeline
+                    </h4>
+                    <div style="display: flex; gap: 24px; align-items: flex-start;">
+                      <!-- Interactive Table -->
+                      <div class="tcp-events-table-container" style="flex: 1; max-width: 300px; border: 1px solid #e0e0e0; border-radius: 4px; overflow: hidden;">
+                        <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+                          <thead>
+                            <tr style="background-color: #f1f3f4; border-bottom: 1px solid #e0e0e0;">
+                              <th style="padding: 12px 16px; font-weight: 500; color: #3c4043;">Event Phase</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr *ngFor="let ev of getTcpEventsForFlow(element)"
+                                (click)="onTcpEventSelect(ev.name, ev.snapshot)"
+                                [style.background-color]="selectedTcpEventName === ev.name ? '#e8f0fe' : '#fff'"
+                                [style.cursor]="'pointer'"
+                                style="border-bottom: 1px solid #eee; transition: background-color 0.2s;">
+                              <td style="padding: 12px 16px; color: #1a73e8; font-weight: 500;">
+                                <mat-icon style="font-size: 16px; width: 16px; height: 16px; vertical-align: middle; margin-right: 8px;"
+                                          [style.color]="selectedTcpEventName === ev.name ? '#1a73e8' : '#80868b'">
+                                  timeline
+                                </mat-icon>
+                                {{ev.name}}
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <!-- Dumped Metrics -->
+                      <div class="tcp-metrics-dump" style="flex: 2; background-color: #fafafa; border: 1px solid #e0e0e0; border-radius: 4px; padding: 16px;" *ngIf="selectedTcpEventSnapshot">
+                        <h5 style="margin-top: 0; margin-bottom: 16px; font-size: 14px; color: #3c4043;">
+                          Metrics at <span style="color: #1a73e8; font-family: monospace; background: #e8f0fe; padding: 2px 6px; border-radius: 4px;">{{selectedTcpEventName}}</span>
+                        </h5>
+                        <p style="margin: -8px 0 12px 0; font-size: 12px; color: #5f6368;">Fathom omits a metric from an event when its value did not change since the previous event of the same write.</p>
+                        <div class="detail-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px;">
+                          <div class="detail-item" *ngFor="let metric of getTransferMetrics(selectedTcpEventSnapshot)">
+                            <span class="label" style="display: block; font-size: 11px; color: #5f6368; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">{{metric.key}}</span>
+                            <span class="value" style="display: block; font-size: 13px; color: #202124; font-weight: 500;">{{metric.value}}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+
+                  <div class="latency-breakdown-chart" *ngIf="element.timelineInfo">
+                    <h4>Latency Timeline Breakdown</h4>
+
+                    <ng-container *ngIf="!element.timelineInfo.hasError; else timelineError">
+                      <div class="latency-timeline-wrapper">
+                      <div class="split-timeline-container">
+                        <!-- Chunk Line -->
+                        <div class="timeline-row client-row" matTooltip="Total MXLA Latency: {{element.latency_ms | number:'1.2-2'}}ms">
+                          <div class="row-label">MXLA LATENCY</div>
+                          <div class="row-content">
+                            <div class="chunk-bar" [style.left.%]="0" [style.width.%]="100">
+                               <span class="bar-label inner">MXLA Latency ({{element.latency_ms | number:'1.2-2'}} ms)</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <!-- gRPC Client Line -->
+                        <div class="timeline-row client-row" matTooltip="gRPC Client Latency: {{element.grpc_client_latency_ms | number:'1.2-2'}}ms">
+                          <div class="row-label">gRPC CLIENT</div>
+                          <div class="row-content">
+                            <div class="client-latency-bar"
+                                 [style.left.%]="element.timelineInfo.clientLeft"
+                                 [style.width.%]="element.timelineInfo.clientWidth"
+                                 style="background-color: #4285f4; height: 12px; border-radius: 2px; position: absolute;">
+                               <span class="bar-label" style="position: absolute; left: 100%; margin-left: 8px; white-space: nowrap; font-size: 11px; color: #5f6368;">gRPC Client ({{element.grpc_client_latency_ms | number:'1.2-2'}} ms)</span>
+                            </div>
+                            <ng-container *ngIf="element.timelineInfo.clientMarkers">
+                              <div *ngFor="let marker of element.timelineInfo.clientMarkers; let i = index"
+                                   class="timeline-dot"
+                                   [style.left.%]="marker.positionLeft"
+                                   [matTooltip]="marker.label"
+                                   [style.top.px]="(i % 3) * 6 - 4"
+                                   style="position: absolute; width: 8px; height: 8px; border-radius: 50%; background-color: #d93025; z-index: 10; cursor: pointer; border: 1px solid #fff; transform: translateX(-50%); opacity: 0.8;">
+                              </div>
+                            </ng-container>
+                          </div>
+                        </div>
+
+                        <!-- gRPC Server Line -->
+                        <div class="timeline-row server-row" [matTooltip]="element.grpc_server_latency_ms ? ('gRPC Server Latency: ' + (element.grpc_server_latency_ms | number:'1.2-2') + 'ms') : 'gRPC Server Latency: Not sampled'">
+                          <div class="row-label">gRPC SERVER</div>
+                          <div class="row-content">
+                            <div *ngIf="element.timelineInfo.serverWidth > 0 && element.grpc_server_latency_ms"
+                                 class="server-latency-bar"
+                                 [style.left.%]="element.timelineInfo.serverLeft"
+                                 [style.width.%]="element.timelineInfo.serverWidth"
+                                 style="background-color: #34a853; height: 12px; border-radius: 2px; position: absolute;">
+                               <span class="bar-label" style="position: absolute; left: 100%; margin-left: 8px; white-space: nowrap; font-size: 11px; color: #5f6368;">gRPC Server ({{element.grpc_server_latency_ms | number:'1.2-2'}} ms)</span>
+                            </div>
+                            <ng-container *ngIf="element.timelineInfo.serverMarkers">
+                              <div *ngFor="let marker of element.timelineInfo.serverMarkers; let i = index"
+                                   class="timeline-dot"
+                                   [style.left.%]="marker.positionLeft"
+                                   [matTooltip]="marker.label"
+                                   [style.top.px]="(i % 3) * 6 - 4"
+                                   style="position: absolute; width: 8px; height: 8px; border-radius: 50%; background-color: #d93025; z-index: 10; cursor: pointer; border: 1px solid #fff; transform: translateX(-50%); opacity: 0.8;">
+                              </div>
+                            </ng-container>
+                          </div>
+                        </div>
+
+                        <!-- TCP Line -->
+                        <div class="timeline-row tcp-row">
+                          <div class="row-label">TCP EVENTS</div>
+                          <div class="row-content" style="position: relative; height: 16px;">
+                            <!-- Floating Dot Markers placed on top -->
+                            <ng-container *ngIf="element.timelineInfo.tcpMarkers">
+                              <div *ngFor="let marker of element.timelineInfo.tcpMarkers; let i = index"
+                                   class="timeline-dot"
+                                   [style.left.%]="marker.positionLeft"
+                                   [matTooltip]="marker.label"
+                                   [style.top.px]="(i % 3) * 6 - 4"
+                                   style="position: absolute; width: 8px; height: 8px; border-radius: 50%; background-color: #fbbc04; border: 1px solid #333; z-index: 10; cursor: pointer; transform: translateX(-50%); opacity: 0.8;">
+                              </div>
+                            </ng-container>
+                          </div>
+                        </div>
+
+                      </div>
+
+                      <div class="timeline-legend" style="display: flex; gap: 16px; margin-top: 12px; font-size: 12px; color: #5f6368;">
+                        <div class="legend-item" style="display: flex; align-items: center; gap: 4px;"><div class="box chunk-box" style="width: 12px; height: 12px; background: #e8eaed; border: 1px solid #bdc1c6;"></div><span>MXLA</span></div>
+                        <div class="legend-item" style="display: flex; align-items: center; gap: 4px;"><div class="box client-box" style="width: 12px; height: 12px; background: #4285f4;"></div><span>gRPC Client</span></div>
+                        <div class="legend-item" style="display: flex; align-items: center; gap: 4px;"><div class="box server-box" style="width: 12px; height: 12px; background: #34a853;"></div><span>gRPC Server</span></div>
+                        <div class="legend-item" style="display: flex; align-items: center; gap: 4px;"><div class="box tcp-box" style="width: 12px; height: 12px; border-radius: 50%; background: #fbbc04; border: 1px solid #333;"></div><span>TCP Event</span></div>
+                        <div class="legend-item" style="display: flex; align-items: center; gap: 4px;"><div class="box marker-box" style="width: 6px; height: 12px; border-radius: 50%; background: #d93025;"></div><span>gRPC Hook Event</span></div>
+                      </div>
+                    </div>
+                    </ng-container>
+                    <ng-template #timelineError>
+                      <div class="timeline-error-warning" style="display: flex; align-items: center; gap: 8px; background: #fce8e6; border: 1px solid #fad2cf; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 12px; color: #c5221f;">
+                        <mat-icon style="font-size: 16px; width: 16px; height: 16px; color: #c5221f;">error</mat-icon>
+                        <span>Encountered some error while creating timeline. Events are either missing or incorrect</span>
+                      </div>
+                    </ng-template>
+                  </div>
+                </div>
+              </div>
+            </div>
+            </td>
+          </ng-container>
+
+          <tr mat-header-row *matHeaderRowDef="displayedColumns; sticky: true"></tr>
+          <tr mat-row *matRowDef="let element; columns: displayedColumns;"
+              class="straggler-element-row"
+              [class.straggler-expanded-row]="expandedElement === element"
+              [class.error-row]="element.grpc_status && element.grpc_status !== 0"
+              (click)="toggleElement(element)">
+          </tr>
+          <tr mat-row *matRowDef="let row; columns: ['expandedDetail']" class="straggler-detail-row"></tr>
+        </table>
+        <mat-paginator #stragglersPaginator [pageSizeOptions]="[100, 250, 500, 1000]" pageSize="100" aria-label="Select page of stragglers"></mat-paginator>
+          </div>
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="TPU VMs Overview">
+      <ng-template matTabContent>
+        <div class="analytics-container" style="margin-top: 16px;">
+          <table mat-table [dataSource]="tpuVmAnalytics" matSort class="mat-elevation-z8">
+            <ng-container matColumnDef="tpu_vm">
+              <th mat-header-cell *matHeaderCellDef mat-sort-header> TPU VM </th>
+              <td mat-cell *matCellDef="let element"> {{element.tpu_vm}} </td>
+            </ng-container>
+
+            <ng-container matColumnDef="total_transfers">
+              <th mat-header-cell *matHeaderCellDef mat-sort-header> Total Transfers </th>
+              <td mat-cell *matCellDef="let element"> {{element.total_transfers}} </td>
+            </ng-container>
+
+            <ng-container matColumnDef="p50_latency_ms">
+              <th mat-header-cell *matHeaderCellDef mat-sort-header> P50 Latency (ms) </th>
+              <td mat-cell *matCellDef="let element"> {{element.p50_latency_ms | number:'1.2-2'}} </td>
+            </ng-container>
+
+            <ng-container matColumnDef="p99_latency_ms">
+              <th mat-header-cell *matHeaderCellDef mat-sort-header> P99 Latency (ms) </th>
+              <td mat-cell *matCellDef="let element"> {{element.p99_latency_ms | number:'1.2-2'}} </td>
+            </ng-container>
+
+            <ng-container matColumnDef="p100_latency_ms">
+              <th mat-header-cell *matHeaderCellDef mat-sort-header> p100 Latency (ms) </th>
+              <td mat-cell *matCellDef="let element"> {{element.p100_latency_ms | number:'1.2-2'}} </td>
+            </ng-container>
+
+            <ng-container matColumnDef="high_latency_count">
+              <th mat-header-cell *matHeaderCellDef mat-sort-header> Transfers > P99 </th>
+              <td mat-cell *matCellDef="let element"> {{element.high_latency_count}} </td>
+            </ng-container>
+
+            <tr mat-header-row *matHeaderRowDef="analyticsDisplayedColumns"></tr>
+            <tr mat-row *matRowDef="let row; columns: analyticsDisplayedColumns;"></tr>
+          </table>
+        </div>
+
+        <div class="charts-prep-loading" *ngIf="isChartsPrepLoading" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; background: #fcfcfc; border: 1px dashed #e0e0e0; border-radius: 8px; margin-top: 24px; margin-bottom: 24px;">
+          <mat-spinner diameter="35"></mat-spinner>
+          <span style="margin-top: 12px; font-weight: 500; color: #5f6368;">Preparing dynamic time-series configurations...</span>
+        </div>
+
+        <div class="tpu-vm-selection-panel" *ngIf="!isChartsPrepLoading" style="margin-top: 32px; margin-bottom: 24px; padding: 20px; background: #fff; border: 1px solid #e0e0e0; border-radius: 8px;">
+          <div style="margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+             <div>
+               <h3 style="margin: 0; color: #1a73e8; font-size: 16px;">
+                 <mat-icon style="vertical-align: middle; margin-right: 4px;">filter_alt</mat-icon>
+                 Filter Detailed Graphs by TPU VM
+               </h3>
+               <p style="font-size: 13px; color: #5f6368; margin: 4px 0 0 0;">Select one or more VMs below to populate the high-fidelity time-series charts in each section.</p>
+               <p style="font-size: 13px; color: #5f6368; margin: 4px 0 0 0;">When grouped by host, counters (bytes, packets, busy time) are summed over the host's connections, and levels (for example CWND, RTT, delivery rate or pacing rate) are averaged.</p>
+               <div class="tpu-vm-selection-warning" style="display: flex; align-items: center; gap: 8px; background: #fef7e0; color: #b06000; border: 1px solid #ffe082; padding: 8px 12px; border-radius: 4px; font-size: 12px; margin-top: 8px; font-weight: 500; max-width: fit-content;">
+                 <mat-icon style="font-size: 16px; width: 16px; height: 16px; color: #b06000; vertical-align: middle; line-height: 16px;">warning</mat-icon>
+                 Caution: Selecting too many hosts concurrently might significantly slow down or crash the browser.
+               </div>
+             </div>
+             <mat-form-field appearance="outline" style="min-width: 240px; max-width: 300px; margin-bottom: -1.25em;">
+               <mat-label>Chart Grouping Mode</mat-label>
+               <mat-select [value]="chartGroupingMode" (selectionChange)="onGroupingModeChange($event.value)">
+                 <mat-option value="tpu_vm">Group by Host (TPU VM)</mat-option>
+                 <mat-option value="endpoint_id">Group by Peer Address (Endpoints)</mat-option>
+               </mat-select>
+             </mat-form-field>
+          </div>
+          <div class="checkbox-grid" style="display: flex; flex-wrap: wrap; gap: 16px; max-height: 200px; overflow-y: auto; padding: 8px; border: 1px solid #f1f3f4; border-radius: 4px; background: #fafafa;">
+            <mat-checkbox *ngFor="let host of availableTpuVms"
+                          [checked]="selectedTpuVms.includes(host)"
+                          (change)="updateTpuVmSelection(host, $event.checked)"
+                          style="min-width: 180px;">
+              {{host}}
+            </mat-checkbox>
+          </div>
+          <div style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 12px;">
+             <button mat-flat-button color="primary" (click)="selectAllTpuVms()" style="margin-right: 12px;">Select All</button>
+             <button mat-stroked-button (click)="clearTpuVmSelection()">Clear All</button>
+             <span *ngIf="selectedTpuVms.length > 0" style="margin-left: 24px; font-weight: 500; color: #5f6368;">
+               {{selectedTpuVms.length}} VMs selected for analysis
+             </span>
+          </div>
+        </div>
+
+        <div class="charts-loading-overlay" *ngIf="isChartsLoading" style="position: sticky; top: 100px; display: flex; justify-content: center; height: 100px; align-items: center; background: rgba(255,255,255,0.7); z-index: 1000; border-radius: 8px; margin: 16px;">
+          <mat-spinner diameter="30"></mat-spinner>
+          <span style="margin-left: 12px; font-weight: 500;">Rendering dynamic charts...</span>
+        </div>
+
+
+
+        <!-- Step Latency Split Per Host -->
+        <mat-expansion-panel *ngIf="chartGroupingMode !== 'endpoint_id'"
+                             [expanded]="isSectionOpen('step_latency')"
+                             (opened)="toggleSection('step_latency', true)"
+                             (closed)="toggleSection('step_latency', false)">
+          <mat-expansion-panel-header>
+            <mat-panel-title>
+              Step Latency (By TPU VM)
+              <mat-icon class="info-icon"
+                        matTooltip="Sections show: 1. MXLA Chunk Latency (Scatter), 2. Latency Distribution (Histogram) per selected VM.">
+                info
+              </mat-icon>
+            </mat-panel-title>
+          </mat-expansion-panel-header>
+          <div class="metrics-section" *ngIf="isSectionOpen('step_latency')">
+            <div class="section-loading" *ngIf="sectionsLoading.get('step_latency') || !isGoogleChartsLoaded" style="display: flex; align-items: center; justify-content: center; padding: 24px;">
+              <mat-spinner diameter="24"></mat-spinner>
+              <span style="margin-left: 8px; font-size: 13px; color: #5f6368;">Processing time-series points...</span>
+            </div>
+            <div class="charts-container" *ngIf="!sectionsLoading.get('step_latency') && isGoogleChartsLoaded">
+              <ng-container *ngFor="let hostData of filteredHostStepLatenciesList">
+                <div class="chart-box" *ngIf="hostData.stepLatencyChartDataInfo.data && $any(hostData.stepLatencyChartDataInfo.data).rows?.length > 0">
+                  <h3>
+                    MXLA chunk latencies <span class="tpu-vm-badge">{{hostData.tpu_vm}}</span>
+                    <mat-icon matTooltip="Scatter chart displaying MXLA chunk latencies observed primarily for this specific TPU VM over time."
+                              class="info-icon">info</mat-icon>
+                  </h3>
+                  <chart [chartType]="chartType" [dataInfo]="hostData.stepLatencyChartDataInfo"></chart>
+                </div>
+                <div class="chart-box" *ngIf="hostData.stepLatencyHistogramDataInfo.data && $any(hostData.stepLatencyHistogramDataInfo.data).rows?.length > 0">
+                  <h3>
+                    MXLA chunk latencies distribution <span class="tpu-vm-badge">{{hostData.tpu_vm}}</span>
+                    <mat-icon matTooltip="Histogram of MXLA chunk latencies observed on this TPU VM."
+                              class="info-icon">info</mat-icon>
+                  </h3>
+                  <chart [chartType]="histogramChartType" [dataInfo]="hostData.stepLatencyHistogramDataInfo"></chart>
+                </div>
+              </ng-container>
+            </div>
+            <div class="load-more-container" *ngIf="!sectionsLoading.get('step_latency') && totalFilteredHostStepLatenciesCount > chartsToDisplay" style="margin-top: 16px; text-align: center;">
+              <button mat-stroked-button color="primary" (click)="loadMoreCharts()">
+                Load More TPU VM Charts (+10)
+              </button>
+            </div>
+          </div>
+        </mat-expansion-panel>
+
+        <!-- General gRPC Metrics -->
+        <mat-expansion-panel [expanded]="isSectionOpen('grpc_latency')"
+                             (opened)="toggleSection('grpc_latency', true)"
+                             (closed)="toggleSection('grpc_latency', false)">
+          <mat-expansion-panel-header>
+            <mat-panel-title>
+              gRPC Latency
+              <mat-icon class="info-icon"
+                        matTooltip="Metrics include: 1. gRPC Client Latency, 2. gRPC Server Latency.">
+                info
+              </mat-icon>
+            </mat-panel-title>
+          </mat-expansion-panel-header>
+          <div class="metrics-section" *ngIf="isSectionOpen('grpc_latency')">
+            <div class="section-loading" *ngIf="sectionsLoading.get('grpc_latency') || !isGoogleChartsLoaded" style="display: flex; align-items: center; justify-content: center; padding: 24px;">
+              <mat-spinner diameter="24"></mat-spinner>
+              <span style="margin-left: 8px; font-size: 13px; color: #5f6368;">Processing time-series points...</span>
+            </div>
+            <div class="charts-container" *ngIf="!sectionsLoading.get('grpc_latency') && isGoogleChartsLoaded">
+              <div class="chart-box" *ngIf="charts.grpcClientLatencyDataInfo.data && $any(charts.grpcClientLatencyDataInfo.data).rows?.length > 0">
+                <h3>gRPC Client Latency <mat-icon matTooltip="Application-level latency perceived at the gRPC Client side." class="info-icon">info</mat-icon></h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.grpcClientLatencyDataInfo"></chart>
+              </div>
+              <div class="chart-box" *ngIf="charts.grpcServerLatencyDataInfo.data && $any(charts.grpcServerLatencyDataInfo.data).rows?.length > 0">
+                <h3>gRPC Server Latency <mat-icon matTooltip="Application-level latency reported processing the request at the gRPC Server side." class="info-icon">info</mat-icon></h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.grpcServerLatencyDataInfo"></chart>
+              </div>
+            </div>
+          </div>
+        </mat-expansion-panel>
+
+        <!-- Section 1: Latency & Timing -->
+        <mat-expansion-panel [expanded]="isSectionOpen('tcp_sec_1')"
+                             (opened)="toggleSection('tcp_sec_1', true)"
+                             (closed)="toggleSection('tcp_sec_1', false)">
+          <mat-expansion-panel-header>
+            <mat-panel-title>
+              Section 1: Latency & Timing
+              <mat-icon class="info-icon" matTooltip="Graphs: TCP Minimum RTT.">info</mat-icon>
+            </mat-panel-title>
+          </mat-expansion-panel-header>
+          <div class="metrics-section" *ngIf="isSectionOpen('tcp_sec_1')">
+            <div class="section-loading" *ngIf="sectionsLoading.get('tcp_sec_1') || !isGoogleChartsLoaded" style="display: flex; align-items: center; justify-content: center; padding: 24px;">
+              <mat-spinner diameter="24"></mat-spinner>
+              <span style="margin-left: 8px; font-size: 13px; color: #5f6368;">Processing time-series points...</span>
+            </div>
+            <div class="charts-container" *ngIf="!sectionsLoading.get('tcp_sec_1') && isGoogleChartsLoaded">
+              <div class="chart-box" *ngIf="charts.tcpRttDataInfo.data && $any(charts.tcpRttDataInfo.data).rows?.length > 0">
+                <h3>
+                  min_rtt_
+                  <mat-icon matTooltip="The lowest observed RTT over a window of time. Represents the raw physical propagation delay without queueing delays in network switches."
+                            class="info-icon">info</mat-icon>
+                </h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.tcpRttDataInfo"></chart>
+              </div>
+            </div>
+          </div>
+        </mat-expansion-panel>
+
+        <!-- Section 2: Throughput & Pacing -->
+        <mat-expansion-panel [expanded]="isSectionOpen('tcp_sec_2')"
+                             (opened)="toggleSection('tcp_sec_2', true)"
+                             (closed)="toggleSection('tcp_sec_2', false)">
+          <mat-expansion-panel-header>
+            <mat-panel-title>
+              Section 2: Throughput & Pacing
+              <mat-icon class="info-icon" matTooltip="Graphs: 1. Delivery Rate, 2. Pacing Rate, 3. Data Sent Rate, 4. Packet Sent Rate, 5. Packet Delivered Rate, 6. App Limited (share of samples).">info</mat-icon>
+            </mat-panel-title>
+          </mat-expansion-panel-header>
+          <div class="metrics-section" *ngIf="isSectionOpen('tcp_sec_2')">
+            <div class="section-loading" *ngIf="sectionsLoading.get('tcp_sec_2') || !isGoogleChartsLoaded" style="display: flex; align-items: center; justify-content: center; padding: 24px;">
+              <mat-spinner diameter="24"></mat-spinner>
+              <span style="margin-left: 8px; font-size: 13px; color: #5f6368;">Processing time-series points...</span>
+            </div>
+            <div class="charts-container" *ngIf="!sectionsLoading.get('tcp_sec_2') && isGoogleChartsLoaded">
+              <div class="chart-box" *ngIf="charts.tcpDeliveryRateDataInfo.data && $any(charts.tcpDeliveryRateDataInfo.data).rows?.length > 0">
+                <h3>
+                  delivery_rate_ (Bits/s)
+                  <mat-icon matTooltip="The actual rate at which the network is confirming the delivery of data (Bits)."
+                            class="info-icon">info</mat-icon>
+                </h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.tcpDeliveryRateDataInfo"></chart>
+              </div>
+              <div class="chart-box" *ngIf="charts.tcpPacingRateDataInfo.data && $any(charts.tcpPacingRateDataInfo.data).rows?.length > 0">
+                <h3>
+                  pacing_rate_ (Bits/s)
+                  <mat-icon matTooltip="The rate at which the sender is injecting bits into the network to prevent switch buffers from overflowing."
+                            class="info-icon">info</mat-icon>
+                </h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.tcpPacingRateDataInfo"></chart>
+              </div>
+              <div class="chart-box" *ngIf="charts.tcpDataSentDataInfo.data && $any(charts.tcpDataSentDataInfo.data).rows?.length > 0">
+                <h3>
+                  data_sent_ (Bits/s)
+                  <mat-icon matTooltip="Rate at which bits are being sent onto the wire." class="info-icon">info</mat-icon>
+                </h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.tcpDataSentDataInfo"></chart>
+              </div>
+              <div class="chart-box" *ngIf="charts.tcpPacketSentDataInfo.data && $any(charts.tcpPacketSentDataInfo.data).rows?.length > 0">
+                <h3>
+                  packet_sent_ (Pkts/s)
+                  <mat-icon matTooltip="Rate of packet transmission." class="info-icon">info</mat-icon>
+                </h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.tcpPacketSentDataInfo"></chart>
+              </div>
+              <div class="chart-box" *ngIf="charts.tcpPacketDeliveredDataInfo.data && $any(charts.tcpPacketDeliveredDataInfo.data).rows?.length > 0">
+                <h3>
+                  packet_delivered_ (Pkts/s)
+                  <mat-icon matTooltip="Rate at which packets are being successfully delivered/acknowledged." class="info-icon">info</mat-icon>
+                </h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.tcpPacketDeliveredDataInfo"></chart>
+              </div>
+              <div class="chart-box" *ngIf="charts.tcpAppLimitedDataInfo.data && $any(charts.tcpAppLimitedDataInfo.data).rows?.length > 0">
+                <h3>
+                  is_delivery_rate_app_limited_
+                  <mat-icon matTooltip="Share of samples (0 to 1) in which the delivery rate was application limited: the network could handle more traffic, but the application isn't writing data to the socket fast enough."
+                            class="info-icon">info</mat-icon>
+                </h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.tcpAppLimitedDataInfo"></chart>
+              </div>
+            </div>
+          </div>
+        </mat-expansion-panel>
+
+        <!-- Section 3: Congestion Control State -->
+        <mat-expansion-panel [expanded]="isSectionOpen('tcp_sec_3')"
+                             (opened)="toggleSection('tcp_sec_3', true)"
+                             (closed)="toggleSection('tcp_sec_3', false)">
+          <mat-expansion-panel-header>
+            <mat-panel-title>
+              Section 3: Congestion Control State
+              <mat-icon class="info-icon" matTooltip="Graphs: 1. Congestion Window (CWND), 2. Slow Start Threshold (Ssthresh).">info</mat-icon>
+            </mat-panel-title>
+          </mat-expansion-panel-header>
+          <div class="metrics-section" *ngIf="isSectionOpen('tcp_sec_3')">
+            <div class="section-loading" *ngIf="sectionsLoading.get('tcp_sec_3') || !isGoogleChartsLoaded" style="display: flex; align-items: center; justify-content: center; padding: 24px;">
+              <mat-spinner diameter="24"></mat-spinner>
+              <span style="margin-left: 8px; font-size: 13px; color: #5f6368;">Processing time-series points...</span>
+            </div>
+            <div class="charts-container" *ngIf="!sectionsLoading.get('tcp_sec_3') && isGoogleChartsLoaded">
+              <div class="chart-box" *ngIf="charts.tcpCwndDataInfo.data && $any(charts.tcpCwndDataInfo.data).rows?.length > 0">
+                <h3>
+                  congestion_window_ (cwnd) (Packets)
+                  <mat-icon matTooltip="The maximum amount of unacknowledged data the sender is allowed to have in flight."
+                            class="info-icon">info</mat-icon>
+                </h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.tcpCwndDataInfo"></chart>
+              </div>
+              <div class="chart-box" *ngIf="charts.tcpSsthreshDataInfo.data && $any(charts.tcpSsthreshDataInfo.data).rows?.length > 0">
+                <h3>
+                  snd_ssthresh_ (Packets)
+                  <mat-icon matTooltip="Slow Start Threshold (Packets): The point at which TCP transitions from exponential growth to linear growth."
+                            class="info-icon">info</mat-icon>
+                </h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.tcpSsthreshDataInfo"></chart>
+              </div>
+            </div>
+          </div>
+        </mat-expansion-panel>
+
+        <!-- Section 4: Data Volume & Buffers -->
+        <mat-expansion-panel [expanded]="isSectionOpen('tcp_sec_4')"
+                             (opened)="toggleSection('tcp_sec_4', true)"
+                             (closed)="toggleSection('tcp_sec_4', false)">
+          <mat-expansion-panel-header>
+            <mat-panel-title>
+              Section 4: Data Volume & Buffers
+              <mat-icon class="info-icon" matTooltip="Graphs: 1. Bit Offset, 2. Data Not Sent.">info</mat-icon>
+            </mat-panel-title>
+          </mat-expansion-panel-header>
+          <div class="metrics-section" *ngIf="isSectionOpen('tcp_sec_4')">
+            <div class="section-loading" *ngIf="sectionsLoading.get('tcp_sec_4') || !isGoogleChartsLoaded" style="display: flex; align-items: center; justify-content: center; padding: 24px;">
+              <mat-spinner diameter="24"></mat-spinner>
+              <span style="margin-left: 8px; font-size: 13px; color: #5f6368;">Processing time-series points...</span>
+            </div>
+            <div class="charts-container" *ngIf="!sectionsLoading.get('tcp_sec_4') && isGoogleChartsLoaded">
+              <div class="chart-box" *ngIf="charts.tcpByteOffsetDataInfo.data && $any(charts.tcpByteOffsetDataInfo.data).rows?.length > 0">
+                <h3>
+                  bit_offset_
+                  <mat-icon matTooltip="The current bit sequence number in the TCP stream." class="info-icon">info</mat-icon>
+                </h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.tcpByteOffsetDataInfo"></chart>
+              </div>
+              <div class="chart-box" *ngIf="charts.tcpDataNotsentDataInfo.data && $any(charts.tcpDataNotsentDataInfo.data).rows?.length > 0">
+                <h3>
+                  data_notsent_ (Bits)
+                  <mat-icon matTooltip="The amount of bits sitting in the sender's OS socket buffer that hasn't been put on the wire yet." class="info-icon">info</mat-icon>
+                </h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.tcpDataNotsentDataInfo"></chart>
+              </div>
+            </div>
+          </div>
+        </mat-expansion-panel>
+
+        <!-- Section 5: Reliability & Errors -->
+        <mat-expansion-panel [expanded]="isSectionOpen('tcp_sec_5')"
+                             (opened)="toggleSection('tcp_sec_5', true)"
+                             (closed)="toggleSection('tcp_sec_5', false)">
+          <mat-expansion-panel-header>
+            <mat-panel-title>
+              Section 5: Reliability & Errors
+              <mat-icon class="info-icon" matTooltip="Graphs: 1. Retransmission Rate, 2. Spurious Retransmission Rate, 3. CE (Congestion Experienced) Rate, 4. Reordering (current estimate, packets), 5. Recurring Retransmissions (current count).">info</mat-icon>
+            </mat-panel-title>
+          </mat-expansion-panel-header>
+          <div class="metrics-section" *ngIf="isSectionOpen('tcp_sec_5')">
+            <div class="section-loading" *ngIf="sectionsLoading.get('tcp_sec_5') || !isGoogleChartsLoaded" style="display: flex; align-items: center; justify-content: center; padding: 24px;">
+              <mat-spinner diameter="24"></mat-spinner>
+              <span style="margin-left: 8px; font-size: 13px; color: #5f6368;">Processing time-series points...</span>
+            </div>
+            <div class="charts-container" *ngIf="!sectionsLoading.get('tcp_sec_5') && isGoogleChartsLoaded">
+              <div class="chart-box" *ngIf="charts.tcpPacketRetxDataInfo.data && $any(charts.tcpPacketRetxDataInfo.data).rows?.length > 0">
+                <h3>
+                  packet_retx_ (Pkts/s)
+                  <mat-icon matTooltip="Retransmitted packets per second." class="info-icon">info</mat-icon>
+                </h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.tcpPacketRetxDataInfo"></chart>
+              </div>
+              <div class="chart-box" *ngIf="charts.tcpPktSpurRetxDataInfo.data && $any(charts.tcpPktSpurRetxDataInfo.data).rows?.length > 0">
+                <h3>
+                  packet_spurious_retx_ (Pkts/s)
+                  <mat-icon matTooltip="Retransmissions per second that turned out to be unnecessary (DSACK duplicates)." class="info-icon">info</mat-icon>
+                </h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.tcpPktSpurRetxDataInfo"></chart>
+              </div>
+              <div class="chart-box" *ngIf="charts.tcpPktDeliveredCeDataInfo.data && $any(charts.tcpPktDeliveredCeDataInfo.data).rows?.length > 0">
+                <h3>
+                  packet_delivered_ce_ (Pkts/s)
+                  <mat-icon matTooltip="Packets delivered with Congestion Experienced (CE) marks per second." class="info-icon">info</mat-icon>
+                </h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.tcpPktDeliveredCeDataInfo"></chart>
+              </div>
+              <div class="chart-box" *ngIf="charts.tcpReorderingDataInfo.data && $any(charts.tcpReorderingDataInfo.data).rows?.length > 0">
+                <h3>
+                  reordering_ (Pkts)
+                  <mat-icon matTooltip="The connection's current reordering estimate in packets (a level, not a rate)." class="info-icon">info</mat-icon>
+                </h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.tcpReorderingDataInfo"></chart>
+              </div>
+              <div class="chart-box" *ngIf="charts.tcpRecurRetransDataInfo.data && $any(charts.tcpRecurRetransDataInfo.data).rows?.length > 0">
+                <h3>
+                  recurring_retrans_
+                  <mat-icon matTooltip="Current number of back-to-back retransmission timeouts of the connection (a level, not a rate). Above 0 means that a retransmission timeout happened and the retransmitted data is not acknowledged yet." class="info-icon">info</mat-icon>
+                </h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.tcpRecurRetransDataInfo"></chart>
+              </div>
+            </div>
+          </div>
+        </mat-expansion-panel>
+
+        <!-- Section 6: Limitation States -->
+        <mat-expansion-panel [expanded]="isSectionOpen('tcp_sec_6')"
+                             (opened)="toggleSection('tcp_sec_6', true)"
+                             (closed)="toggleSection('tcp_sec_6', false)">
+          <mat-expansion-panel-header>
+            <mat-panel-title>
+              Section 6: Limitation States
+              <mat-icon class="info-icon" matTooltip="Graphs (microseconds per second): 1. Busy time, 2. RWND (Receive Window) Limited time, 3. SndBuf (Send Buffer) Limited time.">info</mat-icon>
+            </mat-panel-title>
+          </mat-expansion-panel-header>
+          <div class="metrics-section" *ngIf="isSectionOpen('tcp_sec_6')">
+            <div class="section-loading" *ngIf="sectionsLoading.get('tcp_sec_6') || !isGoogleChartsLoaded" style="display: flex; align-items: center; justify-content: center; padding: 24px;">
+              <mat-spinner diameter="24"></mat-spinner>
+              <span style="margin-left: 8px; font-size: 13px; color: #5f6368;">Processing time-series points...</span>
+            </div>
+            <div class="charts-container" *ngIf="!sectionsLoading.get('tcp_sec_6') && isGoogleChartsLoaded">
+              <div class="chart-box" *ngIf="charts.tcpBusyUsecDataInfo.data && $any(charts.tcpBusyUsecDataInfo.data).rows?.length > 0">
+                <h3>
+                  busy_usec_ (us/s)
+                  <mat-icon matTooltip="Microseconds per second in which the connection was busy sending data." class="info-icon">info</mat-icon>
+                </h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.tcpBusyUsecDataInfo"></chart>
+              </div>
+              <div class="chart-box" *ngIf="charts.tcpRwndLimitedUsecDataInfo.data && $any(charts.tcpRwndLimitedUsecDataInfo.data).rows?.length > 0">
+                <h3>
+                  rwnd_limited_usec_ (us/s)
+                  <mat-icon matTooltip="Microseconds per second in which the sender had to stop sending because the receiver's window (buffer) was full." class="info-icon">info</mat-icon>
+                </h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.tcpRwndLimitedUsecDataInfo"></chart>
+              </div>
+              <div class="chart-box" *ngIf="charts.tcpSndbufLimitedUsecDataInfo.data && $any(charts.tcpSndbufLimitedUsecDataInfo.data).rows?.length > 0">
+                <h3>
+                  sndbuf_limited_usec_ (us/s)
+                  <mat-icon matTooltip="Microseconds per second in which the sender was limited by its full send buffer." class="info-icon">info</mat-icon>
+                </h3>
+                <chart [chartType]="chartType" [dataInfo]="charts.tcpSndbufLimitedUsecDataInfo"></chart>
+              </div>
+            </div>
+          </div>
+        </mat-expansion-panel>
+      </ng-template>
+    </mat-tab>
+
+    <mat-tab label="System Configurations">
+      <ng-template matTabContent>
+        <div class="tab-content" style="padding: 16px; display: flex; flex-direction: column; gap: 24px;">
+          <div>
+            <h3 style="margin-bottom: 12px; font-weight: 500; color: #5f6368;">Host System Configurations</h3>
+            <table mat-table [dataSource]="hostSystemConfigs" matSort class="mat-elevation-z8">
+              <ng-container *ngFor="let col of dynamicSystemConfigColumns" [matColumnDef]="col">
+                <th mat-header-cell *matHeaderCellDef mat-sort-header> {{col}} </th>
+                <td mat-cell *matCellDef="let element"> {{element[col]}} </td>
+              </ng-container>
+
+              <tr mat-header-row *matHeaderRowDef="systemConfigColumns"></tr>
+              <tr mat-row *matRowDef="let row; columns: systemConfigColumns;"></tr>
+            </table>
+          </div>
+
+          <div *ngIf="hostNetworkInterfaceGroups.length > 0">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <h3 style="margin: 0; font-weight: 500; color: #5f6368;">Network Interfaces Overview</h3>
+              <div style="display: flex; gap: 8px;">
+                <button mat-stroked-button (click)="expandAllHostNics(true)">Expand All</button>
+                <button mat-stroked-button (click)="expandAllHostNics(false)">Collapse All</button>
+              </div>
+            </div>
+            <mat-accordion multi>
+              <mat-expansion-panel *ngFor="let group of hostNetworkInterfaceGroups"
+                                   [expanded]="group.isExpanded"
+                                   (opened)="group.isExpanded = true"
+                                   (closed)="group.isExpanded = false"
+                                   style="margin-bottom: 8px;">
+                <mat-expansion-panel-header>
+                  <mat-panel-title style="font-weight: 500; display: flex; align-items: center; gap: 8px;">
+                    <mat-icon style="font-size: 18px; width: 18px; height: 18px; color: #5f6368;">dns</mat-icon>
+                    <span>{{group.tpu_vm}}</span>
+                  </mat-panel-title>
+                  <mat-panel-description style="justify-content: flex-end; margin-right: 16px; color: #5f6368; font-size: 13px;">
+                    {{group.interfaces.length}} interface{{group.interfaces.length !== 1 ? 's' : ''}}
+                  </mat-panel-description>
+                </mat-expansion-panel-header>
+
+                <div style="padding: 8px 0; overflow-x: auto;">
+                  <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+                    <thead>
+                      <tr style="border-bottom: 2px solid #e0e0e0; color: #5f6368; font-weight: 500; height: 40px;">
+                        <th style="padding: 8px 16px;">Interface</th>
+                        <th style="padding: 8px 16px;">NUMA Node</th>
+                        <th style="padding: 8px 16px;">Speed</th>
+                        <th style="padding: 8px 16px;">MTU</th>
+                        <th style="padding: 8px 16px;">State</th>
+                        <th style="padding: 8px 16px;">Duplex</th>
+                        <th style="padding: 8px 16px;">RX Delta</th>
+                        <th style="padding: 8px 16px;">TX Delta</th>
+                        <th style="padding: 8px 16px;">RX Drops Delta</th>
+                        <th style="padding: 8px 16px;">TX Drops Delta</th>
+                        <th style="padding: 8px 16px;">RX Errors Delta</th>
+                        <th style="padding: 8px 16px;">TX Errors Delta</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr *ngFor="let element of group.interfaces" style="border-bottom: 1px solid #eee; height: 40px; vertical-align: middle;">
+                        <td style="padding: 8px 16px;"><code>{{element.iface}}</code></td>
+                        <td style="padding: 8px 16px;">{{element.numa_node !== undefined ? element.numa_node : 'N/A'}}</td>
+                        <td style="padding: 8px 16px;">
+                          {{element.speed_mbps && element.speed_mbps > 0 ? (element.speed_mbps >= 1000 ? (element.speed_mbps / 1000 + ' Gbps') : (element.speed_mbps + ' Mbps')) : 'Unknown'}}
+                        </td>
+                        <td style="padding: 8px 16px;">{{element.mtu || 'Unknown'}}</td>
+                        <td style="padding: 8px 16px;">
+                          <span [class.state-up]="element.operstate === 'up'" [class.state-down]="element.operstate !== 'up'">
+                            {{element.operstate}}
+                          </span>
+                        </td>
+                        <td style="padding: 8px 16px;">{{element.duplex}}</td>
+                        <td style="padding: 8px 16px;"
+                            [matTooltip]="'Start: ' + formatBytes(element.start_rx_bytes) + ' (' + (element.start_rx_bytes | number) + ' B)\nStop: ' + formatBytes(element.stop_rx_bytes) + ' (' + (element.stop_rx_bytes | number) + ' B)'"
+                            matTooltipClass="multiline-tooltip">
+                          {{formatBytes(element.delta_rx_bytes)}}
+                        </td>
+                        <td style="padding: 8px 16px;"
+                            [matTooltip]="'Start: ' + formatBytes(element.start_tx_bytes) + ' (' + (element.start_tx_bytes | number) + ' B)\nStop: ' + formatBytes(element.stop_tx_bytes) + ' (' + (element.stop_tx_bytes | number) + ' B)'"
+                            matTooltipClass="multiline-tooltip">
+                          {{formatBytes(element.delta_tx_bytes)}}
+                        </td>
+                        <td style="padding: 8px 16px;" [class.metric-warning]="(element.delta_rx_dropped || 0) > 0">
+                          {{element.delta_rx_dropped | number}}
+                        </td>
+                        <td style="padding: 8px 16px;" [class.metric-warning]="(element.delta_tx_dropped || 0) > 0">
+                          {{element.delta_tx_dropped | number}}
+                        </td>
+                        <td style="padding: 8px 16px;" [class.metric-error]="(element.delta_rx_errors || 0) > 0">
+                          {{element.delta_rx_errors | number}}
+                        </td>
+                        <td style="padding: 8px 16px;" [class.metric-error]="(element.delta_tx_errors || 0) > 0">
+                          {{element.delta_tx_errors | number}}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </mat-expansion-panel>
+            </mat-accordion>
+          </div>
+
+          <div style="margin-top: 24px;">
+            <h3 style="margin-bottom: 16px; font-weight: 500; color: #5f6368;">Interface Latency Distribution</h3>
+            <mat-accordion multi>
+              <mat-expansion-panel *ngFor="let group of tpuVmLatencyGroups" [expanded]="group.isExpanded" (opened)="group.isExpanded = true" (closed)="group.isExpanded = false">
+                <mat-expansion-panel-header>
+                  <mat-panel-title style="font-weight: 500;">
+                    {{group.tpu_vm}}
+                  </mat-panel-title>
+                </mat-expansion-panel-header>
+
+                <div style="padding-top: 12px; padding-bottom: 12px;">
+                  <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+                    <thead>
+                      <tr style="border-bottom: 2px solid #e0e0e0; color: #5f6368; font-weight: 500;">
+                        <th style="padding: 8px;">Peer Address (IPv6)</th>
+                        <th style="padding: 8px;">P50 Latency (ms)</th>
+                        <th style="padding: 8px;">P99 Latency (ms)</th>
+                        <th style="padding: 8px;">Max Latency (ms)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr *ngFor="let peer of group.peers" style="border-bottom: 1px solid #eee; height: 36px; vertical-align: middle;">
+                        <td style="padding: 8px;">{{peer.peer_address}}</td>
+                        <td style="padding: 8px;">{{peer.p50_latency_ms | number:'1.0-2'}} ms</td>
+                        <td style="padding: 8px;">{{peer.p99_latency_ms | number:'1.0-2'}} ms</td>
+                        <td style="padding: 8px;">{{peer.p100_latency_ms | number:'1.0-2'}} ms</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </mat-expansion-panel>
+            </mat-accordion>
+          </div>
+        </div>
+      </ng-template>
+    </mat-tab>
+    <!-- NEW DEDICATED INSIGHTS TAB -->
+    <mat-tab label="Network Recommendations" *ngIf="enableRecommendations">
+      <ng-template matTabContent>
+        <div class="metrics-section">
+          <h2 class="section-title">Diagnostic Recommendations</h2>
+          <div class="insight-cards-container">
+            <ng-container *ngTemplateOutlet="insightSection; context: {title: 'gRPC & App Bound Recommendations', insights: rpcInsights}"></ng-container>
+            <ng-container *ngTemplateOutlet="insightSection; context: {title: 'TCP Network Recommendations', insights: tcpInsights}"></ng-container>
+          </div>
+        </div>
+      </ng-template>
+    </mat-tab>
+    <mat-tab label="HLO Collectives" *ngIf="showHloCollectives">
+      <ng-template matTabContent>
+        <div class="tab-content" style="padding: 16px;">
+          <table mat-table [dataSource]="hloCollectives" matSort class="mat-elevation-z8">
+            <ng-container matColumnDef="hlo_collective_name">
+              <th mat-header-cell *matHeaderCellDef mat-sort-header class="collectives-table-header">HLO Collective</th>
+              <td mat-cell *matCellDef="let element">{{element.hlo_collective_name}}</td>
+            </ng-container>
+            <ng-container matColumnDef="total_flows">
+              <th mat-header-cell *matHeaderCellDef mat-sort-header class="collectives-table-header">Total Flows</th>
+              <td mat-cell *matCellDef="let element">{{element.total_flows}}</td>
+            </ng-container>
+            <ng-container matColumnDef="total_latency_ms">
+              <th mat-header-cell *matHeaderCellDef mat-sort-header class="collectives-table-header">Total Latency (ms)</th>
+              <td mat-cell *matCellDef="let element">{{element.total_latency_ms | number:'1.2-2'}}</td>
+            </ng-container>
+            <ng-container matColumnDef="total_tpu_stall_ms">
+              <th mat-header-cell *matHeaderCellDef mat-sort-header class="collectives-table-header">Total TPU Stall (ms)</th>
+              <td mat-cell *matCellDef="let element">{{element.total_tpu_stall_ms | number:'1.2-2'}}</td>
+            </ng-container>
+            <ng-container matColumnDef="total_slack_ms">
+              <th mat-header-cell *matHeaderCellDef mat-sort-header class="collectives-table-header">Total Slack (ms)</th>
+              <td mat-cell *matCellDef="let element">{{element.total_slack_ms | number:'1.2-2'}}</td>
+            </ng-container>
+            <tr mat-header-row *matHeaderRowDef="hloCollectivesColumns"></tr>
+            <tr mat-row *matRowDef="let row; columns: hloCollectivesColumns;"></tr>
+          </table>
+        </div>
+      </ng-template>
+    </mat-tab>
+  </mat-tab-group>
+</div>
+
+<div *ngIf="isLoading" class="loading-container">
+  <mat-spinner diameter="40"></mat-spinner>
+  <p style="margin-top: 16px; color: #5f6368;">Analyzing gRPC and TCP metrics across TPU VMs. This may take a moment...</p>
+</div>
+
+<ng-template #insightSection let-title="title" let-insights="insights">
+  <h3>{{title}}</h3>
+  <ng-container *ngFor="let insight of $any(insights)">
+    <div class="insight-card"
+         (click)="insight.flows.length > 0 ? filterByInsight(insight.type) : null"
+         [ngClass]="{'healthy-card': insight.severity === 'success' || insight.flows.length === 0, 'warning-card': insight.severity === 'warning' && insight.flows.length > 0, 'info-card': insight.severity === 'info' && insight.flows.length > 0, 'critical-card': insight.severity === 'critical' && insight.flows.length > 0}">
+      <div class="insight-card-header" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+        <div class="insight-card-title"
+             [ngClass]="{'healthy-text': insight.severity === 'success' || insight.flows.length === 0, 'warning-text': insight.severity === 'warning' && insight.flows.length > 0, 'info-text': insight.severity === 'info' && insight.flows.length > 0, 'critical-text': insight.severity === 'critical' && insight.flows.length > 0}">
+          <mat-icon *ngIf="(insight.severity === 'warning' || insight.severity === 'critical') && insight.flows.length > 0">warning</mat-icon>
+          <mat-icon *ngIf="insight.severity === 'info' && insight.flows.length > 0">info</mat-icon>
+          <mat-icon *ngIf="insight.severity === 'success' || insight.flows.length === 0">check_circle</mat-icon>
+          {{insight.type}}
+          <span class="insight-card-count">({{insight.flows.length}} flows)</span>
+        </div>
+      </div>
+      <p class="insight-card-subtitle">{{insight.description}}</p>
+
+      <div class="insight-flows-preview" *ngIf="insight.flows.length > 0">
+        <span class="tpu-vm-badge" *ngFor="let flow of $any(insight.flows) | slice:0:10">
+          <mat-icon *ngIf="$any(flow).hlo_collective_name" style="font-size: 14px; width: 14px; height: 14px; margin-right: 4px;">memory</mat-icon>
+          <mat-icon *ngIf="!$any(flow).hlo_collective_name" style="font-size: 14px; width: 14px; height: 14px; margin-right: 4px;">router</mat-icon>
+          {{$any(flow).hlo_collective_name || $any(flow).tpu_vm}}
+          <span class="flow-id-link" (click)="filterByFlow($any(flow).chunk_id); $event.stopPropagation()">ID: {{$any(flow).chunk_id}}</span>
+          <mat-icon class="copy-icon" (click)="copyToClipboard($any(flow).chunk_id); $event.stopPropagation()">content_copy</mat-icon>
+        </span>
+        <span *ngIf="insight.flows.length > 10" class="more-badge">...and {{insight.flows.length - 10}} more</span>
+      </div>
+    </div>
+  </ng-container>
+</ng-template>

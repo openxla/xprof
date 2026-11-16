@@ -38,6 +38,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/framework_op_stats_processor.h"
+#include "xprof/convert/grpc_metrics/xplane_to_grpc_metrics.h"
 #include "xprof/convert/hlo_stats_processor.h"
 #include "xprof/convert/hlo_to_tools_data.h"
 #include "xprof/convert/input_pipeline_processor.h"
@@ -348,13 +349,18 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolData(
                         ConvertMultiXSpaceToHloProto(session_snapshot));
     LOG_IF(WARNING, !hlo_proto_status)
         << "No HLO proto found in XSpace.";
-    tool_data = GetAvailableToolNames(session_snapshot);
+    tool_data = GetAvailableToolNames(session_snapshot, options);
   } else if (tool_name == "_xplane.pb") {  // internal test only.
     tool_data = PreprocessXSpace(session_snapshot);
   } else if (tool_name == "inference_profile") {
     tool_data = ConvertMultiXSpacesToInferenceStats(session_snapshot, options);
   } else if (tool_name == "smart_suggestion") {
     tool_data = ConvertMultiXSpacesToSmartSuggestion(session_snapshot, options);
+  } else if (tool_name == "grpc_metrics") {
+    // DCN Analyzer. Served whenever it is asked for; the tool list decides
+    // whether the page is shown.
+    tool_data = ::xprof::grpc_metrics::ConvertMultiXSpacesToGrpcMetricsJson(
+        session_snapshot);
   } else if (tool_name == "kernel_utilization") {
     if (session_snapshot.XSpaceSize() != 1) {
       tool_data = absl::InvalidArgumentError(absl::StrCat(

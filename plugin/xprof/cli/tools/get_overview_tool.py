@@ -1,6 +1,6 @@
 """Tool to fetch overview page data from XProf."""
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, MutableMapping
 import json
 import logging
 import math
@@ -8,6 +8,7 @@ import os
 import pathlib
 import re
 import statistics
+import types
 from typing import Any
 
 from xprof.cli.internal import decorators
@@ -66,6 +67,71 @@ RUN_ENVIRONMENT_KEYS = frozenset({
     "build_time",
     "build_target",
 })
+
+# Values that the overview page reports when a hardware counter was not
+# captured or not reduced.
+_ABSENT_COUNTER_VALUES = ("0.0%", "0%", "0.0", 0, 0.0)
+_UNKNOWN_COUNTER_VALUE = "unknown"
+# Read-only, so that no caller can change the shared status. Callers copy it
+# with `dict()` before they put it in the output.
+_MXU_UNAVAILABLE_STATUS: Mapping[str, str] = types.MappingProxyType({
+    "status": "unavailable",
+    "reason": (
+        "Hardware performance counters were not captured or not reduced, so"
+        " the MXU utilization is unknown. It is not 0%."
+    ),
+    "how_to_get": (
+        "On TPU, capture the profile again with the profiler option"
+        " tpu_perf_counters=True. Until then, use compute_efficiency_percent"
+        " (a cost-model estimate, not a hardware counter value)."
+    ),
+})
+
+
+def _hardware_counters_absent(*, mxu_util: Any, hbm_counter_util: Any) -> bool:
+  """Returns True if the overview values show that no counters were captured.
+
+  A measured MXU value is never hidden. An "unknown" HBM value counts as
+  absent, the same as a missing or zero value.
+
+  Args:
+    mxu_util: The `mxu_utilization_percent` value from the overview page.
+    hbm_counter_util: The `hbm_utilization_percent` value from the overview
+      page. This is the hardware counter value, not the roofline estimate.
+  """
+  if mxu_util == _UNKNOWN_COUNTER_VALUE:
+    return True
+  return all(
+      val is None or val in (*_ABSENT_COUNTER_VALUES, _UNKNOWN_COUNTER_VALUE)
+      for val in (mxu_util, hbm_counter_util)
+  )
+
+
+def _mark_mxu_unavailable_if_no_counters(
+    performance_summary: MutableMapping[str, Any], *, hbm_counter_util: Any
+) -> None:
+  """Marks the MXU value as unavailable when no counters were captured.
+
+  If `_hardware_counters_absent` returns True for the MXU value in
+  `performance_summary` and `hbm_counter_util`, this function changes
+  `performance_summary` in place: it sets `mxu_utilization_percent` to None
+  and adds `mxu_utilization_status` (a dict with `status`, `reason` and
+  `how_to_get`). Otherwise, it does not change `performance_summary`.
+
+  Args:
+    performance_summary: The performance summary to update. It can contain the
+      `mxu_utilization_percent` value from the overview page.
+    hbm_counter_util: The `hbm_utilization_percent` value from the overview
+      page. This is the hardware counter value, not the roofline estimate.
+  """
+  if _hardware_counters_absent(
+      mxu_util=performance_summary.get("mxu_utilization_percent"),
+      hbm_counter_util=hbm_counter_util,
+  ):
+    performance_summary["mxu_utilization_percent"] = None
+    performance_summary["mxu_utilization_status"] = dict(
+        _MXU_UNAVAILABLE_STATUS
+    )
 
 
 def _populate_roofline_fallback(
@@ -147,7 +213,7 @@ def _populate_roofline_fallback(
           roofline_str
       )
 
-    if needs_flop and compute_eff is not None:
+    if compute_eff is not None:
       performance_summary["compute_efficiency_percent"] = (
           f"{compute_eff * 100.0:.2f}%"
       )
@@ -578,6 +644,10 @@ def get_overview(
       ):
         performance_summary[key] = val
 
+    _mark_mxu_unavailable_if_no_counters(
+        performance_summary,
+        hbm_counter_util=all_p_dict.get("hbm_utilization_percent"),
+    )
     _populate_roofline_fallback(client, session_id, performance_summary)
 
     # Extract Run Environment

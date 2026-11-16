@@ -195,6 +195,7 @@ py_test(
         "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal/oss:xprof_client",
         "//plugin/xprof/cli/tools:get_kpi_metrics_tool",
+        "//plugin/xprof/cli/tools:get_overview_tool",
         "//plugin/xprof/cli/tools:get_roofline_model_tool",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
@@ -223,6 +224,7 @@ py_test(
         "//plugin/xprof/cli/tools:get_overview_tool",
         "//plugin/xprof/protobuf:op_stats_proto_py",
         "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
     ],
 )
 

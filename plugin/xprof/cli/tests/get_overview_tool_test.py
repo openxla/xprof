@@ -2,13 +2,14 @@ import json
 import pathlib
 from unittest import mock
 from absl.testing import absltest
+from absl.testing import parameterized
 from xprof.cli.internal import decorators
 from xprof.cli.internal.oss import xprof_client
 from xprof.cli.tools import get_overview_tool
 from xprof.protobuf import op_stats_pb2
 
 
-class GetOverviewToolTest(absltest.TestCase):
+class GetOverviewToolTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -32,6 +33,31 @@ class GetOverviewToolTest(absltest.TestCase):
             return_value=self.mock_client,
             autospec=True,
         )
+    )
+
+  def _set_overview_properties(
+      self, *, mxu: str | float | None, hbm: str | float | None
+  ) -> None:
+    """Makes every fetch return one overview section with MXU and HBM values.
+
+    Args:
+      mxu: The `mxu_utilization_percent` property value. If None, the property
+        is left out.
+      hbm: The `hbm_utilization_percent` property value. If None, the property
+        is left out.
+    """
+    properties = {
+        "flop_rate_utilization_relative_to_roofline": "20.0%",
+        "memory_bw_utilization_relative_to_hw_limit": "30.0%",
+        "device_type": "TPU v4",
+    }
+    if mxu is not None:
+      properties["mxu_utilization_percent"] = mxu
+    if hbm is not None:
+      properties["hbm_utilization_percent"] = hbm
+    self.mock_client.fetch.return_value = (
+        81,
+        json.dumps([{"p": properties}]).encode("utf-8"),
     )
 
   def test_get_overview_success(self):
@@ -227,6 +253,90 @@ class GetOverviewToolTest(absltest.TestCase):
     self.assertEqual(
         perf["flop_rate_utilization_relative_to_roofline"], "20.0%"
     )
+
+  @parameterized.named_parameters(
+      dict(testcase_name="both_zero", mxu="0.0%", hbm="0.0%"),
+      dict(testcase_name="both_numeric_zero", mxu=0, hbm=0.0),
+      dict(testcase_name="mxu_unknown", mxu="unknown", hbm="35.2%"),
+      dict(testcase_name="hbm_unknown", mxu="0.0%", hbm="unknown"),
+      dict(testcase_name="keys_missing", mxu=None, hbm=None),
+  )
+  def test_get_overview_mxu_null_when_counters_absent(self, mxu, hbm):
+    self._set_overview_properties(mxu=mxu, hbm=hbm)
+
+    result_json = json.loads(get_overview_tool.get_overview("session_mxu"))
+
+    perf = result_json["performance_summary"]
+    self.assertIn("mxu_utilization_percent", perf)
+    self.assertIsNone(perf["mxu_utilization_percent"])
+    self.assertEqual(perf["mxu_utilization_status"]["status"], "unavailable")
+    self.assertIn(
+        "tpu_perf_counters", perf["mxu_utilization_status"]["how_to_get"]
+    )
+    self.assertNotIn("hbm_utilization_percent", perf)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name="zero_mxu_with_hbm_counter",
+          mxu="0.0%",
+          hbm="35.2%",
+      ),
+      dict(testcase_name="measured_mxu", mxu="41.0%", hbm="0.0%"),
+      dict(
+          testcase_name="measured_mxu_hbm_unknown",
+          mxu="41.0%",
+          hbm="unknown",
+      ),
+  )
+  def test_get_overview_mxu_kept_when_counters_present(self, mxu, hbm):
+    self._set_overview_properties(mxu=mxu, hbm=hbm)
+
+    result_json = json.loads(get_overview_tool.get_overview("session_mxu"))
+
+    perf = result_json["performance_summary"]
+    self.assertEqual(perf["mxu_utilization_percent"], mxu)
+    self.assertNotIn("mxu_utilization_status", perf)
+
+  def test_get_overview_compute_efficiency_with_nonzero_flop(self):
+    overview_data = [{
+        "p": {
+            "flop_rate_utilization_relative_to_roofline": "20.0%",
+            "memory_bw_utilization_relative_to_hw_limit": "30.0%",
+            "mxu_utilization_percent": "41.0%",
+            "device_type": "TPU v6 Lite",
+        }
+    }]
+    roofline_raw_data = [{
+        "cols": [
+            {"id": "category", "type": "string"},
+            {"id": "roofline_efficiency", "type": "number"},
+            {"id": "compute_efficiency", "type": "number"},
+        ],
+        "rows": [{"c": [{"v": "Program"}, {"v": 0.2}, {"v": 0.0076}]}],
+    }]
+
+    def fetch_side_effect(tool_name, session_id, **kwargs):
+      del session_id, kwargs
+      if tool_name in ("overview_page", "overview_page.json"):
+        return (81, json.dumps(overview_data).encode("utf-8"))
+      if tool_name in ("roofline_model", "roofline_model.json"):
+        return (
+            "application/json",
+            json.dumps(roofline_raw_data).encode("utf-8"),
+        )
+      return (None, None)
+
+    self.mock_client.fetch.side_effect = fetch_side_effect
+
+    result_json = json.loads(get_overview_tool.get_overview("session_ce"))
+
+    perf = result_json["performance_summary"]
+    self.assertEqual(perf["compute_efficiency_percent"], "0.76%")
+    self.assertEqual(
+        perf["flop_rate_utilization_relative_to_roofline"], "20.0%"
+    )
+    self.assertNotIn("roofline_efficiency_percent", perf)
+    self.assertEqual(perf["mxu_utilization_percent"], "41.0%")
 
   def test_get_overview_multi_host_step_time_with_slower_second_host(self):
     overview_data = [{

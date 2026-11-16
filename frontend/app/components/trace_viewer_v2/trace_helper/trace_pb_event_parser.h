@@ -107,6 +107,8 @@ bool HasCachedTraceEventsIncremental();
 
 void SetMaxCachedPackedBytesForTest(size_t max_bytes);
 
+size_t GetZstdDecompressorCapacityForTest();
+
 }  // namespace traceviewer
 
 #endif  // THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TRACE_HELPER_TRACE_PB_EVENT_PARSER_H_

@@ -152,16 +152,15 @@ wasm_cc_library(
 )
 
 BINARY_LINKOPTS = [
-    "-sASYNCIFY",
     "-sMODULARIZE",
     "-sMINIMAL_RUNTIME=0",
     "-sENVIRONMENT=web,worker",
     "-sALLOW_MEMORY_GROWTH",
+    "-sMAXIMUM_MEMORY=4GB",
     "-sEXPORT_NAME=loadWasmTraceViewerModule",
     "-sEXPORTED_RUNTIME_METHODS=callMain,HEAPU8",
     "-sEXPORTED_FUNCTIONS=_main,_malloc,_free",
     "-sDISABLE_DEPRECATED_FIND_EVENT_TARGET_BEHAVIOR",
-    "-g",
     "-msimd128",
     "--bind",
     "-lhtml5",

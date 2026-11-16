@@ -247,6 +247,8 @@ struct IncrementalParserSession {
   bool appended_any_batch = false;
   size_t frames_flushed = 0;
   bool in_finish_drain = false;
+  tensorflow::profiler::ZstdDecompressorContext zstd_decompressor{
+      /*initial_capacity=*/0};
 
   void ResetBuildingTraceStore() {
     can_build_trace_store = true;
@@ -284,6 +286,7 @@ struct IncrementalParserSession {
     appended_any_batch = false;
     frames_flushed = 0;
     in_finish_drain = false;
+    zstd_decompressor.ReleaseBuffer();
   }
 
   void ClearPersistentCache() {
@@ -299,6 +302,7 @@ struct IncrementalParserSession {
     cached_counter_events.clear();
     cached_complete_blocks.clear();
     cached_frame_interned_strings.clear();
+    zstd_decompressor.ReleaseBuffer();
   }
 
   void ResetCurrentPidCursors() {
@@ -567,18 +571,23 @@ bool ActivateNextCompressedFrame(IncrementalParserSession& session,
       continue;
     }
 
-    absl::StatusOr<std::string> decompressed_proto =
-        tensorflow::profiler::ZstdCompression::Decompress(compressed);
+    absl::StatusOr<absl::string_view> decompressed_view =
+        session.zstd_decompressor.Decompress(compressed);
     std::string().swap(compressed);
-    if (!decompressed_proto.ok()) {
+    std::unique_ptr<xprof::TraceDataResponse> response;
+    if (decompressed_view.ok()) {
+      response = std::make_unique<xprof::TraceDataResponse>();
+      if (!response->ParseFromString(*decompressed_view)) {
+        response.reset();
+      }
+    }
+    if (session.zstd_decompressor.capacity() >
+        tensorflow::profiler::ZstdDecompressorContext::kDefaultBufferSize) {
+      session.zstd_decompressor.ReleaseBuffer();
+    }
+    if (response == nullptr) {
       continue;
     }
-
-    auto response = std::make_unique<xprof::TraceDataResponse>();
-    if (!response->ParseFromString(*decompressed_proto)) {
-      continue;
-    }
-    std::string().swap(*decompressed_proto);
 
     session.active_frame_index = frame_idx;
     if (session.recording_frame_summaries) {
@@ -954,6 +963,10 @@ bool HasCachedTraceEventsIncremental() {
 
 void SetMaxCachedPackedBytesForTest(size_t max_bytes) {
   GetIncrementalSession().max_cached_packed_bytes = max_bytes;
+}
+
+size_t GetZstdDecompressorCapacityForTest() {
+  return GetIncrementalSession().zstd_decompressor.capacity();
 }
 
 bool ShouldEnqueueCompressedFrameIncremental() {

@@ -1,13 +1,20 @@
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_pb_event_parser.h"
 
+#ifdef __EMSCRIPTEN__
 #include <emscripten/bind.h>
 #include <emscripten/emscripten.h>
 #include <emscripten/val.h>
+#endif
 
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <utility>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "xprof/convert/trace_viewer/delta_series/zstd_compression.h"
@@ -17,6 +24,192 @@
 #include "plugin/xprof/protobuf/trace_data_response.pb.h"
 
 namespace traceviewer {
+namespace {
+
+struct CompressedTestFrame {
+  size_t uncompressed_size = 0;
+  std::string compressed;
+};
+
+// Builds, serializes, and Zstd-compresses a single-event TraceDataResponse.
+absl::StatusOr<CompressedTestFrame> CompressSingleEventFrame(
+    absl::string_view event_name) {
+  xprof::TraceDataResponse frame;
+  frame.add_interned_strings("");
+  frame.add_interned_strings(event_name);
+  xprof::Process* proc = frame.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("host:0 /device:TPU:0");
+  xprof::Thread* thread = proc->add_threads();
+  thread->set_id(10);
+  thread->set_name("XLA Ops");
+  xprof::TraceEventSeries* series = frame.add_complete_events();
+  series->mutable_metadata()->set_process_id(1);
+  series->mutable_metadata()->set_thread_id(10);
+  series->add_deltas(1'000'000'000ULL);
+  series->add_durations(500'000'000ULL);
+  series->add_name_refs(1);
+  series->add_event_metadata();
+
+  std::string serialized;
+  if (!frame.SerializeToString(&serialized)) {
+    return absl::InternalError("Failed to serialize TraceDataResponse.");
+  }
+  absl::StatusOr<std::string> compressed =
+      tensorflow::profiler::ZstdCompression::Compress(serialized);
+  if (!compressed.ok()) {
+    return compressed.status();
+  }
+  return CompressedTestFrame{
+      .uncompressed_size = serialized.size(),
+      .compressed = *std::move(compressed),
+  };
+}
+
+}  // namespace
+
+TEST(TracePbEventParserIncrementalTest,
+     SkipsCorruptZstdAndInvalidProtobufFrames) {
+  using ::testing::ElementsAre;
+
+  const auto append_framed_bytes = [](std::string& out,
+                                      absl::string_view payload) {
+    const uint32_t len = static_cast<uint32_t>(payload.size());
+    const char len_bytes[4] = {
+        static_cast<char>(len & 0xff),
+        static_cast<char>((len >> 8) & 0xff),
+        static_cast<char>((len >> 16) & 0xff),
+        static_cast<char>((len >> 24) & 0xff),
+    };
+    out.append(len_bytes, 4);
+    out.append(payload.data(), payload.size());
+  };
+
+  // Frame 1: invalid Zstd bytes (triggers !decompressed_view.ok() branch).
+  const std::string bad_zstd = "not valid zstd data";
+
+  // Frame 2: valid Zstd frame containing invalid protobuf bytes (triggers
+  // !response->ParseFromString(*decompressed_view) branch).
+  const absl::StatusOr<std::string> bad_proto_compressed =
+      tensorflow::profiler::ZstdCompression::Compress("\x08");
+  ASSERT_TRUE(bad_proto_compressed.ok());
+
+  // Frame 3: valid compressed TraceDataResponse to confirm incremental
+  // decoding continues cleanly after skipping corrupt frames.
+  const absl::StatusOr<CompressedTestFrame> valid_frame =
+      CompressSingleEventFrame("valid_after_corrupt");
+  ASSERT_TRUE(valid_frame.ok());
+
+  std::string xchn_payload(tensorflow::profiler::kXChunkMagic);
+  append_framed_bytes(xchn_payload, bad_zstd);
+  append_framed_bytes(xchn_payload, *bad_proto_compressed);
+  append_framed_bytes(xchn_payload, valid_frame->compressed);
+
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  DataProvider data_provider;
+
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(xchn_payload.data()), xchn_payload.size());
+  while (StepIncrementalTraceEvents(100, data_provider, timeline)) {
+  }
+  FinishIncrementalTraceEvents(data_provider, timeline);
+
+  ASSERT_THAT(timeline.timeline_data().entry_names,
+              ElementsAre("valid_after_corrupt"));
+}
+
+TEST(TracePbEventParserIncrementalTest,
+     ResetAndClearPersistentCacheReleasesZstdDecompressorBuffer) {
+  constexpr size_t kDefaultCapacity =
+      tensorflow::profiler::ZstdDecompressorContext::kDefaultBufferSize;
+
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  DataProvider data_provider;
+
+  // Step 1: Sub-default frame (<= kDefaultCapacity) stays reusable across
+  // frames and releases back to 0 on FinishIncrementalTraceEvents
+  // (session.Reset()).
+  const absl::StatusOr<CompressedTestFrame> sub_default_frame =
+      CompressSingleEventFrame(std::string(64 * 1024, 's'));
+  ASSERT_TRUE(sub_default_frame.ok());
+  ASSERT_LE(sub_default_frame->uncompressed_size, kDefaultCapacity);
+
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(sub_default_frame->compressed.data()),
+      sub_default_frame->compressed.size());
+  StepIncrementalTraceEvents(1, data_provider, timeline);
+  ASSERT_GT(GetZstdDecompressorCapacityForTest(), 0u);
+  ASSERT_LE(GetZstdDecompressorCapacityForTest(), kDefaultCapacity);
+
+  FinishIncrementalTraceEvents(data_provider, timeline);
+  EXPECT_EQ(GetZstdDecompressorCapacityForTest(), 0u);
+
+  // Step 2: Sub-default frame (<= kDefaultCapacity) releases back to 0 on
+  // CancelIncrementalTraceEvents (session.Reset()).
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(sub_default_frame->compressed.data()),
+      sub_default_frame->compressed.size());
+  StepIncrementalTraceEvents(1, data_provider, timeline);
+  ASSERT_GT(GetZstdDecompressorCapacityForTest(), 0u);
+
+  CancelIncrementalTraceEvents(data_provider, timeline);
+  EXPECT_EQ(GetZstdDecompressorCapacityForTest(), 0u);
+
+  // Step 3: Sub-default frame (<= kDefaultCapacity) releases back to 0 when
+  // ParseAndProcessCompressedTraceEvents calls ClearPersistentCache().
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(sub_default_frame->compressed.data()),
+      sub_default_frame->compressed.size());
+  StepIncrementalTraceEvents(1, data_provider, timeline);
+  ASSERT_GT(GetZstdDecompressorCapacityForTest(), 0u);
+
+  xprof::TraceDataResponse small_frame;
+  std::string serialized_small;
+  ASSERT_TRUE(small_frame.SerializeToString(&serialized_small));
+  const absl::StatusOr<std::string> compressed_small =
+      tensorflow::profiler::ZstdCompression::Compress(serialized_small);
+  ASSERT_TRUE(compressed_small.ok());
+
+  ParseAndProcessCompressedTraceEvents(
+      reinterpret_cast<uintptr_t>(compressed_small->data()),
+      compressed_small->size(), std::nullopt, data_provider, timeline);
+  EXPECT_EQ(GetZstdDecompressorCapacityForTest(), 0u);
+
+  // Step 4: Oversized frame (> kDefaultCapacity) releases immediately after
+  // ParseFromString (and on truncated-body decode failure) without waiting for
+  // FinishIncrementalTraceEvents or CancelIncrementalTraceEvents.
+  const absl::StatusOr<CompressedTestFrame> large_frame =
+      CompressSingleEventFrame(std::string(kDefaultCapacity + 1024, 'x'));
+  ASSERT_TRUE(large_frame.ok());
+  ASSERT_GT(large_frame->uncompressed_size, kDefaultCapacity);
+
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(large_frame->compressed.data()),
+      large_frame->compressed.size());
+  StepIncrementalTraceEvents(1, data_provider, timeline);
+  EXPECT_EQ(GetZstdDecompressorCapacityForTest(), 0u);
+  FinishIncrementalTraceEvents(data_provider, timeline);
+
+  ASSERT_GT(large_frame->compressed.size(), 8u);
+  const absl::string_view truncated_large(large_frame->compressed.data(),
+                                          large_frame->compressed.size() - 5);
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(truncated_large.data()),
+      truncated_large.size());
+  StepIncrementalTraceEvents(1, data_provider, timeline);
+  EXPECT_EQ(GetZstdDecompressorCapacityForTest(), 0u);
+  CancelIncrementalTraceEvents(data_provider, timeline);
+}
+
+#ifdef __EMSCRIPTEN__
 class TracePbEventParserTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -1220,4 +1413,5 @@ TEST_F(TracePbEventParserTest,
   ASSERT_EQ(timeline_.timeline_data().entry_names.size(), 1u);
   EXPECT_EQ(timeline_.timeline_data().entry_names[0], "refetch_window_op");
 }
+#endif  // __EMSCRIPTEN__
 }  // namespace traceviewer

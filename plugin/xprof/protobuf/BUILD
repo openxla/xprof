@@ -33,6 +33,11 @@ xprof_proto_library(
 )
 
 xprof_proto_library(
+    name = "grpc_metrics_proto",
+    srcs = ["grpc_metrics.proto"],
+)
+
+xprof_proto_library(
     name = "hardware_types_proto",
     srcs = ["hardware_types.proto"],
 )

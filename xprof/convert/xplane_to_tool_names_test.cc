@@ -50,6 +50,7 @@ struct XPlaneToToolsTestCase {
 };
 
 SessionSnapshot CreateSessionSnapshot(std::unique_ptr<XSpace> xspace,
+                                      std::string_view device_plane_name,
                                       bool has_hlo_module,
                                       bool has_dcn_collective_stats,
                                       bool has_perf_counters) {
@@ -80,7 +81,7 @@ SessionSnapshot CreateSessionSnapshot(std::unique_ptr<XSpace> xspace,
   if (has_perf_counters) {
     XPlane* device_plane = xspace->add_planes();
     tsl::profiler::XPlaneBuilder plane_builder(device_plane);
-    plane_builder.SetName(tsl::profiler::kTpuPlanePrefix);
+    plane_builder.SetName(device_plane_name);
     tsl::profiler::XLineBuilder line_builder = plane_builder.GetOrCreateLine(0);
     line_builder
         .AddEvent(*plane_builder.GetOrCreateEventMetadata("dummy_event"))
@@ -109,7 +110,7 @@ TEST_P(XPlaneToToolsTest, ToolsList) {
                                                test_case.plane_name);
 
   SessionSnapshot sessionSnapshot = CreateSessionSnapshot(
-      std::move(xspace), test_case.has_hlo_module,
+      std::move(xspace), test_case.plane_name, test_case.has_hlo_module,
       test_case.has_dcn_collective_stats, test_case.has_perf_counters);
 
   absl::StatusOr<std::string> toolsString =
@@ -175,6 +176,12 @@ INSTANTIATE_TEST_SUITE_P(
          false,
          true,
          {"perf_counters", "utilization_viewer", "kernel_utilization"}},
+        {"ToolsForGpuWithPerfCounters",
+         tsl::profiler::kGpuPlanePrefix,
+         false,
+         false,
+         true,
+         {"kernel_stats", "perf_counters"}},
     }),
     [](const ::testing::TestParamInfo<XPlaneToToolsTest::ParamType>& info) {
       return info.param.test_name;

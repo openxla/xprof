@@ -23,8 +23,10 @@ limitations under the License.
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/status/status_matchers.h"
+#include "absl/strings/str_cat.h"
 #include "xla/tsl/platform/env.h"
 #include "tsl/platform/path.h"
+#include "tsl/platform/protobuf.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/file_utils.h"
 #include "xprof/convert/op_profile_processor.h"
@@ -36,6 +38,7 @@ limitations under the License.
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_profile.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/source_info.pb.h"
 
 namespace xprof {
 namespace {
@@ -364,6 +367,131 @@ TEST(UnifiedOpProfileProcessorTest,
               Not(HasSubstr("programServingMetadata")));
   EXPECT_THAT(fallback_processor.GetData(),
               HasSubstr("jit_step(" + std::to_string(kProgramId) + ")"));
+}
+
+TEST(UnifiedOpProfileProcessorTest, WireCompactionOptionsAndOutPbBypass) {
+  std::string session_dir = tsl::io::JoinPath(
+      testing::TempDir(), "unified_op_profile_compaction_test");
+  ASSERT_OK(tsl::Env::Default()->RecursivelyCreateDir(session_dir));
+  std::string xspace_path =
+      tsl::io::JoinPath(session_dir, "test_host.xplane.pb");
+  XSpace dummy_space;
+  ASSERT_OK(WriteBinaryProto(xspace_path, dummy_space));
+  ASSERT_OK_AND_ASSIGN(
+      auto session_snapshot,
+      SessionSnapshot::Create({xspace_path}, /*xspaces=*/std::nullopt));
+
+  // Build an OpStats with IDLE + 100 distinct categories so that under
+  // group_by="category" (limit 100), `by_category` keeps IDLE + cat_0..cat_98
+  // while `by_category_exclude_idle` drops IDLE and admits `cat_99` (whose
+  // stack frame `"tail_only.py:99"` only appears inside `exclude_idle_patch`'s
+  // `replacement` subtree, verifying `ReplaceExcludeIdleTreesWithPatches` runs
+  // before `InternStackFrames`).
+  OpStats op_stats;
+  op_stats.mutable_run_environment()->set_device_type("TPU");
+  PerfEnv* perf_env = op_stats.mutable_perf_env();
+  perf_env->set_peak_tera_flops_per_second(10.0);
+  perf_env->add_peak_bws_giga_bytes_per_second(100.0);
+  perf_env->add_peak_bws_giga_bytes_per_second(100.0);
+  perf_env->add_peak_bws_giga_bytes_per_second(100.0);
+  OpMetricsDb* db = op_stats.mutable_device_op_metrics_db();
+  db->set_total_time_ps(300000);
+  db->set_total_op_time_ps(250000);
+
+  OpMetrics* idle = db->add_metrics_db();
+  idle->set_name("IDLE");
+  idle->set_category("IDLE");
+  idle->set_time_ps(50000);
+  idle->set_self_time_ps(50000);
+  idle->set_occurrences(1);
+
+  for (int i = 0; i < 100; ++i) {
+    OpMetrics* op = db->add_metrics_db();
+    op->set_hlo_module_id(1);
+    op->set_name(absl::StrCat("op_", i));
+    op->set_category(absl::StrCat("cat_", i));
+    uint64_t t = static_cast<uint64_t>(2000 - i * 10);
+    op->set_time_ps(t);
+    op->set_self_time_ps(t);
+    op->set_occurrences(1);
+    op->mutable_source_info()->set_file_name("model.py");
+    op->mutable_source_info()->set_line_number(i + 1);
+    op->mutable_source_info()->set_stack_frame(
+        i == 99 ? "tail_only.py:99" : "hot_op.py:10");
+  }
+  (*op_stats.mutable_program_id_to_name_map())[1] = "main";
+
+  // Case 1: Both flags on -> excludeIdlePatch + stackFrameTable populated,
+  // byCategoryExcludeIdle cleared, and both base and patch stack frames
+  // interned.
+  ToolOptions compact_opts;
+  compact_opts["group_by"] = std::string("category");
+  compact_opts["exclude_idle_patch"] = true;
+  compact_opts["stack_frame_table"] = true;
+  UnifiedOpProfileProcessor compact_proc(compact_opts);
+  ASSERT_OK(compact_proc.ProcessCombinedOpStats(session_snapshot, op_stats,
+                                                compact_opts));
+  EXPECT_EQ(compact_proc.GetContentType(), "application/json");
+  EXPECT_THAT(compact_proc.GetData(), Not(HasSubstr("byCategoryExcludeIdle")));
+  EXPECT_THAT(compact_proc.GetData(), HasSubstr("\"excludeIdlePatch\""));
+  EXPECT_THAT(compact_proc.GetData(), HasSubstr("\"stackFrameTable\""));
+  EXPECT_THAT(compact_proc.GetData(), HasSubstr("\"stackFrameIndex\""));
+  EXPECT_THAT(compact_proc.GetData(), Not(HasSubstr("\"stackFrame\"")));
+
+  tensorflow::profiler::op_profile::Profile compact_profile;
+  ASSERT_OK(tsl::protobuf::util::JsonStringToMessage(compact_proc.GetData(),
+                                                     &compact_profile));
+  EXPECT_TRUE(compact_profile.has_by_category());
+  EXPECT_FALSE(compact_profile.has_by_category_exclude_idle());
+  EXPECT_GT(compact_profile.exclude_idle_patch_size(), 0);
+  EXPECT_THAT(compact_profile.stack_frame_table(),
+              ::testing::UnorderedElementsAre("hot_op.py:10",
+                                              "tail_only.py:99"));
+
+  // Case 2: Both flags off -> full trees and inline stackFrame strings remain,
+  // while repeated compaction fields serialize as empty arrays under
+  // `always_print_fields_with_no_presence = true`.
+  ToolOptions default_opts;
+  default_opts["group_by"] = std::string("category");
+  UnifiedOpProfileProcessor default_proc(default_opts);
+  ASSERT_OK(default_proc.ProcessCombinedOpStats(session_snapshot, op_stats,
+                                                default_opts));
+  EXPECT_THAT(default_proc.GetData(), HasSubstr("\"byCategoryExcludeIdle\""));
+  EXPECT_THAT(default_proc.GetData(), HasSubstr("\"excludeIdlePatch\":[]"));
+  EXPECT_THAT(default_proc.GetData(), HasSubstr("\"stackFrameTable\":[]"));
+  EXPECT_THAT(default_proc.GetData(), Not(HasSubstr("\"stackFrameIndex\"")));
+  EXPECT_THAT(default_proc.GetData(), HasSubstr("\"hot_op.py:10\""));
+  EXPECT_THAT(default_proc.GetData(), HasSubstr("\"tail_only.py:99\""));
+
+  tensorflow::profiler::op_profile::Profile default_profile;
+  ASSERT_OK(tsl::protobuf::util::JsonStringToMessage(default_proc.GetData(),
+                                                     &default_profile));
+  EXPECT_TRUE(default_profile.has_by_category());
+  EXPECT_TRUE(default_profile.has_by_category_exclude_idle());
+  EXPECT_EQ(default_profile.exclude_idle_patch_size(), 0);
+  EXPECT_EQ(default_profile.stack_frame_table_size(), 0);
+
+  // Case 3: tqx=out:pb returns uncompacted binary protobuf even when both
+  // flags are enabled.
+  ToolOptions pb_opts = compact_opts;
+  pb_opts["tqx"] = std::string("out:pb");
+  UnifiedOpProfileProcessor pb_proc(pb_opts);
+  ASSERT_OK(
+      pb_proc.ProcessCombinedOpStats(session_snapshot, op_stats, pb_opts));
+  EXPECT_EQ(pb_proc.GetContentType(), "application/x-protobuf");
+  tensorflow::profiler::op_profile::Profile pb_profile;
+  ASSERT_TRUE(pb_profile.ParseFromString(pb_proc.GetData()));
+  EXPECT_TRUE(pb_profile.has_by_category());
+  EXPECT_TRUE(pb_profile.has_by_category_exclude_idle());
+  EXPECT_EQ(pb_profile.exclude_idle_patch_size(), 0);
+  EXPECT_EQ(pb_profile.stack_frame_table_size(), 0);
+  EXPECT_EQ(pb_profile.by_category()
+                .children(1)
+                .children(0)
+                .xla()
+                .source_info()
+                .stack_frame(),
+            "hot_op.py:10");
 }
 
 }  // namespace

@@ -8,5 +8,5 @@ message SourceInfo {
   int32 line_number = 2;  // could be `-1`
 
   // TODO: b/431781193 - Rename stack-frame to stack-trace.
-  string stack_frame = 3;  // One stack frame per line.
+  optional string stack_frame = 3;  // One stack frame per line.
 }

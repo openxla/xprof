@@ -11,7 +11,10 @@ import {Store} from '@ngrx/store';
 import {
   DEFAULT_HOST,
   filterUiTools,
+  getToolBadge,
   HLO_TOOLS,
+  KERNEL_VIEWER_TOOL_NAME,
+  LLO_DEBUG_TAG,
 } from 'org_xprof/frontend/app/common/constants/constants';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
@@ -26,6 +29,7 @@ import {
   setErrorMessageStateAction,
   setHostsStateAction,
   setProfilerConfigAction,
+  setTagsStateAction,
   updateRunToolsMapAction,
 } from 'org_xprof/frontend/app/store/actions';
 import {
@@ -367,8 +371,7 @@ export class SideNav implements OnInit, OnDestroy {
       '';
     const newNav =
       routeParams.get('new_nav') || parentParams.get('new_nav') || '';
-    const normalizedNewNav =
-      newNav === 'true' || newNav === '1' ? 'true' : '';
+    const normalizedNewNav = newNav === 'true' || newNav === '1' ? 'true' : '';
 
     const isHostsEqual = this.isMultiHostsEnabled
       ? this.selectedHostsInternal.join(',') === hostsParam
@@ -518,6 +521,7 @@ export class SideNav implements OnInit, OnDestroy {
       ['op_profile', 'HLO Op Profile'],
       ['memory_viewer', 'Memory Viewer'],
       ['graph_viewer', 'Graph Viewer'],
+      ['kernel_viewer', 'Kernel Viewer'],
       ['hlo_stats', 'HLO Op Stats'],
       ['inference_profile', 'Inference Profile'],
       ['roofline_model', 'Roofline Model'],
@@ -528,6 +532,10 @@ export class SideNav implements OnInit, OnDestroy {
       ['utilization_viewer', 'Utilization Viewer'],
     ]);
     return toolsDisplayMap.get(tagName) || tagName;
+  }
+
+  getToolBadge(tag: string): string {
+    return getToolBadge(tag);
   }
 
   async getToolsForSelectedRun() {
@@ -570,9 +578,7 @@ export class SideNav implements OnInit, OnDestroy {
     if (cachedTools) {
       this.tags = cachedTools;
       if (Object.prototype.hasOwnProperty.call(this.runToolsMap, run)) {
-        this.store.dispatch(
-          updateRunToolsMapAction({run, tools: cachedTools}),
-        );
+        this.store.dispatch(updateRunToolsMapAction({run, tools: cachedTools}));
       }
       return;
     }
@@ -692,6 +698,15 @@ export class SideNav implements OnInit, OnDestroy {
     if (!this.tags.length) {
       this.tags = ((await this.getToolsForSelectedRun()) || []) as string[];
     }
+    // A profile offers the Kernel Viewer only if it has kernel schedules, which
+    // the cross-tool links to the Kernel Viewer check through this tag.
+    this.store.dispatch(
+      setTagsStateAction({
+        tagsState: this.tags.includes(KERNEL_VIEWER_TOOL_NAME)
+          ? [LLO_DEBUG_TAG]
+          : [],
+      }),
+    );
     if (
       this.selectedTagInternal &&
       this.tags.length > 0 &&

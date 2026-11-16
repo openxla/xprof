@@ -15,8 +15,10 @@ limitations under the License.
 
 #include "xprof/utils/hlo_cost_analysis_wrapper.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "absl/log/check.h"
@@ -87,8 +89,14 @@ HloCostAnalysisWrapper::GeneratePerformanceInfo(
           memory_accessed->set_memory_space(memory_space);
           memory_accessed->set_bytes_accessed(bytes_accessed);
         };
-    for (const auto& [memory_space_xprof, memory_space_xla] :
-         GetMemorySpaceMapping()) {
+    // Sort the memory spaces so that the breakdown order is the same in each
+    // run. The mapping is a hash map, so its iteration order can change.
+    const MemorySpaceMap& mapping = GetMemorySpaceMapping();
+    std::vector<
+        std::pair<PerformanceInfo::MemoryAccessed::MemorySpace, int64_t>>
+        sorted_mapping(mapping.begin(), mapping.end());
+    std::sort(sorted_mapping.begin(), sorted_mapping.end());
+    for (const auto& [memory_space_xprof, memory_space_xla] : sorted_mapping) {
       add_memory_space_bytes_accessed(
           cost_analysis->GetBytesRead(hlo, memory_space_xla),
           /*is_read=*/true, memory_space_xprof);

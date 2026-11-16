@@ -45,6 +45,7 @@ limitations under the License.
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/power_metrics.pb.h"
 #include "plugin/xprof/protobuf/steps_db.pb.h"
 #include "plugin/xprof/protobuf/tf_function.pb.h"
 #include "plugin/xprof/protobuf/tpu_input_pipeline.pb.h"
@@ -2370,6 +2371,87 @@ ENTRY main {
   EXPECT_EQ(dot_metrics->model_flops(), kExpectedModelFlops);
   // GB300 (CC 10.3) has 6x FP4 throughput vs BF16.
   EXPECT_EQ(dot_metrics->flops(), kExpectedModelFlops / 6);
+}
+
+TEST(ConvertXPlaneToOpStats, GpuPowerMetricsSingleGpu) {
+  XSpace space;
+  XPlaneBuilder gpu_plane(GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0));
+  XLineBuilder counter_line = gpu_plane.GetOrCreateLine(/*line_id=*/1);
+  counter_line.SetName(tsl::profiler::kCounterEventsLineName);
+  const tsl::profiler::XEventMetadata* power_event_meta =
+      gpu_plane.GetOrCreateEventMetadata("power_mw");
+  const tsl::profiler::XStatMetadata* power_stat_meta =
+      gpu_plane.GetOrCreateStatMetadata("power_mw");
+
+  XEventBuilder sample1 = counter_line.AddEvent(*power_event_meta);
+  sample1.SetTimestampNs(1000);
+  sample1.AddStatValue(*power_stat_meta, uint64_t{400000});
+
+  XEventBuilder sample2 = counter_line.AddEvent(*power_event_meta);
+  sample2.SetTimestampNs(2000);
+  sample2.AddStatValue(*power_stat_meta, uint64_t{600000});
+
+  ASSERT_OK_AND_ASSIGN(OpStats op_stats,
+                       ConvertXSpaceToOpStats(space, OpStatsOptions()));
+
+  ASSERT_TRUE(op_stats.run_environment().has_power_metrics());
+  const PowerMetrics& power_metrics =
+      op_stats.run_environment().power_metrics();
+  ASSERT_EQ(power_metrics.power_component_metrics_size(), 1);
+  const PowerComponentMetrics& gpu_power =
+      power_metrics.power_component_metrics(0);
+  EXPECT_EQ(gpu_power.component_name(), "GPU");
+  EXPECT_DOUBLE_EQ(gpu_power.avg_power(), 500.0);
+  EXPECT_DOUBLE_EQ(gpu_power.max_power(), 600.0);
+  EXPECT_EQ(gpu_power.sample_count(), 2);
+}
+
+TEST(ConvertXPlaneToOpStats, GpuPowerMetricsMultiGpu) {
+  XSpace space;
+  auto add_power_samples = [&](int device_ordinal,
+                               const std::vector<uint64_t>& samples_mw) {
+    XPlaneBuilder gpu_plane(GetOrCreateGpuXPlane(&space, device_ordinal));
+    XLineBuilder counter_line = gpu_plane.GetOrCreateLine(/*line_id=*/1);
+    counter_line.SetName(tsl::profiler::kCounterEventsLineName);
+    const tsl::profiler::XEventMetadata* power_event_meta =
+        gpu_plane.GetOrCreateEventMetadata("power_mw");
+    const tsl::profiler::XStatMetadata* power_stat_meta =
+        gpu_plane.GetOrCreateStatMetadata("power_mw");
+    for (int i = 0; i < samples_mw.size(); ++i) {
+      XEventBuilder event = counter_line.AddEvent(*power_event_meta);
+      event.SetTimestampNs((i + 1) * 1000);
+      event.AddStatValue(*power_stat_meta, samples_mw[i]);
+    }
+  };
+
+  // GPU 0: avg 500W, max 600W; GPU 1: avg 300W, max 300W.
+  // Combined: avg (500 + 300) / 2 = 400W, max 600W, total samples = 3.
+  add_power_samples(/*device_ordinal=*/0, {400000, 600000});
+  add_power_samples(/*device_ordinal=*/1, {300000});
+
+  ASSERT_OK_AND_ASSIGN(OpStats op_stats,
+                       ConvertXSpaceToOpStats(space, OpStatsOptions()));
+
+  ASSERT_TRUE(op_stats.run_environment().has_power_metrics());
+  const PowerMetrics& power_metrics =
+      op_stats.run_environment().power_metrics();
+  ASSERT_EQ(power_metrics.power_component_metrics_size(), 1);
+  const PowerComponentMetrics& gpu_power =
+      power_metrics.power_component_metrics(0);
+  EXPECT_EQ(gpu_power.component_name(), "GPU");
+  EXPECT_DOUBLE_EQ(gpu_power.avg_power(), 400.0);
+  EXPECT_DOUBLE_EQ(gpu_power.max_power(), 600.0);
+  EXPECT_EQ(gpu_power.sample_count(), 3);
+}
+
+TEST(ConvertXPlaneToOpStats, GpuWithoutPowerMetrics) {
+  XSpace space;
+  GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
+
+  ASSERT_OK_AND_ASSIGN(OpStats op_stats,
+                       ConvertXSpaceToOpStats(space, OpStatsOptions()));
+
+  EXPECT_FALSE(op_stats.run_environment().has_power_metrics());
 }
 }  // namespace
 }  // namespace profiler

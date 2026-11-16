@@ -38,6 +38,7 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
+#include "absl/types/span.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
@@ -47,6 +48,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/tpu_xplane_utils.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
+#include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "xla/tsl/util/stats_calculator.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/custom_call_duty_cycle.h"
@@ -67,6 +69,7 @@ limitations under the License.
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/power_metrics.pb.h"
 #include "plugin/xprof/protobuf/steps_db.pb.h"
 #include "plugin/xprof/protobuf/tf_function.pb.h"
 #include "xprof/utils/device_caps_utils.h"
@@ -114,6 +117,66 @@ std::string Hostname(const XSpace& space) {
 double GetDoubleStatOrZero(const XPlaneVisitor& visitor, StatType stat_type) {
   std::optional<XStatVisitor> stat = visitor.GetStat(stat_type);
   return stat.has_value() ? stat->DoubleValue() : 0.0;
+}
+
+constexpr absl::string_view kGpuPowerCounterName = "power_mw";
+constexpr absl::string_view kGpuPowerComponentName = "GPU";
+
+std::optional<double> GetNumericStatValue(
+    const tsl::profiler::XStatVisitor& stat) {
+  switch (stat.ValueCase()) {
+    case tsl::profiler::XStat::kDoubleValue:
+      return stat.DoubleValue();
+    case tsl::profiler::XStat::kUint64Value:
+      return static_cast<double>(stat.UintValue());
+    case tsl::profiler::XStat::kInt64Value:
+      return static_cast<double>(stat.IntValue());
+    default:
+      return std::nullopt;
+  }
+}
+
+void PopulateGpuPowerMetrics(absl::Span<const XPlane* const> gpu_planes,
+                             RunEnvironment* env) {
+  double max_power_w = 0.0;
+  double sum_gpu_avg_power_w = 0.0;
+  uint64_t gpus_with_power = 0;
+  uint64_t total_samples = 0;
+
+  for (const XPlane* gpu_plane : gpu_planes) {
+    if (gpu_plane == nullptr) continue;
+    XPlaneVisitor visitor = tsl::profiler::CreateTfXPlaneVisitor(gpu_plane);
+    double plane_power_sum_w = 0.0;
+    uint64_t plane_sample_count = 0;
+    visitor.ForEachLine([&](const tsl::profiler::XLineVisitor& line) {
+      if (line.Name() != tsl::profiler::kCounterEventsLineName) return;
+      line.ForEachEvent([&](const tsl::profiler::XEventVisitor& event) {
+        if (event.Name() != kGpuPowerCounterName) return;
+        event.ForEachStat([&](const tsl::profiler::XStatVisitor& stat) {
+          if (stat.Name() != kGpuPowerCounterName) return;
+          std::optional<double> power_mw = GetNumericStatValue(stat);
+          if (!power_mw.has_value()) return;
+          const double power_w = *power_mw / 1000.0;
+          max_power_w = std::max(max_power_w, power_w);
+          plane_power_sum_w += power_w;
+          ++plane_sample_count;
+        });
+      });
+    });
+    if (plane_sample_count > 0) {
+      sum_gpu_avg_power_w += plane_power_sum_w / plane_sample_count;
+      ++gpus_with_power;
+      total_samples += plane_sample_count;
+    }
+  }
+
+  if (gpus_with_power == 0) return;
+  PowerComponentMetrics* component =
+      env->mutable_power_metrics()->add_power_component_metrics();
+  component->set_component_name(kGpuPowerComponentName);
+  component->set_max_power(max_power_w);
+  component->set_avg_power(sum_gpu_avg_power_w / gpus_with_power);
+  component->set_sample_count(total_samples);
 }
 
 }  // namespace
@@ -261,6 +324,7 @@ void SetRunEnvironment(const XSpace& space, RunEnvironment* env) {
     }
     env->set_device_core_count(gpu_planes.size());
     env->set_hardware_type(tensorflow::profiler::HardwareType::GPU);
+    PopulateGpuPowerMetrics(gpu_planes, env);
   } else if (std::vector<const XPlane*> tpu_planes =
                  FindTensorCorePlanes(space);
              !tpu_planes.empty()) {

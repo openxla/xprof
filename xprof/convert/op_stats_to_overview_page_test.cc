@@ -26,6 +26,7 @@
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/overview_page.pb.h"
+#include "plugin/xprof/protobuf/power_metrics.pb.h"
 #include "plugin/xprof/protobuf/steps_db.pb.h"
 #include "xprof/utils/op_metrics_db_utils.h"
 
@@ -516,6 +517,38 @@ TEST(OpStatsToOverviewPageTest, ComputeTpuAnalysisResult_FlatMetrics) {
       analysis.flop_rate_utilization_relative_to_roofline_percent(), 50.0);
   EXPECT_DOUBLE_EQ(
       analysis.memory_bw_utilization_relative_to_hw_limit_percent(), 50.0);
+}
+
+TEST(OpStatsToOverviewPageTest, GpuPowerMetricsPopulatedInDataTable) {
+  OpStats op_stats;
+  op_stats.mutable_run_environment()->set_device_type("Nvidia GPU (Blackwell)");
+  PowerComponentMetrics* gpu_power = op_stats.mutable_run_environment()
+                                         ->mutable_power_metrics()
+                                         ->add_power_component_metrics();
+  gpu_power->set_component_name("GPU");
+  gpu_power->set_avg_power(500.0);
+  gpu_power->set_max_power(600.0);
+
+  OverviewPage overview_page = ConvertOpStatsToOverviewPage(op_stats);
+  auto data_table = GenerateAnalysisResultDataTable(overview_page);
+
+  ASSERT_NE(data_table, nullptr);
+  const auto& properties = data_table->GetCustomProperties();
+  ASSERT_THAT(properties, Contains(Key("power_metrics")));
+  EXPECT_EQ(properties.at("power_metrics"),
+            "Avg Power:##GPU: 500.00W####Max Power:##GPU: 600.00W");
+}
+
+TEST(OpStatsToOverviewPageTest, GpuPowerMetricsOmittedWhenAbsent) {
+  OverviewPage overview_page;
+  overview_page.mutable_run_environment()->set_device_type(
+      "Nvidia GPU (Blackwell)");
+
+  auto data_table = GenerateAnalysisResultDataTable(overview_page);
+
+  ASSERT_NE(data_table, nullptr);
+  EXPECT_THAT(data_table->GetCustomProperties(),
+              Not(Contains(Key("power_metrics"))));
 }
 
 }  // namespace

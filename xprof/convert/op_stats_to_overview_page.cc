@@ -271,6 +271,27 @@ const PrecisionStats& GetDevicePrecisionStats(const OpStats& op_stats,
              : op_stats.device_op_metrics_db().precision_stats();
 }
 
+void AddGpuPowerMetricsToDataTable(
+    DataTable& data_table, const OverviewPageRunEnvironment& run_environment) {
+  if (!run_environment.has_power_metrics() ||
+      run_environment.power_metrics().power_component_metrics().empty()) {
+    return;
+  }
+  std::vector<std::string> avg_entries;
+  std::vector<std::string> max_entries;
+  for (const PowerComponentMetrics& metric :
+       run_environment.power_metrics().power_component_metrics()) {
+    avg_entries.push_back(absl::StrFormat("%s: %.2fW", metric.component_name(),
+                                          metric.avg_power()));
+    max_entries.push_back(absl::StrFormat("%s: %.2fW", metric.component_name(),
+                                          metric.max_power()));
+  }
+  data_table.AddCustomProperty(
+      "power_metrics",
+      absl::StrCat("Avg Power:##", absl::StrJoin(avg_entries, "##"),
+                   "####Max Power:##", absl::StrJoin(max_entries, "##")));
+}
+
 }  // namespace
 
 void SetCommonRecommendation(
@@ -1002,7 +1023,10 @@ std::unique_ptr<DataTable> GenerateAnalysisResultDataTable(
     const OverviewPage& result) {
   std::string hardware_type = result.run_environment().device_type();
   if (absl::StrContains(hardware_type, "GPU")) {
-    return GenerateGenericAnalysisResultToDataTable(result.analysis());
+    std::unique_ptr<DataTable> data_table =
+        GenerateGenericAnalysisResultToDataTable(result.analysis());
+    AddGpuPowerMetricsToDataTable(*data_table, result.run_environment());
+    return data_table;
   } else {
     return GenerateTpuAnalysisResultToDataTable(result.analysis());
   }

@@ -40,6 +40,41 @@ from xprof.convert import _pywrap_profiler_plugin
 
 logger = logging.getLogger('tensorboard')
 
+# Environment variable that turns the DCN Analyzer tool (grpc_metrics) on or
+# off: 1/true/yes/on or 0/false/no/off, in any case.
+DCN_ANALYZER_ENV_VAR = 'XPROF_ENABLE_DCN_ANALYZER'
+
+# Whether the DCN Analyzer is listed when DCN_ANALYZER_ENV_VAR is not set.
+# Launching the tool means setting this to True.
+_DCN_ANALYZER_ENABLED_BY_DEFAULT = False
+
+_TRUE_VALUES = frozenset(['1', 'true', 'yes', 'on'])
+_FALSE_VALUES = frozenset(['0', 'false', 'no', 'off'])
+
+
+def is_dcn_analyzer_enabled() -> bool:
+  """Returns whether the DCN Analyzer tool (grpc_metrics) is listed.
+
+  The tool is listed only for profiles with its events. Its data can be asked
+  for either way.
+  """
+  value = os.environ.get(DCN_ANALYZER_ENV_VAR)
+  if value is None:
+    return _DCN_ANALYZER_ENABLED_BY_DEFAULT
+  normalized_value = value.strip().lower()
+  if normalized_value in _TRUE_VALUES:
+    return True
+  if normalized_value in _FALSE_VALUES:
+    return False
+  logger.warning(
+      'Ignoring %s=%r: expected one of %s or %s.',
+      DCN_ANALYZER_ENV_VAR,
+      value,
+      sorted(_TRUE_VALUES),
+      sorted(_FALSE_VALUES),
+  )
+  return _DCN_ANALYZER_ENABLED_BY_DEFAULT
+
 
 def process_raw_trace(raw_trace: bytes) -> str:
   """Processes raw trace data and returns the UI data."""
@@ -179,7 +214,9 @@ def xspace_to_tool_names(xspace_paths: Sequence[Any] | Any) -> list[str]:
     return profile_data_to_tool_names(xspace_paths)
 
   raw_data, success = _pywrap_profiler_plugin.xspace_to_tools_data(
-      xspace_paths, 'tool_names'
+      xspace_paths,
+      'tool_names',
+      {'enable_dcn_analyzer': is_dcn_analyzer_enabled()},
   )
   if success:
     return raw_data.decode().split(',')
@@ -357,6 +394,10 @@ def xspace_to_tool_data(
       data = json_data
   elif tool == 'smart_suggestion':
     options['refresh_suggestion'] = params.get('refresh_suggestion', False)
+    json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
+    if success:
+      data = json_data
+  elif tool == 'grpc_metrics':
     json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = json_data

@@ -497,6 +497,9 @@ std::string GpuModelName(const DeviceCapabilities& device_cap) {
       } else {
         return "Nvidia GPU (Rubin)";
       }
+    case 11:
+    case 12:
+      return "Nvidia GPU (Blackwell)";
     default:
       return "Nvidia GPU";
   }

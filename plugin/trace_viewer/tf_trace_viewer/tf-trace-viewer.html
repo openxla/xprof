@@ -817,6 +817,12 @@ dashboard would integrate trace viewer app using iframe.
         const {hloOp, hloModule} = params;
         toolLink.searchParams.set('node_name', hloOp);
         toolLink.searchParams.set('module_name', hloModule !== 'default' ? hloModule : undefined);
+      } else if (params) {
+        for (const [key, value] of Object.entries(params)) {
+          if (value) {
+            toolLink.searchParams.set(key, value);
+          }
+        }
       }
       if (this._sessionPath) {
         toolLink.searchParams.set('session_path', this._sessionPath);
@@ -884,7 +890,7 @@ dashboard would integrate trace viewer app using iframe.
     // Links custom call XLA ops, e.g. Pallas kernels, to their static schedule
     // in the Kernel Viewer when the session has the `llo_debug` tag.
     createKernelViewerLink: function(hloOp, host, hloModule, hloCategory) {
-      if (!this.hasLloDebugTag || !this._sessionId || !hloOp || hloCategory !== 'custom-call') return;
+      if (!this.hasLloDebugTag || (!this._sessionId && !this._isOss) || !hloOp || hloCategory !== 'custom-call') return;
       const params = {'kernel_name': hloOp};
       // The Kernel Viewer uses bare module names, without the "(<program id>)" suffix.
       const bareHloModule = (hloModule || '').trim().replace(/\(\d+\)$/, '').trim();
@@ -893,6 +899,11 @@ dashboard would integrate trace viewer app using iframe.
       }
       if (host) {
         params['host'] = host;
+      }
+      if (this._isOss) {
+        this.createCrossToolLinkOss(
+            'kernel_viewer', 'Kernel Viewer', params, `see kernel schedule for ${hloOp}`);
+        return;
       }
       this.createCrossToolLink(
           'kernel_viewer', 'Kernel Viewer', params, `see kernel schedule for ${hloOp}`);
@@ -976,6 +987,9 @@ dashboard would integrate trace viewer app using iframe.
             // per event selection for tensorboard profiler
             const params = {hloOp, hloModule};
             this.createCrossToolLinkOss("graph_viewer", "Graph Viewer", params, graphViewText);
+            const hostnamePrefix = currentProcess.name.split(' ')[0];
+            const host = this._selectedHosts.find(selectedHost => selectedHost.startsWith(hostnamePrefix));
+            this.createKernelViewerLink(hloOp, host, hloModule, event.args?.hlo_category);
           }
           if (event.args?.source && this._codeLink) {
             this.createCodeSearchLink(event.args?.source);

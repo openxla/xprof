@@ -18,6 +18,8 @@ limitations under the License.
 #include <string>
 #include <vector>
 
+#include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_join.h"
 #include "google/protobuf/arena.h"
@@ -27,8 +29,10 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/kernel_viewer_registry.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/xplane_to_dcn_collective_stats.h"
+#include "xprof/convert/xplane_to_llo.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -75,6 +79,7 @@ absl::StatusOr<std::string> GetAvailableToolNames(
     bool has_hlo = false;
     bool has_dcn_collective_stats = false;
     bool has_perf_counters = false;
+    bool has_kernel_viewer = false;
 
     // Use only the first host, as the sessions would consist of similar
     // devices, and the tool list can be generated from the first host itself.
@@ -89,6 +94,16 @@ absl::StatusOr<std::string> GetAvailableToolNames(
                                  .empty();
 
     has_hlo = has_hlo || HasHloProtoMetadata(*xspace);
+
+    // The Kernel Viewer needs LLO modules and a build that converts them; cache
+    // the modules while the XSpace is loaded so that requests do not reload it.
+    if (IsKernelViewerRegistered() && HasLloProtoMetadata(*xspace)) {
+      has_kernel_viewer = true;
+      absl::Status cache_status = MaybeCacheLloXPlane(
+          session_snapshot, session_snapshot.GetHostname(0), *xspace);
+      LOG_IF(WARNING, !cache_status.ok())
+          << "Failed to cache the LLO modules: " << cache_status;
+    }
 
     has_dcn_collective_stats =
         has_dcn_collective_stats || HasDcnCollectiveStatsInXSpace(*xspace);
@@ -127,6 +142,10 @@ absl::StatusOr<std::string> GetAvailableToolNames(
       tools.push_back("perf_counters");
       tools.push_back("utilization_viewer");
       tools.push_back("kernel_utilization");
+    }
+
+    if (has_kernel_viewer) {
+      tools.push_back("kernel_viewer");
     }
   }
 

@@ -149,6 +149,17 @@ export const HLO_OP_STATS_TOOL_NAME = ['hlo_stats', 'HLO Op Stats'];
 export const TRACE_VIEWER_TOOL_NAME = ['trace_viewer', 'Trace Viewer'];
 
 /**
+ * Tool name and label for the Kernel Viewer for cross-links.
+ */
+export const KERNEL_VIEWER_TOOL_NAME = ['kernel_viewer', 'Kernel Viewer'];
+
+/**
+ * The `hlo_category` arg value of custom call XLA ops, e.g. Pallas kernels,
+ * which are the ops the Kernel Viewer shows.
+ */
+export const CUSTOM_CALL_HLO_CATEGORY = 'custom-call';
+
+/**
  * Generates link description for viewing events for a step/group and connected groups.
  */
 export function getConnectedStepGroupLinkText(

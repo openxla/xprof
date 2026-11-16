@@ -12,6 +12,7 @@ import {Store} from '@ngrx/store';
 import {
   CANONICAL_CATEGORY_ORDER,
   filterUiTools,
+  getToolBadge,
   stripToolSuffix,
   TOOL_CATEGORIES,
   ToolCategory,
@@ -47,6 +48,11 @@ const TRANSIENT_TOOL_QUERY_PARAMS: ReadonlySet<string> = new Set([
   'programId',
   'moduleName',
   'module_name',
+  'kernel_name',
+  'kernel',
+  'hlo_module',
+  'bundle_start',
+  'bundle_end',
   'tool',
   'sessionId',
   'firstLoad',
@@ -93,6 +99,7 @@ export class MainPage implements OnDestroy {
     'trace_viewer': 'view_object_track',
     'trace_viewer@': 'view_object_track',
     'graph_viewer': 'graph_2',
+    'kernel_viewer': 'code_blocks',
     'op_profile': 'bar_chart',
     'hlo_stats': 'query_stats',
     'input_pipeline_analyzer': 'input',
@@ -117,6 +124,7 @@ export class MainPage implements OnDestroy {
     ['op_profile', 'HLO Op Profile'],
     ['memory_viewer', 'Memory Viewer'],
     ['graph_viewer', 'Graph Viewer'],
+    ['kernel_viewer', 'Kernel Viewer'],
     ['hlo_stats', 'HLO Op Stats'],
     ['inference_profile', 'Inference Profile'],
     ['roofline_model', 'Roofline Model'],
@@ -254,6 +262,10 @@ export class MainPage implements OnDestroy {
   getToolLabel(tag: string): string {
     const cleanTag = stripToolSuffix(tag);
     return this.toolsDisplayMap.get(cleanTag) || cleanTag;
+  }
+
+  getToolBadge(tag: string): string {
+    return getToolBadge(tag);
   }
 
   getToolQueryParams(tag: string): Params {

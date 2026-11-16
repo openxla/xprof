@@ -33,6 +33,7 @@
             @for (tag of group.tools; track tag) {
               <rack-navigation-item
                 [icon]="getToolIcon(tag)"
+                [badge]="getToolBadge(tag)"
                 [active]="activeTool === tag"
                 [pinned]="isToolPinned(tag)"
                 [route]="'/' + (tag || 'empty')"

@@ -25,8 +25,12 @@
 
   <mat-form-field class="full-width" appearance="outline">
     <mat-select panelClass="panel-override" [value]="selectedTag" [disabled]="!tags.length" (selectionChange)="onTagSelectionChange($event.value)">
+      <mat-select-trigger *ngIf="getToolBadge(selectedTag)">
+        {{getDisplayTagName(selectedTag)}}
+      </mat-select-trigger>
       <mat-option *ngFor="let tag of tags" [value]="tag">
         {{getDisplayTagName(tag)}}
+        <span class="new-badge" [hidden]="!getToolBadge(tag)" aria-hidden="true">{{getToolBadge(tag)}}</span>
       </mat-option>
     </mat-select>
   </mat-form-field>

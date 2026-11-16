@@ -1,0 +1,193 @@
+/* Copyright 2026 The OpenXLA Authors. All Rights Reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
+syntax = "proto3";
+
+package xprof;
+
+option java_outer_classname = "GrpcMetricsProto";
+
+// Represents an individual network/gRPC flow bottleneck or straggler event.
+message GrpcStraggler {
+  // Unique identifier for the flow.
+  string chunk_id = 1;
+
+  reserved 3 to 6, 11 to 18, 20, 21, 28 to 40;
+
+  // Total wall latency observed for this operation (in ms).
+  double latency_ms = 2;
+
+  // Elapsed application-level latency at client (in ms).
+  double grpc_client_latency_ms = 7;
+
+  // Elapsed application-level latency at server (in ms).
+  double grpc_server_latency_ms = 8;
+
+  // Result status code from the gRPC call.
+  int32 grpc_status = 9;
+
+  // TPU VM (host) associated with the event.
+  string tpu_vm = 10;
+
+  // Endpoints involved in the network operation.
+  repeated string endpoint_ids = 19;
+
+  // Associated HLO collective name.
+  string hlo_collective_name = 22;
+
+  // Available compute slack time for this collective (in ms).
+  optional double slack_time_ms = 23;
+
+  // Duration the TPU was stalled by this operation (in ms).
+  optional double tpu_stall_time_ms = 24;
+
+  // Amount of communication that overlapped with compute (in ms).
+  optional double communication_overlap_ms = 25;
+
+  // Number of samples used for TCP statistics.
+  int32 tcp_sample_count = 26;
+
+  // Flag indicating whether connection closed prematurely out of sync.
+  optional bool tcp_closed_before_acked = 27;
+
+  // Snapshots for comparative analysis.
+  message TcpStatsSnapshot {
+    optional double min_rtt = 1;
+
+    optional double congestion_window = 2;
+
+    optional double pacing_rate = 3;
+
+    optional double delivery_rate = 4;
+
+    optional double packet_sent = 5;
+
+    optional double packet_delivered = 6;
+
+    optional double data_sent = 7;
+
+    optional double data_retx = 8;
+
+    optional double packet_retx = 9;
+
+    optional double busy_usec = 10;
+
+    optional double rwnd_limited_usec = 11;
+
+    optional double sndbuf_limited_usec = 12;
+
+    optional double data_not_sent = 13;
+
+    optional double is_delivery_rate_app_limited = 14;
+
+    optional double srtt = 15;
+
+    optional double net_rtt_usec = 16;
+  }
+
+  // Peer address of the connection.
+  string peer_address = 44;
+
+  // TCP latency from the first SENDMSG to the last ACK (in ms). See
+  // tcp_latency_incomplete.
+  optional double ack_to_sendmsg_ms = 45;
+
+  // DCN trace integration fields
+  optional string dcn_source_device_id = 46;
+
+  optional string dcn_destination_device_id = 47;
+
+  optional string dcn_launch_id = 48;
+
+  optional string dcn_loop_index = 49;
+
+  optional string dcn_chunk_index = 50;
+
+  optional string dcn_shard_range = 51;
+
+  optional string dcn_collective_label = 52;
+
+  optional string raw_transfer_key = 53;
+
+  // The RPC shared its TCP write (and TCP events) with other RPCs.
+  optional bool tcp_write_shared = 54;
+
+  // ack_to_sendmsg_ms ends before the ACK of the write's last byte, so the real
+  // TCP latency is longer.
+  optional bool tcp_latency_incomplete = 55;
+}
+
+// A solitary point in a time-series collection of network behavior.
+message TimeSeriesPoint {
+  // Relative timestamp (in seconds) from the start of profile.
+  double timestamp_rel_sec = 1;
+
+  // Recorded metric value.
+  double value = 2;
+
+  // Associated TPU VM (host).
+  string tpu_vm = 3;
+
+  // Endpoint identifier for the stream connection.
+  string endpoint_id = 4;
+}
+
+// The top-level schema for storing all aggregated/parsed gRPC metrics results.
+message GrpcMetricsDatabase {
+  // Top prioritized straggler events by latency/impact.
+  repeated GrpcStraggler top_stragglers = 1;
+
+  // Time series describing various connection and network health indices over
+  // time.
+  repeated TimeSeriesPoint chunk_latency_series = 2;
+  repeated TimeSeriesPoint tcp_min_rtt_series = 3;
+  repeated TimeSeriesPoint grpc_client_latency_series = 4;
+  repeated TimeSeriesPoint grpc_server_latency_series = 5;
+  repeated TimeSeriesPoint tcp_packet_retx_series = 6;
+  repeated TimeSeriesPoint tcp_data_sent_series = 7;
+  repeated TimeSeriesPoint tcp_pacing_rate_series = 8;
+  repeated TimeSeriesPoint tcp_delivery_rate_series = 9;
+  repeated TimeSeriesPoint tcp_ssthresh_series = 10;
+  repeated TimeSeriesPoint tcp_is_delivery_rate_app_limited_series = 11;
+  repeated TimeSeriesPoint tcp_byte_offset_series = 12;
+  repeated TimeSeriesPoint tcp_data_notsent_series = 13;
+  repeated TimeSeriesPoint tcp_packet_spurious_retx_series = 14;
+  repeated TimeSeriesPoint tcp_packet_delivered_ce_series = 15;
+  repeated TimeSeriesPoint tcp_reordering_series = 16;
+  repeated TimeSeriesPoint tcp_recurring_retrans_series = 17;
+  repeated TimeSeriesPoint tcp_busy_usec_series = 18;
+  repeated TimeSeriesPoint tcp_rwnd_limited_usec_series = 19;
+  repeated TimeSeriesPoint tcp_sndbuf_limited_usec_series = 20;
+  repeated TimeSeriesPoint tcp_congestion_window_series = 21;
+  repeated TimeSeriesPoint tcp_packet_sent_series = 22;
+  repeated TimeSeriesPoint tcp_packet_delivered_series = 23;
+
+  // Aggregate summary statistics.
+  double total_network_stall_ms = 24;
+  double total_compute_overlap_ms = 25;
+
+  // Details of series downsampled for display optimization.
+  message DownsampledInfo {
+    string tpu_vm = 1;
+
+    string series_name = 2;
+  }
+
+  repeated DownsampledInfo downsampled_info = 26;
+  map<string, double> unmatched_server_latencies = 27;
+
+  // Filtered raw trace events serialized as JSON strings.
+  repeated string trace_events_json = 28;
+}

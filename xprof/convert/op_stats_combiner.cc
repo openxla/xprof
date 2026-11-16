@@ -240,16 +240,6 @@ void CombineOpStats(
   CombineCoreIdMap(src_host_id, src.core_id_to_details(),
                    dst->mutable_core_id_to_details());
 
-  // Combine performance counter result.
-  dst->mutable_performance_counter_result()
-      ->set_matrix_unit_utilization_percent(
-          dst->performance_counter_result().matrix_unit_utilization_percent() +
-          src.performance_counter_result().matrix_unit_utilization_percent());
-
-  dst->mutable_performance_counter_result()->set_hbm_utilization_percent(
-      dst->performance_counter_result().hbm_utilization_percent() +
-      src.performance_counter_result().hbm_utilization_percent());
-
   // Combine Disaggregated Serving Latency.
   if (src.has_disaggregated_serving_latency()) {
     DisaggregatedServingLatency* dst_stats =
@@ -269,6 +259,36 @@ void CombineOpStats(
         dst_stats->set_num_decode_steps(total_count);
       }
     }
+  }
+}
+
+// Sets each field of `dst` to the mean over the hosts that have that field. A
+// host without hardware counters does not lower the mean. A field stays unset
+// if no host has it.
+void CombinePerformanceCounterResults(
+    const std::vector<OpStatsInfo>& all_op_stats_info,
+    PerformanceCounterResult* dst) {
+  double mxu_sum = 0.0;
+  int mxu_host_count = 0;
+  double hbm_sum = 0.0;
+  int hbm_host_count = 0;
+  for (const OpStatsInfo& op_stats_info : all_op_stats_info) {
+    const PerformanceCounterResult& src =
+        op_stats_info.op_stats->performance_counter_result();
+    if (src.has_matrix_unit_utilization_percent()) {
+      mxu_sum += src.matrix_unit_utilization_percent();
+      ++mxu_host_count;
+    }
+    if (src.has_hbm_utilization_percent()) {
+      hbm_sum += src.hbm_utilization_percent();
+      ++hbm_host_count;
+    }
+  }
+  if (mxu_host_count > 0) {
+    dst->set_matrix_unit_utilization_percent(mxu_sum / mxu_host_count);
+  }
+  if (hbm_host_count > 0) {
+    dst->set_hbm_utilization_percent(hbm_sum / hbm_host_count);
   }
 }
 
@@ -369,18 +389,9 @@ void CombineAllOpStats(const std::vector<OpStatsInfo>& all_op_stats_info,
   SortAndKeepTopKDurationKernelReportsInDb(
       combined_op_stats->mutable_kernel_stats_db());
 
-  // Process performance counter results.
-  combined_op_stats->mutable_performance_counter_result()
-      ->set_matrix_unit_utilization_percent(
-          combined_op_stats->performance_counter_result()
-              .matrix_unit_utilization_percent() /
-          all_op_stats_info.size());
-
-  combined_op_stats->mutable_performance_counter_result()
-      ->set_hbm_utilization_percent(
-          combined_op_stats->performance_counter_result()
-              .hbm_utilization_percent() /
-          all_op_stats_info.size());
+  CombinePerformanceCounterResults(
+      all_op_stats_info,
+      combined_op_stats->mutable_performance_counter_result());
 }
 
 }  // namespace profiler

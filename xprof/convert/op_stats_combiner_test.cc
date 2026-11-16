@@ -16,6 +16,7 @@ limitations under the License.
 #include "xprof/convert/op_stats_combiner.h"
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -232,6 +233,130 @@ TEST(CombineAllOpStatsTest, CombineDisaggregatedServingStats) {
   // (10 * 100 + 20 * 200) / 30 = 5000 / 30 = 166.666...
   EXPECT_NEAR(166.666666666, dst_serving_stats.decode_step_time_us().avg(),
               1e-6);
+}
+
+// Returns a StepIntersection with one host and no steps, for tests that do not
+// combine steps. StepIntersection does not keep the step database pointer.
+StepIntersection EmptyStepIntersection() {
+  StepDatabaseResult empty_step_db;
+  absl::flat_hash_map<uint32_t /*host_id*/, const StepDatabaseResult*> result;
+  result.insert({0, &empty_step_db});
+  return StepIntersection(1, result);
+}
+
+TEST(CombineAllOpStatsTest, PerformanceCounterResultAllHostsHaveValues) {
+  OpStats op_stats_1, op_stats_2, op_stats_3, dst_op_stats;
+  op_stats_1.mutable_performance_counter_result()
+      ->set_matrix_unit_utilization_percent(10.0);
+  op_stats_1.mutable_performance_counter_result()->set_hbm_utilization_percent(
+      40.0);
+  op_stats_2.mutable_performance_counter_result()
+      ->set_matrix_unit_utilization_percent(20.0);
+  op_stats_2.mutable_performance_counter_result()->set_hbm_utilization_percent(
+      50.0);
+  op_stats_3.mutable_performance_counter_result()
+      ->set_matrix_unit_utilization_percent(30.0);
+  op_stats_3.mutable_performance_counter_result()->set_hbm_utilization_percent(
+      60.0);
+  std::vector<OpStatsInfo> all_op_stats_info = {
+      OpStatsInfo(&op_stats_1, TPU, 0), OpStatsInfo(&op_stats_2, TPU, 1),
+      OpStatsInfo(&op_stats_3, TPU, 2)};
+
+  CombineAllOpStats(all_op_stats_info, EmptyStepIntersection(), &dst_op_stats);
+
+  const PerformanceCounterResult& result =
+      dst_op_stats.performance_counter_result();
+  EXPECT_TRUE(result.has_matrix_unit_utilization_percent());
+  EXPECT_DOUBLE_EQ(result.matrix_unit_utilization_percent(), 20.0);
+  EXPECT_TRUE(result.has_hbm_utilization_percent());
+  EXPECT_DOUBLE_EQ(result.hbm_utilization_percent(), 50.0);
+}
+
+TEST(CombineAllOpStatsTest, PerformanceCounterResultSomeHostsHaveValues) {
+  // Hosts 0 and 2 have hardware counters. Hosts 1 and 3 have none.
+  OpStats op_stats_0, op_stats_1, op_stats_2, op_stats_3, dst_op_stats;
+  op_stats_0.mutable_performance_counter_result()
+      ->set_matrix_unit_utilization_percent(30.0);
+  op_stats_0.mutable_performance_counter_result()->set_hbm_utilization_percent(
+      60.0);
+  op_stats_2.mutable_performance_counter_result()
+      ->set_matrix_unit_utilization_percent(50.0);
+  op_stats_2.mutable_performance_counter_result()->set_hbm_utilization_percent(
+      80.0);
+  std::vector<OpStatsInfo> all_op_stats_info = {
+      OpStatsInfo(&op_stats_0, TPU, 0), OpStatsInfo(&op_stats_1, TPU, 1),
+      OpStatsInfo(&op_stats_2, TPU, 2), OpStatsInfo(&op_stats_3, TPU, 3)};
+
+  CombineAllOpStats(all_op_stats_info, EmptyStepIntersection(), &dst_op_stats);
+
+  // The mean covers only the 2 hosts that have values.
+  EXPECT_DOUBLE_EQ(dst_op_stats.performance_counter_result()
+                       .matrix_unit_utilization_percent(),
+                   40.0);
+  EXPECT_DOUBLE_EQ(
+      dst_op_stats.performance_counter_result().hbm_utilization_percent(),
+      70.0);
+}
+
+TEST(CombineAllOpStatsTest, PerformanceCounterResultNoHostHasValues) {
+  OpStats op_stats_1, op_stats_2, dst_op_stats;
+  std::vector<OpStatsInfo> all_op_stats_info = {
+      OpStatsInfo(&op_stats_1, TPU, 0), OpStatsInfo(&op_stats_2, TPU, 1)};
+
+  CombineAllOpStats(all_op_stats_info, EmptyStepIntersection(), &dst_op_stats);
+
+  EXPECT_FALSE(dst_op_stats.performance_counter_result()
+                   .has_matrix_unit_utilization_percent());
+  EXPECT_FALSE(
+      dst_op_stats.performance_counter_result().has_hbm_utilization_percent());
+}
+
+TEST(CombineAllOpStatsTest, PerformanceCounterResultMeasuredZeroIsKept) {
+  OpStats op_stats_1, op_stats_2, dst_op_stats;
+  op_stats_1.mutable_performance_counter_result()
+      ->set_matrix_unit_utilization_percent(0.0);
+  std::vector<OpStatsInfo> all_op_stats_info = {
+      OpStatsInfo(&op_stats_1, TPU, 0), OpStatsInfo(&op_stats_2, TPU, 1)};
+
+  CombineAllOpStats(all_op_stats_info, EmptyStepIntersection(), &dst_op_stats);
+
+  EXPECT_TRUE(dst_op_stats.performance_counter_result()
+                  .has_matrix_unit_utilization_percent());
+  EXPECT_DOUBLE_EQ(dst_op_stats.performance_counter_result()
+                       .matrix_unit_utilization_percent(),
+                   0.0);
+  EXPECT_FALSE(
+      dst_op_stats.performance_counter_result().has_hbm_utilization_percent());
+}
+
+// OpStats files written before the fields became `optional` must still read
+// correctly. The old schema wrote a non-zero value and omitted a zero value.
+TEST(PerformanceCounterResultTest, ParsesBytesWrittenWithOldSchema) {
+  // OpStats.performance_counter_result (field 13) holds
+  // matrix_unit_utilization_percent (field 1) = 37.5. There are no HBM bytes.
+  const std::string value_present(
+      "\x6a\x09\x09\x00\x00\x00\x00\x00\xc0\x42\x40", 11);
+  OpStats op_stats;
+  ASSERT_TRUE(op_stats.ParseFromString(value_present));
+  EXPECT_TRUE(op_stats.performance_counter_result()
+                  .has_matrix_unit_utilization_percent());
+  EXPECT_DOUBLE_EQ(
+      op_stats.performance_counter_result().matrix_unit_utilization_percent(),
+      37.5);
+  EXPECT_FALSE(
+      op_stats.performance_counter_result().has_hbm_utilization_percent());
+  EXPECT_DOUBLE_EQ(
+      op_stats.performance_counter_result().hbm_utilization_percent(), 0.0);
+
+  // An empty performance_counter_result: the old schema wrote both values as
+  // 0.0, so neither value is in the bytes.
+  const std::string value_absent("\x6a\x00", 2);
+  ASSERT_TRUE(op_stats.ParseFromString(value_absent));
+  EXPECT_FALSE(op_stats.performance_counter_result()
+                   .has_matrix_unit_utilization_percent());
+  EXPECT_DOUBLE_EQ(
+      op_stats.performance_counter_result().matrix_unit_utilization_percent(),
+      0.0);
 }
 
 }  // namespace

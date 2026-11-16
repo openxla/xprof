@@ -135,10 +135,12 @@ message CoreDetails {
 
 // Metrics based on hardware performance counters.
 message PerformanceCounterResult {
-  // Overall matrix unit utilization in percentage.
-  double matrix_unit_utilization_percent = 1;
-  // Overall HBM utilization in percentage.
-  double hbm_utilization_percent = 2;
+  // Overall matrix unit utilization in percentage. Unset if the profile has no
+  // hardware counters for it.
+  optional double matrix_unit_utilization_percent = 1;
+  // Overall HBM utilization in percentage. Unset if the profile has no hardware
+  // counters for it.
+  optional double hbm_utilization_percent = 2;
 }
 
 // Next ID: 15

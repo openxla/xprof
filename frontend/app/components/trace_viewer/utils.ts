@@ -26,6 +26,12 @@ function isMetricsItem(item: unknown): item is MetricsItem {
   const record = item as Record<string, unknown>;
   return (
     typeof record['name'] === 'string' &&
+    (record['eventIndex'] === undefined ||
+      typeof record['eventIndex'] === 'number') &&
+    (record['startUs'] === undefined ||
+      typeof record['startUs'] === 'number') &&
+    (record['durationUs'] === undefined ||
+      typeof record['durationUs'] === 'number') &&
     typeof record['count'] === 'number' &&
     typeof record['wallTimeUs'] === 'number' &&
     typeof record['selfTimeUs'] === 'number' &&
@@ -136,7 +142,7 @@ export function parseEventsSelectedData(dataString: string): {
 
     for (const item of metricsData) {
       const name = item['name'] as string;
-      properties.push({
+      const prop: AggregatedEventProperty = {
         'property': name,
         'value': '',
         'name': name,
@@ -144,7 +150,17 @@ export function parseEventsSelectedData(dataString: string): {
         'wallDuration': item['wallTimeUs'] as number,
         'selfTime': item['selfTimeUs'] as number,
         'avgWallDuration': item['avgWallDurationUs'] as number,
-      });
+      };
+      if (typeof item['eventIndex'] === 'number') {
+        prop.eventIndex = item['eventIndex'];
+      }
+      if (typeof item['startUs'] === 'number') {
+        prop.startUs = item['startUs'];
+      }
+      if (typeof item['durationUs'] === 'number') {
+        prop.durationUs = item['durationUs'];
+      }
+      properties.push(prop);
     }
 
     selectionStartFormat =

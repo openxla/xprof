@@ -17403,6 +17403,41 @@ TEST_F(MockTimelineImGuiFixture,
   SimulateFrame();
 }
 
+TEST(TimelineTest, CalculateAndEmitMetricsIncludesEventIndex) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.entry_names = {"op_a", "op_b", "op_a"};
+  data.entry_start_times = {10.0, 20.0, 30.0};
+  data.entry_total_times = {5.0, 8.0, 4.0};
+  data.entry_self_times = {3.0, 6.0, 2.0};
+  timeline.SetTimelineData(std::move(data));
+
+  std::vector<int>& selected = timeline.selected_event_indices_for_test();
+  selected = {0, 1, 2};
+
+  std::string json;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& event_data) {
+        if (const auto it = event_data.find("events_selected_data");
+            it != event_data.end()) {
+          json = std::any_cast<std::string>(it->second);
+        }
+      });
+
+  timeline.CalculateAndEmitMetrics_for_test();
+
+  EXPECT_THAT(json, ::testing::HasSubstr(R"("metrics")"));
+  EXPECT_THAT(
+      json,
+      ::testing::HasSubstr(
+          R"({"name":"op_a","eventIndex":0,"startUs":10.0,"durationUs":5.0,"count":2)"));
+  EXPECT_THAT(
+      json,
+      ::testing::HasSubstr(
+          R"({"name":"op_b","eventIndex":1,"startUs":20.0,"durationUs":8.0,"count":1)"));
+}
+
 TEST_F(MockTimelineImGuiFixture, GetEventSelected_EmptyGroups) {
   FlameChartTimelineData data;
   data.entry_names.push_back("Event A");

@@ -396,7 +396,14 @@
                     {{ getColumnHeader(col) }}
                   </th>
                   <td mat-cell *matCellDef="let element" style="word-break: break-word;">
-                    {{ getCellContent(element, col) }}
+                    <span *ngIf="isEventLink(col, element)"
+                          class="event-name-link"
+                          role="button"
+                          tabindex="0"
+                          (click)="onMetricsEventClick(element)"
+                          (keydown.enter)="onMetricsEventClick(element)"
+                          (keydown.space)="$event.preventDefault(); onMetricsEventClick(element)">{{ getCellContent(element, col) }}</span>
+                    <ng-container *ngIf="!isEventLink(col, element)">{{ getCellContent(element, col) }}</ng-container>
                   </td>
                   <td mat-footer-cell *matFooterCellDef>
                     <ng-container *ngIf="col === 'name'"><strong>Totals</strong></ng-container>

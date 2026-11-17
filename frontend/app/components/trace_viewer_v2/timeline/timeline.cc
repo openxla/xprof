@@ -8282,6 +8282,9 @@ void Timeline::CalculateAndEmitMetrics() {
     bool include_metrics = true;
     if (include_metrics) {
       struct Metrics {
+        int event_index = -1;
+        Microseconds start_us = 0;
+        Microseconds duration_us = 0;
         int count = 0;
         Microseconds wall_time = 0;
         Microseconds self_time = 0;
@@ -8295,6 +8298,11 @@ void Timeline::CalculateAndEmitMetrics() {
         const Microseconds self = timeline_data_.entry_self_times[event_index];
 
         Metrics& m = aggregated_metrics[name];
+        if (m.count == 0) {
+          m.event_index = event_index;
+          m.start_us = timeline_data_.entry_start_times[event_index];
+          m.duration_us = wall;
+        }
         m.count++;
         m.wall_time += wall;
         m.self_time += self;
@@ -8307,8 +8315,9 @@ void Timeline::CalculateAndEmitMetrics() {
         first = false;
         absl::StrAppendFormat(
             &metrics_json,
-            R"({"name":"%s","count":%d,"wallTimeUs":%.1f,"selfTimeUs":%.1f,"avgWallDurationUs":%.1f})",
-            absl::CEscape(name), metrics.count, metrics.wall_time,
+            R"({"name":"%s","eventIndex":%d,"startUs":%.1f,"durationUs":%.1f,"count":%d,"wallTimeUs":%.1f,"selfTimeUs":%.1f,"avgWallDurationUs":%.1f})",
+            absl::CEscape(name), metrics.event_index, metrics.start_us,
+            metrics.duration_us, metrics.count, metrics.wall_time,
             metrics.self_time, metrics.wall_time / metrics.count);
       }
       absl::StrAppend(&metrics_json, "]");

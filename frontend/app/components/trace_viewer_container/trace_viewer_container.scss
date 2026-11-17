@@ -1331,6 +1331,12 @@ button.overflow-menu-btn.mat-mdc-icon-button {
         padding-left: 0 !important;
       }
     }
+
+    .event-name-link {
+      cursor: pointer;
+      color: var(--mat-sys-primary);
+      text-decoration: underline;
+    }
   }
 
   .single-event-details {

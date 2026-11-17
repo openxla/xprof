@@ -5,8 +5,11 @@ import {
 
 /** Represents an item in the metrics array of events selection data. */
 export declare interface MetricsItem {
-  [key: string]: string | number;
+  [key: string]: string | number | undefined;
   name: string;
+  eventIndex?: number;
+  startUs?: number;
+  durationUs?: number;
   count: number;
   wallTimeUs: number;
   selfTimeUs: number;
@@ -40,6 +43,9 @@ export declare interface EventsSelectedData {
 /** Represents an aggregated event property with specific metrics. */
 export interface AggregatedEventProperty extends SelectedEventProperty {
   name?: string;
+  eventIndex?: number;
+  startUs?: number;
+  durationUs?: number;
   occurrences?: number;
   wallDuration?: number;
   selfTime?: number;

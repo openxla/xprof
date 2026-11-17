@@ -244,6 +244,11 @@ export function getSelectedEventId(
 export declare interface SelectedEventProperty {
   property?: string;
   value?: string | number;
+  name?: string;
+  eventIndex?: number;
+  startUs?: number;
+  durationUs?: number;
+  occurrences?: number;
   [key: string]: string | number | undefined;
 }
 
@@ -590,6 +595,39 @@ export class TraceViewerContainer
       return String(val) + 'us';
     }
     return String(val);
+  }
+
+  isEventLink(col: string, element: SelectedEventProperty): boolean {
+    return (
+      col === 'name' &&
+      element.occurrences === 1 &&
+      typeof element.name === 'string' &&
+      element.name.length > 0 &&
+      element.eventIndex !== undefined &&
+      element.eventIndex >= 0 &&
+      element.startUs !== undefined &&
+      element.durationUs !== undefined
+    );
+  }
+
+  onMetricsEventClick(element: SelectedEventProperty): void {
+    if (
+      element.eventIndex === undefined ||
+      element.eventIndex < 0 ||
+      !element.name ||
+      element.startUs === undefined ||
+      element.durationUs === undefined
+    ) {
+      return;
+    }
+    this.traceViewerModule?.application
+      ?.instance()
+      ?.revealEvent?.(
+        element.eventIndex,
+        element.name,
+        element.startUs,
+        element.durationUs,
+      );
   }
 
   leftSideProperties: SelectedEventProperty[] = [];

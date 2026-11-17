@@ -53,8 +53,10 @@ using ::testing::_;
 using ::testing::DoubleEq;
 using ::testing::ElementsAre;
 using ::testing::FloatEq;
+using ::testing::Pair;
 using ::testing::Return;
 using ::testing::Test;
+using ::testing::UnorderedElementsAre;
 
 // Instant single-event CSR layout helper.
 inline void SetSingleEventCsrLayout(FlameChartTimelineData& data) {
@@ -21207,6 +21209,608 @@ TEST_F(RealTimelineImGuiFixture,
   SimulateFrame();
   const int button_hovered_vtx_count = tracks_window->DrawList->VtxBuffer.Size;
   EXPECT_GT(button_hovered_vtx_count, header_hovered_vtx_count);
+}
+
+TEST(TimelineTest, ComputeActiveTracksForFetchIncludesExpandedSubTracks) {
+  FlameChartTimelineData data;
+  data.groups = {
+      // Non-thread/non-subtrack leaf flame group at header level (excluded).
+      {.type = Group::Type::kFlame,
+       .name = "Custom Section",
+       .start_level = 0,
+       .nesting_level = kHeaderNestingLevel,
+       .expanded = true,
+       .parent_index = -1,
+       .level_count = 1,
+       .pid = 3,
+       .tid = 0},
+      {.type = Group::Type::kFlame,
+       .name = "/device:TPU:0 SparseCore 0",
+       .start_level = 1,
+       .nesting_level = kProcessNestingLevel,
+       .expanded = true,
+       .parent_index = -1,
+       .child_indices = {2, 3, 4},
+       .level_count = 6,
+       .has_children = true,
+       .pid = 1},
+      // Leaf flame thread track at kThreadNestingLevel (included).
+      {.type = Group::Type::kFlame,
+       .name = "SparseCore Ops",
+       .start_level = 1,
+       .nesting_level = kThreadNestingLevel,
+       .expanded = true,
+       .parent_index = 1,
+       .level_count = 1,
+       .pid = 1,
+       .tid = 42},
+      // Leaf counter track at kThreadNestingLevel (excluded).
+      {.type = Group::Type::kCounter,
+       .name = "SparseCore Utilization",
+       .start_level = 2,
+       .nesting_level = kThreadNestingLevel,
+       .expanded = true,
+       .parent_index = 1,
+       .level_count = 1,
+       .pid = 1,
+       .tid = 98},
+      {.type = Group::Type::kFlame,
+       .name = kTecTracksGroupName,
+       .start_level = 3,
+       .nesting_level = kThreadNestingLevel,
+       .expanded = true,
+       .parent_index = 1,
+       .child_indices = {5, 6, 7, 8},
+       .level_count = 4,
+       .has_children = true,
+       .pid = 1,
+       .tid = 0},
+      // Leaf flame sub-tracks at kSubTrackNestingLevel (included).
+      {.type = Group::Type::kFlame,
+       .name = "TEC 0",
+       .start_level = 3,
+       .nesting_level = kSubTrackNestingLevel,
+       .expanded = true,
+       .parent_index = 4,
+       .level_count = 1,
+       .pid = 1,
+       .tid = 85},
+      {.type = Group::Type::kFlame,
+       .name = "TEC 1",
+       .start_level = 4,
+       .nesting_level = kSubTrackNestingLevel,
+       .expanded = true,
+       .parent_index = 4,
+       .level_count = 1,
+       .pid = 1,
+       .tid = 86},
+      // Leaf counter sub-track at kSubTrackNestingLevel (excluded).
+      {.type = Group::Type::kCounter,
+       .name = "TEC Counter",
+       .start_level = 5,
+       .nesting_level = kSubTrackNestingLevel,
+       .expanded = true,
+       .parent_index = 4,
+       .level_count = 1,
+       .pid = 1,
+       .tid = 99},
+      // Non-leaf flame sub-group at kSubTrackNestingLevel (excluded) and its
+      // deeper leaf flame child beyond kSubTrackNestingLevel (excluded).
+      {.type = Group::Type::kFlame,
+       .name = "Nested SubGroup",
+       .start_level = 6,
+       .nesting_level = kSubTrackNestingLevel,
+       .expanded = true,
+       .parent_index = 4,
+       .child_indices = {9},
+       .level_count = 1,
+       .has_children = true,
+       .pid = 1,
+       .tid = 97},
+      {.type = Group::Type::kFlame,
+       .name = "Deep Leaf",
+       .start_level = 6,
+       .nesting_level = kSubTrackNestingLevel + 1,
+       .expanded = true,
+       .parent_index = 8,
+       .level_count = 1,
+       .pid = 1,
+       .tid = 87},
+      // Leaf flame group at kProcessNestingLevel (excluded).
+      {.type = Group::Type::kFlame,
+       .name = "/device:TPU:1 Empty Process",
+       .start_level = 7,
+       .nesting_level = kProcessNestingLevel,
+       .expanded = true,
+       .parent_index = -1,
+       .level_count = 1,
+       .pid = 2,
+       .tid = 0},
+  };
+  // Levels 0-7 are used by the groups above; one extra trailing offset.
+  data.level_offsets.assign(9, 0);
+
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.SetTimelineData(std::move(data));
+
+  EXPECT_THAT(
+      timeline.ComputeActiveTracksForFetch(/*include_vertical_margin=*/true),
+      UnorderedElementsAre(Pair(1, 42), Pair(1, 85), Pair(1, 86)));
+}
+
+TEST(TimelineTest,
+     ComputeActiveTracksForFetchIncludesCollapsedTecContainerChildren) {
+  constexpr Pixel kWindowHeight = 600.0f;
+
+  FlameChartTimelineData data;
+  data.groups = {
+      {.type = Group::Type::kFlame,
+       .name = "/device:TPU:0 SparseCore 0",
+       .start_level = 0,
+       .nesting_level = kProcessNestingLevel,
+       .expanded = true,
+       .parent_index = -1,
+       .child_indices = {1, 7},
+       .level_count = 5,
+       .has_children = true,
+       .pid = 1},
+      {.type = Group::Type::kFlame,
+       .name = kTecTracksGroupName,
+       .start_level = 0,
+       .nesting_level = kThreadNestingLevel,
+       .expanded = false,
+       .parent_index = 0,
+       .child_indices = {2, 3, 4, 6},
+       .level_count = 4,
+       .has_children = true,
+       .pid = 1,
+       .tid = 0},
+      {.type = Group::Type::kFlame,
+       .name = "TEC 0",
+       .start_level = 0,
+       .nesting_level = kSubTrackNestingLevel,
+       .expanded = false,
+       .parent_index = 1,
+       .level_count = 1,
+       .pid = 1,
+       .tid = 85},
+      {.type = Group::Type::kFlame,
+       .name = "TEC 1",
+       .start_level = 1,
+       .nesting_level = kSubTrackNestingLevel,
+       .expanded = false,
+       .parent_index = 1,
+       .level_count = 1,
+       .pid = 1,
+       .tid = 86},
+      // Non-leaf flame sub-group under collapsed container (excluded) and its
+      // contiguous counter child (excluded).
+      {.type = Group::Type::kFlame,
+       .name = "Nested SubGroup",
+       .start_level = 2,
+       .nesting_level = kSubTrackNestingLevel,
+       .expanded = false,
+       .parent_index = 1,
+       .child_indices = {5},
+       .level_count = 1,
+       .has_children = true,
+       .pid = 1,
+       .tid = 97},
+      {.type = Group::Type::kCounter,
+       .name = "Nested Counter",
+       .start_level = 2,
+       .nesting_level = kSubTrackNestingLevel + 1,
+       .expanded = false,
+       .parent_index = 4,
+       .level_count = 1,
+       .pid = 1,
+       .tid = 96},
+      // Counter child at kSubTrackNestingLevel under collapsed container
+      // (excluded).
+      {.type = Group::Type::kCounter,
+       .name = "TEC Counter",
+       .start_level = 3,
+       .nesting_level = kSubTrackNestingLevel,
+       .expanded = false,
+       .parent_index = 1,
+       .level_count = 1,
+       .pid = 1,
+       .tid = 99},
+      // Sibling counter group at kThreadNestingLevel after container's children
+      // (excluded; also terminates the collapsed container's descendant scan).
+      {.type = Group::Type::kCounter,
+       .name = "Sibling Counter",
+       .start_level = 4,
+       .nesting_level = kThreadNestingLevel,
+       .expanded = true,
+       .parent_index = 0,
+       .level_count = 1,
+       .pid = 1,
+       .tid = 98},
+  };
+  const int proc_index = 0;
+  int next_level = 5;
+  const int spacer_count =
+      static_cast<int>(kWindowHeight /
+                       (kCounterTrackHeight + kThreadTrackGap)) +
+      1;
+  // Spacer counters push the sibling flame thread below the viewport while
+  // keeping it within the one-window-height vertical prefetch margin, so it is
+  // fetched only when include_vertical_margin is true.
+  for (int i = 0; i < spacer_count; ++i) {
+    const int spacer_index = static_cast<int>(data.groups.size());
+    data.groups[proc_index].child_indices.push_back(spacer_index);
+    data.groups.push_back({.type = Group::Type::kCounter,
+                           .name = absl::StrCat("Spacer Counter ", i),
+                           .start_level = next_level++,
+                           .nesting_level = kThreadNestingLevel,
+                           .expanded = true,
+                           .parent_index = proc_index,
+                           .level_count = 1,
+                           .pid = 1,
+                           .tid = static_cast<ThreadId>(200 + i)});
+  }
+  // Off-screen sibling flame thread after the spacer counters: excluded when
+  // include_vertical_margin is false, verifying the collapsed container scan
+  // stops when nesting_level <= container.nesting_level.
+  const int sibling_flame_idx = static_cast<int>(data.groups.size());
+  data.groups[proc_index].child_indices.push_back(sibling_flame_idx);
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Offscreen Sibling Thread",
+                         .start_level = next_level++,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .parent_index = proc_index,
+                         .level_count = 1,
+                         .pid = 1,
+                         .tid = 42});
+  data.groups[proc_index].level_count = next_level;
+  data.level_offsets.assign(next_level + 1, 0);
+
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_tracks_window_height_for_test(kWindowHeight);
+  timeline.SetTimelineData(std::move(data));
+  const Group& sibling_flame =
+      timeline.timeline_data().groups[sibling_flame_idx];
+  ASSERT_GT(timeline.GetGroupTop(&sibling_flame), kWindowHeight);
+  ASSERT_LT(timeline.GetGroupTop(&sibling_flame), 2 * kWindowHeight);
+
+  EXPECT_THAT(
+      timeline.ComputeActiveTracksForFetch(/*include_vertical_margin=*/false),
+      UnorderedElementsAre(Pair(1, 85), Pair(1, 86)));
+  EXPECT_THAT(
+      timeline.ComputeActiveTracksForFetch(/*include_vertical_margin=*/true),
+      UnorderedElementsAre(Pair(1, 85), Pair(1, 86), Pair(1, 42)));
+}
+
+constexpr absl::string_view kHiddenFallbackProcessName =
+    "/device:TPU:1 Hidden SparseCore";
+// Indices into the groups returned by `BuildScrolledPastFallbackData`.
+constexpr int kTecContainerIndex = 1;
+constexpr int kLastTecSubTrackIndex = 3;
+
+// Returns timeline data whose only fetchable tracks are the SparseCore "TEC 0"
+// (tid 85) and "TEC 1" (tid 86) sub-tracks of pid 1, so a scrolled-past fetch
+// must fall back to them. `tec_container_expanded` controls whether the "TEC
+// Tracks" container is expanded (sub-tracks visible) or collapsed (preview row
+// only). Callers must `HideTrack(kHiddenFallbackProcessName)` so the expanded
+// hidden process is skipped by the fallback.
+FlameChartTimelineData BuildScrolledPastFallbackData(
+    bool tec_container_expanded) {
+  FlameChartTimelineData data;
+  data.groups = {
+      // Process 1: expanded SparseCore at the top of the timeline (pid = 1).
+      {.type = Group::Type::kFlame,
+       .name = "/device:TPU:0 SparseCore 0",
+       .start_level = 0,
+       .nesting_level = kProcessNestingLevel,
+       .expanded = true,
+       .parent_index = -1,
+       .child_indices = {1},
+       .level_count = 2,
+       .has_children = true,
+       .pid = 1},
+      {.type = Group::Type::kFlame,
+       .name = kTecTracksGroupName,
+       .start_level = 0,
+       .nesting_level = kThreadNestingLevel,
+       .expanded = tec_container_expanded,
+       .parent_index = 0,
+       .child_indices = {2, 3},
+       .level_count = 2,
+       .has_children = true,
+       .pid = 1,
+       .tid = 0},
+      {.type = Group::Type::kFlame,
+       .name = "TEC 0",
+       .start_level = 0,
+       .nesting_level = kSubTrackNestingLevel,
+       .expanded = tec_container_expanded,
+       .parent_index = 1,
+       .level_count = 1,
+       .pid = 1,
+       .tid = 85},
+      {.type = Group::Type::kFlame,
+       .name = "TEC 1",
+       .start_level = 1,
+       .nesting_level = kSubTrackNestingLevel,
+       .expanded = tec_container_expanded,
+       .parent_index = 1,
+       .level_count = 1,
+       .pid = 1,
+       .tid = 86},
+      // Process 3: expanded process containing only a counter track (pid = 3).
+      {.type = Group::Type::kFlame,
+       .name = "/device:TPU:0 Counters",
+       .start_level = 2,
+       .nesting_level = kProcessNestingLevel,
+       .expanded = true,
+       .parent_index = -1,
+       .child_indices = {5},
+       .level_count = 1,
+       .has_children = true,
+       .pid = 3},
+      {.type = Group::Type::kCounter,
+       .name = "Counter 0",
+       .start_level = 2,
+       .nesting_level = kThreadNestingLevel,
+       .expanded = true,
+       .parent_index = 4,
+       .level_count = 1,
+       .pid = 3,
+       .tid = 300},
+      // Process 2: collapsed SparseCore process (pid = 2), excluded by
+      // fallback.
+      {.type = Group::Type::kFlame,
+       .name = "/device:TPU:0 SparseCore 1",
+       .start_level = 3,
+       .nesting_level = kProcessNestingLevel,
+       .expanded = false,
+       .parent_index = -1,
+       .child_indices = {7},
+       .level_count = 1,
+       .has_children = true,
+       .pid = 2},
+      {.type = Group::Type::kFlame,
+       .name = "SparseCore 1 Ops",
+       .start_level = 3,
+       .nesting_level = kThreadNestingLevel,
+       .expanded = false,
+       .parent_index = 6,
+       .level_count = 1,
+       .pid = 2,
+       .tid = 50},
+      // Process 4: expanded in Group metadata (pid = 4), but hidden by callers
+      // via `HideTrack(kHiddenFallbackProcessName)` so the fallback skips it.
+      {.type = Group::Type::kFlame,
+       .name = std::string(kHiddenFallbackProcessName),
+       .start_level = 4,
+       .nesting_level = kProcessNestingLevel,
+       .expanded = true,
+       .parent_index = -1,
+       .child_indices = {9},
+       .level_count = 1,
+       .has_children = true,
+       .pid = 4},
+      {.type = Group::Type::kFlame,
+       .name = "Hidden Ops",
+       .start_level = 4,
+       .nesting_level = kThreadNestingLevel,
+       .expanded = true,
+       .parent_index = 8,
+       .level_count = 1,
+       .pid = 4,
+       .tid = 70},
+  };
+  // Levels 0-4 are used by the groups above; one extra trailing offset.
+  data.level_offsets.assign(6, 0);
+  return data;
+}
+
+// Scrolls `timeline` past `bottom_visible_group` plus the vertical prefetch
+// margin (which equals the window height). Afterwards neither
+// `include_vertical_margin` mode finds fetchable tracks in its vertical window,
+// so `ComputeActiveTracksForFetch` uses the expanded-process fallback.
+void ScrollPastGroupAndMargin(TestTimeline& timeline,
+                              const Group& bottom_visible_group,
+                              Pixel window_height) {
+  timeline.set_last_scroll_y_for_test(
+      timeline.GetGroupBottom(&bottom_visible_group) + window_height + 1.0f);
+}
+
+TEST(TimelineTest,
+     ComputeActiveTracksForFetchScrolledPastFallsBackToExpandedSubTracks) {
+  constexpr Pixel kWindowHeight = 600.0f;
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_tracks_window_height_for_test(kWindowHeight);
+  timeline.set_track_management_enabled(true);
+  timeline.HideTrack(kHiddenFallbackProcessName);
+  timeline.SetTimelineData(
+      BuildScrolledPastFallbackData(/*tec_container_expanded=*/true));
+  // "TEC 1" is the bottom-most visible track of the SparseCore process.
+  ScrollPastGroupAndMargin(
+      timeline, timeline.timeline_data().groups[kLastTecSubTrackIndex],
+      kWindowHeight);
+
+  EXPECT_THAT(
+      timeline.ComputeActiveTracksForFetch(/*include_vertical_margin=*/false),
+      UnorderedElementsAre(Pair(1, 85), Pair(1, 86)));
+  EXPECT_THAT(
+      timeline.ComputeActiveTracksForFetch(/*include_vertical_margin=*/true),
+      UnorderedElementsAre(Pair(1, 85), Pair(1, 86)));
+}
+
+TEST(TimelineTest,
+     ComputeActiveTracksForFetchScrolledPastFallsBackToCollapsedTecContainer) {
+  constexpr Pixel kWindowHeight = 600.0f;
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_tracks_window_height_for_test(kWindowHeight);
+  timeline.set_track_management_enabled(true);
+  timeline.HideTrack(kHiddenFallbackProcessName);
+  timeline.SetTimelineData(
+      BuildScrolledPastFallbackData(/*tec_container_expanded=*/false));
+  // The collapsed "TEC Tracks" container hides its sub-tracks, so its preview
+  // row is the bottom-most visible track of the SparseCore process.
+  ScrollPastGroupAndMargin(timeline,
+                           timeline.timeline_data().groups[kTecContainerIndex],
+                           kWindowHeight);
+
+  EXPECT_THAT(
+      timeline.ComputeActiveTracksForFetch(/*include_vertical_margin=*/false),
+      UnorderedElementsAre(Pair(1, 85), Pair(1, 86)));
+  EXPECT_THAT(
+      timeline.ComputeActiveTracksForFetch(/*include_vertical_margin=*/true),
+      UnorderedElementsAre(Pair(1, 85), Pair(1, 86)));
+}
+
+TEST(TimelineTest,
+     ComputeActiveTracksForFetchExcludesSubTracksOfCollapsedProcess) {
+  FlameChartTimelineData data;
+  data.groups = {
+      {.type = Group::Type::kFlame,
+       .name = "/device:TPU:0 SparseCore 0",
+       .start_level = 0,
+       .nesting_level = kProcessNestingLevel,
+       .expanded = false,
+       .parent_index = -1,
+       .child_indices = {1},
+       .level_count = 2,
+       .has_children = true,
+       .pid = 1},
+      {.type = Group::Type::kFlame,
+       .name = kTecTracksGroupName,
+       .start_level = 0,
+       .nesting_level = kThreadNestingLevel,
+       .expanded = false,
+       .parent_index = 0,
+       .child_indices = {2, 3},
+       .level_count = 2,
+       .has_children = true,
+       .pid = 1,
+       .tid = 0},
+      {.type = Group::Type::kFlame,
+       .name = "TEC 0",
+       .start_level = 0,
+       .nesting_level = kSubTrackNestingLevel,
+       .expanded = false,
+       .parent_index = 1,
+       .level_count = 1,
+       .pid = 1,
+       .tid = 85},
+      {.type = Group::Type::kFlame,
+       .name = "TEC 1",
+       .start_level = 1,
+       .nesting_level = kSubTrackNestingLevel,
+       .expanded = false,
+       .parent_index = 1,
+       .level_count = 1,
+       .pid = 1,
+       .tid = 86},
+  };
+  data.level_offsets = {0, 0, 0};
+
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.SetTimelineData(std::move(data));
+
+  EXPECT_TRUE(timeline
+                  .ComputeActiveTracksForFetch(
+                      /*include_vertical_margin=*/true)
+                  .empty());
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       BuildLevelMipPyramidsBorrowsOverviewPyramidsForSubTracks) {
+  auto make_groups = [](bool tec_container_expanded) {
+    return std::vector<Group>{
+        {.type = Group::Type::kFlame,
+         .name = "/device:TPU:0 SparseCore 0",
+         .start_level = 0,
+         .nesting_level = kProcessNestingLevel,
+         .expanded = true,
+         .parent_index = -1,
+         .child_indices = {1},
+         .level_count = 1,
+         .has_children = true,
+         .pid = 1},
+        {.type = Group::Type::kFlame,
+         .name = kTecTracksGroupName,
+         .start_level = 0,
+         .nesting_level = kThreadNestingLevel,
+         .expanded = tec_container_expanded,
+         .parent_index = 0,
+         .child_indices = {2},
+         .level_count = 1,
+         .has_children = true,
+         .pid = 1,
+         .tid = 0},
+        {.type = Group::Type::kFlame,
+         .name = "TEC 0",
+         .start_level = 0,
+         .nesting_level = kSubTrackNestingLevel,
+         .expanded = true,
+         .parent_index = 1,
+         .level_count = 1,
+         .pid = 1,
+         .tid = 85},
+    };
+  };
+
+  FlameChartTimelineData overview;
+  overview.groups = make_groups(/*tec_container_expanded=*/false);
+  constexpr int kEvents = 100;
+  overview.level_offsets = {0, kEvents};
+  for (int i = 0; i < kEvents; ++i) {
+    overview.level_event_indices.push_back(i);
+    overview.entry_names.push_back("tec_op");
+    overview.entry_levels.push_back(0);
+    overview.entry_start_times.push_back(static_cast<double>(i) * 10.0);
+    overview.entry_total_times.push_back(8.0);
+    overview.entry_self_times.push_back(8.0);
+    overview.entry_args.push_back({});
+  }
+
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  timeline_.SetTimelineData(std::move(overview));
+  timeline_.MarkCurrentDataAsFullOverview();
+
+  // Filtered refetch where sub-track {1, 85} was not loaded and has 0 raw
+  // events in the zoomed dataset.
+  timeline_.SetLoadedActiveTracks({{99, 999}});
+  timeline_.PrepareForFilteredRefetch();
+  FlameChartTimelineData empty_zoomed;
+  empty_zoomed.groups = make_groups(/*tec_container_expanded=*/false);
+  empty_zoomed.level_offsets = {0, 0};
+  timeline_.SetTimelineData(std::move(empty_zoomed));
+
+  const auto& pyramids = timeline_.level_mip_pyramids_for_test();
+  ASSERT_EQ(pyramids.size(), 1u);
+  EXPECT_TRUE(pyramids[0].has_pyramid);
+  EXPECT_FALSE(pyramids[0].levels[2].tiles.empty());
+
+  // Verify the collapsed "TEC Tracks" preview row renders using the borrowed
+  // sub-track MIP pyramid even when zoomed-in raw events are empty.
+  timeline_.set_force_gpu_flame_batch_mode_for_test(false);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+  const int cpu_borrowed_vtx = ImGui::GetDrawData()->TotalVtxCount;
+
+  timeline_.ClearSavedFullOverview();
+  FlameChartTimelineData unborrowed_empty;
+  unborrowed_empty.groups = make_groups(/*tec_container_expanded=*/false);
+  unborrowed_empty.level_offsets = {0, 0};
+  timeline_.SetTimelineData(std::move(unborrowed_empty));
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+  const int cpu_empty_vtx = ImGui::GetDrawData()->TotalVtxCount;
+  EXPECT_GT(cpu_borrowed_vtx, cpu_empty_vtx);
 }
 }  // namespace
 }  // namespace testing

@@ -19,6 +19,7 @@
 #include "absl/strings/string_view.h"
 #include "xprof/convert/trace_viewer/delta_series/zstd_compression.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "plugin/xprof/protobuf/trace_data_response.pb.h"
@@ -207,6 +208,148 @@ TEST(TracePbEventParserIncrementalTest,
   StepIncrementalTraceEvents(1, data_provider, timeline);
   EXPECT_EQ(GetZstdDecompressorCapacityForTest(), 0u);
   CancelIncrementalTraceEvents(data_provider, timeline);
+}
+
+TEST(TracePbEventParserIncrementalTest,
+     IncrementalRefetchRetainsSparseCoreTecSubTracks) {
+  using ::testing::AllOf;
+  using ::testing::Contains;
+  using ::testing::Field;
+
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  DataProvider data_provider;
+
+  xprof::TraceDataResponse initial_frame;
+  initial_frame.add_interned_strings("");
+  initial_frame.add_interned_strings("tec0_op");
+  initial_frame.add_interned_strings("tec1_op");
+  initial_frame.set_full_timespan_start_ps(0ULL);
+  initial_frame.set_full_timespan_end_ps(100000000000ULL);  // 100 ms
+
+  xprof::Process* proc = initial_frame.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("/device:TPU:0 SparseCore 0");
+  // Process must be expanded (default for <5 processes) and have >=2 TEC
+  // threads so DataProvider::PopulateTecTracks creates the "TEC Tracks"
+  // container at kThreadNestingLevel and TEC 0..1 at kSubTrackNestingLevel.
+  xprof::Thread* th0 = proc->add_threads();
+  th0->set_id(85);
+  th0->set_name("TEC 0");
+  xprof::Thread* th1 = proc->add_threads();
+  th1->set_id(86);
+  th1->set_name("TEC 1");
+
+  const auto populate_tec_series = [](xprof::TraceEventSeries* series,
+                                      uint32_t pid, uint32_t tid,
+                                      uint32_t name_ref) {
+    series->mutable_metadata()->set_process_id(pid);
+    series->mutable_metadata()->set_thread_id(tid);
+    for (int i = 0; i < 20; ++i) {
+      // Events spaced every 1 ms (1,000,000,000 ps), duration 0.5 ms.
+      series->add_deltas(1000000000ULL);
+      series->add_durations(500000000ULL);
+      series->add_name_refs(name_ref);
+      series->add_event_metadata();
+    }
+  };
+  populate_tec_series(initial_frame.add_complete_events(), 1, 85, 1);
+  populate_tec_series(initial_frame.add_complete_events(), 1, 86, 2);
+
+  std::string serialized;
+  ASSERT_TRUE(initial_frame.SerializeToString(&serialized));
+  const absl::StatusOr<std::string> compressed =
+      tensorflow::profiler::ZstdCompression::Compress(serialized);
+  ASSERT_TRUE(compressed.ok());
+
+  bool cache_cleared = false;
+  auto clear_incremental_cache = [&]() {
+    if (cache_cleared) {
+      return;
+    }
+    cache_cleared = true;
+    // Starting an initial session on a fresh DataProvider/Timeline triggers
+    // ClearPersistentCache() (CancelIncrementalTraceEvents alone only resets
+    // transient cursors).
+    DataProvider reset_dp;
+    Timeline reset_tl(palette);
+    BeginIncrementalTraceEvents(std::nullopt, reset_dp, reset_tl);
+    CancelIncrementalTraceEvents(reset_dp, reset_tl);
+  };
+  struct IncrementalCacheCleanup {
+    explicit IncrementalCacheCleanup(
+        decltype(clear_incremental_cache)& cleanup_fn)
+        : cleanup(cleanup_fn) {}
+    IncrementalCacheCleanup(const IncrementalCacheCleanup&) = delete;
+    IncrementalCacheCleanup& operator=(const IncrementalCacheCleanup&) = delete;
+    ~IncrementalCacheCleanup() { cleanup(); }
+    decltype(clear_incremental_cache)& cleanup;
+  } cleanup_guard(clear_incremental_cache);
+
+  // Set threshold low enough that initial overview load arms the in-memory
+  // block cache.
+  timeline.set_max_uncompacted_overview_entries_for_test(16);
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(compressed->data()), compressed->size());
+  while (StepIncrementalTraceEvents(5000, data_provider, timeline)) {
+  }
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+  ASSERT_TRUE(HasCachedTraceEventsIncremental());
+
+  // Verify the initial group hierarchy created "TEC Tracks" (collapsed by
+  // default) and leaf sub-tracks "TEC 0" and "TEC 1" at kSubTrackNestingLevel.
+  ASSERT_THAT(
+      timeline.timeline_data().groups,
+      AllOf(
+          Contains(AllOf(Field("name", &Group::name, kTecTracksGroupName),
+                         Field("nesting_level", &Group::nesting_level,
+                               kThreadNestingLevel),
+                         Field("has_children", &Group::has_children, true),
+                         Field("expanded", &Group::expanded, false))),
+          Contains(AllOf(Field("name", &Group::name, "TEC 0"),
+                         Field("nesting_level", &Group::nesting_level,
+                               kSubTrackNestingLevel),
+                         Field("has_children", &Group::has_children, false))),
+          Contains(AllOf(Field("name", &Group::name, "TEC 1"),
+                         Field("nesting_level", &Group::nesting_level,
+                               kSubTrackNestingLevel),
+                         Field("has_children", &Group::has_children, false)))));
+
+  // 1. Zoom-in cached refetch over [0.5, 5.5] ms while "TEC Tracks" is
+  // collapsed: both TEC 0 and TEC 1 events in the window must be retained so
+  // the collapsed "TEC Tracks" preview row stays populated.
+  BeginIncrementalTraceEvents(std::make_pair(0.5, 5.5), data_provider,
+                              timeline);
+  while (StepIncrementalTraceEvents(5000, data_provider, timeline)) {
+  }
+  FinishIncrementalTraceEvents(data_provider, timeline);
+  EXPECT_THAT(timeline.timeline_data().entry_names,
+              Contains("tec0_op").Times(5));
+  EXPECT_THAT(timeline.timeline_data().entry_names,
+              Contains("tec1_op").Times(5));
+
+  // 2. Expand "TEC Tracks" (via RevealEvent) and perform another zoom-in
+  // cached refetch over [1.6, 4.4] ms: visible leaf sub-tracks TEC 0 and TEC 1
+  // at kSubTrackNestingLevel must remain in active_track_filter and retain
+  // their in-window events (starting at 2.0, 3.0, and 4.0 ms).
+  timeline.RevealEvent(0);
+  ASSERT_THAT(timeline.timeline_data().groups,
+              Contains(AllOf(Field("name", &Group::name, kTecTracksGroupName),
+                             Field("expanded", &Group::expanded, true))));
+
+  BeginIncrementalTraceEvents(std::make_pair(1.6, 4.4), data_provider,
+                              timeline);
+  while (StepIncrementalTraceEvents(5000, data_provider, timeline)) {
+  }
+  FinishIncrementalTraceEvents(data_provider, timeline);
+  EXPECT_THAT(timeline.timeline_data().entry_names,
+              Contains("tec0_op").Times(3));
+  EXPECT_THAT(timeline.timeline_data().entry_names,
+              Contains("tec1_op").Times(3));
+
+  clear_incremental_cache();
+  EXPECT_FALSE(HasCachedTraceEventsIncremental());
 }
 
 #ifdef __EMSCRIPTEN__

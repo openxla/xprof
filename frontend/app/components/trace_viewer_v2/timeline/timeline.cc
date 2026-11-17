@@ -2042,42 +2042,33 @@ void Timeline::BuildLevelMipPyramids() {
       has_active_track_filter_) {
     const auto& saved_data = saved_full_overview_->data;
     const auto& saved_pyramids = saved_full_overview_->level_mip_pyramids;
-    using SavedGroupKey =
-        std::tuple<int, std::string, std::string, ProcessId, ThreadId>;
+    using SavedGroupKey = std::tuple<GroupKey, ProcessId, ThreadId>;
     absl::flat_hash_map<SavedGroupKey, size_t> saved_group_by_key;
     saved_group_by_key.reserve(saved_data.groups.size());
     for (size_t i = 0; i < saved_data.groups.size(); ++i) {
       const Group& sg = saved_data.groups[i];
-      if (sg.nesting_level != kThreadNestingLevel ||
-          sg.type != Group::Type::kFlame) {
+      if ((sg.nesting_level != kThreadNestingLevel &&
+           sg.nesting_level != kSubTrackNestingLevel) ||
+          sg.type != Group::Type::kFlame || sg.has_children) {
         continue;
       }
-      const std::string parent_name =
-          (sg.parent_index >= 0 &&
-           sg.parent_index < static_cast<int>(saved_data.groups.size()))
-              ? saved_data.groups[sg.parent_index].name
-              : "";
-      saved_group_by_key[{sg.nesting_level, sg.name, parent_name, sg.pid,
+      saved_group_by_key[{GetScopedGroupKey(saved_data.groups, i), sg.pid,
                           sg.tid}] = i;
     }
 
     for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
       const Group& g = timeline_data_.groups[i];
-      if (g.nesting_level != kThreadNestingLevel ||
-          g.type != Group::Type::kFlame) {
+      if ((g.nesting_level != kThreadNestingLevel &&
+           g.nesting_level != kSubTrackNestingLevel) ||
+          g.type != Group::Type::kFlame || g.has_children) {
         continue;
       }
       if ((g.pid != 0 || g.tid != 0) &&
           loaded_active_tracks_.contains({g.pid, g.tid})) {
         continue;
       }
-      const std::string parent_name =
-          (g.parent_index >= 0 &&
-           g.parent_index < static_cast<int>(timeline_data_.groups.size()))
-              ? timeline_data_.groups[g.parent_index].name
-              : "";
       const auto it = saved_group_by_key.find(
-          {g.nesting_level, g.name, parent_name, g.pid, g.tid});
+          {GetScopedGroupKey(timeline_data_.groups, i), g.pid, g.tid});
       if (it == saved_group_by_key.end()) {
         continue;
       }
@@ -7597,6 +7588,34 @@ Timeline::ComputeActiveTracksForFetch(bool include_vertical_margin) const {
   const Pixel min_y = std::max(0.0f, last_scroll_y_ - margin);
   const Pixel max_y = last_scroll_y_ + win_h + margin;
 
+  auto add_group_tracks = [&](size_t group_idx) {
+    const Group& g = timeline_data_.groups[group_idx];
+    if (!g.has_children) {
+      if ((g.nesting_level == kThreadNestingLevel ||
+           g.nesting_level == kSubTrackNestingLevel) &&
+          g.type == Group::Type::kFlame) {
+        active.insert({g.pid, g.tid});
+      }
+      return;
+    }
+    // When a sub-track container at kThreadNestingLevel (e.g., "TEC Tracks") is
+    // collapsed inside an expanded process, its preview row renders across all
+    // child sub-track levels while the children themselves are marked
+    // group_visible_ == false. Include its leaf flame descendants so the
+    // collapsed preview stays populated after zooming in.
+    if (g.nesting_level == kThreadNestingLevel && !g.expanded) {
+      for (size_t j = group_idx + 1;
+           j < timeline_data_.groups.size() &&
+           timeline_data_.groups[j].nesting_level > g.nesting_level;
+           ++j) {
+        const Group& child = timeline_data_.groups[j];
+        if (!child.has_children && child.type == Group::Type::kFlame) {
+          active.insert({child.pid, child.tid});
+        }
+      }
+    }
+  };
+
   for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
     if (i < group_visible_.size() && !group_visible_[i]) {
       continue;
@@ -7607,10 +7626,7 @@ Timeline::ComputeActiveTracksForFetch(bool include_vertical_margin) const {
     if (bottom < min_y || top > max_y) {
       continue;
     }
-    if (g.nesting_level == kThreadNestingLevel &&
-        g.type == Group::Type::kFlame) {
-      active.insert({g.pid, g.tid});
-    }
+    add_group_tracks(i);
   }
 
   // Fallback: if no expanded thread tracks were in the vertical window, include
@@ -7632,9 +7648,8 @@ Timeline::ComputeActiveTracksForFetch(bool include_vertical_margin) const {
         continue;
       }
       const Group& g = timeline_data_.groups[i];
-      if (g.nesting_level == kThreadNestingLevel &&
-          g.type == Group::Type::kFlame && any_expanded_pids.contains(g.pid)) {
-        active.insert({g.pid, g.tid});
+      if (any_expanded_pids.contains(g.pid)) {
+        add_group_tracks(i);
       }
     }
   }

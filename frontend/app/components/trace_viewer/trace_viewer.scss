@@ -1,6 +1,6 @@
 /** CSS for a trace viewer component. */
 
-:host {
+:host(trace-viewer) {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -8,6 +8,13 @@
     --mat-sys-surface-container-low,
     var(--md-sys-color-surface-container-low)
   );
+}
+
+:host(filter-input),
+:host(filter-chips),
+filter-input,
+filter-chips {
+  background: transparent;
 }
 
 mat-divider {
@@ -74,8 +81,14 @@ mat-divider {
   white-space: nowrap;
 
   &:hover {
-    background-color: var(--mat-sys-surface-variant, rgba(0, 0, 0, 0.04));
+    background: transparent;
     color: var(--mat-sys-on-surface, #1f1f1f);
+  }
+
+  &:focus,
+  &:focus-visible {
+    background: transparent;
+    outline: none;
   }
 }
 
@@ -164,9 +177,9 @@ mat-divider {
     --mat-sys-on-secondary-container,
     #001d35
   );
-  background-color: var(--mat-sys-secondary-container, #c2e7ff) !important;
-  color: var(--mat-sys-on-secondary-container, #001d35) !important;
-  border-radius: 8px !important;
+  background-color: var(--mat-sys-secondary-container, #c2e7ff);
+  color: var(--mat-sys-on-secondary-container, #001d35);
+  border-radius: 8px;
   font-size: 13px;
   font-weight: 500;
   height: 32px;
@@ -175,25 +188,39 @@ mat-divider {
   margin: 4px 6px 4px 0;
   border: none;
 
-  ::ng-deep {
-    .mat-mdc-chip-action-label {
-      color: var(--mat-sys-on-secondary-container, #001d35) !important;
-      font-size: 13px;
-      font-weight: 500;
+  &.mat-mdc-standard-chip,
+  &.mat-mdc-chip {
+    border-radius: 8px;
+
+    &:not(.mat-mdc-chip-disabled) {
+      background-color: var(--mat-sys-secondary-container, #c2e7ff);
+      color: var(--mat-sys-on-secondary-container, #001d35);
     }
+  }
 
-    .mat-mdc-chip-remove {
-      color: var(--mat-sys-on-secondary-container, #001d35) !important;
-      opacity: 0.8;
-
-      mat-icon {
-        font-size: 18px;
-        width: 18px;
-        height: 18px;
+  &,
+  &.mat-mdc-standard-chip:not(.mat-mdc-chip-disabled) {
+    ::ng-deep {
+      .mat-mdc-chip-action-label {
+        color: var(--mat-sys-on-secondary-container, #001d35);
+        font-size: 13px;
+        font-weight: 500;
       }
 
-      &:hover {
-        opacity: 1;
+      .mat-mdc-chip-remove {
+        color: var(--mat-sys-on-secondary-container, #001d35);
+        opacity: 0.8;
+
+        mat-icon {
+          font-size: 18px;
+          width: 18px;
+          height: 18px;
+          color: var(--mat-sys-on-secondary-container, #001d35);
+        }
+
+        &:hover {
+          opacity: 1;
+        }
       }
     }
   }

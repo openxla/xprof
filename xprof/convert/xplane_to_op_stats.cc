@@ -609,10 +609,22 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
   if (generate_hlo_module_map) {
     tensorflow::profiler::HloCostAnalysisWrapper::Factory create_cost_analysis;
     if (is_gpu) {
-      create_cost_analysis = []() {
-        return GetHloCostAnalysisWrapperRegistry().Get(
-            kXprofGpuCostAnalysisName)(nullptr);
-      };
+      std::optional<DeviceCapabilities> device_caps;
+      if (!device_planes.empty()) {
+        device_caps = GetDeviceCaps(*device_planes[0]);
+      }
+      HloCostAnalysisWrapperRegistry::Function cost_analysis_factory =
+          GetHloCostAnalysisWrapperRegistry().Get(kXprofGpuCostAnalysisName);
+      if (cost_analysis_factory != nullptr) {
+        create_cost_analysis =
+            [device_caps = std::move(device_caps),
+             cost_analysis_factory = std::move(cost_analysis_factory)]() {
+              XprofGpuCostAnalysisConfig config(device_caps);
+              return cost_analysis_factory(&config);
+            };
+      } else {
+        create_cost_analysis = []() { return nullptr; };
+      }
     } else {
       // we pass nullptr for the cost analysis for TPU.
       create_cost_analysis = []() { return nullptr; };

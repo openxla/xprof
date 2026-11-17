@@ -18,12 +18,15 @@ limitations under the License.
 
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <utility>
 
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/service/gpu/model/gpu_hlo_cost_analysis.h"
 #include "xla/service/hlo_cost_analysis.h"
+#include "plugin/xprof/protobuf/hardware_types.pb.h"
 #include "xprof/utils/hlo_cost_analysis_wrapper.h"
 
 namespace tensorflow {
@@ -33,8 +36,11 @@ namespace profiler {
 // normalizes the flops to the device flops based on input bit widths.
 class XProfGpuCostAnalysis : public xla::gpu::GpuHloCostAnalysis {
  public:
-  explicit XProfGpuCostAnalysis(const xla::HloCostAnalysis::Options& options)
-      : xla::gpu::GpuHloCostAnalysis(options) {}
+  explicit XProfGpuCostAnalysis(
+      const xla::HloCostAnalysis::Options& options,
+      std::optional<DeviceCapabilities> device_capabilities = std::nullopt)
+      : xla::gpu::GpuHloCostAnalysis(options),
+        device_capabilities_(std::move(device_capabilities)) {}
 
   absl::Status HandleCustomCall(const xla::HloInstruction* hlo) override;
 
@@ -50,12 +56,14 @@ class XProfGpuCostAnalysis : public xla::gpu::GpuHloCostAnalysis {
  private:
   static inline constexpr absl::string_view kDeviceFlopsAdjustment =
       "device_flops_adjustment";
+  std::optional<DeviceCapabilities> device_capabilities_;
 };
 
 // Creates a HloCostAnalysisWrapper for XProfGpuCostAnalysis based on the given
-// options.
+// options and device capabilities.
 std::unique_ptr<HloCostAnalysisWrapper> CreateXprofGpuCostAnalysis(
-    xla::HloCostAnalysis::Options options = xla::HloCostAnalysis::Options());
+    xla::HloCostAnalysis::Options options = xla::HloCostAnalysis::Options(),
+    std::optional<DeviceCapabilities> device_capabilities = std::nullopt);
 
 }  // namespace profiler
 }  // namespace tensorflow

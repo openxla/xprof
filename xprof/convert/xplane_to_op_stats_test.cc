@@ -25,7 +25,10 @@ limitations under the License.
 #include <gtest/gtest.h>
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/ir/hlo_opcode.h"
+#include "xla/hlo/parser/hlo_parser.h"
+#include "xla/service/hlo.pb.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
@@ -39,13 +42,17 @@ limitations under the License.
 #include "xprof/convert/repository.h"
 #include "xprof/convert/step_events_to_steps_db.h"
 #include "plugin/xprof/protobuf/diagnostics.pb.h"
+#include "plugin/xprof/protobuf/hardware_types.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/steps_db.pb.h"
 #include "plugin/xprof/protobuf/tf_function.pb.h"
 #include "plugin/xprof/protobuf/tpu_input_pipeline.pb.h"
+#include "xprof/utils/device_caps_utils.h"
+#include "xprof/utils/hlo_cost_analysis_wrapper.h"
 #include "xprof/utils/hlo_proto_map.h"
 #include "xprof/utils/op_metrics_db_utils.h"
+#include "xprof/utils/xprof_gpu_cost_analysis_types.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -2289,6 +2296,80 @@ TEST(ConvertXPlaneToOpStats,
     EXPECT_DOUBLE_EQ(step_details.sc_step_time_ms(),
                      tsl::profiler::PicoToMilli(100));
   }
+}
+
+TEST(ConvertXPlaneToOpStats, GpuOpMetricsUsesDeviceCapabilitiesFromXPlane) {
+  if (!GetHloCostAnalysisWrapperRegistry().Get(kXprofGpuCostAnalysisName)) {
+    GTEST_SKIP() << "GPU cost analysis is not registered in this build.";
+  }
+
+  constexpr uint64_t kProgramId = 1;
+  constexpr absl::string_view kHlo = R"(
+HloModule test_module
+
+ENTRY main {
+  x = s4[64,48]{1,0} parameter(0)
+  y = s4[48,64]{1,0} parameter(1)
+  ROOT dot = s32[64,64]{1,0} dot(x, y),
+      lhs_contracting_dims={1}, rhs_contracting_dims={0}
+}
+)";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<xla::HloModule> hlo_module,
+                       xla::ParseAndReturnUnverifiedModule(kHlo));
+  xla::HloProto hlo_proto;
+  *hlo_proto.mutable_hlo_module() = hlo_module->ToProto();
+
+  XSpace space;
+  XPlaneBuilder metadata_plane(space.add_planes());
+  metadata_plane.SetName(tsl::profiler::kMetadataPlaneName);
+  tsl::profiler::XEventMetadata* hlo_metadata =
+      metadata_plane.GetOrCreateEventMetadata(kProgramId);
+  hlo_metadata->set_name(
+      absl::StrCat(hlo_proto.hlo_module().name(), "(", kProgramId, ")"));
+  XStatsBuilder<tsl::profiler::XEventMetadata> hlo_metadata_stats(
+      hlo_metadata, &metadata_plane);
+  hlo_metadata_stats.AddStatValue(*metadata_plane.GetOrCreateStatMetadata(
+                                      GetStatTypeStr(StatType::kHloProto)),
+                                  hlo_proto);
+
+  XPlane* gpu_plane = GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
+  DeviceCapabilities gb300_caps;
+  gb300_caps.set_device_vendor(kDeviceVendorNvidia);
+  gb300_caps.mutable_compute_capability()->set_major(10);
+  gb300_caps.mutable_compute_capability()->set_minor(3);
+  SetDeviceCaps(gb300_caps, gpu_plane);
+
+  XPlaneBuilder device_plane(gpu_plane);
+  XLineBuilder stream = device_plane.GetOrCreateLine(/*line_id=*/10);
+  XEventBuilder event =
+      stream.AddEvent(*device_plane.GetOrCreateEventMetadata("dot_kernel"));
+  event.SetTimestampNs(100000);
+  event.SetDurationNs(100);
+  event.AddStatValue(
+      *device_plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kHloOp)),
+      *device_plane.GetOrCreateStatMetadata("dot"));
+  event.AddStatValue(*device_plane.GetOrCreateStatMetadata(
+                         GetStatTypeStr(StatType::kProgramId)),
+                     kProgramId);
+
+  OpStatsOptions options;
+  options.generate_op_metrics_db = true;
+  options.generate_kernel_stats_db = true;
+  ASSERT_OK_AND_ASSIGN(OpStats op_stats,
+                       ConvertXSpaceToOpStats(space, options));
+
+  const OpMetrics* dot_metrics = nullptr;
+  for (const OpMetrics& op : op_stats.device_op_metrics_db().metrics_db()) {
+    if (op.name() == "dot") {
+      dot_metrics = &op;
+      break;
+    }
+  }
+  ASSERT_NE(dot_metrics, nullptr);
+  constexpr int64_t kExpectedModelFlops = 64LL * 64 * 48 * 2;
+  EXPECT_EQ(dot_metrics->model_flops(), kExpectedModelFlops);
+  // GB300 (CC 10.3) has 6x FP4 throughput vs BF16.
+  EXPECT_EQ(dot_metrics->flops(), kExpectedModelFlops / 6);
 }
 }  // namespace
 }  // namespace profiler

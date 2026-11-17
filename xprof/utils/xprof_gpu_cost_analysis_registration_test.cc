@@ -13,11 +13,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include <cstdint>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/parser/hlo_parser.h"
 #include "xla/hlo/testlib/hlo_hardware_independent_test_base.h"
+#include "xla/tsl/profiler/utils/xplane_schema.h"
+#include "plugin/xprof/protobuf/hardware_types.pb.h"
 #include "xprof/utils/hlo_cost_analysis_wrapper.h"
 #include "xprof/utils/hlo_module_map.h"
 #include "xprof/utils/xprof_gpu_cost_analysis_types.h"
@@ -60,6 +64,41 @@ TEST_F(XprofGpuCostAnalysisRegistrationTest, CallRegisteredFactory) {
       hlo_module->entry_computation()->root_instruction();
   EXPECT_EQ(cost_analysis->GetDeviceFlops(*root),
             cost_analysis->GetModelFlops(*root))
+      << " for " << root->ToString();
+}
+
+TEST_F(XprofGpuCostAnalysisRegistrationTest,
+       CallRegisteredFactoryForwardsDeviceCapabilities) {
+  auto& registry = GetHloCostAnalysisWrapperRegistry();
+  auto cost_analysis_factory = registry.Get(kXprofGpuCostAnalysisName);
+  ASSERT_TRUE(cost_analysis_factory);
+
+  DeviceCapabilities gb300;
+  gb300.set_device_vendor(tsl::profiler::kDeviceVendorNvidia);
+  gb300.mutable_compute_capability()->set_major(10);
+  gb300.mutable_compute_capability()->set_minor(3);
+  XprofGpuCostAnalysisConfig config(gb300);
+
+  auto cost_analysis = cost_analysis_factory(&config);
+  ASSERT_NE(cost_analysis, nullptr);
+
+  const char* hlo_text = R"hlo(
+    HloModule test_module
+    ENTRY test {
+      x = s4[64,48]{1,0} parameter(0)
+      y = s4[48,64]{1,0} parameter(1)
+      ROOT dot = s32[64,64]{1,0} dot(x, y),
+          lhs_contracting_dims={1}, rhs_contracting_dims={0}
+    }
+  )hlo";
+  auto hlo_module = xla::ParseAndReturnUnverifiedModule(hlo_text).value();
+  ASSERT_OK(InitializeHloCostAnalysis(*hlo_module,
+                                      *cost_analysis->GetXlaCostAnalysis()));
+  const xla::HloInstruction* root =
+      hlo_module->entry_computation()->root_instruction();
+  int64_t model_flops = cost_analysis->GetModelFlops(*root);
+  ASSERT_GT(model_flops, 0);
+  EXPECT_EQ(cost_analysis->GetDeviceFlops(*root), model_flops / 6)
       << " for " << root->ToString();
 }
 

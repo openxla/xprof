@@ -597,7 +597,9 @@ cc_library(
     hdrs = ["xprof_gpu_cost_analysis.h"],
     deps = [
         ":cost_utils",
+        ":hardware_type_utils",
         ":hlo_cost_analysis_wrapper",
+        "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "//plugin/xprof/protobuf:op_metrics_proto_cc",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
@@ -628,6 +630,7 @@ cc_test(
     srcs = ["xprof_gpu_cost_analysis_test.cc"],
     deps = [
         ":xprof_gpu_cost_analysis",
+        "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
@@ -639,6 +642,7 @@ cc_test(
         "@xla//xla/service:hlo_cost_analysis",
         "@xla//xla/tests:xla_internal_test_main",
         "@xla//xla/tsl/platform:statusor",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
     ],
 )
 
@@ -769,6 +773,7 @@ cc_library(
     hdrs = ["xprof_gpu_cost_analysis_types.h"],
     deps = [
         ":hlo_cost_analysis_wrapper",
+        "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "@com_google_absl//absl/strings:string_view",
         "@xla//xla/service:hlo_cost_analysis",
     ],
@@ -823,10 +828,12 @@ cc_test(
         ":hlo_module_map",
         ":xprof_gpu_cost_analysis_registration",
         ":xprof_gpu_cost_analysis_types",
+        "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "@com_google_googletest//:gtest_main",
         "@xla//xla/hlo/ir:hlo",
         "@xla//xla/hlo/parser:hlo_parser",
         "@xla//xla/hlo/testlib:hlo_hardware_independent_test_base",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
     ],
 )
 

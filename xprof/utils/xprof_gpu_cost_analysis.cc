@@ -18,6 +18,7 @@ limitations under the License.
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -30,8 +31,10 @@ limitations under the License.
 #include "xla/service/gpu/model/gpu_hlo_cost_analysis.h"
 #include "xla/service/hlo_cost_analysis.h"
 #include "xla/tsl/platform/errors.h"
+#include "plugin/xprof/protobuf/hardware_types.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "xprof/utils/cost_utils.h"
+#include "xprof/utils/hardware_type_utils.h"
 #include "xprof/utils/hlo_cost_analysis_wrapper.h"
 
 namespace tensorflow {
@@ -73,9 +76,11 @@ class XprofGpuCostAnalysisWrapper : public HloCostAnalysisWrapper {
 }  // namespace
 
 std::unique_ptr<HloCostAnalysisWrapper> CreateXprofGpuCostAnalysis(
-    xla::HloCostAnalysis::Options options) {
+    xla::HloCostAnalysis::Options options,
+    std::optional<DeviceCapabilities> device_capabilities) {
   return std::make_unique<XprofGpuCostAnalysisWrapper>(
-      std::make_unique<XProfGpuCostAnalysis>(options));
+      std::make_unique<XProfGpuCostAnalysis>(options,
+                                             std::move(device_capabilities)));
 }
 
 absl::Status XProfGpuCostAnalysis::HandleCustomCall(
@@ -92,17 +97,8 @@ absl::Status XProfGpuCostAnalysis::HandleCustomCall(
   // on the datatype of A and B, which are supposed of same bitwidth.
   int dot_operands_bitwidth =
       xla::primitive_util::BitWidth(hlo->operand(0)->shape().element_type());
-  uint32_t flop_rate_adjustment = 1;
-  switch (dot_operands_bitwidth) {
-    case 8:
-      flop_rate_adjustment = 2;
-      break;
-    case 4:
-      flop_rate_adjustment = 4;
-      break;
-    default:
-      break;
-  }
+  double flop_rate_adjustment =
+      GetFlopRateAdjustmentToBf16(dot_operands_bitwidth, device_capabilities_);
   float model_flops = current_properties_[kFlopsKey];
   current_properties_[kDeviceFlopsAdjustment] =
       model_flops - model_flops / flop_rate_adjustment;
@@ -111,7 +107,7 @@ absl::Status XProfGpuCostAnalysis::HandleCustomCall(
 
 absl::Status XProfGpuCostAnalysis::DefaultPostprocess(
     const xla::HloInstruction* hlo) {
-  uint32_t flop_rate_adjustment = 1;
+  double flop_rate_adjustment = 1.0;
   float model_flops = current_properties_[kFlopsKey];
 
   // Calculate adjustment of device flops based on input bit widths.
@@ -121,20 +117,8 @@ absl::Status XProfGpuCostAnalysis::DefaultPostprocess(
     int max_input_bitwidth =
         *std::max_element(input_bitwidths.begin(), input_bitwidths.end());
     if (model_flops) {
-      // for int8/fp8, 2x flops assumed comparing with fp16 flops(most of
-      // recent GPU models); for int4, 4x of model flops assumed comparing
-      // with fp16 flops. (like Nvidia T4, 3090). It will be more precise
-      // after adjustment based on specific GPUs mentioned above.
-      switch (max_input_bitwidth) {
-        case 8:
-          flop_rate_adjustment = 2;
-          break;
-        case 4:
-          flop_rate_adjustment = 4;
-          break;
-        default:
-          break;
-      }
+      flop_rate_adjustment =
+          GetFlopRateAdjustmentToBf16(max_input_bitwidth, device_capabilities_);
     }
   }
   current_properties_[kDeviceFlopsAdjustment] =
@@ -162,7 +146,7 @@ absl::Status XProfGpuCostAnalysis::Postprocess(const xla::HloInstruction* hlo) {
 
 std::unique_ptr<xla::HloCostAnalysis>
 XProfGpuCostAnalysis::CreateNestedCostAnalysis() {
-  return std::make_unique<XProfGpuCostAnalysis>(options_);
+  return std::make_unique<XProfGpuCostAnalysis>(options_, device_capabilities_);
 }
 
 int64_t XProfGpuCostAnalysis::GetDeviceFlopsAdjustment(

@@ -16,11 +16,13 @@ limitations under the License.
 #ifndef THIRD_PARTY_XPROF_UTILS_XPROF_GPU_COST_ANALYSIS_TYPES_H_
 #define THIRD_PARTY_XPROF_UTILS_XPROF_GPU_COST_ANALYSIS_TYPES_H_
 
+#include <optional>
+#include <utility>
+
 #include "absl/strings/string_view.h"
 #include "xla/service/hlo_cost_analysis.h"
+#include "plugin/xprof/protobuf/hardware_types.pb.h"
 #include "xprof/utils/hlo_cost_analysis_wrapper.h"
-
-
 
 namespace tensorflow {
 namespace profiler {
@@ -28,9 +30,16 @@ namespace profiler {
 struct XprofGpuCostAnalysisConfig
     : public ::tensorflow::profiler::CostAnalysisConfig {
   xla::HloCostAnalysis::Options options;
+  std::optional<DeviceCapabilities> device_capabilities;
   XprofGpuCostAnalysisConfig() = default;
-  XprofGpuCostAnalysisConfig(xla::HloCostAnalysis::Options options)
-      : options(options) {}
+  explicit XprofGpuCostAnalysisConfig(
+      xla::HloCostAnalysis::Options options,
+      std::optional<DeviceCapabilities> device_capabilities = std::nullopt)
+      : options(std::move(options)),
+        device_capabilities(std::move(device_capabilities)) {}
+  explicit XprofGpuCostAnalysisConfig(
+      std::optional<DeviceCapabilities> device_capabilities)
+      : device_capabilities(std::move(device_capabilities)) {}
   XprofGpuCostAnalysisConfig(const XprofGpuCostAnalysisConfig&) = delete;
   XprofGpuCostAnalysisConfig& operator=(const XprofGpuCostAnalysisConfig&) =
       delete;

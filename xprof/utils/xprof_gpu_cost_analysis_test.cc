@@ -27,10 +27,31 @@ limitations under the License.
 #include "xla/shape.h"
 #include "xla/shape_util.h"
 #include "xla/tsl/platform/statusor.h"
+#include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/xla_data.pb.h"
+#include "plugin/xprof/protobuf/hardware_types.pb.h"
 
 namespace tensorflow {
 namespace profiler {
+
+namespace {
+
+DeviceCapabilities MakeNvidiaDeviceCaps(int major, int minor) {
+  DeviceCapabilities cap;
+  cap.set_device_vendor(tsl::profiler::kDeviceVendorNvidia);
+  cap.mutable_compute_capability()->set_major(major);
+  cap.mutable_compute_capability()->set_minor(minor);
+  return cap;
+}
+
+DeviceCapabilities MakeAmdDeviceCaps(absl::string_view device_name) {
+  DeviceCapabilities cap;
+  cap.set_device_vendor(tsl::profiler::kDeviceVendorAMD);
+  cap.set_device_name(device_name);
+  return cap;
+}
+
+}  // namespace
 
 class XprofGpuHloCostAnalysisTest : public xla::HloHardwareIndependentTestBase {
   xla::HloCostAnalysis::ShapeSizeFunction ShapeSizeBytesFunction() const {
@@ -195,6 +216,142 @@ ENTRY e {
   TF_ASSERT_OK_AND_ASSIGN(auto module,
                           ParseAndReturnVerifiedModule(hlo_string));
   ASSERT_IS_OK(module->entry_computation()->Accept(&analysis_));
+}
+
+TEST_F(XprofGpuHloCostAnalysisTest, Fp8GemmUsesDeviceCapabilities) {
+  absl::string_view hlo_string = R"(
+HloModule r
+
+ENTRY e {
+  arg0 = f8e4m3fn[2048,5120]{1,0} parameter(0)
+  arg1 = f8e4m3fn[5120,5120]{0,1} parameter(1)
+  arg2 = f32[] parameter(2)
+  arg3 = f32[] parameter(3)
+  gemm = (bf16[2048,5120]{1,0}, s8[33554432]{0})
+    custom-call(arg0, arg1, arg2, arg3),
+    custom_call_target="__cublas$lt$matmul$f8",
+    backend_config="{
+        \"gemm_backend_config\": {
+            \"alpha_real\":1,
+            \"beta\":0,
+            \"dot_dimension_numbers\":{
+                \"lhs_contracting_dimensions\":[\"1\"],
+                \"rhs_contracting_dimensions\":[\"0\"],
+                \"lhs_batch_dimensions\":[],
+                \"rhs_batch_dimensions\":[]
+            },
+            \"alpha_imag\":0,
+            \"precision_config\":{
+                \"operand_precision\":[\"DEFAULT\",\"DEFAULT\"]
+            },
+            \"epilogue\":\"DEFAULT\",
+            \"lhs_stride\":\"10485760\",
+            \"rhs_stride\":\"26214400\",
+            \"grad_x\":false,
+            \"grad_y\":false,
+            \"damax_output\":false
+        }
+    }"
+  ROOT get-tuple-element = bf16[2048,5120]{1,0}
+    get-tuple-element((bf16[2048,5120]{1,0}, s8[33554432]{0}) gemm), index=0
+}
+)";
+  TF_ASSERT_OK_AND_ASSIGN(auto module,
+                          ParseAndReturnVerifiedModule(hlo_string));
+  const xla::HloInstruction* fp8_gemm =
+      module->entry_computation()->GetInstructionWithName("gemm");
+  int64_t gold_flops = 2048LL * 5120 * 5120 * 2;
+
+  // Rubin (CC 10.7) has 4x FP8 throughput vs BF16.
+  XProfGpuCostAnalysis rubin_analysis(options_, MakeNvidiaDeviceCaps(10, 7));
+  ASSERT_IS_OK(module->entry_computation()->Accept(&rubin_analysis));
+  EXPECT_EQ(rubin_analysis.GetDeviceFlopsAdjustment(*fp8_gemm),
+            gold_flops - gold_flops / 4);
+
+  // Without device capabilities, falls back to bitwise 16-bit normalization
+  // (2x for 8-bit).
+  XProfGpuCostAnalysis default_analysis(options_);
+  ASSERT_IS_OK(module->entry_computation()->Accept(&default_analysis));
+  EXPECT_EQ(default_analysis.GetDeviceFlopsAdjustment(*fp8_gemm),
+            gold_flops / 2);
+}
+
+TEST_F(XprofGpuHloCostAnalysisTest, FourBitOpUsesDeviceCapabilities) {
+  absl::string_view hlo_string = R"(
+HloModule r
+
+ENTRY e {
+  x = s4[64,48]{1,0} parameter(0)
+  y = s4[48,64]{1,0} parameter(1)
+  ROOT dot = s32[64,64]{1,0} dot(x, y),
+      lhs_contracting_dims={1}, rhs_contracting_dims={0}
+}
+)";
+  TF_ASSERT_OK_AND_ASSIGN(auto module,
+                          ParseAndReturnVerifiedModule(hlo_string));
+  const xla::HloInstruction* dot =
+      module->entry_computation()->root_instruction();
+  int64_t expected_flops = 64LL * 64 * 48 * 2;
+
+  // GB300 (CC 10.3) has 6x FP4 throughput vs BF16.
+  XProfGpuCostAnalysis gb300_analysis(options_, MakeNvidiaDeviceCaps(10, 3));
+  ASSERT_IS_OK(module->entry_computation()->Accept(&gb300_analysis));
+  EXPECT_EQ(gb300_analysis.flop_count(*dot), expected_flops);
+  EXPECT_EQ(gb300_analysis.GetDeviceFlopsAdjustment(*dot),
+            expected_flops - expected_flops / 6);
+
+  // B200 (CC 10.0) has 4x FP4 throughput vs BF16.
+  XProfGpuCostAnalysis b200_analysis(options_, MakeNvidiaDeviceCaps(10, 0));
+  ASSERT_IS_OK(module->entry_computation()->Accept(&b200_analysis));
+  EXPECT_EQ(b200_analysis.GetDeviceFlopsAdjustment(*dot),
+            expected_flops - expected_flops / 4);
+
+  // H100 (CC 9.0) has no native 4-bit support, so no adjustment.
+  XProfGpuCostAnalysis h100_analysis(options_, MakeNvidiaDeviceCaps(9, 0));
+  ASSERT_IS_OK(module->entry_computation()->Accept(&h100_analysis));
+  EXPECT_EQ(h100_analysis.GetDeviceFlopsAdjustment(*dot), 0);
+
+  // AMD MI355X (gfx950) has 4x MXFP4 throughput vs BF16.
+  XProfGpuCostAnalysis mi355x_analysis(options_, MakeAmdDeviceCaps("gfx950"));
+  ASSERT_IS_OK(module->entry_computation()->Accept(&mi355x_analysis));
+  EXPECT_EQ(mi355x_analysis.GetDeviceFlopsAdjustment(*dot),
+            expected_flops - expected_flops / 4);
+
+  // Without device capabilities, falls back to bitwise 16-bit normalization
+  // (4x for 4-bit).
+  XProfGpuCostAnalysis default_analysis(options_);
+  ASSERT_IS_OK(module->entry_computation()->Accept(&default_analysis));
+  EXPECT_EQ(default_analysis.GetDeviceFlopsAdjustment(*dot),
+            expected_flops - expected_flops / 4);
+}
+
+TEST_F(XprofGpuHloCostAnalysisTest, NestedCostAnalysisUsesDeviceCapabilities) {
+  absl::string_view hlo_string = R"(
+HloModule r
+
+sub {
+  x = s4[64,48]{1,0} parameter(0)
+  y = s4[48,64]{1,0} parameter(1)
+  ROOT dot = s32[64,64]{1,0} dot(x, y),
+      lhs_contracting_dims={1}, rhs_contracting_dims={0}
+}
+
+ENTRY e {
+  p0 = s4[64,48]{1,0} parameter(0)
+  p1 = s4[48,64]{1,0} parameter(1)
+  ROOT call = s32[64,64]{1,0} call(p0, p1), to_apply=sub
+}
+)";
+  TF_ASSERT_OK_AND_ASSIGN(auto module,
+                          ParseAndReturnVerifiedModule(hlo_string));
+  const xla::HloInstruction* nested_dot =
+      module->GetComputationWithName("sub")->root_instruction();
+  int64_t expected_flops = 64LL * 64 * 48 * 2;
+
+  XProfGpuCostAnalysis gb300_analysis(options_, MakeNvidiaDeviceCaps(10, 3));
+  ASSERT_IS_OK(module->entry_computation()->Accept(&gb300_analysis));
+  EXPECT_EQ(gb300_analysis.GetDeviceFlopsAdjustment(*nested_dot),
+            expected_flops - expected_flops / 6);
 }
 
 }  // namespace profiler

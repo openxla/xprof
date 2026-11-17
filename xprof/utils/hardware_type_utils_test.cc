@@ -15,6 +15,8 @@ limitations under the License.
 
 #include "xprof/utils/hardware_type_utils.h"
 
+#include <optional>
+
 #include <gtest/gtest.h>
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
@@ -369,6 +371,146 @@ TEST(HardwareTypeUtilsTest, GetHardwareTypeUnknownWhenNothingIsSet) {
   RunEnvironment run_environment;
 
   EXPECT_EQ(GetHardwareType(run_environment), HardwareType::UNKNOWN_HARDWARE);
+}
+
+TEST(HardwareTypeUtilsTest, GetFlopRateAdjustmentToBf16Nvidia) {
+  auto make_nvidia = [](int major, int minor) {
+    DeviceCapabilities cap;
+    cap.set_device_vendor("Nvidia");
+    cap.mutable_compute_capability()->set_major(major);
+    cap.mutable_compute_capability()->set_minor(minor);
+    return cap;
+  };
+
+  // Rubin (CC 10.7): FP4 = 65536, FP8 = 32768, BF16 = 8192.
+  DeviceCapabilities rubin = make_nvidia(10, 7);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(4, rubin), 8.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(8, rubin), 4.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(16, rubin), 1.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(32, rubin), 1.0);
+
+  // Blackwell Ultra GB300 (CC 10.3): FP4 = 49152, FP8 = 16384, BF16 = 8192.
+  DeviceCapabilities gb300 = make_nvidia(10, 3);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(4, gb300), 6.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(8, gb300), 2.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(16, gb300), 1.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(32, gb300), 1.0);
+
+  // Blackwell B200 (CC 10.0): FP4 = 32768, FP8 = 16384, BF16 = 8192.
+  DeviceCapabilities b200 = make_nvidia(10, 0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(4, b200), 4.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(8, b200), 2.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(16, b200), 1.0);
+
+  // Hopper H100 (CC 9.0): no native 4-bit, FP8 = 8192, BF16 = 4096.
+  DeviceCapabilities h100 = make_nvidia(9, 0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(4, h100), 1.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(8, h100), 2.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(16, h100), 1.0);
+
+  // Ada (CC 8.9): INT4 = 4096, FP8/INT8 = 2048, BF16 = 1024.
+  DeviceCapabilities ada = make_nvidia(8, 9);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(4, ada), 4.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(8, ada), 2.0);
+
+  // Ampere GA102 (CC 8.6): baseline matches FP16 (1024).
+  DeviceCapabilities ga102 = make_nvidia(8, 6);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(4, ga102), 4.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(8, ga102), 2.0);
+
+  // Ampere A100 (CC 8.0): no native 4-bit, INT8 = 4096, BF16 = 2048.
+  DeviceCapabilities a100 = make_nvidia(8, 0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(4, a100), 1.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(8, a100), 2.0);
+
+  // Turing T4 (CC 7.5): INT4 = 4096, INT8 = 2048, FP16 = 1024.
+  DeviceCapabilities t4 = make_nvidia(7, 5);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(4, t4), 4.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(8, t4), 2.0);
+
+  // Volta V100 (CC 7.0): CUDA INT8 = 512, Tensor FP16 = 1024.
+  DeviceCapabilities v100 = make_nvidia(7, 0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(4, v100), 1.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(8, v100), 0.5);
+
+  // Unset compute capability falls back to bitwise 16-bit normalization
+  // without falling back to CC 2.0.
+  DeviceCapabilities missing_cc;
+  missing_cc.set_device_vendor("Nvidia");
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(4, missing_cc), 4.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(8, missing_cc), 2.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(16, missing_cc), 1.0);
+
+  // Unknown compute capability (e.g., SM 12.0) falls back to bitwise 16-bit
+  // normalization instead of inheriting Rubin CC 10.7 ratios.
+  DeviceCapabilities unknown_cc = make_nvidia(12, 0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(4, unknown_cc), 4.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(8, unknown_cc), 2.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(16, unknown_cc), 1.0);
+}
+
+TEST(HardwareTypeUtilsTest, GetFlopRateAdjustmentToBf16Amd) {
+  auto make_amd = [](const char* device_name) {
+    DeviceCapabilities cap;
+    cap.set_device_vendor("AMD");
+    cap.set_device_name(device_name);
+    return cap;
+  };
+
+  // MI355X (gfx950): MXFP4/MXFP6 = 16384, FP8/INT8 = 8192, BF16 = 4096.
+  DeviceCapabilities mi355x = make_amd("gfx950");
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(4, mi355x), 4.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(6, mi355x), 4.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(8, mi355x), 2.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(16, mi355x), 1.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(32, mi355x), 1.0);
+
+  // MI300X (gfx942): no native 4-bit, FP8/INT8 = 4096, BF16 = 2048.
+  DeviceCapabilities mi300x = make_amd("gfx942");
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(4, mi300x), 1.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(8, mi300x), 2.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(16, mi300x), 1.0);
+
+  // MI300X resolved via compute capability (9, 4) when device_name is absent.
+  DeviceCapabilities mi300x_cc;
+  mi300x_cc.set_device_vendor("AMD");
+  mi300x_cc.mutable_compute_capability()->set_major(9);
+  mi300x_cc.mutable_compute_capability()->set_minor(4);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(8, mi300x_cc), 2.0);
+
+  // MI250X (gfx90a) and MI100 (gfx908): INT8 = 1024, baseline = 1024.
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(8, make_amd("gfx90a")), 1.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(8, make_amd("gfx908")), 1.0);
+
+  // Ambiguous (9, 0) compute capability without device_name falls back to
+  // bitwise 16-bit normalization.
+  DeviceCapabilities ambiguous_amd;
+  ambiguous_amd.set_device_vendor("AMD");
+  ambiguous_amd.mutable_compute_capability()->set_major(9);
+  ambiguous_amd.mutable_compute_capability()->set_minor(0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(4, ambiguous_amd), 4.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(8, ambiguous_amd), 2.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(16, ambiguous_amd), 1.0);
+}
+
+TEST(HardwareTypeUtilsTest, GetFlopRateAdjustmentToBf16UnknownVendor) {
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(4, std::nullopt), 4.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(8, std::nullopt), 2.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(16, std::nullopt), 1.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(32, std::nullopt), 1.0);
+
+  DeviceCapabilities empty;
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(4, empty), 4.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(8, empty), 2.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(16, empty), 1.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(32, empty), 1.0);
+
+  DeviceCapabilities other;
+  other.set_device_vendor("Other");
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(4, other), 4.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(8, other), 2.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(16, other), 1.0);
+  EXPECT_DOUBLE_EQ(GetFlopRateAdjustmentToBf16(32, other), 1.0);
 }
 
 }  // namespace

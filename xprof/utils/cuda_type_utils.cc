@@ -17,6 +17,7 @@ limitations under the License.
 
 #include <algorithm>
 #include <iterator>
+#include <optional>
 #include <string>
 
 #include "absl/container/btree_map.h"
@@ -349,10 +350,10 @@ const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_2_0 = {
     .has_tensor_core_sparsity_support = false,
 };
 
-GpuFlopCapabilities GetNvidiaFlopCapsPerSMPerCycle(int major_comp_cap,
-                                                   int minor_comp_cap) {
+const absl::btree_map<int, const GpuFlopCapabilities*>&
+GetNvidiaFlopCapsTable() {
   static const auto& kPerSMFlopCapsTable =
-      *new absl::btree_map<int, GpuFlopCapabilities const*>{
+      *new absl::btree_map<int, const GpuFlopCapabilities*>{
           // TODO: Add newer GPUS when available.
           {10070, &kComputeCap_PerSM_PerCycle_10_7},
           {10030, &kComputeCap_PerSM_PerCycle_10_3},
@@ -369,6 +370,13 @@ GpuFlopCapabilities GetNvidiaFlopCapsPerSMPerCycle(int major_comp_cap,
           {3000, &kComputeCap_PerSM_PerCycle_3_0},
           {2000, &kComputeCap_PerSM_PerCycle_2_0},
       };
+  return kPerSMFlopCapsTable;
+}
+
+GpuFlopCapabilities GetNvidiaFlopCapsPerSMPerCycle(int major_comp_cap,
+                                                   int minor_comp_cap) {
+  const absl::btree_map<int, const GpuFlopCapabilities*>& kPerSMFlopCapsTable =
+      GetNvidiaFlopCapsTable();
 
   // TODO(b/409612464): - Need more discussion on how to handle the case when
   // the compute cap is not found in above table. Currently we back off to the
@@ -381,11 +389,11 @@ GpuFlopCapabilities GetNvidiaFlopCapsPerSMPerCycle(int major_comp_cap,
   auto it = kPerSMFlopCapsTable.lower_bound(normalized_compute_cap);
   if (it == kPerSMFlopCapsTable.end() || it->first > normalized_compute_cap) {
     if (it != kPerSMFlopCapsTable.begin()) it = std::prev(it);
-    LOG(WARNING) << "GPU compute capability " << major_comp_cap << "."
-                 << minor_comp_cap
-                 << " is not found. Use the highest compute cap known "
-                 << (it->first / 1000) << "." << ((it->first % 1000) / 10)
-                 << " instead.";
+    LOG_FIRST_N(WARNING, 1)
+        << "GPU compute capability " << major_comp_cap << "." << minor_comp_cap
+        << " is not found. Use the highest compute cap known "
+        << (it->first / 1000) << "." << ((it->first % 1000) / 10)
+        << " instead.";
   }
   return GpuFlopCapabilities(*(it->second));
 }
@@ -402,6 +410,50 @@ double GetFlopMaxThroughputPerCore(const DeviceCapabilities& device_cap) {
        sm_flops.tensor_core.fp32_tflops, sm_flops.tensor_core.fp16_tflops});
   VLOG(3) << "GetFlopMaxThroughputPerCore get result: " << result << " GFLOPs";
   return result;
+}
+
+std::optional<double> GetFlopRateAdjustmentToBf16(
+    int bitwidth, const DeviceCapabilities& device_cap) {
+  const int major_comp_cap = device_cap.compute_capability().major();
+  const int minor_comp_cap = device_cap.compute_capability().minor();
+  if (major_comp_cap <= 0) {
+    return std::nullopt;
+  }
+  const absl::btree_map<int, const GpuFlopCapabilities*>& table =
+      GetNvidiaFlopCapsTable();
+  const int normalized_compute_cap =
+      major_comp_cap * 1000 + minor_comp_cap * 10;
+  auto it = table.find(normalized_compute_cap);
+  if (it == table.end()) {
+    LOG_FIRST_N(WARNING, 1)
+        << "GPU compute capability " << major_comp_cap << "." << minor_comp_cap
+        << " is not found; falling back to bitwise FLOP rate adjustment.";
+    return std::nullopt;
+  }
+  const GpuFlopCapabilities& sm_flops = *(it->second);
+  double bf16_flops = std::max(
+      {sm_flops.cuda_core.fp32_tflops, sm_flops.cuda_core.fp16_tflops,
+       sm_flops.cuda_core.bf16_tflops, sm_flops.tensor_core.fp32_tflops,
+       sm_flops.tensor_core.fp16_tflops, sm_flops.tensor_core.bf16_tflops});
+  if (bf16_flops <= 0.0) {
+    return std::nullopt;
+  }
+  double target_flops = 0.0;
+  switch (bitwidth) {
+    case 8:
+      target_flops = std::max(
+          {sm_flops.tensor_core.fp8_tflops, sm_flops.tensor_core.int8_tops,
+           sm_flops.cuda_core.fp8_tflops, sm_flops.cuda_core.int8_tops});
+      break;
+    case 4:
+      target_flops = std::max(
+          {sm_flops.tensor_core.fp4_tflops, sm_flops.tensor_core.int4_tops,
+           sm_flops.cuda_core.fp4_tflops, sm_flops.cuda_core.int4_tops});
+      break;
+    default:
+      return 1.0;
+  }
+  return target_flops > 0.0 ? target_flops / bf16_flops : 1.0;
 }
 
 double GetSharedMemoryBandwidthPerCore(const DeviceCapabilities& device_cap) {

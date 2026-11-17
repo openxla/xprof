@@ -243,6 +243,47 @@ double GetFlopMaxThroughputPerCore(const DeviceCapabilities& device_cap) {
        cu_flops->matrix_unit.fp32_tflops, cu_flops->matrix_unit.fp16_tflops});
 }
 
+std::optional<double> GetFlopRateAdjustmentToBf16(
+    int bitwidth, const DeviceCapabilities& device_cap) {
+  absl::string_view gfx_version = ResolveAmdGfxVersion(device_cap);
+  std::optional<GpuFlopCapabilities> cu_flops =
+      GetAmdFlopCapsPerCuPerCycle(gfx_version);
+  if (!cu_flops.has_value()) {
+    if (!gfx_version.empty()) {
+      LOG_FIRST_N(WARNING, 1)
+          << "No FLOP rates known for AMD architecture '" << gfx_version
+          << "'; falling back to bitwise FLOP rate adjustment.";
+    }
+    return std::nullopt;
+  }
+  double bf16_flops = std::max(
+      {cu_flops->vector_unit.fp32_tflops, cu_flops->vector_unit.fp16_tflops,
+       cu_flops->vector_unit.bf16_tflops, cu_flops->matrix_unit.fp32_tflops,
+       cu_flops->matrix_unit.fp16_tflops, cu_flops->matrix_unit.bf16_tflops});
+  if (bf16_flops <= 0.0) {
+    return std::nullopt;
+  }
+  double target_flops = 0.0;
+  switch (bitwidth) {
+    case 8:
+      target_flops = std::max(
+          {cu_flops->matrix_unit.fp8_tflops, cu_flops->matrix_unit.int8_tops,
+           cu_flops->vector_unit.fp8_tflops, cu_flops->vector_unit.int8_tops});
+      break;
+    case 6:
+      target_flops = std::max(cu_flops->matrix_unit.mxfp6_tflops,
+                              cu_flops->vector_unit.mxfp6_tflops);
+      break;
+    case 4:
+      target_flops = std::max(cu_flops->matrix_unit.mxfp4_tflops,
+                              cu_flops->vector_unit.mxfp4_tflops);
+      break;
+    default:
+      return 1.0;
+  }
+  return target_flops > 0.0 ? target_flops / bf16_flops : 1.0;
+}
+
 double GetSharedMemoryBandwidthPerCore(const DeviceCapabilities& device_cap) {
   double bytes_per_cycle =
       GetAmdLdsBytesPerCuPerCycle(ResolveAmdGfxVersion(device_cap));

@@ -16,6 +16,7 @@ limitations under the License.
 #ifndef XPROF_UTILS_HARDWARE_TYPE_UTILS_H_
 #define XPROF_UTILS_HARDWARE_TYPE_UTILS_H_
 
+#include <optional>
 #include <string>
 
 #include "absl/strings/string_view.h"
@@ -30,6 +31,16 @@ namespace profiler {
 // Get peak single precision throughput of the GPU in GFLOPS per core (SM, CU)
 // TODO: Need design on how to use the sparsity capability of FLOPs.
 double GetFlopMaxThroughputPerCore(const DeviceCapabilities& device_cap);
+
+// Returns the ratio of peak FLOP throughput at `bitwidth` to the 16-bit
+// (BF16/FP16) baseline throughput for the given device, used to normalize model
+// FLOPs to equivalent 16-bit device FLOPs. Falls back to bitwise adjustment
+// (normalizing 8-bit by 2x and 4-bit by 4x relative to 16-bit) when device
+// capabilities are absent or the device vendor or architecture is unknown, and
+// returns 1.0 when the bitwidth has no adjustment.
+double GetFlopRateAdjustmentToBf16(
+    int bitwidth,
+    const std::optional<DeviceCapabilities>& device_cap = std::nullopt);
 
 // Return shared memory bandwidth (or LDS) in Bytes Per Second on one single
 // core given the GPU core freq in device_cap.

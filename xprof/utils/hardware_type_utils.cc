@@ -15,16 +15,17 @@ limitations under the License.
 
 #include "xprof/utils/hardware_type_utils.h"
 
+#include <optional>
 #include <string>
 
-#include "xprof/utils/cuda_type_utils.h"
-#include "xprof/utils/rocm_type_utils.h"
 #include "absl/log/log.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
+#include "xprof/utils/cuda_type_utils.h"
+#include "xprof/utils/rocm_type_utils.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -38,6 +39,34 @@ double GetFlopMaxThroughputPerCore(const DeviceCapabilities& device_cap) {
   }
   LOG(WARNING) << "Unsupported device vendor " << device_cap.device_vendor();
   return 0.0;
+}
+
+double GetFlopRateAdjustmentToBf16(
+    int bitwidth, const std::optional<DeviceCapabilities>& device_cap) {
+  std::optional<double> adjustment;
+  if (device_cap.has_value()) {
+    if (device_cap->device_vendor() == tsl::profiler::kDeviceVendorNvidia) {
+      adjustment = cuda::GetFlopRateAdjustmentToBf16(bitwidth, *device_cap);
+    } else if (device_cap->device_vendor() == tsl::profiler::kDeviceVendorAMD) {
+      adjustment = rocm::GetFlopRateAdjustmentToBf16(bitwidth, *device_cap);
+    } else if (!device_cap->device_vendor().empty()) {
+      LOG_FIRST_N(WARNING, 1)
+          << "Unsupported device vendor " << device_cap->device_vendor();
+    }
+  }
+  if (adjustment.has_value()) {
+    return *adjustment;
+  }
+  // Fall back to bitwise normalization relative to 16-bit when device
+  // capabilities are unavailable or unrecognized.
+  switch (bitwidth) {
+    case 8:
+      return 2.0;
+    case 4:
+      return 4.0;
+    default:
+      return 1.0;
+  }
 }
 
 double GetSharedMemoryBandwidthPerCore(const DeviceCapabilities& device_cap) {

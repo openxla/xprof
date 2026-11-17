@@ -31,9 +31,15 @@ const auto kXprofGpuCostAnalysisRegistration = RegisterOrDie(
     &GetHloCostAnalysisWrapperRegistry(), kXprofGpuCostAnalysisName,
     [](const CostAnalysisConfig* cost_analysis_config)
         -> std::unique_ptr<tensorflow::profiler::HloCostAnalysisWrapper> {
+      if (const auto* gpu_config =
+              dynamic_cast<const XprofGpuCostAnalysisConfig*>(
+                  cost_analysis_config);
+          gpu_config != nullptr) {
+        return CreateXprofGpuCostAnalysis(gpu_config->options,
+                                          gpu_config->device_capabilities);
+      }
       return CreateXprofGpuCostAnalysis();
-    }
-);
+    });
 
 }  // namespace
 

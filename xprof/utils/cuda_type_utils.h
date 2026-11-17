@@ -16,6 +16,7 @@ limitations under the License.
 #ifndef XPROF_UTILS_CUDA_TYPE_UTILS_H_
 #define XPROF_UTILS_CUDA_TYPE_UTILS_H_
 
+#include <optional>
 #include <string>
 
 #include "absl/strings/string_view.h"
@@ -27,6 +28,13 @@ namespace cuda {
 
 // Peak throughput in GFLOPs per second per SM, at the reported clock.
 double GetFlopMaxThroughputPerCore(const DeviceCapabilities& device_cap);
+
+// Returns the ratio of peak FLOP throughput at `bitwidth` to the 16-bit
+// (BF16/FP16) baseline throughput for the given NVIDIA GPU, or std::nullopt
+// when the compute capability is unknown. Returns 1.0 when the architecture is
+// known but the bitwidth has no adjustment.
+std::optional<double> GetFlopRateAdjustmentToBf16(
+    int bitwidth, const DeviceCapabilities& device_cap);
 
 // Shared memory bandwidth in Bytes per second per SM.
 double GetSharedMemoryBandwidthPerCore(const DeviceCapabilities& device_cap);

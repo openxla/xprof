@@ -706,6 +706,114 @@ class CheckHostBoundnessToolTest(absltest.TestCase):
       self.assertEqual(metrics["idleness_percent"], 85.0)
       self.assertEqual(metrics["hbm_bandwidth_utilization_percent"], 12.0)
 
+  def _set_session(
+      self, raw_time_ps: float, device_type: str = "Nvidia GPU (Hopper)"
+  ) -> None:
+    """Makes the mock client return an overview and one HLO op.
+
+    The overview has 10 steps of 100 ms on 8 cores, so the total duration is
+    1000 ms.
+
+    Args:
+      raw_time_ps: The total HLO op time across all cores, in picoseconds.
+      device_type: The `device_type` value of the run environment.
+    """
+    overview = [
+        {"p": {"device_duty_cycle_percent": "N/A"}},
+        {"p": {"steptime_ms_average": "100.0"}, "rows": [{}] * 10},
+        {
+            "p": {
+                "device_core_count": "8",
+                "host_count": "1",
+                "device_type": device_type,
+            }
+        },
+    ]
+    hlo_data = {
+        "byCategory": {
+            "children": [{
+                "name": "fusion",
+                "metrics": {"occurrences": 1, "rawTime": raw_time_ps},
+            }]
+        }
+    }
+    self.mock_client.get_hosts.return_value = []
+    self.mock_client.fetch.side_effect = [
+        ("application/json", json.dumps(overview)),
+        ("application/json", json.dumps(hlo_data)),
+        ("application/json", b"{}"),
+    ]
+
+  def test_gpu_host_bound_uses_only_idle_time_condition(self):
+    # 4000 ms of op time / 8 cores = 500 ms busy, so 50% of 1000 ms is idle.
+    self._set_session(raw_time_ps=4.0e12)
+
+    with mock.patch.object(
+        get_utilization_viewer_tool, "get_utilization_viewer"
+    ) as mock_get_util:
+      result = json.loads(
+          check_host_boundness_tool.check_host_boundness("gpu-session")
+      )
+
+    mock_get_util.assert_not_called()
+    self.assertEqual(result["status"], "HOST_BOUND")
+    self.assertEqual(result["metrics"]["idle_time_ratio_percent"], 50.0)
+    for key in (
+        "tpu_duty_cycle_percent",
+        "mxu_idleness_percent",
+        "hbm_bandwidth_utilization_percent",
+        "ici_read_utilization_percent",
+        "ici_write_utilization_percent",
+    ):
+      self.assertIsNone(result["metrics"][key], key)
+    self.assertIn(
+        "mxu_idleness_percent", result["not_applicable_metrics"]["metrics"]
+    )
+    self.assertIn("GPU", result["not_applicable_metrics"]["reason"])
+
+  def test_gpu_not_host_bound_reasons_do_not_cite_tpu_counters(self):
+    # 7360 ms of op time / 8 cores = 920 ms busy, so 8% of 1000 ms is idle.
+    self._set_session(raw_time_ps=7.36e12)
+
+    with mock.patch.object(
+        get_utilization_viewer_tool, "get_utilization_viewer"
+    ) as mock_get_util:
+      result = json.loads(
+          check_host_boundness_tool.check_host_boundness("gpu-session")
+      )
+
+    mock_get_util.assert_not_called()
+    self.assertEqual(result["status"], "NOT_HOST_BOUND")
+    self.assertEqual(result["metrics"]["idle_time_ratio_percent"], 8.0)
+    self.assertIsNone(result["metrics"]["mxu_idleness_percent"])
+    self.assertLen(result["reasons"], 1)
+    self.assertIn("Idle Time Ratio (8.0%)", result["reasons"][0])
+    for reason in result["reasons"]:
+      self.assertNotIn("MXU", reason)
+      self.assertNotIn("ICI", reason)
+
+  def test_tpu_output_has_no_not_applicable_metrics(self):
+    self._set_session(raw_time_ps=4.0e12, device_type="TPU v5p")
+
+    with mock.patch.object(
+        get_utilization_viewer_tool,
+        "get_utilization_viewer",
+        return_value=json.dumps({
+            "idleness_percent": 90.0,
+            "hbm_bandwidth_utilization_percent": 10.0,
+            "ici_read_utilization_percent": 5.0,
+            "ici_write_utilization_percent": 5.0,
+        }),
+    ) as mock_get_util:
+      result = json.loads(
+          check_host_boundness_tool.check_host_boundness("tpu-session")
+      )
+
+    mock_get_util.assert_called_once()
+    self.assertEqual(result["status"], "HOST_BOUND")
+    self.assertEqual(result["metrics"]["mxu_idleness_percent"], 90.0)
+    self.assertNotIn("not_applicable_metrics", result)
+
 
 if __name__ == "__main__":
   absltest.main()

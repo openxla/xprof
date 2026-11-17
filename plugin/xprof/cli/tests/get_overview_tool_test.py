@@ -364,6 +364,37 @@ class GetOverviewToolTest(parameterized.TestCase):
     self.assertEqual(perf["mxu_utilization_percent"], mxu)
     self.assertNotIn("mxu_utilization_status", perf)
 
+  @parameterized.named_parameters(
+      dict(testcase_name="no_counters", mxu="0.0%", hbm="0.0%"),
+      dict(testcase_name="keys_missing", mxu=None, hbm=None),
+      dict(testcase_name="nonzero_value", mxu="41.0%", hbm="35.2%"),
+  )
+  def test_get_overview_mxu_not_applicable_on_gpu(self, mxu, hbm):
+    self._set_overview_properties(
+        mxu=mxu, hbm=hbm, device_type="Nvidia GPU (Hopper)"
+    )
+
+    result_json = json.loads(get_overview_tool.get_overview("session_gpu"))
+
+    perf = result_json["performance_summary"]
+    self.assertIsNone(perf["mxu_utilization_percent"])
+    status = perf["mxu_utilization_status"]
+    self.assertEqual(status["status"], "not_applicable")
+    self.assertIn("GPU", status["reason"])
+    self.assertNotIn("tpu_perf_counters", status["how_to_get"])
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name="nvidia", device_type="Nvidia GPU (Hopper)", is_gpu=True
+      ),
+      dict(testcase_name="amd", device_type="AMD GPU (MI300)", is_gpu=True),
+      dict(testcase_name="tpu", device_type="TPU v5p", is_gpu=False),
+      dict(testcase_name="cpu", device_type="CPU", is_gpu=False),
+      dict(testcase_name="none", device_type=None, is_gpu=False),
+  )
+  def test_is_gpu_device_type(self, device_type, is_gpu):
+    self.assertEqual(get_overview_tool.is_gpu_device_type(device_type), is_gpu)
+
   def test_get_overview_compute_efficiency_with_nonzero_flop(self):
     overview_data = [{
         "p": {

@@ -1,6 +1,6 @@
 """Tool to fetch overview page data from XProf."""
 
-from collections.abc import Iterable, MutableMapping
+from collections.abc import Iterable, Mapping, MutableMapping
 import json
 import logging
 import math
@@ -8,6 +8,7 @@ import os
 import pathlib
 import re
 import statistics
+import types
 from typing import Any
 
 from xprof.cli.internal import decorators
@@ -85,6 +86,33 @@ _COMPUTE_EFFICIENCY_HINT = (
     "compute_efficiency_percent is a cost-model FLOP rate, not MXU"
     " utilization (counts VPU FLOPs, 0 FLOPs for Pallas and custom calls)."
 )
+# The MXU is a TPU unit, so its utilization does not apply on a GPU. Read-only,
+# so that no caller can change the shared status. Callers copy it with `dict()`
+# before they put it in the output.
+_MXU_NOT_APPLICABLE_ON_GPU_STATUS: Mapping[str, str] = types.MappingProxyType({
+    "status": "not_applicable",
+    "reason": (
+        "The MXU is a TPU unit. This profile is from a GPU, so the MXU"
+        " utilization does not apply. It is not 0%."
+    ),
+    "how_to_get": (
+        "Use get_kernel_stats for per-kernel GPU data."
+        f" {_COMPUTE_EFFICIENCY_HINT}"
+    ),
+})
+
+
+def is_gpu_device_type(device_type: Any) -> bool:
+  """Returns True if an overview `device_type` value names a GPU.
+
+  This uses the same check as the overview page converter, which selects the
+  GPU analysis table when the device type contains "GPU".
+
+  Args:
+    device_type: The `device_type` value from the overview page run environment,
+      for example "Nvidia GPU (Hopper)" or "TPU v5p".
+  """
+  return isinstance(device_type, str) and "GPU" in device_type
 
 
 def _is_gpu_or_cpu(device_type: str | None) -> bool:
@@ -98,9 +126,7 @@ def _is_gpu_or_cpu(device_type: str | None) -> bool:
   Args:
     device_type: The `device_type` value from the overview page.
   """
-  if not isinstance(device_type, str):
-    return False
-  return "GPU" in device_type or device_type == "CPU"
+  return is_gpu_device_type(device_type) or device_type == "CPU"
 
 
 def _mxu_unavailable_status(*, device_type: str | None) -> dict[str, str]:
@@ -149,7 +175,8 @@ def _mark_mxu_unavailable_if_no_counters(
 ) -> None:
   """Marks the MXU value as unavailable when no counters were captured.
 
-  If `_hardware_counters_absent` returns True for the MXU value in
+  If `is_gpu_device_type(device_type)` is True, or if
+  `_hardware_counters_absent` returns True for the MXU value in
   `performance_summary` and `hbm_counter_util`, this function changes
   `performance_summary` in place: it sets `mxu_utilization_percent` to None
   and adds `mxu_utilization_status` (a dict with `status`, `reason` and
@@ -160,8 +187,15 @@ def _mark_mxu_unavailable_if_no_counters(
       `mxu_utilization_percent` value from the overview page.
     hbm_counter_util: The `hbm_utilization_percent` value from the overview
       page. This is the hardware counter value, not the roofline estimate.
-    device_type: The `device_type` value from the overview page.
+    device_type: The `device_type` value from the overview page. On a GPU, the
+      MXU utilization does not apply, so the status is "not_applicable".
   """
+  if is_gpu_device_type(device_type):
+    performance_summary["mxu_utilization_percent"] = None
+    performance_summary["mxu_utilization_status"] = dict(
+        _MXU_NOT_APPLICABLE_ON_GPU_STATUS
+    )
+    return
   if _hardware_counters_absent(
       mxu_util=performance_summary.get("mxu_utilization_percent"),
       hbm_counter_util=hbm_counter_util,

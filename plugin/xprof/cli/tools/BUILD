@@ -70,6 +70,7 @@ pytype_strict_library(
         "//vr:__subpackages__",
     ],
     deps = [
+        ":get_overview_tool",
         ":get_utilization_viewer_tool",
         "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal/oss:xprof_client",

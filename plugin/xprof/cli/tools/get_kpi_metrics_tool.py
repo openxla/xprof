@@ -24,14 +24,18 @@ def get_kpi_metrics(session_id: str, *, bypass_cache: bool = False) -> str:
   Returns:
       A JSON-formatted string containing the KPI metrics:
         - step_time_ms: The average step time in milliseconds.
-        - duty_cycle_percent: The device duty cycle as a percentage.
+        - duty_cycle_percent: The device duty cycle as a percentage. None on a
+          GPU profile, where the overview page does not compute it.
+        - duty_cycle_status: (Optional) Present only when duty_cycle_percent
+          is None on a GPU profile. Has 'status' and 'reason'.
         - mxu_utilization_percent: MXU utilization from hardware performance
           counters, as a percentage. None if the counters were not captured
-          or not reduced, or the device was nearly idle. This value never
-          comes from the XLA cost model.
+          or not reduced, the device was nearly idle, or the profile is from a
+          GPU (the MXU is a TPU unit). This value never comes from the XLA cost
+          model.
         - mxu_utilization_status: (Optional) Present only when
-          mxu_utilization_percent is None. Has 'status', 'reason' and
-          'how_to_get'.
+          mxu_utilization_percent is None. Has 'status' ('unavailable', or
+          'not_applicable' on a GPU), 'reason' and 'how_to_get'.
         - compute_efficiency_percent: (Optional) Program FLOP rate relative
           to the peak device FLOP rate. It is a cost-model FLOP rate, not MXU
           utilization. When flops_provenance is 'derived_from_shapes' or
@@ -134,6 +138,15 @@ def get_kpi_metrics(session_id: str, *, bypass_cache: bool = False) -> str:
     payload["mxu_utilization_status"] = perf_summary_raw[
         "mxu_utilization_status"
     ]
+  if get_overview_tool.is_gpu_device_type(run_env_raw.get("device_type")):
+    payload["duty_cycle_percent"] = None
+    payload["duty_cycle_status"] = {
+        "status": "unavailable",
+        "reason": (
+            "The overview page does not compute a device duty cycle for GPU"
+            " profiles, so the duty cycle is unknown. It is not 0%."
+        ),
+    }
   if compute_eff is not None:
     payload["compute_efficiency_percent"] = compute_eff
   if "custom_call_warning" in perf_summary_raw:

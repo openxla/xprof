@@ -7,6 +7,7 @@ from typing import Any
 
 from xprof.cli.internal import decorators
 from xprof.cli.internal.oss import xprof_client
+from xprof.cli.tools import get_overview_tool
 from xprof.cli.tools import get_utilization_viewer_tool
 
 # Four-condition threshold constants from canonical Lumini diagnostic pipeline
@@ -15,6 +16,16 @@ _MXU_IDLENESS_HIGH_THRESHOLD_PERCENT: float = 70.0
 _HBM_BW_LOW_THRESHOLD_PERCENT: float = 30.0
 _ICI_BW_LOW_THRESHOLD_PERCENT: float = 30.0
 _DUTY_CYCLE_HIGH_THRESHOLD_PERCENT: float = 50.0
+
+# Metrics that come from TPU hardware counters or TPU-only units. They do not
+# apply to GPU profiles, so the tool reports them as None on a GPU.
+_TPU_ONLY_METRICS: tuple[str, ...] = (
+    "tpu_duty_cycle_percent",
+    "mxu_idleness_percent",
+    "hbm_bandwidth_utilization_percent",
+    "ici_read_utilization_percent",
+    "ici_write_utilization_percent",
+)
 
 
 def _parse_json_safely(response: Any) -> dict[str, Any]:
@@ -258,10 +269,13 @@ def check_host_boundness(
     func_name: str | None = None,
     bypass_cache: bool = False,
 ) -> str:
-  """Diagnoses if a TPU workload is host-bound using canonical multi-source telemetry.
+  """Diagnoses if a TPU or GPU workload is host-bound using multi-source telemetry.
 
   Evaluates data across overview, HLO op profile, trace viewer (barrier cores),
-  and utilization viewer against a 4-condition AND gate.
+  and utilization viewer against a 4-condition AND gate. On a GPU profile, the
+  MXU, HBM and ICI conditions use TPU hardware counters that do not apply, so
+  the tool uses only the idle time condition and reports the TPU-only metrics
+  as None.
 
   Args:
       session_id: The unique XProf session ID.
@@ -491,13 +505,22 @@ def check_host_boundness(
       equivalent_idle_chips = 0.0
 
     # --- 5. Hardware Subsystem Utilization ---
-    util_metrics = _get_utilization_metrics(
-        session_id, host_count, bypass_cache=bypass_cache
-    )
-    idleness_percent = util_metrics["idleness_percent"]
-    hbm_bw_util = util_metrics["hbm_bandwidth_utilization_percent"]
-    ici_read_util = util_metrics["ici_read_utilization_percent"]
-    ici_write_util = util_metrics["ici_write_utilization_percent"]
+    # The utilization viewer reads TPU hardware counters only, so do not
+    # fetch it for a GPU profile.
+    is_gpu = get_overview_tool.is_gpu_device_type(run_env_p.get("device_type"))
+    if is_gpu:
+      idleness_percent = 0.0
+      hbm_bw_util = 0.0
+      ici_read_util = 0.0
+      ici_write_util = 0.0
+    else:
+      util_metrics = _get_utilization_metrics(
+          session_id, host_count, bypass_cache=bypass_cache
+      )
+      idleness_percent = util_metrics["idleness_percent"]
+      hbm_bw_util = util_metrics["hbm_bandwidth_utilization_percent"]
+      ici_read_util = util_metrics["ici_read_utilization_percent"]
+      ici_write_util = util_metrics["ici_write_utilization_percent"]
 
     # --- 6. Four-Condition AND Gate Decision ---
     is_pure_idle_high = (
@@ -510,12 +533,17 @@ def check_host_boundness(
         and ici_write_util < _ICI_BW_LOW_THRESHOLD_PERCENT
     )
 
-    is_host_bound = (
-        is_pure_idle_high
-        and is_mxu_idle_high
-        and is_hbm_util_low
-        and is_ici_util_low
-    )
+    if is_gpu:
+      # The MXU, HBM and ICI conditions use TPU counters. On a GPU, only the
+      # idle time condition applies.
+      is_host_bound = hlo_data_available and is_pure_idle_high
+    else:
+      is_host_bound = (
+          is_pure_idle_high
+          and is_mxu_idle_high
+          and is_hbm_util_low
+          and is_ici_util_low
+      )
 
     reasons: list[str] = []
     recommendations: list[str] = []
@@ -543,6 +571,20 @@ def check_host_boundness(
         recommendations.append(
             "Provide `func_name` to enable automated Dispersion Analysis and"
             " check for transient stalls."
+        )
+    elif is_gpu:
+      if not hlo_data_available:
+        status = "UNKNOWN"
+        reasons.append(
+            "HLO op telemetry is missing for this GPU profile. Unable to"
+            " determine if workload is host-bound."
+        )
+      else:
+        status = "NOT_HOST_BOUND"
+        reasons.append(
+            "Workload is not host-bound: Idle Time Ratio"
+            f" ({idle_time_ratio_pct:.1f}%) is <="
+            f" {_IDLE_TIME_RATIO_HIGH_THRESHOLD_PERCENT:.1f}%."
         )
     elif duty_cycle > _DUTY_CYCLE_HIGH_THRESHOLD_PERCENT and (
         not hlo_data_available or not is_pure_idle_high
@@ -586,34 +628,40 @@ def check_host_boundness(
             f" {_ICI_BW_LOW_THRESHOLD_PERCENT:.1f}%."
         )
 
-    return json.dumps(
-        {
-            "status": status,
-            "metrics": {
-                "tpu_duty_cycle_percent": round(duty_cycle, 2),
-                "idle_time_ratio_percent": round(idle_time_ratio_pct, 2),
-                "idle_to_active_compute_ratio": round(
-                    idle_to_active_compute_ratio, 4
-                ),
-                "equivalent_idle_chips": round(equivalent_idle_chips, 2),
-                "mxu_idleness_percent": round(idleness_percent, 2),
-                "hbm_bandwidth_utilization_percent": round(hbm_bw_util, 2),
-                "ici_read_utilization_percent": round(ici_read_util, 2),
-                "ici_write_utilization_percent": round(ici_write_util, 2),
-                "scaled_compute_time_ms": round(scaled_compute_time_ms, 2),
-                "scaled_hbm_time_ms": round(scaled_hbm_time_ms, 2),
-                "scaled_ici_time_ms": round(scaled_ici_time_ms, 2),
-                "scaled_barrier_time_ms": round(scaled_barrier_time_ms, 2),
-                "pure_idle_time_ms": round(pure_idle_time_ms, 2),
-                "total_duration_ms": round(total_duration_ms, 2),
-                "number_of_steps": number_of_steps,
-                "core_count": core_count,
-            },
-            "reasons": reasons,
-            "recommendations": recommendations,
-        },
-        indent=2,
-    )
+    metrics: dict[str, Any] = {
+        "tpu_duty_cycle_percent": round(duty_cycle, 2),
+        "idle_time_ratio_percent": round(idle_time_ratio_pct, 2),
+        "idle_to_active_compute_ratio": round(idle_to_active_compute_ratio, 4),
+        "equivalent_idle_chips": round(equivalent_idle_chips, 2),
+        "mxu_idleness_percent": round(idleness_percent, 2),
+        "hbm_bandwidth_utilization_percent": round(hbm_bw_util, 2),
+        "ici_read_utilization_percent": round(ici_read_util, 2),
+        "ici_write_utilization_percent": round(ici_write_util, 2),
+        "scaled_compute_time_ms": round(scaled_compute_time_ms, 2),
+        "scaled_hbm_time_ms": round(scaled_hbm_time_ms, 2),
+        "scaled_ici_time_ms": round(scaled_ici_time_ms, 2),
+        "scaled_barrier_time_ms": round(scaled_barrier_time_ms, 2),
+        "pure_idle_time_ms": round(pure_idle_time_ms, 2),
+        "total_duration_ms": round(total_duration_ms, 2),
+        "number_of_steps": number_of_steps,
+        "core_count": core_count,
+    }
+    output: dict[str, Any] = {"status": status, "metrics": metrics}
+    if is_gpu:
+      for key in _TPU_ONLY_METRICS:
+        metrics[key] = None
+      output["not_applicable_metrics"] = {
+          "metrics": list(_TPU_ONLY_METRICS),
+          "reason": (
+              "These metrics come from TPU hardware counters or TPU-only"
+              " units, so they do not apply to this GPU profile. They are not"
+              " 0. On a GPU, scaled_ici_time_ms is the time in collective ops"
+              " (for example, NCCL all-reduce), not ICI time."
+          ),
+      }
+    output["reasons"] = reasons
+    output["recommendations"] = recommendations
+    return json.dumps(output, indent=2)
 
   except (FileNotFoundError, ValueError):
     raise

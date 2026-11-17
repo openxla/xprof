@@ -337,6 +337,67 @@ class GetKpiMetricsToolTest(parameterized.TestCase):
     self.assertEqual(result["derived_flops_fraction"], derived_flops_fraction)
     self.assertEqual(result["roofline_utilization"], expected_roofline_util)
 
+  @parameterized.named_parameters(
+      dict(testcase_name="gpu_missing_duty_cycle", duty_cycle=None),
+      dict(testcase_name="gpu_na_duty_cycle", duty_cycle="N/A"),
+      dict(testcase_name="gpu_zero_duty_cycle", duty_cycle="0.0%"),
+      dict(testcase_name="gpu_short_zero_duty_cycle", duty_cycle="0%"),
+  )
+  def test_get_kpi_metrics_gpu_duty_cycle_is_none_with_status(self, duty_cycle):
+    performance_summary = {
+        "steptime_ms_average": "15736.8",
+        "mxu_utilization_percent": None,
+        "mxu_utilization_status": {"status": "not_applicable"},
+    }
+    if duty_cycle is not None:
+      performance_summary["device_duty_cycle_percent"] = duty_cycle
+    overview_json = json.dumps({
+        "performance_summary": performance_summary,
+        "run_environment": {
+            "device_type": "Nvidia GPU (Blackwell)",
+            "device_core_count": "8",
+        },
+    })
+    self.enter_context(
+        mock.patch.object(
+            get_overview_tool,
+            "get_overview",
+            return_value=overview_json,
+            autospec=True,
+        )
+    )
+
+    result = json.loads(get_kpi_metrics_tool.get_kpi_metrics("gpu_session"))
+
+    self.assertIsNone(result["duty_cycle_percent"])
+    self.assertEqual(result["duty_cycle_status"]["status"], "unavailable")
+    self.assertIn("not 0%", result["duty_cycle_status"]["reason"])
+    self.assertEqual(
+        result["mxu_utilization_status"], {"status": "not_applicable"}
+    )
+
+  def test_get_kpi_metrics_tpu_duty_cycle_kept(self):
+    overview_json = json.dumps({
+        "performance_summary": {
+            "steptime_ms_average": "1.0",
+            "device_duty_cycle_percent": "95.0%",
+        },
+        "run_environment": {"device_type": "TPU v5p"},
+    })
+    self.enter_context(
+        mock.patch.object(
+            get_overview_tool,
+            "get_overview",
+            return_value=overview_json,
+            autospec=True,
+        )
+    )
+
+    result = json.loads(get_kpi_metrics_tool.get_kpi_metrics("tpu_session"))
+
+    self.assertEqual(result["duty_cycle_percent"], "95.0%")
+    self.assertNotIn("duty_cycle_status", result)
+
   def test_get_kpi_metrics_overview_error(self):
     self.mock_client.fetch.return_value = (None, b"")
 

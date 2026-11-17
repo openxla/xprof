@@ -57,6 +57,12 @@
 namespace traceviewer {
 namespace {
 
+void StripLeadingPercent(std::string& name) {
+  if (absl::StartsWith(name, "%")) {
+    name.erase(0, 1);
+  }
+}
+
 using FallbackKey = std::tuple<ProcessId, ThreadId, absl::string_view>;
 
 absl::flat_hash_map<FallbackKey, std::vector<int>> BuildFallbackMap(
@@ -1786,6 +1792,8 @@ void Timeline::UpdateTimelineData(
       timeline_data_.entry_names[selected_event_index_] == selected_name) {
     SetSelectedEventDependencies(std::move(old_dependencies.operand_names),
                                  std::move(old_dependencies.consumer_names));
+  } else if (had_selected_event_dependencies && selected_event_index_ == -1) {
+    EmitSelectedEventDependencies();
   }
 
   if (is_incremental_loading_) {
@@ -4051,12 +4059,53 @@ void Timeline::EmitEventSelected(int event_index) {
 void Timeline::SetSelectedEventDependencies(
     std::vector<std::string> operand_names,
     std::vector<std::string> consumer_names) {
-  if (!hlo_dependency_arrows_enabled_) return;
+  for (std::string& name : operand_names) StripLeadingPercent(name);
+  for (std::string& name : consumer_names) StripLeadingPercent(name);
   dependencies_ = ResolveEventDependencies(
       timeline_data_, selected_event_index_, std::move(operand_names),
       std::move(consumer_names));
+  EmitSelectedEventDependencies();
   // The names usually arrive after the frame that selected the event.
-  if (redraw_callback_) redraw_callback_();
+  if (hlo_dependency_arrows_enabled_ && redraw_callback_) redraw_callback_();
+}
+
+void Timeline::EmitSelectedEventDependencies() {
+  if (!event_callback_) return;
+  auto resolve_names = [this](absl::Span<const int> indices) {
+    std::vector<std::string> names;
+    names.reserve(indices.size());
+    for (const int idx : indices) {
+      names.push_back(timeline_data_.entry_names[idx]);
+    }
+    return names;
+  };
+  EventData event_data;
+  event_data.try_emplace(kEventSelectedIndex, dependencies_.event_index);
+  event_data.try_emplace(kSelectedEventDependenciesOperands,
+                         resolve_names(dependencies_.producer_indices));
+  event_data.try_emplace(kSelectedEventDependenciesConsumers,
+                         resolve_names(dependencies_.consumer_indices));
+  event_callback_(kSelectedEventDependencies, event_data);
+}
+
+void Timeline::SelectAdjacentEvent(std::string op_name, bool is_operand) {
+  StripLeadingPercent(op_name);
+  if (op_name.empty()) return;
+  const EventDependencies dependencies =
+      is_operand
+          ? ResolveEventDependencies(timeline_data_, selected_event_index_,
+                                     /*operand_names=*/{std::move(op_name)},
+                                     /*consumer_names=*/{})
+          : ResolveEventDependencies(timeline_data_, selected_event_index_,
+                                     /*operand_names=*/{},
+                                     /*consumer_names=*/{std::move(op_name)});
+  const std::vector<int>& indices = is_operand ? dependencies.producer_indices
+                                               : dependencies.consumer_indices;
+  if (indices.empty()) {
+    ShowNavigationWarningNotification("Event not found");
+    return;
+  }
+  ZoomEvent(indices.front());
 }
 
 void Timeline::EmitEventHovered(int event_index, float mouse_x, float mouse_y) {

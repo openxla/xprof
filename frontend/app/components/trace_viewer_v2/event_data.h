@@ -67,6 +67,14 @@ inline constexpr absl::string_view kMouseModeKey = "mouseMode";
 // Constants for schedule minimap updated event.
 inline constexpr absl::string_view kMinimapUpdated = "minimap_updated";
 
+// Constants for selected event dependencies resolved on the timeline.
+inline constexpr absl::string_view kSelectedEventDependencies =
+    "selected_event_dependencies";
+inline constexpr absl::string_view kSelectedEventDependenciesOperands =
+    "operandNames";
+inline constexpr absl::string_view kSelectedEventDependenciesConsumers =
+    "consumerNames";
+
 }  // namespace traceviewer
 
 #endif  // THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_EVENT_DATA_H_

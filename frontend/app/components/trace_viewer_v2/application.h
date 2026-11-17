@@ -234,6 +234,12 @@ class Application {
       RequestRedraw();
     }
   }
+  void SelectAdjacentEvent(const std::string& op_name, bool is_operand) {
+    if (timeline_) {
+      timeline_->SelectAdjacentEvent(op_name, is_operand);
+      RequestRedraw();
+    }
+  }
 
  private:
   friend class absl::NoDestructor<Application>;

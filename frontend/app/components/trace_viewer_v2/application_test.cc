@@ -121,6 +121,7 @@ TEST_F(ApplicationTest, NavigationMethodsSafeWhenUninitialized) {
   app.NavigateToNextSearchResult();
   app.NavigateToPrevSearchResult();
   app.RevealEvent(0);
+  app.SelectAdjacentEvent("operand", /*is_operand=*/true);
 }
 
 TEST_F(ApplicationTest, SaveAndLoadTrackOrderUseSeparateKeysPerViewer) {

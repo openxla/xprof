@@ -298,6 +298,13 @@ EMSCRIPTEN_KEEPALIVE void SetSelectedEventDependencies(
       emscripten::vecFromJSArray<std::string>(consumer_names));
 }
 
+// Resolves `op_name` as an HLO operand (`is_operand = true`) or consumer
+// (`is_operand = false`) of the selected event and focuses the timeline on it.
+EMSCRIPTEN_KEEPALIVE void SelectAdjacentEvent(const std::string& op_name,
+                                              bool is_operand) {
+  Application::Instance().SelectAdjacentEvent(op_name, is_operand);
+}
+
 EMSCRIPTEN_BINDINGS(traceviewer) {
   emscripten::function("SetPalette", &SetPalette);
   emscripten::function("SetColor", &SetColor);
@@ -322,6 +329,7 @@ EMSCRIPTEN_BINDINGS(traceviewer) {
   emscripten::function("setVisibleRange", &SetVisibleRange);
   emscripten::function("SetSelectedEventDependencies",
                        &SetSelectedEventDependencies);
+  emscripten::function("SelectAdjacentEvent", &SelectAdjacentEvent);
 }
 
 EMSCRIPTEN_BINDINGS(colors) {

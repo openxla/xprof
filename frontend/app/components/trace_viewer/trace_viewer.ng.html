@@ -95,12 +95,9 @@
 
 <ng-template #settingsDialog #paletteDialog #featureFlagsDialog let-dialogRef="dialogRef">
   <div class="settings-dialog-container">
-    <!-- Header with title & close button -->
+    <!-- Header with title -->
     <div class="settings-dialog-header">
       <div class="settings-dialog-header-title">Settings</div>
-      <button mat-icon-button class="settings-dialog-close-btn" (click)="dialogRef.close()" aria-label="Close settings">
-        <mat-icon>close</mat-icon>
-      </button>
     </div>
 
     <div class="settings-dialog-body">
@@ -384,7 +381,7 @@
             <button mat-button (click)="dialogRef.close()">
               Cancel
             </button>
-            <button mat-button color="primary" [disabled]="!hasGeneralSettingsChanges" (click)="saveGeneralSettings(); dialogRef.close()">
+            <button mat-flat-button color="primary" [disabled]="!hasGeneralSettingsChanges" (click)="saveGeneralSettings(); dialogRef.close()">
               Save
             </button>
           </ng-container>
@@ -392,7 +389,7 @@
             <button mat-button (click)="dialogRef.close()">
               Cancel
             </button>
-            <button mat-button color="primary" [disabled]="!hasColorSettingsChanges" (click)="saveColorSettings(); dialogRef.close(selectedPalette)">
+            <button mat-flat-button color="primary" [disabled]="!hasColorSettingsChanges" (click)="saveColorSettings(); dialogRef.close(selectedPalette)">
               Save
             </button>
           </ng-container>
@@ -400,7 +397,7 @@
             <button mat-button (click)="dialogRef.close()">
               Cancel
             </button>
-            <button mat-button color="primary" [disabled]="!hasFeatureFlagChanges" (click)="saveFeatureFlags()">
+            <button mat-flat-button color="primary" [disabled]="!hasFeatureFlagChanges" (click)="saveFeatureFlags()">
               Save
             </button>
           </ng-container>

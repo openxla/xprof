@@ -1747,9 +1747,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   toggleSettings(tab: SettingsTab = SettingsTab.GENERAL): void {
+    // The settings dialog is modal and is only dismissed via Cancel or Save.
     if (this.settingsDialogRef) {
-      this.settingsDialogRef.close();
-      this.settingsDialogRef = null;
       return;
     }
     this.openSettings(tab);
@@ -1815,7 +1814,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       width: '760px',
       maxWidth: '95vw',
       panelClass: 'settings-dialog-mat-dialog-container',
-      disableClose: false,
+      disableClose: true,
     });
     this.settingsDialogRef = dialogRef;
 

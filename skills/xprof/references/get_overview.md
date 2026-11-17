@@ -30,7 +30,13 @@ about a run.
         -   `steptime_ms_average`: Average step execution time.
         -   `device_duty_cycle_percent`: Percentage of time accelerator is
             actively computing.
-        -   `mxu_utilization_percent`: Matrix unit utilization.
+        -   `mxu_utilization_percent`: Matrix unit utilization from hardware
+            performance counters. It is `null` when the MXU and HBM counters
+            both read 0. See
+            [Missing Hardware Counters](#missing-hardware-counters).
+        -   `compute_efficiency_percent`: Program FLOP rate relative to the peak
+            device FLOP rate. It is a cost-model FLOP rate, not MXU utilization.
+            Present when roofline data exists.
         -   `flop_rate_utilization_relative_to_roofline`: Flop rate relative to
             theoretical roofline.
         -   `device_idle_time_percent` & `host_idle_time_percent`: Idle time
@@ -39,6 +45,30 @@ about a run.
             execution share.
     -   `run_environment`: Hardware type (`device_type`), core count
         (`device_core_count`), host count, and training mode.
+
+## Missing Hardware Counters
+
+When the MXU and HBM counters both read 0, `mxu_utilization_percent` is `null`
+and `performance_summary.mxu_utilization_status` has `status: "unavailable"`, a
+`reason` and a `how_to_get` hint. The cause is one of these: the counters were
+not captured or not reduced, or the device was nearly idle for the whole
+capture. In that case:
+
+-   Say that MXU utilization is unknown (not measured). Do not report it as 0%.
+    A `null` value does not mean that the MXU was idle.
+-   Do not use `compute_efficiency_percent` in place of MXU utilization. It is a
+    cost-model FLOP rate, not MXU utilization. It counts VPU FLOPs, and it gives
+    0 FLOPs to Pallas kernels and custom calls (unless `flops_provenance` is
+    `derived_from_shapes` or `mixed`). It can differ from MXU by several times.
+    If you report it, call it a cost-model FLOP rate.
+-   For measured MXU, run [`get_kernel_utilization`](get_kernel_utilization.md).
+    It also needs counter data, so it can return no records on the same capture.
+    For one Pallas or custom kernel,
+    [`get_llo_static_analysis`](get_llo_static_analysis.md) shows the MXU use in
+    the static, modelled schedule (not measured runtime).
+-   The `how_to_get` hint (capture again with `tpu_perf_counters=True`) applies
+    to TPU only. If the counters were captured but not reduced, try
+    `get_kernel_utilization` first.
 
 ## Multi-Host Runs
 

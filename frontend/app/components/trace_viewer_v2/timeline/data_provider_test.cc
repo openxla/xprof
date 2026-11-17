@@ -1,8 +1,11 @@
 #include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -10,6 +13,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/algorithm/container.h"
+#include "absl/container/btree_map.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
@@ -8581,6 +8585,901 @@ TEST_F(DataProviderTest,
   EXPECT_EQ(data.entry_levels[1], 1);
   EXPECT_EQ(data.entry_levels[2], 2);
   EXPECT_DOUBLE_EQ(data.entry_self_times[1], 29.0);
+}
+
+TEST_F(DataProviderTest,
+       DeviceTracksPreserveDensityAcrossRepeatedHostTrackDrainSteps) {
+  constexpr Microseconds kFullEnd = 30000000.0;
+  constexpr int kXlaModulesEvents = 20000;
+  constexpr int kNumDeviceTracks = 4;
+  constexpr int kLevelsPerDeviceTrack = 4;
+  constexpr int kStepsPerDeviceTrack = 30000;
+  constexpr int kExemptPidTracks = 2;
+  constexpr int kEventsPerExemptPidTrack = 5000;
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+
+  // Stream an exempt "XLA Modules" track (20,000 spans), four 4-level device
+  // tracks on pid 1 (480,000 events across 16 levels), and a small third
+  // process on pid 3 (10,000 events <= per_pid_cap, exempt at the process
+  // tier).
+  ParsedTraceEvents device_chunk;
+  device_chunk.flame_events.reserve(
+      3 + kXlaModulesEvents + kNumDeviceTracks +
+      kNumDeviceTracks * kStepsPerDeviceTrack * kLevelsPerDeviceTrack +
+      kExemptPidTracks * (1 + kEventsPerExemptPidTrack));
+  device_chunk.flame_events.push_back(
+      CreateProcessEvent(1, "host:0 /device:TPU:0"));
+  EventId next_id = 1;
+  device_chunk.flame_events.push_back(
+      CreateThreadEvent(1, 9, std::string(kXlaModules)));
+  for (int k = 0; k < kXlaModulesEvents; ++k) {
+    device_chunk.flame_events.push_back(MakeSpan(
+        Phase::kComplete, next_id++, 1, 9, "xla_mod", k * 1000.0, 900.0));
+  }
+  for (int d = 0; d < kNumDeviceTracks; ++d) {
+    const ThreadId tid = 10 + d;
+    device_chunk.flame_events.push_back(
+        CreateThreadEvent(1, tid, absl::StrCat("XLA Ops ", d)));
+    for (int k = 0; k < kStepsPerDeviceTrack; ++k) {
+      const Microseconds base_ts = k * 1000.0;
+      device_chunk.flame_events.push_back(MakeSpan(
+          Phase::kComplete, next_id++, 1, tid, "lvl0", base_ts, 800.0));
+      device_chunk.flame_events.push_back(MakeSpan(
+          Phase::kComplete, next_id++, 1, tid, "lvl1", base_ts + 10.0, 780.0));
+      device_chunk.flame_events.push_back(MakeSpan(
+          Phase::kComplete, next_id++, 1, tid, "lvl2", base_ts + 20.0, 760.0));
+      device_chunk.flame_events.push_back(MakeSpan(
+          Phase::kComplete, next_id++, 1, tid, "lvl3", base_ts + 30.0, 740.0));
+    }
+  }
+  device_chunk.flame_events.push_back(
+      CreateProcessEvent(3, "host:0 /device:CPU:0"));
+  for (int t = 0; t < kExemptPidTracks; ++t) {
+    const ThreadId tid = 50 + t;
+    device_chunk.flame_events.push_back(
+        CreateThreadEvent(3, tid, absl::StrCat("exempt_pid_track_", t)));
+    for (int i = 0; i < kEventsPerExemptPidTrack; ++i) {
+      device_chunk.flame_events.push_back(MakeSpan(Phase::kComplete, next_id++,
+                                                   3, tid, "exempt_pid_ev",
+                                                   i * 1000.0, 10.0));
+    }
+  }
+  data_provider_.AppendTraceEventsIncremental(
+      std::move(device_chunk), timeline_,
+      DataProvider::TimelineFlushMode::kDeferFlush);
+
+  // Drain 15 incremental host batches onto a single `/host:CPU` process (pid 2)
+  // that accumulates 2,100 total levels (600 small 1-level tracks + 30 dense
+  // 50-level tracks), verifying that a single high-level-count process cannot
+  // starve pid 1's device rows while small tracks and small processes stay
+  // uncompacted.
+  constexpr int kHostDrainSteps = 15;
+  constexpr int kSmallHostTracksPerStep = 40;
+  constexpr int kEventsPerSmallHostTrack = 50;
+  constexpr int kDenseHostTracksPerStep = 2;
+  constexpr int kDenseHostLevels = 50;
+  constexpr int kDenseHostBatches = 2600;
+  for (int step = 0; step < kHostDrainSteps; ++step) {
+    ParsedTraceEvents host_chunk;
+    if (step == 0) {
+      host_chunk.flame_events.push_back(
+          CreateProcessEvent(2, "host:0 /host:CPU"));
+    }
+    for (int h = 0; h < kSmallHostTracksPerStep; ++h) {
+      const ThreadId tid = 1000 + step * 100 + h;
+      host_chunk.flame_events.push_back(
+          CreateThreadEvent(2, tid, absl::StrCat("small_host_", step, "_", h)));
+      for (int i = 0; i < kEventsPerSmallHostTrack; ++i) {
+        host_chunk.flame_events.push_back(MakeSpan(
+            Phase::kComplete, next_id++, 2, tid, "small_ev", i * 1000.0, 10.0));
+      }
+    }
+    for (int d = 0; d < kDenseHostTracksPerStep; ++d) {
+      const ThreadId tid = 10000 + step * 10 + d;
+      host_chunk.flame_events.push_back(
+          CreateThreadEvent(2, tid, absl::StrCat("dense_host_", step, "_", d)));
+      for (int b = 0; b < kDenseHostBatches; ++b) {
+        const Microseconds base_ts = b * 400.0;
+        for (int l = 0; l < kDenseHostLevels; ++l) {
+          host_chunk.flame_events.push_back(
+              MakeSpan(Phase::kComplete, next_id++, 2, tid, "dense_ev",
+                       base_ts + l * 2.0, 300.0 - l * 4.0));
+        }
+      }
+    }
+    const bool is_final = (step + 1 == kHostDrainSteps);
+    if (is_final) {
+      data_provider_.MarkFinishingIncrementalLoad();
+    }
+    data_provider_.AppendTraceEventsIncremental(
+        std::move(host_chunk), timeline_,
+        is_final ? DataProvider::TimelineFlushMode::kAutoFlush
+                 : DataProvider::TimelineFlushMode::kDeferFlush);
+  }
+  data_provider_.FinishIncrementalLoad();
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  const Group* xla_modules_group = FindGroupByName(data.groups, kXlaModules);
+  ASSERT_NE(xla_modules_group, nullptr);
+  ASSERT_EQ(xla_modules_group->level_count, 1);
+
+  absl::flat_hash_map<int, int> level_to_device_row;
+  for (int d = 0; d < kNumDeviceTracks; ++d) {
+    const Group* grp =
+        FindGroupByName(data.groups, absl::StrCat("XLA Ops ", d));
+    ASSERT_NE(grp, nullptr);
+    ASSERT_EQ(grp->level_count, kLevelsPerDeviceTrack);
+    for (int l = 0; l < kLevelsPerDeviceTrack; ++l) {
+      level_to_device_row[grp->start_level + l] = d * kLevelsPerDeviceTrack + l;
+    }
+  }
+
+  constexpr int kTotalDeviceRows = kNumDeviceTracks * kLevelsPerDeviceTrack;
+  std::vector<size_t> device_row_counts(kTotalDeviceRows, 0);
+  std::vector<std::array<size_t, 10>> device_row_deciles(kTotalDeviceRows);
+  for (auto& deciles : device_row_deciles) deciles.fill(0);
+  size_t xla_modules_events = 0;
+  size_t exempt_pid_events = 0;
+  size_t small_host_events = 0;
+
+  for (size_t i = 0; i < data.entry_levels.size(); ++i) {
+    const int lvl = data.entry_levels[i];
+    if (lvl == xla_modules_group->start_level) {
+      ++xla_modules_events;
+    } else if (const auto it = level_to_device_row.find(lvl);
+               it != level_to_device_row.end()) {
+      const int row = it->second;
+      ++device_row_counts[row];
+      const int decile = std::clamp(
+          static_cast<int>((data.entry_start_times[i] / kFullEnd) * 10.0), 0,
+          9);
+      ++device_row_deciles[row][decile];
+    } else if (data.entry_names[i] == "exempt_pid_ev") {
+      ++exempt_pid_events;
+    } else if (data.entry_names[i] == "small_ev") {
+      ++small_host_events;
+    }
+  }
+
+  EXPECT_EQ(xla_modules_events, static_cast<size_t>(kXlaModulesEvents));
+  for (int row = 0; row < kTotalDeviceRows; ++row) {
+    EXPECT_GE(device_row_counts[row], 1000u)
+        << "Device row " << row << " decayed below MIP pyramid density";
+    for (int decile = 0; decile < 10; ++decile) {
+      EXPECT_GT(device_row_deciles[row][decile], 0u)
+          << "Device row " << row << " has empty decile " << decile;
+    }
+  }
+  EXPECT_EQ(exempt_pid_events,
+            static_cast<size_t>(kExemptPidTracks * kEventsPerExemptPidTrack));
+  EXPECT_EQ(small_host_events,
+            static_cast<size_t>(kHostDrainSteps * kSmallHostTracksPerStep *
+                                kEventsPerSmallHostTrack));
+}
+
+TEST_F(DataProviderTest, CompactionCoalescesLeafBurstsWithoutBridgingIdleGaps) {
+  constexpr int kEventsPerBurst = 200000;
+  constexpr Microseconds kBurst1Start = 0.0;
+  constexpr Microseconds kBurst1Mid = 200000.0;
+  constexpr Microseconds kBurst1End = 400000.0;
+  constexpr Microseconds kBurst2Start = 1000000.0;
+  constexpr Microseconds kBurst2Stride = 2.1;
+  constexpr Microseconds kBurst2End =
+      kBurst2Start + kEventsPerBurst * kBurst2Stride;
+  constexpr EventId kPeakEventIdBase = 5000000;
+
+  ParsedTraceEvents chunk;
+  chunk.flame_events.reserve(5 + 2 * kEventsPerBurst);
+  chunk.flame_events.push_back(CreateProcessEvent(1, "host:0 /device:TPU:0"));
+  chunk.flame_events.push_back(CreateThreadEvent(1, 2, "TEC 0"));
+  // Two adjacent ancestor spans on level 0 over Burst 1 and one over Burst 2.
+  chunk.flame_events.push_back(MakeSpan(Phase::kComplete, 1, 1, 2, "parent_a",
+                                        kBurst1Start, kBurst1Mid));
+  chunk.flame_events.push_back(MakeSpan(Phase::kComplete, 2, 1, 2, "parent_b",
+                                        kBurst1Mid, kBurst1End - kBurst1Mid));
+  chunk.flame_events.push_back(MakeSpan(Phase::kComplete, 3, 1, 2, "parent_c",
+                                        kBurst2Start,
+                                        kBurst2End - kBurst2Start));
+  for (int i = 0; i < kEventsPerBurst; ++i) {
+    const bool is_peak = (i % 4 == 2);
+    const bool has_peak_metadata = (i % 64 != 2);
+    TraceEvent ev =
+        MakeSpan(Phase::kComplete,
+                 is_peak ? (kPeakEventIdBase + static_cast<EventId>(i))
+                         : static_cast<EventId>(10 + i),
+                 1, 2, is_peak ? "peak_leaf" : "base_leaf",
+                 kBurst1Start + i * 2.0, is_peak ? 1.5 : 1.0);
+    if ((is_peak && has_peak_metadata) || i % 32 == 0) {
+      ev.group_id = is_peak ? 42 : 7;
+      ev.has_group_id = true;
+      ev.args = {{"role", is_peak ? "peak" : "base"}};
+    }
+    chunk.flame_events.push_back(std::move(ev));
+  }
+  // Contiguous non-dyadic decimal timestamps and durations where IEEE-754
+  // `ts + dur` rounds 1 ULP past the next span's `ts`.
+  for (int i = 0; i < kEventsPerBurst; ++i) {
+    chunk.flame_events.push_back(MakeSpan(
+        Phase::kComplete, 1000000 + static_cast<EventId>(i), 1, 2,
+        "non_dyadic_leaf", kBurst2Start + i * kBurst2Stride, kBurst2Stride));
+  }
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.MarkFinishingIncrementalLoad();
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk), timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_GT(data.entry_start_times.size(), 100000u);
+  ASSERT_LE(data.entry_start_times.size(), 131072u);
+
+  Microseconds burst1_covered = 0.0;
+  Microseconds burst2_covered = 0.0;
+  Microseconds prev_lvl1_end = std::numeric_limits<Microseconds>::lowest();
+  size_t level0_parents = 0;
+  size_t relocated_peak_spans = 0;
+  size_t cleared_relocated_peak_spans = 0;
+  for (size_t i = 0; i < data.entry_start_times.size(); ++i) {
+    const Microseconds start = data.entry_start_times[i];
+    const Microseconds dur = data.entry_total_times[i];
+    const Microseconds end = start + dur;
+    if (data.entry_levels[i] == 0) {
+      ++level0_parents;
+      continue;
+    }
+    ASSERT_EQ(data.entry_levels[i], 1);
+    EXPECT_DOUBLE_EQ(data.entry_self_times[i], dur);
+    // Compacted envelopes clamp `burst_end` to the next sub-bucket's start
+    // time (and `bounds.max_ts`), while raw uncompacted tail events (`dur ==
+    // kBurst2Stride`) preserve their input timestamps within picosecond
+    // rounding tolerance (`1e-6` us).
+    if (dur > kBurst2Stride) {
+      EXPECT_GE(start, prev_lvl1_end);
+    } else {
+      EXPECT_GE(start + 1e-6, prev_lvl1_end);
+    }
+    prev_lvl1_end = end;
+    EXPECT_TRUE(end <= kBurst1End || start >= kBurst2Start)
+        << "Span [" << start << ", " << end
+        << "] bridged the idle gap [400000, 1000000]";
+    if (end <= kBurst1End) {
+      // Must not coalesce across the boundary between `parent_a` and `parent_b`
+      // on level 0 at `kBurst1Mid = 200000.0`.
+      EXPECT_TRUE(end <= kBurst1Mid || start >= kBurst1Mid)
+          << "Span [" << start << ", " << end
+          << "] crossed ancestor boundary at " << kBurst1Mid;
+      burst1_covered += dur;
+      if (data.entry_names[i] == "peak_leaf") {
+        ASSERT_GE(data.entry_event_ids[i], kPeakEventIdBase);
+        const EventId orig_peak_i = data.entry_event_ids[i] - kPeakEventIdBase;
+        const int first_idx = static_cast<int>(start / 2.0 + 0.5);
+        if (orig_peak_i % 64 == 2) {
+          EXPECT_FALSE(data.sparse_entry_group_ids.contains(i));
+          EXPECT_FALSE(data.sparse_entry_args.contains(i));
+          if (first_idx % 32 == 0) {
+            ++cleared_relocated_peak_spans;
+          }
+        } else {
+          ASSERT_TRUE(data.sparse_entry_group_ids.contains(i));
+          EXPECT_EQ(data.sparse_entry_group_ids.at(i), 42);
+          ASSERT_TRUE(data.sparse_entry_args.contains(i));
+          EXPECT_EQ(data.sparse_entry_args.at(i).at("role"), "peak");
+        }
+        if (first_idx % 4 != 2) {
+          ++relocated_peak_spans;
+        }
+      }
+    } else if (start >= kBurst2Start) {
+      burst2_covered += dur;
+    }
+  }
+
+  EXPECT_EQ(level0_parents, 3u);
+  EXPECT_GT(relocated_peak_spans, 10000u);
+  EXPECT_GT(cleared_relocated_peak_spans, 0u);
+  // Coalesced envelopes cover >= 80% of Burst 1 and >= 99% of contiguous
+  // non-dyadic Burst 2.
+  EXPECT_GE(burst1_covered, 0.8 * (kBurst1End - kBurst1Start));
+  EXPECT_GE(burst2_covered, 0.99 * (kBurst2End - kBurst2Start));
+}
+
+struct KeptSpan {
+  Microseconds start;
+  Microseconds total_time;
+  Microseconds self_time;
+  int level;
+};
+
+absl::flat_hash_map<std::string, KeptSpan> CollectNonFillerKeptSpans(
+    const FlameChartTimelineData& data) {
+  absl::flat_hash_map<std::string, KeptSpan> kept_by_name;
+  for (size_t i = 0; i < data.entry_start_times.size(); ++i) {
+    const absl::string_view name = data.entry_names[i];
+    if (absl::StartsWith(name, "sparse_") || absl::StartsWith(name, "dense_") ||
+        absl::StartsWith(name, "tail_")) {
+      continue;
+    }
+    kept_by_name.emplace(name, KeptSpan{
+                                   .start = data.entry_start_times[i],
+                                   .total_time = data.entry_total_times[i],
+                                   .self_time = data.entry_self_times[i],
+                                   .level = data.entry_levels[i],
+                               });
+  }
+  return kept_by_name;
+}
+
+TEST_F(DataProviderTest,
+       CompactionStopsCoalescingAtZeroDurAndIntraSubBucketGaps) {
+  // Construct a multi-level track (> 262,144 total events) where level 0
+  // undergoes compaction with `bucket_width` ~ 1000 us and `sub_bucket_count`
+  // == 1 (`max_coalesce_gap` ~ 500 us) in five isolated multi-event buckets:
+  //   - 125,000 single-event buckets spaced 1000 us apart keep `extra_budget`
+  //     small (~4,000), while 140,000 dense events at the end of the compacted
+  //     head absorb `total_excess` (~140,000) so sparse multi-event buckets
+  //     receive a single sub-bucket (`sub_end - sub_start >= 3`).
+  //   - 2,048 tail events preserve the uncompacted recent tail after the head.
+  constexpr int kSparseOnePerBucketEvents = 125000;
+  constexpr int kDenseExcessEvents = 140000;
+  constexpr int kTailEvents = 2048;
+
+  ParsedTraceEvents chunk;
+  chunk.flame_events.reserve(30 + kSparseOnePerBucketEvents +
+                             kDenseExcessEvents + kTailEvents);
+  chunk.flame_events.push_back(CreateProcessEvent(1, "host:0 /device:TPU:0"));
+  chunk.flame_events.push_back(CreateThreadEvent(1, 2, "TEC 0"));
+
+  EventId next_id = 1;
+  auto add_span = [&](absl::string_view name, Microseconds ts,
+                      Microseconds dur) {
+    chunk.flame_events.push_back(
+        MakeSpan(Phase::kComplete, next_id++, 1, 2, name, ts, dur));
+  };
+
+  // Bucket 0 ([0, ~1000)): Non-leaf parent span is `best_idx` inside a
+  // multi-event sub-bucket alongside contiguous leaf neighbors. Coalesces
+  // `[0.0, 70.0]` and deducts `b0_child` (`15.0`) so `self_time == 55.0`.
+  add_span("b0_prev_leaf", 0.0, 10.0);
+  add_span("b0_best_parent", 10.0, 50.0);
+  add_span("b0_child", 20.0, 15.0);
+  add_span("b0_next_leaf", 60.0, 10.0);
+
+  // Bucket 1 ([10000, ~11000)): Leaf span is `best_idx` next to a contiguous
+  // leaf and two shorter non-leaf parent spans within `max_coalesce_gap`.
+  // Coalesces `[10200.0, 10310.0]` (`total_time == 110.0`) and accumulates
+  // both merged parents' child times (`10.0 + 10.0`) so `self_time == 90.0`.
+  add_span("b1_prev_parent", 10200.0, 20.0);
+  add_span("b1_prev_child", 10205.0, 10.0);
+  add_span("b1_near_leaf", 10222.0, 8.0);
+  add_span("b1_best_leaf", 10235.0, 50.0);
+  add_span("b1_next_parent", 10290.0, 20.0);
+  add_span("b1_next_child", 10295.0, 10.0);
+
+  // Bucket 2 ([20000, ~21000)): Leaf span is `best_idx` next to a contiguous
+  // leaf and bounded on both sides by zero-duration spans (`dur == 0.0`)
+  // within `max_coalesce_gap`. Coalescing must absorb `b2_near_leaf` and stop
+  // before both zero-duration spans.
+  add_span("b2_zero_before", 20200.0, 0.0);
+  add_span("b2_near_leaf", 20205.0, 10.0);
+  add_span("b2_best_leaf", 20220.0, 50.0);
+  add_span("b2_zero_after", 20280.0, 0.0);
+
+  // Bucket 3 ([30000, ~31000)): Intra-sub-bucket backward gap (720 us >
+  // `max_coalesce_gap` ~ 500 us) must stop backward coalescing after merging
+  // `b3_near_prev_leaf`.
+  add_span("b3_far_prev_leaf", 30050.0, 10.0);
+  add_span("b3_near_prev_leaf", 30780.0, 15.0);
+  add_span("b3_best_leaf", 30800.0, 50.0);
+
+  // Bucket 4 ([40000, ~41000)): Intra-sub-bucket forward gap (730 us >
+  // `max_coalesce_gap` ~ 500 us) must stop forward coalescing after merging
+  // `b4_near_next_leaf`.
+  add_span("b4_best_leaf", 40050.0, 50.0);
+  add_span("b4_near_next_leaf", 40105.0, 15.0);
+  add_span("b4_far_next_leaf", 40850.0, 10.0);
+
+  // Bucket 5 ([50000, ~51000)): An open span (`kDurationBegin`) that later
+  // closes (`kDurationEnd` with `dur = 5000.0`) past `b5_next_bucket_l0`
+  // (`51200.0`, placed on level 0 before the continuation arrived) must not
+  // have its own `[50100.0, 55100.0]` extent truncated to `51200.0` by
+  // `level_vec[sub_end]`.
+  add_span("b5_prev_leaf", 50080.0, 10.0);
+  chunk.flame_events.push_back(MakeSpan(Phase::kDurationBegin, next_id++, 1, 2,
+                                        "b5_long_open", 50100.0, 10.0));
+
+  // Bucket 6 ([60000, ~61000)): `b6_best_leaf` (`dur = 800.0`, ending at
+  // `60850.0 <= b6_next_bucket_l0` at `61200.0`) wins `best_pos` and
+  // forward-merges a shorter `kDurationBegin` span (`b6_shorter_open`, closed
+  // with `dur = 700.0` to `61560.0`) that encloses `b6_open_child`
+  // (`[61300.0, 61500.0]`) past `61200.0`. Gating `next_sub_start` clamping on
+  // `burst_end` preserves `[60050.0, 61560.0]`, accurate `self_time`
+  // (`1310.0`), and `b6_open_child`.
+  add_span("b6_best_leaf", 60050.0, 800.0);
+  chunk.flame_events.push_back(MakeSpan(Phase::kDurationBegin, next_id++, 1, 2,
+                                        "b6_shorter_open", 60860.0, 10.0));
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(
+      std::move(chunk), timeline_,
+      DataProvider::TimelineFlushMode::kDeferFlush);
+
+  ParsedTraceEvents mid_chunk;
+  mid_chunk.flame_events.push_back(MakeSpan(
+      Phase::kComplete, next_id++, 1, 2, "b5_next_bucket_l0", 51200.0, 10.0));
+  mid_chunk.flame_events.push_back(MakeSpan(
+      Phase::kComplete, next_id++, 1, 2, "b6_next_bucket_l0", 61200.0, 10.0));
+  data_provider_.AppendTraceEventsIncremental(
+      std::move(mid_chunk), timeline_,
+      DataProvider::TimelineFlushMode::kDeferFlush);
+
+  ParsedTraceEvents final_chunk;
+  final_chunk.flame_events.reserve(4 + kSparseOnePerBucketEvents +
+                                   kDenseExcessEvents + kTailEvents);
+  final_chunk.flame_events.push_back(MakeSpan(
+      Phase::kDurationEnd, next_id++, 1, 2, "b5_long_open", 50100.0, 5000.0));
+  final_chunk.flame_events.push_back(MakeSpan(
+      Phase::kDurationEnd, next_id++, 1, 2, "b6_shorter_open", 60860.0, 700.0));
+  final_chunk.flame_events.push_back(MakeSpan(Phase::kComplete, next_id++, 1, 2,
+                                              "b6_open_child", 61300.0, 200.0));
+  for (int i = 0; i < kSparseOnePerBucketEvents; ++i) {
+    final_chunk.flame_events.push_back(MakeSpan(Phase::kComplete, next_id++, 1,
+                                                2, "sparse_filler",
+                                                100000.0 + i * 1000.0, 1.0));
+  }
+  for (int i = 0; i < kDenseExcessEvents; ++i) {
+    final_chunk.flame_events.push_back(MakeSpan(Phase::kComplete, next_id++, 1,
+                                                2, "dense_filler",
+                                                129000000.0 + i * 0.1, 0.05));
+  }
+  for (int i = 0; i < kTailEvents; ++i) {
+    final_chunk.flame_events.push_back(MakeSpan(Phase::kComplete, next_id++, 1,
+                                                2, "tail_filler",
+                                                130000000.0 + i * 1.0, 0.5));
+  }
+
+  data_provider_.MarkFinishingIncrementalLoad();
+  data_provider_.AppendTraceEventsIncremental(std::move(final_chunk),
+                                              timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_GT(data.entry_start_times.size(), 100000u);
+  // Level 1 has 4 spans (`<= min_level_threshold`), so total kept is bounded by
+  // `kDefaultTargetTrackEvents + 4`.
+  ASSERT_LE(data.entry_start_times.size(), 131076u);
+
+  const absl::flat_hash_map<std::string, KeptSpan> kept_by_name =
+      CollectNonFillerKeptSpans(data);
+
+  // Bucket 0: Non-leaf `best_idx` coalesces adjacent positive-duration spans
+  // `[0.0, 70.0]` and deducts `b0_child` (`15.0`) from `self_time`.
+  ASSERT_TRUE(kept_by_name.contains("b0_best_parent"));
+  EXPECT_EQ(kept_by_name.at("b0_best_parent").level, 0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("b0_best_parent").start, 0.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("b0_best_parent").total_time, 70.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("b0_best_parent").self_time, 55.0);
+  EXPECT_TRUE(kept_by_name.contains("b0_child"));
+  EXPECT_FALSE(kept_by_name.contains("b0_prev_leaf"));
+  EXPECT_FALSE(kept_by_name.contains("b0_next_leaf"));
+
+  // Bucket 1: Leaf `best_idx` coalesces adjacent leaf and non-leaf spans
+  // `[10200.0, 10310.0]` and deducts both merged parents' children (`20.0`).
+  ASSERT_TRUE(kept_by_name.contains("b1_best_leaf"));
+  EXPECT_EQ(kept_by_name.at("b1_best_leaf").level, 0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("b1_best_leaf").start, 10200.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("b1_best_leaf").total_time, 110.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("b1_best_leaf").self_time, 90.0);
+  EXPECT_TRUE(kept_by_name.contains("b1_prev_child"));
+  EXPECT_TRUE(kept_by_name.contains("b1_next_child"));
+  EXPECT_FALSE(kept_by_name.contains("b1_prev_parent"));
+  EXPECT_FALSE(kept_by_name.contains("b1_near_leaf"));
+  EXPECT_FALSE(kept_by_name.contains("b1_next_parent"));
+
+  // Bucket 2: Leaf `best_idx` coalesces `[20205, 20270]` and stops at
+  // zero-duration (`dur == 0.0`) spans on both sides.
+  ASSERT_TRUE(kept_by_name.contains("b2_best_leaf"));
+  EXPECT_EQ(kept_by_name.at("b2_best_leaf").level, 0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("b2_best_leaf").start, 20205.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("b2_best_leaf").total_time, 65.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("b2_best_leaf").self_time, 65.0);
+  EXPECT_FALSE(kept_by_name.contains("b2_zero_before"));
+  EXPECT_FALSE(kept_by_name.contains("b2_zero_after"));
+
+  // Bucket 3: Stops at the 720 us backward intra-sub-bucket gap after merging
+  // `[30780, 30850]`.
+  ASSERT_TRUE(kept_by_name.contains("b3_best_leaf"));
+  EXPECT_EQ(kept_by_name.at("b3_best_leaf").level, 0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("b3_best_leaf").start, 30780.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("b3_best_leaf").total_time, 70.0);
+  EXPECT_FALSE(kept_by_name.contains("b3_far_prev_leaf"));
+
+  // Bucket 4: Stops at the 730 us forward intra-sub-bucket gap after merging
+  // `[40050, 40120]`.
+  ASSERT_TRUE(kept_by_name.contains("b4_best_leaf"));
+  EXPECT_EQ(kept_by_name.at("b4_best_leaf").level, 0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("b4_best_leaf").start, 40050.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("b4_best_leaf").total_time, 70.0);
+  EXPECT_FALSE(kept_by_name.contains("b4_far_next_leaf"));
+
+  // Bucket 5: Closed long open span coalesces `b5_prev_leaf` into
+  // `[50080.0, 55100.0]` (`total_time == 5020.0`) without truncating its own
+  // `55100.0` end time to `b5_next_bucket_l0` (`51200.0`).
+  ASSERT_TRUE(kept_by_name.contains("b5_long_open"));
+  EXPECT_EQ(kept_by_name.at("b5_long_open").level, 0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("b5_long_open").start, 50080.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("b5_long_open").total_time, 5020.0);
+  EXPECT_FALSE(kept_by_name.contains("b5_prev_leaf"));
+
+  // Bucket 6: `b6_best_leaf` (`[60050.0, 60850.0]`) forward-merges shorter
+  // closed open span `b6_shorter_open` (`[60860.0, 61560.0]`) into
+  // `[60050.0, 61560.0]` (`total_time == 1510.0`, `self_time == 1310.0`)
+  // without truncating `burst_end` at `b6_next_bucket_l0` (`61200.0`) or
+  // orphaning `b6_open_child` (`[61300.0, 61500.0]`).
+  ASSERT_TRUE(kept_by_name.contains("b6_best_leaf"));
+  EXPECT_EQ(kept_by_name.at("b6_best_leaf").level, 0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("b6_best_leaf").start, 60050.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("b6_best_leaf").total_time, 1510.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("b6_best_leaf").self_time, 1310.0);
+  EXPECT_FALSE(kept_by_name.contains("b6_shorter_open"));
+  ASSERT_TRUE(kept_by_name.contains("b6_open_child"));
+  EXPECT_EQ(kept_by_name.at("b6_open_child").level, 1);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("b6_open_child").start, 61300.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("b6_open_child").total_time, 200.0);
+}
+
+TEST_F(DataProviderTest,
+       CompactionClampsChildLeafCoalescingToKeptAncestorBounds) {
+  // Construct a 2-level track (> 262,144 total events) where BOTH level 0 and
+  // level 1 exceed `min_level_threshold` (`per_level_cap` ~ 64,512) and undergo
+  // compaction with `bucket_width` ~ 2,015 us and `sub_bucket_count` == 1
+  // (`max_coalesce_gap` ~ 1,007 us) across isolated early buckets.
+  constexpr int kSparsePairs = 62000;
+  constexpr int kDensePairs = 75000;
+  constexpr int kTailEvents = 2048;
+
+  constexpr Microseconds kUlpParentStart = 0.0;
+  constexpr Microseconds kUlpParentDur = 0.3;
+  constexpr Microseconds kUlpBestStart = 0.1;
+  constexpr Microseconds kUlpBestDur = 0.2;
+  // Verify IEEE-754 non-dyadic `best_start + best_dur` rounds 1 ULP past
+  // `p_start + p_dur` (`0.1 + 0.2 > 0.3`).
+  ASSERT_GT(kUlpBestStart + kUlpBestDur, kUlpParentStart + kUlpParentDur);
+
+  ParsedTraceEvents chunk;
+  chunk.flame_events.reserve(32);
+  chunk.flame_events.push_back(CreateProcessEvent(1, "host:0 /device:TPU:0"));
+  chunk.flame_events.push_back(CreateThreadEvent(1, 2, "TEC 0"));
+
+  EventId next_id = 1;
+  auto add_to = [&](ParsedTraceEvents& dst, absl::string_view name,
+                    Microseconds ts, Microseconds dur) {
+    dst.flame_events.push_back(
+        MakeSpan(Phase::kComplete, next_id++, 1, 2, name, ts, dur));
+  };
+
+  // Bucket A (`[0.0, 0.55]`): `ulp_best_child` (`[0.1, 0.3]`) rounds 1 ULP past
+  // `ulp_kept_parent` (`[0.0, 0.3]`). `ComputeCoalesceBounds` must still
+  // recognize `ulp_kept_parent` as an enclosing ancestor, coalescing
+  // `ulp_start_child` (`[0.0, 0.1]`), clamping to `[0.0, 0.3]`, and rejecting
+  // `ulp_outside_child`.
+  add_to(chunk, "ulp_kept_parent", kUlpParentStart, kUlpParentDur);
+  add_to(chunk, "ulp_start_child", 0.0, 0.1);
+  add_to(chunk, "ulp_best_child", kUlpBestStart, kUlpBestDur);
+  add_to(chunk, "ulp_guard_zero_after", 0.35, 0.0);
+  add_to(chunk, "ulp_dropped_next_parent", 0.4, 0.15);
+  add_to(chunk, "ulp_outside_child", 0.42, 0.1);
+
+  // Bucket B (`[20099.0, 20105.9]`): `dropped_prev_parent` and
+  // `dropped_next_parent` are dropped on level 0, and their children
+  // `before_child` (`0.75`) and `outside_child` (`0.75`) outlast every
+  // individual child (`<= 0.70`) of `kept_parent` (`[20100.0, 20105.0]`).
+  // Orphan filtering must drop `before_child` and `outside_child` before
+  // `SelectAndCoalesceLevelSpans` so `best_child` (`0.70`) wins `best_pos` and
+  // coalesces `[20100.0, 20105.0]`.
+  add_to(chunk, "dropped_prev_parent", 20099.0, 0.8);
+  add_to(chunk, "before_child", 20099.05, 0.75);
+  add_to(chunk, "guard_zero_before", 20099.9, 0.0);
+  add_to(chunk, "kept_parent", 20100.0, 5.0);
+  add_to(chunk, "start_child", 20100.0, 0.60);
+  add_to(chunk, "best_child", 20100.6, 0.70);
+  add_to(chunk, "mid_child_1", 20101.3, 0.65);
+  add_to(chunk, "mid_child_2", 20101.95, 0.65);
+  add_to(chunk, "mid_child_3", 20102.6, 0.60);
+  add_to(chunk, "mid_child_4", 20103.2, 0.60);
+  add_to(chunk, "mid_child_5", 20103.8, 0.60);
+  add_to(chunk, "end_child", 20104.4, 0.60);
+  add_to(chunk, "guard_zero_after", 20105.05, 0.0);
+  add_to(chunk, "dropped_next_parent", 20105.1, 0.8);
+  add_to(chunk, "outside_child", 20105.12, 0.75);
+
+  // Bucket C (`[50100.0, 55108.0]`): `c_long_open` (`kDurationBegin` at
+  // `50100.0`) later closes at `55100.0` past `c_inner_l0` (`[54900.0,
+  // 54920.0]`, placed on level 0 before continuation arrived). For
+  // `c_open_best_child` (`[55080.0, 55095.0]`), `ComputeCoalesceBounds` must
+  // enforce BOTH `prev_idx` (`c_inner_l0`, clamping `min_ts = 54920.0` to
+  // exclude `c_inner_child`) and `prefix_max_end_indices` (`c_long_open`,
+  // clamping `max_ts = 55100.0` to absorb `c_open_end_child` while excluding
+  // non-nested `c_staggered_l1`).
+  chunk.flame_events.push_back(MakeSpan(Phase::kDurationBegin, next_id++, 1, 2,
+                                        "c_long_open", 50100.0, 10.0));
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(
+      std::move(chunk), timeline_,
+      DataProvider::TimelineFlushMode::kDeferFlush);
+
+  ParsedTraceEvents mid_chunk;
+  add_to(mid_chunk, "c_inner_l0", 54900.0, 20.0);
+  add_to(mid_chunk, "c_inner_child", 54902.0, 6.0);
+  add_to(mid_chunk, "c_guard_zero_after_open", 55100.5, 0.0);
+  data_provider_.AppendTraceEventsIncremental(
+      std::move(mid_chunk), timeline_,
+      DataProvider::TimelineFlushMode::kDeferFlush);
+
+  ParsedTraceEvents final_chunk;
+  final_chunk.flame_events.reserve(16 + 2 * kSparsePairs + 2 * kDensePairs +
+                                   kTailEvents);
+  final_chunk.flame_events.push_back(MakeSpan(
+      Phase::kDurationEnd, next_id++, 1, 2, "c_long_open", 50100.0, 5000.0));
+  add_to(final_chunk, "c_open_best_child", 55080.0, 15.0);
+  add_to(final_chunk, "c_open_end_child", 55095.5, 4.5);
+  add_to(final_chunk, "c_staggered_l0", 55101.0, 4.0);
+  add_to(final_chunk, "c_staggered_l1", 55102.0, 6.0);
+
+  // Bucket D (`[75000.0, 75018.0]`): `d_staggered_l1` (`[75001.0, 75006.0]`)
+  // crosses past `d_dropped_l0` (`[75000.0, 75003.0]`) and was never enclosed
+  // by any level-0 span, so orphan filtering must preserve `d_staggered_l1`.
+  add_to(final_chunk, "d_dropped_l0", 75000.0, 3.0);
+  add_to(final_chunk, "d_staggered_l1", 75001.0, 5.0);
+  add_to(final_chunk, "d_guard_zero", 75007.0, 0.0);
+  add_to(final_chunk, "d_kept_l0", 75008.0, 10.0);
+
+  for (int i = 0; i < kSparsePairs; ++i) {
+    const Microseconds ts = 100000.0 + i * 2050.0;
+    add_to(final_chunk, "sparse_parent", ts, 2.0);
+    add_to(final_chunk, "sparse_child", ts + 0.5, 1.0);
+  }
+  for (int i = 0; i < kDensePairs; ++i) {
+    const Microseconds ts = 128000000.0 + i * 0.2;
+    add_to(final_chunk, "dense_parent", ts, 0.1);
+    add_to(final_chunk, "dense_child", ts + 0.02, 0.05);
+  }
+  for (int i = 0; i < kTailEvents; ++i) {
+    add_to(final_chunk, "tail_filler", 130000000.0 + i * 1.0, 0.5);
+  }
+
+  data_provider_.MarkFinishingIncrementalLoad();
+  data_provider_.AppendTraceEventsIncremental(std::move(final_chunk),
+                                              timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_GT(data.entry_start_times.size(), 100000u);
+  ASSERT_LE(data.entry_start_times.size(), 131072u);
+
+  const absl::flat_hash_map<std::string, KeptSpan> kept_by_name =
+      CollectNonFillerKeptSpans(data);
+
+  // Bucket A assertions:
+  ASSERT_TRUE(kept_by_name.contains("ulp_kept_parent"));
+  EXPECT_EQ(kept_by_name.at("ulp_kept_parent").level, 0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("ulp_kept_parent").start, 0.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("ulp_kept_parent").total_time, 0.3);
+  EXPECT_FALSE(kept_by_name.contains("ulp_dropped_next_parent"));
+
+  ASSERT_TRUE(kept_by_name.contains("ulp_best_child"));
+  EXPECT_EQ(kept_by_name.at("ulp_best_child").level, 1);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("ulp_best_child").start, 0.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("ulp_best_child").total_time, 0.3);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("ulp_best_child").self_time, 0.3);
+  EXPECT_FALSE(kept_by_name.contains("ulp_start_child"));
+  EXPECT_FALSE(kept_by_name.contains("ulp_outside_child"));
+
+  // Bucket B assertions:
+  ASSERT_TRUE(kept_by_name.contains("kept_parent"));
+  EXPECT_EQ(kept_by_name.at("kept_parent").level, 0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("kept_parent").start, 20100.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("kept_parent").total_time, 5.0);
+  EXPECT_FALSE(kept_by_name.contains("dropped_prev_parent"));
+  EXPECT_FALSE(kept_by_name.contains("dropped_next_parent"));
+
+  ASSERT_TRUE(kept_by_name.contains("best_child"));
+  EXPECT_EQ(kept_by_name.at("best_child").level, 1);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("best_child").start, 20100.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("best_child").total_time, 5.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("best_child").self_time, 5.0);
+  EXPECT_FALSE(kept_by_name.contains("before_child"));
+  EXPECT_FALSE(kept_by_name.contains("outside_child"));
+
+  // Bucket C assertions:
+  ASSERT_TRUE(kept_by_name.contains("c_long_open"));
+  EXPECT_EQ(kept_by_name.at("c_long_open").level, 0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("c_long_open").start, 50100.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("c_long_open").total_time, 5000.0);
+  ASSERT_TRUE(kept_by_name.contains("c_inner_l0"));
+  EXPECT_EQ(kept_by_name.at("c_inner_l0").level, 0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("c_inner_l0").start, 54900.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("c_inner_l0").total_time, 20.0);
+  EXPECT_FALSE(kept_by_name.contains("c_staggered_l0"));
+
+  ASSERT_TRUE(kept_by_name.contains("c_open_best_child"));
+  EXPECT_EQ(kept_by_name.at("c_open_best_child").level, 1);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("c_open_best_child").start, 55080.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("c_open_best_child").total_time, 20.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("c_open_best_child").self_time, 20.0);
+  EXPECT_FALSE(kept_by_name.contains("c_inner_child"));
+  EXPECT_FALSE(kept_by_name.contains("c_open_end_child"));
+  EXPECT_FALSE(kept_by_name.contains("c_staggered_l1"));
+
+  // Bucket D assertions:
+  ASSERT_TRUE(kept_by_name.contains("d_kept_l0"));
+  EXPECT_EQ(kept_by_name.at("d_kept_l0").level, 0);
+  EXPECT_FALSE(kept_by_name.contains("d_dropped_l0"));
+  ASSERT_TRUE(kept_by_name.contains("d_staggered_l1"));
+  EXPECT_EQ(kept_by_name.at("d_staggered_l1").level, 1);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("d_staggered_l1").start, 75001.0);
+  EXPECT_DOUBLE_EQ(kept_by_name.at("d_staggered_l1").total_time, 5.0);
+}
+
+// Returns the fraction of `range_us` covered by the union of entries on
+// relative level `rel_level` of `group`.
+double LevelOccupancy(const FlameChartTimelineData& data, const Group& group,
+                      int rel_level, Microseconds range_us) {
+  std::vector<std::pair<Microseconds, Microseconds>> spans;
+  for (size_t i = 0; i < data.entry_levels.size(); ++i) {
+    if (data.entry_levels[i] != group.start_level + rel_level) continue;
+    spans.emplace_back(data.entry_start_times[i],
+                       data.entry_start_times[i] + data.entry_total_times[i]);
+  }
+  absl::c_sort(spans);
+  Microseconds covered = 0.0;
+  Microseconds covered_end = std::numeric_limits<Microseconds>::lowest();
+  for (const auto& [start, end] : spans) {
+    const Microseconds clipped_start = std::max(start, covered_end);
+    if (end > clipped_start) covered += end - clipped_start;
+    covered_end = std::max(covered_end, end);
+  }
+  return covered / range_us;
+}
+
+TEST_F(DataProviderTest,
+       FinalFlushPreservesNonLeafDeviceLevelOccupancyAfterHostDrainCompaction) {
+  constexpr int kSteps = 20000;
+  constexpr int kIdleBeginStep = 8000;
+  constexpr int kIdleEndStep = 9000;
+  constexpr Microseconds kStepUs = 1000.0;
+  constexpr Microseconds kTraceEndUs = kSteps * kStepUs;
+  constexpr Microseconds kIdleBeginUs = kIdleBeginStep * kStepUs;
+  constexpr Microseconds kIdleEndUs = kIdleEndStep * kStepUs;
+  constexpr int kHostBatches = 3;
+  constexpr int kHostTracksPerBatch = 50;
+  constexpr int kEventsPerHostTrack = 4000;
+  constexpr Microseconds kContainmentToleranceUs = 1e-6;
+  const std::vector<std::string> kDeviceTracks = {"XLA TraceMe", "TEC 0"};
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  ASSERT_TRUE(timeline_.incremental_fetch_enabled());
+
+  // Two nested device tracks: per step, one 800 us parent with three 200 us
+  // leaf children, except for an idle window with no device activity.
+  ParsedTraceEvents device_chunk;
+  device_chunk.flame_events.push_back(
+      CreateProcessEvent(1, "host:0 /device:TPU:0"));
+  EventId next_id = 1;
+  for (size_t t = 0; t < kDeviceTracks.size(); ++t) {
+    const ThreadId tid = 10 + static_cast<ThreadId>(t);
+    device_chunk.flame_events.push_back(
+        CreateThreadEvent(1, tid, kDeviceTracks[t]));
+    for (int k = 0; k < kSteps; ++k) {
+      if (k >= kIdleBeginStep && k < kIdleEndStep) continue;
+      const Microseconds ts = k * kStepUs;
+      device_chunk.flame_events.push_back(
+          MakeSpan(Phase::kComplete, next_id++, 1, tid, "parent", ts, 800.0));
+      for (const Microseconds offset : {50.0, 300.0, 550.0}) {
+        device_chunk.flame_events.push_back(MakeSpan(
+            Phase::kComplete, next_id++, 1, tid, "leaf", ts + offset, 200.0));
+      }
+    }
+  }
+  data_provider_.AppendTraceEventsIncremental(
+      std::move(device_chunk), timeline_,
+      DataProvider::TimelineFlushMode::kAutoFlush);
+
+  constexpr int kDeviceSteps = kSteps - (kIdleEndStep - kIdleBeginStep);
+  absl::flat_hash_map<std::string, std::array<double, 2>> mid_occupancy;
+  {
+    const FlameChartTimelineData& data = timeline_.timeline_data();
+    for (const std::string& track : kDeviceTracks) {
+      const Group* group = FindGroupByName(data.groups, track);
+      ASSERT_NE(group, nullptr) << track;
+      ASSERT_EQ(group->level_count, 2) << track;
+      for (int l = 0; l < 2; ++l) {
+        mid_occupancy[track][l] = LevelOccupancy(data, *group, l, kTraceEndUs);
+      }
+      EXPECT_NEAR(mid_occupancy[track][0], 0.8 * kDeviceSteps / kSteps, 1e-6)
+          << track;
+    }
+    EXPECT_EQ(data.entry_start_times.size(),
+              kDeviceTracks.size() * kDeviceSteps * 4);
+  }
+
+  // Deferred host processes drain at the end of the stream (150 processes ->
+  // `per_pid_cap` ~ 2,317), forcing aggressive compaction on pid 1's nested
+  // device tracks.
+  for (int batch = 0; batch < kHostBatches; ++batch) {
+    ParsedTraceEvents host_chunk;
+    for (int h = 0; h < kHostTracksPerBatch; ++h) {
+      const ProcessId host_pid = 100 + batch * kHostTracksPerBatch + h;
+      const ThreadId tid = 1000 + batch * kHostTracksPerBatch + h;
+      host_chunk.flame_events.push_back(CreateProcessEvent(
+          host_pid, absl::StrCat("host:", host_pid, " CPU")));
+      host_chunk.flame_events.push_back(
+          CreateThreadEvent(host_pid, tid, absl::StrCat("host_", tid)));
+      for (int i = 0; i < kEventsPerHostTrack; ++i) {
+        host_chunk.flame_events.push_back(MakeSpan(Phase::kComplete, next_id++,
+                                                   host_pid, tid, "host_ev",
+                                                   i * 5000.0, 10.0));
+      }
+    }
+    const bool is_final = (batch + 1 == kHostBatches);
+    if (is_final) data_provider_.MarkFinishingIncrementalLoad();
+    data_provider_.AppendTraceEventsIncremental(
+        std::move(host_chunk), timeline_,
+        is_final ? DataProvider::TimelineFlushMode::kAutoFlush
+                 : DataProvider::TimelineFlushMode::kDeferFlush);
+  }
+  data_provider_.FinishIncrementalLoad();
+
+  EXPECT_TRUE(data_provider_.was_compacted());
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  EXPECT_LT(data.entry_start_times.size(), 600000u);
+  for (const std::string& track : kDeviceTracks) {
+    const Group* group = FindGroupByName(data.groups, track);
+    ASSERT_NE(group, nullptr) << track;
+    ASSERT_EQ(group->level_count, 2) << track;
+    for (int l = 0; l < 2; ++l) {
+      EXPECT_GE(LevelOccupancy(data, *group, l, kTraceEndUs),
+                0.9 * mid_occupancy[track][l])
+          << track << " level " << l;
+    }
+
+    std::vector<std::pair<Microseconds, Microseconds>> level0_spans;
+    size_t level0_count = 0;
+    bool has_level0_parent = false;
+    for (size_t i = 0; i < data.entry_levels.size(); ++i) {
+      const int rel_level = data.entry_levels[i] - group->start_level;
+      if (rel_level < 0 || rel_level >= group->level_count) continue;
+      const Microseconds start = data.entry_start_times[i];
+      const Microseconds end = start + data.entry_total_times[i];
+      EXPECT_TRUE(end <= kIdleBeginUs || start >= kIdleEndUs)
+          << track << " span [" << start << ", " << end
+          << "] bridged the idle window";
+      if (rel_level == 0) {
+        ++level0_count;
+        level0_spans.emplace_back(start, end);
+        has_level0_parent |=
+            data.entry_self_times[i] < data.entry_total_times[i];
+      }
+    }
+    EXPECT_LT(level0_count, static_cast<size_t>(kDeviceSteps)) << track;
+    EXPECT_TRUE(has_level0_parent) << track;
+
+    absl::c_sort(level0_spans);
+    for (size_t i = 0; i < data.entry_levels.size(); ++i) {
+      if (data.entry_levels[i] != group->start_level + 1) continue;
+      const Microseconds start = data.entry_start_times[i];
+      const Microseconds end = start + data.entry_total_times[i];
+      auto it = absl::c_upper_bound(
+          level0_spans,
+          std::make_pair(start + kContainmentToleranceUs,
+                         std::numeric_limits<Microseconds>::max()));
+      ASSERT_NE(it, level0_spans.begin()) << track;
+      EXPECT_GE(std::prev(it)->second + kContainmentToleranceUs, end)
+          << track << " level-1 span [" << start << ", " << end
+          << "] is outside every kept level-0 span";
+    }
+  }
 }
 
 }  // namespace

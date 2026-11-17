@@ -14,6 +14,7 @@
 #include <set>
 #include <string>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -75,7 +76,6 @@ constexpr size_t kMinLevelCompactionThreshold = 2048;
 constexpr size_t kMinLevelBudget = 512;
 constexpr size_t kMaxGlobalCachedEvents = 600000;
 constexpr size_t kTargetGlobalCachedEvents = 350000;
-constexpr size_t kMinTrackEventsForGlobalCompaction = 1024;
 constexpr size_t kGlobalTailKeepEvents = 512;
 constexpr size_t kMaxIncrementalFlowEvents = 16384;
 
@@ -1200,11 +1200,347 @@ auto CompareEntriesByStartAscThenDurDesc(
   };
 }
 
+// Copies dense non-timing identity and attribute columns from `from_idx` to
+// `to_idx` in `cached`, leaving timing, level, and sparse metadata maps
+// unchanged (bulk compaction remaps sparse maps separately; single-entry
+// relocation uses `RelocateSparseEntryMetadata`).
+void CopyCachedTrackEntryMetadata(CachedThreadTrack& cached, size_t from_idx,
+                                  size_t to_idx) {
+  FlameChartTimelineData& entries = cached.entries;
+  cached.entry_name_ids[to_idx] = cached.entry_name_ids[from_idx];
+  entries.entry_event_ids[to_idx] = entries.entry_event_ids[from_idx];
+  if (!cached.entry_tids.empty()) {
+    cached.entry_tids[to_idx] = cached.entry_tids[from_idx];
+  }
+  entries.entry_serials[to_idx] = entries.entry_serials[from_idx];
+  entries.entry_arg_flags[to_idx] = entries.entry_arg_flags[from_idx];
+  entries.entry_hlo_module_ids[to_idx] = entries.entry_hlo_module_ids[from_idx];
+}
+
+// Moves sparse per-entry metadata from `from_idx` to `to_idx` in `entries`,
+// clearing any stale sparse metadata previously stored at `to_idx`.
+void RelocateSparseEntryMetadata(FlameChartTimelineData& entries,
+                                 size_t from_idx, size_t to_idx) {
+  auto move_sparse_entry = [](auto& map, size_t from, size_t to) {
+    if (auto it = map.find(from); it != map.end()) {
+      auto val = std::move(it->second);
+      map.erase(it);
+      map[to] = std::move(val);
+    } else if (!map.empty()) {
+      map.erase(to);
+    }
+  };
+  move_sparse_entry(entries.sparse_entry_group_ids, from_idx, to_idx);
+  move_sparse_entry(entries.sparse_entry_args, from_idx, to_idx);
+}
+
+struct SortedLevelSpans {
+  // Entry indices sorted by `entry_start_times` ascending (ties broken by
+  // `entry_total_times` descending).
+  std::vector<int> indices;
+  // Parallel to `indices`: entry index among `indices[0..i]` with the maximum
+  // end timestamp (`entry_start_times + entry_total_times`).
+  std::vector<int> prefix_max_end_indices;
+};
+
+void RebuildPrefixMaxEndIndices(const FlameChartTimelineData& entries,
+                                SortedLevelSpans& spans) {
+  spans.prefix_max_end_indices.resize(spans.indices.size());
+  Microseconds max_end = std::numeric_limits<Microseconds>::lowest();
+  int max_idx = -1;
+  for (size_t i = 0; i < spans.indices.size(); ++i) {
+    const int idx = spans.indices[i];
+    const Microseconds end =
+        entries.entry_start_times[idx] + entries.entry_total_times[idx];
+    if (max_idx < 0 || end >= max_end) {
+      max_end = end;
+      max_idx = idx;
+    }
+    spans.prefix_max_end_indices[i] = max_idx;
+  }
+}
+
+// Returns true if an ancestor span with `parent_start <= start` and end
+// timestamp `parent_end` encloses `[start, end]` within picosecond rounding
+// tolerance. Requiring `parent_end > mid` prevents a preceding adjacent
+// ancestor from matching via `kPicosecondRoundingToleranceUs` when
+// `[start, end]` is sub-picosecond wide (or zero-duration).
+bool EndCoversSpan(Microseconds parent_end, Microseconds start,
+                   Microseconds end) {
+  const Microseconds mid = start + (end - start) * 0.5;
+  return parent_end > mid && parent_end + kPicosecondRoundingToleranceUs >= end;
+}
+
+// Snapshots `(start, prefix_max_end)` pairs across all pre-compaction spans on
+// a level (`kept_indices` and `unkept_indices`, both sorted by `cmp_idx`)
+// before coalescing mutates `entry_total_times`.
+template <typename Compare>
+std::vector<std::pair<Microseconds, Microseconds>>
+BuildPreCompactionStartMaxEnds(const FlameChartTimelineData& entries,
+                               absl::Span<const int> kept_indices,
+                               absl::Span<const int> unkept_indices,
+                               Compare cmp_idx) {
+  std::vector<std::pair<Microseconds, Microseconds>> out;
+  out.reserve(kept_indices.size() + unkept_indices.size());
+  Microseconds max_end = std::numeric_limits<Microseconds>::lowest();
+  auto append_idx = [&](int idx) {
+    const Microseconds start = entries.entry_start_times[idx];
+    max_end = std::max(max_end, start + entries.entry_total_times[idx]);
+    out.emplace_back(start, max_end);
+  };
+  size_t i = 0;
+  size_t j = 0;
+  while (i < kept_indices.size() && j < unkept_indices.size()) {
+    if (cmp_idx(unkept_indices[j], kept_indices[i])) {
+      append_idx(unkept_indices[j++]);
+    } else {
+      append_idx(kept_indices[i++]);
+    }
+  }
+  while (i < kept_indices.size()) append_idx(kept_indices[i++]);
+  while (j < unkept_indices.size()) append_idx(unkept_indices[j++]);
+  return out;
+}
+
+bool IsEnclosedByStartMaxEnds(
+    absl::Span<const std::pair<Microseconds, Microseconds>> start_max_ends,
+    Microseconds start, Microseconds end) {
+  auto it = absl::c_upper_bound(
+      start_max_ends, start,
+      [](Microseconds ts, const std::pair<Microseconds, Microseconds>& p) {
+        return ts < p.first;
+      });
+  if (it == start_max_ends.begin()) return false;
+  return EndCoversSpan(std::prev(it)->second, start, end);
+}
+
+bool IsEnclosedByKeptSpans(const FlameChartTimelineData& entries,
+                           const SortedLevelSpans& kept, Microseconds start,
+                           Microseconds end) {
+  auto it =
+      absl::c_upper_bound(kept.indices, start, [&](Microseconds ts, int idx) {
+        return ts < entries.entry_start_times[idx];
+      });
+  if (it == kept.indices.begin()) return false;
+  const size_t pos = static_cast<size_t>(it - kept.indices.begin() - 1);
+  const int max_idx = kept.prefix_max_end_indices[pos];
+  const Microseconds max_end =
+      entries.entry_start_times[max_idx] + entries.entry_total_times[max_idx];
+  return EndCoversSpan(max_end, start, end);
+}
+
+struct CoalesceBounds {
+  Microseconds min_ts = std::numeric_limits<Microseconds>::lowest();
+  Microseconds max_ts = std::numeric_limits<Microseconds>::max();
+};
+
+// Computes the `[min_ts, max_ts]` interval within which a span
+// `[best_start, best_end]` (`best_end > best_start`) may coalesce without
+// crossing any kept ancestor or same-level span in `kept_by_level`.
+//
+// Preconditions: `kept_by_level` is non-empty; `0 .. kept_by_level.size() - 2`
+// are ancestor levels and `kept_by_level.back()` is the current level, with
+// each `SortedLevelSpans` sorted by `entry_start_times` ascending and paired
+// with running `prefix_max_end_indices`.
+CoalesceBounds ComputeCoalesceBounds(
+    const FlameChartTimelineData& entries,
+    absl::Span<const SortedLevelSpans> kept_by_level, Microseconds best_start,
+    Microseconds best_end) {
+  CoalesceBounds bounds;
+  for (size_t lvl_idx = 0; lvl_idx < kept_by_level.size(); ++lvl_idx) {
+    const SortedLevelSpans& kept = kept_by_level[lvl_idx];
+    const bool is_ancestor_level = (lvl_idx + 1 < kept_by_level.size());
+    auto apply_prev_span = [&](int prev_idx) {
+      const Microseconds p_start = entries.entry_start_times[prev_idx];
+      const Microseconds p_end = p_start + entries.entry_total_times[prev_idx];
+      if (is_ancestor_level && EndCoversSpan(p_end, best_start, best_end)) {
+        bounds.min_ts = std::max(bounds.min_ts, p_start);
+        bounds.max_ts = std::min(bounds.max_ts, p_end);
+      } else {
+        bounds.min_ts = std::max(bounds.min_ts, std::min(p_end, best_start));
+      }
+    };
+    auto it = absl::c_upper_bound(kept.indices, best_start,
+                                  [&](Microseconds ts, int idx) {
+                                    return ts < entries.entry_start_times[idx];
+                                  });
+    if (it != kept.indices.begin()) {
+      const size_t pos = static_cast<size_t>(it - kept.indices.begin() - 1);
+      const int prev_idx = kept.indices[pos];
+      apply_prev_span(prev_idx);
+      const int max_end_idx = kept.prefix_max_end_indices[pos];
+      if (max_end_idx != prev_idx) {
+        apply_prev_span(max_end_idx);
+      }
+    }
+    if (it != kept.indices.end()) {
+      bounds.max_ts = std::min(
+          bounds.max_ts, std::max(entries.entry_start_times[*it], best_end));
+    }
+  }
+  return bounds;
+}
+
+// Selects the longest-duration span in `[sub_start, sub_end)` (`sub_start <
+// sub_end`) and coalesces contiguous positive-duration spans around it into one
+// envelope bounded by `kept_by_level` and `max_coalesce_gap`. Returns the kept
+// entry index in `cached.entries`.
+int CoalesceBurstInSubBucket(CachedThreadTrack& cached,
+                             absl::Span<const int> level_vec, size_t sub_start,
+                             size_t sub_end, Microseconds max_coalesce_gap,
+                             absl::Span<const SortedLevelSpans> kept_by_level) {
+  FlameChartTimelineData& entries = cached.entries;
+  auto child_time_of = [&](int idx) {
+    return std::max<Microseconds>(
+        0.0, entries.entry_total_times[idx] - entries.entry_self_times[idx]);
+  };
+  auto can_bridge_gap = [max_coalesce_gap](Microseconds gap) {
+    return gap >= -kPicosecondRoundingToleranceUs && gap <= max_coalesce_gap;
+  };
+  size_t best_pos = sub_start;
+  Microseconds best_dur = entries.entry_total_times[level_vec[sub_start]];
+  for (size_t pos = sub_start + 1; pos < sub_end; ++pos) {
+    const Microseconds dur = entries.entry_total_times[level_vec[pos]];
+    if (dur > best_dur) {
+      best_dur = dur;
+      best_pos = pos;
+    }
+  }
+  const int best_idx = level_vec[best_pos];
+  if (sub_end - sub_start <= 1 || best_dur <= 0.0) {
+    return best_idx;
+  }
+
+  const Microseconds best_start = entries.entry_start_times[best_idx];
+  const Microseconds best_end = best_start + best_dur;
+  const CoalesceBounds bounds =
+      ComputeCoalesceBounds(entries, kept_by_level, best_start, best_end);
+  Microseconds burst_start = best_start;
+  Microseconds burst_end = best_end;
+  Microseconds child_time = child_time_of(best_idx);
+  size_t first_pos = best_pos;
+  for (size_t pos = best_pos; pos > sub_start; --pos) {
+    const int cand = level_vec[pos - 1];
+    const Microseconds c_start = entries.entry_start_times[cand];
+    const Microseconds c_end = c_start + entries.entry_total_times[cand];
+    if (entries.entry_total_times[cand] <= 0.0 || c_start < bounds.min_ts ||
+        c_start >= burst_start || !can_bridge_gap(burst_start - c_end)) {
+      break;
+    }
+    burst_start = c_start;
+    child_time += child_time_of(cand);
+    first_pos = pos - 1;
+  }
+  for (size_t pos = best_pos + 1; pos < sub_end; ++pos) {
+    const int cand = level_vec[pos];
+    const Microseconds c_start = entries.entry_start_times[cand];
+    const Microseconds c_end = c_start + entries.entry_total_times[cand];
+    if (entries.entry_total_times[cand] <= 0.0 ||
+        c_end > bounds.max_ts + kPicosecondRoundingToleranceUs ||
+        c_end <= burst_end || !can_bridge_gap(c_start - burst_end)) {
+      break;
+    }
+    burst_end = std::min(c_end, bounds.max_ts);
+    child_time += child_time_of(cand);
+  }
+  Microseconds max_end = bounds.max_ts;
+  if (sub_end < level_vec.size()) {
+    const Microseconds next_sub_start =
+        entries.entry_start_times[level_vec[sub_end]];
+    // Skip clamping when `burst_end` already extends past `next_sub_start` so
+    // an incremental `Phase::kDurationBegin` span that later closed past an
+    // earlier-placed span on the same level is not truncated.
+    if (burst_end <= next_sub_start + kPicosecondRoundingToleranceUs) {
+      max_end = std::min(max_end, next_sub_start);
+    }
+  }
+  burst_end = std::max(burst_start, std::min(burst_end, max_end));
+  // Reuse `level_vec[first_pos]` (at `burst_start`) to preserve sort order.
+  const int kept_idx = level_vec[first_pos];
+  const Microseconds coalesced_dur = burst_end - burst_start;
+  if (kept_idx != best_idx) {
+    CopyCachedTrackEntryMetadata(cached, best_idx, kept_idx);
+    RelocateSparseEntryMetadata(entries, best_idx, kept_idx);
+  }
+  entries.entry_total_times[kept_idx] = coalesced_dur;
+  entries.entry_self_times[kept_idx] =
+      std::max<Microseconds>(0.0, coalesced_dur - child_time);
+  return kept_idx;
+}
+
+// Distributes `level_budget` across non-empty time regions of `level_vec` so
+// idle gaps do not waste budget, and marks one coalesced representative span
+// per sub-bucket in `keep`.
+//
+// Preconditions: `level_vec` is sorted by `entry_start_times` ascending and
+// `1 <= level_budget < level_vec.size()`.
+void SelectAndCoalesceLevelSpans(
+    CachedThreadTrack& cached, absl::Span<const int> level_vec,
+    size_t level_budget, absl::Span<const SortedLevelSpans> kept_by_level,
+    std::vector<uint8_t>& keep) {
+  FlameChartTimelineData& entries = cached.entries;
+  const Microseconds min_ts = entries.entry_start_times[level_vec.front()];
+  const Microseconds max_start_ts = entries.entry_start_times[level_vec.back()];
+  const Microseconds bucket_width =
+      max_start_ts > min_ts
+          ? (max_start_ts - min_ts) / static_cast<double>(level_budget)
+          : 0.0;
+  auto bucket_of = [&](int idx) -> size_t {
+    return bucket_width > 0.0
+               ? std::min<size_t>(
+                     level_budget - 1,
+                     static_cast<size_t>(std::max(
+                         0.0, (entries.entry_start_times[idx] - min_ts) /
+                                  bucket_width)))
+               : 0;
+  };
+  std::vector<std::pair<size_t, size_t>> bucket_ranges;
+  for (size_t pos = 0; pos < level_vec.size();) {
+    const size_t b = bucket_of(level_vec[pos]);
+    size_t end_pos = pos + 1;
+    while (end_pos < level_vec.size() && bucket_of(level_vec[end_pos]) == b) {
+      ++end_pos;
+    }
+    bucket_ranges.emplace_back(pos, end_pos);
+    pos = end_pos;
+  }
+  const size_t num_buckets = bucket_ranges.size();
+  const size_t extra_budget = level_budget - num_buckets;
+  const size_t total_excess = level_vec.size() - num_buckets;
+  // Cumulative Bresenham rounding allocates `extra_budget` proportionally to
+  // each bucket's excess events so sub-bucket counts sum to `level_budget`.
+  size_t cum_excess = 0;
+  for (const auto& [b_start, b_end] : bucket_ranges) {
+    const size_t bucket_event_count = b_end - b_start;
+    const size_t next_cum_excess = cum_excess + (bucket_event_count - 1);
+    const size_t sub_bucket_count =
+        1 +
+        (static_cast<uint64_t>(next_cum_excess) * extra_budget) / total_excess -
+        (static_cast<uint64_t>(cum_excess) * extra_budget) / total_excess;
+    cum_excess = next_cum_excess;
+    const Microseconds max_coalesce_gap =
+        std::max<Microseconds>(1.0, (bucket_width / sub_bucket_count) * 0.5);
+    for (size_t s = 0; s < sub_bucket_count; ++s) {
+      const size_t sub_start =
+          b_start +
+          static_cast<size_t>((static_cast<uint64_t>(s) * bucket_event_count) /
+                              sub_bucket_count);
+      const size_t sub_end =
+          b_start + static_cast<size_t>(
+                        (static_cast<uint64_t>(s + 1) * bucket_event_count) /
+                        sub_bucket_count);
+      const int kept_idx =
+          CoalesceBurstInSubBucket(cached, level_vec, sub_start, sub_end,
+                                   max_coalesce_gap, kept_by_level);
+      keep[kept_idx] = 1;
+    }
+  }
+}
+
 // Compacts `cached` in-place when its event count exceeds `max_cached_events`,
 // reducing the track toward `target_compacted_events` while always preserving
-// active `open_spans`, pinned events, the most recent `tail_keep_count` events
-// (and any ancestor active at the last start time), and the longest-duration
-// span in each time bucket per level. Returns true if any entries were dropped.
+// active `open_spans`, pinned events, and the most recent `tail_keep_count`
+// events (plus active ancestors). Returns true if any entries were dropped.
 bool CompactCachedThreadTrackIfNeeded(
     CachedThreadTrack& cached,
     size_t max_cached_events = kDefaultMaxTrackEvents,
@@ -1237,13 +1573,17 @@ bool CompactCachedThreadTrackIfNeeded(
   }
 
   size_t already_kept = 0;
-  std::vector<std::vector<int>> events_by_level(cached.max_relative_level + 1);
+  const size_t num_levels = static_cast<size_t>(cached.max_relative_level) + 1;
+  std::vector<std::vector<int>> events_by_level(num_levels);
+  std::vector<SortedLevelSpans> kept_by_level(num_levels);
   for (size_t i = 0; i < n; ++i) {
+    const int lvl = entries.entry_levels[i];
     if (keep[i]) {
       ++already_kept;
+      kept_by_level[lvl].indices.push_back(static_cast<int>(i));
       continue;
     }
-    events_by_level[entries.entry_levels[i]].push_back(static_cast<int>(i));
+    events_by_level[lvl].push_back(static_cast<int>(i));
   }
   const size_t unkept_count = n - already_kept;
   if (unkept_count == 0) return false;
@@ -1261,52 +1601,69 @@ bool CompactCachedThreadTrackIfNeeded(
       std::min(kMinLevelCompactionThreshold, per_level_cap / 2);
   const size_t min_level_budget =
       std::min(kMinLevelBudget, std::max<size_t>(1, per_level_cap / 2));
-  for (std::vector<int>& level_vec : events_by_level) {
-    if (level_vec.empty()) continue;
+  size_t remaining_budget = head_budget;
+  size_t remaining_unkept = unkept_count;
+  std::vector<std::pair<Microseconds, Microseconds>> pre_parent_spans;
+  for (size_t lvl = 0; lvl < num_levels; ++lvl) {
+    std::vector<int>& level_vec = events_by_level[lvl];
+    SortedLevelSpans& kept_spans = kept_by_level[lvl];
+    if (!absl::c_is_sorted(kept_spans.indices, cmp_idx)) {
+      absl::c_stable_sort(kept_spans.indices, cmp_idx);
+    }
+    RebuildPrefixMaxEndIndices(entries, kept_spans);
     if (!absl::c_is_sorted(level_vec, cmp_idx)) {
       absl::c_stable_sort(level_vec, cmp_idx);
     }
+    std::vector<std::pair<Microseconds, Microseconds>> next_pre_parent_spans;
+    if (lvl + 1 < num_levels) {
+      next_pre_parent_spans = BuildPreCompactionStartMaxEnds(
+          entries, kept_spans.indices, level_vec, cmp_idx);
+    }
+    if (lvl > 0 && !level_vec.empty()) {
+      // Drop unkept child spans whose enclosing `lvl - 1` parent was dropped,
+      // while preserving staggered spans never enclosed by a `lvl - 1` span.
+      const size_t prev_unkept = level_vec.size();
+      const SortedLevelSpans& parent_kept = kept_by_level[lvl - 1];
+      level_vec.erase(
+          std::remove_if(
+              level_vec.begin(), level_vec.end(),
+              [&](int idx) {
+                const Microseconds s = entries.entry_start_times[idx];
+                const Microseconds e = s + entries.entry_total_times[idx];
+                return IsEnclosedByStartMaxEnds(pre_parent_spans, s, e) &&
+                       !IsEnclosedByKeptSpans(entries, parent_kept, s, e);
+              }),
+          level_vec.end());
+      remaining_unkept -=
+          std::min(remaining_unkept, prev_unkept - level_vec.size());
+    }
+    pre_parent_spans = std::move(next_pre_parent_spans);
+    if (level_vec.empty()) continue;
+
     const size_t level_budget =
         level_vec.size() <= min_level_threshold
             ? level_vec.size()
             : std::max<size_t>(
                   min_level_budget,
-                  static_cast<size_t>(static_cast<uint64_t>(head_budget) *
-                                      level_vec.size() / unkept_count));
+                  static_cast<size_t>(static_cast<uint64_t>(remaining_budget) *
+                                      level_vec.size() /
+                                      std::max<size_t>(1, remaining_unkept)));
+    remaining_budget -= std::min(remaining_budget, level_budget);
+    remaining_unkept -= std::min(remaining_unkept, level_vec.size());
     if (level_vec.size() <= level_budget) {
       for (const int idx : level_vec) keep[idx] = 1;
-      continue;
+    } else {
+      SelectAndCoalesceLevelSpans(
+          cached, level_vec, level_budget,
+          absl::MakeConstSpan(kept_by_level).subspan(0, lvl + 1), keep);
     }
-    const Microseconds min_ts = entries.entry_start_times[level_vec.front()];
-    const Microseconds max_start_ts =
-        entries.entry_start_times[level_vec.back()];
-    const Microseconds bucket_width =
-        max_start_ts > min_ts
-            ? (max_start_ts - min_ts) / static_cast<double>(level_budget)
-            : 0.0;
-    size_t current_bucket = std::numeric_limits<size_t>::max();
-    int best_idx = -1;
-    Microseconds best_dur = -1.0;
-    for (const int idx : level_vec) {
-      const Microseconds ts = entries.entry_start_times[idx];
-      const Microseconds dur = entries.entry_total_times[idx];
-      const size_t bucket =
-          bucket_width > 0.0
-              ? std::min<size_t>(level_budget - 1,
-                                 static_cast<size_t>(std::max(
-                                     0.0, (ts - min_ts) / bucket_width)))
-              : 0;
-      if (bucket != current_bucket) {
-        if (best_idx >= 0) keep[best_idx] = 1;
-        current_bucket = bucket;
-        best_idx = idx;
-        best_dur = dur;
-      } else if (dur > best_dur) {
-        best_dur = dur;
-        best_idx = idx;
+    if (lvl + 1 < num_levels) {
+      for (const int idx : level_vec) {
+        if (keep[idx]) kept_spans.indices.push_back(idx);
       }
+      absl::c_stable_sort(kept_spans.indices, cmp_idx);
+      RebuildPrefixMaxEndIndices(entries, kept_spans);
     }
-    if (best_idx >= 0) keep[best_idx] = 1;
   }
 
   constexpr uint32_t kDropped = std::numeric_limits<uint32_t>::max();
@@ -1321,14 +1678,7 @@ bool CompactCachedThreadTrackIfNeeded(
       entries.entry_total_times[out_idx] = entries.entry_total_times[i];
       entries.entry_self_times[out_idx] = entries.entry_self_times[i];
       entries.entry_levels[out_idx] = entries.entry_levels[i];
-      cached.entry_name_ids[out_idx] = cached.entry_name_ids[i];
-      entries.entry_event_ids[out_idx] = entries.entry_event_ids[i];
-      if (!cached.entry_tids.empty()) {
-        cached.entry_tids[out_idx] = cached.entry_tids[i];
-      }
-      entries.entry_serials[out_idx] = entries.entry_serials[i];
-      entries.entry_arg_flags[out_idx] = entries.entry_arg_flags[i];
-      entries.entry_hlo_module_ids[out_idx] = entries.entry_hlo_module_ids[i];
+      CopyCachedTrackEntryMetadata(cached, i, out_idx);
     }
     running_max = std::max(running_max, entries.entry_start_times[out_idx] +
                                             entries.entry_total_times[out_idx]);
@@ -2651,28 +3001,72 @@ FlameChartTimelineData CreateTimelineData(
   return data;
 }
 
+struct CompactableTrackInfo {
+  size_t size;
+  size_t levels;
+};
+
+// Computes the per-level event cap across `track_infos` that fits
+// `compactable_target` while leaving tracks below their fair share uncompacted
+// so their unused budget goes to dense tracks.
+//
+// Preconditions: `levels >= 1` for every entry in `track_infos`, and the sum of
+// `size` across `track_infos` strictly exceeds `compactable_target`.
+size_t ComputeWaterFillingPerLevelCap(
+    std::vector<CompactableTrackInfo> track_infos, size_t compactable_target) {
+  absl::c_sort(track_infos, [](const CompactableTrackInfo& a,
+                               const CompactableTrackInfo& b) {
+    const uint64_t lhs = static_cast<uint64_t>(a.size) * b.levels;
+    const uint64_t rhs = static_cast<uint64_t>(b.size) * a.levels;
+    return lhs != rhs ? lhs < rhs : a.levels < b.levels;
+  });
+  size_t remaining_budget = compactable_target;
+  size_t remaining_levels = 0;
+  for (const auto& info : track_infos) {
+    remaining_levels += info.levels;
+  }
+  for (const auto& info : track_infos) {
+    const size_t fair_cap = remaining_budget / remaining_levels;
+    if (info.size <= info.levels * fair_cap) {
+      remaining_budget -= info.size;
+      remaining_levels -= info.levels;
+    } else {
+      break;
+    }
+  }
+  return std::max<size_t>(1, remaining_budget / remaining_levels);
+}
+
 template <typename TrackMap, typename SkipKeyFn>
 bool CompactTrackMap(
-    TrackMap& tracks, size_t compactable_events, size_t compactable_target,
-    size_t compactable_tracks, SkipKeyFn skip_key,
+    TrackMap& tracks,
+    const absl::flat_hash_map<ProcessId, size_t>& per_level_cap_by_pid,
+    SkipKeyFn skip_key,
     const absl::flat_hash_set<EventId>* pinned_event_ids = nullptr) {
-  const size_t per_track_cap =
-      compactable_target / std::max<size_t>(1, compactable_tracks);
-  const size_t min_track_events =
-      std::min(kMinTrackEventsForGlobalCompaction,
-               std::max<size_t>(1, per_track_cap / 2));
+  constexpr uint64_t kRecompactionHysteresisDivisor = 4;
+  constexpr uint64_t kMaxSizeT = std::numeric_limits<size_t>::max();
   bool compacted = false;
   for (auto& [key, cached] : tracks) {
     if (skip_key(key)) continue;
-    const size_t n = cached.size();
-    if (n <= min_track_events) continue;
-    const size_t target = std::max<size_t>(
-        min_track_events,
-        static_cast<size_t>(static_cast<uint64_t>(n) * compactable_target /
-                            compactable_events));
+    const auto it_cap = per_level_cap_by_pid.find(key.first);
+    if (it_cap == per_level_cap_by_pid.end()) continue;
+    const uint64_t levels =
+        static_cast<uint64_t>(cached.max_relative_level) + 1;
+    const uint64_t raw_target =
+        std::max<uint64_t>(1, levels * static_cast<uint64_t>(it_cap->second));
+    const size_t target = static_cast<size_t>(std::min(raw_target, kMaxSizeT));
+    const uint64_t raw_trigger_max =
+        cached.was_compacted
+            ? (raw_target + raw_target / kRecompactionHysteresisDivisor)
+            : raw_target;
+    const size_t trigger_max =
+        static_cast<size_t>(std::min(raw_trigger_max, kMaxSizeT));
     if (CompactCachedThreadTrackIfNeeded(
-            cached, target, target,
-            std::min(kGlobalTailKeepEvents, target / 4), pinned_event_ids)) {
+            cached, trigger_max, target,
+            std::min(
+                kGlobalTailKeepEvents,
+                target / static_cast<size_t>(kRecompactionHysteresisDivisor)),
+            pinned_event_ids)) {
       compacted = true;
     }
   }
@@ -3009,8 +3403,8 @@ struct DataProvider::IncrementalState {
 
     if (!allow_compaction) return;
 
-    // Uniform global cache budget across all tracks so full-session traces fit
-    // without device-specific PID heuristics.
+    // Two-tier water-filling budget (process -> track level) so a single
+    // high-thread-count process cannot starve other processes globally.
     const auto is_xla_modules_track =
         [&](const std::pair<ProcessId, ThreadId>& pid_tid) {
           const auto it = trace_info.xla_modules_tids.find(pid_tid.first);
@@ -3019,20 +3413,25 @@ struct DataProvider::IncrementalState {
         };
     size_t exempt_events = 0;
     size_t compactable_events = 0;
-    size_t compactable_tracks = 0;
+    absl::flat_hash_map<ProcessId, size_t> events_by_pid;
+    absl::flat_hash_map<ProcessId, std::vector<CompactableTrackInfo>>
+        tracks_by_pid;
+    auto add_compactable = [&](ProcessId pid, const CachedThreadTrack& cached) {
+      const size_t levels = static_cast<size_t>(cached.max_relative_level) + 1;
+      compactable_events += cached.size();
+      events_by_pid[pid] += cached.size();
+      tracks_by_pid[pid].push_back({cached.size(), levels});
+    };
     for (const auto& [pid_tid, cached] : cached_sync_tracks) {
       if (cached.empty()) continue;
       if (is_xla_modules_track(pid_tid)) {
         exempt_events += cached.size();
       } else {
-        compactable_events += cached.size();
-        ++compactable_tracks;
+        add_compactable(pid_tid.first, cached);
       }
     }
-    for (const auto& [_, cached] : cached_async_tracks) {
-      if (cached.empty()) continue;
-      compactable_events += cached.size();
-      ++compactable_tracks;
+    for (const auto& [pid_name, cached] : cached_async_tracks) {
+      if (!cached.empty()) add_compactable(pid_name.first, cached);
     }
     if (exempt_events + compactable_events > kMaxGlobalCachedEvents &&
         compactable_events > 0) {
@@ -3040,16 +3439,28 @@ struct DataProvider::IncrementalState {
           kTargetGlobalCachedEvents > exempt_events
               ? (kTargetGlobalCachedEvents - exempt_events)
               : 0;
+      std::vector<CompactableTrackInfo> pid_infos;
+      pid_infos.reserve(events_by_pid.size());
+      for (const auto& [pid, pid_events] : events_by_pid) {
+        pid_infos.push_back({pid_events, /*levels=*/1});
+      }
+      const size_t per_pid_cap = ComputeWaterFillingPerLevelCap(
+          std::move(pid_infos), compactable_target);
+      absl::flat_hash_map<ProcessId, size_t> per_level_cap_by_pid;
+      per_level_cap_by_pid.reserve(tracks_by_pid.size());
+      for (auto& [pid, track_infos] : tracks_by_pid) {
+        if (events_by_pid[pid] <= per_pid_cap) continue;
+        per_level_cap_by_pid[pid] =
+            ComputeWaterFillingPerLevelCap(std::move(track_infos), per_pid_cap);
+      }
       const auto no_skip = [](const std::pair<ProcessId, std::string>&) {
         return false;
       };
-      if (CompactTrackMap(cached_sync_tracks, compactable_events,
-                          compactable_target, compactable_tracks,
+      if (CompactTrackMap(cached_sync_tracks, per_level_cap_by_pid,
                           is_xla_modules_track, pinned_event_ids)) {
         was_compacted = true;
       }
-      if (CompactTrackMap(cached_async_tracks, compactable_events,
-                          compactable_target, compactable_tracks, no_skip,
+      if (CompactTrackMap(cached_async_tracks, per_level_cap_by_pid, no_skip,
                           pinned_event_ids)) {
         was_compacted = true;
       }

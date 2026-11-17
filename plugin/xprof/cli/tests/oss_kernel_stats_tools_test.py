@@ -620,6 +620,149 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     self.assertIn("xprof-note: truncated: returned 2 of 3", err1.getvalue())
     self.assertIn("xprof-note: truncated: returned 2 of 3", err2.getvalue())
 
+  def _one_kernel_plane(self, plane_name, line_name, kernel, duration_ns):
+    """Returns a device plane with one kernel event on one line."""
+    ev = mock.MagicMock(duration_ns=duration_ns, start_ns=0, stats=[])
+    ev.name = kernel
+    line = mock.MagicMock(events=[ev])
+    line.name = line_name
+    plane = mock.MagicMock(lines=[line])
+    plane.name = plane_name
+    return plane
+
+  def _gpu_planes(self):
+    """Returns host, GPU:1 and GPU:0 planes with distinct kernels."""
+    host = mock.MagicMock(lines=[])
+    host.name = "/host:CPU"
+    return [
+        host,
+        self._one_kernel_plane(
+            "/device:GPU:1", "Stream #13(Compute)", "gemm_on_gpu1", 2_000_000
+        ),
+        self._one_kernel_plane(
+            "/device:GPU:0", "Stream #13(Compute)", "gemm_on_gpu0", 1_000_000
+        ),
+    ]
+
+  def test_resolve_device_planes(self):
+    names = [
+        "/host:CPU",
+        "/device:GPU:0",
+        "/device:TPU:10",
+        "/device:TPU:2",
+        "/device:TPU:2 SparseCore 0",
+        "/device:TPU:2",
+    ]
+    self.assertEqual(
+        kernel_stats_tools.resolve_device_planes(names, None),
+        ("/device:TPU:2", ["/device:TPU:2", "/device:TPU:2 SparseCore 0"]),
+    )
+    self.assertEqual(
+        kernel_stats_tools.resolve_device_planes(names, "gpu:0"),
+        ("/device:GPU:0", ["/device:GPU:0"]),
+    )
+    self.assertEqual(
+        kernel_stats_tools.resolve_device_planes(names, "/device:TPU:10"),
+        ("/device:TPU:10", ["/device:TPU:10"]),
+    )
+    self.assertEqual(
+        kernel_stats_tools.resolve_device_planes(names, "ALL"),
+        (
+            "all",
+            [
+                "/device:GPU:0",
+                "/device:TPU:10",
+                "/device:TPU:2",
+                "/device:TPU:2 SparseCore 0",
+            ],
+        ),
+    )
+    self.assertEqual(
+        kernel_stats_tools.resolve_device_planes(["/host:CPU"], "TPU:0"),
+        ("all", []),
+    )
+    with self.assertRaisesRegex(ValueError, "matches no device plane"):
+      kernel_stats_tools.resolve_device_planes(names, "GPU:1")
+
+  def test_default_device_picks_first_gpu_and_notes_it(self):
+    with (
+        mock.patch.object(
+            xplane_tools, "iter_planes", return_value=self._gpu_planes()
+        ),
+        mock.patch.object(sys, "stderr", new_callable=io.StringIO) as stderr,
+    ):
+      records = json.loads(kernel_stats_tools.get_kernel_stats("local_logdir"))
+      summary = json.loads(
+          kernel_stats_tools.get_kernel_stats(
+              "local_logdir", include_summary=True
+          )
+      )
+      md = kernel_stats_tools.get_kernel_stats(
+          "local_logdir", output_format="markdown"
+      )
+
+    self.assertEqual([r["kernel_name"] for r in records], ["gemm_on_gpu0"])
+    self.assertEqual(records[0]["total_duration_us"], 1000.0)
+    self.assertEqual(summary["device"], "/device:GPU:0")
+    self.assertEqual(summary["device_planes"], ["/device:GPU:0"])
+    self.assertEqual(summary["total_device_duration_us"], 1000.0)
+    self.assertIn("Device: `/device:GPU:0`", md)
+    self.assertIn(
+        "device_to_use=None picked /device:GPU:0 of 2", stderr.getvalue()
+    )
+
+  def test_explicit_device_and_all(self):
+    with (
+        mock.patch.object(
+            xplane_tools, "iter_planes", return_value=self._gpu_planes()
+        ),
+        mock.patch.object(sys, "stderr", new_callable=io.StringIO) as stderr,
+    ):
+      gpu1 = json.loads(
+          kernel_stats_tools.get_kernel_stats(
+              "local_logdir", device_to_use="GPU:1"
+          )
+      )
+      every = json.loads(
+          kernel_stats_tools.get_kernel_stats(
+              "local_logdir", device_to_use="all"
+          )
+      )
+
+    self.assertEqual([r["kernel_name"] for r in gpu1], ["gemm_on_gpu1"])
+    self.assertEqual(
+        [r["kernel_name"] for r in every], ["gemm_on_gpu1", "gemm_on_gpu0"]
+    )
+    self.assertEqual(stderr.getvalue(), "")
+
+  def test_unknown_device_raises_value_error(self):
+    with mock.patch.object(
+        xplane_tools, "iter_planes", return_value=self._gpu_planes()
+    ):
+      with self.assertRaisesRegex(ValueError, "TPU:0.*matches no device"):
+        kernel_stats_tools.get_kernel_stats(
+            "local_logdir", device_to_use="TPU:0"
+        )
+
+  def test_tool_default_device_picks_lowest_tpu_index(self):
+    planes = [
+        self._one_kernel_plane(
+            "/device:TPU:1", "XLA Ops", "fusion_on_tpu1", 1_000_000
+        ),
+        self._one_kernel_plane(
+            "/device:TPU:0", "XLA Ops", "fusion_on_tpu0", 1_000_000
+        ),
+    ]
+    with (
+        mock.patch.object(xplane_tools, "iter_planes", return_value=planes),
+        mock.patch.object(sys, "stderr", new_callable=io.StringIO),
+    ):
+      records = json.loads(
+          get_kernel_stats_tool.compute_kernel_stats("local_logdir")
+      )
+
+    self.assertEqual([r["kernel_name"] for r in records], ["fusion_on_tpu0"])
+
 
 if __name__ == "__main__":
   unittest.main()

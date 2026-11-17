@@ -4341,7 +4341,13 @@ void Timeline::CalculateBezierControlPoints(float start_x, float start_y,
   cp1 = ImVec2(end_x - dist, end_y);
 }
 
-void Timeline::Pan(Pixel pixel_amount) {
+// Pans the visible time range by pixel_amount.
+// `warn_at_boundary` controls whether attempting to pan past the trace boundary
+// triggers a navigation warning toast notification. It is set to true for
+// deliberate navigation actions (keyboard shortcuts, mouse dragging) and false
+// for continuous wheel/trackpad scrolling to avoid false-positive warnings from
+// minor horizontal hardware drift.
+void Timeline::Pan(Pixel pixel_amount, bool warn_at_boundary) {
   // If the pixel amount is 0, we don't need to pan.
   if (pixel_amount == 0.0) return;
 
@@ -4356,7 +4362,7 @@ void Timeline::Pan(Pixel pixel_amount) {
       visible_range_.target().start() <= data_time_range_.start() &&
       visible_range_.target().end() >= data_time_range_.end();
 
-  if (!showing_entire_trace) {
+  if (warn_at_boundary && !showing_entire_trace) {
     if (pixel_amount < 0.0 && new_range.start() < data_time_range_.start()) {
       ShowNavigationWarningNotification(
           "Cannot pan further left: reached the beginning of the trace.");
@@ -7003,7 +7009,9 @@ bool Timeline::HandleKeyboard() {
         ImGui::IsKeyDown(ImGuiKey_A) ? ImGuiKey_A : ImGuiKey_LeftArrow;
     float multiplier =
         GetSpeedMultiplier(io, key, kShiftPanAccelerateFactor);
-    Pan(-panning_speed_ * io.DeltaTime * multiplier);
+    // Pass warn_at_boundary = true so deliberate keyboard panning past the
+    // boundary triggers a boundary warning toast notification.
+    Pan(-panning_speed_ * io.DeltaTime * multiplier, /*warn_at_boundary=*/true);
     is_interacting = true;
   }
   // Pan right ('d', 'e', or RightArrow when no event is selected)
@@ -7014,7 +7022,9 @@ bool Timeline::HandleKeyboard() {
             ? ImGuiKey_D
             : (ImGui::IsKeyDown(ImGuiKey_E) ? ImGuiKey_E : ImGuiKey_RightArrow);
     float multiplier = GetSpeedMultiplier(io, key, kShiftPanAccelerateFactor);
-    Pan(panning_speed_ * io.DeltaTime * multiplier);
+    // Pass warn_at_boundary = true so deliberate keyboard panning past the
+    // boundary triggers a boundary warning toast notification.
+    Pan(panning_speed_ * io.DeltaTime * multiplier, /*warn_at_boundary=*/true);
     is_interacting = true;
   }
 
@@ -7157,7 +7167,12 @@ bool Timeline::HandleWheel() {
   const Pixel vertical_scroll_delta =
       io.KeyShift ? io.MouseWheelH : io.MouseWheel;
 
-  if (horizontal_pan_delta != 0.0f) Pan(horizontal_pan_delta);
+  if (horizontal_pan_delta != 0.0f) {
+    // Pass warn_at_boundary = false to suppress warning toast notifications
+    // caused by unintentional horizontal drift during trackpad or wheel
+    // scrolling.
+    Pan(horizontal_pan_delta, /*warn_at_boundary=*/false);
+  }
   if (vertical_scroll_delta != 0.0f) Scroll(vertical_scroll_delta);
 
   return true;
@@ -7411,7 +7426,9 @@ void Timeline::HandleMouseDrag(Pixel timeline_origin_x) {
     } else if (mouse_mode_ == MouseMode::kZoom) {
       Zoom(1.0f + io.MouseDelta.y * 0.01f);
     } else {
-      Pan(-io.MouseDelta.x);
+      // Pass warn_at_boundary = true so deliberate mouse dragging past the
+      // boundary triggers a boundary warning toast notification.
+      Pan(-io.MouseDelta.x, /*warn_at_boundary=*/true);
       Scroll(-io.MouseDelta.y);
     }
   }

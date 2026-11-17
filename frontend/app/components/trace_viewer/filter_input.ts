@@ -68,23 +68,27 @@ import {filterFieldKey, lookupFilterOperator} from './utils';
         aria-label="Add filter" />
     </div>
 
-<mat-autocomplete #filterOptionsAuto class="dense" panelWidth="fit-content" (optionSelected)="onOptionSelected($event)" (closed)="onPanelClosed()">
+<mat-autocomplete #filterOptionsAuto class="dense filter-dropdown-panel" panelWidth="fit-content" (optionSelected)="onOptionSelected($event)" (closed)="onPanelClosed()">
   <!-- option list for filter field and operator -->
   <div *ngIf="!isUpdatingValues()">
     <mat-option *ngFor="let option of (autoFilterOptions | async) trackBy:trackByValue"
+              class="filter-dropdown-option"
               [value]="option.value">
       {{option.displayName || option.value}}
     </mat-option>
   </div>
   <!-- option list for filter values -->
-  <div *ngIf="isUpdatingValues() && isMultiSelect()" style="display:flex;flex-direction:column;">
-    <button mat-stroked-button color="primary" (click)="onConfirmMultiSelect()" style="margin:10px;">Confirm</button>
-    <mat-option>
-      <mat-checkbox class="example-margin" [checked]="allOptionsSelected" (click)="onOperateAll($event)">{{allOptionsLabel}}</mat-checkbox>
+  <div *ngIf="isUpdatingValues() && isMultiSelect()" class="filter-dropdown-values-container">
+    <div class="filter-dropdown-actions">
+      <button mat-stroked-button color="primary" class="filter-dropdown-confirm-btn" (click)="onConfirmMultiSelect()">Confirm</button>
+    </div>
+    <mat-option class="filter-dropdown-option filter-dropdown-select-all">
+      <mat-checkbox class="filter-dropdown-checkbox" [checked]="allOptionsSelected" (click)="onOperateAll($event)">{{allOptionsLabel}}</mat-checkbox>
     </mat-option>
     <mat-option *ngFor="let option of (autoFilterValues | async) trackBy:trackByValue"
-      [value]="option.value" >
-      <mat-checkbox class="example-margin" [(ngModel)]="option.checked" (click)="onClickCheckbox($event)">{{option.displayName || option.value}}</mat-checkbox>
+      class="filter-dropdown-option"
+      [value]="option.value">
+      <mat-checkbox class="filter-dropdown-checkbox" [(ngModel)]="option.checked" (click)="onClickCheckbox($event)">{{option.displayName || option.value}}</mat-checkbox>
     </mat-option>
   </div>
 </mat-autocomplete>

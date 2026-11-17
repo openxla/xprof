@@ -10,6 +10,7 @@ cc_library(
     name = "constants",
     hdrs = ["constants.h"],
     deps = [
+        "@com_google_absl//absl/strings:string_view",
         "@imgui",
         "@org_xprof//frontend/app/components/trace_viewer_v2/color:colors",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",

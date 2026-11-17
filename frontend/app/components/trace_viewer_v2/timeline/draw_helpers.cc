@@ -8,10 +8,12 @@
 
 // Define the UTF-8 representations of Unicode PUA codepoints (matching
 // mapping.json).
-#define ICON_PIN_BUTTON "\xee\x80\x81"      // U+E001 (decimal 57345)
-#define ICON_UNPIN_BUTTON "\xee\x80\x82"    // U+E002 (decimal 57346)
-#define ICON_HIDDEN_BUTTON "\xee\x80\x83"   // U+E003 (decimal 57347)
-#define ICON_VISIBLE_BUTTON "\xee\x80\x84"  // U+E004 (decimal 57348)
+#define ICON_PIN_BUTTON "\xee\x80\x81"           // U+E001 (decimal 57345)
+#define ICON_UNPIN_BUTTON "\xee\x80\x82"         // U+E002 (decimal 57346)
+#define ICON_HIDDEN_BUTTON "\xee\x80\x83"        // U+E003 (decimal 57347)
+#define ICON_VISIBLE_BUTTON "\xee\x80\x84"       // U+E004 (decimal 57348)
+#define ICON_COLLAPSE_ALL_BUTTON "\xee\x80\x85"  // U+E005 (decimal 57349)
+#define ICON_EXPAND_ALL_BUTTON "\xee\x80\x86"    // U+E006 (decimal 57350)
 
 namespace traceviewer {
 namespace {
@@ -52,6 +54,14 @@ void DrawHideIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
                   Pixel icon_draw_size, ImU32 icon_col, bool is_track_hidden) {
   const char* icon_str =
       is_track_hidden ? ICON_VISIBLE_BUTTON : ICON_HIDDEN_BUTTON;
+  DrawCenteredGlyph(draw_list, icon_str, center_x, center_y, icon_col);
+}
+
+void DrawCollapseExpandAllIcon(ImDrawList* draw_list, Pixel center_x,
+                               Pixel center_y, ImU32 icon_col,
+                               bool all_expanded) {
+  const char* icon_str =
+      all_expanded ? ICON_COLLAPSE_ALL_BUTTON : ICON_EXPAND_ALL_BUTTON;
   DrawCenteredGlyph(draw_list, icon_str, center_x, center_y, icon_col);
 }
 

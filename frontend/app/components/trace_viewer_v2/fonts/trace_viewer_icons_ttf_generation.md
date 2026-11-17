@@ -32,16 +32,24 @@ codepoint in the Private Use Area (`U+E000`–`U+E050`) via `mapping.json`:
   "57345": ["pin"],
   "57346": ["unpin"],
   "57347": ["hide"],
-  "57348": ["visible", "unhide"]
+  "57348": ["visible", "unhide"],
+  "57349": ["collapse_all"],
+  "57350": ["expand_all"]
 }
 ```
 
-| Decimal | Hex      | UTF-8            | Icon Name(s)        | C++ Macro             |
-| :------ | :------- | :--------------- | :------------------ | :-------------------- |
-| `57345` | `0xE001` | `"\xee\x80\x81"` | `pin`               | `ICON_PIN_BUTTON`     |
-| `57346` | `0xE002` | `"\xee\x80\x82"` | `unpin`             | `ICON_UNPIN_BUTTON`   |
-| `57347` | `0xE003` | `"\xee\x80\x83"` | `hide`              | `ICON_HIDDEN_BUTTON`  |
-| `57348` | `0xE004` | `"\xee\x80\x84"` | `visible`, `unhide` | `ICON_VISIBLE_BUTTON` |
+| Decimal | Hex      | UTF-8            | Icon Name(s)        | C++ Macro                  |
+| :------ | :------- | :--------------- | :------------------ | :------------------------- |
+| `57345` | `0xE001` | `"\xee\x80\x81"` | `pin`               | `ICON_PIN_BUTTON`          |
+| `57346` | `0xE002` | `"\xee\x80\x82"` | `unpin`             | `ICON_UNPIN_BUTTON`        |
+| `57347` | `0xE003` | `"\xee\x80\x83"` | `hide`              | `ICON_HIDDEN_BUTTON`       |
+| `57348` | `0xE004` | `"\xee\x80\x84"` | `visible`, `unhide` | `ICON_VISIBLE_BUTTON`      |
+| `57349` | `0xE005` | `"\xee\x80\x85"` | `collapse_all`      | `ICON_COLLAPSE_ALL_BUTTON` |
+| `57350` | `0xE006` | `"\xee\x80\x86"` | `expand_all`        | `ICON_EXPAND_ALL_BUTTON`   |
+
+`U+E005` and `U+E006` were generated from the Material Symbols `collapse_all`
+and `expand_all` icons, and these two are not in the checked-in `mapping.json`
+and must be added back before the font is regenerated.
 
 ---
 
@@ -138,6 +146,7 @@ python3 svg_to_font.py \
         icons_ranges);
     ```
 
-3.  **Drawing Glyphs (`timeline/draw_helpers.cc`)**: `DrawPinIcon()` and
-    `DrawHideIcon()` measure the UTF-8 PUA string with `ImGui::CalcTextSize()`
-    and draw it centered in the button bounding box via `ImDrawList::AddText()`.
+3.  **Drawing Glyphs (`timeline/draw_helpers.cc`)**: `DrawPinIcon()`,
+    `DrawHideIcon()`, and `DrawCollapseExpandAllIcon()` center the UTF-8 PUA
+    glyph on its visible bounding box (falling back to `ImGui::CalcTextSize()`)
+    and draw it in the button bounding box via `ImDrawList::AddText()`.

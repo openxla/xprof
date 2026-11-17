@@ -15,6 +15,11 @@ void DrawHideIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
                   Pixel icon_draw_size, ImU32 icon_col,
                   bool is_track_hidden = false);
 
+// Draws the collapse-all or expand-all icon centered on (center_x, center_y).
+void DrawCollapseExpandAllIcon(ImDrawList* draw_list, Pixel center_x,
+                               Pixel center_y, ImU32 icon_col,
+                               bool all_expanded);
+
 // Draws the drag handle icon of a reorderable track: three stacked horizontal
 // lines, centered on (center_x, center_y).
 void DrawDragHandleIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,

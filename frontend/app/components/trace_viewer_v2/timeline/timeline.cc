@@ -1,6 +1,7 @@
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -359,6 +360,26 @@ void DrawExpandChevron(ImDrawList* draw_list, const ImVec2& center,
                               (1.0f - kTrackMutedTextOpacity) * emphasis));
 }
 
+// Returns true if the flame group at `group_index` can be expanded and
+// collapsed (i.e. it has child tracks or spans more than one level), using a
+// precomputed `next_group_start_level`.
+bool IsGroupExpandable(int group_index, const FlameChartTimelineData& data,
+                       int next_group_start_level) {
+  if (group_index < 0 || group_index >= static_cast<int>(data.groups.size())) {
+    return false;
+  }
+  const Group& group = data.groups[group_index];
+  return group.type == Group::Type::kFlame &&
+         (group.has_children || next_group_start_level - group.start_level > 1);
+}
+
+// Returns true if the flame group at `group_index` can be expanded and
+// collapsed (i.e. it has child tracks or spans more than one level).
+bool IsGroupExpandable(int group_index, const FlameChartTimelineData& data) {
+  return IsGroupExpandable(group_index, data,
+                           Timeline::GetNextGroupStartLevel(data, group_index));
+}
+
 // Draws a "stack of cards" hint below a collapsed row, between `left` and
 // `right`: two short hairlines in the track's accent color, each narrower and
 // fainter than the one above, suggesting content folded underneath.
@@ -495,15 +516,15 @@ IconButtonState TrackIconButton(
     std::optional<Pixel> hit_width = std::nullopt) {
   IconButtonState state;
   const ImVec2 cursor = ImGui::GetCursorScreenPos();
-  const Pixel top = std::floor(
-      cursor.y + std::max(0.0f, (row_height - kTrackIconButtonSize) * 0.5f));
+  const Pixel button_height = std::min(row_height, kTrackIconButtonSize);
+  const Pixel top = std::floor(cursor.y + (row_height - button_height) * 0.5f);
   const ImVec2 min(std::floor(cursor.x), top);
   state.center = ImVec2(min.x + kTrackIconButtonSize * 0.5f,
-                        min.y + kTrackIconButtonSize * 0.5f);
+                        std::floor(cursor.y + row_height * 0.5f));
   ImGui::SetCursorScreenPos(ImVec2(min.x + hit_offset_x, min.y));
   ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
-  const ImVec2 button_size(
-      hit_width.value_or(kTrackIconButtonSize), kTrackIconButtonSize);
+  const ImVec2 button_size(hit_width.value_or(kTrackIconButtonSize),
+                           button_height);
   state.clicked = ImGui::InvisibleButton(
       id, button_size, ImGuiButtonFlags_PressedOnClick);
   ImGui::PopItemFlag();
@@ -512,7 +533,7 @@ IconButtonState TrackIconButton(
   state.emphasis = hover_fade(ImGui::GetItemID(), state.hovered);
 
   ImDrawList* const draw_list = ImGui::GetWindowDrawList();
-  const Pixel radius = kTrackIconButtonSize * 0.5f;
+  const Pixel radius = button_height * 0.5f;
   if (active) {
     draw_list->AddCircleFilled(
         state.center, radius,
@@ -722,23 +743,25 @@ int Timeline::FindFirstVisibleAncestorIndex(int start_idx) const {
   return start_idx;
 }
 
+int Timeline::GetGroupIndex(const Group* group) const {
+  if (group == nullptr || timeline_data_.groups.empty()) return -1;
+  const Group* const data = timeline_data_.groups.data();
+  const size_t size = timeline_data_.groups.size();
+  if (std::less<const Group*>()(group, data) ||
+      std::greater_equal<const Group*>()(group, data + size)) {
+    return -1;
+  }
+  return static_cast<int>(group - data);
+}
+
 Pixel Timeline::GetGroupTop(const Group* group) const {
   if (group == nullptr) return 0.0f;
   if (group == &header_hidden_) return header_hidden_offset_;
   if (group == &header_all_) return header_all_offset_;
   if (group == &header_pinned_) return header_pinned_offset_;
 
-  if (timeline_data_.groups.empty()) return 0.0f;
-
-  const Group* const data = timeline_data_.groups.data();
-  const size_t size = timeline_data_.groups.size();
-  if (std::less<const Group*>()(group, data) ||
-      std::greater_equal<const Group*>()(group, data + size)) {
-    return 0.0f;
-  }
-
-  const int group_index = static_cast<int>(group - data);
-  return group_offsets_[group_index];
+  const int group_index = GetGroupIndex(group);
+  return group_index >= 0 ? group_offsets_[group_index] : 0.0f;
 }
 
 Pixel Timeline::GetGroupBottom(const Group* group) const {
@@ -753,17 +776,10 @@ Pixel Timeline::GetGroupBottom(const Group* group) const {
     return header_pinned_offset_ + kVirtualHeaderHeight;
   }
 
-  if (timeline_data_.groups.empty()) return 0.0f;
-
-  const Group* const data = timeline_data_.groups.data();
-  const size_t size = timeline_data_.groups.size();
-  if (std::less<const Group*>()(group, data) ||
-      std::greater_equal<const Group*>()(group, data + size)) {
-    return 0.0f;
-  }
-
-  const int group_index = static_cast<int>(group - data);
-  return group_offsets_[group_index] + group_heights_[group_index];
+  const int group_index = GetGroupIndex(group);
+  return group_index >= 0
+             ? group_offsets_[group_index] + group_heights_[group_index]
+             : 0.0f;
 }
 
 void Timeline::BuildFlattenedGroups(const FlameChartTimelineData& data) {
@@ -899,16 +915,20 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
 
   // Track collapsed status of headers
   bool section_collapsed = false;
+  header_section_states_.fill(HeaderAggregateState{});
+  std::optional<HeaderSection> current_section;
 
   for (const Group* group_ptr : flattened_groups_) {
     if (group_ptr->nesting_level == kHeaderNestingLevel) {
       if (group_ptr->name == kAllHeaderName) {
+        current_section = HeaderSection::kAll;
         header_all_offset_ = current_offset;
         section_collapsed = !header_all_expanded_;
         current_offset += kVirtualHeaderHeight;
         continue;
       }
       if (group_ptr->name == kHiddenHeaderName) {
+        current_section = HeaderSection::kHidden;
         header_hidden_offset_ = current_offset;
         section_collapsed = !header_hidden_expanded_;
         current_offset += kVirtualHeaderHeight;
@@ -917,6 +937,7 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
         continue;
       }
       if (group_ptr->name == kPinnedHeaderName) {
+        current_section = HeaderSection::kPinned;
         header_pinned_offset_ = current_offset;
         section_collapsed = !header_pinned_expanded_;
         current_offset += kVirtualHeaderHeight;
@@ -929,13 +950,24 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
     // Now we are dealing with a standard group track
     const int group_index = group_ptr - &data.groups[0];
     const Group& group = *group_ptr;
+    const int next_group_start_level =
+        GetNextGroupStartLevel(data, group_index);
+    const bool expandable =
+        IsGroupExpandable(group_index, data, next_group_start_level);
+    if (group.nesting_level == kProcessNestingLevel && expandable &&
+        current_section.has_value()) {
+      HeaderAggregateState& state =
+          header_section_states_[static_cast<size_t>(*current_section)];
+      state.any_expandable = true;
+      if (!group.expanded) {
+        state.all_expanded = false;
+      }
+    }
 
     // If the whole header section is collapsed, this group disappears.
     if (section_collapsed) {
       new_group_offsets[group_index] = current_offset;
       new_group_visible[group_index] = false;
-      const int next_group_start_level =
-          GetNextGroupStartLevel(data, group_index);
       for (int level = group.start_level; level < next_group_start_level;
            ++level) {
         if (level < level_count) {
@@ -949,9 +981,6 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
     if (group.nesting_level <= hidden_nesting_level) {
       hidden_nesting_level = std::numeric_limits<int>::max();
     }
-
-    const int next_group_start_level =
-        GetNextGroupStartLevel(data, group_index);
 
     if (hidden_nesting_level != std::numeric_limits<int>::max()) {
       new_group_offsets[group_index] = current_offset;
@@ -980,13 +1009,6 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
       new_group_striped[group_index] = next_child_striped;
       next_child_striped = !next_child_striped;
     }
-
-    const bool has_children = group.has_children;
-    const bool has_multiple_levels =
-        next_group_start_level - group.start_level > 1;
-
-    const bool expandable = group.type == Group::Type::kFlame &&
-                            (has_children || has_multiple_levels);
 
     const bool is_collapsed = expandable && !group.expanded;
 
@@ -1049,6 +1071,7 @@ void Timeline::set_animations_enabled(bool enabled) {
     FinishLayoutTransition();
     animate_next_layout_ = false;
     chevron_openness_.clear();
+    active_chevrons_.clear();
     hover_fades_.clear();
   }
 }
@@ -1072,6 +1095,7 @@ bool Timeline::IsGroupDrawn(int group_index) const {
 void Timeline::BeginExpandToggleMotion(int chevron_key, bool was_expanded) {
   if (!animations_enabled_) return;
   animate_next_layout_ = true;
+  active_chevrons_.insert(chevron_key);
   // If the chevron is already rotating (a quick double toggle), keep its
   // current angle so it reverses smoothly instead of jumping.
   chevron_openness_.try_emplace(chevron_key, was_expanded ? 1.0f : 0.0f);
@@ -1081,6 +1105,7 @@ float Timeline::ChevronOpenness(int chevron_key, bool expanded) {
   const float target = expanded ? 1.0f : 0.0f;
   auto it = chevron_openness_.find(chevron_key);
   if (it == chevron_openness_.end()) return target;
+  active_chevrons_.insert(chevron_key);
   it->second = motion::Approach(it->second, target, kMotionChevronRate,
                                 ImGui::GetIO().DeltaTime);
   const float openness = it->second;
@@ -2720,6 +2745,7 @@ void Timeline::ResetForNewDataset() {
   layout_transition_ = LayoutTransition();
   animate_next_layout_ = false;
   chevron_openness_.clear();
+  active_chevrons_.clear();
   hover_fades_.clear();
   counter_metadata_.clear();
 
@@ -2757,6 +2783,7 @@ void Timeline::Draw() {
   bool is_resizer_hovered = false;
   bool needs_layout_update = false;
   motion_in_progress_ = false;
+  active_chevrons_.clear();
   AdvanceLayoutTransition(ImGui::GetIO().DeltaTime);
 
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -2869,7 +2896,7 @@ void Timeline::Draw() {
     const bool is_header = IsVirtualHeader(group_ptr);
     int group_index = -1;
     if (!is_header) {
-      group_index = group_ptr - &timeline_data_.groups[0];
+      group_index = GetGroupIndex(group_ptr);
       if (!IsGroupDrawn(group_index)) {
         continue;
       }
@@ -2900,6 +2927,9 @@ void Timeline::Draw() {
       needs_layout_update = true;
     }
   }
+  absl::erase_if(chevron_openness_, [this](const auto& kv) {
+    return !active_chevrons_.contains(kv.first);
+  });
 
   // The drop indicator is drawn over the track rows, so this comes after them.
   if (UpdateTrackDrag(tracks_start_screen_pos, content_region_avail_width)) {
@@ -3098,14 +3128,17 @@ bool Timeline::DrawHeaderRow(const Group* group_ptr,
   int header_id = kAllHeaderId;
   bool* expanded = &header_all_expanded_;
   int process_count = all_processes_count_;
+  HeaderSection section = HeaderSection::kAll;
   if (group_ptr->name == kHiddenHeaderName) {
     header_id = kHiddenHeaderId;
     expanded = &header_hidden_expanded_;
     process_count = hidden_processes_count_;
+    section = HeaderSection::kHidden;
   } else if (group_ptr->name == kPinnedHeaderName) {
     header_id = kPinnedHeaderId;
     expanded = &header_pinned_expanded_;
     process_count = pinned_processes_count_;
+    section = HeaderSection::kPinned;
   }
   ImGui::PushID(header_id);
 
@@ -3117,10 +3150,15 @@ bool Timeline::DrawHeaderRow(const Group* group_ptr,
       palette_.GetColor(ColorPalette::Key::kForeground).value_or(kBlackColor);
   ImDrawList* const draw_list = ImGui::GetWindowDrawList();
 
-  // The whole header row is a single hit target that toggles the section. It
-  // stops short of the label resizer, which is submitted later and would
-  // otherwise lose the overlapping hover.
-  const Pixel hit_right = row_max.x - kSplitterOffset;
+  const HeaderAggregateState& state =
+      header_section_states_[static_cast<size_t>(section)];
+
+  // The header row is a single hit target that toggles the section. It stops
+  // short of the label resizer (and the Collapse/Expand All button when
+  // present), which are submitted later and have their own hit targets.
+  const Pixel trailing_width =
+      state.any_expandable ? CalculateTrailingButtonsWidth(1) : 0.0f;
+  const Pixel hit_right = row_max.x - kSplitterOffset - trailing_width;
   bool toggled = false;
   bool hovered = false;
   if (hit_right > row_min.x && row_max.y > row_min.y) {
@@ -3138,8 +3176,18 @@ bool Timeline::DrawHeaderRow(const Group* group_ptr,
     *expanded = !*expanded;
     event_clicked_this_frame_ = true;
   }
+  // Include the Collapse/Expand All button area so the header row stays
+  // highlighted while the pointer moves onto the trailing button.
+  const bool tracks_window_hovered =
+      ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && !is_dragging_ &&
+      !is_resizing_label_column_ && !is_dragging_track();
+  const bool row_hovered =
+      hovered || (trailing_width > 0.0f && tracks_window_hovered &&
+                  ImGui::IsMouseHoveringRect(
+                      ImVec2(hit_right, row_min.y),
+                      ImVec2(row_max.x - kSplitterOffset, row_max.y)));
   const float hover_emphasis =
-      HoverFade(ImGui::GetID("##section_hover"), hovered);
+      HoverFade(ImGui::GetID("##section_hover"), row_hovered);
   if (hovered) {
     ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
   }
@@ -3179,10 +3227,66 @@ bool Timeline::DrawHeaderRow(const Group* group_ptr,
                 center_y, WithOpacity(foreground_color, kTrackCountChipOpacity),
                 muted_color);
 
+  bool layout_changed = toggled;
+  if (state.any_expandable) {
+    ImGui::SetCursorScreenPos(
+        ImVec2(row_max.x - kSplitterOffset - trailing_width, row_min.y));
+    const IconButtonState btn = TrackIconButton(
+        "##collapse_expand_all", row_max.y - row_min.y, /*active=*/false,
+        state.all_expanded ? kCollapseAllTrackTooltip : kExpandAllTrackTooltip,
+        foreground_color, [this](ImGuiID id, bool is_hovered) {
+          return HoverFade(id, is_hovered);
+        });
+    {
+      ScopedBodyLargeFont body_large_font;
+      DrawCollapseExpandAllIcon(
+          draw_list, btn.center.x, btn.center.y,
+          TrackIconColor(btn, /*active=*/false, foreground_color),
+          state.all_expanded);
+    }
+    if (btn.clicked) {
+      HandleCollapseExpandAllClick(group_ptr, header_id, !state.all_expanded,
+                                   *expanded);
+      layout_changed = true;
+    }
+  }
+
   ImGui::PopClipRect();
   ImGui::PopID();
 
-  return toggled;
+  return layout_changed;
+}
+
+void Timeline::HandleCollapseExpandAllClick(const Group* header_group,
+                                            int header_id, bool target_expanded,
+                                            bool& section_expanded) {
+  const Pixel scroll_y = ImGui::GetScrollY();
+  const Pixel viewport_bottom = scroll_y + ImGui::GetWindowHeight();
+  auto it = absl::c_find(flattened_groups_, header_group);
+  if (it != flattened_groups_.end()) {
+    for (++it; it != flattened_groups_.end() && !IsVirtualHeader(*it); ++it) {
+      if ((*it)->nesting_level != kProcessNestingLevel) continue;
+      const int group_idx = GetGroupIndex(*it);
+      if (IsGroupExpandable(group_idx, timeline_data_) &&
+          timeline_data_.groups[group_idx].expanded != target_expanded) {
+        if (animations_enabled_) {
+          animate_next_layout_ = true;
+        }
+        if (section_expanded && IsGroupDrawn(group_idx) &&
+            GetGroupBottom(*it) >= scroll_y &&
+            GetGroupTop(*it) <= viewport_bottom) {
+          BeginExpandToggleMotion(group_idx,
+                                  timeline_data_.groups[group_idx].expanded);
+        }
+        timeline_data_.groups[group_idx].expanded = target_expanded;
+      }
+    }
+  }
+  if (target_expanded && !section_expanded) {
+    BeginExpandToggleMotion(header_id, false);
+    section_expanded = true;
+  }
+  event_clicked_this_frame_ = true;
 }
 
 void Timeline::CopyTrackName(int group_index) {
@@ -3290,10 +3394,11 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
   }
 
   const bool is_process = group.nesting_level == kProcessNestingLevel;
-  const int own_level_count =
-      GetNextGroupStartLevel(timeline_data_, group_index) - group.start_level;
-  const bool expandable = group.type == Group::Type::kFlame &&
-                          (group.has_children || own_level_count > 1);
+  const int next_group_start_level =
+      GetNextGroupStartLevel(timeline_data_, group_index);
+  const int own_level_count = next_group_start_level - group.start_level;
+  const bool expandable =
+      IsGroupExpandable(group_index, timeline_data_, next_group_start_level);
   const bool is_collapsed = expandable && !group.expanded;
 
   // Row geometry in screen space. The label column spans [row_left,
@@ -3654,7 +3759,8 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
 bool Timeline::HandleProcessTrackHeaderClick(
     int group_index, Group& group, const ImVec2& tracks_start_screen_pos,
     Pixel content_region_avail_width) {
-  if (group.nesting_level != kProcessNestingLevel || !group.has_children) {
+  if (group.nesting_level != kProcessNestingLevel ||
+      !IsGroupExpandable(group_index, timeline_data_)) {
     return false;
   }
   // Releasing the mouse to drop a dragged track is not a click.
@@ -4488,14 +4594,8 @@ void Timeline::FindNearestEventEdge(Microseconds time, Microseconds threshold,
     int next_group_start_level =
         GetNextGroupStartLevel(timeline_data_, group_index);
 
-    const bool has_children =
-        group_index + 1 < timeline_data_.groups.size() &&
-        timeline_data_.groups[group_index + 1].nesting_level >
-            group.nesting_level;
-    const bool has_multiple_levels =
-        next_group_start_level - group.start_level > 1;
-    const bool expandable = group.type == Group::Type::kFlame &&
-                            (has_children || has_multiple_levels);
+    const bool expandable =
+        IsGroupExpandable(group_index, timeline_data_, next_group_start_level);
     const bool is_collapsed = expandable && !group.expanded;
 
     if (is_collapsed) {

@@ -1073,6 +1073,10 @@ class Timeline {
 
   Pixel GetGroupTop(const Group* group) const;
   Pixel GetGroupBottom(const Group* group) const;
+  // Returns the index of `group` in `timeline_data_.groups`, or -1 for
+  // nullptr, the virtual section headers, and any other pointer outside the
+  // vector.
+  int GetGroupIndex(const Group* group) const;
 
   // Returns the cached group visibility array.
   const std::vector<bool>& group_visible() const { return group_visible_; }
@@ -1124,6 +1128,19 @@ class Timeline {
     // the last sibling if it equals `siblings.size()`. -1 if dropping it would
     // leave it where it is.
     int drop_slot = -1;
+  };
+
+  // Track-management section headers (Hidden, Pinned, and All) in display
+  // order.
+  enum class HeaderSection { kHidden = 0, kPinned = 1, kAll = 2 };
+  static constexpr size_t kNumHeaderSections = 3;
+
+  // Aggregate process expansion state for a track-management section header.
+  struct HeaderAggregateState {
+    // True if the section contains at least one expandable process track.
+    bool any_expandable = false;
+    // True if all expandable process tracks in the section are expanded.
+    bool all_expanded = true;
   };
 
   absl::flat_hash_set<int> matching_event_indices_;
@@ -1183,11 +1200,20 @@ class Timeline {
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
   void DrawRulerUI(const TickInfo& info, Pixel timeline_width);
 
-  // Draws a section header row (All, Pinned or Hidden) in the timeline. The
-  // whole row toggles the section. Returns true if layout update is needed.
+  // Draws a section header row (All, Pinned, or Hidden) in the timeline.
+  // Clicking the row toggles the section, except on the trailing
+  // Collapse/Expand All button which has its own hit target. Returns true if a
+  // layout update is needed.
   bool DrawHeaderRow(const Group* group_ptr,
                      const ImVec2& tracks_start_screen_pos, Pixel group_top,
                      Pixel group_bottom);
+
+  // Applies a Collapse/Expand All click on `header_group`, setting all
+  // expandable process tracks in the section to `target_expanded` and
+  // expanding the section header if `target_expanded` is true.
+  void HandleCollapseExpandAllClick(const Group* header_group, int header_id,
+                                    bool target_expanded,
+                                    bool& section_expanded);
 
   // Copies a track's name to the clipboard and shows the copy notification.
   void CopyTrackName(int group_index);
@@ -1490,6 +1516,10 @@ class Timeline {
   int all_processes_count_ = 0;
   int hidden_processes_count_ = 0;
   int pinned_processes_count_ = 0;
+  // Cached process expansion state for each track-management section (Hidden,
+  // Pinned, and All), including folded sections. Recomputed in
+  // `UpdateLevelPositions`.
+  std::array<HeaderAggregateState, kNumHeaderSections> header_section_states_;
 
   struct CounterTrackMetadata {
     double min_value = std::numeric_limits<double>::max();
@@ -1660,6 +1690,10 @@ class Timeline {
   LayoutTransition layout_transition_;
   // In-flight chevron rotations, keyed by group index or virtual header id.
   absl::flat_hash_map<int, float> chevron_openness_;
+  // Chevron keys started or drawn during the current Draw() frame; entries in
+  // `chevron_openness_` not in this set at the end of the frame are dropped so
+  // off-screen rows do not replay stale animations when scrolled into view.
+  absl::flat_hash_set<int> active_chevrons_;
   // In-flight hover fades, keyed by ImGui item id. Only items that are
   // hovered or fading out have entries, so this stays tiny.
   absl::flat_hash_map<ImGuiID, float> hover_fades_;

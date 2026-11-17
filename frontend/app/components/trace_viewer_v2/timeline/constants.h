@@ -3,6 +3,7 @@
 
 #include <cstddef>
 
+#include "absl/strings/string_view.h"
 #include "imgui.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
@@ -428,6 +429,9 @@ inline constexpr double kEventNavigationZoomFactor = 2.5;
 
 // UI Strings Constants
 // go/keep-sorted start
+inline constexpr absl::string_view kCollapseAllTrackTooltip =
+    "Collapse all tracks";
+inline constexpr absl::string_view kExpandAllTrackTooltip = "Expand all tracks";
 inline constexpr char kAllHeaderName[] = "All";
 inline constexpr char kCannotHideLastProcessNotification[] =
     "Cannot hide the last visible process.";

@@ -182,6 +182,32 @@ class GetTopHloOpsToolTest(parameterized.TestCase):
       get_top_hlo_ops_tool.get_top_hlo_ops("test_session")
     self.assertIn("Failed to fetch op_profile", str(cm.exception))
 
+  def test_get_top_hlo_ops_missing_op_profile_returns_no_data(self):
+    self.mock_client.fetch.side_effect = Exception(
+        "/XprofAnalysisService.GetProfileData to [::1]:4501 : APP_ERROR(5)"
+        " op_profile not found"
+    )
+
+    result = json.loads(get_top_hlo_ops_tool.get_top_hlo_ops("test_session"))
+
+    self.assertEqual(result["status"], "NO_DATA")
+    self.assertIn("op_profile not found", result["error"])
+    self.assertEqual(result["top_by_time"], [])
+    self.assertEqual(result["top_by_flops"], [])
+    self.assertEqual(result["top_by_bytes_accessed"], [])
+    self.assertEqual(result["total_matched"], 0)
+    self.assertEqual(result["total_records"], 0)
+    self.assertFalse(result["truncated"])
+
+  def test_get_top_hlo_ops_other_rpc_error_raises(self):
+    self.mock_client.fetch.side_effect = Exception(
+        "/XprofAnalysisService.GetProfileData to [::1]:4501 : DEADLINE_EXCEEDED"
+    )
+
+    with self.assertRaises(RuntimeError) as cm:
+      get_top_hlo_ops_tool.get_top_hlo_ops("test_session")
+    self.assertIn("Error fetching top HLO ops", str(cm.exception))
+
   def test_get_top_hlo_ops_source_info(self):
     real_profile = self._create_fake_profile()
     fake_bytes = real_profile.SerializeToString()

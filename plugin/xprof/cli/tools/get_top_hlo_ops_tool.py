@@ -23,6 +23,9 @@ DecodeError = message.DecodeError
 
 _CUSTOM_CALL_TARGET_RE = re.compile(r'custom_call_target="([^"]+)"')
 
+# Text of the XProf server error for a session that has no op profile.
+_MISSING_OP_PROFILE_MESSAGE = "op_profile not found"
+
 
 def _is_idle_op(op: dict[str, Any]) -> bool:
   """Returns True if the operation represents an idle category or node."""
@@ -103,7 +106,9 @@ def get_top_hlo_ops(
       True if `limit` dropped rows from any list; `total_records`,
       `returned_records` (length of `top_by_time`) and
       `total_self_time_ms_all_records` describe all matched ops before
-      `limit`. Read totals from these fields, not by summing a list.
+      `limit`. Read totals from these fields, not by summing a list. If the
+      session has no op profile, `status` is `NO_DATA`, `error` holds the
+      server error, and the lists are empty.
 
   Raises:
       FileNotFoundError: If no HLO op_profile data is found in the trace.
@@ -127,6 +132,28 @@ def get_top_hlo_ops(
   except (FileNotFoundError, ValueError):
     raise
   except Exception as e:  # pylint: disable=broad-exception-caught
+    if _MISSING_OP_PROFILE_MESSAGE in str(e):
+      # Not every session has an op profile. Report its absence as data, like
+      # get_roofline_model does, rather than as a failure.
+      logging.warning("No op profile for session %s: %s", session_id, e)
+      return json.dumps(
+          {
+              "status": "NO_DATA",
+              "message": f"No HLO op profile found for session {session_id!r}.",
+              "error": str(e),
+              "top_by_time": [],
+              "top_by_flops": [],
+              "top_by_bytes_accessed": [],
+              "total_matched": 0,
+              **decorators.build_truncation_fields(
+                  total_records=0,
+                  returned_records=0,
+                  total_field="total_self_time_ms_all_records",
+                  total_value=0.0,
+              ),
+          },
+          indent=2,
+      )
     logging.exception("Error fetching top HLO ops for session %s", session_id)
     raise RuntimeError(
         f"Error fetching top HLO ops for session {session_id}: {e!r}"

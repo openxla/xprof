@@ -203,6 +203,25 @@ TEST(ConvertXplaneToDcnCollectiveStats,
   EXPECT_EQ(host_dcn_slack_analysis.value().dcn_slack_summary_size(), 1);
 }
 
+TEST(ConvertXplaneToDcnCollectiveStats,
+     HasDcnCollectiveStatsWithMegascaleTracePlaneOnly) {
+  XSpace xspace;
+  XPlane* plane = tsl::profiler::FindOrAddMutablePlaneWithName(
+      &xspace, "/device:CUSTOM:Megascale Trace");
+  tsl::profiler::XPlaneBuilder plane_builder(plane);
+  tsl::profiler::XLineBuilder line = plane_builder.GetOrCreateLine(0);
+  line.AddEvent(*plane_builder.GetOrCreateEventMetadata("megascale_op"));
+  EXPECT_TRUE(HasDcnCollectiveStatsInXSpace(xspace));
+}
+
+TEST(ConvertXplaneToDcnCollectiveStats,
+     HasNoDcnCollectiveStatsForEmptyMegascaleTracePlane) {
+  XSpace xspace;
+  tsl::profiler::FindOrAddMutablePlaneWithName(
+      &xspace, "/device:CUSTOM:Megascale Trace");
+  EXPECT_FALSE(HasDcnCollectiveStatsInXSpace(xspace));
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

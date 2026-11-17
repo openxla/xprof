@@ -18,6 +18,7 @@ limitations under the License.
 #include <string>
 #include <utility>
 
+#include "absl/algorithm/container.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "google/protobuf/arena.h"
@@ -78,6 +79,14 @@ absl::StatusOr<bool> GetDcnCollectiveStatsFromMultiXSpaceAndSaveToFile(
 }  // namespace
 
 bool HasDcnCollectiveStatsInXSpace(const XSpace& xspace) {
+  for (const XPlane& plane : xspace.planes()) {
+    if (absl::StrContains(plane.name(), "Megascale") &&
+        absl::c_any_of(plane.lines(), [](const XLine& line) {
+          return !line.events().empty();
+        })) {
+      return true;
+    }
+  }
   if (const tsl::profiler::XPlane* xplane = tsl::profiler::FindPlaneWithName(
           xspace, tsl::profiler::kHostThreadsPlaneName);
       xplane != nullptr) {

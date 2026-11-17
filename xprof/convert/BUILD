@@ -2932,6 +2932,7 @@ cc_library(
         ":repository",
         ":xspace_to_dcn_slack_analysis",
         "//plugin/xprof/protobuf:dcn_slack_analysis_proto_cc",
+        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_protobuf//:protobuf",

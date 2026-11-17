@@ -650,14 +650,21 @@ async function ensureWasmModuleIsLoaded(): Promise<void> {
   });
 }
 
-async function initGpuAndStartWasmApp(): Promise<TraceViewerV2Module> {
+async function initGpuAndStartWasmApp(
+  options?: TraceViewerV2Options,
+): Promise<TraceViewerV2Module> {
   await ensureWasmModuleIsLoaded();
   const canvas = document.querySelector('#canvas') as HTMLCanvasElement;
   if (!canvas) {
     throw new Error('Could not find canvas element with id="canvas"');
   }
+  if (options?.offscreen) {
+    canvas.dataset['offscreen'] = 'true';
+  }
   const device = await getWebGpuDevice();
-  configureCanvas(canvas, device);
+  if (!canvas.dataset['offscreen']) {
+    configureCanvas(canvas, device);
+  }
   return loadAndStartWasm(canvas, device);
 }
 
@@ -1847,6 +1854,8 @@ export declare interface TraceViewerV2Options {
   // Optional factory used to construct the dedicated trace-streaming Web
   // Worker during URL loads and zoom/pan refetches.
   createStreamWorker?: TraceStreamWorkerFactory;
+  // If true, WebGPU renders to an offscreen texture and blits pixels to 2D canvas.
+  offscreen?: boolean;
 }
 
 /**
@@ -1898,7 +1907,7 @@ export async function traceViewerV2Main(
   let hasLoadedDataset = false;
 
   try {
-    traceviewerModule = await initGpuAndStartWasmApp();
+    traceviewerModule = await initGpuAndStartWasmApp(options);
     traceviewerModule.getFeatureFlag = window.getFeatureFlag;
     activeWasmModule = traceviewerModule;
   } catch (e) {

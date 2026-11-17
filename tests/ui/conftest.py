@@ -42,7 +42,7 @@ STARTUP_TIMEOUT_SECONDS = 15.0
 MAX_STARTUP_ATTEMPTS = 3
 RELATIVE_PROFILE_DATA_DIR = pathlib.Path("demo/plugins/profile")
 
-# Known upstream bugs in the unpatched server baseline (tracked in b/552235521).
+# Known upstream bugs in the unpatched server baseline.
 # Silenced during baseline test runs so assertions focus on invariant checks.
 KNOWN_UPSTREAM_BUGS = [
     "favicon.ico",

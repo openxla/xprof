@@ -1,4 +1,10 @@
-import {Component, Input, OnChanges, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  Input,
+  OnChanges,
+  SimpleChanges,
+} from '@angular/core';
 import {Address} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 
 /**
@@ -6,7 +12,8 @@ import {Address} from 'org_xprof/frontend/app/services/source_code_service/sourc
  * stack trace.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'stack-trace-snippet',
   templateUrl: './stack_trace_snippet.ng.html',
   styleUrls: ['./stack_trace_snippet.scss'],
@@ -25,8 +32,8 @@ export class StackTraceSnippet implements OnChanges {
    *
    *   /full/path/to/file.py:100
    */
-  @Input() sourceFileAndLineNumber: string|undefined = undefined;
-  @Input() stackTrace: string|undefined = undefined;
+  @Input() sourceFileAndLineNumber: string | undefined = undefined;
+  @Input() stackTrace: string | undefined = undefined;
   /**
    * The number of lines to show around the stack frame.
    */
@@ -61,8 +68,9 @@ export class StackTraceSnippet implements OnChanges {
 
   private parseAddresses() {
     this.sourceCodeSnippetAddresses = parseAddresses(
-        this.stackTrace || this.sourceFileAndLineNumber || '',
-        this.sourceContextWindow);
+      this.stackTrace || this.sourceFileAndLineNumber || '',
+      this.sourceContextWindow,
+    );
   }
 }
 
@@ -82,7 +90,8 @@ function parseAddresses(value: string, sourceContextWindow = 20): Address[] {
   const result: Address[] = [];
   const linesBefore = sourceContextWindow / 2;
   const linesAfter = sourceContextWindow / 2;
-  const framePattern = /^\s*([^:]+?)(?:\:(-?\d+))?(?:\:-?\d+)?\s*$/;
+  // Matches the file name, line number, column number, and end column number.
+  const framePattern = /^\s*([^:]+?)(?:\:(-?\d+))?(?:\:-?\d+)?(?:\:-?\d+)?\s*$/;
   const lines = value.trim().split('\n');
   for (const line of lines) {
     const match = line.match(framePattern);

@@ -36,7 +36,11 @@ class GetOverviewToolTest(parameterized.TestCase):
     )
 
   def _set_overview_properties(
-      self, *, mxu: str | float | None, hbm: str | float | None
+      self,
+      *,
+      mxu: str | float | None,
+      hbm: str | float | None,
+      device_type: str = "TPU v4",
   ) -> None:
     """Makes every fetch return one overview section with MXU and HBM values.
 
@@ -45,11 +49,12 @@ class GetOverviewToolTest(parameterized.TestCase):
         is left out.
       hbm: The `hbm_utilization_percent` property value. If None, the property
         is left out.
+      device_type: The `device_type` property value.
     """
     properties = {
         "flop_rate_utilization_relative_to_roofline": "20.0%",
         "memory_bw_utilization_relative_to_hw_limit": "30.0%",
-        "device_type": "TPU v4",
+        "device_type": device_type,
     }
     if mxu is not None:
       properties["mxu_utilization_percent"] = mxu
@@ -270,10 +275,72 @@ class GetOverviewToolTest(parameterized.TestCase):
     self.assertIn("mxu_utilization_percent", perf)
     self.assertIsNone(perf["mxu_utilization_percent"])
     self.assertEqual(perf["mxu_utilization_status"]["status"], "unavailable")
-    self.assertIn(
-        "tpu_perf_counters", perf["mxu_utilization_status"]["how_to_get"]
-    )
     self.assertNotIn("hbm_utilization_percent", perf)
+
+  def test_get_overview_mxu_status_text_on_tpu(self):
+    self._set_overview_properties(mxu="0.0%", hbm="0.0%")
+
+    result_json = json.loads(get_overview_tool.get_overview("session_mxu"))
+
+    self.assertEqual(
+        result_json["performance_summary"]["mxu_utilization_status"],
+        {
+            "status": "unavailable",
+            "reason": (
+                "Hardware performance counters were not captured or not"
+                " reduced, or the device was nearly idle, so the MXU"
+                " utilization is unknown. Do not report it as a measured 0%."
+            ),
+            "how_to_get": (
+                "On TPU, run get_kernel_utilization for the measured MXU"
+                " utilization. If it has no data, capture the profile again"
+                " with the profiler option tpu_perf_counters=True."
+                " compute_efficiency_percent is a cost-model FLOP rate, not"
+                " MXU utilization (counts VPU FLOPs, 0 FLOPs for Pallas and"
+                " custom calls)."
+            ),
+        },
+    )
+
+  @parameterized.named_parameters(
+      dict(testcase_name="tpu_without_tpu_in_name", device_type="ExampleChip"),
+      dict(testcase_name="tpu_with_tpu_in_name", device_type="TPU v6 Lite"),
+      dict(testcase_name="device_type_empty", device_type=""),
+  )
+  def test_get_overview_mxu_status_has_tpu_hint_on_tpu(self, device_type):
+    self._set_overview_properties(
+        mxu="0.0%", hbm="0.0%", device_type=device_type
+    )
+
+    result_json = json.loads(get_overview_tool.get_overview("session_tpu"))
+
+    how_to_get = result_json["performance_summary"]["mxu_utilization_status"][
+        "how_to_get"
+    ]
+    self.assertIn("tpu_perf_counters=True", how_to_get)
+    self.assertIn("get_kernel_utilization", how_to_get)
+
+  @parameterized.named_parameters(
+      dict(testcase_name="nvidia_gpu", device_type="Nvidia GPU (Hopper)"),
+      dict(testcase_name="amd_gpu", device_type="AMD GPU - gfx942"),
+      dict(testcase_name="generic_gpu", device_type="GPU"),
+      dict(testcase_name="cpu", device_type="CPU"),
+  )
+  def test_get_overview_mxu_status_has_no_tpu_hint_on_gpu_or_cpu(
+      self, device_type
+  ):
+    self._set_overview_properties(
+        mxu="0.0%", hbm="0.0%", device_type=device_type
+    )
+
+    result_json = json.loads(get_overview_tool.get_overview("session_gpu"))
+
+    how_to_get = result_json["performance_summary"]["mxu_utilization_status"][
+        "how_to_get"
+    ]
+    self.assertNotIn("tpu_perf_counters", how_to_get)
+    self.assertNotIn("get_kernel_utilization", how_to_get)
+    self.assertIn("a cost-model FLOP rate, not MXU utilization", how_to_get)
 
   @parameterized.named_parameters(
       dict(

@@ -26,14 +26,18 @@ def get_kpi_metrics(session_id: str, *, bypass_cache: bool = False) -> str:
         - step_time_ms: The average step time in milliseconds.
         - duty_cycle_percent: The device duty cycle as a percentage.
         - mxu_utilization_percent: MXU utilization from hardware performance
-          counters, as a percentage. None if the counters were not captured.
-          This value never comes from the XLA cost model.
+          counters, as a percentage. None if the counters were not captured
+          or not reduced, or the device was nearly idle. This value never
+          comes from the XLA cost model.
         - mxu_utilization_status: (Optional) Present only when
           mxu_utilization_percent is None. Has 'status', 'reason' and
           'how_to_get'.
-        - compute_efficiency_percent: (Optional) Roofline FLOP rate relative
-          to the peak device FLOP rate, from the XLA cost model. Present when
-          roofline data exists.
+        - compute_efficiency_percent: (Optional) Program FLOP rate relative
+          to the peak device FLOP rate. It is a cost-model FLOP rate, not MXU
+          utilization. When flops_provenance is 'derived_from_shapes' or
+          'mixed', it is the corrected get_roofline_model value, so it can
+          differ from the get_overview value (which is not corrected). Present
+          when roofline data exists.
         - roofline_utilization: Flop rate utilization relative to roofline.
         - flops_provenance: Provenance of FLOP calculations ('xla_cost_model',
           'derived_from_shapes', 'mixed', or 'opaque_custom_call').

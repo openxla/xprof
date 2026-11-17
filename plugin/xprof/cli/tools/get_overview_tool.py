@@ -1,6 +1,6 @@
 """Tool to fetch overview page data from XProf."""
 
-from collections.abc import Iterable, Mapping, MutableMapping
+from collections.abc import Iterable, MutableMapping
 import json
 import logging
 import math
@@ -8,7 +8,6 @@ import os
 import pathlib
 import re
 import statistics
-import types
 from typing import Any
 
 from xprof.cli.internal import decorators
@@ -69,23 +68,58 @@ RUN_ENVIRONMENT_KEYS = frozenset({
 })
 
 # Values that the overview page reports when a hardware counter was not
-# captured or not reduced.
+# captured or not reduced, or when the device was nearly idle.
 _ABSENT_COUNTER_VALUES = ("0.0%", "0%", "0.0", 0, 0.0)
 _UNKNOWN_COUNTER_VALUE = "unknown"
-# Read-only, so that no caller can change the shared status. Callers copy it
-# with `dict()` before they put it in the output.
-_MXU_UNAVAILABLE_STATUS: Mapping[str, str] = types.MappingProxyType({
-    "status": "unavailable",
-    "reason": (
-        "Hardware performance counters were not captured or not reduced, so"
-        " the MXU utilization is unknown. It is not 0%."
-    ),
-    "how_to_get": (
-        "On TPU, capture the profile again with the profiler option"
-        " tpu_perf_counters=True. Until then, use compute_efficiency_percent"
-        " (a cost-model estimate, not a hardware counter value)."
-    ),
-})
+_MXU_UNAVAILABLE_REASON = (
+    "Hardware performance counters were not captured or not reduced, or the"
+    " device was nearly idle, so the MXU utilization is unknown. Do not report"
+    " it as a measured 0%."
+)
+_TPU_MXU_HINT = (
+    "On TPU, run get_kernel_utilization for the measured MXU utilization. If"
+    " it has no data, capture the profile again with the profiler option"
+    " tpu_perf_counters=True."
+)
+_COMPUTE_EFFICIENCY_HINT = (
+    "compute_efficiency_percent is a cost-model FLOP rate, not MXU"
+    " utilization (counts VPU FLOPs, 0 FLOPs for Pallas and custom calls)."
+)
+
+
+def _is_gpu_or_cpu(device_type: str | None) -> bool:
+  """Returns True if `device_type` names a GPU or CPU device.
+
+  Mirrors `ParseHardwareType` in
+  `third_party/xprof/utils/hardware_type_utils.cc`. TPU device types do not
+  always contain "TPU" (for example, code names), so an unknown or missing
+  device type counts as a possible TPU.
+
+  Args:
+    device_type: The `device_type` value from the overview page.
+  """
+  if not isinstance(device_type, str):
+    return False
+  return "GPU" in device_type or device_type == "CPU"
+
+
+def _mxu_unavailable_status(*, device_type: str | None) -> dict[str, str]:
+  """Returns the `mxu_utilization_status` dict for missing MXU counters.
+
+  Args:
+    device_type: The `device_type` value from the overview page. The TPU hint is
+      left out for GPU and CPU devices.
+  """
+  how_to_get = (
+      _COMPUTE_EFFICIENCY_HINT
+      if _is_gpu_or_cpu(device_type)
+      else f"{_TPU_MXU_HINT} {_COMPUTE_EFFICIENCY_HINT}"
+  )
+  return {
+      "status": "unavailable",
+      "reason": _MXU_UNAVAILABLE_REASON,
+      "how_to_get": how_to_get,
+  }
 
 
 def _hardware_counters_absent(*, mxu_util: Any, hbm_counter_util: Any) -> bool:
@@ -108,7 +142,10 @@ def _hardware_counters_absent(*, mxu_util: Any, hbm_counter_util: Any) -> bool:
 
 
 def _mark_mxu_unavailable_if_no_counters(
-    performance_summary: MutableMapping[str, Any], *, hbm_counter_util: Any
+    performance_summary: MutableMapping[str, Any],
+    *,
+    hbm_counter_util: Any,
+    device_type: str | None,
 ) -> None:
   """Marks the MXU value as unavailable when no counters were captured.
 
@@ -123,14 +160,15 @@ def _mark_mxu_unavailable_if_no_counters(
       `mxu_utilization_percent` value from the overview page.
     hbm_counter_util: The `hbm_utilization_percent` value from the overview
       page. This is the hardware counter value, not the roofline estimate.
+    device_type: The `device_type` value from the overview page.
   """
   if _hardware_counters_absent(
       mxu_util=performance_summary.get("mxu_utilization_percent"),
       hbm_counter_util=hbm_counter_util,
   ):
     performance_summary["mxu_utilization_percent"] = None
-    performance_summary["mxu_utilization_status"] = dict(
-        _MXU_UNAVAILABLE_STATUS
+    performance_summary["mxu_utilization_status"] = _mxu_unavailable_status(
+        device_type=device_type
     )
 
 
@@ -214,6 +252,9 @@ def _populate_roofline_fallback(
       )
 
     if compute_eff is not None:
+      # The uncorrected XLA cost-model value. get_kpi_metrics uses the
+      # corrected get_roofline_model value instead when custom call FLOPs are
+      # derived from shapes (see its flops_provenance field).
       performance_summary["compute_efficiency_percent"] = (
           f"{compute_eff * 100.0:.2f}%"
       )
@@ -647,6 +688,7 @@ def get_overview(
     _mark_mxu_unavailable_if_no_counters(
         performance_summary,
         hbm_counter_util=all_p_dict.get("hbm_utilization_percent"),
+        device_type=all_p_dict.get("device_type"),
     )
     _populate_roofline_fallback(client, session_id, performance_summary)
 

@@ -152,6 +152,7 @@ XPLANE_TOOLS = [
     'utilization_viewer',
     'kernel_utilization',
     'smart_suggestion',
+    'kernel_viewer',
 ]
 
 XPLANE_TOOLS_SET = frozenset(XPLANE_TOOLS)
@@ -1295,6 +1296,9 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
       )
     if request.args.get('refresh_suggestion'):
       params['refresh_suggestion'] = request.args.get('refresh_suggestion')
+    if tool == 'kernel_viewer':
+      for arg in ('request_type', 'kernel_name', 'hlo_module'):
+        params[arg] = request.args.get(arg, '')
     content_type = 'application/json'
 
     if tool not in TOOLS and not use_xplane(tool):
@@ -1712,6 +1716,7 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
         'trace_viewer',
         'trace_viewer@',
         'graph_viewer',
+        'kernel_viewer',
         'op_profile',
         'hlo_op_profile',
         'input_pipeline_analyzer',

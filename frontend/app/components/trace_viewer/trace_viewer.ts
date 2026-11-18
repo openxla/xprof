@@ -29,6 +29,8 @@ import {
 
 import {
   API_PREFIX,
+  KERNEL_SCHEDULE_TOOLTIP_PREFIX,
+  LLO_DEBUG_TAG,
   PLUGIN_NAME,
 } from 'org_xprof/frontend/app/common/constants/constants';
 import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
@@ -65,11 +67,15 @@ import {
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/trace_helper/event_args_keys';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
-import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
+import {
+  getHostsState,
+  getTagsState,
+} from 'org_xprof/frontend/app/store/selectors';
 import {
   COLOR_PALETTE_PROMPTED_STORAGE_KEY,
   COLOR_PALETTE_STORAGE_KEY,
   COLOR_PALETTES,
+  CUSTOM_CALL_HLO_CATEGORY,
   CUSTOM_COLORS_STORAGE_KEY,
   CUSTOM_PALETTE_NAME,
   DEFAULT_PALETTE,
@@ -84,6 +90,7 @@ import {
   getConnectedStepGroupLinkText,
   getSingleStepGroupLinkText,
   HLO_OP_STATS_TOOL_NAME,
+  KERNEL_VIEWER_TOOL_NAME,
   NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
   NAV_PAN_SPEED_STORAGE_KEY,
   NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY,
@@ -211,6 +218,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   pathPrefix = '';
   sourceCodeServiceIsAvailable = false;
   hostList: string[] = [];
+  tags: string[] = [];
   enableFastMode = extractFastModeFromQueryParams({
     searchParams: this.dataService.getSearchParams?.(),
   });
@@ -570,6 +578,24 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         this.update(this.navigationEvent);
       });
 
+    this.store
+      .select(getTagsState)
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((tags: string[]) => {
+        const hadLloDebugTag = this.hasLloDebugTag;
+        this.tags = tags ?? [];
+        this.createKernelViewerLink();
+        // Tags can arrive after the legacy viewer's URL is set; rebuild only
+        // when `llo_debug` flips so unrelated tag updates do not reload it.
+        if (
+          !this.useTraceViewerV2 &&
+          this.hasLloDebugTag !== hadLloDebugTag &&
+          this.url
+        ) {
+          this.update(this.navigationEvent);
+        }
+      });
+
     // Event listeners are handled by TraceViewerContainer.
     // WASM initialization is triggered via the child component's
     // (initializeWasm) output event once the canvas element is fully
@@ -785,7 +811,9 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         isStreaming
       }&is_oss=true&trace_data_url=${encodeURIComponent(
         traceDataUrl,
-      )}&source_code_service=${this.sourceCodeServiceIsAvailable}`;
+      )}&source_code_service=${
+        this.sourceCodeServiceIsAvailable
+      }&llo_debug=${this.hasLloDebugTag}`;
     }
   }
 
@@ -883,6 +911,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       startUsFormatted,
       durationUsFormatted,
       trackName,
+      hloModule: hloModuleName,
+      hloOpName,
       inboundFlows: event.inboundFlows,
       outboundFlows: event.outboundFlows,
     };
@@ -1125,6 +1155,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     this.createCrossToolLinks();
     this.maybeFetchAdjacentNodes();
   }
+  get hasLloDebugTag(): boolean {
+    return this.tags.includes(LLO_DEBUG_TAG);
+  }
+
   /**
    * Creates a cross-tool link `<div>` containing an anchor to the given
    * tool.
@@ -1170,6 +1204,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     this.createRooflineModelLink();
     this.createGraphViewerLink();
     this.createHloOpStatsLink();
+    this.createKernelViewerLink();
     this.createStepGroupLink();
   }
 
@@ -1298,6 +1333,50 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       HLO_OP_STATS_TOOL_NAME[1],
       {'hlo_op_name': hloOp},
       `See HLO op stats for ${hloOp}`,
+    );
+  }
+
+  /**
+   * Links custom call XLA ops, e.g. Pallas kernels, to their static schedule in
+   * the Kernel Viewer when the session has kernel debug info (`llo_debug` tag).
+   */
+  private createKernelViewerLink() {
+    if (!this.selectedEvent?.args) {
+      return;
+    }
+    if (!this.hasLloDebugTag) {
+      this.selectedEvent.kernelViewerLinkHtml = undefined;
+      return;
+    }
+    const args = this.selectedEvent.args as Record<string, string>;
+    if (args['hlo_category'] !== CUSTOM_CALL_HLO_CATEGORY) {
+      return;
+    }
+    const hloOp =
+      args[HLO_OP] || (this.isSourceCodeTrack() ? '' : this.selectedEvent.name);
+    if (!hloOp) {
+      return;
+    }
+    const params: {[key: string]: string} = {'kernel_name': hloOp};
+    const hloModule = (args[HLO_MODULE] || this.selectedEvent.hloModule || '')
+      .replace(/\(\d+\)$/, '')
+      .trim();
+    if (hloModule && hloModule !== 'default') {
+      params['hlo_module'] = hloModule;
+    }
+    const pid = this.selectedEvent.pid;
+    const host =
+      (pid !== undefined ? this.pidToHostMap.get(pid) : '') ||
+      this.filterSelectedHosts[0] ||
+      this.getCurrentHost();
+    if (host) {
+      params['host'] = host;
+    }
+    this.selectedEvent.kernelViewerLinkHtml = this.createCrossToolLink(
+      KERNEL_VIEWER_TOOL_NAME[0],
+      KERNEL_VIEWER_TOOL_NAME[1],
+      params,
+      `${KERNEL_SCHEDULE_TOOLTIP_PREFIX}${hloOp}`,
     );
   }
 

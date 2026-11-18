@@ -684,8 +684,9 @@ export class DataServiceV2 implements DataServiceV2Interface {
       .set('device_tracer_level', options.deviceTracerLevel.toString())
       .set('python_tracer_level', options.pythonTracerLevel.toString())
       .set('delay', options.delay.toString());
-    return this.httpClient.get<CaptureProfileResponse>(
+    return this.httpClient.post<CaptureProfileResponse>(
       this.pathPrefix + CAPTURE_PROFILE_API,
+      null,
       {params},
     );
   }

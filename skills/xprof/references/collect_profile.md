@@ -242,7 +242,7 @@ xprof server --logdir=/tmp/xprof_logs --port=8791
 -   **Via HTTP Endpoint**:
 
 ```bash
-curl -X GET "http://localhost:8791/capture_profile?\
+curl -X POST "http://localhost:8791/capture_profile?\
 service_addr=localhost:50051&duration=5000"
 ```
 

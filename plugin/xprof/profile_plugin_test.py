@@ -495,7 +495,7 @@ class ProfilePluginTest(absltest.TestCase):
         run_dir, profile_plugin.CACHE_VERSION_FILE
     )
 
-    # Check if the cache_version.txt file doesn't exists.
+    # Check if the cache_version.txt file doesn't exist.
     self.assertFalse(os.path.exists(cache_version_file_path))
 
     # Check if first run generates a cache file.
@@ -1404,6 +1404,314 @@ class ProfilePluginTest(absltest.TestCase):
       node = payload['byProgram']['children'][0]
       self.assertNotIn('programServingMetadata', node)
 
+  def test_capture_route_rejects_non_post_methods(self):
+    for method in ('GET', 'PUT', 'DELETE', 'HEAD'):
+      with self.subTest(method=method):
+        request = wrappers.Request.from_values(
+            method=method, query_string='service_addr=localhost:50051'
+        )
+        response = self.plugin.capture_route_impl(request)
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.headers.get('Allow'), 'POST')
+        self.assertIn(b'Method Not Allowed', _get_response_data(response))
+
+  def test_capture_route_rejects_cross_origin_request(self):
+    for headers, environ_overrides in (
+        ({'Sec-Fetch-Site': 'cross-site'}, None),
+        ({'Sec-Fetch-Site': 'same-site'}, None),
+        (
+            {'Host': 'localhost:8791', 'Origin': 'https://evil.example.com'},
+            None,
+        ),
+        ({'Host': 'localhost:8791', 'Origin': 'null'}, None),
+        (
+            {
+                'Host': 'localhost:8791',
+                'Origin': 'null',
+                'Sec-Fetch-Site': 'same-origin',
+            },
+            None,
+        ),
+        (
+            {
+                'Host': 'localhost:8791',
+                'Referer': 'https://evil.example.com/pwn',
+            },
+            None,
+        ),
+        ({'Host': 'localhost:8791', 'Origin': 'http://[::1'}, None),
+        ({'Host': 'localhost:8791', 'Referer': 'http://[not-an-ip]'}, None),
+        (
+            {'Origin': 'http://[::1'},
+            {'HTTP_HOST': '', 'SERVER_NAME': ''},
+        ),
+        (
+            {'Referer': 'http://[not-an-ip]'},
+            {'HTTP_HOST': '', 'SERVER_NAME': ''},
+        ),
+        (
+            {'Origin': 'http://evil.example.com'},
+            {'HTTP_HOST': '', 'SERVER_NAME': ''},
+        ),
+        ({'Origin': 'http://evil.example.com@127.0.0.1:8791'}, None),
+        ({'Origin': 'http://127.0.0.1:notaport'}, None),
+        (
+            {
+                'Host': 'localhost:8791',
+                'Origin': 'http://localhost:8791/path?q=1',
+            },
+            None,
+        ),
+        (
+            {
+                'Host': 'xprof.example.com',
+                'Origin': 'http://xprof.example.com',
+            },
+            {'wsgi.url_scheme': 'https'},
+        ),
+        (
+            {
+                'Host': 'xprof.example.com',
+                'Origin': 'http://xprof.example.com',
+                'X-Forwarded-Proto': 'https',
+            },
+            None,
+        ),
+    ):
+      with self.subTest(headers=headers, environ_overrides=environ_overrides):
+        request = wrappers.Request.from_values(
+            method='POST',
+            query_string='service_addr=localhost:50051',
+            headers=headers,
+            environ_overrides=environ_overrides,
+        )
+        response = self.plugin.capture_route_impl(request)
+        self.assertEqual(response.status_code, 403)
+        self.assertIn(b'Forbidden', _get_response_data(response))
+
+  def test_capture_route_rejects_missing_service_addr_or_bad_int_params(self):
+    for query_string in (
+        '',
+        'service_addr=',
+        'service_addr=%20%20',
+        'service_addr=localhost:50051&duration=abc',
+        'service_addr=localhost:50051&num_retry=abc',
+        'service_addr=localhost:50051&host_tracer_level=abc',
+        'service_addr=localhost:50051&device_tracer_level=abc',
+        'service_addr=localhost:50051&python_tracer_level=abc',
+        'service_addr=localhost:50051&delay=abc',
+    ):
+      with self.subTest(query_string=query_string):
+        request = wrappers.Request.from_values(
+            method='POST', query_string=query_string
+        )
+        response = self.plugin.capture_route_impl(request)
+        self.assertEqual(response.status_code, 400)
+
+  def test_capture_route_accepts_same_origin_post_request(self):
+    with mock.patch.object(
+        profile_plugin._pywrap_profiler_plugin, 'trace', autospec=True
+    ) as mock_trace:
+      request = wrappers.Request.from_values(
+          method='POST',
+          query_string='service_addr=localhost:50051&duration=1000',
+          headers={
+              'Host': 'localhost:8791',
+              'Origin': 'http://localhost:8791',
+              'Sec-Fetch-Site': 'same-origin',
+          },
+      )
+
+      response = self.plugin.capture_route_impl(request)
+
+    self.assertEqual(response.status_code, 200)
+    mock_trace.assert_called_once_with(
+        'localhost:50051',
+        str(self.logdir),
+        None,
+        True,
+        1000,
+        1,
+        {
+            'host_tracer_level': 2,
+            'device_tracer_level': 1,
+            'python_tracer_level': 0,
+            'delay_ms': 0,
+        },
+    )
+    payload = json.loads(_get_response_data(response))
+    self.assertEqual(
+        payload, {'result': 'Capture profile successfully. Please refresh.'}
+    )
+
+  def test_capture_route_wsgi_contract_post_allowed_and_get_rejected(self):
+    client = werkzeug_test.Client(self.plugin.capture_route, wrappers.Response)
+    with mock.patch.object(
+        profile_plugin._pywrap_profiler_plugin, 'trace', autospec=True
+    ) as mock_trace:
+      post_response = client.post(
+          '/capture_profile?service_addr=localhost:50051&duration=1000'
+      )
+      self.assertEqual(post_response.status_code, 200)
+      self.assertEqual(
+          json.loads(_get_response_data(post_response)),
+          {'result': 'Capture profile successfully. Please refresh.'},
+      )
+      self.assertEqual(mock_trace.call_count, 1)
+
+      get_response = client.get(
+          '/capture_profile?service_addr=localhost:50051&duration=1000'
+      )
+      self.assertEqual(get_response.status_code, 405)
+      self.assertEqual(get_response.headers.get('Allow'), 'POST')
+      self.assertIn(b'Method Not Allowed', _get_response_data(get_response))
+      self.assertEqual(mock_trace.call_count, 1)
+
+  def test_capture_route_enforces_post_and_origin_for_overriding_subclass(self):
+    class SubclassPlugin(profile_plugin.ProfilePlugin):
+
+      def capture_route_impl(self, request):
+        del request
+        return profile_plugin.respond({'result': 'sub'}, 'application/json')
+
+    context = utils.base_plugin.TBContext(
+        logdir=self.logdir,
+        multiplexer=self.multiplexer,
+        data_provider=None,
+        flags=utils._FakeFlags(self.logdir),
+    )
+    sub_plugin = SubclassPlugin(context)
+    client = werkzeug_test.Client(sub_plugin.capture_route, wrappers.Response)
+
+    get_resp = client.get('/capture_profile?service_addr=worker0')
+    self.assertEqual(get_resp.status_code, 405)
+    self.assertEqual(get_resp.headers.get('Allow'), 'POST')
+
+    cross_resp = client.post(
+        '/capture_profile?service_addr=worker0',
+        headers={'Sec-Fetch-Site': 'cross-site'},
+    )
+    self.assertEqual(cross_resp.status_code, 403)
+
+    ok_resp = client.post('/capture_profile?service_addr=worker0')
+    self.assertEqual(ok_resp.status_code, 200)
+
+  def test_is_cross_origin_request_server_name_and_proxy_cases(self):
+    self.assertFalse(
+        profile_plugin.is_cross_origin_request({
+            'SERVER_NAME': '::1',
+            'SERVER_PORT': '8791',
+            'HTTP_ORIGIN': 'http://[::1]:8791',
+        })
+    )
+    self.assertFalse(
+        profile_plugin.is_cross_origin_request({
+            'SERVER_NAME': 'Cheroot/11.1.2',
+            'SERVER_PORT': '8791',
+            'HTTP_ORIGIN': 'http://127.0.0.1:8791',
+        })
+    )
+    self.assertFalse(
+        profile_plugin.is_cross_origin_request({
+            'SERVER_NAME': 'Cheroot/11.1.2',
+            'SERVER_PORT': '8791',
+            'HTTP_ORIGIN': 'http://127.0.0.2:8791',
+        })
+    )
+    self.assertFalse(
+        profile_plugin.is_cross_origin_request({
+            'SERVER_NAME': '0.0.0.0',
+            'SERVER_PORT': '6006',
+            'HTTP_ORIGIN': 'http://localhost:6006',
+        })
+    )
+    self.assertFalse(
+        profile_plugin.is_cross_origin_request({
+            'SERVER_NAME': '::',
+            'SERVER_PORT': '6006',
+            'HTTP_ORIGIN': 'http://[::ffff:127.0.0.1]:6006',
+        })
+    )
+    self.assertFalse(
+        profile_plugin.is_cross_origin_request({
+            'HTTP_HOST': '127.0.0.1:6006',
+            'HTTP_SEC_FETCH_SITE': 'same-origin',
+            'HTTP_ORIGIN': 'https://proxy.googleusercontent.com',
+            'HTTP_REFERER': 'https://proxy.googleusercontent.com/overview',
+        })
+    )
+    self.assertFalse(
+        profile_plugin.is_cross_origin_request({
+            'HTTP_HOST': 'localhost.:8791',
+            'HTTP_ORIGIN': 'http://localhost:8791',
+        })
+    )
+    self.assertFalse(
+        profile_plugin.is_cross_origin_request({
+            'HTTP_HOST': '[0:0:0:0:0:0:0:1]:8791',
+            'HTTP_ORIGIN': 'http://[::1]:8791',
+        })
+    )
+    self.assertTrue(
+        profile_plugin.is_cross_origin_request({
+            'SERVER_NAME': 'Cheroot/11.1.2',
+            'SERVER_PORT': '8791',
+            'HTTP_ORIGIN': 'http://evil.example.com:8791',
+        })
+    )
+    self.assertTrue(
+        profile_plugin.is_cross_origin_request({
+            'SERVER_NAME': '0.0.0.0',
+            'SERVER_PORT': '6006',
+            'HTTP_ORIGIN': 'http://evil.example.com:6006',
+        })
+    )
+
+  def test_embedded_plugin_apps_block_cross_origin_api_but_allow_static(self):
+    apps = self.plugin.get_plugin_apps()
+    for api_route in (
+        profile_plugin.RUNS_ROUTE,
+        profile_plugin.RUN_TOOLS_ROUTE,
+        profile_plugin.HOSTS_ROUTE,
+        profile_plugin.DATA_ROUTE,
+        profile_plugin.DATA_CSV_ROUTE,
+        profile_plugin.VERSION_ROUTE,
+        profile_plugin.HLO_MODULE_LIST_ROUTE,
+        profile_plugin.CONFIG_ROUTE,
+    ):
+      with self.subTest(api_route=api_route):
+        client = werkzeug_test.Client(apps[api_route], wrappers.Response)
+        resp = client.get(
+            api_route, headers={'Sec-Fetch-Site': 'cross-site'}
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(
+            resp.headers.get('Vary'),
+            profile_plugin.CROSS_ORIGIN_VARY_HEADER,
+        )
+
+    with mock.patch.object(
+        self.plugin,
+        self.plugin._read_static_file_impl.__name__,
+        return_value=b'<html>index</html>',
+    ):
+      for static_route in (
+          profile_plugin.BASE_ROUTE,
+          profile_plugin.INDEX_HTML_ROUTE,
+          profile_plugin.INDEX_JS_ROUTE,
+          profile_plugin.BUNDLE_JS_ROUTE,
+      ):
+        with self.subTest(static_route=static_route):
+          client = werkzeug_test.Client(apps[static_route], wrappers.Response)
+          resp = client.get(
+              static_route, headers={'Sec-Fetch-Site': 'cross-site'}
+          )
+          self.assertEqual(resp.status_code, 200)
+          self.assertEqual(
+              resp.headers.get('Vary'),
+              profile_plugin.CROSS_ORIGIN_VARY_HEADER,
+          )
+
 
 class GenerateCacheTaskTest(absltest.TestCase):
 
@@ -1578,6 +1886,81 @@ class GenerateCacheImplTest(parameterized.TestCase):
     response = self.plugin._generate_cache_impl(request)
 
     self.assertEqual(response.status_code, 405)
+    self.assertEqual(response.headers.get('Allow'), 'POST')
+
+    client = werkzeug_test.Client(
+        self.plugin.generate_cache_route, wrappers.Response
+    )
+    route_resp = client.get('/generate_cache?session_path=/tmp/session')
+    self.assertEqual(route_resp.status_code, 405)
+    self.assertEqual(route_resp.headers.get('Allow'), 'POST')
+
+  def test_generate_cache_route_enforces_post_and_origin_for_subclass(self):
+    class SubclassPlugin(profile_plugin.ProfilePlugin):
+
+      def _generate_cache_impl(self, request):
+        del request
+        return profile_plugin.respond(
+            {'status': 'ACCEPTED'}, 'application/json', code=202
+        )
+
+    context = utils.base_plugin.TBContext(
+        logdir=self.logdir,
+        multiplexer=self.multiplexer,
+        data_provider=None,
+        flags=utils._FakeFlags(self.logdir),
+    )
+    sub_plugin = SubclassPlugin(context)
+    client = werkzeug_test.Client(
+        sub_plugin.generate_cache_route, wrappers.Response
+    )
+
+    get_response = client.get('/generate_cache?session_path=/tmp/session')
+    self.assertEqual(get_response.status_code, 405)
+    self.assertEqual(get_response.headers.get('Allow'), 'POST')
+
+    cross_response = client.post(
+        '/generate_cache?session_path=/tmp/session',
+        headers={'Sec-Fetch-Site': 'cross-site'},
+    )
+    self.assertEqual(cross_response.status_code, 403)
+
+    ok_response = client.post('/generate_cache?session_path=/tmp/session')
+    self.assertEqual(ok_response.status_code, 202)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='sec_fetch_site_cross_site',
+          headers={'Sec-Fetch-Site': 'cross-site'},
+      ),
+      dict(
+          testcase_name='cross_origin_header',
+          headers={
+              'Host': 'localhost:8791',
+              'Origin': 'https://evil.example.com',
+          },
+      ),
+      dict(
+          testcase_name='malformed_ipv6_origin',
+          headers={'Host': 'localhost:8791', 'Origin': 'http://[::1'},
+      ),
+      dict(
+          testcase_name='malformed_ipv6_referer',
+          headers={'Host': 'localhost:8791', 'Referer': 'http://[not-an-ip]'},
+      ),
+  )
+  def test_generate_cache_rejects_cross_origin_request(self, headers):
+    session_path = self.create_tempdir().full_path
+    request = wrappers.Request.from_values(
+        method='POST',
+        query_string=f'session_path={session_path}',
+        headers=headers,
+    )
+
+    response = self.plugin._generate_cache_impl(request)
+
+    self.assertEqual(response.status_code, 403)
+    self.mock_submit.assert_not_called()
 
   def test_generate_cache_fails_if_session_path_missing(self):
     request = wrappers.Request.from_values(method='POST', query_string='')
@@ -1847,6 +2230,109 @@ class RespondCspTest(absltest.TestCase):
     response = profile_plugin.respond('<html></html>', 'text/html')
     csp = response.headers.get('Content-Security-Policy', '')
     self.assertIn("worker-src 'self' blob:", csp)
+
+
+class NormalizeAuthorityTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      ('ipv4_loopback', '127.0.0.1', 'http', ('127.0.0.1', '127.0.0.1')),
+      (
+          'ipv4_with_port',
+          '127.0.0.1:8791',
+          'http',
+          ('127.0.0.1', '127.0.0.1:8791'),
+      ),
+      ('bare_ipv6_loopback', '::1', 'http', ('::1', '[::1]')),
+      (
+          'bare_ipv4_mapped_ipv6',
+          '::ffff:127.0.0.1',
+          'http',
+          ('::ffff:127.0.0.1', '[::ffff:127.0.0.1]'),
+      ),
+      (
+          'bracketed_expanded_ipv6',
+          '[0:0:0:0:0:0:0:1]',
+          'http',
+          ('::1', '[::1]'),
+      ),
+      (
+          'bracketed_ipv6_with_port',
+          '[::1]:8791',
+          'http',
+          ('::1', '[::1]:8791'),
+      ),
+      (
+          'bracketed_ipv4_mapped_ipv6_with_port',
+          '[::ffff:127.0.0.1]:8791',
+          'http',
+          ('::ffff:127.0.0.1', '[::ffff:127.0.0.1]:8791'),
+      ),
+      (
+          'localhost_uppercase',
+          '  LocalHost  ',
+          'http',
+          ('localhost', 'localhost'),
+      ),
+      (
+          'localhost_trailing_dot',
+          'localhost.',
+          'http',
+          ('localhost', 'localhost'),
+      ),
+      (
+          'localhost_with_port',
+          'localhost:8791',
+          'http',
+          ('localhost', 'localhost:8791'),
+      ),
+      (
+          'default_http_port_80',
+          'localhost:80',
+          'http',
+          ('localhost', 'localhost'),
+      ),
+      (
+          'default_https_port_443',
+          'localhost:443',
+          'https',
+          ('localhost', 'localhost'),
+      ),
+      (
+          'port_443_on_http_kept',
+          'localhost:443',
+          'http',
+          ('localhost', 'localhost:443'),
+      ),
+  )
+  def test_normalizes_valid_authorities(self, authority, scheme, expected):
+    self.assertEqual(
+        profile_plugin.normalize_authority(authority, scheme), expected
+    )
+
+  def test_defaults_scheme_to_http(self):
+    self.assertEqual(
+        profile_plugin.normalize_authority('localhost:80'),
+        ('localhost', 'localhost'),
+    )
+
+  @parameterized.named_parameters(
+      ('empty', ''),
+      ('whitespace_only', '   '),
+      ('unbracketed_expanded_ipv6_with_port', '0:0:0:0:0:0:0:1:8791'),
+      ('unbracketed_ipv4_mapped_ipv6_with_port', '::ffff:127.0.0.1:8791'),
+      ('bracketed_ipv4_with_port', '[127.0.0.1]:8791'),
+      ('bracketed_ipv4_without_port', '[127.0.0.1]'),
+      ('bracketed_hostname', '[localhost]:8791'),
+      ('trailing_colon', 'localhost:'),
+      ('userinfo', 'user@localhost:8791'),
+      ('non_numeric_port', '127.0.0.1:notaport'),
+      ('bool_true', True),
+      ('bool_false', False),
+      ('none_input', None),
+      ('int_input', 8791),
+  )
+  def test_rejects_invalid_authorities(self, authority):
+    self.assertIsNone(profile_plugin.normalize_authority(authority))
 
 
 if __name__ == '__main__':

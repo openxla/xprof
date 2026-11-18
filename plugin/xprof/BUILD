@@ -88,6 +88,7 @@ py_library(
     name = "server",
     srcs = ["server.py"],
     deps = [
+        ":profile_plugin",
         ":profile_plugin_loader",
         "@org_xprof//plugin/xprof/standalone:tensorboard_shim",
     ],

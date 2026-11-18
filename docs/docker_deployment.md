@@ -16,7 +16,8 @@ FROM python:3.12-slim
 
 ARG XPROF_VERSION=2.21.3
 
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 \
+    XPROF_HOST=0.0.0.0
 
 WORKDIR /app
 
@@ -28,6 +29,21 @@ ENTRYPOINT ["xprof"]
 
 CMD ["--logdir=/app/logs", "--port=8791"]
 ```
+
+**Note**: `xprof` versions after `2.24.2` bind the HTTP server to `127.0.0.1`
+by default. Setting `ENV XPROF_HOST=0.0.0.0` binds the server across all
+container interfaces on newer releases while remaining compatible with
+`xprof <= 2.24.2` (on versions after `2.24.2`, you can also pass
+`--host=0.0.0.0` explicitly).
+
+**Security Warning**: `ENV XPROF_HOST=0.0.0.0` binds across all container
+interfaces and disables loopback `Host`-header enforcement inside the container.
+For local browser access, publish ports on host loopback
+(`-p 127.0.0.1:8791:8791`). Publishing `-p 8791:8791` without `127.0.0.1:` binds
+`0.0.0.0` on the Docker host and exposes unauthenticated profile reads, mounted
+Google Cloud Storage (GCS) Application Default Credentials (ADC) reads, and
+`/capture_profile` to the network unless protected by a firewall or
+authenticating reverse proxy.
 
 ## How to Build
 
@@ -49,7 +65,7 @@ build` command.
 Map your local log directory to `/app/logs` in the container.
 
 ```bash
-docker run -p 8791:8791 \
+docker run -p 127.0.0.1:8791:8791 \
   -v /tmp/xprof_logs:/app/logs \
   xprof:2.21.3
 ```
@@ -60,7 +76,7 @@ Mount your local gcloud credentials so xprof can authenticate with Google Cloud
 Storage.
 
 ```bash
-docker run -p 8791:8791 \
+docker run -p 127.0.0.1:8791:8791 \
   -v ~/.config/gcloud:/root/.config/gcloud \
   xprof:2.21.3 \
   --logdir=gs://your-bucket-name/xprof_logs --port=8791

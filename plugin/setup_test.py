@@ -142,6 +142,8 @@ class SetupTest(absltest.TestCase):
     self.assertIn('torch_xla', collect_content)
     self.assertIn('xp.start_trace', collect_content)
     self.assertIn('tensorflow', collect_content)
+    self.assertIn('curl -X POST', collect_content)
+    self.assertNotIn('curl -X GET', collect_content)
 
     xparity_skills_dir = os.path.join(
         os.path.dirname(__file__), '..', 'skills', 'xparity'

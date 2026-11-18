@@ -65,6 +65,8 @@ spec:
           value: "round_robin"
         - name: GRPC_DNS_RESOLVER
           value: "native"
+        - name: XPROF_HOST
+          value: "0.0.0.0"
         args:
           - "--port=10000"
           - "--worker_service_address=dns:///xprof-worker-service.default.svc.cluster.local:8891"
@@ -91,6 +93,20 @@ spec:
     nodePort: 30001
 ```
 
+**Note**: `xprof` versions after `2.24.2` bind the HTTP server to `127.0.0.1`
+by default. Setting `XPROF_HOST: "0.0.0.0"` on `aggregator-container` binds the
+aggregator HTTP server across all interfaces without breaking `xprof <= 2.24.2`
+(on versions after `2.24.2`, `--host=0.0.0.0` can also be passed in `args`),
+while `worker-container` explicitly sets `XPROF_HOST: "127.0.0.1"` to override
+the image-level `ENV XPROF_HOST=0.0.0.0` so its unused HTTP port stays bound to
+loopback.
+
+**Security Note**: Setting `XPROF_HOST: "0.0.0.0"` (or `--host=0.0.0.0`)
+disables loopback `Host`-header enforcement and serves unauthenticated profile
+endpoints across all container interfaces. Expose `xprof-agg-service` only
+behind cluster network policies, firewall rules, or an authenticating reverse
+proxy rather than directly to untrusted networks.
+
 ### Worker
 
 For worker we create `worker.yaml` file:
@@ -116,6 +132,9 @@ spec:
       - name: worker-container
         image: xprof:2.21.3
         imagePullPolicy: Never
+        env:
+        - name: XPROF_HOST
+          value: "127.0.0.1"
         args:
           - "--port=9999"
           - "--grpc_port=8891"

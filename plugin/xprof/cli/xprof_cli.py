@@ -618,90 +618,73 @@ wrap_with_logdir = _wrap_with_logdir
 class XProfCli:
   """XProf CLI to be invoked by fire.Fire."""
 
-  if _is_oss():
+  @classmethod
+  def server(
+      cls,
+      logdir: str | None = None,
+      port: int = 8791,
+      hide_capture_profile_button: bool = False,
+      enable_tab_name_label: bool = False,
+      worker_service_address: str | None = None,
+      grpc_port: int = 50051,
+      src_prefix: str | None = None,
+      max_concurrent_worker_requests: int = 1,
+      host: str | None = None,
+  ) -> None:
+    """Starts the XProf web server.
 
-    @classmethod
-    def server(
-        cls,
-        logdir: str | None = None,
-        port: int = 8791,
-        hide_capture_profile_button: bool = False,
-        enable_tab_name_label: bool = False,
-        worker_service_address: str | None = None,
-        grpc_port: int = 50051,
-        src_prefix: str | None = None,
-        max_concurrent_worker_requests: int = 1,
+    Args:
+      logdir: Path to the TensorBoard log directory root. When None, starts
+        without pre-loading a log directory.
+      port: Port to run the main server on.
+      hide_capture_profile_button: Whether to hide the capture profile button.
+      enable_tab_name_label: Whether to enable tab name label.
+      worker_service_address: Address for the worker service, or None to use the
+        local gRPC worker port.
+      grpc_port: Port for the gRPC server.
+      src_prefix: Prefix for source paths, or None for no prefix.
+      max_concurrent_worker_requests: Maximum concurrent worker requests.
+      host: Host address to bind the main server to. When None, defaults to
+        XPROF_HOST if set, otherwise 127.0.0.1.
+
+    Raises:
+      fire.core.FireError: If flag values have invalid types or server
+        configuration validation fails.
+    """
+    del cls
+    if isinstance(logdir, bool):
+      raise fire.core.FireError("The --logdir flag requires a value.")
+    if not isinstance(hide_capture_profile_button, bool):
+      raise fire.core.FireError(
+          "The --hide_capture_profile_button (-h) flag requires a boolean"
+          " value."
+      )
+    if host is not None and (
+        isinstance(host, bool) or not isinstance(host, str) or not host.strip()
     ):
-      """Starts the XProf web server.
-
-      Args:
-        logdir: Path to the TensorBoard log directory root.
-        port: Port to run the main server on.
-        hide_capture_profile_button: Whether to hide the capture profile button.
-        enable_tab_name_label: Whether to enable tab name label.
-        worker_service_address: Address for the worker service.
-        grpc_port: Port for the gRPC server.
-        src_prefix: Prefix for source paths.
-        max_concurrent_worker_requests: Maximum concurrent worker requests.
-      """
-      del cls
-      if isinstance(logdir, bool):
-        raise fire.core.FireError("The --logdir flag requires a value.")
+      raise fire.core.FireError(
+          "The --host flag requires a non-empty string value."
+      )
+    resolved_host = server.get_default_host() if host is None else host
+    server_kwargs: dict[str, Any] = {
+        "port": port,
+        "hide_capture_profile_button": hide_capture_profile_button,
+        "enable_tab_name_label": enable_tab_name_label,
+        "worker_service_address": worker_service_address,
+        "grpc_port": grpc_port,
+        "src_prefix": src_prefix,
+        "max_concurrent_worker_requests": max_concurrent_worker_requests,
+        "host": resolved_host,
+    }
+    if _is_oss():
       xprof_client.get_client().set_logdir(logdir)
-      try:
-        server.start_server(
-            default_logdir=logdir,
-            port=port,
-            hide_capture_profile_button=hide_capture_profile_button,
-            enable_tab_name_label=enable_tab_name_label,
-            worker_service_address=worker_service_address,
-            grpc_port=grpc_port,
-            src_prefix=src_prefix,
-            max_concurrent_worker_requests=max_concurrent_worker_requests,
-        )
-      except ValueError as e:
-        raise fire.core.FireError(str(e))
-
-  else:
-
-    @classmethod
-    def server(
-        cls,
-        logdir: str | None = None,
-        port: int = 8791,
-        hide_capture_profile_button: bool = False,
-        enable_tab_name_label: bool = False,
-        worker_service_address: str | None = None,
-        grpc_port: int = 50051,
-        src_prefix: str | None = None,
-        max_concurrent_worker_requests: int = 1,
-    ):
-      """Starts the XProf web server.
-
-      Args:
-        logdir: Path to the TensorBoard log directory root.
-        port: Port to run the main server on.
-        hide_capture_profile_button: Whether to hide the capture profile button.
-        enable_tab_name_label: Whether to enable tab name label.
-        worker_service_address: Address for the worker service.
-        grpc_port: Port for the gRPC server.
-        src_prefix: Prefix for source paths.
-        max_concurrent_worker_requests: Maximum concurrent worker requests.
-      """
-      del cls
-      try:
-        server.start_server(
-            logdir=logdir,
-            port=port,
-            hide_capture_profile_button=hide_capture_profile_button,
-            enable_tab_name_label=enable_tab_name_label,
-            worker_service_address=worker_service_address,
-            grpc_port=grpc_port,
-            src_prefix=src_prefix,
-            max_concurrent_worker_requests=max_concurrent_worker_requests,
-        )
-      except ValueError as e:
-        raise fire.core.FireError(str(e))
+      server_kwargs["default_logdir"] = logdir
+    else:
+      server_kwargs["logdir"] = logdir
+    try:
+      server.start_server(**server_kwargs)
+    except ValueError as err:
+      raise fire.core.FireError(str(err)) from err
 
   def __call__(self, *args, **kwargs):
     # This triggers on: `xprof`
@@ -845,6 +828,25 @@ _UNDERSCORE_NUM_PATTERN = re.compile(r"^\d+(_\d+)+$")
 # normalized to the first positional argument, which _wrap_with_logdir() routes
 # to whichever parameter (session_id/source) a tool declares. See b/555254723.
 _SESSION_ALIAS_FLAGS = ("--session_dir", "--session_path", "--source")
+_SERVER_VALUE_FLAGS = frozenset({
+    "--host",
+    "--logdir",
+    "-l",
+    "--port",
+    "-p",
+    "--grpc_port",
+    "--grpc-port",
+    "-g",
+    "--worker_service_address",
+    "--worker-service-address",
+    "-w",
+    "--src_prefix",
+    "--src-prefix",
+    "-s",
+    "--max_concurrent_worker_requests",
+    "--max-concurrent-worker-requests",
+    "-m",
+})
 
 
 def _quote_if_timestamp(token: str) -> str:
@@ -859,13 +861,16 @@ def _quote_if_timestamp(token: str) -> str:
 def _preprocess_argv(argv: list[str] | None) -> list[str] | None:
   """Preprocesses CLI args for robustness against common agent invocations.
 
-  Two normalizations are applied so autonomous agents and humans can use
+  Three normalizations are applied so autonomous agents and humans can use
   intuitive flags without triggering Python Fire argument errors:
 
     1. Session-directory alias flags (``--session_dir``, ``--session_path``,
        ``--source``) are rewritten to the first positional argument.
     2. Timestamp session IDs containing underscores are quoted so Fire does not
        interpret them as PEP 515 numeric literals.
+    3. ``-h`` (and ``-h=<bool>``) is rewritten to
+       ``--hide_capture_profile_button`` for server invocations while
+       preserving standalone ``-h`` help and tool subcommands.
 
   The CLI always emits JSON; there is no output-format flag.
 
@@ -913,12 +918,57 @@ def _preprocess_argv(argv: list[str] | None) -> list[str] | None:
     else:
       tokens = [alias_value]
 
-  # Phase 3: preserve underscore-timestamp tokens as strings.
-  processed = []
-  for arg in tokens:
+  # Phase 3: preserve underscore-timestamp tokens as strings and normalize
+  # -h to --hide_capture_profile_button for server invocations.
+  is_server_cmd = (
+      bool(tokens)
+      and tokens != ["-h"]
+      and tokens[0] != "--"
+      and (
+          tokens[0] == "server"
+          or tokens[0].startswith("-")
+          or not hasattr(XProfCli, tokens[0].replace("-", "_"))
+      )
+  )
+  processed: list[str] = []
+  after_double_dash = False
+  prev_expects_value = False
+  skip_next_token = False
+  token_count = len(tokens)
+  for i, arg in enumerate(tokens):
+    if skip_next_token:
+      skip_next_token = False
+      prev_expects_value = False
+      continue
+    if arg == "--":
+      after_double_dash = True
+      prev_expects_value = False
+      processed.append(arg)
+      continue
+    if is_server_cmd and not after_double_dash and not prev_expects_value:
+      if arg == "-h":
+        if (
+            i + 1 < token_count
+            and tokens[i + 1] != "--"
+            and tokens[i + 1].lower() in ("true", "false")
+        ):
+          next_token = tokens[i + 1]
+          arg = f"--hide_capture_profile_button={next_token.capitalize()}"
+          skip_next_token = True
+        else:
+          arg = "--hide_capture_profile_button=True"
+      elif arg.startswith("-h="):
+        flag_value = arg[3:]
+        if flag_value.lower() in ("true", "false"):
+          arg = f"--hide_capture_profile_button={flag_value.capitalize()}"
+        else:
+          arg = f"--hide_capture_profile_button={flag_value}"
+    prev_expects_value = (
+        is_server_cmd and not after_double_dash and arg in _SERVER_VALUE_FLAGS
+    )
     if arg.startswith("--") and "=" in arg:
-      key, val = arg.split("=", 1)
-      processed.append(f"{key}={_quote_if_timestamp(val)}")
+      key, flag_value = arg.split("=", 1)
+      processed.append(f"{key}={_quote_if_timestamp(flag_value)}")
     elif arg.startswith("-"):
       processed.append(arg)
     else:

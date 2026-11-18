@@ -23,6 +23,7 @@ import concurrent.futures
 import getpass
 import gzip
 import hashlib
+import ipaddress
 import json
 import logging
 import os
@@ -32,6 +33,7 @@ import tempfile
 import threading
 import time
 from typing import Any, TextIO, TypedDict
+import urllib.parse
 
 from etils import epath
 import etils.epath.backend
@@ -96,6 +98,9 @@ LOCAL_ROUTE = '/local'
 CONFIG_ROUTE = '/config'
 CACHE_VERSION_FILE = 'cache_version.txt'
 GENERATE_CACHE_ROUTE = '/generate_cache'
+CROSS_ORIGIN_VARY_HEADER = (
+    'Origin, Sec-Fetch-Site, Sec-Fetch-Mode, Sec-Fetch-Dest'
+)
 
 # Suffixes of "^, #, @" symbols represent different input data formats for the
 # same tool.
@@ -380,6 +385,10 @@ def respond(
       ('Content-Security-Policy', csp),
       ('X-Content-Type-Options', 'nosniff'),
   ]
+  if not extra_headers or not any(
+      key.lower() == 'vary' for key in extra_headers
+  ):
+    headers.append(('Vary', CROSS_ORIGIN_VARY_HEADER))
   if content_encoding:
     headers.append(('Content-Encoding', content_encoding))  # pyrefly: ignore[bad-argument-type]
   else:
@@ -726,6 +735,231 @@ def _logging_wrapper(
   return wrapper
 
 
+def is_loopback_host(hostname: str) -> bool:
+  """Returns True if hostname is localhost or a loopback IP address."""
+  candidate = hostname.strip().rstrip('.').lower()
+  if not candidate:
+    return False
+  if candidate == 'localhost':
+    return True
+  try:
+    ip = ipaddress.ip_address(candidate)
+  except ValueError:
+    return False
+  mapped = getattr(ip, 'ipv4_mapped', None)
+  return ip.is_loopback or bool(mapped and mapped.is_loopback)
+
+
+def _is_unspecified_host(hostname: str) -> bool:
+  """Returns True if hostname is a wildcard/unspecified IP address."""
+  candidate = hostname.strip()
+  if candidate.startswith('[') and candidate.endswith(']'):
+    candidate = candidate[1:-1]
+  try:
+    ip = ipaddress.ip_address(candidate)
+  except ValueError:
+    return False
+  mapped = getattr(ip, 'ipv4_mapped', None)
+  return ip.is_unspecified or bool(mapped and mapped.is_unspecified)
+
+
+def normalize_authority(
+    authority: str, scheme: str = 'http'
+) -> tuple[str, str] | None:
+  """Normalizes a host[:port] authority to (hostname, host[:port]).
+
+  Args:
+    authority: Raw host, host[:port], or bare IPv6 literal string.
+    scheme: URL scheme ('http' or 'https') used for default-port elision.
+
+  Returns:
+    A (canonical_hostname, canonical_authority) tuple, or None if invalid.
+  """
+  if isinstance(authority, bool) or not isinstance(authority, str):
+    return None
+  candidate = authority.strip()
+  if (
+      not candidate
+      or any(ch in candidate for ch in '/?#@\\,')
+      or any(ch.isspace() for ch in candidate)
+  ):
+    return None
+  if ':' in candidate and not candidate.startswith('['):
+    try:
+      ipv6 = ipaddress.IPv6Address(candidate)
+    except ValueError:
+      pass
+    else:
+      canonical_ipv6 = str(ipv6).lower()
+      return canonical_ipv6, f'[{canonical_ipv6}]'
+  if candidate.endswith(':'):
+    return None
+  try:
+    parsed = urllib.parse.urlsplit(f'http://{candidate}')
+    port = parsed.port
+  except ValueError:
+    return None
+  if (
+      parsed.path
+      or parsed.query
+      or parsed.fragment
+      or parsed.username is not None
+      or parsed.password is not None
+  ):
+    return None
+  raw_hostname = (parsed.hostname or '').rstrip('.').lower()
+  if not raw_hostname:
+    return None
+  is_bracketed = candidate.startswith('[')
+  try:
+    ip = ipaddress.ip_address(raw_hostname)
+  except ValueError:
+    if is_bracketed or ':' in raw_hostname:
+      return None
+    canonical_hostname = raw_hostname
+    formatted_host = canonical_hostname
+  else:
+    if is_bracketed and ip.version != 6:
+      return None
+    if not is_bracketed and ip.version == 6:
+      return None
+    canonical_hostname = str(ip).lower()
+    formatted_host = (
+        f'[{canonical_hostname}]' if ip.version == 6 else canonical_hostname
+    )
+  if (scheme == 'http' and port == 80) or (scheme == 'https' and port == 443):
+    port = None
+  canonical_authority = (
+      f'{formatted_host}:{port}' if port is not None else formatted_host
+  )
+  return canonical_hostname, canonical_authority
+
+
+def _extract_expected_host(environ: Mapping[str, Any]) -> str:
+  """Extracts expected host[:port] from HTTP_HOST or SERVER_NAME."""
+  expected_host = (environ.get('HTTP_HOST') or '').strip()
+  if expected_host or not environ.get('SERVER_NAME'):
+    return expected_host
+  server_name = str(environ['SERVER_NAME']).strip().lower()
+  if (
+      not server_name
+      or '/' in server_name
+      or any(ch.isspace() for ch in server_name)
+      or _is_unspecified_host(server_name)
+  ):
+    return ''
+  if ':' in server_name and not server_name.startswith('['):
+    server_name = f'[{server_name}]'
+  server_port = str(environ.get('SERVER_PORT') or '').strip()
+  return f'{server_name}:{server_port}' if server_port else server_name
+
+
+def _parse_origin_or_referer(
+    header_name: str,
+    header_value: str,
+    server_is_https: bool,
+) -> tuple[str, str, str] | None:
+  """Validates and normalizes an HTTP_ORIGIN or HTTP_REFERER header value."""
+  if header_value.lower() == 'null' or any(
+      ch.isspace() for ch in header_value
+  ):
+    return None
+  try:
+    parsed = urllib.parse.urlsplit(header_value)
+    _ = parsed.port
+  except ValueError:
+    return None
+  scheme = parsed.scheme.lower()
+  if (
+      scheme not in ('http', 'https')
+      or not parsed.netloc
+      or '@' in parsed.netloc
+      or '\\' in parsed.netloc
+      or ',' in parsed.netloc
+  ):
+    return None
+  if header_name == 'HTTP_ORIGIN' and (
+      parsed.path or parsed.query or parsed.fragment
+  ):
+    return None
+  if server_is_https and scheme == 'http':
+    return None
+  normalized = normalize_authority(parsed.netloc, scheme)
+  if normalized is None:
+    return None
+  return scheme, normalized[0], normalized[1]
+
+
+def is_cross_origin_request(environ: Mapping[str, Any]) -> bool:
+  """Returns True if WSGI environ headers indicate a cross-origin request."""
+  sec_fetch_site = (environ.get('HTTP_SEC_FETCH_SITE') or '').strip().lower()
+  if sec_fetch_site and sec_fetch_site not in ('same-origin', 'none'):
+    return True
+
+  raw_forwarded_proto = environ.get('HTTP_X_FORWARDED_PROTO') or ''
+  forwarded_proto = raw_forwarded_proto.split(',')[0].strip().lower()
+  server_is_https = (
+      environ.get('wsgi.url_scheme') or ''
+  ).strip().lower() == 'https' or forwarded_proto == 'https'
+
+  validated_headers: list[tuple[str, str, str]] = []
+  for header_name in ('HTTP_ORIGIN', 'HTTP_REFERER'):
+    header_value = (environ.get(header_name) or '').strip()
+    if not header_value:
+      continue
+    parsed_header = _parse_origin_or_referer(
+        header_name, header_value, server_is_https
+    )
+    if parsed_header is None:
+      return True
+    validated_headers.append(parsed_header)
+
+  if sec_fetch_site == 'same-origin':
+    return False
+
+  expected_host = _extract_expected_host(environ)
+  for scheme, parsed_hostname, request_authority in validated_headers:
+    if expected_host:
+      expected_norm = normalize_authority(expected_host, scheme)
+      if expected_norm is None or request_authority != expected_norm[1]:
+        return True
+    elif not is_loopback_host(parsed_hostname):
+      return True
+
+  return False
+
+
+def _reject_cross_origin_wrapper(
+    app: Callable[..., Iterable[bytes]],
+) -> Callable[..., Iterable[bytes]]:
+  """Wraps an API WSGI route to reject cross-origin requests with HTTP 403."""
+
+  def wrapper(environ: dict[str, Any], start_response: Any) -> Iterable[bytes]:
+    if is_cross_origin_request(environ):
+      return respond('Forbidden', 'text/plain', code=403)(
+          environ, start_response
+      )
+    return app(environ, start_response)
+
+  return wrapper
+
+
+def _validate_same_origin_post(
+    request: wrappers.Request,
+) -> wrappers.Response | None:
+  """Returns a 405 or 403 response if request is not a same-origin POST."""
+  if request.method != 'POST':
+    return respond(
+        'Method Not Allowed',
+        'text/plain',
+        code=405,
+        extra_headers={'Allow': 'POST'},
+    )
+  if is_cross_origin_request(request.environ):
+    return respond('Forbidden', 'text/plain', code=403)
+  return None
+
+
 class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritance]
   """Profile Plugin for TensorBoard."""
 
@@ -837,16 +1071,18 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
             TRACE_VIEWER_V2_WASM_ROUTE: self.static_file_route,
             ZONE_JS_ROUTE: self.static_file_route,
             RUNTIME_JS_ROUTE: self.static_file_route,
-            RUNS_ROUTE: self.runs_route,
-            RUN_TOOLS_ROUTE: self.run_tools_route,
-            HOSTS_ROUTE: self.hosts_route,
-            DATA_ROUTE: self.data_route,
-            DATA_CSV_ROUTE: self.data_csv_route,
-            VERSION_ROUTE: version_route,
-            HLO_MODULE_LIST_ROUTE: self.hlo_module_list_route,
+            RUNS_ROUTE: _reject_cross_origin_wrapper(self.runs_route),  # pyrefly: ignore[bad-argument-type]
+            RUN_TOOLS_ROUTE: _reject_cross_origin_wrapper(self.run_tools_route),  # pyrefly: ignore[bad-argument-type]
+            HOSTS_ROUTE: _reject_cross_origin_wrapper(self.hosts_route),  # pyrefly: ignore[bad-argument-type]
+            DATA_ROUTE: _reject_cross_origin_wrapper(self.data_route),  # pyrefly: ignore[bad-argument-type]
+            DATA_CSV_ROUTE: _reject_cross_origin_wrapper(self.data_csv_route),  # pyrefly: ignore[bad-argument-type]
+            VERSION_ROUTE: _reject_cross_origin_wrapper(version_route),  # pyrefly: ignore[bad-argument-type]
+            HLO_MODULE_LIST_ROUTE: _reject_cross_origin_wrapper(
+                self.hlo_module_list_route  # pyrefly: ignore[bad-argument-type]
+            ),
             CAPTURE_ROUTE: self.capture_route,
             LOCAL_ROUTE: self.default_handler,
-            CONFIG_ROUTE: self.config_route,
+            CONFIG_ROUTE: _reject_cross_origin_wrapper(self.config_route),  # pyrefly: ignore[bad-argument-type]
             GENERATE_CACHE_ROUTE: self.generate_cache_route,
         }.items()
     }
@@ -1496,25 +1732,44 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
 
   @wrappers.Request.application  # pyrefly: ignore[bad-argument-type]
   def capture_route(self, request: wrappers.Request) -> wrappers.Response:
+    error_response = _validate_same_origin_post(request)
+    if error_response is not None:
+      return error_response
     return self.capture_route_impl(request)
 
   def capture_route_impl(self, request: wrappers.Request) -> wrappers.Response:
     """Runs the client trace for capturing profiling information."""
-    service_addr = request.args.get('service_addr')
-    duration = int(request.args.get('duration', '1000'))
+    error_response = _validate_same_origin_post(request)
+    if error_response is not None:
+      return error_response
+    service_addr = (request.args.get('service_addr') or '').strip()
+    if not service_addr:
+      return respond(
+          {'error': 'service_addr is required.'},
+          'application/json',
+          code=400,
+      )
+    try:
+      duration = int(request.args.get('duration', '1000'))
+      num_tracing_attempts = int(request.args.get('num_retry', '0')) + 1
+      options = {
+          'host_tracer_level': int(request.args.get('host_tracer_level', '2')),
+          'device_tracer_level': int(
+              request.args.get('device_tracer_level', '1')
+          ),
+          'python_tracer_level': int(
+              request.args.get('python_tracer_level', '0')
+          ),
+          'delay_ms': int(request.args.get('delay', '0')),
+      }
+    except ValueError:
+      return respond(
+          {'error': 'Invalid integer parameter in capture_profile request.'},
+          'application/json',
+          code=400,
+      )
     is_tpu_name = request.args.get('is_tpu_name') == 'true'
     worker_list = request.args.get('worker_list')
-    num_tracing_attempts = int(request.args.get('num_retry', '0')) + 1
-    options = {
-        'host_tracer_level': int(request.args.get('host_tracer_level', '2')),
-        'device_tracer_level': int(
-            request.args.get('device_tracer_level', '1')
-        ),
-        'python_tracer_level': int(
-            request.args.get('python_tracer_level', '0')
-        ),
-        'delay_ms': int(request.args.get('delay', '0')),
-    }
 
     if is_tpu_name:
       if self._tf_profiler is None:
@@ -1767,6 +2022,9 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
       self, request: wrappers.Request
   ) -> wrappers.Response:
     """Generates tool data cache in the background."""
+    error_response = _validate_same_origin_post(request)
+    if error_response is not None:
+      return error_response
     return self._generate_cache_impl(request)
 
   def _generate_cache_impl(
@@ -1785,8 +2043,9 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
       A JSON response indicating whether the task was accepted.
     """
     logger.info('Received generate_cache request.')
-    if request.method != 'POST':
-      return respond('Method Not Allowed', 'text/plain', code=405)
+    error_response = _validate_same_origin_post(request)
+    if error_response is not None:
+      return error_response
 
     params = request.args
     session_path = params.get('session_path')

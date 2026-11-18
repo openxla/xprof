@@ -2,6 +2,7 @@ import dataclasses
 import inspect
 import io
 import json
+import os
 import pathlib
 import sys
 import tempfile
@@ -165,6 +166,341 @@ class XProfCliTest(parameterized.TestCase):
     xprof_cli.main([])
     mock_fire.assert_called_once_with(mock.ANY, command=None, name='xprof')
     self.assertIsInstance(mock_fire.call_args[0][0], xprof_cli.XProfCli)
+
+  @mock.patch.object(xprof_cli, xprof_cli._is_oss.__name__, return_value=False)
+  @mock.patch.object(server, server.start_server.__name__, autospec=True)
+  def test_server_default_env_and_custom_host(self, mock_start_server, _):
+    with mock.patch.dict(os.environ, {'XPROF_HOST': ''}, clear=False):
+      self.cli.server('/tmp/log')
+    self.assertEqual(mock_start_server.call_args.kwargs['host'], '127.0.0.1')
+    self.assertEqual(mock_start_server.call_args.kwargs['logdir'], '/tmp/log')
+    self.assertNotIn('default_logdir', mock_start_server.call_args.kwargs)
+
+    mock_start_server.reset_mock()
+    with mock.patch.dict(os.environ, {'XPROF_HOST': '0.0.0.0'}, clear=False):
+      self.cli.server('/tmp/log')
+    self.assertEqual(mock_start_server.call_args.kwargs['host'], '0.0.0.0')
+
+    mock_start_server.reset_mock()
+    with mock.patch.dict(os.environ, {'XPROF_HOST': '127.0.0.1'}, clear=False):
+      self.cli.server('/tmp/log', host='0.0.0.0')
+    self.assertEqual(mock_start_server.call_args.kwargs['host'], '0.0.0.0')
+
+  @mock.patch.object(xprof_cli, xprof_cli._is_oss.__name__, return_value=True)
+  @mock.patch.object(server, server.start_server.__name__, autospec=True)
+  def test_server_oss_sets_client_logdir_and_default_logdir(
+      self, mock_start_server, _
+  ):
+    client = xprof_cli.xprof_client.get_client()
+    self.addCleanup(client.set_logdir, None)
+    with mock.patch.object(
+        client, client.set_logdir.__name__, wraps=client.set_logdir
+    ) as spy_set_logdir:
+      with mock.patch.dict(os.environ, {'XPROF_HOST': ''}, clear=False):
+        self.cli.server('/tmp/oss_log')
+    spy_set_logdir.assert_called_once_with('/tmp/oss_log')
+    mock_start_server.assert_called_once()
+    self.assertEqual(
+        mock_start_server.call_args.kwargs['default_logdir'], '/tmp/oss_log'
+    )
+    self.assertNotIn('logdir', mock_start_server.call_args.kwargs)
+    self.assertEqual(mock_start_server.call_args.kwargs['host'], '127.0.0.1')
+
+    mock_start_server.reset_mock()
+    self.cli.server('/tmp/oss_log', host='0.0.0.0')
+    self.assertEqual(
+        mock_start_server.call_args.kwargs['default_logdir'], '/tmp/oss_log'
+    )
+    self.assertNotIn('logdir', mock_start_server.call_args.kwargs)
+    self.assertEqual(mock_start_server.call_args.kwargs['host'], '0.0.0.0')
+
+  @parameterized.named_parameters(
+      (
+          'server_subcommand_short_h',
+          ['server', '--logdir=/tmp/log', '-h'],
+          ['server', '--logdir=/tmp/log', '--hide_capture_profile_button=True'],
+      ),
+      (
+          'positional_logdir_short_h',
+          ['/tmp/log', '-h'],
+          ['/tmp/log', '--hide_capture_profile_button=True'],
+      ),
+      (
+          'short_h_before_positional_logdir',
+          ['-h', '/tmp/log'],
+          ['--hide_capture_profile_button=True', '/tmp/log'],
+      ),
+      (
+          'server_short_h_before_positional_logdir',
+          ['server', '-h', '/tmp/log'],
+          ['server', '--hide_capture_profile_button=True', '/tmp/log'],
+      ),
+      (
+          'short_h_space_false_before_positional_logdir',
+          ['-h', 'false', '/tmp/log'],
+          ['--hide_capture_profile_button=False', '/tmp/log'],
+      ),
+      (
+          'server_short_h_space_true_before_positional_logdir',
+          ['server', '-h', 'true', '/tmp/log'],
+          ['server', '--hide_capture_profile_button=True', '/tmp/log'],
+      ),
+      (
+          'flag_first_short_h_equals',
+          ['--logdir=/tmp/log', '-h=False'],
+          ['--logdir=/tmp/log', '--hide_capture_profile_button=False'],
+      ),
+      (
+          'lowercase_short_h_equals_false',
+          ['server', '--logdir=/tmp/log', '-h=false'],
+          [
+              'server',
+              '--logdir=/tmp/log',
+              '--hide_capture_profile_button=False',
+          ],
+      ),
+      (
+          'lowercase_short_h_equals_true',
+          ['server', '--logdir=/tmp/log', '-h=true'],
+          ['server', '--logdir=/tmp/log', '--hide_capture_profile_button=True'],
+      ),
+      (
+          'invalid_short_h_equals_forwarded_for_validation',
+          ['server', '--logdir=/tmp/log', '-h=invalid'],
+          [
+              'server',
+              '--logdir=/tmp/log',
+              '--hide_capture_profile_button=invalid',
+          ],
+      ),
+      (
+          'host_flag_value_short_h_preserved',
+          ['server', '--host', '-h'],
+          ['server', '--host', '-h'],
+      ),
+      (
+          'implicit_server_host_flag_value_short_h_preserved',
+          ['--host', '-h'],
+          ['--host', '-h'],
+      ),
+      (
+          'logdir_flag_value_short_h_preserved',
+          ['server', '--logdir', '-h'],
+          ['server', '--logdir', '-h'],
+      ),
+      (
+          'port_flag_value_short_h_preserved',
+          ['server', '--port', '-h'],
+          ['server', '--port', '-h'],
+      ),
+      (
+          'grpc_port_flag_value_short_h_preserved',
+          ['server', '--grpc_port', '-h'],
+          ['server', '--grpc_port', '-h'],
+      ),
+      (
+          'worker_service_address_flag_value_short_h_preserved',
+          ['server', '--worker_service_address', '-h'],
+          ['server', '--worker_service_address', '-h'],
+      ),
+      (
+          'src_prefix_flag_value_short_h_preserved',
+          ['server', '--src_prefix', '-h'],
+          ['server', '--src_prefix', '-h'],
+      ),
+      (
+          'max_concurrent_worker_requests_flag_value_short_h_preserved',
+          ['server', '--max_concurrent_worker_requests', '-h'],
+          ['server', '--max_concurrent_worker_requests', '-h'],
+      ),
+      (
+          'standalone_short_h_preserved',
+          ['-h'],
+          ['-h'],
+      ),
+      (
+          'leading_double_dash_short_h_preserved',
+          ['--', '-h'],
+          ['--', '-h'],
+      ),
+      (
+          'server_double_dash_short_h_preserved',
+          ['server', '--', '-h'],
+          ['server', '--', '-h'],
+      ),
+      (
+          'tool_subcommand_short_h_preserved',
+          ['get_overview', '-h'],
+          ['get_overview', '-h'],
+      ),
+      (
+          'hyphenated_tool_subcommand_short_h_preserved',
+          ['get-overview', '-h'],
+          ['get-overview', '-h'],
+      ),
+  )
+  def test_preprocess_argv_server_short_h_flag(self, raw_argv, expected):
+    self.assertEqual(xprof_cli._preprocess_argv(raw_argv), expected)
+
+  @parameterized.named_parameters(
+      (
+          'server_flag_then_short_h',
+          ['xprof', 'server', '--logdir=/tmp/log', '-h'],
+          '/tmp/log',
+          True,
+      ),
+      (
+          'implicit_server_short_h_before_positional_logdir',
+          ['xprof', '-h', '/tmp/log'],
+          '/tmp/log',
+          True,
+      ),
+      (
+          'explicit_server_short_h_before_positional_logdir',
+          ['xprof', 'server', '-h', '/tmp/log'],
+          '/tmp/log',
+          True,
+      ),
+      (
+          'lowercase_short_h_equals_false',
+          ['xprof', 'server', '--logdir=/tmp/log', '-h=false'],
+          '/tmp/log',
+          False,
+      ),
+      (
+          'lowercase_short_h_equals_true',
+          ['xprof', 'server', '--logdir=/tmp/log', '-h=true'],
+          '/tmp/log',
+          True,
+      ),
+      (
+          'short_h_space_false_before_positional_logdir',
+          ['xprof', '-h', 'false', '/tmp/log'],
+          '/tmp/log',
+          False,
+      ),
+  )
+  @mock.patch.object(server, server.start_server.__name__, autospec=True)
+  def test_main_server_with_short_h_flag_sets_hide_capture_profile_button(
+      self, argv, expected_logdir, expected_hide, mock_start_server
+  ):
+    with (
+        mock.patch.object(
+            xprof_cli, xprof_cli._is_oss.__name__, return_value=False
+        ),
+        mock.patch.dict(os.environ, {'XPROF_HOST': ''}, clear=False),
+    ):
+      xprof_cli.main(argv)
+    mock_start_server.assert_called_once()
+    self.assertEqual(
+        mock_start_server.call_args.kwargs['logdir'], expected_logdir
+    )
+    self.assertIs(
+        mock_start_server.call_args.kwargs['hide_capture_profile_button'],
+        expected_hide,
+    )
+    self.assertEqual(mock_start_server.call_args.kwargs['host'], '127.0.0.1')
+
+  @parameterized.named_parameters(
+      (
+          'invalid_short_h_value',
+          ['xprof', 'server', '-h=invalid'],
+          '--hide_capture_profile_button',
+      ),
+      (
+          'bare_host_flag',
+          ['xprof', 'server', '--host'],
+          '--host flag requires a non-empty string',
+      ),
+      (
+          'numeric_host_flag',
+          ['xprof', 'server', '--host=0'],
+          '--host flag requires a non-empty string',
+      ),
+      (
+          'whitespace_host_flag',
+          ['xprof', 'server', '--host=   '],
+          '--host flag requires a non-empty string',
+      ),
+      (
+          'host_flag_followed_by_short_h',
+          ['xprof', 'server', '--host', '-h'],
+          "argument '-h' is ambiguous",
+      ),
+      (
+          'bare_logdir_flag',
+          ['xprof', 'server', '--logdir'],
+          '--logdir flag requires a value',
+      ),
+  )
+  @mock.patch.object(server, server.start_server.__name__, autospec=True)
+  def test_main_server_invalid_flags_exit_with_usage_error(
+      self, argv, expected_error_substr, mock_start_server
+  ):
+    stderr_buf = io.StringIO()
+    with (
+        mock.patch.object(sys, 'stderr', stderr_buf),
+        self.assertRaises(fire.core.FireExit) as cm,
+    ):
+      xprof_cli.main(argv)
+    self.assertEqual(cm.exception.code, xprof_cli.EXIT_CODE_USAGE_ERROR)
+    self.assertTrue(cm.exception.trace.HasError())
+    self.assertIn(
+        expected_error_substr, cm.exception.trace.elements[-1].ErrorAsStr()
+    )
+    self.assertNotEmpty(stderr_buf.getvalue())
+    mock_start_server.assert_not_called()
+
+  @parameterized.named_parameters(
+      ('bare_logdir_1p', False, {'logdir': True}, '--logdir'),
+      ('bare_logdir_oss', True, {'logdir': True}, '--logdir'),
+      (
+          'non_bool_hide_button_1p',
+          False,
+          {'hide_capture_profile_button': 'invalid'},
+          '--hide_capture_profile_button',
+      ),
+      (
+          'non_bool_hide_button_oss',
+          True,
+          {'hide_capture_profile_button': 'invalid'},
+          '--hide_capture_profile_button',
+      ),
+      ('bool_host_1p', False, {'host': True}, '--host'),
+      ('int_host_1p', False, {'host': 0}, '--host'),
+      ('whitespace_host_oss', True, {'host': '   '}, '--host'),
+  )
+  @mock.patch.object(server, server.get_default_host.__name__, autospec=True)
+  @mock.patch.object(server, server.start_server.__name__, autospec=True)
+  def test_server_invalid_arguments_raise_fire_error(
+      self,
+      is_oss,
+      kwargs,
+      expected_msg,
+      mock_start_server,
+      mock_get_default_host,
+  ):
+    with mock.patch.object(
+        xprof_cli, xprof_cli._is_oss.__name__, return_value=is_oss
+    ):
+      with self.assertRaisesRegex(fire.core.FireError, expected_msg):
+        self.cli.server(**kwargs)
+    mock_get_default_host.assert_not_called()
+    mock_start_server.assert_not_called()
+
+  @mock.patch.object(xprof_cli, xprof_cli._is_oss.__name__, return_value=False)
+  @mock.patch.object(
+      server,
+      server.start_server.__name__,
+      autospec=True,
+      side_effect=ValueError('Invalid host'),
+  )
+  def test_server_converts_start_server_value_error_to_fire_error(
+      self, mock_start_server, _
+  ):
+    with self.assertRaisesRegex(fire.core.FireError, 'Invalid host'):
+      self.cli.server('/tmp/log', host='invalid host')
+    mock_start_server.assert_called_once()
 
   def test_all_tool_modules_registered_in_cli_main(self):
     """Ensures every *_tool.py file in cli/tools/ is registered in cli_main."""

@@ -217,6 +217,7 @@ arguments:
 |---------------------------------------|------------------|---------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 |`--logdir <path>`                      |`-l <path>`       |                     |The directory containing XProf profile data (files ending in .xplane.pb). If provided, XProf will load and display profiles from this directory. If omitted, XProf will start without loading any profiles.<sup>1</sup> |
 |`--port <port>`                        |`-p <port>`       |`8791`               |The port for the XProf web server.                                                                                                                                                                                                                                                                                                                                                   |
+|`--host <host>`                        |                  |`127.0.0.1`          |The host address to bind the XProf web server to (falls back to `XPROF_HOST` if set).                                                                                                                                                                                                                                                                                                |
 |`--grpc_port <port>`                   |`-g <port>`      |`50051`              |The port for the gRPC server used for distributed processing. This must be different from --port.                                                                                                                                                                                                                                                                                    |
 |`--worker_service_address <addresses>`|`-w <addresses>`|`0.0.0.0:<grpc_port>`|A comma-separated list of worker addresses (e.g., host1:50051,host2:50051) for distributed processing.                                                                                                                                                                                                                                                                               |
 |`--hide_capture_profile_button`        |`-h`              |N/A                  |If set, hides the 'Capture Profile' button in the UI.                                                                                                                                                                                                                                                                                                                                |
@@ -352,12 +353,16 @@ The aggregator node runs XProf with the `--worker_service_address` flag pointing
 to all available workers. Users will interact with aggregator node's UI.
 
 ```
-$ xprof server --worker_service_address=<worker1_ip>:50051,<worker2_ip>:50051 --port=6006 --logdir=profiler/demo
+$ xprof server --worker_service_address=<worker1_ip>:50051,<worker2_ip>:50051 --host=0.0.0.0 --port=6006 --logdir=profiler/demo
 ```
 
 Replace `<worker1_ip>, <worker2_ip>` with the addresses of your worker machines.
 Requests sent to the aggregator on port 6006 will be distributed among the
-workers for processing.
+workers for processing. By default, `xprof server` binds to `127.0.0.1`; omit
+`--host=0.0.0.0` and use SSH port forwarding for remote loopback access, or
+expose `--host=0.0.0.0` (or `XPROF_HOST=0.0.0.0`) only behind firewall rules or
+an authenticating proxy since non-loopback binding disables loopback
+`Host`-header enforcement.
 
 For deploying a distributed XProf setup in a Kubernetes environment, see
 [Kubernetes Deployment Guide](docs/kubernetes_deployment.md).

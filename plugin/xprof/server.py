@@ -15,16 +15,19 @@
 """Utilities to start up a standalone webserver."""
 
 import argparse
-import collections
+from collections.abc import Callable, Iterable, Mapping, Sequence
 import dataclasses
+import ipaddress
 import logging
-import socket
+import os
 import sys
-from typing import Optional
+from typing import Any, Optional
+import urllib.parse
 
 from cheroot import wsgi
 from etils import epath
 
+from xprof import profile_plugin
 from xprof import profile_plugin_loader
 from xprof.standalone import base_plugin
 from xprof.standalone import plugin_event_multiplexer
@@ -46,7 +49,121 @@ TBContext = base_plugin.TBContext
 ProfilePluginLoader = profile_plugin_loader.ProfilePluginLoader
 
 
+_DEFAULT_HOST = "127.0.0.1"
+_HOST_ENV_VAR = "XPROF_HOST"
 _DEFAULT_GRPC_PORT = 50051
+
+
+def get_default_host() -> str:
+  """Returns the default server bind host from XPROF_HOST or loopback."""
+  return (os.environ.get(_HOST_ENV_VAR) or "").strip() or _DEFAULT_HOST
+
+
+def _extract_host_name(http_host: str) -> str:
+  """Extracts the canonical lowercase hostname from a host or Host header."""
+  if isinstance(http_host, bool) or not isinstance(http_host, str):
+    return ""
+  normalized = profile_plugin.normalize_authority(http_host)
+  return normalized[0] if normalized is not None else ""
+
+
+def _is_loopback_host(http_host: str) -> bool:
+  """Returns True if http_host resolves to localhost or a loopback IP."""
+  hostname = _extract_host_name(http_host)
+  return bool(hostname) and profile_plugin.is_loopback_host(hostname)
+
+
+def _normalize_bind_host(host: str) -> str:
+  """Validates a server bind host and unwraps bracketed IPv6 literals."""
+  if isinstance(host, bool) or not isinstance(host, str):
+    raise ValueError("The --host flag requires a non-empty string value.")
+  candidate = host.strip()
+  if (
+      not candidate
+      or any(ch in candidate for ch in "/?#@\\,")
+      or any(ch.isspace() for ch in candidate)
+  ):
+    raise ValueError(f"Invalid host address: {host!r}.")
+  if "[" in candidate or "]" in candidate:
+    if not (candidate.startswith("[") and candidate.endswith("]")):
+      raise ValueError(f"Invalid host address: {host!r}.")
+    inner = candidate[1:-1]
+    try:
+      ipv6 = ipaddress.IPv6Address(inner)
+    except ValueError as err:
+      raise ValueError(f"Invalid IPv6 host address: {host!r}.") from err
+    return str(ipv6).lower()
+  if ":" in candidate:
+    try:
+      ipaddress.IPv6Address(candidate)
+    except ValueError as err:
+      raise ValueError(f"Invalid host address: {host!r}.") from err
+    return candidate
+  try:
+    parsed = urllib.parse.urlsplit(f"http://{candidate}")
+    _ = parsed.port
+  except ValueError as err:
+    raise ValueError(f"Invalid host address: {host!r}.") from err
+  if not (parsed.hostname or "").rstrip("."):
+    raise ValueError(f"Invalid host address: {host!r}.")
+  return candidate
+
+
+def _plain_response(
+    environ: Mapping[str, Any],
+    start_response: Callable[..., Any],
+    status: str,
+    body: bytes,
+) -> list[bytes]:
+  """Emits a plain-text WSGI error response, omitting body bytes on HEAD."""
+  headers = [
+      ("Content-Type", "text/plain"),
+      ("Content-Length", str(len(body))),
+      ("X-Content-Type-Options", "nosniff"),
+      ("Vary", profile_plugin.CROSS_ORIGIN_VARY_HEADER),
+  ]
+  start_response(status, headers)
+  if (environ.get("REQUEST_METHOD") or "GET").upper() == "HEAD":
+    return []
+  return [body]
+
+
+def _wrap_start_response_with_headers(
+    start_response: Callable[..., Any],
+    extra_headers: Sequence[tuple[str, str]],
+) -> Callable[..., Any]:
+  """Wraps WSGI start_response to append headers not already present."""
+
+  def _wrapped_start_response(
+      status: str,
+      headers: Sequence[tuple[str, str]],
+      exc_info: Any | None = None,
+  ) -> Any:
+    existing = {name.lower() for name, _ in headers}
+    merged_headers = list(headers)
+    for name, value in extra_headers:
+      if name.lower() not in existing:
+        merged_headers.append((name, value))
+        existing.add(name.lower())
+    if exc_info is not None:
+      return start_response(status, merged_headers, exc_info)
+    return start_response(status, merged_headers)
+
+  return _wrapped_start_response
+
+
+def _is_top_level_ui_navigation(environ: Mapping[str, Any]) -> bool:
+  """Returns True if environ represents a top-level GET/HEAD UI navigation."""
+  if (environ.get("REQUEST_METHOD") or "GET").upper() not in ("GET", "HEAD"):
+    return False
+  mode = (environ.get("HTTP_SEC_FETCH_MODE") or "").strip().lower()
+  dest = (environ.get("HTTP_SEC_FETCH_DEST") or "").strip().lower()
+  if mode or dest:
+    return mode == "navigate" and dest == "document"
+  return (
+      not (environ.get("HTTP_SEC_FETCH_SITE") or "").strip()
+      and not (environ.get("HTTP_ORIGIN") or "").strip()
+  )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -65,29 +182,45 @@ class ServerConfig:
   src_prefix: Optional[str]
   max_concurrent_worker_requests: int
   enable_tab_name_label: bool = False
+  host: str = _DEFAULT_HOST
 
 
-def make_wsgi_app(plugin):
+def make_wsgi_app(plugin, host: str = _DEFAULT_HOST):
   """Create a WSGI application for the standalone server."""
 
   apps = plugin.get_plugin_apps()
 
   prefix = "/data/plugin/profile"
+  enforce_loopback_host = _is_loopback_host(host)
 
   def _not_found_handler(environ, start_response):
-    del environ  # Unused.
-    start_response("404 Not Found", [("Content-Type", "text/plain")])
-    return [b"Not Found"]
+    return _plain_response(
+        environ, start_response, "404 Not Found", b"Not Found"
+    )
 
-  def application(environ, start_response):
+  def application(
+      environ: Mapping[str, Any], start_response: Callable[..., Any]
+  ) -> Iterable[bytes]:
+    if enforce_loopback_host:
+      raw_http_host = environ.get("HTTP_HOST") or ""
+      if "HTTP_HOST" in environ and not _is_loopback_host(raw_http_host):
+        return _plain_response(
+            environ, start_response, "403 Forbidden", b"Forbidden"
+        )
     path = environ["PATH_INFO"]
     under_prefix = path == prefix or path.startswith(prefix + "/")
     if under_prefix:
       path = path[len(prefix) :]
     if path != "/" and path.endswith("/"):
       path = path[:-1]
+    is_ui_shell = False
     if path in apps:
       handler = apps[path]
+      is_ui_shell = path in (
+          profile_plugin.BASE_ROUTE,
+          profile_plugin.LOCAL_ROUTE,
+          profile_plugin.INDEX_HTML_ROUTE,
+      )
     elif path in ("", "/") or (
         under_prefix and "." not in path.rsplit("/", 1)[-1]
     ):
@@ -95,9 +228,22 @@ def make_wsgi_app(plugin):
       # which the browser requests when a tool page is reloaded. The frontend
       # reads the route from the URL.
       handler = plugin.default_handler
+      is_ui_shell = True
     else:
       handler = _not_found_handler
-    return handler(environ, start_response)
+    if not (
+        is_ui_shell and _is_top_level_ui_navigation(environ)
+    ) and profile_plugin.is_cross_origin_request(environ):
+      return _plain_response(
+          environ, start_response, "403 Forbidden", b"Forbidden"
+      )
+    extra_headers = [("Vary", profile_plugin.CROSS_ORIGIN_VARY_HEADER)]
+    if is_ui_shell:
+      extra_headers.insert(0, ("X-Frame-Options", "SAMEORIGIN"))
+    response_starter = _wrap_start_response_with_headers(
+        start_response, extra_headers
+    )
+    return handler(environ, response_starter)
 
   return application
 
@@ -105,7 +251,7 @@ def make_wsgi_app(plugin):
 def run_server(plugin, host, port):
   """Starts a webserver for the standalone server."""
 
-  app = make_wsgi_app(plugin)
+  app = make_wsgi_app(plugin, host=host)
 
   server = wsgi.Server((host, port), app)
 
@@ -114,48 +260,6 @@ def run_server(plugin, host, port):
     server.start()
   except KeyboardInterrupt:
     server.stop()
-
-
-def _get_wildcard_address(port) -> str:
-  """Returns a wildcard address for the port in question.
-
-  This will attempt to follow the best practice of calling
-  getaddrinfo() with a null host and AI_PASSIVE to request a
-  server-side socket wildcard address. If that succeeds, this
-  returns the first IPv6 address found, or if none, then returns
-  the first IPv4 address. If that fails, then this returns the
-  hardcoded address "::" if socket.has_ipv6 is True, else
-  "0.0.0.0".
-
-  Args:
-    port: The port number.
-
-  Returns:
-    The wildcard address.
-  """
-  fallback_address = "::" if socket.has_ipv6 else "0.0.0.0"
-  if hasattr(socket, "AI_PASSIVE"):
-    try:
-      addrinfos = socket.getaddrinfo(
-          None,
-          port,
-          socket.AF_UNSPEC,
-          socket.SOCK_STREAM,
-          socket.IPPROTO_TCP,
-          socket.AI_PASSIVE,
-      )
-    except socket.gaierror:
-      return fallback_address
-    addrs_by_family = collections.defaultdict(list)
-    for family, _, _, _, sockaddr in addrinfos:
-      # Format of the "sockaddr" socket address varies by address family,
-      # but [0] is always the IP address portion.
-      addrs_by_family[family].append(sockaddr[0])
-    if hasattr(socket, "AF_INET6") and addrs_by_family[socket.AF_INET6]:
-      return addrs_by_family[socket.AF_INET6][0]
-    if hasattr(socket, "AF_INET") and addrs_by_family[socket.AF_INET]:
-      return addrs_by_family[socket.AF_INET][0]
-  return fallback_address
 
 
 def _launch_server(
@@ -184,7 +288,7 @@ def _launch_server(
   context.src_prefix = config.src_prefix
   loader = ProfilePluginLoader()
   plugin = loader.load(context)
-  run_server(plugin, _get_wildcard_address(config.port), config.port)
+  run_server(plugin, config.host, config.port)
 
 
 def start_server(
@@ -197,8 +301,10 @@ def start_server(
     src_prefix: str | None = None,
     max_concurrent_worker_requests: int = 1,
     default_logdir: str | None = None,
+    host: str = _DEFAULT_HOST,
 ):
   """Starts the XProf web server."""
+  normalized_host = _normalize_bind_host(host)
   target_logdir = logdir if logdir is not None else default_logdir
   resolved_logdir = get_abs_path(target_logdir) if target_logdir else None
 
@@ -214,6 +320,7 @@ def start_server(
       enable_tab_name_label=enable_tab_name_label,
       src_prefix=src_prefix,
       max_concurrent_worker_requests=max_concurrent_worker_requests,
+      host=normalized_host,
   )
 
   if resolved_logdir and not epath.Path(resolved_logdir).exists():
@@ -353,6 +460,11 @@ def main(argv: Optional[list[str]] = None) -> int:
       "--port", type=int, default=8791, help="Port for the web server."
   )
   parser.add_argument(
+      "--host",
+      default=get_default_host(),
+      help="Host address to bind the web server to.",
+  )
+  parser.add_argument(
       "--grpc_port",
       type=int,
       default=_DEFAULT_GRPC_PORT,
@@ -393,6 +505,7 @@ def main(argv: Optional[list[str]] = None) -> int:
       grpc_port=args.grpc_port,
       src_prefix=args.src_prefix,
       max_concurrent_worker_requests=args.max_concurrent_worker_requests,
+      host=args.host,
   )
   return 0
 

@@ -39,6 +39,36 @@ export function parseToNumber(
 }
 
 /**
+ * Property that is 'true' when the profile has no hardware performance
+ * counters. Omitted when counter availability was not recorded, in which case
+ * stored values are displayed as-is.
+ */
+const HARDWARE_UTILIZATION_UNAVAILABLE_KEY = 'hardware_utilization_unavailable';
+
+/** Value keys that come from hardware performance counters. */
+const HARDWARE_COUNTER_VALUE_KEYS: ReadonlySet<string> = new Set([
+  'mxu_utilization_percent',
+  'hbm_utilization_percent',
+]);
+
+/**
+ * Returns the property value for `valueKey`, or 'unknown' when the value comes
+ * from hardware performance counters that the profile does not have.
+ */
+function readPropertyValue(
+  props: GeneralProps,
+  valueKey: string,
+): string | undefined {
+  if (
+    HARDWARE_COUNTER_VALUE_KEYS.has(valueKey) &&
+    props[HARDWARE_UTILIZATION_UNAVAILABLE_KEY] === 'true'
+  ) {
+    return 'unknown';
+  }
+  return props[valueKey];
+}
+
+/**
  * Configuration Assumptions:
  * 1. by default, values/sdv values/nested children values all reads from
  * a k-v pair property with field key specified in the config object.
@@ -407,8 +437,11 @@ export class PerformanceSummary implements OnChanges, OnInit {
     let valueStr = '';
     // valueKey and getValue are mutual exclusive
     if (config.valueKey) {
-      value = props[config.valueKey];
-      valueStr = config.unit ? `${value} ${config.unit}` : value;
+      const propValue = readPropertyValue(props, config.valueKey);
+      if (propValue) {
+        value = propValue;
+        valueStr = config.unit ? `${value} ${config.unit}` : value;
+      }
     } else if (config.getValue && customInput) {
       value = config.getValue(customInput);
       valueStr = config.unit ? `${value} ${config.unit}` : value;
@@ -416,15 +449,17 @@ export class PerformanceSummary implements OnChanges, OnInit {
 
     let baselineValue = '';
     let baselineValueStr = '';
-    if (
-      config.valueKey &&
-      baselineProps &&
-      baselineProps[config.valueKey] !== undefined
-    ) {
-      baselineValue = baselineProps[config.valueKey];
-      baselineValueStr = config.unit
-        ? `${baselineValue} ${config.unit}`
-        : baselineValue;
+    if (config.valueKey && baselineProps) {
+      const propBaselineValue = readPropertyValue(
+        baselineProps,
+        config.valueKey,
+      );
+      if (propBaselineValue) {
+        baselineValue = propBaselineValue;
+        baselineValueStr = config.unit
+          ? `${baselineValue} ${config.unit}`
+          : baselineValue;
+      }
     } else if (
       config.getValue &&
       baselineCustomInput &&

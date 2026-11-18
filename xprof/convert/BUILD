@@ -463,7 +463,10 @@ cc_test(
         "@com_google_googletest//:gtest_main",
         "@com_google_protobuf//:protobuf",
         "@jsoncpp_git//:jsoncpp",
+        "@org_xprof//xprof/utils:tpu_counter_ids_v7x",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/profiler/utils:xplane_builder",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
     ],
 )
 

@@ -45,18 +45,23 @@ absl::Status UnifiedUtilizationViewerProcessor::ProcessSession(
     return xspace.status();
   }
 
-  // Make a copy of the XSpace to avoid mutating the shared, preloaded instance
-  // in-place which would cause a data race across concurrent profile requests.
-  tensorflow::profiler::XSpace* copied_xspace =
-      google::protobuf::Arena::Create<tensorflow::profiler::XSpace>(&arena);
-  copied_xspace->CopyFrom(**xspace);
+  tensorflow::profiler::XSpace* target_xspace = *xspace;
+  // Only copy when GetXSpace returns a shared, preloaded XSpace not owned by
+  // our local arena. File-backed sessions allocate a fresh XSpace on `arena`,
+  // so skipping the copy avoids a full deep copy while preserving thread safety
+  // for preloaded snapshots.
+  if (target_xspace->GetArena() != &arena) {
+    target_xspace =
+        google::protobuf::Arena::Create<tensorflow::profiler::XSpace>(&arena);
+    target_xspace->CopyFrom(**xspace);
+  }
 
   // Preprocess single host XSpace (step grouping & derived timeline).
   tensorflow::profiler::PreprocessSingleHostXSpace(
-      copied_xspace, /*step_grouping=*/true, /*derived_timeline=*/true);
+      target_xspace, /*step_grouping=*/true, /*derived_timeline=*/true);
 
   absl::StatusOr<std::string> json_output =
-      ConvertXSpaceToUtilizationViewer(*copied_xspace);
+      ConvertXSpaceToUtilizationViewer(*target_xspace);
   if (!json_output.ok()) {
     return json_output.status();
   }

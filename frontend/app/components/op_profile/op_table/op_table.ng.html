@@ -1,26 +1,71 @@
-<div class="header">
-  <span class="time-header" matTooltip="Total percentage of the time spent by all the operations in that xla module or category.">Time %</span>
-  <span class="wasted-header" matTooltip="Wasted time is defined by RuntimeFraction *(1 - max(FlopsUtilization, MemoryBandwidthUtilization)).">Wasted %</span>
-  <span class="hbmFraction-header" matTooltip="HBM fraction is the raw hbm bytes accessed percentage of the xla module or category.">HBM %</span>
-  <span class="name-header" matTooltip="Name of the xla module, op category, or ops.">HLO Op Name</span>
-  <span class="provenance-header" matTooltip="Framework op type associated with the HLO operation.">Framework Op type</span>
-  <span class="utilization-header" matTooltip="FLOPS bandwidth utilization normalized to the xla module or category scale.">FLOPS</span>
-  <span class="flame-color-circle-header"></span>
-  <span class="hbmUtilization-header" matTooltip="HBM memory bandwidth utilization.">HBM</span>
-  <span class="hbm-flame-color-circle-header"></span>
-</div>
-
-<op-table-entry
-  [level]="0"
-  [node]="rootNode"
-  [rootNode]="rootNode"
-  [sessionId]="sessionId"
-  [moduleList]="moduleList"
-  [tags]="tags"
-  [selectedNode]="selectedNode"
-  [byWasted]="byWasted"
-  [showP90]="showP90"
-  [childrenCount]="childrenCount"
-  (hover)="updateActive($event)"
-  (selected)="updateSelected($event); updateActive($event);">
-</op-table-entry>
+<mat-table class="op-table" [dataSource]="dataSource" [trackBy]="trackByNode">
+  <ng-container matColumnDef="time">
+    <mat-header-cell *matHeaderCellDef class="time-header" matTooltip="Total percentage of the time spent by all the operations in that xla module or category.">Time %</mat-header-cell>
+    <mat-cell *matCellDef="let row" class="time" role="gridcell">{{row.percent}}</mat-cell>
+  </ng-container>
+  <ng-container matColumnDef="wasted">
+    <mat-header-cell *matHeaderCellDef class="wasted-header" matTooltip="Wasted time is defined by RuntimeFraction *(1 - max(FlopsUtilization, MemoryBandwidthUtilization)).">Wasted %</mat-header-cell>
+    <mat-cell *matCellDef="let row" class="wasted" role="gridcell">{{row.timeWasted}}</mat-cell>
+  </ng-container>
+  <ng-container matColumnDef="hbmFraction">
+    <mat-header-cell *matHeaderCellDef class="hbmFraction-header" matTooltip="HBM fraction is the raw hbm bytes accessed percentage of the xla module or category.">HBM %</mat-header-cell>
+    <mat-cell *matCellDef="let row" class="hbmFraction" role="gridcell">{{row.hbmFraction}}</mat-cell>
+  </ng-container>
+  <ng-container matColumnDef="name">
+    <mat-header-cell *matHeaderCellDef class="name-header" matTooltip="Name of the xla module, op category, or ops.">HLO Op Name</mat-header-cell>
+    <mat-cell *matCellDef="let row" class="name" role="gridcell" [style.padding-left]="row.offset">
+      <span class="disclosure"><span *ngIf="row.hasChildren">{{row.expanded ? '&#x25bc;' : '&#x25ba;'}}</span></span>
+      {{row.name}}
+      <a
+        *ngIf="row.kernelViewerLink?.url"
+        class="kernel-viewer-link"
+        [href]="row.kernelViewerLink.url"
+        target="_blank"
+        rel="noopener noreferrer"
+        [title]="row.kernelViewerLink.tooltip"
+        [attr.aria-label]="row.kernelViewerLink.tooltip"
+        (click)="$event.stopPropagation()"><mat-icon class="kernel-viewer-link-icon">open_in_new</mat-icon></a>
+      <span
+        *ngIf="row.programServingBadgeText"
+        class="serving-badge"
+        [matTooltip]="row.programServingTooltipText"
+        matTooltipPosition="above">{{row.programServingBadgeText}}</span>
+      <span
+        *ngIf="row.programServingAccessibleText"
+        class="accessible-serving-metadata">{{row.programServingAccessibleText}}</span>
+      <span *ngIf="row.diffNode?.activeOnly" class="diff-badge badge-added">Added</span>
+      <span *ngIf="row.diffNode?.baselineOnly" class="diff-badge badge-removed">Removed</span>
+    </mat-cell>
+  </ng-container>
+  <ng-container matColumnDef="provenance">
+    <mat-header-cell *matHeaderCellDef class="provenance-header" matTooltip="Framework op type associated with the HLO operation.">Framework Op type</mat-header-cell>
+    <mat-cell *matCellDef="let row" class="provenance" role="gridcell">{{row.provenance}}&nbsp;</mat-cell>
+  </ng-container>
+  <ng-container matColumnDef="utilization">
+    <mat-header-cell *matHeaderCellDef class="utilization-header" matTooltip="FLOPS bandwidth utilization normalized to the xla module or category scale.">FLOPS</mat-header-cell>
+    <mat-cell *matCellDef="let row" class="utilization" role="gridcell">{{row.flopsUtilization}}</mat-cell>
+  </ng-container>
+  <ng-container matColumnDef="flameColorCircle">
+    <mat-header-cell *matHeaderCellDef class="flame-color-circle-header"></mat-header-cell>
+    <mat-cell *matCellDef="let row" class="flame-color-circle-cell"><span class="flame-color-circle" [style.background-color]="row.flameColor"></span></mat-cell>
+  </ng-container>
+  <ng-container matColumnDef="hbmUtilization">
+    <mat-header-cell *matHeaderCellDef class="hbmUtilization-header" matTooltip="HBM memory bandwidth utilization.">HBM</mat-header-cell>
+    <mat-cell *matCellDef="let row" class="hbmUtilization" role="gridcell"><span class="accessible_text">HBM</span><span class="hbmUtilization-value">{{row.hbmUtilization || '-'}}</span></mat-cell>
+  </ng-container>
+  <ng-container matColumnDef="hbmFlameColorCircle">
+    <mat-header-cell *matHeaderCellDef class="hbm-flame-color-circle-header"></mat-header-cell>
+    <mat-cell *matCellDef="let row" class="hbm-flame-color-circle-cell"><span class="hbm-flame-color-circle" [style.background-color]="row.hbmFlameColor"></span></mat-cell>
+  </ng-container>
+  <ng-container matColumnDef="leftout">
+    <mat-cell *matCellDef="let row" class="leftout-cell"><div class="leftout" [style.padding-left]="row.offset">{{row.numLeftOut}} categories or ops have been left out.</div></mat-cell>
+  </ng-container>
+  <mat-header-row *matHeaderRowDef="displayedColumns; sticky: true" class="header" role="row"></mat-header-row>
+  <mat-row *matRowDef="let row; columns: displayedColumns; when: isDataRow" class="row" role="row" tabindex="0"
+           [class.expanded]="row.expanded" [class.row-selected]="row.node === selectedNode" [class.removed-text]="row.diffNode?.baselineOnly"
+           [style.--bar-width]="row.barWidth" (click)="toggleExpanded(row)" (keydown.enter)="toggleExpanded(row)"
+           (keydown.space)="toggleExpanded(row); $event.preventDefault()" (mouseenter)="updateActive(row.node)" (mouseleave)="updateActive(null)"
+           [attr.aria-expanded]="row.hasChildren ? row.expanded : null" [attr.aria-level]="row.level" [attr.aria-selected]="row.node === selectedNode">
+  </mat-row>
+  <mat-row *matRowDef="let row; columns: ['leftout']; when: isLeftoutRow" class="leftout-row"></mat-row>
+</mat-table>

@@ -69,6 +69,11 @@ message OverviewPageAnalysis {
   double device_duty_cycle_percent = 17;
   // HBM utilization in percentage calculated based on the performance counters.
   double hbm_utilization_percent = 31;
+  // Whether the profile has no MXU utilization counter value. If true, the
+  // MXU utilization value above is unknown, not a measured zero. HBM
+  // utilization normally comes from the same counters. Unset if the producer
+  // did not check for the counters.
+  optional bool hardware_utilization_unavailable = 68;
   // BEGIN-INTERNAL
   // Program Goodput metric in percentage.
   double program_goodput_percent = 18;

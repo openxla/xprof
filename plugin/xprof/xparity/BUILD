@@ -26,6 +26,7 @@ pytype_strict_library(
         ":numerical_generator",
         ":rel_l2",
         ":ulp",
+        "@absl_py//absl/logging",
     ],
 )
 

@@ -12,3 +12,8 @@ mat-spinner {
   @include common.box-shadow-none;
   @include common.border-black;
 }
+
+.capture-profile-dialog-modal {
+  --md-dialog-container-color: #fff;
+  --md-dialog-container-shape: 4px;
+}

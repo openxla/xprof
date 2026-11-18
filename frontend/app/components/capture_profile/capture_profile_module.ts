@@ -1,7 +1,6 @@
 import {CommonModule} from '@angular/common';
-import {NgModule} from '@angular/core';
+import {CUSTOM_ELEMENTS_SCHEMA, NgModule} from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
-import {MatDialogModule} from '@angular/material/dialog';
 import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
 import {MatSnackBarModule} from '@angular/material/snack-bar';
 
@@ -14,12 +13,11 @@ import {CaptureProfileDialogModule} from './capture_profile_dialog/capture_profi
   imports: [
     CommonModule,
     MatButtonModule,
-    MatDialogModule,
     MatProgressSpinnerModule,
     CaptureProfileDialogModule,
     MatSnackBarModule,
   ],
-  exports: [CaptureProfile]
+  exports: [CaptureProfile],
+  schemas: [CUSTOM_ELEMENTS_SCHEMA],
 })
-export class CaptureProfileModule {
-}
+export class CaptureProfileModule {}

@@ -19,6 +19,29 @@
   padding-left: 16px;
 }
 
+.new-badge:not([hidden]) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  font: var(
+    --mat-sys-label-small,
+    500 11px / 16px 'Google Sans',
+    'Roboto',
+    sans-serif
+  );
+  letter-spacing: var(--mat-sys-label-small-tracking, 0.1px);
+  vertical-align: middle;
+  padding: 0 6px;
+  border-radius: 8px;
+  height: 16px;
+  min-width: 16px;
+  margin-inline-start: 8px;
+  background-color: var(--mat-sys-primary, #0b57d0);
+  color: var(--mat-sys-on-primary, #fff);
+  white-space: nowrap;
+}
+
 // Target the custom panel class defined in sidenav.ng.html
 .multi-host-select-panel {
   .full-width {

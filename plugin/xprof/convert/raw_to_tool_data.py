@@ -358,6 +358,16 @@ def xspace_to_tool_data(
     json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = json_data
+  elif tool == 'kernel_viewer':
+    options = {
+        'request_type': params.get('request_type', ''),
+        'kernel_name': params.get('kernel_name', ''),
+        'hlo_module': params.get('hlo_module', ''),
+        'host_name': params.get('host') or '',
+    }
+    json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
+    if success:
+      data = json_data
   else:
     logger.warning('%s is not a known xplane tool', tool)
   return data, content_type

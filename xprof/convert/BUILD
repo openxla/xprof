@@ -2202,6 +2202,7 @@ cc_library(
         ":inference_stats_processor",
         ":input_pipeline_processor",
         ":kernel_stats_processor",
+        ":kernel_viewer_registry",
         ":megascale_stats_processor",
         ":memory_profile_processor",
         ":memory_viewer_processor",
@@ -2786,12 +2787,86 @@ cc_test(
 )
 
 cc_library(
+    name = "kernel_viewer_registry",
+    srcs = ["kernel_viewer_registry.cc"],
+    hdrs = ["kernel_viewer_registry.h"],
+    deps = [
+        ":repository",
+        ":tool_options",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+    ],
+)
+
+cc_library(
+    name = "xplane_to_llo",
+    srcs = ["xplane_to_llo.cc"],
+    hdrs = ["xplane_to_llo.h"],
+    deps = [
+        ":file_utils",
+        ":repository",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_protobuf//:protobuf",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/platform:env",
+        "@xla//xla/tsl/platform:errors",
+        "@xla//xla/tsl/platform:statusor",
+        "@xla//xla/tsl/profiler/utils:file_system_utils",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
+        "@xla//xla/tsl/profiler/utils:xplane_utils",
+    ],
+)
+
+cc_test(
+    name = "kernel_viewer_registry_test",
+    size = "small",
+    srcs = ["kernel_viewer_registry_test.cc"],
+    deps = [
+        ":kernel_viewer_registry",
+        ":repository",
+        ":tool_options",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+)
+
+cc_test(
+    name = "xplane_to_llo_test",
+    size = "small",
+    srcs = ["xplane_to_llo_test.cc"],
+    deps = [
+        ":repository",
+        ":xplane_to_llo",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/platform:env",
+        "@xla//xla/tsl/platform:status",
+        "@xla//xla/tsl/profiler/utils:xplane_builder",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
+    ],
+)
+
+cc_library(
     name = "xplane_to_tool_names",
     srcs = ["xplane_to_tool_names.cc"],
     hdrs = ["xplane_to_tool_names.h"],
     deps = [
+        ":kernel_viewer_registry",
         ":repository",
         ":xplane_to_dcn_collective_stats",
+        ":xplane_to_llo",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_protobuf//:protobuf",
@@ -2809,7 +2884,9 @@ cc_test(
     size = "small",
     srcs = ["xplane_to_tool_names_test.cc"],
     deps = [
+        ":kernel_viewer_registry",
         ":repository",
+        ":tool_options",
         ":xplane_to_tool_names",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",

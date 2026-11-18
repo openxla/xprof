@@ -69,11 +69,21 @@ class SignalProvider {
         .memory_bw_utilization_relative_to_hw_limit_percent();
   }
 
-  // Average MXU utilization from overview page.
+  // Average MXU utilization from overview page. Returns an `UnavailableError`
+  // if the overview page says that the profile has no hardware utilization
+  // counters. In that case the stored 0.0 is not a measured value. An unset
+  // flag (old data, or a producer that does not check for counters) keeps the
+  // stored value.
   absl::StatusOr<double> GetMxuUtilization() const {
     TF_ASSIGN_OR_RETURN(const auto* overview_page,
                      tool_data_provider_->GetOverviewPage());
-    return overview_page->analysis().mxu_utilization_percent();
+    const OverviewPageAnalysis& analysis = overview_page->analysis();
+    if (analysis.hardware_utilization_unavailable()) {
+      return absl::UnavailableError(
+          "MXU utilization is unavailable: the profile has no hardware "
+          "counters.");
+    }
+    return analysis.mxu_utilization_percent();
   }
 
   // Returns the input percentage of step time from input pipeline analysis.

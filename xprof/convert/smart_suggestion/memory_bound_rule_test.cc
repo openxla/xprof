@@ -19,7 +19,6 @@ limitations under the License.
 #include <optional>
 #include <utility>
 #include <string>
-#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -94,6 +93,66 @@ TEST(MemoryBoundRuleTest, MxuUtilizationTooHigh) {
   absl::StatusOr<std::optional<SmartSuggestion>> suggestion =
       rule.Apply(signal_provider);
   EXPECT_THAT(suggestion, IsOkAndHolds(Eq(std::nullopt)));
+}
+
+TEST(MemoryBoundRuleTest, NoSuggestionWhenHardwareUtilizationUnavailable) {
+  auto mock_tool_data_provider = std::make_unique<MockToolDataProvider>();
+  OverviewPage overview_page;
+  overview_page.mutable_analysis()
+      ->set_memory_bw_utilization_relative_to_hw_limit_percent(71.0);
+  overview_page.mutable_analysis()->set_mxu_utilization_percent(0.0);
+  overview_page.mutable_analysis()->set_hardware_utilization_unavailable(true);
+
+  EXPECT_CALL(*mock_tool_data_provider, GetOverviewPage())
+      .WillRepeatedly(Return(&overview_page));
+
+  SignalProvider signal_provider(std::move(mock_tool_data_provider));
+  MemoryBoundRule rule;
+
+  absl::StatusOr<std::optional<SmartSuggestion>> suggestion =
+      rule.Apply(signal_provider);
+  EXPECT_THAT(suggestion, IsOkAndHolds(Eq(std::nullopt)));
+}
+
+TEST(MemoryBoundRuleTest, MeetsConditionsForMeasuredZeroMxuUtilization) {
+  auto mock_tool_data_provider = std::make_unique<MockToolDataProvider>();
+  OverviewPage overview_page;
+  overview_page.mutable_analysis()
+      ->set_memory_bw_utilization_relative_to_hw_limit_percent(71.0);
+  overview_page.mutable_analysis()->set_mxu_utilization_percent(0.0);
+  overview_page.mutable_analysis()->set_hardware_utilization_unavailable(false);
+
+  EXPECT_CALL(*mock_tool_data_provider, GetOverviewPage())
+      .WillRepeatedly(Return(&overview_page));
+
+  SignalProvider signal_provider(std::move(mock_tool_data_provider));
+  MemoryBoundRule rule;
+
+  absl::StatusOr<std::optional<SmartSuggestion>> suggestion =
+      rule.Apply(signal_provider);
+  EXPECT_THAT(suggestion, IsOkAndHolds(testing::Not(Eq(std::nullopt))));
+  EXPECT_THAT((*suggestion)->suggestion_text(),
+              testing::HasSubstr("low MXU utilization of <b>0.0%"));
+}
+
+TEST(MemoryBoundRuleTest, MeetsConditionsForZeroMxuUtilizationWithoutFlag) {
+  auto mock_tool_data_provider = std::make_unique<MockToolDataProvider>();
+  OverviewPage overview_page;
+  overview_page.mutable_analysis()
+      ->set_memory_bw_utilization_relative_to_hw_limit_percent(71.0);
+  overview_page.mutable_analysis()->set_mxu_utilization_percent(0.0);
+
+  EXPECT_CALL(*mock_tool_data_provider, GetOverviewPage())
+      .WillRepeatedly(Return(&overview_page));
+
+  SignalProvider signal_provider(std::move(mock_tool_data_provider));
+  MemoryBoundRule rule;
+
+  absl::StatusOr<std::optional<SmartSuggestion>> suggestion =
+      rule.Apply(signal_provider);
+  EXPECT_THAT(suggestion, IsOkAndHolds(testing::Not(Eq(std::nullopt))));
+  EXPECT_THAT((*suggestion)->suggestion_text(),
+              testing::HasSubstr("low MXU utilization of <b>0.0%"));
 }
 
 }  // namespace

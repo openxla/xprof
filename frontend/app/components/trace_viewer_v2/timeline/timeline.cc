@@ -1719,6 +1719,11 @@ void Timeline::UpdateTimelineData(
       lazy_loaded_events;
 
   matching_event_indices_.clear();
+  if (!search_results_.empty()) {
+    matching_event_indices_.reserve(
+        std::max(timeline_data_.entry_event_ids.size(),
+                 timeline_data_.entry_names.size()));
+  }
   for (SearchResult& result : search_results_) {
     if (const auto it = event_id_to_loaded_index.find(result.event_id);
         it != event_id_to_loaded_index.end()) {
@@ -2309,11 +2314,11 @@ void Timeline::CompactTimelineDataToMipOverview() {
       static_cast<size_t>(selected_event_index_) < old_n) {
     keep[selected_event_index_] = 1;
   }
-  for (int idx : matching_event_indices_) {
-    if (idx >= 0 && static_cast<size_t>(idx) < old_n) {
+  matching_event_indices_.ForEachSetBit([&](int idx) {
+    if (static_cast<size_t>(idx) < old_n) {
       keep[idx] = 1;
     }
-  }
+  });
 
   const int total_lvls = timeline_data_.total_levels();
   std::vector<uint8_t> level_compacted(total_lvls, 0);
@@ -2458,28 +2463,19 @@ void Timeline::CompactTimelineDataToMipOverview() {
     event_index_to_scroll_to_ = -1;
   }
 
-  if (!selected_event_indices_.empty()) {
-    std::vector<int> new_sel;
-    new_sel.reserve(selected_event_indices_.size());
-    for (int idx : selected_event_indices_) {
-      if (idx >= 0 && static_cast<size_t>(idx) < old_n &&
-          old_to_new[idx] != -1) {
-        new_sel.push_back(old_to_new[idx]);
+  auto remap_bitset = [&](EntryBitset& bitset) {
+    if (bitset.empty()) return;
+    EntryBitset remapped;
+    remapped.reserve(new_n);
+    bitset.ForEachSetBit([&](int idx) {
+      if (static_cast<size_t>(idx) < old_n && old_to_new[idx] != -1) {
+        remapped.insert(old_to_new[idx]);
       }
-    }
-    selected_event_indices_.swap(new_sel);
-  }
-
-  if (!matching_event_indices_.empty()) {
-    absl::flat_hash_set<int> new_matching;
-    for (int idx : matching_event_indices_) {
-      if (idx >= 0 && static_cast<size_t>(idx) < old_n &&
-          old_to_new[idx] != -1) {
-        new_matching.insert(old_to_new[idx]);
-      }
-    }
-    matching_event_indices_ = std::move(new_matching);
-  }
+    });
+    bitset = std::move(remapped);
+  };
+  remap_bitset(selected_event_indices_);
+  remap_bitset(matching_event_indices_);
 
   for (auto& res : search_results_) {
     if (res.loaded_index >= 0 &&
@@ -4308,12 +4304,14 @@ void Timeline::SelectNextEvent() {
 // (via selected_event_index_). Returns std::nullopt if no event is selected.
 std::optional<TimeRange> Timeline::GetSelectionTimeRange() const {
   if (!selected_event_indices_.empty()) {
+    const size_t num_entries =
+        std::min(timeline_data_.entry_start_times.size(),
+                 timeline_data_.entry_total_times.size());
     Microseconds min_start = std::numeric_limits<Microseconds>::infinity();
     Microseconds max_end = -std::numeric_limits<Microseconds>::infinity();
 
-    for (int idx : selected_event_indices_) {
-      if (idx >= 0 && idx < timeline_data_.entry_start_times.size() &&
-          idx < timeline_data_.entry_total_times.size()) {
+    selected_event_indices_.ForEachSetBit([&](int idx) {
+      if (static_cast<size_t>(idx) < num_entries) {
         const Microseconds start = timeline_data_.entry_start_times[idx];
         Microseconds duration = timeline_data_.entry_total_times[idx];
         if (std::isnan(duration) || duration <= 0) {
@@ -4322,7 +4320,7 @@ std::optional<TimeRange> Timeline::GetSelectionTimeRange() const {
         min_start = std::min(min_start, start);
         max_end = std::max(max_end, start + duration);
       }
-    }
+    });
     if (min_start <= max_end) {
       return TimeRange(min_start, max_end);
     }
@@ -7844,6 +7842,7 @@ void Timeline::SetSearchQuery(absl::string_view query) {
 
 void Timeline::RecomputeSearchResults() {
   const int num_entries = timeline_data_.entry_names.size();
+  matching_event_indices_.reserve(static_cast<size_t>(num_entries));
   for (int i = 0; i < num_entries; ++i) {
     if (MatchesSearchQuery(timeline_data_, i, search_query_lower_)) {
       const std::string& name = timeline_data_.entry_names[i];
@@ -7894,6 +7893,9 @@ void Timeline::SetSearchResults(const ParsedTraceEvents& search_results) {
   absl::flat_hash_map<EventId, int> event_id_to_loaded_index;
   absl::flat_hash_map<EventId, int> event_id_to_level;
   const int num_loaded = timeline_data_.entry_event_ids.size();
+  matching_event_indices_.reserve(
+      std::max(static_cast<size_t>(num_loaded),
+               timeline_data_.entry_names.size()));
   event_id_to_loaded_index.reserve(num_loaded);
   event_id_to_level.reserve(num_loaded);
   for (int i = 0; i < num_loaded; ++i) {
@@ -8157,6 +8159,7 @@ void Timeline::NavigateToPrevSearchResult() {
 
 void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
   selected_event_indices_.clear();
+  selected_event_indices_.reserve(timeline_data_.entry_start_times.size());
   selected_counter_points_.clear();
   selected_event_index_ = -1;
   selected_group_index_ = -1;
@@ -8221,7 +8224,7 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
             continue;
           }
 
-          selected_event_indices_.push_back(event_index);
+          selected_event_indices_.insert(event_index);
         }
       }
     } else if (group.type == Group::Type::kCounter) {
@@ -8341,21 +8344,20 @@ void Timeline::CalculateAndEmitMetrics() {
 
       absl::flat_hash_map<std::string, Metrics> aggregated_metrics;
 
-      for (const int event_index : selected_event_indices_) {
+      selected_event_indices_.ForEachSetBit([&](int event_index) {
         const std::string& name = timeline_data_.entry_names[event_index];
         const Microseconds wall = timeline_data_.entry_total_times[event_index];
         const Microseconds self = timeline_data_.entry_self_times[event_index];
-
         Metrics& m = aggregated_metrics[name];
         if (m.count == 0) {
           m.event_index = event_index;
           m.start_us = timeline_data_.entry_start_times[event_index];
           m.duration_us = wall;
         }
-        m.count++;
+        ++m.count;
         m.wall_time += wall;
         m.self_time += self;
-      }
+      });
 
       std::string metrics_json = "[";
       bool first = true;

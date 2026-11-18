@@ -19,6 +19,7 @@
 #include "absl/container/flat_hash_set.h"
 #include "absl/functional/any_invocable.h"
 #include "absl/functional/function_ref.h"
+#include "absl/numeric/bits.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
@@ -169,6 +170,63 @@ struct FlowLine {
   tsl::profiler::ContextType category = tsl::profiler::ContextType::kGeneric;
 };
 
+// Compact bitset of non-negative event indices used for search match
+// highlighting and multi-event selection without per-entry heap allocations.
+class EntryBitset {
+ public:
+  void reserve(size_t max_entries) {
+    const size_t needed_words = (max_entries + 63) >> 6;
+    words_.reserve(needed_words);
+  }
+
+  void insert(int index) {
+    if (index < 0) return;
+    const size_t word_idx = static_cast<size_t>(index) >> 6;
+    const uint64_t mask = uint64_t{1} << (static_cast<size_t>(index) & 63);
+    if (word_idx >= words_.size()) {
+      words_.resize(word_idx + 1, 0);
+    }
+    if ((words_[word_idx] & mask) == 0) {
+      words_[word_idx] |= mask;
+      ++size_;
+    }
+  }
+
+  bool contains(int index) const {
+    if (index < 0) return false;
+    const size_t word_idx = static_cast<size_t>(index) >> 6;
+    if (word_idx >= words_.size()) return false;
+    const uint64_t mask = uint64_t{1} << (static_cast<size_t>(index) & 63);
+    return (words_[word_idx] & mask) != 0;
+  }
+
+  template <typename Fn>
+  void ForEachSetBit(Fn&& fn) const {
+    if (size_ == 0) return;
+    for (size_t word_idx = 0; word_idx < words_.size(); ++word_idx) {
+      uint64_t word = words_[word_idx];
+      while (word != 0) {
+        const int bit = absl::countr_zero(word);
+        const int index = static_cast<int>((word_idx << 6) + bit);
+        fn(index);
+        word &= (word - 1);
+      }
+    }
+  }
+
+  void clear() {
+    words_.clear();
+    size_ = 0;
+  }
+
+  bool empty() const { return size_ == 0; }
+  size_t size() const { return size_; }
+
+ private:
+  std::vector<uint64_t> words_;
+  size_t size_ = 0;
+};
+
 // Holds all the data required to render a flame chart and counter lines,
 // including event timing, grouping information, and mappings between levels
 // and events.
@@ -316,7 +374,7 @@ class Timeline {
   }
 
   void CalculateAndEmitMetrics_for_test() { CalculateAndEmitMetrics(); }
-  std::vector<int>& selected_event_indices_for_test() {
+  EntryBitset& selected_event_indices_for_test() {
     return selected_event_indices_;
   }
   std::vector<std::pair<int, int>>& selected_counter_points_for_test() {
@@ -397,7 +455,7 @@ class Timeline {
   std::optional<EventId> get_pending_navigation_event_id_for_test() const {
     return pending_navigation_event_id_;
   }
-  const absl::flat_hash_set<int>& get_matching_event_indices_for_test() const {
+  const EntryBitset& get_matching_event_indices_for_test() const {
     return matching_event_indices_;
   }
   void set_selection_start_pos_for_test(std::optional<ImVec2> pos) {
@@ -1162,7 +1220,7 @@ class Timeline {
     bool all_expanded = true;
   };
 
-  absl::flat_hash_set<int> matching_event_indices_;
+  EntryBitset matching_event_indices_;
 
   void NavigateToSearchResult(const SearchResult& result);
   void BackfillGroupLevelCount(FlameChartTimelineData& data);
@@ -1818,7 +1876,7 @@ class Timeline {
 
   std::optional<ImVec2> selection_start_pos_;
   std::optional<ImVec2> selection_end_pos_;
-  std::vector<int> selected_event_indices_;
+  EntryBitset selected_event_indices_;
   std::vector<std::pair<int, int>> selected_counter_points_;
 
   Microseconds drag_start_time_ = 0.0;

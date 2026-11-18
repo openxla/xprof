@@ -861,13 +861,13 @@ void Timeline::PopulateMultiSelectionScheduleDetails(
 
   Microseconds min_start = std::numeric_limits<Microseconds>::max();
   Microseconds max_end = 0.0;
-  for (const int idx : selected_event_indices_) {
-    if (idx < 0 || static_cast<size_t>(idx) >= num_entries) continue;
+  selected_event_indices_.ForEachSetBit([&](int idx) {
+    if (static_cast<size_t>(idx) >= num_entries) return;
     const Microseconds s = timeline_data_.entry_start_times[idx];
     const Microseconds e = s + timeline_data_.entry_total_times[idx];
     min_start = std::min(min_start, s);
     max_end = std::max(max_end, e);
-  }
+  });
   for (const auto& [g_idx, pt_idx] : selected_counter_points_) {
     const auto it = timeline_data_.counter_data_by_group_index.find(g_idx);
     if (it == timeline_data_.counter_data_by_group_index.end()) continue;
@@ -931,12 +931,12 @@ void Timeline::PopulateMultiSelectionScheduleDetails(
   sorted_indices.reserve(selected_event_indices_.size());
   int total_instructions = 0;
 
-  for (const int idx : selected_event_indices_) {
-    if (idx < 0 || static_cast<size_t>(idx) >= num_entries) continue;
+  selected_event_indices_.ForEachSetBit([&](int idx) {
+    if (static_cast<size_t>(idx) >= num_entries) return;
     sorted_indices.push_back(idx);
     const std::string track_name =
         find_group_name(timeline_data_.entry_levels[idx]);
-    if (track_name.empty() || !IsUnitInstructionLane(track_name)) continue;
+    if (track_name.empty() || !IsUnitInstructionLane(track_name)) return;
 
     unit_counts[track_name]++;
     total_instructions++;
@@ -949,7 +949,7 @@ void Timeline::PopulateMultiSelectionScheduleDetails(
     }
     summary.count++;
     summary.total_bundles += timeline_data_.entry_total_times[idx];
-  }
+  });
 
   // When a range is selected across Utilization/Memory counter tracks without
   // directly box-selecting instruction flame tracks, aggregate the schedule

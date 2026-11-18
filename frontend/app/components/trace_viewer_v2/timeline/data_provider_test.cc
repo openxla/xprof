@@ -31,6 +31,7 @@ namespace traceviewer {
 
 namespace {
 
+using ::testing::AllOf;
 using ::testing::Contains;
 using ::testing::ElementsAre;
 using ::testing::Eq;
@@ -7365,6 +7366,53 @@ TEST_F(DataProviderTest,
   EXPECT_LT(timeline_.timeline_data().entry_names.size(),
             static_cast<size_t>(kRefetchEvents));
   EXPECT_GT(timeline_.timeline_data().entry_names.size(), 100000u);
+}
+
+TEST_F(DataProviderTest,
+       IncrementalCompactionPreservesSelectedSearchAndPendingNavigationEvents) {
+  constexpr absl::string_view kSelectedName = "selected_short";
+  constexpr absl::string_view kSearchMatchName = "search_match_short";
+  constexpr absl::string_view kPendingNavName = "pending_nav_short";
+  constexpr absl::string_view kUnpinnedName = "unpinned_short";
+  constexpr EventId kPendingNavEventId = 103;
+
+  ParsedTraceEvents batch1;
+  batch1.flame_events = {
+      CreateProcessEvent(1, "/device:TPU:0"),
+      CreateThreadEvent(1, 1, "XLA Ops"),
+      MakeSpan(Phase::kComplete, 100, 1, 1, kSelectedName, 0.0, 0.1),
+      MakeSpan(Phase::kComplete, 101, 1, 1, "bucket_winner", 0.2, 0.5),
+      MakeSpan(Phase::kComplete, 102, 1, 1, kSearchMatchName, 0.8, 0.1),
+      MakeSpan(Phase::kComplete, kPendingNavEventId, 1, 1, kPendingNavName, 1.0,
+               0.1),
+      MakeSpan(Phase::kComplete, 104, 1, 1, kUnpinnedName, 1.2, 0.1),
+  };
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(batch1), timeline_,
+                                              TimelineFlushMode::kAutoFlush);
+  ASSERT_THAT(timeline_.timeline_data().entry_names, SizeIs(5));
+
+  timeline_.RevealEvent(0);
+  timeline_.SetSearchQuery(kSearchMatchName);
+  timeline_.set_pending_navigation_event_id_for_test(kPendingNavEventId);
+
+  constexpr int kFillerCount = 265000;
+  ParsedTraceEvents batch2;
+  batch2.flame_events.reserve(kFillerCount);
+  for (int i = 0; i < kFillerCount; ++i) {
+    batch2.flame_events.push_back(
+        MakeSpan(Phase::kComplete, static_cast<EventId>(1000 + i), 1, 1,
+                 "filler_op", 10.0 + static_cast<Microseconds>(i) * 2.0, 1.0));
+  }
+  data_provider_.MarkFinishingIncrementalLoad();
+  data_provider_.AppendTraceEventsIncremental(std::move(batch2), timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  EXPECT_TRUE(data_provider_.was_compacted());
+  EXPECT_THAT(timeline_.timeline_data().entry_names,
+              AllOf(Contains(kSelectedName), Contains(kSearchMatchName),
+                    Contains(kPendingNavName), Not(Contains(kUnpinnedName))));
 }
 
 TEST_F(

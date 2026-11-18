@@ -3689,11 +3689,6 @@ void DataProvider::AppendTraceEventsIncremental(ParsedTraceEvents parsed_events,
     if (sel_idx >= 0 && static_cast<size_t>(sel_idx) < entry_event_ids.size()) {
       pinned_event_ids.insert(entry_event_ids[sel_idx]);
     }
-    for (const int idx : timeline.get_matching_event_indices_for_test()) {
-      if (idx >= 0 && static_cast<size_t>(idx) < entry_event_ids.size()) {
-        pinned_event_ids.insert(entry_event_ids[idx]);
-      }
-    }
     for (const auto& sr : timeline.get_search_results_for_test()) {
       if (sr.event_id != 0) pinned_event_ids.insert(sr.event_id);
     }

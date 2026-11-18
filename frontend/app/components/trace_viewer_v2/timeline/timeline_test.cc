@@ -50,9 +50,17 @@ namespace testing {
 namespace {
 
 using ::testing::_;
+using ::testing::AllOf;
 using ::testing::DoubleEq;
 using ::testing::ElementsAre;
+using ::testing::EndsWith;
+using ::testing::Eq;
 using ::testing::FloatEq;
+using ::testing::Gt;
+using ::testing::HasSubstr;
+using ::testing::IsEmpty;
+using ::testing::Lt;
+using ::testing::Not;
 using ::testing::Pair;
 using ::testing::Return;
 using ::testing::Test;
@@ -84,6 +92,25 @@ inline void AddEvents(FlameChartTimelineData& data,
     data.entry_event_ids.push_back(s.id);
     data.entry_args.push_back({});
   }
+}
+
+// Replaces active multi-event selection indices on `timeline`.
+void SetSelectedEventIndices(Timeline& timeline,
+                             std::initializer_list<int> indices) {
+  EntryBitset& selected = timeline.selected_event_indices_for_test();
+  selected.clear();
+  selected.reserve(indices.size());
+  for (int index : indices) {
+    selected.insert(index);
+  }
+}
+
+// Collects all set bit indices from `bitset` in ascending order.
+std::vector<int> CollectSetBits(const EntryBitset& bitset) {
+  std::vector<int> indices;
+  indices.reserve(bitset.size());
+  bitset.ForEachSetBit([&indices](int index) { indices.push_back(index); });
+  return indices;
 }
 
 // Calculated vertical center of the first event.
@@ -10961,6 +10988,45 @@ TEST_F(TimelineMouseModeSelectTestSuite,
   EXPECT_TRUE(timeline_.selected_time_ranges().empty());
 }
 
+TEST_F(TimelineMouseModeSelectTestSuite,
+       KeyMClampsNonPositiveMultiSelectionDurationsAndSkipsOutOfBoundsIndices) {
+  ImGuiIO& io = ImGui::GetIO();
+  FlameChartTimelineData data;
+  data.groups = {{Group::Type::kFlame, "Group 1", "", 0, 0, true}};
+  data.entry_names = {"nan_ev", "zero_ev", "missing_dur_ev"};
+  data.entry_levels = {0, 0, 0};
+  // Index 2 has an entry_start_times value (5.0) without a matching
+  // entry_total_times entry, exercising the second bounds guard.
+  data.entry_start_times = {20.0, 50.0, 5.0};
+  data.entry_total_times = {std::numeric_limits<Microseconds>::quiet_NaN(),
+                            0.0};
+  data.level_offsets = {0, 2};
+  data.level_event_indices = {0, 1};
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange(TimeRange(0.0, 2000.0));
+  SimulateFrame();
+
+  // Select NaN-duration event 0, zero-duration event 1, missing-duration index
+  // 2, and out-of-bounds index 3.
+  SetSelectedEventIndices(timeline_, {0, 1, 2, 3});
+  io.AddKeyEvent(ImGuiKey_M, true);
+  SimulateFrame();
+  io.AddKeyEvent(ImGuiKey_M, false);
+  SimulateFrame();
+
+  ASSERT_THAT(timeline_.selected_time_ranges().size(), Eq(1u));
+  EXPECT_THAT(timeline_.selected_time_ranges()[0].start(), DoubleEq(20.0));
+  EXPECT_THAT(timeline_.selected_time_ranges()[0].end(),
+              DoubleEq(50.0 + kMinVisibleEventDuration));
+
+  // Selecting only out-of-bounds index 3 yields min_start > max_end (nullopt),
+  // so pressing 'm' clears the previously marked interest range.
+  SetSelectedEventIndices(timeline_, {3});
+  io.AddKeyEvent(ImGuiKey_M, true);
+  SimulateFrame();
+  EXPECT_THAT(timeline_.selected_time_ranges(), IsEmpty());
+}
+
 TEST_F(TimelineMouseModeSelectTestSuite, FindSelectedEventsSelectsCounters) {
   ImGuiIO& io = ImGui::GetIO();
   bool callback_called = false;
@@ -17413,8 +17479,7 @@ TEST(TimelineTest, CalculateAndEmitMetricsIncludesEventIndex) {
   data.entry_self_times = {3.0, 6.0, 2.0};
   timeline.SetTimelineData(std::move(data));
 
-  std::vector<int>& selected = timeline.selected_event_indices_for_test();
-  selected = {0, 1, 2};
+  SetSelectedEventIndices(timeline, {0, 1, 2});
 
   std::string json;
   timeline.set_event_callback(
@@ -17608,17 +17673,20 @@ TEST(TimelineTest, StaticKernelSelectionPopulatesBundleEventsAndRegionStats) {
                          .nesting_level = 1,
                          .expanded = true});
 
-  // Event 0: top_region [0, 100) on level 0
-  // Event 1: loop.body [10, 50) on level 1
-  // Event 2: matmul_a [10, 11) on level 2 (MXU)
-  // Event 3: matmul_b [12, 13) on level 2 (MXU)
-  // Event 4: vadd [10, 11) on level 3 (VPU)
-  data.entry_names = {"top_region", "loop.body", "matmul_a", "matmul_b",
-                      "vadd"};
-  data.entry_levels = {0, 1, 2, 2, 3};
-  data.entry_start_times = {0.0, 10.0, 10.0, 12.0, 10.0};
-  data.entry_total_times = {100.0, 40.0, 1.0, 1.0, 1.0};
-  data.entry_self_times = {100.0, 40.0, 1.0, 1.0, 1.0};
+  // Event 0: top_region [0, 100) on level 0.
+  // Event 1: loop.body [10, 50) on level 1.
+  // Event 2: matmul_a [10, 11) on level 2 (MXU).
+  // Event 3: matmul_b [12, 13) on level 2 (MXU).
+  // Event 4: vadd [10, 11) on level 3 (VPU).
+  // Event 5: matmul_a [14, 16) on level 2 (MXU, duplicate instruction name).
+  // Event 6: unmapped_op [17, 18) on unmapped level 99 (empty track name).
+  // Event 7: trailing_op [90, 92) without entry_levels (idx >= num_entries).
+  data.entry_names = {"top_region", "loop.body", "matmul_a",    "matmul_b",
+                      "vadd",       "matmul_a",  "unmapped_op", "trailing_op"};
+  data.entry_levels = {0, 1, 2, 2, 3, 2, 99};
+  data.entry_start_times = {0.0, 10.0, 10.0, 12.0, 10.0, 14.0, 17.0, 90.0};
+  data.entry_total_times = {100.0, 40.0, 1.0, 1.0, 1.0, 2.0, 1.0, 2.0};
+  data.entry_self_times = {100.0, 40.0, 1.0, 1.0, 1.0, 2.0, 1.0, 2.0};
   data.entry_args = {{},
                      {},
                      {{"produces", "$v10"}, {"ordinal", "42"}},
@@ -17700,17 +17768,33 @@ TEST(TimelineTest, StaticKernelSelectionPopulatesBundleEventsAndRegionStats) {
   EXPECT_EQ(std::any_cast<std::string>(region_ancestors[0].at("name")),
             "top_region");
 
-  // 3. Multi-event selection via CalculateAndEmitMetrics
-  auto& sel_indices = timeline.selected_event_indices_for_test();
-  sel_indices = {2, 3, 4};
+  // 3. Multi-event selection via CalculateAndEmitMetrics.
+  SetSelectedEventIndices(timeline, {0, 2, 3, 4, 5, 6, 7});
   timeline.CalculateAndEmitMetrics_for_test();
   ASSERT_TRUE(multi_detail.contains("totalSelectedEvents"));
-  EXPECT_EQ(std::any_cast<int>(multi_detail.at("totalSelectedEvents")), 3);
-  EXPECT_EQ(std::any_cast<int>(multi_detail.at("totalInstructions")), 3);
+  EXPECT_THAT(std::any_cast<int>(multi_detail.at("totalSelectedEvents")),
+              Eq(7));
+  EXPECT_THAT(std::any_cast<Microseconds>(multi_detail.at("selectionStart")),
+              DoubleEq(0.0));
+  EXPECT_THAT(std::any_cast<Microseconds>(multi_detail.at("selectionExtent")),
+              DoubleEq(100.0));
+  EXPECT_THAT(std::any_cast<int>(multi_detail.at("totalInstructions")), Eq(4));
+  ASSERT_TRUE(multi_detail.contains("topInstructions"));
+  const std::vector<EventData>& multi_top_instructions =
+      std::any_cast<const std::vector<EventData>&>(
+          multi_detail.at("topInstructions"));
+  ASSERT_THAT(multi_top_instructions.size(), Eq(3u));
+  EXPECT_THAT(std::any_cast<std::string>(multi_top_instructions[0].at("name")),
+              Eq("matmul_a"));
+  EXPECT_THAT(std::any_cast<int>(multi_top_instructions[0].at("count")), Eq(2));
+  EXPECT_THAT(
+      std::any_cast<Microseconds>(multi_top_instructions[0].at("totalBundles")),
+      DoubleEq(3.0));
   ASSERT_TRUE(multi_detail.contains("selectedEvents"));
-  const auto& sel_events = std::any_cast<const std::vector<EventData>&>(
-      multi_detail.at("selectedEvents"));
-  EXPECT_EQ(sel_events.size(), 3u);
+  const std::vector<EventData>& sel_events =
+      std::any_cast<const std::vector<EventData>&>(
+          multi_detail.at("selectedEvents"));
+  EXPECT_THAT(sel_events.size(), Eq(6u));
 }
 
 TEST(TimelineTest, EmitsMinimapUpdatedWhenEventTooltipDisabled) {
@@ -18195,56 +18279,99 @@ TEST(TimelineTest, MinimapMergesConsecutiveTracksWhenLanesOverflow) {
   EXPECT_EQ(std::any_cast<std::string>(lanes[11].at("name")), "Track 12 +1");
 }
 
-TEST(TimelineTest, CompactTimelineDataRemapsAndClearsSparseEntryGroupIds) {
-  ColorPalette palette = ColorPalette::Default();
-  Timeline timeline(palette);
-  timeline.set_max_uncompacted_overview_entries_for_test(64);
-  timeline.set_is_compacted(true);
-
+// Builds a single-track dense overview dataset with `num_events` entries.
+FlameChartTimelineData MakeDenseOverviewData(int num_events) {
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = kThreadNestingLevel,
                          .expanded = true,
-                         .level_count = 1});
-
-  constexpr int kNumEvents = 5000;
-  data.level_offsets = {0, kNumEvents};
-  data.level_event_indices.reserve(kNumEvents);
-  for (int i = 0; i < kNumEvents; ++i) {
+                         .level_count = 1,
+                         .pid = 1,
+                         .tid = 1});
+  data.level_offsets = {0, static_cast<size_t>(num_events)};
+  data.level_event_indices.reserve(num_events);
+  for (int i = 0; i < num_events; ++i) {
     data.level_event_indices.push_back(i);
     data.entry_names.push_back(absl::StrCat("ev_", i));
     data.entry_levels.push_back(0);
     data.entry_start_times.push_back(static_cast<double>(i));
-    data.entry_total_times.push_back(i == 100 ? 0.9 : 0.2);
-    data.entry_self_times.push_back(i == 100 ? 0.9 : 0.2);
+    const double dur = (i == 49 || i == 100 || i == 199) ? 0.9 : 0.1;
+    data.entry_total_times.push_back(dur);
+    data.entry_self_times.push_back(dur);
     data.entry_event_ids.push_back(i + 1);
-    data.entry_serials.push_back(0);
-    data.entry_arg_flags.push_back(
-        (i == 100 || i == 101) ? FlameChartTimelineData::kEntryArgHasGroupId
-                               : 0);
-    data.entry_hlo_module_ids.push_back(0);
   }
+  return data;
+}
+
+TEST(TimelineTest, CompactTimelineDataRemapsSparseIdsAndBitsets) {
+  constexpr int kNumEvents = 5000;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_max_uncompacted_overview_entries_for_test(64);
+  timeline.set_is_compacted(false);
+
+  FlameChartTimelineData data = MakeDenseOverviewData(kNumEvents);
+  data.entry_serials.assign(kNumEvents, 0);
+  data.entry_arg_flags.assign(kNumEvents, 0);
+  data.entry_arg_flags[100] = FlameChartTimelineData::kEntryArgHasGroupId;
+  data.entry_arg_flags[101] = FlameChartTimelineData::kEntryArgHasGroupId;
+  data.entry_hlo_module_ids.assign(kNumEvents, 0);
+  // Append one trailing event ID beyond entry_start_times (index == old_n) so
+  // search-match reconciliation exercises the `idx < old_n` false branch.
+  data.entry_event_ids.push_back(9999);
   data.sparse_entry_group_ids[100] = 42;
   data.sparse_entry_group_ids[101] = 99;
 
   timeline.SetTimelineData(std::move(data));
 
-  const FlameChartTimelineData& compacted = timeline.timeline_data();
-  EXPECT_LT(compacted.entry_start_times.size(), 2500u);
+  timeline.SetSearchQuery("ev_200");
+  ParsedTraceEvents search_events;
+  search_events.flame_events.push_back(TraceEvent{.ph = Phase::kComplete,
+                                                  .event_id = 201,
+                                                  .pid = 1,
+                                                  .tid = 1,
+                                                  .name = "ev_200",
+                                                  .ts = 200.0,
+                                                  .dur = 0.1});
+  search_events.flame_events.push_back(TraceEvent{.ph = Phase::kComplete,
+                                                  .event_id = 9999,
+                                                  .pid = 1,
+                                                  .tid = 1,
+                                                  .name = "ev_tail",
+                                                  .ts = 5000.0,
+                                                  .dur = 0.1});
+  timeline.SetSearchResults(search_events);
+  ASSERT_THAT(CollectSetBits(timeline.get_matching_event_indices_for_test()),
+              ElementsAre(200, kNumEvents));
+  SetSelectedEventIndices(timeline, {50, 100, kNumEvents});
 
+  timeline.set_is_compacted(true);
+  timeline.MarkCurrentDataAsFullOverview();
+
+  const FlameChartTimelineData& compacted = timeline.timeline_data();
+  EXPECT_THAT(compacted.entry_start_times.size(), Lt(2500u));
+
+  int new_idx_50 = -1;
   int new_idx_100 = -1;
+  int new_idx_200 = -1;
   for (int i = 0; i < static_cast<int>(compacted.entry_names.size()); ++i) {
-    if (compacted.entry_names[i] == "ev_100") {
-      new_idx_100 = i;
-      break;
-    }
+    if (compacted.entry_names[i] == "ev_50") new_idx_50 = i;
+    if (compacted.entry_names[i] == "ev_100") new_idx_100 = i;
+    if (compacted.entry_names[i] == "ev_200") new_idx_200 = i;
   }
-  ASSERT_GE(new_idx_100, 0);
-  EXPECT_LT(new_idx_100, 100);
-  const auto args = compacted.GetEntryArgs(new_idx_100);
+  EXPECT_THAT(new_idx_50, Eq(-1));
+  ASSERT_THAT(new_idx_100, AllOf(Gt(0), Lt(100)));
+  ASSERT_THAT(new_idx_200, AllOf(Gt(new_idx_100), Lt(200)));
+  EXPECT_THAT(CollectSetBits(timeline.selected_event_indices_for_test()),
+              ElementsAre(new_idx_100));
+  EXPECT_THAT(CollectSetBits(timeline.get_matching_event_indices_for_test()),
+              ElementsAre(new_idx_200));
+
+  const absl::flat_hash_map<std::string, std::string> args =
+      compacted.GetEntryArgs(new_idx_100);
   ASSERT_TRUE(args.contains("group_id"));
-  EXPECT_EQ(args.at("group_id"), "42");
+  EXPECT_THAT(args.at("group_id"), Eq("42"));
 
   bool verified_cleared_before_build = false;
   timeline.UpdateTimelineData([&]() {
@@ -21887,6 +22014,81 @@ TEST_F(RealTimelineImGuiFixture,
   ImGui::Render();
   const int cpu_empty_vtx = ImGui::GetDrawData()->TotalVtxCount;
   EXPECT_GT(cpu_borrowed_vtx, cpu_empty_vtx);
+}
+
+TEST(EntryBitsetTest,
+     ReserveInsertContainsAndSizeBehaveCorrectlyAcrossWordBoundaries) {
+  EntryBitset bitset;
+  EXPECT_TRUE(bitset.empty());
+  EXPECT_THAT(bitset.size(), Eq(0u));
+  EXPECT_FALSE(bitset.contains(0));
+  EXPECT_FALSE(bitset.contains(-1));
+  EXPECT_THAT(CollectSetBits(bitset), IsEmpty());
+
+  // Reserving capacity on an empty bitset keeps size at 0 and ForEachSetBit
+  // exits early without scanning reserved words.
+  bitset.reserve(100000);
+  EXPECT_TRUE(bitset.empty());
+  EXPECT_THAT(bitset.size(), Eq(0u));
+  int callback_invocations = 0;
+  bitset.ForEachSetBit(
+      [&callback_invocations](int) { ++callback_invocations; });
+  EXPECT_THAT(callback_invocations, Eq(0));
+
+  // Negative indices must be ignored without mutating size or words.
+  bitset.insert(-1);
+  bitset.insert(-65);
+  EXPECT_TRUE(bitset.empty());
+  EXPECT_THAT(bitset.size(), Eq(0u));
+
+  // Grow dynamically across exact 64-bit word boundaries without prior reserve.
+  EntryBitset unreserved;
+  unreserved.insert(0);
+  unreserved.insert(63);
+  unreserved.insert(64);
+  unreserved.insert(65);
+  unreserved.insert(127);
+  unreserved.insert(128);
+  unreserved.insert(129);
+  unreserved.insert(129);  // Duplicate insert must not increment size.
+
+  // Reserving smaller, equal, or larger capacities preserves existing bits and
+  // size.
+  unreserved.reserve(64);
+  unreserved.reserve(192);
+  unreserved.reserve(320);
+  EXPECT_FALSE(unreserved.empty());
+  EXPECT_THAT(unreserved.size(), Eq(7u));
+  EXPECT_TRUE(unreserved.contains(0));
+  EXPECT_FALSE(unreserved.contains(1));
+  EXPECT_FALSE(unreserved.contains(62));
+  EXPECT_TRUE(unreserved.contains(63));
+  EXPECT_TRUE(unreserved.contains(64));
+  EXPECT_TRUE(unreserved.contains(65));
+  EXPECT_TRUE(unreserved.contains(127));
+  EXPECT_TRUE(unreserved.contains(128));
+  EXPECT_TRUE(unreserved.contains(129));
+  EXPECT_FALSE(unreserved.contains(130));
+  EXPECT_FALSE(unreserved.contains(320));
+  EXPECT_FALSE(unreserved.contains(-64));
+  EXPECT_THAT(CollectSetBits(unreserved),
+              ElementsAre(0, 63, 64, 65, 127, 128, 129));
+
+  // Sparse multi-word bitset with word 0 == 0 and word 1 != 0.
+  EntryBitset sparse;
+  sparse.insert(65);
+  EXPECT_THAT(CollectSetBits(sparse), ElementsAre(65));
+
+  unreserved.clear();
+  EXPECT_TRUE(unreserved.empty());
+  EXPECT_THAT(unreserved.size(), Eq(0u));
+  EXPECT_FALSE(unreserved.contains(0));
+  EXPECT_THAT(CollectSetBits(unreserved), IsEmpty());
+
+  // Re-inserting after clear() starts counting cleanly from zero.
+  unreserved.insert(0);
+  EXPECT_THAT(unreserved.size(), Eq(1u));
+  EXPECT_THAT(CollectSetBits(unreserved), ElementsAre(0));
 }
 }  // namespace
 }  // namespace testing

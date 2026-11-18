@@ -11,6 +11,7 @@
 #include <gtest/gtest.h>
 #include "tsl/platform/fingerprint.h"
 #include "tsl/profiler/lib/context_types.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
@@ -781,6 +782,275 @@ TEST(TraceEventParserTest, ParseFlowIdStringCanonicalizationRules) {
 
   EXPECT_NE(ParseFlowIdString("-5"), static_cast<uint64_t>(-5));
   EXPECT_EQ(ParseFlowIdString("-5"), tsl::Fingerprint64("-5"));
+}
+
+TEST(TraceEventParserTest, CompleteEventWithIsAsyncFlag) {
+  emscripten::val trace_data = ParseJson(R"({
+    "traceEvents": [
+      {
+        "ph": "X",
+        "name": "async_op",
+        "pid": 1,
+        "tid": 2,
+        "ts": 100.0,
+        "dur": 50.0,
+        "is_async": true
+      }
+    ]
+  })");
+
+  ParsedTraceEvents result =
+      ParseTraceEvents(trace_data, emscripten::val::null());
+
+  ASSERT_EQ(result.flame_events.size(), 1);
+  EXPECT_EQ(result.flame_events[0].name, "async_op");
+  EXPECT_TRUE(result.flame_events[0].is_async);
+}
+
+TEST(TraceEventParserTest, CompleteEventWithoutIsAsyncFlagDefaultsToFalse) {
+  emscripten::val trace_data = ParseJson(R"({
+    "traceEvents": [
+      {
+        "ph": "X",
+        "name": "sync_op",
+        "pid": 1,
+        "tid": 2,
+        "ts": 100.0,
+        "dur": 50.0
+      }
+    ]
+  })");
+
+  ParsedTraceEvents result =
+      ParseTraceEvents(trace_data, emscripten::val::null());
+
+  ASSERT_EQ(result.flame_events.size(), 1);
+  EXPECT_EQ(result.flame_events[0].name, "sync_op");
+  EXPECT_FALSE(result.flame_events[0].is_async);
+}
+
+TEST(TraceEventParserTest, MultiChunkAsyncEventsPreservedAndCompleted) {
+  DataProvider data_provider;
+
+  // Chunk 1: Async Begin event (ph = "b") at ts = 100.0
+  emscripten::val chunk1_data = ParseJson(R"({
+    "traceEvents": [
+      {
+        "ph": "b",
+        "name": "AsyncTransfer",
+        "pid": 1,
+        "tid": 2,
+        "id": "async_99",
+        "ts": 100.0
+      }
+    ]
+  })");
+
+  ParsedTraceEvents result1 = ParseTraceEvents(
+      chunk1_data, emscripten::val::null(), &data_provider.open_async_events());
+  EXPECT_TRUE(result1.flame_events.empty());
+  EXPECT_EQ(data_provider.open_async_events().size(), 1u);
+
+  // Chunk 2: Matching Async End event (ph = "e") at ts = 250.0
+  emscripten::val chunk2_data = ParseJson(R"({
+    "traceEvents": [
+      {
+        "ph": "e",
+        "name": "AsyncTransfer",
+        "pid": 1,
+        "tid": 2,
+        "id": "async_99",
+        "ts": 250.0,
+        "args": {"bytes": "4096"}
+      }
+    ]
+  })");
+
+  ParsedTraceEvents result2 = ParseTraceEvents(
+      chunk2_data, emscripten::val::null(), &data_provider.open_async_events());
+  EXPECT_TRUE(data_provider.open_async_events().empty());
+  ASSERT_EQ(result2.flame_events.size(), 1u);
+  EXPECT_EQ(result2.flame_events[0].ph, Phase::kComplete);
+  EXPECT_TRUE(result2.flame_events[0].is_async);
+  EXPECT_EQ(result2.flame_events[0].name, "AsyncTransfer");
+  EXPECT_DOUBLE_EQ(result2.flame_events[0].ts, 100.0);
+  EXPECT_DOUBLE_EQ(result2.flame_events[0].dur, 150.0);
+  EXPECT_EQ(result2.flame_events[0].args.at("bytes"), "4096");
+}
+
+TEST(TraceEventParserTest,
+     MultiChunkAsyncEventsPreservedAndCompletedOutOfOrder) {
+  DataProvider data_provider;
+
+  // Chunk 1: Async End event (ph = "e") at ts = 250.0
+  emscripten::val chunk1_data = ParseJson(R"({
+    "traceEvents": [
+      {
+        "ph": "e",
+        "name": "AsyncTransfer",
+        "pid": 1,
+        "tid": 2,
+        "id": "async_out_of_order",
+        "ts": 250.0,
+        "args": {"bytes": "4096"}
+      }
+    ]
+  })");
+
+  ParsedTraceEvents result1 = ParseTraceEvents(
+      chunk1_data, emscripten::val::null(), &data_provider.open_async_events());
+  EXPECT_TRUE(result1.flame_events.empty());
+  EXPECT_EQ(data_provider.open_async_events().size(), 1u);
+
+  // Chunk 2: Matching Async Begin event (ph = "b") at ts = 100.0
+  emscripten::val chunk2_data = ParseJson(R"({
+    "traceEvents": [
+      {
+        "ph": "b",
+        "name": "AsyncTransfer",
+        "pid": 1,
+        "tid": 2,
+        "id": "async_out_of_order",
+        "ts": 100.0
+      }
+    ]
+  })");
+
+  ParsedTraceEvents result2 = ParseTraceEvents(
+      chunk2_data, emscripten::val::null(), &data_provider.open_async_events());
+  EXPECT_TRUE(data_provider.open_async_events().empty());
+  ASSERT_EQ(result2.flame_events.size(), 1u);
+  EXPECT_EQ(result2.flame_events[0].ph, Phase::kComplete);
+  EXPECT_TRUE(result2.flame_events[0].is_async);
+  EXPECT_EQ(result2.flame_events[0].name, "AsyncTransfer");
+  EXPECT_DOUBLE_EQ(result2.flame_events[0].ts, 100.0);
+  EXPECT_DOUBLE_EQ(result2.flame_events[0].dur, 150.0);
+  EXPECT_EQ(result2.flame_events[0].args.at("bytes"), "4096");
+}
+
+TEST(TraceEventParserTest,
+     DuplicateAsyncEndpointAcrossOverlappingChunksIgnored) {
+  DataProvider data_provider;
+
+  // Chunk 1: Async Begin event (ph = "b") at ts = 100.0
+  emscripten::val chunk1_data = ParseJson(R"({
+    "traceEvents": [
+      {
+        "ph": "b",
+        "name": "AsyncTransfer",
+        "pid": 1,
+        "tid": 2,
+        "id": "async_dup",
+        "ts": 100.0
+      }
+    ]
+  })");
+
+  ParsedTraceEvents result1 = ParseTraceEvents(
+      chunk1_data, emscripten::val::null(), &data_provider.open_async_events());
+  EXPECT_TRUE(result1.flame_events.empty());
+  EXPECT_EQ(data_provider.open_async_events().size(), 1u);
+
+  // Overlapping Chunk 2: Re-fetches the same Async Begin event (ph = "b") at
+  // ts = 100.0. Must not pair with itself or erase the open event.
+  ParsedTraceEvents result2 = ParseTraceEvents(
+      chunk1_data, emscripten::val::null(), &data_provider.open_async_events());
+  EXPECT_TRUE(result2.flame_events.empty());
+  EXPECT_EQ(data_provider.open_async_events().size(), 1u);
+
+  // Chunk 3: Matching Async End event (ph = "e") at ts = 250.0 completes the
+  // slice.
+  emscripten::val chunk3_data = ParseJson(R"({
+    "traceEvents": [
+      {
+        "ph": "e",
+        "name": "AsyncTransfer",
+        "pid": 1,
+        "tid": 2,
+        "id": "async_dup",
+        "ts": 250.0
+      }
+    ]
+  })");
+
+  ParsedTraceEvents result3 = ParseTraceEvents(
+      chunk3_data, emscripten::val::null(), &data_provider.open_async_events());
+  EXPECT_TRUE(data_provider.open_async_events().empty());
+  ASSERT_EQ(result3.flame_events.size(), 1u);
+  EXPECT_EQ(result3.flame_events[0].ph, Phase::kComplete);
+  EXPECT_TRUE(result3.flame_events[0].is_async);
+  EXPECT_DOUBLE_EQ(result3.flame_events[0].ts, 100.0);
+  EXPECT_DOUBLE_EQ(result3.flame_events[0].dur, 150.0);
+}
+
+TEST(TraceEventParserTest, ZeroDurationAsyncEventCompletedAndEmitted) {
+  DataProvider data_provider;
+
+  emscripten::val trace_data = ParseJson(R"({
+    "traceEvents": [
+      {
+        "ph": "b",
+        "name": "ZeroDurAsync",
+        "pid": 1,
+        "tid": 2,
+        "id": "async_zero",
+        "ts": 100.0
+      },
+      {
+        "ph": "e",
+        "name": "ZeroDurAsync",
+        "pid": 1,
+        "tid": 2,
+        "id": "async_zero",
+        "ts": 100.0,
+        "args": {"status": "done"}
+      }
+    ]
+  })");
+
+  ParsedTraceEvents result = ParseTraceEvents(
+      trace_data, emscripten::val::null(), &data_provider.open_async_events());
+  EXPECT_TRUE(data_provider.open_async_events().empty());
+  ASSERT_EQ(result.flame_events.size(), 1u);
+  EXPECT_EQ(result.flame_events[0].ph, Phase::kComplete);
+  EXPECT_TRUE(result.flame_events[0].is_async);
+  EXPECT_EQ(result.flame_events[0].name, "ZeroDurAsync");
+  EXPECT_DOUBLE_EQ(result.flame_events[0].ts, 100.0);
+  EXPECT_DOUBLE_EQ(result.flame_events[0].dur, 0.0);
+  EXPECT_EQ(result.flame_events[0].args.at("status"), "done");
+}
+
+TEST(TraceEventParserTest, EmptyIdAsyncEventsDowngradedToInstantWithIsAsync) {
+  emscripten::val trace_data = ParseJson(R"({
+    "traceEvents": [
+      {
+        "ph": "b",
+        "name": "AsyncNoIdBegin",
+        "pid": 1,
+        "tid": 2,
+        "ts": 100.0
+      },
+      {
+        "ph": "e",
+        "name": "AsyncNoIdEnd",
+        "pid": 1,
+        "tid": 2,
+        "ts": 200.0
+      }
+    ]
+  })");
+
+  DataProvider data_provider;
+  ParsedTraceEvents result = ParseTraceEvents(
+      trace_data, emscripten::val::null(), &data_provider.open_async_events());
+  EXPECT_TRUE(data_provider.open_async_events().empty());
+  ASSERT_EQ(result.flame_events.size(), 2u);
+  EXPECT_EQ(result.flame_events[0].ph, Phase::kInstant);
+  EXPECT_TRUE(result.flame_events[0].is_async);
+  EXPECT_EQ(result.flame_events[0].name, "AsyncNoIdBegin");
+  EXPECT_EQ(result.flame_events[1].ph, Phase::kInstant);
+  EXPECT_TRUE(result.flame_events[1].is_async);
+  EXPECT_EQ(result.flame_events[1].name, "AsyncNoIdEnd");
 }
 }  // namespace
 }  // namespace traceviewer

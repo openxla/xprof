@@ -6,6 +6,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -94,6 +95,13 @@ struct TraceEvent {
   bool has_group_id = false;
   bool is_async = false;
 };
+
+// Key and map type for unclosed async begin/end events preserved across
+// streaming chunks, keyed by (pid, name, flow_id). Using the resolved name
+// string rather than chunk-local name_ref indices allows pairing across chunks
+// whose interned_strings tables differ.
+using AsyncEventKey = std::tuple<ProcessId, std::string, uint64_t>;
+using OpenAsyncEventsMap = absl::flat_hash_map<AsyncEventKey, TraceEvent>;
 
 // Returns `event.event_id` if already populated, or computes a stable
 // fingerprint ID from `(name, ts, dur)` otherwise.

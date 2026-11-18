@@ -8,9 +8,9 @@
 #include <cstdint>
 #include <map>
 #include <string>
-#include <tuple>
 #include <utility>
 
+#include "absl/container/flat_hash_map.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "tsl/profiler/lib/context_types.h"
@@ -156,10 +156,8 @@ void ParseFlowField(const emscripten::val& event, const char* field_name,
   }
 }
 
-void ParseAndAppend(
-    const emscripten::val& event, ParsedTraceEvents& result,
-    absl::flat_hash_map<std::tuple<ProcessId, std::string, uint64_t>,
-                        TraceEvent>& open_async_events) {
+void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
+                    OpenAsyncEventsMap& open_async_events) {
   if (!event.hasOwnProperty("ph")) {
     return;
   }
@@ -238,6 +236,9 @@ void ParseAndAppend(
         ev.has_flow_id = true;
       }
     }
+    if (event.hasOwnProperty("is_async") && event["is_async"].as<bool>()) {
+      ev.is_async = true;
+    }
     if (event.hasOwnProperty("args")) {
       emscripten::val args = event["args"];
       emscripten::val keys =
@@ -270,29 +271,44 @@ void ParseAndAppend(
       // for parity with ProcessAsyncEventSeriesImpl and to prevent concurrent
       // async tracks that share a numeric ID (e.g. id: 0) from colliding.
       case Phase::kAsyncBegin:
-        if (ev.has_flow_id) {
-          open_async_events[{ev.pid, ev.name, ev.flow_id}] = std::move(ev);
+      case Phase::kAsyncEnd: {
+        if (!ev.has_flow_id) {
+          ev.ph = Phase::kInstant;
+          ev.is_async = true;
+          result.flame_events.push_back(std::move(ev));
+          break;
         }
-        break;
-      case Phase::kAsyncEnd:
-        if (ev.has_flow_id) {
-          auto it = open_async_events.find({ev.pid, ev.name, ev.flow_id});
-          if (it != open_async_events.end()) {
-            TraceEvent& begin_ev = it->second;
-            begin_ev.ph = Phase::kComplete;
-            begin_ev.is_async = true;
-            if (ev.ts > begin_ev.ts) {
-              begin_ev.dur = ev.ts - begin_ev.ts;
-            }
-            // Merge arguments from end event if any.
-            if (!ev.args.empty()) {
-              begin_ev.args.insert(ev.args.begin(), ev.args.end());
-            }
-            result.flame_events.push_back(std::move(begin_ev));
-            open_async_events.erase(it);
-          }
+        const AsyncEventKey key(ev.pid, ev.name, ev.flow_id);
+        const auto [it, inserted] =
+            open_async_events.try_emplace(key, std::move(ev));
+        if (inserted) {
+          break;
         }
+        TraceEvent& stored_ev = it->second;
+        if (ev.ph == stored_ev.ph) {
+          // Duplicate fetch of the same async endpoint across overlapping
+          // streaming chunks; ignore rather than pairing with itself.
+          break;
+        }
+        // Preserve Begin timestamp when Begin precedes End (clamping inverted
+        // timestamps to 0 duration), while supporting out-of-order chunk
+        // arrival where End arrived before Begin.
+        if (stored_ev.ph == Phase::kAsyncEnd) {
+          std::swap(stored_ev, ev);
+        }
+        stored_ev.ph = Phase::kComplete;
+        stored_ev.is_async = true;
+        if (ev.ts > stored_ev.ts) {
+          stored_ev.dur = ev.ts - stored_ev.ts;
+        }
+        // Merge arguments from the End event into the completed slice.
+        if (!ev.args.empty()) {
+          stored_ev.args.insert(ev.args.begin(), ev.args.end());
+        }
+        result.flame_events.push_back(std::move(stored_ev));
+        open_async_events.erase(it);
         break;
+      }
       case Phase::kFlowStart:
       case Phase::kFlowEnd:
         if (ev.has_flow_id) {
@@ -330,7 +346,8 @@ void ParseAndAppend(
 
 ParsedTraceEvents ParseTraceEvents(
     const emscripten::val& trace_data,
-    const emscripten::val& visible_range_from_url) {
+    const emscripten::val& visible_range_from_url,
+    OpenAsyncEventsMap* open_async_events_ptr) {
   ParsedTraceEvents result;
   if (trace_data.isNull() || trace_data.isUndefined() ||
       !trace_data.hasOwnProperty("traceEvents")) {
@@ -354,8 +371,9 @@ ParsedTraceEvents ParseTraceEvents(
   // in number.
   result.flame_events.reserve(js_events.size());
 
-  absl::flat_hash_map<std::tuple<ProcessId, std::string, uint64_t>, TraceEvent>
-      open_async_events;
+  OpenAsyncEventsMap local_open_async_events;
+  auto& open_async_events =
+      open_async_events_ptr ? *open_async_events_ptr : local_open_async_events;
   for (const auto& js_event : js_events) {
     ParseAndAppend(js_event, result, open_async_events);
   }
@@ -391,11 +409,12 @@ ParsedTraceEvents ParseTraceEvents(
 
 void ParseAndProcessTraceEvents(const emscripten::val& trace_data,
                                 const emscripten::val& visible_range_from_url) {
+  DataProvider& data_provider = Application::Instance().data_provider();
   Timeline& timeline = Application::Instance().timeline();
   const bool is_initial_load =
       (timeline.last_fetch_request_range() == TimeRange::Zero());
-  const ParsedTraceEvents parsed_events =
-      ParseTraceEvents(trace_data, visible_range_from_url);
+  const ParsedTraceEvents parsed_events = ParseTraceEvents(
+      trace_data, visible_range_from_url, &data_provider.open_async_events());
   const bool has_url_range = parsed_events.visible_range_from_url.has_value();
   const bool is_overview_load =
       is_initial_load && !has_url_range && timeline.incremental_fetch_enabled();
@@ -403,8 +422,7 @@ void ParseAndProcessTraceEvents(const emscripten::val& trace_data,
                                  !has_url_range);
   timeline.set_is_compacted(is_overview_load);
   timeline.set_window_at_full_resolution(!is_overview_load);
-  Application::Instance().data_provider().ProcessTraceEvents(parsed_events,
-                                                             timeline);
+  data_provider.ProcessTraceEvents(parsed_events, timeline);
 
   // Set last_fetch_request_range_ on initial load to avoid duplicate fetches.
   // On incremental fetches, MaybeRequestData() has already set

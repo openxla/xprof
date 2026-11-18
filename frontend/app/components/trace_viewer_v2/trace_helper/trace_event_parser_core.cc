@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <optional>
 #include <string>
-#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -34,9 +33,6 @@ absl::string_view GetInternedString(
              ? absl::string_view(interned_strings[ref])
              : "";
 }
-
-// Key for pairing async begin/end events: (pid, name_ref, flow_id).
-using AsyncEventKey = std::tuple<ProcessId, uint32_t, uint64_t>;
 
 }  // namespace
 
@@ -302,11 +298,10 @@ size_t ProcessCompleteEventSeriesSlice(
 namespace {
 
 template <typename GetInternedStringFn>
-void ProcessAsyncEventSeriesImpl(
-    const xprof::TraceEventSeries& series,
-    GetInternedStringFn&& get_interned_string,
-    absl::flat_hash_map<AsyncEventKey, TraceEvent>& open_async_events,
-    ParsedTraceEvents& result) {
+void ProcessAsyncEventSeriesImpl(const xprof::TraceEventSeries& series,
+                                 GetInternedStringFn&& get_interned_string,
+                                 OpenAsyncEventsMap& open_async_events,
+                                 ParsedTraceEvents& result) {
   const xprof::TraceEventSeriesMetadata& metadata = series.metadata();
   const absl::string_view series_name =
       get_interned_string(metadata.name_ref());
@@ -361,20 +356,28 @@ void ProcessAsyncEventSeriesImpl(
       result.flame_events.push_back(std::move(ev));
     } else {
       // No duration, assume it's part of a separate Begin/End pair.
-      const AsyncEventKey key(ev.pid, name_ref, ev.flow_id);
+      const AsyncEventKey key(ev.pid, ev.name, ev.flow_id);
       const auto [it, inserted] =
           open_async_events.try_emplace(key, std::move(ev));
       if (inserted) {
-        // Begin
+        // Begin (or End if chunks arrive out of chronological order)
         it->second.ph = Phase::kAsyncBegin;
       } else {
-        // End
+        // End (or matching Begin if End arrived first)
         TraceEvent& begin_ev = it->second;
+        if (ev.ts == begin_ev.ts) {
+          // Duplicate fetch of the same endpoint across overlapping streaming
+          // chunks; ignore rather than closing with zero duration.
+          continue;
+        }
+        // Complete the async event pair. If a later chunk arrived before an
+        // earlier chunk (e.g. panning left), normalize start and end.
+        if (ev.ts < begin_ev.ts) {
+          std::swap(begin_ev, ev);
+        }
         begin_ev.ph = Phase::kComplete;
         begin_ev.is_async = true;
-        if (ev.ts > begin_ev.ts) {
-          begin_ev.dur = ev.ts - begin_ev.ts;
-        }
+        begin_ev.dur = ev.ts - begin_ev.ts;
         if (ev.has_group_id && !begin_ev.has_group_id) {
           begin_ev.group_id = ev.group_id;
           begin_ev.has_group_id = true;
@@ -389,42 +392,50 @@ void ProcessAsyncEventSeriesImpl(
       }
     }
   }
-  open_async_events.erase({metadata.process_id(), metadata.name_ref(), 0});
+  // Events without a flow_id cannot be correlated across series or streaming
+  // chunks, so clean up any unclosed zero-flow entries from this series.
+  open_async_events.erase({metadata.process_id(), std::string(series_name), 0});
   for (int i = 0; i < series.name_refs_size(); ++i) {
-    open_async_events.erase({metadata.process_id(), series.name_refs(i), 0});
+    open_async_events.erase(
+        {metadata.process_id(),
+         std::string(get_interned_string(series.name_refs(i))), 0});
   }
 }
 
 }  // namespace
 
 void ProcessAsyncEvents(const xprof::TraceDataResponse& response,
-                        ParsedTraceEvents& result) {
+                        ParsedTraceEvents& result,
+                        OpenAsyncEventsMap* open_async_events) {
   size_t async_deltas = 0;
   for (const xprof::TraceEventSeries& series : response.async_events()) {
     async_deltas += series.deltas_size();
   }
   result.flame_events.reserve(result.flame_events.size() + async_deltas);
-  absl::flat_hash_map<AsyncEventKey, TraceEvent> open_async_events;
+  OpenAsyncEventsMap local_async_events;
+  auto& async_map = open_async_events ? *open_async_events : local_async_events;
   for (const xprof::TraceEventSeries& series : response.async_events()) {
     ProcessAsyncEventSeriesImpl(
         series,
         [&](uint32_t ref) -> absl::string_view {
           return GetInternedString(response, ref);
         },
-        open_async_events, result);
+        async_map, result);
   }
 }
 
-void ProcessAsyncEventSeries(const xprof::TraceEventSeries& series,
-                             absl::Span<const std::string> interned_strings,
-                             ParsedTraceEvents& result) {
-  absl::flat_hash_map<AsyncEventKey, TraceEvent> open_async_events;
+void ProcessAsyncEventSeries(
+    const xprof::TraceEventSeries& series,
+    absl::Span<const std::string> interned_strings, ParsedTraceEvents& result,
+    OpenAsyncEventsMap* open_async_events) {
+  OpenAsyncEventsMap local_async_events;
+  auto& async_map = open_async_events ? *open_async_events : local_async_events;
   ProcessAsyncEventSeriesImpl(
       series,
       [&](uint32_t ref) -> absl::string_view {
         return GetInternedString(interned_strings, ref);
       },
-      open_async_events, result);
+      async_map, result);
 }
 
 namespace {

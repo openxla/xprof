@@ -735,7 +735,7 @@ void AppendEventToTimelineData(
     }
     if (event->has_group_id) {
       flags |= FlameChartTimelineData::kEntryArgHasGroupId;
-      data.sparse_entry_group_ids[entry_idx] = event->group_id;
+      data.sparse_entry_group_ids.Append(entry_idx, event->group_id);
     }
     if (is_xla_ops_thread) {
       flags |= FlameChartTimelineData::kEntryArgHloOpFromName;
@@ -764,7 +764,7 @@ void AppendEventToTimelineData(
     raw_flags |= FlameChartTimelineData::kEntryArgHadRawHloModule;
   }
   if (event->has_group_id) {
-    data.sparse_entry_group_ids[entry_idx] = event->group_id;
+    data.sparse_entry_group_ids.Append(entry_idx, event->group_id);
   }
   data.entry_serials.push_back(event->serial);
   data.entry_arg_flags.push_back(raw_flags);
@@ -1221,6 +1221,7 @@ void CopyCachedTrackEntryMetadata(CachedThreadTrack& cached, size_t from_idx,
 // clearing any stale sparse metadata previously stored at `to_idx`.
 void RelocateSparseEntryMetadata(FlameChartTimelineData& entries,
                                  size_t from_idx, size_t to_idx) {
+  entries.sparse_entry_group_ids.Relocate(from_idx, to_idx);
   auto move_sparse_entry = [](auto& map, size_t from, size_t to) {
     if (auto it = map.find(from); it != map.end()) {
       auto val = std::move(it->second);
@@ -1230,7 +1231,6 @@ void RelocateSparseEntryMetadata(FlameChartTimelineData& entries,
       map.erase(to);
     }
   };
-  move_sparse_entry(entries.sparse_entry_group_ids, from_idx, to_idx);
   move_sparse_entry(entries.sparse_entry_args, from_idx, to_idx);
 }
 
@@ -1754,9 +1754,21 @@ bool CompactCachedThreadTrackIfNeeded(
     }
     sparse_map = std::move(remapped);
   };
-  remap_sparse_map(entries.sparse_entry_group_ids);
   remap_sparse_map(entries.sparse_entry_args);
   RebuildRightmostEntryByRow(cached);
+
+  if (!entries.sparse_entry_group_ids.empty()) {
+    GroupIdRuns remapped;
+    for (const GroupIdRuns::Run& run : entries.sparse_entry_group_ids.runs()) {
+      const size_t end_i = std::min<size_t>(run.end, n);
+      for (size_t old_i = run.begin; old_i < end_i; ++old_i) {
+        if (old_to_new[old_i] != kDropped) {
+          remapped.Append(old_to_new[old_i], run.group_id);
+        }
+      }
+    }
+    entries.sparse_entry_group_ids = std::move(remapped);
+  }
 
   cached.was_compacted = true;
   return true;
@@ -1822,8 +1834,10 @@ void AppendCachedThreadTrackToTimelineData(CachedThreadTrack& cached,
         local_mod_id < module_id_map.size() ? module_id_map[local_mod_id] : 0);
   }
 
-  for (const auto& [rel_idx, group_id] : src.sparse_entry_group_ids) {
-    data.sparse_entry_group_ids[base_entry_idx + rel_idx] = group_id;
+  for (const GroupIdRuns::Run& run : src.sparse_entry_group_ids.runs()) {
+    for (uint32_t idx = run.begin; idx < run.end; ++idx) {
+      data.sparse_entry_group_ids.Append(base_entry_idx + idx, run.group_id);
+    }
   }
   if (consume_track) {
     for (auto& [rel_idx, args] : src.sparse_entry_args) {
@@ -1885,9 +1899,9 @@ TraceEvent ReconstructCachedTraceEvent(const CachedThreadTrack& cached,
       .has_serial = (flags & FlameChartTimelineData::kEntryArgHasUid) != 0,
       .is_async = is_async,
   };
-  if (const auto it = e.sparse_entry_group_ids.find(i);
-      it != e.sparse_entry_group_ids.end()) {
-    ev.group_id = it->second;
+  if (const std::optional<int64_t> gid = e.sparse_entry_group_ids.Find(i);
+      gid.has_value()) {
+    ev.group_id = *gid;
     ev.has_group_id = true;
   }
   if (const auto it = e.sparse_entry_args.find(i);
@@ -1917,9 +1931,9 @@ std::vector<TraceEvent> RestoreAndTruncateCachedTrackFrom(
   restored.reserve(n - start_idx);
   for (size_t i = start_idx; i < n; ++i) {
     restored.push_back(ReconstructCachedTraceEvent(cached, i, is_async));
-    e.sparse_entry_group_ids.erase(i);
     e.sparse_entry_args.erase(i);
   }
+  e.sparse_entry_group_ids.TruncateFrom(start_idx);
   if (start_idx == 0) {
     cached = CachedThreadTrack{};
     return restored;

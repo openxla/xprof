@@ -250,8 +250,7 @@ Microseconds Timeline::GetScheduleEndBundle() const {
 
 void Timeline::PopulateEventSelectedScheduleDetails(
     int event_index, EventData& event_data) const {
-  if (event_index < 0 ||
-      static_cast<size_t>(event_index) >= timeline_data_.entry_names.size() ||
+  if (event_index < 0 || static_cast<size_t>(event_index) >= GetEntryCount() ||
       static_cast<size_t>(event_index) >= timeline_data_.entry_levels.size()) {
     return;
   }
@@ -335,8 +334,7 @@ void Timeline::PopulateCounterSelectedScheduleDetails(
 
 void Timeline::PopulateEventHoveredScheduleDetails(
     int event_index, EventData& event_data) const {
-  if (event_index >= 0 &&
-      static_cast<size_t>(event_index) < timeline_data_.entry_names.size() &&
+  if (event_index >= 0 && static_cast<size_t>(event_index) < GetEntryCount() &&
       static_cast<size_t>(event_index) < timeline_data_.entry_levels.size()) {
     const int level = timeline_data_.entry_levels[event_index];
     int group_index = -1;
@@ -386,8 +384,7 @@ void Timeline::PopulateBundleScheduleDetails(Microseconds bundle,
   std::vector<EventData> region_ancestors;
   const int total_levels = timeline_data_.total_levels();
   const size_t num_entries =
-      std::min({timeline_data_.entry_names.size(),
-                timeline_data_.entry_start_times.size(),
+      std::min({GetEntryCount(), timeline_data_.entry_start_times.size(),
                 timeline_data_.entry_total_times.size()});
 
   for (size_t g_idx = 0; g_idx < timeline_data_.groups.size(); ++g_idx) {
@@ -416,11 +413,11 @@ void Timeline::PopulateBundleScheduleDetails(Microseconds bundle,
             const Microseconds s = timeline_data_.entry_start_times[idx];
             const Microseconds d = timeline_data_.entry_total_times[idx];
             if (s <= bundle && s + d > bundle) {
-              regions.push_back(timeline_data_.entry_names[idx]);
+              const std::string region_name(GetEventName(idx));
+              regions.push_back(region_name);
               EventData ancestor;
               ancestor.try_emplace(kEventSelectedIndex, idx);
-              ancestor.try_emplace(kEventSelectedName,
-                                   timeline_data_.entry_names[idx]);
+              ancestor.try_emplace(kEventSelectedName, region_name);
               ancestor.try_emplace(kEventSelectedStart, s);
               ancestor.try_emplace(kEventSelectedDuration, d);
               region_ancestors.push_back(std::move(ancestor));
@@ -506,7 +503,7 @@ void Timeline::PopulateHoverScheduleDetails(int group_index, int event_index,
   }
 
   const size_t event_idx = static_cast<size_t>(event_index);
-  if (event_idx < timeline_data_.entry_names.size()) {
+  if (event_idx < GetEntryCount()) {
     event_data.try_emplace("color",
                            FormatCssHexColor(GetEventColor(event_index)));
   }
@@ -535,8 +532,7 @@ void Timeline::PopulateHoverScheduleDetails(int group_index, int event_index,
 
   const int total_levels = timeline_data_.total_levels();
   const size_t num_entries =
-      std::min({timeline_data_.entry_names.size(),
-                timeline_data_.entry_start_times.size(),
+      std::min({GetEntryCount(), timeline_data_.entry_start_times.size(),
                 timeline_data_.entry_total_times.size()});
   const int event_level =
       (static_cast<size_t>(event_index) < timeline_data_.entry_levels.size())
@@ -565,11 +561,11 @@ void Timeline::PopulateHoverScheduleDetails(int group_index, int event_index,
         const Microseconds s = timeline_data_.entry_start_times[idx];
         const Microseconds d = timeline_data_.entry_total_times[idx];
         if (s <= start && s + d > start) {
-          parent_regions.push_back(timeline_data_.entry_names[idx]);
+          const std::string region_name(GetEventName(idx));
+          parent_regions.push_back(region_name);
           EventData ancestor;
           ancestor.try_emplace(kEventSelectedIndex, idx);
-          ancestor.try_emplace(kEventSelectedName,
-                               timeline_data_.entry_names[idx]);
+          ancestor.try_emplace(kEventSelectedName, region_name);
           ancestor.try_emplace(kEventSelectedStart, s);
           ancestor.try_emplace(kEventSelectedDuration, d);
           region_ancestors.push_back(std::move(ancestor));
@@ -629,8 +625,7 @@ void Timeline::PopulateBundleEvents(Microseconds bundle,
   std::vector<EventData> bundle_events;
   const int total_levels = timeline_data_.total_levels();
   const size_t num_entries =
-      std::min({timeline_data_.entry_names.size(),
-                timeline_data_.entry_start_times.size(),
+      std::min({GetEntryCount(), timeline_data_.entry_start_times.size(),
                 timeline_data_.entry_total_times.size()});
 
   for (size_t g_idx = 0; g_idx < timeline_data_.groups.size(); ++g_idx) {
@@ -662,7 +657,7 @@ void Timeline::PopulateBundleEvents(Microseconds bundle,
             EventData item;
             item.try_emplace(kEventSelectedIndex, idx);
             item.try_emplace(kEventSelectedName,
-                             timeline_data_.entry_names[idx]);
+                             std::string(GetEventName(idx)));
             item.try_emplace("trackName", g.name);
             item.try_emplace(kEventSelectedStart, s);
             item.try_emplace(kEventSelectedDuration, d);
@@ -709,8 +704,7 @@ void Timeline::PopulateSelectedScheduleDetails(int group_index, int event_index,
 
   const int total_levels = timeline_data_.total_levels();
   const size_t num_entries =
-      std::min({timeline_data_.entry_names.size(),
-                timeline_data_.entry_start_times.size(),
+      std::min({GetEntryCount(), timeline_data_.entry_start_times.size(),
                 timeline_data_.entry_total_times.size()});
   const Microseconds start = timeline_data_.entry_start_times[event_index];
   const Microseconds dur = timeline_data_.entry_total_times[event_index];
@@ -786,7 +780,7 @@ void Timeline::PopulateSelectedScheduleDetails(int group_index, int event_index,
       EventData child_item;
       child_item.try_emplace(kEventSelectedIndex, idx);
       child_item.try_emplace(kEventSelectedName,
-                             timeline_data_.entry_names[idx]);
+                             std::string(GetEventName(idx)));
       child_item.try_emplace(kEventSelectedStart, child_start);
       child_item.try_emplace(kEventSelectedDuration, child_dur);
       child_regions.push_back(std::move(child_item));
@@ -832,7 +826,7 @@ void Timeline::PopulateSelectedScheduleDetails(int group_index, int event_index,
       for (auto it = first_it; it != last_it; ++it) {
         const int idx = *it;
         if (idx < 0 || static_cast<size_t>(idx) >= num_entries) continue;
-        const std::string& instr_name = timeline_data_.entry_names[idx];
+        const std::string instr_name(GetEventName(idx));
         auto& summary = instruction_map[{g.name, instr_name}];
         if (summary.count == 0) {
           summary.track_name = g.name;
@@ -854,10 +848,10 @@ void Timeline::PopulateSelectedScheduleDetails(int group_index, int event_index,
 void Timeline::PopulateMultiSelectionScheduleDetails(
     Microseconds selection_start_us, Microseconds selection_extent_us,
     EventData& event_data) const {
-  const size_t num_entries = std::min({timeline_data_.entry_names.size(),
-                                       timeline_data_.entry_start_times.size(),
-                                       timeline_data_.entry_total_times.size(),
-                                       timeline_data_.entry_levels.size()});
+  const size_t num_entries =
+      std::min({GetEntryCount(), timeline_data_.entry_start_times.size(),
+                timeline_data_.entry_total_times.size(),
+                timeline_data_.entry_levels.size()});
 
   Microseconds min_start = std::numeric_limits<Microseconds>::max();
   Microseconds max_end = 0.0;
@@ -940,7 +934,7 @@ void Timeline::PopulateMultiSelectionScheduleDetails(
 
     unit_counts[track_name]++;
     total_instructions++;
-    const std::string& instr_name = timeline_data_.entry_names[idx];
+    const std::string instr_name(GetEventName(idx));
     auto& summary = instruction_map[{track_name, instr_name}];
     if (summary.count == 0) {
       summary.track_name = track_name;
@@ -990,7 +984,7 @@ void Timeline::PopulateMultiSelectionScheduleDetails(
           }
           unit_counts[g.name]++;
           total_instructions++;
-          const std::string& instr_name = timeline_data_.entry_names[idx];
+          const std::string instr_name(GetEventName(idx));
           auto& summary = instruction_map[{g.name, instr_name}];
           if (summary.count == 0) {
             summary.track_name = g.name;
@@ -1027,7 +1021,7 @@ void Timeline::PopulateMultiSelectionScheduleDetails(
     const int idx = sorted_indices[i];
     EventData item;
     item.try_emplace(kEventSelectedIndex, idx);
-    item.try_emplace(kEventSelectedName, timeline_data_.entry_names[idx]);
+    item.try_emplace(kEventSelectedName, std::string(GetEventName(idx)));
     item.try_emplace("trackName",
                      find_group_name(timeline_data_.entry_levels[idx]));
     item.try_emplace(kEventSelectedStart,
@@ -1228,8 +1222,7 @@ void Timeline::PopulateMinimapScheduleSummary(Microseconds data_start,
   const Microseconds bin_width = total_span / kNumMinimapBins;
   const int total_levels = timeline_data_.total_levels();
   const size_t num_entries =
-      std::min({timeline_data_.entry_names.size(),
-                timeline_data_.entry_start_times.size(),
+      std::min({GetEntryCount(), timeline_data_.entry_start_times.size(),
                 timeline_data_.entry_total_times.size()});
 
   std::vector<std::string> unit_names;
@@ -1412,6 +1405,7 @@ void Timeline::PopulateMinimapScheduleSummary(Microseconds data_start,
         const Microseconds d = timeline_data_.entry_total_times[idx];
         const Microseconds e = s + d;
         if (e <= data_start || s >= data_end || d <= 0.0) continue;
+        const std::string evt_name(GetEventName(idx));
         const int b0 =
             std::clamp(static_cast<int>((std::max(data_start, s) - data_start) /
                                         bin_width),
@@ -1422,7 +1416,7 @@ void Timeline::PopulateMinimapScheduleSummary(Microseconds data_start,
             0, kNumMinimapBins - 1);
         for (int b = b0; b <= b1; ++b) {
           if (prefer_innermost || bin_names[b].empty()) {
-            bin_names[b] = timeline_data_.entry_names[idx];
+            bin_names[b] = evt_name;
           }
         }
         if (depth >= max_rows) continue;
@@ -1472,7 +1466,7 @@ void Timeline::PopulateMinimapScheduleSummary(Microseconds data_start,
       EventData reg;
       reg.try_emplace(kEventSelectedIndex, t.event_index);
       reg.try_emplace(kEventSelectedName,
-                      timeline_data_.entry_names[t.event_index]);
+                      std::string(GetEventName(t.event_index)));
       reg.try_emplace(kEventSelectedStart, t.start_us);
       reg.try_emplace(kEventSelectedDuration, t.end_us - t.start_us);
       reg.try_emplace("depth", t.depth);

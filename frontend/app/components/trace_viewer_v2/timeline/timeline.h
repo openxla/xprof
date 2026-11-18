@@ -170,6 +170,170 @@ struct FlowLine {
   tsl::profiler::ContextType category = tsl::profiler::ContextType::kGeneric;
 };
 
+// Group IDs of flame-chart entries, stored as sorted, disjoint, half-open
+// runs of entry indices that share one group ID. An entry index outside
+// every run has no group ID.
+class GroupIdRuns {
+ public:
+  struct Run {
+    uint32_t begin = 0;  // First entry index of the run.
+    uint32_t end = 0;    // One past the last entry index of the run.
+    int64_t group_id = 0;
+    friend bool operator==(const Run& a, const Run& b) {
+      return a.begin == b.begin && a.end == b.end && a.group_id == b.group_id;
+    }
+    friend bool operator!=(const Run& a, const Run& b) { return !(a == b); }
+  };
+
+  // Records `group_id` for entry `index`. Indices must strictly increase
+  // across calls; gaps mean "no group ID".
+  void Append(size_t index, int64_t group_id) {
+    if (index >= std::numeric_limits<uint32_t>::max() ||
+        (!runs_.empty() && index < runs_.back().end)) {
+      return;
+    }
+    const uint32_t i = static_cast<uint32_t>(index);
+    if (!runs_.empty() && runs_.back().end == i &&
+        runs_.back().group_id == group_id) {
+      ++runs_.back().end;
+      return;
+    }
+    runs_.push_back({.begin = i, .end = i + 1, .group_id = group_id});
+  }
+
+  // Returns the group ID of entry `index`, or nullopt if it has none.
+  std::optional<int64_t> Find(size_t index) const {
+    const auto it = std::upper_bound(
+        runs_.begin(), runs_.end(), index,
+        [](size_t i, const Run& run) { return i < run.begin; });
+    if (it == runs_.begin()) {
+      return std::nullopt;
+    }
+    const auto prev_it = std::prev(it);
+    if (index >= prev_it->end) {
+      return std::nullopt;
+    }
+    return prev_it->group_id;
+  }
+
+  // Truncates all entries at or after `start_index` in-place.
+  void TruncateFrom(size_t start_index) {
+    if (start_index >= std::numeric_limits<uint32_t>::max()) {
+      return;
+    }
+    const uint32_t cut = static_cast<uint32_t>(start_index);
+    while (!runs_.empty() && runs_.back().begin >= cut) {
+      runs_.pop_back();
+    }
+    if (!runs_.empty() && runs_.back().end > cut) {
+      runs_.back().end = cut;
+    }
+  }
+
+  // Removes any group ID recorded for entry `index`.
+  void Erase(size_t index) {
+    if (runs_.empty() || index >= std::numeric_limits<uint32_t>::max()) {
+      return;
+    }
+    const uint32_t target = static_cast<uint32_t>(index);
+    const auto upper = std::upper_bound(
+        runs_.begin(), runs_.end(), target,
+        [](uint32_t i, const Run& run) { return i < run.begin; });
+    if (upper == runs_.begin()) {
+      return;
+    }
+    const auto it = std::prev(upper);
+    if (target >= it->end) {
+      return;
+    }
+    if (it->begin + 1 == it->end) {
+      runs_.erase(it);
+      return;
+    }
+    if (target == it->begin) {
+      ++it->begin;
+      return;
+    }
+    if (target + 1 == it->end) {
+      --it->end;
+      return;
+    }
+    const Run right_run{
+        .begin = target + 1, .end = it->end, .group_id = it->group_id};
+    it->end = target;
+    runs_.insert(upper, right_run);
+  }
+
+  // Sets `group_id` for entry `index`, overwriting any existing group ID and
+  // coalescing with adjacent runs that share `group_id`.
+  void Set(size_t index, int64_t group_id) {
+    if (index >= std::numeric_limits<uint32_t>::max()) {
+      return;
+    }
+    if (Find(index) == group_id) {
+      return;
+    }
+    Erase(index);
+    const uint32_t target = static_cast<uint32_t>(index);
+    const auto next_it = std::upper_bound(
+        runs_.begin(), runs_.end(), target,
+        [](uint32_t i, const Run& run) { return i < run.begin; });
+    const bool merge_left = next_it != runs_.begin() &&
+                            std::prev(next_it)->end == target &&
+                            std::prev(next_it)->group_id == group_id;
+    const bool merge_right = next_it != runs_.end() &&
+                             next_it->begin == target + 1 &&
+                             next_it->group_id == group_id;
+    if (merge_left && merge_right) {
+      std::prev(next_it)->end = next_it->end;
+      runs_.erase(next_it);
+      return;
+    }
+    if (merge_left) {
+      ++std::prev(next_it)->end;
+      return;
+    }
+    if (merge_right) {
+      --next_it->begin;
+      return;
+    }
+    runs_.insert(next_it,
+                 Run{.begin = target, .end = target + 1, .group_id = group_id});
+  }
+
+  // Moves the group ID at `from_index` (if any) to `to_index`, clearing
+  // `from_index` and overwriting or clearing any group ID previously at
+  // `to_index`.
+  void Relocate(size_t from_index, size_t to_index) {
+    if (from_index == to_index) {
+      return;
+    }
+    const std::optional<int64_t> group_id = Find(from_index);
+    Erase(from_index);
+    if (group_id.has_value()) {
+      Set(to_index, *group_id);
+    } else {
+      Erase(to_index);
+    }
+  }
+
+  bool empty() const { return runs_.empty(); }
+  void clear() { runs_.clear(); }
+  void release() { std::vector<Run>().swap(runs_); }
+  size_t AllocatedBytes() const { return runs_.capacity() * sizeof(Run); }
+  absl::Span<const Run> runs() const { return runs_; }
+  friend bool operator==(const GroupIdRuns& a, const GroupIdRuns& b) {
+    return a.runs_ == b.runs_;
+  }
+  friend bool operator!=(const GroupIdRuns& a, const GroupIdRuns& b) {
+    return !(a == b);
+  }
+
+ private:
+  std::vector<Run> runs_;
+};
+static_assert(sizeof(GroupIdRuns::Run) == 16);
+
 // Compact bitset of non-negative event indices used for search match
 // highlighting and multi-event selection without per-entry heap allocations.
 class EntryBitset {
@@ -177,6 +341,13 @@ class EntryBitset {
   void reserve(size_t max_entries) {
     const size_t needed_words = (max_entries + 63) >> 6;
     words_.reserve(needed_words);
+  }
+
+  void Reserve(size_t max_entries) {
+    const size_t needed_words = (max_entries + 63) >> 6;
+    if (needed_words > words_.size()) {
+      words_.resize(needed_words, 0);
+    }
   }
 
   void insert(int index) {
@@ -219,6 +390,11 @@ class EntryBitset {
     size_ = 0;
   }
 
+  void release() {
+    std::vector<uint64_t>().swap(words_);
+    size_ = 0;
+  }
+
   bool empty() const { return size_ == 0; }
   size_t size() const { return size_; }
 
@@ -238,6 +414,10 @@ struct FlameChartTimelineData {
   std::vector<Microseconds> entry_total_times;
   std::vector<Microseconds> entry_self_times;
   std::vector<Microseconds> entry_start_times;
+  std::vector<uint32_t> entry_name_indices;
+  absl::flat_hash_map<int, uint32_t> non_zero_uids_by_event_index;
+  std::vector<uint32_t> entry_hlo_module_indices;
+  std::vector<uint32_t> entry_hlo_op_indices;
   std::vector<std::string> entry_names;
   std::vector<EventId> entry_event_ids;
   std::vector<absl::flat_hash_map<std::string, std::string>> entry_args;
@@ -247,6 +427,8 @@ struct FlameChartTimelineData {
   std::vector<FlowLine> flow_lines;
   // Map from event_id to list of flow ids that connect to this event.
   absl::flat_hash_map<EventId, std::vector<std::string>> flow_ids_by_event_id;
+  // Map from event index to flow id that connects to this event.
+  absl::flat_hash_map<int, uint64_t> flow_ids_by_event_index;
   // Map from flow_id to list of flow lines that belong to this flow.
   absl::flat_hash_map<std::string, std::vector<FlowLine>> flow_lines_by_flow_id;
   // A map from group index to counter data.
@@ -265,9 +447,127 @@ struct FlameChartTimelineData {
   std::vector<uint8_t> entry_arg_flags;
   std::vector<uint32_t> entry_hlo_module_ids;
   std::vector<std::string> hlo_module_names;
-  absl::flat_hash_map<size_t, int64_t> sparse_entry_group_ids;
+  std::vector<std::string> interned_string_pool;
+  std::vector<std::string> hlo_module_table;
+  std::vector<std::string> hlo_op_table;
+  GroupIdRuns sparse_entry_group_ids;
   absl::flat_hash_map<size_t, absl::flat_hash_map<std::string, std::string>>
       sparse_entry_args;
+
+  // Reserves capacity for per-entry dense columns. When
+  // `reserve_legacy_names_and_ids` is true (default), also reserves legacy
+  // dense columns used by the `TraceEvent` path.
+  void Reserve(size_t n, bool reserve_legacy_names_and_ids = true) {
+    entry_levels.reserve(n);
+    entry_total_times.reserve(n);
+    entry_start_times.reserve(n);
+    entry_name_indices.reserve(n);
+    if (reserve_legacy_names_and_ids) {
+      entry_self_times.reserve(n);
+      entry_hlo_module_indices.reserve(n);
+      entry_hlo_op_indices.reserve(n);
+      entry_names.reserve(n);
+      entry_event_ids.reserve(n);
+    }
+  }
+
+  // Invokes `fn` on every per-entry dense column vector. Shared column registry
+  // for entry release, compaction, and invariant validation.
+  template <typename Fn>
+  void ForEachEntryColumn(Fn&& fn) {
+    fn(entry_levels);
+    fn(entry_total_times);
+    fn(entry_self_times);
+    fn(entry_start_times);
+    fn(entry_name_indices);
+    fn(entry_hlo_module_indices);
+    fn(entry_hlo_op_indices);
+    fn(entry_names);
+    fn(entry_event_ids);
+    fn(entry_args);
+  }
+
+  template <typename Fn>
+  void ForEachEntryColumn(Fn&& fn) const {
+    fn(entry_levels);
+    fn(entry_total_times);
+    fn(entry_self_times);
+    fn(entry_start_times);
+    fn(entry_name_indices);
+    fn(entry_hlo_module_indices);
+    fn(entry_hlo_op_indices);
+    fn(entry_names);
+    fn(entry_event_ids);
+    fn(entry_args);
+  }
+
+  // Invokes `fn` on every event-index-keyed sparse map.
+  // Run tables (`sparse_entry_group_ids`) are handled explicitly during
+  // release.
+  template <typename Fn>
+  void ForEachSparseEntryMap(Fn&& fn) {
+    fn(non_zero_uids_by_event_index);
+    fn(flow_ids_by_event_index);
+    fn(sparse_entry_args);
+  }
+
+  template <typename Fn>
+  void ForEachSparseEntryMap(Fn&& fn) const {
+    fn(non_zero_uids_by_event_index);
+    fn(flow_ids_by_event_index);
+    fn(sparse_entry_args);
+  }
+
+  // Returns the self-time of entry `index`, falling back to
+  // `entry_total_times[index]` when `entry_self_times` is not populated.
+  Microseconds GetEntrySelfTime(size_t index) const {
+    if (index < entry_self_times.size()) {
+      return entry_self_times[index];
+    }
+    if (index < entry_total_times.size()) {
+      return entry_total_times[index];
+    }
+    return 0.0;
+  }
+
+  // Returns the `hlo_op_table` index of entry `index` when backed by
+  // `hlo_op_table`, or 0 if none.
+  uint32_t GetEntryHloOpTableIndex(size_t index) const {
+    if (index < entry_hlo_op_indices.size()) {
+      return entry_hlo_op_indices[index];
+    }
+    return 0;
+  }
+
+  // Returns the HLO module table index of entry `index` (0 if default/none).
+  uint32_t GetEntryHloModuleIndex(size_t index) const {
+    if (index < entry_hlo_module_indices.size()) {
+      return entry_hlo_module_indices[index];
+    }
+    return 0;
+  }
+
+  // Returns the HLO op name of entry `index` (empty if none).
+  absl::string_view GetEntryHloOp(size_t index) const {
+    const uint32_t table_idx = GetEntryHloOpTableIndex(index);
+    if (table_idx != 0 || index < entry_hlo_op_indices.size()) {
+      return table_idx < hlo_op_table.size()
+                 ? absl::string_view(hlo_op_table[table_idx])
+                 : "";
+    }
+    return "";
+  }
+
+  // Returns the HLO module name of entry `index` (`kHloModuleDefault` when
+  // module index is 0 and HLO module table is populated).
+  absl::string_view GetEntryHloModule(size_t index) const {
+    const uint32_t mod_idx = GetEntryHloModuleIndex(index);
+    if (mod_idx < hlo_module_table.size() &&
+        !hlo_module_table[mod_idx].empty()) {
+      return hlo_module_table[mod_idx];
+    }
+    return kHloModuleDefault;
+  }
 
   // Returns a pointer to the group containing the given level, or nullptr if
   // the level falls outside all group intervals.
@@ -316,10 +616,10 @@ struct FlameChartTimelineData {
   int FindEventIndexAt(int level, Microseconds ts) const;
 
   bool HasEntryArgs(size_t index) const {
-    if (index < entry_args.size()) {
+    if (index < entry_args.size() || sparse_entry_args.contains(index)) {
       return true;
     }
-    if (sparse_entry_args.contains(index)) {
+    if (index < entry_name_indices.size()) {
       return true;
     }
     return index < entry_names.size() && index < entry_arg_flags.size() &&
@@ -331,33 +631,63 @@ struct FlameChartTimelineData {
     if (index < entry_args.size()) {
       return entry_args[index];
     }
+    absl::flat_hash_map<std::string, std::string> args;
+    const bool has_sparse = sparse_entry_args.contains(index);
     if (auto it = sparse_entry_args.find(index);
         it != sparse_entry_args.end()) {
-      return it->second;
-    }
-    absl::flat_hash_map<std::string, std::string> args;
-    if (index >= entry_names.size() || index >= entry_arg_flags.size() ||
-        index >= entry_serials.size() || index >= entry_hlo_module_ids.size()) {
-      return args;
-    }
-    const uint8_t flags = entry_arg_flags[index];
-    if ((flags & kEntryArgHasUid) != 0) {
-      args["uid"] = absl::StrCat(entry_serials[index]);
-    }
-    if ((flags & kEntryArgHasGroupId) != 0) {
-      if (auto it = sparse_entry_group_ids.find(index);
-          it != sparse_entry_group_ids.end()) {
-        args["group_id"] = absl::StrCat(it->second);
+      args = it->second;
+      if (entry_name_indices.empty() && !non_zero_uids_by_event_index.contains(
+                                            static_cast<int>(index)) &&
+          entry_hlo_module_indices.empty() && entry_hlo_op_indices.empty()) {
+        return args;
       }
     }
-    if ((flags & kEntryArgHloOpFromName) != 0) {
-      args[std::string(kHloOp)] = entry_names[index];
+    if (index < entry_arg_flags.size() && index < entry_names.size() &&
+        index < entry_serials.size() && index < entry_hlo_module_ids.size() &&
+        entry_name_indices.empty()) {
+      const uint8_t flags = entry_arg_flags[index];
+      if ((flags & kEntryArgHasUid) != 0) {
+        args["uid"] = absl::StrCat(entry_serials[index]);
+      }
+      if ((flags & kEntryArgHasGroupId) != 0) {
+        if (const std::optional<int64_t> group_id =
+                sparse_entry_group_ids.Find(index);
+            group_id.has_value()) {
+          args.try_emplace("group_id", absl::StrCat(*group_id));
+        }
+      }
+      if ((flags & kEntryArgHloOpFromName) != 0) {
+        args[std::string(kHloOp)] = entry_names[index];
+      }
+      const uint32_t mod_id = entry_hlo_module_ids[index];
+      if (mod_id == 0 || mod_id > hlo_module_names.size()) {
+        args[std::string(kHloModule)] = std::string(kHloModuleDefault);
+      } else {
+        args[std::string(kHloModule)] = hlo_module_names[mod_id - 1];
+      }
+      return args;
     }
-    const uint32_t mod_id = entry_hlo_module_ids[index];
-    if (mod_id == 0 || mod_id > hlo_module_names.size()) {
-      args[std::string(kHloModule)] = std::string(kHloModuleDefault);
-    } else {
-      args[std::string(kHloModule)] = hlo_module_names[mod_id - 1];
+    if (!has_sparse && index >= entry_name_indices.size() &&
+        index >= entry_names.size()) {
+      return args;
+    }
+    if (auto it = non_zero_uids_by_event_index.find(static_cast<int>(index));
+        it != non_zero_uids_by_event_index.end()) {
+      args.try_emplace("uid", absl::StrCat(it->second));
+    }
+    if (const std::optional<int64_t> group_id =
+            sparse_entry_group_ids.Find(index);
+        group_id.has_value()) {
+      args.try_emplace("group_id", absl::StrCat(*group_id));
+    }
+    const absl::string_view hlo_op = GetEntryHloOp(index);
+    if (!hlo_op.empty()) {
+      args[std::string(kHloOp)] = std::string(hlo_op);
+    }
+    const bool has_hlo_module_metadata =
+        index < entry_hlo_module_indices.size() || !hlo_module_table.empty();
+    if (has_hlo_module_metadata) {
+      args[std::string(kHloModule)] = std::string(GetEntryHloModule(index));
     }
     return args;
   }
@@ -660,6 +990,15 @@ class Timeline {
   int selected_event_index() const { return selected_event_index_; }
   int selected_group_index() const { return selected_group_index_; }
   int selected_counter_index() const { return selected_counter_index_; }
+
+  size_t GetEntryCount() const {
+    return !timeline_data_.entry_start_times.empty()
+               ? timeline_data_.entry_start_times.size()
+               : (!timeline_data_.entry_name_indices.empty()
+                      ? timeline_data_.entry_name_indices.size()
+                      : timeline_data_.entry_names.size());
+  }
+  absl::string_view GetEventName(int event_index) const;
 
   const std::vector<Pixel>& GetVisibleLevelOffsets() const {
     return visible_level_offsets_;
@@ -1628,6 +1967,12 @@ class Timeline {
   bool counter_track_colors_dirty_ = true;
   std::vector<float> utilization_bins_;
 
+ public:
+  ImU32 get_event_color_for_test(int event_index) const {
+    return GetEventColor(event_index);
+  }
+
+ private:
   static constexpr size_t kMinEventsForMipPyramid = 64;
   static constexpr size_t kMinVisibleEventsForMipDraw = 128;
   static constexpr double kMaxMipBinWidthPx = 1.25;

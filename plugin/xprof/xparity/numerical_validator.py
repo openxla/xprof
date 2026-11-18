@@ -465,6 +465,7 @@ _ML_FLOAT_DTYPES = (
     ml_dtypes.bfloat16,
     ml_dtypes.float8_e4m3fn,
     ml_dtypes.float8_e5m2,
+    ml_dtypes.float4_e2m1fn,
 )
 
 

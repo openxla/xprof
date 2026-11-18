@@ -95,6 +95,17 @@ pytype_strict_contrib_test(
 )
 
 pytype_strict_contrib_test(
+    name = "fp4_outputs_test",
+    srcs = ["fp4_outputs_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:numerical_validator",
+        "//plugin/xprof/xparity:ulp",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+pytype_strict_contrib_test(
     name = "numerical_generator_test",
     srcs = ["numerical_generator_test.py"],
     deps = [

@@ -1,12 +1,15 @@
 """Tests verifying functional and visual data rendering across core tools."""
 
 from collections.abc import Callable
+import json
 import os
 import pathlib
 import re
+import urllib.parse
 
 from playwright.sync_api import expect
 from playwright.sync_api import Page
+from playwright.sync_api import Route
 import pytest
 
 # pylint: disable=g-import-not-at-top
@@ -21,6 +24,7 @@ try:
   from tests.ui.ui_helpers import select_category_filter
   from tests.ui.ui_helpers import select_memory_id
   from tests.ui.ui_helpers import select_module
+  from tests.ui.ui_helpers import select_session
   from tests.ui.ui_helpers import switch_tool
 except ImportError:
   from conftest import BrowserErrors
@@ -33,6 +37,7 @@ except ImportError:
   from ui_helpers import select_category_filter
   from ui_helpers import select_memory_id
   from ui_helpers import select_module
+  from ui_helpers import select_session
   from ui_helpers import switch_tool
 
 
@@ -353,6 +358,178 @@ def test_input_pipeline_analysis_deep_components(
   expect(host_detail).to_be_visible(timeout=10000)
   expect(host_detail).to_contain_text("Host-side analysis details")
   assert_healthy(page, browser_errors, "input_pipeline_deep_components")
+
+
+_SYNTHETIC_HOST_OP_TABLES: tuple[dict[str, object], ...] = (
+    {
+        "p": {
+            "num_host_op_tables": "1",
+            "valid_host_ops": "IteratorGetNext",
+            "hostnames": "tpu-worker-0",
+            "values": "All-cores",
+        },
+        "cols": [],
+        "rows": [],
+    },
+    {
+        "p": {
+            "hostop": "IteratorGetNext",
+            "hostname": "tpu-worker-0",
+            "value": "All-cores",
+        },
+        "cols": [
+            {
+                "id": "tpuStepNumber",
+                "label": "TPU Step Number",
+                "type": "number",
+            },
+            {
+                "id": "core0",
+                "label": "tpu-worker-0:0",
+                "type": "number",
+            },
+        ],
+        "rows": [
+            {"c": [{"v": 1}, {"v": 2}]},
+            {"c": [{"v": 2}, {"v": 3}]},
+        ],
+    },
+)
+
+
+def _is_host_op_table(tbl: object) -> bool:
+  """Returns whether `tbl` is a host-op meta or step-analysis table."""
+  props = tbl.get("p") if isinstance(tbl, dict) else None
+  return isinstance(props, dict) and (
+      "num_host_op_tables" in props or "hostop" in props
+  )
+
+
+def _fulfill_input_pipeline_route(
+    route: Route, *, inject_host_op_tables: bool
+) -> None:
+  """Fulfills an Input Pipeline `/data` route with stripped or synthetic host-ops."""
+  resp = route.fetch()
+  payload = resp.json()
+  if isinstance(payload, list):
+    payload = [tbl for tbl in payload if not _is_host_op_table(tbl)]
+    if inject_host_op_tables:
+      payload.extend(_SYNTHETIC_HOST_OP_TABLES)
+  route.fulfill(
+      status=resp.status,
+      content_type="application/json",
+      body=json.dumps(payload),
+  )
+
+
+def _resolve_session_switch_runs(
+    logdir: str,
+    resolve_run: Callable[[str], str],
+    scenario: str,
+) -> tuple[str, str]:
+  """Resolves `(tpu_run, target_run)` for a host-op session-switch scenario."""
+  tpu_run = resolve_run("tpu-training")
+  if scenario == "gpu":
+    if tpu_run == "gpu-training" or not os.path.exists(
+        os.path.join(logdir, "gpu-training")
+    ):
+      pytest.skip("Requires distinct TPU and gpu-training fixtures in logdir")
+    return tpu_run, "gpu-training"
+
+  for candidate in ("v6e-4-training", "multi-host"):
+    if candidate != tpu_run and os.path.exists(os.path.join(logdir, candidate)):
+      return tpu_run, candidate
+  pytest.skip("No secondary TPU fixture present in logdir")
+
+
+def _make_input_pipeline_route_matcher(
+    runs: set[str],
+) -> Callable[[str], bool]:
+  """Returns a URL predicate matching Input Pipeline `/data` for `runs`."""
+
+  def _matches(url: str) -> bool:
+    parsed = urllib.parse.urlsplit(url)
+    if not parsed.path.endswith("/data/plugin/profile/data"):
+      return False
+    params = urllib.parse.parse_qs(parsed.query)
+    run = (params.get("run") or [""])[0]
+    return run in runs and params.get("tag") == ["input_pipeline_analyzer"]
+
+  return _matches
+
+
+def _assert_input_pipeline_run_url(page: Page, run: str) -> None:
+  """Asserts that the active URL targets `run` on Input Pipeline Analysis."""
+  expect(page).to_have_url(
+      re.compile(rf"[?&]run={re.escape(run)}\b"), timeout=15000
+  )
+  expect(page).to_have_url(
+      re.compile(r"[?&]tag=input_pipeline_analyzer\b"), timeout=15000
+  )
+
+
+@pytest.mark.parametrize("scenario", ["zero_table_tpu", "gpu"])
+def test_input_pipeline_host_op_tables_reset_on_session_switch(
+    page: Page,
+    server_url: str,
+    logdir: str,
+    resolve_run: Callable[[str], str],
+    browser_errors: BrowserErrors,
+    scenario: str,
+) -> None:
+  """Verifies Host-vs-TPU step analysis hides on 0-table or GPU runs."""
+  tpu_run, target_run = _resolve_session_switch_runs(
+      logdir, resolve_run, scenario
+  )
+
+  def _handle_host_op_route(route: Route) -> None:
+    params = urllib.parse.parse_qs(
+        urllib.parse.urlsplit(route.request.url).query
+    )
+    _fulfill_input_pipeline_route(
+        route,
+        inject_host_op_tables=(params.get("run") or [""])[0] == tpu_run,
+    )
+
+  intercepted_runs = (
+      {tpu_run, target_run} if scenario == "zero_table_tpu" else {tpu_run}
+  )
+  route_matcher = _make_input_pipeline_route_matcher(intercepted_runs)
+  page.route(route_matcher, _handle_host_op_route)
+  try:
+    # Keep `run_path=logdir` instead of `build_tool_url` (which sets
+    # `session_path` and prevents multi-run `select_session` switching).
+    query = urllib.parse.urlencode({
+        "run_path": logdir,
+        "run": tpu_run,
+        "tag": "input_pipeline_analyzer",
+    })
+    page.goto(
+        f"{server_url.rstrip('/')}/?{query}",
+        wait_until="domcontentloaded",
+    )
+    host_op_div = page.locator("host-op > div")
+    expect(host_op_div).to_be_visible(timeout=20000)
+    expect(host_op_div).to_contain_text("Host-vs-TPU step analysis")
+
+    select_session(page, target_run)
+    _assert_input_pipeline_run_url(page, target_run)
+    expect(page.locator("input-pipeline")).to_be_visible(timeout=15000)
+    expect(page.locator("host-op")).to_be_attached(timeout=15000)
+    expect(host_op_div).to_be_hidden(timeout=15000)
+
+    select_session(page, tpu_run)
+    _assert_input_pipeline_run_url(page, tpu_run)
+    expect(host_op_div).to_be_visible(timeout=15000)
+    expect(host_op_div).to_contain_text("Host-vs-TPU step analysis")
+
+    assert_healthy(
+        page,
+        browser_errors,
+        f"input_pipeline_host_op_session_switch_{scenario}",
+    )
+  finally:
+    page.unroute(route_matcher, _handle_host_op_route)
 
 
 def test_op_profile_interactive_toggles(

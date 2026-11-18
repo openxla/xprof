@@ -39,8 +39,15 @@ export class InputPipelineCommon {
   maxInfeedCoreTable: SimpleDataTable|null = null;
   isTpu = false;
 
-  parseHostOpTables(data: InputPipelineDataTable[]) {
-    if (!data) return;
+  /**
+   * Parses Host-vs-TPU step analysis tables from `data` when `this.isTpu` is
+   * true, resetting prior host-op table state first.
+   */
+  parseHostOpTables(data: readonly InputPipelineDataTable[]): void {
+    this.hasHostOpTables = false;
+    this.metaHostOpTable = null;
+    this.hostOpTables = [];
+    if (!this.isTpu || !data) return;
     for (let i = 0; i < data.length; i++) {
       const analysis = data[i];
       if (!analysis || !analysis.p) continue;
@@ -50,15 +57,15 @@ export class InputPipelineCommon {
                   (property) => property === 'num_host_op_tables',
               );
       if (!foundMetaHostOpTable) continue;
-      this.metaHostOpTable = analysis as MetaHostOpTable;
-      const numHostOpTables = Number(
-          this.metaHostOpTable.p?.num_host_op_tables || 0,
-      );
-      if (numHostOpTables <= 0) continue;
+      const metaTable = analysis as MetaHostOpTable;
+      const numHostOpTables = Number(metaTable.p?.num_host_op_tables ?? 0);
+      if (!Number.isInteger(numHostOpTables) || numHostOpTables <= 0) continue;
+      const tables =
+          data.slice(i + 1, i + 1 + numHostOpTables) as HostOpTable[];
+      if (tables.length === 0) continue;
+      this.metaHostOpTable = metaTable;
       this.hasHostOpTables = true;
-      for (let k = 0; k < numHostOpTables; k++) {
-        this.hostOpTables[k] = data[i + 1 + k] as HostOpTable;
-      }
+      this.hostOpTables = tables;
       return;
     }
   }
@@ -114,5 +121,7 @@ export class InputPipelineCommon {
     this.diagnostics = parseDiagnosticsDataTable(
       this.findAnalysisData(data, COLUMN_ID_DIAGNOSTICS));
     this.updateHasDeviceAanlysisRows();
+    this.isTpu = this.deviceAnalysis?.p?.['hardware_type'] === 'TPU';
+    this.parseHostOpTables(data);
   }
 }

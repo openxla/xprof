@@ -84,16 +84,11 @@ export class InputPipeline extends InputPipelineCommon implements OnDestroy {
           setLoadingState(false, this.store);
           const inputPipelineData = (data || []) as InputPipelineDataTable[];
           this.parseCommonInputData(inputPipelineData);
-          this.isTpu = !!this.deviceAnalysis && !!this.deviceAnalysis.p &&
-              this.deviceAnalysis.p['hardware_type'] === 'TPU';
           this.maxInfeedCoreTable = this.findAnalysisData(
                                         inputPipelineData,
                                         COLUMN_ID_MAX_INFEED_CORE,
                                         ) as SimpleDataTable |
               null;
-          if (this.isTpu) {
-            this.parseHostOpTables(inputPipelineData);
-          }
         });
   }
 

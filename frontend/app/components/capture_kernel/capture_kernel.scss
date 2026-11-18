@@ -1,13 +1,5 @@
 @use 'frontend/app/styles/common';
 
-mat-dialog-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-}
-
 div {
   margin-top: 10px;
 }
@@ -15,4 +7,18 @@ div {
 .mat-mdc-raised-button {
   @include common.box-shadow-none;
   @include common.border-black;
+}
+
+.capture-kernel-dialog-modal {
+  --md-dialog-container-color: #fff;
+  --md-dialog-container-shape: 4px;
+  width: 90vw;
+  max-width: 1200px;
+  height: 90vh;
+  max-height: 1000px;
+}
+
+.capture-kernel-dialog-slot {
+  height: 100%;
+  box-sizing: border-box;
 }

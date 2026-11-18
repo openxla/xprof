@@ -2,6 +2,7 @@ load("//defs:defs.bzl", "sass_binary", "xprof_ng_module")
 
 package(default_visibility = ["//frontend:internal"])
 
+# Deprecated component; use //third_party/xprof/frontend/app/components/op_profile/op_table instead.
 xprof_ng_module(
     name = "op_table_entry",
     srcs = [

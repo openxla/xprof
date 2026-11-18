@@ -34,6 +34,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/kernel_viewer_registry.h"
 #include "xprof/convert/repository.h"
 
 namespace tensorflow {
@@ -179,6 +180,50 @@ INSTANTIATE_TEST_SUITE_P(
     [](const ::testing::TestParamInfo<XPlaneToToolsTest::ParamType>& info) {
       return info.param.test_name;
     });
+
+// Adds a metadata plane with one LLO module to `xspace`.
+void AddLloModule(XSpace* xspace) {
+  tsl::profiler::XPlaneBuilder builder(xspace->add_planes());
+  builder.SetName(tsl::profiler::kMetadataPlaneName);
+  XStat* llo_stat =
+      builder.GetOrCreateEventMetadata("module(1)::kernel")->add_stats();
+  llo_stat->set_metadata_id(
+      builder
+          .GetOrCreateStatMetadata(
+              tsl::profiler::GetStatTypeStr(tsl::profiler::StatType::kLloProto))
+          ->id());
+  llo_stat->set_bytes_value("llo-bytes");
+}
+
+absl::StatusOr<std::string> FakeKernelViewerHandler(
+    const SessionSnapshot& session_snapshot, const ToolOptions& options) {
+  return std::string("{}");
+}
+
+TEST(XPlaneToToolsKernelViewerTest, AdvertisesKernelViewerOnlyWhenRegistered) {
+  auto xspace = std::make_unique<XSpace>();
+  tsl::profiler::FindOrAddMutablePlaneWithName(xspace.get(),
+                                               tsl::profiler::kTpuPlanePrefix);
+  AddLloModule(xspace.get());
+  SessionSnapshot session = CreateSessionSnapshot(
+      std::move(xspace), /*has_hlo_module=*/false,
+      /*has_dcn_collective_stats=*/false, /*has_perf_counters=*/false);
+
+  // Without a registered converter the tool is not advertised even though the
+  // profile has LLO modules.
+  ASSERT_FALSE(IsKernelViewerRegistered());
+  absl::StatusOr<std::string> tools = GetAvailableToolNames(session);
+  ASSERT_TRUE(tools.ok());
+  EXPECT_THAT(absl::StrSplit(*tools, ','),
+              ::testing::Not(::testing::Contains("kernel_viewer")));
+
+  RegisterKernelViewerHandler(&FakeKernelViewerHandler);
+  tools = GetAvailableToolNames(session);
+  ASSERT_TRUE(tools.ok());
+  EXPECT_THAT(absl::StrSplit(*tools, ','),
+              ::testing::Contains("kernel_viewer"));
+  RegisterKernelViewerHandler(nullptr);
+}
 
 }  // namespace
 }  // namespace profiler

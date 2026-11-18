@@ -421,6 +421,66 @@ class ProfilePluginTest(absltest.TestCase):
       names = json.loads(data)
       self.assertEqual(names, [])
 
+  def test_run_dir_returns_none_when_run_missing_or_empty(self):
+    session_path = os.path.join(self.logdir, 'session_run')
+    os.mkdir(session_path)
+    with open(os.path.join(session_path, 'host.xplane.pb'), 'w') as f:
+      f.write('dummy xplane data')
+    session_request = utils.make_data_request(
+        utils.DataRequestOptions(session_path=session_path)
+    )
+
+    self.assertIsNone(self.plugin._run_dir(None))
+    self.assertIsNone(self.plugin._run_dir(''))
+    self.assertIsNone(self.plugin._run_dir(None, session_request))
+    self.assertIsNone(self.plugin._run_dir('', session_request))
+
+  def test_routes_return_400_when_run_missing(self):
+    run_tools_client = werkzeug_test.Client(
+        self.plugin.run_tools_route, wrappers.Response
+    )
+    hosts_client = werkzeug_test.Client(
+        self.plugin.hosts_route, wrappers.Response
+    )
+    module_list_client = werkzeug_test.Client(
+        self.plugin.hlo_module_list_route, wrappers.Response
+    )
+    data_client = werkzeug_test.Client(
+        self.plugin.data_route, wrappers.Response
+    )
+    data_csv_client = werkzeug_test.Client(
+        self.plugin.data_csv_route, wrappers.Response
+    )
+
+    for client, query in (
+        (run_tools_client, ''),
+        (run_tools_client, '?run='),
+        (hosts_client, '?tag=trace_viewer'),
+        (hosts_client, '?run=&tag=trace_viewer'),
+        (module_list_client, ''),
+        (module_list_client, '?run='),
+        (data_client, '?tag=overview_page'),
+        (data_client, '?run=&tag=overview_page'),
+        (data_csv_client, '?tag=overview_page'),
+        (data_csv_client, '?run=&tag=overview_page'),
+    ):
+      with self.subTest(client=client.application.__name__, query=query):
+        response = client.get(query)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(b'Missing "run" parameter', _get_response_data(response))
+
+  def test_data_route_allows_perf_counters_names_only_without_run(self):
+    data_client = werkzeug_test.Client(
+        self.plugin.data_route, wrappers.Response
+    )
+    response = data_client.get(
+        '?tag=perf_counters&names_only=1&device_type=v7x'
+    )
+    self.assertEqual(response.status_code, 200)
+    names = json.loads(_get_response_data(response))
+    self.assertIsInstance(names, list)
+    self.assertNotEmpty(names)
+
   def testDataWithCache(self):
     generate_testdata(self.logdir)
     self.multiplexer.AddRunsFromDirectory(self.logdir)

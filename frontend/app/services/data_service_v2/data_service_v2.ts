@@ -431,12 +431,12 @@ export class DataServiceV2 implements DataServiceV2Interface {
     return of([]);
   }
 
-  getHosts(run: string, tool: string): Observable<HostMetadata[]> {
+  getHosts(run: string, tool: string): Observable<HostMetadata[] | null> {
     let params = this.getHttpParamsWithPath();
     params = params.set('run', run).set('tag', tool);
-    return this.httpClient.get(this.pathPrefix + HOSTS_API, {
-      params,
-    }) as Observable<HostMetadata[]>;
+    return this.get<HostMetadata[]>(this.pathPrefix + HOSTS_API, {
+      'params': params,
+    });
   }
 
   getOpProfileData(
@@ -659,13 +659,13 @@ export class DataServiceV2 implements DataServiceV2Interface {
     return this.get<string[]>(this.pathPrefix + RUNS_API, {'params': params});
   }
 
-  getRunTools(run: string): Observable<string[]> {
+  getRunTools(run: string): Observable<string[] | null> {
     let params = this.getHttpParamsWithPath();
     params = params.set('run', run);
 
-    return this.get(this.pathPrefix + RUN_TOOLS_API, {
+    return this.get<string[]>(this.pathPrefix + RUN_TOOLS_API, {
       'params': params,
-    }) as Observable<string[]>;
+    });
   }
 
   captureProfile(

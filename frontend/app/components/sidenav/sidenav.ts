@@ -647,7 +647,7 @@ export class SideNav implements OnInit, OnDestroy {
     );
     this.store.dispatch(setHostsStateAction({hostsState: response || []}));
 
-    let hosts = response.map((host) => host.hostname) || [];
+    let hosts = (response || []).map((host) => host.hostname);
     if (hosts.length === 0) {
       hosts.push('');
     }

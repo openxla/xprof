@@ -35,16 +35,15 @@ export class App implements OnInit {
 
   async initRunsAndTools() {
     this.loading = true;
-    const runs = await firstValueFrom(this.dataService.getRuns()) as string[];
-    if (runs.length === 0) {
+    const runs = await firstValueFrom(this.dataService.getRuns());
+    if (!runs || runs.length === 0) {
       this.loading = false;
       return;
     }
     this.dataFound = true;
     this.store.dispatch(actions.setCurrentRunAction({currentRun: runs[0]}));
-    const tools =
-        await firstValueFrom(this.dataService.getRunTools(runs[0])) as string[];
-    const runToolsMap: RunToolsMap = {[runs[0]]: tools};
+    const tools = await firstValueFrom(this.dataService.getRunTools(runs[0]));
+    const runToolsMap: RunToolsMap = {[runs[0]]: tools || []};
     for (let i = 1; i < runs.length; i++) {
       runToolsMap[runs[i]] = [];
     }

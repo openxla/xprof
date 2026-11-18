@@ -952,7 +952,7 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
     return session_dir_by_run_name
 
   def _run_dir(
-      self, run: str, request: wrappers.Request | None = None
+      self, run: str | None, request: wrappers.Request | None = None
   ) -> str | None:
     """Helper that maps a frontend run name to a profile "run" directory.
 
@@ -965,17 +965,21 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
     compatibility.
 
     Args:
-      run: the frontend run name, as described above, e.g. train/run1.
+      run: The frontend run name, as described above (e.g. train/run1), or None
+        if omitted.
       request: Optional; werkzeug request used for grabbing session_path and
         run_path arguments.
 
     Returns:
-      The resolved directory path, e.g. /logdir/train/plugins/profile/run1.
+      The resolved directory path (e.g. /logdir/train/plugins/profile/run1),
+      or None if run is empty or None.
 
     Raises:
       ValueError: If the run is not found in the run map.
       RuntimeError: If the run directory is not found.
     """
+    if not run:
+      return None
     session_dir_by_run_name = self._session_dir_by_run_name_from_request(
         request
     )
@@ -1025,6 +1029,8 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
   @wrappers.Request.application  # pyrefly: ignore[bad-argument-type]
   def run_tools_route(self, request: wrappers.Request) -> wrappers.Response:
     run = request.args.get('run')
+    if not run:
+      return respond('Missing "run" parameter', 'text/plain', code=400)
     run_tools = self.run_tools_imp(run, request)
     return respond(run_tools, 'application/json')
 
@@ -1099,6 +1105,8 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
   @wrappers.Request.application  # pyrefly: ignore[bad-argument-type]
   def hosts_route(self, request: wrappers.Request) -> wrappers.Response:
     run = request.args.get('run')
+    if not run:
+      return respond('Missing "run" parameter', 'text/plain', code=400)
     tool = request.args.get('tag')
     hosts = self.host_impl(run, tool, request)
     return respond(hosts, 'application/json')
@@ -1107,6 +1115,8 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
   def hlo_module_list_route(
       self, request: wrappers.Request
   ) -> wrappers.Response:
+    if not request.args.get('run'):
+      return respond('Missing "run" parameter', 'text/plain', code=400)
     module_names_str = self.hlo_module_list_impl(request)
     return respond(module_names_str, 'text/plain')
 
@@ -1255,11 +1265,14 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
     use_saved_result = _get_bool_arg(request.args, 'use_saved_result', True)
     full_dma = _get_bool_arg(request.args, 'full_dma', False)
     run_dir = self._run_dir(run, request)
+    if not run_dir:
+      logger.warning('Cannot find asset directory for: %s', run)
+      return None, 'application/json', None
 
     # Check if the cache file exists and if the cache file version is less
     # than the current plugin version, clear the cache.
     try:
-      with self._epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).open(  # pyrefly: ignore[no-matching-overload]
+      with self._epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).open(
           'r'
       ) as f:
         cache_version = f.read().strip()
@@ -1339,7 +1352,7 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
     _, content_encoding = None, None
     if use_xplane(tool):
       selected_hosts, asset_paths = self._get_valid_hosts(
-          run_dir, run, tool, hosts_param, host  # pyrefly: ignore[bad-argument-type]
+          run_dir, run, tool, hosts_param, host
       )
       if not asset_paths:
         return None, content_type, None
@@ -1365,7 +1378,7 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
 
       # Write cache version file if use_saved_result is False.
       if not use_saved_result:
-        self._write_cache_version_file(run_dir)  # pyrefly: ignore[bad-argument-type]
+        self._write_cache_version_file(run_dir)
 
       return data, content_type, content_encoding
 
@@ -1418,6 +1431,11 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
     """Handlers for data."""
     # params
     #   request: XMLHTTPRequest.
+    if not request.args.get('run') and not (
+        request.args.get('tag') == 'perf_counters'
+        and request.args.get('names_only') == '1'
+    ):
+      return respond('Missing "run" parameter', 'text/plain', code=400)
     try:
       data, content_type, content_encoding = self.data_impl(request)
       if data is None:
@@ -1438,6 +1456,8 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
   @wrappers.Request.application  # pyrefly: ignore[bad-argument-type]
   def data_csv_route(self, request: wrappers.Request) -> wrappers.Response:
     """Retrieves tool data and converts it to CSV before responding."""
+    if not request.args.get('run'):
+      return respond('Missing "run" parameter', 'text/plain', code=400)
     try:
       data, content_type, _ = self.data_impl(request)
 

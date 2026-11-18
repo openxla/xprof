@@ -77,7 +77,7 @@ export interface DataServiceV2Interface {
   ): Observable<string>;
 
   getTags(sessionId: string): Observable<string[]>;
-  getHosts(sessionId: string, tool?: string): Observable<HostMetadata[]>;
+  getHosts(sessionId: string, tool?: string): Observable<HostMetadata[] | null>;
 
   // host is needed to fetch the corresponding <host>.xplane.pb data
   // params: op_profile_limit to control the numbe of op displayed in each layer

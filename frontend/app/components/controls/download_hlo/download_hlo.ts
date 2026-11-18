@@ -67,6 +67,7 @@ export class DownloadHlo implements OnDestroy {
             this.showMetadata,
             )!.pipe(takeUntil(this.destroyed))
         .subscribe((data) => {
+          if (data == null) return;
           if (type === FileExtensionType.PROTO_BINARY) {
             this.downloader.downloadBlob(data as Blob, fileName);
           } else {

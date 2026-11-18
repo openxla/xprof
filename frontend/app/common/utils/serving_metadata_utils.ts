@@ -21,6 +21,7 @@
  */
 
 import {type DiffNode} from 'org_xprof/frontend/app/common/interfaces/op_profile_diff';
+import {parseHloModuleProgramId} from 'org_xprof/frontend/app/common/utils/utils';
 import {type Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 
 /**
@@ -95,6 +96,41 @@ export function normalizeServingMetadata(
   }
   const batchSize = rawBatchSize === 0 ? 0 : rawBatchSize;
   return {modelId, batchSize};
+}
+
+/**
+ * Maps program ids to the valid serving metadata of active program nodes in an
+ * Op Profile tree grouped by program, where the program nodes are the direct
+ * children of the root. The first valid metadata wins for a duplicate id.
+ * Baseline-only diff nodes are skipped and `baseline` metadata is never read,
+ * so only active program nodes contribute serving metadata.
+ */
+export function buildServingMetadataByProgramId(
+  rootNode?: Node | DiffNode,
+): ReadonlyMap<string, NormalizedServingMetadata> {
+  const metadataByProgramId = new Map<string, NormalizedServingMetadata>();
+  if (!rootNode || (rootNode as Partial<DiffNode>).baselineOnly) {
+    return metadataByProgramId;
+  }
+  for (const programNode of rootNode.children ?? []) {
+    // `Node` has no discriminant field; check `DiffNode.baselineOnly` to skip
+    // programs removed from the active profile (`mergeNode` spreads `baseline`
+    // onto the outer `DiffNode`).
+    if ((programNode as Partial<DiffNode>).baselineOnly) {
+      continue;
+    }
+    const programId = parseHloModuleProgramId(programNode.name);
+    if (!programId || metadataByProgramId.has(programId)) {
+      continue;
+    }
+    const metadata = normalizeServingMetadata(
+      programNode.programServingMetadata,
+    );
+    if (metadata) {
+      metadataByProgramId.set(programId, metadata);
+    }
+  }
+  return metadataByProgramId;
 }
 
 /**

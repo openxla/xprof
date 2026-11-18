@@ -24,6 +24,7 @@ pytype_strict_library(
     srcs = ["numerical_validator.py"],
     deps = [
         ":numerical_generator",
+        ":rel_l2",
         ":ulp",
         "@absl_py//absl/logging",
     ],
@@ -35,6 +36,7 @@ pytype_strict_library(
     deps = [
         ":numerical_generator",
         ":numerical_validator",
+        ":rel_l2",
     ],
 )
 

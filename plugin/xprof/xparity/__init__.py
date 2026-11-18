@@ -9,6 +9,7 @@ from xprof.xparity import xparity_tool
 ORACLE_AUTO = numerical_validator.ORACLE_AUTO
 CONTRACT_ULP = numerical_validator.CONTRACT_ULP
 CONTRACT_BITWISE = numerical_validator.CONTRACT_BITWISE
+CONTRACT_ROW_REL_L2 = numerical_validator.CONTRACT_ROW_REL_L2
 validate_kernels = numerical_validator.validate_kernels
 compare_bitwise = numerical_validator.compare_bitwise
 make_fwd_bwd = numerical_validator.make_fwd_bwd
@@ -30,6 +31,7 @@ replay = xparity_tool.replay
 
 __all__ = [
     "CONTRACT_BITWISE",
+    "CONTRACT_ROW_REL_L2",
     "CONTRACT_ULP",
     "ORACLE_AUTO",
     "chunk_callable",

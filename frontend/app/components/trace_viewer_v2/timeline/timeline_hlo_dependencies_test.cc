@@ -1165,6 +1165,47 @@ TEST(TimelineTest,
   EXPECT_EQ(emit_count, 1);
   EXPECT_EQ(emitted_index, 1);
 }
+
+TEST(TimelineTest, SelectedEventDependenciesResolveFromInternedStringPool) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_hlo_dependency_arrows_enabled(true);
+
+  FlameChartTimelineData data;
+  data.groups = {MakeThreadGroup("XLA Ops", /*parent_index=*/-1,
+                                 /*start_level=*/0, /*level_count=*/1)};
+  data.interned_string_pool = {"", "operand", "selected", "consumer"};
+  // Include an out-of-range name index (99) to verify safe fallback to "" in
+  // GetEntryName() when entry_names is unpopulated.
+  data.entry_name_indices = {99, 1, 2, 3};
+  data.entry_start_times = {0.0, 20.0, 40.0, 60.0};
+  data.entry_total_times = {5.0, 10.0, 10.0, 10.0};
+  data.entry_levels = {0, 0, 0, 0};
+  data.level_offsets = {0, 4};
+  data.level_event_indices = {0, 1, 2, 3};
+  ASSERT_THAT(data.entry_names, IsEmpty());
+
+  std::vector<std::string> emitted_operands;
+  std::vector<std::string> emitted_consumers;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kSelectedEventDependencies) {
+          emitted_operands = std::any_cast<std::vector<std::string>>(
+              detail.at(kSelectedEventDependenciesOperands));
+          emitted_consumers = std::any_cast<std::vector<std::string>>(
+              detail.at(kSelectedEventDependenciesConsumers));
+        }
+      });
+
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_selected_event_index_for_test(2);
+  timeline.SetSelectedEventDependencies({"operand"}, {"consumer"});
+
+  EXPECT_THAT(timeline.producer_event_indices(), ElementsAre(1));
+  EXPECT_THAT(timeline.consumer_event_indices(), ElementsAre(3));
+  EXPECT_THAT(emitted_operands, ElementsAre("operand"));
+  EXPECT_THAT(emitted_consumers, ElementsAre("consumer"));
+}
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer

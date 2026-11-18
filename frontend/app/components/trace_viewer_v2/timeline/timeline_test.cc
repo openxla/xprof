@@ -10,7 +10,6 @@
 #include <cstring>
 #include <functional>
 #include <initializer_list>
-#include <ios>
 #include <limits>
 #include <map>
 #include <optional>
@@ -52,10 +51,13 @@ namespace {
 using ::testing::_;
 using ::testing::AllOf;
 using ::testing::DoubleEq;
+using ::testing::DoubleNear;
 using ::testing::ElementsAre;
+using ::testing::ElementsAreArray;
 using ::testing::EndsWith;
 using ::testing::Eq;
 using ::testing::FloatEq;
+using ::testing::Ge;
 using ::testing::Gt;
 using ::testing::HasSubstr;
 using ::testing::IsEmpty;
@@ -64,7 +66,11 @@ using ::testing::Not;
 using ::testing::Pair;
 using ::testing::Return;
 using ::testing::Test;
+using ::testing::TestParamInfo;
+using ::testing::TestWithParam;
 using ::testing::UnorderedElementsAre;
+using ::testing::UnorderedElementsAreArray;
+using ::testing::Values;
 
 // Instant single-event CSR layout helper.
 inline void SetSingleEventCsrLayout(FlameChartTimelineData& data) {
@@ -3070,199 +3076,85 @@ TEST(TimelineTest, NavigateSearchQueryResult) {
                          .pid = 1});
   data.level_offsets = {0, 2};
   data.level_event_indices = {0, 1};
-  data.entry_names.push_back("apple");
-  data.entry_names.push_back("apricot");
-  data.entry_levels.push_back(0);
-  data.entry_levels.push_back(0);
-  data.entry_start_times.push_back(100.0);
-  data.entry_start_times.push_back(200.0);
-  data.entry_total_times.push_back(10.0);
-  data.entry_total_times.push_back(10.0);
-  data.entry_event_ids.push_back(1);
-  data.entry_event_ids.push_back(2);
-  data.entry_args.push_back({});
-  data.entry_args.push_back({});
+  AddEvents(data,
+            {{"apple", 100.0, 10.0, 0, 1}, {"apricot", 200.0, 10.0, 0, 2}});
   timeline.SetTimelineData(std::move(data));
   timeline.set_data_time_range({0.0, 1000.0});
   timeline.SetVisibleRange({0.0, 100.0});
 
   timeline.SetSearchQuery("ap");
-  EXPECT_EQ(timeline.get_search_results_count(), 2);
-  EXPECT_EQ(timeline.get_current_search_result_index(), -1);
+  EXPECT_THAT(timeline.get_search_results_count(), Eq(2));
+  EXPECT_THAT(timeline.get_current_search_result_index(), Eq(-1));
+  EXPECT_THAT(timeline.selected_event_index(), Eq(-1));
 
-  timeline.NavigateToNextSearchResult();
-  EXPECT_EQ(timeline.get_current_search_result_index(), 0);
-
-  timeline.NavigateToNextSearchResult();
-  EXPECT_EQ(timeline.get_current_search_result_index(), 1);
-
-  timeline.NavigateToNextSearchResult();
-  EXPECT_EQ(timeline.get_current_search_result_index(), 0);  // Wrap around
+  // Navigating backward from initial unselected state wraps to the last match.
+  timeline.NavigateToPrevSearchResult();
+  EXPECT_THAT(timeline.get_current_search_result_index(), Eq(1));
+  EXPECT_THAT(timeline.selected_event_index(), Eq(1));
 
   timeline.NavigateToPrevSearchResult();
-  EXPECT_EQ(timeline.get_current_search_result_index(), 1);  // Wrap around
-}
-
-TEST(TimelineTest, NavigateToNextSearchResultCallsRedrawCallback) {
-  ColorPalette palette = ColorPalette::Default();
-  Timeline timeline(palette);
-  FlameChartTimelineData data;
-  data.entry_names.push_back("event");
-  data.entry_names.push_back("event");
-  data.entry_start_times.push_back(50.0);
-  data.entry_start_times.push_back(100.0);
-  data.entry_levels.push_back(0);
-  data.entry_levels.push_back(0);
-  data.entry_total_times.push_back(10.0);
-  data.entry_total_times.push_back(10.0);
-  data.entry_event_ids.push_back(1);
-  data.entry_event_ids.push_back(2);
-  data.entry_args.push_back({});
-  data.entry_args.push_back({});
-  timeline.SetTimelineData(std::move(data));
-
-  timeline.SetSearchQuery("event");
-
-  bool redraw_called = false;
-  timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
+  EXPECT_THAT(timeline.get_current_search_result_index(), Eq(0));
+  EXPECT_THAT(timeline.selected_event_index(), Eq(0));
 
   timeline.NavigateToNextSearchResult();
+  EXPECT_THAT(timeline.get_current_search_result_index(), Eq(1));
+  EXPECT_THAT(timeline.selected_event_index(), Eq(1));
 
-  EXPECT_TRUE(redraw_called);
+  // Navigating forward past the end wraps back to index 0.
+  timeline.NavigateToNextSearchResult();
+  EXPECT_THAT(timeline.get_current_search_result_index(), Eq(0));
+  EXPECT_THAT(timeline.selected_event_index(), Eq(0));
 }
 
-TEST(TimelineTest, NavigateToNextSearchResultCallsRedrawCallbackCount) {
+struct SearchNavigationRedrawCase {
+  absl::string_view test_name;
+  absl::string_view query;
+  bool navigate_next;
+  bool expect_redraw;
+  int expected_selected_index;
+};
+
+class SearchNavigationRedrawTest
+    : public TestWithParam<SearchNavigationRedrawCase> {};
+
+TEST_P(SearchNavigationRedrawTest, RedrawsAndSelectsOnlyWhenQueryMatches) {
+  const SearchNavigationRedrawCase& tc = GetParam();
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
   FlameChartTimelineData data;
-  data.entry_names.push_back("event");
-  data.entry_names.push_back("event");
-  data.entry_start_times.push_back(50.0);
-  data.entry_start_times.push_back(100.0);
-  data.entry_levels.push_back(0);
-  data.entry_levels.push_back(0);
-  data.entry_total_times.push_back(10.0);
-  data.entry_total_times.push_back(10.0);
-  data.entry_event_ids.push_back(1);
-  data.entry_event_ids.push_back(2);
-  data.entry_args.push_back({});
-  data.entry_args.push_back({});
+  AddEvents(data, {{"event", 50.0, 10.0, 0, 1}, {"event", 100.0, 10.0, 0, 2}});
   timeline.SetTimelineData(std::move(data));
   timeline.SetVisibleRange(TimeRange(0.0, 200.0));
-
-  timeline.SetSearchQuery("event");
-
-  int redraw_count = 0;
-  timeline.set_redraw_callback([&redraw_count]() { redraw_count++; });
-
-  timeline.NavigateToNextSearchResult();
-
-  EXPECT_GT(redraw_count, 0);
-  EXPECT_GE(redraw_count, 1);
-}
-
-TEST(TimelineTest, NavigateToNextSearchResultEmptyResultsDoesNothing) {
-  ColorPalette palette = ColorPalette::Default();
-  Timeline timeline(palette);
-  FlameChartTimelineData data;
-  data.entry_names.push_back("foo");
-  data.entry_start_times.push_back(10.0);
-  data.entry_levels.push_back(0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_event_ids.push_back(1);
-  data.entry_args.push_back({});
-  timeline.SetTimelineData(std::move(data));
-
-  timeline.SetSearchQuery("bar");
-
-  bool redraw_called = false;
-  timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
-
-  timeline.NavigateToNextSearchResult();
-
-  EXPECT_FALSE(redraw_called);
-}
-
-TEST(TimelineTest, NavigateToPrevSearchResultCallsRedrawCallbackCount) {
-  ColorPalette palette = ColorPalette::Default();
-  Timeline timeline(palette);
-  FlameChartTimelineData data;
-  data.entry_names.push_back("event");
-  data.entry_names.push_back("event");
-  data.entry_start_times.push_back(50.0);
-  data.entry_start_times.push_back(100.0);
-  data.entry_levels.push_back(0);
-  data.entry_levels.push_back(0);
-  data.entry_total_times.push_back(10.0);
-  data.entry_total_times.push_back(10.0);
-  data.entry_event_ids.push_back(1);
-  data.entry_event_ids.push_back(2);
-  data.entry_args.push_back({});
-  data.entry_args.push_back({});
-  timeline.SetTimelineData(std::move(data));
-  timeline.SetVisibleRange(TimeRange(0.0, 200.0));
-
-  timeline.SetSearchQuery("event");
+  timeline.SetSearchQuery(tc.query);
 
   int redraw_count = 0;
-  timeline.set_redraw_callback([&redraw_count]() { redraw_count++; });
+  timeline.set_redraw_callback([&redraw_count]() { ++redraw_count; });
 
-  timeline.NavigateToPrevSearchResult();
+  if (tc.navigate_next) {
+    timeline.NavigateToNextSearchResult();
+  } else {
+    timeline.NavigateToPrevSearchResult();
+  }
 
-  EXPECT_GT(redraw_count, 0);
-  EXPECT_GE(redraw_count, 1);
+  if (tc.expect_redraw) {
+    EXPECT_THAT(redraw_count, Ge(1));
+  } else {
+    EXPECT_THAT(redraw_count, Eq(0));
+  }
+  EXPECT_THAT(timeline.selected_event_index(), Eq(tc.expected_selected_index));
 }
 
-TEST(TimelineTest, NavigateToPrevSearchResultEmptyResultsDoesNothing) {
-  ColorPalette palette = ColorPalette::Default();
-  Timeline timeline(palette);
-  FlameChartTimelineData data;
-  data.entry_names.push_back("foo");
-  data.entry_start_times.push_back(10.0);
-  data.entry_levels.push_back(0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_event_ids.push_back(1);
-  data.entry_args.push_back({});
-  timeline.SetTimelineData(std::move(data));
-
-  timeline.SetSearchQuery("bar");
-
-  bool redraw_called = false;
-  timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
-
-  timeline.NavigateToPrevSearchResult();
-
-  EXPECT_FALSE(redraw_called);
-}
-
-TEST(TimelineTest, NavigateToPrevSearchResultWrapping) {
-  ColorPalette palette = ColorPalette::Default();
-  Timeline timeline(palette);
-  FlameChartTimelineData data;
-  data.entry_names.push_back("event1");
-  data.entry_names.push_back("event2");
-  data.entry_start_times.push_back(10.0);
-  data.entry_start_times.push_back(20.0);
-  data.entry_levels.push_back(0);
-  data.entry_levels.push_back(0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_event_ids.push_back(1);
-  data.entry_event_ids.push_back(2);
-  data.entry_args.push_back({});
-  data.entry_args.push_back({});
-  timeline.SetTimelineData(std::move(data));
-
-  timeline.SetSearchQuery("event");
-
-  EXPECT_EQ(timeline.selected_event_index(), -1);
-
-  timeline.NavigateToPrevSearchResult();
-  EXPECT_EQ(timeline.selected_event_index(), 1);
-
-  timeline.NavigateToPrevSearchResult();
-  EXPECT_EQ(timeline.selected_event_index(), 0);
-}
+INSTANTIATE_TEST_SUITE_P(
+    SearchNavigationRedrawCases, SearchNavigationRedrawTest,
+    Values(
+        SearchNavigationRedrawCase{"NextWithMatches", "event", true, true, 0},
+        SearchNavigationRedrawCase{"PrevWithMatches", "event", false, true, 1},
+        SearchNavigationRedrawCase{"NextEmptyResults", "bar", true, false, -1},
+        SearchNavigationRedrawCase{"PrevEmptyResults", "bar", false, false,
+                                   -1}),
+    [](const TestParamInfo<SearchNavigationRedrawCase>& info) {
+      return std::string(info.param.test_name);
+    });
 
 TEST(TimelineTest, PixelToTime) {
   ColorPalette palette = ColorPalette::Default();
@@ -4049,7 +3941,7 @@ TEST(TimelineTest, SetSearchQueryMatchesEntryArgsAndSparseEntryArgs) {
       static_cast<uint8_t>(FlameChartTimelineData::kEntryArgHasUid |
                            FlameChartTimelineData::kEntryArgHasGroupId)};
   data.entry_serials = {0, 0, 0, 987654};
-  data.sparse_entry_group_ids[3] = 4242;
+  data.sparse_entry_group_ids.Append(3, 4242);
   data.hlo_module_names = {"jit_train_step_module"};
   data.entry_hlo_module_ids = {0, 0, 0, 1};
   timeline.SetTimelineData(std::move(data));
@@ -4096,49 +3988,17 @@ TEST(TimelineTest, SetSearchQueryMatchesEntryArgsAndSparseEntryArgs) {
   EXPECT_EQ(timeline.get_search_results_count(), 0);
 }
 
-TEST(TimelineTest, SetSearchQueryCallsRedrawCallback) {
-  ColorPalette palette = ColorPalette::Default();
-  Timeline timeline(palette);
-  FlameChartTimelineData data;
-  data.entry_names.push_back("event");
-  data.entry_start_times.push_back(100.0);
-  data.entry_levels.push_back(0);
-  data.entry_total_times.push_back(10.0);
-  data.entry_event_ids.push_back(1);
-  data.entry_args.push_back({});
-  timeline.SetTimelineData(std::move(data));
+struct SearchQueryRedrawCase {
+  absl::string_view test_name;
+  absl::string_view initial_query;
+  absl::string_view target_query;
+  int expected_count;
+};
 
-  bool redraw_called = false;
-  timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
+class SearchQueryRedrawTest : public TestWithParam<SearchQueryRedrawCase> {};
 
-  timeline.SetSearchQuery("event");
-
-  EXPECT_TRUE(redraw_called);
-}
-
-TEST(TimelineTest, SetSearchQueryCallsRedrawCallbackCount) {
-  ColorPalette palette = ColorPalette::Default();
-  Timeline timeline(palette);
-  FlameChartTimelineData data;
-  data.entry_names.push_back("event");
-  data.entry_start_times.push_back(100.0);
-  data.entry_levels.push_back(0);
-  data.entry_total_times.push_back(10.0);
-  data.entry_event_ids.push_back(1);
-  data.entry_args.push_back({});
-  timeline.SetTimelineData(std::move(data));
-  timeline.SetVisibleRange(TimeRange(0.0, 200.0));
-
-  int redraw_count = 0;
-  timeline.set_redraw_callback([&redraw_count]() { redraw_count++; });
-
-  timeline.SetSearchQuery("event");
-
-  EXPECT_GT(redraw_count, 0);
-  EXPECT_EQ(redraw_count, 1);
-}
-
-TEST(TimelineTest, SetSearchQueryEmptyClearsResultsAndTriggersRedraw) {
+TEST_P(SearchQueryRedrawTest, EmitsSingleRedrawAndUpdatesMatches) {
+  const SearchQueryRedrawCase& tc = GetParam();
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
   FlameChartTimelineData data;
@@ -4147,148 +4007,97 @@ TEST(TimelineTest, SetSearchQueryEmptyClearsResultsAndTriggersRedraw) {
                          .nesting_level = kThreadNestingLevel,
                          .expanded = true,
                          .pid = 1});
-  data.level_offsets = {0, 1};
-  data.level_event_indices = {0};
-  data.entry_names.push_back("apple");
-  data.entry_levels.push_back(0);
-  data.entry_start_times.push_back(100.0);
-  data.entry_total_times.push_back(10.0);
-  data.entry_event_ids.push_back(1);
-  data.entry_args.push_back({});
+  SetSingleEventCsrLayout(data);
+  AddEvents(data, {{"apple", 100.0, 10.0, 0, 1}});
   timeline.SetTimelineData(std::move(data));
+  timeline.SetVisibleRange(TimeRange(0.0, 200.0));
 
-  timeline.SetSearchQuery("apple");
-  EXPECT_EQ(timeline.get_search_results_count(), 1);
+  if (!tc.initial_query.empty()) {
+    timeline.SetSearchQuery(tc.initial_query);
+    ASSERT_THAT(timeline.get_search_results_count(), Eq(1));
+  }
 
-  bool redraw_called = false;
-  timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
+  int redraw_count = 0;
+  timeline.set_redraw_callback([&redraw_count]() { ++redraw_count; });
 
-  timeline.SetSearchQuery("");
+  timeline.SetSearchQuery(tc.target_query);
 
-  EXPECT_EQ(timeline.get_search_results_count(), 0);
-  EXPECT_EQ(timeline.get_current_search_result_index(), -1);
-  EXPECT_TRUE(redraw_called);
+  EXPECT_THAT(redraw_count, Eq(1));
+  EXPECT_THAT(timeline.get_search_results_count(), Eq(tc.expected_count));
+  EXPECT_THAT(timeline.get_current_search_result_index(), Eq(-1));
+  EXPECT_THAT(timeline.get_matching_event_indices_for_test().size(),
+              Eq(static_cast<size_t>(tc.expected_count)));
 }
 
-TEST(TimelineTest, SetSearchQueryEmptyQueryCallsRedraw) {
-  ColorPalette palette = ColorPalette::Default();
-  Timeline timeline(palette);
-  bool redraw_called = false;
-  timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
+INSTANTIATE_TEST_SUITE_P(
+    SearchQueryRedrawCases, SearchQueryRedrawTest,
+    Values(SearchQueryRedrawCase{"MatchingQuery", "", "apple", 1},
+           SearchQueryRedrawCase{"ClearingActiveQuery", "apple", "", 0},
+           SearchQueryRedrawCase{"EmptyQueryOnFreshTimeline", "", "", 0}),
+    [](const TestParamInfo<SearchQueryRedrawCase>& info) {
+      return std::string(info.param.test_name);
+    });
 
-  timeline.SetSearchQuery("");
+struct SearchQueryOrderingCase {
+  absl::string_view test_name;
+  std::vector<EventSpec> events;
+  std::vector<int> expected_navigation_order;
+  std::vector<int> expected_matching_bits;
+};
 
-  EXPECT_TRUE(redraw_called);
-}
+class SearchQueryOrderingTest : public TestWithParam<SearchQueryOrderingCase> {
+};
 
-TEST(TimelineTest, SetSearchQueryFiltering) {
-  ColorPalette palette = ColorPalette::Default();
-  Timeline timeline(palette);
-  FlameChartTimelineData data;
-  data.entry_names.push_back("event1");
-  data.entry_names.push_back("foo");
-  data.entry_names.push_back("event2");
-  data.entry_names.push_back("long_non_match");
-  data.entry_start_times.push_back(10.0);
-  data.entry_start_times.push_back(20.0);
-  data.entry_start_times.push_back(30.0);
-  data.entry_start_times.push_back(40.0);
-  data.entry_levels.push_back(0);
-  data.entry_levels.push_back(0);
-  data.entry_levels.push_back(0);
-  data.entry_levels.push_back(0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_event_ids.push_back(1);
-  data.entry_event_ids.push_back(2);
-  data.entry_event_ids.push_back(3);
-  data.entry_event_ids.push_back(4);
-  data.entry_args.push_back({});
-  data.entry_args.push_back({});
-  data.entry_args.push_back({});
-  data.entry_args.push_back({});
-  timeline.SetTimelineData(std::move(data));
-
-  timeline.SetSearchQuery("event");
-
-  EXPECT_EQ(timeline.selected_event_index(), -1);
-
-  timeline.NavigateToNextSearchResult();
-  EXPECT_EQ(timeline.selected_event_index(), 0);
-
-  timeline.NavigateToNextSearchResult();
-  EXPECT_EQ(timeline.selected_event_index(), 2);
-}
-
-TEST(TimelineTest, SetSearchQuerySortsResultsByStartTime) {
-  ColorPalette palette = ColorPalette::Default();
-  Timeline timeline(palette);
-  FlameChartTimelineData data;
-  data.entry_names.push_back("event");
-  data.entry_names.push_back("event");
-  data.entry_start_times.push_back(100.0);
-  data.entry_start_times.push_back(50.0);
-  data.entry_levels.push_back(0);
-  data.entry_levels.push_back(0);
-  data.entry_total_times.push_back(10.0);
-  data.entry_total_times.push_back(10.0);
-  data.entry_event_ids.push_back(1);
-  data.entry_event_ids.push_back(2);
-  data.entry_args.push_back({});
-  data.entry_args.push_back({});
-  timeline.SetTimelineData(std::move(data));
-
-  timeline.SetSearchQuery("event");
-
-  EXPECT_EQ(timeline.selected_event_index(), -1);
-
-  timeline.NavigateToNextSearchResult();
-  EXPECT_EQ(timeline.selected_event_index(), 1);
-
-  timeline.NavigateToNextSearchResult();
-  EXPECT_EQ(timeline.selected_event_index(), 0);
-}
-
-TEST(TimelineTest, SetSearchQuerySortsResultsByLevel) {
+TEST_P(SearchQueryOrderingTest, FiltersAndSortsMatchedEvents) {
+  const SearchQueryOrderingCase& tc = GetParam();
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back(
       {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
-
-  // Event X (will be loaded at index 0): level = 1, start_time = 100.0
-  data.entry_names.push_back("event");
-  data.entry_start_times.push_back(100.0);
-  data.entry_levels.push_back(1);
-  data.entry_total_times.push_back(10.0);
-  data.entry_event_ids.push_back(1);
-  data.entry_args.push_back({});
-
-  // Event Y (will be loaded at index 1): level = 0, start_time = 200.0
-  data.entry_names.push_back("event");
-  data.entry_start_times.push_back(200.0);
-  data.entry_levels.push_back(0);
-  data.entry_total_times.push_back(10.0);
-  data.entry_event_ids.push_back(2);
-  data.entry_args.push_back({});
-
+  for (const EventSpec& s : tc.events) {
+    AddEvents(data, {s});
+  }
   timeline.SetTimelineData(std::move(data));
   timeline.set_data_time_range({0.0, 1000.0});
 
   timeline.SetSearchQuery("event");
 
-  // Verify sorting order: Event Y (level 0, index 1) then Event X (level 1,
-  // index 0)
-  EXPECT_EQ(timeline.selected_event_index(), -1);
+  EXPECT_THAT(timeline.selected_event_index(), Eq(-1));
+  EXPECT_THAT(CollectSetBits(timeline.get_matching_event_indices_for_test()),
+              UnorderedElementsAreArray(tc.expected_matching_bits));
 
-  timeline.NavigateToNextSearchResult();
-  EXPECT_EQ(timeline.selected_event_index(), 1);  // Event Y
-
-  timeline.NavigateToNextSearchResult();
-  EXPECT_EQ(timeline.selected_event_index(), 0);  // Event X
+  std::vector<int> visited_indices;
+  visited_indices.reserve(tc.expected_navigation_order.size());
+  for (size_t i = 0; i < tc.expected_navigation_order.size(); ++i) {
+    timeline.NavigateToNextSearchResult();
+    visited_indices.push_back(timeline.selected_event_index());
+  }
+  EXPECT_THAT(visited_indices, ElementsAreArray(tc.expected_navigation_order));
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    SearchQueryOrderingCases, SearchQueryOrderingTest,
+    Values(SearchQueryOrderingCase{"FiltersNonMatchingNames",
+                                   {{"event1", 10.0, 5.0, 0, 1},
+                                    {"foo", 20.0, 5.0, 0, 2},
+                                    {"event2", 30.0, 5.0, 0, 3},
+                                    {"long_non_match", 40.0, 5.0, 0, 4}},
+                                   {0, 2},
+                                   {0, 2}},
+           SearchQueryOrderingCase{
+               "SortsByStartTimeWithinLevel",
+               {{"event", 100.0, 10.0, 0, 1}, {"event", 50.0, 10.0, 0, 2}},
+               {1, 0},
+               {0, 1}},
+           SearchQueryOrderingCase{
+               "SortsByLevelBeforeStartTime",
+               {{"event", 100.0, 10.0, 1, 1}, {"event", 200.0, 10.0, 0, 2}},
+               {1, 0},
+               {0, 1}}),
+    [](const TestParamInfo<SearchQueryOrderingCase>& info) {
+      return std::string(info.param.test_name);
+    });
 
 TEST(TimelineTest, SetTimelineData) {
   ColorPalette palette = ColorPalette::Default();
@@ -7415,8 +7224,8 @@ TEST_F(RealTimelineImGuiFixture, DrawRulerRendersProperly) {
 
   ASSERT_TRUE(found_trace_vertical_line)
       << "Failed to find vertical trace lines. draw list vtx count="
-      << draw_list->VtxBuffer.Size << ", kTraceVerticalLineColor=" << std::hex
-      << kTraceVerticalLineColor;
+      << draw_list->VtxBuffer.Size << ", kTraceVerticalLineColor=0x"
+      << absl::Hex(kTraceVerticalLineColor);
 
   // Check the vertical text line goes down to the exact viewport bottom
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -15375,97 +15184,61 @@ TEST_F(MockTimelineImGuiFixture,
   EXPECT_EQ(results[1].event_id, 100);  // evB (event_id 100) should be second
 }
 
-TEST_F(MockTimelineImGuiFixture,
-       NavigateToNextSearchResultPansToUnloadedEvent) {
+struct UnloadedSearchNavigationCase {
+  absl::string_view test_name;
+  Microseconds data_end;
+  Microseconds unloaded_start;
+  bool navigate_next;
+  Microseconds expected_start;
+  Microseconds expected_end;
+};
+
+class UnloadedSearchNavigationTest
+    : public TimelineImGuiTestFixture<MockTimeline>,
+      public ::testing::WithParamInterface<UnloadedSearchNavigationCase> {};
+
+TEST_P(UnloadedSearchNavigationTest, PansAndClampsViewportToUnloadedTarget) {
+  const UnloadedSearchNavigationCase& tc = GetParam();
   timeline_.SetTimelineData(
       CreateTimelineData({{"evA", 100.0, 10.0, 0, 1, 1, 100}}));
-  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.set_data_time_range({0.0, tc.data_end});
 
   timeline_.SetSearchQuery("ev");
   timeline_.SetSearchResults(CreateSearchResults({
       {"evA", 100.0, 10.0, 0, 1, 1, 100},
-      {"evB", 200.0, 10.0, 0, 1, 1, 101},
+      {"evB", tc.unloaded_start, 10.0, 0, 1, 1, 101},
   }));
 
   timeline_.NavigateToNextSearchResult();
-  ASSERT_EQ(timeline_.selected_event_index(), 0);
+  ASSERT_THAT(timeline_.selected_event_index(), Eq(0));
 
-  timeline_.NavigateToNextSearchResult();
+  if (tc.navigate_next) {
+    timeline_.NavigateToNextSearchResult();
+  } else {
+    timeline_.NavigateToPrevSearchResult();
+  }
 
-  EXPECT_EQ(timeline_.selected_event_index(), 0);
-  EXPECT_EQ(timeline_.get_pending_navigation_event_id_for_test(), 101);
-  EXPECT_NEAR(timeline_.visible_range_target().start(), 192.5, 1e-3);
-  EXPECT_NEAR(timeline_.visible_range_target().end(), 217.5, 1e-3);
+  EXPECT_THAT(timeline_.selected_event_index(), Eq(0));
+  EXPECT_THAT(timeline_.get_pending_navigation_event_id_for_test(), Eq(101));
+  EXPECT_THAT(timeline_.visible_range_target().start(),
+              DoubleNear(tc.expected_start, 1e-3));
+  EXPECT_THAT(timeline_.visible_range_target().end(),
+              DoubleNear(tc.expected_end, 1e-3));
 }
 
-TEST_F(MockTimelineImGuiFixture,
-       NavigateToNextSearchResultPansToUnloadedEventClamped) {
-  timeline_.SetTimelineData(
-      CreateTimelineData({{"evA", 100.0, 10.0, 0, 1, 1, 100}}));
-  timeline_.set_data_time_range({0.0, 200.0});
-
-  timeline_.SetSearchQuery("ev");
-  timeline_.SetSearchResults(CreateSearchResults({
-      {"evA", 100.0, 10.0, 0, 1, 1, 100},
-      {"evB", 195.0, 10.0, 0, 1, 1, 101},
-  }));
-
-  timeline_.NavigateToNextSearchResult();
-  ASSERT_EQ(timeline_.selected_event_index(), 0);
-
-  timeline_.NavigateToNextSearchResult();
-
-  EXPECT_EQ(timeline_.selected_event_index(), 0);
-  EXPECT_EQ(timeline_.get_pending_navigation_event_id_for_test(), 101);
-  EXPECT_NEAR(timeline_.visible_range_target().start(), 175.0, 1e-3);
-  EXPECT_NEAR(timeline_.visible_range_target().end(), 200.0, 1e-3);
-}
-
-TEST_F(MockTimelineImGuiFixture,
-       NavigateToPrevSearchResultPansToUnloadedEvent) {
-  timeline_.SetTimelineData(
-      CreateTimelineData({{"evA", 100.0, 10.0, 0, 1, 1, 100}}));
-  timeline_.set_data_time_range({0.0, 1000.0});
-
-  timeline_.SetSearchQuery("ev");
-  timeline_.SetSearchResults(CreateSearchResults({
-      {"evA", 100.0, 10.0, 0, 1, 1, 100},
-      {"evB", 200.0, 10.0, 0, 1, 1, 101},
-  }));
-
-  timeline_.NavigateToNextSearchResult();
-  ASSERT_EQ(timeline_.selected_event_index(), 0);
-
-  timeline_.NavigateToPrevSearchResult();
-
-  EXPECT_EQ(timeline_.selected_event_index(), 0);
-  EXPECT_EQ(timeline_.get_pending_navigation_event_id_for_test(), 101);
-  EXPECT_NEAR(timeline_.visible_range_target().start(), 192.5, 1e-3);
-  EXPECT_NEAR(timeline_.visible_range_target().end(), 217.5, 1e-3);
-}
-
-TEST_F(MockTimelineImGuiFixture,
-       NavigateToPrevSearchResultPansToUnloadedEventClamped) {
-  timeline_.SetTimelineData(
-      CreateTimelineData({{"evA", 100.0, 10.0, 0, 1, 1, 100}}));
-  timeline_.set_data_time_range({0.0, 200.0});
-
-  timeline_.SetSearchQuery("ev");
-  timeline_.SetSearchResults(CreateSearchResults({
-      {"evA", 100.0, 10.0, 0, 1, 1, 100},
-      {"evB", 195.0, 10.0, 0, 1, 1, 101},
-  }));
-
-  timeline_.NavigateToNextSearchResult();
-  ASSERT_EQ(timeline_.selected_event_index(), 0);
-
-  timeline_.NavigateToPrevSearchResult();
-
-  EXPECT_EQ(timeline_.selected_event_index(), 0);
-  EXPECT_EQ(timeline_.get_pending_navigation_event_id_for_test(), 101);
-  EXPECT_NEAR(timeline_.visible_range_target().start(), 175.0, 1e-3);
-  EXPECT_NEAR(timeline_.visible_range_target().end(), 200.0, 1e-3);
-}
+INSTANTIATE_TEST_SUITE_P(
+    UnloadedSearchNavigationCases, UnloadedSearchNavigationTest,
+    Values(UnloadedSearchNavigationCase{"NextUnclamped", 1000.0, 200.0, true,
+                                        192.5, 217.5},
+           UnloadedSearchNavigationCase{"NextClamped", 200.0, 195.0, true,
+                                        175.0, 200.0},
+           UnloadedSearchNavigationCase{"PrevUnclamped", 1000.0, 200.0, false,
+                                        192.5, 217.5},
+           UnloadedSearchNavigationCase{"PrevClamped", 200.0, 195.0, false,
+                                        175.0, 200.0}),
+    [](const TestParamInfo<UnloadedSearchNavigationCase>& info) {
+      return std::string(info.param.test_name);
+    });
 
 TEST_F(MockTimelineImGuiFixture, SetSearchResultsTriggersRedrawCallback) {
   ParsedTraceEvents search_results;
@@ -18320,8 +18093,14 @@ TEST(TimelineTest, CompactTimelineDataRemapsSparseIdsAndBitsets) {
   // Append one trailing event ID beyond entry_start_times (index == old_n) so
   // search-match reconciliation exercises the `idx < old_n` false branch.
   data.entry_event_ids.push_back(9999);
-  data.sparse_entry_group_ids[100] = 42;
-  data.sparse_entry_group_ids[101] = 99;
+  data.sparse_entry_group_ids.Append(100, 42);
+  data.sparse_entry_group_ids.Append(101, 99);
+  data.sparse_entry_args[50] = {{"tag", "dropped"}};
+  data.sparse_entry_args[199] = {{"tag", "kept"}};
+  data.groups[0].level_count = 2;
+  data.entry_levels[kNumEvents - 1] = 1;
+  data.level_offsets = {0, static_cast<size_t>(kNumEvents - 1),
+                        static_cast<size_t>(kNumEvents)};
 
   timeline.SetTimelineData(std::move(data));
 
@@ -18344,6 +18123,7 @@ TEST(TimelineTest, CompactTimelineDataRemapsSparseIdsAndBitsets) {
   timeline.SetSearchResults(search_events);
   ASSERT_THAT(CollectSetBits(timeline.get_matching_event_indices_for_test()),
               ElementsAre(200, kNumEvents));
+  timeline.RevealEvent(100);
   SetSelectedEventIndices(timeline, {50, 100, kNumEvents});
 
   timeline.set_is_compacted(true);
@@ -18442,6 +18222,99 @@ TEST(TimelineTest, CompactTimelineDataSkipsFullLoadsAndCompactsOverviews) {
   timeline.SetVisibleRange({0.0, 100.0}, /*animate=*/false);
   timeline.MaybeRequestData();
   EXPECT_TRUE(fetch_requested);
+}
+
+TEST(TimelineTest,
+     CompactTimelineDataRemapsGroupIdRunsArgsScrollAndSearchResults) {
+  auto make_data = [](int num_events) {
+    FlameChartTimelineData data;
+    data.groups.push_back({.name = "Group 1",
+                           .start_level = 0,
+                           .nesting_level = kThreadNestingLevel,
+                           .expanded = true,
+                           .level_count = 1});
+    data.level_offsets = {0, static_cast<size_t>(num_events)};
+    data.level_event_indices.reserve(num_events);
+    data.entry_args.resize(num_events);
+    for (int i = 0; i < num_events; ++i) {
+      data.level_event_indices.push_back(i);
+      data.entry_names.push_back(absl::StrCat("ev_", i));
+      data.entry_levels.push_back(0);
+      data.entry_start_times.push_back(static_cast<double>(i));
+      data.entry_total_times.push_back(0.5);
+      data.entry_self_times.push_back(0.5);
+      data.entry_event_ids.push_back(i + 1);
+      data.entry_args[i]["idx"] = absl::StrCat(i);
+    }
+    // Include a run reaching `old_n` (covers `kept_before(old_n)`).
+    data.sparse_entry_group_ids.Append(0, 10);
+    data.sparse_entry_group_ids.Append(num_events - 1, 20);
+    // Include kept, dropped, and out-of-bounds sparse_entry_args keys.
+    data.sparse_entry_args[0]["k"] = "kept";
+    data.sparse_entry_args[1]["k"] = "dropped";
+    data.sparse_entry_args[static_cast<size_t>(num_events) + 5]["k"] = "oob";
+    return data;
+  };
+
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_max_uncompacted_overview_entries_for_test(64);
+  timeline.set_is_compacted(false);
+  timeline.set_full_trace_loaded(true);
+  timeline.SetTimelineData(make_data(5000));
+
+  // Reveal index 1 (will be dropped once unselected) and attach search results
+  // pointing to both kept (0) and dropped (1) indices, then trigger direct
+  // overview compaction via UpdateTimelineData.
+  timeline.MarkCurrentDataAsFullOverview();
+  timeline.RevealEvent(1);
+  timeline.set_selected_event_index_for_test(-1);
+  timeline.set_search_results_for_test(
+      {Timeline::SearchResult{.event_id = 1, .loaded_index = 0},
+       Timeline::SearchResult{.event_id = 2, .loaded_index = 1}});
+  timeline.set_is_compacted(true);
+  int compacted_kept_loaded_index = -2;
+  int compacted_dropped_loaded_index = -2;
+  timeline.UpdateTimelineData([&]() {
+    if (timeline.get_search_results_for_test().size() == 2u) {
+      compacted_kept_loaded_index =
+          timeline.get_search_results_for_test()[0].loaded_index;
+      compacted_dropped_loaded_index =
+          timeline.get_search_results_for_test()[1].loaded_index;
+    }
+    return make_data(10);
+  });
+  EXPECT_EQ(compacted_kept_loaded_index, 0);
+  EXPECT_EQ(compacted_dropped_loaded_index, -1);
+  ASSERT_TRUE(timeline.RestoreSavedFullOverview());
+
+  const FlameChartTimelineData& compacted = timeline.timeline_data();
+  const size_t new_n = compacted.entry_start_times.size();
+  ASSERT_LT(new_n, 2500u);
+  EXPECT_EQ(compacted.entry_args.size(), new_n);
+  EXPECT_EQ(compacted.sparse_entry_group_ids.Find(0), 10);
+  EXPECT_EQ(compacted.sparse_entry_group_ids.Find(new_n - 1), 20);
+  EXPECT_TRUE(compacted.sparse_entry_args.contains(0));
+  EXPECT_EQ(compacted.sparse_entry_args.size(), 1u);
+
+  // Also cover `event_index_to_scroll_to_` pointing to a kept entry (0) and an
+  // out-of-bounds index (4999 when compacting a 200-entry timeline).
+  timeline.set_is_compacted(false);
+  timeline.set_full_trace_loaded(true);
+  timeline.SetTimelineData(make_data(5000));
+  timeline.RevealEvent(0);
+  timeline.set_is_compacted(true);
+  timeline.SetTimelineData(make_data(5000));
+  EXPECT_EQ(timeline.selected_event_index(), 0);
+
+  timeline.set_is_compacted(false);
+  timeline.set_full_trace_loaded(true);
+  timeline.SetTimelineData(make_data(5000));
+  timeline.RevealEvent(4999);
+  timeline.set_selected_event_index_for_test(-1);
+  timeline.set_is_compacted(true);
+  timeline.SetTimelineData(make_data(200));
+  EXPECT_EQ(timeline.selected_event_index(), -1);
 }
 
 TEST(TimelineTest,
@@ -22014,6 +21887,835 @@ TEST_F(RealTimelineImGuiFixture,
   ImGui::Render();
   const int cpu_empty_vtx = ImGui::GetDrawData()->TotalVtxCount;
   EXPECT_GT(cpu_borrowed_vtx, cpu_empty_vtx);
+}
+
+TEST(GroupIdRunsTest,
+     AppendMergesAdjacentEqualIdsSplitsOnGapsAndFindsBoundaries) {
+  GroupIdRuns runs;
+  EXPECT_TRUE(runs.empty());
+  EXPECT_EQ(runs.Find(0), std::nullopt);
+  EXPECT_TRUE(runs.runs().empty());
+
+  runs.Append(2, 10);
+  runs.Append(3, 10);
+  runs.Append(4, 20);
+  runs.Append(7, 20);
+  runs.Append(8, 20);
+
+  EXPECT_FALSE(runs.empty());
+  const std::vector<GroupIdRuns::Run> expected_runs = {
+      {.begin = 2, .end = 4, .group_id = 10},
+      {.begin = 4, .end = 5, .group_id = 20},
+      {.begin = 7, .end = 9, .group_id = 20},
+  };
+  EXPECT_THAT(runs.runs(), ElementsAreArray(expected_runs));
+
+  // Before first run.
+  EXPECT_EQ(runs.Find(0), std::nullopt);
+  EXPECT_EQ(runs.Find(1), std::nullopt);
+  // First run [2, 4).
+  EXPECT_EQ(runs.Find(2), 10);
+  EXPECT_EQ(runs.Find(3), 10);
+  // Second run [4, 5).
+  EXPECT_EQ(runs.Find(4), 20);
+  // Gap [5, 7).
+  EXPECT_EQ(runs.Find(5), std::nullopt);
+  EXPECT_EQ(runs.Find(6), std::nullopt);
+  // Third run [7, 9).
+  EXPECT_EQ(runs.Find(7), 20);
+  EXPECT_EQ(runs.Find(8), 20);
+  // After last run.
+  EXPECT_EQ(runs.Find(9), std::nullopt);
+  EXPECT_EQ(runs.Find(100), std::nullopt);
+
+  runs.clear();
+  EXPECT_TRUE(runs.empty());
+  EXPECT_EQ(runs.Find(2), std::nullopt);
+}
+
+TEST(GroupIdRunsTest,
+     SupportsInt64ExtremesUint32MaxMinusOneAndEqualityMatchesPerEntryValues) {
+  constexpr int64_t kMinId = std::numeric_limits<int64_t>::min();
+  constexpr int64_t kMaxId = std::numeric_limits<int64_t>::max();
+  constexpr size_t kMaxValidIndex =
+      static_cast<size_t>(std::numeric_limits<uint32_t>::max()) - 1;
+
+  GroupIdRuns a;
+  a.Append(0, kMinId);
+  a.Append(1, 0);
+  a.Append(2, kMaxId);
+  a.Append(3, kMaxId);
+
+  EXPECT_EQ(a.Find(0), kMinId);
+  EXPECT_EQ(a.Find(1), 0);
+  EXPECT_EQ(a.Find(2), kMaxId);
+  EXPECT_EQ(a.Find(3), kMaxId);
+
+  GroupIdRuns b;
+  b.Append(0, kMinId);
+  b.Append(1, 0);
+  b.Append(2, kMaxId);
+  b.Append(3, kMaxId);
+
+  GroupIdRuns c;
+  c.Append(0, kMinId);
+  c.Append(1, 0);
+  c.Append(2, kMaxId);
+
+  GroupIdRuns d;
+  d.Append(0, kMinId);
+  d.Append(2, kMaxId);
+  d.Append(3, kMaxId);
+
+  const auto per_entry_equal = [](const GroupIdRuns& lhs,
+                                  const GroupIdRuns& rhs, size_t limit) {
+    for (size_t i = 0; i < limit; ++i) {
+      if (lhs.Find(i) != rhs.Find(i)) {
+        return false;
+      }
+    }
+    return true;
+  };
+  EXPECT_EQ(a == b, per_entry_equal(a, b, 5));
+  EXPECT_TRUE(a == b);
+  EXPECT_FALSE(a != b);
+  EXPECT_EQ(a == c, per_entry_equal(a, c, 5));
+  EXPECT_FALSE(a == c);
+  EXPECT_TRUE(a != c);
+  EXPECT_EQ(a == d, per_entry_equal(a, d, 5));
+  EXPECT_FALSE(a == d);
+  EXPECT_TRUE(a.runs()[0] != a.runs()[1]);
+  EXPECT_NE((GroupIdRuns::Run{.begin = 0, .end = 1, .group_id = 1}),
+            (GroupIdRuns::Run{.begin = 0, .end = 1, .group_id = 2}));
+
+  // Highest valid uint32_t entry index (UINT32_MAX - 1).
+  GroupIdRuns boundary_runs;
+  boundary_runs.Append(kMaxValidIndex, 42);
+  EXPECT_EQ(boundary_runs.Find(kMaxValidIndex - 1), std::nullopt);
+  EXPECT_EQ(boundary_runs.Find(kMaxValidIndex), 42);
+  EXPECT_EQ(boundary_runs.Find(std::numeric_limits<uint32_t>::max()),
+            std::nullopt);
+}
+
+TEST(GroupIdRunsTest, AppendAndSetRejectInvalidIndicesAsNoOps) {
+  GroupIdRuns runs;
+  runs.Append(3, 10);
+  runs.Append(3, 10);
+  runs.Append(2, 10);
+  runs.Append(std::numeric_limits<uint32_t>::max(), 10);
+  runs.Set(std::numeric_limits<uint32_t>::max(), 20);
+  const GroupIdRuns::Run expected_run{.begin = 3, .end = 4, .group_id = 10};
+  EXPECT_THAT(runs.runs(), ElementsAre(expected_run));
+  EXPECT_EQ(runs.Find(3), 10);
+  EXPECT_EQ(runs.Find(2), std::nullopt);
+
+  // GetEntryArgs omits group_id if kEntryArgHasGroupId is set without a run.
+  FlameChartTimelineData data;
+  data.entry_names.push_back("op");
+  data.entry_serials.push_back(0);
+  data.entry_hlo_module_ids.push_back(0);
+  data.entry_arg_flags.push_back(FlameChartTimelineData::kEntryArgHasGroupId);
+  EXPECT_FALSE(data.GetEntryArgs(0).contains("group_id"));
+}
+
+TEST(GroupIdRunsTest, EraseSetAndRelocatePreserveCanonicalRuns) {
+  GroupIdRuns runs;
+  // Erase on empty or out-of-range indices is a safe no-op.
+  runs.Erase(0);
+  runs.Erase(std::numeric_limits<uint32_t>::max());
+  EXPECT_TRUE(runs.empty());
+
+  // Build [1, 2)->10 (single-element) and [4, 9)->20 (5-element run).
+  runs.Append(1, 10);
+  for (size_t i = 4; i < 9; ++i) {
+    runs.Append(i, 20);
+  }
+  // Erase out-of-range index on non-empty runs, before first run, and in gap.
+  runs.Erase(std::numeric_limits<uint32_t>::max());
+  runs.Erase(0);
+  runs.Erase(3);
+  // Erase single-element run [1, 2).
+  runs.Erase(1);
+  EXPECT_EQ(runs.Find(1), std::nullopt);
+  // Erase run start (4), run end (8), and interior element (6 -> splits [5,8)).
+  runs.Erase(4);
+  runs.Erase(8);
+  runs.Erase(6);
+  const std::vector<GroupIdRuns::Run> after_erases = {
+      {.begin = 5, .end = 6, .group_id = 20},
+      {.begin = 7, .end = 8, .group_id = 20},
+  };
+  EXPECT_THAT(runs.runs(), ElementsAreArray(after_erases));
+
+  // Set bridging left [5, 6) and right [7, 8) coalesces back to one [5, 8) run.
+  runs.Set(6, 20);
+  // Same-value Set is a no-op; left/right extension coalesces into [4, 9).
+  runs.Set(6, 20);
+  runs.Set(4, 20);
+  runs.Set(8, 20);
+  const std::vector<GroupIdRuns::Run> coalesced = {
+      {.begin = 4, .end = 9, .group_id = 20},
+  };
+  EXPECT_THAT(runs.runs(), ElementsAreArray(coalesced));
+
+  // Overwriting middle element with a distinct group_id splits cleanly.
+  runs.Set(6, 99);
+  const std::vector<GroupIdRuns::Run> split_by_set = {
+      {.begin = 4, .end = 6, .group_id = 20},
+      {.begin = 6, .end = 7, .group_id = 99},
+      {.begin = 7, .end = 9, .group_id = 20},
+  };
+  EXPECT_THAT(runs.runs(), ElementsAreArray(split_by_set));
+
+  // Relocate self is a no-op.
+  runs.Relocate(6, 6);
+  EXPECT_THAT(runs.runs(), ElementsAreArray(split_by_set));
+
+  // Relocate grouped index (8 -> 3) into ungrouped slot adjacent to [4, 6)
+  // shrinks [7, 9) to [7, 8) and extends [4, 6) left to [3, 6).
+  runs.Relocate(8, 3);
+  EXPECT_EQ(runs.Find(8), std::nullopt);
+  EXPECT_EQ(runs.Find(3), 20);
+
+  // Relocate grouped index (6 -> 3) overwrites existing group_id at target (3),
+  // while erasing 6 lets [4, 6) and [7, 8) stay separated only until bridged.
+  runs.Relocate(6, 3);
+  EXPECT_EQ(runs.Find(6), std::nullopt);
+  EXPECT_EQ(runs.Find(3), 99);
+
+  // Relocate ungrouped index (10 -> 3) clears stale group_id at target (3);
+  // ungrouped -> ungrouped (10 -> 1) is a no-op.
+  runs.Relocate(10, 3);
+  runs.Relocate(10, 1);
+  const std::vector<GroupIdRuns::Run> final_expected = {
+      {.begin = 4, .end = 6, .group_id = 20},
+      {.begin = 7, .end = 8, .group_id = 20},
+  };
+  EXPECT_THAT(runs.runs(), ElementsAreArray(final_expected));
+}
+
+TEST(GroupIdRunsTest, TruncateFromReleaseAndAllocatedBytesBehaveCorrectly) {
+  GroupIdRuns runs;
+  EXPECT_EQ(runs.AllocatedBytes(), 0u);
+  runs.TruncateFrom(0);
+  EXPECT_TRUE(runs.empty());
+
+  runs.Append(1, 10);
+  runs.Append(2, 10);
+  runs.Append(5, 20);
+  runs.Append(6, 20);
+  runs.Append(7, 20);
+  runs.Append(10, 30);
+  EXPECT_GE(runs.AllocatedBytes(), 3u * sizeof(GroupIdRuns::Run));
+
+  // Out-of-range uint32_t max and cut past last run end are safe no-ops.
+  runs.TruncateFrom(std::numeric_limits<uint32_t>::max());
+  runs.TruncateFrom(12);
+  EXPECT_EQ(runs.runs().size(), 3u);
+
+  // Truncate at 6 drops [10, 11) completely and trims [5, 8) to [5, 6).
+  runs.TruncateFrom(6);
+  const std::vector<GroupIdRuns::Run> after_partial = {
+      {.begin = 1, .end = 3, .group_id = 10},
+      {.begin = 5, .end = 6, .group_id = 20},
+  };
+  EXPECT_THAT(runs.runs(), ElementsAreArray(after_partial));
+  EXPECT_EQ(runs.Find(5), 20);
+  EXPECT_EQ(runs.Find(6), std::nullopt);
+
+  // Truncate at exact run.begin (5) pops [5, 6) rather than leaving [5, 5).
+  runs.TruncateFrom(5);
+  EXPECT_THAT(runs.runs(), ElementsAre(GroupIdRuns::Run{
+                               .begin = 1, .end = 3, .group_id = 10}));
+
+  // Truncate at 0 clears all runs; release() reclaims heap capacity.
+  runs.TruncateFrom(0);
+  EXPECT_TRUE(runs.empty());
+  runs.release();
+  EXPECT_EQ(runs.AllocatedBytes(), 0u);
+}
+
+TEST(TimelineTest, FlameChartTimelineDataReserveAndColumnRegistryStayAligned) {
+  FlameChartTimelineData data;
+  data.Reserve(16, /*reserve_legacy_names_and_ids=*/false);
+  EXPECT_GE(data.entry_levels.capacity(), 16u);
+  EXPECT_GE(data.entry_total_times.capacity(), 16u);
+  EXPECT_EQ(data.entry_self_times.capacity(), 0u);
+  EXPECT_GE(data.entry_start_times.capacity(), 16u);
+  EXPECT_GE(data.entry_name_indices.capacity(), 16u);
+  EXPECT_EQ(data.entry_hlo_module_indices.capacity(), 0u);
+  EXPECT_EQ(data.entry_hlo_op_indices.capacity(), 0u);
+  EXPECT_EQ(data.entry_names.capacity(), 0u);
+  EXPECT_EQ(data.entry_event_ids.capacity(), 0u);
+
+  data.Reserve(32, /*reserve_legacy_names_and_ids=*/true);
+  EXPECT_GE(data.entry_self_times.capacity(), 32u);
+  EXPECT_GE(data.entry_hlo_module_indices.capacity(), 32u);
+  EXPECT_GE(data.entry_hlo_op_indices.capacity(), 32u);
+  EXPECT_GE(data.entry_names.capacity(), 32u);
+  EXPECT_GE(data.entry_event_ids.capacity(), 32u);
+
+  data.entry_levels.push_back(0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_self_times.push_back(10.0);
+  data.entry_start_times.push_back(5.0);
+  data.entry_name_indices.push_back(1);
+  data.entry_hlo_module_indices.push_back(1);
+  data.entry_hlo_op_indices.push_back(1);
+  data.entry_names.push_back("op");
+  data.entry_event_ids.push_back(42);
+  data.entry_args.push_back({{"k", "v"}});
+
+  int visited_const_columns = 0;
+  const FlameChartTimelineData& const_data = data;
+  const_data.ForEachEntryColumn([&](const auto& col) {
+    ++visited_const_columns;
+    EXPECT_EQ(col.size(), 1u);
+  });
+  EXPECT_EQ(visited_const_columns, 10);
+
+  int visited_dense_columns = 0;
+  data.ForEachEntryColumn([&](auto& col) {
+    ++visited_dense_columns;
+    EXPECT_EQ(col.size(), 1u);
+    col.clear();
+  });
+  EXPECT_EQ(visited_dense_columns, 10);
+  EXPECT_TRUE(data.entry_levels.empty());
+  EXPECT_TRUE(data.entry_name_indices.empty());
+  EXPECT_TRUE(data.entry_names.empty());
+
+  data.non_zero_uids_by_event_index[0] = 7;
+  data.flow_ids_by_event_index[0] = 99;
+  data.sparse_entry_group_ids.Append(0, 3);
+  data.sparse_entry_args[0] = {{"a", "b"}};
+
+  int visited_const_sparse = 0;
+  const_data.ForEachSparseEntryMap([&](const auto& m) {
+    ++visited_const_sparse;
+    EXPECT_EQ(m.size(), 1u);
+  });
+  EXPECT_EQ(visited_const_sparse, 3);
+
+  int visited_sparse_maps = 0;
+  data.ForEachSparseEntryMap([&](auto& m) {
+    ++visited_sparse_maps;
+    EXPECT_EQ(m.size(), 1u);
+    m.clear();
+  });
+  EXPECT_EQ(visited_sparse_maps, 3);
+  EXPECT_TRUE(data.non_zero_uids_by_event_index.empty());
+  EXPECT_TRUE(data.flow_ids_by_event_index.empty());
+  EXPECT_EQ(data.sparse_entry_group_ids.Find(0), 3);
+  EXPECT_TRUE(data.sparse_entry_args.empty());
+}
+
+TEST(TimelineTest,
+     IndicesOnlyColumnsSupportNameLookupSelectionAndArgsReconstruction) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  FlameChartTimelineData data;
+  data.interned_string_pool = {"", "fusion.42", "plain_event"};
+  data.hlo_module_table = {"", "jit_step(1)"};
+  data.hlo_op_table = {"", "fusion.42"};
+
+  data.entry_levels = {0, 0};
+  data.entry_start_times = {100.0, 200.0};
+  data.entry_total_times = {50.0, 25.0};
+  data.entry_name_indices = {1, 2};
+  data.entry_hlo_module_indices = {1, 0};
+  data.entry_hlo_op_indices = {1, 0};
+  data.non_zero_uids_by_event_index[0] = 1234;
+  data.sparse_entry_group_ids.Append(0, 9);
+  data.level_offsets = {0, 2};
+  data.level_event_indices = {0, 1};
+
+  Group grp;
+  grp.name = "XLA Ops";
+  grp.type = Group::Type::kFlame;
+  grp.start_level = 0;
+  grp.level_count = 1;
+  grp.nesting_level = kThreadNestingLevel;
+  grp.expanded = true;
+  grp.pid = 1;
+  grp.tid = 10;
+  data.groups = {grp};
+
+  ASSERT_TRUE(data.entry_names.empty());
+  ASSERT_TRUE(data.entry_event_ids.empty());
+  ASSERT_TRUE(data.entry_args.empty());
+
+  // GetEntrySelfTime falls back to entry_total_times when entry_self_times is
+  // empty, and returns 0.0 out of bounds.
+  EXPECT_DOUBLE_EQ(data.GetEntrySelfTime(0), 50.0);
+  EXPECT_DOUBLE_EQ(data.GetEntrySelfTime(99), 0.0);
+  EXPECT_EQ(data.GetEntryHloOpTableIndex(99), 0u);
+  EXPECT_EQ(data.GetEntryHloOp(99), "");
+  EXPECT_TRUE(data.GetEntryArgs(99).empty());
+
+  EXPECT_TRUE(data.HasEntryArgs(0));
+  const absl::flat_hash_map<std::string, std::string> args0 =
+      data.GetEntryArgs(0);
+  EXPECT_EQ(args0.at("uid"), "1234");
+  EXPECT_EQ(args0.at("group_id"), "9");
+  EXPECT_EQ(args0.at(std::string(kHloOp)), "fusion.42");
+  EXPECT_EQ(args0.at(std::string(kHloModule)), "jit_step(1)");
+
+  const absl::flat_hash_map<std::string, std::string> args1 =
+      data.GetEntryArgs(1);
+  EXPECT_FALSE(args1.contains("uid"));
+  EXPECT_FALSE(args1.contains(std::string(kHloOp)));
+  EXPECT_EQ(args1.at(std::string(kHloModule)), std::string(kHloModuleDefault));
+
+  timeline.SetTimelineData(std::move(data));
+  EXPECT_EQ(timeline.GetEventName(0), "fusion.42");
+  EXPECT_EQ(timeline.GetEventName(1), "plain_event");
+  EXPECT_EQ(timeline.GetEventName(-1), "");
+  EXPECT_NE(timeline.get_event_color_for_test(0), 0u);
+
+  timeline.SetSearchQuery("fusion");
+  const std::vector<Timeline::SearchResult>& results =
+      timeline.get_search_results_for_test();
+  ASSERT_EQ(results.size(), 1u);
+  EXPECT_EQ(results[0].name, "fusion.42");
+  EXPECT_EQ(results[0].loaded_index, 0);
+  EXPECT_NE(results[0].event_id, 0u);
+
+  // Backend SetSearchResults merges local substring matches on interned names.
+  timeline.SetSearchQuery("event");
+  timeline.SetSearchResults(ParsedTraceEvents{});
+  ASSERT_EQ(timeline.get_search_results_for_test().size(), 1u);
+  EXPECT_EQ(timeline.get_search_results_for_test()[0].name, "plain_event");
+
+  // Exercise RevealEvent(index, name, start, dur) and outbound flow details on
+  // interned-only names (entry_names empty, entry_event_ids populated).
+  FlameChartTimelineData flow_data;
+  flow_data.interned_string_pool = {"", "src_op", "dst_op"};
+  flow_data.entry_levels = {0, 0};
+  flow_data.entry_start_times = {100.0, 200.0};
+  flow_data.entry_total_times = {20.0, 20.0};
+  flow_data.entry_name_indices = {1, 2};
+  flow_data.entry_hlo_op_indices = {99, 0};
+  flow_data.hlo_op_table = {"", "only_one"};
+  EXPECT_EQ(flow_data.GetEntryHloOp(0), "");
+  flow_data.entry_event_ids = {10, 20};
+  flow_data.level_offsets = {0, 2};
+  flow_data.level_event_indices = {0, 1};
+  flow_data.groups = {grp};
+  const FlowLine fl{.source_ts = 100.0,
+                    .target_ts = 200.0,
+                    .source_level = 0,
+                    .target_level = 0};
+  flow_data.flow_lines = {fl};
+  flow_data.flow_ids_by_event_id[10] = {"flow_55"};
+  flow_data.flow_lines_by_flow_id["flow_55"] = {fl};
+  EventData emitted_selected;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kEventSelected) emitted_selected = detail;
+      });
+  timeline.SetTimelineData(std::move(flow_data));
+  timeline.RevealEvent(/*index=*/1, "src_op", /*start_us=*/100.0,
+                       /*duration_us=*/20.0);
+  EXPECT_EQ(timeline.selected_event_index(), 0);
+  ASSERT_TRUE(emitted_selected.contains(kEventSelectedOutboundFlows));
+
+  // Exercise GetEntryCount() fallback when entry_start_times is empty, plus
+  // sparse-map compaction and RestoreSavedFullOverview() search recompute.
+  Timeline names_only_timeline(palette);
+  FlameChartTimelineData names_only;
+  names_only.interned_string_pool = {"", "only_name"};
+  names_only.entry_levels = {0};
+  names_only.entry_name_indices = {1};
+  names_only_timeline.SetTimelineData(std::move(names_only));
+  EXPECT_EQ(names_only_timeline.GetEntryCount(), 1u);
+
+  Timeline compact_timeline(palette);
+  compact_timeline.set_max_uncompacted_overview_entries_for_test(64);
+  FlameChartTimelineData dense_col;
+  dense_col.interned_string_pool = {"", "short_op", "dom_op"};
+  dense_col.groups = {grp};
+  dense_col.level_offsets = {0, 200};
+  for (int i = 0; i < 200; ++i) {
+    const bool dom = (i == 5);
+    dense_col.entry_levels.push_back(0);
+    dense_col.entry_start_times.push_back(i * 10.0);
+    dense_col.entry_total_times.push_back(dom ? 9.0 : 1.0);
+    dense_col.entry_name_indices.push_back(dom ? 2 : 1);
+    dense_col.level_event_indices.push_back(i);
+  }
+  dense_col.non_zero_uids_by_event_index[5] = 777;
+  dense_col.sparse_entry_args[5] = {{"k", "v"}};
+  compact_timeline.set_is_compacted(true);
+  compact_timeline.SetTimelineData(std::move(dense_col));
+  compact_timeline.MarkCurrentDataAsFullOverview();
+  EXPECT_LT(compact_timeline.timeline_data().entry_start_times.size(), 200u);
+  compact_timeline.SetSearchQuery("dom_op");
+  compact_timeline.PrepareForFilteredRefetch();
+  compact_timeline.SetTimelineData(FlameChartTimelineData{.groups = {grp}});
+  ASSERT_TRUE(compact_timeline.RestoreSavedFullOverview());
+  EXPECT_EQ(compact_timeline.get_search_results_count(), 1);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       DrawFlameGroupPreviewIgnoresSelectionAndClampsColEndTime) {
+  FlameChartTimelineData data;
+  data.interned_string_pool = {"", "PreviewOp"};
+  data.level_offsets = {0, 10};
+  for (int i = 0; i < 10; ++i) {
+    data.entry_levels.push_back(0);
+    data.entry_start_times.push_back(100.0 + i * 0.05);
+    data.entry_total_times.push_back(0.02);
+    data.entry_name_indices.push_back(1);
+    data.level_event_indices.push_back(i);
+  }
+  Group proc = MakeProcessGroup("CPU", 0, 1, /*expanded=*/true, 1);
+  Group thr = MakeThreadGroup("Thread", 0, 0, 1, /*expanded=*/false, 1, 10);
+  proc.child_indices = {1};
+  proc.has_children = true;
+  data.groups = {proc, thr};
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 10000.0});
+  timeline_.SetVisibleRange({0.0, 10000.0}, /*animate=*/false);
+  timeline_.set_selected_event_index_for_test(3);
+
+  SimulateFrame();
+  ImGui::Render();
+  const ImDrawData* dd = ImGui::GetDrawData();
+  ASSERT_NE(dd, nullptr);
+  bool found_selected_border = false;
+  for (int n = 0; n < dd->CmdListsCount; ++n) {
+    for (int v = 0; v < dd->CmdLists[n]->VtxBuffer.Size; ++v) {
+      if (dd->CmdLists[n]->VtxBuffer[v].col == kSelectedBorderColor) {
+        found_selected_border = true;
+      }
+    }
+  }
+  EXPECT_FALSE(found_selected_border);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       DrawCounterTrackAndDrawFlowsImDrawListVerification) {
+  FlameChartTimelineData data;
+  data.interned_string_pool = {"", "FlowSrc", "FlowDst"};
+  data.entry_levels = {0, 0};
+  data.entry_start_times = {100.0, 400.0};
+  data.entry_total_times = {50.0, 50.0};
+  data.entry_name_indices = {1, 2};
+  data.level_offsets = {0, 2};
+  data.level_event_indices = {0, 1};
+  data.flow_ids_by_event_index[0] = 77ULL;
+  const FlowLine flow_line{.source_ts = 150.0,
+                           .target_ts = 400.0,
+                           .source_level = 0,
+                           .target_level = 0,
+                           .color = IM_COL32(255, 0, 0, 255),
+                           .category = tsl::profiler::ContextType::kGeneric};
+  data.flow_lines.push_back(flow_line);
+  data.flow_lines_by_flow_id["77"] = {flow_line};
+  Group thr = MakeThreadGroup("T0", -1, 0, 1, true, 1, 10);
+  Group cnt;
+  cnt.type = Group::Type::kCounter;
+  cnt.name = "Counter0";
+  cnt.start_level = 1;
+  cnt.level_count = 1;
+  cnt.nesting_level = kThreadNestingLevel;
+  cnt.expanded = true;
+  cnt.pid = 1;
+  data.groups = {thr, cnt};
+  data.counter_data_by_group_index[1] = {.timestamps = {100.0, 500.0},
+                                         .values = {10.0, 20.0},
+                                         .min_value = 10.0,
+                                         .max_value = 20.0};
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0}, /*animate=*/false);
+  const auto has_red_flow_vertex = []() {
+    const ImDrawData* dd = ImGui::GetDrawData();
+    if (dd == nullptr) return false;
+    for (int n = 0; n < dd->CmdListsCount; ++n) {
+      for (int v = 0; v < dd->CmdLists[n]->VtxBuffer.Size; ++v) {
+        if (dd->CmdLists[n]->VtxBuffer[v].col == IM_COL32(255, 0, 0, 255)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  // 1. Category-based flow rendering with no selected event.
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGeneric)});
+  SimulateFrame();
+  ImGui::Render();
+  EXPECT_TRUE(has_red_flow_vertex());
+
+  // 2. Selected-event flow rendering via flow_ids_by_event_index when visible
+  // flow categories are empty.
+  timeline_.SetVisibleFlowCategories({});
+  timeline_.set_selected_event_index_for_test(0);
+  SimulateFrame();
+  ImGui::Render();
+  EXPECT_TRUE(has_red_flow_vertex());
+}
+
+TEST(TimelineTest, EntryBitsetSelectionIteratesAndReleasesCleanly) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.entry_names = {"op_a", "op_b", "op_c", "op_d"};
+  data.entry_start_times = {10.0, 25.0, 50.0, 100.0};
+  data.entry_total_times = {5.0, 15.0, 20.0, 30.0};
+  data.entry_self_times = {5.0, 10.0, 20.0, 25.0};
+  data.entry_levels = {0, 0, 0, 0};
+  timeline.SetTimelineData(data);
+
+  EntryBitset& selected = timeline.selected_event_indices_for_test();
+  selected.Reserve(4);
+  selected.insert(1);
+  selected.insert(3);
+  selected.insert(1);  // Idempotent duplicate insert.
+  EXPECT_EQ(selected.size(), 2u);
+  EXPECT_TRUE(selected.contains(1));
+  EXPECT_FALSE(selected.contains(2));
+  EXPECT_TRUE(selected.contains(3));
+
+  std::vector<int> visited;
+  selected.ForEachSetBit([&visited](int idx) { visited.push_back(idx); });
+  EXPECT_THAT(visited, ElementsAre(1, 3));
+
+  selected.release();
+  EXPECT_TRUE(selected.empty());
+  EXPECT_EQ(selected.size(), 0u);
+}
+
+TEST(TimelineTest, ScheduleSyncLookupsAndMinimapUseColumnarInternedNames) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_event_tooltip_enabled(false);
+
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Regions",
+                         .start_level = 0,
+                         .nesting_level = 1,
+                         .expanded = true});
+  data.groups.push_back(
+      {.name = "MXU", .start_level = 2, .nesting_level = 1, .expanded = true});
+  data.groups.push_back(
+      {.name = "VPU", .start_level = 3, .nesting_level = 1, .expanded = true});
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = "MXU utilization",
+                         .start_level = 4,
+                         .nesting_level = 1,
+                         .expanded = true});
+
+  data.interned_string_pool = {"",         "top_region", "loop.body",
+                               "matmul_a", "matmul_b",   "vadd"};
+  data.entry_name_indices = {1, 2, 3, 4, 5};
+  data.entry_levels = {0, 1, 2, 2, 3};
+  data.entry_start_times = {0.0, 10.0, 10.0, 12.0, 10.0};
+  data.entry_total_times = {100.0, 40.0, 1.0, 1.0, 1.0};
+  data.sparse_entry_args[2] = {{"produces", "$v10"}, {"ordinal", "42"}};
+  data.sparse_entry_args[4] = {{"produces", "$v11"}};
+  data.level_offsets = {0, 1, 2, 4, 5};
+  data.level_event_indices = {0, 1, 2, 3, 4};
+  ASSERT_TRUE(data.entry_names.empty());
+
+  CounterData counter;
+  counter.timestamps = {0.0, 10.0, 50.0};
+  counter.values = {20.0, 85.0, 40.0};
+  counter.min_value = 0.0;
+  counter.max_value = 100.0;
+  data.counter_data_by_group_index[3] = std::move(counter);
+
+  std::vector<EventData> minimap_updates;
+  EventData selected_detail;
+  EventData multi_detail;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kMinimapUpdated) {
+          minimap_updates.push_back(detail);
+        } else if (type == kEventSelected) {
+          selected_detail = detail;
+        } else if (type == kEventsSelected) {
+          multi_detail = detail;
+        }
+      });
+
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 100.0});
+  timeline.SetVisibleRange({0.0, 100.0});
+
+  ASSERT_FALSE(minimap_updates.empty());
+  const EventData& summary = minimap_updates.front();
+  ASSERT_TRUE(summary.contains("regions"));
+  const auto& minimap_regions =
+      std::any_cast<const std::vector<EventData>&>(summary.at("regions"));
+  ASSERT_FALSE(minimap_regions.empty());
+  EXPECT_EQ(std::any_cast<std::string>(minimap_regions[0].at("name")),
+            "top_region");
+  ASSERT_TRUE(summary.contains("bins"));
+  const auto& bins =
+      std::any_cast<const std::vector<EventData>&>(summary.at("bins"));
+  ASSERT_EQ(bins.size(), 160u);
+  EXPECT_EQ(std::any_cast<std::string>(bins[16].at("region")), "loop.body");
+
+  timeline.RevealEvent(2);
+  ASSERT_TRUE(selected_detail.contains("bundleEvents"));
+  const auto& bundle_events = std::any_cast<const std::vector<EventData>&>(
+      selected_detail.at("bundleEvents"));
+  ASSERT_EQ(bundle_events.size(), 2u);
+  EXPECT_EQ(std::any_cast<std::string>(bundle_events[0].at("name")),
+            "matmul_a");
+  EXPECT_EQ(std::any_cast<std::string>(bundle_events[1].at("name")), "vadd");
+  ASSERT_TRUE(selected_detail.contains("regionAncestors"));
+  const auto& instr_ancestors = std::any_cast<const std::vector<EventData>&>(
+      selected_detail.at("regionAncestors"));
+  ASSERT_EQ(instr_ancestors.size(), 2u);
+  EXPECT_EQ(std::any_cast<std::string>(instr_ancestors[0].at("name")),
+            "top_region");
+  EXPECT_EQ(std::any_cast<std::string>(instr_ancestors[1].at("name")),
+            "loop.body");
+
+  timeline.RevealEvent(0);
+  ASSERT_TRUE(selected_detail.contains("childRegions"));
+  const auto& child_regions = std::any_cast<const std::vector<EventData>&>(
+      selected_detail.at("childRegions"));
+  ASSERT_EQ(child_regions.size(), 1u);
+  EXPECT_EQ(std::any_cast<std::string>(child_regions[0].at("name")),
+            "loop.body");
+  ASSERT_TRUE(selected_detail.contains("topInstructions"));
+  const auto& top_instructions = std::any_cast<const std::vector<EventData>&>(
+      selected_detail.at("topInstructions"));
+  ASSERT_EQ(top_instructions.size(), 3u);
+
+  EntryBitset& sel_indices = timeline.selected_event_indices_for_test();
+  sel_indices.clear();
+  sel_indices.Reserve(5);
+  sel_indices.insert(2);
+  sel_indices.insert(3);
+  sel_indices.insert(4);
+  timeline.CalculateAndEmitMetrics_for_test();
+  ASSERT_TRUE(multi_detail.contains("selectedEvents"));
+  const auto& sel_events = std::any_cast<const std::vector<EventData>&>(
+      multi_detail.at("selectedEvents"));
+  ASSERT_EQ(sel_events.size(), 3u);
+  EXPECT_EQ(std::any_cast<std::string>(sel_events[0].at("name")), "matmul_a");
+
+  sel_indices.clear();
+  timeline.selected_counter_points_for_test() = {{3, 1}, {3, 2}};
+  multi_detail.clear();
+  timeline.CalculateAndEmitMetrics_for_test();
+  ASSERT_TRUE(multi_detail.contains("topInstructions"));
+  const auto& range_top_instr = std::any_cast<const std::vector<EventData>&>(
+      multi_detail.at("topInstructions"));
+  ASSERT_EQ(range_top_instr.size(), 3u);
+  EXPECT_EQ(std::any_cast<int>(multi_detail.at("totalInstructions")), 3);
+}
+
+TEST(TimelineTest, ColumnarGetEntryArgsAndRestoreSearchEdgeCases) {
+  // 1. EntryBitset::Reserve when needed_words <= words_.size() is a no-op.
+  EntryBitset bitset;
+  bitset.insert(128);
+  bitset.Reserve(64);
+  EXPECT_TRUE(bitset.contains(128));
+
+  // 2. Legacy GetEntryArgs with kEntryArgHloOpFromName, kEntryArgHasGroupId,
+  // and out-of-range hlo_module_id, plus partial-column fallbacks.
+  FlameChartTimelineData legacy;
+  legacy.entry_names = {"fusion.1", "op_sparse"};
+  legacy.entry_arg_flags = {FlameChartTimelineData::kEntryArgHloOpFromName |
+                                FlameChartTimelineData::kEntryArgHasGroupId,
+                            0};
+  legacy.entry_serials = {0, 0};
+  legacy.entry_hlo_module_ids = {99, 0};
+  legacy.sparse_entry_group_ids.Append(0, 7);
+  legacy.sparse_entry_args[1] = {{"custom", "v"}};
+  const auto args0 = legacy.GetEntryArgs(0);
+  EXPECT_EQ(args0.at("hlo_op"), "fusion.1");
+  EXPECT_EQ(args0.at("group_id"), "7");
+  EXPECT_EQ(args0.at("hlo_module"), kHloModuleDefault);
+  // Sparse override with non-empty columnar tables falls through to merge.
+  legacy.entry_hlo_module_indices = {0, 0};
+  EXPECT_EQ(legacy.GetEntryArgs(1).at("custom"), "v");
+  legacy.entry_hlo_module_indices.clear();
+  legacy.entry_hlo_op_indices = {0, 0};
+  EXPECT_EQ(legacy.GetEntryArgs(1).at("custom"), "v");
+  legacy.entry_hlo_op_indices.clear();
+  legacy.non_zero_uids_by_event_index[1] = 55;
+  EXPECT_EQ(legacy.GetEntryArgs(1).at("hlo_module"), kHloModuleDefault);
+  // Partial legacy arrays and out-of-bounds index.
+  FlameChartTimelineData partial;
+  partial.entry_arg_flags = {0};
+  EXPECT_TRUE(partial.GetEntryArgs(0).empty());
+  partial.entry_names = {"only_name"};
+  EXPECT_TRUE(partial.GetEntryArgs(0).empty());
+  partial.entry_serials = {0};
+  EXPECT_TRUE(partial.GetEntryArgs(0).empty());
+  EXPECT_TRUE(legacy.GetEntryArgs(10).empty());
+
+  // 3. GetEntryHloModule out-of-range mod_idx and columnar MatchesSearchQuery.
+  FlameChartTimelineData columnar;
+  columnar.groups.push_back({.name = "T0",
+                             .start_level = 0,
+                             .nesting_level = kThreadNestingLevel,
+                             .expanded = true,
+                             .level_count = 1});
+  columnar.interned_string_pool = {"", "my_op"};
+  columnar.entry_name_indices = {0, 0, 0, 0};
+  columnar.entry_levels = {0, 0, 0, 0};
+  columnar.entry_start_times = {0.0, 10.0, 20.0, 30.0};
+  columnar.entry_total_times = {5.0, 5.0, 5.0, 5.0};
+  columnar.entry_hlo_module_indices = {99, 0, 0, 1};
+  columnar.hlo_module_table = {"", "mod_alpha"};
+  columnar.entry_hlo_op_indices = {0, 0, 1, 0};
+  columnar.hlo_op_table = {"", "hlo_op_beta"};
+  columnar.sparse_entry_group_ids.Append(1, 321);
+  columnar.level_offsets = {0, 4};
+  columnar.level_event_indices = {0, 1, 2, 3};
+  EXPECT_EQ(columnar.GetEntryHloModule(0), kHloModuleDefault);
+  ColorPalette palette = ColorPalette::Default();
+  Timeline col_timeline(palette);
+  col_timeline.SetTimelineData(std::move(columnar));
+  col_timeline.SetSearchQuery("321");
+  EXPECT_EQ(col_timeline.get_search_results_count(), 1);
+  col_timeline.SetSearchQuery("hlo_op_beta");
+  EXPECT_EQ(col_timeline.get_search_results_count(), 1);
+  col_timeline.SetSearchQuery("mod_alpha");
+  EXPECT_EQ(col_timeline.get_search_results_count(), 1);
+
+  // 4. RestoreSavedFullOverview recomputes search when query active & empty.
+  Timeline timeline(palette);
+  auto make_simple = [](absl::string_view name) {
+    FlameChartTimelineData d;
+    d.groups.push_back({.name = "T0",
+                        .start_level = 0,
+                        .nesting_level = kThreadNestingLevel,
+                        .expanded = true,
+                        .level_count = 1});
+    d.interned_string_pool = {"", std::string(name)};
+    d.entry_name_indices = {1};
+    d.entry_levels = {0};
+    d.entry_start_times = {0.0};
+    d.entry_total_times = {10.0};
+    d.entry_self_times = {10.0};
+    d.entry_event_ids = {1};
+    d.level_offsets = {0, 1};
+    d.level_event_indices = {0};
+    return d;
+  };
+  timeline.SetTimelineData(make_simple("target_op"));
+  timeline.MarkCurrentDataAsFullOverview();
+  timeline.UpdateTimelineData([&]() { return make_simple("other_op"); });
+  timeline.SetSearchQuery("target_op");
+  EXPECT_EQ(timeline.get_search_results_count(), 0);
+  ASSERT_TRUE(timeline.RestoreSavedFullOverview());
+  EXPECT_EQ(timeline.get_search_results_count(), 1);
+  // Negative/oob GetEventName fallbacks.
+  EXPECT_EQ(timeline.GetEventName(-1), "");
+  EXPECT_EQ(timeline.GetEventName(99), "");
 }
 
 TEST(EntryBitsetTest,

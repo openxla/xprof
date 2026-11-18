@@ -20306,6 +20306,7 @@ TEST(TimelineTest, RestoreSavedFullOverviewPropagatesExpandedCounterBounds) {
   timeline.SetTimelineData(std::move(overview_data));
   timeline.set_fetched_data_time_range({0.0, 100.0});
   timeline.MarkCurrentDataAsFullOverview();
+  timeline.PrepareForFilteredRefetch();
 
   // Simulate a zoomed/panned fetch where group indices shifted and wider
   // counter bounds [5.0, 90.0] were discovered for "Counter A".
@@ -22089,6 +22090,151 @@ TEST(EntryBitsetTest,
   unreserved.insert(0);
   EXPECT_THAT(unreserved.size(), Eq(1u));
   EXPECT_THAT(CollectSetBits(unreserved), ElementsAre(0));
+}
+
+TEST(TimelineTest, OverviewStashGuardDoesNotStashUnlessRequested) {
+  auto make_test_data = [](absl::string_view name) {
+    FlameChartTimelineData data;
+    data.groups.push_back({
+        .type = Group::Type::kFlame,
+        .name = std::string(name),
+        .expanded = true,
+        .level_count = 1,
+    });
+    SetSingleEventCsrLayout(data);
+    AddEvents(data, {{.name = std::string(name), .start = 100.0, .dur = 50.0}});
+    return data;
+  };
+
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.SetTimelineData(make_test_data("overview_track"));
+  timeline.MarkCurrentDataAsFullOverview();
+  EXPECT_TRUE(timeline.is_showing_full_overview());
+  EXPECT_FALSE(timeline.HasSavedFullOverview());
+
+  // 1. Stash overview on filtered refetch.
+  timeline.PrepareForFilteredRefetch();
+  EXPECT_TRUE(timeline.stash_full_overview_on_next_update());
+  timeline.SetTimelineData(make_test_data("narrow_track_1"));
+  EXPECT_TRUE(timeline.HasSavedFullOverview());
+  EXPECT_FALSE(timeline.is_showing_full_overview());
+  EXPECT_FALSE(timeline.stash_full_overview_on_next_update());
+
+  // 2. Restore overview (e.g. user zoomed back out).
+  EXPECT_TRUE(timeline.RestoreSavedFullOverview());
+  EXPECT_THAT(timeline.timeline_data().entry_names,
+              ElementsAre("overview_track"));
+  EXPECT_TRUE(timeline.is_showing_full_overview());
+  EXPECT_FALSE(timeline.HasSavedFullOverview());
+  EXPECT_FALSE(timeline.stash_full_overview_on_next_update());
+
+  // 3. Low-level `SetTimelineData` setter check (overview stash guard only): a
+  // stale update arriving while the full overview is shown, without
+  // PrepareForFilteredRefetch, must NOT stash the overview again. Rejection of
+  // stale refetch responses is verified through
+  // `DataProvider::ProcessTraceEvents` in trace_pb_event_parser_test.cc.
+  timeline.SetTimelineData(make_test_data("stale_narrow_track"));
+  EXPECT_FALSE(timeline.HasSavedFullOverview());
+}
+
+TEST(TimelineTest,
+     RestoreSavedFullOverviewWhileRefetchInFlightEmitsZeroFetchDataEvent) {
+  FlameChartTimelineData data;
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "overview_track",
+      .expanded = true,
+      .level_count = 1,
+  });
+  SetSingleEventCsrLayout(data);
+  AddEvents(data, {{.name = "overview_op", .start = 100.0, .dur = 50.0}});
+
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  std::vector<std::pair<double, double>> fetch_requests;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          fetch_requests.emplace_back(
+              std::any_cast<double>(detail.at(std::string(kFetchDataStart))),
+              std::any_cast<double>(detail.at(std::string(kFetchDataEnd))));
+        }
+      });
+
+  timeline.SetTimelineData(data);
+  timeline.set_data_time_range({0.0, 100000.0});
+  timeline.SetVisibleRange({0.0, 100000.0});
+  timeline.InitializeLastFetchRequestRange({0.0, 100000.0});
+  timeline.MarkCurrentDataAsFullOverview();
+  timeline.set_is_incremental_loading(false);
+
+  // Zoom in to trigger an in-flight refetch.
+  timeline.SetVisibleRange({1000.0, 2000.0});
+  timeline.MaybeRequestData();
+  ASSERT_EQ(fetch_requests.size(), 1u);
+  EXPECT_LT(fetch_requests[0].first, fetch_requests[0].second);
+  EXPECT_TRUE(timeline.is_incremental_loading());
+  EXPECT_TRUE(timeline.stash_full_overview_on_next_update());
+
+  // Zoom back out while the refetch is still in flight.
+  timeline.SetVisibleRange({0.0, 100000.0});
+  timeline.MaybeRequestData();
+  ASSERT_EQ(fetch_requests.size(), 2u);
+  EXPECT_DOUBLE_EQ(fetch_requests[1].first, 0.0);
+  EXPECT_DOUBLE_EQ(fetch_requests[1].second, 0.0);
+  EXPECT_FALSE(timeline.is_incremental_loading());
+  EXPECT_FALSE(timeline.stash_full_overview_on_next_update());
+  EXPECT_TRUE(timeline.is_showing_full_overview());
+}
+
+TEST(TimelineTest,
+     CancelPendingRefetchRestoresLastFetchRequestRangeAndStashFlag) {
+  FlameChartTimelineData data;
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "overview_track",
+      .expanded = true,
+      .level_count = 1,
+  });
+  SetSingleEventCsrLayout(data);
+  AddEvents(data, {{.name = "overview_op", .start = 100.0, .dur = 50.0}});
+
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  int fetch_count = 0;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& /*detail*/) {
+        if (type == kFetchData) {
+          ++fetch_count;
+        }
+      });
+
+  timeline.SetTimelineData(data);
+  timeline.set_data_time_range({0.0, 100000.0});
+  timeline.SetVisibleRange({0.0, 100000.0});
+  timeline.InitializeLastFetchRequestRange({0.0, 100000.0});
+  timeline.MarkCurrentDataAsFullOverview();
+  timeline.set_is_incremental_loading(false);
+  const TimeRange initial_fetch_range = timeline.last_fetch_request_range();
+
+  // Trigger a zoomed-in refetch.
+  timeline.SetVisibleRange({1000.0, 2000.0});
+  timeline.MaybeRequestData();
+  EXPECT_EQ(fetch_count, 1);
+  EXPECT_NE(timeline.last_fetch_request_range(), initial_fetch_range);
+  EXPECT_TRUE(timeline.stash_full_overview_on_next_update());
+  EXPECT_TRUE(timeline.is_incremental_loading());
+
+  // Cancel the pending refetch and verify state is rolled back so the same
+  // zoomed-in range can be requested again.
+  timeline.CancelPendingRefetch();
+  EXPECT_EQ(timeline.last_fetch_request_range(), initial_fetch_range);
+  EXPECT_FALSE(timeline.stash_full_overview_on_next_update());
+  EXPECT_FALSE(timeline.is_incremental_loading());
+
+  timeline.MaybeRequestData();
+  EXPECT_EQ(fetch_count, 2);
 }
 }  // namespace
 }  // namespace testing

@@ -243,6 +243,7 @@ struct IncrementalParserSession {
       active_track_filter;
   std::optional<std::pair<Milliseconds, Milliseconds>> full_timespan;
   bool is_initial_load = true;
+  bool ignored_stale_refetch = false;
   bool mpmd_pipeline_view = false;
   bool appended_any_batch = false;
   size_t frames_flushed = 0;
@@ -282,6 +283,7 @@ struct IncrementalParserSession {
     active_track_filter = std::nullopt;
     full_timespan = std::nullopt;
     is_initial_load = true;
+    ignored_stale_refetch = false;
     mpmd_pipeline_view = false;
     appended_any_batch = false;
     frames_flushed = 0;
@@ -885,6 +887,13 @@ void BeginIncrementalTraceEvents(
     DataProvider& data_provider, Timeline& timeline) {
   IncrementalParserSession& session = GetIncrementalSession();
   session.Reset();
+  if (timeline.ShouldIgnoreStaleFilteredRefetch(
+          visible_range_from_url.has_value())) {
+    session.ignored_stale_refetch = true;
+    data_provider.FinishIncrementalLoad();
+    timeline.set_is_incremental_loading(false);
+    return;
+  }
   session.is_initial_load = !data_provider.HasKnownTracks() ||
                             (timeline.visible_range() == TimeRange::Zero());
   session.visible_range_from_url = visible_range_from_url;
@@ -911,6 +920,9 @@ void BeginIncrementalTraceEvents(
     }
   }
   if (session.filter_range_ps.has_value()) {
+    // Snapshot the committed state before mutating active tracks below so a
+    // cancelled refetch can roll it back.
+    timeline.PrepareForFilteredRefetch();
     absl::flat_hash_set<std::pair<ProcessId, ThreadId>> active_tracks =
         timeline.ComputeActiveTracksForFetch(/*include_vertical_margin=*/true);
     absl::flat_hash_set<ProcessId> active_pids;
@@ -929,7 +941,6 @@ void BeginIncrementalTraceEvents(
     } else {
       timeline.ClearLoadedActiveTracks();
     }
-    timeline.PrepareForFilteredRefetch();
   } else {
     timeline.ClearLoadedActiveTracks();
     timeline.set_stash_full_overview_on_next_update(false);
@@ -971,6 +982,9 @@ size_t GetZstdDecompressorCapacityForTest() {
 
 bool ShouldEnqueueCompressedFrameIncremental() {
   IncrementalParserSession& session = GetIncrementalSession();
+  if (session.ignored_stale_refetch) {
+    return false;
+  }
   if (!session.is_initial_load &&
       !session.cached_cumulative_interned_strings.empty()) {
     session.using_cached_cumulative_strings = true;
@@ -988,6 +1002,9 @@ void AppendCompressedTraceEventsIncremental(uintptr_t data_ptr,
     return;
   }
   IncrementalParserSession& session = GetIncrementalSession();
+  if (session.ignored_stale_refetch) {
+    return;
+  }
   if (session.using_cached_trace_store) {
     ++session.next_enqueued_frame_index;
     return;
@@ -1028,9 +1045,11 @@ bool StepIncrementalTraceEvents(size_t max_events_per_step,
     max_events_per_step = 1;
   }
   IncrementalParserSession& session = GetIncrementalSession();
-  if (session.filter_range_ps.has_value() &&
-      timeline.is_showing_full_overview() &&
-      !timeline.stash_full_overview_on_next_update()) {
+  if (session.ignored_stale_refetch) {
+    return false;
+  }
+  if (timeline.ShouldIgnoreStaleFilteredRefetch(
+          session.filter_range_ps.has_value())) {
     CancelIncrementalTraceEvents(data_provider, timeline);
     return false;
   }
@@ -1217,7 +1236,7 @@ void CancelIncrementalTraceEvents(DataProvider& data_provider,
                                   Timeline& timeline) {
   data_provider.FinishIncrementalLoad();
   GetIncrementalSession().Reset();
-  timeline.set_is_incremental_loading(false);
+  timeline.CancelPendingRefetch();
 }
 
 #ifdef __EMSCRIPTEN__
@@ -1230,9 +1249,12 @@ void CancelIncrementalTraceEvents() {
 bool FinishIncrementalTraceEvents(DataProvider& data_provider,
                                   Timeline& timeline) {
   IncrementalParserSession& session = GetIncrementalSession();
-  if (session.filter_range_ps.has_value() &&
-      timeline.is_showing_full_overview() &&
-      !timeline.stash_full_overview_on_next_update()) {
+  if (session.ignored_stale_refetch) {
+    session.Reset();
+    return timeline.full_trace_loaded();
+  }
+  if (timeline.ShouldIgnoreStaleFilteredRefetch(
+          session.filter_range_ps.has_value())) {
     CancelIncrementalTraceEvents(data_provider, timeline);
     return timeline.full_trace_loaded();
   }
@@ -1241,9 +1263,8 @@ bool FinishIncrementalTraceEvents(DataProvider& data_provider,
   while (StepIncrementalTraceEvents(kFinishMaxEventsPerStep, data_provider,
                                     timeline)) {
   }
-  if (session.filter_range_ps.has_value() &&
-      timeline.is_showing_full_overview() &&
-      !timeline.stash_full_overview_on_next_update()) {
+  if (timeline.ShouldIgnoreStaleFilteredRefetch(
+          session.filter_range_ps.has_value())) {
     CancelIncrementalTraceEvents(data_provider, timeline);
     return timeline.full_trace_loaded();
   }
@@ -1338,6 +1359,11 @@ void ParseAndProcessCompressedTraceEvents(
     uintptr_t data_ptr, size_t data_size,
     std::optional<std::pair<Milliseconds, Milliseconds>> visible_range_from_url,
     DataProvider& data_provider, Timeline& timeline) {
+  if (timeline.ShouldIgnoreStaleFilteredRefetch(
+          visible_range_from_url.has_value())) {
+    timeline.set_is_incremental_loading(false);
+    return;
+  }
   const bool is_initial_load =
       (timeline.last_fetch_request_range() == TimeRange::Zero());
   GetIncrementalSession().ClearPersistentCache();

@@ -576,6 +576,7 @@ class Timeline {
     TimeRange clamped = range;
     ConstrainTimeRange(clamped);
     last_fetch_request_range_ = clamped;
+    ClearPendingRefetchState();
   }
 
   void set_data_time_range(const TimeRange& range) {
@@ -595,6 +596,7 @@ class Timeline {
   void MarkCurrentDataAsFullOverview() {
     is_full_overview_data_ = true;
     stash_full_overview_on_next_update_ = false;
+    ClearPendingRefetchState();
     ClearLoadedActiveTracks();
     saved_full_overview_.reset();
     if (is_compacted_ && timeline_data_.entry_start_times.size() >
@@ -608,7 +610,13 @@ class Timeline {
     overview_is_compacted_ = is_compacted_;
     overview_window_at_full_resolution_ = window_at_full_resolution_;
   }
+  // Must be called before mutating incremental-load state (loaded active tracks
+  // or resolution flags) for a filtered refetch. The first call per refetch
+  // snapshots the committed state so `CancelPendingRefetch()` and
+  // `RestoreSavedFullOverview()` can roll it back; later calls before the
+  // refetch commits or is cancelled do not change the snapshot.
   void PrepareForFilteredRefetch() {
+    SnapshotPreRefetchState();
     if (is_full_overview_data_ && !saved_full_overview_.has_value()) {
       stash_full_overview_on_next_update_ = true;
     }
@@ -621,11 +629,20 @@ class Timeline {
   void set_stash_full_overview_on_next_update(bool stash) {
     stash_full_overview_on_next_update_ = stash;
   }
+  // Returns true when a filtered sub-window response arrives after the user
+  // has already zoomed back out and restored the full overview without a new
+  // filtered refetch pending.
+  bool ShouldIgnoreStaleFilteredRefetch(bool has_filter_range) const {
+    return has_filter_range && visible_range() != TimeRange::Zero() &&
+           is_showing_full_overview() && !stash_full_overview_on_next_update_;
+  }
   bool RestoreSavedFullOverview();
+  void CancelPendingRefetch();
   void ClearSavedFullOverview() {
     saved_full_overview_.reset();
     is_full_overview_data_ = false;
     stash_full_overview_on_next_update_ = false;
+    ClearPendingRefetchState();
     ClearLoadedActiveTracks();
     overview_fetched_data_time_range_ = TimeRange::Zero();
     overview_data_time_range_ = TimeRange::Zero();
@@ -847,6 +864,9 @@ class Timeline {
 
   void set_is_incremental_loading(bool is_incremental_loading) {
     is_incremental_loading_ = is_incremental_loading;
+    if (!is_incremental_loading && pending_refetch_state_.has_value()) {
+      pending_refetch_state_->in_flight = false;
+    }
   }
   bool is_incremental_loading() const { return is_incremental_loading_; }
 
@@ -1692,9 +1712,37 @@ class Timeline {
     bool is_compacted = false;
     bool window_at_full_resolution = false;
   };
+  // Data state committed before a refetch. Incremental loads reset the
+  // resolution flags and active tracks before any data is flushed, so these are
+  // restored if the refetch is cancelled or superseded before its first flush.
+  struct PendingRefetchState {
+    TimeRange last_fetch_request_range = TimeRange::Zero();
+    bool stash_full_overview_on_next_update = false;
+    bool full_trace_loaded = false;
+    bool is_compacted = false;
+    bool window_at_full_resolution = false;
+    bool has_active_track_filter = false;
+    absl::flat_hash_set<std::pair<ProcessId, ThreadId>> loaded_active_tracks;
+    bool in_flight = false;
+  };
+  PendingRefetchState& SnapshotPreRefetchState();
+  // Rolls back to the state captured by `SnapshotPreRefetchState()`, if any,
+  // and clears the pending refetch state.
+  void RestorePreRefetchState();
+  // Restores only the resolution flags captured by `SnapshotPreRefetchState()`,
+  // if any, without clearing the pending refetch state.
+  void RestorePreRefetchResolutionFlags();
+  void ClearPendingRefetchState() { pending_refetch_state_.reset(); }
+  // Emits a `kFetchData` event with a `{0.0, 0.0}` sentinel time range when
+  // `was_refetch_in_flight` is true so the frontend aborts the superseded
+  // sub-window refetch and restores the full overview without issuing a network
+  // request.
+  void NotifyRefetchCancelledIfInFlight(bool was_refetch_in_flight);
+
   std::optional<SavedFullOverview> saved_full_overview_;
   bool is_full_overview_data_ = false;
   bool stash_full_overview_on_next_update_ = false;
+  std::optional<PendingRefetchState> pending_refetch_state_;
   TimeRange overview_fetched_data_time_range_ = TimeRange::Zero();
   TimeRange overview_data_time_range_ = TimeRange::Zero();
   bool overview_full_trace_loaded_ = false;

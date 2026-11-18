@@ -248,5 +248,187 @@ TEST_F(UnifiedGraphViewerProcessorTest, HandleMeGraph) {
                                ::testing::HasSubstr("\"constant\"")));
 }
 
+TEST_F(UnifiedGraphViewerProcessorTest,
+       HandleBooleanStringShowMetadataAndMergeFusion) {
+  xla::HloProto dummy_hlo = ParseTextProtoOrDie(R"pb(
+    hlo_module {
+      name: "my_module"
+      entry_computation_name: "entry"
+      entry_computation_id: 1
+      host_program_shape {
+        parameters {
+          element_type: F32
+          dimensions: [ 2 ]
+          layout { minor_to_major: 0 }
+        }
+        parameter_names: "p0"
+        result {
+          element_type: F32
+          dimensions: [ 2 ]
+          layout { minor_to_major: 0 }
+        }
+      }
+      computations {
+        name: "fused_comp"
+        id: 2
+        root_id: 21
+        instructions {
+          name: "fused_param"
+          opcode: "parameter"
+          parameter_number: 0
+          id: 20
+          shape {
+            element_type: F32
+            dimensions: [ 2 ]
+            layout { minor_to_major: 0 }
+          }
+        }
+        instructions {
+          name: "fused_negate"
+          opcode: "negate"
+          id: 21
+          operand_ids: 20
+          shape {
+            element_type: F32
+            dimensions: [ 2 ]
+            layout { minor_to_major: 0 }
+          }
+        }
+        program_shape {
+          parameters {
+            element_type: F32
+            dimensions: [ 2 ]
+            layout { minor_to_major: 0 }
+          }
+          parameter_names: "fp0"
+          result {
+            element_type: F32
+            dimensions: [ 2 ]
+            layout { minor_to_major: 0 }
+          }
+        }
+      }
+      computations {
+        name: "entry"
+        id: 1
+        root_id: 11
+        instructions {
+          name: "param.0"
+          opcode: "parameter"
+          parameter_number: 0
+          id: 10
+          shape {
+            element_type: F32
+            dimensions: [ 2 ]
+            layout { minor_to_major: 0 }
+          }
+        }
+        instructions {
+          name: "fusion.1"
+          opcode: "fusion"
+          fusion_kind: "kLoop"
+          id: 11
+          operand_ids: 10
+          called_computation_ids: 2
+          backend_config: "custom_backend_cfg"
+          metadata { op_name: "source_op_meta" }
+          shape {
+            element_type: F32
+            dimensions: [ 2 ]
+            layout { minor_to_major: 0 }
+          }
+        }
+        program_shape {
+          parameters {
+            element_type: F32
+            dimensions: [ 2 ]
+            layout { minor_to_major: 0 }
+          }
+          parameter_names: "p0"
+          result {
+            element_type: F32
+            dimensions: [ 2 ]
+            layout { minor_to_major: 0 }
+          }
+        }
+      }
+    }
+  )pb");
+
+  std::string hlo_path = file::JoinPath(session_dir_, "my_module.hlo_proto.pb");
+  ASSERT_OK(WriteBinaryProto(hlo_path, dummy_hlo));
+
+  std::string xspace_path = file::JoinPath(session_dir_, "test_host.xplane.pb");
+  XSpace dummy_space;
+  ASSERT_OK(WriteBinaryProto(xspace_path, dummy_space));
+
+  ASSERT_OK_AND_ASSIGN(
+      SessionSnapshot session_snapshot,
+      SessionSnapshot::Create({xspace_path}, /*xspaces=*/std::nullopt));
+
+  auto render = [&](const ToolOptions& opts) -> absl::StatusOr<std::string> {
+    std::unique_ptr<UnifiedProfileProcessor> processor =
+        UnifiedProfileProcessorFactory::GetInstance().Create("graph_viewer",
+                                                             opts);
+    if (processor == nullptr) {
+      return absl::InternalError("Failed to create graph_viewer processor");
+    }
+    absl::Status status = processor->ProcessSession(session_snapshot, opts);
+    if (!status.ok()) {
+      return status;
+    }
+    return processor->GetData();
+  };
+
+  ToolOptions options;
+  options["module_name"] = "my_module";
+  options["type"] = "graph";
+  options["format"] = "dot";
+  options["node_name"] = "fusion.1";
+  options["graph_width"] = "1";
+
+  // Scenario 1: Default/false flags expand fusion and omit backend_config.
+  options["show_metadata"] = "false";
+  options["merge_fusion"] = "false";
+  ASSERT_OK_AND_ASSIGN(std::string dot_default, render(options));
+  EXPECT_THAT(dot_default, ::testing::HasSubstr("fused_negate"));
+  EXPECT_THAT(dot_default,
+              ::testing::Not(::testing::HasSubstr("custom_backend_cfg")));
+
+  // Scenario 2: show_metadata="true" renders backend_config on the node.
+  options["show_metadata"] = "true";
+  options["merge_fusion"] = "false";
+  ASSERT_OK_AND_ASSIGN(std::string dot_metadata, render(options));
+  EXPECT_THAT(dot_metadata, ::testing::HasSubstr("fused_negate"));
+  EXPECT_THAT(dot_metadata, ::testing::HasSubstr("custom_backend_cfg"));
+
+  // Scenario 3: merge_fusion="true" keeps fusion.1 while collapsing fused ops.
+  options["show_metadata"] = "false";
+  options["merge_fusion"] = "true";
+  ASSERT_OK_AND_ASSIGN(std::string dot_merged, render(options));
+  EXPECT_THAT(
+      dot_merged,
+      ::testing::AllOf(::testing::HasSubstr("fusion.1"),
+                       ::testing::Not(::testing::HasSubstr("fused_negate"))));
+
+  // Scenario 4: short_txt with show_metadata="false" renders HLO without meta.
+  ToolOptions txt_options;
+  txt_options["module_name"] = "my_module";
+  txt_options["type"] = "short_txt";
+  txt_options["show_metadata"] = "false";
+  ASSERT_OK_AND_ASSIGN(std::string txt_no_meta, render(txt_options));
+  EXPECT_THAT(
+      txt_no_meta,
+      ::testing::AllOf(::testing::HasSubstr("fusion.1"),
+                       ::testing::Not(::testing::HasSubstr("source_op_meta"))));
+
+  // Scenario 5: short_txt with show_metadata="true" includes op metadata.
+  txt_options["show_metadata"] = "true";
+  ASSERT_OK_AND_ASSIGN(std::string txt_with_meta, render(txt_options));
+  EXPECT_THAT(txt_with_meta,
+              ::testing::AllOf(::testing::HasSubstr("fusion.1"),
+                               ::testing::HasSubstr("source_op_meta")));
+}
+
 }  // namespace
 }  // namespace xprof

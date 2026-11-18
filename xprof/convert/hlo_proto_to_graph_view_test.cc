@@ -71,6 +71,39 @@ TEST(GraphViewerParamsTest, GraphType) {
   EXPECT_EQ(params2.render_options.show_backend_config, true);
   EXPECT_EQ(params2.render_options.show_fusion_subcomputations, false);
   EXPECT_EQ(params2.format, xla::RenderedGraphFormat::kHtml);
+
+  // Boolean query string options from HTTP query params ("true" / "false").
+  ToolOptions options3;
+  options3["type"] = "graph";
+  options3["node_name"] = "fusion.111";
+  options3["graph_width"] = "2";
+  options3["show_metadata"] = "true";
+  options3["merge_fusion"] = "true";
+  options3["format"] = "html";
+  TF_ASSERT_OK_AND_ASSIGN(GraphViewerParams params3,
+                          ParseGraphViewerParams(options3));
+  EXPECT_EQ(params3.graph_width, 2);
+  EXPECT_EQ(params3.render_options.show_backend_config, true);
+  EXPECT_EQ(params3.render_options.show_fusion_subcomputations, false);
+
+  ToolOptions options4;
+  options4["type"] = "graph";
+  options4["show_metadata"] = "false";
+  options4["merge_fusion"] = "false";
+  TF_ASSERT_OK_AND_ASSIGN(GraphViewerParams params4,
+                          ParseGraphViewerParams(options4));
+  EXPECT_EQ(params4.render_options.show_backend_config, false);
+  EXPECT_EQ(params4.render_options.show_fusion_subcomputations, true);
+
+  // Malformed boolean strings fall back to defaults.
+  ToolOptions options5;
+  options5["type"] = "graph";
+  options5["show_metadata"] = "garbage";
+  options5["merge_fusion"] = "garbage";
+  TF_ASSERT_OK_AND_ASSIGN(GraphViewerParams params5,
+                          ParseGraphViewerParams(options5));
+  EXPECT_EQ(params5.render_options.show_backend_config, false);
+  EXPECT_EQ(params5.render_options.show_fusion_subcomputations, true);
 }
 
 TEST(GraphViewerParamsTest, ShortTxtType) {
@@ -92,6 +125,13 @@ TEST(GraphViewerParamsTest, ShortTxtType) {
   EXPECT_EQ(params2.type, "short_txt");
   EXPECT_EQ(params2.verbose, false);
   EXPECT_EQ(params2.show_metadata, true);
+
+  ToolOptions options3;
+  options3["type"] = "short_txt";
+  options3["show_metadata"] = "true";
+  TF_ASSERT_OK_AND_ASSIGN(GraphViewerParams params3,
+                          ParseGraphViewerParams(options3));
+  EXPECT_EQ(params3.show_metadata, true);
 }
 
 TEST(GraphViewerParamsTest, LongTxtType) {
@@ -113,6 +153,13 @@ TEST(GraphViewerParamsTest, LongTxtType) {
   EXPECT_EQ(params2.type, "long_txt");
   EXPECT_EQ(params2.verbose, true);
   EXPECT_EQ(params2.show_metadata, true);
+
+  ToolOptions options3;
+  options3["type"] = "long_txt";
+  options3["show_metadata"] = "true";
+  TF_ASSERT_OK_AND_ASSIGN(GraphViewerParams params3,
+                          ParseGraphViewerParams(options3));
+  EXPECT_EQ(params3.show_metadata, true);
 }
 
 TEST(GraphViewerParamsTest, AdjNodesType) {

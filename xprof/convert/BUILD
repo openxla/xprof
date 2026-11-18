@@ -2617,6 +2617,17 @@ cc_library(
     ],
 )
 
+cc_test(
+    name = "tool_options_test",
+    size = "small",
+    srcs = ["tool_options_test.cc"],
+    deps = [
+        ":tool_options",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_library(
     name = "trace_view_options",
     srcs = ["trace_view_options.cc"],

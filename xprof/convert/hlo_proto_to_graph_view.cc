@@ -332,10 +332,11 @@ absl::StatusOr<GraphViewerParams> ParseGraphViewerParams(
 
     params.graph_width =
         GetParamWithDefault<int>(options, "graph_width", kDefaultWidth);
-    params.render_options.show_backend_config = GetParamWithDefault<int>(
+    params.render_options.show_backend_config = GetParamWithDefault<bool>(
         options, "show_metadata", kDefaultShowMetadata);
     params.render_options.show_fusion_subcomputations =
-        !GetParamWithDefault<int>(options, "merge_fusion", kDefaultMergeFusion);
+        !GetParamWithDefault<bool>(options, "merge_fusion",
+                                   kDefaultMergeFusion);
     params.format = GetRenderFormat(GetParamWithDefault<std::string>(
         options, "format", kDefaultFormatString));
 
@@ -371,7 +372,7 @@ absl::StatusOr<GraphViewerParams> ParseGraphViewerParams(
   // For txt type.
   params.type = type.value();
   params.show_metadata =
-      GetParamWithDefault(options, "show_metadata", kDefaultShowMetadata);
+      GetParamWithDefault<bool>(options, "show_metadata", kDefaultShowMetadata);
   params.verbose = type == kLongTxtTypeName;
   return params;
 }

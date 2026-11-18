@@ -42,8 +42,8 @@ static constexpr char kProtoTypeName[] = "pb";
 static constexpr char kProtoTextTypeName[] = "pbtxt";
 static constexpr char kDefaultFormatString[] = "url";
 static constexpr int kDefaultWidth = 3;
-static constexpr int kDefaultShowMetadata = 0;
-static constexpr int kDefaultMergeFusion = 0;
+static constexpr bool kDefaultShowMetadata = false;
+static constexpr bool kDefaultMergeFusion = false;
 
 
 static constexpr absl::string_view kModuleNameOption = "module_name";
@@ -56,7 +56,17 @@ static constexpr absl::string_view kTimelineNoiseOption = "timeline_noise";
 using ToolOptions =
     absl::flat_hash_map<std::string, std::variant<bool, int, std::string>>;
 
-// Helper function to get parameter from tool options.
+// Retrieves `key` from `options` as `T`, returning `std::nullopt` when `key` is
+// absent or its value cannot be parsed as `T` (allowing `GetParamWithDefault`
+// to fall back to its default):
+// - `T = int`: accepts `int` or a base-10 integer `std::string`.
+// - `T = bool`: accepts `bool`, `int` (`!= 0`), or a `std::string` parsed via
+//   `absl::SimpleAtob` (with `absl::SimpleAtoi != 0` fallback for non-0/1
+//   integer strings); empty or malformed strings return `std::nullopt`.
+// - `T = std::string`: accepts `std::string`, `int`, or `bool`
+//   (`"true"`/`"false"`).
+// TODO(profiler): Consolidate ad-hoc boolean option parsing in processors and
+// Python plugin callers onto `GetParamWithDefault<bool>`.
 template <typename T>
 std::optional<T> GetParam(const ToolOptions& options,
                           const absl::string_view& key) {
@@ -79,6 +89,9 @@ std::optional<T> GetParam(const ToolOptions& options,
       }
     }
   } else if constexpr (std::is_same_v<T, bool>) {
+    if (const int* int_val = std::get_if<int>(&iter->second)) {
+      return *int_val != 0;
+    }
     if (const std::string* str_val = std::get_if<std::string>(&iter->second)) {
       bool parsed_val;
       if (absl::SimpleAtob(*str_val, &parsed_val)) {

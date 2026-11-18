@@ -5,6 +5,7 @@ package(default_visibility = ["//frontend:internal"])
 xprof_ng_module(
     name = "trace_viewer_container",
     srcs = [
+        "hlo_mini_graph.ts",
         "hlo_pretty_printer.ts",
         "trace_viewer_container.ts",
         "trace_viewer_utils.ts",

@@ -1591,7 +1591,6 @@ trace-viewer-container.trace-loaded {
   font: var(--mat-sys-label-small);
   font-weight: 400;
   letter-spacing: var(--mat-sys-label-small-tracking);
-  pointer-events: none;
   transition:
     top 160ms var(--motion-easing-emphasized),
     bottom 160ms var(--motion-easing-emphasized),

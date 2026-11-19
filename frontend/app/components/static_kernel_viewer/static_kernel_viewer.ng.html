@@ -291,9 +291,9 @@
               (contextmenu)="onKernelRowContextMenu(entry, $event)"
               (mousedown)="onMouseDown($event)"
               (mouseenter)="onKernelRowHover(entry, $event)"
-              (mouseleave)="hideCardSoon()"
+              (mouseleave)="onKernelRowLeave(entry, $event)"
               (focus)="onKernelRowHover(entry, $event)"
-              (blur)="hideCard()"
+              (blur)="hideCardOnBlur()"
               [attr.aria-current]="entry === selectedEntry ? 'true' : null"
               [attr.aria-label]="isEntryOpen(entry) ? entry.description + ', open in a tab' : entry.description"
             >
@@ -348,7 +348,7 @@
               type="button"
               (click)="onTabClick(tab)"
               (focus)="onTabHover(tab, $event)"
-              (blur)="hideCard()"
+              (blur)="hideCardOnBlur()"
               [attr.aria-current]="tab === activeTab ? 'true' : null"
               [attr.aria-label]="tab.entry.description"
             >
@@ -541,6 +541,8 @@
     [style.left.px]="card.left"
     [style.top.px]="card.top"
     [style.bottom.px]="card.bottom"
+    (mouseenter)="onCardMouseEnter()"
+    (mouseleave)="onCardMouseLeave()"
     aria-hidden="true"
   >
     <div class="card-header">

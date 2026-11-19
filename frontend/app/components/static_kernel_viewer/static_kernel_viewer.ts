@@ -416,8 +416,17 @@ const TAB_HIGHLIGHT_MS = 900;
 /** Delay before the details card of a hovered kernel appears. */
 const CARD_SHOW_DELAY_MS = 400;
 
-/** Delay before the details card hides, so it can move to a neighbor. */
-const CARD_HIDE_DELAY_MS = 100;
+/**
+ * Delay before the details card hides, so the pointer can cross to the card
+ * or move to a neighbor without the card closing.
+ */
+const CARD_HIDE_DELAY_MS = 200;
+
+/**
+ * Delay before a row that the pointer crosses on its way to the details card
+ * takes the card over, so that the card stays put while the pointer aims at it.
+ */
+const CARD_AIM_DELAY_MS = 250;
 
 /** Width of the details card, see the stylesheet. */
 const CARD_WIDTH = 300;
@@ -1370,6 +1379,14 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   private lastReplacedSearch: string | undefined = undefined;
   private isPointerInRail = false;
   private isFocusInRail = false;
+  private isPointerInCard = false;
+  /** Where the pointer left the row of the rail card, while aiming at it. */
+  private cardAimOrigin: {x: number; y: number} | undefined = undefined;
+  /** Last pointer position, before the move that is being handled. */
+  private lastPointer: {x: number; y: number} | undefined = undefined;
+  private readonly pointerMoveListener = (event: MouseEvent) => {
+    this.lastPointer = {x: event.clientX, y: event.clientY};
+  };
   /** Whether the last focused element was focused with the keyboard. */
   private isKeyboardFocus = false;
   private nextTabId = 0;
@@ -1681,6 +1698,10 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
         MINIMAP_UPDATED_EVENT_NAME,
         this.minimapUpdatedListener,
       );
+      // Tracks pointer aim for the details card without change detection.
+      window.addEventListener('mousemove', this.pointerMoveListener, {
+        passive: true,
+      });
     });
 
     combineLatest([this.route.params, this.route.queryParams])
@@ -1726,6 +1747,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       MINIMAP_UPDATED_EVENT_NAME,
       this.minimapUpdatedListener,
     );
+    window.removeEventListener('mousemove', this.pointerMoveListener);
     this.stopSourceResizeListeners();
     if (this.traceViewerModule !== null) {
       shutdownTraceViewerV2();
@@ -2027,8 +2049,8 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   closeContextMenu(): void {
     const wasRailMenu = this.contextMenu?.source === 'rail';
     this.contextMenu = undefined;
-    if (wasRailMenu && !this.isPointerInRail && !this.isFocusInRail) {
-      this.setRailPeeking(false, RAIL_COLLAPSE_DELAY_MS);
+    if (wasRailMenu) {
+      this.collapseRailIfOutside();
     }
   }
 
@@ -2058,10 +2080,39 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     if (!(row instanceof HTMLElement) || !this.isHoverOrKeyboardFocus(event)) {
       return;
     }
-    // Rows only show cards once the rail has expanded to show their names.
-    this.scheduleCard(() =>
-      this.isRailExpanded ? this.cardBesideRow(entry, row) : undefined,
-    );
+    const build = () =>
+      // Rows only show cards once the rail has expanded to show their names.
+      this.isRailExpanded ? this.cardBesideRow(entry, row) : undefined;
+    // Rows that the pointer crosses on its way to the card of another row do
+    // not take the card over right away, like menus that track pointer aim.
+    if (
+      event instanceof MouseEvent &&
+      event.type === 'mouseenter' &&
+      this.hoverCard?.source === 'rail' &&
+      this.hoverCard.entry !== entry &&
+      this.isAimingAtCard(event.clientX, event.clientY)
+    ) {
+      clearTimeout(this.cardTimer);
+      this.cardTimer = setTimeout(() => {
+        this.cardTimer = undefined;
+        this.scheduleCard(build);
+      }, CARD_AIM_DELAY_MS);
+      return;
+    }
+    this.scheduleCard(build);
+  }
+
+  /** Hides the card of a row soon, and notes where the pointer left the row. */
+  onKernelRowLeave(entry: KernelEntry, event: MouseEvent): void {
+    if (this.hoverCard?.source === 'rail' && this.hoverCard.entry === entry) {
+      // Boundary events fire before the move's `mousemove`, so the last
+      // position is still inside the row, where the aim starts from.
+      this.cardAimOrigin = this.lastPointer ?? {
+        x: event.clientX,
+        y: event.clientY,
+      };
+    }
+    this.hideCardSoon();
   }
 
   /** Shows the details card of a hovered or keyboard-focused tab. */
@@ -2079,7 +2130,22 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   hideCard(): void {
     clearTimeout(this.cardTimer);
     this.cardTimer = undefined;
+    const wasRailCard = this.hoverCard?.source === 'rail';
     this.hoverCard = undefined;
+    this.isPointerInCard = false;
+    this.cardAimOrigin = undefined;
+    // The rail stays open while the pointer is on its card, so collapse it
+    // once the card goes away outside of the rail.
+    if (wasRailCard) {
+      this.collapseRailIfOutside(/* preserveExistingTimer= */ true);
+    }
+  }
+
+  /** Hides the card when its row or tab blurs, unless the pointer is on it. */
+  hideCardOnBlur(): void {
+    if (!this.isPointerInCard) {
+      this.hideCard();
+    }
   }
 
   /** Hides the details card soon, unless the pointer moves to a neighbor. */
@@ -2089,6 +2155,24 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       this.hideCard();
       this.changeDetectorRef.markForCheck();
     }, CARD_HIDE_DELAY_MS);
+  }
+
+  /** Keeps the details card open while the pointer is on it. */
+  onCardMouseEnter(): void {
+    this.isPointerInCard = true;
+    this.cardAimOrigin = undefined;
+    clearTimeout(this.cardTimer);
+    this.cardTimer = undefined;
+    if (this.hoverCard?.source === 'rail') {
+      // The card sits outside of the rail, which would collapse otherwise.
+      clearTimeout(this.railTimer);
+      this.railTimer = undefined;
+    }
+  }
+
+  onCardMouseLeave(): void {
+    this.isPointerInCard = false;
+    this.hideCardSoon();
   }
 
   onRailScroll(): void {
@@ -2272,9 +2356,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       this.railTimer = undefined;
       return;
     }
-    if (!this.isFocusInRail) {
-      this.setRailPeeking(false, RAIL_COLLAPSE_DELAY_MS);
-    }
+    this.collapseRailIfOutside();
   }
 
   onRailFocusIn(event: FocusEvent): void {
@@ -2296,9 +2378,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
     this.isFocusInRail = false;
-    if (!this.isPointerInRail && this.contextMenu?.source !== 'rail') {
-      this.setRailPeeking(false, RAIL_COLLAPSE_DELAY_MS);
-    }
+    this.collapseRailIfOutside();
   }
 
   onLayoutFocusIn(event: FocusEvent): void {
@@ -3512,6 +3592,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
     const apply = () => {
+      this.railTimer = undefined;
       this.isRailPeeking = peeking;
       if (!peeking) {
         // The search only narrows down the rail while it is open.
@@ -3548,6 +3629,20 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     );
   }
 
+  /** Collapses the unpinned rail once both pointer and focus are outside it. */
+  private collapseRailIfOutside(preserveExistingTimer = false): void {
+    if (
+      this.isPointerInRail ||
+      this.isFocusInRail ||
+      this.contextMenu?.source === 'rail' ||
+      (this.isPointerInCard && this.hoverCard?.source === 'rail') ||
+      (preserveExistingTimer && this.railTimer !== undefined)
+    ) {
+      return;
+    }
+    this.setRailPeeking(false, RAIL_COLLAPSE_DELAY_MS);
+  }
+
   /** Shows a details card, right away if another card is showing. */
   private scheduleCard(build: () => KernelCard | undefined): void {
     clearTimeout(this.cardTimer);
@@ -3558,7 +3653,18 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     }
     const show = () => {
       this.cardTimer = undefined;
-      this.hoverCard = build();
+      this.cardAimOrigin = undefined;
+      const wasRailCard = this.hoverCard?.source === 'rail';
+      const next = build();
+      if (!next) {
+        this.hideCard();
+        this.changeDetectorRef.markForCheck();
+        return;
+      }
+      this.hoverCard = next;
+      if (wasRailCard && next.source !== 'rail') {
+        this.collapseRailIfOutside(/* preserveExistingTimer= */ true);
+      }
       this.changeDetectorRef.markForCheck();
     };
     if (this.hoverCard) {
@@ -3566,6 +3672,28 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     } else {
       this.cardTimer = setTimeout(show, CARD_SHOW_DELAY_MS);
     }
+  }
+
+  /**
+   * Whether the pointer at `x`, `y` is heading from where it left the card's
+   * row toward the card, i.e. inside the triangle between that point and the
+   * near edge of the card.
+   */
+  private isAimingAtCard(x: number, y: number): boolean {
+    const origin = this.cardAimOrigin;
+    const card = this.elementRef.nativeElement.querySelector('.kernel-card');
+    if (!origin || !card || x <= origin.x) {
+      return false;
+    }
+    const rect = card.getBoundingClientRect();
+    const side = (ax: number, ay: number, bx: number, by: number) =>
+      (bx - ax) * (y - ay) - (by - ay) * (x - ax);
+    const toTop = side(origin.x, origin.y, rect.left, rect.top);
+    const toBottom = side(origin.x, origin.y, rect.left, rect.bottom);
+    const edge = side(rect.left, rect.top, rect.left, rect.bottom);
+    // Strictly inside: on the bottom side of the line to the top corner, on
+    // the top side of the line to the bottom corner, and before the edge.
+    return toTop > 0 && toBottom < 0 && edge > 0;
   }
 
   private hideCardFrom(source: KernelCard['source']): void {

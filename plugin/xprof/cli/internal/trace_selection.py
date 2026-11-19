@@ -41,12 +41,16 @@ class ToolTraits:
       the merged XProf all-hosts view come from the per-step maximum across all
       non-SparseCore cores on all hosts (`ComputeStepTimeSummaryInMs`), rather
       than a per-host value or cross-host mean.
+    all_traces_arg: For tools that read only the first trace of several by
+      default, the (parameter, value) pair that makes them read every trace,
+      e.g. `("device_to_use", "all")`. The value is compared case-insensitively.
   """
 
   combine: Combine = "merged"
   single_trace: bool = False
   host_kind: Literal["name", "index"] = "name"
   step_time_fields: tuple[str, ...] = ()
+  all_traces_arg: tuple[str, str] | None = None
 
 
 _DEFAULT_TRAITS = ToolTraits()
@@ -62,7 +66,9 @@ TOOL_TRAITS: types.MappingProxyType[str, ToolTraits] = types.MappingProxyType({
     "get_hlo_neighborhood": ToolTraits(combine="none"),
     "get_hlo_text": ToolTraits(combine="none"),
     "get_hosts": ToolTraits(combine="none"),
-    "get_kernel_stats": ToolTraits(combine="summed"),
+    "get_kernel_stats": ToolTraits(
+        combine="summed", all_traces_arg=("device_to_use", "all")
+    ),
     "get_kernel_utilization": ToolTraits(single_trace=True),
     "get_kpi_metrics": ToolTraits(step_time_fields=("step_time_ms",)),
     "get_llo_analysis": ToolTraits(single_trace=True),
@@ -429,6 +435,20 @@ class TraceSelector:
           f" found in {session_value}:\n{format_trace_list(paths)}\n{hint}"
       )
 
+    first_trace_note = None
+    if self._traits.all_traces_arg and len(paths) > 1:
+      param, all_value = self._traits.all_traces_arg
+      value = kwargs.get(param)
+      if not (
+          isinstance(value, str) and value.strip().lower() == all_value.lower()
+      ):
+        first_trace_note = (
+            f"{self._tool_name} read only {trace_stem(paths[0])} (trace 1 of"
+            f" {len(paths)}). Pass --host=<name> for another host or"
+            f" --{param}={all_value} to sum every host."
+        )
+        paths = paths[:1]
+
     try:
       capture = client.describe_capture(
           session_value, paths=paths, combine=self._traits.combine
@@ -438,6 +458,8 @@ class TraceSelector:
       return args, kwargs, None
     if not isinstance(capture, dict):
       return args, kwargs, None
+    if first_trace_note:
+      capture.setdefault("warnings", []).append(first_trace_note)
     if self._traits.step_time_fields:
       add_step_time_scope(capture, fields=self._traits.step_time_fields)
     return args, kwargs, capture

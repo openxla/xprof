@@ -40,7 +40,10 @@ std::string resolve_event_name(const XPlane* plane, int64_t metadata_id) {
   return std::to_string(metadata_id);
 }
 
-std::string stat_value_str(const XStat& stat) {
+// Returns the stat value as a string. A ref_value names an interned string in
+// the plane's stat metadata, so it resolves to that string, as
+// XStatVisitor::StrOrRefValue does.
+std::string stat_value_str(const XPlane* plane, const XStat& stat) {
   switch (stat.value_case()) {
     case XStat::kDoubleValue:
       return std::to_string(stat.double_value());
@@ -51,7 +54,10 @@ std::string stat_value_str(const XStat& stat) {
     case XStat::kStrValue:
       return stat.str_value();
     case XStat::kRefValue: {
-      return std::to_string(stat.ref_value());
+      if (plane == nullptr) {
+        return std::to_string(stat.ref_value());
+      }
+      return resolve_stat_name(plane, stat.ref_value());
     }
     case XStat::kBytesValue:
       return "<bytes>";
@@ -168,7 +174,7 @@ void profile_plane_get_stat(ProfilePlane plane, int index,
   *out_name = pp->stat_names[index].c_str();
 
   if (pp->stat_values[index].empty()) {
-    pp->stat_values[index] = stat_value_str(stat);
+    pp->stat_values[index] = stat_value_str(pp->plane, stat);
   }
   *out_value = pp->stat_values[index].c_str();
 }
@@ -238,7 +244,7 @@ void profile_event_get_stat(ProfileEvent event, int index,
   *out_name = ee->stat_names[index].c_str();
 
   if (ee->stat_values[index].empty()) {
-    ee->stat_values[index] = stat_value_str(stat);
+    ee->stat_values[index] = stat_value_str(ee->plane, stat);
   }
   *out_value = ee->stat_values[index].c_str();
 }

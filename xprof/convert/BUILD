@@ -2582,9 +2582,11 @@ cc_test(
     size = "small",
     srcs = ["hlo_proto_to_graph_view_test.cc"],
     deps = [
+        ":graphviz_helper",
         ":hlo_proto_to_graph_view",
         ":tool_options",
         "@com_github_nlohmann_json//:json",
+        "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
         "@xla//xla:xla_data_proto_cc",
@@ -2599,6 +2601,7 @@ cc_test(
 
 cc_library(
     name = "graphviz_helper",
+    srcs = ["graphviz_helper.cc"],
     hdrs = ["graphviz_helper.h"],
     deps = [
         "@com_google_absl//absl/log",

@@ -15,11 +15,13 @@ limitations under the License.
 
 #include "xprof/convert/hlo_proto_to_graph_view.h"
 
+#include <cstddef>
 #include <string>
 #include <variant>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/strings/string_view.h"
 #include "nlohmann/json_fwd.hpp"  // from @com_github_nlohmann_json
 #include "nlohmann/json.hpp"
 #include "xla/service/hlo.pb.h"
@@ -29,6 +31,7 @@ limitations under the License.
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/protobuf/error_codes.pb.h"
 #include "xla/xla_data.pb.h"
+#include "xprof/convert/graphviz_helper.h"
 #include "xprof/convert/tool_options.h"
 
 namespace tensorflow {
@@ -37,6 +40,7 @@ namespace {
 
 using ::testing::Eq;
 using ::testing::HasSubstr;
+using ::testing::Not;
 using ::testing::StartsWith;
 using ::testing::status::IsOkAndHolds;
 using ::testing::status::StatusIs;
@@ -248,6 +252,274 @@ TEST(HloProtoToGraphViewTest, GetAdjacentNodesMetadata) {
       j["consumers"],
       Eq(json::array(
           {{{"name", "add.3"}, {"opcode", "add"}, {"shape", "f32[2,4]"}}})));
+}
+
+TEST(GraphvizHelperTest, JsStringEscapeSpecialCharacters) {
+  EXPECT_THAT(WrapDotInHtml(""), HasSubstr(R"(const data = "";)"));
+  EXPECT_THAT(WrapDotInHtml("digraph G {}"),
+              HasSubstr(R"(const data = "digraph G {}";)"));
+  EXPECT_THAT(WrapDotInHtml("a\"b\\c"),
+              HasSubstr(R"(const data = "a\"b\\c";)"));
+  EXPECT_THAT(WrapDotInHtml("a\nb\rc\td\be\ff"),
+              HasSubstr(R"(const data = "a\nb\rc\td\be\ff";)"));
+  EXPECT_THAT(WrapDotInHtml(absl::string_view("a\x00\x01\x1f"
+                                              "b",
+                                              5)),
+              HasSubstr(R"(const data = "a\u0000\u0001\u001fb";)"));
+  EXPECT_THAT(
+      WrapDotInHtml("<script>&</script>"),
+      HasSubstr(
+          R"(const data = "\u003cscript\u003e\u0026\u003c/script\u003e";)"));
+  EXPECT_THAT(WrapDotInHtml("${alert(1)}`"),
+              HasSubstr(R"(const data = "${alert(1)}`";)"));
+  EXPECT_THAT(WrapDotInHtml("\xe2\x80\xa8"),
+              HasSubstr(R"(const data = "\u2028";)"));
+  EXPECT_THAT(WrapDotInHtml("\xe2\x80\xa9"),
+              HasSubstr(R"(const data = "\u2029";)"));
+  EXPECT_THAT(WrapDotInHtml("\xe2\x80\xa7"),
+              HasSubstr("const data = \"\xe2\x80\xa7\";"));
+  EXPECT_THAT(WrapDotInHtml("\xe2\x82\xac"),
+              HasSubstr("const data = \"\xe2\x82\xac\";"));
+  EXPECT_THAT(WrapDotInHtml("\xe2"), HasSubstr("const data = \"\xe2\";"));
+}
+
+TEST(GraphvizHelperTest, WrapDotInHtmlEscapesTemplateLiteralAndScriptBreakout) {
+  std::string html1 =
+      WrapDotInHtml(R"(digraph G { n0 [tooltip="${alert(1)}"]; })");
+  EXPECT_THAT(html1, Not(HasSubstr("const data = `")));
+  EXPECT_THAT(
+      html1,
+      HasSubstr(
+          R"(const data = "digraph G { n0 [tooltip=\"${alert(1)}\"]; }";)"));
+
+  std::string html2 =
+      WrapDotInHtml(R"(digraph G { n0 [tooltip="`;alert(2);//"]; })");
+  EXPECT_THAT(html2, Not(HasSubstr("const data = `")));
+  EXPECT_THAT(
+      html2,
+      HasSubstr(
+          R"(const data = "digraph G { n0 [tooltip=\"`;alert(2);//\"]; }";)"));
+
+  std::string html3 = WrapDotInHtml(
+      R"(digraph G { n0 [tooltip="</script><script>alert(3)</script>"]; })");
+  EXPECT_THAT(html3, Not(HasSubstr("const data = `")));
+  EXPECT_THAT(html3, Not(HasSubstr("<script>alert(3)</script>")));
+  EXPECT_THAT(
+      html3,
+      HasSubstr(
+          R"(\u003c/script\u003e\u003cscript\u003ealert(3)\u003c/script\u003e)"));
+
+  std::string html4 =
+      WrapDotInHtml("digraph G {\n  n0 -> n1;\n}", R"(dot");alert(4);//)");
+  EXPECT_THAT(html4, Not(HasSubstr("const data = `")));
+  EXPECT_THAT(html4,
+              HasSubstr(R"(const data = "digraph G {\n  n0 -\u003e n1;\n}";)"));
+  EXPECT_THAT(
+      html4,
+      HasSubstr(
+          R"(hpccWasm.graphviz.layout(dot_data, "svg", "dot\");alert(4);//"))"));
+}
+
+TEST(HloProtoToGraphViewTest,
+     ConvertHloProtoToGraphHtmlEscapesOpMetadataXssPayloads) {
+  xla::HloProto hlo_proto;
+  xla::HloModuleProto* module = hlo_proto.mutable_hlo_module();
+  module->set_name("test_module");
+  module->set_id(1);
+  module->set_entry_computation_name("c");
+  module->set_entry_computation_id(10);
+
+  xla::ShapeProto shape;
+  shape.set_element_type(xla::F32);
+  shape.add_dimensions(2);
+  shape.mutable_layout()->add_minor_to_major(0);
+
+  xla::HloComputationProto* comp = module->add_computations();
+  comp->set_name("c");
+  comp->set_id(10);
+  comp->set_root_id(0);
+
+  xla::HloInstructionProto* param = comp->add_instructions();
+  param->set_name("p");
+  param->set_opcode("parameter");
+  param->set_parameter_number(0);
+  param->set_id(0);
+  *param->mutable_shape() = shape;
+  param->mutable_metadata()->set_op_name("${MANTIS_XSS_MARKER}");
+  param->mutable_metadata()->set_source_file(
+      "`;\"</script><script>MANTIS_XSS_MARKER</script>;//");
+  param->mutable_metadata()->set_source_line(1);
+
+  xla::ProgramShapeProto* program_shape = module->mutable_host_program_shape();
+  *program_shape->add_parameters() = shape;
+  program_shape->add_parameter_names("p");
+  *program_shape->mutable_result() = shape;
+
+  TF_ASSERT_OK_AND_ASSIGN(
+      std::string html,
+      ConvertHloProtoToGraph(hlo_proto, "c", /*graph_width=*/3,
+                             xla::HloRenderOptions(),
+                             xla::RenderedGraphFormat::kHtml));
+  EXPECT_THAT(html, HasSubstr("const data = \"digraph "));
+  EXPECT_THAT(html, Not(HasSubstr("const data = `")));
+  EXPECT_THAT(html,
+              Not(HasSubstr("</script><script>MANTIS_XSS_MARKER</script>")));
+  EXPECT_THAT(html, Not(HasSubstr("`;\"</script>")));
+  EXPECT_THAT(
+      html,
+      HasSubstr(
+          R"(\"\u003c/script\u003e\u003cscript\u003eMANTIS_XSS_MARKER\u003c/script\u003e;//)"));
+}
+
+std::string ExtractAndUnescapeJsData(absl::string_view html) {
+  constexpr absl::string_view kPrefix = "const data = \"";
+  constexpr absl::string_view kSuffix = "\";\n";
+  const size_t start = html.find(kPrefix);
+  if (start == absl::string_view::npos) {
+    return "";
+  }
+  const size_t content_start = start + kPrefix.size();
+  const size_t end = html.find(kSuffix, content_start);
+  if (end == absl::string_view::npos) {
+    return "";
+  }
+  absl::string_view escaped = html.substr(content_start, end - content_start);
+  std::string out;
+  out.reserve(escaped.size());
+  for (size_t i = 0; i < escaped.size(); ++i) {
+    if (escaped[i] != '\\' || i + 1 >= escaped.size()) {
+      out.push_back(escaped[i]);
+      continue;
+    }
+    ++i;
+    switch (escaped[i]) {
+      case '\\':
+        out.push_back('\\');
+        break;
+      case '"':
+        out.push_back('"');
+        break;
+      case 'n':
+        out.push_back('\n');
+        break;
+      case 'r':
+        out.push_back('\r');
+        break;
+      case 't':
+        out.push_back('\t');
+        break;
+      case 'b':
+        out.push_back('\b');
+        break;
+      case 'f':
+        out.push_back('\f');
+        break;
+      case 'u':
+        if (i + 4 < escaped.size()) {
+          absl::string_view hex = escaped.substr(i + 1, 4);
+          if (hex == "003c") {
+            out.push_back('<');
+          } else if (hex == "003e") {
+            out.push_back('>');
+          } else if (hex == "0026") {
+            out.push_back('&');
+          } else if (hex == "2028") {
+            out.append("\xe2\x80\xa8");
+          } else if (hex == "2029") {
+            out.append("\xe2\x80\xa9");
+          }
+          i += 4;
+        }
+        break;
+      default:
+        out.push_back(escaped[i]);
+        break;
+    }
+  }
+  return out;
+}
+
+TEST(HloProtoToGraphViewTest,
+     ConvertHloProtoToGraphHtmlPreservesDotAndStylesheet) {
+  xla::HloProto hlo_proto;
+  xla::HloModuleProto* module = hlo_proto.mutable_hlo_module();
+  module->set_name("test_module");
+  module->set_id(1);
+  module->set_entry_computation_name("entry");
+  module->set_entry_computation_id(10);
+
+  xla::ShapeProto shape;
+  shape.set_element_type(xla::F32);
+  shape.add_dimensions(2);
+  shape.add_dimensions(4);
+  shape.mutable_layout()->add_minor_to_major(1);
+  shape.mutable_layout()->add_minor_to_major(0);
+
+  xla::HloComputationProto* comp = module->add_computations();
+  comp->set_name("entry");
+  comp->set_id(10);
+  comp->set_root_id(2);
+
+  xla::HloInstructionProto* param = comp->add_instructions();
+  param->set_name("arg0.1");
+  param->set_opcode("parameter");
+  param->set_parameter_number(0);
+  param->set_id(0);
+  *param->mutable_shape() = shape;
+  param->mutable_metadata()->set_op_type("Parameter");
+  param->mutable_metadata()->set_op_name("inputs\\layer_1\\arg0");
+  param->mutable_metadata()->set_source_file("C:\\models\\train\\step.py");
+  param->mutable_metadata()->set_source_line(42);
+
+  xla::HloInstructionProto* negate = comp->add_instructions();
+  negate->set_name("negate.2");
+  negate->set_opcode("negate");
+  negate->set_id(1);
+  negate->add_operand_ids(0);
+  *negate->mutable_shape() = shape;
+  negate->mutable_metadata()->set_op_type("Neg");
+  negate->mutable_metadata()->set_op_name("block_a\\neg_op\\n1");
+  negate->mutable_metadata()->set_source_file("src/ops/math.py");
+  negate->mutable_metadata()->set_source_line(108);
+
+  xla::HloInstructionProto* add = comp->add_instructions();
+  add->set_name("add.3");
+  add->set_opcode("add");
+  add->set_id(2);
+  add->add_operand_ids(0);
+  add->add_operand_ids(1);
+  *add->mutable_shape() = shape;
+  add->mutable_metadata()->set_op_type("AddV2");
+  add->mutable_metadata()->set_op_name("residual_add");
+
+  xla::ProgramShapeProto* program_shape = module->mutable_host_program_shape();
+  *program_shape->add_parameters() = shape;
+  program_shape->add_parameter_names("arg0");
+  *program_shape->mutable_result() = shape;
+
+  xla::HloRenderOptions render_options;
+  render_options.show_backend_config = true;
+
+  TF_ASSERT_OK_AND_ASSIGN(
+      std::string dot,
+      ConvertHloProtoToGraph(hlo_proto, "negate.2", /*graph_width=*/3,
+                             render_options, xla::RenderedGraphFormat::kDot));
+  EXPECT_EQ(ExtractAndUnescapeJsData(WrapDotInHtml(dot)), dot);
+
+  TF_ASSERT_OK_AND_ASSIGN(
+      std::string html,
+      ConvertHloProtoToGraph(hlo_proto, "negate.2", /*graph_width=*/3,
+                             render_options, xla::RenderedGraphFormat::kHtml));
+
+  std::string decoded_js_data = ExtractAndUnescapeJsData(html);
+  EXPECT_THAT(decoded_js_data, StartsWith("digraph G {\n"));
+  EXPECT_THAT(decoded_js_data, HasSubstr("stylesheet=<\n  data:text/css,"));
+  EXPECT_THAT(decoded_js_data, HasSubstr("\n>\n"));
+  EXPECT_THAT(decoded_js_data, HasSubstr("inputs\\layer_1\\arg0"));
+  EXPECT_THAT(decoded_js_data, HasSubstr("C:\\models\\train\\step.py:42"));
+  EXPECT_THAT(decoded_js_data, HasSubstr("block_a\\neg_op\\n1"));
+  EXPECT_THAT(decoded_js_data, HasSubstr("arg0.1 -> negate.2"));
+  EXPECT_THAT(decoded_js_data, HasSubstr("negate.2 -> add.3"));
 }
 
 }  // namespace

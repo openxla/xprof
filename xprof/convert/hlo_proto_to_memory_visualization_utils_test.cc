@@ -919,7 +919,7 @@ TEST(MemoryViewerTest, ScopedVmemAllocation_SingleInstruction) {
   option.small_buffer_size = 0;
   option.memory_color = 1;
   TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result,
-                       ConvertHloProtoToPreprocessResult(hlo_proto, option));
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
   EXPECT_EQ(result.max_scoped_vmem_allocation_mib(), 1.0);
   EXPECT_EQ(result.max_scoped_vmem_instruction_name(), "fusion.1");
 }
@@ -982,7 +982,7 @@ TEST(MemoryViewerTest, ScopedVmemAllocation_MaxAcrossInstructions) {
   option.small_buffer_size = 0;
   option.memory_color = 1;
   TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result,
-                       ConvertHloProtoToPreprocessResult(hlo_proto, option));
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
   EXPECT_EQ(result.max_scoped_vmem_allocation_mib(), 2.0);
   EXPECT_EQ(result.max_scoped_vmem_instruction_name(), "fusion.2");
 }
@@ -1042,7 +1042,7 @@ TEST(MemoryViewerTest, ScopedVmemAllocation_NoScopedConfigs) {
   option.small_buffer_size = 0;
   option.memory_color = 1;
   TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result,
-                       ConvertHloProtoToPreprocessResult(hlo_proto, option));
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
   EXPECT_EQ(result.max_scoped_vmem_allocation_mib(), 0);
   EXPECT_TRUE(result.max_scoped_vmem_instruction_name().empty());
 }
@@ -1070,7 +1070,7 @@ TEST(MemoryViewerTest, ScopedVmemAllocation_HBMIgnoresScoped) {
   option.small_buffer_size = 0;
   option.memory_color = 0;  // HBM
   TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result,
-                       ConvertHloProtoToPreprocessResult(hlo_proto, option));
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
   EXPECT_EQ(result.max_scoped_vmem_allocation_mib(), 0);
   EXPECT_TRUE(result.max_scoped_vmem_instruction_name().empty());
 }
@@ -1790,7 +1790,33 @@ TEST(MemoryViewerDeathTest, DuplicateBufferAllocationIndex) {
       "Duplicate buffer_allocation index 7");
 }
 
+TEST(MemoryViewerTest, RenderTimelineGraphEscapesInstructionNameInHtml) {
+  static constexpr char kHeapSimulatorTrace[] = R"pb(
+    events { kind: ALLOC buffer_id: 1 }
+    events { kind: FREE buffer_id: 1 }
+  )pb";
+  std::string hlo_string = absl::StrFormat(kHLOBase, kHeapSimulatorTrace);
+  xla::HloProto hlo_proto;
+  ASSERT_TRUE(ParseTextFormatFromString(hlo_string, &hlo_proto).ok());
+  hlo_proto.mutable_hlo_module()
+      ->mutable_computations(0)
+      ->mutable_instructions(0)
+      ->set_name("fusion.1\";</script><script>alert(1)</script>`${alert(2)}`");
+
+  MemoryViewerOption option;
+  option.small_buffer_size = 0;
+  option.timeline_option.render_timeline = true;
+  TF_ASSERT_OK_AND_ASSIGN(
+      std::string html,
+      ConvertHloProtoToPreprocessResultJson(hlo_proto, option));
+  EXPECT_TRUE(absl::StrContains(html, "const data = \"graph G"));
+  EXPECT_FALSE(absl::StrContains(html, "const data = `"));
+  EXPECT_FALSE(absl::StrContains(html, "</script><script>alert(1)</script>"));
+  EXPECT_TRUE(absl::StrContains(
+      html,
+      R"(\u003c/script\u003e\u003cscript\u003ealert(1)\u003c/script\u003e)"));
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow
-

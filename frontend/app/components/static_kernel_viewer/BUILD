@@ -1,15 +1,22 @@
-load("//defs:defs.bzl", "sass_binary", "xprof_ng_module")
+load("//defs:defs.bzl", "sass_binary", "sass_library", "xprof_ng_module")
 
 package(default_visibility = ["//frontend:internal"])
+
+sass_library(
+    name = "kernel_unit_palette_scss",
+    srcs = ["_kernel_unit_palette.scss"],
+)
 
 sass_binary(
     name = "static_kernel_viewer_css",
     src = "static_kernel_viewer.scss",
+    deps = [":kernel_unit_palette_scss"],
 )
 
 sass_binary(
     name = "kernel_event_tooltip_css",
     src = "kernel_event_tooltip.scss",
+    deps = [":kernel_unit_palette_scss"],
 )
 
 sass_binary(

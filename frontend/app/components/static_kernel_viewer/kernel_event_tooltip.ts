@@ -8,6 +8,7 @@ import {
   NgZone,
   OnDestroy,
 } from '@angular/core';
+import {MatIconModule} from '@angular/material/icon';
 import {EVENT_HOVERED_EVENT_NAME} from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
 
 /** A functional unit of a TPU core, which has its own lane in the timeline. */
@@ -91,6 +92,44 @@ export interface ConsumerGroup {
   readonly count: number;
 }
 
+/** Semantic HCT tonal palette family for hardware functional units. */
+export type UnitTokenFamily =
+  | 'matrix'
+  | 'xlu'
+  | 'vector'
+  | 'memory'
+  | 'scalar'
+  | 'sparse'
+  | 'other';
+
+/** Secondary metadata token shown in the card subheader (unit, ordinal, hex). */
+export interface TooltipMetaOffset {
+  readonly text: string;
+  readonly emphasized?: boolean;
+}
+
+/** Parsed operand value chip with primary identifier and optional inline metadata. */
+export interface FormattedOperandItem {
+  readonly index: number;
+  readonly primary: string;
+  readonly meta?: string;
+  readonly raw: string;
+}
+
+/** Tinted hardware unit utilization pill for region telemetry rows. */
+export interface TooltipUnitMixPill {
+  readonly label: string;
+  readonly formattedPercent: string;
+  readonly unitFamily: UnitTokenFamily;
+}
+
+/** Enclosing scope breadcrumb chip (with head + tail ellipsis for deep trees). */
+export interface TooltipScopeCrumb {
+  readonly text: string;
+  readonly isLeaf: boolean;
+  readonly tooltip: string;
+}
+
 /**
  * An event or track point that the pointer hovers in the timeline. Kernel
  * traces use bundle numbers as timestamps.
@@ -164,8 +203,10 @@ export interface KernelEventTooltipContent {
   readonly hexBundle?: string;
   /** Program-order ordinal badge, e.g. `Ord #92`. */
   readonly ordinalLabel?: string;
-  /** Summary chips shown in the header subtitle (e.g. region length, % of schedule, depth). */
+  /** Summary chips shown in the header subtitle of a region (`kernel-selection-panel` consumes this). */
   readonly subtitleChips?: readonly string[];
+  /** Summary chips rendered in the hover card header subtitle (regions and multi-bundle scope/primitive spans). */
+  readonly headerSubtitleChips?: readonly string[];
   /** Details shown in muted text below the header. */
   readonly description?: string;
   /** Output register and hardware property badges of an instruction. */
@@ -194,8 +235,42 @@ export interface KernelEventTooltipContent {
   readonly instructionMix?: readonly InstructionMixItem[];
   /** Mean unit utilization and bottleneck hint inside a region. */
   readonly meanUtilization?: RegionUtilizationSummary;
+  /** Formatted total instruction count across a region or scope span, e.g. `14,210`. */
+  readonly totalInstructionsLabel?: string;
   /** Instruction density inside a region, e.g. `2.4 instr / bundle`. */
   readonly density?: string;
+  /** Hides `description` in `.header-sub` when the lane name is already in `subtitleChips`. */
+  readonly hideDescriptionInHeader?: boolean;
+  /** Compact duration or cycle badge shown beside the bundle index in the header. */
+  readonly headerDurationChip?: string;
+  /** Subheader metadata tokens (`MXU · Unit 1 · Ord #92 · <0x3039>`). */
+  readonly metaOffsets?: readonly TooltipMetaOffset[];
+  /** Inline output metadata items rendered beside the destination register chip. */
+  readonly outputInlineDetails?: readonly string[];
+  /** True when the `Out` row has a register or inline metadata to display. */
+  readonly hasOutputRow?: boolean;
+  /** Single-line fitted operand value chips and overflow count. */
+  readonly visibleOperands?: {
+    readonly items: readonly FormattedOperandItem[];
+    readonly hiddenCount: number;
+  };
+  /** Single-line fitted consumer value chips and overflow count. */
+  readonly visibleConsumers?: {
+    readonly items: readonly ConsumerGroup[];
+    readonly hiddenCount: number;
+  };
+  /** Up to 3 tinted unit utilization pills for region hover cards. */
+  readonly meanUtilizationPills?: readonly TooltipUnitMixPill[];
+  /** Tonal palette family for the `Current`/`Allocated`/`Live` counter pill. */
+  readonly counterPillFamily?: UnitTokenFamily | 'primary';
+  /** Scope trail value chips with head + tail smart ellipsis (`<= 4` items). */
+  readonly visibleScopeCrumbs?: readonly TooltipScopeCrumb[];
+  /** Full `›`-joined enclosing scope path for native tooltip inspection. */
+  readonly scopeFullPath?: string;
+  /** True when the card renders `Out`, `In`, or `To` instruction dataflow rows. */
+  readonly hasDataflow?: boolean;
+  /** Whether the card renders a `.tooltip-body` section below the header. */
+  readonly hasRenderedBody: boolean;
   /** Whether the card has rich body rows below the header. */
   readonly hasBodyRows: boolean;
   /** Whether to show the footer with click/shift+click interaction hints. */
@@ -204,6 +279,15 @@ export interface KernelEventTooltipContent {
 
 /** Name of the lane of code regions, such as loops and branches. */
 const REGIONS_TRACK_NAME = 'Regions';
+const PALLAS_PRIMITIVES_TRACK_NAME = 'Pallas Primitives';
+const NAMED_SCOPE_TRACK_NAME = 'Named Scope';
+
+/** Lanes whose spans represent code scopes and render span telemetry on hover. */
+const SPAN_TRACK_NAMES: ReadonlySet<string> = new Set([
+  REGIONS_TRACK_NAME,
+  PALLAS_PRIMITIVES_TRACK_NAME,
+  NAMED_SCOPE_TRACK_NAME,
+]);
 
 /** Counter track unit classification in the Static Kernel Viewer. */
 export type CounterMetricKind = 'utilization' | 'bytes' | 'registers';
@@ -824,11 +908,336 @@ function formatSpillsLabel(
   return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
+const UNIT_FAMILY_BY_LABEL: Readonly<Record<string, UnitTokenFamily>> = {
+  'MXU': 'matrix',
+  'XLU': 'xlu',
+  'XPU': 'xlu',
+  'VPU': 'vector',
+  'TVPU': 'vector',
+  'EUP': 'vector',
+  'VLD': 'memory',
+  'VST': 'memory',
+  'DMA': 'memory',
+  'SALU': 'scalar',
+  'SAL': 'scalar',
+  'SGE': 'sparse',
+  'SC': 'sparse',
+  'Other': 'other',
+};
+
+/** Canonical hardware order for unit pills across hover cards. */
+export const CARD_UNIT_ORDER: readonly string[] = [
+  'MXU',
+  'VPU',
+  'TVPU',
+  'EUP',
+  'VLD',
+  'VST',
+  'SGE',
+  'SALU',
+  'SAL',
+  'SMEM',
+  'XLU',
+  'XPU',
+  'DMA',
+  'ICI',
+  'SC',
+  'Other',
+];
+
+function unitOrderRank(label: string): number {
+  const index = CARD_UNIT_ORDER.indexOf(label);
+  return index >= 0 ? index : CARD_UNIT_ORDER.length;
+}
+
+/** Maps a hardware unit label to its Component Rack HCT tonal palette family. */
+export function unitFamilyForLabel(label: string): UnitTokenFamily {
+  return UNIT_FAMILY_BY_LABEL[label] ?? 'other';
+}
+
+function fitSingleLinePills<T extends {readonly charLen: number}>(
+  items: readonly T[],
+): {readonly items: readonly T[]; readonly hiddenCount: number} {
+  const maxRowPx = 232;
+  const moreBadgePx = 22;
+  const pillPx = (charLen: number) => charLen * 6.4 + 10;
+
+  const totalPx = items.reduce(
+    (sum, item, idx) => sum + pillPx(item.charLen) + (idx > 0 ? 4 : 0),
+    0,
+  );
+  if (totalPx <= maxRowPx) {
+    return {items, hiddenCount: 0};
+  }
+
+  const budgetWithMore = maxRowPx - moreBadgePx;
+  let usedPx = 0;
+  let keepCount = 0;
+  for (let i = 0; i < items.length; i++) {
+    const nextPx = pillPx(items[i].charLen) + (i > 0 ? 4 : 0);
+    if (i > 0 && usedPx + nextPx > budgetWithMore) {
+      break;
+    }
+    usedPx += nextPx;
+    keepCount++;
+  }
+  return {
+    items: items.slice(0, keepCount),
+    hiddenCount: items.length - keepCount,
+  };
+}
+
+function buildVisibleOperands(operands: readonly OperandItem[] | undefined):
+  | {
+      readonly items: readonly FormattedOperandItem[];
+      readonly hiddenCount: number;
+    }
+  | undefined {
+  if (!operands || operands.length === 0) {
+    return undefined;
+  }
+  const parsed = operands.map((op) => {
+    const bracketMatch = /^([^\[\s]+)\s*\[([^\]]+)\]$/.exec(op.text);
+    if (!bracketMatch) {
+      return {
+        index: op.index,
+        primary: op.text,
+        raw: op.text,
+        charLen: op.text.length,
+      };
+    }
+    const primary = bracketMatch[1];
+    const parts = bracketMatch[2]
+      .split(',')
+      .map((part) => part.trim())
+      .filter(
+        (part) =>
+          part.length > 0 &&
+          !/^(vmem|spmem|tilespmem|smem|simem|timem|cmem|hbm|imem|dreg|vflag|sflag|scoped|global)$/i.test(
+            part,
+          ),
+      );
+    const meta = parts.length > 0 ? parts.join(' · ') : undefined;
+    const charLen = meta ? primary.length + 3 + meta.length : primary.length;
+    return {
+      index: op.index,
+      primary,
+      ...(meta ? {meta} : {}),
+      raw: op.text,
+      charLen,
+    };
+  });
+  const fitted = fitSingleLinePills(parsed);
+  return {
+    items: fitted.items.map(({index, primary, meta, raw}) => ({
+      index,
+      primary,
+      ...(meta ? {meta} : {}),
+      raw,
+    })),
+    hiddenCount: fitted.hiddenCount,
+  };
+}
+
+function buildVisibleConsumers(
+  consumerGroups: readonly ConsumerGroup[] | undefined,
+):
+  | {
+      readonly items: readonly ConsumerGroup[];
+      readonly hiddenCount: number;
+    }
+  | undefined {
+  if (!consumerGroups || consumerGroups.length === 0) {
+    return undefined;
+  }
+  const parsed = consumerGroups.map((cg) => ({
+    ...cg,
+    charLen:
+      cg.count > 1
+        ? cg.name.length + 2 + String(cg.count).length
+        : cg.name.length,
+  }));
+  const fitted = fitSingleLinePills(parsed);
+  return {
+    items: fitted.items.map(({name, count}) => ({name, count})),
+    hiddenCount: fitted.hiddenCount,
+  };
+}
+
+function buildVisibleScopeCrumbs(
+  regions: readonly string[] | undefined,
+): readonly TooltipScopeCrumb[] | undefined {
+  if (!regions || regions.length === 0) {
+    return undefined;
+  }
+  if (regions.length <= 4) {
+    return regions.map((text, idx) => ({
+      text,
+      isLeaf: idx === regions.length - 1,
+      tooltip: text,
+    }));
+  }
+  const n = regions.length;
+  const omittedCount = n - 3;
+  const omittedTrail = regions.slice(1, n - 2).join(' › ');
+  return [
+    {text: regions[0], isLeaf: false, tooltip: regions[0]},
+    {
+      text: `… ${omittedCount}`,
+      isLeaf: false,
+      tooltip: `${omittedCount} intermediate scopes: ${omittedTrail}`,
+    },
+    {text: regions[n - 2], isLeaf: false, tooltip: regions[n - 2]},
+    {text: regions[n - 1], isLeaf: true, tooltip: regions[n - 1]},
+  ];
+}
+
+function buildRegionSubtitleChips(
+  event: HoveredEvent,
+  isRegion: boolean,
+  length: string | undefined,
+): readonly string[] {
+  const subtitleChips: string[] = [];
+  if (
+    isRegion &&
+    (event.totalBundles !== undefined || event.regionDepth !== undefined)
+  ) {
+    if (length) {
+      subtitleChips.push(length);
+    }
+    if (event.totalBundles !== undefined && event.totalBundles > 0) {
+      const share = clampPercent((event.duration / event.totalBundles) * 100);
+      subtitleChips.push(`${share}% of static schedule`);
+    }
+    if (event.regionDepth !== undefined) {
+      subtitleChips.push(`depth ${event.regionDepth}`);
+    }
+  }
+  return subtitleChips;
+}
+
+function buildSpanHeaderSubtitleChips(
+  event: HoveredEvent,
+  isRegion: boolean,
+  isSpanTrack: boolean,
+  length: string | undefined,
+): readonly string[] {
+  if (
+    isRegion ||
+    !isSpanTrack ||
+    !length ||
+    (event.totalBundles === undefined &&
+      event.regionDepth === undefined &&
+      event.bundleCounts === undefined &&
+      event.utilization === undefined)
+  ) {
+    return [];
+  }
+  const shareSuffix =
+    event.totalBundles !== undefined && event.totalBundles > 0
+      ? ` (${clampPercent((event.duration / event.totalBundles) * 100)}%)`
+      : '';
+  return [`${length}${shareSuffix}`, event.trackName];
+}
+
+function partitionExtraBadges(extraBadges: readonly string[] | undefined): {
+  readonly subUnitBadge?: string;
+  readonly inlineBadges: readonly string[];
+} {
+  let subUnitBadge: string | undefined = undefined;
+  const inlineBadges: string[] = [];
+  for (const badge of extraBadges ?? []) {
+    if (/^unit\s+/i.test(badge)) {
+      if (subUnitBadge === undefined) {
+        subUnitBadge = badge;
+      }
+    } else {
+      inlineBadges.push(badge);
+    }
+  }
+  return {subUnitBadge, inlineBadges};
+}
+
+function buildMetaOffsets(
+  unit: FunctionalUnit | undefined,
+  counterGauge: CounterGauge | undefined,
+  subUnitBadge: string | undefined,
+  ordinalLabel: string | undefined,
+  hexBundle: string | undefined,
+): readonly TooltipMetaOffset[] {
+  const metaOffsets: TooltipMetaOffset[] = [];
+  if (unit && !counterGauge) {
+    metaOffsets.push({text: unit.label, emphasized: true});
+  }
+  if (subUnitBadge) {
+    metaOffsets.push({text: subUnitBadge});
+  }
+  if (ordinalLabel) {
+    metaOffsets.push({text: ordinalLabel});
+  }
+  if (hexBundle) {
+    metaOffsets.push({text: hexBundle});
+  }
+  return metaOffsets;
+}
+
+function buildOutputInlineDetails(
+  output: InstructionOutput | undefined,
+  rawHeaderDuration: string | undefined,
+  inlineBadges: readonly string[],
+): readonly string[] {
+  if (!output) {
+    return [];
+  }
+  const details: string[] = [];
+  if (output.memorySpace) {
+    details.push(output.memorySpace);
+  }
+  if (output.metadata) {
+    details.push(output.metadata);
+  }
+  if (output.throughput && rawHeaderDuration !== output.throughput) {
+    details.push(output.throughput);
+  }
+  details.push(...inlineBadges);
+  return details;
+}
+
+function buildMeanUtilizationPills(
+  meanUtilization: RegionUtilizationSummary | undefined,
+): readonly TooltipUnitMixPill[] | undefined {
+  if (!meanUtilization || meanUtilization.items.length === 0) {
+    return undefined;
+  }
+  return [...meanUtilization.items]
+    .sort((a, b) => unitOrderRank(a.unit.label) - unitOrderRank(b.unit.label))
+    .map((item) => ({
+      label: item.unit.label,
+      formattedPercent: item.formattedPercent,
+      unitFamily: unitFamilyForLabel(item.unit.label),
+    }));
+}
+
+function resolveCounterPillFamily(
+  counterGauge: CounterGauge | undefined,
+  counterUnit: FunctionalUnit | undefined,
+  counterKind: CounterMetricKind | undefined,
+): UnitTokenFamily | 'primary' | undefined {
+  if (!counterGauge) {
+    return undefined;
+  }
+  if (counterUnit) {
+    return unitFamilyForLabel(counterUnit.label);
+  }
+  return counterKind === 'registers' ? 'scalar' : 'primary';
+}
+
 /** Returns what the tooltip shows for `event`. */
 export function buildKernelEventTooltip(
   event: HoveredEvent,
 ): KernelEventTooltipContent {
   const isRegion = event.trackName === REGIONS_TRACK_NAME;
+  const isSpanTrack = SPAN_TRACK_NAMES.has(event.trackName);
   const isCounter = event.trackType === 'counter';
   const isProcess = event.trackType === 'process';
   const kind: KernelEventTooltipContent['kind'] = isCounter
@@ -852,9 +1261,7 @@ export function buildKernelEventTooltip(
       ? COUNTER_TRACK_COLOR
       : defaultEventColorForName(event.name));
   const accentColor =
-    isCounter || isProcess
-      ? eventColor
-      : (unit?.color ?? DEFAULT_ACCENT_COLOR);
+    isCounter || isProcess ? eventColor : (unit?.color ?? DEFAULT_ACCENT_COLOR);
 
   let description: string | undefined = undefined;
   if (!isCounter && !isProcess && !unit && !isRegion && event.trackName) {
@@ -895,22 +1302,16 @@ export function buildKernelEventTooltip(
       ? `Ord #${BUNDLE_FORMAT.format(event.ordinal)}`
       : undefined;
 
-  const subtitleChips: string[] = [];
-  if (
-    isRegion &&
-    (event.totalBundles !== undefined || event.regionDepth !== undefined)
-  ) {
-    if (length) {
-      subtitleChips.push(length);
-    }
-    if (event.totalBundles !== undefined && event.totalBundles > 0) {
-      const share = clampPercent((event.duration / event.totalBundles) * 100);
-      subtitleChips.push(`${share}% of static schedule`);
-    }
-    if (event.regionDepth !== undefined) {
-      subtitleChips.push(`depth ${event.regionDepth}`);
-    }
-  }
+  const subtitleChips = buildRegionSubtitleChips(event, isRegion, length);
+  const spanHeaderChips = buildSpanHeaderSubtitleChips(
+    event,
+    isRegion,
+    isSpanTrack,
+    length,
+  );
+  const headerSubtitleChips =
+    subtitleChips.length > 0 ? subtitleChips : spanHeaderChips;
+  const hideDescriptionInHeader = spanHeaderChips.length > 0;
 
   const output =
     kind === 'instruction' ? buildInstructionOutput(event) : undefined;
@@ -924,7 +1325,7 @@ export function buildKernelEventTooltip(
       : undefined;
   const consumerGroups = buildConsumerGroups(consumers);
   const spillsLabel =
-    kind === 'instruction' || isRegion
+    kind === 'instruction' || isSpanTrack
       ? formatSpillsLabel(event.vectorSpills, event.vectorFills)
       : undefined;
   const hasSpills = (event.vectorSpills ?? 0) > 0;
@@ -938,7 +1339,7 @@ export function buildKernelEventTooltip(
     ? buildBundleStrip(event.bundleCounts, isSparseCore)
     : undefined;
   const utilizationBars =
-    kind === 'instruction' || isRegion
+    kind === 'instruction' || isSpanTrack
       ? buildUtilizationBars(event.utilization)
       : undefined;
 
@@ -990,12 +1391,18 @@ export function buildKernelEventTooltip(
 
   let instructionMix: readonly InstructionMixItem[] | undefined = undefined;
   let meanUtilization: RegionUtilizationSummary | undefined = undefined;
+  let totalInstructionsLabel: string | undefined = undefined;
   let density: string | undefined = undefined;
-  if (isRegion) {
+  if (isSpanTrack) {
     const mixResult = buildInstructionMix(event.bundleCounts);
     instructionMix = mixResult.mix;
-    if (mixResult.totalInstructions > 0 && event.duration > 0) {
-      density = `${DENSITY_FORMAT.format(mixResult.totalInstructions / event.duration)} instr / bundle`;
+    if (mixResult.totalInstructions > 0) {
+      totalInstructionsLabel = BUNDLE_FORMAT.format(
+        mixResult.totalInstructions,
+      );
+      if (event.duration > 0) {
+        density = `${DENSITY_FORMAT.format(mixResult.totalInstructions / event.duration)} instr / bundle`;
+      }
     }
     if (utilizationBars && utilizationBars.length > 0) {
       meanUtilization = {
@@ -1005,7 +1412,7 @@ export function buildKernelEventTooltip(
   }
 
   const regions =
-    (kind === 'instruction' || isRegion) &&
+    (kind === 'instruction' || isSpanTrack) &&
     event.regions &&
     event.regions.length > 0
       ? event.regions
@@ -1021,8 +1428,67 @@ export function buildKernelEventTooltip(
       (!isRegion && utilizationBars) ||
       instructionMix ||
       meanUtilization ||
+      totalInstructionsLabel ||
       density ||
       regions,
+  );
+
+  const hasHeaderSubtitleChips = headerSubtitleChips.length > 0;
+  const rawHeaderDuration = !hasHeaderSubtitleChips
+    ? (length ?? output?.throughput)
+    : undefined;
+  const headerDurationChip = rawHeaderDuration
+    ? rawHeaderDuration.replace(/\bcycles?\b/i, 'cyc')
+    : undefined;
+
+  const counterUnit = isCounter
+    ? unitForCounterTrack(event.trackName)
+    : undefined;
+
+  const {subUnitBadge, inlineBadges} = partitionExtraBadges(
+    output?.extraBadges,
+  );
+  const metaOffsets = buildMetaOffsets(
+    unit,
+    counterGauge,
+    subUnitBadge,
+    ordinalLabel,
+    hexBundle,
+  );
+  const outputInlineDetails = buildOutputInlineDetails(
+    output,
+    rawHeaderDuration,
+    inlineBadges,
+  );
+  const hasOutputRow = Boolean(
+    output?.register || outputInlineDetails.length > 0,
+  );
+
+  const visibleOperands = buildVisibleOperands(operands);
+  const visibleConsumers = buildVisibleConsumers(consumerGroups);
+  const meanUtilizationPills = buildMeanUtilizationPills(meanUtilization);
+  const counterPillFamily = resolveCounterPillFamily(
+    counterGauge,
+    counterUnit,
+    counterKind,
+  );
+
+  const visibleScopeCrumbs = buildVisibleScopeCrumbs(regions);
+  const scopeFullPath = regions ? regions.join(' › ') : undefined;
+  const hasDataflow = Boolean(
+    hasOutputRow ||
+      (visibleOperands && visibleOperands.items.length > 0) ||
+      (visibleConsumers && visibleConsumers.items.length > 0),
+  );
+  const hasRenderedBody = Boolean(
+    counterGauge ||
+      hasDataflow ||
+      spillsLabel ||
+      (meanUtilizationPills && meanUtilizationPills.length > 0) ||
+      (instructionMix && instructionMix.length > 0) ||
+      totalInstructionsLabel ||
+      density ||
+      (visibleScopeCrumbs && visibleScopeCrumbs.length > 0),
   );
 
   return {
@@ -1038,7 +1504,9 @@ export function buildKernelEventTooltip(
     ...(hexBundle ? {hexBundle} : {}),
     ...(ordinalLabel ? {ordinalLabel} : {}),
     ...(subtitleChips.length > 0 ? {subtitleChips} : {}),
+    ...(hasHeaderSubtitleChips ? {headerSubtitleChips} : {}),
     ...(description ? {description} : {}),
+    ...(hideDescriptionInHeader ? {hideDescriptionInHeader: true} : {}),
     ...(output ? {output} : {}),
     ...(operands ? {operands} : {}),
     ...(consumers ? {consumers} : {}),
@@ -1050,7 +1518,20 @@ export function buildKernelEventTooltip(
     ...(regions ? {regions, regionRowLabel} : {}),
     ...(instructionMix ? {instructionMix} : {}),
     ...(meanUtilization ? {meanUtilization} : {}),
+    ...(totalInstructionsLabel ? {totalInstructionsLabel} : {}),
     ...(density ? {density} : {}),
+    ...(headerDurationChip ? {headerDurationChip} : {}),
+    ...(metaOffsets.length > 0 ? {metaOffsets} : {}),
+    ...(outputInlineDetails.length > 0 ? {outputInlineDetails} : {}),
+    ...(hasOutputRow ? {hasOutputRow: true} : {}),
+    ...(visibleOperands ? {visibleOperands} : {}),
+    ...(visibleConsumers ? {visibleConsumers} : {}),
+    ...(meanUtilizationPills ? {meanUtilizationPills} : {}),
+    ...(counterPillFamily ? {counterPillFamily} : {}),
+    ...(visibleScopeCrumbs ? {visibleScopeCrumbs} : {}),
+    ...(scopeFullPath ? {scopeFullPath} : {}),
+    ...(hasDataflow ? {hasDataflow: true} : {}),
+    hasRenderedBody,
     hasBodyRows,
     showInteractiveHint:
       hasBodyRows && (kind === 'instruction' || kind === 'region'),
@@ -1084,6 +1565,7 @@ export function tooltipOffset(
  */
 @Component({
   standalone: true,
+  imports: [MatIconModule],
   selector: 'kernel-event-tooltip',
   templateUrl: './kernel_event_tooltip.ng.html',
   styleUrls: ['./kernel_event_tooltip.scss'],
@@ -1185,8 +1667,8 @@ export class KernelEventTooltip implements AfterViewInit, OnDestroy {
     ) {
       this.animateCard(
         [
-          {opacity: 0, transform: 'translate3d(0, 4px, 0) scale(0.97)'},
-          {opacity: 1, transform: 'translate3d(0, 0, 0) scale(1)'},
+          {'opacity': 0, 'transform': 'translate3d(0, 4px, 0) scale(0.97)'},
+          {'opacity': 1, 'transform': 'translate3d(0, 0, 0) scale(1)'},
         ],
         150,
       );
@@ -1262,8 +1744,8 @@ export class KernelEventTooltip implements AfterViewInit, OnDestroy {
           const dy = Math.max(-48, Math.min(48, prevTop - top));
           this.animateCard(
             [
-              {transform: `translate3d(${dx}px, ${dy}px, 0)`},
-              {transform: 'translate3d(0, 0, 0)'},
+              {'transform': `translate3d(${dx}px, ${dy}px, 0)`},
+              {'transform': 'translate3d(0, 0, 0)'},
             ],
             160,
           );

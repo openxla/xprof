@@ -544,19 +544,11 @@
     aria-hidden="true"
   >
     <div class="card-header">
-      <span class="kernel-monogram">{{ card.entry.monogram }}</span>
       <div class="card-title">
         <span class="card-kernel">
           <ng-container *ngFor="let part of card.entry.nameParts">{{ part }}<wbr /></ng-container>
         </span>
-        <span *ngIf="card.entry.module" class="card-module">
-          <span class="module-dot"></span>
-          {{ card.entry.module }}
-        </span>
-        <span *ngIf="card.entry.kind as kind" class="card-kind" [style.--kind-color]="kind.color">
-          <mat-icon class="card-kind-icon">{{ kind.icon }}</mat-icon>
-          {{ kind.label }}
-        </span>
+        <span *ngIf="card.entry.module" class="card-module">{{ card.entry.module }}</span>
       </div>
     </div>
     <dl *ngIf="card.entry.facts.length > 0" class="card-facts">
@@ -568,23 +560,43 @@
             class="fact-value"
             [class.fact-value-chip]="fact.linkedPill"
             [attr.title]="fact.linkedPill ? fact.value : null"
-          >{{ fact.value }}</span>
+          ><span *ngIf="fact.linkedPill; else factText" class="fact-value-chip-label">{{ fact.value }}</span><ng-template #factText><ng-container *ngIf="fact.secondaryValue; else plainFactValue">{{ fact.primaryValue }}<span class="fact-secondary">{{ fact.secondaryValue }}</span></ng-container><ng-template #plainFactValue>{{ fact.value }}</ng-template></ng-template></span>
         </dd>
       </ng-container>
     </dl>
-    <div *ngIf="card.entry.bars.length > 0" class="card-chart">
+    <div
+      *ngIf="card.entry.bars.length > 0"
+      class="card-chart"
+      [class.unit-mix]="card.entry.isInstructionMix"
+    >
       <div class="card-section-title">{{ card.entry.chartTitle }}</div>
-      <div
-        *ngFor="let bar of card.entry.bars"
-        class="unit-bar"
-        [style.--unit-color]="bar.color"
-      >
-        <span class="unit-name">{{ bar.unit }}</span>
-        <span class="unit-track">
-          <span class="unit-fill" [style.width.%]="bar.fraction * 100"></span>
-        </span>
-        <span class="unit-value">{{ bar.label }}</span>
+      <div *ngIf="card.entry.isInstructionMix; else utilizationBars" class="unit-mix-legend">
+        <div
+          *ngFor="let bar of card.entry.bars"
+          class="unit-bar unit-mix-item"
+          [attr.data-unit]="bar.unit"
+          [attr.data-unit-family]="bar.unitFamily"
+          [style.--unit-color]="bar.color"
+        >
+          <span class="unit-name">{{ bar.unit }}</span>
+          <span class="unit-value">{{ bar.label }}</span>
+        </div>
       </div>
+      <ng-template #utilizationBars>
+        <div
+          *ngFor="let bar of card.entry.bars"
+          class="unit-bar"
+          [attr.data-unit]="bar.unit"
+          [attr.data-unit-family]="bar.unitFamily"
+          [style.--unit-color]="bar.color"
+        >
+          <span class="unit-name">{{ bar.unit }}</span>
+          <span class="unit-track">
+            <span class="unit-fill" [style.width.%]="bar.fraction * 100"></span>
+          </span>
+          <span class="unit-value">{{ bar.label }}</span>
+        </div>
+      </ng-template>
     </div>
     <div *ngIf="card.hint" class="card-hint">
       <ng-container *ngFor="let part of card.hintParts"><kbd *ngIf="part.isKey; else hintText" class="hint-key">{{ part.text }}</kbd><ng-template #hintText>{{ part.text }}</ng-template></ng-container>

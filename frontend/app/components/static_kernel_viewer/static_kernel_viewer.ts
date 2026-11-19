@@ -17,6 +17,8 @@ import {DEFAULT_HOST} from 'org_xprof/frontend/app/common/constants/constants';
 import {
   FUNCTIONAL_UNITS_BY_LANE,
   readHoveredEvent,
+  unitFamilyForLabel,
+  type UnitTokenFamily,
 } from 'org_xprof/frontend/app/components/static_kernel_viewer/kernel_event_tooltip';
 import {
   KernelMinimap,
@@ -115,6 +117,10 @@ export interface KernelStats {
 export interface KernelFact {
   readonly label: string;
   readonly value: string;
+  /** Primary metric value when accompanied by a muted `secondaryValue`. */
+  readonly primaryValue?: string;
+  /** Muted secondary qualifier rendered after `primaryValue`, e.g. ` · 4 per bundle`. */
+  readonly secondaryValue?: string;
   /** Whether the value points at a likely performance problem. */
   readonly warning: boolean;
   /** Material icon shown before `value`, if any. */
@@ -165,6 +171,8 @@ export interface NameSegment {
 /** A bar of the functional unit chart in the details card of a kernel. */
 export interface UnitBar {
   readonly unit: string;
+  /** Component Rack HCT tonal palette family for the functional unit. */
+  readonly unitFamily: UnitTokenFamily;
   /** Color of the functional unit. */
   readonly color: string;
   /** Length of the bar, between 0 and 1. */
@@ -219,6 +227,8 @@ export interface KernelEntry {
   readonly facts: readonly KernelFact[];
   /** Title of the functional unit chart in the details card. */
   readonly chartTitle: string;
+  /** Whether the chart falls back to instruction shares instead of utilization. */
+  readonly isInstructionMix: boolean;
   /** Functional unit chart in the details card. */
   readonly bars: readonly UnitBar[];
   /** Accessible description of the kernel and its statistics. */
@@ -410,7 +420,7 @@ const CARD_SHOW_DELAY_MS = 400;
 const CARD_HIDE_DELAY_MS = 100;
 
 /** Width of the details card, see the stylesheet. */
-const CARD_WIDTH = 320;
+const CARD_WIDTH = 300;
 
 /** Distance between the details card and its kernel. */
 const CARD_GAP = 8;
@@ -849,18 +859,25 @@ function writeListPreference(key: string, values: readonly string[]) {
 }
 
 function kernelFacts(stats: KernelStats): KernelFact[] {
-  let instructions = NUMBER_FORMAT.format(stats.instructions);
-  if (stats.bundles > 0) {
-    const perBundle = RATIO_FORMAT.format(stats.instructions / stats.bundles);
-    instructions += ` · ${perBundle} per bundle`;
-  }
+  const primaryInstructions = NUMBER_FORMAT.format(stats.instructions);
+  const secondaryInstructions =
+    stats.bundles > 0
+      ? ` · ${RATIO_FORMAT.format(stats.instructions / stats.bundles)} per bundle`
+      : undefined;
+  const instructions = `${primaryInstructions}${secondaryInstructions ?? ''}`;
   const facts: KernelFact[] = [
     {
       label: 'Bundles',
       value: NUMBER_FORMAT.format(stats.bundles),
       warning: false,
     },
-    {label: 'Instructions', value: instructions, warning: false},
+    {
+      label: 'Instructions',
+      value: instructions,
+      primaryValue: primaryInstructions,
+      ...(secondaryInstructions ? {secondaryValue: secondaryInstructions} : {}),
+      warning: false,
+    },
   ];
   if (stats.vectorSpills !== undefined || stats.vectorFills !== undefined) {
     const spills = stats.vectorSpills ?? 0;
@@ -912,6 +929,7 @@ function buildCardHint(parts: readonly HintPart[]): {
  */
 function unitChart(stats?: KernelStats): {
   chartTitle: string;
+  isInstructionMix: boolean;
   bars: readonly UnitBar[];
 } {
   const units = stats?.units ?? [];
@@ -919,8 +937,10 @@ function unitChart(stats?: KernelStats): {
   if (utilized.length > 0) {
     return {
       chartTitle: 'Mean utilization',
+      isInstructionMix: false,
       bars: utilized.map(({unit, utilization = 0}) => ({
         unit,
+        unitFamily: unitFamilyForLabel(unit),
         color: unitColor(unit),
         fraction: Math.min(utilization, 1),
         label: formatPercent(utilization),
@@ -929,14 +949,16 @@ function unitChart(stats?: KernelStats): {
   }
   const total = units.reduce((sum, unit) => sum + unit.instructions, 0);
   if (total === 0) {
-    return {chartTitle: '', bars: []};
+    return {chartTitle: '', isInstructionMix: false, bars: []};
   }
   return {
     chartTitle: 'Instruction mix',
+    isInstructionMix: true,
     bars: units
       .filter((unit) => unit.instructions > 0)
       .map(({unit, instructions}) => ({
         unit,
+        unitFamily: unitFamilyForLabel(unit),
         color: unitColor(unit),
         fraction: instructions / total,
         label: formatPercent(instructions / total),

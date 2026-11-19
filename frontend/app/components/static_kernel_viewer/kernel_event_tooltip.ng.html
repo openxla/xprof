@@ -1,61 +1,43 @@
 @if (content; as tooltip) {
   <div class="tooltip-card" [style.--event-color]="tooltip.eventColor">
-    <div class="tooltip-header">
+    <div class="tooltip-header" [class.with-body]="tooltip.hasRenderedBody">
       <div class="header-top">
         <div class="header-identity">
           <span
             class="event-color-swatch"
             [style.--event-color]="tooltip.eventColor"
           ></span>
-          @if (tooltip.unit; as unit) {
-            <span class="unit-chip" [style.--unit-color]="unit.color">
-              <span class="unit-dot"></span>{{ unit.label }}
-            </span>
-          }
-          <span class="name" [class.code]="tooltip.isCode">{{ tooltip.name }}</span>
+          <span class="name">{{ tooltip.name }}</span>
         </div>
-        @if (!tooltip.counterGauge) {
-          <span class="bundles">
-            {{ tooltip.bundlesLabel }}
-            <span class="code tabular">{{ tooltip.bundles }}</span>
-            @if (!tooltip.subtitleChips && tooltip.length) {
-              · {{ tooltip.length }}
-            }
-          </span>
-        }
+        <span class="bundles">
+          <span>{{ tooltip.bundlesLabel }} {{ tooltip.bundles }}</span>
+          @if (tooltip.headerDurationChip; as durationChip) {
+            <span class="duration-micro-chip">{{ durationChip }}</span>
+          }
+        </span>
       </div>
-      @if (tooltip.subtitleChips; as chips) {
-        <div class="subtitle-chips tabular">
-          @for (chip of chips; track $index; let last = $last) {
-            <span>{{ chip }}</span>
-            @if (!last) {
-              <span class="chip-sep">·</span>
-            }
-          }
-        </div>
+
+      @if (tooltip.headerSubtitleChips; as chips) {
+        <div class="subtitle-chips">@for (chip of chips; track $index; let last = $last) {<span>{{ chip }}</span>@if (!last) {<span class="sep-dot">·</span>}}</div>
       }
-      @if (tooltip.description || tooltip.ordinalLabel || tooltip.hexBundle || tooltip.counterGauge) {
+
+      @if (
+        (tooltip.description && !tooltip.hideDescriptionInHeader) ||
+        tooltip.metaOffsets
+      ) {
         <div class="header-sub">
-          @if (tooltip.description) {
+          @if (tooltip.description && !tooltip.hideDescriptionInHeader) {
             <div class="details">{{ tooltip.description }}</div>
           }
-          @if (tooltip.counterGauge; as gauge) {
-            <span class="code tabular gauge-text">{{ gauge.formattedValue }}</span>
-            <span class="bundles">
-              {{ tooltip.bundlesLabel }}
-              <span class="code tabular">{{ tooltip.bundles }}</span>
-            </span>
-          }
-          @if (tooltip.ordinalLabel || tooltip.hexBundle) {
-            <div class="header-meta code tabular">
-              @if (tooltip.ordinalLabel) {
-                <span class="meta-ordinal">{{ tooltip.ordinalLabel }}</span>
-              }
-              @if (tooltip.ordinalLabel && tooltip.hexBundle) {
-                <span class="chip-sep">·</span>
-              }
-              @if (tooltip.hexBundle) {
-                <span class="meta-hex">{{ tooltip.hexBundle }}</span>
+          @if (tooltip.metaOffsets; as offsets) {
+            <div class="header-meta">
+              @for (offset of offsets; track $index; let last = $last) {
+                <span [class.unit-meta-label]="offset.emphasized">{{
+                  offset.text
+                }}</span>
+                @if (!last) {
+                  <span class="sep-dot">·</span>
+                }
               }
             </div>
           }
@@ -63,98 +45,177 @@
       }
     </div>
 
-    @if (tooltip.output || tooltip.operands || tooltip.consumerGroups || tooltip.spillsLabel || tooltip.instructionMix || tooltip.regions) {
-      <div class="tooltip-body">
-        @if (tooltip.output || tooltip.spillsLabel) {
-          <div class="compact-row">
-            @if (tooltip.output; as out) {
-              <span class="output-badges">
-                @if (out.register) {
-                  <span
-                    class="prop-badge register-badge code"
-                    [attr.data-reg-kind]="out.registerKind"
-                  >
-                    {{ out.register }}
-                  </span>
-                }
-                @if (out.memorySpace) {
-                  <span class="prop-badge space-badge code">{{ out.memorySpace }}</span>
-                }
-                @if (out.metadata) {
-                  <span class="prop-badge meta-badge">{{ out.metadata }}</span>
-                }
-                @if (out.throughput) {
-                  <span class="prop-badge cycles-badge tabular">{{ out.throughput }}</span>
-                }
-                @if (out.extraBadges; as extras) {
-                  @for (badge of extras; track $index) {
-                    <span class="prop-badge hw-badge code tabular">{{ badge }}</span>
-                  }
-                }
+    @if (tooltip.hasRenderedBody) {
+      <div class="tooltip-body" [class.dataflow-body]="tooltip.hasDataflow">
+        @if (tooltip.counterGauge; as gauge) {
+          <div class="body-row counter-row">
+            <span class="micro-label">{{ gauge.label }}</span>
+            <div class="counter-current-row">
+              <span
+                class="mix-pill gauge-text"
+                [attr.data-unit-family]="tooltip.counterPillFamily"
+              >
+                <span class="mix-name">{{ gauge.formattedValue }}</span>
               </span>
-            }
-            @if (tooltip.spillsLabel; as spillsLabel) {
-              <span class="spills-badge tabular" [class.spills-warn]="tooltip.hasSpills">
-                {{ spillsLabel }}
-              </span>
-            }
+            </div>
           </div>
         }
 
-        @if (tooltip.operands || tooltip.consumerGroups) {
-          <div class="compact-row dataflow-row">
-            @if (tooltip.operands; as operands) {
-              <span class="flow-group operands-group">
-                <span class="flow-label">In</span>
-                @for (op of operands.slice(0, 2); track op.index) {
-                  <span class="operand-chip code">{{ op.text }}</span>
-                }
-                @if (operands.length > 2) {
-                  <span class="more-badge tabular">+{{ operands.length - 2 }}</span>
-                }
-              </span>
-            }
-            @if (tooltip.consumerGroups; as consumerGroups) {
-              <span class="flow-group consumers-group">
-                <span class="consumer-arrow">→</span>
-                @for (cg of consumerGroups.slice(0, 2); track cg.name) {
-                  <span class="consumer-chip code">
-                    {{ cg.name }}
-                    @if (cg.count > 1) {
-                      <span class="consumer-count tabular">×{{ cg.count }}</span>
+        @if (tooltip.hasOutputRow && tooltip.output; as out) {
+          <div class="body-row output-row">
+            <span class="micro-label">Out</span>
+            <div class="output-badges">
+              @if (out.register) {
+                <span
+                  class="value-chip register-badge"
+                  [attr.data-reg-kind]="out.registerKind"
+                >
+                  <span class="value-chip-label">{{ out.register }}</span>
+                </span>
+              }
+              @if (tooltip.outputInlineDetails; as details) {
+                <span class="output-inline-meta">
+                  @for (detail of details; track $index; let last = $last) {
+                    <span>{{ detail }}</span>
+                    @if (!last) {
+                      <span class="sep-dot">·</span>
+                    }
+                  }
+                </span>
+              }
+            </div>
+          </div>
+        }
+
+        @if (tooltip.visibleOperands; as operands) {
+          @if (operands.items.length > 0) {
+            <div class="body-row operands-row">
+              <span class="micro-label">In</span>
+              <div class="chips-wrap operands-group">
+                @for (op of operands.items; track op.index) {
+                  <span
+                    class="value-chip operand-chip"
+                    [class.with-meta]="!!op.meta"
+                    [attr.title]="op.raw"
+                  >
+                    <span class="value-chip-label">{{ op.primary }}</span>
+                    @if (op.meta) {
+                      <span class="value-chip-meta">· {{ op.meta }}</span>
                     }
                   </span>
                 }
-                @if (consumerGroups.length > 2) {
-                  <span class="more-badge tabular">+{{ consumerGroups.length - 2 }}</span>
+                @if (operands.hiddenCount > 0) {
+                  <span class="more-badge">+{{ operands.hiddenCount }}</span>
                 }
-              </span>
-            }
+              </div>
+            </div>
+          }
+        }
+
+        @if (tooltip.visibleConsumers; as consumers) {
+          @if (consumers.items.length > 0) {
+            <div class="body-row consumers-row">
+              <span class="micro-label">To</span>
+              <div class="chips-wrap consumers-group">
+                @for (cg of consumers.items; track cg.name) {
+                  <span class="value-chip consumer-chip" [attr.title]="cg.name">
+                    <span class="value-chip-label">{{ cg.name }}</span>
+                    @if (cg.count > 1) {
+                      <span class="value-chip-count">×{{ cg.count }}</span>
+                    }
+                  </span>
+                }
+                @if (consumers.hiddenCount > 0) {
+                  <span class="more-badge">+{{ consumers.hiddenCount }}</span>
+                }
+              </div>
+            </div>
+          }
+        }
+
+        @if (tooltip.spillsLabel; as spillsLabel) {
+          <div class="body-row spills-row">
+            <span class="micro-label">Spills</span>
+            <div
+              class="spills-badge"
+              [class.spills-warn]="tooltip.hasSpills"
+            >
+              @if (tooltip.hasSpills) {
+                <mat-icon class="spill-icon" aria-hidden="true">warning</mat-icon>
+              }
+              <span class="spills-value">{{ spillsLabel }}</span>
+            </div>
+          </div>
+        }
+
+        @if (tooltip.meanUtilizationPills; as utilPills) {
+          <div class="body-row mean-util-row">
+            <span class="micro-label">Mean util</span>
+            <div class="mix-pills-row">
+              @for (pill of utilPills; track pill.label) {
+                <span
+                  class="mix-pill"
+                  [attr.data-unit-family]="pill.unitFamily"
+                >
+                  <span class="mix-name">{{ pill.label }}</span>
+                  <span class="mix-share">{{ pill.formattedPercent }}</span>
+                </span>
+              }
+            </div>
           </div>
         }
 
         @if (tooltip.instructionMix; as mix) {
-          <div class="compact-row mix-legend">
-            @for (item of mix.slice(0, 3); track item.unit.label) {
-              <span class="mix-legend-item" [style.--unit-color]="item.unit.color">
-                <span class="mix-dot"></span>
-                <span class="mix-unit">{{ item.unit.label }}</span>
-                <span class="mix-pct code tabular">{{ item.formattedPercent }}</span>
-              </span>
-            }
-            @if (tooltip.density) {
-              <span class="density-pill code tabular">{{ tooltip.density }}</span>
+          <div class="body-row mix-row">
+            <span class="micro-label">Instr mix</span>
+            <div class="mix-legend">
+              @for (item of mix.slice(0, 4); track item.unit.label) {
+                <span class="mix-legend-item">
+                  <span class="mix-unit">{{ item.unit.label }}</span>
+                  <span class="mix-pct">{{ item.formattedPercent }}</span>
+                </span>
+              }
+            </div>
+          </div>
+        }
+
+        @if (tooltip.totalInstructionsLabel || tooltip.density) {
+          <div class="body-row density-row">
+            @if (tooltip.totalInstructionsLabel; as totalInstrs) {
+              <span class="micro-label">Instrs</span>
+              <div class="instrs-density-value">
+                <span class="instrs-count">{{ totalInstrs }}</span>
+                @if (tooltip.density; as density) {
+                  <span class="sep-dot">·</span>
+                  <span class="density-pill density-secondary">{{
+                    density
+                  }}</span>
+                }
+              </div>
+            } @else if (tooltip.density) {
+              <span class="micro-label">Density</span>
+              <span class="density-pill">{{ tooltip.density }}</span>
             }
           </div>
         }
 
-        @if (tooltip.regions; as regions) {
-          <div class="compact-row region-row">
-            <div class="region-crumbs">
-              @for (region of regions; track $index; let last = $last) {
-                <span class="crumb" [class.crumb-leaf]="last">{{ region }}</span>
+        @if (tooltip.visibleScopeCrumbs; as crumbs) {
+          <div class="body-row region-row">
+            <span class="micro-label">Scope</span>
+            <div
+              class="region-crumbs"
+              [attr.title]="tooltip.scopeFullPath ?? null"
+            >
+              @for (crumb of crumbs; track $index; let last = $last) {
+                <span
+                  class="value-chip crumb"
+                  [class.crumb-leaf]="crumb.isLeaf"
+                  [attr.title]="crumb.tooltip"
+                >
+                  <span class="value-chip-label">{{ crumb.text }}</span>
+                </span>
                 @if (!last) {
-                  <span class="crumb-sep">›</span>
+                  <span class="crumb-sep" aria-hidden="true">›</span>
                 }
               }
             </div>

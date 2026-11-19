@@ -44,9 +44,9 @@
     },
     "compiler.graph_and_multihost_scale:07_switch_tool_Trace Viewer": {
       "decision": "INTENTIONAL",
-      "diff_hash": "8bd7d2905802b6a5",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.328921+00:00"
+      "diff_hash": "fb8f5a28ff318caa",
+      "rationale": "Intentional UI and DOM update: Trace Viewer filter bar icon changed from filter_list to filter_alt.",
+      "timestamp": "2026-11-18T19:31:00.000000+00:00"
     },
     "compiler.graph_and_multihost_scale:08_switch_tool_Overview Page": {
       "decision": "INTENTIONAL",
@@ -140,9 +140,9 @@
     },
     "distributed.host_retention_and_trace:03_switch_tool_Trace Viewer": {
       "decision": "INTENTIONAL",
-      "diff_hash": "9114a5b5ed9a1233",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.507004+00:00"
+      "diff_hash": "807a2608d22cb838",
+      "rationale": "Intentional UI and DOM update: Trace Viewer filter bar icon changed from filter_list to filter_alt.",
+      "timestamp": "2026-11-18T19:31:00.000000+00:00"
     },
     "distributed.host_retention_and_trace:04_go_back_HLO Op Stats": {
       "decision": "INTENTIONAL",
@@ -170,9 +170,9 @@
     },
     "full_spectrum.multimodal_endurance:03_switch_tool_Trace Viewer": {
       "decision": "INTENTIONAL",
-      "diff_hash": "dd41f6d4fefbe2af",
-      "rationale": "Intentional DOM-only shift (0 px visual diff): Angular Material ng-tns animation counter increments after the restored Memory Viewer module selector renders earlier in the session.",
-      "timestamp": "2026-11-19T10:23:00.000000+00:00"
+      "diff_hash": "c5f58de65301591e",
+      "rationale": "Intentional UI and DOM update: Trace Viewer filter bar icon changed from filter_list to filter_alt.",
+      "timestamp": "2026-11-18T19:31:00.000000+00:00"
     },
     "full_spectrum.multimodal_endurance:04_switch_tool_HLO Op Stats": {
       "decision": "INTENTIONAL",
@@ -386,9 +386,9 @@
     },
     "triage.pipeline_and_hardware_bounds:11_switch_tool_Trace Viewer": {
       "decision": "INTENTIONAL",
-      "diff_hash": "19d9561db684edbe",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.191083+00:00"
+      "diff_hash": "bd5143c80683ef62",
+      "rationale": "Intentional UI and DOM update: Trace Viewer filter bar icon changed from filter_list to filter_alt.",
+      "timestamp": "2026-11-18T19:31:00.000000+00:00"
     }
   }
 }

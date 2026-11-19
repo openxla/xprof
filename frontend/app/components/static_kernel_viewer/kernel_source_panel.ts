@@ -736,7 +736,7 @@ export class KernelSourcePanel {
           (spills > 0 ? `, incl. ${formatCount(spills)} spills and fills` : ''),
         tooltip:
           "Instructions that the source map doesn't attribute to a line, " +
-          "e.g. of the kernel's prologue and epilogue.",
+          "e.g. of the HLO op's prologue and epilogue.",
       };
     },
   );

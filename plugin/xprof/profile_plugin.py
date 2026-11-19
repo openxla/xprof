@@ -193,6 +193,8 @@ XPLANE_TOOLS = [
     'utilization_viewer',
     'kernel_utilization',
     'smart_suggestion',
+    # DCN Analyzer. Listed only when convert.is_dcn_analyzer_enabled().
+    'grpc_metrics',
 ]
 
 XPLANE_TOOLS_SET = frozenset(XPLANE_TOOLS)
@@ -210,7 +212,7 @@ XPLANE_TOOLS_ALL_HOSTS_SUPPORTED = frozenset([
 
 # XPlane generated tools that only support all host mode.
 XPLANE_TOOLS_ALL_HOSTS_ONLY = frozenset(
-    ['overview_page', 'pod_viewer', 'smart_suggestion']
+    ['overview_page', 'pod_viewer', 'smart_suggestion', 'grpc_metrics']
 )
 
 # XPlane /data converters that require a single XSpace and must resolve to a
@@ -333,7 +335,10 @@ def _get_tools(filenames: Sequence[str], profile_run_dir: str) -> set[str]:
   # profile_run_dir might be empty, like in cloud AI use case.
   if not profile_run_dir:
     if xplane_filenames:
+      is_dcn_analyzer_enabled = convert.is_dcn_analyzer_enabled()
       for item in XPLANE_TOOLS:
+        if item == 'grpc_metrics' and not is_dcn_analyzer_enabled:
+          continue
         if item[:-1] not in found:
           tools.add(item)
   else:
@@ -537,6 +542,15 @@ def _generate_csv_filename(request: wrappers.Request) -> str:
   return '_'.join(filename_parts) + '.csv'
 
 
+# Tool list options when every optional tool is turned off.
+_DEFAULT_TOOL_LIST_OPTIONS = {'dcn_analyzer_enabled': False}
+
+
+def _get_tool_list_options() -> dict[str, bool]:
+  """Returns the settings that change the tool list, for the tools cache."""
+  return {'dcn_analyzer_enabled': convert.is_dcn_analyzer_enabled()}
+
+
 class ToolsCache:
   """A cache for tool lists based on file content hashes or mtimes.
 
@@ -614,6 +628,18 @@ class ToolsCache:
       self.invalidate()
       return None
 
+    # A cache written before 'options' was stored was built with every
+    # optional tool turned off.
+    if cached_data.get('options', _DEFAULT_TOOL_LIST_OPTIONS) != (
+        _get_tool_list_options()
+    ):
+      logger.info(
+          'ToolsCache invalid: tool list options differ. Invalidating %s',
+          self._cache_file,
+      )
+      self.invalidate()
+      return None
+
     logger.info('ToolsCache hit: %s', self._cache_file)
     return cached_data.get('tools')
 
@@ -636,6 +662,7 @@ class ToolsCache:
         'version': self.CACHE_VERSION,
         'files': current_files_for_cache,
         'tools': tools,
+        'options': _get_tool_list_options(),
     }
     self._cache_fs.write_json(str(self._cache_file), new_cache_data)
 
@@ -2146,6 +2173,7 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
         'hlo_stats',  # Legacy name for hlo_op_stats
         'inference_profile',
         'megascale_stats',
+        'grpc_metrics',
     ]
     tools = _get_tools(filenames, profile_run_dir)
     if 'trace_viewer@' in tools:

@@ -247,6 +247,8 @@ class RawToToolDataTest(absltest.TestCase):
     )
 
   def test_xspace_to_tool_names_valid_xspace_returns_tool_names(self):
+    self.enter_context(mock.patch.dict(os.environ))
+    os.environ.pop(raw_to_tool_data.DCN_ANALYZER_ENV_VAR, None)
     mock_func = self.enter_context(
         mock.patch.object(
             _pywrap_profiler_plugin,
@@ -259,9 +261,13 @@ class RawToToolDataTest(absltest.TestCase):
     names = raw_to_tool_data.xspace_to_tool_names(["/path/to/xspace"])
 
     self.assertEqual(names, ["trace_viewer", "op_profile"])
-    mock_func.assert_called_once_with(["/path/to/xspace"], "tool_names")
+    mock_func.assert_called_once_with(
+        ["/path/to/xspace"], "tool_names", {"enable_dcn_analyzer": False}
+    )
 
   def test_xspace_to_tool_names_invalid_xspace_returns_empty_list(self):
+    self.enter_context(mock.patch.dict(os.environ))
+    os.environ.pop(raw_to_tool_data.DCN_ANALYZER_ENV_VAR, None)
     mock_func = self.enter_context(
         mock.patch.object(
             _pywrap_profiler_plugin,
@@ -274,7 +280,64 @@ class RawToToolDataTest(absltest.TestCase):
     names = raw_to_tool_data.xspace_to_tool_names(["/path/to/xspace"])
 
     self.assertEmpty(names)
-    mock_func.assert_called_once_with(["/path/to/xspace"], "tool_names")
+    mock_func.assert_called_once_with(
+        ["/path/to/xspace"], "tool_names", {"enable_dcn_analyzer": False}
+    )
+
+  def test_xspace_to_tool_names_passes_dcn_analyzer_switch(self):
+    # The environment variable turns the DCN Analyzer on in the tool list.
+    self.enter_context(
+        mock.patch.dict(
+            os.environ, {raw_to_tool_data.DCN_ANALYZER_ENV_VAR: "1"}
+        )
+    )
+    mock_func = self.enter_context(
+        mock.patch.object(
+            _pywrap_profiler_plugin,
+            "xspace_to_tools_data",
+            return_value=(b"trace_viewer,grpc_metrics", True),
+            autospec=True,
+        )
+    )
+
+    names = raw_to_tool_data.xspace_to_tool_names(["/path/to/xspace"])
+
+    self.assertEqual(names, ["trace_viewer", "grpc_metrics"])
+    mock_func.assert_called_once_with(
+        ["/path/to/xspace"], "tool_names", {"enable_dcn_analyzer": True}
+    )
+
+  def test_is_dcn_analyzer_enabled_reads_environment_variable(self):
+    # Off when unset; on and off values in any case; other values keep the
+    # default.
+    self.enter_context(mock.patch.dict(os.environ))
+    env_var = raw_to_tool_data.DCN_ANALYZER_ENV_VAR
+    os.environ.pop(env_var, None)
+    self.assertFalse(raw_to_tool_data.is_dcn_analyzer_enabled())
+    for value in ("1", "true", "True", " YES ", "on"):
+      os.environ[env_var] = value
+      self.assertTrue(raw_to_tool_data.is_dcn_analyzer_enabled(), value)
+    for value in ("0", "false", "No", "OFF"):
+      os.environ[env_var] = value
+      self.assertFalse(raw_to_tool_data.is_dcn_analyzer_enabled(), value)
+    os.environ[env_var] = "maybe"
+    self.assertFalse(raw_to_tool_data.is_dcn_analyzer_enabled())
+
+  def test_xspace_to_tool_data_grpc_metrics_returns_json(self):
+    wrapper_func = mock.MagicMock(return_value=(b'{"top_stragglers":[]}', True))
+
+    data, content_type = raw_to_tool_data.xspace_to_tool_data(
+        xspace_paths=["/path/to/xspace"],
+        tool="grpc_metrics",
+        params={},
+        xspace_wrapper_func=wrapper_func,
+    )
+
+    self.assertEqual(data, b'{"top_stragglers":[]}')
+    self.assertEqual(content_type, "application/json")
+    wrapper_func.assert_called_once_with(
+        ["/path/to/xspace"], "grpc_metrics", {"use_saved_result": True}
+    )
 
   def test_xspace_to_tool_data_graph_viewer_pb_returns_octet_stream(self):
     params = {"graph_viewer_options": {"type": "pb"}}

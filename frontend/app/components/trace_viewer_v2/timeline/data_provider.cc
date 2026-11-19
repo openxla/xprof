@@ -735,7 +735,7 @@ void AppendEventToTimelineData(
     }
     if (event->has_group_id) {
       flags |= FlameChartTimelineData::kEntryArgHasGroupId;
-      data.sparse_entry_group_ids[entry_idx] = event->group_id;
+      data.sparse_entry_group_ids.Append(entry_idx, event->group_id);
     }
     if (is_xla_ops_thread) {
       flags |= FlameChartTimelineData::kEntryArgHloOpFromName;
@@ -764,7 +764,7 @@ void AppendEventToTimelineData(
     raw_flags |= FlameChartTimelineData::kEntryArgHadRawHloModule;
   }
   if (event->has_group_id) {
-    data.sparse_entry_group_ids[entry_idx] = event->group_id;
+    data.sparse_entry_group_ids.Append(entry_idx, event->group_id);
   }
   data.entry_serials.push_back(event->serial);
   data.entry_arg_flags.push_back(raw_flags);
@@ -1217,8 +1217,10 @@ void CopyCachedTrackEntryMetadata(CachedThreadTrack& cached, size_t from_idx,
   entries.entry_hlo_module_ids[to_idx] = entries.entry_hlo_module_ids[from_idx];
 }
 
-// Moves sparse per-entry metadata from `from_idx` to `to_idx` in `entries`,
-// clearing any stale sparse metadata previously stored at `to_idx`.
+// Moves hash-map sparse per-entry metadata from `from_idx` to `to_idx` in
+// `entries`, clearing any stale sparse metadata previously stored at `to_idx`.
+// `sparse_entry_group_ids` is relocated in bulk during compaction to avoid
+// O(runs) per-burst vector edits.
 void RelocateSparseEntryMetadata(FlameChartTimelineData& entries,
                                  size_t from_idx, size_t to_idx) {
   auto move_sparse_entry = [](auto& map, size_t from, size_t to) {
@@ -1230,7 +1232,6 @@ void RelocateSparseEntryMetadata(FlameChartTimelineData& entries,
       map.erase(to);
     }
   };
-  move_sparse_entry(entries.sparse_entry_group_ids, from_idx, to_idx);
   move_sparse_entry(entries.sparse_entry_args, from_idx, to_idx);
 }
 
@@ -1381,14 +1382,72 @@ CoalesceBounds ComputeCoalesceBounds(
   return bounds;
 }
 
+// Deferred group_id relocation recorded when burst coalescing reuses `kept_idx`
+// for the representative span `source_idx` (`kept_idx != source_idx`).
+struct GroupIdRelocation {
+  uint32_t kept_idx;
+  uint32_t source_idx;
+};
+
+// Rebuilds `existing` into compacted entry indices using `old_to_new`,
+// resolving deferred `kept_idx <- source_idx` relocations in a single sorted
+// merge pass instead of mutating `GroupIdRuns` per coalesced burst.
+GroupIdRuns RemapGroupIdRunsAfterCompaction(
+    const GroupIdRuns& existing, absl::Span<const uint32_t> old_to_new,
+    uint32_t dropped_sentinel, absl::Span<GroupIdRelocation> relocations) {
+  absl::c_sort(relocations,
+               [](const GroupIdRelocation& a, const GroupIdRelocation& b) {
+                 return a.kept_idx < b.kept_idx;
+               });
+  const size_t n = old_to_new.size();
+  GroupIdRuns remapped;
+  auto emit_relocated = [&](const GroupIdRelocation& reloc) {
+    if (reloc.kept_idx >= n || old_to_new[reloc.kept_idx] == dropped_sentinel) {
+      return;
+    }
+    if (const std::optional<int64_t> group_id = existing.Find(reloc.source_idx);
+        group_id.has_value()) {
+      remapped.Append(old_to_new[reloc.kept_idx], *group_id);
+    }
+  };
+
+  size_t reloc_idx = 0;
+  for (const GroupIdRuns::Run& run : existing.runs()) {
+    const size_t end_i = std::min<size_t>(run.end, n);
+    while (reloc_idx < relocations.size() &&
+           relocations[reloc_idx].kept_idx < run.begin) {
+      emit_relocated(relocations[reloc_idx]);
+      ++reloc_idx;
+    }
+    for (size_t old_i = run.begin; old_i < end_i; ++old_i) {
+      if (reloc_idx < relocations.size() &&
+          relocations[reloc_idx].kept_idx == old_i) {
+        emit_relocated(relocations[reloc_idx]);
+        ++reloc_idx;
+        continue;
+      }
+      if (old_to_new[old_i] != dropped_sentinel) {
+        remapped.Append(old_to_new[old_i], run.group_id);
+      }
+    }
+  }
+  while (reloc_idx < relocations.size()) {
+    emit_relocated(relocations[reloc_idx]);
+    ++reloc_idx;
+  }
+  return remapped;
+}
+
 // Selects the longest-duration span in `[sub_start, sub_end)` (`sub_start <
 // sub_end`) and coalesces contiguous positive-duration spans around it into one
-// envelope bounded by `kept_by_level` and `max_coalesce_gap`. Returns the kept
-// entry index in `cached.entries`.
-int CoalesceBurstInSubBucket(CachedThreadTrack& cached,
-                             absl::Span<const int> level_vec, size_t sub_start,
-                             size_t sub_end, Microseconds max_coalesce_gap,
-                             absl::Span<const SortedLevelSpans> kept_by_level) {
+// envelope bounded by `kept_by_level` and `max_coalesce_gap`. Appends any
+// deferred `sparse_entry_group_ids` relocation to `group_id_relocations` and
+// returns the kept entry index in `cached.entries`.
+int CoalesceBurstInSubBucket(
+    CachedThreadTrack& cached, absl::Span<const int> level_vec,
+    size_t sub_start, size_t sub_end, Microseconds max_coalesce_gap,
+    absl::Span<const SortedLevelSpans> kept_by_level,
+    std::vector<GroupIdRelocation>& group_id_relocations) {
   FlameChartTimelineData& entries = cached.entries;
   auto child_time_of = [&](int idx) {
     return std::max<Microseconds>(
@@ -1461,6 +1520,11 @@ int CoalesceBurstInSubBucket(CachedThreadTrack& cached,
   if (kept_idx != best_idx) {
     CopyCachedTrackEntryMetadata(cached, best_idx, kept_idx);
     RelocateSparseEntryMetadata(entries, best_idx, kept_idx);
+    if (!entries.sparse_entry_group_ids.empty()) {
+      group_id_relocations.push_back(
+          {.kept_idx = static_cast<uint32_t>(kept_idx),
+           .source_idx = static_cast<uint32_t>(best_idx)});
+    }
   }
   entries.entry_total_times[kept_idx] = coalesced_dur;
   entries.entry_self_times[kept_idx] =
@@ -1477,7 +1541,8 @@ int CoalesceBurstInSubBucket(CachedThreadTrack& cached,
 void SelectAndCoalesceLevelSpans(
     CachedThreadTrack& cached, absl::Span<const int> level_vec,
     size_t level_budget, absl::Span<const SortedLevelSpans> kept_by_level,
-    std::vector<uint8_t>& keep) {
+    std::vector<uint8_t>& keep,
+    std::vector<GroupIdRelocation>& group_id_relocations) {
   FlameChartTimelineData& entries = cached.entries;
   const Microseconds min_ts = entries.entry_start_times[level_vec.front()];
   const Microseconds max_start_ts = entries.entry_start_times[level_vec.back()];
@@ -1529,9 +1594,9 @@ void SelectAndCoalesceLevelSpans(
           b_start + static_cast<size_t>(
                         (static_cast<uint64_t>(s + 1) * bucket_event_count) /
                         sub_bucket_count);
-      const int kept_idx =
-          CoalesceBurstInSubBucket(cached, level_vec, sub_start, sub_end,
-                                   max_coalesce_gap, kept_by_level);
+      const int kept_idx = CoalesceBurstInSubBucket(
+          cached, level_vec, sub_start, sub_end, max_coalesce_gap,
+          kept_by_level, group_id_relocations);
       keep[kept_idx] = 1;
     }
   }
@@ -1604,6 +1669,7 @@ bool CompactCachedThreadTrackIfNeeded(
   size_t remaining_budget = head_budget;
   size_t remaining_unkept = unkept_count;
   std::vector<std::pair<Microseconds, Microseconds>> pre_parent_spans;
+  std::vector<GroupIdRelocation> group_id_relocations;
   for (size_t lvl = 0; lvl < num_levels; ++lvl) {
     std::vector<int>& level_vec = events_by_level[lvl];
     SortedLevelSpans& kept_spans = kept_by_level[lvl];
@@ -1655,7 +1721,8 @@ bool CompactCachedThreadTrackIfNeeded(
     } else {
       SelectAndCoalesceLevelSpans(
           cached, level_vec, level_budget,
-          absl::MakeConstSpan(kept_by_level).subspan(0, lvl + 1), keep);
+          absl::MakeConstSpan(kept_by_level).subspan(0, lvl + 1), keep,
+          group_id_relocations);
     }
     if (lvl + 1 < num_levels) {
       for (const int idx : level_vec) {
@@ -1754,9 +1821,14 @@ bool CompactCachedThreadTrackIfNeeded(
     }
     sparse_map = std::move(remapped);
   };
-  remap_sparse_map(entries.sparse_entry_group_ids);
   remap_sparse_map(entries.sparse_entry_args);
   RebuildRightmostEntryByRow(cached);
+
+  if (!entries.sparse_entry_group_ids.empty()) {
+    entries.sparse_entry_group_ids = RemapGroupIdRunsAfterCompaction(
+        entries.sparse_entry_group_ids, old_to_new, kDropped,
+        absl::MakeSpan(group_id_relocations));
+  }
 
   cached.was_compacted = true;
   return true;
@@ -1822,8 +1894,16 @@ void AppendCachedThreadTrackToTimelineData(CachedThreadTrack& cached,
         local_mod_id < module_id_map.size() ? module_id_map[local_mod_id] : 0);
   }
 
-  for (const auto& [rel_idx, group_id] : src.sparse_entry_group_ids) {
-    data.sparse_entry_group_ids[base_entry_idx + rel_idx] = group_id;
+  for (const GroupIdRuns::Run& run : src.sparse_entry_group_ids.runs()) {
+    const uint64_t shifted_begin =
+        static_cast<uint64_t>(base_entry_idx) + run.begin;
+    const uint64_t shifted_end =
+        static_cast<uint64_t>(base_entry_idx) + run.end;
+    if (shifted_end <= std::numeric_limits<uint32_t>::max()) {
+      data.sparse_entry_group_ids.AppendRange(
+          static_cast<size_t>(shifted_begin), static_cast<size_t>(shifted_end),
+          run.group_id);
+    }
   }
   if (consume_track) {
     for (auto& [rel_idx, args] : src.sparse_entry_args) {
@@ -1885,9 +1965,9 @@ TraceEvent ReconstructCachedTraceEvent(const CachedThreadTrack& cached,
       .has_serial = (flags & FlameChartTimelineData::kEntryArgHasUid) != 0,
       .is_async = is_async,
   };
-  if (const auto it = e.sparse_entry_group_ids.find(i);
-      it != e.sparse_entry_group_ids.end()) {
-    ev.group_id = it->second;
+  if (const std::optional<int64_t> gid = e.sparse_entry_group_ids.Find(i);
+      gid.has_value()) {
+    ev.group_id = *gid;
     ev.has_group_id = true;
   }
   if (const auto it = e.sparse_entry_args.find(i);
@@ -1917,9 +1997,9 @@ std::vector<TraceEvent> RestoreAndTruncateCachedTrackFrom(
   restored.reserve(n - start_idx);
   for (size_t i = start_idx; i < n; ++i) {
     restored.push_back(ReconstructCachedTraceEvent(cached, i, is_async));
-    e.sparse_entry_group_ids.erase(i);
     e.sparse_entry_args.erase(i);
   }
+  e.sparse_entry_group_ids.TruncateFrom(start_idx);
   if (start_idx == 0) {
     cached = CachedThreadTrack{};
     return restored;

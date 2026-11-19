@@ -3941,7 +3941,7 @@ TEST(TimelineTest, SetSearchQueryMatchesEntryArgsAndSparseEntryArgs) {
       static_cast<uint8_t>(FlameChartTimelineData::kEntryArgHasUid |
                            FlameChartTimelineData::kEntryArgHasGroupId)};
   data.entry_serials = {0, 0, 0, 987654};
-  data.sparse_entry_group_ids[3] = 4242;
+  data.sparse_entry_group_ids.Append(3, 4242);
   data.hlo_module_names = {"jit_train_step_module"};
   data.entry_hlo_module_ids = {0, 0, 0, 1};
   timeline.SetTimelineData(std::move(data));
@@ -18093,8 +18093,14 @@ TEST(TimelineTest, CompactTimelineDataRemapsSparseIdsAndBitsets) {
   // Append one trailing event ID beyond entry_start_times (index == old_n) so
   // search-match reconciliation exercises the `idx < old_n` false branch.
   data.entry_event_ids.push_back(9999);
-  data.sparse_entry_group_ids[100] = 42;
-  data.sparse_entry_group_ids[101] = 99;
+  data.sparse_entry_group_ids.Append(100, 42);
+  data.sparse_entry_group_ids.Append(101, 99);
+  data.sparse_entry_args[50] = {{"tag", "dropped"}};
+  data.sparse_entry_args[199] = {{"tag", "kept"}};
+  data.groups[0].level_count = 2;
+  data.entry_levels[kNumEvents - 1] = 1;
+  data.level_offsets = {0, static_cast<size_t>(kNumEvents - 1),
+                        static_cast<size_t>(kNumEvents)};
 
   timeline.SetTimelineData(std::move(data));
 
@@ -18117,6 +18123,7 @@ TEST(TimelineTest, CompactTimelineDataRemapsSparseIdsAndBitsets) {
   timeline.SetSearchResults(search_events);
   ASSERT_THAT(CollectSetBits(timeline.get_matching_event_indices_for_test()),
               ElementsAre(200, kNumEvents));
+  timeline.RevealEvent(100);
   SetSelectedEventIndices(timeline, {50, 100, kNumEvents});
 
   timeline.set_is_compacted(true);
@@ -18215,6 +18222,99 @@ TEST(TimelineTest, CompactTimelineDataSkipsFullLoadsAndCompactsOverviews) {
   timeline.SetVisibleRange({0.0, 100.0}, /*animate=*/false);
   timeline.MaybeRequestData();
   EXPECT_TRUE(fetch_requested);
+}
+
+TEST(TimelineTest,
+     CompactTimelineDataRemapsGroupIdRunsArgsScrollAndSearchResults) {
+  auto make_data = [](int num_events) {
+    FlameChartTimelineData data;
+    data.groups.push_back({.name = "Group 1",
+                           .start_level = 0,
+                           .nesting_level = kThreadNestingLevel,
+                           .expanded = true,
+                           .level_count = 1});
+    data.level_offsets = {0, static_cast<size_t>(num_events)};
+    data.level_event_indices.reserve(num_events);
+    data.entry_args.resize(num_events);
+    for (int i = 0; i < num_events; ++i) {
+      data.level_event_indices.push_back(i);
+      data.entry_names.push_back(absl::StrCat("ev_", i));
+      data.entry_levels.push_back(0);
+      data.entry_start_times.push_back(static_cast<double>(i));
+      data.entry_total_times.push_back(0.5);
+      data.entry_self_times.push_back(0.5);
+      data.entry_event_ids.push_back(i + 1);
+      data.entry_args[i]["idx"] = absl::StrCat(i);
+    }
+    // Include a run reaching `old_n` (covers `kept_before(old_n)`).
+    data.sparse_entry_group_ids.Append(0, 10);
+    data.sparse_entry_group_ids.Append(num_events - 1, 20);
+    // Include kept, dropped, and out-of-bounds sparse_entry_args keys.
+    data.sparse_entry_args[0]["k"] = "kept";
+    data.sparse_entry_args[1]["k"] = "dropped";
+    data.sparse_entry_args[static_cast<size_t>(num_events) + 5]["k"] = "oob";
+    return data;
+  };
+
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_max_uncompacted_overview_entries_for_test(64);
+  timeline.set_is_compacted(false);
+  timeline.set_full_trace_loaded(true);
+  timeline.SetTimelineData(make_data(5000));
+
+  // Reveal index 1 (will be dropped once unselected) and attach search results
+  // pointing to both kept (0) and dropped (1) indices, then trigger direct
+  // overview compaction via UpdateTimelineData.
+  timeline.MarkCurrentDataAsFullOverview();
+  timeline.RevealEvent(1);
+  timeline.set_selected_event_index_for_test(-1);
+  timeline.set_search_results_for_test(
+      {Timeline::SearchResult{.event_id = 1, .loaded_index = 0},
+       Timeline::SearchResult{.event_id = 2, .loaded_index = 1}});
+  timeline.set_is_compacted(true);
+  int compacted_kept_loaded_index = -2;
+  int compacted_dropped_loaded_index = -2;
+  timeline.UpdateTimelineData([&]() {
+    if (timeline.get_search_results_for_test().size() == 2u) {
+      compacted_kept_loaded_index =
+          timeline.get_search_results_for_test()[0].loaded_index;
+      compacted_dropped_loaded_index =
+          timeline.get_search_results_for_test()[1].loaded_index;
+    }
+    return make_data(10);
+  });
+  EXPECT_EQ(compacted_kept_loaded_index, 0);
+  EXPECT_EQ(compacted_dropped_loaded_index, -1);
+  ASSERT_TRUE(timeline.RestoreSavedFullOverview());
+
+  const FlameChartTimelineData& compacted = timeline.timeline_data();
+  const size_t new_n = compacted.entry_start_times.size();
+  ASSERT_LT(new_n, 2500u);
+  EXPECT_EQ(compacted.entry_args.size(), new_n);
+  EXPECT_EQ(compacted.sparse_entry_group_ids.Find(0), 10);
+  EXPECT_EQ(compacted.sparse_entry_group_ids.Find(new_n - 1), 20);
+  EXPECT_TRUE(compacted.sparse_entry_args.contains(0));
+  EXPECT_EQ(compacted.sparse_entry_args.size(), 1u);
+
+  // Also cover `event_index_to_scroll_to_` pointing to a kept entry (0) and an
+  // out-of-bounds index (4999 when compacting a 200-entry timeline).
+  timeline.set_is_compacted(false);
+  timeline.set_full_trace_loaded(true);
+  timeline.SetTimelineData(make_data(5000));
+  timeline.RevealEvent(0);
+  timeline.set_is_compacted(true);
+  timeline.SetTimelineData(make_data(5000));
+  EXPECT_EQ(timeline.selected_event_index(), 0);
+
+  timeline.set_is_compacted(false);
+  timeline.set_full_trace_loaded(true);
+  timeline.SetTimelineData(make_data(5000));
+  timeline.RevealEvent(4999);
+  timeline.set_selected_event_index_for_test(-1);
+  timeline.set_is_compacted(true);
+  timeline.SetTimelineData(make_data(200));
+  EXPECT_EQ(timeline.selected_event_index(), -1);
 }
 
 TEST(TimelineTest,
@@ -21787,6 +21887,220 @@ TEST_F(RealTimelineImGuiFixture,
   ImGui::Render();
   const int cpu_empty_vtx = ImGui::GetDrawData()->TotalVtxCount;
   EXPECT_GT(cpu_borrowed_vtx, cpu_empty_vtx);
+}
+
+TEST(GroupIdRunsTest,
+     AppendMergesAdjacentEqualIdsSplitsOnGapsAndFindsBoundaries) {
+  GroupIdRuns runs;
+  EXPECT_TRUE(runs.empty());
+  EXPECT_EQ(runs.Find(0), std::nullopt);
+  EXPECT_TRUE(runs.runs().empty());
+
+  runs.Append(2, 10);
+  runs.Append(3, 10);
+  runs.Append(4, 20);
+  runs.Append(7, 20);
+  runs.Append(8, 20);
+
+  EXPECT_FALSE(runs.empty());
+  const std::vector<GroupIdRuns::Run> expected_runs = {
+      {.begin = 2, .end = 4, .group_id = 10},
+      {.begin = 4, .end = 5, .group_id = 20},
+      {.begin = 7, .end = 9, .group_id = 20},
+  };
+  EXPECT_THAT(runs.runs(), ElementsAreArray(expected_runs));
+
+  // Before first run.
+  EXPECT_EQ(runs.Find(0), std::nullopt);
+  EXPECT_EQ(runs.Find(1), std::nullopt);
+  // First run [2, 4).
+  EXPECT_EQ(runs.Find(2), 10);
+  EXPECT_EQ(runs.Find(3), 10);
+  // Second run [4, 5).
+  EXPECT_EQ(runs.Find(4), 20);
+  // Gap [5, 7).
+  EXPECT_EQ(runs.Find(5), std::nullopt);
+  EXPECT_EQ(runs.Find(6), std::nullopt);
+  // Third run [7, 9).
+  EXPECT_EQ(runs.Find(7), 20);
+  EXPECT_EQ(runs.Find(8), 20);
+  // After last run.
+  EXPECT_EQ(runs.Find(9), std::nullopt);
+  EXPECT_EQ(runs.Find(100), std::nullopt);
+
+  runs.clear();
+  EXPECT_TRUE(runs.empty());
+  EXPECT_EQ(runs.Find(2), std::nullopt);
+}
+
+TEST(GroupIdRunsTest,
+     SupportsInt64ExtremesUint32MaxMinusOneAndEqualityMatchesPerEntryValues) {
+  constexpr int64_t kMinId = std::numeric_limits<int64_t>::min();
+  constexpr int64_t kMaxId = std::numeric_limits<int64_t>::max();
+  constexpr size_t kMaxValidIndex =
+      static_cast<size_t>(std::numeric_limits<uint32_t>::max()) - 1;
+
+  GroupIdRuns a;
+  a.Append(0, kMinId);
+  a.Append(1, 0);
+  a.Append(2, kMaxId);
+  a.Append(3, kMaxId);
+
+  EXPECT_EQ(a.Find(0), kMinId);
+  EXPECT_EQ(a.Find(1), 0);
+  EXPECT_EQ(a.Find(2), kMaxId);
+  EXPECT_EQ(a.Find(3), kMaxId);
+
+  GroupIdRuns b;
+  b.Append(0, kMinId);
+  b.Append(1, 0);
+  b.Append(2, kMaxId);
+  b.Append(3, kMaxId);
+
+  GroupIdRuns c;
+  c.Append(0, kMinId);
+  c.Append(1, 0);
+  c.Append(2, kMaxId);
+
+  GroupIdRuns d;
+  d.Append(0, kMinId);
+  d.Append(2, kMaxId);
+  d.Append(3, kMaxId);
+
+  const auto per_entry_equal = [](const GroupIdRuns& lhs,
+                                  const GroupIdRuns& rhs, size_t limit) {
+    for (size_t i = 0; i < limit; ++i) {
+      if (lhs.Find(i) != rhs.Find(i)) {
+        return false;
+      }
+    }
+    return true;
+  };
+  EXPECT_EQ(a == b, per_entry_equal(a, b, 5));
+  EXPECT_TRUE(a == b);
+  EXPECT_FALSE(a != b);
+  EXPECT_EQ(a == c, per_entry_equal(a, c, 5));
+  EXPECT_FALSE(a == c);
+  EXPECT_TRUE(a != c);
+  EXPECT_EQ(a == d, per_entry_equal(a, d, 5));
+  EXPECT_FALSE(a == d);
+  EXPECT_TRUE(a.runs()[0] != a.runs()[1]);
+  EXPECT_NE((GroupIdRuns::Run{.begin = 0, .end = 1, .group_id = 1}),
+            (GroupIdRuns::Run{.begin = 0, .end = 1, .group_id = 2}));
+
+  // Highest valid uint32_t entry index (UINT32_MAX - 1).
+  GroupIdRuns boundary_runs;
+  boundary_runs.Append(kMaxValidIndex, 42);
+  EXPECT_EQ(boundary_runs.Find(kMaxValidIndex - 1), std::nullopt);
+  EXPECT_EQ(boundary_runs.Find(kMaxValidIndex), 42);
+  EXPECT_EQ(boundary_runs.Find(std::numeric_limits<uint32_t>::max()),
+            std::nullopt);
+}
+
+TEST(GroupIdRunsTest, AppendRejectsInvalidIndicesAsNoOps) {
+  GroupIdRuns runs;
+  runs.Append(3, 10);
+  runs.Append(3, 10);
+  runs.Append(2, 10);
+  runs.Append(std::numeric_limits<uint32_t>::max(), 10);
+  const GroupIdRuns::Run expected_run{.begin = 3, .end = 4, .group_id = 10};
+  EXPECT_THAT(runs.runs(), ElementsAre(expected_run));
+  EXPECT_EQ(runs.Find(3), 10);
+  EXPECT_EQ(runs.Find(2), std::nullopt);
+
+  // GetEntryArgs omits group_id if kEntryArgHasGroupId is set without a run.
+  FlameChartTimelineData data;
+  data.entry_names.push_back("op");
+  data.entry_serials.push_back(0);
+  data.entry_hlo_module_ids.push_back(0);
+  data.entry_arg_flags.push_back(FlameChartTimelineData::kEntryArgHasGroupId);
+  EXPECT_FALSE(data.GetEntryArgs(0).contains("group_id"));
+}
+
+TEST(GroupIdRunsTest, AppendRangeCoalescesAndRejectsInvalidRanges) {
+  GroupIdRuns runs;
+  // Empty and inverted ranges are no-ops.
+  runs.AppendRange(5, 5, 10);
+  runs.AppendRange(6, 5, 10);
+  EXPECT_TRUE(runs.empty());
+
+  // Valid range followed by contiguous same-group range coalesces in place.
+  runs.AppendRange(2, 5, 10);
+  runs.AppendRange(5, 9, 10);
+  // Overlapping and out-of-order ranges are rejected as no-ops.
+  runs.AppendRange(8, 12, 10);
+  runs.AppendRange(0, 2, 10);
+  // Contiguous distinct group stays separate; gapped same group stays separate.
+  runs.AppendRange(9, 12, 20);
+  runs.AppendRange(15, 18, 20);
+
+  const std::vector<GroupIdRuns::Run> expected = {
+      {.begin = 2, .end = 9, .group_id = 10},
+      {.begin = 9, .end = 12, .group_id = 20},
+      {.begin = 15, .end = 18, .group_id = 20},
+  };
+  EXPECT_THAT(runs.runs(), ElementsAreArray(expected));
+  EXPECT_EQ(runs.Find(1), std::nullopt);
+  EXPECT_EQ(runs.Find(2), 10);
+  EXPECT_EQ(runs.Find(8), 10);
+  EXPECT_EQ(runs.Find(9), 20);
+  EXPECT_EQ(runs.Find(12), std::nullopt);
+  EXPECT_EQ(runs.Find(15), 20);
+
+  // Max-index boundary [UINT32_MAX - 2, UINT32_MAX) is valid; past UINT32_MAX
+  // is rejected when size_t exceeds uint32_t.
+  constexpr size_t kUint32Max = std::numeric_limits<uint32_t>::max();
+  GroupIdRuns boundary_runs;
+  if constexpr (sizeof(size_t) > sizeof(uint32_t)) {
+    boundary_runs.AppendRange(kUint32Max - 1, kUint32Max + 1, 99);
+    EXPECT_TRUE(boundary_runs.empty());
+  }
+  boundary_runs.AppendRange(kUint32Max - 2, kUint32Max, 42);
+  EXPECT_EQ(boundary_runs.Find(kUint32Max - 3), std::nullopt);
+  EXPECT_EQ(boundary_runs.Find(kUint32Max - 2), 42);
+  EXPECT_EQ(boundary_runs.Find(kUint32Max - 1), 42);
+  EXPECT_EQ(boundary_runs.Find(kUint32Max), std::nullopt);
+}
+
+TEST(GroupIdRunsTest, TruncateFromReleaseAndAllocatedBytesBehaveCorrectly) {
+  GroupIdRuns runs;
+  EXPECT_EQ(runs.AllocatedBytes(), 0u);
+  runs.TruncateFrom(0);
+  EXPECT_TRUE(runs.empty());
+
+  runs.Append(1, 10);
+  runs.Append(2, 10);
+  runs.Append(5, 20);
+  runs.Append(6, 20);
+  runs.Append(7, 20);
+  runs.Append(10, 30);
+  EXPECT_GE(runs.AllocatedBytes(), 3u * sizeof(GroupIdRuns::Run));
+
+  // Out-of-range uint32_t max and cut past last run end are safe no-ops.
+  runs.TruncateFrom(std::numeric_limits<uint32_t>::max());
+  runs.TruncateFrom(12);
+  EXPECT_EQ(runs.runs().size(), 3u);
+
+  // Truncate at 6 drops [10, 11) completely and trims [5, 8) to [5, 6).
+  runs.TruncateFrom(6);
+  const std::vector<GroupIdRuns::Run> after_partial = {
+      {.begin = 1, .end = 3, .group_id = 10},
+      {.begin = 5, .end = 6, .group_id = 20},
+  };
+  EXPECT_THAT(runs.runs(), ElementsAreArray(after_partial));
+  EXPECT_EQ(runs.Find(5), 20);
+  EXPECT_EQ(runs.Find(6), std::nullopt);
+
+  // Truncate at exact run.begin (5) pops [5, 6) rather than leaving [5, 5).
+  runs.TruncateFrom(5);
+  EXPECT_THAT(runs.runs(), ElementsAre(GroupIdRuns::Run{
+                               .begin = 1, .end = 3, .group_id = 10}));
+
+  // Truncate at 0 clears all runs; release() reclaims heap capacity.
+  runs.TruncateFrom(0);
+  EXPECT_TRUE(runs.empty());
+  runs.release();
+  EXPECT_EQ(runs.AllocatedBytes(), 0u);
 }
 
 TEST(EntryBitsetTest,

@@ -2282,7 +2282,7 @@ void Timeline::ReleaseEntryMemory(FlameChartTimelineData& d) {
   decltype(d.entry_arg_flags)().swap(d.entry_arg_flags);
   decltype(d.entry_hlo_module_ids)().swap(d.entry_hlo_module_ids);
   decltype(d.entry_args)().swap(d.entry_args);
-  d.sparse_entry_group_ids.clear();
+  d.sparse_entry_group_ids.release();
   d.sparse_entry_args.clear();
   decltype(d.level_offsets)().swap(d.level_offsets);
   decltype(d.level_event_indices)().swap(d.level_event_indices);
@@ -2309,14 +2309,14 @@ void Timeline::CompactTimelineDataToMipOverview() {
     return;
   }
 
-  std::vector<uint8_t> keep(old_n, 0);
+  std::vector<int> old_to_new(old_n, -1);
   if (selected_event_index_ >= 0 &&
       static_cast<size_t>(selected_event_index_) < old_n) {
-    keep[selected_event_index_] = 1;
+    old_to_new[selected_event_index_] = 0;
   }
   matching_event_indices_.ForEachSetBit([&](int idx) {
     if (static_cast<size_t>(idx) < old_n) {
-      keep[idx] = 1;
+      old_to_new[idx] = 0;
     }
   });
 
@@ -2330,7 +2330,7 @@ void Timeline::CompactTimelineDataToMipOverview() {
     if (!has_mip || indices.size() < 64) {
       for (int idx : indices) {
         if (idx >= 0 && static_cast<size_t>(idx) < old_n) {
-          keep[idx] = 1;
+          old_to_new[idx] = 0;
         }
       }
     } else {
@@ -2339,30 +2339,40 @@ void Timeline::CompactTimelineDataToMipOverview() {
         for (const auto& tile : level_mip_pyramids_[lvl].levels[m].tiles) {
           if (tile.dominant_event_index >= 0 &&
               static_cast<size_t>(tile.dominant_event_index) < old_n) {
-            keep[tile.dominant_event_index] = 1;
+            old_to_new[tile.dominant_event_index] = 0;
           }
         }
       }
       if (!indices.empty()) {
         if (indices.front() >= 0 &&
             static_cast<size_t>(indices.front()) < old_n) {
-          keep[indices.front()] = 1;
+          old_to_new[indices.front()] = 0;
         }
         if (indices.back() >= 0 &&
             static_cast<size_t>(indices.back()) < old_n) {
-          keep[indices.back()] = 1;
+          old_to_new[indices.back()] = 0;
         }
       }
     }
   }
 
-  std::vector<int> old_to_new(old_n, -1);
+  // Encode kept entries as `new_idx >= 0` and unkept entries as
+  // `~static_cast<int>(kept_before)` (`< 0`), allowing `kept_before(idx)` to
+  // be queried in O(1) without allocating a separate `keep` or `kept_before`
+  // vector.
   size_t new_n = 0;
   for (size_t i = 0; i < old_n; ++i) {
-    if (keep[i]) {
+    if (old_to_new[i] >= 0) {
       old_to_new[i] = static_cast<int>(new_n++);
+    } else {
+      old_to_new[i] = ~static_cast<int>(new_n);
     }
   }
+  const auto kept_before = [&old_to_new, old_n, new_n](size_t idx) -> size_t {
+    if (idx >= old_n) return new_n;
+    const int v = old_to_new[idx];
+    return static_cast<size_t>(v >= 0 ? v : ~v);
+  };
   if (new_n >= old_n) {
     is_compacted_ = false;
     window_at_full_resolution_ = true;
@@ -2380,7 +2390,7 @@ void Timeline::CompactTimelineDataToMipOverview() {
     std::vector<T> out;
     out.reserve(new_n);
     for (size_t i = 0; i < old_n; ++i) {
-      if (keep[i]) {
+      if (old_to_new[i] >= 0) {
         out.push_back(std::move(vec[i]));
       }
     }
@@ -2400,21 +2410,20 @@ void Timeline::CompactTimelineDataToMipOverview() {
   compact_vec(entry_colors_);
 
   if (!timeline_data_.sparse_entry_group_ids.empty()) {
-    decltype(timeline_data_.sparse_entry_group_ids) new_sparse_group_ids;
-    for (const auto& [old_idx, group_id] :
-         timeline_data_.sparse_entry_group_ids) {
-      if (old_idx < old_n && old_to_new[old_idx] != -1) {
-        new_sparse_group_ids[static_cast<size_t>(old_to_new[old_idx])] =
-            group_id;
-      }
+    GroupIdRuns remapped;
+    for (const GroupIdRuns::Run& run :
+         timeline_data_.sparse_entry_group_ids.runs()) {
+      const size_t new_begin = kept_before(run.begin);
+      const size_t new_end = kept_before(run.end);
+      remapped.AppendRange(new_begin, new_end, run.group_id);
     }
-    timeline_data_.sparse_entry_group_ids = std::move(new_sparse_group_ids);
+    timeline_data_.sparse_entry_group_ids = std::move(remapped);
   }
 
   if (!timeline_data_.sparse_entry_args.empty()) {
     decltype(timeline_data_.sparse_entry_args) new_sparse;
     for (auto& [old_idx, args_map] : timeline_data_.sparse_entry_args) {
-      if (old_idx < old_n && old_to_new[old_idx] != -1) {
+      if (old_idx < old_n && old_to_new[old_idx] >= 0) {
         new_sparse[static_cast<size_t>(old_to_new[old_idx])] =
             std::move(args_map);
       }
@@ -2429,7 +2438,7 @@ void Timeline::CompactTimelineDataToMipOverview() {
     new_level_offsets[lvl] = new_level_event_indices.size();
     for (int idx : timeline_data_.level_events(lvl)) {
       if (idx >= 0 && static_cast<size_t>(idx) < old_n &&
-          old_to_new[idx] != -1) {
+          old_to_new[idx] >= 0) {
         new_level_event_indices.push_back(old_to_new[idx]);
       }
     }
@@ -2457,7 +2466,8 @@ void Timeline::CompactTimelineDataToMipOverview() {
   }
 
   if (event_index_to_scroll_to_ >= 0 &&
-      static_cast<size_t>(event_index_to_scroll_to_) < old_n) {
+      static_cast<size_t>(event_index_to_scroll_to_) < old_n &&
+      old_to_new[event_index_to_scroll_to_] >= 0) {
     event_index_to_scroll_to_ = old_to_new[event_index_to_scroll_to_];
   } else {
     event_index_to_scroll_to_ = -1;
@@ -2468,7 +2478,7 @@ void Timeline::CompactTimelineDataToMipOverview() {
     EntryBitset remapped;
     remapped.reserve(new_n);
     bitset.ForEachSetBit([&](int idx) {
-      if (static_cast<size_t>(idx) < old_n && old_to_new[idx] != -1) {
+      if (static_cast<size_t>(idx) < old_n && old_to_new[idx] >= 0) {
         remapped.insert(old_to_new[idx]);
       }
     });
@@ -2480,7 +2490,8 @@ void Timeline::CompactTimelineDataToMipOverview() {
   for (auto& res : search_results_) {
     if (res.loaded_index >= 0 &&
         static_cast<size_t>(res.loaded_index) < old_n) {
-      res.loaded_index = old_to_new[res.loaded_index];
+      const int mapped = old_to_new[res.loaded_index];
+      res.loaded_index = mapped >= 0 ? mapped : -1;
     }
   }
   is_compacted_ = true;

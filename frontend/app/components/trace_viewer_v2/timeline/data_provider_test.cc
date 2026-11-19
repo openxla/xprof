@@ -8696,14 +8696,13 @@ TEST_F(DataProviderTest, CompactionCoalescesLeafBurstsWithoutBridgingIdleGaps) {
         const EventId orig_peak_i = data.entry_event_ids[i] - kPeakEventIdBase;
         const int first_idx = static_cast<int>(start / 2.0 + 0.5);
         if (orig_peak_i % 64 == 2) {
-          EXPECT_FALSE(data.sparse_entry_group_ids.contains(i));
+          EXPECT_EQ(data.sparse_entry_group_ids.Find(i), std::nullopt);
           EXPECT_FALSE(data.sparse_entry_args.contains(i));
           if (first_idx % 32 == 0) {
             ++cleared_relocated_peak_spans;
           }
         } else {
-          ASSERT_TRUE(data.sparse_entry_group_ids.contains(i));
-          EXPECT_EQ(data.sparse_entry_group_ids.at(i), 42);
+          EXPECT_EQ(data.sparse_entry_group_ids.Find(i), 42);
           ASSERT_TRUE(data.sparse_entry_args.contains(i));
           EXPECT_EQ(data.sparse_entry_args.at(i).at("role"), "peak");
         }
@@ -9320,6 +9319,212 @@ TEST_F(DataProviderTest,
           << track << " level-1 span [" << start << ", " << end
           << "] is outside every kept level-0 span";
     }
+  }
+}
+
+TEST_F(DataProviderTest,
+       LegacyEventsCharacterizeUngroupedZeroAndNegativeGroupIds) {
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process A"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 101, "T1"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "ungrouped_op",
+       .ts = 10.0,
+       .dur = 5.0,
+       .group_id = 0,
+       .has_group_id = false},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "zero_group_op",
+       .ts = 20.0,
+       .dur = 5.0,
+       .group_id = 0,
+       .has_group_id = true},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "negative_group_op",
+       .ts = 30.0,
+       .dur = 5.0,
+       .group_id = -42,
+       .has_group_id = true},
+  };
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_EQ(data.entry_start_times.size(), 3u);
+
+  const absl::flat_hash_map<std::string, std::string> args0 =
+      data.GetEntryArgs(0);
+  EXPECT_FALSE(args0.contains("group_id"));
+
+  // Exercise incremental cached-track truncation and reconstruction of grouped
+  // events via RestoreAndTruncateCachedTrackFrom.
+  Timeline inc_timeline(palette_);
+  DataProvider inc_provider;
+  ParsedTraceEvents batch1;
+  batch1.flame_events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process A"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 101, "T1"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "later_grouped",
+       .ts = 50.0,
+       .dur = 10.0,
+       .group_id = 77,
+       .has_group_id = true},
+  };
+  ParsedTraceEvents batch2;
+  batch2.flame_events = {
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "earlier_grouped",
+       .ts = 20.0,
+       .dur = 10.0,
+       .group_id = 11,
+       .has_group_id = true},
+  };
+  inc_provider.BeginIncrementalLoad(inc_timeline);
+  inc_provider.AppendTraceEventsIncremental(std::move(batch1), inc_timeline);
+  inc_provider.AppendTraceEventsIncremental(std::move(batch2), inc_timeline);
+  inc_provider.FinishIncrementalLoad();
+  EXPECT_EQ(inc_timeline.timeline_data().sparse_entry_group_ids.Find(0), 11);
+  EXPECT_EQ(inc_timeline.timeline_data().sparse_entry_group_ids.Find(1), 77);
+
+  const absl::flat_hash_map<std::string, std::string> args1 =
+      data.GetEntryArgs(1);
+  ASSERT_TRUE(args1.contains("group_id"));
+  EXPECT_EQ(args1.at("group_id"), "0");
+
+  const absl::flat_hash_map<std::string, std::string> args2 =
+      data.GetEntryArgs(2);
+  ASSERT_TRUE(args2.contains("group_id"));
+  EXPECT_EQ(args2.at("group_id"), "-42");
+}
+
+TEST_F(DataProviderTest,
+       CompactionRemapsDeferredGroupIdRelocationsAcrossHighRunCount) {
+  constexpr int kNumEvents = 300000;
+  constexpr int kTrailingUngroupedCount = 24000;
+  constexpr int kGroupedLimit = kNumEvents - kTrailingUngroupedCount;
+  constexpr EventId kEventIdBase = 100;
+
+  auto expected_group_id = [](int orig_idx) -> std::optional<int64_t> {
+    if (orig_idx >= kGroupedLimit) {
+      return std::nullopt;
+    }
+    const int group = orig_idx / 4;
+    const int offset = orig_idx % 4;
+    if (group % 4 == 0) {
+      return offset == 2 ? std::optional<int64_t>(1000 + group) : std::nullopt;
+    }
+    if (group % 4 == 1) {
+      if (offset == 0) return 900000 + group;
+      if (offset == 2) return 2000 + group;
+      return std::nullopt;
+    }
+    if (group % 4 == 2) {
+      return offset == 0 ? std::optional<int64_t>(900000 + group)
+                         : std::nullopt;
+    }
+    // group % 4 == 3: constant run across the burst to exercise coalescing.
+    return 3000;
+  };
+
+  ParsedTraceEvents chunk;
+  chunk.flame_events.reserve(kNumEvents + 2);
+  chunk.flame_events.push_back(
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process A"));
+  chunk.flame_events.push_back(
+      CreateMetadataEvent(std::string(kThreadName), 1, 2, "T1"));
+  for (int i = 0; i < kNumEvents; ++i) {
+    const bool is_peak = (i % 4 == 2);
+    TraceEvent ev = MakeSpan(Phase::kComplete,
+                             kEventIdBase + static_cast<EventId>(i), 1, 2,
+                             is_peak ? "peak_op" : "base_op", i * 2.0,
+                             is_peak ? 1.5 : 1.0);
+    if (const std::optional<int64_t> gid = expected_group_id(i);
+        gid.has_value()) {
+      ev.group_id = *gid;
+      ev.has_group_id = true;
+    }
+    chunk.flame_events.push_back(std::move(ev));
+  }
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.MarkFinishingIncrementalLoad();
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk), timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_LT(data.entry_start_times.size(), static_cast<size_t>(kNumEvents));
+  ASSERT_LE(data.entry_start_times.size(), 131072u);
+
+  size_t relocated_before_first_run = 0;
+  size_t relocated_into_gap = 0;
+  size_t relocated_overwrote_distinct = 0;
+  size_t relocated_cleared_stale = 0;
+  size_t relocated_same_group_id = 0;
+  size_t relocated_after_last_run = 0;
+
+  for (size_t i = 0; i < data.entry_start_times.size(); ++i) {
+    ASSERT_GE(data.entry_event_ids[i], kEventIdBase);
+    const int best_orig_idx =
+        static_cast<int>(data.entry_event_ids[i] - kEventIdBase);
+    const int kept_orig_idx =
+        static_cast<int>(data.entry_start_times[i] / 2.0 + 0.5);
+    const std::optional<int64_t> expected_gid =
+        expected_group_id(best_orig_idx);
+    ASSERT_EQ(data.sparse_entry_group_ids.Find(i), expected_gid)
+        << "Mismatch at compacted entry " << i << " (kept_orig="
+        << kept_orig_idx << ", best_orig=" << best_orig_idx << ")";
+
+    if (kept_orig_idx != best_orig_idx) {
+      const std::optional<int64_t> stale_gid = expected_group_id(kept_orig_idx);
+      if (kept_orig_idx < 2 && expected_gid.has_value()) {
+        ++relocated_before_first_run;
+      } else if (kept_orig_idx >= kGroupedLimit) {
+        ++relocated_after_last_run;
+      } else if (!stale_gid.has_value() && expected_gid.has_value()) {
+        ++relocated_into_gap;
+      } else if (stale_gid.has_value() && !expected_gid.has_value()) {
+        ++relocated_cleared_stale;
+      } else if (stale_gid.has_value() && expected_gid.has_value()) {
+        if (*stale_gid == *expected_gid) {
+          ++relocated_same_group_id;
+        } else {
+          ++relocated_overwrote_distinct;
+        }
+      }
+    }
+  }
+
+  EXPECT_GT(relocated_before_first_run, 0u);
+  EXPECT_GT(relocated_into_gap, 1000u);
+  EXPECT_GT(relocated_overwrote_distinct, 1000u);
+  EXPECT_GT(relocated_cleared_stale, 1000u);
+  EXPECT_GT(relocated_same_group_id, 1000u);
+  EXPECT_GT(relocated_after_last_run, 100u);
+
+  // Verify GroupIdRuns maintains canonical sorted, disjoint, coalesced runs.
+  EXPECT_FALSE(data.sparse_entry_group_ids.empty());
+  std::optional<GroupIdRuns::Run> prev_run;
+  for (const GroupIdRuns::Run& run : data.sparse_entry_group_ids.runs()) {
+    EXPECT_LT(run.begin, run.end);
+    EXPECT_LE(run.end, data.entry_start_times.size());
+    if (prev_run.has_value()) {
+      EXPECT_LE(prev_run->end, run.begin);
+      if (prev_run->end == run.begin) {
+        EXPECT_NE(prev_run->group_id, run.group_id);
+      }
+    }
+    prev_run = run;
   }
 }
 

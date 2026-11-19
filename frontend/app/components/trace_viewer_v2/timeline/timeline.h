@@ -170,6 +170,94 @@ struct FlowLine {
   tsl::profiler::ContextType category = tsl::profiler::ContextType::kGeneric;
 };
 
+// Group IDs of flame-chart entries, stored as sorted, disjoint, half-open
+// runs of entry indices that share one group ID. An entry index outside
+// every run has no group ID.
+class GroupIdRuns {
+ public:
+  struct Run {
+    uint32_t begin = 0;  // First entry index of the run.
+    uint32_t end = 0;    // One past the last entry index of the run.
+    int64_t group_id = 0;
+    friend bool operator==(const Run& a, const Run& b) {
+      return a.begin == b.begin && a.end == b.end && a.group_id == b.group_id;
+    }
+    friend bool operator!=(const Run& a, const Run& b) { return !(a == b); }
+  };
+
+  // Records `group_id` for entry `index`. Indices must strictly increase
+  // across calls; gaps mean "no group ID".
+  void Append(size_t index, int64_t group_id) {
+    if (index >= std::numeric_limits<uint32_t>::max()) {
+      return;
+    }
+    AppendRange(index, index + 1, group_id);
+  }
+
+  // Records `group_id` for the half-open entry range `[begin, end)`. Ranges
+  // must be non-empty (`begin < end`), fit within `uint32_t` indices
+  // (`end <= UINT32_MAX`), and start at or after the end of the previous run.
+  void AppendRange(size_t begin, size_t end, int64_t group_id) {
+    if (begin >= end || end > std::numeric_limits<uint32_t>::max() ||
+        (!runs_.empty() && begin < runs_.back().end)) {
+      return;
+    }
+    const uint32_t b = static_cast<uint32_t>(begin);
+    const uint32_t e = static_cast<uint32_t>(end);
+    if (!runs_.empty() && runs_.back().end == b &&
+        runs_.back().group_id == group_id) {
+      runs_.back().end = e;
+      return;
+    }
+    runs_.push_back({.begin = b, .end = e, .group_id = group_id});
+  }
+
+  // Returns the group ID of entry `index`, or nullopt if it has none.
+  std::optional<int64_t> Find(size_t index) const {
+    const auto it = std::upper_bound(
+        runs_.begin(), runs_.end(), index,
+        [](size_t i, const Run& run) { return i < run.begin; });
+    if (it == runs_.begin()) {
+      return std::nullopt;
+    }
+    const auto prev_it = std::prev(it);
+    if (index >= prev_it->end) {
+      return std::nullopt;
+    }
+    return prev_it->group_id;
+  }
+
+  // Truncates all entries at or after `start_index` in-place.
+  void TruncateFrom(size_t start_index) {
+    if (start_index >= std::numeric_limits<uint32_t>::max()) {
+      return;
+    }
+    const uint32_t cut = static_cast<uint32_t>(start_index);
+    while (!runs_.empty() && runs_.back().begin >= cut) {
+      runs_.pop_back();
+    }
+    if (!runs_.empty() && runs_.back().end > cut) {
+      runs_.back().end = cut;
+    }
+  }
+
+  bool empty() const { return runs_.empty(); }
+  void clear() { runs_.clear(); }
+  void release() { std::vector<Run>().swap(runs_); }
+  size_t AllocatedBytes() const { return runs_.capacity() * sizeof(Run); }
+  absl::Span<const Run> runs() const { return runs_; }
+  friend bool operator==(const GroupIdRuns& a, const GroupIdRuns& b) {
+    return a.runs_ == b.runs_;
+  }
+  friend bool operator!=(const GroupIdRuns& a, const GroupIdRuns& b) {
+    return !(a == b);
+  }
+
+ private:
+  std::vector<Run> runs_;
+};
+static_assert(sizeof(GroupIdRuns::Run) == 16);
+
 // Compact bitset of non-negative event indices used for search match
 // highlighting and multi-event selection without per-entry heap allocations.
 class EntryBitset {
@@ -265,7 +353,7 @@ struct FlameChartTimelineData {
   std::vector<uint8_t> entry_arg_flags;
   std::vector<uint32_t> entry_hlo_module_ids;
   std::vector<std::string> hlo_module_names;
-  absl::flat_hash_map<size_t, int64_t> sparse_entry_group_ids;
+  GroupIdRuns sparse_entry_group_ids;
   absl::flat_hash_map<size_t, absl::flat_hash_map<std::string, std::string>>
       sparse_entry_args;
 
@@ -345,9 +433,10 @@ struct FlameChartTimelineData {
       args["uid"] = absl::StrCat(entry_serials[index]);
     }
     if ((flags & kEntryArgHasGroupId) != 0) {
-      if (auto it = sparse_entry_group_ids.find(index);
-          it != sparse_entry_group_ids.end()) {
-        args["group_id"] = absl::StrCat(it->second);
+      if (const std::optional<int64_t> group_id =
+              sparse_entry_group_ids.Find(index);
+          group_id.has_value()) {
+        args.try_emplace("group_id", absl::StrCat(*group_id));
       }
     }
     if ((flags & kEntryArgHloOpFromName) != 0) {

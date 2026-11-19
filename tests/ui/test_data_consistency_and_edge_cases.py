@@ -391,6 +391,51 @@ def test_new_nav_drawer_groups_and_new_nav_persistence(
   assert_healthy(page, browser_errors, "new_nav_drawer")
 
 
+def test_new_nav_multihost_memory_profile_and_overview_host_resolution(
+    page: Page,
+    server_url: str,
+    resolve_run_dir: Callable[[str], tuple[str, str]],
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+) -> None:
+  """Verifies ?new_nav=true multi-host Memory Profile and Overview routing."""
+  multi_run, multi_path = resolve_run_dir("multi-host")
+  open_tool(multi_run, "overview_page", new_nav="true")
+  drawer = page.locator("rack-navigation-drawer")
+  expect(drawer).to_be_visible(timeout=20000)
+
+  mem_item = drawer.locator(
+      "rack-navigation-item", has_text="Memory Profile"
+  ).first
+  expect(mem_item).to_be_visible(timeout=10000)
+  mem_item.click()
+  expect(page.locator("memory-profile")).to_be_visible(timeout=20000)
+  expect(page.locator("diagnostics-view .callout.is-critical")).to_have_count(0)
+  expect(page.locator("body")).not_to_contain_text(
+      "Unable to get the profile data"
+  )
+  assert_healthy(page, browser_errors, "new_nav_multihost_memory_profile")
+
+  ov_item = drawer.locator(
+      "rack-navigation-item", has_text="Overview Page"
+  ).first
+  expect(ov_item).to_be_visible(timeout=10000)
+  ov_item.click()
+  expect(page.locator("overview-page, overview-viewer").first).to_be_visible(
+      timeout=20000
+  )
+  assert_healthy(page, browser_errors, "new_nav_multihost_return_overview")
+
+  ov_stale = _fetch_tool_data_json(
+      page, server_url, multi_run, "overview_page", "stale-host", multi_path
+  )
+  assert isinstance(ov_stale, list) and ov_stale
+  mem_all = _fetch_tool_data_json(
+      page, server_url, multi_run, "memory_profile", "ALL_HOSTS", multi_path
+  )
+  assert isinstance(mem_all, dict) and mem_all
+
+
 def test_narrow_viewport_keeps_side_panel_closed_on_first_load(
     page: Page,
     server_url: str,

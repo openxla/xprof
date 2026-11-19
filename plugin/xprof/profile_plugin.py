@@ -213,6 +213,17 @@ XPLANE_TOOLS_ALL_HOSTS_ONLY = frozenset(
     ['overview_page', 'pod_viewer', 'smart_suggestion']
 )
 
+# XPlane /data converters that require a single XSpace and must resolve to a
+# single default host when host is ALL_HOSTS or omitted (distinct from
+# XPLANE_TOOLS_ALL_HOSTS_SUPPORTED, which only controls whether /hosts
+# advertises an ALL_HOSTS dropdown entry).
+XPLANE_TOOLS_SINGLE_HOST_ONLY = frozenset([
+    'trace_viewer',
+    'memory_profile',
+    'utilization_viewer',
+    'kernel_utilization',
+])
+
 # Rate limiter constants, the GCS quota defined below
 # https://cloud.google.com/storage/quotas#rate-quotas.
 # currently set to 1000 request per minute.
@@ -1393,7 +1404,13 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
     return respond(module_names_str, 'text/plain')
 
   def _get_valid_hosts(
-      self, run_dir: str, run: str, tool: str, hosts_param: str, host: str
+      self,
+      run_dir: str,
+      run: str,
+      tool: str,
+      hosts_param: str | None,
+      host: str | None,
+      perfetto: bool = False,
   ) -> tuple[Sequence[str], Sequence[epath.Path]]:
     """Retrieves and validates the hosts and asset paths for a run and tool.
 
@@ -1401,8 +1418,10 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
       run_dir: The run directory.
       run: The frontend run name.
       tool: The requested tool.
-      hosts_param: Comma-separated list of selected hosts.
-      host: The single host parameter.
+      hosts_param: Comma-separated list of selected hosts, or None if
+        unspecified.
+      host: The single host parameter, or None if unspecified.
+      perfetto: Whether the request is for a Perfetto trace.
 
     Returns:
       A tuple containing (selected_hosts, asset_paths).
@@ -1436,7 +1455,10 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
           'No xplane file found for run: %s, tool: %s' % (run, tool)
       )
 
-    if hosts_param and self._does_tool_support_multi_hosts_processing(tool):
+    if tool in XPLANE_TOOLS_ALL_HOSTS_ONLY:
+      selected_hosts = list(all_xplane_files.keys())
+      asset_paths = list(all_xplane_files.values())
+    elif hosts_param and self._does_tool_support_multi_hosts_processing(tool):
       selected_hosts = hosts_param.split(',')
       for selected_host in selected_hosts:
         if selected_host in all_xplane_files:
@@ -1446,36 +1468,28 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
               'No xplane file found for host: %s in run: %s'
               % (selected_host, run)
           )
-    elif host == ALL_HOSTS:
-      asset_paths = list(all_xplane_files.values())
-      selected_hosts = list(all_xplane_files.keys())
-    elif host and host in all_xplane_files:
+    elif host == ALL_HOSTS or not host:
+      # Only single-host XPlane converters and Megascale Perfetto trace
+      # generation require a concrete default host; all other XPlane tools
+      # aggregate across all hosts and must not write single-host OpStats to
+      # ALL_HOSTS.op_stats_v2.pb.
+      if tool in XPLANE_TOOLS_SINGLE_HOST_ONLY or (
+          tool == 'megascale_stats' and perfetto
+      ):
+        default_host = min(all_xplane_files.keys())
+        selected_hosts = [default_host]
+        asset_paths = [all_xplane_files[default_host]]
+      else:
+        selected_hosts = list(all_xplane_files.keys())
+        asset_paths = list(all_xplane_files.values())
+    elif host in all_xplane_files:
       selected_hosts = [host]
       asset_paths = [all_xplane_files[host]]
-    elif host:
+    else:
       logger.warning('No xplane file found for host: %s in run: %s', host, run)
-      if host not in XPLANE_TOOLS_ALL_HOSTS_ONLY:
-        raise FileNotFoundError(
-            'No xplane file found for host: %s in run: %s' % (host, run)
-        )
-    # for request that does not specify host or hosts param, use all hosts.
-    # would also be no-op for tools that is host-agnostic.
-    elif not host and not hosts_param:
-      selected_hosts = list(all_xplane_files.keys())
-      asset_paths = list(all_xplane_files.values())
-
-    if not asset_paths:
-      logger.warning(
-          'No matching asset paths found for run %s, tool %s, host(s) %s / %s',
-          run,
-          tool,
-          hosts_param,
-          host,
+      raise FileNotFoundError(
+          'No xplane file found for host: %s in run: %s' % (host, run)
       )
-      if not host and tool not in XPLANE_TOOLS_ALL_HOSTS_ONLY:
-        raise FileNotFoundError(
-            'Host must be specified for tool %s in run %s' % (tool, run)
-        )
 
     return selected_hosts, asset_paths
 
@@ -1629,12 +1643,17 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
     _, content_encoding = None, None
     if use_xplane(tool):
       selected_hosts, asset_paths = self._get_valid_hosts(
-          run_dir, run, tool, hosts_param, host
+          run_dir, run, tool, hosts_param, host, perfetto=perfetto
       )
-      if not asset_paths:
-        return None, content_type, None
-
       params['hosts'] = selected_hosts
+      if tool == 'megascale_stats':
+        # MegascaleStatsProcessor requires a non-empty host_name option: a
+        # concrete host name for Perfetto trace generation, or ALL_HOSTS when
+        # aggregating DCN slack analysis across all hosts.
+        if perfetto and (host == ALL_HOSTS or not host):
+          params['host'] = selected_hosts[0]
+        elif not perfetto and not host:
+          params['host'] = ALL_HOSTS
       try:
         data, content_type = self._xspace_to_tool_data(
             asset_paths,

@@ -768,6 +768,217 @@ class ProfilePluginTest(absltest.TestCase):
     args, _ = mock_xspace_to_tool_data.call_args
     self.assertEqual(args[2]['trace_viewer_options']['format'], 'json')
 
+  def testData_AllHostsOnlyToolsIgnoreSingleAndStaleHost(self):
+    mock_xspace_to_tool_data = self.enter_context(
+        mock.patch.object(convert, 'xspace_to_tool_data', autospec=True)
+    )
+    generate_testdata(self.logdir)
+    self.multiplexer.AddRunsFromDirectory(self.logdir)
+    self.multiplexer.Reload()
+    mock_xspace_to_tool_data.return_value = ('mocked_data', 'application/json')
+    plugin = utils.create_profile_plugin(
+        self.logdir,
+        self.multiplexer,
+        xspace_to_tool_data_fn=mock_xspace_to_tool_data,
+    )
+
+    for tool in ('overview_page', 'pod_viewer', 'smart_suggestion'):
+      for host in ('host1', 'stale_host', 'ALL_HOSTS', ''):
+        mock_xspace_to_tool_data.reset_mock()
+        data, content_type, _ = plugin.data_impl(
+            utils.make_data_request(
+                utils.DataRequestOptions(run='abc', tool=tool, host=host)
+            )
+        )
+        self.assertEqual(data, 'mocked_data')
+        self.assertEqual(content_type, 'application/json')
+        mock_xspace_to_tool_data.assert_called_once()
+        asset_paths, actual_tool, params = (
+            mock_xspace_to_tool_data.call_args.args
+        )
+        self.assertEqual(actual_tool, tool)
+        self.assertLen(asset_paths, 2)
+        self.assertSetEqual(set(params['hosts']), {'host1', 'host2'})
+
+  def testData_SingleHostToolResolvesDefaultHostOnAllHostsOrEmptyHost(self):
+    generate_testdata(self.logdir)
+    self.multiplexer.AddRunsFromDirectory(self.logdir)
+    self.multiplexer.Reload()
+    mock_xspace_to_tool_data = self.enter_context(
+        mock.patch.object(convert, 'xspace_to_tool_data', autospec=True)
+    )
+    mock_xspace_to_tool_data.return_value = ('mocked_data', 'application/json')
+    plugin = utils.create_profile_plugin(
+        self.logdir,
+        self.multiplexer,
+        xspace_to_tool_data_fn=mock_xspace_to_tool_data,
+    )
+    run_dir = os.path.join(
+        plugin_asset_util.PluginDirectory(
+            self.logdir, profile_plugin.ProfilePlugin.plugin_name
+        ),
+        'abc',
+    )
+    expected_host1_path = os.path.join(run_dir, 'host1.xplane.pb')
+
+    single_host_tools = (
+        'trace_viewer',
+        'memory_profile',
+        'utilization_viewer',
+        'kernel_utilization',
+    )
+    self.assertLen(single_host_tools, len(set(single_host_tools)))
+    self.assertSetEqual(
+        set(single_host_tools), profile_plugin.XPLANE_TOOLS_SINGLE_HOST_ONLY
+    )
+    self.assertEmpty(
+        set(single_host_tools) & profile_plugin.XPLANE_TOOLS_ALL_HOSTS_ONLY
+    )
+
+    for tool in single_host_tools:
+      for host in ('ALL_HOSTS', '', None):
+        with self.subTest(tool=tool, host=host):
+          mock_xspace_to_tool_data.reset_mock()
+          data, content_type, _ = plugin.data_impl(
+              utils.make_data_request(
+                  utils.DataRequestOptions(run='abc', tool=tool, host=host)
+              )
+          )
+          self.assertEqual(data, 'mocked_data')
+          self.assertEqual(content_type, 'application/json')
+          mock_xspace_to_tool_data.assert_called_once()
+          asset_paths, actual_tool, params = (
+              mock_xspace_to_tool_data.call_args.args
+          )
+          self.assertEqual(actual_tool, tool)
+          self.assertEqual([str(p) for p in asset_paths], [expected_host1_path])
+          self.assertEqual(params['hosts'], ['host1'])
+
+    for host in ('', None):
+      with self.subTest(host=host):
+        mock_xspace_to_tool_data.reset_mock()
+        req = utils.make_data_request(
+            utils.DataRequestOptions(
+                run='abc', tool='memory_profile', host=host
+            )
+        )
+        req.args['hosts'] = 'host1,host2'
+        data, content_type, _ = plugin.data_impl(req)
+        self.assertEqual(data, 'mocked_data')
+        self.assertEqual(content_type, 'application/json')
+        mock_xspace_to_tool_data.assert_called_once()
+        asset_paths, actual_tool, params = (
+            mock_xspace_to_tool_data.call_args.args
+        )
+        self.assertEqual(actual_tool, 'memory_profile')
+        self.assertEqual([str(p) for p in asset_paths], [expected_host1_path])
+        self.assertEqual(params['hosts'], ['host1'])
+
+    client = werkzeug_test.Client(plugin.data_route, wrappers.Response)
+    for query in (
+        '?run=abc&tag=memory_profile&host=ALL_HOSTS',
+        '?run=abc&tag=memory_profile',
+        '?run=abc&tag=memory_profile&hosts=host1,host2',
+    ):
+      with self.subTest(query=query):
+        response = client.get(query)
+        self.assertEqual(response.status_code, 200)
+
+  def test_data_multi_host_tools_and_megascale_perfetto_resolve_hosts(self):
+    generate_testdata(self.logdir)
+    self.multiplexer.AddRunsFromDirectory(self.logdir)
+    self.multiplexer.Reload()
+    mock_xspace_to_tool_data = self.enter_context(
+        mock.patch.object(convert, 'xspace_to_tool_data', autospec=True)
+    )
+    mock_xspace_to_tool_data.return_value = ('mocked_data', 'application/json')
+    plugin = utils.create_profile_plugin(
+        self.logdir,
+        self.multiplexer,
+        xspace_to_tool_data_fn=mock_xspace_to_tool_data,
+    )
+    run_dir = os.path.join(
+        plugin_asset_util.PluginDirectory(
+            self.logdir, profile_plugin.ProfilePlugin.plugin_name
+        ),
+        'abc',
+    )
+    expected_host1_path = os.path.join(run_dir, 'host1.xplane.pb')
+    expected_host2_path = os.path.join(run_dir, 'host2.xplane.pb')
+
+    multi_host_tools = (
+        'op_profile',
+        'hlo_stats',
+        'roofline_model',
+        'inference_profile',
+        'perf_counters',
+        'framework_op_stats',
+        'input_pipeline_analyzer',
+        'kernel_stats',
+        'graph_viewer',
+        'memory_viewer',
+        'trace_viewer@',
+        'megascale_stats',
+    )
+    self.assertLen(multi_host_tools, len(set(multi_host_tools)))
+    self.assertEmpty(
+        set(multi_host_tools) & profile_plugin.XPLANE_TOOLS_SINGLE_HOST_ONLY
+    )
+    self.assertEmpty(
+        set(multi_host_tools) & profile_plugin.XPLANE_TOOLS_ALL_HOSTS_ONLY
+    )
+    self.assertEmpty(
+        profile_plugin.XPLANE_TOOLS_SINGLE_HOST_ONLY
+        & profile_plugin.XPLANE_TOOLS_ALL_HOSTS_ONLY
+    )
+    self.assertSetEqual(
+        profile_plugin.XPLANE_TOOLS_SINGLE_HOST_ONLY
+        | set(multi_host_tools)
+        | profile_plugin.XPLANE_TOOLS_ALL_HOSTS_ONLY,
+        profile_plugin.XPLANE_TOOLS_SET,
+    )
+
+    for tool in multi_host_tools:
+      for host in ('ALL_HOSTS', '', None):
+        with self.subTest(tool=tool, host=host):
+          mock_xspace_to_tool_data.reset_mock()
+          plugin.data_impl(
+              utils.make_data_request(
+                  utils.DataRequestOptions(run='abc', tool=tool, host=host)
+              )
+          )
+          mock_xspace_to_tool_data.assert_called_once()
+          asset_paths, actual_tool, params = (
+              mock_xspace_to_tool_data.call_args.args
+          )
+          self.assertEqual(actual_tool, tool)
+          self.assertSetEqual(
+              {str(p) for p in asset_paths},
+              {expected_host1_path, expected_host2_path},
+          )
+          self.assertSetEqual(set(params['hosts']), {'host1', 'host2'})
+          if tool == 'megascale_stats':
+            self.assertEqual(params['host'], 'ALL_HOSTS')
+
+    for host in ('ALL_HOSTS', '', None):
+      with self.subTest(host=host):
+        mock_xspace_to_tool_data.reset_mock()
+        req = utils.make_data_request(
+            utils.DataRequestOptions(
+                run='abc', tool='megascale_stats', host=host
+            )
+        )
+        req.args['perfetto'] = 'true'
+        plugin.data_impl(req)
+        mock_xspace_to_tool_data.assert_called_once()
+        asset_paths, actual_tool, params = (
+            mock_xspace_to_tool_data.call_args.args
+        )
+        self.assertEqual(actual_tool, 'megascale_stats')
+        self.assertEqual([str(p) for p in asset_paths], [expected_host1_path])
+        self.assertEqual(params['hosts'], ['host1'])
+        self.assertEqual(params['host'], 'host1')
+
   def testActive(self):
 
     def wait_for_thread():

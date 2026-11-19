@@ -332,6 +332,78 @@ class ServerAndPackagingContractTest(unittest.TestCase):
         )
         self.assertIn("all_reduce_dcn_0", json.dumps(payload))
 
+      mem_all_hosts = fetch_json(
+          "data",
+          run="megascale-2host",
+          tag="memory_profile",
+          host="ALL_HOSTS",
+          session_path=str(mega_dir),
+      )
+      self.assertIsInstance(mem_all_hosts, dict)
+      mem_no_host = fetch_json(
+          "data",
+          run="megascale-2host",
+          tag="memory_profile",
+          session_path=str(mega_dir),
+      )
+      self.assertIsInstance(mem_no_host, dict)
+
+      for ov_host in ("stale-host", "mega-node-0"):
+        ov_payload = fetch_json(
+            "data",
+            run="megascale-2host",
+            tag="overview_page",
+            host=ov_host,
+            session_path=str(mega_dir),
+        )
+        self.assertIsInstance(ov_payload, list)
+        run_env_tbl = next(
+            tbl
+            for tbl in ov_payload
+            if isinstance(tbl, dict)
+            and "device_core_count" in (tbl.get("p") or {})
+        )
+        self.assertEqual(run_env_tbl["p"]["device_core_count"], "2")
+        self.assertTrue(run_env_tbl["p"]["task_count"].startswith("2"))
+
+      # Verify that multi-host OpStats tools (like op_profile) on a cold 2-host
+      # directory aggregate across all hosts when host is ALL_HOSTS or omitted,
+      # rather than writing 1-host OpStats into ALL_HOSTS.op_stats_v2.pb.
+      for op_profile_params in ({"host": "ALL_HOSTS"}, {}):
+        with self.subTest(op_profile_params=op_profile_params):
+          for child in mega_dir.iterdir():
+            if child.is_file() and not child.name.endswith(".xplane.pb"):
+              child.unlink()
+          op_payload = fetch_json(
+              "data",
+              run="megascale-2host",
+              tag="op_profile",
+              session_path=str(mega_dir),
+              **op_profile_params,
+          )
+          self.assertIsInstance(op_payload, dict)
+          self.assertTrue((mega_dir / "ALL_HOSTS.op_stats_v2.pb").is_file())
+          ov_after_op = fetch_json(
+              "data",
+              run="megascale-2host",
+              tag="overview_page",
+              host="ALL_HOSTS",
+              session_path=str(mega_dir),
+          )
+          self.assertIsInstance(ov_after_op, list)
+          run_env_after_op = next(
+              (
+                  tbl
+                  for tbl in ov_after_op
+                  if isinstance(tbl, dict)
+                  and "device_core_count" in (tbl.get("p") or {})
+              ),
+              None,
+          )
+          self.assertIsNotNone(run_env_after_op)
+          self.assertEqual(run_env_after_op["p"]["device_core_count"], "2")
+          self.assertTrue(run_env_after_op["p"]["task_count"].startswith("2"))
+
       # Simulate SxS cache clearing (deleting everything except *.xplane.pb)
       # and verify cold recomputation still yields non-empty DcnSlackSummary.
       for child in mega_dir.iterdir():
@@ -1843,6 +1915,81 @@ class HarnessInvariantsAndConftestTest(unittest.TestCase):
         sxs_mod._describe_divergence(decode_wp),
     )
     # pylint: enable=protected-access
+
+  def test_new_nav_multihost_memory_profile_and_overview_host_resolution(
+      self,
+  ) -> None:
+    """Tests the new_nav multi-host memory_profile and overview UI test."""
+    conftest_mod = self._load_isolated_conftest()
+    ui_mod = self._load_isolated_ui_module(
+        "test_data_consistency_and_edge_cases.py", conftest_mod
+    )
+    nav_page = mock.MagicMock()
+    nav_page.request.get.side_effect = [
+        types.SimpleNamespace(
+            status=200,
+            body=lambda: b'[{"p": {"host_count": "2"}}]',
+            json=lambda: [{"p": {"host_count": "2"}}],
+        ),
+        types.SimpleNamespace(
+            status=200,
+            body=lambda: b'{"memoryProfileSnapshots": []}',
+            json=lambda: {"memoryProfileSnapshots": []},
+        ),
+    ]
+    opened_tools: list[tuple[str, str, dict[str, Any]]] = []
+
+    def _record_open_tool(run_name: str, tool: str, **kwargs: Any) -> str:
+      opened_tools.append((run_name, tool, kwargs))
+      return run_name
+
+    browser_errors = conftest_mod.BrowserErrors()
+    with mock.patch.object(
+        ui_mod, "assert_healthy", autospec=True
+    ) as mock_healthy:
+      ui_mod.test_new_nav_multihost_memory_profile_and_overview_host_resolution(
+          nav_page,
+          "http://127.0.0.1:45983",
+          lambda run_name: (run_name, "/tmp/multi"),
+          _record_open_tool,
+          browser_errors,
+      )
+    self.assertEqual(
+        opened_tools,
+        [("multi-host", "overview_page", {"new_nav": "true"})],
+    )
+    self.assertEqual(
+        mock_healthy.call_args_list,
+        [
+            mock.call(
+                nav_page, browser_errors, "new_nav_multihost_memory_profile"
+            ),
+            mock.call(
+                nav_page, browser_errors, "new_nav_multihost_return_overview"
+            ),
+        ],
+    )
+    request_queries = [
+        urllib.parse.parse_qs(urllib.parse.urlsplit(call.args[0]).query)
+        for call in nav_page.request.get.call_args_list
+    ]
+    self.assertEqual(
+        request_queries,
+        [
+            {
+                "run": ["multi-host"],
+                "tag": ["overview_page"],
+                "host": ["stale-host"],
+                "session_path": ["/tmp/multi"],
+            },
+            {
+                "run": ["multi-host"],
+                "tag": ["memory_profile"],
+                "host": ["ALL_HOSTS"],
+                "session_path": ["/tmp/multi"],
+            },
+        ],
+    )
 
 
 if __name__ == "__main__":

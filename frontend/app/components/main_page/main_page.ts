@@ -10,6 +10,7 @@ import {MatSidenav} from '@angular/material/sidenav';
 import {Params, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {
+  ALL_HOSTS,
   CANONICAL_CATEGORY_ORDER,
   filterUiTools,
   stripToolSuffix,
@@ -50,6 +51,24 @@ const TRANSIENT_TOOL_QUERY_PARAMS: ReadonlySet<string> = new Set([
   'tool',
   'sessionId',
   'firstLoad',
+]);
+
+const ALL_HOSTS_ONLY_TOOLS: ReadonlySet<string> = new Set([
+  'overview_page',
+  'pod_viewer',
+  'smart_suggestion',
+]);
+
+const ALL_HOSTS_SUPPORTED_TOOLS: ReadonlySet<string> = new Set([
+  'input_pipeline_analyzer',
+  'input_pipeline',
+  'framework_op_stats',
+  'tensorflow_stats',
+  'kernel_stats',
+  'overview_page',
+  'pod_viewer',
+  'megascale_stats',
+  'smart_suggestion',
 ]);
 
 /** A main page component. */
@@ -272,6 +291,19 @@ export class MainPage implements OnDestroy {
           queryParams[key] = String(value);
         }
       }
+    }
+    const cleanTag = stripToolSuffix(tag);
+    const host = queryParams['host'];
+    if (
+      (host === ALL_HOSTS && !ALL_HOSTS_SUPPORTED_TOOLS.has(cleanTag)) ||
+      (Boolean(host) &&
+        host !== ALL_HOSTS &&
+        ALL_HOSTS_ONLY_TOOLS.has(cleanTag))
+    ) {
+      delete queryParams['host'];
+    }
+    if (cleanTag !== 'trace_viewer') {
+      delete queryParams['hosts'];
     }
     queryParams['run'] = this.currentRun;
     queryParams['tag'] = tag;

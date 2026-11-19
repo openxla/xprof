@@ -23,6 +23,7 @@ import re
 import urllib.parse
 
 from playwright.sync_api import expect
+from playwright.sync_api import Locator
 from playwright.sync_api import Page
 from playwright.sync_api import Route
 import pytest
@@ -140,6 +141,101 @@ def test_kernel_stats_rendering(
   expect(rows.first).to_be_visible(timeout=10000)
   assert rows.count() >= 1, "Expected kernel stats rows"
   assert_healthy(page, browser_errors, "kernel_stats")
+
+
+_RANK_COL = 0
+_KERNEL_NAME_COL = 1
+_USING_TC_COL = 7
+_ELIGIBLE_TC_COL = 8
+_RANK_GT_ONE_RE = re.compile(r"^(?:[2-9]|\d{2,})$")
+
+
+def _assert_rank_one_restored(
+    headers: Locator,
+    first_cells: Locator,
+    init_rank1_kernel: str,
+) -> None:
+  """Clicks Rank header to sort ascending and verifies Rank 1 is restored."""
+  headers.nth(_RANK_COL).click()
+  expect(headers.nth(_RANK_COL)).to_have_class(
+      re.compile(r"\bsort-ascending\b")
+  )
+  expect(first_cells.nth(_RANK_COL)).to_have_text("1")
+  expect(first_cells.nth(_KERNEL_NAME_COL)).to_have_text(init_rank1_kernel)
+
+
+def test_kernel_stats_sorting_and_rank_preservation(
+    page: Page,
+    logdir: str,
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+) -> None:
+  """Verifies Kernel Stats TensorCore column sorting and Rank preservation."""
+  if not os.path.exists(os.path.join(logdir, "gpu-training")):
+    pytest.skip("gpu-training fixture not present in logdir")
+  open_tool("gpu-training", "kernel_stats")
+
+  table = page.locator(
+      "kernel-stats-table .google-visualization-table-table"
+  ).first
+  expect(table).to_be_visible(timeout=20000)
+  headers = table.locator("thead th")
+  rows = table.locator("tbody tr")
+  expect(rows.first).to_be_visible(timeout=10000)
+  expect(headers.nth(_USING_TC_COL)).to_contain_text("Kernel uses TensorCore")
+  expect(headers.nth(_ELIGIBLE_TC_COL)).to_contain_text(
+      "Op is TensorCore eligible"
+  )
+
+  first_cells = rows.first.locator("td")
+  expect(first_cells.nth(_RANK_COL)).to_have_text("1")
+  init_rank1_kernel = first_cells.nth(_KERNEL_NAME_COL).inner_text().strip()
+  assert init_rank1_kernel, "Expected non-empty initial Rank 1 kernel name"
+
+  # 1. Sorting by Kernel Name preserves true Rank > 1, and Rank restores #1.
+  headers.nth(_KERNEL_NAME_COL).click()
+  expect(headers.nth(_KERNEL_NAME_COL)).to_have_class(
+      re.compile(r"\bsort-ascending\b")
+  )
+  expect(first_cells.nth(_KERNEL_NAME_COL)).not_to_have_text(init_rank1_kernel)
+  expect(first_cells.nth(_RANK_COL)).to_have_text(_RANK_GT_ONE_RE)
+  _assert_rank_one_restored(headers, first_cells, init_rank1_kernel)
+
+  # 2. Swapped TensorCore view columns (7 and 8) sort their own columns.
+  headers.nth(_ELIGIBLE_TC_COL).click()
+  expect(headers.nth(_ELIGIBLE_TC_COL)).to_have_class(
+      re.compile(r"\bsort-ascending\b")
+  )
+  expect(first_cells.nth(_ELIGIBLE_TC_COL)).to_contain_text("\u2717")
+  headers.nth(_ELIGIBLE_TC_COL).click()
+  expect(headers.nth(_ELIGIBLE_TC_COL)).to_have_class(
+      re.compile(r"\bsort-descending\b")
+  )
+  expect(first_cells.nth(_ELIGIBLE_TC_COL)).to_contain_text("\u2714")
+
+  _assert_rank_one_restored(headers, first_cells, init_rank1_kernel)
+  # All kernels in gpu-training have col 7 == false ('\u2717'), so sorting
+  # col 7 in either direction tie-breaks to Rank 1 first instead of col 8.
+  for direction in ("sort-ascending", "sort-descending"):
+    headers.nth(_USING_TC_COL).click()
+    expect(headers.nth(_USING_TC_COL)).to_have_class(
+        re.compile(rf"\b{direction}\b")
+    )
+    expect(first_cells.nth(_USING_TC_COL)).to_contain_text("\u2717")
+    expect(first_cells.nth(_RANK_COL)).to_have_text("1")
+    expect(first_cells.nth(_KERNEL_NAME_COL)).to_have_text(init_rank1_kernel)
+
+  # 3. Filtering preserves original profile-wide duration Rank (> 1).
+  kernel_filter = page.locator(
+      "kernel-stats-table input[placeholder='Kernel Name']"
+  )
+  kernel_filter.fill("copy_fusion")
+  expect(first_cells.nth(_KERNEL_NAME_COL)).to_contain_text("copy_fusion")
+  expect(first_cells.nth(_RANK_COL)).to_have_text(_RANK_GT_ONE_RE)
+
+  kernel_filter.fill("")
+  _assert_rank_one_restored(headers, first_cells, init_rank1_kernel)
+  assert_healthy(page, browser_errors, "kernel_stats_sorting")
 
 
 def test_roofline_model_operation_piechart_and_filter_redraw(

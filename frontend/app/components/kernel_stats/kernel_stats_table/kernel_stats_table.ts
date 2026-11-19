@@ -1,4 +1,15 @@
-import {Component, DestroyRef, ElementRef, inject, Input, OnChanges, OnInit, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  ElementRef,
+  inject,
+  Input,
+  OnChanges,
+  OnInit,
+  SimpleChanges,
+  ViewChild,
+} from '@angular/core';
 import {type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {loadGoogleChartPackages} from 'org_xprof/frontend/app/common/utils/utils';
 
@@ -25,48 +36,28 @@ declare interface SortEvent {
   ascending: boolean;
 }
 
-// TODO(xprof) Consider chagne fixed column index to column id for robustness
-const DATA_TABLE_RANK_INDEX = 0;
-const DATA_TABLE_KERNEL_NAME_INDEX = 1;
-const OP_NAME_COLUMN_ID = 'op_name';
-
 /** A kernel stats table view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'kernel-stats-table',
   templateUrl: './kernel_stats_table.ng.html',
-  styleUrls: ['./kernel_stats_table.scss']
+  styleUrls: ['./kernel_stats_table.scss'],
 })
 export class KernelStatsTable implements OnChanges, OnInit {
   /** The kernel stats data. */
-  @Input() kernelStatsData: SimpleDataTable|null = null;
+  @Input() kernelStatsData: SimpleDataTable | null = null;
 
   @ViewChild('table', {static: false}) tableRef!: ElementRef;
   private readonly destroyRef = inject(DestroyRef);
 
-  columns: KernelStatsColumn = {
-    rank: 0,
-    kernelName: 0,
-    registersPerThread: 0,
-    shmemBytes: 0,
-    blockDim: 0,
-    gridDim: 0,
-    occupancyPct: 0,
-    isKernelUsingTensorCore: 0,
-    isOpTensorCoreEligible: 0,
-    opName: 0,
-    occurrences: 0,
-    totalDurationUs: 0,
-    avgDurationUs: 0,
-    minDurationUs: 0,
-    maxDurationUs: 0,
-  };
-  dataTable: google.visualization.DataTable|null = null;
+  columns: KernelStatsColumn = createDefaultColumns();
+  dataTable: google.visualization.DataTable | null = null;
   filterKernelName = '';
   filterOpName = '';
   sortAscending = true;
   sortColumn = 0;
-  table: google.visualization.Table|null = null;
+  table: google.visualization.Table | null = null;
 
   loading = true;
 
@@ -84,7 +75,18 @@ export class KernelStatsTable implements OnChanges, OnInit {
       return;
     }
 
-    this.dataTable = new google.visualization.DataTable(this.kernelStatsData);
+    const dataTable = new google.visualization.DataTable(this.kernelStatsData);
+    this.dataTable = dataTable;
+    this.enumerateColumns();
+    if (dataTable.getNumberOfRows() > 0) {
+      const setWidthStyle = (columnIndex: number, style: string) => {
+        if (columnIndex >= 0) {
+          dataTable.setProperty(0, columnIndex, 'style', style);
+        }
+      };
+      setWidthStyle(this.columns.kernelName, 'width: 30%');
+      setWidthStyle(this.columns.opName, 'width: 25%');
+    }
   }
 
   drawTable() {
@@ -117,6 +119,7 @@ export class KernelStatsTable implements OnChanges, OnInit {
   }
 
   enumerateColumns() {
+    this.columns = createDefaultColumns();
     if (!this.dataTable) {
       return;
     }
@@ -174,61 +177,51 @@ export class KernelStatsTable implements OnChanges, OnInit {
     }
   }
 
-  getDataView(): google.visualization.DataView|null {
+  getDataView(): google.visualization.DataView | null {
     if (!this.dataTable) {
       this.createDataTable();
-      this.enumerateColumns();
     }
 
-    if (this.dataTable) {
-      this.dataTable.setProperty(
-          0, this.columns.kernelName, 'style', 'width: 30%');
-      this.dataTable.setProperty(0, this.columns.opName, 'style', 'width: 25%');
-    }
-
-    const dataView = this.sortDataView();
-    if (!dataView) {
+    const dataTable = this.getFilteredDataTable();
+    if (!dataTable) {
       return null;
     }
-    dataView.setColumns([
-      this.columns.rank,
-      this.columns.kernelName,
-      this.columns.registersPerThread,
-      this.columns.shmemBytes,
-      this.columns.blockDim,
-      this.columns.gridDim,
-      this.columns.occupancyPct,
-      this.columns.isKernelUsingTensorCore,
-      this.columns.isOpTensorCoreEligible,
-      this.columns.opName,
-      this.columns.occurrences,
-      this.columns.totalDurationUs,
-      this.columns.avgDurationUs,
-      this.columns.minDurationUs,
-      this.columns.maxDurationUs,
-    ]);
+
+    const dataView = new google.visualization.DataView(dataTable);
+    const viewColumns = this.getViewColumns(dataTable.getNumberOfColumns());
+    // google.visualization.Table 'sort' events emit DataView column indices,
+    // which differ from DataTable column indices because the TensorCore columns
+    // are swapped in the view.
+    if (this.sortColumn >= 0 && this.sortColumn < viewColumns.length) {
+      const sortedIndex = dataTable.getSortedRows({
+        column: viewColumns[this.sortColumn],
+        desc: !this.sortAscending,
+      });
+      dataView.setRows(sortedIndex);
+    }
+    dataView.setColumns(viewColumns);
 
     return dataView;
   }
 
-  getFilteredDataTable(): google.visualization.DataTable|null {
-    if (!this.dataTable) {
+  getFilteredDataTable(): google.visualization.DataTable | null {
+    if (!this.dataTable || this.dataTable.getNumberOfColumns() <= 0) {
       return null;
     }
 
     const filters = [];
-    if (this.filterKernelName.trim()) {
+    if (this.filterKernelName.trim() && this.columns.kernelName >= 0) {
       const filter = this.filterKernelName.trim().toLowerCase();
       filters.push({
-        'column': DATA_TABLE_KERNEL_NAME_INDEX,
+        'column': this.columns.kernelName,
         'test': (value: string) => value.toLowerCase().indexOf(filter) >= 0,
         // tslint:disable-next-line:no-any
       } as any);
     }
-    if (this.filterOpName.trim()) {
+    if (this.filterOpName.trim() && this.columns.opName >= 0) {
       const filter = this.filterOpName.trim().toLowerCase();
       filters.push({
-        'column': this.dataTable.getColumnIndex(OP_NAME_COLUMN_ID),
+        'column': this.columns.opName,
         'test': (value: string) => value.toLowerCase().indexOf(filter) >= 0,
         // tslint:disable-next-line:no-any
       } as any);
@@ -247,40 +240,56 @@ export class KernelStatsTable implements OnChanges, OnInit {
     const cancelLoad = loadGoogleChartPackages(['table'], () => {
       this.table = new google.visualization.Table(this.tableRef.nativeElement);
       google.visualization.events.addListener(
-          this.table, 'sort', (event: SortEvent) => {
-            this.sortColumn = event.column;
-            this.sortAscending = event.ascending;
-            this.drawTable();
-          });
+        this.table,
+        'sort',
+        (event: SortEvent) => {
+          this.sortColumn = event.column;
+          this.sortAscending = event.ascending;
+          this.drawTable();
+        },
+      );
       this.drawTable();
     });
     this.destroyRef.onDestroy(cancelLoad);
   }
 
-  sortDataView(): google.visualization.DataView|null {
-    const dataTable = this.getFilteredDataTable();
-    if (!dataTable) {
-      return null;
-    }
-
-    const sortedIndex = dataTable.getSortedRows({
-      column: this.sortColumn,
-      desc: !this.sortAscending,
-    });
-    if (this.sortColumn === DATA_TABLE_RANK_INDEX && !this.sortAscending) {
-      let n = sortedIndex.length;
-      sortedIndex.forEach((v) => {
-        dataTable.setCell(v, DATA_TABLE_RANK_INDEX, n--);
-      });
-    } else {
-      sortedIndex.forEach((v, idx) => {
-        dataTable.setCell(v, DATA_TABLE_RANK_INDEX, idx + 1);
-      });
-    }
-
-    const dataView = new google.visualization.DataView(dataTable);
-    dataView.setRows(sortedIndex);
-
-    return dataView;
+  private getViewColumns(columnCount: number): number[] {
+    return [
+      this.columns.rank,
+      this.columns.kernelName,
+      this.columns.registersPerThread,
+      this.columns.shmemBytes,
+      this.columns.blockDim,
+      this.columns.gridDim,
+      this.columns.occupancyPct,
+      this.columns.isKernelUsingTensorCore,
+      this.columns.isOpTensorCoreEligible,
+      this.columns.opName,
+      this.columns.occurrences,
+      this.columns.totalDurationUs,
+      this.columns.avgDurationUs,
+      this.columns.minDurationUs,
+      this.columns.maxDurationUs,
+    ].filter((col) => col >= 0 && col < columnCount);
   }
+}
+
+function createDefaultColumns(): KernelStatsColumn {
+  return {
+    rank: -1,
+    kernelName: -1,
+    registersPerThread: -1,
+    shmemBytes: -1,
+    blockDim: -1,
+    gridDim: -1,
+    occupancyPct: -1,
+    isKernelUsingTensorCore: -1,
+    isOpTensorCoreEligible: -1,
+    opName: -1,
+    occurrences: -1,
+    totalDurationUs: -1,
+    avgDurationUs: -1,
+    minDurationUs: -1,
+    maxDurationUs: -1,
+  };
 }

@@ -4916,7 +4916,8 @@ void Timeline::DrawEventName(absl::string_view event_name,
       // Push a clipping rectangle to ensure the text is only drawn within the
       // bounds of the event_rect. This prevents text from overflowing visually.
       draw_list->PushClipRect(ImVec2(event_rect.left, event_rect.top),
-                              ImVec2(event_rect.right, event_rect.bottom));
+                              ImVec2(event_rect.right, event_rect.bottom),
+                              /*intersect_with_current_clip_rect=*/true);
       draw_list->AddText(text_pos, text_color, text_display.c_str());
       draw_list->PopClipRect();
     }

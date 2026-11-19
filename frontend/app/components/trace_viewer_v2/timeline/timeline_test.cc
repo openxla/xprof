@@ -15474,6 +15474,51 @@ TEST_F(MockTimelineImGuiFixture, DrawEventClipsNonPositiveWidth) {
   ImGui::EndFrame();
 }
 
+TEST_F(MockTimelineImGuiFixture, DrawEventNameIntersectsWithCurrentClipRect) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"event_name", 100.0, 50.0, 0, 1, 1, 1001},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  EXPECT_CALL(timeline_, GetTextSize(_))
+      .WillRepeatedly(Return(ImVec2(40.0f, 10.0f)));
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowSize(ImVec2(1000, 500));
+  ImGui::Begin(
+      "Timeline viewer", nullptr,
+      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+  ImGuiWindow* window = ImGui::GetCurrentWindow();
+  ASSERT_NE(window, nullptr);
+  ImDrawList* draw_list = window->DrawList;
+
+  draw_list->VtxBuffer.resize(0);
+  draw_list->CmdBuffer.resize(0);
+  draw_list->CmdBuffer.push_back(ImDrawCmd());
+  const ImVec2 kEnclosingClipMin(80.0f, 110.0f);
+  const ImVec2 kEnclosingClipMax(150.0f, 118.0f);
+  draw_list->PushClipRect(kEnclosingClipMin, kEnclosingClipMax);
+
+  const EventRect rect{
+      .left = 100.0f, .top = 100.0f, .right = 180.0f, .bottom = 120.0f};
+  timeline_.CallDrawEvent(0, 0, rect, draw_list);
+
+  // Event background rect is 4 vertices; text adds > 0 additional vertices.
+  ASSERT_GT(draw_list->VtxBuffer.Size, 4);
+  ASSERT_GE(draw_list->CmdBuffer.Size, 2);
+
+  const ImDrawCmd& text_cmd = draw_list->CmdBuffer[1];
+  EXPECT_GT(text_cmd.ElemCount, 0u);
+  EXPECT_FLOAT_EQ(text_cmd.ClipRect.x, 100.0f);
+  EXPECT_FLOAT_EQ(text_cmd.ClipRect.y, 110.0f);
+  EXPECT_FLOAT_EQ(text_cmd.ClipRect.z, 150.0f);
+  EXPECT_FLOAT_EQ(text_cmd.ClipRect.w, 118.0f);
+
+  draw_list->PopClipRect();
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
 TEST_F(MockTimelineImGuiFixture,
        SetTimelineDataRetainsPendingNavigationWhenUnmatched) {
   timeline_.SetTimelineData(CreateTimelineData({

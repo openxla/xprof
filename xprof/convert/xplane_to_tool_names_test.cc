@@ -35,6 +35,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/repository.h"
+#include "xprof/convert/tool_options.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -179,6 +180,85 @@ INSTANTIATE_TEST_SUITE_P(
     [](const ::testing::TestParamInfo<XPlaneToToolsTest::ParamType>& info) {
       return info.param.test_name;
     });
+
+// Returns a one-host session whose host plane has a gRPC flow event when
+// `has_grpc_metrics_events` is true.
+SessionSnapshot CreateGrpcMetricsSessionSnapshot(bool has_grpc_metrics_events) {
+  auto xspace = std::make_unique<XSpace>();
+  tsl::profiler::FindOrAddMutablePlaneWithName(xspace.get(),
+                                               tsl::profiler::kTpuPlanePrefix);
+  tsl::profiler::XPlaneBuilder host_plane(
+      tsl::profiler::FindOrAddMutablePlaneWithName(
+          xspace.get(), tsl::profiler::kHostThreadsPlaneName));
+  host_plane.GetOrCreateEventMetadata(
+      has_grpc_metrics_events ? "Megascale_gRPC:SendRpc" : "OtherEvent");
+
+  std::vector<std::unique_ptr<XSpace>> xspaces;
+  xspaces.push_back(std::move(xspace));
+  absl::StatusOr<SessionSnapshot> session_snapshot = SessionSnapshot::Create(
+      {"ram://grpc_metrics_tools/hostname.xplane.pb"}, std::move(xspaces));
+  TF_CHECK_OK(session_snapshot.status());
+  return std::move(session_snapshot.value());
+}
+
+// Why: the DCN Analyzer stays hidden unless it is turned on.
+// What: a profile with gRPC flow events lists grpc_metrics only when the
+// enable_dcn_analyzer option is true.
+TEST(XPlaneToToolsGrpcMetricsTest, ListedOnlyWhenEnabled) {
+  // Setup.
+  const SessionSnapshot session_snapshot =
+      CreateGrpcMetricsSessionSnapshot(/*has_grpc_metrics_events=*/true);
+  ToolOptions enabled_options;
+  enabled_options[std::string(kEnableDcnAnalyzerOption)] = true;
+  ToolOptions disabled_options;
+  disabled_options[std::string(kEnableDcnAnalyzerOption)] = false;
+
+  // Execution.
+  const absl::StatusOr<std::string> default_tools =
+      GetAvailableToolNames(session_snapshot);
+  const absl::StatusOr<std::string> disabled_tools =
+      GetAvailableToolNames(session_snapshot, disabled_options);
+  const absl::StatusOr<std::string> enabled_tools =
+      GetAvailableToolNames(session_snapshot, enabled_options);
+
+  // Verification.
+  ASSERT_TRUE(default_tools.ok());
+  ASSERT_TRUE(disabled_tools.ok());
+  ASSERT_TRUE(enabled_tools.ok());
+  const std::vector<std::string> default_list =
+      absl::StrSplit(*default_tools, ',');
+  const std::vector<std::string> disabled_list =
+      absl::StrSplit(*disabled_tools, ',');
+  const std::vector<std::string> enabled_list =
+      absl::StrSplit(*enabled_tools, ',');
+  EXPECT_THAT(default_list,
+              ::testing::Not(::testing::Contains("grpc_metrics")));
+  EXPECT_THAT(disabled_list,
+              ::testing::Not(::testing::Contains("grpc_metrics")));
+  EXPECT_THAT(enabled_list, ::testing::Contains("grpc_metrics"));
+}
+
+// Why: turning the DCN Analyzer on must not list it for profiles without its
+// events.
+// What: a profile without gRPC flow events does not list grpc_metrics.
+TEST(XPlaneToToolsGrpcMetricsTest, NotListedWithoutEvents) {
+  // Setup.
+  const SessionSnapshot session_snapshot =
+      CreateGrpcMetricsSessionSnapshot(/*has_grpc_metrics_events=*/false);
+  ToolOptions enabled_options;
+  enabled_options[std::string(kEnableDcnAnalyzerOption)] = true;
+
+  // Execution.
+  const absl::StatusOr<std::string> enabled_tools =
+      GetAvailableToolNames(session_snapshot, enabled_options);
+
+  // Verification.
+  ASSERT_TRUE(enabled_tools.ok());
+  const std::vector<std::string> enabled_list =
+      absl::StrSplit(*enabled_tools, ',');
+  EXPECT_THAT(enabled_list,
+              ::testing::Not(::testing::Contains("grpc_metrics")));
+}
 
 }  // namespace
 }  // namespace profiler

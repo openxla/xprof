@@ -9,6 +9,7 @@ from etils import epath
 from absl.testing import absltest
 from xprof import profile_io
 from xprof import profile_plugin
+from xprof.convert import raw_to_tool_data as convert
 
 _TOOLS_1 = ('tool1',)
 _TOOLS_2 = ('tool1', 'tool2')
@@ -151,6 +152,39 @@ class ToolsCacheTest(absltest.TestCase):
 
     # Load should work now.
     self.assertEqual(cache.load(), list(_TOOLS_1))
+
+  def test_load_dcn_analyzer_switch_changed(self):
+    # A tool list saved with the DCN Analyzer off is not served after it is
+    # turned on, and the other way around.
+    self.enter_context(mock.patch.dict(os.environ))
+    env_var = convert.DCN_ANALYZER_ENV_VAR
+    os.environ.pop(env_var, None)
+    self._create_xplane_file(_XPLANE_FILE_1)
+    self.cache.save(_TOOLS_1)
+
+    os.environ[env_var] = '1'
+    self.assertIsNone(self.cache.load())
+    self.assertFalse(self.cache_file.exists())
+
+    self.cache.save(_TOOLS_2)
+    self.assertEqual(self.cache.load(), list(_TOOLS_2))
+    del os.environ[env_var]
+    self.assertIsNone(self.cache.load())
+
+  def test_load_cache_without_options_when_switches_off(self):
+    # A cache written before tool list options were stored is still served
+    # while every optional tool is off.
+    self.enter_context(mock.patch.dict(os.environ))
+    os.environ.pop(convert.DCN_ANALYZER_ENV_VAR, None)
+    self._create_xplane_file(_XPLANE_FILE_1)
+    self.cache.save(_TOOLS_1)
+    with self.cache_file.open('r') as f:
+      cache_data = json.load(f)
+    del cache_data['options']
+    with self.cache_file.open('w') as f:
+      json.dump(cache_data, f)
+
+    self.assertEqual(self.cache.load(), list(_TOOLS_1))
 
 
 class MockGCSPath:

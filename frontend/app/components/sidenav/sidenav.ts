@@ -610,6 +610,7 @@ export class SideNav implements OnInit, OnDestroy {
       ['kernel_stats', 'Kernel Stats'],
       ['trace_viewer', 'Trace Viewer'],
       ['megascale_stats', 'Megascale Viewer'],
+      ['grpc_metrics', 'DCN Analyzer'],
       ['perf_counters', 'Perf Counters'],
       ['utilization_viewer', 'Utilization Viewer'],
     ]);

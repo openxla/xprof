@@ -28,6 +28,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/components/empty_page",
         "@org_xprof//frontend/app/components/framework_op_stats:framework_op_stats_adapter",
         "@org_xprof//frontend/app/components/graph_viewer",
+        "@org_xprof//frontend/app/components/grpc_metrics",
         "@org_xprof//frontend/app/components/hlo_stats",
         "@org_xprof//frontend/app/components/inference_profile",
         "@org_xprof//frontend/app/components/input_pipeline",

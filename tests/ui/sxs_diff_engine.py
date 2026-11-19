@@ -1,8 +1,22 @@
+# Copyright 2026 The TensorFlow Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
 """Multi-modal Side-by-Side (SxS) diff engine for A/B testing."""
 
 import argparse
 import collections
-import collections.abc
+from collections.abc import Callable
 import dataclasses
 import datetime
 import difflib
@@ -15,13 +29,16 @@ import math
 import os
 import pathlib
 import re
+import struct
 import sys
 import tempfile
-import typing
+from typing import Any
 import urllib.parse
+import zlib
 
 from PIL import Image
 from PIL import ImageChops
+from PIL import ImageDraw
 
 # Minimum 8-bit per-channel delta treated as a real divergence. Sub-pixel font
 # hinting and GPU antialiasing routinely shift channels by a few levels between
@@ -35,6 +52,71 @@ _MIN_CHANNEL_DELTA = 10
 # fails to draw, moves whole percentage points and is still caught.
 _MAX_VISUAL_DIFF_RATIO = 0.001
 MAX_VISUAL_DIFF_RATIO = _MAX_VISUAL_DIFF_RATIO
+_IMAGE_DECODE_ERRORS = (
+    OSError,
+    ValueError,
+    SyntaxError,
+    EOFError,
+    LookupError,
+    OverflowError,
+    struct.error,
+    zlib.error,
+    Image.DecompressionBombError,
+)
+
+
+def _decode_rgba(img_bytes: bytes) -> tuple[Image.Image | None, str | None]:
+  """Decodes PNG bytes into `(image, None)`, or `(None, error_message)`."""
+  try:
+    return Image.open(io.BytesIO(img_bytes)).convert("RGBA"), None
+  except _IMAGE_DECODE_ERRORS as err:
+    # Strip transient object pointer addresses so error digests stay stable.
+    return None, re.sub(r" at 0x[0-9a-fA-F]+>", ">", str(err))
+
+
+def _clamp_boxes(
+    boxes: tuple[tuple[int, int, int, int], ...],
+    width: int,
+    height: int,
+) -> list[tuple[int, int, int, int]]:
+  """Clamps bounding boxes to [0, width] x [0, height]."""
+  clamped: list[tuple[int, int, int, int]] = []
+  for x0, y0, x1, y1 in boxes:
+    cx0, cy0 = max(0, x0), max(0, y0)
+    cx1, cy1 = min(width, x1), min(height, y1)
+    if cx1 > cx0 and cy1 > cy0:
+      clamped.append((cx0, cy0, cx1, cy1))
+  return clamped
+
+
+def _box_union_area(
+    boxes: list[tuple[int, int, int, int]], size: tuple[int, int]
+) -> int:
+  """Computes exact pixel area covered by the union of clamped boxes."""
+  if not boxes:
+    return 0
+  canvas = Image.new("L", size, 0)
+  draw = ImageDraw.Draw(canvas)
+  for x0, y0, x1, y1 in boxes:
+    draw.rectangle([x0, y0, x1 - 1, y1 - 1], fill=255)
+  return canvas.histogram()[255]
+
+
+def _annotate_masked_regions(
+    img: Image.Image, boxes: list[tuple[int, int, int, int]]
+) -> bytes:
+  """Draws a translucent boundary over masked boxes without hiding content."""
+  overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+  draw = ImageDraw.Draw(overlay)
+  for x0, y0, x1, y1 in boxes:
+    draw.rectangle(
+        [x0, y0, x1 - 1, y1 - 1],
+        fill=(255, 0, 255, 36),
+        outline=(200, 0, 200, 190),
+    )
+  out = io.BytesIO()
+  Image.alpha_composite(img, overlay).save(out, format="PNG")
+  return out.getvalue()
 
 
 @dataclasses.dataclass
@@ -49,6 +131,8 @@ class VisualDiff:
   base_png_bytes: bytes | None = None
   candidate_png_bytes: bytes | None = None
   spatial_digest: str = ""
+  decode_error: str | None = None
+  mask_error: str | None = None
 
 
 @dataclasses.dataclass
@@ -91,6 +175,8 @@ class WaypointDiff:
     if (
         self.visual.diff_ratio <= _MAX_VISUAL_DIFF_RATIO
         and not self.visual.dimension_mismatch
+        and not self.visual.decode_error
+        and not self.visual.mask_error
         and not self.dom.has_changes
         and not self.network.has_changes
     ):
@@ -108,7 +194,7 @@ def resolve_profile_logdir(logdir: str) -> str:
   return logdir
 
 
-def make_run_resolver(logdir: str) -> collections.abc.Callable[[str], str]:
+def make_run_resolver(logdir: str) -> Callable[[str], str]:
   """Returns a resolver mapping a declared run name onto one in the logdir."""
   resolved_dir = pathlib.Path(resolve_profile_logdir(logdir))
   available = sorted(
@@ -135,11 +221,11 @@ def make_run_resolver(logdir: str) -> collections.abc.Callable[[str], str]:
 
 
 def resolve_scenario_runs(
-    scenario: typing.Any,
-    resolve_run: collections.abc.Callable[[str], str],
+    scenario: Any,
+    resolve_run: Callable[[str], str],
     logdir: str | None = None,
-) -> typing.Any:
-  """Maps every run and host a scenario names onto ones present in the logdir."""
+) -> Any:
+  """Maps declared runs and hosts onto ones present in the logdir."""
   current_run = resolve_run(getattr(scenario, "fixture"))
   resolved_root = (
       pathlib.Path(resolve_profile_logdir(logdir)) if logdir else None
@@ -182,7 +268,7 @@ def resolve_scenario_runs(
   )
 
 
-def waypoint_names(scenario: typing.Any) -> list[str]:
+def waypoint_names(scenario: Any) -> list[str]:
   """Builds the environment-independent waypoint names for a journey.
 
   Call this on the journey *as declared*, before `resolve_scenario_runs`
@@ -232,6 +318,8 @@ class SxsDiffEngine:
       img_bytes_a: bytes,
       img_bytes_b: bytes,
       background_color: tuple[int, int, int, int] = (255, 255, 255, 255),
+      mask_boxes_a: tuple[tuple[int, int, int, int], ...] = (),
+      mask_boxes_b: tuple[tuple[int, int, int, int], ...] = (),
   ) -> VisualDiff:
     """Computes perceptual pixel difference between two PNG screenshots."""
     if not img_bytes_a and not img_bytes_b:
@@ -242,21 +330,19 @@ class SxsDiffEngine:
           base_png_bytes=b"",
           candidate_png_bytes=b"",
       )
-    try:
-      img_a = Image.open(io.BytesIO(img_bytes_a)).convert("RGBA")
-      img_b = Image.open(io.BytesIO(img_bytes_b)).convert("RGBA")
-    except Exception as e:  # pylint: disable=broad-exception-caught
-      # Pillow signals malformed payloads with OSError, UnidentifiedImageError,
-      # or ValueError depending on where decoding fails. A corrupt screenshot
-      # is a divergence to report, never a reason to abort the whole run.
+    img_a, err_a = _decode_rgba(img_bytes_a)
+    img_b, err_b = _decode_rgba(img_bytes_b)
+    if img_a is None or img_b is None:
+      err_msg = err_a or err_b
       total_bytes = max(len(img_bytes_a), len(img_bytes_b))
       return VisualDiff(
           diff_ratio=1.0,
           total_pixels=total_bytes,
           diff_pixels=total_bytes,
-          dimension_mismatch=f"Corrupt or invalid image bytes: {e}",
-          base_png_bytes=img_bytes_a,
-          candidate_png_bytes=img_bytes_b,
+          dimension_mismatch=f"Corrupt or invalid image bytes: {err_msg}",
+          base_png_bytes=img_bytes_a if img_a is not None else None,
+          candidate_png_bytes=img_bytes_b if img_b is not None else None,
+          decode_error=err_msg,
       )
 
     dimension_mismatch = (
@@ -285,13 +371,29 @@ class SxsDiffEngine:
         lambda level: 255 if level > _MIN_CHANNEL_DELTA else 0
     )
 
+    total_pixels = target_size[0] * target_size[1]
+    clamped_a = _clamp_boxes(mask_boxes_a, target_size[0], target_size[1])
+    clamped_b = _clamp_boxes(mask_boxes_b, target_size[0], target_size[1])
+    max_masked_area = max(
+        _box_union_area(clamped_a, target_size),
+        _box_union_area(clamped_b, target_size),
+    )
+    mask_error = None
+    if max_masked_area > 0.5 * total_pixels:
+      mask_error = (
+          f"Mask covers >50% of page ({max_masked_area}/{total_pixels} px)"
+      )
+    else:
+      mask_draw = ImageDraw.Draw(mask)
+      for x0, y0, x1, y1 in (*clamped_a, *clamped_b):
+        mask_draw.rectangle([x0, y0, x1 - 1, y1 - 1], fill=0)
+
     # Measured over the union canvas even when the extents differ. Both renders
     # were already composited onto it, so the region present in only one of them
     # is compared against the background and counted. Saturating the ratio to
     # 1.0 on any geometry change, as this previously did, painted the whole page
     # red and told the reviewer nothing about what moved. The extent change
     # still fails the waypoint: it travels in dimension_mismatch.
-    total_pixels = target_size[0] * target_size[1]
     diff_pixels = mask.histogram()[255]
     diff_ratio = diff_pixels / total_pixels if total_pixels else 0.0
 
@@ -304,6 +406,16 @@ class SxsDiffEngine:
     buf = io.BytesIO()
     heatmap.save(buf, format="PNG")
 
+    base_out = (
+        _annotate_masked_regions(img_a, _clamp_boxes(mask_boxes_a, *img_a.size))
+        if clamped_a
+        else img_bytes_a
+    )
+    cand_out = (
+        _annotate_masked_regions(img_b, _clamp_boxes(mask_boxes_b, *img_b.size))
+        if clamped_b
+        else img_bytes_b
+    )
     spatial_digest = (
         hashlib.sha256(mask.tobytes()).hexdigest() if diff_pixels > 0 else ""
     )
@@ -313,9 +425,10 @@ class SxsDiffEngine:
         diff_pixels=diff_pixels,
         heatmap_png_bytes=buf.getvalue(),
         dimension_mismatch=dimension_mismatch,
-        base_png_bytes=img_bytes_a,
-        candidate_png_bytes=img_bytes_b,
+        base_png_bytes=base_out,
+        candidate_png_bytes=cand_out,
         spatial_digest=spatial_digest,
+        mask_error=mask_error,
     )
 
   def sanitize_dom(self, html: str) -> str:
@@ -396,8 +509,10 @@ class SxsDiffEngine:
       )
       is_cdk_or_chart = bool(
           re.search(
-              r'\bclass=["\'][^"\']*\bcdk-(?:live-announcer-element|'
-              r"describedby-message-container|overlay-container)\b",
+              r"\bclass=[\"'][^\"']*\b(?:cdk-(?:live-announcer-element|"
+              r"describedby-message-container|overlay-container|"
+              r"overlay-backdrop)|mat-ripple-element|"
+              r"google-visualization-tooltip)\b",
               attrs,
               re.IGNORECASE,
           )
@@ -428,7 +543,7 @@ class SxsDiffEngine:
       self,
       html: str,
       tag: str,
-      predicate: collections.abc.Callable[[str], bool],
+      predicate: Callable[[str], bool],
   ) -> str:
     """Removes top-level matching HTML elements and all their descendants."""
     tag_pattern = re.compile(
@@ -581,9 +696,13 @@ class SxsDiffEngine:
       html_b: str,
       requests_a: list[dict[str, object]],
       requests_b: list[dict[str, object]],
+      mask_boxes_a: tuple[tuple[int, int, int, int], ...] = (),
+      mask_boxes_b: tuple[tuple[int, int, int, int], ...] = (),
   ) -> WaypointDiff:
     """Evaluates multi-modal waypoint deltas with diff hashing."""
-    visual = self.compute_visual_diff(img_a, img_b)
+    visual = self.compute_visual_diff(
+        img_a, img_b, mask_boxes_a=mask_boxes_a, mask_boxes_b=mask_boxes_b
+    )
     dom = self.compute_dom_diff(html_a, html_b)
     network = self.compute_network_diff(requests_a, requests_b)
 
@@ -603,8 +722,11 @@ class SxsDiffEngine:
       # Not an elif. A geometry change can measure zero diverging pixels when
       # what it added was blank, and two different geometry changes can measure
       # the same count, so without the extents an approval for "grew taller"
-      # would also cover "grew wider".
+      # would also cover "grew wider". Corrupt image payloads also embed their
+      # decode error here.
       hasher.update(visual.dimension_mismatch.encode("utf-8"))
+    if visual.mask_error:
+      hasher.update(visual.mask_error.encode("utf-8"))
     for mismatch in network.status_mismatches:
       hasher.update(mismatch.encode("utf-8"))
     diff_hash = hasher.hexdigest()[:16]
@@ -627,12 +749,13 @@ def get_default_manifest_path() -> pathlib.Path:
   """Resolves the canonical path to approved_manifest.json."""
   workspace = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
   if workspace:
-    candidate = (
-        pathlib.Path(workspace)
-        / "third_party/xprof/tests/ui/approved_manifest.json"
-    )
-    if candidate.parent.is_dir():
-      return candidate
+    for rel in (
+        "third_party/xprof/tests/ui/approved_manifest.json",
+        "tests/ui/approved_manifest.json",
+    ):
+      candidate = pathlib.Path(workspace) / rel
+      if candidate.parent.is_dir():
+        return candidate
   return pathlib.Path(__file__).resolve().parent / "approved_manifest.json"
 
 

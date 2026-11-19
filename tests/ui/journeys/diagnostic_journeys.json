@@ -12,17 +12,17 @@
       {
         "action": "switch_tool",
         "target": "HLO Op Stats",
-        "expected_selector": "google-chart, .google-visualization-table, hlo-stats"
+        "expected_selector": "hlo-stats .google-visualization-table"
       },
       {
         "action": "select_category_filter",
         "target": "convolution fusion",
-        "expected_selector": "google-chart, .google-visualization-table, hlo-stats"
+        "expected_selector": "hlo-stats .google-visualization-table"
       },
       {
         "action": "sort_table_column",
         "target": "#Occurrences",
-        "expected_selector": "google-chart, .google-visualization-table, hlo-stats"
+        "expected_selector": "hlo-stats .google-visualization-table"
       },
       {
         "action": "switch_tool",
@@ -121,22 +121,22 @@
       {
         "action": "switch_tool",
         "target": "HLO Op Stats",
-        "expected_selector": "google-chart, .google-visualization-table, hlo-stats"
+        "expected_selector": "hlo-stats .google-visualization-table"
       },
       {
         "action": "switch_tool",
         "target": "Graph Viewer",
-        "expected_selector": "graph-viewer, iframe.graph-viewer-iframe, .graph-viewer-container"
+        "expected_selector": "graph-viewer"
       },
       {
         "action": "select_module",
         "target": "jit_train_step",
-        "expected_selector": "graph-viewer, iframe.graph-viewer-iframe, .graph-viewer-container"
+        "expected_selector": "graph-viewer mat-chip-option"
       },
       {
         "action": "plot_graph_node",
         "target": "fusion.",
-        "expected_selector": "graph-viewer, iframe.graph-viewer-iframe, .graph-viewer-container"
+        "expected_selector": "graph-viewer iframe#graph-html"
       },
       {
         "action": "goto",
@@ -203,12 +203,12 @@
       {
         "action": "switch_tool",
         "target": "HLO Op Stats",
-        "expected_selector": "google-chart, .google-visualization-table, hlo-stats"
+        "expected_selector": "hlo-stats .google-visualization-table"
       },
       {
         "action": "filter_table_rows",
         "target": "all-gather",
-        "expected_selector": "google-chart, .google-visualization-table, hlo-stats"
+        "expected_selector": "hlo-stats .google-visualization-table"
       },
       {
         "action": "switch_tool",
@@ -256,18 +256,20 @@
   },
   {
     "id": "distributed.host_retention_and_trace",
-    "fixture": "v6e-4-training",
-    "initial_tool": "overview_page",
+    "fixture": "multi-host",
+    "initial_tool": "hlo_stats",
     "steps": [
       {
         "action": "select_host",
-        "target": "t1v-n-9bfa07b4-w-0",
-        "expected_selector": "overview-page, overview-viewer"
+        "target": "worker-1",
+        "expected_selector": "hlo-stats .google-visualization-table",
+        "expected_url_substring": "host=worker-1"
       },
       {
-        "action": "switch_tool",
-        "target": "HLO Op Stats",
-        "expected_selector": "google-chart, .google-visualization-table, hlo-stats"
+        "action": "sort_table_column",
+        "target": "#Occurrences",
+        "expected_selector": "hlo-stats .google-visualization-table",
+        "expected_url_substring": "host=worker-1"
       },
       {
         "action": "switch_tool",
@@ -275,9 +277,10 @@
         "expected_selector": "iframe"
       },
       {
-        "action": "switch_tool",
-        "target": "Overview Page",
-        "expected_selector": "overview-page, overview-viewer"
+        "action": "go_back",
+        "target": "HLO Op Stats",
+        "expected_selector": "hlo-stats .google-visualization-table",
+        "expected_url_substring": "host=worker-1"
       }
     ]
   },
@@ -304,27 +307,27 @@
       {
         "action": "switch_tool",
         "target": "HLO Op Stats",
-        "expected_selector": "google-chart, .google-visualization-table, hlo-stats"
+        "expected_selector": "hlo-stats .google-visualization-table"
       },
       {
         "action": "goto",
         "target": "v6e-4-training/hlo_stats",
-        "expected_selector": "google-chart, .google-visualization-table, hlo-stats"
+        "expected_selector": "hlo-stats .google-visualization-table"
       },
       {
         "action": "switch_tool",
         "target": "Graph Viewer",
-        "expected_selector": "graph-viewer, iframe.graph-viewer-iframe, .graph-viewer-container"
+        "expected_selector": "graph-viewer"
       },
       {
         "action": "select_module",
         "target": "jit_train_step",
-        "expected_selector": "graph-viewer, iframe.graph-viewer-iframe, .graph-viewer-container"
+        "expected_selector": "graph-viewer mat-chip-option"
       },
       {
         "action": "plot_graph_node",
         "target": "fusion.",
-        "expected_selector": "graph-viewer, iframe.graph-viewer-iframe, .graph-viewer-container"
+        "expected_selector": "graph-viewer iframe#graph-html"
       },
       {
         "action": "switch_tool",

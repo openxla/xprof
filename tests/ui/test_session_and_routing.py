@@ -1,65 +1,125 @@
+# Copyright 2026 The TensorFlow Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
 """Tests for session discovery, deep linking, and URL routing."""
 
 # pylint: disable=g-doc-args,g-doc-return-or-yield,g-short-docstring-punctuation
 
 from collections.abc import Callable
 import os
-import pathlib
 import re
 import urllib.parse
 
-# pylint: disable=g-import-not-at-top
-try:
-  from tests.ui.conftest import BrowserErrors
-  from tests.ui.journey_capture import settled_tool_url_pattern
-  from tests.ui.ui_helpers import assert_healthy
-  from tests.ui.ui_helpers import plot_graph_node
-  from tests.ui.ui_helpers import select_module
-  from tests.ui.ui_helpers import select_session
-  from tests.ui.ui_helpers import switch_tool
-except ImportError:
-  from conftest import BrowserErrors
-  from journey_capture import settled_tool_url_pattern
-  from ui_helpers import assert_healthy
-  from ui_helpers import plot_graph_node
-  from ui_helpers import select_module
-  from ui_helpers import select_session
-  from ui_helpers import switch_tool
 from playwright.sync_api import expect
 from playwright.sync_api import Page
 import pytest
 
+from tests.ui.conftest import BrowserErrors
+from tests.ui.journey_capture import settled_tool_url_pattern
+from tests.ui.ui_helpers import assert_healthy
+from tests.ui.ui_helpers import plot_graph_node
+from tests.ui.ui_helpers import select_host
+from tests.ui.ui_helpers import select_hosts
+from tests.ui.ui_helpers import select_module
+from tests.ui.ui_helpers import select_session
+from tests.ui.ui_helpers import step_history
+from tests.ui.ui_helpers import switch_tool
+
 
 def test_deep_link_parameter_preservation(
     page: Page,
-    logdir: str,
-    resolve_run: Callable[[str], str],
     open_tool: Callable[..., str],
     browser_errors: BrowserErrors,
 ) -> None:
-  """Verifies deep-linked URL parameters are preserved and reflected in UI."""
-  run = resolve_run("tpu-training")
-  target_host = min(
-      trace.name.removesuffix(".xplane.pb")
-      for trace in pathlib.Path(logdir, run).glob("*.xplane.pb")
-  )
-  open_tool(run, "overview_page", host=target_host)
+  """Verifies deep-linked non-default host and tool parameters are preserved."""
+  open_tool("multi-host", "hlo_stats", host="worker-1")
 
-  overview_comp = page.locator("overview-page, overview-viewer")
-  expect(overview_comp).to_be_visible(timeout=20000)
+  expect(page.locator("hlo-stats").first).to_be_visible(timeout=20000)
   expect(
       page.locator("main-page mat-sidenav-content > div.full-height")
   ).to_be_visible(timeout=20000)
+  expect(page).to_have_url(
+      re.compile(r"[?&]host=worker-1(?:[&#]|$)"), timeout=10000
+  )
   expect(
       page.locator("sidenav .item-container:has-text('Sessions') mat-select")
-  ).to_contain_text(run)
+  ).to_contain_text("multi-host")
   expect(
       page.locator("sidenav .item-container:has-text('Tools') mat-select")
-  ).to_contain_text("Overview Page")
+  ).to_contain_text("HLO Op Stats")
   expect(
       page.locator("sidenav .item-container:has-text('Hosts') mat-select")
-  ).to_contain_text(target_host)
+  ).to_contain_text("worker-1")
   assert_healthy(page, browser_errors, "deep_link_parameter_preservation")
+
+
+def test_multi_host_trace_viewer_selection_and_reload(
+    page: Page,
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+) -> None:
+  """Verifies Trace Viewer multi-host selection updates URL across reloads."""
+  open_tool("multi-host", "trace_viewer", host="worker-0")
+  expect(page.locator("iframe, #filter-bar, .filter-bar").first).to_be_visible(
+      timeout=20000
+  )
+
+  select_hosts(page, "worker-0", "worker-1")
+  page.reload(wait_until="domcontentloaded")
+  for host_name in ("worker-0", "worker-1"):
+    expect(page).to_have_url(
+        re.compile(
+            rf"[?&]hosts=(?:[^&#]*(?:,|%2[Cc]))?"
+            rf"{re.escape(host_name)}(?:,|%2[Cc]|[&#]|$)"
+        ),
+        timeout=20000,
+    )
+  expect(
+      page.locator("sidenav .item-container:has-text('Hosts')")
+  ).to_contain_text("Hosts (2)", timeout=15000)
+  assert_healthy(page, browser_errors, "multi_host_trace_viewer_selection")
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Upstream SideNav.onTagSelectionChange (sidenav.ts:731) clears"
+        " selectedHostInternal='' on tool switch, resetting worker-1 to"
+        " ALL_HOSTS."
+    ),
+)
+def test_host_selection_persists_across_tool_switches(
+    page: Page,
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+) -> None:
+  """Verifies selecting worker-1 persists across SPA tool switches."""
+  open_tool("multi-host", "hlo_stats", host="worker-0")
+  expect(page.locator("hlo-stats").first).to_be_visible(timeout=20000)
+
+  select_host(page, "worker-1")
+  switch_tool(page, "Framework Op Stats")
+  expect(page.locator("framework-op-stats").first).to_be_visible(timeout=20000)
+  expect(page).to_have_url(
+      re.compile(r"[?&]host=worker-1(?:[&#]|$)"), timeout=15000
+  )
+  expect(
+      page.locator("sidenav .item-container:has-text('Hosts') mat-select")
+  ).to_contain_text("worker-1")
+  assert_healthy(
+      page, browser_errors, "host_selection_persists_across_tool_switches"
+  )
 
 
 def test_graph_viewer_chip_click_preserves_run_query_param(
@@ -111,17 +171,17 @@ def test_memory_viewer_module_selection_persists_across_reload(
 def test_cross_run_switch_from_exclusive_tool(
     page: Page,
     server_url: str,
-    logdir: str,
+    synthesized_logdir: str,
     resolve_run: Callable[[str], str],
     browser_errors: BrowserErrors,
 ) -> None:
   """Verifies switching runs from GPU Kernel Stats to TPU does not error."""
-  if not os.path.exists(os.path.join(logdir, "gpu-training")):
+  if not os.path.exists(os.path.join(synthesized_logdir, "gpu-training")):
     pytest.skip("gpu-training fixture not present in logdir")
   tpu_run = resolve_run("tpu-training")
 
   query = urllib.parse.urlencode({
-      "run_path": logdir,
+      "run_path": synthesized_logdir,
       "run": "gpu-training",
       "tag": "kernel_stats",
   })
@@ -172,22 +232,13 @@ def _navigate_three_tools_and_step_back(
 
   switch_tool(page, middle_tool)
   expect(middle_view).to_be_visible(timeout=20000)
-  expect(page).to_have_url(
-      settled_tool_url_pattern(middle_tool), timeout=20000
-  )
 
   switch_tool(page, "Memory Profile")
   expect(page.locator("memory-viewer, memory-profile")).to_be_visible(
       timeout=20000
   )
-  expect(page).to_have_url(
-      settled_tool_url_pattern("Memory Profile"), timeout=20000
-  )
 
-  page.go_back(wait_until="domcontentloaded")
-  expect(page).to_have_url(
-      settled_tool_url_pattern(middle_tool), timeout=20000
-  )
+  step_history(page, middle_tool)
   expect(tools_select).to_contain_text(middle_tool)
   expect(middle_view).to_be_visible(timeout=20000)
 
@@ -200,18 +251,12 @@ def test_browser_back_navigation(
   """Verifies browser back steps restore previous tools without split-brain."""
   _navigate_three_tools_and_step_back(page, open_tool)
 
-  page.go_back(wait_until="domcontentloaded")
-  expect(page).to_have_url(
-      settled_tool_url_pattern("Overview Page"), timeout=20000
-  )
+  step_history(page, "Overview Page")
   expect(
       page.locator("sidenav .item-container:has-text('Tools') mat-select")
   ).to_contain_text("Overview Page")
   expect(
       page.locator("overview-page mat-card, overview-viewer mat-card").first
-  ).to_be_visible(timeout=20000)
-  expect(
-      page.locator("main-page mat-sidenav-content > div.full-height")
   ).to_be_visible(timeout=20000)
   assert_healthy(page, browser_errors, "browser_back_navigation")
 
@@ -224,10 +269,7 @@ def test_browser_forward_navigation(
   """Verifies a single browser forward step restores the next tool cleanly."""
   _navigate_three_tools_and_step_back(page, open_tool)
 
-  page.go_forward(wait_until="domcontentloaded")
-  expect(page).to_have_url(
-      settled_tool_url_pattern("Memory Profile"), timeout=20000
-  )
+  step_history(page, "Memory Profile", forward=True)
   expect(
       page.locator("sidenav .item-container:has-text('Tools') mat-select")
   ).to_contain_text("Memory Profile")

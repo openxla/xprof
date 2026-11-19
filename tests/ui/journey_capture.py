@@ -1,3 +1,17 @@
+# Copyright 2026 The TensorFlow Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
 """Stabilized screenshot, DOM, and network capture for XProf UI journeys.
 
 The SxS diff engine compares two renders of the same waypoint. Anything that
@@ -13,10 +27,10 @@ import importlib
 import logging
 import re
 import time
-import typing
+from typing import Any
 import urllib.parse
 
-sync_api: typing.Any = None
+sync_api: Any = None
 try:
   sync_api = importlib.import_module("playwright.sync_api")
   _PlaywrightError = sync_api.Error
@@ -90,9 +104,9 @@ _CHART_LOADER_SETTLE_MS = 300
 _CHART_LOADER_TIMEOUT_MS = 15000
 
 # Regions that legitimately differ between two runs of the same build, or
-# between the baseline and candidate builds. Masking paints them a flat color
-# in both screenshots and clears their text in the serialized DOM so the engine
-# sees them as equal across runs.
+# between the baseline and candidate builds. Their bounding boxes are excluded
+# from pixel diffing (while kept visible under a translucent outline in the
+# report) and their text is cleared in the serialized DOM.
 MASK_SELECTORS: tuple[str, ...] = (
     # Absolute log directory, which embeds a per-run temporary path.
     "sidenav .session-path",
@@ -102,10 +116,6 @@ MASK_SELECTORS: tuple[str, ...] = (
     # baseline wheel is cached from an earlier build of master.
     ".version-label",
 )
-
-# Flat fill painted over masked regions. Chosen to be absent from the XProf
-# palette so a mask is obvious when a reviewer opens the report.
-_MASK_COLOR = "#ff00ff"
 
 _SESSION_PATH_RE = re.compile(r"(?<=\bsession_path=)[^&\"'\s<>]*")
 _LOCALHOST_ORIGIN_RE = re.compile(r"https?://(?:localhost|127\.0\.0\.1):[0-9]+")
@@ -121,6 +131,7 @@ class WaypointCapture:
   requests: list[dict[str, object]]
   stabilized: bool = True
   unsettled_reasons: tuple[str, ...] = ()
+  mask_boxes: tuple[tuple[int, int, int, int], ...] = ()
 
 
 def _relative_url(url: str) -> str:
@@ -144,7 +155,7 @@ def _relative_url(url: str) -> str:
 class NetworkRecorder:
   """Records completed XProf API responses issued by a page."""
 
-  def __init__(self, page: typing.Any):
+  def __init__(self, page: Any):
     self._entries: list[dict[str, object]] = []
     self._inflight: int = 0
     page.on("request", self._on_request)
@@ -156,15 +167,15 @@ class NetworkRecorder:
     path = urllib.parse.urlsplit(url).path
     return "/data/plugin/profile/" in path
 
-  def _on_request(self, request: typing.Any) -> None:
+  def _on_request(self, request: Any) -> None:
     if self._is_tracked_api_url(getattr(request, "url", "")):
       self._inflight += 1
 
-  def _on_request_done(self, request: typing.Any) -> None:
+  def _on_request_done(self, request: Any) -> None:
     if self._is_tracked_api_url(getattr(request, "url", "")):
       self._inflight = max(0, self._inflight - 1)
 
-  def _on_response(self, response: typing.Any) -> None:
+  def _on_response(self, response: Any) -> None:
     if not self._is_tracked_api_url(response.url):
       return
     self._entries.append({
@@ -175,7 +186,7 @@ class NetworkRecorder:
 
   def wait_for_quiescence(
       self,
-      page: typing.Any,
+      page: Any,
       window_ms: int = _API_QUIESCENCE_WINDOW_MS,
       timeout_ms: int = _API_QUIESCENCE_TIMEOUT_MS,
   ) -> bool:
@@ -307,7 +318,7 @@ def normalize_generated_attr_ids(value: str) -> str:
   return _MAT_SINGLE_COUNTER_ID_RE.sub(r"\1-N", norm)
 
 
-def _normalized_html(page: typing.Any) -> str:
+def _normalized_html(page: Any) -> str:
   """Returns the document serialized with attributes in a stable order."""
   raw = page.evaluate(_NORMALIZED_HTML_JS, list(MASK_SELECTORS))
   return _SESSION_PATH_RE.sub("<masked>", _LOCALHOST_ORIGIN_RE.sub("", raw))
@@ -353,7 +364,7 @@ _ANGULAR_IS_STABLE_JS = """() => {
 }"""
 
 
-def _wait_for_angular_stable(page: typing.Any) -> bool:
+def _wait_for_angular_stable(page: Any) -> bool:
   """Waits until Angular has no pending change detection, timers, or requests.
 
   A settled DOM is not sufficient on its own. A tool request finishes, and
@@ -476,7 +487,7 @@ def _nested_doc_is_painted(
   return bool(fields[2]) if needs_canvas else True
 
 
-def _wait_for_nested_documents(page: typing.Any) -> bool:
+def _wait_for_nested_documents(page: Any) -> bool:
   """Waits until every nested document on the page has painted and settled.
 
   The screenshot renders nested documents, but none of the other waits can
@@ -559,22 +570,6 @@ def _wait_for_nested_documents(page: typing.Any) -> bool:
 # Google Charts renders into the element as an SVG, or as a table for the
 # tabular variants, so an element with neither is still pending.
 _CHART_COUNTS_JS = """() => {
-  const seen = new WeakSet();
-  function findDataProvider(root, depth) {
-    if (!root || typeof root !== 'object' || depth < 0 || seen.has(root)) {
-      return null;
-    }
-    seen.add(root);
-    if (root.update && typeof root.update.emit === 'function') return root;
-    const vals = Array.isArray(root) ? root : Object.values(root);
-    for (const v of vals) {
-      if (v && typeof v === 'object' && !(v instanceof Node) && !(v instanceof Window)) {
-        const found = findDataProvider(v, depth - 1);
-        if (found) return found;
-      }
-    }
-    return null;
-  }
   const els = document.querySelectorAll(
       'chart, google-chart, step-time-graph, max-heap-chart');
   let drawn = 0;
@@ -584,31 +579,6 @@ _CHART_COUNTS_JS = """() => {
     if (el.querySelector('svg, table, .google-visualization-table')) {
       drawn++;
     } else {
-      const dp = findDataProvider(el.__ngContext__, 3);
-      if (dp) {
-        const proto = Object.getPrototypeOf(dp);
-        if (proto && proto !== Object.prototype && !proto.__xprofHooked) {
-          proto.__xprofHooked = true;
-          const sym = Symbol('dataTable');
-          Object.defineProperty(proto, 'dataTable', {
-            configurable: true,
-            enumerable: true,
-            get() { return this[sym]; },
-            set(val) {
-              this[sym] = val;
-              if (val && this.update && typeof this.update.emit === 'function') {
-                Promise.resolve().then(() => {
-                  try { this.update.emit(); } catch (e) {}
-                });
-              }
-            },
-          });
-        }
-        if (dp.dataTable && !el.__xprofEmitted) {
-          el.__xprofEmitted = true;
-          try { dp.update.emit(); } catch (e) {}
-        }
-      }
       pending++;
     }
   }
@@ -624,7 +594,7 @@ _CHART_LOADER_STATE_JS = """() => {
 }"""
 
 
-def _wait_for_chart_loader_settled(page: typing.Any) -> bool:
+def _wait_for_chart_loader_settled(page: Any) -> bool:
   """Waits until the external Google Charts loader reaches a terminal state.
 
   `index.html` appends a loader `<script>` for one external host, and on error
@@ -673,7 +643,7 @@ def _wait_for_chart_loader_settled(page: typing.Any) -> bool:
   return False
 
 
-def _wait_for_charts_to_render(page: typing.Any) -> bool:
+def _wait_for_charts_to_render(page: Any) -> bool:
   """Waits until charts on the page have drawn and any blank count settles.
 
   Angular reporting stable does not imply the charts have drawn, because
@@ -730,7 +700,7 @@ def _wait_for_charts_to_render(page: typing.Any) -> bool:
   return False
 
 
-def _wait_for_dom_quiescence(page: typing.Any) -> tuple[str, bool]:
+def _wait_for_dom_quiescence(page: Any) -> tuple[str, bool]:
   """Polls until the serialized DOM stops changing, returning (html, settled).
 
   Args:
@@ -744,12 +714,20 @@ def _wait_for_dom_quiescence(page: typing.Any) -> tuple[str, bool]:
   except _PlaywrightError:
     pass
   deadline = time.monotonic() + _QUIESCENCE_TIMEOUT_MS / 1000
-  previous = _normalized_html(page)
+  try:
+    previous = _normalized_html(page)
+  except _PlaywrightError:
+    previous = ""
   stable_count = 0
   while time.monotonic() < deadline:
     page.wait_for_timeout(_QUIESCENCE_POLL_MS)
-    current = _normalized_html(page)
-    if current == previous:
+    try:
+      current = _normalized_html(page)
+    except _PlaywrightError:
+      previous = ""
+      stable_count = 0
+      continue
+    if current and current == previous:
       stable_count += 1
       if stable_count >= 2:
         return current, True
@@ -782,6 +760,7 @@ TOOL_NAME_TO_TAG: dict[str, str] = {
     "Megascale Viewer": "megascale_stats",
     "Perf Counters": "perf_counters",
     "Utilization Viewer": "utilization_viewer",
+    "Kernel Utilization": "utilization_viewer",
 }
 
 
@@ -789,15 +768,40 @@ def settled_tool_url_pattern(tool_name: str) -> re.Pattern[str]:
   """Builds a URL regex requiring both pathname and tag query param to match."""
   expected_tag = TOOL_NAME_TO_TAG.get(
       tool_name, tool_name.lower().replace(" ", "_")
-  )
+  ).rstrip("@")
+  if expected_tag in ("utilization_viewer", "kernel_utilization"):
+    tag_re = r"(?:utilization_viewer|kernel_utilization)"
+  else:
+    base_tag = expected_tag.removesuffix("_analyzer")
+    tag_re = rf"{re.escape(base_tag)}(?:_analyzer)?(?:@|%40)?"
   return re.compile(
-      rf"/{re.escape(expected_tag)}(?:_analyzer)?(?:@|%40|[/?#]|$).*"
-      rf"tag={re.escape(expected_tag)}(?:_analyzer)?(?:@|%40|[&#]|$)"
+      rf"^[^?#]*/{tag_re}(?=[/?#])[^#]*[?&]tag={tag_re}(?:[&#]|$)"
   )
+
+
+# Full-page CSS-pixel boxes, padded by 1px, of visible MASK_SELECTORS elements.
+# The engine excludes them from pixel diffs and outlines them in the report.
+_MASK_BOXES_JS = """(selectors) => {
+  const boxes = [];
+  for (const el of document.querySelectorAll(selectors.join(','))) {
+    const style = getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden' ||
+        style.opacity === '0') {
+      continue;
+    }
+    const r = el.getBoundingClientRect();
+    const x0 = Math.max(0, Math.floor(r.left + scrollX) - 1);
+    const y0 = Math.max(0, Math.floor(r.top + scrollY) - 1);
+    const x1 = Math.ceil(r.right + scrollX) + 1;
+    const y1 = Math.ceil(r.bottom + scrollY) + 1;
+    if (x1 > x0 && y1 > y0) boxes.push([x0, y0, x1, y1]);
+  }
+  return boxes;
+}"""
 
 
 def capture_waypoint(
-    page: typing.Any,
+    page: Any,
     recorder: NetworkRecorder,
     name: str,
 ) -> WaypointCapture:
@@ -870,7 +874,9 @@ def capture_waypoint(
   if not _wait_for_charts_to_render(page):
     unsettled.append("charts_render_timeout")
   try:
-    charts = page.locator(":is(chart, google-chart, step-time-graph)")
+    charts = page.locator(
+        ":is(chart, google-chart, step-time-graph, max-heap-chart)"
+    )
     for chart in charts.all():
       try:
         is_active = chart.evaluate("el => el.offsetParent !== null")
@@ -954,13 +960,22 @@ def capture_waypoint(
   if not recorder.wait_for_quiescence(page):
     unsettled.append("network_quiescence_timeout")
 
+  mask_boxes: tuple[tuple[int, int, int, int], ...] = ()
+  try:
+    mask_boxes = tuple(
+        (int(x0), int(y0), int(x1), int(y1))
+        for x0, y0, x1, y1 in page.evaluate(
+            _MASK_BOXES_JS, list(MASK_SELECTORS)
+        )
+    )
+  except _PlaywrightError:
+    pass
+
   png_bytes = page.screenshot(
       full_page=True,
       animations="disabled",
       caret="hide",
       scale="css",
-      mask=[page.locator(selector) for selector in MASK_SELECTORS],
-      mask_color=_MASK_COLOR,
   )
   return WaypointCapture(
       name=name,
@@ -969,4 +984,5 @@ def capture_waypoint(
       requests=recorder.drain(),
       stabilized=not unsettled,
       unsettled_reasons=tuple(unsettled),
+      mask_boxes=mask_boxes,
   )

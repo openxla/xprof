@@ -1,3 +1,17 @@
+# Copyright 2026 The TensorFlow Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
 """Unit tests for the multi-modal Side-by-Side (SxS) A/B diff engine."""
 
 import contextlib
@@ -7,27 +21,26 @@ import io
 import json
 import os
 import pathlib
+import sys
 import tempfile
+from typing import Any
 import unittest
 from unittest import mock
 
 from PIL import Image
 
 # pylint: disable=g-import-not-at-top
+if __package__ in (None, ""):
+  sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+
 try:
-  from google3.third_party.xprof.tests.ui import sxs_diff_engine
-  from google3.third_party.xprof.tests.ui import sxs_report_generator
-except ModuleNotFoundError as err:
-  if not (err.name or "").startswith("google3"):
+  from tests.ui import sxs_diff_engine
+  from tests.ui import sxs_report_generator
+except ModuleNotFoundError as err2:
+  if not (err2.name or "").startswith("tests"):
     raise
-  try:
-    from tests.ui import sxs_diff_engine  # pyrefly: ignore[missing-import]
-    from tests.ui import sxs_report_generator  # pyrefly: ignore[missing-import]
-  except ModuleNotFoundError as err2:
-    if not (err2.name or "").startswith("tests"):
-      raise
-    import sxs_diff_engine  # pyrefly: ignore[missing-import]
-    import sxs_report_generator  # pyrefly: ignore[missing-import]
+  import sxs_diff_engine
+  import sxs_report_generator
 
 approve_waypoint = sxs_diff_engine.approve_waypoint
 get_default_manifest_path = sxs_diff_engine.get_default_manifest_path
@@ -178,7 +191,8 @@ class SxsDiffEngineTest(unittest.TestCase):
     self.assertIsNotNone(diff.heatmap_png_bytes)
 
     heatmap_img = Image.open(io.BytesIO(diff.heatmap_png_bytes)).convert("RGBA")
-    r, g, b, _ = heatmap_img.getpixel((0, 0))  # pyrefly: ignore[not-iterable]
+    pixel: Any = heatmap_img.getpixel((0, 0))
+    r, g, b, _ = pixel
     self.assertGreater(r, 200)
     self.assertLess(g, 100)
     self.assertLess(b, 100)
@@ -746,15 +760,19 @@ class SxsDiffEngineTest(unittest.TestCase):
     content = _render_report([same, changed])
 
     self.assertIn(
-        '<div class="tab active" onclick="switchWaypoint(0)">', content
+        '<button type="button" class="tab active" onclick="switchWaypoint(0)">',
+        content,
     )
-    self.assertIn('<div class="tab" onclick="switchWaypoint(1)">', content)
+    self.assertIn(
+        '<button type="button" class="tab" onclick="switchWaypoint(1)">',
+        content,
+    )
     # The class names alone also appear in the inlined CSS.
     self.assertIn(
-        '<div class="tab-status-pass"></div> triage: overview\n', content
+        '<span class="tab-status-pass"></span> triage: overview\n', content
     )
     self.assertIn(
-        '<div class="tab-status-diff"></div> triage: hlo_stats (CHANGED)\n',
+        '<span class="tab-status-diff"></span> triage: hlo_stats (CHANGED)\n',
         content,
     )
 
@@ -802,7 +820,7 @@ class SxsDiffEngineTest(unittest.TestCase):
     self.assertIn("data:image/png;base64,", with_change)
 
   def test_sxs_report_shows_rendered_pages_without_pixel_delta(self):
-    """Verifies a DOM/network-only divergence still shows both rendered pages."""
+    """Verifies a DOM/network-only divergence shows both rendered pages."""
     engine = SxsDiffEngine()
     img = _create_test_image((128, 128, 128))
     diff = _evaluate(
@@ -1274,7 +1292,7 @@ class SxsDiffEngineTest(unittest.TestCase):
       self.assertIn("No button click or manifest edit", content_approved)
       self.assertNotIn('id="approval-card"', content_approved)
       self.assertIn(
-          '<div class="tab-status-approved"></div>'
+          '<span class="tab-status-approved"></span>'
           " triage: hlo_stats (APPROVED)",
           content_approved,
       )
@@ -1593,7 +1611,7 @@ class SxsDiffEngineTest(unittest.TestCase):
     )
 
   def test_sanitize_dom_drops_external_scripts_but_keeps_app_bundles(self):
-    """External loader scripts are timing noise; the app's own bundles are not."""
+    """External loader scripts are timing noise; app bundles are not."""
     engine = SxsDiffEngine(approved_manifest_path="")
 
     # What the two walks actually serialize when the gstatic fail-over lands
@@ -1629,6 +1647,221 @@ class SxsDiffEngineTest(unittest.TestCase):
     self.assertNotEqual(
         engine.sanitize_dom(primary), engine.sanitize_dom(without_bundle)
     )
+
+  def test_visual_diff_mask_boxes_excludes_region_and_guards_broad_mask(self):
+    """Verifies mask_boxes excludes pixels, keeps text visible, and caps 50%."""
+    engine = SxsDiffEngine(approved_manifest_path="")
+    base_img = Image.new("RGB", (40, 40), (240, 240, 240))
+    cand_img = base_img.copy()
+    for x in range(5, 15):
+      for y in range(5, 15):
+        base_img.putpixel((x, y), (20, 20, 20))
+        cand_img.putpixel((x, y), (0, 180, 0))
+    buf_a, buf_b = io.BytesIO(), io.BytesIO()
+    base_img.save(buf_a, format="PNG")
+    cand_img.save(buf_b, format="PNG")
+
+    wp_masked = engine.evaluate_waypoint(
+        journey_name="j",
+        waypoint_name="w",
+        img_a=buf_a.getvalue(),
+        img_b=buf_b.getvalue(),
+        html_a="<div>S</div>",
+        html_b="<div>S</div>",
+        requests_a=[],
+        requests_b=[],
+        mask_boxes_a=((5, 5, 15, 15),),
+        mask_boxes_b=((5, 5, 15, 15),),
+    )
+    self.assertEqual(wp_masked.visual.diff_pixels, 0)
+    self.assertEqual(wp_masked.verdict, "SAME")
+    # Underlying pixels remain distinct in the annotated screenshots (no solid
+    # opaque #ff00ff block erasing both renders), yet the translucent overlay
+    # visibly tints inside the masked box while leaving exterior pixels intact.
+    ann_a = Image.open(io.BytesIO(wp_masked.visual.base_png_bytes or b""))
+    ann_b = Image.open(io.BytesIO(wp_masked.visual.candidate_png_bytes or b""))
+    self.assertNotEqual(ann_a.getpixel((8, 8)), ann_b.getpixel((8, 8)))
+    self.assertNotEqual(ann_a.getpixel((8, 8)), (20, 20, 20, 255))
+    self.assertNotEqual(ann_a.getpixel((5, 5)), (20, 20, 20, 255))
+    self.assertEqual(ann_a.getpixel((0, 0)), (240, 240, 240, 255))
+
+    # Candidate-only mask boxes (empty mask_boxes_a) must also be honored.
+    wp_cand_masked = engine.evaluate_waypoint(
+        journey_name="j",
+        waypoint_name="w",
+        img_a=buf_a.getvalue(),
+        img_b=buf_b.getvalue(),
+        html_a="<div>S</div>",
+        html_b="<div>S</div>",
+        requests_a=[],
+        requests_b=[],
+        mask_boxes_a=(),
+        mask_boxes_b=((5, 5, 15, 15),),
+    )
+    self.assertEqual(wp_cand_masked.visual.diff_pixels, 0)
+    self.assertEqual(wp_cand_masked.verdict, "SAME")
+
+    # Exactly 50% coverage (800/1600 px) is still permitted.
+    wp_half = engine.evaluate_waypoint(
+        journey_name="j",
+        waypoint_name="w",
+        img_a=buf_a.getvalue(),
+        img_b=buf_b.getvalue(),
+        html_a="<div>S</div>",
+        html_b="<div>S</div>",
+        requests_a=[],
+        requests_b=[],
+        mask_boxes_a=((0, 0, 40, 20),),
+        mask_boxes_b=(),
+    )
+    self.assertIsNone(wp_half.visual.mask_error)
+    self.assertEqual(wp_half.visual.diff_pixels, 0)
+    self.assertEqual(wp_half.verdict, "SAME")
+
+    # A selector masking >50% of the page must fail with mask_error on either
+    # side (including candidate-only masks when mask_boxes_a is empty).
+    for boxes_a, boxes_b in (
+        (((0, 0, 40, 30),), ()),
+        ((), ((0, 0, 40, 30),)),
+    ):
+      wp_broad = engine.evaluate_waypoint(
+          journey_name="j",
+          waypoint_name="w",
+          img_a=buf_a.getvalue(),
+          img_b=buf_b.getvalue(),
+          html_a="<div>S</div>",
+          html_b="<div>S</div>",
+          requests_a=[],
+          requests_b=[],
+          mask_boxes_a=boxes_a,
+          mask_boxes_b=boxes_b,
+      )
+      self.assertEqual(wp_broad.verdict, "CHANGED")
+      self.assertGreater(wp_broad.visual.diff_pixels, 0)
+      self.assertIsNone(wp_broad.visual.dimension_mismatch)
+      self.assertIn(
+          "Mask covers >50% of page", wp_broad.visual.mask_error or ""
+      )
+      self.assertIn(
+          "Visual Divergence (Mask covers &gt;50% of page",
+          _render_report([wp_broad]),
+      )
+
+  def test_broad_mask_error_is_not_covered_by_prior_approval(self):
+    """Verifies an approval minted without a mask error does not cover one."""
+    img = _create_test_image((120, 120, 120))
+
+    def _evaluate_masked(
+        engine: SxsDiffEngine,
+        mask_boxes_b: tuple[tuple[int, int, int, int], ...],
+    ) -> WaypointDiff:
+      return engine.evaluate_waypoint(
+          journey_name="j",
+          waypoint_name="w",
+          img_a=img,
+          img_b=img,
+          html_a="<div>A</div>",
+          html_b="<div>B</div>",
+          requests_a=[],
+          requests_b=[],
+          mask_boxes_b=mask_boxes_b,
+      )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+      manifest_path = os.path.join(tmpdir, "approved_manifest.json")
+      unmasked = _evaluate_masked(SxsDiffEngine(approved_manifest_path=""), ())
+      approve_waypoint(
+          "j", "w", unmasked.diff_hash, manifest_path=manifest_path
+      )
+      engine = SxsDiffEngine(approved_manifest_path=manifest_path)
+      self.assertEqual(_evaluate_masked(engine, ()).verdict, "APPROVED")
+      broad = _evaluate_masked(engine, ((0, 0, 50, 50),))
+    self.assertIn("Mask covers >50% of page", broad.visual.mask_error or "")
+    self.assertFalse(broad.is_approved)
+    self.assertEqual(broad.verdict, "CHANGED")
+
+  def test_visual_diff_corrupt_payload_renders_fallback_and_rethrows_bugs(self):
+    """Verifies corrupt bytes render fallback HTML while TypeErrors surface."""
+    engine = SxsDiffEngine(approved_manifest_path="")
+    valid = _create_test_image((120, 120, 120))
+    wp_bad = _evaluate(engine, b"corrupt_png", valid)
+    wp_bad_repeat = _evaluate(engine, b"corrupt_png", valid)
+    self.assertIsNotNone(wp_bad.visual.decode_error)
+    self.assertNotIn("0x", wp_bad.visual.decode_error or "")
+    self.assertEqual(wp_bad.diff_hash, wp_bad_repeat.diff_hash)
+    self.assertIsNone(wp_bad.visual.base_png_bytes)
+    self.assertEqual(wp_bad.visual.candidate_png_bytes, valid)
+    self.assertEqual(wp_bad.visual.diff_ratio, 1.0)
+    self.assertEqual(wp_bad.visual.total_pixels, len(valid))
+    self.assertEqual(wp_bad.visual.diff_pixels, len(valid))
+    self.assertEqual(wp_bad.verdict, "CHANGED")
+
+    wp_bad_cand = _evaluate(engine, valid, b"corrupt_png")
+    self.assertIsNotNone(wp_bad_cand.visual.decode_error)
+    self.assertIn(
+        wp_bad_cand.visual.decode_error or "",
+        wp_bad_cand.visual.dimension_mismatch or "",
+    )
+    self.assertEqual(wp_bad_cand.visual.base_png_bytes, valid)
+    self.assertIsNone(wp_bad_cand.visual.candidate_png_bytes)
+    self.assertEqual(wp_bad_cand.visual.total_pixels, len(valid))
+    self.assertEqual(wp_bad_cand.verdict, "CHANGED")
+
+    content = _render_report([wp_bad])
+    self.assertIn("Visual Divergence (Corrupt Image Payload)", content)
+    self.assertIn('class="img-fallback"', content)
+    self.assertNotIn('src="data:image/png;base64,"', content)
+
+    with self.assertRaises(TypeError):
+      engine.compute_visual_diff(None, valid)  # type: ignore[arg-type]
+
+  def test_sxs_report_renders_escaped_dom_diff_context_lines(self):
+    """Verifies unchanged DOM diff context lines render escaped in HTML."""
+    engine = SxsDiffEngine(approved_manifest_path="")
+    valid = _create_test_image((120, 120, 120))
+    wp = engine.evaluate_waypoint(
+        journey_name="j",
+        waypoint_name="w",
+        img_a=valid,
+        img_b=valid,
+        html_a="<div>keep &amp; context</div>\n<p>before</p>\n",
+        html_b="<div>keep &amp; context</div>\n<p>after</p>\n",
+        requests_a=[],
+        requests_b=[],
+    )
+    rendered = _render_report([wp])
+    self.assertIn(
+        '<span class="diff-context"> &lt;div&gt;keep &amp;amp; context'
+        "&lt;/div&gt;</span>",
+        rendered,
+    )
+    self.assertIn('<span class="diff-context">--- Master</span>', rendered)
+    self.assertIn('<span class="diff-context">+++ Candidate</span>', rendered)
+
+  def test_sxs_report_single_server_and_empty_states(self):
+    """Verifies single-server mode hides approval portal and empty run fails."""
+    engine = SxsDiffEngine(approved_manifest_path="")
+    diff = _evaluate(
+        engine,
+        _create_test_image((10, 10, 10)),
+        _create_test_image((250, 0, 0)),
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+      single_path = generate_sxs_html_report(
+          [diff],
+          os.path.join(tmpdir, "single.html"),
+          is_ab_comparison=False,
+      )
+      single_html = pathlib.Path(single_path).read_text(encoding="utf-8")
+      self.assertIn("Single-Server Reproducibility Drift", single_html)
+      self.assertNotIn('id="approval-card"', single_html)
+
+      empty_path = generate_sxs_html_report(
+          [], os.path.join(tmpdir, "empty.html"), is_ab_comparison=False
+      )
+      empty_html = pathlib.Path(empty_path).read_text(encoding="utf-8")
+      self.assertIn("NO WAYPOINTS EVALUATED", empty_html)
+      self.assertIn("badge badge-fail", empty_html)
 
 
 if __name__ == "__main__":

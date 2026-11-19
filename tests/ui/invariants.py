@@ -1,7 +1,22 @@
+# Copyright 2026 The TensorFlow Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
 """Generic, tool-agnostic invariants for surfacing data-pipeline bugs."""
 
 # pylint: disable=g-doc-args,g-doc-return-or-yield,g-short-docstring-punctuation
 
+from collections.abc import Sequence
 import importlib
 import re
 
@@ -149,11 +164,14 @@ def check_table_has_data_rows(page: Page, min_rows: int = 1) -> list[str]:
   # such as outside compilation on a JAX profile, leaves it with headers only.
   for i, table in enumerate(
       page.locator(
-          "table:has(th, .mat-header-cell):not([aria-label] > table),"
-          " mat-table:has(th, .mat-header-cell)"
+          "table:has(th, .mat-header-cell, .mat-mdc-header-cell)"
+          ":not([aria-label] > table),"
+          " mat-table:has(th, .mat-header-cell, .mat-mdc-header-cell)"
       ).all()
   ):
-    rows = table.locator("tr:has(td), mat-row, tr[mat-row]").count()
+    rows = table.locator(
+        "tr:has(td), mat-row, tr[mat-row], .mat-mdc-row"
+    ).count()
     if rows < min_rows:
       violations.append(
           f"Table[{i}] has headers but {rows} data row(s), expected >="
@@ -291,17 +309,28 @@ def run_cell_invariants(page: Page, max_cells: int = 4000) -> list[str]:
 def check_positive_rendered_content(page: Page) -> list[str]:
   """Verifies rendered charts have positive geometry and cards have text."""
   violations = []
-  for i, chart in enumerate(page.locator("svg, canvas").all()):
+  for i, chart in enumerate(
+      page.locator(
+          "svg:not([focusable='false'], [aria-hidden='true']), canvas"
+      ).all()
+  ):
     try:
       box = chart.bounding_box()
+      if (
+          box
+          and (box["width"] <= 0 or box["height"] <= 0)
+          and chart.evaluate("el => getComputedStyle(el).visibility")
+          != "hidden"
+      ):
+        violations.append(
+            f"Chart[{i}] collapsed geometry: {box['width']}x{box['height']}"
+        )
     except PlaywrightError:
       continue
-    if box and (box["width"] <= 0 or box["height"] <= 0):
-      violations.append(
-          f"Chart[{i}] collapsed geometry: {box['width']}x{box['height']}"
-      )
   for i, card in enumerate(
-      page.locator("mat-card, .dashboard-card, .metric-card").all()
+      page.locator(
+          "mat-card, .mat-mdc-card, .dashboard-card, .metric-card"
+      ).all()
   ):
     try:
       text = card.inner_text()
@@ -355,8 +384,25 @@ _CHECK_SIDENAV_OVERLAP_JS = """
 }
 """
 
+# Upstream 1280px unwrapped flex chart/filter rows. `framework-op-stats` and
+# `hlo-stats` are tracked by strict xfail tests in
+# `test_tools_rendering.py::test_desktop_chart_rows_fit_content_pane`.
+# `perf-counters` overflows at 1280px only in internal builds (Copybara strips
+# the extra `Host` and `Show Zero Values` controls in OSS).
+KNOWN_UNWRAPPED_ROW_SELECTORS: tuple[str, ...] = (
+    "framework-op-stats .row",
+    "hlo-stats .row",
+    "perf-counters .row",
+)
+
+_SCROLLABLE_TABLE_SELECTORS: tuple[str, ...] = (
+    "table",
+    "mat-table",
+    ".google-visualization-table",
+)
+
 _CHECK_HORIZONTAL_OVERFLOW_JS = """
-([maxOverflow, checkContentPane]) => {
+([maxOverflow, checkContentPane, allowedSelector]) => {
   const out = [];
   const doc = document.documentElement;
   const vw = doc.clientWidth || window.innerWidth;
@@ -369,12 +415,35 @@ _CHECK_HORIZONTAL_OVERFLOW_JS = """
   }
   if (checkContentPane) {
     const pane = document.querySelector('mat-sidenav-content');
-    if (pane) {
-      const paneOverflow = pane.scrollWidth - pane.clientWidth;
-      if (paneOverflow > maxOverflow) {
+    if (pane && pane.scrollWidth - pane.clientWidth > maxOverflow) {
+      const paneLeft = pane.getBoundingClientRect().left;
+      const rightEdge = paneLeft + pane.clientLeft + pane.clientWidth;
+      const scrollLeft = pane.scrollLeft || 0;
+      const overflowing = [...pane.querySelectorAll('*')].filter(el => {
+        const r = el.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0) return false;
+        if (r.right + scrollLeft - rightEdge <= maxOverflow) return false;
+        for (let p = el.parentElement; p && p !== pane; p = p.parentElement) {
+          if (getComputedStyle(p).overflowX !== 'visible') {
+            const pr = p.getBoundingClientRect();
+            const pRight = pr.left + p.clientLeft + p.clientWidth;
+            if (pRight + scrollLeft - rightEdge <= maxOverflow) return false;
+          }
+        }
+        return true;
+      });
+      const leaves = overflowing.filter(
+          el => !overflowing.some(o => o !== el && el.contains(o))
+      );
+      if (
+          !leaves.length ||
+          !allowedSelector ||
+          !leaves.every(el => Boolean(el.closest(allowedSelector)))
+      ) {
+        const delta = pane.scrollWidth - pane.clientWidth;
         out.push(
             'mat-sidenav-content horizontal overflow: ' +
-            `${paneOverflow.toFixed(0)}px > ${maxOverflow}px`
+            `${delta.toFixed(0)}px > ${maxOverflow}px`
         );
       }
     }
@@ -404,6 +473,35 @@ def _is_transient_eval_error(err: Exception) -> bool:
   )
 
 
+def _eval_layout_check(
+    page: Page,
+    js_fn: str,
+    args: object = None,
+    settle_timeout_ms: int = 600,
+) -> list[str]:
+  """Evaluates a layout-check JS function with a brief settle retry."""
+
+  def _run() -> list[str]:
+    return list(page.evaluate(js_fn, args))
+
+  try:
+    if not _run():
+      return []
+    try:
+      page.wait_for_function(
+          f"a => ({js_fn})(a).length === 0",
+          arg=args,
+          timeout=settle_timeout_ms,
+      )
+      return []
+    except PlaywrightError:
+      return _run()
+  except PlaywrightError as err:
+    if _is_transient_eval_error(err):
+      return []
+    raise
+
+
 def check_no_sidenav_overlap(page: Page) -> list[str]:
   """Flags an open side-mode navigation drawer overlapping main tool content.
 
@@ -413,31 +511,14 @@ def check_no_sidenav_overlap(page: Page) -> list[str]:
   Returns:
     List of overlap violation descriptions, empty when clear or navigating.
   """
-  try:
-    violations = list(page.evaluate(_CHECK_SIDENAV_OVERLAP_JS) or [])
-    if not violations:
-      return []
-    wait_fn = getattr(page, "wait_for_function", None)
-    if wait_fn is None:
-      return violations
-    try:
-      wait_fn(
-          f"() => ({_CHECK_SIDENAV_OVERLAP_JS})().length === 0",
-          timeout=600,
-      )
-      return []
-    except PlaywrightError:
-      return list(page.evaluate(_CHECK_SIDENAV_OVERLAP_JS) or [])
-  except PlaywrightError as err:
-    if _is_transient_eval_error(err):
-      return []
-    raise
+  return _eval_layout_check(page, _CHECK_SIDENAV_OVERLAP_JS)
 
 
 def check_no_horizontal_overflow(
     page: Page,
     max_overflow_px: int = 16,
     check_content_pane: bool = True,
+    allowed_overflow_selectors: Sequence[str] = (),
 ) -> list[str]:
   """Flags horizontal overflow beyond the viewport or sidenav content pane.
 
@@ -445,21 +526,17 @@ def check_no_horizontal_overflow(
     page: Playwright page under test.
     max_overflow_px: Allowed pixel tolerance before reporting overflow.
     check_content_pane: Whether to also inspect `mat-sidenav-content` overflow.
+    allowed_overflow_selectors: Selectors whose overflowing descendants are
+      tolerated in addition to scrollable tables.
 
   Returns:
     List of overflow violation descriptions, empty when within bounds.
   """
-  try:
-    return list(
-        page.evaluate(
-            _CHECK_HORIZONTAL_OVERFLOW_JS, [max_overflow_px, check_content_pane]
-        )
-        or []
-    )
-  except PlaywrightError as err:
-    if _is_transient_eval_error(err):
-      return []
-    raise
+  allowed = ", ".join(
+      (*_SCROLLABLE_TABLE_SELECTORS, *allowed_overflow_selectors)
+  )
+  args = [max_overflow_px, check_content_pane, allowed]
+  return _eval_layout_check(page, _CHECK_HORIZONTAL_OVERFLOW_JS, args=args)
 
 
 def check_no_stuck_loading_lock(page: Page) -> list[str]:
@@ -476,9 +553,16 @@ def check_no_stuck_loading_lock(page: Page) -> list[str]:
 
 
 def run_dom_invariants(
-    page: Page, collapse_selectors: list[str] | None = None
+    page: Page,
+    collapse_selectors: list[str] | None = None,
+    allowed_overflow_selectors: Sequence[str] | None = None,
 ) -> list[str]:
   """Runs all DOM-shape invariants against the page."""
+  overflow_allow = (
+      KNOWN_UNWRAPPED_ROW_SELECTORS
+      if allowed_overflow_selectors is None
+      else allowed_overflow_selectors
+  )
   violations = []
   for sel in collapse_selectors or []:
     violations.extend(check_no_layout_collapse(page, sel))
@@ -488,7 +572,11 @@ def run_dom_invariants(
   violations.extend(check_no_stuck_loading_lock(page))
   violations.extend(check_no_sidenav_overlap(page))
   violations.extend(
-      check_no_horizontal_overflow(page, check_content_pane=False)
+      check_no_horizontal_overflow(
+          page,
+          check_content_pane=True,
+          allowed_overflow_selectors=overflow_allow,
+      )
   )
   return violations
 
@@ -511,13 +599,16 @@ def assert_page_invariants(
     page: Page,
     collapse_selectors: list[str] | None = None,
     max_cells: int = 4000,
+    allowed_overflow_selectors: Sequence[str] | None = None,
 ) -> None:
   """Asserts all content, DOM, SVG, and cell invariants in a single call."""
   violations = []
   text = page.inner_text("body")
   if text:
     violations.extend(run_content_invariants(text))
-  violations.extend(run_dom_invariants(page, collapse_selectors))
+  violations.extend(
+      run_dom_invariants(page, collapse_selectors, allowed_overflow_selectors)
+  )
   violations.extend(check_svg_geometry_deep(page))
   violations.extend(run_cell_invariants(page, max_cells))
   assert not violations, format_violations(page.url, violations)

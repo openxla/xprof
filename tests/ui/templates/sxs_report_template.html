@@ -74,10 +74,28 @@ $approval_portal_html
     if (!sliderView || !sliderStage || !clipLayer || !handle) return;
 
     function syncImgWidth() {
-      const w = sliderStage.clientWidth;
+      const w = sliderView.clientWidth;
       if (w > 0) {
-        if (baseImg) baseImg.style.width = w + 'px';
-        if (candImg) candImg.style.width = w + 'px';
+        const maxNatW = Math.max(
+            baseImg?.naturalWidth || 0, candImg?.naturalWidth || 0
+        );
+        const scale = maxNatW > 0 ? Math.min(1, w / maxNatW) : 1;
+        const stageW = maxNatW > 0 ? Math.round(maxNatW * scale) : w;
+        sliderStage.style.width = stageW + 'px';
+        if (baseImg) {
+          baseImg.style.width = (
+              baseImg.naturalWidth
+                  ? Math.round(baseImg.naturalWidth * scale)
+                  : stageW
+          ) + 'px';
+        }
+        if (candImg) {
+          candImg.style.width = (
+              candImg.naturalWidth
+                  ? Math.round(candImg.naturalWidth * scale)
+                  : stageW
+          ) + 'px';
+        }
         const maxH = Math.max(
             baseImg?.clientHeight || 0, candImg?.clientHeight || 0
         );
@@ -88,15 +106,15 @@ $approval_portal_html
     }
 
     syncImgWidth();
-    if (baseImg && !baseImg.complete) {
-      baseImg.addEventListener('load', syncImgWidth);
-    }
-    if (candImg && !candImg.complete) {
-      candImg.addEventListener('load', syncImgWidth);
-    }
 
     if (!sliderView.dataset.initialized) {
       sliderView.dataset.initialized = 'true';
+      if (baseImg && !baseImg.complete) {
+        baseImg.addEventListener('load', syncImgWidth, { once: true });
+      }
+      if (candImg && !candImg.complete) {
+        candImg.addEventListener('load', syncImgWidth, { once: true });
+      }
       window.addEventListener('resize', syncImgWidth);
 
       let isDragging = false;

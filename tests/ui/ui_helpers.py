@@ -1,6 +1,23 @@
+# Copyright 2026 The TensorFlow Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
 """Shared Playwright UI interaction helpers for XProf frontend tests."""
 
+from collections.abc import Iterator
 from collections.abc import Mapping
+from collections.abc import Sequence
+import contextlib
 import functools
 import gzip
 import http
@@ -19,16 +36,27 @@ import zlib
 
 # pylint: disable=g-import-not-at-top
 try:
-  from google3.third_party.xprof.tests.ui import invariants
+  from tests.ui import invariants
+  from tests.ui import journey_capture
 except ImportError:
-  try:
-    from tests.ui import invariants  # pyrefly: ignore[missing-import]
-  except ImportError:
-    import invariants  # pyrefly: ignore[missing-import]
+  import invariants
+  import journey_capture
 # pylint: enable=g-import-not-at-top
 
 # invariants owns the optional Playwright import and its hermetic stub.
 sync_api = invariants.sync_api
+
+# How long a navigation assertion waits for the router to publish the new tool
+# in the address bar. XProf loads the tool's data before the router updates the
+# query string, so the address bar lags the click by however long the tool
+# takes to respond -- for the heavier tools, well past Playwright's 5s default
+# on a loaded machine. The assertion is about which tool the app navigated to,
+# not about how quickly it got there, so the bound only needs to be long enough
+# to distinguish a slow load from a navigation that never happened.
+URL_SETTLE_TIMEOUT_MS = 30000
+RUN_TOOLS_ROUTE_RE = re.compile(
+    r"^[^?#]*/data/plugin/profile/run_tools(?:[?#]|$)"
+)
 
 # Genuine rendered visualization and data-bearing elements inside XProf tools.
 # Deliberately excludes wrappers that exist before anything is drawn (e.g.
@@ -37,10 +65,35 @@ sync_api = invariants.sync_api
 # spinners, switches), so child geometry checks cannot pass on page chrome.
 # An iframe counts once it is visible; its document is not inspected, so an
 # iframe that has not drawn anything yet (Graph Viewer's graph) still counts.
+# The host and memory-id selector tables are sidenav chrome, not tool content.
 VISUALIZATION_SELECTOR = (
-    "svg:not([focusable='false'], [aria-hidden='true']), canvas, table,"
-    " mat-card, .mat-mdc-card, iframe, op-table-entry .row"
+    "svg:not([focusable='false'], [aria-hidden='true']), canvas,"
+    " table:not(#host-id-selector table, #memory-id-selector table),"
+    " mat-card, .mat-mdc-card, iframe, op-table-entry .row,"
+    " graph-viewer mat-chip-option"
 )
+
+
+def _read_bounding_box(locator: sync_api.Locator) -> dict[str, float] | None:
+  """Reads `locator.bounding_box()`, retrying across transient DOM swaps.
+
+  Args:
+    locator: Playwright locator to measure.
+
+  Returns:
+    The bounding box dictionary, or None if unavailable after retries.
+  """
+  bbox: dict[str, float] | None = None
+  for attempt in range(3):
+    timeout_ms = 20000 if attempt == 0 else 5000
+    sync_api.expect(locator).to_be_visible(timeout=timeout_ms)
+    try:
+      bbox = locator.bounding_box()
+    except invariants.PlaywrightError:
+      bbox = None
+    if bbox is not None:
+      return bbox
+  return bbox
 
 
 def assert_component_geometry(
@@ -51,8 +104,7 @@ def assert_component_geometry(
   """Asserts that a component and its visualization have positive geometry."""
   ctx = f" at {context}" if context else ""
   comp = page.locator(f":is({selector}):visible").first
-  sync_api.expect(comp).to_be_visible(timeout=20000)
-  bbox = comp.bounding_box()
+  bbox = _read_bounding_box(comp)
   assert (
       bbox is not None and bbox["width"] > 0 and bbox["height"] > 0
   ), f"Component {selector!r} collapsed{ctx}: {bbox}"
@@ -62,8 +114,7 @@ def assert_component_geometry(
       f":is({selector}) :is({VISUALIZATION_SELECTOR}):visible"
   )
   child = page.locator(vis_selector).first
-  sync_api.expect(child).to_be_visible(timeout=20000)
-  child_bbox = child.bounding_box()
+  child_bbox = _read_bounding_box(child)
   assert (
       child_bbox is not None
       and child_bbox["width"] > 0
@@ -75,6 +126,7 @@ def assert_healthy(
     page: sync_api.Page,
     browser_errors: object = None,
     context: str = "",
+    allowed_overflow_selectors: Sequence[str] | None = None,
 ) -> None:
   """Asserts a non-empty body, clean page invariants and clean browser logs."""
   ctx = f" at {context}" if context else ""
@@ -84,11 +136,15 @@ def assert_healthy(
   assert text.strip(), f"Empty page body rendered{ctx}"
   violations = invariants.run_content_invariants(text)
   assert not violations, f"Poison tokens detected{ctx}: {violations}"
-  if page.locator("main-page mat-sidenav-content").count() > 0:
+  if page.locator("main-page mat-sidenav-content, empty-page").count() > 0:
     sync_api.expect(
-        page.locator("main-page mat-sidenav-content > div.full-height")
+        page.locator(
+            "main-page mat-sidenav-content > div.full-height, empty-page"
+        ).first
     ).to_be_visible(timeout=20000)
-  invariants.assert_page_invariants(page)
+  invariants.assert_page_invariants(
+      page, allowed_overflow_selectors=allowed_overflow_selectors
+  )
   if browser_errors is not None and hasattr(browser_errors, "assert_clean"):
     browser_errors.assert_clean(context)
 
@@ -162,6 +218,8 @@ def _select_sidenav_dropdown_option(
   aliases = [option_text]
   if option_text in ("Op Profile", "HLO Op Profile"):
     aliases = ["Op Profile", "HLO Op Profile"]
+  elif option_text in ("Utilization Viewer", "Kernel Utilization"):
+    aliases = ["Utilization Viewer", "Kernel Utilization"]
   _select_option(
       page,
       page.locator(f"sidenav .item-container:has-text('{label}') mat-select"),
@@ -172,21 +230,154 @@ def _select_sidenav_dropdown_option(
 def select_session(page: sync_api.Page, session_name: str) -> None:
   """Opens the navigation drawer and selects a profile run from dropdown."""
   _select_sidenav_dropdown_option(page, "Sessions", session_name)
+  encoded = urllib.parse.quote(session_name, safe="")
+  sync_api.expect(page).to_have_url(
+      re.compile(
+          rf"[?&]run=(?:{re.escape(session_name)}|{re.escape(encoded)})"
+          r"(?:[&#]|$)"
+      ),
+      timeout=URL_SETTLE_TIMEOUT_MS,
+  )
 
 
 def switch_tool(page: sync_api.Page, tool_name: str) -> None:
   """Opens the navigation drawer and switches tools via dropdown."""
   _select_sidenav_dropdown_option(page, "Tools", tool_name)
+  sync_api.expect(page).to_have_url(
+      journey_capture.settled_tool_url_pattern(tool_name),
+      timeout=URL_SETTLE_TIMEOUT_MS,
+  )
 
 
 def select_host(page: sync_api.Page, host_name: str) -> None:
   """Opens the navigation drawer and selects a worker host from dropdown."""
   _select_sidenav_dropdown_option(page, "Hosts", host_name)
+  encoded = urllib.parse.quote(host_name, safe="")
+  sync_api.expect(page).to_have_url(
+      re.compile(
+          rf"[?&]host=(?:{re.escape(host_name)}|{re.escape(encoded)})"
+          r"(?:[&#]|$)"
+      ),
+      timeout=URL_SETTLE_TIMEOUT_MS,
+  )
+
+
+def select_hosts(page: sync_api.Page, *host_names: str) -> None:
+  """Selects one or more hosts in Trace Viewer's multi-host dropdown."""
+  assert host_names, "select_hosts requires at least one host name"
+  ensure_sidenav_open(page)
+  dropdown = page.locator(
+      "sidenav .item-container:has-text('Hosts') mat-select[multiple]"
+  )
+  sync_api.expect(dropdown).to_be_visible(timeout=10000)
+  dropdown.click()
+  options_locator = page.locator("mat-option")
+  sync_api.expect(options_locator.first).to_be_visible(timeout=5000)
+  target_set = set(host_names)
+  seen_labels: set[str] = set()
+  for option in options_locator.all():
+    label = option.inner_text().strip()
+    seen_labels.add(label)
+    is_checked = option.get_attribute("aria-selected") == "true"
+    if (label in target_set) != is_checked:
+      option.click()
+  missing = sorted(target_set - seen_labels)
+  assert (
+      not missing
+  ), f"Hosts {missing} not found in dropdown options {sorted(seen_labels)}"
+  apply_btn = page.locator("button:has-text('Apply Host Selection')")
+  sync_api.expect(apply_btn).to_be_enabled(timeout=5000)
+  apply_btn.click()
+  sync_api.expect(options_locator).to_have_count(0, timeout=5000)
+  sync_api.expect(
+      page.locator("sidenav .item-container:has-text('Hosts')")
+  ).to_contain_text(f"Hosts ({len(target_set)})", timeout=5000)
+  for host_name in host_names:
+    encoded = urllib.parse.quote(host_name, safe="")
+    sync_api.expect(page).to_have_url(
+        re.compile(
+            rf"[?&]hosts=(?:[^&#]*(?:,|%2[Cc]))?"
+            rf"(?:{re.escape(host_name)}|{re.escape(encoded)})"
+            r"(?:,|%2[Cc]|[&#]|$)"
+        ),
+        timeout=URL_SETTLE_TIMEOUT_MS,
+    )
 
 
 def select_module(page: sync_api.Page, module_name: str) -> None:
   """Opens the navigation drawer and selects an HLO module from dropdown."""
   _select_sidenav_dropdown_option(page, "Hlo Modules", module_name)
+  encoded = urllib.parse.quote(module_name, safe="")
+  sync_api.expect(page).to_have_url(
+      re.compile(
+          rf"[?&]moduleName=(?:{re.escape(module_name)}|{re.escape(encoded)})"
+          r"(?:%28|\(|[&#]|$)"
+      ),
+      timeout=URL_SETTLE_TIMEOUT_MS,
+  )
+
+
+def step_history(
+    page: sync_api.Page, tool_name: str, forward: bool = False
+) -> None:
+  """Steps browser history back, or forward, until `tool_name` is shown.
+
+  A tool switch can push an intermediate history entry, so a single step may
+  stop between two tools. Stepping ends once the URL settles on `tool_name` or
+  stops changing.
+
+  Args:
+    page: Page whose history is stepped.
+    tool_name: Display name of the tool the step has to reach.
+    forward: Steps forward instead of back.
+  """
+  tag_pattern = journey_capture.settled_tool_url_pattern(tool_name)
+  for _ in range(5):
+    prev_url = page.url
+    if forward:
+      page.go_forward(wait_until="domcontentloaded")
+    else:
+      page.go_back(wait_until="domcontentloaded")
+    try:
+      page.wait_for_function(
+          "prev => window.location.href !== prev", arg=prev_url, timeout=3000
+      )
+    except invariants.PlaywrightError:
+      pass
+    if tag_pattern.search(page.url) or page.url == prev_url:
+      break
+  sync_api.expect(page).to_have_url(tag_pattern, timeout=URL_SETTLE_TIMEOUT_MS)
+  if page.locator("main-page mat-sidenav-content").count() > 0:
+    sync_api.expect(
+        page.locator("main-page mat-sidenav-content > div.full-height")
+    ).to_be_visible(timeout=20000)
+
+
+@contextlib.contextmanager
+def enabling_run_tool(page: sync_api.Page, tool_name: str) -> Iterator[None]:
+  """Appends `tool_name` to `/run_tools` and drains to `about:blank` on exit."""
+
+  def _handle_run_tools(route: Any) -> None:
+    resp = route.fetch()
+    tools = resp.json()
+    if isinstance(tools, list) and tool_name not in tools:
+      tools = [*tools, tool_name]
+    route.fulfill(
+        status=resp.status,
+        content_type="application/json",
+        body=json.dumps(tools),
+    )
+
+  page.route(RUN_TOOLS_ROUTE_RE, _handle_run_tools)
+  try:
+    yield
+  finally:
+    try:
+      page.goto("about:blank")
+      sync_api.expect(page).to_have_url("about:blank")
+    except invariants.PlaywrightError:
+      pass
+    page.unroute(RUN_TOOLS_ROUTE_RE, _handle_run_tools)
 
 
 def select_op_profile_group_by(page: sync_api.Page, group_by: str) -> None:

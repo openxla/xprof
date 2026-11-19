@@ -1,6 +1,6 @@
 <div class="diff-section" id="visual-sec-$card_id">
   <div class="diff-header-row">
-    <div class="diff-title">Visual Divergence ($diff_pixels Pixels Changed)</div>
+    <div class="diff-title">$visual_title</div>
     <div class="controls">
       <button type="button" class="btn-toggle active" id="btn-sxs-$card_id" onclick="setVisualMode('$card_id', 'sxs')">Side-by-Side</button>
       <button type="button" class="btn-toggle" id="btn-slider-$card_id" onclick="setVisualMode('$card_id', 'slider')">Interactive Swipe Slider</button>
@@ -13,13 +13,13 @@
     <div class="comparison-side">
       <div class="side-label">Baseline Golden</div>
       <div class="img-wrapper">
-        <img src="data:image/png;base64,$base_b64" alt="Baseline Golden"/>
+        $base_img_html
       </div>
     </div>
     <div class="comparison-side">
       <div class="side-label side-label-cand">Candidate Run</div>
       <div class="img-wrapper">
-        <img src="data:image/png;base64,$cand_b64" alt="Candidate Run"/>
+        $cand_img_html
       </div>
     </div>
   </div>
@@ -32,10 +32,10 @@
     </div>
     <div id="slider-stage-$card_id" class="slider-stage">
       <div class="slider-layer slider-base-layer">
-        <img id="slider-base-img-$card_id" src="data:image/png;base64,$base_b64" alt="Baseline Golden"/>
+        $slider_base_img_html
       </div>
       <div id="slider-clip-$card_id" class="slider-layer slider-cand-layer" style="width: 50%;">
-        <img id="slider-cand-img-$card_id" src="data:image/png;base64,$cand_b64" alt="Candidate Run"/>
+        $slider_cand_img_html
       </div>
       <div id="slider-handle-$card_id" class="slider-handle" style="left: 50%;">
         <div class="slider-handle-circle">↔</div>
@@ -47,7 +47,7 @@
   <div id="view-heatmap-$card_id" class="heatmap-view" style="display: none;">
     <div class="side-label side-label-heatmap">Candidate, Diverging Pixels Highlighted</div>
     <div class="heatmap-wrapper">
-      <img src="data:image/png;base64,$heatmap_b64" alt="Diff Heatmap"/>
+      $heatmap_img_html
     </div>
   </div>
 </div>

@@ -24,16 +24,11 @@ import string
 
 # pylint: disable=g-import-not-at-top
 try:
-  from google3.third_party.xprof.tests.ui import sxs_diff_engine
-except ModuleNotFoundError as err:
-  if not (err.name or "").startswith("google3"):
+  from tests.ui import sxs_diff_engine
+except ModuleNotFoundError as sub_err:
+  if not (sub_err.name or "").startswith("tests"):
     raise
-  try:
-    from tests.ui import sxs_diff_engine  # pyrefly: ignore[missing-import]
-  except ModuleNotFoundError as sub_err:
-    if not (sub_err.name or "").startswith("tests"):
-      raise
-    import sxs_diff_engine  # pyrefly: ignore[missing-import]
+  import sxs_diff_engine
 
 _NETWORK_ITEM_HTML = '<li class="network-item network-item-mismatch">{}</li>'
 
@@ -44,13 +39,13 @@ def _get_default_template_dir() -> pathlib.Path:
   if (local_dir / "sxs_report_template.html").is_file():
     return local_dir
 
-  runfiles_dir = (
-      pathlib.Path(os.environ.get("TEST_SRCDIR", ""))
-      / os.environ.get("TEST_WORKSPACE", "")
-      / "third_party/xprof/tests/ui/templates"
+  base = pathlib.Path(os.environ.get("TEST_SRCDIR", "")) / os.environ.get(
+      "TEST_WORKSPACE", ""
   )
-  if (runfiles_dir / "sxs_report_template.html").is_file():
-    return runfiles_dir
+  for rel in ("third_party/xprof/tests/ui/templates", "tests/ui/templates"):
+    runfiles_dir = base / rel
+    if (runfiles_dir / "sxs_report_template.html").is_file():
+      return runfiles_dir
 
   return local_dir
 
@@ -106,7 +101,7 @@ def _render_dom_diff(
     elif line.startswith("-") and not line.startswith("---"):
       diff_lines.append(f'<span class="diff-deleted">{escaped_line}</span>')
     else:
-      diff_lines.append(escaped_line)
+      diff_lines.append(f'<span class="diff-context">{escaped_line}</span>')
 
   tmpl = string.Template(templates.get_section("dom_diff_section.html"))
   return tmpl.safe_substitute(
@@ -121,18 +116,70 @@ def _data_uri_payload(png_bytes: bytes | None) -> str:
   return base64.b64encode(png_bytes).decode("ascii") if png_bytes else ""
 
 
+def _render_img_or_fallback(
+    png_bytes: bytes | None, alt: str, img_id: str = ""
+) -> str:
+  """Renders an inline PNG <img> or a visible fallback box when unavailable."""
+  payload = _data_uri_payload(png_bytes)
+  escaped_alt = html.escape(alt)
+  if not payload:
+    return (
+        f'<div class="img-fallback">{escaped_alt} unavailable'
+        " (missing or corrupt image payload)</div>"
+    )
+  id_attr = f' id="{html.escape(img_id)}"' if img_id else ""
+  return (
+      f'<img{id_attr} src="data:image/png;base64,{payload}"'
+      f' alt="{escaped_alt}"/>'
+  )
+
+
+def _has_pixel_delta_view(waypoint: sxs_diff_engine.WaypointDiff) -> bool:
+  """Returns whether `waypoint` renders the full 3-mode visual delta section."""
+  return (
+      waypoint.visual.diff_ratio > sxs_diff_engine.MAX_VISUAL_DIFF_RATIO
+      or bool(waypoint.visual.dimension_mismatch)
+      or bool(waypoint.visual.decode_error)
+      or bool(waypoint.visual.mask_error)
+  )
+
+
 def _render_visual_diff(
     templates: _TemplateRegistry,
     visual: sxs_diff_engine.VisualDiff,
     card_id: str,
 ) -> str:
   """Renders the side-by-side, swipe slider, and heatmap views of a waypoint."""
+  if visual.decode_error:
+    visual_title = "Visual Divergence (Corrupt Image Payload)"
+  elif visual.mask_error:
+    visual_title = f"Visual Divergence ({visual.mask_error})"
+  elif visual.diff_pixels == 0 and visual.dimension_mismatch:
+    visual_title = "Visual Divergence (Page Size Changed)"
+  else:
+    visual_title = f"Visual Divergence ({visual.diff_pixels} Pixels Changed)"
   tmpl = string.Template(templates.get_section("visual_diff_section.html"))
   return tmpl.safe_substitute(
-      diff_pixels=str(visual.diff_pixels),
-      base_b64=_data_uri_payload(visual.base_png_bytes),
-      cand_b64=_data_uri_payload(visual.candidate_png_bytes),
-      heatmap_b64=_data_uri_payload(visual.heatmap_png_bytes),
+      visual_title=html.escape(visual_title),
+      base_img_html=_render_img_or_fallback(
+          visual.base_png_bytes, "Baseline Golden"
+      ),
+      cand_img_html=_render_img_or_fallback(
+          visual.candidate_png_bytes, "Candidate Run"
+      ),
+      slider_base_img_html=_render_img_or_fallback(
+          visual.base_png_bytes,
+          "Baseline Golden",
+          img_id=f"slider-base-img-{card_id}",
+      ),
+      slider_cand_img_html=_render_img_or_fallback(
+          visual.candidate_png_bytes,
+          "Candidate Run",
+          img_id=f"slider-cand-img-{card_id}",
+      ),
+      heatmap_img_html=_render_img_or_fallback(
+          visual.heatmap_png_bytes, "Diff Heatmap"
+      ),
       card_id=card_id,
   )
 
@@ -154,8 +201,12 @@ def _render_screenshot_context(
       templates.get_section("screenshot_context_section.html")
   )
   return tmpl.safe_substitute(
-      base_b64=_data_uri_payload(waypoint.visual.base_png_bytes),
-      cand_b64=_data_uri_payload(waypoint.visual.candidate_png_bytes),
+      base_img_html=_render_img_or_fallback(
+          waypoint.visual.base_png_bytes, "Baseline Golden"
+      ),
+      cand_img_html=_render_img_or_fallback(
+          waypoint.visual.candidate_png_bytes, "Candidate Run"
+      ),
       context_reason=html.escape("; ".join(reasons)),
       card_id=card_id,
   )
@@ -220,10 +271,7 @@ def _render_waypoint_card(
   # diverged only on DOM or network gets the two-image side-by-side instead:
   # the reviewer still sees both pages, at a fifth of the payload.
   if waypoint.verdict != "SAME":
-    if (
-        waypoint.visual.diff_ratio > sxs_diff_engine.MAX_VISUAL_DIFF_RATIO
-        or waypoint.visual.dimension_mismatch
-    ):
+    if _has_pixel_delta_view(waypoint):
       sections.append(_render_visual_diff(templates, waypoint.visual, card_id))
     else:
       sections.append(
@@ -277,6 +325,7 @@ def generate_sxs_html_report(
     output_html_path: str,
     template_dir: pathlib.Path | None = None,
     manifest_path: str | None = None,
+    is_ab_comparison: bool = True,
 ) -> str:
   """Renders and writes standalone HTML diff report.
 
@@ -286,6 +335,10 @@ def generate_sxs_html_report(
     template_dir: Template directory override, for tests.
     manifest_path: Approved manifest the report builds on. Defaults to the one
       the gate reads.
+    is_ab_comparison: Whether baseline and candidate are distinct builds. When
+      False (single-server reproducibility mode), the manifest approval portal
+      is omitted because drift on a single build cannot be approved via
+      manifest.
 
   Returns:
     The path the report was written to.
@@ -296,12 +349,19 @@ def generate_sxs_html_report(
   has_unapproved_diffs = any(w.verdict == "CHANGED" for w in waypoint_diffs)
   has_approved_diffs = any(w.verdict == "APPROVED" for w in waypoint_diffs)
 
-  if has_unapproved_diffs:
+  if not waypoint_diffs:
+    badge_class = "badge-fail"
+    badge_text = "NO WAYPOINTS EVALUATED"
+    summary_text = "0 Waypoints Evaluated (Check fixture/logdir configuration)"
+  elif has_unapproved_diffs:
     badge_class = "badge-fail"
     badge_text = "DIFF DETECTED"
-    summary_text = (
-        f"{len(waypoint_diffs)} Waypoints Evaluated (Author Action Required)"
+    role_note = (
+        "Author Action Required"
+        if is_ab_comparison
+        else "Single-Server Reproducibility Drift"
     )
+    summary_text = f"{len(waypoint_diffs)} Waypoints Evaluated ({role_note})"
   elif has_approved_diffs:
     badge_class = "badge-approved"
     badge_text = "AUTHOR APPROVED — PENDING REVIEW"
@@ -322,7 +382,7 @@ def generate_sxs_html_report(
   )
   unapproved_list: list[dict[str, str]] = []
   approved_diffs: dict[str, dict[str, str]] = {}
-  if has_unapproved_diffs:
+  if has_unapproved_diffs and is_ab_comparison:
     approval_portal_html = templates.get_section("approval_portal.html")
     unapproved_list = [
         {
@@ -335,7 +395,7 @@ def generate_sxs_html_report(
     approved_diffs = sxs_diff_engine.SxsDiffEngine(
         manifest_path
     ).approved_manifest
-  elif has_approved_diffs:
+  elif has_approved_diffs and is_ab_comparison:
     approval_portal_html = templates.get_section("reviewer_guidance.html")
   else:
     approval_portal_html = ""

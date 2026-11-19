@@ -100,11 +100,14 @@ body {
 
 .tab {
   padding: 12px 18px;
+  font-family: inherit;
   font-size: 13px;
   font-weight: 500;
   color: var(--text-muted);
-  cursor: pointer;
+  background: transparent;
+  border: none;
   border-bottom: 3px solid transparent;
+  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -129,6 +132,7 @@ body {
   height: 8px;
   border-radius: 50%;
   background: var(--pass);
+  flex-shrink: 0;
 }
 
 .tab-status-approved {
@@ -136,6 +140,7 @@ body {
   height: 8px;
   border-radius: 50%;
   background: var(--primary);
+  flex-shrink: 0;
 }
 
 .tab-status-diff {
@@ -143,6 +148,7 @@ body {
   height: 8px;
   border-radius: 50%;
   background: var(--warn);
+  flex-shrink: 0;
 }
 
 .content-body {
@@ -306,6 +312,14 @@ body {
   height: auto;
 }
 
+.img-fallback {
+  padding: 24px 16px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--fail);
+  background: var(--fail-bg);
+}
+
 /* Interactive Swipe Slider View */
 .slider-view {
   position: relative;
@@ -339,6 +353,7 @@ body {
 .slider-stage {
   position: relative;
   width: 100%;
+  margin: 0 auto;
   overflow: hidden;
   cursor: ew-resize;
 }
@@ -460,6 +475,11 @@ body {
   border-radius: 2px;
   padding: 1px 4px;
   margin: 1px 0;
+}
+
+.diff-context {
+  display: block;
+  padding: 1px 4px;
 }
 
 /* Dimension Mismatch */

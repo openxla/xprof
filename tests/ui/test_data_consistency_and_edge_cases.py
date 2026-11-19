@@ -15,7 +15,6 @@
 """End-to-end tests for data consistency, routing, and UI edge cases."""
 
 from collections.abc import Callable
-import json
 import os
 import pathlib
 import re
@@ -28,17 +27,9 @@ from playwright.sync_api import Page
 from playwright.sync_api import Route
 import pytest
 
-# pylint: disable=g-import-not-at-top
-try:
-  from tests.ui.conftest import BrowserErrors
-  from tests.ui.ui_helpers import assert_healthy
-except ImportError:
-  from conftest import BrowserErrors
-  from ui_helpers import assert_healthy
-
-_RUN_TOOLS_ROUTE_RE = re.compile(
-    r"^[^?#]*/data/plugin/profile/run_tools(?:[?#]|$)"
-)
+from tests.ui.conftest import BrowserErrors
+from tests.ui.ui_helpers import assert_healthy
+from tests.ui.ui_helpers import enabling_run_tool
 
 
 def _first_xplane_host(session_dir: str) -> str:
@@ -257,9 +248,16 @@ def test_megascale_stats_single_host_shows_stats_panel(
     open_tool: Callable[..., str],
     browser_errors: BrowserErrors,
 ) -> None:
-  """Verifies Megascale Stats shows and loads its stats table on one host."""
-  open_tool("megascale-2host", "megascale_stats")
+  """Verifies Megascale Stats renders stats tables across 1- and 2-host runs."""
+  open_tool("megascale-2host", "megascale_stats", host="ALL_HOSTS")
   expect(page.locator("megascale-stats")).to_be_visible(timeout=20000)
+  header_2h = page.locator("megascale-stats mat-expansion-panel-header").first
+  expect(header_2h).to_be_visible(timeout=20000)
+  header_2h.click()
+  expect(header_2h).to_have_attribute("aria-expanded", "true", timeout=10000)
+  expect(page.locator("megascale-stats")).to_contain_text(
+      "all_reduce_dcn_0", timeout=15000
+  )
   assert_healthy(page, browser_errors, "megascale_2host")
 
   open_tool("megascale-1host", "megascale_stats")
@@ -300,27 +298,13 @@ def test_empty_memory_profile_renders_empty_state_cleanly(
   assert_healthy(page, browser_errors, "empty_memory_profile")
 
 
-def _enable_inference_profile_tool(route: Route) -> None:
-  """Appends `inference_profile` to `run_tools` while disabled by default."""
-  resp = route.fetch()
-  tools = resp.json()
-  if isinstance(tools, list) and "inference_profile" not in tools:
-    tools = [*tools, "inference_profile"]
-  route.fulfill(
-      status=resp.status,
-      content_type="application/json",
-      body=json.dumps(tools),
-  )
-
-
 def test_inference_profile_renders_serving_tables_and_metrics(
     page: Page,
     open_tool: Callable[..., str],
     browser_errors: BrowserErrors,
 ) -> None:
   """Verifies Inference Profile renders request and batch tables on serving."""
-  page.route(_RUN_TOOLS_ROUTE_RE, _enable_inference_profile_tool)
-  try:
+  with enabling_run_tool(page, "inference_profile"):
     open_tool("tpu-serving", "inference_profile", host="serving-node-1")
     comp = page.locator("inference-profile")
     expect(comp).to_be_visible(timeout=20000)
@@ -330,8 +314,6 @@ def test_inference_profile_renders_serving_tables_and_metrics(
         comp.locator(".google-visualization-table-table tbody tr").first
     ).to_be_visible(timeout=20000)
     assert_healthy(page, browser_errors, "inference_profile_tpu_serving")
-  finally:
-    page.unroute(_RUN_TOOLS_ROUTE_RE)
 
 
 def test_roofline_bound_by_tooltip_and_graph_viewer_links(
@@ -605,6 +587,8 @@ def test_standalone_stack_trace_page_direct_load_and_download_hlo_run(
     )
     assert_healthy(page, browser_errors, "standalone_stack_trace_page")
   finally:
+    page.goto("about:blank")
+    expect(page).to_have_url("about:blank")
     page.unroute(config_route)
 
   open_tool("tpu-training", "graph_viewer")
@@ -615,17 +599,17 @@ def test_standalone_stack_trace_page_direct_load_and_download_hlo_run(
       "button[mat-menu-item]", has_text="Download as .pbtxt"
   ).first
   expect(pbtxt_item).to_be_visible(timeout=10000)
-  with page.expect_request(
-      lambda req: "/data/plugin/profile/data" in req.url
-      and "tag=graph_viewer" in req.url
-      and "type=pbtxt" in req.url,
+  with page.expect_response(
+      lambda resp: "/data/plugin/profile/data" in resp.url
+      and "tag=graph_viewer" in resp.url
+      and "type=pbtxt" in resp.url,
       timeout=15000,
-  ) as dl_req_info:
+  ) as dl_resp_info:
     pbtxt_item.click()
   expect(pbtxt_item).to_be_hidden(timeout=5000)
-  dl_query = urllib.parse.parse_qs(
-      urllib.parse.urlsplit(dl_req_info.value.url).query
-  )
+  dl_resp = dl_resp_info.value
+  assert dl_resp.status == 200 and len(dl_resp.body()) > 0
+  dl_query = urllib.parse.parse_qs(urllib.parse.urlsplit(dl_resp.url).query)
   assert dl_query.get("run") == [tpu_run]
   assert_healthy(page, browser_errors, "download_hlo_query_run")
 
@@ -676,7 +660,8 @@ def test_utilization_and_perf_counters_csv_export_include_host(
     csv_response = page.request.get(
         urllib.parse.urljoin(server_url.rstrip("/") + "/", csv_url)
     )
-    assert csv_response.status == 200 and len(csv_response.body()) > 0
+    csv_text = csv_response.text()
+    assert csv_response.status == 200 and len(csv_text.splitlines()) >= 2
   finally:
     page.evaluate(
         "() => {"
@@ -719,7 +704,6 @@ def test_index_html_resolves_same_origin_base_href(
   index_html = index_response.text()
   server_parts = urllib.parse.urlsplit(server_url)
   request_path = path_template.format(netloc=server_parts.netloc)
-  browser_errors.ignore("net::ERR_FAILED")
 
   def serve_index_only(route: Route) -> None:
     if route.request.resource_type == "document":
@@ -728,13 +712,20 @@ def test_index_html_resolves_same_origin_base_href(
       route.abort()
 
   page.route("**/*", serve_index_only)
-  try:
-    page.goto(
-        f"{server_parts.scheme}://{server_parts.netloc}{request_path}",
-        wait_until="domcontentloaded",
-    )
-    expect(page.locator("head > base")).to_have_attribute("href", expected_base)
-  finally:
-    page.unroute("**/*", serve_index_only)
+  with browser_errors.ignoring(
+      "net::ERR_FAILED", url_pattern=server_parts.netloc
+  ):
+    try:
+      page.goto(
+          f"{server_parts.scheme}://{server_parts.netloc}{request_path}",
+          wait_until="domcontentloaded",
+      )
+      expect(page.locator("head > base")).to_have_attribute(
+          "href", expected_base
+      )
+    finally:
+      page.goto("about:blank")
+      expect(page).to_have_url("about:blank")
+      page.unroute("**/*", serve_index_only)
   browser_errors.assert_clean("index_html_base_href")
 

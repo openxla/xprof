@@ -23,7 +23,6 @@ import json
 import os
 import pathlib
 import re
-import subprocess
 import sys
 import tempfile
 import threading
@@ -41,57 +40,52 @@ from wsgiref import simple_server
 try:
   from absl.testing import absltest
 except ImportError:
-  absltest = None  # pyrefly: ignore[assignment]
+  absltest: Any = None
+
+if __package__ in (None, ""):
+  # Appended so an installed xprof wheel wins over the source tree's package.
+  sys.path.append(str(pathlib.Path(__file__).resolve().parents[2]))
 
 try:
-  from tensorboard_plugin_profile import (
-      profile_plugin,
-  )
-  from tensorboard_plugin_profile import (
-      profile_plugin_loader,
-  )
-  from tensorboard_plugin_profile import server
-  from tensorboard_plugin_profile import (
-      standalone,
-  )
-  base_plugin = standalone.base_plugin
-  plugin_event_multiplexer = standalone.plugin_event_multiplexer
-  from google3.third_party.xprof.tests.ui import invariants
-  from google3.third_party.xprof.tests.ui import ui_helpers
+  from xprof import profile_plugin
+  from xprof import profile_plugin_loader
+  from xprof import server
+  from xprof.standalone import base_plugin
+  from xprof.standalone import plugin_event_multiplexer
 except ImportError:
-  try:
-    from xprof import profile_plugin  # pyrefly: ignore[missing-import]
-    from xprof import profile_plugin_loader  # pyrefly: ignore[missing-import]
-    from xprof import server  # pyrefly: ignore[missing-import]
-    from xprof.standalone import (  # pyrefly: ignore[missing-import]
-        base_plugin,
-    )
-    from xprof.standalone import (  # pyrefly: ignore[missing-import]
-        plugin_event_multiplexer,
-    )
-    from tests.ui import invariants  # pyrefly: ignore[missing-import]
-    from tests.ui import ui_helpers  # pyrefly: ignore[missing-import]
-  except ImportError:
-    profile_plugin = None  # pyrefly: ignore[assignment]
-    profile_plugin_loader = None  # pyrefly: ignore[assignment]
-    server = None  # pyrefly: ignore[assignment]
-    base_plugin = None  # pyrefly: ignore[assignment]
-    plugin_event_multiplexer = None  # pyrefly: ignore[assignment]
-    import invariants  # pyrefly: ignore[missing-import]
-    import ui_helpers  # pyrefly: ignore[missing-import]
+  profile_plugin = None
+  profile_plugin_loader = None
+  server = None
+  base_plugin = None
+  plugin_event_multiplexer = None
+try:
+  from tests.ui import invariants
+  from tests.ui import journey_capture
+  from tests.ui import sxs_diff_engine
+  from tests.ui import ui_helpers
+except ImportError:
+  import invariants
+  import journey_capture
+  import sxs_diff_engine
+  import ui_helpers
 # pylint: enable=g-import-not-at-top,g-importing-member
 
 
 def _find_repo_root() -> pathlib.Path | None:
-  """Locates the repository root across local workspace and runfiles."""
-  test_srcdir = os.environ.get("TEST_SRCDIR")
-  test_workspace = os.environ.get("TEST_WORKSPACE", "google3")
-  if test_srcdir:
-    candidate = pathlib.Path(test_srcdir) / test_workspace / "third_party/xprof"
-    if (candidate / "frontend" / "app").is_dir() and (
-        candidate / "demo"
-    ).is_dir():
+  """Locates the repository root, or returns None if unavailable."""
+  if env_root := os.environ.get("XPROF_REPO_ROOT"):
+    candidate = pathlib.Path(env_root).resolve()
+    if (candidate / "demo").is_dir():
       return candidate
+  if test_srcdir := os.environ.get("TEST_SRCDIR"):
+    test_ws = os.environ.get("TEST_WORKSPACE", "")
+    base = pathlib.Path(test_srcdir)
+    roots = [base / test_ws / "third_party/xprof", base / test_ws]
+    for candidate in roots:
+      if (candidate / "frontend" / "app").is_dir() and (
+          candidate / "demo"
+      ).is_dir():
+        return candidate
 
   search_candidates = [pathlib.Path.cwd().resolve()]
   if "__file__" in globals():
@@ -138,8 +132,8 @@ class ServerAndPackagingContractTest(unittest.TestCase):
 
     if server is None or profile_plugin is None or base_plugin is None:
       cls._setup_error = (
-          "xprof server modules did not import under either the google3 or the"
-          " open-source module path."
+          "xprof server modules did not import under either the source-tree or"
+          " the installed-package module path."
       )
       return
 
@@ -162,14 +156,14 @@ class ServerAndPackagingContractTest(unittest.TestCase):
               cls._managed_static_dir = True
 
       flags = _PluginFlags()
-      dp = (
+      dp: Any = (
           plugin_event_multiplexer.DataProvider("")
           if plugin_event_multiplexer is not None
           else None
       )
       context = base_plugin.TBContext(
           logdir="",
-          data_provider=dp,  # pyrefly: ignore[bad-argument-type]
+          data_provider=dp,
           flags=flags,
       )
       plugin = None
@@ -394,47 +388,17 @@ class ServerAndPackagingContractTest(unittest.TestCase):
     self.assertTrue(
         staged_files, f"No demo trace files staged under {demo_profile_dir}"
     )
-    candidates = [
-        p for p in staged_files if p.name.endswith(".cached_tools.json")
+    cache_suffixes = (
+        ".cached_tools.json",
+        ".SSTABLE",
+        ".hlo_proto.pb",
+        ".op_stats.pb",
+    )
+    polluting_files = [
+        p.relative_to(repo_root).as_posix()
+        for p in staged_files
+        if p.name == "cache_version.txt" or p.name.endswith(cache_suffixes)
     ]
-    polluting_files: list[str] = []
-    if os.environ.get("TEST_SRCDIR"):
-      polluting_files = [
-          p.relative_to(repo_root).as_posix() for p in candidates
-      ]
-    else:
-      for p in candidates:
-        rel_str = p.relative_to(repo_root).as_posix()
-        # In local working trees, remove untracked ephemeral server caches
-        # unless they have been tracked/staged in VCS.
-        is_untracked = False
-        for cmd in (
-            ["git", "ls-files", "--error-unmatch", str(p)],
-            ["hg", "files", str(p)],
-        ):
-          try:
-            res = subprocess.run(
-                cmd,
-                cwd=repo_root,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-            if res.returncode == 0:
-              is_untracked = False
-              break
-            if res.returncode == 1:
-              is_untracked = True
-              break
-          except OSError:
-            continue
-        if is_untracked:
-          try:
-            p.unlink()
-          except OSError:
-            pass
-        else:
-          polluting_files.append(rel_str)
     self.assertEqual(
         polluting_files,
         [],
@@ -443,7 +407,7 @@ class ServerAndPackagingContractTest(unittest.TestCase):
     )
 
   def test_proto_interfaces_contract(self) -> None:
-    """Verifies .d.ts.gz files are valid archives declared in BUILD.oss."""
+    """Verifies .d.ts.gz files are valid archives declared in BUILD(.oss)."""
     repo_root = _find_repo_root()
     self.assertIsNotNone(
         repo_root, "Repository root not found in current execution environment."
@@ -454,11 +418,15 @@ class ServerAndPackagingContractTest(unittest.TestCase):
         f"Interfaces directory not present at {interfaces_dir}",
     )
 
-    build_oss = interfaces_dir / "BUILD.oss"
+    # Copybara renames BUILD.oss to BUILD in OSS checkouts.
+    build_file = interfaces_dir / "BUILD.oss"
+    if not build_file.is_file():
+      build_file = interfaces_dir / "BUILD"
     self.assertTrue(
-        build_oss.is_file(), f"Missing BUILD.oss in {interfaces_dir}"
+        build_file.is_file(),
+        f"Missing BUILD.oss or BUILD in {interfaces_dir}",
     )
-    build_oss_text = build_oss.read_text(encoding="utf-8")
+    build_text = build_file.read_text(encoding="utf-8")
 
     gz_files = sorted(interfaces_dir.glob("*.d.ts.gz"))
     self.assertTrue(gz_files, f"No .d.ts.gz archives found in {interfaces_dir}")
@@ -471,7 +439,7 @@ class ServerAndPackagingContractTest(unittest.TestCase):
         if not content:
           empty_archives.append(gz_file.name)
       if not re.search(
-          rf'["\x27/:]{re.escape(gz_file.name)}["\x27]', build_oss_text
+          rf'["\x27/:]{re.escape(gz_file.name)}["\x27]', build_text
       ):
         missing_declarations.append(gz_file.name)
 
@@ -483,7 +451,7 @@ class ServerAndPackagingContractTest(unittest.TestCase):
     self.assertEqual(
         missing_declarations,
         [],
-        f"Interfaces are not declared in {build_oss}: {missing_declarations}",
+        f"Interfaces are not declared in {build_file}: {missing_declarations}",
     )
 
 
@@ -571,6 +539,10 @@ class InvariantsTest(unittest.TestCase):
       def inner_text(self) -> str:
         return self._text
 
+      def evaluate(self, script: str) -> str:
+        del script
+        return "visible"
+
       def count(self) -> int:
         return 1
 
@@ -645,36 +617,45 @@ class InvariantsTest(unittest.TestCase):
     )
 
   def test_visualization_selector_and_component_geometry(self) -> None:
-    """Verifies VISUALIZATION_SELECTOR excludes :scope > * and enforces child geometry."""
+    """Verifies VISUALIZATION_SELECTOR skips wrappers and enforces geometry."""
     self.assertNotIn(":scope > *", ui_helpers.VISUALIZATION_SELECTOR)
     self.assertIn("op-table-entry .row", ui_helpers.VISUALIZATION_SELECTOR)
     self.assertIn("svg", ui_helpers.VISUALIZATION_SELECTOR)
     self.assertIn("iframe", ui_helpers.VISUALIZATION_SELECTOR)
 
     class _BoxLocator:
-      """Locator double returning a fixed bounding box."""
+      """Locator double returning scripted bounding boxes or errors."""
 
-      def __init__(self, box):
-        self._box = box
+      def __init__(self, box_or_seq):
+        if isinstance(box_or_seq, list):
+          self._seq = iter(box_or_seq)
+        else:
+          self._seq = None
+        self._box = box_or_seq
 
       @property
       def first(self):
         return self
 
       def bounding_box(self):
-        return self._box
+        if self._seq is None:
+          return self._box
+        val = next(self._seq, None)
+        if isinstance(val, Exception):
+          raise val
+        return val
 
     class _GeometryPage:
       """Page double dispatching outer and child visualization locators."""
 
       def __init__(self, comp_box, child_box):
-        self._comp_box = comp_box
-        self._child_box = child_box
+        self._comp_loc = _BoxLocator(comp_box)
+        self._child_loc = _BoxLocator(child_box)
 
       def locator(self, selector):
         if ui_helpers.VISUALIZATION_SELECTOR in selector:
-          return _BoxLocator(self._child_box)
-        return _BoxLocator(self._comp_box)
+          return self._child_loc
+        return self._comp_loc
 
     with mock.patch.object(
         ui_helpers.sync_api, "expect", create=True
@@ -687,6 +668,30 @@ class InvariantsTest(unittest.TestCase):
           "input-pipeline",
           "healthy step",
       )
+      # Transient None / detach during Angular DOM swap recovers on retry.
+      ui_helpers.assert_component_geometry(
+          _GeometryPage(
+              {"width": 800, "height": 600},
+              [
+                  None,
+                  invariants.PlaywrightError("detached"),
+                  {"width": 120, "height": 32},
+              ],
+          ),
+          "graph-viewer mat-chip-option",
+          "re-render recovery",
+      )
+      with self.assertRaisesRegex(
+          AssertionError, "child visualization collapsed"
+      ):
+        ui_helpers.assert_component_geometry(
+            _GeometryPage(
+                {"width": 800, "height": 600},
+                [None, None, None],
+            ),
+            "graph-viewer mat-chip-option",
+            "persistent None",
+        )
       with self.assertRaisesRegex(
           AssertionError, "child visualization collapsed"
       ):
@@ -750,6 +755,51 @@ class InvariantsTest(unittest.TestCase):
             _HealthyPage("Overview Page Metrics", ["-4.2 ms"]), None, "cell"
         )
 
+    # Verify assert_page_invariants runs DOM invariants (kills mutant dropping
+    # run_dom_invariants) and forwards check_content_pane=True + allowlist.
+    recorded_args: list[object] = []
+
+    class _DomCheckPage:
+      """Page double capturing overflow evaluate args and returning locks."""
+
+      url = "http://localhost:8791/overview_page"
+      frames = ()
+
+      def __init__(self, *, stuck_lock: bool = False):
+        self._stuck_lock = stuck_lock
+
+      def inner_text(self, selector: str) -> str:
+        del selector
+        return "Overview Page Metrics"
+
+      def locator(self, selector: str) -> Any:
+        items = (
+            [object()]
+            if (self._stuck_lock and "hidden-content" in selector)
+            else []
+        )
+        return type("_L", (), {"all": lambda self, i=items: i})()
+
+      def evaluate(self, script: str, arg: object = None) -> list[str]:
+        if "checkContentPane" in script:
+          recorded_args.append(arg)
+        return []
+
+    invariants.assert_page_invariants(
+        _DomCheckPage(), allowed_overflow_selectors=("custom-row .row",)
+    )
+    self.assertEqual(len(recorded_args), 1)
+    self.assertEqual(
+        recorded_args[0],
+        [
+            16,
+            True,
+            "table, mat-table, .google-visualization-table, custom-row .row",
+        ],
+    )
+    with self.assertRaisesRegex(AssertionError, "div.hidden-content"):
+      invariants.assert_page_invariants(_DomCheckPage(stuck_lock=True))
+
   def test_layout_overlap_and_overflow_invariants(self) -> None:
     """Verifies layout invariants pass on clean pages and flag defects."""
 
@@ -762,9 +812,17 @@ class InvariantsTest(unittest.TestCase):
           wait_fn: Callable[..., None] | None = None,
       ):
         self._response = response
+        self._wait_fn = wait_fn
         self.last_arg: object = None
-        if wait_fn is not None:
-          self.wait_for_function = wait_fn
+        self.wait_arg: object = None
+
+      def wait_for_function(
+          self, script: str, *, arg: object = None, timeout: int = 600
+      ) -> None:
+        self.wait_arg = arg
+        if self._wait_fn is None:
+          raise invariants.PlaywrightError("Timeout waiting for function")
+        self._wait_fn(script, timeout=timeout)
 
       def evaluate(self, script: str, arg: object = None) -> list[str]:
         del script
@@ -797,12 +855,27 @@ class InvariantsTest(unittest.TestCase):
         ),
         [],
     )
-    self.assertEqual(clean_overflow_page.last_arg, [12, True])
+    self.assertEqual(
+        clean_overflow_page.last_arg,
+        [12, True, "table, mat-table, .google-visualization-table"],
+    )
     self.assertEqual(
         invariants.check_no_horizontal_overflow(
             _EvalPage(["Document horizontal overflow: 120px > 16px"])
         ),
         ["Document horizontal overflow: 120px > 16px"],
+    )
+    settling_overflow_page = _EvalPage(
+        ["Document horizontal overflow: 24px > 16px"],
+        wait_fn=lambda script, timeout=600: None,
+    )
+    self.assertEqual(
+        invariants.check_no_horizontal_overflow(settling_overflow_page), []
+    )
+    # The settle wait must re-run the check with the same arguments.
+    self.assertEqual(
+        settling_overflow_page.wait_arg,
+        [16, True, "table, mat-table, .google-visualization-table"],
     )
 
   def test_synthetic_trace_generators_and_staging(self) -> None:
@@ -950,15 +1023,16 @@ class UiHelpersTest(unittest.TestCase):
     return [entry[0] for entry in self.log if entry[0] != "filter"]
 
   def test_dropdowns_pick_and_show_whole_option_texts(self) -> None:
-    """Verifies dropdown helpers pick whole option texts and recheck them."""
+    """Verifies dropdown helpers pick whole option texts and verify URLs."""
     ui_helpers.select_session(self.page, "tpu-training")
     ui_helpers.select_module(self.page, "jit_train_step")
     ui_helpers.select_memory_id(self.page, "1")
     ui_helpers.switch_tool(self.page, "Op Profile")
     ui_helpers.select_op_profile_group_by(self.page, "Category")
+    ui_helpers.select_host(self.page, "host/0")
 
     patterns = [entry[3]["has_text"] for entry in self._calls("filter")]
-    session, module, memory_id, tool, _ = patterns
+    session, module, memory_id, tool, _, host = patterns
     self.assertRegex(" tpu-training ", session)
     self.assertNotRegex("tpu-training-2", session)
     self.assertRegex(" jit_train_step(4869159985936022652) ", module)
@@ -968,8 +1042,100 @@ class UiHelpersTest(unittest.TestCase):
     self.assertNotRegex("10", memory_id)
     self.assertRegex("HLO Op Profile", tool)
     self.assertRegex("Op Profile", tool)
+    self.assertRegex(" host/0 ", host)
     shown = [entry[2] for entry in self._calls("to_have_text")]
     self.assertEqual(shown, [(pattern,) for pattern in patterns])
+
+    url_checks = [entry[2][0] for entry in self._calls("to_have_url")]
+    self.assertEqual(len(url_checks), 4)
+    session_re, module_re, tool_re, host_re = url_checks
+    self.assertRegex("?run=tpu-training&tag=overview_page", session_re)
+    self.assertNotRegex("?run=tpu-training-2", session_re)
+    self.assertRegex("?moduleName=jit_train_step(123)&run=r", module_re)
+    self.assertRegex("?moduleName=jit_train_step%28123%29", module_re)
+    self.assertNotRegex("?moduleName=jit_train_step_other", module_re)
+    self.assertRegex(
+        "http://localhost:8791/op_profile?run=r&tag=op_profile", tool_re
+    )
+    self.assertNotRegex(
+        "http://localhost:8791/overview_page?run=r&tag=op_profile", tool_re
+    )
+    self.assertRegex("?host=host/0&run=r", host_re)
+    self.assertRegex("?host=host%2F0", host_re)
+    self.assertNotRegex("?host=host/00", host_re)
+
+  def test_select_hosts_toggles_mismatched_options_and_checks_url(
+      self,
+  ) -> None:
+    """Verifies select_hosts toggles only mismatched options and checks URL."""
+    clicked: list[str] = []
+
+    class _FakeOption:
+      """Fake mat-option supporting inner_text, aria-selected, and click."""
+
+      def __init__(self, label: str, selected: bool):
+        self._label = label
+        self._selected = selected
+
+      def inner_text(self) -> str:
+        return f" {self._label} "
+
+      def get_attribute(self, name: str) -> str:
+        return "true" if name == "aria-selected" and self._selected else "false"
+
+      def click(self) -> None:
+        clicked.append(self._label)
+
+    options = [
+        _FakeOption("worker-0", selected=True),
+        _FakeOption("worker-1", selected=True),
+        _FakeOption("worker-2", selected=False),
+        _FakeOption("worker/3", selected=False),
+    ]
+
+    class _MultiHostPage(_LoggingPage):
+      """Page double returning scripted mat-option elements."""
+
+      def locator(self, selector: str) -> _LoggingLocator:
+        loc = super().locator(selector)
+        if selector == "mat-option":
+          loc.all = lambda: options  # type: ignore[method-assign]
+        return loc
+
+    page = _MultiHostPage(self.log)
+    ui_helpers.select_hosts(page, "worker-0", "worker-2", "worker/3")
+
+    self.assertEqual(clicked, ["worker-1", "worker-2", "worker/3"])
+    visible_selectors = [
+        entry[1].selector for entry in self._calls("to_be_visible")
+    ]
+    self.assertIn("mat-option", visible_selectors)
+    clicks = [entry[1].selector for entry in self._calls("click")]
+    self.assertIn(
+        "sidenav .item-container:has-text('Hosts') mat-select[multiple]",
+        clicks,
+    )
+    self.assertIn("button:has-text('Apply Host Selection')", clicks)
+    (count_check,) = self._calls("to_have_count")
+    self.assertEqual(
+        (count_check[1].selector, count_check[2]), ("mat-option", (0,))
+    )
+    (contain_check,) = self._calls("to_contain_text")
+    self.assertEqual(contain_check[2], ("Hosts (3)",))
+    url_patterns = [entry[2][0] for entry in self._calls("to_have_url")]
+    self.assertEqual(len(url_patterns), 3)
+    for pat in url_patterns[:2]:
+      self.assertRegex("?hosts=worker-0,worker-2&run=r", pat)
+      self.assertRegex("?hosts=worker-0%2Cworker-2", pat)
+    self.assertNotRegex("?hosts=worker-00,worker-2", url_patterns[0])
+    self.assertNotRegex("?hosts=worker-0,worker-20", url_patterns[1])
+    self.assertRegex("?hosts=worker-0,worker/3&run=r", url_patterns[2])
+    self.assertRegex("?hosts=worker-0%2Cworker%2F3", url_patterns[2])
+
+    with self.assertRaisesRegex(AssertionError, "at least one host"):
+      ui_helpers.select_hosts(page)
+    with self.assertRaisesRegex(AssertionError, "not found in dropdown"):
+      ui_helpers.select_hosts(page, "worker-0", "worker-missing")
 
   def test_dropdown_ignores_a_failed_mouse_reset(self) -> None:
     """Verifies a mouse reset error after the dropdown closes is ignored."""
@@ -1072,7 +1238,7 @@ class UiHelpersTest(unittest.TestCase):
     """Verifies server logdir resolves to the parent of plugins/profile."""
     self.assertEqual(
         ui_helpers.resolve_server_logdir("/tmp/xprof/demo/plugins/profile"),
-        "/tmp/xprof/demo",
+        str(pathlib.Path("/tmp/xprof/demo")),
     )
     self.assertEqual(
         ui_helpers.resolve_server_logdir("/tmp/custom_runs"),
@@ -1094,7 +1260,7 @@ class UiHelpersTest(unittest.TestCase):
         ui_helpers.resolve_artifacts_dir(
             {"KOKORO_ARTIFACTS_DIR": "/kokoro/out"}
         ),
-        "/kokoro/out/ui_failure_artifacts",
+        os.path.join("/kokoro/out", "ui_failure_artifacts"),
     )
     self.assertEqual(
         ui_helpers.resolve_artifacts_dir({
@@ -1280,6 +1446,12 @@ class HarnessInvariantsAndConftestTest(unittest.TestCase):
     class _StubPlaywrightError(Exception):
       pass
 
+    def _passthrough(*args: Any, **kwargs: Any) -> Any:
+      if len(args) == 1 and callable(args[0]) and not kwargs:
+        return args[0]
+      return lambda fn: fn
+
+    fake_sync_api.Browser = object
     fake_sync_api.Error = _StubPlaywrightError
     fake_sync_api.Page = _StubPage
     fake_sync_api.Route = object
@@ -1287,35 +1459,54 @@ class HarnessInvariantsAndConftestTest(unittest.TestCase):
     fake_playwright.sync_api = fake_sync_api
 
     fake_pytest: Any = types.ModuleType("pytest")
-    fake_pytest.fixture = lambda *args, **kwargs: (lambda fn: fn)
-    fake_pytest.hookimpl = lambda *args, **kwargs: (lambda fn: fn)
+    fake_pytest.fixture = _passthrough
+    fake_pytest.hookimpl = _passthrough
     fake_pytest.mark = types.SimpleNamespace(
-        parametrize=lambda *args, **kwargs: (lambda fn: fn)
+        parametrize=_passthrough,
+        xfail=_passthrough,
+        xdist_group=_passthrough,
     )
+    fake_pytest.param = lambda *args, **kwargs: args
     fake_pytest.skip = mock.MagicMock()
     fake_pytest.Item = object
     fake_pytest.CallInfo = _StubCallInfo
     fake_pytest.FixtureRequest = object
 
+    fake_report_mod: Any = types.ModuleType("tests.ui.sxs_report_generator")
+    fake_report_mod.generate_sxs_html_report = mock.MagicMock()
+    fake_report_mod.publish_report_artifact = mock.MagicMock()
+    fake_journeys_mod: Any = types.ModuleType("tests.ui.test_user_journeys")
+    fake_journeys_mod.dispatch_action = mock.MagicMock()
+    fake_journeys_mod.JOURNEY_SCENARIOS = ()
+    fake_journeys_mod.JourneyScenario = object
+
+    fake_tests_pkg: Any = types.ModuleType("tests")
+    fake_tests_pkg.__path__ = []
+    fake_tests_ui_pkg: Any = types.ModuleType("tests.ui")
+    fake_tests_ui_pkg.__path__ = [str(module_path.parent)]
+    fake_tests_ui_pkg.invariants = invariants
+    fake_tests_ui_pkg.journey_capture = journey_capture
+    fake_tests_ui_pkg.sxs_diff_engine = sxs_diff_engine
+    fake_tests_ui_pkg.sxs_report_generator = fake_report_mod
+    fake_tests_ui_pkg.test_user_journeys = fake_journeys_mod
+    fake_tests_ui_pkg.ui_helpers = ui_helpers
+    fake_tests_pkg.ui = fake_tests_ui_pkg
     patched_modules: dict[str, types.ModuleType] = {
         "playwright": fake_playwright,
         "playwright.sync_api": fake_sync_api,
         "pytest": fake_pytest,
+        "tests": fake_tests_pkg,
+        "tests.ui": fake_tests_ui_pkg,
+        "tests.ui.invariants": invariants,
+        "tests.ui.journey_capture": journey_capture,
+        "tests.ui.sxs_diff_engine": sxs_diff_engine,
+        "tests.ui.sxs_report_generator": fake_report_mod,
+        "tests.ui.test_user_journeys": fake_journeys_mod,
+        "tests.ui.ui_helpers": ui_helpers,
     }
     if conftest_mod is not None:
-      fake_tests_pkg: Any = types.ModuleType("tests")
-      fake_tests_pkg.__path__ = []
-      fake_tests_ui_pkg: Any = types.ModuleType("tests.ui")
-      fake_tests_ui_pkg.__path__ = [str(module_path.parent)]
       fake_tests_ui_pkg.conftest = conftest_mod
-      fake_tests_ui_pkg.ui_helpers = ui_helpers
-      fake_tests_pkg.ui = fake_tests_ui_pkg
-      patched_modules.update({
-          "tests": fake_tests_pkg,
-          "tests.ui": fake_tests_ui_pkg,
-          "tests.ui.conftest": conftest_mod,
-          "tests.ui.ui_helpers": ui_helpers,
-      })
+      patched_modules["tests.ui.conftest"] = conftest_mod
 
     spec = importlib.util.spec_from_file_location(
         f"_xprof_isolated_{module_path.stem}", module_path
@@ -1341,8 +1532,83 @@ class HarnessInvariantsAndConftestTest(unittest.TestCase):
     )
     with self.assertRaisesRegex(AssertionError, r"HTTP 500"):
       tracker.assert_clean("tool_render")
-    tracker.ignore("HTTP 500", "boom")
-    tracker.assert_clean("ignored_case")
+
+    # Verify URL-scoped KNOWN_UPSTREAM_BUGS and BrowserErrors.ignoring().
+    listeners: dict[str, Callable[[Any], None]] = {}
+    scoped_page = types.SimpleNamespace(
+        url="http://127.0.0.1:8000/?tag=overview_page",
+        on=listeners.__setitem__,
+    )
+    url_tracker = conftest_mod.BrowserErrors()
+    url_tracker.attach(scoped_page)
+    listeners["console"](
+        types.SimpleNamespace(
+            type="error",
+            text="Failed to load resource: net::ERR_FAILED",
+            location={"url": "https://www.gstatic.com/charts/loader.js"},
+        )
+    )
+    listeners["console"](
+        types.SimpleNamespace(
+            type="error",
+            text=(
+                "WARNING: All log messages before absl::InitializeLog() is"
+                " called are written to STDERR"
+            ),
+            location={
+                "url": (
+                    "http://127.0.0.1:8000/data/plugin/profile/"
+                    "trace_viewer_v2.js"
+                )
+            },
+        )
+    )
+    url_tracker.assert_clean("gstatic_and_oss_absl_allowed")
+    with mock.patch.object(conftest_mod.sys, "platform", "linux"):
+      linux_args = conftest_mod.browser_type_launch_args({"args": ["--foo"]})
+    self.assertIn("--foo", linux_args["args"])
+    for flag in (
+        "--enable-unsafe-webgpu",
+        "--enable-unsafe-swiftshader",
+        "--use-vulkan=swiftshader",
+        "--disable-vulkan-surface",
+        "--disable-gpu-watchdog",
+        "--ignore-gpu-blocklist",
+    ):
+      self.assertIn(flag, linux_args["args"])
+    with mock.patch.object(conftest_mod.sys, "platform", "darwin"):
+      mac_args = conftest_mod.browser_type_launch_args({"args": ["--foo"]})
+    self.assertEqual(mac_args, {"args": ["--foo"]})
+    listeners["console"](
+        types.SimpleNamespace(
+            type="error",
+            text="Failed to load resource: net::ERR_FAILED",
+            location={"url": "http://127.0.0.1:8000/main.js"},
+        )
+    )
+    with self.assertRaisesRegex(AssertionError, "Failed to load resource"):
+      url_tracker.assert_clean("same_origin_blocked")
+    data_url = "http://127.0.0.1:8000/data/plugin/profile/data"
+
+    def _respond_503(run: str) -> None:
+      listeners["response"](
+          types.SimpleNamespace(
+              status=503,
+              url=f"{data_url}?run={run}",
+              request=types.SimpleNamespace(method="GET"),
+          )
+      )
+
+    with url_tracker.ignoring("HTTP 503", url_pattern="/data/plugin/profile"):
+      _respond_503("r1")
+    _respond_503("r2")
+    self.assertEqual(
+        url_tracker.unhandled_errors(),
+        [
+            "[ERROR] Failed to load resource: net::ERR_FAILED",
+            f"[HTTP 503] GET {data_url}?run=r2",
+        ],
+    )
 
     with tempfile.TemporaryDirectory() as tmp:
       tmp_dir = pathlib.Path(tmp)
@@ -1445,13 +1711,7 @@ class HarnessInvariantsAndConftestTest(unittest.TestCase):
         "op-table-entry .row:visible",
     )
 
-    edge_mod = self._load_isolated_ui_module(
-        "test_data_consistency_and_edge_cases.py", conftest_mod
-    )
-    # pylint: disable=protected-access
-    route_re = edge_mod._RUN_TOOLS_ROUTE_RE
-    enable_fn = edge_mod._enable_inference_profile_tool
-    # pylint: enable=protected-access
+    route_re = ui_helpers.RUN_TOOLS_ROUTE_RE
     slash_query_url = (
         "http://127.0.0.1:45983/data/plugin/profile/run_tools"
         "?session_path=/tmp/xprof_logdir/demo/plugins/profile/tpu-serving"
@@ -1477,6 +1737,17 @@ class HarnessInvariantsAndConftestTest(unittest.TestCase):
             "?session_path=/tmp/data/plugin/profile/run_tools"
         )
     )
+
+    fake_page = mock.MagicMock()
+    with mock.patch.object(ui_helpers.sync_api, "expect", create=True):
+      with self.assertRaisesRegex(RuntimeError, "boom"):
+        with ui_helpers.enabling_run_tool(fake_page, "inference_profile"):
+          raise RuntimeError("boom")
+    fake_page.route.assert_called_once()
+    registered_re, enable_fn = fake_page.route.call_args.args
+    self.assertIs(registered_re, route_re)
+    fake_page.goto.assert_called_once_with("about:blank")
+    fake_page.unroute.assert_called_once_with(route_re, enable_fn)
 
     fake_route = mock.MagicMock()
     fake_route.fetch.return_value = types.SimpleNamespace(
@@ -1511,14 +1782,48 @@ class HarnessInvariantsAndConftestTest(unittest.TestCase):
         body=json.dumps({"error": "unavailable"}),
     )
 
-    fake_page = mock.MagicMock()
-    open_tool = mock.MagicMock(side_effect=RuntimeError("boom"))
-    with self.assertRaisesRegex(RuntimeError, "boom"):
-      edge_mod.test_inference_profile_renders_serving_tables_and_metrics(
-          fake_page, open_tool, conftest_mod.BrowserErrors()
-      )
-    fake_page.route.assert_called_once_with(route_re, enable_fn)
-    fake_page.unroute.assert_called_once_with(route_re)
+    sxs_mod = self._load_isolated_ui_module("test_journey_sxs.py", conftest_mod)
+    empty_dom = sxs_diff_engine.DomDiff(
+        has_changes=False, unified_diff="", added_lines=0, deleted_lines=0
+    )
+    empty_net = sxs_diff_engine.NetworkDiff(
+        has_changes=False, request_count_a=0, request_count_b=0
+    )
+    mask_wp = sxs_diff_engine.WaypointDiff(
+        journey_name="j",
+        waypoint_name="00_overview",
+        visual=sxs_diff_engine.VisualDiff(
+            diff_ratio=0.0,
+            total_pixels=100,
+            diff_pixels=0,
+            mask_error="Mask covers >50% of page (60/100 px)",
+        ),
+        dom=empty_dom,
+        network=empty_net,
+        diff_hash="h",
+    )
+    decode_wp = sxs_diff_engine.WaypointDiff(
+        journey_name="j",
+        waypoint_name="00_overview",
+        visual=sxs_diff_engine.VisualDiff(
+            diff_ratio=1.0,
+            total_pixels=10,
+            diff_pixels=0,
+            decode_error="cannot identify image file",
+        ),
+        dom=empty_dom,
+        network=empty_net,
+        diff_hash="h",
+    )
+    # pylint: disable=protected-access
+    self.assertIn(
+        "mask: Mask covers >50% of page", sxs_mod._describe_divergence(mask_wp)
+    )
+    self.assertIn(
+        "decode: cannot identify image file",
+        sxs_mod._describe_divergence(decode_wp),
+    )
+    # pylint: enable=protected-access
 
 
 if __name__ == "__main__":

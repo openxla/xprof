@@ -1,6 +1,21 @@
+# Copyright 2026 The TensorFlow Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
 """Tests verifying functional and visual data rendering across core tools."""
 
 from collections.abc import Callable
+import contextlib
 import json
 import os
 import pathlib
@@ -12,33 +27,20 @@ from playwright.sync_api import Page
 from playwright.sync_api import Route
 import pytest
 
-# pylint: disable=g-import-not-at-top
-try:
-  from tests.ui.conftest import BrowserErrors
-  from tests.ui.ui_helpers import assert_component_geometry
-  from tests.ui.ui_helpers import assert_healthy
-  from tests.ui.ui_helpers import build_tool_url
-  from tests.ui.ui_helpers import ensure_inference_serving_run
-  from tests.ui.ui_helpers import ensure_sidenav_open
-  from tests.ui.ui_helpers import expand_op_profile_row
-  from tests.ui.ui_helpers import select_category_filter
-  from tests.ui.ui_helpers import select_memory_id
-  from tests.ui.ui_helpers import select_module
-  from tests.ui.ui_helpers import select_session
-  from tests.ui.ui_helpers import switch_tool
-except ImportError:
-  from conftest import BrowserErrors
-  from ui_helpers import assert_component_geometry
-  from ui_helpers import assert_healthy
-  from ui_helpers import build_tool_url
-  from ui_helpers import ensure_inference_serving_run
-  from ui_helpers import ensure_sidenav_open
-  from ui_helpers import expand_op_profile_row
-  from ui_helpers import select_category_filter
-  from ui_helpers import select_memory_id
-  from ui_helpers import select_module
-  from ui_helpers import select_session
-  from ui_helpers import switch_tool
+from tests.ui.conftest import BrowserErrors
+from tests.ui.invariants import check_no_horizontal_overflow
+from tests.ui.ui_helpers import assert_component_geometry
+from tests.ui.ui_helpers import assert_healthy
+from tests.ui.ui_helpers import build_tool_url
+from tests.ui.ui_helpers import enabling_run_tool
+from tests.ui.ui_helpers import ensure_inference_serving_run
+from tests.ui.ui_helpers import ensure_sidenav_open
+from tests.ui.ui_helpers import expand_op_profile_row
+from tests.ui.ui_helpers import select_category_filter
+from tests.ui.ui_helpers import select_memory_id
+from tests.ui.ui_helpers import select_module
+from tests.ui.ui_helpers import select_session
+from tests.ui.ui_helpers import switch_tool
 
 
 def test_overview_page_deep_components(
@@ -111,14 +113,14 @@ def test_memory_profile_table_rendering(
 
 def test_kernel_stats_rendering(
     page: Page,
-    logdir: str,
+    synthesized_logdir: str,
     open_tool: Callable[..., str],
     browser_errors: BrowserErrors,
 ) -> None:
   """Verifies that the GPU Kernel Stats table renders execution rows."""
   # Checked before resolving: on a single-run logdir the resolver would fall
   # back to that (TPU) run.
-  if not os.path.exists(os.path.join(logdir, "gpu-training")):
+  if not os.path.exists(os.path.join(synthesized_logdir, "gpu-training")):
     pytest.skip("gpu-training fixture not present in logdir")
   open_tool("gpu-training", "kernel_stats")
 
@@ -237,11 +239,10 @@ def test_trace_viewer_mounts_canvas(
   expect(page).to_have_url(v2_script)
   if not page.evaluate("async () => !!(await navigator.gpu?.requestAdapter())"):
     pytest.skip("browser has no WebGPU adapter for Trace Viewer V2")
-  page.add_init_script(
-      "try { window.localStorage.setItem('use_trace_viewer_v2', 'true'); }"
-      " catch (e) {}"
-  )
   open_tool("tpu-training", "trace_viewer", use_trace_viewer_v2="true")
+  expect(page).to_have_url(
+      re.compile(r"[?&]use_trace_viewer_v2=true(?:[&#]|$)"), timeout=15000
+  )
 
   canvas = page.locator("canvas#canvas:visible")
   expect(canvas).to_be_visible(timeout=20000)
@@ -649,6 +650,8 @@ def test_framework_op_stats_idle_toggle_and_table_rendering(
   expect(rows.first).to_be_visible(timeout=10000)
 
   # 1. Idle toggle menu interaction (verify active Yes state before reverting)
+  idle_rows = stats_tbl.locator("tr:has-text('IDLE')")
+  initial_idle_count = idle_rows.count()
   idle_btn = framework_comp.locator(".idle-button-container button").first
   expect(idle_btn).to_be_visible(timeout=10000)
 
@@ -658,6 +661,7 @@ def test_framework_op_stats_idle_toggle_and_table_rendering(
   target_text = enabled_item.inner_text().strip()
   enabled_item.click()
   expect(idle_btn).to_contain_text(target_text, timeout=5000)
+  expect(idle_rows).not_to_have_count(initial_idle_count, timeout=10000)
   expect(svg).to_be_visible(timeout=15000)
   toggled_bbox = svg.bounding_box()
   assert (
@@ -674,6 +678,7 @@ def test_framework_op_stats_idle_toggle_and_table_rendering(
   return_text = return_item.inner_text().strip()
   return_item.click()
   expect(idle_btn).to_contain_text(return_text, timeout=5000)
+  expect(idle_rows).to_have_count(initial_idle_count, timeout=10000)
 
   # 2. Device and Host pie charts rendering
   expect(svg).to_be_visible(timeout=15000)
@@ -764,3 +769,151 @@ def test_roofline_model_program_analysis_scatter_and_table(
 
   # 3. Invariant health verification
   assert_healthy(page, browser_errors, "roofline_model_program_analysis")
+
+
+def test_pod_viewer_step_breakdown_rendering(
+    page: Page,
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+) -> None:
+  """Verifies Pod Viewer renders step breakdown bar chart and controls."""
+  with enabling_run_tool(page, "pod_viewer"):
+    open_tool("tpu-training", "pod_viewer")
+    comp = page.locator("pod-viewer")
+    expect(comp).to_be_visible(timeout=20000)
+    expect(comp).to_contain_text("Pod Viewer", timeout=10000)
+    expect(comp).to_contain_text("Step breakdown", timeout=10000)
+    svg = comp.locator("stack-bar-chart svg").first
+    expect(svg).to_be_visible(timeout=15000)
+    bbox = svg.bounding_box()
+    assert bbox is not None and bbox["width"] > 0 and bbox["height"] > 0
+    assert_healthy(page, browser_errors, "pod_viewer")
+
+
+def test_static_kernel_viewer_rail_and_empty_state(
+    page: Page,
+    server_url: str,
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+) -> None:
+  """Verifies Static Kernel Viewer mounts its HLO Ops rail and empty state."""
+  # Static Kernel Viewer mounts the WebGPU timeline container even on an empty
+  # kernel list. Probe WebGPU support on a non-app endpoint so headless hosts
+  # without a GPU adapter (such as macOS VMs) forgive only the expected
+  # missing-adapter log while still catching all other console/DOM errors.
+  probe_url = f"{server_url}/data/plugin/profile/runs"
+  page.goto(probe_url)
+  expect(page).to_have_url(probe_url)
+  has_webgpu = bool(
+      page.evaluate("async () => !!(await navigator.gpu?.requestAdapter())")
+  )
+  if has_webgpu:
+    webgpu_ctx = contextlib.nullcontext()
+  else:
+    webgpu_ctx = browser_errors.ignoring(
+        "WebGPU cannot be initialized",
+        "WebGPU is not supported",
+        "Failed to initialize Trace Viewer V2 WASM module",
+        url_pattern="kernel_viewer",
+    )
+
+  list_re = re.compile(
+      r".*/data/plugin/profile/data.*[?&]tag=kernel_viewer\b.*"
+      r"[?&]request_type=list\b.*"
+  )
+
+  def _fulfill_kernel_list(route: Route) -> None:
+    route.fulfill(
+        status=200,
+        content_type="application/json",
+        body='{"hlo_modules": [], "module_kernels": {}, "kernels": []}',
+    )
+
+  page.route(list_re, _fulfill_kernel_list)
+  try:
+    with webgpu_ctx:
+      with enabling_run_tool(page, "kernel_viewer"):
+        open_tool("tpu-training", "kernel_viewer")
+        rail = page.locator("nav.kernel-rail")
+        expect(rail).to_be_visible(timeout=20000)
+        expect(rail).to_contain_text("HLO Ops", timeout=10000)
+        expect(rail).to_contain_text(
+            "No HLO ops in this profile", timeout=10000
+        )
+        assert_healthy(page, context="static_kernel_viewer")
+    browser_errors.assert_clean("static_kernel_viewer")
+  finally:
+    page.unroute(list_re, _fulfill_kernel_list)
+
+
+def test_megascale_perfetto_fetches_trace_and_handshakes_iframe(
+    page: Page,
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+) -> None:
+  """Verifies Megascale Perfetto fetches trace bytes and posts to Perfetto."""
+  stub_html = (
+      "<!DOCTYPE html><html><body><script>"
+      "window.addEventListener('message', (e) => {"
+      "  if (e.data === 'PING') e.source.postMessage('PONG', '*');"
+      "  else if (e.data && e.data.perfetto && e.data.perfetto.buffer) {"
+      "    document.body.dataset.traceBytes ="
+      " String(e.data.perfetto.buffer.byteLength);"
+      "  }"
+      "});"
+      "</script>Perfetto Stub</body></html>"
+  )
+  perfetto_re = re.compile(r"^https://ui\.perfetto\.dev(?:/|\?|$).*")
+
+  def _fulfill_perfetto(route: Route) -> None:
+    route.fulfill(status=200, content_type="text/html", body=stub_html)
+
+  page.route(perfetto_re, _fulfill_perfetto)
+  try:
+    with enabling_run_tool(page, "megascale_perfetto"):
+      open_tool("megascale-2host", "megascale_perfetto", host="mega-node-0")
+      iframe = page.locator("megascale-perfetto iframe#perfetto-page")
+      expect(iframe).to_be_visible(timeout=20000)
+      frame_body = page.frame_locator("iframe#perfetto-page").locator("body")
+      expect(frame_body).to_have_attribute(
+          "data-trace-bytes", re.compile(r"^[1-9]\d*$"), timeout=20000
+      )
+      assert_healthy(page, browser_errors, "megascale_perfetto")
+  finally:
+    page.unroute(perfetto_re, _fulfill_perfetto)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Upstream XProf flex `.row` in framework-op-stats and hlo-stats lacks"
+        " flex-wrap and overflows mat-sidenav-content at 1280px desktop width."
+        " (perf-counters only overflows in internal builds; Copybara strips its"
+        " extra Host and Show Zero Values controls in OSS.)"
+    ),
+)
+@pytest.mark.parametrize(
+    "run_name,tag",
+    [
+        ("tpu-training", "framework_op_stats"),
+        ("tpu-training", "hlo_stats"),
+    ],
+)
+def test_desktop_chart_rows_fit_content_pane(
+    page: Page,
+    open_tool: Callable[..., str],
+    run_name: str,
+    tag: str,
+) -> None:
+  """Tracks 1280px desktop horizontal overflow in unwrapped flex rows."""
+  page.set_viewport_size({"width": 1280, "height": 900})
+  open_tool(run_name, tag)
+  expect(page.locator("framework-op-stats, hlo-stats").first).to_be_visible(
+      timeout=20000
+  )
+  expect(
+      page.locator("chart svg, .google-visualization-table").first
+  ).to_be_visible(timeout=20000)
+  assert not check_no_horizontal_overflow(
+      page, check_content_pane=True, allowed_overflow_selectors=()
+  )

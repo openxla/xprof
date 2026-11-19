@@ -1,3 +1,17 @@
+# Copyright 2026 The TensorFlow Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
 """Parametrized tool rendering and navigation verification across runs."""
 
 # pylint: disable=g-doc-args,g-doc-return-or-yield,g-short-docstring-punctuation
@@ -5,20 +19,15 @@
 from collections.abc import Callable
 import re
 
-# pylint: disable=g-import-not-at-top
-try:
-  from tests.ui.conftest import BrowserErrors
-  from tests.ui.ui_helpers import assert_component_geometry
-  from tests.ui.ui_helpers import assert_healthy
-  from tests.ui.ui_helpers import switch_tool
-except ImportError:
-  from conftest import BrowserErrors
-  from ui_helpers import assert_component_geometry
-  from ui_helpers import assert_healthy
-  from ui_helpers import switch_tool
 from playwright.sync_api import expect
 from playwright.sync_api import Page
 import pytest
+
+from tests.ui.conftest import BrowserErrors
+from tests.ui.journey_capture import settled_tool_url_pattern
+from tests.ui.ui_helpers import assert_component_geometry
+from tests.ui.ui_helpers import assert_healthy
+from tests.ui.ui_helpers import switch_tool
 
 # Mapping of (run, tool_tag) to the corresponding DOM element selector that
 # MUST mount and render with non-zero geometry when the tool loads. GPU-only
@@ -26,17 +35,12 @@ import pytest
 # logdir has a gpu-training run; neither the demo nor the Kokoro logdir does.
 ACTIVE_TOOL_SPECS: list[tuple[str, str, str]] = [
     ("tpu-training", "overview_page", "overview-page, overview-viewer"),
-    ("tpu-training", "trace_viewer", "iframe, #filter-bar, .filter-bar"),
-    (
-        "tpu-training",
-        "graph_viewer",
-        "graph-viewer, iframe.graph-viewer-iframe, .graph-viewer-container",
-    ),
+    ("tpu-training", "trace_viewer", "trace-viewer"),
+    ("tpu-training", "graph_viewer", "graph-viewer"),
     ("tpu-training", "op_profile", "op-profile, op-profile-base"),
     ("tpu-serving", "op_profile", "op-profile, op-profile-base"),
     ("tpu-training", "input_pipeline_analyzer", "input-pipeline"),
     ("tpu-training", "memory_profile", "memory-viewer, memory-profile"),
-    ("empty-memory", "memory_profile", "memory-viewer, memory-profile"),
     ("tpu-training", "memory_viewer", "memory-viewer, memory-profile"),
     ("tpu-training", "roofline_model", "roofline-model, .roofline-container"),
     ("tpu-training", "framework_op_stats", "framework-op-stats"),
@@ -44,18 +48,28 @@ ACTIVE_TOOL_SPECS: list[tuple[str, str, str]] = [
     ("perf-utilization", "perf_counters", "perf-counters"),
     ("perf-v4", "perf_counters", "perf-counters"),
     ("perf-utilization", "utilization_viewer", "utilization-viewer"),
+    ("perf-utilization", "kernel_utilization", "utilization-viewer"),
     ("megascale-1host", "megascale_stats", "megascale-stats"),
     ("megascale-2host", "megascale_stats", "megascale-stats"),
 ]
 
 # Tool content that MUST render inside the component, besides the drawn
-# visualization that assert_component_geometry requires. ":scope" (the
-# component itself) for tools without such content.
+# visualization that assert_component_geometry requires.
 TOOL_CONTENT_SELECTORS: dict[str, str] = {
-    "graph_viewer": "iframe, svg, canvas",
+    "overview_page": "mat-card, .mat-mdc-card",
+    "trace_viewer": "iframe:visible, canvas:visible",
+    "graph_viewer": "mat-chip-option:visible, iframe:visible, svg:visible",
     "op_profile": "op-table-entry .row:visible",
     "input_pipeline_analyzer": "text=Summary of input-pipeline analysis",
+    "memory_profile": "memory-profile-summary",
+    "memory_viewer": "memory-viewer-main",
+    "roofline_model": "program-level-analysis, operation-level-analysis",
+    "framework_op_stats": "stats-table",
     "hlo_stats": "google-chart, .google-visualization-table",
+    "perf_counters": ".google-visualization-table, table",
+    "utilization_viewer": ".bar-chart svg",
+    "kernel_utilization": ".bar-chart svg",
+    "megascale_stats": ".google-visualization-table, mat-accordion",
 }
 
 
@@ -120,7 +134,7 @@ def test_individual_tool_loads(
   assert_component_geometry(page, selector, tag)
 
   # Assert the tool's own content rendered inside the component
-  content = TOOL_CONTENT_SELECTORS.get(tag, ":scope")
+  content = TOOL_CONTENT_SELECTORS[tag]
   element = page.locator(f":is({selector}):visible").first.locator(content)
   expect(element.first).to_be_visible(timeout=20000)
   bbox = element.first.bounding_box()
@@ -139,9 +153,12 @@ def test_unavailable_tool_fallback_redirection(
 ):
   """Verifies deep-linking to an unsupported tool redirects to overview_page."""
   # 'kernel_stats' is only for GPU runs; on TPU it should fallback
-  open_tool("tpu-training", "kernel_stats")
+  open_tool("tpu-training", "kernel_stats", verify_url=False)
 
   # Must gracefully route to overview page without crashing the shell
+  expect(page).to_have_url(
+      settled_tool_url_pattern("overview_page"), timeout=20000
+  )
   overview_view = page.locator("overview-page, overview-viewer").first
   expect(overview_view).to_be_visible(timeout=20000)
   assert_healthy(page, browser_errors, "unavailable_tool_fallback")
@@ -152,7 +169,7 @@ def test_tool_dropdown_selection(
     open_tool: Callable[..., str],
     browser_errors: BrowserErrors,
 ):
-  """Verifies selecting a tool from the sidebar dropdown loads that tool view."""
+  """Verifies selecting a tool from the sidebar dropdown loads its view."""
   open_tool("tpu-training", "overview_page")
   expect(
       page.locator("overview-page mat-card, overview-viewer mat-card").first

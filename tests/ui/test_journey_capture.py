@@ -1,19 +1,35 @@
-"""Unit tests for journey_capture stabilization, normalization, and recording."""
+# Copyright 2026 The TensorFlow Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""Unit tests for journey_capture stabilization and recording."""
 
-import collections.abc
+from collections.abc import Sequence
 import dataclasses
+import pathlib
 import re
+import sys
 import unittest
 from unittest import mock
 
 # pylint: disable=g-import-not-at-top
+if __package__ in (None, ""):
+  sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+
 try:
-  from google3.third_party.xprof.tests.ui import journey_capture
+  from tests.ui import journey_capture
 except ImportError:
-  try:
-    from tests.ui import journey_capture  # type: ignore[no-redef]
-  except ImportError:
-    import journey_capture  # type: ignore[no-redef]
+  import journey_capture
 
 
 @dataclasses.dataclass(frozen=True)
@@ -34,7 +50,7 @@ class _FakePage:
 
   def __init__(
       self,
-      evaluate_results: collections.abc.Sequence[object] | None = None,
+      evaluate_results: Sequence[object] | None = None,
       default_result: object = "drift",
   ):
     self.handlers: dict[str, list[object]] = {}
@@ -119,10 +135,12 @@ class JourneyCaptureTest(unittest.TestCase):
     )
 
   def test_wait_for_dom_quiescence_reports_settled_and_timeout(self):
-    """Verifies (html, True) on two matching polls and (html, False) on drift."""
+    """Verifies (html, True) on matching polls and (html, False) on drift."""
     settled_page = _FakePage([
         "ready",
+        journey_capture._PlaywrightError("Execution context destroyed"),
         "<html>A</html>",
+        journey_capture._PlaywrightError("Frame navigated mid-poll"),
         "<html>B</html>",
         "<html>B</html>",
         "<html>B</html>",
@@ -144,7 +162,7 @@ class JourneyCaptureTest(unittest.TestCase):
       journey_capture._QUIESCENCE_TIMEOUT_MS = orig_timeout
 
   def test_normalize_generated_attr_ids_preserves_semantic_tab_index(self):
-    """Verifies two-counter Material IDs preserve tab index and CDK counter collapses."""
+    """Verifies Material tab IDs keep tab index while CDK IDs collapse."""
     self.assertEqual(
         journey_capture.normalize_generated_attr_ids("mat-tab-label-0-1"),
         "mat-tab-label-N-1",
@@ -229,7 +247,7 @@ class JourneyCaptureTest(unittest.TestCase):
     )
 
   def test_wait_for_angular_stable_handles_bootstrap_errors_and_timeouts(self):
-    """Verifies <app> bootstrap polling, non-Angular exit, error retry, and timeout."""
+    """Verifies <app> bootstrap polling, non-Angular exit, and timeout."""
     # 1. Instant settle after two consecutive True samples.
     instant_page = _FakePage([True, True])
     self.assertTrue(journey_capture._wait_for_angular_stable(instant_page))
@@ -318,7 +336,7 @@ class JourneyCaptureTest(unittest.TestCase):
   def test_wait_for_nested_documents_skips_idle_iframe_and_settles_active_trace(
       self,
   ):
-    """Verifies idle frame skipping, active frame settling, and error recovery."""
+    """Verifies idle frame skip, active frame settle, and error recovery."""
 
     class _FakeFrame:
       """Fake Playwright child frame returning scripted nested-doc states."""
@@ -449,7 +467,7 @@ class JourneyCaptureTest(unittest.TestCase):
   def test_wait_for_charts_to_render_settles_when_drawn_and_pending_stabilize(
       self,
   ):
-    """Verifies chart wait holds on [0, pending] and settles once drawn > 0 holds steady."""
+    """Verifies chart wait holds on [0, pending] and settles once drawn."""
 
     page = _FakePage([[0, 3]], default_result=[2, 1])
     self.assertTrue(journey_capture._wait_for_charts_to_render(page))
@@ -460,11 +478,11 @@ class JourneyCaptureTest(unittest.TestCase):
     self.assertGreaterEqual(len(zero_data_page.waits), 4)
     js = journey_capture._CHART_COUNTS_JS
     self.assertIn("max-heap-chart", js)
-    self.assertIn("proto !== Object.prototype", js)
-    self.assertNotIn("Object.defineProperty(Object.prototype", js)
+    self.assertNotIn("defineProperty", js)
+    self.assertNotIn("emit(", js)
 
   def test_wait_for_chart_loader_settled_waits_out_the_failover_chain(self):
-    """Verifies the loader wait holds until the gstatic chain reaches a terminal state."""
+    """Verifies loader wait holds until gstatic reaches a terminal state."""
 
     settle_polls = max(
         1,
@@ -493,7 +511,7 @@ class JourneyCaptureTest(unittest.TestCase):
   def test_wait_for_chart_loader_settled_bounds_polls_and_resets_on_flicker(
       self,
   ):
-    """Verifies the loader wait stops at its deadline and needs consecutive samples."""
+    """Verifies loader wait stops at deadline and needs consecutive samples."""
 
     # A loader stuck mid-chain must spend exactly its budget: 1000ms polled
     # 125ms at a time is eight samples. Both values are exact in binary, so the
@@ -536,7 +554,7 @@ class JourneyCaptureTest(unittest.TestCase):
     self.assertEqual(len(flicker.waits), 4)
 
   def test_settled_tool_url_pattern_rejects_mismatched_pathname_and_tag(self):
-    """Verifies settled_tool_url_pattern rejects premature updateUrlHistory URLs."""
+    """Verifies settled_tool_url_pattern rejects premature history URLs."""
     mem_pattern = journey_capture.settled_tool_url_pattern("Memory Profile")
     self.assertIsNone(
         mem_pattern.search(
@@ -553,6 +571,11 @@ class JourneyCaptureTest(unittest.TestCase):
             "http://localhost:8791/memory_profile?run=r1&tag=memory_profile"
         )
     )
+    self.assertIsNotNone(
+        mem_pattern.search(
+            "http://localhost:8791/memory_profile?tag=memory_profile&run=r1"
+        )
+    )
     inp_pattern = journey_capture.settled_tool_url_pattern(
         "Input Pipeline Analysis"
     )
@@ -561,8 +584,98 @@ class JourneyCaptureTest(unittest.TestCase):
             "http://localhost:8791/input_pipeline_analyzer?run=r1&tag=input_pipeline_analyzer@"
         )
     )
+    for alias in (
+        "Utilization Viewer",
+        "Kernel Utilization",
+        "kernel_utilization",
+    ):
+      util_pattern = journey_capture.settled_tool_url_pattern(alias)
+      base = "http://localhost:8791"
+      self.assertIsNotNone(
+          util_pattern.search(
+              f"{base}/utilization_viewer?run=r1&tag=utilization_viewer"
+          )
+      )
+      self.assertIsNotNone(
+          util_pattern.search(
+              f"{base}/kernel_utilization?run=r1&tag=utilization_viewer"
+          )
+      )
+      self.assertIsNotNone(
+          util_pattern.search(
+              f"{base}/utilization_viewer?run=r1&tag=kernel_utilization"
+          )
+      )
+      self.assertIsNotNone(
+          util_pattern.search(
+              f"{base}/kernel_utilization?tag=utilization_viewer"
+          )
+      )
+      self.assertIsNone(
+          util_pattern.search(
+              f"{base}/overview_page?run=r1&tag=utilization_viewer"
+          )
+      )
+      self.assertIsNone(
+          util_pattern.search(
+              f"{base}/utilization_viewer?run=r1&tag=overview_page"
+          )
+      )
+
+  def test_capture_waypoint_records_mask_boxes_and_single_unmasked_screenshot(
+      self,
+  ):
+    """Verifies capture_waypoint takes one unmasked PNG and records boxes."""
+    screenshot_calls: list[dict[str, object]] = []
+
+    class _CapturePage(_FakePage):
+      """Page double recording screenshot kwargs and mask-box evaluation."""
+
+      def __init__(self):
+        super().__init__(
+            evaluate_results=[
+                None,  # blur
+                True,
+                True,  # angular stable
+                [0, True],
+                [0, True],
+                [0, True],  # chart loader
+                [1, 0],  # charts render
+                None,  # raf SVG settle
+                "ready",  # fonts.ready
+                "<html>settled</html>",
+                "<html>settled</html>",
+                "<html>settled</html>",  # dom quiescence
+                [[10, 20, 110, 44], [0, 860, 120, 890]],  # mask_boxes
+            ],
+            default_result="<html>settled</html>",
+        )
+        self.mouse = mock.MagicMock()
+
+      def wait_for_load_state(self, state: str, timeout: int) -> None:
+        del state, timeout
+
+      def locator(self, selector: str) -> object:
+        del selector
+        loc = mock.MagicMock()
+        loc.all.return_value = []
+        return loc
+
+      def screenshot(self, **kwargs: object) -> bytes:
+        screenshot_calls.append(kwargs)
+        return b"\x89PNG\r\n\x1a\nfake"
+
+    page = _CapturePage()
+    recorder = journey_capture.NetworkRecorder(page)
+    with mock.patch.object(journey_capture, "sync_api", None):
+      wp = journey_capture.capture_waypoint(page, recorder, "00_overview_page")
+
+    self.assertEqual(len(screenshot_calls), 1)
+    self.assertNotIn("mask", screenshot_calls[0])
+    self.assertNotIn("mask_color", screenshot_calls[0])
+    self.assertTrue(wp.stabilized)
+    self.assertEqual(wp.mask_boxes, ((10, 20, 110, 44), (0, 860, 120, 890)))
 
 
 if __name__ == "__main__":
   unittest.main()
-

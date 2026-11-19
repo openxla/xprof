@@ -132,7 +132,8 @@ mat-option {
 }
 
 // TODO(css-cleanup): Remove redundant styles in component's css files for loading spinner.
-mat-progress-bar {
+mat-progress-bar,
+md-linear-progress {
   width: 200px;
   margin: 0 auto;
 }

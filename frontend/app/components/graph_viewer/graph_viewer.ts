@@ -770,26 +770,35 @@ export class GraphViewer implements OnDestroy {
   }
 
   validToPlot() {
-    // Validate opName
-    if (
-      // Parameter and ROOT node is not identified as an op in the HLO Graph
-      /(^|::)(parameter|root)(\.\d+)?$/i.test(this.opName.trim())
-    ) {
-      this.openSnackBar('Invalid Op Name.');
+    // Parameter and ROOT node is not identified as an op in the HLO Graph
+    if (this.isParameterOrRootOpName()) {
       return false;
     }
     return this.opName && (this.selectedModule || this.programId);
   }
 
+  /** Returns whether `opName` names a parameter or ROOT node. */
+  private isParameterOrRootOpName(): boolean {
+    return /(^|::)(parameter|root)(\.\d+)?$/i.test(this.opName.trim());
+  }
+
+  get meGraphEnabled(): boolean {
+    return this.dataService.meGraphEnabled();
+  }
+
   get shouldRenderMeGraph() {
     return (
-      this.dataService.meGraphEnabled() &&
+      this.meGraphEnabled &&
       this.showMeGraph &&
       this.graphType === GRAPH_TYPE_DEFAULT
     );
   }
 
   onPlot() {
+    if (this.isParameterOrRootOpName()) {
+      this.openSnackBar('Invalid Op Name.');
+      return;
+    }
     if (!this.validToPlot()) return;
     if (this.showMeGraph && this.graphType !== GRAPH_TYPE_DEFAULT) {
       this.openSnackBar('ME graph is only supported for HLO graphs.');
@@ -933,6 +942,7 @@ export class GraphViewer implements OnDestroy {
     // Clear iframe html so the rule to detect `graphIframeLoaded` can satisfy
     this.clearGraphIframeHtml();
     this.selectedNode = null;
+    this.runtimeDataInjected = false;
     this.url = '';
     this.diagnostics = {...DIAGNOSTICS_DEFAULT};
   }

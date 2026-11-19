@@ -1,9 +1,17 @@
-import {Component, inject, Input, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  Input,
+  OnChanges,
+  OnDestroy,
+  SimpleChanges,
+} from '@angular/core';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {GRAPH_TYPE_DEFAULT} from 'org_xprof/frontend/app/common/constants/constants';
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
-import {ReplaySubject} from 'rxjs';
+import {ReplaySubject, Subscription} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 declare interface ToggleButtonItems {
@@ -32,7 +40,7 @@ const TOGGLE_BUTTON_ITEMS: ToggleButtonItems[] = [
   templateUrl: './hlo_text_view.ng.html',
   styleUrls: ['./hlo_text_view.scss'],
 })
-export class HloTextView implements OnDestroy {
+export class HloTextView implements OnChanges, OnDestroy {
   /** The graph type. */
   @Input() graphType = GRAPH_TYPE_DEFAULT;
   /** The hlo module name. */
@@ -48,6 +56,7 @@ export class HloTextView implements OnDestroy {
   private readonly throbber = new Throbber('hlo_text_view');
   private readonly dataService: DataServiceV2Interface =
       inject(DATA_SERVICE_INTERFACE_TOKEN);
+  private downloadSubscription?: Subscription;
 
   hloText = '';
   loading = false;
@@ -59,30 +68,46 @@ export class HloTextView implements OnDestroy {
     textType: '',  // SHORT_TEXT | LONG_TEXT
   };
 
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['sessionId'] || changes['moduleName'] || changes['graphType']) {
+      this.downloadSubscription?.unsubscribe();
+      // Discard the cancelled load without reporting it as complete.
+      this.throbber.setActive(false);
+      this.loading = false;
+      this.hloText = '';
+    }
+  }
+
   downloadHloText(type: string) {
+    this.downloadSubscription?.unsubscribe();
     this.setLoadingMessage(type, this.showMetadata);
     this.hloText = '';
+    this.throbber.setActive(false);
     this.throbber.start();
-    this.dataService
-        .downloadHloProto(
-            this.sessionId,
-            this.graphType,
-            this.moduleName,
-            type,
-            this.showMetadata,
-            )
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((data) => {
-          this.throbber.stop();
-          this.loading = false;
-          this.hloText = data as string;
-          this.downloadedTextParams = {
-            graphType: this.graphType,
-            moduleName: this.moduleName,
-            showMetadata: this.showMetadata,
-            textType: type,
-          };
-        });
+    this.downloadSubscription = this.dataService
+      .downloadHloProto(
+        this.sessionId,
+        this.graphType,
+        this.moduleName,
+        type,
+        this.showMetadata,
+      )
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((data) => {
+        this.throbber.stop();
+        this.loading = false;
+        if (typeof data !== 'string') {
+          this.hloText = '';
+          return;
+        }
+        this.hloText = data;
+        this.downloadedTextParams = {
+          graphType: this.graphType,
+          moduleName: this.moduleName,
+          showMetadata: this.showMetadata,
+          textType: type,
+        };
+      });
   }
 
   getDownloadStatusMessage() {

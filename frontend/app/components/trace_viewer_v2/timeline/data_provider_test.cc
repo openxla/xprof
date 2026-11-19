@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <iterator>
 #include <limits>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -37,7 +38,10 @@ using ::testing::ElementsAre;
 using ::testing::Eq;
 using ::testing::Field;
 using ::testing::Ge;
+using ::testing::Gt;
 using ::testing::IsEmpty;
+using ::testing::Lt;
+using ::testing::Ne;
 using ::testing::Not;
 using ::testing::Pair;
 using ::testing::SizeIs;
@@ -6974,225 +6978,229 @@ TEST_F(DataProviderTest,
                             single_timeline.timeline_data());
 }
 
+constexpr absl::string_view kDefaultTpuDeviceName = "/device:TPU:0";
+
+// Appends `count` sequential complete spans to `events` starting at `start_ts`.
+void AppendSpanSeries(std::vector<TraceEvent>& events, EventId base_id,
+                      ProcessId pid, ThreadId tid, absl::string_view name,
+                      int count, Microseconds start_ts = 0.0,
+                      Microseconds step_ts = 2.0, Microseconds dur = 1.0) {
+  events.reserve(events.size() + static_cast<size_t>(count));
+  for (int i = 0; i < count; ++i) {
+    events.push_back(
+        MakeSpan(Phase::kComplete, base_id + static_cast<EventId>(i), pid, tid,
+                 name, start_ts + static_cast<Microseconds>(i) * step_ts, dur));
+  }
+}
+
+// Creates a trace batch initialized with a single process and thread track.
+ParsedTraceEvents CreateSingleTrackBatch(ProcessId pid, ThreadId tid,
+                                         absl::string_view thread_name,
+                                         size_t reserved_events = 0) {
+  ParsedTraceEvents batch;
+  batch.flame_events.reserve(reserved_events + 2);
+  batch.flame_events.push_back(CreateProcessEvent(pid, kDefaultTpuDeviceName));
+  batch.flame_events.push_back(CreateThreadEvent(pid, tid, thread_name));
+  return batch;
+}
+
+// Runs a single-batch incremental load on `provider` and returns timeline data.
+const FlameChartTimelineData& IngestSingleIncrementalBatch(
+    DataProvider& provider, Timeline& timeline, ParsedTraceEvents batch) {
+  provider.BeginIncrementalLoad(timeline);
+  provider.AppendTraceEventsIncremental(std::move(batch), timeline);
+  provider.FinishIncrementalLoad();
+  return timeline.timeline_data();
+}
+
+// Returns the index of the first entry named `name` in `data`, if present.
+std::optional<size_t> FindEntryIndexByName(const FlameChartTimelineData& data,
+                                           absl::string_view name) {
+  const auto it = absl::c_find(data.entry_names, name);
+  if (it == data.entry_names.end()) {
+    return std::nullopt;
+  }
+  return static_cast<size_t>(it - data.entry_names.begin());
+}
+
 TEST_F(
     DataProviderTest,
     UniformTrackBudgetPreservesHighEventCountTracksWithoutDevicePidHeuristics) {
-  ParsedTraceEvents batch;
-  batch.flame_events = {
-      CreateMetadataEvent(std::string(kProcessName), 1, 0, "/device:TPU:0"),
-      CreateMetadataEvent(std::string(kThreadName), 1, 1, "XLA Ops"),
-      CreateMetadataEvent(std::string(kProcessName), 701, 0, "/host:CPU"),
-      CreateMetadataEvent(std::string(kThreadName), 701, 1, "thread_0"),
-      MakeSpan(Phase::kComplete, 1, 1, 1, "tpu_op", 10.0, 5.0),
-  };
-  for (int i = 0; i < 70000; ++i) {
-    batch.flame_events.push_back(
-        MakeSpan(Phase::kComplete, static_cast<size_t>(10 + i), 701, 1,
-                 "host_op", static_cast<Microseconds>(i * 2), 1.0));
-  }
+  ParsedTraceEvents batch =
+      CreateSingleTrackBatch(/*pid=*/1, /*tid=*/1, "XLA Ops", 70005);
+  batch.flame_events.push_back(CreateProcessEvent(701, "/host:CPU"));
+  batch.flame_events.push_back(CreateThreadEvent(701, 1, "thread_0"));
+  batch.flame_events.push_back(
+      MakeSpan(Phase::kComplete, 1, 1, 1, "tpu_op", 10.0, 5.0));
+  AppendSpanSeries(batch.flame_events, /*base_id=*/10, /*pid=*/701, /*tid=*/1,
+                   "host_op", 70000);
 
   data_provider_.BeginIncrementalLoad(timeline_);
   data_provider_.AppendTraceEventsIncremental(std::move(batch), timeline_,
                                               TimelineFlushMode::kAutoFlush);
   EXPECT_FALSE(data_provider_.was_compacted());
-  EXPECT_EQ(timeline_.timeline_data().entry_names.size(), 70001u);
+  EXPECT_THAT(timeline_.timeline_data().entry_names, SizeIs(70001));
   data_provider_.FinishIncrementalLoad();
 }
 
 TEST_F(DataProviderTest,
        PerTrackCompactionPreservesOpenSpansRecentTailAndSparseArgs) {
-  ParsedTraceEvents batch;
-  batch.flame_events.reserve(265005);
-  batch.flame_events.push_back(
-      CreateMetadataEvent(std::string(kProcessName), 1, 0, "/device:TPU:0"));
-  batch.flame_events.push_back(
-      CreateMetadataEvent(std::string(kThreadName), 1, 1, "XLA Ops"));
+  constexpr int kNumLeafEvents = 265000;
+  constexpr absl::string_view kOpenRootName = "open_root";
+  constexpr absl::string_view kTailLeafName = "tail_leaf";
+  ParsedTraceEvents batch = CreateSingleTrackBatch(
+      /*pid=*/1, /*tid=*/1, "XLA Ops", kNumLeafEvents + 3);
 
   TraceEvent open_root = MakeSpan(Phase::kDurationBegin, 999999, /*pid=*/1,
-                                  /*tid=*/1, "open_root", /*ts=*/0.0,
+                                  /*tid=*/1, kOpenRootName, /*ts=*/0.0,
                                   /*dur=*/600000.0);
   open_root.has_group_id = true;
   open_root.group_id = 42;
   open_root.args = {{"custom_key", "open_val"}};
   batch.flame_events.push_back(std::move(open_root));
 
-  constexpr int kNumLeafEvents = 265000;
-  for (int i = 0; i < kNumLeafEvents; ++i) {
-    TraceEvent leaf = MakeSpan(
-        Phase::kComplete, static_cast<size_t>(10 + i),
-        /*pid=*/1, /*tid=*/1, i == kNumLeafEvents - 1 ? "tail_leaf" : "leaf_op",
-        static_cast<Microseconds>(1.0 + i * 2.0), 1.0);
-    if (i == kNumLeafEvents - 1) {
-      leaf.has_group_id = true;
-      leaf.group_id = 77;
-      leaf.args = {{"tail_key", "tail_val"}};
-    }
-    batch.flame_events.push_back(std::move(leaf));
-  }
+  AppendSpanSeries(batch.flame_events, /*base_id=*/10, /*pid=*/1, /*tid=*/1,
+                   "leaf_op", kNumLeafEvents - 1, /*start_ts=*/1.0);
+  TraceEvent tail_leaf = MakeSpan(
+      Phase::kComplete, static_cast<EventId>(10 + kNumLeafEvents - 1),
+      /*pid=*/1, /*tid=*/1, kTailLeafName,
+      static_cast<Microseconds>(1.0 + (kNumLeafEvents - 1) * 2.0), 1.0);
+  tail_leaf.has_group_id = true;
+  tail_leaf.group_id = 77;
+  tail_leaf.args = {{"tail_key", "tail_val"}};
+  batch.flame_events.push_back(std::move(tail_leaf));
 
-  data_provider_.BeginIncrementalLoad(timeline_);
-  data_provider_.AppendTraceEventsIncremental(std::move(batch), timeline_);
-  data_provider_.FinishIncrementalLoad();
+  const FlameChartTimelineData& data =
+      IngestSingleIncrementalBatch(data_provider_, timeline_, std::move(batch));
 
   EXPECT_TRUE(data_provider_.was_compacted());
   EXPECT_FALSE(data_provider_.last_load_was_refetch());
-  const FlameChartTimelineData& data = timeline_.timeline_data();
-  EXPECT_LT(data.entry_names.size(), static_cast<size_t>(kNumLeafEvents + 1));
-  EXPECT_GT(data.entry_names.size(), 100000u);
+  EXPECT_THAT(data.entry_names.size(),
+              AllOf(Gt(100000u), Lt(static_cast<size_t>(kNumLeafEvents + 1))));
 
-  const auto it_open = absl::c_find(data.entry_names, "open_root");
-  ASSERT_NE(it_open, data.entry_names.end());
-  const size_t open_idx =
-      static_cast<size_t>(it_open - data.entry_names.begin());
-  const auto open_args = data.GetEntryArgs(open_idx);
-  EXPECT_EQ(open_args.at("custom_key"), "open_val");
-  EXPECT_EQ(open_args.at("group_id"), "42");
+  const std::optional<size_t> open_idx =
+      FindEntryIndexByName(data, kOpenRootName);
+  ASSERT_THAT(open_idx, Ne(std::nullopt));
+  const absl::flat_hash_map<std::string, std::string> open_args =
+      data.GetEntryArgs(*open_idx);
+  EXPECT_THAT(open_args, AllOf(Contains(Pair("custom_key", "open_val")),
+                               Contains(Pair("group_id", "42"))));
 
-  const auto it_tail = absl::c_find(data.entry_names, "tail_leaf");
-  ASSERT_NE(it_tail, data.entry_names.end());
-  const size_t tail_idx =
-      static_cast<size_t>(it_tail - data.entry_names.begin());
-  const auto tail_args = data.GetEntryArgs(tail_idx);
-  EXPECT_EQ(tail_args.at("tail_key"), "tail_val");
-  EXPECT_EQ(tail_args.at("group_id"), "77");
+  const std::optional<size_t> tail_idx =
+      FindEntryIndexByName(data, kTailLeafName);
+  ASSERT_THAT(tail_idx, Ne(std::nullopt));
+  const absl::flat_hash_map<std::string, std::string> tail_args =
+      data.GetEntryArgs(*tail_idx);
+  EXPECT_THAT(tail_args, AllOf(Contains(Pair("tail_key", "tail_val")),
+                               Contains(Pair("group_id", "77"))));
 }
 
 TEST_F(DataProviderTest,
        GlobalCompactionCompactsLargeTracksAndPreservesSmallTracks) {
-  ParsedTraceEvents batch;
   constexpr int kLargeTrackEvents = 210000;
   constexpr int kSmallTrackEvents = 500;
+  ParsedTraceEvents batch;
   batch.flame_events.reserve(3 * kLargeTrackEvents + kSmallTrackEvents + 10);
-  batch.flame_events.push_back(
-      CreateMetadataEvent(std::string(kProcessName), 1, 0, "/device:TPU:0"));
+  batch.flame_events.push_back(CreateProcessEvent(1, kDefaultTpuDeviceName));
   for (ThreadId tid = 1; tid <= 3; ++tid) {
-    batch.flame_events.push_back(CreateMetadataEvent(
-        std::string(kThreadName), 1, tid, absl::StrCat("large_track_", tid)));
-    for (int i = 0; i < kLargeTrackEvents; ++i) {
-      batch.flame_events.push_back(
-          MakeSpan(Phase::kComplete, static_cast<size_t>(tid * 1000000 + i),
-                   /*pid=*/1, tid, "large_track_op",
-                   static_cast<Microseconds>(i * 2), 1.0));
-    }
+    batch.flame_events.push_back(
+        CreateThreadEvent(1, tid, absl::StrCat("large_track_", tid)));
+    AppendSpanSeries(batch.flame_events, static_cast<EventId>(tid) * 1000000,
+                     /*pid=*/1, tid, "large_track_op", kLargeTrackEvents);
   }
-  batch.flame_events.push_back(
-      CreateMetadataEvent(std::string(kThreadName), 1, 4, "small_track"));
-  for (int i = 0; i < kSmallTrackEvents; ++i) {
-    batch.flame_events.push_back(MakeSpan(
-        Phase::kComplete, static_cast<size_t>(4000000 + i), /*pid=*/1,
-        /*tid=*/4, "small_track_op", static_cast<Microseconds>(i * 2), 1.0));
-  }
+  batch.flame_events.push_back(CreateThreadEvent(1, 4, "small_track"));
+  AppendSpanSeries(batch.flame_events, /*base_id=*/4000000, /*pid=*/1,
+                   /*tid=*/4, "small_track_op", kSmallTrackEvents);
 
-  data_provider_.BeginIncrementalLoad(timeline_);
-  data_provider_.AppendTraceEventsIncremental(std::move(batch), timeline_);
-  data_provider_.FinishIncrementalLoad();
+  const FlameChartTimelineData& data =
+      IngestSingleIncrementalBatch(data_provider_, timeline_, std::move(batch));
 
   EXPECT_TRUE(data_provider_.was_compacted());
-  const FlameChartTimelineData& data = timeline_.timeline_data();
-  EXPECT_LT(data.entry_names.size(), 600000u);
-  EXPECT_GT(data.entry_names.size(), 300000u);
+  EXPECT_THAT(data.entry_names.size(), AllOf(Gt(300000u), Lt(600000u)));
   EXPECT_EQ(absl::c_count(data.entry_names, "small_track_op"),
             kSmallTrackEvents);
 }
 
 TEST_F(DataProviderTest,
        GlobalCompactionScalesFloorsForManyTracksAndMultiRowTracks) {
-  {
-    ParsedTraceEvents batch;
-    constexpr int kNumTracks = 800;
-    constexpr int kSpansPerTrack = 900;
-    batch.flame_events.reserve(kNumTracks * (kSpansPerTrack + 1) + 2);
-    batch.flame_events.push_back(
-        CreateMetadataEvent(std::string(kProcessName), 1, 0, "/device:TPU:0"));
-    for (int t = 1; t <= kNumTracks; ++t) {
-      batch.flame_events.push_back(CreateMetadataEvent(
-          std::string(kThreadName), 1, static_cast<ThreadId>(t),
-          absl::StrCat("track_", t)));
-      for (int i = 0; i < kSpansPerTrack; ++i) {
-        batch.flame_events.push_back(MakeSpan(
-            Phase::kComplete, static_cast<size_t>(t * 10000 + i), /*pid=*/1,
-            static_cast<ThreadId>(t), "op", static_cast<Microseconds>(i * 2),
-            1.0));
-      }
-    }
-    data_provider_.BeginIncrementalLoad(timeline_);
-    data_provider_.AppendTraceEventsIncremental(std::move(batch), timeline_);
-    data_provider_.FinishIncrementalLoad();
-
-    EXPECT_TRUE(data_provider_.was_compacted());
-    EXPECT_LT(timeline_.timeline_data().entry_names.size(), 400000u);
+  constexpr int kManyTracks = 800;
+  constexpr int kSpansPerTrack = 900;
+  ParsedTraceEvents many_tracks_batch;
+  many_tracks_batch.flame_events.reserve(kManyTracks * (kSpansPerTrack + 1) +
+                                         2);
+  many_tracks_batch.flame_events.push_back(
+      CreateProcessEvent(1, kDefaultTpuDeviceName));
+  for (int t = 1; t <= kManyTracks; ++t) {
+    const ThreadId tid = static_cast<ThreadId>(t);
+    many_tracks_batch.flame_events.push_back(
+        CreateThreadEvent(1, tid, absl::StrCat("track_", t)));
+    AppendSpanSeries(many_tracks_batch.flame_events,
+                     static_cast<EventId>(t * 10000), /*pid=*/1, tid, "op",
+                     kSpansPerTrack);
   }
+  const FlameChartTimelineData& many_tracks_data = IngestSingleIncrementalBatch(
+      data_provider_, timeline_, std::move(many_tracks_batch));
+  EXPECT_TRUE(data_provider_.was_compacted());
+  EXPECT_LT(many_tracks_data.entry_names.size(), 400000u);
 
   data_provider_.Reset();
   timeline_.ResetForNewDataset();
 
-  {
-    ParsedTraceEvents batch;
-    constexpr int kNumTracks = 64;
-    constexpr int kNumRows = 8;
-    constexpr int kSpansPerRow = 2000;
-    batch.flame_events.reserve(kNumTracks * (kNumRows * kSpansPerRow + 1) + 2);
-    batch.flame_events.push_back(
-        CreateMetadataEvent(std::string(kProcessName), 1, 0, "/device:TPU:0"));
-    for (int t = 1; t <= kNumTracks; ++t) {
-      batch.flame_events.push_back(CreateMetadataEvent(
-          std::string(kThreadName), 1, static_cast<ThreadId>(t),
-          absl::StrCat("track_", t)));
-      for (int i = 0; i < kSpansPerRow; ++i) {
-        const Microseconds base_ts = static_cast<Microseconds>(i * 20);
-        for (int r = 0; r < kNumRows; ++r) {
-          batch.flame_events.push_back(MakeSpan(
-              Phase::kComplete,
-              static_cast<size_t>((t * kSpansPerRow + i) * kNumRows + r + 1),
-              /*pid=*/1, static_cast<ThreadId>(t), "nested_op", base_ts,
-              static_cast<Microseconds>(10 - r)));
-        }
+  constexpr int kMultiRowTracks = 64;
+  constexpr int kNumRows = 8;
+  constexpr int kSpansPerRow = 2000;
+  ParsedTraceEvents multi_row_batch;
+  multi_row_batch.flame_events.reserve(
+      kMultiRowTracks * (kNumRows * kSpansPerRow + 1) + 2);
+  multi_row_batch.flame_events.push_back(
+      CreateProcessEvent(1, kDefaultTpuDeviceName));
+  for (int t = 1; t <= kMultiRowTracks; ++t) {
+    const ThreadId tid = static_cast<ThreadId>(t);
+    multi_row_batch.flame_events.push_back(
+        CreateThreadEvent(1, tid, absl::StrCat("track_", t)));
+    for (int i = 0; i < kSpansPerRow; ++i) {
+      const Microseconds base_ts = static_cast<Microseconds>(i * 20);
+      for (int r = 0; r < kNumRows; ++r) {
+        multi_row_batch.flame_events.push_back(MakeSpan(
+            Phase::kComplete,
+            static_cast<EventId>((t * kSpansPerRow + i) * kNumRows + r + 1),
+            /*pid=*/1, tid, "nested_op", base_ts,
+            static_cast<Microseconds>(10 - r)));
       }
     }
-    data_provider_.BeginIncrementalLoad(timeline_);
-    data_provider_.AppendTraceEventsIncremental(std::move(batch), timeline_);
-    data_provider_.FinishIncrementalLoad();
-
-    EXPECT_TRUE(data_provider_.was_compacted());
-    EXPECT_LT(timeline_.timeline_data().entry_names.size(), 400000u);
   }
+  const FlameChartTimelineData& multi_row_data = IngestSingleIncrementalBatch(
+      data_provider_, timeline_, std::move(multi_row_batch));
+  EXPECT_TRUE(data_provider_.was_compacted());
+  EXPECT_LT(multi_row_data.entry_names.size(), 400000u);
 }
 
 TEST_F(DataProviderTest,
        CompactionExemptsXlaModulesTrackForSubsequentHloModuleLookup) {
-  ParsedTraceEvents batch1;
   constexpr int kNumModules = 1500;
   constexpr int kFillerTrackEvents = 210000;
+  ParsedTraceEvents batch1;
   batch1.flame_events.reserve(kNumModules + 3 * kFillerTrackEvents + 10);
-  batch1.flame_events.push_back(
-      CreateMetadataEvent(std::string(kProcessName), 1, 0, "/device:TPU:0"));
-  batch1.flame_events.push_back(
-      CreateMetadataEvent(std::string(kThreadName), 1, 1, "XLA Modules"));
-  batch1.flame_events.push_back(
-      CreateMetadataEvent(std::string(kThreadName), 1, 2, "XLA Ops"));
+  batch1.flame_events.push_back(CreateProcessEvent(1, kDefaultTpuDeviceName));
+  batch1.flame_events.push_back(CreateThreadEvent(1, 1, "XLA Modules"));
+  batch1.flame_events.push_back(CreateThreadEvent(1, 2, "XLA Ops"));
   for (int m = 0; m < kNumModules; ++m) {
-    batch1.flame_events.push_back(MakeSpan(
-        Phase::kComplete, static_cast<size_t>(100 + m), /*pid=*/1, /*tid=*/1,
-        absl::StrCat("jit_step_", m, "(", m, ")"),
-        static_cast<Microseconds>(m * 100), 50.0));
+    batch1.flame_events.push_back(
+        MakeSpan(Phase::kComplete, static_cast<EventId>(100 + m), /*pid=*/1,
+                 /*tid=*/1, absl::StrCat("jit_step_", m, "(", m, ")"),
+                 static_cast<Microseconds>(m * 100), 50.0));
   }
   for (ThreadId tid = 3; tid <= 5; ++tid) {
-    batch1.flame_events.push_back(CreateMetadataEvent(
-        std::string(kThreadName), 1, tid, absl::StrCat("filler_", tid)));
-    for (int i = 0; i < kFillerTrackEvents; ++i) {
-      batch1.flame_events.push_back(
-          MakeSpan(Phase::kComplete, static_cast<size_t>(tid * 1000000 + i),
-                   /*pid=*/1, tid, "filler_op",
-                   static_cast<Microseconds>(i * 2), 1.0));
-    }
+    batch1.flame_events.push_back(
+        CreateThreadEvent(1, tid, absl::StrCat("filler_", tid)));
+    AppendSpanSeries(batch1.flame_events, static_cast<EventId>(tid) * 1000000,
+                     /*pid=*/1, tid, "filler_op", kFillerTrackEvents);
   }
 
   ParsedTraceEvents batch2;
-  for (int m = 0; m < kNumModules; ++m) {
-    batch2.flame_events.push_back(MakeSpan(
-        Phase::kComplete, static_cast<size_t>(9000000 + m), /*pid=*/1,
-        /*tid=*/2, "fusion_op", static_cast<Microseconds>(m * 100 + 10), 5.0));
-  }
+  AppendSpanSeries(batch2.flame_events, /*base_id=*/9000000, /*pid=*/1,
+                   /*tid=*/2, "fusion_op", kNumModules, /*start_ts=*/10.0,
+                   /*step_ts=*/100.0, /*dur=*/5.0);
 
   data_provider_.BeginIncrementalLoad(timeline_);
   data_provider_.AppendTraceEventsIncremental(std::move(batch1), timeline_);
@@ -7214,80 +7222,48 @@ TEST_F(DataProviderTest,
 
 TEST_F(DataProviderTest,
        HeadBucketingHandlesPreTailIdleGapAndSubMicrosecondBursts) {
-  {
-    ParsedTraceEvents batch;
-    batch.flame_events.reserve(265060);
-    batch.flame_events.push_back(
-        CreateMetadataEvent(std::string(kProcessName), 1, 0, "/device:TPU:0"));
-    batch.flame_events.push_back(
-        CreateMetadataEvent(std::string(kThreadName), 1, 1, "XLA Ops"));
-    for (int i = 0; i < 263000; ++i) {
-      batch.flame_events.push_back(MakeSpan(
-          Phase::kComplete, static_cast<size_t>(10 + i), /*pid=*/1, /*tid=*/1,
-          "step1_op", static_cast<Microseconds>(i) * (10000.0 / 263000.0),
-          0.01));
-    }
-    for (int i = 0; i < 2048; ++i) {
-      batch.flame_events.push_back(MakeSpan(
-          Phase::kComplete, static_cast<size_t>(300000 + i), /*pid=*/1,
-          /*tid=*/1, "step2_tail_op",
-          990000.0 + static_cast<Microseconds>(i) * 2.0, 1.0));
-    }
-
-    data_provider_.BeginIncrementalLoad(timeline_);
-    data_provider_.AppendTraceEventsIncremental(std::move(batch), timeline_);
-    data_provider_.FinishIncrementalLoad();
-
-    EXPECT_TRUE(data_provider_.was_compacted());
-    EXPECT_GT(timeline_.timeline_data().entry_names.size(), 100000u);
-  }
+  ParsedTraceEvents gap_batch =
+      CreateSingleTrackBatch(/*pid=*/1, /*tid=*/1, "XLA Ops", 265050);
+  AppendSpanSeries(gap_batch.flame_events, /*base_id=*/10, /*pid=*/1, /*tid=*/1,
+                   "step1_op", 263000, /*start_ts=*/0.0,
+                   /*step_ts=*/10000.0 / 263000.0, /*dur=*/0.01);
+  AppendSpanSeries(gap_batch.flame_events, /*base_id=*/300000, /*pid=*/1,
+                   /*tid=*/1, "step2_tail_op", 2048, /*start_ts=*/990000.0,
+                   /*step_ts=*/2.0, /*dur=*/1.0);
+  const FlameChartTimelineData& gap_data = IngestSingleIncrementalBatch(
+      data_provider_, timeline_, std::move(gap_batch));
+  EXPECT_TRUE(data_provider_.was_compacted());
+  EXPECT_GT(gap_data.entry_names.size(), 100000u);
 
   data_provider_.Reset();
   timeline_.ResetForNewDataset();
 
-  {
-    ParsedTraceEvents batch;
-    batch.flame_events.reserve(265010);
-    batch.flame_events.push_back(
-        CreateMetadataEvent(std::string(kProcessName), 1, 0, "/device:TPU:0"));
-    batch.flame_events.push_back(
-        CreateMetadataEvent(std::string(kThreadName), 1, 1, "LLO Ops"));
-    for (int i = 0; i < 265000; ++i) {
-      batch.flame_events.push_back(MakeSpan(
-          Phase::kComplete, static_cast<size_t>(10 + i), /*pid=*/1, /*tid=*/1,
-          "llo_op", static_cast<Microseconds>(i) * (0.05 / 265000.0), 1e-7));
-    }
-
-    data_provider_.BeginIncrementalLoad(timeline_);
-    data_provider_.AppendTraceEventsIncremental(std::move(batch), timeline_);
-    data_provider_.FinishIncrementalLoad();
-
-    EXPECT_TRUE(data_provider_.was_compacted());
-    EXPECT_GT(timeline_.timeline_data().entry_names.size(), 100000u);
-  }
+  ParsedTraceEvents burst_batch =
+      CreateSingleTrackBatch(/*pid=*/1, /*tid=*/1, "LLO Ops", 265005);
+  AppendSpanSeries(burst_batch.flame_events, /*base_id=*/10, /*pid=*/1,
+                   /*tid=*/1, "llo_op", 265000, /*start_ts=*/0.0,
+                   /*step_ts=*/0.05 / 265000.0, /*dur=*/1e-7);
+  const FlameChartTimelineData& burst_data = IngestSingleIncrementalBatch(
+      data_provider_, timeline_, std::move(burst_batch));
+  EXPECT_TRUE(data_provider_.was_compacted());
+  EXPECT_GT(burst_data.entry_names.size(), 100000u);
 }
 
 TEST_F(DataProviderTest,
        OverlapRestoreAfterCompactionPreservesParentSelfTimeAndChildRow) {
-  ParsedTraceEvents batch1;
   constexpr int kNumChildren = 300000;
-  batch1.flame_events.reserve(kNumChildren + 10);
-  batch1.flame_events.push_back(
-      CreateMetadataEvent(std::string(kProcessName), 1, 0, "/device:TPU:0"));
-  batch1.flame_events.push_back(
-      CreateMetadataEvent(std::string(kThreadName), 1, 1, "host_thread"));
+  constexpr absl::string_view kParentSpanName = "parent_span";
+  constexpr absl::string_view kGrandchildSpanName = "grandchild_span";
+  ParsedTraceEvents batch1 = CreateSingleTrackBatch(
+      /*pid=*/1, /*tid=*/1, "host_thread", kNumChildren + 5);
   batch1.flame_events.push_back(MakeSpan(Phase::kComplete, 1, /*pid=*/1,
-                                         /*tid=*/1, "parent_span", /*ts=*/0.0,
+                                         /*tid=*/1, kParentSpanName, /*ts=*/0.0,
                                          /*dur=*/1000000.0));
   batch1.flame_events.push_back(MakeSpan(Phase::kComplete, 2, /*pid=*/1,
-                                         /*tid=*/1, "grandchild_span",
+                                         /*tid=*/1, kGrandchildSpanName,
                                          /*ts=*/0.2, /*dur=*/0.5));
-  for (int i = 0; i < kNumChildren; ++i) {
-    batch1.flame_events.push_back(
-        MakeSpan(Phase::kComplete, static_cast<size_t>(10 + i), /*pid=*/1,
-                 /*tid=*/1, "child_span", static_cast<Microseconds>(i * 2),
-                 /*dur=*/1.0));
-  }
+  AppendSpanSeries(batch1.flame_events, /*base_id=*/10, /*pid=*/1, /*tid=*/1,
+                   "child_span", kNumChildren);
 
   ParsedTraceEvents batch2;
   batch2.flame_events.push_back(MakeSpan(Phase::kComplete, 999999, /*pid=*/1,
@@ -7302,32 +7278,28 @@ TEST_F(DataProviderTest,
   data_provider_.FinishIncrementalLoad();
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  const auto it_parent = absl::c_find(data.entry_names, "parent_span");
-  ASSERT_NE(it_parent, data.entry_names.end());
-  const size_t parent_idx =
-      static_cast<size_t>(it_parent - data.entry_names.begin());
-  EXPECT_NEAR(data.entry_self_times[parent_idx], 699999.0, 1e-3);
+  const std::optional<size_t> parent_idx =
+      FindEntryIndexByName(data, kParentSpanName);
+  ASSERT_THAT(parent_idx, Ne(std::nullopt));
+  EXPECT_NEAR(data.entry_self_times[*parent_idx], 699999.0, 1e-3);
 
-  const auto it_gc = absl::c_find(data.entry_names, "grandchild_span");
-  if (it_gc != data.entry_names.end()) {
-    const size_t gc_idx = static_cast<size_t>(it_gc - data.entry_names.begin());
-    EXPECT_EQ(data.entry_levels[gc_idx] - data.entry_levels[parent_idx], 2);
+  const std::optional<size_t> grandchild_idx =
+      FindEntryIndexByName(data, kGrandchildSpanName);
+  if (grandchild_idx.has_value()) {
+    EXPECT_EQ(
+        data.entry_levels[*grandchild_idx] - data.entry_levels[*parent_idx], 2);
   }
 }
 
 TEST_F(DataProviderTest,
        DisabledIncrementalFetchSkipsCompactionAndRefetchTracksLastLoadFlag) {
   timeline_.set_incremental_fetch_enabled(false);
-  ParsedTraceEvents batch;
   constexpr int kNumEvents = 265001;
-  batch.flame_events.reserve(kNumEvents + 5);
-  batch.flame_events.push_back(
-      CreateMetadataEvent(std::string(kProcessName), 1, 0, "/device:TPU:0"));
-  batch.flame_events.push_back(
-      CreateMetadataEvent(std::string(kThreadName), 1, 1, "XLA Ops"));
+  ParsedTraceEvents batch =
+      CreateSingleTrackBatch(/*pid=*/1, /*tid=*/1, "XLA Ops", kNumEvents);
   for (int i = 0; i < kNumEvents; ++i) {
     batch.flame_events.push_back(
-        MakeSpan(Phase::kComplete, static_cast<size_t>(10 + i), /*pid=*/1,
+        MakeSpan(Phase::kComplete, static_cast<EventId>(10 + i), /*pid=*/1,
                  /*tid=*/1, absl::StrCat("op_", i),
                  static_cast<Microseconds>(i * 2), 1.0));
   }
@@ -7338,19 +7310,18 @@ TEST_F(DataProviderTest,
   data_provider_.FinishIncrementalLoad();
 
   EXPECT_FALSE(data_provider_.was_compacted());
-  EXPECT_EQ(timeline_.timeline_data().entry_names.size(),
-            static_cast<size_t>(kNumEvents));
+  EXPECT_THAT(timeline_.timeline_data().entry_names, SizeIs(kNumEvents));
 
   // Re-enable incremental fetch and perform a zoomed refetch with distinct
   // span names to verify `last_load_was_refetch()` and dictionary compaction.
   timeline_.set_incremental_fetch_enabled(true);
   timeline_.SetVisibleRange({0.0, 1000.0});
-  ParsedTraceEvents refetch_batch;
   constexpr int kRefetchEvents = 300000;
-  refetch_batch.flame_events.reserve(kRefetchEvents + 2);
+  ParsedTraceEvents refetch_batch;
+  refetch_batch.flame_events.reserve(kRefetchEvents);
   for (int i = 0; i < kRefetchEvents; ++i) {
     refetch_batch.flame_events.push_back(
-        MakeSpan(Phase::kComplete, static_cast<size_t>(1000000 + i), /*pid=*/1,
+        MakeSpan(Phase::kComplete, static_cast<EventId>(1000000 + i), /*pid=*/1,
                  /*tid=*/1, absl::StrCat("refetch_op_", i),
                  static_cast<Microseconds>(i * 2), 1.0));
   }
@@ -7363,9 +7334,8 @@ TEST_F(DataProviderTest,
 
   EXPECT_TRUE(data_provider_.was_compacted());
   EXPECT_TRUE(data_provider_.last_load_was_refetch());
-  EXPECT_LT(timeline_.timeline_data().entry_names.size(),
-            static_cast<size_t>(kRefetchEvents));
-  EXPECT_GT(timeline_.timeline_data().entry_names.size(), 100000u);
+  EXPECT_THAT(timeline_.timeline_data().entry_names.size(),
+              AllOf(Gt(100000u), Lt(static_cast<size_t>(kRefetchEvents))));
 }
 
 TEST_F(DataProviderTest,
@@ -7415,203 +7385,142 @@ TEST_F(DataProviderTest,
                     Contains(kPendingNavName), Not(Contains(kUnpinnedName))));
 }
 
-TEST_F(
-    DataProviderTest,
-    CompleteEventsInFlameEventsWithNumericOrSymbolicFlowIdProduceFlowLines) {
+// Creates a synchronous trace event carrying a numeric flow ID.
+TraceEvent MakeNumericFlowEvent(Phase ph, EventId event_id, ProcessId pid,
+                                ThreadId tid, absl::string_view name,
+                                Microseconds ts, Microseconds dur,
+                                uint64_t flow_id,
+                                tsl::profiler::ContextType category) {
+  return {.ph = ph,
+          .event_id = event_id,
+          .pid = pid,
+          .tid = tid,
+          .name = std::string(name),
+          .ts = ts,
+          .dur = dur,
+          .flow_id = flow_id,
+          .category = category,
+          .has_flow_id = true};
+}
+
+// Creates an asynchronous complete trace event carrying a numeric flow ID.
+TraceEvent MakeAsyncFlowEvent(EventId event_id, ProcessId pid, ThreadId tid,
+                              absl::string_view name, Microseconds ts,
+                              Microseconds dur, uint64_t flow_id,
+                              tsl::profiler::ContextType category) {
+  TraceEvent event = MakeNumericFlowEvent(Phase::kComplete, event_id, pid, tid,
+                                          name, ts, dur, flow_id, category);
+  event.is_async = true;
+  return event;
+}
+
+// Creates a synchronous trace event carrying a symbolic string flow ID.
+TraceEvent MakeSymbolicFlowEvent(Phase ph, EventId event_id, ProcessId pid,
+                                 ThreadId tid, absl::string_view name,
+                                 Microseconds ts, Microseconds dur,
+                                 absl::string_view id,
+                                 tsl::profiler::ContextType category) {
+  return {.ph = ph,
+          .event_id = event_id,
+          .pid = pid,
+          .tid = tid,
+          .name = std::string(name),
+          .ts = ts,
+          .dur = dur,
+          .id = std::string(id),
+          .category = category,
+          .has_flow_id = true};
+}
+
+TEST_F(DataProviderTest,
+       CompleteEventsInFlameEventsWithNumericOrSymbolicFlowIdProduceFlowLines) {
   const std::vector<TraceEvent> flame_events = {
-      {.ph = Phase::kComplete,
-       .event_id = 10,
-       .pid = 1,
-       .tid = 101,
-       .name = "Task A1",
-       .ts = 100.0,
-       .dur = 20.0,
-       .flow_id = 42,
-       .category = tsl::profiler::ContextType::kGpuLaunch,
-       .has_flow_id = true},
-      {.ph = Phase::kComplete,
-       .event_id = 11,
-       .pid = 1,
-       .tid = 102,
-       .name = "Task A2",
-       .ts = 150.0,
-       .dur = 20.0,
-       .flow_id = 42,
-       .category = tsl::profiler::ContextType::kGpuLaunch,
-       .has_flow_id = true},
-      {.ph = Phase::kComplete,
-       .event_id = 12,
-       .pid = 1,
-       .tid = 101,
-       .name = "Task B1",
-       .ts = 200.0,
-       .dur = 20.0,
-       .id = "legacy_id",
-       .category = tsl::profiler::ContextType::kTfExecutor,
-       .has_flow_id = true},
-      {.ph = Phase::kComplete,
-       .event_id = 13,
-       .pid = 1,
-       .tid = 102,
-       .name = "Task B2",
-       .ts = 250.0,
-       .dur = 20.0,
-       .id = "legacy_id",
-       .category = tsl::profiler::ContextType::kTfExecutor,
-       .has_flow_id = true},
+      MakeNumericFlowEvent(Phase::kComplete, 10, 1, 101, "Task A1", 100.0, 20.0,
+                           42, tsl::profiler::ContextType::kGpuLaunch),
+      MakeNumericFlowEvent(Phase::kComplete, 11, 1, 102, "Task A2", 150.0, 20.0,
+                           42, tsl::profiler::ContextType::kGpuLaunch),
+      MakeSymbolicFlowEvent(Phase::kComplete, 12, 1, 101, "Task B1", 200.0,
+                            20.0, "legacy_id",
+                            tsl::profiler::ContextType::kTfExecutor),
+      MakeSymbolicFlowEvent(Phase::kComplete, 13, 1, 102, "Task B2", 250.0,
+                            20.0, "legacy_id",
+                            tsl::profiler::ContextType::kTfExecutor),
   };
 
   data_provider_.ProcessTraceEvents(
       ParsedTraceEvents{.flame_events = flame_events}, timeline_);
-  const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.flow_lines, SizeIs(2));
-  EXPECT_DOUBLE_EQ(data.flow_lines[0].source_ts, 100.0);
-  EXPECT_DOUBLE_EQ(data.flow_lines[0].target_ts, 150.0);
-  EXPECT_DOUBLE_EQ(data.flow_lines[1].source_ts, 200.0);
-  EXPECT_DOUBLE_EQ(data.flow_lines[1].target_ts, 250.0);
+  EXPECT_THAT(timeline_.timeline_data().flow_lines,
+              ElementsAre(FlowLineIs(100.0, 150.0), FlowLineIs(200.0, 250.0)));
 
   // Negative test: events with flow_id or id but has_flow_id == false
   // do not produce flow lines.
   DataProvider unflagged_provider;
   Timeline unflagged_timeline(palette_);
-  const std::vector<TraceEvent> unflagged_events = {
-      {.ph = Phase::kComplete,
-       .event_id = 20,
-       .pid = 1,
-       .tid = 101,
-       .name = "Unflagged A",
-       .ts = 100.0,
-       .dur = 20.0,
-       .flow_id = 42,
-       .category = tsl::profiler::ContextType::kGpuLaunch,
-       .has_flow_id = false},
-      {.ph = Phase::kComplete,
-       .event_id = 21,
-       .pid = 1,
-       .tid = 102,
-       .name = "Unflagged B",
-       .ts = 150.0,
-       .dur = 20.0,
-       .flow_id = 42,
-       .category = tsl::profiler::ContextType::kGpuLaunch,
-       .has_flow_id = false},
-  };
+  TraceEvent unflagged_a =
+      MakeNumericFlowEvent(Phase::kComplete, 20, 1, 101, "Unflagged A", 100.0,
+                           20.0, 42, tsl::profiler::ContextType::kGpuLaunch);
+  unflagged_a.has_flow_id = false;
+  TraceEvent unflagged_b =
+      MakeNumericFlowEvent(Phase::kComplete, 21, 1, 102, "Unflagged B", 150.0,
+                           20.0, 42, tsl::profiler::ContextType::kGpuLaunch);
+  unflagged_b.has_flow_id = false;
   unflagged_provider.ProcessTraceEvents(
-      ParsedTraceEvents{.flame_events = unflagged_events}, unflagged_timeline);
+      ParsedTraceEvents{.flame_events = {unflagged_a, unflagged_b}},
+      unflagged_timeline);
   EXPECT_THAT(unflagged_timeline.timeline_data().flow_lines, IsEmpty());
 }
 
 TEST_F(DataProviderTest, StandaloneFlowStartEndInFlameEventsProduceFlowLines) {
   const std::vector<TraceEvent> flame_events = {
-      {.ph = Phase::kComplete,
-       .event_id = 10,
-       .pid = 1,
-       .tid = 101,
-       .name = "Task A",
-       .ts = 100.0,
-       .dur = 50.0},
-      {.ph = Phase::kComplete,
-       .event_id = 11,
-       .pid = 1,
-       .tid = 102,
-       .name = "Task B",
-       .ts = 200.0,
-       .dur = 50.0},
-      {.ph = Phase::kFlowStart,
-       .pid = 1,
-       .tid = 101,
-       .name = "flow_num",
-       .ts = 110.0,
-       .flow_id = 99,
-       .category = tsl::profiler::ContextType::kGpuLaunch,
-       .has_flow_id = true},
-      {.ph = Phase::kFlowEnd,
-       .pid = 1,
-       .tid = 102,
-       .name = "flow_num",
-       .ts = 210.0,
-       .flow_id = 99,
-       .category = tsl::profiler::ContextType::kGpuLaunch,
-       .has_flow_id = true},
-      {.ph = Phase::kFlowStart,
-       .pid = 1,
-       .tid = 101,
-       .name = "flow_str",
-       .ts = 120.0,
-       .id = "symbolic_flow",
-       .category = tsl::profiler::ContextType::kTfExecutor,
-       .has_flow_id = true},
-      {.ph = Phase::kFlowEnd,
-       .pid = 1,
-       .tid = 102,
-       .name = "flow_str",
-       .ts = 220.0,
-       .id = "symbolic_flow",
-       .category = tsl::profiler::ContextType::kTfExecutor,
-       .has_flow_id = true},
+      MakeSpan(Phase::kComplete, 10, 1, 101, "Task A", 100.0, 50.0),
+      MakeSpan(Phase::kComplete, 11, 1, 102, "Task B", 200.0, 50.0),
+      MakeNumericFlowEvent(Phase::kFlowStart, 0, 1, 101, "flow_num", 110.0, 0.0,
+                           99, tsl::profiler::ContextType::kGpuLaunch),
+      MakeNumericFlowEvent(Phase::kFlowEnd, 0, 1, 102, "flow_num", 210.0, 0.0,
+                           99, tsl::profiler::ContextType::kGpuLaunch),
+      MakeSymbolicFlowEvent(Phase::kFlowStart, 0, 1, 101, "flow_str", 120.0,
+                            0.0, "symbolic_flow",
+                            tsl::profiler::ContextType::kTfExecutor),
+      MakeSymbolicFlowEvent(Phase::kFlowEnd, 0, 1, 102, "flow_str", 220.0, 0.0,
+                            "symbolic_flow",
+                            tsl::profiler::ContextType::kTfExecutor),
   };
 
   data_provider_.ProcessTraceEvents(
       ParsedTraceEvents{.flame_events = flame_events}, timeline_);
-  const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.flow_lines, SizeIs(2));
-  EXPECT_DOUBLE_EQ(data.flow_lines[0].source_ts, 110.0);
-  EXPECT_DOUBLE_EQ(data.flow_lines[0].target_ts, 210.0);
-  EXPECT_DOUBLE_EQ(data.flow_lines[1].source_ts, 120.0);
-  EXPECT_DOUBLE_EQ(data.flow_lines[1].target_ts, 220.0);
+  EXPECT_THAT(timeline_.timeline_data().flow_lines,
+              ElementsAre(FlowLineIs(110.0, 210.0), FlowLineIs(120.0, 220.0)));
 }
 
 TEST_F(DataProviderTest,
-       AppendTraceEventsIncremental_Preserves64BitAndInlineFlows) {
+       AppendTraceEventsIncrementalPreserves64BitAndInlineFlows) {
+  constexpr uint64_t kInlineFlowId = (uint64_t{1} << 40) + 7;
+  constexpr uint64_t kSeparateFlowId = (uint64_t{1} << 40) + 99;
   ParsedTraceEvents chunk1;
   chunk1.flame_events = {
       CreateProcessEvent(1, "Process A"),
       CreateThreadEvent(1, 101, "Thread 1"),
       CreateThreadEvent(1, 102, "Thread 2"),
-      {.ph = Phase::kComplete,
-       .pid = 1,
-       .tid = 101,
-       .name = "SourceOp",
-       .ts = 100.0,
-       .dur = 20.0,
-       .flow_id = (uint64_t{1} << 40) + 7,
-       .category = tsl::profiler::ContextType::kGpuLaunch,
-       .has_flow_id = true},
+      MakeNumericFlowEvent(Phase::kComplete, 0, 1, 101, "SourceOp", 100.0, 20.0,
+                           kInlineFlowId,
+                           tsl::profiler::ContextType::kGpuLaunch),
   };
   chunk1.flow_events = {
-      {.ph = Phase::kFlowStart,
-       .pid = 1,
-       .tid = 101,
-       .name = "SourceOp",
-       .ts = 100.0,
-       .dur = 20.0,
-       .flow_id = (uint64_t{1} << 40) + 99,
-       .category = tsl::profiler::ContextType::kTfExecutor,
-       .has_flow_id = true},
+      MakeNumericFlowEvent(Phase::kFlowStart, 0, 1, 101, "SourceOp", 100.0,
+                           20.0, kSeparateFlowId,
+                           tsl::profiler::ContextType::kTfExecutor),
   };
 
   ParsedTraceEvents chunk2;
   chunk2.flame_events = {
-      {.ph = Phase::kComplete,
-       .pid = 1,
-       .tid = 102,
-       .name = "TargetOp",
-       .ts = 150.0,
-       .dur = 20.0,
-       .flow_id = (uint64_t{1} << 40) + 7,
-       .category = tsl::profiler::ContextType::kGpuLaunch,
-       .has_flow_id = true},
+      MakeNumericFlowEvent(Phase::kComplete, 0, 1, 102, "TargetOp", 150.0, 20.0,
+                           kInlineFlowId,
+                           tsl::profiler::ContextType::kGpuLaunch),
   };
   chunk2.flow_events = {
-      {.ph = Phase::kFlowEnd,
-       .pid = 1,
-       .tid = 102,
-       .name = "TargetOp",
-       .ts = 150.0,
-       .dur = 20.0,
-       .flow_id = (uint64_t{1} << 40) + 99,
-       .category = tsl::profiler::ContextType::kTfExecutor,
-       .has_flow_id = true},
+      MakeNumericFlowEvent(Phase::kFlowEnd, 0, 1, 102, "TargetOp", 150.0, 20.0,
+                           kSeparateFlowId,
+                           tsl::profiler::ContextType::kTfExecutor),
   };
 
   data_provider_.BeginIncrementalLoad(timeline_);
@@ -7619,13 +7528,10 @@ TEST_F(DataProviderTest,
   data_provider_.AppendTraceEventsIncremental(std::move(chunk2), timeline_);
   data_provider_.FinishIncrementalLoad();
 
-  const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.flow_lines, SizeIs(2));
-  EXPECT_DOUBLE_EQ(data.flow_lines[0].source_ts, 100.0);
-  EXPECT_DOUBLE_EQ(data.flow_lines[0].target_ts, 150.0);
-  EXPECT_DOUBLE_EQ(data.flow_lines[1].source_ts, 100.0);
-  EXPECT_DOUBLE_EQ(data.flow_lines[1].target_ts, 150.0);
+  EXPECT_THAT(timeline_.timeline_data().flow_lines,
+              ElementsAre(FlowLineIs(100.0, 150.0), FlowLineIs(100.0, 150.0)));
 }
+
 TEST_F(DataProviderTest,
        EqualTimestampCrossContainerFlowPreservesStartToEndDirection) {
   ParsedTraceEvents parsed;
@@ -7633,37 +7539,19 @@ TEST_F(DataProviderTest,
       CreateProcessEvent(1, "Process 1"),
       CreateThreadEvent(1, 101, "Thread 1"),
       CreateThreadEvent(1, 102, "Thread 2"),
-      // Target complete event on Thread 102 at ts = 100.0
-      {.ph = Phase::kComplete,
-       .event_id = 11,
-       .pid = 1,
-       .tid = 102,
-       .name = "TargetOp",
-       .ts = 100.0,
-       .dur = 50.0,
-       .flow_id = 777,
-       .category = tsl::profiler::ContextType::kGpuLaunch,
-       .has_flow_id = true},
+      // Target complete event on Thread 102 at ts = 100.0.
+      MakeNumericFlowEvent(Phase::kComplete, 11, 1, 102, "TargetOp", 100.0,
+                           50.0, 777, tsl::profiler::ContextType::kGpuLaunch),
   };
-  // Source flow start on Thread 101 at exact same ts = 100.0
+  // Source flow start on Thread 101 at exact same ts = 100.0.
   parsed.flow_events = {
-      {.ph = Phase::kFlowStart,
-       .event_id = 10,
-       .pid = 1,
-       .tid = 101,
-       .name = "SourceOp",
-       .ts = 100.0,
-       .dur = 0.0,
-       .flow_id = 777,
-       .category = tsl::profiler::ContextType::kTpuLaunch,
-       .has_flow_id = true},
+      MakeNumericFlowEvent(Phase::kFlowStart, 10, 1, 101, "SourceOp", 100.0,
+                           0.0, 777, tsl::profiler::ContextType::kTpuLaunch),
   };
 
   data_provider_.ProcessTraceEvents(parsed, timeline_);
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.flow_lines, SizeIs(1));
-  EXPECT_DOUBLE_EQ(data.flow_lines[0].source_ts, 100.0);
-  EXPECT_DOUBLE_EQ(data.flow_lines[0].target_ts, 100.0);
+  ASSERT_THAT(data.flow_lines, ElementsAre(FlowLineIs(100.0, 100.0)));
   EXPECT_EQ(data.flow_lines[0].source_level, 0);
   EXPECT_EQ(data.flow_lines[0].target_level, 1);
   EXPECT_EQ(data.flow_lines[0].category,
@@ -7676,26 +7564,10 @@ TEST_F(DataProviderTest, FlowEventsResolveEffectiveEventIdWhenZero) {
       CreateProcessEvent(1, "Process 1"),
       CreateThreadEvent(1, 101, "Thread 1"),
       CreateThreadEvent(1, 102, "Thread 2"),
-      {.ph = Phase::kComplete,
-       .event_id = 0,
-       .pid = 1,
-       .tid = 101,
-       .name = "OpA",
-       .ts = 100.0,
-       .dur = 20.0,
-       .flow_id = 555,
-       .category = tsl::profiler::ContextType::kGpuLaunch,
-       .has_flow_id = true},
-      {.ph = Phase::kComplete,
-       .event_id = 0,
-       .pid = 1,
-       .tid = 102,
-       .name = "OpB",
-       .ts = 200.0,
-       .dur = 20.0,
-       .flow_id = 555,
-       .category = tsl::profiler::ContextType::kGpuLaunch,
-       .has_flow_id = true},
+      MakeNumericFlowEvent(Phase::kComplete, 0, 1, 101, "OpA", 100.0, 20.0, 555,
+                           tsl::profiler::ContextType::kGpuLaunch),
+      MakeNumericFlowEvent(Phase::kComplete, 0, 1, 102, "OpB", 200.0, 20.0, 555,
+                           tsl::profiler::ContextType::kGpuLaunch),
   };
 
   data_provider_.ProcessTraceEvents(parsed, timeline_);
@@ -7703,10 +7575,9 @@ TEST_F(DataProviderTest, FlowEventsResolveEffectiveEventIdWhenZero) {
   ASSERT_THAT(data.flow_lines, SizeIs(1));
   const EventId expected_id_a = GenerateEventId("OpA", 100.0, 20.0);
   const EventId expected_id_b = GenerateEventId("OpB", 200.0, 20.0);
-  ASSERT_TRUE(data.flow_ids_by_event_id.contains(expected_id_a));
-  EXPECT_THAT(data.flow_ids_by_event_id.at(expected_id_a), ElementsAre("555"));
-  ASSERT_TRUE(data.flow_ids_by_event_id.contains(expected_id_b));
-  EXPECT_THAT(data.flow_ids_by_event_id.at(expected_id_b), ElementsAre("555"));
+  EXPECT_THAT(data.flow_ids_by_event_id,
+              AllOf(Contains(Pair(expected_id_a, ElementsAre("555"))),
+                    Contains(Pair(expected_id_b, ElementsAre("555")))));
 }
 
 TEST_F(DataProviderTest, AsyncFlowArrowsResolveExactNamedAsyncTrackLevels) {
@@ -7714,42 +7585,16 @@ TEST_F(DataProviderTest, AsyncFlowArrowsResolveExactNamedAsyncTrackLevels) {
   parsed.flame_events = {
       CreateProcessEvent(1, "Process 1"),
       CreateThreadEvent(1, 0, "SyncThreadZero"),
-      {.ph = Phase::kComplete,
-       .event_id = 1,
-       .pid = 1,
-       .tid = 0,
-       .name = "SyncSlice",
-       .ts = 50.0,
-       .dur = 300.0},
-      {.ph = Phase::kComplete,
-       .event_id = 2,
-       .pid = 1,
-       .tid = 0,
-       .name = "ICI",
-       .ts = 100.0,
-       .dur = 50.0,
-       .flow_id = 888,
-       .category = tsl::profiler::ContextType::kTpuLaunch,
-       .has_flow_id = true,
-       .is_async = true},
-      {.ph = Phase::kComplete,
-       .event_id = 3,
-       .pid = 1,
-       .tid = 0,
-       .name = "Memcpy",
-       .ts = 200.0,
-       .dur = 50.0,
-       .flow_id = 888,
-       .category = tsl::profiler::ContextType::kTpuLaunch,
-       .has_flow_id = true,
-       .is_async = true},
+      MakeSpan(Phase::kComplete, 1, 1, 0, "SyncSlice", 50.0, 300.0),
+      MakeAsyncFlowEvent(2, 1, 0, "ICI", 100.0, 50.0, 888,
+                         tsl::profiler::ContextType::kTpuLaunch),
+      MakeAsyncFlowEvent(3, 1, 0, "Memcpy", 200.0, 50.0, 888,
+                         tsl::profiler::ContextType::kTpuLaunch),
   };
 
   data_provider_.ProcessTraceEvents(parsed, timeline_);
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.flow_lines, SizeIs(1));
-  EXPECT_DOUBLE_EQ(data.flow_lines[0].source_ts, 100.0);
-  EXPECT_DOUBLE_EQ(data.flow_lines[0].target_ts, 200.0);
+  ASSERT_THAT(data.flow_lines, ElementsAre(FlowLineIs(100.0, 200.0)));
   EXPECT_NE(data.flow_lines[0].source_level, data.flow_lines[0].target_level);
   const Group* const src_grp =
       data.FindGroupForLevel(data.flow_lines[0].source_level);
@@ -7770,87 +7615,37 @@ TEST_F(DataProviderTest, MixedFlowIdRepresentationsConnectAcrossProcesses) {
       CreateThreadEvent(1, 101, "Thread 1"),
       CreateThreadEvent(2, 102, "Thread 2"),
       CreateThreadEvent(3, 103, "Thread 3"),
-      {.ph = Phase::kComplete,
-       .event_id = 1,
-       .pid = 1,
-       .tid = 101,
-       .name = "HexEndpoint",
-       .ts = 100.0,
-       .dur = 20.0,
-       .id = "0x10",
-       .category = tsl::profiler::ContextType::kTpuLaunch,
-       .has_flow_id = true},
-      {.ph = Phase::kComplete,
-       .event_id = 2,
-       .pid = 2,
-       .tid = 102,
-       .name = "DecimalStringEndpoint",
-       .ts = 200.0,
-       .dur = 20.0,
-       .id = "16",
-       .category = tsl::profiler::ContextType::kTpuLaunch,
-       .has_flow_id = true},
-      {.ph = Phase::kComplete,
-       .event_id = 3,
-       .pid = 3,
-       .tid = 103,
-       .name = "NumericEndpoint",
-       .ts = 300.0,
-       .dur = 20.0,
-       .flow_id = 16,
-       .category = tsl::profiler::ContextType::kTpuLaunch,
-       .has_flow_id = true},
+      MakeSymbolicFlowEvent(Phase::kComplete, 1, 1, 101, "HexEndpoint", 100.0,
+                            20.0, "0x10",
+                            tsl::profiler::ContextType::kTpuLaunch),
+      MakeSymbolicFlowEvent(Phase::kComplete, 2, 2, 102,
+                            "DecimalStringEndpoint", 200.0, 20.0, "16",
+                            tsl::profiler::ContextType::kTpuLaunch),
+      MakeNumericFlowEvent(Phase::kComplete, 3, 3, 103, "NumericEndpoint",
+                           300.0, 20.0, 16,
+                           tsl::profiler::ContextType::kTpuLaunch),
   };
 
   data_provider_.ProcessTraceEvents(parsed, timeline_);
-  const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.flow_lines, SizeIs(2));
-  EXPECT_DOUBLE_EQ(data.flow_lines[0].source_ts, 100.0);
-  EXPECT_DOUBLE_EQ(data.flow_lines[0].target_ts, 200.0);
-  EXPECT_DOUBLE_EQ(data.flow_lines[1].source_ts, 200.0);
-  EXPECT_DOUBLE_EQ(data.flow_lines[1].target_ts, 300.0);
+  EXPECT_THAT(timeline_.timeline_data().flow_lines,
+              ElementsAre(FlowLineIs(100.0, 200.0), FlowLineIs(200.0, 300.0)));
 }
 
-TEST_F(
-    DataProviderTest,
-    AppendTraceEventsIncremental_AsyncFlowArrowsResolveExactTrackLevels) {
+TEST_F(DataProviderTest,
+       AppendTraceEventsIncrementalAsyncFlowArrowsResolveExactTrackLevels) {
   ParsedTraceEvents chunk1;
   chunk1.flame_events = {
       CreateProcessEvent(1, "Process 1"),
       CreateThreadEvent(1, 0, "SyncThreadZero"),
-      {.ph = Phase::kComplete,
-       .event_id = 1,
-       .pid = 1,
-       .tid = 0,
-       .name = "SyncSlice",
-       .ts = 50.0,
-       .dur = 300.0},
-      {.ph = Phase::kComplete,
-       .event_id = 2,
-       .pid = 1,
-       .tid = 0,
-       .name = "ICI",
-       .ts = 100.0,
-       .dur = 50.0,
-       .flow_id = 888,
-       .category = tsl::profiler::ContextType::kTpuLaunch,
-       .has_flow_id = true,
-       .is_async = true},
+      MakeSpan(Phase::kComplete, 1, 1, 0, "SyncSlice", 50.0, 300.0),
+      MakeAsyncFlowEvent(2, 1, 0, "ICI", 100.0, 50.0, 888,
+                         tsl::profiler::ContextType::kTpuLaunch),
   };
 
   ParsedTraceEvents chunk2;
   chunk2.flame_events = {
-      {.ph = Phase::kComplete,
-       .event_id = 3,
-       .pid = 1,
-       .tid = 0,
-       .name = "Memcpy",
-       .ts = 200.0,
-       .dur = 50.0,
-       .flow_id = 888,
-       .category = tsl::profiler::ContextType::kTpuLaunch,
-       .has_flow_id = true,
-       .is_async = true},
+      MakeAsyncFlowEvent(3, 1, 0, "Memcpy", 200.0, 50.0, 888,
+                         tsl::profiler::ContextType::kTpuLaunch),
   };
 
   data_provider_.BeginIncrementalLoad(timeline_);
@@ -7859,9 +7654,7 @@ TEST_F(
   data_provider_.FinishIncrementalLoad();
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.flow_lines, SizeIs(1));
-  EXPECT_DOUBLE_EQ(data.flow_lines[0].source_ts, 100.0);
-  EXPECT_DOUBLE_EQ(data.flow_lines[0].target_ts, 200.0);
+  ASSERT_THAT(data.flow_lines, ElementsAre(FlowLineIs(100.0, 200.0)));
   EXPECT_NE(data.flow_lines[0].source_level, data.flow_lines[0].target_level);
   const Group* const src_grp =
       data.FindGroupForLevel(data.flow_lines[0].source_level);

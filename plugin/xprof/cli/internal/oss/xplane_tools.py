@@ -39,6 +39,46 @@ _LLO_LINE_NAMES = frozenset({
     "VST Instructions",
 })
 
+# Stat names that TPU perf-counter samples carry: "<COMPONENT> Stats" (e.g.
+# "TC Stats", "CMN Stats"), raw or with a " (util %)" or " (MB/sec)" suffix.
+# Keep in sync with cli/internal/google/xplane_tools.py.
+_PERF_COUNTER_STAT_NAME_RE = re.compile(
+    r"[A-Z]+ Stats(?: \(util %\)| \(MB/sec\))?"
+)
+
+
+def _has_perf_counter_samples(line_name: str, events: Sequence[Any]) -> bool:
+  """Returns whether a non-empty `XLine` holds TPU perf-counter data.
+
+  Two kinds of lines qualify:
+
+  - `counters_<correlation_id>`: per-kernel perf-counter snapshots.
+  - `_counters_` (TSL's counter-events line) whose samples carry a
+    perf-counter stat. TPU periodic and event-triggered counter sampling writes
+    one such line per sampled component. Power, thermal, P-state and firmware
+    counters use the same line name with other stats.
+
+  A TPU `_counters_` line holds a single component, so the first event with
+  stats decides. This keeps the check cheap on lines with millions of samples.
+  Keep in sync with cli/internal/google/xplane_tools.py.
+
+  Args:
+    line_name: The raw `XLine.name`.
+    events: The line's events. Each `ProfileEvent` exposes its stats as (name,
+      value) tuples.
+  """
+  if line_name.startswith("counters_"):
+    return True
+  if line_name != "_counters_":
+    return False
+  for event in events:
+    stats = getattr(event, "stats", ()) or ()
+    if stats:
+      return any(
+          _PERF_COUNTER_STAT_NAME_RE.fullmatch(stat[0]) for stat in stats
+      )
+  return False
+
 
 def iter_planes(source: Any) -> Iterator[Any]:
   """Yields all XPlanes from a session ID, file path, or in-memory object.
@@ -532,7 +572,7 @@ def inspect_capture(session_id: str) -> str:
         ):
           valid_llo = True
         if (
-            "_counters_" in line_name
+            _has_perf_counter_samples(getattr(line, "name", "") or "", events)
             or "TC Stats" in line_name
             or "SC Stats" in line_name
             or "CMN Stats" in line_name

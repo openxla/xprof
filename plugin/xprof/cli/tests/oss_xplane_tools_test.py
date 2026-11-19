@@ -211,6 +211,34 @@ class InspectCaptureTest(absltest.TestCase):
     self.assertLen(res["planes"], 1)
     self.assertEqual(res["planes"][0]["total_events"], 3)
 
+  def test_inspect_capture_counter_sampling_lines(self):
+    # `counters_<id>` lines hold per-kernel perf-counter snapshots. Periodic
+    # perf-counter samples land on `_counters_` lines with a "<component> Stats"
+    # stat; power and thermal counters share that line name but carry other
+    # stats.
+    for i, (line_name, stat_name, has_event, expected) in enumerate((
+        ("counters_123", None, True, True),
+        ("_counters_", "CMN Stats", True, True),
+        ("_counters_", "TC Stats (util %)", True, True),
+        ("_counters_", "power", True, False),
+        ("counters_123", None, False, False),
+    )):
+      with self.subTest(
+          line_name=line_name, stat_name=stat_name, has_event=has_event
+      ):
+        stats = [(stat_name, "1.0")] if stat_name else None
+        events = [_FakeEvent("e0", stats=stats)] if has_event else []
+        fake_plane = _FakePlane(
+            "/device:TPU:0", lines=[_FakeLine(line_name, events)]
+        )
+
+        with mock.patch.object(
+            xplane_tools, "iter_planes", return_value=[fake_plane]
+        ):
+          res = json.loads(xplane_tools.inspect_capture(f"s_counters_{i}"))
+
+        self.assertEqual(res["capture_valid_for_counter_sampling"], expected)
+
   def test_inspect_capture_host_metadata_llo_proto(self):
     fake_plane = _FakePlane("/host:metadata")
     fake_plane.stat_metadata = {1: _FakeStatMetadata("llo_proto")}

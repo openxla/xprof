@@ -424,6 +424,23 @@ class _TextInstruction:
     self.is_root = is_root
 
 
+# Modes accepted by `HloGraphDb.query`. 'search' and 'filter' share the default
+# instruction search branch; 'hotspots' is an alias of 'critical_path'.
+_VALID_QUERY_MODES = frozenset({
+    "call_tree",
+    "critical_path",
+    "filter",
+    "fusion_blockers",
+    "hotspots",
+    "layout_transitions",
+    "opcode_stats",
+    "search",
+    "shortest_path",
+    "sql",
+    "summary",
+})
+
+
 class HloGraphDb:
   """Unified in-memory CSR + SQLite relational HLO Graph Database."""
 
@@ -1845,14 +1862,46 @@ class HloGraphDb:
       limit: int = 50,
       sort_by: str = "count",
   ) -> dict[str, Any]:
-    """Executes an analytical HLO graph query and returns a structured dict."""
+    """Executes an analytical HLO graph query and returns a structured dict.
+
+    Args:
+      mode: Query mode (see `_VALID_QUERY_MODES`). Defaults to `'summary'`.
+      opcode: Optional opcode filter for `'search'`/`'filter'`.
+      category: Optional category filter for `'search'`/`'filter'`.
+      comp_name: Optional computation name filter.
+      computation: Alias for `comp_name`.
+      name_pattern: Optional substring or SQL LIKE filter.
+      filter_str: Alias for `name_pattern`.
+      src_op: Source instruction name for `mode='shortest_path'`.
+      dst_op: Destination instruction name for `mode='shortest_path'`.
+      source: Alias for `src_op`.
+      target: Alias for `dst_op`.
+      sql: Read-only SQL SELECT/WITH query for `mode='sql'`.
+      limit: Maximum number of rows to return.
+      sort_by: Sort criterion for `'opcode_stats'` (`'count'`, `'flops'`, or
+        `'bytes'`).
+
+    Returns:
+      A dict with `status`, `module_name`, `mode` and the mode's results.
+
+    Raises:
+      ValueError: If `mode` is not a supported query mode, or the mode's
+        required arguments are missing.
+    """
+    mode_clean = (mode or "summary").strip().lower()
+    if mode_clean not in _VALID_QUERY_MODES:
+      raise ValueError(
+          f"Unknown mode {mode!r}. Supported modes:"
+          f" {', '.join(sorted(_VALID_QUERY_MODES))}."
+      )
+
     eff_comp = comp_name or computation
     eff_filter = name_pattern or filter_str
     eff_src = src_op or source
     eff_dst = dst_op or target
 
     cache_key = (
-        mode,
+        mode_clean,
         eff_filter,
         opcode,
         eff_comp,
@@ -1866,8 +1915,6 @@ class HloGraphDb:
     cached_res = self._query_cache.get(cache_key)
     if cached_res is not None:
       return cached_res
-
-    mode_clean = (mode or "summary").strip().lower()
 
     if mode_clean == "shortest_path":
       if not eff_src or not eff_dst:

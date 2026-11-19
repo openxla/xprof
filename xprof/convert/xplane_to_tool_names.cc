@@ -27,7 +27,9 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/grpc_metrics/xspace_extractor.h"
 #include "xprof/convert/repository.h"
+#include "xprof/convert/tool_options.h"
 #include "xprof/convert/xplane_to_dcn_collective_stats.h"
 
 namespace tensorflow {
@@ -53,6 +55,11 @@ bool HasHloProtoMetadata(const XSpace& xspace) {
 
 absl::StatusOr<std::string> GetAvailableToolNames(
     const SessionSnapshot& session_snapshot) {
+  return GetAvailableToolNames(session_snapshot, ToolOptions());
+}
+
+absl::StatusOr<std::string> GetAvailableToolNames(
+    const SessionSnapshot& session_snapshot, const ToolOptions& options) {
   std::vector<std::string> tools;
   bool is_cloud_vertex_ai = !session_snapshot.HasAccessibleRunDir();
   if (session_snapshot.XSpaceSize() != 0) {
@@ -127,6 +134,15 @@ absl::StatusOr<std::string> GetAvailableToolNames(
       tools.push_back("perf_counters");
       tools.push_back("utilization_viewer");
       tools.push_back("kernel_utilization");
+    }
+
+    // The DCN Analyzer is listed only when it is turned on and the profile
+    // has its events.
+    const bool is_dcn_analyzer_enabled =
+        GetParamWithDefault<bool>(options, kEnableDcnAnalyzerOption, false);
+    if (is_dcn_analyzer_enabled &&
+        ::xprof::grpc_metrics::HasGrpcMetricsEvents(*xspace)) {
+      tools.push_back("grpc_metrics");
     }
   }
 

@@ -46,6 +46,7 @@ cc_binary(
             "-Wl,-S",  # Strip all symbols
         ],
         "//conditions:default": [
+            "-Wl,-Bsymbolic-functions",  # Bind defined C API functions locally
             "-Wl,--exclude-libs,ALL",  # Prevent exposing symbols from dependencies
             "-Wl,--version-script=$(execpath :profiler_plugin_c_api.lds)",
             "-Wl,--gc-sections",  # Garbage collect any unused sections

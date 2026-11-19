@@ -15,6 +15,7 @@
 """Tests for profiler_wrapper.cc pybind methods."""
 
 from concurrent import futures
+import ctypes
 import json
 import os
 import subprocess
@@ -411,6 +412,16 @@ class ProfilerSessionTest(parameterized.TestCase):
     )
     self.assertTrue(success)
     self.assertNotEmpty(data)
+
+  def test_get_dlopen_mode_excludes_rtld_deepbind(self):
+    with (
+        mock.patch.dict(os.environ, {}, clear=True),
+        mock.patch.object(os, "RTLD_DEEPBIND", 0x8, create=True),
+    ):
+      mode = profiler_wrapper_plugin._get_dlopen_mode()
+      self.assertEqual(mode, getattr(os, "RTLD_LAZY", 1) | ctypes.RTLD_LOCAL)
+      self.assertEqual(mode & getattr(ctypes, "RTLD_GLOBAL", 0), 0)
+      self.assertEqual(mode & os.RTLD_DEEPBIND, 0)
 
 
 if __name__ == "__main__":

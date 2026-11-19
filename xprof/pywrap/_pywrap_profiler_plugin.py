@@ -62,39 +62,14 @@ if not _lib_paths:
 
 
 def _get_dlopen_mode() -> int:
-  """Returns dlopen flags, avoiding RTLD_DEEPBIND under sanitizers."""
-  mode = getattr(os, "RTLD_LAZY", 1) | ctypes.RTLD_LOCAL
-  # RTLD_DEEPBIND is incompatible with AddressSanitizer/Sanitizers runtime
-  # (see https://github.com/google/sanitizers/issues/611).
-  is_sanitizer = any(
-      var in os.environ
-      for var in (
-          "ASAN_OPTIONS",
-          "MSAN_OPTIONS",
-          "TSAN_OPTIONS",
-          "HWASAN_OPTIONS",
-          "UBSAN_OPTIONS",
-      )
-  )
-  if not is_sanitizer:
-    try:
-      main_lib = ctypes.CDLL(None)
-      is_sanitizer = any(
-          hasattr(main_lib, hook)
-          for hook in (
-              "__asan_init",
-              "__msan_init",
-              "__tsan_init",
-              "__hwasan_init",
-              "__ubsan_handle_type_mismatch_v1",
-          )
-      )
-    except (AttributeError, OSError, TypeError):
-      pass
-
-  if not is_sanitizer and hasattr(os, "RTLD_DEEPBIND"):
-    mode |= os.RTLD_DEEPBIND
-  return mode
+  """Returns dlopen flags for loading the profiler C API shared library."""
+  # Do not use RTLD_DEEPBIND: symbol isolation is enforced at link time via
+  # -fvisibility=hidden and profiler_plugin_c_api.lds, whereas RTLD_DEEPBIND
+  # breaks processes that interpose malloc or operator new/delete (such as
+  # tcmalloc, jemalloc, or sanitizer runtimes; see
+  # https://github.com/google/sanitizers/issues/611 and
+  # https://github.com/openxla/xprof/issues/4109).
+  return getattr(os, "RTLD_LAZY", 1) | ctypes.RTLD_LOCAL
 
 
 _lib = ctypes.CDLL(

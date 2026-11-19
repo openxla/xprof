@@ -15,6 +15,7 @@
 
 """Tests for the raw_to_tool_data module."""
 
+import ctypes
 import os
 from unittest import mock
 
@@ -580,6 +581,16 @@ class RawToToolDataTest(absltest.TestCase):
         "perf_counters",
         {"use_saved_result": True, "show_zeros": False},
     )
+
+  def test_pywrap_dlopen_mode_excludes_rtld_deepbind(self):
+    with (
+        mock.patch.dict(os.environ, {}, clear=True),
+        mock.patch.object(os, "RTLD_DEEPBIND", 0x8, create=True),
+    ):
+      mode = _pywrap_profiler_plugin._get_dlopen_mode()
+      self.assertEqual(mode, getattr(os, "RTLD_LAZY", 1) | ctypes.RTLD_LOCAL)
+      self.assertEqual(mode & getattr(ctypes, "RTLD_GLOBAL", 0), 0)
+      self.assertEqual(mode & os.RTLD_DEEPBIND, 0)
 
 
 if __name__ == "__main__":

@@ -32,6 +32,66 @@ struct CompressedTestFrame {
   std::string compressed;
 };
 
+// Serializes and Zstd-compresses a TraceDataResponse for incremental frame
+// tests.
+absl::StatusOr<std::string> CompressTraceDataResponse(
+    const xprof::TraceDataResponse& response,
+    size_t* uncompressed_size = nullptr) {
+  std::string serialized;
+  if (!response.SerializeToString(&serialized)) {
+    return absl::InternalError("Failed to serialize TraceDataResponse.");
+  }
+  if (uncompressed_size != nullptr) {
+    *uncompressed_size = serialized.size();
+  }
+  return tensorflow::profiler::ZstdCompression::Compress(serialized);
+}
+
+// Clears persistent static incremental parser cache state on scope exit so
+// tests do not leak cached state to subsequent test cases.
+class IncrementalCacheCleanup {
+ public:
+  IncrementalCacheCleanup() = default;
+  IncrementalCacheCleanup(const IncrementalCacheCleanup&) = delete;
+  IncrementalCacheCleanup& operator=(const IncrementalCacheCleanup&) = delete;
+  ~IncrementalCacheCleanup() { Clear(); }
+
+  void Clear() {
+    if (cleared_) {
+      return;
+    }
+    cleared_ = true;
+    // Starting an initial session on a fresh DataProvider and Timeline triggers
+    // ClearPersistentCache() (CancelIncrementalTraceEvents alone only resets
+    // transient cursors).
+    ColorPalette reset_palette = ColorPalette::Default();
+    DataProvider reset_dp;
+    Timeline reset_tl(reset_palette);
+    BeginIncrementalTraceEvents(std::nullopt, reset_dp, reset_tl);
+    CancelIncrementalTraceEvents(reset_dp, reset_tl);
+  }
+
+ private:
+  bool cleared_ = false;
+};
+
+void AddCompleteEventTrack(xprof::TraceDataResponse& frame,
+                           xprof::Process& proc, uint32_t tid,
+                           absl::string_view thread_name, int num_events) {
+  xprof::Thread* thread = proc.add_threads();
+  thread->set_id(tid);
+  thread->set_name(thread_name);
+  xprof::TraceEventSeries* series = frame.add_complete_events();
+  series->mutable_metadata()->set_process_id(proc.id());
+  series->mutable_metadata()->set_thread_id(tid);
+  for (int i = 0; i < num_events; ++i) {
+    series->add_deltas(1'000'000'000ULL);
+    series->add_durations(500'000'000ULL);
+    series->add_name_refs(1);
+    series->add_event_metadata();
+  }
+}
+
 // Builds, serializes, and Zstd-compresses a single-event TraceDataResponse.
 absl::StatusOr<CompressedTestFrame> CompressSingleEventFrame(
     absl::string_view event_name) {
@@ -41,30 +101,37 @@ absl::StatusOr<CompressedTestFrame> CompressSingleEventFrame(
   xprof::Process* proc = frame.mutable_metadata()->add_processes();
   proc->set_id(1);
   proc->set_name("host:0 /device:TPU:0");
-  xprof::Thread* thread = proc->add_threads();
-  thread->set_id(10);
-  thread->set_name("XLA Ops");
-  xprof::TraceEventSeries* series = frame.add_complete_events();
-  series->mutable_metadata()->set_process_id(1);
-  series->mutable_metadata()->set_thread_id(10);
-  series->add_deltas(1'000'000'000ULL);
-  series->add_durations(500'000'000ULL);
-  series->add_name_refs(1);
-  series->add_event_metadata();
+  AddCompleteEventTrack(frame, *proc, /*tid=*/10, "XLA Ops", /*num_events=*/1);
 
-  std::string serialized;
-  if (!frame.SerializeToString(&serialized)) {
-    return absl::InternalError("Failed to serialize TraceDataResponse.");
-  }
+  size_t uncompressed_size = 0;
   absl::StatusOr<std::string> compressed =
-      tensorflow::profiler::ZstdCompression::Compress(serialized);
+      CompressTraceDataResponse(frame, &uncompressed_size);
   if (!compressed.ok()) {
     return compressed.status();
   }
   return CompressedTestFrame{
-      .uncompressed_size = serialized.size(),
+      .uncompressed_size = uncompressed_size,
       .compressed = *std::move(compressed),
   };
+}
+
+// Builds, serializes, and Zstd-compresses a two-track TraceDataResponse so
+// incremental unmarshaling and cached-block replay span multiple steps.
+absl::StatusOr<std::string> CompressMultiEventFrame(
+    absl::string_view event_name, int events_per_track = 10,
+    uint64_t full_timespan_end_ps = 20'000'000'000ULL) {
+  xprof::TraceDataResponse frame;
+  frame.set_full_timespan_start_ps(0ULL);
+  frame.set_full_timespan_end_ps(full_timespan_end_ps);
+  frame.add_interned_strings("");
+  frame.add_interned_strings(event_name);
+  xprof::Process* proc = frame.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("host:0 /device:TPU:0");
+  AddCompleteEventTrack(frame, *proc, /*tid=*/10, "XLA Ops", events_per_track);
+  AddCompleteEventTrack(frame, *proc, /*tid=*/11, "XLA Ops 2",
+                        events_per_track);
+  return CompressTraceDataResponse(frame);
 }
 
 }  // namespace
@@ -72,6 +139,8 @@ absl::StatusOr<CompressedTestFrame> CompressSingleEventFrame(
 TEST(TracePbEventParserIncrementalTest,
      SkipsCorruptZstdAndInvalidProtobufFrames) {
   using ::testing::ElementsAre;
+
+  IncrementalCacheCleanup cleanup_guard;
 
   const auto append_framed_bytes = [](std::string& out,
                                       absl::string_view payload) {
@@ -126,6 +195,7 @@ TEST(TracePbEventParserIncrementalTest,
   constexpr size_t kDefaultCapacity =
       tensorflow::profiler::ZstdDecompressorContext::kDefaultBufferSize;
 
+  IncrementalCacheCleanup cleanup_guard;
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
   DataProvider data_provider;
@@ -216,6 +286,7 @@ TEST(TracePbEventParserIncrementalTest,
   using ::testing::Contains;
   using ::testing::Field;
 
+  IncrementalCacheCleanup cleanup_guard;
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
   DataProvider data_provider;
@@ -261,30 +332,6 @@ TEST(TracePbEventParserIncrementalTest,
   const absl::StatusOr<std::string> compressed =
       tensorflow::profiler::ZstdCompression::Compress(serialized);
   ASSERT_TRUE(compressed.ok());
-
-  bool cache_cleared = false;
-  auto clear_incremental_cache = [&]() {
-    if (cache_cleared) {
-      return;
-    }
-    cache_cleared = true;
-    // Starting an initial session on a fresh DataProvider/Timeline triggers
-    // ClearPersistentCache() (CancelIncrementalTraceEvents alone only resets
-    // transient cursors).
-    DataProvider reset_dp;
-    Timeline reset_tl(palette);
-    BeginIncrementalTraceEvents(std::nullopt, reset_dp, reset_tl);
-    CancelIncrementalTraceEvents(reset_dp, reset_tl);
-  };
-  struct IncrementalCacheCleanup {
-    explicit IncrementalCacheCleanup(
-        decltype(clear_incremental_cache)& cleanup_fn)
-        : cleanup(cleanup_fn) {}
-    IncrementalCacheCleanup(const IncrementalCacheCleanup&) = delete;
-    IncrementalCacheCleanup& operator=(const IncrementalCacheCleanup&) = delete;
-    ~IncrementalCacheCleanup() { cleanup(); }
-    decltype(clear_incremental_cache)& cleanup;
-  } cleanup_guard(clear_incremental_cache);
 
   // Set threshold low enough that initial overview load arms the in-memory
   // block cache.
@@ -348,8 +395,208 @@ TEST(TracePbEventParserIncrementalTest,
   EXPECT_THAT(timeline.timeline_data().entry_names,
               Contains("tec1_op").Times(3));
 
-  clear_incremental_cache();
+  cleanup_guard.Clear();
   EXPECT_FALSE(HasCachedTraceEventsIncremental());
+}
+
+TEST(TracePbEventParserIncrementalTest,
+     HasFlushedIncrementalTraceEventsTracksFirstTimelineFlushAndResets) {
+  using ::testing::Contains;
+  using ::testing::Field;
+
+  IncrementalCacheCleanup cleanup_guard;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  DataProvider data_provider;
+
+  // 1. Metadata-only frame (timespan/details/interned_strings plus
+  // metadata.processes and threads, but no complete/async/counter events)
+  // appends Phase::kMetadata batch events without flushing the timeline.
+  xprof::TraceDataResponse metadata_only;
+  metadata_only.set_full_timespan_start_ps(0ULL);
+  metadata_only.set_full_timespan_end_ps(10'000'000'000ULL);
+  metadata_only.add_interned_strings("");
+  auto* detail = metadata_only.add_details();
+  detail->set_name("mpmd_pipeline_view");
+  detail->set_value(false);
+  xprof::Process* metadata_proc =
+      metadata_only.mutable_metadata()->add_processes();
+  metadata_proc->set_id(1);
+  metadata_proc->set_name("metadata_only_process");
+  xprof::Thread* metadata_thread = metadata_proc->add_threads();
+  metadata_thread->set_id(10);
+  metadata_thread->set_name("XLA Ops");
+  const absl::StatusOr<std::string> c_metadata =
+      CompressTraceDataResponse(metadata_only);
+  ASSERT_TRUE(c_metadata.ok());
+
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  EXPECT_FALSE(HasFlushedIncrementalTraceEvents());
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(c_metadata->data()), c_metadata->size());
+  EXPECT_FALSE(StepIncrementalTraceEvents(100, data_provider, timeline));
+  EXPECT_FALSE(HasFlushedIncrementalTraceEvents());
+  EXPECT_TRUE(timeline.timeline_data().groups.empty());
+
+  // 2. Multi-step Frame 1 exceeding max_events_per_step keeps
+  // HasFlushedIncrementalTraceEvents() false on step 1 (at_frame_boundary ==
+  // false) and sets it true once step 2 reaches the frame boundary and flushes.
+  // Process 1 carries no metadata in this frame, so its group name must come
+  // from the earlier metadata-only frame.
+  xprof::TraceDataResponse multi_event_frame;
+  multi_event_frame.add_interned_strings("");
+  multi_event_frame.add_interned_strings("op_step");
+  xprof::Process* proc = multi_event_frame.mutable_metadata()->add_processes();
+  proc->set_id(2);
+  proc->set_name("host:0 /device:TPU:1");
+  xprof::Thread* thread = proc->add_threads();
+  thread->set_id(10);
+  thread->set_name("XLA Ops");
+  for (uint32_t pid = 1; pid <= 2; ++pid) {
+    xprof::TraceEventSeries* series = multi_event_frame.add_complete_events();
+    series->mutable_metadata()->set_process_id(pid);
+    series->mutable_metadata()->set_thread_id(10);
+    for (int i = 0; i < 2; ++i) {
+      series->add_deltas(1'000'000'000ULL);
+      series->add_durations(500'000'000ULL);
+      series->add_name_refs(1);
+      series->add_event_metadata();
+    }
+  }
+  const absl::StatusOr<std::string> c_events =
+      CompressTraceDataResponse(multi_event_frame);
+  ASSERT_TRUE(c_events.ok());
+
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(c_events->data()), c_events->size());
+  EXPECT_TRUE(StepIncrementalTraceEvents(/*max_events_per_step=*/2,
+                                         data_provider, timeline));
+  EXPECT_FALSE(HasFlushedIncrementalTraceEvents());
+
+  EXPECT_FALSE(StepIncrementalTraceEvents(/*max_events_per_step=*/10,
+                                          data_provider, timeline));
+  EXPECT_TRUE(HasFlushedIncrementalTraceEvents());
+  EXPECT_THAT(timeline.timeline_data().groups,
+              Contains(Field("name", &Group::name, "metadata_only_process")));
+
+  // 3. FinishIncrementalTraceEvents resets the session and flush flag.
+  FinishIncrementalTraceEvents(data_provider, timeline);
+  EXPECT_FALSE(HasFlushedIncrementalTraceEvents());
+
+  // 4. CancelIncrementalTraceEvents on a fresh initial load also resets the
+  // flush flag.
+  const absl::StatusOr<CompressedTestFrame> single_frame =
+      CompressSingleEventFrame("cancel_op");
+  ASSERT_TRUE(single_frame.ok());
+  DataProvider cancel_data_provider;
+  Timeline cancel_timeline(palette);
+  BeginIncrementalTraceEvents(std::nullopt, cancel_data_provider,
+                              cancel_timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(single_frame->compressed.data()),
+      single_frame->compressed.size());
+  EXPECT_FALSE(StepIncrementalTraceEvents(
+      /*max_events_per_step=*/10, cancel_data_provider, cancel_timeline));
+  EXPECT_TRUE(HasFlushedIncrementalTraceEvents());
+  CancelIncrementalTraceEvents(cancel_data_provider, cancel_timeline);
+  EXPECT_FALSE(HasFlushedIncrementalTraceEvents());
+}
+
+TEST(TracePbEventParserIncrementalTest,
+     HasFlushedIncrementalTraceEventsStaysFalseOnSubsequentUnfilteredSession) {
+  IncrementalCacheCleanup cleanup_guard;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  DataProvider data_provider;
+
+  const absl::StatusOr<std::string> compressed =
+      CompressMultiEventFrame("unfiltered_refetch_op");
+  ASSERT_TRUE(compressed.ok());
+
+  ParseAndProcessCompressedTraceEvents(
+      reinterpret_cast<uintptr_t>(compressed->data()), compressed->size(),
+      std::nullopt, data_provider, timeline);
+  ASSERT_TRUE(data_provider.HasKnownTracks());
+  ASSERT_FALSE(HasCachedTraceEventsIncremental());
+
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  EXPECT_FALSE(HasFlushedIncrementalTraceEvents());
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(compressed->data()), compressed->size());
+  EXPECT_TRUE(StepIncrementalTraceEvents(/*max_events_per_step=*/5,
+                                         data_provider, timeline));
+  EXPECT_FALSE(HasFlushedIncrementalTraceEvents());
+  EXPECT_FALSE(StepIncrementalTraceEvents(/*max_events_per_step=*/20,
+                                          data_provider, timeline));
+  EXPECT_FALSE(HasFlushedIncrementalTraceEvents());
+  FinishIncrementalTraceEvents(data_provider, timeline);
+  EXPECT_FALSE(HasFlushedIncrementalTraceEvents());
+}
+
+TEST(TracePbEventParserIncrementalTest,
+     HasFlushedIncrementalTraceEventsStaysFalseOnFilteredUncachedSession) {
+  IncrementalCacheCleanup cleanup_guard;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  DataProvider data_provider;
+
+  const absl::StatusOr<std::string> compressed =
+      CompressMultiEventFrame("filtered_refetch_op");
+  ASSERT_TRUE(compressed.ok());
+
+  ParseAndProcessCompressedTraceEvents(
+      reinterpret_cast<uintptr_t>(compressed->data()), compressed->size(),
+      std::nullopt, data_provider, timeline);
+  ASSERT_TRUE(data_provider.HasKnownTracks());
+  ASSERT_FALSE(HasCachedTraceEventsIncremental());
+
+  BeginIncrementalTraceEvents(std::make_pair(0.0, 10.0), data_provider,
+                              timeline);
+  EXPECT_FALSE(HasFlushedIncrementalTraceEvents());
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(compressed->data()), compressed->size());
+  EXPECT_TRUE(StepIncrementalTraceEvents(/*max_events_per_step=*/5,
+                                         data_provider, timeline));
+  EXPECT_FALSE(HasFlushedIncrementalTraceEvents());
+  EXPECT_FALSE(StepIncrementalTraceEvents(/*max_events_per_step=*/20,
+                                          data_provider, timeline));
+  EXPECT_FALSE(HasFlushedIncrementalTraceEvents());
+  FinishIncrementalTraceEvents(data_provider, timeline);
+  EXPECT_FALSE(HasFlushedIncrementalTraceEvents());
+}
+
+TEST(TracePbEventParserIncrementalTest,
+     HasFlushedIncrementalTraceEventsStaysFalseOnCachedStoreReplay) {
+  IncrementalCacheCleanup cleanup_guard;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  DataProvider data_provider;
+
+  const absl::StatusOr<std::string> compressed =
+      CompressMultiEventFrame("cached_op");
+  ASSERT_TRUE(compressed.ok());
+
+  timeline.set_max_uncompacted_overview_entries_for_test(8);
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(compressed->data()), compressed->size());
+  EXPECT_FALSE(StepIncrementalTraceEvents(/*max_events_per_step=*/50,
+                                          data_provider, timeline));
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+  ASSERT_TRUE(HasCachedTraceEventsIncremental());
+  EXPECT_FALSE(HasFlushedIncrementalTraceEvents());
+
+  BeginIncrementalTraceEvents(std::make_pair(1.0, 8.0), data_provider,
+                              timeline);
+  EXPECT_FALSE(HasFlushedIncrementalTraceEvents());
+  EXPECT_TRUE(StepIncrementalTraceEvents(/*max_events_per_step=*/4,
+                                         data_provider, timeline));
+  EXPECT_FALSE(HasFlushedIncrementalTraceEvents());
+  EXPECT_FALSE(StepIncrementalTraceEvents(/*max_events_per_step=*/20,
+                                          data_provider, timeline));
+  EXPECT_FALSE(HasFlushedIncrementalTraceEvents());
+  FinishIncrementalTraceEvents(data_provider, timeline);
+  EXPECT_FALSE(HasFlushedIncrementalTraceEvents());
 }
 
 #ifdef __EMSCRIPTEN__

@@ -245,6 +245,9 @@ struct IncrementalParserSession {
   bool is_initial_load = true;
   bool mpmd_pipeline_view = false;
   bool appended_any_batch = false;
+  // Complete, async, and counter events (excluding process/thread metadata)
+  // unmarshaled so far, so metadata-only frames never flush an empty timeline.
+  size_t track_events_unmarshaled = 0;
   size_t frames_flushed = 0;
   bool in_finish_drain = false;
   tensorflow::profiler::ZstdDecompressorContext zstd_decompressor{
@@ -284,6 +287,7 @@ struct IncrementalParserSession {
     is_initial_load = true;
     mpmd_pipeline_view = false;
     appended_any_batch = false;
+    track_events_unmarshaled = 0;
     frames_flushed = 0;
     in_finish_drain = false;
     zstd_decompressor.ReleaseBuffer();
@@ -961,6 +965,10 @@ bool HasCachedTraceEventsIncremental() {
   return GetIncrementalSession().has_cached_trace_store;
 }
 
+bool HasFlushedIncrementalTraceEvents() {
+  return GetIncrementalSession().frames_flushed > 0;
+}
+
 void SetMaxCachedPackedBytesForTest(size_t max_bytes) {
   GetIncrementalSession().max_cached_packed_bytes = max_bytes;
 }
@@ -1173,6 +1181,7 @@ bool StepIncrementalTraceEvents(size_t max_events_per_step,
     }
   }
 
+  session.track_events_unmarshaled += events_unmarshaled;
   const bool has_batch_events = !batch.flame_events.empty() ||
                                 !batch.flow_events.empty() ||
                                 !batch.counter_events.empty();
@@ -1180,11 +1189,14 @@ bool StepIncrementalTraceEvents(size_t max_events_per_step,
     const bool at_frame_boundary =
         (session.active_response == nullptr ||
          session.next_pid_idx >= session.active_pids.size());
-    const bool flush_timeline = !session.in_finish_drain &&
-                                !session.filter_range_ps.has_value() &&
-                                at_frame_boundary &&
-                                (session.frames_flushed < 3 ||
-                                 session.pending_compressed_frames.empty());
+    // Metadata-only batches are still appended (deferred) so their process
+    // and thread names apply once the first track events flush.
+    const bool flush_timeline =
+        !session.in_finish_drain && session.is_initial_load &&
+        session.track_events_unmarshaled > 0 &&
+        !session.filter_range_ps.has_value() && at_frame_boundary &&
+        (session.frames_flushed < 3 ||
+         session.pending_compressed_frames.empty());
     batch.mpmd_pipeline_view = session.mpmd_pipeline_view;
     batch.full_timespan = session.full_timespan;
     batch.visible_range_from_url = session.visible_range_from_url;
@@ -1396,6 +1408,8 @@ EMSCRIPTEN_BINDINGS(trace_pb_event_parser) {
                            &traceviewer::BeginIncrementalTraceEvents));
   emscripten::function("hasCachedTraceEventsIncremental",
                        &traceviewer::HasCachedTraceEventsIncremental);
+  emscripten::function("hasFlushedIncrementalTraceEvents",
+                       &traceviewer::HasFlushedIncrementalTraceEvents);
   emscripten::function("shouldEnqueueCompressedFrameIncremental",
                        &traceviewer::ShouldEnqueueCompressedFrameIncremental);
   emscripten::function("appendCompressedTraceEventsIncremental",

@@ -14,13 +14,11 @@
       </div>
     </div>
   </ng-container>
-  <ng-container *ngIf="traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR">
-    <div *ngIf="isInitialLoading" class="loading-overlay">
-      <mat-progress-bar mode="indeterminate" aria-label="Loading trace data"></mat-progress-bar>
-      <div class="loading-status">{{traceViewerV2LoadingStatus}}</div>
-      <div class="tutorial">{{tutorials[currentTutorialIndex]}}</div>
-    </div>
-  </ng-container>
+  <div *ngIf="showLoadingOverlay" class="loading-overlay">
+    <mat-progress-bar mode="indeterminate" aria-label="Loading trace data"></mat-progress-bar>
+    <div class="loading-status">{{traceViewerV2LoadingStatus}}</div>
+    <div class="tutorial">{{tutorials[currentTutorialIndex]}}</div>
+  </div>
   <div #searchContainer class="search-container" role="toolbar" aria-label="Timeline toolbar">
     <mat-form-field
       appearance="outline"
@@ -181,11 +179,14 @@
     <div class="spacer"></div>
 
     <div
+      *ngIf="isStreamingData"
       class="incremental-loading"
+      [matTooltip]="loadingStatusText"
       role="status"
-      *ngIf="!isInitialLoading && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR">
+      aria-live="polite"
+      [attr.aria-label]="loadingStatusText">
       <mat-progress-spinner mode="indeterminate" diameter="14" strokeWidth="2" aria-hidden="true"></mat-progress-spinner>
-      <span class="loading-status">Loading more data…</span>
+      <span class="loading-status">{{loadingStatusText}}</span>
     </div>
 
     <trace-viewer-customization-panel></trace-viewer-customization-panel>

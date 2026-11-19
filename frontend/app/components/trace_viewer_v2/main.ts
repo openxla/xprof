@@ -189,7 +189,55 @@ export enum TraceViewerV2LoadingStatus {
   INITIALIZING = 'Initializing',
   LOADING_DATA = 'Loading data',
   PROCESSING_DATA = 'Processing data',
+  STREAMING_DATA = 'Loading more data…',
   ERROR = 'Error',
+}
+
+/**
+ * Detail of the `loadingstatusupdate` custom event.
+ *
+ * When `status` is `ERROR`, `message` carries the failure details shown in the
+ * error state. When `status` is `STREAMING_DATA`, `message` provides optional
+ * custom toolbar status text overriding the enum's default label.
+ */
+export declare interface LoadingStatusUpdateEventDetail {
+  status: TraceViewerV2LoadingStatus;
+  message?: string;
+}
+
+/** Type guard for the `loadingstatusupdate` custom event. */
+export function isLoadingStatusUpdateEvent(
+  event: Event,
+): event is CustomEvent<LoadingStatusUpdateEventDetail> {
+  if (!(event instanceof CustomEvent)) return false;
+  const detail: unknown = event.detail;
+  if (typeof detail !== 'object' || detail === null) return false;
+  if (!('status' in detail)) return false;
+  const status: unknown = detail.status;
+  const message: unknown = 'message' in detail ? detail.message : undefined;
+  return (
+    Object.values(TraceViewerV2LoadingStatus).some(
+      (validStatus) => validStatus === status,
+    ) &&
+    (message === undefined || typeof message === 'string')
+  );
+}
+
+function dispatchLoadingStatus(
+  status: TraceViewerV2LoadingStatus,
+  options?: Omit<LoadingStatusUpdateEventDetail, 'status'>,
+): void {
+  window.dispatchEvent(
+    new CustomEvent<LoadingStatusUpdateEventDetail>(
+      LOADING_STATUS_UPDATE_EVENT_NAME,
+      {
+        detail: {
+          status,
+          ...options,
+        },
+      },
+    ),
+  );
 }
 
 declare function loadWasmTraceViewerModule(
@@ -310,6 +358,7 @@ declare global {
   ): void;
   beginIncrementalTraceEvents?(timeRangeFromUrl?: [number, number]): void;
   hasCachedTraceEventsIncremental?(): boolean;
+  hasFlushedIncrementalTraceEvents?(): boolean;
   shouldEnqueueCompressedFrameIncremental?(): boolean;
   appendCompressedTraceEventsIncremental?(
     dataPtr: number,
@@ -770,14 +819,7 @@ function setupFileInputHandler(
 function dispatchErrorStatus(msg: string, error: unknown) {
   console.error(msg, error);
 
-  window.dispatchEvent(
-    new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-      detail: {
-        status: TraceViewerV2LoadingStatus.ERROR,
-        message: msg,
-      },
-    }),
-  );
+  dispatchLoadingStatus(TraceViewerV2LoadingStatus.ERROR, {message: msg});
 }
 
 function hasGzipMagicNumber(data: Uint8Array): boolean {
@@ -1184,6 +1226,10 @@ function isFetchDataEvent(
 
 const INCREMENTAL_EVENTS_PER_STEP = 131072;
 
+// Minimum byte size for a compressed frame to carry track events; smaller frames
+// are XCHN header/timespan metadata only.
+const MIN_EVENT_FRAME_BYTES = 256;
+
 declare interface IncrementalTraceViewerModule extends TraceViewerV2Module {
   beginIncrementalTraceEvents(timeRangeFromUrl?: [number, number]): void;
   appendCompressedTraceEventsIncremental(
@@ -1400,6 +1446,9 @@ async function fetchAndProcessCompressedTraceDataIncremental({
       pendingFrames.push(...cachedFullTraceFrames);
       streamFinished = true;
     } else {
+      if (isRefetch) {
+        dispatchLoadingStatus(TraceViewerV2LoadingStatus.STREAMING_DATA);
+      }
       streamPromise = streamCompressedTraceFrames({
         urlObj,
         cacheKey,
@@ -1462,18 +1511,11 @@ async function fetchAndProcessCompressedTraceDataIncremental({
       return false;
     }
 
-    if (!canReplayFromCache) {
-      window.dispatchEvent(
-        new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-          detail: {status: TraceViewerV2LoadingStatus.PROCESSING_DATA},
-        }),
-      );
-
-      // Yield to the event loop so the UI can display 'Processing data' before
-      // starting the incremental processing pipeline.
-      await new Promise((resolve) => {
-        setTimeout(resolve, 0);
-      });
+    if (!canReplayFromCache && !isRefetch) {
+      dispatchLoadingStatus(TraceViewerV2LoadingStatus.PROCESSING_DATA);
+      // Yield to the event loop so the UI can display `'Processing data'`
+      // before starting the incremental processing pipeline.
+      await yieldToEventLoop();
     }
 
     if (isAborted()) {
@@ -1488,8 +1530,8 @@ async function fetchAndProcessCompressedTraceDataIncremental({
 
     let hasMoreInWasm = false;
     let firstSliceYielded = false;
-    let enqueuedEventFrames = 0;
-    let initialOverlayDismissed = isRefetch;
+    let hasEnqueuedEventFrame = false;
+    let hasDispatchedStreamingStatus = isRefetch || canReplayFromCache;
 
     const enqueueNextPendingFrameIntoWasm = () => {
       const maxFramesToEnqueue = canReplayFromCache
@@ -1521,12 +1563,15 @@ async function fetchAndProcessCompressedTraceDataIncremental({
             dataPtr,
             frame.byteLength,
           );
-          // Header-only frames (timespan metadata only, < 256 bytes) do not
-          // contain track events and should not consume the initial frame slot
-          // unless it is the only remaining frame.
-          if (frame.byteLength >= 256 || pendingFrames.length === 0) {
+          // Header-only frames (timespan metadata only, < MIN_EVENT_FRAME_BYTES)
+          // do not contain track events and should not consume the initial
+          // frame slot unless the stream has finished with no other frames pending.
+          if (
+            frame.byteLength >= MIN_EVENT_FRAME_BYTES ||
+            (pendingFrames.length === 0 && streamFinished)
+          ) {
             enqueued++;
-            enqueuedEventFrames++;
+            hasEnqueuedEventFrame = true;
           }
         } finally {
           if (dataPtr !== undefined && dataPtr !== 0) {
@@ -1548,22 +1593,24 @@ async function fetchAndProcessCompressedTraceDataIncremental({
         ? INCREMENTAL_EVENTS_PER_STEP
         : INCREMENTAL_EVENTS_PER_STEP * 2;
       hasMoreInWasm = traceviewerModule.stepIncrementalTraceEvents(stepBudget);
-      if (enqueuedEventFrames > 0) {
+      // TODO: Remove the `: hasEnqueuedEventFrame` fallback branch once all
+      // WASM module mocks and builds implement
+      // `hasFlushedIncrementalTraceEvents` (`hasEnqueuedEventFrame` itself
+      // remains needed for `isRefetch` frame-batch ramp-up below).
+      const hasFlushedFirstFrame =
+        typeof traceviewerModule.hasFlushedIncrementalTraceEvents === 'function'
+          ? traceviewerModule.hasFlushedIncrementalTraceEvents()
+          : hasEnqueuedEventFrame;
+      if (hasFlushedFirstFrame || (isRefetch && hasEnqueuedEventFrame)) {
         firstSliceYielded = true;
-        if (
-          !initialOverlayDismissed &&
-          (hasMoreInWasm || pendingFrames.length > 0)
-        ) {
-          initialOverlayDismissed = true;
-          // Transition out of initial full-screen loading overlay once the first
-          // event slice is flushed to the canvas; keep toolbar spinner active if
-          // additional frames are still streaming.
-          window.dispatchEvent(
-            new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-              detail: {status: TraceViewerV2LoadingStatus.IDLE},
-            }),
-          );
-        }
+      }
+      if (
+        hasFlushedFirstFrame &&
+        !hasDispatchedStreamingStatus &&
+        (hasMoreInWasm || pendingFrames.length > 0 || !streamFinished)
+      ) {
+        hasDispatchedStreamingStatus = true;
+        dispatchLoadingStatus(TraceViewerV2LoadingStatus.STREAMING_DATA);
       }
       if (hasMoreInWasm || pendingFrames.length > 0) {
         await yieldBetweenSlices();
@@ -1624,6 +1671,16 @@ async function fetchAndProcessCompressedTraceDataIncremental({
 }
 
 /**
+ * Yields once to the browser event loop so pending loading status updates can
+ * render before synchronous or incremental WASM parsing begins.
+ */
+async function yieldToEventLoop(): Promise<void> {
+  await new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
+
+/**
  * Fetches and processes trace data (either .pb or .json) from the given URL.
  * Handles status dispatches, yielding to event loop, and latency measurement.
  * Returns `false` if the load was aborted, superseded, or failed, and `true`
@@ -1655,11 +1712,7 @@ async function fetchAndProcessTraceData({
   onFullTraceLoaded?: () => void;
 }): Promise<boolean> {
   if (!isRefetch) {
-    window.dispatchEvent(
-      new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-        detail: {status: TraceViewerV2LoadingStatus.LOADING_DATA},
-      }),
-    );
+    dispatchLoadingStatus(TraceViewerV2LoadingStatus.LOADING_DATA);
   }
 
   if (isRefetch || !urlObj.searchParams.has(TRACE_VIEW_OPTION.RESOLUTION)) {
@@ -1705,24 +1758,23 @@ async function fetchAndProcessTraceData({
           onFullTraceLoaded?.();
         }
       } else {
+        if (isRefetch) {
+          dispatchLoadingStatus(TraceViewerV2LoadingStatus.STREAMING_DATA);
+        }
         const buffer = await loadCompressedTraceDataInternal(
           urlObj.toString(),
           fetchData,
         );
         if (isAbortRequested()) return false;
 
-        window.dispatchEvent(
-          new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-            detail: {status: TraceViewerV2LoadingStatus.PROCESSING_DATA},
-          }),
-        );
-
-        // Yield to the event loop to allow the UI to re-render and display
-        // the 'Processing data' status before the potentially long-running
-        // processCompressedTraceEvents call.
-        await new Promise((resolve) => {
-          setTimeout(resolve, 0);
-        });
+        if (!isRefetch) {
+          dispatchLoadingStatus(TraceViewerV2LoadingStatus.PROCESSING_DATA);
+        }
+        // Yield once so the UI can paint `'Processing data'` (initial load) or
+        // the pre-dispatched `'Loading more data…'` spinner (refetch, e.g. if
+        // `fetch` resolved quickly or synchronously) before synchronous WASM
+        // parsing runs.
+        await yieldToEventLoop();
 
         if (isAbortRequested()) return false;
 
@@ -1747,33 +1799,28 @@ async function fetchAndProcessTraceData({
         }
       }
     } else {
+      if (isRefetch) {
+        dispatchLoadingStatus(TraceViewerV2LoadingStatus.STREAMING_DATA);
+      }
       const jsonData = await loadJsonDataInternal(urlObj.toString(), fetchData);
       if (isAbortRequested()) return false;
 
       if (!isTraceData(jsonData)) {
         console.error('File does not contain valid trace events.');
-        window.dispatchEvent(
-          new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-            detail: {status: TraceViewerV2LoadingStatus.IDLE},
-          }),
-        );
+        dispatchLoadingStatus(TraceViewerV2LoadingStatus.IDLE);
         return true;
       }
 
       maybeDispatchDetailsReceivedEvent(jsonData);
 
-      window.dispatchEvent(
-        new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-          detail: {status: TraceViewerV2LoadingStatus.PROCESSING_DATA},
-        }),
-      );
-
-      // Yield to the event loop to allow the UI to re-render and display
-      // the 'Processing data' status before the potentially long-running
-      // processTraceEvents call.
-      await new Promise((resolve) => {
-        setTimeout(resolve, 0);
-      });
+      if (!isRefetch) {
+        dispatchLoadingStatus(TraceViewerV2LoadingStatus.PROCESSING_DATA);
+      }
+      // Yield once so the UI can paint `'Processing data'` (initial load) or
+      // the pre-dispatched `'Loading more data…'` spinner (refetch, e.g. if
+      // `fetch` resolved quickly or synchronously) before synchronous WASM
+      // parsing runs.
+      await yieldToEventLoop();
 
       if (isAbortRequested()) return false;
 
@@ -1798,34 +1845,21 @@ async function fetchAndProcessTraceData({
       ? traceviewerModule.HEAPU8.length
       : 0;
 
-    window.dispatchEvent(
-      new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-        detail: {status: TraceViewerV2LoadingStatus.IDLE},
-      }),
-    );
+    dispatchLoadingStatus(TraceViewerV2LoadingStatus.IDLE);
     return true;
   } catch (e) {
     if (isAbortRequested()) {
       return false;
     }
     if (isAbortError(e)) {
-      window.dispatchEvent(
-        new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-          detail: {status: TraceViewerV2LoadingStatus.IDLE},
-        }),
-      );
+      dispatchLoadingStatus(TraceViewerV2LoadingStatus.IDLE);
       return false;
     }
     console.error(`Error ${errorContext}:`, e);
     const errorMessage = e instanceof Error ? e.message : String(e);
-    window.dispatchEvent(
-      new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-        detail: {
-          status: TraceViewerV2LoadingStatus.ERROR,
-          message: errorMessage,
-        },
-      }),
-    );
+    dispatchLoadingStatus(TraceViewerV2LoadingStatus.ERROR, {
+      message: errorMessage,
+    });
     return true;
   }
 }
@@ -1956,14 +1990,9 @@ export async function traceViewerV2Main(
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e);
     console.error('Application Initialization Failed:', e);
-    window.dispatchEvent(
-      new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-        detail: {
-          status: TraceViewerV2LoadingStatus.ERROR,
-          message: errorMessage,
-        },
-      }),
-    );
+    dispatchLoadingStatus(TraceViewerV2LoadingStatus.ERROR, {
+      message: errorMessage,
+    });
     return null;
   }
 
@@ -2046,14 +2075,9 @@ export async function traceViewerV2Main(
         } catch (e) {
           console.error('Invalid URL:', url, e);
           const errorMessage = (e as Error).message;
-          window.dispatchEvent(
-            new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-              detail: {
-                status: TraceViewerV2LoadingStatus.ERROR,
-                message: errorMessage,
-              },
-            }),
-          );
+          dispatchLoadingStatus(TraceViewerV2LoadingStatus.ERROR, {
+            message: errorMessage,
+          });
           return;
         }
 

@@ -105,6 +105,15 @@ bool ShouldEnqueueCompressedFrameIncremental();
 // directly without re-streaming or re-decompressing compressed frames.
 bool HasCachedTraceEventsIncremental();
 
+// Returns true only during an active initial incremental load once at least
+// one batch containing track events (not only process/thread metadata) has
+// flushed to `timeline`. Remains false when no session is
+// active and across all subsequent sessions (both range-filtered and
+// unfiltered refetches as well as cached-store replays), and resets to false
+// on BeginIncrementalTraceEvents(), FinishIncrementalTraceEvents(), and
+// CancelIncrementalTraceEvents().
+bool HasFlushedIncrementalTraceEvents();
+
 void SetMaxCachedPackedBytesForTest(size_t max_bytes);
 
 size_t GetZstdDecompressorCapacityForTest();

@@ -57,8 +57,10 @@ import {
 import {formatTimeUs, splitTimeUs} from './trace_viewer_utils';
 
 import {
+  isLoadingStatusUpdateEvent,
   isSearchEventsEvent,
   LOADING_STATUS_UPDATE_EVENT_NAME,
+  type LoadingStatusUpdateEventDetail,
   SEARCH_EVENTS_EVENT_NAME,
   SearchEventsEventDetail,
   TraceViewerV2LoadingStatus,
@@ -364,26 +366,6 @@ const TUTORIALS = Object.freeze([
 // The interval at which to rotate the tutorials.
 const TUTORIAL_ROTATION_INTERVAL_MS = 3_000;
 
-/**
- * The detail of a 'LoadingStatusUpdate' custom event.
- */
-declare interface LoadingStatusUpdateEventDetail {
-  status: TraceViewerV2LoadingStatus;
-  message?: string;
-}
-
-// Type guard for the 'LoadingStatusUpdate' custom event.
-function isLoadingStatusUpdateEvent(
-  event: Event,
-): event is CustomEvent<LoadingStatusUpdateEventDetail> {
-  return (
-    event instanceof CustomEvent &&
-    event.detail &&
-    event.detail.status &&
-    Object.values(TraceViewerV2LoadingStatus).includes(event.detail.status)
-  );
-}
-
 declare interface TrackView extends Element {
   onEndPanScan_(event: Event): void;
   onEndSelection_(event: Event): void;
@@ -493,7 +475,6 @@ export class TraceViewerContainer
   hoveredEventMouseX = 0;
   hoveredEventMouseY = 0;
 
-  isInitialLoading = true;
   @Input() eventDetailColumns: string[] = [];
   @Input() selectionStartFormat?: string;
   @Input() selectionExtentFormat?: string;
@@ -912,7 +893,37 @@ export class TraceViewerContainer
   readonly TraceViewerV2LoadingStatus = TraceViewerV2LoadingStatus;
   traceViewerV2LoadingStatus: TraceViewerV2LoadingStatus =
     TraceViewerV2LoadingStatus.IDLE;
+  private traceViewerV2LoadingMessage?: string;
   traceViewerV2ErrorMessage?: string;
+
+  /** Returns whether post-first-frame progressive or refetch streaming is active. */
+  get isStreamingData(): boolean {
+    return (
+      this.traceViewerV2LoadingStatus ===
+      TraceViewerV2LoadingStatus.STREAMING_DATA
+    );
+  }
+
+  /** Whether the blocking full-screen loading overlay should be shown. */
+  get showLoadingOverlay(): boolean {
+    return (
+      this.traceViewerV2LoadingStatus ===
+        TraceViewerV2LoadingStatus.INITIALIZING ||
+      this.traceViewerV2LoadingStatus ===
+        TraceViewerV2LoadingStatus.LOADING_DATA ||
+      this.traceViewerV2LoadingStatus ===
+        TraceViewerV2LoadingStatus.PROCESSING_DATA
+    );
+  }
+
+  /** Returns the human-readable loading status displayed in the toolbar pill. */
+  get loadingStatusText(): string {
+    if (!this.isStreamingData) {
+      return '';
+    }
+    return this.traceViewerV2LoadingMessage || this.traceViewerV2LoadingStatus;
+  }
+
   readonly MouseMode = MouseMode;
   currentMouseMode = MouseMode.PAN;
 
@@ -1269,13 +1280,8 @@ export class TraceViewerContainer
       return;
     }
 
-    this.updateLoadingStatus(event.detail.status);
-
-    if (event.detail.status !== TraceViewerV2LoadingStatus.ERROR) {
-      this.traceViewerV2ErrorMessage = undefined;
-    } else {
-      this.traceViewerV2ErrorMessage = event.detail.message;
-    }
+    this.updateLoadingStatus(event.detail);
+    this.cdRef.markForCheck();
   };
 
   private readonly mouseModeChangedEventListener = (e: Event) => {
@@ -1370,29 +1376,34 @@ export class TraceViewerContainer
   }
 
   /**
-   * Updates the loading status and starts/stops the tutorial rotation
-   * accordingly.
-   *
-   * If the status changes to IDLE or ERROR, the tutorial rotation is stopped.
-   * Otherwise (e.g., INITIALIZING, LOADING_DATA), the tutorial rotation is
-   * started to provide user feedback.
+   * Updates the current loading status and optional status or error message,
+   * toggling tutorial rotation while the blocking `.loading-overlay` is shown.
    */
-  private updateLoadingStatus(status: TraceViewerV2LoadingStatus) {
-    if (this.traceViewerV2LoadingStatus === status) {
+  private updateLoadingStatus({
+    status,
+    message,
+  }: LoadingStatusUpdateEventDetail) {
+    const nextLoadingMessage =
+      status === TraceViewerV2LoadingStatus.STREAMING_DATA
+        ? message
+        : undefined;
+    const nextErrorMessage =
+      status === TraceViewerV2LoadingStatus.ERROR ? message : undefined;
+    if (
+      this.traceViewerV2LoadingStatus === status &&
+      this.traceViewerV2LoadingMessage === nextLoadingMessage &&
+      this.traceViewerV2ErrorMessage === nextErrorMessage
+    ) {
       return;
     }
     this.traceViewerV2LoadingStatus = status;
+    this.traceViewerV2LoadingMessage = nextLoadingMessage;
+    this.traceViewerV2ErrorMessage = nextErrorMessage;
 
-    if (
-      this.traceViewerV2LoadingStatus === TraceViewerV2LoadingStatus.IDLE ||
-      this.traceViewerV2LoadingStatus === TraceViewerV2LoadingStatus.ERROR
-    ) {
-      // Stop the tutorial rotation when loading is finished or failed.
-      this.stopTutorialRotation();
-      this.isInitialLoading = false;
-    } else {
-      // Start the tutorial rotation when loading is in progress.
+    if (this.showLoadingOverlay) {
       this.startTutorialRotation();
+    } else {
+      this.stopTutorialRotation();
     }
   }
 
@@ -1401,12 +1412,7 @@ export class TraceViewerContainer
   }
 
   /**
-   * Starts the tutorial rotation.
-   *
-   * This method initializes the `tutorialSubscription` to rotate through
-   * tutorials at a set interval. It ensures only one subscription is active at
-   * a time. The subscription lifecycle is managed here and will be terminated
-   * when `stopTutorialRotation` is called or when the component is destroyed.
+   * Starts the tutorial rotation while the initial loading overlay is shown.
    */
   private startTutorialRotation() {
     if (this.tutorialSubscription) return;
@@ -1416,15 +1422,11 @@ export class TraceViewerContainer
       .subscribe(() => {
         this.currentTutorialIndex =
           (this.currentTutorialIndex + 1) % this.tutorials.length;
+        this.cdRef.markForCheck();
       });
   }
 
-  /**
-   * Stops the tutorial rotation.
-   *
-   * This method unsubscribes from the `tutorialSubscription` and clears the
-   * reference, stopping the interval timer.
-   */
+  /** Stops the tutorial rotation and clears the active subscription. */
   private stopTutorialRotation() {
     if (this.tutorialSubscription) {
       this.tutorialSubscription.unsubscribe();

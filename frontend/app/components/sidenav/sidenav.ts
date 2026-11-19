@@ -6,7 +6,7 @@ import {
   OnInit,
 } from '@angular/core';
 import {MatCheckboxChange} from '@angular/material/checkbox';
-import {ActivatedRouteSnapshot, NavigationEnd, Router} from '@angular/router';
+import {ActivatedRouteSnapshot, NavigationEnd, Params, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {
   DEFAULT_HOST,
@@ -34,6 +34,16 @@ import {
 } from 'org_xprof/frontend/app/store/selectors';
 import {firstValueFrom, Observable, ReplaySubject} from 'rxjs';
 import {defaultIfEmpty, filter, takeUntil} from 'rxjs/operators';
+
+function normalizeRouteParamValue(
+  key: string,
+  value: string | string[],
+): string {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+  return key === 'hosts' ? value.join(',') : (value[value.length - 1] ?? '');
+}
 
 /** Extracts query parameters from window.parent location search. */
 export function getParentLocationParams(): Map<string, string> {
@@ -71,25 +81,28 @@ export interface NavigationParamsRecord {
 
 /** Normalizes navigation parameters and aliases. */
 export function parseNavigationParams(
-  params: ReadonlyMap<string, string>,
+  params: ReadonlyMap<string, string | string[]>,
 ): NavigationParamsRecord {
-  const rawTag = params.get('tag') ?? params.get('tool') ?? '';
+  const getParam = (key: string): string | undefined => {
+    const value = params.get(key);
+    return value === undefined
+      ? undefined
+      : normalizeRouteParamValue(key, value);
+  };
+  const rawTag = getParam('tag') ?? getParam('tool') ?? '';
   return {
     run:
-      params.get('run') ??
-      params.get('session_id') ??
-      params.get('sessionId') ??
-      '',
+      getParam('run') ?? getParam('session_id') ?? getParam('sessionId') ?? '',
     tag: rawTag === 'kernel_utilization' ? 'utilization_viewer' : rawTag,
-    host: params.get('host') ?? '',
-    hosts: params.get('hosts') ?? '',
-    sessionPath: params.get('session_path') ?? params.get('sessionPath') ?? '',
-    runPath: params.get('run_path') ?? params.get('runPath') ?? '',
+    host: getParam('host') ?? '',
+    hosts: getParam('hosts') ?? '',
+    sessionPath: getParam('session_path') ?? getParam('sessionPath') ?? '',
+    runPath: getParam('run_path') ?? getParam('runPath') ?? '',
     baseSessionId:
-      params.get('base_session_id') ?? params.get('baseSessionId') ?? '',
-    label: params.get('label') ?? '',
-    opName: params.get('opName') ?? params.get('node_name') ?? '',
-    moduleName: params.get('moduleName') ?? params.get('module_name') ?? '',
+      getParam('base_session_id') ?? getParam('baseSessionId') ?? '',
+    label: getParam('label') ?? '',
+    opName: getParam('opName') ?? getParam('node_name') ?? '',
+    moduleName: getParam('moduleName') ?? getParam('module_name') ?? '',
   };
 }
 
@@ -279,12 +292,15 @@ export class SideNav implements OnInit, OnDestroy {
       if (!route) continue;
       if (route.queryParams) {
         for (const key of Object.keys(route.queryParams)) {
-          params.set(key, route.queryParams[key]);
+          params.set(
+            key,
+            normalizeRouteParamValue(key, route.queryParams[key]),
+          );
         }
       }
       if (route.params) {
         for (const key of Object.keys(route.params)) {
-          params.set(key, route.params[key]);
+          params.set(key, normalizeRouteParamValue(key, route.params[key]));
         }
       }
       stack.push(...route.children);
@@ -930,8 +946,11 @@ export class SideNav implements OnInit, OnDestroy {
       });
     } else {
       this.updateUrlHistory(replaceUrl);
+      const queryParams: Params = Array.isArray(navigationEvent.hosts)
+        ? {...navigationEvent, 'hosts': navigationEvent.hosts.join(',')}
+        : {...navigationEvent};
       this.router.navigate([this.selectedTag || 'empty'], {
-        queryParams: navigationEvent,
+        queryParams,
         replaceUrl,
       });
     }

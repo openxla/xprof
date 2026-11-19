@@ -154,22 +154,26 @@ def test_cross_run_switch_from_exclusive_tool(
 
 
 def _navigate_three_tools_and_step_back(
-    page: Page, open_tool: Callable[..., str]
+    page: Page,
+    open_tool: Callable[..., str],
+    middle_tool: str = "Roofline Model",
+    middle_selector: str = "roofline-model",
 ) -> None:
-  """Navigates Overview -> Roofline -> Memory Profile, then steps back once."""
+  """Navigates Overview -> middle_tool -> Memory Profile, then steps back."""
   overview_card = page.locator(
       "overview-page mat-card, overview-viewer mat-card"
   ).first
+  middle_view = page.locator(middle_selector).first
   tools_select = page.locator(
       "sidenav .item-container:has-text('Tools') mat-select"
   )
   open_tool("tpu-training", "overview_page")
   expect(overview_card).to_be_visible(timeout=20000)
 
-  switch_tool(page, "Roofline Model")
-  expect(page.locator("roofline-model")).to_be_visible(timeout=20000)
+  switch_tool(page, middle_tool)
+  expect(middle_view).to_be_visible(timeout=20000)
   expect(page).to_have_url(
-      settled_tool_url_pattern("Roofline Model"), timeout=20000
+      settled_tool_url_pattern(middle_tool), timeout=20000
   )
 
   switch_tool(page, "Memory Profile")
@@ -182,10 +186,10 @@ def _navigate_three_tools_and_step_back(
 
   page.go_back(wait_until="domcontentloaded")
   expect(page).to_have_url(
-      settled_tool_url_pattern("Roofline Model"), timeout=20000
+      settled_tool_url_pattern(middle_tool), timeout=20000
   )
-  expect(tools_select).to_contain_text("Roofline Model")
-  expect(page.locator("roofline-model")).to_be_visible(timeout=20000)
+  expect(tools_select).to_contain_text(middle_tool)
+  expect(middle_view).to_be_visible(timeout=20000)
 
 
 def test_browser_back_navigation(
@@ -231,3 +235,19 @@ def test_browser_forward_navigation(
       timeout=20000
   )
   assert_healthy(page, browser_errors, "browser_forward_navigation")
+
+
+def test_trace_viewer_navigation_preserves_browser_history(
+    page: Page,
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+) -> None:
+  """Verifies Trace Viewer navigation preserves browser history on back."""
+  _navigate_three_tools_and_step_back(
+      page,
+      open_tool,
+      middle_tool="Trace Viewer",
+      middle_selector="trace-viewer, iframe, #filter-bar, .filter-bar",
+  )
+  assert_healthy(page, browser_errors, "trace_viewer_browser_back_navigation")
+

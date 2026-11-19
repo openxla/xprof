@@ -48,7 +48,6 @@ KNOWN_UPSTREAM_BUGS = [
     "favicon.ico",
     "gstatic.com",
     "Cannot set properties of null",  # Standalone iframe reload bug
-    "split is not a function",  # Thrown by the app when Trace Viewer opens
     "net::ERR_CONNECTION_REFUSED",
 ]
 

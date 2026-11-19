@@ -72,6 +72,10 @@ RUN_ENVIRONMENT_KEYS = frozenset({
 # captured or not reduced, or when the device was nearly idle.
 _ABSENT_COUNTER_VALUES = ("0.0%", "0%", "0.0", 0, 0.0)
 _UNKNOWN_COUNTER_VALUE = "unknown"
+# Overview property that tells if the MXU counter value is missing. The
+# overview page writes it as "true" or "false" only when the producer checked
+# the counters. Older sessions and other producers do not write it.
+_HARDWARE_UNAVAILABLE_KEY = "hardware_utilization_unavailable"
 _MXU_UNAVAILABLE_REASON = (
     "Hardware performance counters were not captured or not reduced, or the"
     " device was nearly idle, so the MXU utilization is unknown. Do not report"
@@ -151,8 +155,10 @@ def _mxu_unavailable_status(*, device_type: str | None) -> dict[str, str]:
 def _hardware_counters_absent(*, mxu_util: Any, hbm_counter_util: Any) -> bool:
   """Returns True if the overview values show that no counters were captured.
 
-  A measured MXU value is never hidden. An "unknown" HBM value counts as
-  absent, the same as a missing or zero value.
+  This is the fallback rule for overview data without the
+  `hardware_utilization_unavailable` property. A measured MXU value is never
+  hidden. An "unknown" HBM value counts as absent, the same as a missing or
+  zero value.
 
   Args:
     mxu_util: The `mxu_utilization_percent` value from the overview page.
@@ -167,26 +173,72 @@ def _hardware_counters_absent(*, mxu_util: Any, hbm_counter_util: Any) -> bool:
   )
 
 
+def _parse_hardware_unavailable(value: Any) -> bool | None:
+  """Returns the `hardware_utilization_unavailable` property as a bool.
+
+  Args:
+    value: The property value from the overview page, or None if the property is
+      missing.
+
+  Returns:
+    True for "true", False for "false" (case-insensitive), or None for a
+    missing or unrecognized value. None means that the producer did not check
+    the counters.
+  """
+  if value is None:
+    return None
+  return {"true": True, "false": False}.get(str(value).strip().lower())
+
+
+def _mxu_counters_unavailable(
+    *, mxu_util: Any, hbm_counter_util: Any, hardware_unavailable: Any
+) -> bool:
+  """Returns True if the MXU counter value is missing.
+
+  A "true" or "false" `hardware_unavailable` value decides. When the value is
+  missing or unrecognized, `_hardware_counters_absent` decides.
+
+  Args:
+    mxu_util: The `mxu_utilization_percent` value from the overview page.
+    hbm_counter_util: The `hbm_utilization_percent` value from the overview
+      page. This is the hardware counter value, not the roofline estimate.
+    hardware_unavailable: The `hardware_utilization_unavailable` value from the
+      overview page, or None if the overview page does not have it.
+  """
+  parsed_flag = _parse_hardware_unavailable(hardware_unavailable)
+  if parsed_flag is not None:
+    return parsed_flag
+  return _hardware_counters_absent(
+      mxu_util=mxu_util, hbm_counter_util=hbm_counter_util
+  )
+
+
 def _mark_mxu_unavailable_if_no_counters(
     performance_summary: MutableMapping[str, Any],
     *,
     hbm_counter_util: Any,
+    hardware_unavailable: Any,
     device_type: str | None,
 ) -> None:
   """Marks the MXU value as unavailable when no counters were captured.
 
-  If `is_gpu_device_type(device_type)` is True, or if
-  `_hardware_counters_absent` returns True for the MXU value in
-  `performance_summary` and `hbm_counter_util`, this function changes
-  `performance_summary` in place: it sets `mxu_utilization_percent` to None
-  and adds `mxu_utilization_status` (a dict with `status`, `reason` and
-  `how_to_get`). Otherwise, it does not change `performance_summary`.
+  If `is_gpu_device_type(device_type)` is True, the status is
+  "not_applicable". Otherwise, the `hardware_unavailable` flag decides when it
+  is "true" or "false". When the flag is missing, `_hardware_counters_absent`
+  decides from the MXU value in `performance_summary` and `hbm_counter_util`.
+  An "unknown" MXU value is always unavailable. If the MXU value is
+  unavailable, this function changes `performance_summary` in place: it sets
+  `mxu_utilization_percent` to None and adds `mxu_utilization_status` (a dict
+  with `status`, `reason` and `how_to_get`). Otherwise, it does not change
+  `performance_summary`.
 
   Args:
     performance_summary: The performance summary to update. It can contain the
       `mxu_utilization_percent` value from the overview page.
     hbm_counter_util: The `hbm_utilization_percent` value from the overview
       page. This is the hardware counter value, not the roofline estimate.
+    hardware_unavailable: The `hardware_utilization_unavailable` value from the
+      overview page, or None if the overview page does not have it.
     device_type: The `device_type` value from the overview page. On a GPU, the
       MXU utilization does not apply, so the status is "not_applicable".
   """
@@ -196,10 +248,14 @@ def _mark_mxu_unavailable_if_no_counters(
         _MXU_NOT_APPLICABLE_ON_GPU_STATUS
     )
     return
-  if _hardware_counters_absent(
-      mxu_util=performance_summary.get("mxu_utilization_percent"),
+  mxu_util = performance_summary.get("mxu_utilization_percent")
+  unavailable = _mxu_counters_unavailable(
+      mxu_util=mxu_util,
       hbm_counter_util=hbm_counter_util,
-  ):
+      hardware_unavailable=hardware_unavailable,
+  )
+  # An "unknown" MXU value is not a number, even if the flag is "false".
+  if unavailable or mxu_util == _UNKNOWN_COUNTER_VALUE:
     performance_summary["mxu_utilization_percent"] = None
     performance_summary["mxu_utilization_status"] = _mxu_unavailable_status(
         device_type=device_type
@@ -722,6 +778,7 @@ def get_overview(
     _mark_mxu_unavailable_if_no_counters(
         performance_summary,
         hbm_counter_util=all_p_dict.get("hbm_utilization_percent"),
+        hardware_unavailable=all_p_dict.get(_HARDWARE_UNAVAILABLE_KEY),
         device_type=all_p_dict.get("device_type"),
     )
     _populate_roofline_fallback(client, session_id, performance_summary)

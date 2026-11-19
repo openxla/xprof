@@ -8,6 +8,14 @@ from xprof.cli.internal.oss import xprof_client
 from xprof.cli.tools import get_overview_tool
 from xprof.protobuf import op_stats_pb2
 
+# MXU and HBM overview values for the tests where the overview page reports
+# hardware_utilization_unavailable="true".
+_FLAG_TRUE_CASES = (
+    dict(testcase_name="both_zero", mxu="0.0%", hbm="0.0%"),
+    dict(testcase_name="measured_mxu", mxu="41.0%", hbm="35.2%"),
+    dict(testcase_name="keys_missing", mxu=None, hbm=None),
+)
+
 
 class GetOverviewToolTest(parameterized.TestCase):
 
@@ -41,6 +49,7 @@ class GetOverviewToolTest(parameterized.TestCase):
       mxu: str | float | None,
       hbm: str | float | None,
       device_type: str = "TPU v4",
+      hardware_unavailable: str | None = None,
   ) -> None:
     """Makes every fetch return one overview section with MXU and HBM values.
 
@@ -50,6 +59,8 @@ class GetOverviewToolTest(parameterized.TestCase):
       hbm: The `hbm_utilization_percent` property value. If None, the property
         is left out.
       device_type: The `device_type` property value.
+      hardware_unavailable: The `hardware_utilization_unavailable` property
+        value. If None, the property is left out.
     """
     properties = {
         "flop_rate_utilization_relative_to_roofline": "20.0%",
@@ -60,6 +71,8 @@ class GetOverviewToolTest(parameterized.TestCase):
       properties["mxu_utilization_percent"] = mxu
     if hbm is not None:
       properties["hbm_utilization_percent"] = hbm
+    if hardware_unavailable is not None:
+      properties["hardware_utilization_unavailable"] = hardware_unavailable
     self.mock_client.fetch.return_value = (
         81,
         json.dumps([{"p": properties}]).encode("utf-8"),
@@ -363,6 +376,101 @@ class GetOverviewToolTest(parameterized.TestCase):
     perf = result_json["performance_summary"]
     self.assertEqual(perf["mxu_utilization_percent"], mxu)
     self.assertNotIn("mxu_utilization_status", perf)
+
+  @parameterized.named_parameters(*_FLAG_TRUE_CASES)
+  def test_get_overview_mxu_null_when_flag_true(self, mxu, hbm):
+    self._set_overview_properties(mxu=mxu, hbm=hbm, hardware_unavailable="true")
+
+    result_json = json.loads(get_overview_tool.get_overview("session_flag"))
+
+    perf = result_json["performance_summary"]
+    self.assertIsNone(perf["mxu_utilization_percent"])
+    self.assertEqual(perf["mxu_utilization_status"]["status"], "unavailable")
+
+  @parameterized.named_parameters(*_FLAG_TRUE_CASES)
+  def test_get_overview_mxu_status_text_when_flag_true(self, mxu, hbm):
+    self._set_overview_properties(mxu=mxu, hbm=hbm, hardware_unavailable="true")
+
+    result_json = json.loads(get_overview_tool.get_overview("session_flag"))
+
+    status = result_json["performance_summary"]["mxu_utilization_status"]
+    self.assertIn("Do not report it as a measured 0%.", status["reason"])
+    self.assertIn("tpu_perf_counters=True", status["how_to_get"])
+
+  @parameterized.named_parameters(*_FLAG_TRUE_CASES)
+  def test_get_overview_hardware_flag_not_in_summary(self, mxu, hbm):
+    self._set_overview_properties(mxu=mxu, hbm=hbm, hardware_unavailable="true")
+
+    result_json = json.loads(get_overview_tool.get_overview("session_flag"))
+
+    self.assertNotIn(
+        "hardware_utilization_unavailable", result_json["performance_summary"]
+    )
+
+  @parameterized.named_parameters(
+      dict(testcase_name="both_zero", mxu="0.0%", hbm="0.0%"),
+      dict(testcase_name="both_short_zero", mxu="0%", hbm="0%"),
+      dict(testcase_name="measured_mxu", mxu="41.0%", hbm="35.2%"),
+  )
+  def test_get_overview_mxu_kept_when_flag_false(self, mxu, hbm):
+    self._set_overview_properties(
+        mxu=mxu, hbm=hbm, hardware_unavailable="false"
+    )
+
+    result_json = json.loads(get_overview_tool.get_overview("session_flag"))
+
+    perf = result_json["performance_summary"]
+    self.assertEqual(perf["mxu_utilization_percent"], mxu)
+    self.assertNotIn("mxu_utilization_status", perf)
+
+  def test_get_overview_mxu_unknown_null_when_flag_false(self):
+    self._set_overview_properties(
+        mxu="unknown", hbm="0.0%", hardware_unavailable="false"
+    )
+
+    result_json = json.loads(get_overview_tool.get_overview("session_flag"))
+
+    perf = result_json["performance_summary"]
+    self.assertIsNone(perf["mxu_utilization_percent"])
+    self.assertEqual(perf["mxu_utilization_status"]["status"], "unavailable")
+
+  @parameterized.named_parameters(
+      dict(testcase_name="no_flag_both_zero", flag=None, hbm="0.0%"),
+      dict(testcase_name="empty_flag_both_zero", flag="", hbm="0.0%"),
+      dict(testcase_name="bad_flag_both_zero", flag="maybe", hbm="0.0%"),
+      dict(testcase_name="no_flag_hbm_measured", flag=None, hbm="35.2%"),
+  )
+  def test_get_overview_mxu_heuristic_when_flag_missing_or_unrecognized(
+      self, flag, hbm
+  ):
+    self._set_overview_properties(
+        mxu="0.0%", hbm=hbm, hardware_unavailable=flag
+    )
+    expected_null = hbm == "0.0%"
+
+    result_json = json.loads(get_overview_tool.get_overview("session_flag"))
+
+    perf = result_json["performance_summary"]
+    self.assertEqual(perf["mxu_utilization_percent"] is None, expected_null)
+    self.assertEqual("mxu_utilization_status" in perf, expected_null)
+
+  @parameterized.named_parameters(
+      dict(testcase_name="flag_true", flag="true"),
+      dict(testcase_name="flag_false", flag="false"),
+  )
+  def test_get_overview_mxu_not_applicable_on_gpu_with_flag(self, flag):
+    self._set_overview_properties(
+        mxu="0.0%",
+        hbm="0.0%",
+        device_type="Nvidia GPU (Hopper)",
+        hardware_unavailable=flag,
+    )
+
+    result_json = json.loads(get_overview_tool.get_overview("session_gpu"))
+
+    perf = result_json["performance_summary"]
+    self.assertIsNone(perf["mxu_utilization_percent"])
+    self.assertEqual(perf["mxu_utilization_status"]["status"], "not_applicable")
 
   @parameterized.named_parameters(
       dict(testcase_name="no_counters", mxu="0.0%", hbm="0.0%"),

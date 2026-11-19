@@ -29,10 +29,12 @@ def get_kpi_metrics(session_id: str, *, bypass_cache: bool = False) -> str:
         - duty_cycle_status: (Optional) Present only when duty_cycle_percent
           is None on a GPU profile. Has 'status' and 'reason'.
         - mxu_utilization_percent: MXU utilization from hardware performance
-          counters, as a percentage. None if the counters were not captured
-          or not reduced, the device was nearly idle, or the profile is from a
-          GPU (the MXU is a TPU unit). This value never comes from the XLA cost
-          model.
+          counters, as a percentage. None if the overview page reports that
+          the MXU counter value is missing, or if the profile is from a GPU
+          (the MXU is a TPU unit). For older overview data without that
+          report, None if MXU and HBM both read 0 (the counters were not
+          captured or not reduced, or the device was nearly idle). This value
+          never comes from the XLA cost model.
         - mxu_utilization_status: (Optional) Present only when
           mxu_utilization_percent is None. Has 'status' ('unavailable', or
           'not_applicable' on a GPU), 'reason' and 'how_to_get'.

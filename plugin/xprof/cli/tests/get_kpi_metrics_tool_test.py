@@ -398,6 +398,33 @@ class GetKpiMetricsToolTest(parameterized.TestCase):
     self.assertEqual(result["duty_cycle_percent"], "95.0%")
     self.assertNotIn("duty_cycle_status", result)
 
+  @parameterized.named_parameters(
+      dict(testcase_name="flag_true", flag="true", expected_mxu=None),
+      dict(testcase_name="flag_false", flag="false", expected_mxu="0.0%"),
+      dict(testcase_name="no_flag", flag=None, expected_mxu=None),
+  )
+  def test_get_kpi_metrics_mxu_follows_hardware_flag(self, flag, expected_mxu):
+    properties = {
+        "steptime_ms_average": "1.0",
+        "mxu_utilization_percent": "0.0%",
+        "hbm_utilization_percent": "0.0%",
+        "device_type": "TPU v5p",
+    }
+    if flag is not None:
+      properties["hardware_utilization_unavailable"] = flag
+
+    def fetch_side_effect(tool_name, *_args, **_kwargs):
+      if tool_name in ("overview_page", "overview_page.json"):
+        return (None, json.dumps([{"p": properties}]).encode("utf-8"))
+      return None
+
+    self.mock_client.fetch.side_effect = fetch_side_effect
+
+    result = json.loads(get_kpi_metrics_tool.get_kpi_metrics("tpu_session"))
+
+    self.assertEqual(result["mxu_utilization_percent"], expected_mxu)
+    self.assertEqual("mxu_utilization_status" in result, expected_mxu is None)
+
   def test_get_kpi_metrics_overview_error(self):
     self.mock_client.fetch.return_value = (None, b"")
 

@@ -121,8 +121,8 @@ export class MemoryBreakdownTable implements OnChanges, OnInit {
 
     const decimalPtFormatter =
         new google.visualization.NumberFormat({fractionDigits: 3});
-    decimalPtFormatter.format(this.dataTable, 1); /* requested_size */
-    decimalPtFormatter.format(this.dataTable, 2); /* allocation_size */
+    decimalPtFormatter.format(this.dataTable, 1); // allocation_size
+    decimalPtFormatter.format(this.dataTable, 2); // requested_size
   }
 
   drawTable() {
@@ -161,7 +161,7 @@ export class MemoryBreakdownTable implements OnChanges, OnInit {
     }
 
     const dataView = new google.visualization.DataView(dataTable);
-    dataView.setRows(dataView.getFilteredRows([{column: 2, minValue: 0.001}]));
+    dataView.setRows(dataView.getFilteredRows([{column: 1, minValue: 0.001}]));
     return dataView;
   }
 

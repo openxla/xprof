@@ -55,6 +55,17 @@ TEST(ConvertXPlaneToMemoryProfile, OneAllocatorMultiActivitiesTest) {
                 {StatType::kRegionType, "output"},
                 {StatType::kTensorShapes, "[3, 3, 512, 512]"}});
 
+  MemoryProfile allocation_only_profile =
+      ConvertXPlaneToMemoryProfile(*host_plane);
+  const auto& allocation_only_summary =
+      allocation_only_profile.memory_profile_per_allocator()
+          .at("GPU_0_bfc")
+          .profile_summary();
+  EXPECT_TRUE(allocation_only_summary.has_num_allocations());
+  EXPECT_EQ(allocation_only_summary.num_allocations(), 1);
+  EXPECT_TRUE(allocation_only_summary.has_num_deallocations());
+  EXPECT_EQ(allocation_only_summary.num_deallocations(), 0);
+
   CreateXEvent(&host_plane_builder, &tf_executor_thread, "MemoryDeallocation",
                50000, 1000,
                {{StatType::kBytesReserved, int64_t{2000}},
@@ -106,6 +117,8 @@ TEST(ConvertXPlaneToMemoryProfile, OneAllocatorMultiActivitiesTest) {
             7000);
   EXPECT_EQ(allocator_memory_profile.profile_summary().peak_stats_time_ps(),
             70000);
+  EXPECT_EQ(allocator_memory_profile.profile_summary().num_allocations(), 2);
+  EXPECT_EQ(allocator_memory_profile.profile_summary().num_deallocations(), 1);
   EXPECT_EQ(allocator_memory_profile.sampled_timeline_snapshots_size(), 3);
   EXPECT_EQ(allocator_memory_profile.memory_profile_snapshots_size(), 1);
   EXPECT_EQ(allocator_memory_profile.memory_profile_snapshots()
@@ -122,6 +135,17 @@ TEST(ConvertXPlaneToMemoryProfile, OneAllocatorMultiActivitiesTest) {
   EXPECT_EQ(
       allocator_memory_profile.special_allocations().at(1).allocation_bytes(),
       2000);
+
+  MemoryProfile downsampled_profile =
+      ConvertXPlaneToMemoryProfile(*host_plane, /*max_num_snapshots=*/1);
+  const auto& downsampled_allocator_profile =
+      downsampled_profile.memory_profile_per_allocator().begin()->second;
+  EXPECT_EQ(downsampled_allocator_profile.sampled_timeline_snapshots_size(), 1);
+  EXPECT_EQ(downsampled_allocator_profile.memory_profile_snapshots_size(), 1);
+  EXPECT_EQ(downsampled_allocator_profile.profile_summary().num_allocations(),
+            2);
+  EXPECT_EQ(downsampled_allocator_profile.profile_summary().num_deallocations(),
+            1);
 }
 
 }  // namespace

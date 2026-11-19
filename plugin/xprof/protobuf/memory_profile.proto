@@ -82,6 +82,10 @@ message MemoryProfileSummary {
   int64 peak_stats_time_ps = 3;
   // The memory capacity of the allocator.
   int64 memory_capacity = 4;
+  // The number of memory allocations within the profiling window.
+  optional int64 num_allocations = 5;
+  // The number of memory deallocations within the profiling window.
+  optional int64 num_deallocations = 6;
 }
 
 // The active memory allocations at the peak memory usage.

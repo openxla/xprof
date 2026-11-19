@@ -284,9 +284,24 @@ export declare interface HloModule {
   id?: string;
 }
 
+/** The data table type for a MemoryProfileSummary. */
+export type MemoryProfileSummary = memoryProfileProto.MemoryProfileSummary & {
+  numAllocations?: /* int64 */ string;
+  numDeallocations?: /* int64 */ string;
+};
+
+/** The data table type for a PerAllocatorMemoryProfile. */
+export type PerAllocatorMemoryProfile =
+  memoryProfileProto.PerAllocatorMemoryProfile & {
+    profileSummary?: MemoryProfileSummary;
+  };
+
 /** The data table type for a MemoryProfile. */
 export type MemoryProfileProto = memoryProfileProto.MemoryProfile & {
   hloModules?: HloModule[];
+  memoryProfilePerAllocator?: {
+    [key: string]: PerAllocatorMemoryProfile;
+  };
 };
 
 /** The data table type for a MemoryProfileSnapshot. */

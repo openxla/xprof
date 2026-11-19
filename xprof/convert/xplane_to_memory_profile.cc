@@ -65,8 +65,12 @@ bool IsMemoryDeallocation(int64_t event_type) {
 }
 
 void UpdateProfileSummary(const MemoryAggregationStats& stats,
-                          int64_t time_offset_ps,
+                          MemoryActivity activity, int64_t time_offset_ps,
                           MemoryProfileSummary* summary) {
+  summary->set_num_allocations(summary->num_allocations() +
+                               (activity == ALLOCATION ? 1 : 0));
+  summary->set_num_deallocations(summary->num_deallocations() +
+                                 (activity == DEALLOCATION ? 1 : 0));
   // Update the peak memory usage over allocator's lifetime.
   summary->set_peak_bytes_usage_lifetime(stats.peak_bytes_in_use());
   MemoryAggregationStats* peak_stats = summary->mutable_peak_stats();
@@ -166,7 +170,8 @@ MemoryProfile GenerateMemoryProfile(const XPlane* host_trace) {
       MemoryProfileSummary* summary =
           (*memory_profile.mutable_memory_profile_per_allocator())[memory_id]
               .mutable_profile_summary();
-      UpdateProfileSummary(stats, event.OffsetPs(), summary);
+      UpdateProfileSummary(stats, metadata.memory_activity(), event.OffsetPs(),
+                           summary);
 
       MemoryProfileSnapshot* snapshot =
           (*memory_profile.mutable_memory_profile_per_allocator())[memory_id]

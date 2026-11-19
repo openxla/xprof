@@ -28,47 +28,55 @@ export class MemoryProfileSummary implements AfterViewInit, OnChanges {
   }
 
   memoryProfileSummary() {
+    this.resetSummary();
     if (!this.data || !this.data.memoryIds || !this.data.memoryIds.length ||
         !this.data.memoryProfilePerAllocator) {
       return;
     }
 
-    const summary =
-        this.data.memoryProfilePerAllocator[this.memoryId].profileSummary;
-    let snapshots = this.data.memoryProfilePerAllocator[this.memoryId]
-                          .memoryProfileSnapshots;
-    // If version is set to 1, this means the backend is using the new snapshot
-    // sampling algorithm, timeline data is stored in sampledTimelineSnapshots.
-    if (this.data.version === 1) {
-      snapshots = this.data.memoryProfilePerAllocator[this.memoryId]
-                      .sampledTimelineSnapshots;
-    }
-    if (!summary || !snapshots) {
+    const allocatorProfile =
+      this.data.memoryProfilePerAllocator[this.memoryId];
+    if (!allocatorProfile) {
       return;
     }
 
-    const peakStats = summary.peakStats;
-    if (!peakStats) {
+    const summary = allocatorProfile.profileSummary;
+    if (!summary || !summary.peakStats) {
       return;
     }
+    const peakStats = summary.peakStats;
 
     let numAllocations = 0;
     let numDeallocations = 0;
-    for (let i = 0; i < snapshots.length; i++) {
-      const snapshot = snapshots[i];
-      if (!snapshot || !snapshot.activityMetadata ||
-          !snapshot.activityMetadata.memoryActivity) {
-        return;
-      }
-      if (snapshot.activityMetadata.memoryActivity === 'ALLOCATION') {
-        numAllocations++;
-      } else if (snapshot.activityMetadata.memoryActivity === 'DEALLOCATION') {
-        numDeallocations++;
+    if (
+      summary.numAllocations === undefined ||
+      summary.numDeallocations === undefined
+    ) {
+      // If version is set to 1, this means the backend is using the new
+      // snapshot sampling algorithm, timeline data is stored in
+      // sampledTimelineSnapshots.
+      const snapshots =
+        (this.data.version === 1
+          ? allocatorProfile.sampledTimelineSnapshots
+          : allocatorProfile.memoryProfileSnapshots) || [];
+      for (const snapshot of snapshots) {
+        const activity = snapshot?.activityMetadata?.memoryActivity;
+        if (activity === 'ALLOCATION') {
+          numAllocations++;
+        } else if (activity === 'DEALLOCATION') {
+          numDeallocations++;
+        }
       }
     }
 
-    this.numAllocations = numAllocations;
-    this.numDeallocations = numDeallocations;
+    this.numAllocations =
+      summary.numAllocations !== undefined
+        ? Number(summary.numAllocations)
+        : numAllocations;
+    this.numDeallocations =
+      summary.numDeallocations !== undefined
+        ? Number(summary.numDeallocations)
+        : numDeallocations;
     this.memoryCapacity =
         humanReadableText(Number(summary.memoryCapacity) || 0);
     this.peakHeapUsageLifetime =
@@ -84,6 +92,19 @@ export class MemoryProfileSummary implements AfterViewInit, OnChanges {
     this.freeAtPeak = humanReadableText(Number(peakStats.freeMemoryBytes) || 0);
     this.fragmentationAtPeakPct =
         ((peakStats.fragmentation || 0) * 100).toFixed(2) + '%';
+  }
+
+  private resetSummary() {
+    this.numAllocations = 0;
+    this.numDeallocations = 0;
+    this.memoryCapacity = '';
+    this.peakHeapUsageLifetime = '';
+    this.peakMemUsageProfile = '';
+    this.timestampAtPeakMs = '';
+    this.stackAtPeak = '';
+    this.heapAtPeak = '';
+    this.freeAtPeak = '';
+    this.fragmentationAtPeakPct = '';
   }
 
   picoToMilli(timePs: string|undefined) {

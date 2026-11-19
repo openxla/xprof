@@ -543,6 +543,44 @@ class RawToToolDataTest(absltest.TestCase):
     self.assertLen(called_paths, 1)
     self.assertTrue(called_paths[0].endswith("test.xplane.riegeli"))
 
+  def test_xspace_to_tool_data_hlo_op_stats_alias_maps_to_hlo_stats(self):
+    """Verifies hlo_op_stats alias dispatches hlo_stats to C++ wrapper."""
+    wrapper_func = mock.MagicMock(return_value=('{"rows":[]}', True))
+
+    data, content_type = raw_to_tool_data.xspace_to_tool_data(
+        xspace_paths=["/path/to/xspace"],
+        tool="hlo_op_stats",
+        params={},
+        xspace_wrapper_func=wrapper_func,
+    )
+
+    self.assertEqual(data, '{"rows":[]}')
+    self.assertEqual(content_type, "application/json")
+    wrapper_func.assert_called_once_with(
+        ["/path/to/xspace"],
+        "hlo_stats",
+        {"use_saved_result": True},
+    )
+
+  def test_xspace_to_tool_data_perf_counters_forwards_show_zeros(self):
+    """Verifies perf_counters forwards show_zeros option when specified."""
+    wrapper_func = mock.MagicMock(return_value=('{"rows":[]}', True))
+
+    data, content_type = raw_to_tool_data.xspace_to_tool_data(
+        xspace_paths=["/path/to/xspace"],
+        tool="perf_counters",
+        params={"show_zeros": False},
+        xspace_wrapper_func=wrapper_func,
+    )
+
+    self.assertEqual(data, '{"rows":[]}')
+    self.assertEqual(content_type, "application/json")
+    wrapper_func.assert_called_once_with(
+        ["/path/to/xspace"],
+        "perf_counters",
+        {"use_saved_result": True, "show_zeros": False},
+    )
+
 
 if __name__ == "__main__":
   absltest.main()

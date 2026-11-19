@@ -28,15 +28,14 @@ namespace xprof {
 
 absl::Status UnifiedPerfCountersProcessor::ProcessSession(
     const XprofSessionSnapshot& session_snapshot,
-    const tensorflow::profiler::ToolOptions& /*options*/) {
+    const tensorflow::profiler::ToolOptions& options) {
   if (session_snapshot.XSpaceSize() == 0) {
     return absl::NotFoundError("No XSpace found in the session.");
   }
 
-  TF_ASSIGN_OR_RETURN(
-      std::string json_output,
-      tensorflow::profiler::ConvertMultiXSpacesToPerfCounters(
-          session_snapshot));
+  TF_ASSIGN_OR_RETURN(std::string json_output,
+                      tensorflow::profiler::ConvertMultiXSpacesToPerfCounters(
+                          session_snapshot, options));
   SetOutput(json_output, "application/json");
   return absl::OkStatus();
 }

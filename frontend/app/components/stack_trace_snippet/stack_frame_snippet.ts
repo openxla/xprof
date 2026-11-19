@@ -36,6 +36,7 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
 
 
   constructor() {
+    this.isCodeFetchEnabled = this.sourceCodeService.isCodeFetchEnabled();
     const resolveSessionId = utils.createSessionIdResolver();
     combineLatest([
       this.route.params ?? of({}),
@@ -50,7 +51,6 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
             this.reload();
           }
         });
-    this.isCodeFetchEnabled = this.sourceCodeService.isCodeFetchEnabled();
   }
 
   ngOnDestroy(): void {
@@ -103,29 +103,32 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
     if (!this.sessionId || !this.sourceCodeSnippetAddress) {
       return;
     }
-    this.sourceCodeService
-        .loadContent(this.sessionId, this.sourceCodeSnippetAddress)
-        .pipe(takeUntil(this.reload$), takeUntil(this.destroy$))
-        .subscribe({
-          next: (frame) => {
-            this.frame = frame;
-            this.codeSearchLinkTooltip = 'Open in Code Search';
-            this.lineNumberToMetricMap = new Map(frame.metrics.map(
-                lineMetric => [lineMetric.lineNumber, lineMetric.metric]));
-          },
-          error: (err) => {
-            this.codeSearchLinkTooltip =
-                'Try Opening in Code Search (might fail)';
-            if (typeof err === 'object' && typeof err?.error === 'string') {
-              this.failure = err.error;
-            } else if (
-                typeof err === 'object' && typeof err?.message === 'string') {
-              this.failure = err.message;
-            } else {
-              this.failure = 'Unknown Error';
+    this.isCodeFetchEnabled = this.sourceCodeService.isCodeFetchEnabled();
+    if (this.isCodeFetchEnabled) {
+      this.sourceCodeService
+          .loadContent(this.sessionId, this.sourceCodeSnippetAddress)
+          .pipe(takeUntil(this.reload$), takeUntil(this.destroy$))
+          .subscribe({
+            next: (frame) => {
+              this.frame = frame;
+              this.codeSearchLinkTooltip = 'Open in Code Search';
+              this.lineNumberToMetricMap = new Map(frame.metrics.map(
+                  lineMetric => [lineMetric.lineNumber, lineMetric.metric]));
+            },
+            error: (err) => {
+              this.codeSearchLinkTooltip =
+                  'Try Opening in Code Search (might fail)';
+              if (typeof err === 'object' && typeof err?.error === 'string') {
+                this.failure = err.error;
+              } else if (
+                  typeof err === 'object' && typeof err?.message === 'string') {
+                this.failure = err.message;
+              } else {
+                this.failure = 'Unknown Error';
+              }
             }
-          }
-        });
+          });
+    }
     this.sourceCodeService
         .codeSearchLink(
             this.sessionId, this.sourceCodeSnippetAddress.fileName,
@@ -134,6 +137,9 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
         .subscribe({
           next: (link) => {
             this.codeSearchLink = link;
+            if (!this.isCodeFetchEnabled && link) {
+              this.codeSearchLinkTooltip = 'Open in Code Search';
+            }
           },
           error: (err) => {
             console.error('Failed to get code search link', err);

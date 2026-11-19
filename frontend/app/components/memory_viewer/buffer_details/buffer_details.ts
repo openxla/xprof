@@ -54,7 +54,8 @@ export class BufferDetails implements OnDestroy {
 
   getGraphViewerLink() {
     return this.dataService.getGraphViewerLink(
-        this.sessionId, this.selectedModule, this.instructionName || '', '');
+        this.sessionId, this.selectedModule,
+        utils.cleanHloOpName(this.instructionName), '');
   }
 
   update(heapObject: HeapObject|null) {

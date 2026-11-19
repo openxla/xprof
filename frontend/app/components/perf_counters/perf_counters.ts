@@ -153,6 +153,7 @@ export class PerfCounters extends Dashboard implements OnDestroy {
 
   getAdditionalParams() {
     const params = new Map<string, string>();
+    params.set('show_zeros', this.showZeroValues ? '1' : '0');
     return params;
   }
 }

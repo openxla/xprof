@@ -3,7 +3,7 @@
       <memory-viewer-control
         [moduleList]="moduleList"
         [firstLoadSelectedModule]="selectedModule"
-        [firstLoadSelectedMemorySpaceColor]="firstLoadMemorySpaceColor"
+        [firstLoadSelectedMemorySpaceColor]="selectedMemorySpaceColor"
         (changed)="update($event)"
       ></memory-viewer-control>
       <buffer-details [selectedModule]="selectedModule" [sessionId]="sessionId"></buffer-details>

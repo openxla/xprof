@@ -85,7 +85,7 @@ export class HloStats extends Dashboard implements OnDestroy {
   private readonly destroyRef = inject(DestroyRef);
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
-  private readonly throbber = new Throbber(this.tool);
+  private readonly throbber: Throbber;
   data: SimpleDataTable | null = null;
   baselineData: SimpleDataTable | null = null;
   tensorCoreBaselineData: SimpleDataTable | null = null;
@@ -185,6 +185,13 @@ export class HloStats extends Dashboard implements OnDestroy {
     private readonly store: Store<{}>,
   ) {
     super();
+    const routeTool = route.routeConfig?.path?.split('/')[0];
+    if (routeTool === 'hlo_stats' || routeTool === 'hlo_op_stats') {
+      this.tool = routeTool;
+    } else if (window.location.pathname.includes('/data/plugin/profile')) {
+      this.tool = 'hlo_stats';
+    }
+    this.throbber = new Throbber(this.tool);
     combineLatest([route.params, route.queryParams])
       .pipe(takeUntil(this.destroyed))
       .subscribe(([params, queryParams]) => {
@@ -196,6 +203,11 @@ export class HloStats extends Dashboard implements OnDestroy {
 
         this.sessionId = params['sessionId'] || this.sessionId;
         this.processQueryParams(queryParams);
+        if (this.tool !== oldTool) {
+          this.store.dispatch(
+            setCurrentToolStateAction({currentTool: this.tool}),
+          );
+        }
         const currentBaseSessionId = this.diffService.getBaseSessionId() || '';
         // Trigger update only if the parameters actually changed.
         const hasChanged =

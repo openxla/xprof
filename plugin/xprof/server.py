@@ -192,6 +192,12 @@ def make_wsgi_app(plugin, host: str = _DEFAULT_HOST):
 
   prefix = "/data/plugin/profile"
   enforce_loopback_host = _is_loopback_host(host)
+  parameterized_spa_prefixes = (
+      "/kernel_viewer/",
+      "/megascale_perfetto/",
+      "/roofline_model/",
+      "/stack_trace_page/",
+  )
 
   def _not_found_handler(environ, start_response):
     return _plain_response(
@@ -214,6 +220,12 @@ def make_wsgi_app(plugin, host: str = _DEFAULT_HOST):
     if path != "/" and path.endswith("/"):
       path = path[:-1]
     is_ui_shell = False
+    is_parameterized_spa = under_prefix and path.startswith(
+        parameterized_spa_prefixes
+    )
+    is_root_stack_trace = path == "/stack_trace_page" or path.startswith(
+        "/stack_trace_page/"
+    )
     if path in apps:
       handler = apps[path]
       is_ui_shell = path in (
@@ -221,8 +233,11 @@ def make_wsgi_app(plugin, host: str = _DEFAULT_HOST):
           profile_plugin.LOCAL_ROUTE,
           profile_plugin.INDEX_HTML_ROUTE,
       )
-    elif path in ("", "/") or (
-        under_prefix and "." not in path.rsplit("/", 1)[-1]
+    elif (
+        path in ("", "/")
+        or is_parameterized_spa
+        or is_root_stack_trace
+        or (under_prefix and "." not in path.rsplit("/", 1)[-1])
     ):
       # The root, or a frontend route under the prefix such as /overview_page,
       # which the browser requests when a tool page is reloaded. The frontend

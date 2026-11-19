@@ -16,6 +16,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/angular:angular_material_icon",
         "@org_xprof//frontend/app/common/angular:angular_material_input",
         "@org_xprof//frontend/app/common/angular:angular_material_select",
+        "@org_xprof//frontend/app/common/utils",
         "@org_xprof//frontend/app/components/kernel_analysis/data",
     ],
 )

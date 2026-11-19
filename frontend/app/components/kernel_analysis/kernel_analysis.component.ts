@@ -3,13 +3,16 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  DestroyRef,
   inject,
   ViewEncapsulation,
 } from '@angular/core';
 import {
+  AbstractControl,
   FormBuilder,
   FormGroup,
   ReactiveFormsModule,
+  ValidationErrors,
   Validators,
 } from '@angular/forms';
 import {MatButtonModule} from '@angular/material/button';
@@ -45,13 +48,26 @@ import {TPU_GENERATIONS, TpuGeneration} from './data/data_tpu_generations';
 import {ExecutionPreviewComponent} from './execution_preview/execution_preview.component';
 import {ProfilerOptionsComponent} from './profiler_options/profiler_options.component';
 
+const MAX_INT32 = 2147483647;
+
+function integerValidator(control: AbstractControl): ValidationErrors | null {
+  const value = control.value;
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  return Number.isInteger(Number(value)) ? null : {'integer': true};
+}
+
 function createSamplingGroup(fb: FormBuilder) {
   return fb.group({
-    'interval_us': [DEFAULT_SAMPLING_INTERVAL_US],
+    'interval_us': [
+      DEFAULT_SAMPLING_INTERVAL_US,
+      [Validators.min(0), Validators.max(MAX_INT32), integerValidator],
+    ],
     'is_external_trigger': [DEFAULT_SAMPLING_IS_EXTERNAL_TRIGGER],
     'scaling': [
       DEFAULT_SAMPLING_SCALING,
-      [Validators.min(0), Validators.max(63)],
+      [Validators.min(0), Validators.max(63), integerValidator],
     ],
     'counter_size_bits': [DEFAULT_SAMPLING_COUNTER_SIZE_BITS],
     'indices': fb.control<number[]>([]),
@@ -91,6 +107,7 @@ export class KernelAnalysisComponent {
 
   private readonly fb = inject(FormBuilder);
   private readonly cdr = inject(ChangeDetectorRef);
+  private readonly destroyRef = inject(DestroyRef);
 
   constructor() {
     this.kernelForm = this.fb.nonNullable.group({
@@ -140,8 +157,15 @@ export class KernelAnalysisComponent {
       }
     });
 
-    this.kernelForm.valueChanges.subscribe(() => {
+    const valueSub = this.kernelForm.valueChanges.subscribe(() => {
       this.cdr.markForCheck();
+    });
+    const statusSub = this.kernelForm.statusChanges.subscribe(() => {
+      this.cdr.markForCheck();
+    });
+    this.destroyRef.onDestroy(() => {
+      valueSub.unsubscribe();
+      statusSub.unsubscribe();
     });
   }
 }

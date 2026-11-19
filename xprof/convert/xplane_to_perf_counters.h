@@ -21,6 +21,7 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/tool_options.h"
 #include "xprof/convert/unified_session_snapshot.h"
 
 namespace tensorflow {
@@ -31,12 +32,13 @@ class DataTable;
 // Converts a single XSpace to performance counter DataTable entries.
 void ConvertXSpaceToPerfCounters(const XSpace* space,
                                  absl::string_view hostname,
-                                 DataTable* data_table);
+                                 DataTable* data_table, bool show_zeros = true);
 
 // Converts performance counter events in XSpace to a DataTable JSON string for
 // the perf_counters tool.
 absl::StatusOr<std::string> ConvertMultiXSpacesToPerfCounters(
-    const xprof::XprofSessionSnapshot& session_snapshot);
+    const xprof::XprofSessionSnapshot& session_snapshot,
+    const ToolOptions& options = {});
 
 }  // namespace profiler
 }  // namespace tensorflow

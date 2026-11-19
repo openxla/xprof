@@ -1,3 +1,19 @@
+<div class="item-container" [hidden]="!moduleList.length">
+  <div class="row">
+    <div [ngClass]="{'mat-subheading-2': true, 'disabled': !moduleList.length}">
+      XLA Modules ({{ moduleList.length }})
+    </div>
+    <div class="flex-space"></div>
+    <download-hlo [moduleName]="selectedModule" [showMetadata]=false></download-hlo>
+  </div>
+  <app-searchable-dropdown
+    [itemList]="moduleList"
+    [selectedItem]="selectedModule"
+    (selectionChange)="selectedModule = $event; emitUpdateEvent()"
+    [label]="'Select Module'"
+  >
+  </app-searchable-dropdown>
+</div>
 
 <div class="item-container">
   <div [ngClass]="{'mat-subheading-2': true}">Memory Types (7)</div>

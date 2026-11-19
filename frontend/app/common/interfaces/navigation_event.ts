@@ -16,6 +16,7 @@ export declare interface NavigationEvent {
   graphType?: string;
   // Memory viewer params
   memorySpaceColor?: string;
+  memory_space?: string;
   // Navigation controlling params
   firstLoad?: boolean;
   base_session_id?: string;

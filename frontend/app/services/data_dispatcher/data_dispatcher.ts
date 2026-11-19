@@ -3,7 +3,8 @@ import {Store} from '@ngrx/store';
 import {DataRequestType} from 'org_xprof/frontend/app/common/constants/enums';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {DataRequest} from 'org_xprof/frontend/app/store/state';
-import {Observable} from 'rxjs';
+import {Observable, of} from 'rxjs';
+import {catchError, switchMap} from 'rxjs/operators';
 
 import {DataDispatcherBase} from './data_dispatcher_base';
 
@@ -38,6 +39,21 @@ export class DataDispatcher extends DataDispatcherBase {
       this.params.run = sessionId;
       this.params.tag = tool;
       this.params.host = host;
+    }
+
+    if (dataRequest.type > DataRequestType.DIFF_DATA_REQUEST_BEGIN &&
+        dataRequest.type < DataRequestType.DIFF_DATA_REQUEST_END) {
+      return this.dataService.getHosts(sessionId, tool).pipe(
+          catchError(() => of([])),
+          switchMap((hosts) => {
+            const hostnames = (hosts || []).map((h) => h.hostname);
+            const resolvedHost =
+                host && hostnames.includes(host) ? host : (hostnames[0] || '');
+            return this.dataService.getData(
+                sessionId, tool, resolvedHost, new Map(),
+                {updateSearchParams: false});
+          }),
+      );
     }
 
     return this.dataService.getData(sessionId, tool, host);

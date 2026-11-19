@@ -981,11 +981,21 @@ export interface OpProfileKernelViewerLinkOptions
   readonly tags: readonly string[];
 }
 
-/** Strips duplicate-group suffix and leading '%' from an HLO op name. */
+/** Returns `value` as a finite number, or `fallback` when blank or non-finite. */
+export function parseFiniteNumber(value: unknown, fallback: number): number {
+  if (value == null || (typeof value === 'string' && value.trim() === '')) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+/** Strips duplicate-group suffix, tuple index suffix, and leading '%' from an HLO op name. */
 export function cleanHloOpName(opName?: string): string {
   return (opName || '')
     .trim()
     .replace(/ and its duplicate\(s\)$/, '')
+    .replace(/\{[^}]*\}$/, '')
     .replace(/^%/, '')
     .trim();
 }

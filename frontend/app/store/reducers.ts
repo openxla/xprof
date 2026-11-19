@@ -23,7 +23,7 @@ export const reducer: ActionReducer<AppState, Action> = createReducer(
         actions.updateSelectedOpNodeChainAction,
         (state: AppState, action: ActionCreatorAny) => {
           let opNodeChain = state.opProfileState.selectedOpNodeChain;
-          if (['by_program', 'by_category'].includes(
+          if (['by_program', 'by_category', 'by_provenance'].includes(
                   action.selectedOpNodeName)) {
             opNodeChain = [];
           }

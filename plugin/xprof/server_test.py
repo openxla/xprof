@@ -547,6 +547,12 @@ class MakeWsgiAppTest(parameterized.TestCase):
       ('/data/plugin/profile/', b'index', True),
       ('/data/plugin/profile/overview_page', b'index', True),
       ('/data/plugin/profile/kernel_viewer/session_1', b'index', True),
+      ('/data/plugin/profile/kernel_viewer/run_v1.0', b'index', True),
+      ('/data/plugin/profile/megascale_perfetto/run_v1.0', b'index', True),
+      ('/data/plugin/profile/roofline_model/train/run_v1.0', b'index', True),
+      ('/data/plugin/profile/roofline_model/.', b'index', True),
+      ('/data/plugin/profile/stack_trace_page/run_v1.0', b'index', True),
+      ('/stack_trace_page/run_v1.0', b'index', True),
       ('/data/plugin/profile/runs', b'runs', False),
       ('/data/plugin/profile/runs/', b'runs', False),
   )

@@ -2335,5 +2335,154 @@ class NormalizeAuthorityTest(parameterized.TestCase):
     self.assertIsNone(profile_plugin.normalize_authority(authority))
 
 
+class CaptureRouteAndToolNormalizationTest(absltest.TestCase):
+  """Tests capture_route_impl validation/forwarding and tool normalization."""
+
+  def setUp(self):
+    super().setUp()
+    self.logdir = self.create_tempdir().full_path
+    self.multiplexer = plugin_event_multiplexer.EventMultiplexer()
+    self.plugin = utils.create_profile_plugin(self.logdir, self.multiplexer)
+
+  def test_capture_route_rejects_missing_service_addr_with_json_400(self):
+    """Verifies empty service_addr returns HTTP 400 JSON error."""
+    request = wrappers.Request.from_values(
+        method='POST',
+        query_string='service_addr=%20%20&duration=1000',
+    )
+    response = self.plugin.capture_route_impl(request)
+    self.assertEqual(response.status_code, 400)
+    payload = json.loads(_get_response_data(response))
+    self.assertIn('service_addr is required', payload['error'])
+
+  def test_capture_route_rejects_invalid_or_nonpositive_numbers_with_400(self):
+    """Verifies malformed, non-positive, or out-of-int32 params return 400."""
+    for query in (
+        'service_addr=localhost:8466&duration=null',
+        'service_addr=localhost:8466&duration=0',
+        'service_addr=localhost:8466&duration=-5',
+        'service_addr=localhost:8466&duration=3000000000',
+        'service_addr=localhost:8466&num_retry=-1',
+        'service_addr=localhost:8466&num_retry=2147483647',
+        'service_addr=localhost:8466&host_tracer_level=-1',
+        'service_addr=localhost:8466&device_tracer_level=-1',
+        'service_addr=localhost:8466&python_tracer_level=-1',
+        'service_addr=localhost:8466&host_tracer_level=3000000000',
+        'service_addr=localhost:8466&delay=-10',
+        'service_addr=localhost:8466&tracemark_upper=3000000000',
+    ):
+      with self.subTest(query=query):
+        request = wrappers.Request.from_values(
+            method='POST', query_string=query
+        )
+        response = self.plugin.capture_route_impl(request)
+        self.assertEqual(response.status_code, 400)
+        payload = json.loads(_get_response_data(response))
+        self.assertIn('error', payload)
+
+  def test_capture_route_rejects_path_traversal_options_with_400(self):
+    """Verifies session_id and override_hostnames reject path traversal."""
+    for query in (
+        'service_addr=localhost:8466&session_id=../escape',
+        'service_addr=localhost:8466&session_id=a/b',
+        'service_addr=localhost:8466&session_id=..',
+        'service_addr=localhost:8466&session_id=.',
+        'service_addr=localhost:8466&session_id=',
+        'service_addr=localhost:8466&override_hostnames=w0,../escape',
+        'service_addr=localhost:8466&override_hostnames=w0,a%5Cb',
+        'service_addr=localhost:8466&override_hostnames=w0,',
+        'service_addr=localhost:8466&override_hostname=../escape',
+    ):
+      with self.subTest(query=query):
+        request = wrappers.Request.from_values(
+            method='POST', query_string=query
+        )
+        response = self.plugin.capture_route_impl(request)
+        self.assertEqual(response.status_code, 400)
+        payload = json.loads(_get_response_data(response))
+        self.assertIn('error', payload)
+
+  def test_capture_route_forwards_extra_options_and_defaults_blank_numbers(
+      self,
+  ):
+    """Verifies defaults, string-option preservation, and delay_ms guard."""
+    request = wrappers.Request.from_values(
+        method='POST',
+        query_string=(
+            'service_addr=grpc://127.0.0.1:8466&duration=&num_retry=&delay='
+            '&delay_ms=-5&session_id=20261118&tpu_trace_mode=1'
+            '&tpu_tc_perf_counter_sampling_options=123'
+            '&override_hostname=worker0&override_hostnames=worker0,worker1'
+            '&enable_hlo_proto=true&disable_flag=false&custom_level=3'
+        ),
+    )
+    with mock.patch.object(
+        profile_plugin,
+        '_pywrap_profiler_plugin',
+        autospec=True,
+    ) as mock_pywrap:
+      response = self.plugin.capture_route_impl(request)
+
+    self.assertEqual(response.status_code, 200)
+    payload = json.loads(_get_response_data(response))
+    self.assertIn('result', payload)
+    mock_pywrap.trace.assert_called_once_with(
+        '127.0.0.1:8466',
+        str(self.logdir),
+        None,
+        True,
+        1000,
+        1,
+        {
+            'host_tracer_level': 2,
+            'device_tracer_level': 1,
+            'python_tracer_level': 0,
+            'delay_ms': 0,
+            'session_id': '20261118',
+            'tpu_trace_mode': '1',
+            'tpu_tc_perf_counter_sampling_options': '123',
+            'override_hostname': 'worker0',
+            'override_hostnames': 'worker0,worker1',
+            'enable_hlo_proto': True,
+            'disable_flag': False,
+            'custom_level': 3,
+        },
+    )
+
+  def test_data_impl_normalizes_hlo_op_stats_and_forwards_show_zeros(self):
+    """Verifies hlo_op_stats maps to hlo_stats and show_zeros is forwarded."""
+    generate_testdata(self.logdir)
+    self.multiplexer.AddRunsFromDirectory(self.logdir)
+    self.multiplexer.Reload()
+    mock_xspace = mock.MagicMock(
+        return_value=('{"rows":[]}', 'application/json')
+    )
+    plugin = utils.create_profile_plugin(
+        self.logdir,
+        self.multiplexer,
+        xspace_to_tool_data_fn=mock_xspace,
+    )
+
+    hlo_req = utils.make_data_request(
+        utils.DataRequestOptions(run='foo', tool='hlo_op_stats', host='host1')
+    )
+    data, _, _ = plugin.data_impl(hlo_req)
+    self.assertEqual(data, '{"rows":[]}')
+    self.assertEqual(mock_xspace.call_args.args[1], 'hlo_stats')
+
+    mock_xspace.reset_mock()
+    pc_req = utils.make_data_request(
+        utils.DataRequestOptions(run='foo', tool='perf_counters', host='host1')
+    )
+    pc_req.args['show_zeros'] = '1'
+    plugin.data_impl(pc_req)
+    self.assertIs(mock_xspace.call_args.args[2]['show_zeros'], True)
+
+    mock_xspace.reset_mock()
+    pc_req.args['show_zeros'] = '0'
+    plugin.data_impl(pc_req)
+    self.assertIs(mock_xspace.call_args.args[2]['show_zeros'], False)
+
+
 if __name__ == '__main__':
   absltest.main()

@@ -108,7 +108,11 @@ export class OpDetails implements OnDestroy {
       .select(getOpAnalysisState)
       .pipe(takeUntil(this.destroyed))
       .subscribe((opAnalysisState: OpAnalysisState) => {
+        const prev = this.applyScalingFactor;
         this.applyScalingFactor = opAnalysisState.applyScalingFactor;
+        if (this.applyScalingFactor !== prev && this.node) {
+          this.update(this.node);
+        }
       });
     this.store
       .select(getSelectedOpNodeChainState)
@@ -196,7 +200,15 @@ export class OpDetails implements OnDestroy {
   }
 
   get isValidCustomCall() {
-    return this.deviceType === 'TPU' && this.getCustomCallTextLink() !== '';
+    return (
+      this.deviceType === 'TPU' &&
+      Boolean(this.node?.xla?.category?.includes('custom-call')) &&
+      this.getCustomCallTextLink() !== ''
+    );
+  }
+
+  get isRegvizAvailable(): boolean {
+    return this.dataService.isRegvizAvailable?.() ?? true;
   }
 
   getCustomCallTextLink() {

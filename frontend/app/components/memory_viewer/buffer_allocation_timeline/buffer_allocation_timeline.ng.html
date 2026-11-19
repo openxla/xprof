@@ -78,9 +78,7 @@
         <div class="tooltip-row" *ngIf="activeBlock.sourceInfo && activeBlock.sourceInfo.fileName">
           <span class="tooltip-label">Source:</span>
           <span class="tooltip-value">
-            <a [href]="'http://google3/' + activeBlock.sourceInfo.fileName + ';l=' + activeBlock.sourceInfo.lineNumber" target="_blank">
-              {{activeBlock.sourceInfo.fileName}}:{{activeBlock.sourceInfo.lineNumber}}
-            </a>
+            {{activeBlock.sourceInfo.fileName}}:{{activeBlock.sourceInfo.lineNumber}}
           </span>
         </div>
         <div class="tooltip-row" *ngIf="activeBlock.tfOpName">

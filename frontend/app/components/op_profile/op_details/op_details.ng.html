@@ -53,20 +53,6 @@
             </button>
           </a>
         </div>
-        <div class="info" id="custom-call-regviz-link" [hidden]="!isValidCustomCall">
-          <a [href]="getCustomCallRegvizLink()" target="_blank" style="text-decoration:none;">
-            <button
-              mat-stroked-button
-              extended
-              type="button"
-              color="primary"
-              appearance="fill"
-              aria-label="go to regviz"
-              i18n-aria-label="A button to corresponding regviz page">
-             > Regviz
-            </button>
-          </a>
-        </div>
         <div *ngIf="programServingMetadata as metadata" class="info">
           <code class="expression serving-entry">Model: {{metadata.modelId}}</code>
           <code *ngIf="metadata.batchSize > 0" class="expression serving-entry">Batch size: {{metadata.batchSize}}</code>

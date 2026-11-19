@@ -259,6 +259,25 @@ class ServerAndPackagingContractTest(unittest.TestCase):
       err.close()
     self.assertEqual(status, 404)
 
+  def test_dotted_run_spa_routes_return_200(self) -> None:
+    """Verifies parameterized SPA routes with dots in run names serve index."""
+    self.assertIsNotNone(
+        self.server_url,
+        f"XProf server URL must be available for testing: {self._setup_error}",
+    )
+    base = self.server_url.rstrip("/")
+    for route in (
+        "/data/plugin/profile/kernel_viewer/run_v1.0",
+        "/data/plugin/profile/megascale_perfetto/run_v1.0",
+        "/data/plugin/profile/roofline_model/train/run_v1.0",
+        "/data/plugin/profile/roofline_model/.",
+        "/data/plugin/profile/stack_trace_page/run_v1.0",
+        "/stack_trace_page/run_v1.0",
+    ):
+      req = urllib.request.Request(f"{base}{route}", method="GET")
+      with urllib.request.urlopen(req, timeout=5.0) as resp:
+        self.assertEqual(resp.status, 200, f"Unexpected status for {route}")
+
   def test_flat_logdir_readiness_and_megascale_conversion(self) -> None:
     """Tests flat-logdir readiness polling and self-contained MegaScale data."""
     self.assertIsNotNone(

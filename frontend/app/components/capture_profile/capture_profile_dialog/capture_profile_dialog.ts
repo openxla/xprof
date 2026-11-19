@@ -1,5 +1,6 @@
 import {Component, ChangeDetectionStrategy} from '@angular/core';
 import {MatDialogRef} from '@angular/material/dialog';
+import {parseFiniteNumber} from 'org_xprof/frontend/app/common/utils/utils';
 
 /** A capture profile dialog component. */
 @Component({
@@ -39,19 +40,22 @@ export class CaptureProfileDialog {
 
   captureProfile() {
     const options: {[key: string]: string|number|boolean} = {
-      serviceAddr: this.serviceAddr,
-      isTpuName: this.isTpuName,
-      duration: this.duration,
-      numRetry: this.numRetry,
-      workerList: this.workerList,
-      hostTracerLevel: Number(this.hostTracerLevel),
-      deviceTracerLevel: Number(this.deviceTracerLevel),
-      pythonTracerLevel: Number(this.pythonTracerLevel),
-      delay: this.delay,
+      'serviceAddr': this.serviceAddr,
+      'isTpuName': this.isTpuName,
+      'duration': parseFiniteNumber(this.duration, 1000),
+      'numRetry': parseFiniteNumber(this.numRetry, 3),
+      'workerList': this.workerList,
+      'hostTracerLevel': parseFiniteNumber(this.hostTracerLevel, 2),
+      'deviceTracerLevel': parseFiniteNumber(this.deviceTracerLevel, 1),
+      'pythonTracerLevel': parseFiniteNumber(this.pythonTracerLevel, 0),
+      'delay': parseFiniteNumber(this.delay, 0),
     };
 
     for (const option of this.extraOptions) {
-      options[option.key] = option.value;
+      const key = option.key.trim();
+      if (key && !Object.prototype.hasOwnProperty.call(options, key)) {
+        options[key] = option.value;
+      }
     }
 
     this.dialogRef.close(options);

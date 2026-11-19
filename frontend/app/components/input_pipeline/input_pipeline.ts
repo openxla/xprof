@@ -19,7 +19,7 @@ const STEPTIME_COLUMN_IDS_FOR_TPU_INTERNAL = [
   'stepnum',
   'tcComputeTimeMs',
   'scv0ComputeTimeMs',
-  'scv0InfeedTimeMs,',
+  'scv0InfeedTimeMs',
   'tcInfeedTimeMs',
   'tcOutfeedTimeMs',
   'tcIdleTimeMs',

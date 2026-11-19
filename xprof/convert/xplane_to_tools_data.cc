@@ -339,7 +339,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolData(
   } else if (tool_name == "megascale_stats") {
     tool_data = ConvertDcnCollectiveStatsToToolData(session_snapshot, options);
   } else if (tool_name == "perf_counters") {
-    tool_data = ConvertMultiXSpacesToPerfCounters(session_snapshot);
+    tool_data = ConvertMultiXSpacesToPerfCounters(session_snapshot, options);
   } else if (tool_name == "tool_names") {
     // Generate the proto cache for hlo_proto tool.
     // This is needed for getting the module list.

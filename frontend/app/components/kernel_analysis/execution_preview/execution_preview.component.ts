@@ -1,9 +1,12 @@
 import {CommonModule} from '@angular/common';
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   EventEmitter,
+  inject,
   Input,
+  OnDestroy,
   Output,
 } from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
@@ -11,6 +14,7 @@ import {MatFormFieldModule} from '@angular/material/form-field';
 import {MatIconModule} from '@angular/material/icon';
 import {MatInputModule} from '@angular/material/input';
 import {MatSelectModule} from '@angular/material/select';
+import {parseFiniteNumber} from 'org_xprof/frontend/app/common/utils/utils';
 import {
   DEFAULT_SAMPLING_COUNTER_SIZE_BITS,
   DEFAULT_SAMPLING_INTERVAL_US,
@@ -18,6 +22,8 @@ import {
   type PeriodicCounterSamplingOptions,
 } from '../data/data_sampling_info';
 import type {TpuGeneration} from '../data/data_tpu_generations';
+
+const MAX_INT32 = 2147483647;
 
 /** Component for previewing the execution command for kernel analysis.
  *  This is the last step in the kernel analysis workflow.
@@ -37,7 +43,10 @@ import type {TpuGeneration} from '../data/data_tpu_generations';
   styleUrls: ['./execution_preview.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ExecutionPreviewComponent {
+export class ExecutionPreviewComponent implements OnDestroy {
+  private readonly cdr = inject(ChangeDetectorRef);
+  private copyResetTimer?: ReturnType<typeof setTimeout>;
+
   @Input() estimatedPasses = 1;
   @Input() path = '';
   @Input() deviceName: TpuGeneration | null = null;
@@ -68,10 +77,26 @@ export class ExecutionPreviewComponent {
     if (options.is_external_trigger) {
       protoParts.push('is_external_trigger:true');
     } else {
-      const intervalUs = options.interval_us ?? DEFAULT_SAMPLING_INTERVAL_US;
+      const intervalUs = Math.min(
+        MAX_INT32,
+        Math.max(
+          0,
+          Math.trunc(
+            parseFiniteNumber(options.interval_us, DEFAULT_SAMPLING_INTERVAL_US),
+          ),
+        ),
+      );
       protoParts.push(`interval_us:${intervalUs}`);
     }
-    const scaling = options.scaling ?? DEFAULT_SAMPLING_SCALING;
+    const scaling = Math.min(
+      63,
+      Math.max(
+        0,
+        Math.trunc(
+          parseFiniteNumber(options.scaling, DEFAULT_SAMPLING_SCALING),
+        ),
+      ),
+    );
     const counterSizeBits =
       options.counter_size_bits ?? DEFAULT_SAMPLING_COUNTER_SIZE_BITS;
     protoParts.push(`scaling:${scaling}`);
@@ -132,15 +157,26 @@ options.advanced_configuration = ${configStr}`;
 
   async copyCommand() {
     const command = this.generatedCommand;
-    if (!command) return;
+    if (!command || !navigator.clipboard?.writeText) return;
     try {
       await navigator.clipboard.writeText(command);
       this.copyState = 'Copied!';
-      setTimeout(() => {
+      this.cdr.markForCheck();
+      if (this.copyResetTimer !== undefined) {
+        clearTimeout(this.copyResetTimer);
+      }
+      this.copyResetTimer = setTimeout(() => {
         this.copyState = 'Copy';
+        this.cdr.markForCheck();
       }, 2000);
     } catch (err) {
       console.error('Failed to copy command:', err);
+    }
+  }
+
+  ngOnDestroy() {
+    if (this.copyResetTimer !== undefined) {
+      clearTimeout(this.copyResetTimer);
     }
   }
 }

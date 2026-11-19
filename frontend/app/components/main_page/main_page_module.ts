@@ -86,6 +86,7 @@ export const routes: Routes = [
   {path: 'inference_profile', component: InferenceProfile},
   {path: 'hlo_stats', component: HloStats},
   {path: 'roofline_model', component: RooflineModel},
+  {path: 'roofline_model/:sessionId', component: RooflineModel},
   {path: 'stack_trace_page', component: StackTracePage},
   {path: 'stack_trace_page/:sessionId', component: StackTracePage},
   {path: '**', component: EmptyPage},

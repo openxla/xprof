@@ -151,14 +151,17 @@ TEST_F(UnifiedPerfCountersProcessorTest, MultiHostTpuPerfCountersTest) {
 
   std::string host0_path = file::JoinPath(session_dir_, "host0.xplane.pb");
   std::string host1_path = file::JoinPath(session_dir_, "host1.xplane.pb");
+  std::string host2_path = file::JoinPath(session_dir_, "host2.xplane.pb");
   CHECK_OK(WriteBinaryProto(
       host0_path, build_tpu_xspace(0, "fusion.1", "MXU_CYCLES", 255ULL)));
   CHECK_OK(WriteBinaryProto(
       host1_path, build_tpu_xspace(1, "fusion.2", "HBM_READ_BYTES", 4096ULL)));
+  CHECK_OK(WriteBinaryProto(
+      host2_path, build_tpu_xspace(2, "fusion.3", "ZERO_COUNTER", 0ULL)));
 
-  ASSERT_OK_AND_ASSIGN(
-      SessionSnapshot session_snapshot,
-      SessionSnapshot::Create({host0_path, host1_path}, std::nullopt));
+  ASSERT_OK_AND_ASSIGN(SessionSnapshot session_snapshot,
+                       SessionSnapshot::Create(
+                           {host0_path, host1_path, host2_path}, std::nullopt));
 
   ASSERT_OK(processor->ProcessSession(session_snapshot, options_));
   std::string output_str = processor->GetData();
@@ -167,8 +170,15 @@ TEST_F(UnifiedPerfCountersProcessorTest, MultiHostTpuPerfCountersTest) {
   EXPECT_THAT(output_str, HasSubstr("host1"));
   EXPECT_THAT(output_str, HasSubstr("mxu_cycles"));
   EXPECT_THAT(output_str, HasSubstr("hbm_read_bytes"));
+  EXPECT_THAT(output_str, HasSubstr("zero_counter"));
   EXPECT_THAT(output_str, HasSubstr("0xff"));
   EXPECT_THAT(output_str, HasSubstr("0x1000"));
+
+  ToolOptions hide_zeros_options = {{"show_zeros", false}};
+  ASSERT_OK(processor->ProcessSession(session_snapshot, hide_zeros_options));
+  std::string filtered_str = processor->GetData();
+  EXPECT_THAT(filtered_str, HasSubstr("mxu_cycles"));
+  EXPECT_THAT(filtered_str, Not(HasSubstr("zero_counter")));
 }
 
 TEST_F(UnifiedPerfCountersProcessorTest, NoXSpaceTest) {

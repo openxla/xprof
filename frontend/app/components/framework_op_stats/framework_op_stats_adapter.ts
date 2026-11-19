@@ -56,8 +56,10 @@ export class FrameworkOpStatsAdapter implements OnDestroy {
 
   processQueryParams(params: Params) {
     this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
-    this.diffBaseSessionId =
-        this.dataService.getSearchParams().get('diff_base') || '';
+    const searchParams = this.dataService.getSearchParams();
+    this.diffBaseSessionId = params['base_session_id'] || params['diff_base'] ||
+        searchParams.get('base_session_id') || searchParams.get('diff_base') ||
+        '';
     this.host = params['host'] || this.host;
   }
 

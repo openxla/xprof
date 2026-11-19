@@ -115,6 +115,42 @@ TOOLS = {
 
 ALL_HOSTS = 'ALL_HOSTS'
 
+_INT32_MIN = -(2**31)
+_INT32_MAX = 2**31 - 1
+
+_STANDARD_CAPTURE_ARGS = frozenset({
+    'service_addr',
+    'duration',
+    'is_tpu_name',
+    'worker_list',
+    'num_retry',
+    'host_tracer_level',
+    'device_tracer_level',
+    'python_tracer_level',
+    'delay',
+    'delay_ms',
+})
+
+_STRING_CAPTURE_OPTIONS = frozenset({
+    'session_id',
+    'override_hostname',
+    'override_hostnames',
+    'tpu_trace_mode',
+    'tpu_cpu_perf_counter_profile_events',
+    'tpu_cpu_perf_counter_configs',
+    'tpu_perf_counter_sets',
+})
+
+_SAFE_PATH_SEGMENT_RE = re.compile(r'^[A-Za-z0-9._-]{1,128}$')
+
+
+def _is_safe_path_segment(value: str) -> bool:
+  """Returns True if value is a single safe filename/directory segment."""
+  return bool(_SAFE_PATH_SEGMENT_RE.fullmatch(value)) and value not in (
+      '.',
+      '..',
+  )
+
 HostMetadata = TypedDict('HostMetadata', {'hostname': str})
 
 _EXTENSION_TO_TOOL = {extension: tool for tool, extension in TOOLS.items()}
@@ -1544,6 +1580,11 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
       )
     if request.args.get('refresh_suggestion'):
       params['refresh_suggestion'] = request.args.get('refresh_suggestion')
+    show_zeros = request.args.get('show_zeros')
+    if show_zeros is not None:
+      params['show_zeros'] = show_zeros.lower() in ('true', '1')
+    if tool == 'hlo_op_stats':
+      tool = 'hlo_stats'
     content_type = 'application/json'
 
     if tool not in TOOLS and not use_xplane(tool):
@@ -1749,27 +1790,110 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
           'application/json',
           code=400,
       )
+
+    def _parse_int_arg(name: str, default: int) -> int:
+      raw = request.args.get(name)
+      if not raw:
+        return default
+      val = int(raw)
+      if not _INT32_MIN <= val <= _INT32_MAX:
+        raise ValueError(f'{name} out of 32-bit range')
+      return val
+
     try:
-      duration = int(request.args.get('duration', '1000'))
-      num_tracing_attempts = int(request.args.get('num_retry', '0')) + 1
-      options = {
-          'host_tracer_level': int(request.args.get('host_tracer_level', '2')),
-          'device_tracer_level': int(
-              request.args.get('device_tracer_level', '1')
-          ),
-          'python_tracer_level': int(
-              request.args.get('python_tracer_level', '0')
-          ),
-          'delay_ms': int(request.args.get('delay', '0')),
-      }
-    except ValueError:
+      duration = _parse_int_arg('duration', 1000)
+      num_retry = _parse_int_arg('num_retry', 0)
+      host_tracer_level = _parse_int_arg('host_tracer_level', 2)
+      device_tracer_level = _parse_int_arg('device_tracer_level', 1)
+      python_tracer_level = _parse_int_arg('python_tracer_level', 0)
+      delay = _parse_int_arg('delay', 0)
+    except (TypeError, ValueError) as err:
       return respond(
-          {'error': 'Invalid integer parameter in capture_profile request.'},
+          {'error': f'Invalid numeric capture parameter: {err}'},
           'application/json',
           code=400,
       )
+
+    if (
+        duration <= 0
+        or num_retry < 0
+        or num_retry >= _INT32_MAX
+        or host_tracer_level < 0
+        or device_tracer_level < 0
+        or python_tracer_level < 0
+        or delay < 0
+    ):
+      return respond(
+          {
+              'error': (
+                  'duration must be positive, tracer levels and delay must be'
+                  ' non-negative, and num_retry must be in [0, 2147483646].'
+              )
+          },
+          'application/json',
+          code=400,
+      )
+
     is_tpu_name = request.args.get('is_tpu_name') == 'true'
     worker_list = request.args.get('worker_list')
+    num_tracing_attempts = num_retry + 1
+    options: dict[str, str | int | bool] = {
+        'host_tracer_level': host_tracer_level,
+        'device_tracer_level': device_tracer_level,
+        'python_tracer_level': python_tracer_level,
+        'delay_ms': delay,
+    }
+    for raw_key, raw_val in request.args.items():
+      key = raw_key.strip()
+      if not key or key in _STANDARD_CAPTURE_ARGS:
+        continue
+      if key in ('session_id', 'override_hostname'):
+        if not _is_safe_path_segment(raw_val):
+          return respond(
+              {'error': f'Invalid {key}: must be a single safe path segment.'},
+              'application/json',
+              code=400,
+          )
+        options[key] = raw_val
+        continue
+      if key == 'override_hostnames':
+        hostnames = raw_val.split(',')
+        if not hostnames or not all(
+            _is_safe_path_segment(h) for h in hostnames
+        ):
+          return respond(
+              {
+                  'error': (
+                      'Invalid override_hostnames: each entry must be a single'
+                      ' safe path segment.'
+                  )
+              },
+              'application/json',
+              code=400,
+          )
+        options[key] = raw_val
+        continue
+      if key in _STRING_CAPTURE_OPTIONS or key.endswith('_sampling_options'):
+        options[key] = raw_val
+        continue
+      lower_val = raw_val.lower()
+      if lower_val == 'true':
+        options[key] = True
+      elif lower_val == 'false':
+        options[key] = False
+      else:
+        try:
+          int_val = int(raw_val)
+        except ValueError:
+          options[key] = raw_val
+        else:
+          if not _INT32_MIN <= int_val <= _INT32_MAX:
+            return respond(
+                {'error': f'Integer option out of 32-bit range: {key}'},
+                'application/json',
+                code=400,
+            )
+          options[key] = int_val
 
     if is_tpu_name:
       if self._tf_profiler is None:

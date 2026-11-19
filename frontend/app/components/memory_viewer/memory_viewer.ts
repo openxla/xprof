@@ -10,6 +10,7 @@ import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {MemoryViewerPreprocessResult} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
+import {CommunicationService} from 'org_xprof/frontend/app/services/communication_service/communication_service';
 import {
   DATA_SERVICE_INTERFACE_TOKEN,
   DataServiceV2Interface,
@@ -33,6 +34,7 @@ export class MemoryViewer implements OnDestroy {
   );
   private readonly route = inject(ActivatedRoute);
   private readonly store = inject(Store<{}>);
+  private readonly communicationService = inject(CommunicationService);
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
   sessionId = '';
@@ -73,6 +75,15 @@ export class MemoryViewer implements OnDestroy {
     this.host = params['host'] || this.host;
     this.selectedModule =
       params['moduleName'] || params['module_name'] || this.selectedModule;
+    const memorySpace =
+      params['memory_space'] ??
+      params['memorySpace'] ??
+      params['memorySpaceColor'];
+    if (memorySpace !== undefined && memorySpace !== '') {
+      this.selectedMemorySpaceColor = String(memorySpace);
+    } else {
+      this.selectedMemorySpaceColor = this.firstLoadMemorySpaceColor;
+    }
   }
 
   /**
@@ -107,9 +118,12 @@ export class MemoryViewer implements OnDestroy {
     // getModuleList before calling the analysis code.
     if (this.sessionId === 'xsymbol') {
       // Module name is set to empty, the backend server will automatically
-      // choose the only 1 module. Memory space color is set to 0 (HBM) by
-      // default.
-      this.loadModule('', this.firstLoadMemorySpaceColor, true);
+      // choose the only 1 module. Memory space color defaults to 0 (HBM).
+      this.loadModule(
+        '',
+        this.selectedMemorySpaceColor || this.firstLoadMemorySpaceColor,
+        true,
+      );
     } else if (this.moduleList.length > 0) {
       this.resolveSelectedModuleAndMemorySpace();
       this.loadModule(this.selectedModule, this.selectedMemorySpaceColor, true);
@@ -182,13 +196,20 @@ export class MemoryViewer implements OnDestroy {
       return;
     }
 
+    const urlUpdates: {[key: string]: string} = {};
     if (moduleChanged) {
       this.selectedModule = event.moduleName ?? '';
-      this.syncUrlParams({'moduleName': this.selectedModule});
+      urlUpdates['moduleName'] = this.selectedModule;
     }
 
     if (memorySpaceChanged) {
       this.selectedMemorySpaceColor = event.memorySpaceColor ?? '0';
+      urlUpdates['memory_space'] = this.selectedMemorySpaceColor;
+    }
+
+    if (Object.keys(urlUpdates).length > 0) {
+      this.syncUrlParams(urlUpdates);
+      this.communicationService.onToolQueryParamsChange(urlUpdates);
     }
 
     this.loadModule(this.selectedModule, this.selectedMemorySpaceColor || '0');

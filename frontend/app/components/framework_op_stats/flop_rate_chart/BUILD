@@ -15,6 +15,8 @@ xprof_ng_module(
     # strict_templates = False,
     deps = [
         "//:node_modules/@angular/core",
+        "//:node_modules/@types/google.visualization",
+        "@org_xprof//frontend/app/common/constants",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/interfaces:chart",
         "@org_xprof//frontend/app/components/chart",

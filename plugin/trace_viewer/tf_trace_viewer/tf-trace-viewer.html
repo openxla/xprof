@@ -781,10 +781,38 @@ dashboard would integrate trace viewer app using iframe.
     },
 
     createCrossToolLink: function(toolName, toolLabel, params, text) {
-      const toolLink =
+      let toolLink;
+      let fallbackSessionId = '';
+      if (this._isOss) {
+        const traceViewerLink =
+            new URL(this.traceDataUrl || '', window.location.href);
+        fallbackSessionId =
+            traceViewerLink.searchParams.get('run') || this._sessionId || '';
+        const prefixIndex =
+            window.location.pathname.indexOf('/data/plugin/profile');
+        const basePrefix = prefixIndex >= 0 ?
+            window.location.pathname.slice(0, prefixIndex) +
+                '/data/plugin/profile' :
+            '/data/plugin/profile';
+        toolLink = new URL(
+            `${window.location.origin}${basePrefix}/${toolName}/${encodeURIComponent(fallbackSessionId)}`);
+      } else {
+        toolLink =
             new URL(`${window.location.origin}/${toolName}/${this._sessionId}`);
+      }
       for (const [key, value] of Object.entries(params)) {
-        toolLink.searchParams.append(key, value);
+        const resolved = this._isOss && key === 'session_id' && !value ?
+            fallbackSessionId :
+            value;
+        toolLink.searchParams.append(key, resolved);
+      }
+      if (this._isOss) {
+        if (this._sessionPath) {
+          toolLink.searchParams.set('session_path', this._sessionPath);
+        }
+        if (this._runPath) {
+          toolLink.searchParams.set('run_path', this._runPath);
+        }
       }
       const toolLinkElement = document.createElement('div');
       toolLinkElement.appendChild(document.createTextNode(`${toolLabel}: `));

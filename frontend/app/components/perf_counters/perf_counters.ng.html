@@ -16,6 +16,10 @@
       </category-filter>
       <string-filter [dataTable]="dataTable" column="Counter" (changed)="updateFilters($event)">
       </string-filter>
+    <mat-checkbox
+      [(ngModel)]="showZeroValues"
+      (change)="update()"
+      >Show Zero Values</mat-checkbox>
     <div class="flex-space"></div>
     <export-as-csv [tool]="tool" [sessionId]="sessionId" [host]="host" [additionalParams]="getAdditionalParams()"></export-as-csv>
   </div>

@@ -93,7 +93,7 @@
 <mat-divider></mat-divider>
 
 <div *ngIf="hasDeviceData">
-  <div *ngIf="showPprofLink">
+  <div *ngIf="showPprofLink && devicePprofLink">
     <div class="section-container">
       <div class="mat-headline">Pprof for Device-side framework operations</div>
       <div>
@@ -115,7 +115,7 @@
   <mat-divider></mat-divider>
 </div>
 
-<div *ngIf="showPprofLink">
+<div *ngIf="showPprofLink && hostPprofLink">
   <div class="section-container">
     <div class="mat-headline">Pprof for Host-side framework operations</div>
     <div [innerHtml]="hostPprofLink"></div>

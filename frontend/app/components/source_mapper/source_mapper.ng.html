@@ -60,7 +60,7 @@
                 *ngFor="let line of irTextLinesForDisplay; let lineIndex = index; trackBy: trackByIndex"
                 [class.line-selected]="isFocusLine(line)">
                 <td><pre class="line-number"><code>{{ 1 + lineIndex }}</code></pre></td>
-                <td><pre class="line-content"><code [innerHTML]="line"></code></pre></td>
+                <td><pre class="line-content"><code>{{ line }}</code></pre></td>
               </tr>
             </ng-container>
 

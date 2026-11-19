@@ -15,6 +15,7 @@
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/data_table_utils.h"
+#include "xprof/convert/tool_options.h"
 #include "xprof/convert/unified_session_snapshot.h"
 #ifdef EMBEDDED_FEATURES_ENABLED
 #include "xprof/embedded/perf_counters/perf_counters_db.h"
@@ -36,7 +37,7 @@ using ::tsl::profiler::XStatVisitor;
 
 void ConvertXSpaceToPerfCounters(const XSpace* space,
                                  absl::string_view hostname,
-                                 DataTable* data_table) {
+                                 DataTable* data_table, bool show_zeros) {
   if (data_table->GetColumns().empty()) {
     data_table->AddColumn(TableColumn("Host", "string", "Host"));
     data_table->AddColumn(TableColumn("Chip", "number", "Chip"));
@@ -85,6 +86,7 @@ void ConvertXSpaceToPerfCounters(const XSpace* space,
         if (!counter_value_stat) return;
 
         uint64_t value = counter_value_stat->IntOrUintValue();
+        if (!show_zeros && value == 0) return;
 
         std::optional<XStatVisitor> id_stat =
             event.GetStat(StatType::kPerformanceCounterId);
@@ -146,7 +148,10 @@ void ConvertXSpaceToPerfCounters(const XSpace* space,
 }
 
 absl::StatusOr<std::string> ConvertMultiXSpacesToPerfCounters(
-    const xprof::XprofSessionSnapshot& session_snapshot) {
+    const xprof::XprofSessionSnapshot& session_snapshot,
+    const ToolOptions& options) {
+  const bool show_zeros =
+      GetParamWithDefault<bool>(options, "show_zeros", true);
   DataTable data_table;
 
   // Ensure columns are added even if there are no XSpaces.
@@ -168,7 +173,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToPerfCounters(
     XSpace* space = xspace_or.value();
     std::string hostname = session_snapshot.GetHostname(i);
 
-    ConvertXSpaceToPerfCounters(space, hostname, &data_table);
+    ConvertXSpaceToPerfCounters(space, hostname, &data_table, show_zeros);
   }
 
   return data_table.ToJson();

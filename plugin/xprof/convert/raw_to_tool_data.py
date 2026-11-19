@@ -277,8 +277,8 @@ def xspace_to_tool_data(
     raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = raw_data
-  elif tool == 'hlo_stats':
-    json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
+  elif tool in ('hlo_stats', 'hlo_op_stats'):
+    json_data, success = xspace_wrapper_func(xspace_paths, 'hlo_stats', options)
     if success:
       data = json_data
   elif tool == 'roofline_model':
@@ -341,6 +341,8 @@ def xspace_to_tool_data(
     if success:
       data = json_data
   elif tool == 'perf_counters':
+    if 'show_zeros' in params:
+      options['show_zeros'] = params['show_zeros']
     json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = json_data

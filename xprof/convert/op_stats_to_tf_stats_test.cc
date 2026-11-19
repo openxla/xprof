@@ -343,6 +343,10 @@ TEST(OpStatsToTfStats, FlatOpMetricsDbSupport) {
   EXPECT_EQ("op_a", record_0.op_name());
   EXPECT_EQ(2, record_0.occurrences());
   EXPECT_DOUBLE_EQ(0.5, record_0.total_self_time_in_us());
+
+  const std::string json = TfStatsToDataTableJson(tf_stats);
+  EXPECT_NE(json.find("Normalized FLOP Rate (GFLOP/s)"), std::string::npos);
+  EXPECT_EQ(json.find("Normalized FLOP Rate (FLOPs/s)"), std::string::npos);
 }
 }  // namespace
 }  // namespace profiler

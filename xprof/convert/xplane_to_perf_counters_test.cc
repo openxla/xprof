@@ -31,6 +31,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/repository.h"
+#include "xprof/convert/tool_options.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -105,6 +106,12 @@ SessionSnapshot CreateSessionSnapshot() {
           GetStatTypeStr(StatType::kPerformanceCounterSets)),
       "Fallback Set B");
 
+  XEventBuilder zero_event_builder = gpu_line_builder.AddEvent(
+      *gpu_plane_builder.GetOrCreateEventMetadata("ZeroCounterC"));
+  zero_event_builder.AddStatValue(*gpu_plane_builder.GetOrCreateStatMetadata(
+                                      GetStatTypeStr(StatType::kCounterValue)),
+                                  0ULL);
+
   std::vector<std::unique_ptr<XSpace>> xspaces;
   xspaces.push_back(std::move(xspace));
   absl::StatusOr<SessionSnapshot> session_snapshot =
@@ -136,6 +143,20 @@ TEST(XPlaneToPerfCountersTest, ConvertMultiXSpacesToPerfCounters) {
   EXPECT_THAT(json, testing::HasSubstr("gpukernelb"));
   EXPECT_THAT(json, testing::HasSubstr("Fallback Description B"));
   EXPECT_THAT(json, testing::HasSubstr("Fallback Set B"));
+  EXPECT_THAT(json, testing::HasSubstr("zerocounterc"));
+}
+
+TEST(XPlaneToPerfCountersTest, FiltersZeroValueCountersWhenShowZerosIsFalse) {
+  SessionSnapshot session_snapshot = CreateSessionSnapshot();
+  ToolOptions options = {{"show_zeros", false}};
+  absl::StatusOr<std::string> result =
+      ConvertMultiXSpacesToPerfCounters(session_snapshot, options);
+  ASSERT_TRUE(result.ok());
+  std::string json = result.value();
+
+  EXPECT_THAT(json, testing::HasSubstr("kernela"));
+  EXPECT_THAT(json, testing::HasSubstr("gpukernelb"));
+  EXPECT_THAT(json, testing::Not(testing::HasSubstr("zerocounterc")));
 }
 
 }  // namespace

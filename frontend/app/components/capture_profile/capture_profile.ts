@@ -39,6 +39,41 @@ export class CaptureProfile implements OnDestroy {
     this.snackBar.open(message, 'Close now!', {duration: 5000});
   }
 
+  private extractErrorMessage(error: unknown): string {
+    if (!error) return 'Invalid error';
+    if (typeof error === 'string') return error;
+    if (typeof error !== 'object') return String(error);
+
+    const err =
+        error as {error?: unknown; message?: unknown; statusText?: unknown};
+    const nested = err.error && typeof err.error === 'object' ?
+        err.error as {error?: unknown; message?: unknown} :
+        undefined;
+    for (const candidate of [
+      err.error,
+      nested?.error,
+      nested?.message,
+      err.message,
+      err.statusText,
+    ]) {
+      if (typeof candidate === 'string' && candidate) {
+        return candidate;
+      }
+    }
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+
+  private handleCaptureError(error: unknown) {
+    console.error(error);
+    this.store.dispatch(setCapturingProfileAction({capturingProfile: false}));
+    this.openSnackBar(
+        'Failed to capture profile: ' + this.extractErrorMessage(error));
+  }
+
   openDialog() {
     this.dialog.open(CaptureProfileDialog)
         .afterClosed()
@@ -50,7 +85,15 @@ export class CaptureProfile implements OnDestroy {
 
           this.store.dispatch(
               setCapturingProfileAction({capturingProfile: true}));
-          this.dataService.captureProfile(options as CaptureProfileOptions)
+          let capture$;
+          try {
+            capture$ =
+                this.dataService.captureProfile(options as CaptureProfileOptions);
+          } catch (error: unknown) {
+            this.handleCaptureError(error);
+            return;
+          }
+          capture$
               .pipe(takeUntil(this.destroyed))
               .subscribe(
                   (response: CaptureProfileResponse) => {
@@ -67,31 +110,12 @@ export class CaptureProfile implements OnDestroy {
                     if (response.result) {
                       this.openSnackBar(response.result);
                       setTimeout(() => {
-                        document.dispatchEvent(new Event('plugin-reload'));
+                        document.dispatchEvent(new Event('tensorboard-reload'));
                       }, DELAY_TIME_MS);
                     }
                   },
-                  error => {
-                    console.error(error);
-                    this.store.dispatch(
-                        setCapturingProfileAction({capturingProfile: false}));
-                    let errorMessage = '';
-                    if (error && typeof error === 'object') {
-                      errorMessage = JSON.stringify(error);
-                      if (error.error) {
-                        errorMessage = error.error;
-                      } else if (error.message) {
-                        errorMessage = error.message;
-                      } else if (error.statusText) {
-                        errorMessage = error.statusText;
-                      }
-                    } else if (error) {
-                      errorMessage = error.toString();
-                    } else {
-                      errorMessage = 'Invalid error';
-                    }
-                    this.openSnackBar(
-                        'Failed to capture profile: ' + errorMessage);
+                  (error: unknown) => {
+                    this.handleCaptureError(error);
                   });
         });
   }

@@ -26,8 +26,8 @@ import {
   getProfilerConfig,
   getTagsState,
 } from 'org_xprof/frontend/app/store/selectors';
-import {ReplaySubject} from 'rxjs';
-import {takeUntil} from 'rxjs/operators';
+import {of, ReplaySubject} from 'rxjs';
+import {catchError, takeUntil} from 'rxjs/operators';
 
 import {CompilerPass, IrText} from './ir_text';
 
@@ -298,7 +298,7 @@ export class SourceMapper implements OnDestroy, OnChanges {
   }
 
   get loaded() {
-    return this.irText !== '';
+    return this.currentIrText !== undefined;
   }
 
   maybeUpdateHloTextCache() {
@@ -323,20 +323,26 @@ export class SourceMapper implements OnDestroy, OnChanges {
     if (this.hloTextCache.has(cacheKey)) {
       return;
     }
+    const sessionId = this.sessionId;
     this.dataService
       .downloadHloProto(
-        this.sessionId,
+        sessionId,
         hloGraphType,
         '',
         FileExtensionType.LONG_TEXT,
         false,
         programId,
       )
-      .pipe(takeUntil(this.destroyed))
+      .pipe(
+        catchError(() => of('')),
+        takeUntil(this.destroyed),
+      )
       .subscribe((data) => {
-        if (typeof data === 'string' && data) {
-          this.hloTextCache.set(cacheKey, new IrText(data, compilerPass));
-        }
+        if (this.sessionId !== sessionId) return;
+        this.hloTextCache.set(
+          cacheKey,
+          new IrText(typeof data === 'string' ? data : '', compilerPass),
+        );
       });
   }
 
@@ -352,16 +358,25 @@ export class SourceMapper implements OnDestroy, OnChanges {
     if (text) {
       return;
     }
+    const sessionId = this.sessionId;
+    const opName = this.opName;
     this.dataService
-      .getCustomCallText(this.sessionId, '', this.opName, this.programId)
-      .pipe(takeUntil(this.destroyed))
+      .getCustomCallText(
+        sessionId,
+        '',
+        opName,
+        this.programId,
+      )
+      .pipe(
+        catchError(() => of('')),
+        takeUntil(this.destroyed),
+      )
       .subscribe((data: string) => {
-        if (data) {
-          this.mosaicTextByKernelName.set(
-            this.opName,
-            new IrText(data, CompilerPass.MOSAIC_ORIGINAL),
-          );
-        }
+        if (this.sessionId !== sessionId) return;
+        this.mosaicTextByKernelName.set(
+          opName,
+          new IrText(data || '', CompilerPass.MOSAIC_ORIGINAL),
+        );
       });
   }
 
@@ -378,13 +393,16 @@ export class SourceMapper implements OnDestroy, OnChanges {
     if (sourceFileAndLineNumber) {
       return;
     }
+    const sessionId = this.sessionId;
+    const opName = this.opName;
     this.dataService
-      .getLloSourceInfo(this.sessionId, this.opName)
+      .getLloSourceInfo(sessionId, opName)
       .pipe(takeUntil(this.destroyed))
       .subscribe((sourceInfo) => {
+        if (this.sessionId !== sessionId) return;
         if (sourceInfo) {
           this.mosaicSourceFileAndLineNumberByKernelName.set(
-            this.opName,
+            opName,
             sourceInfo,
           );
         }

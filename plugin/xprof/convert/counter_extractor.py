@@ -14,10 +14,18 @@ def get_all_counters(device_type: str) -> list[dict[str, int]]:
     raise ValueError(f'Unsupported device_type: {device_type}')
   filename = f'tpu_counter_ids_{device_type}.h'
 
-  try:
-    ref = importlib.resources.files('xprof') / 'utils' / filename
-  except ImportError:
-    pass
+  packages = [
+      'xprof',
+  ]
+  ref = None
+  for package_name in packages:
+    try:
+      ref = importlib.resources.files(package_name) / 'utils' / filename
+      break
+    except ImportError:
+      continue
+  if ref is None:
+    raise FileNotFoundError(f'Could not locate {filename}')
   content = ref.read_text(encoding='utf-8')
   # Remove C++ style line comments from content.
   content = re.sub(r'//.*', '', content)

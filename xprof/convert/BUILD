@@ -2132,6 +2132,7 @@ cc_library(
     deps = [
         ":data_table_utils",
         ":repository",
+        ":tool_options",
         ":unified_session_snapshot",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
@@ -2153,6 +2154,7 @@ cc_test(
     srcs = ["xplane_to_perf_counters_test.cc"],
     deps = [
         ":repository",
+        ":tool_options",
         ":xplane_to_perf_counters",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",

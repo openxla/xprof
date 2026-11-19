@@ -1,4 +1,5 @@
 import {Component, Input, OnChanges, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
+import {OpExecutor} from 'org_xprof/frontend/app/common/constants/enums';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {type FrameworkOpStatsData, type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {COLUMN_CHART_OPTIONS} from 'org_xprof/frontend/app/components/chart/chart_options';
@@ -28,8 +29,16 @@ export class FlopRateChart implements OnChanges {
   };
 
   ngOnChanges(changes: SimpleChanges) {
+    const filters: google.visualization.DataTableCellFilter[] = [
+      {column: this.yColumn, minValue: Number.MIN_VALUE},
+    ];
+    const opExecutorColumn =
+        this.data?.cols?.findIndex((col) => col.id === 'host_or_device') ?? -1;
+    if (opExecutorColumn >= 0) {
+      filters.unshift({column: opExecutorColumn, value: OpExecutor.DEVICE});
+    }
     this.dataInfo.customChartDataProcessor = new XyTableDataProcessor(
-        {'fractionDigits': 1}, [{column: this.yColumn, minValue: 0.0000}],
+        {'fractionDigits': 1}, filters,
         this.xColumn, this.yColumn);
     this.dataInfo.options = {
       ...COLUMN_CHART_OPTIONS,

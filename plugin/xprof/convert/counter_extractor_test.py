@@ -119,6 +119,16 @@ class CounterExtractorTest(absltest.TestCase):
       counter_extractor.get_all_counters("v7x")
 
   @mock.patch("importlib.resources.files")
+  def test_get_all_counters_all_packages_import_error_raises_file_not_found(
+      self, mock_files
+  ):
+    """Verifies ImportError across all candidate packages raises FileNotFoundError."""
+    mock_files.side_effect = ImportError("No module named xprof")
+
+    with self.assertRaises(FileNotFoundError):
+      counter_extractor.get_all_counters("v6e")
+
+  @mock.patch("importlib.resources.files")
   def test_get_all_counters_no_match(self, mock_files):
     mock_content = "some file without enum"
     mock_file = mock.MagicMock()

@@ -76,7 +76,11 @@ export class FrameworkOpStats {
       this.title = title || '';
     });
     this.store.select(selectors.getHasDiffState).subscribe(hasDiff => {
-      this.hasDiff = Boolean(hasDiff);
+      const nextHasDiff = Boolean(hasDiff);
+      if (this.hasDiff !== nextHasDiff) {
+        this.hasDiff = nextHasDiff;
+        this.setIdleOption(this.idleMenuButtonLabel);
+      }
     });
     this.store.select(selectors.getShowFlopRateChartState)
         .subscribe(showFlopRateChart => {
@@ -104,6 +108,9 @@ export class FrameworkOpStats {
 
   setIdleOption(option: IdleOption = IdleOption.NO) {
     this.idleMenuButtonLabel = option;
+    if (!this.hasDiff) {
+      this.selectedDiffData = null;
+    }
     if ((!this.data || this.data.length === 0) ||
         (this.hasDiff && (!this.diffData || this.diffData.length === 0))) {
       this.selectedData = null;
@@ -168,6 +175,10 @@ export class FrameworkOpStats {
     // called to redraw the graph.
     this.dataProvider.notifyCharts();
 
+    this.architecture = '';
+    this.task = '';
+    this.devicePprofLink = '';
+    this.hostPprofLink = '';
     if (this.selectedData && this.selectedData.p) {
       this.architecture = this.selectedData.p['architecture_type'] || '';
       this.task = this.selectedData.p['task_type'] || '';

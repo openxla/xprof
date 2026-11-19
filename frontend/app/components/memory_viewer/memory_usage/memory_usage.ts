@@ -91,8 +91,8 @@ export class MemoryUsage {
     if (preprocess) {
       // Initialize memory viewer from preprocessed data.
       this.initMemoryUsageFromPrecomputed(
-          preprocess, currentRun, currentHost, currentModule, sessionPath,
-          runPath);
+          preprocess, memorySpaceColor, currentRun, currentHost, currentModule,
+          sessionPath, runPath);
     }
   }
 
@@ -100,9 +100,9 @@ export class MemoryUsage {
    * Initializes memory usage from precomputed results.
    */
   private initMemoryUsageFromPrecomputed(
-      preprocess: MemoryViewerPreprocessResult, currentRun: string|null,
-      currentHost: string|null, currentModule: string|null,
-      sessionPath?: string, runPath?: string) {
+      preprocess: MemoryViewerPreprocessResult, memorySpaceColor: number,
+      currentRun: string|null, currentHost: string|null,
+      currentModule: string|null, sessionPath?: string, runPath?: string) {
     // Copy the fields from preprocessed result.
     this.timelineUrl = preprocess.allocationTimeline || '';
     if (!this.timelineUrl.startsWith('/memory_viewer.json')) {
@@ -112,8 +112,12 @@ export class MemoryUsage {
       params.set('run', currentRun || '');
       params.set('tag', 'memory_viewer');
       params.set('module_name', currentModule || '');
+      params.set('memory_space', String(memorySpaceColor));
       params.set('view_memory_allocation_timeline', 'true');
 
+      if (currentHost) {
+        params.set('host', currentHost);
+      }
       if (sessionPath) {
         params.set('session_path', sessionPath);
       }

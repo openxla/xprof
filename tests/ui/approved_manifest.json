@@ -8,9 +8,9 @@
     },
     "compiler.graph_and_multihost_scale:01_switch_tool_HLO Op Stats": {
       "decision": "INTENTIONAL",
-      "diff_hash": "83efe366592f61ac",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.282908+00:00"
+      "diff_hash": "656898c542a69b05",
+      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
+      "timestamp": "2026-11-19T10:23:00.000000+00:00"
     },
     "compiler.graph_and_multihost_scale:02_switch_tool_Graph Viewer": {
       "decision": "INTENTIONAL",
@@ -86,33 +86,33 @@
     },
     "compute.op_profile_and_stats:05_switch_tool_Framework Op Stats": {
       "decision": "INTENTIONAL",
-      "diff_hash": "ecec67e4de29d593",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.382639+00:00"
+      "diff_hash": "8ac8f6ed2648f223",
+      "rationale": "Intentional UI fix: corrected measured_flop_rate header to GFLOP/s, filtered Host and zero-FLOP ops from FlopRateChart, and hid empty pprof sections.",
+      "timestamp": "2026-11-19T10:23:00.000000+00:00"
     },
     "compute.op_profile_and_stats:06_filter_table_rows_dot_general": {
       "decision": "INTENTIONAL",
-      "diff_hash": "cf1898df25e23497",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.390295+00:00"
+      "diff_hash": "ad798a644c0ccb03",
+      "rationale": "Intentional UI fix: corrected measured_flop_rate header to GFLOP/s, filtered Host and zero-FLOP ops from FlopRateChart, and hid empty pprof sections.",
+      "timestamp": "2026-11-19T10:23:00.000000+00:00"
     },
     "compute.op_profile_and_stats:07_sort_table_column_#Occurrences": {
       "decision": "INTENTIONAL",
-      "diff_hash": "350d9f5c29a59e1c",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.398057+00:00"
+      "diff_hash": "39dcb4ff1c714f25",
+      "rationale": "Intentional UI fix: corrected measured_flop_rate header to GFLOP/s, filtered Host and zero-FLOP ops from FlopRateChart, and hid empty pprof sections.",
+      "timestamp": "2026-11-19T10:23:00.000000+00:00"
     },
     "compute.op_profile_and_stats:08_switch_tool_HLO Op Stats": {
       "decision": "INTENTIONAL",
-      "diff_hash": "2cd30f7e2246c103",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.405730+00:00"
+      "diff_hash": "d90887b36cb73d89",
+      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
+      "timestamp": "2026-11-19T10:23:00.000000+00:00"
     },
     "compute.op_profile_and_stats:09_filter_table_rows_all-gather": {
       "decision": "INTENTIONAL",
-      "diff_hash": "911c6c612b650d08",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.413549+00:00"
+      "diff_hash": "e1c57e4e635a4b1a",
+      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
+      "timestamp": "2026-11-19T10:23:00.000000+00:00"
     },
     "compute.op_profile_and_stats:10_switch_tool_Roofline Model": {
       "decision": "INTENTIONAL",
@@ -120,23 +120,23 @@
       "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
       "timestamp": "2026-11-12T09:41:05.421273+00:00"
     },
-    "distributed.host_retention_and_trace:00_overview_page": {
+    "distributed.host_retention_and_trace:00_hlo_stats": {
       "decision": "INTENTIONAL",
-      "diff_hash": "74caaf1d9c7898f8",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.483751+00:00"
+      "diff_hash": "6b70ed8ae6757edf",
+      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
+      "timestamp": "2026-11-19T10:23:00.000000+00:00"
     },
-    "distributed.host_retention_and_trace:01_select_host_t1v-n-9bfa07b4-w-0": {
+    "distributed.host_retention_and_trace:01_select_host_worker-1": {
       "decision": "INTENTIONAL",
-      "diff_hash": "19bd335abd12476d",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.491617+00:00"
+      "diff_hash": "9b5769aeb34ff25a",
+      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
+      "timestamp": "2026-11-19T10:23:00.000000+00:00"
     },
-    "distributed.host_retention_and_trace:02_switch_tool_HLO Op Stats": {
+    "distributed.host_retention_and_trace:02_sort_table_column_#Occurrences": {
       "decision": "INTENTIONAL",
-      "diff_hash": "8fe3ee1ae5404057",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.499382+00:00"
+      "diff_hash": "e8e1089753c92f2c",
+      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
+      "timestamp": "2026-11-19T10:23:00.000000+00:00"
     },
     "distributed.host_retention_and_trace:03_switch_tool_Trace Viewer": {
       "decision": "INTENTIONAL",
@@ -144,11 +144,11 @@
       "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
       "timestamp": "2026-11-12T09:41:05.507004+00:00"
     },
-    "distributed.host_retention_and_trace:04_switch_tool_Overview Page": {
+    "distributed.host_retention_and_trace:04_go_back_HLO Op Stats": {
       "decision": "INTENTIONAL",
-      "diff_hash": "fbb2b35838f927bb",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.514950+00:00"
+      "diff_hash": "8889258ff61808fa",
+      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
+      "timestamp": "2026-11-19T10:23:00.000000+00:00"
     },
     "full_spectrum.multimodal_endurance:00_overview_page": {
       "decision": "INTENTIONAL",
@@ -164,27 +164,27 @@
     },
     "full_spectrum.multimodal_endurance:02_switch_tool_Memory Viewer": {
       "decision": "INTENTIONAL",
-      "diff_hash": "913a688a07dfd8dd",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.538367+00:00"
+      "diff_hash": "31fb5eaf723c96e1",
+      "rationale": "Intentional UI fix: restored the XLA Modules selector in open-source Memory Viewer and included memory_space in timeline URLs.",
+      "timestamp": "2026-11-19T10:23:00.000000+00:00"
     },
     "full_spectrum.multimodal_endurance:03_switch_tool_Trace Viewer": {
       "decision": "INTENTIONAL",
-      "diff_hash": "ddd8f6da645b9e8a",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.546255+00:00"
+      "diff_hash": "dd41f6d4fefbe2af",
+      "rationale": "Intentional DOM-only shift (0 px visual diff): Angular Material ng-tns animation counter increments after the restored Memory Viewer module selector renders earlier in the session.",
+      "timestamp": "2026-11-19T10:23:00.000000+00:00"
     },
     "full_spectrum.multimodal_endurance:04_switch_tool_HLO Op Stats": {
       "decision": "INTENTIONAL",
-      "diff_hash": "d45ff149aa2652bd",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.554006+00:00"
+      "diff_hash": "d27f5f577682ead4",
+      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
+      "timestamp": "2026-11-19T10:23:00.000000+00:00"
     },
     "full_spectrum.multimodal_endurance:05_goto_v6e-4-training/hlo_stats": {
       "decision": "INTENTIONAL",
-      "diff_hash": "f2b366c5d024f7e0",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.561691+00:00"
+      "diff_hash": "b7eb73605587b14b",
+      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
+      "timestamp": "2026-11-19T10:23:00.000000+00:00"
     },
     "full_spectrum.multimodal_endurance:06_switch_tool_Graph Viewer": {
       "decision": "INTENTIONAL",
@@ -206,9 +206,9 @@
     },
     "full_spectrum.multimodal_endurance:09_switch_tool_Input Pipeline Analysis": {
       "decision": "INTENTIONAL",
-      "diff_hash": "3d4fb0c243faca7a",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.593089+00:00"
+      "diff_hash": "444d0e8482dc7bd3",
+      "rationale": "Intentional UI fix: removed stray trailing comma in column ID 'scv0InfeedTimeMs', restoring the SparseCoreV0 input series and legend entry on Step-time Graph.",
+      "timestamp": "2026-11-19T05:33:06.840774+00:00"
     },
     "full_spectrum.multimodal_endurance:10_goto_v6e-4-training/overview_page": {
       "decision": "INTENTIONAL",
@@ -242,9 +242,9 @@
     },
     "memory.cross_hardware_tpu_to_v6e:04_switch_tool_Memory Viewer": {
       "decision": "INTENTIONAL",
-      "diff_hash": "9c9590b429142f9e",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.229385+00:00"
+      "diff_hash": "a9c1d6ab93d511da",
+      "rationale": "Intentional UI fix: restored the XLA Modules selector in open-source Memory Viewer and included memory_space in timeline URLs.",
+      "timestamp": "2026-11-19T10:23:00.000000+00:00"
     },
     "memory.cross_hardware_tpu_to_v6e:05_goto_v6e-4-training/overview_page": {
       "decision": "INTENTIONAL",
@@ -302,9 +302,9 @@
     },
     "routing.popstate_resilience_loop:04_switch_tool_Input Pipeline Analysis": {
       "decision": "INTENTIONAL",
-      "diff_hash": "e0ddf4f1f69ed1b2",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.459746+00:00"
+      "diff_hash": "4afa631e5b168143",
+      "rationale": "Intentional UI fix: removed stray trailing comma in column ID 'scv0InfeedTimeMs', restoring the SparseCoreV0 input series and legend entry on Step-time Graph.",
+      "timestamp": "2026-11-19T10:23:00.000000+00:00"
     },
     "routing.popstate_resilience_loop:05_go_back_Memory Profile": {
       "decision": "INTENTIONAL",
@@ -326,27 +326,27 @@
     },
     "triage.pipeline_and_hardware_bounds:01_switch_tool_Input Pipeline Analysis": {
       "decision": "INTENTIONAL",
-      "diff_hash": "5bbd2e260f0e9f21",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.114052+00:00"
+      "diff_hash": "b25cf1f5ff84db5b",
+      "rationale": "Intentional UI fix: removed stray trailing comma in column ID 'scv0InfeedTimeMs', restoring the SparseCoreV0 input series and legend entry on Step-time Graph.",
+      "timestamp": "2026-11-19T10:23:00.000000+00:00"
     },
     "triage.pipeline_and_hardware_bounds:02_switch_tool_HLO Op Stats": {
       "decision": "INTENTIONAL",
-      "diff_hash": "4e3bd9d2ad799790",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.121834+00:00"
+      "diff_hash": "49e43b2364ec46a6",
+      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
+      "timestamp": "2026-11-19T10:23:00.000000+00:00"
     },
     "triage.pipeline_and_hardware_bounds:03_select_category_filter_convolution fusion": {
       "decision": "INTENTIONAL",
-      "diff_hash": "39a50b85df2206cc",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.129574+00:00"
+      "diff_hash": "10fc00629bc787b8",
+      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
+      "timestamp": "2026-11-19T10:23:00.000000+00:00"
     },
     "triage.pipeline_and_hardware_bounds:04_sort_table_column_#Occurrences": {
       "decision": "INTENTIONAL",
-      "diff_hash": "c974d94407415df3",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.137196+00:00"
+      "diff_hash": "97efad08b9db4e3f",
+      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
+      "timestamp": "2026-11-19T10:23:00.000000+00:00"
     },
     "triage.pipeline_and_hardware_bounds:05_switch_tool_Op Profile": {
       "decision": "INTENTIONAL",

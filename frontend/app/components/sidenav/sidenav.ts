@@ -79,6 +79,15 @@ export interface NavigationParamsRecord {
   moduleName: string;
 }
 
+const TOOL_TAG_ALIASES: Record<string, string> = {
+  'kernel_utilization': 'utilization_viewer',
+  'hlo_op_stats': 'hlo_stats',
+};
+
+function normalizeToolTag(tag: string): string {
+  return TOOL_TAG_ALIASES[tag] ?? tag;
+}
+
 /** Normalizes navigation parameters and aliases. */
 export function parseNavigationParams(
   params: ReadonlyMap<string, string | string[]>,
@@ -93,7 +102,7 @@ export function parseNavigationParams(
   return {
     run:
       getParam('run') ?? getParam('session_id') ?? getParam('sessionId') ?? '',
-    tag: rawTag === 'kernel_utilization' ? 'utilization_viewer' : rawTag,
+    tag: normalizeToolTag(rawTag),
     host: getParam('host') ?? '',
     hosts: getParam('hosts') ?? '',
     sessionPath: getParam('session_path') ?? getParam('sessionPath') ?? '',
@@ -133,6 +142,29 @@ const STANDALONE_NON_SIDENAV_ROUTES = [
   'megascale_perfetto',
   'stack_trace_page',
 ];
+
+const SIDENAV_TOOL_ROUTES = new Set([
+  'overview_page',
+  'input_pipeline_analyzer',
+  'kernel_stats',
+  'kernel_viewer',
+  'memory_profile',
+  'memory_viewer',
+  'op_profile',
+  'pod_viewer',
+  'framework_op_stats',
+  'trace_viewer',
+  'trace_viewer@',
+  'utilization_viewer',
+  'kernel_utilization',
+  'graph_viewer',
+  'megascale_stats',
+  'perf_counters',
+  'inference_profile',
+  'hlo_stats',
+  'hlo_op_stats',
+  'roofline_model',
+]);
 
 /** A side navigation component. */
 @Component({
@@ -265,6 +297,20 @@ export class SideNav implements OnInit, OnDestroy {
       : '';
   }
 
+  private getSidenavToolFromPath(url?: string): string {
+    const rawUrl =
+      url ?? (this.router.url || this.router.routerState?.snapshot?.url || '');
+    let cleanPath = rawUrl.split('?')[0].split('#')[0];
+    if (cleanPath.includes('/data/plugin/profile')) {
+      cleanPath = cleanPath.split('/data/plugin/profile')[1] || '';
+    }
+    const firstSegment = cleanPath.split('/').find(Boolean) || '';
+    if (!SIDENAV_TOOL_ROUTES.has(firstSegment)) {
+      return '';
+    }
+    return normalizeToolTag(firstSegment);
+  }
+
   // Getter for valid host given url router or user selection.
   get selectedHost() {
     return (
@@ -366,7 +412,7 @@ export class SideNav implements OnInit, OnDestroy {
     const route = parseNavigationParams(routeParams);
 
     const run = route.run || parent.run;
-    const tag = route.tag || parent.tag;
+    const tag = route.tag || this.getSidenavToolFromPath(url) || parent.tag;
     const host = route.host || parent.host;
     const hostsParam = route.hosts || parent.hosts;
     const sessionPath = route.sessionPath || parent.sessionPath;
@@ -380,6 +426,14 @@ export class SideNav implements OnInit, OnDestroy {
       routeParams.get('programId') ||
       parentParams.get('program_id') ||
       parentParams.get('programId') ||
+      '';
+    const memorySpace =
+      routeParams.get('memory_space') ??
+      routeParams.get('memorySpace') ??
+      routeParams.get('memorySpaceColor') ??
+      parentParams.get('memory_space') ??
+      parentParams.get('memorySpace') ??
+      parentParams.get('memorySpaceColor') ??
       '';
     const newNav =
       routeParams.get('new_nav') || parentParams.get('new_nav') || '';
@@ -413,6 +467,7 @@ export class SideNav implements OnInit, OnDestroy {
       this.labelInternal === label &&
       (this.navigationParams['opName'] || '') === opName &&
       (this.navigationParams['program_id'] || '') === programId &&
+      (this.navigationParams['memory_space'] || '') === memorySpace &&
       (this.navigationParams['new_nav'] || '') === normalizedNewNav &&
       (this.dataService.getBaseSessionId() ?? '') === baseSessionId &&
       isHostsEqual
@@ -431,6 +486,11 @@ export class SideNav implements OnInit, OnDestroy {
       this.navigationParams['program_id'] = programId;
     } else {
       delete this.navigationParams['program_id'];
+    }
+    if (memorySpace !== '') {
+      this.navigationParams['memory_space'] = memorySpace;
+    } else {
+      delete this.navigationParams['memory_space'];
     }
     if (normalizedNewNav) {
       this.navigationParams['new_nav'] = normalizedNewNav;
@@ -473,6 +533,16 @@ export class SideNav implements OnInit, OnDestroy {
       )
       .subscribe((event) => {
         this.navigateWithUrl(event.urlAfterRedirects || event.url);
+      });
+    this.communicationService.toolQueryParamsChange
+      ?.pipe(takeUntil(this.destroyed))
+      .subscribe((params: NavigationEvent) => {
+        if (params.moduleName !== undefined) {
+          this.selectedModuleInternal = params.moduleName;
+        }
+        if (params.memory_space !== undefined) {
+          this.navigationParams['memory_space'] = params.memory_space;
+        }
       });
   }
 
@@ -690,6 +760,9 @@ export class SideNav implements OnInit, OnDestroy {
 
   onRunSelectionChange(run: string) {
     this.store.dispatch(setErrorMessageStateAction({errorMessage: ''}));
+    if (this.selectedRunInternal !== run) {
+      delete this.navigationParams['memory_space'];
+    }
     this.selectedRunInternal = run;
     this.afterUpdateRun();
   }
@@ -721,6 +794,7 @@ export class SideNav implements OnInit, OnDestroy {
       delete this.navigationParams['opName'];
       delete this.navigationParams['program_id'];
       delete this.navigationParams['moduleName'];
+      delete this.navigationParams['memory_space'];
     }
     this.afterUpdateTag();
   }
@@ -740,6 +814,7 @@ export class SideNav implements OnInit, OnDestroy {
       delete this.navigationParams['opName'];
       delete this.navigationParams['program_id'];
       delete this.navigationParams['moduleName'];
+      delete this.navigationParams['memory_space'];
     }
 
     this.selectedHostsInternal = [];

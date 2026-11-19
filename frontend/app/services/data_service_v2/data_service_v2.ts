@@ -40,6 +40,18 @@ import {Observable, of} from 'rxjs';
 import {catchError} from 'rxjs/operators';
 import {windowOpen} from 'safevalues/dom';
 
+const CAPTURE_STANDARD_KEYS = new Set([
+  'serviceAddr',
+  'isTpuName',
+  'duration',
+  'numRetry',
+  'workerList',
+  'hostTracerLevel',
+  'deviceTracerLevel',
+  'pythonTracerLevel',
+  'delay',
+]);
+
 /** The data service class that calls API and return response. */
 @Injectable()
 export class DataServiceV2 implements DataServiceV2Interface {
@@ -195,6 +207,16 @@ export class DataServiceV2 implements DataServiceV2Interface {
       searchParams.set('moduleName', moduleName);
     } else if (tag !== 'memory_viewer') {
       searchParams.delete('moduleName');
+    }
+    const memorySpace = parameters.get('memory_space');
+    if (
+      typeof memorySpace === 'string' &&
+      memorySpace !== '' &&
+      tag === 'memory_viewer'
+    ) {
+      searchParams.set('memory_space', memorySpace);
+    } else if (tag !== 'memory_viewer') {
+      searchParams.delete('memory_space');
     }
     if (updateSearchParams) {
       this.setSearchParams(searchParams);
@@ -395,7 +417,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
     }
     searchParams.set('format', 'html');
     searchParams.set('type', 'graph');
-    return `${window.origin}/${this.pathPrefix}/${DATA_API}?${searchParams.toString()}${GRAPHVIZ_PAN_ZOOM_CONTROL}`;
+    return `${window.origin}${this.pathPrefix}${DATA_API}?${searchParams.toString()}${GRAPHVIZ_PAN_ZOOM_CONTROL}`;
   }
 
   // Not implemented.
@@ -462,36 +484,53 @@ export class DataServiceV2 implements DataServiceV2Interface {
     ];
   }
 
+  private buildCustomCallLink(
+    sessionId: string,
+    moduleName: string,
+    opName: string,
+    programId: string,
+    regviz: boolean,
+  ): string {
+    if ((!moduleName && !programId) || !opName) {
+      return '';
+    }
+    const linkParams = new URLSearchParams();
+    linkParams.set('tag', 'graph_viewer');
+    if (moduleName) {
+      linkParams.set('module_name', moduleName);
+    }
+    linkParams.set('node_name', opName);
+    linkParams.set('run', sessionId);
+    linkParams.set('type', 'custom_call');
+    if (regviz) {
+      linkParams.set('regviz', 'true');
+    }
+    if (programId) {
+      linkParams.set('program_id', programId);
+    }
+    const searchParams = this.getSearchParams();
+    for (const key of ['session_path', 'run_path', 'base_session_id']) {
+      const val = searchParams.get(key);
+      if (val) {
+        linkParams.set(key, val);
+      }
+    }
+    return `${window.parent.location.origin}${this.pathPrefix}${DATA_API}?${linkParams.toString()}#profile`;
+  }
+
   getCustomCallTextLink(
     sessionId: string,
     moduleName: string,
     opName: string,
     programId = '',
   ) {
-    if (moduleName && opName) {
-      const linkParams = new URLSearchParams();
-      linkParams.set('tag', 'graph_viewer');
-      linkParams.set('module_name', moduleName);
-      linkParams.set('node_name', opName);
-      linkParams.set('run', sessionId);
-      linkParams.set('type', 'custom_call');
-
-      const searchParams = this.getSearchParams();
-      const sessionPath = searchParams.get('session_path');
-      const runPath = searchParams.get('run_path');
-      const baseSessionId = this.getSearchParams().get('base_session_id');
-      if (sessionPath) {
-        linkParams.set('session_path', sessionPath);
-      }
-      if (runPath) {
-        linkParams.set('run_path', runPath);
-      }
-      if (baseSessionId) {
-        linkParams.set('base_session_id', baseSessionId);
-      }
-      return `${window.parent.location.origin}/${DATA_API}?${linkParams.toString()}#profile`;
-    }
-    return '';
+    return this.buildCustomCallLink(
+      sessionId,
+      moduleName,
+      opName,
+      programId,
+      false,
+    );
   }
 
   getCustomCallRegvizLink(
@@ -500,15 +539,17 @@ export class DataServiceV2 implements DataServiceV2Interface {
     opName: string,
     programId = '',
   ) {
-    if (moduleName && opName) {
-      // TODO(xprof): Add program id support in 3p frontend.
-      return `${window.parent.location.origin}/${
-        DATA_API
-      }?tag=graph_viewer&module_name=${moduleName}&node_name=${
-        opName
-      }&run=${sessionId}&type=custom_call&regviz=true#profile`;
-    }
-    return '';
+    return this.buildCustomCallLink(
+      sessionId,
+      moduleName,
+      opName,
+      programId,
+      true,
+    );
+  }
+
+  isRegvizAvailable(): boolean {
+    return false;
   }
 
   getCustomCallText(
@@ -674,16 +715,38 @@ export class DataServiceV2 implements DataServiceV2Interface {
     if (this.isLocalDevelopment) {
       return of({result: 'Done'});
     }
-    const params = new HttpParams()
-      .set('service_addr', options.serviceAddr)
-      .set('is_tpu_name', options.isTpuName.toString())
-      .set('duration', options.duration.toString())
-      .set('num_retry', options.numRetry.toString())
-      .set('worker_list', options.workerList)
-      .set('host_tracer_level', options.hostTracerLevel.toString())
-      .set('device_tracer_level', options.deviceTracerLevel.toString())
-      .set('python_tracer_level', options.pythonTracerLevel.toString())
-      .set('delay', options.delay.toString());
+    let params = new HttpParams()
+      .set('service_addr', options.serviceAddr ?? '')
+      .set('is_tpu_name', String(Boolean(options.isTpuName)))
+      .set('duration', String(utils.parseFiniteNumber(options.duration, 1000)))
+      .set('num_retry', String(utils.parseFiniteNumber(options.numRetry, 0)))
+      .set('worker_list', options.workerList ?? '')
+      .set(
+        'host_tracer_level',
+        String(utils.parseFiniteNumber(options.hostTracerLevel, 2)),
+      )
+      .set(
+        'device_tracer_level',
+        String(utils.parseFiniteNumber(options.deviceTracerLevel, 1)),
+      )
+      .set(
+        'python_tracer_level',
+        String(utils.parseFiniteNumber(options.pythonTracerLevel, 0)),
+      )
+      .set('delay', String(utils.parseFiniteNumber(options.delay, 0)));
+    for (const [key, value] of Object.entries(
+      options as unknown as Record<string, unknown>,
+    )) {
+      const trimmedKey = key.trim();
+      if (
+        trimmedKey &&
+        !CAPTURE_STANDARD_KEYS.has(trimmedKey) &&
+        !params.has(trimmedKey) &&
+        value != null
+      ) {
+        params = params.set(trimmedKey, String(value));
+      }
+    }
     return this.httpClient.post<CaptureProfileResponse>(
       this.pathPrefix + CAPTURE_PROFILE_API,
       null,

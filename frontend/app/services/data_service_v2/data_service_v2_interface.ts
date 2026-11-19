@@ -111,6 +111,8 @@ export interface DataServiceV2Interface {
     programId: string,
   ): string;
 
+  isRegvizAvailable?(): boolean;
+
   getCustomCallText(
     sessionId: string,
     moduleName: string,

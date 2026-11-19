@@ -1,11 +1,11 @@
 <div class="kernel-analysis-container">
   <form [formGroup]="kernelForm">
-    <mat-stepper [linear]="false" #stepper>
-      <mat-step>
+    <mat-stepper [linear]="true" #stepper>
+      <mat-step [stepControl]="kernelForm">
         <ng-template matStepLabel>Profiler<br>Options</ng-template>
         <app-profiler-options [formGroup]="kernelForm"></app-profiler-options>
         <div class="stepper-actions">
-          <button mat-flat-button color="primary" matStepperNext>Next</button>
+          <button mat-flat-button color="primary" matStepperNext [disabled]="kernelForm.invalid">Next</button>
         </div>
       </mat-step>
 

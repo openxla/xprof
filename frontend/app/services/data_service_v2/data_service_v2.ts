@@ -3,6 +3,7 @@ import {HttpClient, HttpErrorResponse, HttpParams} from '@angular/common/http';
 import {inject, Injectable} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {
+  ALL_HOSTS,
   API_PREFIX,
   CAPTURE_PROFILE_API,
   CONFIG_API,
@@ -786,11 +787,11 @@ export class DataServiceV2 implements DataServiceV2Interface {
     }
     params.set('run', sessionId);
     params.set('tag', 'roofline_model');
-    if (host) {
+    if (host && host !== ALL_HOSTS) {
       params.set('host', host);
     }
     const query = params.toString() ? `?${params.toString()}` : '';
-    return `/roofline_model/${sessionId}${query}`;
+    return `index.html${query}`;
   }
 
   isSmartSuggestionEnabled(): boolean {

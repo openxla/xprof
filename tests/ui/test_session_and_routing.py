@@ -18,6 +18,7 @@
 
 from collections.abc import Callable
 import os
+import pathlib
 import re
 import urllib.parse
 
@@ -293,3 +294,87 @@ def test_trace_viewer_navigation_preserves_browser_history(
   )
   assert_healthy(page, browser_errors, "trace_viewer_browser_back_navigation")
 
+
+def test_overview_page_roofline_model_link_navigates_single_and_multi_host(
+    page: Page,
+    logdir: str,
+    resolve_run: Callable[[str], str],
+    open_tool: Callable[..., str],
+    browser_errors: BrowserErrors,
+) -> None:
+  """Verifies Overview Page roofline_model link on 1- and N-host runs."""
+  run = resolve_run("tpu-training")
+  run_dir = pathlib.Path(logdir, run)
+  traces = list(run_dir.glob("*.xplane.pb"))
+  assert traces, f"No *.xplane.pb traces found in {run_dir}"
+  target_host = min(trace.name.removesuffix(".xplane.pb") for trace in traces)
+  encoded_run = re.escape(urllib.parse.quote_plus(run))
+  encoded_host = re.escape(urllib.parse.quote_plus(target_host))
+  open_tool(run, "overview_page", host=target_host)
+
+  roofline_link = page.locator(
+      "performance-summary a", has_text="roofline_model"
+  ).first
+  expect(roofline_link).to_be_visible(timeout=20000)
+  expect(roofline_link).to_have_attribute(
+      "href",
+      re.compile(
+          r"^index\.html(?=\?)"
+          rf"(?=.*[?&]run={encoded_run}(?:[&#]|$))"
+          r"(?=.*[?&]tag=roofline_model(?:[&#]|$))"
+          rf"(?=.*[?&]host={encoded_host}(?:[&#]|$))"
+          r"(?!.*[?&]host=ALL_HOSTS(?:[&#]|$))"
+      ),
+  )
+
+  roofline_link.click()
+  expect(page).to_have_url(
+      settled_tool_url_pattern("Roofline Model"), timeout=20000
+  )
+  expect(page).to_have_url(
+      re.compile(rf"[?&]host={encoded_host}(?:[&#]|$)"), timeout=10000
+  )
+  expect(page.locator("roofline-model")).to_be_visible(timeout=20000)
+  expect(page.locator("empty-page")).to_have_count(0)
+  expect(
+      page.locator("sidenav .item-container:has-text('Tools') mat-select")
+  ).to_contain_text("Roofline Model")
+  expect(
+      page.locator("sidenav .item-container:has-text('Hosts') mat-select")
+  ).to_contain_text(target_host)
+  assert_healthy(
+      page, browser_errors, "overview_page_roofline_model_link_single_host"
+  )
+
+  mh_run = open_tool("multi-host", "overview_page", host="ALL_HOSTS")
+  encoded_mh_run = re.escape(urllib.parse.quote_plus(mh_run))
+  mh_link = page.locator(
+      "performance-summary a", has_text="roofline_model"
+  ).first
+  expect(mh_link).to_be_visible(timeout=20000)
+  expect(mh_link).to_have_attribute(
+      "href",
+      re.compile(
+          r"^index\.html(?=\?)"
+          rf"(?=.*[?&]run={encoded_mh_run}(?:[&#]|$))"
+          r"(?=.*[?&]tag=roofline_model(?:[&#]|$))"
+          r"(?!.*[?&]host=)"
+      ),
+  )
+
+  mh_link.click()
+  expect(page).to_have_url(
+      settled_tool_url_pattern("Roofline Model"), timeout=20000
+  )
+  expect(page).not_to_have_url(re.compile(r"[?&]host=ALL_HOSTS(?:[&#]|$)"))
+  expect(page.locator("roofline-model")).to_be_visible(timeout=20000)
+  expect(page.locator("empty-page")).to_have_count(0)
+  expect(
+      page.locator("sidenav .item-container:has-text('Tools') mat-select")
+  ).to_contain_text("Roofline Model")
+  expect(
+      page.locator("sidenav .item-container:has-text('Hosts') mat-select")
+  ).not_to_contain_text("ALL_HOSTS")
+  assert_healthy(
+      page, browser_errors, "overview_page_roofline_model_link_multi_host"
+  )

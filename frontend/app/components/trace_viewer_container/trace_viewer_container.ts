@@ -437,6 +437,8 @@ export class TraceViewerContainer
   @Input() url = '';
   @Input() useTraceViewerV2 = true;
   @Input() showHelpButton = false;
+  @Input() showSettingsButton = false;
+  @Input() showColorOnboarding = false;
   @Input() selectedEvent?: SelectedEvent | null;
   /**
    * The selected event rendered as an auto-traversed JSON tree in Trace
@@ -802,6 +804,8 @@ export class TraceViewerContainer
   @Output() readonly searchEvents = new EventEmitter<SearchEventsEventDetail>();
   @Output() readonly initializeWasm = new EventEmitter<void>();
   @Output() readonly toggleSettings = new EventEmitter<void>();
+  @Output() readonly openColorSettings = new EventEmitter<void>();
+  @Output() readonly dismissColorOnboarding = new EventEmitter<void>();
 
   @Output() readonly requestHoveredEventArgs =
     new EventEmitter<SelectedEvent>();
@@ -836,6 +840,8 @@ export class TraceViewerContainer
   @ViewChild('resetViewBtn') resetViewBtn?: ElementRef<HTMLButtonElement>;
   @ViewChild('zoomToSelectionBtn')
   zoomToSelectionBtn?: ElementRef<HTMLButtonElement>;
+  @ViewChild('settingsButton', {read: ElementRef})
+  settingsButton?: ElementRef<HTMLButtonElement>;
   @ViewChild(MatSort) set sort(matSort: MatSort | undefined) {
     if (matSort) {
       this.selectedEventPropertiesDataSource.sort = matSort;
@@ -1627,5 +1633,9 @@ export class TraceViewerContainer
         dialog.open = true;
       }
     }
+  }
+
+  onToggleSettings(): void {
+    this.toggleSettings.emit();
   }
 }

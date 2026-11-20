@@ -111,6 +111,21 @@ analyze_async_overlap_tool = _LazyModuleProxy(
 check_host_boundness_tool = _LazyModuleProxy(
     "xprof.cli.tools.check_host_boundness_tool"
 )
+detect_layout_mismatch_copies_tool = _LazyModuleProxy(
+    "xprof.cli.tools.detect_layout_mismatch_copies_tool"
+)
+detect_unfused_reshapes_tool = _LazyModuleProxy(
+    "xprof.cli.tools.detect_unfused_reshapes_tool"
+)
+detect_unfused_updates_tool = _LazyModuleProxy(
+    "xprof.cli.tools.detect_unfused_updates_tool"
+)
+detect_unnecessary_convert_dynamic_scale_tool = _LazyModuleProxy(
+    "xprof.cli.tools.detect_unnecessary_convert_dynamic_scale_tool"
+)
+detect_unnecessary_convert_reduce_tool = _LazyModuleProxy(
+    "xprof.cli.tools.detect_unnecessary_convert_reduce_tool"
+)
 events_db_info_tool = _LazyModuleProxy("xprof.cli.tools.events_db_info_tool")
 events_db_top_ops_tool = _LazyModuleProxy(
     "xprof.cli.tools.events_db_top_ops_tool"
@@ -200,13 +215,28 @@ def cli_main() -> dict[str, Any]:
     A dictionary of tool names to functions.
   """
   return {
-      # 39 Core Tools (Available in every build):
+      # 47 Core Tools (Available in every build):
       # keep-sorted start
       "aggregate_xplane_events": xplane_tools.aggregate_xplane_events,
       "analyze_async_overlap": analyze_async_overlap_tool.analyze_async_overlap,
       "check_host_boundness": check_host_boundness_tool.check_host_boundness,
       "check_kernel_profiling": xplane_tools.inspect_capture,
       "compute_utilization": get_kernel_utilization_tool.get_kernel_utilization,
+      "detect_layout_mismatch_copies": (
+          detect_layout_mismatch_copies_tool.detect_layout_mismatch_copies
+      ),
+      "detect_unfused_reshapes": (
+          detect_unfused_reshapes_tool.detect_unfused_reshapes
+      ),
+      "detect_unfused_updates": (
+          detect_unfused_updates_tool.detect_unfused_updates
+      ),
+      "detect_unnecessary_convert_dynamic_scale": (
+          detect_unnecessary_convert_dynamic_scale_tool.detect_unnecessary_convert_dynamic_scale
+      ),
+      "detect_unnecessary_convert_reduce": (
+          detect_unnecessary_convert_reduce_tool.detect_unnecessary_convert_reduce
+      ),
       "diff_sessions": diff_sessions_tool.diff_sessions,
       "events_db_info": events_db_info_tool.events_db_info,
       "events_db_top_ops": events_db_top_ops_tool.events_db_top_ops,

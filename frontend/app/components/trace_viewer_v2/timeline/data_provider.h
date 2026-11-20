@@ -11,7 +11,9 @@
 #include "absl/container/btree_set.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
@@ -26,6 +28,7 @@ enum class TimelineFlushMode {
 class DataProvider {
  public:
   using TimelineFlushMode = ::traceviewer::TimelineFlushMode;
+  using NowFn = absl::AnyInvocable<absl::Time() const>;
 
   DataProvider();
   ~DataProvider();
@@ -48,8 +51,9 @@ class DataProvider {
   void BeginIncrementalLoad(Timeline& timeline);
 
   // Incrementally appends a batch of parsed trace events and updates the
-  // timeline using per-track packed event caching.
-  void AppendTraceEventsIncremental(
+  // timeline using per-track packed event caching. Returns true if the timeline
+  // was flushed during this call.
+  bool AppendTraceEventsIncremental(
       ParsedTraceEvents parsed_events, Timeline& timeline,
       TimelineFlushMode flush_mode = TimelineFlushMode::kAutoFlush);
 
@@ -100,8 +104,12 @@ class DataProvider {
                                          : std::nullopt;
   }
 
+  void SetNowFnForTest(NowFn now_fn) { now_fn_ = std::move(now_fn); }
+
  private:
   struct IncrementalState;
+
+  absl::Time Now() const;
 
   std::vector<int> present_flow_categories_;
   absl::flat_hash_map<ProcessId, std::string> process_names_;
@@ -120,6 +128,7 @@ class DataProvider {
   bool last_load_was_refetch_ = false;
   bool expand_all_processes_by_default_ = false;
   absl::flat_hash_set<std::string> default_collapsed_track_names_;
+  NowFn now_fn_;
 };
 
 // Returns restored expanded states for groups, excluding empty collapsed leaf

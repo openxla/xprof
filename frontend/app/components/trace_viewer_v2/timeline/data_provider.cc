@@ -29,6 +29,8 @@
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "imgui.h"
 #include "re2/re2.h"
@@ -3193,7 +3195,8 @@ void UpdateTimelineTimeRanges(
     Timeline& timeline, const TimeBounds& bounds, bool has_known_tracks,
     const std::optional<std::pair<Milliseconds, Milliseconds>>&
         visible_range_from_url,
-    const std::optional<std::pair<Milliseconds, Milliseconds>>& full_timespan) {
+    const std::optional<std::pair<Milliseconds, Milliseconds>>& full_timespan,
+    bool skip_default_visible_range = false) {
   if (bounds.min < std::numeric_limits<Microseconds>::max()) {
     timeline.set_fetched_data_time_range({bounds.min, bounds.max});
   } else if (!has_known_tracks) {
@@ -3222,7 +3225,8 @@ void UpdateTimelineTimeRanges(
         timeline.ConstrainTimeRange(range);
         timeline.SetVisibleRange(range);
       }
-    } else if (timeline.visible_range() == TimeRange::Zero()) {
+    } else if (!skip_default_visible_range &&
+               timeline.visible_range() == TimeRange::Zero()) {
       // If the visible range is not zero, we just keep it. This happens when
       // the incremental loading is triggered and we don't want to override the
       // current visible range.
@@ -3271,6 +3275,7 @@ struct DataProvider::IncrementalState {
   size_t total_ingested_events = 0;
   size_t last_flushed_events = 0;
   size_t last_flushed_processes = 0;
+  absl::Time last_flush_time = absl::InfinitePast();
 
   void CopyMetadataFromProvider(const DataProvider& provider) {
     trace_info.process_names = provider.process_names_;
@@ -3547,19 +3552,31 @@ struct DataProvider::IncrementalState {
     }
   }
 
-  bool ShouldFlushTimeline(TimelineFlushMode flush_mode) const {
+  bool ShouldFlushTimeline(const Timeline& timeline,
+                           TimelineFlushMode flush_mode, absl::Time now) const {
     if (is_finishing) return true;
     if (is_refetch || flush_mode == TimelineFlushMode::kDeferFlush) {
+      return false;
+    }
+    // Defer mid-stream full-canvas rebuilds while a zoom/pan animation is in
+    // flight so pointer interactions stay smooth until the viewport settles.
+    if (emitted_timeline_data &&
+        timeline.visible_range() != timeline.visible_range_target()) {
       return false;
     }
     const bool has_new_process =
         trace_info.process_names.size() != last_flushed_processes;
     const size_t min_events_between_flushes =
         has_new_process ? 200000 : 1500000;
+    constexpr absl::Duration kMinFlushInterval = absl::Milliseconds(250);
+    // Guard against non-monotonic backward wall-clock steps stalling flushes.
+    const bool within_flush_cooldown =
+        now >= last_flush_time && (now - last_flush_time) < kMinFlushInterval;
     const bool should_throttle_flush =
         emitted_timeline_data && last_flushed_events > 250000 &&
-        (total_ingested_events - last_flushed_events) <
-            min_events_between_flushes;
+        ((total_ingested_events - last_flushed_events) <
+             min_events_between_flushes ||
+         within_flush_cooldown);
     return !should_throttle_flush;
   }
 
@@ -3577,21 +3594,52 @@ struct DataProvider::IncrementalState {
         has_valid_bounds ? observed_time_bounds : batch_bounds;
     const bool was_visible_zero =
         (timeline.visible_range() == TimeRange::Zero());
+    const bool has_valid_full_timespan =
+        !is_refetch && !visible_range_from_url.has_value() &&
+        has_valid_bounds && full_timespan.has_value() &&
+        full_timespan->second > full_timespan->first;
 
-    UpdateTimelineTimeRanges(timeline, effective_bounds, has_known_tracks,
-                             visible_range_from_url, full_timespan);
+    UpdateTimelineTimeRanges(
+        timeline, effective_bounds, has_known_tracks, visible_range_from_url,
+        full_timespan,
+        /*skip_default_visible_range=*/has_valid_full_timespan);
 
-    if (has_valid_bounds) {
+    const bool is_auto_viewport_unmodified =
+        timeline.visible_range() == last_auto_visible_range &&
+        timeline.visible_range_target() == last_auto_visible_range;
+    if (has_valid_full_timespan) {
+      // Lock the initial streaming viewport to full_timespan on Frame 0 so
+      // already-rendered rects do not rescale horizontally on subsequent
+      // flushes as later frames fill in from left to right.
+      const Microseconds full_start_us = MillisToMicros(full_timespan->first);
+      const Microseconds full_end_us = MillisToMicros(full_timespan->second);
+      const TimeRange anchored_range{
+          std::min(full_start_us, effective_bounds.min),
+          std::max(full_end_us, effective_bounds.max)};
+      timeline.set_data_time_range(anchored_range);
+      if (was_visible_zero) {
+        timeline.SetVisibleRange(anchored_range, /*animate=*/false);
+        last_auto_visible_range = timeline.visible_range();
+      } else if (is_auto_viewport_unmodified &&
+                 anchored_range != last_auto_visible_range) {
+        const Microseconds old_dur = last_auto_visible_range.duration();
+        const Microseconds new_dur = anchored_range.duration();
+        if (is_finishing || old_dur < 1000000.0 || new_dur > old_dur * 1.15) {
+          timeline.SetVisibleRange(anchored_range, /*animate=*/false);
+          last_auto_visible_range = timeline.visible_range();
+        }
+      }
+    } else if (has_valid_bounds) {
       if (was_visible_zero) {
         last_auto_visible_range = timeline.visible_range();
       } else if (!visible_range_from_url.has_value() &&
-                 timeline.visible_range() == last_auto_visible_range) {
+                 is_auto_viewport_unmodified) {
         const TimeRange candidate_range{effective_bounds.min,
                                         effective_bounds.max};
         const Microseconds old_dur = last_auto_visible_range.duration();
         const Microseconds new_dur = candidate_range.duration();
         if (is_finishing || old_dur < 1000000.0 || new_dur > old_dur * 1.15) {
-          timeline.SetVisibleRange(candidate_range);
+          timeline.SetVisibleRange(candidate_range, /*animate=*/false);
           last_auto_visible_range = timeline.visible_range();
         }
       }
@@ -3646,6 +3694,7 @@ struct DataProvider::IncrementalState {
     has_unflushed_updates = false;
     last_flushed_events = total_ingested_events;
     last_flushed_processes = trace_info.process_names.size();
+    last_flush_time = provider.Now();
     last_emitted_expanded_states =
         GetRestoredExpandedStates(timeline.timeline_data().groups);
 
@@ -3657,6 +3706,10 @@ DataProvider::DataProvider() = default;
 DataProvider::~DataProvider() = default;
 DataProvider::DataProvider(DataProvider&&) noexcept = default;
 DataProvider& DataProvider::operator=(DataProvider&&) noexcept = default;
+
+absl::Time DataProvider::Now() const {
+  return now_fn_ ? now_fn_() : absl::Now();
+}
 
 bool DataProvider::HasKnownTracks() const {
   return !known_threads_.empty() || !known_counters_.empty() ||
@@ -3720,7 +3773,7 @@ bool DataProvider::HasPendingRefetchUpdate() const {
                                  !incremental_state_->emitted_timeline_data));
 }
 
-void DataProvider::AppendTraceEventsIncremental(ParsedTraceEvents parsed_events,
+bool DataProvider::AppendTraceEventsIncremental(ParsedTraceEvents parsed_events,
                                                 Timeline& timeline,
                                                 TimelineFlushMode flush_mode) {
   if (!incremental_state_) {
@@ -3758,7 +3811,7 @@ void DataProvider::AppendTraceEventsIncremental(ParsedTraceEvents parsed_events,
     timeline.SetTimelineData({});
     timeline.set_fetched_data_time_range(TimeRange::Zero());
     timeline.SetVisibleRange(TimeRange::Zero());
-    return;
+    return false;
   }
 
   state.allow_compaction = timeline.incremental_fetch_enabled();
@@ -3780,9 +3833,11 @@ void DataProvider::AppendTraceEventsIncremental(ParsedTraceEvents parsed_events,
   }
   state.UpdateCachedTracks(batch, &pinned_event_ids);
   was_compacted_ = state.was_compacted;
-  if (state.ShouldFlushTimeline(flush_mode)) {
+  if (state.ShouldFlushTimeline(timeline, flush_mode, Now())) {
     state.FlushTimeline(timeline, *this);
+    return true;
   }
+  return false;
 }
 
 void DataProvider::FinishIncrementalLoad() { incremental_state_.reset(); }

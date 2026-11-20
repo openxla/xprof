@@ -1727,7 +1727,8 @@ async function fetchAndProcessTraceData({
       const isUnfilteredFullResolutionLoad =
         urlObj.searchParams.get(TRACE_VIEW_OPTION.RESOLUTION) === '0' &&
         !urlObj.searchParams.has(TRACE_VIEW_OPTION.START_TIME_MS) &&
-        !urlObj.searchParams.has(TRACE_VIEW_OPTION.END_TIME_MS);
+        !urlObj.searchParams.has(TRACE_VIEW_OPTION.END_TIME_MS) &&
+        !urlObj.searchParams.has(TRACE_OPTIONS.SELECTED_GROUP_IDS);
       const useIncrementalPipeline =
         supportsIncrementalTraceEvents(traceviewerModule) &&
         (isRefetch || isUnfilteredFullResolutionLoad);

@@ -17,15 +17,19 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "xprof/convert/trace_viewer/delta_series/zstd_compression.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "plugin/xprof/protobuf/trace_data_response.pb.h"
 
 namespace traceviewer {
 namespace {
+
+using ::testing::Contains;
 
 struct CompressedTestFrame {
   size_t uncompressed_size = 0;
@@ -47,6 +51,24 @@ absl::StatusOr<std::string> CompressTraceDataResponse(
   return tensorflow::profiler::ZstdCompression::Compress(serialized);
 }
 
+absl::Status AppendCompressedXChunkFrame(const xprof::TraceDataResponse& frame,
+                                         std::string& out) {
+  absl::StatusOr<std::string> compressed = CompressTraceDataResponse(frame);
+  if (!compressed.ok()) {
+    return compressed.status();
+  }
+  const uint32_t len = static_cast<uint32_t>(compressed->size());
+  const char len_bytes[4] = {
+      static_cast<char>(len & 0xff),
+      static_cast<char>((len >> 8) & 0xff),
+      static_cast<char>((len >> 16) & 0xff),
+      static_cast<char>((len >> 24) & 0xff),
+  };
+  out.append(len_bytes, 4);
+  out.append(*compressed);
+  return absl::OkStatus();
+}
+
 // Clears persistent static incremental parser cache state on scope exit so
 // tests do not leak cached state to subsequent test cases.
 class IncrementalCacheCleanup {
@@ -61,6 +83,8 @@ class IncrementalCacheCleanup {
       return;
     }
     cleared_ = true;
+    SetIncrementalStepTimeBudgetForTest(absl::Milliseconds(8));
+    SetIncrementalStepClockForTest(nullptr);
     // Starting an initial session on a fresh DataProvider and Timeline triggers
     // ClearPersistentCache() (CancelIncrementalTraceEvents alone only resets
     // transient cursors).
@@ -1804,4 +1828,281 @@ TEST_F(TracePbEventParserTest,
   EXPECT_EQ(timeline_.timeline_data().entry_names[0], "refetch_window_op");
 }
 #endif  // __EMSCRIPTEN__
+
+TEST(TracePbEventParserIncrementalTest,
+     StreamingStepChunksLargeSeriesAndLocksFullTimespanViewport) {
+  IncrementalCacheCleanup cleanup_guard;
+  // Advance synthetic clock by 10 ms on each read so an 8 ms budget yields
+  // deterministically after each 32,768-event slice regardless of CPU speed.
+  absl::Time fake_now = absl::UnixEpoch() + absl::Seconds(10);
+  SetIncrementalStepTimeBudgetForTest(absl::Milliseconds(8));
+  SetIncrementalStepClockForTest([&fake_now]() {
+    const absl::Time current = fake_now;
+    fake_now += absl::Milliseconds(10);
+    return current;
+  });
+
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_incremental_fetch_enabled(true);
+  DataProvider data_provider;
+
+  // Frame 1 spans [0, 49 ms] inside a [0, 500 ms] full_timespan across 70,000
+  // complete events (> kMaxTimedSeriesSliceEvents = 32,768), with a wide parent
+  // spanning across index 32,768 to verify cross-slice parent nesting.
+  xprof::TraceDataResponse frame1;
+  frame1.set_full_timespan_start_ps(0ULL);
+  frame1.set_full_timespan_end_ps(500'000'000'000ULL);  // 500 ms
+  frame1.add_interned_strings("");
+  frame1.add_interned_strings("stream_op");
+  frame1.add_interned_strings("cross_slice_parent");
+  auto* proc = frame1.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("device:TPU:0");
+  auto* th = proc->add_threads();
+  th->set_id(1);
+  th->set_name("XLA Ops");
+  auto* series = frame1.add_complete_events();
+  series->mutable_metadata()->set_process_id(1);
+  series->mutable_metadata()->set_thread_id(1);
+  constexpr int kEvents = 70000;
+  constexpr int kParentIdx = 32760;
+  constexpr uint64_t kStepPs = 700'000ULL;
+  // Event `i` starts at `(i + 1) * kStepPs` because delta[0] == kStepPs.
+  constexpr uint64_t kParentEndPs = (32776ULL + 1) * kStepPs;
+  for (int i = 0; i < kEvents; ++i) {
+    series->add_deltas(kStepPs);
+    if (i == kParentIdx) {
+      series->add_durations((32776 - kParentIdx) * kStepPs);
+      series->add_name_refs(2);
+    } else {
+      series->add_durations(500'000ULL);
+      series->add_name_refs(1);
+    }
+    series->add_event_metadata();
+  }
+
+  // Frame 2 arrives later near 400 ms; viewport must stay locked at [0, 500 ms]
+  // without rescaling horizontally.
+  xprof::TraceDataResponse frame2;
+  frame2.add_interned_strings("late_op");
+  auto* s2 = frame2.add_complete_events();
+  s2->mutable_metadata()->set_process_id(1);
+  s2->mutable_metadata()->set_thread_id(1);
+  s2->add_deltas(400'000'000'000ULL);  // 400 ms
+  s2->add_durations(1'000'000'000ULL);
+  // Frame 2's cumulative string index is 3 ([0]="", [1]="stream_op",
+  // [2]="cross_slice_parent").
+  s2->add_name_refs(3);
+  s2->add_event_metadata();
+
+  std::string xchn_payload(tensorflow::profiler::kXChunkMagic);
+  absl::Status status = AppendCompressedXChunkFrame(frame1, xchn_payload);
+  ASSERT_TRUE(status.ok()) << status;
+  status = AppendCompressedXChunkFrame(frame2, xchn_payload);
+  ASSERT_TRUE(status.ok()) << status;
+
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(xchn_payload.data()), xchn_payload.size());
+
+  // Pass a large event budget (> 32,768) so the 32,768 slice cap + 8 ms clock
+  // deterministically split Frame 1 across multiple steps before flushing.
+  int frame1_steps = 0;
+  bool observed_mid_stream_flush = false;
+  while (StepIncrementalTraceEvents(65536, data_provider, timeline)) {
+    if (!observed_mid_stream_flush) {
+      ++frame1_steps;
+      if (HasFlushedIncrementalTraceEvents()) {
+        observed_mid_stream_flush = true;
+        EXPECT_EQ(timeline.visible_range(), TimeRange(0.0, 500000.0));
+      }
+    }
+    ASSERT_LT(frame1_steps, 20);
+  }
+  EXPECT_GT(frame1_steps, 1);
+  EXPECT_TRUE(observed_mid_stream_flush);
+  EXPECT_EQ(timeline.visible_range(), TimeRange(0.0, 500000.0));
+
+  FinishIncrementalTraceEvents(data_provider, timeline);
+  EXPECT_EQ(timeline.visible_range(), TimeRange(0.0, 500000.0));
+  EXPECT_TRUE(HasCachedTraceEventsIncremental());
+
+  // Verify no overview child rect crossed the cross-slice parent end time.
+  const double parent_end_us = kParentEndPs / 1000000.0;
+  const FlameChartTimelineData& overview = timeline.timeline_data();
+  for (size_t i = 0; i < overview.entry_names.size(); ++i) {
+    if (overview.entry_names[i] == "cross_slice_parent") continue;
+    if (overview.entry_start_times[i] < parent_end_us) {
+      EXPECT_LE(overview.entry_start_times[i] + overview.entry_total_times[i],
+                parent_end_us);
+    }
+  }
+
+  // Refetch across the 32,768 boundary ([22.5, 23.5] ms) and frame1 tail
+  // ([48.99, 49.01] ms) plus frame2 ([399.0, 405.0] ms).
+  BeginIncrementalTraceEvents(std::make_pair(22.5, 23.5), data_provider,
+                              timeline);
+  while (StepIncrementalTraceEvents(10000, data_provider, timeline)) {
+  }
+  FinishIncrementalTraceEvents(data_provider, timeline);
+  EXPECT_THAT(timeline.timeline_data().entry_names, Contains("stream_op"));
+  EXPECT_THAT(timeline.timeline_data().entry_names,
+              Contains("cross_slice_parent"));
+
+  BeginIncrementalTraceEvents(std::make_pair(48.99, 49.01), data_provider,
+                              timeline);
+  while (StepIncrementalTraceEvents(10000, data_provider, timeline)) {
+  }
+  FinishIncrementalTraceEvents(data_provider, timeline);
+  EXPECT_THAT(timeline.timeline_data().entry_names, Contains("stream_op"));
+
+  BeginIncrementalTraceEvents(std::make_pair(399.0, 405.0), data_provider,
+                              timeline);
+  while (StepIncrementalTraceEvents(10000, data_provider, timeline)) {
+  }
+  FinishIncrementalTraceEvents(data_provider, timeline);
+  EXPECT_THAT(timeline.timeline_data().entry_names, Contains("late_op"));
+}
+
+TEST(TracePbEventParserIncrementalTest,
+     DeferredZoomFlushDoesNotAdvanceFlushedFrameCounter) {
+  IncrementalCacheCleanup cleanup_guard;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  DataProvider data_provider;
+
+  auto make_frame = [](absl::string_view name, uint64_t ts_ps, bool with_meta) {
+    xprof::TraceDataResponse frame;
+    if (with_meta) {
+      frame.add_interned_strings("");
+      frame.set_full_timespan_start_ps(0ULL);
+      frame.set_full_timespan_end_ps(100'000'000'000ULL);
+      auto* proc = frame.mutable_metadata()->add_processes();
+      proc->set_id(1);
+      proc->set_name("device:TPU:0");
+      auto* th = proc->add_threads();
+      th->set_id(1);
+      th->set_name("XLA Ops");
+    }
+    frame.add_interned_strings(std::string(name));
+    auto* s = frame.add_complete_events();
+    s->mutable_metadata()->set_process_id(1);
+    s->mutable_metadata()->set_thread_id(1);
+    s->add_deltas(ts_ps);
+    s->add_durations(1'000'000ULL);
+    s->add_name_refs(with_meta ? 1 : 2);
+    s->add_event_metadata();
+    return frame;
+  };
+
+  std::string xchn_payload(tensorflow::profiler::kXChunkMagic);
+  ASSERT_TRUE(AppendCompressedXChunkFrame(
+                  make_frame("op_f1", 1'000'000ULL, true), xchn_payload)
+                  .ok());
+  ASSERT_TRUE(AppendCompressedXChunkFrame(
+                  make_frame("op_f2", 2'000'000ULL, false), xchn_payload)
+                  .ok());
+  ASSERT_TRUE(AppendCompressedXChunkFrame(
+                  make_frame("op_f3", 3'000'000ULL, false), xchn_payload)
+                  .ok());
+  ASSERT_TRUE(AppendCompressedXChunkFrame(
+                  make_frame("op_f4", 4'000'000ULL, false), xchn_payload)
+                  .ok());
+
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(xchn_payload.data()), xchn_payload.size());
+
+  // Frame 1 flushes normally (frames_flushed == 1).
+  EXPECT_TRUE(StepIncrementalTraceEvents(100, data_provider, timeline));
+  EXPECT_TRUE(HasFlushedIncrementalTraceEvents());
+  ASSERT_EQ(timeline.timeline_data().entry_names.size(), 1u);
+
+  // Start an animated zoom so Frames 2 and 3 defer their flushes.
+  timeline.SetVisibleRange({1000.0, 5000.0}, /*animate=*/true);
+  ASSERT_NE(timeline.visible_range(), timeline.visible_range_target());
+  EXPECT_TRUE(StepIncrementalTraceEvents(100, data_provider, timeline));
+  EXPECT_TRUE(StepIncrementalTraceEvents(100, data_provider, timeline));
+  EXPECT_EQ(timeline.timeline_data().entry_names.size(), 1u);
+
+  // Settle the zoom animation before Frame 4: because deferred flushes did not
+  // increment frames_flushed, Frame 4 still auto-flushes (frames_flushed < 3)
+  // even if more frames were queued.
+  timeline.SetVisibleRange({1000.0, 5000.0}, /*animate=*/false);
+  EXPECT_FALSE(StepIncrementalTraceEvents(100, data_provider, timeline));
+  EXPECT_EQ(timeline.timeline_data().entry_names.size(), 4u);
+  FinishIncrementalTraceEvents(data_provider, timeline);
+}
+
+TEST(TracePbEventParserIncrementalTest,
+     StepDeadlineAppliesToAsyncAndCounterSeriesAndBypassesWhenUntimed) {
+  IncrementalCacheCleanup cleanup_guard;
+  absl::Time fake_now = absl::UnixEpoch() + absl::Seconds(10);
+  SetIncrementalStepTimeBudgetForTest(absl::Milliseconds(8));
+  SetIncrementalStepClockForTest([&fake_now]() {
+    const absl::Time current = fake_now;
+    fake_now += absl::Milliseconds(10);
+    return current;
+  });
+
+  xprof::TraceDataResponse frame;
+  frame.add_interned_strings("");
+  frame.add_interned_strings("async_1");
+  frame.add_interned_strings("async_2");
+  frame.add_interned_strings("ctr_1");
+  frame.add_interned_strings("ctr_2");
+  auto* proc = frame.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("device:TPU:0");
+  for (int s = 0; s < 2; ++s) {
+    auto* async_s = frame.add_async_events();
+    async_s->mutable_metadata()->set_process_id(1);
+    async_s->mutable_metadata()->set_name_ref(1 + s);
+    async_s->add_deltas(1'000'000ULL);
+    async_s->add_durations(500'000ULL);
+    async_s->add_event_metadata();
+
+    auto* ctr_s = frame.add_counter_events();
+    ctr_s->mutable_metadata()->set_process_id(1);
+    ctr_s->mutable_metadata()->set_name_ref(3 + s);
+    ctr_s->add_deltas(1'000'000ULL);
+    ctr_s->add_event_metadata()->set_counter_value_double(42.0);
+  }
+  const absl::StatusOr<std::string> compressed =
+      CompressTraceDataResponse(frame);
+  ASSERT_TRUE(compressed.ok());
+
+  // Timed step yields after the first async series once step_deadline passes.
+  {
+    ColorPalette palette = ColorPalette::Default();
+    Timeline timeline(palette);
+    DataProvider data_provider;
+    BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+    AppendCompressedTraceEventsIncremental(
+        reinterpret_cast<uintptr_t>(compressed->data()), compressed->size());
+    EXPECT_TRUE(StepIncrementalTraceEvents(1000, data_provider, timeline,
+                                           /*enforce_time_budget=*/true));
+    while (StepIncrementalTraceEvents(1000, data_provider, timeline,
+                                      /*enforce_time_budget=*/true)) {
+    }
+    FinishIncrementalTraceEvents(data_provider, timeline);
+    EXPECT_EQ(timeline.timeline_data().entry_names.size(), 2u);
+  }
+
+  // Untimed step (background tab) drains the entire frame in one step.
+  {
+    ColorPalette palette = ColorPalette::Default();
+    Timeline timeline(palette);
+    DataProvider data_provider;
+    BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+    AppendCompressedTraceEventsIncremental(
+        reinterpret_cast<uintptr_t>(compressed->data()), compressed->size());
+    EXPECT_FALSE(StepIncrementalTraceEvents(1000, data_provider, timeline,
+                                            /*enforce_time_budget=*/false));
+    FinishIncrementalTraceEvents(data_provider, timeline);
+    EXPECT_EQ(timeline.timeline_data().entry_names.size(), 2u);
+  }
+}
+
 }  // namespace traceviewer

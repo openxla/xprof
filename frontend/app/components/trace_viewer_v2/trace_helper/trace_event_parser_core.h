@@ -7,6 +7,7 @@
 #include <string>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/string_view.h"
@@ -43,7 +44,8 @@ size_t ProcessOverviewSampledSeriesSlice(
     const xprof::TraceEventSeries& series,
     absl::Span<const std::string> interned_strings, size_t start_idx,
     size_t max_events, uint64_t& current_timestamp_ps,
-    ParsedTraceEvents& result, bool& did_coalesce);
+    ParsedTraceEvents& result, bool& did_coalesce,
+    std::vector<uint64_t>* active_parent_ends = nullptr);
 
 void ProcessCompleteEvents(const xprof::TraceDataResponse& response,
                            ParsedTraceEvents& result);

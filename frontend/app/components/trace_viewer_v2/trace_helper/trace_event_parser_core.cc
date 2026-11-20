@@ -510,7 +510,8 @@ size_t ProcessOverviewSampledSeriesSlice(
     const xprof::TraceEventSeries& series,
     absl::Span<const std::string> interned_strings, size_t start_idx,
     size_t max_events, uint64_t& current_timestamp_ps,
-    ParsedTraceEvents& result, bool& did_coalesce) {
+    ParsedTraceEvents& result, bool& did_coalesce,
+    std::vector<uint64_t>* active_parent_ends) {
   const ProcessId pid = series.metadata().process_id();
   const ThreadId tid = series.metadata().thread_id();
   const size_t total_events = static_cast<size_t>(series.deltas_size());
@@ -520,8 +521,12 @@ size_t ProcessOverviewSampledSeriesSlice(
   const size_t end_idx = std::min(total_events, start_idx + max_events);
   const size_t stride = std::clamp<size_t>(total_events / 2048, 2, 32);
 
-  std::vector<uint64_t> parent_ends;
-  parent_ends.reserve(16);
+  std::vector<uint64_t> local_parent_ends;
+  if (active_parent_ends == nullptr) {
+    local_parent_ends.reserve(16);
+  }
+  std::vector<uint64_t>& parent_ends =
+      active_parent_ends != nullptr ? *active_parent_ends : local_parent_ends;
 
   bool in_burst = false;
   size_t burst_count = 0;

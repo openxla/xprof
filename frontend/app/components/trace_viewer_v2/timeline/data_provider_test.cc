@@ -19,6 +19,7 @@
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "imgui.h"
 #include "third_party/tcmalloc/malloc_extension.h"
 #include "tsl/profiler/lib/context_types.h"
@@ -9528,5 +9529,340 @@ TEST_F(DataProviderTest,
   }
 }
 
+TEST_F(DataProviderTest,
+       AppendTraceEventsIncrementalLocksInitialViewportToFullTimespan) {
+  data_provider_.BeginIncrementalLoad(timeline_);
+
+  // Batch 1 covers only [100 us, 500 us], while full_timespan spans [0, 30 ms]
+  // ([0, 30000 us]). Frame 0 should immediately anchor visible_range to
+  // [0, 30000 us] instead of [100, 500] so subsequent flushes do not jump.
+  ParsedTraceEvents batch1;
+  batch1.full_timespan = std::make_pair(0.0, 30.0);
+  batch1.flame_events = {
+      CreateProcessEvent(1, "device:TPU:0"),
+      CreateThreadEvent(1, 1, "XLA Ops"),
+      MakeSpan(Phase::kComplete, 1, 1, 1, "op_early", 100.0, 400.0),
+  };
+  EXPECT_TRUE(data_provider_.AppendTraceEventsIncremental(std::move(batch1),
+                                                          timeline_));
+  EXPECT_EQ(timeline_.visible_range(), TimeRange(0.0, 30000.0));
+  EXPECT_EQ(timeline_.data_time_range(), TimeRange(0.0, 30000.0));
+
+  // Batch 2 widens observed events to [100 us, 12000 us] (>15% wider than
+  // batch 1), yet visible_range stays anchored at [0, 30000 us] with zero jump.
+  ParsedTraceEvents batch2;
+  batch2.full_timespan = std::make_pair(0.0, 30.0);
+  batch2.flame_events = {
+      MakeSpan(Phase::kComplete, 2, 1, 1, "op_mid", 5000.0, 7000.0),
+  };
+  EXPECT_TRUE(data_provider_.AppendTraceEventsIncremental(std::move(batch2),
+                                                          timeline_));
+  EXPECT_EQ(timeline_.visible_range(), TimeRange(0.0, 30000.0));
+
+  // If the user manually zooms mid-stream, later flushes preserve their zoom
+  // even when full_timespan widens beyond the initial anchored range.
+  timeline_.SetVisibleRange({2000.0, 6000.0}, /*animate=*/false);
+  ParsedTraceEvents batch3;
+  batch3.full_timespan = std::make_pair(0.0, 40.0);
+  batch3.flame_events = {
+      MakeSpan(Phase::kComplete, 3, 1, 1, "op_late", 20000.0, 9000.0),
+  };
+  data_provider_.MarkFinishingIncrementalLoad();
+  EXPECT_TRUE(data_provider_.AppendTraceEventsIncremental(std::move(batch3),
+                                                          timeline_));
+  data_provider_.FinishIncrementalLoad();
+  EXPECT_EQ(timeline_.visible_range(), TimeRange(2000.0, 6000.0));
+  EXPECT_EQ(timeline_.data_time_range(), TimeRange(0.0, 40000.0));
+}
+
+TEST_F(DataProviderTest,
+       AppendTraceEventsIncrementalAlignsDataTimeRangeAndAppliesHysteresis) {
+  data_provider_.BeginIncrementalLoad(timeline_);
+
+  // Batch 1 has observed bounds slightly wider than full_timespan; both
+  // visible_range and data_time_range must cover the wider anchored range.
+  ParsedTraceEvents batch1;
+  batch1.full_timespan = std::make_pair(0.0, 2000.0);  // 2,000,000 us
+  batch1.flame_events = {
+      CreateProcessEvent(1, "device:TPU:0"),
+      CreateThreadEvent(1, 1, "XLA Ops"),
+      MakeSpan(Phase::kComplete, 1, 1, 1, "op_wide", 100.0, 2100000.0),
+  };
+  EXPECT_TRUE(data_provider_.AppendTraceEventsIncremental(std::move(batch1),
+                                                          timeline_));
+  EXPECT_EQ(timeline_.visible_range(), TimeRange(0.0, 2100100.0));
+  EXPECT_EQ(timeline_.data_time_range(), TimeRange(0.0, 2100100.0));
+
+  // Progressive full_timespan growth under 15% does not rescale rects mid-load.
+  ParsedTraceEvents batch2;
+  batch2.full_timespan = std::make_pair(0.0, 2250.0);  // +7%
+  batch2.flame_events = {
+      MakeSpan(Phase::kComplete, 2, 1, 1, "op_2", 2150000.0, 50000.0),
+  };
+  EXPECT_TRUE(data_provider_.AppendTraceEventsIncremental(std::move(batch2),
+                                                          timeline_));
+  EXPECT_EQ(timeline_.visible_range(), TimeRange(0.0, 2100100.0));
+  EXPECT_EQ(timeline_.data_time_range(), TimeRange(0.0, 2250000.0));
+
+  // Growth over 15% re-anchors visible_range cleanly when user has not zoomed.
+  ParsedTraceEvents batch3;
+  batch3.full_timespan = std::make_pair(0.0, 2600.0);  // >15% wider
+  batch3.flame_events = {
+      MakeSpan(Phase::kComplete, 3, 1, 1, "op_3", 2500000.0, 50000.0),
+  };
+  EXPECT_TRUE(data_provider_.AppendTraceEventsIncremental(std::move(batch3),
+                                                          timeline_));
+  EXPECT_EQ(timeline_.visible_range(), TimeRange(0.0, 2600000.0));
+  EXPECT_EQ(timeline_.data_time_range(), TimeRange(0.0, 2600000.0));
+  data_provider_.FinishIncrementalLoad();
+}
+
+TEST_F(DataProviderTest,
+       AppendTraceEventsIncrementalPreservesInFlightAnimatedZoomOnFinish) {
+  // Case 1: with valid full_timespan.
+  {
+    Timeline tl(palette_);
+    DataProvider dp;
+    dp.BeginIncrementalLoad(tl);
+    ParsedTraceEvents b1;
+    b1.full_timespan = std::make_pair(0.0, 2000.0);
+    b1.flame_events = {
+        CreateProcessEvent(1, "device:TPU:0"),
+        CreateThreadEvent(1, 1, "XLA Ops"),
+        MakeSpan(Phase::kComplete, 1, 1, 1, "op_1", 100.0, 500.0),
+    };
+    ASSERT_TRUE(dp.AppendTraceEventsIncremental(std::move(b1), tl));
+    ASSERT_EQ(tl.visible_range(), TimeRange(0.0, 2000000.0));
+
+    // Start animated zoom before any Animation::UpdateAll tick: visible_range()
+    // still equals last_auto_visible_range while visible_range_target() moved.
+    tl.SetVisibleRange({400000.0, 600000.0}, /*animate=*/true);
+    ASSERT_EQ(tl.visible_range(), TimeRange(0.0, 2000000.0));
+    ASSERT_EQ(tl.visible_range_target(), TimeRange(400000.0, 600000.0));
+
+    ParsedTraceEvents b2;
+    b2.full_timespan = std::make_pair(0.0, 4000.0);
+    b2.flame_events = {
+        MakeSpan(Phase::kComplete, 2, 1, 1, "op_2", 3000000.0, 500.0),
+    };
+    dp.MarkFinishingIncrementalLoad();
+    ASSERT_TRUE(dp.AppendTraceEventsIncremental(std::move(b2), tl));
+    dp.FinishIncrementalLoad();
+    EXPECT_EQ(tl.visible_range_target(), TimeRange(400000.0, 600000.0));
+  }
+
+  // Case 2: without full_timespan (fallback observed-bounds branch).
+  {
+    Timeline tl(palette_);
+    DataProvider dp;
+    dp.BeginIncrementalLoad(tl);
+    ParsedTraceEvents b1;
+    b1.flame_events = {
+        CreateProcessEvent(1, "device:TPU:0"),
+        CreateThreadEvent(1, 1, "XLA Ops"),
+        MakeSpan(Phase::kComplete, 1, 1, 1, "op_1", 0.0, 2000000.0),
+    };
+    ASSERT_TRUE(dp.AppendTraceEventsIncremental(std::move(b1), tl));
+    ASSERT_EQ(tl.visible_range(), TimeRange(0.0, 2000000.0));
+
+    tl.SetVisibleRange({400000.0, 600000.0}, /*animate=*/true);
+    ASSERT_EQ(tl.visible_range(), TimeRange(0.0, 2000000.0));
+    ASSERT_EQ(tl.visible_range_target(), TimeRange(400000.0, 600000.0));
+
+    ParsedTraceEvents b2;
+    b2.flame_events = {
+        MakeSpan(Phase::kComplete, 2, 1, 1, "op_2", 3000000.0, 1000000.0),
+    };
+    dp.MarkFinishingIncrementalLoad();
+    ASSERT_TRUE(dp.AppendTraceEventsIncremental(std::move(b2), tl));
+    dp.FinishIncrementalLoad();
+    EXPECT_EQ(tl.visible_range_target(), TimeRange(400000.0, 600000.0));
+  }
+}
+
+TEST_F(DataProviderTest,
+       AppendTraceEventsIncrementalHandlesUrlRefetchDegenerateAndMetadataOnly) {
+  // 1. Metadata-only flushes never oscillate visible_range away from Zero().
+  {
+    Timeline tl(palette_);
+    DataProvider dp;
+    dp.BeginIncrementalLoad(tl);
+    for (int i = 0; i < 2; ++i) {
+      ParsedTraceEvents meta;
+      meta.full_timespan = std::make_pair(0.0, 30.0);
+      meta.flame_events = {CreateProcessEvent(1, "device:TPU:0")};
+      dp.AppendTraceEventsIncremental(std::move(meta), tl);
+      EXPECT_EQ(tl.visible_range(), TimeRange::Zero());
+    }
+    dp.FinishIncrementalLoad();
+  }
+
+  // 2. visible_range_from_url is preserved instead of expanding to
+  // full_timespan.
+  {
+    Timeline tl(palette_);
+    DataProvider dp;
+    dp.BeginIncrementalLoad(tl);
+    ParsedTraceEvents batch;
+    batch.full_timespan = std::make_pair(0.0, 50.0);
+    batch.visible_range_from_url = std::make_pair(5.0, 10.0);
+    batch.flame_events = {
+        CreateProcessEvent(1, "device:TPU:0"),
+        CreateThreadEvent(1, 1, "XLA Ops"),
+        MakeSpan(Phase::kComplete, 1, 1, 1, "op_1", 6000.0, 1000.0),
+    };
+    ASSERT_TRUE(dp.AppendTraceEventsIncremental(std::move(batch), tl));
+    EXPECT_EQ(tl.visible_range(), TimeRange(5000.0, 10000.0));
+    dp.FinishIncrementalLoad();
+  }
+
+  // 3. Refetch preserves existing zoomed viewport even with full_timespan set.
+  {
+    Timeline tl(palette_);
+    DataProvider dp;
+    dp.BeginIncrementalLoad(tl);
+    ParsedTraceEvents init;
+    init.full_timespan = std::make_pair(0.0, 50.0);
+    init.flame_events = {
+        CreateProcessEvent(1, "device:TPU:0"),
+        CreateThreadEvent(1, 1, "XLA Ops"),
+        MakeSpan(Phase::kComplete, 1, 1, 1, "op_1", 1000.0, 1000.0),
+    };
+    ASSERT_TRUE(dp.AppendTraceEventsIncremental(std::move(init), tl));
+    dp.FinishIncrementalLoad();
+
+    tl.SetVisibleRange({10000.0, 15000.0}, /*animate=*/false);
+    dp.BeginIncrementalLoad(tl);
+    ParsedTraceEvents refetch;
+    refetch.full_timespan = std::make_pair(0.0, 50.0);
+    refetch.flame_events = {
+        MakeSpan(Phase::kComplete, 2, 1, 1, "op_refetch", 11000.0, 500.0),
+    };
+    dp.MarkFinishingIncrementalLoad();
+    ASSERT_TRUE(dp.AppendTraceEventsIncremental(std::move(refetch), tl));
+    dp.FinishIncrementalLoad();
+    EXPECT_EQ(tl.visible_range(), TimeRange(10000.0, 15000.0));
+  }
+
+  // 4. Degenerate full_timespan (second <= first) falls back to observed
+  // bounds.
+  {
+    Timeline tl(palette_);
+    DataProvider dp;
+    dp.BeginIncrementalLoad(tl);
+    ParsedTraceEvents batch;
+    batch.full_timespan = std::make_pair(10.0, 10.0);
+    batch.flame_events = {
+        CreateProcessEvent(1, "device:TPU:0"),
+        CreateThreadEvent(1, 1, "XLA Ops"),
+        MakeSpan(Phase::kComplete, 1, 1, 1, "op_1", 1000.0, 2000.0),
+    };
+    ASSERT_TRUE(dp.AppendTraceEventsIncremental(std::move(batch), tl));
+    EXPECT_EQ(tl.visible_range(), TimeRange(1000.0, 3000.0));
+    dp.FinishIncrementalLoad();
+  }
+}
+
+TEST_F(DataProviderTest,
+       AppendTraceEventsIncrementalDefersMidStreamFlushDuringZoomAnimation) {
+  data_provider_.BeginIncrementalLoad(timeline_);
+
+  ParsedTraceEvents batch1;
+  batch1.full_timespan = std::make_pair(0.0, 10.0);
+  batch1.flame_events = {
+      CreateProcessEvent(1, "device:TPU:0"),
+      CreateThreadEvent(1, 1, "XLA Ops"),
+      MakeSpan(Phase::kComplete, 1, 1, 1, "op_1", 100.0, 200.0),
+  };
+  EXPECT_TRUE(data_provider_.AppendTraceEventsIncremental(std::move(batch1),
+                                                          timeline_));
+  ASSERT_EQ(timeline_.timeline_data().entry_names.size(), 1u);
+
+  // Start an animated zoom so visible_range() != visible_range_target().
+  timeline_.SetVisibleRange({1000.0, 3000.0}, /*animate=*/true);
+  ASSERT_NE(timeline_.visible_range(), timeline_.visible_range_target());
+
+  ParsedTraceEvents batch2;
+  batch2.full_timespan = std::make_pair(0.0, 10.0);
+  batch2.flame_events = {
+      MakeSpan(Phase::kComplete, 2, 1, 1, "op_2", 1500.0, 300.0),
+  };
+  EXPECT_FALSE(data_provider_.AppendTraceEventsIncremental(
+      std::move(batch2), timeline_,
+      DataProvider::TimelineFlushMode::kAutoFlush));
+
+  // Mid-animation flush is deferred so zoom animation stays smooth.
+  EXPECT_THAT(timeline_.timeline_data().entry_names, ElementsAre("op_1"));
+  EXPECT_TRUE(data_provider_.HasPendingRefetchUpdate());
+
+  // Once the zoom animation settles, a normal non-finishing auto-flush emits
+  // buffered rects before FinishIncrementalLoad().
+  timeline_.SetVisibleRange({1000.0, 3000.0}, /*animate=*/false);
+  ASSERT_EQ(timeline_.visible_range(), timeline_.visible_range_target());
+  EXPECT_TRUE(data_provider_.AppendTraceEventsIncremental(
+      ParsedTraceEvents{}, timeline_,
+      DataProvider::TimelineFlushMode::kAutoFlush));
+  EXPECT_THAT(timeline_.timeline_data().entry_names,
+              ElementsAre("op_1", "op_2"));
+  EXPECT_FALSE(data_provider_.HasPendingRefetchUpdate());
+  data_provider_.FinishIncrementalLoad();
+}
+
+TEST_F(DataProviderTest,
+       AppendTraceEventsIncrementalFlushCooldownAndBackwardClockStep) {
+  absl::Time fake_now = absl::UnixEpoch() + absl::Seconds(100);
+  data_provider_.SetNowFnForTest([&fake_now]() { return fake_now; });
+  timeline_.set_incremental_fetch_enabled(false);
+  data_provider_.BeginIncrementalLoad(timeline_);
+
+  // First flush ingests > 250,000 events (activating the 250 ms cooldown).
+  ParsedTraceEvents batch1;
+  batch1.flame_events.reserve(250010);
+  batch1.flame_events.push_back(CreateProcessEvent(1, "device:TPU:0"));
+  batch1.flame_events.push_back(CreateThreadEvent(1, 1, "XLA Ops"));
+  for (int i = 0; i < 250002; ++i) {
+    batch1.flame_events.push_back(
+        MakeSpan(Phase::kComplete, i + 1, 1, 1, "op_init", i * 2.0, 1.0));
+  }
+  ASSERT_TRUE(data_provider_.AppendTraceEventsIncremental(std::move(batch1),
+                                                          timeline_));
+
+  // Add a new process + > 200,000 events within 100 ms (< 250 ms): suppressed.
+  fake_now += absl::Milliseconds(100);
+  ParsedTraceEvents batch2;
+  batch2.flame_events.reserve(200010);
+  batch2.flame_events.push_back(CreateProcessEvent(2, "device:TPU:1"));
+  batch2.flame_events.push_back(CreateThreadEvent(2, 1, "XLA Ops"));
+  for (int i = 0; i < 200002; ++i) {
+    batch2.flame_events.push_back(
+        MakeSpan(Phase::kComplete, 300000 + i, 2, 1, "op_p2", i * 2.0, 1.0));
+  }
+  EXPECT_FALSE(data_provider_.AppendTraceEventsIncremental(std::move(batch2),
+                                                           timeline_));
+  EXPECT_TRUE(data_provider_.HasPendingRefetchUpdate());
+
+  // Advance past 250 ms from the initial flush: now flushes cleanly.
+  fake_now += absl::Milliseconds(200);
+  EXPECT_TRUE(data_provider_.AppendTraceEventsIncremental(
+      ParsedTraceEvents{}, timeline_,
+      DataProvider::TimelineFlushMode::kAutoFlush));
+  EXPECT_FALSE(data_provider_.HasPendingRefetchUpdate());
+
+  // A backward wall-clock jump must NOT stall subsequent flushes once the
+  // event delta threshold is satisfied.
+  fake_now -= absl::Seconds(10);
+  ParsedTraceEvents batch3;
+  batch3.flame_events.reserve(200010);
+  batch3.flame_events.push_back(CreateProcessEvent(3, "device:TPU:2"));
+  batch3.flame_events.push_back(CreateThreadEvent(3, 1, "XLA Ops"));
+  for (int i = 0; i < 200002; ++i) {
+    batch3.flame_events.push_back(
+        MakeSpan(Phase::kComplete, 600000 + i, 3, 1, "op_p3", i * 2.0, 1.0));
+  }
+  EXPECT_TRUE(data_provider_.AppendTraceEventsIncremental(std::move(batch3),
+                                                          timeline_));
+  EXPECT_FALSE(data_provider_.HasPendingRefetchUpdate());
+  data_provider_.FinishIncrementalLoad();
+}
 }  // namespace
 }  // namespace traceviewer

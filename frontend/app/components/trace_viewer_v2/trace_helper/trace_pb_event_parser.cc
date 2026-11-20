@@ -19,9 +19,12 @@
 #include "absl/base/no_destructor.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "xprof/convert/trace_viewer/delta_series/zstd_compression.h"
 #ifdef __EMSCRIPTEN__
@@ -230,6 +233,7 @@ struct IncrementalParserSession {
   size_t current_complete_series_pos = 0;
   size_t current_complete_event_idx = 0;
   uint64_t current_complete_ts_ps = 0;
+  std::vector<uint64_t> current_complete_parent_ends_ps;
   size_t current_async_series_pos = 0;
   size_t current_counter_series_pos = 0;
   absl::flat_hash_map<ProcessId, std::vector<int>> metadata_indices_by_pid;
@@ -250,8 +254,14 @@ struct IncrementalParserSession {
   size_t track_events_unmarshaled = 0;
   size_t frames_flushed = 0;
   bool in_finish_drain = false;
+  absl::Duration step_time_budget = absl::Milliseconds(8);
+  absl::AnyInvocable<absl::Time() const> step_now_fn;
   tensorflow::profiler::ZstdDecompressorContext zstd_decompressor{
       /*initial_capacity=*/0};
+
+  absl::Time StepNow() const {
+    return step_now_fn ? step_now_fn() : absl::Now();
+  }
 
   void ResetBuildingTraceStore() {
     can_build_trace_store = true;
@@ -314,6 +324,7 @@ struct IncrementalParserSession {
     current_complete_series_pos = 0;
     current_complete_event_idx = 0;
     current_complete_ts_ps = 0;
+    current_complete_parent_ends_ps.clear();
     current_async_series_pos = 0;
     current_counter_series_pos = 0;
   }
@@ -710,12 +721,16 @@ bool ActivateNextCompressedFrame(IncrementalParserSession& session,
 bool UnmarshalProcessSliceBounded(IncrementalParserSession& session,
                                   ProcessId pid, size_t max_events_budget,
                                   size_t max_raw_events_budget,
+                                  absl::Time step_deadline, bool& made_progress,
                                   size_t& events_unmarshaled,
                                   size_t& raw_events_scanned,
                                   ParsedTraceEvents& batch) {
   xprof::TraceDataResponse& response = *session.active_response;
   const absl::Span<const std::string> interned_strings =
       session.CurrentInternedStrings();
+  const auto within_step_time_budget = [&]() {
+    return !made_progress || session.StepNow() < step_deadline;
+  };
 
   if (!session.current_pid_metadata_emitted) {
     session.current_pid_metadata_emitted = true;
@@ -727,12 +742,15 @@ bool UnmarshalProcessSliceBounded(IncrementalParserSession& session,
     }
   }
 
+  constexpr size_t kMaxTimedSeriesSliceEvents = 32768;
+  const bool timed_step = step_deadline < absl::InfiniteFuture();
   if (const auto it = session.complete_series_by_pid.find(pid);
       it != session.complete_series_by_pid.end()) {
     const std::vector<int>& series_indices = it->second;
     while (session.current_complete_series_pos < series_indices.size() &&
            events_unmarshaled < max_events_budget &&
-           raw_events_scanned < max_raw_events_budget) {
+           raw_events_scanned < max_raw_events_budget &&
+           within_step_time_budget()) {
       const int idx = series_indices[session.current_complete_series_pos];
       const auto& series = response.complete_events(idx);
       if (session.active_track_filter.has_value() &&
@@ -742,14 +760,19 @@ bool UnmarshalProcessSliceBounded(IncrementalParserSession& session,
         ++session.current_complete_series_pos;
         session.current_complete_event_idx = 0;
         session.current_complete_ts_ps = 0;
+        session.current_complete_parent_ends_ps.clear();
+        made_progress = true;
         continue;
       }
       const size_t total_in_series = static_cast<size_t>(series.deltas_size());
       const size_t remaining_budget = max_events_budget - events_unmarshaled;
       const size_t raw_slice_limit =
-          session.filter_range_ps.has_value()
-              ? std::max<size_t>(remaining_budget, 262144)
-              : std::max<size_t>(remaining_budget, 65536);
+          timed_step ? std::min<size_t>(std::max<size_t>(remaining_budget,
+                                                         kCachedBlockEvents),
+                                        kMaxTimedSeriesSliceEvents)
+                     : (session.filter_range_ps.has_value()
+                            ? std::max<size_t>(remaining_budget, 262144)
+                            : std::max<size_t>(remaining_budget, 65536));
       const size_t slice_limit =
           ((raw_slice_limit + kCachedBlockEvents - 1) / kCachedBlockEvents) *
           kCachedBlockEvents;
@@ -770,7 +793,8 @@ bool UnmarshalProcessSliceBounded(IncrementalParserSession& session,
           bool did_coalesce = false;
           count = ProcessOverviewSampledSeriesSlice(
               series, interned_strings, session.current_complete_event_idx,
-              slice_limit, session.current_complete_ts_ps, batch, did_coalesce);
+              slice_limit, session.current_complete_ts_ps, batch, did_coalesce,
+              &session.current_complete_parent_ends_ps);
           if (did_coalesce) {
             session.overview_pre_compacted = true;
           }
@@ -810,15 +834,19 @@ bool UnmarshalProcessSliceBounded(IncrementalParserSession& session,
       }
       const size_t added = batch.flame_events.size() - before;
       events_unmarshaled += added;
-      raw_events_scanned += session.filter_range_ps.has_value()
-                                ? std::min<size_t>(count, added + 4096)
-                                : count;
+      const size_t filtered_scan_floor = timed_step ? 512 : 4096;
+      raw_events_scanned +=
+          session.filter_range_ps.has_value()
+              ? std::min<size_t>(count, added + filtered_scan_floor)
+              : count;
+      made_progress = true;
       session.current_complete_event_idx += count;
       if (session.current_complete_event_idx >= total_in_series) {
         response.mutable_complete_events(idx)->Clear();
         ++session.current_complete_series_pos;
         session.current_complete_event_idx = 0;
         session.current_complete_ts_ps = 0;
+        session.current_complete_parent_ends_ps.clear();
       }
     }
     if (session.current_complete_series_pos < series_indices.size()) {
@@ -830,8 +858,12 @@ bool UnmarshalProcessSliceBounded(IncrementalParserSession& session,
       it != session.async_series_by_pid.end()) {
     const std::vector<int>& series_indices = it->second;
     while (session.current_async_series_pos < series_indices.size() &&
-           events_unmarshaled < max_events_budget) {
+           events_unmarshaled < max_events_budget &&
+           raw_events_scanned < max_raw_events_budget &&
+           within_step_time_budget()) {
       const int idx = series_indices[session.current_async_series_pos++];
+      const size_t raw_deltas =
+          static_cast<size_t>(response.async_events(idx).deltas_size());
       const size_t before_flame = batch.flame_events.size();
       const size_t before_flow = batch.flow_events.size();
       ProcessAsyncEventSeries(response.async_events(idx), interned_strings,
@@ -848,7 +880,8 @@ bool UnmarshalProcessSliceBounded(IncrementalParserSession& session,
       response.mutable_async_events(idx)->Clear();
       const size_t added = batch.flame_events.size() - before_flame;
       events_unmarshaled += added;
-      raw_events_scanned += added;
+      raw_events_scanned += std::max(added, raw_deltas);
+      made_progress = true;
     }
     if (session.current_async_series_pos < series_indices.size()) {
       return false;
@@ -859,8 +892,12 @@ bool UnmarshalProcessSliceBounded(IncrementalParserSession& session,
       it != session.counter_series_by_pid.end()) {
     const std::vector<int>& series_indices = it->second;
     while (session.current_counter_series_pos < series_indices.size() &&
-           events_unmarshaled < max_events_budget) {
+           events_unmarshaled < max_events_budget &&
+           raw_events_scanned < max_raw_events_budget &&
+           within_step_time_budget()) {
       const int idx = series_indices[session.current_counter_series_pos++];
+      const size_t raw_deltas =
+          static_cast<size_t>(response.counter_events(idx).deltas_size());
       const size_t before = batch.counter_events.size();
       ProcessCounterEventSeries(response.counter_events(idx), interned_strings,
                                 batch);
@@ -872,7 +909,8 @@ bool UnmarshalProcessSliceBounded(IncrementalParserSession& session,
       response.mutable_counter_events(idx)->Clear();
       const size_t added = batch.counter_events.size() - before;
       events_unmarshaled += added;
-      raw_events_scanned += added;
+      raw_events_scanned += std::max(added, raw_deltas);
+      made_progress = true;
     }
     if (session.current_counter_series_pos < series_indices.size()) {
       return false;
@@ -973,6 +1011,15 @@ void SetMaxCachedPackedBytesForTest(size_t max_bytes) {
   GetIncrementalSession().max_cached_packed_bytes = max_bytes;
 }
 
+void SetIncrementalStepTimeBudgetForTest(absl::Duration budget) {
+  GetIncrementalSession().step_time_budget = budget;
+}
+
+void SetIncrementalStepClockForTest(
+    absl::AnyInvocable<absl::Time() const> now_fn) {
+  GetIncrementalSession().step_now_fn = std::move(now_fn);
+}
+
 size_t GetZstdDecompressorCapacityForTest() {
   return GetIncrementalSession().zstd_decompressor.capacity();
 }
@@ -1030,8 +1077,8 @@ void AppendCompressedTraceEventsIncremental(uintptr_t data_ptr,
 }
 
 bool StepIncrementalTraceEvents(size_t max_events_per_step,
-                                DataProvider& data_provider,
-                                Timeline& timeline) {
+                                DataProvider& data_provider, Timeline& timeline,
+                                bool enforce_time_budget) {
   if (max_events_per_step == 0) {
     max_events_per_step = 1;
   }
@@ -1139,11 +1186,17 @@ bool StepIncrementalTraceEvents(size_t max_events_per_step,
            session.cached_complete_blocks.size();
   }
 
+  const absl::Time step_deadline =
+      (session.in_finish_drain || !enforce_time_budget)
+          ? absl::InfiniteFuture()
+          : (session.StepNow() + session.step_time_budget);
   const size_t max_raw_events_per_step =
       session.filter_range_ps.has_value() ? 2097152 : 524288;
+  bool made_progress = false;
 
   while (events_unmarshaled < max_events_per_step &&
-         raw_events_scanned < max_raw_events_per_step) {
+         raw_events_scanned < max_raw_events_per_step &&
+         (!made_progress || session.StepNow() < step_deadline)) {
     if (!session.active_response ||
         session.next_pid_idx >= session.active_pids.size()) {
       session.ClearActiveFrame();
@@ -1160,6 +1213,7 @@ bool StepIncrementalTraceEvents(size_t max_events_per_step,
       if (!ActivateNextCompressedFrame(session, header_only)) {
         break;
       }
+      made_progress = true;
       if (header_only) {
         continue;
       }
@@ -1169,7 +1223,8 @@ bool StepIncrementalTraceEvents(size_t max_events_per_step,
     const ProcessId pid = session.active_pids[session.next_pid_idx];
     const bool pid_finished = UnmarshalProcessSliceBounded(
         session, pid, max_events_per_step, max_raw_events_per_step,
-        events_unmarshaled, raw_events_scanned, batch);
+        step_deadline, made_progress, events_unmarshaled, raw_events_scanned,
+        batch);
     any_processed = true;
     if (pid_finished) {
       ++session.next_pid_idx;
@@ -1185,10 +1240,12 @@ bool StepIncrementalTraceEvents(size_t max_events_per_step,
   const bool has_batch_events = !batch.flame_events.empty() ||
                                 !batch.flow_events.empty() ||
                                 !batch.counter_events.empty();
-  if (any_processed && has_batch_events) {
-    const bool at_frame_boundary =
-        (session.active_response == nullptr ||
-         session.next_pid_idx >= session.active_pids.size());
+  const bool at_frame_boundary =
+      (session.active_response == nullptr ||
+       session.next_pid_idx >= session.active_pids.size());
+  if (any_processed &&
+      (has_batch_events ||
+       (at_frame_boundary && data_provider.HasPendingRefetchUpdate()))) {
     // Metadata-only batches are still appended (deferred) so their process
     // and thread names apply once the first track events flush.
     const bool flush_timeline =
@@ -1200,12 +1257,12 @@ bool StepIncrementalTraceEvents(size_t max_events_per_step,
     batch.mpmd_pipeline_view = session.mpmd_pipeline_view;
     batch.full_timespan = session.full_timespan;
     batch.visible_range_from_url = session.visible_range_from_url;
-    data_provider.AppendTraceEventsIncremental(
+    const bool flushed = data_provider.AppendTraceEventsIncremental(
         std::move(batch), timeline,
         flush_timeline ? TimelineFlushMode::kAutoFlush
                        : TimelineFlushMode::kDeferFlush);
     session.appended_any_batch = true;
-    if (flush_timeline) {
+    if (flushed) {
       ++session.frames_flushed;
       timeline.RequestRedraw();
     }
@@ -1219,9 +1276,17 @@ bool StepIncrementalTraceEvents(size_t max_events_per_step,
 
 #ifdef __EMSCRIPTEN__
 bool StepIncrementalTraceEvents(size_t max_events_per_step) {
-  return StepIncrementalTraceEvents(max_events_per_step,
-                                    Application::Instance().data_provider(),
-                                    Application::Instance().timeline());
+  bool enforce_time_budget = true;
+  const emscripten::val document = emscripten::val::global("document");
+  if (!document.isUndefined() && !document.isNull()) {
+    const emscripten::val visibility = document["visibilityState"];
+    if (visibility.isString() && visibility.as<std::string>() == "hidden") {
+      enforce_time_budget = false;
+    }
+  }
+  return StepIncrementalTraceEvents(
+      max_events_per_step, Application::Instance().data_provider(),
+      Application::Instance().timeline(), enforce_time_budget);
 }
 #endif
 

@@ -10,6 +10,8 @@
 #include <optional>
 #include <utility>
 
+#include "absl/functional/any_invocable.h"
+#include "absl/time/time.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
@@ -64,8 +66,8 @@ void AppendCompressedTraceEventsIncremental(uintptr_t data_ptr,
 // boundaries) and appends them incrementally to the timeline. Returns true if
 // more events or queued frames remain to be processed.
 bool StepIncrementalTraceEvents(size_t max_events_per_step,
-                                DataProvider& data_provider,
-                                Timeline& timeline);
+                                DataProvider& data_provider, Timeline& timeline,
+                                bool enforce_time_budget = true);
 #ifdef __EMSCRIPTEN__
 bool StepIncrementalTraceEvents(size_t max_events_per_step);
 #endif
@@ -115,6 +117,9 @@ bool HasCachedTraceEventsIncremental();
 bool HasFlushedIncrementalTraceEvents();
 
 void SetMaxCachedPackedBytesForTest(size_t max_bytes);
+void SetIncrementalStepTimeBudgetForTest(absl::Duration budget);
+void SetIncrementalStepClockForTest(
+    absl::AnyInvocable<absl::Time() const> now_fn);
 
 size_t GetZstdDecompressorCapacityForTest();
 

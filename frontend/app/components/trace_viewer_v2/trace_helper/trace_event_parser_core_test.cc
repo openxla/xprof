@@ -1238,5 +1238,72 @@ TEST(TraceEventParserCoreTest,
   EXPECT_EQ(result.flame_events[0].name, "per_event_op");
   EXPECT_DOUBLE_EQ(result.flame_events[0].dur, 5.0);
 }
+
+TEST(TraceEventParserCoreTest,
+     ProcessOverviewSampledSeriesSlicePreservesParentNestingAcrossSlices) {
+  constexpr size_t kSliceBoundary = 32768;
+  constexpr size_t kTotalEvents = kSliceBoundary + 64;
+  constexpr uint64_t kStepPs = 1'000'000ULL;  // 1 us spacing
+  constexpr uint64_t kLeafDurPs = 500'000ULL;
+  // Parent starts at idx 32760 (32760 us) and ends at 32776 us, straddling the
+  // 32,768 slice boundary so trailing child leaves sit in slice 2 before
+  // post-parent siblings start at 32776 us.
+  constexpr size_t kParentIdx = kSliceBoundary - 8;
+  constexpr uint64_t kParentStartPs = kParentIdx * kStepPs;
+  constexpr uint64_t kParentEndPs = (kSliceBoundary + 8) * kStepPs;
+
+  const std::vector<std::string> interned = {"", "parent_op", "child_leaf",
+                                             "sibling_leaf"};
+  xprof::TraceEventSeries series;
+  series.mutable_metadata()->set_process_id(1);
+  series.mutable_metadata()->set_thread_id(10);
+  series.mutable_deltas()->Reserve(kTotalEvents);
+  series.mutable_durations()->Reserve(kTotalEvents);
+  series.mutable_name_refs()->Reserve(kTotalEvents);
+  for (size_t i = 0; i < kTotalEvents; ++i) {
+    series.add_deltas(i == 0 ? 0ULL : kStepPs);
+    if (i == kParentIdx) {
+      series.add_durations(kParentEndPs - kParentStartPs);
+      series.add_name_refs(1);
+    } else if (i > kParentIdx && i < kSliceBoundary + 8) {
+      series.add_durations(kLeafDurPs);
+      series.add_name_refs(2);
+    } else {
+      series.add_durations(kLeafDurPs);
+      series.add_name_refs(3);
+    }
+  }
+
+  ParsedTraceEvents result;
+  uint64_t current_ts_ps = 0;
+  bool did_coalesce = false;
+  std::vector<uint64_t> active_parent_ends;
+
+  const size_t n1 = ProcessOverviewSampledSeriesSlice(
+      series, interned, /*start_idx=*/0, /*max_events=*/kSliceBoundary,
+      current_ts_ps, result, did_coalesce, &active_parent_ends);
+  ASSERT_EQ(n1, kSliceBoundary);
+  ASSERT_FALSE(active_parent_ends.empty());
+  EXPECT_EQ(active_parent_ends.back(), kParentEndPs);
+
+  const size_t n2 = ProcessOverviewSampledSeriesSlice(
+      series, interned, /*start_idx=*/kSliceBoundary,
+      /*max_events=*/kTotalEvents - kSliceBoundary, current_ts_ps, result,
+      did_coalesce, &active_parent_ends);
+  ASSERT_EQ(n2, kTotalEvents - kSliceBoundary);
+  EXPECT_TRUE(active_parent_ends.empty());
+
+  const double parent_end_us = kParentEndPs / 1000000.0;
+  for (const TraceEvent& ev : result.flame_events) {
+    if (ev.name == "parent_op") continue;
+    // No child rect may be coalesced across the parent's end boundary into
+    // post-parent siblings.
+    if (ev.ts < parent_end_us) {
+      EXPECT_LE(ev.ts + ev.dur, parent_end_us)
+          << "Leaf rect '" << ev.name << "' starting at " << ev.ts
+          << " us crossed parent end " << parent_end_us << " us";
+    }
+  }
+}
 }  // namespace
 }  // namespace traceviewer

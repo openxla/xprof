@@ -218,6 +218,7 @@ arguments:
 |`--logdir <path>`                      |`-l <path>`       |                     |The directory containing XProf profile data (files ending in .xplane.pb). If provided, XProf will load and display profiles from this directory. If omitted, XProf will start without loading any profiles.<sup>1</sup> |
 |`--port <port>`                        |`-p <port>`       |`8791`               |The port for the XProf web server.                                                                                                                                                                                                                                                                                                                                                   |
 |`--host <host>`                        |                  |`127.0.0.1`          |The host address to bind the XProf web server to (falls back to `XPROF_HOST` if set).                                                                                                                                                                                                                                                                                                |
+|`--allowed_hosts <hosts>`             |                  |                     |Comma-separated `Host` header hostnames to allow in addition to loopback (and IP literals / the bound hostname on non-loopback binds); supports `*.example.com` (matches single- or multi-level subdomains, not `example.com`) or quoted `'*'` to disable hostname filtering (falls back to `XPROF_ALLOWED_HOSTS` if set). |
 |`--grpc_port <port>`                   |`-g <port>`      |`50051`              |The port for the gRPC server used for distributed processing. This must be different from --port.                                                                                                                                                                                                                                                                                    |
 |`--worker_service_address <addresses>`|`-w <addresses>`|`0.0.0.0:<grpc_port>`|A comma-separated list of worker addresses (e.g., host1:50051,host2:50051) for distributed processing.                                                                                                                                                                                                                                                                               |
 |`--hide_capture_profile_button`        |`-h`              |N/A                  |If set, hides the 'Capture Profile' button in the UI.                                                                                                                                                                                                                                                                                                                                |
@@ -361,8 +362,11 @@ Requests sent to the aggregator on port 6006 will be distributed among the
 workers for processing. By default, `xprof server` binds to `127.0.0.1`; omit
 `--host=0.0.0.0` and use SSH port forwarding for remote loopback access, or
 expose `--host=0.0.0.0` (or `XPROF_HOST=0.0.0.0`) only behind firewall rules or
-an authenticating proxy since non-loopback binding disables loopback
-`Host`-header enforcement.
+an authenticating proxy. Even when bound to a non-loopback address, `Host`
+header validation remains active (allowing loopback, non-unspecified IP
+literals, and the bound hostname); pass `--allowed_hosts` (or set
+`XPROF_ALLOWED_HOSTS`) to allow additional DNS hostnames such as reverse-proxy
+or cluster service domains.
 
 For deploying a distributed XProf setup in a Kubernetes environment, see
 [Kubernetes Deployment Guide](docs/kubernetes_deployment.md).

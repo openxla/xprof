@@ -186,6 +186,59 @@ class XProfCliTest(parameterized.TestCase):
       self.cli.server('/tmp/log', host='0.0.0.0')
     self.assertEqual(mock_start_server.call_args.kwargs['host'], '0.0.0.0')
 
+  @mock.patch.object(xprof_cli, xprof_cli._is_oss.__name__, return_value=False)
+  @mock.patch.object(server, server.start_server.__name__, autospec=True)
+  def test_server_allowed_hosts_env_and_cli_override(
+      self, mock_start_server, _
+  ):
+    with mock.patch.dict(
+        os.environ, {'XPROF_ALLOWED_HOSTS': ''}, clear=False
+    ):
+      self.cli.server('/tmp/log')
+    self.assertIsNone(mock_start_server.call_args.kwargs['allowed_hosts'])
+
+    mock_start_server.reset_mock()
+    with mock.patch.dict(
+        os.environ,
+        {'XPROF_ALLOWED_HOSTS': 'proxy.example.com,*.svc.cluster.local'},
+        clear=False,
+    ):
+      self.cli.server('/tmp/log')
+    self.assertEqual(
+        mock_start_server.call_args.kwargs['allowed_hosts'],
+        'proxy.example.com,*.svc.cluster.local',
+    )
+
+    mock_start_server.reset_mock()
+    with mock.patch.dict(
+        os.environ, {'XPROF_ALLOWED_HOSTS': 'proxy.example.com'}, clear=False
+    ):
+      xprof_cli.main([
+          'xprof',
+          'server',
+          '--logdir=/tmp/log',
+          '--allowed_hosts=a.example.com,*.b.example.com',
+      ])
+    self.assertEqual(
+        mock_start_server.call_args.kwargs['allowed_hosts'],
+        'a.example.com,*.b.example.com',
+    )
+
+    mock_start_server.reset_mock()
+    with mock.patch.dict(
+        os.environ, {'XPROF_ALLOWED_HOSTS': ''}, clear=False
+    ):
+      xprof_cli.main([
+          'xprof',
+          'server',
+          '--logdir=/tmp/log',
+          '--allowed_hosts=host1,host2',
+      ])
+    self.assertEqual(
+        mock_start_server.call_args.kwargs['allowed_hosts'],
+        ('host1', 'host2'),
+    )
+
   @mock.patch.object(xprof_cli, xprof_cli._is_oss.__name__, return_value=True)
   @mock.patch.object(server, server.start_server.__name__, autospec=True)
   def test_server_oss_sets_client_logdir_and_default_logdir(
@@ -277,6 +330,16 @@ class XProfCliTest(parameterized.TestCase):
           'host_flag_value_short_h_preserved',
           ['server', '--host', '-h'],
           ['server', '--host', '-h'],
+      ),
+      (
+          'allowed_hosts_flag_value_short_h_preserved',
+          ['server', '--allowed_hosts', '-h'],
+          ['server', '--allowed_hosts', '-h'],
+      ),
+      (
+          'allowed_hosts_short_a_flag_value_short_h_preserved',
+          ['server', '-a', '-h'],
+          ['server', '-a', '-h'],
       ),
       (
           'implicit_server_host_flag_value_short_h_preserved',
@@ -432,6 +495,21 @@ class XProfCliTest(parameterized.TestCase):
           ['xprof', 'server', '--logdir'],
           '--logdir flag requires a value',
       ),
+      (
+          'bare_allowed_hosts_flag',
+          ['xprof', 'server', '--allowed_hosts'],
+          '--allowed_hosts flag requires a non-empty host string',
+      ),
+      (
+          'numeric_allowed_hosts_flag',
+          ['xprof', 'server', '--allowed_hosts=0'],
+          '--allowed_hosts flag requires a non-empty host string',
+      ),
+      (
+          'whitespace_allowed_hosts_flag',
+          ['xprof', 'server', '--allowed_hosts=   '],
+          '--allowed_hosts flag requires a non-empty host string',
+      ),
   )
   @mock.patch.object(server, server.start_server.__name__, autospec=True)
   def test_main_server_invalid_flags_exit_with_usage_error(
@@ -469,6 +547,24 @@ class XProfCliTest(parameterized.TestCase):
       ('bool_host_1p', False, {'host': True}, '--host'),
       ('int_host_1p', False, {'host': 0}, '--host'),
       ('whitespace_host_oss', True, {'host': '   '}, '--host'),
+      (
+          'bool_allowed_hosts_1p',
+          False,
+          {'allowed_hosts': True},
+          '--allowed_hosts',
+      ),
+      (
+          'empty_seq_allowed_hosts_1p',
+          False,
+          {'allowed_hosts': ()},
+          '--allowed_hosts',
+      ),
+      (
+          'non_str_seq_allowed_hosts_oss',
+          True,
+          {'allowed_hosts': ('example.com', 123)},
+          '--allowed_hosts',
+      ),
   )
   @mock.patch.object(server, server.get_default_host.__name__, autospec=True)
   @mock.patch.object(server, server.start_server.__name__, autospec=True)

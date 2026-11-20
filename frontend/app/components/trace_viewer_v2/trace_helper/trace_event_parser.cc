@@ -219,6 +219,9 @@ void ParseAndAppend(
     }
     if (event.hasOwnProperty("ts")) ev.ts = event["ts"].as<Microseconds>();
     if (event.hasOwnProperty("dur")) ev.dur = event["dur"].as<Microseconds>();
+    if (event.hasOwnProperty("is_async") && event["is_async"].as<bool>()) {
+      ev.is_async = true;
+    }
     if (event.hasOwnProperty("cat")) {
       emscripten::val cat = event["cat"];
       if (cat.isString()) {

@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <utility>
 
 #include "absl/container/flat_hash_map.h"
@@ -47,12 +48,21 @@ size_t ProcessOverviewSampledSeriesSlice(
 void ProcessCompleteEvents(const xprof::TraceDataResponse& response,
                            ParsedTraceEvents& result);
 
+// Key for pairing async begin/end events: (pid, name, flow_id). Uses the
+// resolved name rather than the chunk-local name_ref so that unclosed events
+// can be paired across streaming chunks with different interned string tables.
+using AsyncEventKey = std::tuple<ProcessId, std::string, uint64_t>;
+
 void ProcessAsyncEventSeries(const xprof::TraceEventSeries& series,
                              absl::Span<const std::string> interned_strings,
-                             ParsedTraceEvents& result);
+                             ParsedTraceEvents& result,
+                             absl::flat_hash_map<AsyncEventKey, TraceEvent>*
+                                 open_async_events = nullptr);
 
 void ProcessAsyncEvents(const xprof::TraceDataResponse& response,
-                        ParsedTraceEvents& result);
+                        ParsedTraceEvents& result,
+                        absl::flat_hash_map<AsyncEventKey, TraceEvent>*
+                            open_async_events = nullptr);
 
 void ProcessCounterEventSeries(const xprof::TraceEventSeries& series,
                                absl::Span<const std::string> interned_strings,

@@ -2500,12 +2500,21 @@ void Timeline::CompactTimelineDataToMipOverview() {
 }
 
 bool Timeline::RestoreSavedFullOverview() {
+  const bool had_in_flight_refetch =
+      is_refetch_in_flight_ || stash_full_overview_on_next_update_;
   if (!saved_full_overview_.has_value()) {
     if (is_full_overview_data_) {
       stash_full_overview_on_next_update_ = false;
+      full_trace_loaded_ = overview_full_trace_loaded_;
+      is_compacted_ = overview_is_compacted_;
+      window_at_full_resolution_ = overview_window_at_full_resolution_;
       ClearLoadedActiveTracks();
       InitializeLastFetchRequestRange(data_time_range_);
       set_is_incremental_loading(false);
+      is_refetch_in_flight_ = false;
+      if (had_in_flight_refetch && event_callback_) {
+        event_callback_(kCancelFetchData, EventData{});
+      }
       if (redraw_callback_) redraw_callback_();
       return true;
     }
@@ -2557,6 +2566,7 @@ bool Timeline::RestoreSavedFullOverview() {
   is_full_overview_data_ = true;
   stash_full_overview_on_next_update_ = false;
   is_incremental_loading_ = false;
+  is_refetch_in_flight_ = false;
   should_restore_scroll_ = true;
   selected_event_index_ = -1;
   selected_event_indices_.clear();
@@ -2572,6 +2582,9 @@ bool Timeline::RestoreSavedFullOverview() {
         gpu_flame_instances_.size());
   }
 #endif
+  if (had_in_flight_refetch && event_callback_) {
+    event_callback_(kCancelFetchData, EventData{});
+  }
   if (redraw_callback_) redraw_callback_();
   return true;
 }
@@ -2706,6 +2719,7 @@ void Timeline::PopulateProcessUtilizationMipLevel(
 void Timeline::ResetForNewDataset() {
   // Keep MaybeRequestData() silent until the next parse clears this flag.
   is_incremental_loading_ = true;
+  is_refetch_in_flight_ = false;
 
   // Selection and hover.
   selected_event_index_ = -1;
@@ -3002,9 +3016,11 @@ void Timeline::Draw() {
   // We call MaybeRequestData() to check if we need to fetch more data.
   // We do this here instead of in SetVisibleRange because we want to debounce
   // the request during continuous interaction (like panning/zooming).
-  // The check is skipped if the user is currently interacting with
-  // the timeline to avoid sending requests during interaction.
-  if (!is_interacting) {
+  // Skip fetching while the user is actively interacting or while a zoom/pan
+  // animation is still settling, except when the target range already qualifies
+  // for an immediate overview restore.
+  if (!is_interacting &&
+      (IsVisibleRangeSettled() || ShouldRestoreSavedFullOverviewForTarget())) {
     MaybeRequestData();
   }
 
@@ -3920,7 +3936,7 @@ Pixel Timeline::TimeToScreenX(Microseconds time, Pixel screen_x_offset,
   return screen_x_offset + TimeToPixel(time, px_per_time_unit);
 }
 
-void Timeline::ConstrainTimeRange(TimeRange& range) {
+void Timeline::ConstrainTimeRange(TimeRange& range) const {
   if (range.duration() < kMinDurationMicros) {
     double center = range.center();
     range = {center - kMinDurationMicros / 2.0,
@@ -7639,17 +7655,19 @@ ImRect Timeline::GetTimelineArea() const {
   return {start_x, start_y, end_x, end_y};
 }
 
-void Timeline::InitializeLastFetchRequestRange(const TimeRange& visible_range) {
+TimeRange Timeline::ComputeFetchRange(const TimeRange& visible_range) const {
   TimeRange fetch = visible_range.Scale(kFetchRatio);
-
   if (fetch.duration() < kMinFetchDurationMicros) {
-    Microseconds center = fetch.center();
+    const Microseconds center = fetch.center();
     fetch = {center - kMinFetchDurationMicros / 2.0,
              center + kMinFetchDurationMicros / 2.0};
   }
-
   ConstrainTimeRange(fetch);
-  last_fetch_request_range_ = fetch;
+  return fetch;
+}
+
+void Timeline::InitializeLastFetchRequestRange(const TimeRange& visible_range) {
+  last_fetch_request_range_ = ComputeFetchRange(visible_range);
 }
 
 absl::flat_hash_set<std::pair<ProcessId, ThreadId>>
@@ -7747,27 +7765,47 @@ bool Timeline::HasUnloadedVisibleExpandedTracks() const {
   return false;
 }
 
-void Timeline::MaybeRequestData() {
-  const TimeRange current_visible = visible_range();
-  TimeRange fetch = current_visible.Scale(kFetchRatio);
-  if (fetch.duration() < kMinFetchDurationMicros) {
-    Microseconds center = fetch.center();
-    fetch = {center - kMinFetchDurationMicros / 2.0,
-             center + kMinFetchDurationMicros / 2.0};
-  }
-  ConstrainTimeRange(fetch);
+bool Timeline::IsVisibleRangeSettled() const {
+  const TimeRange& current = visible_range();
+  const TimeRange& target = visible_range_target();
+  const Microseconds tol =
+      0.05 * std::max(target.duration(), kMinDurationMicros);
+  return std::abs(current.start() - target.start()) <= tol &&
+         std::abs(current.end() - target.end()) <= tol;
+}
 
-  if ((!is_full_overview_data_ || stash_full_overview_on_next_update_) &&
-      (saved_full_overview_.has_value() || is_full_overview_data_) &&
-      data_time_range_.duration() > 0 &&
+bool Timeline::CanRestoreSavedFullOverview() const {
+  return (!is_full_overview_data_ || stash_full_overview_on_next_update_) &&
+         (saved_full_overview_.has_value() || is_full_overview_data_) &&
+         data_time_range_.duration() > 0;
+}
+
+bool Timeline::ShouldRestoreSavedFullOverviewForTarget() const {
+  if (!CanRestoreSavedFullOverview()) {
+    return false;
+  }
+  const TimeRange fetch = ComputeFetchRange(visible_range_target());
+  return fetch.duration() >= 0.9 * data_time_range_.duration();
+}
+
+void Timeline::MaybeRequestData() {
+  const TimeRange current_visible = visible_range_target();
+  const TimeRange fetch = ComputeFetchRange(current_visible);
+
+  if (CanRestoreSavedFullOverview() &&
       fetch.duration() >= 0.9 * data_time_range_.duration()) {
     RestoreSavedFullOverview();
     return;
   }
 
-  // Don't request more data if a request is already in flight or if the entire
-  // trace is already loaded at full resolution in memory.
-  if (is_incremental_loading_ || (full_trace_loaded_ && !is_compacted_)) return;
+  // Don't interrupt an initial/external load or refetch if the entire trace is
+  // already loaded at full resolution in memory. An in-flight viewport refetch
+  // may still be superseded below when the target viewport moves outside or
+  // zooms past its requested range.
+  if ((is_incremental_loading_ && !is_refetch_in_flight_) ||
+      (full_trace_loaded_ && !is_compacted_)) {
+    return;
+  }
 
   // Hosts whose backend always returns the full dataset opt out entirely.
   if (!incremental_fetch_enabled_) return;
@@ -7794,10 +7832,11 @@ void Timeline::MaybeRequestData() {
       (last_fetch_request_range_.duration() / fetch.duration() >
        kRefetchZoomRatio);
   const bool needs_full_resolution_window =
-      is_compacted_ && !window_at_full_resolution_ &&
+      !is_refetch_in_flight_ && is_compacted_ && !window_at_full_resolution_ &&
       data_time_range_.duration() > 0 &&
       fetch.duration() <= 0.85 * data_time_range_.duration();
-  const bool has_unloaded_visible_tracks = HasUnloadedVisibleExpandedTracks();
+  const bool has_unloaded_visible_tracks =
+      !is_refetch_in_flight_ && HasUnloadedVisibleExpandedTracks();
 
   // Utilize the last fetch request range as a guard to prevent redundant
   // fetches only if we don't need higher resolution data.
@@ -7828,6 +7867,7 @@ void Timeline::MaybeRequestData() {
   // are not overwritten afterward.
   last_fetch_request_range_ = fetch;
   is_incremental_loading_ = true;
+  is_refetch_in_flight_ = true;
 
   event_callback_(kFetchData, event_data);
 }

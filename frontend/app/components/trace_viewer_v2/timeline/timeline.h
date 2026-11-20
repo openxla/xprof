@@ -684,6 +684,7 @@ class Timeline {
   void MarkCurrentDataAsFullOverview() {
     is_full_overview_data_ = true;
     stash_full_overview_on_next_update_ = false;
+    is_refetch_in_flight_ = false;
     ClearLoadedActiveTracks();
     saved_full_overview_.reset();
     if (is_compacted_ && timeline_data_.entry_start_times.size() >
@@ -936,6 +937,9 @@ class Timeline {
 
   void set_is_incremental_loading(bool is_incremental_loading) {
     is_incremental_loading_ = is_incremental_loading;
+    if (!is_incremental_loading) {
+      is_refetch_in_flight_ = false;
+    }
   }
   bool is_incremental_loading() const { return is_incremental_loading_; }
 
@@ -1014,7 +1018,7 @@ class Timeline {
   Pixel TimeToScreenX(Microseconds time, Pixel screen_x_offset,
                       double px_per_time_unit) const;
 
-  void ConstrainTimeRange(TimeRange& range);
+  void ConstrainTimeRange(TimeRange& range) const;
 
   // Selects the event with the given index and ensures it is visible.
   // If the event is already fully visible, the viewport is not changed.
@@ -1080,6 +1084,10 @@ class Timeline {
   // available before it becomes visible, providing a smoother user experience.
   // Exposed for testing.
   void MaybeRequestData();
+  bool IsVisibleRangeSettled() const;
+  TimeRange ComputeFetchRange(const TimeRange& visible_range) const;
+  bool CanRestoreSavedFullOverview() const;
+  bool ShouldRestoreSavedFullOverviewForTarget() const;
   double px_per_time_unit() const;
   double px_per_time_unit(Pixel timeline_width) const;
   void DrawTimelinePlayerSync();
@@ -1974,6 +1982,10 @@ class Timeline {
   // Initialize to true to prevent sending request in the initial load where
   // JS side is already fetching the data.
   bool is_incremental_loading_ = true;
+  // True only when the active load was initiated by MaybeRequestData() as a
+  // viewport refetch, allowing newer zoom/pan targets to supersede it without
+  // interrupting an initial trace load.
+  bool is_refetch_in_flight_ = false;
   bool full_trace_loaded_ = false;
   bool is_compacted_ = false;
   bool window_at_full_resolution_ = false;

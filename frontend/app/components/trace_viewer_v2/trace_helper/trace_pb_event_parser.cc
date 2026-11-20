@@ -133,6 +133,17 @@ struct FrameSummary {
 
 constexpr size_t kCachedBlockEvents = 4096;
 constexpr size_t kMaxCachedPackedBytes = 512ULL * 1024 * 1024;
+// Target number of visual time bins across a local cached refetch window so
+// wide replays emit screen-bounded rects while deeper zooms emit raw rects.
+constexpr uint64_t kTargetLocalReplayBins = 8192ULL;
+// Skip sub-pixel binning on narrow (<= 100 ms) local replay windows, which
+// main.ts may widen up to 100 ms for pan margin, so deep zooms always emit raw
+// rects with full serial/uid detail metadata.
+constexpr uint64_t kMinLocalReplayBinningWindowPs = 100ULL * 1000000000ULL;
+// Bounds raw cached events decoded per step so binned wide replays stay
+// responsive even when many raw events collapse into few output rects.
+constexpr size_t kMaxCachedRawEventsPerStep = 262144;
+constexpr absl::Duration kCachedStepWallClockBudget = absl::Milliseconds(8);
 constexpr uint64_t kDurationPhaseBeginBit = 1ULL << 61;
 constexpr uint64_t kDurationPhaseEndBit = 1ULL << 62;
 constexpr uint64_t kDurationPhaseMask =
@@ -218,6 +229,10 @@ struct IncrementalParserSession {
   bool using_cached_trace_store = false;
   bool cached_metadata_and_globals_emitted = false;
   size_t next_cached_block_idx = 0;
+  // Active enclosing parent end timestamps (ps) per (pid, tid), persisted
+  // across 4,096-event blocks and split B/E spans during local replay.
+  absl::flat_hash_map<std::pair<ProcessId, ThreadId>, std::vector<uint64_t>>
+      replay_parent_ends_by_track;
   std::vector<xprof::Process> cached_processes;
   std::vector<TraceEvent> cached_async_flame_events;
   std::vector<TraceEvent> cached_async_flow_events;
@@ -288,6 +303,7 @@ struct IncrementalParserSession {
     using_cached_trace_store = false;
     cached_metadata_and_globals_emitted = false;
     next_cached_block_idx = 0;
+    replay_parent_ends_by_track.clear();
     recording_frame_summaries = false;
     ClearActiveFrame();
     visible_range_from_url = std::nullopt;
@@ -391,11 +407,10 @@ void AppendCompleteSeriesSliceToBlockCache(
       const uint64_t dur_ps = raw_dur_ps & ~kDurationPhaseMask;
       const bool is_begin = (raw_dur_ps & kDurationPhaseBeginBit) != 0;
       const bool is_end = (raw_dur_ps & kDurationPhaseEndBit) != 0;
+      block.min_start_ps = std::min(block.min_start_ps, running_ts_ps);
+      block.max_end_ps = std::max(block.max_end_ps, running_ts_ps + dur_ps);
       if (is_begin || is_end) {
         block.has_split_events = true;
-      } else {
-        block.min_start_ps = std::min(block.min_start_ps, running_ts_ps);
-        block.max_end_ps = std::max(block.max_end_ps, running_ts_ps + dur_ps);
       }
 
       const auto& ev_meta = series.event_metadata(i);
@@ -430,9 +445,14 @@ void AppendCompleteSeriesSliceToBlockCache(
         block.min_start_ps <= block.max_end_ps) {
       FrameSummary& summary =
           session.building_frame_summaries[session.active_frame_index];
-      summary.min_start_ps = std::min(summary.min_start_ps, block.min_start_ps);
-      summary.max_end_ps = std::max(summary.max_end_ps, block.max_end_ps);
-      summary.has_non_split_bounds = true;
+      if (block.has_split_events) {
+        summary.always_process = true;
+      } else {
+        summary.min_start_ps =
+            std::min(summary.min_start_ps, block.min_start_ps);
+        summary.max_end_ps = std::max(summary.max_end_ps, block.max_end_ps);
+        summary.has_non_split_bounds = true;
+      }
     }
 
     session.building_packed_bytes += block.packed_events.size();
@@ -451,7 +471,7 @@ bool BlockOverlapsFilter(const CachedCompleteBlock& block,
       !session.active_track_filter->contains({block.pid, block.tid})) {
     return false;
   }
-  if (!session.filter_range_ps.has_value() || block.has_split_events) {
+  if (!session.filter_range_ps.has_value()) {
     return true;
   }
   if (block.min_start_ps > block.max_end_ps) {
@@ -461,9 +481,164 @@ bool BlockOverlapsFilter(const CachedCompleteBlock& block,
            block.min_start_ps > session.filter_range_ps->second);
 }
 
-size_t DecodeCachedCompleteBlock(const IncrementalParserSession& session,
-                                 const CachedCompleteBlock& block,
-                                 ParsedTraceEvents& batch) {
+void AppendFlameEvent(ParsedTraceEvents& batch, ProcessId pid, ThreadId tid,
+                      Phase phase, uint64_t start_ps, uint64_t dur_ps,
+                      uint32_t name_ref, std::optional<uint32_t> serial,
+                      uint64_t flow_id, uint32_t flow_category,
+                      absl::Span<const std::string> interned_strings) {
+  TraceEvent ev;
+  ev.ph = phase;
+  ev.pid = pid;
+  ev.tid = tid;
+  ev.ts = start_ps / 1000000.0;
+  ev.dur = dur_ps / 1000000.0;
+  if (name_ref < interned_strings.size()) {
+    ev.name = interned_strings[name_ref];
+  }
+  if (flow_id != 0) {
+    ev.flow_id = flow_id;
+    ev.has_flow_id = true;
+    if (flow_category != 0 && flow_category < interned_strings.size()) {
+      ev.category = GetContextTypeFromString(interned_strings[flow_category]);
+    }
+  }
+  if (serial.has_value()) {
+    ev.serial = *serial;
+    ev.has_serial = true;
+  } else {
+    // Synthetic coalesced bursts do not correspond to a single LevelDB row;
+    // omit uid so detail lookups do not query a mismatched (ts, dur, serial).
+    ev.serial = 0;
+    ev.has_serial = false;
+  }
+  ev.event_id = GenerateEventId(ev.name, ev.ts, ev.dur);
+  // Flows are registered by DataProvider from flame events carrying
+  // `has_flow_id`, so they are not duplicated into `flow_events` here.
+  batch.flame_events.push_back(std::move(ev));
+}
+
+bool OverlapsSubsequentEvent(const IncrementalParserSession& session,
+                             size_t block_idx, uint32_t event_idx,
+                             const uint8_t* next_p, const uint8_t* end,
+                             uint64_t dur_ps, uint64_t end_ps) {
+  const CachedCompleteBlock& block = session.cached_complete_blocks[block_idx];
+  if (event_idx + 1 < block.event_count && next_p < end) {
+    const uint8_t* peek = next_p;
+    const uint64_t next_packed_delta = ReadVarint64(peek, end);
+    const uint64_t next_dur_and_flags = ReadVarint64(peek, end);
+    const uint64_t next_delta_ps = ((next_dur_and_flags & 8ULL) != 0)
+                                       ? (next_packed_delta * 1000ULL)
+                                       : next_packed_delta;
+    return dur_ps > next_delta_ps;
+  }
+  if (dur_ps > 0 && block_idx + 1 < session.cached_complete_blocks.size()) {
+    const CachedCompleteBlock& next_block =
+        session.cached_complete_blocks[block_idx + 1];
+    if (next_block.pid == block.pid && next_block.tid == block.tid) {
+      return end_ps > next_block.base_ts_ps;
+    }
+    // A later frame may continue this track; preserve the trailing non-zero
+    // span so it cannot flatten into cross-frame children.
+    return true;
+  }
+  return false;
+}
+
+class LeafBurstCoalescer {
+ public:
+  LeafBurstCoalescer(ProcessId pid, ThreadId tid, uint64_t min_bin_ps,
+                     absl::Span<const std::string> interned_strings,
+                     ParsedTraceEvents& batch, size_t& emitted)
+      : pid_(pid),
+        tid_(tid),
+        min_bin_ps_(min_bin_ps),
+        interned_strings_(interned_strings),
+        batch_(batch),
+        emitted_(emitted) {}
+
+  void Add(uint64_t bin, uint64_t start_ps, uint64_t dur_ps, uint32_t name_ref,
+           uint32_t serial) {
+    const uint64_t end_ps = start_ps + dur_ps;
+    uint64_t gap_ps = 0;
+    if (in_burst_) {
+      gap_ps = start_ps > end_ps_ ? (start_ps - end_ps_) : 0ULL;
+      const uint64_t active_floor_ps =
+          std::max<uint64_t>(active_dur_ps_, 500000ULL);
+      const uint64_t max_allowed_gap_ps =
+          std::min<uint64_t>(min_bin_ps_ / 4, active_floor_ps);
+      if (bin != bin_ || gap_ps > max_allowed_gap_ps ||
+          gap_ps_ + gap_ps > active_floor_ps) {
+        Flush();
+      }
+    }
+    if (!in_burst_) {
+      in_burst_ = true;
+      count_ = 1;
+      bin_ = bin;
+      start_ps_ = start_ps;
+      end_ps_ = end_ps;
+      active_dur_ps_ = dur_ps;
+      gap_ps_ = 0;
+      dom_dur_ps_ = dur_ps;
+      dom_name_ref_ = name_ref;
+      dom_serial_ = serial;
+      return;
+    }
+    const uint64_t added_active_ps =
+        end_ps > std::max(start_ps, end_ps_)
+            ? (end_ps - std::max(start_ps, end_ps_))
+            : 0ULL;
+    ++count_;
+    end_ps_ = std::max(end_ps_, end_ps);
+    active_dur_ps_ += added_active_ps;
+    gap_ps_ += gap_ps;
+    if (dur_ps >= dom_dur_ps_) {
+      dom_dur_ps_ = dur_ps;
+      dom_name_ref_ = name_ref;
+      dom_serial_ = serial;
+    }
+  }
+
+  void Flush() {
+    if (!in_burst_) return;
+    const uint64_t dur_ps =
+        count_ == 1
+            ? dom_dur_ps_
+            : (end_ps_ > start_ps_ ? (end_ps_ - start_ps_) : dom_dur_ps_);
+    const std::optional<uint32_t> serial =
+        count_ == 1 ? std::make_optional(dom_serial_) : std::nullopt;
+    AppendFlameEvent(batch_, pid_, tid_, Phase::kComplete, start_ps_, dur_ps,
+                     dom_name_ref_, serial, /*flow_id=*/0, /*flow_category=*/0,
+                     interned_strings_);
+    ++emitted_;
+    in_burst_ = false;
+    count_ = 0;
+  }
+
+ private:
+  ProcessId pid_;
+  ThreadId tid_;
+  uint64_t min_bin_ps_;
+  absl::Span<const std::string> interned_strings_;
+  ParsedTraceEvents& batch_;
+  size_t& emitted_;
+
+  bool in_burst_ = false;
+  size_t count_ = 0;
+  uint64_t bin_ = 0;
+  uint64_t start_ps_ = 0;
+  uint64_t end_ps_ = 0;
+  uint64_t active_dur_ps_ = 0;
+  uint64_t gap_ps_ = 0;
+  uint64_t dom_dur_ps_ = 0;
+  uint32_t dom_name_ref_ = 0;
+  uint32_t dom_serial_ = 0;
+};
+
+size_t DecodeCachedCompleteBlock(IncrementalParserSession& session,
+                                 size_t block_idx, ParsedTraceEvents& batch,
+                                 size_t& raw_events_scanned) {
+  const CachedCompleteBlock& block = session.cached_complete_blocks[block_idx];
   if (!BlockOverlapsFilter(block, session)) {
     return 0;
   }
@@ -484,7 +659,31 @@ size_t DecodeCachedCompleteBlock(const IncrementalParserSession& session,
   uint32_t prev_serial = 0;
   size_t emitted = 0;
 
+  uint64_t filter_start_ps = 0;
+  uint64_t filter_end_ps = 0;
+  uint64_t min_bin_ps = 0;
+  if (session.filter_range_ps.has_value()) {
+    filter_start_ps = session.filter_range_ps->first;
+    filter_end_ps = session.filter_range_ps->second;
+    if (filter_end_ps > filter_start_ps &&
+        (filter_end_ps - filter_start_ps) > kMinLocalReplayBinningWindowPs) {
+      min_bin_ps = (filter_end_ps - filter_start_ps) / kTargetLocalReplayBins;
+    }
+  }
+
+  std::vector<uint64_t>* parent_ends_ptr = nullptr;
+  if (min_bin_ps > 0) {
+    parent_ends_ptr =
+        &session.replay_parent_ends_by_track[{block.pid, block.tid}];
+    if (parent_ends_ptr->capacity() < 16) {
+      parent_ends_ptr->reserve(16);
+    }
+  }
+  LeafBurstCoalescer burst_coalescer(block.pid, block.tid, min_bin_ps,
+                                     interned_strings, batch, emitted);
+
   for (uint32_t i = 0; i < block.event_count && p < end; ++i) {
+    ++raw_events_scanned;
     const uint64_t packed_delta_ts = ReadVarint64(p, end);
     const uint64_t dur_and_flags = ReadVarint64(p, end);
     const bool ns_scaled = (dur_and_flags & 8ULL) != 0;
@@ -510,44 +709,68 @@ size_t DecodeCachedCompleteBlock(const IncrementalParserSession& session,
     const uint64_t packed_dur = dur_and_flags >> 4;
     const uint64_t dur_ps = ns_scaled ? (packed_dur * 1000ULL) : packed_dur;
     if (session.filter_range_ps.has_value()) {
-      if (current_ts_ps > session.filter_range_ps->second) {
+      if (current_ts_ps > filter_end_ps) {
         break;
       }
-      if (current_ts_ps + dur_ps < session.filter_range_ps->first) {
+      if (current_ts_ps + dur_ps < filter_start_ps) {
         continue;
       }
     }
 
-    TraceEvent ev;
-    if (dur_and_flags & 1ULL) {
-      ev.ph = Phase::kDurationBegin;
-    } else if (dur_and_flags & 2ULL) {
-      ev.ph = Phase::kDurationEnd;
-    } else {
-      ev.ph = Phase::kComplete;
-    }
-    ev.pid = block.pid;
-    ev.tid = block.tid;
-    ev.ts = current_ts_ps / 1000000.0;
-    ev.dur = dur_ps / 1000000.0;
-    if (name_ref < interned_strings.size()) {
-      ev.name = interned_strings[name_ref];
-    }
-    if (flow_id != 0) {
-      ev.flow_id = flow_id;
-      ev.has_flow_id = true;
-      if (flow_category != 0 && flow_category < interned_strings.size()) {
-        ev.category = GetContextTypeFromString(interned_strings[flow_category]);
+    const bool is_begin = (dur_and_flags & 1ULL) != 0;
+    const bool is_end = (dur_and_flags & 2ULL) != 0;
+    if (min_bin_ps > 0) {
+      std::vector<uint64_t>& parent_ends = *parent_ends_ptr;
+      bool parent_boundary_crossed = false;
+      while (!parent_ends.empty() && parent_ends.back() <= current_ts_ps) {
+        parent_ends.pop_back();
+        parent_boundary_crossed = true;
+      }
+      if (parent_boundary_crossed) {
+        burst_coalescer.Flush();
+      }
+
+      const uint64_t end_ps = current_ts_ps + dur_ps;
+      const bool overlaps_next = OverlapsSubsequentEvent(
+          session, block_idx, i, p, end, dur_ps, end_ps);
+      const bool exceeds_parent =
+          !parent_ends.empty() && end_ps > parent_ends.back();
+      // Coalesce sub-pixel leaf rects within the same time bin while keeping
+      // non-leaf parents, wide spans, split spans, flow endpoints, and
+      // parent-crossing spans intact.
+      if (dur_ps < min_bin_ps && !overlaps_next && !is_begin && !is_end &&
+          !has_flow && !exceeds_parent) {
+        const uint64_t bin =
+            current_ts_ps >= filter_start_ps
+                ? (current_ts_ps - filter_start_ps) / min_bin_ps
+                : 0ULL;
+        burst_coalescer.Add(bin, current_ts_ps, dur_ps, name_ref, serial);
+        continue;
+      }
+
+      burst_coalescer.Flush();
+      if (dur_ps > 0 && (is_begin || is_end)) {
+        // Split B/E spans re-emit an updated end bound across chunks; drop any
+        // narrower stale chunk boundary before pushing the extended bound.
+        while (!parent_ends.empty() && parent_ends.back() < end_ps) {
+          parent_ends.pop_back();
+        }
+        parent_ends.push_back(end_ps);
+      } else if (!is_begin && !is_end &&
+                 (overlaps_next || dur_ps >= min_bin_ps)) {
+        parent_ends.push_back(end_ps);
       }
     }
-    ev.serial = serial;
-    ev.has_serial = true;
-    ev.event_id = GenerateEventId(ev.name, ev.ts, ev.dur);
-    // Flows are registered by DataProvider from flame events carrying
-    // `has_flow_id`, so they are not duplicated into `flow_events` here.
-    batch.flame_events.push_back(std::move(ev));
+
+    const Phase phase = is_begin
+                            ? Phase::kDurationBegin
+                            : (is_end ? Phase::kDurationEnd : Phase::kComplete);
+    AppendFlameEvent(batch, block.pid, block.tid, phase, current_ts_ps, dur_ps,
+                     name_ref, serial, flow_id, flow_category,
+                     interned_strings);
     ++emitted;
   }
+  burst_coalescer.Flush();
   return emitted;
 }
 
@@ -1156,23 +1379,45 @@ bool StepIncrementalTraceEvents(size_t max_events_per_step,
                       !batch.flow_events.empty() ||
                       !batch.counter_events.empty();
     }
+    const absl::Time step_start = absl::Now();
+    size_t blocks_checked = 0;
+    size_t blocks_decoded = 0;
     while (session.next_cached_block_idx <
                session.cached_complete_blocks.size() &&
-           events_unmarshaled < max_events_per_step) {
-      const CachedCompleteBlock& block =
-          session.cached_complete_blocks[session.next_cached_block_idx++];
-      const size_t decoded = DecodeCachedCompleteBlock(session, block, batch);
+           events_unmarshaled < max_events_per_step &&
+           raw_events_scanned < kMaxCachedRawEventsPerStep) {
+      const size_t block_idx = session.next_cached_block_idx++;
+      ++blocks_checked;
+      size_t block_raw_scanned = 0;
+      const size_t decoded = DecodeCachedCompleteBlock(
+          session, block_idx, batch, block_raw_scanned);
+      raw_events_scanned += block_raw_scanned;
+      if (block_raw_scanned > 0) {
+        ++blocks_decoded;
+      }
       if (decoded > 0) {
         any_processed = true;
         events_unmarshaled += decoded;
       }
+      if (!session.in_finish_drain &&
+          ((blocks_decoded > 0 && (blocks_decoded & 7) == 0) ||
+           (blocks_checked & 1023) == 0) &&
+          (absl::Now() - step_start) >= kCachedStepWallClockBudget) {
+        break;
+      }
     }
+    size_t skip_checked = 0;
     while (session.next_cached_block_idx <
                session.cached_complete_blocks.size() &&
            !BlockOverlapsFilter(
                session.cached_complete_blocks[session.next_cached_block_idx],
                session)) {
       ++session.next_cached_block_idx;
+      ++skip_checked;
+      if (!session.in_finish_drain && (skip_checked & 1023) == 0 &&
+          (absl::Now() - step_start) >= kCachedStepWallClockBudget) {
+        break;
+      }
     }
     if (any_processed) {
       batch.mpmd_pipeline_view = session.mpmd_pipeline_view;

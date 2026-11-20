@@ -31,6 +31,8 @@ namespace {
 
 using ::testing::Contains;
 
+constexpr uint64_t kDurationPhaseBeginBit = 1ULL << 61;
+constexpr uint64_t kDurationPhaseEndBit = 1ULL << 62;
 struct CompressedTestFrame {
   size_t uncompressed_size = 0;
   std::string compressed;
@@ -158,6 +160,29 @@ absl::StatusOr<std::string> CompressMultiEventFrame(
   return CompressTraceDataResponse(frame);
 }
 
+void AppendFramedBytes(std::string& out, absl::string_view payload) {
+  const uint32_t len = static_cast<uint32_t>(payload.size());
+  const char len_bytes[4] = {
+      static_cast<char>(len & 0xff),
+      static_cast<char>((len >> 8) & 0xff),
+      static_cast<char>((len >> 16) & 0xff),
+      static_cast<char>((len >> 24) & 0xff),
+  };
+  out.append(len_bytes, 4);
+  out.append(payload.data(), payload.size());
+}
+
+absl::Status AppendFramedResponse(std::string& out,
+                                  const xprof::TraceDataResponse& frame) {
+  const absl::StatusOr<std::string> compressed =
+      CompressTraceDataResponse(frame);
+  if (!compressed.ok()) {
+    return compressed.status();
+  }
+  AppendFramedBytes(out, *compressed);
+  return absl::OkStatus();
+}
+
 }  // namespace
 
 TEST(TracePbEventParserIncrementalTest,
@@ -165,19 +190,6 @@ TEST(TracePbEventParserIncrementalTest,
   using ::testing::ElementsAre;
 
   IncrementalCacheCleanup cleanup_guard;
-
-  const auto append_framed_bytes = [](std::string& out,
-                                      absl::string_view payload) {
-    const uint32_t len = static_cast<uint32_t>(payload.size());
-    const char len_bytes[4] = {
-        static_cast<char>(len & 0xff),
-        static_cast<char>((len >> 8) & 0xff),
-        static_cast<char>((len >> 16) & 0xff),
-        static_cast<char>((len >> 24) & 0xff),
-    };
-    out.append(len_bytes, 4);
-    out.append(payload.data(), payload.size());
-  };
 
   // Frame 1: invalid Zstd bytes (triggers !decompressed_view.ok() branch).
   const std::string bad_zstd = "not valid zstd data";
@@ -195,9 +207,9 @@ TEST(TracePbEventParserIncrementalTest,
   ASSERT_TRUE(valid_frame.ok());
 
   std::string xchn_payload(tensorflow::profiler::kXChunkMagic);
-  append_framed_bytes(xchn_payload, bad_zstd);
-  append_framed_bytes(xchn_payload, *bad_proto_compressed);
-  append_framed_bytes(xchn_payload, valid_frame->compressed);
+  AppendFramedBytes(xchn_payload, bad_zstd);
+  AppendFramedBytes(xchn_payload, *bad_proto_compressed);
+  AppendFramedBytes(xchn_payload, valid_frame->compressed);
 
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
@@ -621,6 +633,647 @@ TEST(TracePbEventParserIncrementalTest,
   EXPECT_FALSE(HasFlushedIncrementalTraceEvents());
   FinishIncrementalTraceEvents(data_provider, timeline);
   EXPECT_FALSE(HasFlushedIncrementalTraceEvents());
+}
+
+TEST(TracePbEventParserIncrementalTest,
+     CachedRefetchBinsSubPixelLeafRectsAndEmitsRawOnDeepZoom) {
+  IncrementalCacheCleanup cleanup_guard;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  DataProvider data_provider;
+
+  xprof::TraceDataResponse f0;
+  f0.add_interned_strings("");
+  f0.add_interned_strings("wide_parent");
+  f0.add_interned_strings("tiny_leaf");
+  f0.add_interned_strings("flow_leaf");
+  f0.set_full_timespan_start_ps(0ULL);
+  f0.set_full_timespan_end_ps(1000000000000ULL);  // 1000 ms
+
+  auto* proc = f0.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("host:0 /device:TPU:0");
+  auto* th = proc->add_threads();
+  th->set_id(10);
+  th->set_name("XLA Ops");
+
+  auto* series = f0.add_complete_events();
+  series->mutable_metadata()->set_process_id(1);
+  series->mutable_metadata()->set_thread_id(10);
+
+  // Wide parent rect covering [0, 50] ms (50,000 us).
+  series->add_deltas(0ULL);
+  series->add_durations(50000000000ULL);
+  series->add_name_refs(1);
+  series->add_event_metadata();
+
+  // 20,000 tiny 1 us leaf rects spaced 2 us apart across [0, 40] ms, with
+  // flow-tagged leaves at indices 500 and 1500 that must never be coalesced.
+  constexpr int kTinyEvents = 20000;
+  for (int i = 0; i < kTinyEvents; ++i) {
+    series->add_deltas(i == 0 ? 1000000ULL : 2000000ULL);  // +2 us each
+    series->add_durations(1000000ULL);                     // 1 us
+    auto* meta = series->add_event_metadata();
+    if (i == 500 || i == 1500) {
+      series->add_name_refs(3);
+      meta->set_flow_id(42);
+    } else {
+      series->add_name_refs(2);
+    }
+  }
+
+  const absl::StatusOr<std::string> c0 = CompressTraceDataResponse(f0);
+  ASSERT_TRUE(c0.ok());
+
+  timeline.set_max_uncompacted_overview_entries_for_test(512);
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(c0->data()), c0->size());
+  while (StepIncrementalTraceEvents(65536, data_provider, timeline)) {
+  }
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+  ASSERT_TRUE(HasCachedTraceEventsIncremental());
+
+  // 1. Wide local refetch over [0, 800] ms (min_bin ~= 97.6 us >> 1 us):
+  // sub-pixel leaf bursts coalesce down to ~400 bins, while the wide parent
+  // and flow endpoints stay intact and window_at_full_resolution() stays true.
+  BeginIncrementalTraceEvents(std::make_pair(0.0, 800.0), data_provider,
+                              timeline);
+  while (StepIncrementalTraceEvents(65536, data_provider, timeline)) {
+  }
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+  EXPECT_TRUE(timeline.window_at_full_resolution());
+  const size_t wide_count = timeline.timeline_data().entry_names.size();
+  EXPECT_GT(wide_count, 10u);
+  EXPECT_LT(wide_count, 2000u);
+  EXPECT_TRUE(timeline.timeline_data().flow_lines_by_flow_id.contains("42"));
+  bool found_wide_parent = false;
+  for (const std::string& name : timeline.timeline_data().entry_names) {
+    if (name == "wide_parent") {
+      found_wide_parent = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_wide_parent);
+
+  // 2. Deep local refetch over [0, 4] ms (min_bin ~= 0.49 us < 1 us): all raw
+  // leaf rects inside [0, 4] ms emit unbinned (1 wide_parent + 2000 tiny).
+  BeginIncrementalTraceEvents(std::make_pair(0.0, 4.0), data_provider,
+                              timeline);
+  while (StepIncrementalTraceEvents(65536, data_provider, timeline)) {
+  }
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+  EXPECT_EQ(timeline.timeline_data().entry_names.size(), 2001u);
+}
+
+TEST(TracePbEventParserIncrementalTest,
+     CachedRefetchSkipsOutOfRangeSplitBlocks) {
+  IncrementalCacheCleanup cleanup_guard;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  DataProvider data_provider;
+
+  xprof::TraceDataResponse f0;
+  f0.add_interned_strings("");
+  f0.add_interned_strings("early_split_op");
+  f0.add_interned_strings("late_op");
+  f0.set_full_timespan_start_ps(0ULL);
+  f0.set_full_timespan_end_ps(100000000000ULL);  // 100 ms
+
+  auto* proc = f0.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("host:0 /device:TPU:0");
+  auto* th = proc->add_threads();
+  th->set_id(10);
+  th->set_name("XLA Ops");
+
+  // Early series block containing only split-phase events in [1, 2] ms.
+  auto* early = f0.add_complete_events();
+  early->mutable_metadata()->set_process_id(1);
+  early->mutable_metadata()->set_thread_id(10);
+  early->add_deltas(1000000000ULL);
+  early->add_durations(500000000ULL | kDurationPhaseBeginBit);
+  early->add_name_refs(1);
+  early->add_event_metadata();
+  early->add_deltas(0ULL);
+  early->add_durations(1000000000ULL | kDurationPhaseEndBit);
+  early->add_name_refs(1);
+  early->add_event_metadata();
+
+  // Late series block containing 64 normal events in [50, 56.4] ms.
+  auto* late = f0.add_complete_events();
+  late->mutable_metadata()->set_process_id(1);
+  late->mutable_metadata()->set_thread_id(10);
+  for (int i = 0; i < 64; ++i) {
+    late->add_deltas(i == 0 ? 50000000000ULL : 100000000ULL);
+    late->add_durations(50000000ULL);
+    late->add_name_refs(2);
+    late->add_event_metadata();
+  }
+
+  const absl::StatusOr<std::string> c0 = CompressTraceDataResponse(f0);
+  ASSERT_TRUE(c0.ok());
+
+  timeline.set_max_uncompacted_overview_entries_for_test(16);
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(c0->data()), c0->size());
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+  ASSERT_TRUE(HasCachedTraceEventsIncremental());
+
+  // Refetch [49, 60] ms: early split block [1, 2] ms is pruned by bounds and
+  // only late_op events are decoded.
+  BeginIncrementalTraceEvents(std::make_pair(49.0, 60.0), data_provider,
+                              timeline);
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+  ASSERT_EQ(timeline.timeline_data().entry_names.size(), 64u);
+  for (const std::string& name : timeline.timeline_data().entry_names) {
+    EXPECT_EQ(name, "late_op");
+  }
+}
+
+TEST(TracePbEventParserIncrementalTest,
+     CachedRefetchRespectsRawScannedEventBudgetPerStep) {
+  IncrementalCacheCleanup cleanup_guard;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  DataProvider data_provider;
+
+  xprof::TraceDataResponse f0;
+  f0.add_interned_strings("");
+  f0.add_interned_strings("tiny_op");
+  f0.set_full_timespan_start_ps(0ULL);
+  f0.set_full_timespan_end_ps(10000000000000ULL);  // 10,000 ms
+
+  auto* proc = f0.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("host:0 /device:TPU:0");
+  auto* th = proc->add_threads();
+  th->set_id(10);
+  th->set_name("XLA Ops");
+
+  // 270,000 tiny 1 us rects (> 262,144 raw-scanned cap per step) that bin down
+  // to far fewer than 131,072 emitted rects across [0, 8000] ms.
+  constexpr int kTotalEvents = 270000;
+  auto* series = f0.add_complete_events();
+  series->mutable_metadata()->set_process_id(1);
+  series->mutable_metadata()->set_thread_id(10);
+  series->mutable_deltas()->Reserve(kTotalEvents);
+  series->mutable_durations()->Reserve(kTotalEvents);
+  series->mutable_name_refs()->Reserve(kTotalEvents);
+  series->mutable_event_metadata()->Reserve(kTotalEvents);
+  for (int i = 0; i < kTotalEvents; ++i) {
+    series->add_deltas(i == 0 ? 1000000ULL : 2000000ULL);  // +2 us each
+    series->add_durations(1000000ULL);                     // 1 us
+    series->add_name_refs(1);
+    series->add_event_metadata();
+  }
+
+  const absl::StatusOr<std::string> c0 = CompressTraceDataResponse(f0);
+  ASSERT_TRUE(c0.ok());
+
+  timeline.set_max_uncompacted_overview_entries_for_test(512);
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(c0->data()), c0->size());
+  while (StepIncrementalTraceEvents(131072, data_provider, timeline)) {
+  }
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+  ASSERT_TRUE(HasCachedTraceEventsIncremental());
+
+  BeginIncrementalTraceEvents(std::make_pair(0.0, 8000.0), data_provider,
+                              timeline);
+  // First step must yield before decoding all 270,000 raw events even though
+  // binned output count is well below 131,072.
+  EXPECT_TRUE(StepIncrementalTraceEvents(131072, data_provider, timeline));
+  while (StepIncrementalTraceEvents(131072, data_provider, timeline)) {
+  }
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+  EXPECT_GT(timeline.timeline_data().entry_names.size(), 0u);
+  EXPECT_LT(timeline.timeline_data().entry_names.size(), 2000u);
+}
+
+TEST(TracePbEventParserNativeTest,
+     LocalReplayCoalescingPreservesIdleGapsAndDetailLookups) {
+  IncrementalCacheCleanup cleanup_guard;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  DataProvider data_provider;
+
+  xprof::TraceDataResponse f0;
+  f0.add_interned_strings("");
+  f0.add_interned_strings("isolated_a");
+  f0.add_interned_strings("isolated_b");
+  f0.add_interned_strings("burst_op");
+  f0.set_full_timespan_start_ps(0ULL);
+  f0.set_full_timespan_end_ps(10000000000000ULL);  // 10,000 ms
+
+  auto* proc = f0.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("host:0 /device:TPU:0");
+  auto* th = proc->add_threads();
+  th->set_id(10);
+  th->set_name("XLA Ops");
+
+  auto* series = f0.add_complete_events();
+  series->mutable_metadata()->set_process_id(1);
+  series->mutable_metadata()->set_thread_id(10);
+
+  // Two 10 us leaf rects separated by a 500 us idle gap within the same ~976 us
+  // bin of an [0, 8000] ms replay window must stay separate and retain serials.
+  series->add_deltas(100000000ULL);    // 100 us
+  series->add_durations(10000000ULL);  // 10 us
+  series->add_name_refs(1);
+  series->add_event_metadata()->set_serial(101);
+
+  series->add_deltas(510000000ULL);    // 610 us (500 us idle gap)
+  series->add_durations(10000000ULL);  // 10 us
+  series->add_name_refs(2);
+  series->add_event_metadata()->set_serial(202);
+
+  // Ten tightly packed 1 us leaf rects (0.2 us gap) in a later bin coalesce
+  // into a single synthetic burst without a stale single-event uid.
+  for (int i = 0; i < 10; ++i) {
+    series->add_deltas(i == 0 ? 1390000000ULL : 1200000ULL);  // 2000 us + 1.2us
+    series->add_durations(1000000ULL);                        // 1 us
+    series->add_name_refs(3);
+    series->add_event_metadata()->set_serial(300 + i);
+  }
+  // Pad past max_uncompacted_overview_entries so block cache is built.
+  for (int i = 0; i < 20; ++i) {
+    series->add_deltas(10000000000ULL);  // +10 ms each
+    series->add_durations(1000000ULL);
+    series->add_name_refs(3);
+    series->add_event_metadata()->set_serial(400 + i);
+  }
+
+  const absl::StatusOr<std::string> c0 = CompressTraceDataResponse(f0);
+  ASSERT_TRUE(c0.ok());
+
+  timeline.set_max_uncompacted_overview_entries_for_test(16);
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(c0->data()), c0->size());
+  while (StepIncrementalTraceEvents(131072, data_provider, timeline)) {
+  }
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+  ASSERT_TRUE(HasCachedTraceEventsIncremental());
+
+  BeginIncrementalTraceEvents(std::make_pair(0.0, 8000.0), data_provider,
+                              timeline);
+  while (StepIncrementalTraceEvents(131072, data_provider, timeline)) {
+  }
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+
+  const auto& td = timeline.timeline_data();
+  int found_a = -1;
+  int found_b = -1;
+  int found_burst = -1;
+  for (size_t i = 0; i < td.entry_names.size(); ++i) {
+    if (td.entry_names[i] == "isolated_a") found_a = static_cast<int>(i);
+    if (td.entry_names[i] == "isolated_b") found_b = static_cast<int>(i);
+    if (td.entry_names[i] == "burst_op" && td.entry_start_times[i] >= 1999.0 &&
+        td.entry_start_times[i] <= 2001.0) {
+      found_burst = static_cast<int>(i);
+    }
+  }
+  ASSERT_GE(found_a, 0);
+  ASSERT_GE(found_b, 0);
+  ASSERT_GE(found_burst, 0);
+  EXPECT_DOUBLE_EQ(td.entry_total_times[found_a], 10.0);
+  EXPECT_DOUBLE_EQ(td.entry_total_times[found_b], 10.0);
+  EXPECT_EQ(td.GetEntryArgs(found_a).at("uid"), "101");
+  EXPECT_EQ(td.GetEntryArgs(found_b).at("uid"), "202");
+  EXPECT_GT(td.entry_total_times[found_burst], 10.0);
+  EXPECT_FALSE(td.GetEntryArgs(found_burst).contains("uid"));
+}
+
+TEST(TracePbEventParserNativeTest,
+     LocalReplayDisablesBinningForNarrowWidenedWindows) {
+  IncrementalCacheCleanup cleanup_guard;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  DataProvider data_provider;
+
+  xprof::TraceDataResponse f0;
+  f0.add_interned_strings("");
+  f0.add_interned_strings("narrow_leaf");
+  f0.set_full_timespan_start_ps(0ULL);
+  f0.set_full_timespan_end_ps(800000000000ULL);  // 800 ms
+
+  auto* proc = f0.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("host:0 /device:TPU:0");
+  auto* th = proc->add_threads();
+  th->set_id(10);
+  th->set_name("XLA Ops");
+
+  auto* series = f0.add_complete_events();
+  series->mutable_metadata()->set_process_id(1);
+  series->mutable_metadata()->set_thread_id(10);
+
+  // Twenty tightly packed 1 us leaf rects (0.2 us gap) inside [1.0, 1.024] ms.
+  // On a 42 ms widened deep-zoom replay window (<= 100 ms), binning must be
+  // disabled so every rect emits raw with its original uid intact; on an 800 ms
+  // wide replay (> 100 ms), they still coalesce into a synthetic burst.
+  for (int i = 0; i < 20; ++i) {
+    series->add_deltas(i == 0 ? 1000000000ULL : 1200000ULL);  // 1 ms + 1.2 us
+    series->add_durations(1000000ULL);                        // 1 us
+    series->add_name_refs(1);
+    series->add_event_metadata()->set_serial(500 + i);
+  }
+  // Pad past max_uncompacted_overview_entries so block cache is built.
+  for (int i = 0; i < 20; ++i) {
+    series->add_deltas(10000000000ULL);  // +10 ms each
+    series->add_durations(1000000ULL);
+    series->add_name_refs(1);
+    series->add_event_metadata()->set_serial(600 + i);
+  }
+
+  const absl::StatusOr<std::string> c0 = CompressTraceDataResponse(f0);
+  ASSERT_TRUE(c0.ok());
+
+  timeline.set_max_uncompacted_overview_entries_for_test(16);
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(c0->data()), c0->size());
+  while (StepIncrementalTraceEvents(131072, data_provider, timeline)) {
+  }
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+  ASSERT_TRUE(HasCachedTraceEventsIncremental());
+
+  // 1. Widened narrow replay window [0, 42] ms (<= 100 ms): binning disabled;
+  // all 20 tight 1 us rects inside [1, 1.024] ms emit raw with uid intact.
+  BeginIncrementalTraceEvents(std::make_pair(0.0, 42.0), data_provider,
+                              timeline);
+  while (StepIncrementalTraceEvents(131072, data_provider, timeline)) {
+  }
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+  const auto& narrow_td = timeline.timeline_data();
+  int raw_cluster_count = 0;
+  for (size_t i = 0; i < narrow_td.entry_names.size(); ++i) {
+    if (narrow_td.entry_start_times[i] >= 999.0 &&
+        narrow_td.entry_start_times[i] <= 1100.0) {
+      ++raw_cluster_count;
+      EXPECT_DOUBLE_EQ(narrow_td.entry_total_times[i], 1.0);
+      EXPECT_TRUE(narrow_td.GetEntryArgs(i).contains("uid"));
+    }
+  }
+  EXPECT_EQ(raw_cluster_count, 20);
+
+  // 2. Wide replay window [0, 800] ms (> 100 ms): binning stays active and
+  // collapses the 20 tight 1 us rects into a single synthetic burst.
+  BeginIncrementalTraceEvents(std::make_pair(0.0, 800.0), data_provider,
+                              timeline);
+  while (StepIncrementalTraceEvents(131072, data_provider, timeline)) {
+  }
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+  const auto& wide_td = timeline.timeline_data();
+  int wide_cluster_count = 0;
+  for (size_t i = 0; i < wide_td.entry_names.size(); ++i) {
+    if (wide_td.entry_start_times[i] >= 999.0 &&
+        wide_td.entry_start_times[i] <= 1100.0) {
+      ++wide_cluster_count;
+      EXPECT_GT(wide_td.entry_total_times[i], 1.0);
+      EXPECT_FALSE(wide_td.GetEntryArgs(i).contains("uid"));
+    }
+  }
+  EXPECT_EQ(wide_cluster_count, 1);
+}
+
+TEST(TracePbEventParserNativeTest,
+     LocalReplayPreservesShortNonLeafParentHierarchy) {
+  IncrementalCacheCleanup cleanup_guard;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  DataProvider data_provider;
+
+  xprof::TraceDataResponse f0;
+  f0.add_interned_strings("");
+  f0.add_interned_strings("short_parent");
+  f0.add_interned_strings("child_a");
+  f0.add_interned_strings("child_b");
+  f0.add_interned_strings("sibling_after");
+  f0.set_full_timespan_start_ps(0ULL);
+  f0.set_full_timespan_end_ps(10000000000000ULL);
+
+  auto* proc = f0.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("host:0 /device:TPU:0");
+  auto* th = proc->add_threads();
+  th->set_id(10);
+  th->set_name("XLA Ops");
+
+  auto* series = f0.add_complete_events();
+  series->mutable_metadata()->set_process_id(1);
+  series->mutable_metadata()->set_thread_id(10);
+
+  // Non-leaf parent [100, 200] us (< ~976 us min_bin_ps for [0, 8000] ms)
+  // enclosing two children [110, 115] us and [116, 120] us, followed closely by
+  // sibling_after [201, 205] us in the same bin.
+  series->add_deltas(100000000ULL);     // 100 us
+  series->add_durations(100000000ULL);  // 100 us -> ends at 200 us
+  series->add_name_refs(1);
+  series->add_event_metadata()->set_serial(1);
+
+  series->add_deltas(10000000ULL);    // 110 us
+  series->add_durations(5000000ULL);  // 5 us
+  series->add_name_refs(2);
+  series->add_event_metadata()->set_serial(2);
+
+  series->add_deltas(6000000ULL);     // 116 us (1 us gap inside parent)
+  series->add_durations(4000000ULL);  // 4 us
+  series->add_name_refs(3);
+  series->add_event_metadata()->set_serial(3);
+
+  series->add_deltas(85000000ULL);    // 201 us (outside parent [100, 200])
+  series->add_durations(4000000ULL);  // 4 us
+  series->add_name_refs(4);
+  series->add_event_metadata()->set_serial(4);
+
+  for (int i = 0; i < 20; ++i) {
+    series->add_deltas(10000000000ULL);
+    series->add_durations(1000000ULL);
+    series->add_name_refs(4);
+    series->add_event_metadata()->set_serial(10 + i);
+  }
+
+  const absl::StatusOr<std::string> c0 = CompressTraceDataResponse(f0);
+  ASSERT_TRUE(c0.ok());
+
+  timeline.set_max_uncompacted_overview_entries_for_test(16);
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(c0->data()), c0->size());
+  while (StepIncrementalTraceEvents(131072, data_provider, timeline)) {
+  }
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+  ASSERT_TRUE(HasCachedTraceEventsIncremental());
+
+  BeginIncrementalTraceEvents(std::make_pair(0.0, 8000.0), data_provider,
+                              timeline);
+  while (StepIncrementalTraceEvents(131072, data_provider, timeline)) {
+  }
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+
+  const auto& td = timeline.timeline_data();
+  int parent_idx = -1;
+  int child_idx = -1;
+  int sibling_idx = -1;
+  for (size_t i = 0; i < td.entry_names.size(); ++i) {
+    if (td.entry_names[i] == "short_parent") {
+      parent_idx = static_cast<int>(i);
+    } else if (td.entry_start_times[i] >= 109.5 &&
+               td.entry_start_times[i] <= 110.5) {
+      child_idx = static_cast<int>(i);
+    } else if (td.entry_names[i] == "sibling_after" &&
+               td.entry_start_times[i] >= 200.5 &&
+               td.entry_start_times[i] <= 201.5) {
+      sibling_idx = static_cast<int>(i);
+    }
+  }
+  ASSERT_GE(parent_idx, 0);
+  ASSERT_GE(child_idx, 0);
+  ASSERT_GE(sibling_idx, 0);
+  EXPECT_DOUBLE_EQ(td.entry_total_times[parent_idx], 100.0);
+  EXPECT_GT(td.entry_levels[child_idx], td.entry_levels[parent_idx]);
+  EXPECT_LE(td.entry_start_times[child_idx] + td.entry_total_times[child_idx],
+            200.0);
+  EXPECT_EQ(td.entry_levels[sibling_idx], td.entry_levels[parent_idx]);
+}
+
+TEST(TracePbEventParserNativeTest,
+     LocalReplayPersistsParentStackAcrossBlockAndSplitBoundaries) {
+  IncrementalCacheCleanup cleanup_guard;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  DataProvider data_provider;
+
+  // Frame 1: Track 10 has a parent in Block 0 spanning [100, 10000] us with
+  // 4,100 children crossing the 4,096-event CachedCompleteBlock boundary, then
+  // a sibling at 10000.5 us right outside the parent end. Track 20 has a split
+  // Begin span [1000, 1500] us that closes in Frame 2 at 2500 us.
+  xprof::TraceDataResponse frame1;
+  frame1.set_full_timespan_start_ps(0ULL);
+  frame1.set_full_timespan_end_ps(10000000000000ULL);
+  frame1.add_interned_strings("");
+  frame1.add_interned_strings("cross_block_parent");
+  frame1.add_interned_strings("block_child");
+  frame1.add_interned_strings("block_sibling");
+  frame1.add_interned_strings("split_parent");
+  frame1.add_interned_strings("split_child");
+  frame1.add_interned_strings("split_sibling");
+  auto* proc = frame1.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("host:0 /device:TPU:0");
+  auto* th10 = proc->add_threads();
+  th10->set_id(10);
+  th10->set_name("Track Block");
+  auto* th20 = proc->add_threads();
+  th20->set_id(20);
+  th20->set_name("Track Split");
+
+  auto* s10 = frame1.add_complete_events();
+  s10->mutable_metadata()->set_process_id(1);
+  s10->mutable_metadata()->set_thread_id(10);
+  s10->add_deltas(100000000ULL);      // 100 us
+  s10->add_durations(9900000000ULL);  // ends at 10000 us
+  s10->add_name_refs(1);
+  s10->add_event_metadata()->set_serial(1);
+  uint64_t ts_ps = 100000000ULL;
+  // 4,100 children: 4,095 in Block 0, 5 in Block 1; last child is [9995, 9999].
+  for (int i = 0; i < 4100; ++i) {
+    const uint64_t next_ts_ps =
+        (i == 4099) ? 9995000000ULL : (ts_ps + 2000000ULL);
+    s10->add_deltas(next_ts_ps - ts_ps);
+    s10->add_durations(i == 4099 ? 4000000ULL : 1000000ULL);
+    s10->add_name_refs(2);
+    s10->add_event_metadata()->set_serial(2 + i);
+    ts_ps = next_ts_ps;
+  }
+  // Sibling starts at 10000.2 us (0.2 us after last child, across parent end).
+  s10->add_deltas(10000200000ULL - ts_ps);
+  s10->add_durations(4000000ULL);
+  s10->add_name_refs(3);
+  s10->add_event_metadata()->set_serial(5000);
+
+  auto* s20_f1 = frame1.add_complete_events();
+  s20_f1->mutable_metadata()->set_process_id(1);
+  s20_f1->mutable_metadata()->set_thread_id(20);
+  s20_f1->add_deltas(1000000000ULL);
+  s20_f1->add_durations(500000000ULL | kDurationPhaseBeginBit);
+  s20_f1->add_name_refs(4);
+  s20_f1->add_event_metadata()->set_serial(6000);
+
+  xprof::TraceDataResponse frame2;
+  auto* s20_f2 = frame2.add_complete_events();
+  s20_f2->mutable_metadata()->set_process_id(1);
+  s20_f2->mutable_metadata()->set_thread_id(20);
+  s20_f2->add_deltas(1000000000ULL);
+  s20_f2->add_durations(1500000000ULL | kDurationPhaseEndBit);  // ends 2500 us
+  s20_f2->add_name_refs(4);
+  s20_f2->add_event_metadata()->set_serial(6000);
+  s20_f2->add_deltas(1495000000ULL);  // 2495 us
+  s20_f2->add_durations(4000000ULL);  // [2495, 2499] us inside split_parent
+  s20_f2->add_name_refs(5);
+  s20_f2->add_event_metadata()->set_serial(6001);
+  s20_f2->add_deltas(5200000ULL);  // 2500.2 us outside split_parent
+  s20_f2->add_durations(4000000ULL);
+  s20_f2->add_name_refs(6);
+  s20_f2->add_event_metadata()->set_serial(6002);
+
+  std::string xchn_payload(tensorflow::profiler::kXChunkMagic);
+  ASSERT_TRUE(AppendFramedResponse(xchn_payload, frame1).ok());
+  ASSERT_TRUE(AppendFramedResponse(xchn_payload, frame2).ok());
+
+  timeline.set_max_uncompacted_overview_entries_for_test(64);
+  BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+  AppendCompressedTraceEventsIncremental(
+      reinterpret_cast<uintptr_t>(xchn_payload.data()), xchn_payload.size());
+  while (StepIncrementalTraceEvents(131072, data_provider, timeline)) {
+  }
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+  ASSERT_TRUE(HasCachedTraceEventsIncremental());
+
+  BeginIncrementalTraceEvents(std::make_pair(0.0, 8000.0), data_provider,
+                              timeline);
+  while (StepIncrementalTraceEvents(131072, data_provider, timeline)) {
+  }
+  EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+
+  const auto& td = timeline.timeline_data();
+  int block_parent_idx = -1;
+  int block_sibling_idx = -1;
+  int split_parent_idx = -1;
+  int split_child_idx = -1;
+  int split_sibling_idx = -1;
+  for (size_t i = 0; i < td.entry_names.size(); ++i) {
+    if (td.entry_names[i] == "cross_block_parent") {
+      block_parent_idx = static_cast<int>(i);
+    } else if (td.entry_names[i] == "block_sibling") {
+      block_sibling_idx = static_cast<int>(i);
+    } else if (td.entry_names[i] == "split_parent") {
+      split_parent_idx = static_cast<int>(i);
+    } else if (td.entry_names[i] == "split_child") {
+      split_child_idx = static_cast<int>(i);
+    } else if (td.entry_names[i] == "split_sibling") {
+      split_sibling_idx = static_cast<int>(i);
+    }
+  }
+  ASSERT_GE(block_parent_idx, 0);
+  ASSERT_GE(block_sibling_idx, 0);
+  EXPECT_EQ(td.entry_levels[block_sibling_idx],
+            td.entry_levels[block_parent_idx]);
+  EXPECT_DOUBLE_EQ(td.entry_start_times[block_sibling_idx], 10000.2);
+
+  ASSERT_GE(split_parent_idx, 0);
+  ASSERT_GE(split_child_idx, 0);
+  ASSERT_GE(split_sibling_idx, 0);
+  EXPECT_GT(td.entry_levels[split_child_idx],
+            td.entry_levels[split_parent_idx]);
+  EXPECT_EQ(td.entry_levels[split_sibling_idx],
+            td.entry_levels[split_parent_idx]);
+  EXPECT_DOUBLE_EQ(td.entry_start_times[split_sibling_idx], 2500.2);
 }
 
 #ifdef __EMSCRIPTEN__

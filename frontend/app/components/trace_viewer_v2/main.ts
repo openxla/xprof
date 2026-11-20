@@ -140,6 +140,12 @@ export function isDetailsReceivedEvent(
 export const FETCH_DATA_EVENT_NAME = 'fetch_data';
 
 /**
+ * The name of the cancel-fetch custom event, dispatched from WASM when
+ * restoring the cached full overview supersedes an in-flight zoom/pan refetch.
+ */
+export const CANCEL_FETCH_DATA_EVENT_NAME = 'cancel_fetch_data';
+
+/**
  * The name of the search event, dispatched from WASM when a search is
  * requested.
  */
@@ -1341,7 +1347,7 @@ async function fetchAndProcessCompressedTraceDataIncremental({
       const requestedDurationMs = effectiveTimeRange[1] - effectiveTimeRange[0];
       const minWindowMs =
         requestedDurationMs > 0
-          ? Math.min(1500, requestedDurationMs * (ZOOM_RATIO - 1))
+          ? Math.min(100, requestedDurationMs * (ZOOM_RATIO - 1))
           : 0;
       if (requestedDurationMs < minWindowMs) {
         const mid = 0.5 * (effectiveTimeRange[0] + effectiveTimeRange[1]);
@@ -1389,10 +1395,10 @@ async function fetchAndProcessCompressedTraceDataIncremental({
       while (
         !isAborted() &&
         traceviewerModule.stepIncrementalTraceEvents(
-          INCREMENTAL_EVENTS_PER_STEP * 4,
+          INCREMENTAL_EVENTS_PER_STEP,
         )
       ) {
-        await yieldBetweenSlices();
+        await yieldToBrowserForNextSlice();
       }
       if (isAborted()) {
         cancelIncrementalIfCurrent();
@@ -1622,6 +1628,9 @@ async function fetchAndProcessCompressedTraceDataIncremental({
       await new Promise<void>((resolve) => {
         wakeConsumer = resolve;
       });
+      if (hasEnqueuedEventFrame && !streamFinished && !isAborted()) {
+        await yieldBetweenSlices();
+      }
     }
 
     await streamPromise;
@@ -2188,6 +2197,20 @@ export async function traceViewerV2Main(
     }
   };
 
+  registerWindowListener(CANCEL_FETCH_DATA_EVENT_NAME, () => {
+    const hadInFlightRefetch = activeRefetchAbortController !== null;
+    activeRefetchAbortController?.abort();
+    activeRefetchAbortController = null;
+    ++activeRefetchId;
+    if (hadInFlightRefetch && currentLoadingPromise === null) {
+      ++activeWasmIncrementalSessionId;
+      if (traceviewerModule === activeWasmModule) {
+        traceviewerModule.cancelIncrementalTraceEvents?.();
+      }
+      dispatchLoadingStatus(TraceViewerV2LoadingStatus.IDLE);
+    }
+  });
+
   registerWindowListener(FETCH_DATA_EVENT_NAME, (event: Event) => {
     if (
       !isFetchDataEvent(event) ||
@@ -2196,7 +2219,13 @@ export async function traceViewerV2Main(
     ) {
       return;
     }
-    activeRefetchAbortController?.abort();
+    if (activeRefetchAbortController !== null) {
+      activeRefetchAbortController.abort();
+      // Invalidate the superseded refetch's session immediately so its
+      // delayed cancellation cannot clear Timeline's loading flags for the new
+      // refetch before the new refetch starts its own WASM session.
+      ++activeWasmIncrementalSessionId;
+    }
     const refetchAbortController = new AbortController();
     activeRefetchAbortController = refetchAbortController;
     const refetchId = ++activeRefetchId;

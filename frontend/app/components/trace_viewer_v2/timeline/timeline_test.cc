@@ -2075,6 +2075,121 @@ TEST(TimelineTest, MaybeRequestDataSuppressesRedundantFetchWithExpandedRange) {
   EXPECT_FALSE(request_triggered);
 }
 
+TEST(TimelineTest,
+     MaybeRequestDataSupersedesInFlightRefetchOnFurtherZoomOrPan) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 20000000.0});
+  timeline.set_fetched_data_time_range({0.0, 20000000.0});
+  timeline.set_is_compacted(true);
+  timeline.set_window_at_full_resolution(false);
+  timeline.set_is_incremental_loading(false);
+
+  std::vector<std::pair<double, double>> requested_ranges;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          requested_ranges.emplace_back(
+              std::any_cast<double>(detail.at(std::string(kFetchDataStart))),
+              std::any_cast<double>(detail.at(std::string(kFetchDataEnd))));
+        }
+      });
+
+  // 1. Trigger an initial zoomed-in refetch over [4000, 6000] ms (fetch:
+  // [2000, 8000] ms), leaving is_incremental_loading() true.
+  timeline.SetVisibleRange({4000000.0, 6000000.0});
+  timeline.MaybeRequestData();
+  ASSERT_EQ(requested_ranges.size(), 1u);
+  EXPECT_TRUE(timeline.is_incremental_loading());
+
+  // 2. Calling MaybeRequestData again at the same viewport does NOT re-trigger
+  // even while window_at_full_resolution() is still false.
+  timeline.MaybeRequestData();
+  EXPECT_EQ(requested_ranges.size(), 1u);
+
+  // 3. Zooming in >8x (to [4900, 5100] ms -> 600 ms fetch vs 6000 ms in-flight)
+  // supersedes the stale in-flight refetch.
+  timeline.SetVisibleRange({4900000.0, 5100000.0});
+  timeline.MaybeRequestData();
+  ASSERT_EQ(requested_ranges.size(), 2u);
+  EXPECT_DOUBLE_EQ(requested_ranges.back().first, 4700.0);
+  EXPECT_DOUBLE_EQ(requested_ranges.back().second, 5300.0);
+
+  // 4. Panning outside the in-flight range also supersedes it.
+  timeline.SetVisibleRange({12000000.0, 12200000.0});
+  timeline.MaybeRequestData();
+  ASSERT_EQ(requested_ranges.size(), 3u);
+  EXPECT_DOUBLE_EQ(requested_ranges.back().first, 11800.0);
+  EXPECT_DOUBLE_EQ(requested_ranges.back().second, 12400.0);
+
+  // 5. Resetting loading to false then setting an external/initial load via
+  // set_is_incremental_loading(true) still suppresses fetches.
+  timeline.set_is_incremental_loading(false);
+  timeline.set_is_incremental_loading(true);
+  timeline.SetVisibleRange({1000000.0, 1100000.0});
+  timeline.MaybeRequestData();
+  EXPECT_EQ(requested_ranges.size(), 3u);
+}
+
+TEST(TimelineTest, MaybeRequestDataUsesTargetRangeDuringAnimation) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 10000000.0});
+  timeline.set_fetched_data_time_range({0.0, 10000000.0});
+  timeline.SetVisibleRange({0.0, 10000000.0}, /*animate=*/false);
+  timeline.set_is_compacted(true);
+  timeline.set_window_at_full_resolution(false);
+  timeline.MarkCurrentDataAsFullOverview();
+  timeline.set_is_incremental_loading(false);
+
+  std::vector<std::pair<double, double>> requested_ranges;
+  int cancel_fetch_count = 0;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          requested_ranges.emplace_back(
+              std::any_cast<double>(detail.at(std::string(kFetchDataStart))),
+              std::any_cast<double>(detail.at(std::string(kFetchDataEnd))));
+        } else if (type == kCancelFetchData) {
+          ++cancel_fetch_count;
+        }
+      });
+
+  // Start an animated zoom into [4000, 4200] ms while current visible_range()
+  // is still [0, 10000] ms.
+  timeline.SetVisibleRange({4000000.0, 4200000.0}, /*animate=*/true);
+  EXPECT_FALSE(timeline.IsVisibleRangeSettled());
+  // Direct MaybeRequestData() uses visible_range_target() ([4000, 4200] ms ->
+  // fetch [3800, 4400] ms) instead of the stale mid-animation visible_range().
+  timeline.MaybeRequestData();
+  ASSERT_EQ(requested_ranges.size(), 1u);
+  EXPECT_DOUBLE_EQ(requested_ranges.back().first, 3800.0);
+  EXPECT_DOUBLE_EQ(requested_ranges.back().second, 4400.0);
+  EXPECT_EQ(cancel_fetch_count, 0);
+
+  // Advance animation to settle and verify IsVisibleRangeSettled() flips true.
+  Animation::UpdateAll(1.0f);
+  EXPECT_TRUE(timeline.IsVisibleRangeSettled());
+
+  // Near the left edge, scaling [0, 2900] ms by kFetchRatio (3x) exceeds
+  // data_time_range_ on the left; after clamping, duration is 8.7s (< 9s) so
+  // it must not prematurely qualify for full-overview restore.
+  timeline.SetVisibleRange({0.0, 2900000.0}, /*animate=*/true);
+  EXPECT_FALSE(timeline.ShouldRestoreSavedFullOverviewForTarget());
+
+  // Animated zoom-out back to full overview should qualify for immediate
+  // overview restore even on frame 1 while animating, and cancel the in-flight
+  // refetch so JS aborts before overwriting the restored overview.
+  timeline.SetVisibleRange({0.0, 10000000.0}, /*animate=*/true);
+  EXPECT_FALSE(timeline.IsVisibleRangeSettled());
+  EXPECT_TRUE(timeline.ShouldRestoreSavedFullOverviewForTarget());
+  timeline.MaybeRequestData();
+  EXPECT_EQ(requested_ranges.size(), 1u);
+  EXPECT_EQ(cancel_fetch_count, 1);
+  EXPECT_TRUE(timeline.is_showing_full_overview());
+  EXPECT_FALSE(timeline.is_incremental_loading());
+}
+
 // Collects the [start, end] window, in microseconds, of each fetch_data event.
 Timeline::EventCallback RecordFetchWindows(std::vector<TimeRange>& fetches) {
   return [&fetches](absl::string_view type, const EventData& detail) {
@@ -5086,6 +5201,43 @@ class TestTimeline : public Timeline {
 };
 
 using RealTimelineImGuiFixture = TimelineImGuiTestFixture<TestTimeline>;
+
+TEST_F(RealTimelineImGuiFixture,
+       DrawDefersFetchWhileZoomAnimationInFlightAndFiresOnceSettled) {
+  timeline_.set_data_time_range({0.0, 10000000.0});
+  timeline_.set_fetched_data_time_range({0.0, 10000000.0});
+  timeline_.SetVisibleRange({0.0, 10000000.0}, /*animate=*/false);
+  timeline_.set_is_compacted(true);
+  timeline_.set_window_at_full_resolution(false);
+  timeline_.MarkCurrentDataAsFullOverview();
+  timeline_.set_is_incremental_loading(false);
+
+  std::vector<std::pair<double, double>> requested_ranges;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          requested_ranges.emplace_back(
+              std::any_cast<double>(detail.at(std::string(kFetchDataStart))),
+              std::any_cast<double>(detail.at(std::string(kFetchDataEnd))));
+        }
+      });
+
+  // Start an animated zoom into [4000, 4200] ms and render 1 frame while
+  // visible_range() is still far from the target: Draw() must NOT fire a
+  // mid-animation fetch yet.
+  timeline_.SetVisibleRange({4000000.0, 4200000.0}, /*animate=*/true);
+  ImGui::GetIO().DeltaTime = 1.0f / 60.0f;
+  SimulateFrame();
+  EXPECT_TRUE(requested_ranges.empty());
+
+  // Settle the animation and render another frame: Draw() fires exactly once
+  // for the settled target range [3800, 4400] ms.
+  Animation::UpdateAll(1.0f);
+  SimulateFrame();
+  ASSERT_EQ(requested_ranges.size(), 1u);
+  EXPECT_DOUBLE_EQ(requested_ranges.back().first, 3800.0);
+  EXPECT_DOUBLE_EQ(requested_ranges.back().second, 4400.0);
+}
 
 // Returns a single-level flame thread track.
 Group CreateThreadGroup(absl::string_view name, int start_level,
@@ -20256,6 +20408,62 @@ TEST(TimelineTest, RestoreSavedFullOverviewPropagatesExpandedCounterBounds) {
       timeline.timeline_data().counter_data_by_group_index.at(1);
   EXPECT_DOUBLE_EQ(restored.min_value, 5.0);
   EXPECT_DOUBLE_EQ(restored.max_value, 90.0);
+}
+
+TEST(TimelineTest,
+     RestoreSavedFullOverviewBeforeFirstFlushRestoresCompactionFlags) {
+  MockTimeline timeline;
+
+  FlameChartTimelineData overview_data;
+  overview_data.groups = {{.type = Group::Type::kFlame,
+                           .name = "Process 1",
+                           .start_level = 0,
+                           .pid = 1}};
+  AddEvents(
+      overview_data,
+      {{.name = "ev", .start = 0.0, .dur = 10000.0, .level = 0, .id = 1}});
+  SetSingleEventCsrLayout(overview_data);
+  timeline.SetTimelineData(std::move(overview_data));
+  timeline.set_data_time_range({0.0, 10000.0});
+  timeline.set_fetched_data_time_range({0.0, 10000.0});
+  timeline.InitializeLastFetchRequestRange({0.0, 10000.0});
+  timeline.set_is_compacted(true);
+  timeline.set_full_trace_loaded(false);
+  timeline.set_window_at_full_resolution(false);
+  timeline.MarkCurrentDataAsFullOverview();
+  timeline.set_is_incremental_loading(false);
+
+  int fetch_count = 0;
+  int cancel_count = 0;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& /*data*/) {
+        if (type == kFetchData) ++fetch_count;
+        if (type == kCancelFetchData) ++cancel_count;
+      });
+
+  // Start a filtered refetch (4x zoom-in) and simulate
+  // BeginIncrementalTraceEvents clearing resolution flags before any deferred
+  // timeline flush has stashed saved_full_overview_.
+  timeline.SetVisibleRange({3000.0, 5500.0});
+  timeline.MaybeRequestData();
+  ASSERT_EQ(fetch_count, 1);
+  ASSERT_FALSE(timeline.HasSavedFullOverview());
+  timeline.set_full_trace_loaded(false);
+  timeline.set_is_compacted(false);
+  timeline.set_window_at_full_resolution(false);
+
+  // Zooming back out mid-replay hits the early-restore branch and must restore
+  // compaction flags so a subsequent 4x zoom-in refetches full resolution.
+  timeline.SetVisibleRange({0.0, 10000.0});
+  timeline.MaybeRequestData();
+  EXPECT_EQ(cancel_count, 1);
+  EXPECT_TRUE(timeline.HasCompactedMipLevels());
+  EXPECT_FALSE(timeline.full_trace_loaded());
+  EXPECT_FALSE(timeline.window_at_full_resolution());
+
+  timeline.SetVisibleRange({3000.0, 5500.0});
+  timeline.MaybeRequestData();
+  EXPECT_EQ(fetch_count, 2);
 }
 
 TEST_F(RealTimelineImGuiFixture,

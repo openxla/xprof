@@ -47,6 +47,8 @@ inline constexpr absl::string_view kEventSelectedOutboundFlows =
 // Constants for fetch data event.
 inline constexpr absl::string_view kFetchData = "fetch_data";
 
+inline constexpr absl::string_view kCancelFetchData = "cancel_fetch_data";
+
 inline constexpr absl::string_view kFetchDataStart = "start_time_ms";
 inline constexpr absl::string_view kFetchDataEnd = "end_time_ms";
 

@@ -18,7 +18,7 @@ mat-card-title {
   margin-bottom: 25px;
 }
 
-:host ::ng-deep b {
+b {
   font-weight: 500;
 }
 
@@ -26,34 +26,30 @@ ul {
   @include common.ul-flat;
 }
 
-:host ::ng-deep .item-container {
+.item-container {
   margin-bottom: 16px;
 }
 
-:host ::ng-deep .item-container > table {
-  border-spacing: 0;
+.item-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
   width: 100%;
 }
 
-:host ::ng-deep .item-container > td {
-  padding: 0;
+.item-label {
+  flex: 1;
+  padding-right: 16px;
 }
 
-:host ::ng-deep .item-value {
-  padding-left: 0px;
+.item-value {
+  padding-left: 0;
   min-width: 100px;
   width: 20%;
   font-size: 18px;
   font-weight: 500;
-}
-
-.flops-utilization-tooltip-target {
-  color: #e8710a;
-  border-bottom: 1px dotted #e8710a;
-}
-
-.tooltip-icon-container {
-  position: relative;
+  text-align: start;
+  flex-shrink: 0;
 }
 
 .tooltip-icon {
@@ -62,4 +58,3 @@ ul {
   vertical-align: bottom;
   cursor: pointer;
 }
-

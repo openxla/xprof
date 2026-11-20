@@ -200,7 +200,15 @@ size_t ProcessCompleteEventSeriesSliceImpl(
   const size_t count = std::min(max_events, total - start_idx);
   const size_t end_idx = start_idx + count;
   if (reserve_slice && !filter_range_ps.has_value()) {
-    result.flame_events.reserve(result.flame_events.size() + count);
+    // Callers append many slices (one per series) to the same batch, so grow
+    // geometrically: reserving exactly `size() + count` would reallocate and
+    // move every buffered event on each call, which is quadratic in the number
+    // of series per batch.
+    std::vector<TraceEvent>& events = result.flame_events;
+    const size_t needed = events.size() + count;
+    if (needed > events.capacity()) {
+      events.reserve(std::max(needed, 2 * events.capacity()));
+    }
   }
 
   const xprof::TraceEventSeriesMetadata& metadata = series.metadata();

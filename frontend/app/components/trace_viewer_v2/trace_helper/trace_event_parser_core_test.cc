@@ -1076,6 +1076,36 @@ TEST(TraceEventParserCoreTest,
 }
 
 TEST(TraceEventParserCoreTest,
+     ProcessCompleteEventSeriesSliceGrowsSharedBatchGeometrically) {
+  // An incremental step appends one slice per series to the same batch.
+  // Reserving exactly `size() + count` per slice would reallocate (and move
+  // every buffered event) on nearly every call.
+  constexpr size_t kNumSeries = 1000;
+  const std::vector<std::string> interned = {"", "op"};
+  xprof::TraceEventSeries series;
+  series.mutable_metadata()->set_process_id(1);
+  series.mutable_metadata()->set_thread_id(10);
+  series.add_deltas(1000000ULL);
+  series.add_durations(500000ULL);
+  series.add_name_refs(1);
+
+  ParsedTraceEvents batch;
+  int reallocations = 0;
+  for (size_t i = 0; i < kNumSeries; ++i) {
+    const size_t capacity_before = batch.flame_events.capacity();
+    uint64_t current_ts_ps = 0;
+    ASSERT_EQ(ProcessCompleteEventSeriesSlice(series, interned, 0, 1,
+                                              current_ts_ps, batch),
+              1u);
+    if (batch.flame_events.capacity() != capacity_before) ++reallocations;
+  }
+
+  EXPECT_EQ(batch.flame_events.size(), kNumSeries);
+  // Geometric growth reallocates about log2(kNumSeries) = 10 times.
+  EXPECT_LE(reallocations, 16);
+}
+
+TEST(TraceEventParserCoreTest,
      ProcessOverviewSampledSeriesSliceCoalescesDenseLeafBursts) {
   std::vector<std::string> interned = {"", "parent_step", "sc_sub_us_op"};
   xprof::TraceEventSeries series;

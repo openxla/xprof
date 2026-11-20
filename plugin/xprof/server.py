@@ -20,6 +20,7 @@ import dataclasses
 import ipaddress
 import logging
 import os
+import re
 import sys
 from typing import Any, Optional
 import urllib.parse
@@ -51,12 +52,22 @@ ProfilePluginLoader = profile_plugin_loader.ProfilePluginLoader
 
 _DEFAULT_HOST = "127.0.0.1"
 _HOST_ENV_VAR = "XPROF_HOST"
+_ALLOWED_HOSTS_ENV_VAR = "XPROF_ALLOWED_HOSTS"
 _DEFAULT_GRPC_PORT = 50051
+_INVALID_REQUEST_HOST_RE = re.compile(
+    r"(?:\.\.|%|:(?:0+)$|^[^\[\]]*:.*:|^\d+(?:\.\d+){3}\.(?::|$))"
+)
+_VALID_DNS_HOSTNAME_RE = re.compile(r"^[a-z0-9_-]+(?:\.[a-z0-9_-]+)*$")
 
 
 def get_default_host() -> str:
   """Returns the default server bind host from XPROF_HOST or loopback."""
   return (os.environ.get(_HOST_ENV_VAR) or "").strip() or _DEFAULT_HOST
+
+
+def get_default_allowed_hosts() -> str | None:
+  """Returns default allowed Host entries from XPROF_ALLOWED_HOSTS, if set."""
+  return (os.environ.get(_ALLOWED_HOSTS_ENV_VAR) or "").strip() or None
 
 
 def _extract_host_name(http_host: str) -> str:
@@ -67,10 +78,46 @@ def _extract_host_name(http_host: str) -> str:
   return normalized[0] if normalized is not None else ""
 
 
+def _extract_request_host_name(raw_http_host: Any) -> str:
+  """Extracts a canonical HTTP Host header hostname, rejecting malformed forms."""
+  if not isinstance(raw_http_host, str):
+    return ""
+  candidate = raw_http_host.strip()
+  if _INVALID_REQUEST_HOST_RE.search(candidate):
+    return ""
+  hostname = _extract_host_name(candidate)
+  if not hostname:
+    return ""
+  ip = _parse_ip(hostname)
+  if ip is not None:
+    return "" if _is_unspecified_ip(ip) else hostname
+  if not _VALID_DNS_HOSTNAME_RE.fullmatch(hostname):
+    return ""
+  return hostname
+
+
 def _is_loopback_host(http_host: str) -> bool:
   """Returns True if http_host resolves to localhost or a loopback IP."""
   hostname = _extract_host_name(http_host)
   return bool(hostname) and profile_plugin.is_loopback_host(hostname)
+
+
+def _parse_ip(
+    hostname: str,
+) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+  """Parses hostname as an IPv4/IPv6 literal, or returns None."""
+  try:
+    return ipaddress.ip_address(hostname)
+  except ValueError:
+    return None
+
+
+def _is_unspecified_ip(
+    ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> bool:
+  """Returns True if ip is an unspecified/wildcard IP (0.0.0.0 or ::)."""
+  mapped = getattr(ip, "ipv4_mapped", None)
+  return ip.is_unspecified or bool(mapped and mapped.is_unspecified)
 
 
 def _normalize_bind_host(host: str) -> str:
@@ -107,6 +154,98 @@ def _normalize_bind_host(host: str) -> str:
   if not (parsed.hostname or "").rstrip("."):
     raise ValueError(f"Invalid host address: {host!r}.")
   return candidate
+
+
+def _normalize_allowed_host_entry(entry: str) -> str:
+  """Validates and normalizes a single Host allowlist entry."""
+  if isinstance(entry, bool) or not isinstance(entry, str):
+    raise ValueError(
+        "The --allowed_hosts flag requires non-empty host strings."
+    )
+  candidate = entry.strip()
+  if not candidate:
+    raise ValueError(f"Invalid allowed host entry: {entry!r}.")
+  if candidate == "*":
+    return "*"
+  is_wildcard = candidate.startswith("*.")
+  raw_host = candidate[2:] if is_wildcard else candidate
+  if (
+      not raw_host
+      or "*" in raw_host
+      or any(ch.isspace() for ch in raw_host)
+  ):
+    raise ValueError(f"Invalid allowed host entry: {entry!r}.")
+  if is_wildcard and ("[" in raw_host or "]" in raw_host or ":" in raw_host):
+    raise ValueError(f"Invalid allowed host entry: {entry!r}.")
+  try:
+    normalized_bind = _normalize_bind_host(raw_host)
+  except ValueError as err:
+    raise ValueError(f"Invalid allowed host entry: {entry!r}.") from err
+  canonical = _extract_host_name(normalized_bind)
+  if (
+      not canonical
+      or normalized_bind.startswith(".")
+      or ".." in normalized_bind
+  ):
+    raise ValueError(f"Invalid allowed host entry: {entry!r}.")
+  ip = _parse_ip(canonical)
+  if is_wildcard:
+    if ip is not None:
+      raise ValueError(f"Wildcard allowed host cannot be an IP: {entry!r}.")
+    if not _VALID_DNS_HOSTNAME_RE.fullmatch(canonical):
+      raise ValueError(f"Invalid allowed host entry: {entry!r}.")
+    return f"*.{canonical}"
+  if ip is not None:
+    if _is_unspecified_ip(ip) or (
+        ip.version == 4 and raw_host.endswith(".")
+    ):
+      raise ValueError(f"Invalid allowed host entry: {entry!r}.")
+    return canonical
+  if not _VALID_DNS_HOSTNAME_RE.fullmatch(canonical):
+    raise ValueError(f"Invalid allowed host entry: {entry!r}.")
+  return canonical
+
+
+def _normalize_allowed_hosts(
+    allowed_hosts: str | Sequence[str] | None,
+) -> tuple[str, ...]:
+  """Validates and normalizes --allowed_hosts / XPROF_ALLOWED_HOSTS values."""
+  if allowed_hosts is None:
+    return ()
+  if isinstance(allowed_hosts, bool):
+    raise ValueError(
+        "The --allowed_hosts flag requires a comma-separated host string or"
+        " sequence of host strings."
+    )
+  if isinstance(allowed_hosts, str):
+    if not allowed_hosts.strip():
+      raise ValueError(
+          "The --allowed_hosts flag requires a non-empty host string."
+      )
+    raw_entries = allowed_hosts.split(",")
+  elif isinstance(allowed_hosts, Sequence) and not isinstance(
+      allowed_hosts, (bytes, bytearray)
+  ):
+    raw_entries = []
+    for item in allowed_hosts:
+      if isinstance(item, bool) or not isinstance(item, str):
+        raise ValueError(
+            "The --allowed_hosts flag requires non-empty host strings."
+        )
+      raw_entries.extend(item.split(","))
+  else:
+    raise ValueError(
+        "The --allowed_hosts flag requires a comma-separated host string or"
+        " sequence of host strings."
+    )
+  normalized: list[str] = []
+  seen: set[str] = set()
+  for entry in raw_entries:
+    canonical = _normalize_allowed_host_entry(entry)
+    if canonical not in seen:
+      seen.add(canonical)
+      normalized.append(canonical)
+  return tuple(normalized)
 
 
 def _plain_response(
@@ -183,21 +322,64 @@ class ServerConfig:
   max_concurrent_worker_requests: int
   enable_tab_name_label: bool = False
   host: str = _DEFAULT_HOST
+  allowed_hosts: tuple[str, ...] = ()
 
 
-def make_wsgi_app(plugin, host: str = _DEFAULT_HOST):
+def make_wsgi_app(
+    plugin,
+    host: str = _DEFAULT_HOST,
+    allowed_hosts: str | Sequence[str] | None = None,
+):
   """Create a WSGI application for the standalone server."""
 
   apps = plugin.get_plugin_apps()
 
   prefix = "/data/plugin/profile"
-  enforce_loopback_host = _is_loopback_host(host)
+  is_loopback_bind = _is_loopback_host(host)
+  bound_hostname = _extract_host_name(host)
+  normalized_allowed_hosts = _normalize_allowed_hosts(allowed_hosts)
+  allow_any_host = "*" in normalized_allowed_hosts
+  exact_hosts: set[str] = set()
+  wildcard_suffix_list: list[str] = []
+  for entry in normalized_allowed_hosts:
+    if entry.startswith("*."):
+      wildcard_suffix_list.append(entry[1:])
+    elif entry != "*":
+      exact_hosts.add(entry)
+  if (
+      bound_hostname
+      and _parse_ip(bound_hostname) is None
+      and _VALID_DNS_HOSTNAME_RE.fullmatch(bound_hostname)
+  ):
+    exact_hosts.add(bound_hostname)
+  exact_allowed_hosts = frozenset(exact_hosts)
+  wildcard_suffixes = tuple(wildcard_suffix_list)
   parameterized_spa_prefixes = (
       "/kernel_viewer/",
       "/megascale_perfetto/",
       "/roofline_model/",
       "/stack_trace_page/",
   )
+
+  def _is_allowed_host(raw_http_host: Any) -> bool:
+    """Returns True if HTTP_HOST is permitted for this server configuration."""
+    hostname = _extract_request_host_name(raw_http_host)
+    if not hostname:
+      return False
+    if allow_any_host:
+      return True
+    if profile_plugin.is_loopback_host(hostname):
+      return True
+    if not is_loopback_bind and _parse_ip(hostname) is not None:
+      # Non-unspecified IP literals cannot be DNS-rebound by a browser
+      # (unspecified IPs are already rejected by _extract_request_host_name).
+      return True
+    if hostname in exact_allowed_hosts:
+      return True
+    return any(
+        len(hostname) > len(suffix) and hostname.endswith(suffix)
+        for suffix in wildcard_suffixes
+    )
 
   def _not_found_handler(environ, start_response):
     return _plain_response(
@@ -207,12 +389,15 @@ def make_wsgi_app(plugin, host: str = _DEFAULT_HOST):
   def application(
       environ: Mapping[str, Any], start_response: Callable[..., Any]
   ) -> Iterable[bytes]:
-    if enforce_loopback_host:
-      raw_http_host = environ.get("HTTP_HOST") or ""
-      if "HTTP_HOST" in environ and not _is_loopback_host(raw_http_host):
+    if "HTTP_HOST" in environ:
+      if not _is_allowed_host(environ.get("HTTP_HOST")):
         return _plain_response(
             environ, start_response, "403 Forbidden", b"Forbidden"
         )
+    elif (environ.get("SERVER_PROTOCOL") or "").upper() == "HTTP/1.1":
+      return _plain_response(
+          environ, start_response, "403 Forbidden", b"Forbidden"
+      )
     path = environ["PATH_INFO"]
     under_prefix = path == prefix or path.startswith(prefix + "/")
     if under_prefix:
@@ -263,10 +448,15 @@ def make_wsgi_app(plugin, host: str = _DEFAULT_HOST):
   return application
 
 
-def run_server(plugin, host, port):
+def run_server(
+    plugin,
+    host,
+    port,
+    allowed_hosts: str | Sequence[str] | None = None,
+):
   """Starts a webserver for the standalone server."""
 
-  app = make_wsgi_app(plugin, host=host)
+  app = make_wsgi_app(plugin, host=host, allowed_hosts=allowed_hosts)
 
   server = wsgi.Server((host, port), app)
 
@@ -303,7 +493,9 @@ def _launch_server(
   context.src_prefix = config.src_prefix
   loader = ProfilePluginLoader()
   plugin = loader.load(context)
-  run_server(plugin, config.host, config.port)
+  run_server(
+      plugin, config.host, config.port, allowed_hosts=config.allowed_hosts
+  )
 
 
 def start_server(
@@ -317,9 +509,11 @@ def start_server(
     max_concurrent_worker_requests: int = 1,
     default_logdir: str | None = None,
     host: str = _DEFAULT_HOST,
+    allowed_hosts: str | Sequence[str] | None = None,
 ):
   """Starts the XProf web server."""
   normalized_host = _normalize_bind_host(host)
+  normalized_allowed_hosts = _normalize_allowed_hosts(allowed_hosts)
   target_logdir = logdir if logdir is not None else default_logdir
   resolved_logdir = get_abs_path(target_logdir) if target_logdir else None
 
@@ -336,6 +530,7 @@ def start_server(
       src_prefix=src_prefix,
       max_concurrent_worker_requests=max_concurrent_worker_requests,
       host=normalized_host,
+      allowed_hosts=normalized_allowed_hosts,
   )
 
   if resolved_logdir and not epath.Path(resolved_logdir).exists():
@@ -480,6 +675,15 @@ def main(argv: Optional[list[str]] = None) -> int:
       help="Host address to bind the web server to.",
   )
   parser.add_argument(
+      "--allowed_hosts",
+      default=get_default_allowed_hosts(),
+      help=(
+          "Comma-separated Host header hostnames to allow (supports"
+          " '*.example.com' or '*' to disable hostname filtering). Defaults to"
+          " XPROF_ALLOWED_HOSTS if set."
+      ),
+  )
+  parser.add_argument(
       "--grpc_port",
       type=int,
       default=_DEFAULT_GRPC_PORT,
@@ -521,6 +725,7 @@ def main(argv: Optional[list[str]] = None) -> int:
       src_prefix=args.src_prefix,
       max_concurrent_worker_requests=args.max_concurrent_worker_requests,
       host=args.host,
+      allowed_hosts=args.allowed_hosts,
   )
   return 0
 

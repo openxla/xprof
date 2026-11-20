@@ -1,6 +1,6 @@
 """CLI for XProf tools."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 import dataclasses
 import functools
 import importlib
@@ -630,6 +630,7 @@ class XProfCli:
       src_prefix: str | None = None,
       max_concurrent_worker_requests: int = 1,
       host: str | None = None,
+      allowed_hosts: str | Sequence[str] | None = None,
   ) -> None:
     """Starts the XProf web server.
 
@@ -646,6 +647,9 @@ class XProfCli:
       max_concurrent_worker_requests: Maximum concurrent worker requests.
       host: Host address to bind the main server to. When None, defaults to
         XPROF_HOST if set, otherwise 127.0.0.1.
+      allowed_hosts: Additional Host header hostnames to allow (comma-separated
+        string or sequence; supports '*.example.com' or '*' to disable hostname
+        filtering). When None, defaults to XPROF_ALLOWED_HOSTS if set.
 
     Raises:
       fire.core.FireError: If flag values have invalid types or server
@@ -665,7 +669,30 @@ class XProfCli:
       raise fire.core.FireError(
           "The --host flag requires a non-empty string value."
       )
+    if allowed_hosts is not None:
+      err_msg = (
+          "The --allowed_hosts flag requires a non-empty host string or"
+          " comma-separated list."
+      )
+      if isinstance(allowed_hosts, str):
+        if not allowed_hosts.strip():
+          raise fire.core.FireError(err_msg)
+      elif isinstance(allowed_hosts, Sequence) and not isinstance(
+          allowed_hosts, (bytes, bytearray)
+      ):
+        if not allowed_hosts or any(
+            not isinstance(item, str) or not item.strip()
+            for item in allowed_hosts
+        ):
+          raise fire.core.FireError(err_msg)
+      else:
+        raise fire.core.FireError(err_msg)
     resolved_host = server.get_default_host() if host is None else host
+    resolved_allowed_hosts = (
+        server.get_default_allowed_hosts()
+        if allowed_hosts is None
+        else allowed_hosts
+    )
     server_kwargs: dict[str, Any] = {
         "port": port,
         "hide_capture_profile_button": hide_capture_profile_button,
@@ -675,6 +702,7 @@ class XProfCli:
         "src_prefix": src_prefix,
         "max_concurrent_worker_requests": max_concurrent_worker_requests,
         "host": resolved_host,
+        "allowed_hosts": resolved_allowed_hosts,
     }
     if _is_oss():
       xprof_client.get_client().set_logdir(logdir)
@@ -829,6 +857,9 @@ _UNDERSCORE_NUM_PATTERN = re.compile(r"^\d+(_\d+)+$")
 # to whichever parameter (session_id/source) a tool declares. See b/555254723.
 _SESSION_ALIAS_FLAGS = ("--session_dir", "--session_path", "--source")
 _SERVER_VALUE_FLAGS = frozenset({
+    "--allowed_hosts",
+    "--allowed-hosts",
+    "-a",
     "--host",
     "--logdir",
     "-l",

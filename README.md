@@ -219,7 +219,7 @@ arguments:
 |`--port <port>`                        |`-p <port>`       |`8791`               |The port for the XProf web server.                                                                                                                                                                                                                                                                                                                                                   |
 |`--host <host>`                        |                  |`127.0.0.1`          |The host address to bind the XProf web server to (falls back to `XPROF_HOST` if set).                                                                                                                                                                                                                                                                                                |
 |`--grpc_port <port>`                   |`-g <port>`      |`50051`              |The port for the gRPC server used for distributed processing. This must be different from --port.                                                                                                                                                                                                                                                                                    |
-|`--worker_service_address <addresses>`|`-w <addresses>`|`0.0.0.0:<grpc_port>`|A comma-separated list of worker addresses (e.g., host1:50051,host2:50051) for distributed processing.                                                                                                                                                                                                                                                                               |
+|`--worker_service_address <addresses>`|`-w <addresses>`|`127.0.0.1:<grpc_port>`|A comma-separated list of worker addresses (e.g., host1:50051,host2:50051) for distributed processing.                                                                                                                                                                                                                                                                             |
 |`--hide_capture_profile_button`        |`-h`              |N/A                  |If set, hides the 'Capture Profile' button in the UI.                                                                                                                                                                                                                                                                                                                                |
 |`--enable_tab_name_label`              |`-e`              |`False`              |If set, shows a per-tab name label in the UI.                                                                                                                                                                                                                                                                                                                                        |
 |`--src_prefix <prefix>`                |`-s <prefix>`     |                     |A prefix prepended to source file paths, used for source-code linking in the UI.                                                                                                                                                                                                                                                                                                     |
@@ -340,11 +340,15 @@ profiles or handling multiple users.
 **Worker Node**
 
 Each worker node should run XProf with a gRPC port exposed so it can receive
-processing requests. You should also hide the capture button as workers are not
+processing requests. Workers bind their gRPC server to `127.0.0.1` by default
+and restrict profile requests to configured root directories, so dedicated
+remote worker nodes must set `XPROF_WORKER_HOST=0.0.0.0` (or the worker's host
+IP) and `XPROF_WORKER_LOGDIR` (strictly confining the worker to that root; or
+pass `--logdir`). You should also hide the capture button as workers are not
 meant to be interacted with directly.
 
 ```
-$ xprof server --grpc_port=50051 --port=9999 --hide_capture_profile_button
+$ XPROF_WORKER_HOST=0.0.0.0 XPROF_WORKER_LOGDIR=profiler/demo xprof server --grpc_port=50051 --port=9999 --hide_capture_profile_button
 ```
 
 **Aggregator Node**

@@ -51,6 +51,7 @@ ProfilePluginLoader = profile_plugin_loader.ProfilePluginLoader
 
 _DEFAULT_HOST = "127.0.0.1"
 _HOST_ENV_VAR = "XPROF_HOST"
+_WORKER_HOST_ENV_VAR = "XPROF_WORKER_HOST"
 _DEFAULT_GRPC_PORT = 50051
 
 
@@ -291,7 +292,7 @@ def _launch_server(
     config: The ServerConfig object containing all server settings.
   """
   _pywrap_profiler_plugin.start_grpc_server(
-      config.grpc_port, config.max_concurrent_worker_requests
+      config.grpc_port, config.max_concurrent_worker_requests, config.logdir
   )
   _pywrap_profiler_plugin.initialize_stubs(config.worker_service_address)
 
@@ -304,6 +305,35 @@ def _launch_server(
   loader = ProfilePluginLoader()
   plugin = loader.load(context)
   run_server(plugin, config.host, config.port)
+
+
+def _default_worker_service_address(grpc_port: int) -> str:
+  """Returns the default in-process worker gRPC address for `grpc_port`."""
+  host = (os.environ.get(_WORKER_HOST_ENV_VAR) or "").strip()
+  if not host:
+    return f"127.0.0.1:{grpc_port}"
+  if host.startswith("[") and host.endswith("]"):
+    inner = host[1:-1]
+    try:
+      ipv6 = ipaddress.IPv6Address(inner)
+    except ValueError:
+      return f"{host}:{grpc_port}"
+    return (
+        f"[::1]:{grpc_port}" if ipv6.is_unspecified else f"{host}:{grpc_port}"
+    )
+  try:
+    ip = ipaddress.ip_address(host)
+  except ValueError:
+    if ":" in host and not host.startswith("["):
+      return f"[{host}]:{grpc_port}"
+    return f"{host}:{grpc_port}"
+  if ip.is_unspecified:
+    return (
+        f"[::1]:{grpc_port}" if ip.version == 6 else f"127.0.0.1:{grpc_port}"
+    )
+  if ip.version == 6:
+    return f"[{host}]:{grpc_port}"
+  return f"{host}:{grpc_port}"
 
 
 def start_server(
@@ -319,12 +349,17 @@ def start_server(
     host: str = _DEFAULT_HOST,
 ):
   """Starts the XProf web server."""
+  if max_concurrent_worker_requests < 1:
+    raise ValueError(
+        "max_concurrent_worker_requests must be at least 1, got"
+        f" {max_concurrent_worker_requests}."
+    )
   normalized_host = _normalize_bind_host(host)
   target_logdir = logdir if logdir is not None else default_logdir
   resolved_logdir = get_abs_path(target_logdir) if target_logdir else None
 
   if worker_service_address is None:
-    worker_service_address = f"0.0.0.0:{grpc_port}"
+    worker_service_address = _default_worker_service_address(grpc_port)
 
   config = ServerConfig(
       logdir=resolved_logdir,

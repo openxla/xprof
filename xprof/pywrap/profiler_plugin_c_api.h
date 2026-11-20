@@ -57,7 +57,14 @@ EXPORT_C char* XSpaceToToolsDataFromByteString(
     const int* option_types, int num_options, char** result_data,
     size_t* result_data_size, bool* success);
 
-EXPORT_C void StartGrpcServer(int port, int max_concurrent_requests);
+// Starts the process-wide gRPC worker server on the first call; subsequent
+// calls are no-ops. Passing NULL or "" for `logdir` leaves root selection to
+// `XPROF_WORKER_LOGDIR` (if set) or dynamic session roots registered via
+// `AddWorkerAllowedRootDir`; passing a non-empty `logdir` applies the same
+// root allowlist semantics as `xprof::pywrap::StartGrpcServer`.
+// `XPROF_WORKER_HOST` overrides the default `127.0.0.1` bind address.
+EXPORT_C void StartGrpcServer(int port, int max_concurrent_requests,
+                              const char* logdir);
 
 EXPORT_C void InitializeStubs(const char* worker_service_addresses);
 

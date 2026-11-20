@@ -109,6 +109,13 @@ proxy rather than directly to untrusted networks.
 
 ### Worker
 
+Workers bind their gRPC server to `127.0.0.1` by default and restrict
+`session_id` access to configured root directories. Distributed Kubernetes
+worker pods must set `XPROF_WORKER_HOST=0.0.0.0` and configure `--logdir` or
+`XPROF_WORKER_LOGDIR` to their shared volume mount path or
+`gs://<bucket>/<prefix>`, or set `XPROF_WORKER_LOGDIR=gs://` when scheme-wide
+GCS access is governed by the pod's IAM service account.
+
 For worker we create `worker.yaml` file:
 
 ```yaml
@@ -135,6 +142,10 @@ spec:
         env:
         - name: XPROF_HOST
           value: "127.0.0.1"
+        - name: XPROF_WORKER_HOST
+          value: "0.0.0.0"
+        - name: XPROF_WORKER_LOGDIR
+          value: "gs://"
         args:
           - "--port=9999"
           - "--grpc_port=8891"

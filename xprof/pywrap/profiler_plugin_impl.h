@@ -22,14 +22,22 @@ limitations under the License.
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "xla/tsl/platform/types.h"
 #include "xprof/convert/tool_options.h"
 
 namespace xprof {
 namespace pywrap {
 
-// Starts the gRPC server.
-void StartGrpcServer(int port, int max_concurrent_requests);
+// Starts the process-wide gRPC worker server on the first call; subsequent
+// calls are no-ops. When `XPROF_WORKER_LOGDIR` is unset and `logdir` is a
+// valid root directory, registers `logdir` in the process-wide allowlist so
+// subsequent dynamic session directories remain accessible; invalid `logdir`
+// values (such as "/"), scheme-wide "gs://", or explicit `logdir` overrides
+// when `XPROF_WORKER_LOGDIR` is set are enforced as the server's sole allowed
+// root. `XPROF_WORKER_HOST` overrides the default `127.0.0.1` bind address.
+void StartGrpcServer(int port, int max_concurrent_requests,
+                     absl::string_view logdir = "");
 
 absl::Status Monitor(const char* service_addr, int duration_ms,
                      int monitoring_level, bool display_timestamp,

@@ -288,8 +288,10 @@ EXPORT_C char* XSpaceToToolsDataFromByteString(
   return nullptr;
 }
 
-EXPORT_C void StartGrpcServer(int port, int max_concurrent_requests) {
-  xprof::pywrap::StartGrpcServer(port, max_concurrent_requests);
+EXPORT_C void StartGrpcServer(int port, int max_concurrent_requests,
+                              const char* logdir) {
+  xprof::pywrap::StartGrpcServer(port, max_concurrent_requests,
+                                 logdir != nullptr ? logdir : "");
 }
 
 EXPORT_C void InitializeStubs(const char* worker_service_addresses) {
@@ -302,7 +304,7 @@ EXPORT_C void InitializeStubs(const char* worker_service_addresses) {
 #include <Python.h>
 
 static struct PyModuleDef profiler_plugin_c_api_module = {
-    PyModuleDef_HEAD_INIT, "profiler_plugin_c_api", NULL, -1, NULL};
+    PyModuleDef_HEAD_INIT, "profiler_plugin_c_api", nullptr, -1, nullptr};
 
 PyMODINIT_FUNC PyInit_profiler_plugin_c_api(void) {
   PyObject* m = PyModule_Create(&profiler_plugin_c_api_module);

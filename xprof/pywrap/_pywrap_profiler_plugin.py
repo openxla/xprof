@@ -481,12 +481,18 @@ def xspace_to_tools_data_from_byte_string(
   return (res_bytes, success.value)
 
 
-_lib.StartGrpcServer.argtypes = [ctypes.c_int, ctypes.c_int]
+_lib.StartGrpcServer.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_char_p]
 _lib.StartGrpcServer.restype = None
 
 
-def start_grpc_server(port: int, max_concurrent_requests: int) -> None:
-  _lib.StartGrpcServer(port, max_concurrent_requests)
+def start_grpc_server(
+    port: int, max_concurrent_requests: int, logdir: str | None = None
+) -> None:
+  _lib.StartGrpcServer(
+      port,
+      max_concurrent_requests,
+      _encode_optional_str(logdir),
+  )
 
 
 _lib.InitializeStubs.argtypes = [ctypes.c_char_p]

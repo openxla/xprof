@@ -89,6 +89,7 @@ py_test(
     tags = ["no_oss"],
     deps = [
         ":_pywrap_profiler_plugin",
+        "//third_party/py/absl:app",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
         "@tsl//tsl/profiler/protobuf:xplane_proto_py_proto",
@@ -102,6 +103,8 @@ cc_library(
         ["profiler_plugin_impl.h"],
     deps = [
         "//plugin/xprof/worker:grpc_server",
+        "//plugin/xprof/worker:stub_factory",
+        "//plugin/xprof/worker:worker_service",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/container:flat_hash_set",

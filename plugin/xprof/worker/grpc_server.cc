@@ -15,12 +15,22 @@ limitations under the License.
 
 #include "plugin/xprof/worker/grpc_server.h"
 
+#include <cstdlib>
 #include <memory>
+#include <optional>
 #include <string>
-#include <string_view>
+#include <utility>
 
+#include "absl/base/attributes.h"
+#include "absl/base/const_init.h"
+#include "absl/base/no_destructor.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/log/log.h"
+#include "absl/strings/ascii.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
 #include "grpc/grpc.h"
 #include "grpcpp/security/server_credentials.h"
 #include "grpcpp/server.h"
@@ -29,17 +39,46 @@ limitations under the License.
 
 namespace xprof {
 namespace profiler {
+namespace {
 
-constexpr std::string_view kServerAddressPrefix = "0.0.0.0:";
+constexpr char kWorkerHostEnvVar[] = "XPROF_WORKER_HOST";
+constexpr absl::string_view kDefaultServerHost = "127.0.0.1";
+constexpr int kMaxReceiveMessageLength = 4 * 1024 * 1024;
 
-static std::unique_ptr<::grpc::Server> server;
-static std::unique_ptr<::xprof::profiler::ProfileWorkerServiceImpl>
-    worker_service;
+ABSL_CONST_INIT absl::Mutex server_mutex(absl::kConstInit);
+absl::NoDestructor<std::unique_ptr<::grpc::Server>> server
+    ABSL_GUARDED_BY(server_mutex);
+absl::NoDestructor<std::unique_ptr<::xprof::profiler::ProfileWorkerServiceImpl>>
+    worker_service ABSL_GUARDED_BY(server_mutex);
 
-void InitializeGrpcServer(int port, int max_concurrent_requests) {
-  std::string server_address = absl::StrCat(kServerAddressPrefix, port);
+void ShutdownLocked() ABSL_EXCLUSIVE_LOCKS_REQUIRED(server_mutex) {
+  if (*server != nullptr) {
+    (*server)->Shutdown();
+    (*server)->Wait();
+    server->reset();
+  }
+  worker_service->reset();
+}
+
+int StartGrpcServerImpl(int port, int max_concurrent_requests,
+                        absl::string_view logdir,
+                        std::optional<absl::string_view> host_override) {
+  absl::MutexLock lock(server_mutex);
+  ShutdownLocked();
+
+  std::string effective_host;
+  if (host_override.has_value()) {
+    effective_host = std::string(*host_override);
+  } else if (const char* env_host = std::getenv(kWorkerHostEnvVar);
+             env_host != nullptr) {
+    effective_host = env_host;
+  }
+  std::string server_address =
+      internal::FormatGrpcServerAddress(effective_host, port);
   ::grpc::ServerBuilder builder;
-  builder.AddListeningPort(server_address, ::grpc::InsecureServerCredentials());
+  int selected_port = 0;
+  builder.AddListeningPort(server_address, ::grpc::InsecureServerCredentials(),
+                           &selected_port);
   // The period in milliseconds after which a keepalive ping is sent on the
   // transport.
   // For more details, see:
@@ -82,17 +121,63 @@ void InitializeGrpcServer(int port, int max_concurrent_requests) {
   // For more details, see:
   // https://github.com/grpc/proposal/blob/master/A9-server-side-conn-mgt.md
   builder.AddChannelArgument(GRPC_ARG_MAX_CONNECTION_AGE_GRACE_MS, 600000);
-  // Set the maximum message length that the channel can receive to unlimited.
-  builder.AddChannelArgument(GRPC_ARG_MAX_RECEIVE_MESSAGE_LENGTH, -1);
+  // Bound incoming metadata request size to prevent memory exhaustion DoS.
+  builder.AddChannelArgument(GRPC_ARG_MAX_RECEIVE_MESSAGE_LENGTH,
+                             kMaxReceiveMessageLength);
   // Set the maximum message length that the channel can send to unlimited.
   builder.AddChannelArgument(GRPC_ARG_MAX_SEND_MESSAGE_LENGTH, -1);
-  worker_service =
+  auto new_worker_service =
       std::make_unique<::xprof::profiler::ProfileWorkerServiceImpl>(
-          max_concurrent_requests);
-  builder.RegisterService(worker_service.get());
-  server = builder.BuildAndStart();
-  LOG(INFO) << "Server listening on " << server_address
-            << " with max_concurrent_requests " << max_concurrent_requests;
+          max_concurrent_requests, logdir);
+  builder.RegisterService(new_worker_service.get());
+  std::unique_ptr<::grpc::Server> new_server = builder.BuildAndStart();
+  if (new_server == nullptr || selected_port <= 0) {
+    if (new_server != nullptr) {
+      new_server->Shutdown();
+      new_server->Wait();
+    }
+    LOG(ERROR) << "Failed to start gRPC worker server on " << server_address;
+    return -1;
+  }
+  *worker_service = std::move(new_worker_service);
+  *server = std::move(new_server);
+  LOG(INFO) << "Server listening on " << server_address << " (bound port "
+            << selected_port << ") with max_concurrent_requests "
+            << max_concurrent_requests;
+  return selected_port;
+}
+
+}  // namespace
+
+namespace internal {
+
+std::string FormatGrpcServerAddress(absl::string_view host, int port) {
+  host = absl::StripAsciiWhitespace(host);
+  absl::string_view effective_host = host.empty() ? kDefaultServerHost : host;
+  if (absl::StrContains(effective_host, ':') &&
+      !absl::StartsWith(effective_host, "[")) {
+    return absl::StrCat("[", effective_host, "]:", port);
+  }
+  return absl::StrCat(effective_host, ":", port);
+}
+
+int InitializeGrpcServerForTesting(
+    int port, int max_concurrent_requests, absl::string_view logdir,
+    std::optional<absl::string_view> host_override) {
+  return StartGrpcServerImpl(port, max_concurrent_requests, logdir,
+                             host_override);
+}
+
+void ShutdownGrpcServerForTesting() {
+  absl::MutexLock lock(server_mutex);
+  ShutdownLocked();
+}
+
+}  // namespace internal
+
+void InitializeGrpcServer(int port, int max_concurrent_requests,
+                          absl::string_view logdir) {
+  StartGrpcServerImpl(port, max_concurrent_requests, logdir, std::nullopt);
 }
 
 }  // namespace profiler

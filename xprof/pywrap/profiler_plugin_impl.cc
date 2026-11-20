@@ -13,6 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include "xprof/pywrap/profiler_plugin_impl.h"
+
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -45,6 +47,8 @@ limitations under the License.
 #include "xprof/convert/xplane_to_tools_data.h"
 #include "xprof/convert/xplane_to_tools_data_with_profile_processor.h"
 #include "plugin/xprof/worker/grpc_server.h"
+#include "plugin/xprof/worker/stub_factory.h"
+#include "plugin/xprof/worker/worker_service.h"
 
 ABSL_FLAG(bool, use_profile_processor, true,
           "Use ProfileProcessor for tool data conversion");
@@ -130,6 +134,11 @@ absl::StatusOr<std::pair<std::string, bool>> SessionSnapshotToToolsData(
 
   absl::string_view session_run_dir =
       status_or_session_snapshot->GetSessionRunDir();
+  if (::xprof::profiler::HasWorkerStubs() &&
+      status_or_session_snapshot->HasAccessibleRunDir() &&
+      !session_run_dir.empty()) {
+    ::xprof::profiler::AddWorkerAllowedRootDir(session_run_dir);
+  }
   SessionCacheStripe* stripe = session_run_dir.empty()
                                    ? nullptr
                                    : &GetSessionCacheStripe(session_run_dir);
@@ -262,9 +271,13 @@ absl::Status GetSnapshot(const char* service_addr, const char* logdir) {
 
 static absl::once_flag server_init_flag;
 
-void StartGrpcServer(int port, int max_concurrent_requests) {
-  absl::call_once(server_init_flag, [port, max_concurrent_requests]() {
-    ::xprof::profiler::InitializeGrpcServer(port, max_concurrent_requests);
+void StartGrpcServer(int port, int max_concurrent_requests,
+                     absl::string_view logdir) {
+  absl::call_once(server_init_flag, [port, max_concurrent_requests, logdir]() {
+    const std::string instance_root_dir =
+        ::xprof::profiler::RegisterAndResolveStartupWorkerRoot(logdir);
+    ::xprof::profiler::InitializeGrpcServer(port, max_concurrent_requests,
+                                            instance_root_dir);
   });
 }
 

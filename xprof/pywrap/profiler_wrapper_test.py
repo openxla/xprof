@@ -18,10 +18,13 @@ from concurrent import futures
 import ctypes
 import json
 import os
+import socket
 import subprocess
 import sys
+import tempfile
 from unittest import mock
 
+from absl import app
 from absl.testing import absltest
 from absl.testing import parameterized
 # pylint: disable=g-direct-tensorflow-import
@@ -32,6 +35,7 @@ from google3.third_party.xprof.embedded.llo_analysis import llo_lite_pb2
 from xprof.convert import _pywrap_profiler_plugin as profiler_wrapper_plugin
 
 _INIT_STUBS_SUBPROCESS_ENV = "XPROF_TEST_INIT_STUBS_SUBPROCESS"
+_START_GRPC_SUBPROCESS_ENV = "XPROF_TEST_START_GRPC_SUBPROCESS"
 
 
 def _create_multi_module_llo_xspace_bytes() -> bytes:
@@ -171,6 +175,13 @@ class ProfilerSessionTest(parameterized.TestCase):
       profiler_wrapper_plugin.initialize_stubs("")
       mock_lib.InitializeStubs.assert_called_once_with(b"")
 
+      profiler_wrapper_plugin.start_grpc_server(50051, 2)
+      mock_lib.StartGrpcServer.assert_called_with(50051, 2, None)
+      profiler_wrapper_plugin.start_grpc_server(50051, 2, "")
+      mock_lib.StartGrpcServer.assert_called_with(50051, 2, b"")
+      profiler_wrapper_plugin.start_grpc_server(50051, 2, "/tmp/logdir")
+      mock_lib.StartGrpcServer.assert_called_with(50051, 2, b"/tmp/logdir")
+
   def test_c_api_null_pointer_guards_return_invalid_argument(self):
     lib = profiler_wrapper_plugin._lib
     error_ptrs = [
@@ -239,6 +250,24 @@ class ProfilerSessionTest(parameterized.TestCase):
         timeout=60,
     )
     self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+
+  def test_start_grpc_server_and_dynamic_root_registration_in_subprocess(self):
+    for mode in ("null_logdir_dynamic", "invalid_logdir_fails_closed"):
+      env = dict(os.environ)
+      env.pop("XPROF_WORKER_HOST", None)
+      env.pop("XPROF_WORKER_LOGDIR", None)
+      env[_START_GRPC_SUBPROCESS_ENV] = mode
+      proc = subprocess.run(
+          [sys.argv[0]],
+          env=env,
+          capture_output=True,
+          text=True,
+          check=False,
+          timeout=60,
+      )
+      self.assertEqual(
+          proc.returncode, 0, msg=f"mode={mode} stderr={proc.stderr}"
+      )
 
   def test_xspace_to_tools_data_invalid_options_c_api(self):
     err = _call_xspace_to_tools_data_invalid()
@@ -424,9 +453,63 @@ class ProfilerSessionTest(parameterized.TestCase):
       self.assertEqual(mode & os.RTLD_DEEPBIND, 0)
 
 
+def _run_start_grpc_subprocess(mode: str) -> None:
+  """Exercises real C API StartGrpcServer + worker RPC path confinement."""
+  with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+
+  with tempfile.TemporaryDirectory() as session_dir:
+    xspace = xplane_pb2.XSpace()
+    xspace.planes.add(name="/host:CPU")
+    payload = xspace.SerializeToString()
+    paths = []
+    for host in ("host0", "host1"):
+      path = os.path.join(session_dir, f"{host}.xplane.pb")
+      with open(path, "wb") as f:
+        f.write(payload)
+      paths.append(path)
+
+    if mode == "null_logdir_dynamic":
+      # Direct C API call with NULL logdir must not crash and must allow
+      # SessionSnapshotToToolsData to register the dynamic session root.
+      profiler_wrapper_plugin._lib.StartGrpcServer(port, 1, None)
+      profiler_wrapper_plugin.initialize_stubs(f"127.0.0.1:{port}")
+      data, success = profiler_wrapper_plugin.xspace_to_tools_data(
+          xspace_paths=paths, tool_name="overview_page"
+      )
+      if not success or not data:
+        raise AssertionError(
+            f"Expected multi-host worker RPC to succeed, got success={success}"
+            f" data={data!r}"
+        )
+    elif mode == "invalid_logdir_fails_closed":
+      # Invalid startup logdir ("/") must fail closed even after
+      # SessionSnapshotToToolsData registers the session root globally.
+      profiler_wrapper_plugin.start_grpc_server(port, 1, "/")
+      profiler_wrapper_plugin.initialize_stubs(f"127.0.0.1:{port}")
+      data, success = profiler_wrapper_plugin.xspace_to_tools_data(
+          xspace_paths=paths, tool_name="overview_page"
+      )
+      if success or b"outside the allowed root directory" not in data:
+        raise AssertionError(
+            "Expected PERMISSION_DENIED for invalid startup logdir, got"
+            f" success={success} data={data!r}"
+        )
+    else:
+      raise ValueError(f"Unknown subprocess mode: {mode}")
+
+
 if __name__ == "__main__":
   if os.environ.get(_INIT_STUBS_SUBPROCESS_ENV) == "1":
     profiler_wrapper_plugin.initialize_stubs("")
     profiler_wrapper_plugin._lib.InitializeStubs(None)
     sys.exit(0)
-  absltest.main()
+  elif _START_GRPC_SUBPROCESS_ENV in os.environ:
+    app.run(
+        lambda _: _run_start_grpc_subprocess(
+            os.environ[_START_GRPC_SUBPROCESS_ENV]
+        )
+    )
+  else:
+    absltest.main()

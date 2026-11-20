@@ -217,6 +217,63 @@ class ServerTest(parameterized.TestCase):
     self.mock_launch_server.assert_called_once_with(expected_config)
 
   @parameterized.named_parameters(
+      ('unset', {}, '127.0.0.1:50051'),
+      ('empty', {'XPROF_WORKER_HOST': ''}, '127.0.0.1:50051'),
+      ('whitespace', {'XPROF_WORKER_HOST': '  \t '}, '127.0.0.1:50051'),
+      ('ipv4_wildcard', {'XPROF_WORKER_HOST': '0.0.0.0'}, '127.0.0.1:50051'),
+      ('ipv6_wildcard', {'XPROF_WORKER_HOST': '::'}, '[::1]:50051'),
+      ('ipv6_wildcard_bracketed', {'XPROF_WORKER_HOST': '[::]'}, '[::1]:50051'),
+      (
+          'ipv6_wildcard_expanded',
+          {'XPROF_WORKER_HOST': '0:0:0:0:0:0:0:0'},
+          '[::1]:50051',
+      ),
+      ('ipv6_loopback', {'XPROF_WORKER_HOST': '::1'}, '[::1]:50051'),
+      (
+          'ipv6_loopback_bracketed',
+          {'XPROF_WORKER_HOST': '[::1]'},
+          '[::1]:50051',
+      ),
+      ('specific_ipv4', {'XPROF_WORKER_HOST': ' 10.1.2.3 '}, '10.1.2.3:50051'),
+      ('hostname', {'XPROF_WORKER_HOST': 'localhost'}, 'localhost:50051'),
+      (
+          'ipv6_zone_id',
+          {'XPROF_WORKER_HOST': 'fe80::1%eth0'},
+          '[fe80::1%eth0]:50051',
+      ),
+      (
+          'bracketed_non_ipv6',
+          {'XPROF_WORKER_HOST': '[not-ipv6]'},
+          '[not-ipv6]:50051',
+      ),
+  )
+  def test_start_server_default_worker_service_address(
+      self, env_vars, expected_address
+  ):
+    self.mock_path_exists_return = True
+
+    with mock.patch.dict(os.environ, env_vars, clear=True):
+      server.start_server(
+          logdir='/tmp/log',
+          port=5678,
+          grpc_port=50051,
+          worker_service_address=None,
+      )
+
+    self.mock_launch_server.assert_called_once_with(
+        server.ServerConfig(
+            logdir='/tmp/log',
+            port=5678,
+            grpc_port=50051,
+            worker_service_address=expected_address,
+            hide_capture_profile_button=False,
+            src_prefix=None,
+            max_concurrent_worker_requests=1,
+            enable_tab_name_label=False,
+        )
+    )
+
+  @parameterized.named_parameters(
       (
           'port_collision',
           {
@@ -324,6 +381,28 @@ class ServerTest(parameterized.TestCase):
           True,
           'Invalid host address',
       ),
+      (
+          'zero_max_concurrent_worker_requests',
+          {
+              'logdir': None,
+              'port': 3456,
+              'grpc_port': 50051,
+              'max_concurrent_worker_requests': 0,
+          },
+          True,
+          'max_concurrent_worker_requests must be at least 1',
+      ),
+      (
+          'negative_max_concurrent_worker_requests',
+          {
+              'logdir': None,
+              'port': 3456,
+              'grpc_port': 50051,
+              'max_concurrent_worker_requests': -2,
+          },
+          True,
+          'max_concurrent_worker_requests must be at least 1',
+      ),
   )
   def test_start_server_errors(
       self, mock_args_dict, path_exists, expected_error_regex
@@ -422,8 +501,10 @@ class LaunchServerTest(absltest.TestCase):
             server._pywrap_profiler_plugin,
             'start_grpc_server',
             autospec=True,
-            side_effect=lambda port, max_concurrent_requests: call_order.append(
-                ('start_grpc', (port, max_concurrent_requests))
+            side_effect=lambda port, max_concurrent_requests, logdir=None: (
+                call_order.append(
+                    ('start_grpc', (port, max_concurrent_requests, logdir))
+                )
             ),
         ),
         mock.patch.object(
@@ -453,8 +534,59 @@ class LaunchServerTest(absltest.TestCase):
     self.assertEqual(
         call_order,
         [
-            ('start_grpc', (50051, 4)),
+            ('start_grpc', (50051, 4, '/tmp/log')),
             ('init_stubs', '0.0.0.0:50051'),
+        ],
+    )
+
+  def test_launch_server_passes_logdir_to_grpc_server(self):
+    observed_calls = []
+    with (
+        mock.patch.object(
+            server._pywrap_profiler_plugin,
+            'start_grpc_server',
+            autospec=True,
+            side_effect=lambda port, max_concurrent_requests, logdir=None: (
+                observed_calls.append((port, max_concurrent_requests, logdir))
+            ),
+        ),
+        mock.patch.object(
+            server._pywrap_profiler_plugin,
+            'initialize_stubs',
+            autospec=True,
+        ),
+        mock.patch.object(server, 'DataProvider', autospec=True),
+        mock.patch.object(server, 'TBContext', autospec=True),
+        mock.patch.object(server, 'ProfilePluginLoader', autospec=True),
+        mock.patch.object(server, 'run_server', autospec=True),
+    ):
+      config = server.ServerConfig(
+          logdir='/tmp/log',
+          port=8791,
+          grpc_port=50051,
+          worker_service_address='127.0.0.1:50051',
+          hide_capture_profile_button=False,
+          src_prefix=None,
+          max_concurrent_worker_requests=4,
+      )
+      server._launch_server(config)
+
+      no_logdir_config = server.ServerConfig(
+          logdir=None,
+          port=8791,
+          grpc_port=50051,
+          worker_service_address='127.0.0.1:50051',
+          hide_capture_profile_button=False,
+          src_prefix=None,
+          max_concurrent_worker_requests=4,
+      )
+      server._launch_server(no_logdir_config)
+
+    self.assertEqual(
+        observed_calls,
+        [
+            (50051, 4, '/tmp/log'),
+            (50051, 4, None),
         ],
     )
 

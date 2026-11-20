@@ -25,7 +25,6 @@
 #include "absl/functional/function_ref.h"
 #include "absl/log/log.h"
 #include "absl/strings/ascii.h"
-#include "absl/strings/escaping.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
@@ -614,6 +613,45 @@ bool MatchesSearchQuery(const FlameChartTimelineData& data, int index,
     return MatchesArgsMap(data.GetEntryArgs(idx), query);
   }
   return false;
+}
+
+// Escapes a string for safe inclusion inside a JSON string literal.
+std::string JsonEscapeString(absl::string_view input) {
+  std::string escaped;
+  escaped.reserve(input.size());
+  for (const unsigned char c : input) {
+    switch (c) {
+      case '"':
+        escaped.append("\\\"");
+        break;
+      case '\\':
+        escaped.append("\\\\");
+        break;
+      case '\b':
+        escaped.append("\\b");
+        break;
+      case '\f':
+        escaped.append("\\f");
+        break;
+      case '\n':
+        escaped.append("\\n");
+        break;
+      case '\r':
+        escaped.append("\\r");
+        break;
+      case '\t':
+        escaped.append("\\t");
+        break;
+      default:
+        if (c < 0x20) {
+          absl::StrAppendFormat(&escaped, "\\u%04x", c);
+        } else {
+          escaped.push_back(static_cast<char>(c));
+        }
+        break;
+    }
+  }
+  return escaped;
 }
 
 // RAII helper to temporarily apply fonts::body_large if loaded.
@@ -8419,7 +8457,7 @@ void Timeline::CalculateAndEmitMetrics() {
         absl::StrAppendFormat(
             &metrics_json,
             R"({"name":"%s","eventIndex":%d,"startUs":%.1f,"durationUs":%.1f,"count":%d,"wallTimeUs":%.1f,"selfTimeUs":%.1f,"avgWallDurationUs":%.1f})",
-            absl::CEscape(name), metrics.event_index, metrics.start_us,
+            JsonEscapeString(name), metrics.event_index, metrics.start_us,
             metrics.duration_us, metrics.count, metrics.wall_time,
             metrics.self_time, metrics.wall_time / metrics.count);
       }
@@ -8447,7 +8485,8 @@ void Timeline::CalculateAndEmitMetrics() {
       absl::StrAppendFormat(
           &counters_json,
           R"({"counter":"%s","series":"%s","time":%.1f,"value":%.1f})",
-          group.name, counter_data.event_stats, ts, val);
+          JsonEscapeString(group.name),
+          JsonEscapeString(counter_data.event_stats), ts, val);
     }
     absl::StrAppend(&counters_json, "]");
 

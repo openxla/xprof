@@ -30,6 +30,7 @@
 #include "absl/types/span.h"
 #include "imgui.h"
 #include "imgui_internal.h"
+#include "nlohmann/json.hpp"  // from @com_github_nlohmann_json
 #include "tsl/profiler/lib/context_types.h"
 #include "frontend/app/components/trace_viewer_v2/animation.h"
 #include "frontend/app/components/trace_viewer_v2/color/color_generator.h"
@@ -17471,6 +17472,105 @@ TEST(TimelineTest, CalculateAndEmitMetricsIncludesEventIndex) {
       json,
       ::testing::HasSubstr(
           R"({"name":"op_b","eventIndex":1,"startUs":20.0,"durationUs":8.0,"count":1)"));
+}
+
+TEST(TimelineTest, CalculateAndEmitMetricsEscapesSpecialAndNonAsciiNames) {
+  constexpr absl::string_view kSpecialOpName =
+      "op \"quote\\slash'é\b\f\n\r\t\x01\x1f";
+  constexpr absl::string_view kCounterName =
+      "counter \"quote\\slash'é\b\f\n\r\t\x01\x1f";
+  constexpr absl::string_view kSeriesName =
+      "series \"quote\\slash'é\b\f\n\r\t\x01\x1f";
+
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.entry_names = {"it's", "café", "it's", std::string(kSpecialOpName)};
+  data.entry_start_times = {10.0, 20.0, 30.0, 40.0};
+  data.entry_total_times = {5.0, 8.0, 4.0, 2.0};
+  data.entry_self_times = {3.0, 6.0, 2.0, 1.0};
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = std::string(kCounterName),
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  CounterData counter_data;
+  counter_data.timestamps = {15.0};
+  counter_data.values = {42.5};
+  counter_data.min_value = 0.0;
+  counter_data.max_value = 100.0;
+  counter_data.event_stats = std::string(kSeriesName);
+  data.counter_data_by_group_index[0] = std::move(counter_data);
+  timeline.SetTimelineData(std::move(data));
+
+  SetSelectedEventIndices(timeline, {0, 1, 2, 3});
+  timeline.selected_counter_points_for_test() = {{0, 0}};
+
+  std::string json;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& event_data) {
+        if (const auto it = event_data.find("events_selected_data");
+            it != event_data.end()) {
+          json = std::any_cast<std::string>(it->second);
+        }
+      });
+
+  timeline.CalculateAndEmitMetrics_for_test();
+
+  nlohmann::json parsed =
+      nlohmann::json::parse(json, /*cb=*/nullptr, /*allow_exceptions=*/false);
+  ASSERT_FALSE(parsed.is_discarded()) << "Invalid JSON: " << json;
+  ASSERT_TRUE(parsed.contains("metrics"));
+  ASSERT_TRUE(parsed["metrics"].is_array());
+  ASSERT_EQ(parsed["metrics"].size(), 3);
+
+  absl::flat_hash_map<std::string, nlohmann::json> metrics_by_name;
+  for (const nlohmann::json& entry : parsed["metrics"]) {
+    ASSERT_TRUE(entry.contains("name"));
+    metrics_by_name.emplace(entry["name"].get<std::string>(), entry);
+  }
+
+  ASSERT_TRUE(metrics_by_name.contains("it's"));
+  EXPECT_EQ(metrics_by_name["it's"]["eventIndex"], 0);
+  EXPECT_DOUBLE_EQ(metrics_by_name["it's"]["startUs"].get<double>(), 10.0);
+  EXPECT_DOUBLE_EQ(metrics_by_name["it's"]["durationUs"].get<double>(), 5.0);
+  EXPECT_EQ(metrics_by_name["it's"]["count"], 2);
+  EXPECT_DOUBLE_EQ(metrics_by_name["it's"]["wallTimeUs"].get<double>(), 9.0);
+  EXPECT_DOUBLE_EQ(metrics_by_name["it's"]["selfTimeUs"].get<double>(), 5.0);
+  EXPECT_DOUBLE_EQ(metrics_by_name["it's"]["avgWallDurationUs"].get<double>(),
+                   4.5);
+
+  ASSERT_TRUE(metrics_by_name.contains("café"));
+  EXPECT_EQ(metrics_by_name["café"]["eventIndex"], 1);
+  EXPECT_DOUBLE_EQ(metrics_by_name["café"]["startUs"].get<double>(), 20.0);
+  EXPECT_DOUBLE_EQ(metrics_by_name["café"]["durationUs"].get<double>(), 8.0);
+  EXPECT_EQ(metrics_by_name["café"]["count"], 1);
+  EXPECT_DOUBLE_EQ(metrics_by_name["café"]["wallTimeUs"].get<double>(), 8.0);
+  EXPECT_DOUBLE_EQ(metrics_by_name["café"]["selfTimeUs"].get<double>(), 6.0);
+  EXPECT_DOUBLE_EQ(metrics_by_name["café"]["avgWallDurationUs"].get<double>(),
+                   8.0);
+
+  ASSERT_TRUE(metrics_by_name.contains(kSpecialOpName));
+  EXPECT_EQ(metrics_by_name[kSpecialOpName]["eventIndex"], 3);
+  EXPECT_DOUBLE_EQ(metrics_by_name[kSpecialOpName]["startUs"].get<double>(),
+                   40.0);
+  EXPECT_DOUBLE_EQ(metrics_by_name[kSpecialOpName]["durationUs"].get<double>(),
+                   2.0);
+  EXPECT_EQ(metrics_by_name[kSpecialOpName]["count"], 1);
+  EXPECT_DOUBLE_EQ(metrics_by_name[kSpecialOpName]["wallTimeUs"].get<double>(),
+                   2.0);
+  EXPECT_DOUBLE_EQ(metrics_by_name[kSpecialOpName]["selfTimeUs"].get<double>(),
+                   1.0);
+  EXPECT_DOUBLE_EQ(
+      metrics_by_name[kSpecialOpName]["avgWallDurationUs"].get<double>(), 2.0);
+
+  ASSERT_TRUE(parsed.contains("counters"));
+  ASSERT_TRUE(parsed["counters"].is_array());
+  ASSERT_EQ(parsed["counters"].size(), 1);
+  EXPECT_EQ(parsed["counters"][0]["counter"].get<std::string>(), kCounterName);
+  EXPECT_EQ(parsed["counters"][0]["series"].get<std::string>(), kSeriesName);
+  EXPECT_DOUBLE_EQ(parsed["counters"][0]["time"].get<double>(), 15.0);
+  EXPECT_DOUBLE_EQ(parsed["counters"][0]["value"].get<double>(), 42.5);
 }
 
 TEST_F(MockTimelineImGuiFixture, GetEventSelected_EmptyGroups) {

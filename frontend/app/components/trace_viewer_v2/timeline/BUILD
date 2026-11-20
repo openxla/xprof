@@ -146,6 +146,7 @@ cc_test(
         ":draw_helpers",
         ":time_range",
         ":timeline",
+        "@com_github_nlohmann_json//:json",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",

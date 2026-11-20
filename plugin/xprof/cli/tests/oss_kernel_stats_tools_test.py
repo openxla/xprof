@@ -13,6 +13,7 @@ from unittest import mock
 from xprof.cli.internal import decorators
 from xprof.cli.internal.oss import kernel_stats_tools
 from xprof.cli.internal.oss import xplane_tools
+from xprof.cli.internal.oss import xprof_client
 from xprof.cli.tools import get_kernel_stats_tool
 
 
@@ -619,6 +620,57 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     self.assertEqual(res1, res2)
     self.assertIn("xprof-note: truncated: returned 2 of 3", err1.getvalue())
     self.assertIn("xprof-note: truncated: returned 2 of 3", err2.getvalue())
+
+  def test_resolve_device_planes(self):
+    names = [
+        "/host:CPU",
+        "/device:GPU:0",
+        "/device:TPU:10",
+        "/device:TPU:2",
+        "/device:TPU:2 SparseCore 0",
+        "/device:TPU:2",
+    ]
+    self.assertEqual(
+        kernel_stats_tools.resolve_device_planes(names, None),
+        ("/device:TPU:2", ["/device:TPU:2", "/device:TPU:2 SparseCore 0"]),
+    )
+    self.assertEqual(
+        kernel_stats_tools.resolve_device_planes(names, "gpu:0"),
+        ("/device:GPU:0", ["/device:GPU:0"]),
+    )
+    self.assertEqual(
+        kernel_stats_tools.resolve_device_planes(names, "/device:TPU:10"),
+        ("/device:TPU:10", ["/device:TPU:10"]),
+    )
+    self.assertEqual(
+        kernel_stats_tools.resolve_device_planes(names, "ALL"),
+        (
+            "all",
+            [
+                "/device:GPU:0",
+                "/device:TPU:10",
+                "/device:TPU:2",
+                "/device:TPU:2 SparseCore 0",
+            ],
+        ),
+    )
+    self.assertEqual(
+        kernel_stats_tools.resolve_device_planes(["/host:CPU"], "TPU:0"),
+        ("all", []),
+    )
+    with self.assertRaisesRegex(ValueError, "matches no device plane"):
+      kernel_stats_tools.resolve_device_planes(names, "GPU:1")
+
+  def test_source_without_traces_raises_file_not_found(self):
+    fake_client = mock.create_autospec(
+        xprof_client.LocalXprofClient, instance=True
+    )
+    fake_client.get_xspace_paths.return_value = []
+    with mock.patch.object(
+        xprof_client, "get_client", return_value=fake_client
+    ):
+      with self.assertRaisesRegex(FileNotFoundError, "local_empty"):
+        kernel_stats_tools.load_host_planes("local_empty", all_hosts=False)
 
 
 if __name__ == "__main__":

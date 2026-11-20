@@ -110,12 +110,51 @@ export const LOADING_STATUS_UPDATE_EVENT_NAME = 'loadingstatusupdate';
  */
 export const DETAILS_RECEIVED_EVENT_NAME = 'details_received';
 
-/** Represents trace details toggles. */
-/** Supported trace detail keys. */
-export type TraceDetailKey = 'full_dma';
+/** Ordered list of trace detail options for display in menus. */
+export const TRACE_DETAIL_OPTIONS = [
+  {key: 'full_dma', label: 'Full DMA'},
+  {key: 'overlay', label: 'Overlay'},
+  {key: 'show_hlo_cost_model', label: 'Show HLO Cost Model'},
+] as const;
+
+/** Supported trace detail key type. */
+export type TraceDetailKey = (typeof TRACE_DETAIL_OPTIONS)[number]['key'];
+
+const SUPPORTED_TRACE_DETAIL_KEY_SET: ReadonlySet<string> = new Set<string>(
+  TRACE_DETAIL_OPTIONS.map((option) => option.key),
+);
+
+function isTraceDetailKey(key: string): key is TraceDetailKey {
+  return SUPPORTED_TRACE_DETAIL_KEY_SET.has(key);
+}
 
 /** Represents trace details toggles. */
 export type TraceDetails = Map<TraceDetailKey, boolean>;
+
+function addSupportedDetail(
+  details: TraceDetails,
+  key: unknown,
+  value: unknown,
+): void {
+  if (
+    typeof key === 'string' &&
+    isTraceDetailKey(key) &&
+    typeof value === 'boolean'
+  ) {
+    details.set(key, value);
+  }
+}
+
+/** Filters a trace details map to only supported trace detail keys. */
+export function filterSupportedDetails(
+  details: ReadonlyMap<unknown, unknown>,
+): TraceDetails {
+  const filtered: TraceDetails = new Map();
+  for (const [key, value] of details.entries()) {
+    addSupportedDetail(filtered, key, value);
+  }
+  return filtered;
+}
 
 /** Detail of the event dispatched when trace details are received. */
 export declare interface DetailsReceivedEventDetail {
@@ -509,16 +548,13 @@ function maybeDispatchDetailsReceivedEvent(jsonData: TraceData) {
     for (const d of rawDetails) {
       if (d && typeof d === 'object') {
         const item = d as Record<string, unknown>;
-        if (item['name'] === 'full_dma' && typeof item['value'] === 'boolean') {
-          details.set('full_dma', item['value']);
-        }
+        addSupportedDetail(details, item['name'], item['value']);
       }
     }
   } else if (typeof rawDetails === 'object' && rawDetails !== null) {
     const rawDetailsObj = rawDetails as Record<string, unknown>;
-    const fullDmaValue = rawDetailsObj['full_dma'];
-    if (typeof fullDmaValue === 'boolean') {
-      details.set('full_dma', fullDmaValue);
+    for (const [key, value] of Object.entries(rawDetailsObj)) {
+      addSupportedDetail(details, key, value);
     }
   }
 

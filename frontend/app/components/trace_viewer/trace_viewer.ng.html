@@ -24,14 +24,16 @@
   </div>
   <ng-container *ngIf="useTraceViewerV2">
     <div class="header-right right-controls">
-      <div *ngIf="traceDetails && traceDetails.size > 0">
+      <div *ngIf="traceDetails.size > 0">
         <button mat-button class="details-button" [matMenuTriggerFor]="detailsMenu">Details <mat-icon>arrow_drop_down</mat-icon></button>
         <mat-menu #detailsMenu="matMenu" class="details-menu">
-          <div *ngFor="let detail of availableDetails" (click)="$event.stopPropagation()">
-            <mat-checkbox [checked]="isDetailChecked(detail.key)" (change)="toggleDetail(detail.key, $event.checked)" style="margin: 0 16px;">
-              {{detail.label}}
-            </mat-checkbox>
-          </div>
+          <ng-container *ngFor="let detail of availableDetails">
+            <div *ngIf="traceDetails.has(detail.key)" (click)="$event.stopPropagation()">
+              <mat-checkbox [checked]="isDetailChecked(detail.key)" (change)="toggleDetail(detail.key, $event.checked)" style="margin: 0 16px;">
+                {{detail.label}}
+              </mat-checkbox>
+            </div>
+          </ng-container>
         </mat-menu>
       </div>
       <button mat-button [matMenuTriggerFor]="flowMenu">Flow Events</button>

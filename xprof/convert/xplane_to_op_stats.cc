@@ -92,18 +92,6 @@ using tsl::profiler::FindTensorCorePlanes;
 using ::tsl::profiler::kGpuPlanePrefix;
 using ::tsl::profiler::kTpuPlanePrefix;
 
-// Name prefix of the SparseCore Tile Execution Core (TEC) op lines, e.g.
-// "TEC 0".
-constexpr absl::string_view kSparseCoreTecLinePrefix = "TEC ";
-
-// Returns true for the SparseCore TEC op lines ("TEC 0", "TEC 1", ...), and
-// false for other lines with the same prefix, such as "TEC TraceMe 0".
-bool IsSparseCoreTecOpLine(absl::string_view line_name) {
-  uint32_t tec_index;
-  return absl::ConsumePrefix(&line_name, kSparseCoreTecLinePrefix) &&
-         absl::SimpleAtoi(line_name, &tec_index);
-}
-
 std::string Hostname(const XSpace& space) {
   if (space.hostnames().empty()) return "localhost";
   DCHECK_EQ(space.hostnames_size(), 1);

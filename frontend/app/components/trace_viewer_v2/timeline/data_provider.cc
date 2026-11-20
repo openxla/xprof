@@ -127,6 +127,9 @@ struct CachedThreadTrack {
     uint32_t name_id = 0;
     Microseconds start_ts = 0.0;
     Microseconds current_end_ts = 0.0;
+    // Child duration already attributed to this open span in earlier slices
+    // that exceeded its available `entry_self_times` (e.g. while dur == 0.0).
+    Microseconds unapplied_children_dur = 0.0;
     int relative_level = 0;
   };
   std::vector<OpenSpan> open_spans;
@@ -848,6 +851,21 @@ struct RestoredEntryMeta {
 using RestoredMetaMap =
     absl::flat_hash_map<const TraceEvent*, RestoredEntryMeta>;
 
+// Orders events for flame-chart layout: ascending start time, descending
+// duration, then phase rank (`kDurationEnd` < `kDurationBegin` < others) so
+// closing and still-open split spans precede co-timestamped zero-duration
+// complete events at chunk boundaries.
+bool CompareTraceEventsForLayout(const TraceEvent* a, const TraceEvent* b) {
+  if (a->ts != b->ts) return a->ts < b->ts;
+  if (a->dur != b->dur) return a->dur > b->dur;
+  auto phase_rank = [](Phase ph) -> int {
+    if (ph == Phase::kDurationEnd) return 0;
+    if (ph == Phase::kDurationBegin) return 1;
+    return 2;
+  };
+  return phase_rank(a->ph) < phase_rank(b->ph);
+}
+
 // Packs trace events for a thread track and appends them to data (inout).
 // Updates max_level (inout) if any packed event exceeds it, and expands
 // bounds (inout) to include the start and end timestamps of all appended
@@ -869,23 +887,20 @@ void PopulateThreadTrackEvents(
   if (events.empty()) return;
 
   const size_t num_proxies = proxy_fixed_levels.size();
-  auto cmp_events = [](const TraceEvent* a, const TraceEvent* b) {
-    if (a->ts != b->ts) return a->ts < b->ts;
-    if (a->dur != b->dur) return a->dur > b->dur;
-    return a->ph != b->ph && a->ph == Phase::kDurationEnd;
-  };
 
   std::vector<const TraceEvent*> sorted_storage;
   absl::Span<const TraceEvent* const> sorted_events = events;
   if (num_proxies == 0) {
     for (size_t i = 0; i < events.size(); ++i) {
-      if (events[i] == nullptr || (i > 0 && events[i - 1] != nullptr &&
-                                   cmp_events(events[i], events[i - 1]))) {
+      if (events[i] == nullptr ||
+          (i > 0 && events[i - 1] != nullptr &&
+           CompareTraceEventsForLayout(events[i], events[i - 1]))) {
         sorted_storage.reserve(events.size());
         for (const TraceEvent* event : events) {
           if (event != nullptr) sorted_storage.push_back(event);
         }
-        std::sort(sorted_storage.begin(), sorted_storage.end(), cmp_events);
+        std::sort(sorted_storage.begin(), sorted_storage.end(),
+                  CompareTraceEventsForLayout);
         sorted_events = sorted_storage;
         break;
       }
@@ -902,15 +917,33 @@ void PopulateThreadTrackEvents(
   std::vector<Microseconds> row_end_times;
   row_end_times.reserve(16);
   // Reserve rows occupied by earlier-slice proxy spans so new rects do not
-  // overlap them even when visited earlier.
-  for (size_t p = 0; p < num_proxies && p < n; ++p) {
+  // overlap them even when visited earlier. Still-open zero-duration boundary
+  // proxies reserve their track until their continuation/closing event arrives,
+  // capped by any enclosing closed ancestor proxy so orphaned spans never trap
+  // later root events.
+  const size_t proxy_limit = std::min(num_proxies, n);
+  std::vector<Microseconds> proxy_effective_ends(proxy_limit);
+  for (size_t p = 0; p < proxy_limit; ++p) {
     const int fixed_lvl = proxy_fixed_levels[p];
     if (fixed_lvl >= static_cast<int>(row_end_times.size())) {
       row_end_times.resize(fixed_lvl + 1,
                            std::numeric_limits<Microseconds>::lowest());
     }
-    row_end_times[fixed_lvl] = std::max(
-        row_end_times[fixed_lvl], sorted_events[p]->ts + sorted_events[p]->dur);
+    const TraceEvent* p_ev = sorted_events[p];
+    Microseconds reserved_end = p_ev->ts + p_ev->dur;
+    if (p_ev->ph == Phase::kDurationBegin && p_ev->dur == 0.0) {
+      reserved_end = std::numeric_limits<Microseconds>::max();
+      for (size_t q = 0; q < p; ++q) {
+        if (proxy_fixed_levels[q] < fixed_lvl &&
+            sorted_events[q]->ts <= p_ev->ts &&
+            sorted_events[q]->ph != Phase::kDurationBegin &&
+            proxy_effective_ends[q] >= p_ev->ts) {
+          reserved_end = std::min(reserved_end, proxy_effective_ends[q]);
+        }
+      }
+    }
+    proxy_effective_ends[p] = reserved_end;
+    row_end_times[fixed_lvl] = std::max(row_end_times[fixed_lvl], reserved_end);
   }
 
   const bool has_restored_meta =
@@ -930,36 +963,61 @@ void PopulateThreadTrackEvents(
 
   // Merge sorted proxies `[0, num_proxies)` and incoming events
   // `[num_proxies, n)` in chronological order.
-  const size_t proxy_limit = std::min(num_proxies, n);
   size_t proxy_cursor = 0;
   size_t event_cursor = proxy_limit;
   for (size_t step = 0; step < n; ++step) {
-    const size_t i =
-        (proxy_cursor < proxy_limit &&
-         (event_cursor == n || !cmp_events(sorted_events[event_cursor],
-                                           sorted_events[proxy_cursor])))
-            ? proxy_cursor++
-            : event_cursor++;
+    const bool proxy_is_zero_dur_open =
+        proxy_cursor < proxy_limit &&
+        sorted_events[proxy_cursor]->ph == Phase::kDurationBegin &&
+        sorted_events[proxy_cursor]->dur == 0.0;
+    const bool take_proxy =
+        proxy_cursor < proxy_limit &&
+        (event_cursor == n ||
+         (proxy_is_zero_dur_open
+              ? sorted_events[proxy_cursor]->ts <=
+                    sorted_events[event_cursor]->ts
+              : !CompareTraceEventsForLayout(sorted_events[event_cursor],
+                                             sorted_events[proxy_cursor])));
+    const size_t i = take_proxy ? proxy_cursor++ : event_cursor++;
     const TraceEvent* ev = sorted_events[i];
     const Microseconds end_time = ev->ts + ev->dur;
     const RestoredEntryMeta* meta = has_restored_meta ? entry_meta[i] : nullptr;
     self_times[i] = meta != nullptr ? meta->self_time : ev->dur;
 
     std::optional<size_t> enclosing_idx;
-    // Pop spans that do not fully enclose `ev` so crossing spans never hide
-    // enclosing ancestors.
+    // Pop spans that do not enclose `ev` so crossing spans never hide enclosing
+    // ancestors. Keep still-open `kDurationBegin` ancestors on the stack for
+    // zero-duration boundary children (`ev->ts == p_end`) and keep still-open
+    // zero-duration proxies enclosing up to `proxy_effective_ends[p_idx]`.
     while (!parent_stack.empty()) {
       const size_t p_idx = parent_stack.back();
-      const Microseconds p_start = sorted_events[p_idx]->ts;
-      const Microseconds p_end = p_start + sorted_events[p_idx]->dur;
-      if (ev->ts >= p_start && ev->ts < p_end && end_time <= p_end) {
+      const TraceEvent* p_ev = sorted_events[p_idx];
+      const Microseconds p_start = p_ev->ts;
+      const bool p_is_zero_dur_open_proxy = p_idx < proxy_limit &&
+                                            p_ev->ph == Phase::kDurationBegin &&
+                                            p_ev->dur == 0.0;
+      const Microseconds p_end = p_idx < proxy_limit
+                                     ? proxy_effective_ends[p_idx]
+                                     : (p_start + p_ev->dur);
+      const bool ev_at_open_split_boundary =
+          !p_is_zero_dur_open_proxy && p_ev->ph == Phase::kDurationBegin &&
+          ev->ts <= p_end + kPicosecondRoundingToleranceUs &&
+          end_time <= p_end + kPicosecondRoundingToleranceUs;
+      if (ev->ts >= p_start && ((ev->ts < p_end && end_time <= p_end) ||
+                                ev_at_open_split_boundary)) {
         enclosing_idx = p_idx;
         const RestoredEntryMeta* p_meta =
             has_restored_meta ? entry_meta[p_idx] : nullptr;
         if (p_meta == nullptr) {
           // Existing proxy durations were already deducted in earlier slices.
+          // Keep proxy `self_times` unclamped so `StitchOpenSpansInCachedTrack`
+          // recovers exact child durations even when `p_ev->dur == 0.0`.
           if (i >= num_proxies) {
-            self_times[p_idx] = std::max(0.0, self_times[p_idx] - ev->dur);
+            if (p_idx < num_proxies) {
+              self_times[p_idx] -= ev->dur;
+            } else {
+              self_times[p_idx] = std::max(0.0, self_times[p_idx] - ev->dur);
+            }
           }
           if (has_restored_meta && meta == nullptr) {
             nearest_restored_anc[i] = nearest_restored_anc[p_idx];
@@ -2062,6 +2120,8 @@ void StitchOpenSpansInCachedTrack(
     EventId full_event_id;
     Microseconds new_end_ts;
     Microseconds added_dur = 0.0;
+    Microseconds unapplied_children_dur = 0.0;
+    size_t open_span_idx = std::numeric_limits<size_t>::max();
   };
   std::vector<TraceEvent> proxy_storage;
   std::vector<int> proxy_levels;
@@ -2075,6 +2135,23 @@ void StitchOpenSpansInCachedTrack(
 
   FlameChartTimelineData& e = cached.entries;
   std::vector<uint8_t> row_locked(cached.rightmost_entry_by_row.size(), 0);
+  // Record open spans closing in this slice so unmatched nested zero-duration
+  // open spans beneath them are retired rather than leaking into later slices.
+  struct ClosedSpanBounds {
+    int relative_level;
+    Microseconds start_ts;
+    Microseconds end_ts;
+  };
+  std::vector<ClosedSpanBounds> closed_ancestors;
+  for (size_t s = 0; s < num_open; ++s) {
+    if (matched_ev[s] != nullptr && matched_ev[s]->ph == Phase::kDurationEnd) {
+      const auto& os = cached.open_spans[s];
+      const Microseconds closed_dur =
+          std::max(e.entry_total_times[os.entry_idx], matched_ev[s]->dur);
+      closed_ancestors.push_back(
+          {os.relative_level, os.start_ts, os.start_ts + closed_dur});
+    }
+  }
   // Keep rows reserved for all active open spans, even across slices without
   // continuation updates.
   for (size_t s = 0; s < num_open; ++s) {
@@ -2091,7 +2168,26 @@ void StitchOpenSpansInCachedTrack(
     const Microseconds new_end_ts = os.start_ts + full_dur;
     const Microseconds added_dur =
         std::max(0.0, new_end_ts - os.current_end_ts);
-    if (full_dur > 0.0) {
+    bool retired_by_closed_ancestor = false;
+    if (!is_closed && ev == nullptr && full_dur == 0.0) {
+      for (const ClosedSpanBounds& ca : closed_ancestors) {
+        if (ca.relative_level < os.relative_level &&
+            ca.start_ts <= os.start_ts && ca.end_ts >= os.start_ts) {
+          retired_by_closed_ancestor = true;
+          break;
+        }
+      }
+    }
+    size_t surviving_idx = std::numeric_limits<size_t>::max();
+    if (!is_closed && !retired_by_closed_ancestor) {
+      os.current_end_ts = std::max(os.current_end_ts, new_end_ts);
+      surviving_idx = surviving_open_spans.size();
+      surviving_open_spans.push_back(os);
+    }
+    // Keep a proxy for every still-open span (including zero-duration boundary
+    // opens, unless retired by a closing ancestor) so its track stays reserved
+    // until its closing `kDurationEnd`.
+    if (full_dur > 0.0 || (!is_closed && !retired_by_closed_ancestor)) {
       TraceEvent proxy;
       proxy.ph = is_closed ? Phase::kDurationEnd : Phase::kDurationBegin;
       proxy.pid = cached.pid;
@@ -2100,8 +2196,9 @@ void StitchOpenSpansInCachedTrack(
       proxy.dur = full_dur;
       proxy_storage.push_back(std::move(proxy));
       proxy_levels.push_back(os.relative_level);
-      active_proxies.push_back(ActiveProxyInfo{
-          os.entry_idx, full_dur, full_event_id, new_end_ts, added_dur});
+      active_proxies.push_back(
+          ActiveProxyInfo{os.entry_idx, full_dur, full_event_id, new_end_ts,
+                          added_dur, os.unapplied_children_dur, surviving_idx});
       if (static_cast<size_t>(os.relative_level) < row_locked.size()) {
         row_locked[os.relative_level] = 1;
       }
@@ -2113,10 +2210,6 @@ void StitchOpenSpansInCachedTrack(
         cached.prefix_max_end_times.back() =
             std::max(cached.prefix_max_end_times.back(), new_end_ts);
       }
-    }
-    if (!is_closed) {
-      os.current_end_ts = std::max(os.current_end_ts, new_end_ts);
-      surviving_open_spans.push_back(os);
     }
   }
 
@@ -2145,13 +2238,15 @@ void StitchOpenSpansInCachedTrack(
     }
   }
 
+  // Sort equal-timestamp proxies by track (`proxy_levels`) before duration so
+  // an enclosing ancestor always precedes a nested zero-duration open child.
   for (size_t i = 1; i < active_proxies.size(); ++i) {
     for (size_t j = i;
          j > 0 &&
-         std::make_tuple(proxy_storage[j].ts, -proxy_storage[j].dur,
-                         proxy_levels[j]) <
-             std::make_tuple(proxy_storage[j - 1].ts, -proxy_storage[j - 1].dur,
-                             proxy_levels[j - 1]);
+         std::make_tuple(proxy_storage[j].ts, proxy_levels[j],
+                         -proxy_storage[j].dur) <
+             std::make_tuple(proxy_storage[j - 1].ts, proxy_levels[j - 1],
+                             -proxy_storage[j - 1].dur);
          --j) {
       std::swap(proxy_storage[j], proxy_storage[j - 1]);
       std::swap(proxy_levels[j], proxy_levels[j - 1]);
@@ -2176,18 +2271,23 @@ void StitchOpenSpansInCachedTrack(
                               &proxy_self_times);
   }
   // Deduct only newly added open-span duration to avoid double-counting prior
-  // slices.
+  // slices. Keep `proxy_self_times` unclamped so child durations exceeding a
+  // zero-duration open proxy carry forward via `unapplied_children_dur`.
   for (size_t c = 0; c < active_proxies.size(); ++c) {
     if (active_proxies[c].added_dur <= 0.0) continue;
     const Microseconds c_start = proxy_storage[c].ts;
     const Microseconds c_end = c_start + proxy_storage[c].dur;
     for (size_t p = c; p-- > 0;) {
       const Microseconds p_start = proxy_storage[p].ts;
+      const bool p_is_zero_dur_open =
+          proxy_storage[p].ph == Phase::kDurationBegin &&
+          proxy_storage[p].dur == 0.0;
       const Microseconds p_end = p_start + proxy_storage[p].dur;
       if (proxy_levels[p] < proxy_levels[c] && c_start >= p_start &&
-          c_end <= p_end && p < proxy_self_times.size()) {
-        proxy_self_times[p] =
-            std::max(0.0, proxy_self_times[p] - active_proxies[c].added_dur);
+          (p_is_zero_dur_open ||
+           c_end <= p_end + kPicosecondRoundingToleranceUs) &&
+          p < proxy_self_times.size()) {
+        proxy_self_times[p] -= active_proxies[c].added_dur;
         break;
       }
     }
@@ -2202,9 +2302,21 @@ void StitchOpenSpansInCachedTrack(
     const Microseconds delta_total_time =
         info.full_dur - e.entry_total_times[info.entry_idx];
     e.entry_total_times[info.entry_idx] = info.full_dur;
-    e.entry_self_times[info.entry_idx] =
-        std::max(0.0, e.entry_self_times[info.entry_idx] + delta_total_time -
-                          chunk_children_dur);
+    const Microseconds signed_self_time = e.entry_self_times[info.entry_idx] -
+                                          info.unapplied_children_dur +
+                                          delta_total_time - chunk_children_dur;
+    if (signed_self_time >= 0.0) {
+      e.entry_self_times[info.entry_idx] = signed_self_time;
+      if (info.open_span_idx < cached.open_spans.size()) {
+        cached.open_spans[info.open_span_idx].unapplied_children_dur = 0.0;
+      }
+    } else {
+      e.entry_self_times[info.entry_idx] = 0.0;
+      if (info.open_span_idx < cached.open_spans.size()) {
+        cached.open_spans[info.open_span_idx].unapplied_children_dur =
+            -signed_self_time;
+      }
+    }
     e.entry_event_ids[info.entry_idx] = info.full_event_id;
     cached.bounds.max = std::max(cached.bounds.max, info.new_end_ts);
     if (!cached.prefix_max_end_times.empty()) {
@@ -2230,13 +2342,9 @@ bool UpdateCachedTrackIncremental(
     bool allow_compaction = true,
     const absl::flat_hash_set<EventId>* pinned_event_ids = nullptr) {
   if (new_events.empty()) return false;
-  auto cmp_events = [](const TraceEvent* a, const TraceEvent* b) {
-    if (a->ts != b->ts) return a->ts < b->ts;
-    if (a->dur != b->dur) return a->dur > b->dur;
-    return a->ph != b->ph && a->ph == Phase::kDurationEnd;
-  };
-  if (!std::is_sorted(new_events.begin(), new_events.end(), cmp_events)) {
-    absl::c_stable_sort(new_events, cmp_events);
+  if (!std::is_sorted(new_events.begin(), new_events.end(),
+                      CompareTraceEventsForLayout)) {
+    absl::c_stable_sort(new_events, CompareTraceEventsForLayout);
   }
   if (new_events.size() > 1) {
     size_t write_idx = 0;
@@ -2305,7 +2413,7 @@ bool UpdateCachedTrackIncremental(
   std::inplace_merge(
       merged_events.begin(),
       merged_events.begin() + static_cast<ptrdiff_t>(restored.size()),
-      merged_events.end(), cmp_events);
+      merged_events.end(), CompareTraceEventsForLayout);
   AppendToCachedThreadTrack(
       cached, merged_events, trace_info, thread_group_name,
       /*proxy_fixed_levels=*/{}, /*proxy_self_times_out=*/nullptr,

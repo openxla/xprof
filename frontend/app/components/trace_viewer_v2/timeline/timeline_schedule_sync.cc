@@ -948,7 +948,8 @@ void Timeline::PopulateMultiSelectionScheduleDetails(
       summary.first_event_index = idx;
     }
     summary.count++;
-    summary.total_bundles += timeline_data_.entry_total_times[idx];
+    summary.total_bundles +=
+        ClampNonNegativeDuration(timeline_data_.entry_total_times[idx]);
   });
 
   // When a range is selected across Utilization/Memory counter tracks without
@@ -967,22 +968,16 @@ void Timeline::PopulateMultiSelectionScheduleDetails(
           std::min(GetNextGroupStartLevel(timeline_data_, g_idx), total_levels);
       for (int lvl = start_lvl; lvl < end_lvl; ++lvl) {
         absl::Span<const int> indices = timeline_data_.level_events(lvl);
-        auto first_it = std::lower_bound(
-            indices.begin(), indices.end(), range_start,
-            [this, num_entries](int idx, Microseconds t) {
-              if (idx < 0 || static_cast<size_t>(idx) >= num_entries) {
-                return false;
-              }
-              return timeline_data_.entry_start_times[idx] +
-                         timeline_data_.entry_total_times[idx] <=
-                     t;
-            });
+        auto first_it = FindFirstVisibleEventIterator(lvl, indices, range_start,
+                                                      /*include_equal=*/false);
         for (auto it = first_it; it != indices.end(); ++it) {
           const int idx = *it;
           if (idx < 0 || static_cast<size_t>(idx) >= num_entries) continue;
           const Microseconds s = timeline_data_.entry_start_times[idx];
           if (s >= range_end) break;
-          if (s + timeline_data_.entry_total_times[idx] <= range_start) {
+          const Microseconds dur =
+              ClampNonNegativeDuration(timeline_data_.entry_total_times[idx]);
+          if (s + dur <= range_start) {
             continue;
           }
           if (sorted_indices.size() < 100) {
@@ -998,7 +993,7 @@ void Timeline::PopulateMultiSelectionScheduleDetails(
             summary.first_event_index = idx;
           }
           summary.count++;
-          summary.total_bundles += timeline_data_.entry_total_times[idx];
+          summary.total_bundles += dur;
         }
       }
     }

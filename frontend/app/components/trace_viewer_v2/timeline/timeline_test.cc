@@ -22530,6 +22530,723 @@ TEST(EntryBitsetTest,
   EXPECT_THAT(unreserved.size(), Eq(1u));
   EXPECT_THAT(CollectSetBits(unreserved), ElementsAre(0));
 }
+
+TEST_F(MockTimelineImGuiFixture,
+       DrawEventsForLevel_NonMonotonicEndTimesKeepEnclosingRectVisible) {
+  auto make_data = [](bool include_offscreen_short_events) {
+    FlameChartTimelineData data;
+    data.groups.push_back({.type = Group::Type::kFlame,
+                           .name = "XLA Ops",
+                           .start_level = 0,
+                           .nesting_level = kThreadNestingLevel,
+                           .expanded = true,
+                           .level_count = 2});
+    // Level 0 has non-monotonic end times when short off-screen events are
+    // present: enclosing rect [100, 1100] followed by instant event [200, 200]
+    // (dur = 0.0 bypasses `last_drawn_right` culling so the `end <
+    // visible_start_time` skip guard is isolated) and short rect [500, 520].
+    // Level 1 is monotonic: [100, 200], [300, 400].
+    if (include_offscreen_short_events) {
+      data.level_offsets = {0, 3, 5};
+      data.level_event_indices = {0, 1, 2, 3, 4};
+      data.entry_names = {"while.2682", "short_instant", "short_2", "mono_1",
+                          "mono_2"};
+      data.entry_levels = {0, 0, 0, 1, 1};
+      data.entry_start_times = {100.0, 200.0, 500.0, 100.0, 300.0};
+      data.entry_total_times = {1000.0, 0.0, 20.0, 100.0, 100.0};
+      data.entry_args.resize(5);
+    } else {
+      data.level_offsets = {0, 1, 3};
+      data.level_event_indices = {0, 1, 2};
+      data.entry_names = {"while.2682", "mono_1", "mono_2"};
+      data.entry_levels = {0, 1, 1};
+      data.entry_start_times = {100.0, 100.0, 300.0};
+      data.entry_total_times = {1000.0, 100.0, 100.0};
+      data.entry_args.resize(3);
+    }
+    return data;
+  };
+
+  timeline_.SetTimelineData(make_data(/*include_offscreen_short_events=*/true));
+
+  // Prefix-max metadata is populated only for the non-monotonic track (0 extra
+  // heap bytes on clean monotonic tracks).
+  ASSERT_EQ(timeline_.level_mip_pyramids_for_test().size(), 2u);
+  EXPECT_THAT(timeline_.level_mip_pyramids_for_test()[0].raw_prefix_max_ends,
+              ElementsAre(1100.0, 1100.0, 1100.0));
+  EXPECT_TRUE(
+      timeline_.level_mip_pyramids_for_test()[1].raw_prefix_max_ends.empty());
+
+  // Zoom past both shorter events' end times (`visible_start = 600.0 > 520.0`).
+  // `while.2682` must still be drawn, while off-screen `short_instant` (dur =
+  // 0.0) and `short_2` must be skipped without adding chevron vertices.
+  timeline_.SetVisibleRange({600.0, 700.0});
+  EXPECT_CALL(timeline_, GetTextSize(_)).Times(::testing::AnyNumber());
+  EXPECT_CALL(timeline_, GetTextSize("while.2682"))
+      .Times(::testing::AtLeast(1));
+  EXPECT_CALL(timeline_, GetTextSize("short_instant")).Times(0);
+  EXPECT_CALL(timeline_, GetTextSize("short_2")).Times(0);
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+  const int vtx_with_offscreen_events = ImGui::GetDrawData()->TotalVtxCount;
+
+  // Baseline without off-screen instant/short events must emit the exact same
+  // vertex count (proving the off-screen instant event was skipped rather than
+  // drawn as a clamped chevron).
+  timeline_.SetTimelineData(
+      make_data(/*include_offscreen_short_events=*/false));
+  timeline_.SetVisibleRange({600.0, 700.0});
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+  EXPECT_EQ(vtx_with_offscreen_events, ImGui::GetDrawData()->TotalVtxCount);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       NonMonotonicTracksKeepEnclosingRectInGpuAndMipPaths) {
+  auto make_data = [](bool expanded) {
+    FlameChartTimelineData data;
+    data.groups.push_back({.type = Group::Type::kFlame,
+                           .name = "Process 1",
+                           .start_level = 0,
+                           .nesting_level = kProcessNestingLevel,
+                           .expanded = true,
+                           .has_children = true,
+                           .pid = 1});
+    data.groups.push_back({.type = Group::Type::kFlame,
+                           .name = "XLA Ops",
+                           .start_level = 0,
+                           .nesting_level = kThreadNestingLevel,
+                           .expanded = expanded,
+                           .parent_index = 0,
+                           .level_count = 2,
+                           .pid = 1,
+                           .tid = 3});
+
+    // Level 0 (non-monotonic, >= 64 rects so MIP pyramids are built):
+    //   - Event 0: long enclosing rect [0, 10000]
+    //   - Events 1..79: short rects [100 * i, 100 * i + 20]
+    //   - Event 40 overrides to [4000, 12000] so max end exceeds
+    //     `indices.back()`
+    // Level 1 (monotonic, 80 rects): [100 * i, 100 * i + 20]
+    constexpr int kCountPerLevel = 80;
+    data.level_offsets = {0, kCountPerLevel, 2 * kCountPerLevel};
+    for (int i = 0; i < kCountPerLevel; ++i) {
+      data.level_event_indices.push_back(i);
+      data.entry_names.push_back(i == 0 ? "while.2682" : "short_op");
+      data.entry_levels.push_back(0);
+      if (i == 0) {
+        data.entry_start_times.push_back(0.0);
+        data.entry_total_times.push_back(10000.0);
+      } else if (i == 40) {
+        data.entry_start_times.push_back(4000.0);
+        data.entry_total_times.push_back(8000.0);
+      } else {
+        data.entry_start_times.push_back(static_cast<double>(i) * 100.0);
+        data.entry_total_times.push_back(20.0);
+      }
+      data.entry_self_times.push_back(data.entry_total_times.back());
+      data.entry_args.push_back({});
+    }
+    for (int i = 0; i < kCountPerLevel; ++i) {
+      data.level_event_indices.push_back(kCountPerLevel + i);
+      data.entry_names.push_back("mono_op");
+      data.entry_levels.push_back(1);
+      data.entry_start_times.push_back(static_cast<double>(i) * 100.0);
+      data.entry_total_times.push_back(20.0);
+      data.entry_self_times.push_back(20.0);
+      data.entry_args.push_back({});
+    }
+    return data;
+  };
+
+  timeline_.set_data_time_range({0.0, 12000.0});
+  timeline_.SetTimelineData(make_data(/*expanded=*/true));
+
+  const auto& pyramids = timeline_.level_mip_pyramids_for_test();
+  ASSERT_EQ(pyramids.size(), 2u);
+  EXPECT_TRUE(pyramids[0].has_pyramid);
+  EXPECT_EQ(pyramids[0].raw_prefix_max_ends.size(), 80u);
+  EXPECT_DOUBLE_EQ(pyramids[0].raw_prefix_max_ends.back(), 12000.0);
+  EXPECT_FALSE(pyramids[0].levels[2].prefix_max_ends.empty());
+  // Monotonic track allocates neither raw nor MIP prefix_max_ends.
+  EXPECT_TRUE(pyramids[1].raw_prefix_max_ends.empty());
+  EXPECT_TRUE(pyramids[1].levels[2].prefix_max_ends.empty());
+  // MIP bin width on level 0 reflects the true 12000 us span (not 7920 us from
+  // `indices.back()`).
+  EXPECT_GT(pyramids[0].levels[2].bin_width_us, 10000.0 / 40.0);
+
+  // Phase 1 (raw GPU path): zoom into [6050, 6080] where only enclosing rects
+  // on level 0 overlap.
+  timeline_.SetVisibleRange({6050.0, 6080.0});
+  timeline_.set_force_gpu_flame_batch_mode_for_test(true);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+
+  ASSERT_EQ(timeline_.emitted_gpu_flame_batches_for_test().size(), 1u);
+  EXPECT_EQ(timeline_.emitted_gpu_flame_batches_for_test()[0].first_instance,
+            pyramids[0].raw_gpu_instance_offset);
+  EXPECT_GT(timeline_.emitted_gpu_flame_batches_for_test()[0].instance_count,
+            0u);
+
+  // Phase 2 (MIP paths exercising `FindFirstVisibleTileIterator`):
+  // 2a. Compacted overview forces MIP drawing in `DrawEventsForLevel` even when
+  // zoomed into [6050, 6080]; tile 0 ([0, 10000]) must remain the first tile.
+  timeline_.set_max_uncompacted_overview_entries_for_test(64);
+  timeline_.set_is_compacted(true);
+  timeline_.SetTimelineData(make_data(/*expanded=*/true));
+  ASSERT_TRUE(timeline_.is_level_raw_events_compacted_for_test(0));
+  const auto& mip_pyramids = timeline_.level_mip_pyramids_for_test();
+  ASSERT_FALSE(mip_pyramids[0].levels[2].tiles.empty());
+  ASSERT_FALSE(mip_pyramids[0].levels[2].prefix_max_ends.empty());
+
+  timeline_.SetVisibleRange({6050.0, 6080.0});
+  timeline_.set_force_gpu_flame_batch_mode_for_test(true);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+  ASSERT_GE(timeline_.emitted_gpu_flame_batches_for_test().size(), 1u);
+  EXPECT_EQ(timeline_.emitted_gpu_flame_batches_for_test()[0].first_instance,
+            mip_pyramids[0].levels[2].gpu_instance_offset);
+  EXPECT_GT(timeline_.emitted_gpu_flame_batches_for_test()[0].instance_count,
+            0u);
+
+  // 2b. MIP-scale utilization over [2000, 3800] (where bin_width_us = 300 us <=
+  // 2.0 * (1800 / 8) = 450 us selects MIP level 2): tile 0 ([0, 10000], density
+  // 1.0) must not be skipped, keeping every bin >= 1.0f.
+  timeline_.SetVisibleRange({2000.0, 3800.0});
+  ASSERT_EQ(mip_pyramids[0].SelectMipLevel(2.0 * (1800.0 / 8.0)), 2);
+  const std::vector<Pixel> mip_util_bins =
+      timeline_.AccumulateLevelUtilizationForTest(
+          /*level=*/0, /*px_per_time_unit_val=*/8.0 / 1800.0, /*num_bins=*/8);
+  ASSERT_EQ(mip_util_bins.size(), 8u);
+  for (Pixel v : mip_util_bins) {
+    EXPECT_GE(v, 1.0f);
+  }
+
+  // 2c. MIP-scale collapsed preview (`DrawFlameGroupPreview`) zoomed into
+  // [6050, 6080] must include tile 0 in both GPU batch and CPU fallback modes.
+  timeline_.SetTimelineData(make_data(/*expanded=*/false));
+  const auto& preview_pyramids = timeline_.level_mip_pyramids_for_test();
+  timeline_.SetVisibleRange({6050.0, 6080.0});
+  timeline_.set_force_gpu_flame_batch_mode_for_test(true);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+  ASSERT_GE(timeline_.emitted_gpu_flame_batches_for_test().size(), 1u);
+  EXPECT_EQ(timeline_.emitted_gpu_flame_batches_for_test()[0].first_instance,
+            preview_pyramids[0].levels[2].gpu_instance_offset);
+  EXPECT_GT(timeline_.emitted_gpu_flame_batches_for_test()[0].instance_count,
+            0u);
+
+  timeline_.set_force_gpu_flame_batch_mode_for_test(false);
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGuiWindow* preview_window = nullptr;
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (absl::StrContains(w->Name, "TimelineChildPreview_XLA Ops_1")) {
+      preview_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(preview_window, nullptr);
+  EXPECT_FALSE(preview_window->DrawList->VtxBuffer.empty());
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       NonMonotonicTracksWithNanDurationPreservePrefixMaxBounds) {
+  auto make_data = [](bool expanded) {
+    FlameChartTimelineData data;
+    data.groups.push_back({.type = Group::Type::kFlame,
+                           .name = "Process 1",
+                           .start_level = 0,
+                           .nesting_level = kProcessNestingLevel,
+                           .expanded = true,
+                           .has_children = true,
+                           .pid = 1});
+    data.groups.push_back({.type = Group::Type::kFlame,
+                           .name = "XLA Ops",
+                           .start_level = 0,
+                           .nesting_level = kThreadNestingLevel,
+                           .expanded = expanded,
+                           .parent_index = 0,
+                           .level_count = 2,
+                           .pid = 1,
+                           .tid = 3});
+
+    // Level 0 starts with a leading NaN-duration marker at i == 0 (sharing MIP
+    // bin 0 with enclosing rect [0, 10000] at i == 1), followed by another NaN
+    // marker at i == 2 and shorter rects afterwards. Level 1 is monotonic with
+    // a leading NaN-duration marker so it must stay sparse (0 extra prefix
+    // bytes).
+    constexpr int kCount = 80;
+    data.level_offsets = {0, kCount, 2 * kCount};
+    for (int i = 0; i < kCount; ++i) {
+      data.level_event_indices.push_back(i);
+      data.entry_names.push_back(i == 1 ? "while.2682" : "op");
+      data.entry_levels.push_back(0);
+      if (i == 0) {
+        data.entry_start_times.push_back(0.0);
+        data.entry_total_times.push_back(
+            std::numeric_limits<Microseconds>::quiet_NaN());
+      } else if (i == 1) {
+        data.entry_start_times.push_back(0.0);
+        data.entry_total_times.push_back(10000.0);
+      } else if (i == 2) {
+        data.entry_start_times.push_back(50.0);
+        data.entry_total_times.push_back(
+            std::numeric_limits<Microseconds>::quiet_NaN());
+      } else {
+        data.entry_start_times.push_back(static_cast<double>(i) * 100.0);
+        data.entry_total_times.push_back(20.0);
+      }
+      data.entry_self_times.push_back(data.entry_total_times.back());
+      data.entry_args.push_back({});
+    }
+    for (int i = 0; i < kCount; ++i) {
+      data.level_event_indices.push_back(kCount + i);
+      data.entry_names.push_back("mono_op");
+      data.entry_levels.push_back(1);
+      data.entry_start_times.push_back(static_cast<double>(i) * 100.0);
+      data.entry_total_times.push_back(
+          i == 0 ? std::numeric_limits<Microseconds>::quiet_NaN() : 20.0);
+      data.entry_self_times.push_back(data.entry_total_times.back());
+      data.entry_args.push_back({});
+    }
+    return data;
+  };
+
+  timeline_.set_data_time_range({0.0, 10000.0});
+  timeline_.SetTimelineData(make_data(/*expanded=*/true));
+
+  const auto& pyramids = timeline_.level_mip_pyramids_for_test();
+  ASSERT_EQ(pyramids.size(), 2u);
+  EXPECT_TRUE(pyramids[0].has_pyramid);
+  ASSERT_EQ(pyramids[0].raw_prefix_max_ends.size(), 80u);
+  EXPECT_DOUBLE_EQ(pyramids[0].raw_prefix_max_ends[0], 0.0);
+  EXPECT_DOUBLE_EQ(pyramids[0].raw_prefix_max_ends.back(), 10000.0);
+  ASSERT_FALSE(pyramids[0].levels[2].tiles.empty());
+  EXPECT_DOUBLE_EQ(pyramids[0].levels[2].tiles[0].max_end, 10000.0);
+  ASSERT_FALSE(pyramids[0].levels[2].prefix_max_ends.empty());
+  EXPECT_DOUBLE_EQ(pyramids[0].levels[2].prefix_max_ends.back(), 10000.0);
+  // Monotonic track with a NaN-duration marker keeps sparse prefix arrays
+  // empty.
+  EXPECT_TRUE(pyramids[1].raw_prefix_max_ends.empty());
+  EXPECT_TRUE(pyramids[1].levels[2].prefix_max_ends.empty());
+
+  timeline_.set_force_gpu_flame_batch_mode_for_test(true);
+
+  // Leading NaN-duration marker at i == 0 (start = 0.0) must not be skipped
+  // when the visible range includes 0.0.
+  timeline_.SetVisibleRange({0.0, 10.0});
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+  ASSERT_GE(timeline_.emitted_gpu_flame_batches_for_test().size(), 1u);
+  EXPECT_EQ(timeline_.emitted_gpu_flame_batches_for_test()[0].first_instance,
+            pyramids[0].raw_gpu_instance_offset);
+
+  // Zooming past i == 0 must skip the leading marker and land on enclosing rect
+  // `while.2682` at i == 1.
+  timeline_.SetVisibleRange({6050.0, 6080.0});
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+  ASSERT_EQ(timeline_.emitted_gpu_flame_batches_for_test().size(), 1u);
+  EXPECT_EQ(timeline_.emitted_gpu_flame_batches_for_test()[0].first_instance,
+            pyramids[0].raw_gpu_instance_offset + 1);
+  EXPECT_GT(timeline_.emitted_gpu_flame_batches_for_test()[0].instance_count,
+            0u);
+
+  // Utilization raw-event scan zoomed past the off-screen NaN marker at t = 50
+  // must record only `while.2682` (1.0f per bin), without phantom occupancy.
+  const std::vector<Pixel> util_bins =
+      timeline_.AccumulateLevelUtilizationForTest(
+          /*level=*/0, /*px_per_time_unit_val=*/100.0 / 30.0, /*num_bins=*/100);
+  ASSERT_EQ(util_bins.size(), 100u);
+  for (Pixel v : util_bins) {
+    EXPECT_FLOAT_EQ(v, 1.0f);
+  }
+
+  // Box-selection zoomed past t = 50 must select `while.2682`, skip the
+  // off-screen NaN markers (i == 0, i == 2), and emit valid JSON without NaN.
+  std::string captured_selection_json;
+  timeline_.set_event_callback(
+      [&](absl::string_view event_type, const EventData& ev_data) {
+        if (event_type == kEventsSelected) {
+          auto it = ev_data.find(std::string(kEventsSelectedData));
+          if (it != ev_data.end()) {
+            captured_selection_json = std::any_cast<std::string>(it->second);
+          }
+        }
+      });
+  timeline_.set_mouse_mode(MouseMode::kSelect);
+  ImGuiIO& io = ImGui::GetIO();
+  SimulateFrame();
+  io.AddMousePosEvent(GetTimelineStartX() + 10.0f, 35.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMousePosEvent(GetTimelineStartX() + 400.0f, 200.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  EXPECT_TRUE(timeline_.selected_event_indices_for_test().contains(1));
+  EXPECT_FALSE(timeline_.selected_event_indices_for_test().contains(0));
+  EXPECT_FALSE(timeline_.selected_event_indices_for_test().contains(2));
+  EXPECT_THAT(captured_selection_json, ::testing::HasSubstr("while.2682"));
+  EXPECT_THAT(captured_selection_json,
+              ::testing::Not(::testing::HasSubstr("nan")));
+  EXPECT_THAT(captured_selection_json,
+              ::testing::Not(::testing::HasSubstr("NaN")));
+
+  // Collapsed preview raw-event scan zoomed past t = 50 must skip off-screen
+  // NaN markers and emit only finite vertices.
+  timeline_.set_force_gpu_flame_batch_mode_for_test(false);
+  timeline_.SetTimelineData(make_data(/*expanded=*/false));
+  timeline_.SetVisibleRange({6050.0, 6080.0});
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGuiWindow* preview_window = nullptr;
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (absl::StrContains(w->Name, "TimelineChildPreview_XLA Ops_1")) {
+      preview_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(preview_window, nullptr);
+  EXPECT_FALSE(preview_window->DrawList->VtxBuffer.empty());
+  for (const ImDrawVert& vtx : preview_window->DrawList->VtxBuffer) {
+    EXPECT_TRUE(std::isfinite(vtx.pos.x));
+    EXPECT_TRUE(std::isfinite(vtx.pos.y));
+  }
+  ImGui::EndFrame();
+
+  // Schedule multi-selection scan on a non-monotonic unit lane must skip an
+  // intervening off-screen NaN marker instead of inflating counts or poisoning
+  // `totalBundles` with NaN.
+  Timeline schedule_timeline(color_palette_);
+  schedule_timeline.set_event_tooltip_enabled(false);
+  FlameChartTimelineData schedule_data;
+  schedule_data.groups.push_back({.type = Group::Type::kFlame,
+                                  .name = "VST",
+                                  .start_level = 0,
+                                  .nesting_level = 1,
+                                  .expanded = true});
+  schedule_data.groups.push_back({.type = Group::Type::kCounter,
+                                  .name = "VST utilization",
+                                  .start_level = 1,
+                                  .nesting_level = 1,
+                                  .expanded = true});
+  schedule_data.level_offsets = {0, 3};
+  schedule_data.level_event_indices = {0, 1, 2};
+  schedule_data.entry_names = {"while.2682", "nan_marker", "in_range_op"};
+  schedule_data.entry_levels = {0, 0, 0};
+  schedule_data.entry_start_times = {0.0, 50.0, 6050.0};
+  schedule_data.entry_total_times = {
+      10000.0, std::numeric_limits<Microseconds>::quiet_NaN(), 10.0};
+  schedule_data.entry_self_times = schedule_data.entry_total_times;
+  schedule_data.entry_args.resize(3);
+  CounterData schedule_counter;
+  schedule_counter.timestamps = {0.0, 6050.0, 6060.0};
+  schedule_counter.values = {0.0, 1.0, 0.0};
+  schedule_counter.min_value = 0.0;
+  schedule_counter.max_value = 1.0;
+  schedule_data.counter_data_by_group_index[1] = std::move(schedule_counter);
+  schedule_timeline.SetTimelineData(std::move(schedule_data));
+  schedule_timeline.set_data_time_range({0.0, 10000.0});
+  EventData multi_detail;
+  schedule_timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kEventsSelected) {
+          multi_detail = detail;
+        }
+      });
+  schedule_timeline.selected_counter_points_for_test() = {{1, 1}};
+  schedule_timeline.CalculateAndEmitMetrics_for_test();
+  ASSERT_TRUE(multi_detail.contains("totalInstructions"));
+  EXPECT_EQ(std::any_cast<int>(multi_detail.at("totalInstructions")), 2);
+  const auto& top_instrs = std::any_cast<const std::vector<EventData>&>(
+      multi_detail.at("topInstructions"));
+  ASSERT_EQ(top_instrs.size(), 2u);
+  for (const EventData& item : top_instrs) {
+    EXPECT_TRUE(std::isfinite(std::any_cast<double>(item.at("totalBundles"))));
+  }
+}
+
+TEST(TimelineCompactionTest,
+     CompactTimelineDataToMipOverviewUpdatesPrefixMaxBounds) {
+  auto make_data = []() {
+    FlameChartTimelineData data;
+    data.groups.push_back({.type = Group::Type::kFlame,
+                           .name = "XLA Ops",
+                           .start_level = 0,
+                           .nesting_level = kThreadNestingLevel,
+                           .expanded = true,
+                           .level_count = 3});
+    constexpr int kCountPerLevel = 128;
+    data.level_offsets = {0, kCountPerLevel, 2 * kCountPerLevel,
+                          3 * kCountPerLevel};
+    auto push_event = [&](int lvl, Microseconds start, Microseconds dur) {
+      const int idx = static_cast<int>(data.entry_start_times.size());
+      data.level_event_indices.push_back(idx);
+      data.entry_names.push_back("op");
+      data.entry_levels.push_back(lvl);
+      data.entry_start_times.push_back(start);
+      data.entry_total_times.push_back(dur);
+      data.entry_self_times.push_back(dur);
+      data.entry_args.push_back({});
+    };
+    // Level 0: monotonic disjoint rects (stays monotonic after compaction).
+    for (int i = 0; i < kCountPerLevel; ++i) {
+      push_event(0, static_cast<double>(i) * 100.0, 20.0);
+    }
+    // Level 1: enclosing rect [0, 12800] plus short rects (stays non-monotonic
+    // after compaction, with raw_prefix_max_ends resized to compacted length).
+    for (int i = 0; i < kCountPerLevel; ++i) {
+      if (i == 0) {
+        push_event(1, 0.0, 12800.0);
+      } else {
+        push_event(1, static_cast<double>(i) * 100.0, 20.0);
+      }
+    }
+    // Level 2: non-monotonic before compaction (event 1 [1, 2] sits inside
+    // event 0 [0, 300] in bin 0), becomes monotonic after compaction drops
+    // non-dominant event 1.
+    for (int i = 0; i < kCountPerLevel; ++i) {
+      if (i == 0) {
+        push_event(2, 0.0, 300.0);
+      } else if (i == 1) {
+        push_event(2, 1.0, 1.0);
+      } else {
+        push_event(2, static_cast<double>(i) * 100.0 + 300.0, 20.0);
+      }
+    }
+    return data;
+  };
+
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_max_uncompacted_overview_entries_for_test(64);
+
+  // Verify pre-compaction state: level 0 monotonic, levels 1 & 2 non-monotonic.
+  timeline.set_is_compacted(false);
+  timeline.SetTimelineData(make_data());
+  ASSERT_EQ(timeline.level_mip_pyramids_for_test().size(), 3u);
+  EXPECT_TRUE(
+      timeline.level_mip_pyramids_for_test()[0].raw_prefix_max_ends.empty());
+  EXPECT_EQ(
+      timeline.level_mip_pyramids_for_test()[1].raw_prefix_max_ends.size(),
+      128u);
+  EXPECT_EQ(
+      timeline.level_mip_pyramids_for_test()[2].raw_prefix_max_ends.size(),
+      128u);
+
+  // Trigger compaction on the downsampled overview.
+  timeline.set_is_compacted(true);
+  timeline.SetTimelineData(make_data());
+  ASSERT_TRUE(timeline.is_level_raw_events_compacted_for_test(0));
+  ASSERT_TRUE(timeline.is_level_raw_events_compacted_for_test(1));
+  ASSERT_TRUE(timeline.is_level_raw_events_compacted_for_test(2));
+
+  const auto& pyramids = timeline.level_mip_pyramids_for_test();
+  EXPECT_TRUE(pyramids[0].raw_prefix_max_ends.empty());
+  const size_t compacted_lvl1_count =
+      timeline.timeline_data().level_events(1).size();
+  EXPECT_LT(compacted_lvl1_count, 128u);
+  EXPECT_EQ(pyramids[1].raw_prefix_max_ends.size(), compacted_lvl1_count);
+  EXPECT_DOUBLE_EQ(pyramids[1].raw_prefix_max_ends.back(), 12800.0);
+  EXPECT_TRUE(pyramids[2].raw_prefix_max_ends.empty());
+}
+
+TEST_F(TimelineDragSelectionTest,
+       SnapToEventEdge_NonMonotonicTrackSnapsToEnclosingRectEnd) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 0, 0};
+  // Enclosing rect [10, 120] followed by shorter rects [30, 40] and [50, 60]
+  // so naive end-time binary search skips the enclosing rect near t = 120.
+  data.entry_start_times = {10.0, 30.0, 50.0};
+  data.entry_total_times = {110.0, 10.0, 10.0};
+  data.entry_self_times = {90.0, 10.0, 10.0};
+  data.entry_names = {"while.2682", "short_1", "short_2"};
+  data.entry_event_ids = {1, 2, 3};
+  data.entry_args = {{}, {}, {}};
+  data.groups = {
+      {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
+  data.level_offsets = {0, 3};
+  data.level_event_indices = {0, 1, 2};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Start far from any edge (900px -> 90.0 us) and end near while.2682's right
+  // edge (1205px -> 120.5 us) to verify snapping to 120.0 us.
+  io.MousePos = ImVec2(GetTimelineStartX() + 900.0f, kFirstEventY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 1205.0f, kFirstEventY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1u);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 90.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 120.0);
+}
+
+TEST_F(
+    RealTimelineImGuiFixture,
+    BorrowedOverviewMipPyramidsPreserveNonMonotonicMipBoundsAndClearRawPrefix) {
+  auto make_groups = []() {
+    std::vector<Group> groups = {
+        {.type = Group::Type::kFlame,
+         .name = "Process 1",
+         .start_level = 0,
+         .nesting_level = kProcessNestingLevel,
+         .expanded = true,
+         .has_children = true,
+         .pid = 1},
+        {.type = Group::Type::kFlame,
+         .name = "XLA Ops",
+         .start_level = 0,
+         .nesting_level = kThreadNestingLevel,
+         .expanded = true,
+         .parent_index = 0,
+         .level_count = 1,
+         .pid = 1,
+         .tid = 10},
+    };
+    return groups;
+  };
+
+  FlameChartTimelineData overview;
+  overview.groups = make_groups();
+  constexpr int kCount = 80;
+  overview.level_offsets = {0, kCount};
+  for (int i = 0; i < kCount; ++i) {
+    overview.level_event_indices.push_back(i);
+    overview.entry_names.push_back(i == 0 ? "while.2682" : "op");
+    overview.entry_levels.push_back(0);
+    if (i == 0) {
+      overview.entry_start_times.push_back(0.0);
+      overview.entry_total_times.push_back(10000.0);
+    } else if (i == 40) {
+      overview.entry_start_times.push_back(4000.0);
+      overview.entry_total_times.push_back(8000.0);
+    } else {
+      overview.entry_start_times.push_back(static_cast<double>(i) * 100.0);
+      overview.entry_total_times.push_back(20.0);
+    }
+    overview.entry_self_times.push_back(overview.entry_total_times.back());
+    overview.entry_args.push_back({});
+  }
+
+  timeline_.set_data_time_range({0.0, 12000.0});
+  timeline_.SetVisibleRange({0.0, 12000.0});
+  timeline_.SetTimelineData(std::move(overview));
+  timeline_.MarkCurrentDataAsFullOverview();
+
+  // Filtered refetch excludes {pid=1, tid=10}, so the track borrows the saved
+  // overview MIP pyramid with raw_prefix_max_ends cleared and MIP
+  // prefix_max_ends intact.
+  timeline_.SetLoadedActiveTracks({{99, 999}});
+  timeline_.PrepareForFilteredRefetch();
+  FlameChartTimelineData empty_zoomed;
+  empty_zoomed.groups = make_groups();
+  empty_zoomed.level_offsets = {0, 0};
+  timeline_.SetTimelineData(std::move(empty_zoomed));
+
+  const auto& pyramids = timeline_.level_mip_pyramids_for_test();
+  ASSERT_EQ(pyramids.size(), 1u);
+  ASSERT_TRUE(pyramids[0].has_pyramid);
+  EXPECT_TRUE(pyramids[0].raw_events_compacted);
+  EXPECT_TRUE(pyramids[0].raw_prefix_max_ends.empty());
+  ASSERT_FALSE(pyramids[0].levels[2].tiles.empty());
+  ASSERT_FALSE(pyramids[0].levels[2].prefix_max_ends.empty());
+  EXPECT_DOUBLE_EQ(pyramids[0].levels[2].prefix_max_ends.back(), 12000.0);
+
+  timeline_.set_force_gpu_flame_batch_mode_for_test(true);
+  timeline_.SetVisibleRange({6050.0, 6080.0});
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+  ASSERT_EQ(timeline_.emitted_gpu_flame_batches_for_test().size(), 1u);
+  EXPECT_EQ(timeline_.emitted_gpu_flame_batches_for_test()[0].first_instance,
+            pyramids[0].levels[2].gpu_instance_offset);
+  EXPECT_GT(timeline_.emitted_gpu_flame_batches_for_test()[0].instance_count,
+            0u);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       NonMonotonicTrackSparseViewportStaysInRawDrawMode) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Process 1",
+                         .start_level = 0,
+                         .nesting_level = kProcessNestingLevel,
+                         .expanded = true,
+                         .has_children = true,
+                         .pid = 1});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "XLA Ops",
+                         .start_level = 0,
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = true,
+                         .parent_index = 0,
+                         .level_count = 1,
+                         .pid = 1,
+                         .tid = 10});
+
+  // Enclosing rect [0, 100000], 2,494 short off-screen rects in [0, 5000], and
+  // only 5 short rects in [50000, 90000]. Viewing [50000, 90000] has only 6
+  // actually visible rects, so rewinding `first_visible_it` must not trigger
+  // MIP mode despite `visible_count == 2500 > kMinVisibleEventsForMipDraw`.
+  constexpr int kOffScreenCount = 2494;
+  constexpr int kVisibleShortCount = 5;
+  constexpr int kTotal = 1 + kOffScreenCount + kVisibleShortCount;
+  data.level_offsets = {0, kTotal};
+  auto push_event = [&](const char* name, Microseconds start,
+                        Microseconds dur) {
+    const int idx = static_cast<int>(data.entry_start_times.size());
+    data.level_event_indices.push_back(idx);
+    data.entry_names.push_back(name);
+    data.entry_levels.push_back(0);
+    data.entry_start_times.push_back(start);
+    data.entry_total_times.push_back(dur);
+    data.entry_self_times.push_back(dur);
+    data.entry_args.push_back({});
+  };
+  push_event("while.2682", 0.0, 100000.0);
+  for (int i = 0; i < kOffScreenCount; ++i) {
+    push_event("offscreen_op", static_cast<double>(i) * 2.0, 1.0);
+  }
+  for (int i = 0; i < kVisibleShortCount; ++i) {
+    push_event("visible_op", 50000.0 + static_cast<double>(i) * 8000.0, 100.0);
+  }
+
+  timeline_.set_data_time_range({0.0, 100000.0});
+  timeline_.SetTimelineData(std::move(data));
+  const auto& pyramids = timeline_.level_mip_pyramids_for_test();
+  ASSERT_EQ(pyramids.size(), 1u);
+  ASSERT_TRUE(pyramids[0].has_pyramid);
+  ASSERT_FALSE(pyramids[0].raw_prefix_max_ends.empty());
+
+  timeline_.set_force_gpu_flame_batch_mode_for_test(true);
+  timeline_.SetVisibleRange({50000.0, 90000.0});
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGui::Render();
+  ASSERT_EQ(timeline_.emitted_gpu_flame_batches_for_test().size(), 1u);
+  EXPECT_EQ(timeline_.emitted_gpu_flame_batches_for_test()[0].first_instance,
+            pyramids[0].raw_gpu_instance_offset);
+}
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer

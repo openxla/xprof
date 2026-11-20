@@ -7026,6 +7026,315 @@ std::optional<size_t> FindEntryIndexByName(const FlameChartTimelineData& data,
 
 TEST_F(
     DataProviderTest,
+    AppendTraceEventsIncremental_ZeroDurationBoundaryBeginPacksBelowAncestors) {
+  // Mirrors chunk split boundaries where still-open ancestors are flushed at
+  // `split_ts` together with a newly opened nested child
+  // (`Phase::kDurationBegin`, `ts == split_ts`, `dur == 0.0`).
+  // - Track 0: while.2682 [100, 400]
+  // - Track 1: conditional.1368 [150, 260], conditional.1369 [270, 390]
+  // - Track 2: call-done.23 [200, 240] (opened at chunk 1 boundary t=200),
+  //            call-done.30 [300, 350] (opened at chunk 2 boundary t=300, stays
+  //            zero-duration across an intermediate chunk 3 before closing in
+  //            chunk 4).
+  ParsedTraceEvents single_pass;
+  single_pass.flame_events = {
+      CreateProcessEvent(1, "host:0 /device:TPU:0"),
+      CreateThreadEvent(1, 2, "XLA Ops"),
+      MakeSpan(Phase::kComplete, 1004, 1, 2, "while.2682", 100.0, 300.0),
+      MakeSpan(Phase::kComplete, 2002, 1, 2, "conditional.1368", 150.0, 110.0),
+      MakeSpan(Phase::kComplete, 3002, 1, 2, "call-done.23", 200.0, 40.0),
+      MakeSpan(Phase::kComplete, 4004, 1, 2, "conditional.1369", 270.0, 120.0),
+      MakeSpan(Phase::kComplete, 5004, 1, 2, "call-done.30", 300.0, 50.0),
+  };
+  Timeline single_timeline(palette_);
+  DataProvider single_provider;
+  single_provider.ProcessTraceEvents(single_pass, single_timeline);
+
+  // Chunk 1 ends at split_ts = 200.0; call-done.23 opens at t=200.0 with dur=0.
+  ParsedTraceEvents chunk1;
+  chunk1.flame_events = {
+      CreateProcessEvent(1, "host:0 /device:TPU:0"),
+      CreateThreadEvent(1, 2, "XLA Ops"),
+      MakeSpan(Phase::kDurationBegin, 1001, 1, 2, "while.2682", 100.0, 100.0),
+      MakeSpan(Phase::kDurationBegin, 2001, 1, 2, "conditional.1368", 150.0,
+               50.0),
+      MakeSpan(Phase::kDurationBegin, 3001, 1, 2, "call-done.23", 200.0, 0.0),
+  };
+
+  // Chunk 2 closes conditional.1368 and call-done.23, and opens
+  // conditional.1369 + zero-duration boundary call-done.30 at split_ts = 300.0.
+  ParsedTraceEvents chunk2;
+  chunk2.flame_events = {
+      MakeSpan(Phase::kDurationBegin, 1002, 1, 2, "while.2682", 100.0, 200.0),
+      MakeSpan(Phase::kDurationEnd, 2002, 1, 2, "conditional.1368", 150.0,
+               110.0),
+      MakeSpan(Phase::kDurationEnd, 3002, 1, 2, "call-done.23", 200.0, 40.0),
+      MakeSpan(Phase::kDurationBegin, 4002, 1, 2, "conditional.1369", 270.0,
+               30.0),
+      MakeSpan(Phase::kDurationBegin, 5002, 1, 2, "call-done.30", 300.0, 0.0),
+  };
+
+  // Chunk 3 has no update for call-done.30 yet (keeps its track reserved).
+  ParsedTraceEvents chunk3;
+  chunk3.flame_events = {
+      MakeSpan(Phase::kDurationBegin, 1003, 1, 2, "while.2682", 100.0, 230.0),
+      MakeSpan(Phase::kDurationBegin, 4003, 1, 2, "conditional.1369", 270.0,
+               60.0),
+  };
+
+  // Chunk 4 closes while.2682, conditional.1369, and call-done.30.
+  ParsedTraceEvents chunk4;
+  chunk4.flame_events = {
+      MakeSpan(Phase::kDurationEnd, 1004, 1, 2, "while.2682", 100.0, 300.0),
+      MakeSpan(Phase::kDurationEnd, 4004, 1, 2, "conditional.1369", 270.0,
+               120.0),
+      MakeSpan(Phase::kDurationEnd, 5004, 1, 2, "call-done.30", 300.0, 50.0),
+  };
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk1), timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk2), timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk3), timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk4), timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  ExpectTimelineDataMatches(timeline_.timeline_data(),
+                            single_timeline.timeline_data());
+}
+
+TEST_F(DataProviderTest,
+       AppendTraceEventsIncremental_ZeroDurOpenProxyReservesTrack) {
+  ParsedTraceEvents single_pass;
+  single_pass.flame_events = {
+      CreateProcessEvent(1, "host:0 /device:TPU:0"),
+      CreateThreadEvent(1, 2, "XLA Ops"),
+      MakeSpan(Phase::kComplete, 103, 1, 2, "parent", 100.0, 200.0),
+      MakeSpan(Phase::kComplete, 203, 1, 2, "child_open", 200.0, 60.0),
+      MakeSpan(Phase::kComplete, 300, 1, 2, "boundary_nested", 200.0, 5.0),
+      MakeSpan(Phase::kComplete, 301, 1, 2, "nested_leaf", 210.0, 10.0),
+  };
+  Timeline single_timeline(palette_);
+  DataProvider single_provider;
+  single_provider.ProcessTraceEvents(single_pass, single_timeline);
+
+  // Chunk 1: parent [100, 200] (open) + zero-duration child_open at split_ts =
+  // 200 (open, track 1).
+  ParsedTraceEvents chunk1;
+  chunk1.flame_events = {
+      CreateProcessEvent(1, "host:0 /device:TPU:0"),
+      CreateThreadEvent(1, 2, "XLA Ops"),
+      MakeSpan(Phase::kDurationBegin, 101, 1, 2, "parent", 100.0, 100.0),
+      MakeSpan(Phase::kDurationBegin, 201, 1, 2, "child_open", 200.0, 0.0),
+  };
+
+  // Chunk 2: parent extends to 250, child_open has no update yet, and two
+  // nested children ([200, 205] at child_open's start and [210, 220] after it)
+  // arrive. Track 1 must remain reserved for child_open, and both children must
+  // pack on track 2 and deduct self time from child_open rather than parent.
+  ParsedTraceEvents chunk2;
+  chunk2.flame_events = {
+      MakeSpan(Phase::kDurationBegin, 102, 1, 2, "parent", 100.0, 150.0),
+      MakeSpan(Phase::kComplete, 300, 1, 2, "boundary_nested", 200.0, 5.0),
+      MakeSpan(Phase::kComplete, 301, 1, 2, "nested_leaf", 210.0, 10.0),
+  };
+
+  // Chunk 3: parent closes [100, 300] and child_open closes [200, 260].
+  ParsedTraceEvents chunk3;
+  chunk3.flame_events = {
+      MakeSpan(Phase::kDurationEnd, 103, 1, 2, "parent", 100.0, 200.0),
+      MakeSpan(Phase::kDurationEnd, 203, 1, 2, "child_open", 200.0, 60.0),
+  };
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk1), timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk2), timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk3), timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_EQ(data.entry_names.size(), 4u);
+  EXPECT_EQ(data.entry_names[0], "parent");
+  EXPECT_EQ(data.entry_levels[0], 0);
+  EXPECT_DOUBLE_EQ(data.entry_total_times[0], 200.0);
+  EXPECT_DOUBLE_EQ(data.entry_self_times[0], 140.0);
+  EXPECT_EQ(data.entry_names[1], "child_open");
+  EXPECT_EQ(data.entry_levels[1], 1);
+  EXPECT_DOUBLE_EQ(data.entry_total_times[1], 60.0);
+  EXPECT_DOUBLE_EQ(data.entry_self_times[1], 45.0);
+  EXPECT_EQ(data.entry_names[2], "boundary_nested");
+  EXPECT_EQ(data.entry_levels[2], 2);
+  EXPECT_DOUBLE_EQ(data.entry_self_times[2], 5.0);
+  EXPECT_EQ(data.entry_names[3], "nested_leaf");
+  EXPECT_EQ(data.entry_levels[3], 2);
+  EXPECT_DOUBLE_EQ(data.entry_self_times[3], 10.0);
+
+  ExpectTimelineDataMatches(timeline_.timeline_data(),
+                            single_timeline.timeline_data());
+}
+
+TEST_F(DataProviderTest,
+       AppendTraceEventsIncremental_SameTsNestedZeroDurOpenProxiesKeepOrder) {
+  ParsedTraceEvents single_pass;
+  single_pass.flame_events = {
+      CreateProcessEvent(1, "host:0 /device:TPU:0"),
+      CreateThreadEvent(1, 2, "XLA Ops"),
+      MakeSpan(Phase::kComplete, 103, 1, 2, "parent", 200.0, 100.0),
+      MakeSpan(Phase::kComplete, 203, 1, 2, "child_open", 200.0, 60.0),
+      MakeSpan(Phase::kComplete, 301, 1, 2, "nested_leaf", 210.0, 15.0),
+  };
+  Timeline single_timeline(palette_);
+  DataProvider single_provider;
+  single_provider.ProcessTraceEvents(single_pass, single_timeline);
+
+  // Chunk 1: both parent (track 0) and child_open (track 1) open at the same
+  // chunk-split boundary timestamp t = 200 with dur = 0.
+  ParsedTraceEvents chunk1;
+  chunk1.flame_events = {
+      CreateProcessEvent(1, "host:0 /device:TPU:0"),
+      CreateThreadEvent(1, 2, "XLA Ops"),
+      MakeSpan(Phase::kDurationBegin, 101, 1, 2, "parent", 200.0, 0.0),
+      MakeSpan(Phase::kDurationBegin, 201, 1, 2, "child_open", 200.0, 0.0),
+  };
+
+  // Chunk 2: parent receives a continuation update (dur = 50) while child_open
+  // stays at dur = 0. Proxy sorting must still keep parent before child_open so
+  // nested_leaf deducts self time from child_open rather than parent.
+  ParsedTraceEvents chunk2;
+  chunk2.flame_events = {
+      MakeSpan(Phase::kDurationBegin, 102, 1, 2, "parent", 200.0, 50.0),
+      MakeSpan(Phase::kComplete, 301, 1, 2, "nested_leaf", 210.0, 15.0),
+  };
+
+  // Chunk 3: parent closes [200, 300] and child_open closes [200, 260].
+  ParsedTraceEvents chunk3;
+  chunk3.flame_events = {
+      MakeSpan(Phase::kDurationEnd, 103, 1, 2, "parent", 200.0, 100.0),
+      MakeSpan(Phase::kDurationEnd, 203, 1, 2, "child_open", 200.0, 60.0),
+  };
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk1), timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk2), timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk3), timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_EQ(data.entry_names.size(), 3u);
+  EXPECT_EQ(data.entry_names[0], "parent");
+  EXPECT_EQ(data.entry_levels[0], 0);
+  EXPECT_DOUBLE_EQ(data.entry_self_times[0], 40.0);
+  EXPECT_EQ(data.entry_names[1], "child_open");
+  EXPECT_EQ(data.entry_levels[1], 1);
+  EXPECT_DOUBLE_EQ(data.entry_self_times[1], 45.0);
+  EXPECT_EQ(data.entry_names[2], "nested_leaf");
+  EXPECT_EQ(data.entry_levels[2], 2);
+  EXPECT_DOUBLE_EQ(data.entry_self_times[2], 15.0);
+
+  ExpectTimelineDataMatches(timeline_.timeline_data(),
+                            single_timeline.timeline_data());
+}
+
+TEST_F(
+    DataProviderTest,
+    AppendTraceEventsIncremental_ZeroDurCompleteBeforeZeroDurBeginAtSplitTs) {
+  ParsedTraceEvents single_pass;
+  single_pass.flame_events = {
+      CreateProcessEvent(1, "host:0 /device:TPU:0"),
+      CreateThreadEvent(1, 2, "XLA Ops"),
+      MakeSpan(Phase::kComplete, 102, 1, 2, "parent", 100.0, 200.0),
+      MakeSpan(Phase::kComplete, 202, 1, 2, "child_open", 200.0, 60.0),
+      MakeSpan(Phase::kComplete, 300, 1, 2, "instant_at_split", 200.0, 0.0),
+  };
+  Timeline single_timeline(palette_);
+  DataProvider single_provider;
+  single_provider.ProcessTraceEvents(single_pass, single_timeline);
+
+  // Chunk 1 delivers a zero-duration kComplete ahead of a co-timestamped
+  // zero-duration kDurationBegin at split_ts = 200. Phase ranking must order
+  // kDurationBegin first so the two spans do not overlap on track 1.
+  ParsedTraceEvents chunk1;
+  chunk1.flame_events = {
+      CreateProcessEvent(1, "host:0 /device:TPU:0"),
+      CreateThreadEvent(1, 2, "XLA Ops"),
+      MakeSpan(Phase::kDurationBegin, 101, 1, 2, "parent", 100.0, 100.0),
+      MakeSpan(Phase::kComplete, 300, 1, 2, "instant_at_split", 200.0, 0.0),
+      MakeSpan(Phase::kDurationBegin, 201, 1, 2, "child_open", 200.0, 0.0),
+  };
+  ParsedTraceEvents chunk2;
+  chunk2.flame_events = {
+      MakeSpan(Phase::kDurationEnd, 102, 1, 2, "parent", 100.0, 200.0),
+      MakeSpan(Phase::kDurationEnd, 202, 1, 2, "child_open", 200.0, 60.0),
+  };
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk1), timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk2), timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  ExpectTimelineDataMatches(timeline_.timeline_data(),
+                            single_timeline.timeline_data());
+}
+
+TEST_F(
+    DataProviderTest,
+    AppendTraceEventsIncremental_OrphanedZeroDurOpenChildRetiredOnParentClose) {
+  // Chunk 1: parent [100, 200] (open) + nested zero-duration child_open at 200.
+  ParsedTraceEvents chunk1;
+  chunk1.flame_events = {
+      CreateProcessEvent(1, "host:0 /device:TPU:0"),
+      CreateThreadEvent(1, 2, "XLA Ops"),
+      MakeSpan(Phase::kDurationBegin, 101, 1, 2, "parent", 100.0, 100.0),
+      MakeSpan(Phase::kDurationBegin, 201, 1, 2, "child_open", 200.0, 0.0),
+  };
+
+  // Chunk 2: parent closes [100, 400] without closing child_open (e.g.
+  // truncated capture), a sibling [250, 350] runs inside [200, 400], and a
+  // later root [500, 600] arrives. Also open a zero-duration ancestor + child
+  // pair at 800 to cover the zero-duration closing ancestor case.
+  ParsedTraceEvents chunk2;
+  chunk2.flame_events = {
+      MakeSpan(Phase::kDurationEnd, 102, 1, 2, "parent", 100.0, 300.0),
+      MakeSpan(Phase::kComplete, 251, 1, 2, "sibling_in_parent", 250.0, 100.0),
+      MakeSpan(Phase::kComplete, 301, 1, 2, "later_root_chunk2", 500.0, 100.0),
+      MakeSpan(Phase::kDurationBegin, 401, 1, 2, "zero_parent", 800.0, 0.0),
+      MakeSpan(Phase::kDurationBegin, 402, 1, 2, "zero_child_open", 800.0, 0.0),
+  };
+
+  // Chunk 3: zero_parent closes with dur=0 (retiring zero_child_open), and a
+  // later root [900, 1000] arrives in the same slice.
+  ParsedTraceEvents chunk3;
+  chunk3.flame_events = {
+      MakeSpan(Phase::kDurationEnd, 403, 1, 2, "zero_parent", 800.0, 0.0),
+      MakeSpan(Phase::kComplete, 302, 1, 2, "later_root_chunk3", 900.0, 100.0),
+  };
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk1), timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk2), timeline_);
+  data_provider_.AppendTraceEventsIncremental(std::move(chunk3), timeline_);
+  data_provider_.FinishIncrementalLoad();
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_EQ(data.entry_names.size(), 7u);
+  EXPECT_EQ(data.entry_names[0], "parent");
+  EXPECT_EQ(data.entry_levels[0], 0);
+  EXPECT_DOUBLE_EQ(data.entry_self_times[0], 200.0);
+  EXPECT_EQ(data.entry_names[1], "child_open");
+  EXPECT_EQ(data.entry_levels[1], 1);
+  EXPECT_EQ(data.entry_names[2], "sibling_in_parent");
+  EXPECT_EQ(data.entry_levels[2], 1);
+  EXPECT_EQ(data.entry_names[3], "later_root_chunk2");
+  EXPECT_EQ(data.entry_levels[3], 0);
+  EXPECT_EQ(data.entry_names[4], "zero_parent");
+  EXPECT_EQ(data.entry_levels[4], 0);
+  EXPECT_EQ(data.entry_names[5], "zero_child_open");
+  EXPECT_EQ(data.entry_levels[5], 1);
+  EXPECT_EQ(data.entry_names[6], "later_root_chunk3");
+  EXPECT_EQ(data.entry_levels[6], 0);
+}
+
+TEST_F(
+    DataProviderTest,
     UniformTrackBudgetPreservesHighEventCountTracksWithoutDevicePidHeuristics) {
   ParsedTraceEvents batch =
       CreateSingleTrackBatch(/*pid=*/1, /*tid=*/1, "XLA Ops", 70005);

@@ -1276,6 +1276,151 @@ TEST(TracePbEventParserNativeTest,
   EXPECT_DOUBLE_EQ(td.entry_start_times[split_sibling_idx], 2500.2);
 }
 
+TEST(
+    TracePbEventParserIncrementalTest,
+    IncrementalTraceEventsZoomRefetchPreservesClosingSplitFrameAndSkipsMiddle) {
+  constexpr uint64_t kDurationPhaseBeginBit = 1ULL << 61;
+  constexpr uint64_t kDurationPhaseEndBit = 1ULL << 62;
+
+  // Frame 0: [1000, 1050] ms — while.2682 opens (B, dur=50 ms) + op_f0.
+  xprof::TraceDataResponse f0;
+  f0.add_interned_strings("");
+  f0.add_interned_strings("while.2682");
+  f0.add_interned_strings("op_f0");
+  auto* proc = f0.mutable_metadata()->add_processes();
+  proc->set_id(1);
+  proc->set_name("host:0 /device:TPU:0");
+  auto* th = proc->add_threads();
+  th->set_id(10);
+  th->set_name("XLA Ops");
+  auto* s0 = f0.add_complete_events();
+  s0->mutable_metadata()->set_process_id(1);
+  s0->mutable_metadata()->set_thread_id(10);
+  s0->add_deltas(1000000000000ULL);
+  s0->add_durations(50000000000ULL | kDurationPhaseBeginBit);
+  s0->add_name_refs(1);
+  s0->add_event_metadata();
+  s0->add_deltas(10000000000ULL);
+  s0->add_durations(10000000000ULL);
+  s0->add_name_refs(2);
+  s0->add_event_metadata();
+
+  // Frame 1: [1200, 1250] ms — intermediate open update (B, dur=250 ms) + op_f1
+  xprof::TraceDataResponse f1;
+  f1.add_interned_strings("op_f1");
+  auto* s1 = f1.add_complete_events();
+  s1->mutable_metadata()->set_process_id(1);
+  s1->mutable_metadata()->set_thread_id(10);
+  s1->add_deltas(1000000000000ULL);
+  s1->add_durations(250000000000ULL | kDurationPhaseBeginBit);
+  s1->add_name_refs(1);
+  s1->add_event_metadata();
+  s1->add_deltas(210000000000ULL);
+  s1->add_durations(10000000000ULL);
+  s1->add_name_refs(3);
+  s1->add_event_metadata();
+
+  // Frame 2: [1400, 1450] ms — while.2682 closes (E, full dur=450 ms) + op_f2.
+  xprof::TraceDataResponse f2;
+  f2.add_interned_strings("op_f2");
+  auto* s2 = f2.add_complete_events();
+  s2->mutable_metadata()->set_process_id(1);
+  s2->mutable_metadata()->set_thread_id(10);
+  s2->add_deltas(1000000000000ULL);
+  s2->add_durations(450000000000ULL | kDurationPhaseEndBit);
+  s2->add_name_refs(1);
+  s2->add_event_metadata();
+  s2->add_deltas(410000000000ULL);
+  s2->add_durations(10000000000ULL);
+  s2->add_name_refs(4);
+  s2->add_event_metadata();
+
+  // Frame 3: [2000, 2050] ms — unrelated later frame.
+  xprof::TraceDataResponse f3;
+  f3.add_interned_strings("op_f3");
+  auto* s3 = f3.add_complete_events();
+  s3->mutable_metadata()->set_process_id(1);
+  s3->mutable_metadata()->set_thread_id(10);
+  s3->add_deltas(2010000000000ULL);
+  s3->add_durations(10000000000ULL);
+  s3->add_name_refs(5);
+  s3->add_event_metadata();
+
+  const absl::StatusOr<std::string> c0 = CompressTraceDataResponse(f0);
+  ASSERT_TRUE(c0.ok()) << c0.status();
+  const absl::StatusOr<std::string> c1 = CompressTraceDataResponse(f1);
+  ASSERT_TRUE(c1.ok()) << c1.status();
+  const absl::StatusOr<std::string> c2 = CompressTraceDataResponse(f2);
+  ASSERT_TRUE(c2.ok()) << c2.status();
+  const absl::StatusOr<std::string> c3 = CompressTraceDataResponse(f3);
+  ASSERT_TRUE(c3.ok()) << c3.status();
+
+  ColorPalette palette = ColorPalette::Default();
+  IncrementalCacheCleanup cleanup_guard;
+
+  // Verify both the cached-store local replay and spilled compressed-frame
+  // refetch preserve Frame 2's closing kDurationEnd full duration while
+  // skipping unrelated frames (and Frame 1's B-only frame on spilled replay).
+  struct ScopedMaxPackedBytes {
+    explicit ScopedMaxPackedBytes(size_t bytes) {
+      SetMaxCachedPackedBytesForTest(bytes);
+    }
+    ~ScopedMaxPackedBytes() {
+      SetMaxCachedPackedBytesForTest(512ULL * 1024 * 1024);
+    }
+  };
+  for (const size_t max_cached_bytes : {512ULL * 1024 * 1024, 1ULL}) {
+    ScopedMaxPackedBytes scoped_limit(max_cached_bytes);
+    const bool expect_cached = (max_cached_bytes > 1ULL);
+
+    DataProvider data_provider;
+    Timeline timeline(palette);
+    // Force overview compaction so initial load retains the cached block store
+    // when within `max_cached_bytes` and spills otherwise.
+    timeline.set_max_uncompacted_overview_entries_for_test(2);
+
+    BeginIncrementalTraceEvents(std::nullopt, data_provider, timeline);
+    AppendCompressedTraceEventsIncremental(
+        reinterpret_cast<uintptr_t>(c0->data()), c0->size());
+    AppendCompressedTraceEventsIncremental(
+        reinterpret_cast<uintptr_t>(c1->data()), c1->size());
+    AppendCompressedTraceEventsIncremental(
+        reinterpret_cast<uintptr_t>(c2->data()), c2->size());
+    AppendCompressedTraceEventsIncremental(
+        reinterpret_cast<uintptr_t>(c3->data()), c3->size());
+    while (StepIncrementalTraceEvents(5000, data_provider, timeline)) {
+    }
+    EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+    ASSERT_EQ(HasCachedTraceEventsIncremental(), expect_cached);
+
+    BeginIncrementalTraceEvents(std::make_pair(1005.0, 1045.0), data_provider,
+                                timeline);
+    if (!expect_cached) {
+      EXPECT_TRUE(ShouldEnqueueCompressedFrameIncremental());  // Frame 0 needed
+      AppendCompressedTraceEventsIncremental(
+          reinterpret_cast<uintptr_t>(c0->data()), c0->size());
+      EXPECT_FALSE(
+          ShouldEnqueueCompressedFrameIncremental());  // Frame 1 (B-only)
+                                                       // skipped
+      EXPECT_TRUE(
+          ShouldEnqueueCompressedFrameIncremental());  // Frame 2 (E) needed
+      AppendCompressedTraceEventsIncremental(
+          reinterpret_cast<uintptr_t>(c2->data()), c2->size());
+      EXPECT_FALSE(
+          ShouldEnqueueCompressedFrameIncremental());  // Frame 3 skipped
+    }
+    while (StepIncrementalTraceEvents(5000, data_provider, timeline)) {
+    }
+    EXPECT_FALSE(FinishIncrementalTraceEvents(data_provider, timeline));
+
+    const auto& data = timeline.timeline_data();
+    ASSERT_EQ(data.entry_names.size(), 2u);
+    EXPECT_EQ(data.entry_names[0], "while.2682");
+    EXPECT_DOUBLE_EQ(data.entry_total_times[0], 450000.0);
+    EXPECT_EQ(data.entry_names[1], "op_f0");
+  }
+}
+
 #ifdef __EMSCRIPTEN__
 class TracePbEventParserTest : public ::testing::Test {
  protected:

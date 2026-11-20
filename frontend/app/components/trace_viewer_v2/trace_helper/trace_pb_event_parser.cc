@@ -127,6 +127,8 @@ ParsedTraceEvents ParseCompressedTraceEvents(
 struct FrameSummary {
   uint64_t min_start_ps = std::numeric_limits<uint64_t>::max();
   uint64_t max_end_ps = 0;
+  // True once bounds have been recorded from complete or closing split
+  // (`kDurationEnd`) events in this frame.
   bool has_non_split_bounds = false;
   bool always_process = false;
 };
@@ -1045,7 +1047,9 @@ bool UnmarshalProcessSliceBounded(IncrementalParserSession& session,
             session.building_frame_summaries[session.active_frame_index];
         for (size_t i = before; i < batch.flame_events.size(); ++i) {
           const TraceEvent& ev = batch.flame_events[i];
-          if (ev.ph != Phase::kComplete) continue;
+          if (ev.ph != Phase::kComplete && ev.ph != Phase::kDurationEnd) {
+            continue;
+          }
           const uint64_t start_ps =
               static_cast<uint64_t>(std::max(0.0, ev.ts) * 1e6);
           const uint64_t end_ps =

@@ -210,7 +210,7 @@ fn main(@builtin(vertex_index) vid: u32, in: InstanceInput) -> VertexOutput {
     raw_right = max(raw_right, raw_left + batch.min_width_px) - batch.padding_right_px;
     let left = clamp(raw_left, batch.screen_x_offset, batch.timeline_right);
     let right = clamp(raw_right, batch.screen_x_offset, batch.timeline_right);
-    if (right <= left || in.color.a == 0.0) {
+    if (dt_end < 0.0 || right <= left || in.color.a == 0.0) {
         out.position = vec4<f32>(-2.0, -2.0, 0.0, 1.0);
         out.color = vec4<f32>(0.0);
         return out;

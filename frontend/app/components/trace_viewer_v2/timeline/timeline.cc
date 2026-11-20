@@ -62,6 +62,75 @@ void StripLeadingPercent(std::string& name) {
   }
 }
 
+struct LevelTimeBounds {
+  Microseconds min_start_ts = std::numeric_limits<Microseconds>::max();
+  Microseconds max_end_ts = std::numeric_limits<Microseconds>::lowest();
+};
+
+// Computes true start/end bounds for `indices` and populates `prefix_max_out`
+// only when end times are non-monotonic so binary search never skips enclosing
+// rects (clearing and shrinking `prefix_max_out` on monotonic tracks).
+LevelTimeBounds PopulateLevelRawPrefixMaxEnds(
+    absl::Span<const int> indices, absl::Span<const Microseconds> start_times,
+    absl::Span<const Microseconds> total_times,
+    std::vector<Microseconds>& prefix_max_out) {
+  prefix_max_out.clear();
+  LevelTimeBounds bounds;
+  bool non_monotonic = false;
+  for (int idx : indices) {
+    if (idx < 0 || static_cast<size_t>(idx) >= start_times.size() ||
+        static_cast<size_t>(idx) >= total_times.size()) {
+      continue;
+    }
+    const Microseconds s = start_times[idx];
+    const Microseconds e = s + ClampNonNegativeDuration(total_times[idx]);
+    if (s < bounds.min_start_ts) bounds.min_start_ts = s;
+    if (!(e >= bounds.max_end_ts)) {
+      non_monotonic = true;
+    } else {
+      bounds.max_end_ts = e;
+    }
+  }
+  if (!non_monotonic) {
+    prefix_max_out.shrink_to_fit();
+    return bounds;
+  }
+  prefix_max_out.resize(indices.size());
+  Microseconds running_max = std::numeric_limits<Microseconds>::lowest();
+  for (size_t i = 0; i < indices.size(); ++i) {
+    const int idx = indices[i];
+    if (idx >= 0 && static_cast<size_t>(idx) < start_times.size() &&
+        static_cast<size_t>(idx) < total_times.size()) {
+      running_max =
+          std::max(running_max, start_times[idx] +
+                                    ClampNonNegativeDuration(total_times[idx]));
+    }
+    prefix_max_out[i] = running_max;
+  }
+  return bounds;
+}
+
+std::vector<Timeline::LevelMipTile>::const_iterator
+FindFirstVisibleTileIterator(const Timeline::LevelMipLevel& mip,
+                             Microseconds min_end_time, bool include_equal) {
+  if (!mip.prefix_max_ends.empty() &&
+      mip.prefix_max_ends.size() == mip.tiles.size()) {
+    const auto it =
+        include_equal
+            ? std::lower_bound(mip.prefix_max_ends.begin(),
+                               mip.prefix_max_ends.end(), min_end_time)
+            : std::upper_bound(mip.prefix_max_ends.begin(),
+                               mip.prefix_max_ends.end(), min_end_time);
+    return mip.tiles.begin() +
+           static_cast<ptrdiff_t>(it - mip.prefix_max_ends.begin());
+  }
+  return std::lower_bound(
+      mip.tiles.begin(), mip.tiles.end(), min_end_time,
+      [include_equal](const Timeline::LevelMipTile& tile, Microseconds time) {
+        return include_equal ? (tile.max_end < time) : (tile.max_end <= time);
+      });
+}
+
 using FallbackKey = std::tuple<ProcessId, ThreadId, absl::string_view>;
 
 absl::flat_hash_map<FallbackKey, std::vector<int>> BuildFallbackMap(
@@ -1933,6 +2002,43 @@ void Timeline::RebuildGroupAccentColors() {
   }
 }
 
+absl::Span<const int>::const_iterator Timeline::FindFirstVisibleEventIterator(
+    int global_level, absl::Span<const int> event_indices,
+    Microseconds min_end_time, bool include_equal) const {
+  if (global_level >= 0 &&
+      static_cast<size_t>(global_level) < level_mip_pyramids_.size()) {
+    const auto& prefix_max =
+        level_mip_pyramids_[global_level].raw_prefix_max_ends;
+    if (!prefix_max.empty() && prefix_max.size() == event_indices.size() &&
+        timeline_data_.level_events(global_level).data() ==
+            event_indices.data()) {
+      const auto it = include_equal
+                          ? std::lower_bound(prefix_max.begin(),
+                                             prefix_max.end(), min_end_time)
+                          : std::upper_bound(prefix_max.begin(),
+                                             prefix_max.end(), min_end_time);
+      return event_indices.begin() +
+             static_cast<ptrdiff_t>(it - prefix_max.begin());
+    }
+  }
+  return std::lower_bound(
+      event_indices.begin(), event_indices.end(), min_end_time,
+      [&](int event_index, Microseconds time) {
+        if (event_index < 0 ||
+            static_cast<size_t>(event_index) >=
+                timeline_data_.entry_start_times.size() ||
+            static_cast<size_t>(event_index) >=
+                timeline_data_.entry_total_times.size()) {
+          return false;
+        }
+        const Microseconds end =
+            timeline_data_.entry_start_times[event_index] +
+            ClampNonNegativeDuration(
+                timeline_data_.entry_total_times[event_index]);
+        return include_equal ? (end < time) : (end <= time);
+      });
+}
+
 void Timeline::BuildLevelMipPyramids() {
   const int num_levels = timeline_data_.total_levels();
   level_mip_pyramids_.clear();
@@ -1948,21 +2054,19 @@ void Timeline::BuildLevelMipPyramids() {
   if (!start_times.empty()) {
     for (int lvl = 0; lvl < num_levels; ++lvl) {
       const absl::Span<const int> indices = timeline_data_.level_events(lvl);
-      if (indices.size() < kMinEventsForMipPyramid) {
+      if (indices.empty()) {
         continue;
       }
-      const int first_idx = indices.front();
-      const int last_idx = indices.back();
-      if (first_idx < 0 ||
-          static_cast<size_t>(first_idx) >= start_times.size() ||
-          last_idx < 0 || static_cast<size_t>(last_idx) >= start_times.size()) {
+      LevelMipPyramid& pyramid = level_mip_pyramids_[lvl];
+      const LevelTimeBounds bounds = PopulateLevelRawPrefixMaxEnds(
+          indices, start_times, total_times, pyramid.raw_prefix_max_ends);
+      const Microseconds level_min_ts = bounds.min_start_ts;
+
+      if (indices.size() < kMinEventsForMipPyramid ||
+          level_min_ts == std::numeric_limits<Microseconds>::max()) {
         continue;
       }
-      const Microseconds level_min_ts = start_times[first_idx];
-      const Microseconds level_max_ts =
-          std::max(start_times[first_idx] + total_times[first_idx],
-                   start_times[last_idx] + total_times[last_idx]);
-      const Microseconds span = level_max_ts - level_min_ts;
+      const Microseconds span = bounds.max_end_ts - level_min_ts;
       if (span <= 0.0) continue;
 
       struct MipBuilderState {
@@ -1977,7 +2081,6 @@ void Timeline::BuildLevelMipPyramids() {
         double b_sum = 0.0;
       };
 
-      LevelMipPyramid& pyramid = level_mip_pyramids_[lvl];
       MipBuilderState states[LevelMipPyramid::kNumMipLevels];
       bool any_active = false;
       for (int m = 0; m < LevelMipPyramid::kNumMipLevels; ++m) {
@@ -2024,7 +2127,7 @@ void Timeline::BuildLevelMipPyramids() {
           continue;
         }
         const Microseconds s = start_times[idx];
-        const Microseconds d = total_times[idx];
+        const Microseconds d = ClampNonNegativeDuration(total_times[idx]);
         const Microseconds e = s + d;
         const ImU32 c = GetEventColor(idx);
         const double w = std::max(d, 1e-3);
@@ -2078,9 +2181,30 @@ void Timeline::BuildLevelMipPyramids() {
         }
       }
       for (int m = 0; m < LevelMipPyramid::kNumMipLevels; ++m) {
-        if (states[m].active) {
-          finalize_tile(m);
-          pyramid.levels[m].tiles.shrink_to_fit();
+        if (!states[m].active) continue;
+        finalize_tile(m);
+        LevelMipLevel& mip = pyramid.levels[m];
+        mip.tiles.shrink_to_fit();
+        if (pyramid.raw_prefix_max_ends.empty()) continue;
+        // Populate sparse prefix_max_ends only when tile max_end values are
+        // non-monotonic (when an enclosing rect in an earlier tile extends
+        // past later tiles).
+        bool mip_non_monotonic = false;
+        Microseconds running_max = std::numeric_limits<Microseconds>::lowest();
+        for (const LevelMipTile& tile : mip.tiles) {
+          if (!(tile.max_end >= running_max)) {
+            mip_non_monotonic = true;
+            break;
+          }
+          running_max = tile.max_end;
+        }
+        if (mip_non_monotonic) {
+          mip.prefix_max_ends.resize(mip.tiles.size());
+          running_max = std::numeric_limits<Microseconds>::lowest();
+          for (size_t i = 0; i < mip.tiles.size(); ++i) {
+            running_max = std::max(running_max, mip.tiles[i].max_end);
+            mip.prefix_max_ends[i] = running_max;
+          }
         }
       }
     }
@@ -2145,6 +2269,8 @@ void Timeline::BuildLevelMipPyramids() {
         LevelMipPyramid borrowed = saved_pyramids[saved_lvl];
         borrowed.raw_events_compacted = true;
         borrowed.raw_gpu_instance_offset = UINT32_MAX;
+        borrowed.raw_prefix_max_ends.clear();
+        borrowed.raw_prefix_max_ends.shrink_to_fit();
         for (int m = 0; m < LevelMipPyramid::kNumMipLevels; ++m) {
           borrowed.levels[m].gpu_instance_offset = 0;
           for (LevelMipTile& tile : borrowed.levels[m].tiles) {
@@ -2484,8 +2610,15 @@ void Timeline::CompactTimelineDataToMipOverview() {
   new_level_offsets[total_lvls] = new_level_event_indices.size();
   timeline_data_.level_offsets.swap(new_level_offsets);
   timeline_data_.level_event_indices.swap(new_level_event_indices);
-
-  for (auto& pyramid : level_mip_pyramids_) {
+  for (size_t lvl = 0; lvl < level_mip_pyramids_.size(); ++lvl) {
+    LevelMipPyramid& pyramid = level_mip_pyramids_[lvl];
+    if (lvl < static_cast<size_t>(total_lvls) &&
+        !pyramid.raw_prefix_max_ends.empty()) {
+      PopulateLevelRawPrefixMaxEnds(
+          timeline_data_.level_events(static_cast<int>(lvl)),
+          timeline_data_.entry_start_times, timeline_data_.entry_total_times,
+          pyramid.raw_prefix_max_ends);
+    }
     for (int m = 0; m < LevelMipPyramid::kNumMipLevels; ++m) {
       for (auto& tile : pyramid.levels[m].tiles) {
         if (tile.dominant_event_index >= 0 &&
@@ -4730,13 +4863,8 @@ void Timeline::FindNearestEventEdge(Microseconds time, Microseconds threshold,
       absl::Span<const int> indices = timeline_data_.level_events(level);
       if (indices.empty()) continue;
 
-      auto it = std::lower_bound(
-          indices.begin(), indices.end(), time - threshold,
-          [this](int event_index, Microseconds t) {
-            return timeline_data_.entry_start_times[event_index] +
-                       timeline_data_.entry_total_times[event_index] <
-                   t;
-          });
+      auto it = FindFirstVisibleEventIterator(level, indices, time - threshold,
+                                              /*include_equal=*/true);
 
       for (; it != indices.end(); ++it) {
         const int event_index = *it;
@@ -4752,8 +4880,11 @@ void Timeline::FindNearestEventEdge(Microseconds time, Microseconds threshold,
           break;
         }
 
-        const Microseconds duration =
-            timeline_data_.entry_total_times[event_index];
+        const Microseconds duration = ClampNonNegativeDuration(
+            timeline_data_.entry_total_times[event_index]);
+        if (start + duration < time - threshold) {
+          continue;
+        }
         if (duration * px_per_time >= 2.0) {
           ApplySnappingToEdge(time, threshold, {start, start + duration},
                               best_diff, snapped_time, snapped);
@@ -5197,21 +5328,31 @@ void Timeline::DrawEventsForLevel(int group_index,
   const Microseconds visible_start_time = PixelToTime(0, px_per_time_unit);
   const Microseconds visible_end_time = PixelToTime(max.x, px_per_time_unit);
 
-  auto first_visible_it = std::lower_bound(
-      event_indices.begin(), event_indices.end(), visible_start_time,
-      [&](int event_index, Microseconds time) {
-        // Defensive bounds check for event_index. While event_indices is
-        // expected to contain valid indices, this prevents crashes if an
-        // invalid index somehow gets included.
-        if (event_index < 0 ||
-            event_index >= timeline_data_.entry_start_times.size() ||
-            event_index >= timeline_data_.entry_total_times.size()) {
-          return false;  // Treat out-of-bounds as not ending before 'time'.
-        }
-        return timeline_data_.entry_start_times[event_index] +
-                   timeline_data_.entry_total_times[event_index] <
-               time;
-      });
+  int global_level = -1;
+  if (group_index >= 0 &&
+      static_cast<size_t>(group_index) < timeline_data_.groups.size()) {
+    const int candidate =
+        timeline_data_.groups[group_index].start_level + level_in_group;
+    if (candidate >= 0 && candidate < timeline_data_.total_levels() &&
+        ((event_indices.empty() &&
+          timeline_data_.level_events(candidate).empty()) ||
+         (timeline_data_.level_events(candidate).data() ==
+              event_indices.data() &&
+          timeline_data_.level_events(candidate).size() ==
+              event_indices.size()))) {
+      global_level = candidate;
+    }
+  }
+  if (global_level < 0 && !event_indices.empty()) {
+    const int sample_idx = event_indices.front();
+    if (sample_idx >= 0 &&
+        static_cast<size_t>(sample_idx) < timeline_data_.entry_levels.size()) {
+      global_level = timeline_data_.entry_levels[sample_idx];
+    }
+  }
+
+  auto first_visible_it = FindFirstVisibleEventIterator(
+      global_level, event_indices, visible_start_time, /*include_equal=*/true);
 
   auto last_visible_it = std::upper_bound(
       first_visible_it, event_indices.end(), visible_end_time,
@@ -5227,29 +5368,6 @@ void Timeline::DrawEventsForLevel(int group_index,
   const size_t visible_count =
       static_cast<size_t>(std::distance(first_visible_it, last_visible_it));
   if (search_query_lower_.empty() && px_per_time_unit > 0.0) {
-    int global_level = -1;
-    if (group_index >= 0 &&
-        static_cast<size_t>(group_index) < timeline_data_.groups.size()) {
-      const int candidate =
-          timeline_data_.groups[group_index].start_level + level_in_group;
-      if (candidate >= 0 && candidate < timeline_data_.total_levels() &&
-          ((event_indices.empty() &&
-            timeline_data_.level_events(candidate).empty()) ||
-           (timeline_data_.level_events(candidate).data() ==
-                event_indices.data() &&
-            timeline_data_.level_events(candidate).size() ==
-                event_indices.size()))) {
-        global_level = candidate;
-      }
-    }
-    if (global_level < 0 && !event_indices.empty()) {
-      const int sample_idx = event_indices.front();
-      if (sample_idx >= 0 &&
-          static_cast<size_t>(sample_idx) <
-              timeline_data_.entry_levels.size()) {
-        global_level = timeline_data_.entry_levels[sample_idx];
-      }
-    }
     if (global_level >= 0 &&
         static_cast<size_t>(global_level) < level_mip_pyramids_.size() &&
         level_mip_pyramids_[global_level].has_pyramid &&
@@ -5269,11 +5387,9 @@ void Timeline::DrawEventsForLevel(int group_index,
       }
       if (selected_mip >= 0) {
         const auto& tiles = pyramid.levels[selected_mip].tiles;
-        auto tile_first =
-            std::lower_bound(tiles.begin(), tiles.end(), visible_start_time,
-                             [](const LevelMipTile& tile, Microseconds time) {
-                               return tile.max_end < time;
-                             });
+        auto tile_first = FindFirstVisibleTileIterator(
+            pyramid.levels[selected_mip], visible_start_time,
+            /*include_equal=*/true);
         auto tile_last =
             std::upper_bound(tile_first, tiles.end(), visible_end_time,
                              [](Microseconds time, const LevelMipTile& tile) {
@@ -5281,7 +5397,48 @@ void Timeline::DrawEventsForLevel(int group_index,
                              });
         const size_t visible_tiles =
             static_cast<size_t>(std::distance(tile_first, tile_last));
-        if (pyramid.raw_events_compacted || visible_tiles * 2 < visible_count) {
+        bool use_mip = pyramid.raw_events_compacted;
+        if (!use_mip) {
+          size_t actual_visible_tiles = visible_tiles;
+          size_t actual_visible_events = visible_count;
+          if (!pyramid.raw_prefix_max_ends.empty()) {
+            // Rewinding on non-monotonic tracks can include off-screen rects;
+            // count actually overlapping tiles and events so sparse views stay
+            // in raw draw mode.
+            actual_visible_tiles = 0;
+            for (auto it = tile_first; it != tile_last; ++it) {
+              if (it->max_end >= visible_start_time) {
+                ++actual_visible_tiles;
+              }
+            }
+            const size_t needed_events = std::max(kMinVisibleEventsForMipDraw,
+                                                  actual_visible_tiles * 2) +
+                                         1;
+            actual_visible_events = 0;
+            for (auto it = last_visible_it; it != first_visible_it;) {
+              --it;
+              const int idx = *it;
+              if (idx < 0 ||
+                  static_cast<size_t>(idx) >=
+                      timeline_data_.entry_start_times.size() ||
+                  static_cast<size_t>(idx) >=
+                      timeline_data_.entry_total_times.size()) {
+                continue;
+              }
+              const Microseconds end =
+                  timeline_data_.entry_start_times[idx] +
+                  ClampNonNegativeDuration(
+                      timeline_data_.entry_total_times[idx]);
+              if (end >= visible_start_time &&
+                  ++actual_visible_events >= needed_events) {
+                break;
+              }
+            }
+          }
+          use_mip = actual_visible_events > kMinVisibleEventsForMipDraw &&
+                    actual_visible_tiles * 2 < actual_visible_events;
+        }
+        if (use_mip) {
           const Pixel y_top =
               pos.y + level_in_group * (event_height + padding_bottom);
           const Pixel y_bottom = y_top + event_height;
@@ -5312,6 +5469,9 @@ void Timeline::DrawEventsForLevel(int group_index,
             Pixel hovered_tile_left = 0.0f;
             Pixel hovered_tile_right = 0.0f;
             for (auto it = tile_first; it != tile_last; ++it) {
+              if (it->max_end < visible_start_time) {
+                continue;
+              }
               const int dom_idx = it->dominant_event_index;
               if (dom_idx < 0 || static_cast<size_t>(dom_idx) >=
                                      timeline_data_.entry_start_times.size()) {
@@ -5395,6 +5555,9 @@ void Timeline::DrawEventsForLevel(int group_index,
           Pixel hovered_tile_left = 0.0f;
           Pixel hovered_tile_right = 0.0f;
           for (auto it = tile_first; it != tile_last; ++it) {
+            if (it->max_end < visible_start_time) {
+              continue;
+            }
             const int dom_idx = it->dominant_event_index;
             if (dom_idx >= 0 &&
                 static_cast<size_t>(dom_idx) <
@@ -5499,12 +5662,6 @@ void Timeline::DrawEventsForLevel(int group_index,
   if (search_query_lower_.empty() && visible_count > 0 &&
       px_per_time_unit > 0.0 && !event_indices.empty() &&
       HasGpuFlameInstanceBuffer()) {
-    const int sample_idx = event_indices.front();
-    const int global_level =
-        (sample_idx >= 0 &&
-         static_cast<size_t>(sample_idx) < timeline_data_.entry_levels.size())
-            ? timeline_data_.entry_levels[sample_idx]
-            : -1;
     if (global_level >= 0 &&
         static_cast<size_t>(global_level) < level_mip_pyramids_.size()) {
       const LevelMipPyramid& pyramid = level_mip_pyramids_[global_level];
@@ -5547,9 +5704,12 @@ void Timeline::DrawEventsForLevel(int group_index,
           }
           const Microseconds start =
               timeline_data_.entry_start_times[event_index];
-          const Microseconds dur =
-              timeline_data_.entry_total_times[event_index];
+          const Microseconds dur = ClampNonNegativeDuration(
+              timeline_data_.entry_total_times[event_index]);
           const Microseconds end = start + dur;
+          if (end < visible_start_time) {
+            continue;
+          }
           const bool is_instant = dur <= 1e-06;
           if (is_instant || event_index == selected_event_index_) {
             const EventRect rect = CalculateEventRect(
@@ -5578,7 +5738,8 @@ void Timeline::DrawEventsForLevel(int group_index,
         if (hovered_idx >= 0 && hovered_idx != selected_event_index_) {
           const Microseconds s = timeline_data_.entry_start_times[hovered_idx];
           const Microseconds e =
-              s + timeline_data_.entry_total_times[hovered_idx];
+              s + ClampNonNegativeDuration(
+                      timeline_data_.entry_total_times[hovered_idx]);
           const EventRect rect = CalculateEventRect(
               s, e, pos.x, pos.y, px_per_time_unit, level_in_group, max.x,
               event_height, padding_bottom);
@@ -5599,8 +5760,12 @@ void Timeline::DrawEventsForLevel(int group_index,
       continue;
     }
     const Microseconds start = timeline_data_.entry_start_times[event_index];
-    const Microseconds dur = timeline_data_.entry_total_times[event_index];
+    const Microseconds dur =
+        ClampNonNegativeDuration(timeline_data_.entry_total_times[event_index]);
     const Microseconds end = start + dur;
+    if (end < visible_start_time) {
+      continue;
+    }
 
     const bool is_instant = dur <= 1e-06;
     const bool is_selected = (selected_event_index_ == event_index);
@@ -6087,11 +6252,9 @@ void Timeline::DrawFlameGroupPreview(int start_level, int end_level,
       }
       if (selected_mip >= 0) {
         const auto& tiles = pyramid.levels[selected_mip].tiles;
-        auto tile_first =
-            std::lower_bound(tiles.begin(), tiles.end(), visible_start,
-                             [](const LevelMipTile& tile, Microseconds t) {
-                               return tile.max_end <= t;
-                             });
+        auto tile_first = FindFirstVisibleTileIterator(
+            pyramid.levels[selected_mip], visible_start,
+            /*include_equal=*/false);
         if (HasGpuFlameInstanceBuffer()) {
           auto tile_last =
               std::upper_bound(tile_first, tiles.end(), visible_end,
@@ -6125,6 +6288,7 @@ void Timeline::DrawFlameGroupPreview(int start_level, int end_level,
         Pixel last_drawn_right = -std::numeric_limits<Pixel>::infinity();
         for (auto it = tile_first; it != tiles.end(); ++it) {
           if (it->min_start >= visible_end) break;
+          if (it->max_end <= visible_start) continue;
           Pixel x_start =
               TimeToScreenX(it->min_start, pos.x, px_per_time_unit_val);
           Pixel x_end = TimeToScreenX(it->max_end, pos.x, px_per_time_unit_val);
@@ -6149,16 +6313,8 @@ void Timeline::DrawFlameGroupPreview(int start_level, int end_level,
 
     absl::Span<const int> indices = timeline_data_.level_events(level);
 
-    // Find the first event that ends after the visible start.
-    // Since events in the same level are non-overlapping and sorted by
-    // start time, they are effectively sorted by end time as well.
-    auto it = std::lower_bound(
-        indices.begin(), indices.end(), visible_start,
-        [&](int event_idx, Microseconds t) {
-          const Microseconds end = timeline_data_.entry_start_times[event_idx] +
-                                   timeline_data_.entry_total_times[event_idx];
-          return end <= t;
-        });
+    auto it = FindFirstVisibleEventIterator(level, indices, visible_start,
+                                            /*include_equal=*/false);
 
     if (px_per_time_unit_val > 0.0 && level >= 0 &&
         static_cast<size_t>(level) < level_mip_pyramids_.size() &&
@@ -6199,7 +6355,9 @@ void Timeline::DrawFlameGroupPreview(int start_level, int end_level,
       if (start >= visible_end) break;
 
       const Microseconds end =
-          start + timeline_data_.entry_total_times[event_index];
+          start + ClampNonNegativeDuration(
+                      timeline_data_.entry_total_times[event_index]);
+      if (end <= visible_start) continue;
 
       Pixel x_start = TimeToScreenX(start, pos.x, px_per_time_unit_val);
       Pixel x_end = TimeToScreenX(end, pos.x, px_per_time_unit_val);
@@ -6313,13 +6471,11 @@ void Timeline::AccumulateLevelUtilization(int level,
         pyramid.SelectMipLevel(kMaxPreviewMipBinWidthPx * us_per_px);
     if (selected_mip >= 0) {
       const auto& tiles = pyramid.levels[selected_mip].tiles;
-      auto tile_first =
-          std::lower_bound(tiles.begin(), tiles.end(), visible_start,
-                           [](const LevelMipTile& tile, Microseconds t) {
-                             return tile.max_end <= t;
-                           });
+      auto tile_first = FindFirstVisibleTileIterator(
+          pyramid.levels[selected_mip], visible_start, /*include_equal=*/false);
       for (auto it = tile_first; it != tiles.end(); ++it) {
         if (it->min_start >= visible_end) break;
+        if (it->max_end <= visible_start) continue;
         const Pixel x_start = TimeToPixel(it->min_start, px_per_time_unit_val);
         const Pixel x_end = TimeToPixel(it->max_end, px_per_time_unit_val);
         const Pixel tile_px_span = x_end - x_start;
@@ -6335,20 +6491,17 @@ void Timeline::AccumulateLevelUtilization(int level,
   }
 
   const absl::Span<const int> indices = timeline_data_.level_events(level);
-  auto it = std::lower_bound(indices.begin(), indices.end(), visible_start,
-                             [&](int event_idx, Microseconds t) {
-                               const Microseconds end =
-                                   timeline_data_.entry_start_times[event_idx] +
-                                   timeline_data_.entry_total_times[event_idx];
-                               return end <= t;
-                             });
+  auto it = FindFirstVisibleEventIterator(level, indices, visible_start,
+                                          /*include_equal=*/false);
 
   for (; it != indices.end(); ++it) {
     const int event_index = *it;
     const Microseconds start = timeline_data_.entry_start_times[event_index];
     if (start >= visible_end) break;
     const Microseconds end =
-        start + timeline_data_.entry_total_times[event_index];
+        start +
+        ClampNonNegativeDuration(timeline_data_.entry_total_times[event_index]);
+    if (end <= visible_start) continue;
 
     // Calculate pixel coordinates relative to the start of the visible range.
     const Pixel x_start = TimeToPixel(start, px_per_time_unit_val);
@@ -8286,14 +8439,8 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
         Microseconds selection_end_time =
             PixelToTime(selection_rect.Max.x - screen_x_offset, px_per_time);
 
-        auto it =
-            std::lower_bound(events.begin(), events.end(), selection_start_time,
-                             [&](int event_idx, Microseconds t) {
-                               const Microseconds end =
-                                   timeline_data_.entry_start_times[event_idx] +
-                                   timeline_data_.entry_total_times[event_idx];
-                               return end <= t;
-                             });
+        auto it = FindFirstVisibleEventIterator(
+            level, events, selection_start_time, /*include_equal=*/false);
 
         for (; it != events.end(); ++it) {
           const int event_index = *it;
@@ -8304,7 +8451,11 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
           }
 
           const Microseconds end =
-              start + timeline_data_.entry_total_times[event_index];
+              start + ClampNonNegativeDuration(
+                          timeline_data_.entry_total_times[event_index]);
+          if (end <= selection_start_time) {
+            continue;
+          }
 
           const Pixel left = TimeToScreenX(start, screen_x_offset, px_per_time);
           Pixel right = TimeToScreenX(end, screen_x_offset, px_per_time);

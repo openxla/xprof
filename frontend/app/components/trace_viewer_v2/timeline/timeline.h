@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
@@ -53,6 +54,12 @@ enum class MouseMode {
   // Create or move markers (legacy mode 4)
   kTiming = 4
 };
+
+// Clamps non-positive and non-finite (e.g. NaN marker) durations to 0.0 so
+// end-time comparisons and span bounds remain finite and well-ordered.
+inline Microseconds ClampNonNegativeDuration(Microseconds duration) {
+  return std::isfinite(duration) && duration > 0.0 ? duration : 0.0;
+}
 
 // Represents a rectangle on the screen.
 struct EventRect {
@@ -1171,6 +1178,10 @@ class Timeline {
   struct LevelMipLevel {
     Microseconds bin_width_us = 0.0;
     std::vector<LevelMipTile> tiles;
+    // Monotonic prefix maximum of `tiles[i].max_end`, populated only when
+    // `tiles` has non-monotonic end times so binary search never skips a long
+    // enclosing tile. Empty on monotonic tracks (0 extra bytes).
+    std::vector<Microseconds> prefix_max_ends;
     uint32_t gpu_instance_offset = 0;
   };
   struct LevelMipPyramid {
@@ -1178,6 +1189,9 @@ class Timeline {
     bool has_pyramid = false;
     bool raw_events_compacted = false;
     LevelMipLevel levels[kNumMipLevels];
+    // Monotonic prefix maximum of rect end times on this track, populated only
+    // when end times are non-monotonic. Empty on monotonic tracks.
+    std::vector<Microseconds> raw_prefix_max_ends;
     uint32_t raw_gpu_instance_offset = UINT32_MAX;
 
     int SelectMipLevel(Microseconds max_bin_width_us) const {
@@ -1192,6 +1206,13 @@ class Timeline {
   };
   const std::vector<LevelMipPyramid>& level_mip_pyramids_for_test() const {
     return level_mip_pyramids_;
+  }
+  std::vector<Pixel> AccumulateLevelUtilizationForTest(
+      int level, double px_per_time_unit_val, int num_bins) {
+    utilization_bins_.assign(num_bins, 0.0f);
+    AccumulateLevelUtilization(level, px_per_time_unit_val, num_bins);
+    return std::vector<Pixel>(utilization_bins_.begin(),
+                              utilization_bins_.begin() + num_bins);
   }
   void ExpandAllGroupsForTest() {
     for (Group& group : timeline_data_.groups) {
@@ -1656,6 +1677,12 @@ class Timeline {
 
   void RebuildEntryColors();
   void BuildLevelMipPyramids();
+  // Returns the first iterator in `event_indices` at or after which a rect can
+  // end at (`include_equal`) or strictly after `min_end_time`, remaining exact
+  // even if overlapping rects make end times non-monotonic on `global_level`.
+  absl::Span<const int>::const_iterator FindFirstVisibleEventIterator(
+      int global_level, absl::Span<const int> event_indices,
+      Microseconds min_end_time, bool include_equal) const;
   void CompactTimelineDataToMipOverview();
   static void ReleaseEntryMemory(FlameChartTimelineData& d);
   void UploadGpuFlameInstances();

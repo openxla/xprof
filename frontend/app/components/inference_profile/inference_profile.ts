@@ -58,7 +58,9 @@ export class InferenceProfile implements OnDestroy {
   diagnostics: Diagnostics = {
     info: [],
     warnings: [
-      'The request-level analysis should only be used for single-host inference sessions. For multi-host sessions, the data might be incorrect. Fix is tracked in b/474172782.',
+      [
+        'The request-level analysis should only be used for single-host inference sessions. For multi-host sessions, the data might be incorrect.',
+      ].join(' '),
     ],
     errors: [],
   };

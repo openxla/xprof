@@ -21,7 +21,7 @@ def if_oss(oss_value, google_value = []):
     compute elements of list attributes.
     """
     _ = (google_value, oss_value)  # buildifier: disable=unused-variable
-    return oss_value  # copybara:comment_replace return oss_value
+    return oss_value
 
 def tf_profiler_alias(target_dir, name):
     return target_dir + "oss:" + name

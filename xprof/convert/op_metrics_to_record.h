@@ -322,8 +322,7 @@ inline void SetRooflineMetrics(const Metrics& metrics, const PerfEnv& perf_env,
   constexpr absl::string_view kVmemWrite = "VMEM Write";
   constexpr absl::string_view kShmL1 = "Shm/L1";
   // Compute the bound time assuming the peak capacity of each resource and
-  // choose the highest one as the bottleneck. See go/xprof-roofline-pxc for
-  // more details.
+  // choose the highest one as the bottleneck.
   // NOTE: The roofline analysis result is the same for Megacore because every
   // resource's capacity is doubled for Megacore so the comparison result is the
   // same.

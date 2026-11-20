@@ -5,8 +5,7 @@
 
 namespace xprof {
 
-// Enum of TPU counter IDs used in
-// perftools/gputools/profiler/collector/tpu_counter_util.cc.
+// Enum of TPU counter IDs for TPU v7x.
 // This is a best-effort list generated without macro expansion and might be
 // incomplete.
 enum TpuCounterIdsTpu7x : uint64_t {

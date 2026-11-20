@@ -294,6 +294,65 @@ def reference_scale(expected: Any) -> float:
   return float(np.max(magnitude, where=np.isfinite(magnitude), initial=0.0))
 
 
+def _integer_sign_magnitude(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+  """Returns (is_negative, magnitude as uint64) of an integer array, exactly."""
+  if not np.issubdtype(x.dtype, np.signedinteger):
+    return np.zeros(x.shape, dtype=bool), x.astype(np.uint64)
+  x64 = x.astype(np.int64)
+  negative = x64 < 0
+  # -(x + 1) does not overflow for a negative x, and adding 1 back in uint64
+  # also covers the int64 minimum.
+  negative_magnitude = (-(np.where(negative, x64, -1) + 1)).astype(
+      np.uint64
+  ) + np.uint64(1)
+  magnitude = np.where(negative, negative_magnitude, x64.astype(np.uint64))
+  return negative, magnitude
+
+
+def _integer_distance(actual: np.ndarray, expected: np.ndarray) -> np.ndarray:
+  """Returns |actual - expected| for integer arrays, saturated at int64 max.
+
+  The arithmetic is exact in uint64 for every pair of signed and unsigned
+  dtypes up to 64 bits, so distances above 2**53 do not lose precision. When
+  one side is not an integer array, such as a float reference for an integer
+  candidate, the distance is computed in float64 and rounded up, and NaN
+  counts as the largest distance.
+
+  Args:
+    actual: The candidate integer array.
+    expected: The reference array, integer or floating-point.
+
+  Returns:
+    An int64 array of distances.
+  """
+  cap = np.uint64(np.iinfo(np.int64).max)
+  if not (
+      np.issubdtype(actual.dtype, np.integer)
+      and np.issubdtype(expected.dtype, np.integer)
+  ):
+    with np.errstate(invalid="ignore", over="ignore"):
+      diff = np.abs(actual.astype(np.float64) - expected.astype(np.float64))
+    # 2**63 is the first float64 above the int64 maximum.
+    saturated = np.isnan(diff) | (diff >= 2.0**63)
+    distance = np.ceil(np.where(saturated, 0.0, diff)).astype(np.int64)
+    return np.where(saturated, np.int64(cap), distance)
+  a_negative, a_magnitude = _integer_sign_magnitude(actual)
+  e_negative, e_magnitude = _integer_sign_magnitude(expected)
+  same_sign_distance = np.where(
+      a_magnitude >= e_magnitude,
+      a_magnitude - e_magnitude,
+      e_magnitude - a_magnitude,
+  )
+  # Each capped term is at most 2**63 - 1, so the sum cannot wrap.
+  opposite_sign_distance = np.minimum(a_magnitude, cap) + np.minimum(
+      e_magnitude, cap
+  )
+  distance = np.where(
+      a_negative == e_negative, same_sign_distance, opposite_sign_distance
+  )
+  return np.minimum(distance, cap).astype(np.int64)
+
+
 def compute_ulp_distance(
     actual: np.ndarray,
     expected: np.ndarray,
@@ -338,24 +397,7 @@ def compute_ulp_distance(
   ):
     return (actual != expected).astype(np.int64)
   if dtype_str in INTEGER_DTYPES or np.issubdtype(actual.dtype, np.integer):
-    a = np.asarray(actual)
-    e = np.asarray(expected)
-    if np.issubdtype(a.dtype, np.unsignedinteger):
-      diff = np.where(a >= e, a - e, e - a)
-      return np.minimum(diff, np.iinfo(np.int64).max).astype(np.int64)
-    if a.dtype != np.int64:
-      return np.abs(a.astype(np.int64) - e.astype(np.int64))
-    hi = np.maximum(a, e)
-    lo = np.minimum(a, e)
-    diff = np.where(
-        (lo < 0) & (hi >= 0),
-        np.minimum(
-            hi.astype(np.float64) - lo.astype(np.float64),
-            float(np.iinfo(np.int64).max),
-        ).astype(np.int64),
-        hi - lo,
-    )
-    return diff
+    return _integer_distance(np.asarray(actual), np.asarray(expected))
 
   int_act = _sign_magnitude_to_continuous_int(actual, dtype_str)
   int_exp = _sign_magnitude_to_continuous_int(expected, dtype_str)

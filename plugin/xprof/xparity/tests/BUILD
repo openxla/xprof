@@ -70,11 +70,45 @@ pytype_strict_contrib_test(
 )
 
 pytype_strict_contrib_test(
+    name = "sqnr_test",
+    srcs = ["sqnr_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:sqnr",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+pytype_strict_contrib_test(
     name = "row_rel_l2_contract_test",
     srcs = ["row_rel_l2_contract_test.py"],
     deps = [
         "//plugin/xprof/xparity:numerical_validator",
         "//plugin/xprof/xparity:rel_l2",
+        "//plugin/xprof/xparity:xparity_cli_lib",
+        "//plugin/xprof/xparity:xparity_tool",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+pytype_strict_contrib_test(
+    name = "sqnr_contract_validator_test",
+    srcs = ["sqnr_contract_validator_test.py"],
+    deps = [
+        "//plugin/xprof/xparity",
+        "//plugin/xprof/xparity:numerical_validator",
+        "//plugin/xprof/xparity:sqnr",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+pytype_strict_contrib_test(
+    name = "sqnr_contract_cli_test",
+    srcs = ["sqnr_contract_cli_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:sqnr",
         "//plugin/xprof/xparity:xparity_cli_lib",
         "//plugin/xprof/xparity:xparity_tool",
         "@absl_py//absl/testing:absltest",
@@ -169,6 +203,57 @@ pytype_strict_contrib_test(
     deps = [
         "//plugin/xprof/xparity:numerical_validator",
         "//plugin/xprof/xparity:xparity_tool",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+pytype_strict_contrib_test(
+    name = "sqnr_checks_test",
+    srcs = ["sqnr_checks_test.py"],
+    deps = [
+        "//plugin/xprof/xparity:sqnr",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+pytype_strict_library(
+    name = "sqnr_head_to_head_heldout",
+    testonly = True,
+    srcs = ["sqnr_head_to_head_heldout.py"],
+    deps = ["//plugin/xprof/xparity:sqnr"],
+)
+
+pytype_strict_library(
+    name = "sqnr_head_to_head_lib",
+    testonly = True,
+    srcs = ["sqnr_head_to_head.py"],
+    deps = [
+        ":sqnr_head_to_head_heldout",
+        "//plugin/xprof/xparity:numerical_generator",
+        "//plugin/xprof/xparity:sqnr",
+        "@absl_py//absl/flags",
+        "@pypi//absl_py",
+    ],
+)
+
+pytype_strict_binary(
+    name = "sqnr_head_to_head",
+    testonly = True,
+    srcs = ["sqnr_head_to_head.py"],
+    main = "sqnr_head_to_head.py",
+    deps = [":sqnr_head_to_head_lib"],
+)
+
+pytype_strict_contrib_test(
+    name = "sqnr_head_to_head_test",
+    size = "large",
+    srcs = ["sqnr_head_to_head_test.py"],
+    deps = [
+        ":sqnr_head_to_head_heldout",
+        ":sqnr_head_to_head_lib",
+        "//plugin/xprof/xparity:sqnr",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
     ],

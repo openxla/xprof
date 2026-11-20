@@ -123,6 +123,7 @@ def _lookup_fallback_duration_us(
               source,
               kernel_name=kernel_name,
               limit=0,
+              device_to_use=kernel_stats_tools.ALL_DEVICES,
               bypass_cache=bypass_cache,
           )
       )
@@ -144,6 +145,7 @@ def _lookup_fallback_duration_us(
               source,
               kernel_name=None,
               limit=0,
+              device_to_use=kernel_stats_tools.ALL_DEVICES,
               bypass_cache=bypass_cache,
           )
       )

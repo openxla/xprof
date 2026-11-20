@@ -1750,6 +1750,31 @@ trace-viewer-container.trace-loaded {
     line-height: 16px;
     text-overflow: ellipsis;
   }
+
+  // Interactive value chip that opens the linked kernel.
+  .linked-kernel-button {
+    margin: 0;
+    padding: 0 var(--spacing-1);
+    appearance: none;
+    cursor: pointer;
+    transition:
+      background-color 120ms var(--motion-easing-standard),
+      border-color 120ms var(--motion-easing-standard);
+
+    &:hover {
+      border-color: var(--mat-sys-outline);
+      background: var(--mat-sys-surface-container-high);
+    }
+
+    &:active {
+      background: var(--mat-sys-surface-container-highest);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--mat-sys-primary);
+      outline-offset: 1px;
+    }
+  }
 }
 
 .card-chart {

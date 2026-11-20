@@ -294,6 +294,8 @@ export interface KernelCard {
   readonly hint: string;
   /** `hint`, split into plain text and keyboard shortcut tokens. */
   readonly hintParts: readonly HintPart[];
+  /** Kernel that `entry` is linked with, which the card's linked chip opens. */
+  readonly linkedEntry?: KernelEntry;
   /** Position relative to the component, in pixels. */
   readonly left: number;
   readonly top?: number;
@@ -1380,6 +1382,9 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   private isPointerInRail = false;
   private isFocusInRail = false;
   private isPointerInCard = false;
+  private isFocusInCard = false;
+  private cardTrigger: HTMLElement | undefined = undefined;
+  private pendingCardTrigger: HTMLElement | undefined = undefined;
   /** Where the pointer left the row of the rail card, while aiming at it. */
   private cardAimOrigin: {x: number; y: number} | undefined = undefined;
   /** Last pointer position, before the move that is being handled. */
@@ -1389,6 +1394,7 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   };
   /** Whether the last focused element was focused with the keyboard. */
   private isKeyboardFocus = false;
+  private isRestoringTabFocus = false;
   private nextTabId = 0;
   private tabClock = 0;
   /** Number of tabs opened in the background since the last tab switch. */
@@ -1991,10 +1997,33 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     this.selectEntry(next);
   }
 
-  onKernelRowClick(entry: KernelEntry, event: MouseEvent): void {
+  onKernelRowClick(
+    entry: KernelEntry,
+    event: MouseEvent | KeyboardEvent,
+  ): void {
     this.hideCard();
     this.closeContextMenu();
     this.openEntry(entry, event.ctrlKey || event.metaKey);
+  }
+
+  /** Opens `linkedEntry` from the card chip and keeps keyboard focus. */
+  onLinkedKernelClick(
+    entry: KernelEntry,
+    event: MouseEvent | KeyboardEvent,
+  ): void {
+    const restoreFocus = this.isKeyboardFocus;
+    this.onKernelRowClick(entry, event);
+    if (restoreFocus) {
+      // Removing the card drops its focused chip, so move focus to the tab
+      // without triggering its focus-hover card.
+      setTimeout(() => {
+        this.focusWithoutHoverCard(
+          this.elementRef.nativeElement.querySelector<HTMLElement>(
+            '.kernel-tab.active .tab-button',
+          ),
+        );
+      });
+    }
   }
 
   /** Opens kernels in background tabs on middle click, like links. */
@@ -2095,11 +2124,11 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       clearTimeout(this.cardTimer);
       this.cardTimer = setTimeout(() => {
         this.cardTimer = undefined;
-        this.scheduleCard(build);
+        this.scheduleCard(build, row);
       }, CARD_AIM_DELAY_MS);
       return;
     }
-    this.scheduleCard(build);
+    this.scheduleCard(build, row);
   }
 
   /** Hides the card of a row soon, and notes where the pointer left the row. */
@@ -2123,7 +2152,9 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     if (!tabElement || !this.isHoverOrKeyboardFocus(event)) {
       return;
     }
-    this.scheduleCard(() => this.cardBelowTab(tab, tabElement));
+    const trigger =
+      tabElement.querySelector<HTMLElement>('.tab-button') ?? undefined;
+    this.scheduleCard(() => this.cardBelowTab(tab, tabElement), trigger);
   }
 
   /** Hides the details card. */
@@ -2132,7 +2163,10 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     this.cardTimer = undefined;
     const wasRailCard = this.hoverCard?.source === 'rail';
     this.hoverCard = undefined;
+    this.cardTrigger = undefined;
+    this.pendingCardTrigger = undefined;
     this.isPointerInCard = false;
+    this.isFocusInCard = false;
     this.cardAimOrigin = undefined;
     // The rail stays open while the pointer is on its card, so collapse it
     // once the card goes away outside of the rail.
@@ -2141,17 +2175,14 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  /** Hides the card when its row or tab blurs, unless the pointer is on it. */
-  hideCardOnBlur(): void {
-    if (!this.isPointerInCard) {
-      this.hideCard();
-    }
-  }
-
   /** Hides the details card soon, unless the pointer moves to a neighbor. */
   hideCardSoon(): void {
     clearTimeout(this.cardTimer);
     this.cardTimer = setTimeout(() => {
+      // Focus inside the card, e.g. on its linked chip, keeps it open.
+      if (this.isFocusInCard && this.isInsideCard(document.activeElement)) {
+        return;
+      }
       this.hideCard();
       this.changeDetectorRef.markForCheck();
     }, CARD_HIDE_DELAY_MS);
@@ -2161,18 +2192,48 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   onCardMouseEnter(): void {
     this.isPointerInCard = true;
     this.cardAimOrigin = undefined;
-    clearTimeout(this.cardTimer);
-    this.cardTimer = undefined;
-    if (this.hoverCard?.source === 'rail') {
-      // The card sits outside of the rail, which would collapse otherwise.
-      clearTimeout(this.railTimer);
-      this.railTimer = undefined;
-    }
+    this.holdCard();
   }
 
   onCardMouseLeave(): void {
     this.isPointerInCard = false;
     this.hideCardSoon();
+  }
+
+  /** Keeps the details card open while it has focus. */
+  onCardFocusIn(): void {
+    this.isFocusInCard = true;
+    this.holdCard();
+  }
+
+  onCardFocusOut(event: FocusEvent): void {
+    if (!this.isFocusInCard || this.isInsideCard(event.relatedTarget)) {
+      return;
+    }
+    const wasRailCard = this.hoverCard?.source === 'rail';
+    this.isFocusInCard = false;
+    if (wasRailCard) {
+      this.collapseRailIfOutside(/* preserveExistingTimer= */ true);
+    }
+    if (!this.isPointerInCard) {
+      this.hideCardSoon();
+    }
+  }
+
+  /** Hides the card when its row or tab loses focus, unless onto or while hovered. */
+  onKernelBlur(event: FocusEvent): void {
+    const target = event.currentTarget;
+    if (target === this.pendingCardTrigger) {
+      clearTimeout(this.cardTimer);
+      this.pendingCardTrigger = undefined;
+    }
+    if (
+      target === this.cardTrigger &&
+      !this.isPointerInCard &&
+      !this.isInsideCard(event.relatedTarget)
+    ) {
+      this.hideCard();
+    }
   }
 
   onRailScroll(): void {
@@ -2378,6 +2439,11 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
     this.isFocusInRail = false;
+    // Focus moves into the sibling card after focusout fires, before focusin
+    // marks isFocusInCard; keep a rail card's rail open during the handoff.
+    if (this.hoverCard?.source === 'rail' && this.isInsideCard(next)) {
+      return;
+    }
     this.collapseRailIfOutside();
   }
 
@@ -2755,16 +2821,9 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private findRequestedEntry(): KernelEntry | undefined {
-    if (!this.requestedKernel) {
-      return undefined;
-    }
-    const matches = this.entries.filter(
-      (entry) => entry.kernel === this.requestedKernel,
-    );
-    return (
-      matches.find((entry) => entry.module === this.requestedModule) ??
-      matches[0]
-    );
+    return this.requestedKernel
+      ? this.findEntry(this.requestedKernel, this.requestedModule, true)
+      : undefined;
   }
 
   private findTab(entry: KernelEntry): KernelTab | undefined {
@@ -3622,6 +3681,9 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
 
   /** Whether `event` is a pointer hover, or focus from the keyboard. */
   private isHoverOrKeyboardFocus(event: Event): boolean {
+    if (event.type === 'focus' && this.isRestoringTabFocus) {
+      return false;
+    }
     const target = event.target;
     return (
       event.type !== 'focus' ||
@@ -3635,7 +3697,8 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       this.isPointerInRail ||
       this.isFocusInRail ||
       this.contextMenu?.source === 'rail' ||
-      (this.isPointerInCard && this.hoverCard?.source === 'rail') ||
+      ((this.isPointerInCard || this.isFocusInCard) &&
+        this.hoverCard?.source === 'rail') ||
       (preserveExistingTimer && this.railTimer !== undefined)
     ) {
       return;
@@ -3644,7 +3707,10 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /** Shows a details card, right away if another card is showing. */
-  private scheduleCard(build: () => KernelCard | undefined): void {
+  private scheduleCard(
+    build: () => KernelCard | undefined,
+    trigger?: HTMLElement,
+  ): void {
     clearTimeout(this.cardTimer);
     this.cardTimer = undefined;
     // The tour covers the page, and its card takes the place of details cards.
@@ -3654,7 +3720,9 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     const show = () => {
       this.cardTimer = undefined;
       this.cardAimOrigin = undefined;
+      this.pendingCardTrigger = undefined;
       const wasRailCard = this.hoverCard?.source === 'rail';
+      const prevEntry = this.hoverCard?.entry;
       const next = build();
       if (!next) {
         this.hideCard();
@@ -3662,6 +3730,17 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
         return;
       }
       this.hoverCard = next;
+      this.cardTrigger = trigger;
+      if (next.entry !== prevEntry) {
+        this.isFocusInCard = false;
+        // Clear focus if Angular reuses the card's linked button across entries.
+        if (
+          this.isInsideCard(document.activeElement) &&
+          document.activeElement instanceof HTMLElement
+        ) {
+          document.activeElement.blur();
+        }
+      }
       if (wasRailCard && next.source !== 'rail') {
         this.collapseRailIfOutside(/* preserveExistingTimer= */ true);
       }
@@ -3670,7 +3749,18 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     if (this.hoverCard) {
       show();
     } else {
+      this.pendingCardTrigger = trigger;
       this.cardTimer = setTimeout(show, CARD_SHOW_DELAY_MS);
+    }
+  }
+
+  /** Cancels a pending hide of the details card and collapse of its rail. */
+  private holdCard(): void {
+    clearTimeout(this.cardTimer);
+    if (this.hoverCard?.source === 'rail') {
+      // The card sits outside of the rail, which would collapse otherwise.
+      clearTimeout(this.railTimer);
+      this.railTimer = undefined;
     }
   }
 
@@ -3694,6 +3784,53 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
     // Strictly inside: on the bottom side of the line to the top corner, on
     // the top side of the line to the bottom corner, and before the edge.
     return toTop > 0 && toBottom < 0 && edge > 0;
+  }
+
+  private isInsideCard(target: EventTarget | null): boolean {
+    return (
+      target instanceof Node &&
+      Boolean(
+        this.elementRef.nativeElement
+          .querySelector('.kernel-card')
+          ?.contains(target),
+      )
+    );
+  }
+
+  /** Next focusable element in `.skv-layout` after `cardTrigger`. */
+  private nextFocusableAfterTrigger(): HTMLElement | undefined {
+    const trigger = this.cardTrigger;
+    const layout = this.elementRef.nativeElement.querySelector('.skv-layout');
+    if (!trigger?.isConnected || !layout) {
+      return undefined;
+    }
+    const selector =
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusables = Array.from(
+      layout.querySelectorAll<HTMLElement>(selector),
+    ).filter(
+      (element) =>
+        !element.closest('.kernel-card') &&
+        element.tabIndex >= 0 &&
+        (element === trigger || element.getClientRects().length > 0),
+    );
+    const index = focusables.indexOf(trigger);
+    return index >= 0 ? focusables[index + 1] : undefined;
+  }
+
+  /** Entry matching `kernel` in `module`, with optional cross-module fallback. */
+  private findEntry(
+    kernel: string,
+    module: string,
+    allowModuleFallback = false,
+  ): KernelEntry | undefined {
+    const exact = this.entries.find(
+      (entry) => entry.kernel === kernel && entry.module === module,
+    );
+    if (exact || !allowModuleFallback) {
+      return exact;
+    }
+    return this.entries.find((entry) => entry.kernel === kernel);
   }
 
   private hideCardFrom(source: KernelCard['source']): void {
@@ -3815,10 +3952,18 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
         },
       ];
     }
+    const linkedEntry = entry.linkedKernel
+      ? this.findEntry(entry.linkedKernel, entry.module)
+      : undefined;
+    const card = {
+      entry,
+      source: 'rail' as const,
+      ...buildCardHint(hintParts),
+      ...(linkedEntry ? {linkedEntry} : {}),
+      left,
+    };
     // Grow the card away from the closer edge, so that it fits.
-    return top < bottom
-      ? {entry, source: 'rail', ...buildCardHint(hintParts), left, top}
-      : {entry, source: 'rail', ...buildCardHint(hintParts), left, bottom};
+    return top < bottom ? {...card, top} : {...card, bottom};
   }
 
   private cardBelowTab(tab: KernelTab, tabElement: Element): KernelCard {
@@ -3834,13 +3979,30 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
             {text: ' switch tabs', isKey: false},
           ]
         : [];
+    const linkedEntry = tab.entry.linkedKernel
+      ? this.findEntry(tab.entry.linkedKernel, tab.entry.module)
+      : undefined;
     return {
       entry: tab.entry,
       source: 'tab',
       ...buildCardHint(hintParts),
+      ...(linkedEntry ? {linkedEntry} : {}),
       left: Math.min(Math.max(rect.left - host.left, CARD_GAP), maxLeft),
       top: rect.bottom - host.top + CARD_GAP,
     };
+  }
+
+  /** Focuses `element` without triggering its focus-dwell details card. */
+  private focusWithoutHoverCard(element: HTMLElement | null | undefined): void {
+    if (!element?.isConnected) {
+      return;
+    }
+    this.isRestoringTabFocus = true;
+    try {
+      element.focus();
+    } finally {
+      this.isRestoringTabFocus = false;
+    }
   }
 
   /**
@@ -3877,6 +4039,20 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
     if (
+      this.hoverCard?.linkedEntry &&
+      event.target instanceof Element &&
+      event.target.closest('.linked-kernel-button') &&
+      (event.key === 'Enter' || event.key === ' ') &&
+      !event.altKey
+    ) {
+      event.preventDefault();
+      if (!event.repeat) {
+        this.onLinkedKernelClick(this.hoverCard.linkedEntry, event);
+        this.changeDetectorRef.markForCheck();
+      }
+      return;
+    }
+    if (
       this.contextMenu &&
       (event.key === 'ArrowDown' || event.key === 'ArrowUp') &&
       !event.ctrlKey &&
@@ -3890,12 +4066,60 @@ export class StaticKernelViewer implements OnInit, AfterViewInit, OnDestroy {
         ?.focus();
       return;
     }
+    if (
+      event.key === 'Tab' &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey &&
+      this.hoverCard
+    ) {
+      const linkedButton =
+        this.elementRef.nativeElement.querySelector<HTMLElement>(
+          '.kernel-card .linked-kernel-button',
+        );
+      if (
+        !event.shiftKey &&
+        linkedButton &&
+        event.target === this.cardTrigger
+      ) {
+        event.preventDefault();
+        linkedButton.focus();
+        return;
+      }
+      if (this.isInsideCard(event.target)) {
+        if (event.shiftKey) {
+          if (this.cardTrigger?.isConnected) {
+            event.preventDefault();
+            this.cardTrigger.focus();
+            return;
+          }
+        } else {
+          const nextFocus = this.nextFocusableAfterTrigger();
+          if (nextFocus) {
+            event.preventDefault();
+            this.hideCard();
+            nextFocus.focus();
+            this.changeDetectorRef.markForCheck();
+            return;
+          }
+        }
+      }
+    }
+    // Escape on the card's button restores focus to its trigger; other
+    // unhandled keys and viewer shortcuts close the stale card before acting.
     if (!MODIFIER_KEYS.has(event.key)) {
+      const trigger =
+        event.key === 'Escape' &&
+        this.isInsideCard(event.target) &&
+        this.isKeyboardFocus
+          ? this.cardTrigger
+          : undefined;
       this.hideCard();
       if (event.key !== 'Tab') {
         this.closeContextMenu();
         this.releasePointerFocus('.kernel-rail, .kernel-bar');
       }
+      this.focusWithoutHoverCard(trigger);
       this.changeDetectorRef.markForCheck();
     }
     if (wasContextMenuOpen && event.key === 'Escape') {

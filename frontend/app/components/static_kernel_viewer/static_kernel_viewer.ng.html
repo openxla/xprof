@@ -293,7 +293,7 @@
               (mouseenter)="onKernelRowHover(entry, $event)"
               (mouseleave)="onKernelRowLeave(entry, $event)"
               (focus)="onKernelRowHover(entry, $event)"
-              (blur)="hideCardOnBlur()"
+              (blur)="onKernelBlur($event)"
               [attr.aria-current]="entry === selectedEntry ? 'true' : null"
               [attr.aria-label]="isEntryOpen(entry) ? entry.description + ', open in a tab' : entry.description"
             >
@@ -348,7 +348,7 @@
               type="button"
               (click)="onTabClick(tab)"
               (focus)="onTabHover(tab, $event)"
-              (blur)="hideCardOnBlur()"
+              (blur)="onKernelBlur($event)"
               [attr.aria-current]="tab === activeTab ? 'true' : null"
               [attr.aria-label]="tab.entry.description"
             >
@@ -543,7 +543,10 @@
     [style.bottom.px]="card.bottom"
     (mouseenter)="onCardMouseEnter()"
     (mouseleave)="onCardMouseLeave()"
-    aria-hidden="true"
+    (focusin)="onCardFocusIn()"
+    (focusout)="onCardFocusOut($event)"
+    role="group"
+    [attr.aria-label]="card.entry.kernel + ' details'"
   >
     <div class="card-header">
       <div class="card-title">
@@ -558,11 +561,21 @@
         <dt>{{ fact.label }}</dt>
         <dd [class.warning]="fact.warning" [class.linked-pill]="fact.linkedPill">
           <mat-icon *ngIf="fact.icon" class="fact-icon" aria-hidden="true">{{ fact.icon }}</mat-icon>
-          <span
+          <button
+            *ngIf="fact.linkedPill && card.linkedEntry as linkedEntry; else staticFactValue"
+            type="button"
+            class="fact-value fact-value-chip linked-kernel-button"
+            [attr.title]="fact.value"
+            [attr.aria-label]="'Open linked kernel ' + fact.value"
+            (click)="onLinkedKernelClick(linkedEntry, $event)"
+            (auxclick)="onKernelRowAuxClick(linkedEntry, $event)"
+            (mousedown)="onMouseDown($event)"
+          ><span class="fact-value-chip-label">{{ fact.value }}</span></button>
+          <ng-template #staticFactValue><span
             class="fact-value"
             [class.fact-value-chip]="fact.linkedPill"
             [attr.title]="fact.linkedPill ? fact.value : null"
-          ><span *ngIf="fact.linkedPill; else factText" class="fact-value-chip-label">{{ fact.value }}</span><ng-template #factText><ng-container *ngIf="fact.secondaryValue; else plainFactValue">{{ fact.primaryValue }}<span class="fact-secondary">{{ fact.secondaryValue }}</span></ng-container><ng-template #plainFactValue>{{ fact.value }}</ng-template></ng-template></span>
+          ><span *ngIf="fact.linkedPill; else factText" class="fact-value-chip-label">{{ fact.value }}</span><ng-template #factText><ng-container *ngIf="fact.secondaryValue; else plainFactValue">{{ fact.primaryValue }}<span class="fact-secondary">{{ fact.secondaryValue }}</span></ng-container><ng-template #plainFactValue>{{ fact.value }}</ng-template></ng-template></span></ng-template>
         </dd>
       </ng-container>
     </dl>

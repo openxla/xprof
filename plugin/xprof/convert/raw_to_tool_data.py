@@ -40,6 +40,8 @@ from xprof.convert import _pywrap_profiler_plugin
 
 logger = logging.getLogger('tensorboard')
 
+_ALL_HOSTS = 'ALL_HOSTS'
+
 
 def process_raw_trace(raw_trace: bytes) -> str:
   """Processes raw trace data and returns the UI data."""
@@ -357,6 +359,17 @@ def xspace_to_tool_data(
       data = json_data
   elif tool == 'smart_suggestion':
     options['refresh_suggestion'] = params.get('refresh_suggestion', False)
+    json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
+    if success:
+      data = json_data
+  elif tool == 'kernel_viewer':
+    host = params.get('host')
+    options.update({
+        'request_type': params.get('request_type', ''),
+        'kernel_name': params.get('kernel_name', ''),
+        'hlo_module': params.get('hlo_module', ''),
+        'host_name': '' if host in (None, _ALL_HOSTS) else host,
+    })
     json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = json_data

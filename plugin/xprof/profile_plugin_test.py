@@ -826,6 +826,7 @@ class ProfilePluginTest(absltest.TestCase):
         'memory_profile',
         'utilization_viewer',
         'kernel_utilization',
+        'kernel_viewer',
     )
     self.assertLen(single_host_tools, len(set(single_host_tools)))
     self.assertSetEqual(
@@ -978,6 +979,193 @@ class ProfilePluginTest(absltest.TestCase):
         self.assertEqual([str(p) for p in asset_paths], [expected_host1_path])
         self.assertEqual(params['hosts'], ['host1'])
         self.assertEqual(params['host'], 'host1')
+
+  def test_data_impl_kernel_viewer_forwards_params_and_sentinel_hosts(self):
+    mock_xspace_to_tool_data = self.enter_context(
+        mock.patch.object(convert, 'xspace_to_tool_data', autospec=True)
+    )
+    generate_testdata(self.logdir)
+    self.multiplexer.AddRunsFromDirectory(self.logdir)
+    self.multiplexer.Reload()
+    mock_xspace_to_tool_data.return_value = (
+        '{"hlo_modules":[]}',
+        'application/json',
+    )
+    plugin = utils.create_profile_plugin(
+        self.logdir,
+        self.multiplexer,
+        xspace_to_tool_data_fn=mock_xspace_to_tool_data,
+    )
+
+    req = utils.make_data_request(
+        utils.DataRequestOptions(
+            run='abc',
+            tool='kernel_viewer',
+            host='host2',
+        )
+    )
+    req.args['request_type'] = 'trace'
+    req.args['kernel_name'] = 'fusion.1'
+    req.args['hlo_module'] = 'jit_step'
+
+    data, content_type, _ = plugin.data_impl(req)
+
+    self.assertEqual(data, '{"hlo_modules":[]}')
+    self.assertEqual(content_type, 'application/json')
+    mock_xspace_to_tool_data.assert_called_once()
+    args, _ = mock_xspace_to_tool_data.call_args
+    self.assertLen(args[0], 1)
+    self.assertTrue(str(args[0][0]).endswith('host2.xplane.pb'))
+    self.assertEqual(args[1], 'kernel_viewer')
+    self.assertEqual(args[2]['host'], 'host2')
+    self.assertEqual(args[2]['hosts'], ['host2'])
+    self.assertEqual(args[2]['request_type'], 'trace')
+    self.assertEqual(args[2]['kernel_name'], 'fusion.1')
+    self.assertEqual(args[2]['hlo_module'], 'jit_step')
+    self.assertIs(args[2]['use_saved_result'], False)
+
+    # Missing, empty, and sentinel (`default`, `ALL_HOSTS`) host values resolve
+    # deterministically to the first sorted host (`host1`), even when `hosts` is
+    # populated from a multi-host tool.
+    for sentinel_host in ('default', profile_plugin.ALL_HOSTS, '', None):
+      for hosts_param in (None, 'host2'):
+        mock_xspace_to_tool_data.reset_mock()
+        sentinel_req = utils.make_data_request(
+            utils.DataRequestOptions(
+                run='abc',
+                tool='kernel_viewer',
+            )
+        )
+        if sentinel_host is not None:
+          sentinel_req.args['host'] = sentinel_host
+        if hosts_param is not None:
+          sentinel_req.args['hosts'] = hosts_param
+        plugin.data_impl(sentinel_req)
+        mock_xspace_to_tool_data.assert_called_once()
+        args, _ = mock_xspace_to_tool_data.call_args
+        self.assertLen(args[0], 1)
+        self.assertTrue(str(args[0][0]).endswith('host1.xplane.pb'))
+        self.assertEqual(args[2]['host'], 'host1')
+        self.assertEqual(args[2]['hosts'], ['host1'])
+        self.assertEqual(args[2]['request_type'], '')
+        self.assertEqual(args[2]['kernel_name'], '')
+        self.assertEqual(args[2]['hlo_module'], '')
+        self.assertIs(args[2]['use_saved_result'], True)
+
+  def test_data_impl_kernel_viewer_preserves_literal_default_host(self):
+    mock_xspace_to_tool_data = self.enter_context(
+        mock.patch.object(convert, 'xspace_to_tool_data', autospec=True)
+    )
+    plugin_logdir = plugin_asset_util.PluginDirectory(
+        self.logdir, profile_plugin.ProfilePlugin.plugin_name
+    )
+    run_dir = os.path.join(plugin_logdir, 'literal_default_run')
+    os.makedirs(run_dir)
+    for host in ('default', 'host1'):
+      with open(os.path.join(run_dir, f'{host}.xplane.pb'), 'wb') as f:
+        f.write(b'xplane')
+    self.multiplexer.AddRunsFromDirectory(self.logdir)
+    self.multiplexer.Reload()
+    mock_xspace_to_tool_data.return_value = ('{}', 'application/json')
+    plugin = utils.create_profile_plugin(
+        self.logdir,
+        self.multiplexer,
+        xspace_to_tool_data_fn=mock_xspace_to_tool_data,
+    )
+
+    req = utils.make_data_request(
+        utils.DataRequestOptions(
+            run='literal_default_run',
+            tool='kernel_viewer',
+            host='default',
+        )
+    )
+    plugin.data_impl(req)
+
+    mock_xspace_to_tool_data.assert_called_once()
+    args, _ = mock_xspace_to_tool_data.call_args
+    self.assertLen(args[0], 1)
+    self.assertTrue(str(args[0][0]).endswith('default.xplane.pb'))
+    self.assertEqual(args[2]['host'], 'default')
+    self.assertEqual(args[2]['hosts'], ['default'])
+
+  def test_data_impl_kernel_viewer_unknown_host_returns_not_found(self):
+    generate_testdata(self.logdir)
+    self.multiplexer.AddRunsFromDirectory(self.logdir)
+    self.multiplexer.Reload()
+
+    req = utils.make_data_request(
+        utils.DataRequestOptions(
+            run='abc',
+            tool='kernel_viewer',
+            host='missing_host',
+        )
+    )
+    with self.assertRaises(FileNotFoundError):
+      self.plugin.data_impl(req)
+
+    server = werkzeug_test.Client(self.plugin.data_route, wrappers.Response)
+    response = server.get('?run=abc&tag=kernel_viewer&host=missing_host')
+    self.assertEqual(response.status_code, 404)
+
+  def test_run_tools_imp_sorts_xplane_files_by_parsed_hostname(self):
+    mock_xspace_to_tool_names = self.enter_context(
+        mock.patch.object(convert, 'xspace_to_tool_names', autospec=True)
+    )
+    mock_xspace_to_tool_data = self.enter_context(
+        mock.patch.object(convert, 'xspace_to_tool_data', autospec=True)
+    )
+    plugin_logdir = plugin_asset_util.PluginDirectory(
+        self.logdir, profile_plugin.ProfilePlugin.plugin_name
+    )
+    run_dir = os.path.join(plugin_logdir, 'multi_host_run')
+    os.makedirs(run_dir)
+    unsorted_basenames = [
+        'host2.xplane.pb',
+        'host-1.xplane.pb',
+        'host.xplane.pb',
+        'xplane.pb',
+    ]
+    for basename in unsorted_basenames:
+      with open(os.path.join(run_dir, basename), 'wb') as f:
+        f.write(b'xplane')
+    self.multiplexer.AddRunsFromDirectory(self.logdir)
+    self.multiplexer.Reload()
+    mock_xspace_to_tool_names.return_value = ['overview_page', 'kernel_viewer']
+    mock_xspace_to_tool_data.return_value = ('{}', 'application/json')
+    plugin = utils.create_profile_plugin(
+        self.logdir,
+        self.multiplexer,
+        xspace_to_tool_data_fn=mock_xspace_to_tool_data,
+    )
+
+    with mock.patch.object(
+        plugin,
+        '_get_all_basenames',
+        return_value=unsorted_basenames,
+        autospec=True,
+    ):
+      tools = plugin.run_tools_imp('multi_host_run')
+
+    self.assertEqual(tools, ['overview_page', 'kernel_viewer'])
+    mock_xspace_to_tool_names.assert_called_once_with([
+        os.path.join(run_dir, 'host.xplane.pb'),
+        os.path.join(run_dir, 'host-1.xplane.pb'),
+        os.path.join(run_dir, 'host2.xplane.pb'),
+        os.path.join(run_dir, 'xplane.pb'),
+    ])
+
+    req = utils.make_data_request(
+        utils.DataRequestOptions(run='multi_host_run', tool='kernel_viewer')
+    )
+    plugin.data_impl(req)
+    mock_xspace_to_tool_data.assert_called_once()
+    args, _ = mock_xspace_to_tool_data.call_args
+    self.assertEqual(
+        [str(path) for path in args[0]],
+        [os.path.join(run_dir, 'host.xplane.pb')],
+    )
+    self.assertEqual(args[2]['host'], 'host')
 
   def testActive(self):
 

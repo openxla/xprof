@@ -424,6 +424,82 @@ class RawToToolDataTest(absltest.TestCase):
         {"host_name": "missing_host", "perfetto": True},
     )
 
+  def test_xspace_to_tool_data_kernel_viewer_forwards_request_params(self):
+    params = {
+        "request_type": "trace",
+        "kernel_name": "fusion.1",
+        "hlo_module": "jit_step",
+        "host": "host_a",
+    }
+    wrapper_func = mock.MagicMock(return_value=(b'{"traceEvents":[]}', True))
+
+    data, content_type = raw_to_tool_data.xspace_to_tool_data(
+        xspace_paths=["/path/to/xspace"],
+        tool="kernel_viewer",
+        params=params,
+        xspace_wrapper_func=wrapper_func,
+    )
+
+    self.assertEqual(data, b'{"traceEvents":[]}')
+    self.assertEqual(content_type, "application/json")
+    wrapper_func.assert_called_once_with(
+        ["/path/to/xspace"],
+        "kernel_viewer",
+        {
+            "use_saved_result": True,
+            "request_type": "trace",
+            "kernel_name": "fusion.1",
+            "hlo_module": "jit_step",
+            "host_name": "host_a",
+        },
+    )
+
+  def test_xspace_to_tool_data_kernel_viewer_defaults_to_empty_params(self):
+    wrapper_func = mock.MagicMock(return_value=(b"{}", True))
+
+    raw_to_tool_data.xspace_to_tool_data(
+        xspace_paths=["/path/to/xspace"],
+        tool="kernel_viewer",
+        params={"host": None},
+        xspace_wrapper_func=wrapper_func,
+    )
+
+    wrapper_func.assert_called_once_with(
+        ["/path/to/xspace"],
+        "kernel_viewer",
+        {
+            "use_saved_result": True,
+            "request_type": "",
+            "kernel_name": "",
+            "hlo_module": "",
+            "host_name": "",
+        },
+    )
+
+  def test_xspace_to_tool_data_kernel_viewer_preserves_cache_and_all_hosts(
+      self,
+  ):
+    wrapper_func = mock.MagicMock(return_value=(b"{}", True))
+
+    raw_to_tool_data.xspace_to_tool_data(
+        xspace_paths=["/path/to/xspace"],
+        tool="kernel_viewer",
+        params={"host": "ALL_HOSTS", "use_saved_result": False},
+        xspace_wrapper_func=wrapper_func,
+    )
+
+    wrapper_func.assert_called_once_with(
+        ["/path/to/xspace"],
+        "kernel_viewer",
+        {
+            "use_saved_result": False,
+            "request_type": "",
+            "kernel_name": "",
+            "hlo_module": "",
+            "host_name": "",
+        },
+    )
+
   def test_profile_data_to_tool_data(self):
     mock_func = self.enter_context(
         mock.patch.object(

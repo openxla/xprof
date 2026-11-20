@@ -193,6 +193,7 @@ XPLANE_TOOLS = [
     'utilization_viewer',
     'kernel_utilization',
     'smart_suggestion',
+    'kernel_viewer',
 ]
 
 XPLANE_TOOLS_SET = frozenset(XPLANE_TOOLS)
@@ -222,6 +223,7 @@ XPLANE_TOOLS_SINGLE_HOST_ONLY = frozenset([
     'memory_profile',
     'utilization_viewer',
     'kernel_utilization',
+    'kernel_viewer',
 ])
 
 # Rate limiter constants, the GCS quota defined below
@@ -316,11 +318,11 @@ def _get_tools(filenames: Sequence[str], profile_run_dir: str) -> set[str]:
   """
   tools = set()
   found = set()
-  xplane_filenames = []
+  xplane_files = []
   for name in filenames:
-    _, tool = _parse_filename(name)
+    host, tool = _parse_filename(name)
     if tool == 'xplane':
-      xplane_filenames.append(os.path.join(profile_run_dir, name))
+      xplane_files.append((host is None, host or '', name))
       continue
     elif tool == 'hlo_proto':
       continue
@@ -330,6 +332,12 @@ def _get_tools(filenames: Sequence[str], profile_run_dir: str) -> set[str]:
         found.add(tool[:-1])
       else:
         found.add(tool)
+  # Sort by parsed hostname so xspace_to_tool_names pre-warms the first sorted
+  # host selected by single-host tools such as kernel_viewer.
+  xplane_filenames = [
+      os.path.join(profile_run_dir, name)
+      for _, _, name in sorted(xplane_files)
+  ]
   # profile_run_dir might be empty, like in cloud AI use case.
   if not profile_run_dir:
     if xplane_filenames:
@@ -1455,6 +1463,13 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
           'No xplane file found for run: %s, tool: %s' % (run, tool)
       )
 
+    if (
+        tool == 'kernel_viewer'
+        and host == 'default'
+        and host not in all_xplane_files
+    ):
+      host = ''
+
     if tool in XPLANE_TOOLS_ALL_HOSTS_ONLY:
       selected_hosts = list(all_xplane_files.keys())
       asset_paths = list(all_xplane_files.values())
@@ -1599,6 +1614,9 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
       params['show_zeros'] = show_zeros.lower() in ('true', '1')
     if tool == 'hlo_op_stats':
       tool = 'hlo_stats'
+    if tool == 'kernel_viewer':
+      for arg in ('request_type', 'kernel_name', 'hlo_module'):
+        params[arg] = request.args.get(arg, '')
     content_type = 'application/json'
 
     if tool not in TOOLS and not use_xplane(tool):
@@ -1645,6 +1663,8 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
       selected_hosts, asset_paths = self._get_valid_hosts(
           run_dir, run, tool, hosts_param, host, perfetto=perfetto
       )
+      if tool == 'kernel_viewer' and selected_hosts:
+        params['host'] = selected_hosts[0]
       params['hosts'] = selected_hosts
       if tool == 'megascale_stats':
         # MegascaleStatsProcessor requires a non-empty host_name option: a
@@ -2130,6 +2150,7 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
         'trace_viewer',
         'trace_viewer@',
         'graph_viewer',
+        'kernel_viewer',
         'op_profile',
         'hlo_op_profile',
         'input_pipeline_analyzer',

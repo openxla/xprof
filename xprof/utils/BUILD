@@ -64,8 +64,10 @@ cc_test(
     deps = [
         ":event_span",
         "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
+        "//plugin/xprof/protobuf:op_metrics_proto_cc",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
+        "@xla//xla/tsl/profiler/utils:timespan",
     ],
 )
 
@@ -145,7 +147,6 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
-        "@xla//xla/hlo/ir:hlo",
         "@xla//xla/tsl/platform:logging",
         "@xla//xla/tsl/platform:macros",
         "@xla//xla/tsl/platform:types",
@@ -186,6 +187,7 @@ cc_test(
         ":op_metrics_db_utils",
         "//net/proto2/contrib/parse_proto:parse_text_proto",
         "//plugin/xprof/protobuf:op_metrics_proto_cc",
+        "//plugin/xprof/protobuf:source_info_proto_cc",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",

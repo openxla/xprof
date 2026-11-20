@@ -22,6 +22,7 @@ limitations under the License.
 #include <stack>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/base/attributes.h"
 #include "absl/container/flat_hash_set.h"
@@ -139,7 +140,10 @@ class DeviceTfOpMetricsDbBuilder : public OpMetricsDbBuilder {
 };
 
 void SetOpMetadataFromHloEventMetadata(
-    const XEventMetadataVisitor& hlo_event_metadata, OpMetrics* op_metrics) {
+    const XEventMetadataVisitor& hlo_event_metadata, OpMetrics* op_metrics,
+    OpMetadataDetail metadata_detail = OpMetadataDetail::kFull) {
+  const bool include_source_info_and_children =
+      metadata_detail == OpMetadataDetail::kFull;
   if (hlo_event_metadata.HasDisplayName()) {
     op_metrics->set_name(std::string(hlo_event_metadata.DisplayName()));
     op_metrics->set_long_name(std::string(hlo_event_metadata.Name()));
@@ -183,99 +187,137 @@ void SetOpMetadataFromHloEventMetadata(
           op_metrics->set_deduplicated_name(std::string(stat.StrOrRefValue()));
           break;
         case StatType::kSourceInfo:
-          PopulateSourceInfo(stat.StrOrRefValue(),
-                             *op_metrics->mutable_source_info());
+          if (include_source_info_and_children) {
+            PopulateSourceInfo(stat.StrOrRefValue(),
+                               *op_metrics->mutable_source_info());
+          }
           break;
         case StatType::kSourceStack:
-          op_metrics->mutable_source_info()->set_stack_frame(
-              std::string(stat.StrOrRefValue()));
+          if (include_source_info_and_children) {
+            op_metrics->mutable_source_info()->set_stack_frame(
+                std::string(stat.StrOrRefValue()));
+          }
           break;
         default:
           break;
       }
     }
   });
-  hlo_event_metadata.ForEachChild(
-      [&](const XEventMetadataVisitor& child_hlo_event_metadata) {
-        OpMetrics* child = op_metrics->mutable_children()->add_metrics_db();
-        child->set_occurrences(1);
-        SetOpMetadataFromHloEventMetadata(child_hlo_event_metadata, child);
-      });
+  if (include_source_info_and_children) {
+    hlo_event_metadata.ForEachChild(
+        [&](const XEventMetadataVisitor& child_hlo_event_metadata) {
+          OpMetrics* child = op_metrics->mutable_children()->add_metrics_db();
+          child->set_occurrences(1);
+          SetOpMetadataFromHloEventMetadata(child_hlo_event_metadata, child,
+                                            metadata_detail);
+        });
+  }
 }
 
-void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
-                              OpMetrics* op_metrics) {
-  uint64_t duration_ps = hlo_event.DurationPs();
-  uint64_t min_duration_ps = duration_ps;
-  uint64_t self_duration_ps = duration_ps;
+// Costs of a single HLO event.
+struct HloEventCosts {
+  int64_t occurrences = kSingleOccurrence;
+  uint64_t time_ps = 0;
+  uint64_t min_time_ps = 0;
+  uint64_t self_time_ps = 0;
   // Duration normalized given the scaling factor.
-  uint64_t normalized_duration_ps = 0;
+  uint64_t normalized_time_ps = 0;
   uint64_t dma_stall_ps = 0;
+  std::optional<double> vdd_energy_j;
   // LLO-derived estimated cost of a custom call. It is reported per event (not
   // on the event metadata) and is already a total for the event, so it is
   // accumulated as is and not scaled by occurrences.
   double estimated_flops = 0;
   double estimated_bytes_accessed = 0;
+};
+
+// Returns the costs of `hlo_event` read from its stats. The event duration is
+// the default time, min time and self time, and the base of the normalized
+// time.
+HloEventCosts GetHloEventCosts(const tsl::profiler::XEventVisitor& hlo_event) {
+  const uint64_t duration_ps = hlo_event.DurationPs();
+  HloEventCosts costs;
+  costs.occurrences = std::max(kSingleOccurrence, hlo_event.NumOccurrences());
+  costs.time_ps = duration_ps;
+  costs.min_time_ps = duration_ps;
+  costs.self_time_ps = duration_ps;
   hlo_event.ForEachStat([&](const XStatVisitor& stat) {
     if (stat.Name() == "vdd_energy_j") {
-      op_metrics->set_vdd_energy_j(op_metrics->vdd_energy_j() +
-                                   stat.DoubleValue());
+      costs.vdd_energy_j =
+          costs.vdd_energy_j.value_or(0.0) + stat.DoubleValue();
       return;
     }
     if (!stat.Type()) return;
     switch (static_cast<StatType>(*stat.Type())) {
       case StatType::kMinDurationPs:
-        min_duration_ps = stat.IntValue();
+        costs.min_time_ps = stat.IntValue();
         break;
       case StatType::kSelfDurationPs:
-        self_duration_ps = stat.IntValue();
+        costs.self_time_ps = stat.IntValue();
         break;
       case StatType::kDmaStallDurationPs:
-        dma_stall_ps = stat.IntValue();
+        costs.dma_stall_ps = stat.IntValue();
+        break;
+      case StatType::kTimeScaleMultiplier:
+        costs.normalized_time_ps = duration_ps * stat.DoubleValue();
         break;
       case StatType::kEstimatedFlops:
-        estimated_flops += static_cast<double>(stat.IntOrUintValue());
+        costs.estimated_flops += static_cast<double>(stat.IntOrUintValue());
         break;
       case StatType::kEstimatedBytesAccessed:
-        estimated_bytes_accessed += static_cast<double>(stat.IntOrUintValue());
+        costs.estimated_bytes_accessed +=
+            static_cast<double>(stat.IntOrUintValue());
         break;
       default:
         break;
     }
   });
-  std::optional<XStatVisitor> time_scale_multiplier_stat =
-      hlo_event.GetStat(StatType::kTimeScaleMultiplier);
-  if (time_scale_multiplier_stat.has_value()) {
-    normalized_duration_ps =
-        duration_ps * time_scale_multiplier_stat->DoubleValue();
-  }
-  if (op_metrics->occurrences() == 0) {
-    SetOpMetadataFromHloEventMetadata(hlo_event.Metadata(), op_metrics);
-    op_metrics->set_occurrences(
-        std::max(kSingleOccurrence, hlo_event.NumOccurrences()));
-    op_metrics->set_time_ps(duration_ps);
-    op_metrics->set_min_time_ps(min_duration_ps);
-    op_metrics->set_self_time_ps(self_duration_ps);
-    op_metrics->set_normalized_time_ps(normalized_duration_ps);
-    op_metrics->set_dma_stall_ps(dma_stall_ps);
-    op_metrics->set_num_cores(1);
-    op_metrics->set_estimated_flops(estimated_flops);
-    op_metrics->set_estimated_bytes_accessed(estimated_bytes_accessed);
+  return costs;
+}
+
+// Adds the `costs` of one HLO event to `op_metrics`. On the first occurrence,
+// also populates the op metadata from `hlo_event_metadata` with the given
+// detail.
+void AddHloEventCosts(const XEventMetadataVisitor& hlo_event_metadata,
+                      const HloEventCosts& costs,
+                      OpMetadataDetail metadata_detail, OpMetrics& op_metrics) {
+  if (op_metrics.occurrences() == 0) {
+    SetOpMetadataFromHloEventMetadata(hlo_event_metadata, &op_metrics,
+                                      metadata_detail);
+    op_metrics.set_occurrences(costs.occurrences);
+    op_metrics.set_time_ps(costs.time_ps);
+    op_metrics.set_min_time_ps(costs.min_time_ps);
+    op_metrics.set_self_time_ps(costs.self_time_ps);
+    op_metrics.set_normalized_time_ps(costs.normalized_time_ps);
+    op_metrics.set_dma_stall_ps(costs.dma_stall_ps);
+    op_metrics.set_num_cores(1);
+    op_metrics.set_estimated_flops(costs.estimated_flops);
+    op_metrics.set_estimated_bytes_accessed(costs.estimated_bytes_accessed);
   } else {
-    op_metrics->set_occurrences(op_metrics->occurrences() +
-                                hlo_event.NumOccurrences());
-    op_metrics->set_time_ps(op_metrics->time_ps() + duration_ps);
-    op_metrics->set_min_time_ps(
-        std::min<uint64_t>(op_metrics->min_time_ps(), min_duration_ps));
-    op_metrics->set_self_time_ps(op_metrics->self_time_ps() + self_duration_ps);
-    op_metrics->set_normalized_time_ps(op_metrics->normalized_time_ps() +
-                                       normalized_duration_ps);
-    op_metrics->set_dma_stall_ps(op_metrics->dma_stall_ps() + dma_stall_ps);
-    op_metrics->set_estimated_flops(op_metrics->estimated_flops() +
-                                    estimated_flops);
-    op_metrics->set_estimated_bytes_accessed(
-        op_metrics->estimated_bytes_accessed() + estimated_bytes_accessed);
+    op_metrics.set_occurrences(op_metrics.occurrences() + costs.occurrences);
+    op_metrics.set_time_ps(op_metrics.time_ps() + costs.time_ps);
+    op_metrics.set_min_time_ps(
+        std::min<uint64_t>(op_metrics.min_time_ps(), costs.min_time_ps));
+    op_metrics.set_self_time_ps(op_metrics.self_time_ps() + costs.self_time_ps);
+    op_metrics.set_normalized_time_ps(op_metrics.normalized_time_ps() +
+                                      costs.normalized_time_ps);
+    op_metrics.set_dma_stall_ps(op_metrics.dma_stall_ps() + costs.dma_stall_ps);
+    op_metrics.set_estimated_flops(op_metrics.estimated_flops() +
+                                   costs.estimated_flops);
+    op_metrics.set_estimated_bytes_accessed(
+        op_metrics.estimated_bytes_accessed() + costs.estimated_bytes_accessed);
   }
+  if (costs.vdd_energy_j.has_value()) {
+    op_metrics.set_vdd_energy_j(op_metrics.vdd_energy_j() +
+                                *costs.vdd_energy_j);
+  }
+}
+
+// Returns true if ops with `key` are recorded by XEventsOpMetricsDbBuilder.
+// Keys without a program or symbol id, or with the root symbol id, are ignored.
+bool IsRecordedOpKey(const XEventsOpMetricsDbBuilder::OpKey& key) {
+  return key.program_id.has_value() && key.symbol_id.has_value() &&
+         key.symbol_id != kRootSymbolId;
 }
 
 void MergeOpMetrics(const OpMetrics& src, OpMetrics& dst) {
@@ -345,12 +387,22 @@ void XEventsOpMetricsDbBuilder::AddOpMetric(
 
 void XEventsOpMetricsDbBuilder::AddOpMetric(const OpMetrics& op_metrics,
                                             const OpKey& key) {
-  if (!key.program_id.has_value() || !key.symbol_id.has_value() ||
-      key.symbol_id == kRootSymbolId)
-    return;
+  if (!IsRecordedOpKey(key)) return;
   MergeOpMetrics(
       op_metrics,
       flat_op_metric_[key.program_id.value()][key.symbol_id.value()]);
+}
+
+void XEventsOpMetricsDbBuilder::AddOpMetric(
+    const tsl::profiler::XEventVisitor& event, const OpKey& key,
+    uint64_t total_time_ps, uint64_t self_time_ps,
+    OpMetadataDetail metadata_detail) {
+  if (!IsRecordedOpKey(key)) return;
+  HloEventCosts costs = GetHloEventCosts(event);
+  costs.time_ps = total_time_ps;
+  costs.self_time_ps = self_time_ps;
+  AddHloEventCosts(event.Metadata(), costs, metadata_detail,
+                   flat_op_metric_[*key.program_id][*key.symbol_id]);
 }
 
 OpMetricsDb XEventsOpMetricsDbBuilder::Finalize(uint64_t total_time_ps) {
@@ -375,6 +427,7 @@ OpMetricsDb XEventsOpMetricsDbBuilder::Finalize() {
       db.add_metrics_db()->Swap(&op_metrics);
     }
   }
+  flat_op_metric_.clear();
   db.set_total_op_time_ps(total_op_time_ps);
   db.set_normalized_total_op_time_ps(normalized_total_op_time_ps);
   return db;
@@ -467,7 +520,8 @@ OpMetricsDb CreateTfMetricsDbFromDeviceOpMetricsDb(
 
 OpMetrics FromXEvent(const tsl::profiler::XEventVisitor& xevent) {
   OpMetrics op_metrics;
-  SetOpMetricsFromHloEvent(xevent, &op_metrics);
+  AddHloEventCosts(xevent.Metadata(), GetHloEventCosts(xevent),
+                   OpMetadataDetail::kFull, op_metrics);
   return op_metrics;
 }
 

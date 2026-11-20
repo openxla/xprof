@@ -158,6 +158,19 @@ EventType ClassifyCpuEvent(absl::string_view event_name, bool has_device,
   }
 }
 
+// Recategorizes synchronous wait/done ops (other than off-duty ops) in `db` as
+// async-done ops.
+void RecategorizeSyncWaitDoneOps(OpMetricsDb& db) {
+  for (OpMetrics& op_metrics : *db.mutable_metrics_db()) {
+    // name() is the short op name; long_name() is the full HLO text, which
+    // also names the op's operands, so it is not matched.
+    if (!tsl::profiler::IsOffDutyOp(op_metrics.category()) &&
+        IsSyncWaitDoneOp(op_metrics.name())) {
+      op_metrics.set_category(tsl::profiler::kHloAsyncDone);
+    }
+  }
+}
+
 }  // namespace
 
 StepEvents ConvertHostThreadsXLineToStepEvents(
@@ -280,7 +293,8 @@ StepEvents ConvertHostThreadsXPlaneToStepEvents(
   plane.ForEachLine([&](const XLineVisitor& line) {
     StepEvents thread_step_events = ConvertHostThreadsXLineToStepEvents(
         line, device_step_events, async_input_pipeline_parents);
-    UnionCombineStepEvents(thread_step_events, &host_step_events);
+    UnionMoveCombineStepEvents(std::move(thread_step_events),
+                               &host_step_events);
   });
   return host_step_events;
 }
@@ -370,22 +384,14 @@ StepEvents ConvertTpuDeviceTraceXLineToStepEvents(const uint64_t device_id,
   tsl::profiler::AncestorStack<ParentRef> event_stack(
       // Adds an OpMetric to the builder based on the provided parent reference.
       [&](const ParentRef& parent) {
-        OpMetrics op_metrics = FromXEvent(parent.event);
-        // name() is the short op name; long_name() is the full HLO text, which
-        // also names the op's operands, so it is not matched.
-        if (!tsl::profiler::IsOffDutyOp(op_metrics.category()) &&
-            IsSyncWaitDoneOp(op_metrics.name())) {
-          op_metrics.set_category(tsl::profiler::kHloAsyncDone);
-        }
         uint64_t total_time_ps = parent.device_timespan.duration_ps();
-        op_metrics.set_time_ps(total_time_ps);
         uint64_t self_time_ps = (total_time_ps > parent.children_duration_ps)
                                     ? (total_time_ps -
                                        parent.children_duration_ps)
                                     : 0;
-        op_metrics.set_self_time_ps(self_time_ps);
         op_metrics_builder[parent.group_id].AddOpMetric(
-            op_metrics, GetOpKeyFromXEvent(parent.event));
+            parent.event, GetOpKeyFromXEvent(parent.event), total_time_ps,
+            self_time_ps, OpMetadataDetail::kSkipSourceInfoAndChildren);
       },
       // Checks if the child event is a child of the parent event.
       [](const ParentRef& parent, const ParentRef& child) {
@@ -415,7 +421,9 @@ StepEvents ConvertTpuDeviceTraceXLineToStepEvents(const uint64_t device_id,
   event_stack.Flush();
   for (auto& [group_id, builder] : op_metrics_builder) {
     // Finalize Without the step time now.
-    result[group_id].SetPerCoreOpMetricsDb(builder.Finalize(), device_id);
+    OpMetricsDb op_metrics_db = builder.Finalize();
+    RecategorizeSyncWaitDoneOps(op_metrics_db);
+    result[group_id].SetPerCoreOpMetricsDb(std::move(op_metrics_db), device_id);
   }
   return result;
 }
@@ -459,20 +467,24 @@ StepEvents ConvertDeviceTraceXPlaneToStepEventsWithOptions(
         // There may be multiple streams per GPU device so union the results.
         StepEvents stream_step_events =
             ConvertDeviceTraceXLineToStepEvents(plane.Id(), line);
-        UnionCombineStepEvents(stream_step_events, &step_events);
+        UnionMoveCombineStepEvents(std::move(stream_step_events), &step_events);
       }
     }
   });
   if (!options.collect_op_metrics) {
     return step_markers;
   }
-  if (!step_events.empty()) {
-    IntersectCombineStepEvents(step_markers, &step_events);
-  }
   if (sc_core_id.has_value()) {
+    // step_markers is reused below to back-fill steps without op metrics, so it
+    // is combined by copy rather than moved.
+    if (!step_events.empty()) {
+      IntersectCombineStepEvents(step_markers, &step_events);
+    }
     for (const auto& [step_id, marker_details] : step_markers) {
       step_events.try_emplace(step_id, marker_details);
     }
+  } else if (!step_events.empty()) {
+    IntersectMoveCombineStepEvents(std::move(step_markers), &step_events);
   }
   return step_events;
 }

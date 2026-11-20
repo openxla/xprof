@@ -68,6 +68,16 @@ class OpMetricsDbBuilder {
   OpMetricsDb* db_;
 };
 
+// Controls how much HLO op metadata is copied into an OpMetrics.
+enum class OpMetadataDetail {
+  // Copies all metadata, including `source_info` and `children`.
+  kFull,
+  // Copies all metadata except `source_info` (source file, line number and
+  // stack frames) and `children` (metadata of nested ops), which are expensive
+  // to build and unused by consumers such as per-step op metrics.
+  kSkipSourceInfoAndChildren,
+};
+
 // Helps build an op metrics database (borrowed) from XEvents,
 class XEventsOpMetricsDbBuilder {
  public:
@@ -82,11 +92,25 @@ class XEventsOpMetricsDbBuilder {
   // Add an OpMetric to the builder based on the provided key.
   void AddOpMetric(const OpMetrics& op_metrics, const OpKey& key);
 
-  // Finalize OpMetricDb and add total time and Idle op.
+  // Adds one occurrence of `event` to the OpMetrics for `key` in place,
+  // without constructing an intermediate OpMetrics per event. Events whose
+  // `key` has no program or symbol id, or has the root symbol id, are ignored.
+  // `total_time_ps` and `self_time_ps` are the event's total and self
+  // (excluding nested ops) durations; the min and normalized times are derived
+  // from the event's own duration and stats, as in FromXEvent. Op metadata is
+  // populated from the event metadata only on the first occurrence of `key`,
+  // with the level of detail given by `metadata_detail`.
+  void AddOpMetric(const tsl::profiler::XEventVisitor& event, const OpKey& key,
+                   uint64_t total_time_ps, uint64_t self_time_ps,
+                   OpMetadataDetail metadata_detail);
+
+  // Finalize OpMetricDb and add total time and Idle op. Returns the db and
+  // resets the builder to empty.
   OpMetricsDb Finalize(uint64_t total_time);
 
   // Finalize OpMetricDb, but the total time is unknown at the moment, So ignore
-  // the total time and Idle Op and will be handled by the caller.
+  // the total time and Idle Op and will be handled by the caller. Returns the
+  // db and resets the builder to empty.
   OpMetricsDb Finalize();
 
  private:

@@ -19,6 +19,7 @@ limitations under the License.
 #include <string>
 #include <vector>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/str_cat.h"
@@ -41,6 +42,9 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 
+using ::testing::AllOf;
+using ::testing::Contains;
+using ::testing::Property;
 using ::tsl::profiler::HostEventType;
 using ::tsl::profiler::XEventBuilder;
 using ::tsl::profiler::XLineBuilder;
@@ -656,6 +660,85 @@ TEST(ConvertXPlaneToOpStats, CpuOnlyPyGrainSingleProcessInputPipelineTest) {
   ASSERT_EQ(host_wait_input_events.size(), 1);
   EXPECT_EQ(host_wait_input_events[0]->span, tsl::profiler::Timespan(1, 90));
 }
+
+TEST(ConvertXPlaneToStepEvents,
+     TpuDevicePlaneStepEventsOmitsSourceInfoAndChildren) {
+  XPlane raw_plane;
+  XPlaneBuilder plane(&raw_plane);
+  int64_t device_id = 0;
+  plane.SetId(device_id);
+  plane.SetName("/device:TPU:0");
+  XLineBuilder op_line = plane.GetOrCreateLine(0);
+  op_line.SetName(tsl::profiler::kXlaOpLineName);
+  const XStatMetadata& program_id_stat =
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kProgramId));
+  const XStatMetadata& symbol_id_stat =
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kSymbolId));
+  const XStatMetadata& group_id_stat =
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kGroupId));
+  const XStatMetadata& source_info_stat =
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kSourceInfo));
+  const XStatMetadata& source_stack_stat =
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kSourceStack));
+
+  XEventMetadata* event_metadata =
+      plane.GetOrCreateEventMetadata("op_long_name");
+  event_metadata->set_display_name("op_name");
+  XStatsBuilder<XEventMetadata> stats(event_metadata, &plane);
+  stats.AddStatValue(program_id_stat, 1);
+  stats.AddStatValue(symbol_id_stat, 1);
+  stats.AddStatValue(source_info_stat, "test_file.py:100");
+  stats.AddStatValue(source_stack_stat, "frame1\nframe2");
+
+  XEventMetadata* child_metadata = plane.CreateEventMetadata();
+  child_metadata->set_name("child_metadata");
+  event_metadata->add_child_id(child_metadata->id());
+
+  // First occurrence of op in step 1.
+  {
+    XEventBuilder event = op_line.AddEvent(*event_metadata);
+    event.SetOffsetPs(0);
+    event.SetDurationPs(50);
+    event.AddStatValue(group_id_stat, 1);
+  }
+  // Second occurrence of same op in step 1 (tests in-place accumulation).
+  {
+    XEventBuilder event = op_line.AddEvent(*event_metadata);
+    event.SetOffsetPs(50);
+    event.SetDurationPs(50);
+    event.AddStatValue(group_id_stat, 1);
+  }
+
+  XLineBuilder step_line = plane.GetOrCreateLine(1);
+  step_line.SetName(tsl::profiler::kStepLineName);
+  {
+    XEventMetadata* step_metadata = plane.CreateEventMetadata();
+    XEventBuilder event = step_line.AddEvent(*step_metadata);
+    event.SetOffsetPs(0);
+    event.SetDurationPs(100);
+    event.AddStatValue(group_id_stat, 1);
+  }
+
+  StepEvents step_events = ConvertDeviceTraceXPlaneToStepEvents(raw_plane);
+  ASSERT_EQ(step_events.size(), 1);
+  ASSERT_TRUE(step_events.contains(1));
+  const StepDetails& step_1 = step_events.at(1);
+  ASSERT_TRUE(step_1.PerCoreOpMetricsDb().contains(device_id));
+  const OpMetricsDb& op_db = step_1.PerCoreOpMetricsDb().at(device_id);
+
+  // Step events don't use source info or nested op metadata, so they are
+  // omitted to save memory.
+  EXPECT_THAT(
+      op_db.metrics_db(),
+      Contains(AllOf(Property(&OpMetrics::name, "op_name"),
+                     Property(&OpMetrics::occurrences, 2),
+                     Property(&OpMetrics::time_ps, 100),
+                     Property(&OpMetrics::self_time_ps, 100),
+                     Property(&OpMetrics::has_source_info, false),
+                     Property(&OpMetrics::children,
+                              Property(&OpMetricsDb::metrics_db_size, 0)))));
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

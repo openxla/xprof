@@ -16,6 +16,7 @@ limitations under the License.
 
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <string>
 #include <utility>
 #include <vector>
@@ -26,7 +27,6 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/lib/gtl/map_util.h"
-#include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 
@@ -234,6 +234,12 @@ void UnionCombineStepEvents(const StepEvents& src, StepEvents* dst) {
   }
 }
 
+void UnionMoveCombineStepEvents(StepEvents&& src, StepEvents* dst) {
+  for (auto& [step_id, src_details] : src) {
+    (*dst)[step_id].Combine(std::move(src_details));
+  }
+}
+
 void IntersectCombineStepEvents(const StepEvents& src, StepEvents* dst) {
   if (dst->empty()) {
     *dst = src;
@@ -242,12 +248,31 @@ void IntersectCombineStepEvents(const StepEvents& src, StepEvents* dst) {
   auto iter = dst->begin();
   while (iter != dst->end()) {
     if (!src.contains(iter->first)) {
-      // This is safe because the post-increment is sequenced after the full
-      // expression that contains it.
+      // dst->erase(iter) returns void in absl::flat_hash_map, so the
+      // post-increment idiom dst->erase(iter++) is required here.
       dst->erase(iter++);
     } else {
       iter->second.Combine(src.at(iter->first));
-      iter++;
+      ++iter;
+    }
+  }
+}
+
+void IntersectMoveCombineStepEvents(StepEvents&& src, StepEvents* dst) {
+  if (dst->empty()) {
+    *dst = std::move(src);
+    return;
+  }
+  auto iter = dst->begin();
+  while (iter != dst->end()) {
+    auto src_it = src.find(iter->first);
+    if (src_it == src.end()) {
+      // dst->erase(iter) returns void in absl::flat_hash_map, so the
+      // post-increment idiom dst->erase(iter++) is required here.
+      dst->erase(iter++);
+    } else {
+      iter->second.Combine(std::move(src_it->second));
+      ++iter;
     }
   }
 }
@@ -386,18 +411,27 @@ StepDetails StepDetails::ToNonOverlapped() const {
 }
 
 void StepDetails::Combine(const StepDetails& other) {
-  markers_.insert(markers_.end(), other.markers_.begin(), other.markers_.end());
-  events_.insert(events_.end(), other.events_.begin(), other.events_.end());
-  collectives_.insert(other.collectives_.begin(), other.collectives_.end());
+  Combine(StepDetails(other));
+}
+
+void StepDetails::Combine(StepDetails&& other) {
+  markers_.insert(markers_.end(),
+                  std::make_move_iterator(other.markers_.begin()),
+                  std::make_move_iterator(other.markers_.end()));
+  events_.insert(events_.end(), std::make_move_iterator(other.events_.begin()),
+                 std::make_move_iterator(other.events_.end()));
+  for (auto& [core_id, collective] : other.collectives_) {
+    collectives_.try_emplace(core_id, std::move(collective));
+  }
   AggregateDeviceMemoryTransfers(other.device_memory_transfers_);
-  for (const auto& [core_id, op_metric_db] : other.per_core_op_metrics_db_) {
-    per_core_op_metrics_db_[core_id] = op_metric_db;
+  for (auto& [core_id, op_metric_db] : other.per_core_op_metrics_db_) {
+    per_core_op_metrics_db_[core_id] = std::move(op_metric_db);
   }
-  for (const auto& [core_id, flat_op_metric_db] :
+  for (auto& [core_id, flat_op_metric_db] :
        other.per_core_flat_op_metrics_db_) {
-    per_core_flat_op_metrics_db_[core_id] = flat_op_metric_db;
+    per_core_flat_op_metrics_db_[core_id] = std::move(flat_op_metric_db);
   }
-  if (step_name_.empty()) step_name_ = other.step_name_;
+  if (step_name_.empty()) step_name_ = std::move(other.step_name_);
 }
 
 std::string StepDetails::DebugString() const {

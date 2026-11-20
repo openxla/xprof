@@ -16,6 +16,7 @@ limitations under the License.
 #include "xprof/convert/xplane_to_tool_names.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -23,6 +24,7 @@ limitations under the License.
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/cleanup/cleanup.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
@@ -30,11 +32,15 @@ limitations under the License.
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/file_system.h"
 #include "xla/tsl/platform/status.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/kernel_viewer_registry.h"
 #include "xprof/convert/repository.h"
+#include "xprof/convert/tool_options.h"
+#include "xprof/convert/unified_session_snapshot.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -179,6 +185,99 @@ INSTANTIATE_TEST_SUITE_P(
     [](const ::testing::TestParamInfo<XPlaneToToolsTest::ParamType>& info) {
       return info.param.test_name;
     });
+
+// Adds a metadata plane with one LLO module to `xspace`.
+void AddLloModule(XSpace* xspace) {
+  tsl::profiler::XPlaneBuilder builder(xspace->add_planes());
+  builder.SetName(tsl::profiler::kMetadataPlaneName);
+  XStat* llo_stat =
+      builder.GetOrCreateEventMetadata("module(1)::kernel")->add_stats();
+  llo_stat->set_metadata_id(
+      builder
+          .GetOrCreateStatMetadata(
+              tsl::profiler::GetStatTypeStr(tsl::profiler::StatType::kLloProto))
+          ->id());
+  llo_stat->set_bytes_value("llo-bytes");
+}
+
+absl::StatusOr<std::string> FakeKernelViewerHandler(
+    const SessionSnapshot& session_snapshot, const ToolOptions& options) {
+  return std::string("{}");
+}
+
+TEST(XPlaneToToolsKernelViewerTest, AdvertisesKernelViewerOnlyWhenRegistered) {
+  absl::Cleanup reset_handler = [] { RegisterKernelViewerHandler(nullptr); };
+
+  auto xspace = std::make_unique<XSpace>();
+  tsl::profiler::FindOrAddMutablePlaneWithName(xspace.get(),
+                                               tsl::profiler::kTpuPlanePrefix);
+  AddLloModule(xspace.get());
+  SessionSnapshot session = CreateSessionSnapshot(
+      std::move(xspace), /*has_hlo_module=*/true,
+      /*has_dcn_collective_stats=*/false, /*has_perf_counters=*/false);
+
+  // Without a registered converter the tool is not advertised even though the
+  // profile has LLO modules.
+  RegisterKernelViewerHandler(nullptr);
+  ASSERT_FALSE(IsKernelViewerRegistered());
+  TF_ASSERT_OK_AND_ASSIGN(std::string tools, GetAvailableToolNames(session));
+  EXPECT_THAT(absl::StrSplit(tools, ','),
+              ::testing::Not(::testing::Contains("kernel_viewer")));
+
+  // With a registered converter, profiles with LLO modules advertise the tool,
+  // whereas profiles without LLO modules do not.
+  RegisterKernelViewerHandler(&FakeKernelViewerHandler);
+  TF_ASSERT_OK_AND_ASSIGN(tools, GetAvailableToolNames(session));
+  EXPECT_THAT(absl::StrSplit(tools, ','), ::testing::Contains("kernel_viewer"));
+
+  auto xspace_without_llo = std::make_unique<XSpace>();
+  tsl::profiler::FindOrAddMutablePlaneWithName(xspace_without_llo.get(),
+                                               tsl::profiler::kTpuPlanePrefix);
+  SessionSnapshot session_without_llo = CreateSessionSnapshot(
+      std::move(xspace_without_llo), /*has_hlo_module=*/false,
+      /*has_dcn_collective_stats=*/false, /*has_perf_counters=*/false);
+  TF_ASSERT_OK_AND_ASSIGN(tools, GetAvailableToolNames(session_without_llo));
+  EXPECT_THAT(absl::StrSplit(tools, ','),
+              ::testing::Not(::testing::Contains("kernel_viewer")));
+}
+
+TEST(XPlaneToToolsKernelViewerTest, CachesLloXPlaneForFirstHostOfFileSession) {
+  absl::Cleanup reset_handler = [] { RegisterKernelViewerHandler(nullptr); };
+  RegisterKernelViewerHandler(&FakeKernelViewerHandler);
+
+  const std::string run_dir =
+      absl::StrCat(testing::TempDir(), "/tool_names_llo_cache");
+  TF_CHECK_OK(tsl::Env::Default()->RecursivelyCreateDir(run_dir));
+  XSpace host_a_xspace;
+  tsl::profiler::FindOrAddMutablePlaneWithName(&host_a_xspace,
+                                               tsl::profiler::kTpuPlanePrefix);
+  AddLloModule(&host_a_xspace);
+  const std::string host_a_path = absl::StrCat(run_dir, "/host_a.xplane.pb");
+  TF_CHECK_OK(
+      tsl::WriteBinaryProto(tsl::Env::Default(), host_a_path, host_a_xspace));
+
+  XSpace host_b_xspace;
+  const std::string host_b_path = absl::StrCat(run_dir, "/host_b.xplane.pb");
+  TF_CHECK_OK(
+      tsl::WriteBinaryProto(tsl::Env::Default(), host_b_path, host_b_xspace));
+
+  TF_ASSERT_OK_AND_ASSIGN(
+      SessionSnapshot session,
+      SessionSnapshot::Create({host_a_path, host_b_path}, std::nullopt));
+  ASSERT_TRUE(session.HasAccessibleRunDir());
+
+  TF_ASSERT_OK_AND_ASSIGN(std::string tools, GetAvailableToolNames(session));
+  EXPECT_THAT(absl::StrSplit(tools, ','), ::testing::Contains("kernel_viewer"));
+
+  TF_ASSERT_OK_AND_ASSIGN(
+      const bool cache_exists,
+      HostDataFileExists(session, StoredDataType::LLO_XPLANE, "host_a"));
+  EXPECT_TRUE(cache_exists);
+  XPlane cached_plane;
+  TF_CHECK_OK(ReadBinaryProto(session, StoredDataType::LLO_XPLANE, "host_a",
+                              &cached_plane));
+  EXPECT_EQ(cached_plane.event_metadata_size(), 1);
+}
 
 }  // namespace
 }  // namespace profiler

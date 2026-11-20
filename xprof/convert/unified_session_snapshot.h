@@ -38,6 +38,7 @@ enum StoredDataType {
   TRACE_EVENTS_PREFIX_TRIE_LEVELDB,
   SMART_SUGGESTION,
   RIEGELI_XSPACE,
+  LLO_XPLANE,
 };
 
 }  // namespace profiler

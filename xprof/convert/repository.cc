@@ -58,7 +58,8 @@ static auto* kHostDataSuffixes =
          {StoredDataType::TRACE_EVENTS_METADATA_LEVELDB, ".metadata.SSTABLE"},
          {StoredDataType::TRACE_EVENTS_PREFIX_TRIE_LEVELDB, ".trie.SSTABLE"},
          {StoredDataType::TRACE_LEVELDB, ".SSTABLE"},
-         {StoredDataType::RIEGELI_XSPACE, ".xplane.riegeli"}});
+         {StoredDataType::RIEGELI_XSPACE, ".xplane.riegeli"},
+         {StoredDataType::LLO_XPLANE, ".llo_xplane.pb"}});
 
 }  // namespace
 

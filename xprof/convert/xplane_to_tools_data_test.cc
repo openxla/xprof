@@ -9,10 +9,15 @@
 #include "file/base/path.h"
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/cleanup/cleanup.h"
+#include "absl/status/status.h"
+#include "absl/status/status_matchers.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/file_utils.h"
+#include "xprof/convert/kernel_viewer_registry.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
 
@@ -20,6 +25,8 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 
+using ::absl_testing::IsOkAndHolds;
+using ::absl_testing::StatusIs;
 using ::testing::HasSubstr;
 using ::testing::IsEmpty;
 using ::testing::Not;
@@ -114,6 +121,41 @@ TEST(XplaneToToolsDataTest, TraceViewerSearchMetadataOption) {
 
   // Clean up
   ASSERT_OK(file::RecursivelyDelete(session_dir, file::Defaults()));
+}
+
+TEST(XplaneToToolsDataTest, KernelViewerDispatch) {
+  std::string session_dir =
+      file::JoinPath(testing::TempDir(), "kernel_viewer_tools_data_test");
+  ASSERT_OK(file::CreateDir(session_dir, file::Defaults()));
+  absl::Cleanup delete_dir = [&session_dir] {
+    file::RecursivelyDelete(session_dir, file::Defaults()).IgnoreError();
+  };
+
+  std::string xspace_path = file::JoinPath(session_dir, "test_host.xplane.pb");
+  ASSERT_OK(xprof::WriteBinaryProto(xspace_path, CreateTestXSpace()));
+  absl::StatusOr<SessionSnapshot> session_snapshot =
+      SessionSnapshot::Create({xspace_path}, std::nullopt);
+  ASSERT_OK(session_snapshot);
+
+  RegisterKernelViewerHandler(nullptr);
+  absl::Cleanup clear_handler = [] { RegisterKernelViewerHandler(nullptr); };
+
+  ToolOptions options;
+  options["kernel_name"] = "copy.1";
+  EXPECT_THAT(ConvertMultiXSpacesToToolData(*session_snapshot, "kernel_viewer",
+                                            options),
+              StatusIs(absl::StatusCode::kUnimplemented));
+
+  RegisterKernelViewerHandler(
+      [](const SessionSnapshot& snapshot,
+         const ToolOptions& opts) -> absl::StatusOr<std::string> {
+        return absl::StrCat(
+            snapshot.GetHostname(0), ":",
+            GetParamWithDefault<std::string>(opts, "kernel_name", ""));
+      });
+  EXPECT_THAT(ConvertMultiXSpacesToToolData(*session_snapshot, "kernel_viewer",
+                                            options),
+              IsOkAndHolds("test_host:copy.1"));
 }
 
 }  // namespace

@@ -32,6 +32,7 @@ limitations under the License.
 #include "xla/tsl/platform/status.h"
 #include "tsl/platform/path.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/unified_session_snapshot.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 
 namespace tensorflow {
@@ -48,6 +49,9 @@ TEST(Repository, GetHostName) {
   TF_CHECK_OK(session_snapshot_or.status());
   EXPECT_THAT(session_snapshot_or.value().GetHostname(0), Eq("hostname0"));
   EXPECT_THAT(session_snapshot_or.value().GetHostname(1), Eq("hostname1"));
+  EXPECT_TRUE(session_snapshot_or.value().HasHost("hostname0"));
+  EXPECT_TRUE(session_snapshot_or.value().HasHost("hostname1"));
+  EXPECT_FALSE(session_snapshot_or.value().HasHost("missing"));
   EXPECT_TRUE(session_snapshot_or.value().HasAccessibleRunDir());
 }
 
@@ -169,7 +173,7 @@ TEST(Repository, ClearCacheFiles) {
   TF_CHECK_OK(session_snapshot_or.status());
   EXPECT_TRUE(session_snapshot_or.value().HasAccessibleRunDir());
 
-  // Generate Dummy HLO OpStats file.
+  // Generate Dummy HLO OpStats file and LLO XPlane cache file.
   OpStats op_stats;
   op_stats.set_allocated_run_environment(new RunEnvironment());
   TF_CHECK_OK(session_snapshot_or.value().WriteBinaryProto(
@@ -178,11 +182,21 @@ TEST(Repository, ClearCacheFiles) {
       StoredDataType::OP_STATS, "hostname0");
   EXPECT_TRUE(opt_statsfile_path.value().has_value());
 
-  // Check that the cache file should be deleted
+  XPlane llo_plane;
+  TF_CHECK_OK(session_snapshot_or.value().WriteBinaryProto(
+      StoredDataType::LLO_XPLANE, "hostname0", llo_plane));
+  auto llo_xplane_path = session_snapshot_or.value().GetHostDataFilePath(
+      StoredDataType::LLO_XPLANE, "hostname0");
+  EXPECT_TRUE(llo_xplane_path.value().has_value());
+
+  // Check that the cache files should be deleted
   TF_CHECK_OK(session_snapshot_or.value().ClearCacheFiles());
   opt_statsfile_path = session_snapshot_or.value().GetHostDataFilePath(
       StoredDataType::OP_STATS, "hostname0");
   EXPECT_FALSE(opt_statsfile_path.value().has_value());
+  llo_xplane_path = session_snapshot_or.value().GetHostDataFilePath(
+      StoredDataType::LLO_XPLANE, "hostname0");
+  EXPECT_FALSE(llo_xplane_path.value().has_value());
   EXPECT_TRUE(tsl::Env::Default()->FileExists(xplane_path).ok());
 }
 

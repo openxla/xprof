@@ -42,6 +42,7 @@ limitations under the License.
 #include "xprof/convert/hlo_to_tools_data.h"
 #include "xprof/convert/input_pipeline_processor.h"
 #include "xprof/convert/kernel_stats_processor.h"
+#include "xprof/convert/kernel_viewer_registry.h"
 #include "xprof/convert/multi_xspace_to_inference_stats.h"
 #include "xprof/convert/op_profile_processor.h"
 #include "xprof/convert/overview_page_processor.h"
@@ -340,6 +341,8 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolData(
     tool_data = ConvertDcnCollectiveStatsToToolData(session_snapshot, options);
   } else if (tool_name == "perf_counters") {
     tool_data = ConvertMultiXSpacesToPerfCounters(session_snapshot, options);
+  } else if (tool_name == "kernel_viewer") {
+    tool_data = ConvertSessionToKernelViewer(session_snapshot, options);
   } else if (tool_name == "tool_names") {
     // Generate the proto cache for hlo_proto tool.
     // This is needed for getting the module list.

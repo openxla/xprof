@@ -73,6 +73,11 @@ class SessionSnapshot : public xprof::XprofSessionSnapshot {
   // Gets host name.
   std::string GetHostname(size_t index) const override;
 
+  // Returns whether `name` is a host in the profile session.
+  bool HasHost(absl::string_view name) const {
+    return hostname_map_.contains(name);
+  }
+
   static std::string GetHostnameByPath(absl::string_view xspace_path);
 
   // Gets the run directory of the profile session.

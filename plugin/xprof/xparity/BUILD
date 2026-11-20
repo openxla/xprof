@@ -20,11 +20,17 @@ pytype_strict_library(
 )
 
 pytype_strict_library(
+    name = "sqnr",
+    srcs = ["sqnr.py"],
+)
+
+pytype_strict_library(
     name = "numerical_validator",
     srcs = ["numerical_validator.py"],
     deps = [
         ":numerical_generator",
         ":rel_l2",
+        ":sqnr",
         ":ulp",
         "@absl_py//absl/logging",
     ],
@@ -37,6 +43,7 @@ pytype_strict_library(
         ":numerical_generator",
         ":numerical_validator",
         ":rel_l2",
+        ":sqnr",
     ],
 )
 
@@ -47,6 +54,7 @@ pytype_strict_library(
         ":numerical_generator",
         ":numerical_validator",
         ":rel_l2",
+        ":sqnr",
         ":ulp",
         ":xparity_tool",
     ],

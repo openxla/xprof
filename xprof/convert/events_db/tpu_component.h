@@ -39,6 +39,10 @@ enum TpuComponent {
   kSparseCoreTec15 = 100,
   kSparseCoreStepCounter = 118,
   kSparseCoreOverlay = 143,
+  // Per-bundle SparseCore LLO lines (SCS, then TEC 0..31).
+  kSparseCoreScsLlo = 155,
+  kSparseCoreTecLloBase = 156,
+  kSparseCoreTec31Llo = 187,
 };
 
 }  // namespace xprof::events_db::internal

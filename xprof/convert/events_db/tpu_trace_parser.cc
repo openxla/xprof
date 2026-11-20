@@ -232,6 +232,11 @@ absl::StatusOr<ParseStatus> ParseTpuSparseCoreTrace(
   ParentEventTracker parent_tracker(kRecordBufferCapacity);
   for (const tensorflow::profiler::XLine& line : device_trace.lines()) {
     const tsl::profiler::XLineVisitor line_visitor(&plane, &line);
+    // Per-bundle LLO lines are not part of the events table.
+    if (line_visitor.Id() >= TpuComponent::kSparseCoreScsLlo &&
+        line_visitor.Id() <= TpuComponent::kSparseCoreTec31Llo) {
+      continue;
+    }
     // XEventContextTracker only moves forward in time, and the ops line and
     // each TEC line start over from the beginning, so each line needs its own.
     tsl::profiler::XEventContextTracker step_context(&plane, step_line);

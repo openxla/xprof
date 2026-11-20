@@ -20,6 +20,11 @@ pytype_strict_library(
 )
 
 pytype_strict_library(
+    name = "sqnr",
+    srcs = ["sqnr.py"],
+)
+
+pytype_strict_library(
     name = "numerical_validator",
     srcs = ["numerical_validator.py"],
     deps = [

@@ -33,6 +33,7 @@ limitations under the License.
 #include "xprof/convert/repository.h"
 #include "xprof/convert/xspace_to_dcn_slack_analysis.h"
 #include "plugin/xprof/protobuf/dcn_slack_analysis.pb.h"
+#include "plugin/xprof/protobuf/topology.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -57,8 +58,30 @@ absl::StatusOr<bool> GetDcnCollectiveStatsFromMultiXSpaceAndSaveToFile(
       return false;
     }
 
+    const XPlane* dcn_host_plane = tsl::profiler::FindPlaneWithName(
+        *xspace, "/device:CUSTOM:Megascale Trace");
+    Topology topology;
+    const Topology* topology_ptr = nullptr;
+    if (const XPlane* task_env = tsl::profiler::FindPlaneWithName(
+            *xspace, tsl::profiler::kTaskEnvPlaneName);
+        task_env != nullptr) {
+      tsl::profiler::XPlaneVisitor task_env_visitor(task_env);
+      task_env_visitor.ForEachStat(
+          [&](const tsl::profiler::XStatVisitor& stat) {
+            if (stat.Name() == "system_topology") {
+              Topology parsed_topology;
+              if (parsed_topology.ParseFromString(stat.BytesValue())) {
+                topology = std::move(parsed_topology);
+                topology_ptr = &topology;
+              } else {
+                topology_ptr = nullptr;
+              }
+            }
+          });
+    }
+
     DcnSlackAnalysis dcnSlackAnalysis =
-        ConvertXSpaceToDcnSlackAnalysis(*xspace, nullptr, nullptr);
+        ConvertXSpaceToDcnSlackAnalysis(*xspace, dcn_host_plane, topology_ptr);
 
     TF_RETURN_IF_ERROR(WriteBinaryProto(session_snapshot,
                                         StoredDataType::DCN_COLLECTIVE_STATS,

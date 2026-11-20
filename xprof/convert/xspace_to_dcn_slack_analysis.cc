@@ -17,6 +17,7 @@ limitations under the License.
 #include <sys/types.h>
 
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -384,7 +385,7 @@ void DcnTracker::SummarizeDcnSlackAnalysis() {
     s.set_send_duration_us(s.send_duration_us() +
                            PicoToMicro(analysis.send().duration_ps()));
     s.set_recv_duration_us(s.recv_duration_us() +
-                           PicoToMicro(analysis.recv().duration_ps()) / 1E6);
+                           PicoToMicro(analysis.recv().duration_ps()));
     s.set_send_done_duration_us(
         s.send_done_duration_us() +
         PicoToMicro(analysis.send_done().duration_ps()));
@@ -429,6 +430,10 @@ void DcnTracker::SummarizeDcnSlackAnalysis() {
 
 void DcnTracker::ProcessTopology(const Topology& topology) {
   for (const auto& mesh_location : topology.mesh_location()) {
+    if (mesh_location.global_id() < 0 || mesh_location.index_on_host() < 0 ||
+        mesh_location.index_on_host() >= std::numeric_limits<int>::max()) {
+      continue;
+    }
     global_chip_id_to_local_index_map_[mesh_location.global_id()] =
         mesh_location.index_on_host();
   }
@@ -443,14 +448,16 @@ int DcnTracker::GetLocalIndex(int dcn_device_id) {
    * TpuTopology directly
    */
   int global_device_id = dcn_device_id;
-  if (!is_megacore_) {
-    if (global_chip_id_to_local_index_map_.contains(global_device_id)) {
-      return global_chip_id_to_local_index_map_[dcn_device_id / 2] +
-             dcn_device_id % 2;
+  if (!is_megacore_ && dcn_device_id >= 0) {
+    if (auto it = global_chip_id_to_local_index_map_.find(dcn_device_id / 2);
+        it != global_chip_id_to_local_index_map_.end()) {
+      return static_cast<int>(static_cast<int64_t>(it->second) +
+                              (dcn_device_id % 2));
     }
   }
-  if (global_chip_id_to_local_index_map_.contains(global_device_id)) {
-    return global_chip_id_to_local_index_map_[global_device_id];
+  if (auto it = global_chip_id_to_local_index_map_.find(global_device_id);
+      it != global_chip_id_to_local_index_map_.end()) {
+    return it->second;
   }
   LOG_EVERY_POW_2(WARNING)
       << "Could not map dcn_device_id to Local index, Using "

@@ -146,9 +146,29 @@ class DetectToolsE2ETest(parameterized.TestCase):
           ],
       ),
       (
+          "tpu_unfused_updates",
+          "tpu-training",
+          "unfused_updates",
+          [
+              "copy.1511",
+              "copy.1512",
+              "copy.1516",
+              "copy.1534",
+              "copy.1536",
+              "copy.1543",
+          ],
+      ),
+      (
           "tpu_unnecessary_convert_dynamic_scale",
           "tpu-training",
           "unnecessary_convert_dynamic_scale",
+          [],
+      ),
+      # `jit_train_step` is a training program, where reductions keep f32.
+      (
+          "tpu_unnecessary_convert_reduce",
+          "tpu-training",
+          "unnecessary_convert_reduce",
           [],
       ),
       (
@@ -162,6 +182,13 @@ class DetectToolsE2ETest(parameterized.TestCase):
           "v6e-4-training",
           "unfused_reshapes",
           ["convert_element_type.658"],
+      ),
+      # The only small fusions here are async collectives, which are skipped.
+      (
+          "v6e_unfused_updates",
+          "v6e-4-training",
+          "unfused_updates",
+          [],
       ),
       (
           "v6e_unnecessary_convert_dynamic_scale",
@@ -183,25 +210,13 @@ class DetectToolsE2ETest(parameterized.TestCase):
     self.assertEqual(result["bottlenecks_found"], bool(expected))
     self.assertEqual(_instructions(result), expected)
 
-  @parameterized.named_parameters(
-      ("tpu", "tpu-training", "jit_train_step(4869159985936022652)"),
-      ("v6e", "v6e-4-training", "jit_train_step(15845321592809624413)"),
-  )
-  def test_unfused_updates_findings_are_in_profiled_program(
-      self, trace_name, module
-  ):
-    """Checks that profiled ops are matched to their HLO module.
+  def test_unfused_updates_findings_are_in_profiled_program(self):
+    result = _run_detector("unfused_updates", self._sessions["tpu-training"])
 
-    Neither the reported instructions nor their number is pinned, since they
-    depend on detection rules that are still being tuned.
-    """
-    result = _run_detector("unfused_updates", self._sessions[trace_name])
-
-    self.assertIsInstance(result["bottlenecks_found"], bool)
-    self.assertIsInstance(result["inefficient_ops"], list)
+    self.assertNotEmpty(result["inefficient_ops"])
     for op in result["inefficient_ops"]:
-      self.assertTrue(
-          op["name"].startswith(f"by_program/{module}/"), msg=op["name"]
+      self.assertStartsWith(
+          op["name"], "by_program/jit_train_step(4869159985936022652)/"
       )
 
   def test_layout_mismatch_copy_reports_layouts(self):
@@ -216,23 +231,6 @@ class DetectToolsE2ETest(parameterized.TestCase):
     self.assertEqual(
         ops["copy.1516"]["target_shape"], "bf16[1, 8, 16384, 6144]{3,2,1,0}"
     )
-
-  def test_unnecessary_convert_reduce_output_is_well_formed(self):
-    """Checks the output format on the training trace.
-
-    Neither the reported instructions nor their number is pinned, since they
-    depend on the execution phase rule, which is still being tuned.
-    """
-    result = _run_detector(
-        "unnecessary_convert_reduce", self._sessions["tpu-training"]
-    )
-
-    self.assertEqual(
-        result["bottlenecks_found"], bool(result["inefficient_ops"])
-    )
-    for op in result["inefficient_ops"]:
-      self.assertIsInstance(op["instruction"], str)
-      self.assertIsInstance(op["fusion_name"], str)
 
 
 if __name__ == "__main__":

@@ -2,393 +2,393 @@
   "approved_diffs": {
     "compiler.graph_and_multihost_scale:00_overview_page": {
       "decision": "INTENTIONAL",
-      "diff_hash": "55a71b9aa7d67c43",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.275312+00:00"
+      "diff_hash": "745bda1d404775da",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "compiler.graph_and_multihost_scale:01_switch_tool_HLO Op Stats": {
       "decision": "INTENTIONAL",
-      "diff_hash": "656898c542a69b05",
-      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
-      "timestamp": "2026-11-19T10:23:00.000000+00:00"
+      "diff_hash": "fff8fc24489229f4",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "compiler.graph_and_multihost_scale:02_switch_tool_Graph Viewer": {
       "decision": "INTENTIONAL",
-      "diff_hash": "cf85ffeb4f9afdde",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.290587+00:00"
+      "diff_hash": "52d89315047d6f0b",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "compiler.graph_and_multihost_scale:03_select_module_jit_train_step": {
       "decision": "INTENTIONAL",
-      "diff_hash": "7e07f2c87e71a320",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.298220+00:00"
+      "diff_hash": "5f7a46f3616245f9",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "compiler.graph_and_multihost_scale:04_plot_graph_node_fusion.": {
       "decision": "INTENTIONAL",
-      "diff_hash": "cfbbf6f9dd6e3aac",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.305997+00:00"
+      "diff_hash": "380f86c05db1c3e9",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "compiler.graph_and_multihost_scale:05_goto_v6e-4-training/overview_page": {
       "decision": "INTENTIONAL",
-      "diff_hash": "0f4e168f3432ef67",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.313588+00:00"
+      "diff_hash": "570ca0ab0bb72808",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "compiler.graph_and_multihost_scale:06_select_host_t1v-n-9bfa07b4-w-0": {
       "decision": "INTENTIONAL",
-      "diff_hash": "21d4028ce5e48714",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.321240+00:00"
+      "diff_hash": "2cfd3c4bf8f4d3d7",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "compiler.graph_and_multihost_scale:07_switch_tool_Trace Viewer": {
       "decision": "INTENTIONAL",
-      "diff_hash": "fb8f5a28ff318caa",
-      "rationale": "Intentional UI and DOM update: Trace Viewer filter bar icon changed from filter_list to filter_alt.",
-      "timestamp": "2026-11-18T19:31:00.000000+00:00"
+      "diff_hash": "bbf27aaec54c930d",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "compiler.graph_and_multihost_scale:08_switch_tool_Overview Page": {
       "decision": "INTENTIONAL",
-      "diff_hash": "6fe844f97f11d99b",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.336645+00:00"
+      "diff_hash": "233799d61f1ef6f5",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "compute.op_profile_and_stats:00_overview_page": {
       "decision": "INTENTIONAL",
-      "diff_hash": "1493374c4492b09f",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.344233+00:00"
+      "diff_hash": "2dbfd9fd42b03239",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "compute.op_profile_and_stats:01_switch_tool_HLO Op Profile": {
       "decision": "INTENTIONAL",
-      "diff_hash": "f752335e7a6ec200",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.351856+00:00"
+      "diff_hash": "ff5d0d2945b12da5",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "compute.op_profile_and_stats:02_select_op_profile_group_by_Provenance": {
       "decision": "INTENTIONAL",
-      "diff_hash": "bf6428a21428c331",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.359521+00:00"
+      "diff_hash": "1cbf249137c1a052",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "compute.op_profile_and_stats:03_select_op_profile_group_by_Category": {
       "decision": "INTENTIONAL",
-      "diff_hash": "52cab2f21a98a3f8",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.367179+00:00"
+      "diff_hash": "b13a0a68a5d25d64",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "compute.op_profile_and_stats:04_expand_op_profile_row_convolution fusion": {
       "decision": "INTENTIONAL",
-      "diff_hash": "6499db001bffbaaf",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.374934+00:00"
+      "diff_hash": "b9e971b5573b63d6",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "compute.op_profile_and_stats:05_switch_tool_Framework Op Stats": {
       "decision": "INTENTIONAL",
-      "diff_hash": "8ac8f6ed2648f223",
-      "rationale": "Intentional UI fix: corrected measured_flop_rate header to GFLOP/s, filtered Host and zero-FLOP ops from FlopRateChart, and hid empty pprof sections.",
-      "timestamp": "2026-11-19T10:23:00.000000+00:00"
+      "diff_hash": "0ed216630b2730d6",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "compute.op_profile_and_stats:06_filter_table_rows_dot_general": {
       "decision": "INTENTIONAL",
-      "diff_hash": "ad798a644c0ccb03",
-      "rationale": "Intentional UI fix: corrected measured_flop_rate header to GFLOP/s, filtered Host and zero-FLOP ops from FlopRateChart, and hid empty pprof sections.",
-      "timestamp": "2026-11-19T10:23:00.000000+00:00"
+      "diff_hash": "d82722948de403b0",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "compute.op_profile_and_stats:07_sort_table_column_#Occurrences": {
       "decision": "INTENTIONAL",
-      "diff_hash": "39dcb4ff1c714f25",
-      "rationale": "Intentional UI fix: corrected measured_flop_rate header to GFLOP/s, filtered Host and zero-FLOP ops from FlopRateChart, and hid empty pprof sections.",
-      "timestamp": "2026-11-19T10:23:00.000000+00:00"
+      "diff_hash": "eee070f649367ec3",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "compute.op_profile_and_stats:08_switch_tool_HLO Op Stats": {
       "decision": "INTENTIONAL",
-      "diff_hash": "d90887b36cb73d89",
-      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
-      "timestamp": "2026-11-19T10:23:00.000000+00:00"
+      "diff_hash": "fea51a692b3524be",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "compute.op_profile_and_stats:09_filter_table_rows_all-gather": {
       "decision": "INTENTIONAL",
-      "diff_hash": "e1c57e4e635a4b1a",
-      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
-      "timestamp": "2026-11-19T10:23:00.000000+00:00"
+      "diff_hash": "9a28c6afb02c8715",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "compute.op_profile_and_stats:10_switch_tool_Roofline Model": {
       "decision": "INTENTIONAL",
-      "diff_hash": "c037206b3ab71ac8",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.421273+00:00"
+      "diff_hash": "85d3a21959943dd1",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "distributed.host_retention_and_trace:00_hlo_stats": {
       "decision": "INTENTIONAL",
-      "diff_hash": "6b70ed8ae6757edf",
-      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
-      "timestamp": "2026-11-19T10:23:00.000000+00:00"
+      "diff_hash": "1e9d542b14b77c8f",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "distributed.host_retention_and_trace:01_select_host_worker-1": {
       "decision": "INTENTIONAL",
-      "diff_hash": "9b5769aeb34ff25a",
-      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
-      "timestamp": "2026-11-19T10:23:00.000000+00:00"
+      "diff_hash": "cd254fd345028f92",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "distributed.host_retention_and_trace:02_sort_table_column_#Occurrences": {
       "decision": "INTENTIONAL",
-      "diff_hash": "e8e1089753c92f2c",
-      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
-      "timestamp": "2026-11-19T10:23:00.000000+00:00"
+      "diff_hash": "10ca00160a6e6b7d",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "distributed.host_retention_and_trace:03_switch_tool_Trace Viewer": {
       "decision": "INTENTIONAL",
-      "diff_hash": "807a2608d22cb838",
-      "rationale": "Intentional UI and DOM update: Trace Viewer filter bar icon changed from filter_list to filter_alt.",
-      "timestamp": "2026-11-18T19:31:00.000000+00:00"
+      "diff_hash": "d3c2b1c0f400b10a",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "distributed.host_retention_and_trace:04_go_back_HLO Op Stats": {
       "decision": "INTENTIONAL",
-      "diff_hash": "8889258ff61808fa",
-      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
-      "timestamp": "2026-11-19T10:23:00.000000+00:00"
+      "diff_hash": "3c4bf313dc582042",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "full_spectrum.multimodal_endurance:00_overview_page": {
       "decision": "INTENTIONAL",
-      "diff_hash": "8090cd46dfb1e0bf",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.522928+00:00"
+      "diff_hash": "cd63815fd3ce3f53",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "full_spectrum.multimodal_endurance:01_switch_tool_Roofline Model": {
       "decision": "INTENTIONAL",
-      "diff_hash": "308e1e735a768ad2",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.530633+00:00"
+      "diff_hash": "5acae2ccd700eba6",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "full_spectrum.multimodal_endurance:02_switch_tool_Memory Viewer": {
       "decision": "INTENTIONAL",
-      "diff_hash": "31fb5eaf723c96e1",
-      "rationale": "Intentional UI fix: restored the XLA Modules selector in open-source Memory Viewer and included memory_space in timeline URLs.",
-      "timestamp": "2026-11-19T10:23:00.000000+00:00"
+      "diff_hash": "7748d78461759c58",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "full_spectrum.multimodal_endurance:03_switch_tool_Trace Viewer": {
       "decision": "INTENTIONAL",
-      "diff_hash": "c5f58de65301591e",
-      "rationale": "Intentional UI and DOM update: Trace Viewer filter bar icon changed from filter_list to filter_alt.",
-      "timestamp": "2026-11-18T19:31:00.000000+00:00"
+      "diff_hash": "3de530d4db83c04e",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "full_spectrum.multimodal_endurance:04_switch_tool_HLO Op Stats": {
       "decision": "INTENTIONAL",
-      "diff_hash": "d27f5f577682ead4",
-      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
-      "timestamp": "2026-11-19T10:23:00.000000+00:00"
+      "diff_hash": "42d3be35b68f93a0",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "full_spectrum.multimodal_endurance:05_goto_v6e-4-training/hlo_stats": {
       "decision": "INTENTIONAL",
-      "diff_hash": "b7eb73605587b14b",
-      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
-      "timestamp": "2026-11-19T10:23:00.000000+00:00"
+      "diff_hash": "6fb0d03275690a88",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "full_spectrum.multimodal_endurance:06_switch_tool_Graph Viewer": {
       "decision": "INTENTIONAL",
-      "diff_hash": "5ef36369cd66b375",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.569609+00:00"
+      "diff_hash": "fc77393d387687e5",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "full_spectrum.multimodal_endurance:07_select_module_jit_train_step": {
       "decision": "INTENTIONAL",
-      "diff_hash": "ee04d5cccb34cacd",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.577483+00:00"
+      "diff_hash": "132fed1ec06760a3",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "full_spectrum.multimodal_endurance:08_plot_graph_node_fusion.": {
       "decision": "INTENTIONAL",
-      "diff_hash": "15c12e22c643f1ca",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.585302+00:00"
+      "diff_hash": "b374b8fab5f4407e",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "full_spectrum.multimodal_endurance:09_switch_tool_Input Pipeline Analysis": {
       "decision": "INTENTIONAL",
-      "diff_hash": "444d0e8482dc7bd3",
-      "rationale": "Intentional UI fix: removed stray trailing comma in column ID 'scv0InfeedTimeMs', restoring the SparseCoreV0 input series and legend entry on Step-time Graph.",
-      "timestamp": "2026-11-19T05:33:06.840774+00:00"
+      "diff_hash": "a073f7b9e6d42f47",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "full_spectrum.multimodal_endurance:10_goto_v6e-4-training/overview_page": {
       "decision": "INTENTIONAL",
-      "diff_hash": "b20e09d987268d1f",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.600954+00:00"
+      "diff_hash": "a17f56424cc45238",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "memory.cross_hardware_tpu_to_v6e:00_overview_page": {
       "decision": "INTENTIONAL",
-      "diff_hash": "b1fd677d3b681b14",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.198886+00:00"
+      "diff_hash": "e197ef02d6739398",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "memory.cross_hardware_tpu_to_v6e:01_switch_tool_Memory Profile": {
       "decision": "INTENTIONAL",
-      "diff_hash": "d54daf25b97dc61b",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.206536+00:00"
+      "diff_hash": "7d64639ce29506ac",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "memory.cross_hardware_tpu_to_v6e:02_select_memory_id_1": {
       "decision": "INTENTIONAL",
-      "diff_hash": "549894017309101a",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.214163+00:00"
+      "diff_hash": "ff47a71a77d71bae",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "memory.cross_hardware_tpu_to_v6e:03_filter_table_rows_stack": {
       "decision": "INTENTIONAL",
-      "diff_hash": "dd8a0153deab084a",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.221746+00:00"
+      "diff_hash": "1eae07435119d4d1",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "memory.cross_hardware_tpu_to_v6e:04_switch_tool_Memory Viewer": {
       "decision": "INTENTIONAL",
-      "diff_hash": "a9c1d6ab93d511da",
-      "rationale": "Intentional UI fix: restored the XLA Modules selector in open-source Memory Viewer and included memory_space in timeline URLs.",
-      "timestamp": "2026-11-19T10:23:00.000000+00:00"
+      "diff_hash": "3004bdd06730686b",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "memory.cross_hardware_tpu_to_v6e:05_goto_v6e-4-training/overview_page": {
       "decision": "INTENTIONAL",
-      "diff_hash": "920dacd3f8ad704d",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.236982+00:00"
+      "diff_hash": "7f6503609747dc2f",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "memory.cross_hardware_tpu_to_v6e:06_switch_tool_Memory Profile": {
       "decision": "INTENTIONAL",
-      "diff_hash": "1d63a66ec2b7ea74",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.244636+00:00"
+      "diff_hash": "ea0a2ea209ac669c",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "memory.cross_hardware_tpu_to_v6e:07_select_memory_id_1": {
       "decision": "INTENTIONAL",
-      "diff_hash": "3553e46056bf8479",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.252306+00:00"
+      "diff_hash": "2ee74bce5ef0f41f",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "memory.cross_hardware_tpu_to_v6e:08_switch_tool_Roofline Model": {
       "decision": "INTENTIONAL",
-      "diff_hash": "b1bc65a752f14748",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.260094+00:00"
+      "diff_hash": "0f2db01b0ea5dee1",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "memory.cross_hardware_tpu_to_v6e:09_goto_v6e-4-training/overview_page": {
       "decision": "INTENTIONAL",
-      "diff_hash": "c69755016b8e1f71",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.267750+00:00"
+      "diff_hash": "504283e8cf042798",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "routing.popstate_resilience_loop:00_overview_page": {
       "decision": "INTENTIONAL",
-      "diff_hash": "949ba94cfa5807b6",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.429004+00:00"
+      "diff_hash": "71703160fbe01489",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "routing.popstate_resilience_loop:01_switch_tool_Memory Profile": {
       "decision": "INTENTIONAL",
-      "diff_hash": "22af26177182553e",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.436631+00:00"
+      "diff_hash": "f74add49746deef3",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "routing.popstate_resilience_loop:02_go_back_Overview Page": {
       "decision": "INTENTIONAL",
-      "diff_hash": "87f0a5a4a52fc4e5",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.444254+00:00"
+      "diff_hash": "2feef99a3f7542a8",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "routing.popstate_resilience_loop:03_go_forward_Memory Profile": {
       "decision": "INTENTIONAL",
-      "diff_hash": "6dd4632c69be00e7",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.451954+00:00"
+      "diff_hash": "25f5ced37d809435",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "routing.popstate_resilience_loop:04_switch_tool_Input Pipeline Analysis": {
       "decision": "INTENTIONAL",
-      "diff_hash": "4afa631e5b168143",
-      "rationale": "Intentional UI fix: removed stray trailing comma in column ID 'scv0InfeedTimeMs', restoring the SparseCoreV0 input series and legend entry on Step-time Graph.",
-      "timestamp": "2026-11-19T10:23:00.000000+00:00"
+      "diff_hash": "d3bafcc4dc4b79ce",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "routing.popstate_resilience_loop:05_go_back_Memory Profile": {
       "decision": "INTENTIONAL",
-      "diff_hash": "3c11bfde76fcc233",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.467924+00:00"
+      "diff_hash": "e01563ef8aab72ac",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "routing.popstate_resilience_loop:06_switch_tool_Op Profile": {
       "decision": "INTENTIONAL",
-      "diff_hash": "0ca71fe573b6f3db",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.475910+00:00"
+      "diff_hash": "9b026f1fdb0b60cb",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "triage.pipeline_and_hardware_bounds:00_overview_page": {
       "decision": "INTENTIONAL",
-      "diff_hash": "0407bb3abf2109e2",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.110778+00:00"
+      "diff_hash": "b23429ae213c9bd2",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "triage.pipeline_and_hardware_bounds:01_switch_tool_Input Pipeline Analysis": {
       "decision": "INTENTIONAL",
-      "diff_hash": "b25cf1f5ff84db5b",
-      "rationale": "Intentional UI fix: removed stray trailing comma in column ID 'scv0InfeedTimeMs', restoring the SparseCoreV0 input series and legend entry on Step-time Graph.",
-      "timestamp": "2026-11-19T10:23:00.000000+00:00"
+      "diff_hash": "dbe113d46c72fe2d",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "triage.pipeline_and_hardware_bounds:02_switch_tool_HLO Op Stats": {
       "decision": "INTENTIONAL",
-      "diff_hash": "49e43b2364ec46a6",
-      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
-      "timestamp": "2026-11-19T10:23:00.000000+00:00"
+      "diff_hash": "f611c3c44944548e",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "triage.pipeline_and_hardware_bounds:03_select_category_filter_convolution fusion": {
       "decision": "INTENTIONAL",
-      "diff_hash": "10fc00629bc787b8",
-      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
-      "timestamp": "2026-11-19T10:23:00.000000+00:00"
+      "diff_hash": "ba279d462d6ce44d",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "triage.pipeline_and_hardware_bounds:04_sort_table_column_#Occurrences": {
       "decision": "INTENTIONAL",
-      "diff_hash": "97efad08b9db4e3f",
-      "rationale": "Intentional UI fix: shared FlopRateChart now filters zero-FLOP ops so Measured GFLOPs/sec renders only non-zero FLOP bars (plus downstream ng-tns animation counter shift in full_spectrum).",
-      "timestamp": "2026-11-19T10:23:00.000000+00:00"
+      "diff_hash": "eac97c6a4f39425a",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "triage.pipeline_and_hardware_bounds:05_switch_tool_Op Profile": {
       "decision": "INTENTIONAL",
-      "diff_hash": "83d7d24ce80a08b2",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.144806+00:00"
+      "diff_hash": "4636318f194bfd3d",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "triage.pipeline_and_hardware_bounds:06_select_op_profile_group_by_Category": {
       "decision": "INTENTIONAL",
-      "diff_hash": "8866587caea6ae4c",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.152578+00:00"
+      "diff_hash": "57a15a594582f094",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "triage.pipeline_and_hardware_bounds:07_expand_op_profile_row_convolution fusion": {
       "decision": "INTENTIONAL",
-      "diff_hash": "3c89452b8fc5abfe",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.160426+00:00"
+      "diff_hash": "76abfbe759d45942",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "triage.pipeline_and_hardware_bounds:08_expand_op_profile_row_custom fusion": {
       "decision": "INTENTIONAL",
-      "diff_hash": "bc3b465ece394ee2",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.168213+00:00"
+      "diff_hash": "0fde12ea3b3bb534",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "triage.pipeline_and_hardware_bounds:09_switch_tool_Roofline Model": {
       "decision": "INTENTIONAL",
-      "diff_hash": "bc6744851b771d31",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.175871+00:00"
+      "diff_hash": "dcc3f6ebf751d21c",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "triage.pipeline_and_hardware_bounds:10_select_category_filter_convolution fusion": {
       "decision": "INTENTIONAL",
-      "diff_hash": "562b4a4a992d9dda",
-      "rationale": "Intentional DOM update: index.html declares a static <base href> and the inline script only rewrites it for a same-origin path prefix, so deep links resolve relative stylesheets and scripts before any script runs. Rendered pixels are unchanged.",
-      "timestamp": "2026-11-12T09:41:05.183500+00:00"
+      "diff_hash": "00fe512d71c04106",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     },
     "triage.pipeline_and_hardware_bounds:11_switch_tool_Trace Viewer": {
       "decision": "INTENTIONAL",
-      "diff_hash": "bd5143c80683ef62",
-      "rationale": "Intentional UI and DOM update: Trace Viewer filter bar icon changed from filter_list to filter_alt.",
-      "timestamp": "2026-11-18T19:31:00.000000+00:00"
+      "diff_hash": "4d7a16d454857afd",
+      "rationale": "Intentional Angular 18 to Angular 20 LTS and Angular Material 20 upgrade: expected framework DOM class/attribute updates (ng-star-inserted removal, CSS mat-drawer-transition, --mat-progress-spinner-* custom properties), minor MDC typography rendering adjustments (<0.15% pixels), and Graph Viewer switch request deduplication.",
+      "timestamp": "2026-11-20T00:38:39.947670+00:00"
     }
   }
 }

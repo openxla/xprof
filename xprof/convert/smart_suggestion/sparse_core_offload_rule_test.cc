@@ -32,6 +32,7 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 
+using ::testing::DoubleNear;
 using ::testing::Eq;
 using ::testing::HasSubstr;
 using ::testing::Return;
@@ -177,6 +178,31 @@ TEST_F(SparseCoreOffloadRuleTest, GenerateSuggestion) {
   EXPECT_THAT((*suggestion)->suggestion_text(),
               HasSubstr("11.0%</b> of time is spent on async-done operations"
                         " with low memory utilization of <b>40.0%</b>"));
+}
+
+TEST_F(SparseCoreOffloadRuleTest, CountsRaggedAllToAllAndReduceGather) {
+  op_profile::Profile op_profile;
+  auto* root_node = op_profile.mutable_by_program_exclude_idle();
+  root_node->mutable_metrics()->set_raw_time(1000);
+  auto* child = root_node->add_children();
+  auto* async_done_node = child->add_children();
+  async_done_node->set_name("async-done");
+  auto* ragged_all_to_all_node = async_done_node->add_children();
+  ragged_all_to_all_node->set_name("ragged-all-to-all.1");
+  ragged_all_to_all_node->mutable_metrics()->set_raw_time(100);
+  auto* reduce_gather_node = async_done_node->add_children();
+  reduce_gather_node->set_name("reduce-gather.2");
+  reduce_gather_node->mutable_metrics()->set_raw_time(50);
+  auto* other_node = async_done_node->add_children();
+  other_node->set_name("fusion.3");
+  other_node->mutable_metrics()->set_raw_time(200);
+
+  EXPECT_CALL(*mock_tool_data_provider_, GetOpProfile())
+      .WillRepeatedly(Return(&op_profile));
+
+  // Only the ragged-all-to-all and reduce-gather children count: 15%.
+  EXPECT_THAT(signal_provider_->GetAsyncDoneOpPercent(),
+              IsOkAndHolds(DoubleNear(15.0, 1e-9)));
 }
 
 }  // namespace

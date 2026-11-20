@@ -347,12 +347,8 @@ class SignalProvider {
 
   absl::StatusOr<double> GetAsyncDoneOpPercent() const {
     static const absl::flat_hash_set<absl::string_view> kAsyncDoneOpPrefixes = {
-        "all-gather",
-        "all-reduce",
-        "all-to-all",
-        "ragged-all-to-all"
-        "reduce-gather",
-        "reduce-scatter",
+        "all-gather",        "all-reduce",    "all-to-all",
+        "ragged-all-to-all", "reduce-gather", "reduce-scatter",
     };
 
     TF_ASSIGN_OR_RETURN(const auto* op_profile,

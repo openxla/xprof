@@ -17,27 +17,98 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import importlib
 import os
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import setuptools
 
 from xprof import version
 
-try:
-  from wheel.bdist_wheel import bdist_wheel as _bdist_wheel  # pylint: disable=g-import-not-at-top  # pyrefly: ignore[missing-import]
+_PEP639_MIN_SETUPTOOLS_VERSION = '77.0.3'
 
-  class CustomBdistWheel(_bdist_wheel):
+
+def _supports_pep639_license() -> bool:
+  """Returns whether setuptools supports PEP 639 license_expression.
+
+  Kept intentionally mirrored with tbp_package/setup.py because the two
+  setup.py scripts are staged independently for wheel builds.
+  """
+  # Setuptools >= 77.0.3 requires packaging.licenses (packaging >= 24.2) to
+  # finalize PEP 639 metadata; fall back early if an older site-packages
+  # packaging shadows the vendored copy.
+  try:
+    importlib.import_module('packaging.licenses')
+    packaging_version = importlib.import_module('packaging.version')
+  except ImportError:
+    return False
+  # Check the parsed PEP 440 version first: earlier 77.0.x releases already
+  # exposed metadata.license_expression before PEP 639 support stabilized in
+  # 77.0.3, and this avoids instantiating Distribution on standard releases.
+  # Reserve attribute probing for unversioned or vendored builds that report
+  # '0.dev0+unknown' or non-PEP-440 version strings.
+  try:
+    parsed_version = packaging_version.Version(setuptools.__version__)
+  except packaging_version.InvalidVersion:
+    parsed_version = None
+  if parsed_version is not None and (
+      parsed_version.epoch > 0 or parsed_version.major > 0
+  ):
+    return parsed_version >= packaging_version.Version(
+        _PEP639_MIN_SETUPTOOLS_VERSION
+    )
+  return hasattr(setuptools.Distribution().metadata, 'license_expression')
+
+
+def _get_license_metadata() -> tuple[tuple[str, ...], dict[str, str]]:
+  """Returns (license_classifiers, license_kwargs) for setuptools.setup()."""
+  if _supports_pep639_license():
+    return (), {'license_expression': 'Apache-2.0'}
+  return (
+      ('License :: OSI Approved :: Apache Software License',),
+      {'license': 'Apache 2.0'},
+  )
+
+
+
+
+def _load_bdist_wheel_base() -> type[Any] | None:
+  """Imports the bdist_wheel command class, preferring setuptools.
+
+  Returns:
+    The imported bdist_wheel command class, or None if neither
+    setuptools.command.bdist_wheel nor wheel.bdist_wheel can be imported.
+  """
+  for module_name in ('setuptools.command.bdist_wheel', 'wheel.bdist_wheel'):
+    try:
+      module = importlib.import_module(module_name)
+      return module.bdist_wheel
+    except ImportError:
+      continue
+  return None
+
+
+def _make_custom_bdist_wheel() -> type[Any] | None:
+  """Creates the CustomBdistWheel command class, or None if unavailable."""
+  base_cls = _load_bdist_wheel_base()
+  if base_cls is None:
+    return None
+
+  class _CustomBdistWheel(base_cls):
 
     def finalize_options(self):
-      _bdist_wheel.finalize_options(self)
+      super().finalize_options()
       self.root_is_pure = False
 
     def get_tag(self):
-      return ('py3', 'none') + _bdist_wheel.get_tag(self)[2:]
+      return ('py3', 'none') + super().get_tag()[2:]
 
-except ImportError:
-  CustomBdistWheel = None  # pylint: disable=invalid-name
+  _CustomBdistWheel.__name__ = 'CustomBdistWheel'
+  _CustomBdistWheel.__qualname__ = 'CustomBdistWheel'
+  return _CustomBdistWheel
+
+
+CustomBdistWheel = _make_custom_bdist_wheel()  # pylint: disable=invalid-name
 
 
 def _find_requirements_file() -> str:
@@ -167,40 +238,48 @@ if CustomBdistWheel:
   cmdclass['bdist_wheel'] = CustomBdistWheel
 
 
-if __name__ == '__main__':
-  setuptools.setup(
-      name=PROJECT_NAME,
-      version=VERSION,
-      description='XProf Profiler Plugin',
-      long_description=get_readme(),
-      long_description_content_type='text/markdown',
-      author='Google Inc.',
-      author_email='packages@tensorflow.org',
-      url='https://github.com/openxla/xprof',
-      packages=setuptools.find_packages()
-      + setuptools.find_namespace_packages(
-          include=['xprof.*'],
-          exclude=['xprof.static'],
+def get_setup_kwargs() -> dict[str, Any]:
+  """Returns keyword arguments for setuptools.setup()."""
+  license_classifiers, license_kwargs = _get_license_metadata()
+  classifiers = [
+      'Intended Audience :: Developers',
+      'Intended Audience :: Education',
+      'Intended Audience :: Science/Research',
+      *license_classifiers,
+      'Programming Language :: Python :: 3',
+      'Topic :: Scientific/Engineering :: Mathematics',
+      'Topic :: Software Development :: Libraries :: Python Modules',
+      'Topic :: Software Development :: Libraries',
+  ]
+  return {
+      'name': PROJECT_NAME,
+      'version': VERSION,
+      'description': 'XProf Profiler Plugin',
+      'long_description': get_readme(),
+      'long_description_content_type': 'text/markdown',
+      'author': 'Google Inc.',
+      'author_email': 'packages@tensorflow.org',
+      'url': 'https://github.com/openxla/xprof',
+      'packages': (
+          setuptools.find_packages()
+          + setuptools.find_namespace_packages(
+              include=['xprof.*'],
+              exclude=['xprof.static'],
+          )
       ),
-      package_data=PACKAGE_DATA,
-      entry_points=ENTRY_POINTS,
-      has_ext_modules=lambda: True,
-      cmdclass=cmdclass,
-      python_requires='>= 3.10',
-      install_requires=REQUIRED_PACKAGES,
-      tests_require=REQUIRED_PACKAGES,
-      extras_require={'test': TEST_PACKAGES},
+      'package_data': PACKAGE_DATA,
+      'entry_points': ENTRY_POINTS,
+      'has_ext_modules': lambda: True,
+      'cmdclass': cmdclass,
+      'python_requires': '>= 3.10',
+      'install_requires': REQUIRED_PACKAGES,
+      'extras_require': {'test': TEST_PACKAGES},
       # PyPI package information.
-      classifiers=[
-          'Intended Audience :: Developers',
-          'Intended Audience :: Education',
-          'Intended Audience :: Science/Research',
-          'License :: OSI Approved :: Apache Software License',
-          'Programming Language :: Python :: 3',
-          'Topic :: Scientific/Engineering :: Mathematics',
-          'Topic :: Software Development :: Libraries :: Python Modules',
-          'Topic :: Software Development :: Libraries',
-      ],
-      license='Apache 2.0',
-      keywords='jax pytorch xla tensorflow tensorboard xprof profile plugin',
-  )
+      'classifiers': classifiers,
+      'keywords': 'jax pytorch xla tensorflow tensorboard xprof profile plugin',
+      **license_kwargs,
+  }
+
+
+if __name__ == '__main__':
+  setuptools.setup(**get_setup_kwargs())

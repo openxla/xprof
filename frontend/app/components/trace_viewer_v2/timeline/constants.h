@@ -93,6 +93,9 @@ inline constexpr Pixel kTimelinePaddingRight = 1.0f;
 inline constexpr Pixel kToastCornerRounding = 4.0f;
 inline constexpr Pixel kVirtualHeaderHeight = 30.0f;
 inline constexpr double kEpsilon = 0.001;
+// Maximum fraction of the tracks viewport height that a sticky Pinned section
+// may occupy before falling back to normal vertical scrolling.
+inline constexpr float kMaxStickyPinnedViewportRatio = 0.5f;
 // go/keep-sorted end
 
 // Highlighting Constants

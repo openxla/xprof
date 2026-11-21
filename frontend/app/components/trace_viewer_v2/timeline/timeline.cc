@@ -902,6 +902,9 @@ void Timeline::BuildFlattenedGroups(const FlameChartTimelineData& data) {
   all_processes_count_ = 0;
   hidden_processes_count_ = 0;
   pinned_processes_count_ = 0;
+  header_pinned_index_ = 0;
+  header_all_index_ = 0;
+  group_is_pinned_.assign(group_count, false);
 
   if (data.groups.empty()) return;
 
@@ -946,12 +949,14 @@ void Timeline::BuildFlattenedGroups(const FlameChartTimelineData& data) {
                            hidden_groups.end());
 
   // 3. Pinned processes / "Pinned" Header
+  header_pinned_index_ = flattened_groups_.size();
   flattened_groups_.push_back(&header_pinned_);
   // 4. Pinned processes and their children
   flattened_groups_.insert(flattened_groups_.end(), pinned_groups.begin(),
                            pinned_groups.end());
 
   // 5. All Processes / "All" Header
+  header_all_index_ = flattened_groups_.size();
   flattened_groups_.push_back(&header_all_);
   // 6. All processes and their children
   flattened_groups_.insert(flattened_groups_.end(), all_groups.begin(),
@@ -993,6 +998,7 @@ void Timeline::CategorizeGroupsForTrackManagement(
       hidden_groups.push_back(&data.groups[i]);
     } else if (current_process_pinned) {
       pinned_groups.push_back(&data.groups[i]);
+      group_is_pinned_[i] = true;
     } else {
       all_groups.push_back(&data.groups[i]);
     }
@@ -1010,6 +1016,7 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
 
   // Populate flattened_groups_ based on data
   BuildFlattenedGroups(data);
+  level_is_pinned_.assign(level_count, false);
 
   std::vector<Pixel> new_visible_level_offsets(level_count, 0.0f);
   std::vector<Pixel> new_group_offsets(group_count + 1, 0.0f);
@@ -1063,6 +1070,8 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
     // Now we are dealing with a standard group track
     const int group_index = group_ptr - &data.groups[0];
     const Group& group = *group_ptr;
+    const bool is_pinned_group = IsGroupPinned(group_index);
+
     const int next_group_start_level =
         GetNextGroupStartLevel(data, group_index);
     const bool expandable =
@@ -1074,6 +1083,12 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
       state.any_expandable = true;
       if (!group.expanded) {
         state.all_expanded = false;
+      }
+    }
+    for (int level = group.start_level; level < next_group_start_level;
+         ++level) {
+      if (level >= 0 && level < level_count) {
+        level_is_pinned_[level] = is_pinned_group;
       }
     }
 
@@ -2928,6 +2943,7 @@ void Timeline::ResetForNewDataset() {
   SetTimelineData({});
   should_restore_scroll_ = false;
   last_scroll_y_ = 0.0f;
+  sticky_offset_ = 0.0f;
   // Draw() only rebuilds colors when the entry count changes.
   entry_colors_.clear();
   group_accent_colors_.clear();
@@ -3069,6 +3085,10 @@ void Timeline::Draw() {
   const Pixel scroll_y = ImGui::GetScrollY();
   const Pixel window_height = ImGui::GetWindowHeight();
   last_tracks_window_height_ = window_height;
+
+  // Compute sticky offset for the Pinned section when it fits within the
+  // viewport budget and the user has scrolled past its natural top offset.
+  sticky_offset_ = ComputeStickyOffset(scroll_y, window_height);
 
   // Find first visible item or item intersecting scroll_y using binary search.
   // Rows tucked away by an accordion transition break the ordering the search

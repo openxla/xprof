@@ -17231,6 +17231,142 @@ TEST(TimelineTest, SelectionRemapFallbackDisambiguatesByTidAcrossThreads) {
   EXPECT_EQ(timeline.selected_event_index(), 1);
 }
 
+FlameChartTimelineData MakeMultiProcessTimelineData(int process_count,
+                                                    bool with_threads = false,
+                                                    bool expanded = true) {
+  FlameChartTimelineData data;
+  data.level_offsets = {0};
+  for (int i = 0; i < process_count; ++i) {
+    Group proc =
+        MakeProcessGroup(absl::StrCat("Process ", i), /*start_level=*/i,
+                         /*level_count=*/1, expanded,
+                         /*pid=*/static_cast<ProcessId>(i + 1));
+    proc.has_children = with_threads;
+    const int proc_idx = static_cast<int>(data.groups.size());
+    data.groups.push_back(proc);
+    if (with_threads) {
+      data.groups.push_back(MakeThreadGroup(
+          absl::StrCat("Thread ", i), /*parent_index=*/proc_idx,
+          /*start_level=*/i, /*level_count=*/1, /*expanded=*/true,
+          /*pid=*/static_cast<ProcessId>(i + 1),
+          /*tid=*/static_cast<ThreadId>(100 + i)));
+    }
+    data.entry_levels.push_back(static_cast<uint16_t>(i));
+    data.entry_start_times.push_back(10.0);
+    data.entry_total_times.push_back(80.0);
+    data.entry_self_times.push_back(80.0);
+    data.entry_names.push_back(absl::StrCat("Event_", i));
+    data.entry_event_ids.push_back(static_cast<EventId>(i + 1));
+    data.level_event_indices.push_back(i);
+    data.level_offsets.push_back(static_cast<size_t>(i + 1));
+  }
+  return data;
+}
+
+TEST_F(RealTimelineImGuiFixture, PinnedTrackStickyOffset) {
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 250.0f);
+  const FlameChartTimelineData data = MakeMultiProcessTimelineData(10);
+  timeline_.set_track_management_enabled(true);
+  timeline_.pinned_track_names_.insert("Process 1");
+  timeline_.SetTimelineData(data);
+
+  EXPECT_TRUE(timeline_.is_group_pinned_for_test(1));
+  EXPECT_TRUE(timeline_.is_level_pinned_for_test(1));
+  EXPECT_FALSE(timeline_.is_group_pinned_for_test(0));
+  EXPECT_FALSE(timeline_.is_level_pinned_for_test(0));
+  EXPECT_FALSE(timeline_.is_group_pinned_for_test(-1));
+  EXPECT_FALSE(timeline_.is_group_pinned_for_test(10));
+  EXPECT_FALSE(timeline_.is_level_pinned_for_test(-1));
+  EXPECT_FALSE(timeline_.is_level_pinned_for_test(10));
+  EXPECT_EQ(timeline_.header_pinned_index_for_test(), 1u);
+  EXPECT_EQ(timeline_.header_all_index_for_test(), 3u);
+
+  timeline_.set_scroll_offset_for_test(0.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_EQ(timeline_.get_sticky_offset_for_test(), 0.0f);
+
+  timeline_.set_scroll_offset_for_test(150.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_GT(timeline_.get_sticky_offset_for_test(), 0.0f);
+
+  timeline_.pinned_track_names_.erase("Process 1");
+  timeline_.SetTimelineData(data);
+  EXPECT_FALSE(timeline_.is_group_pinned_for_test(1));
+  timeline_.set_scroll_offset_for_test(150.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_EQ(timeline_.get_sticky_offset_for_test(), 0.0f);
+
+  timeline_.pinned_track_names_.insert("Process 1");
+  timeline_.SetTimelineData(data);
+  timeline_.set_scroll_offset_for_test(150.0f);
+  StepImGuiFrames(timeline_, 2);
+  ASSERT_GT(timeline_.get_sticky_offset_for_test(), 0.0f);
+  timeline_.ResetForNewDataset();
+  EXPECT_EQ(timeline_.get_sticky_offset_for_test(), 0.0f);
+}
+
+TEST_F(RealTimelineImGuiFixture, StickyOffsetDisabledWhenTrackManagementOff) {
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 250.0f);
+  const FlameChartTimelineData data = MakeMultiProcessTimelineData(6);
+  timeline_.pinned_track_names_.insert("Process 1");
+  timeline_.set_track_management_enabled(false);
+  timeline_.SetTimelineData(data);
+
+  timeline_.set_scroll_offset_for_test(150.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_EQ(timeline_.get_sticky_offset_for_test(), 0.0f);
+  EXPECT_FALSE(timeline_.is_group_pinned_for_test(1));
+}
+
+TEST_F(RealTimelineImGuiFixture, StickyPinnedViewportHalfHeightLimit) {
+  const FlameChartTimelineData data =
+      MakeMultiProcessTimelineData(25, /*with_threads=*/true);
+  timeline_.set_track_management_enabled(true);
+  timeline_.pinned_track_names_.insert("Process 0");
+  timeline_.SetTimelineData(data);
+  StepImGuiFrames(timeline_, 1);
+
+  const Pixel header_pinned_offset =
+      timeline_.GetGroupTop(&timeline_.header_pinned_for_test());
+  const Pixel pinned_height =
+      timeline_.get_header_all_offset_for_test() - header_pinned_offset;
+  ASSERT_GT(pinned_height, 0.0f);
+
+  // At exact 50% limit (window_height == 2 * pinned_height), Pinned section
+  // stays sticky when scrolled past header_pinned_offset.
+  ImGui::GetIO().DisplaySize =
+      ImVec2(800.0f, kRulerHeight + 2.0f * pinned_height);
+  timeline_.set_scroll_offset_for_test(header_pinned_offset + 80.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_GT(timeline_.get_sticky_offset_for_test(), 0.0f);
+
+  // Just past 50% limit (pinned_height > 0.5 * window_height), Pinned section
+  // falls back to normal scrolling.
+  ImGui::GetIO().DisplaySize =
+      ImVec2(800.0f, kRulerHeight + 2.0f * pinned_height - 2.0f);
+  timeline_.set_scroll_offset_for_test(header_pinned_offset + 80.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_EQ(timeline_.get_sticky_offset_for_test(), 0.0f);
+
+  // A tall ~850px Pinned section inside a 900px display window exceeds 50% of
+  // the tracks viewport height and scrolls normally rather than docking.
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 900.0f);
+  for (int i = 0; i < 12; ++i) {
+    timeline_.pinned_track_names_.insert(absl::StrCat("Process ", i));
+  }
+  timeline_.SetTimelineData(data);
+  StepImGuiFrames(timeline_, 1);
+  const Pixel tall_pinned_height =
+      timeline_.get_header_all_offset_for_test() -
+      timeline_.GetGroupTop(&timeline_.header_pinned_for_test());
+  ASSERT_GE(tall_pinned_height, 800.0f);
+  ASSERT_LT(tall_pinned_height, 900.0f - kRulerHeight);
+
+  timeline_.set_scroll_offset_for_test(120.0f);
+  StepImGuiFrames(timeline_, 2);
+  EXPECT_EQ(timeline_.get_sticky_offset_for_test(), 0.0f);
+}
+
 TEST(TimelineTest, DrawWithoutDataDoesNotCrash) {
   ImGui::CreateContext();
   ImGuiIO& io = ImGui::GetIO();

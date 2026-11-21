@@ -1138,6 +1138,16 @@ class Timeline {
            static_cast<size_t>(level) < level_mip_pyramids_.size() &&
            level_mip_pyramids_[level].raw_events_compacted;
   }
+  Pixel get_sticky_offset_for_test() const { return sticky_offset_; }
+  bool is_group_pinned_for_test(int group_index) const {
+    return IsGroupPinned(group_index);
+  }
+  bool is_level_pinned_for_test(int level) const {
+    return IsLevelPinned(level);
+  }
+  Pixel get_header_all_offset_for_test() const { return header_all_offset_; }
+  size_t header_pinned_index_for_test() const { return header_pinned_index_; }
+  size_t header_all_index_for_test() const { return header_all_index_; }
 
   struct GpuFlameBatch {
     uint32_t first_instance = 0;
@@ -1414,6 +1424,32 @@ class Timeline {
 
   // Copies a track's name to the clipboard and shows the copy notification.
   void CopyTrackName(int group_index);
+
+  bool IsGroupPinned(int group_index) const {
+    return group_index >= 0 &&
+           static_cast<size_t>(group_index) < group_is_pinned_.size() &&
+           group_is_pinned_[group_index];
+  }
+  bool IsLevelPinned(int level) const {
+    return level >= 0 && static_cast<size_t>(level) < level_is_pinned_.size() &&
+           level_is_pinned_[level];
+  }
+  Pixel PinnedSectionHeight() const {
+    return (track_management_enabled_ && pinned_processes_count_ > 0)
+               ? std::max(0.0f, header_all_offset_ - header_pinned_offset_)
+               : 0.0f;
+  }
+  bool CanStickPinnedSection(Pixel window_height) const {
+    const Pixel height = PinnedSectionHeight();
+    return height > 0.0f && window_height > 0.0f &&
+           height <= window_height * kMaxStickyPinnedViewportRatio;
+  }
+  Pixel ComputeStickyOffset(Pixel scroll_y, Pixel window_height) const {
+    return (CanStickPinnedSection(window_height) &&
+            scroll_y > header_pinned_offset_)
+               ? (scroll_y - header_pinned_offset_)
+               : 0.0f;
+  }
 
   // --- Motion -------------------------------------------------------------
   // Returns true if the group's row should be drawn: it is visible, or it is
@@ -1723,6 +1759,8 @@ class Timeline {
   // Pinned, and All), including folded sections. Recomputed in
   // `UpdateLevelPositions`.
   std::array<HeaderAggregateState, kNumHeaderSections> header_section_states_;
+  size_t header_pinned_index_ = 0;
+  size_t header_all_index_ = 0;
 
   struct CounterTrackMetadata {
     double min_value = std::numeric_limits<double>::max();
@@ -1852,6 +1890,16 @@ class Timeline {
   // Stores whether each group is visible (not hidden by a collapsed parent).
   // Precalculated in UpdateLevelPositions.
   std::vector<bool> group_visible_;
+  // Stores whether each group belongs to a pinned process section.
+  // Precalculated in BuildFlattenedGroups.
+  std::vector<bool> group_is_pinned_;
+  // Stores whether each level belongs to a pinned process section.
+  // Precalculated in UpdateLevelPositions.
+  std::vector<bool> level_is_pinned_;
+  // Current sticky Y offset (in pixels) applied to the Pinned section during
+  // vertical scrolling so pinned tracks remain fixed at the top of the
+  // viewport.
+  Pixel sticky_offset_ = 0.0f;
   // Motion state (see set_animations_enabled).
   struct LayoutTransition {
     bool active = false;

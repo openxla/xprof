@@ -443,9 +443,14 @@ def get_roofline_model(
         else "model_flop_rate"
     )
 
+    tc_rows = [
+        r_dict
+        for r in rows[1:]
+        if not (r_dict := row_to_dict(r.get("c", []))).get("is_sparse_core")
+    ]
+
     op_records = []
-    for r in rows[1:]:
-      r_dict = row_to_dict(r.get("c", []))
+    for r_dict in tc_rows:
       self_time_us = _safe_float(r_dict.get("total_self_time"))
       if self_time_us <= 0:
         continue
@@ -745,8 +750,7 @@ def get_roofline_model(
     percent_scale = 100.0 if prog_total <= 1.0 + 1e-6 else 1.0
     custom_call_share_pct = 0.0
     seen_custom_call_keys = set()
-    for row in rows[1:]:
-      row_dict = row_to_dict(row.get("c", []))
+    for row_dict in tc_rows:
       op_name = str(row_dict.get("operation") or row_dict.get("hlo_name", ""))
       op_category = str(
           row_dict.get("category") or row_dict.get("hlo_category", "")

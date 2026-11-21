@@ -34,10 +34,8 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
-#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "absl/strings/strip.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
@@ -91,18 +89,6 @@ using tsl::profiler::FindPlanesWithPrefix;
 using tsl::profiler::FindTensorCorePlanes;
 using ::tsl::profiler::kGpuPlanePrefix;
 using ::tsl::profiler::kTpuPlanePrefix;
-
-// Name prefix of the SparseCore Tile Execution Core (TEC) op lines, e.g.
-// "TEC 0".
-constexpr absl::string_view kSparseCoreTecLinePrefix = "TEC ";
-
-// Returns true for the SparseCore TEC op lines ("TEC 0", "TEC 1", ...), and
-// false for other lines with the same prefix, such as "TEC TraceMe 0".
-bool IsSparseCoreTecOpLine(absl::string_view line_name) {
-  uint32_t tec_index;
-  return absl::ConsumePrefix(&line_name, kSparseCoreTecLinePrefix) &&
-         absl::SimpleAtoi(line_name, &tec_index);
-}
 
 std::string Hostname(const XSpace& space) {
   if (space.hostnames().empty()) return "localhost";

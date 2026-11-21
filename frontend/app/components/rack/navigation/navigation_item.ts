@@ -99,10 +99,14 @@ export const NAV_DRAWER_CONTEXT = new InjectionToken<NavigationDrawerContext>(
       [matTooltipShowDelay]="150"
       [matTooltipDisabled]="!isDrawerCollapsed()">
       @if (icon()) {
-        <mat-icon
-          fontSet="material-symbols-outlined"
-          class="nav-icon material-symbols-outlined"
-          aria-hidden="true">{{ icon() }}</mat-icon>
+        @if (isTextIcon()) {
+          <span class="nav-text-icon" aria-hidden="true">{{ icon() }}</span>
+        } @else {
+          <mat-icon
+            fontSet="material-symbols-outlined"
+            class="nav-icon material-symbols-outlined"
+            aria-hidden="true">{{ icon() }}</mat-icon>
+        }
       }
       <span #navText class="nav-text"><ng-content></ng-content></span>
       <span class="nav-badge-slot">
@@ -161,6 +165,10 @@ export class RackNavigationItem implements AfterViewInit {
   readonly effectiveLabel = computed(
     () => this.label() || this.projectedLabel(),
   );
+  // Material Symbol ligatures use lowercase snake_case names (e.g. 'home',
+  // 'graph_2'), whereas unmapped tools pass 1-3 uppercase initials (e.g. 'MV')
+  // that render as a plain text badge instead of a ligature glyph.
+  readonly isTextIcon = computed(() => /^[A-Z0-9]{1,3}$/.test(this.icon()));
 
   readonly isDrawerCollapsed = computed(() => {
     return this.parentDrawer?.collapsed() ?? false;

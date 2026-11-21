@@ -175,6 +175,24 @@
   font-variation-settings: var(--rack-icon-settings-lg-filled) !important;
 }
 
+.nav-text-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--rack-nav-item-icon-size, var(--rack-icon-size-lg, 24px));
+  height: var(--rack-nav-item-icon-size, var(--rack-icon-size-lg, 24px));
+  flex: 0 0 var(--rack-nav-item-icon-size, var(--rack-icon-size-lg, 24px));
+  flex-shrink: 0;
+  font-family: var(--mat-sys-brand-font, 'Google Sans', 'Roboto', sans-serif);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.5px;
+  text-align: center;
+  color: inherit;
+  user-select: none;
+}
+
 .nav-text {
   flex: 1;
   text-overflow: ellipsis;

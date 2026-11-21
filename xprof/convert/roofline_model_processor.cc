@@ -49,6 +49,8 @@ absl::Status RooflineModelProcessor::ProcessSession(
                                     {.include_infeed_outfeed = false});
   result.mutable_roofline_model_record()->MergeFrom(
       result_without_infeed_outfeed.roofline_model_record());
+  result.mutable_sc_roofline_model_record()->MergeFrom(
+      result_without_infeed_outfeed.sc_roofline_model_record());
   SetOutput(RooflineModelToDataTableJson(result), "application/json");
   return absl::OkStatus();
 }
@@ -64,6 +66,8 @@ absl::Status RooflineModelProcessor::ProcessCombinedOpStats(
 
   result.mutable_roofline_model_record()->MergeFrom(
       result_without_infeed_outfeed.roofline_model_record());
+  result.mutable_sc_roofline_model_record()->MergeFrom(
+      result_without_infeed_outfeed.sc_roofline_model_record());
 
   std::string roofline_model_json = RooflineModelToDataTableJson(result);
 

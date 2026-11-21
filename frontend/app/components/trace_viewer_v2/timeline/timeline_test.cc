@@ -121,26 +121,31 @@ std::vector<int> CollectSetBits(const EntryBitset& bitset) {
 }
 
 // Calculated vertical center of the first event.
-// The first event starts after the ruler.
-// Y = kRulerHeight + kEventHeight / 2.
-constexpr float kFirstEventY = kRulerHeight + kEventHeight / 2.0f;
+// The first event starts after the ruler and the 3 virtual section headers.
+// Y = kRulerHeight + 3 * kVirtualHeaderHeight + kEventHeight / 2.
+constexpr float kFirstEventY =
+    kRulerHeight + 3.0f * kVirtualHeaderHeight + kEventHeight / 2.0f;
 
-// Returns `color` with its alpha channel multiplied by `opacity`. Mirrors the
-// helper used by the timeline to draw translucent label colors.
 // Returns the screen X of the hide button's center for a label column of
-// `label_width`: the hide button is the rightmost track management button.
-float HideButtonCenterX(float label_width) {
+// `label_width`. When `is_reorderable` is true, the drag handle sits at the
+// rightmost slot so the hide and pin buttons shift left by one button slot.
+float HideButtonCenterX(float label_width, bool is_reorderable = false) {
+  const float drag_handle_width =
+      is_reorderable ? kTrackIconButtonSize + kTrackIconButtonGap : 0.0f;
   return label_width - kSplitterOffset - kTrackIconButtonMarginRight -
-         kTrackIconButtonSize * 0.5f;
+         drag_handle_width - kTrackIconButtonSize * 0.5f;
 }
 
 // Returns the screen X of the pin button's center for a label column of
 // `label_width`: the pin button sits left of the hide button with centers
 // spaced `kTrackManagementButtonSpacing` apart.
-float PinButtonCenterX(float label_width) {
-  return HideButtonCenterX(label_width) - kTrackManagementButtonSpacing;
+float PinButtonCenterX(float label_width, bool is_reorderable = false) {
+  return HideButtonCenterX(label_width, is_reorderable) -
+         kTrackManagementButtonSpacing;
 }
 
+// Returns `color` with its alpha channel multiplied by `opacity`. Mirrors the
+// helper used by the timeline to draw translucent label colors.
 ImU32 WithOpacityForTest(ImU32 color, float opacity) {
   const float alpha = static_cast<float>((color >> IM_COL32_A_SHIFT) & 0xFF);
   const ImU32 new_alpha =
@@ -5013,15 +5018,16 @@ TEST_F(MockTimelineImGuiFixture,
 
   timeline_.SetTimelineData(std::move(data));
 
-  // Set display size small to ensure culling happens.
-  ImGui::GetIO().DisplaySize = ImVec2(1000.0f, 100.0f);
+  // Set display size small to ensure culling happens (accounting for 90px of
+  // virtual section headers).
+  ImGui::GetIO().DisplaySize = ImVec2(1000.0f, 190.0f);
 
   // Based on the heights, we expect only a few groups to be visible.
   // With ThreadTrackGap=4 and kEventHeight=23, each thread is 27px.
   // Viewport at 100px with 100px height should see roughly groups 4-8.
   EXPECT_CALL(timeline_, DrawGroup(_, _, _, _)).Times(::testing::Between(3, 7));
 
-  SimulateFrame(/*scroll_y=*/100.0f, /*window_height=*/100.0f);
+  SimulateFrame(/*scroll_y=*/100.0f, /*window_height=*/190.0f);
 }
 
 TEST_F(MockTimelineImGuiFixture,
@@ -5045,13 +5051,14 @@ TEST_F(MockTimelineImGuiFixture,
 
   timeline_.SetTimelineData(std::move(data));
 
-  // Set display size small to ensure culling happens.
-  ImGui::GetIO().DisplaySize = ImVec2(1000.0f, 100.0f);
+  // Set display size small to ensure culling happens (accounting for 90px of
+  // virtual section headers).
+  ImGui::GetIO().DisplaySize = ImVec2(1000.0f, 190.0f);
 
   // Set scroll such that we are looking at levels in the middle of the group.
   // Use a large scroll to trigger culling.
   Pixel scroll_y = 500.0f;
-  Pixel window_height = 100.0f;  // ~4 levels
+  Pixel window_height = 190.0f;  // ~4 levels after 90px headers
 
   // Since we are mocking the top-level Draw(), we need to expect the DrawGroup
   // call too.
@@ -8549,9 +8556,10 @@ TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollRevealsBottom) {
   }
 
   // With dummy event at level 50, the content is tall enough to avoid clamp
-  // limit. Target scroll is calculated exactly to 414.0f based on level 30.
+  // limit. Target scroll is calculated exactly to 504.0f based on level 30
+  // (414.0f + 90.0f for the 3 virtual section headers).
   // Reduced tolerance to 0.1f to kill mutant at line 2067.
-  EXPECT_NEAR(tracks_window->Scroll.y, 414.0f, 0.1f);
+  EXPECT_NEAR(tracks_window->Scroll.y, 504.0f, 0.1f);
 }
 
 TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollScrollsUp) {
@@ -8611,8 +8619,9 @@ TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollScrollsUp) {
     ImGui::Render();
   }
 
-  // Expect scroll to go to y_top of level 5.
-  EXPECT_NEAR(tracks_window->Scroll.y, 97.0f, 0.1f);
+  // Expect scroll to go to y_top of level 5 (97.0f + 90.0f for the 3 virtual
+  // section headers).
+  EXPECT_NEAR(tracks_window->Scroll.y, 187.0f, 0.1f);
 }
 
 TEST_F(RealTimelineImGuiFixture, RevealEventClampsToMinFetchDuration) {
@@ -9995,7 +10004,7 @@ TEST_F(TimelineDragSelectionTest, SnapScopingToHoveredGroupSnaps) {
   SimulateFrame();
 
   ImGuiIO& io = ImGui::GetIO();
-  const float hover_y_group2 = 59.0f;
+  const float hover_y_group2 = 149.0f;
 
   // Drag selection near group2 event (120.0us).
   // Drag from 50.0us (500px) to 121.0us (1210px).
@@ -10035,7 +10044,7 @@ TEST_F(TimelineDragSelectionTest, SnapScopingToHoveredGroupIgnoresOthers) {
   SimulateFrame();
 
   ImGuiIO& io = ImGui::GetIO();
-  const float hover_y_group2 = 59.0f;
+  const float hover_y_group2 = 149.0f;
 
   // Drag selection near group1 event (100.0us) while hovering group2.
   // Drag from 50.0us (500px) to 101.0us (1010px).
@@ -10468,14 +10477,15 @@ TEST_F(TimelineDragSelectionTest, SnapIncludesEventsAtExactBottomEdgeOfWindow) {
   ImGuiIO& io = ImGui::GetIO();
 
   // Start near 100.0 us (990px -> 99.0 us)
-  // We place the mouse at 39.0f to be vertically inside the group's bounding
-  // box so `is_group_hovered` allows the snap event detection.
-  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, 39.0f);
+  // We place the mouse at 129.0f (39.0f + 90.0f for virtual headers) to be
+  // vertically inside the group's bounding box so `is_group_hovered` allows the
+  // snap event detection.
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, 129.0f);
   io.AddMouseButtonEvent(0, true);
   SimulateFrame(0.0f, 24.0f);
 
   // End near 200.0 us (2010px -> 201.0 us)
-  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, 39.0f);
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, 129.0f);
   SimulateFrame(0.0f, 24.0f);
 
   io.AddMouseButtonEvent(0, false);
@@ -10508,8 +10518,9 @@ TEST_F(TimelineDragSelectionTest, SnapIncludesEventsAtExactTopEdgeOfWindow) {
 
   ImGuiIO& io = ImGui::GetIO();
 
-  // We place the mouse at 39.0f on screen to be inside the group.
-  float hover_y = 39.0f;
+  // We place the mouse at 129.0f (39.0f + 90.0f) on screen to be inside the
+  // group.
+  float hover_y = 129.0f;
   // Start near 100.0 us (990px -> 99.0 us)
   io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, hover_y);
   io.AddMouseButtonEvent(0, true);
@@ -10730,12 +10741,13 @@ TEST_F(TimelineMouseModeSelectTestSuite,
 
   SimulateFrame();
 
-  io.AddMousePosEvent(GetTimelineStartX() + 200.0f, 100.0f);
+  io.AddMousePosEvent(GetTimelineStartX() + 200.0f, 190.0f);
   SimulateFrame();
+
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
 
-  io.AddMousePosEvent(GetTimelineStartX() + 250.0f, 150.0f);
+  io.AddMousePosEvent(GetTimelineStartX() + 250.0f, 240.0f);
   SimulateFrame();
 
   io.AddMouseButtonEvent(0, false);
@@ -11024,12 +11036,12 @@ TEST_F(TimelineMouseModeSelectTestSuite, FindSelectedEventsSelectsCounters) {
   SimulateFrame();  // Warm-up frame and calculate layout
 
   // Start drag.
-  io.MousePos = ImVec2(GetTimelineStartX() + 50.0f, 40.0f);
+  io.MousePos = ImVec2(GetTimelineStartX() + 50.0f, 130.0f);
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
 
   // Drag to cover points.
-  io.MousePos = ImVec2(GetTimelineStartX() + 500.0f, 100.0f);
+  io.MousePos = ImVec2(GetTimelineStartX() + 500.0f, 190.0f);
   SimulateFrame();
 
   // Release.
@@ -11243,8 +11255,9 @@ TEST_F(TimelineImGuiFixture, SelectEvents) {
   float end_time_px =
       timeline_.TimeToScreenX(200.0, tracks_x, timeline_.px_per_time_unit());
 
-  float start_px_y = win_y + kRulerHeight;
-  float end_px_y = win_y + kRulerHeight + kEventHeight * 2;
+  float start_px_y = win_y + kRulerHeight + 3 * kVirtualHeaderHeight;
+  float end_px_y =
+      win_y + kRulerHeight + 3 * kVirtualHeaderHeight + kEventHeight * 2;
 
   bool event_called = false;
   std::string received_json;
@@ -11674,8 +11687,8 @@ TEST_F(RealTimelineImGuiFixture, HoverTrackLabelChangesCursor) {
   // Y should be around 50px (first track).
   // Move mouse over the track label.
   // Y should be inside the track height (kEventHeight = 23) +
-  // kRulerHeight (24).
-  io.MousePos = ImVec2(100.0f, 34.0f);
+  // kRulerHeight (24) + 3 * kVirtualHeaderHeight (90).
+  io.MousePos = ImVec2(100.0f, 124.0f);
   SimulateFrame();
 
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_TextInput);
@@ -11697,7 +11710,7 @@ TEST_F(RealTimelineImGuiFixture, ClickTrackLabelCopiesNameToClipboard) {
   SimulateFrame();
 
   ImGuiIO& io = ImGui::GetIO();
-  io.MousePos = ImVec2(100.0f, 34.0f);
+  io.MousePos = ImVec2(100.0f, 124.0f);
   SimulateFrame();
 
   io.AddMouseButtonEvent(0, true);
@@ -11733,12 +11746,12 @@ TEST_F(RealTimelineImGuiFixture,
   // its process: X = kTrackLabelPaddingLeft + (depth + 0.5) *
   // kTrackChevronSlotWidth, where depth = kThreadNestingLevel -
   // kProcessNestingLevel.
-  // Y should be inside the track (24-47).
+  // Y should be inside the track (114-137).
   const float chevron_x = kTrackLabelPaddingLeft +
                           (kThreadNestingLevel - kProcessNestingLevel + 0.5f) *
                               kTrackChevronSlotWidth;
   ImGuiIO& io = ImGui::GetIO();
-  io.MousePos = ImVec2(chevron_x, 34.0f);
+  io.MousePos = ImVec2(chevron_x, 124.0f);
   SimulateFrame();
 
   // It should be a Hand cursor over the button
@@ -11770,8 +11783,9 @@ FlameChartTimelineData CreateExpandableThreadTrackData() {
 }
 
 // A point on the track name text of the first track, far to the right of its
-// chevron. Y is inside the first track (screen Y 24-47).
-constexpr ImVec2 kFirstTrackNamePos(150.0f, 34.0f);
+// chevron. Y is inside the first track below the three virtual section headers
+// (screen Y 114-137).
+constexpr ImVec2 kFirstTrackNamePos(150.0f, 124.0f);
 
 TEST_F(RealTimelineImGuiFixture, ClickTrackNameOfExpandableTrackTogglesIt) {
   timeline_.SetTimelineData(CreateExpandableThreadTrackData());
@@ -12320,7 +12334,7 @@ TEST_F(RealTimelineImGuiFixture,
   SimulateFrame();
 
   const float click_x = GetTimelineStartX() + 100.0f;
-  const float click_y = 34.0f;
+  const float click_y = 124.0f;
   ImGuiIO& io = ImGui::GetIO();
   io.MousePos = ImVec2(click_x, click_y);
   SimulateFrame();
@@ -12364,7 +12378,7 @@ TEST_F(RealTimelineImGuiFixture,
   SimulateFrame();
 
   const float start_x = GetTimelineStartX() + 50.0f;
-  const float track_y = 34.0f;
+  const float track_y = 124.0f;
   ImGuiIO& io = ImGui::GetIO();
   io.MousePos = ImVec2(start_x, track_y);
   SimulateFrame();
@@ -12408,7 +12422,7 @@ TEST_F(RealTimelineImGuiFixture,
   SimulateFrame();
 
   const float click_x = GetTimelineStartX() + 100.0f;
-  const float click_y = 34.0f;
+  const float click_y = 124.0f;
   ImGuiIO& io = ImGui::GetIO();
   io.MousePos = ImVec2(click_x, click_y);
   SimulateFrame();
@@ -12455,7 +12469,7 @@ TEST_F(RealTimelineImGuiFixture,
   EXPECT_EQ(timeline_.selected_event_index(), 0);
 
   const float click_x = GetTimelineStartX() + 100.0f;
-  const float click_y = 34.0f;
+  const float click_y = 124.0f;
   ImGuiIO& io = ImGui::GetIO();
   io.MousePos = ImVec2(click_x, click_y);
   SimulateFrame();
@@ -12717,16 +12731,16 @@ TEST_F(MockTimelineImGuiFixture, HideProcessTrack_FeatureFlagToggle) {
 
   ImGui::GetStyle().CellPadding.y = prev_padding_y;
 
-  // 2. Now disable the feature flag. Hiding should be ignored and
-  // all tracks should reappear.
+  // 2. Now disable the feature flag. Hiding remains active regardless of the
+  // track management flag.
   timeline_.set_track_management_enabled(false);
   timeline_.UpdateLevelPositions(timeline_.timeline_data());
 
-  EXPECT_TRUE(timeline_.CallGroupVisible()[0]);  // Process A visible again
-  EXPECT_TRUE(timeline_.CallGroupVisible()[1]);  // Thread A1 visible again
-  EXPECT_TRUE(timeline_.CallGroupVisible()[2]);  // Thread A2 visible again
-  EXPECT_TRUE(timeline_.CallGroupVisible()[3]);  // Process B visible
-  EXPECT_TRUE(timeline_.CallGroupVisible()[4]);  // Thread B1 visible
+  EXPECT_FALSE(timeline_.CallGroupVisible()[0]);  // Process A remains hidden
+  EXPECT_FALSE(timeline_.CallGroupVisible()[1]);  // Thread A1 remains hidden
+  EXPECT_FALSE(timeline_.CallGroupVisible()[2]);  // Thread A2 remains hidden
+  EXPECT_TRUE(timeline_.CallGroupVisible()[3]);   // Process B visible
+  EXPECT_TRUE(timeline_.CallGroupVisible()[4]);   // Thread B1 visible
 }
 
 TEST_F(RealTimelineImGuiFixture, ClickHideButtonOnCollapsedTrackHidesIt) {
@@ -12750,7 +12764,9 @@ TEST_F(RealTimelineImGuiFixture, ClickHideButtonOnCollapsedTrackHidesIt) {
   SimulateFrame();
 
   ImGuiIO& io = ImGui::GetIO();
-  io.MousePos = ImVec2(timeline_.GetLabelWidth() - 10.0f, 135.0f);
+  io.MousePos = ImVec2(
+      HideButtonCenterX(timeline_.GetLabelWidth(), /*is_reorderable=*/true),
+      135.0f);
   SimulateFrame();
 
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
@@ -13154,7 +13170,7 @@ TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
 
   // Test 1: Verify that hovering over a process track's hide button
   // sets the cursor to Hand. Set position to the center of the button.
-  io.MousePos = ImVec2(hide_right - kTrackIconButtonSize * 0.5f, 49.0f);
+  io.MousePos = ImVec2(hide_right - kTrackIconButtonSize * 0.5f, 139.0f);
   SimulateFrame();
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
 
@@ -13162,7 +13178,7 @@ TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
   // (to the left of the pin button). Cursor should NOT be Hand.
   io.MousePos = ImVec2(
       hide_right - kTrackIconButtonSize - kTrackManagementButtonSpacing - 0.5f,
-      45.0f);
+      135.0f);
   SimulateFrame();
   EXPECT_NE(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
 
@@ -13172,9 +13188,9 @@ TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
   // right-end position is NOT Hand.
   // Under mutated code (Mutant 610), it renders a button here,
   // so cursor would be Hand.
-  // Thread A1 starts at group_offset = 54.0f (Tracks screen starting
-  // Y = 24.0f). Its center Y = 24.0f + 54.0f + 23.0f * 0.5f = 89.5f.
-  io.MousePos = ImVec2(hide_right - kTrackIconButtonSize * 0.5f, 89.5f);
+  // Thread A1 starts at group_offset = 144.0f (Tracks screen starting
+  // Y = 24.0f). Its center Y = 24.0f + 144.0f + 23.0f * 0.5f = 179.5f.
+  io.MousePos = ImVec2(hide_right - kTrackIconButtonSize * 0.5f, 179.5f);
   SimulateFrame();
   EXPECT_NE(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
 }
@@ -13206,15 +13222,17 @@ TEST_F(RealTimelineImGuiFixture,
   reset_timeline();
 
   const float label_width = timeline_.GetLabelWidth();
-  const float hide_center_x = HideButtonCenterX(label_width);  // 228.0f
-  const float pin_center_x = PinButtonCenterX(label_width);    // 204.0f
-  const float midpoint_x = (pin_center_x + hide_center_x) * 0.5f;  // 216.0f
+  const float hide_center_x =
+      HideButtonCenterX(label_width, /*is_reorderable=*/true);  // 196.0f
+  const float pin_center_x =
+      PinButtonCenterX(label_width, /*is_reorderable=*/true);  // 172.0f
+  const float midpoint_x = (pin_center_x + hide_center_x) * 0.5f;  // 184.0f
   const float row_y = 135.0f;  // Process A row center in "All" section
 
   ImGuiIO& io = ImGui::GetIO();
 
-  // Test 1: Click in overlap zone to the left of the midpoint (x = 215.0f,
-  // closer to pin center 204.0f) -> pins Process A.
+  // Test 1: Click in overlap zone to the left of the midpoint (x = 183.0f,
+  // closer to pin center 172.0f) -> pins Process A.
   io.MousePos = ImVec2(midpoint_x - 1.0f, row_y);
   SimulateFrame();
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
@@ -13228,7 +13246,7 @@ TEST_F(RealTimelineImGuiFixture,
   // Reset timeline to clean initial state.
   reset_timeline();
 
-  // Test 2: Click in overlap zone at midpoint boundary (x = 216.0f,
+  // Test 2: Click in overlap zone at midpoint boundary (x = 184.0f,
   // tie-breaks to hide) -> hides Process A.
   io.MousePos = ImVec2(midpoint_x, row_y);
   SimulateFrame();
@@ -13243,8 +13261,8 @@ TEST_F(RealTimelineImGuiFixture,
   // Reset timeline to clean initial state.
   reset_timeline();
 
-  // Test 3: Click in overlap zone to the right of the midpoint (x = 217.0f,
-  // closer to hide center 228.0f) -> hides Process A.
+  // Test 3: Click in overlap zone to the right of the midpoint (x = 185.0f,
+  // closer to hide center 196.0f) -> hides Process A.
   io.MousePos = ImVec2(midpoint_x + 1.0f, row_y);
   SimulateFrame();
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
@@ -13618,10 +13636,10 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeSnapsToEventsInHoveredTrack) {
 
   // Resize end of the range.
   // Origin X and py_per_time = 10.0.
-  // Hovering mouse over Process A (mouse_y = 34.0f).
+  // Hovering mouse over Process A (mouse_y = 124.0f).
   // The threshold is 1.6us. We drag to 99.0, it should snap to the event at
   // 100.0.
-  Drag(80.0, 99.0, /*shift=*/false, /*mouse_y=*/34.0f);
+  Drag(80.0, 99.0, /*shift=*/false, /*mouse_y=*/124.0f);
 
   ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 100.0);
@@ -13672,8 +13690,8 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeStartEdgeSnapsToEvents) {
 
   // Resize start of the range (50.0) near event start (40.0).
   // Drag to 41.0, it should snap to 40.0.
-  // Hovering mouse over Process A (mouse_y = 34.0f).
-  Drag(50.0, 41.0, /*shift=*/false, /*mouse_y=*/34.0f);
+  // Hovering mouse over Process A (mouse_y = 124.0f).
+  Drag(50.0, 41.0, /*shift=*/false, /*mouse_y=*/124.0f);
 
   ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 40.0);
@@ -13699,7 +13717,7 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeCrossoverSnapsToEvents) {
 
   // Resize start of the range (50.0) past end (80.0) to near event (100.0).
   // Drag to 99.0, it should crossover and snap to 100.0.
-  Drag(50.0, 99.0, /*shift=*/false, /*mouse_y=*/34.0f);
+  Drag(50.0, 99.0, /*shift=*/false, /*mouse_y=*/124.0f);
 
   ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 80.0);
@@ -16811,7 +16829,7 @@ TEST(TimelineTest, ScrollRestorationAnchoredTraceDespawnsToEmptyData) {
 
   timeline.SetTimelineData(
       MakeTimelineData({MakeProcessGroup("Process A")}, /*num_levels=*/1));
-  timeline.set_last_scroll_y_for_test(10.0f);
+  timeline.set_last_scroll_y_for_test(100.0f);
 
   // Data empties after anchor was captured; scroll resets strictly to 0.0f.
   timeline.SetTimelineData(FlameChartTimelineData{});
@@ -16866,7 +16884,7 @@ TEST(TimelineTest, ScrollRestorationAnchorSkipsInvisibleGroup) {
 
   timeline.set_group_visible_for_test(0, false);
   timeline.set_group_visible_for_test(1, false);
-  timeline.set_last_scroll_y_for_test(10.0f);
+  timeline.set_last_scroll_y_for_test(100.0f);
 
   timeline.SetTimelineData(
       MakeTimelineData({MakeProcessGroup("Process A"),
@@ -16927,14 +16945,14 @@ TEST(TimelineTest, ScrollRestorationAllGroupsInvisibleExhaustsAnchorLoop) {
       /*num_levels=*/2));
   timeline.set_group_visible_for_test(0, false);
   timeline.set_group_visible_for_test(1, false);
-  timeline.set_last_scroll_y_for_test(10.0f);
+  timeline.set_last_scroll_y_for_test(100.0f);
 
   // Trigger update: anchor scan advances past both invisible groups and hits
   // end().
   timeline.SetTimelineData(MakeTimelineData(
       {MakeProcessGroup("Process A"), MakeProcessGroup("Process B")},
       /*num_levels=*/2));
-  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 10.0f);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 100.0f);
 }
 
 TEST(TimelineTest, ScrollRestorationAnchorGroupOutOfBoundsParentIndex) {
@@ -16944,11 +16962,11 @@ TEST(TimelineTest, ScrollRestorationAnchorGroupOutOfBoundsParentIndex) {
   Group corrupt_group =
       MakeThreadGroup("Thread Corrupt", /*parent_index=*/9999);
   timeline.SetTimelineData(MakeTimelineData({corrupt_group}, /*num_levels=*/1));
-  timeline.set_last_scroll_y_for_test(5.0f);
+  timeline.set_last_scroll_y_for_test(95.0f);
 
   timeline.SetTimelineData(MakeTimelineData(
       {MakeProcessGroup("Process A"), corrupt_group}, /*num_levels=*/2));
-  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 41.0f);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 131.0f);
 }
 
 TEST(TimelineTest, SelectionCaptureAsymmetricSparseEntryArrays) {
@@ -17004,7 +17022,7 @@ TEST(TimelineTest, ScrollRestorationTier2ParentTrackAlsoDespawns) {
       MakeTimelineData({MakeProcessGroup("Process X"),
                         MakeThreadGroup("Thread X.1", /*parent_index=*/999)},
                        /*num_levels=*/2));
-  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 40.0f);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 130.0f);
 }
 
 TEST(TimelineTest, SelectionRemapZeroEventIdAndReusesLazyFallbackMap) {
@@ -19276,17 +19294,17 @@ TEST_F(TrackReorderTest, HoveringHandleShowsMoveCursor) {
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_ResizeNS);
 }
 
-TEST_F(TrackReorderTest, NoHandleWhenReorderingIsDisabled) {
+TEST_F(TrackReorderTest, ReorderingRemainsActiveWhenFlagIsDisabled) {
+  timeline_.set_track_reordering_enabled(false);
   timeline_.SetTimelineData(TwoProcessesData());
   SimulateFrame();
 
-  // The pointer is over the label of the expandable process instead.
   MovePointer(HandleX(), RowCenterY(3));
-  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_ResizeNS);
 
   DragHandleTo(3, RowCenterY(0) - 10.0f);
   EXPECT_THAT(DisplayedNames(),
-              ElementsAre("P1", "t1", "t2", "P2", "u1", "u2"));
+              ElementsAre("P2", "u1", "u2", "P1", "t1", "t2"));
 }
 
 TEST_F(TrackReorderTest, NoHandleWithoutSiblingToMoveAround) {
@@ -19474,13 +19492,13 @@ TEST_F(TrackReorderTest, OrderSurvivesDataReload) {
               ElementsAre("P2", "u1", "u2", "P1", "t1", "t2"));
 }
 
-TEST_F(TrackReorderTest, OrderOnlyAppliesWhileReorderingIsEnabled) {
+TEST_F(TrackReorderTest, OrderAppliesRegardlessOfReorderingFlag) {
   Load(TwoProcessesData());
   DragHandleTo(3, RowCenterY(0) - 10.0f);
 
   timeline_.set_track_reordering_enabled(false);
   EXPECT_THAT(DisplayedNames(),
-              ElementsAre("P1", "t1", "t2", "P2", "u1", "u2"));
+              ElementsAre("P2", "u1", "u2", "P1", "t1", "t2"));
 
   timeline_.set_track_reordering_enabled(true);
   EXPECT_THAT(DisplayedNames(),
@@ -19503,19 +19521,20 @@ TEST_F(TrackReorderTest, DataReloadCancelsDrag) {
               ElementsAre("P1", "t1", "t2", "P2", "u1", "u2"));
 }
 
-TEST_F(TrackReorderTest, DisablingReorderingCancelsDragAndHidesHandle) {
+TEST_F(TrackReorderTest, DisablingReorderingFlagKeepsDragAndHandleActive) {
   Load(TwoProcessesData());
   PressHandleAndDragTo(3, HandleX(), RowCenterY(0) - 10.0f);
   ASSERT_TRUE(timeline_.is_dragging_track());
 
   timeline_.set_track_reordering_enabled(false);
+  EXPECT_TRUE(timeline_.is_dragging_track());
   ReleaseMouse();
 
   EXPECT_FALSE(timeline_.is_dragging_track());
   EXPECT_THAT(DisplayedNames(),
-              ElementsAre("P1", "t1", "t2", "P2", "u1", "u2"));
+              ElementsAre("P2", "u1", "u2", "P1", "t1", "t2"));
   MovePointer(HandleX(), RowCenterY(3));
-  EXPECT_NE(ImGui::GetMouseCursor(), ImGuiMouseCursor_ResizeNS);
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_ResizeNS);
 }
 
 TEST_F(TrackReorderTest, ReorderWithinPinnedSection) {
@@ -19715,7 +19734,9 @@ TEST_F(TrackReorderTest,
 
   std::vector<std::string> reloaded_names;
   for (const Group* group : reloaded.flattened_groups_) {
-    reloaded_names.push_back(group->name);
+    if (group->nesting_level != kHeaderNestingLevel) {
+      reloaded_names.push_back(group->name);
+    }
   }
   EXPECT_THAT(reloaded_names,
               ElementsAre("Regions", "Pallas Primitives", "XLU", "MXU"));

@@ -51,13 +51,13 @@ offset allocation during rendering.
 
 ## 4. Track Reordering
 
-When track reordering is enabled (`Timeline::set_track_reordering_enabled`:
-behind the `enable_track_management` feature flag in the Trace Viewer, and
-always in the Kernel Viewer), hovering a track row reveals a drag handle (three
-stacked lines) at the right edge of the label column. Dragging the handle moves
-the track, together with its subtree, among its siblings. The handle only
-appears on tracks that have a sibling in their section to move around. This
-replaces the earlier drag-and-drop prototype, which rebuilt the groups array.
+Track reordering is always active (regardless of the
+`Timeline::set_track_reordering_enabled` / `enable_track_management` flag
+value): hovering a track row reveals a drag handle (three stacked lines) at the
+right edge of the label column. Dragging the handle moves the track, together
+with its subtree, among its siblings. The handle only appears on tracks that
+have a sibling in their section to move around. This replaces the earlier
+drag-and-drop prototype, which rebuilt the groups array.
 
 ### Data structure: a display permutation, not a data rebuild
 
@@ -65,8 +65,7 @@ Reordering never changes `FlameChartTimelineData`. Group indices, levels,
 events, flow lines, counter data, and selections keep referring to the same
 groups, so nothing has to be translated. Instead, `TrackOrder`
 (`timeline/track_order.h`) produces a permutation of the group indices that
-`BuildFlattenedGroups()` uses instead of the natural order, while reordering
-is enabled:
+`BuildFlattenedGroups()` uses instead of the natural order:
 
 1.  **Sibling subtrees**: In DFS pre-order, the subtree of a track is the run
     of tracks right after it with a greater nesting level. `TrackOrder` only

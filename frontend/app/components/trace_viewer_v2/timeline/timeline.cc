@@ -897,7 +897,6 @@ Pixel Timeline::GetGroupBottom(const Group* group) const {
 
 void Timeline::BuildFlattenedGroups(const FlameChartTimelineData& data) {
   flattened_groups_.clear();
-  const int group_count = data.groups.size();
 
   all_processes_count_ = 0;
   hidden_processes_count_ = 0;
@@ -911,20 +910,6 @@ void Timeline::BuildFlattenedGroups(const FlameChartTimelineData& data) {
   // The user-defined track order only permutes sibling subtrees, so the groups
   // stay in DFS pre-order, which the categorization and layout below rely on.
   const std::vector<int> display_order = GetTrackDisplayOrder(data.groups);
-
-  // Fast-path: when track management (hiding/pinning) is disabled, copy the
-  // raw groups sequence directly to avoid categorization overhead or inserting
-  // virtual headers.
-  if (!track_management_enabled_) {
-    flattened_groups_.reserve(group_count);
-    for (const int i : display_order) {
-      flattened_groups_.push_back(&data.groups[i]);
-      if (data.groups[i].nesting_level == kProcessNestingLevel) {
-        all_processes_count_++;
-      }
-    }
-    return;
-  }
 
   // Since a process and all its nested subtracks form a visual block, we
   // propagate the process's status (hidden/pinned) down to its descendant
@@ -3038,22 +3023,18 @@ void Timeline::Draw() {
 
   // Draw "Process" header text in the top-left empty label area of
   // the ruler row when track management is enabled.
-  if (track_management_enabled_) {
-    // Draw "Process" header text in the top-left empty label area of
-    // the ruler row.
-    ImFont* const header_font = traceviewer::fonts::label_medium_strong;
-    // Vertically center "Process" within ruler height
-    const Pixel vertical_offset =
-        (kRulerHeight - FontLineHeight(header_font)) * 0.5f;
-    DrawSpacedUppercaseText(
-        ImGui::GetWindowDrawList(), header_font, kProcessHeaderLabel,
-        ImVec2(ruler_start_screen_pos.x + kTrackLabelPaddingLeft +
-                   kTrackChevronSlotWidth * 0.5f,
-               ruler_start_screen_pos.y + std::max(0.0f, vertical_offset)),
-        WithOpacity(palette_.GetColor(ColorPalette::Key::kForeground)
-                        .value_or(kBlackColor),
-                    kTrackMutedTextOpacity));
-  }
+  ImFont* const header_font = traceviewer::fonts::label_medium_strong;
+  // Vertically center "Process" within ruler height
+  const Pixel vertical_offset =
+      (kRulerHeight - FontLineHeight(header_font)) * 0.5f;
+  DrawSpacedUppercaseText(
+      ImGui::GetWindowDrawList(), header_font, kProcessHeaderLabel,
+      ImVec2(ruler_start_screen_pos.x + kTrackLabelPaddingLeft +
+                  kTrackChevronSlotWidth * 0.5f,
+              ruler_start_screen_pos.y + std::max(0.0f, vertical_offset)),
+      WithOpacity(palette_.GetColor(ColorPalette::Key::kForeground)
+                      .value_or(kBlackColor),
+                  kTrackMutedTextOpacity));
 
   // Now move the cursor below the Ruler to start the Tracks child
   ImGui::SetCursorPos(
@@ -3724,9 +3705,8 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
   const bool is_drag_source = IsTrackDragSource(group_index);
   const bool trailing_buttons_visible =
       trailing_buttons_width > 0.0f &&
-      ((track_management_enabled_ && is_process &&
-        (pinned_track_names_.contains(group.name) ||
-         hidden_track_names_.contains(group.name))) ||
+      ((is_process && (pinned_track_names_.contains(group.name) ||
+                       hidden_track_names_.contains(group.name))) ||
        is_drag_source || IsTrackRowHovered(group_index));
 
   if (row_clicked) {
@@ -4184,13 +4164,14 @@ EventData Timeline::CreateBaseEventData(int event_index, bool is_hover) const {
     if (const auto it = args.find("uid"); it != args.end()) {
       event_data.try_emplace(kEventSelectedUid, it->second);
     }
-    if (const auto it = args.find(kHloModule); it != args.end()) {
-      event_data.try_emplace(kEventSelectedHloModuleName, it->second);
-    }
-    if (const auto it = args.find(kHloOp); it != args.end()) {
-      event_data.try_emplace(kEventSelectedHloOpName, it->second);
-    }
     if (!is_hover) {
+      if (const auto it = args.find(kHloModule); it != args.end()) {
+        event_data.try_emplace(kEventSelectedHloModuleName, it->second);
+      }
+      if (const auto it = args.find(kHloOp); it != args.end()) {
+        event_data.try_emplace(kEventSelectedHloOpName, it->second);
+      }
+
       EventData js_args;
       js_args.reserve(args.size());
       for (const auto& [key, value] : args) {
@@ -7093,7 +7074,6 @@ bool Timeline::DrawCloseButton(ImDrawList* draw_list, const ImVec2& button_pos,
 bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
                                           const ImVec2& tracks_start_pos,
                                           Pixel centereable_height) {
-  if (!track_management_enabled_) return false;
   if (group.nesting_level != kProcessNestingLevel) return false;
 
   bool needs_layout_update = false;
@@ -8779,10 +8759,7 @@ void Timeline::RemoveBookmark(Microseconds time) {
 }
 
 void Timeline::set_track_reordering_enabled(bool enabled) {
-  if (track_reordering_enabled_ == enabled) return;
   track_reordering_enabled_ = enabled;
-  // The track order only applies while tracks can be reordered.
-  ApplyTrackOrderChange(/*animate=*/false);
 }
 
 bool Timeline::RestoreTrackOrder(absl::string_view serialized) {
@@ -8821,7 +8798,7 @@ void Timeline::NotifyTrackOrderChanged() {
 
 std::vector<int> Timeline::GetTrackDisplayOrder(
     absl::Span<const Group> groups) const {
-  if (!track_reordering_enabled_ || track_order_.empty()) {
+  if (track_order_.empty()) {
     std::vector<int> order(groups.size());
     std::iota(order.begin(), order.end(), 0);
     return order;
@@ -8831,8 +8808,7 @@ std::vector<int> Timeline::GetTrackDisplayOrder(
 
 std::vector<int> Timeline::GetCanvasGroupOrder() const {
   std::vector<int> order = GetTrackDisplayOrder(timeline_data_.groups);
-  if (!track_management_enabled_ ||
-      (pinned_track_names_.empty() && hidden_track_names_.empty())) {
+  if (pinned_track_names_.empty() && hidden_track_names_.empty()) {
     return order;
   }
 
@@ -8868,7 +8844,7 @@ std::vector<int> Timeline::GetCanvasGroupOrder() const {
 
 void Timeline::UpdateReorderableGroups(const FlameChartTimelineData& data) {
   group_reorderable_.assign(data.groups.size(), false);
-  if (!track_reordering_enabled_ || data.groups.size() < 2) return;
+  if (data.groups.size() < 2) return;
 
   const std::vector<int> parents =
       ComputeTrackParents(MakeTrackNodes(data.groups));
@@ -8906,7 +8882,6 @@ bool Timeline::IsGroupReorderable(int group_index) const {
 
 int Timeline::TrailingButtonCount(int group_index) const {
   const bool has_management_buttons =
-      track_management_enabled_ &&
       timeline_data_.groups[group_index].nesting_level == kProcessNestingLevel;
   return (has_management_buttons ? 2 : 0) +
          (IsGroupReorderable(group_index) ? 1 : 0);

@@ -10,6 +10,9 @@ Public API:
   CONTRACT_ROW_REL_L2: `contract` that gates on whole-output and per-row
     relative L2 error (see `rel_l2`) instead of ULP distance, for kernels
     whose arithmetic is intentionally lossy, such as FP8/FP4 dequantization.
+  CONTRACT_SQNR: `contract` that gates on the signal-to-quantization-noise
+    ratio and its anti-cheat checks (see `sqnr`). Every other contract also
+    reports the SQNR metrics of each floating-point output.
   make_fwd_bwd: Wrap a JAX function so its output also carries its VJP, which
     puts the backward pass under validation.
   chunk_callable: Wrap an oracle to execute in slices along one axis, for
@@ -34,6 +37,7 @@ import numpy as np
 
 from xprof.xparity import numerical_generator
 from xprof.xparity import rel_l2
+from xprof.xparity import sqnr
 from xprof.xparity import ulp
 
 
@@ -181,6 +185,10 @@ class BatchValidationResult:
   oracle_tolerance_ratio: float | None = None
   # Whole-output and per-row relative L2 check under CONTRACT_ROW_REL_L2.
   row_rel_l2: rel_l2.RowRelL2Comparison | None = None
+  # SQNR report of this output, from `sqnr.SqnrLeafReport.to_dict()`. Filled
+  # for floating-point outputs under every contract. Gates only under
+  # CONTRACT_SQNR. None for discrete outputs and shape mismatches.
+  sqnr: dict[str, Any] | None = None
 
   @property
   def max_ulp(self) -> int:
@@ -222,6 +230,9 @@ class KernelValidationReport:
   # Worst whole-output and per-row relative L2 error across batches and
   # leaves, filled when any output is gated by CONTRACT_ROW_REL_L2.
   rel_l2_summary: dict[str, Any] = dataclasses.field(default_factory=dict)
+  # Worst SQNR metrics across batches and leaves (`sqnr.merge_reports`), plus
+  # the config that produced them. Empty when no output is floating point.
+  sqnr_summary: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -338,10 +349,15 @@ def _relative_diff(abs_diff: float, ref_value: float, canonical: str) -> float:
 # requires every output element to have the same bit pattern as the reference.
 # CONTRACT_ROW_REL_L2 gates on whole-output relative L2 error <= rel_l2_tol and
 # every row (last dimension) within row_factor * rel_l2_tol; see `rel_l2`.
+# CONTRACT_SQNR gates on the SQNR floor, the oracle rule and, when the config
+# is strict, the anti-cheat checks of `sqnr.audit_leaf`.
 CONTRACT_ULP = "ulp"
 CONTRACT_BITWISE = "bitwise"
 CONTRACT_ROW_REL_L2 = "row_rel_l2"
-_CONTRACTS = frozenset({CONTRACT_ULP, CONTRACT_BITWISE, CONTRACT_ROW_REL_L2})
+CONTRACT_SQNR = "sqnr"
+_CONTRACTS = frozenset(
+    {CONTRACT_ULP, CONTRACT_BITWISE, CONTRACT_ROW_REL_L2, CONTRACT_SQNR}
+)
 
 # Tiers that run only the 'normal' regime by default and the other regimes as
 # triage after a failure. Every other tier gates on the full suite.
@@ -1146,6 +1162,136 @@ def _primary_leaf_view(
   return view
 
 
+def _has_float_values(arr: np.ndarray) -> bool:
+  """True for real or complex floating-point arrays, ml_dtypes included."""
+  if np.iscomplexobj(arr):
+    return True
+  try:
+    ml_dtypes.finfo(arr.dtype)
+  except (TypeError, ValueError):
+    return False
+  return True
+
+
+def _effective_sqnr_config(
+    config: sqnr.SqnrConfig | None, contract: str
+) -> sqnr.SqnrConfig:
+  """Returns the SQNR policy that one output uses under `contract`.
+
+  An explicit config is used as given. Without one, CONTRACT_SQNR runs the
+  strict checks, and every other contract gets a report-only SQNR with the
+  global and oracle metrics only, so that the report stays cheap on large
+  outputs.
+
+  Args:
+    config: The caller's SQNR policy, or None.
+    contract: The comparison contract of the output.
+  """
+  if config is not None:
+    return config
+  if contract == CONTRACT_SQNR:
+    return sqnr.SqnrConfig()
+  return sqnr.SqnrConfig(strict=False)
+
+
+def _precision_spec(
+    ref_dtype_name: str, cand_dtype_name: str
+) -> sqnr.PrecisionSpec:
+  """Returns the PrecisionSpec of an output from its dtypes.
+
+  The candidate dtype sets the output rounding source of an AUTO threshold,
+  because the candidate is the side whose rounding noise is measured. The
+  inputs are not rounding sources here: the reference gets the same inputs.
+
+  Args:
+    ref_dtype_name: The reference's original dtype name.
+    cand_dtype_name: The candidate's original dtype name.
+
+  Raises:
+    TypeError: If a dtype is not valid.
+  """
+  return sqnr.precision_from_dtypes(
+      reference_dtype=ref_dtype_name, candidate_dtype=cand_dtype_name
+  )
+
+
+def _sqnr_report(
+    out_ref: np.ndarray,
+    out_cand: np.ndarray,
+    ref_dtype_name: str,
+    cand_dtype_name: str,
+    *,
+    contract: str,
+    is_discrete: bool,
+    oracle: np.ndarray | None,
+    config: sqnr.SqnrConfig | None,
+    atol: float | None,
+    path: str,
+) -> dict[str, Any] | None:
+  """Returns the SQNR report of one output as a dict, or None if discrete.
+
+  This function does not raise. An error in the SQNR computation gives a
+  report with status `sqnr.STATUS_ERROR` and `passed` False. Only
+  CONTRACT_SQNR gates on that report, so the error does not change the verdict
+  of the other contracts.
+
+  Args:
+    out_ref: The reference as a host array.
+    out_cand: The candidate as a host array, with the reference shape.
+    ref_dtype_name: The reference's original dtype name.
+    cand_dtype_name: The candidate's original dtype name.
+    contract: The comparison contract of the output. See
+      `_effective_sqnr_config`.
+    is_discrete: True for integer and boolean outputs, which have no SQNR.
+    oracle: The oracle output, when an oracle ran.
+    config: The caller's SQNR policy, or None for the contract default.
+    atol: Absolute tolerance for an all-zero reference.
+    path: Output leaf name for messages.
+  """
+  if (
+      is_discrete
+      or not _has_float_values(out_ref)
+      or not _has_float_values(out_cand)
+  ):
+    return None
+  config = _effective_sqnr_config(config, contract)
+  try:
+    report = sqnr.audit_leaf(
+        [(out_ref, out_cand)],
+        config=config,
+        precision=_precision_spec(ref_dtype_name, cand_dtype_name),
+        oracle_pairs=None if oracle is None else [oracle],
+        atol=atol,
+        path=path,
+    )
+  except Exception as e:  # pylint: disable=broad-exception-caught
+    logging.exception("SQNR report failed for output %r.", path or "output")
+    report = sqnr.SqnrLeafReport(
+        path=path,
+        dtype=ref_dtype_name,
+        status=sqnr.STATUS_ERROR,
+        passed=False,
+        threshold_db=None,
+        threshold_source="",
+        gate_math=config.gate_math,
+        failed_reasons=(
+            f"{path or 'output'}: sqnr error: {type(e).__name__}: {e}",
+        ),
+    )
+  return report.to_dict()
+
+
+def _sqnr_passed(
+    report: dict[str, Any] | None,
+    out_cand: np.ndarray,
+    out_ref: np.ndarray,
+) -> bool:
+  """Returns the CONTRACT_SQNR verdict: the SQNR report, or exact equality."""
+  if report is None:
+    return bool(np.array_equal(out_cand, out_ref))
+  return bool(report["passed"])
+
+
 def _execute_pytree_batch(
     batch: dict[str, Any],
     ref_leaves: list[tuple[str, Any]],
@@ -1190,6 +1336,7 @@ def _execute_pytree_batch(
         ),
         kernel_oracle=leaf_oracle,
         contract=contract_by_leaf.get(path, contract),
+        leaf_path=path,
         **gate_kwargs,
     )
     subs.append(sub)
@@ -1263,6 +1410,8 @@ def _execute_single_batch(
     contract_by_leaf: collections.abc.Mapping[str, str] | None = None,
     user_tolerance: tuple[float, float] | None = None,
     row_l2_gate: tuple[float, float, float] | None = None,
+    sqnr_config: sqnr.SqnrConfig | None = None,
+    leaf_path: str = "",
 ) -> _BatchExecutionResult:
   """Executes and validates a single batch between reference and candidate.
 
@@ -1281,6 +1430,9 @@ def _execute_single_batch(
     user_tolerance: Optional report-only (atol, rtol).
     row_l2_gate: (rel_l2_tol, row_factor, row_norm_floor), required when this
       output is gated by CONTRACT_ROW_REL_L2.
+    sqnr_config: SQNR policy. None uses the contract default (see
+      `_effective_sqnr_config`).
+    leaf_path: Name of this output leaf in SQNR messages.
 
   Returns:
     The batch verdict together with the oracle and output data that
@@ -1310,6 +1462,7 @@ def _execute_single_batch(
         recommended_ulp=recommended_ulp,
         user_tolerance=user_tolerance,
         row_l2_gate=row_l2_gate,
+        sqnr_config=sqnr_config,
     )
 
   # `as_host_array` also accepts PyTorch tensors on any device.
@@ -1379,6 +1532,7 @@ def _execute_single_batch(
     has_nan_or_inf = False
 
   oracle_ran = False
+  out_oracle: np.ndarray | None = None
   oracle_in_float64 = True
   oracle_output_dtype = ""
   batch_ref_oracle_ulp = None
@@ -1601,6 +1755,21 @@ def _execute_single_batch(
     )
     passed = row_cmp.passed
 
+  sqnr_report = _sqnr_report(
+      out_ref,
+      out_cand,
+      ref_dtype_name,
+      cand_dtype_name,
+      contract=contract,
+      is_discrete=is_discrete,
+      oracle=out_oracle,
+      config=sqnr_config,
+      atol=user_tolerance[0] if user_tolerance is not None else None,
+      path=leaf_path,
+  )
+  if contract == CONTRACT_SQNR:
+    passed = _sqnr_passed(sqnr_report, out_cand, out_ref)
+
   if contract == CONTRACT_BITWISE:
     passed = bitwise_cmp.equal
     if bitwise_cmp.equal and has_nan_or_inf:
@@ -1637,6 +1806,7 @@ def _execute_single_batch(
       ),
       oracle_tolerance_ratio=oracle_tolerance_ratio,
       row_rel_l2=row_cmp,
+      sqnr=sqnr_report,
   )
 
   return _BatchExecutionResult(
@@ -1780,6 +1950,68 @@ def _summarize_row_rel_l2(
   return summary
 
 
+def _summarize_sqnr(
+    batch_results: collections.abc.Sequence[BatchValidationResult],
+    config: sqnr.SqnrConfig,
+) -> dict[str, Any]:
+  """Returns the worst SQNR figures across batches and output leaves.
+
+  Args:
+    batch_results: The batch results of the run.
+    config: The SQNR policy of the run.
+
+  Returns:
+    `sqnr.merge_reports` over every leaf report, plus the config, the
+    threshold of each leaf, the report and failure counts and the batch and
+    leaf with the lowest `sqnr_db`. Empty when no output has a report.
+  """
+  leaf_reports: list[tuple[str, str | None, dict[str, Any]]] = []
+  for batch in batch_results:
+    leaves = batch.leaf_results.values() if batch.leaf_results else [batch]
+    for leaf in leaves:
+      if leaf.sqnr is not None:
+        leaf_reports.append((batch.batch_name, leaf.leaf_path, leaf.sqnr))
+  if not leaf_reports:
+    return {}
+  summary = sqnr.merge_reports([report for _, _, report in leaf_reports])
+  thresholds = sorted({
+      (report["threshold_db"], report["threshold_source"])
+      for _, _, report in leaf_reports
+      if report.get("threshold_db") is not None
+  })
+  summary.update(
+      config=dataclasses.asdict(config),
+      gate_math=config.gate_math,
+      threshold_db=thresholds[-1][0] if thresholds else None,
+      threshold_source=thresholds[-1][1] if thresholds else None,
+      thresholds=[
+          {"threshold_db": db, "threshold_source": source}
+          for db, source in thresholds
+      ],
+      reports=len(leaf_reports),
+      failed_reports=sum(
+          1 for _, _, report in leaf_reports if not report["passed"]
+      ),
+  )
+  measured = [
+      entry for entry in leaf_reports if entry[2].get("sqnr_db") is not None
+  ]
+  if measured:
+    worst_batch, worst_leaf, _ = min(
+        measured, key=lambda entry: entry[2]["sqnr_db"]
+    )
+    summary.update(worst_sqnr_batch=worst_batch, worst_sqnr_leaf=worst_leaf)
+  return summary
+
+
+def _threshold_text(sqnr_summary: collections.abc.Mapping[str, Any]) -> str:
+  """Returns the threshold of an SQNR summary for a summary message."""
+  threshold_db = sqnr_summary.get("threshold_db")
+  if threshold_db is None:
+    return "n/a"
+  return f"{threshold_db:.2f} dB ({sqnr_summary.get('threshold_source')})"
+
+
 def replay_failure_dump(
     path: str | os.PathLike[str],
     kernel_ref: collections.abc.Callable[..., Any],
@@ -1790,6 +2022,7 @@ def replay_failure_dump(
     rel_l2_tol: float | None = None,
     row_factor: float | None = None,
     row_norm_floor: float | None = None,
+    sqnr_config: sqnr.SqnrConfig | None = None,
 ) -> KernelValidationReport:
   """Re-runs a batch saved by `validate_kernels(dump_failures_to=...)`.
 
@@ -1807,6 +2040,8 @@ def replay_failure_dump(
     rel_l2_tol: Overrides the stored CONTRACT_ROW_REL_L2 tolerance.
     row_factor: Overrides the stored per-row factor.
     row_norm_floor: Overrides the stored row-norm floor.
+    sqnr_config: Overrides the stored SQNR policy. A dump without one uses the
+      contract default, as in `validate_kernels`.
 
   Returns:
     A KernelValidationReport for the saved batch.
@@ -1822,6 +2057,12 @@ def replay_failure_dump(
       return override
     value = info.get(key)
     return default if value is None else value
+
+  if sqnr_config is None and info.get("sqnr_config"):
+    known = {field.name for field in dataclasses.fields(sqnr.SqnrConfig)}
+    sqnr_config = sqnr.SqnrConfig(
+        **{k: v for k, v in info["sqnr_config"].items() if k in known}
+    )
 
   return validate_kernels(
       kernel_ref,
@@ -1840,6 +2081,7 @@ def replay_failure_dump(
       row_norm_floor=stored(
           row_norm_floor, "row_norm_floor", rel_l2.ROW_NORM_FLOOR
       ),
+      sqnr_config=sqnr_config,
   )
 
 
@@ -1867,6 +2109,7 @@ def validate_kernels(
     rel_l2_tol: float | None = None,
     row_factor: float = rel_l2.ROW_FACTOR,
     row_norm_floor: float = rel_l2.ROW_NORM_FLOOR,
+    sqnr_config: sqnr.SqnrConfig | None = None,
 ) -> KernelValidationReport:
   """Validates candidate kernel against reference implementation.
 
@@ -1935,6 +2178,18 @@ def validate_kernels(
     row_factor: Per-row bound as a multiple of `rel_l2_tol`.
     row_norm_floor: Floor on each row's norm as a fraction of the mean row norm,
       so that near-zero rows do not inflate the per-row error.
+    sqnr_config: SQNR policy (`sqnr.SqnrConfig`). None uses the defaults: an
+      AUTO floor derived from the output dtype, plus the strict anti-cheat
+      checks under CONTRACT_SQNR only. The other contracts then get the global
+      and oracle metrics only (`strict=False`), which keeps the report cheap on
+      large outputs. An explicit config is used as given under every contract.
+      Every floating-point output gets an SQNR report in
+      `BatchValidationResult.sqnr` and the run gets `sqnr_summary`. Only
+      CONTRACT_SQNR gates on that report. An error in the SQNR computation gives
+      a report with status `sqnr.STATUS_ERROR`, which fails CONTRACT_SQNR and
+      does not change the verdict of the other contracts. When an oracle runs,
+      the SQNR rule measures the candidate against the oracle (see
+      `sqnr.audit_leaf`).
 
   Returns:
     A KernelValidationReport. For pytree outputs each batch result carries
@@ -1944,6 +2199,13 @@ def validate_kernels(
   contract_by_leaf = dict(contract_by_leaf or {})
   for leaf_contract in contract_by_leaf.values():
     _check_contract(leaf_contract)
+  # The recorded policy is strict when any output gates on SQNR.
+  run_sqnr_config = _effective_sqnr_config(
+      sqnr_config,
+      CONTRACT_SQNR
+      if CONTRACT_SQNR in (contract, *contract_by_leaf.values())
+      else contract,
+  )
   if isinstance(kernel_oracle, str) and kernel_oracle != ORACLE_AUTO:
     raise ValueError(
         f"Unknown kernel_oracle string '{kernel_oracle}'; expected"
@@ -2122,6 +2384,7 @@ def validate_kernels(
         contract_by_leaf=contract_by_leaf,
         user_tolerance=user_tolerance,
         row_l2_gate=row_l2_gate,
+        sqnr_config=sqnr_config,
     )
     acc.update(res)
     batch_results.append(res.batch_result)
@@ -2228,8 +2491,38 @@ def validate_kernels(
       if row_l2_gate is not None
       else {}
   )
+  sqnr_summary = _summarize_sqnr(batch_results, run_sqnr_config)
 
-  if contract == CONTRACT_ROW_REL_L2 and row_l2_gate is not None:
+  if contract == CONTRACT_SQNR:
+    caution_msg = None
+    if is_equivalent:
+      worst_db = sqnr_summary.get("sqnr_db")
+      worst = f"{worst_db:.2f} dB" if worst_db is not None else "n/a"
+      summary = (
+          "PASSED: Candidate meets the SQNR contract across"
+          f" {len(batch_results)} batches (worst sqnr_db {worst}, threshold"
+          f" {_threshold_text(sqnr_summary)}, gate_math"
+          f" {run_sqnr_config.gate_math}) (contract: sqnr)."
+      )
+    else:
+      first_bad = next(b for b in batch_results if not b.passed)
+      leaf = (
+          f" output leaf {first_bad.leaf_path}," if first_bad.leaf_path else ""
+      )
+      reasons = (first_bad.sqnr or {}).get("failed_reasons") or []
+      if reasons:
+        detail = "; ".join(str(r) for r in reasons[:3])
+      elif first_bad.sqnr is None:
+        detail = "discrete output differs from the reference."
+      else:
+        detail = "failed another leaf's contract."
+      summary = (
+          "FAILED: Candidate misses the SQNR contract in"
+          f" {acc.failed_batches}/{len(batch_results)} batches (contract:"
+          f" sqnr). First failure: batch '{first_bad.batch_name}' (regime"
+          f" '{first_bad.regime}'),{leaf} {detail}"
+      )
+  elif contract == CONTRACT_ROW_REL_L2 and row_l2_gate is not None:
     caution_msg = None
     tol, factor, floor = row_l2_gate
     if is_equivalent:
@@ -2376,6 +2669,10 @@ def validate_kernels(
             "rel_l2_tol": rel_l2_tol,
             "row_factor": row_factor,
             "row_norm_floor": row_norm_floor,
+            # None keeps the contract default on replay.
+            "sqnr_config": (
+                None if sqnr_config is None else dataclasses.asdict(sqnr_config)
+            ),
         },
     )
     summary = (
@@ -2459,6 +2756,7 @@ def validate_kernels(
     run_config["rel_l2_tol"] = tol
     run_config["row_factor"] = factor
     run_config["row_norm_floor"] = floor
+  run_config["sqnr_config"] = dataclasses.asdict(run_sqnr_config)
   if pin_inert_detected:
     run_config["reference_pin_inert"] = True
   if ref_is_unpinned:
@@ -2483,6 +2781,7 @@ def validate_kernels(
       coverage=coverage,
       tolerance_headroom=tolerance_headroom,
       rel_l2_summary=rel_l2_summary,
+      sqnr_summary=sqnr_summary,
   )
 
 
@@ -2496,6 +2795,7 @@ def validate_arrays(
     rel_l2_tol: float | None = None,
     row_factor: float = rel_l2.ROW_FACTOR,
     row_norm_floor: float = rel_l2.ROW_NORM_FLOOR,
+    sqnr_config: sqnr.SqnrConfig | None = None,
 ) -> BatchValidationResult:
   """Validates bitwise ULP parity between two pre-computed arrays.
 
@@ -2509,11 +2809,16 @@ def validate_arrays(
     contract: CONTRACT_ULP (default) or CONTRACT_BITWISE. Under CONTRACT_BITWISE
       `passed` is True only when both arrays have the same dtype and every
       element has the same bit pattern. Under CONTRACT_ROW_REL_L2 `passed` comes
-      from `rel_l2.compare_row_rel_l2`, reported in `row_rel_l2`.
+      from `rel_l2.compare_row_rel_l2`, reported in `row_rel_l2`. Under
+      CONTRACT_SQNR `passed` comes from the SQNR report in `sqnr`.
     rel_l2_tol: Whole-output relative L2 tolerance; required by
       CONTRACT_ROW_REL_L2.
     row_factor: Per-row bound as a multiple of `rel_l2_tol`.
     row_norm_floor: Row-norm floor as a fraction of the mean row norm.
+    sqnr_config: SQNR policy. None uses the contract default: the AUTO floor,
+      plus the strict checks under CONTRACT_SQNR only. Floating-point inputs
+      always get an SQNR report in `sqnr`, report-only unless the contract is
+      CONTRACT_SQNR.
 
   Returns:
     A BatchValidationResult. When either tensor contains non-finite values the
@@ -2661,10 +2966,24 @@ def validate_arrays(
     )
 
   passed = bool(ulp_passed and allclose_passed)
+  sqnr_report = _sqnr_report(
+      exp_np,
+      act_np,
+      exp_dtype_name,
+      act_dtype_name,
+      contract=contract,
+      is_discrete=is_discrete,
+      oracle=None,
+      config=sqnr_config,
+      atol=None,
+      path="",
+  )
   if contract == CONTRACT_BITWISE:
     passed = bitwise_cmp.equal
   elif row_cmp is not None:
     passed = row_cmp.passed
+  elif contract == CONTRACT_SQNR:
+    passed = _sqnr_passed(sqnr_report, act_np, exp_np)
   note = None
   if has_nan_inf:
     note = (
@@ -2701,6 +3020,7 @@ def validate_arrays(
       worst_offender=worst_offender,
       bitwise=bitwise_cmp,
       row_rel_l2=row_cmp,
+      sqnr=sqnr_report,
   )
 
 

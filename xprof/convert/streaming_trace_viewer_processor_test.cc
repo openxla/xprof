@@ -58,7 +58,9 @@ using ::tensorflow::profiler::XPlane;
 using ::tensorflow::profiler::XSpace;
 using ::tensorflow::profiler::XStat;
 using ::tensorflow::profiler::XStatMetadata;
+using ::testing::DoubleEq;
 using ::testing::HasSubstr;
+using ::testing::Optional;
 using ::testing::status::StatusIs;
 using ::tsl::profiler::kHostThreadsPlaneName;
 
@@ -170,6 +172,23 @@ class StreamingTraceViewerProcessorTest : public ::testing::Test {
                                    /*xspaces=*/std::nullopt);
   }
 
+  absl::StatusOr<nlohmann::json> RunSingleHostReduce(
+      const XSpace& space, const ToolOptions& tool_options) {
+    absl::flat_hash_map<std::string, XSpace> host_xspaces = {{"host1", space}};
+    absl::StatusOr<SessionSnapshot> snapshot = CreateSnapshot(host_xspaces);
+    if (!snapshot.ok()) return snapshot.status();
+    StreamingTraceViewerProcessor processor(tool_options);
+    absl::StatusOr<std::string> map_output =
+        processor.Map(*snapshot, "host1", space);
+    if (!map_output.ok()) return map_output.status();
+    TF_RETURN_IF_ERROR(processor.Reduce(*snapshot, {*map_output}));
+    const std::string& json_output = processor.GetData();
+    if (json_output.empty()) {
+      return absl::InternalError("Reduce produced empty JSON output");
+    }
+    return nlohmann::json::parse(json_output);
+  }
+
   std::string session_dir_;
   std::unique_ptr<TempPath> temp_path_;
 };
@@ -191,7 +210,7 @@ TEST_F(StreamingTraceViewerProcessorTest, GetTraceViewOptionValid) {
                           GetTraceViewOption(options));
 
   EXPECT_DOUBLE_EQ(trace_option.start_time_ms, 100.5);
-  EXPECT_DOUBLE_EQ(trace_option.end_time_ms, 200.0);
+  EXPECT_THAT(trace_option.end_time_ms, Optional(DoubleEq(200.0)));
   EXPECT_EQ(trace_option.resolution, 1000);
   EXPECT_EQ(trace_option.event_name, "test_event");
   EXPECT_EQ(trace_option.search_prefix, "prefix");
@@ -229,7 +248,7 @@ TEST_F(StreamingTraceViewerProcessorTest, GetTraceViewOptionDefaults) {
                           GetTraceViewOption(options));
 
   EXPECT_DOUBLE_EQ(trace_option.start_time_ms, 0.0);
-  EXPECT_DOUBLE_EQ(trace_option.end_time_ms, 0.0);
+  EXPECT_EQ(trace_option.end_time_ms, std::nullopt);
   EXPECT_EQ(trace_option.resolution, 0);
   EXPECT_EQ(trace_option.event_name, "");
   EXPECT_EQ(trace_option.search_prefix, "");
@@ -252,7 +271,7 @@ TEST_F(StreamingTraceViewerProcessorTest, GetTraceViewOptionFloatFormatted) {
                           GetTraceViewOption(options));
 
   EXPECT_DOUBLE_EQ(trace_option.start_time_ms, 100.5);
-  EXPECT_DOUBLE_EQ(trace_option.end_time_ms, 200.0);
+  EXPECT_THAT(trace_option.end_time_ms, Optional(DoubleEq(200.0)));
   EXPECT_EQ(trace_option.resolution, 1000);
   EXPECT_EQ(trace_option.event_name, "test_event");
   EXPECT_EQ(trace_option.search_prefix, "prefix");
@@ -383,6 +402,111 @@ TEST_F(StreamingTraceViewerProcessorTest, ReduceSingleHost) {
     }
   }
   EXPECT_TRUE(session_run_event_found);
+}
+
+TEST_F(StreamingTraceViewerProcessorTest, ReduceSingleHostStartTimeOnly) {
+  ToolOptions tool_options;
+  tool_options["start_time_ms"] = "1.15";
+  tool_options["resolution"] = "1";
+
+  TF_ASSERT_OK_AND_ASSIGN(
+      nlohmann::json parsed_json,
+      RunSingleHostReduce(CreateTestXSpace(2), tool_options));
+  ASSERT_TRUE(parsed_json.contains("traceEvents"));
+
+  bool trace_context_event_found = false;
+  bool session_run_event_found = false;
+  for (const auto& event : parsed_json["traceEvents"]) {
+    if (event.value("name", "") == "TraceContext") {
+      trace_context_event_found = true;
+    }
+    if (event.value("name", "") == "SessionRun") {
+      session_run_event_found = true;
+    }
+  }
+  EXPECT_FALSE(trace_context_event_found);
+  EXPECT_TRUE(session_run_event_found);
+}
+
+struct TraceEventPhaseCounts {
+  int metadata_events = 0;
+  int complete_events = 0;
+};
+
+TraceEventPhaseCounts CountTraceEventPhases(
+    const nlohmann::json& trace_events) {
+  TraceEventPhaseCounts counts;
+  for (const auto& event : trace_events) {
+    const std::string phase = event.value("ph", "");
+    if (phase == "M") {
+      ++counts.metadata_events;
+    } else if (phase == "X") {
+      ++counts.complete_events;
+    }
+  }
+  return counts;
+}
+
+TEST_F(StreamingTraceViewerProcessorTest,
+       ReduceSingleHostStartTimePastTraceEnd) {
+  ToolOptions tool_options;
+  tool_options["start_time_ms"] = "10.0";
+  tool_options["resolution"] = "1";
+
+  TF_ASSERT_OK_AND_ASSIGN(
+      nlohmann::json parsed_json,
+      RunSingleHostReduce(CreateTestXSpace(2), tool_options));
+  ASSERT_TRUE(parsed_json.contains("traceEvents"));
+
+  const TraceEventPhaseCounts counts =
+      CountTraceEventPhases(parsed_json["traceEvents"]);
+  EXPECT_GT(counts.metadata_events, 0);
+  EXPECT_EQ(counts.complete_events, 0);
+}
+
+TEST_F(StreamingTraceViewerProcessorTest, ReduceSingleHostInvertedTimeBounds) {
+  ToolOptions tool_options;
+  tool_options["start_time_ms"] = "2.0";
+  tool_options["end_time_ms"] = "1.0";
+  tool_options["resolution"] = "1";
+
+  TF_ASSERT_OK_AND_ASSIGN(
+      nlohmann::json parsed_json,
+      RunSingleHostReduce(CreateTestXSpace(2), tool_options));
+  ASSERT_TRUE(parsed_json.contains("traceEvents"));
+
+  const TraceEventPhaseCounts counts =
+      CountTraceEventPhases(parsed_json["traceEvents"]);
+  EXPECT_GT(counts.metadata_events, 0);
+  EXPECT_EQ(counts.complete_events, 0);
+}
+
+TEST_F(StreamingTraceViewerProcessorTest, ReduceSingleHostExplicitZeroEndTime) {
+  XSpace space = CreateTestXSpace(2);
+  space.mutable_planes(0)->mutable_lines(0)->mutable_events(0)->set_offset_ps(
+      0);
+
+  ToolOptions tool_options;
+  tool_options["start_time_ms"] = "0.0";
+  tool_options["end_time_ms"] = "0.0";
+  tool_options["resolution"] = "1";
+
+  TF_ASSERT_OK_AND_ASSIGN(nlohmann::json parsed_json,
+                          RunSingleHostReduce(space, tool_options));
+  ASSERT_TRUE(parsed_json.contains("traceEvents"));
+
+  bool trace_context_event_found = false;
+  bool session_run_event_found = false;
+  for (const auto& event : parsed_json["traceEvents"]) {
+    if (event.value("name", "") == "TraceContext") {
+      trace_context_event_found = true;
+    }
+    if (event.value("name", "") == "SessionRun") {
+      session_run_event_found = true;
+    }
+  }
+  EXPECT_TRUE(trace_context_event_found);
+  EXPECT_FALSE(session_run_event_found);
 }
 
 TEST_F(StreamingTraceViewerProcessorTest, ReduceMultiHost) {

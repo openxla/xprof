@@ -2652,12 +2652,13 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
         "@org_xprof//xprof/convert/trace_viewer:trace_events_filter_interface",
         "@org_xprof//xprof/convert/trace_viewer:trace_options",
         "@org_xprof//xprof/convert/trace_viewer:trace_viewer_visibility",
         "@xla//xla/tsl/platform:env",
         "@xla//xla/tsl/platform:errors",
-        "@xla//xla/tsl/profiler/utils:timespan",
+        "@xla//xla/tsl/profiler/utils:math_utils",
     ],
 )
 
@@ -2667,8 +2668,18 @@ cc_test(
     deps = [
         ":tool_options",
         ":trace_view_options",
+        ":xplane_to_trace_container",
+        "//plugin/xprof/protobuf:trace_events_proto_cc",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest_main",
+        "@org_xprof//xprof/convert/trace_viewer:trace_events",
+        "@org_xprof//xprof/convert/trace_viewer:trace_events_test_utils",
+        "@org_xprof//xprof/convert/trace_viewer:trace_options",
+        "@xla//xla/tsl/profiler/utils:timespan",
     ],
 )
 

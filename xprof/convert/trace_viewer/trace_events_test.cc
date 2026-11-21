@@ -14,7 +14,9 @@ limitations under the License.
 ==============================================================================*/
 #include "xprof/convert/trace_viewer/trace_events.h"
 
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -24,11 +26,13 @@ limitations under the License.
 #include <gtest/gtest.h>
 #include "absl/flags/flag.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "google/protobuf/arena.h"
-#include "xla/tsl/platform/env.h"
-#include "xla/tsl/platform/file_system.h"
 #include "xla/tsl/profiler/utils/timespan.h"
+#include "xprof/convert/trace_viewer/trace_events_filter_interface.h"
+#include "xprof/convert/trace_viewer/trace_events_test_utils.h"
+#include "xprof/convert/trace_viewer/trace_viewer_visibility.h"
 #include "plugin/xprof/protobuf/trace_events.pb.h"
 #include "plugin/xprof/protobuf/trace_events_raw.pb.h"
 
@@ -202,10 +206,6 @@ TEST(SerializationTest, SerializeFullEventHandlesSupportedTypes) {
               )pb")));
 }
 
-std::string GetTempFilename(absl::string_view suffix) {
-  return absl::StrCat(::testing::TempDir(), "/metadata_search_test_", suffix);
-}
-
 TEST(TraceEventsSearchTest, SearchMetadataKeysInTrie) {
   absl::SetFlag(&FLAGS_xprof_enable_metadata_indexing, true);
   // 1. Create and populate a TraceEventsContainerBase
@@ -248,25 +248,10 @@ TEST(TraceEventsSearchTest, SearchMetadataKeysInTrie) {
       Timespan::FromEndPoints(300, 400), &raw_data2);
 
   // 2. Store the container as LevelDB tables
-  std::string trace_events_file = GetTempFilename("events.ldb");
-  std::string trace_events_metadata_file = GetTempFilename("metadata.ldb");
-  std::string trace_events_prefix_trie_file = GetTempFilename("trie.ldb");
-
-  std::unique_ptr<tsl::WritableFile> file1, file2, file3;
-  ASSERT_OK(tsl::Env::Default()->NewWritableFile(trace_events_file, &file1));
-  ASSERT_OK(
-      tsl::Env::Default()->NewWritableFile(trace_events_metadata_file, &file2));
-  ASSERT_OK(tsl::Env::Default()->NewWritableFile(trace_events_prefix_trie_file,
-                                                 &file3));
-
-  ASSERT_OK(input_container.StoreAsLevelDbTables(
-      std::move(file1), std::move(file2), std::move(file3)));
-
-  TraceEventsLevelDbFilePaths file_paths = {
-      .trace_events_file_path = trace_events_file,
-      .trace_events_metadata_file_path = trace_events_metadata_file,
-      .trace_events_prefix_trie_file_path = trace_events_prefix_trie_file,
-  };
+  ASSERT_OK_AND_ASSIGN(
+      TraceEventsLevelDbFilePaths file_paths,
+      StoreTraceContainerToLevelDbTables(
+          ::testing::TempDir(), "metadata_search_keys", input_container));
 
   // 3. Search using the trie and verify results
 
@@ -350,23 +335,10 @@ TEST(TraceEventsSearchTest, SearchMetadataKeysInTrie) {
         "req_event", /*resource_id=*/2, /*device_id=*/1,
         Timespan::FromEndPoints(500, 600), &raw_data3);
 
-    std::string f1 = GetTempFilename("events_dedup.ldb");
-    std::string f2 = GetTempFilename("metadata_dedup.ldb");
-    std::string f3 = GetTempFilename("trie_dedup.ldb");
-
-    std::unique_ptr<tsl::WritableFile> wf1, wf2, wf3;
-    ASSERT_OK(tsl::Env::Default()->NewWritableFile(f1, &wf1));
-    ASSERT_OK(tsl::Env::Default()->NewWritableFile(f2, &wf2));
-    ASSERT_OK(tsl::Env::Default()->NewWritableFile(f3, &wf3));
-
-    ASSERT_OK(deduplication_container.StoreAsLevelDbTables(
-        std::move(wf1), std::move(wf2), std::move(wf3)));
-
-    TraceEventsLevelDbFilePaths paths = {
-        .trace_events_file_path = f1,
-        .trace_events_metadata_file_path = f2,
-        .trace_events_prefix_trie_file_path = f3,
-    };
+    ASSERT_OK_AND_ASSIGN(TraceEventsLevelDbFilePaths paths,
+                         StoreTraceContainerToLevelDbTables(
+                             ::testing::TempDir(), "metadata_search_dedup",
+                             deduplication_container));
 
     TestContainer search_container;
     ASSERT_OK(search_container.SearchInLevelDbTable(paths, "req"));
@@ -423,25 +395,10 @@ TEST(TraceEventsSearchTest, SearchMetadataInternedAndEdgeCases) {
                                    /*device_id=*/1,
                                    Timespan::FromEndPoints(500, 600), nullptr);
 
-  std::string trace_events_file = GetTempFilename("events_edge.ldb");
-  std::string trace_events_metadata_file = GetTempFilename("metadata_edge.ldb");
-  std::string trace_events_prefix_trie_file = GetTempFilename("trie_edge.ldb");
-
-  std::unique_ptr<tsl::WritableFile> file1, file2, file3;
-  ASSERT_OK(tsl::Env::Default()->NewWritableFile(trace_events_file, &file1));
-  ASSERT_OK(
-      tsl::Env::Default()->NewWritableFile(trace_events_metadata_file, &file2));
-  ASSERT_OK(tsl::Env::Default()->NewWritableFile(trace_events_prefix_trie_file,
-                                                 &file3));
-
-  ASSERT_OK(input_container.StoreAsLevelDbTables(
-      std::move(file1), std::move(file2), std::move(file3)));
-
-  TraceEventsLevelDbFilePaths file_paths = {
-      .trace_events_file_path = trace_events_file,
-      .trace_events_metadata_file_path = trace_events_metadata_file,
-      .trace_events_prefix_trie_file_path = trace_events_prefix_trie_file,
-  };
+  ASSERT_OK_AND_ASSIGN(
+      TraceEventsLevelDbFilePaths file_paths,
+      StoreTraceContainerToLevelDbTables(
+          ::testing::TempDir(), "metadata_search_edge", input_container));
 
   // Test Scenario A: Search for the event name (now short/not interned)
   {
@@ -607,6 +564,217 @@ TEST(TraceEventsZoomLevelTest, SafetyGuardForFallbackFlowEvents) {
     }
   }
   EXPECT_TRUE(found_c_at_level_9);
+}
+
+class CountingTraceEventsFilter : public TraceEventsFilterInterface {
+ public:
+  explicit CountingTraceEventsFilter(int* filter_calls)
+      : filter_calls_(filter_calls) {}
+
+  void SetUp(const Trace& trace) override {}
+
+  bool Filter(const TraceEvent& event) override {
+    ++(*filter_calls_);
+    return false;
+  }
+
+ private:
+  int* filter_calls_;
+};
+
+using TestTraceEventsContainer =
+    TraceEventsContainerBase<EventFactory, RawData>;
+
+TestTraceEventsContainer MakeTestTraceContainerWithDeviceAndResource() {
+  TestTraceEventsContainer container;
+  Device* device = container.MutableDevice(1);
+  device->set_device_id(1);
+  device->set_name("TestDevice");
+  Resource* resource = &(*device->mutable_resources())[2];
+  resource->set_resource_id(2);
+  resource->set_name("TestResource");
+  return container;
+}
+
+// Builds a trace with an event at timestamp 0 so scanning LevelDB with a
+// zero-duration span would invoke CountingTraceEventsFilter without an
+// empty-window short-circuit.
+TestTraceEventsContainer MakeZeroOriginTraceContainer() {
+  TestTraceEventsContainer container =
+      MakeTestTraceContainerWithDeviceAndResource();
+  container.AddCompleteEvent("Event0", /*resource_id=*/2, /*device_id=*/1,
+                             Timespan::FromEndPoints(0, 100));
+  container.AddCompleteEvent("Event1", /*resource_id=*/2, /*device_id=*/1,
+                             Timespan::FromEndPoints(1000, 1100));
+  container.AddCompleteEvent("Event2", /*resource_id=*/2, /*device_id=*/1,
+                             Timespan::FromEndPoints(1500, 2000));
+  return container;
+}
+
+TEST(TraceEventsLoadTest, OverlappingWindowScansLevelDbAndLoadsEvents) {
+  absl::StatusOr<TraceEventsLevelDbFilePaths> file_paths =
+      StoreTraceContainerToLevelDbTables(::testing::TempDir(),
+                                         "overlapping_window_zero_origin",
+                                         MakeZeroOriginTraceContainer());
+  ASSERT_OK(file_paths);
+
+  TestTraceEventsContainer loaded;
+  int filter_calls = 0;
+  auto visibility = std::make_unique<TraceVisibilityFilter>(
+      TraceViewerVisibility::Window::FromEndPoints(0, 2100),
+      /*resolution=*/0.0);
+  EXPECT_OK(loaded.LoadFromLevelDbTable(
+      *file_paths, std::make_unique<CountingTraceEventsFilter>(&filter_calls),
+      std::move(visibility)));
+  EXPECT_GT(filter_calls, 0);
+  EXPECT_EQ(loaded.NumEvents(), 3);
+}
+
+struct EmptyWindowLoadCase {
+  std::string test_name;
+  TraceViewerVisibility::Window window;
+};
+
+class TraceEventsEmptyWindowLoadTest
+    : public ::testing::TestWithParam<EmptyWindowLoadCase> {};
+
+TEST_P(TraceEventsEmptyWindowLoadTest, ShortCircuitsScanAndPreservesMetadata) {
+  const EmptyWindowLoadCase& test_case = GetParam();
+  absl::StatusOr<TraceEventsLevelDbFilePaths> file_paths =
+      StoreTraceContainerToLevelDbTables(
+          ::testing::TempDir(),
+          absl::StrCat("empty_window_", test_case.test_name),
+          MakeZeroOriginTraceContainer());
+  ASSERT_OK(file_paths);
+
+  TestTraceEventsContainer loaded;
+  int filter_calls = 0;
+  auto visibility = std::make_unique<TraceVisibilityFilter>(test_case.window,
+                                                            /*resolution=*/0.0);
+  EXPECT_OK(loaded.LoadFromLevelDbTable(
+      *file_paths, std::make_unique<CountingTraceEventsFilter>(&filter_calls),
+      std::move(visibility)));
+  EXPECT_EQ(filter_calls, 0);
+  EXPECT_EQ(loaded.NumEvents(), 0);
+  EXPECT_EQ(loaded.trace().min_timestamp_ps(), 0);
+  EXPECT_EQ(loaded.trace().max_timestamp_ps(), 2000);
+  ASSERT_TRUE(loaded.trace().devices().contains(1));
+  EXPECT_EQ(loaded.trace().devices().at(1).name(), "TestDevice");
+  ASSERT_TRUE(loaded.trace().devices().at(1).resources().contains(2));
+  EXPECT_EQ(loaded.trace().devices().at(1).resources().at(2).name(),
+            "TestResource");
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    EmptyWindows, TraceEventsEmptyWindowLoadTest,
+    ::testing::Values(
+        EmptyWindowLoadCase{"ExplicitEmpty",
+                            TraceViewerVisibility::Window::Empty()},
+        EmptyWindowLoadCase{
+            "InvertedBounds",
+            TraceViewerVisibility::Window::FromEndPoints(1500, 500)},
+        EmptyWindowLoadCase{
+            "StartPastTraceMax",
+            TraceViewerVisibility::Window::FromEndPoints(3000, std::nullopt)}),
+    [](const ::testing::TestParamInfo<EmptyWindowLoadCase>& info) {
+      return info.param.test_name;
+    });
+
+TEST(TraceEventsLoadTest,
+     WindowBeforeTraceMinShortCircuitsScanAndPreservesMetadata) {
+  TestTraceEventsContainer nonzero_min_container =
+      MakeTestTraceContainerWithDeviceAndResource();
+  nonzero_min_container.AddCompleteEvent("Event1", /*resource_id=*/2,
+                                         /*device_id=*/1,
+                                         Timespan::FromEndPoints(1000, 1100));
+  nonzero_min_container.AddCompleteEvent("Event2", /*resource_id=*/2,
+                                         /*device_id=*/1,
+                                         Timespan::FromEndPoints(1500, 2000));
+  absl::StatusOr<TraceEventsLevelDbFilePaths> file_paths =
+      StoreTraceContainerToLevelDbTables(::testing::TempDir(),
+                                         "empty_window_nonzero_min",
+                                         nonzero_min_container);
+  ASSERT_OK(file_paths);
+
+  TestTraceEventsContainer loaded;
+  int filter_calls = 0;
+  auto visibility = std::make_unique<TraceVisibilityFilter>(
+      TraceViewerVisibility::Window::FromEndPoints(100, 500),
+      /*resolution=*/0.0);
+  EXPECT_OK(loaded.LoadFromLevelDbTable(
+      *file_paths, std::make_unique<CountingTraceEventsFilter>(&filter_calls),
+      std::move(visibility)));
+  EXPECT_EQ(filter_calls, 0);
+  EXPECT_EQ(loaded.NumEvents(), 0);
+  EXPECT_EQ(loaded.trace().min_timestamp_ps(), 1000);
+  EXPECT_EQ(loaded.trace().max_timestamp_ps(), 2000);
+  ASSERT_TRUE(loaded.trace().devices().contains(1));
+  EXPECT_EQ(loaded.trace().devices().at(1).name(), "TestDevice");
+  ASSERT_TRUE(loaded.trace().devices().at(1).resources().contains(2));
+  EXPECT_EQ(loaded.trace().devices().at(1).resources().at(2).name(),
+            "TestResource");
+}
+
+TEST(TraceEventsLoadTest,
+     UnboundedWindowLoadsHighTimestampEventsWhenTraceOmitsMaxTimestamp) {
+  // ExpandTraceSpan ignores timestamps above UINT64_MAX / 2 (~9.22e18 ps), so
+  // storing events at 1e19 ps naturally produces a trace omitting
+  // max_timestamp_ps. Assumes all events in the trace exceed UINT64_MAX / 2 so
+  // `has_max_timestamp_ps()` remains false; mixed normal (`<= UINT64_MAX / 2`)
+  // and corrupt (`> UINT64_MAX / 2`) traces are intentionally not required to
+  // match between unclamped and clamped filtering paths.
+  constexpr uint64_t kHighBasePs = 10000000000000000000ULL;
+  TestTraceEventsContainer input_container =
+      MakeTestTraceContainerWithDeviceAndResource();
+  input_container.AddCompleteEvent("EarlyHighEvent", /*resource_id=*/2,
+                                   /*device_id=*/1, Timespan(kHighBasePs, 50));
+  input_container.AddCompleteEvent("MidHighEvent", /*resource_id=*/2,
+                                   /*device_id=*/1,
+                                   Timespan(kHighBasePs + 500, 50));
+  input_container.AddCompleteEvent("LateHighEvent", /*resource_id=*/2,
+                                   /*device_id=*/1,
+                                   Timespan(kHighBasePs + 1500, 50));
+
+  absl::StatusOr<TraceEventsLevelDbFilePaths> file_paths =
+      StoreTraceContainerToLevelDbTables(::testing::TempDir(), "high_ts",
+                                         input_container);
+  ASSERT_OK(file_paths);
+
+  // Unconstrained filter loads all 3 events without breaking at end_ps == 0.
+  {
+    TestTraceEventsContainer loaded;
+    auto visibility = std::make_unique<TraceVisibilityFilter>(
+        TraceViewerVisibility::Window::FromEndPoints(0, std::nullopt),
+        /*resolution=*/0.0);
+    EXPECT_OK(loaded.LoadFromLevelDbTable(*file_paths, /*filter=*/nullptr,
+                                          std::move(visibility)));
+    EXPECT_FALSE(loaded.trace().has_max_timestamp_ps());
+    EXPECT_EQ(loaded.NumEvents(), 3);
+  }
+
+  // Open-ended filter with start_ps > 0 drops EarlyHighEvent and loads both
+  // later events instead of breaking at event.timestamp_ps() > start_ps.
+  {
+    TestTraceEventsContainer loaded;
+    auto visibility = std::make_unique<TraceVisibilityFilter>(
+        TraceViewerVisibility::Window::FromEndPoints(kHighBasePs + 400,
+                                                     std::nullopt),
+        /*resolution=*/0.0);
+    EXPECT_OK(loaded.LoadFromLevelDbTable(*file_paths, /*filter=*/nullptr,
+                                          std::move(visibility)));
+    EXPECT_FALSE(loaded.trace().has_max_timestamp_ps());
+    EXPECT_EQ(loaded.NumEvents(), 2);
+  }
+
+  // Null visibility filter also loads all 3 events when max_timestamp_ps is
+  // unset.
+  {
+    TestTraceEventsContainer loaded;
+    EXPECT_OK(loaded.LoadFromLevelDbTable(*file_paths, /*filter=*/nullptr,
+                                          /*visibility=*/nullptr));
+    EXPECT_FALSE(loaded.trace().has_max_timestamp_ps());
+    EXPECT_EQ(loaded.NumEvents(), 3);
+  }
 }
 
 }  // namespace

@@ -36,10 +36,10 @@ inline constexpr ImU32 kCyan70 = 0xFFDFBB00;
 inline constexpr ImU32 kCyan80 = 0xFFF2E4A1;
 // Green 80: #80DA88
 inline constexpr ImU32 kGreen80 = 0xFF88DA80;
-// Teal for the arrows to the consumers of the selected HLO op: #0B7285
-inline constexpr ImU32 kHloConsumerArrowColor = 0xFF85720B;
-// Orange for the arrows from the operands of the selected HLO op: #D9480F
-inline constexpr ImU32 kHloProducerArrowColor = 0xFF0F48D9;
+// Orange for the arrows to the consumers of the selected HLO op: #D9480F
+inline constexpr ImU32 kHloConsumerArrowColor = 0xFF0F48D9;
+// Teal for the arrows from the operands of the selected HLO op: #0B7285
+inline constexpr ImU32 kHloProducerArrowColor = 0xFF85720B;
 // Orange 80: #FFB683
 inline constexpr ImU32 kOrange80 = 0xFF83B6FF;
 // Pink 70: #FF7DD2

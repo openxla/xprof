@@ -1340,6 +1340,7 @@ button.overflow-menu-btn.mat-mdc-icon-button {
   }
 
   .single-event-details {
+    container-type: inline-size;
     // Give the panel a definite height so the nested angular-split resolves.
     // angular-split's host and (horizontal) areas are all height:100%, which
     // only resolves to a bounded height if every ancestor has a definite
@@ -1615,6 +1616,131 @@ button.overflow-menu-btn.mat-mdc-icon-button {
           font-size: 12px;
           margin-left: 4px;
           text-decoration: none;
+        }
+      }
+    }
+
+    .hlo-mini-graph-section {
+      margin-bottom: 10px;
+      border: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
+      border-radius: 6px;
+      background-color: #fafafa;
+      contain: inline-size;
+      width: 100%;
+      max-width: min(100%, calc(40cqw - 26px), 760px);
+      box-sizing: border-box;
+      overflow: hidden auto;
+      max-height: 280px;
+      padding: 5px;
+
+      .hlo-mini-graph-svg {
+        display: block;
+        width: 100%;
+        height: auto;
+        font-family: 'Roboto Mono', monospace;
+        user-select: none;
+      }
+
+      .mini-graph-edge {
+        stroke: #999;
+        stroke-width: 1.5;
+
+        &.non-clickable-edge {
+          stroke: #c0c4c8;
+          stroke-dasharray: 3 2;
+        }
+      }
+
+      .mini-graph-node-group {
+        cursor: default;
+
+        .diagram-node {
+          fill: #fff;
+          stroke: #ccc;
+          stroke-width: 1.5;
+          transition:
+            fill 100ms ease,
+            stroke 100ms ease;
+        }
+
+        &.clickable {
+          cursor: pointer;
+          outline: none;
+        }
+
+        &.selected-node .diagram-node {
+          fill: #e6f2ff;
+          stroke: #007bff;
+          stroke-width: 2;
+        }
+
+        &.diagram-operand .diagram-node {
+          fill: #d4edda;
+          stroke: #28a745;
+          stroke-width: 1.5;
+        }
+
+        &.diagram-consumer .diagram-node {
+          fill: #f8d7da;
+          stroke: #dc3545;
+          stroke-width: 1.5;
+        }
+
+        &.clickable:hover .diagram-node,
+        &.clickable:focus-visible .diagram-node {
+          fill: #ffe066;
+          stroke: #ffc107;
+          stroke-width: 2;
+        }
+
+        &.selected-node.clickable:hover .diagram-node,
+        &.selected-node.clickable:focus-visible .diagram-node {
+          fill: #ffe066;
+          stroke: #007bff;
+          stroke-width: 2;
+        }
+
+        &.non-clickable {
+          .diagram-node {
+            stroke-dasharray: 4 2;
+          }
+
+          &.selected-node .diagram-node {
+            fill: #f0f4f8;
+            stroke: #90a4ae;
+            stroke-width: 1.5;
+          }
+
+          &.diagram-operand .diagram-node {
+            fill: #f3f7f4;
+            stroke: #9cb5a1;
+          }
+
+          &.diagram-consumer .diagram-node {
+            fill: #f9f3f4;
+            stroke: #c79ca0;
+          }
+
+          .mini-graph-node-title {
+            fill: #5f6368;
+          }
+
+          .mini-graph-node-subtitle {
+            fill: #80868b;
+          }
+        }
+
+        .mini-graph-node-title {
+          pointer-events: none;
+          font-size: 10.8px;
+          font-weight: 700;
+          fill: #212529;
+        }
+
+        .mini-graph-node-subtitle {
+          pointer-events: none;
+          font-size: 9.6px;
+          fill: #555;
         }
       }
     }

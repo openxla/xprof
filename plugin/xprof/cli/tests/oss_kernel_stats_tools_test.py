@@ -13,6 +13,7 @@ from unittest import mock
 from xprof.cli.internal import decorators
 from xprof.cli.internal.oss import kernel_stats_tools
 from xprof.cli.internal.oss import xplane_tools
+from xprof.cli.internal.oss import xprof_client
 from xprof.cli.tools import get_kernel_stats_tool
 
 
@@ -239,6 +240,54 @@ class OssKernelStatsToolsTest(unittest.TestCase):
       )
       self.assertIn("fusion_1", md_res)
 
+  def test_empty_result_names_serialized_xspace_by_size(self):
+    source = b"serialized-xspace"
+    with mock.patch.object(xplane_tools, "iter_planes", return_value=[]):
+      info = json.loads(kernel_stats_tools.get_kernel_stats(source))["info"]
+      summary_info = json.loads(
+          kernel_stats_tools.get_kernel_stats(source, include_summary=True)
+      )["info"]
+      md = kernel_stats_tools.get_kernel_stats(
+          source, kernel_name="k", output_format="markdown"
+      )
+
+    expected = "No kernel stats found for session serialized XSpace (17 bytes)"
+    self.assertEqual(info, expected)
+    self.assertEqual(summary_info, expected)
+    self.assertEqual(md, f"# Info\n{expected} and kernel k\n")
+
+  def test_empty_result_keeps_session_id_and_names_in_memory_type(self):
+    profile_data = mock.MagicMock(spec=["planes"], planes=[])
+    with mock.patch.object(xplane_tools, "iter_planes", return_value=[]):
+      session_info = json.loads(
+          kernel_stats_tools.get_kernel_stats("local_session_1")
+      )["info"]
+      memory_info = json.loads(
+          kernel_stats_tools.get_kernel_stats(profile_data)
+      )["info"]
+
+    self.assertEqual(
+        session_info, "No kernel stats found for session local_session_1"
+    )
+    self.assertEqual(
+        memory_info, "No kernel stats found for session in-memory MagicMock"
+    )
+
+  def test_error_log_names_serialized_xspace_by_size(self):
+    with (
+        mock.patch.object(
+            xplane_tools, "iter_planes", side_effect=KeyError("bad plane")
+        ),
+        self.assertLogs(level="ERROR") as logs,
+        self.assertRaisesRegex(RuntimeError, "Failed to get kernel stats"),
+    ):
+      kernel_stats_tools.get_kernel_stats(b"serialized-xspace")
+
+    self.assertIn(
+        "for source serialized XSpace (17 bytes)", logs.records[0].getMessage()
+    )
+    self.assertNotIn("serialized-xspace", logs.records[0].getMessage())
+
   def test_classify_tpu_line(self):
     self.assertEqual(kernel_stats_tools.classify_tpu_line("XLA Ops"), "kernel")
     self.assertEqual(kernel_stats_tools.classify_tpu_line("Pallas"), "kernel")
@@ -256,6 +305,178 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     self.assertEqual(
         kernel_stats_tools.classify_tpu_line("XLA Modules"), "other"
     )
+
+  def _bare_plane(self, name):
+    """Returns a plane mock with `name` and no lines."""
+    plane = mock.MagicMock(lines=[])
+    plane.name = name
+    return plane
+
+  def test_load_host_planes_session_with_several_hosts(self):
+    paths = ["/run/host_a.xplane.pb", "/run/host_b.xplane.pb"]
+    planes_by_path = {
+        path: [self._bare_plane("/device:TPU:0")] for path in paths
+    }
+    fake_client = mock.create_autospec(
+        xprof_client.LocalXprofClient, instance=True
+    )
+    fake_client.get_xspace_paths.return_value = paths
+    with (
+        mock.patch.object(xprof_client, "get_client", return_value=fake_client),
+        mock.patch.object(
+            xplane_tools, "iter_planes", side_effect=planes_by_path.get
+        ) as mock_iter,
+    ):
+      first = kernel_stats_tools.load_host_planes(
+          "local_two_hosts", all_hosts=False
+      )
+      first_calls = [c.args[0] for c in mock_iter.call_args_list]
+      mock_iter.reset_mock()
+      every = kernel_stats_tools.load_host_planes(
+          "local_two_hosts", all_hosts=True
+      )
+      every_calls = [c.args[0] for c in mock_iter.call_args_list]
+
+    self.assertEqual(first, (planes_by_path[paths[0]], "host_a", 2))
+    self.assertEqual(first_calls, paths[:1])
+    self.assertEqual(
+        every,
+        (planes_by_path[paths[0]] + planes_by_path[paths[1]], "all", 2),
+    )
+    self.assertEqual(every_calls, paths)
+
+  def test_load_host_planes_single_file_with_one_host(self):
+    tmpdir = tempfile.mkdtemp()
+    self.addCleanup(shutil.rmtree, tmpdir)
+    path = pathlib.Path(tmpdir) / "host_b.xplane.pb"
+    path.write_bytes(b"trace")
+    planes = [
+        self._bare_plane("/device:GPU:0"),
+        self._bare_plane("/device:GPU:1"),
+    ]
+    with mock.patch.object(
+        xplane_tools, "iter_planes", return_value=planes
+    ) as mock_iter:
+      result = kernel_stats_tools.load_host_planes(str(path), all_hosts=False)
+
+    mock_iter.assert_called_once_with(str(path))
+    self.assertEqual(result, (planes, "host_b", 1))
+
+  def test_load_host_planes_single_file_with_merged_hosts(self):
+    tmpdir = tempfile.mkdtemp()
+    self.addCleanup(shutil.rmtree, tmpdir)
+    path = pathlib.Path(tmpdir) / "merged.xplane.pb"
+    path.write_bytes(b"trace")
+    gpu0_host_a = self._bare_plane("/device:GPU:0")
+    gpu0_host_b = self._bare_plane("/device:GPU:0")
+    cpu = self._bare_plane("/host:CPU")
+    planes = [gpu0_host_a, cpu, gpu0_host_b]
+    with mock.patch.object(xplane_tools, "iter_planes", return_value=planes):
+      first = kernel_stats_tools.load_host_planes(str(path), all_hosts=False)
+      every = kernel_stats_tools.load_host_planes(str(path), all_hosts=True)
+
+    self.assertEqual(first, ([gpu0_host_a, cpu], None, 2))
+    self.assertEqual(every, (planes, "all", 2))
+
+  def test_load_host_planes_missing_path_raises_file_not_found(self):
+    with self.assertRaisesRegex(FileNotFoundError, "Path does not exist"):
+      kernel_stats_tools.load_host_planes(
+          "/no/such/dir/host.xplane.pb", all_hosts=False
+      )
+
+  def test_load_host_planes_serialized_xspace(self):
+    single = [
+        self._bare_plane("/device:TPU:0"),
+        self._bare_plane("/device:TPU:1"),
+    ]
+    merged = single + [
+        self._bare_plane("/device:TPU:0"),
+        self._bare_plane("/device:TPU:1"),
+    ]
+    with mock.patch.object(xplane_tools, "iter_planes", return_value=single):
+      one_host = kernel_stats_tools.load_host_planes(b"xspace", all_hosts=False)
+    with mock.patch.object(xplane_tools, "iter_planes", return_value=merged):
+      first = kernel_stats_tools.load_host_planes(b"xspace", all_hosts=False)
+      every = kernel_stats_tools.load_host_planes(b"xspace", all_hosts=True)
+
+    self.assertEqual(one_host, (single, None, 1))
+    self.assertEqual(first, (single, None, 2))
+    self.assertEqual(every, (merged, "all", 2))
+
+  def _default_device_note(self, plane_names, device_to_use, device, **kwargs):
+    """Returns what `note_default_device` writes to stderr."""
+    with mock.patch.object(sys, "stderr", new_callable=io.StringIO) as stderr:
+      kernel_stats_tools.note_default_device(
+          plane_names, device_to_use, device, **kwargs
+      )
+    return stderr.getvalue()
+
+  def test_note_default_device_single_host(self):
+    one_chip = ["/host:CPU", "/device:TPU:0"]
+    two_chips = ["/device:TPU:0", "/device:TPU:0 SparseCore 0", "/device:TPU:1"]
+
+    self.assertEqual(self._default_device_note(two_chips, "all", "all"), "")
+    self.assertEqual(
+        self._default_device_note(one_chip, None, "/device:TPU:0"), ""
+    )
+    self.assertEqual(
+        self._default_device_note(two_chips, "TPU:1", "/device:TPU:1"), ""
+    )
+    self.assertEqual(
+        self._default_device_note(two_chips, None, "/device:TPU:0"),
+        "xprof-note: device_to_use=None picked /device:TPU:0 of 2 accelerator"
+        " devices; pass device_to_use='<TYPE>:<N>' for another device or"
+        " 'all' to sum every device.\n",
+    )
+
+  def test_note_default_device_several_hosts(self):
+    two_chips = ["/device:TPU:0", "/device:TPU:1"]
+
+    self.assertEqual(
+        self._default_device_note(
+            two_chips, "all", "all", host="all", num_hosts=2
+        ),
+        "",
+    )
+    self.assertEqual(
+        self._default_device_note(
+            two_chips, "TPU:1", "/device:TPU:1", host="host_a", num_hosts=2
+        ),
+        "xprof-note: device_to_use=TPU:1 read /device:TPU:1 on host host_a"
+        " (host 1 of 2; 2 accelerator devices on that host); pass"
+        " device_to_use='<TYPE>:<N>' for another device, --host=<name> for"
+        " another host, or device_to_use='all' to sum every device on every"
+        " host.\n",
+    )
+    note = self._default_device_note(
+        two_chips,
+        None,
+        "/device:TPU:0",
+        num_hosts=3,
+        host_hint="another source for another host",
+    )
+    self.assertIn(
+        "device_to_use=None picked /device:TPU:0 on the first host (host 1 of"
+        " 3; 2 accelerator devices on that host)",
+        note,
+    )
+    self.assertIn("another source for another host", note)
+
+  def test_device_label(self):
+    self.assertEqual(
+        kernel_stats_tools.device_label("/device:TPU:0", None, 1),
+        "/device:TPU:0",
+    )
+    self.assertEqual(kernel_stats_tools.device_label("all", "host_a", 2), "all")
+    self.assertEqual(
+        kernel_stats_tools.device_label("/device:TPU:0", "host_a", 2),
+        "/device:TPU:0 on host host_a (1 of 2)",
+    )
+    for host in (None, "all"):
+      self.assertEqual(
+          kernel_stats_tools.device_label("/device:TPU:0", host, 2),
+          "/device:TPU:0 on the first host (1 of 2)",
+      )
 
   def _pallas_plane_with_regions(self):
     """Builds a TPU plane where a region outlives the kernel containing it."""
@@ -619,6 +840,57 @@ class OssKernelStatsToolsTest(unittest.TestCase):
     self.assertEqual(res1, res2)
     self.assertIn("xprof-note: truncated: returned 2 of 3", err1.getvalue())
     self.assertIn("xprof-note: truncated: returned 2 of 3", err2.getvalue())
+
+  def test_resolve_device_planes(self):
+    names = [
+        "/host:CPU",
+        "/device:GPU:0",
+        "/device:TPU:10",
+        "/device:TPU:2",
+        "/device:TPU:2 SparseCore 0",
+        "/device:TPU:2",
+    ]
+    self.assertEqual(
+        kernel_stats_tools.resolve_device_planes(names, None),
+        ("/device:TPU:2", ["/device:TPU:2", "/device:TPU:2 SparseCore 0"]),
+    )
+    self.assertEqual(
+        kernel_stats_tools.resolve_device_planes(names, "gpu:0"),
+        ("/device:GPU:0", ["/device:GPU:0"]),
+    )
+    self.assertEqual(
+        kernel_stats_tools.resolve_device_planes(names, "/device:TPU:10"),
+        ("/device:TPU:10", ["/device:TPU:10"]),
+    )
+    self.assertEqual(
+        kernel_stats_tools.resolve_device_planes(names, "ALL"),
+        (
+            "all",
+            [
+                "/device:GPU:0",
+                "/device:TPU:10",
+                "/device:TPU:2",
+                "/device:TPU:2 SparseCore 0",
+            ],
+        ),
+    )
+    self.assertEqual(
+        kernel_stats_tools.resolve_device_planes(["/host:CPU"], "TPU:0"),
+        ("all", []),
+    )
+    with self.assertRaisesRegex(ValueError, "matches no device plane"):
+      kernel_stats_tools.resolve_device_planes(names, "GPU:1")
+
+  def test_source_without_traces_raises_file_not_found(self):
+    fake_client = mock.create_autospec(
+        xprof_client.LocalXprofClient, instance=True
+    )
+    fake_client.get_xspace_paths.return_value = []
+    with mock.patch.object(
+        xprof_client, "get_client", return_value=fake_client
+    ):
+      with self.assertRaisesRegex(FileNotFoundError, "local_empty"):
+        kernel_stats_tools.load_host_planes("local_empty", all_hosts=False)
 
 
 if __name__ == "__main__":

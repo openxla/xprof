@@ -11,6 +11,7 @@ py_test(
         "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal/oss:kernel_stats_tools",
         "//plugin/xprof/cli/internal/oss:xplane_tools",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
         "//plugin/xprof/cli/tools:get_kernel_stats_tool",
     ],
 )

@@ -40,6 +40,10 @@ struct RooflineModelOptions {
   bool include_infeed_outfeed = true;
   bool apply_time_scale_multiplier = false;
   bool use_flat_op_metrics_db = false;
+  // Optional PerfEnv override used instead of op_stats.perf_env() during
+  // database initialization and roofline record generation (for example, to
+  // patch peak bandwidths without copying the full OpStats proto).
+  const tensorflow::profiler::PerfEnv* perf_env = nullptr;
 };
 
 template <typename Func>

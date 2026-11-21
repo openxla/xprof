@@ -1167,6 +1167,7 @@ cc_test(
     srcs = ["unified_roofline_model_processor_test.cc"],
     deps = [
         ":file_utils",
+        ":op_stats_to_roofline_model",
         ":repository",
         ":tool_options",
         ":unified_profile_processor",
@@ -1176,6 +1177,7 @@ cc_test(
         "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "//plugin/xprof/protobuf:op_metrics_proto_cc",
         "//plugin/xprof/protobuf:op_stats_proto_cc",
+        "//plugin/xprof/protobuf:roofline_model_proto_cc",
         "@com_google_absl//absl/status:status_matchers",
         "@com_google_googletest//:gtest_main",
         "@tsl//tsl/platform:path",

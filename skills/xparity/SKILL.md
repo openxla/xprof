@@ -1,17 +1,19 @@
 ---
 name: xparity
 description: >-
-  Verifies numerical accuracy, bitwise ULP parity, whole-output and row-wise
-  relative L2 for FP8/FP4 dequantization kernels, Float64 and Pinned-Float32
-  oracle grounding, and multi-regime synthetic tensor correctness (Student-t
-  heavy tails, scattered and per-channel outliers, cancellation pairs, discrete
-  bounded indices, and attention masks) for JAX, Pallas, Triton, XLA, PyTorch,
-  and NumPy kernels using xparity_cli and the xparity Python library. Use when
-  validating kernel optimizations, auditing reference baselines for silent TPU
-  MXU BF16 or GPU TF32 truncation, diagnosing numerical divergence or false
-  greens/reds under the Three Questions Framework, or generating stress test
-  suites. Don't use for profiling hardware execution time, roofline efficiency,
-  or trace events (use xprof instead).
+  Verifies numerical accuracy of JAX, Pallas, Triton, XLA, PyTorch, and NumPy
+  kernels: bitwise and ULP parity, whole-output and row-wise relative L2, SQNR
+  (dB) budgets for FP8, FP4, int8, and bf16 quantization noise, Float64 and
+  Pinned-Float32 oracle grounding, and multi-regime stress inputs (heavy tails,
+  outliers, cancellation, masks). Use when checking how accurate a quantized,
+  dequantized, or optimized kernel is against a reference, measuring
+  quantization error or SQNR, deciding if a cosine similarity or dB number is
+  good enough, validating kernel optimizations, auditing reference baselines for
+  silent TPU MXU BF16 or GPU TF32 truncation, diagnosing numerical divergence or
+  false greens/reds, or generating stress test suites. Don't use for profiling
+  execution time, roofline, or trace events (use xprof), applying quantization
+  to a model (use quantizing-jax-models), or autotuning block sizes (use
+  misura-autotuning).
 ---
 
 <!-- disableFinding(LINE_OVER_80) -->
@@ -63,6 +65,17 @@ xparity verify \
   --row_norm_floor=0.1 \
   --verdict_only
 
+# Gate a quantized kernel (int8, FP8, FP4) on SQNR in dB against a Float64
+# oracle; int8 needs an explicit --min_sqnr_db (see references/sqnr.md)
+xparity verify \
+  --kernel_ref="my_pkg.kernels:ref_fn" \
+  --kernel_candidate="my_pkg.kernels:int8_matmul_fn" \
+  --shapes="[(256, 4096)]" \
+  --dtype_str="float32" \
+  --contract="sqnr" \
+  --min_sqnr_db=30 \
+  --kernel_oracle="auto"
+
 # Generate and persist a multi-regime .npz stress test suite
 xparity generate_suite \
   --shapes="[(16, 1024)]" \
@@ -95,6 +108,7 @@ directly from `xprof.xparity`:
 ```python
 from xprof.xparity import CONTRACT_BITWISE
 from xprof.xparity import CONTRACT_ROW_REL_L2
+from xprof.xparity import CONTRACT_SQNR
 from xprof.xparity import chunk_callable
 from xprof.xparity import compare_bitwise
 from xprof.xparity import compare_row_rel_l2
@@ -104,6 +118,7 @@ from xprof.xparity import numerical_generator
 from xprof.xparity import numerical_validator
 from xprof.xparity import read_suite_metadata
 from xprof.xparity import replay_failure_dump
+from xprof.xparity import sqnr
 from xprof.xparity import validate_kernels
 
 report = validate_kernels(
@@ -141,6 +156,20 @@ row_check = compare_row_rel_l2(candidate_out, reference_out, tol=2e-2)
 if not row_check.passed:
   print(row_check.reason, row_check.worst_row_index, row_check.worst_row_rel_l2)
 
+# Quantized kernel with a dB budget: gate on SQNR. min_sqnr_db="auto" (the
+# default) derives the floor from float dtypes only; integer formats need an
+# explicit floor. See references/sqnr.md.
+sqnr_report = validate_kernels(
+    kernel_ref=reference_fn,
+    kernel_candidate=int8_matmul_fn,
+    shapes=[(256, 4096)],
+    dtype_str="float32",
+    contract=CONTRACT_SQNR,
+    kernel_oracle="auto",
+    sqnr_config=sqnr.SqnrConfig(min_sqnr_db=30.0),
+)
+print(sqnr_report.sqnr_summary)
+
 # Validate both forward output and backward VJP gradients leaf-by-leaf:
 fwd_bwd_report = validate_kernels(
     kernel_ref=make_fwd_bwd(reference_fn),
@@ -165,7 +194,7 @@ Float64 oracle (a **False Red**).
 ### Mandatory Verdict-Reading Order (Inverted Order)
 
 1.  **Check `run_config` & `coverage` Provenance First**: Confirm `tier`
-    (`fast_agent` vs `presubmit`), `contract` (`"ulp"`, `"bitwise"` or `"row_rel_l2"`),
+    (`fast_agent` vs `presubmit`), `contract` (`"ulp"`, `"bitwise"`, `"row_rel_l2"` or `"sqnr"`),
     `dtype_str`, `device_kind`, `total_batches_count`, and `coverage`
     (`selection`, `regimes_run`, `regimes_not_run`). By default, `presubmit` and
     `deep_fuzzing` gate on every regime in the suite (`selection:
@@ -231,7 +260,8 @@ Float64 oracle (a **False Red**).
 so it can be checked against the JSON: `passed: true|false` (from
 `is_numerically_equivalent`), `max_ulp_distance`, and the worst relative error
 (`worst_offender.rel_diff`, or `rel_l2_summary.max_rel_l2` and
-`max_row_rel_l2` under `row_rel_l2`), plus the failing batch count.
+`max_row_rel_l2` under `row_rel_l2`, or `sqnr_summary.sqnr_db` with
+`threshold_db` under `sqnr`), plus the failing batch count.
 
 --------------------------------------------------------------------------------
 
@@ -280,6 +310,33 @@ $$\frac{\lVert c - r \rVert_2}{\lVert r \rVert_2} \le \texttt{rel\_l2\_tol}
     `row_rel_l2`. PyTorch outputs, including CUDA
     tensors, are converted to NumPy automatically, but PyTorch kernels must
     convert their NumPy inputs themselves.
+
+## When to Use `sqnr`
+
+Under the other contracts, SQNR is report only and non-strict. Use
+`contract="sqnr"` for a deliberately lossy kernel (int8, FP8, FP4, or bf16
+inputs) when the budget is in dB, or when no tolerance is given. Use
+`row_rel_l2` when the spec states a relative-L2 tolerance. The two scales map
+1:1: $\text{SQNR} = -20 \log_{10}(\text{rel\_l2})$, so 30 dB is 0.0316.
+
+-   `--min_sqnr_db` defaults to `auto`: the expected SQNR of the float
+    rounding sources minus 6 dB, or 45 dB when no format is narrower than
+    float32. `auto` does not model int8 or int4: pass an explicit floor for
+    integer kernels. Quote `threshold_db` and `threshold_source` with the
+    verdict.
+-   Run with `--kernel_oracle="auto"`. If the reference is below the floor
+    against the oracle, the leaf fails (`reference_below_floor`). Otherwise
+    the leaf fails only if `oracle_sqnr_db < min(threshold_db,
+    reference_oracle_sqnr_db - 3)`, so a lossy reference cannot cause a false
+    red.
+-   Keep `--sqnr_strict=True`. Global SQNR averages away a zeroed tile or a
+    `return x`. The strict checks (block noise, correlation, input delta,
+    spike) catch them.
+-   Never gate on `cosine_similarity`, `si_snr_db` or `best_fit_scale`. They
+    ignore scale: `0.5 * y` has cosine 1.0 and SQNR 6.0 dB.
+
+The flags, the `auto` derivation and the report fields are in
+[references/sqnr.md](references/sqnr.md).
 
 --------------------------------------------------------------------------------
 
@@ -340,3 +397,6 @@ to the kernel's failure modes:
     Complete mathematical specification, ULP sign-magnitude integer mapping,
     Dual Gating table, Certified Pinned Float32 ($100\times$ Precision Margin
     Rule), OOM chunking (`chunk_callable`), and regime dispatch rules.
+-   **[references/sqnr.md](references/sqnr.md)**: SQNR contract, CLI flags,
+    `auto` floor derivation, oracle rule, report fields, and why cosine is
+    report-only.

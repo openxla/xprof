@@ -12,6 +12,7 @@ from typing import Any
 from xprof.xparity import numerical_generator
 from xprof.xparity import numerical_validator
 from xprof.xparity import rel_l2
+from xprof.xparity import sqnr
 
 _Callable = collections.abc.Callable
 _Mapping = collections.abc.Mapping
@@ -146,6 +147,84 @@ def _parse_shapes(
   return shapes
 
 
+def _sqnr_config(
+    min_sqnr_db: float | str,
+    alpha: float,
+    preset: str | None,
+    strict: bool,
+) -> sqnr.SqnrConfig:
+  """Builds the SQNR policy from flat CLI values.
+
+  Args:
+    min_sqnr_db: A number, a numeric string, or "auto". Command-line parsing can
+      turn "45" into an int, so numbers are converted to float here.
+    alpha: False-alarm rate of the derived checks.
+    preset: None, "derived" or "six_gate_v1".
+    strict: Whether to run the anti-cheat checks.
+
+  Returns:
+    The config.
+
+  Raises:
+    ValueError: For a value outside its domain, such as a non-positive floor.
+  """
+  if isinstance(min_sqnr_db, bool):
+    raise ValueError(
+        f"min_sqnr_db must be a number or 'auto', got {min_sqnr_db}."
+    )
+  if isinstance(min_sqnr_db, (int, float)):
+    min_sqnr_db = float(min_sqnr_db)
+  if not isinstance(strict, bool):
+    raise ValueError(f"sqnr_strict must be True or False, got {strict!r}.")
+  return sqnr.SqnrConfig.from_options(
+      min_sqnr_db=min_sqnr_db,
+      alpha=float(alpha),
+      strict=strict,
+      preset=preset,
+  )
+
+
+def _uses_sqnr_contract(
+    contract: str | None, contract_by_leaf: _Mapping[str, str] | None
+) -> bool:
+  """True if the run or any output leaf uses the "sqnr" contract."""
+  contracts = [contract, *(contract_by_leaf or {}).values()]
+  return numerical_validator.CONTRACT_SQNR in contracts
+
+
+def _cli_sqnr_config(
+    min_sqnr_db: float | str | None,
+    alpha: float | None,
+    preset: str | None,
+    strict: bool | None,
+    *,
+    gated: bool,
+) -> sqnr.SqnrConfig | None:
+  """Builds the SQNR policy of a run from CLI values, or None for defaults.
+
+  None lets the validator pick the contract default: the strict checks under
+  "sqnr" only, and the global and oracle metrics only elsewhere.
+
+  Args:
+    min_sqnr_db: See `_sqnr_config`. None means "auto".
+    alpha: See `_sqnr_config`. None means the default.
+    preset: See `_sqnr_config`.
+    strict: See `_sqnr_config`. None means True when `gated` and else False.
+    gated: True if any output uses the "sqnr" contract.
+
+  Returns:
+    The policy, or None when every value is None.
+  """
+  if all(value is None for value in (min_sqnr_db, alpha, preset, strict)):
+    return None
+  return _sqnr_config(
+      sqnr.AUTO if min_sqnr_db is None else min_sqnr_db,
+      sqnr.DEFAULT_ALPHA if alpha is None else alpha,
+      preset,
+      gated if strict is None else strict,
+  )
+
+
 def verify_numerical_parity(
     kernel_ref: _Callable[..., Any] | str,
     kernel_candidate: _Callable[..., Any] | str,
@@ -168,6 +247,10 @@ def verify_numerical_parity(
     rel_l2_tol: float | None = None,
     row_factor: float = rel_l2.ROW_FACTOR,
     row_norm_floor: float = rel_l2.ROW_NORM_FLOOR,
+    min_sqnr_db: float | str | None = None,
+    sqnr_alpha: float | None = None,
+    sqnr_preset: str | None = None,
+    sqnr_strict: bool | None = None,
 ) -> str:
   """Validates numerical parity between two kernels and returns a JSON report.
 
@@ -201,7 +284,9 @@ def verify_numerical_parity(
       output element to match the reference bit for bit; "row_rel_l2" requires
       whole-output relative L2 error <= `rel_l2_tol` and every row (last
       dimension) within `row_factor * rel_l2_tol`, for intentionally lossy
-      kernels such as FP8/FP4 dequantization.
+      kernels such as FP8/FP4 dequantization; "sqnr" requires the
+      signal-to-quantization-noise ratio of every floating-point output to meet
+      `min_sqnr_db` and, with `sqnr_strict`, the anti-cheat checks.
     contract_by_leaf: Per-leaf contract overrides for pytree outputs, keyed by
       JAX key path, as a mapping or a dict literal string (e.g. "{'[1]':
       'ulp'}").
@@ -223,6 +308,16 @@ def verify_numerical_parity(
     row_factor: Per-row bound as a multiple of `rel_l2_tol` (default 5).
     row_norm_floor: Floor on each row's norm as a fraction of the mean row norm
       (default 0.1), so that near-zero rows do not inflate the ratio.
+    min_sqnr_db: SQNR floor in dB (a positive number) or "auto" (default), which
+      derives the floor from the output dtype. Every contract reports SQNR
+      figures per batch (`sqnr`) and for the run (`sqnr_summary`); only "sqnr"
+      gates on them.
+    sqnr_alpha: False-alarm rate per output of the derived SQNR checks.
+    sqnr_preset: "derived" (default) or "six_gate_v1" for the fixed-constant
+      checks with a 45 dB default floor.
+    sqnr_strict: If True, also runs the SQNR anti-cheat checks. The default is
+      True when any output uses "sqnr" and False otherwise, so that the
+      report-only SQNR of the other contracts stays cheap.
 
   Returns:
     A JSON string containing the validation report.
@@ -256,6 +351,11 @@ def verify_numerical_parity(
   else:
     parsed_contract_by_leaf = contract_by_leaf
 
+  gated = _uses_sqnr_contract(contract, parsed_contract_by_leaf)
+  sqnr_config = _cli_sqnr_config(
+      min_sqnr_db, sqnr_alpha, sqnr_preset, sqnr_strict, gated=gated
+  )
+
   try:
     report = numerical_validator.validate_kernels(
         kernel_ref=ref_fn,
@@ -277,6 +377,7 @@ def verify_numerical_parity(
         rel_l2_tol=rel_l2_tol,
         row_factor=row_factor,
         row_norm_floor=row_norm_floor,
+        sqnr_config=sqnr_config,
     )
   except ValueError as e:
     msg = str(e)
@@ -295,6 +396,9 @@ def verify_numerical_parity(
               "device_kind": device_kind or "auto",
               "total_batches_count": 0,
               "contract": contract,
+              "sqnr_config": dataclasses.asdict(
+                  sqnr_config or sqnr.SqnrConfig(strict=gated)
+              ),
           },
           "overall_max_ulp": 999999,
           "failed_batches_count": 1,
@@ -310,6 +414,7 @@ def verify_numerical_parity(
           "coverage": {},
           "tolerance_headroom": {},
           "rel_l2_summary": {},
+          "sqnr_summary": {},
       }
       return _dump_json(mismatch_payload, verdict_only)
     raise
@@ -356,7 +461,31 @@ def _compact_verdict(payload: _Mapping[str, Any]) -> dict[str, Any]:
   rel_l2_summary = payload.get("rel_l2_summary")
   if rel_l2_summary:
     verdict["rel_l2"] = rel_l2_summary
+  sqnr_summary = payload.get("sqnr_summary")
+  if sqnr_summary and verdict["contract"] == numerical_validator.CONTRACT_SQNR:
+    verdict["sqnr"] = {
+        key: sqnr_summary.get(key)
+        for key in _VERDICT_SQNR_KEYS
+        if key in sqnr_summary
+    }
+    verdict["sqnr"]["failed_reasons"] = (
+        sqnr_summary.get("failed_reasons") or []
+    )[:_VERDICT_MAX_FAILURES]
   return verdict
+
+
+# SQNR summary fields copied into the compact verdict under "sqnr".
+_VERDICT_SQNR_KEYS = (
+    "sqnr_status",
+    "passed",
+    "sqnr_db",
+    "oracle_sqnr_db",
+    "threshold_db",
+    "threshold_source",
+    "gate_math",
+    "failed_reports",
+    "warnings",
+)
 
 
 def _compact_failure(batch: _Mapping[str, Any]) -> dict[str, Any]:
@@ -376,6 +505,13 @@ def _compact_failure(batch: _Mapping[str, Any]) -> dict[str, Any]:
         worst_row_index=row_l2.get("worst_row_index"),
         rows_over_bound=row_l2.get("rows_over_bound"),
         reason=row_l2.get("reason"),
+    )
+  report = batch.get("sqnr")
+  if report and not report.get("passed"):
+    failure.update(
+        sqnr_db=report.get("sqnr_db"),
+        sqnr_status=report.get("sqnr_status"),
+        sqnr_failed_reasons=report.get("failed_reasons"),
     )
   return failure
 
@@ -425,6 +561,7 @@ def _report_to_json(
       "coverage": report.coverage,
       "tolerance_headroom": report.tolerance_headroom,
       "rel_l2_summary": report.rel_l2_summary,
+      "sqnr_summary": report.sqnr_summary,
   }
   return _dump_json(results_dict, verdict_only)
 
@@ -439,6 +576,10 @@ def replay(
     rel_l2_tol: float | None = None,
     row_factor: float | None = None,
     row_norm_floor: float | None = None,
+    min_sqnr_db: float | str | None = None,
+    sqnr_alpha: float | None = None,
+    sqnr_preset: str | None = None,
+    sqnr_strict: bool | None = None,
 ) -> str:
   """Re-runs one saved failing batch and returns a JSON report.
 
@@ -447,17 +588,50 @@ def replay(
     kernel_ref: The reference implementation (callable or string path).
     kernel_candidate: The candidate implementation (callable or string path).
     kernel_oracle: Optional oracle (callable, string path, or "auto").
-    contract: Overrides the contract stored in the dump ("ulp", "bitwise" or
-      "row_rel_l2").
+    contract: Overrides the contract stored in the dump ("ulp", "bitwise",
+      "row_rel_l2" or "sqnr").
     verdict_only: If True, returns the compact verdict described in
       `verify_numerical_parity` instead of the full report.
     rel_l2_tol: Overrides the "row_rel_l2" tolerance stored in the dump.
     row_factor: Overrides the stored per-row factor.
     row_norm_floor: Overrides the stored row-norm floor.
+    min_sqnr_db: Overrides the stored SQNR floor (a number or "auto").
+    sqnr_alpha: Overrides the stored SQNR false-alarm rate.
+    sqnr_preset: Overrides the stored SQNR gate math ("derived" or
+      "six_gate_v1").
+    sqnr_strict: Overrides whether the SQNR anti-cheat checks run.
 
   Returns:
     A JSON string containing the validation report for the saved batch.
   """
+  sqnr_config = None
+  if any(
+      value is not None
+      for value in (min_sqnr_db, sqnr_alpha, sqnr_preset, sqnr_strict)
+  ):
+    info = numerical_generator.read_suite_metadata(dump_path)
+    if info.get("sqnr_config") is None:
+      # The run used the contract default, so the overrides start from it.
+      gated = _uses_sqnr_contract(
+          contract or info.get("contract"), info.get("contract_by_leaf")
+      )
+      info["sqnr_config"] = dataclasses.asdict(sqnr.SqnrConfig(strict=gated))
+    stored: dict[str, Any] = info["sqnr_config"]
+    merged = _sqnr_config(
+        stored["min_sqnr_db"] if min_sqnr_db is None else min_sqnr_db,
+        stored["alpha"] if sqnr_alpha is None else sqnr_alpha,
+        stored["gate_math"] if sqnr_preset is None else sqnr_preset,
+        stored["strict"] if sqnr_strict is None else sqnr_strict,
+    )
+    # Fields without a flag keep their stored values.
+    sqnr_config = dataclasses.replace(
+        merged,
+        **{
+            key: stored[key]
+            for key in ("block_size", "auto_margin_db", "oracle_delta_db")
+            if key in stored
+        },
+    )
   if kernel_oracle is None or kernel_oracle == numerical_validator.ORACLE_AUTO:
     oracle_fn = kernel_oracle
   else:
@@ -471,6 +645,7 @@ def replay(
       rel_l2_tol=rel_l2_tol,
       row_factor=row_factor,
       row_norm_floor=row_norm_floor,
+      sqnr_config=sqnr_config,
   )
   return _report_to_json(report, verdict_only=verdict_only)
 

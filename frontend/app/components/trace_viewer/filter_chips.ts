@@ -4,7 +4,9 @@ import {
   EventEmitter,
   Input,
   Output,
+  QueryList,
   ViewChild,
+  ViewChildren,
 } from '@angular/core';
 import {MatChipEditedEvent} from '@angular/material/chips';
 
@@ -82,7 +84,8 @@ export class FilterChips {
   @Output() readonly filterChanged = new EventEmitter<FilterChangeEvent>();
   @Output() readonly filterRemoved = new EventEmitter<FilterRemoveEvent>();
   @ViewChild('chipValueOptionsAuto') chipValueOptionsAuto!: MatAutocomplete;
-  @ViewChild('optionTrigger') optionTrigger?: MatAutocompleteTrigger;
+  @ViewChildren('optionTrigger')
+  optionTriggers?: QueryList<MatAutocompleteTrigger>;
 
   autoChipValueOptions = new BehaviorSubject<FilterValue[]>([]);
   onEditChipIndex = -1;
@@ -111,15 +114,21 @@ export class FilterChips {
 
   onClickChip(e: Event, filter: FilterEntry, index: number) {
     e.stopPropagation();
-    if (this.optionTrigger?.panelOpen) {
+    const optionTrigger = this.optionTriggers?.get(index);
+    if (optionTrigger?.panelOpen) {
       this.onEditChipIndex = -1;
-      this.optionTrigger?.closePanel();
+      optionTrigger.closePanel();
     } else {
-      this.onEditChipIndex = index;
+      if (this.onEditChipIndex >= 0 && this.onEditChipIndex !== index) {
+        this.optionTriggers?.get(this.onEditChipIndex)?.closePanel();
+      }
       const options = this.getChipOptions(filter);
       if (options.length > 0) {
+        this.onEditChipIndex = index;
         this.autoChipValueOptions.next(options);
-        this.optionTrigger?.openPanel();
+        optionTrigger?.openPanel();
+      } else {
+        this.onEditChipIndex = -1;
       }
     }
   }
@@ -157,11 +166,16 @@ export class FilterChips {
         index: this.onEditChipIndex,
       });
     }
-    this.optionTrigger?.closePanel();
+    const optionTrigger = this.optionTriggers?.get(this.onEditChipIndex);
+    optionTrigger?.closePanel();
     this.onEditChipIndex = -1;
   }
 
   remove(index: number) {
+    if (this.onEditChipIndex >= 0) {
+      this.optionTriggers?.get(this.onEditChipIndex)?.closePanel();
+      this.onEditChipIndex = -1;
+    }
     this.filterRemoved.next({index});
   }
 

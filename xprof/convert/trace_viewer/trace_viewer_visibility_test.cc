@@ -15,6 +15,7 @@ limitations under the License.
 #include "xprof/convert/trace_viewer/trace_viewer_visibility.h"
 
 #include <cstdint>
+#include <optional>
 
 #include <gtest/gtest.h>
 #include "xla/tsl/profiler/utils/timespan.h"
@@ -187,6 +188,160 @@ TEST(TraceViewerVisibilityTest, TestTraceVisibilityFilter) {
   device.set_name("#Chip TPU Non-Core HBM");
   filter.SetUp(trace);
   EXPECT_TRUE(filter.Filter(event4));
+}
+
+Trace MakeTrace(uint64_t min_timestamp_ps, uint64_t max_timestamp_ps) {
+  Trace trace;
+  trace.set_min_timestamp_ps(min_timestamp_ps);
+  trace.set_max_timestamp_ps(max_timestamp_ps);
+  return trace;
+}
+
+TEST(TraceViewerVisibilityTest, UnconstrainedInstantSpanMakesAllEventsVisible) {
+  TraceViewerVisibility visibility(Timespan(1500, 0));
+
+  EXPECT_TRUE(visibility.Visible(Complete(Timespan(1000, 100))));
+  EXPECT_TRUE(visibility.Visible(Complete(Timespan(1450, 100))));
+  EXPECT_TRUE(visibility.Visible(Complete(Timespan(1500, 0))));
+  EXPECT_TRUE(visibility.Visible(Complete(Timespan(2000, 100))));
+}
+
+TEST(TraceViewerVisibilityTest,
+     ConstrainedInstantSpanFiltersNonOverlappingEvents) {
+  TraceViewerVisibility visibility(
+      Timespan(1500, 0), /*resolution_ps=*/0,
+      TraceViewerVisibility::InstantSpanPolicy::kExactInstant);
+
+  EXPECT_FALSE(visibility.Visible(Complete(Timespan(1000, 100))));
+  EXPECT_TRUE(visibility.Visible(Complete(Timespan(1450, 100))));
+  EXPECT_TRUE(visibility.Visible(Complete(Timespan(1500, 0))));
+  EXPECT_FALSE(visibility.Visible(Complete(Timespan(2000, 100))));
+}
+
+TEST(TraceViewerVisibilityTest,
+     DefaultOpenEndedStartTimeClampsEndTimeToTraceMax) {
+  Trace trace = MakeTrace(1000, 2000);
+  TraceVisibilityFilter filter(Timespan(1500, 0), 100, TraceOptions());
+
+  filter.SetUp(trace);
+
+  EXPECT_EQ(filter.VisibleSpan(), Timespan::FromEndPoints(1500, 2000));
+}
+
+TEST(TraceViewerVisibilityTest, OpenEndedStartTimeClampsEndTimeToTraceMax) {
+  Trace trace = MakeTrace(1000, 2000);
+  TraceVisibilityFilter filter(Timespan(1500, 0), 100, TraceOptions(),
+                               VisibilityWindowOptions{.has_end_time = false});
+
+  filter.SetUp(trace);
+
+  EXPECT_EQ(filter.VisibleSpan(), Timespan::FromEndPoints(1500, 2000));
+}
+
+TEST(TraceViewerVisibilityTest,
+     OpenEndedStartTimeAtTraceMaxFiltersEarlierEvents) {
+  Trace trace = MakeTrace(1000, 2000);
+  TraceVisibilityFilter filter(Timespan(2000, 0), 100, TraceOptions(),
+                               VisibilityWindowOptions{.has_end_time = false});
+
+  filter.SetUp(trace);
+
+  EXPECT_EQ(filter.VisibleSpan(), Timespan(2000, 0));
+  EXPECT_TRUE(filter.Filter(Complete(Timespan(1000, 100))));
+  EXPECT_FALSE(filter.Filter(Complete(Timespan(2000, 100))));
+}
+
+TEST(TraceViewerVisibilityTest,
+     OpenEndedStartTimePastTraceMaxFiltersAllEvents) {
+  Trace trace = MakeTrace(1000, 2000);
+  TraceVisibilityFilter filter(Timespan(2500, 0), 100, TraceOptions(),
+                               VisibilityWindowOptions{.has_end_time = false});
+
+  filter.SetUp(trace);
+
+  EXPECT_EQ(filter.VisibleSpan(), Timespan(0, 0));
+  EXPECT_TRUE(filter.Filter(Complete(Timespan(1000, 100))));
+  EXPECT_TRUE(filter.Filter(Complete(Timespan(2000, 100))));
+  EXPECT_TRUE(filter.Filter(Complete(Timespan(2500, 0))));
+}
+
+TEST(TraceViewerVisibilityTest,
+     ExplicitInstantSpanFiltersNonOverlappingEvents) {
+  Trace trace = MakeTrace(1000, 2000);
+  TraceVisibilityFilter filter(Timespan(1500, 0), 100, TraceOptions(),
+                               VisibilityWindowOptions{.has_end_time = true});
+
+  filter.SetUp(trace);
+
+  EXPECT_EQ(filter.VisibleSpan(), Timespan(1500, 0));
+  EXPECT_TRUE(filter.Filter(Complete(Timespan(1000, 100))));
+  EXPECT_TRUE(filter.Filter(Complete(Timespan(2000, 100))));
+  EXPECT_FALSE(filter.Filter(Complete(Timespan(1450, 100))));
+  EXPECT_FALSE(filter.Filter(Complete(Timespan(1500, 0))));
+}
+
+TEST(TraceViewerVisibilityTest,
+     ExplicitZeroEndTimeAtOriginFiltersEventsAfterZero) {
+  Trace trace = MakeTrace(0, 2000);
+  TraceVisibilityFilter filter(Timespan(0, 0), 100, TraceOptions(),
+                               VisibilityWindowOptions{.has_end_time = true});
+
+  filter.SetUp(trace);
+
+  EXPECT_EQ(filter.VisibleSpan(), Timespan(0, 0));
+  EXPECT_FALSE(filter.Filter(Complete(Timespan(0, 0))));
+  EXPECT_FALSE(filter.Filter(Complete(Timespan(0, 100))));
+  EXPECT_TRUE(filter.Filter(Complete(Timespan(100, 100))));
+}
+
+TEST(TraceViewerVisibilityTest,
+     ExplicitZeroEndTimeBeforeTraceMinFiltersAllEvents) {
+  Trace trace = MakeTrace(1000, 2000);
+  TraceVisibilityFilter filter(Timespan(0, 0), 100, TraceOptions(),
+                               VisibilityWindowOptions{.has_end_time = true});
+
+  filter.SetUp(trace);
+
+  EXPECT_EQ(filter.VisibleSpan(), Timespan(0, 0));
+  EXPECT_TRUE(filter.Filter(Complete(Timespan(1200, 100))));
+}
+
+TEST(TraceViewerVisibilityTest, DefaultEmptySpanExpandsToTraceBounds) {
+  Trace trace = MakeTrace(1000, 2000);
+  TraceVisibilityFilter filter(
+      Timespan(0, 0), 100, TraceOptions(),
+      VisibilityWindowOptions{.has_end_time = std::nullopt});
+
+  filter.SetUp(trace);
+
+  EXPECT_EQ(filter.VisibleSpan(), Timespan::FromEndPoints(1000, 2000));
+  EXPECT_FALSE(filter.Filter(Complete(Timespan(1200, 100))));
+}
+
+TEST(TraceViewerVisibilityTest, SpanBeforeTraceMinFiltersAllEvents) {
+  Trace trace = MakeTrace(1000, 2000);
+  TraceVisibilityFilter filter(Timespan::FromEndPoints(500, 800), 100,
+                               TraceOptions(),
+                               VisibilityWindowOptions{.has_end_time = true});
+
+  filter.SetUp(trace);
+
+  EXPECT_EQ(filter.VisibleSpan(), Timespan(0, 0));
+  EXPECT_TRUE(filter.Filter(Complete(Timespan(1000, 100))));
+  EXPECT_TRUE(filter.Filter(Complete(Timespan(2000, 100))));
+}
+
+TEST(TraceViewerVisibilityTest, EmptyWindowFlagFiltersAllEvents) {
+  Trace trace = MakeTrace(1000, 2000);
+  TraceVisibilityFilter filter(
+      Timespan(1800, 0), 100, TraceOptions(),
+      VisibilityWindowOptions{.has_end_time = true, .empty_window = true});
+
+  filter.SetUp(trace);
+
+  EXPECT_EQ(filter.VisibleSpan(), Timespan(0, 0));
+  EXPECT_TRUE(filter.Filter(Complete(Timespan(1000, 100))));
+  EXPECT_TRUE(filter.Filter(Complete(Timespan(2000, 100))));
 }
 
 }  // namespace

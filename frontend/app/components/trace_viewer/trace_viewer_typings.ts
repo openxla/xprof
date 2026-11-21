@@ -1,3 +1,5 @@
+import {AdjacentNodesResponse} from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
+
 /** Enum for a filter operator type. */
 export enum FilterOperatorType {
   EXACT = '=',
@@ -189,6 +191,7 @@ export declare interface SelectedEvent {
   rooflineModelLinkHtml?: string;
   hloModule?: string;
   hloOpName?: string;
+  adjacentNodes?: AdjacentNodesResponse;
   graphViewerLinkHtml?: string;
   hloOpStatsLinkHtml?: string;
   kernelViewerLinkHtml?: string;

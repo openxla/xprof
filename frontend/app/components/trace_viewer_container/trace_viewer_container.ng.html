@@ -292,31 +292,113 @@
                 </as-split-area>
                 <as-split-area [size]="40" class="split-area-right">
                   <div class="split-area-inner">
-                    <div class="detail-row" *ngFor="let prop of rightSideProperties; trackBy: trackByProperty" [class.hlo-text-row]="prop.property === 'HLO Text'" [class.stack-trace-row]="prop.property === 'Stack Trace'" [class.collapsed]="isPropCollapsed(prop)">
-                      <span class="detail-label">
-                        {{prop.property}}:
-                        <button
-                          *ngIf="prop.property === 'HLO Text'"
-                          type="button"
-                          class="hlo-collapse-btn"
-                          (click)="toggleHloTextCollapse()"
-                          [attr.aria-label]="isHloTextCollapsed ? 'Expand HLO text' : 'Collapse HLO text'"
-                          [title]="isHloTextCollapsed ? 'Expand HLO text' : 'Collapse HLO text'">
-                          <mat-icon>{{isHloTextCollapsed ? 'keyboard_arrow_down' : 'keyboard_arrow_up'}}</mat-icon>
-                        </button>
-                        <button
-                          *ngIf="prop.property === 'Stack Trace'"
-                          type="button"
-                          class="hlo-collapse-btn stack-trace-collapse-btn"
-                          (click)="toggleStackTraceCollapse()"
-                          [attr.aria-label]="isStackTraceCollapsed ? 'Expand stack trace' : 'Collapse stack trace'"
-                          [title]="isStackTraceCollapsed ? 'Expand stack trace' : 'Collapse stack trace'">
-                          <mat-icon>{{isStackTraceCollapsed ? 'keyboard_arrow_down' : 'keyboard_arrow_up'}}</mat-icon>
-                        </button>
-                      </span>
-                      <span class="detail-value hlo-preview" *ngIf="isPropCollapsed(prop)">{{getPropPreview(prop)}}</span>
-                      <span class="detail-value" *ngIf="!isPropCollapsed(prop)">{{prop.value}}</span>
-                    </div>
+                    <ng-template #hloMiniGraphTemplate>
+                      <div *ngIf="miniGraph" class="hlo-mini-graph-section" data-test-id="hlo-mini-graph">
+                        <svg
+                          class="hlo-mini-graph-svg"
+                          [attr.viewBox]="'0 0 ' + miniGraph.width + ' ' + miniGraph.height"
+                          role="img"
+                          aria-label="One-hop HLO dataflow graph">
+                          <defs>
+                            <marker
+                              id="hlo-mini-graph-arrow"
+                              viewBox="0 0 10 10"
+                              refX="10"
+                              refY="5"
+                              markerWidth="6"
+                              markerHeight="6"
+                              orient="auto-start-reverse">
+                              <path d="M 0 0 L 10 5 L 0 10 z" fill="#999" />
+                            </marker>
+                            <marker
+                              id="hlo-mini-graph-arrow-muted"
+                              viewBox="0 0 10 10"
+                              refX="10"
+                              refY="5"
+                              markerWidth="6"
+                              markerHeight="6"
+                              orient="auto-start-reverse">
+                              <path d="M 0 0 L 10 5 L 0 10 z" fill="#b8bec4" />
+                            </marker>
+                          </defs>
+                          <line
+                            *ngFor="let edge of miniGraph.edges; trackBy: trackByMiniGraphEdge"
+                            class="mini-graph-edge"
+                            [class.non-clickable-edge]="!edge.clickable"
+                            [attr.x1]="edge.x1"
+                            [attr.y1]="edge.y1"
+                            [attr.x2]="edge.x2"
+                            [attr.y2]="edge.y2"
+                            [attr.marker-end]="edge.clickable ? 'url(#hlo-mini-graph-arrow)' : 'url(#hlo-mini-graph-arrow-muted)'" />
+                          <g
+                            *ngFor="let node of miniGraph.nodes; trackBy: trackByMiniGraphNode"
+                            class="mini-graph-node-group"
+                            [class.clickable]="node.clickable"
+                            [class.non-clickable]="!node.clickable"
+                            [class.diagram-operand]="node.role === 'operand'"
+                            [class.selected-node]="node.role === 'selected'"
+                            [class.diagram-consumer]="node.role === 'consumer'"
+                            (click)="onMiniGraphNodeClick(node)"
+                            (keydown.enter)="onMiniGraphNodeKeydown($event, node)"
+                            (keydown.space)="onMiniGraphNodeKeydown($event, node)"
+                            [matTooltip]="node.tooltip"
+                            [attr.role]="node.clickable ? 'button' : null"
+                            [attr.tabindex]="node.clickable ? 0 : null"
+                            [attr.aria-label]="node.tooltip"
+                            [attr.data-name]="node.name"
+                            [attr.data-role]="node.role">
+                            <rect
+                              class="diagram-node"
+                              [attr.x]="node.x"
+                              [attr.y]="node.y"
+                              [attr.width]="node.width"
+                              [attr.height]="node.height"
+                              rx="4" />
+                            <text
+                              class="mini-graph-node-title"
+                              [attr.x]="node.x + 5"
+                              [attr.y]="node.y + 16">{{node.displayName}}</text>
+                            <text
+                              class="mini-graph-node-subtitle"
+                              [attr.x]="node.x + 5"
+                              [attr.y]="node.y + 30">{{node.displaySubtitle}}</text>
+                          </g>
+                        </svg>
+                      </div>
+                    </ng-template>
+                    <ng-container *ngIf="!hasHloTextProperty() && miniGraph">
+                      <ng-container *ngTemplateOutlet="hloMiniGraphTemplate"></ng-container>
+                    </ng-container>
+                    <ng-container *ngFor="let prop of rightSideProperties; trackBy: trackByProperty">
+                      <div class="detail-row" [class.hlo-text-row]="prop.property === 'HLO Text'" [class.stack-trace-row]="prop.property === 'Stack Trace'" [class.collapsed]="isPropCollapsed(prop)">
+                        <span class="detail-label">
+                          {{prop.property}}:
+                          <button
+                            *ngIf="prop.property === 'HLO Text'"
+                            type="button"
+                            class="hlo-collapse-btn"
+                            (click)="toggleHloTextCollapse()"
+                            [attr.aria-label]="isHloTextCollapsed ? 'Expand HLO text' : 'Collapse HLO text'"
+                            [title]="isHloTextCollapsed ? 'Expand HLO text' : 'Collapse HLO text'">
+                            <mat-icon>{{isHloTextCollapsed ? 'keyboard_arrow_down' : 'keyboard_arrow_up'}}</mat-icon>
+                          </button>
+                          <button
+                            *ngIf="prop.property === 'Stack Trace'"
+                            type="button"
+                            class="hlo-collapse-btn stack-trace-collapse-btn"
+                            (click)="toggleStackTraceCollapse()"
+                            [attr.aria-label]="isStackTraceCollapsed ? 'Expand stack trace' : 'Collapse stack trace'"
+                            [title]="isStackTraceCollapsed ? 'Expand stack trace' : 'Collapse stack trace'">
+                            <mat-icon>{{isStackTraceCollapsed ? 'keyboard_arrow_down' : 'keyboard_arrow_up'}}</mat-icon>
+                          </button>
+                        </span>
+                        <span class="detail-value hlo-preview" *ngIf="isPropCollapsed(prop)">{{getPropPreview(prop)}}</span>
+                        <span class="detail-value" *ngIf="!isPropCollapsed(prop)">{{prop.value}}</span>
+                      </div>
+                      <ng-container *ngIf="prop.property === 'HLO Text' && miniGraph">
+                        <ng-container *ngTemplateOutlet="hloMiniGraphTemplate"></ng-container>
+                      </ng-container>
+                    </ng-container>
                     <div class="flow-events-container" *ngIf="inboundFlows.length > 0 || outboundFlows.length > 0">
                       <div class="detail-row flow-event-row" *ngFor="let flow of displayedInboundFlows; trackBy: trackByFlowIndex">
                         <span class="detail-label">Incoming flow:</span>

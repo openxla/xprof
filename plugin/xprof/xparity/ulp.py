@@ -1,11 +1,11 @@
 """Bitwise ULP distance and per-dtype ULP contracts.
 
 This module is the dependency-light core of xparity: it imports only the
-standard library, NumPy and ml_dtypes, and no other xparity or google3 module.
-Benchmark harnesses that run where google3 cannot be imported (for example the
-standalone scripts KernelBench renders for Minibench and JaxFu) can therefore
-carry this module's source inline and measure outputs in exactly the units and
-against exactly the contracts that `numerical_validator` uses.
+standard library, NumPy and ml_dtypes, and no other xparity module. Benchmark
+harnesses that cannot import this package (for example standalone scripts that
+kernel benchmarking tools generate) can therefore carry this module's source
+inline and measure outputs in exactly the units and against exactly the
+contracts that `numerical_validator` uses.
 
 Public API:
   compute_ulp_distance: Elementwise integer ULP distance between two arrays.
@@ -201,7 +201,7 @@ _DTYPE_ALIASES: types.MappingProxyType[str, str] = types.MappingProxyType({
 
 
 # Prefixes stripped before alias lookup so that `str(some_array.dtype)` and
-# module-qualified names resolve identically. KernelBench and Rosetta both
+# module-qualified names resolve identically. Benchmark harnesses usually
 # pass `str(arr.dtype)`, which for ml_dtypes renders as e.g.
 # "float8_e4m3fn" and for module-qualified references as
 # "ml_dtypes.float8_e4m3fn".

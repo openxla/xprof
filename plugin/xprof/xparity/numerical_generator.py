@@ -920,7 +920,7 @@ def load_test_suite(
   """Loads and reconstructs a test suite from a .npz archive, resource, or stream.
 
   Args:
-    source: Filepath (str/PathLike), Google3 resource path, stream, or bytes.
+    source: Filepath (str/PathLike), package resource path, stream, or bytes.
     as_jax_arrays: If True, converts loaded NumPy arrays to JAX device arrays.
 
   Returns:

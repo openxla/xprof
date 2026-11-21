@@ -132,6 +132,11 @@ if [ -d "${ROOT_RUNFILE_DIR}/skills" ]; then
   fi
 fi
 
+# Copy XLoop test fixtures. The wheel ships them so that calibration_test.py
+# also runs from an installed package.
+mkdir -p xloop/testdata
+cp -L "${PLUGIN_RUNFILE_DIR}"/xprof/xloop/testdata/*.jsonl xloop/testdata/
+
 mkdir -p static
 cd static
 cp -L "$PLUGIN_RUNFILE_DIR/xprof/static/index.html" .

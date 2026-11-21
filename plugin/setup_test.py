@@ -107,6 +107,10 @@ class SetupTest(absltest.TestCase):
     self.assertIn('xprof', setup.PACKAGE_DATA)
     self.assertIn('skills/**', setup.PACKAGE_DATA['xprof'])
 
+  def test_package_data_contains_xloop_testdata(self):
+    # calibration_test.py reads this fixture from the installed package.
+    self.assertIn('xloop/testdata/*.jsonl', setup.PACKAGE_DATA['xprof'])
+
   def test_package_data_contains_hlo_descriptor_set(self):
     self.assertIn(
         'cli/internal/oss/hlo_descriptor_set.pb', setup.PACKAGE_DATA['xprof']

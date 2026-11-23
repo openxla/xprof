@@ -4,6 +4,7 @@
 #include <emscripten/html5.h>
 
 #include <cstdint>
+#include <limits>
 
 #include <gtest/gtest.h>
 #include "imgui.h"
@@ -666,6 +667,94 @@ TEST_F(InputHandlerTest, HandleWindowBlurDropsQueuedInputEvents) {
   EXPECT_FALSE(ImGui::IsMouseDown(ImGuiMouseButton_Left));
   EXPECT_FALSE(ImGui::IsMouseClicked(ImGuiMouseButton_Left));
   EXPECT_FALSE(ImGui::IsMousePosValid());
+  ImGui::EndFrame();
+}
+
+TEST_F(InputHandlerTest, HandleWheelNormalizesLineAndPageDeltaModes) {
+  ImGuiIO& io = ImGui::GetIO();
+  io.DisplaySize = ImVec2(1000.0f, 600.0f);
+
+  EmscriptenWheelEvent line_event = {};
+  line_event.deltaMode = DOM_DELTA_LINE;
+  line_event.deltaX = 2.0;
+  line_event.deltaY = -3.0;
+
+  HandleWheel(0, &line_event, nullptr);
+  io.DeltaTime = 1.0f / 60.0f;
+  ImGui::NewFrame();
+  EXPECT_FLOAT_EQ(io.MouseWheelH, 32.0f);
+  EXPECT_FLOAT_EQ(io.MouseWheel, -48.0f);
+  ImGui::EndFrame();
+
+  EmscriptenWheelEvent page_event = {};
+  page_event.deltaMode = DOM_DELTA_PAGE;
+  page_event.deltaX = 0.5;
+  page_event.deltaY = -1.0;
+
+  HandleWheel(0, &page_event, nullptr);
+  io.DeltaTime = 1.0f / 60.0f;
+  ImGui::NewFrame();
+  EXPECT_FLOAT_EQ(io.MouseWheelH, 500.0f);
+  EXPECT_FLOAT_EQ(io.MouseWheel, -600.0f);
+  ImGui::EndFrame();
+
+  // Non-positive or non-finite DisplaySize falls back to kFallbackPageSizePx
+  // (800.0f).
+  io.DisplaySize = ImVec2(0.0f, 0.0f);
+  HandleWheel(0, &page_event, nullptr);
+  io.DisplaySize = ImVec2(1000.0f, 600.0f);
+  io.DeltaTime = 1.0f / 60.0f;
+  ImGui::NewFrame();
+  EXPECT_FLOAT_EQ(io.MouseWheelH, 400.0f);
+  EXPECT_FLOAT_EQ(io.MouseWheel, -800.0f);
+  ImGui::EndFrame();
+
+  io.DisplaySize = ImVec2(std::numeric_limits<float>::infinity(),
+                          std::numeric_limits<float>::quiet_NaN());
+  HandleWheel(0, &page_event, nullptr);
+  io.DisplaySize = ImVec2(1000.0f, 600.0f);
+  io.DeltaTime = 1.0f / 60.0f;
+  ImGui::NewFrame();
+  EXPECT_FLOAT_EQ(io.MouseWheelH, 400.0f);
+  EXPECT_FLOAT_EQ(io.MouseWheel, -800.0f);
+  ImGui::EndFrame();
+}
+
+TEST_F(InputHandlerTest, HandleWheelIgnoresNonFiniteDeltas) {
+  ImGuiIO& io = ImGui::GetIO();
+  EmscriptenWheelEvent event = {};
+  event.deltaMode = DOM_DELTA_PIXEL;
+  event.deltaX = std::numeric_limits<double>::quiet_NaN();
+  event.deltaY = std::numeric_limits<double>::infinity();
+
+  HandleWheel(0, &event, nullptr);
+  io.DeltaTime = 1.0f / 60.0f;
+  ImGui::NewFrame();
+  EXPECT_FLOAT_EQ(io.MouseWheelH, 0.0f);
+  EXPECT_FLOAT_EQ(io.MouseWheel, 0.0f);
+  ImGui::EndFrame();
+
+  // Finite double values exceeding float max clamp to zero without overflow.
+  event.deltaMode = DOM_DELTA_PIXEL;
+  event.deltaX = 1e100;
+  event.deltaY = -1e100;
+  HandleWheel(0, &event, nullptr);
+  io.DeltaTime = 1.0f / 60.0f;
+  ImGui::NewFrame();
+  EXPECT_FLOAT_EQ(io.MouseWheelH, 0.0f);
+  EXPECT_FLOAT_EQ(io.MouseWheel, 0.0f);
+  ImGui::EndFrame();
+
+  // Finite values within float range that overflow float after line/page
+  // scaling also clamp to zero.
+  event.deltaMode = DOM_DELTA_LINE;
+  event.deltaX = 1e38;
+  event.deltaY = -1e38;
+  HandleWheel(0, &event, nullptr);
+  io.DeltaTime = 1.0f / 60.0f;
+  ImGui::NewFrame();
+  EXPECT_FLOAT_EQ(io.MouseWheelH, 0.0f);
+  EXPECT_FLOAT_EQ(io.MouseWheel, 0.0f);
   ImGui::EndFrame();
 }
 

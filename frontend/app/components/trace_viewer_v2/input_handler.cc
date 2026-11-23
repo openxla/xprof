@@ -5,7 +5,9 @@
 #include <emscripten/html5.h>
 
 #include <cfloat>
+#include <cmath>
 #include <cstdint>
+#include <limits>
 
 #include "absl/strings/string_view.h"
 #include "imgui.h"
@@ -121,6 +123,40 @@ EM_JS(bool, IsClientPointOverCanvas, (int client_x, int client_y), {
   const hit = document.elementFromPoint(client_x, client_y);
   return hit === canvas || (hit !== null && canvas.contains(hit));
 });
+
+// Normalizes browser DOM wheel deltas across pixel, line, and page delta modes
+// into CSS pixel units, clamping non-finite or out-of-range values to zero.
+ImVec2 NormalizeWheelDelta(const EmscriptenWheelEvent& event,
+                           ImVec2 display_size) {
+  constexpr double kWheelLineHeightPx = 16.0;
+  constexpr double kFallbackPageSizePx = 800.0;
+  double wheel_x = event.deltaX;
+  double wheel_y = event.deltaY;
+  if (event.deltaMode == DOM_DELTA_LINE) {
+    wheel_x *= kWheelLineHeightPx;
+    wheel_y *= kWheelLineHeightPx;
+  } else if (event.deltaMode == DOM_DELTA_PAGE) {
+    const double page_width =
+        (std::isfinite(display_size.x) && display_size.x > 0.0f)
+            ? static_cast<double>(display_size.x)
+            : kFallbackPageSizePx;
+    const double page_height =
+        (std::isfinite(display_size.y) && display_size.y > 0.0f)
+            ? static_cast<double>(display_size.y)
+            : kFallbackPageSizePx;
+    wheel_x *= page_width;
+    wheel_y *= page_height;
+  }
+  const auto to_finite_float = [](double value) -> float {
+    if (!std::isfinite(value) ||
+        std::abs(value) >
+            static_cast<double>(std::numeric_limits<float>::max())) {
+      return 0.0f;
+    }
+    return static_cast<float>(value);
+  };
+  return ImVec2(to_finite_float(wheel_x), to_finite_float(wheel_y));
+}
 
 }  // namespace
 
@@ -282,10 +318,8 @@ EM_BOOL HandleWheel(int, const EmscriptenWheelEvent* event, void*) {
     io.AddKeyEvent(ImGuiKey_ModShift, event->mouse.shiftKey);
     io.AddKeyEvent(ImGuiKey_ModSuper, event->mouse.metaKey);
 
-  float wheel_x = static_cast<float>(event->deltaX);
-  float wheel_y = static_cast<float>(event->deltaY);
-
-  io.AddMouseWheelEvent(wheel_x, wheel_y);
+  const ImVec2 wheel_delta = NormalizeWheelDelta(*event, io.DisplaySize);
+  io.AddMouseWheelEvent(wheel_delta.x, wheel_delta.y);
 
   return io.WantCaptureMouse;
 }

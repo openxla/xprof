@@ -2994,17 +2994,19 @@ TEST_F(MockTimelineImGuiFixture,
 
 TEST_F(MockTimelineImGuiFixture, HandleKeyboard_Comma_ZoomsIn) {
   ImGui::GetIO().AddKeyEvent(ImGuiKey_Comma, true);
-  EXPECT_CALL(timeline_, Zoom(FloatEq(1.0f - timeline_.zoom_speed() *
-                                                 ImGui::GetIO().DeltaTime),
-                              _));
+  EXPECT_CALL(timeline_,
+              Zoom(FloatEq(std::exp(-timeline_.zoom_speed() *
+                                    ImGui::GetIO().DeltaTime)),
+                   _));
   SimulateFrame();
 }
 
 TEST_F(MockTimelineImGuiFixture, HandleKeyboard_KeyO_ZoomsOut) {
   ImGui::GetIO().AddKeyEvent(ImGuiKey_O, true);
-  EXPECT_CALL(timeline_, Zoom(FloatEq(1.0f + timeline_.zoom_speed() *
-                                                 ImGui::GetIO().DeltaTime),
-                              _));
+  EXPECT_CALL(timeline_,
+              Zoom(FloatEq(std::exp(timeline_.zoom_speed() *
+                                    ImGui::GetIO().DeltaTime)),
+                   _));
   SimulateFrame();
 }
 
@@ -5826,7 +5828,7 @@ TEST_F(MockTimelineImGuiFixture, ZoomInWithMouseWheelAndCtrlKey) {
   // px_per_unit = 10.0. Pivot = 10.0.
   io.MousePos = ImVec2(GetTimelineStartX() + 100.0f, 50.0f);
 
-  const float expected_zoom_factor = 1.0f + (-1.0f) * kMouseWheelZoomSpeed;
+  const float expected_zoom_factor = std::exp(-1.0f * kMouseWheelZoomSpeed);
 
   EXPECT_CALL(timeline_, Zoom(FloatEq(expected_zoom_factor), DoubleEq(10.0)));
 
@@ -5847,7 +5849,7 @@ TEST_F(MockTimelineImGuiFixture,
   // would have given pivot = 100.0).
   io.MousePos = ImVec2(GetTimelineStartX() + 100.0f, 50.0f);
 
-  const float expected_zoom_factor = 1.0f + (-1.0f) * kMouseWheelZoomSpeed;
+  const float expected_zoom_factor = std::exp(-1.0f * kMouseWheelZoomSpeed);
 
   EXPECT_CALL(timeline_, Zoom(FloatEq(expected_zoom_factor), DoubleEq(110.0)));
 
@@ -5860,7 +5862,8 @@ TEST_F(MockTimelineImGuiFixture, ZoomInWithWKey) {
   // No acceleration is applied because io.DeltaTime (0.1f) <
   // kAccelerateThreshold (0.25f).
   EXPECT_CALL(timeline_,
-              Zoom(FloatEq(1.0f - kZoomSpeed * ImGui::GetIO().DeltaTime), _));
+              Zoom(FloatEq(std::exp(-kZoomSpeed * ImGui::GetIO().DeltaTime)),
+                   _));
 
   SimulateFrame();
 }
@@ -5874,7 +5877,8 @@ TEST_F(MockTimelineImGuiFixture, ZoomInWithWKey_Accelerated) {
   // total multiplier = 1.0f + std::min(4.0f, kMaxAccelerateFactor) = 5.0f
   EXPECT_CALL(
       timeline_,
-      Zoom(FloatEq(1.0f - kZoomSpeed * ImGui::GetIO().DeltaTime * 5.0f), _));
+      Zoom(FloatEq(std::exp(-kZoomSpeed * ImGui::GetIO().DeltaTime * 5.0f)),
+           _));
 
   SimulateFrame();
 }
@@ -5884,9 +5888,10 @@ TEST_F(MockTimelineImGuiFixture, ZoomInWithWKey_ShiftAccelerated) {
   io.AddKeyEvent(ImGuiKey_W, true);
   io.AddKeyEvent(ImGuiMod_Shift, true);
 
-  EXPECT_CALL(timeline_, Zoom(FloatEq(1.0f - kZoomSpeed * io.DeltaTime *
-                                                 kShiftZoomAccelerateFactor),
-                              _));
+  EXPECT_CALL(timeline_,
+              Zoom(FloatEq(std::exp(-kZoomSpeed * io.DeltaTime *
+                                    kShiftZoomAccelerateFactor)),
+                   _));
 
   SimulateFrame();
 }
@@ -5896,9 +5901,10 @@ TEST_F(MockTimelineImGuiFixture, ZoomOutWithSKey_ShiftAccelerated) {
   io.AddKeyEvent(ImGuiKey_S, true);
   io.AddKeyEvent(ImGuiMod_Shift, true);
 
-  EXPECT_CALL(timeline_, Zoom(FloatEq(1.0f + kZoomSpeed * io.DeltaTime *
-                                                 kShiftZoomAccelerateFactor),
-                              _));
+  EXPECT_CALL(timeline_,
+              Zoom(FloatEq(std::exp(kZoomSpeed * io.DeltaTime *
+                                    kShiftZoomAccelerateFactor)),
+                   _));
 
   SimulateFrame();
 }
@@ -5920,8 +5926,8 @@ TEST_F(MockTimelineImGuiFixture, ZoomInWithWKey_MouseInsideTimeline) {
   io.AddKeyEvent(ImGuiKey_W, true);
 
   // No acceleration is applied.
-  EXPECT_CALL(timeline_,
-              Zoom(FloatEq(1.0f - kZoomSpeed * io.DeltaTime), DoubleEq(10.0)));
+  EXPECT_CALL(timeline_, Zoom(FloatEq(std::exp(-kZoomSpeed * io.DeltaTime)),
+                              DoubleEq(10.0)));
 
   SimulateFrame();
 }
@@ -5935,8 +5941,8 @@ TEST_F(MockTimelineImGuiFixture, ZoomInWithWKey_MouseOutsideTimeline) {
   io.AddKeyEvent(ImGuiKey_W, true);
 
   // Pivot should be center of visible range [0, 165.5] -> 82.75.
-  EXPECT_CALL(timeline_,
-              Zoom(FloatEq(1.0f - kZoomSpeed * io.DeltaTime), DoubleEq(82.75)));
+  EXPECT_CALL(timeline_, Zoom(FloatEq(std::exp(-kZoomSpeed * io.DeltaTime)),
+                              DoubleEq(82.75)));
 
   SimulateFrame();
 }
@@ -5952,7 +5958,7 @@ TEST_F(MockTimelineImGuiFixture, ZoomOutWithMouseWheelAndCtrlKey) {
   // px_per_unit = 10.0. Pivot = 10.0.
   io.MousePos = ImVec2(GetTimelineStartX() + 100.0f, 50.0f);
 
-  const float expected_zoom_factor = 1.0f + 1.0f * kMouseWheelZoomSpeed;
+  const float expected_zoom_factor = std::exp(1.0f * kMouseWheelZoomSpeed);
 
   EXPECT_CALL(timeline_, Zoom(FloatEq(expected_zoom_factor), DoubleEq(10.0)));
 
@@ -5965,7 +5971,8 @@ TEST_F(MockTimelineImGuiFixture, ZoomOutWithSKey) {
   // No acceleration is applied because io.DeltaTime (0.1f) <
   // kAccelerateThreshold (0.25f).
   EXPECT_CALL(timeline_,
-              Zoom(FloatEq(1.0f + kZoomSpeed * ImGui::GetIO().DeltaTime), _));
+              Zoom(FloatEq(std::exp(kZoomSpeed * ImGui::GetIO().DeltaTime)),
+                   _));
 
   SimulateFrame();
 }
@@ -5984,7 +5991,7 @@ TEST_F(MockTimelineImGuiFixture, ConfigurableZoomSpeed) {
   ImGui::GetIO().AddKeyEvent(ImGuiKey_W, true);
 
   EXPECT_CALL(timeline_,
-              Zoom(FloatEq(1.0f - 2.5f * ImGui::GetIO().DeltaTime), _));
+              Zoom(FloatEq(std::exp(-2.5f * ImGui::GetIO().DeltaTime)), _));
 
   SimulateFrame();
 }
@@ -5995,8 +6002,69 @@ TEST_F(MockTimelineImGuiFixture, ConfigurableMouseWheelZoomSpeed) {
   io.AddMouseWheelEvent(0.0f, 1.0f);
   io.AddKeyEvent(ImGuiMod_Ctrl, true);
 
-  EXPECT_CALL(timeline_, Zoom(FloatEq(1.0f + 1.0f * 0.5f), _));
+  EXPECT_CALL(timeline_, Zoom(FloatEq(std::exp(1.0f * 0.5f)), _));
 
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       MouseWheelPhysicalPixelNotchIsCappedAndExponential) {
+  timeline_.SetVisibleRange({0.0, 165.5});
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Physical mouse wheel notch in DOM_DELTA_PIXEL (~100 CSS px): zoom in.
+  io.AddMouseWheelEvent(0.0f, -100.0f);
+  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  io.MousePos = ImVec2(GetTimelineStartX() + 100.0f, 50.0f);
+
+  const float expected_zoom_in_factor =
+      std::exp(-kMaxMouseWheelZoomDelta * kMouseWheelZoomSpeed);
+  EXPECT_CALL(timeline_,
+              Zoom(FloatEq(expected_zoom_in_factor), DoubleEq(10.0)));
+
+  SimulateFrame();
+
+  // Positive wheel delta (+100 CSS px): zoom out is symmetrically capped.
+  io.AddMouseWheelEvent(0.0f, 100.0f);
+  const float expected_zoom_out_factor =
+      std::exp(kMaxMouseWheelZoomDelta * kMouseWheelZoomSpeed);
+  EXPECT_CALL(timeline_,
+              Zoom(FloatEq(expected_zoom_out_factor), DoubleEq(10.0)));
+
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       NavigationAccelerationDisabledSuppressesHoldDurationRamp) {
+  timeline_.set_navigation_acceleration_enabled(false);
+  EXPECT_FALSE(timeline_.navigation_acceleration_enabled());
+
+  SimulateKeyHeldForDuration(ImGuiKey_W, 0.5f);
+  EXPECT_CALL(timeline_,
+              Zoom(FloatEq(std::exp(-kZoomSpeed * ImGui::GetIO().DeltaTime)),
+                   _));
+  SimulateFrame();
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_W, false);
+  SimulateFrame();
+
+  timeline_.RevealEvent(-1);
+  SimulateKeyHeldForDuration(ImGuiKey_D, 0.5f);
+  EXPECT_CALL(timeline_,
+              Pan(FloatEq(kPanningSpeed * ImGui::GetIO().DeltaTime), true));
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       NavigationAccelerationDisabledPreservesExplicitShiftMultiplier) {
+  timeline_.set_navigation_acceleration_enabled(false);
+  ImGuiIO& io = ImGui::GetIO();
+  SimulateKeyHeldForDuration(ImGuiKey_W, 0.5f);
+  io.AddKeyEvent(ImGuiMod_Shift, true);
+
+  EXPECT_CALL(timeline_,
+              Zoom(FloatEq(std::exp(-kZoomSpeed * io.DeltaTime *
+                                    kShiftZoomAccelerateFactor)),
+                   _));
   SimulateFrame();
 }
 
@@ -11352,8 +11420,98 @@ TEST_F(TimelineImGuiFixture, ZoomMode) {
   io.DeltaTime = 1.0f;
   SimulateFrame();
 
-  // Verify visible range changed.
-  EXPECT_NEAR(timeline_.visible_range().duration(), 140.0, 1.0);
+  // Verify visible range changed exponentially: 100.0 * exp(40.0 * 0.01).
+  EXPECT_NEAR(timeline_.visible_range().duration(),
+              100.0 * std::exp(40.0f * kMouseDragZoomSpeed), 1.0);
+}
+
+TEST_F(TimelineImGuiFixture,
+       ZoomModeLargeUpwardDragUsesExponentialScaleWithoutMinZoomSpike) {
+  ImGuiIO& io = ImGui::GetIO();
+  SimulateFrame();
+
+  timeline_.set_mouse_mode(MouseMode::kZoom);
+  timeline_.set_smooth_navigation_enabled(false);
+
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.name = "Group 1", .start_level = 0, .expanded = true});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+  data.entry_names.push_back("Event 1");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(900.0);
+  data.entry_self_times.push_back(900.0);
+  data.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({100.0, 200.0});
+
+  ImGuiWindow* window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(window, nullptr);
+
+  const float tracks_x = GetTimelineStartX();
+  const float start_y = window->DC.CursorStartPos.y + kRulerHeight + 120.0f;
+  io.AddMousePosEvent(tracks_x + 10.0f, start_y);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // Dragging upward by -100px previously collapsed linear 1 + (-100)*0.01 = 0
+  // to kMinZoomFactor (0.001x -> duration 0.1). Exponential scaling yields
+  // 100 * exp(-1.0) ~= 36.79 immediately with smooth navigation disabled.
+  io.AddMousePosEvent(tracks_x + 10.0f, start_y - 100.0f);
+  SimulateFrame();
+
+  EXPECT_NEAR(timeline_.visible_range().duration(),
+              100.0 * std::exp(-100.0f * kMouseDragZoomSpeed), 1e-3);
+}
+
+TEST_F(TimelineImGuiFixture,
+       SmoothNavigationDisabledSnapsTransitionsAndInFlightAnimations) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({100.0, 300.0}, /*animate=*/false);
+  EXPECT_TRUE(timeline_.smooth_navigation_enabled());
+  int redraws = 0;
+  timeline_.set_redraw_callback([&] { ++redraws; });
+
+  // Start an animated zoom while smooth navigation is enabled.
+  timeline_.Zoom(0.5f);
+  EXPECT_NE(timeline_.visible_range(), timeline_.visible_range_target());
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().duration(), 100.0);
+
+  // Enabling it again mid-transition neither snaps nor redraws.
+  int redraws_before = redraws;
+  timeline_.set_smooth_navigation_enabled(true);
+  EXPECT_NE(timeline_.visible_range(), timeline_.visible_range_target());
+  EXPECT_EQ(redraws, redraws_before);
+
+  // Disabling smooth navigation snaps the in-flight transition immediately
+  // and redraws without it.
+  timeline_.set_smooth_navigation_enabled(false);
+  EXPECT_FALSE(timeline_.smooth_navigation_enabled());
+  EXPECT_EQ(timeline_.visible_range(), timeline_.visible_range_target());
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().duration(), 100.0);
+  EXPECT_GT(redraws, redraws_before);
+
+  // Disabling it with nothing in flight has nothing to snap or redraw.
+  redraws_before = redraws;
+  timeline_.set_smooth_navigation_enabled(false);
+  EXPECT_EQ(redraws, redraws_before);
+
+  // Subsequent Zoom and keyboard Pan snap immediately without
+  // Animation::UpdateAll.
+  timeline_.Zoom(0.5f);
+  EXPECT_EQ(timeline_.visible_range(), timeline_.visible_range_target());
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().duration(), 50.0);
+
+  timeline_.RevealEvent(-1);
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_D, true);
+  SimulateFrame();
+  EXPECT_GT(timeline_.visible_range().start(), 175.0);
+  EXPECT_EQ(timeline_.visible_range(), timeline_.visible_range_target());
 }
 
 TEST_F(TimelineImGuiFixture,
@@ -11386,7 +11544,7 @@ TEST_F(TimelineImGuiFixture,
   io.AddMousePosEvent(tracks_x + 10.0f, start_y);
   SimulateFrame();
 
-  // Start drag and zoom in by dragging upward 20px.
+  // Start drag and zoom in by dragging upward 20px: 100.0 * exp(-20.0 * 0.01).
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
 
@@ -11395,7 +11553,8 @@ TEST_F(TimelineImGuiFixture,
   SimulateFrame();
 
   const double duration_after_drag = timeline_.visible_range().duration();
-  EXPECT_NEAR(duration_after_drag, 80.0, 1.0);
+  EXPECT_NEAR(duration_after_drag,
+              100.0 * std::exp(-20.0f * kMouseDragZoomSpeed), 1.0);
 
   // Simulate cursor re-entering the canvas at a distant Y coordinate after the
   // mouse button was released outside the window: button release is queued
@@ -11604,6 +11763,65 @@ TEST_F(RealTimelineImGuiFixture, ZoomOutDiscreteIncreasesDurationAroundCenter) {
   EXPECT_DOUBLE_EQ(timeline_.visible_range_target().center(), 400.0);
   EXPECT_NEAR(timeline_.visible_range_target().start(), 275.0, 1e-4);
   EXPECT_NEAR(timeline_.visible_range_target().end(), 525.0, 1e-4);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       ZoomIgnoresInvalidAndNoOpFactorsAndClampsExtremes) {
+  timeline_.set_smooth_navigation_enabled(false);
+  timeline_.set_data_time_range({0.0, 1e9});
+  timeline_.SetVisibleRange({100.0, 200.0}, /*animate=*/false);
+
+  int viewport_changes = 0;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData&) {
+        if (type == kViewportChanged) ++viewport_changes;
+      });
+
+  // NaN, negative, and unit zoom factors are ignored without side effects.
+  timeline_.Zoom(std::numeric_limits<float>::quiet_NaN(), 100.0);
+  timeline_.Zoom(-0.5f, 150.0);
+  timeline_.Zoom(-std::numeric_limits<float>::infinity(), 150.0);
+  timeline_.Zoom(1.0f, 150.0);
+  EXPECT_EQ(timeline_.visible_range_target(), TimeRange(100.0, 200.0));
+  EXPECT_EQ(viewport_changes, 0);
+
+  // Underflow to 0.0f clamps to kMinZoomFactor (0.001x).
+  timeline_.Zoom(0.0f, 150.0);
+  EXPECT_NEAR(timeline_.visible_range_target().duration(),
+              100.0 * kMinZoomFactor, 1e-6);
+  EXPECT_EQ(viewport_changes, 1);
+
+  // Overflow to +inf at pivot == start() clamps to 1.0f / kMinZoomFactor
+  // without producing 0.0 * (+inf) = -nan.
+  timeline_.SetVisibleRange({100.0, 200.0}, /*animate=*/false);
+  timeline_.Zoom(std::numeric_limits<float>::infinity(), 100.0);
+  EXPECT_TRUE(std::isfinite(timeline_.visible_range_target().start()));
+  EXPECT_TRUE(std::isfinite(timeline_.visible_range_target().end()));
+  EXPECT_NEAR(timeline_.visible_range_target().start(), 100.0, 1e-6);
+  EXPECT_NEAR(timeline_.visible_range_target().duration(),
+              100.0 / kMinZoomFactor, 1e-2);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       ShiftSZoomOutOverflowDoesNotCorruptVisibleRangeWithNaN) {
+  timeline_.set_smooth_navigation_enabled(false);
+  timeline_.set_data_time_range({0.0, 1e9});
+  timeline_.SetVisibleRange({100.0, 200.0}, /*animate=*/false);
+  timeline_.set_zoom_speed(7.5f);
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Position cursor at timeline_area.Min.x so pivot == visible_range.start().
+  io.MousePos = ImVec2(GetTimelineStartX(), 50.0f);
+  SimulateKeyHeldForDuration(ImGuiKey_S, 2.0f);
+  io.AddKeyEvent(ImGuiMod_Shift, true);
+
+  SimulateFrame();
+
+  EXPECT_TRUE(std::isfinite(timeline_.visible_range().start()));
+  EXPECT_TRUE(std::isfinite(timeline_.visible_range().end()));
+  EXPECT_NEAR(timeline_.visible_range().duration(), 100.0 / kMinZoomFactor,
+              1e-2);
 }
 
 TEST_F(RealTimelineImGuiFixture, PanFullyZoomedOutNoNotification) {

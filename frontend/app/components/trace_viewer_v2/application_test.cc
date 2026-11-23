@@ -220,5 +220,15 @@ TEST_F(ApplicationTest, ShutdownResetsDefaultTrackExpansionSettings) {
   EXPECT_TRUE(app.data_provider().default_collapsed_track_names().empty());
 }
 
+TEST_F(ApplicationTest, NavigationPreferenceSettersSafeWhenUninitialized) {
+  Application& app = Application::Instance();
+  app.Shutdown();
+
+  EXPECT_FALSE(app.IsInitialized());
+
+  app.SetSmoothNavigationEnabled(false);
+  app.SetNavigationAccelerationEnabled(false);
+  app.SetMouseWheelZoomSpeed(0.01f);
+}
 }  // namespace
 }  // namespace traceviewer

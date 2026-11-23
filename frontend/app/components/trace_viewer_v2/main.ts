@@ -581,7 +581,7 @@ function clearCachedFullTrace(): void {
   cachedFullTraceFrames = null;
 }
 
-function getCanonicalTraceCacheKey(urlObj: URL): string {
+function getCanonicalTraceCacheKey(urlObj: URL, fastMode = false): string {
   const copy = new URL(urlObj.toString());
   copy.searchParams.delete(TRACE_VIEW_OPTION.RESOLUTION);
   copy.searchParams.delete(TRACE_VIEW_OPTION.START_TIME_MS);
@@ -592,6 +592,11 @@ function getCanonicalTraceCacheKey(urlObj: URL): string {
   copy.searchParams.delete(STREAM_PARAM);
   copy.searchParams.delete('use_saved_result');
   copy.searchParams.delete('nocache');
+  // Key OPFS entries on `fastMode` rather than server-side `use_xchunk`, which
+  // is never forwarded from browser URLs by TraceViewer.
+  if (fastMode) {
+    copy.searchParams.set(ENABLE_FAST_MODE_KEY, 'true');
+  }
   copy.searchParams.sort();
   return copy.toString();
 }
@@ -1378,6 +1383,7 @@ async function fetchAndProcessCompressedTraceDataIncremental({
   abortSignal,
   timeRange,
   isRefetch = false,
+  fastMode = false,
   fetchData,
   createStreamWorker,
 }: {
@@ -1387,6 +1393,7 @@ async function fetchAndProcessCompressedTraceDataIncremental({
   abortSignal?: AbortSignal;
   timeRange?: [number, number];
   isRefetch?: boolean;
+  fastMode?: boolean;
   fetchData?: TraceDataFetcher;
   createStreamWorker?: TraceStreamWorkerFactory;
 }): Promise<boolean> {
@@ -1422,7 +1429,7 @@ async function fetchAndProcessCompressedTraceDataIncremental({
   let streamPromise: Promise<void> = Promise.resolve();
 
   try {
-    const cacheKey = getCanonicalTraceCacheKey(urlObj);
+    const cacheKey = getCanonicalTraceCacheKey(urlObj, fastMode);
     const hasInMemoryBlockCache =
       cachedFullTraceUrl === cacheKey &&
       typeof traceviewerModule.hasCachedTraceEventsIncremental === 'function' &&
@@ -1889,6 +1896,7 @@ async function fetchAndProcessTraceData({
           abortSignal,
           timeRange,
           isRefetch,
+          fastMode,
           fetchData,
           createStreamWorker,
         });

@@ -65,7 +65,7 @@ const FEATURE_FLAG_CONFIGS = [
     id: 'enable_minimap',
     name: 'Enable Minimap',
     description: 'Enable the timeline overview minimap bar in Trace Viewer.',
-    default: false,
+    default: true,
   },
 ] as const;
 

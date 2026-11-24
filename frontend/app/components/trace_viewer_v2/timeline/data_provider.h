@@ -75,7 +75,9 @@ class DataProvider {
   bool HasPendingRefetchUpdate() const;
 
   // Clears persistent session metadata and track registries, preserving
-  // host-configured default expansion settings.
+  // host-configured default expansion settings. Call
+  // `Timeline::ResetForNewDataset()` separately when switching datasets on a
+  // `Timeline`.
   void Reset();
 
   // Expands every process track by default instead of only the first process.
@@ -118,7 +120,6 @@ class DataProvider {
   absl::flat_hash_map<std::pair<ProcessId, ThreadId>, uint32_t>
       thread_sort_indices_;
   absl::flat_hash_map<ProcessId, ThreadId> xla_modules_tids_;
-  absl::flat_hash_map<GroupKey, int> max_observed_levels_;
   absl::btree_set<std::pair<ProcessId, ThreadId>> known_threads_;
   absl::btree_map<ProcessId, absl::btree_set<std::string>> known_async_tracks_;
   absl::flat_hash_set<ProcessId> known_async_processes_;
@@ -130,12 +131,6 @@ class DataProvider {
   absl::flat_hash_set<std::string> default_collapsed_track_names_;
   NowFn now_fn_;
 };
-
-// Returns restored expanded states for groups, excluding empty collapsed leaf
-// tracks so that later data window transitions that introduce events can
-// naturally expand them.
-absl::btree_map<GroupKey, bool> GetRestoredExpandedStates(
-    const std::vector<Group>& groups);
 
 namespace internal {
 void AppendTraceEventForTesting(const TraceEvent* event, int level,

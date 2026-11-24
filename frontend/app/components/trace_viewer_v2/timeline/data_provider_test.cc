@@ -14,7 +14,6 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/algorithm/container.h"
-#include "absl/container/btree_map.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
@@ -8295,42 +8294,43 @@ TEST_F(DataProviderTest,
     timeline_.SetTimelineData(std::move(data));
   }
 
-  const absl::btree_map<GroupKey, bool> restored_collapsed =
+  const ExpandedStateMap restored_collapsed =
       GetRestoredExpandedStates(timeline_.timeline_data().groups);
 
-  const GroupKey active_thread_key{
-      .nesting_level = kThreadNestingLevel,
-      .name = "Active Thread",
-      .parent_name = "Process_1",
-  };
-  const GroupKey empty_thread_key{
-      .nesting_level = kThreadNestingLevel,
-      .name = "Empty Thread",
-      .parent_name = "Process_1",
-  };
-  const GroupKey active_counter_key{
-      .nesting_level = kCounterNestingLevel,
-      .name = "Active Counter",
-      .parent_name = "Process_1",
-  };
-  const GroupKey empty_counter_key{
-      .nesting_level = kCounterNestingLevel,
-      .name = "Empty Counter",
-      .parent_name = "Process_1",
-  };
+  const ExpandedStateKey active_thread_key{
+      {.nesting_level = kThreadNestingLevel,
+       .name = "Active Thread",
+       .parent_name = "Process_1"},
+      /*is_async=*/false};
+  const ExpandedStateKey empty_thread_key{{.nesting_level = kThreadNestingLevel,
+                                           .name = "Empty Thread",
+                                           .parent_name = "Process_1"},
+                                          /*is_async=*/false};
+  const ExpandedStateKey active_counter_key{
+      {.nesting_level = kCounterNestingLevel,
+       .name = "Active Counter",
+       .parent_name = "Process_1"},
+      /*is_async=*/false};
+  const ExpandedStateKey empty_counter_key{
+      {.nesting_level = kCounterNestingLevel,
+       .name = "Empty Counter",
+       .parent_name = "Process_1"},
+      /*is_async=*/false};
 
-  // Active (non-empty) tracks retain their manually collapsed state.
+  // Active (non-empty) flame tracks retain their manually collapsed state.
+  // Counter tracks are non-expandable and excluded from restored expanded
+  // states so they cannot collide with same-named flame tracks.
   EXPECT_TRUE(restored_collapsed.contains(active_thread_key));
   EXPECT_FALSE(restored_collapsed.at(active_thread_key));
-  EXPECT_TRUE(restored_collapsed.contains(active_counter_key));
-  EXPECT_FALSE(restored_collapsed.at(active_counter_key));
+  EXPECT_FALSE(restored_collapsed.contains(active_counter_key));
 
-  // Empty collapsed tracks are excluded from restored states so future events
-  // can expand them naturally.
+  // Empty collapsed flame tracks are excluded from restored states so future
+  // events can expand them naturally.
   EXPECT_FALSE(restored_collapsed.contains(empty_thread_key));
   EXPECT_FALSE(restored_collapsed.contains(empty_counter_key));
 
-  // If an empty leaf track is explicitly expanded, it is preserved.
+  // If an empty leaf flame track is explicitly expanded, it is preserved;
+  // counters remain excluded.
   {
     FlameChartTimelineData data = timeline_.timeline_data();
     for (Group& group : data.groups) {
@@ -8339,12 +8339,11 @@ TEST_F(DataProviderTest,
     timeline_.SetTimelineData(std::move(data));
   }
 
-  const absl::btree_map<GroupKey, bool> restored_expanded =
+  const ExpandedStateMap restored_expanded =
       GetRestoredExpandedStates(timeline_.timeline_data().groups);
   EXPECT_TRUE(restored_expanded.contains(empty_thread_key));
   EXPECT_TRUE(restored_expanded.at(empty_thread_key));
-  EXPECT_TRUE(restored_expanded.contains(empty_counter_key));
-  EXPECT_TRUE(restored_expanded.at(empty_counter_key));
+  EXPECT_FALSE(restored_expanded.contains(empty_counter_key));
 }
 
 ParsedTraceEvents CreateKernelViewerLikeEvents() {
@@ -8386,9 +8385,13 @@ ParsedTraceEvents CreateKernelViewerLikeEvents() {
 }
 
 const Group* FindGroupByName(const std::vector<Group>& groups,
-                             absl::string_view name) {
+                             absl::string_view name,
+                             std::optional<bool> is_async = std::nullopt,
+                             std::optional<Group::Type> type = std::nullopt) {
   for (const Group& group : groups) {
-    if (group.name == name) {
+    if (group.name == name &&
+        (!is_async.has_value() || group.is_async == *is_async) &&
+        (!type.has_value() || group.type == *type)) {
       return &group;
     }
   }
@@ -10172,6 +10175,1704 @@ TEST_F(DataProviderTest,
                                                           timeline_));
   EXPECT_FALSE(data_provider_.HasPendingRefetchUpdate());
   data_provider_.FinishIncrementalLoad();
+}
+
+std::vector<TraceEvent> MakeDeepThreadSliceEvents(
+    ProcessId pid = 1, ThreadId tid = 1,
+    absl::string_view process_name = "Process 1",
+    absl::string_view thread_name = "Thread 1") {
+  return {
+      CreateProcessEvent(pid, std::string(process_name)),
+      CreateThreadEvent(pid, tid, std::string(thread_name)),
+      CreateCompleteEvent(pid, tid, "Event 1", /*ts=*/100.0, /*dur=*/100.0),
+      CreateCompleteEvent(pid, tid, "Event 2", /*ts=*/110.0, /*dur=*/80.0),
+      CreateCompleteEvent(pid, tid, "Event 3", /*ts=*/120.0, /*dur=*/60.0),
+  };
+}
+
+std::vector<TraceEvent> MakeShallowThreadSliceEvents(
+    ProcessId pid = 1, ThreadId tid = 1,
+    absl::string_view process_name = "Process 1",
+    absl::string_view thread_name = "Thread 1", Microseconds ts = 500.0) {
+  return {
+      CreateProcessEvent(pid, std::string(process_name)),
+      CreateThreadEvent(pid, tid, std::string(thread_name)),
+      CreateCompleteEvent(pid, tid, "Event 4", ts, /*dur=*/50.0),
+  };
+}
+
+TraceEvent CreateAsyncCompleteEvent(ProcessId pid, ThreadId tid,
+                                    absl::string_view name, Microseconds ts,
+                                    Microseconds dur) {
+  TraceEvent event = CreateCompleteEvent(pid, tid, name, ts, dur);
+  event.is_async = true;
+  return event;
+}
+
+FlameChartTimelineData MakeSeededSingleTrackData(absl::string_view process_name,
+                                                 absl::string_view thread_name,
+                                                 int level_count,
+                                                 ProcessId pid = 1,
+                                                 ThreadId tid = 10) {
+  FlameChartTimelineData data;
+  data.groups = {
+      {.type = Group::Type::kFlame,
+       .name = std::string(process_name),
+       .start_level = 0,
+       .nesting_level = kProcessNestingLevel,
+       .expanded = true,
+       .parent_index = -1,
+       .level_count = level_count,
+       .has_children = true,
+       .pid = pid},
+      {.type = Group::Type::kFlame,
+       .name = std::string(thread_name),
+       .start_level = 0,
+       .nesting_level = kThreadNestingLevel,
+       .expanded = true,
+       .parent_index = 0,
+       .level_count = level_count,
+       .pid = pid,
+       .tid = tid},
+  };
+  data.level_offsets.assign(level_count + 1, 0);
+  return data;
+}
+
+TEST_F(DataProviderTest, ProcessTrackMonotonicLevelCountRetainedAcrossSlices) {
+  // Slice 1: Process 1 has 3 overlapping events on Thread 1 (3 levels).
+  data_provider_.ProcessTraceEvents({MakeDeepThreadSliceEvents(), {}},
+                                    timeline_);
+
+  const std::vector<Group>& groups1 = timeline_.timeline_data().groups;
+  ASSERT_GE(groups1.size(), 2u);
+  EXPECT_EQ(groups1[0].name, "Process 1");
+  EXPECT_EQ(groups1[0].level_count, 3);
+  EXPECT_EQ(groups1[1].name, "Thread 1");
+  EXPECT_EQ(groups1[1].level_count, 3);
+
+  // Slice 2: Process 1 has only 1 non-overlapping event (1 level).
+  data_provider_.ProcessTraceEvents({MakeShallowThreadSliceEvents(), {}},
+                                    timeline_);
+
+  const std::vector<Group>& groups2 = timeline_.timeline_data().groups;
+  ASSERT_GE(groups2.size(), 2u);
+  EXPECT_EQ(groups2[0].name, "Process 1");
+  EXPECT_EQ(groups2[0].level_count, 3);
+  EXPECT_EQ(groups2[1].name, "Thread 1");
+  EXPECT_EQ(groups2[1].level_count, 3);
+}
+
+TEST_F(DataProviderTest, DataProviderResetAndEmptyLoadClearsObservedLevels) {
+  data_provider_.ProcessTraceEvents({MakeDeepThreadSliceEvents(), {}},
+                                    timeline_);
+  ASSERT_GE(timeline_.timeline_data().groups.size(), 2u);
+  EXPECT_EQ(timeline_.timeline_data().groups[0].level_count, 3);
+
+  data_provider_.Reset();
+  data_provider_.ProcessTraceEvents({}, timeline_);
+  EXPECT_TRUE(timeline_.observed_track_levels().empty());
+
+  data_provider_.ProcessTraceEvents({MakeShallowThreadSliceEvents(), {}},
+                                    timeline_);
+  ASSERT_GE(timeline_.timeline_data().groups.size(), 2u);
+  EXPECT_EQ(timeline_.timeline_data().groups[0].level_count, 1);
+  EXPECT_EQ(timeline_.timeline_data().groups[1].level_count, 1);
+}
+
+TEST_F(DataProviderTest,
+       ClearObservedTrackLevelsResetsMonotonicHeightOnNextLoad) {
+  data_provider_.ProcessTraceEvents({MakeDeepThreadSliceEvents(), {}},
+                                    timeline_);
+  ASSERT_GE(timeline_.timeline_data().groups.size(), 2u);
+  EXPECT_EQ(timeline_.timeline_data().groups[0].level_count, 3);
+
+  timeline_.ClearObservedTrackLevels();
+  data_provider_.ProcessTraceEvents({MakeShallowThreadSliceEvents(), {}},
+                                    timeline_);
+  ASSERT_GE(timeline_.timeline_data().groups.size(), 2u);
+  EXPECT_EQ(timeline_.timeline_data().groups[0].level_count, 1);
+  EXPECT_EQ(timeline_.timeline_data().groups[1].level_count, 1);
+}
+
+TEST_F(DataProviderTest,
+       TimelineResetForNewDatasetResetsMonotonicHeightOnNextLoad) {
+  data_provider_.ProcessTraceEvents({MakeDeepThreadSliceEvents(), {}},
+                                    timeline_);
+  ASSERT_GE(timeline_.timeline_data().groups.size(), 2u);
+  EXPECT_EQ(timeline_.timeline_data().groups[0].level_count, 3);
+
+  timeline_.ResetForNewDataset();
+  data_provider_.ProcessTraceEvents({MakeShallowThreadSliceEvents(), {}},
+                                    timeline_);
+  ASSERT_GE(timeline_.timeline_data().groups.size(), 2u);
+  EXPECT_EQ(timeline_.timeline_data().groups[0].level_count, 1);
+  EXPECT_EQ(timeline_.timeline_data().groups[1].level_count, 1);
+}
+
+TEST_F(DataProviderTest,
+       EmptyTraceOnFreshDataProviderClearsStaleTimelineObservedLevels) {
+  data_provider_.ProcessTraceEvents({MakeDeepThreadSliceEvents(), {}},
+                                    timeline_);
+  ASSERT_FALSE(timeline_.observed_track_levels().empty());
+
+  DataProvider fresh_provider;
+  fresh_provider.ProcessTraceEvents({}, timeline_);
+  EXPECT_TRUE(timeline_.observed_track_levels().empty());
+
+  fresh_provider.ProcessTraceEvents({MakeShallowThreadSliceEvents(), {}},
+                                    timeline_);
+  ASSERT_GE(timeline_.timeline_data().groups.size(), 2u);
+  EXPECT_EQ(timeline_.timeline_data().groups[0].level_count, 1);
+  EXPECT_EQ(timeline_.timeline_data().groups[1].level_count, 1);
+}
+
+TEST_F(DataProviderTest,
+       EmptyIncrementalBatchAfterResetClearsTimelineObservedLevels) {
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.MarkFinishingIncrementalLoad();
+  data_provider_.AppendTraceEventsIncremental(
+      ParsedTraceEvents{.flame_events = MakeDeepThreadSliceEvents()},
+      timeline_);
+  data_provider_.FinishIncrementalLoad();
+  ASSERT_FALSE(timeline_.observed_track_levels().empty());
+
+  data_provider_.Reset();
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.AppendTraceEventsIncremental({}, timeline_);
+  data_provider_.FinishIncrementalLoad();
+  EXPECT_TRUE(timeline_.observed_track_levels().empty());
+
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.MarkFinishingIncrementalLoad();
+  data_provider_.AppendTraceEventsIncremental(
+      ParsedTraceEvents{.flame_events = MakeShallowThreadSliceEvents()},
+      timeline_);
+  data_provider_.FinishIncrementalLoad();
+  ASSERT_GE(timeline_.timeline_data().groups.size(), 2u);
+  EXPECT_EQ(timeline_.timeline_data().groups[0].level_count, 1);
+  EXPECT_EQ(timeline_.timeline_data().groups[1].level_count, 1);
+}
+
+TEST_F(DataProviderTest,
+       EmptyIncrementalBatchOnFreshDataProviderClearsStaleObservedLevels) {
+  data_provider_.ProcessTraceEvents({MakeDeepThreadSliceEvents(), {}},
+                                    timeline_);
+  ASSERT_FALSE(timeline_.observed_track_levels().empty());
+
+  DataProvider fresh_provider;
+  fresh_provider.BeginIncrementalLoad(timeline_);
+  fresh_provider.AppendTraceEventsIncremental({}, timeline_);
+  fresh_provider.FinishIncrementalLoad();
+  EXPECT_TRUE(timeline_.observed_track_levels().empty());
+
+  fresh_provider.BeginIncrementalLoad(timeline_);
+  fresh_provider.MarkFinishingIncrementalLoad();
+  fresh_provider.AppendTraceEventsIncremental(
+      ParsedTraceEvents{.flame_events = MakeShallowThreadSliceEvents()},
+      timeline_);
+  fresh_provider.FinishIncrementalLoad();
+  ASSERT_GE(timeline_.timeline_data().groups.size(), 2u);
+  EXPECT_EQ(timeline_.timeline_data().groups[0].level_count, 1);
+  EXPECT_EQ(timeline_.timeline_data().groups[1].level_count, 1);
+}
+
+TEST_F(DataProviderTest,
+       StreamingIncrementalRefetchRetainsMonotonicLevelCountsAndResets) {
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.MarkFinishingIncrementalLoad();
+  EXPECT_TRUE(data_provider_.AppendTraceEventsIncremental(
+      ParsedTraceEvents{.flame_events = MakeDeepThreadSliceEvents()},
+      timeline_));
+  data_provider_.FinishIncrementalLoad();
+
+  ASSERT_GE(timeline_.timeline_data().groups.size(), 2u);
+  EXPECT_EQ(timeline_.timeline_data().groups[0].level_count, 3);
+  EXPECT_EQ(timeline_.timeline_data().groups[1].level_count, 3);
+
+  timeline_.SetVisibleRange({450.0, 550.0});
+  ParsedTraceEvents slice2{.flame_events = MakeShallowThreadSliceEvents()};
+  data_provider_.BeginIncrementalLoad(timeline_);
+  EXPECT_TRUE(data_provider_.last_load_was_refetch());
+  data_provider_.MarkFinishingIncrementalLoad();
+  EXPECT_TRUE(data_provider_.AppendTraceEventsIncremental(slice2, timeline_));
+  data_provider_.FinishIncrementalLoad();
+
+  ASSERT_GE(timeline_.timeline_data().groups.size(), 2u);
+  EXPECT_EQ(timeline_.timeline_data().groups[0].level_count, 3);
+  EXPECT_EQ(timeline_.timeline_data().groups[1].level_count, 3);
+  EXPECT_THAT(timeline_.timeline_data().entry_names, ElementsAre("Event 4"));
+
+  data_provider_.Reset();
+  timeline_.ResetForNewDataset();
+  data_provider_.BeginIncrementalLoad(timeline_);
+  data_provider_.MarkFinishingIncrementalLoad();
+  EXPECT_TRUE(data_provider_.AppendTraceEventsIncremental(std::move(slice2),
+                                                          timeline_));
+  data_provider_.FinishIncrementalLoad();
+
+  ASSERT_GE(timeline_.timeline_data().groups.size(), 2u);
+  EXPECT_EQ(timeline_.timeline_data().groups[0].level_count, 1);
+  EXPECT_EQ(timeline_.timeline_data().groups[1].level_count, 1);
+  EXPECT_THAT(timeline_.timeline_data().entry_names, ElementsAre("Event 4"));
+}
+
+TEST_F(DataProviderTest,
+       MultiProcessSucceedingProcessStartLevelStationaryAcrossSlices) {
+  // Slice 1: Process 1 has 3 overlapping events (3 levels), Process 2 has 1.
+  std::vector<TraceEvent> slice1_events = MakeDeepThreadSliceEvents();
+  slice1_events.push_back(CreateProcessEvent(2, "Process 2"));
+  slice1_events.push_back(CreateThreadEvent(2, 1, "Thread 1"));
+  slice1_events.push_back(
+      CreateCompleteEvent(2, 1, "P2_E1", /*ts=*/100.0, /*dur=*/50.0));
+  data_provider_.ProcessTraceEvents({slice1_events, {}}, timeline_);
+
+  const Group* p2_s1 =
+      FindGroupByName(timeline_.timeline_data().groups, "Process 2");
+  ASSERT_NE(p2_s1, nullptr);
+  EXPECT_EQ(p2_s1->start_level, 3);
+
+  // Slice 2: Process 1 has only 1 event now (shallower region).
+  std::vector<TraceEvent> slice2_events = MakeShallowThreadSliceEvents();
+  slice2_events.push_back(CreateProcessEvent(2, "Process 2"));
+  slice2_events.push_back(CreateThreadEvent(2, 1, "Thread 1"));
+  slice2_events.push_back(
+      CreateCompleteEvent(2, 1, "P2_E2", /*ts=*/500.0, /*dur=*/50.0));
+  data_provider_.ProcessTraceEvents({slice2_events, {}}, timeline_);
+
+  const Group* p2_s2 =
+      FindGroupByName(timeline_.timeline_data().groups, "Process 2");
+  ASSERT_NE(p2_s2, nullptr);
+  // Process 2's start level must stay stationary at 3 rather than shifting
+  // to 1.
+  EXPECT_EQ(p2_s2->start_level, 3);
+}
+
+TEST_F(DataProviderTest,
+       MpmdEmptyThreadRetainedAcrossSlicesWhenPreviouslyObserved) {
+  // Slice 1: Non-primary MPMD thread ("Worker Thread" on Process 1) has
+  // 2 overlapping events (2 levels).
+  ParsedTraceEvents slice1{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateThreadEvent(1, 10, "Worker Thread"),
+              CreateCompleteEvent(1, 10, "Op 1", /*ts=*/100.0, /*dur=*/100.0),
+              CreateCompleteEvent(1, 10, "Op 1b", /*ts=*/110.0, /*dur=*/80.0),
+              CreateProcessEvent(2, "Process 2"),
+              CreateThreadEvent(2, 20, "Process 2 Thread"),
+              CreateCompleteEvent(2, 20, "Op 2", /*ts=*/100.0, /*dur=*/50.0),
+          },
+      .mpmd_pipeline_view = true,
+  };
+  data_provider_.ProcessTraceEvents(slice1, timeline_);
+
+  const Group* worker_s1 =
+      FindGroupByName(timeline_.timeline_data().groups, "Worker Thread");
+  ASSERT_NE(worker_s1, nullptr);
+  EXPECT_EQ(worker_s1->level_count, 2);
+
+  // Slice 2: "Worker Thread" on Process 1 has NO events in this slice, while
+  // Process 2 still has events.
+  ParsedTraceEvents slice2{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateThreadEvent(1, 10, "Worker Thread"),
+              CreateProcessEvent(2, "Process 2"),
+              CreateThreadEvent(2, 20, "Process 2 Thread"),
+              CreateCompleteEvent(2, 20, "Op 3", /*ts=*/500.0, /*dur=*/50.0),
+          },
+      .mpmd_pipeline_view = true,
+  };
+  data_provider_.ProcessTraceEvents(slice2, timeline_);
+
+  const Group* worker_s2 =
+      FindGroupByName(timeline_.timeline_data().groups, "Worker Thread");
+  // The non-primary thread group must be retained because it was previously
+  // observed.
+  ASSERT_NE(worker_s2, nullptr);
+  EXPECT_EQ(worker_s2->level_count, 2);
+
+  // Slice 3: Panning across an idle MPMD window (even with incremental loading
+  // settled) where an unranked process has 0 events pops all groups (producing
+  // groups.empty()), which must NOT clear observed levels on the next active
+  // slice.
+  timeline_.set_is_incremental_loading(false);
+  ParsedTraceEvents idle_slice{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateProcessSortIndexEvent(
+                  1, absl::StrCat(kMpmdUnrankedSortIndexBase + 1)),
+              CreateThreadEvent(1, 10, "Worker Thread"),
+              CreateProcessEvent(2, "Process 2"),
+              CreateProcessSortIndexEvent(
+                  2, absl::StrCat(kMpmdUnrankedSortIndexBase + 2)),
+              CreateThreadEvent(2, 20, "Process 2 Thread"),
+          },
+      .mpmd_pipeline_view = true,
+  };
+  data_provider_.ProcessTraceEvents(idle_slice, timeline_);
+  EXPECT_TRUE(timeline_.timeline_data().groups.empty());
+  EXPECT_FALSE(timeline_.observed_track_levels().empty());
+
+  // Slice 4: Returning to an active slice with 1 event on "Worker Thread"
+  // preserves the observed level_count of 2 from Slice 1.
+  ParsedTraceEvents active_slice{
+      .flame_events = MakeShallowThreadSliceEvents(
+          /*pid=*/1, /*tid=*/10, "Process 1", "Worker Thread", /*ts=*/900.0),
+      .mpmd_pipeline_view = true,
+  };
+  data_provider_.ProcessTraceEvents(active_slice, timeline_);
+  const Group* worker_s4 =
+      FindGroupByName(timeline_.timeline_data().groups, "Worker Thread");
+  ASSERT_NE(worker_s4, nullptr);
+  EXPECT_EQ(worker_s4->level_count, 2);
+}
+
+TEST_F(DataProviderTest, TimelineResetAfterIdleMpmdSliceClearsObservedLevels) {
+  ParsedTraceEvents deep_slice{
+      .flame_events = MakeDeepThreadSliceEvents(/*pid=*/1, /*tid=*/10,
+                                                "Process 1", "Worker Thread"),
+      .mpmd_pipeline_view = true,
+  };
+  data_provider_.ProcessTraceEvents(deep_slice, timeline_);
+
+  timeline_.set_is_incremental_loading(false);
+  ParsedTraceEvents idle_slice{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateProcessSortIndexEvent(
+                  1, absl::StrCat(kMpmdUnrankedSortIndexBase + 1)),
+              CreateThreadEvent(1, 10, "Worker Thread"),
+          },
+      .mpmd_pipeline_view = true,
+  };
+  data_provider_.ProcessTraceEvents(idle_slice, timeline_);
+  ASSERT_TRUE(timeline_.timeline_data().groups.empty());
+  EXPECT_FALSE(timeline_.observed_track_levels().empty());
+
+  timeline_.ResetForNewDataset();
+  ParsedTraceEvents shallow_slice{
+      .flame_events = MakeShallowThreadSliceEvents(
+          /*pid=*/1, /*tid=*/10, "Process 1", "Worker Thread", /*ts=*/900.0),
+      .mpmd_pipeline_view = true,
+  };
+  data_provider_.ProcessTraceEvents(shallow_slice, timeline_);
+  const Group* worker =
+      FindGroupByName(timeline_.timeline_data().groups, "Worker Thread");
+  ASSERT_NE(worker, nullptr);
+  EXPECT_EQ(worker->level_count, 1);
+}
+
+TEST_F(DataProviderTest,
+       MpmdSingleToMultiTecTransitionPreservesObservedLevels) {
+  // Slice 1: Only TEC 0 has events (2 overlapping events -> level_count = 2);
+  // TEC 1 is empty and omitted, so TEC 0 is emitted at kThreadNestingLevel.
+  ParsedTraceEvents tec_slice1{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateThreadEvent(1, 10, "TEC 0"),
+              CreateThreadEvent(1, 11, "TEC 1"),
+              CreateCompleteEvent(1, 10, "TecOp1", /*ts=*/100.0, /*dur=*/100.0),
+              CreateCompleteEvent(1, 10, "TecOp2", /*ts=*/110.0, /*dur=*/80.0),
+              CreateProcessEvent(2, "Process 2"),
+              CreateThreadEvent(2, 20, "XLA Modules"),
+              CreateCompleteEvent(2, 20, "ModOp1", /*ts=*/100.0, /*dur=*/50.0),
+          },
+      .mpmd_pipeline_view = true,
+  };
+  data_provider_.ProcessTraceEvents(tec_slice1, timeline_);
+
+  // Slice 2: TEC 0 has 0 events and TEC 1 has 1 event, transitioning both
+  // under "TEC Tracks" at kSubTrackNestingLevel while expanding "TEC Tracks"
+  // and preserving TEC 0's observed level_count of 2.
+  ParsedTraceEvents tec_slice2{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateThreadEvent(1, 10, "TEC 0"),
+              CreateThreadEvent(1, 11, "TEC 1"),
+              CreateCompleteEvent(1, 11, "TecOp4", /*ts=*/300.0, /*dur=*/50.0),
+              CreateProcessEvent(2, "Process 2"),
+              CreateThreadEvent(2, 20, "XLA Modules"),
+              CreateCompleteEvent(2, 20, "ModOp2", /*ts=*/300.0, /*dur=*/50.0),
+          },
+      .mpmd_pipeline_view = true,
+  };
+  data_provider_.ProcessTraceEvents(tec_slice2, timeline_);
+
+  const Group* tec_tracks_s2 =
+      FindGroupByName(timeline_.timeline_data().groups, kTecTracksGroupName);
+  ASSERT_NE(tec_tracks_s2, nullptr);
+  EXPECT_TRUE(tec_tracks_s2->expanded);
+
+  // Slice 3: Both TEC 0 and TEC 1 have 0 events in this slice and are retained.
+  ParsedTraceEvents tec_slice3{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateThreadEvent(1, 10, "TEC 0"),
+              CreateThreadEvent(1, 11, "TEC 1"),
+              CreateProcessEvent(2, "Process 2"),
+              CreateThreadEvent(2, 20, "XLA Modules"),
+              CreateCompleteEvent(2, 20, "ModOp3", /*ts=*/500.0, /*dur=*/50.0),
+          },
+      .mpmd_pipeline_view = true,
+  };
+  data_provider_.ProcessTraceEvents(tec_slice3, timeline_);
+
+  const std::vector<Group>& tec_groups3 = timeline_.timeline_data().groups;
+  const Group* tec0_s3 = FindGroupByName(tec_groups3, "TEC 0");
+  const Group* tec1_s3 = FindGroupByName(tec_groups3, "TEC 1");
+  ASSERT_NE(tec0_s3, nullptr);
+  ASSERT_NE(tec1_s3, nullptr);
+  EXPECT_EQ(tec0_s3->nesting_level, kSubTrackNestingLevel);
+  EXPECT_EQ(tec0_s3->level_count, 2);
+  EXPECT_EQ(tec1_s3->nesting_level, kSubTrackNestingLevel);
+  EXPECT_EQ(tec1_s3->level_count, 1);
+}
+
+TEST_F(DataProviderTest,
+       MpmdInitiallyMultiTecProcessRemainsCollapsedAfterIdleSlice) {
+  ParsedTraceEvents multi_tec_slice{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateThreadEvent(1, 10, "TEC 0"),
+              CreateThreadEvent(1, 11, "TEC 1"),
+              CreateCompleteEvent(1, 10, "TecOpA", /*ts=*/300.0, /*dur=*/50.0),
+              CreateCompleteEvent(1, 11, "TecOpB", /*ts=*/300.0, /*dur=*/50.0),
+          },
+      .mpmd_pipeline_view = true,
+  };
+  data_provider_.ProcessTraceEvents(multi_tec_slice, timeline_);
+  const Group* multi_init =
+      FindGroupByName(timeline_.timeline_data().groups, kTecTracksGroupName);
+  ASSERT_NE(multi_init, nullptr);
+  EXPECT_FALSE(multi_init->expanded);
+
+  ParsedTraceEvents idle_mpmd_slice{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateProcessSortIndexEvent(
+                  1, absl::StrCat(kMpmdUnrankedSortIndexBase + 1)),
+              CreateThreadEvent(1, 10, "TEC 0"),
+              CreateThreadEvent(1, 11, "TEC 1"),
+          },
+      .mpmd_pipeline_view = true,
+  };
+  data_provider_.ProcessTraceEvents(idle_mpmd_slice, timeline_);
+  ASSERT_TRUE(timeline_.timeline_data().groups.empty());
+
+  data_provider_.ProcessTraceEvents(multi_tec_slice, timeline_);
+  const Group* multi_reappear =
+      FindGroupByName(timeline_.timeline_data().groups, kTecTracksGroupName);
+  ASSERT_NE(multi_reappear, nullptr);
+  EXPECT_FALSE(multi_reappear->expanded);
+}
+
+TEST_F(DataProviderTest, MultiTecToSingleTecTransitionPreservesObservedLevels) {
+  ParsedTraceEvents multi_tec_slice{
+      .flame_events = MakeDeepThreadSliceEvents(/*pid=*/1, /*tid=*/10,
+                                                "Process 1", "TEC 0"),
+  };
+  multi_tec_slice.flame_events.push_back(CreateThreadEvent(1, 11, "TEC 1"));
+  multi_tec_slice.flame_events.push_back(
+      CreateCompleteEvent(1, 11, "TecOp4", /*ts=*/100.0, /*dur=*/50.0));
+  data_provider_.ProcessTraceEvents(multi_tec_slice, timeline_);
+
+  // A subsequent slice carrying only TEC 0 emits it at kThreadNestingLevel
+  // while preserving the 3 levels previously observed under "TEC Tracks".
+  DataProvider single_tec_provider;
+  ParsedTraceEvents single_tec_slice{
+      .flame_events = MakeShallowThreadSliceEvents(/*pid=*/1, /*tid=*/10,
+                                                   "Process 1", "TEC 0"),
+  };
+  single_tec_provider.ProcessTraceEvents(single_tec_slice, timeline_);
+
+  const Group* tec0 =
+      FindGroupByName(timeline_.timeline_data().groups, "TEC 0");
+  ASSERT_NE(tec0, nullptr);
+  EXPECT_EQ(tec0->nesting_level, kThreadNestingLevel);
+  EXPECT_EQ(tec0->level_count, 3);
+  EXPECT_FALSE(tec0->is_empty);
+}
+
+TEST_F(DataProviderTest,
+       CollapsedSingleTecToMultiTecTransitionKeepsTecTracksCollapsed) {
+  ParsedTraceEvents single_tec_slice{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateThreadEvent(1, 10, "TEC 0"),
+              CreateThreadEvent(1, 11, "TEC 1"),
+              CreateCompleteEvent(1, 10, "TecOp1", /*ts=*/100.0, /*dur=*/100.0),
+              CreateCompleteEvent(1, 10, "TecOp2", /*ts=*/110.0, /*dur=*/80.0),
+          },
+      .mpmd_pipeline_view = true,
+  };
+  data_provider_.ProcessTraceEvents(single_tec_slice, timeline_);
+
+  // Simulate the user collapsing the single TEC 0 track.
+  FlameChartTimelineData collapsed_data = timeline_.timeline_data();
+  const auto it_single_tec0 = absl::c_find_if(
+      collapsed_data.groups, [](const Group& g) { return g.name == "TEC 0"; });
+  ASSERT_NE(it_single_tec0, collapsed_data.groups.end());
+  it_single_tec0->expanded = false;
+  timeline_.SetTimelineData(std::move(collapsed_data));
+
+  // Transition to multi-TEC: "TEC Tracks" must stay collapsed because the user
+  // collapsed single TEC 0, while TEC 0 preserves its observed height of 2.
+  ParsedTraceEvents multi_tec_slice{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateThreadEvent(1, 10, "TEC 0"),
+              CreateThreadEvent(1, 11, "TEC 1"),
+              CreateCompleteEvent(1, 10, "TecOp3", /*ts=*/300.0, /*dur=*/50.0),
+              CreateCompleteEvent(1, 11, "TecOp4", /*ts=*/300.0, /*dur=*/50.0),
+          },
+      .mpmd_pipeline_view = true,
+  };
+  data_provider_.ProcessTraceEvents(multi_tec_slice, timeline_);
+
+  const std::vector<Group>& groups = timeline_.timeline_data().groups;
+  const Group* tec_tracks = FindGroupByName(groups, kTecTracksGroupName);
+  ASSERT_NE(tec_tracks, nullptr);
+  EXPECT_FALSE(tec_tracks->expanded);
+  const Group* tec0 = FindGroupByName(groups, "TEC 0");
+  ASSERT_NE(tec0, nullptr);
+  EXPECT_EQ(tec0->nesting_level, kSubTrackNestingLevel);
+  EXPECT_EQ(tec0->level_count, 2);
+}
+
+TEST_F(DataProviderTest,
+       FreshDataProviderUsesTimelineObservedLevelsForMpmdAndTecTracks) {
+  ParsedTraceEvents initial_slice{
+      .flame_events = MakeDeepThreadSliceEvents(/*pid=*/1, /*tid=*/10,
+                                                "Process 1", "TEC 0"),
+      .mpmd_pipeline_view = true,
+  };
+  initial_slice.flame_events.push_back(
+      CreateThreadEvent(1, 5, "Worker Thread"));
+  initial_slice.flame_events.push_back(
+      CreateCompleteEvent(1, 5, "WorkerOp", /*ts=*/100.0, /*dur=*/50.0));
+  initial_slice.flame_events.push_back(CreateProcessEvent(2, "Process 2"));
+  initial_slice.flame_events.push_back(CreateThreadEvent(2, 20, "XLA Modules"));
+  initial_slice.flame_events.push_back(
+      CreateCompleteEvent(2, 20, "ModOp1", /*ts=*/100.0, /*dur=*/50.0));
+  data_provider_.ProcessTraceEvents(initial_slice, timeline_);
+
+  DataProvider fresh_provider;
+  ParsedTraceEvents next_slice{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateThreadEvent(1, 5, "Worker Thread"),
+              CreateThreadEvent(1, 10, "TEC 0"),
+              CreateThreadEvent(1, 11, "TEC 1"),
+              CreateCompleteEvent(1, 10, "TecOp4", /*ts=*/300.0, /*dur=*/50.0),
+              CreateCompleteEvent(1, 11, "TecOp5", /*ts=*/300.0, /*dur=*/50.0),
+              CreateProcessEvent(2, "Process 2"),
+              CreateThreadEvent(2, 20, "XLA Modules"),
+              CreateCompleteEvent(2, 20, "ModOp2", /*ts=*/300.0, /*dur=*/50.0),
+          },
+      .mpmd_pipeline_view = true,
+  };
+  fresh_provider.ProcessTraceEvents(next_slice, timeline_);
+
+  const std::vector<Group>& groups = timeline_.timeline_data().groups;
+  ASSERT_NE(FindGroupByName(groups, "Worker Thread"), nullptr);
+  const Group* tec_tracks = FindGroupByName(groups, kTecTracksGroupName);
+  ASSERT_NE(tec_tracks, nullptr);
+  EXPECT_TRUE(tec_tracks->expanded);
+  const Group* tec0 = FindGroupByName(groups, "TEC 0");
+  ASSERT_NE(tec0, nullptr);
+  EXPECT_EQ(tec0->nesting_level, kSubTrackNestingLevel);
+  EXPECT_EQ(tec0->level_count, 3);
+}
+
+TEST_F(DataProviderTest,
+       DefaultCollapsedTrackPaddedByObservedLevelsRemainsCollapsed) {
+  data_provider_.SetDefaultCollapsedTrackNames({"Worker Thread"});
+
+  // Slice 1: "Worker Thread" spans 3 levels and starts collapsed by default.
+  ParsedTraceEvents deep_slice{
+      .flame_events = MakeDeepThreadSliceEvents(/*pid=*/1, /*tid=*/10,
+                                                "Process 1", "Worker Thread"),
+      .mpmd_pipeline_view = true,
+  };
+  data_provider_.ProcessTraceEvents(deep_slice, timeline_);
+  const Group* worker1 =
+      FindGroupByName(timeline_.timeline_data().groups, "Worker Thread");
+  ASSERT_NE(worker1, nullptr);
+  EXPECT_EQ(worker1->level_count, 3);
+  EXPECT_FALSE(worker1->expanded);
+
+  // Slice 2: Idle MPMD slice drops all groups so "Worker Thread" is absent
+  // from restored expanded_states on the next slice.
+  timeline_.set_is_incremental_loading(false);
+  ParsedTraceEvents idle_slice{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateProcessSortIndexEvent(
+                  1, absl::StrCat(kMpmdUnrankedSortIndexBase + 1)),
+              CreateThreadEvent(1, 10, "Worker Thread"),
+          },
+      .mpmd_pipeline_view = true,
+  };
+  data_provider_.ProcessTraceEvents(idle_slice, timeline_);
+  ASSERT_TRUE(timeline_.timeline_data().groups.empty());
+  EXPECT_FALSE(timeline_.observed_track_levels().empty());
+
+  // Slice 3: Reloading with 1 event pads level_count to 3; because level_count
+  // > 1, "Worker Thread" must honor default_collapsed_track_names_.
+  ParsedTraceEvents single_event_slice{
+      .flame_events = MakeShallowThreadSliceEvents(
+          /*pid=*/1, /*tid=*/10, "Process 1", "Worker Thread"),
+      .mpmd_pipeline_view = true,
+  };
+  data_provider_.ProcessTraceEvents(single_event_slice, timeline_);
+  const Group* worker3 =
+      FindGroupByName(timeline_.timeline_data().groups, "Worker Thread");
+  ASSERT_NE(worker3, nullptr);
+  EXPECT_EQ(worker3->level_count, 3);
+  EXPECT_FALSE(worker3->expanded);
+}
+
+TEST_F(DataProviderTest, DatasetResetClearsObservedLevelsOnDirectNonEmptyLoad) {
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{
+          .flame_events = MakeDeepThreadSliceEvents(
+              /*pid=*/1, /*tid=*/10, "Process 1", "Worker Thread")},
+      timeline_);
+  const Group* initial_worker =
+      FindGroupByName(timeline_.timeline_data().groups, "Worker Thread");
+  ASSERT_NE(initial_worker, nullptr);
+  ASSERT_EQ(initial_worker->level_count, 3);
+
+  // Resetting the provider and timeline dataset must clear Timeline's observed
+  // high-water marks for subsequent non-empty loads without requiring an
+  // intermediate empty trace.
+  data_provider_.Reset();
+  timeline_.ResetForNewDataset();
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{
+          .flame_events = MakeShallowThreadSliceEvents(
+              /*pid=*/1, /*tid=*/10, "Process 1", "Worker Thread")},
+      timeline_);
+  const Group* worker =
+      FindGroupByName(timeline_.timeline_data().groups, "Worker Thread");
+  ASSERT_NE(worker, nullptr);
+  EXPECT_EQ(worker->level_count, 1);
+}
+
+TEST_F(DataProviderTest, MpmdUnnamedThreadRetainedAcrossSlicesViaFallbackName) {
+  // Slice 1: Process 1 has an unnamed thread (tid = 42, no thread_name
+  // metadata) with 2 overlapping events, resolving to "Thread_42".
+  ParsedTraceEvents slice1{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateCompleteEvent(1, 42, "UnnamedOp1", /*ts=*/100.0,
+                                  /*dur=*/100.0),
+              CreateCompleteEvent(1, 42, "UnnamedOp2", /*ts=*/110.0,
+                                  /*dur=*/80.0),
+              CreateProcessEvent(2, "Process 2"),
+              CreateThreadEvent(2, 20, "XLA Modules"),
+              CreateCompleteEvent(2, 20, "ModOp1", /*ts=*/100.0, /*dur=*/50.0),
+          },
+      .mpmd_pipeline_view = true,
+  };
+  data_provider_.ProcessTraceEvents(slice1, timeline_);
+  const Group* unnamed1 =
+      FindGroupByName(timeline_.timeline_data().groups, "Thread_42");
+  ASSERT_NE(unnamed1, nullptr);
+  ASSERT_EQ(unnamed1->level_count, 2);
+
+  // Slice 2: tid = 42 has 0 events and still no thread_name metadata. It must
+  // be retained in MPMD view via its fallback "Thread_42" name with its
+  // observed height preserved.
+  ParsedTraceEvents slice2{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateProcessEvent(2, "Process 2"),
+              CreateThreadEvent(2, 20, "XLA Modules"),
+              CreateCompleteEvent(2, 20, "ModOp2", /*ts=*/300.0, /*dur=*/50.0),
+          },
+      .mpmd_pipeline_view = true,
+  };
+  data_provider_.ProcessTraceEvents(slice2, timeline_);
+  const Group* unnamed2 =
+      FindGroupByName(timeline_.timeline_data().groups, "Thread_42");
+  ASSERT_NE(unnamed2, nullptr);
+  EXPECT_EQ(unnamed2->level_count, 2);
+  EXPECT_FALSE(unnamed2->is_empty);
+}
+
+TEST_F(DataProviderTest,
+       LargeObservedLevelsExpandWithinCapWithoutDroppingEvents) {
+  // Seed Timeline with an extreme high-water mark near kMaxTimelineLevels for
+  // Process 1 / Thread 1 so DataProvider emits uninflated current levels and
+  // Timeline::ApplyMonotonicGroupHeights() caps expansion without pushing
+  // Process 2 past uint16_t level range.
+  constexpr int kSeededObservedLevels = kMaxTimelineLevels - 4;
+  timeline_.SetTimelineData(MakeSeededSingleTrackData("Process 1", "Thread 1",
+                                                      kSeededObservedLevels));
+
+  constexpr int kProcess2Depth = 10;
+  ParsedTraceEvents trace{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateProcessSortIndexEvent(1, "1"),
+              CreateThreadEvent(1, 10, "Thread 1"),
+              CreateCompleteEvent(1, 10, "P1Op", /*ts=*/100.0, /*dur=*/100.0),
+              CreateProcessEvent(2, "Process 2"),
+              CreateProcessSortIndexEvent(2, "2"),
+              CreateThreadEvent(2, 20, "Thread 2"),
+          },
+  };
+  for (int i = 0; i < kProcess2Depth; ++i) {
+    trace.flame_events.push_back(
+        CreateCompleteEvent(2, 20, absl::StrCat("P2Op", i), /*ts=*/100.0 + i,
+                            /*dur=*/100.0 - 2.0 * i));
+  }
+
+  auto verify_bounded_layout = [&](const FlameChartTimelineData& data) {
+    ASSERT_EQ(data.entry_start_times.size(),
+              static_cast<size_t>(1 + kProcess2Depth));
+    EXPECT_EQ(data.total_levels(), kMaxTimelineLevels);
+    const Group* thread1 = FindGroupByName(data.groups, "Thread 1");
+    const Group* thread2 = FindGroupByName(data.groups, "Thread 2");
+    ASSERT_NE(thread1, nullptr);
+    ASSERT_NE(thread2, nullptr);
+    EXPECT_EQ(thread1->start_level, 0);
+    EXPECT_EQ(thread1->level_count, kMaxTimelineLevels - kProcess2Depth);
+    EXPECT_EQ(thread2->start_level, kMaxTimelineLevels - kProcess2Depth);
+    EXPECT_EQ(thread2->level_count, kProcess2Depth);
+    EXPECT_EQ(data.level_events(0).size(), 1u);
+    for (int i = 0; i < kProcess2Depth; ++i) {
+      const int level = kMaxTimelineLevels - kProcess2Depth + i;
+      EXPECT_EQ(data.level_events(level).size(), 1u);
+    }
+  };
+
+  // Verify the direct (uncached) ProcessTraceEvents path.
+  data_provider_.ProcessTraceEvents(trace, timeline_);
+  {
+    SCOPED_TRACE("direct ProcessTraceEvents");
+    ASSERT_NO_FATAL_FAILURE(verify_bounded_layout(timeline_.timeline_data()));
+  }
+
+  // Verify the incremental (cached track) path on a fresh Timeline so it does
+  // not vacuously re-verify ProcessTraceEvents' output.
+  Timeline incremental_timeline(palette_);
+  DataProvider incremental_provider;
+  incremental_timeline.SetTimelineData(MakeSeededSingleTrackData(
+      "Process 1", "Thread 1", kSeededObservedLevels));
+  incremental_provider.BeginIncrementalLoad(incremental_timeline);
+  incremental_provider.MarkFinishingIncrementalLoad();
+  EXPECT_TRUE(incremental_provider.AppendTraceEventsIncremental(
+      trace, incremental_timeline, TimelineFlushMode::kAutoFlush));
+  incremental_provider.FinishIncrementalLoad();
+  {
+    SCOPED_TRACE("incremental AppendTraceEventsIncremental");
+    ASSERT_NO_FATAL_FAILURE(
+        verify_bounded_layout(incremental_timeline.timeline_data()));
+  }
+}
+
+TEST_F(DataProviderTest,
+       DuplicateNamedThreadsExpandWithinCapWithoutDroppingEvents) {
+  // Two distinct threads sharing the same display name ("Process 1"/"Worker")
+  // can each independently reach 40,000 levels (fitting individually under
+  // kMaxTimelineLevels = 65,535), while summing to 80,000 together. Because
+  // DataProvider emits uninflated current levels and delegates monotonic
+  // expansion solely to Timeline::ApplyMonotonicGroupHeights(), cumulative
+  // expansion is bounded to kMaxTimelineLevels without dropping succeeding
+  // tracks' events.
+  constexpr int kSeededObservedLevels = 40000;
+  constexpr int kProcess2Depth = 5;
+  auto seed_both_workers = [&](Timeline& target_timeline) {
+    target_timeline.SetTimelineData(MakeSeededSingleTrackData(
+        "Process 1", "Worker", kSeededObservedLevels, /*pid=*/1, /*tid=*/10));
+    target_timeline.SetTimelineData(MakeSeededSingleTrackData(
+        "Process 1", "Worker", kSeededObservedLevels, /*pid=*/1, /*tid=*/11));
+  };
+  seed_both_workers(timeline_);
+
+  ParsedTraceEvents trace{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateProcessSortIndexEvent(1, "1"),
+              CreateThreadEvent(1, 10, "Worker"),
+              CreateThreadEvent(1, 11, "Worker"),
+              CreateCompleteEvent(1, 10, "W1Op", /*ts=*/100.0, /*dur=*/100.0),
+              CreateCompleteEvent(1, 11, "W2Op", /*ts=*/100.0, /*dur=*/100.0),
+              CreateProcessEvent(2, "Process 2"),
+              CreateProcessSortIndexEvent(2, "2"),
+              CreateThreadEvent(2, 20, "Thread 2"),
+          },
+  };
+  for (int i = 0; i < kProcess2Depth; ++i) {
+    trace.flame_events.push_back(
+        CreateCompleteEvent(2, 20, absl::StrCat("P2Op", i), /*ts=*/100.0 + i,
+                            /*dur=*/100.0 - 2.0 * i));
+  }
+
+  auto verify_bounded_layout = [&](const FlameChartTimelineData& data) {
+    ASSERT_EQ(data.entry_start_times.size(),
+              static_cast<size_t>(2 + kProcess2Depth));
+    EXPECT_EQ(data.total_levels(), kMaxTimelineLevels);
+    std::vector<const Group*> workers;
+    for (const Group& group : data.groups) {
+      if (group.name == "Worker") {
+        workers.push_back(&group);
+      }
+    }
+    ASSERT_EQ(workers.size(), 2u);
+    const Group* thread2 = FindGroupByName(data.groups, "Thread 2");
+    ASSERT_NE(thread2, nullptr);
+    EXPECT_EQ(workers[0]->start_level, 0);
+    EXPECT_EQ(workers[0]->level_count, kSeededObservedLevels);
+    EXPECT_EQ(workers[1]->start_level, kSeededObservedLevels);
+    EXPECT_EQ(workers[1]->level_count,
+              kMaxTimelineLevels - kSeededObservedLevels - kProcess2Depth);
+    EXPECT_EQ(thread2->start_level, kMaxTimelineLevels - kProcess2Depth);
+    EXPECT_EQ(thread2->level_count, kProcess2Depth);
+    EXPECT_EQ(data.level_events(0).size(), 1u);
+    EXPECT_EQ(data.level_events(kSeededObservedLevels).size(), 1u);
+    for (int i = 0; i < kProcess2Depth; ++i) {
+      EXPECT_EQ(
+          data.level_events(kMaxTimelineLevels - kProcess2Depth + i).size(),
+          1u);
+    }
+  };
+
+  data_provider_.ProcessTraceEvents(trace, timeline_);
+  {
+    SCOPED_TRACE("direct ProcessTraceEvents");
+    ASSERT_NO_FATAL_FAILURE(verify_bounded_layout(timeline_.timeline_data()));
+  }
+
+  Timeline incremental_timeline(palette_);
+  DataProvider incremental_provider;
+  seed_both_workers(incremental_timeline);
+  incremental_provider.BeginIncrementalLoad(incremental_timeline);
+  incremental_provider.MarkFinishingIncrementalLoad();
+  EXPECT_TRUE(incremental_provider.AppendTraceEventsIncremental(
+      trace, incremental_timeline, TimelineFlushMode::kAutoFlush));
+  incremental_provider.FinishIncrementalLoad();
+  {
+    SCOPED_TRACE("incremental AppendTraceEventsIncremental");
+    ASSERT_NO_FATAL_FAILURE(
+        verify_bounded_layout(incremental_timeline.timeline_data()));
+  }
+}
+
+TEST_F(DataProviderTest, NamedAsyncTecTrackIsolatedFromSyncMultiTecTracks) {
+  // Slice 1: Process 1 has only a named async track literally named "TEC 0"
+  // with 3 overlapping events (3 levels).
+  ParsedTraceEvents slice1{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateAsyncCompleteEvent(1, 99, "TEC 0", /*ts=*/100.0,
+                                       /*dur=*/100.0),
+              CreateAsyncCompleteEvent(1, 99, "TEC 0", /*ts=*/110.0,
+                                       /*dur=*/80.0),
+              CreateAsyncCompleteEvent(1, 99, "TEC 0", /*ts=*/120.0,
+                                       /*dur=*/60.0),
+          },
+  };
+  data_provider_.ProcessTraceEvents(slice1, timeline_);
+
+  const Group* async_tec0_s1 = FindGroupByName(timeline_.timeline_data().groups,
+                                               "TEC 0", /*is_async=*/true);
+  ASSERT_NE(async_tec0_s1, nullptr);
+  EXPECT_EQ(async_tec0_s1->nesting_level, kThreadNestingLevel);
+  EXPECT_EQ(async_tec0_s1->level_count, 3);
+  EXPECT_EQ(
+      timeline_.observed_track_levels().GetForAsyncTrack("Process 1", "TEC 0"),
+      3);
+  EXPECT_EQ(timeline_.observed_track_levels().GetForThreadTrack(
+                "Process 1", "TEC 0", /*pid=*/1, /*tid=*/10),
+            0);
+  const std::vector<ThreadId> tec_tids = {10, 11};
+  EXPECT_EQ(timeline_.observed_track_levels().FindSingleTecTransitionExpanded(
+                "Process 1", /*pid=*/1, tec_tids, ExpandedStateMap{},
+                [](ThreadId tid) { return tid == 10 ? "TEC 0" : "TEC 1"; }),
+            std::nullopt);
+
+  // Slice 2: Process 1 introduces two sync TEC tracks ("TEC 0" and "TEC 1",
+  // 1 level each) alongside the shallow named async "TEC 0" (1 event).
+  // - "TEC Tracks" must stay collapsed (not spuriously auto-expanded by the
+  //   named async "TEC 0" track's expanded state).
+  // - Sync "TEC 0" sub-track must stay at 1 level (not cross-inflated to 3 by
+  //   the named async "TEC 0" track).
+  // - Named async "TEC 0" must preserve its own 3-level high-water mark.
+  ParsedTraceEvents slice2{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateThreadEvent(1, 10, "TEC 0"),
+              CreateThreadEvent(1, 11, "TEC 1"),
+              CreateCompleteEvent(1, 10, "SyncTec0", /*ts=*/300.0,
+                                  /*dur=*/50.0),
+              CreateCompleteEvent(1, 11, "SyncTec1", /*ts=*/300.0,
+                                  /*dur=*/50.0),
+              CreateAsyncCompleteEvent(1, 99, "TEC 0", /*ts=*/300.0,
+                                       /*dur=*/50.0),
+          },
+  };
+  data_provider_.ProcessTraceEvents(slice2, timeline_);
+
+  const std::vector<Group>& groups2 = timeline_.timeline_data().groups;
+  const Group* tec_tracks_s2 = FindGroupByName(groups2, kTecTracksGroupName);
+  ASSERT_NE(tec_tracks_s2, nullptr);
+  EXPECT_FALSE(tec_tracks_s2->expanded);
+  const Group* sync_tec0_s2 =
+      FindGroupByName(groups2, "TEC 0", /*is_async=*/false);
+  const Group* async_tec0_s2 =
+      FindGroupByName(groups2, "TEC 0", /*is_async=*/true);
+  ASSERT_NE(sync_tec0_s2, nullptr);
+  ASSERT_NE(async_tec0_s2, nullptr);
+  EXPECT_EQ(sync_tec0_s2->nesting_level, kSubTrackNestingLevel);
+  EXPECT_EQ(sync_tec0_s2->level_count, 1);
+  EXPECT_EQ(async_tec0_s2->nesting_level, kThreadNestingLevel);
+  EXPECT_EQ(async_tec0_s2->level_count, 3);
+
+  // Slice 3: Sync "TEC 0" grows to 4 overlapping events (4 levels) while named
+  // async "TEC 0" stays at 1 event. Sync growth must not cross-inflate async.
+  ParsedTraceEvents slice3{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateThreadEvent(1, 10, "TEC 0"),
+              CreateThreadEvent(1, 11, "TEC 1"),
+              CreateCompleteEvent(1, 10, "Sync0_A", /*ts=*/500.0,
+                                  /*dur=*/100.0),
+              CreateCompleteEvent(1, 10, "Sync0_B", /*ts=*/510.0, /*dur=*/80.0),
+              CreateCompleteEvent(1, 10, "Sync0_C", /*ts=*/520.0, /*dur=*/60.0),
+              CreateCompleteEvent(1, 10, "Sync0_D", /*ts=*/530.0, /*dur=*/40.0),
+              CreateCompleteEvent(1, 11, "Sync1_A", /*ts=*/500.0, /*dur=*/50.0),
+              CreateAsyncCompleteEvent(1, 99, "TEC 0", /*ts=*/500.0,
+                                       /*dur=*/50.0),
+          },
+  };
+  data_provider_.ProcessTraceEvents(slice3, timeline_);
+
+  const std::vector<Group>& groups3 = timeline_.timeline_data().groups;
+  const Group* sync_tec0_s3 =
+      FindGroupByName(groups3, "TEC 0", /*is_async=*/false);
+  const Group* async_tec0_s3 =
+      FindGroupByName(groups3, "TEC 0", /*is_async=*/true);
+  ASSERT_NE(sync_tec0_s3, nullptr);
+  ASSERT_NE(async_tec0_s3, nullptr);
+  EXPECT_EQ(sync_tec0_s3->nesting_level, kSubTrackNestingLevel);
+  EXPECT_EQ(sync_tec0_s3->level_count, 4);
+  EXPECT_EQ(async_tec0_s3->nesting_level, kThreadNestingLevel);
+  EXPECT_EQ(async_tec0_s3->level_count, 3);
+}
+
+TEST_F(DataProviderTest,
+       ExpandedNamedAsyncTecDoesNotAutoExpandTecTracksOverCollapsedSyncTec) {
+  // Slice 1: Process 1 has a single sync "TEC 0" (2 overlapping events so it is
+  // collapsible) alongside a named async "TEC 0". Collapse sync "TEC 0" while
+  // keeping named async "TEC 0" expanded.
+  ParsedTraceEvents slice1{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateThreadEvent(1, 10, "TEC 0"),
+              CreateCompleteEvent(1, 10, "SyncOp1", /*ts=*/100.0,
+                                  /*dur=*/100.0),
+              CreateCompleteEvent(1, 10, "SyncOp2", /*ts=*/110.0, /*dur=*/80.0),
+              CreateAsyncCompleteEvent(1, 99, "TEC 0", /*ts=*/100.0,
+                                       /*dur=*/50.0),
+          },
+  };
+  data_provider_.ProcessTraceEvents(slice1, timeline_);
+  {
+    FlameChartTimelineData data = timeline_.timeline_data();
+    for (Group& group : data.groups) {
+      if (group.name == "TEC 0") {
+        group.expanded = group.is_async;
+      }
+    }
+    timeline_.SetTimelineData(std::move(data));
+  }
+  const Group* sync_tec0_s1 = FindGroupByName(timeline_.timeline_data().groups,
+                                              "TEC 0", /*is_async=*/false);
+  const Group* async_tec0_s1 = FindGroupByName(timeline_.timeline_data().groups,
+                                               "TEC 0", /*is_async=*/true);
+  ASSERT_NE(sync_tec0_s1, nullptr);
+  ASSERT_NE(async_tec0_s1, nullptr);
+  ASSERT_FALSE(sync_tec0_s1->expanded);
+  ASSERT_TRUE(async_tec0_s1->expanded);
+
+  // Slice 2: Process 1 transitions to multi-TEC by adding sync "TEC 1".
+  // Expanded named async "TEC 0" must not overwrite collapsed sync "TEC 0" or
+  // spuriously auto-expand "TEC Tracks".
+  ParsedTraceEvents slice2{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateThreadEvent(1, 10, "TEC 0"),
+              CreateThreadEvent(1, 11, "TEC 1"),
+              CreateCompleteEvent(1, 10, "SyncOp1", /*ts=*/200.0,
+                                  /*dur=*/100.0),
+              CreateCompleteEvent(1, 10, "SyncOp2", /*ts=*/210.0, /*dur=*/80.0),
+              CreateCompleteEvent(1, 11, "Sync1Op", /*ts=*/200.0, /*dur=*/50.0),
+              CreateAsyncCompleteEvent(1, 99, "TEC 0", /*ts=*/200.0,
+                                       /*dur=*/50.0),
+          },
+  };
+  data_provider_.ProcessTraceEvents(slice2, timeline_);
+
+  const std::vector<Group>& groups2 = timeline_.timeline_data().groups;
+  const Group* tec_tracks_s2 = FindGroupByName(groups2, kTecTracksGroupName);
+  const Group* sync_tec0_s2 =
+      FindGroupByName(groups2, "TEC 0", /*is_async=*/false);
+  const Group* async_tec0_s2 =
+      FindGroupByName(groups2, "TEC 0", /*is_async=*/true);
+  ASSERT_NE(tec_tracks_s2, nullptr);
+  ASSERT_NE(sync_tec0_s2, nullptr);
+  ASSERT_NE(async_tec0_s2, nullptr);
+  EXPECT_FALSE(tec_tracks_s2->expanded);
+  EXPECT_FALSE(sync_tec0_s2->expanded);
+  EXPECT_TRUE(async_tec0_s2->expanded);
+}
+
+TEST_F(DataProviderTest,
+       EmptyLoadPreservesUserStateAndClearsIncrementalExpandedState) {
+  // Populate timeline with user state (bookmark, search, selected time range)
+  // and a collapsed thread, and settle incremental loading to false.
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = MakeDeepThreadSliceEvents()},
+      timeline_);
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.AddBookmark(150.0);
+  timeline_.AddSelectedTimeRange({110.0, 140.0});
+  timeline_.SetSearchQuery("Event");
+  timeline_.set_is_incremental_loading(false);
+  timeline_.MarkCurrentDataAsFullOverview();
+  ASSERT_EQ(timeline_.bookmarks().size(), 1u);
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1u);
+  ASSERT_GT(timeline_.get_search_results_count(), 0);
+  ASSERT_FALSE(timeline_.observed_track_levels().empty());
+
+  // 1. Direct ProcessTraceEvents({}, timeline_) on a reset provider must clear
+  // observed levels and saved overview while preserving bookmarks, search
+  // results, selected time ranges, and is_incremental_loading() == false.
+  data_provider_.Reset();
+  data_provider_.ProcessTraceEvents({}, timeline_);
+  EXPECT_TRUE(timeline_.observed_track_levels().empty());
+  EXPECT_FALSE(timeline_.is_showing_full_overview());
+  EXPECT_FALSE(timeline_.is_incremental_loading());
+  EXPECT_THAT(timeline_.bookmarks(), ElementsAre(150.0));
+  EXPECT_THAT(timeline_.selected_time_ranges(),
+              ElementsAre(TimeRange(110.0, 140.0)));
+  EXPECT_GT(timeline_.get_search_results_count(), 0);
+
+  // 2. Empty initial chunk in AppendTraceEventsIncremental must preserve user
+  // state and clear pre-reset IncrementalState (`base_expanded_states`,
+  // `last_emitted_expanded_states`, `initial_data_time_range`) so a subsequent
+  // non-empty chunk does not resurrect prior collapsed state.
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{.flame_events = MakeDeepThreadSliceEvents()},
+      timeline_);
+  {
+    FlameChartTimelineData data = timeline_.timeline_data();
+    for (Group& group : data.groups) {
+      if (group.name == "Thread 1") group.expanded = false;
+    }
+    timeline_.SetTimelineData(std::move(data));
+  }
+  timeline_.set_is_incremental_loading(false);
+
+  data_provider_.Reset();
+  data_provider_.BeginIncrementalLoad(timeline_);
+  EXPECT_FALSE(data_provider_.AppendTraceEventsIncremental({}, timeline_));
+  EXPECT_TRUE(timeline_.observed_track_levels().empty());
+  EXPECT_FALSE(timeline_.is_incremental_loading());
+  EXPECT_THAT(timeline_.bookmarks(), ElementsAre(150.0));
+  EXPECT_GT(timeline_.get_search_results_count(), 0);
+
+  data_provider_.MarkFinishingIncrementalLoad();
+  EXPECT_TRUE(data_provider_.AppendTraceEventsIncremental(
+      ParsedTraceEvents{.flame_events = MakeShallowThreadSliceEvents()},
+      timeline_));
+  data_provider_.FinishIncrementalLoad();
+
+  const Group* thread1 =
+      FindGroupByName(timeline_.timeline_data().groups, "Thread 1");
+  ASSERT_NE(thread1, nullptr);
+  EXPECT_TRUE(thread1->expanded);
+  EXPECT_EQ(thread1->level_count, 1);
+  EXPECT_EQ(timeline_.data_time_range(), TimeRange(500.0, 550.0));
+}
+
+TEST_F(DataProviderTest,
+       SameNamedCounterAndSyncFlameTrackDoNotCollideInExpandedStates) {
+  data_provider_.SetDefaultCollapsedTrackNames({"Shared"});
+  auto make_slice = [&](Microseconds ts) {
+    return ParsedTraceEvents{
+        .flame_events =
+            {
+                CreateProcessEvent(1, "Process 1"),
+                CreateThreadEvent(1, 10, "Shared"),
+                CreateCompleteEvent(1, 10, "Op1", ts, /*dur=*/100.0),
+                CreateCompleteEvent(1, 10, "Op2", ts + 10.0, /*dur=*/80.0),
+            },
+        .counter_events =
+            {
+                {.pid = 1,
+                 .name = "Shared",
+                 .timestamps = {ts, ts + 50.0},
+                 .values = {1.0, 2.0}},
+            },
+    };
+  };
+
+  // Slice 1: default-collapsed sync flame "Shared" starts collapsed while
+  // same-named counter "Shared" is expanded.
+  data_provider_.ProcessTraceEvents(make_slice(100.0), timeline_);
+  const Group* flame1 =
+      FindGroupByName(timeline_.timeline_data().groups, "Shared",
+                      /*is_async=*/false, Group::Type::kFlame);
+  const Group* counter1 =
+      FindGroupByName(timeline_.timeline_data().groups, "Shared",
+                      /*is_async=*/false, Group::Type::kCounter);
+  ASSERT_NE(flame1, nullptr);
+  ASSERT_NE(counter1, nullptr);
+  EXPECT_FALSE(flame1->expanded);
+  EXPECT_TRUE(counter1->expanded);
+
+  // Slice 2: reloading must NOT let counter "Shared" (`expanded = true`)
+  // override collapsed sync flame "Shared".
+  data_provider_.ProcessTraceEvents(make_slice(300.0), timeline_);
+  const Group* flame2 =
+      FindGroupByName(timeline_.timeline_data().groups, "Shared",
+                      /*is_async=*/false, Group::Type::kFlame);
+  const Group* counter2 =
+      FindGroupByName(timeline_.timeline_data().groups, "Shared",
+                      /*is_async=*/false, Group::Type::kCounter);
+  ASSERT_NE(flame2, nullptr);
+  ASSERT_NE(counter2, nullptr);
+  EXPECT_FALSE(flame2->expanded);
+  EXPECT_TRUE(counter2->expanded);
+}
+
+TEST_F(DataProviderTest,
+       CollapsedTecStateBridgesRoundTripSingleMultiAndHonorsDefaultCollapsed) {
+  auto make_single_tec0 = [&](Microseconds ts) {
+    return ParsedTraceEvents{
+        .flame_events =
+            {
+                CreateProcessEvent(1, "Process 1"),
+                CreateThreadEvent(1, 10, "TEC 0"),
+                CreateCompleteEvent(1, 10, "A", ts, /*dur=*/100.0),
+                CreateCompleteEvent(1, 10, "B", ts + 10.0, /*dur=*/80.0),
+            },
+        .mpmd_pipeline_view = true,
+    };
+  };
+  auto make_multi_tec = [&](Microseconds ts) {
+    return ParsedTraceEvents{
+        .flame_events =
+            {
+                CreateProcessEvent(1, "Process 1"),
+                CreateThreadEvent(1, 10, "TEC 0"),
+                CreateThreadEvent(1, 11, "TEC 1"),
+                CreateCompleteEvent(1, 10, "A", ts, /*dur=*/100.0),
+                CreateCompleteEvent(1, 10, "B", ts + 10.0, /*dur=*/80.0),
+                CreateCompleteEvent(1, 11, "C", ts, /*dur=*/50.0),
+            },
+        .mpmd_pipeline_view = true,
+    };
+  };
+
+  // 1. Round-trip single -> multi -> single with collapsed TEC 0.
+  {
+    Timeline tl(palette_);
+    DataProvider dp;
+    dp.ProcessTraceEvents(make_single_tec0(100.0), tl);
+    {
+      FlameChartTimelineData data = tl.timeline_data();
+      for (Group& g : data.groups) {
+        if (g.name == "TEC 0") g.expanded = false;
+      }
+      tl.SetTimelineData(std::move(data));
+    }
+
+    dp.ProcessTraceEvents(make_multi_tec(300.0), tl);
+    const Group* tec_tracks =
+        FindGroupByName(tl.timeline_data().groups, kTecTracksGroupName);
+    const Group* tec0_sub = FindGroupByName(tl.timeline_data().groups, "TEC 0");
+    ASSERT_NE(tec_tracks, nullptr);
+    ASSERT_NE(tec0_sub, nullptr);
+    EXPECT_FALSE(tec_tracks->expanded);
+    EXPECT_EQ(tec0_sub->nesting_level, kSubTrackNestingLevel);
+    EXPECT_FALSE(tec0_sub->expanded);
+
+    // Return to single TEC 0 (via a fresh provider simulating filtered slice).
+    DataProvider single_dp;
+    single_dp.ProcessTraceEvents(make_single_tec0(500.0), tl);
+    const Group* tec0_single =
+        FindGroupByName(tl.timeline_data().groups, "TEC 0");
+    ASSERT_NE(tec0_single, nullptr);
+    EXPECT_EQ(tec0_single->nesting_level, kThreadNestingLevel);
+    EXPECT_FALSE(tec0_single->expanded);
+  }
+
+  // 2. Round-trip multi -> single -> multi with collapsed TEC 0 sub-track.
+  {
+    Timeline tl(palette_);
+    DataProvider dp;
+    dp.ProcessTraceEvents(make_multi_tec(100.0), tl);
+    {
+      FlameChartTimelineData data = tl.timeline_data();
+      for (Group& g : data.groups) {
+        if (g.name == kTecTracksGroupName) g.expanded = true;
+        if (g.name == "TEC 0") g.expanded = false;
+      }
+      tl.SetTimelineData(std::move(data));
+    }
+
+    DataProvider single_dp;
+    single_dp.ProcessTraceEvents(make_single_tec0(300.0), tl);
+    const Group* tec0_single =
+        FindGroupByName(tl.timeline_data().groups, "TEC 0");
+    ASSERT_NE(tec0_single, nullptr);
+    EXPECT_EQ(tec0_single->nesting_level, kThreadNestingLevel);
+    EXPECT_FALSE(tec0_single->expanded);
+
+    dp.ProcessTraceEvents(make_multi_tec(500.0), tl);
+    const Group* tec_tracks =
+        FindGroupByName(tl.timeline_data().groups, kTecTracksGroupName);
+    const Group* tec0_sub = FindGroupByName(tl.timeline_data().groups, "TEC 0");
+    ASSERT_NE(tec_tracks, nullptr);
+    ASSERT_NE(tec0_sub, nullptr);
+    EXPECT_FALSE(tec_tracks->expanded);
+    EXPECT_FALSE(tec0_sub->expanded);
+  }
+
+  // 3. default_collapsed_track_names_ applies to multi-level TEC sub-tracks.
+  {
+    Timeline tl(palette_);
+    DataProvider dp;
+    dp.SetDefaultCollapsedTrackNames({"TEC 0"});
+    dp.ProcessTraceEvents(make_multi_tec(100.0), tl);
+    const Group* tec0_sub = FindGroupByName(tl.timeline_data().groups, "TEC 0");
+    ASSERT_NE(tec0_sub, nullptr);
+    EXPECT_EQ(tec0_sub->nesting_level, kSubTrackNestingLevel);
+    EXPECT_FALSE(tec0_sub->expanded);
+  }
+}
+
+TEST_F(DataProviderTest,
+       TecTracksDoesNotAutoExpandWhenSecondStandaloneTecIsCollapsed) {
+  // Single TEC 0 (expanded) -> Single TEC 1 (collapsed) -> Multi TEC must NOT
+  // auto-expand "TEC Tracks" due to stale TEC 0.
+  DataProvider slice1_provider;
+  slice1_provider.ProcessTraceEvents(
+      ParsedTraceEvents{
+          .flame_events =
+              {
+                  CreateProcessEvent(1, "Process 1"),
+                  CreateThreadEvent(1, 10, "TEC 0"),
+                  CreateCompleteEvent(1, 10, "A", 100.0, 100.0),
+                  CreateCompleteEvent(1, 10, "B", 110.0, 80.0),
+              },
+      },
+      timeline_);
+
+  DataProvider slice2_provider;
+  slice2_provider.ProcessTraceEvents(
+      ParsedTraceEvents{
+          .flame_events =
+              {
+                  CreateProcessEvent(1, "Process 1"),
+                  CreateThreadEvent(1, 11, "TEC 1"),
+                  CreateCompleteEvent(1, 11, "C", 200.0, 100.0),
+                  CreateCompleteEvent(1, 11, "D", 210.0, 80.0),
+              },
+      },
+      timeline_);
+  {
+    FlameChartTimelineData data = timeline_.timeline_data();
+    for (Group& group : data.groups) {
+      if (group.name == "TEC 1") group.expanded = false;
+    }
+    timeline_.SetTimelineData(std::move(data));
+  }
+
+  DataProvider slice3_provider;
+  slice3_provider.ProcessTraceEvents(
+      ParsedTraceEvents{
+          .flame_events =
+              {
+                  CreateProcessEvent(1, "Process 1"),
+                  CreateThreadEvent(1, 10, "TEC 0"),
+                  CreateThreadEvent(1, 11, "TEC 1"),
+                  CreateCompleteEvent(1, 10, "E", 300.0, 50.0),
+                  CreateCompleteEvent(1, 11, "F", 300.0, 50.0),
+              },
+      },
+      timeline_);
+  const Group* tec_tracks =
+      FindGroupByName(timeline_.timeline_data().groups, kTecTracksGroupName);
+  ASSERT_NE(tec_tracks, nullptr);
+  EXPECT_FALSE(tec_tracks->expanded);
+}
+
+TEST_F(DataProviderTest,
+       TecTracksDoesNotAutoExpandAfterCollapsedSingleTecAndIdleMpmdSlice) {
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{
+          .flame_events =
+              {
+                  CreateProcessEvent(1, "Process 1"),
+                  CreateThreadEvent(1, 10, "TEC 0"),
+                  CreateCompleteEvent(1, 10, "A", 100.0, 100.0),
+                  CreateCompleteEvent(1, 10, "B", 110.0, 80.0),
+              },
+          .mpmd_pipeline_view = true,
+      },
+      timeline_);
+  {
+    FlameChartTimelineData data = timeline_.timeline_data();
+    for (Group& group : data.groups) {
+      if (group.name == "TEC 0") group.expanded = false;
+    }
+    timeline_.SetTimelineData(std::move(data));
+  }
+  timeline_.set_is_incremental_loading(false);
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{
+          .flame_events =
+              {
+                  CreateProcessEvent(1, "Process 1"),
+                  CreateProcessSortIndexEvent(
+                      1, absl::StrCat(kMpmdUnrankedSortIndexBase + 1)),
+                  CreateThreadEvent(1, 10, "TEC 0"),
+              },
+          .mpmd_pipeline_view = true,
+      },
+      timeline_);
+  ASSERT_TRUE(timeline_.timeline_data().groups.empty());
+
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{
+          .flame_events =
+              {
+                  CreateProcessEvent(1, "Process 1"),
+                  CreateThreadEvent(1, 10, "TEC 0"),
+                  CreateThreadEvent(1, 11, "TEC 1"),
+                  CreateCompleteEvent(1, 10, "C", 300.0, 50.0),
+                  CreateCompleteEvent(1, 11, "D", 300.0, 50.0),
+              },
+          .mpmd_pipeline_view = true,
+      },
+      timeline_);
+  const Group* tec_tracks =
+      FindGroupByName(timeline_.timeline_data().groups, kTecTracksGroupName);
+  ASSERT_NE(tec_tracks, nullptr);
+  EXPECT_FALSE(tec_tracks->expanded);
+}
+
+TEST_F(DataProviderTest,
+       TecTracksDoesNotAutoExpandMidInitialIncrementalStream) {
+  data_provider_.BeginIncrementalLoad(timeline_);
+  EXPECT_TRUE(data_provider_.AppendTraceEventsIncremental(
+      ParsedTraceEvents{
+          .flame_events =
+              {
+                  CreateProcessEvent(1, "Process 1"),
+                  CreateThreadEvent(1, 10, "TEC 0"),
+                  CreateCompleteEvent(1, 10, "A", 100.0, 50.0),
+              },
+      },
+      timeline_));
+  ASSERT_NE(FindGroupByName(timeline_.timeline_data().groups, "TEC 0"),
+            nullptr);
+
+  data_provider_.MarkFinishingIncrementalLoad();
+  EXPECT_TRUE(data_provider_.AppendTraceEventsIncremental(
+      ParsedTraceEvents{
+          .flame_events =
+              {
+                  CreateThreadEvent(1, 11, "TEC 1"),
+                  CreateCompleteEvent(1, 11, "B", 200.0, 50.0),
+              },
+      },
+      timeline_));
+  data_provider_.FinishIncrementalLoad();
+
+  const Group* tec_tracks =
+      FindGroupByName(timeline_.timeline_data().groups, kTecTracksGroupName);
+  ASSERT_NE(tec_tracks, nullptr);
+  EXPECT_FALSE(tec_tracks->expanded);
+}
+
+TEST_F(DataProviderTest,
+       TecTracksDoesNotAutoExpandAfterCollapsingEmptyStandaloneTecTrack) {
+  // Slice 1 & 2: Process 1 has an empty expanded standalone TEC 0, so
+  // `SyncSingleTecExpandedStates` records an expanded standalone TEC entry
+  // while the track remains `is_empty = true`.
+  ParsedTraceEvents empty_tec0{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateThreadEvent(1, 10, "TEC 0"),
+          },
+  };
+  data_provider_.ProcessTraceEvents(empty_tec0, timeline_);
+  data_provider_.ProcessTraceEvents(empty_tec0, timeline_);
+  const Group* tec0_before_collapse =
+      FindGroupByName(timeline_.timeline_data().groups, "TEC 0");
+  ASSERT_NE(tec0_before_collapse, nullptr);
+  ASSERT_TRUE(tec0_before_collapse->is_empty);
+  ASSERT_TRUE(tec0_before_collapse->expanded);
+
+  // User collapses the empty standalone TEC 0 row before a multi-TEC reload.
+  {
+    FlameChartTimelineData data = timeline_.timeline_data();
+    for (Group& group : data.groups) {
+      if (group.name == "TEC 0") {
+        group.expanded = false;
+      }
+    }
+    timeline_.SetTimelineData(std::move(data));
+  }
+  const Group* tec0_collapsed =
+      FindGroupByName(timeline_.timeline_data().groups, "TEC 0");
+  ASSERT_NE(tec0_collapsed, nullptr);
+  ASSERT_TRUE(tec0_collapsed->is_empty);
+  ASSERT_FALSE(tec0_collapsed->expanded);
+
+  // Slice 3: Process 1 transitions to multi-TEC. `SyncSingleTecExpandedStates`
+  // must erase the stale expanded standalone record for the empty collapsed
+  // TEC 0 row so `"TEC Tracks"` stays collapsed.
+  data_provider_.ProcessTraceEvents(
+      ParsedTraceEvents{
+          .flame_events =
+              {
+                  CreateProcessEvent(1, "Process 1"),
+                  CreateThreadEvent(1, 10, "TEC 0"),
+                  CreateThreadEvent(1, 11, "TEC 1"),
+                  CreateCompleteEvent(1, 10, "C", 300.0, 50.0),
+                  CreateCompleteEvent(1, 11, "D", 300.0, 50.0),
+              },
+      },
+      timeline_);
+  const Group* tec_tracks =
+      FindGroupByName(timeline_.timeline_data().groups, kTecTracksGroupName);
+  ASSERT_NE(tec_tracks, nullptr);
+  EXPECT_FALSE(tec_tracks->expanded);
+}
+
+TEST_F(DataProviderTest,
+       DuplicateNamedMpmdThreadsPruneUnobservedSiblingAndIsolateHeight) {
+  // Slice 1: Process 1 has two distinct threads named "ThreadPool":
+  // - tid=101 has 10 overlapping events (10 levels),
+  // - tid=102 has 0 events (metadata-only never-active sibling in MPMD mode).
+  ParsedTraceEvents slice1{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateThreadEvent(1, 101, "ThreadPool"),
+              CreateThreadEvent(1, 102, "ThreadPool"),
+              CreateProcessEvent(2, "Process 2"),
+              CreateThreadEvent(2, 20, "XLA Modules"),
+              CreateCompleteEvent(2, 20, "ModOp1", /*ts=*/100.0, /*dur=*/50.0),
+          },
+      .mpmd_pipeline_view = true,
+  };
+  for (int i = 0; i < 10; ++i) {
+    slice1.flame_events.push_back(CreateCompleteEvent(
+        1, 101, absl::StrCat("DeepOp", i), 100.0 + i, 100.0 - 2.0 * i));
+  }
+  data_provider_.ProcessTraceEvents(slice1, timeline_);
+
+  std::vector<const Group*> pool_groups_s1;
+  for (const Group& group : timeline_.timeline_data().groups) {
+    if (group.name == "ThreadPool") pool_groups_s1.push_back(&group);
+  }
+  ASSERT_EQ(pool_groups_s1.size(), 1u);
+  EXPECT_EQ(pool_groups_s1[0]->tid, 101u);
+  EXPECT_EQ(pool_groups_s1[0]->level_count, 10);
+
+  // Slice 2: Both tid=101 and tid=102 have 0 events. Only previously active
+  // tid=101 must be retained (at height 10); never-active tid=102 must still
+  // be pruned instead of inheriting tid=101's observed levels by name.
+  ParsedTraceEvents slice2{
+      .flame_events =
+          {
+              CreateProcessEvent(1, "Process 1"),
+              CreateThreadEvent(1, 101, "ThreadPool"),
+              CreateThreadEvent(1, 102, "ThreadPool"),
+              CreateProcessEvent(2, "Process 2"),
+              CreateThreadEvent(2, 20, "XLA Modules"),
+              CreateCompleteEvent(2, 20, "ModOp2", /*ts=*/300.0, /*dur=*/50.0),
+          },
+      .mpmd_pipeline_view = true,
+  };
+  data_provider_.ProcessTraceEvents(slice2, timeline_);
+
+  std::vector<const Group*> pool_groups_s2;
+  for (const Group& group : timeline_.timeline_data().groups) {
+    if (group.name == "ThreadPool") pool_groups_s2.push_back(&group);
+  }
+  ASSERT_EQ(pool_groups_s2.size(), 1u);
+  EXPECT_EQ(pool_groups_s2[0]->tid, 101u);
+  EXPECT_EQ(pool_groups_s2[0]->level_count, 10);
+}
+
+TEST_F(DataProviderTest,
+       DirectReloadIsolatesSameNamedSyncAndAsyncExpandedStates) {
+  auto make_shared_slice = [&](Microseconds ts) {
+    return ParsedTraceEvents{
+        .flame_events =
+            {
+                CreateProcessEvent(1, "Process 1"),
+                CreateThreadEvent(1, 10, "Shared"),
+                CreateCompleteEvent(1, 10, "Sync1", ts, 100.0),
+                CreateCompleteEvent(1, 10, "Sync2", ts + 10.0, 80.0),
+                CreateAsyncCompleteEvent(1, 99, "Shared", ts, 100.0),
+                CreateAsyncCompleteEvent(1, 99, "Shared", ts + 10.0, 80.0),
+            },
+    };
+  };
+  data_provider_.ProcessTraceEvents(make_shared_slice(100.0), timeline_);
+  {
+    FlameChartTimelineData data = timeline_.timeline_data();
+    for (Group& group : data.groups) {
+      if (group.name == "Shared") group.expanded = group.is_async;
+    }
+    timeline_.SetTimelineData(std::move(data));
+  }
+  data_provider_.ProcessTraceEvents(make_shared_slice(300.0), timeline_);
+  const Group* sync_group = FindGroupByName(timeline_.timeline_data().groups,
+                                            "Shared", /*is_async=*/false);
+  const Group* async_group = FindGroupByName(timeline_.timeline_data().groups,
+                                             "Shared", /*is_async=*/true);
+  ASSERT_NE(sync_group, nullptr);
+  ASSERT_NE(async_group, nullptr);
+  EXPECT_FALSE(sync_group->expanded);
+  EXPECT_TRUE(async_group->expanded);
+}
+
+TEST_F(DataProviderTest,
+       MultiFlushStreamingAndRefetchIsolateSyncAsyncAndBridgeTecCollapses) {
+  data_provider_.BeginIncrementalLoad(timeline_);
+
+  // Flush 1 (not finishing).
+  EXPECT_TRUE(data_provider_.AppendTraceEventsIncremental(
+      ParsedTraceEvents{
+          .flame_events =
+              {
+                  CreateProcessEvent(1, "Process 1"),
+                  CreateThreadEvent(1, 10, "Shared"),
+                  CreateCompleteEvent(1, 10, "S1", 100.0, 100.0),
+                  CreateCompleteEvent(1, 10, "S2", 110.0, 80.0),
+                  CreateAsyncCompleteEvent(1, 99, "Shared", 100.0, 100.0),
+                  CreateAsyncCompleteEvent(1, 99, "Shared", 110.0, 80.0),
+                  CreateThreadEvent(1, 20, "TEC 0"),
+                  CreateCompleteEvent(1, 20, "T1", 100.0, 100.0),
+                  CreateCompleteEvent(1, 20, "T2", 110.0, 80.0),
+              },
+      },
+      timeline_));
+
+  // User collapses sync "Shared" and single "TEC 0", keeping async "Shared"
+  // expanded between Flush 1 and Flush 2.
+  {
+    FlameChartTimelineData data = timeline_.timeline_data();
+    for (Group& group : data.groups) {
+      if (group.name == "Shared" && !group.is_async) group.expanded = false;
+      if (group.name == "TEC 0") group.expanded = false;
+    }
+    timeline_.SetTimelineData(std::move(data));
+  }
+
+  // Flush 2 (finishing initial stream, introducing TEC 1 -> multi-TEC).
+  data_provider_.MarkFinishingIncrementalLoad();
+  EXPECT_TRUE(data_provider_.AppendTraceEventsIncremental(
+      ParsedTraceEvents{
+          .flame_events =
+              {
+                  CreateThreadEvent(1, 21, "TEC 1"),
+                  CreateCompleteEvent(1, 21, "T3", 200.0, 50.0),
+              },
+      },
+      timeline_));
+  data_provider_.FinishIncrementalLoad();
+
+  const std::vector<Group>& after_init = timeline_.timeline_data().groups;
+  const Group* sync_shared =
+      FindGroupByName(after_init, "Shared", /*is_async=*/false);
+  const Group* async_shared =
+      FindGroupByName(after_init, "Shared", /*is_async=*/true);
+  const Group* tec_tracks = FindGroupByName(after_init, kTecTracksGroupName);
+  const Group* tec0_sub =
+      FindGroupByName(after_init, "TEC 0", /*is_async=*/false);
+  ASSERT_NE(sync_shared, nullptr);
+  ASSERT_NE(async_shared, nullptr);
+  ASSERT_NE(tec_tracks, nullptr);
+  ASSERT_NE(tec0_sub, nullptr);
+  EXPECT_FALSE(sync_shared->expanded);
+  EXPECT_TRUE(async_shared->expanded);
+  EXPECT_FALSE(tec_tracks->expanded);
+  EXPECT_EQ(tec0_sub->nesting_level, kSubTrackNestingLevel);
+  EXPECT_FALSE(tec0_sub->expanded);
+
+  // Refetch slice preserves all states.
+  timeline_.SetVisibleRange({150.0, 250.0});
+  data_provider_.BeginIncrementalLoad(timeline_);
+  EXPECT_TRUE(data_provider_.last_load_was_refetch());
+  data_provider_.MarkFinishingIncrementalLoad();
+  EXPECT_TRUE(data_provider_.AppendTraceEventsIncremental(
+      ParsedTraceEvents{
+          .flame_events =
+              {
+                  CreateCompleteEvent(1, 10, "S3", 160.0, 20.0),
+                  CreateAsyncCompleteEvent(1, 99, "Shared", 160.0, 20.0),
+                  CreateCompleteEvent(1, 20, "T4", 160.0, 20.0),
+                  CreateCompleteEvent(1, 21, "T5", 160.0, 20.0),
+              },
+      },
+      timeline_));
+  data_provider_.FinishIncrementalLoad();
+
+  const std::vector<Group>& after_refetch = timeline_.timeline_data().groups;
+  const Group* refetch_sync_shared =
+      FindGroupByName(after_refetch, "Shared", /*is_async=*/false);
+  const Group* refetch_async_shared =
+      FindGroupByName(after_refetch, "Shared", /*is_async=*/true);
+  const Group* refetch_tec_tracks =
+      FindGroupByName(after_refetch, kTecTracksGroupName);
+  const Group* refetch_tec0 =
+      FindGroupByName(after_refetch, "TEC 0", /*is_async=*/false);
+  ASSERT_NE(refetch_sync_shared, nullptr);
+  ASSERT_NE(refetch_async_shared, nullptr);
+  ASSERT_NE(refetch_tec_tracks, nullptr);
+  ASSERT_NE(refetch_tec0, nullptr);
+  EXPECT_FALSE(refetch_sync_shared->expanded);
+  EXPECT_TRUE(refetch_async_shared->expanded);
+  EXPECT_FALSE(refetch_tec_tracks->expanded);
+  EXPECT_FALSE(refetch_tec0->expanded);
 }
 }  // namespace
 }  // namespace traceviewer

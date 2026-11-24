@@ -95,6 +95,8 @@ struct GroupKey {
            parent_name == other.parent_name;
   }
 
+  bool operator!=(const GroupKey& other) const { return !(*this == other); }
+
   bool operator<(const GroupKey& other) const {
     return std::tie(nesting_level, name, parent_name) <
            std::tie(other.nesting_level, other.name, other.parent_name);
@@ -105,6 +107,28 @@ struct GroupKey {
     return H::combine(std::move(h), k.nesting_level, k.name, k.parent_name);
   }
 };
+
+// Key for preserving group expansion state across reloads, isolating sync
+// tracks from same-named async tracks.
+struct ExpandedStateKey {
+  GroupKey group;
+  bool is_async = false;
+
+  bool operator==(const ExpandedStateKey& other) const {
+    return group == other.group && is_async == other.is_async;
+  }
+
+  bool operator!=(const ExpandedStateKey& other) const {
+    return !(*this == other);
+  }
+
+  template <typename H>
+  friend H AbslHashValue(H h, const ExpandedStateKey& k) {
+    return H::combine(std::move(h), k.group, k.is_async);
+  }
+};
+
+using ExpandedStateMap = absl::flat_hash_map<ExpandedStateKey, bool>;
 
 // Represents a grouping of timeline tracks, such as processes, threads, or
 // counters.
@@ -134,6 +158,9 @@ struct Group {
   bool has_children = false;
   // Indicates if this group has no events or samples.
   bool is_empty = false;
+  // Indicates if this group is a named async track (distinct from sync/TEC
+  // thread tracks that may share the same display name).
+  bool is_async = false;
 
   // Cached layout offset (screen Y coordinate in pixels).
   mutable Pixel offset = 0.0f;
@@ -146,6 +173,15 @@ struct Group {
   ThreadId tid = 0;
 };
 
+// Maximum cumulative flame-chart level count supported by `uint16_t`
+// `entry_levels` (level indices in `[0, kMaxTimelineLevels)`).
+inline constexpr int kMaxTimelineLevels = std::numeric_limits<uint16_t>::max();
+
+// Returns true if `name` starts with optional ASCII whitespace followed by the
+// word "TEC" (case-insensitive), matching SparseCore TEC track names such as
+// "TEC 0" while excluding the synthetic `"TEC Tracks"` container group.
+bool IsTecTrack(absl::string_view name);
+
 // Returns the scoped parent group name in the form
 // "<process_name>/<parent_name>", or just "<parent_name>" if process_name is
 // empty.
@@ -157,12 +193,140 @@ inline std::string MakeScopedParentName(absl::string_view process_name,
   return absl::StrCat(process_name, "/", parent_name);
 }
 
+// Returns the `GroupKey` for a thread-level track under `process_name`.
+inline GroupKey MakeThreadGroupKey(absl::string_view process_name,
+                                   absl::string_view track_name) {
+  return GroupKey{kThreadNestingLevel, std::string(track_name),
+                  std::string(process_name)};
+}
+
+// Returns the `GroupKey` for a TEC sub-track nested under `"TEC Tracks"` in
+// `process_name`.
+inline GroupKey MakeTecSubTrackKey(absl::string_view process_name,
+                                   absl::string_view track_name) {
+  return GroupKey{kSubTrackNestingLevel, std::string(track_name),
+                  MakeScopedParentName(process_name, kTecTracksGroupName)};
+}
+
 // Returns the scoped GroupKey for groups[group_index], scoping child tracks
 // (e.g. sub-tracks at kSubTrackNestingLevel) by their enclosing process name to
 // distinguish them across processes. If parent_index is unset or invalid and
 // fallback_process_name is non-empty, fallback_process_name is used.
 GroupKey GetScopedGroupKey(absl::Span<const Group> groups, size_t group_index,
                            absl::string_view fallback_process_name = "");
+
+// Returns restored expanded states for flame groups keyed by
+// `ExpandedStateKey`, excluding non-flame (e.g. counter) tracks and empty
+// collapsed leaf tracks so later data window transitions that introduce events
+// can naturally expand them.
+ExpandedStateMap GetRestoredExpandedStates(absl::Span<const Group> groups);
+
+// Looks up saved expansion state for `key` in `expanded_states`, checking:
+// 1. Exact `key`,
+// 2. Optional `alternate_sync_key` (with `is_async = false`, e.g., bridging
+//    single/multi TEC layouts for sync TEC tracks),
+// 3. Parentless fallback `{nesting_level, name, ""}` for tracks above
+//    `kSubTrackNestingLevel` when `key.group.parent_name` is non-empty.
+std::optional<bool> FindExpandedState(
+    const ExpandedStateMap& expanded_states, const ExpandedStateKey& key,
+    const std::optional<GroupKey>& alternate_sync_key = std::nullopt);
+
+// Tracks cross-slice high-water marks of maximum observed level counts for
+// named leaf non-process flame tracks, isolating named async tracks from
+// sync/TEC tracks, disambiguating sync tracks by `(pid, tid)`, and bridging
+// single-TEC (`kThreadNestingLevel`) and multi-TEC (`kSubTrackNestingLevel`
+// under `"TEC Tracks"`) layouts.
+//
+// Process headers, parent container groups, and counter tracks are excluded.
+class ObservedTrackLevels {
+ public:
+  bool empty() const {
+    return sync_levels_.empty() && async_levels_.empty() &&
+           last_single_tec_by_process_.empty();
+  }
+  void Clear() {
+    sync_levels_.clear();
+    async_levels_.clear();
+    last_single_tec_by_process_.clear();
+  }
+
+  // Returns the highest observed level count for a sync thread track
+  // disambiguated by `(pid, tid)`, bridging single-TEC and multi-TEC keys when
+  // `thread_name` matches `IsTecTrack()`. Returns 0 if unobserved.
+  int GetForThreadTrack(absl::string_view process_name,
+                        absl::string_view thread_name, ProcessId pid = 0,
+                        ThreadId tid = 0) const;
+
+  // Returns the highest observed level count for a named async track (never
+  // bridged with sync/TEC tracks). Returns 0 if unobserved.
+  int GetForAsyncTrack(absl::string_view process_name,
+                       absl::string_view track_name) const;
+
+  // If `process_name` is transitioning from a previously observed standalone
+  // single sync TEC track to a multi-TEC layout containing one of `tec_tids`,
+  // returns whether that prior single TEC track was expanded (preferring any
+  // explicit override in `expanded_states` over the recorded fallback state).
+  // Returns `std::nullopt` if no standalone single-TEC transition applies.
+  std::optional<bool> FindSingleTecTransitionExpanded(
+      absl::string_view process_name, ProcessId pid,
+      absl::Span<const ThreadId> tec_tids,
+      const ExpandedStateMap& expanded_states,
+      absl::FunctionRef<std::string(ThreadId)> resolve_thread_name) const;
+
+  // Syncs `last_single_tec_by_process_` from live `groups` (capturing in-place
+  // UI expand/collapse toggles before a reload or idle slice replaces them).
+  void SyncSingleTecExpandedStates(absl::Span<const Group> groups);
+
+  // Returns the highest observed level count for `groups[group_index]`,
+  // bridging alternate single/multi TEC layouts for sync leaf flame tracks.
+  // Returns 0 if unobserved or out of bounds.
+  int GetForGroup(absl::Span<const Group> groups, size_t group_index) const;
+
+  // Records `level_count` as a new high-water mark for `groups[group_index]`.
+  // Sync TEC tracks (single or multi) normalize onto the same canonical thread
+  // key, updating `last_single_tec_by_process_` when at `kThreadNestingLevel`
+  // and clearing it when nested under `"TEC Tracks"`.
+  void RecordGroupLevels(absl::Span<const Group> groups, size_t group_index,
+                         int level_count);
+
+ private:
+  struct SingleTecState {
+    std::string thread_name;
+    // Process/thread IDs for exact matching across reloads. When both `pid`
+    // and `tid` are 0 (for example in synthetic fixtures with unset IDs),
+    // callers fall back to matching by `thread_name`.
+    ProcessId pid = 0;
+    ThreadId tid = 0;
+    bool expanded = false;
+  };
+  struct SyncObservedKey {
+    GroupKey group_key;
+    ProcessId pid = 0;
+    ThreadId tid = 0;
+
+    bool operator==(const SyncObservedKey& other) const {
+      return group_key == other.group_key && pid == other.pid &&
+             tid == other.tid;
+    }
+
+    bool operator!=(const SyncObservedKey& other) const {
+      return !(*this == other);
+    }
+
+    template <typename H>
+    friend H AbslHashValue(H h, const SyncObservedKey& k) {
+      return H::combine(std::move(h), k.group_key, k.pid, k.tid);
+    }
+  };
+
+  void UpdateSingleTecState(const Group& group,
+                            absl::string_view canonical_parent_name,
+                            bool is_tec_subtrack);
+
+  absl::flat_hash_map<SyncObservedKey, int> sync_levels_;
+  absl::flat_hash_map<GroupKey, int> async_levels_;
+  absl::flat_hash_map<std::string, SingleTecState> last_single_tec_by_process_;
+};
 
 struct FlowLine {
   Microseconds source_ts = 0.0;
@@ -994,6 +1158,13 @@ class Timeline {
   // toggles and per-name track preferences are kept.
   void ResetForNewDataset();
 
+  // Returns the cross-slice high-water marks of maximum observed level counts
+  // for named leaf non-process flame tracks.
+  const ObservedTrackLevels& observed_track_levels() const {
+    return observed_track_levels_;
+  }
+  void ClearObservedTrackLevels() { observed_track_levels_.Clear(); }
+
   Pixel GetLabelWidth() const { return label_width_; }
 
   void SetVisibleFlowCategory(int category_id) {
@@ -1244,6 +1415,8 @@ class Timeline {
     return std::vector<Pixel>(utilization_bins_.begin(),
                               utilization_bins_.begin() + num_bins);
   }
+  std::vector<std::pair<int, int>>
+  process_utilization_pyramid_level_ranges_for_test() const;
   void ExpandAllGroupsForTest() {
     for (Group& group : timeline_data_.groups) {
       group.expanded = true;
@@ -1368,10 +1541,58 @@ class Timeline {
     bool all_expanded = true;
   };
 
+  struct ScrollAnchor {
+    GroupKey group_key = {};
+    std::optional<GroupKey> alternate_group_key;
+    std::optional<GroupKey> parent_group_key;
+    std::optional<GroupKey> grandparent_group_key;
+    Group::Type type = Group::Type::kFlame;
+    ProcessId pid = 0;
+    ThreadId tid = 0;
+    Pixel local_pixel_offset = 0.0f;
+    bool is_async = false;
+  };
+
   EntryBitset matching_event_indices_;
 
   void NavigateToSearchResult(const SearchResult& result);
-  void BackfillGroupLevelCount(FlameChartTimelineData& data);
+  // Monotonically expands leaf flame groups in `data` to at least their
+  // previously observed level counts (capped at `kMaxTimelineLevels`), clears
+  // `is_empty` on previously observed leaf groups and their non-empty
+  // ancestors, updates ancestor `level_count`s, and remaps `entry_levels`,
+  // `level_offsets`, and flow lines.
+  // Precondition: `data.groups` is in DFS pre-order and
+  // `NormalizeGroupHierarchyMetadata()` has already run.
+  // Returns a per-old-level non-decreasing shift vector (or empty if no
+  // existing levels shifted).
+  std::vector<int> ApplyMonotonicGroupHeights(FlameChartTimelineData& data);
+  // Remaps `level_mip_pyramids` and `process_utilization_pyramids` in
+  // `saved_full_overview_` after `ApplyMonotonicGroupHeights()` shifts levels
+  // by `level_shift`.
+  void RemapSavedOverviewPyramids(absl::Span<const int> level_shift);
+  // Returns the index of `group` in `timeline_data_.groups` if it is a concrete
+  // visible group, or -1 for virtual headers, out-of-range pointers, or
+  // invisible groups.
+  int VisibleGroupIndex(const Group* group) const;
+  // Finds the index of a visible group matching `target_key`, `type`, and
+  // `is_async`. When `track_id` is provided, prefers an exact `(pid, tid)`
+  // match for sync tracks or `pid` match for async tracks (since async tracks
+  // use synthetic or varying thread IDs), falling back to a matching group with
+  // unset `(pid == 0 && tid == 0)` for synthetic fixtures. Returns -1 if none.
+  int FindVisibleGroupIndex(const GroupKey& target_key, Group::Type type,
+                            bool is_async,
+                            std::optional<std::pair<ProcessId, ThreadId>>
+                                track_id = std::nullopt) const;
+  // Captures the topmost concrete visible track and local pixel scroll offset
+  // prior to a layout rebuild so `RestoreScrollAnchor()` can compensate
+  // `last_scroll_y_`. Returns `std::nullopt` when no concrete anchor is in
+  // view.
+  std::optional<ScrollAnchor> CaptureScrollAnchor() const;
+  // Restores `last_scroll_y_` after a layout rebuild using a 4-tier fallback:
+  // exact track key (or visible alternate single/multi TEC layout key), parent
+  // or grandparent track key, nearest preceding visible track, or clamped
+  // scroll offset.
+  void RestoreScrollAnchor(const std::optional<ScrollAnchor>& anchor);
 
   // Applies snapping to selected time ranges for the given range.
   void ApplySnapping(TimeRange& range);
@@ -1826,6 +2047,7 @@ class Timeline {
     std::vector<float> occupied_us_bins;
   };
   struct ProcessUtilizationPyramid {
+    int group_index = -1;
     int start_level = -1;
     int end_level = -1;
     ProcessUtilizationMip levels[LevelMipPyramid::kNumMipLevels];
@@ -2150,6 +2372,11 @@ class Timeline {
   Pixel last_minimap_label_width_ = -1.0f;
   uint64_t last_minimap_palette_version_ = std::numeric_limits<uint64_t>::max();
   uint64_t last_minimap_trace_version_ = std::numeric_limits<uint64_t>::max();
+
+  // Cross-slice high-water marks of maximum observed level counts for
+  // non-empty leaf non-process flame tracks across incremental trace tile
+  // reloads, preventing vertical track collapse and layout shifts.
+  ObservedTrackLevels observed_track_levels_;
 
  protected:
   absl::flat_hash_set<std::string> hidden_track_names_;

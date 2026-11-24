@@ -8834,6 +8834,12 @@ TEST_F(RealTimelineImGuiFixture,
   ASSERT_NE(tracks_window, nullptr);
 
   tracks_window->Scroll.y = 500.0f;
+  // Render one frame so Timeline::Draw() records `last_scroll_y_ = 500.0f`
+  // before the incremental data reload (matching real scroll interactions).
+  ImGui::NewFrame();
+  timeline_.Draw();
+  Animation::UpdateAll(ImGui::GetIO().DeltaTime);
+  ImGui::Render();
 
   timeline_.set_is_incremental_loading(true);
 
@@ -16864,6 +16870,10 @@ TEST(TimelineTest, AnchorTrackShrinkClampsLocalPixelOffset) {
   const Pixel thread_top =
       timeline.GetGroupTop(&timeline.timeline_data().groups[1]);
   timeline.set_last_scroll_y_for_test(thread_top + 100.0f);
+  // Clear observed high-water marks so this test exercises scroll-offset
+  // clamping when an anchored track genuinely shrinks (e.g. after dataset
+  // reset) instead of being monotonically padded back to 10 levels.
+  timeline.ClearObservedTrackLevels();
 
   timeline.SetTimelineData(MakeTimelineData(
       {MakeProcessGroup("Process A"),
@@ -16957,11 +16967,14 @@ TEST(TimelineTest, AnchorInCollapsedParentTrack) {
                        /*level_count=*/4)},
       /*num_levels=*/4));
 
+  // Because all scroll-anchor lookup tiers skip invisible groups, collapsing
+  // "Process A" hides "Thread A.1", so Tier 1 skips the invisible child and
+  // Tier 2 restores scroll to the visible parent track top.
+  const Pixel parent_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[0]);
   const Pixel child_top =
       timeline.GetGroupTop(&timeline.timeline_data().groups[1]);
-  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), child_top);
-  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
-                  timeline.GetGroupBottom(&timeline.timeline_data().groups[0]));
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), parent_top);
   EXPECT_LT(timeline.last_scroll_y_for_test(), child_top + 20.0f);
 }
 
@@ -17056,7 +17069,7 @@ TEST(TimelineTest, ScrollRestorationAnchorSkipsVirtualHeader) {
 
   // Position scroll inside header_all_ (between PinnedProcess and AllProcess)
   // so lower_bound selects header_all_, and SetTimelineData skips it to
-  // anchor on AllProcess.
+  // anchor on AllProcess while preserving the negative header offset (-10px).
   const Pixel all_top =
       timeline.GetGroupTop(&timeline.timeline_data().groups[1]);
   timeline.set_last_scroll_y_for_test(all_top - 10.0f);
@@ -17068,7 +17081,7 @@ TEST(TimelineTest, ScrollRestorationAnchorSkipsVirtualHeader) {
 
   const Pixel new_all_top =
       timeline.GetGroupTop(&timeline.timeline_data().groups[1]);
-  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), new_all_top);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), new_all_top - 10.0f);
 }
 
 TEST(TimelineTest, ScrollRestorationAnchorSkipsInvisibleGroup) {
@@ -17082,6 +17095,9 @@ TEST(TimelineTest, ScrollRestorationAnchorSkipsInvisibleGroup) {
                         MakeProcessGroup("Process B")},
                        /*num_levels=*/2));
 
+  // Case 1: Invisible groups at the top precede the first visible track
+  // (Process B). Scrolling above the first visible track must NOT snap down to
+  // Process B's top; it preserves the scroll offset as-is.
   timeline.set_group_visible_for_test(0, false);
   timeline.set_group_visible_for_test(1, false);
   timeline.set_last_scroll_y_for_test(10.0f);
@@ -17091,10 +17107,27 @@ TEST(TimelineTest, ScrollRestorationAnchorSkipsInvisibleGroup) {
                         MakeThreadGroup("Thread A.1", /*parent_index=*/0),
                         MakeProcessGroup("Process B")},
                        /*num_levels=*/2));
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 10.0f);
 
+  // Case 2: Process A is visible, Thread A.1 is invisible, Process B is
+  // visible. Scrolling into invisible Thread A.1 skips it and anchors on
+  // Process B while preserving the negative gap offset.
+  timeline.set_group_visible_for_test(1, false);
   const Pixel process_b_top =
       timeline.GetGroupTop(&timeline.timeline_data().groups[2]);
-  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), process_b_top);
+  timeline.set_last_scroll_y_for_test(process_b_top - 5.0f);
+
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process A", /*start_level=*/0, /*level_count=*/5),
+       MakeThreadGroup("Thread A.1", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/5),
+       MakeProcessGroup("Process B", /*start_level=*/5, /*level_count=*/1)},
+      /*num_levels=*/6));
+
+  const Pixel new_process_b_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[2]);
+  EXPECT_GT(new_process_b_top, process_b_top);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), new_process_b_top - 5.0f);
 }
 
 TEST(TimelineTest, GetGroupBoundsNegativePointerOffset) {
@@ -20675,6 +20708,8 @@ TEST(TimelineTest, MakeScopedParentNameFormatsCorrectly) {
   EXPECT_EQ(MakeScopedParentName("", "TEC Tracks"), "TEC Tracks");
   EXPECT_EQ(MakeScopedParentName("Process 1", "TEC Tracks"),
             "Process 1/TEC Tracks");
+  EXPECT_EQ(MakeScopedParentName("Process 1", ""), "Process 1/");
+  EXPECT_NE(MakeScopedParentName("A/B", ""), MakeScopedParentName("A", "B"));
   EXPECT_EQ(MakeScopedParentName("host:123 /device:TPU:0", "TEC Tracks"),
             "host:123 /device:TPU:0/TEC Tracks");
 }
@@ -20918,6 +20953,2285 @@ TEST(TimelineTest,
   timeline.SetVisibleRange({3000.0, 5500.0});
   timeline.MaybeRequestData();
   EXPECT_EQ(fetch_count, 2);
+}
+
+void AppendDenseLevelEvents(FlameChartTimelineData& data, int level,
+                            absl::string_view name_prefix, int count) {
+  const int base_index = static_cast<int>(data.entry_names.size());
+  data.level_event_indices.reserve(data.level_event_indices.size() + count);
+  for (int i = 0; i < count; ++i) {
+    const int event_index = base_index + i;
+    data.level_event_indices.push_back(event_index);
+    data.entry_names.push_back(absl::StrCat(name_prefix, i));
+    data.entry_levels.push_back(static_cast<uint16_t>(level));
+    data.entry_start_times.push_back(i * 20.0);
+    data.entry_total_times.push_back(5.0);
+    data.entry_self_times.push_back(5.0);
+    data.entry_event_ids.push_back(event_index + 1);
+    data.entry_args.push_back({});
+  }
+}
+
+TEST(TimelineTest,
+     MonotonicLevelCountPreservedAcrossIncrementalSetTimelineData) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  FlameChartTimelineData slice1;
+  slice1.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/10),
+      MakeThreadGroup("thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/10),
+  };
+  timeline.SetTimelineData(std::move(slice1));
+
+  EXPECT_EQ(timeline.timeline_data().groups[0].level_count, 10);
+  EXPECT_EQ(timeline.timeline_data().groups[1].level_count, 10);
+  EXPECT_EQ(timeline.timeline_data().total_levels(), 10);
+
+  // Second slice has shallower tracks (level_count = 4) and thread 1 has no
+  // events in this slice (is_empty = true).
+  FlameChartTimelineData slice2;
+  slice2.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/4),
+      MakeThreadGroup("thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/4),
+  };
+  slice2.groups[1].is_empty = true;
+  timeline.SetTimelineData(std::move(slice2));
+
+  // Heights should be preserved to the maximum observed (10), and emptiness
+  // cleared so GetRestoredExpandedStates preserves the track's expanded state.
+  EXPECT_EQ(timeline.timeline_data().groups[0].level_count, 10);
+  EXPECT_EQ(timeline.timeline_data().groups[1].level_count, 10);
+  EXPECT_FALSE(timeline.timeline_data().groups[1].is_empty);
+  EXPECT_EQ(timeline.timeline_data().total_levels(), 10);
+
+  const std::vector<Group>& groups = timeline.timeline_data().groups;
+  EXPECT_EQ(timeline.observed_track_levels().GetForGroup(groups, 0), 0);
+  EXPECT_EQ(timeline.observed_track_levels().GetForGroup(groups, 1), 10);
+  EXPECT_EQ(timeline.observed_track_levels().GetForThreadTrack("process 1",
+                                                               "thread 1"),
+            10);
+}
+
+TEST(TimelineTest, EmptyDataClearsMaxObservedLevels) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  FlameChartTimelineData data;
+  data.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/8),
+      MakeThreadGroup("thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/8),
+  };
+  timeline.SetTimelineData(std::move(data));
+  EXPECT_FALSE(timeline.observed_track_levels().empty());
+
+  // During incremental loading, an empty slice retains observed levels.
+  timeline.SetTimelineData(FlameChartTimelineData{});
+  EXPECT_FALSE(timeline.observed_track_levels().empty());
+
+  // With incremental loading settled, MPMD pipeline view still retains observed
+  // levels across transient empty (idle unranked process) slices.
+  timeline.set_is_incremental_loading(false);
+  timeline.set_mpmd_pipeline_view_enabled(true);
+  timeline.SetTimelineData(FlameChartTimelineData{});
+  EXPECT_FALSE(timeline.observed_track_levels().empty());
+
+  // Non-incremental, non-MPMD empty data load clears observed levels.
+  timeline.set_mpmd_pipeline_view_enabled(false);
+  timeline.SetTimelineData(FlameChartTimelineData{});
+  EXPECT_TRUE(timeline.observed_track_levels().empty());
+}
+
+TEST(TimelineTest, ResetForNewDatasetClearsMaxObservedLevels) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  FlameChartTimelineData dataset1;
+  dataset1.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/8),
+      MakeThreadGroup("thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/8),
+  };
+  timeline.SetTimelineData(std::move(dataset1));
+  EXPECT_FALSE(timeline.observed_track_levels().empty());
+
+  timeline.ResetForNewDataset();
+  EXPECT_TRUE(timeline.observed_track_levels().empty());
+
+  FlameChartTimelineData dataset2;
+  dataset2.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/2),
+      MakeThreadGroup("thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/2),
+  };
+  timeline.SetTimelineData(std::move(dataset2));
+  EXPECT_EQ(timeline.timeline_data().groups[0].level_count, 2);
+  EXPECT_EQ(timeline.timeline_data().groups[1].level_count, 2);
+}
+
+TEST(TimelineTest,
+     EmptyNamedParentGroupWithChildrenPreservesAncestorOpenStack) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  FlameChartTimelineData data;
+  data.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/1),
+      MakeThreadGroup("", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/1),
+      MakeSubTrackGroup("subtrack 1", /*parent_index=*/1, /*start_level=*/0,
+                        /*level_count=*/3),
+      MakeThreadGroup("thread 2", /*parent_index=*/0, /*start_level=*/3,
+                      /*level_count=*/4),
+      MakeProcessGroup("process 2", /*start_level=*/7, /*level_count=*/1),
+      MakeThreadGroup("", /*parent_index=*/4, /*start_level=*/7,
+                      /*level_count=*/1),
+      MakeSubTrackGroup("subtrack 2", /*parent_index=*/5, /*start_level=*/7,
+                        /*level_count=*/3),
+  };
+  data.groups[1].is_empty = true;
+  data.groups[4].is_empty = true;
+  data.groups[5].is_empty = true;
+  timeline.SetTimelineData(std::move(data));
+
+  const std::vector<Group>& groups = timeline.timeline_data().groups;
+  EXPECT_EQ(groups[0].level_count, 7);
+  EXPECT_EQ(groups[1].level_count, 3);
+  EXPECT_FALSE(groups[1].is_empty);
+  EXPECT_EQ(timeline.observed_track_levels().GetForGroup(groups, 0), 0);
+  EXPECT_EQ(timeline.observed_track_levels().GetForGroup(groups, 2), 3);
+  EXPECT_EQ(timeline.observed_track_levels().GetForGroup(groups, 3), 4);
+
+  EXPECT_EQ(groups[4].level_count, 3);
+  EXPECT_FALSE(groups[4].is_empty);
+  EXPECT_EQ(timeline.observed_track_levels().GetForGroup(groups, 4), 0);
+  EXPECT_EQ(timeline.observed_track_levels().GetForGroup(groups, 6), 3);
+}
+
+TEST(TimelineTest,
+     MonotonicLevelCountRemapsEntryLevelsOffsetsAndFlowsForSucceedingGroups) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  FlameChartTimelineData slice1;
+  slice1.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/3),
+      MakeThreadGroup("thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/3),
+      MakeProcessGroup("process 2", /*start_level=*/3, /*level_count=*/1),
+      MakeThreadGroup("thread 2", /*parent_index=*/2, /*start_level=*/3,
+                      /*level_count=*/1),
+  };
+  timeline.SetTimelineData(std::move(slice1));
+
+  FlameChartTimelineData slice2;
+  slice2.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/1),
+      MakeThreadGroup("thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/1),
+      MakeProcessGroup("process 2", /*start_level=*/1, /*level_count=*/1),
+      MakeThreadGroup("thread 2", /*parent_index=*/2, /*start_level=*/1,
+                      /*level_count=*/1),
+      MakeProcessGroup("process 3", /*start_level=*/2, /*level_count=*/1),
+      MakeThreadGroup("thread 3", /*parent_index=*/4, /*start_level=*/2,
+                      /*level_count=*/1),
+  };
+  AddEvents(slice2, {{.name = "p1_ev", .start = 10.0, .dur = 5.0, .level = 0},
+                     {.name = "p2_ev", .start = 20.0, .dur = 5.0, .level = 1},
+                     {.name = "p3_ev", .start = 30.0, .dur = 5.0, .level = 2}});
+  slice2.level_offsets = {0, 1, 2, 3};
+  slice2.level_event_indices = {0, 1, 2};
+  slice2.flow_lines = {
+      {.source_ts = 10.0,
+       .target_ts = 20.0,
+       .source_level = 0,
+       .target_level = 1},
+      {.source_ts = 20.0,
+       .target_ts = 30.0,
+       .source_level = 1,
+       .target_level = 2},
+  };
+  slice2.flow_lines_by_flow_id["flow_1"] = slice2.flow_lines;
+  timeline.SetTimelineData(std::move(slice2));
+
+  const FlameChartTimelineData& result = timeline.timeline_data();
+  EXPECT_EQ(result.groups[2].start_level, 3);
+  EXPECT_EQ(result.groups[3].start_level, 3);
+  EXPECT_EQ(result.groups[4].start_level, 4);
+  EXPECT_EQ(result.groups[5].start_level, 4);
+  ASSERT_EQ(result.entry_levels.size(), 3u);
+  EXPECT_EQ(result.entry_levels[0], 0);
+  EXPECT_EQ(result.entry_levels[1], 3);
+  EXPECT_EQ(result.entry_levels[2], 4);
+  EXPECT_EQ(result.FindGroupForLevel(result.entry_levels[1]),
+            &result.groups[3]);
+  EXPECT_THAT(result.level_events(0), ElementsAre(0));
+  EXPECT_THAT(result.level_events(1), IsEmpty());
+  EXPECT_THAT(result.level_events(2), IsEmpty());
+  EXPECT_THAT(result.level_events(3), ElementsAre(1));
+  EXPECT_THAT(result.level_events(4), ElementsAre(2));
+  ASSERT_EQ(result.flow_lines.size(), 2u);
+  EXPECT_EQ(result.flow_lines[0].source_level, 0);
+  EXPECT_EQ(result.flow_lines[0].target_level, 3);
+  EXPECT_EQ(result.flow_lines[1].source_level, 3);
+  EXPECT_EQ(result.flow_lines[1].target_level, 4);
+  EXPECT_EQ(result.flow_lines_by_flow_id.at("flow_1")[0].target_level, 3);
+  EXPECT_EQ(result.flow_lines_by_flow_id.at("flow_1")[1].source_level, 3);
+  EXPECT_EQ(result.flow_lines_by_flow_id.at("flow_1")[1].target_level, 4);
+}
+
+TEST(TimelineTest,
+     ParentGroupWithFewerChildrenInNextSliceDoesNotCreateUnownedLevelGap) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  FlameChartTimelineData slice1;
+  slice1.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/4),
+      MakeThreadGroup("thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/2),
+      MakeThreadGroup("thread 2", /*parent_index=*/0, /*start_level=*/2,
+                      /*level_count=*/2),
+      MakeProcessGroup("process 2", /*start_level=*/4, /*level_count=*/1),
+      MakeThreadGroup("thread 3", /*parent_index=*/3, /*start_level=*/4,
+                      /*level_count=*/1),
+  };
+  timeline.SetTimelineData(std::move(slice1));
+
+  // In slice 2, thread 2 is omitted from process 1.
+  FlameChartTimelineData slice2;
+  slice2.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/2),
+      MakeThreadGroup("thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/2),
+      MakeProcessGroup("process 2", /*start_level=*/2, /*level_count=*/1),
+      MakeThreadGroup("thread 3", /*parent_index=*/2, /*start_level=*/2,
+                      /*level_count=*/1),
+  };
+  slice2.level_offsets = {0, 0, 0, 0};
+  timeline.SetTimelineData(std::move(slice2));
+
+  const FlameChartTimelineData& result = timeline.timeline_data();
+  EXPECT_EQ(result.groups[0].level_count, 2);
+  EXPECT_EQ(result.groups[1].level_count, 2);
+  EXPECT_EQ(result.groups[2].start_level, 2);
+  EXPECT_EQ(result.groups[3].start_level, 2);
+  for (int lvl = 0; lvl < result.total_levels(); ++lvl) {
+    EXPECT_NE(result.FindGroupForLevel(lvl), nullptr) << "at level " << lvl;
+  }
+}
+
+TEST(TimelineTest,
+     ApplyMonotonicGroupHeightsSizesLevelOffsetsToMaxGroupEndLevel) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  FlameChartTimelineData slice1;
+  slice1.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/3),
+      MakeThreadGroup("thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/3),
+      MakeProcessGroup("process 2", /*start_level=*/3, /*level_count=*/2),
+      MakeThreadGroup("thread 2", /*parent_index=*/2, /*start_level=*/3,
+                      /*level_count=*/2),
+  };
+  timeline.SetTimelineData(std::move(slice1));
+  EXPECT_EQ(timeline.timeline_data().total_levels(), 5);
+
+  FlameChartTimelineData slice2;
+  slice2.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/1),
+      MakeThreadGroup("thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/1),
+      MakeProcessGroup("process 2", /*start_level=*/1, /*level_count=*/2),
+      MakeThreadGroup("thread 2", /*parent_index=*/2, /*start_level=*/1,
+                      /*level_count=*/2),
+  };
+  slice2.groups[3].is_empty = true;
+  AddEvents(slice2, {{.name = "p1_ev", .start = 10.0, .dur = 5.0, .level = 0}});
+  slice2.level_offsets = {0, 1};
+  slice2.level_event_indices = {0};
+  timeline.SetTimelineData(std::move(slice2));
+  EXPECT_EQ(timeline.timeline_data().total_levels(), 5);
+}
+
+TEST(TimelineTest,
+     ApplyMonotonicGroupHeightsSkipsCountersAndProcessesAndCoversEmptyChild) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  FlameChartTimelineData slice1;
+  slice1.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/4),
+      MakeThreadGroup("SharedTrackName", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/4),
+  };
+  timeline.SetTimelineData(std::move(slice1));
+
+  // In slice 2:
+  // - the first "process 1" is a childless process header (level_count = 1)
+  //   and must not be inflated to 4;
+  // - the second "process 1" has a counter track named "SharedTrackName"
+  //   (sharing kCounterNestingLevel == kThreadNestingLevel) that stays at 1
+  //   level, a flame thread matching slice 1's key that inflates from 1 to 4,
+  //   and a trailing empty child thread whose shifted level is still covered by
+  //   its parent's level_count.
+  FlameChartTimelineData slice2;
+  slice2.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/1),
+      MakeProcessGroup("process 1", /*start_level=*/1, /*level_count=*/3),
+      {.type = Group::Type::kCounter,
+       .name = "SharedTrackName",
+       .start_level = 1,
+       .nesting_level = kCounterNestingLevel,
+       .parent_index = 1,
+       .level_count = 1},
+      MakeThreadGroup("SharedTrackName", /*parent_index=*/1, /*start_level=*/2,
+                      /*level_count=*/1),
+      MakeThreadGroup("TrailingEmptyThread", /*parent_index=*/1,
+                      /*start_level=*/3, /*level_count=*/1),
+  };
+  slice2.groups[4].is_empty = true;
+  timeline.SetTimelineData(std::move(slice2));
+
+  const FlameChartTimelineData& result = timeline.timeline_data();
+  EXPECT_EQ(result.groups[0].level_count, 1);
+  EXPECT_EQ(result.groups[2].level_count, 1);
+  EXPECT_EQ(result.groups[3].start_level, 2);
+  EXPECT_EQ(result.groups[3].level_count, 4);
+  EXPECT_EQ(result.groups[4].start_level, 6);
+  EXPECT_EQ(result.groups[4].level_count, 1);
+  EXPECT_TRUE(result.groups[4].is_empty);
+  EXPECT_EQ(result.groups[1].start_level, 1);
+  EXPECT_EQ(result.groups[1].level_count, 6);
+}
+
+TEST(TimelineTest,
+     ApplyMonotonicGroupHeightsPreservesCsrMonotonicityForUncoveredLevel) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  FlameChartTimelineData slice1;
+  slice1.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/3),
+      MakeThreadGroup("thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/3),
+  };
+  timeline.SetTimelineData(std::move(slice1));
+
+  // Slice 2 has thread 1 at [0, 1) (inflated by +2), thread 2 at [1, 2), and
+  // an uncovered trailing level 2 in level_offsets beyond thread 2's
+  // level_count. Enforcing prefix-max monotonicity on level_shift keeps CSR
+  // level_offsets and entry_levels aligned instead of swapping levels 2 and 3.
+  FlameChartTimelineData slice2;
+  slice2.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/1),
+      MakeThreadGroup("thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/1),
+      MakeProcessGroup("process 2", /*start_level=*/1, /*level_count=*/1),
+      MakeThreadGroup("thread 2", /*parent_index=*/2, /*start_level=*/1,
+                      /*level_count=*/1),
+  };
+  AddEvents(slice2,
+            {{.name = "p1_a", .start = 10.0, .dur = 5.0, .level = 0},
+             {.name = "p1_b", .start = 20.0, .dur = 5.0, .level = 0},
+             {.name = "p2_a", .start = 10.0, .dur = 5.0, .level = 1},
+             {.name = "p2_b", .start = 20.0, .dur = 5.0, .level = 1},
+             {.name = "extra_a", .start = 10.0, .dur = 5.0, .level = 2},
+             {.name = "extra_b", .start = 20.0, .dur = 5.0, .level = 2}});
+  slice2.level_offsets = {0, 2, 4, 6};
+  slice2.level_event_indices = {0, 1, 2, 3, 4, 5};
+  timeline.SetTimelineData(std::move(slice2));
+
+  const FlameChartTimelineData& result = timeline.timeline_data();
+  EXPECT_EQ(result.total_levels(), 5);
+  EXPECT_THAT(result.entry_levels, ElementsAre(0, 0, 3, 3, 4, 4));
+  EXPECT_THAT(result.level_events(0), ElementsAre(0, 1));
+  EXPECT_THAT(result.level_events(1), IsEmpty());
+  EXPECT_THAT(result.level_events(2), IsEmpty());
+  EXPECT_THAT(result.level_events(3), ElementsAre(2, 3));
+  EXPECT_THAT(result.level_events(4), ElementsAre(4, 5));
+}
+
+TEST(TimelineTest,
+     ApplyMonotonicGroupHeightsShiftsUncoveredTrailingLevelAfterLastGroup) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  FlameChartTimelineData slice1;
+  slice1.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/3),
+      MakeThreadGroup("thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/3),
+  };
+  timeline.SetTimelineData(std::move(slice1));
+
+  // Slice 2 inflates the final leaf group (thread 1) while level_offsets also
+  // holds an uncovered trailing level 1.
+  FlameChartTimelineData slice2;
+  slice2.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/1),
+      MakeThreadGroup("thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/1),
+  };
+  AddEvents(slice2,
+            {{.name = "p1_a", .start = 10.0, .dur = 5.0, .level = 0},
+             {.name = "p1_b", .start = 20.0, .dur = 5.0, .level = 0},
+             {.name = "extra_a", .start = 10.0, .dur = 5.0, .level = 1},
+             {.name = "extra_b", .start = 20.0, .dur = 5.0, .level = 1}});
+  slice2.level_offsets = {0, 2, 4};
+  slice2.level_event_indices = {0, 1, 2, 3};
+  timeline.SetTimelineData(std::move(slice2));
+
+  const FlameChartTimelineData& result = timeline.timeline_data();
+  EXPECT_EQ(result.total_levels(), 4);
+  EXPECT_THAT(result.entry_levels, ElementsAre(0, 0, 3, 3));
+  EXPECT_THAT(result.level_events(0), ElementsAre(0, 1));
+  EXPECT_THAT(result.level_events(1), IsEmpty());
+  EXPECT_THAT(result.level_events(2), IsEmpty());
+  EXPECT_THAT(result.level_events(3), ElementsAre(2, 3));
+}
+
+TEST(TimelineTest,
+     ApplyMonotonicGroupHeightsShiftsWithoutLevelOffsetsAndCapsAtUint16Max) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  FlameChartTimelineData slice1;
+  slice1.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/65530),
+      MakeThreadGroup("thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/65530),
+  };
+  timeline.SetTimelineData(std::move(slice1));
+
+  // Slice 2 has empty level_offsets, thread 1 with level_count = 1 (which
+  // wants to inflate to 65,530), and thread 2 with level_count = 10. Because
+  // 11 + 65,529 > kMaxTimelineLevels (65,535), inflation is capped so that
+  // old_total_levels + running_shift == kMaxTimelineLevels, keeping
+  // entry_levels, flow_lines, group.start_level, and total_levels() aligned.
+  FlameChartTimelineData slice2;
+  slice2.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/1),
+      MakeThreadGroup("thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/1),
+      MakeProcessGroup("process 2", /*start_level=*/1, /*level_count=*/10),
+      MakeThreadGroup("thread 2", /*parent_index=*/2, /*start_level=*/1,
+                      /*level_count=*/10),
+  };
+  AddEvents(slice2,
+            {{.name = "p1_ev", .start = 10.0, .dur = 5.0, .level = 0},
+             {.name = "p2_ev", .start = 20.0, .dur = 5.0, .level = 10}});
+  slice2.flow_lines = {
+      {.source_ts = 10.0,
+       .target_ts = 20.0,
+       .source_level = 0,
+       .target_level = 10},
+  };
+  timeline.SetTimelineData(std::move(slice2));
+
+  const FlameChartTimelineData& result = timeline.timeline_data();
+  EXPECT_EQ(result.total_levels(), kMaxTimelineLevels);
+  EXPECT_EQ(result.groups[1].level_count, kMaxTimelineLevels - 10);
+  EXPECT_EQ(result.groups[2].start_level, kMaxTimelineLevels - 10);
+  EXPECT_EQ(result.groups[3].start_level, kMaxTimelineLevels - 10);
+  ASSERT_EQ(result.entry_levels.size(), 2u);
+  EXPECT_EQ(result.entry_levels[1], kMaxTimelineLevels - 1);
+  ASSERT_EQ(result.flow_lines.size(), 1u);
+  EXPECT_EQ(result.flow_lines[0].target_level, kMaxTimelineLevels - 1);
+  EXPECT_EQ(result.FindGroupForLevel(result.entry_levels[1]),
+            &result.groups[3]);
+}
+
+TEST(TimelineTest,
+     RestoreSavedFullOverviewAppliesMonotonicHeightsRemapsPyramidsAndScroll) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_max_uncompacted_overview_entries_for_test(64);
+  timeline.set_is_compacted(true);
+  timeline.set_data_time_range({0.0, 10000.0});
+  timeline.set_fetched_data_time_range({0.0, 10000.0});
+
+  // Build coarse overview: Process 1 (Thread 1, 1 level, 260 events) and
+  // Process 2 (Thread 2, 1 level, 260 events), plus a trailing Padding group
+  // so scroll anchor offsets are not clamped.
+  FlameChartTimelineData overview_data;
+  overview_data.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/1,
+                       /*expanded=*/true, /*pid=*/1),
+      MakeThreadGroup("Thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/1, /*expanded=*/true, /*pid=*/1,
+                      /*tid=*/1),
+      MakeProcessGroup("Process 2", /*start_level=*/1, /*level_count=*/1,
+                       /*expanded=*/true, /*pid=*/2),
+      MakeThreadGroup("Thread 2", /*parent_index=*/2, /*start_level=*/1,
+                      /*level_count=*/1, /*expanded=*/true, /*pid=*/2,
+                      /*tid=*/2),
+      MakeThreadGroup("Padding", /*parent_index=*/2, /*start_level=*/2,
+                      /*level_count=*/50, /*expanded=*/true, /*pid=*/2,
+                      /*tid=*/3),
+  };
+  constexpr int kEventsPerProcess = 260;
+  overview_data.level_offsets.assign(53, 0);
+  overview_data.level_offsets[1] = kEventsPerProcess;
+  for (size_t lvl = 2; lvl < overview_data.level_offsets.size(); ++lvl) {
+    overview_data.level_offsets[lvl] = 2 * kEventsPerProcess;
+  }
+  AppendDenseLevelEvents(overview_data, /*level=*/0, "p1_ev_",
+                         kEventsPerProcess);
+  AppendDenseLevelEvents(overview_data, /*level=*/1, "p2_ev_",
+                         kEventsPerProcess);
+
+  timeline.SetTimelineData(std::move(overview_data));
+  timeline.MarkCurrentDataAsFullOverview();
+
+  ASSERT_GE(timeline.level_mip_pyramids_for_test().size(), 2u);
+  EXPECT_TRUE(timeline.level_mip_pyramids_for_test()[0].has_pyramid);
+  EXPECT_TRUE(timeline.level_mip_pyramids_for_test()[1].has_pyramid);
+  const uint32_t orig_p2_mip_gpu_offset =
+      timeline.level_mip_pyramids_for_test()[1].levels[2].gpu_instance_offset;
+  EXPECT_THAT(timeline.process_utilization_pyramid_level_ranges_for_test(),
+              ElementsAre(Pair(0, 1), Pair(1, 52)));
+
+  // Zoom in: stash the overview and load a fine slice where Process 1's
+  // Thread 1 expands from 1 level to 4 levels.
+  timeline.PrepareForFilteredRefetch();
+  FlameChartTimelineData deep_p1_slice;
+  deep_p1_slice.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/4,
+                       /*expanded=*/true, /*pid=*/1),
+      MakeThreadGroup("Thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/4, /*expanded=*/true, /*pid=*/1,
+                      /*tid=*/1),
+  };
+  deep_p1_slice.level_offsets.assign(5, 0);
+  timeline.SetTimelineData(std::move(deep_p1_slice));
+  ASSERT_TRUE(timeline.HasSavedFullOverview());
+
+  // Pan to a slice showing only Process 2 and anchor scroll inside Process 2.
+  FlameChartTimelineData p2_only_slice;
+  p2_only_slice.groups = {
+      MakeProcessGroup("Process 2", /*start_level=*/0, /*level_count=*/1,
+                       /*expanded=*/true, /*pid=*/2),
+      MakeThreadGroup("Thread 2", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/1, /*expanded=*/true, /*pid=*/2,
+                      /*tid=*/2),
+      MakeThreadGroup("Padding", /*parent_index=*/0, /*start_level=*/1,
+                      /*level_count=*/50, /*expanded=*/true, /*pid=*/2,
+                      /*tid=*/3),
+  };
+  p2_only_slice.level_offsets.assign(52, 0);
+  timeline.SetTimelineData(std::move(p2_only_slice));
+
+  const Pixel p2_slice_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[0]);
+  timeline.set_last_scroll_y_for_test(p2_slice_top + 6.0f);
+
+  // Zoom out: RestoreSavedFullOverview() must apply monotonic group heights
+  // (inflating Process 1 / Thread 1 from 1 to 4 and shifting Process 2 to
+  // start_level = 4), remap level_mip_pyramids_ and
+  // process_utilization_pyramids_, and compensate last_scroll_y_ so Process 2
+  // stays anchored at +6.0f.
+  ASSERT_TRUE(timeline.RestoreSavedFullOverview());
+
+  const FlameChartTimelineData& restored = timeline.timeline_data();
+  ASSERT_EQ(restored.groups.size(), 5u);
+  EXPECT_EQ(restored.groups[0].level_count, 4);
+  EXPECT_EQ(restored.groups[1].level_count, 4);
+  EXPECT_EQ(restored.groups[2].start_level, 4);
+  EXPECT_EQ(restored.groups[3].start_level, 4);
+  EXPECT_EQ(restored.total_levels(), 55);
+
+  ASSERT_EQ(timeline.level_mip_pyramids_for_test().size(), 55u);
+  EXPECT_TRUE(timeline.level_mip_pyramids_for_test()[0].has_pyramid);
+  EXPECT_TRUE(timeline.level_mip_pyramids_for_test()[0].raw_events_compacted);
+  EXPECT_FALSE(timeline.level_mip_pyramids_for_test()[1].has_pyramid);
+  EXPECT_FALSE(timeline.level_mip_pyramids_for_test()[2].has_pyramid);
+  EXPECT_FALSE(timeline.level_mip_pyramids_for_test()[3].has_pyramid);
+  EXPECT_TRUE(timeline.level_mip_pyramids_for_test()[4].has_pyramid);
+  EXPECT_TRUE(timeline.level_mip_pyramids_for_test()[4].raw_events_compacted);
+  EXPECT_EQ(
+      timeline.level_mip_pyramids_for_test()[4].levels[2].gpu_instance_offset,
+      orig_p2_mip_gpu_offset);
+
+  EXPECT_THAT(timeline.process_utilization_pyramid_level_ranges_for_test(),
+              ElementsAre(Pair(0, 4), Pair(4, 55)));
+
+  const Pixel restored_p2_top = timeline.GetGroupTop(&restored.groups[2]);
+  EXPECT_GT(restored_p2_top, p2_slice_top);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), restored_p2_top + 6.0f);
+}
+
+TEST(TimelineTest,
+     RestoreSavedFullOverviewPreservesSingleToMultiTecHeightGrowth) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.set_fetched_data_time_range({0.0, 1000.0});
+
+  // Overview: Process 1 has only a single TEC 0 track at kThreadNestingLevel
+  // with 1 level, followed by Process 2 at start_level = 1.
+  FlameChartTimelineData overview_data;
+  overview_data.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/1,
+                       /*expanded=*/true, /*pid=*/1),
+      MakeThreadGroup("TEC 0", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/1, /*expanded=*/true, /*pid=*/1,
+                      /*tid=*/1),
+      MakeProcessGroup("Process 2", /*start_level=*/1, /*level_count=*/1,
+                       /*expanded=*/true, /*pid=*/2),
+      MakeThreadGroup("Thread 2", /*parent_index=*/2, /*start_level=*/1,
+                      /*level_count=*/1, /*expanded=*/true, /*pid=*/2,
+                      /*tid=*/2),
+  };
+  AddEvents(overview_data,
+            {{.name = "tec0_ev", .start = 10.0, .dur = 20.0, .level = 0},
+             {.name = "p2_ev", .start = 10.0, .dur = 20.0, .level = 1}});
+  overview_data.level_offsets = {0, 1, 2};
+  overview_data.level_event_indices = {0, 1};
+  timeline.SetTimelineData(std::move(overview_data));
+  timeline.MarkCurrentDataAsFullOverview();
+  const std::vector<ThreadId> tec_tids = {1, 2};
+  auto resolve_tec_name = [](ThreadId tid) -> std::string {
+    return tid == 1 ? "TEC 0" : "TEC 1";
+  };
+  EXPECT_EQ(timeline.observed_track_levels().FindSingleTecTransitionExpanded(
+                "Process 1", /*pid=*/1, tec_tids, ExpandedStateMap{},
+                resolve_tec_name),
+            std::optional<bool>(true));
+
+  // Zoomed slice: TEC 0 and TEC 1 both appear under "TEC Tracks" at
+  // kSubTrackNestingLevel, and TEC 0 grows to 4 levels.
+  timeline.PrepareForFilteredRefetch();
+  FlameChartTimelineData zoomed_data;
+  zoomed_data.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/5,
+                       /*expanded=*/true, /*pid=*/1),
+      MakeThreadGroup(kTecTracksGroupName, /*parent_index=*/0,
+                      /*start_level=*/0, /*level_count=*/5, /*expanded=*/true,
+                      /*pid=*/1),
+      MakeSubTrackGroup("TEC 0", /*parent_index=*/1, /*start_level=*/0,
+                        /*level_count=*/4, /*expanded=*/true, /*pid=*/1,
+                        /*tid=*/1),
+      MakeSubTrackGroup("TEC 1", /*parent_index=*/1, /*start_level=*/4,
+                        /*level_count=*/1, /*expanded=*/true, /*pid=*/1,
+                        /*tid=*/2),
+  };
+  zoomed_data.level_offsets.assign(6, 0);
+  timeline.SetTimelineData(std::move(zoomed_data));
+  ASSERT_TRUE(timeline.HasSavedFullOverview());
+
+  // Transitioning to multi-TEC clears the standalone single-TEC record so
+  // subsequent idle slices do not spuriously auto-expand "TEC Tracks".
+  EXPECT_EQ(timeline.observed_track_levels().FindSingleTecTransitionExpanded(
+                "Process 1", /*pid=*/1, tec_tids, ExpandedStateMap{},
+                resolve_tec_name),
+            std::nullopt);
+
+  // Zoom out: restored overview's single TEC 0 must inflate from 1 to 4 levels
+  // and shift Process 2 to start_level = 4.
+  ASSERT_TRUE(timeline.RestoreSavedFullOverview());
+  const FlameChartTimelineData& restored = timeline.timeline_data();
+  ASSERT_EQ(restored.groups.size(), 4u);
+  EXPECT_EQ(restored.groups[0].level_count, 4);
+  EXPECT_EQ(restored.groups[1].level_count, 4);
+  EXPECT_EQ(restored.groups[2].start_level, 4);
+  EXPECT_EQ(restored.groups[3].start_level, 4);
+}
+
+TEST(TimelineTest,
+     RestoreSavedFullOverviewPreservesMultiToSingleTecHeightGrowth) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.set_fetched_data_time_range({0.0, 1000.0});
+
+  // Overview: Process 1 has TEC 0 (1 level) and TEC 1 (1 level) under
+  // "TEC Tracks", followed by Process 2 at start_level = 2.
+  FlameChartTimelineData overview_data;
+  overview_data.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/2,
+                       /*expanded=*/true, /*pid=*/1),
+      MakeThreadGroup(kTecTracksGroupName, /*parent_index=*/0,
+                      /*start_level=*/0, /*level_count=*/2, /*expanded=*/true,
+                      /*pid=*/1),
+      MakeSubTrackGroup("TEC 0", /*parent_index=*/1, /*start_level=*/0,
+                        /*level_count=*/1, /*expanded=*/true, /*pid=*/1,
+                        /*tid=*/1),
+      MakeSubTrackGroup("TEC 1", /*parent_index=*/1, /*start_level=*/1,
+                        /*level_count=*/1, /*expanded=*/true, /*pid=*/1,
+                        /*tid=*/2),
+      MakeProcessGroup("Process 2", /*start_level=*/2, /*level_count=*/1,
+                       /*expanded=*/true, /*pid=*/2),
+      MakeThreadGroup("Thread 2", /*parent_index=*/4, /*start_level=*/2,
+                      /*level_count=*/1, /*expanded=*/true, /*pid=*/2,
+                      /*tid=*/3),
+  };
+  AddEvents(overview_data,
+            {{.name = "tec0_ev", .start = 10.0, .dur = 20.0, .level = 0},
+             {.name = "tec1_ev", .start = 10.0, .dur = 20.0, .level = 1},
+             {.name = "p2_ev", .start = 10.0, .dur = 20.0, .level = 2}});
+  overview_data.level_offsets = {0, 1, 2, 3};
+  overview_data.level_event_indices = {0, 1, 2};
+  timeline.SetTimelineData(std::move(overview_data));
+  timeline.MarkCurrentDataAsFullOverview();
+
+  // Zoomed slice: only TEC 0 appears at kThreadNestingLevel and grows to 4
+  // levels.
+  timeline.PrepareForFilteredRefetch();
+  FlameChartTimelineData zoomed_data;
+  zoomed_data.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/4,
+                       /*expanded=*/true, /*pid=*/1),
+      MakeThreadGroup("TEC 0", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/4, /*expanded=*/true, /*pid=*/1,
+                      /*tid=*/1),
+  };
+  zoomed_data.level_offsets.assign(5, 0);
+  timeline.SetTimelineData(std::move(zoomed_data));
+  ASSERT_TRUE(timeline.HasSavedFullOverview());
+
+  // Zoom out: restored overview's TEC 0 under "TEC Tracks" must inflate from 1
+  // to 4 levels, shifting TEC 1 to level 4 and Process 2 to level 5.
+  ASSERT_TRUE(timeline.RestoreSavedFullOverview());
+  const FlameChartTimelineData& restored = timeline.timeline_data();
+  ASSERT_EQ(restored.groups.size(), 6u);
+  EXPECT_EQ(restored.groups[0].level_count, 5);
+  EXPECT_EQ(restored.groups[1].level_count, 5);
+  EXPECT_EQ(restored.groups[2].level_count, 4);
+  EXPECT_EQ(restored.groups[3].start_level, 4);
+  EXPECT_EQ(restored.groups[4].start_level, 5);
+  EXPECT_EQ(restored.groups[5].start_level, 5);
+}
+
+TEST(TimelineTest,
+     RestoreSavedFullOverviewPreservesUtilizationPyramidWithEmptyProcess) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_data_time_range({0.0, 10000.0});
+  timeline.set_fetched_data_time_range({0.0, 10000.0});
+
+  // Overview contains:
+  // - Process 0 (active, 1 level, 1 event)
+  // - Empty Process 1 (non-MPMD process with 0 child tracks, sharing
+  //   start_level = 1 with Active Process 2)
+  // - Active Process 2 (1 level, 260 events -> builds utilization pyramid)
+  FlameChartTimelineData overview_data;
+  overview_data.groups = {
+      MakeProcessGroup("Process 0", /*start_level=*/0, /*level_count=*/1,
+                       /*expanded=*/true, /*pid=*/1),
+      MakeThreadGroup("Thread 0", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/1, /*expanded=*/true, /*pid=*/1,
+                      /*tid=*/1),
+      MakeProcessGroup("Empty Process 1", /*start_level=*/1, /*level_count=*/0,
+                       /*expanded=*/true, /*pid=*/2),
+      MakeProcessGroup("Active Process 2", /*start_level=*/1, /*level_count=*/1,
+                       /*expanded=*/true, /*pid=*/3),
+      MakeThreadGroup("Thread 2", /*parent_index=*/3, /*start_level=*/1,
+                      /*level_count=*/1, /*expanded=*/true, /*pid=*/3,
+                      /*tid=*/2),
+  };
+  constexpr int kEventsForPyramid = 260;
+  overview_data.level_offsets = {0, 1, 1 + kEventsForPyramid};
+  AppendDenseLevelEvents(overview_data, /*level=*/0, "p0_ev_", 1);
+  AppendDenseLevelEvents(overview_data, /*level=*/1, "p2_ev_",
+                         kEventsForPyramid);
+
+  timeline.SetTimelineData(std::move(overview_data));
+  timeline.MarkCurrentDataAsFullOverview();
+  EXPECT_THAT(timeline.process_utilization_pyramid_level_ranges_for_test(),
+              ElementsAre(Pair(1, 2)));
+
+  // Zoom in: Process 0's Thread 0 expands from 1 level to 4 levels.
+  timeline.PrepareForFilteredRefetch();
+  FlameChartTimelineData zoomed_data;
+  zoomed_data.groups = {
+      MakeProcessGroup("Process 0", /*start_level=*/0, /*level_count=*/4,
+                       /*expanded=*/true, /*pid=*/1),
+      MakeThreadGroup("Thread 0", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/4, /*expanded=*/true, /*pid=*/1,
+                      /*tid=*/1),
+  };
+  zoomed_data.level_offsets.assign(5, 0);
+  timeline.SetTimelineData(std::move(zoomed_data));
+  ASSERT_TRUE(timeline.HasSavedFullOverview());
+
+  // Zoom out: Active Process 2's pyramid must stay bound to Active Process 2
+  // and remap to [4, 5) rather than misbinding to Empty Process 1 as [4, 4).
+  ASSERT_TRUE(timeline.RestoreSavedFullOverview());
+  const FlameChartTimelineData& restored = timeline.timeline_data();
+  ASSERT_EQ(restored.groups.size(), 5u);
+  EXPECT_EQ(restored.groups[2].start_level, 4);
+  EXPECT_EQ(restored.groups[3].start_level, 4);
+  EXPECT_EQ(restored.groups[4].start_level, 4);
+  EXPECT_THAT(timeline.process_utilization_pyramid_level_ranges_for_test(),
+              ElementsAre(Pair(4, 5)));
+}
+
+TEST(TimelineTest,
+     RestoreSavedFullOverviewResizesMipPyramidsInPlaceWhenLastTrackGrows) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_max_uncompacted_overview_entries_for_test(64);
+  timeline.set_is_compacted(true);
+  timeline.set_data_time_range({0.0, 10000.0});
+  timeline.set_fetched_data_time_range({0.0, 10000.0});
+
+  // Overview has two 1-level tracks; Process 2 / Thread 2 is the final leaf
+  // track so growing only it produces an empty `level_shift`.
+  FlameChartTimelineData overview_data;
+  overview_data.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/1,
+                       /*expanded=*/true, /*pid=*/1),
+      MakeThreadGroup("Thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/1, /*expanded=*/true, /*pid=*/1,
+                      /*tid=*/1),
+      MakeProcessGroup("Process 2", /*start_level=*/1, /*level_count=*/1,
+                       /*expanded=*/true, /*pid=*/2),
+      MakeThreadGroup("Thread 2", /*parent_index=*/2, /*start_level=*/1,
+                      /*level_count=*/1, /*expanded=*/true, /*pid=*/2,
+                      /*tid=*/2),
+  };
+  constexpr int kEventsPerProcess = 260;
+  overview_data.level_offsets = {0, kEventsPerProcess, 2 * kEventsPerProcess};
+  AppendDenseLevelEvents(overview_data, /*level=*/0, "p1_ev_",
+                         kEventsPerProcess);
+  AppendDenseLevelEvents(overview_data, /*level=*/1, "p2_ev_",
+                         kEventsPerProcess);
+
+  timeline.SetTimelineData(std::move(overview_data));
+  timeline.MarkCurrentDataAsFullOverview();
+
+  ASSERT_EQ(timeline.level_mip_pyramids_for_test().size(), 2u);
+  ASSERT_TRUE(timeline.level_mip_pyramids_for_test()[0].has_pyramid);
+  ASSERT_TRUE(timeline.level_mip_pyramids_for_test()[1].has_pyramid);
+  const uint32_t orig_p1_mip_gpu_offset =
+      timeline.level_mip_pyramids_for_test()[0].levels[2].gpu_instance_offset;
+  const uint32_t orig_p2_mip_gpu_offset =
+      timeline.level_mip_pyramids_for_test()[1].levels[2].gpu_instance_offset;
+  EXPECT_THAT(timeline.process_utilization_pyramid_level_ranges_for_test(),
+              ElementsAre(Pair(0, 1), Pair(1, 2)));
+
+  // Zoom in: only the final track (Process 2 / Thread 2) grows to 4 levels.
+  timeline.PrepareForFilteredRefetch();
+  FlameChartTimelineData deep_p2_slice;
+  deep_p2_slice.groups = {
+      MakeProcessGroup("Process 2", /*start_level=*/0, /*level_count=*/4,
+                       /*expanded=*/true, /*pid=*/2),
+      MakeThreadGroup("Thread 2", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/4, /*expanded=*/true, /*pid=*/2,
+                      /*tid=*/2),
+  };
+  deep_p2_slice.level_offsets.assign(5, 0);
+  timeline.SetTimelineData(std::move(deep_p2_slice));
+  ASSERT_TRUE(timeline.HasSavedFullOverview());
+
+  // Zoom out: RestoreSavedFullOverview() resizes level_mip_pyramids_ in place
+  // from 2 to 5 (empty level_shift path) and updates Process 2's utilization
+  // pyramid range to [1, 5).
+  ASSERT_TRUE(timeline.RestoreSavedFullOverview());
+  const FlameChartTimelineData& restored = timeline.timeline_data();
+  ASSERT_EQ(restored.groups.size(), 4u);
+  EXPECT_EQ(restored.groups[0].start_level, 0);
+  EXPECT_EQ(restored.groups[0].level_count, 1);
+  EXPECT_EQ(restored.groups[1].level_count, 1);
+  EXPECT_EQ(restored.groups[2].start_level, 1);
+  EXPECT_EQ(restored.groups[2].level_count, 4);
+  EXPECT_EQ(restored.groups[3].start_level, 1);
+  EXPECT_EQ(restored.groups[3].level_count, 4);
+  EXPECT_EQ(restored.total_levels(), 5);
+
+  ASSERT_EQ(timeline.level_mip_pyramids_for_test().size(), 5u);
+  EXPECT_TRUE(timeline.level_mip_pyramids_for_test()[0].has_pyramid);
+  EXPECT_TRUE(timeline.level_mip_pyramids_for_test()[0].raw_events_compacted);
+  EXPECT_EQ(
+      timeline.level_mip_pyramids_for_test()[0].levels[2].gpu_instance_offset,
+      orig_p1_mip_gpu_offset);
+  EXPECT_TRUE(timeline.level_mip_pyramids_for_test()[1].has_pyramid);
+  EXPECT_TRUE(timeline.level_mip_pyramids_for_test()[1].raw_events_compacted);
+  EXPECT_EQ(
+      timeline.level_mip_pyramids_for_test()[1].levels[2].gpu_instance_offset,
+      orig_p2_mip_gpu_offset);
+  EXPECT_FALSE(timeline.level_mip_pyramids_for_test()[2].has_pyramid);
+  EXPECT_FALSE(timeline.level_mip_pyramids_for_test()[3].has_pyramid);
+  EXPECT_FALSE(timeline.level_mip_pyramids_for_test()[4].has_pyramid);
+  EXPECT_THAT(timeline.process_utilization_pyramid_level_ranges_for_test(),
+              ElementsAre(Pair(0, 1), Pair(1, 5)));
+}
+
+const Group* FindTimelineGroup(const Timeline& timeline, absl::string_view name,
+                               std::optional<bool> is_async = std::nullopt,
+                               std::optional<Group::Type> type = std::nullopt) {
+  for (const Group& group : timeline.timeline_data().groups) {
+    if (group.name == name &&
+        (!is_async.has_value() || group.is_async == *is_async) &&
+        (!type.has_value() || group.type == *type)) {
+      return &group;
+    }
+  }
+  return nullptr;
+}
+
+Group MakeAsyncThreadGroup(absl::string_view name, int parent_index,
+                           int start_level, int level_count, ProcessId pid,
+                           ThreadId tid) {
+  Group group = MakeThreadGroup(name, parent_index, start_level, level_count,
+                                /*expanded=*/true, pid, tid);
+  group.is_async = true;
+  return group;
+}
+
+FlameChartTimelineData MakeSingleTecLayout(int process0_levels,
+                                           bool include_async_tec0 = false) {
+  int level = 0;
+  std::vector<Group> groups;
+  groups.push_back(MakeProcessGroup("Process 0", level, process0_levels,
+                                    /*expanded=*/true, /*pid=*/1));
+  groups.push_back(MakeThreadGroup("Thread 0", /*parent_index=*/0, level,
+                                   process0_levels, /*expanded=*/true,
+                                   /*pid=*/1, /*tid=*/1));
+  level += process0_levels;
+
+  const int process1_index = static_cast<int>(groups.size());
+  const int sync_levels = 4;
+  const int async_levels = include_async_tec0 ? 4 : 0;
+  groups.push_back(MakeProcessGroup("Process 1", level,
+                                    sync_levels + async_levels,
+                                    /*expanded=*/true, /*pid=*/2));
+  groups.push_back(MakeThreadGroup("TEC 0", process1_index, level, sync_levels,
+                                   /*expanded=*/true, /*pid=*/2, /*tid=*/10));
+  level += sync_levels;
+  if (include_async_tec0) {
+    groups.push_back(MakeAsyncThreadGroup("TEC 0", process1_index, level,
+                                          async_levels, /*pid=*/2, /*tid=*/99));
+    level += async_levels;
+  }
+  groups.push_back(MakeThreadGroup("Padding", process1_index, level,
+                                   /*level_count=*/50, /*expanded=*/true,
+                                   /*pid=*/2, /*tid=*/11));
+  level += 50;
+  return MakeTimelineData(std::move(groups), level);
+}
+
+FlameChartTimelineData MakeMultiTecLayout(int process0_levels,
+                                          bool tec_tracks_expanded,
+                                          bool include_async_tec0 = false) {
+  int level = 0;
+  std::vector<Group> groups;
+  groups.push_back(MakeProcessGroup("Process 0", level, process0_levels,
+                                    /*expanded=*/true, /*pid=*/1));
+  groups.push_back(MakeThreadGroup("Thread 0", /*parent_index=*/0, level,
+                                   process0_levels, /*expanded=*/true,
+                                   /*pid=*/1, /*tid=*/1));
+  level += process0_levels;
+
+  const int process1_index = static_cast<int>(groups.size());
+  const int tec_total_levels = 5;
+  const int async_levels = include_async_tec0 ? 4 : 0;
+  groups.push_back(MakeProcessGroup("Process 1", level,
+                                    tec_total_levels + async_levels,
+                                    /*expanded=*/true, /*pid=*/2));
+  const int tec_parent_index = static_cast<int>(groups.size());
+  groups.push_back(MakeThreadGroup(kTecTracksGroupName, process1_index, level,
+                                   tec_total_levels, tec_tracks_expanded,
+                                   /*pid=*/2));
+  groups.push_back(MakeSubTrackGroup("TEC 0", tec_parent_index, level,
+                                     /*level_count=*/4, /*expanded=*/true,
+                                     /*pid=*/2, /*tid=*/10));
+  level += 4;
+  groups.push_back(MakeSubTrackGroup("TEC 1", tec_parent_index, level,
+                                     /*level_count=*/1, /*expanded=*/true,
+                                     /*pid=*/2, /*tid=*/12));
+  level += 1;
+  if (include_async_tec0) {
+    groups.push_back(MakeAsyncThreadGroup("TEC 0", process1_index, level,
+                                          async_levels, /*pid=*/2, /*tid=*/99));
+    level += async_levels;
+  }
+  groups.push_back(MakeThreadGroup("Padding", process1_index, level,
+                                   /*level_count=*/50, /*expanded=*/true,
+                                   /*pid=*/2, /*tid=*/11));
+  level += 50;
+  return MakeTimelineData(std::move(groups), level);
+}
+
+TEST(TimelineTest,
+     ScrollAnchorPreservesPositionAcrossSingleAndMultiTecTransitions) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  // 1. Single-TEC layout: anchor scroll at +12px inside "TEC 0".
+  timeline.SetTimelineData(MakeSingleTecLayout(/*process0_levels=*/10));
+  const Group* single_tec0 =
+      FindTimelineGroup(timeline, "TEC 0", /*is_async=*/false);
+  ASSERT_NE(single_tec0, nullptr);
+  const Pixel single_tec0_top = timeline.GetGroupTop(single_tec0);
+  timeline.set_last_scroll_y_for_test(single_tec0_top + 12.0f);
+
+  // 2. Single-TEC -> expanded multi-TEC (with Process 0 growing above it):
+  // Tier 1 matches the visible alternate "TEC 0" sub-track and preserves +12px.
+  timeline.SetTimelineData(MakeMultiTecLayout(
+      /*process0_levels=*/20, /*tec_tracks_expanded=*/true));
+  const Group* multi_tec0 =
+      FindTimelineGroup(timeline, "TEC 0", /*is_async=*/false);
+  ASSERT_NE(multi_tec0, nullptr);
+  const Pixel multi_tec0_top = timeline.GetGroupTop(multi_tec0);
+  EXPECT_GT(multi_tec0_top, single_tec0_top);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), multi_tec0_top + 12.0f);
+
+  // 3. Multi-TEC -> single-TEC (with Process 0 growing further): Tier 1 matches
+  // the single "TEC 0" thread track and preserves +12px.
+  timeline.SetTimelineData(MakeSingleTecLayout(/*process0_levels=*/25));
+  const Group* returned_single_tec0 =
+      FindTimelineGroup(timeline, "TEC 0", /*is_async=*/false);
+  ASSERT_NE(returned_single_tec0, nullptr);
+  const Pixel returned_single_tec0_top =
+      timeline.GetGroupTop(returned_single_tec0);
+  EXPECT_GT(returned_single_tec0_top, multi_tec0_top);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  returned_single_tec0_top + 12.0f);
+
+  // 4. Single-TEC -> collapsed multi-TEC: hidden "TEC 0" sub-track must be
+  // skipped in Tier 1, falling back to Tier 2 parent "Process 1".
+  timeline.SetTimelineData(MakeMultiTecLayout(
+      /*process0_levels=*/25, /*tec_tracks_expanded=*/false));
+  const Group* process1 = FindTimelineGroup(timeline, "Process 1");
+  ASSERT_NE(process1, nullptr);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  timeline.GetGroupTop(process1));
+}
+
+TEST(TimelineTest, ScrollAnchorIsolatesNamedAsyncTecTrackFromSyncTecTracks) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  // 1. Process 1 has both a sync "TEC 0" and a named async "TEC 0" at
+  // kThreadNestingLevel. Anchor scroll inside sync "TEC 0" at +12px.
+  timeline.SetTimelineData(
+      MakeSingleTecLayout(/*process0_levels=*/10, /*include_async_tec0=*/true));
+  const Group* sync_tec0 =
+      FindTimelineGroup(timeline, "TEC 0", /*is_async=*/false);
+  ASSERT_NE(sync_tec0, nullptr);
+  timeline.set_last_scroll_y_for_test(timeline.GetGroupTop(sync_tec0) + 12.0f);
+
+  // 2. Sync "TEC 0" moves under expanded "TEC Tracks" alongside sync "TEC 1"
+  // while named async "TEC 0" stays at kThreadNestingLevel. Scroll must follow
+  // sync "TEC 0" under "TEC Tracks" (NOT jump to named async "TEC 0").
+  timeline.SetTimelineData(MakeMultiTecLayout(
+      /*process0_levels=*/15, /*tec_tracks_expanded=*/true,
+      /*include_async_tec0=*/true));
+  const Group* multi_sync_tec0 =
+      FindTimelineGroup(timeline, "TEC 0", /*is_async=*/false);
+  const Group* multi_async_tec0 =
+      FindTimelineGroup(timeline, "TEC 0", /*is_async=*/true);
+  ASSERT_NE(multi_sync_tec0, nullptr);
+  ASSERT_NE(multi_async_tec0, nullptr);
+  const Pixel multi_sync_tec0_top = timeline.GetGroupTop(multi_sync_tec0);
+  const Pixel multi_async_tec0_top = timeline.GetGroupTop(multi_async_tec0);
+  ASSERT_NE(multi_sync_tec0_top, multi_async_tec0_top);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  multi_sync_tec0_top + 12.0f);
+
+  // 3. Anchor scroll inside named async "TEC 0" at +8px, then transition sync
+  // "TEC 0" back to single-TEC at kThreadNestingLevel (ordered BEFORE named
+  // async "TEC 0"). Scroll must remain on named async "TEC 0" (NOT sync
+  // "TEC 0").
+  timeline.set_last_scroll_y_for_test(multi_async_tec0_top + 8.0f);
+  timeline.SetTimelineData(
+      MakeSingleTecLayout(/*process0_levels=*/20, /*include_async_tec0=*/true));
+  const Group* returned_sync_tec0 =
+      FindTimelineGroup(timeline, "TEC 0", /*is_async=*/false);
+  const Group* returned_async_tec0 =
+      FindTimelineGroup(timeline, "TEC 0", /*is_async=*/true);
+  ASSERT_NE(returned_sync_tec0, nullptr);
+  ASSERT_NE(returned_async_tec0, nullptr);
+  const Pixel returned_sync_tec0_top = timeline.GetGroupTop(returned_sync_tec0);
+  const Pixel returned_async_tec0_top =
+      timeline.GetGroupTop(returned_async_tec0);
+  ASSERT_NE(returned_sync_tec0_top, returned_async_tec0_top);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  returned_async_tec0_top + 8.0f);
+
+  // 4. Anchor on single sync "TEC 0" and transition it under a COLLAPSED
+  // "TEC Tracks" while named async "TEC 0" remains visible. Scroll must fall
+  // back to parent "Process 1" rather than mis-anchoring onto async "TEC 0".
+  timeline.set_last_scroll_y_for_test(returned_sync_tec0_top + 12.0f);
+  timeline.SetTimelineData(MakeMultiTecLayout(
+      /*process0_levels=*/20, /*tec_tracks_expanded=*/false,
+      /*include_async_tec0=*/true));
+  const Group* process1 = FindTimelineGroup(timeline, "Process 1");
+  ASSERT_NE(process1, nullptr);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  timeline.GetGroupTop(process1));
+}
+
+TEST(TimelineTest, ScrollAnchorDistinguishesCounterAndFlameTracksWithSameName) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  auto make_counter_at_thread_level = [](absl::string_view name,
+                                         int parent_index, int start_level) {
+    Group group = MakeThreadGroup(name, parent_index, start_level,
+                                  /*level_count=*/1, /*expanded=*/true,
+                                  /*pid=*/1, /*tid=*/0);
+    group.type = Group::Type::kCounter;
+    return group;
+  };
+
+  // 1. Both a counter track and a sync flame track share the same name
+  // ("Shared") and nesting level under "Process 1". Anchor on the counter
+  // track.
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/8,
+                        /*expanded=*/true, /*pid=*/1),
+       make_counter_at_thread_level("Shared", /*parent_index=*/0,
+                                    /*start_level=*/0),
+       MakeThreadGroup("Shared", /*parent_index=*/0, /*start_level=*/1,
+                       /*level_count=*/4, /*expanded=*/true, /*pid=*/1,
+                       /*tid=*/10),
+       MakeThreadGroup("Padding", /*parent_index=*/0, /*start_level=*/5,
+                       /*level_count=*/40, /*expanded=*/true, /*pid=*/1,
+                       /*tid=*/11)},
+      /*num_levels=*/45));
+  const Group* counter_s1 = FindTimelineGroup(
+      timeline, "Shared", /*is_async=*/false, Group::Type::kCounter);
+  ASSERT_NE(counter_s1, nullptr);
+  timeline.set_last_scroll_y_for_test(timeline.GetGroupTop(counter_s1) + 4.0f);
+
+  // 2. In the next slice, the flame track is ordered BEFORE the counter track.
+  // Tier 1 must match the counter track by `Group::Type` rather than stopping
+  // on the earlier same-named flame track.
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/8,
+                        /*expanded=*/true, /*pid=*/1),
+       MakeThreadGroup("Shared", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/4, /*expanded=*/true, /*pid=*/1,
+                       /*tid=*/10),
+       make_counter_at_thread_level("Shared", /*parent_index=*/0,
+                                    /*start_level=*/4),
+       MakeThreadGroup("Padding", /*parent_index=*/0, /*start_level=*/5,
+                       /*level_count=*/40, /*expanded=*/true, /*pid=*/1,
+                       /*tid=*/11)},
+      /*num_levels=*/45));
+  const Group* flame_s2 = FindTimelineGroup(
+      timeline, "Shared", /*is_async=*/false, Group::Type::kFlame);
+  const Group* counter_s2 = FindTimelineGroup(
+      timeline, "Shared", /*is_async=*/false, Group::Type::kCounter);
+  ASSERT_NE(flame_s2, nullptr);
+  ASSERT_NE(counter_s2, nullptr);
+  ASSERT_NE(timeline.GetGroupTop(flame_s2), timeline.GetGroupTop(counter_s2));
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  timeline.GetGroupTop(counter_s2) + 4.0f);
+
+  // 3. Anchor on a counter track literally named "TEC 0". When it disappears
+  // and multi-TEC flame tracks appear under "TEC Tracks", the counter anchor
+  // must NOT match the flame "TEC 0" sub-track via `alternate_group_key`, and
+  // instead falls back to parent "Process 1".
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/4,
+                        /*expanded=*/true, /*pid=*/1),
+       make_counter_at_thread_level("TEC 0", /*parent_index=*/0,
+                                    /*start_level=*/0),
+       MakeThreadGroup("Padding", /*parent_index=*/0, /*start_level=*/1,
+                       /*level_count=*/40, /*expanded=*/true, /*pid=*/1,
+                       /*tid=*/11)},
+      /*num_levels=*/41));
+  const Group* tec_counter = FindTimelineGroup(
+      timeline, "TEC 0", /*is_async=*/false, Group::Type::kCounter);
+  ASSERT_NE(tec_counter, nullptr);
+  timeline.set_last_scroll_y_for_test(timeline.GetGroupTop(tec_counter) + 4.0f);
+
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/8,
+                        /*expanded=*/true, /*pid=*/1),
+       MakeThreadGroup(kTecTracksGroupName, /*parent_index=*/0,
+                       /*start_level=*/0,
+                       /*level_count=*/2, /*expanded=*/true, /*pid=*/1),
+       MakeSubTrackGroup("TEC 0", /*parent_index=*/1, /*start_level=*/0,
+                         /*level_count=*/1, /*expanded=*/true, /*pid=*/1,
+                         /*tid=*/10),
+       MakeSubTrackGroup("TEC 1", /*parent_index=*/1, /*start_level=*/1,
+                         /*level_count=*/1, /*expanded=*/true, /*pid=*/1,
+                         /*tid=*/12),
+       MakeThreadGroup("Padding", /*parent_index=*/0, /*start_level=*/2,
+                       /*level_count=*/40, /*expanded=*/true, /*pid=*/1,
+                       /*tid=*/11)},
+      /*num_levels=*/42));
+  const Group* process1 = FindTimelineGroup(timeline, "Process 1");
+  ASSERT_NE(process1, nullptr);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  timeline.GetGroupTop(process1));
+}
+
+TEST(TimelineTest,
+     ScrollAnchorFallsBackToGrandparentWhenSubTrackAndParentDespawn) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  // 1. Anchor on sub-track "TEC 1" whose parent is "TEC Tracks" and grandparent
+  // is "Process 1".
+  timeline.SetTimelineData(MakeMultiTecLayout(
+      /*process0_levels=*/10, /*tec_tracks_expanded=*/true));
+  const Group* tec1 = FindTimelineGroup(timeline, "TEC 1");
+  ASSERT_NE(tec1, nullptr);
+  timeline.set_last_scroll_y_for_test(timeline.GetGroupTop(tec1) + 6.0f);
+
+  // 2. Process 0 grows significantly above Process 1 while both "TEC 1" and
+  // its parent "TEC Tracks" despawn in a single-TEC transition. Tier 2 falls
+  // back to grandparent "Process 1" rather than letting Tier 3 jump upward into
+  // Process 0.
+  timeline.SetTimelineData(MakeSingleTecLayout(/*process0_levels=*/25));
+  const Group* process1 = FindTimelineGroup(timeline, "Process 1");
+  ASSERT_NE(process1, nullptr);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  timeline.GetGroupTop(process1));
+}
+
+TEST(TimelineTest, ScrollAnchorTier2IgnoresCollidingAsyncAndCounterContainers) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  // 1. Anchor on sub-track "TEC 1" whose parent is sync flame "TEC Tracks" and
+  // grandparent is "Process 1".
+  timeline.SetTimelineData(MakeMultiTecLayout(
+      /*process0_levels=*/10, /*tec_tracks_expanded=*/true));
+  const Group* tec1 = FindTimelineGroup(timeline, "TEC 1");
+  ASSERT_NE(tec1, nullptr);
+  timeline.set_last_scroll_y_for_test(timeline.GetGroupTop(tec1) + 6.0f);
+
+  // 2. Sync flame "TEC Tracks" despawns in a single-TEC transition, while
+  // "Process 1" contains both a named async flame track and a counter track
+  // literally named "TEC Tracks" at `kThreadNestingLevel`. Tier 2 must ignore
+  // both colliding non-sync-flame tracks and fall back to grandparent
+  // "Process 1".
+  Group async_tec_tracks = MakeThreadGroup(
+      kTecTracksGroupName, /*parent_index=*/2, /*start_level=*/25,
+      /*level_count=*/1, /*expanded=*/true, /*pid=*/1, /*tid=*/98);
+  async_tec_tracks.is_async = true;
+  Group counter_tec_tracks = MakeThreadGroup(
+      kTecTracksGroupName, /*parent_index=*/2, /*start_level=*/26,
+      /*level_count=*/1, /*expanded=*/true, /*pid=*/1, /*tid=*/0);
+  counter_tec_tracks.type = Group::Type::kCounter;
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process 0", /*start_level=*/0, /*level_count=*/25,
+                        /*expanded=*/true, /*pid=*/0),
+       MakeThreadGroup("Main", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/25, /*expanded=*/true, /*pid=*/0,
+                       /*tid=*/1),
+       MakeProcessGroup("Process 1", /*start_level=*/25, /*level_count=*/6,
+                        /*expanded=*/true, /*pid=*/1),
+       async_tec_tracks, counter_tec_tracks,
+       MakeThreadGroup("TEC 0", /*parent_index=*/2, /*start_level=*/27,
+                       /*level_count=*/4, /*expanded=*/true, /*pid=*/1,
+                       /*tid=*/10)},
+      /*num_levels=*/31));
+
+  const Group* process1 = FindTimelineGroup(timeline, "Process 1");
+  ASSERT_NE(process1, nullptr);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  timeline.GetGroupTop(process1));
+}
+
+TEST(TimelineTest, ScrollAnchorSkipsCollapsedSubTrackAndMatchesVisibleParent) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  // 1. Anchor on visible sub-track "TEC 1" under expanded "TEC Tracks".
+  timeline.SetTimelineData(MakeMultiTecLayout(
+      /*process0_levels=*/10, /*tec_tracks_expanded=*/true));
+  const Group* tec1 = FindTimelineGroup(timeline, "TEC 1");
+  ASSERT_NE(tec1, nullptr);
+  timeline.set_last_scroll_y_for_test(timeline.GetGroupTop(tec1) + 6.0f);
+
+  // 2. "TEC Tracks" is collapsed in the next slice so "TEC 1" remains in
+  // `groups` but is invisible (`group_visible_ == false`). Tier 1 must skip
+  // invisible "TEC 1" and Tier 2 must match visible parent "TEC Tracks".
+  timeline.SetTimelineData(MakeMultiTecLayout(
+      /*process0_levels=*/20, /*tec_tracks_expanded=*/false));
+  const Group* tec_tracks = FindTimelineGroup(timeline, kTecTracksGroupName);
+  ASSERT_NE(tec_tracks, nullptr);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  timeline.GetGroupTop(tec_tracks));
+
+  // 3. Re-anchor on "TEC 1" under expanded "TEC Tracks", then collapse
+  // grandparent "Process 1" so both "TEC 1" and "TEC Tracks" become invisible.
+  // Tier 2 must skip invisible "TEC Tracks" and match visible "Process 1".
+  timeline.SetTimelineData(MakeMultiTecLayout(
+      /*process0_levels=*/10, /*tec_tracks_expanded=*/true));
+  tec1 = FindTimelineGroup(timeline, "TEC 1");
+  ASSERT_NE(tec1, nullptr);
+  timeline.set_last_scroll_y_for_test(timeline.GetGroupTop(tec1) + 6.0f);
+
+  FlameChartTimelineData collapsed_process1 = MakeMultiTecLayout(
+      /*process0_levels=*/25, /*tec_tracks_expanded=*/true);
+  for (Group& group : collapsed_process1.groups) {
+    if (group.name == "Process 1") {
+      group.expanded = false;
+    }
+  }
+  timeline.SetTimelineData(std::move(collapsed_process1));
+  const Group* process1 = FindTimelineGroup(timeline, "Process 1");
+  ASSERT_NE(process1, nullptr);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  timeline.GetGroupTop(process1));
+}
+
+TEST(TimelineTest, IsTecTrackMatchesWordBoundaryAndCaseInsensitively) {
+  EXPECT_TRUE(IsTecTrack("TEC"));
+  EXPECT_TRUE(IsTecTrack("TEC 0"));
+  EXPECT_TRUE(IsTecTrack("  tec-1"));
+  EXPECT_TRUE(IsTecTrack("\tTeC:2"));
+  EXPECT_TRUE(IsTecTrack("tec"));
+
+  EXPECT_FALSE(IsTecTrack(""));
+  EXPECT_FALSE(IsTecTrack("   "));
+  EXPECT_FALSE(IsTecTrack("TE"));
+  EXPECT_FALSE(IsTecTrack("TEC0"));
+  EXPECT_FALSE(IsTecTrack("TEC_0"));
+  EXPECT_FALSE(IsTecTrack("TECH"));
+  EXPECT_FALSE(IsTecTrack("My TEC 0"));
+  EXPECT_FALSE(IsTecTrack(kTecTracksGroupName));
+  EXPECT_FALSE(IsTecTrack("  tec tracks  "));
+}
+
+TEST(TimelineTest,
+     MaxTimelineLevelsAllowsLevelIndex65534AndCapsUnshiftedResize) {
+  EXPECT_EQ(kMaxTimelineLevels, std::numeric_limits<uint16_t>::max());
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  // Boundary case: a 65,535-level layout (indices [0, 65534]) preserves valid
+  // level index 65,534 across monotonic expansion without shrinking by one row.
+  FlameChartTimelineData slice1;
+  slice1.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0,
+                       /*level_count=*/kMaxTimelineLevels - 1),
+      MakeThreadGroup("thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/kMaxTimelineLevels - 1),
+  };
+  timeline.SetTimelineData(std::move(slice1));
+
+  FlameChartTimelineData slice2;
+  slice2.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0, /*level_count=*/1),
+      MakeThreadGroup("thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/1),
+      MakeProcessGroup("process 2", /*start_level=*/1, /*level_count=*/1),
+      MakeThreadGroup("thread 2", /*parent_index=*/2, /*start_level=*/1,
+                      /*level_count=*/1),
+  };
+  AddEvents(slice2, {{.name = "p1_ev", .start = 10.0, .dur = 5.0, .level = 0},
+                     {.name = "p2_ev", .start = 20.0, .dur = 5.0, .level = 1}});
+  slice2.level_offsets = {0, 1, 2};
+  slice2.level_event_indices = {0, 1};
+  timeline.SetTimelineData(std::move(slice2));
+
+  const FlameChartTimelineData& result = timeline.timeline_data();
+  EXPECT_EQ(result.total_levels(), 65535);
+  EXPECT_EQ(result.groups[1].level_count, 65534);
+  EXPECT_EQ(result.groups[3].start_level, 65534);
+  ASSERT_EQ(result.entry_levels.size(), 2u);
+  EXPECT_EQ(result.entry_levels[1], 65534);
+  EXPECT_THAT(result.level_events(65534), ElementsAre(1));
+
+  // Unshifted fixture whose group span exceeds kMaxTimelineLevels must cap
+  // `level_offsets` at `kMaxTimelineLevels` rather than allocating unboundedly.
+  Timeline unshifted_timeline(palette);
+  FlameChartTimelineData oversized;
+  oversized.groups = {
+      MakeProcessGroup("process 1", /*start_level=*/0,
+                       /*level_count=*/kMaxTimelineLevels + 500),
+      MakeThreadGroup("thread 1", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/kMaxTimelineLevels + 500),
+  };
+  unshifted_timeline.SetTimelineData(std::move(oversized));
+  EXPECT_EQ(unshifted_timeline.timeline_data().total_levels(),
+            kMaxTimelineLevels);
+}
+
+TEST(TimelineTest,
+     DuplicateNamedThreadsDisambiguateHeightAndScrollAnchorByTid) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  // Two threads share "ThreadPool" under "Process 1": tid=101 (10 levels) and
+  // tid=102 (1 level). Recording tid=101 must NOT inflate sibling tid=102
+  // intra-slice or on subsequent reloads.
+  auto make_slice = [](int tid101_levels, int tid102_levels) {
+    return MakeTimelineData(
+        {MakeProcessGroup("Process 1", /*start_level=*/0,
+                          /*level_count=*/tid101_levels + tid102_levels + 50,
+                          /*expanded=*/true, /*pid=*/1),
+         MakeThreadGroup("ThreadPool", /*parent_index=*/0, /*start_level=*/0,
+                         /*level_count=*/tid101_levels, /*expanded=*/true,
+                         /*pid=*/1, /*tid=*/101),
+         MakeThreadGroup("ThreadPool", /*parent_index=*/0,
+                         /*start_level=*/tid101_levels,
+                         /*level_count=*/tid102_levels, /*expanded=*/true,
+                         /*pid=*/1, /*tid=*/102),
+         MakeThreadGroup("Padding", /*parent_index=*/0,
+                         /*start_level=*/tid101_levels + tid102_levels,
+                         /*level_count=*/50, /*expanded=*/true, /*pid=*/1,
+                         /*tid=*/103)},
+        tid101_levels + tid102_levels + 50);
+  };
+
+  timeline.SetTimelineData(
+      make_slice(/*tid101_levels=*/10, /*tid102_levels=*/1));
+  ASSERT_EQ(timeline.timeline_data().groups.size(), 4u);
+  EXPECT_EQ(timeline.timeline_data().groups[1].level_count, 10);
+  EXPECT_EQ(timeline.timeline_data().groups[2].level_count, 1);
+
+  // Anchor scroll on the SECOND "ThreadPool" (tid=102) at +1px (within the
+  // 1-level track's unclamped offset budget `19 - kEventHeight = 1px`).
+  const Pixel tid102_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[2]);
+  timeline.set_last_scroll_y_for_test(tid102_top + 1.0f);
+
+  // Reload with tid=101 growing to 15 levels and tid=102 staying at 1 level:
+  // tid=102 must NOT inflate to 15, and scroll must follow tid=102 (not jump
+  // upward to tid=101).
+  timeline.SetTimelineData(
+      make_slice(/*tid101_levels=*/15, /*tid102_levels=*/1));
+  EXPECT_EQ(timeline.timeline_data().groups[1].level_count, 15);
+  EXPECT_EQ(timeline.timeline_data().groups[2].level_count, 1);
+  const Pixel new_tid101_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[1]);
+  const Pixel new_tid102_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[2]);
+  ASSERT_GT(new_tid102_top, new_tid101_top);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), new_tid102_top + 1.0f);
+}
+
+TEST(TimelineTest,
+     RestoreSavedFullOverviewIsolatesCounterAsyncAndSupportsTwoCycles) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.set_fetched_data_time_range({0.0, 1000.0});
+
+  auto make_counter = [](absl::string_view name, int parent_index,
+                         int start_level, ProcessId pid) {
+    Group group = MakeThreadGroup(name, parent_index, start_level,
+                                  /*level_count=*/1, /*expanded=*/true, pid, 0);
+    group.type = Group::Type::kCounter;
+    return group;
+  };
+
+  FlameChartTimelineData overview_data;
+  overview_data.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/4,
+                       /*expanded=*/true, /*pid=*/1),
+      make_counter("Shared", /*parent_index=*/0, /*start_level=*/0, /*pid=*/1),
+      MakeThreadGroup("Shared", /*parent_index=*/0, /*start_level=*/1,
+                      /*level_count=*/1, /*expanded=*/true, /*pid=*/1,
+                      /*tid=*/10),
+      MakeAsyncThreadGroup("Shared", /*parent_index=*/0, /*start_level=*/2,
+                           /*level_count=*/1, /*pid=*/1, /*tid=*/99),
+      MakeThreadGroup("EmptyTarget", /*parent_index=*/0, /*start_level=*/3,
+                      /*level_count=*/1, /*expanded=*/true, /*pid=*/1,
+                      /*tid=*/11),
+  };
+  // Leave EmptyTarget unobserved (`is_empty = true`) so it stays an empty leaf
+  // in zoomed slices and verifies the empty-collapsed-leaf skip.
+  overview_data.groups[4].is_empty = true;
+  AddEvents(overview_data,
+            {{.name = "sync_ev", .start = 10.0, .dur = 20.0, .level = 1},
+             {.name = "async_ev", .start = 10.0, .dur = 20.0, .level = 2}});
+  overview_data.level_offsets = {0, 0, 1, 2, 2};
+  overview_data.level_event_indices = {0, 1};
+  timeline.SetTimelineData(std::move(overview_data));
+  timeline.MarkCurrentDataAsFullOverview();
+
+  // Cycle 1: Zoom in; sync "Shared" grows to 3 levels and is collapsed, async
+  // "Shared" stays expanded at 1 level, counter "Shared" stays expanded, and
+  // "EmptyTarget" is empty-collapsed.
+  timeline.PrepareForFilteredRefetch();
+  FlameChartTimelineData zoomed1;
+  zoomed1.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/6,
+                       /*expanded=*/true, /*pid=*/1),
+      make_counter("Shared", /*parent_index=*/0, /*start_level=*/0, /*pid=*/1),
+      MakeThreadGroup("Shared", /*parent_index=*/0, /*start_level=*/1,
+                      /*level_count=*/3, /*expanded=*/false, /*pid=*/1,
+                      /*tid=*/10),
+      MakeAsyncThreadGroup("Shared", /*parent_index=*/0, /*start_level=*/4,
+                           /*level_count=*/1, /*pid=*/1, /*tid=*/99),
+      MakeThreadGroup("EmptyTarget", /*parent_index=*/0, /*start_level=*/5,
+                      /*level_count=*/1, /*expanded=*/false, /*pid=*/1,
+                      /*tid=*/11),
+  };
+  zoomed1.groups[4].is_empty = true;
+  zoomed1.level_offsets.assign(7, 0);
+  timeline.SetTimelineData(std::move(zoomed1));
+  ASSERT_TRUE(timeline.HasSavedFullOverview());
+
+  ASSERT_TRUE(timeline.RestoreSavedFullOverview());
+  {
+    const std::vector<Group>& groups = timeline.timeline_data().groups;
+    ASSERT_EQ(groups.size(), 5u);
+    EXPECT_TRUE(groups[1].expanded);   // Counter stays expanded for selection.
+    EXPECT_FALSE(groups[2].expanded);  // Sync flame stays collapsed.
+    EXPECT_EQ(groups[2].level_count, 3);
+    EXPECT_TRUE(groups[3].expanded);  // Async flame isolated from sync.
+    EXPECT_EQ(groups[3].level_count, 1);
+    EXPECT_TRUE(groups[4].expanded);  // Empty-collapsed leaf did not override.
+  }
+
+  // Cycle 2: Zoom in a second time (async "Shared" grows to 4 levels and is
+  // collapsed; sync "Shared" is re-expanded), then restore overview again.
+  timeline.PrepareForFilteredRefetch();
+  FlameChartTimelineData zoomed2;
+  zoomed2.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/8,
+                       /*expanded=*/true, /*pid=*/1),
+      make_counter("Shared", /*parent_index=*/0, /*start_level=*/0, /*pid=*/1),
+      MakeThreadGroup("Shared", /*parent_index=*/0, /*start_level=*/1,
+                      /*level_count=*/3, /*expanded=*/true, /*pid=*/1,
+                      /*tid=*/10),
+      MakeAsyncThreadGroup("Shared", /*parent_index=*/0, /*start_level=*/4,
+                           /*level_count=*/4, /*pid=*/1, /*tid=*/99),
+  };
+  zoomed2.groups[3].expanded = false;
+  zoomed2.level_offsets.assign(9, 0);
+  timeline.SetTimelineData(std::move(zoomed2));
+  ASSERT_TRUE(timeline.HasSavedFullOverview());
+
+  ASSERT_TRUE(timeline.RestoreSavedFullOverview());
+  {
+    const std::vector<Group>& groups = timeline.timeline_data().groups;
+    ASSERT_EQ(groups.size(), 5u);
+    EXPECT_TRUE(groups[1].expanded);
+    EXPECT_TRUE(groups[2].expanded);
+    EXPECT_EQ(groups[2].level_count, 3);
+    EXPECT_FALSE(groups[3].expanded);
+    EXPECT_EQ(groups[3].level_count, 4);
+  }
+}
+
+TEST(TimelineTest,
+     RestoreSavedFullOverviewBridgesSingleAndMultiTecCollapsedStates) {
+  ColorPalette palette = ColorPalette::Default();
+  // Case 1: Single-TEC overview -> zoom into multi-TEC (collapse TEC 0) ->
+  // restore overview preserves collapsed state on single TEC 0.
+  {
+    Timeline timeline(palette);
+    timeline.set_data_time_range({0.0, 1000.0});
+    timeline.set_fetched_data_time_range({0.0, 1000.0});
+    FlameChartTimelineData overview =
+        MakeSingleTecLayout(/*process0_levels=*/2);
+    AddEvents(overview,
+              {{.name = "ev", .start = 10.0, .dur = 20.0, .level = 0}});
+    overview.level_offsets.assign(overview.total_levels() + 1, 1);
+    overview.level_offsets[0] = 0;
+    overview.level_event_indices = {0};
+    timeline.SetTimelineData(std::move(overview));
+    timeline.MarkCurrentDataAsFullOverview();
+
+    timeline.PrepareForFilteredRefetch();
+    FlameChartTimelineData zoomed = MakeMultiTecLayout(
+        /*process0_levels=*/2, /*tec_tracks_expanded=*/true);
+    for (Group& g : zoomed.groups) {
+      if (g.name == "TEC 0") g.expanded = false;
+    }
+    timeline.SetTimelineData(std::move(zoomed));
+    ASSERT_TRUE(timeline.RestoreSavedFullOverview());
+
+    const Group* tec0 =
+        FindTimelineGroup(timeline, "TEC 0", /*is_async=*/false);
+    ASSERT_NE(tec0, nullptr);
+    EXPECT_EQ(tec0->nesting_level, kThreadNestingLevel);
+    EXPECT_FALSE(tec0->expanded);
+  }
+
+  // Case 2: Multi-TEC overview -> zoom into single-TEC (collapse single TEC 0)
+  // -> restore overview preserves collapsed state on TEC 0 sub-track.
+  {
+    Timeline timeline(palette);
+    timeline.set_data_time_range({0.0, 1000.0});
+    timeline.set_fetched_data_time_range({0.0, 1000.0});
+    FlameChartTimelineData overview = MakeMultiTecLayout(
+        /*process0_levels=*/2, /*tec_tracks_expanded=*/true);
+    AddEvents(overview,
+              {{.name = "ev", .start = 10.0, .dur = 20.0, .level = 0}});
+    overview.level_offsets.assign(overview.total_levels() + 1, 1);
+    overview.level_offsets[0] = 0;
+    overview.level_event_indices = {0};
+    timeline.SetTimelineData(std::move(overview));
+    timeline.MarkCurrentDataAsFullOverview();
+
+    timeline.PrepareForFilteredRefetch();
+    FlameChartTimelineData zoomed = MakeSingleTecLayout(/*process0_levels=*/2);
+    for (Group& g : zoomed.groups) {
+      if (g.name == "TEC 0") g.expanded = false;
+    }
+    timeline.SetTimelineData(std::move(zoomed));
+    ASSERT_TRUE(timeline.RestoreSavedFullOverview());
+
+    const Group* tec0 =
+        FindTimelineGroup(timeline, "TEC 0", /*is_async=*/false);
+    ASSERT_NE(tec0, nullptr);
+    EXPECT_EQ(tec0->nesting_level, kSubTrackNestingLevel);
+    EXPECT_FALSE(tec0->expanded);
+  }
+}
+
+TEST(TimelineTest,
+     ObservedTrackLevelsSyncClearsStaleSingleTecOnEmptyCollapsedTec) {
+  ObservedTrackLevels observed;
+  std::vector<Group> groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/2,
+                       /*expanded=*/true, /*pid=*/1),
+      MakeThreadGroup("TEC 0", /*parent_index=*/0, /*start_level=*/0,
+                      /*level_count=*/1, /*expanded=*/true, /*pid=*/1,
+                      /*tid=*/10),
+      MakeThreadGroup("Worker", /*parent_index=*/0, /*start_level=*/1,
+                      /*level_count=*/1, /*expanded=*/true, /*pid=*/1,
+                      /*tid=*/11),
+  };
+  observed.RecordGroupLevels(groups, /*group_index=*/1, /*level_count=*/1);
+  const std::vector<ThreadId> tec_tids = {10, 12};
+  auto resolve_name = [](ThreadId tid) -> std::string {
+    return tid == 10 ? "TEC 0" : "TEC 1";
+  };
+  EXPECT_EQ(
+      observed.FindSingleTecTransitionExpanded(
+          "Process 1", /*pid=*/1, tec_tids, ExpandedStateMap{}, resolve_name),
+      std::optional<bool>(true));
+
+  // An empty collapsed non-TEC sibling in the same process must NOT erase the
+  // process's standalone single-TEC transition state.
+  groups[2].is_empty = true;
+  groups[2].expanded = false;
+  observed.SyncSingleTecExpandedStates(groups);
+  EXPECT_EQ(
+      observed.FindSingleTecTransitionExpanded(
+          "Process 1", /*pid=*/1, tec_tids, ExpandedStateMap{}, resolve_name),
+      std::optional<bool>(true));
+
+  // Collapsing an empty standalone TEC track MUST erase the stale expanded
+  // record so a subsequent multi-TEC reload does not auto-expand "TEC Tracks".
+  groups[1].is_empty = true;
+  groups[1].expanded = false;
+  observed.SyncSingleTecExpandedStates(groups);
+  EXPECT_EQ(
+      observed.FindSingleTecTransitionExpanded(
+          "Process 1", /*pid=*/1, tec_tids, ExpandedStateMap{}, resolve_name),
+      std::nullopt);
+}
+
+TEST(TimelineTest,
+     ScrollAnchorTier3FollowsReverseVisualOrderWithPinnedAndHiddenTracks) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_track_management_enabled_for_test(true);
+  timeline.set_header_hidden_expanded_for_test(false);
+  timeline.pinned_track_names_.insert("Process 2");
+  timeline.hidden_track_names_.insert("Process Hidden");
+  timeline.set_is_incremental_loading(true);
+
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process Hidden", /*start_level=*/0, /*level_count=*/2,
+                        /*expanded=*/true, /*pid=*/10),
+       MakeThreadGroup("HiddenThread", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/2, /*expanded=*/true, /*pid=*/10,
+                       /*tid=*/1),
+       MakeProcessGroup("Process 0", /*start_level=*/2, /*level_count=*/4,
+                        /*expanded=*/true, /*pid=*/1),
+       MakeThreadGroup("Thread 0", /*parent_index=*/2, /*start_level=*/2,
+                       /*level_count=*/4, /*expanded=*/true, /*pid=*/1,
+                       /*tid=*/1),
+       MakeProcessGroup("Process 1", /*start_level=*/6, /*level_count=*/4,
+                        /*expanded=*/true, /*pid=*/2),
+       MakeThreadGroup("Thread 1", /*parent_index=*/4, /*start_level=*/6,
+                       /*level_count=*/4, /*expanded=*/true, /*pid=*/2,
+                       /*tid=*/2),
+       MakeProcessGroup("Process 2", /*start_level=*/10, /*level_count=*/2,
+                        /*expanded=*/true, /*pid=*/3),
+       MakeThreadGroup("Thread 2", /*parent_index=*/6, /*start_level=*/10,
+                       /*level_count=*/2, /*expanded=*/true, /*pid=*/3,
+                       /*tid=*/3)},
+      /*num_levels=*/12));
+
+  // Visual order: [Hidden header, Pinned header, Process 2, Thread 2, All
+  // header, Process 0, Thread 0, Process 1, Thread 1].
+  const Group* process1 = FindTimelineGroup(timeline, "Process 1");
+  ASSERT_NE(process1, nullptr);
+  timeline.set_last_scroll_y_for_test(timeline.GetGroupTop(process1) + 4.0f);
+
+  // Process 1 despawns. Process 2 has a HIGHER raw index than Process 0, but
+  // sits at the top in Pinned; reverse visual walk must pick Thread 0 (the
+  // nearest preceding visible track above Process 1), NOT pinned Process 2.
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process Hidden", /*start_level=*/0, /*level_count=*/2,
+                        /*expanded=*/true, /*pid=*/10),
+       MakeThreadGroup("HiddenThread", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/2, /*expanded=*/true, /*pid=*/10,
+                       /*tid=*/1),
+       MakeProcessGroup("Process 0", /*start_level=*/2, /*level_count=*/4,
+                        /*expanded=*/true, /*pid=*/1),
+       MakeThreadGroup("Thread 0", /*parent_index=*/2, /*start_level=*/2,
+                       /*level_count=*/4, /*expanded=*/true, /*pid=*/1,
+                       /*tid=*/1),
+       MakeProcessGroup("Process 2", /*start_level=*/6, /*level_count=*/2,
+                        /*expanded=*/true, /*pid=*/3),
+       MakeThreadGroup("Thread 2", /*parent_index=*/4, /*start_level=*/6,
+                       /*level_count=*/2, /*expanded=*/true, /*pid=*/3,
+                       /*tid=*/3)},
+      /*num_levels=*/8));
+
+  const Group* thread0 = FindTimelineGroup(timeline, "Thread 0");
+  ASSERT_NE(thread0, nullptr);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  timeline.GetGroupTop(thread0));
+
+  // Scrolling above the first visible concrete track (e.g. onto the collapsed
+  // Hidden header area) returns no anchor and keeps scroll intact rather than
+  // anchoring on an invisible hidden track.
+  const Group* pinned_p2 = FindTimelineGroup(timeline, "Process 2");
+  ASSERT_NE(pinned_p2, nullptr);
+  const Pixel above_first_visible = timeline.GetGroupTop(pinned_p2) - 10.0f;
+  ASSERT_GT(above_first_visible, 0.0f);
+  timeline.set_last_scroll_y_for_test(above_first_visible);
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process Hidden", /*start_level=*/0, /*level_count=*/2,
+                        /*expanded=*/true, /*pid=*/10),
+       MakeThreadGroup("HiddenThread", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/2, /*expanded=*/true, /*pid=*/10,
+                       /*tid=*/1),
+       MakeProcessGroup("Process 0", /*start_level=*/2, /*level_count=*/4,
+                        /*expanded=*/true, /*pid=*/1),
+       MakeThreadGroup("Thread 0", /*parent_index=*/2, /*start_level=*/2,
+                       /*level_count=*/4, /*expanded=*/true, /*pid=*/1,
+                       /*tid=*/1),
+       MakeProcessGroup("Process 2", /*start_level=*/6, /*level_count=*/2,
+                        /*expanded=*/true, /*pid=*/3),
+       MakeThreadGroup("Thread 2", /*parent_index=*/4, /*start_level=*/6,
+                       /*level_count=*/2, /*expanded=*/true, /*pid=*/3,
+                       /*tid=*/3)},
+      /*num_levels=*/8));
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), above_first_visible);
+}
+
+TEST(TimelineTest,
+     ScrollAnchorTier3FollowsReverseVisualOrderWithReorderedTracks) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_track_reordering_enabled(true);
+  timeline.set_is_incremental_loading(true);
+  ASSERT_TRUE(timeline.RestoreTrackOrder(
+      R"({"orders":[{"parent":[],"order":[["Process 2",0],["Process 0",0],["Process 1",0]]}]})"));
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process 0", /*start_level=*/0, /*level_count=*/4,
+                        /*expanded=*/true, /*pid=*/1),
+       MakeThreadGroup("Thread 0", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/4, /*expanded=*/true, /*pid=*/1,
+                       /*tid=*/1),
+       MakeProcessGroup("Process 1", /*start_level=*/4, /*level_count=*/4,
+                        /*expanded=*/true, /*pid=*/2),
+       MakeThreadGroup("Thread 1", /*parent_index=*/2, /*start_level=*/4,
+                       /*level_count=*/4, /*expanded=*/true, /*pid=*/2,
+                       /*tid=*/2),
+       MakeProcessGroup("Process 2", /*start_level=*/8, /*level_count=*/2,
+                        /*expanded=*/true, /*pid=*/3),
+       MakeThreadGroup("Thread 2", /*parent_index=*/4, /*start_level=*/8,
+                       /*level_count=*/2, /*expanded=*/true, /*pid=*/3,
+                       /*tid=*/3)},
+      /*num_levels=*/10));
+  const Group* process1 = FindTimelineGroup(timeline, "Process 1");
+  ASSERT_NE(process1, nullptr);
+  timeline.set_last_scroll_y_for_test(timeline.GetGroupTop(process1) + 4.0f);
+
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process 0", /*start_level=*/0, /*level_count=*/4,
+                        /*expanded=*/true, /*pid=*/1),
+       MakeThreadGroup("Thread 0", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/4, /*expanded=*/true, /*pid=*/1,
+                       /*tid=*/1),
+       MakeProcessGroup("Process 2", /*start_level=*/4, /*level_count=*/2,
+                        /*expanded=*/true, /*pid=*/3),
+       MakeThreadGroup("Thread 2", /*parent_index=*/2, /*start_level=*/4,
+                       /*level_count=*/2, /*expanded=*/true, /*pid=*/3,
+                       /*tid=*/3)},
+      /*num_levels=*/6));
+  const Group* thread0 = FindTimelineGroup(timeline, "Thread 0");
+  ASSERT_NE(thread0, nullptr);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  timeline.GetGroupTop(thread0));
+}
+
+TEST(TimelineTest, ScrollAnchorPreservesNegativeHeaderGapOffsetAndClampsAtTop) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process 0", /*start_level=*/0, /*level_count=*/4,
+                        /*expanded=*/true, /*pid=*/1),
+       MakeThreadGroup("Thread 0", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/4, /*expanded=*/true, /*pid=*/1,
+                       /*tid=*/1),
+       MakeProcessGroup("Process 1", /*start_level=*/4, /*level_count=*/4,
+                        /*expanded=*/true, /*pid=*/2),
+       MakeThreadGroup("Thread 1", /*parent_index=*/2, /*start_level=*/4,
+                       /*level_count=*/4, /*expanded=*/true, /*pid=*/2,
+                       /*tid=*/2)},
+      /*num_levels=*/8));
+
+  const Group* process1 = FindTimelineGroup(timeline, "Process 1");
+  ASSERT_NE(process1, nullptr);
+  const Pixel p1_top = timeline.GetGroupTop(process1);
+  const Pixel gap_scroll = p1_top - (kProcessTrackGap * 0.5f);
+  timeline.set_last_scroll_y_for_test(gap_scroll);
+
+  // Process 0 grows to 8 levels: scroll must remain half a gap above Process 1
+  // rather than snapping downward onto Process 1's top.
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process 0", /*start_level=*/0, /*level_count=*/8,
+                        /*expanded=*/true, /*pid=*/1),
+       MakeThreadGroup("Thread 0", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/8, /*expanded=*/true, /*pid=*/1,
+                       /*tid=*/1),
+       MakeProcessGroup("Process 1", /*start_level=*/8, /*level_count=*/4,
+                        /*expanded=*/true, /*pid=*/2),
+       MakeThreadGroup("Thread 1", /*parent_index=*/2, /*start_level=*/8,
+                       /*level_count=*/4, /*expanded=*/true, /*pid=*/2,
+                       /*tid=*/2)},
+      /*num_levels=*/12));
+  const Group* p1_grown = FindTimelineGroup(timeline, "Process 1");
+  ASSERT_NE(p1_grown, nullptr);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  timeline.GetGroupTop(p1_grown) - (kProcessTrackGap * 0.5f));
+
+  // Process 0 disappears so Process 1 moves to 0.0f: negative offset clamps
+  // safely to 0.0f.
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/4,
+                        /*expanded=*/true, /*pid=*/2),
+       MakeThreadGroup("Thread 1", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/4, /*expanded=*/true, /*pid=*/2,
+                       /*tid=*/2)},
+      /*num_levels=*/4));
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 0.0f);
+}
+
+TEST(TimelineTest, ScrollAnchorAtExactTrackBottomDoesNotJumpUpward) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process 0", /*start_level=*/0, /*level_count=*/4,
+                        /*expanded=*/true, /*pid=*/1),
+       MakeThreadGroup("Thread 0", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/4, /*expanded=*/true, /*pid=*/1,
+                       /*tid=*/1),
+       MakeProcessGroup("Process 1", /*start_level=*/4, /*level_count=*/4,
+                        /*expanded=*/true, /*pid=*/2),
+       MakeThreadGroup("Thread 1", /*parent_index=*/2, /*start_level=*/4,
+                       /*level_count=*/4, /*expanded=*/true, /*pid=*/2,
+                       /*tid=*/2)},
+      /*num_levels=*/8));
+
+  // Scroll to the exact bottom edge of Thread 0 (0px of Thread 0 visible).
+  const Group* thread0 = FindTimelineGroup(timeline, "Thread 0");
+  ASSERT_NE(thread0, nullptr);
+  const Pixel exact_bottom = timeline.GetGroupBottom(thread0);
+  timeline.set_last_scroll_y_for_test(exact_bottom);
+
+  // Reload with Thread 0 growing to 8 levels: CaptureScrollAnchor must skip
+  // Thread 0 (since GetGroupBottom <= scroll_y) and anchor relative to
+  // Process 1, preserving the exact bottom boundary without jumping upward by
+  // `kEventHeight`.
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process 0", /*start_level=*/0, /*level_count=*/8,
+                        /*expanded=*/true, /*pid=*/1),
+       MakeThreadGroup("Thread 0", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/8, /*expanded=*/true, /*pid=*/1,
+                       /*tid=*/1),
+       MakeProcessGroup("Process 1", /*start_level=*/8, /*level_count=*/4,
+                        /*expanded=*/true, /*pid=*/2),
+       MakeThreadGroup("Thread 1", /*parent_index=*/2, /*start_level=*/8,
+                       /*level_count=*/4, /*expanded=*/true, /*pid=*/2,
+                       /*tid=*/2)},
+      /*num_levels=*/12));
+  const Group* grown_thread0 = FindTimelineGroup(timeline, "Thread 0");
+  ASSERT_NE(grown_thread0, nullptr);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  timeline.GetGroupBottom(grown_thread0));
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       DrawRestoresScrollOnFirstFrameWithoutClobberingOverviewRestore) {
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 200.0f);
+  timeline_.set_data_time_range({0.0, 10000.0});
+  timeline_.set_fetched_data_time_range({0.0, 10000.0});
+  timeline_.SetVisibleRange({0.0, 10000.0}, /*animate=*/false);
+  timeline_.set_is_incremental_loading(true);
+
+  // Part 1: Back-to-back single-frame SetTimelineData() + Draw() updates apply
+  // compensated scroll on the VERY FIRST frame without 1-frame SetScrollY lag.
+  timeline_.SetTimelineData(MakeSingleTecLayout(/*process0_levels=*/4));
+  SimulateFrame();
+  ImGuiWindow* tracks_window = FindTracksWindow();
+  ASSERT_NE(tracks_window, nullptr);
+
+  const Group* p1_initial = FindTimelineGroup(timeline_, "Process 1");
+  ASSERT_NE(p1_initial, nullptr);
+  const Pixel p1_initial_top = timeline_.GetGroupTop(p1_initial);
+  timeline_.set_scroll_offset_for_test(p1_initial_top + 6.0f);
+  SimulateFrame();
+  ASSERT_FLOAT_EQ(tracks_window->Scroll.y, p1_initial_top + 6.0f);
+  ASSERT_FLOAT_EQ(timeline_.last_scroll_y_for_test(), p1_initial_top + 6.0f);
+
+  // Grow Process 0 from 4 to 20 levels (first update) and draw a SINGLE frame.
+  timeline_.SetTimelineData(MakeSingleTecLayout(/*process0_levels=*/20));
+  const Pixel expected_scroll_1 =
+      timeline_.GetGroupTop(FindTimelineGroup(timeline_, "Process 1")) + 6.0f;
+  SimulateFrame();
+  EXPECT_FLOAT_EQ(tracks_window->Scroll.y, expected_scroll_1);
+  EXPECT_FLOAT_EQ(timeline_.last_scroll_y_for_test(), expected_scroll_1);
+
+  // Immediately grow Process 0 again to 30 levels (back-to-back single frame).
+  timeline_.SetTimelineData(MakeSingleTecLayout(/*process0_levels=*/30));
+  const Pixel expected_scroll_2 =
+      timeline_.GetGroupTop(FindTimelineGroup(timeline_, "Process 1")) + 6.0f;
+  SimulateFrame();
+  EXPECT_FLOAT_EQ(tracks_window->Scroll.y, expected_scroll_2);
+  EXPECT_FLOAT_EQ(timeline_.last_scroll_y_for_test(), expected_scroll_2);
+
+  // Part 2: In-Draw() zoom-out triggers RestoreSavedFullOverview() via
+  // MaybeRequestData(); Draw() must NOT clobber the compensated last_scroll_y_
+  // before EndChild(), and the follow-up frame must apply it immediately.
+  FlameChartTimelineData overview = MakeSingleTecLayout(/*process0_levels=*/4);
+  AddEvents(overview, {{.name = "ev", .start = 10.0, .dur = 20.0, .level = 0}});
+  overview.level_offsets.assign(overview.total_levels() + 1, 1);
+  overview.level_offsets[0] = 0;
+  overview.level_event_indices = {0};
+  timeline_.ResetForNewDataset();
+  timeline_.set_data_time_range({0.0, 10000.0});
+  timeline_.set_fetched_data_time_range({0.0, 10000.0});
+  timeline_.SetVisibleRange({0.0, 10000.0}, /*animate=*/false);
+  timeline_.SetTimelineData(std::move(overview));
+  timeline_.MarkCurrentDataAsFullOverview();
+  timeline_.set_is_incremental_loading(false);
+  SimulateFrame();
+
+  // Zoom in: stash overview and load a slice where Process 0 grew to 20 levels
+  // (followed by a Process 1-only slice anchored at +6px on Process 1).
+  timeline_.PrepareForFilteredRefetch();
+  timeline_.SetVisibleRange({2000.0, 4000.0}, /*animate=*/false);
+  timeline_.set_is_incremental_loading(true);
+  timeline_.SetTimelineData(MakeSingleTecLayout(/*process0_levels=*/20));
+  ASSERT_TRUE(timeline_.HasSavedFullOverview());
+  timeline_.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/54,
+                        /*expanded=*/true, /*pid=*/2),
+       MakeThreadGroup("TEC 0", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/4, /*expanded=*/true, /*pid=*/2,
+                       /*tid=*/10),
+       MakeThreadGroup("Padding", /*parent_index=*/0, /*start_level=*/4,
+                       /*level_count=*/50, /*expanded=*/true, /*pid=*/2,
+                       /*tid=*/11)},
+      /*num_levels=*/54));
+  const Group* zoomed_p1 = FindTimelineGroup(timeline_, "Process 1");
+  ASSERT_NE(zoomed_p1, nullptr);
+  const Pixel zoomed_scroll = timeline_.GetGroupTop(zoomed_p1) + 6.0f;
+  timeline_.set_scroll_offset_for_test(zoomed_scroll);
+  timeline_.set_is_incremental_loading(false);
+  SimulateFrame();
+  ASSERT_FALSE(timeline_.is_showing_full_overview());
+  ASSERT_FLOAT_EQ(tracks_window->Scroll.y, zoomed_scroll);
+
+  // Trigger in-Draw() RestoreSavedFullOverview() by zooming back out to full
+  // range and running Draw().
+  timeline_.SetVisibleRange({0.0, 10000.0}, /*animate=*/false);
+  SimulateFrame();
+  ASSERT_TRUE(timeline_.is_showing_full_overview());
+  const Group* restored_p1 = FindTimelineGroup(timeline_, "Process 1");
+  ASSERT_NE(restored_p1, nullptr);
+  const Pixel expected_restored_scroll =
+      timeline_.GetGroupTop(restored_p1) + 6.0f;
+  EXPECT_GT(expected_restored_scroll, zoomed_scroll);
+  // Must NOT be clobbered back to `zoomed_scroll` at EndChild().
+  EXPECT_FLOAT_EQ(timeline_.last_scroll_y_for_test(), expected_restored_scroll);
+  EXPECT_TRUE(timeline_.get_should_restore_scroll_for_test());
+
+  // Follow-up frame applies the restored scroll immediately to Tracks child.
+  SimulateFrame();
+  EXPECT_FLOAT_EQ(tracks_window->Scroll.y, expected_restored_scroll);
+  EXPECT_FLOAT_EQ(timeline_.last_scroll_y_for_test(), expected_restored_scroll);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       MouseWheelScrollBeforeInDrawOverviewRestoreDoesNotSnapBack) {
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 200.0f);
+  FlameChartTimelineData overview = MakeSingleTecLayout(/*process0_levels=*/4);
+  AddEvents(overview, {{.name = "ev", .start = 10.0, .dur = 20.0, .level = 0}});
+  overview.level_offsets.assign(overview.total_levels() + 1, 1);
+  overview.level_offsets[0] = 0;
+  overview.level_event_indices = {0};
+  timeline_.set_data_time_range({0.0, 10000.0});
+  timeline_.set_fetched_data_time_range({0.0, 10000.0});
+  timeline_.SetVisibleRange({0.0, 10000.0}, /*animate=*/false);
+  timeline_.SetTimelineData(std::move(overview));
+  timeline_.MarkCurrentDataAsFullOverview();
+  timeline_.set_is_incremental_loading(false);
+  SimulateFrame();
+
+  ImGuiWindow* tracks_window = FindTracksWindow();
+  ASSERT_NE(tracks_window, nullptr);
+
+  // Zoom in: stash overview, let Process 0 grow to 20 levels, then show a
+  // Process 1-only slice starting at scroll 0.
+  timeline_.PrepareForFilteredRefetch();
+  timeline_.SetVisibleRange({2000.0, 4000.0}, /*animate=*/false);
+  timeline_.set_is_incremental_loading(true);
+  timeline_.SetTimelineData(MakeSingleTecLayout(/*process0_levels=*/20));
+  ASSERT_TRUE(timeline_.HasSavedFullOverview());
+  timeline_.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/54,
+                        /*expanded=*/true, /*pid=*/2),
+       MakeThreadGroup("TEC 0", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/4, /*expanded=*/true, /*pid=*/2,
+                       /*tid=*/10),
+       MakeThreadGroup("Padding", /*parent_index=*/0, /*start_level=*/4,
+                       /*level_count=*/50, /*expanded=*/true, /*pid=*/2,
+                       /*tid=*/11)},
+      /*num_levels=*/54));
+  timeline_.set_scroll_offset_for_test(0.0f);
+  timeline_.set_is_incremental_loading(false);
+  SimulateFrame();
+  ASSERT_FLOAT_EQ(tracks_window->Scroll.y, 0.0f);
+  ASSERT_FLOAT_EQ(timeline_.last_scroll_y_for_test(), 0.0f);
+
+  // Frame N: scroll down via mouse wheel onto Process 1's "TEC 0" track (+6px).
+  // `HandleWheel()` calls `ImGui::SetScrollY()`, which commits on Frame N+1, so
+  // `last_scroll_y_` is still 0.0f at the end of Frame N.
+  const Group* zoomed_tec0 =
+      FindTimelineGroup(timeline_, "TEC 0", /*is_async=*/false);
+  ASSERT_NE(zoomed_tec0, nullptr);
+  const Pixel wheel_target_scroll = timeline_.GetGroupTop(zoomed_tec0) + 6.0f;
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMouseWheelEvent(0.0f, wheel_target_scroll);
+  SimulateFrame();
+  ASSERT_FLOAT_EQ(tracks_window->Scroll.y, 0.0f);
+  ASSERT_FLOAT_EQ(timeline_.last_scroll_y_for_test(), 0.0f);
+
+  // Frame N+1: zoom back out to full range so `MaybeRequestData()` invokes
+  // `RestoreSavedFullOverview()` in the same frame that ImGui commits Frame N's
+  // mouse-wheel scroll. `Draw()` must sync `last_scroll_y_` right after
+  // `BeginChild("Tracks")` so the restored overview anchors on "TEC 0" instead
+  // of snapping back to stale 0.0f.
+  timeline_.SetVisibleRange({0.0, 10000.0}, /*animate=*/false);
+  SimulateFrame();
+  ASSERT_TRUE(timeline_.is_showing_full_overview());
+  const Group* restored_p1 = FindTimelineGroup(timeline_, "Process 1");
+  ASSERT_NE(restored_p1, nullptr);
+  const int p1_index =
+      static_cast<int>(restored_p1 - timeline_.timeline_data().groups.data());
+  const Group* restored_p1_tec0 = nullptr;
+  for (const Group& group : timeline_.timeline_data().groups) {
+    if (group.parent_index == p1_index && group.name == "TEC 0") {
+      restored_p1_tec0 = &group;
+      break;
+    }
+  }
+  ASSERT_NE(restored_p1_tec0, nullptr);
+  const Pixel expected_restored_scroll =
+      timeline_.GetGroupTop(restored_p1_tec0) + 6.0f;
+  EXPECT_GT(expected_restored_scroll, wheel_target_scroll);
+  EXPECT_FLOAT_EQ(timeline_.last_scroll_y_for_test(), expected_restored_scroll);
+
+  // Frame N+2: restored scroll commits to the Tracks window without snapping
+  // back to 0.0f.
+  SimulateFrame();
+  EXPECT_FLOAT_EQ(tracks_window->Scroll.y, expected_restored_scroll);
+  EXPECT_FLOAT_EQ(timeline_.last_scroll_y_for_test(), expected_restored_scroll);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       PendingScrollIsNotClobberedWhenRestoreScrollReArmsMidDraw) {
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 200.0f);
+  timeline_.set_incremental_fetch_enabled(true);
+  timeline_.set_data_time_range({0.0, 10000.0});
+  timeline_.set_fetched_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0}, /*animate=*/false);
+
+  auto make_deep_data = [](uint16_t deep_level) {
+    FlameChartTimelineData data = MakeSingleTecLayout(/*process0_levels=*/40);
+    AddEvents(data,
+              {{.name = "top_ev", .start = 100.0, .dur = 50.0, .level = 0},
+               {.name = "deep_ev",
+                .start = 5500.0,
+                .dur = 50.0,
+                .level = deep_level}});
+    data.level_offsets.assign(data.total_levels() + 1, 0);
+    for (int lvl = 1; lvl <= data.total_levels(); ++lvl) {
+      data.level_offsets[lvl] = (lvl > 0 ? 1 : 0) + (lvl > deep_level ? 1 : 0);
+    }
+    data.level_event_indices = {0, 1};
+    return data;
+  };
+
+  timeline_.SetTimelineData(make_deep_data(/*deep_level=*/35));
+  timeline_.set_is_incremental_loading(false);
+  SimulateFrame();
+  ImGuiWindow* tracks_window = FindTracksWindow();
+  ASSERT_NE(tracks_window, nullptr);
+  ASSERT_FLOAT_EQ(tracks_window->Scroll.y, 0.0f);
+
+  // Register a synchronous kFetchData handler that reloads timeline data
+  // (re-arming `should_restore_scroll_ = true` mid-Draw()) and queues a
+  // pending RevealEvent scroll to the off-screen event at level 35.
+  bool fetched = false;
+  timeline_.set_event_callback([&](absl::string_view type, const EventData&) {
+    if (type == kFetchData && !fetched) {
+      fetched = true;
+      timeline_.set_fetched_data_time_range({4000.0, 7000.0});
+      timeline_.SetTimelineData(make_deep_data(/*deep_level=*/35));
+      timeline_.RevealEvent(/*event_index=*/1);
+    }
+  });
+
+  // Trigger MaybeRequestData() -> kFetchData during Frame 1. Because
+  // `should_restore_scroll_` was re-armed mid-Draw(), `ProcessPendingScroll()`
+  // must wait until Frame 2 instead of consuming `event_index_to_scroll_to_`
+  // and having Frame 2's `SetNextWindowScroll` overwrite it back to 0.0f.
+  timeline_.SetVisibleRange({5000.0, 6000.0}, /*animate=*/false);
+  SimulateFrame();
+  ASSERT_TRUE(fetched);
+  EXPECT_TRUE(timeline_.get_should_restore_scroll_for_test());
+
+  // Frame 2 applies restored scroll (0.0f) and then runs ProcessPendingScroll()
+  // to scroll down to the deep event; Frame 3 commits that scroll to ImGui.
+  SimulateFrame();
+  SimulateFrame();
+  EXPECT_GT(tracks_window->Scroll.y, 300.0f);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       RestoreSavedFullOverviewClearsPendingScrollAndGuardsOutOfBounds) {
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 200.0f);
+  timeline_.set_data_time_range({0.0, 10000.0});
+  timeline_.set_fetched_data_time_range({0.0, 10000.0});
+  timeline_.SetVisibleRange({0.0, 10000.0}, /*animate=*/false);
+
+  // Overview has only 1 event.
+  FlameChartTimelineData overview = MakeSingleTecLayout(/*process0_levels=*/4);
+  AddEvents(overview,
+            {{.name = "overview_ev", .start = 10.0, .dur = 20.0, .level = 0}});
+  overview.level_offsets.assign(overview.total_levels() + 1, 1);
+  overview.level_offsets[0] = 0;
+  overview.level_event_indices = {0};
+  timeline_.SetTimelineData(std::move(overview));
+  timeline_.MarkCurrentDataAsFullOverview();
+  timeline_.set_is_incremental_loading(false);
+  SimulateFrame();
+
+  // Zoomed slice has 5 events; queue a pending scroll on event index 4
+  // (out of bounds for the 1-event overview), then restore overview and draw.
+  timeline_.PrepareForFilteredRefetch();
+  timeline_.SetVisibleRange({2000.0, 4000.0}, /*animate=*/false);
+  FlameChartTimelineData zoomed = MakeSingleTecLayout(/*process0_levels=*/10);
+  AddEvents(zoomed, {{.name = "e0", .start = 2010.0, .dur = 10.0, .level = 0},
+                     {.name = "e1", .start = 2030.0, .dur = 10.0, .level = 1},
+                     {.name = "e2", .start = 2050.0, .dur = 10.0, .level = 2},
+                     {.name = "e3", .start = 2070.0, .dur = 10.0, .level = 3},
+                     {.name = "e4", .start = 2090.0, .dur = 10.0, .level = 8}});
+  zoomed.level_offsets.assign(zoomed.total_levels() + 1, 5);
+  zoomed.level_offsets[0] = 0;
+  zoomed.level_offsets[1] = 1;
+  zoomed.level_offsets[2] = 2;
+  zoomed.level_offsets[3] = 3;
+  for (int lvl = 4; lvl <= 8; ++lvl) zoomed.level_offsets[lvl] = 4;
+  zoomed.level_event_indices = {0, 1, 2, 3, 4};
+  FlameChartTimelineData zoomed_copy = zoomed;
+  timeline_.SetTimelineData(std::move(zoomed));
+  ASSERT_TRUE(timeline_.HasSavedFullOverview());
+
+  timeline_.RevealEvent(/*event_index=*/4);
+  ASSERT_TRUE(timeline_.RestoreSavedFullOverview());
+  SimulateFrame();
+  SimulateFrame();
+  EXPECT_EQ(timeline_.selected_event_index(), -1);
+
+  // Also verify ProcessPendingScroll() guards an out-of-bounds
+  // `event_index_to_scroll_to_` when `SetTimelineData()` shrinks `entry_levels`
+  // before the pending scroll is consumed.
+  timeline_.SetTimelineData(std::move(zoomed_copy));
+  timeline_.RevealEvent(/*event_index=*/4);
+  FlameChartTimelineData single_event =
+      MakeSingleTecLayout(/*process0_levels=*/4);
+  AddEvents(single_event,
+            {{.name = "only", .start = 10.0, .dur = 20.0, .level = 0}});
+  single_event.level_offsets.assign(single_event.total_levels() + 1, 1);
+  single_event.level_offsets[0] = 0;
+  single_event.level_event_indices = {0};
+  timeline_.SetTimelineData(std::move(single_event));
+  SimulateFrame();
+  SimulateFrame();
+  EXPECT_EQ(timeline_.timeline_data().entry_levels.size(), 1u);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       ReloadDuringActiveExpandTransitionFinishesTransitionBeforeAnchoring) {
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 200.0f);
+  timeline_.set_animations_enabled(true);
+  timeline_.set_is_incremental_loading(true);
+
+  // Query Process 1's expanded offset from an already-expanded reference layout
+  // rather than duplicating Timeline's internal vertical spacing arithmetic.
+  ColorPalette reference_palette = ColorPalette::Default();
+  TestTimeline reference_timeline(reference_palette);
+  reference_timeline.SetTimelineData(
+      MakeSingleTecLayout(/*process0_levels=*/10));
+  const Group* ref_p1 = FindTimelineGroup(reference_timeline, "Process 1");
+  ASSERT_NE(ref_p1, nullptr);
+  const Pixel target_p1_offset = reference_timeline.GetGroupTop(ref_p1);
+
+  // Start with Process 0 collapsed and Process 1 expanded below it.
+  FlameChartTimelineData initial = MakeSingleTecLayout(/*process0_levels=*/10);
+  initial.groups[0].expanded = false;
+  timeline_.SetTimelineData(std::move(initial));
+  SimulateFrame();
+
+  // Click Process 0's label chevron area to start an animated expand
+  // transition, leaving `layout_transition_.active == true` with non-monotonic
+  // intermediate `GetGroupBottom` offsets.
+  ImGuiWindow* tracks_window = FindTracksWindow();
+  ASSERT_NE(tracks_window, nullptr);
+  const ImVec2 p0_click(
+      std::round(tracks_window->Pos.x + 20.0f),
+      std::round(tracks_window->Pos.y +
+                 timeline_.GetGroupTop(&timeline_.timeline_data().groups[0]) +
+                 kProcessTrackHeight * 0.5f));
+  ImGuiIO& io = ImGui::GetIO();
+  io.DeltaTime = 0.016f;
+  io.AddMousePosEvent(p0_click.x, p0_click.y);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  ASSERT_TRUE(timeline_.is_layout_transition_active());
+
+  // Set scroll onto Process 1's final expanded position and reload mid-motion.
+  timeline_.set_last_scroll_y_for_test(target_p1_offset + 5.0f);
+
+  timeline_.SetTimelineData(MakeSingleTecLayout(/*process0_levels=*/16));
+  EXPECT_FALSE(timeline_.is_layout_transition_active());
+  const Group* p1 = FindTimelineGroup(timeline_, "Process 1");
+  ASSERT_NE(p1, nullptr);
+  EXPECT_FLOAT_EQ(timeline_.last_scroll_y_for_test(),
+                  timeline_.GetGroupTop(p1) + 5.0f);
 }
 
 TEST_F(RealTimelineImGuiFixture,

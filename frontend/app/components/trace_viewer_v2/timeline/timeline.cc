@@ -760,6 +760,249 @@ Pixel ComputeCounterValueY(double value, double min_value, Pixel y_top,
   return std::clamp(y, y_top, std::max(y_top, y_min_height));
 }
 
+int GetProcessEndLevel(const FlameChartTimelineData& data,
+                       size_t process_index) {
+  const int num_levels = data.total_levels();
+  const int process_nesting_level = data.groups[process_index].nesting_level;
+  for (size_t next_index = process_index + 1; next_index < data.groups.size();
+       ++next_index) {
+    if (data.groups[next_index].nesting_level <= process_nesting_level) {
+      return std::min(data.groups[next_index].start_level, num_levels);
+    }
+  }
+  return num_levels;
+}
+
+// Returns true if `group` is a named leaf non-process flame track (including
+// currently empty tracks whose previous height is preserved) whose height
+// participates in monotonic high-water-mark tracking.
+bool IsObservedLeafFlameGroup(const Group& group) {
+  return !group.name.empty() && group.type == Group::Type::kFlame &&
+         group.nesting_level != kProcessNestingLevel && !group.has_children;
+}
+
+// Canonical sync key paired with whether the source group was a TEC sub-track
+// nested under `kTecTracksGroupName`.
+struct CanonicalSyncKey {
+  GroupKey key;
+  bool is_tec_subtrack = false;
+};
+
+// If `group` is a sub-track nested under `kTecTracksGroupName`, returns the
+// canonical top-level thread `GroupKey` in the owning process.
+std::optional<GroupKey> TecSubTrackAsThreadKey(absl::Span<const Group> groups,
+                                               const Group& group) {
+  if (group.nesting_level != kSubTrackNestingLevel || group.parent_index < 0 ||
+      group.parent_index >= static_cast<int>(groups.size()) ||
+      groups[group.parent_index].name != kTecTracksGroupName) {
+    return std::nullopt;
+  }
+  const int grandparent_index = groups[group.parent_index].parent_index;
+  const absl::string_view process_name =
+      (grandparent_index >= 0 &&
+       grandparent_index < static_cast<int>(groups.size()))
+          ? absl::string_view(groups[grandparent_index].name)
+          : absl::string_view();
+  return MakeThreadGroupKey(process_name, group.name);
+}
+
+// Maps sync TEC tracks (whether direct under a process or nested under
+// `kTecTracksGroupName`) onto a single canonical `MakeThreadGroupKey` for
+// `ObservedTrackLevels::sync_levels_`.
+CanonicalSyncKey ResolveCanonicalSyncObservedKey(absl::Span<const Group> groups,
+                                                 size_t group_index) {
+  const Group& group = groups[group_index];
+  if (!group.is_async && IsTecTrack(group.name)) {
+    if (std::optional<GroupKey> thread_key =
+            TecSubTrackAsThreadKey(groups, group);
+        thread_key.has_value()) {
+      return {std::move(*thread_key), /*is_tec_subtrack=*/true};
+    }
+  }
+  return {GetScopedGroupKey(groups, group_index), /*is_tec_subtrack=*/false};
+}
+
+// Returns the alternate TEC layout key for a sync leaf TEC flame track:
+// `kThreadNestingLevel` <-> `kSubTrackNestingLevel` under `kTecTracksGroupName`
+// in the same process, or `std::nullopt` for async tracks, non-TEC tracks, or
+// other shapes.
+std::optional<GroupKey> MakeAlternateTecGroupKey(absl::Span<const Group> groups,
+                                                 size_t group_index,
+                                                 const GroupKey& group_key) {
+  if (group_index >= groups.size()) {
+    return std::nullopt;
+  }
+  const Group& group = groups[group_index];
+  if (!IsObservedLeafFlameGroup(group) || group.is_async ||
+      !IsTecTrack(group.name)) {
+    return std::nullopt;
+  }
+  if (group.nesting_level == kThreadNestingLevel) {
+    return MakeTecSubTrackKey(group_key.parent_name, group.name);
+  }
+  return TecSubTrackAsThreadKey(groups, group);
+}
+
+struct MonotonicShiftState {
+  int old_total_levels = 0;
+  int running_shift = 0;
+  std::vector<int> level_shift;
+
+  // Expands the current leaf group's level count toward `target_levels` (capped
+  // at `kMaxTimelineLevels`) and records the cumulative shift step starting at
+  // `original_end_level`. Returns the applied level delta.
+  int RecordExpansion(int original_end_level, int current_levels,
+                      int target_levels) {
+    if (target_levels <= current_levels ||
+        old_total_levels >= kMaxTimelineLevels ||
+        running_shift >= kMaxTimelineLevels - old_total_levels) {
+      return 0;
+    }
+    const int max_extra_shift =
+        (kMaxTimelineLevels - old_total_levels) - running_shift;
+    const int64_t requested_delta =
+        static_cast<int64_t>(target_levels) - current_levels;
+    const int delta =
+        static_cast<int>(std::min<int64_t>(requested_delta, max_extra_shift));
+    if (delta <= 0) {
+      return 0;
+    }
+    running_shift += delta;
+    if (original_end_level >= 0 && original_end_level < old_total_levels) {
+      if (level_shift.empty()) {
+        level_shift.assign(old_total_levels, 0);
+      }
+      level_shift[original_end_level] =
+          std::max(level_shift[original_end_level], running_shift);
+    }
+    return delta;
+  }
+
+  // Converts sparse per-boundary shift points into a prefix-max table over
+  // `[0, old_total_levels)` for O(1) level remapping.
+  void Finalize() {
+    if (level_shift.empty()) {
+      return;
+    }
+    for (int level = 1; level < old_total_levels; ++level) {
+      level_shift[level] = std::max(level_shift[level], level_shift[level - 1]);
+    }
+  }
+};
+
+// Monotonically expands a single leaf flame group at `group_index` in `data` to
+// at least its previously observed height (capped at `kMaxTimelineLevels`),
+// clears `is_empty` when previously observed, records any shift step at
+// `original_end_level`, and updates `observed_levels`.
+void ApplyMonotonicLeafGroupHeight(FlameChartTimelineData& data,
+                                   size_t group_index, int original_end_level,
+                                   MonotonicShiftState& state,
+                                   ObservedTrackLevels& observed_levels) {
+  Group& group = data.groups[group_index];
+  if (!IsObservedLeafFlameGroup(group)) {
+    return;
+  }
+
+  const int previous_observed_levels =
+      observed_levels.GetForGroup(data.groups, group_index);
+  if (previous_observed_levels > 0) {
+    if (previous_observed_levels > group.level_count) {
+      group.level_count += state.RecordExpansion(
+          original_end_level, group.level_count, previous_observed_levels);
+    }
+    group.is_empty = false;
+  }
+
+  if (group.is_empty) {
+    return;
+  }
+  observed_levels.RecordGroupLevels(
+      data.groups, group_index,
+      std::max(previous_observed_levels, group.level_count));
+}
+
+// Remaps `entry_levels`, `flow_lines`, and CSR `level_offsets` after leaf
+// groups are shifted vertically by `level_shift`.
+// Precondition: if `level_shift` is non-empty, its size is `old_total_levels`
+// and it is monotonically non-decreasing so `level + level_shift[level]` is
+// strictly increasing.
+void RemapTimelineLevelsAfterShift(FlameChartTimelineData& data,
+                                   int old_total_levels,
+                                   absl::Span<const int> level_shift,
+                                   int running_shift) {
+  const int new_total_levels =
+      (running_shift > 0) ? (old_total_levels + running_shift)
+                          : std::min(old_total_levels, kMaxTimelineLevels);
+  if (running_shift > 0 && !level_shift.empty()) {
+    for (uint16_t& level : data.entry_levels) {
+      if (level < old_total_levels) {
+        level = static_cast<uint16_t>(level + level_shift[level]);
+      }
+    }
+    auto shift_flow = [&](FlowLine& flow) {
+      if (flow.source_level >= 0 && flow.source_level < old_total_levels) {
+        flow.source_level += level_shift[flow.source_level];
+      }
+      if (flow.target_level >= 0 && flow.target_level < old_total_levels) {
+        flow.target_level += level_shift[flow.target_level];
+      }
+    };
+    for (FlowLine& flow : data.flow_lines) shift_flow(flow);
+    for (auto& [_, flows] : data.flow_lines_by_flow_id) {
+      for (FlowLine& flow : flows) shift_flow(flow);
+    }
+    const int old_offset_levels = data.total_levels();
+    std::vector<size_t> new_offsets(new_total_levels + 1, 0);
+    for (int level = 0; level < old_offset_levels; ++level) {
+      const int new_level = level + level_shift[level];
+      if (new_level >= 0 && new_level < new_total_levels) {
+        new_offsets[new_level + 1] +=
+            data.level_offsets[level + 1] - data.level_offsets[level];
+      }
+    }
+    for (int level = 1; level <= new_total_levels; ++level) {
+      new_offsets[level] += new_offsets[level - 1];
+    }
+    data.level_offsets = std::move(new_offsets);
+  } else if (new_total_levels > data.total_levels()) {
+    const size_t last_offset =
+        data.level_offsets.empty() ? 0 : data.level_offsets.back();
+    data.level_offsets.resize(new_total_levels + 1, last_offset);
+  }
+}
+
+// Chesterton's Fence: `DataProvider` always populates `level_count` and
+// `has_children` in production, so removing this would break hand-constructed
+// fixtures that specify only `start_level` and `parent_index` and rely on
+// `Timeline` inferring hierarchy metadata before monotonic height and overview
+// calculations.
+void NormalizeGroupHierarchyMetadata(FlameChartTimelineData& data) {
+  // Backfill `level_count` for manually constructed fixtures that only set
+  // `start_level`.
+  for (size_t i = 0; i < data.groups.size(); ++i) {
+    if (data.groups[i].level_count <= 0) {
+      int next_level = (i + 1 < data.groups.size())
+                           ? data.groups[i + 1].start_level
+                           : data.total_levels();
+      data.groups[i].level_count =
+          std::max(1, next_level - data.groups[i].start_level);
+    }
+  }
+  // Infer `has_children` for manually constructed fixtures that link
+  // `parent_index` without explicitly setting `has_children`, while skipping
+  // self/forward parent indices and parents whose own levels lie strictly
+  // before their children.
+  for (size_t i = 0; i < data.groups.size(); ++i) {
+    const Group& group = data.groups[i];
+    if (group.parent_index >= 0 && group.parent_index < static_cast<int>(i)) {
+      Group& parent = data.groups[group.parent_index];
+      if (group.start_level < parent.start_level + parent.level_count) {
+        parent.has_children = true;
+      }
+    }
+  }
+}
+
 }  // namespace
 
 GroupKey GetScopedGroupKey(absl::Span<const Group> groups, size_t group_index,
@@ -796,6 +1039,202 @@ GroupKey GetScopedGroupKey(absl::Span<const Group> groups, size_t group_index,
             std::string(fallback_process_name)};
   }
   return {group.nesting_level, group.name, ""};
+}
+
+ExpandedStateMap GetRestoredExpandedStates(absl::Span<const Group> groups) {
+  ExpandedStateMap expanded_states;
+  for (size_t i = 0; i < groups.size(); ++i) {
+    if (groups[i].type != Group::Type::kFlame) {
+      continue;
+    }
+    if (groups[i].is_empty && !groups[i].has_children && !groups[i].expanded) {
+      continue;
+    }
+    expanded_states[{GetScopedGroupKey(groups, i), groups[i].is_async}] =
+        groups[i].expanded;
+  }
+  return expanded_states;
+}
+
+std::optional<bool> FindExpandedState(
+    const ExpandedStateMap& expanded_states, const ExpandedStateKey& key,
+    const std::optional<GroupKey>& alternate_sync_key) {
+  if (const auto it_state = expanded_states.find(key);
+      it_state != expanded_states.end()) {
+    return it_state->second;
+  }
+  if (!key.is_async && alternate_sync_key.has_value()) {
+    if (const auto it_alt =
+            expanded_states.find({*alternate_sync_key, /*is_async=*/false});
+        it_alt != expanded_states.end()) {
+      return it_alt->second;
+    }
+  }
+  if (!key.group.parent_name.empty() &&
+      key.group.nesting_level < kSubTrackNestingLevel) {
+    if (const auto it_parentless = expanded_states.find(
+            {{key.group.nesting_level, key.group.name, ""}, key.is_async});
+        it_parentless != expanded_states.end()) {
+      return it_parentless->second;
+    }
+  }
+  return std::nullopt;
+}
+
+bool IsTecTrack(absl::string_view name) {
+  name = absl::StripAsciiWhitespace(name);
+  if (absl::EqualsIgnoreCase(name, kTecTracksGroupName)) {
+    return false;
+  }
+  constexpr absl::string_view kTecPrefix = "TEC";
+  if (!absl::StartsWithIgnoreCase(name, kTecPrefix)) {
+    return false;
+  }
+  if (name.size() == kTecPrefix.size()) {
+    return true;
+  }
+  const unsigned char next =
+      static_cast<unsigned char>(name[kTecPrefix.size()]);
+  return !absl::ascii_isalnum(next) && next != '_';
+}
+
+int ObservedTrackLevels::GetForThreadTrack(absl::string_view process_name,
+                                           absl::string_view thread_name,
+                                           ProcessId pid, ThreadId tid) const {
+  if (sync_levels_.empty()) {
+    return 0;
+  }
+  const auto it = sync_levels_.find(
+      {MakeThreadGroupKey(process_name, thread_name), pid, tid});
+  return it != sync_levels_.end() ? it->second : 0;
+}
+
+int ObservedTrackLevels::GetForAsyncTrack(absl::string_view process_name,
+                                          absl::string_view track_name) const {
+  if (async_levels_.empty()) {
+    return 0;
+  }
+  const auto it =
+      async_levels_.find(MakeThreadGroupKey(process_name, track_name));
+  return it != async_levels_.end() ? it->second : 0;
+}
+
+std::optional<bool> ObservedTrackLevels::FindSingleTecTransitionExpanded(
+    absl::string_view process_name, ProcessId pid,
+    absl::Span<const ThreadId> tec_tids,
+    const ExpandedStateMap& expanded_states,
+    absl::FunctionRef<std::string(ThreadId)> resolve_thread_name) const {
+  if (last_single_tec_by_process_.empty()) {
+    return std::nullopt;
+  }
+  const auto it = last_single_tec_by_process_.find(process_name);
+  if (it == last_single_tec_by_process_.end()) {
+    return std::nullopt;
+  }
+  const SingleTecState& last_single = it->second;
+  const bool matches_last_single = absl::c_any_of(tec_tids, [&](ThreadId tid) {
+    if (last_single.pid != 0 || last_single.tid != 0) {
+      return pid == last_single.pid && tid == last_single.tid;
+    }
+    return resolve_thread_name(tid) == last_single.thread_name;
+  });
+  if (!matches_last_single) {
+    return std::nullopt;
+  }
+  const GroupKey single_tec_key =
+      MakeThreadGroupKey(process_name, last_single.thread_name);
+  if (const auto expanded_it =
+          expanded_states.find({single_tec_key, /*is_async=*/false});
+      expanded_it != expanded_states.end()) {
+    return expanded_it->second;
+  }
+  return last_single.expanded;
+}
+
+void ObservedTrackLevels::UpdateSingleTecState(
+    const Group& group, absl::string_view canonical_parent_name,
+    bool is_tec_subtrack) {
+  if (group.nesting_level == kThreadNestingLevel) {
+    last_single_tec_by_process_[canonical_parent_name] =
+        SingleTecState{group.name, group.pid, group.tid, group.expanded};
+  } else if (is_tec_subtrack) {
+    last_single_tec_by_process_.erase(canonical_parent_name);
+  }
+}
+
+void ObservedTrackLevels::SyncSingleTecExpandedStates(
+    absl::Span<const Group> groups) {
+  for (size_t i = 0; i < groups.size(); ++i) {
+    const Group& group = groups[i];
+    if (!IsObservedLeafFlameGroup(group) || group.is_async ||
+        !IsTecTrack(group.name)) {
+      continue;
+    }
+    const CanonicalSyncKey canonical =
+        ResolveCanonicalSyncObservedKey(groups, i);
+    if (group.is_empty && !group.expanded) {
+      // Clear any stale standalone single-TEC record when an empty TEC track
+      // is collapsed so a subsequent multi-TEC reload does not spuriously
+      // auto-expand `"TEC Tracks"`.
+      if (group.nesting_level == kThreadNestingLevel ||
+          canonical.is_tec_subtrack) {
+        last_single_tec_by_process_.erase(canonical.key.parent_name);
+      }
+      continue;
+    }
+    UpdateSingleTecState(group, canonical.key.parent_name,
+                         canonical.is_tec_subtrack);
+  }
+}
+
+int ObservedTrackLevels::GetForGroup(absl::Span<const Group> groups,
+                                     size_t group_index) const {
+  if (group_index >= groups.size()) {
+    return 0;
+  }
+  const Group& group = groups[group_index];
+  if (!IsObservedLeafFlameGroup(group)) {
+    return 0;
+  }
+  if (group.is_async) {
+    if (async_levels_.empty()) {
+      return 0;
+    }
+    const auto it = async_levels_.find(GetScopedGroupKey(groups, group_index));
+    return it != async_levels_.end() ? it->second : 0;
+  }
+  if (sync_levels_.empty()) {
+    return 0;
+  }
+  const CanonicalSyncKey canonical =
+      ResolveCanonicalSyncObservedKey(groups, group_index);
+  const auto it = sync_levels_.find({canonical.key, group.pid, group.tid});
+  return it != sync_levels_.end() ? it->second : 0;
+}
+
+void ObservedTrackLevels::RecordGroupLevels(absl::Span<const Group> groups,
+                                            size_t group_index,
+                                            int level_count) {
+  if (group_index >= groups.size() || level_count <= 0) {
+    return;
+  }
+  const Group& group = groups[group_index];
+  if (!IsObservedLeafFlameGroup(group)) {
+    return;
+  }
+  if (group.is_async) {
+    int& stored = async_levels_[GetScopedGroupKey(groups, group_index)];
+    stored = std::max(stored, level_count);
+    return;
+  }
+  const CanonicalSyncKey canonical =
+      ResolveCanonicalSyncObservedKey(groups, group_index);
+  int& stored = sync_levels_[{canonical.key, group.pid, group.tid}];
+  stored = std::max(stored, level_count);
+  if (IsTecTrack(group.name)) {
+    UpdateSingleTecState(group, canonical.key.parent_name,
+                         canonical.is_tec_subtrack);
+  }
 }
 
 int FlameChartTimelineData::FindEventIndexAt(int level, Microseconds ts) const {
@@ -1549,19 +1988,6 @@ void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
   if (redraw_callback_) redraw_callback_();
 }
 
-void Timeline::BackfillGroupLevelCount(FlameChartTimelineData& data) {
-  // Backfill level_count for tests that only set start_level.
-  for (size_t i = 0; i < data.groups.size(); ++i) {
-    if (data.groups[i].level_count <= 0) {
-      int next_level = (i + 1 < data.groups.size())
-                           ? data.groups[i + 1].start_level
-                           : data.total_levels();
-      data.groups[i].level_count =
-          std::max(1, next_level - data.groups[i].start_level);
-    }
-  }
-}
-
 // As a client-side stopgap, accumulate bounds per
 // (pid, counter_name) so counter tracks do not shrink vertically during pan and
 // zoom. Note that bounds will still step once when a new extreme scrolls into
@@ -1604,6 +2030,271 @@ void Timeline::StabilizeCounterTracks(FlameChartTimelineData& data) {
   }
 }
 
+std::vector<int> Timeline::ApplyMonotonicGroupHeights(
+    FlameChartTimelineData& data) {
+  if (data.groups.empty()) return {};
+
+  int64_t max_original_end_level = data.total_levels();
+  for (const Group& group : data.groups) {
+    max_original_end_level = std::max<int64_t>(
+        max_original_end_level,
+        static_cast<int64_t>(group.start_level) + group.level_count);
+  }
+
+  MonotonicShiftState shift_state{
+      .old_total_levels = static_cast<int>(std::clamp<int64_t>(
+          max_original_end_level, 0, std::numeric_limits<int>::max())),
+  };
+  // Stack of ancestor group indices along the current DFS path. Groups are
+  // finalized in post-order once all of their descendants have been visited.
+  std::vector<int> open_parents;
+
+  auto propagate_to_parent = [&](size_t group_index) {
+    const Group& group = data.groups[group_index];
+    if (group.level_count <= 0 || group.parent_index < 0 ||
+        group.parent_index >= static_cast<int>(data.groups.size())) {
+      return;
+    }
+    Group& parent = data.groups[group.parent_index];
+    if (!parent.has_children) {
+      return;
+    }
+    const int child_end_level = group.start_level + group.level_count;
+    parent.level_count =
+        std::max(parent.level_count, child_end_level - parent.start_level);
+    if (!group.is_empty) {
+      parent.is_empty = false;
+    }
+  };
+
+  auto pop_parent = [&]() {
+    const int parent_index = open_parents.back();
+    open_parents.pop_back();
+    propagate_to_parent(static_cast<size_t>(parent_index));
+  };
+
+  for (size_t i = 0; i < data.groups.size(); ++i) {
+    while (!open_parents.empty() &&
+           data.groups[i].parent_index != open_parents.back()) {
+      pop_parent();
+    }
+
+    Group& group = data.groups[i];
+    const int original_end_level = group.start_level + group.level_count;
+    group.start_level += shift_state.running_shift;
+
+    if (group.has_children) {
+      open_parents.push_back(static_cast<int>(i));
+    } else {
+      ApplyMonotonicLeafGroupHeight(data, i, original_end_level, shift_state,
+                                    observed_track_levels_);
+      propagate_to_parent(i);
+    }
+  }
+
+  while (!open_parents.empty()) {
+    pop_parent();
+  }
+
+  shift_state.Finalize();
+
+  RemapTimelineLevelsAfterShift(data, shift_state.old_total_levels,
+                                shift_state.level_shift,
+                                shift_state.running_shift);
+  return shift_state.level_shift;
+}
+
+int Timeline::VisibleGroupIndex(const Group* group) const {
+  if (IsVirtualHeader(group)) {
+    return -1;
+  }
+  const int group_index = GetGroupIndex(group);
+  if (group_index < 0 ||
+      group_index >= static_cast<int>(timeline_data_.groups.size())) {
+    return -1;
+  }
+  if (group_index < static_cast<int>(group_visible_.size()) &&
+      !group_visible_[group_index]) {
+    return -1;
+  }
+  return group_index;
+}
+
+std::optional<Timeline::ScrollAnchor> Timeline::CaptureScrollAnchor() const {
+  if (flattened_groups_.empty()) {
+    return std::nullopt;
+  }
+
+  const Group* first_concrete_track = nullptr;
+  for (const Group* group : flattened_groups_) {
+    if (VisibleGroupIndex(group) >= 0) {
+      first_concrete_track = group;
+      break;
+    }
+  }
+
+  // NOMUTANTS(LCR): If first_concrete_track is null, all flattened groups are
+  // virtual headers or invisible so no anchor can be captured, making
+  // short-circuiting a semantic no-op.
+  if (first_concrete_track == nullptr ||
+      last_scroll_y_ < GetGroupTop(first_concrete_track)) {
+    return std::nullopt;
+  }
+
+  auto it =
+      std::lower_bound(flattened_groups_.begin(), flattened_groups_.end(),
+                       last_scroll_y_, [this](const Group* group, Pixel y) {
+                         return this->GetGroupBottom(group) <= y;
+                       });
+
+  // Advance past virtual headers and invisible groups to anchor on a concrete
+  // visible track.
+  while (it != flattened_groups_.end() && VisibleGroupIndex(*it) < 0) {
+    ++it;
+  }
+
+  if (it == flattened_groups_.end()) {
+    return std::nullopt;
+  }
+
+  const Group* const anchor_group = *it;
+  const int anchor_index = GetGroupIndex(*it);
+  ScrollAnchor anchor;
+  anchor.group_key = GetScopedGroupKey(timeline_data_.groups, anchor_index);
+  anchor.type = anchor_group->type;
+  anchor.pid = anchor_group->pid;
+  anchor.tid = anchor_group->tid;
+  anchor.is_async = anchor_group->is_async;
+  anchor.alternate_group_key = MakeAlternateTecGroupKey(
+      timeline_data_.groups, static_cast<size_t>(anchor_index),
+      anchor.group_key);
+  if (anchor_group->parent_index >= 0 &&
+      anchor_group->parent_index <
+          static_cast<int>(timeline_data_.groups.size())) {
+    anchor.parent_group_key =
+        GetScopedGroupKey(timeline_data_.groups, anchor_group->parent_index);
+    const int grandparent_index =
+        timeline_data_.groups[anchor_group->parent_index].parent_index;
+    if (grandparent_index >= 0 &&
+        grandparent_index < static_cast<int>(timeline_data_.groups.size())) {
+      anchor.grandparent_group_key =
+          GetScopedGroupKey(timeline_data_.groups, grandparent_index);
+    }
+  }
+  anchor.local_pixel_offset = last_scroll_y_ - GetGroupTop(anchor_group);
+  return anchor;
+}
+
+int Timeline::FindVisibleGroupIndex(
+    const GroupKey& target_key, Group::Type type, bool is_async,
+    std::optional<std::pair<ProcessId, ThreadId>> track_id) const {
+  int name_only_fallback = -1;
+  for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+    if (i < group_visible_.size() && !group_visible_[i]) {
+      continue;
+    }
+    const Group& group = timeline_data_.groups[i];
+    if (group.is_async != is_async || group.type != type) {
+      continue;
+    }
+    if (group.nesting_level != target_key.nesting_level ||
+        group.name != target_key.name ||
+        GetScopedGroupKey(timeline_data_.groups, i) != target_key) {
+      continue;
+    }
+    if (!track_id.has_value()) {
+      return static_cast<int>(i);
+    }
+    // Async tracks match by `(pid, name)` because their thread IDs are
+    // synthetic or vary across slices; sync tracks match exact `(pid, tid)`.
+    if (group.pid == track_id->first &&
+        (is_async || group.tid == track_id->second)) {
+      return static_cast<int>(i);
+    }
+    // Fall back to name-only matching for synthetic fixtures where both IDs
+    // are unset (`pid == 0 && tid == 0`).
+    if (name_only_fallback == -1 && group.pid == 0 && group.tid == 0) {
+      name_only_fallback = static_cast<int>(i);
+    }
+  }
+  return name_only_fallback;
+}
+
+void Timeline::RestoreScrollAnchor(const std::optional<ScrollAnchor>& anchor) {
+  if (timeline_data_.groups.empty()) {
+    last_scroll_y_ = 0.0f;
+    return;
+  }
+  if (!anchor.has_value()) {
+    last_scroll_y_ = std::max(0.0f, last_scroll_y_);
+    return;
+  }
+
+  const std::optional<std::pair<ProcessId, ThreadId>> anchor_track_id =
+      (anchor->pid != 0 || anchor->tid != 0)
+          ? std::make_optional(std::make_pair(anchor->pid, anchor->tid))
+          : std::nullopt;
+
+  Pixel local_pixel_offset = anchor->local_pixel_offset;
+
+  // Tier 1: Exact visible GroupKey match (preserving sync/async kind, group
+  // type, and `(pid, tid)` when present), or visible alternate single/multi
+  // TEC key for sync TEC flame tracks.
+  int new_group_index = FindVisibleGroupIndex(
+      anchor->group_key, anchor->type, anchor->is_async, anchor_track_id);
+  if (new_group_index == -1 && anchor->alternate_group_key.has_value()) {
+    new_group_index =
+        FindVisibleGroupIndex(*anchor->alternate_group_key, Group::Type::kFlame,
+                              /*is_async=*/false, anchor_track_id);
+  }
+
+  // Tier 2: Match visible Parent Track, or Grandparent Track if the parent
+  // despawned or is hidden (e.g. `"TEC Tracks"` collapsing into single-TEC
+  // view). Container tracks are always sync flame groups matched by key only.
+  for (const std::optional<GroupKey>* ancestor_key :
+       {&anchor->parent_group_key, &anchor->grandparent_group_key}) {
+    if (new_group_index != -1) {
+      break;
+    }
+    if (!ancestor_key->has_value()) {
+      continue;
+    }
+    new_group_index = FindVisibleGroupIndex(**ancestor_key, Group::Type::kFlame,
+                                            /*is_async=*/false);
+    if (new_group_index != -1) {
+      local_pixel_offset = 0.0f;
+    }
+  }
+
+  // Tier 3: Match Nearest Preceding Surviving Track in visual order.
+  if (new_group_index == -1) {
+    for (auto it = flattened_groups_.rbegin(); it != flattened_groups_.rend();
+         ++it) {
+      const int group_index = VisibleGroupIndex(*it);
+      if (group_index < 0) {
+        continue;
+      }
+      if (GetGroupTop(*it) <= last_scroll_y_) {
+        new_group_index = group_index;
+        local_pixel_offset = 0.0f;
+        break;
+      }
+    }
+  }
+
+  // Tier 4: Apply Compensated Scroll Offset or Clamp to Bounds.
+  if (new_group_index != -1) {
+    const Pixel track_height = group_heights_[new_group_index];
+    local_pixel_offset = std::min(local_pixel_offset,
+                                  std::max(0.0f, track_height - kEventHeight));
+    last_scroll_y_ =
+        std::max(0.0f, GetGroupTop(&timeline_data_.groups[new_group_index]) +
+                           local_pixel_offset);
+  } else {
+    last_scroll_y_ = std::max(0.0f, last_scroll_y_);
+  }
+}
+
 void Timeline::SetTimelineData(FlameChartTimelineData data) {
   UpdateTimelineData([&]() { return std::move(data); });
 }
@@ -1613,72 +2304,15 @@ void Timeline::UpdateTimelineData(
   // A track drag refers to tracks by their indices in the current data.
   CancelTrackDrag();
 
+  // Finish any active accordion transition before capturing the scroll anchor
+  // so group offsets are monotonic, and snap the incoming reload.
+  FinishLayoutTransition();
+  animate_next_layout_ = false;
+  observed_track_levels_.SyncSingleTecExpandedStates(timeline_data_.groups);
+
   // Capture anchor track and local pixel offset prior to updating layout.
-  GroupKey anchor_group_key = {};
-  GroupKey anchor_parent_group_key = {};
-  bool has_anchor_parent_key = false;
-  Pixel local_pixel_offset = 0.0f;
-  bool has_anchor = false;
-
-  if (is_incremental_loading_ && !flattened_groups_.empty()) {
-    const Group* first_concrete_track = nullptr;
-    for (const Group* group : flattened_groups_) {
-      if (!IsVirtualHeader(group)) {
-        first_concrete_track = group;
-        break;
-      }
-    }
-
-    // NOMUTANTS(LCR): If first_concrete_track is null, all flattened groups are
-    // virtual headers so has_anchor is never set, making short-circuiting a
-    // semantic no-op.
-    if (first_concrete_track != nullptr &&
-        last_scroll_y_ >= GetGroupTop(first_concrete_track)) {
-      auto it =
-          std::lower_bound(flattened_groups_.begin(), flattened_groups_.end(),
-                           last_scroll_y_, [this](const Group* group, Pixel y) {
-                             return this->GetGroupBottom(group) < y;
-                           });
-
-      // Advance past virtual headers and invisible groups to anchor on a
-      // concrete visible track.
-      while (it != flattened_groups_.end()) {
-        if (IsVirtualHeader(*it)) {
-          ++it;
-          continue;
-        }
-        const int group_idx = *it - timeline_data_.groups.data();
-        if (group_idx < 0 ||
-            group_idx >= static_cast<int>(timeline_data_.groups.size())) {
-          ++it;
-          continue;
-        }
-        if (group_idx < static_cast<int>(group_visible_.size()) &&
-            !group_visible_[group_idx]) {
-          ++it;
-          continue;
-        }
-        break;
-      }
-
-      if (it != flattened_groups_.end()) {
-        const Group* const anchor_group = *it;
-        const int anchor_index = *it - timeline_data_.groups.data();
-        anchor_group_key =
-            GetScopedGroupKey(timeline_data_.groups, anchor_index);
-        if (anchor_group->parent_index >= 0 &&
-            anchor_group->parent_index <
-                static_cast<int>(timeline_data_.groups.size())) {
-          anchor_parent_group_key = GetScopedGroupKey(
-              timeline_data_.groups, anchor_group->parent_index);
-          has_anchor_parent_key = true;
-        }
-        local_pixel_offset =
-            std::max(0.0f, last_scroll_y_ - GetGroupTop(anchor_group));
-        has_anchor = true;
-      }
-    }
-  }
+  const std::optional<ScrollAnchor> scroll_anchor =
+      is_incremental_loading_ ? CaptureScrollAnchor() : std::nullopt;
 
   // Capture selection 5-tuple prior to replacing timeline_data_.
   bool had_selected_event = false;
@@ -1754,8 +2388,18 @@ void Timeline::UpdateTimelineData(
   is_full_overview_data_ = false;
 
   FlameChartTimelineData data = builder();
-  BackfillGroupLevelCount(data);
+  // Fallback clear for callers that reset a timeline by passing empty data
+  // directly (without invoking `ResetForNewDataset()` or
+  // `DataProvider::Reset()`). Skip during incremental loads and MPMD windows
+  // where transient empty slices (e.g. idle unranked processes) must retain
+  // previously observed track heights.
+  if (data.groups.empty() && !is_incremental_loading_ &&
+      !mpmd_pipeline_view_enabled_) {
+    observed_track_levels_.Clear();
+  }
+  NormalizeGroupHierarchyMetadata(data);
   StabilizeCounterTracks(data);
+  ApplyMonotonicGroupHeights(data);
 
   // Pre-calculate the level positions to avoid partial state and per-frame
   // layout recalculations before saving the newly arrived timeline_data.
@@ -1768,72 +2412,7 @@ void Timeline::UpdateTimelineData(
   RebuildEntryColors();
   BuildLevelMipPyramids();
 
-  // Execute 4-tier despawn fallback to restore compensated scroll offset.
-  if (has_anchor) {
-    int new_group_index = -1;
-
-    // Tier 1: Exact GroupKey match.
-    for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
-      const Group& group = timeline_data_.groups[i];
-      if (group.nesting_level != anchor_group_key.nesting_level ||
-          group.name != anchor_group_key.name) {
-        continue;
-      }
-      if (GetScopedGroupKey(timeline_data_.groups, i) == anchor_group_key) {
-        new_group_index = static_cast<int>(i);
-        break;
-      }
-    }
-
-    // Tier 2: Match Parent Track if child track despawned.
-    if (new_group_index == -1 && has_anchor_parent_key) {
-      for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
-        const Group& group = timeline_data_.groups[i];
-        if (group.nesting_level != anchor_parent_group_key.nesting_level ||
-            group.name != anchor_parent_group_key.name) {
-          continue;
-        }
-        if (GetScopedGroupKey(timeline_data_.groups, i) ==
-            anchor_parent_group_key) {
-          new_group_index = static_cast<int>(i);
-          local_pixel_offset = 0.0f;
-          break;
-        }
-      }
-    }
-
-    // Tier 3: Match Nearest Preceding Surviving Track.
-    if (new_group_index == -1) {
-      for (int i = static_cast<int>(timeline_data_.groups.size()) - 1; i >= 0;
-           --i) {
-        if (i < static_cast<int>(group_visible_.size()) && !group_visible_[i]) {
-          continue;
-        }
-        if (GetGroupTop(&timeline_data_.groups[i]) <= last_scroll_y_) {
-          new_group_index = i;
-          local_pixel_offset = 0.0f;
-          break;
-        }
-      }
-    }
-
-    // Tier 4: Apply Compensated Scroll Offset or Clamp to Bounds.
-    if (timeline_data_.groups.empty()) {
-      last_scroll_y_ = 0.0f;
-    } else if (new_group_index != -1) {
-      const Pixel track_height = group_heights_[new_group_index];
-      local_pixel_offset = std::min(
-          local_pixel_offset, std::max(0.0f, track_height - kEventHeight));
-      last_scroll_y_ = GetGroupTop(&timeline_data_.groups[new_group_index]) +
-                       local_pixel_offset;
-    } else {
-      last_scroll_y_ = std::max(0.0f, last_scroll_y_);
-    }
-  } else if (timeline_data_.groups.empty()) {
-    last_scroll_y_ = 0.0f;
-  } else {
-    last_scroll_y_ = std::max(0.0f, last_scroll_y_);
-  }
+  RestoreScrollAnchor(scroll_anchor);
 
   // Reconcile loaded_index for all search results against the new
   // timeline_data_.
@@ -2696,6 +3275,45 @@ void Timeline::CompactTimelineDataToMipOverview() {
   window_at_full_resolution_ = false;
 }
 
+void Timeline::RemapSavedOverviewPyramids(absl::Span<const int> level_shift) {
+  if (!saved_full_overview_.has_value()) return;
+
+  if (!saved_full_overview_->level_mip_pyramids.empty()) {
+    const size_t new_num_levels =
+        std::max<size_t>(saved_full_overview_->data.total_levels(),
+                         saved_full_overview_->level_mip_pyramids.size());
+    if (level_shift.empty()) {
+      saved_full_overview_->level_mip_pyramids.resize(new_num_levels);
+    } else {
+      std::vector<LevelMipPyramid> remapped_pyramids(new_num_levels);
+      for (size_t level = 0;
+           level < saved_full_overview_->level_mip_pyramids.size(); ++level) {
+        const int shift = (level < level_shift.size()) ? level_shift[level]
+                                                       : level_shift.back();
+        const size_t new_level =
+            static_cast<size_t>(std::max(0, static_cast<int>(level) + shift));
+        if (new_level < remapped_pyramids.size()) {
+          remapped_pyramids[new_level] =
+              std::move(saved_full_overview_->level_mip_pyramids[level]);
+        }
+      }
+      saved_full_overview_->level_mip_pyramids = std::move(remapped_pyramids);
+    }
+  }
+
+  const std::vector<Group>& restored_groups = saved_full_overview_->data.groups;
+  for (ProcessUtilizationPyramid& pyramid :
+       saved_full_overview_->process_utilization_pyramids) {
+    if (pyramid.group_index >= 0 &&
+        static_cast<size_t>(pyramid.group_index) < restored_groups.size()) {
+      const size_t group_index = static_cast<size_t>(pyramid.group_index);
+      pyramid.start_level = restored_groups[group_index].start_level;
+      pyramid.end_level =
+          GetProcessEndLevel(saved_full_overview_->data, group_index);
+    }
+  }
+}
+
 bool Timeline::RestoreSavedFullOverview() {
   const bool had_in_flight_refetch =
       is_refetch_in_flight_ || stash_full_overview_on_next_update_;
@@ -2719,26 +3337,41 @@ bool Timeline::RestoreSavedFullOverview() {
   }
   ClearLoadedActiveTracks();
 
-  absl::flat_hash_map<GroupKey, bool> current_expanded;
-  for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
-    current_expanded[GetScopedGroupKey(timeline_data_.groups, i)] =
-        timeline_data_.groups[i].expanded;
-  }
+  FinishLayoutTransition();
+  animate_next_layout_ = false;
+  observed_track_levels_.SyncSingleTecExpandedStates(timeline_data_.groups);
+  const std::optional<ScrollAnchor> scroll_anchor = CaptureScrollAnchor();
+
+  const ExpandedStateMap current_expanded =
+      GetRestoredExpandedStates(timeline_data_.groups);
   auto& restored_groups = saved_full_overview_->data.groups;
   for (size_t i = 0; i < restored_groups.size(); ++i) {
-    if (auto it = current_expanded.find(GetScopedGroupKey(restored_groups, i));
-        it != current_expanded.end()) {
-      restored_groups[i].expanded = it->second;
+    if (restored_groups[i].type != Group::Type::kFlame) {
+      continue;
+    }
+    const GroupKey key = GetScopedGroupKey(restored_groups, i);
+    const std::optional<GroupKey> alt_key =
+        MakeAlternateTecGroupKey(restored_groups, i, key);
+    if (const std::optional<bool> expanded = FindExpandedState(
+            current_expanded, {key, restored_groups[i].is_async}, alt_key);
+        expanded.has_value()) {
+      restored_groups[i].expanded = *expanded;
     }
   }
 
+  // `saved_full_overview_->data` already passed
+  // `NormalizeGroupHierarchyMetadata()` before being stashed.
   StabilizeCounterTracks(saved_full_overview_->data);
+  const std::vector<int> level_shift =
+      ApplyMonotonicGroupHeights(saved_full_overview_->data);
+  RemapSavedOverviewPyramids(level_shift);
 
   // A track drag refers to tracks by their indices in the current data.
   CancelTrackDrag();
   UpdateLevelPositions(saved_full_overview_->data);
   ReleaseEntryMemory(timeline_data_);
   timeline_data_ = std::move(saved_full_overview_->data);
+  RestoreScrollAnchor(scroll_anchor);
   entry_colors_ = std::move(saved_full_overview_->entry_colors);
   cached_trace_colors_version_ =
       saved_full_overview_->cached_trace_colors_version;
@@ -2766,6 +3399,7 @@ bool Timeline::RestoreSavedFullOverview() {
   is_refetch_in_flight_ = false;
   should_restore_scroll_ = true;
   selected_event_index_ = -1;
+  event_index_to_scroll_to_ = -1;
   selected_event_indices_.clear();
   matching_event_indices_.clear();
   if (data_time_range_.duration() > 0) {
@@ -2796,6 +3430,17 @@ ImU32 Timeline::GetEventColor(int event_index) const {
                        palette_.GetTraceColors());
 }
 
+std::vector<std::pair<int, int>>
+Timeline::process_utilization_pyramid_level_ranges_for_test() const {
+  std::vector<std::pair<int, int>> ranges;
+  ranges.reserve(process_utilization_pyramids_.size());
+  for (const ProcessUtilizationPyramid& pyramid :
+       process_utilization_pyramids_) {
+    ranges.emplace_back(pyramid.start_level, pyramid.end_level);
+  }
+  return ranges;
+}
+
 void Timeline::BuildProcessUtilizationPyramids() {
   process_utilization_pyramids_.clear();
   const int num_levels = timeline_data_.total_levels();
@@ -2803,25 +3448,23 @@ void Timeline::BuildProcessUtilizationPyramids() {
     return;
   }
 
-  for (size_t g_idx = 0; g_idx < timeline_data_.groups.size(); ++g_idx) {
-    const Group& g = timeline_data_.groups[g_idx];
-    if (g.nesting_level != kProcessNestingLevel ||
-        g.type != Group::Type::kFlame) {
+  for (size_t group_index = 0; group_index < timeline_data_.groups.size();
+       ++group_index) {
+    const Group& group = timeline_data_.groups[group_index];
+    if (group.nesting_level != kProcessNestingLevel ||
+        group.type != Group::Type::kFlame) {
       continue;
     }
 
-    int proc_end = num_levels;
-    for (size_t j = g_idx + 1; j < timeline_data_.groups.size(); ++j) {
-      if (timeline_data_.groups[j].nesting_level <= g.nesting_level) {
-        proc_end = std::min(timeline_data_.groups[j].start_level, num_levels);
-        break;
-      }
-    }
+    const int process_end_level =
+        GetProcessEndLevel(timeline_data_, group_index);
 
-    std::optional<ProcessUtilizationPyramid> proc_pyr =
-        BuildProcessUtilizationPyramidForRange(g.start_level, proc_end);
-    if (proc_pyr.has_value()) {
-      process_utilization_pyramids_.push_back(*std::move(proc_pyr));
+    std::optional<ProcessUtilizationPyramid> process_pyramid =
+        BuildProcessUtilizationPyramidForRange(group.start_level,
+                                               process_end_level);
+    if (process_pyramid.has_value()) {
+      process_pyramid->group_index = static_cast<int>(group_index);
+      process_utilization_pyramids_.push_back(*std::move(process_pyramid));
     }
   }
 }
@@ -2966,6 +3609,7 @@ void Timeline::ResetForNewDataset() {
   active_chevrons_.clear();
   hover_fades_.clear();
   counter_metadata_.clear();
+  observed_track_levels_.Clear();
 
   // A zero visible range makes the next ProcessTraceEvents fit the new
   // dataset to width.
@@ -3075,13 +3719,23 @@ void Timeline::Draw() {
   // Keep the NoScrollWithMouse flag to disable the default scroll behavior
   // of ImGui, and use the custom scroll handler defined in `HandleWheel`
   // instead.
-  ImGui::BeginChild("Tracks", ImVec2(0, 0), 0,
-                    ImGuiWindowFlags_NoScrollWithMouse);
-
+  const Pixel total_tracks_height =
+      group_offsets_.empty() ? 0.0f : group_offsets_.back();
   if (should_restore_scroll_) {
-    ImGui::SetScrollY(last_scroll_y_);
+    // Pass the updated content height and target scroll offset *before*
+    // `BeginChild("Tracks")` so ImGui commits the scroll on this frame rather
+    // than deferring `SetScrollY()` by a frame or clamping against the previous
+    // frame's shorter content height. Passing `-1.0f` for X preserves any
+    // horizontal scroll position.
+    if (total_tracks_height > 0.0f) {
+      ImGui::SetNextWindowContentSize(ImVec2(0.0f, total_tracks_height));
+    }
+    ImGui::SetNextWindowScroll(ImVec2(-1.0f, last_scroll_y_));
     should_restore_scroll_ = false;
   }
+
+  ImGui::BeginChild("Tracks", ImVec2(0, 0), 0,
+                    ImGuiWindowFlags_NoScrollWithMouse);
 
   // We set cursor to 0,0 locally
   const ImVec2 tracks_start_pos = ImGui::GetCursorPos();
@@ -3094,6 +3748,12 @@ void Timeline::Draw() {
   }
 
   const Pixel scroll_y = ImGui::GetScrollY();
+  // Keep `last_scroll_y_` synchronized with ImGui's active scroll position
+  // before `MaybeRequestData()` runs so mid-frame `RestoreSavedFullOverview()`
+  // and `ComputeActiveTracksForFetch()` read the current viewport scroll rather
+  // than the previous frame's offset (for example after mouse-wheel scrolling,
+  // `ProcessPendingScroll()`, or scrollbar drags).
+  last_scroll_y_ = scroll_y;
   const Pixel window_height = ImGui::GetWindowHeight();
   last_tracks_window_height_ = window_height;
 
@@ -3165,14 +3825,10 @@ void Timeline::Draw() {
   // child window matches the total calculated height from group offsets.
   // Using a 1px dummy instead of a 0-height dummy helps avoid potential issues
   // with ImGui's `ItemSpacing` adding extra space around zero-sized items.
-  const Pixel total_tracks_height =
-      group_offsets_.empty() ? 0.0f : group_offsets_.back();
   if (total_tracks_height > 0.0f) {
-    if (!group_offsets_.empty() && group_offsets_.back() > 0.0f) {
     ImGui::SetCursorPos(
         ImVec2(0, tracks_start_pos.y + total_tracks_height - 1.0f));
     ImGui::Dummy(ImVec2(content_region_avail_width, 1.0f));
-  }
 
     // Handle label resizing manually since we removed the table
     ImGui::SetCursorPos(ImVec2(
@@ -3226,9 +3882,18 @@ void Timeline::Draw() {
     MaybeRequestData();
   }
 
-  ProcessPendingScroll();
-
-  last_scroll_y_ = ImGui::GetScrollY();
+  // Even though `should_restore_scroll_` was cleared before `BeginChild()`, a
+  // mid-frame `MaybeRequestData()` -> `RestoreSavedFullOverview()` or
+  // synchronous `UpdateTimelineData()` can re-arm it with a newly compensated
+  // `last_scroll_y_` while `ImGui::GetScrollY()` still holds the pre-transition
+  // offset. Skip consuming `event_index_to_scroll_to_` (which would otherwise
+  // be overwritten by next frame's `SetNextWindowScroll`) and skip overwriting
+  // `last_scroll_y_` in that case so the next frame applies the restored scroll
+  // position first.
+  if (!should_restore_scroll_) {
+    ProcessPendingScroll();
+    last_scroll_y_ = ImGui::GetScrollY();
+  }
   ImGui::EndChild();
 
   // Draw the selected time range in a separate overlay child window.
@@ -7489,7 +8154,12 @@ bool Timeline::HandleWheel() {
 // event, and sets next window scroll to make it visible if it's out of view.
 void Timeline::ProcessPendingScroll() {
   // Check if there is a pending request to scroll to an event.
-  if (event_index_to_scroll_to_ < 0) return;
+  if (event_index_to_scroll_to_ < 0 ||
+      static_cast<size_t>(event_index_to_scroll_to_) >=
+          timeline_data_.entry_levels.size()) {
+    event_index_to_scroll_to_ = -1;
+    return;
+  }
 
   int level = timeline_data_.entry_levels[event_index_to_scroll_to_];
   if (level < 0 || level >= visible_level_offsets_.size()) return;

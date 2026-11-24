@@ -335,9 +335,19 @@ void DcnTracker::VisitOp(const InstrMetadata& instr,
         analysis->set_send_start_time_us(NanoToMicro(opState.start_time));
         analysis->set_recv_done_end_time_us(
             NanoToMicro(visitor.EndTimestampNs()));
-        analysis->set_slack_us(NanoToMicro(visitor.TimestampNs() -
-                                           opState.start_time -
-                                           opState.overlapping_duration));
+        const uint64_t recv_done_start_ns =
+            visitor.TimestampNs() > 0
+                ? static_cast<uint64_t>(visitor.TimestampNs())
+                : 0;
+        const uint64_t elapsed_ns =
+            recv_done_start_ns > opState.start_time
+                ? recv_done_start_ns - opState.start_time
+                : 0;
+        const uint64_t net_slack_ns =
+            elapsed_ns > opState.overlapping_duration
+                ? elapsed_ns - opState.overlapping_duration
+                : 0;
+        analysis->set_slack_us(NanoToMicro(net_slack_ns));
         analysis->set_bytes_transmitted_over_network(ComputeTransmittedDataSize(
             instr.size, opState.replica_group_size, opState.transfer_type));
         analysis->set_stall_duration_us(NanoToMicro(opState.stall_duration_ns));
@@ -347,6 +357,7 @@ void DcnTracker::VisitOp(const InstrMetadata& instr,
         *analysis->mutable_recv() = opState.recv;
         *analysis->mutable_send_done() = opState.send_done;
         *analysis->mutable_recv_done() = opState.recv_done;
+        rendezvous_to_op_map_.erase(rendezvous_name);
       }
 
       break;

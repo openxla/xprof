@@ -28,12 +28,14 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/preprocess_xplane.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/timespan.h"
+#include "xla/tsl/profiler/utils/trace_utils.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_test_utils.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/steps_db.pb.h"
 #include "xprof/utils/derived_timeline.h"
 #include "xprof/utils/event_span.h"
 #include "xprof/utils/op_metrics_db_utils.h"
@@ -739,6 +741,30 @@ TEST(ConvertXPlaneToStepEvents,
                               Property(&OpMetricsDb::metrics_db_size, 0)))));
 }
 
+TEST(ConvertXPlaneToStepEvents,
+     GpuDeviceCollectivesUseEndTimestampPsWithNonZeroLineTimestamp) {
+  XPlane raw_plane;
+  XPlaneBuilder plane(&raw_plane);
+  XLineBuilder step_line =
+      plane.GetOrCreateLine(tsl::profiler::kThreadIdStepInfo);
+  step_line.SetTimestampNs(1000);
+  CreateXEvent(&plane, &step_line, "0", /*offset_ps=*/500, /*duration_ps=*/200,
+               {{StatType::kGroupId, int64_t{0}}});
+  XLineBuilder line = plane.GetOrCreateLine(0);
+  line.SetTimestampNs(1000);
+  CreateXEvent(&plane, &line, "ncclAllReduce", /*offset_ps=*/500,
+               /*duration_ps=*/200,
+               {{StatType::kCorrelationId, int64_t{1}},
+                {StatType::kGroupId, int64_t{0}}});
+  StepEvents step_events = ConvertDeviceTraceXPlaneToStepEvents(raw_plane);
+  ASSERT_TRUE(step_events.contains(0));
+  const auto& collectives = step_events[0].Collectives();
+  ASSERT_TRUE(collectives.contains(plane.Id()));
+  ASSERT_EQ(collectives.at(plane.Id()).all_reduce_info_size(), 1);
+  const AllReduceInfo& info = collectives.at(plane.Id()).all_reduce_info(0);
+  EXPECT_EQ(info.start_time_ps(), 1000500);
+  EXPECT_EQ(info.end_time_ps(), 1000700);
+}
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow
